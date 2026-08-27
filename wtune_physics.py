@@ -415,51 +415,178 @@ def _norm(v):
     return str(v).strip().strip(',').strip().rstrip('.').lower() if v is not None else ''
 
 
-def coverage_audit(nl_kv, resolved):
-    """GENERAL, Registry-driven scan of EVERY set param -- works for ANY WRF case,
-    not a hardcoded list. Each set param is looked up in the WRF Registry catalog
-    (type/default/group/meaning) and reported vs its default; params for which the
-    tuner has a DEEPER rule are tagged *DEEP*; scheme-internal params whose gate is
-    off are flagged INACTIVE; anything absent from the Registry is flagged UNKNOWN.
-    nl_kv = {param_lower: value_string}. Returns (lines, stats)."""
+# ---- relevance gating: which of the 2062 catalog params are LIVE for a config ----
+# whole-group features OFF by default -> params inert unless the master switch is on
+_GATED_GROUPS = {
+    'fdda': ('grid_fdda', {1, 2}),
+    'afwa': ('afwa_diag_opt', {1}),
+    'dfi_control': ('dfi_opt', {1, 2, 3}),
+    'noah_mp': ('sf_surface_physics', {4}),
+}
+# groups needing a special run type / off for a standard real-data forecast
+_INERT_GROUPS = {'stoch', 'scm', 'tc', 'ideal', 'diags', 'grib2'}
+# physics param name-prefix -> (gating scheme param, active scheme values)
+_PHYS_PREFIX = {
+    'nssl': ('mp_physics', {17, 18, 19, 21, 22}),
+    'shinhong': ('bl_pbl_physics', {11}),
+    'cu': ('cu_physics', set(range(1, 100))),
+    'shcu': ('shcu_physics', {1, 2, 3}),
+    'windfarm': ('windfarm_opt', {1, 2}),
+    'lightning': ('lightning_option', {1, 2, 3, 11}),
+    'iccg': ('lightning_option', {1, 2, 3, 11}),
+    'irr': ('irrigation', {1, 2, 3}),
+    'megan': ('chem_opt', set(range(1, 600))),
+    'mosaic': ('chem_opt', set(range(1, 600))),
+    'windturbines': ('windfarm_opt', {1, 2}),
+}
+
+
+def _gate_val(param, resolved, nl_kv):
+    raw = nl_kv.get(param, resolved.get(param))
+    try:
+        return int(str(raw).strip().rstrip(','))
+    except (TypeError, ValueError):
+        return None
+
+
+def _relevance(name, e, resolved, nl_kv):
+    """Classify a catalog param for THIS config: relevant / inert / plumbing."""
+    grp = e.get('group', '')
+    if e.get('io_stream'):
+        return 'plumbing'
+    if grp in _INERT_GROUPS:
+        return 'inert'
+    if grp in _GATED_GROUPS:
+        gp, active = _GATED_GROUPS[grp]
+        return 'relevant' if _gate_val(gp, resolved, nl_kv) in active else 'inert'
+    if grp == 'physics':
+        if name.startswith('bl_mynn') or name.startswith('mynn'):
+            return 'relevant' if _gate_val('bl_pbl_physics', resolved, nl_kv) in {5, 6} else 'inert'
+        for pref, (gp, active) in _PHYS_PREFIX.items():
+            if name.startswith(pref):
+                return 'relevant' if _gate_val(gp, resolved, nl_kv) in active else 'inert'
+    return 'relevant'
+
+
+def coverage_audit(nl_kv, resolved, dump_path=None):
+    """FULL-catalog scan: classify ALL ~2062 Registry params for THIS config, not
+    just the ones set. Every param -> SET(changed?) / DEFAULT-relevant / INERT
+    (scheme/feature off) / I/O-plumbing, with a *DEEP* tag where the tuner has a
+    specific rule. Returns (lines, stats); writes the full per-param table to
+    dump_path if given. General: works for any WRF namelist."""
     reg = _registry_index()
-    lines = []
-    n = dev = deep = io = unknown = inactive = 0
-    for k in sorted(nl_kv.keys()):
-        n += 1
-        val = str(nl_kv[k])[:12]
-        if k in _SCHEME_GATED:
-            gate, active = _SCHEME_GATED[k]
-            raw = nl_kv.get(gate, resolved.get(gate))   # nl_kv has the raw set value
-            try:
-                gv = int(str(raw).strip().rstrip(','))
-            except (TypeError, ValueError):
-                gv = None
-            if gv not in active:
-                inactive += 1
-                lines.append("  INACTIVE {:<22}={:<12} (gate {}={} off -> no effect)".format(k, val, gate, gv))
-                continue
-        e = reg.get(k)
-        if e is None:
-            unknown += 1
-            lines.append("  UNKNOWN  {:<22}={:<12} (not in Registry -- typo or newer than catalog)".format(k, val))
-            continue
+    total = len(reg) or 1
+    cnt = {'set': 0, 'set_changed': 0, 'relevant_default': 0, 'inert': 0, 'plumbing': 0, 'deep': 0}
+    actionable, dump = [], []
+    for name in sorted(reg):
+        e = reg[name]
         default = e.get('default', '?')
         grp = e.get('group', '?')
-        desc = (e.get('meaning_en', '') or '')[:52]
-        deviates = _norm(nl_kv[k]) != _norm(default)
-        if deviates:
-            dev += 1
-        if e.get('io_stream'):
-            io += 1
-        is_deep = k in _DEEP
+        set_val = nl_kv.get(name)
+        is_set = set_val is not None
+        deviates = is_set and _norm(set_val) != _norm(default)
+        rel = _relevance(name, e, resolved, nl_kv)
+        is_deep = name in _DEEP
+        if is_set:
+            cnt['set'] += 1
+            if deviates:
+                cnt['set_changed'] += 1
+        elif rel == 'inert':
+            cnt['inert'] += 1
+        elif rel == 'plumbing':
+            cnt['plumbing'] += 1
+        else:
+            cnt['relevant_default'] += 1
         if is_deep:
-            deep += 1
-        tag = "*DEEP*" if is_deep else ("[io]" if e.get('io_stream') else "      ")
-        flag = "CHANGED(def={})".format(default) if deviates else "default"
-        lines.append("  {:<20}={:<12} {} {:<20} [{}] {}".format(k, val, tag, flag, grp, desc))
-    head = ("Registry-driven scan of {} SET params: {} changed-from-default, {} with deeper tuner rules (*DEEP*), "
-            "{} I/O-stream, {} inactive-by-scheme, {} not-in-Registry.".format(n, dev, deep, io, inactive, unknown))
-    return [head, "(every set param is scanned against the WRF Registry; *DEEP* = tuner has a specific rule; "
-            "CHANGED = differs from Registry default, worth a look)", ""] + lines, \
-        {'n': n, 'dev': dev, 'deep': deep, 'unknown': unknown, 'inactive': inactive}
+            cnt['deep'] += 1
+        if (is_set and deviates) or (is_deep and rel != 'inert'):
+            state = "SET={} (def={})".format(str(set_val)[:12], default) if is_set else "default={}".format(default)
+            tag = "*DEEP*" if is_deep else "      "
+            actionable.append("  {:<20} {} {:<24} [{}] {}".format(name, tag, state, grp, (e.get('meaning_en', '') or '')[:40]))
+        if dump_path is not None:
+            dump.append("{}\t{}\t{}\t{}\t{}\t{}".format(
+                name, grp, ('SET:' + str(set_val)) if is_set else 'default', default, rel, 'DEEP' if is_deep else ''))
+    if dump_path is not None:
+        try:
+            open(dump_path, 'w').write("# name\tgroup\tstate\tdefault\trelevance\tdeep\n" + "\n".join(dump) + "\n")
+        except Exception:
+            pass
+    accounted = cnt['set'] + cnt['relevant_default'] + cnt['inert'] + cnt['plumbing']
+    head = [
+        "FULL Registry-catalog scan: {} params total -- EVERY one classified for this config.".format(total),
+        "  SET by namelist ...................... {} ({} changed-from-default)".format(cnt['set'], cnt['set_changed']),
+        "  DEFAULT but RELEVANT to this config .. {}  (tuner keeps default unless a rule fires)".format(cnt['relevant_default']),
+        "  INERT (scheme/feature OFF here) ...... {}  (correctly not tuned)".format(cnt['inert']),
+        "  I/O-stream plumbing .................. {}".format(cnt['plumbing']),
+        "  (accounted: {}/{}; params with a DEEP tuner rule: {}; full table -> --dump)".format(accounted, total, cnt['deep']),
+        "",
+        "ACTIONABLE for this config (SET-and-changed, or a live param the tuner has a specific rule for):",
+    ]
+    return head + (actionable or ["  (none)"]), cnt
+
+
+# ---------------------------------------------------------------------------
+# Stage 1 of the funnel: ANALYTIC screen. For each relevant param, does a change
+# have a plausible EFFECTIVE opportunity for THIS config? Most -> None (default is
+# standard/optimal, or it is a correctness choice not a speed knob). The few that
+# return a candidate go on to the SpeedyWeather vet (Stage 2) then WRF (Stage 3).
+# ---------------------------------------------------------------------------
+
+def _effective_opinion(name, val, e, resolved, nl_kv):
+    """Return None (keep) or dict(candidate, why, tier, physics_dep, gain)."""
+    v = _norm(val)
+    dxkm = float(resolved.get('dx', 2500)) / 1000.0
+    # --- Tier-1 bit-identical (physics-independent -> SpeedyWeather neutral, go to WRF) ---
+    if name in ('io_form_history', 'io_form_restart', 'io_form_input') and v == '2':
+        return dict(candidate='14 (ADIOS2)', why='netCDF write is slow; ADIOS2 same field values, faster (if I/O scored)',
+                    tier='1', physics_dep=False, gain='big-if-IO-scored')
+    if name == 'numtiles' and v in ('1', '0', ''):
+        return dict(candidate='2/4/8', why='cache-block the tile loops, bit-identical', tier='1', physics_dep=False, gain='0-3%')
+    if name in ('nproc_x', 'nproc_y'):
+        return dict(candidate='cost-model shortlist (8x56)', why='decomposition cache+imbalance score', tier='1',
+                    physics_dep=False, gain='~1-3%')
+    # --- Tier-2 gated, PHYSICS-dependent -> SpeedyWeather can vet cheaply ---
+    if name == 'swint_opt' and v in ('0', ''):
+        return dict(candidate='1', why='remove SW zenith staircase at the terminator (accuracy; unlocks radt IF cloud-cap allows)',
+                    tier='2', physics_dep=True, gain='accuracy+maybe-radt')
+    if name == 'radt':
+        return dict(candidate='raise (e.g. +50%)', why='fewer radiation calls -> less radiation cost & de-paces day side',
+                    tier='2', physics_dep=True, gain='~radiation-share')
+    if name == 'time_step':
+        rule = 6.0 * dxkm
+        try:
+            cur = float(v)
+        except ValueError:
+            cur = None
+        if cur is not None and cur < rule * 0.95:
+            return dict(candidate='raise toward {:.0f}s'.format(rule), why='CFL headroom -> fewer steps',
+                        tier='2', physics_dep=True, gain='~step-count')
+        return None            # at CFL limit -> keep
+    if name in _MP and False:
+        return None
+    # microphysics scheme: cheaper single-moment MIGHT help IF stratiform (physics-gated)
+    if name == 'mp_physics' and (resolved.get('mp_physics') in (8, 10, 28, 38, 40)):
+        return dict(candidate='WSM6 (6) -- ONLY IF stratiform', why='single-moment is cheaper; SCHEME SWAP = advise-only, gate vs reference',
+                    tier='swap', physics_dep=True, gain='~microphysics-share')
+    return None
+
+
+def screen_candidates(nl_kv, resolved):
+    """Stage 1: scan ALL catalog params, return the EFFECTIVE candidates (analytic)."""
+    reg = _registry_index()
+    cands = []
+    for name in sorted(reg):
+        e = reg[name]
+        if _relevance(name, e, resolved, nl_kv) == 'inert':
+            continue                         # scheme/feature OFF -> no effective change
+        # NOTE: plumbing (io_stream) params are NOT skipped -- io_form_* are I/O-stream
+        # by the Registry yet ARE the top effective knob; let _effective_opinion decide.
+        val = nl_kv.get(name, e.get('default'))
+        op = _effective_opinion(name, val, e, resolved, nl_kv)
+        if op:
+            op['name'] = name
+            op['current'] = nl_kv.get(name, 'default={}'.format(e.get('default')))
+            cands.append(op)
+    order = {'1': 0, '2': 1, 'swap': 2}
+    cands.sort(key=lambda c: order.get(c['tier'], 3))
+    return cands

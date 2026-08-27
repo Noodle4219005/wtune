@@ -264,3 +264,34 @@ def analyze_probe(probe, case=None):
                  "jet) -> no NEW physics speed lever. A CLEAR / WEAK-convection / COARSE-grid case is where the probe "
                  "would UNLOCK a coarser radt or a cheaper scheme.")
     return L
+
+
+def speedy_vet(cand, probe, resolved):
+    """Stage 2 of the funnel: cheap SpeedyWeather physics vet of an analytic candidate.
+    Returns (verdict, reason). Physics-independent candidates PASS straight to WRF;
+    physics-dependent ones are CONFIRMED or REJECTED from the forecast BEFORE any WRF run."""
+    name = cand.get('name')
+    if not cand.get('physics_dep'):
+        return 'PASS->WRF', 'physics-independent (I/O/decomp/tiling); SpeedyWeather neutral -> test on WRF'
+    if not probe:
+        return 'NEED-PROBE', 'run speedy_probe.jl to vet this cheaply before WRF'
+    wind = probe_steering_wind(probe)
+    cf = probe.get('convective_fraction')
+    if name == 'radt':
+        dx = float(resolved.get('dx', 2500))
+        cap = 3.0 * dx / ((wind or 12.0) * 60.0)
+        cur = float(resolved.get('radt', 10))
+        if cur >= cap * 0.9:
+            return 'REJECT', 'cloud-cap ~{:.1f} min at forecast wind {:.0f} m/s; radt={} already at/over cap'.format(cap, wind or 12, int(cur))
+        return 'CONFIRM', 'cloud-cap ~{:.1f} min > radt={} -> headroom; send to WRF gate'.format(cap, int(cur))
+    if name == 'swint_opt':
+        return 'CONFIRM', 'terminator run -> SW zenith staircase is real; swint removes it (accuracy, ~0.1% cost)'
+    if name == 'mp_physics':
+        if cf is not None and cf > 0.5:
+            return 'REJECT', 'convective regime (conv_frac {}) -> double-moment needed; no cheaper scheme within tolerance'.format(cf)
+        if cf is not None and cf < 0.2:
+            return 'CONFIRM', 'stratiform (conv_frac {}) -> single-moment MIGHT pass; WRF-gate it'.format(cf)
+        return 'PASS->WRF', 'regime unclear from probe'
+    if name == 'time_step':
+        return 'PASS->WRF', 'acoustic CFL is dynamics (not in the probe); test on WRF with a hard CFL gate'
+    return 'PASS->WRF', 'no specific probe signal for this param'

@@ -38,7 +38,8 @@ python3 wtune.py physics --namelist namelist.input [--menu] [--wrfinput ...] [--
 python3 wtune.py knobs   --namelist namelist.input [--wrfinput ...] [--all]
 python3 wtune.py hotspot --namelist namelist.input --wrfinput ... [--run-surrogate | --surrogate-json J]
 python3 wtune.py catalog [--group physics] [--grep mp_]
-python3 wtune.py audit   --namelist namelist.input   # Registry-driven scan of EVERY set param (general, any case)
+python3 wtune.py audit   --namelist namelist.input   # Registry-driven scan classifying ALL ~2062 catalog params (any case)
+python3 wtune.py screen  --namelist namelist.input [--probe-json probe.json]  # 3-stage funnel: all params -> SpeedyWeather vet -> effective few
 python3 wtune.py selftest
 
 # physics-context self-validation via a fast SpeedyWeather forecast:

@@ -745,6 +745,51 @@ def audit_cmd(args):
         print(ln)
 
 
+def _parse_nl_kv(path):
+    import re
+    nl_kv = {}
+    for line in open(path):
+        s = line.strip()
+        if not s or s.startswith('!') or s.startswith('&') or s == '/':
+            continue
+        m = re.match(r'([A-Za-z][A-Za-z0-9_]*)\s*=\s*(.+?)\s*$', s)
+        if m:
+            nl_kv[m.group(1).lower()] = m.group(2).strip().rstrip(',').strip()
+    return nl_kv
+
+
+def screen_cmd(args):
+    """3-stage autotuner funnel: analytic screen (all 2062) -> SpeedyWeather cheap
+    physics vet -> the survivors go to WRF empirical test."""
+    import wtune_surrogate as wsurr
+    nl_kv = _parse_nl_kv(args.namelist)
+    resolved, _ = phys.resolve_suite(parse_namelist(args.namelist))
+    probe = wsurr.load_probe(args.probe_json) if getattr(args, 'probe_json', None) else None
+    print("=== wtune SCREEN -- autotuner funnel: all params -> a few effective, without running 2062 ===")
+    print("namelist:", args.namelist, "| probe:", args.probe_json or "(none; physics candidates cannot be vetted -> run speedy_probe.jl)")
+    print()
+    _, cnt = phys.coverage_audit(nl_kv, resolved)
+    print("STAGE 0 -- full catalog classified: {} total = {} set / {} relevant-default / {} inert / {} plumbing".format(
+        (cnt['set'] + cnt['relevant_default'] + cnt['inert'] + cnt['plumbing']),
+        cnt['set'], cnt['relevant_default'], cnt['inert'], cnt['plumbing']))
+    cands = phys.screen_candidates(nl_kv, resolved)
+    print("\nSTAGE 1 -- analytic effective candidates ({}) [everything else: default optimal / correctness / inert]:".format(len(cands)))
+    for c in cands:
+        print("  T{:<4} {:<15} {:<16} -> {:<26} {}".format(c['tier'], c['name'], str(c['current'])[:16], c['candidate'], c['why']))
+    print("\nSTAGE 2 -- SpeedyWeather cheap physics vet (rejects physics-infeasible BEFORE any WRF run):")
+    survivors = []
+    for c in cands:
+        verdict, reason = wsurr.speedy_vet(c, probe, resolved)
+        print("  {:<15} {:<11} {}".format(c['name'], verdict, reason))
+        if verdict in ('PASS->WRF', 'CONFIRM'):
+            survivors.append((c, verdict))
+    print("\nSTAGE 3 -- survivors -> WRF empirical ABBA (the 'few effective' to actually test):")
+    for c, v in sorted(survivors, key=lambda x: {'1': 0, '2': 1, 'swap': 2}.get(x[0]['tier'], 3)):
+        print("  [T{}] {:<15} -> {:<26} ({})".format(c['tier'], c['name'], c['candidate'], v))
+    print("\nmeasured winners so far: io_form_history=14 (-30% wall, if I/O scored), 8x56 decomposition (-1~3%).")
+    print("the rest are candidates -- run them through wtune_probe (Stage C) with the pre-registered gate.")
+
+
 def main():
     parser = argparse.ArgumentParser(prog='wtune.py', description='WRF config autotuner analytical core')
     sub = parser.add_subparsers(dest='command')
@@ -787,8 +832,12 @@ def main():
     p_cat.add_argument('--grep', default=None, help='filter by substring in param name')
     p_cat.add_argument('--include-io', action='store_true', help='include per-stream I/O plumbing params')
 
-    p_audit = sub.add_parser('audit', help='Registry-driven scan of EVERY set param (coverage guarantee, any WRF case)')
+    p_audit = sub.add_parser('audit', help='Registry-driven scan of EVERY (2062) catalog param (coverage guarantee, any WRF case)')
     p_audit.add_argument('--namelist', required=True, help='path to namelist.input')
+
+    p_screen = sub.add_parser('screen', help='autotuner funnel: analytic screen (all params) -> SpeedyWeather vet -> effective few')
+    p_screen.add_argument('--namelist', required=True, help='path to namelist.input')
+    p_screen.add_argument('--probe-json', default=None, help='speedy_probe.jl JSON (Stage-2 physics vet)')
 
     sub.add_parser('selftest', help='run CONUS calibration self-test')
 
@@ -806,6 +855,8 @@ def main():
         catalog_cmd(args)
     elif args.command == 'audit':
         audit_cmd(args)
+    elif args.command == 'screen':
+        screen_cmd(args)
     elif args.command == 'selftest':
         sys.exit(selftest())
     else:

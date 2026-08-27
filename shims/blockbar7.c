@@ -40,11 +40,15 @@ static void initcfg(void){
   if(grank==0) fprintf(stderr,"[blockbar7] dynamic re-pin: nwin=%d win_sec=%.1f sleep_ns=%ld\n",nwin,win_sec,sleep_ns);
 }
 static void maybe_repin(void){
+  /* only called from Allreduce/Barrier (a few per step) -> cheap; no throttle. */
   int w=(int)((now()-t0)/win_sec); if(w>=nwin)w=nwin-1; if(w<0)w=0;
   if(w!=cur_win){ cur_win=w; pin(sched[w]); if(grank==0)fprintf(stderr,"[blockbar7] rank0 -> window %d core %d\n",w,sched[w]); }
 }
 static inline void bo(void){ struct timespec ts={0,sleep_ns}; nanosleep(&ts,NULL); }
-int MPI_Wait(MPI_Request*r,MPI_Status*st){ initcfg(); maybe_repin(); int d=0;while(1){PMPI_Test(r,&d,st);if(d)break;bo();} return MPI_SUCCESS; }
-int MPI_Waitall(int n,MPI_Request r[],MPI_Status st[]){ initcfg(); maybe_repin(); int d=0;while(1){PMPI_Testall(n,r,&d,st);if(d)break;bo();} return MPI_SUCCESS; }
+/* MPI_Wait / MPI_Waitall are the ultra-hot halo path -> keep them byte-identical
+   to blockbar6 (NO maybe_repin). Window re-pin lives only in Allreduce/Barrier,
+   which WRF calls a few times per step -- ample resolution for ~10s windows. */
+int MPI_Wait(MPI_Request*r,MPI_Status*st){ initcfg(); int d=0;while(1){PMPI_Test(r,&d,st);if(d)break;bo();} return MPI_SUCCESS; }
+int MPI_Waitall(int n,MPI_Request r[],MPI_Status st[]){ initcfg(); int d=0;while(1){PMPI_Testall(n,r,&d,st);if(d)break;bo();} return MPI_SUCCESS; }
 int MPI_Barrier(MPI_Comm c){ initcfg(); maybe_repin(); MPI_Request r;int d=0;PMPI_Ibarrier(c,&r);while(1){PMPI_Test(&r,&d,MPI_STATUS_IGNORE);if(d)break;bo();} return MPI_SUCCESS; }
 int MPI_Allreduce(const void*sb,void*rb,int c,MPI_Datatype dt,MPI_Op o,MPI_Comm m){ initcfg(); maybe_repin(); MPI_Request r;int f=0;PMPI_Iallreduce(sb,rb,c,dt,o,m,&r);while(1){PMPI_Test(&r,&f,MPI_STATUS_IGNORE);if(f)break;bo();} return MPI_SUCCESS; }

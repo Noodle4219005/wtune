@@ -163,3 +163,104 @@ def convective_summary(case, out_json):
     else:
         lines.append("    -> diffuse convection: little extra spatial imbalance beyond the terminator.")
     return lines
+
+
+# ---------------------------------------------------------------------------
+# SpeedyWeather physics-context probe (speedy_probe.jl) -> tuner insight.
+# The probe returns DOMAIN AGGREGATES (mean/p90/max) of the fields that map to
+# the tuner's knob/hotspot decisions. This turns them into advice lines and a
+# refined cloud-cap steering wind.
+# ---------------------------------------------------------------------------
+
+def load_probe(path):
+    """Load a speedy_probe.jl JSON; return dict or None."""
+    try:
+        with open(path) as f:
+            d = json.load(f)
+        return d if str(d.get('provider', '')).startswith('speedyweather') else None
+    except Exception:
+        return None
+
+
+def probe_steering_wind(probe):
+    """Mid-level wind (m/s) from the probe, for the radt cloud-staleness cap."""
+    if not probe:
+        return None
+    w = probe.get('wind_midlevel_ms') or {}
+    return w.get('p90') or w.get('mean')
+
+
+def analyze_probe(probe, case=None):
+    """Map the SpeedyWeather physics-context probe to tuner-facing insight lines.
+    With `case` (dx, radt, mp_physics, cu_physics, w_damping), also emits ACTIONABLE
+    knob-appropriateness advice -- advisory only, the tuner never auto-applies."""
+    if not probe:
+        return ["(no valid speedy probe — run: julia --project=jlenv speedy_probe.jl ...)"]
+    L = ["SpeedyWeather physics context (forecast over the run; idealized IC = regime+scale, not exact storm):"]
+    w = probe.get('wind_midlevel_ms') or {}
+    if w.get('mean') is not None:
+        L.append("  mid-level wind: mean {} p90 {} max {} m/s -> use p90 as cloud-cap steering (forecast; "
+                 "cross-checks wrfinput t=0 wind)".format(w.get('mean'), w.get('p90'), w.get('max')))
+    cf = probe.get('convective_fraction')
+    if cf is not None:
+        if cf > 0.5:
+            regime = "CONVECTIVE-dominated -> moving storm-blob microphysics hotspot; cu_physics=0 correct at dx<=4km"
+        elif cf < 0.2:
+            regime = "STRATIFORM-dominated -> large-scale precip, microphysics more spatially uniform"
+        else:
+            regime = "MIXED convective+stratiform"
+        L.append("  convective fraction {} -> {}".format(cf, regime))
+    ct = probe.get('cloud_top') or {}
+    sw = probe.get('sw_down_surface') or {}
+    if ct.get('mean') is not None:
+        L.append("  cloud_top mean {} -> {}".format(
+            ct.get('mean'),
+            "cloudy: radt cloud-optics staleness MATTERS (tighter radt cap)" if (ct.get('mean') or 0) > 0
+            else "clear-ish: radt cloud-staleness mild"))
+    # NOTE: cos_zenith / sw_down here are the run-END instantaneous field (leapfrog
+    # last time level). For a dusk run they are ~0 at 00 UTC (night) and do NOT
+    # capture the terminator SWEEP -> defer the terminator to the analytic,
+    # time-integrated solar model (wtune_solar), not this snapshot.
+    olr = probe.get('outgoing_longwave') or {}
+    if olr.get('mean') is not None:
+        L.append("  OLR mean {} W/m2 (run-end) -> radiation activity level; terminator SWEEP -> use the analytic "
+                 "solar model, not the instantaneous cos_zenith snapshot".format(olr.get('mean')))
+    shf = probe.get('sensible_heat_flux') or {}
+    if shf.get('max') is not None:
+        L.append("  sensible heat flux max {} W/m2 -> surface energy activity (surf_driver load proxy)".format(shf.get('max')))
+
+    # ---- ACTIONABLE knob-appropriateness (advisory; needs `case` for dx/radt) ----
+    if case is not None and cf is not None:
+        dx_km = float(case.get('dx', 2500)) / 1000.0
+        cu = case.get('cu_physics', 0)
+        mp = case.get('mp_physics', 8)
+        cloudy = (ct.get('mean') or 0) > 0
+        wd = case.get('w_damping', 1)
+        L.append("ACTIONABLE knob-appropriateness (advisory -- results-affecting knobs, you decide):")
+        # cu_physics: convection resolved (dx<=4km, cu=0) vs parameterized
+        if cf > 0.4 and dx_km > 4 and (cu in (0, None)):
+            L.append("  cu_physics={} at dx={}km with conv_frac {} -> UNDER-resolved convection: a cumulus scheme "
+                     "(cu_physics>0) is likely REQUIRED for correctness (not a speed change).".format(cu, dx_km, cf))
+        elif cf > 0.4 and dx_km <= 4:
+            L.append("  cu_physics={} at dx={}km, conv_frac {} -> convection-resolving regime, cu=0 correct "
+                     "(confirmed by the forecast).".format(cu, dx_km, cf))
+        # microphysics scheme cost vs regime (advise-only, never auto-swap)
+        if mp in (8, 10, 28, 38, 40) and cf < 0.15:
+            L.append("  mp_physics={} (double-moment) but conv_frac {} is STRATIFORM-dominated -> a single-moment "
+                     "scheme (WSM6=6) MIGHT be within tolerance & cheaper; SCHEME SWAP = advise-only, gate against a "
+                     "reference before ever using for speed.".format(mp, cf))
+        elif mp in (8, 10, 28, 38, 40) and cf > 0.5:
+            L.append("  mp_physics={} warranted: convective regime needs the double-moment microphysics; no cheaper "
+                     "scheme is within tolerance here.".format(mp))
+        # w_damping: strong convective updrafts -> keep the CFL guard
+        if cf > 0.4 and wd in (1, True):
+            L.append("  w_damping=1 -> KEEP: convective updrafts (conv_frac {}) can trip vertical CFL; the guard costs "
+                     "~0 and prevents crashes.".format(cf))
+        # cloud overlap / icloud relevance for radiation
+        if cloudy:
+            L.append("  cloudy domain -> icloud/cldovrlp (cloud-radiation coupling & overlap) MATTER for radiation "
+                     "accuracy; do NOT set icloud=0 (that is a different climate, not a speed knob).")
+        L.append("  NOTE: for THIS case the forecast CONFIRMS the config is already tight (convective + cloudy + strong "
+                 "jet) -> no NEW physics speed lever. A CLEAR / WEAK-convection / COARSE-grid case is where the probe "
+                 "would UNLOCK a coarser radt or a cheaper scheme.")
+    return L

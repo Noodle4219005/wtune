@@ -535,6 +535,25 @@ def physics_cmd(args):
     print("  radt: {}".format(phys.radt_advice(resolved)))
     print("  dt:   {}".format(phys.timestep_advice(resolved)))
     print()
+    print("SPEED KNOBS -- reduce TOTAL WORK (bit-identical Tier 1 + gated Tier 2):")
+    for line in phys.numeric_speed_advice(resolved):
+        print("  " + line if line else "")
+    print()
+    if getattr(args, 'probe_json', None):
+        import wtune_surrogate as wsurr
+        probe = wsurr.load_probe(args.probe_json)
+        print("SPEEDYWEATHER SELF-VALIDATION (fast forecast checks the tuner's physics assumptions):")
+        for line in wsurr.analyze_probe(probe, resolved):
+            print("  " + line)
+        wind = wsurr.probe_steering_wind(probe)
+        if wind:
+            nominal = phys._radt_cloud_bound(resolved)
+            refined = phys._radt_cloud_bound(resolved, wind=wind)
+            print("  -> cloud-cap CHECK: nominal 12 m/s gave {} min; forecast wind {:.0f} m/s gives {} min. "
+                  "radt={} {} the validated cap.".format(
+                      nominal, wind, refined, int(resolved.get('radt', 10)),
+                      "is AT/UNDER" if float(resolved.get('radt', 10)) <= refined else "EXCEEDS"))
+        print()
     print("PHYSICS HOTSPOT -- terminator load map (pass --wrfinput for lat/lon):")
     for line in wsolar.solar_summary(resolved):
         print(line)
@@ -701,6 +720,31 @@ def selftest():
     return 1
 
 
+def audit_cmd(args):
+    """Registry-driven coverage scan of EVERY set param -- general, any WRF namelist."""
+    import re
+    try:
+        text = open(args.namelist).read()
+    except Exception as exc:
+        print("ERROR reading namelist: {}".format(exc), file=sys.stderr)
+        sys.exit(1)
+    nl_kv = {}
+    for line in text.splitlines():
+        s = line.strip()
+        if not s or s.startswith('!') or s.startswith('&') or s == '/':
+            continue
+        m = re.match(r'([A-Za-z][A-Za-z0-9_]*)\s*=\s*(.+?)\s*$', s)
+        if m:
+            nl_kv[m.group(1).lower()] = m.group(2).strip().rstrip(',').strip()
+    resolved, _ = phys.resolve_suite(parse_namelist(args.namelist))
+    print("=== wtune AUDIT -- Registry-driven coverage scan (general; works for any WRF namelist) ===")
+    print("namelist:", args.namelist)
+    print()
+    lines, stats = phys.coverage_audit(nl_kv, resolved)
+    for ln in lines:
+        print(ln)
+
+
 def main():
     parser = argparse.ArgumentParser(prog='wtune.py', description='WRF config autotuner analytical core')
     sub = parser.add_subparsers(dest='command')
@@ -731,6 +775,7 @@ def main():
     p_phys.add_argument('--namelist', required=True, help='path to namelist.input')
     p_phys.add_argument('--menu', action='store_true', help='also print the advisory scheme menu')
     p_phys.add_argument('--wrfinput', default=None, help='wrfinput/wrfout for lat/lon/date (via ncdump -h)')
+    p_phys.add_argument('--probe-json', default=None, help='speedy_probe.jl JSON: SpeedyWeather physics-context self-validation')
 
     p_knobs = sub.add_parser('knobs', help='full knob advisor: input-derived param recommendations + mismatch flags')
     p_knobs.add_argument('--namelist', required=True, help='path to namelist.input')
@@ -741,6 +786,9 @@ def main():
     p_cat.add_argument('--group', default=None, help='filter to one namelist group (e.g. physics)')
     p_cat.add_argument('--grep', default=None, help='filter by substring in param name')
     p_cat.add_argument('--include-io', action='store_true', help='include per-stream I/O plumbing params')
+
+    p_audit = sub.add_parser('audit', help='Registry-driven scan of EVERY set param (coverage guarantee, any WRF case)')
+    p_audit.add_argument('--namelist', required=True, help='path to namelist.input')
 
     sub.add_parser('selftest', help='run CONUS calibration self-test')
 
@@ -756,6 +804,8 @@ def main():
         knobs_cmd(args)
     elif args.command == 'catalog':
         catalog_cmd(args)
+    elif args.command == 'audit':
+        audit_cmd(args)
     elif args.command == 'selftest':
         sys.exit(selftest())
     else:

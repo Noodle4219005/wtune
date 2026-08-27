@@ -34,11 +34,16 @@ hotspot set is derived from the case's active physics, not hardcoded.
 
 ```
 python3 wtune.py plan    --namelist namelist.input [--ranks N] [--wrfinput wrfinput_d01]
-python3 wtune.py physics --namelist namelist.input [--menu]
+python3 wtune.py physics --namelist namelist.input [--menu] [--wrfinput ...] [--probe-json speedy_probe.json]
 python3 wtune.py knobs   --namelist namelist.input [--wrfinput ...] [--all]
 python3 wtune.py hotspot --namelist namelist.input --wrfinput ... [--run-surrogate | --surrogate-json J]
 python3 wtune.py catalog [--group physics] [--grep mp_]
+python3 wtune.py audit   --namelist namelist.input   # Registry-driven scan of EVERY set param (general, any case)
 python3 wtune.py selftest
+
+# physics-context self-validation via a fast SpeedyWeather forecast:
+julia --project=jlenv speedy_probe.jl --hours 6 --lat0 22 --lat1 51 --lon0 -118 --lon1 -67 --out probe.json
+python3 wind_probe.py --wrfinput wrfinput_d01 --dx 2500      # exact t=0 steering wind (needs netCDF4)
 ```
 
 Lat/lon/date are read from a `wrfinput`/`wrfout` header via `ncdump -h` (cheap,

@@ -34,9 +34,10 @@ import wtune_solar as wsolar
 #             weighted comparably to radiation, NOT as an afterthought.
 # Extensible: add a term here (weight, per-rank field) for any new hotspot the
 # tuner learns (e.g. terrain radiation, ERA5-init convection).
-W_BASE = 1.0
-W_RAD = 0.35     # SW radiation surcharge on a fully-sunlit column
-W_CONV = 0.45    # microphysics surcharge in a fully-active convective column
+# microphysics (Thompson) runs on EVERY column with a base cost, plus a storm
+# surcharge where hydrometeors are present -> STORM_BASE is the uniform base
+# fraction, the rest scales with the convective/hydrometeor field.
+STORM_BASE = 0.4
 
 
 def _patch_centers(px, py, bbox):
@@ -79,18 +80,22 @@ def _conv_at(lon, lat, points, radius=3.0):
 # spatial driver, but ONLY when its scheme is active in this case. So the hotspot
 # set is DERIVED from the namelist, not fixed -- a different testcase (cumulus on,
 # GWD on, no radiation, ...) yields a different load map automatically.
-# driver in {'uniform','solar_sw','moisture','terrain','landmask'}.
-# cost_weight ~ that phase's share of step cost (rough KB priors; a per-case
-# profile refines them). A uniform phase creates no imbalance -> folds into base.
+# driver in {'uniform','solar_sw','moisture','cloud','terrain','landmask'}.
+# cost_weight ~ that phase's share of STEP COMPUTE, calibrated to the measured
+# CONUS 2.5km phase profile ([[how-wrf-actually-spends-a-timestep]], n=3):
+# dynamics dominates (~62% of compute); radiation is only ~10% total and LW>SW
+# (rad_lw 7.8% via lw_mcica > rad_sw 2.3%); microphysics ~16% of compute (its
+# imbalance LEVER is larger, but that is captured spatially, not by the weight).
+# A uniform driver creates no imbalance -> folds into the balanced base.
 PHASE_LOAD_MODEL = [
-    ('dynamics',     lambda c: True,                              0.30, 'uniform'),
-    ('microphysics', lambda c: (c.get('mp_physics') or 0) > 0,    0.30, 'moisture'),
-    ('cumulus',      lambda c: (c.get('cu_physics') or 0) > 0,    0.15, 'moisture'),
-    ('radiation_sw', lambda c: (c.get('ra_sw_physics') or 0) > 0, 0.15, 'solar_sw'),
-    ('radiation_lw', lambda c: (c.get('ra_lw_physics') or 0) > 0, 0.10, 'uniform'),
-    ('pbl',          lambda c: (c.get('bl_pbl_physics') or 0) > 0, 0.08, 'uniform'),
-    ('surface',      lambda c: (c.get('sf_surface_physics') or 0) > 0, 0.05, 'landmask'),
-    ('gwd',          lambda c: (c.get('gwd_opt') or 0) > 0,       0.08, 'terrain'),
+    ('dynamics',     lambda c: True,                              0.62, 'uniform'),
+    ('microphysics', lambda c: (c.get('mp_physics') or 0) > 0,    0.16, 'moisture'),
+    ('cumulus',      lambda c: (c.get('cu_physics') or 0) > 0,    0.10, 'moisture'),
+    ('radiation_lw', lambda c: (c.get('ra_lw_physics') or 0) > 0, 0.08, 'cloud'),
+    ('pbl',          lambda c: (c.get('bl_pbl_physics') or 0) > 0, 0.04, 'uniform'),
+    ('surface',      lambda c: (c.get('sf_surface_physics') or 0) > 0, 0.04, 'landmask'),
+    ('radiation_sw', lambda c: (c.get('ra_sw_physics') or 0) > 0, 0.03, 'solar_sw'),
+    ('gwd',          lambda c: (c.get('gwd_opt') or 0) > 0,       0.06, 'terrain'),
 ]
 
 
@@ -137,13 +142,17 @@ def rank_loads(case, px, py, surrogate_json=None):
             return _day_fraction_at(lon, lat, doy, start_hr, run_hrs)
         if driver == 'moisture':
             if not points:
-                neutral_drivers.add('moisture(no surrogate)')
-                return 0.0
-            return _conv_at(lon, lat, points) / conv_norm
-        if driver in ('terrain', 'landmask'):
-            neutral_drivers.add(driver + '(needs HGT/LANDMASK)')
-            return 0.0
-        return 0.0
+                neutral_drivers.add('moisture(no surrogate -> uniform)')
+                return 1.0   # neutral: microphysics runs everywhere when storm map unknown
+            # base cost on every column + storm surcharge where hydrometeors are
+            return STORM_BASE + (1.0 - STORM_BASE) * (_conv_at(lon, lat, points) / conv_norm)
+        if driver in ('cloud', 'terrain', 'landmask'):
+            # NOT wired yet (needs a wrfinput field) -> NEUTRAL placeholder = full
+            # cost, no imbalance. Must be 1.0, NOT 0.0: 0.0 makes the phase FREE and
+            # silently drops its weight, skewing the unequal-patch-count assignment.
+            neutral_drivers.add(driver + '(needs wrfinput field -> uniform)')
+            return 1.0
+        return 1.0
 
     centers = _patch_centers(px, py, bbox)
     loads = []

@@ -273,6 +273,17 @@ def speedy_vet(cand, probe, resolved):
     name = cand.get('name')
     if not cand.get('physics_dep'):
         return 'PASS->WRF', 'physics-independent (I/O/decomp/tiling); SpeedyWeather neutral -> test on WRF'
+    # epssm is terrain-dependent, not probe-dependent -> vet BEFORE the probe gate.
+    if name == 'epssm':
+        return 'PASS->WRF', ('terrain relief is not in the probe -> require a 1h WRF smoke run (watch domain-max w '
+                             'and CFL trips) before trusting any dt / time_step_sound increase')
+    # SpeedyWeather validity floor: it is a GLOBAL synoptic-scale spectral model. Below ~1km
+    # (LES / microscale, e.g. a WRF-Fire run) it has no representation of the flow at all, so
+    # its convective_fraction/wind are not a regime proxy -> do not pretend a probe would help.
+    dxm = float(resolved.get('dx', 2500))
+    if dxm < 1000.0:
+        return 'PASS->WRF', ('dx={:.0f}m is below SpeedyWeather validity (a global synoptic spectral model has no '
+                             'LES/microscale flow) -> no cheap probe signal; analytic screen + WRF smoke only').format(dxm)
     if not probe:
         return 'NEED-PROBE', 'run speedy_probe.jl to vet this cheaply before WRF'
     wind = probe_steering_wind(probe)
@@ -283,7 +294,27 @@ def speedy_vet(cand, probe, resolved):
         cur = float(resolved.get('radt', 10))
         if cur >= cap * 0.9:
             return 'REJECT', 'cloud-cap ~{:.1f} min at forecast wind {:.0f} m/s; radt={} already at/over cap'.format(cap, wind or 12, int(cur))
-        return 'CONFIRM', 'cloud-cap ~{:.1f} min > radt={} -> headroom; send to WRF gate'.format(cap, int(cur))
+        # swint_opt COUPLING: the cloud-cap is the cloud-DRIFT limit. WITHOUT swint_opt the SW
+        # zenith staircase at the terminator is a SEPARATE, tighter limit on radt -> the coarse
+        # radt is only safe up to the cloud-cap once swint_opt removes that staircase.
+        swint_on = int(resolved.get('swint_opt') or 0) > 0
+        newr = cap * 0.9
+        save = 0.18 * (1.0 - cur / newr)      # radiation ~18% of compute; frequency cut by (1 - old/new)
+        couple = '' if swint_on else ' -- PAIR with swint_opt=1 (else the terminator zenith staircase caps radt tighter than the cloud-cap)'
+        return 'CONFIRM', ('cloud-cap ~{:.1f} min > radt={} -> raise to ~{:.0f} min; radiation is ~18% of compute so '
+                           '~{:.0%} wall from fewer rad calls; WRF-gate{}').format(cap, int(cur), newr, save, couple)
+    if name == 'cudt':
+        if not (int(resolved.get('cu_physics') or 0) > 0):
+            return 'REJECT', 'cu_physics=0 -> cudt has no effect'
+        dx = float(resolved.get('dx', 10000))
+        cap_min = min(60.0, max(5.0, 3.0 * dx / ((wind or 12.0) * 60.0)))
+        if cf is not None and cf > 0.6:
+            return 'REJECT', ('persistent deep convection (conv_frac {}): the cumulus tendency changes fast, so a '
+                              'stale tendency over cudt shifts precip -- little headroom').format(cf)
+        if cf is not None and cf < 0.4:
+            return 'CONFIRM', ('stratiform/intermittent (conv_frac {}): quasi-equilibrium holds -> advective cap '
+                               '~{:.0f} min is safe; WRF-gate the precip').format(cf, cap_min)
+        return 'PASS->WRF', 'regime unclear; cap ~{:.0f} min from 3*dx/wind -> WRF-gate it'.format(cap_min)
     if name == 'swint_opt':
         return 'CONFIRM', 'terminator run -> SW zenith staircase is real; swint removes it (accuracy, ~0.1% cost)'
     if name == 'mp_physics':
@@ -292,6 +323,63 @@ def speedy_vet(cand, probe, resolved):
         if cf is not None and cf < 0.2:
             return 'CONFIRM', 'stratiform (conv_frac {}) -> single-moment MIGHT pass; WRF-gate it'.format(cf)
         return 'PASS->WRF', 'regime unclear from probe'
+    if name == 'cu_physics':
+        # cheaper cumulus scheme (BMJ) vs the plume schemes (KF/GF): safe only for weak/shallow,
+        # non-organized convection. Deep organized convection needs the explicit plume closure.
+        if cf is not None and cf > 0.6:
+            return 'REJECT', ('organized deep convection (conv_frac {}): needs the full plume closure (KF/GF); a bulk '
+                              'adjustment scheme (BMJ) mislocates the convective precip').format(cf)
+        if cf is not None and cf < 0.35:
+            return 'CONFIRM', ('weak/shallow convection (conv_frac {}): a cheap adjustment cumulus scheme MIGHT hold '
+                               '-> saves the cu_driver plume cost; WRF-gate precip vs reference').format(cf)
+        return 'PASS->WRF', 'cumulus regime unclear from probe -> WRF-gate the scheme swap vs reference precip'
+    if name == 'e_vert':
+        return 'PASS->WRF', ('vertical level count is not represented in a global spectral probe -> WRF-gate only; '
+                             'RESULTS-AFFECTING (regrids PBL/cloud vertical structure), compare precip/PBL vs reference')
+    if name == 'non_hydrostatic':
+        # hydrostatic assumption valid iff horizontal >> vertical scale AND convection is
+        # parameterized (not grid-resolved). dx is the primary criterion; cu_physics/conv_frac
+        # confirm the convection is sub-grid. This is the biggest coarse-grid lever (measured
+        # -6%/normal-step on Matthew 30km) -- NOT a free physics-independent PASS.
+        dx = float(resolved.get('dx', 2500))
+        cu = int(resolved.get('cu_physics') or 0)
+        if dx < 10000.0:
+            return 'REJECT', ('dx={:.0f}m < 10km: the grid resolves deep-convective vertical acceleration -> '
+                              'hydrostatic drops the w-equation and mis-places grid-point storms').format(dx)
+        if cu == 0:
+            return 'PASS->WRF', ('dx>={:.0f}km but cu_physics=0 (convection nominally grid-resolved) -> hydrostatic is '
+                                 'borderline; WRF smoke first, watch domain-max w / precip').format(dx / 1000.0)
+        return 'CONFIRM', ('dx={:.0f}m>=10km with cu_physics={} (parameterized convection): hydrostatic assumption holds '
+                           '-> drops the vertically-implicit acoustic/small_step solve (~10-15% of compute; measured '
+                           '~-6%/normal-step on Matthew 30km); WRF-gate for CFL/precip').format(dx, cu)
     if name == 'time_step':
         return 'PASS->WRF', 'acoustic CFL is dynamics (not in the probe); test on WRF with a hard CFL gate'
+    if name == 'use_adaptive_time_step':
+        # gain = time-mean CFL headroom. Persistent domain-wide convection pins the domain-max
+        # w-Courant -> ~0 headroom; intermittent/frontal convection leaves headroom to harvest.
+        if cf is not None and cf > 0.6:
+            return 'REJECT', ('persistent convection (conv_frac {}): domain-max w-Courant pinned near the limit '
+                              '-> ~0 CFL headroom to harvest').format(cf)
+        if cf is not None and cf < 0.4:
+            return 'CONFIRM', ('intermittent/frontal convection (conv_frac {}): time-mean allowed dt > fixed dt '
+                               '-> real headroom; WRF-gate the CFL time series').format(cf)
+        return 'PASS->WRF', 'CFL headroom = the dt-allowed time series; probe the domain-max Courant, then WRF-gate'
+    if name == 'diff_opt':
+        # removing the only horizontal mixing -> 2dx energy accumulates -> spurious convection.
+        # Worst in convective + complex-terrain regimes; a smooth weak-flow case may tolerate it.
+        if cf is not None and cf > 0.4:
+            return 'REJECT', ('convective (conv_frac {}): with no explicit horizontal diffusion, 2dx energy '
+                              'accumulates -> spurious convection / CFL crash risk').format(cf)
+        return 'PASS->WRF', ('low-conv MIGHT tolerate no explicit diffusion, but terrain relief is not in the probe '
+                             '-> require a 1h smoke run (watch the 2dx tail of the w-spectrum) before trusting it')
+    if name in ('h_sca_adv_order', 'h_mom_adv_order'):
+        # 3rd-order advection adds hyperdiffusion at 2-4dx -> smooths small-scale structure.
+        # Whether that fails the gate depends on how much SMALL-SCALE signal the case has.
+        if cf is not None and cf > 0.4:
+            return 'REJECT', ('convective (conv_frac {}): 3rd-order hyperdiffusion smooths updraft cores -> storms '
+                              'weakened/displaced, precip changes; fails a convective gate').format(cf)
+        if cf is not None and cf < 0.2:
+            return 'CONFIRM', ('smooth/large-scale (conv_frac {}): little 2-4dx signal to diffuse -> 3rd-order likely '
+                               'within tolerance AND cuts halo bytes; worth a WRF gate').format(cf)
+        return 'PASS->WRF', 'advection-order tolerance is regime-dependent; gate on WRF'
     return 'PASS->WRF', 'no specific probe signal for this param'

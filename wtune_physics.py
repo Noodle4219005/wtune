@@ -163,6 +163,16 @@ def diagnose(case):
             line += " " + info['note']
         lines.append(line)
 
+    dx_km = float(case.get('dx', 3000)) / 1000.0
+    cu = case.get('cu_physics', 0)
+    if cu not in (0, None) and dx_km < 4.0:
+        lines.append("  CORRECTNESS: cu_physics={} at dx={:g}km -- a cumulus PARAMETERISATION is physically "
+                     "inappropriate below ~4km (convection is RESOLVED); it should be 0. cu=0 is BOTH more correct "
+                     "AND drops the cumulus call (~few %). Results-affecting -> a correctness fix, not a blind speed knob.".format(cu, dx_km))
+    elif (cu in (0, None)) and dx_km >= 10.0:
+        lines.append("  CORRECTNESS: cu_physics=0 at dx={:g}km -- convection is UNDER-resolved; a cumulus scheme "
+                     "(cu>0) is normally REQUIRED for correctness here (not a speed change).".format(dx_km))
+
     if case.get('ra_lw_physics') == 4 or case.get('ra_sw_physics') == 4:
         lines.append("  imbalance driver: RRTMG day/night terminator (E-W, corr -0.6); decomposition is a CACHE tool, cannot fix this")
     if case.get('mp_physics') in (8, 10, 28, 38, 40):
@@ -190,6 +200,11 @@ def timestep_advice(case):
     dx_km = case['dx'] / 1000.0
     rule_dt = 6.0 * dx_km
     current = case['time_step']
+    # time_step<=0 is the "let WRF compute it" sentinel (or use_adaptive_time_step);
+    # it is NOT a literal 0 s step -- do not treat it as a tunable number.
+    if current is None or current <= 0:
+        return ("time_step={} -> ADAPTIVE/auto (0 or use_adaptive_time_step: WRF computes dt each step). "
+                "Not a fixed knob; CFL rule would be ~{:.2f}s at dx={}km if pinned.".format(current, rule_dt, dx_km))
     line = "time_step={}s; CFL rule dt~=6*dx_km={}s; ".format(current, rule_dt)
     if current <= rule_dt * 1.02 and current >= rule_dt * 0.5:
         verdict = "near recommended max"
@@ -218,6 +233,9 @@ def _acoustic_cfl(case, ns):
 
 def time_step_sound_advice(case):
     ns = int(case.get('time_step_sound', 4) or 4)
+    if float(case.get('time_step', 15) or 0) <= 0:
+        return ("time_step_sound={} -> time_step is ADAPTIVE/auto (dt<=0), so the acoustic CFL is not a fixed number; "
+                "ns must stay EVEN (RK3); keep ns=4 unless a stability probe says otherwise.".format(ns))
     # odd ns is illegal for RK3: stage-2 must cover dt/2, so ns=3 forces a dt/2 acoustic pass
     cfl_cur, cfl4, cfl3 = _acoustic_cfl(case, ns), _acoustic_cfl(case, 4), _acoustic_cfl(case, 2)
     return ("time_step_sound={} -> acoustic CFL~={:.2f}. ns=4 is the FLOOR at dt={}s/dx={}km (CFL {:.2f}); "
@@ -284,9 +302,10 @@ def swint_advice(case):
 
 def numtiles_advice(case):
     nt = int(case.get('numtiles', 1) or 1)
-    return ("numtiles={} -> try 2/4/8 (cache-blocks the tile loops, ZERO cross-tile arithmetic = bit-identical). "
-            "0-3%, often ~0 at 448 ranks (patch already cache-resident on SPR). Free to sweep, cannot fail a gate; "
-            "revert if it slows down.").format(nt)
+    return ("numtiles={} -> try 2/4/8/16 (cache-blocks the tile loops, ZERO cross-tile arithmetic = bit-identical). "
+            "MEASURED on CONUS 2.5km 8x56/448: numtiles=8 is -12.6% per-step vs numtiles=1 -- NOT negligible; the "
+            "188x21 patch is NOT cache-resident, so tiling it matters. Sweep and pick the fastest; cannot fail a gate."
+            ).format(nt)
 
 
 def thompson_prestage_advice(case):
@@ -301,13 +320,88 @@ def io_hygiene_advice(case):
             "(PnetCDF) only if total wall is scored; io_form_boundary is a mirage (wrfbdy read once/6h).")
 
 
+def _nl_list(nl_kv, key, n, cast=float, default=None):
+    """Per-domain values from a namelist comma list, padded to length n (WRF repeats
+    the last given value for higher domains)."""
+    raw = nl_kv.get(key)
+    if raw is None:
+        return [default] * n
+    vals = []
+    for tok in str(raw).split(','):
+        tok = tok.strip()
+        if not tok:
+            continue
+        try:
+            vals.append(cast(tok))
+        except (ValueError, TypeError):
+            vals.append(default)
+    if not vals:
+        return [default] * n
+    while len(vals) < n:
+        vals.append(vals[-1])
+    return vals[:n]
+
+
+def nesting_advice(nl_kv, resolved):
+    """max_dom>1: the tuner otherwise reads ONLY domain-1, but a real nested run's cost
+    is split across domains by COMPUTE WEIGHT = points x cumulative time-step ratio
+    (steps_i = steps_1 x prod(parent_time_step_ratio)). Reason about WHICH domain
+    dominates and that safe physics levers DIFFER per domain regime. [] for a single domain."""
+    try:
+        max_dom = int(float(str(nl_kv.get('max_dom', 1)).split(',')[0]))
+    except (ValueError, TypeError):
+        max_dom = 1
+    if max_dom <= 1:
+        return []
+    n = max_dom
+    ewe = _nl_list(nl_kv, 'e_we', n, int, 1)
+    esn = _nl_list(nl_kv, 'e_sn', n, int, 1)
+    gr = _nl_list(nl_kv, 'parent_grid_ratio', n, int, 1)
+    tr = _nl_list(nl_kv, 'parent_time_step_ratio', n, int, 1)
+    cu = _nl_list(nl_kv, 'cu_physics', n, int, 0)
+    dx1 = float(resolved.get('dx', 30000.0))
+    cum, cumgr = 1.0, 1.0
+    weight, dxs, stepmult = [], [], []
+    for i in range(n):
+        cum *= (tr[i] or 1)
+        cumgr *= (gr[i] or 1)
+        pts = max(1, (ewe[i] or 1) - 1) * max(1, (esn[i] or 1) - 1)
+        weight.append(pts * cum)
+        stepmult.append(cum)
+        dxs.append(dx1 / cumgr)
+    tot = sum(weight) or 1.0
+    frac = [w / tot for w in weight]
+    dom_i = max(range(n), key=lambda i: frac[i])
+    L = ["NESTING ({} domains -- WITHOUT this the tuner reasons only about domain-1):".format(n)]
+    for i in range(n):
+        L.append("  d{}: dx~{:.1f}km  {}x{} pts  {}x steps  -> {:.0f}% of compute  (cu_physics={})".format(
+            i + 1, dxs[i] / 1000.0, ewe[i], esn[i], int(stepmult[i]), 100 * frac[i], cu[i]))
+    L.append("  => domain d{} dominates ({:.0f}%): the PER-STEP levers (decomposition, numtiles, advection "
+             "order, adaptive dt) pay off HERE; the same lever on a minor domain is near-wasted.".format(
+                 dom_i + 1, 100 * frac[dom_i]))
+    if dxs[0] / max(dxs[-1], 1e-9) >= 2.5:
+        L.append("  => SCALE SEPARATION: the coarse OUTER domain (dx~{:.1f}km) safely takes radt/cudt/cu-scheme "
+                 "coarsening (cloud-cap & convective-adjustment timescale both scale with dx); the fine nest "
+                 "(dx~{:.1f}km) is grey-zone -> vet EACH domain's regime separately, never apply one verdict to "
+                 "all. If the coarse domain is a MINOR compute fraction, its safe levers cap the total win.".format(
+                     dxs[0] / 1000.0, dxs[-1] / 1000.0))
+    for i in range(1, n):
+        if (tr[i] or 1) > (gr[i] or 1):
+            L.append("  => d{}: parent_time_step_ratio={} > grid_ratio={} -> the nest sub-steps MORE than its CFL "
+                     "requires; lowering it toward the grid ratio saves nest steps (WRF-gate the nest CFL). "
+                     "ratio==grid_ratio (the usual 3) has NO headroom.".format(i + 1, tr[i], gr[i]))
+    return L
+
+
 def numeric_speed_advice(case):
     """Ranked bit-identical (Tier 1) + gated (Tier 2) speed knobs for this case."""
     L = []
-    L.append("GATE (calibrate BEFORE judging any Tier-2 knob): at 2.5km convective, ANY Tier-2 perturbation grows to the")
-    L.append("  CHAOS FLOOR by ~6h. Establish it: reference vs a round-off-perturbed twin -> 6h T2/RAINNC/W divergence.")
-    L.append("  Tier-2 PASSES iff its diff is statistically indistinguishable from that floor AND terminator-band systematics")
-    L.append("  are clean (mask |cosZ|<0.1: |bias(T2)|<0.1K, |bias(SWDOWN)|<5 W/m2). A BITWISE gate kills all of Tier 2.")
+    dxkm = _dxkm(case)
+    regime = "convection-permitting (fast error growth)" if dxkm <= 4 else "parameterized-convection (slower growth)"
+    L.append("GATE (calibrate BEFORE judging any Tier-2 knob): at dx={}km, {} -- a Tier-2 perturbation".format(dxkm, regime))
+    L.append("  grows toward the CHAOS FLOOR over the run. Establish it: reference vs a round-off-perturbed twin ->")
+    L.append("  measure field (T2/RAINNC/W) divergence at run end. Tier-2 PASSES iff its diff is statistically")
+    L.append("  indistinguishable from that floor AND any systematic band bias is clean. A BITWISE gate kills all of Tier 2.")
     L.append("")
     L.append("TIER 1 (bit-identical -- no accuracy gate, just measure speed):")
     L.append("  numtiles: " + numtiles_advice(case))
@@ -321,9 +415,25 @@ def numeric_speed_advice(case):
         L.append("  swint+radt: " + sw)
     L.append("  time_step_sound: " + time_step_sound_advice(case))
     L.append("")
-    L.append("REJECTED (with numbers, so they stay rejected): moist_adv_opt 1->0 (neg-moisture, gate fail); "
-             "h_*_adv_order 5->3 (restructures convection); ra_*=24 fast-RRTMG (=scheme swap, advise-only); "
-             "epssm/smdiv (change results, save zero work); icloud=0 (different climate). Realistic strict-gate total: ~3-6%.")
+    L.append("DYNAMICS-BUCKET levers (the 42% chunk -- bigger than radiation; all gated, see `screen`):")
+    L.append("  use_adaptive_time_step=.true. (time-mean CFL headroom + cuts step-count => only knob that also")
+    L.append("    trims halo_wait); h_sca_adv_order 5->3 SCALARS-ONLY (moist-halo + scalar flux, keep momentum);")
+    L.append("    non_hydrostatic=.false. ONLY at dx>=10km; diff_opt=0 smoke-tested. gate each on convective_fraction.")
+    L.append("")
+    L.append("COARSE-DOMAIN levers (dx>=10km, cumulus ON -- the cost bucket FLIPS: cumulus+radiation, NOT dynamics):")
+    L.append("  cudt raise = the radt-analog for the CUMULUS bucket (~5-15%); cap 3*dx/wind (max 60min) -- cudt=0 is")
+    L.append("    EVERY-step. radt raise: both cloud-cap AND cumulus quasi-equilibrium scale with dx, so a COARSE grid")
+    L.append("    unlocks exactly what the 2.5km convective benchmark rejects. epssm 0.2 buys dt only on STEEP terrain.")
+    L.append("    On a NESTED run these are safe on the COARSE outer domain only -- see the NESTING per-domain weights.")
+    L.append("")
+    L.append("REJECTED (with numbers, so they stay rejected): rk_ord 3->2 (RK2 stability collapse -> dt/4 -> ~3x SLOWER); "
+             "moist_adv_opt 1->0 (neg-moisture clip = +10% precip bias); v_*_adv_order 3->2 (jet dispersion); "
+             "bldt>0 (mis-times the terminator, saves <2%); cu_physics/ra_lw/ra_sw SCHEME swap (only ~2-4% spread & "
+             "RRTMG is already efficient -- radt/cudt are the radiation/cumulus speed levers, the scheme is a SCIENCE "
+             "choice); gwd_opt/bl_pbl_physics/sf_surface_physics/icloud/cu_rad_feedback (science, not speed); "
+             "feedback 1->0 (changes the parent solution -- results-affecting, not free); "
+             "damp_opt/smdiv (upper sponge / divergence damping = correctness, NOT a dt enabler -- epssm is the real "
+             "acoustic stabilizer, promoted above to a terrain candidate).")
     return L
 
 
@@ -397,7 +507,7 @@ _DEEP = {
     'sf_sfclay_physics', 'sf_surface_physics', 'cu_physics', 'gwd_opt', 'sf_urban_physics',
     'slope_rad', 'topo_shading', 'num_soil_layers', 'icloud', 'swint_opt', 'o3input', 'aer_opt',
     'radt', 'cudt', 'bldt', 'time_step', 'time_step_sound', 'diff_opt', 'km_opt', 'w_damping',
-    'epssm', 'non_hydrostatic', 'moist_adv_opt', 'scalar_adv_opt', 'h_mom_adv_order', 'h_sca_adv_order',
+    'epssm', 'non_hydrostatic', 'e_vert', 'moist_adv_opt', 'scalar_adv_opt', 'h_mom_adv_order', 'h_sca_adv_order',
     'io_form_history', 'io_form_restart', 'io_form_input', 'io_form_boundary',
     'nproc_x', 'nproc_y', 'numtiles', 'numtiles_x', 'numtiles_y',
     'history_interval', 'history_interval_m', 'restart_interval', 'frames_per_outfile',
@@ -442,11 +552,21 @@ _PHYS_PREFIX = {
 
 
 def _gate_val(param, resolved, nl_kv):
-    raw = nl_kv.get(param, resolved.get(param))
-    try:
-        return int(str(raw).strip().rstrip(','))
-    except (TypeError, ValueError):
-        return None
+    # Prefer the RESOLVED (suite-filled) scheme value: a raw namelist -1 means "let the
+    # suite decide" and only `resolved` holds the real scheme, so gating on the raw -1
+    # wrongly marks every cu*/scheme param inert. Fall back to the raw namelist for params
+    # the resolver does not track. Take domain-1 of any multi-domain list.
+    for src in (resolved.get(param), nl_kv.get(param)):
+        if src is None:
+            continue
+        try:
+            iv = int(float(str(src).strip().split(',')[0].strip()))
+        except (TypeError, ValueError, IndexError):
+            continue
+        if iv == -1:            # unfilled suite sentinel in this source -> try the next
+            continue
+        return iv
+    return None
 
 
 def _relevance(name, e, resolved, nl_kv):
@@ -532,6 +652,17 @@ def coverage_audit(nl_kv, resolved, dump_path=None):
 # return a candidate go on to the SpeedyWeather vet (Stage 2) then WRF (Stage 3).
 # ---------------------------------------------------------------------------
 
+def _is_les(resolved, nl_kv):
+    """LES / microscale: 3D subgrid TKE or Smagorinsky (km_opt 2/3) or dx<1km. Here the
+    3D diffusion (diff_opt=2/km_opt=2..3) IS the turbulence closure and the high advection
+    order carries the resolved turbulent cascade -- neither is a tunable accuracy knob, so
+    the 'reduce numerical work' candidates must be SUPPRESSED (removing them destroys the LES)."""
+    km = ''
+    if nl_kv.get('km_opt') is not None:
+        km = str(nl_kv.get('km_opt')).split(',')[0].strip().rstrip('.')
+    return km in ('2', '3') or float(resolved.get('dx', 2500)) < 1000.0
+
+
 def _effective_opinion(name, val, e, resolved, nl_kv):
     """Return None (keep) or dict(candidate, why, tier, physics_dep, gain)."""
     v = _norm(val)
@@ -543,8 +674,8 @@ def _effective_opinion(name, val, e, resolved, nl_kv):
     if name == 'numtiles' and v in ('1', '0', ''):
         return dict(candidate='2/4/8', why='cache-block the tile loops, bit-identical', tier='1', physics_dep=False, gain='0-3%')
     if name in ('nproc_x', 'nproc_y'):
-        return dict(candidate='cost-model shortlist (8x56)', why='decomposition cache+imbalance score', tier='1',
-                    physics_dep=False, gain='~1-3%')
+        return dict(candidate='cost-model #1 (run `plan`)', why='decomposition cache+vec+halo+imbalance score for THIS grid/ranks',
+                    tier='1', physics_dep=False, gain='~1-3%')
     # --- Tier-2 gated, PHYSICS-dependent -> SpeedyWeather can vet cheaply ---
     if name == 'swint_opt' and v in ('0', ''):
         return dict(candidate='1', why='remove SW zenith staircase at the terminator (accuracy; unlocks radt IF cloud-cap allows)',
@@ -558,7 +689,9 @@ def _effective_opinion(name, val, e, resolved, nl_kv):
             cur = float(v)
         except ValueError:
             cur = None
-        if cur is not None and cur < rule * 0.95:
+        if cur is None or cur <= 0:
+            return None                      # time_step<=0 = adaptive/auto; not a fixed knob
+        if cur < rule * 0.95:
             return dict(candidate='raise toward {:.0f}s'.format(rule), why='CFL headroom -> fewer steps',
                         tier='2', physics_dep=True, gain='~step-count')
         return None            # at CFL limit -> keep
@@ -568,6 +701,109 @@ def _effective_opinion(name, val, e, resolved, nl_kv):
     if name == 'mp_physics' and (resolved.get('mp_physics') in (8, 10, 28, 38, 40)):
         return dict(candidate='WSM6 (6) -- ONLY IF stratiform', why='single-moment is cheaper; SCHEME SWAP = advise-only, gate vs reference',
                     tier='swap', physics_dep=True, gain='~microphysics-share')
+    # horizontal advection order 5->3: cuts the DYNAMICS stencil (the 42% chunk) AND the halo
+    # width (3->2 -> ~1/3 less halo bytes) -- a DOUBLE win. Cost = extra implicit hyperdiffusion
+    # at 2-4dx that smooths small-scale structure; safe ONLY for smooth/low-convection cases.
+    if name == 'h_sca_adv_order' and v in ('5', ''):
+        if _is_les(resolved, nl_kv):
+            return None    # LES: high advection order carries the resolved cascade -> never reduce
+        return dict(candidate='3 (SCALARS ONLY; keep h_mom=5)',
+                    why='3rd-order scalar advection: -33% scalar flux flops on 8 Thompson arrays + moist-halo 3->2 '
+                        '(~3.5-4.5%); keeping momentum at 5 leaves updraft dynamics intact. Cost = 4th-deriv '
+                        'hyperdiffusion smears 2-4dx hydrometeor gradients (a systematic precip-PDF bias)',
+                    tier='2', physics_dep=True, gain='dynamics+moist-halo')
+    if name == 'h_mom_adv_order' and v in ('5', ''):
+        if _is_les(resolved, nl_kv):
+            return None    # LES: reducing momentum advection order damps the resolved eddies
+        return dict(candidate='3 (momentum -- SMOOTH cases only)',
+                    why='drops mom-advection flops + the full 3D halo 3->2, but the 4th-deriv damping now hits '
+                        'w/buoyancy -> weakens 5-10km updraft cores. Only smooth/low-conv cases survive',
+                    tier='2', physics_dep=True, gain='dynamics+halo')
+    # adaptive time step: fixed dt is sized for the WORST instant; adaptive uses the time-MEAN allowed dt
+    # -> ~0.77 x mean CFL headroom. The ONLY lever that also cuts halo_wait (fewer of the 110-exchange rounds).
+    # Does NOT contradict "dt at CFL limit" -- that is for FIXED dt.
+    if name == 'use_adaptive_time_step' and 'true' not in v:      # off / default -> candidate to enable
+        return dict(candidate='.true. (target_cfl~1.2, pair epssm=0.2 + w_damping=1 as insurance)',
+                    why='fixed dt is sized for the worst instant; adaptive tracks the time-mean allowed dt '
+                        '(~0.77 x CFL headroom) AND cuts step count -> the only knob that also shrinks the 28% halo_wait',
+                    tier='2', physics_dep=True, gain='~CFL-headroom-time-mean')
+    # non-hydrostatic: hydrostatic is cheaper (drops part of small_step) but CANNOT represent <~10km updrafts
+    # -> analytic dx-gate, legitimate only at coarse dx.
+    if name == 'non_hydrostatic' and 'false' not in v:           # currently non-hydrostatic (on/default)
+        if dxkm >= 10:
+            return dict(candidate='.false. (hydrostatic)',
+                        why='hydrostatic drops part of the acoustic/small_step cost (~10-15%); VALID only at '
+                            'dx>=~10km -- at finer dx it cannot represent grid-point storms',
+                        tier='2', physics_dep=True, gain='~10-15%')   # physics-dependent: vet dx+regime, not a free PASS
+        return None    # dx<10km -> hydrostatic invalid, never a candidate
+    # horizontal diffusion: removing it saves ~4-6% but it is the ONLY horizontal mixing (MYJ is 1-D);
+    # 2dx energy then accumulates in weak-flow deforming regions -> spurious convection / CFL crash.
+    if name == 'diff_opt' and v.split(',')[0].strip() in ('1', '2'):
+        if _is_les(resolved, nl_kv):
+            return None    # LES: diff_opt=2/km_opt=2..3 IS the subgrid turbulence model, not removable
+        return dict(candidate='0 -- SMOKE-TEST first (or km_opt=1)',
+                    why='removes the diffusion sub-bucket (~4-6%) + a few halo calls; but it is the only horizontal '
+                        'mixing -> 2dx energy accumulates in weak-flow/lee regions -> spurious convection or CFL crash',
+                    tier='2', physics_dep=True, gain='~4-6%')
+    # coarse-domain CUMULUS cadence: on cu-on coarse domains the cost bucket FLIPS to
+    # cumulus+radiation, and cudt is the radt-analog. The cumulus tendency is slowly-varying
+    # (quasi-equilibrium ~30-60 min) -> refresh it on an advective cap, not every step.
+    if name == 'cudt' and int(resolved.get('cu_physics') or 0) > 0 and dxkm >= 10.0:
+        cap_min = min(60.0, max(5.0, 3.0 * float(resolved.get('dx', 10000)) / (12.0 * 60.0)))
+        try:
+            cur_cudt = float(v.split(',')[0])
+        except (ValueError, IndexError):
+            cur_cudt = None
+        if cur_cudt is None or cur_cudt <= 0 or cur_cudt < cap_min * 0.9:
+            return dict(candidate='raise toward {:.0f} min (cudt=0 => EVERY step)'.format(cap_min),
+                        why='the radt-analog for the CUMULUS bucket (~5-15% on coarse cu-on domains): the tendency '
+                            'is slowly-varying (quasi-equilibrium ~30-60 min), so refreshing it on the advective cap '
+                            '3*dx/wind (max 60 min) rather than every step is within tolerance for non-persistent conv',
+                        tier='2', physics_dep=True, gain='~cumulus-share (5-15%)')
+        return None
+    # epssm: acoustic off-centering. Raising it damps vertical acoustic modes -> on STEEP
+    # TERRAIN it can hold a larger time_step_sound/dt that would otherwise trip CFL. ~0 direct
+    # cost; the gain is indirect and terrain-only, so terrain (not in the probe) gates it.
+    if name == 'epssm':
+        try:
+            cur_epssm = float(v) if v else 0.1     # Fortran '.1' and '0.1' both parse
+        except ValueError:
+            cur_epssm = 0.1
+        if cur_epssm > 0.11:                        # already off-centered -> no candidate
+            return None
+        return dict(candidate='0.2 (0.3 if steep terrain) -- SMOKE-TEST',
+                    why='off-centers the vertically-implicit acoustic solver -> damps vertical acoustic modes; on '
+                        'steep-terrain cases this can hold a larger time_step_sound/dt that would otherwise trip CFL '
+                        '(INDIRECT gain, terrain-only). Cost ~0. Terrain relief is NOT in the probe -> 1h WRF smoke',
+                    tier='2', physics_dep=True, gain='indirect dt-headroom (terrain)')
+    # CUMULUS scheme swap: on cu-on coarse domains the cu_driver is a real cost bucket (the
+    # oracle's cumulus phase). Kain-Fritsch(1)/Grell-Freitas(3,5) do CAPE closure + up/downdraft
+    # profiles (dear); BMJ(2) is a bulk adjustment scheme (cheap, no explicit plume). A cheaper
+    # scheme MIGHT pass for weak/shallow non-organized convection -- advise-only, gate vs reference.
+    if name == 'cu_physics':
+        cu = int(resolved.get('cu_physics') or 0)
+        if cu in (1, 3, 5, 11, 14, 16) and dxkm >= 10.0:
+            return dict(candidate='BMJ (2) -- ONLY IF weak/shallow non-organized conv',
+                        why='cu_driver is a real bucket on coarse cu-on domains; KF(1)/GF(3,5) run CAPE closure + '
+                            'up/downdraft profiles (dear), BMJ(2) is a cheap adjustment scheme. Cheaper MIGHT pass for '
+                            'weak/shallow conv; SCHEME SWAP = advise-only, gate vs reference precip',
+                        tier='swap', physics_dep=True, gain='~cumulus-share')
+        return None
+    # vertical levels: physics cost is ~linear in e_vert, but fewer levels REGRID the column ->
+    # a different PBL/cloud vertical structure (NOT bit-identical). A correctness choice, not a
+    # clean speed knob -> flag it, never silently recommend cutting.
+    if name == 'e_vert':
+        try:
+            ev = int(str(v).split(',')[0])
+        except (ValueError, IndexError):
+            ev = None
+        if ev and ev > 45:
+            return dict(candidate='consider fewer (e.g. 35) -- RESULTS-AFFECTING, gate vs reference',
+                        why='physics cost ~linear in e_vert; but reducing levels regrids the column -> different '
+                            'PBL/cloud vertical structure (NOT bit-identical). Only if the case does not need the fine '
+                            'vertical resolution; validate precip/PBL vs reference',
+                        tier='swap', physics_dep=True, gain='~linear-in-levels')
+        return None
     return None
 
 

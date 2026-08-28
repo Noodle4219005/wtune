@@ -4,7 +4,9 @@
 import argparse
 import json
 import math
+import os
 import re
+import shutil
 import sys
 from pathlib import Path
 
@@ -17,7 +19,10 @@ import wtune_surrogate as surr
 
 FLOOR = 10              # minimum mass points in each direction after halo
 HALO = 5                # WRF halo width approximation
-KV = 100.0              # vectorization/amortization constant
+KV = 50.0               # vectorization/amortization constant, calibrated to the measured
+                        # CONUS 2.5km sweep so the RANKING matches wall time:
+                        # 8x56 (0.9219, best) < 16x28 (0.9393) < 4x112 (1.0307, worst).
+                        # KV=100 over-rewarded wide patches -> wrongly ranked 4x112 above 16x28.
 
 DEFAULT_CORES_PER_NODE = 112
 DEFAULT_NUMA_DOMAINS = 8
@@ -165,14 +170,17 @@ def extract_case(nl):
         'io_form_restart': int(scalar(t, 'io_form_restart', 2)),
         'io_form_input': int(scalar(t, 'io_form_input', 2)),
         'io_form_boundary': int(scalar(t, 'io_form_boundary', 2)),
-        'mp_physics': int(scalar(p, 'mp_physics', 0)),
-        'ra_lw_physics': int(scalar(p, 'ra_lw_physics', 0)),
-        'ra_sw_physics': int(scalar(p, 'ra_sw_physics', 0)),
+        # suite-fillable physics fields default to -1 (suite sentinel), NOT 0: an ABSENT
+        # scheme under physics_suite='tropical'/'conus' must be filled by resolve_suite;
+        # a value explicitly set in the namelist (e.g. Maria's cu_physics=0) still overrides.
+        'mp_physics': int(scalar(p, 'mp_physics', -1)),
+        'ra_lw_physics': int(scalar(p, 'ra_lw_physics', -1)),
+        'ra_sw_physics': int(scalar(p, 'ra_sw_physics', -1)),
         'radt': scalar(p, 'radt', 15.0),
-        'bl_pbl_physics': int(scalar(p, 'bl_pbl_physics', 0)),
-        'sf_surface_physics': int(scalar(p, 'sf_surface_physics', 0)),
-        'cu_physics': int(scalar(p, 'cu_physics', 0)),
-        'sf_sfclay_physics': int(scalar(p, 'sf_sfclay_physics', 0)),
+        'bl_pbl_physics': int(scalar(p, 'bl_pbl_physics', -1)),
+        'sf_surface_physics': int(scalar(p, 'sf_surface_physics', -1)),
+        'cu_physics': int(scalar(p, 'cu_physics', -1)),
+        'sf_sfclay_physics': int(scalar(p, 'sf_sfclay_physics', -1)),
         'shcu_physics': int(scalar(p, 'shcu_physics', 0)),
         'sf_urban_physics': int(scalar(p, 'sf_urban_physics', 0)),
         'num_soil_layers': scalar(p, 'num_soil_layers', None),
@@ -244,6 +252,94 @@ def enrich_case(case, wrfinput):
         if case.get(k) is None:
             case[k] = v
     return case, None
+
+
+def _read_wps_center(wps_path):
+    """ref_lat/ref_lon (domain centre) from a sibling namelist.wps. {} on failure."""
+    try:
+        txt = open(wps_path).read()
+    except OSError:
+        return {}
+    out = {}
+    for key in ('ref_lat', 'ref_lon'):
+        m = re.search(r'\b' + key + r'\s*=\s*([-0-9.]+)', txt)
+        if m:
+            try:
+                out[key] = float(m.group(1))
+            except ValueError:
+                pass
+    return out
+
+
+def _bbox_from_center(lat, lon, e_we, e_sn, dx, dy):
+    """Approx lat/lon bounding box of a WRF domain from centre + grid. Projection-agnostic
+    cos-lat approximation -- exact enough for a REGIME proxy (the probe needs the climate
+    regime over the domain, not the map projection)."""
+    half_y = (max(2, int(e_sn)) - 1) * dy / 2.0 / 111000.0
+    coslat = max(0.15, math.cos(math.radians(lat)))
+    half_x = (max(2, int(e_we)) - 1) * dx / 2.0 / (111000.0 * coslat)
+    return (round(max(-89.0, lat - half_y), 2), round(min(89.0, lat + half_y), 2),
+            round(lon - half_x, 2), round(lon + half_x, 2))
+
+
+def auto_probe(namelist_path, case, resolved, args):
+    """Embed the SpeedyWeather probe INTO the tuner: derive the domain bbox, run
+    speedy_probe.jl (cached by bbox), and return (json_path, message). The probe is a
+    COMPONENT of the tuner -- screen/physics call this automatically unless --no-probe or
+    an explicit --probe-json is given. Returns (None, reason) when it cannot / should not
+    run (LES scale below validity floor, no lat/lon, no julia)."""
+    import subprocess
+    import tempfile
+    dxm = float(resolved.get('dx', 2500))
+    if dxm < 1000.0:      # validity floor: the global surrogate has no LES-scale flow
+        return None, 'dx={:.0f}m below SpeedyWeather validity (LES) -> probe skipped; analytic + WRF smoke only'.format(dxm)
+    lat, lon = case.get('latitude'), case.get('longitude')
+    if getattr(args, 'latlon', None):
+        try:
+            lat, lon = [float(x) for x in args.latlon.split(',')[:2]]
+        except (ValueError, IndexError):
+            pass
+    if lat is None or lon is None:
+        wps = getattr(args, 'wps', None) or os.path.join(os.path.dirname(os.path.abspath(namelist_path)), 'namelist.wps')
+        c = _read_wps_center(wps)
+        lat = lat if lat is not None else c.get('ref_lat')
+        lon = lon if lon is not None else c.get('ref_lon')
+    if lat is None or lon is None:
+        return None, 'no domain lat/lon (namelist has none; no readable namelist.wps/wrfinput) -> pass --latlon LAT,LON or --wps FILE'
+    lat0, lat1, lon0, lon1 = _bbox_from_center(lat, lon, case.get('e_we', 100), case.get('e_sn', 100),
+                                               dxm, float(resolved.get('dy', dxm)))
+    hours = int(getattr(args, 'probe_hours', 6) or 6)
+    cache_dir = os.environ.get('WTUNE_PROBE_CACHE', os.path.join(tempfile.gettempdir(), 'wtune_probe_cache'))
+    try:
+        os.makedirs(cache_dir, exist_ok=True)
+    except OSError:
+        cache_dir = tempfile.gettempdir()
+    tag = 'probe_{}_{}_{}_{}_h{}'.format(lat0, lat1, lon0, lon1, hours).replace('-', 'm').replace('.', 'p') + '.json'
+    out = os.path.join(cache_dir, tag)
+    bbox_s = 'lat[{},{}] lon[{},{}]'.format(lat0, lat1, lon0, lon1)
+    if os.path.exists(out) and os.path.getsize(out) > 0:
+        return out, 'cached SpeedyWeather probe ({})'.format(bbox_s)
+    wtune_dir = os.path.dirname(os.path.abspath(__file__))
+    julia = os.environ.get('WTUNE_JULIA') or shutil.which('julia') or os.path.expanduser('~/.juliaup/bin/julia')
+    jlenv = os.path.join(wtune_dir, 'jlenv')
+    script = os.path.join(wtune_dir, 'speedy_probe.jl')
+    if not (os.path.exists(julia) and os.path.isdir(jlenv) and os.path.exists(script)):
+        return None, 'julia/jlenv/speedy_probe.jl not found -> set WTUNE_JULIA or run the probe manually'
+    sys.stderr.write('[wtune] running SpeedyWeather probe ({}, {}h; first run compiles, ~1-3 min)...\n'.format(bbox_s, hours))
+    sys.stderr.flush()
+    cmd = [julia, '--project=' + jlenv, script, '--hours', str(hours),
+           '--lat0', str(lat0), '--lat1', str(lat1), '--lon0', str(lon0), '--lon1', str(lon1), '--out', out]
+    try:
+        r = subprocess.run(cmd, cwd=wtune_dir, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+                           timeout=int(os.environ.get('WTUNE_PROBE_TIMEOUT', '900')))
+    except subprocess.TimeoutExpired:
+        return None, 'SpeedyWeather probe timed out (raise WTUNE_PROBE_TIMEOUT)'
+    except Exception as exc:
+        return None, 'probe failed to launch: {}'.format(exc)
+    if r.returncode != 0 or not (os.path.exists(out) and os.path.getsize(out) > 0):
+        tail = (r.stderr.decode('utf-8', 'replace').strip().splitlines() or [''])[-1] if r.stderr else ''
+        return None, 'probe run failed (rc={}): {}'.format(r.returncode, tail)
+    return out, 'ran SpeedyWeather probe ({}, {}h)'.format(bbox_s, hours)
 
 
 def factor_pairs(n):
@@ -531,6 +627,11 @@ def physics_cmd(args):
     for line in phys.diagnose(resolved):
         print(line)
     print()
+    nest = phys.nesting_advice(_parse_nl_kv(args.namelist), resolved)
+    if nest:
+        for line in nest:
+            print(line)
+        print()
     print("RESULTS-AFFECTING NUMERICS (gated tuning only):")
     print("  radt: {}".format(phys.radt_advice(resolved)))
     print("  dt:   {}".format(phys.timestep_advice(resolved)))
@@ -539,9 +640,19 @@ def physics_cmd(args):
     for line in phys.numeric_speed_advice(resolved):
         print("  " + line if line else "")
     print()
+    # The SpeedyWeather probe is PART of the tuner: auto-run it (cached) unless the user
+    # passed --probe-json or --no-probe.
+    import wtune_surrogate as wsurr
+    probe = None
     if getattr(args, 'probe_json', None):
-        import wtune_surrogate as wsurr
         probe = wsurr.load_probe(args.probe_json)
+    elif not getattr(args, 'no_probe', False):
+        ppath, note = auto_probe(args.namelist, case, resolved, args)
+        print("SpeedyWeather probe: {}".format(note))
+        if ppath:
+            probe = wsurr.load_probe(ppath)
+        print()
+    if probe is not None:
         print("SPEEDYWEATHER SELF-VALIDATION (fast forecast checks the tuner's physics assumptions):")
         for line in wsurr.analyze_probe(probe, resolved):
             print("  " + line)
@@ -686,32 +797,28 @@ def selftest():
     nodes, numa_domains = 4, 8
 
     valid = enumerate_valid(nx, ny, ranks, nodes, numa_domains)
-    top3 = {(d['px'], d['py']) for d in valid[:3]}
+    rank = {(d['px'], d['py']): i for i, d in enumerate(valid)}
     bottom3 = {(d['px'], d['py']) for d in valid[-3:]}
 
-    ok1 = (8, 56) in top3
-    ok2 = (56, 8) in bottom3 and (112, 4) in bottom3
+    # Calibrated against the MEASURED CONUS 2.5km sweep (median s/step):
+    #   8x56 (0.9219, best) < 16x28 (0.9393) < 4x112 (1.0307, worst).
+    # The model must reproduce that ORDER, not just put 8x56 near the top.
+    ok1 = bool(valid) and (valid[0]['px'], valid[0]['py']) == (8, 56)      # 8x56 is the #1 pick
+    ok2 = rank.get((16, 28), 999) < rank.get((4, 112), -1)                 # 16x28 ranks ABOVE 4x112
+    ok3 = (56, 8) in bottom3 and (112, 4) in bottom3                       # transposes are worst
 
     print("CONUS 2.5km selftest (nx={}, ny={}, ranks={})".format(nx, ny, ranks))
     print("Valid decompositions:")
     for d in valid:
         print("  {}x{}  patch {}x{}  score {:.3f}".format(
             d['px'], d['py'], round(d['patch_x']), round(d['patch_y']), d['score']))
-    print("Top 3 by score: {}".format(", ".join("{}x{}".format(px, py) for px, py in sorted(top3))))
-    print("Bottom 3 by score: {}".format(", ".join("{}x{}".format(px, py) for px, py in sorted(bottom3))))
 
     ok = True
-    if ok1:
-        print("8x56 in top-3: PASS")
-    else:
-        print("8x56 in top-3: FAIL")
-        ok = False
-
-    if ok2:
-        print("56x8,112x4 in bottom-3: PASS")
-    else:
-        print("56x8,112x4 in bottom-3: FAIL")
-        ok = False
+    for label, cond in [("8x56 is the #1 pick (measured best)", ok1),
+                        ("16x28 ranks above 4x112 (measured order)", ok2),
+                        ("56x8,112x4 in bottom-3 (transposes worst)", ok3)]:
+        print("  {}: {}".format(label, "PASS" if cond else "FAIL"))
+        ok = ok and cond
 
     if ok:
         print("ALL PASS")
@@ -736,7 +843,7 @@ def audit_cmd(args):
         m = re.match(r'([A-Za-z][A-Za-z0-9_]*)\s*=\s*(.+?)\s*$', s)
         if m:
             nl_kv[m.group(1).lower()] = m.group(2).strip().rstrip(',').strip()
-    resolved, _ = phys.resolve_suite(parse_namelist(args.namelist))
+    resolved, _ = phys.resolve_suite(extract_case(parse_namelist(args.namelist)))
     print("=== wtune AUDIT -- Registry-driven coverage scan (general; works for any WRF namelist) ===")
     print("namelist:", args.namelist)
     print()
@@ -763,15 +870,37 @@ def screen_cmd(args):
     physics vet -> the survivors go to WRF empirical test."""
     import wtune_surrogate as wsurr
     nl_kv = _parse_nl_kv(args.namelist)
-    resolved, _ = phys.resolve_suite(parse_namelist(args.namelist))
-    probe = wsurr.load_probe(args.probe_json) if getattr(args, 'probe_json', None) else None
+    case = extract_case(parse_namelist(args.namelist))
+    case, _ = enrich_case(case, getattr(args, 'wrfinput', None))
+    resolved, _ = phys.resolve_suite(case)
+    # The SpeedyWeather probe is PART of the tuner: run it automatically here (cached by
+    # bbox) unless the user passed an explicit --probe-json or --no-probe.
+    probe, probe_src = None, None
+    if getattr(args, 'probe_json', None):
+        probe, probe_src = wsurr.load_probe(args.probe_json), args.probe_json
+    elif not getattr(args, 'no_probe', False):
+        ppath, probe_note = auto_probe(args.namelist, case, resolved, args)
+        if ppath:
+            probe, probe_src = wsurr.load_probe(ppath), '{}  [{}]'.format(ppath, probe_note)
+        else:
+            probe_src = 'AUTO-PROBE SKIPPED: {}'.format(probe_note)
     print("=== wtune SCREEN -- autotuner funnel: all params -> a few effective, without running 2062 ===")
-    print("namelist:", args.namelist, "| probe:", args.probe_json or "(none; physics candidates cannot be vetted -> run speedy_probe.jl)")
+    print("namelist:", args.namelist)
+    print("probe:", probe_src or "(--no-probe; physics candidates cannot be vetted)")
+    if probe is not None:
+        print()
+        for line in wsurr.analyze_probe(probe, resolved):
+            print(line)
     print()
     _, cnt = phys.coverage_audit(nl_kv, resolved)
     print("STAGE 0 -- full catalog classified: {} total = {} set / {} relevant-default / {} inert / {} plumbing".format(
         (cnt['set'] + cnt['relevant_default'] + cnt['inert'] + cnt['plumbing']),
         cnt['set'], cnt['relevant_default'], cnt['inert'], cnt['plumbing']))
+    nest = phys.nesting_advice(nl_kv, resolved)
+    if nest:
+        print()
+        for line in nest:
+            print(line)
     cands = phys.screen_candidates(nl_kv, resolved)
     print("\nSTAGE 1 -- analytic effective candidates ({}) [everything else: default optimal / correctness / inert]:".format(len(cands)))
     for c in cands:
@@ -819,8 +948,12 @@ def main():
     p_phys = sub.add_parser('physics', help='physics diagnosis + numerics advice + scheme menu')
     p_phys.add_argument('--namelist', required=True, help='path to namelist.input')
     p_phys.add_argument('--menu', action='store_true', help='also print the advisory scheme menu')
-    p_phys.add_argument('--wrfinput', default=None, help='wrfinput/wrfout for lat/lon/date (via ncdump -h)')
-    p_phys.add_argument('--probe-json', default=None, help='speedy_probe.jl JSON: SpeedyWeather physics-context self-validation')
+    p_phys.add_argument('--wrfinput', default=None, help='wrfinput/wrfout for lat/lon/date (via ncdump -h); also sets the probe bbox')
+    p_phys.add_argument('--probe-json', default=None, help='use THIS speedy_probe.jl JSON instead of auto-running the probe')
+    p_phys.add_argument('--wps', default=None, help='namelist.wps for the domain centre (default: sibling of --namelist)')
+    p_phys.add_argument('--latlon', default=None, help='override domain-centre "LAT,LON" for the probe bbox')
+    p_phys.add_argument('--probe-hours', type=int, default=6, help='SpeedyWeather probe forecast length (default 6)')
+    p_phys.add_argument('--no-probe', action='store_true', help='skip the built-in SpeedyWeather probe')
 
     p_knobs = sub.add_parser('knobs', help='full knob advisor: input-derived param recommendations + mismatch flags')
     p_knobs.add_argument('--namelist', required=True, help='path to namelist.input')
@@ -837,7 +970,12 @@ def main():
 
     p_screen = sub.add_parser('screen', help='autotuner funnel: analytic screen (all params) -> SpeedyWeather vet -> effective few')
     p_screen.add_argument('--namelist', required=True, help='path to namelist.input')
-    p_screen.add_argument('--probe-json', default=None, help='speedy_probe.jl JSON (Stage-2 physics vet)')
+    p_screen.add_argument('--probe-json', default=None, help='use THIS speedy_probe.jl JSON instead of auto-running the probe')
+    p_screen.add_argument('--wrfinput', default=None, help='wrfinput/wrfout for lat/lon/date (via ncdump -h); also sets the probe bbox')
+    p_screen.add_argument('--wps', default=None, help='namelist.wps for the domain centre (default: sibling of --namelist)')
+    p_screen.add_argument('--latlon', default=None, help='override domain-centre "LAT,LON" for the probe bbox')
+    p_screen.add_argument('--probe-hours', type=int, default=6, help='SpeedyWeather probe forecast length (default 6)')
+    p_screen.add_argument('--no-probe', action='store_true', help='skip the built-in SpeedyWeather probe (physics candidates stay NEED-PROBE)')
 
     sub.add_parser('selftest', help='run CONUS calibration self-test')
 

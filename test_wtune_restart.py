@@ -121,9 +121,9 @@ class RenderingTests(unittest.TestCase):
         self.assertNotIn("PENDING", wr.render_map(spec))
         wrapper = wr.render_wrapper(spec)
         self.assertTrue(wrapper.startswith("#!/bin/sh\n"))
-        self.assertIn("PMI_RANK", wrapper)
-        self.assertIn("OMP_NUM_THREADS", wrapper)
-        self.assertIn("exec", wrapper)
+        self.assertIn("WTUNE_PAYLOAD", wrapper)
+        self.assertIn("python3 -c", wrapper)
+        self.assertIn('"$@"', wrapper)
         self.assertNotIn("'config'", wrapper)
 
     def test_canonical_rendering_and_utc_offset(self):
@@ -176,6 +176,24 @@ class RenderingTests(unittest.TestCase):
             subprocess.check_call([path, command, "ran"], env=env)
             with open(out) as handle:
                 self.assertEqual(handle.read(), "2|{4,5}|close|ran")
+
+    def test_wrapper_preserves_piped_stdin_for_known_rank(self):
+        spec = {"config": {}, "allocations": [{"rank": 0, "team_size": 1,
+                "node": "n1", "numa_domain": 0, "cpus": [0]}]}
+        wrapper = wr.render_wrapper(spec)
+        payload = b"WRF stdin\\x00must survive\\n"
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "wrapper.sh")
+            with open(path, "w") as handle:
+                handle.write(wrapper)
+            os.chmod(path, 0o755)
+            env = os.environ.copy()
+            for key in ("OMPI_COMM_WORLD_RANK", "PMIX_RANK"):
+                env.pop(key, None)
+            env["PMI_RANK"] = "0"
+            completed = subprocess.run([path, "/bin/cat"], input=payload, env=env,
+                                       stdout=subprocess.PIPE, check=True)
+            self.assertEqual(completed.stdout, payload)
 
     def test_wrapper_rejects_missing_or_unknown_rank_without_running_target(self):
         spec = {"config": {}, "allocations": [{"rank": 3, "team_size": 1,

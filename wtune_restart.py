@@ -114,17 +114,31 @@ def allocate_teams(predicted_loads, legal_team_sizes, topology):
         raise ValueError("legal team sizes must be allowed by topology")
     domains = [(n["name"], d["id"], list(d["cpus"]))
                for n in topology["nodes"] for d in n["numa_domains"]]
-    if len(predicted_loads) > sum(len(c) // min(sizes) for _, _, c in domains):
+    minimum = min(sizes)
+    if len(predicted_loads) > sum(len(c) // minimum for _, _, c in domains):
         raise ValueError("NUMA capacity exceeded")
     allocations = []
-    for rank, load in sorted(enumerate(predicted_loads), key=lambda x: (-x[1], x[0])):
-        chosen = next((i for i, (_, _, cpus) in enumerate(domains)
-                       if len(cpus) >= min(sizes)), None)
+    ranked = sorted(enumerate(predicted_loads), key=lambda x: (-x[1], x[0]))
+    for priority, (rank, load) in enumerate(ranked):
+        unassigned = len(ranked) - priority - 1
+        chosen = None
+        for team in reversed(sizes):
+            for index, (_, _, cpus) in enumerate(domains):
+                if len(cpus) < team:
+                    continue
+                remaining = sum((len(other) - team if i == index else len(other))
+                                // minimum
+                                for i, (_, _, other) in enumerate(domains))
+                if remaining >= unassigned:
+                    chosen = (index, team)
+                    break
+            if chosen is not None:
+                break
         if chosen is None:
             raise ValueError("NUMA capacity exceeded")
-        name, domain, cpus = domains[chosen]
-        team = max(s for s in sizes if s <= len(cpus))
-        selected, domains[chosen] = cpus[:team], (name, domain, cpus[team:])
+        index, team = chosen
+        name, domain, cpus = domains[index]
+        selected, domains[index] = cpus[:team], (name, domain, cpus[team:])
         allocations.append({"rank": rank, "team_size": team, "node": name,
                             "resource_key": "%s:%s" % (name, domain),
                             "numa_domain": domain, "cpus": selected,

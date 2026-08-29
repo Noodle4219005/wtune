@@ -50,6 +50,29 @@ class TopologyTests(unittest.TestCase):
         self.assertTrue(all(a["predicted_speedup"] == 0.0 for a in alloc))
         self.assertEqual(alloc[0]["numa_domain"], 0)
 
+    def test_allocation_gives_heavier_ranks_larger_numa_local_teams(self):
+        topology = {"nodes": [{"name": "n", "numa_domains": [
+            {"id": 0, "cpus": [0, 1, 2, 3]},
+            {"id": 1, "cpus": [4, 5, 6, 7]},
+        ]}], "allowed_team_sizes": [1, 2, 4]}
+
+        try:
+            alloc = wr.allocate_teams([10, 2, 1, 0.5], [1, 2, 4], topology)
+        except ValueError as exc:
+            self.fail("valid weighted allocation was rejected: %s" % exc)
+
+        self.assertEqual([a["team_size"] for a in alloc], [4, 2, 1, 1])
+        self.assertGreater(alloc[0]["team_size"], alloc[-1]["team_size"])
+        domain_cpus = {0: {0, 1, 2, 3}, 1: {4, 5, 6, 7}}
+        cpu_pairs = [(a["node"], cpu) for a in alloc for cpu in a["cpus"]]
+        self.assertTrue(all(a["team_size"] in {1, 2, 4} for a in alloc))
+        self.assertTrue(all(len(a["cpus"]) == a["team_size"] for a in alloc))
+        self.assertTrue(all(set(a["cpus"]).issubset(domain_cpus[a["numa_domain"]])
+                            for a in alloc))
+        self.assertEqual(len(cpu_pairs), len(set(cpu_pairs)))
+        self.assertLessEqual(len(cpu_pairs), 8)
+        self.assertTrue(all(a["predicted_speedup"] == 0.0 for a in alloc))
+
     def test_topology_rejects_bad_ids_and_overlapping_cpus(self):
         for bad in ({"id": "0", "cpus": [0]}, {"id": 0, "cpus": [0, 0]}):
             topology = {"nodes": [{"name": "n", "numa_domains": [bad]}],
@@ -88,13 +111,15 @@ class TopologyTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             wr.allocate_teams([1], [3], self.topology)
 
-    def test_allocation_resource_keys_include_node_and_domain(self):
+    def test_allocation_distinguishes_equal_cpu_ids_on_different_nodes(self):
         topology = {"nodes": [
             {"name": "n1", "numa_domains": [{"id": 0, "cpus": [0]}]},
             {"name": "n2", "numa_domains": [{"id": 0, "cpus": [0]}]},
         ], "allowed_team_sizes": [1]}
-        alloc = wr.allocate_teams([2], [1], topology)
-        self.assertEqual(alloc[0]["resource_key"], "n1:0")
+        alloc = wr.allocate_teams([2, 1], [1], topology)
+        self.assertEqual([a["resource_key"] for a in alloc], ["n1:0", "n2:0"])
+        self.assertEqual([a["cpus"] for a in alloc], [[0], [0]])
+        self.assertEqual(len({(a["node"], cpu) for a in alloc for cpu in a["cpus"]}), 2)
 
     def test_score_fields_and_local_extent(self):
         candidates = wr.enumerate_candidates(4, 40, 20, self.topology,

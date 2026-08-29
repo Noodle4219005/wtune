@@ -169,9 +169,38 @@ class RenderingTests(unittest.TestCase):
                 handle.write("#!/bin/sh\nprintf '%%s|%%s|%%s|%%s' \"$OMP_NUM_THREADS\" \"$OMP_PLACES\" \"$OMP_PROC_BIND\" \"$1\" > \"%s\"\n" % out)
             os.chmod(path, 0o755)
             os.chmod(command, 0o755)
-            subprocess.check_call([path, command, "ran"])
+            env = os.environ.copy()
+            env.pop("OMPI_COMM_WORLD_RANK", None)
+            env.pop("PMIX_RANK", None)
+            env["PMI_RANK"] = "0"
+            subprocess.check_call([path, command, "ran"], env=env)
             with open(out) as handle:
                 self.assertEqual(handle.read(), "2|{4,5}|close|ran")
+
+    def test_wrapper_rejects_missing_or_unknown_rank_without_running_target(self):
+        spec = {"config": {}, "allocations": [{"rank": 3, "team_size": 1,
+                "node": "n1", "numa_domain": 0, "cpus": [7]}]}
+        wrapper = wr.render_wrapper(spec)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "wrapper.sh")
+            marker = os.path.join(tmp, "ran")
+            command = os.path.join(tmp, "fake.sh")
+            with open(path, "w") as handle:
+                handle.write(wrapper)
+            with open(command, "w") as handle:
+                handle.write("#!/bin/sh\ntouch %s\n" % marker)
+            os.chmod(path, 0o755)
+            os.chmod(command, 0o755)
+            for rank_env in ({}, {"PMI_RANK": "99"}):
+                env = os.environ.copy()
+                for key in ("PMI_RANK", "OMPI_COMM_WORLD_RANK", "PMIX_RANK"):
+                    env.pop(key, None)
+                env.update(rank_env)
+                completed = subprocess.run([path, command], env=env,
+                                           stdout=subprocess.PIPE,
+                                           stderr=subprocess.PIPE)
+                self.assertNotEqual(completed.returncode, 0)
+                self.assertFalse(os.path.exists(marker))
 
 
 if __name__ == "__main__":

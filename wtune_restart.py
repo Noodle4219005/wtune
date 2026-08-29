@@ -166,6 +166,27 @@ def render_map(spec):
 def render_wrapper(spec):
     manifest = render_manifest(spec)
     payload = base64.b64encode(_canonical(manifest).encode("ascii")).decode("ascii")
+    return ("#!/bin/sh\nset -eu\nexport WTUNE_PAYLOAD='%s'\n"
+            "exec python3 - \"$@\" <<'PY'\n"
+            "import base64, json, os, sys\n"
+            "def fail(message):\n    raise SystemExit('wtune wrapper: ' + message)\n"
+            "rank_text = next((os.environ[name] for name in "
+            "('PMI_RANK', 'OMPI_COMM_WORLD_RANK', 'PMIX_RANK') "
+            "if name in os.environ), None)\n"
+            "if rank_text is None: fail('rank is not set')\n"
+            "try:\n    rank = int(rank_text)\nexcept (TypeError, ValueError):\n    fail('rank is not an integer')\n"
+            "try:\n    data = json.loads(base64.b64decode(os.environ['WTUNE_PAYLOAD']).decode('ascii'))\n    allocations = data['allocations']\nexcept (KeyError, TypeError, ValueError, UnicodeDecodeError):\n    fail('invalid embedded payload')\n"
+            "if not isinstance(allocations, list): fail('allocations must be a list')\n"
+            "allocation = next((a for a in allocations if isinstance(a, dict) and type(a.get('rank')) is int and a['rank'] == rank), None)\n"
+            "if allocation is None: fail('rank has no allocation')\n"
+            "team_size, cpus = allocation.get('team_size'), allocation.get('cpus')\n"
+            "if type(team_size) is not int or team_size < 1 or not isinstance(cpus, list) or len(cpus) != team_size or any(type(cpu) is not int or cpu < 0 for cpu in cpus): fail('allocation types are invalid')\n"
+            "os.environ['OMP_NUM_THREADS'] = str(team_size)\n"
+            "os.environ['OMP_PLACES'] = '{%%s}' %% ','.join(str(cpu) for cpu in cpus)\n"
+            "os.environ['OMP_PROC_BIND'] = 'close'\n"
+            "if hasattr(os, 'sched_setaffinity'):\n    try: os.sched_setaffinity(0, cpus)\n    except (OSError, ValueError): pass\n"
+            "if len(sys.argv) < 2: fail('command is missing')\n"
+            "os.execvpe(sys.argv[1], sys.argv[1:], os.environ)\nPY\n" % payload)
     return """#!/bin/sh
 set -eu
 RANK=${PMI_RANK:-${OMPI_COMM_WORLD_RANK:-${PMIX_RANK:-0}}}

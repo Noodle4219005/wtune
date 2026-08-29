@@ -220,6 +220,49 @@ class RenderingTests(unittest.TestCase):
                 self.assertNotEqual(completed.returncode, 0)
                 self.assertFalse(os.path.exists(marker))
 
+    def test_wrapper_rejects_duplicate_rank_allocations_without_running_target(self):
+        spec = {"config": {}, "allocations": [
+            {"rank": 0, "team_size": 1, "node": "n1", "numa_domain": 0,
+             "cpus": [4]},
+            {"rank": 0, "team_size": 1, "node": "n1", "numa_domain": 0,
+             "cpus": [5]},
+        ]}
+        wrapper = wr.render_wrapper(spec)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "wrapper.sh")
+            marker = os.path.join(tmp, "ran")
+            with open(path, "w") as handle:
+                handle.write(wrapper)
+            os.chmod(path, 0o755)
+            env = os.environ.copy()
+            for key in ("PMI_RANK", "OMPI_COMM_WORLD_RANK", "PMIX_RANK"):
+                env.pop(key, None)
+            env["PMI_RANK"] = "0"
+            completed = subprocess.run([path, "/bin/sh", "-c", "touch \"$0\"", marker],
+                                       env=env, stdout=subprocess.PIPE,
+                                       stderr=subprocess.PIPE)
+            self.assertNotEqual(completed.returncode, 0)
+            self.assertFalse(os.path.exists(marker))
+
+    def test_wrapper_rejects_duplicate_cpu_ids_without_running_target(self):
+        spec = {"config": {}, "allocations": [{"rank": 0, "team_size": 2,
+                "node": "n1", "numa_domain": 0, "cpus": [4, 4]}]}
+        wrapper = wr.render_wrapper(spec)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "wrapper.sh")
+            marker = os.path.join(tmp, "ran")
+            with open(path, "w") as handle:
+                handle.write(wrapper)
+            os.chmod(path, 0o755)
+            env = os.environ.copy()
+            for key in ("PMI_RANK", "OMPI_COMM_WORLD_RANK", "PMIX_RANK"):
+                env.pop(key, None)
+            env["PMI_RANK"] = "0"
+            completed = subprocess.run([path, "/bin/sh", "-c", "touch \"$0\"", marker],
+                                       env=env, stdout=subprocess.PIPE,
+                                       stderr=subprocess.PIPE)
+            self.assertNotEqual(completed.returncode, 0)
+            self.assertFalse(os.path.exists(marker))
 
 if __name__ == "__main__":
     unittest.main()

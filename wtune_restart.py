@@ -1,5 +1,7 @@
 """Pure, deterministic restart-window advisor primitives (Python 3.6)."""
 import datetime as _dt
+import base64
+import copy
 import json
 
 
@@ -40,10 +42,11 @@ def validate_topology(topology):
     sizes = topology.get("allowed_team_sizes")
     if not sizes or any(type(x) is not int or x < 1 for x in sizes):
         raise ValueError("allowed_team_sizes must contain positive integers")
-    ids, cpus_seen = set(), set()
-    for node in topology["nodes"]:
+    result = copy.deepcopy(topology)
+    for node in result["nodes"]:
         if not node.get("name") or not node.get("numa_domains"):
             raise ValueError("each node requires name and numa_domains")
+        ids, cpus_seen = set(), set()
         for domain in node["numa_domains"]:
             ident, cpus = domain.get("id"), domain.get("cpus")
             if type(ident) is not int or ident in ids:
@@ -51,11 +54,9 @@ def validate_topology(topology):
             if not isinstance(cpus, list) or not cpus or any(type(c) is not int for c in cpus):
                 raise ValueError("each NUMA domain requires integer CPUs")
             if len(set(cpus)) != len(cpus) or cpus_seen.intersection(cpus):
-                raise ValueError("CPU lists must be globally disjoint")
+                raise ValueError("CPU lists must be disjoint within each node")
             ids.add(ident); cpus_seen.update(cpus)
-            if any(size > len(cpus) for size in sizes):
-                domain["max_team_size"] = max(s for s in sizes if s <= len(cpus)) if any(s <= len(cpus) for s in sizes) else 0
-    return topology
+    return result
 
 
 def _domain_capacities(topology):
@@ -104,10 +105,13 @@ def enumerate_candidates(rank_count, patch_x, patch_y, topology, local_patch_y=N
 
 
 def allocate_teams(predicted_loads, legal_team_sizes, topology):
-    validate_topology(topology)
+    topology = validate_topology(topology)
     sizes = sorted(set(legal_team_sizes))
     if not sizes or any(type(s) is not int or s < 1 for s in sizes):
         raise ValueError("no legal team sizes")
+    allowed = set(topology["allowed_team_sizes"])
+    if not set(sizes).issubset(allowed):
+        raise ValueError("legal team sizes must be allowed by topology")
     domains = [(n["name"], d["id"], list(d["cpus"]))
                for n in topology["nodes"] for d in n["numa_domains"]]
     if len(predicted_loads) > sum(len(c) // min(sizes) for _, _, c in domains):
@@ -122,6 +126,7 @@ def allocate_teams(predicted_loads, legal_team_sizes, topology):
         team = max(s for s in sizes if s <= len(cpus))
         selected, domains[chosen] = cpus[:team], (name, domain, cpus[team:])
         allocations.append({"rank": rank, "team_size": team, "node": name,
+                            "resource_key": "%s:%s" % (name, domain),
                             "numa_domain": domain, "cpus": selected,
                             "predicted_load": load, "predicted_speedup": 0.0})
     return sorted(allocations, key=lambda x: x["rank"])
@@ -146,8 +151,7 @@ def render_manifest(spec):
     out = dict(spec)
     config = dict(out.get("config", {}))
     local_y = out.get("local_patch_y", config.get("local_patch_y"))
-    if "numtiles" in config:
-        config = normalize_tile_config(config, local_y)
+    config = normalize_tile_config(config, local_y)
     out["config"] = config
     out.update(strict_bitwise="UNVERIFIED", scientific_tolerance="UNVERIFIED", actionable=False)
     for key in ("proxy_cost", "transition_cost", "restart_cost"):
@@ -161,12 +165,12 @@ def render_map(spec):
 
 def render_wrapper(spec):
     manifest = render_manifest(spec)
-    payload = _canonical(manifest)
+    payload = base64.b64encode(_canonical(manifest).encode("ascii")).decode("ascii")
     return """#!/bin/sh
 set -eu
 RANK=${PMI_RANK:-${OMPI_COMM_WORLD_RANK:-${PMIX_RANK:-0}}}
-THREADS=$(printf '%%s' '__PAYLOAD__' | python3 -c 'import json,sys; d=json.load(sys.stdin); a=next(x for x in d["allocations"] if x["rank"] == int("'"$RANK"'")); print(a["team_size"])')
-CPUS=$(printf '%%s' '__PAYLOAD__' | python3 -c 'import json,sys; d=json.load(sys.stdin); a=next(x for x in d["allocations"] if x["rank"] == int("'"$RANK"'")); print(",".join(map(str,a["cpus"])))')
-export OMP_NUM_THREADS=$THREADS OMP_PLACES=\"{\"$CPUS\"}\" OMP_PROC_BIND=close
+export WTUNE_PAYLOAD='__PAYLOAD__' WTUNE_RANK="$RANK"
+eval "$(python3 -c 'import base64,json,os; d=json.loads(base64.b64decode(os.environ[\"WTUNE_PAYLOAD\"]).decode(\"ascii\")); a=next(x for x in d.get(\"allocations\", []) if x[\"rank\"] == int(os.environ[\"WTUNE_RANK\"])); print(\"OMP_NUM_THREADS=%s\" % a[\"team_size\"]); print(\"OMP_PLACES=\\\"{%s}\\\"\" % \",\".join(map(str, a[\"cpus\"]))); print(\"OMP_PROC_BIND=close\")')"
+export OMP_NUM_THREADS OMP_PLACES OMP_PROC_BIND
 exec \"$@\"
 """.replace("__PAYLOAD__", payload)

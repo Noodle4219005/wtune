@@ -1,5 +1,10 @@
 import json
+import base64
 import datetime
+import copy
+import os
+import subprocess
+import tempfile
 import unittest
 
 import wtune_restart as wr
@@ -57,6 +62,17 @@ class TopologyTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             wr.validate_topology(topology)
 
+    def test_topology_ids_and_cpus_are_node_local_and_input_is_immutable(self):
+        topology = {"nodes": [
+            {"name": "n1", "numa_domains": [{"id": 0, "cpus": [0, 1]}]},
+            {"name": "n2", "numa_domains": [{"id": 0, "cpus": [0, 1]}]},
+        ], "allowed_team_sizes": [1, 2]}
+        original = copy.deepcopy(topology)
+        validated = wr.validate_topology(topology)
+        self.assertEqual(topology, original)
+        self.assertEqual(validated, topology)
+        self.assertIsNot(validated, topology)
+
     def test_candidates_and_allocation_use_per_domain_capacity_and_cpu_maps(self):
         topology = {"nodes": [{"name": "n", "numa_domains": [
             {"id": 0, "cpus": [0, 1]}, {"id": 1, "cpus": [2, 3]}]}],
@@ -67,6 +83,18 @@ class TopologyTests(unittest.TestCase):
         alloc = wr.allocate_teams([10, 2], [1, 2], topology)
         self.assertEqual(sum(len(a["cpus"]) for a in alloc), 4)
         self.assertEqual(len(set(cpu for a in alloc for cpu in a["cpus"])), 4)
+
+    def test_allocation_rejects_team_size_not_allowed_by_topology(self):
+        with self.assertRaises(ValueError):
+            wr.allocate_teams([1], [3], self.topology)
+
+    def test_allocation_resource_keys_include_node_and_domain(self):
+        topology = {"nodes": [
+            {"name": "n1", "numa_domains": [{"id": 0, "cpus": [0]}]},
+            {"name": "n2", "numa_domains": [{"id": 0, "cpus": [0]}]},
+        ], "allowed_team_sizes": [1]}
+        alloc = wr.allocate_teams([2], [1], topology)
+        self.assertEqual(alloc[0]["resource_key"], "n1:0")
 
     def test_score_fields_and_local_extent(self):
         candidates = wr.enumerate_candidates(4, 40, 20, self.topology,
@@ -110,6 +138,40 @@ class RenderingTests(unittest.TestCase):
             wr.normalize_tile_config({"strategy": 3})
         with self.assertRaises(ValueError):
             wr.normalize_tile_config({"strategy": 0, "numtiles_x": 2})
+
+    def test_all_renderers_reject_unsupported_tiles_without_scalar_numtiles(self):
+        for spec in ({"config": {"strategy": 3}},
+                     {"config": {"numtiles_x": 2}}):
+            for render in (wr.render_manifest, wr.render_map, wr.render_wrapper):
+                with self.assertRaises(ValueError):
+                    render(spec)
+
+    def test_renderers_preserve_explicit_proxy_transition_restart_fields(self):
+        spec = {"config": {}, "proxy_cost": 1, "transition_cost": "x",
+                "restart_cost": {"seconds": 2}}
+        self.assertEqual(wr.render_manifest(spec)["transition_cost"], "x")
+        self.assertIn('"proxy_cost":1', wr.render_map(spec))
+        wrapper = wr.render_wrapper(spec)
+        payload = wrapper.split("WTUNE_PAYLOAD='")[1].split("'")[0]
+        self.assertEqual(json.loads(base64.b64decode(payload).decode("ascii"))["restart_cost"], {"seconds": 2})
+
+    def test_wrapper_executes_fake_command_using_json_allocation(self):
+        spec = {"config": {}, "allocations": [{"rank": 0, "team_size": 2,
+                "node": "n1", "numa_domain": 0, "cpus": [4, 5]}]}
+        wrapper = wr.render_wrapper(spec)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "wrapper.sh")
+            out = os.path.join(tmp, "env.txt")
+            command = os.path.join(tmp, "fake.sh")
+            with open(path, "w") as handle:
+                handle.write(wrapper)
+            with open(command, "w") as handle:
+                handle.write("#!/bin/sh\nprintf '%%s|%%s|%%s|%%s' \"$OMP_NUM_THREADS\" \"$OMP_PLACES\" \"$OMP_PROC_BIND\" \"$1\" > \"%s\"\n" % out)
+            os.chmod(path, 0o755)
+            os.chmod(command, 0o755)
+            subprocess.check_call([path, command, "ran"])
+            with open(out) as handle:
+                self.assertEqual(handle.read(), "2|{4,5}|close|ran")
 
 
 if __name__ == "__main__":

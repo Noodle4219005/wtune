@@ -1,12 +1,19 @@
-"""Pure, deterministic restart-window advisor primitives."""
+"""Pure, deterministic restart-window advisor primitives (Python 3.6)."""
 import datetime as _dt
+import json
 
 
 def _utc(value):
     if isinstance(value, _dt.datetime):
-        return value.replace(tzinfo=value.tzinfo or _dt.timezone.utc)
-    text = value.replace("Z", "")
-    return _dt.datetime.strptime(text, "%Y-%m-%dT%H:%M:%S").replace(tzinfo=_dt.timezone.utc)
+        if value.tzinfo is None:
+            return value.replace(tzinfo=_dt.timezone.utc)
+        return value.astimezone(_dt.timezone.utc)
+    text = value[:-1] if value.endswith("Z") else value
+    if "+" in text[10:] or text.count("-") > 2:
+        parsed = _dt.datetime.strptime(text, "%Y-%m-%dT%H:%M:%S%z")
+    else:
+        parsed = _dt.datetime.strptime(text, "%Y-%m-%dT%H:%M:%S")
+    return _utc(parsed)
 
 
 def build_windows(run_total_hours, restart_interval, start_utc="2000-01-01T00:00:00Z",
@@ -16,8 +23,7 @@ def build_windows(run_total_hours, restart_interval, start_utc="2000-01-01T00:00
     if total <= 0 or size <= 0:
         raise ValueError("run duration and window size must be positive")
     start = _utc(start_utc)
-    out = []
-    hour = 0.0
+    out, hour = [], 0.0
     while hour < total:
         end = min(total, hour + size)
         stamp = start + _dt.timedelta(hours=hour)
@@ -32,88 +38,135 @@ def validate_topology(topology):
     if not isinstance(topology, dict) or not topology.get("nodes"):
         raise ValueError("topology requires non-empty nodes")
     sizes = topology.get("allowed_team_sizes")
-    if not sizes or any(not isinstance(x, int) or x < 1 for x in sizes):
+    if not sizes or any(type(x) is not int or x < 1 for x in sizes):
         raise ValueError("allowed_team_sizes must contain positive integers")
+    ids, cpus_seen = set(), set()
     for node in topology["nodes"]:
         if not node.get("name") or not node.get("numa_domains"):
             raise ValueError("each node requires name and numa_domains")
         for domain in node["numa_domains"]:
-            cpus = domain.get("cpus")
-            if not isinstance(cpus, list) or not cpus or len(set(cpus)) != len(cpus):
-                raise ValueError("each NUMA domain requires unique CPU list")
+            ident, cpus = domain.get("id"), domain.get("cpus")
+            if type(ident) is not int or ident in ids:
+                raise ValueError("NUMA/domain ids must be unique integers")
+            if not isinstance(cpus, list) or not cpus or any(type(c) is not int for c in cpus):
+                raise ValueError("each NUMA domain requires integer CPUs")
+            if len(set(cpus)) != len(cpus) or cpus_seen.intersection(cpus):
+                raise ValueError("CPU lists must be globally disjoint")
+            ids.add(ident); cpus_seen.update(cpus)
+            if any(size > len(cpus) for size in sizes):
+                domain["max_team_size"] = max(s for s in sizes if s <= len(cpus)) if any(s <= len(cpus) for s in sizes) else 0
     return topology
 
 
-def enumerate_candidates(rank_count, patch_x, patch_y, topology):
+def _domain_capacities(topology):
+    return [len(d["cpus"]) for n in topology["nodes"] for d in n["numa_domains"]]
+
+
+def score_candidate(candidate, predicted_loads=None):
+    structural = abs(candidate["px"] - candidate["py"]) + (1.0 / candidate["min_patch_y"])
+    criticality = 0.0
+    if predicted_loads:
+        criticality = max(predicted_loads) / float(sum(predicted_loads) or 1)
+    candidate = dict(candidate)
+    candidate.update(structural_score=structural, criticality_score=criticality,
+                     score=structural + criticality)
+    return candidate
+
+
+def enumerate_candidates(rank_count, patch_x, patch_y, topology, local_patch_y=None,
+                         predicted_loads=None):
     validate_topology(topology)
-    capacity = sum(len(d["cpus"]) for n in topology["nodes"] for d in n["numa_domains"])
-    sizes = sorted(set(topology["allowed_team_sizes"]))
-    if rank_count < 1 or rank_count * min(sizes) > capacity:
+    if rank_count < 1:
         return []
+    if local_patch_y is None:
+        raise ValueError("local_patch_y is required")
+    sizes = sorted(set(topology["allowed_team_sizes"]))
     result = []
     for px in range(1, rank_count + 1):
         if rank_count % px:
             continue
         py = rank_count // px
-        if patch_x // px < 10 or patch_y // py < 10:
+        lx, ly = patch_x // px, local_patch_y // py
+        if lx < 10 or ly < 10:
             continue
-        if any(rank_count * team > capacity for team in sizes[:1]):
+        if not any(all(cap >= rank_count * size for cap in _domain_capacities(topology))
+                   for size in sizes):
+            # A candidate may use several domains, but each rank's team must fit one domain.
+            if rank_count > sum(max(cap // min(sizes), 0) for cap in _domain_capacities(topology)):
+                continue
+        team = min((s for s in sizes if s <= max(_domain_capacities(topology))), default=0)
+        if not team:
             continue
-        result.append({"rank_count": rank_count, "px": px, "py": py,
-                       "min_patch_x": patch_x // px, "min_patch_y": patch_y // py})
-    return result
+        result.append(score_candidate({"rank_count": rank_count, "px": px, "py": py,
+                                       "team_size": team, "min_patch_x": lx,
+                                       "min_patch_y": ly}, predicted_loads))
+    return sorted(result, key=lambda c: (c["score"], c["px"], c["py"]))
 
 
 def allocate_teams(predicted_loads, legal_team_sizes, topology):
     validate_topology(topology)
-    domains = [(n["name"], d["id"], len(d["cpus"]))
-               for n in topology["nodes"] for d in n["numa_domains"]]
     sizes = sorted(set(legal_team_sizes))
-    if not sizes:
+    if not sizes or any(type(s) is not int or s < 1 for s in sizes):
         raise ValueError("no legal team sizes")
+    domains = [(n["name"], d["id"], list(d["cpus"]))
+               for n in topology["nodes"] for d in n["numa_domains"]]
+    if len(predicted_loads) > sum(len(c) // min(sizes) for _, _, c in domains):
+        raise ValueError("NUMA capacity exceeded")
     allocations = []
-    remaining = list(domains)
     for rank, load in sorted(enumerate(predicted_loads), key=lambda x: (-x[1], x[0])):
-        chosen = next((i for i, (_, _, cap) in enumerate(remaining) if max(sizes) <= cap), None)
-        if chosen is None:
-            chosen = next((i for i, (_, _, cap) in enumerate(remaining) if min(sizes) <= cap), None)
+        chosen = next((i for i, (_, _, cpus) in enumerate(domains)
+                       if len(cpus) >= min(sizes)), None)
         if chosen is None:
             raise ValueError("NUMA capacity exceeded")
-        name, domain, cap = remaining[chosen]
-        team = max(s for s in sizes if s <= cap) if not allocations else min(s for s in sizes if s <= cap)
+        name, domain, cpus = domains[chosen]
+        team = max(s for s in sizes if s <= len(cpus))
+        selected, domains[chosen] = cpus[:team], (name, domain, cpus[team:])
         allocations.append({"rank": rank, "team_size": team, "node": name,
-                            "numa_domain": domain, "predicted_load": load,
-                            "predicted_speedup": 0.0})
-        remaining[chosen] = (name, domain, cap - team)
+                            "numa_domain": domain, "cpus": selected,
+                            "predicted_load": load, "predicted_speedup": 0.0})
     return sorted(allocations, key=lambda x: x["rank"])
 
 
-def normalize_tile_config(config):
+def normalize_tile_config(config, local_patch_y=None):
     cfg = dict(config)
     if cfg.get("strategy") == 3 or "numtiles_x" in cfg or "numtiles_y" in cfg:
         raise ValueError("strategy 3 and explicit numtiles_x/y are unsupported")
-    if cfg.get("strategy", 0) == 0 and "numtiles" in cfg and "rank_count" in cfg:
-        cfg["numtiles"] = min(int(cfg["numtiles"]), int(cfg["rank_count"]))
+    if cfg.get("strategy", 0) == 0 and "numtiles" in cfg:
+        if local_patch_y is None:
+            raise ValueError("local_patch_y is required for scalar numtiles")
+        cfg["numtiles"] = min(int(cfg["numtiles"]), int(local_patch_y))
     return cfg
+
+
+def _canonical(spec):
+    return json.dumps(spec, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
 
 
 def render_manifest(spec):
     out = dict(spec)
     config = dict(out.get("config", {}))
-    if "rank_count" not in config and out.get("candidates"):
-        config["rank_count"] = max(c["rank_count"] for c in out["candidates"])
-    out["config"] = normalize_tile_config(config)
-    out["verdict"] = "PENDING"
-    out["scientific_verdict"] = "UNVERIFIED"
-    out.setdefault("proxy_cost", None)
-    out.setdefault("transition_cost", "UNKNOWN")
-    out.setdefault("restart_cost", None)
+    local_y = out.get("local_patch_y", config.get("local_patch_y"))
+    if "numtiles" in config:
+        config = normalize_tile_config(config, local_y)
+    out["config"] = config
+    out.update(strict_bitwise="UNVERIFIED", scientific_tolerance="UNVERIFIED", actionable=False)
+    for key in ("proxy_cost", "transition_cost", "restart_cost"):
+        out.setdefault(key, None)
     return out
 
 
 def render_map(spec):
-    return "# rank map\nverdict=PENDING\nscientific_verdict=UNVERIFIED\n" + repr(spec)
+    return "# rank map\n" + _canonical(render_manifest(spec)) + "\n"
 
 
 def render_wrapper(spec):
-    return "#!/bin/sh\n# verdict=PENDING scientific_verdict=UNVERIFIED\n" + repr(spec) + "\n"
+    manifest = render_manifest(spec)
+    payload = _canonical(manifest)
+    return """#!/bin/sh
+set -eu
+RANK=${PMI_RANK:-${OMPI_COMM_WORLD_RANK:-${PMIX_RANK:-0}}}
+THREADS=$(printf '%%s' '__PAYLOAD__' | python3 -c 'import json,sys; d=json.load(sys.stdin); a=next(x for x in d["allocations"] if x["rank"] == int("'"$RANK"'")); print(a["team_size"])')
+CPUS=$(printf '%%s' '__PAYLOAD__' | python3 -c 'import json,sys; d=json.load(sys.stdin); a=next(x for x in d["allocations"] if x["rank"] == int("'"$RANK"'")); print(",".join(map(str,a["cpus"])))')
+export OMP_NUM_THREADS=$THREADS OMP_PLACES=\"{\"$CPUS\"}\" OMP_PROC_BIND=close
+exec \"$@\"
+""".replace("__PAYLOAD__", payload)

@@ -1,4 +1,5 @@
 import contextlib
+import copy
 import io
 import json
 import os
@@ -193,6 +194,120 @@ class RestartWindowCliTests(unittest.TestCase):
             self.assertNotEqual(code, 0)
             self.assertIn('overlap', err.lower())
             self.assertFalse(os.path.exists(output))
+
+    def test_cli_rejects_manifest_path_collisions_without_mutating_inputs(self):
+        for collision in ('namelist', 'snapshot', 'topology'):
+            with tempfile.TemporaryDirectory() as root:
+                namelist = self._write_case(root)
+                topology = self._write_topology(root)
+                snapshot = os.path.join(root, 'snapshot')
+                with open(snapshot, 'w'):
+                    pass
+                inputs = {'namelist': namelist, 'snapshot': snapshot,
+                          'topology': topology}
+                before = {}
+                for key, path in inputs.items():
+                    with open(path, 'rb') as handle:
+                        before[key] = handle.read()
+                output = os.path.join(root, 'out')
+                code, unused_out, err = self._run_cli([
+                    'restart-window', '--namelist', namelist, '--snapshot', snapshot,
+                    '--topology-json', topology, '--manifest-out', inputs[collision],
+                    '--output-dir', output])
+                self.assertNotEqual(code, 0)
+                self.assertIn('collision', err.lower())
+                for key, path in inputs.items():
+                    with open(path, 'rb') as handle:
+                        self.assertEqual(handle.read(), before[key])
+                self.assertFalse(os.path.exists(output))
+
+    def test_cli_rejects_complete_malformed_allocations_before_rendering(self):
+        valid = [{'rank': rank, 'team_size': 1, 'node': 'n1', 'numa_domain': 0,
+                  'resource_key': 'n1:0', 'cpus': [rank]}
+                 for rank in range(4)]
+        malformed = []
+        case = copy.deepcopy(valid)
+        case[0]['cpus'] = []
+        malformed.append(('empty CPU list', case))
+        case = copy.deepcopy(valid)
+        case[0]['cpus'] = [-1]
+        malformed.append(('negative CPU', case))
+        case = copy.deepcopy(valid)
+        case[0]['team_size'] = 2
+        malformed.append(('team size mismatch', case))
+        case = copy.deepcopy(valid)
+        del case[0]['team_size']
+        malformed.append(('missing team size', case))
+        case = copy.deepcopy(valid)
+        case[0]['team_size'] = '1'
+        malformed.append(('invalid team size', case))
+        case = copy.deepcopy(valid)
+        case[0]['node'] = 'unknown-node'
+        malformed.append(('unknown node', case))
+        case = copy.deepcopy(valid)
+        case[0]['cpus'] = [99]
+        malformed.append(('CPU absent from topology', case))
+        for label, allocation in malformed:
+            with self.subTest(label=label), tempfile.TemporaryDirectory() as root:
+                namelist = self._write_case(root)
+                topology = self._write_topology(root)
+                snapshot = os.path.join(root, 'snapshot')
+                with open(snapshot, 'w'):
+                    pass
+                output = os.path.join(root, 'out')
+                with mock.patch.object(wtune_restart, 'allocate_teams',
+                                       return_value=allocation):
+                    code, unused_out, err = self._run_cli([
+                        'restart-window', '--namelist', namelist, '--snapshot', snapshot,
+                        '--topology-json', topology, '--output-dir', output])
+                self.assertNotEqual(code, 0)
+                self.assertIn('allocation', err.lower())
+                self.assertFalse(os.path.exists(output))
+
+    def test_cli_rejects_unselectable_rank_count_and_nonpositive_top_k(self):
+        with tempfile.TemporaryDirectory() as root:
+            namelist = self._write_case(root)
+            topology = self._write_topology(root)
+            snapshot = os.path.join(root, 'snapshot')
+            with open(snapshot, 'w'):
+                pass
+            output = os.path.join(root, 'out')
+            code, unused_out, err = self._run_cli([
+                'restart-window', '--namelist', namelist, '--snapshot', snapshot,
+                '--topology-json', topology, '--rank-counts', '5',
+                '--output-dir', output])
+            self.assertNotEqual(code, 0)
+            self.assertIn('legal', err.lower())
+            self.assertFalse(os.path.exists(output))
+            code, unused_out, err = self._run_cli([
+                'restart-window', '--namelist', namelist, '--snapshot', snapshot,
+                '--topology-json', topology, '--top-k', '0', '--output-dir', output])
+            self.assertNotEqual(code, 0)
+            self.assertIn('top-k', err.lower())
+            self.assertFalse(os.path.exists(output))
+
+    def test_manifest_records_resolvable_absolute_artifact_paths(self):
+        with tempfile.TemporaryDirectory() as root:
+            namelist = self._write_case(root)
+            topology = self._write_topology(root)
+            snapshot = os.path.join(root, 'snapshot')
+            with open(snapshot, 'w'):
+                pass
+            output = os.path.join(root, 'artifacts')
+            manifest_path = os.path.join(root, 'manifest.json')
+            code, unused_out, err = self._run_cli([
+                'restart-window', '--namelist', namelist, '--snapshot', snapshot,
+                '--topology-json', topology, '--manifest-out', manifest_path,
+                '--output-dir', output])
+            self.assertEqual(code, 0, err)
+            with open(manifest_path) as handle:
+                manifest = json.load(handle)
+            for window in manifest['windows']:
+                for choice in window['choices']:
+                    self.assertTrue(os.path.isabs(choice['map']))
+                    self.assertTrue(os.path.isabs(choice['wrapper']))
+                    self.assertTrue(os.path.isfile(choice['map']))
+                    self.assertTrue(os.path.isfile(choice['wrapper']))
 
 
 if __name__ == '__main__':

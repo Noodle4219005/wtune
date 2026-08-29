@@ -221,6 +221,115 @@ class RestartWindowCliTests(unittest.TestCase):
                         self.assertEqual(handle.read(), before[key])
                 self.assertFalse(os.path.exists(output))
 
+    def test_cli_rejects_manifest_path_equal_to_generated_artifact(self):
+        with tempfile.TemporaryDirectory() as root:
+            namelist = self._write_case(root)
+            topology = self._write_topology(root)
+            snapshot = os.path.join(root, 'snapshot')
+            with open(snapshot, 'w'):
+                pass
+            output = os.path.join(root, 'out')
+            manifest = os.path.join(output, 'window-000-ranks-4.map')
+            code, unused_out, err = self._run_cli([
+                'restart-window', '--namelist', namelist, '--snapshot', snapshot,
+                '--topology-json', topology, '--manifest-out', manifest,
+                '--output-dir', output])
+            self.assertNotEqual(code, 0)
+            self.assertIn('duplicate output path', err.lower())
+            self.assertFalse(os.path.exists(output))
+
+    def test_cli_reports_malformed_topology_without_traceback(self):
+        with tempfile.TemporaryDirectory() as root:
+            namelist = self._write_case(root)
+            topology = os.path.join(root, 'topology.json')
+            with open(topology, 'w') as handle:
+                json.dump({'nodes': [None], 'allowed_team_sizes': [1]}, handle)
+            snapshot = os.path.join(root, 'snapshot')
+            with open(snapshot, 'w'):
+                pass
+            output = os.path.join(root, 'out')
+            code, unused_out, err = self._run_cli([
+                'restart-window', '--namelist', namelist, '--snapshot', snapshot,
+                '--topology-json', topology, '--output-dir', output])
+            self.assertNotEqual(code, 0)
+            self.assertIn('ERROR restart-window:', err)
+            self.assertNotIn('Traceback', err)
+            self.assertFalse(os.path.exists(output))
+
+    def test_cli_publishes_generated_artifacts_before_manifest(self):
+        with tempfile.TemporaryDirectory() as root:
+            namelist = self._write_case(root)
+            topology = self._write_topology(root)
+            snapshot = os.path.join(root, 'snapshot')
+            with open(snapshot, 'w'):
+                pass
+            output = os.path.join(root, 'out')
+            manifest = os.path.join(root, 'manifest.json')
+            destinations = []
+            real_replace = os.replace
+
+            def record_replace(source, destination):
+                destinations.append(destination)
+                return real_replace(source, destination)
+
+            with mock.patch.object(wtune.os, 'replace', side_effect=record_replace):
+                code, unused_out, err = self._run_cli([
+                    'restart-window', '--namelist', namelist, '--snapshot', snapshot,
+                    '--topology-json', topology, '--manifest-out', manifest,
+                    '--output-dir', output])
+            self.assertEqual(code, 0, err)
+            self.assertEqual(destinations[-1], os.path.realpath(manifest))
+            self.assertTrue(all(path != os.path.realpath(manifest)
+                                for path in destinations[:-1]))
+
+    def test_cli_rolls_back_partial_publication_after_late_replace_failure(self):
+        with tempfile.TemporaryDirectory() as root:
+            namelist = self._write_case(root)
+            topology = self._write_topology(root)
+            snapshot = os.path.join(root, 'snapshot')
+            with open(snapshot, 'w'):
+                pass
+            output = os.path.join(root, 'out')
+            os.makedirs(output)
+            manifest = os.path.join(root, 'manifest.json')
+            artifact_names = [
+                'window-000-ranks-4.map', 'window-000-ranks-4.sh',
+                'window-001-ranks-4.map', 'window-001-ranks-4.sh',
+            ]
+            originals = {manifest: 'old manifest\n'}
+            originals.update((os.path.join(output, name), 'old ' + name + '\n')
+                             for name in artifact_names)
+            unrelated = os.path.join(output, 'keep.txt')
+            for path, content in originals.items():
+                with open(path, 'w') as handle:
+                    handle.write(content)
+            with open(unrelated, 'w') as handle:
+                handle.write('keep me\n')
+            real_replace = os.replace
+            failed = [False]
+
+            def fail_once_on_wrapper(source, destination):
+                if destination.endswith('.sh') and not failed[0]:
+                    failed[0] = True
+                    raise OSError('injected late publication failure')
+                return real_replace(source, destination)
+
+            with mock.patch.object(wtune.os, 'replace',
+                                   side_effect=fail_once_on_wrapper):
+                code, unused_out, err = self._run_cli([
+                    'restart-window', '--namelist', namelist, '--snapshot', snapshot,
+                    '--topology-json', topology, '--manifest-out', manifest,
+                    '--output-dir', output])
+            self.assertNotEqual(code, 0)
+            self.assertIn('writing artifacts', err.lower())
+            for path, content in originals.items():
+                with open(path) as handle:
+                    self.assertEqual(handle.read(), content)
+            with open(unrelated) as handle:
+                self.assertEqual(handle.read(), 'keep me\n')
+            self.assertFalse(any(name.startswith('.wtune-')
+                                 for name in os.listdir(output)))
+
     def test_cli_rejects_complete_malformed_allocations_before_rendering(self):
         valid = [{'rank': rank, 'team_size': 1, 'node': 'n1', 'numa_domain': 0,
                   'resource_key': 'n1:0', 'cpus': [rank]}
@@ -293,19 +402,26 @@ class RestartWindowCliTests(unittest.TestCase):
             snapshot = os.path.join(root, 'snapshot')
             with open(snapshot, 'w'):
                 pass
+            canonical_output = os.path.join(root, 'canonical-artifacts')
+            os.makedirs(canonical_output)
             output = os.path.join(root, 'artifacts')
-            manifest_path = os.path.join(root, 'manifest.json')
-            code, unused_out, err = self._run_cli([
+            os.symlink(canonical_output, output)
+            manifest_path = os.path.join(output, 'manifest.json')
+            code, out, err = self._run_cli([
                 'restart-window', '--namelist', namelist, '--snapshot', snapshot,
                 '--topology-json', topology, '--manifest-out', manifest_path,
                 '--output-dir', output])
             self.assertEqual(code, 0, err)
-            with open(manifest_path) as handle:
+            canonical_manifest = os.path.realpath(manifest_path)
+            self.assertIn('created: {}'.format(canonical_manifest), out)
+            with open(canonical_manifest) as handle:
                 manifest = json.load(handle)
             for window in manifest['windows']:
                 for choice in window['choices']:
                     self.assertTrue(os.path.isabs(choice['map']))
                     self.assertTrue(os.path.isabs(choice['wrapper']))
+                    self.assertEqual(choice['map'], os.path.realpath(choice['map']))
+                    self.assertEqual(choice['wrapper'], os.path.realpath(choice['wrapper']))
                     self.assertTrue(os.path.isfile(choice['map']))
                     self.assertTrue(os.path.isfile(choice['wrapper']))
 

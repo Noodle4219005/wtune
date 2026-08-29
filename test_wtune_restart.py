@@ -3,7 +3,9 @@ import base64
 import datetime
 import copy
 import os
+import socket
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -84,6 +86,34 @@ class TopologyTests(unittest.TestCase):
                     "allowed_team_sizes": [1]}
         with self.assertRaises(ValueError):
             wr.validate_topology(topology)
+
+    def test_topology_rejects_malformed_containers_duplicate_nodes_and_negative_ids(self):
+        bad_topologies = [
+            {"nodes": "n1", "allowed_team_sizes": [1]},
+            {"nodes": [None], "allowed_team_sizes": [1]},
+            {"nodes": [{"name": "", "numa_domains": [
+                {"id": 0, "cpus": [0]}]}], "allowed_team_sizes": [1]},
+            {"nodes": [
+                {"name": "n1", "numa_domains": [{"id": 0, "cpus": [0]}]},
+                {"name": "n1", "numa_domains": [{"id": 0, "cpus": [1]}]},
+            ], "allowed_team_sizes": [1]},
+            {"nodes": [{"name": "n1", "numa_domains": {}}],
+             "allowed_team_sizes": [1]},
+            {"nodes": [{"name": "n1", "numa_domains": [None]}],
+             "allowed_team_sizes": [1]},
+            {"nodes": [{"name": "n1", "numa_domains": [
+                {"id": -1, "cpus": [0]}]}], "allowed_team_sizes": [1]},
+            {"nodes": [{"name": "n1", "numa_domains": [
+                {"id": 0, "cpus": "0"}]}], "allowed_team_sizes": [1]},
+            {"nodes": [{"name": "n1", "numa_domains": [
+                {"id": 0, "cpus": [-1]}]}], "allowed_team_sizes": [1]},
+            {"nodes": [{"name": "n1", "numa_domains": [
+                {"id": 0, "cpus": [0]}]}], "allowed_team_sizes": "1"},
+        ]
+        for topology in bad_topologies:
+            with self.subTest(topology=topology):
+                with self.assertRaises(ValueError):
+                    wr.validate_topology(topology)
 
     def test_topology_ids_and_cpus_are_node_local_and_input_is_immutable(self):
         topology = {"nodes": [
@@ -181,8 +211,9 @@ class RenderingTests(unittest.TestCase):
         self.assertEqual(json.loads(base64.b64decode(payload).decode("ascii"))["restart_cost"], {"seconds": 2})
 
     def test_wrapper_executes_fake_command_using_json_allocation(self):
-        spec = {"config": {}, "allocations": [{"rank": 0, "team_size": 2,
-                "node": "n1", "numa_domain": 0, "cpus": [4, 5]}]}
+        cpu = min(os.sched_getaffinity(0))
+        spec = {"config": {}, "allocations": [{"rank": 0, "team_size": 1,
+                "node": socket.gethostname(), "numa_domain": 0, "cpus": [cpu]}]}
         wrapper = wr.render_wrapper(spec)
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, "wrapper.sh")
@@ -200,11 +231,12 @@ class RenderingTests(unittest.TestCase):
             env["PMI_RANK"] = "0"
             subprocess.check_call([path, command, "ran"], env=env)
             with open(out) as handle:
-                self.assertEqual(handle.read(), "2|{4,5}|close|ran")
+                self.assertEqual(handle.read(), "1|{%s}|close|ran" % cpu)
 
     def test_wrapper_preserves_piped_stdin_for_known_rank(self):
+        cpu = min(os.sched_getaffinity(0))
         spec = {"config": {}, "allocations": [{"rank": 0, "team_size": 1,
-                "node": "n1", "numa_domain": 0, "cpus": [0]}]}
+                "node": socket.gethostname(), "numa_domain": 0, "cpus": [cpu]}]}
         wrapper = wr.render_wrapper(spec)
         payload = b"WRF stdin\\x00must survive\\n"
         with tempfile.TemporaryDirectory() as tmp:
@@ -219,6 +251,95 @@ class RenderingTests(unittest.TestCase):
             completed = subprocess.run([path, "/bin/cat"], input=payload, env=env,
                                        stdout=subprocess.PIPE, check=True)
             self.assertEqual(completed.stdout, payload)
+
+    def test_wrapper_rejects_wrong_node_without_running_target(self):
+        cpu = min(os.sched_getaffinity(0))
+        spec = {"config": {}, "allocations": [{"rank": 0, "team_size": 1,
+                "node": "wrong-" + socket.gethostname(), "numa_domain": 0,
+                "cpus": [cpu]}]}
+        wrapper = wr.render_wrapper(spec)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "wrapper.sh")
+            marker = os.path.join(tmp, "ran")
+            with open(path, "w") as handle:
+                handle.write(wrapper)
+            os.chmod(path, 0o755)
+            env = os.environ.copy()
+            for key in ("PMI_RANK", "OMPI_COMM_WORLD_RANK", "PMIX_RANK"):
+                env.pop(key, None)
+            env["PMI_RANK"] = "0"
+            completed = subprocess.run(
+                [path, "/bin/sh", "-c", "touch \"$0\"", marker], env=env,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            self.assertNotEqual(completed.returncode, 0)
+            self.assertIn(b"node", completed.stderr.lower())
+            self.assertFalse(os.path.exists(marker))
+
+    def test_wrapper_rejects_unavailable_failed_or_inexact_affinity_without_target(self):
+        cpu = min(os.sched_getaffinity(0))
+        hostname = socket.gethostname()
+        equivalent = (hostname.split(".", 1)[0] if "." in hostname
+                      else hostname + ".example.invalid")
+        spec = {"config": {}, "allocations": [{"rank": 0, "team_size": 1,
+                "node": equivalent, "numa_domain": 0, "cpus": [cpu]}]}
+        wrapper = wr.render_wrapper(spec)
+        sitecustomize = (
+            "import os\n"
+            "mode = os.environ.get('WTUNE_TEST_AFFINITY_MODE')\n"
+            "if mode == 'unavailable':\n"
+            "    for name in ('sched_setaffinity', 'sched_getaffinity'):\n"
+            "        if hasattr(os, name): delattr(os, name)\n"
+            "elif mode == 'set-fails':\n"
+            "    def fail_set(pid, cpus): raise OSError('injected set failure')\n"
+            "    os.sched_setaffinity = fail_set\n"
+            "elif mode == 'mismatch':\n"
+            "    os.sched_setaffinity = lambda pid, cpus: None\n"
+            "    os.sched_getaffinity = lambda pid: set()\n")
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "wrapper.sh")
+            python = os.path.join(tmp, "python3")
+            marker = os.path.join(tmp, "ran")
+            with open(path, "w") as handle:
+                handle.write(wrapper)
+            with open(python, "w") as handle:
+                handle.write("#!/bin/sh\nexec \"%s\" \"$@\"\n" % sys.executable)
+            with open(os.path.join(tmp, "sitecustomize.py"), "w") as handle:
+                handle.write(sitecustomize)
+            os.chmod(path, 0o755)
+            os.chmod(python, 0o755)
+            for mode in ("unavailable", "set-fails", "mismatch"):
+                with self.subTest(mode=mode):
+                    env = os.environ.copy()
+                    for key in ("PMI_RANK", "OMPI_COMM_WORLD_RANK", "PMIX_RANK"):
+                        env.pop(key, None)
+                    env.update(PMI_RANK="0", WTUNE_TEST_AFFINITY_MODE=mode,
+                               PATH=tmp + os.pathsep + env.get("PATH", ""),
+                               PYTHONPATH=tmp)
+                    completed = subprocess.run(
+                        [path, "/bin/sh", "-c", "touch \"$0\"", marker], env=env,
+                        stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                    self.assertNotEqual(completed.returncode, 0)
+                    self.assertIn(b"affinity", completed.stderr.lower())
+                    self.assertFalse(os.path.exists(marker))
+
+    def test_wrapper_rejects_missing_target_after_valid_placement(self):
+        cpu = min(os.sched_getaffinity(0))
+        spec = {"config": {}, "allocations": [{"rank": 0, "team_size": 1,
+                "node": socket.gethostname(), "numa_domain": 0, "cpus": [cpu]}]}
+        wrapper = wr.render_wrapper(spec)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "wrapper.sh")
+            with open(path, "w") as handle:
+                handle.write(wrapper)
+            os.chmod(path, 0o755)
+            env = os.environ.copy()
+            for key in ("PMI_RANK", "OMPI_COMM_WORLD_RANK", "PMIX_RANK"):
+                env.pop(key, None)
+            env["PMI_RANK"] = "0"
+            completed = subprocess.run([path], env=env, stdout=subprocess.PIPE,
+                                       stderr=subprocess.PIPE)
+            self.assertNotEqual(completed.returncode, 0)
+            self.assertIn(b"command is missing", completed.stderr.lower())
 
     def test_wrapper_rejects_missing_or_unknown_rank_without_running_target(self):
         spec = {"config": {}, "allocations": [{"rank": 3, "team_size": 1,

@@ -37,22 +37,36 @@ def build_windows(run_total_hours, restart_interval, start_utc="2000-01-01T00:00
 
 
 def validate_topology(topology):
-    if not isinstance(topology, dict) or not topology.get("nodes"):
+    if not isinstance(topology, dict):
+        raise ValueError("topology must be an object")
+    nodes = topology.get("nodes")
+    if not isinstance(nodes, list) or not nodes:
         raise ValueError("topology requires non-empty nodes")
     sizes = topology.get("allowed_team_sizes")
-    if not sizes or any(type(x) is not int or x < 1 for x in sizes):
+    if not isinstance(sizes, list) or not sizes or any(
+            type(x) is not int or x < 1 for x in sizes):
         raise ValueError("allowed_team_sizes must contain positive integers")
     result = copy.deepcopy(topology)
+    names = set()
     for node in result["nodes"]:
-        if not node.get("name") or not node.get("numa_domains"):
+        if not isinstance(node, dict):
+            raise ValueError("each node must be an object")
+        name, domains = node.get("name"), node.get("numa_domains")
+        if not isinstance(name, str) or not name or name in names:
+            raise ValueError("node names must be non-empty and unique")
+        if not isinstance(domains, list) or not domains:
             raise ValueError("each node requires name and numa_domains")
+        names.add(name)
         ids, cpus_seen = set(), set()
-        for domain in node["numa_domains"]:
+        for domain in domains:
+            if not isinstance(domain, dict):
+                raise ValueError("each NUMA domain must be an object")
             ident, cpus = domain.get("id"), domain.get("cpus")
-            if type(ident) is not int or ident in ids:
-                raise ValueError("NUMA/domain ids must be unique integers")
-            if not isinstance(cpus, list) or not cpus or any(type(c) is not int for c in cpus):
-                raise ValueError("each NUMA domain requires integer CPUs")
+            if type(ident) is not int or ident < 0 or ident in ids:
+                raise ValueError("NUMA/domain ids must be unique non-negative integers")
+            if not isinstance(cpus, list) or not cpus or any(
+                    type(c) is not int or c < 0 for c in cpus):
+                raise ValueError("each NUMA domain requires non-negative integer CPUs")
             if len(set(cpus)) != len(cpus) or cpus_seen.intersection(cpus):
                 raise ValueError("CPU lists must be disjoint within each node")
             ids.add(ident); cpus_seen.update(cpus)
@@ -180,8 +194,12 @@ def render_map(spec):
 def render_wrapper(spec):
     manifest = render_manifest(spec)
     payload = base64.b64encode(_canonical(manifest).encode("ascii")).decode("ascii")
-    helper = ("import base64, json, os, sys\n"
+    helper = ("import base64, json, os, socket, sys\n"
               "def fail(message):\n    raise SystemExit('wtune wrapper: ' + message)\n"
+              "def same_node(expected, actual):\n"
+              "    expected = expected.rstrip('.').lower().split('.')\n"
+              "    actual = actual.rstrip('.').lower().split('.')\n"
+              "    return expected == actual or (expected[0] == actual[0] and (len(expected) == 1 or len(actual) == 1))\n"
               "rank_text = next((os.environ[name] for name in "
               "('PMI_RANK', 'OMPI_COMM_WORLD_RANK', 'PMIX_RANK') "
               "if name in os.environ), None)\n"
@@ -192,12 +210,18 @@ def render_wrapper(spec):
               "matches = [a for a in allocations if isinstance(a, dict) and type(a.get('rank')) is int and a['rank'] == rank]\n"
               "if len(matches) != 1: fail('rank must have exactly one allocation')\n"
               "allocation = matches[0]\n"
-              "team_size, cpus = allocation.get('team_size'), allocation.get('cpus')\n"
-              "if type(team_size) is not int or team_size < 1 or not isinstance(cpus, list) or not cpus or len(cpus) != team_size or any(type(cpu) is not int or cpu < 0 for cpu in cpus) or len(set(cpus)) != len(cpus): fail('allocation types are invalid')\n"
+              "team_size, cpus, node = allocation.get('team_size'), allocation.get('cpus'), allocation.get('node')\n"
+              "if type(team_size) is not int or team_size < 1 or not isinstance(cpus, list) or not cpus or len(cpus) != team_size or any(type(cpu) is not int or cpu < 0 for cpu in cpus) or len(set(cpus)) != len(cpus) or not isinstance(node, str) or not node: fail('allocation types are invalid')\n"
+              "try:\n    runtime_node = socket.gethostname()\nexcept OSError:\n    fail('runtime node is unavailable')\n"
+              "if not same_node(node, runtime_node): fail('allocation node does not match runtime node')\n"
               "os.environ['OMP_NUM_THREADS'] = str(team_size)\n"
               "os.environ['OMP_PLACES'] = '{%s}' % ','.join(str(cpu) for cpu in cpus)\n"
               "os.environ['OMP_PROC_BIND'] = 'close'\n"
-              "if hasattr(os, 'sched_setaffinity'):\n    try: os.sched_setaffinity(0, cpus)\n    except (OSError, ValueError): pass\n"
+              "if not callable(getattr(os, 'sched_setaffinity', None)) or not callable(getattr(os, 'sched_getaffinity', None)): fail('affinity APIs are unavailable')\n"
+              "requested_cpus = set(cpus)\n"
+              "try:\n    os.sched_setaffinity(0, requested_cpus)\nexcept (OSError, TypeError, ValueError):\n    fail('failed to set affinity')\n"
+              "try:\n    placed_cpus = set(os.sched_getaffinity(0))\nexcept (OSError, TypeError, ValueError):\n    fail('failed to read affinity')\n"
+              "if placed_cpus != requested_cpus: fail('affinity does not match requested CPUs')\n"
               "if len(sys.argv) < 2: fail('command is missing')\n"
               "os.execvpe(sys.argv[1], sys.argv[1:], os.environ)\n")
     helper_payload = base64.b64encode(helper.encode("ascii")).decode("ascii")

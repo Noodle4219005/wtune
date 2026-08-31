@@ -2,12 +2,14 @@
 """wtune.py - analytical core (Stage A + Stage B) of a WRF config autotuner."""
 
 import argparse
+import hashlib
 import json
 import math
 import os
 import re
 import shutil
 import sys
+import tempfile
 from pathlib import Path
 
 # sibling modules (same directory as this script)
@@ -164,8 +166,16 @@ def extract_case(nl):
         'start_month': scalar(t, 'start_month', 1),
         'start_day': scalar(t, 'start_day', 1),
         'start_hour': scalar(t, 'start_hour', 0),
+        'start_minute': scalar(t, 'start_minute', 0),
+        'start_second': scalar(t, 'start_second', 0),
         'history_interval': history_interval,
         'restart_interval': scalar(t, 'restart_interval', 1440),
+        'nproc_x': scalar(d, 'nproc_x', None),
+        'nproc_y': scalar(d, 'nproc_y', None),
+        'numtiles': scalar(d, 'numtiles', None),
+        'numtiles_x': scalar(d, 'numtiles_x', None),
+        'numtiles_y': scalar(d, 'numtiles_y', None),
+        'tile_strategy': scalar(d, 'tile_strategy', 0),
         'io_form_history': int(scalar(t, 'io_form_history', 2)),
         'io_form_restart': int(scalar(t, 'io_form_restart', 2)),
         'io_form_input': int(scalar(t, 'io_form_input', 2)),
@@ -282,6 +292,73 @@ def _bbox_from_center(lat, lon, e_we, e_sn, dx, dy):
             round(lon - half_x, 2), round(lon + half_x, 2))
 
 
+_PROBE_SCHEMA_KEYS = ('provider', 'convective_fraction', 'hours', 'trunc', 'nlayers')
+
+
+def _quiet_unlink(path):
+    try:
+        os.unlink(path)
+    except OSError:
+        pass
+
+
+def _file_sha8(path):
+    """First 8 hex of a file's SHA-256, or 'none' when unreadable. Folds the probe
+    script's own code into the cache key so editing speedy_probe.jl invalidates."""
+    try:
+        with open(path, 'rb') as fh:
+            return hashlib.sha256(fh.read()).hexdigest()[:8]
+    except OSError:
+        return 'none'
+
+
+def _speedy_pkg_id(wtune_dir):
+    """The pinned SpeedyWeather build id (version + git-tree-sha1) read CHEAPLY from
+    jlenv/Manifest.toml -- no julia launch. A package upgrade changes this string, so it
+    goes in the cache key and a stale cached probe from an older build becomes a miss."""
+    man = os.path.join(wtune_dir, 'jlenv', 'Manifest.toml')
+    try:
+        with open(man, 'r') as fh:
+            lines = fh.read().splitlines()
+    except OSError:
+        return 'unknown'
+    ver, sha = '', ''
+    for i, ln in enumerate(lines):
+        if ln.strip() == '[[deps.SpeedyWeather]]':
+            for ln2 in lines[i + 1:i + 12]:
+                s = ln2.strip()
+                if s.startswith('[['):
+                    break
+                if s.startswith('version'):
+                    ver = s.split('=', 1)[1].strip().strip('"')
+                elif s.startswith('git-tree-sha1'):
+                    sha = s.split('=', 1)[1].strip().strip('"')[:12]
+            break
+    return (ver + '+' + sha) if (ver or sha) else 'unknown'
+
+
+def _probe_cache_valid(out_path, ident):
+    """A cache file is a HIT only when it parses, carries the expected schema keys, AND its
+    self-reported (hours, trunc, nlayers) match the identity we would run now. Anything else
+    -- truncated, hand-edited, or from an incompatible run -- is a MISS, not silent truth.
+    Returns (is_hit, why). bbox and build id need not be re-checked: they are baked into the
+    filename hash, so a mismatch there is already a different file."""
+    if not (os.path.exists(out_path) and os.path.getsize(out_path) > 0):
+        return False, 'absent'
+    try:
+        with open(out_path, 'r') as fh:
+            j = json.load(fh)
+    except (ValueError, OSError) as exc:
+        return False, 'unreadable/corrupt ({})'.format(exc)
+    for k in _PROBE_SCHEMA_KEYS:
+        if k not in j:
+            return False, 'missing key {!r}'.format(k)
+    for k in ('hours', 'trunc', 'nlayers'):
+        if int(j.get(k, -1)) != int(ident[k]):
+            return False, 'stale {}={} != {}'.format(k, j.get(k), ident[k])
+    return True, 'ok'
+
+
 def auto_probe(namelist_path, case, resolved, args):
     """Embed the SpeedyWeather probe INTO the tuner: derive the domain bbox, run
     speedy_probe.jl (cached by bbox), and return (json_path, message). The probe is a
@@ -292,7 +369,7 @@ def auto_probe(namelist_path, case, resolved, args):
     import tempfile
     dxm = float(resolved.get('dx', 2500))
     if dxm < 1000.0:      # validity floor: the global surrogate has no LES-scale flow
-        return None, 'dx={:.0f}m below SpeedyWeather validity (LES) -> probe skipped; analytic + WRF smoke only'.format(dxm)
+        return None, 'WRF-ONLY-GATE: dx={:.0f}m below SpeedyWeather validity (LES) -> probe cannot apply here (DETERMINISTIC, not a transient failure); analytic + WRF smoke only'.format(dxm)
     lat, lon = case.get('latitude'), case.get('longitude')
     if getattr(args, 'latlon', None):
         try:
@@ -305,41 +382,75 @@ def auto_probe(namelist_path, case, resolved, args):
         lat = lat if lat is not None else c.get('ref_lat')
         lon = lon if lon is not None else c.get('ref_lon')
     if lat is None or lon is None:
-        return None, 'no domain lat/lon (namelist has none; no readable namelist.wps/wrfinput) -> pass --latlon LAT,LON or --wps FILE'
+        return None, 'WRF-ONLY-GATE: no domain lat/lon (namelist has none; no readable namelist.wps/wrfinput) -> pass --latlon LAT,LON or --wps FILE (DETERMINISTIC input gap, not a transient failure)'
     lat0, lat1, lon0, lon1 = _bbox_from_center(lat, lon, case.get('e_we', 100), case.get('e_sn', 100),
                                                dxm, float(resolved.get('dy', dxm)))
     hours = int(getattr(args, 'probe_hours', 6) or 6)
+    trunc = int(getattr(args, 'probe_trunc', 31) or 31)
+    nlayers = int(getattr(args, 'probe_nlayers', 8) or 8)
+    wtune_dir = os.path.dirname(os.path.abspath(__file__))
+    script = os.path.join(wtune_dir, 'speedy_probe.jl')
+    # Cache IDENTITY = every input that changes the probe result, and ONLY those. This probe is
+    # a CLIMATOLOGICAL global forecast from initialize!(model); it does NOT ingest WRF's initial
+    # state, so the WRF case start-time / physics-suite / input checksum do NOT change it and are
+    # deliberately EXCLUDED (folding them in would be false precision -- a cache miss on a field
+    # that never moved the answer). What does change it: geography (bbox), integration length
+    # (hours), spectral resolution (trunc, nlayers), the pinned SpeedyWeather build, and this
+    # script's own code. A change in any of these yields a different filename -> automatic miss.
+    ident = {
+        'bbox': [round(lat0, 3), round(lat1, 3), round(lon0, 3), round(lon1, 3)],
+        'hours': hours, 'trunc': trunc, 'nlayers': nlayers,
+        'speedy': _speedy_pkg_id(wtune_dir), 'script_sha8': _file_sha8(script),
+    }
+    key = hashlib.sha256(json.dumps(ident, sort_keys=True).encode()).hexdigest()[:12]
     cache_dir = os.environ.get('WTUNE_PROBE_CACHE', os.path.join(tempfile.gettempdir(), 'wtune_probe_cache'))
     try:
         os.makedirs(cache_dir, exist_ok=True)
     except OSError:
         cache_dir = tempfile.gettempdir()
-    tag = 'probe_{}_{}_{}_{}_h{}'.format(lat0, lat1, lon0, lon1, hours).replace('-', 'm').replace('.', 'p') + '.json'
-    out = os.path.join(cache_dir, tag)
-    bbox_s = 'lat[{},{}] lon[{},{}]'.format(lat0, lat1, lon0, lon1)
-    if os.path.exists(out) and os.path.getsize(out) > 0:
-        return out, 'cached SpeedyWeather probe ({})'.format(bbox_s)
-    wtune_dir = os.path.dirname(os.path.abspath(__file__))
+    bbox_s = 'lat[{},{}] lon[{},{}] {}h T{} L{}'.format(lat0, lat1, lon0, lon1, hours, trunc, nlayers)
+    out = os.path.join(cache_dir, 'probe_{}.json'.format(key))
+    hit, why = _probe_cache_valid(out, ident)
+    if hit:
+        return out, 'cache HIT SpeedyWeather probe ({}) [{}]'.format(bbox_s, key)
+    if os.path.exists(out):   # present but not a valid hit -> say so, then overwrite atomically
+        sys.stderr.write('[wtune] probe cache STALE ({}): {}; rerunning\n'.format(key, why))
     julia = os.environ.get('WTUNE_JULIA') or shutil.which('julia') or os.path.expanduser('~/.juliaup/bin/julia')
     jlenv = os.path.join(wtune_dir, 'jlenv')
-    script = os.path.join(wtune_dir, 'speedy_probe.jl')
     if not (os.path.exists(julia) and os.path.isdir(jlenv) and os.path.exists(script)):
-        return None, 'julia/jlenv/speedy_probe.jl not found -> set WTUNE_JULIA or run the probe manually'
+        return None, 'PROBE-UNAVAILABLE: julia/jlenv/speedy_probe.jl not found -> set WTUNE_JULIA or run the probe manually'
     sys.stderr.write('[wtune] running SpeedyWeather probe ({}, {}h; first run compiles, ~1-3 min)...\n'.format(bbox_s, hours))
     sys.stderr.flush()
+    # Write to a unique temp path, then os.replace() into the cache name: a hit is either the
+    # whole valid file or nothing, so a killed/timed-out probe never leaves a half-written cache
+    # that a later run would trust. Concurrent probes on the same key race harmlessly on rename.
+    tmp = out + '.tmp.{}'.format(os.getpid())
     cmd = [julia, '--project=' + jlenv, script, '--hours', str(hours),
-           '--lat0', str(lat0), '--lat1', str(lat1), '--lon0', str(lon0), '--lon1', str(lon1), '--out', out]
+           '--trunc', str(trunc), '--nlayers', str(nlayers),
+           '--lat0', str(lat0), '--lat1', str(lat1), '--lon0', str(lon0), '--lon1', str(lon1), '--out', tmp]
     try:
         r = subprocess.run(cmd, cwd=wtune_dir, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
                            timeout=int(os.environ.get('WTUNE_PROBE_TIMEOUT', '900')))
     except subprocess.TimeoutExpired:
-        return None, 'SpeedyWeather probe timed out (raise WTUNE_PROBE_TIMEOUT)'
+        _quiet_unlink(tmp)
+        return None, 'PROBE-UNAVAILABLE: SpeedyWeather probe timed out (raise WTUNE_PROBE_TIMEOUT)'
     except Exception as exc:
-        return None, 'probe failed to launch: {}'.format(exc)
-    if r.returncode != 0 or not (os.path.exists(out) and os.path.getsize(out) > 0):
+        _quiet_unlink(tmp)
+        return None, 'PROBE-UNAVAILABLE: probe failed to launch: {}'.format(exc)
+    if r.returncode != 0 or not (os.path.exists(tmp) and os.path.getsize(tmp) > 0):
+        _quiet_unlink(tmp)
         tail = (r.stderr.decode('utf-8', 'replace').strip().splitlines() or [''])[-1] if r.stderr else ''
-        return None, 'probe run failed (rc={}): {}'.format(r.returncode, tail)
-    return out, 'ran SpeedyWeather probe ({}, {}h)'.format(bbox_s, hours)
+        return None, 'PROBE-UNAVAILABLE: probe run failed (rc={}): {}'.format(r.returncode, tail)
+    ok, why = _probe_cache_valid(tmp, ident)   # validate the fresh output before it becomes cache
+    if not ok:
+        _quiet_unlink(tmp)
+        return None, 'PROBE-UNAVAILABLE: probe output failed schema/identity check ({})'.format(why)
+    try:
+        os.replace(tmp, out)
+    except OSError as exc:
+        _quiet_unlink(tmp)
+        return None, 'PROBE-UNAVAILABLE: could not commit probe cache: {}'.format(exc)
+    return out, 'ran SpeedyWeather probe ({}, {}h) [{}]'.format(bbox_s, hours, key)
 
 
 def factor_pairs(n):
@@ -717,6 +828,66 @@ def hotspot_cmd(args):
         print("  (no surrogate output; pass --surrogate-json PATH or --run-surrogate)")
 
 
+def oracle_map_cmd(args):
+    """DIAGNOSTIC spatial physics-load map from the Stage-0 Oracle: per-cell radiation/micro/
+    cumulus/pbl/surface cost + top-k hotspots + per-phase evidence, written machine-readable.
+    Needs a real snapshot (wrfinput/wrfout) for the model-state fields. INSPECTION ONLY -- it
+    does NOT pick nproc (that is partition_sweep; WRF keeps regular patches)."""
+    import datetime as _dt
+    try:
+        nl = parse_namelist(args.namelist)
+    except Exception as exc:
+        print("ERROR reading namelist: {}".format(exc), file=sys.stderr)
+        sys.exit(1)
+    case = extract_case(nl)
+    case, enrich_err = enrich_case(case, getattr(args, 'wrfinput', None))
+    resolved, _ = phys.resolve_suite(case)
+    snapshot = getattr(args, 'snapshot', None) or getattr(args, 'wrfinput', None)
+    if not snapshot or not os.path.exists(snapshot):
+        print("ERROR: need a NetCDF snapshot with model-state fields -- pass --snapshot "
+              "wrfout_d01_... (or --wrfinput). Given: {!r}".format(snapshot), file=sys.stderr)
+        sys.exit(1)
+    try:
+        import wtune_oracle as orc
+    except Exception as exc:
+        print("ERROR: cannot import wtune_oracle (needs numpy + netCDF reader): {}".format(exc),
+              file=sys.stderr)
+        sys.exit(1)
+
+    y = int(resolved.get('start_year', 2021)); mo = int(resolved.get('start_month', 1))
+    da = int(resolved.get('start_day', 1)); hr = int(resolved.get('start_hour', 0))
+    doy = _dt.date(y, mo, da).timetuple().tm_yday
+    run_hours = float(resolved.get('run_total_hours', 0) or 0)
+    cu_on = int(resolved.get('cu_physics', 0) or 0) > 0
+
+    print("=== WRF Oracle spatial hotspot (DIAGNOSTIC -- not a partition selector) ===")
+    print("snapshot: {}  doy={} utc={}h run={}h cu_on={}".format(snapshot, doy, hr, run_hours, cu_on))
+    if enrich_err:
+        print("  (wrfinput: {})".format(enrich_err))
+    try:
+        art = orc.spatial_hotspot_artifact(snapshot, doy, hr, run_hours=run_hours,
+                                           stride=args.stride, cu_on=cu_on,
+                                           top_k=args.top_k, grid=args.grid)
+    except Exception as exc:
+        print("ERROR building artifact: {}".format(exc), file=sys.stderr)
+        sys.exit(1)
+
+    if cu_on:
+        print("  weight set: CU (PROVISIONAL cumulus/pbl -- no coarse per-phase truth yet)")
+    print("  micro field: {}".format(art['meta']['micro_mode']))
+    print("  top hotspots (weighted cost, lat/lon; driver = hottest variable phase):")
+    for h in art['top_k'][:min(5, len(art['top_k']))]:
+        print("    ({:.2f},{:.2f}) cost={:.3f} driver={}".format(
+            h['lat'], h['lon'], h['weighted_cost'], h['dominant_driver']))
+    jp = getattr(args, 'json_out', None)
+    npzp = getattr(args, 'npz_out', None)
+    if jp or npzp:
+        rcpt = orc.emit_spatial_artifact(art, json_path=jp, npz_path=npzp)
+        print("  wrote: {}".format(rcpt))
+    else:
+        print("  (pass --json-out PATH and/or --npz-out PATH to persist the full artifact)")
+
+
 def knobs_cmd(args):
     """Full knob advisor: input-derived recommendations + mismatch flags, grouped."""
     try:
@@ -865,6 +1036,67 @@ def _parse_nl_kv(path):
     return nl_kv
 
 
+# Golden-regression: params with a REAL measured-WRF result (an objective + a case).
+# A CONFIRM/PASS never upgrades to WRF-VALIDATED on its own -- only a measured run does.
+# A vet REJECT for the current case still wins over a known coarse-only result.
+_KNOWN_WRF_VALIDATED = {
+    'io_form_history': ('total_wall', '-30%', 'CONUS 2.5km'),
+    'io_form_restart': ('total_wall', '-29%', 'CONUS 2.5km'),
+    'io_form_input':   ('total_wall', 'same-field-values', 'CONUS 2.5km'),
+    'nproc_x':         ('solver', '-1~3% (8x56)', 'CONUS 2.5km'),
+    'nproc_y':         ('solver', '-1~3% (8x56)', 'CONUS 2.5km'),
+    'non_hydrostatic': ('solver+radt', '-6%/step (30km); -15% combined (15km/448)', 'Matthew/Large coarse'),
+}
+
+
+def _evidence_level(name, verdict):
+    """Map a screen candidate + its SpeedyWeather verdict to a traceable evidence level.
+    CLASSIFIED < MODEL-ONLY < PROBE-ADVISORY < WRF-VALIDATED ; REJECTED / NEED-TRUTH are terminal.
+    A CONFIRM means the REGIME/risk is confirmed cheaply -- NOT that performance is proven."""
+    if verdict == 'REJECT':
+        return 'REJECTED'
+    if name in _KNOWN_WRF_VALIDATED:
+        return 'WRF-VALIDATED'
+    if verdict == 'CONFIRM':
+        return 'PROBE-ADVISORY'
+    if verdict == 'NEED-PROBE':
+        return 'NEED-TRUTH'
+    return 'MODEL-ONLY'            # PASS->WRF or analytic-only
+
+
+def build_manifest(namelist, resolved, probe_src, cands, vets):
+    """Candidate-level evidence manifest (JSON-serialisable). Separates 'classified' from
+    'WRF-validated' so a reader cannot mistake a cheap CONFIRM for a measured win."""
+    import json as _json
+    items = []
+    for c in cands:
+        verdict, reason = vets[c['name']]
+        lvl = _evidence_level(c['name'], verdict)
+        item = {
+            'param': c['name'],
+            'current': str(c['current']),
+            'candidate': c['candidate'],
+            'tier': c['tier'],
+            'objective': c.get('gain', 'unspecified'),
+            'speedyweather_verdict': verdict,
+            'evidence_level': lvl,
+            'why': c['why'],
+        }
+        if lvl == 'WRF-VALIDATED':
+            obj, res, case = _KNOWN_WRF_VALIDATED[c['name']]
+            item['wrf_measured'] = {'objective': obj, 'result': res, 'case': case}
+        items.append(item)
+    return _json.dumps({
+        'namelist': namelist,
+        'dx_m': resolved.get('dx'),
+        'cu_physics': resolved.get('cu_physics'),
+        'probe': probe_src,
+        'evidence_legend': ['CLASSIFIED', 'MODEL-ONLY', 'PROBE-ADVISORY', 'WRF-VALIDATED', 'REJECTED', 'NEED-TRUTH'],
+        'note': 'CONFIRM = regime/risk confirmed cheaply, NOT performance proven; WRF-VALIDATED = a measured run only.',
+        'candidates': items,
+    }, indent=2)
+
+
 def screen_cmd(args):
     """3-stage autotuner funnel: analytic screen (all 2062) -> SpeedyWeather cheap
     physics vet -> the survivors go to WRF empirical test."""
@@ -907,16 +1139,354 @@ def screen_cmd(args):
         print("  T{:<4} {:<15} {:<16} -> {:<26} {}".format(c['tier'], c['name'], str(c['current'])[:16], c['candidate'], c['why']))
     print("\nSTAGE 2 -- SpeedyWeather cheap physics vet (rejects physics-infeasible BEFORE any WRF run):")
     survivors = []
+    vets = {}
     for c in cands:
         verdict, reason = wsurr.speedy_vet(c, probe, resolved)
-        print("  {:<15} {:<11} {}".format(c['name'], verdict, reason))
+        vets[c['name']] = (verdict, reason)
+        print("  {:<15} {:<11} {}  [{}]".format(c['name'], verdict, reason, _evidence_level(c['name'], verdict)))
         if verdict in ('PASS->WRF', 'CONFIRM'):
             survivors.append((c, verdict))
+    if getattr(args, 'json', False):
+        print("\n=== EVIDENCE MANIFEST (JSON) ===")
+        print(build_manifest(args.namelist, resolved, probe_src, cands, vets))
+        return
     print("\nSTAGE 3 -- survivors -> WRF empirical ABBA (the 'few effective' to actually test):")
     for c, v in sorted(survivors, key=lambda x: {'1': 0, '2': 1, 'swap': 2}.get(x[0]['tier'], 3)):
         print("  [T{}] {:<15} -> {:<26} ({})".format(c['tier'], c['name'], c['candidate'], v))
     print("\nmeasured winners so far: io_form_history=14 (-30% wall, if I/O scored), 8x56 decomposition (-1~3%).")
     print("the rest are candidates -- run them through wtune_probe (Stage C) with the pre-registered gate.")
+
+
+def _restart_error(message):
+    print("ERROR restart-window: {}".format(message), file=sys.stderr)
+    return 1
+
+
+def _restart_rank_counts(value, case):
+    if value:
+        try:
+            counts = [int(part.strip()) for part in value.split(',')]
+        except ValueError:
+            raise ValueError("rank counts must be comma-separated positive integers")
+        if not counts or any(count < 1 for count in counts):
+            raise ValueError("rank counts must be comma-separated positive integers")
+        return list(dict.fromkeys(counts))
+    px, py = case.get('nproc_x'), case.get('nproc_y')
+    if px is None or py is None or int(px) < 1 or int(py) < 1:
+        raise ValueError("pass --rank-counts when namelist nproc_x/nproc_y are unavailable")
+    return [int(px) * int(py)]
+
+
+def _restart_tile_config(case):
+    config = {'strategy': int(case.get('tile_strategy', 0) or 0)}
+    for key in ('numtiles', 'numtiles_x', 'numtiles_y'):
+        value = case.get(key)
+        if value is not None and int(value) > 0:
+            config[key] = int(value)
+    return config
+
+
+def _restart_loads(oracle, fields, weights, px, py):
+    loads = None
+    for phase, weight in weights.items():
+        if phase not in fields:
+            continue
+        grid = oracle.to_ranks(fields[phase], px, py)
+        values = [float(value) for row in grid for value in row]
+        if loads is None:
+            loads = [0.0] * len(values)
+        if len(values) != len(loads):
+            raise ValueError("oracle rank field shape is inconsistent")
+        for index, value in enumerate(values):
+            loads[index] += float(weight) * value
+    if not loads:
+        raise ValueError("oracle returned no weighted phase fields")
+    return loads
+
+
+def _restart_path_key(path):
+    return os.path.realpath(os.path.abspath(path))
+
+
+def _validate_restart_paths(inputs, manifest_path, output_dir, artifacts=None):
+    input_keys = set(_restart_path_key(path) for path in inputs)
+    if _restart_path_key(output_dir) in input_keys:
+        raise ValueError("input/output path collision: {}".format(output_dir))
+    output_keys = set()
+    for path in [manifest_path] + list(artifacts or []):
+        key = _restart_path_key(path)
+        if key in input_keys:
+            raise ValueError("input/output path collision: {}".format(path))
+        if key in output_keys:
+            raise ValueError("duplicate output path: {}".format(path))
+        output_keys.add(key)
+
+
+def _validate_restart_allocations(allocations, rank_count, topology):
+    resources = {}
+    for node in topology['nodes']:
+        for domain in node['numa_domains']:
+            resources[(node['name'], domain['id'])] = set(domain['cpus'])
+    allowed_sizes = set(topology['allowed_team_sizes'])
+    ranks, cpus = set(), set()
+    if not isinstance(allocations, list) or len(allocations) != rank_count:
+        raise ValueError("allocation must contain exactly one entry per rank")
+    for allocation in allocations:
+        if not isinstance(allocation, dict):
+            raise ValueError("allocation entry is malformed")
+        rank = allocation.get('rank')
+        node = allocation.get('node')
+        domain = allocation.get('numa_domain')
+        team_size = allocation.get('team_size')
+        assigned = allocation.get('cpus')
+        if type(rank) is not int or rank in ranks:
+            raise ValueError("allocation rank overlap or invalid rank")
+        if not isinstance(node, str) or not node or type(domain) is not int:
+            raise ValueError("allocation node/domain map is malformed")
+        if type(team_size) is not int or team_size < 1 or team_size not in allowed_sizes:
+            raise ValueError("allocation team_size is invalid")
+        if not isinstance(assigned, list) or not assigned or len(assigned) != team_size:
+            raise ValueError("allocation team_size does not match CPUs")
+        resource = (node, domain)
+        if resource not in resources:
+            raise ValueError("allocation references an unknown node or NUMA domain")
+        resource_key = allocation.get('resource_key')
+        expected_key = "%s:%s" % resource
+        if resource_key is not None and resource_key != expected_key:
+            raise ValueError("allocation resource_key does not match node/domain")
+        if any(type(cpu) is not int or cpu < 0 for cpu in assigned):
+            raise ValueError("allocation node/cpu map is malformed")
+        if len(set(assigned)) != len(assigned):
+            raise ValueError("allocation CPU list contains duplicates")
+        ranks.add(rank)
+        for cpu in assigned:
+            key = (node, cpu)
+            if key in cpus:
+                raise ValueError("allocation node-local CPU overlap")
+            if cpu not in resources[resource]:
+                raise ValueError("allocation CPU is absent from topology")
+            cpus.add(key)
+    if ranks != set(range(rank_count)):
+        raise ValueError("allocation ranks must be exactly 0..N-1")
+
+
+def _stage_write(path, text, executable=False):
+    directory = os.path.dirname(os.path.abspath(path))
+    if not os.path.isdir(directory):
+        os.makedirs(directory)
+    descriptor, temporary = tempfile.mkstemp(prefix='.wtune-', dir=directory)
+    try:
+        with os.fdopen(descriptor, 'w') as handle:
+            handle.write(text)
+        if executable:
+            os.chmod(temporary, 0o755)
+        return temporary
+    except Exception:
+        try:
+            os.unlink(temporary)
+        except OSError:
+            pass
+        raise
+
+
+def _stage_backup(path):
+    descriptor, temporary = tempfile.mkstemp(
+        prefix='.wtune-backup-', dir=os.path.dirname(os.path.abspath(path)))
+    try:
+        with os.fdopen(descriptor, 'wb') as destination, open(path, 'rb') as source:
+            while True:
+                block = source.read(1024 * 1024)
+                if not block:
+                    break
+                destination.write(block)
+        os.chmod(temporary, os.stat(path).st_mode & 0o777)
+        return temporary
+    except Exception:
+        try:
+            os.unlink(temporary)
+        except OSError:
+            pass
+        raise
+
+
+def _remove_staged(paths):
+    for path in paths:
+        if path:
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
+
+
+def _publish_restart_artifacts(outputs, manifest_path, manifest_text):
+    entries = list(outputs) + [(manifest_path, manifest_text, False)]
+    staged, backups, published = [], {}, []
+    try:
+        for path, text, executable in entries:
+            staged.append([path, _stage_write(path, text, executable), executable])
+        for path, unused_temporary, unused_executable in staged:
+            if os.path.exists(path):
+                backups[path] = _stage_backup(path)
+        for entry in staged:
+            path, temporary, unused_executable = entry
+            os.replace(temporary, path)
+            entry[1] = None
+            published.append(path)
+    except Exception:
+        for path in reversed(published):
+            backup = backups.pop(path, None)
+            try:
+                if backup is None:
+                    os.unlink(path)
+                else:
+                    os.replace(backup, path)
+            except OSError:
+                pass
+        raise
+    finally:
+        _remove_staged([entry[1] for entry in staged])
+        _remove_staged(list(backups.values()))
+
+
+def restart_window_cmd(args):
+    output_dir = _restart_path_key(args.output_dir)
+    manifest_path = (_restart_path_key(args.manifest_out)
+                     if args.manifest_out else
+                     _restart_path_key(os.path.join(
+                         output_dir, 'restart-window-manifest.json')))
+    if args.top_k <= 0:
+        return _restart_error("top-k must be positive")
+    if args.stride <= 0:
+        return _restart_error("stride must be positive")
+    try:
+        nl = parse_namelist(args.namelist)
+        case = extract_case(nl)
+    except Exception as exc:
+        return _restart_error("reading namelist: {}".format(exc))
+    if int(case.get('max_dom', 1)) != 1:
+        return _restart_error("max_dom=1 is required")
+    try:
+        _validate_restart_paths((args.namelist, args.snapshot, args.topology_json),
+                                manifest_path, output_dir)
+    except ValueError as exc:
+        return _restart_error(str(exc))
+    snapshot = args.snapshot
+    try:
+        with open(snapshot, 'rb'):
+            pass
+    except (IOError, OSError) as exc:
+        return _restart_error("snapshot is not readable: {}".format(exc))
+    try:
+        with open(args.topology_json) as handle:
+            topology_raw = json.load(handle)
+        import wtune_restart as restart
+        topology = restart.validate_topology(topology_raw)
+    except (IOError, OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
+        return _restart_error("topology is not readable or valid: {}".format(exc))
+    try:
+        rank_counts = _restart_rank_counts(args.rank_counts, case)
+        tile_config = _restart_tile_config(case)
+        restart.normalize_tile_config(tile_config, case['ny'])
+    except ValueError as exc:
+        return _restart_error(str(exc))
+    resolved, _ = phys.resolve_suite(case)
+    cu_on = int(resolved.get('cu_physics', 0) or 0) > 0
+    try:
+        import wtune_oracle as oracle
+        features = oracle.extract_features(snapshot, stride=args.stride,
+                                           include_derived=cu_on,
+                                           include_surface_fluxes=False)
+    except Exception as exc:
+        return _restart_error("snapshot feature extraction failed: {}".format(exc))
+
+    try:
+        import datetime as _dt
+        stamp = _dt.datetime(int(resolved['start_year']), int(resolved['start_month']),
+                             int(resolved['start_day']), int(resolved['start_hour']),
+                             int(resolved.get('start_minute', 0)),
+                             int(resolved.get('start_second', 0)))
+        windows = restart.build_windows(resolved['run_total_hours'], resolved['restart_interval'],
+                                        start_utc=stamp, window_hours=args.window_hours,
+                                        run_hours_override=args.run_hours)
+    except (TypeError, ValueError) as exc:
+        return _restart_error("restart windows: {}".format(exc))
+
+    weights = oracle.phase_weights(cu_on=cu_on)
+    outputs, manifest_windows = [], []
+    try:
+        for window in windows:
+            fields = oracle.phase_cost_fields(features, window['day_of_year'],
+                                              (float(resolved.get('start_hour', 0)) +
+                                               float(resolved.get('start_minute', 0)) / 60.0 +
+                                               float(resolved.get('start_second', 0)) / 3600.0 +
+                                               window['start_hour']),
+                                              run_hours=window['end_hour'] - window['start_hour'],
+                                              cu_on=cu_on)
+            choices, rejected = [], []
+            for rank_count in rank_counts:
+                candidates = restart.enumerate_candidates(rank_count, case['nx'], case['ny'], topology,
+                                                          local_patch_y=case['ny'])
+                ranked = []
+                for candidate in candidates:
+                    loads = _restart_loads(oracle, fields, weights, candidate['px'], candidate['py'])
+                    ranked.append((restart.score_candidate(candidate, loads), loads))
+                ranked.sort(key=lambda item: (item[0]['score'], item[0]['px'], item[0]['py']))
+                selected = 0
+                for candidate, loads in ranked:
+                    if selected >= args.top_k:
+                        break
+                    try:
+                        allocations = restart.allocate_teams(
+                            loads, topology['allowed_team_sizes'], topology)
+                    except ValueError as exc:
+                        rejected.append({'rank_count': rank_count, 'px': candidate['px'],
+                                         'py': candidate['py'], 'reason': str(exc)})
+                        continue
+                    _validate_restart_allocations(allocations, rank_count, topology)
+                    config = restart.normalize_tile_config(tile_config, candidate['min_patch_y'])
+                    spec = {'config': config, 'window': window, 'candidate': candidate,
+                            'allocations': allocations, 'local_patch_y': candidate['min_patch_y'],
+                            'proxy_cost': None, 'transition_cost': 'UNKNOWN', 'restart_cost': None}
+                    suffix = 'window-{0:03d}-ranks-{1}'.format(window['id'], rank_count)
+                    if selected:
+                        suffix += '-candidate-{}'.format(selected)
+                    map_path = _restart_path_key(os.path.join(output_dir, suffix + '.map'))
+                    wrapper_path = _restart_path_key(os.path.join(output_dir, suffix + '.sh'))
+                    outputs.append((map_path, restart.render_map(spec), False))
+                    outputs.append((wrapper_path, restart.render_wrapper(spec), True))
+                    choices.append({'rank_count': rank_count, 'candidate': candidate,
+                                    'allocations': allocations, 'map': map_path,
+                                    'wrapper': wrapper_path})
+                    selected += 1
+                if not candidates:
+                    return _restart_error("rank count {} has no legal rectangular patches".format(rank_count))
+                if not selected:
+                    return _restart_error("rank count {} has no selectable allocated candidate".format(rank_count))
+            manifest_windows.append(dict(window, choices=choices, rejected=rejected))
+    except (TypeError, ValueError, KeyError) as exc:
+        return _restart_error("candidate scoring/allocation failed: {}".format(exc))
+
+    try:
+        _validate_restart_paths((args.namelist, args.snapshot, args.topology_json), manifest_path,
+                                output_dir, [item[0] for item in outputs])
+    except ValueError as exc:
+        return _restart_error(str(exc))
+    manifest = restart.render_manifest({
+        'config': restart.normalize_tile_config(tile_config, case['ny']),
+        'local_patch_y': case['ny'], 'rank_counts': rank_counts, 'windows': manifest_windows,
+        'proxy_cost': None, 'transition_cost': 'UNKNOWN', 'restart_cost': None,
+    })
+    try:
+        _publish_restart_artifacts(
+            outputs, manifest_path,
+            json.dumps(manifest, sort_keys=True, separators=(',', ':')) + '\n')
+    except (IOError, OSError) as exc:
+        return _restart_error("writing artifacts: {}".format(exc))
+    print("created: {}".format(manifest_path))
+    for path, unused_text, unused_executable in outputs:
+        print("created: {}".format(path))
+    print("UNVERIFIED: changed rank/shape/team/CPU maps; actionable=false")
+    return 0
 
 
 def main():
@@ -953,6 +1523,8 @@ def main():
     p_phys.add_argument('--wps', default=None, help='namelist.wps for the domain centre (default: sibling of --namelist)')
     p_phys.add_argument('--latlon', default=None, help='override domain-centre "LAT,LON" for the probe bbox')
     p_phys.add_argument('--probe-hours', type=int, default=6, help='SpeedyWeather probe forecast length (default 6)')
+    p_phys.add_argument('--probe-trunc', type=int, default=31, help='SpeedyWeather spectral truncation (default 31); part of the probe cache key')
+    p_phys.add_argument('--probe-nlayers', type=int, default=8, help='SpeedyWeather vertical layers (default 8); part of the probe cache key')
     p_phys.add_argument('--no-probe', action='store_true', help='skip the built-in SpeedyWeather probe')
 
     p_knobs = sub.add_parser('knobs', help='full knob advisor: input-derived param recommendations + mismatch flags')
@@ -975,7 +1547,33 @@ def main():
     p_screen.add_argument('--wps', default=None, help='namelist.wps for the domain centre (default: sibling of --namelist)')
     p_screen.add_argument('--latlon', default=None, help='override domain-centre "LAT,LON" for the probe bbox')
     p_screen.add_argument('--probe-hours', type=int, default=6, help='SpeedyWeather probe forecast length (default 6)')
+    p_screen.add_argument('--probe-trunc', type=int, default=31, help='SpeedyWeather spectral truncation (default 31); part of the probe cache key')
+    p_screen.add_argument('--probe-nlayers', type=int, default=8, help='SpeedyWeather vertical layers (default 8); part of the probe cache key')
     p_screen.add_argument('--no-probe', action='store_true', help='skip the built-in SpeedyWeather probe (physics candidates stay NEED-PROBE)')
+    p_screen.add_argument('--json', action='store_true', help='emit a candidate-level JSON evidence manifest (classification/evidence_level/objective) after the vet')
+
+    p_omap = sub.add_parser('oracle-map', help='DIAGNOSTIC spatial physics-load map (per-cell phase cost + hotspots); NOT a partition selector')
+    p_omap.add_argument('--namelist', required=True, help='path to namelist.input (for date + cu_physics + run length)')
+    p_omap.add_argument('--snapshot', default=None, help='wrfout/wrfinput NetCDF with model-state fields (defaults to --wrfinput)')
+    p_omap.add_argument('--wrfinput', default=None, help='wrfinput/wrfout for lat/lon/date (via ncdump -h); also the snapshot fallback')
+    p_omap.add_argument('--stride', type=int, default=4, help='spatial subsample stride for the model-state read (default 4)')
+    p_omap.add_argument('--top-k', dest='top_k', type=int, default=12, help='number of hottest cells to list (default 12)')
+    p_omap.add_argument('--grid', type=int, default=24, help='max side of the per-phase JSON grid (block-mean downsample, default 24)')
+    p_omap.add_argument('--json-out', dest='json_out', default=None, help='write the artifact JSON here (compact grids + top-k)')
+    p_omap.add_argument('--npz-out', dest='npz_out', default=None, help='write the full-resolution per-phase fields here as .npz')
+
+    p_restart = sub.add_parser('restart-window', help='UNVERIFIED restart-boundary decomposition/team hypotheses')
+    p_restart.add_argument('--namelist', required=True, help='path to namelist.input (never modified)')
+    p_restart.add_argument('--snapshot', required=True, help='readable wrfout/wrfrst snapshot for oracle fields')
+    p_restart.add_argument('--topology-json', required=True, help='topology JSON with node-local CPU lists')
+    p_restart.add_argument('--rank-counts', '--ranks', dest='rank_counts', default=None,
+                           help='comma-separated MPI rank counts (default nproc_x*nproc_y)')
+    p_restart.add_argument('--window-hours', type=float, default=None, help='restart advisor window size in hours')
+    p_restart.add_argument('--run-hours', type=float, default=None, help='override namelist run duration in hours')
+    p_restart.add_argument('--stride', type=int, default=4, help='snapshot spatial subsample stride (default 4)')
+    p_restart.add_argument('--top-k', dest='top_k', type=int, default=1, help='candidates per rank count/window')
+    p_restart.add_argument('--output-dir', default='restart-window-artifacts', help='directory for rank maps and wrappers')
+    p_restart.add_argument('--manifest-out', default=None, help='overall canonical JSON manifest path')
 
     sub.add_parser('selftest', help='run CONUS calibration self-test')
 
@@ -987,6 +1585,12 @@ def main():
         physics_cmd(args)
     elif args.command == 'hotspot':
         hotspot_cmd(args)
+    elif args.command == 'oracle-map':
+        oracle_map_cmd(args)
+    elif args.command == 'restart-window':
+        status = restart_window_cmd(args)
+        if status:
+            sys.exit(status)
     elif args.command == 'knobs':
         knobs_cmd(args)
     elif args.command == 'catalog':

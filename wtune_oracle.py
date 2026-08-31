@@ -33,6 +33,7 @@ Backward compatibility: for a convection-resolving snapshot (cu_on=False, hydrom
 present -- CONUS 2.5km / Maria 1km) the prediction is BYTE-for-byte the previous behaviour:
 micro stays hydrometeor-based, and cumulus/pbl carry zero weight (absent from PHASE_WEIGHT).
 """
+import os
 import numpy as np
 
 # cu-OFF (convection-resolving) weights -- MEASURED (job 1040022 / p0-amdahl). UNCHANGED,
@@ -62,18 +63,37 @@ def _norm(x):
     return np.clip((x - lo) / (hi - lo + 1e-12), 0.0, 1.0)
 
 
-def _derived_moisture(ds, stride, lev_stride):
+def _read_strided_4d(variable, lev_stride, stride):
+    """Read one 4-D WRF field contiguously, then downsample in memory.
+
+    NetCDF4/HDF5 chunk caches can amplify a multidimensional strided hyperslab into
+    repeated chunk decompression. The full time slice is one contiguous logical read;
+    the small strided copy is deliberately a NumPy operation outside the NetCDF layer.
+    """
+    return variable[0, :, :, :][::lev_stride, ::stride, ::stride].copy()
+
+
+def _read_strided_3d(variable, stride):
+    """Read one time-indexed 3-D WRF field contiguously, then downsample in memory."""
+    return variable[0, :, :][::stride, ::stride].copy()
+
+
+def _derived_moisture(ds, stride, lev_stride, qvapor=None):
     """Cheap derived drivers for the RH-fallback micro, cumulus and PBL buckets, computed
     from the T/P/QVAPOR profile. Returns {} if the profile is unavailable.
       rh_cloud : mean RH in the 850-300 hPa layer (mid-trop cloudiness proxy).
       cape     : theta_e(surface) - theta_es(500 hPa), clipped >=0 (convective instability)."""
-    need = ('T', 'P', 'PB', 'QVAPOR')
+    need = ('T', 'P', 'PB')
     if not all(v in ds.variables for v in need):
         return {}
-    sl = np.s_[0, ::lev_stride, ::stride, ::stride]
-    P = np.asarray(ds.variables['P'][sl], float) + np.asarray(ds.variables['PB'][sl], float)
-    theta = np.asarray(ds.variables['T'][sl], float) + 300.0
-    qv = np.maximum(np.asarray(ds.variables['QVAPOR'][sl], float), 1e-8)
+    if qvapor is None:
+        if 'QVAPOR' not in ds.variables:
+            return {}
+        qvapor = _read_strided_4d(ds.variables['QVAPOR'], lev_stride, stride)
+    P = (np.asarray(_read_strided_4d(ds.variables['P'], lev_stride, stride), float) +
+         np.asarray(_read_strided_4d(ds.variables['PB'], lev_stride, stride), float))
+    theta = np.asarray(_read_strided_4d(ds.variables['T'], lev_stride, stride), float) + 300.0
+    qv = np.maximum(np.asarray(qvapor, float), 1e-8)
     Temp = theta * (P / 1.0e5) ** 0.2854
     es = 611.2 * np.exp(17.67 * (Temp - 273.15) / (Temp - 29.65))
     qs = 0.622 * es / np.maximum(P - es, 1.0)
@@ -94,19 +114,27 @@ def _derived_moisture(ds, stride, lev_stride):
     return {'rh_cloud': rh_cloud, 'cape': cape}
 
 
-def extract_features(path, stride=4, lev_stride=3):
+def extract_features(path, stride=4, lev_stride=3, include_derived=True,
+                     include_surface_fluxes=True):
     """Cheap O(Nz) column features from a WRF snapshot (wrfout/wrfrst/wrfinput). Strided for
     speed at Stage 0; the full-resolution vectorised version is Stage 3.
 
     Returns the hydrometeor water paths + Thompson branch signature (nspecies/mixed_phase),
     the coords (XLAT/XLONG), the surface drivers (LANDMASK/HFX/PBLH), and -- when the T/P
     profile is present -- the derived moisture drivers rh_cloud/cape used by the RH-fallback
-    micro, cumulus and PBL buckets."""
+    micro, cumulus and PBL buckets. `include_derived=False` skips the T/P/PB profile when
+    active hydrometeors already determine the microphysics field, but retains the clear-snapshot
+    RH fallback. `include_surface_fluxes=False` omits the unused HFX/PBLH fields."""
     import netCDF4 as nc
     ds = nc.Dataset(path)
+    qvapor = (_read_strided_4d(ds.variables['QVAPOR'], lev_stride, stride)
+              if 'QVAPOR' in ds.variables else None)
 
     def colsum(v):
-        return ds.variables[v][0, ::lev_stride, ::stride, ::stride].sum(axis=0) if v in ds.variables else None
+        if v == 'QVAPOR':
+            return qvapor.sum(axis=0) if qvapor is not None else None
+        return (_read_strided_4d(ds.variables[v], lev_stride, stride).sum(axis=0)
+                if v in ds.variables else None)
 
     f = {}
     for name, var in [('TCWV', 'QVAPOR'), ('LWP', 'QCLOUD'), ('RWP', 'QRAIN'),
@@ -129,13 +157,19 @@ def extract_features(path, stride=4, lev_stride=3):
         f['nspecies'] = np.zeros_like(ref)
         f['mixed_phase'] = np.zeros_like(ref)
     for coord in ('XLAT', 'XLONG'):
-        f[coord] = ds.variables[coord][0, ::stride, ::stride] if coord in ds.variables else None
+        f[coord] = (_read_strided_3d(ds.variables[coord], stride)
+                    if coord in ds.variables else None)
     # surface-layer / LSM cost drivers (2D): Noah LSM runs on LAND (dear) vs water (cheap);
     # the surface-layer Monin-Obukhov similarity iterates more where fluxes are strong/unstable.
     for s2d in ('LANDMASK', 'HFX', 'PBLH'):
-        f[s2d] = ds.variables[s2d][0, ::stride, ::stride] if s2d in ds.variables else None
-    # derived moisture/instability drivers (RH-fallback micro, cumulus, PBL)
-    f.update(_derived_moisture(ds, stride, lev_stride))
+        if include_surface_fluxes:
+            f[s2d] = (_read_strided_3d(ds.variables[s2d], stride)
+                      if s2d in ds.variables else None)
+    # Derived moisture/instability drivers are required for cu-on and for a clear snapshot's
+    # RH fallback. A resolved-hydrometeor cu-off snapshot does not consume this profile.
+    hydrometeors_active = bool(species and any(np.asarray(s).max() > 0 for s in species))
+    if include_derived or not hydrometeors_active:
+        f.update(_derived_moisture(ds, stride, lev_stride, qvapor=qvapor))
     ds.close()
     return f
 
@@ -260,10 +294,18 @@ def partition_sweep(path, ranks, doy, utc_hours, run_hours=0.0, stride=4,
     The partition wall time is FIRST-ORDER structural (cache/vector/halo/NUMA) and only
     SECOND-ORDER physics imbalance: measured on CONUS, 8x56 beats 4x112 by ~12% for
     halo/cache reasons even though 4x112 has a slightly lower micro imbalance. So the
-    score is `structural_cost x physics_critical_path`:
+    score is `structural_cost x physics_criticality_proxy`:
       structural  = wtune.cost_model (ghost inflation x vec x NUMA), the dominant term
-      physics     = Sum_phase weight * (max_rank/mean_rank), the oracle's correction
-    (WRF is bulk-synchronous with a barrier per phase, so each phase's slowest rank gates.)"""
+      physics     = Sum_phase weight * (max_rank/mean_rank), a PROXY correction
+
+    IMPORTANT -- physics_crit is a phase-wise CRITICALITY PROXY, NOT a measured wall
+    critical path. WRF's halo is nearest-neighbour RSL_LITE (Isend/Irecv/Wait); there is
+    NO global MPI_Barrier per phase (measured this project: recv-wait dominates, sends are
+    eager; RSL_LITE source posts-recv->send->wait->consume). So max/mean over ranks
+    over-states the recoverable wall (the imbalance is smoothed by nearest-neighbour
+    coupling; the perfect-balance prize is ~8%, not the raw max/mean). Use this only to
+    RANK partitions, never as an absolute wall-critical-path claim; if the ranking ever
+    disagrees with a measured wall sweep, trust the measurement."""
     import wtune as _w
     feats = extract_features(path, stride=stride)
     fields = phase_cost_fields(feats, doy, utc_hours, run_hours=run_hours, cu_on=cu_on)
@@ -288,3 +330,197 @@ def partition_sweep(path, ranks, doy, utc_hours, run_hours=0.0, stride=4,
                      'physics_crit': round(crit, 4), 'imbalance': detail})
     rows.sort(key=lambda r: r['score'])
     return rows
+
+
+# Phase weight provenance: which phase weights are MEASURED (from the validated cu-off
+# ablation) vs PROVISIONAL (cu-on cumulus/pbl, no coarse-grid per-phase truth yet). The
+# spatial artifact carries this so a reader never mistakes a provisional map for a measured one.
+PHASE_EVIDENCE = {
+    'dynamics': 'MEASURED', 'radiation': 'MEASURED', 'micro': 'MEASURED',
+    'surf': 'MEASURED', 'acoustic': 'MEASURED',
+    'cumulus': 'PROVISIONAL', 'pbl': 'PROVISIONAL',
+}
+
+
+def _downsample(field, target=24):
+    """Block-mean a 2D field down to <= target x target so the JSON grid stays compact.
+    Ceil-division block size so BOTH axes end up at most `target` cells."""
+    H, W = field.shape
+    sy = max(1, -(-H // target)); sx = max(1, -(-W // target))   # ceil(H/target), ceil(W/target)
+    ny = H // sy; nx = W // sx
+    return field[:ny * sy, :nx * sx].reshape(ny, sy, nx, sx).mean(axis=(1, 3))
+
+
+# structural phases are ~uniform (flat weight), so they dominate every cell's absolute cost
+# but explain none of the SPATIAL variation -- the hotspot "driver" is the hottest VARIABLE phase.
+_STRUCTURAL_PHASES = ('dynamics', 'acoustic')
+
+
+def _dominant_driver(phase_contrib):
+    """The hottest non-structural phase at a cell -- what actually makes this cell a hotspot."""
+    var = {n: v for n, v in phase_contrib.items() if n not in _STRUCTURAL_PHASES}
+    return max(var, key=var.get) if var else max(phase_contrib, key=phase_contrib.get)
+
+
+def spatial_hotspot_artifact(path, doy, utc_hours, run_hours=0.0, stride=4,
+                             cu_on=False, top_k=12, grid=24):
+    """DIAGNOSTIC per-cell physics load map (NOT a partition selector).
+
+    For each phase, the per-cell RELATIVE cost weighted by its phase weight; the top-k hottest
+    cells with lat/lon and per-phase breakdown; and an evidence label per phase (MEASURED vs
+    PROVISIONAL). INSPECTION ONLY: WRF keeps regular rectangular patches, and partition wall
+    time is first-order structural (cache/vector/halo/NUMA) and only second-order physics
+    imbalance -- so this map must NEVER drive static nproc. Returns a JSON-serialisable dict;
+    the full-resolution numpy fields ride under '_fields' for an optional .npz and are stripped
+    before JSON serialisation by emit_spatial_artifact()."""
+    feats = extract_features(path, stride=stride)
+    fields = phase_cost_fields(feats, doy, utc_hours, run_hours=run_hours, cu_on=cu_on)
+    w = phase_weights(cu_on)
+    lat = np.asarray(feats['XLAT'], float)
+    lon = np.asarray(feats['XLONG'], float)
+
+    weighted = {}
+    total = np.zeros_like(lat, dtype=float)
+    for name, fld in fields.items():
+        fld = np.asarray(fld, float)
+        m = fld.mean()
+        norm = fld / m if m > 0 else fld           # per-phase relative, mean ~1
+        weighted[name] = norm * w.get(name, 0.0)
+        total += weighted[name]
+
+    # micro field provenance: hydrometeor-based (measured driver) vs RH-fallback (weaker) vs flat
+    nsp = feats.get('nspecies')
+    micro_mode = ('hydrometeor' if (nsp is not None and np.asarray(nsp).max() > 0)
+                  else ('rh-fallback' if feats.get('rh_cloud') is not None else 'flat-floor'))
+
+    H, W = total.shape
+    flat = total.ravel()
+    k = int(min(top_k, flat.size))
+    hot = []
+    for r in np.argsort(flat)[::-1][:k]:
+        y, x = divmod(int(r), W)
+        contrib = {n: round(float(weighted[n][y, x]), 4) for n in weighted}
+        hot.append({
+            'y': y, 'x': x,
+            'lat': round(float(lat[y, x]), 3), 'lon': round(float(lon[y, x]), 3),
+            'weighted_cost': round(float(total[y, x]), 4),
+            'dominant_driver': _dominant_driver(contrib),   # hottest VARIABLE (non-structural) phase
+            'phase_contrib': contrib,
+        })
+
+    phases = {}
+    for name in fields:
+        f = weighted[name]
+        phases[name] = {
+            'weight': round(float(w.get(name, 0.0)), 3),
+            'evidence': PHASE_EVIDENCE.get(name, 'PROVISIONAL'),
+            'field_stats': {'mean': round(float(f.mean()), 4),
+                            'p90': round(float(np.quantile(f, 0.9)), 4),
+                            'max': round(float(f.max()), 4)},
+            'grid': [[round(float(v), 4) for v in row] for row in _downsample(f, grid)],
+        }
+
+    any_provisional = any(PHASE_EVIDENCE.get(n) == 'PROVISIONAL' and w.get(n, 0) > 0
+                          for n in fields)
+    art = {
+        'artifact': 'wtune-oracle-spatial-hotspot',
+        'usage': ('DIAGNOSTIC ONLY -- shows WHERE physics load concentrates. Do NOT use to '
+                  'auto-select nproc_x/nproc_y: WRF uses regular patches and partition wall '
+                  'time is first-order structural, not physics imbalance (see partition_sweep). '
+                  'Use partition_sweep for nproc, and measurement for truth.'),
+        'meta': {'case': str(path), 'doy': doy, 'utc_hours': utc_hours,
+                 'run_hours': run_hours, 'cu_on': bool(cu_on), 'stride': stride,
+                 'grid_shape': [int(H), int(W)], 'weight_set': 'CU' if cu_on else 'BASE',
+                 'micro_mode': micro_mode},
+        'confidence': {
+            'level': 'MODEL-ONLY',
+            'provisional_phases_active': bool(any_provisional),
+            'note': ('cu-on cumulus/pbl weights are PROVISIONAL (no coarse-grid per-phase '
+                     'truth yet -- keep as low-confidence)' if any_provisional else
+                     'all active phase weights are from the validated cu-off ablation'),
+            'micro_field': micro_mode,
+        },
+        'top_k': hot,
+        'phases': phases,
+        '_fields': dict(weighted, total=total, lat=lat, lon=lon),
+    }
+    return art
+
+
+def emit_spatial_artifact(art, json_path=None, npz_path=None):
+    """Write the artifact set with per-file atomic replacement and rollback on errors.
+
+    A killed process can still interrupt between the two replacements, but an exception
+    during publication removes newly written files and restores pre-existing targets.
+    Returns a short receipt.
+    """
+    import json
+    fields = art.pop('_fields', {})
+    rcpt = []
+    published = []
+    backups = []
+    temps = []
+    failed = False
+
+    def backup_existing(path):
+        if not os.path.exists(path):
+            return
+        suffix = 0
+        while True:
+            backup = '{}.bak{}.{}'.format(path, os.getpid(), suffix)
+            if not os.path.exists(backup):
+                break
+            suffix += 1
+        os.replace(path, backup)
+        backups.append((path, backup))
+
+    def publish(path, writer, suffix):
+        backup_existing(path)
+        tmp = '{}.tmp{}.{}'.format(path, os.getpid(), suffix)
+        temps.append(tmp)
+        writer(tmp)
+        os.replace(tmp, path)
+        temps.remove(tmp)
+        published.append(path)
+
+    try:
+        if npz_path:
+            publish(npz_path,
+                    lambda tmp: np.savez_compressed(
+                        tmp, **{k: np.asarray(v) for k, v in fields.items()}),
+                    'npz')
+            rcpt.append('npz={} ({} fields)'.format(npz_path, len(fields)))
+        if json_path:
+            def write_json(tmp):
+                with open(tmp, 'w') as fh:
+                    json.dump(art, fh, indent=2, sort_keys=True)
+            publish(json_path, write_json, 'json')
+            rcpt.append('json={}'.format(json_path))
+    except Exception:
+        failed = True
+        for path in reversed(published):
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
+        for path, backup in reversed(backups):
+            if os.path.exists(backup):
+                try:
+                    os.replace(backup, path)
+                except OSError:
+                    pass
+        raise
+    finally:
+        for tmp in temps:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+        if not failed:
+            for unused_path, backup in backups:
+                try:
+                    os.unlink(backup)
+                except OSError:
+                    pass
+        art['_fields'] = fields
+    return '; '.join(rcpt) if rcpt else 'no output path given'

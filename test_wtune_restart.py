@@ -7,8 +7,12 @@ import socket
 import subprocess
 import sys
 import tempfile
+import types
 import unittest
+from unittest import mock
 
+import numpy as np
+import wtune_oracle as oracle
 import wtune_restart as wr
 
 
@@ -29,6 +33,166 @@ class RestartWindowTests(unittest.TestCase):
         self.assertEqual(len(wr.build_windows(10, 60, window_hours=4, run_hours_override=5)), 2)
         with self.assertRaises(ValueError):
             wr.build_windows(10, 0)
+
+
+class OracleFeatureTests(unittest.TestCase):
+    def test_extract_features_reads_qvapor_once_and_reuses_it_for_derived_moisture(self):
+        class CountingVariable:
+            def __init__(self, data):
+                self.data = np.asarray(data)
+                self.reads = 0
+
+            def __getitem__(self, selection):
+                self.reads += 1
+                return self.data[selection]
+
+        class FakeDataset:
+            def __init__(self, variables):
+                self.variables = variables
+                self.closed = False
+
+            def close(self):
+                self.closed = True
+
+        qvapor = CountingVariable(np.full((1, 3, 2, 2), 1.0e-3))
+        variables = {
+            'QVAPOR': qvapor,
+            'T': np.zeros((1, 3, 2, 2)),
+            'P': np.broadcast_to(np.array([70000.0, 50000.0, 20000.0])[None, :, None, None],
+                                 (1, 3, 2, 2)),
+            'PB': np.zeros((1, 3, 2, 2)),
+        }
+        dataset = FakeDataset(variables)
+        fake_netcdf4 = types.SimpleNamespace(Dataset=lambda unused_path: dataset)
+
+        with mock.patch.dict(sys.modules, {'netCDF4': fake_netcdf4}):
+            features = oracle.extract_features('fake-restart.nc', stride=1, lev_stride=1)
+
+        self.assertEqual(qvapor.reads, 1)
+        np.testing.assert_allclose(features['TCWV'], np.full((2, 2), 3.0e-3))
+        self.assertIn('rh_cloud', features)
+        self.assertIn('cape', features)
+        self.assertTrue(dataset.closed)
+
+    def test_extract_features_skips_derived_and_unused_surface_fields_for_active_hydrometeors(self):
+        class CountingVariable:
+            def __init__(self, data):
+                self.data = np.asarray(data)
+                self.reads = 0
+
+            def __getitem__(self, selection):
+                self.reads += 1
+                return self.data[selection]
+
+        class FakeDataset:
+            def __init__(self, variables):
+                self.variables = variables
+                self.closed = False
+
+            def close(self):
+                self.closed = True
+
+        shape3d = (1, 3, 2, 2)
+        qvapor = CountingVariable(np.full(shape3d, 1.0e-3))
+        temperature = CountingVariable(np.zeros(shape3d))
+        pressure = CountingVariable(np.broadcast_to(
+            np.array([70000.0, 50000.0, 20000.0])[None, :, None, None], shape3d))
+        base_pressure = CountingVariable(np.zeros(shape3d))
+        hfx = CountingVariable(np.zeros((1, 2, 2)))
+        pblh = CountingVariable(np.ones((1, 2, 2)))
+        variables = {
+            'QVAPOR': qvapor,
+            'QCLOUD': CountingVariable(np.full(shape3d, 1.0e-4)),
+            'QICE': CountingVariable(np.full(shape3d, 1.0e-4)),
+            'T': temperature,
+            'P': pressure,
+            'PB': base_pressure,
+            'HFX': hfx,
+            'PBLH': pblh,
+        }
+        dataset = FakeDataset(variables)
+        fake_netcdf4 = types.SimpleNamespace(Dataset=lambda unused_path: dataset)
+
+        with mock.patch.dict(sys.modules, {'netCDF4': fake_netcdf4}):
+            features = oracle.extract_features('active-restart.nc', stride=1, lev_stride=1,
+                                               include_derived=False,
+                                               include_surface_fluxes=False)
+
+        self.assertEqual(qvapor.reads, 1)
+        self.assertEqual(temperature.reads, 0)
+        self.assertEqual(pressure.reads, 0)
+        self.assertEqual(base_pressure.reads, 0)
+        self.assertEqual(hfx.reads, 0)
+        self.assertEqual(pblh.reads, 0)
+        self.assertNotIn('HFX', features)
+        self.assertNotIn('PBLH', features)
+        self.assertNotIn('rh_cloud', features)
+        self.assertNotIn('cape', features)
+        self.assertTrue(dataset.closed)
+
+    def test_extract_features_reads_chunked_fields_contiguously_before_striding(self):
+        class RejectStridedVariable:
+            def __init__(self, data):
+                self.data = np.asarray(data)
+                self.reads = 0
+
+            def __getitem__(self, selection):
+                self.assert_no_strided_slice(selection)
+                self.reads += 1
+                return self.data[selection]
+
+            @staticmethod
+            def assert_no_strided_slice(selection):
+                for part in selection:
+                    if isinstance(part, slice) and part.step not in (None, 1):
+                        raise AssertionError('NetCDF variable received a strided slice')
+
+        class FakeDataset:
+            def __init__(self, variables):
+                self.variables = variables
+
+            def close(self):
+                pass
+
+        shape = (1, 4, 4, 4)
+        variables = {
+            'QVAPOR': RejectStridedVariable(np.full(shape, 1.0e-3)),
+            'QCLOUD': RejectStridedVariable(np.full(shape, 1.0e-4)),
+            'QICE': RejectStridedVariable(np.full(shape, 1.0e-4)),
+        }
+        dataset = FakeDataset(variables)
+        fake_netcdf4 = types.SimpleNamespace(Dataset=lambda unused_path: dataset)
+
+        with mock.patch.dict(sys.modules, {'netCDF4': fake_netcdf4}):
+            features = oracle.extract_features('chunked-restart.nc', stride=2, lev_stride=2,
+                                               include_derived=False,
+                                               include_surface_fluxes=False)
+
+        self.assertEqual(features['TCWV'].shape, (2, 2))
+        for variable in variables.values():
+            self.assertEqual(variable.reads, 1)
+
+    def test_emit_spatial_artifact_rolls_back_npz_when_json_publish_fails(self):
+        art = {'meta': 'ok', '_fields': {'total': np.ones((2, 2))}}
+        with tempfile.TemporaryDirectory() as tmp:
+            json_path = os.path.join(tmp, 'artifact.json')
+            npz_path = os.path.join(tmp, 'artifact.npz')
+            real_replace = oracle.os.replace
+
+            def replace(src, dst):
+                if dst == json_path:
+                    raise OSError('injected json publish failure')
+                return real_replace(src, dst)
+
+            with mock.patch.object(oracle.os, 'replace', side_effect=replace):
+                with self.assertRaisesRegex(OSError, 'json publish'):
+                    oracle.emit_spatial_artifact(art, json_path=json_path,
+                                                 npz_path=npz_path)
+
+            self.assertFalse(os.path.exists(json_path))
+            self.assertFalse(os.path.exists(npz_path))
+            self.assertEqual(os.listdir(tmp), [])
+            self.assertIn('_fields', art)
 
 
 class TopologyTests(unittest.TestCase):

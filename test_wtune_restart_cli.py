@@ -17,7 +17,7 @@ def _fake_oracle():
     """Oracle adapter with no NetCDF dependency for command-boundary tests."""
     phase_calls = []
 
-    def extract_features(path, stride=4, lev_stride=3):
+    def extract_features(path, stride=4, lev_stride=3, **unused_options):
         return {'snapshot': path, 'stride': stride}
 
     def phase_cost_fields(features, doy, utc_hours, run_hours=0.0, n_time=9,

@@ -59,6 +59,40 @@ class FeedbackTests(unittest.TestCase):
         with self.assertRaises(FeedbackError):
             sample(ownership_after=float('inf'))
 
+    def test_every_numeric_field_rejects_bad_values(self):
+        fields = ('imbalance_before', 'imbalance_threshold', 'migration_cost_seconds',
+                  'payload_bytes', 'stall_time_seconds', 'imbalance_after')
+        for field in fields:
+            for value in ('bad', -1, float('inf'), float('nan')):
+                with self.subTest(field=field, value=repr(value)):
+                    with self.assertRaises(FeedbackError):
+                        sample(**{field: value})
+        with self.assertRaises(FeedbackError):
+            sample(payload_bytes=1.5)
+        with self.assertRaises(FeedbackError):
+            sample(payload_bytes=True)
+
+    def test_boolean_ownership_and_limits_reject_bad_values(self):
+        for field in ('correctness_passed', 'runtime_hook_available', 'manifest_compatible'):
+            with self.assertRaises(FeedbackError):
+                sample(**{field: 1})
+        for value in ({'nested': {1: 'bad'}}, {'nested': [float('nan')]},
+                      {'nested': object()}):
+            with self.assertRaises(FeedbackError):
+                sample(ownership_before=value)
+        for kwargs in ({'history_limit': 0}, {'history_limit': -1},
+                       {'history_limit': True}, {'history_limit': 1.0},
+                       {'max_cost_seconds': -1}, {'max_cost_seconds': '1'},
+                       {'max_cost_seconds': float('nan')}):
+            with self.assertRaises(FeedbackError):
+                FeedbackController(**kwargs)
+
+    def test_history_eviction_removes_evidence(self):
+        c = FeedbackController(history_limit=1)
+        self.assertFalse(c.observe(sample(imbalance_after=.5)).worthy)
+        c.observe(sample(imbalance_before=.5))
+        self.assertFalse(c.observe(sample(imbalance_after=.5)).worthy)
+
     def test_json_csv_round_trip_columns(self):
         first = FeedbackController().observe(sample())
         payload = json.loads(decisions_to_json([first]))
@@ -78,15 +112,38 @@ class FeedbackTests(unittest.TestCase):
             command = [sys.executable, os.path.join(root, 'wtune.py'), 'feedback',
                        '--input', source, '--json-out', output_json, '--csv-out', output_csv]
             self.assertEqual(subprocess.call(command), 0)
-            self.assertFalse(json.load(open(output_json))[0]['actionable'])
+            with open(output_json) as handle:
+                self.assertFalse(json.load(handle)[0]['actionable'])
+            with open(output_csv) as handle:
+                rows = list(csv.reader(handle))
+            self.assertEqual(rows[0], ['imbalance_before', 'imbalance_threshold',
+                                       'migration_cost_seconds', 'payload_bytes',
+                                       'stall_time_seconds', 'imbalance_after',
+                                       'correctness_passed', 'runtime_hook_available',
+                                       'manifest_compatible', 'ownership_before',
+                                       'ownership_after', 'triggered', 'worthy',
+                                       'reason', 'fallback', 'actionable', 'advisory',
+                                       'non_actionable'])
+            self.assertEqual(len(rows), 2)
+            self.assertEqual(rows[1][-3:], ['False', 'True', 'True'])
             bad = os.path.join(directory, 'bad.json')
             with open(bad, 'w') as handle:
                 json.dump({'samples': [{'unknown': 1}]}, handle)
             bad_json, bad_csv = os.path.join(directory, 'bad.out'), os.path.join(directory, 'bad.csv')
+            with open(bad_json, 'w') as handle:
+                handle.write('old-json')
+            with open(bad_csv, 'w') as handle:
+                handle.write('old-csv\n')
+            with open(bad_json, 'rb') as handle:
+                old_json = handle.read()
+            with open(bad_csv, 'rb') as handle:
+                old_csv = handle.read()
             self.assertNotEqual(subprocess.call([sys.executable, os.path.join(root, 'wtune.py'), 'feedback',
                                                   '--input', bad, '--json-out', bad_json, '--csv-out', bad_csv]), 0)
-            self.assertFalse(os.path.exists(bad_json))
-            self.assertFalse(os.path.exists(bad_csv))
+            with open(bad_json, 'rb') as handle:
+                self.assertEqual(handle.read(), old_json)
+            with open(bad_csv, 'rb') as handle:
+                self.assertEqual(handle.read(), old_csv)
 
 if __name__ == '__main__':
     unittest.main()

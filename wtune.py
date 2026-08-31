@@ -20,6 +20,8 @@ import wtune_solar as wsolar
 import wtune_surrogate as surr
 from wtune_migration_config import (MigrationConfigError, from_environment,
                                     manifest_metadata, validate_case)
+from wtune_feedback import (FeedbackController, FeedbackError, FeedbackSample,
+                            decisions_to_csv, decisions_to_json)
 
 FLOOR = 10              # minimum mass points in each direction after halo
 HALO = 5                # WRF halo width approximation
@@ -1494,6 +1496,29 @@ def restart_window_cmd(args):
     print("UNVERIFIED: changed rank/shape/team/CPU maps; actionable=false")
     return 0
 
+def feedback_cmd(args):
+    try:
+        with open(args.input) as handle:
+            document = json.load(handle)
+        if not isinstance(document, dict) or not isinstance(document.get('samples'), list):
+            raise FeedbackError('input must contain a samples array')
+        limits = document.get('limits', {})
+        if not isinstance(limits, dict):
+            raise FeedbackError('limits must be an object')
+        controller = FeedbackController(**limits)
+        decisions = [controller.observe(FeedbackSample.from_dict(item))
+                     for item in document['samples']]
+        json_text, csv_text = decisions_to_json(decisions), decisions_to_csv(decisions)
+        _validate_restart_paths((args.input,), args.json_out, os.path.dirname(args.json_out) or '.',
+                                [args.csv_out])
+        _publish_restart_artifacts([(args.csv_out, csv_text, False)], args.json_out, json_text)
+    except (IOError, OSError, ValueError, TypeError, FeedbackError, json.JSONDecodeError) as exc:
+        return _restart_error('feedback input/output: {}'.format(exc))
+    print('created: {}'.format(args.json_out))
+    print('created: {}'.format(args.csv_out))
+    print('manifest-only: actionable=false')
+    return 0
+
 
 def main():
     parser = argparse.ArgumentParser(prog='wtune.py', description='WRF config autotuner analytical core')
@@ -1581,6 +1606,11 @@ def main():
     p_restart.add_argument('--output-dir', default='restart-window-artifacts', help='directory for rank maps and wrappers')
     p_restart.add_argument('--manifest-out', default=None, help='overall canonical JSON manifest path')
 
+    p_feedback = sub.add_parser('feedback', help='manifest-only advisory feedback decisions')
+    p_feedback.add_argument('--input', required=True, help='JSON samples and controller limits')
+    p_feedback.add_argument('--json-out', required=True, help='decision JSON output')
+    p_feedback.add_argument('--csv-out', required=True, help='canonical telemetry/decision CSV output')
+
     sub.add_parser('selftest', help='run CONUS calibration self-test')
 
     args = parser.parse_args()
@@ -1595,6 +1625,10 @@ def main():
         oracle_map_cmd(args)
     elif args.command == 'restart-window':
         status = restart_window_cmd(args)
+        if status:
+            sys.exit(status)
+    elif args.command == 'feedback':
+        status = feedback_cmd(args)
         if status:
             sys.exit(status)
     elif args.command == 'knobs':

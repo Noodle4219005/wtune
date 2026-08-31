@@ -23,12 +23,20 @@ def _mapping(value, label):
         raise MigrationError(label + " must be a mapping")
 
 
+def _valid_bounds(value):
+    if isinstance(value, (list, tuple)):
+        return bool(value) and all(isinstance(item, int) and not isinstance(item, bool) for item in value)
+    if isinstance(value, dict):
+        return bool(value) and all(isinstance(key, str) and _valid_bounds(item) for key, item in value.items())
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
 class RestartableField(object):
     def __init__(self, name, bounds, stagger, datatype, ownership, payload):
         if not isinstance(name, str) or not name:
             raise MigrationError("field name must be a non-empty string")
-        if not isinstance(bounds, (dict, list, tuple)) or not bounds:
-            raise MigrationError("field bounds must be a non-empty mapping or sequence")
+        if not _valid_bounds(bounds):
+            raise MigrationError("field bounds must contain only integer indices")
         for label, value in (("stagger", stagger), ("datatype", datatype), ("ownership", ownership)):
             if not isinstance(value, str) or not value:
                 raise MigrationError("field " + label + " must be a non-empty string")
@@ -114,6 +122,8 @@ class MigrationManifest(object):
 
 
 def _validate_commit(manifest):
+    if not isinstance(manifest.epoch, int) or isinstance(manifest.epoch, bool) or manifest.epoch < 0:
+        raise MigrationError("epoch must be a non-negative integer")
     if not manifest.field_inventory_complete:
         raise MigrationError("field inventory is incomplete")
     if manifest.scope != "single-domain" or manifest.nesting.get("max_dom") != 1:
@@ -123,7 +133,14 @@ def _validate_commit(manifest):
 def verify_bitwise_payloads(source, target):
     if not isinstance(source, MigrationManifest) or not isinstance(target, MigrationManifest):
         raise MigrationError("source and target must be manifests")
-    left, right = {f.name: f for f in source.fields}, {f.name: f for f in target.fields}
+    def indexed(manifest):
+        result = {}
+        for field in manifest.fields:
+            if not isinstance(field, RestartableField) or field.name in result:
+                raise MigrationError("manifest contains duplicate or invalid fields")
+            result[field.name] = field
+        return result
+    left, right = indexed(source), indexed(target)
     if set(left) != set(right):
         raise MigrationError("field names differ")
     for name in sorted(left):
@@ -145,17 +162,27 @@ class MigrationCoordinator(object):
         if self._phase != expected: raise MigrationError("invalid transition from " + self._phase)
         self._phase = phase
 
-    def poll(self): self._advance(MigrationPhase.INIT, MigrationPhase.POLL)
+    def _fail(self, reason):
+        self._pending, self._phase = None, MigrationPhase.ABORT
+        raise MigrationError(reason)
+
+    def poll(self):
+        try: self._advance(MigrationPhase.INIT, MigrationPhase.POLL)
+        except MigrationError as exc: self._fail(str(exc))
     def prepare(self, target_manifest):
-        self._advance(MigrationPhase.POLL, MigrationPhase.PREPARE)
-        _validate_commit(target_manifest); self._pending = target_manifest
+        try:
+            self._advance(MigrationPhase.POLL, MigrationPhase.PREPARE)
+            _validate_commit(target_manifest); self._pending = target_manifest
+        except Exception as exc: self._fail(str(exc))
     def transfer(self, target_manifest):
-        self._advance(MigrationPhase.PREPARE, MigrationPhase.TRANSFER)
-        if target_manifest is not self._pending: raise MigrationError("target differs from prepared manifest")
+        try:
+            self._advance(MigrationPhase.PREPARE, MigrationPhase.TRANSFER)
+            if target_manifest is not self._pending: raise MigrationError("target differs from prepared manifest")
+        except Exception as exc: self._fail(str(exc))
     def commit(self):
         self._advance(MigrationPhase.TRANSFER, MigrationPhase.COMMIT)
         try:
-            verify_bitwise_payloads(self.manifest, self._pending); _validate_commit(self._pending)
+            _validate_commit(self.manifest); verify_bitwise_payloads(self.manifest, self._pending); _validate_commit(self._pending)
             self._pending.epoch = self.manifest.epoch + 1
             self.manifest, self._pending = self._pending, None
         except Exception as exc:

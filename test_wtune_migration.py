@@ -32,21 +32,32 @@ class MigrationTests(unittest.TestCase):
             with self.assertRaises(MigrationError): bad_coordinator.prepare(bad)
         with self.assertRaises(MigrationError): MigrationManifest.from_dict({})
         with self.assertRaises(MigrationError): RestartableField("x", [], "s", "d", "o", b"")
+        with self.assertRaises(MigrationError): RestartableField("x", [None], "s", "d", "o", b"")
+        with self.assertRaises(MigrationError): RestartableField("x", {"bad": object()}, "s", "d", "o", b"")
         with self.assertRaises(MigrationError): RestartableField("x", [0], "s", "d", "o", "bytes")
 
     def test_payload_mismatch_and_extra_missing_fields(self):
         with self.assertRaises(MigrationError): verify_bitwise_payloads(manifest(), manifest(b"abd"))
         extra = manifest(); extra.fields.append(RestartableField("U", [0, 1], "cell", "float32", "owner", b"x"))
         with self.assertRaises(MigrationError): verify_bitwise_payloads(manifest(), extra)
+        missing = MigrationManifest([], {}, [], {"max_dom": 1}, {}, {}, [], {}, {})
+        with self.assertRaises(MigrationError): verify_bitwise_payloads(manifest(), missing)
+        duplicate = manifest(); duplicate.fields.append(duplicate.fields[0])
+        with self.assertRaises(MigrationError): verify_bitwise_payloads(manifest(), duplicate)
         c = MigrationCoordinator(manifest()); c.poll(); c.prepare(manifest()); c.transfer(c._pending)
         c._pending.fields[0].payload = b"abd"
         with self.assertRaises(MigrationError): c.commit()
         self.assertEqual(c.phase, MigrationPhase.ABORT); self.assertEqual(c.manifest.fields[0].payload, b"abc")
+        invalid_epoch = manifest(); invalid_epoch.epoch = -1
+        c = MigrationCoordinator(manifest()); c.poll(); c.prepare(manifest()); c.transfer(c._pending)
+        c._pending = invalid_epoch
+        with self.assertRaises(MigrationError): c.commit()
 
     def test_abort_is_fail_closed_and_idempotent(self):
-        c = MigrationCoordinator(manifest()); target = manifest(); c.poll(); c.prepare(target)
+        source = manifest(); c = MigrationCoordinator(source); target = manifest(); c.poll(); c.prepare(target)
         c.abort("cancelled"); c.abort("again")
-        self.assertEqual(c.phase, MigrationPhase.ABORT); self.assertIs(c.manifest, c.manifest)
+        self.assertEqual(c.phase, MigrationPhase.ABORT); self.assertIs(c.manifest, source)
+        self.assertIsNone(c._pending)
         with self.assertRaises(MigrationError): c.finalize()
 
 

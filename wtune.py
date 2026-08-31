@@ -18,6 +18,8 @@ import wtune_physics as phys
 import wtune_knobs as knobs
 import wtune_solar as wsolar
 import wtune_surrogate as surr
+from wtune_migration_config import (MigrationConfigError, from_environment,
+                                    manifest_metadata, validate_case)
 
 FLOOR = 10              # minimum mass points in each direction after halo
 HALO = 5                # WRF halo width approximation
@@ -1363,8 +1365,11 @@ def restart_window_cmd(args):
         case = extract_case(nl)
     except Exception as exc:
         return _restart_error("reading namelist: {}".format(exc))
-    if int(case.get('max_dom', 1)) != 1:
-        return _restart_error("max_dom=1 is required")
+    try:
+        migration_config = from_environment()
+        validate_case(migration_config, case)
+    except MigrationConfigError as exc:
+        return _restart_error(str(exc))
     try:
         _validate_restart_paths((args.namelist, args.snapshot, args.topology_json),
                                 manifest_path, output_dir)
@@ -1476,6 +1481,7 @@ def restart_window_cmd(args):
         'local_patch_y': case['ny'], 'rank_counts': rank_counts, 'windows': manifest_windows,
         'proxy_cost': None, 'transition_cost': 'UNKNOWN', 'restart_cost': None,
     })
+    manifest['migration'] = manifest_metadata(migration_config)
     try:
         _publish_restart_artifacts(
             outputs, manifest_path,

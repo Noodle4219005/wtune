@@ -173,6 +173,40 @@ class RestartWindowCliTests(unittest.TestCase):
             self.assertIn('max_dom', err.lower())
             self.assertFalse(os.path.exists(output))
 
+    def test_cli_rejects_invalid_migration_config_without_artifacts(self):
+        with tempfile.TemporaryDirectory() as root:
+            namelist = self._write_case(root)
+            topology = self._write_topology(root)
+            snapshot = os.path.join(root, 'snapshot')
+            with open(snapshot, 'w'):
+                pass
+            output = os.path.join(root, 'out')
+            with mock.patch.dict(os.environ, {'WTUNE_RUNTIME_MIGRATION': '2'}, clear=False):
+                code, unused_out, err = self._run_cli([
+                    'restart-window', '--namelist', namelist, '--snapshot', snapshot,
+                    '--topology-json', topology, '--output-dir', output])
+            self.assertNotEqual(code, 0)
+            self.assertIn('WTUNE_RUNTIME_MIGRATION', err)
+            self.assertFalse(os.path.exists(output))
+
+    def test_manifest_records_blocked_runtime_migration_metadata(self):
+        with tempfile.TemporaryDirectory() as root:
+            namelist = self._write_case(root)
+            topology = self._write_topology(root)
+            snapshot = os.path.join(root, 'snapshot')
+            with open(snapshot, 'w'):
+                pass
+            output = os.path.join(root, 'out')
+            with mock.patch.dict(os.environ, {'WTUNE_RUNTIME_MIGRATION': '1'}, clear=False):
+                code, unused_out, err = self._run_cli([
+                    'restart-window', '--namelist', namelist, '--snapshot', snapshot,
+                    '--topology-json', topology, '--output-dir', output])
+            self.assertEqual(code, 0, err)
+            with open(os.path.join(output, 'restart-window-manifest.json')) as handle:
+                migration = json.load(handle)['migration']
+            self.assertEqual(migration['activation'], 'blocked-no-runtime-hook')
+            self.assertFalse(migration['actionable'])
+
     def test_cli_rejects_duplicate_rank_cpu_allocations_without_partial_artifacts(self):
         with tempfile.TemporaryDirectory() as root:
             namelist = self._write_case(root)

@@ -33,6 +33,8 @@ class BlockMigrationTests(unittest.TestCase):
         ), (0, 1))
         self.assertTrue(ownership.verify_exactly_once())
         self.assertEqual(ownership.payload_bytes, 1)
+        with self.assertRaises(ValueError):
+            BlockChunk("list", [0, 0, 1, 1], b"x", 0)
 
     def test_registry_is_next_epoch_only_and_cache_fail_closed(self):
         old = BlockOwnership((chunk(1, 1, 0),), (0,), epoch=2)
@@ -72,6 +74,17 @@ class BlockMigrationTests(unittest.TestCase):
             plan_sparse_transfers(source, BlockOwnership((chunk(2, 1, 1),), (1,), epoch=1))
         with self.assertRaises(ValueError):
             plan_sparse_transfers(source, BlockOwnership((BlockChunk(1, (0, 0, 1, 1), b"z", 1),), (1,), epoch=1))
+        duplicate = BlockOwnership((chunk(1, 1, 0), chunk(2, 1, 0)), (0,))
+        duplicate.blocks[1].block_id = 1
+        with self.assertRaises(ValueError):
+            plan_sparse_transfers(duplicate, source)
+
+    def test_registry_publish_rejects_unrelated_next_epoch(self):
+        source = BlockOwnership((chunk(1, 1, 0),), (0,), epoch=0)
+        registry = OwnershipRegistry(source)
+        with self.assertRaises(ValueError):
+            registry.publish(BlockOwnership((chunk(2, 1, 0),), (0,), epoch=1))
+        self.assertIs(registry.ownership, source)
 
     def test_engine_publishes_sparse_result_and_rolls_back_on_failure(self):
         source = BlockOwnership((chunk(1, 1, 0), chunk(2, 2, 1)), (0, 1), epoch=0)
@@ -87,6 +100,22 @@ class BlockMigrationTests(unittest.TestCase):
         with self.assertRaises(StaleEpochError):
             engine.migrate(BlockOwnership((chunk(1, 1, 0), chunk(2, 2, 1)), (0, 1), epoch=1))
         self.assertIs(registry.ownership, before)
+
+    def test_engine_rolls_back_on_missing_extra_and_payload_failures(self):
+        cases = (
+            ("missing", (chunk(1, 1, 1),)),
+            ("extra", (chunk(1, 1, 1), chunk(2, 2, 1), chunk(3, 1, 1))),
+            ("payload", (BlockChunk(1, (0, 0, 1, 1), b"z", 1),
+                         chunk(2, 2, 1))),
+        )
+        for label, blocks in cases:
+            with self.subTest(label=label):
+                source = BlockOwnership((chunk(1, 1, 0), chunk(2, 2, 1)), (0, 1))
+                registry = OwnershipRegistry(source)
+                with self.assertRaises(ValueError):
+                    BlockMigrationEngine(registry).migrate(
+                        BlockOwnership(blocks, (0, 1), epoch=1))
+                self.assertIs(registry.ownership, source)
 
 
 if __name__ == "__main__":

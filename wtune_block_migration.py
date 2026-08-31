@@ -32,7 +32,7 @@ class BlockChunk(object):
             hash(block_id)
         except TypeError:
             raise ValueError("block_id must be hashable")
-        if (not isinstance(bounds, (list, tuple)) or len(bounds) != 4 or
+        if (not isinstance(bounds, tuple) or len(bounds) != 4 or
                 any(not isinstance(value, int) or isinstance(value, bool) or value < 0
                     for value in bounds) or bounds[2] < bounds[0] or
                 bounds[3] < bounds[1]):
@@ -112,6 +112,7 @@ class OwnershipRegistry(object):
         if (not isinstance(ownership, BlockOwnership) or
                 ownership.epoch != self.epoch + 1):
             raise StaleEpochError("publication must be exactly the next epoch")
+        _validated_pairs(self.ownership, ownership)
         self._ownership = ownership
         return ownership
 
@@ -141,6 +142,10 @@ class TransferPlan(object):
 def _validated_pairs(source, target):
     if not isinstance(source, BlockOwnership) or not isinstance(target, BlockOwnership):
         raise ValueError("source and target must be BlockOwnership")
+    source_ids = [block.block_id for block in source.blocks]
+    target_ids = [block.block_id for block in target.blocks]
+    if len(source_ids) != len(set(source_ids)) or len(target_ids) != len(set(target_ids)):
+        raise ValueError("block IDs must be unique")
     source_by_id = dict((block.block_id, block) for block in source.blocks)
     target_by_id = dict((block.block_id, block) for block in target.blocks)
     if set(source_by_id) != set(target_by_id):

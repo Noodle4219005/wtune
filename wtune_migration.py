@@ -28,7 +28,7 @@ def _valid_bounds(value):
         return bool(value) and all(isinstance(item, int) and not isinstance(item, bool) for item in value)
     if isinstance(value, dict):
         return bool(value) and all(isinstance(key, str) and _valid_bounds(item) for key, item in value.items())
-    return isinstance(value, int) and not isinstance(value, bool)
+    return False
 
 
 class RestartableField(object):

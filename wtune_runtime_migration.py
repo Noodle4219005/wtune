@@ -56,10 +56,14 @@ class ReservedPoolProvider(object):
             new_ranks = self._ranks(target_ranks, "target", allow_empty=False)
             if not set(new_ranks).issubset(set(self.pool)):
                 raise ProviderError("target ranks must be in pool")
-        generation = self._generation + 1
+        # Reserve the epoch at prepare time so aborted transitions cannot
+        # cause a later communicator epoch to be reused.
+        old_generation = self._generation
+        self._generation += 1
+        generation = self._generation
         self._pending = CommunicatorTransition(
             self.active_ranks, new_ranks,
-            "communicator-%d" % self._generation,
+            "communicator-%d" % old_generation,
             "communicator-%d" % generation, generation)
         return self._pending
 
@@ -71,7 +75,6 @@ class ReservedPoolProvider(object):
             raise ProviderError("no exact pending transition")
         pending = self._pending
         self.active_ranks = pending.new_ranks
-        self._generation = pending.generation
         self._pending = None
         return pending
 

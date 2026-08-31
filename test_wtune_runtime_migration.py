@@ -1,6 +1,6 @@
 import unittest
 
-from wtune_migration import MigrationManifest, RestartableField
+from wtune_migration import MigrationError, MigrationManifest, RestartableField
 from wtune_runtime_migration import (ProviderError, RectangleOwnership,
                                      RectanglePatch, ReservedPoolProvider,
                                      SingleDomainMigrationEngine)
@@ -40,6 +40,19 @@ class RuntimeMigrationTests(unittest.TestCase):
         self.assertEqual((0, 3), replacement.new_ranks)
         self.assertGreater(replacement.generation, shrink.generation)
 
+    def test_provider_pending_does_not_publish_and_abort_is_idempotent(self):
+        provider = ReservedPoolProvider((0, 1, 2), active=(0,))
+        pending = provider.prepare_resize(2)
+        self.assertEqual((0,), provider.active_ranks)
+        self.assertIs(provider.pending_transition, pending)
+        aborted_generation = pending.generation
+        provider.abort_resize(pending)
+        provider.abort_resize(pending)
+        self.assertEqual((0,), provider.active_ranks)
+        self.assertIsNone(provider.pending_transition)
+        next_pending = provider.prepare_resize(2)
+        self.assertGreater(next_pending.generation, aborted_generation)
+
     def test_rectangle_zero_and_one_cell_and_exactly_once_reassignment(self):
         ownership = RectangleOwnership([
             RectanglePatch("empty", (2, 2, 2, 2), b"", 0),
@@ -52,8 +65,8 @@ class RuntimeMigrationTests(unittest.TestCase):
         self.assertEqual({"empty", "cell"}, {p.patch_id for p in moved.patches})
 
     def test_engine_trace_hooks_result_and_bitwise_migration(self):
-        events = []
-        hooks = {name: (lambda context, name=name: events.append(name))
+        events, contexts = [], []
+        hooks = {name: (lambda context, name=name: (events.append(name), contexts.append(context)))
                  for name in ("drain", "freeze", "communicator", "pack",
                               "transfer", "unpack", "mesh", "patch", "halo", "peer")}
         engine = SingleDomainMigrationEngine(manifest(), ReservedPoolProvider((0, 1, 2), (0, 1)),
@@ -68,6 +81,8 @@ class RuntimeMigrationTests(unittest.TestCase):
         self.assertEqual("sparse-p2p", result.transport)
         self.assertEqual(4, result.payload_bytes)
         self.assertEqual(1, result.epoch)
+        self.assertTrue(all({"source_manifest", "target_manifest", "transition", "ownership"}
+                            .issubset(context) for context in contexts))
 
     def test_bitwise_nested_and_incomplete_targets_fail_closed(self):
         provider = ReservedPoolProvider((0, 1), (0,))
@@ -76,7 +91,8 @@ class RuntimeMigrationTests(unittest.TestCase):
                        manifest(nesting={"max_dom": 2}),
                        manifest(field_inventory_complete=False)):
             before = (engine.manifest, engine.ownership, provider.active_ranks)
-            with self.assertRaises(Exception):
+            expected = MigrationError if target.fields[0].payload != b"state" else ValueError
+            with self.assertRaises(expected):
                 engine.migrate(target, 2)
             self.assertIs(engine.manifest, before[0])
             self.assertIs(engine.ownership, before[1])
@@ -87,15 +103,21 @@ class RuntimeMigrationTests(unittest.TestCase):
         def fail(_):
             raise RuntimeError("hook failed")
         engine = SingleDomainMigrationEngine(manifest(), provider, self.patches(), {"mesh": fail})
+        before_manifest, before_ownership = engine.manifest, engine.ownership
         with self.assertRaises(RuntimeError):
             engine.migrate(manifest(), 2)
+        self.assertIs(engine.manifest, before_manifest)
+        self.assertIs(engine.ownership, before_ownership)
         self.assertIsNone(provider.pending_transition)
         self.assertEqual((0,), provider.active_ranks)
         provider = ReservedPoolProvider((0, 1), (0,))
         provider.fail_next = True
         engine = SingleDomainMigrationEngine(manifest(), provider, self.patches())
+        before_manifest, before_ownership = engine.manifest, engine.ownership
         with self.assertRaises(ProviderError):
             engine.migrate(manifest(), 2)
+        self.assertIs(engine.manifest, before_manifest)
+        self.assertIs(engine.ownership, before_ownership)
         self.assertEqual((0,), provider.active_ranks)
 
 

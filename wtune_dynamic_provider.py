@@ -23,6 +23,7 @@ class DynamicProcessProvider(object):
         self._communicator = "communicator-0"
         self._generation = 0
         self._pending = None
+        self._pending_cleanup = None
 
     @classmethod
     def _require_backend(cls, backend):
@@ -59,16 +60,27 @@ class DynamicProcessProvider(object):
         requested = self._ranks(target_ranks, "target")
         return requested, requested
 
-    def _cleanup(self, ranks, communicator):
+    def _cleanup(self, ranks, communicator, cleanup_state=None):
         errors = []
-        if communicator is not None and communicator != self._communicator:
+        retire_needed = (communicator is not None and
+                         communicator is not self._communicator)
+        if cleanup_state is not None:
+            retire_needed = cleanup_state["communicator"]
+        if retire_needed:
             try:
                 self.backend.retire_communicator(communicator)
+                if cleanup_state is not None:
+                    cleanup_state["communicator"] = False
             except Exception as error:
                 errors.append(error)
-        if ranks:
+        release_needed = bool(ranks)
+        if cleanup_state is not None:
+            release_needed = cleanup_state["ranks"]
+        if release_needed:
             try:
                 self.backend.release_processes(ranks)
+                if cleanup_state is not None:
+                    cleanup_state["ranks"] = False
             except Exception as error:
                 errors.append(error)
         if errors:
@@ -89,24 +101,27 @@ class DynamicProcessProvider(object):
                 raise ProviderError("backend admitted ranks differ from target")
             new_communicator = self.backend.create_communicator(
                 self._communicator, admitted, generation, self.mpi_abi)
-            if new_communicator is None or new_communicator == self._communicator:
+            if new_communicator is None or new_communicator is self._communicator:
                 raise ProviderError("backend did not create a new communicator")
             transition = CommunicatorTransition(
                 self.active_ranks, admitted, self._communicator,
                 new_communicator, generation, transport="sparse-p2p")
             self._pending = transition
+            self._pending_cleanup = {"communicator": True, "ranks": True}
             return transition
-        except ProviderError:
+        except ProviderError as error:
             try:
                 self._cleanup(admitted, new_communicator)
-            except ProviderError:
-                pass
+            except ProviderError as cleanup_error:
+                raise ProviderError("%s; cleanup incomplete: %s" %
+                                    (error, cleanup_error)) from cleanup_error
             raise
         except Exception as error:
             try:
                 self._cleanup(admitted, new_communicator)
-            except ProviderError:
-                pass
+            except ProviderError as cleanup_error:
+                raise ProviderError("backend preparation failed; cleanup "
+                                    "incomplete: %s" % cleanup_error) from error
             raise ProviderError("backend preparation failed") from error
 
     def commit_resize(self, transition=None):
@@ -117,15 +132,21 @@ class DynamicProcessProvider(object):
         try:
             self.backend.publish_communicator(pending.new_communicator)
         except Exception as error:
-            self._pending = None
             try:
-                self._cleanup(pending.new_ranks, pending.new_communicator)
-            except ProviderError:
-                pass
+                self._cleanup(pending.new_ranks, pending.new_communicator,
+                              self._pending_cleanup)
+            except ProviderError as cleanup_error:
+                raise ProviderError("backend publication failed; cleanup "
+                                    "incomplete: %s" % cleanup_error) from error
+            self._pending = None
+            self._pending_cleanup = None
             raise ProviderError("backend publication failed") from error
+        # The backend owns retirement of the old communicator and release of
+        # old ranks; this adapter cannot retire them before old users quiesce.
         self.active_ranks = pending.new_ranks
         self._communicator = pending.new_communicator
         self._pending = None
+        self._pending_cleanup = None
         return pending
 
     def abort_resize(self, transition=None):
@@ -134,6 +155,8 @@ class DynamicProcessProvider(object):
         if transition is not None and transition is not self._pending:
             raise ProviderError("transition is not pending")
         pending = self._pending
+        self._cleanup(pending.new_ranks, pending.new_communicator,
+                      self._pending_cleanup)
         self._pending = None
-        self._cleanup(pending.new_ranks, pending.new_communicator)
+        self._pending_cleanup = None
         return pending

@@ -1,7 +1,9 @@
 import unittest
+import inspect
 
 from wtune_dynamic_provider import DynamicProcessProvider
-from wtune_runtime_migration import CommunicatorTransition, ProviderError
+from wtune_runtime_migration import (CommunicatorTransition, ProviderError,
+                                     ReservedPoolProvider)
 
 
 class RecordingBackend(object):
@@ -33,9 +35,13 @@ class RecordingBackend(object):
 
     def release_processes(self, ranks):
         self.calls.append(("release", tuple(ranks)))
+        if "release" in self.fail:
+            raise RuntimeError("release failed")
 
     def retire_communicator(self, communicator):
         self.calls.append(("retire", communicator))
+        if "retire" in self.fail:
+            raise RuntimeError("retire failed")
 
 
 class DynamicProcessProviderTests(unittest.TestCase):
@@ -48,6 +54,7 @@ class DynamicProcessProviderTests(unittest.TestCase):
         self.assertIsInstance(transition, CommunicatorTransition)
         self.assertEqual((0, 1), provider.active_ranks)
         self.assertIs(provider.pending_transition, transition)
+        self.assertNotIn(("publish", transition.new_communicator), backend.calls)
         self.assertEqual(
             [("admit", (0, 1, 2), self.ABI),
              ("create", "communicator-0", (0, 1, 2), 1, self.ABI)],
@@ -114,6 +121,54 @@ class DynamicProcessProviderTests(unittest.TestCase):
         self.assertEqual(("release", (0, 1)), backend.calls[-1])
         self.assertGreater(pending.generation, 1)
 
+    def test_cleanup_failure_is_surface_and_abort_retries_pending_cleanup(self):
+        backend = RecordingBackend()
+        provider = DynamicProcessProvider(backend, (0,), self.ABI)
+        pending = provider.prepare_resize((0, 1))
+        backend.fail.clear()
+        backend.fail.add("retire")
+        with self.assertRaises(ProviderError) as error:
+            provider.abort_resize(pending)
+        self.assertIn("cleanup", str(error.exception))
+        self.assertIs(provider.pending_transition, pending)
+        backend.fail.clear()
+        provider.abort_resize(pending)
+        self.assertIsNone(provider.pending_transition)
+        self.assertEqual("retire", backend.calls[-1][0])
+        self.assertEqual(1, len([call for call in backend.calls if call[0] == "release"]))
+
+    def test_commit_cleanup_failure_is_surface_and_pending_is_retained(self):
+        backend = RecordingBackend()
+        provider = DynamicProcessProvider(backend, (0,), self.ABI)
+        pending = provider.prepare_resize((0, 1))
+        backend.fail.update(("publish", "retire", "release"))
+        with self.assertRaises(ProviderError) as error:
+            provider.commit_resize(pending)
+        self.assertIn("cleanup", str(error.exception))
+        self.assertIs(provider.pending_transition, pending)
+        self.assertEqual((0,), provider.active_ranks)
+        self.assertNotIn(("publish", pending.new_communicator), backend.calls[0:2])
+
+    def test_provider_contract_signature_parity(self):
+        for name in ("prepare_resize", "commit_resize", "abort_resize"):
+            dynamic = inspect.signature(getattr(DynamicProcessProvider, name))
+            reserved = inspect.signature(getattr(ReservedPoolProvider, name))
+            self.assertEqual(dynamic, reserved)
+
+    def test_distinct_communicator_uses_identity_not_only_equality(self):
+        class EqualCommunicator(object):
+            def __eq__(self, other):
+                return True
+
+        backend = RecordingBackend()
+        equal_but_distinct = EqualCommunicator()
+        backend.next_communicator = equal_but_distinct
+        provider = DynamicProcessProvider(backend, (0,), self.ABI)
+        transition = provider.prepare_resize((0, 1))
+        self.assertIsNot(transition.new_communicator, transition.old_communicator)
+        provider.abort_resize(transition)
+        self.assertIn(("retire", equal_but_distinct), backend.calls)
+
     def test_rejects_invalid_backend_abi_and_transition_inputs(self):
         for backend in (object(),):
             with self.assertRaises(ProviderError):
@@ -130,6 +185,7 @@ class DynamicProcessProviderTests(unittest.TestCase):
         pending = provider.prepare_resize((0, 1))
         with self.assertRaises(ProviderError):
             provider.commit_resize(CommunicatorTransition((0,), (0,), "x", "y", 99))
+        self.assertNotIn(("publish", pending.new_communicator), backend.calls)
         provider.abort_resize(pending)
 
     def test_admission_failure_leaves_state_unchanged(self):
@@ -141,6 +197,16 @@ class DynamicProcessProviderTests(unittest.TestCase):
         self.assertEqual((0,), provider.active_ranks)
         self.assertIsNone(provider.pending_transition)
         self.assertEqual([("admit", 2, self.ABI)], backend.calls)
+
+    def test_prepare_cleanup_failure_is_surface(self):
+        backend = RecordingBackend()
+        backend.fail.update(("create", "release"))
+        provider = DynamicProcessProvider(backend, (0,), self.ABI)
+        with self.assertRaises(ProviderError) as error:
+            provider.prepare_resize((0, 1))
+        self.assertIn("cleanup incomplete", str(error.exception))
+        self.assertEqual((0,), provider.active_ranks)
+        self.assertIsNone(provider.pending_transition)
 
 
 if __name__ == "__main__":

@@ -25,8 +25,30 @@ def _boolean(value, name):
         raise FeedbackError('{} must be boolean'.format(name))
     return value
 
+def _json_compatible(value, name):
+    if value is None or isinstance(value, (str, bool, int)):
+        return
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            raise FeedbackError('{} contains non-finite number'.format(name))
+        return
+    if isinstance(value, list):
+        for item in value:
+            _json_compatible(item, name)
+        return
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if not isinstance(key, str):
+                raise FeedbackError('{} contains non-string key'.format(name))
+            _json_compatible(item, name)
+        return
+    raise FeedbackError('{} is not JSON-compatible'.format(name))
+
 class FeedbackSample(object):
     def __init__(self, **kwargs):
+        unknown = [key for key in kwargs if key not in _FIELDS]
+        if unknown:
+            raise FeedbackError('unknown telemetry: {}'.format(','.join(unknown)))
         missing = [key for key in _FIELDS if key not in kwargs]
         if missing:
             raise FeedbackError('missing telemetry: {}'.format(','.join(missing)))
@@ -39,8 +61,8 @@ class FeedbackSample(object):
         self.correctness_passed = _boolean(kwargs['correctness_passed'], 'correctness_passed')
         self.runtime_hook_available = _boolean(kwargs['runtime_hook_available'], 'runtime_hook_available')
         self.manifest_compatible = _boolean(kwargs['manifest_compatible'], 'manifest_compatible')
-        if not isinstance(kwargs['ownership_before'], (str, tuple, list, dict)) or not isinstance(kwargs['ownership_after'], (str, tuple, list, dict)):
-            raise FeedbackError('ownership must be a serializable value')
+        _json_compatible(kwargs['ownership_before'], 'ownership_before')
+        _json_compatible(kwargs['ownership_after'], 'ownership_after')
         self.ownership_before = kwargs['ownership_before']
         self.ownership_after = kwargs['ownership_after']
 
@@ -94,7 +116,7 @@ class FeedbackController(object):
             reason = 'runtime-hook-unavailable'
         elif sample.migration_cost_seconds > self.max_cost_seconds:
             reason = 'cost-overrun'
-        elif not self.history:
+        elif not any(self._valid_evidence(item) for item in self.history):
             reason = 'insufficient-history'
         elif sample.imbalance_after >= sample.imbalance_before:
             reason = 'no-positive-improvement'
@@ -105,6 +127,13 @@ class FeedbackController(object):
         self.history.append(sample)
         del self.history[:-self.history_limit]
         return decision
+
+    def _valid_evidence(self, sample):
+        return (sample.imbalance_before >= sample.imbalance_threshold and
+                sample.correctness_passed and sample.manifest_compatible and
+                sample.runtime_hook_available and
+                sample.migration_cost_seconds <= self.max_cost_seconds and
+                sample.imbalance_before > sample.imbalance_after)
 
 def decisions_to_json(decisions):
     return json.dumps([item.to_dict() for item in decisions], sort_keys=True, separators=(',', ':')) + '\n'

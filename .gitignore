@@ -11,3 +11,5 @@ jlenv/**/*.so
 # scratch
 *.tmp
 *.log
+slurm-*.out
+__pycache__/

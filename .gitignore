@@ -1,15 +1,7 @@
-# generated experiment artifacts
-rankfiles/
-*.rankfile
-# python
 __pycache__/
 *.pyc
-*.pyo
-# julia project depot/compiled (keep Project.toml / Manifest.toml)
-jlenv/**/compiled/
-jlenv/**/*.so
-# scratch
-*.tmp
-*.log
+*.bak-*
+# generated at run time, not source
 slurm-*.out
-__pycache__/
+rankfiles/
+*.csv

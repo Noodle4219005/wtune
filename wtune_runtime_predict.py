@@ -63,13 +63,28 @@ for tgt, name in [(elapsed, "TOTAL elapsed (wall proxy)"), (cmax, "bottleneck ma
     base = np.array([np.delete(tgt, i).mean() for i in range(len(tgt))])
     print(f"  LOO mean-baseline : MAE={np.mean(np.abs(base-tgt)):.2f}s  (target std {tgt.std():.2f}s)\n")
 
-# also: single best feature LOO (honest tiny-data model)
-print("=== single-best-feature LOO for TOTAL elapsed ===")
-j = max(range(Xc.shape[1]), key=lambda j: abs(tr._spearman(Xc[:, j], elapsed)))
-x = Xc[:, j]; pred = np.zeros(8)
-for i in range(8):
-    m = np.ones(8, bool); m[i] = False
-    A = np.polyfit(x[m], elapsed[m], 1); pred[i] = np.polyval(A, x[i])
-print(f"  feature '{names[j]}': LOO linear MAE={np.mean(np.abs(pred-elapsed)):.2f}s  rho={tr._spearman(pred,elapsed):+.3f}")
-for c, xi, a, p in zip(CASES, x, elapsed, pred):
-    print(f"    {c:18s} {names[j]}={xi:8.3g}  actual={a:5.2f}s  LOOpred={p:5.2f}s  err={p-a:+.2f}s")
+# single-best-feature LOO -- NESTED: the feature is chosen inside each fold, using only the
+# training cases. Choosing it once on all 8 (as an earlier version did) leaks the held-out case
+# into the selection and makes the reported MAE optimistic by an unknown amount.
+print("=== single-best-feature LOO for TOTAL elapsed (nested selection) ===")
+n = len(elapsed)
+pred = np.zeros(n); chosen = []
+for i in range(n):
+    m = np.ones(n, bool); m[i] = False
+    jt = max(range(Xc.shape[1]), key=lambda j: abs(tr._spearman(Xc[m, j], elapsed[m])))
+    chosen.append(names[jt])
+    A = np.polyfit(Xc[m, jt], elapsed[m], 1); pred[i] = np.polyval(A, Xc[i, jt])
+import collections
+sel = collections.Counter(chosen)
+print(f"  NESTED LOO MAE={np.mean(np.abs(pred-elapsed)):.2f}s  rho={tr._spearman(pred,elapsed):+.3f}")
+print(f"  feature chosen per fold: {dict(sel)}  (stable selection => the headline is real)")
+# the leaky version, reported alongside so the gap is visible
+jall = max(range(Xc.shape[1]), key=lambda j: abs(tr._spearman(Xc[:, j], elapsed)))
+pl = np.zeros(n)
+for i in range(n):
+    m = np.ones(n, bool); m[i] = False
+    A = np.polyfit(Xc[m, jall], elapsed[m], 1); pl[i] = np.polyval(A, Xc[i, jall])
+print(f"  (leaky, selection on all cases, '{names[jall]}'): MAE={np.mean(np.abs(pl-elapsed)):.2f}s"
+      f"   <- optimism = {np.mean(np.abs(pl-elapsed))-np.mean(np.abs(pred-elapsed)):+.2f}s")
+for c, a, p in zip(CASES, elapsed, pred):
+    print(f"    {c:18s} actual={a:5.2f}s  LOOpred={p:5.2f}s  err={p-a:+.2f}s")

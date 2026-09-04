@@ -125,16 +125,36 @@ def extract_features(path, stride=4, lev_stride=3, include_derived=True,
     micro, cumulus and PBL buckets. `include_derived=False` skips the T/P/PB profile when
     active hydrometeors already determine the microphysics field, but retains the clear-snapshot
     RH fallback. `include_surface_fluxes=False` omits the unused HFX/PBLH fields."""
-    import netCDF4 as nc
-    ds = nc.Dataset(path)
+    import wrf_frame
+    ds = wrf_frame.open_frame(path)      # netCDF4 or ADIOS2 BP, same surface
     qvapor = (_read_strided_4d(ds.variables['QVAPOR'], lev_stride, stride)
               if 'QVAPOR' in ds.variables else None)
 
+    # Mass-weighted column path [kg/m^2]:  path = sum_k q_k * (MU+MUB) * |DNW_k| / g
+    # A raw level sum (the previous behaviour) is CONFOUNDED WITH THE VERTICAL CONFIG: the same
+    # atmosphere yields ~2.2x more at e_vert=100 than at e_vert=45 (more terms in the sum), and
+    # p_top shifts it again. A model trained across e_vert would then "discover" that high-TCWV
+    # cases are slow when it had only learned e_vert. MU/MUB are 2-D and DNW is 1-D, so this
+    # costs essentially no extra I/O.
+    G_ACCEL = 9.81
+    _mu = _wgt = None
+    if all(k in ds.variables for k in ('MU', 'MUB', 'DNW')):
+        _mu = (_read_strided_3d(ds.variables['MU'], stride)
+               + _read_strided_3d(ds.variables['MUB'], stride))          # (ny,nx), Pa
+        _dnw = np.abs(np.asarray(ds.variables['DNW'][0, :], float))      # (nz,)
+        _wgt = np.array([_dnw[k:k + lev_stride].sum()
+                         for k in range(0, _dnw.size, lev_stride)])      # weight per sampled level
+
     def colsum(v):
-        if v == 'QVAPOR':
-            return qvapor.sum(axis=0) if qvapor is not None else None
-        return (_read_strided_4d(ds.variables[v], lev_stride, stride).sum(axis=0)
-                if v in ds.variables else None)
+        arr = (qvapor if v == 'QVAPOR'
+               else (_read_strided_4d(ds.variables[v], lev_stride, stride)
+                     if v in ds.variables else None))
+        if arr is None:
+            return None
+        if _mu is None or _wgt is None:
+            return arr.sum(axis=0)              # fallback (e_vert-confounded); kept for old files
+        w = _wgt[:arr.shape[0]]
+        return (arr * w[:, None, None]).sum(axis=0) * _mu / G_ACCEL
 
     f = {}
     for name, var in [('TCWV', 'QVAPOR'), ('LWP', 'QCLOUD'), ('RWP', 'QRAIN'),
@@ -147,7 +167,12 @@ def extract_features(path, stride=4, lev_stride=3, include_derived=True,
     # (the Thompson branch-complexity proxy). 0 = clear, 5 = full mixed-phase + graupel.
     species = [f[k] for k in ('LWP', 'RWP', 'IWP', 'SWP', 'GWP') if k in f]
     if species:
-        thr = [(s > s.max() * 0.01) if s.max() > 0 else np.zeros_like(s, bool) for s in species]
+        # ABSOLUTE threshold in path units (kg/m^2). A per-case-relative threshold
+        # (s > s.max()*0.01) makes the feature depend on WHICH CASE the column is in: a
+        # hurricane's graupel maximum suppresses nspecies everywhere else in that same case,
+        # so the feature is not a function of the column and cannot transfer across cases.
+        SPECIES_MIN_PATH = 1.0e-3          # 1 g/m^2 of condensate = "species active"
+        thr = [(s > SPECIES_MIN_PATH) for s in species]
         f['nspecies'] = np.sum(thr, axis=0).astype(float)
         # mixed-phase flag: BOTH liquid (qc|qr) and ice (qi|qs|qg) present -> dearest branch
         liq = (f.get('LWP', 0) > 0) | (f.get('RWP', 0) > 0)

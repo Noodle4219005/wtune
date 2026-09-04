@@ -31,25 +31,65 @@ not a preference, and it defines the design:
 
 ## Architecture
 
+Everything predicted is a **cost RATE**, never a duration. Duration is contaminated by machine
+state, I/O and node variance; the rate is the clean quantity, and the step count is exact
+arithmetic from the namelist:
+
 ```
-                 namelist.input + wrfinput/wrfout
-                              │
-      ┌───────────────────────┼───────────────────────┐
-      ▼                       ▼                       ▼
- ADVISORY layer          PREDICTION layer        MEASUREMENT layer
- (what config?)          (how long? who's hot?)  (where did time go?)
- wtune.py                wtune_oracle*.py        blockbar_*.c (PMPI shims)
- wtune_physics.py        wtune_runtime_predict   wtune_phase_analysis.py
- wtune_knobs.py          wtune_crosscase_*.py    wtune_replay_sim.py
- wtune_solar/surrogate            │                      │
-      └──────────► wtune_placement.py ◄──────────────────┘
-                   (hotspot → rank/core placement, zero data movement)
-                              │
-                   g0a/wtune-transition-controller.py
-                   (segment transitions, node scaling, imbalance gate)
+total_wall  =  n_steps  x  rate                 n_steps = sim_hours*3600/dt   (not predicted)
+
+rate[rank]  =  scale(config)  x  share(segment)  x  shape(weather)[rank]
+               ^^^^^^^^^^^^^     ^^^^^^^^^^^^^^     ^^^^^^^^^^^^^^^^^
+               e_vert alone      = 1               per-PBL-scheme head
+               10 samples        (measured: no     17920 samples
+               LOO MAE 6.2%      predictor beats   no geometry features
+               extrapolates      the constant)
+               to unseen levels
+               at 6%
 ```
 
----
+```
+   WRF (io_form=14, ADIOS2)              PMPI shim (blockbar_bucket.c)
+   wrfout every 3 sim-hours              per-rank comp/wait in 300 s WALL buckets
+            │                                        │
+            ▼                                        ▼
+   featurize_frames.py                      bucket_load.csv
+   frame (1-2 GB) -> 448 x 17 (31 KB)       + rsl.out.0000 for the sim<->wall map
+   then DELETES the frame                            │
+            └──────────────► wtune_segment_train.py ◄┘
+                             (aligns segmented features to segmented labels)
+                                        │
+   ADVISORY                  PREDICTION │                    MEASUREMENT
+   wtune.py (11 subcommands) wtune_cost_model.py  <──────    wtune_phase_analysis.py
+   wtune_physics/knobs       wtune_runtime12.py               wtune_replay_sim.py
+   wtune_solar/surrogate     wtune_segshare.py
+            └──────────────► g0a/wtune-transition-controller.py
+                             imbalance_gate()            <- on MEASURED seconds
+                             imbalance_gate_predicted()  <- on PREDICTED, discounted by
+                                                            the scheme's hit rate; a SAFETY
+                                                            VALVE, not a trigger
+```
+
+### What the model is for, and what it is not for
+
+Measured by replaying the loop against segments already recorded: **the model must not decide
+*whether* to rebalance.** At the 56 s restart cost the recoverable seconds (35-71 s) straddle
+the threshold and nothing separates them -- model 85%, persistence 82%, always-hold 85%. At a
+cheap in-place cost every segment clears and the answer is always "switch". Neither regime
+needs a prediction.
+
+**The model answers *which ranks*.** That is the hot-spot hit rate, and it is what a
+rebalancer consumes.
+
+### Two properties that constrain everything
+
+- **The per-rank pattern is 93.3% reproducible run to run**, so it is deterministic and worth
+  predicting -- but *within* a case it is already 86.1% learnable while *across* cases it is
+  42%. Every gap is a TRANSFER gap. Six feature-engineering attempts failed on that account;
+  a per-PBL-scheme head fixed MYNN in one change (+18 pt) at zero cost.
+- **Regime coverage dominates every other lever.** Same weather with 9 training cases: 80.8%.
+  With 1: 39.4%. With 1 and a different decomposition: 21.7%. Compare the per-scheme head
+  (+12), geometry (+4), loss function (+2), model class (KNN, -7).
 
 ## 1. Advisory layer — what configuration to use
 
@@ -88,7 +128,7 @@ micro, surf, TCWV, LWP, RWP, IWP, SWP, GWP, nspecies, mixed_phase`).
 
 | tool | predicts | validation |
 |---|---|---|
-| `wtune_runtime_predict.py` | **total runtime**, case level | leave-one-out **MAE 0.69 s (~3.5%)**, 3× better than a mean baseline; best single feature = radiation load |
+| `wtune_runtime_predict.py` | **total runtime**, case level | **nested** leave-one-out **MAE 1.07 s (~5.2%)**, 1.9× better than a mean baseline; best single feature = radiation load |
 | `wtune_crosscase_blk.py` | **per-rank cost**, 3 km/448-rank corpus | within-case Spearman **+0.44…+0.85 (all positive)**; cross-regime LOCO **+0.50**; pooled 5-fold +0.64 |
 | `wtune_crosscase_train.py` | per-rank cost, 12 km/36-rank corpus | LOCO only **+0.14** — see *scale* below |
 | `wtune_oracle_train.py` | per-rank cost, single CONUS run | within-run OOF Spearman 0.884 |
@@ -168,7 +208,7 @@ and worth having on 150 s).
 | `8×56` decomposition | zero-code shape win | 448 rank / 4 node |
 | `numtiles = patch/251` | **−1.72%** s/step | same-node A/B, n=1/arm |
 | 4N→8N node scaling | −44.6% solver, projection error 1% | validates the controller model; **blocked by the 4-node rule** |
-| total-runtime prediction | **MAE 0.69 s (~3.5%)** | case-level LOO, single feature |
+| total-runtime prediction | **MAE 1.07 s (~5.2%)** | case-level NESTED LOO, single feature |
 | per-rank prediction | within-case ρ +0.44…+0.85, LOCO +0.50 | 12-case 3 km corpus |
 | load imbalance (3 km/448) | pooling 11.5% / residual 11.8% / total 23.4% | time-aligned dense measurement |
 
@@ -223,4 +263,4 @@ Research tool, developed against CONUS 2.5 km and a 12-case 3 km multi-regime co
 f1/NCHC. The advisory, prediction, and measurement layers are validated. Under the
 no-source-modification rule the remaining wall-time optimization space is essentially closed
 (see *Measured-closed*), so the live value is **prediction and scheduling**: knowing a case's
-runtime to ~3.5% and its hot ranks before it runs.
+runtime to ~5% and its hot ranks before it runs.

@@ -49,6 +49,151 @@ static inline uint64_t tsc(void)
 #include <unistd.h>
 #define IARG(k) (*(int *)wt_argv[k])
 
+struct wt_micro_field {
+    int arg;
+    int gate;
+};
+
+struct wt_micro_layout {
+    int mp;
+    const struct wt_micro_field *w3;
+    int n3;
+    const struct wt_micro_field *w2;
+    int n2;
+    const int *moist;
+    int scalar_a, scalar_b;
+    const int *required;
+    int nrequired;
+};
+
+#define WT_FIELD(a)       { (a), -1 }
+#define WT_FIELD_IF(a, g) { (a), (g) }
+
+static const int wt_mp6_moist[] = {
+    WT_A_QV_CURR, WT_A_QC_CURR, WT_A_QR_CURR,
+    WT_A_QI_CURR, WT_A_QS_CURR, WT_A_QG_CURR
+};
+static const int wt_mp8_moist[] = {
+    WT_A_QV_CURR, WT_A_QC_CURR, WT_A_QR_CURR,
+    WT_A_QI_CURR, WT_A_QS_CURR, WT_A_QG_CURR
+};
+static const int wt_mp28_moist[] = {
+    WT_A_QV_CURR, WT_A_QC_CURR, WT_A_QR_CURR,
+    WT_A_QI_CURR, WT_A_QS_CURR, WT_A_QG_CURR
+};
+
+static const int wt_mp6_required[] = {
+    WT_A_F_QV, WT_A_F_QC, WT_A_F_QR, WT_A_F_QI, WT_A_F_QS, WT_A_F_QG
+};
+static const int wt_mp8_required[] = {
+    WT_A_F_QV, WT_A_F_QC, WT_A_F_QR, WT_A_F_QI, WT_A_F_QS, WT_A_F_QG,
+    WT_A_F_QNI, WT_A_F_QNR
+};
+static const int wt_mp28_required[] = {
+    WT_A_F_QV, WT_A_F_QC, WT_A_F_QR, WT_A_F_QI, WT_A_F_QS, WT_A_F_QG,
+    WT_A_F_QNI, WT_A_F_QNR, WT_A_F_QNC, WT_A_F_QNWFA, WT_A_F_QNIFA
+};
+
+/* Keep the mp=8 entries in the exact historical order.  Fields whose Registry
+ * package can be absent are table entries with a runtime gate, not ad hoc
+ * branches in the packing code. */
+static const struct wt_micro_field wt_mp8_w3[] = {
+    WT_FIELD(WT_A_TH), WT_FIELD(WT_A_PI_PHY), WT_FIELD(WT_A_P),
+    WT_FIELD(WT_A_W), WT_FIELD(WT_A_DZ8W),
+    WT_FIELD(WT_A_QV_CURR), WT_FIELD(WT_A_QC_CURR), WT_FIELD(WT_A_QR_CURR),
+    WT_FIELD(WT_A_QI_CURR), WT_FIELD(WT_A_QS_CURR), WT_FIELD(WT_A_QG_CURR),
+    WT_FIELD(WT_A_QNI_CURR), WT_FIELD(WT_A_QNR_CURR),
+    WT_FIELD_IF(WT_A_REFL_10CM, WT_A_DO_RADAR_REF),
+    WT_FIELD_IF(WT_A_RE_CLOUD, WT_A_HAS_REQC),
+    WT_FIELD_IF(WT_A_RE_ICE, WT_A_HAS_REQI),
+    WT_FIELD_IF(WT_A_RE_SNOW, WT_A_HAS_REQS)
+};
+static const struct wt_micro_field wt_mp8_w2[] = {
+    WT_FIELD(WT_A_RAINNC), WT_FIELD(WT_A_RAINNCV), WT_FIELD(WT_A_SNOWNC),
+    WT_FIELD(WT_A_SNOWNCV), WT_FIELD(WT_A_GRAUPELNC), WT_FIELD(WT_A_GRAUPELNCV),
+    WT_FIELD(WT_A_SR)
+};
+
+static const struct wt_micro_field wt_mp6_w3[] = {
+    WT_FIELD(WT_A_TH), WT_FIELD(WT_A_RHO), WT_FIELD(WT_A_PI_PHY),
+    WT_FIELD(WT_A_P), WT_FIELD(WT_A_W), WT_FIELD(WT_A_DZ8W),
+    WT_FIELD(WT_A_QV_CURR), WT_FIELD(WT_A_QC_CURR), WT_FIELD(WT_A_QR_CURR),
+    WT_FIELD(WT_A_QI_CURR), WT_FIELD(WT_A_QS_CURR), WT_FIELD(WT_A_QG_CURR),
+    WT_FIELD_IF(WT_A_REFL_10CM, WT_A_DO_RADAR_REF),
+    WT_FIELD_IF(WT_A_RE_CLOUD, WT_A_HAS_REQC),
+    WT_FIELD_IF(WT_A_RE_ICE, WT_A_HAS_REQI),
+    WT_FIELD_IF(WT_A_RE_SNOW, WT_A_HAS_REQS)
+};
+static const struct wt_micro_field wt_mp6_w2[] = {
+    WT_FIELD(WT_A_RAINNC), WT_FIELD(WT_A_RAINNCV), WT_FIELD(WT_A_SNOWNC),
+    WT_FIELD(WT_A_SNOWNCV), WT_FIELD(WT_A_GRAUPELNC), WT_FIELD(WT_A_GRAUPELNCV),
+    WT_FIELD(WT_A_SR)
+};
+
+static const struct wt_micro_field wt_mp28_w3[] = {
+    WT_FIELD(WT_A_TH), WT_FIELD(WT_A_PI_PHY), WT_FIELD(WT_A_P),
+    WT_FIELD(WT_A_W), WT_FIELD(WT_A_DZ8W),
+    WT_FIELD(WT_A_QV_CURR), WT_FIELD(WT_A_QC_CURR), WT_FIELD(WT_A_QR_CURR),
+    WT_FIELD(WT_A_QI_CURR), WT_FIELD(WT_A_QS_CURR), WT_FIELD(WT_A_QG_CURR),
+    WT_FIELD(WT_A_QNI_CURR), WT_FIELD(WT_A_QNR_CURR),
+    WT_FIELD_IF(WT_A_QNC_CURR, WT_A_F_QNC),
+    WT_FIELD_IF(WT_A_QNWFA_CURR, WT_A_F_QNWFA),
+    WT_FIELD_IF(WT_A_QNIFA_CURR, WT_A_F_QNIFA),
+    WT_FIELD_IF(WT_A_QNBCA_CURR, WT_A_F_QNBCA),
+    WT_FIELD_IF(WT_A_REFL_10CM, WT_A_DO_RADAR_REF),
+    WT_FIELD_IF(WT_A_RE_CLOUD, WT_A_HAS_REQC),
+    WT_FIELD_IF(WT_A_RE_ICE, WT_A_HAS_REQI),
+    WT_FIELD_IF(WT_A_RE_SNOW, WT_A_HAS_REQS)
+};
+static const struct wt_micro_field wt_mp28_w2[] = {
+    WT_FIELD(WT_A_RAINNC), WT_FIELD(WT_A_RAINNCV), WT_FIELD(WT_A_SNOWNC),
+    WT_FIELD(WT_A_SNOWNCV), WT_FIELD(WT_A_GRAUPELNC), WT_FIELD(WT_A_GRAUPELNCV),
+    WT_FIELD(WT_A_SR),
+    WT_FIELD_IF(WT_A_QNWFA2D, WT_A_F_QNWFA),
+    WT_FIELD_IF(WT_A_QNIFA2D, WT_A_F_QNIFA),
+    WT_FIELD_IF(WT_A_QNBCA2D, WT_A_F_QNBCA)
+};
+
+static const struct wt_micro_layout wt_micro_layouts[] = {
+    { 8, wt_mp8_w3, (int)(sizeof wt_mp8_w3 / sizeof *wt_mp8_w3),
+         wt_mp8_w2, (int)(sizeof wt_mp8_w2 / sizeof *wt_mp8_w2),
+         wt_mp8_moist, WT_A_QNI_CURR, WT_A_QNR_CURR,
+         wt_mp8_required, (int)(sizeof wt_mp8_required / sizeof *wt_mp8_required) },
+    { 6, wt_mp6_w3, (int)(sizeof wt_mp6_w3 / sizeof *wt_mp6_w3),
+         wt_mp6_w2, (int)(sizeof wt_mp6_w2 / sizeof *wt_mp6_w2),
+         wt_mp6_moist, -1, -1,
+         wt_mp6_required, (int)(sizeof wt_mp6_required / sizeof *wt_mp6_required) },
+    { 28, wt_mp28_w3, (int)(sizeof wt_mp28_w3 / sizeof *wt_mp28_w3),
+         wt_mp28_w2, (int)(sizeof wt_mp28_w2 / sizeof *wt_mp28_w2),
+         wt_mp28_moist, WT_A_QNI_CURR, WT_A_QNR_CURR,
+         wt_mp28_required, (int)(sizeof wt_mp28_required / sizeof *wt_mp28_required) }
+};
+
+static const struct wt_micro_layout *stage_layout;
+static int stage_w3[32], stage_w2[16], stage_n3, stage_n2;
+
+static int wt_micro_field_active(const struct wt_micro_field *f)
+{
+    return f->gate < 0 || (wt_argv[f->gate] && IARG(f->gate));
+}
+
+static const struct wt_micro_layout *wt_micro_find_layout(int mp)
+{
+    for (unsigned i = 0; i < sizeof wt_micro_layouts / sizeof *wt_micro_layouts; i++)
+        if (wt_micro_layouts[i].mp == mp) return &wt_micro_layouts[i];
+    return NULL;
+}
+
+static void wt_micro_select_fields(void)
+{
+    stage_n3 = stage_n2 = 0;
+    if (!stage_layout) return;
+    for (int i = 0; i < stage_layout->n3; i++)
+        if (wt_micro_field_active(&stage_layout->w3[i])) stage_w3[stage_n3++] = stage_layout->w3[i].arg;
+    for (int i = 0; i < stage_layout->n2; i++)
+        if (wt_micro_field_active(&stage_layout->w2[i])) stage_w2[stage_n2++] = stage_layout->w2[i].arg;
+}
+
 static float *stage_buf;
 static size_t stage_cap;
 
@@ -252,7 +397,7 @@ static inline void wt_share_pause(unsigned n)
 
 static void wt_share_pack(float *buf, int ims, int jms, int kms, int NI, int NK,
                           int i0, int i1, int j0, int j1, int NCOL,
-                          int n3, const int *w3)
+                          int n3, const int *w3, int n2, const int *w2)
 {
     float *p = buf;
     int NIC = i1 - i0 + 1;
@@ -265,8 +410,8 @@ static void wt_share_pack(float *buf, int ims, int jms, int kms, int NI, int NK,
                        (size_t)NIC * sizeof(float));
         p += (size_t)NCOL * NK;
     }
-    for (int a = 0; a < WT_W2D; a++) {
-        float *src = (float *)wt_argv[wt_w2d[a]];
+    for (int a = 0; a < n2; a++) {
+        float *src = (float *)wt_argv[w2[a]];
         for (int j = j0; j <= j1; j++)
             memcpy(p + (size_t)NIC*(j-j0),
                    src + (size_t)(i0-ims) + (size_t)NI*(size_t)(j-jms),
@@ -277,7 +422,7 @@ static void wt_share_pack(float *buf, int ims, int jms, int kms, int NI, int NK,
 
 static void wt_share_commit(float *buf, void **save, int ims, int jms, int NI, int NK,
                             int i0, int i1, int j0, int j1, int NCOL,
-                            int n3, const int *w3)
+                            int n3, const int *w3, int n2, const int *w2)
 {
     float *p = buf;
     int NIC = i1 - i0 + 1;
@@ -290,8 +435,8 @@ static void wt_share_commit(float *buf, void **save, int ims, int jms, int NI, i
                        (size_t)NIC * sizeof(float));
         p += (size_t)NCOL * NK;
     }
-    for (int a = 0; a < WT_W2D; a++) {
-        float *dst = (float *)save[wt_w2d[a]];
+    for (int a = 0; a < n2; a++) {
+        float *dst = (float *)save[w2[a]];
         for (int j = j0; j <= j1; j++)
             memcpy(dst + (size_t)(i0-ims) + (size_t)NI*(size_t)(j-jms),
                    p + (size_t)NIC*(j-j0), (size_t)NIC * sizeof(float));
@@ -322,6 +467,7 @@ static void wt_share_pass1(void **save, int jsplit, int first)
 }
 
 static void wt_share_pass2(float *buf, int ncol, int NK, int n3, const int *w3,
+                           int n2, const int *w2,
                            void **save, int nt, int first)
 {
     static int s_ims, s_ime, s_jms, s_jme, s_ips, s_ipe, s_jps, s_jpe;
@@ -331,7 +477,7 @@ static void wt_share_pass2(float *buf, int ncol, int NK, int n3, const int *w3,
     s_ims = s_ips = s_jms = s_jps = 1; s_ime = s_ipe = ncol; s_jme = s_jpe = 1;
     s_ids = -1000; s_ide = ncol + 1000; s_jds = -1000; s_jde = 1 + 1000;
     for (int a = 0; a < n3; a++) { wt_argv[w3[a]] = p; p += (size_t)ncol * NK; }
-    for (int a = 0; a < WT_W2D; a++) { wt_argv[wt_w2d[a]] = p; p += ncol; }
+    for (int a = 0; a < n2; a++) { wt_argv[w2[a]] = p; p += ncol; }
     wt_argv[WT_A_IMS]=&s_ims; wt_argv[WT_A_IME]=&s_ime;
     wt_argv[WT_A_JMS]=&s_jms; wt_argv[WT_A_JME]=&s_jme;
     wt_argv[WT_A_IPS]=&s_ips; wt_argv[WT_A_IPE]=&s_ipe;
@@ -355,7 +501,8 @@ uint64_t wt_micro_share_out, wt_micro_share_in;
 uint64_t wt_micro_share_wait_ticks, wt_micro_share_work_ticks;
 uint64_t wt_micro_rows_out, wt_micro_chunks_in;
 
-static int wt_share_steal(int NK, int n3, const int *w3, int nt, int first)
+static int wt_share_steal(int NK, int n3, const int *w3, int n2, const int *w2,
+                          int nt, int first)
 {
     int stolen = 0;
     if (share_nlocal > 1) for (;;) {
@@ -367,8 +514,8 @@ static int wt_share_steal(int NK, int n3, const int *w3, int nt, int first)
             if (__atomic_load_n(&h->state, __ATOMIC_ACQUIRE) != WT_SHARE_PUBLISHED) continue;
             if (!__atomic_compare_exchange_n(&h->state, &expected, WT_SHARE_CLAIMED_OTHER, 0,
                                              __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) continue;
-            if (h->n3 != n3 || h->nk != NK || h->n2 != WT_W2D || h->ncol <= 0 ||
-                (size_t)h->ncol > share_cap / (((size_t)n3 * NK + WT_W2D) * sizeof(float))) {
+            if (h->n3 != n3 || h->nk != NK || h->n2 != n2 || h->ncol <= 0 ||
+                (size_t)h->ncol > share_cap / (((size_t)n3 * NK + n2) * sizeof(float))) {
                 __atomic_store_n(&h->state, WT_SHARE_PUBLISHED, __ATOMIC_RELEASE);
                 continue;
             }
@@ -376,7 +523,8 @@ static int wt_share_steal(int NK, int n3, const int *w3, int nt, int first)
             memcpy(save, wt_argv, sizeof save);
             uint64_t t0 = tsc();
             wt_micro_share_in++;
-            wt_share_pass2((float *)((char *)h + sizeof *h), h->ncol, NK, n3, w3, save, nt, first);
+            wt_share_pass2((float *)((char *)h + sizeof *h), h->ncol, NK, n3, w3,
+                           n2, w2, save, nt, first);
             memcpy(wt_argv, save, sizeof save);
             wt_micro_share_work_ticks += tsc() - t0;
             __atomic_store_n(&h->state, WT_SHARE_DONE, __ATOMIC_RELEASE);
@@ -411,9 +559,9 @@ static void wt_adapt_read_stats(uint64_t previous, uint64_t *t_me, uint64_t *t_m
     if (*nvalid) *t_mean = sum / (uint64_t)*nvalid;
 }
 
-static int wt_adapt_need_fits(int NIC, int rows, int NK, int n3, size_t cap)
+static int wt_adapt_need_fits(int NIC, int rows, int NK, int n3, int n2, size_t cap)
 {
-    size_t fields = (size_t)n3 * (size_t)NK + WT_W2D;
+    size_t fields = (size_t)n3 * (size_t)NK + (size_t)n2;
     if (NIC <= 0 || rows <= 0 || fields > SIZE_MAX / sizeof(float)) return 0;
     if ((size_t)NIC > SIZE_MAX / (size_t)rows) return 0;
     size_t cols = (size_t)NIC * (size_t)rows;
@@ -422,7 +570,8 @@ static int wt_adapt_need_fits(int NIC, int rows, int NK, int n3, size_t cap)
     return elems <= cap / sizeof(float);
 }
 
-static int wt_adapt_steal(int NK, int n3, const int *w3, int nt, int first,
+static int wt_adapt_steal(int NK, int n3, const int *w3, int n2, const int *w2,
+                          int nt, int first,
                           uint64_t call_start, uint64_t t_mean)
 {
     size_t total = (size_t)share_nlocal * (size_t)share_k;
@@ -441,8 +590,8 @@ static int wt_adapt_steal(int NK, int n3, const int *w3, int nt, int first,
             if (__atomic_load_n(&h->state, __ATOMIC_ACQUIRE) != WT_SHARE_PUBLISHED) continue;
             if (!__atomic_compare_exchange_n(&h->state, &expected, WT_SHARE_CLAIMED_OTHER, 0,
                                              __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) continue;
-            if (h->n3 != n3 || h->nk != NK || h->n2 != WT_W2D || h->ncol <= 0 ||
-                !wt_adapt_need_fits(1, h->ncol, NK, n3, share_cap)) {
+            if (h->n3 != n3 || h->nk != NK || h->n2 != n2 || h->ncol <= 0 ||
+                !wt_adapt_need_fits(1, h->ncol, NK, n3, n2, share_cap)) {
                 __atomic_store_n(&h->state, WT_SHARE_PUBLISHED, __ATOMIC_RELEASE);
                 continue;
             }
@@ -451,7 +600,8 @@ static int wt_adapt_steal(int NK, int n3, const int *w3, int nt, int first,
             uint64_t work0 = tsc();
             wt_micro_share_in++;
             wt_micro_chunks_in++;
-            wt_share_pass2((float *)((char *)h + sizeof *h), h->ncol, NK, n3, w3, save, nt, first);
+            wt_share_pass2((float *)((char *)h + sizeof *h), h->ncol, NK, n3, w3,
+                           n2, w2, save, nt, first);
             memcpy(wt_argv, save, sizeof save);
             uint64_t work = tsc() - work0;
             __atomic_store_n(&h->work_ticks, work, __ATOMIC_RELEASE);
@@ -471,7 +621,8 @@ done:
 static int wt_micro_adaptive_call(int CH, int ims, int jms, int kms, int NI, int NK,
                                   int ips, int ipe, int jps, int jpe,
                                   int ids, int ide, int jds, int jde, int sz,
-                                  int n3, const int *w3, int first, int debug_rank)
+                                  int n3, const int *w3, int n2, const int *w2,
+                                  int first, int debug_rank)
 {
     int i0 = ips > ids + sz ? ips : ids + sz;
     int i1 = ipe < ide - 1 - sz ? ipe : ide - 1 - sz;
@@ -481,7 +632,7 @@ static int wt_micro_adaptive_call(int CH, int ims, int jms, int kms, int NI, int
     int NJp = jp1 >= jp0 ? jp1 - jp0 + 1 : 0;
     int K = wt_share_chunks_from_env();
     size_t cap = wt_share_cap_from_env();
-    size_t fields = (size_t)n3 * (size_t)NK + WT_W2D;
+    size_t fields = (size_t)n3 * (size_t)NK + (size_t)n2;
     size_t max_need = 0;
     int max_rows = CH < NJp ? CH : NJp;
     uint64_t call_start = tsc();
@@ -492,7 +643,7 @@ static int wt_micro_adaptive_call(int CH, int ims, int jms, int kms, int NI, int
 
     if (debug_rank) wt_adapt_calibrate();
     { const char *ge = getenv("WTIMER_STAGE_GAIN"); if (ge && atof(ge) > 0) adapt_gain = atof(ge); }
-    if (K <= 0 || !wt_adapt_need_fits(NIC, max_rows, NK, n3, cap)) return 0;
+    if (K <= 0 || !wt_adapt_need_fits(NIC, max_rows, NK, n3, n2, cap)) return 0;
     max_need = (size_t)NIC * (size_t)max_rows * fields * sizeof(float);
     if (!wt_share_init(max_need, first, 1)) return 0;
     wt_adapt_read_stats(previous, &t_me, &t_mean, &nvalid);
@@ -546,8 +697,8 @@ static int wt_micro_adaptive_call(int CH, int ims, int jms, int kms, int NI, int
             int ncol = NIC * rows;
             wt_share_hdr *h = wt_share_slot(share_me * share_k + c);
             wt_share_pack((float *)((char *)h + sizeof *h), ims, jms, kms, NI, NK,
-                          i0, i1, cj0, cj1, ncol, n3, w3);
-            h->ncol = ncol; h->nk = NK; h->n3 = n3; h->n2 = WT_W2D;
+                          i0, i1, cj0, cj1, ncol, n3, w3, n2, w2);
+            h->ncol = ncol; h->nk = NK; h->n3 = n3; h->n2 = n2;
             h->owner = share_me; h->step = (int)step;
             __atomic_store_n(&h->work_ticks, 0, __ATOMIC_RELAXED);
             __atomic_store_n(&h->state, WT_SHARE_PUBLISHED, __ATOMIC_RELEASE);
@@ -586,12 +737,13 @@ static int wt_micro_adaptive_call(int CH, int ims, int jms, int kms, int NI, int
             }
             if (claimed_self) {
                 uint64_t work0 = tsc();
-                wt_share_pass2((float *)((char *)h + sizeof *h), ncol, NK, n3, w3, save, nt, first);
+                wt_share_pass2((float *)((char *)h + sizeof *h), ncol, NK, n3, w3,
+                               n2, w2, save, nt, first);
                 uint64_t work = tsc() - work0;
                 __atomic_store_n(&h->work_ticks, work, __ATOMIC_RELEASE);
                 own_work += work;
                 wt_share_commit((float *)((char *)h + sizeof *h), save, ims, jms, NI, NK,
-                                i0, i1, cj0, cj1, ncol, n3, w3);
+                                i0, i1, cj0, cj1, ncol, n3, w3, n2, w2);
                 memcpy(wt_argv, save, sizeof save);
                 __atomic_store_n(&h->state, WT_SHARE_EMPTY, __ATOMIC_RELEASE);
             } else {
@@ -600,7 +752,7 @@ static int wt_micro_adaptive_call(int CH, int ims, int jms, int kms, int NI, int
                 uint64_t work = __atomic_load_n(&h->work_ticks, __ATOMIC_ACQUIRE);
                 own_work += work;
                 wt_share_commit((float *)((char *)h + sizeof *h), save, ims, jms, NI, NK,
-                                i0, i1, cj0, cj1, ncol, n3, w3);
+                                i0, i1, cj0, cj1, ncol, n3, w3, n2, w2);
                 memcpy(wt_argv, save, sizeof save);
                 __atomic_store_n(&h->state, WT_SHARE_EMPTY, __ATOMIC_RELEASE);
             }
@@ -608,7 +760,8 @@ static int wt_micro_adaptive_call(int CH, int ims, int jms, int kms, int NI, int
         t_full += own_work;
         wt_micro_staged++;
     }
-    adapt_stole_prev = wt_adapt_steal(NK, n3, w3, nt, first, call_start, nvalid * 2 >= share_nlocal ? t_mean : 0);
+    adapt_stole_prev = wt_adapt_steal(NK, n3, w3, n2, w2, nt, first, call_start,
+                                       nvalid * 2 >= share_nlocal ? t_mean : 0);
     (void)t_full;
     t_full = tsc() - call_start;                    /* published sample = whole wrapped call */
     if (!t_full) t_full = 1;
@@ -623,7 +776,8 @@ static int wt_micro_adaptive_call(int CH, int ims, int jms, int kms, int NI, int
 
 static int wt_micro_shared_call(int jsplit, int ims, int jms, int kms, int NI, int NK,
                                 int i0, int i1, int j0, int j1, int NCOL,
-                                int n3, const int *w3, size_t need, int first)
+                                int n3, const int *w3, int n2, const int *w2,
+                                size_t need, int first)
 {
     void *save[WT_NARG];
     int nt;
@@ -642,18 +796,21 @@ static int wt_micro_shared_call(int jsplit, int ims, int jms, int kms, int NI, i
     own = wt_share_slot(share_me * share_k);
     buf = publish ? (float *)((char *)own + sizeof *own) : stage_buf;
     if (publish) {
-        wt_share_pack(buf, ims, jms, kms, NI, NK, i0, i1, j0, j1, NCOL, n3, w3);
-        own->ncol = NCOL; own->nk = NK; own->n3 = n3; own->n2 = WT_W2D;
+        wt_share_pack(buf, ims, jms, kms, NI, NK, i0, i1, j0, j1, NCOL,
+                      n3, w3, n2, w2);
+        own->ncol = NCOL; own->nk = NK; own->n3 = n3; own->n2 = n2;
         own->owner = share_me; own->step = (int)++share_step;
         wt_share_mark(first, "publish");
         __atomic_store_n(&own->state, WT_SHARE_PUBLISHED, __ATOMIC_RELEASE);
     }
     wt_share_pass1(save, jsplit, first);
     if (!publish) {
-        wt_share_pack(buf, ims, jms, kms, NI, NK, i0, i1, j0, j1, NCOL, n3, w3);
+        wt_share_pack(buf, ims, jms, kms, NI, NK, i0, i1, j0, j1, NCOL,
+                      n3, w3, n2, w2);
         wt_share_mark(first, "pack-done");
-        wt_share_pass2(buf, NCOL, NK, n3, w3, save, nt, first);
-        wt_share_commit(buf, save, ims, jms, NI, NK, i0, i1, j0, j1, NCOL, n3, w3);
+        wt_share_pass2(buf, NCOL, NK, n3, w3, n2, w2, save, nt, first);
+        wt_share_commit(buf, save, ims, jms, NI, NK, i0, i1, j0, j1, NCOL,
+                        n3, w3, n2, w2);
         memcpy(wt_argv, save, sizeof save);
     } else {
         int expected = WT_SHARE_PUBLISHED;
@@ -681,15 +838,17 @@ static int wt_micro_shared_call(int jsplit, int ims, int jms, int kms, int NI, i
         }
         if (claimed_self) {
             wt_share_mark(first, "own-claim");
-            wt_share_pass2(buf, NCOL, NK, n3, w3, save, nt, first);
-            wt_share_commit(buf, save, ims, jms, NI, NK, i0, i1, j0, j1, NCOL, n3, w3);
+            wt_share_pass2(buf, NCOL, NK, n3, w3, n2, w2, save, nt, first);
+            wt_share_commit(buf, save, ims, jms, NI, NK, i0, i1, j0, j1, NCOL,
+                            n3, w3, n2, w2);
             memcpy(wt_argv, save, sizeof save);
             __atomic_store_n(&own->state, WT_SHARE_EMPTY, __ATOMIC_RELEASE);
             wt_share_mark(first, "own-done");
         } else {
             wt_micro_share_out++;
             wt_micro_share_wait_ticks += tsc() - wait0;
-            wt_share_commit(buf, save, ims, jms, NI, NK, i0, i1, j0, j1, NCOL, n3, w3);
+            wt_share_commit(buf, save, ims, jms, NI, NK, i0, i1, j0, j1, NCOL,
+                            n3, w3, n2, w2);
             memcpy(wt_argv, save, sizeof save);
             __atomic_store_n(&own->state, WT_SHARE_EMPTY, __ATOMIC_RELEASE);
             wt_share_mark(first, "own-done");
@@ -697,7 +856,7 @@ static int wt_micro_shared_call(int jsplit, int ims, int jms, int kms, int NI, i
     }
     /* w3/n3 came from this rank's flags above; a slot contributes packed bytes, never its owner's
      * pointer list or scalar state. */
-    wt_share_steal(NK, n3, w3, nt, first);
+    wt_share_steal(NK, n3, w3, n2, w2, nt, first);
     wt_micro_staged++;
     return 1;
 }
@@ -708,34 +867,49 @@ static int stage_rows(void)   /* how many of the patch's j-rows to stage; 0 = of
     return e ? atoi(e) : 0;
 }
 
+static int wt_stage_grid_selected(void)
+{
+    const char *e = getenv("WTIMER_STAGE_GRID");
+    int grid = (e && *e) ? atoi(e) : 1;
+    return grid == 0 || (wt_argv[WT_A_ID] && IARG(WT_A_ID) == grid);
+}
+
 uint64_t wt_micro_refused;      /* staging requested but the self-check said no: ran unstaged */
 
-/* Self-check of the argument map at the positions that matter for staging. The old map was
- * derived from the .F source and was right for every scalar and bound (all < 112) while being
- * wrong for every array pointer past 111 (16 #if-excluded dummies), so bounds alone prove
- * nothing. What is checked: Thompson is the scheme, its species flags are set, the six moist
- * species are distinct addresses of one 4D array (spacing a multiple of the 3D block), and
- * the two scalar species differ. Runs once; failure disables staging for the run. */
+/* Self-check of the argument map at the positions that matter for staging.  The selected
+ * descriptor owns both the package-specific whitelist and the flags that make optional
+ * fields live.  The mp=8 descriptor deliberately retains the historical order and checks. */
 static int stage_ok = -1;
+static int stage_checked_mp = -1;
 static int wt_stage_selfcheck(int NI, int NK, int NJ, int verbose)
 {
-    static const int fl[] = {WT_A_F_QV, WT_A_F_QC, WT_A_F_QR, WT_A_F_QI, WT_A_F_QS, WT_A_F_QG,
-                             WT_A_F_QNI, WT_A_F_QNR};
     int ok = 1, mp = IARG(WT_A_MP_PHYSICS);
-    if (mp != 8) ok = 0;                                    /* whitelist is Thompson's */
-    for (unsigned k = 0; k < sizeof fl / sizeof *fl; k++)
-        if (!wt_argv[fl[k]] || IARG(fl[k]) == 0) ok = 0;
+    stage_layout = wt_micro_find_layout(mp);
+    if (!stage_layout) ok = 0;
+    if (stage_layout) {
+        for (int k = 0; k < stage_layout->nrequired; k++) {
+            int f = stage_layout->required[k];
+            if (!wt_argv[f] || IARG(f) == 0) ok = 0;
+        }
+    }
     char *q[6]; size_t blk = (size_t)NI * NK * NJ * sizeof(float);
-    for (int k = 0; k < 6; k++) q[k] = (char *)wt_argv[wt_w3d[5 + k]];   /* qv qc qr qi qs qg */
+    for (int k = 0; k < 6; k++)
+        q[k] = stage_layout && wt_argv[stage_layout->moist[k]]
+             ? (char *)wt_argv[stage_layout->moist[k]] : NULL;
     for (int k = 1; k < 6; k++) {
         if (!q[k] || q[k] == q[0]) ok = 0;
         else if ((size_t)(q[k] > q[0] ? q[k] - q[0] : q[0] - q[k]) % blk) ok = 0;
     }
-    if (!wt_argv[wt_w3d[11]] || !wt_argv[wt_w3d[12]] || wt_argv[wt_w3d[11]] == wt_argv[wt_w3d[12]]) ok = 0;
+    if (stage_layout && stage_layout->scalar_a >= 0 &&
+        (!wt_argv[stage_layout->scalar_a] || !wt_argv[stage_layout->scalar_b] ||
+         wt_argv[stage_layout->scalar_a] == wt_argv[stage_layout->scalar_b])) ok = 0;
     if (verbose) {
-        fprintf(stderr, "[wtimer] selfcheck: mp_physics=%d dt=%.3f dx=%.1f f_qv..f_qg,f_qni,f_qnr=", mp,
+        fprintf(stderr, "[wtimer] selfcheck: mp_physics=%d dt=%.3f dx=%.1f flags=", mp,
                 *(float *)wt_argv[WT_A_DT], *(float *)wt_argv[WT_A_DX]);
-        for (unsigned k = 0; k < sizeof fl / sizeof *fl; k++) fprintf(stderr, "%d,", wt_argv[fl[k]] ? IARG(fl[k]) : -99);
+        if (stage_layout) for (int k = 0; k < stage_layout->nrequired; k++) {
+            int f = stage_layout->required[k];
+            fprintf(stderr, "%d,", wt_argv[f] ? IARG(f) : -99);
+        }
         fprintf(stderr, " moist spacing/blk=");
         for (int k = 1; k < 6; k++) fprintf(stderr, "%ld,", q[k] && q[0] ? (long)((q[k] - q[0]) / (long)blk) : -99L);
         fprintf(stderr, " do_radar_ref=%d has_reqc/i/s=%d/%d/%d specified=%d spec_zone=%d => %s\n",
@@ -765,21 +939,19 @@ static void wt_micro_staged_call(int rows)
     static int dbg_once; int first = dbg && !dbg_once && me; dbg_once = 1;
 #define MARK(x) do{ if (first) { fprintf(stderr,"[wtimer] mark %s\n",x); fflush(stderr);} }while(0)
 
-    if (stage_ok < 0) stage_ok = wt_stage_selfcheck(NI, NK, NJ, me);
-    /* per-call 3D list: the whitelist plus the optional diagnostics Thompson fills only when
-     * their flag is on (otherwise they are 1-element dummies and must not be read) */
-    int w3[WT_W3D + 4], n3 = 0;
-    for (int a = 0; a < WT_W3D; a++) w3[n3++] = wt_w3d[a];
-    if (wt_argv[WT_A_DO_RADAR_REF] && IARG(WT_A_DO_RADAR_REF)) w3[n3++] = WT_A_REFL_10CM;
-    if (wt_argv[WT_A_HAS_REQC] && IARG(WT_A_HAS_REQC)) w3[n3++] = WT_A_RE_CLOUD;
-    if (wt_argv[WT_A_HAS_REQI] && IARG(WT_A_HAS_REQI)) w3[n3++] = WT_A_RE_ICE;
-    if (wt_argv[WT_A_HAS_REQS] && IARG(WT_A_HAS_REQS)) w3[n3++] = WT_A_RE_SNOW;
+    int mp = IARG(WT_A_MP_PHYSICS);
+    if (stage_checked_mp != mp) {
+        stage_ok = wt_stage_selfcheck(NI, NK, NJ, me);
+        stage_checked_mp = mp;
+    }
+    wt_micro_select_fields();
+    int *w3 = stage_w3, *w2 = stage_w2, n3 = stage_n3, n2 = stage_n2;
     int refuse = !stage_ok;
     for (int a = 0; a < n3 && !refuse; a++) {
         if (!wt_argv[w3[a]]) refuse = 1;
         for (int b = 0; b < a; b++) if (wt_argv[w3[b]] == wt_argv[w3[a]]) refuse = 1;
     }
-    for (int a = 0; a < WT_W2D && !refuse; a++) if (!wt_argv[wt_w2d[a]]) refuse = 1;
+    for (int a = 0; a < n2 && !refuse; a++) if (!wt_argv[w2[a]]) refuse = 1;
     /* the driver only touches columns inside the specified zone: stage exactly those */
     int sz = IARG(WT_A_SPECIFIED) ? IARG(WT_A_SPEC_ZONE) : 0;
     if (wt_argv[WT_A_CHANNEL_SWITCH] && IARG(WT_A_CHANNEL_SWITCH)) sz = 0;
@@ -792,7 +964,7 @@ static void wt_micro_staged_call(int rows)
                 " ips..ipe=%d..%d jps..jpe=%d..%d sz=%d staged i=%d..%d j=%d..%d NCOL=%d n3=%d tiles=%d refuse=%d\n",
                 ims, ime, jms, jme, kms, kme, ips, ipe, jps, jpe, sz, i0, i1, j0, j1, NCOL, n3, IARG(WT_A_NUM_TILES), refuse);
         for (int a = 0; a < n3; a++) fprintf(stderr, "[wtimer] 3d %s=%p\n", wt_argname[w3[a]], wt_argv[w3[a]]);
-        for (int a = 0; a < WT_W2D; a++) fprintf(stderr, "[wtimer] 2d %s=%p\n", wt_argname[wt_w2d[a]], wt_argv[wt_w2d[a]]);
+        for (int a = 0; a < n2; a++) fprintf(stderr, "[wtimer] 2d %s=%p\n", wt_argname[w2[a]], wt_argv[w2[a]]);
         fflush(stderr);
     }
     if (refuse || NCOL == 0) {
@@ -800,14 +972,15 @@ static void wt_micro_staged_call(int rows)
         wt_call_n((void *)__real_module_microphysics_driver_mp_microphysics_driver_, wt_argv, WT_NARG);
         return;
     }
-    size_t need = (size_t)NCOL * ((size_t)n3 * NK + WT_W2D) * sizeof(float);
+    size_t need = (size_t)NCOL * ((size_t)n3 * NK + n2) * sizeof(float);
     if (wt_stage_share_enabled()) {
         if (wt_stage_adapt_enabled() &&
             wt_micro_adaptive_call(rows, ims, jms, kms, NI, NK, ips, ipe, jps, jpe,
-                                   ids, ide, jds, jde, sz, n3, w3, first, dbg && me))
+                                   ids, ide, jds, jde, sz, n3, w3, n2, w2,
+                                   first, dbg && me))
             return;
         if (wt_micro_shared_call(jsplit, ims, jms, kms, NI, NK, i0, i1, j0, j1, NCOL,
-                                 n3, w3, need, first))
+                                 n3, w3, n2, w2, need, first))
             return;
     }
     if (need > stage_cap) { free(stage_buf); stage_buf = malloc(need); stage_cap = need; }
@@ -846,7 +1019,7 @@ static void wt_micro_staged_call(int rows)
 
     /* ---- pass 2: the staged columns, in a dense rectangle S(1:NCOL, kms:kme, 1:1) ---- */
     float *p = stage_buf;
-    float *base3[WT_W3D + 4], *base2[WT_W2D];
+    float *base3[32], *base2[16];
     int NIC = i1-i0+1;
     for (int a = 0; a < n3; a++) {
         float *src = (float *)wt_argv[w3[a]];
@@ -857,8 +1030,8 @@ static void wt_micro_staged_call(int rows)
                        src + (size_t)(i0-ims) + (size_t)NI*((size_t)k + (size_t)NK*(j-jms)), (size_t)NIC * sizeof(float));
         p += (size_t)NCOL * NK;
     }
-    for (int a = 0; a < WT_W2D; a++) {
-        float *src = (float *)wt_argv[wt_w2d[a]];
+    for (int a = 0; a < n2; a++) {
+        float *src = (float *)wt_argv[w2[a]];
         base2[a] = p;
         for (int j = j0; j <= j1; j++)
             memcpy(p + (size_t)NIC*(j-j0), src + (size_t)(i0-ims) + (size_t)NI*(size_t)(j-jms), (size_t)NIC * sizeof(float));
@@ -870,7 +1043,7 @@ static void wt_micro_staged_call(int rows)
     s_ims = s_ips = s_jms = s_jps = 1; s_ime = s_ipe = NCOL; s_jme = s_jpe = 1;
     s_ids = -1000; s_ide = NCOL + 1000; s_jds = -1000; s_jde = 1 + 1000;
     for (int a = 0; a < n3; a++) wt_argv[w3[a]] = base3[a];
-    for (int a = 0; a < WT_W2D; a++) wt_argv[wt_w2d[a]] = base2[a];
+    for (int a = 0; a < n2; a++) wt_argv[w2[a]] = base2[a];
     wt_argv[WT_A_IMS]=&s_ims; wt_argv[WT_A_IME]=&s_ime;
     wt_argv[WT_A_JMS]=&s_jms; wt_argv[WT_A_JME]=&s_jme;
     wt_argv[WT_A_IPS]=&s_ips; wt_argv[WT_A_IPE]=&s_ipe;
@@ -897,8 +1070,8 @@ static void wt_micro_staged_call(int rows)
                 memcpy(dst + (size_t)(i0-ims) + (size_t)NI*((size_t)k + (size_t)NK*(j-jms)),
                        base3[a] + (size_t)NCOL*k + (size_t)NIC*(j-j0), (size_t)NIC * sizeof(float));
     }
-    for (int a = 0; a < WT_W2D; a++) {
-        float *dst = (float *)save[wt_w2d[a]];
+    for (int a = 0; a < n2; a++) {
+        float *dst = (float *)save[w2[a]];
         for (int j = j0; j <= j1; j++)
             memcpy(dst + (size_t)(i0-ims) + (size_t)NI*(size_t)(j-jms), base2[a] + (size_t)NIC*(j-j0), (size_t)NIC * sizeof(float));
     }
@@ -912,11 +1085,16 @@ void wt_micro_call(void)
     uint64_t t0 = tsc();
     wt_pre(0);
     wt_micro_calls++;
-    int rows = stage_rows();
-    if (rows > 0 && IARG(WT_A_JPE) - IARG(WT_A_JPS) + 1 > rows)
-        wt_micro_staged_call(rows);
-    else
+    if (!wt_stage_grid_selected()) {
         wt_call_n((void *)__real_module_microphysics_driver_mp_microphysics_driver_,
                   wt_argv, WT_NARG);
+    } else {
+        int rows = stage_rows();
+        if (rows > 0 && IARG(WT_A_JPE) - IARG(WT_A_JPS) + 1 > rows)
+            wt_micro_staged_call(rows);
+        else
+            wt_call_n((void *)__real_module_microphysics_driver_mp_microphysics_driver_,
+                      wt_argv, WT_NARG);
+    }
     wt_record(0, tsc() - t0);
 }

@@ -80,6 +80,13 @@ static void rad_real_call(void)
               wt_argv, WTR_NARG);
 }
 
+static int rad_stage_grid_selected(void)
+{
+    const char *e = getenv("WTIMER_STAGE_GRID");
+    int grid = (e && *e) ? atoi(e) : 1;
+    return grid == 0 || (wt_argv[WTR_A_ID] && rad_iarg(WTR_A_ID) == grid);
+}
+
 /* These groups are the fields that the RRTMG path actually traverses.  A
  * present optional field is included; an absent optional remains NULL and is
  * never dereferenced by a pack or by the staged driver call. */
@@ -1299,44 +1306,48 @@ void wt_rad_call(void)
     int rows, rank;
     wt_pre(1);
     wt_rad_calls++;
-    rows = 0;
-    {
-        const char *s = getenv("WTIMER_RAD_ROWS");
-        if (s) rows = atoi(s);
-    }
-    if (rows <= 0) {
+    if (!rad_stage_grid_selected()) {
         rad_real_call();
     } else {
-        static int checked = 0, ok = 0;
-        static char reason[160];
-        int due = rad_due();
-        rank = rad_rank();
-        if (!checked) {
-            ok = rad_selfcheck(reason, sizeof reason);
-            checked = 1;
-            if (getenv("WTIMER_STAGE_DEBUG") && rad_debug_rank()) {
-                rad_print_selfcheck(rank, ok, reason);
-            }
+        rows = 0;
+        {
+            const char *s = getenv("WTIMER_RAD_ROWS");
+            if (s) rows = atoi(s);
         }
-        if (!due) {
+        if (rows <= 0) {
             rad_real_call();
         } else {
-            wt_rad_steps++;
-            if (!ok) {
-                wt_rad_refused++;
-                rad_real_call();
-            } else if (rad_env_int("WTIMER_RAD_SHARE", 0) == 1) {
-                if (rad_share_stage(rows)) {
-                    wt_rad_staged++;
-                } else {
-                    wt_rad_refused++;
-                    rad_real_call();
+            static int checked = 0, ok = 0;
+            static char reason[160];
+            int due = rad_due();
+            rank = rad_rank();
+            if (!checked) {
+                ok = rad_selfcheck(reason, sizeof reason);
+                checked = 1;
+                if (getenv("WTIMER_STAGE_DEBUG") && rad_debug_rank()) {
+                    rad_print_selfcheck(rank, ok, reason);
                 }
-            } else if (!rad_stage(rows)) {
-                wt_rad_refused++;
+            }
+            if (!due) {
                 rad_real_call();
             } else {
-                wt_rad_staged++;
+                wt_rad_steps++;
+                if (!ok) {
+                    wt_rad_refused++;
+                    rad_real_call();
+                } else if (rad_env_int("WTIMER_RAD_SHARE", 0) == 1) {
+                    if (rad_share_stage(rows)) {
+                        wt_rad_staged++;
+                    } else {
+                        wt_rad_refused++;
+                        rad_real_call();
+                    }
+                } else if (!rad_stage(rows)) {
+                    wt_rad_refused++;
+                    rad_real_call();
+                } else {
+                    wt_rad_staged++;
+                }
             }
         }
     }

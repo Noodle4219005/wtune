@@ -25,6 +25,8 @@ MICRO_W2 = [
     'sr',
 ]
 MICRO_OPT3 = ['refl_10cm', 're_cloud', 're_ice', 're_snow']
+MICRO_EXTRA_W3 = ['rho', 'qnc_curr', 'qnwfa_curr', 'qnifa_curr', 'qnbca_curr']
+MICRO_EXTRA_W2 = ['qnwfa2d', 'qnifa2d', 'qnbca2d']
 
 # Strictly column-local RRTMG candidates from radiation_driver.f90.  Optional
 # fields are named here so the R1 wrapper can include them only when present;
@@ -80,7 +82,7 @@ MICRO_SCALARS = [
     'dt', 'dx', 'mp_physics', 'spec_zone', 'itimestep', 'f_qv', 'f_qc',
     'f_qr', 'f_qi', 'f_qs', 'f_qg', 'f_qni', 'f_qnr', 'diagflag',
     'do_radar_ref', 'has_reqc', 'has_reqi', 'has_reqs', 'specified',
-    'channel_switch',
+    'channel_switch', 'id', 'f_qnc', 'f_qnwfa', 'f_qnifa', 'f_qnbca',
 ]
 RAD_SCALARS = [
     'dt', 'radt', 'stepra', 'itimestep', 'ra_call_offset', 'lw_physics',
@@ -198,6 +200,9 @@ def emit(src, subroutine):
         out.append('#define %s_A_%-12s %d' % (macro, b.upper(), idx[b]))
     if is_rad:
         for b in w3 + w2 + RAD_EXTRA:
+            out.append('#define %s_A_%-12s %d' % (macro, b.upper(), idx[b]))
+    else:
+        for b in MICRO_W3 + MICRO_W2 + MICRO_EXTRA_W3 + MICRO_EXTRA_W2:
             out.append('#define %s_A_%-12s %d' % (macro, b.upper(), idx[b]))
     out.append('/* %s */' % profile_comment)
     out.append('#define %s_W3D %d' % (macro, len(w3)))

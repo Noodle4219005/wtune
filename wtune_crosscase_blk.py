@@ -1,4 +1,27 @@
 #!/usr/bin/env python3
+# ─────────────── DEPRECATION WITHDRAWN 2026-09-08 ───────────────
+# This module was marked DEPRECATED on 2026-09-07 on the grounds that the per-rank hot-spot
+# target had no consumer, because all eight rebalancing actuators were closed.
+#
+# That reasoning does not hold. The consumer is rebalancing at restart boundaries, which is
+# the project's actual objective, and three of the eight closures are ones the actuator
+# inventory itself flags as SOFT:
+#
+#   * rank placement / pairing -- closed by an ANALYSIS built on a profiler with a known,
+#     unfixed t0-bin bug; a later pairing simulation put the ceiling at 12.2-16.6% on
+#     high-M cases, HIGHER than the analysis that closed it could see
+#   * dynamic re-pin "worth 0.8%" -- explicitly withdrawn by its own author
+#   * the "8.82% perfect-balance prize" that several closures are measured against -- later
+#     re-derived from the raw ledger as 15.7%
+#
+# A second mistake fed the same conclusion: cost was found to be nearly state-independent,
+# but that was measured on DOMAIN-AGGREGATE cost, and aggregation is precisely the operation
+# that destroys per-rank redistribution information. The same corpus shows the per-rank
+# pattern moving a great deal -- hot-spot identity decays 93.7% -> 54.3% over 16 model-hours.
+# Total cost being flat and the pattern moving are not in conflict.
+#
+# So this stays live: it is the SENSOR for the lever, not a leftover.
+# ────────────────────────────────────────────────────────────────
 """Cross-case per-rank test for the BIG cases (3km / 901^2 / 448-rank / 2h).
 
 Features: from each case's end-frame wrfout, tiled to 8x56=448 patches (WRF rank order).

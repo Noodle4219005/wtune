@@ -87,15 +87,26 @@ def frame_matrix(wrfout, seg_hours):
                 lev = np.abs(np.asarray(ds.variables['W'][0, int(k), :, :], float))[::STRIDE, ::STRIDE]
                 w = lev if w is None else np.maximum(w, lev)
             cols['WMAX'] = oc.to_ranks(w, PX, PY).ravel()
+        # These exist only under some PBL schemes: QKE under MYNN, EL_PBL under MYJ/MYNN.
+        # Emitting them ONLY when present makes the column set depend on bl_pbl_physics, and a
+        # corpus with three different widths cannot be pooled at all -- bl=5 produced 21
+        # columns, bl=2 produced 18, bl=1 produced 17, and the trainer silently dropped
+        # everything that disagreed with whichever case sorted first. Always emit the same
+        # columns; zero means "this scheme does not report it", which a tree can split on.
+        nr = PX * PY
+        z = np.zeros(nr)
         if 'QKE' in ds.variables:
             q = np.asarray(ds.variables['QKE'][0], float)[:, ::STRIDE, ::STRIDE]
             cols['QKEMAX'] = oc.to_ranks(q.max(axis=0), PX, PY).ravel()
             cols['QKEINT'] = oc.to_ranks(q.sum(axis=0), PX, PY).ravel()
-            # the loop count MYNN actually pays for
             cols['QKELEV'] = oc.to_ranks((q > QKE_MIN).sum(axis=0).astype(float), PX, PY).ravel()
+        else:
+            cols['QKEMAX'] = z.copy(); cols['QKEINT'] = z.copy(); cols['QKELEV'] = z.copy()
         if 'EL_PBL' in ds.variables:
             e = np.asarray(ds.variables['EL_PBL'][0], float)[:, ::STRIDE, ::STRIDE]
             cols['ELMAX'] = oc.to_ranks(e.max(axis=0), PX, PY).ravel()
+        else:
+            cols['ELMAX'] = z.copy()
         if 'PBLH' in cols and 'PH' in ds.variables and 'PHB' in ds.variables:
             # PBL depth as a fraction of the model column ~ the share of levels a TKE scheme
             # iterates over. PH alone is the PERTURBATION geopotential and can be negative --

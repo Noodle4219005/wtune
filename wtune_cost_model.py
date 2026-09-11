@@ -76,12 +76,24 @@ def rows_for(case):
 # (WSM6 < Thompson < Morrison, which stage 1 already handles), while bl changes the per-rank
 # SHAPE, because a TKE-predicting scheme and a K-profile scheme have different algorithm
 # structure. Rate and shape are the two stages.
+# REFUTED on a diverse corpus, 2026-09-05. Keep it available, but OFF by default.
+#   karina-dominated pool (11 cases, 9 sharing one storm): bl=5 57.6% -> 75.7%, +18.1
+#   diverse pool (23 cases, 4 weather regimes):            bl=5 44.7% -> 43.1%, -1.6
+#                                                          overall 48.3% -> 44.6%, -3.7
+# The gain was never scheme purity. In the old pool a same-bl training set happened to be
+# same-WEATHER as well, so "train on your own scheme" smuggled in "train on your own storm".
+# With genuinely different regimes the extra data from other schemes is worth more than
+# scheme purity, and splitting throws it away.
+PER_BL_HEAD = os.environ.get('WTUNE_PER_BL_HEAD') == '1'
+
+
 def fit_shape(Xtr, ytr, bltr, Xte, blte, fit_kw):
-    """Train on the held-in rows that share the test case's PBL scheme; fall back to all
-    rows when that scheme has no other case yet."""
-    m = bltr == blte
-    if m.sum() < 448:                       # fewer than one case: not enough to stand alone
-        m = np.ones(len(bltr), bool)
+    """Pooled across schemes by default; per-PBL-scheme only when explicitly requested."""
+    m = np.ones(len(bltr), bool)
+    if PER_BL_HEAD:
+        sel = bltr == blte
+        if sel.sum() >= 448:                # at least one whole case to stand on
+            m = sel
     return tr.gbrt_pred(tr.gbrt_fit(Xtr[m], ytr[m], **fit_kw), Xte)
 
 

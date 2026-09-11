@@ -79,9 +79,13 @@ static const int wt_idx2d[WT_N2D] = {4,27,28,29,35,63,85,86,285,286,287,288,289,
 #define WT_A_QNWFA_CURR   138
 #define WT_A_QNIFA_CURR   139
 #define WT_A_QNBCA_CURR   140
+#define WT_A_Z_AT_MASS    83
 #define WT_A_QNWFA2D      295
 #define WT_A_QNIFA2D      296
 #define WT_A_QNBCA2D      297
+#define WT_A_PBLH         82
+#define WT_A_QNOCBB2D     298
+#define WT_A_QNBCBB2D     299
 /* Thompson whitelist: what CASE(THOMPSON) hands to mp_gt_driver. Indices are compiled positions. */
 #define WT_W3D 13
 #define WT_W2D 7

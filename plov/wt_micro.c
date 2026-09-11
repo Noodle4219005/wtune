@@ -49,6 +49,8 @@ static inline uint64_t tsc(void)
 #include <unistd.h>
 #define IARG(k) (*(int *)wt_argv[k])
 
+extern size_t wt_alloc_size(const void *p);
+
 struct wt_micro_field {
     int arg;
     int gate;
@@ -66,7 +68,12 @@ struct wt_micro_layout {
     int nrequired;
 };
 
-#define WT_FIELD(a)       { (a), -1 }
+#define WT_GATE_ALWAYS    -1
+#define WT_GATE_WIF_BC    -2
+#define WT_GATE_FIRE      -3
+#define WT_GATE_FIRE_BC   -4
+
+#define WT_FIELD(a)       { (a), WT_GATE_ALWAYS }
 #define WT_FIELD_IF(a, g) { (a), (g) }
 
 static const int wt_mp6_moist[] = {
@@ -139,7 +146,8 @@ static const struct wt_micro_field wt_mp28_w3[] = {
     WT_FIELD_IF(WT_A_QNC_CURR, WT_A_F_QNC),
     WT_FIELD_IF(WT_A_QNWFA_CURR, WT_A_F_QNWFA),
     WT_FIELD_IF(WT_A_QNIFA_CURR, WT_A_F_QNIFA),
-    WT_FIELD_IF(WT_A_QNBCA_CURR, WT_A_F_QNBCA),
+    WT_FIELD_IF(WT_A_QNBCA_CURR, WT_GATE_WIF_BC),
+    WT_FIELD_IF(WT_A_Z_AT_MASS, WT_GATE_FIRE),
     WT_FIELD_IF(WT_A_REFL_10CM, WT_A_DO_RADAR_REF),
     WT_FIELD_IF(WT_A_RE_CLOUD, WT_A_HAS_REQC),
     WT_FIELD_IF(WT_A_RE_ICE, WT_A_HAS_REQI),
@@ -151,7 +159,10 @@ static const struct wt_micro_field wt_mp28_w2[] = {
     WT_FIELD(WT_A_SR),
     WT_FIELD_IF(WT_A_QNWFA2D, WT_A_F_QNWFA),
     WT_FIELD_IF(WT_A_QNIFA2D, WT_A_F_QNIFA),
-    WT_FIELD_IF(WT_A_QNBCA2D, WT_A_F_QNBCA)
+    WT_FIELD_IF(WT_A_QNBCA2D, WT_GATE_WIF_BC),
+    WT_FIELD_IF(WT_A_PBLH, WT_GATE_FIRE),
+    WT_FIELD_IF(WT_A_QNOCBB2D, WT_GATE_FIRE),
+    WT_FIELD_IF(WT_A_QNBCBB2D, WT_GATE_FIRE_BC)
 };
 
 static const struct wt_micro_layout wt_micro_layouts[] = {
@@ -171,9 +182,42 @@ static const struct wt_micro_layout wt_micro_layouts[] = {
 
 static const struct wt_micro_layout *stage_layout;
 static int stage_w3[32], stage_w2[16], stage_n3, stage_n2;
+static int stage_alloc_ok = 1;
+static int stage_wif_bc, stage_fire, stage_fire_bc;
+
+static size_t wt_micro_full_2d(int NI, int NJ)
+{
+    size_t n;
+    if (NI <= 0 || NJ <= 0 || (size_t)NI > SIZE_MAX / (size_t)NJ) return 0;
+    n = (size_t)NI * (size_t)NJ;
+    return n <= SIZE_MAX / sizeof(float) ? n * sizeof(float) : 0;
+}
+
+static size_t wt_micro_full_3d(int NI, int NK, int NJ)
+{
+    size_t n = wt_micro_full_2d(NI, NJ);
+    if (!n || NK <= 0 || n / sizeof(float) > SIZE_MAX / (size_t)NK) return 0;
+    n = (n / sizeof(float)) * (size_t)NK;
+    return n <= SIZE_MAX / sizeof(float) ? n * sizeof(float) : 0;
+}
+
+/* WIF and fire state fields are allocated either at full patch size or as a
+ * one-element Registry dummy.  Treat any other or unknown size as unsafe. */
+static int wt_micro_alloc_state(int arg, size_t full, int *active)
+{
+    size_t got;
+    if (!wt_argv[arg] || full <= sizeof(float)) return 0;
+    got = wt_alloc_size(wt_argv[arg]);
+    if (got == full) { *active = 1; return 1; }
+    if (got == sizeof(float)) { *active = 0; return 1; }
+    return 0;
+}
 
 static int wt_micro_field_active(const struct wt_micro_field *f)
 {
+    if (f->gate == WT_GATE_WIF_BC) return stage_wif_bc;
+    if (f->gate == WT_GATE_FIRE) return stage_fire;
+    if (f->gate == WT_GATE_FIRE_BC) return stage_fire_bc;
     return f->gate < 0 || (wt_argv[f->gate] && IARG(f->gate));
 }
 
@@ -184,10 +228,24 @@ static const struct wt_micro_layout *wt_micro_find_layout(int mp)
     return NULL;
 }
 
-static void wt_micro_select_fields(void)
+static void wt_micro_select_fields(int NI, int NK, int NJ)
 {
     stage_n3 = stage_n2 = 0;
+    stage_alloc_ok = 1;
+    stage_wif_bc = stage_fire = stage_fire_bc = 0;
     if (!stage_layout) return;
+    if (stage_layout->mp == 28) {
+        size_t full2 = wt_micro_full_2d(NI, NJ);
+        size_t full3 = wt_micro_full_3d(NI, NK, NJ);
+        stage_alloc_ok = full2 && full3 &&
+            wt_micro_alloc_state(WT_A_QNBCA2D, full2, &stage_wif_bc) &&
+            wt_micro_alloc_state(WT_A_QNOCBB2D, full2, &stage_fire) &&
+            wt_micro_alloc_state(WT_A_QNBCBB2D, full2, &stage_fire_bc);
+        if (stage_fire &&
+            (!wt_argv[WT_A_Z_AT_MASS] || wt_alloc_size(wt_argv[WT_A_Z_AT_MASS]) != full3 ||
+             !wt_argv[WT_A_PBLH] || wt_alloc_size(wt_argv[WT_A_PBLH]) != full2))
+            stage_alloc_ok = 0;
+    }
     for (int i = 0; i < stage_layout->n3; i++)
         if (wt_micro_field_active(&stage_layout->w3[i])) stage_w3[stage_n3++] = stage_layout->w3[i].arg;
     for (int i = 0; i < stage_layout->n2; i++)
@@ -944,9 +1002,9 @@ static void wt_micro_staged_call(int rows)
         stage_ok = wt_stage_selfcheck(NI, NK, NJ, me);
         stage_checked_mp = mp;
     }
-    wt_micro_select_fields();
+    wt_micro_select_fields(NI, NK, NJ);
     int *w3 = stage_w3, *w2 = stage_w2, n3 = stage_n3, n2 = stage_n2;
-    int refuse = !stage_ok;
+    int refuse = !stage_ok || !stage_alloc_ok;
     for (int a = 0; a < n3 && !refuse; a++) {
         if (!wt_argv[w3[a]]) refuse = 1;
         for (int b = 0; b < a; b++) if (wt_argv[w3[b]] == wt_argv[w3[a]]) refuse = 1;

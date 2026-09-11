@@ -25,8 +25,9 @@ MICRO_W2 = [
     'sr',
 ]
 MICRO_OPT3 = ['refl_10cm', 're_cloud', 're_ice', 're_snow']
-MICRO_EXTRA_W3 = ['rho', 'qnc_curr', 'qnwfa_curr', 'qnifa_curr', 'qnbca_curr']
-MICRO_EXTRA_W2 = ['qnwfa2d', 'qnifa2d', 'qnbca2d']
+MICRO_EXTRA_W3 = ['rho', 'qnc_curr', 'qnwfa_curr', 'qnifa_curr', 'qnbca_curr',
+                  'z_at_mass']
+MICRO_EXTRA_W2 = ['qnwfa2d', 'qnifa2d', 'qnbca2d', 'pblh', 'qnocbb2d', 'qnbcbb2d']
 
 # Strictly column-local RRTMG candidates from radiation_driver.f90.  Optional
 # fields are named here so the R1 wrapper can include them only when present;

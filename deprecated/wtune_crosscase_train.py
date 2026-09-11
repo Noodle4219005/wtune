@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+# DEPRECATED 2026-09-11 (moved to deprecated/, see deprecated/README.md): the withdrawal
+# below assumed the consumer would be restart-boundary rebalancing. That lever is closed
+# (restart ~56 s > 7-17 s recoverable) and the live rebalancer, PLOV, is measurement-driven
+# (it needs no prediction of which rank is hot). Kept runnable for the studies it produced.
 # ─────────────── DEPRECATION WITHDRAWN 2026-09-08 ───────────────
 # This module was marked DEPRECATED on 2026-09-07 on the grounds that the per-rank hot-spot
 # target had no consumer, because all eight rebalancing actuators were closed.

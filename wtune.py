@@ -18,8 +18,6 @@ import wtune_physics as phys
 import wtune_knobs as knobs
 import wtune_solar as wsolar
 import wtune_surrogate as surr
-from wtune_migration_config import (MigrationConfigError, from_environment,
-                                    manifest_metadata, validate_case)
 from wtune_feedback import (FeedbackController, FeedbackError, FeedbackSample,
                             decisions_to_csv, decisions_to_json)
 
@@ -1353,6 +1351,15 @@ def _publish_restart_artifacts(outputs, manifest_path, manifest_text):
 
 
 def restart_window_cmd(args):
+    # DEPRECATED 2026-09-11: restart-boundary rebalancing is closed (a restart
+    # costs ~56 s, the recoverable imbalance is 7-17 s; PLOV rebalances in place
+    # instead, see plov/README.md). The modules live under deprecated/ and are
+    # imported only when this command is actually invoked.
+    print("WARNING restart-window: deprecated path (see deprecated/README.md); "
+          "PLOV is the live rebalancer", file=sys.stderr)
+    sys.path.insert(0, str(Path(__file__).resolve().parent / 'deprecated'))
+    from wtune_migration_config import (MigrationConfigError, from_environment,
+                                        manifest_metadata, validate_case)
     output_dir = _restart_path_key(args.output_dir)
     manifest_path = (_restart_path_key(args.manifest_out)
                      if args.manifest_out else

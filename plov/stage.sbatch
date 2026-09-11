@@ -1,0 +1,133 @@
+#!/usr/bin/env bash
+#SBATCH --job-name=wtstage
+#SBATCH --account=ACD110018
+#SBATCH --partition=ct448
+#SBATCH --nodes=4 --ntasks-per-node=112
+#SBATCH --time=00:25:00
+#SBATCH --output=/home/u5727520/wrf-stack/wtimer/stage-%j.out
+#
+# PLOV stage 1 gate: in-place dense-rectangle staging of the last R j-rows of every rank's own
+# patch through the corrected 402-argument map (gen_argmap.py). No migration yet. The gate is
+# bit-identity against the unstaged arm plus micro_staged == micro_calls on every rank; the
+# self-check line from rank 0 must say STAGING ON.
+set -uo pipefail
+W=/home/u5727520/wrf-stack/wrf/intel-adios2-dmsm/WRF
+T=/home/u5727520/wrf-stack/wtimer
+SRC=/home/u5727520/wrf-bench/karina_48h
+STEPS=400
+module load intel/2024_01_46 2>/dev/null || true
+export I_MPI_PMI_LIBRARY=/usr/lib64/libpmi2.so OMP_STACKSIZE=512M OMP_PROC_BIND=false KMP_BLOCKTIME=0
+for L in NETCDF PNETCDF HDF5 ADIOS2; do export $L=/home/u5727520/wrf-stack/intel; done
+export LD_LIBRARY_PATH=/home/u5727520/wrf-stack/intel/lib64:/home/u5727520/wrf-stack/intel/lib:${LD_LIBRARY_PATH:-}
+
+P=/home/u5727520/wrf-bench/stprep_$SLURM_JOB_ID
+rm -rf "$P"; mkdir -p "$P"; cd "$P"
+for f in "$SRC"/met_em.d0*.nc "$SRC"/geo_em.d0*.nc; do [ -e "$f" ] && ln -sf "$(readlink -f "$f")" .; done
+cp "$SRC/namelist.input" .
+for f in "$W"/run/*; do b=$(basename "$f")
+  case "$b" in namelist.input|wrfout*|wrfinput*|wrfbdy*|wrfrst*|rsl.*) ;; *) [ -e "$b" ] || ln -sf "$f" "$b";; esac; done
+ln -sf "$W"/main/real.exe real.exe
+DT=$(grep -oE "time_step *= *[0-9]+" namelist.input | head -1 | grep -oE "[0-9]+$")
+MIN=$(( (STEPS * DT + 59) / 60 ))
+sed -i "s/\brun_days=[0-9]*/run_days=0/;s/\brun_hours=[0-9]*/run_hours=0/;s/\brun_minutes=[0-9]*/run_minutes=$MIN/" namelist.input
+sed -i "s/ history_interval=[0-9]*/ history_interval=$MIN/;s/ restart_interval=[0-9]*/ restart_interval=999999/" namelist.input
+sed -i -e "s/ io_form_history=[0-9]*/ io_form_history=14/" -e "s/ io_form_restart=[0-9]*/ io_form_restart=14/" namelist.input
+srun --mpi=pmi2 -n 448 --ntasks-per-node=112 ./real.exe > real.out 2>&1
+SZI=$(stat -c %s wrfinput_d01 2>/dev/null || echo 0); SZB=$(stat -c %s wrfbdy_d01 2>/dev/null || echo 0)
+[ "$SZI" -ge 500000000 ] && [ "$SZB" -ge 300000000 ] || { echo "FATAL prep: $SZI $SZB"; exit 4; }
+sed -i "/^ *nproc_x=/d; /^ *nproc_y=/d; /^ *numtiles=/d; /&domains/a\\ nproc_x=8, nproc_y=28, numtiles=13," namelist.input
+echo "prep ok"
+
+HF=$P/hostfile.lpt
+mk_hostfile () {  # $1=profile dir: LPT over per-rank unstaged micro totals, 56 ranks per node -> $HF
+  python3 - "$1" "$HF" $(scontrol show hostnames "$SLURM_JOB_NODELIST") <<'EOP'
+import sys,glob,re
+d,hf,*nodes=sys.argv[1:]
+load={}
+for f in glob.glob(d+"/wtimer.*.csv"):
+    r=int(re.search(r"wtimer\.(\d+)\.csv",f).group(1))
+    load[r]=sum(float(l.split(',')[1]) for l in open(f) if l[:1].isdigit())
+n=len(load); per=n//len(nodes); sums=[0.0]*len(nodes); cnt=[0]*len(nodes); host=[None]*n
+for r in sorted(load,key=lambda r:-load[r]):
+    k=min((k for k in range(len(nodes)) if cnt[k]<per),key=lambda k:sums[k])
+    host[r]=nodes[k]; sums[k]+=load[r]; cnt[k]+=1
+open(hf,"w").write("".join(h+"\n" for h in host))
+print("  LPT hostfile: %d ranks, node sums %s, ranks/node %s"%(n," ".join("%.1f"%x for x in sums),cnt))
+EOP
+}
+
+mk_hostfile_xpair () {  # x-pair placement: rank r -> node ((r mod 8) div 2); every N-S edge on-node, E-W off-node only at 3 of 7 column boundaries
+  python3 - "$HF" $(scontrol show hostnames "$SLURM_JOB_NODELIST") <<'EOP'
+import sys
+hf,*nodes=sys.argv[1:]
+host=[nodes[(r%8)//2] for r in range(224)]
+open(hf,"w").write("".join(h+"\n" for h in host))
+print("  xpair hostfile: 224 ranks, ranks/node %s"%[host.count(n) for n in nodes])
+EOP
+}
+
+arm () {  # $1=tag $2=stage rows (0 = off) $3=share|adapt|adapt75 $4=srun --distribution (default block; arbitrary reads $HF)
+  local TAG=$1 ROWS=$2 D=/home/u5727520/wrf-bench/st_${1}_$SLURM_JOB_ID
+  rm -rf "$D"; mkdir -p "$D"; cd "$D" || return 1
+  unset SLURM_HOSTFILE
+  if [ "${4:-}" = arbitrary ]; then
+    export SLURM_HOSTFILE=$HF
+    srun --mpi=pmi2 --distribution=arbitrary -n 224 --ntasks-per-node=56 -c 2 bash -c 'echo $SLURM_PROCID $SLURMD_NODENAME' | sort -n | awk '{print $2}' > probe.txt
+    if diff -q probe.txt "$HF" >/dev/null; then echo "  placement matches hostfile"; else echo "  FATAL placement != hostfile ($(diff probe.txt "$HF" | grep -c '^[<>]') lines)"; return 5; fi
+  fi
+  for f in "$P"/met_em.d0*.nc "$P"/geo_em.d0*.nc "$P"/wrfinput_d01 "$P"/wrfbdy_d01; do
+    [ -e "$f" ] && ln -sf "$f" "$(basename "$f")"; done
+  for f in "$W"/run/*; do b=$(basename "$f")
+    case "$b" in namelist.input|wrfout*|wrfinput*|wrfbdy*|wrfrst*|rsl.*) ;; *) [ -e "$b" ] || ln -sf "$f" "$b";; esac; done
+  cp "$P/namelist.input" .; sed -i -e "s/ io_form_history=[0-9]*/ io_form_history=2/" namelist.input
+  ln -sf "$W"/main/wrf_wtimer.exe ./run.exe
+  export OMP_NUM_THREADS=2 WTIMER_DIR="$D" WTIMER_DEBUG_RANK=0
+  unset WTIMER_LEWI WTIMER_STAGE_ROWS WTIMER_STAGE_DEBUG WTIMER_STAGE_SHARE WTIMER_STAGE_ADAPT WTIMER_STAGE_CHUNKS WTIMER_STAGE_MAX_PCT
+  [ "$ROWS" != 0 ] && export WTIMER_STAGE_ROWS=$ROWS WTIMER_STAGE_DEBUG=1
+  [ "${3:-}" = share ] && export WTIMER_STAGE_SHARE=1
+  [ "${3:-}" = adapt ] && export WTIMER_STAGE_SHARE=1 WTIMER_STAGE_ADAPT=1 WTIMER_STAGE_CHUNKS=4
+  [ "${3:-}" = adapt75 ] && export WTIMER_STAGE_SHARE=1 WTIMER_STAGE_ADAPT=1 WTIMER_STAGE_CHUNKS=6 WTIMER_STAGE_MAX_PCT=75
+  [ "${3:-}" = adapt75r8 ] && export WTIMER_STAGE_SHARE=1 WTIMER_STAGE_ADAPT=1 WTIMER_STAGE_CHUNKS=3 WTIMER_STAGE_MAX_PCT=75
+  timeout 600 srun --mpi=pmi2 --distribution=${4:-block} -n 224 --ntasks-per-node=56 -c 2 ./run.exe > wrf.out 2>&1
+  echo "  distribution=${4:-block} rank:node for ranks 0-9: $(srun --distribution=${4:-block} -n 224 --ntasks-per-node=56 -c 2 bash -c 'echo $SLURM_PROCID:$SLURM_NODEID' | sort -t: -k1,1n | head -10 | tr "\n" " ")"
+  echo "  srun rc=$?"
+  local OK N MED
+  OK=$(grep -c "SUCCESS COMPLETE WRF" rsl.error.0000 2>/dev/null || echo 0)
+  N=$(grep -c "Timing for main" rsl.out.0000 2>/dev/null || echo 0)
+  MED=$(grep "Timing for main" rsl.out.0000 | awk '{print $9}' | sort -n | awk '{v[NR]=$1} END{if(NR)printf "%.5f",(NR%2)?v[(NR+1)/2]:(v[NR/2]+v[NR/2+1])/2}')
+  echo "  $TAG rows=$ROWS ok=$OK steps=$N med=${MED:-NA} s/step"
+  grep -h "selfcheck\|stage geometry\|\[wtimer\] share:\|\[wtimer\] adapt\|\[wtimer\] mark\|\[wtimer\] [23]d " rsl.error.0000 2>/dev/null | head -60
+  echo "  micro readback over ranks (calls staged refused share_out share_in): min/max and sums"
+  grep -h "^# micro_calls" wtimer.*.csv 2>/dev/null | sed 's/[a-z_]*=//g; s/#//' | awk '{c[NR]=$1;s[NR]=$2;r[NR]=$3;o[NR]=$4;i[NR]=$5;so+=o[NR];si+=i[NR];sw+=$6;sk+=$7;ro+=$8;ci+=$9;if($6>mw)mw=$6;if($7>mk)mk=$7} END{if(!NR){print "  ranks=0"; exit} cm=c[1];cM=c[1];sm=s[1];sM=s[1];rm=r[1];rM=r[1];om=o[1];oM=o[1];im=i[1];iM=i[1];for(k=2;k<=NR;k++){if(c[k]<cm)cm=c[k];if(c[k]>cM)cM=c[k];if(s[k]<sm)sm=s[k];if(s[k]>sM)sM=s[k];if(r[k]<rm)rm=r[k];if(r[k]>rM)rM=r[k];if(o[k]<om)om=o[k];if(o[k]>oM)oM=o[k];if(i[k]<im)im=i[k];if(i[k]>iM)iM=i[k]} printf "  ranks=%d calls %d..%d staged %d..%d refused %d..%d share_out %d..%d sum=%d share_in %d..%d sum=%d | wait_ms sum=%.1f max=%.1f work_ms sum=%.1f max=%.1f | rows_out sum=%d chunks_in sum=%d\n",NR,cm,cM,sm,sM,rm,rM,om,oM,so,im,iM,si,sw,mw,sk,mk,ro,ci}'
+  python3 - <<'PY'
+import glob,statistics as st
+tot=[];med=[]
+for f in glob.glob("wtimer.*.csv"):
+    v=[float(l.split(',')[1]) for l in open(f) if l[:1].isdigit()]
+    if v: tot.append(sum(v)); med.append(st.median(v))
+if tot: print("  micro per call: median-of-rank-medians %.4f s; rank total median %.2f max %.2f s"%(st.median(med),st.median(tot),max(tot)))
+wf=[]
+for f in glob.glob("wtimer.*.csv"):
+    w=[float(p[7]) for p in (l.split(',') for l in open(f) if l[:1].isdigit()) if len(p)>7 and p[7].strip()]  # call 0 has an empty mpi_wait field
+    if w: wf.append(1000*sum(w)/len(w))
+if wf: print("  mpi_wait ms/step over ranks: floor(min) %.2f median %.2f max %.2f"%(min(wf),st.median(wf),max(wf)))
+PY
+  grep -iE "segmentation|signal|forrtl|backtrace" wrf.out 2>/dev/null | head -5
+}
+echo "=== Ec production: adapt75, cyclic placement (node = r mod 4), 400 steps ===" ; arm Ec 4 adapt75 cyclic
+echo "=== Hx production + x-pair placement (node = (r mod 8) div 2), 400 steps ===" ; mk_hostfile_xpair; arm Hx 4 adapt75 arbitrary
+echo "=== Hb production + block placement (56 consecutive ranks = 7 y-rows per node), 400 steps ===" ; arm Hb 4 adapt75 block
+
+diff_pair () {
+  local X=$1 Y=$2 FX FY
+  echo; echo "=== BIT-IDENTITY $X vs $Y ==="
+  FX=$(ls -t "/home/u5727520/wrf-bench/st_${X}_$SLURM_JOB_ID"/wrfout_d01_* 2>/dev/null | head -1)
+  FY=$(ls -t "/home/u5727520/wrf-bench/st_${Y}_$SLURM_JOB_ID"/wrfout_d01_* 2>/dev/null | head -1)
+  if [ -n "$FX" ] && [ "$(basename "$FX")" = "$(basename "$FY")" ]; then
+    "$W/external/io_netcdf/diffwrf" "$FX" "$FY" 2>&1 | tail -16
+  else echo "  SKIP: $(basename "${FX:-none}") vs $(basename "${FY:-none}")"; fi
+}
+diff_pair Ec Hx
+diff_pair Ec Hb
+for X in Ec Hx Hb; do grep "Timing for main" /home/u5727520/wrf-bench/st_${X}_$SLURM_JOB_ID/rsl.out.0000 | awk -v t=$X '{v[NR]=$9} END{for(q=0;q<4;q++){n=0;delete w;for(i=q*100+1;i<=(q+1)*100&&i<=NR;i++)w[++n]=v[i];asort(w);printf "  %s steps %d-%d med=%.5f\n",t,q*100+1,(q+1)*100,w[int((n+1)/2)]}}'; done
+

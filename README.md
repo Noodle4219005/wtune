@@ -1,266 +1,214 @@
-# wtune — a physics-aware WRF configuration advisor, cost predictor, and profiler
+# wtune — physics-aware WRF load rebalancing, configuration advice, and runtime prediction, without touching WRF source
 
-`wtune` answers three questions about a WRF run **without modifying WRF**:
+`wtune` does four things to a WRF run, **none of which modifies a WRF source file**:
 
-1. **What configuration should I use?** — derive a good decomposition / knob set from the
-   namelist and initial condition, before running the full model.
-2. **How long will it take, and which ranks will be hot?** — predict total runtime and
-   per-rank cost from the atmospheric state alone.
-3. **Where is the time actually going?** — measure per-rank compute/wait at scale and
-   decompose the load imbalance into what is recoverable and what is not.
+1. **Rebalance the load in place** — `plov/`: link-time `--wrap` interposition of the
+   microphysics and radiation drivers, row staging into `/dev/shm`, node-local work stealing
+   with a feedback controller. **-13.0% s/step over 400 steps, bit-identical** (job 1070876).
+   This is the only part that moves wall time and it is the production path.
+2. **Pick the launch configuration** — `wtune.py plan/physics/knobs/screen`: decomposition
+   shape, tiles, physics-consistent knobs, `srun --distribution=cyclic`, `KMP_BLOCKTIME=0`.
+3. **Gate result-affecting knobs** — `wtune_config_gate.py`: `radt`, `non_hydrostatic`,
+   `cudt`, … legitimately change the answer, so they are compared field-by-field against a
+   reference `wrfout` with a tolerance *calibrated* from a known-acceptable pair. Bit-identity
+   (`diffwrf`) is the gate for everything else.
+4. **Predict runtime** — `wtune_runtime_predict.py` / `wtune_cost_model.py`: total runtime to
+   ~5% (nested LOO MAE 1.07 s) from a `wrfout` snapshot; cost(case, config) as a recomputable
+   lookup plus a GBRT residual.
 
-It targets WRF's load imbalance (the day/night solar terminator + convective storms) and the
-ordinary cache/vectorization/NUMA cost of a decomposition. It is **case-general**: the hotspot
-set is derived from the case's active physics, not hardcoded.
+Everything that was measured and found null lives in `deprecated/` (kept runnable, not
+extended) and every one-off study in `research/`. See the layout at the end.
 
 ---
 
 ## Hard constraint: WRF source is never modified
 
-**Every** wtune capability operates through namelist, runtime/env, launcher, `LD_PRELOAD`
-shims, and post-hoc analysis. No `.F`/`.c` file of WRF is ever edited. This is a project rule,
-not a preference, and it defines the design:
-
-- Profiling uses PMPI `LD_PRELOAD` shims, never source instrumentation.
-- Load balancing is done by **rank→core placement** (no cell ownership ever moves), never by
-  changing WRF's decomposition or halo code.
-- Optimizations that would need source changes are **measured and priced, then parked** —
-  see *Measured-closed* below, so they are not re-proposed.
+No `.F`/`.c`/`.h` of WRF is edited. Allowed: namelist, environment, launcher, the link line
+(`-Wl,--wrap=` interposition against `libwrflib.a`), `LD_PRELOAD`/PMPI shims, post-hoc
+analysis. `plov/gate0.sh` proves from `objdump` that the driver call sites go through the
+`__wrap_*` trampolines; `diffwrf` against an unmodified run proves the output is unchanged.
 
 ---
 
-## Architecture
+## 1. PLOV — the live rebalancer (`plov/`)
 
-Everything predicted is a **cost RATE**, never a duration. Duration is contaminated by machine
-state, I/O and node variance; the rate is the clean quantity, and the step count is exact
-arithmetic from the namelist:
+The load imbalance in WRF is in the physics (convective microphysics, the solar terminator in
+radiation), and it moves every step. Nothing that acts at restart boundaries or through rank
+placement can follow it (`deprecated/README.md`). PLOV acts inside the step:
 
-```
-total_wall  =  n_steps  x  rate                 n_steps = sim_hours*3600/dt   (not predicted)
+- the `--wrap` trampoline captures the driver's 402/422 arguments, re-enters the real driver
+  with the owner's `JME` shrunk by R rows (pass 1), then runs the R staged rows from a
+  `/dev/shm` slot (pass 2) — either itself or an idle rank on the same node that claimed
+  them (CAS PUBLISHED->CLAIMED, single writer, so the result is bit-identical);
+- R adapts per rank from measured driver time, `R += 0.5*NJ*(t_me - t_mean)/t_me`, chunked
+  in 6, capped at 75% of the patch ("adapt75"); no prediction is needed;
+- `srun --distribution=cyclic` spreads the hot region over the four nodes first (-2.2% on
+  its own), because stealing is node-local.
 
-rate[rank]  =  scale(config)  x  share(segment)  x  shape(weather)[rank]
-               ^^^^^^^^^^^^^     ^^^^^^^^^^^^^^     ^^^^^^^^^^^^^^^^^
-               e_vert alone      = 1               per-PBL-scheme head
-               10 samples        (measured: no     17920 samples
-               LOO MAE 6.2%      predictor beats   no geometry features
-               extrapolates      the constant)
-               to unseen levels
-               at 6%
-```
+| arm (f1, 4 nodes x 56 x 2 threads, 1500x1500, 400 steps) | s/step | delta | bit-identical |
+|---|---:|---:|---|
+| A: block placement, unmodified | 0.3349 | — | reference |
+| **Ec: cyclic + micro rows=4 adapt75** | **0.2913** | **-13.0%** | yes |
+| ER: Ec + radiation rows=4 + row stealing | 0.2925 | rad steps -0.15..-0.23 s each (6/6 negative, sum -1.06 s); -0.6% net | yes |
 
-```
-   WRF (io_form=14, ADIOS2)              PMPI shim (blockbar_bucket.c)
-   wrfout every 3 sim-hours              per-rank comp/wait in 300 s WALL buckets
-            │                                        │
-            ▼                                        ▼
-   featurize_frames.py                      bucket_load.csv
-   frame (1-2 GB) -> 448 x 17 (31 KB)       + rsl.out.0000 for the sim<->wall map
-   then DELETES the frame                            │
-            └──────────────► wtune_segment_train.py ◄┘
-                             (aligns segmented features to segmented labels)
-                                        │
-   ADVISORY                  PREDICTION │                    MEASUREMENT
-   wtune.py (11 subcommands) wtune_cost_model.py  <──────    wtune_phase_analysis.py
-   wtune_physics/knobs       wtune_runtime12.py               wtune_replay_sim.py
-   wtune_solar/surrogate     wtune_segshare.py
-            └──────────────► g0a/wtune-transition-controller.py
-                             imbalance_gate()            <- on MEASURED seconds
-                             imbalance_gate_predicted()  <- on PREDICTED, discounted by
-                                                            the scheme's hit rate; a SAFETY
-                                                            VALVE, not a trigger
-```
+Plus, independent of PLOV: `KMP_BLOCKTIME=0` on 224x2 is **-2.8%** (ABAB), and the hybrid
+224x2 with the right `numtiles` beats 448x1 by 5.7%.
 
-### What the model is for, and what it is not for
+Per-step budget after PLOV (0.292 s): dynamics ~143 ms, MPI floor 37 ms (13 halo closures x
+2.8 ms, source-locked), radiation ~46 ms averaged, microphysics ~34 ms (at its arithmetic
+ceiling), residual imbalance ~18 ms (between nodes; cross-node stealing is bounded at
+<=1.3%), PBL+surface ~11 ms. Whether ER (radiation) becomes production is still an open
+decision; it is measured and safe.
 
-Measured by replaying the loop against segments already recorded: **the model must not decide
-*whether* to rebalance.** At the 56 s restart cost the recoverable seconds (35-71 s) straddle
-the threshold and nothing separates them -- model 85%, persistence 82%, always-hold 85%. At a
-cheap in-place cost every segment clears and the answer is always "switch". Neither regime
-needs a prediction.
+Build, run, verify: `plov/README.md`; the exact environment: `plov/production.env`.
 
-**The model answers *which ranks*.** That is the hot-spot hit rate, and it is what a
-rebalancer consumes.
-
-### Two properties that constrain everything
-
-- **The per-rank pattern is 93.3% reproducible run to run**, so it is deterministic and worth
-  predicting -- but *within* a case it is already 86.1% learnable while *across* cases it is
-  42%. Every gap is a TRANSFER gap. Six feature-engineering attempts failed on that account;
-  a per-PBL-scheme head fixed MYNN in one change (+18 pt) at zero cost.
-- **Regime coverage dominates every other lever.** Same weather with 9 training cases: 80.8%.
-  With 1: 39.4%. With 1 and a different decomposition: 21.7%. Compare the per-scheme head
-  (+12), geometry (+4), loss function (+2), model class (KNN, -7).
-
-## 1. Advisory layer — what configuration to use
-
-- **Decomposition cost model** — a cache · vectorization · halo · NUMA score over the valid
-  `nproc_x × nproc_y` shapes. On CONUS 2.5 km it re-derives the measured winner (`8×56`)
-  without running the sweep.
-- **Physics hotspot model** — per-rank load = cost-share-weighted sum over the *active* phases
-  (microphysics→moisture, radiation→solar terminator, cumulus, GWD→terrain…).
-  - *radiation*: analytic time-integrated solar geometry (`wtune_solar.py`).
-  - *convection*: a fast SpeedyWeather.jl surrogate (`wtune_surrogate.py` + `speedy_hotspot.jl`).
-- **Knob advisor** — 20 input-derived rules over a Registry-generated catalog of ~2062
-  forecast parameters (`num_soil_layers`↔LSM, `radt`≈dx, PBL↔sfclay pairing, `cu_physics` vs dx…).
-- **Placement** — over-decompose into equal fixed patches, assign to cores by predicted load
-  (node-aware LPT). **No rank data ever moves**; applied at launch via an `LD_PRELOAD` shim.
-  Because the optimum inverts as the terminator sweeps (84–99% churn per window),
-  `shims/blockbar7.c` re-pins per window with `sched_setaffinity` only.
+## 2. Advisory layer — `wtune.py`
 
 ```bash
 python3 wtune.py plan    --namelist namelist.input [--ranks N] [--wrfinput wrfinput_d01]
 python3 wtune.py physics --namelist namelist.input [--menu] [--probe-json speedy_probe.json]
 python3 wtune.py knobs   --namelist namelist.input [--all]
-python3 wtune.py hotspot --namelist namelist.input --wrfinput ... [--run-surrogate]
-python3 wtune.py audit   --namelist namelist.input     # classify all ~2062 catalog params
 python3 wtune.py screen  --namelist namelist.input     # 3-stage funnel to the effective few
+python3 wtune.py audit   --namelist namelist.input     # classify all ~2062 catalog params
 python3 wtune.py catalog [--group physics] [--grep mp_]
+python3 wtune.py hotspot --namelist namelist.input --wrfinput ... [--run-surrogate]
+python3 wtune.py feedback ...                          # PLOV controller replay / decisions CSV
 python3 wtune.py selftest
 ```
 
-Lat/lon/date are read from a `wrfinput`/`wrfout` header via `ncdump -h` (header-only) when the
-namelist lacks them.
+- **Decomposition** — cache · vectorization · halo · NUMA score over the legal
+  `nproc_x x nproc_y` shapes; re-derives the measured CONUS 2.5 km winner (`8x56`) without
+  running the sweep (`wtune_decomp.py`, `wtune_shape.py` for the patch geometry).
+- **Physics suite + knobs** — 20 input-derived rules over a Registry-generated catalog of
+  ~2062 parameters (`num_soil_layers`<->LSM, `radt`≈dx, PBL<->sfclay pairing, `cu_physics` vs
+  dx …). Knobs are labelled by what they can change: `code_enforced` (WRF overrides them),
+  performance-only (`numtiles`, decomposition, I/O), and **RESULTS-affecting numerics**
+  (`radt`, `non_hydrostatic`, `cudt`, …) which `wtune.py` prints under "gated tuning only".
+- **Hotspot preview** — analytic solar terminator (`wtune_solar.py`) plus the SpeedyWeather
+  convective surrogate (`wtune_surrogate.py` + `speedy_hotspot.jl`; always run the probe).
+  Used to *explain* a case; PLOV does not consume it.
+- **Transition controller** — `wtune_transition_controller.py` (copied from `../g0a/`):
+  zero-measurement initial config and node-scaling projection (4N->8N measured -44.6%,
+  projection error 1%; blocked by the 4-node rule). Its restart-boundary imbalance gate is
+  deprecated; the 2/40 selftest failures are both in that branch.
 
-## 2. Prediction layer — runtime and per-rank cost
+Lat/lon/date come from a `wrfinput`/`wrfout` header via `ncdump -h` when the namelist lacks
+them.
 
-Features come from a `wrfout` snapshot, aggregated per rank patch (11 features: `radiation,
-micro, surf, TCWV, LWP, RWP, IWP, SWP, GWP, nspecies, mixed_phase`).
+## 3. Calibration gate for result-affecting knobs — `wtune_config_gate.py`
+
+Config-layer changes such as `radt` 10->15 or `non_hydrostatic` are worth up to -15% on a
+15 km case but change the fields, so bit-identity cannot judge them. The gate compares a
+candidate `wrfout` with a reference field by field (`max|d|`, RMS of the difference, RMS
+relative to the field) and passes when every field is within a tolerance that was
+**calibrated from a pair the user already accepts** (two runs of the accepted config, or
+reference vs an accepted change):
+
+```bash
+PY="pixi run --manifest-path ../wtune-pixi-env-20260830/pixi.toml python"   # numpy + netCDF4
+$PY wtune_config_gate.py calibrate --ref accepted_A/wrfout_d01_... --cand accepted_B/wrfout_d01_...
+#   -> prints the per-field table and a suggested --tol-rel (max rel_rms x safety 3)
+$PY wtune_config_gate.py check --ref ref/wrfout_d01_... --cand cand/wrfout_d01_... --tol-rel <that> --json gate.json
+#   -> GATE PASS / GATE FAIL <fields>, exit 0/1
+```
+
+One variable is read at a time (files are ~800 MB), the last time record by default. Run it
+on a compute node like everything else. A bit-identical pair reports every field at 0 and
+passes at any tolerance.
+
+## 4. Prediction layer — runtime and cost
+
+Features come from a `wrfout` snapshot aggregated per rank patch (`wtune_oracle.py`;
+`featurize_frames.py` reduces a 1-2 GB frame to 448 x 17 and deletes it; `wtune_segment_train.py`
+aligns segmented features to segmented labels).
 
 | tool | predicts | validation |
 |---|---|---|
-| `wtune_runtime_predict.py` | **total runtime**, case level | **nested** leave-one-out **MAE 1.07 s (~5.2%)**, 1.9× better than a mean baseline; best single feature = radiation load |
-| `wtune_crosscase_blk.py` | **per-rank cost**, 3 km/448-rank corpus | within-case Spearman **+0.44…+0.85 (all positive)**; cross-regime LOCO **+0.50**; pooled 5-fold +0.64 |
-| `wtune_crosscase_train.py` | per-rank cost, 12 km/36-rank corpus | LOCO only **+0.14** — see *scale* below |
-| `wtune_oracle_train.py` | per-rank cost, single CONUS run | within-run OOF Spearman 0.884 |
+| `wtune_runtime_predict.py` | **total runtime**, case level | nested LOO **MAE 1.07 s (~5.2%)**, 1.9x better than the mean; best single feature = radiation load |
+| `wtune_runtime12.py` | same on the 12 km corpus | — |
+| `wtune_cost_model.py` | cost(case, config) = f(mp) + g(bl) + B(weather) | separable; the per-PBL head is **REFUTED on a diverse corpus (2026-09-05)** and stays opt-in via `WTUNE_PER_BL_HEAD` |
 
-```bash
-PY=../wtune-pixi-env-20260830/.pixi/envs/default/bin/python3
-$PY wtune_runtime_predict.py      # case-level runtime LOO
-$PY wtune_crosscase_blk.py        # per-rank within-case + LOCO over the big-case corpus
-```
+Per-rank prediction is a scale problem, not a model problem: at 12 km/36 ranks the per-rank
+spread is at the profiling noise floor; at 3 km/448 ranks it is learnable (within-case
+Spearman +0.44..+0.85). But no live actuator consumes "which rank is hot" — PLOV measures
+it — so the per-rank hotspot model itself is in `deprecated/` (decision 0045).
 
-**Per-rank prediction is a scale problem, not a model problem.** At 12 km/36 rank the per-rank
-compute is ~12 s with ~1.2 s spread — the same order as profiling noise, so nothing is learnable
-(LOCO +0.14, several cases negative). At 3 km/448 rank/2 h the compute is ~150 s with 6.8–17.1 s
-spread, and the identical model reaches within-case ρ +0.44…+0.85. Ask whether the signal is
-above the noise floor *before* asking whether the model is good enough.
+## 5. Measurement — where the time goes
 
-**best-param factors out of the weather**: config = f(grid, nodes); the regime only sets the
-absolute runtime level. So the advisory layer needs no regime features.
+- **Per-rank driver timers** come free with PLOV: `wtimer.<rank>.csv` under `WTIMER_DIR`
+  (per-call microphysics/radiation/PBL/surface/cumulus time, staged/refused/shared counters,
+  wait time). A run whose counters read `staged 0` did nothing, however fast it looks.
+- **PMPI shims** (`profilers/blockbar_prof.c`, `blockbar_phase.c`, `LD_PRELOAD`): per-rank
+  wait fraction and per-segment compute/wait, because APS and `I_MPI_STATS` both hang at 448
+  ranks. `wtune_probe.py` is the ABBA submit/parse harness.
 
-## 3. Measurement layer — where the time goes
-
-PMPI `LD_PRELOAD` shims (in `../lend-microbench/`), because **APS and `I_MPI_STATS` both hang at
-448 ranks** (25-min timeouts, zero integration steps) while these do not.
-
-| shim | measures | output |
-|---|---|---|
-| `blockbar_prof.c` | per-rank MPI wait fraction | `grank lrank wait_frac`; label = `1 − wait_frac` |
-| `blockbar_phase.c` | per-rank compute/wait per MPI segment, barrier-synced timestamps | `rank,seg,comp_s,wait_s,kind,tend_s` |
-
-```bash
-mpicc -O2 -fPIC -shared -o libblockbar_prof.so blockbar_prof.c
-mpirun -np 448 env LD_PRELOAD=./libblockbar_prof.so BLOCKBAR_PROF_OUT=load.txt ./wrf.exe
-$PY wtune_phase_analysis.py phase_seg.csv     # imbalance decomposition
-$PY wtune_replay_sim.py                       # reprice the settlement tax from preserved traces
-```
-
-### Three profiling traps (all hit, all real)
-
-1. **Launch with `mpirun`, never `srun`.** On f1, `srun -n N ./wrf.exe` does not bootstrap
-   Intel MPI's PMI: every rank becomes a `comm_size=1` singleton and wrf.exe dies in
-   `module_dm.F` with a `nest_pes` FATAL. Diagnostic: `ls rsl.out.* | wc -l` must equal the
-   rank count.
-2. **MPI-call index cannot be aligned across ranks.** A halo is `Irecv/Isend/Wait × N` where
-   `N` = neighbour count (interior 4, edge 3, corner 2), so calls-per-step differ per rank and
-   the index drifts (measured cross-rank series correlation only +0.22). Indexing phases by
-   call number produces garbage. Also, Fortran collectives (`mpi_allreduce_`) route through
-   internal `PMPI_` and **cannot be intercepted** — of 1.79 M recorded segments, every one was
-   `MPI_Wait`.
-3. **Bound the window by time, not by call count.** A call-count cap makes ranks with more
-   neighbours cover less wall-clock, producing impossible results (`max_r C > wall`, C+W spread
-   112%). With barrier-synced timestamps and a common time window the spread drops to 3.8%.
-
-## 4. Transition controller (`../g0a/wtune-transition-controller.py`)
-
-Segment-to-segment decisions for long runs: zero-measurement initial config, node-scaling with
-a projection model, cost-regime detection, and the imbalance gate. `selftest` covers 40 cases.
-
-```bash
-python3 ../g0a/wtune-transition-controller.py recommend  --state -   # {domain,nodes}
-python3 ../g0a/wtune-transition-controller.py plan       --state -
-python3 ../g0a/wtune-transition-controller.py imbalance  --state -   # per-rank rebalance gate
-python3 ../g0a/wtune-transition-controller.py selftest
-```
-
-**The imbalance gate is on absolute recoverable seconds, not the ratio.** Measured recoverable
-wall `(max − mean)` per-rank compute is **6.8–17.1 s**, while an ADIOS2-restart rebalance costs
-**~56 s** — so a restart-based rebalance never pays for a single case; only a cheap in-place
-migration clears the gate. A ratio threshold misfires across scales (1.05× is worthless on 12 s
-and worth having on 150 s).
-
----
+Three profiling traps, all hit: launch with `srun --mpi=pmi2` (plain `srun` leaves Intel
+MPI as `comm_size=1` singletons; diagnostic `ls rsl.out.* | wc -l`); never align phases by
+MPI-call index across ranks (neighbour count differs per rank; Fortran collectives cannot be
+intercepted); bound windows by wall time, not call count.
 
 ## Measured results
 
 | item | result | conditions |
 |---|---|---|
-| `8×56` decomposition | zero-code shape win | 448 rank / 4 node |
-| `numtiles = patch/251` | **−1.72%** s/step | same-node A/B, n=1/arm |
-| 4N→8N node scaling | −44.6% solver, projection error 1% | validates the controller model; **blocked by the 4-node rule** |
-| total-runtime prediction | **MAE 1.07 s (~5.2%)** | case-level NESTED LOO, single feature |
-| per-rank prediction | within-case ρ +0.44…+0.85, LOCO +0.50 | 12-case 3 km corpus |
-| load imbalance (3 km/448) | pooling 11.5% / residual 11.8% / total 23.4% | time-aligned dense measurement |
+| **PLOV Ec** (cyclic + micro staging + adaptive stealing) | **-13.0% s/step, bit-identical** | 400 steps, 4 nodes, job 1070876 |
+| PLOV ER (+ radiation staging) | -0.15..-0.23 s per rad step, -0.6% net | same job; adoption pending |
+| `srun --distribution=cyclic` | -2.2% | 4 nodes, no staging |
+| `KMP_BLOCKTIME=0` | -2.8% | 224x2 ABAB |
+| hybrid 224x2 + correct `numtiles` vs 448x1 | -5.7% (-6.4% with blocktime) | same node set |
+| `numtiles = patch/251` | -1.72% | same-node A/B |
+| `8x56` decomposition | shape win, zero code | 448 ranks / 4 nodes |
+| 4N->8N node scaling | -44.6%, projection error 1% | blocked by the 4-node rule |
+| total-runtime prediction | MAE 1.07 s (~5.2%) | case-level nested LOO |
+| config layer (`radt`, `non_hydrostatic`) | up to -15% | 15 km case; result-affecting, behind the calibration gate |
 
 ## Measured-closed — do not re-propose
 
-Each was enumerated and falsified by measurement or by reading WRF's source; they are closed
-under the no-source-modification rule, not merely untried.
-
 | direction | why it is closed |
 |---|---|
-| breaking the halo barrier externally | structurally impossible: 5 mechanisms enumerated, each with a precise blocker — own future work needs the very halo being waited on; work-stealing needs source; async progress only hides transfer, and transfer is free (send-wait 5.5 µs vs recv-wait 3597 µs); speculation needs source and yields wrong values; core-lending fails because static-OMP cannot add threads mid-region (DLB Acquire = 0) |
-| the 29% settlement tax | its only levers require editing RSL_LITE/solve_em ⇒ forbidden. Priced anyway (pooling 11.5% is genuinely poolable — the busiest rank itself waits 11.3%, so the straggler rotates) and parked as a blueprint |
-| per-rank rebalancing via restart | recoverable 6.8–17.1 s < 56 s restart cost |
-| frequency / power shifting | cluster pinned at 3.0 GHz; 112→28 cores gave +0.2% |
-| rank placement for imbalance | ownership invariance |
+| restart-boundary rebalancing / migration | restart ~56 s > 7-17 s recoverable per window; PLOV does it in place |
+| rank placement (LPT, x-pair, per-window re-pin) | equalises node micro to 1%, s/step unchanged |
+| DLB/LeWI core lending | nothing beyond `KMP_BLOCKTIME=0`; static OpenMP cannot add threads mid-region |
+| per-rank hotspot prediction as an actuator input | no consumer; PLOV measures |
+| rows > 4 in PLOV, cross-node stealing | each extra driver entry costs 13-16 ms; cross-node rad bounded at 1.3% |
+| breaking the halo barrier externally | 13 closures x 2.8 ms = 37 ms/step floor, every lever needs RSL_LITE/solve_em source |
+| the 29% settlement tax | levers are in solve_em; priced and parked |
+| frequency / power shifting | cluster pinned at 3.0 GHz; 112->28 cores gave +0.2% |
 | AMPI / over-decomposition | multi-week port, stopped at Phase 2 |
 | reduced precision | WRF is already single precision |
 | more nodes | 4-node cap is a rule |
 
 ## Requirements
 
-- Python 3.6+ (stdlib only) for the advisory layer; the prediction layer needs numpy + netCDF4
-  (use the pixi env at `../wtune-pixi-env-20260830/`).
-- `ncdump` to read lat/lon from a `wrfinput` when the namelist lacks them.
-- Convective surrogate: Julia + `SpeedyWeather.jl`
+- Python 3.6+ (stdlib only) for `wtune.py` and the transition controller; the prediction
+  layer and the config gate need numpy + netCDF4 — use the pixi env at
+  `../wtune-pixi-env-20260830/` (`pixi run python`, never the env's `bin/python` directly:
+  HPC scripts put the Intel stack first on `LD_LIBRARY_PATH`).
+- `ncdump` for headers; Julia + SpeedyWeather.jl for the convective probe
   (`julia --project=jlenv -e 'using Pkg; Pkg.instantiate()'`).
-- Shims and WRF runs: Intel MPI (`mpiicx`/`mpicc`) and a WRF `dmpar` build.
+- PLOV: Intel compilers + Intel MPI and a WRF `dm+sm` build (`-qopenmp` live) with
+  `libwrflib.a`; see `plov/build.sbatch`.
 
-## Modules
+## Layout
 
-| file | role |
-|---|---|
-| `wtune.py` | CLI + decomposition cost model + namelist/wrfinput parsing |
-| `wtune_physics.py` | physics-suite resolver + scheme knowledge base + numerics advice |
-| `wtune_knobs.py` | 20 input-derived knob rules + mismatch flags |
-| `wtune_solar.py` | analytic time-integrated terminator load map |
-| `wtune_surrogate.py` + `speedy_hotspot.jl` | SpeedyWeather.jl convective hotspot |
-| `wtune_placement.py` | hotspot-driven rank→core placement + dynamic schedule |
-| `wtune_probe.py` | empirical probe harness (submit/parse/ABBA) |
-| `wtune_oracle.py` / `wtune_oracle_train.py` | per-rank feature extraction + GBRT/ridge cost model |
-| `wtune_runtime_predict.py` | case-level total-runtime prediction (LOO) |
-| `wtune_crosscase_blk.py` / `wtune_crosscase_train.py` | cross-regime per-rank generalization (LOCO) |
-| `wtune_phase_analysis.py` | dense per-rank imbalance decomposition (pooling vs residual) |
-| `wtune_replay_sim.py` | replay/reprice the settlement tax from preserved traces |
-| `gen_registry_catalog.py` | regenerate `wtune_catalog_registry.json` from a WRF Registry |
-| `shims/blockbar6.c` / `blockbar7.c` | static placement / dynamic per-window re-pin |
-| `../lend-microbench/blockbar_prof.c` / `blockbar_phase.c` | per-rank wait / per-segment profilers |
+| path | status | contents |
+|---|---|---|
+| `plov/` | **live, production** | wrap trampolines, stagers, build/gate/harness scripts, `production.env` |
+| `wtune.py`, `wtune_physics.py`, `wtune_knobs.py`, `wtune_solar.py`, `wtune_surrogate.py`, `speedy_probe.jl`, `speedy_hotspot.jl`, `wind_probe.py`, `wtune_decomp.py`, `wtune_shape.py`, `gen_registry_catalog.py`, `wtune_catalog_registry.json` | live | advisory layer |
+| `wtune_config_gate.py` (+ test) | live | calibration gate for result-affecting knobs |
+| `wtune_transition_controller.py` | live (gate branch deprecated) | zero-measurement config + node-scaling projection |
+| `wtune_feedback.py` (+ test), `wtune_probe.py` (+ test) | live | PLOV controller replay; ABBA probe harness |
+| `wtune_oracle.py`, `wtune_oracle_train.py`, `wtune_segment_train.py`, `wrf_frame.py`, `featurize_frames.py`, `wtune_runtime_predict.py`, `wtune_runtime12.py`, `wtune_cost_model.py` | live | prediction layer |
+| `profilers/` | live | PMPI `LD_PRELOAD` profilers |
+| `research/` | kept | one-off studies behind wiki notes (`research/README.md`) |
+| `deprecated/` | closed | migration/restart, placement, hotspot model and their tests (`deprecated/README.md`) |
+
+Tests: `pytest test_wtune_*.py` at the root (live), `pytest deprecated/` (archived, still green
+at the time of the move), `python3 wtune.py selftest`, `python3 wtune_transition_controller.py selftest`.
 
 ## Status
 
-Research tool, developed against CONUS 2.5 km and a 12-case 3 km multi-regime corpus on
-f1/NCHC. The advisory, prediction, and measurement layers are validated. Under the
-no-source-modification rule the remaining wall-time optimization space is essentially closed
-(see *Measured-closed*), so the live value is **prediction and scheduling**: knowing a case's
-runtime to ~5% and its hot ranks before it runs.
+Developed against CONUS 2.5 km, a 12-case 3 km multi-regime corpus, and a 1500x1500 4-node
+production case on f1/NCHC. The wall-time work is now in PLOV (-13%, bit-identical, no
+source change); the remaining per-step budget is dynamics + a source-locked MPI floor, so
+further gains come from the config layer behind the calibration gate, not from rebalancing.

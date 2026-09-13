@@ -1,0 +1,318 @@
+{
+  "artifact_type": "source_schema_audit",
+  "scope": "KF_eta_CPS R1 local in-place pack-call-unpack prototype",
+  "status": "guarded_prototype_only",
+  "live_support": false,
+  "repository": "local/wrf-095b9e2c",
+  "source": "/home/u5727520/wrf-stack/wrf/intel-adios2-dmsm/WRF/phys/module_cu_kfeta.f90",
+  "source_sha256": "9533f8600ad060a2e8aa491ed9b7fece633c3d1e2f445e001208cdceed6f1c05",
+  "symbol_id": "intel-adios2-dmsm/WRF/phys/module_cu_kfeta.f90::module_cu_kfeta::KF_eta_CPS#method",
+  "source_lines": [
+    29,
+    530
+  ],
+  "narg": 79,
+  "ordered_args": [
+    "ids",
+    "ide",
+    "jds",
+    "jde",
+    "kds",
+    "kde",
+    "ims",
+    "ime",
+    "jms",
+    "jme",
+    "kms",
+    "kme",
+    "its",
+    "ite",
+    "jts",
+    "jte",
+    "kts",
+    "kte",
+    "trigger",
+    "dt",
+    "ktau",
+    "dx",
+    "cudt",
+    "adapt_step_flag",
+    "rho",
+    "raincv",
+    "pratec",
+    "nca",
+    "u",
+    "v",
+    "th",
+    "t",
+    "w",
+    "dz8w",
+    "pcps",
+    "pi",
+    "w0avg",
+    "xlv0",
+    "xlv1",
+    "xls0",
+    "xls1",
+    "cp",
+    "r",
+    "g",
+    "ep1",
+    "ep2",
+    "svp1",
+    "svp2",
+    "svp3",
+    "svpt0",
+    "stepcu",
+    "cu_act_flag",
+    "warm_rain",
+    "cutop",
+    "cubot",
+    "qv",
+    "shall",
+    "f_qv",
+    "f_qc",
+    "f_qr",
+    "f_qi",
+    "f_qs",
+    "rthcuten",
+    "rqvcuten",
+    "rqccuten",
+    "rqrcuten",
+    "rqicuten",
+    "rqscuten",
+    "rqvften",
+    "cldfra_dp_kf",
+    "cldfra_sh_kf",
+    "qc_kf",
+    "qi_kf",
+    "udr_kf",
+    "ddr_kf",
+    "uer_kf",
+    "der_kf",
+    "timec_kf",
+    "kf_edrates"
+  ],
+  "abi": {
+    "integer_scalar_in": [
+      "ids",
+      "ide",
+      "jds",
+      "jde",
+      "kds",
+      "kde",
+      "ims",
+      "ime",
+      "jms",
+      "jme",
+      "kms",
+      "kme",
+      "its",
+      "ite",
+      "jts",
+      "jte",
+      "kts",
+      "kte",
+      "trigger",
+      "stepcu",
+      "ktau",
+      "kf_edrates"
+    ],
+    "real_scalar_in": [
+      "xlv0",
+      "xlv1",
+      "xls0",
+      "xls1",
+      "cp",
+      "r",
+      "g",
+      "ep1",
+      "ep2",
+      "svp1",
+      "svp2",
+      "svp3",
+      "svpt0",
+      "dt",
+      "dx",
+      "cudt"
+    ],
+    "logical_scalar_in": [
+      "warm_rain"
+    ],
+    "logical_scalar_optional_in": [
+      "adapt_step_flag"
+    ],
+    "logical_scalar_optional_no_intent": [
+      "f_qv",
+      "f_qc",
+      "f_qr",
+      "f_qi",
+      "f_qs"
+    ],
+    "real_3d_required_in": [
+      "u",
+      "v",
+      "w",
+      "th",
+      "t",
+      "qv",
+      "dz8w",
+      "pcps",
+      "rho",
+      "pi"
+    ],
+    "real_3d_required_inout": [
+      "w0avg",
+      "cldfra_dp_kf",
+      "cldfra_sh_kf",
+      "qc_kf",
+      "qi_kf",
+      "udr_kf",
+      "ddr_kf",
+      "uer_kf",
+      "der_kf"
+    ],
+    "real_3d_optional_inout": [
+      "rthcuten",
+      "rqvcuten",
+      "rqccuten",
+      "rqrcuten",
+      "rqicuten",
+      "rqscuten",
+      "rqvften"
+    ],
+    "real_2d_required_inout": [
+      "raincv",
+      "pratec",
+      "nca",
+      "timec_kf"
+    ],
+    "real_2d_optional_inout": [
+      "shall"
+    ],
+    "real_2d_required_out": [
+      "cubot",
+      "cutop"
+    ],
+    "logical_2d_required_inout": [
+      "cu_act_flag"
+    ],
+    "one_dimensional_dummies": []
+  },
+  "formal_shapes": {
+    "all_real_3d": "(ims:ime,kms:kme,jms:jme)",
+    "all_2d": "(ims:ime,jms:jme)",
+    "internal_stack_vectors": "(kts:kte)",
+    "internal_trigger2_horizontal_scratch": "(its-1:ite+1,kts:kte,jts-1:jte+1)"
+  },
+  "source_findings": {
+    "lastdt_refs": [
+      202,
+      218,
+      219,
+      251
+    ],
+    "lastdt_output_dataflow": false,
+    "w0avg_factor_inputs": [
+      "adapt_step_flag",
+      "dt",
+      "cudt",
+      "stepcu"
+    ],
+    "module_lookup_table_assignments_inside_cps": [],
+    "module_lookup_tables": [
+      "ttab",
+      "qstab",
+      "the0k",
+      "alu",
+      "rdpr",
+      "rdthk",
+      "plutop"
+    ],
+    "module_lookup_initialization_lines": [
+      3170,
+      3303
+    ],
+    "direct_mpi_rsl_halo_rng_calls_inside_cps": [],
+    "kf_edrates_conditional_fields": {
+      "active_value": 1,
+      "fields": [
+        "udr_kf",
+        "ddr_kf",
+        "uer_kf",
+        "der_kf",
+        "timec_kf"
+      ],
+      "cps_guarded_initialization_lines": [
+        428,
+        435
+      ],
+      "para_guarded_write_region": [
+        2303,
+        2387
+      ],
+      "no_other_reads_writes_or_escapes": true,
+      "proof": "Sol source audit at the exact source_sha256 recorded above"
+    },
+    "leaf_error_side_effects": {
+      "wrf_message": true,
+      "wrf_error_fatal3": true,
+      "note": "KF_eta_PARA can emit WRF messages and fatal errors; R1 calls real CPS on the original rank, so behavior remains process-local. This blocks future remote claims until separately handled."
+    },
+    "driver_call_context": {
+      "inside_omp_parallel_do": true,
+      "source": "/home/u5727520/wrf-stack/wrf/intel-adios2-dmsm/WRF/phys/module_cumulus_driver.f90",
+      "lines": [
+        843,
+        1533
+      ]
+    }
+  },
+  "r1_constraints": {
+    "default_enabled": false,
+    "cu_physics": "KFETASCHEME only",
+    "trigger": 1,
+    "adaptive_step": false,
+    "num_tiles": 1,
+    "cross_rank_or_cross_node": false,
+    "reject_when_omp_in_parallel": true,
+    "explicit_capacity_table_required_for_every_present_array": true,
+    "automatic_allocation_size_inference_for_stack_or_static_arrays": false,
+    "preserve_original_bounds": true,
+    "copy_entire_formal_extents": true,
+    "preserve_optional_presence_bits": true,
+    "reject_overlapping_present_dummy_intervals": true,
+    "call_real_cps_once": true,
+    "scatter_all_present_inout_and_out_formal_extents": true,
+    "inactive_kf_edrates_fields": "when snapshotted kf_edrates != 1, require independent four-byte backing for udr_kf, ddr_kf, uer_kf, der_kf and timec_kf; clone, snapshot and guard each placeholder; reject clone writes; never scatter them",
+    "pass_criterion": "fake-CPS transaction is byte-exact for all present state, then native G0 exact-field comparison before any production connection"
+  },
+  "geometry_guards": [
+    "ime >= ims, kme >= kms, jme >= jms",
+    "ims <= its <= ite <= ime",
+    "jms <= jts <= jte <= jme",
+    "kms <= kts <= kte <= kme",
+    "kte + 1 <= kme because CPS reads w(i,k+1,j) through k=kte",
+    "all extent products and byte counts fit size_t",
+    "all required pointers and required capacity-table entries are present",
+    "adapt_step_flag must be present because CPS reads it without PRESENT",
+    "for R1 require all five f_q* logical optionals and all seven optional tendency arrays present, matching the production KFETA call",
+    "kts == 1 because KF_eta_PARA reads P0(1) even for trigger=1"
+  ],
+  "trigger2_deferred_guards": [
+    "its - 1 >= ims and ite + 1 <= ime",
+    "jts - 1 >= jms and jte + 1 <= jme",
+    "pack T and RQVFTEN one-cell horizontal halos for all kts:kte",
+    "kms <= 1 <= kme because trigger2 reads dz8w(i,1,j)",
+    "preserve ids/ide/jds/jde exactly for global-edge branches"
+  ],
+  "unproven": [
+    "native WRF G0 equivalence of copied full extents",
+    "production allocator capacities for every actual dummy",
+    "safe staging while an active OpenMP parallel region exists",
+    "cross-rank transport or redistribution"
+  ],
+  "review_additions": [
+    "2026-09-12: source-level R1 review requires KTS==1; original ABI ordering and source hash unchanged."
+  ]
+}

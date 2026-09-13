@@ -1,0 +1,32 @@
+diff --git a/plov/wtimer.S b/plov/wtimer.S
+index 9491591..955d873 100644
+--- a/plov/wtimer.S
++++ b/plov/wtimer.S
+@@ -55,6 +55,15 @@ __wrap_\name:
+     movl    $\idx, %edi
+     subq    $8, %rsp
+     call    wt_pre@PLT
++#ifdef WT_CUMULUS_LIVE_SPANS
++    .if \idx == 5
++    /* Capture the live grid while the six original argument registers are saved.
++     * The hook must not recurse into any wrapped driver. Scope is process-shared
++     * and immutable across the driver's internal OpenMP team. */
++    movq    wt_a0(%rip), %rdi
++    call    wt_cumulus_grid_begin@PLT
++    .endif
++#endif
+     addq    $8, %rsp
+     movq    wt_sav_rax(%rip), %rax
+     movq    wt_a0(%rip), %rdi
+@@ -74,6 +83,11 @@ __wrap_\name:
+     movq    %rax, %rsi                      /* arg2 = cycles                             */
+     movl    $\idx, %edi                     /* arg1 = slot                               */
+     call    wt_record@PLT                   /* rsp is 16-aligned here, see header        */
++#ifdef WT_CUMULUS_LIVE_SPANS
++    .if \idx == 5
++    call    wt_cumulus_grid_end@PLT
++    .endif
++#endif
+     movq    wt_sav_rdx(%rip), %rdx
+     movq    wt_sav_rax(%rip), %rax
+     jmp     *wt_ret+8*\idx(%rip)

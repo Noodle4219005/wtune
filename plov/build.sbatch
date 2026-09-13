@@ -25,7 +25,11 @@ frozen = wrf.resolve(strict=True)
 for path in (objects, output):
     if any(part.is_symlink() for part in (path, *path.parents)):
         raise SystemExit("FATAL: object/output paths must not contain symlinks")
-    if path.resolve(strict=False).is_relative_to(frozen):
+    try:
+        path.resolve(strict=False).relative_to(frozen)
+    except ValueError:
+        pass
+    else:
         raise SystemExit("FATAL: object/output path is inside frozen WRF tree")
 for path in (output, Path(str(output) + ".link.json"), Path(str(output) + ".build")):
     if path.exists() or path.is_symlink():

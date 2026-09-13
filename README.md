@@ -1,17 +1,27 @@
-# wtune — physics-aware WRF load rebalancing, configuration advice, and runtime prediction, without touching WRF source
+# wtune — profile-guided, compliance-aware WRF performance and physics configuration autotuner (decision 0050)
+
+WTune = profile-guided, compliance-aware WRF performance and physics configuration autotuner
+(decision 0050). The full autotuner pipeline — profile → diagnosis → ceiling → candidates →
+experiments → correctness gate → compliance classification → selection — is being built in
+steps; **step 1 (the compliance model: `wtune_compliance.py`, `wtune.py compliance`, and
+`--compliance` on `knobs`/`physics`/`screen`) is what exists now.** Everything below describes
+the analytical/advisory pieces already in place, not the finished pipeline.
 
 `wtune` does four things to a WRF run, **none of which modifies a WRF source file**:
 
-1. **Rebalance the load in place** — `plov/`: link-time `--wrap` interposition of the
+1. **Research oracle (RESEARCH)** — `plov/`: link-time `--wrap` interposition of the
    microphysics and radiation drivers, row staging into `/dev/shm`, node-local work stealing
    with a feedback controller. **-13.0% s/step over 400 steps, bit-identical** (job 1070876).
-   This is the only part that moves wall time and it is the production path.
+   This is an upper bound on execution-flow interposition, not a STRICT-tuning result — see
+   Compliance model below.
 2. **Pick the launch configuration** — `wtune.py plan/physics/knobs/screen`: decomposition
    shape, tiles, physics-consistent knobs, `srun --distribution=cyclic`, `KMP_BLOCKTIME=0`.
+   Recommendations carry a STRICT or PHYSICS-GRAY compliance label; filter with `--compliance`.
 3. **Gate result-affecting knobs** — `wtune_config_gate.py`: `radt`, `non_hydrostatic`,
    `cudt`, … legitimately change the answer, so they are compared field-by-field against a
-   reference `wrfout` with a tolerance *calibrated* from a known-acceptable pair. Bit-identity
-   (`diffwrf`) is the gate for everything else.
+   reference `wrfout` with a tolerance *calibrated* from a known-acceptable pair. This is the
+   fidelity gate that PHYSICS-GRAY knobs must pass; bit-identity (`diffwrf`) is the gate for
+   everything else.
 4. **Predict runtime** — `wtune_runtime_predict.py` / `wtune_cost_model.py`: total runtime to
    ~5% (nested LOO MAE 1.07 s) from a `wrfout` snapshot; cost(case, config) as a recomputable
    lookup plus a GBRT residual.
@@ -21,12 +31,42 @@ extended) and every one-off study in `research/`. See the layout at the end.
 
 ---
 
-## Hard constraint: WRF source is never modified
+## Compliance model (decision 0050)
 
-No `.F`/`.c`/`.h` of WRF is edited. Allowed: namelist, environment, launcher, the link line
-(`-Wl,--wrap=` interposition against `libwrflib.a`), `LD_PRELOAD`/PMPI shims, post-hoc
-analysis. `plov/gate0.sh` proves from `objdump` that the driver call sites go through the
-`__wrap_*` trampolines; `diffwrf` against an unmodified run proves the output is unchanged.
+Invariant, unchanged from before: **no WRF `.F`/`.c`/`.h` is ever edited.**
+
+Every knob/lever WTune touches is classified into exactly one of three classes
+(`wtune_compliance.py`); **the three classes are never ranked together**:
+
+- **STRICT** — WRF source unchanged, normal build, simulation semantics unchanged
+  (decomposition, tiling, placement, binding, OpenMP/MPI runtime, compiler flags, I/O layout).
+- **PHYSICS-GRAY** — WRF source unchanged, official namelist/physics only, but the
+  numerical/physical solution may change (scheme swaps, `radt`, `cudt`, hydrostatic, ...).
+  Recommend and test behind a fidelity gate; **passing a WTune fidelity gate is NOT an
+  official ruling** — PHYSICS-GRAY results are reported as **UNCONFIRMED**.
+- **RESEARCH** — changes the execution flow of the binary/application (PLOV, `--wrap`,
+  `LD_PRELOAD`, owner/helper work migration). Upper bound / oracle only. `-Wl,--wrap`,
+  `LD_PRELOAD`, and PMPI shims are **RESEARCH — not allowed in STRICT tuning.**
+
+Every catalog entry (`wtune_compliance.CATALOG`) carries: `name`, `kind`, `classification`,
+`source_change`, `numerics_change`, `execution_interposition`, `requires_correctness_gate`,
+`applicable_phases`, `hardware_requirements`, `status`, `evidence`. `numerics_change` maps to
+the correctness gate that class must clear:
+
+| `numerics_change` | meaning | `requires_correctness_gate` |
+|---|---|---|
+| `none` | output expected bit-identical to the reference | `diffwrf` |
+| `roundoff` | same algorithm, floating-point roundoff may differ | `roundoff_gate` (tight field tolerance) |
+| `solution` | the computed solution legitimately changes | `fidelity_gate` |
+
+`plov/gate0.sh` proves from `objdump` that the driver call sites go through the `__wrap_*`
+trampolines; `diffwrf` against an unmodified run proves the output is unchanged — together
+these are the RESEARCH-path proofs for PLOV.
+
+```bash
+python3 wtune.py compliance list --compliance strict
+python3 wtune.py knobs --namelist namelist.input --compliance strict
+```
 
 ---
 
@@ -138,9 +178,9 @@ it — so the per-rank hotspot model itself is in `deprecated/` (decision 0045).
 - **Per-rank driver timers** come free with PLOV: `wtimer.<rank>.csv` under `WTIMER_DIR`
   (per-call microphysics/radiation/PBL/surface/cumulus time, staged/refused/shared counters,
   wait time). A run whose counters read `staged 0` did nothing, however fast it looks.
-- **PMPI shims** (`profilers/blockbar_prof.c`, `blockbar_phase.c`, `LD_PRELOAD`): per-rank
-  wait fraction and per-segment compute/wait, because APS and `I_MPI_STATS` both hang at 448
-  ranks. `wtune_probe.py` is the ABBA submit/parse harness.
+- **PMPI shims** (RESEARCH; `profilers/blockbar_prof.c`, `blockbar_phase.c`, `LD_PRELOAD`):
+  per-rank wait fraction and per-segment compute/wait, because APS and `I_MPI_STATS` both
+  hang at 448 ranks. `wtune_probe.py` is the ABBA submit/parse harness.
 
 Three profiling traps, all hit: launch with `srun --mpi=pmi2` (plain `srun` leaves Intel
 MPI as `comm_size=1` singletons; diagnostic `ls rsl.out.* | wc -l`); never align phases by
@@ -151,8 +191,8 @@ intercepted); bound windows by wall time, not call count.
 
 | item | result | conditions |
 |---|---|---|
-| **PLOV Ec** (cyclic + micro staging + adaptive stealing) | **-13.0% s/step, bit-identical** | 400 steps, 4 nodes, job 1070876 |
-| PLOV ER (+ radiation staging) | -0.15..-0.23 s per rad step, -0.6% net | same job; adoption pending |
+| **PLOV Ec** (cyclic + micro staging + adaptive stealing) [RESEARCH] | **-13.0% s/step, bit-identical** | 400 steps, 4 nodes, job 1070876 |
+| PLOV ER (+ radiation staging) [RESEARCH] | -0.15..-0.23 s per rad step, -0.6% net | same job; adoption pending |
 | `srun --distribution=cyclic` | -2.2% | 4 nodes, no staging |
 | `KMP_BLOCKTIME=0` | -2.8% | 224x2 ABAB |
 | hybrid 224x2 + correct `numtiles` vs 448x1 | -5.7% (-6.4% with blocktime) | same node set |
@@ -160,7 +200,7 @@ intercepted); bound windows by wall time, not call count.
 | `8x56` decomposition | shape win, zero code | 448 ranks / 4 nodes |
 | 4N->8N node scaling | -44.6%, projection error 1% | blocked by the 4-node rule |
 | total-runtime prediction | MAE 1.07 s (~5.2%) | case-level nested LOO |
-| config layer (`radt`, `non_hydrostatic`) | up to -15% | 15 km case; result-affecting, behind the calibration gate |
+| config layer (`radt`, `non_hydrostatic`, `cudt`) [PHYSICS-GRAY] | up to -15% | 15 km case; result-affecting, behind the calibration gate; UNCONFIRMED until an official ruling |
 
 ## Measured-closed — do not re-propose
 
@@ -199,12 +239,13 @@ intercepted); bound windows by wall time, not call count.
 | `wtune_transition_controller.py` | live (gate branch deprecated) | zero-measurement config + node-scaling projection |
 | `wtune_feedback.py` (+ test), `wtune_probe.py` (+ test) | live | PLOV controller replay; ABBA probe harness |
 | `wtune_oracle.py`, `wtune_oracle_train.py`, `wtune_segment_train.py`, `wrf_frame.py`, `featurize_frames.py`, `wtune_runtime_predict.py`, `wtune_runtime12.py`, `wtune_cost_model.py` | live | prediction layer |
-| `profilers/` | live | PMPI `LD_PRELOAD` profilers |
+| `profilers/` | live | PMPI `LD_PRELOAD` profilers (RESEARCH) |
 | `research/` | kept | one-off studies behind wiki notes (`research/README.md`) |
 | `deprecated/` | closed | migration/restart, placement, hotspot model and their tests (`deprecated/README.md`) |
 
-Tests: `pytest test_wtune_*.py` at the root (live), `pytest deprecated/` (archived, still green
-at the time of the move), `python3 wtune.py selftest`, `python3 wtune_transition_controller.py selftest`.
+Tests: `pytest test_wtune_*.py` at the root (live, includes `test_wtune_compliance.py`),
+`pytest deprecated/` (archived, still green at the time of the move), `python3 wtune.py
+selftest` (now also runs `wtune_compliance.validate()`), `python3 wtune_transition_controller.py selftest`.
 
 ## Status
 

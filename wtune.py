@@ -18,6 +18,7 @@ import wtune_physics as phys
 import wtune_knobs as knobs
 import wtune_solar as wsolar
 import wtune_surrogate as surr
+import wtune_compliance as wc
 from wtune_feedback import (FeedbackController, FeedbackError, FeedbackSample,
                             decisions_to_csv, decisions_to_json)
 
@@ -746,8 +747,20 @@ def physics_cmd(args):
             print(line)
         print()
     print("RESULTS-AFFECTING NUMERICS (gated tuning only):")
-    print("  radt: {}".format(phys.radt_advice(resolved)))
-    print("  dt:   {}".format(phys.timestep_advice(resolved)))
+    level = getattr(args, 'compliance', None)
+    hidden = 0
+    radt_cls = wc.classify('radt')
+    if level is None or wc.admits(level, radt_cls):
+        print("  [{}] radt: {}".format(radt_cls, phys.radt_advice(resolved)))
+    else:
+        hidden += 1
+    dt_cls = wc.classify('time_step')
+    if level is None or wc.admits(level, dt_cls):
+        print("  [{}] dt:   {}".format(dt_cls, phys.timestep_advice(resolved)))
+    else:
+        hidden += 1
+    if level is not None and hidden:
+        print("  ({} item(s) hidden as unclassified/disallowed at --compliance {})".format(hidden, level))
     print()
     print("SPEED KNOBS -- reduce TOTAL WORK (bit-identical Tier 1 + gated Tier 2):")
     for line in phys.numeric_speed_advice(resolved):
@@ -905,25 +918,36 @@ def knobs_cmd(args):
     print("=== WRF knob advisor (input-derived) ===")
     print("Namelist: {}".format(args.namelist))
     print("Legend: [CORRECTNESS]=code-enforced/silent-override  [RESULTS]/[best-practice]=results-affecting guidance")
+    level = getattr(args, 'compliance', None)
     total = 0
+    hidden = 0
     for cat in ('correctness-setup', 'resolution(dx)', 'stability', 'run-length', 'terrain-latitude'):
         items = grouped.get(cat, [])
         if not args.all:
             items = [f for f in items if f.get('verdict') in ('MISMATCH', 'SUGGEST')]
-        if not items:
+        rows = []
+        for f in items:
+            cls = wc.classify(f.get('param', ''))
+            if level is not None and not wc.admits(level, cls):
+                hidden += 1
+                continue
+            rows.append((f, cls))
+        if not rows:
             continue
         print()
         print("[{}]".format(cat))
-        for f in items:
+        for f, cls in rows:
             total += 1
             enf = 'enforced' if f.get('enforced') else 'best-practice'
-            print("  [{:8s}] {:22s} cur={!s:12s} rec={!s:24s} ({}/{})".format(
-                f.get('verdict', '?'), f.get('param', '?'), f.get('current'),
+            print("  [{:8s}] [{}] {:22s} cur={!s:12s} rec={!s:24s} ({}/{})".format(
+                f.get('verdict', '?'), cls, f.get('param', '?'), f.get('current'),
                 f.get('recommended'), f.get('tag', '?'), enf))
             if f.get('reason'):
                 print("             {}".format(f['reason']))
     if total == 0:
         print("\n  no actionable findings (use --all to see OK checks).")
+    if level is not None and hidden:
+        print("\n  ({} item(s) hidden as unclassified/disallowed at --compliance {})".format(hidden, level))
 
 
 def _load_catalog():
@@ -992,6 +1016,12 @@ def selftest():
                         ("56x8,112x4 in bottom-3 (transposes worst)", ok3)]:
         print("  {}: {}".format(label, "PASS" if cond else "FAIL"))
         ok = ok and cond
+
+    compliance_errs = wc.validate()
+    print("compliance catalog: {} entries, {} errors".format(len(wc.CATALOG), len(compliance_errs)))
+    for m in compliance_errs:
+        print("  ERROR " + m)
+    ok = ok and not compliance_errs
 
     if ok:
         print("ALL PASS")
@@ -1082,6 +1112,7 @@ def build_manifest(namelist, resolved, probe_src, cands, vets):
             'objective': c.get('gain', 'unspecified'),
             'speedyweather_verdict': verdict,
             'evidence_level': lvl,
+            'classification': wc.classify(c['name']),
             'why': c['why'],
         }
         if lvl == 'WRF-VALIDATED':
@@ -1136,16 +1167,30 @@ def screen_cmd(args):
         for line in nest:
             print(line)
     cands = phys.screen_candidates(nl_kv, resolved)
+    level = getattr(args, 'compliance', None)
+    hidden = 0
+    if level is not None:
+        kept = []
+        for c in cands:
+            if wc.admits(level, wc.classify(c['name'])):
+                kept.append(c)
+            else:
+                hidden += 1
+        cands = kept
     print("\nSTAGE 1 -- analytic effective candidates ({}) [everything else: default optimal / correctness / inert]:".format(len(cands)))
     for c in cands:
-        print("  T{:<4} {:<15} {:<16} -> {:<26} {}".format(c['tier'], c['name'], str(c['current'])[:16], c['candidate'], c['why']))
+        print("  T{:<4} [{:13s}] {:<15} {:<16} -> {:<26} {}".format(
+            c['tier'], wc.classify(c['name']), c['name'], str(c['current'])[:16], c['candidate'], c['why']))
+    if level is not None and hidden:
+        print("  ({} candidate(s) hidden as unclassified/disallowed at --compliance {})".format(hidden, level))
     print("\nSTAGE 2 -- SpeedyWeather cheap physics vet (rejects physics-infeasible BEFORE any WRF run):")
     survivors = []
     vets = {}
     for c in cands:
         verdict, reason = wsurr.speedy_vet(c, probe, resolved)
         vets[c['name']] = (verdict, reason)
-        print("  {:<15} {:<11} {}  [{}]".format(c['name'], verdict, reason, _evidence_level(c['name'], verdict)))
+        print("  {:<15} [{:13s}] {:<11} {}  [{}]".format(
+            c['name'], wc.classify(c['name']), verdict, reason, _evidence_level(c['name'], verdict)))
         if verdict in ('PASS->WRF', 'CONFIRM'):
             survivors.append((c, verdict))
     if getattr(args, 'json', False):
@@ -1154,7 +1199,7 @@ def screen_cmd(args):
         return
     print("\nSTAGE 3 -- survivors -> WRF empirical ABBA (the 'few effective' to actually test):")
     for c, v in sorted(survivors, key=lambda x: {'1': 0, '2': 1, 'swap': 2}.get(x[0]['tier'], 3)):
-        print("  [T{}] {:<15} -> {:<26} ({})".format(c['tier'], c['name'], c['candidate'], v))
+        print("  [T{}] [{:13s}] {:<15} -> {:<26} ({})".format(c['tier'], wc.classify(c['name']), c['name'], c['candidate'], v))
     print("\nmeasured winners so far: io_form_history=14 (-30% wall, if I/O scored), 8x56 decomposition (-1~3%).")
     print("the rest are candidates -- run them through wtune_probe (Stage C) with the pre-registered gate.")
 
@@ -1564,11 +1609,15 @@ def main():
     p_phys.add_argument('--probe-trunc', type=int, default=31, help='SpeedyWeather spectral truncation (default 31); part of the probe cache key')
     p_phys.add_argument('--probe-nlayers', type=int, default=8, help='SpeedyWeather vertical layers (default 8); part of the probe cache key')
     p_phys.add_argument('--no-probe', action='store_true', help='skip the built-in SpeedyWeather probe')
+    p_phys.add_argument('--compliance', choices=sorted(wc.LEVELS), default=None,
+                        help='keep only findings admitted at this compliance level (decision 0050); default: show all, labelled')
 
     p_knobs = sub.add_parser('knobs', help='full knob advisor: input-derived param recommendations + mismatch flags')
     p_knobs.add_argument('--namelist', required=True, help='path to namelist.input')
     p_knobs.add_argument('--wrfinput', default=None, help='wrfinput/wrfout for lat/lon/date (via ncdump -h)')
     p_knobs.add_argument('--all', action='store_true', help='show OK findings too, not just actionable')
+    p_knobs.add_argument('--compliance', choices=sorted(wc.LEVELS), default=None,
+                         help='keep only findings admitted at this compliance level (decision 0050); default: show all, labelled')
 
     p_cat = sub.add_parser('catalog', help='list the complete Registry-derived parameter catalog')
     p_cat.add_argument('--group', default=None, help='filter to one namelist group (e.g. physics)')
@@ -1589,6 +1638,8 @@ def main():
     p_screen.add_argument('--probe-nlayers', type=int, default=8, help='SpeedyWeather vertical layers (default 8); part of the probe cache key')
     p_screen.add_argument('--no-probe', action='store_true', help='skip the built-in SpeedyWeather probe (physics candidates stay NEED-PROBE)')
     p_screen.add_argument('--json', action='store_true', help='emit a candidate-level JSON evidence manifest (classification/evidence_level/objective) after the vet')
+    p_screen.add_argument('--compliance', choices=sorted(wc.LEVELS), default=None,
+                          help='keep only candidates admitted at this compliance level (decision 0050); default: show all, labelled')
 
     p_omap = sub.add_parser('oracle-map', help='DIAGNOSTIC spatial physics-load map (per-cell phase cost + hotspots); NOT a partition selector')
     p_omap.add_argument('--namelist', required=True, help='path to namelist.input (for date + cu_physics + run length)')
@@ -1620,6 +1671,10 @@ def main():
 
     sub.add_parser('selftest', help='run CONUS calibration self-test')
 
+    p_compliance = sub.add_parser('compliance', help='compliance model + knob catalog (decision 0050): validate/list/classify')
+    p_compliance.add_argument('compliance_args', nargs=argparse.REMAINDER,
+                              help='forwarded to wtune_compliance.py (validate | list [--compliance LEVEL] [--json] | classify NAME...)')
+
     args = parser.parse_args()
 
     if args.command == 'plan':
@@ -1648,6 +1703,8 @@ def main():
         screen_cmd(args)
     elif args.command == 'selftest':
         sys.exit(selftest())
+    elif args.command == 'compliance':
+        sys.exit(wc._main(args.compliance_args))
     else:
         parser.print_help()
         sys.exit(1)

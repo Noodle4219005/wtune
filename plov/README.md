@@ -1,5 +1,9 @@
 # PLOV — physics-level in-place load rebalancing for WRF, no source change
 
+**Classification: RESEARCH / ORACLE (WTune decision 0050)** — link-time `--wrap`
+interposition; not part of STRICT competition tuning; kept as the upper bound for real
+cross-rank work redistribution.
+
 PLOV is the part of wtune that actually moves wall time. It rebalances the two most
 imbalanced physics drivers (microphysics, radiation) **inside** each time step, without
 patching a single WRF source file: the drivers are interposed at link time with

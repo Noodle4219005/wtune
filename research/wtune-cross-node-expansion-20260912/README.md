@@ -29,6 +29,17 @@ staging (the shipped, gate-passed mechanism) into:
    unit/sanitizer tests but are never called from `wtimer.c`/`wtmpi.c` — no WRF physics
    or halo call path resolves to them.
 
+**Correction (2026-09-13, previous version of this file overstated this):** the native
+compile recipe did NOT always fail before producing a link manifest. Job **1073389** (r1)
+and its r2 successor failed before compiling anything; but r3, **job 1073533, COMPLETED**
+(20260913-r3/terminal-review.md): all 18 objects compiled with the Intel toolchain and a
+real `recipe/link-manifest.json` was produced. The card was scoped to stop there —
+`link_executed=false` is the card's designed boundary, not a failure. What genuinely has
+never happened is running the linker itself, producing a `wrf-wtune.exe`, or any
+ABI/caller-closure attestation (`baseline_closure_verified`/`caller_chain_verified`/
+`compiler_module_abi_verified`/`library_closure_verified`/`source_abi_verified` are all
+still `false`) — and, as before, no run against real WRF at all.
+
 **Decision**: keep this as reference/salvage material (the wire/ledger/policy protocol
 core and the KF/MYNN/SFCLAY schema-generation approach may still be reusable if a future
 attempt targets microphysics/radiation cross-node transport instead of cumulus), but do

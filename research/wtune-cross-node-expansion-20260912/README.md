@@ -49,3 +49,21 @@ is node-local micro/radiation staging only (`plov/wt_micro.c`, `plov/wt_rad.c`,
 None of this is wired into the WTune build (`build.sbatch` does not compile any of it),
 and none of it should be treated as evidence that WTune can rebalance cumulus, PBL,
 surface, or cross-node work.
+
+## Update 2026-09-13: the KF/MYNN/SFCLAY node-local track is a *different* claim than "architecturally blocked"
+
+The `HALO_CUP_G3_IN_sub` finding above is about wrapping the *whole* `cumulus_driver`
+call the way micro/radiation are wrapped (two-pass, driver-call-granularity steal).
+It is **not** a blocker for the narrower approach recorded separately in
+[[wtune-node-local-physics-implementation]]: wrapping `KF_eta_CPS` itself (a confirmed
+cross-object `--wrap`-able symbol — `nm -u module_cumulus_driver.o` shows
+`U module_cu_kfeta_mp_kf_eta_cps_`) for **node-local only** helper compute, at a call
+site that executes *after* the driver's halo exchange in the tile loop. That track has
+substantial fixture-level evidence (GNU-compiled differential tests, bitwise-identical
+to direct computation, ASan/UBSan-clean, real Fortran driver state comparisons for
+MYNN/SFCLAY too) — it is archived here **only because it has never been linked into or
+run against the actual Intel-built WRF binary on the cluster**, the same bar micro/rad
+had to clear via job 1072441. It is not dead the way cumulus's whole-driver wrap or the
+cross-node transport are; a future attempt does not need to re-litigate an architectural
+blocker, only get past native compile/link (where r1/r2/r3 all failed before producing
+a link manifest) and then run the real regression gate.

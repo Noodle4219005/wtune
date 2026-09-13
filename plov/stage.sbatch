@@ -32,6 +32,8 @@ MIN=$(( (STEPS * DT + 59) / 60 ))
 sed -i "s/\brun_days=[0-9]*/run_days=0/;s/\brun_hours=[0-9]*/run_hours=0/;s/\brun_minutes=[0-9]*/run_minutes=$MIN/" namelist.input
 sed -i "s/ history_interval=[0-9]*/ history_interval=$MIN/;s/ restart_interval=[0-9]*/ restart_interval=999999/" namelist.input
 sed -i -e "s/ io_form_history=[0-9]*/ io_form_history=14/" -e "s/ io_form_restart=[0-9]*/ io_form_restart=14/" namelist.input
+# job 1072441: BP5 node aggregation + cyclic placement is unreadable; one aggregator per rank fixes it
+grep -q '^ *&namelist_adios2' namelist.input || printf '&namelist_adios2\n adios2_numaggregators=%s,\n/\n' "448" >> namelist.input
 srun --mpi=pmi2 -n 448 --ntasks-per-node=112 ./real.exe > real.out 2>&1
 SZI=$(stat -c %s wrfinput_d01 2>/dev/null || echo 0); SZB=$(stat -c %s wrfbdy_d01 2>/dev/null || echo 0)
 [ "$SZI" -ge 500000000 ] && [ "$SZB" -ge 300000000 ] || { echo "FATAL prep: $SZI $SZB"; exit 4; }

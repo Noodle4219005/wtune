@@ -106,7 +106,12 @@ RAD_EXTRA = [
 
 
 def read_interface(src, subroutine):
+    if not src.lower().endswith('.f90'):
+        raise ValueError('input must be a compiled .f90 source')
     lines = open(src).read().split('\n')
+    if any(line.lstrip().startswith('#') and not re.match(r'\s*#\s*(line\b|\d+\b)', line)
+           for line in lines):
+        raise ValueError('unsupported preprocessor directive in compiled .f90 input')
     pat = re.compile(r'\s*SUBROUTINE\s+' + re.escape(subroutine) + r'\b', re.I)
     i0 = next(n for n, line in enumerate(lines) if pat.match(line))
 
@@ -164,8 +169,11 @@ def list_literal(values):
 
 
 def emit(src, subroutine):
+    profile = subroutine.lower()
+    if profile not in {'microphysics_driver', 'radiation_driver'}:
+        raise ValueError('unsupported subroutine profile: ' + subroutine)
     names, idx, strict3, strict2 = read_interface(src, subroutine)
-    is_rad = subroutine.lower() == 'radiation_driver'
+    is_rad = profile == 'radiation_driver'
     macro = 'WTR' if is_rad else 'WT'
     symbol = macro.lower()
     if is_rad:
@@ -224,8 +232,9 @@ def main():
         raise SystemExit('usage: gen_argmap.py <driver.f90> <subroutine> <output-prefix>')
     src, subroutine, out_prefix = sys.argv[1:]
     out_path = out_prefix if out_prefix.endswith('.h') else out_prefix + '.h'
+    rendered = emit(src, subroutine)
     with open(out_path, 'w') as f:
-        f.write(emit(src, subroutine))
+        f.write(rendered)
 
 
 if __name__ == '__main__':

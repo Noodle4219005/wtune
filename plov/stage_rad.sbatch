@@ -39,6 +39,8 @@ MIN=$(( (STEPS * DT + 59) / 60 ))
 sed -i "s/\brun_days=[0-9]*/run_days=0/;s/\brun_hours=[0-9]*/run_hours=0/;s/\brun_minutes=[0-9]*/run_minutes=$MIN/" namelist.input
 sed -i "s/ history_interval=[0-9]*/ history_interval=$MIN/;s/ restart_interval=[0-9]*/ restart_interval=999999/" namelist.input
 sed -i -e "s/ io_form_history=[0-9]*/ io_form_history=14/" -e "s/ io_form_restart=[0-9]*/ io_form_restart=14/" namelist.input
+# job 1072441: BP5 node aggregation + cyclic placement is unreadable; one aggregator per rank fixes it
+grep -q '^ *&namelist_adios2' namelist.input || printf '&namelist_adios2\n adios2_numaggregators=%s,\n/\n' "448" >> namelist.input
 srun --mpi=pmi2 -n 448 --ntasks-per-node=112 ./real.exe > real.out 2>&1
 SZI=$(stat -c %s wrfinput_d01 2>/dev/null || echo 0); SZB=$(stat -c %s wrfbdy_d01 2>/dev/null || echo 0)
 [ "$SZI" -ge 500000000 ] && [ "$SZB" -ge 300000000 ] || { echo "FATAL prep: $SZI $SZB"; exit 4; }
@@ -89,14 +91,14 @@ arm () {  # $1=tag $2=stage rows (0 = off) $3=share|adapt|adapt75 $4=srun --dist
   cp "$P/namelist.input" .; sed -i -e "s/ io_form_history=[0-9]*/ io_form_history=2/" namelist.input
   ln -sf "$W"/main/wrf_wtimer.exe ./run.exe
   export OMP_NUM_THREADS=2 WTIMER_DIR="$D" WTIMER_DEBUG_RANK=0
-  unset WTIMER_RAD_ROWS WTIMER_RAD_BUF WTIMER_RAD_ISPLIT WTIMER_RAD_FULLJ WTIMER_RAD_SHARE WTIMER_RAD_SLOT_BYTES WTIMER_LEWI WTIMER_STAGE_ROWS WTIMER_STAGE_DEBUG WTIMER_STAGE_SHARE WTIMER_STAGE_ADAPT WTIMER_STAGE_CHUNKS WTIMER_STAGE_MAX_PCT
+  unset WTIMER_RAD_ROWS WTIMER_STAGE_RAD WTIMER_RAD_BUF WTIMER_RAD_ISPLIT WTIMER_RAD_FULLJ WTIMER_RAD_SHARE WTIMER_RAD_SLOT_BYTES WTIMER_LEWI WTIMER_STAGE_ROWS WTIMER_STAGE_DEBUG WTIMER_STAGE_SHARE WTIMER_STAGE_ADAPT WTIMER_STAGE_CHUNKS WTIMER_STAGE_MAX_PCT
   [ "$ROWS" != 0 ] && export WTIMER_STAGE_ROWS=$ROWS WTIMER_STAGE_DEBUG=1
   [ "${3:-}" = share ] && export WTIMER_STAGE_SHARE=1
   [ "${3:-}" = adapt ] && export WTIMER_STAGE_SHARE=1 WTIMER_STAGE_ADAPT=1 WTIMER_STAGE_CHUNKS=4
   [ "${3:-}" = adapt75 ] && export WTIMER_STAGE_SHARE=1 WTIMER_STAGE_ADAPT=1 WTIMER_STAGE_CHUNKS=6 WTIMER_STAGE_MAX_PCT=75
-  [ "${5:-}" = rad4 ] && export WTIMER_RAD_ROWS=4 WTIMER_STAGE_DEBUG=1   # $5=rad4 stages the radiation driver too
-  [ "${5:-}" = rad8 ] && export WTIMER_RAD_ROWS=8 WTIMER_STAGE_DEBUG=1 WTIMER_RAD_SLOT_BYTES=16777216   # 8-row tail: 8 x 0.93 MB + 141 KB header
-  [ "${5:-}" = rad31 ] && export WTIMER_RAD_ROWS=31 WTIMER_STAGE_DEBUG=1 WTIMER_RAD_SLOT_BYTES=33554432   # R2b: near-whole tile (32/33-row tiles), 32 MiB shm slot
+  [ "${5:-}" = rad4 ] && export WTIMER_RAD_ROWS=4 WTIMER_STAGE_RAD=1 WTIMER_STAGE_DEBUG=1   # $5=rad4 stages the radiation driver too
+  [ "${5:-}" = rad8 ] && export WTIMER_RAD_ROWS=8 WTIMER_STAGE_RAD=1 WTIMER_STAGE_DEBUG=1 WTIMER_RAD_SLOT_BYTES=16777216   # 8-row tail: 8 x 0.93 MB + 141 KB header
+  [ "${5:-}" = rad31 ] && export WTIMER_RAD_ROWS=31 WTIMER_STAGE_RAD=1 WTIMER_STAGE_DEBUG=1 WTIMER_RAD_SLOT_BYTES=33554432   # R2b: near-whole tile (32/33-row tiles), 32 MiB shm slot
   [ "${3:-}" = adapt75r8 ] && export WTIMER_STAGE_SHARE=1 WTIMER_STAGE_ADAPT=1 WTIMER_STAGE_CHUNKS=3 WTIMER_STAGE_MAX_PCT=75
   # $6 = pass-2 geometry variant (G0 #4, see wt_rad.c): rn/rs run on the original arrays, rh/rf use the buffer
   case "${6:-}" in

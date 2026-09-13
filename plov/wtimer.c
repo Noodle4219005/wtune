@@ -9,6 +9,8 @@
  * trustworthy either.
  */
 #define _GNU_SOURCE
+#include <errno.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -47,6 +49,49 @@ static int       base_cpu0 = -1, base_ncpu = 0;   /* the even 2-core share      
 static int       dyn_mode;         /* swap masks around micro instead of pinning once      */
 static int       ph_base, ph_micro;               /* phase-wise plan: team sizes           */
 static int       ph_core[64];                     /* thread i -> this core, pinned once    */
+static int       stage_micro = 1, stage_rad;
+static int       stage_cumulus, stage_pbl, stage_surface;
+static int       stage_grid = 1, stage_grid_malformed;
+static char      stage_grid_text[128] = "unset";
+
+static int wt_stage_flag(const char *name, int default_value)
+{
+    const char *e = getenv(name);
+    if (!e || !*e) return default_value;
+    if (e[0] == '1' && !e[1]) return 1;
+    if (e[0] == '0' && !e[1]) return 0;
+    return default_value;
+}
+
+/* A missing grid selector means grid 1.  Keep this parser strict: atoi() would
+ * accept a valid prefix and silently turn malformed values into a different
+ * grid. */
+static int wt_stage_grid_parse(const char *text, int *malformed)
+{
+    char *end;
+    long value;
+
+    *malformed = 0;
+    if (!text || !*text) return 1;
+    if (text[0] < '0' || text[0] > '9') {
+        *malformed = 1;
+        return 1;
+    }
+    errno = 0;
+    value = strtol(text, &end, 10);
+    if (errno == ERANGE || end == text || *end != '\0' || value < 0 || value > INT_MAX) {
+        *malformed = 1;
+        return 1;
+    }
+    return (int)value;
+}
+
+int wt_stage_grid_value(void) { return stage_grid; }
+
+int wt_stage_micro_enabled(void) { return stage_micro; }
+int wt_stage_rad_enabled(void) { return stage_rad; }
+
+extern int wt_micro_stage_state, wt_rad_stage_state;
 
 /* Give this rank cores [c0, c0+n) and n threads, one thread per core.
  *
@@ -109,9 +154,11 @@ extern uint64_t wt_micro_calls, wt_micro_staged, wt_micro_refused;
 extern uint64_t wt_micro_share_out, wt_micro_share_in;
 extern uint64_t wt_micro_share_wait_ticks, wt_micro_share_work_ticks;
 extern uint64_t wt_micro_rows_out, wt_micro_chunks_in;
+extern uint64_t wt_micro_sig_mismatch;
 extern void wt_micro_share_finalize(void);
 extern uint64_t wt_rad_calls, wt_rad_steps, wt_rad_staged, wt_rad_refused;
 extern uint64_t wt_rad_share_out, wt_rad_share_in, wt_rad_share_wait_us;
+extern uint64_t wt_rad_sig_mismatch;
 extern uint64_t wt_lewi_probe_n, wt_lewi_probe_sum, wt_lewi_probe_hist[8];
 
 void wt_pre(int idx)
@@ -193,6 +240,25 @@ static void wt_dump(void)
 
     fprintf(f, "# wtimer: per-call seconds of WRF physics drivers, via -Wl,--wrap (no source change)\n");
     fprintf(f, "# rank=%s tsc_hz=%.6g wall_s=%.6f\n", rank_str(), spc > 0 ? 1.0 / spc : 0.0, wall);
+    if (stage_grid_malformed)
+        fprintf(f, "# stage_grid=%s (malformed, treated as unset)\n", stage_grid_text);
+    else
+        fprintf(f, "# stage_grid=%s\n", stage_grid_text);
+    fprintf(f, "# stage_flags WTIMER_STAGE_MICRO=%d WTIMER_STAGE_RAD=%d WTIMER_STAGE_CUMULUS=%d"
+               " WTIMER_STAGE_PBL=%d WTIMER_STAGE_SURFACE=%d\n",
+            stage_micro, stage_rad, stage_cumulus, stage_pbl, stage_surface);
+    fprintf(f, "# stage_effective WTIMER_STAGE_MICRO=%s WTIMER_STAGE_RAD=%s"
+               " WTIMER_STAGE_CUMULUS=%s WTIMER_STAGE_PBL=%s WTIMER_STAGE_SURFACE=%s\n",
+            stage_micro ? (wt_micro_stage_state > 0 ? "enabled" :
+                           wt_micro_stage_state == 0 ? "refused/off" : "unchecked") : "disabled",
+            stage_rad ? (wt_rad_stage_state > 0 ? "enabled" :
+                         wt_rad_stage_state == 0 ? "refused/off" : "unchecked") : "disabled",
+            stage_cumulus ? "refused" : "disabled",
+            stage_pbl ? "refused" : "disabled",
+            stage_surface ? "refused" : "disabled");
+    if (stage_cumulus) fputs("# STAGE_CUMULUS requested but not implemented (refused)\n", f);
+    if (stage_pbl) fputs("# STAGE_PBL requested but not implemented (refused)\n", f);
+    if (stage_surface) fputs("# STAGE_SURFACE requested but not implemented (refused)\n", f);
     fprintf(f, "# micro_thr=%d base_thr=%d base_cpu=%d+%d micro_cpu=%d+%d mode=%s\n",
             micro_thr, base_thr, base_cpu0, base_ncpu, my_cpu0, my_ncpu, dyn_mode ? "dynamic" : "static");
     fprintf(f, "# alloc_ncpu=%d ph_base=%d ph_micro=%d\n",
@@ -206,19 +272,21 @@ static void wt_dump(void)
     for (int s = 0; s < NSYM; s++) fprintf(f, " %s=%llu", SYM[s], (unsigned long long)overflow[s]);
     fprintf(f, "\n# micro_calls=%llu micro_staged=%llu micro_refused=%llu"
                " micro_share_out=%llu micro_share_in=%llu micro_share_wait_ms=%.6f micro_share_work_ms=%.6f"
-               " micro_rows_out=%llu micro_chunks_in=%llu\n",
+               " micro_rows_out=%llu micro_chunks_in=%llu micro_sig_mismatch=%llu\n",
             (unsigned long long)wt_micro_calls, (unsigned long long)wt_micro_staged,
             (unsigned long long)wt_micro_refused, (unsigned long long)wt_micro_share_out,
             (unsigned long long)wt_micro_share_in,
             1000.0 * spc * (double)wt_micro_share_wait_ticks,
             1000.0 * spc * (double)wt_micro_share_work_ticks,
-            (unsigned long long)wt_micro_rows_out, (unsigned long long)wt_micro_chunks_in);
+            (unsigned long long)wt_micro_rows_out, (unsigned long long)wt_micro_chunks_in,
+            (unsigned long long)wt_micro_sig_mismatch);
     fprintf(f, "# rad_calls=%llu rad_steps=%llu rad_staged=%llu rad_refused=%llu"
-            " rad_share_out=%llu rad_share_in=%llu rad_wait_us=%llu\n",
+            " rad_share_out=%llu rad_share_in=%llu rad_wait_us=%llu rad_sig_mismatch=%llu\n",
             (unsigned long long)wt_rad_calls, (unsigned long long)wt_rad_steps,
             (unsigned long long)wt_rad_staged, (unsigned long long)wt_rad_refused,
             (unsigned long long)wt_rad_share_out, (unsigned long long)wt_rad_share_in,
-            (unsigned long long)wt_rad_share_wait_us);
+            (unsigned long long)wt_rad_share_wait_us,
+            (unsigned long long)wt_rad_sig_mismatch);
     fprintf(f, "# probe_n=%llu probe_sum=%llu probe_hist=%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu\n",
             (unsigned long long)wt_lewi_probe_n, (unsigned long long)wt_lewi_probe_sum,
             (unsigned long long)wt_lewi_probe_hist[0],(unsigned long long)wt_lewi_probe_hist[1],
@@ -264,6 +332,19 @@ static void wt_init(void)
 {
     if (armed) return;
     armed = 1;
+    stage_micro = wt_stage_flag("WTIMER_STAGE_MICRO", 1);
+    stage_rad = wt_stage_flag("WTIMER_STAGE_RAD", 0);
+    stage_cumulus = wt_stage_flag("WTIMER_STAGE_CUMULUS", 0);
+    stage_pbl = wt_stage_flag("WTIMER_STAGE_PBL", 0);
+    stage_surface = wt_stage_flag("WTIMER_STAGE_SURFACE", 0);
+    {
+        const char *grid = getenv("WTIMER_STAGE_GRID");
+        stage_grid = wt_stage_grid_parse(grid, &stage_grid_malformed);
+        if (grid && *grid)
+            snprintf(stage_grid_text, sizeof stage_grid_text, "%s", grid);
+        else
+            snprintf(stage_grid_text, sizeof stage_grid_text, "unset");
+    }
     clock_gettime(CLOCK_MONOTONIC, &wall0);
     tsc0 = rdtsc_now();
     /* WTIMER_CPU: four integers per line -- "base_first base_n micro_first micro_n".

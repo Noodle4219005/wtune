@@ -57,6 +57,31 @@ and `W=` at the adios2 tree; change both when building from this copy.
    and wait_us so a mechanism that silently did nothing is visible (staged == 0 is a FAIL,
    not a fast run).
 
+## Staging controls
+
+Boolean phase flags accept only the exact values `0` and `1`; an invalid value uses the
+documented default. `WTIMER_STAGE_GRID` accepts a complete non-negative decimal grid ID;
+`0` selects every grid, and a malformed value is treated as unset (grid 1) and reported in
+the CSV footer.
+
+| name | default | accepted values | effect |
+|---|---|---|---|
+| `WTIMER_STAGE_MICRO` | `1` | `0`/`1` | enable microphysics staging gate |
+| `WTIMER_STAGE_RAD` | `0` | `0`/`1` | enable radiation staging gate; selfcheck still applies |
+| `WTIMER_STAGE_CUMULUS` | `0` | `0`/`1` | reserved; requested state is refused (not implemented) |
+| `WTIMER_STAGE_PBL` | `0` | `0`/`1` | reserved; requested state is refused (not implemented) |
+| `WTIMER_STAGE_SURFACE` | `0` | `0`/`1` | reserved; requested state is refused (not implemented) |
+| `WTIMER_STAGE_GRID` | unset (`1`) | `0` or non-negative decimal | select all grids or one grid |
+| `WTIMER_STAGE_ROWS` | `0` | integer; positive stages | micro rows to stage; non-positive disables staging |
+| `WTIMER_STAGE_SHARE` | `0` | `0`/`1` | publish micro rows for node-local stealing |
+| `WTIMER_STAGE_ADAPT` | `0` | `0`/`1` | adapt the shared micro row count |
+| `WTIMER_STAGE_CHUNKS` | `4` | positive integer | adaptive micro chunks per rank (production uses `6`) |
+| `WTIMER_STAGE_MAX_PCT` | `50` | integer, clamped `0..100` | adaptive cap as a percentage of available rows |
+| `WTIMER_STAGE_GAIN` | `0.5` | positive real | adaptive feedback gain |
+| `WTIMER_STAGE_SLOT_MB` | `4` | positive integer | micro shared-slot payload size in MiB |
+| `WTIMER_STAGE_DEBUG` | unset | any non-empty value | emit one-time staging diagnostics |
+| `WTIMER_STAGE_SHARE_TIMEOUT_MS` | `60000` | non-negative integer | radiation-share owner wait diagnostic threshold |
+
 ## What it does not do (measured, closed)
 
 - Cross-node stealing: the remaining imbalance is between nodes (node means 0.97-1.26),

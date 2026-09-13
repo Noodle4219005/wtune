@@ -23,10 +23,14 @@ void wt_call_n(void *fn, void **argv, int n);
 void wt_pre(int idx);
 void wt_record(int idx, uint64_t cycles);
 extern void *wt_argv[];
+extern int wt_stage_rad_enabled(void);
+extern int wt_stage_grid_value(void);
 extern void __real_module_radiation_driver_mp_radiation_driver_(void);
 
 uint64_t wt_rad_calls, wt_rad_steps, wt_rad_staged, wt_rad_refused;
 uint64_t wt_rad_share_out, wt_rad_share_in, wt_rad_share_wait_us;
+uint64_t wt_rad_sig_mismatch;
+int wt_rad_stage_state = -1; /* -1: not checked, 0: refused/off, 1: eligible */
 
 static inline uint64_t rad_tsc(void)
 {
@@ -82,8 +86,7 @@ static void rad_real_call(void)
 
 static int rad_stage_grid_selected(void)
 {
-    const char *e = getenv("WTIMER_STAGE_GRID");
-    int grid = (e && *e) ? atoi(e) : 1;
+    int grid = wt_stage_grid_value();
     return grid == 0 || (wt_argv[WTR_A_ID] && rad_iarg(WTR_A_ID) == grid);
 }
 
@@ -225,25 +228,6 @@ static int rad_ptr_distinct(const struct rad_layout *l)
     return 1;
 }
 
-static int rad_moist_spacing(int NI, int NK, int NJ)
-{
-    const int q[] = {WTR_A_QV, WTR_A_QC, WTR_A_QR, WTR_A_QI,
-                     WTR_A_QS, WTR_A_QG};
-    size_t block = (size_t)NI * (size_t)NK * (size_t)NJ * sizeof(float);
-    int i;
-    if (!wt_argv[q[0]] || !wt_argv[q[1]]) return 0;
-    if ((char *)wt_argv[q[1]] - (char *)wt_argv[q[0]] != (ptrdiff_t)block)
-        return 0;
-    for (i = 2; i < (int)(sizeof q / sizeof *q); i++) {
-        if (!rad_flag((int[]){WTR_A_F_QR, WTR_A_F_QI, WTR_A_F_QS, WTR_A_F_QG}[i-2]))
-            continue;
-        if (!wt_argv[q[i]] ||
-            (char *)wt_argv[q[i]] - (char *)wt_argv[q[0]] != (ptrdiff_t)i * (ptrdiff_t)block)
-            return 0;
-    }
-    return 1;
-}
-
 static int rad_is_4d(int k)
 {
     return k == WTR_A_QV || k == WTR_A_QC || k == WTR_A_QR ||
@@ -309,7 +293,8 @@ static int rad_usable_calibration(int k, size_t need, size_t *value,
 static int rad_selfcheck(char *reason, size_t nreason)
 {
     struct rad_layout l;
-    int NI, NK, NJ, nt, i, j;
+    int NI, NK, NJ, nt, i, j, pi0, pi1, pj0, pj1;
+    int64_t ni64, nk64, nj64, ti, tj, tk;
     size_t req3, req2;
     const int geom[] = {WTR_A_IDS, WTR_A_IDE, WTR_A_JDS, WTR_A_JDE,
                         WTR_A_KDS, WTR_A_KDE, WTR_A_IMS, WTR_A_IME,
@@ -395,14 +380,17 @@ static int rad_selfcheck(char *reason, size_t nreason)
     }
     rad_probe.layout.s3x = s3 == 1;
 
-    NI = rad_iarg(WTR_A_IME) - rad_iarg(WTR_A_IMS) + 1;
-    NK = rad_iarg(WTR_A_KME) - rad_iarg(WTR_A_KMS) + 1;
-    NJ = rad_iarg(WTR_A_JME) - rad_iarg(WTR_A_JMS) + 1;
+    ni64 = (int64_t)rad_iarg(WTR_A_IME) - rad_iarg(WTR_A_IMS) + 1;
+    nk64 = (int64_t)rad_iarg(WTR_A_KME) - rad_iarg(WTR_A_KMS) + 1;
+    nj64 = (int64_t)rad_iarg(WTR_A_JME) - rad_iarg(WTR_A_JMS) + 1;
+    NI = ni64 > 0 && ni64 <= INT_MAX ? (int)ni64 : 0;
+    NK = nk64 > 0 && nk64 <= INT_MAX ? (int)nk64 : 0;
+    NJ = nj64 > 0 && nj64 <= INT_MAX ? (int)nj64 : 0;
     nt = rad_iarg(WTR_A_NUM_TILES);
     if (NI <= 0 || NK <= 0 || NJ <= 0 || nt <= 0 || nt > 4096) {
         snprintf(reason, nreason, "invalid geometry or tile count"); return 0;
     }
-    if (rad_iarg(WTR_A_KME) < rad_iarg(WTR_A_KTE) + 1) {
+    if ((int64_t)rad_iarg(WTR_A_KME) < (int64_t)rad_iarg(WTR_A_KTE) + 1) {
         snprintf(reason, nreason, "kme < kte+1"); return 0;
     }
     for (i = 0; i < (int)(sizeof geom / sizeof *geom); i++) {
@@ -420,6 +408,23 @@ static int rad_selfcheck(char *reason, size_t nreason)
             snprintf(reason, nreason, "invalid tile bounds"); return 0;
         }
     }
+    pi0 = pi1 = is[0]; pj0 = pj1 = js[0];
+    for (i = 0; i < nt; i++) {
+        if (is[i] < pi0) pi0 = is[i];
+        if (ie[i] > pi1) pi1 = ie[i];
+        if (js[i] < pj0) pj0 = js[i];
+        if (je[i] > pj1) pj1 = je[i];
+    }
+    ti = (int64_t)pi1 - pi0 + 1;
+    tj = (int64_t)pj1 - pj0 + 1;
+    tk = (int64_t)rad_iarg(WTR_A_KTE) - rad_iarg(WTR_A_KTS) + 1;
+    /* no sign test on the bounds: WRF's halo puts ims/jms at -4 on domain-edge ranks */
+    if (ti <= 0 || tj <= 0 ||
+        tk <= 0 || ti > NI || tj > NJ || tk > NK ||
+        pi0 < rad_iarg(WTR_A_IMS) || pi1 > rad_iarg(WTR_A_IME) ||
+        pj0 < rad_iarg(WTR_A_JMS) || pj1 > rad_iarg(WTR_A_JME)) {
+        snprintf(reason, nreason, "patch bounds exceed memory geometry"); return 0;
+    }
 
     for (i = 0; i < (int)(sizeof rad_base3 / sizeof *rad_base3); i++) {
         if (!wt_argv[rad_base3[i]]) {
@@ -430,9 +435,6 @@ static int rad_selfcheck(char *reason, size_t nreason)
         (size_t)NI * (size_t)NK > SIZE_MAX / (size_t)NJ ||
         (size_t)NI > SIZE_MAX / (size_t)NJ) {
         snprintf(reason, nreason, "geometry size overflows usable-size probe"); return 0;
-    }
-    if (!rad_moist_spacing(NI, NK, NJ)) {
-        snprintf(reason, nreason, "moisture species are not adjacent 3-D slabs"); return 0;
     }
     /* All fields selected above are package-active or unconditionally full
      * state.  Check their pointers explicitly; PRESENT/non-NULL is not an
@@ -559,6 +561,15 @@ static int rad_patch_bounds(int *i0, int *i1, int *j0, int *j1)
         if (je[t] > *j1) *j1 = je[t];
     }
     return *i0 <= *i1 && *j0 <= *j1;
+}
+
+static int rad_rows_fit(int rows)
+{
+    int i0, i1, j0, j1;
+    int64_t available;
+    if (rows <= 0 || !rad_patch_bounds(&i0, &i1, &j0, &j1)) return 0;
+    available = (int64_t)j1 - j0 + 1;
+    return available > rows;
 }
 
 
@@ -777,14 +788,20 @@ static void rad_pass2(void **save, const struct rad_fld *f, int nf,
 #define RAD_SHARE_MAX_CHUNKS   64
 #define RAD_SHARE_MAX_FIELDS   (WTR_NARG + 16)
 #define RAD_SHARE_MAX_TILES    8192
+#define RAD_SHARE_LAYOUT_VERSION 1u
 
 struct rad_share_tile { int is, ie, js, je; };
+struct rad_share_sig {
+    uint32_t layout_version;
+    int mp, NI, NK, n3, n2, rows, grid;
+};
 
 struct __attribute__((aligned(64))) rad_share_hdr {
     uint32_t state[RAD_SHARE_MAX_CHUNKS];
     int runner[RAD_SHARE_MAX_CHUNKS];
     uint64_t work_ticks[RAD_SHARE_MAX_CHUNKS];
     uint64_t layout_hash, call_id;
+    struct rad_share_sig sig;
     int owner, nchunks, nf, ntiles;
     struct rad_geom g;
     struct rad_fld fields[RAD_SHARE_MAX_FIELDS];
@@ -946,6 +963,22 @@ static uint64_t rad_share_hash(const struct rad_fld *f, int nf, const struct rad
     return h;
 }
 
+static int rad_share_signature_ok(const struct rad_share_hdr *h,
+                                  const struct rad_geom *g)
+{
+    struct rad_layout l;
+    rad_build_layout(&l);
+    /* NI and rows are diagnostic only: a neighbouring column has a different i-extent and
+     * an edge rank a clipped row count, and both were valid donors before the signature
+     * existed (the geometry the thief actually uses is h->g, checked by
+     * rad_share_compatible). */
+    return h->sig.layout_version == RAD_SHARE_LAYOUT_VERSION &&
+           h->sig.mp == rad_iarg(WTR_A_MP_PHYSICS) &&
+           h->sig.grid == rad_iarg(WTR_A_ID) &&
+           h->sig.NK == g->NK && h->sig.rows > 0 &&
+           h->sig.n3 == l.n3 + (l.s3x ? 8 : 0) && h->sig.n2 == l.n2;
+}
+
 static int rad_share_payload_ok(const struct rad_share_hdr *h, size_t cap)
 {
     size_t end, rowl;
@@ -1083,6 +1116,11 @@ static void rad_share_steal(const struct rad_fld *ownf, int nf,
                     __atomic_store_n(&h->state[y], RAD_SHARE_PUBLISHED, __ATOMIC_RELEASE);
                     continue;
                 }
+                if (!rad_share_signature_ok(h, owng)) {
+                    wt_rad_sig_mismatch++;
+                    __atomic_store_n(&h->state[y], RAD_SHARE_PUBLISHED, __ATOMIC_RELEASE);
+                    continue;
+                }
                 if (!rad_share_compatible(h, ownf, nf, owng) ||
                     rad_share_filter_header(h, h->g.jsplit + y,
                                             is, ie, js, je) <= 0) {
@@ -1176,6 +1214,12 @@ static int rad_share_stage(int rows)
     memset(h, 0, sizeof *h);
     h->owner = rad_share_me; h->nchunks = rows; h->nf = nf; h->ntiles = n2;
     h->g = g; h->layout_hash = rad_share_hash(f, nf, &g); h->call_id = ++rad_share_call_id;
+    h->sig.layout_version = RAD_SHARE_LAYOUT_VERSION;
+    h->sig.mp = rad_iarg(WTR_A_MP_PHYSICS);
+    h->sig.grid = rad_iarg(WTR_A_ID);
+    h->sig.NI = g.NI; h->sig.NK = g.NK;
+    h->sig.n3 = l.n3 + (l.s3x ? 8 : 0);
+    h->sig.n2 = l.n2; h->sig.rows = g.rows;
     for (y = 0; y < nf; y++) { h->fields[y] = f[y]; h->off[y] = off[y]; }
     for (y = 0; y < n2; y++) {
         h->tiles[y].is = is[y]; h->tiles[y].ie = ie[y];
@@ -1250,7 +1294,7 @@ static int rad_stage(int rows)
     int use_buf = rad_env_int("WTIMER_RAD_BUF", 1);
     int isplit = rad_env_int("WTIMER_RAD_ISPLIT", 32);
     int fullj = rad_env_int("WTIMER_RAD_FULLJ", 0);
-    size_t elems;
+    size_t elems = 0;
     float *buf = NULL;
 
     g.ims = rad_iarg(WTR_A_IMS); g.ime = rad_iarg(WTR_A_IME);
@@ -1306,7 +1350,11 @@ void wt_rad_call(void)
     int rows, rank;
     wt_pre(1);
     wt_rad_calls++;
-    if (!rad_stage_grid_selected()) {
+    if (!wt_stage_rad_enabled()) {
+        wt_rad_stage_state = 0;
+        rad_real_call();
+    } else if (!rad_stage_grid_selected()) {
+        wt_rad_stage_state = 0;
         rad_real_call();
     } else {
         rows = 0;
@@ -1315,19 +1363,24 @@ void wt_rad_call(void)
             if (s) rows = atoi(s);
         }
         if (rows <= 0) {
+            wt_rad_stage_state = 0;
             rad_real_call();
         } else {
-            static int checked = 0, ok = 0;
+            /* selfcheck once per (mp, grid): it walks the allocation table and prints */
+            static int checked_mp = -1, checked_grid = -1, ok = 0;
             static char reason[160];
             int due = rad_due();
+            int mp_now = rad_iarg(WTR_A_MP_PHYSICS);
+            int grid_now = wt_argv[WTR_A_ID] ? rad_iarg(WTR_A_ID) : 0;
             rank = rad_rank();
-            if (!checked) {
+            if (checked_mp != mp_now || checked_grid != grid_now) {
                 ok = rad_selfcheck(reason, sizeof reason);
-                checked = 1;
+                checked_mp = mp_now; checked_grid = grid_now;
                 if (getenv("WTIMER_STAGE_DEBUG") && rad_debug_rank()) {
                     rad_print_selfcheck(rank, ok, reason);
                 }
             }
+            wt_rad_stage_state = ok ? 1 : 0;
             if (!due) {
                 rad_real_call();
             } else {
@@ -1335,14 +1388,20 @@ void wt_rad_call(void)
                 if (!ok) {
                     wt_rad_refused++;
                     rad_real_call();
+                } else if (!rad_rows_fit(rows)) {
+                    wt_rad_stage_state = 0;
+                    wt_rad_refused++;
+                    rad_real_call();
                 } else if (rad_env_int("WTIMER_RAD_SHARE", 0) == 1) {
                     if (rad_share_stage(rows)) {
                         wt_rad_staged++;
                     } else {
+                        wt_rad_stage_state = 0;
                         wt_rad_refused++;
                         rad_real_call();
                     }
                 } else if (!rad_stage(rows)) {
+                    wt_rad_stage_state = 0;
                     wt_rad_refused++;
                     rad_real_call();
                 } else {

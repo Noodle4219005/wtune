@@ -48,6 +48,13 @@ is node-local micro/radiation staging only (`plov/wt_micro.c`, `plov/wt_rad.c`,
 `plov/wtimer.c`'s `WTIMER_STAGE_*` flags), gated by `plov/regress_bp.sbatch`
 (job 1072441: 224-rank bit-identical, `refused=0`).
 
+**Correction (2026-09-13, second one):** `prepare_native_link.py` was wrongly archived here
+— it is a general-purpose link-manifest helper with no KF/cumulus dependency, and
+`plov/build.sbatch`'s compile-from-git path calls it directly. Restored to `plov/` in
+commit `e8b80ff`, which also fixed an unrelated pre-existing `Path.is_relative_to()`
+(py3.9+) crash in `build.sbatch` on the compute node's older python3. Found by
+wrf-work-continuation while rebuilding for the LAFE run.
+
 ## Layout
 
 - `plov/` — everything untracked under the live `plov/` tree that this archive covers,

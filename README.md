@@ -187,6 +187,34 @@ MPI as `comm_size=1` singletons; diagnostic `ls rsl.out.* | wc -l`); never align
 MPI-call index across ranks (neighbour count differs per rank; Fortran collectives cannot be
 intercepted); bound windows by wall time, not call count.
 
+### Phase fingerprinter (autotuner step 2, validated; for calibration / second-pass profile runs only)
+
+`fingerprint/` observes an unmodified `wrf.exe` from outside: `sampler_node.sh`
+attaches `perf record` (user-mode cycles sampling) to its pids, and
+`fingerprint.py` time-weights the resulting `perf script` samples into per-phase
+shares (MICRO/RADIATION/PBL/SURFACE/CUMULUS/DYNAMICS_OTHER/MPI/IO), a
+`fingerprint.json`, and diagnosis labels. No `--wrap`, no `LD_PRELOAD`.
+
+    python3 fingerprint/fingerprint.py --sampler-dir OUTDIR --run-dir RUNDIR \
+      [--omp-threads N] [--wtimer-dir DIR] --out OUTPREFIX
+
+`--wtimer-dir` compares pooled shares against in-process `wtimer.<rank>.csv`
+timers (ground truth only). Validation job 1074484 (karina 224x2, 4 nodes, 100 Hz,
+`POLL_S=5`): out-of-sample share error micro 0.71 / radiation 0.30 / dynamics 0.96 /
+MPI 1.87 pp, diffwrf identical; overhead 1.40% (gate was <=1%). 2026-09-14 user ruling:
+overhead accepted because the fingerprinter is used only for second-pass profile runs,
+never on production timing runs.
+
+### Configuration predictor and STRICT data campaign
+
+`campaign/strict_campaign.sbatch` measures the 16 STRICT templates of `campaign/configs.py`
+per case (all-ADIOS2 I/O, palindromic replicates) into `ledger_<case>_<job>.csv`;
+`predictor/run_benchmark.sbatch` builds the ledger (`predictor/ledger.py`) and runs the
+grouped-CV benchmark (`predictor/benchmark.py`). First cf448 campaign: jobs 1075293-1075304;
+benchmark 1075654 -- leave-one-case-out median regret catboost_pairwise 0.4% vs naive (always
+C01) 15.2% over 6 cases, but conus12 and leave-one-hardware-out do not generalise. The
+predictor outputs a ranked shortlist; the final configuration is the user's decision.
+
 ## Measured results
 
 | item | result | conditions |

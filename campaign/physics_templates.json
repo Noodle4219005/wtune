@@ -1,0 +1,101 @@
+{
+  "_comment": "PHYSICS-GRAY fixed physics-template table for the physics-gray data campaign (decision 0051, /home/u5727520/my-llm-wiki/knowledge/decisions/0051-wtune-physics-gray-recommendation-fidelity-gate-and-campaign-plan.md). FINAL SET 2026-09-15 (lead): P00-P06, revised from the provisional P00-P04 using the WRF 4.8.0 source compatibility survey recorded in /home/u5727520/my-llm-wiki/knowledge/2026-09-14-wrf-4-8-physics-namelist-compatibility-rules-for-physics-gray-templates.md and the screen/probe verdicts of job 1076060. Build rules that shape these edits: mp_physics(i)=mp_physics(max_dom) for i<=max_dom (frame/module_configure.F:207-209), so 'set' on every ACTIVE entry is sufficient; sf_sfclay/sf_surface/ra_lw/ra_sw must be identical on all active domains and bl_pbl/cu must match d01 or be 0 (share/module_check_a_mundo.F:753-943), hence scheme 'set' ops write every active entry; time_step is an INTEGER namelist field (inc/config_reads.inc:174), hence mul round=int; ra 24/14 are not compiled (BUILD_RRTMG_FAST=0, BUILD_RRTMK=0); physics_suite: an explicit non -1 value overrides the suite for that option only ('conus' = cu 6, mp 8, ra 4/4, bl 2 MYJ, sfclay 2 MYJ, surface 2; 'tropical' = cu 16, mp 6 WSM6, ra 4/4, bl 1 YSU, sfclay 1, surface 2). All of this is read from source, not yet confirmed by a WRF smoke; the physics smoke must check namelist.output.\n\nSchema: 'templates' maps Pxx -> {family, description, edits:[ops], optional applies_to:[case], skip_cases:{case: reason}, extra_edits:{case:[ops]}}. extra_edits are applied after edits for that case only (configs.apply_physics_template case_id=...; predictor/physics.py physics_candidates_for_case). Ops: {'op':'set','key','value','section'} sets every active-domain entry (inserts a single d01 value if the key is absent); {'op':'mul','key','factor','round':'int','min','max','section'} per active entry, error on -1; {'op':'delete','key'}. 'excluded' documents candidate changes deliberately left out, with reasons.",
+  "templates": {
+    "P00": {
+      "family": "none",
+      "description": "Reference: no physics edit. Run at DECOMP as the reference and at TWIN_DECOMP as the same-physics chaos-floor twin.",
+      "edits": []
+    },
+    "P01": {
+      "family": "radiation",
+      "description": "swint_opt=1 (SW zenith interpolation between radiation calls). Probe CONFIRM on karina/conus25/conus12/maria1km/lafe (job 1076060); isc21 already sets swint_opt=1 natively, so P01 is a no-op there but kept for cross-case uniformity. swint_opt is a scalar namelist variable.",
+      "edits": [
+        {"op": "set", "key": "swint_opt", "value": 1, "section": "&physics"}
+      ]
+    },
+    "P02": {
+      "family": "radiation",
+      "description": "radt x2 on every active domain, paired with swint_opt=1. Probe CONFIRM for conus12/isc21/lafe, REJECT (cloud-cap) for karina/conus25/maria1km (job 1076060) -- applied to all six so measured fidelity can test the probe's cloud-cap rule. WRF rounds radt*60/dt to whole steps silently (phys/module_physics_init.F:2276).",
+      "edits": [
+        {"op": "mul", "key": "radt", "factor": 2, "round": "int", "min": 1, "section": "&physics"},
+        {"op": "set", "key": "swint_opt", "value": 1, "section": "&physics"}
+      ]
+    },
+    "P03": {
+      "family": "dynamics",
+      "description": "time_step x1.2 rounded to int (karina/conus25/isc21 15->18, conus12 72->86, maria1km 25->30, lafe 10->12). Probe PASS->WRF where evaluated; acoustic CFL is not in the probe, so a CFL abort is recorded as status=FAILED (infeasible). parent_time_step_ratio unchanged.",
+      "edits": [
+        {"op": "mul", "key": "time_step", "factor": 1.2, "round": "int", "section": "&domains"}
+      ]
+    },
+    "P04": {
+      "family": "microphysics",
+      "description": "mp_physics=6 (WSM6) on every active entry. Probe REJECT on every case that evaluates it (job 1076060) -- run anyway to test that heuristic. lafe (native Thompson aerosol-aware 28) also gets aer_opt=0 and use_aero_icbc=.false., because the aerosol knobs become inert once mp is not 28/29 (share/module_check_a_mundo.F:2474-2606) and the explicit edit keeps the namelist self-documenting.",
+      "edits": [
+        {"op": "set", "key": "mp_physics", "value": 6, "section": "&physics"}
+      ],
+      "skip_cases": {
+        "maria1km": "physics_suite='tropical' already resolves mp_physics to WSM6 (share/module_check_a_mundo.F:3184-3196), so mp_physics=6 is a no-op, not a physics change"
+      },
+      "extra_edits": {
+        "lafe": [
+          {"op": "set", "key": "aer_opt", "value": 0, "section": "&physics"},
+          {"op": "set", "key": "use_aero_icbc", "value": ".false.", "section": "&physics"}
+        ]
+      }
+    },
+    "P05": {
+      "family": "pbl_surface",
+      "description": "PBL scheme swap together with its surface-layer pair, on every active entry: YSU(1)/sfclay 1 -> MYNN(5)/sfclay 5 for karina and maria1km (tropical suite resolves YSU); MYNN(5)/5 -> YSU(1)/1 for isc21 and lafe; MYJ(2)/MYJ(2) (conus suite) -> YSU(1)/1 for conus25 and conus12. Leaving MYNN silently zeroes bl_mynn_edmf/_dd/_output and resets icloud_bl (share/module_check_a_mundo.F:1770-1821); no extra edit is added for that. The probe does not evaluate PBL schemes, so notes will usually say probe=none.",
+      "edits": [],
+      "extra_edits": {
+        "karina": [
+          {"op": "set", "key": "bl_pbl_physics", "value": 5, "section": "&physics"},
+          {"op": "set", "key": "sf_sfclay_physics", "value": 5, "section": "&physics"}
+        ],
+        "maria1km": [
+          {"op": "set", "key": "bl_pbl_physics", "value": 5, "section": "&physics"},
+          {"op": "set", "key": "sf_sfclay_physics", "value": 5, "section": "&physics"}
+        ],
+        "isc21": [
+          {"op": "set", "key": "bl_pbl_physics", "value": 1, "section": "&physics"},
+          {"op": "set", "key": "sf_sfclay_physics", "value": 1, "section": "&physics"}
+        ],
+        "lafe": [
+          {"op": "set", "key": "bl_pbl_physics", "value": 1, "section": "&physics"},
+          {"op": "set", "key": "sf_sfclay_physics", "value": 1, "section": "&physics"}
+        ],
+        "conus25": [
+          {"op": "set", "key": "bl_pbl_physics", "value": 1, "section": "&physics"},
+          {"op": "set", "key": "sf_sfclay_physics", "value": 1, "section": "&physics"}
+        ],
+        "conus12": [
+          {"op": "set", "key": "bl_pbl_physics", "value": 1, "section": "&physics"},
+          {"op": "set", "key": "sf_sfclay_physics", "value": 1, "section": "&physics"}
+        ]
+      }
+    },
+    "P06": {
+      "family": "radiation",
+      "description": "ra_lw_physics=1, ra_sw_physics=1 (RRTM longwave / Dudhia shortwave) on every active entry, replacing RRTMG (4/4, native or suite). WRF silently forces o3input=0 for non-RRTMG radiation (share/module_check_a_mundo.F:2943-2962). lafe also gets aer_opt=0, since the aerosol-SW coupling requires RRTMG SW (phys/module_radiation_driver.F:1651-1667).",
+      "edits": [
+        {"op": "set", "key": "ra_lw_physics", "value": 1, "section": "&physics"},
+        {"op": "set", "key": "ra_sw_physics", "value": 1, "section": "&physics"}
+      ],
+      "extra_edits": {
+        "lafe": [
+          {"op": "set", "key": "aer_opt", "value": 0, "section": "&physics"}
+        ]
+      }
+    }
+  },
+  "excluded": {
+    "ra_lw_physics/ra_sw_physics=24 or 14": "RRTMG-fast and RRTMK are not compiled in this build (configure.wrf BUILD_RRTMG_FAST=0, BUILD_RRTMK=0); WRF aborts at share/module_check_a_mundo.F:2911-2941",
+    "h_mom_adv_order/h_sca_adv_order 5->3, diff_opt": "probe REJECT on all six cases (job 1076060)",
+    "use_adaptive_time_step": "probe REJECT on five of six cases; timing with a variable dt is not comparable per step",
+    "epssm": "terrain-only indirect gain, no speed evidence",
+    "non_hydrostatic=.false.": "valid only for dx >= 10 km (conus12 here) -- cannot generalise across the six cases",
+    "e_vert": "needs real.exe regeneration of wrfinput, not a namelist-only change",
+    "cu_physics/cudt": "cumulus is on only for isc21 d01 among the six cases"
+  }
+}

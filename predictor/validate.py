@@ -260,6 +260,17 @@ def evaluate(rows, group_field, model_name, use_profile=False, scope=None):
 CONFORMAL_MIN_N = 30  # below this many held-out points behind a coverage value, mark it UNDERPOWERED
 
 
+def _fold_residuals(predictions, fold_test_rows):
+    """{fold_group: [|y - out-of-fold prediction| for each of that fold's test rows]}. Factored
+    out of conformal_intervals so conformal_intervals_for_new_rows (recommend.py's candidates,
+    which have no held-out fold of their own) can reuse the exact same residual pool."""
+    fold_residuals = {}
+    for g, test_rows in fold_test_rows.items():
+        fold_residuals[g] = [abs(r["y"] - predictions[r["run_id"]])
+                              for r in test_rows if r.get("y") is not None and r["run_id"] in predictions]
+    return fold_residuals
+
+
 def conformal_intervals(rows, model_name, use_profile=False, alphas=(0.10, 0.05), scope=None):
     """Returns (intervals: {run_id: {alpha: (lo, hi)}},
     coverage: {alpha: {"rate": empirical_rate, "n": held_out_points, "underpowered": n < 30}},
@@ -271,10 +282,7 @@ def conformal_intervals(rows, model_name, use_profile=False, alphas=(0.10, 0.05)
     predictions, unavailable, fold_models, fold_test_rows = cross_validate(
         scoped, "case_base", model_name, use_profile, return_models=True)
 
-    fold_residuals = {}
-    for g, test_rows in fold_test_rows.items():
-        fold_residuals[g] = [abs(r["y"] - predictions[r["run_id"]])
-                              for r in test_rows if r.get("y") is not None and r["run_id"] in predictions]
+    fold_residuals = _fold_residuals(predictions, fold_test_rows)
 
     intervals = {}   # run_id -> {alpha: (lo, hi)}
     for g, test_rows in fold_test_rows.items():
@@ -312,6 +320,46 @@ def conformal_intervals(rows, model_name, use_profile=False, alphas=(0.10, 0.05)
             "underpowered": total < CONFORMAL_MIN_N,
         }
     return intervals, coverage, predictions
+
+
+def conformal_intervals_for_new_rows(rows, new_rows, model_name, use_profile=False,
+                                      alphas=(0.10, 0.05), scope=None):
+    """Same grouped CV+/jackknife+ residual-pooling as conformal_intervals, but for rows that are
+    OUTSIDE the training ledger entirely (e.g. a recommend.py shortlist candidate for a case that
+    has zero rows of its own in `rows`) rather than for one of `rows`' own held-out points.
+
+    Every leave-one-case-out fold model contributes to every new row's interval -- unlike
+    conformal_intervals, there is no "own fold" to exclude, because a `new_rows` row is not part
+    of any training case_base and so cannot leak into its own prediction.
+
+    Returns {index into new_rows: {alpha: (lo, hi)}} (indexed by position, not run_id, since a
+    freshly-built candidate row need not carry a ledger run_id). Raises the same
+    NotEnoughGroups/NotEnoughData as cross_validate when the scoped training data is too thin to
+    fit even one fold."""
+    scoped = [r for r in rows if scope is None or r.get("compliance_class") == scope]
+    predictions, _unavailable, fold_models, fold_test_rows = cross_validate(
+        scoped, "case_base", model_name, use_profile, return_models=True)
+    fold_residuals = _fold_residuals(predictions, fold_test_rows)
+
+    intervals = {}
+    for i, row in enumerate(new_rows):
+        lo_pool, hi_pool = [], []
+        for h, model in fold_models.items():
+            resids = fold_residuals.get(h)
+            if not resids:
+                continue
+            pred_h = model.score([row])[0]
+            for resid in resids:
+                lo_pool.append(pred_h - resid)
+                hi_pool.append(pred_h + resid)
+        if not lo_pool:
+            continue
+        intervals[i] = {}
+        for alpha in alphas:
+            lo = float(np.quantile(lo_pool, alpha / 2))
+            hi = float(np.quantile(hi_pool, 1 - alpha / 2))
+            intervals[i][alpha] = (lo, hi)
+    return intervals
 
 
 def recommendation_label(y_pred, upper_y_bound):

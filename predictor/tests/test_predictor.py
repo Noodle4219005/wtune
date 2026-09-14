@@ -500,6 +500,46 @@ def test_campaign_ledger_adapter_types_and_failed_runs(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# kmp_blocktime: a campaign ledger CSV cell is a plain string ("0", "default", or ""); recommend.py
+# builds in-memory candidate rows with kmp_blocktime as {None, int} (None means unset/"default").
+# Before normalizing in the adapter, features.config_key((..., "0", ...)) != (..., 0, ...) for what
+# is otherwise the identical configuration -- this asserts the two now compare equal.
+# ---------------------------------------------------------------------------
+def test_campaign_kmp_blocktime_normalizes_to_match_in_memory_config_key(tmp_path):
+    base = {k: "" for k in ledger.LEDGER_FIELDS}
+    base.update(run_id="conus25_C02_r1_1", source_dataset="strict_campaign", case_raw="conus25",
+                case_base="conus25", hardware_id="f1-spr-icpnp", binary_kind="pristine",
+                compliance_class="STRICT", n_nodes="4", n_ranks="224", omp_threads="2",
+                nproc_x="14", nproc_y="16", numtiles="8", distribution="cyclic",
+                kmp_blocktime="0", s_per_step_median="1.0")
+    default_row = dict(base, run_id="conus25_C03_r1_1", numtiles="9", kmp_blocktime="default")
+    path = tmp_path / "ledger_conus25_kmp.csv"
+    with open(path, "w", newline="") as fh:
+        w = csv.DictWriter(fh, fieldnames=ledger.LEDGER_FIELDS)
+        w.writeheader()
+        w.writerow(base)
+        w.writerow(default_row)
+
+    rows = ledger.adapt_campaign_ledger(str(path))
+    campaign_row = next(r for r in rows if r["run_id"] == "conus25_C02_r1_1")
+    campaign_default_row = next(r for r in rows if r["run_id"] == "conus25_C03_r1_1")
+    assert campaign_row["kmp_blocktime"] == 0 and isinstance(campaign_row["kmp_blocktime"], int)
+    assert campaign_default_row["kmp_blocktime"] is None
+
+    in_memory_row = ledger.new_row(
+        run_id="candidate", case_base="conus25", hardware_id="f1-spr-icpnp",
+        n_nodes=4, n_ranks=224, omp_threads=2, nproc_x=14, nproc_y=16, numtiles=8,
+        distribution="cyclic", kmp_blocktime=0)
+    assert feat.config_key(campaign_row) == feat.config_key(in_memory_row)
+
+    in_memory_default = ledger.new_row(
+        run_id="candidate2", case_base="conus25", hardware_id="f1-spr-icpnp",
+        n_nodes=4, n_ranks=224, omp_threads=2, nproc_x=14, nproc_y=16, numtiles=9,
+        distribution="cyclic", kmp_blocktime=None)
+    assert feat.config_key(campaign_default_row) == feat.config_key(in_memory_default)
+
+
+# ---------------------------------------------------------------------------
 # campaign rows: correctness-mode rows are not timing replicates, and a campaign's physics is not
 # judged against another dataset's modal physics for the same case_base (2026-09-14 fixes)
 # ---------------------------------------------------------------------------

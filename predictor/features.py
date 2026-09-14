@@ -105,6 +105,67 @@ def case_features(row):
     return feat
 
 
+def _tile_dims(extent, nparts):
+    """floor/ceil split of `extent` into `nparts`, i.e. (min tile size, max tile size). This is
+    the same ceil/floor APPROXIMATION `config_features` already uses for per-rank patch sizes
+    (patch_x/patch_y below), applied per tile instead -- not WRF's exact recursive tile-splitting
+    algorithm (frame/module_machine.F's rlocproc, replicated exactly in
+    predictor/decomp_space.py's `tile_extents`), kept out of this stdlib-only module on purpose
+    to avoid a features.py -> decomp_space.py import (decomp_space.py itself imports this module,
+    so the reverse import would cycle). Good enough for a coarse feature; use
+    decomp_space.tile_geometry_for_patch directly when exact per-tile extents matter."""
+    if not extent or not nparts:
+        return None, None
+    q, rem = divmod(int(extent), int(nparts))
+    return q, (q + 1 if rem else q)
+
+
+def tile_geometry_features(row):
+    """Additive tile-geometry features (WTune D1 decomposition-space work): tiles_x, tiles_y,
+    tile_sz_x, tile_sz_y, tile_strategy, cells_per_tile_min/max, tile_aspect, numa_aligned.
+    Computed only when the corresponding raw keys (numtiles_x/numtiles_y at minimum) are present
+    on `row` -- a ledger row from before this work simply lacks them, so every field here is None
+    for it, and `models.py`'s `{k: v for k, v in d.items() if v is not None}` filter drops them,
+    exactly like PROFILE_FIELDS already does for a profile-less row (see `has_profile_data`)."""
+    numtiles_x, numtiles_y = _num(row.get("numtiles_x")), _num(row.get("numtiles_y"))
+    tile_sz_x, tile_sz_y = _num(row.get("tile_sz_x")), _num(row.get("tile_sz_y"))
+    tile_strategy = _num(row.get("tile_strategy"))
+    e_we, e_sn, e_vert = _num(row.get("e_we")), _num(row.get("e_sn")), _num(row.get("e_vert"))
+    nproc_x, nproc_y = _num(row.get("nproc_x")), _num(row.get("nproc_y"))
+
+    patch_x = math.ceil(e_we / nproc_x) if (e_we is not None and nproc_x) else None
+    patch_y = math.ceil(e_sn / nproc_y) if (e_sn is not None and nproc_y) else None
+
+    tile_w_min = tile_w_max = tile_h_min = tile_h_max = None
+    if patch_x is not None and numtiles_x:
+        tile_w_min, tile_w_max = _tile_dims(patch_x, numtiles_x)
+    if patch_y is not None and numtiles_y:
+        tile_h_min, tile_h_max = _tile_dims(patch_y, numtiles_y)
+
+    cells_per_tile_min = cells_per_tile_max = None
+    if None not in (tile_w_min, tile_h_min, tile_w_max, tile_h_max, e_vert):
+        cells_per_tile_min = tile_w_min * tile_h_min * e_vert
+        cells_per_tile_max = tile_w_max * tile_h_max * e_vert
+
+    tile_aspect = None
+    if tile_w_max not in (None, 0) and tile_h_max not in (None, 0):
+        tile_aspect = tile_w_max / float(tile_h_max)
+
+    hw = HARDWARE_TABLE.get(row.get("hardware_id"), {})
+    cores_per_numa = hw.get("cores_per_numa")
+    omp_threads = _num(row.get("omp_threads"))
+    numa_aligned = None
+    if cores_per_numa and omp_threads:
+        numa_aligned = 1.0 if cores_per_numa % omp_threads == 0 else 0.0
+
+    return {
+        "tiles_x": numtiles_x, "tiles_y": numtiles_y,
+        "tile_sz_x": tile_sz_x, "tile_sz_y": tile_sz_y, "tile_strategy": tile_strategy,
+        "cells_per_tile_min": cells_per_tile_min, "cells_per_tile_max": cells_per_tile_max,
+        "tile_aspect": tile_aspect, "numa_aligned": numa_aligned,
+    }
+
+
 def config_features(row):
     """Parallel geometry and runtime-knob features -- a property of one run."""
     e_we, e_sn, e_vert = _num(row.get("e_we")), _num(row.get("e_sn")), _num(row.get("e_vert"))
@@ -141,7 +202,7 @@ def config_features(row):
     grid_divisible_y = (e_sn % nproc_y == 0) if (e_sn is not None and nproc_y) else None
     decomp_aspect = (patch_x / patch_y) if (patch_x is not None and patch_y not in (None, 0)) else None
 
-    return {
+    out = {
         "nproc_x": nproc_x, "nproc_y": nproc_y, "numtiles": numtiles, "omp_threads": omp_threads,
         "n_ranks": n_ranks, "n_nodes": n_nodes, "kmp_blocktime": _num(row.get("kmp_blocktime")),
         "distribution_cyclic": 1.0 if row.get("distribution") == "cyclic" else (
@@ -155,6 +216,8 @@ def config_features(row):
         "grid_divisible_y": (1.0 if grid_divisible_y else (0.0 if grid_divisible_y is not None else None)),
         "decomp_aspect": decomp_aspect,
     }
+    out.update(tile_geometry_features(row))
+    return out
 
 
 PROFILE_FIELDS = (

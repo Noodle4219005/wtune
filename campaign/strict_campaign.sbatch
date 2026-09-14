@@ -20,10 +20,18 @@
 #
 # Usage: sbatch --export=ALL,CASE=karina campaign/strict_campaign.sbatch
 #        sbatch --export=ALL,CASE=karina,MODE=correctness,CONFIGS=C01+C05,REPS=1 campaign/strict_campaign.sbatch
+#        sbatch --export=ALL,CASE=karina,CONFIG_FILE=/abs/path/sample.json campaign/strict_campaign.sbatch
 # Env:   CASE (required), MODE (timing|correctness, default timing), REPS (default
 #        2), STEPS (default: cases.json's "steps" for this case), TIMEOUT_S
 #        (default 600). Override --time per case at submission -- the lead's job,
 #        not this script's.
+#        CONFIG_FILE (WTune D1 decomposition-space work, predictor/decomp_space.py
+#        to_campaign_configs/sample output): measures that generated config set instead of the
+#        fixed C01-C16 STRICT templates in the default (non-MODE=physics) loop below -- same
+#        palindromic REPS order, same ledger schema (tile geometry goes into notes, see
+#        config_source= below). Unset (the default): every line below this comment behaves
+#        exactly as it did before CONFIG_FILE existed. Only honored by the default STRICT
+#        (timing/correctness) loop, not MODE=physics.
 set -uo pipefail
 
 W=/home/u5727520/wrf-stack/wrf/intel-adios2-dmsm/WRF
@@ -41,7 +49,8 @@ MODE=${MODE:-timing}
 case "$MODE" in
   timing) HISTORY_MODE_ARG=off ;;
   correctness) HISTORY_MODE_ARG=end_d01 ;;
-  *) echo "MODE must be 'timing' or 'correctness', got '$MODE'" >&2; exit 1 ;;
+  physics) HISTORY_MODE_ARG="" ;;  # MODE=physics picks its own per-replicate history mode below, not a single fixed value
+  *) echo "MODE must be 'timing', 'correctness' or 'physics', got '$MODE'" >&2; exit 1 ;;
 esac
 # config generation needs Python >= 3.7 so configs.py can import wtune_decomp's scorer
 # (it uses `from __future__ import annotations`; the system python3 is 3.6 and silently falls back)
@@ -100,6 +109,7 @@ for k in ("mp_physics", "cu_physics", "bl_pbl_physics", "sf_sfclay_physics",
           "sf_surface_physics", "ra_lw_physics", "ra_sw_physics", "radt", "cudt"):
     print("PHYS_%s=%s" % (k.upper(), q(phys.get(k, ""))))
 print("PHYSICS_SUITE=%s" % q(phys.get("physics_suite", "")))
+print("PHYSICS_SIM_MINUTES_DEFAULT=%s" % q(c.get("physics_sim_minutes", 60)))
 PY
 )"
 
@@ -110,13 +120,397 @@ read -ra INPUT_FILES_ARR <<< "$INPUT_FILES"
 echo "case metadata: e_we=$E_WE e_sn=$E_SN e_vert=$E_VERT dt=$DT restart=$RESTART steps=$STEPS run_minutes=$MIN"
 
 # ---- resolved configs for this case (TSV) and campaign order -------------------
+# CONFIG_FILE=path.json (predictor/decomp_space.py to_campaign_configs/sample output, WTune D1
+# decomposition-space work): measure that generated config set instead of the fixed C01-C16
+# STRICT templates. configs.py's own CASE_ID/order dispatch reads the CONFIG_FILE env var itself
+# (see configs.py main()); when it is unset this whole block is byte-identical to before
+# CONFIG_FILE existed.
 declare -A CFG_RANKS CFG_OMP CFG_NX CFG_NY CFG_NUMTILES CFG_DIST CFG_BLOCKTIME
-while IFS=$'\t' read -r cid ranks omp nx ny numtiles dist blocktime patchx patchy; do
-  [ "$cid" = "config_id" ] && continue
-  [ -z "$cid" ] && continue
-  CFG_RANKS[$cid]=$ranks; CFG_OMP[$cid]=$omp; CFG_NX[$cid]=$nx; CFG_NY[$cid]=$ny
-  CFG_NUMTILES[$cid]=$numtiles; CFG_DIST[$cid]=$dist; CFG_BLOCKTIME[$cid]=$blocktime
-done < <($PY "$CAMPAIGN/configs.py" "$CASE" 2>/dev/null)
+declare -A CFG_NTILES_X CFG_NTILES_Y CFG_TSZ_X CFG_TSZ_Y CFG_TSTRAT CFG_SRC
+if [ -n "${CONFIG_FILE:-}" ]; then
+  while IFS=$'\t' read -r cid ranks omp nx ny numtiles dist blocktime patchx patchy \
+                          ntx nty tsx tsy tstrat src; do
+    [ "$cid" = "config_id" ] && continue
+    [ -z "$cid" ] && continue
+    CFG_RANKS[$cid]=$ranks; CFG_OMP[$cid]=$omp; CFG_NX[$cid]=$nx; CFG_NY[$cid]=$ny
+    CFG_NUMTILES[$cid]=$numtiles; CFG_DIST[$cid]=$dist; CFG_BLOCKTIME[$cid]=$blocktime
+    CFG_NTILES_X[$cid]=$ntx; CFG_NTILES_Y[$cid]=$nty; CFG_TSZ_X[$cid]=$tsx; CFG_TSZ_Y[$cid]=$tsy
+    CFG_TSTRAT[$cid]=$tstrat; CFG_SRC[$cid]=$src
+  done < <($PY "$CAMPAIGN/configs.py" "$CASE" 2>/dev/null)
+else
+  while IFS=$'\t' read -r cid ranks omp nx ny numtiles dist blocktime patchx patchy; do
+    [ "$cid" = "config_id" ] && continue
+    [ -z "$cid" ] && continue
+    CFG_RANKS[$cid]=$ranks; CFG_OMP[$cid]=$omp; CFG_NX[$cid]=$nx; CFG_NY[$cid]=$ny
+    CFG_NUMTILES[$cid]=$numtiles; CFG_DIST[$cid]=$dist; CFG_BLOCKTIME[$cid]=$blocktime
+  done < <($PY "$CAMPAIGN/configs.py" "$CASE" 2>/dev/null)
+fi
+
+
+# =================================================================================
+# MODE=physics: PHYSICS-GRAY data campaign (decision 0051) -- timing + fidelity.
+# Run set: P00 at DECOMP (reference), P00 at TWIN_DECOMP (twin, same physics/
+# different STRICT decomposition -- measures the chaos floor), then each requested
+# Pxx at DECOMP (candidate). Palindromic replicate order over that run-set exactly
+# like the STRICT loop below, tracked by tag (P00_ref/P00_twin/Pxx) instead of by
+# STRICT config id. Replicate 1 of every tag writes interval history (fidelity);
+# replicate 2+ writes no history (clean timing only). Because cmd_physics_order
+# always lists P00_ref/P00_twin FIRST in the entries handed to build_order(), and
+# build_order's very first pass is forward, BOTH reference's and twin's own
+# replicate 1 always complete before any candidate's replicate 1 begins for any
+# REPS>=1 -- so reference/twin BP->netCDF conversion can happen inline, in one
+# pass, with no separate deferred/pending-file bookkeeping needed.
+# =================================================================================
+if [ "$MODE" = "physics" ]; then
+  FIDELITY_GATE="$(dirname "$CAMPAIGN")/fidelity_gate.py"
+  if [ ! -f "$FIDELITY_GATE" ]; then
+    echo "ERROR: fidelity_gate.py not found at $FIDELITY_GATE -- required for MODE=physics" >&2
+    exit 1
+  fi
+
+  DECOMP=${DECOMP:-C02}
+  TWIN_DECOMP=${TWIN_DECOMP:-C06}
+  if [ -z "${CFG_RANKS[$DECOMP]:-}" ]; then
+    echo "ERROR: DECOMP=$DECOMP is not a resolved STRICT config for case $CASE" >&2
+    exit 1
+  fi
+  if [ -z "${CFG_RANKS[$TWIN_DECOMP]:-}" ]; then
+    echo "ERROR: TWIN_DECOMP=$TWIN_DECOMP is not a resolved STRICT config for case $CASE" >&2
+    exit 1
+  fi
+
+  SIM_MINUTES=${SIM_MINUTES:-$PHYSICS_SIM_MINUTES_DEFAULT}
+  HIST_MINUTES_CALC=$(( (SIM_MINUTES + 3) / 6 ))
+  [ "$HIST_MINUTES_CALC" -lt 5 ] && HIST_MINUTES_CALC=5
+  HIST_MINUTES=${HIST_MINUTES:-$HIST_MINUTES_CALC}
+  REPS=${REPS:-2}
+
+  echo "physics campaign: case=$CASE decomp=$DECOMP twin_decomp=$TWIN_DECOMP sim_minutes=$SIM_MINUTES hist_minutes=$HIST_MINUTES reps=$REPS pconfigs=${PCONFIGS:-(default: all applicable)}"
+
+  PCONFIGS_ARGS=()
+  [ -n "${PCONFIGS:-}" ] && PCONFIGS_ARGS=(--pconfigs "$PCONFIGS")
+  # 2>/dev/null + a tag-shaped grep filter: defends the run order against any stray
+  # noise line (e.g. a pixi cache warning) a $PY invocation might print to stdout,
+  # which would otherwise silently splice a bogus entry into PORDER.
+  mapfile -t PORDER < <($PY "$CAMPAIGN/configs.py" physics-order "$CASE" "${PCONFIGS_ARGS[@]}" --reps "$REPS" \
+    2>/dev/null | grep -E '^(P00_ref|P00_twin|P[0-9]+)$')
+  echo "physics order (${#PORDER[@]} runs): ${PORDER[*]}"
+  if [ ${#PORDER[@]} -eq 0 ]; then
+    echo "no physics templates resolved for case $CASE" >&2
+    exit 1
+  fi
+
+  FIDOUT="$OUT/fidelity_${CASE}_${J}"
+  mkdir -p "$FIDOUT"
+
+  declare -A PREPCOUNT
+  declare -A EXPECTED_CANDIDATE
+  REF_OK=0; TWIN_OK=0
+  REF_NC_FILES=(); TWIN_NC_FILES=()
+  GOT_FIDELITY=0
+
+  for tag in "${PORDER[@]}"; do
+    PREPCOUNT[$tag]=$(( ${PREPCOUNT[$tag]:-0} + 1 ))
+    rep=${PREPCOUNT[$tag]}
+
+    case "$tag" in
+      P00_ref)  TEMPLATE_ID=P00; DECOMP_ID=$DECOMP; ROLE=reference ;;
+      P00_twin) TEMPLATE_ID=P00; DECOMP_ID=$TWIN_DECOMP; ROLE=twin ;;
+      *)        TEMPLATE_ID=$tag; DECOMP_ID=$DECOMP; ROLE=candidate ;;
+    esac
+    if [ "$TEMPLATE_ID" = "P00" ]; then COMPLIANCE_CLASS=STRICT; else COMPLIANCE_CLASS=PHYSICS-GRAY; fi
+
+    ranks=${CFG_RANKS[$DECOMP_ID]}; omp=${CFG_OMP[$DECOMP_ID]}; nx=${CFG_NX[$DECOMP_ID]}; ny=${CFG_NY[$DECOMP_ID]}
+    numtiles=${CFG_NUMTILES[$DECOMP_ID]}; dist=${CFG_DIST[$DECOMP_ID]}; blocktime=${CFG_BLOCKTIME[$DECOMP_ID]}
+    ntasks_per_node=$(( ranks / 4 ))
+
+    # 2>/dev/null + tail -n1: physics-describe prints exactly one real line (SKIP\treason
+    # or the 13-field TSV); this defends the read against any stray noise line (e.g. a
+    # pixi cache warning) landing before it.
+    IFS=$'\t' read -r P_FAMILY P_EDITS P_PROBE P_TS P_MP P_CU P_BL P_SFCLAY P_SFSURF P_RLW P_RSW P_RADT P_CUDT \
+      < <($PY "$CAMPAIGN/configs.py" physics-describe "$CASE" "$TEMPLATE_ID" 2>/dev/null | tail -n1)
+
+    if [ "$ROLE" = "candidate" ] && [ "$rep" = "1" ] && [ "$P_FAMILY" != "SKIP" ]; then
+      EXPECTED_CANDIDATE[$tag]=1
+    fi
+
+    if [ "$P_FAMILY" = "SKIP" ]; then
+      REASON_TXT=$(echo "$P_EDITS" | tr ' \t' '__')
+      echo "SKIP case=$CASE template=$TEMPLATE_ID tag=$tag rep=$rep reason=$P_EDITS"
+      NOTES="mode=physics template=$TEMPLATE_ID family=- edits= decomp=$DECOMP_ID sim_minutes=$SIM_MINUTES hist_minutes=$HIST_MINUTES fidelity_nd_max= fidelity_floor_ratio_max= fidelity_deciding= tag=$tag role=$ROLE rep=$rep probe=none status=SKIPPED reason=$REASON_TXT"
+      export RUN_ID="${CASE}_physics_${tag}_r${rep}_${J}" SRC_DATASET="physics_campaign" JOB_ID="$J" \
+        REP_INDEX="$rep" CASE_RAW="$CASE" CASE_BASE="$CASE" CASE_FAMILY="$CASE_FAMILY" \
+        HARDWARE_ID="$HARDWARE_ID" BINARY_KIND="pristine" COMPLIANCE_CLASS="$COMPLIANCE_CLASS" \
+        E_WE="$E_WE" E_SN="$E_SN" E_VERT="$E_VERT" DX="$DX" DY="$DY" TIME_STEP="$DT" \
+        MP_PHYSICS="$PHYS_MP_PHYSICS" CU_PHYSICS="$PHYS_CU_PHYSICS" BL_PBL_PHYSICS="$PHYS_BL_PBL_PHYSICS" \
+        SF_SFCLAY_PHYSICS="$PHYS_SF_SFCLAY_PHYSICS" SF_SURFACE_PHYSICS="$PHYS_SF_SURFACE_PHYSICS" \
+        RA_LW_PHYSICS="$PHYS_RA_LW_PHYSICS" RA_SW_PHYSICS="$PHYS_RA_SW_PHYSICS" \
+        RADT="$PHYS_RADT" CUDT="$PHYS_CUDT" \
+        HISTORY_INTERVAL="0" IO_FORM_HISTORY="14" \
+        N_NODES="4" N_RANKS="$ranks" OMP_THREADS="$omp" NPROC_X="$nx" NPROC_Y="$ny" \
+        NUMTILES="$numtiles" DISTRIBUTION="$dist" KMP_BLOCKTIME_COL="$blocktime" \
+        S_PER_STEP_MEDIAN="" S_PER_STEP_MEAN="" N_STEPS_MEASURED="" \
+        DIFFWRF_DIFFERING_FIELDS="" FIDELITY_LABEL="" NOTES="$NOTES" PHYSICS_SUITE_NOTE="$PHYSICS_SUITE"
+      python3 - "$LEDGER" <<'PY'
+import csv, os, sys
+ledger = sys.argv[1]
+e = os.environ.get
+notes = e("NOTES", "")
+suite = e("PHYSICS_SUITE_NOTE", "")
+if suite:
+    notes = "physics_suite=%s %s" % (suite, notes)
+row = [
+    e("RUN_ID"), e("SRC_DATASET"), e("JOB_ID"), e("REP_INDEX"), e("CASE_RAW"), e("CASE_BASE"),
+    e("CASE_FAMILY"), e("HARDWARE_ID"), e("BINARY_KIND"), e("COMPLIANCE_CLASS"),
+    e("E_WE"), e("E_SN"), e("E_VERT"), e("DX"), e("DY"), e("TIME_STEP"),
+    e("MP_PHYSICS"), e("CU_PHYSICS"), e("BL_PBL_PHYSICS"), e("SF_SFCLAY_PHYSICS"),
+    e("SF_SURFACE_PHYSICS"), e("RA_LW_PHYSICS"), e("RA_SW_PHYSICS"), e("RADT"), e("CUDT"),
+    e("HISTORY_INTERVAL"), e("IO_FORM_HISTORY"), e("N_NODES"), e("N_RANKS"), e("OMP_THREADS"),
+    e("NPROC_X"), e("NPROC_Y"), e("NUMTILES"), e("DISTRIBUTION"), e("KMP_BLOCKTIME_COL"),
+    e("S_PER_STEP_MEDIAN", ""), e("S_PER_STEP_MEAN", ""), e("N_STEPS_MEASURED", ""),
+    e("DIFFWRF_DIFFERING_FIELDS", ""), e("FIDELITY_LABEL"),
+    "", "", "", "", "", "", "",
+    notes,
+]
+with open(ledger, "a", newline="") as f:
+    csv.writer(f).writerow(row)
+PY
+      continue
+    fi
+
+    RUNDIR="$OUT/${CASE}_physics_${tag}_r${rep}_${J}"
+    rm -rf "$RUNDIR"; mkdir -p "$RUNDIR"; cd "$RUNDIR"
+
+    for f in "${INPUT_FILES_ARR[@]}"; do
+      ln -sf "$PREP_DIR/$f" "$f"
+    done
+    for ((d = 1; d <= MAX_DOM; d++)); do
+      df=$(printf "d%02d" "$d")
+      ln -sf "$BP_DIR/wrfinput_${df}.bp" "wrfinput_${df}.bp"
+    done
+    ln -sf "$BP_DIR/wrfbdy_d01.bp" "wrfbdy_d01.bp"
+    for f in "$W"/run/*; do
+      b=$(basename "$f")
+      case "$b" in namelist.input|wrfout*|wrfinput*|wrfbdy*|wrfrst*|rsl.*) ;;
+        *) [ -e "$b" ] || ln -sf "$f" "$b" ;; esac
+    done
+    cp "$NAMELIST_TEMPLATE" ./namelist.input.orig
+    SET_ARGS=()
+    if [ -n "${NAMELIST_OVERRIDES:-}" ]; then
+      for kv in $NAMELIST_OVERRIDES; do
+        SET_ARGS+=(--set "$kv")
+      done
+    fi
+    DELETE_ARGS=()
+    if [ -n "${NAMELIST_DELETE_KEYS:-}" ]; then
+      for k in $NAMELIST_DELETE_KEYS; do
+        DELETE_ARGS+=(--delete-key "$k")
+      done
+    fi
+    NEST_ARGS=()
+    [ "$NEST_HISTORY" = "1" ] && NEST_ARGS+=(--nest-history-on)
+    if [ "$rep" = "1" ]; then
+      HIST_ARGS=(--history-mode interval --history-minutes "$HIST_MINUTES")
+    else
+      HIST_ARGS=(--history-mode off)
+    fi
+    python3 "$CAMPAIGN/configs.py" edit-namelist ./namelist.input.orig ./namelist.input \
+      --nproc-x "$nx" --nproc-y "$ny" --numtiles "$numtiles" \
+      --run-minutes "$SIM_MINUTES" --max-dom "$MAX_DOM" --ranks "$ranks" \
+      "${SET_ARGS[@]}" "${DELETE_ARGS[@]}" "${NEST_ARGS[@]}" "${HIST_ARGS[@]}" \
+      --physics-template "$TEMPLATE_ID" --physics-case "$CASE"
+    rm -f ./namelist.input.orig
+    ln -sf "$W/main/wrf.exe" ./wrf.exe
+
+    export OMP_NUM_THREADS=$omp
+    if [ "$blocktime" = "default" ]; then
+      unset KMP_BLOCKTIME
+    else
+      export KMP_BLOCKTIME=$blocktime
+    fi
+
+    T0=$(date +%s.%N)
+    timeout "$TIMEOUT_S" srun --mpi=pmi2 --distribution="$dist" -n "$ranks" \
+      --ntasks-per-node="$ntasks_per_node" -c "$omp" ./wrf.exe > wrf.out 2>&1
+    RC=$?
+    T1=$(date +%s.%N)
+    WALL=$(python3 -c "print('%.1f' % ($T1 - $T0))")
+
+    OK=0
+    if [ -f rsl.error.0000 ] && grep -q "SUCCESS COMPLETE WRF" rsl.error.0000; then
+      OK=1
+    fi
+
+    grep "Timing for main" rsl.out.0000 2>/dev/null | sed -nE 's/.*on domain +([0-9]+): +([0-9.]+) elapsed.*/\1 \2/p' > steps_by_domain.txt
+    awk '$1 == 1 { print $2 }' steps_by_domain.txt > steps.txt
+
+    if [ "$RC" = "0" ] && [ "$OK" = "1" ]; then
+      STATS=$($PY "$CAMPAIGN/configs.py" step-stats steps.txt)
+    else
+      NALL_RAW=$(wc -l < steps.txt 2>/dev/null || echo 0)
+      NALL=$(( NALL_RAW > 0 ? NALL_RAW - 1 : 0 ))
+      NEXCL0=0; [ -s steps.txt ] && NEXCL0=1
+      STATS="med= mean= n=0 excl=$NEXCL0 nall=$NALL"
+    fi
+    kv () { echo "$STATS" | awk -v k="$1" '{for (i = 1; i <= NF; i++) {split($i, a, "="); if (a[1] == k) print a[2]}}'; }
+    MED=$(kv med); MEAN=$(kv mean); NMEAS=$(kv n); NEXCL=$(kv excl); NALL=$(kv nall)
+
+    echo "RESULT case=$CASE mode=physics tag=$tag template=$TEMPLATE_ID role=$ROLE rep=$rep decomp=$DECOMP_ID rc=$RC ok=$OK med=$MED mean=$MEAN n=$NMEAS wall=$WALL"
+
+    FID_LABEL=""; FID_ND=""; FID_FLOOR=""; FID_DECIDING=""
+    STATUS_NOTE=""
+    if [ "$rep" = "1" ]; then
+      if [ "$RC" = "0" ] && [ "$OK" = "1" ]; then
+        mapfile -t FRAMES < <(ls -d wrfout_d01_* 2>/dev/null | sort)
+        NC_FILES=()
+        CONV_OK=1
+        if [ ${#FRAMES[@]} -eq 0 ]; then
+          CONV_OK=0
+        fi
+        for bf in "${FRAMES[@]}"; do
+          ncf="${bf}.nc"
+          srun -N1 -n1 -c8 bash -c "cd $PIXI_ENV && pixi run python $CONV --input $RUNDIR/$bf --output $RUNDIR/$ncf" \
+            > "convert_${bf}.log" 2>&1
+          if [ $? -ne 0 ] || [ ! -f "$ncf" ]; then
+            CONV_OK=0
+            rm -f "$ncf"
+            break
+          fi
+          NC_FILES+=("$RUNDIR/$ncf")
+        done
+        if [ "$CONV_OK" = "1" ]; then
+          case "$ROLE" in
+            reference)
+              REF_NC_FILES=("${NC_FILES[@]}")
+              REF_OK=1
+              ;;
+            twin)
+              TWIN_NC_FILES=("${NC_FILES[@]}")
+              TWIN_OK=1
+              if [ "$REF_OK" = "1" ]; then
+                FID_PREFIX="$RUNDIR/fidelity_TWIN_sanity"
+                $PY "$FIDELITY_GATE" --reference "${REF_NC_FILES[@]}" --twin "${TWIN_NC_FILES[@]}" \
+                  --candidate "${TWIN_NC_FILES[@]}" --family all --out-prefix "$FID_PREFIX" \
+                  > "$RUNDIR/fidelity_gate.log" 2>&1
+                if [ -f "${FID_PREFIX}.json" ]; then
+                  # 2>/dev/null + tail -n1: the python one-liner prints exactly one real
+                  # line; defends the read against any stray noise line preceding it.
+                  read -r FID_LABEL FID_ND FID_FLOOR FID_DECIDING < <($PY - "${FID_PREFIX}.json" 2>/dev/null <<'PYEOF'
+import json, sys
+d = json.load(open(sys.argv[1]))
+thr = d.get("thresholds") or {}
+deciding = str(d.get("deciding") or "").replace(" ", "_")
+print(d.get("label") or "", thr.get("nd_max", ""), thr.get("floor_ratio_max", ""), deciding)
+PYEOF
+                  | tail -n1)
+                  cp "${FID_PREFIX}.json" "${FID_PREFIX}.csv" "$FIDOUT/" 2>/dev/null
+                  GOT_FIDELITY=$((GOT_FIDELITY + 1))
+                else
+                  STATUS_NOTE="status=FAILED reason=fidelity_gate_error_see_fidelity_gate.log"
+                fi
+              fi
+              ;;
+            candidate)
+              if [ "$REF_OK" = "1" ] && [ "$TWIN_OK" = "1" ]; then
+                FID_PREFIX="$RUNDIR/fidelity_${TEMPLATE_ID}"
+                $PY "$FIDELITY_GATE" --reference "${REF_NC_FILES[@]}" --twin "${TWIN_NC_FILES[@]}" \
+                  --candidate "${NC_FILES[@]}" --family "$P_FAMILY" --out-prefix "$FID_PREFIX" \
+                  > "$RUNDIR/fidelity_gate.log" 2>&1
+                if [ -f "${FID_PREFIX}.json" ]; then
+                  # 2>/dev/null + tail -n1: the python one-liner prints exactly one real
+                  # line; defends the read against any stray noise line preceding it.
+                  read -r FID_LABEL FID_ND FID_FLOOR FID_DECIDING < <($PY - "${FID_PREFIX}.json" 2>/dev/null <<'PYEOF'
+import json, sys
+d = json.load(open(sys.argv[1]))
+thr = d.get("thresholds") or {}
+deciding = str(d.get("deciding") or "").replace(" ", "_")
+print(d.get("label") or "", thr.get("nd_max", ""), thr.get("floor_ratio_max", ""), deciding)
+PYEOF
+                  | tail -n1)
+                  cp "${FID_PREFIX}.json" "${FID_PREFIX}.csv" "$FIDOUT/" 2>/dev/null
+                  GOT_FIDELITY=$((GOT_FIDELITY + 1))
+                else
+                  STATUS_NOTE="status=FAILED reason=fidelity_gate_error_see_fidelity_gate.log"
+                fi
+              else
+                STATUS_NOTE="status=FAILED reason=reference_or_twin_unavailable"
+              fi
+              ;;
+          esac
+        else
+          STATUS_NOTE="status=FAILED reason=bp_to_netcdf_conversion_failed"
+        fi
+      else
+        STATUS_NOTE="status=FAILED reason=run_failed_rc=${RC}_ok=${OK}"
+      fi
+    fi
+
+    NOTES="mode=physics template=$TEMPLATE_ID family=$P_FAMILY edits=$P_EDITS decomp=$DECOMP_ID sim_minutes=$SIM_MINUTES hist_minutes=$HIST_MINUTES fidelity_nd_max=$FID_ND fidelity_floor_ratio_max=$FID_FLOOR fidelity_deciding=$FID_DECIDING tag=$tag role=$ROLE rep=$rep n_excluded_steps=$NEXCL mean_includes_radiation=1 n_all_steps=$NALL io=adios2 $P_PROBE"
+    [ -n "$STATUS_NOTE" ] && NOTES="$NOTES $STATUS_NOTE"
+    [ "$RC" != "0" ] && NOTES="$NOTES rc=$RC"
+    [ "$OK" != "1" ] && NOTES="$NOTES ok=$OK"
+
+    export RUN_ID="${CASE}_physics_${tag}_r${rep}_${J}" SRC_DATASET="physics_campaign" JOB_ID="$J" \
+      REP_INDEX="$rep" CASE_RAW="$CASE" CASE_BASE="$CASE" CASE_FAMILY="$CASE_FAMILY" \
+      HARDWARE_ID="$HARDWARE_ID" BINARY_KIND="pristine" COMPLIANCE_CLASS="$COMPLIANCE_CLASS" \
+      E_WE="$E_WE" E_SN="$E_SN" E_VERT="$E_VERT" DX="$DX" DY="$DY" TIME_STEP="$P_TS" \
+      MP_PHYSICS="$P_MP" CU_PHYSICS="$P_CU" BL_PBL_PHYSICS="$P_BL" \
+      SF_SFCLAY_PHYSICS="$P_SFCLAY" SF_SURFACE_PHYSICS="$P_SFSURF" \
+      RA_LW_PHYSICS="$P_RLW" RA_SW_PHYSICS="$P_RSW" \
+      RADT="$P_RADT" CUDT="$P_CUDT" \
+      HISTORY_INTERVAL="$([ "$rep" = "1" ] && echo "$HIST_MINUTES" || echo 0)" IO_FORM_HISTORY="14" \
+      N_NODES="4" N_RANKS="$ranks" OMP_THREADS="$omp" NPROC_X="$nx" NPROC_Y="$ny" \
+      NUMTILES="$numtiles" DISTRIBUTION="$dist" KMP_BLOCKTIME_COL="$blocktime" \
+      S_PER_STEP_MEDIAN="$MED" S_PER_STEP_MEAN="$MEAN" N_STEPS_MEASURED="$NMEAS" \
+      DIFFWRF_DIFFERING_FIELDS="" FIDELITY_LABEL="$FID_LABEL" NOTES="$NOTES" \
+      PHYSICS_SUITE_NOTE="$PHYSICS_SUITE"
+    python3 - "$LEDGER" <<'PY'
+import csv, os, sys
+ledger = sys.argv[1]
+e = os.environ.get
+notes = e("NOTES", "")
+suite = e("PHYSICS_SUITE_NOTE", "")
+if suite:
+    notes = "physics_suite=%s %s" % (suite, notes)
+row = [
+    e("RUN_ID"), e("SRC_DATASET"), e("JOB_ID"), e("REP_INDEX"), e("CASE_RAW"), e("CASE_BASE"),
+    e("CASE_FAMILY"), e("HARDWARE_ID"), e("BINARY_KIND"), e("COMPLIANCE_CLASS"),
+    e("E_WE"), e("E_SN"), e("E_VERT"), e("DX"), e("DY"), e("TIME_STEP"),
+    e("MP_PHYSICS"), e("CU_PHYSICS"), e("BL_PBL_PHYSICS"), e("SF_SFCLAY_PHYSICS"),
+    e("SF_SURFACE_PHYSICS"), e("RA_LW_PHYSICS"), e("RA_SW_PHYSICS"), e("RADT"), e("CUDT"),
+    e("HISTORY_INTERVAL"), e("IO_FORM_HISTORY"), e("N_NODES"), e("N_RANKS"), e("OMP_THREADS"),
+    e("NPROC_X"), e("NPROC_Y"), e("NUMTILES"), e("DISTRIBUTION"), e("KMP_BLOCKTIME_COL"),
+    e("S_PER_STEP_MEDIAN", ""), e("S_PER_STEP_MEAN", ""), e("N_STEPS_MEASURED", ""),
+    e("DIFFWRF_DIFFERING_FIELDS", ""), e("FIDELITY_LABEL"),
+    "", "", "", "", "", "", "",
+    notes,
+]
+with open(ledger, "a", newline="") as f:
+    csv.writer(f).writerow(row)
+PY
+
+    # rsl.* trimmed unconditionally (cheap, independent of the BP/netCDF retention
+    # decision below); wrf.out kept on failure so the launcher's own log survives.
+    find . -maxdepth 1 -name 'rsl.*' ! -name 'rsl.out.0000' ! -name 'rsl.error.0000' -delete
+    if [ "$RC" = "0" ] && [ "$OK" = "1" ]; then rm -f wrf.out; fi
+
+    cd "$OUT"
+  done
+
+  EXPECTED_FIDELITY=$(( 1 + ${#EXPECTED_CANDIDATE[@]} ))
+  if [ "$REF_OK" = "1" ] && [ "$TWIN_OK" = "1" ] && [ "$GOT_FIDELITY" -eq "$EXPECTED_FIDELITY" ]; then
+    for d in "$OUT/${CASE}_physics_"*"_${J}"; do
+      [ -d "$d" ] || continue
+      find "$d" -maxdepth 1 -name 'wrfout_d0*' -exec rm -rf {} +
+    done
+    echo "RETENTION: all $EXPECTED_FIDELITY expected fidelity JSON(s) present (case=$CASE job=$J) -- BP history and converted netCDF cleaned up"
+  else
+    echo "RETENTION: keeping all BP history and converted netCDF for case=$CASE job=$J -- ref_ok=$REF_OK twin_ok=$TWIN_OK got_fidelity=$GOT_FIDELITY expected_fidelity=$EXPECTED_FIDELITY (see per-run notes in $LEDGER for which run is missing/failed)"
+  fi
+
+  echo "=== done (MODE=physics)"
+  exit 0
+fi
 
 mapfile -t ORDER < <($PY "$CAMPAIGN/configs.py" order "$CASE" --reps "$REPS")
 # optional subset for smoke tests: CONFIGS=C02+C05 keeps only those ids, preserving the order
@@ -176,11 +570,23 @@ for cid in "${ORDER[@]}"; do
   fi
   NEST_ARGS=()
   [ "$NEST_HISTORY" = "1" ] && NEST_ARGS+=(--nest-history-on)
+  # Tile geometry (WTune D1 decomposition-space work): only meaningful, and only ever set, for a
+  # CONFIG_FILE-generated config -- a plain STRICT template never has these CFG_* entries
+  # populated (the CONFIG_FILE-unset branch above never fills them), so TILE_ARGS stays empty and
+  # this edit-namelist call is byte-identical to before CONFIG_FILE existed.
+  TILE_ARGS=()
+  if [ -n "${CONFIG_FILE:-}" ]; then
+    TILE_ARGS=(
+      --numtiles-x "${CFG_NTILES_X[$cid]:-0}" --numtiles-y "${CFG_NTILES_Y[$cid]:-0}"
+      --tile-sz-x "${CFG_TSZ_X[$cid]:-0}" --tile-sz-y "${CFG_TSZ_Y[$cid]:-0}"
+      --tile-strategy "${CFG_TSTRAT[$cid]:-0}"
+    )
+  fi
   python3 "$CAMPAIGN/configs.py" edit-namelist ./namelist.input.orig ./namelist.input \
     --nproc-x "$nx" --nproc-y "$ny" --numtiles "$numtiles" \
     --run-minutes "$MIN" --max-dom "$MAX_DOM" \
     --history-mode "$HISTORY_MODE_ARG" --ranks "$ranks" \
-    "${SET_ARGS[@]}" "${DELETE_ARGS[@]}" "${NEST_ARGS[@]}"
+    "${SET_ARGS[@]}" "${DELETE_ARGS[@]}" "${NEST_ARGS[@]}" "${TILE_ARGS[@]}"
   rm -f ./namelist.input.orig
   ln -sf "$W/main/wrf.exe" ./wrf.exe
 
@@ -273,6 +679,12 @@ for cid in "${ORDER[@]}"; do
     NOTES="$NOTES history=end_d01 diff_status=$DIFF_STATUS diff_domain=d01 max_dom=$MAX_DOM convert_rc=$CONVERT_RC"
   else
     NOTES="$NOTES history=off"
+  fi
+  # WTune D1 decomposition-space work: a CONFIG_FILE-generated run's tile geometry has no ledger
+  # column of its own (schema unchanged), so it goes into notes instead. Absent for a plain
+  # STRICT-template run (CONFIG_FILE unset).
+  if [ -n "${CONFIG_FILE:-}" ]; then
+    NOTES="$NOTES config_source=${CFG_SRC[$cid]:-generated} numtiles_x=${CFG_NTILES_X[$cid]:-} numtiles_y=${CFG_NTILES_Y[$cid]:-} tile_sz_x=${CFG_TSZ_X[$cid]:-} tile_sz_y=${CFG_TSZ_Y[$cid]:-} tile_strategy=${CFG_TSTRAT[$cid]:-}"
   fi
   NOTES="$NOTES mean_includes_radiation=1 n_all_steps=$NALL"
   [ "$RC" != "0" ] && NOTES="$NOTES rc=$RC"

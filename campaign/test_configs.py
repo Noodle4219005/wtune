@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Unit tests for campaign/configs.py. Stdlib unittest, Python 3.6 compatible."""
+import json
 import os
 import sys
 import unittest
@@ -37,6 +38,14 @@ class TestLegalShapes(unittest.TestCase):
         self.assertNotIn((8, 56), pairs)
         # (16, 28) gives patch_x=ceil(425/16)=27>=10, patch_y=ceil(300/28)=11>=10 -> legal
         self.assertIn((16, 28), pairs)
+
+    def test_legality_uses_wrf_integer_division(self):
+        # share/module_check_a_mundo.F:3014-3029: e_we/nproc_x < 10 (integer division) aborts
+        self.assertTrue(configs.wrf_patch_legal(100, 10))
+        self.assertFalse(configs.wrf_patch_legal(99, 10))    # ceil would give 10, WRF gives 9
+        # conus12 e_sn=300, nproc_y=32: ceil 10 but floor 9 -> WRF aborts, must be illegal
+        pairs = [(nx, ny) for nx, ny, px, py in configs.legal_shapes(425, 300, 448)]
+        self.assertNotIn((14, 32), pairs)
 
     def test_conus12_448_ranks_has_legal_shapes(self):
         # documents that 425x300 at 448 ranks is NOT fully illegal (some templates
@@ -210,6 +219,46 @@ class TestNamelistEditing(unittest.TestCase):
         text = self.SYNTHETIC_WITH_EXISTING + "&physics\n mp_physics=8,\n/\n"
         out = configs.edit_namelist(text, 14, 16, 12, 8, history_mode="end_d01", ranks=224)
         self.assertIn("mp_physics=8,", out)
+
+    # -- WTune D1 decomposition-space work: numtiles_x/y/tile_sz_x/y/tile_strategy --------------
+    def test_tile_geometry_args_default_none_is_byte_identical(self):
+        """Every new edit_namelist param defaults to None: a call with none of them given must
+        produce EXACTLY the same text as before these params existed."""
+        with_extra = configs.edit_namelist(self.SYNTHETIC_WITHOUT_EXISTING, 14, 16, 12, 8,
+                                            history_mode="end_d01", ranks=224)
+        without_extra_kwargs = configs.edit_namelist(
+            self.SYNTHETIC_WITHOUT_EXISTING, 14, 16, 12, 8, history_mode="end_d01", ranks=224,
+            numtiles_x=None, numtiles_y=None, tile_sz_x=None, tile_sz_y=None, tile_strategy=None)
+        self.assertEqual(with_extra, without_extra_kwargs)
+        self.assertNotIn("numtiles_x", with_extra)
+        self.assertNotIn("tile_strategy", with_extra)
+
+    def test_tile_geometry_args_written_once_on_domains_line_when_given(self):
+        out = configs.edit_namelist(self.SYNTHETIC_WITHOUT_EXISTING, 14, 16, 12, 8,
+                                     history_mode="end_d01", ranks=224,
+                                     numtiles_x=2, numtiles_y=6, tile_sz_x=0, tile_sz_y=0,
+                                     tile_strategy=3)
+        self.assertIn("nproc_x=14, nproc_y=16, numtiles=12, numtiles_x=2, numtiles_y=6, "
+                      "tile_sz_x=0, tile_sz_y=0, tile_strategy=3,", out)
+        for key in ("numtiles_x", "numtiles_y", "tile_sz_x", "tile_sz_y", "tile_strategy"):
+            self.assertEqual(out.count(key), 1, key)
+
+    def test_tile_geometry_args_partial_only_writes_given_keys(self):
+        out = configs.edit_namelist(self.SYNTHETIC_WITHOUT_EXISTING, 14, 16, 12, 8,
+                                     history_mode="end_d01", ranks=224, numtiles_x=4)
+        self.assertIn("numtiles_x=4", out)
+        self.assertNotIn("numtiles_y", out)
+        self.assertNotIn("tile_sz_x", out)
+        self.assertNotIn("tile_strategy", out)
+
+    def test_tile_geometry_args_replace_stale_existing_line(self):
+        text = self.SYNTHETIC_WITHOUT_EXISTING.replace(
+            "&domains\n", "&domains\n numtiles_x = 99,\n")
+        out = configs.edit_namelist(text, 14, 16, 12, 8, history_mode="end_d01", ranks=224,
+                                     numtiles_x=2, numtiles_y=6)
+        self.assertNotIn("numtiles_x = 99", out)
+        self.assertEqual(out.count("numtiles_x"), 1)
+        self.assertIn("numtiles_x=2, numtiles_y=6,", out)
 
     SYNTHETIC_3DOMAIN = (
         "&time_control\n"
@@ -668,7 +717,10 @@ class TestCasesJsonStrictCampaignEdits(unittest.TestCase):
     def test_lafe_has_namelist_delete_keys(self):
         lafe = configs.CASES["lafe"]
         self.assertIn("namelist_delete_keys", lafe)
-        self.assertEqual(set(lafe["namelist_delete_keys"]), {"bl_mynn_tkebudget", "opt_run"})
+        # iofields_filename / ignore_iofields_warning were added 2026-09-14 after the
+        # modify_io_masks1 SIGSEGV (smoke job 1074691)
+        self.assertEqual(set(lafe["namelist_delete_keys"]),
+                         {"bl_mynn_tkebudget", "opt_run", "iofields_filename", "ignore_iofields_warning"})
 
     def test_isc21_disables_validation_aux_stream(self):
         isc21 = configs.CASES["isc21"]
@@ -780,6 +832,683 @@ class TestQuiltingOff(unittest.TestCase):
         out = configs.edit_namelist(text, 4, 56, 12, 5, ranks=224, max_dom=2)
         self.assertEqual(out.count("&namelist_quilt"), 1)
         self.assertIn("nio_tasks_per_group=0,", out)
+
+
+class TestHistoryModeInterval(unittest.TestCase):
+    """MODE=physics fidelity replicates (decision 0051): --history-mode interval
+    --history-minutes N writes a d01 frame every N minutes starting at t=0
+    (history_begin*=0), nested domains still off by default -- same
+    nest_history_on-gated rule as 'off'/'end_d01'."""
+
+    SINGLE = TestNamelistEditing.SYNTHETIC_WITH_EXISTING
+    NEST_MINUTES = TestNestHistory.SYNTHETIC_NEST_MINUTES
+    NEST_MINUTES_M = TestNestHistory.SYNTHETIC_NEST_MINUTES_M
+    NEST_SECONDS = TestNamelistEditing.SYNTHETIC_3DOMAIN
+
+    def test_interval_single_domain(self):
+        out = configs.edit_namelist(self.SINGLE, 14, 16, 12, 60, history_mode="interval",
+                                     history_minutes=10, ranks=224)
+        self.assertIn("history_interval=10,", out)
+        self.assertIn("history_begin = 0,", out)
+        self.assertIn("run_minutes=60", out)
+
+    def test_interval_minutes_variant_max_dom_2(self):
+        out = configs.edit_namelist(self.NEST_MINUTES, 4, 28, 6, 60, max_dom=2,
+                                     history_mode="interval", history_minutes=10, ranks=112)
+        self.assertIn("history_interval = 10, 0,", out)
+        self.assertIn("history_begin = 0, 0,", out)
+
+    def test_interval_minutes_m_variant_max_dom_3(self):
+        out = configs.edit_namelist(self.NEST_MINUTES_M, 16, 28, 8, 60, max_dom=3,
+                                     history_mode="interval", history_minutes=10, ranks=448)
+        self.assertIn("history_interval_m = 10, 0, 0,", out)
+        self.assertIn("history_begin_m = 0, 0, 0,", out)
+
+    def test_interval_seconds_variant_max_dom_3(self):
+        out = configs.edit_namelist(self.NEST_SECONDS, 16, 28, 8, 30, max_dom=3,
+                                     history_mode="interval", history_minutes=5, ranks=448)
+        self.assertIn("history_interval_s = 300, 0, 0,", out)
+        self.assertIn("history_begin_s = 0, 0, 0,", out)
+
+    def test_interval_requires_history_minutes(self):
+        with self.assertRaises(ValueError):
+            configs.edit_namelist(self.SINGLE, 14, 16, 12, 60, history_mode="interval", ranks=224)
+
+    def test_off_and_end_d01_still_work_alongside_interval(self):
+        # 'interval' is additive -- the two pre-existing modes are unaffected.
+        out_off = configs.edit_namelist(self.SINGLE, 14, 16, 12, 8, history_mode="off", ranks=224)
+        self.assertIn("history_interval=0,", out_off)
+        out_end = configs.edit_namelist(self.SINGLE, 14, 16, 12, 8, history_mode="end_d01", ranks=224)
+        self.assertIn("history_interval=8,", out_end)
+
+
+class TestFindNamelistKey(unittest.TestCase):
+    """_find_namelist_key's own-value-list-only extraction: it must stop before a
+    different key's assignment jammed onto the same line, and must not fabricate
+    values beyond what the line actually has."""
+
+    def test_single_value_own_line(self):
+        text = "&physics\n mp_physics=8, ra_lw_physics=4,\n/\n"
+        found = configs._find_namelist_key(text, "mp_physics")
+        self.assertIsNotNone(found)
+        self.assertEqual(found["values"], ["8"])
+        # ra_lw_physics on the SAME line must not leak into mp_physics's own values
+        self.assertNotIn("4", found["values"])
+
+    def test_multi_value_own_line(self):
+        text = "&physics\n radt = 3, 3, 3,\n/\n"
+        found = configs._find_namelist_key(text, "radt")
+        self.assertEqual(found["values"], ["3", "3", "3"])
+
+    def test_stops_before_next_key_jammed_on_same_line(self):
+        text = "&domains\n time_step=15, e_we=901, e_sn=901, e_vert=45,\n/\n"
+        found = configs._find_namelist_key(text, "time_step")
+        self.assertEqual(found["values"], ["15"])
+        # replacing [value_start:value_end] must leave the rest of the line intact
+        rebuilt = text[:found["value_start"]] + "18," + text[found["value_end"]:]
+        self.assertIn("time_step=18, e_we=901, e_sn=901, e_vert=45,", rebuilt)
+
+    def test_missing_key_returns_none(self):
+        text = "&physics\n mp_physics=8,\n/\n"
+        self.assertIsNone(configs._find_namelist_key(text, "swint_opt"))
+
+    def test_commented_line_never_matches(self):
+        text = "&physics\n! swint_opt = 0,\n mp_physics=8,\n/\n"
+        self.assertIsNone(configs._find_namelist_key(text, "swint_opt"))
+
+
+class TestApplyPhysicsEdit(unittest.TestCase):
+    """apply_physics_edit: set/mul/delete on single- and multi-domain namelists,
+    trailing (beyond max_dom) entries left untouched, and the -1 physics_suite
+    'mul' hard error."""
+
+    SINGLE_DOMAIN = "&physics\n mp_physics=8, radt=15,\n/\n&domains\n time_step=15, e_we=901, e_sn=901, e_vert=45,\n/\n"
+    THREE_DOMAIN = "&physics\n mp_physics = 8, 8, 8,\n radt = 3, 3, 3,\n swint_opt = 1,\n/\n&domains\n max_dom=3,\n time_step = 15,\n/\n"
+    SUITE = "&physics\n physics_suite = 'conus'\n mp_physics = -1,\n radt = 10,\n/\n&domains\n time_step=15,\n/\n"
+    # lafe-like: 3 native values on-disk, but the case's own max_dom override trims to 1
+    TRIMMED = "&physics\n mp_physics = 28, 28, 28,\n radt = 1, 1, 1,\n/\n&domains\n max_dom = 3,\n time_step = 10,\n/\n"
+    # maria1km-like: 3 native values, max_dom=2, and d03's OWN value differs from d01/d02
+    NONUNIFORM_TRAILING = "&physics\n radt = 12, 12, 30,\n/\n&domains\n max_dom = 2,\n time_step = 25,\n/\n"
+
+    def test_set_on_existing_single_value(self):
+        out, old, new = configs.apply_physics_edit(
+            self.SINGLE_DOMAIN, {"op": "set", "key": "mp_physics", "value": 6}, 1)
+        self.assertEqual(old, ["8"])
+        self.assertEqual(new, ["6"])
+        # SINGLE_DOMAIN's own "key=value" spacing (no spaces) is preserved --
+        # only the value list is rewritten, never the "key = " prefix.
+        self.assertIn("mp_physics=6,", out)
+
+    def test_set_inserts_single_value_when_absent(self):
+        out, old, new = configs.apply_physics_edit(
+            self.SINGLE_DOMAIN, {"op": "set", "key": "swint_opt", "value": 1}, 1)
+        self.assertEqual(old, [])
+        self.assertEqual(new, ["1"])
+        self.assertIn("swint_opt = 1,", out)
+        # even with max_dom>1 elsewhere in the file, an inserted key gets exactly one value
+        out2, _old2, new2 = configs.apply_physics_edit(
+            self.THREE_DOMAIN, {"op": "set", "key": "diff_opt", "value": 1}, 3)
+        self.assertEqual(new2, ["1"])
+        self.assertEqual(out2.count("diff_opt"), 1)
+
+    def test_mul_multiplies_every_active_domain_independently(self):
+        out, old, new = configs.apply_physics_edit(
+            self.THREE_DOMAIN, {"op": "mul", "key": "radt", "factor": 2, "round": "int"}, 3)
+        self.assertEqual(old, ["3", "3", "3"])
+        self.assertEqual(new, ["6", "6", "6"])
+        self.assertIn("radt = 6, 6, 6,", out)
+
+    def test_mul_leaves_trailing_beyond_max_dom_untouched(self):
+        # lafe-like: max_dom override trims 3 -> 1; entries beyond index 0 must
+        # be preserved byte-for-byte, per the task's own trim-is-harmless note.
+        out, old, new = configs.apply_physics_edit(
+            self.TRIMMED, {"op": "mul", "key": "radt", "factor": 2, "round": "int"}, 1)
+        self.assertEqual(old, ["1"])
+        self.assertEqual(new, ["2"])
+        self.assertIn("radt = 2, 1, 1,", out)
+
+    def test_mul_leaves_nonuniform_trailing_domain_untouched(self):
+        # maria1km-like: d03's OWN native value (30) differs from d01/d02 (12) and
+        # must stay 30, not be derived from d01's new value.
+        out, old, new = configs.apply_physics_edit(
+            self.NONUNIFORM_TRAILING, {"op": "mul", "key": "radt", "factor": 2, "round": "int"}, 2)
+        self.assertEqual(old, ["12", "12"])
+        self.assertEqual(new, ["24", "24"])
+        self.assertIn("radt = 24, 24, 30,", out)
+
+    def test_mul_time_step_rounds_to_int(self):
+        # conus12-like: dt=72 -> 72*1.2=86.4 -> 86
+        text = "&domains\n time_step=72, e_we=425, e_sn=300, e_vert=50,\n/\n"
+        out, old, new = configs.apply_physics_edit(
+            text, {"op": "mul", "key": "time_step", "factor": 1.2, "round": "int"}, 1)
+        self.assertEqual(old, ["72"])
+        self.assertEqual(new, ["86"])
+        self.assertIn("time_step=86, e_we=425, e_sn=300, e_vert=50,", out)
+
+    def test_mul_time_step_exact_multiple(self):
+        # karina-like: dt=15 -> 15*1.2=18 exactly
+        text = "&domains\n time_step=15, e_we=901, e_sn=901, e_vert=45,\n/\n"
+        out, old, new = configs.apply_physics_edit(
+            text, {"op": "mul", "key": "time_step", "factor": 1.2, "round": "int"}, 1)
+        self.assertEqual(new, ["18"])
+        self.assertIn("time_step=18, e_we=901, e_sn=901, e_vert=45,", out)
+
+    def test_mul_on_suite_default_minus_one_is_an_error(self):
+        with self.assertRaises(ValueError):
+            configs.apply_physics_edit(self.SUITE, {"op": "mul", "key": "mp_physics", "factor": 2}, 1)
+
+    def test_set_on_suite_default_minus_one_overrides_only_that_key(self):
+        out, old, new = configs.apply_physics_edit(
+            self.SUITE, {"op": "set", "key": "mp_physics", "value": 6}, 1)
+        self.assertEqual(old, ["-1"])
+        self.assertEqual(new, ["6"])
+        self.assertIn("mp_physics = 6,", out)
+        # radt (not a suite-default key here) is untouched by this edit
+        self.assertIn("radt = 10,", out)
+
+    def test_delete_removes_key(self):
+        out, old, new = configs.apply_physics_edit(
+            self.SINGLE_DOMAIN, {"op": "delete", "key": "radt"}, 1)
+        self.assertIsNone(old)
+        self.assertIsNone(new)
+        self.assertNotIn("radt", out)
+
+    def test_delete_missing_key_is_an_error(self):
+        with self.assertRaises(ValueError):
+            configs.apply_physics_edit(self.SINGLE_DOMAIN, {"op": "delete", "key": "swint_opt"}, 1)
+
+    def test_mul_missing_key_is_an_error(self):
+        with self.assertRaises(ValueError):
+            configs.apply_physics_edit(self.SINGLE_DOMAIN, {"op": "mul", "key": "swint_opt", "factor": 2}, 1)
+
+    def test_mul_respects_min_clamp(self):
+        text = "&physics\n radt = 1,\n/\n"
+        out, old, new = configs.apply_physics_edit(
+            text, {"op": "mul", "key": "radt", "factor": 0.1, "round": "int", "min": 1}, 1)
+        self.assertEqual(new, ["1"])  # 1*0.1=0.1 -> round 0 -> clamped up to min 1
+
+
+class TestApplyPhysicsTemplate(unittest.TestCase):
+    def test_p00_reference_is_a_noop(self):
+        template = {"family": "none", "edits": []}
+        out, summary = configs.apply_physics_template(TestApplyPhysicsEdit.SINGLE_DOMAIN, template, 1)
+        self.assertEqual(out, TestApplyPhysicsEdit.SINGLE_DOMAIN)
+        self.assertEqual(summary, [])
+
+    def test_multi_edit_template_applies_in_order(self):
+        template = {
+            "family": "radiation",
+            "edits": [
+                {"op": "mul", "key": "radt", "factor": 2, "round": "int"},
+                {"op": "set", "key": "swint_opt", "value": 1},
+            ],
+        }
+        out, summary = configs.apply_physics_template(TestApplyPhysicsEdit.SINGLE_DOMAIN, template, 1)
+        # radt: SINGLE_DOMAIN's own no-space style is preserved (only the value changes)
+        self.assertIn("radt=30,", out)
+        # swint_opt: inserted from absent, so it gets the insert path's own " = " style
+        self.assertIn("swint_opt = 1,", out)
+        self.assertEqual([e["key"] for e in summary], ["radt", "swint_opt"])
+        self.assertEqual(summary[0]["new"], ["30"])
+
+    def test_raises_leaves_no_way_to_get_a_partial_result(self):
+        template = {"family": "microphysics", "edits": [{"op": "mul", "key": "mp_physics", "factor": 2}]}
+        with self.assertRaises(ValueError):
+            configs.apply_physics_template(TestApplyPhysicsEdit.SUITE, template, 1)
+
+
+class TestFormatPhysicsEdits(unittest.TestCase):
+    def test_empty_summary_is_empty_string(self):
+        self.assertEqual(configs.format_physics_edits([]), "")
+
+    def test_set_and_mul_join_with_semicolons_no_spaces(self):
+        summary = [
+            dict(key="radt", op="mul", old=["15"], new=["30"]),
+            dict(key="swint_opt", op="set", old=[], new=["1"]),
+        ]
+        s = configs.format_physics_edits(summary)
+        self.assertEqual(s, "radt=30;swint_opt=1")
+        self.assertNotIn(" ", s)
+
+    def test_multidomain_new_values_slash_joined(self):
+        summary = [dict(key="mp_physics", op="set", old=["-1", "-1"], new=["6", "6"])]
+        self.assertEqual(configs.format_physics_edits(summary), "mp_physics=6/6")
+
+    def test_delete_shows_deleted_marker(self):
+        summary = [dict(key="opt_run", op="delete", old=None, new=None)]
+        self.assertEqual(configs.format_physics_edits(summary), "opt_run=DELETED")
+
+
+class TestProbeVerdicts(unittest.TestCase):
+    SAMPLE_SCREEN_TEXT = (
+        "STAGE 2 -- SpeedyWeather cheap physics vet:\n"
+        "  io_form_history [STRICT       ] PASS->WRF   physics-independent  [WRF-VALIDATED]\n"
+        "  radt            [PHYSICS-GRAY ] REJECT      cloud-cap ~8.6 min at forecast wind 18 m/s  [REJECTED]\n"
+        "  swint_opt       [PHYSICS-GRAY ] CONFIRM     terminator run  [PROBE-ADVISORY]\n"
+        "  mp_physics      [PHYSICS-GRAY ] REJECT      convective regime  [REJECTED]\n"
+        "  time_step       [PHYSICS-GRAY ] PASS->WRF   acoustic CFL is dynamics  [MODEL-ONLY]\n"
+    )
+
+    def test_parse_probe_verdicts(self):
+        v = configs.parse_probe_verdicts(self.SAMPLE_SCREEN_TEXT)
+        self.assertEqual(v["radt"], "REJECT")
+        self.assertEqual(v["swint_opt"], "CONFIRM")
+        self.assertEqual(v["mp_physics"], "REJECT")
+        self.assertEqual(v["time_step"], "PASS->WRF")
+        self.assertEqual(v["io_form_history"], "PASS->WRF")
+
+    def test_probe_verdicts_for_case_reads_screen_file(self):
+        import tempfile
+        d = tempfile.mkdtemp()
+        with open(os.path.join(d, "screen_testcase.txt"), "w") as f:
+            f.write(self.SAMPLE_SCREEN_TEXT)
+        s = configs.probe_verdicts_for_case("testcase", ["radt", "swint_opt"], screen_dir=d)
+        self.assertEqual(s, "probe=radt:REJECT,swint_opt:CONFIRM")
+
+    def test_probe_verdicts_unknown_key_is_notfound(self):
+        import tempfile
+        d = tempfile.mkdtemp()
+        with open(os.path.join(d, "screen_testcase.txt"), "w") as f:
+            f.write(self.SAMPLE_SCREEN_TEXT)
+        s = configs.probe_verdicts_for_case("testcase", ["diff_opt"], screen_dir=d)
+        self.assertEqual(s, "probe=diff_opt:NOTFOUND")
+
+    def test_probe_verdicts_missing_file_is_none(self):
+        import tempfile
+        d = tempfile.mkdtemp()
+        s = configs.probe_verdicts_for_case("no_such_case", ["radt"], screen_dir=d)
+        self.assertEqual(s, "probe=none")
+
+    def test_probe_verdicts_no_keys_is_none(self):
+        self.assertEqual(configs.probe_verdicts_for_case("karina", [], screen_dir="/nonexistent"), "probe=none")
+
+
+class TestPhysicsTagTemplate(unittest.TestCase):
+    def test_ref_and_twin_tags(self):
+        self.assertEqual(configs.physics_tag_template("P00_ref"), ("P00", "reference"))
+        self.assertEqual(configs.physics_tag_template("P00_twin"), ("P00", "twin"))
+
+    def test_candidate_tag(self):
+        self.assertEqual(configs.physics_tag_template("P02"), ("P02", "candidate"))
+
+
+class TestPhysicsTemplatesJson(unittest.TestCase):
+    """physics_templates.json itself: loading, and the final P00-P06 set (decision 0051,
+    revised 2026-09-15 from the WRF 4.8 source compatibility survey)."""
+
+    ALL = ["P00", "P01", "P02", "P03", "P04", "P05", "P06"]
+
+    def test_loads_and_has_p00_through_p06(self):
+        self.assertEqual(set(configs.PHYSICS_TEMPLATES), set(self.ALL))
+        self.assertEqual(configs.PHYSICS_TEMPLATE_ORDER, self.ALL)
+
+    def test_p00_has_no_edits(self):
+        self.assertEqual(configs.PHYSICS_TEMPLATES["P00"]["edits"], [])
+
+    def test_p01_sets_swint_opt(self):
+        edits = configs.PHYSICS_TEMPLATES["P01"]["edits"]
+        self.assertEqual(len(edits), 1)
+        self.assertEqual(edits[0]["op"], "set")
+        self.assertEqual(edits[0]["key"], "swint_opt")
+        self.assertEqual(edits[0]["value"], 1)
+
+    def test_p02_multiplies_radt_and_sets_swint_opt(self):
+        edits = configs.PHYSICS_TEMPLATES["P02"]["edits"]
+        keys = [e["key"] for e in edits]
+        self.assertEqual(keys, ["radt", "swint_opt"])
+        self.assertEqual(edits[0]["op"], "mul")
+        self.assertEqual(edits[0]["factor"], 2)
+
+    def test_p03_multiplies_time_step(self):
+        edits = configs.PHYSICS_TEMPLATES["P03"]["edits"]
+        self.assertEqual(len(edits), 1)
+        self.assertEqual(edits[0]["key"], "time_step")
+        self.assertEqual(edits[0]["factor"], 1.2)
+        self.assertEqual(edits[0].get("round"), "int")
+
+    def test_p04_sets_mp_physics_skips_maria1km_and_pairs_lafe_aerosol(self):
+        template = configs.PHYSICS_TEMPLATES["P04"]
+        self.assertEqual(template["edits"], [{"op": "set", "key": "mp_physics", "value": 6, "section": "&physics"}])
+        self.assertIn("maria1km", template.get("skip_cases", {}))
+        self.assertNotIn("lafe", template.get("skip_cases", {}))
+        lafe_keys = [e["key"] for e in template["extra_edits"]["lafe"]]
+        self.assertEqual(lafe_keys, ["aer_opt", "use_aero_icbc"])
+
+    def test_p05_pbl_swap_per_case_pairs(self):
+        extra = configs.PHYSICS_TEMPLATES["P05"]["extra_edits"]
+        expect = {"karina": 5, "maria1km": 5, "isc21": 1, "lafe": 1, "conus25": 1, "conus12": 1}
+        for case_id, bl in expect.items():
+            vals = {e["key"]: e["value"] for e in extra[case_id]}
+            self.assertEqual(vals, {"bl_pbl_physics": bl, "sf_sfclay_physics": bl}, case_id)
+
+    def test_p06_radiation_swap_and_lafe_aer_opt(self):
+        template = configs.PHYSICS_TEMPLATES["P06"]
+        self.assertEqual([(e["key"], e["value"]) for e in template["edits"]],
+                         [("ra_lw_physics", 1), ("ra_sw_physics", 1)])
+        self.assertEqual(template["extra_edits"]["lafe"][0]["key"], "aer_opt")
+
+    def test_extra_edits_applied_only_for_named_case(self):
+        text = "&physics\n mp_physics = 28,\n aer_opt = 3,\n use_aero_icbc = .true.,\n/\n"
+        template = configs.PHYSICS_TEMPLATES["P04"]
+        lafe_text, lafe_summary = configs.apply_physics_template(text, template, 1, case_id="lafe")
+        self.assertIn("aer_opt = 0,", lafe_text)
+        self.assertIn("use_aero_icbc = .false.,", lafe_text)
+        self.assertEqual([e["key"] for e in lafe_summary], ["mp_physics", "aer_opt", "use_aero_icbc"])
+        other_text, other_summary = configs.apply_physics_template(text, template, 1, case_id="karina")
+        self.assertIn("aer_opt = 3,", other_text)
+        self.assertEqual([e["key"] for e in other_summary], ["mp_physics"])
+
+    def test_every_template_has_a_family(self):
+        for tid, t in configs.PHYSICS_TEMPLATES.items():
+            self.assertIn("family", t, tid)
+            self.assertIn("description", t, tid)
+
+
+class TestResolvePhysicsConfig(unittest.TestCase):
+    """resolve_physics_config against synthetic case/template dicts and a real
+    temp namelist file on disk (it must read the case's own namelist, exactly
+    like edit-namelist itself would)."""
+
+    def setUp(self):
+        import tempfile
+        self.tmpdir = tempfile.mkdtemp()
+
+    def _write_namelist(self, name, text):
+        path = os.path.join(self.tmpdir, name)
+        with open(path, "w") as f:
+            f.write(text)
+        return path
+
+    def test_resolves_set_edit_against_real_file(self):
+        path = self._write_namelist("nl1.input", TestApplyPhysicsEdit.SINGLE_DOMAIN)
+        case = dict(namelist_template=path, max_dom=1)
+        template = {"family": "microphysics", "edits": [{"op": "set", "key": "mp_physics", "value": 6}]}
+        summary, reason = configs.resolve_physics_config(
+            "c1", "PX", cases={"c1": case}, templates={"PX": template})
+        self.assertIsNone(reason)
+        self.assertEqual(summary[0]["new"], ["6"])
+
+    def test_applies_to_restricts_cases(self):
+        path = self._write_namelist("nl2.input", TestApplyPhysicsEdit.SINGLE_DOMAIN)
+        case = dict(namelist_template=path, max_dom=1)
+        template = {"family": "microphysics", "edits": [], "applies_to": ["other_case"]}
+        summary, reason = configs.resolve_physics_config(
+            "c1", "PX", cases={"c1": case}, templates={"PX": template})
+        self.assertIsNone(summary)
+        self.assertIn("applies_to", reason)
+
+    def test_skip_cases_excludes_with_reason(self):
+        path = self._write_namelist("nl3.input", TestApplyPhysicsEdit.SINGLE_DOMAIN)
+        case = dict(namelist_template=path, max_dom=1)
+        template = {"family": "microphysics", "edits": [], "skip_cases": {"c1": "TODO: needs a survey"}}
+        summary, reason = configs.resolve_physics_config(
+            "c1", "PX", cases={"c1": case}, templates={"PX": template})
+        self.assertIsNone(summary)
+        self.assertEqual(reason, "TODO: needs a survey")
+
+    def test_mul_on_suite_minus_one_reports_as_skip_reason(self):
+        path = self._write_namelist("nl4.input", TestApplyPhysicsEdit.SUITE)
+        case = dict(namelist_template=path, max_dom=1)
+        template = {"family": "microphysics", "edits": [{"op": "mul", "key": "mp_physics", "factor": 2}]}
+        summary, reason = configs.resolve_physics_config(
+            "c1", "PX", cases={"c1": case}, templates={"PX": template})
+        self.assertIsNone(summary)
+        self.assertIn("-1", reason)
+
+    def test_max_dom_override_wins_over_case_max_dom(self):
+        path = self._write_namelist("nl5.input", TestApplyPhysicsEdit.TRIMMED)
+        case = dict(namelist_template=path, max_dom=3, namelist_overrides={"max_dom": 1})
+        template = {"family": "dynamics", "edits": [{"op": "mul", "key": "radt", "factor": 2, "round": "int"}]}
+        summary, reason = configs.resolve_physics_config(
+            "c1", "PX", cases={"c1": case}, templates={"PX": template})
+        self.assertIsNone(reason)
+        self.assertEqual(summary[0]["old"], ["1"])
+        self.assertEqual(summary[0]["new"], ["2"])
+
+    def test_unknown_case_or_template(self):
+        summary, reason = configs.resolve_physics_config("nope", "P00", cases={}, templates={})
+        self.assertIsNone(summary)
+        self.assertIn("unknown case", reason)
+
+
+class TestPhysicsLedgerColumns(unittest.TestCase):
+    def test_unedited_columns_show_case_native_values(self):
+        case = dict(dt=15, physics=dict(mp_physics=8, radt=15, cu_physics=0))
+        cols = configs.physics_ledger_columns(case, [])
+        self.assertEqual(cols["time_step"], 15)
+        self.assertEqual(cols["mp_physics"], 8)
+        self.assertEqual(cols["radt"], 15)
+
+    def test_edited_column_shows_new_value_others_stay_native(self):
+        case = dict(dt=15, physics=dict(mp_physics=8, radt=15, cu_physics=0))
+        summary = [dict(key="radt", op="mul", old=["15"], new=["30"])]
+        cols = configs.physics_ledger_columns(case, summary)
+        self.assertEqual(cols["radt"], "30")
+        self.assertEqual(cols["mp_physics"], 8)  # untouched, still native
+        self.assertEqual(cols["time_step"], 15)
+
+    def test_time_step_edit_overrides_time_step_column(self):
+        case = dict(dt=72, physics=dict(mp_physics=-1))
+        summary = [dict(key="time_step", op="mul", old=["72"], new=["86"])]
+        cols = configs.physics_ledger_columns(case, summary)
+        self.assertEqual(cols["time_step"], "86")
+
+
+class TestPhysicsListAndOrder(unittest.TestCase):
+    """cmd_physics_list / cmd_physics_order against the REAL cases.json and
+    physics_templates.json -- an end-to-end sanity check that every campaign
+    case's real namelist.input is readable and every P00-P04 template
+    resolves (applicable or a documented skip) without raising."""
+
+    def test_physics_list_every_real_case(self):
+        import contextlib
+        import io
+        for cid in configs.CASE_ORDER:
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                rc = configs.cmd_physics_list([cid])
+            self.assertEqual(rc, 0, cid)
+            out = buf.getvalue()
+            self.assertIn("P00", out)
+            self.assertIn("P04", out)
+
+    def test_physics_list_json_mode(self):
+        import contextlib
+        import io
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = configs.cmd_physics_list(["karina", "--json"])
+        self.assertEqual(rc, 0)
+        applicable = json.loads(buf.getvalue())
+        self.assertIsInstance(applicable, list)
+        self.assertNotIn("P00", applicable)
+
+    def test_physics_list_unknown_case(self):
+        rc = configs.cmd_physics_list(["no_such_case"])
+        self.assertEqual(rc, 2)
+
+    def test_physics_order_default_pconfigs_includes_ref_and_twin_first(self):
+        import contextlib
+        import io
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = configs.cmd_physics_order(["karina", "--reps", "2"])
+        self.assertEqual(rc, 0)
+        lines = buf.getvalue().strip().split("\n")
+        self.assertEqual(lines[0], "P00_ref")
+        self.assertEqual(lines[1], "P00_twin")
+        # palindrome: last two entries are the same pair, reversed
+        self.assertEqual(lines[-1], "P00_ref")
+        self.assertEqual(lines[-2], "P00_twin")
+
+    def test_physics_order_explicit_pconfigs(self):
+        import contextlib
+        import io
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = configs.cmd_physics_order(["karina", "--pconfigs", "P01+P03", "--reps", "1"])
+        self.assertEqual(rc, 0)
+        lines = buf.getvalue().strip().split("\n")
+        self.assertEqual(lines, ["P00_ref", "P00_twin", "P01", "P03"])
+
+
+class TestPhysicsDescribe(unittest.TestCase):
+    def test_describe_applicable_template(self):
+        import contextlib
+        import io
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = configs.cmd_physics_describe(["karina", "P01"])
+        self.assertEqual(rc, 0)
+        fields = buf.getvalue().strip("\n").split("\t")
+        self.assertEqual(len(fields), 13)
+        self.assertEqual(fields[0], "radiation")
+        self.assertIn("swint_opt=1", fields[1])
+
+    def test_describe_skip_returns_two_fields(self):
+        import contextlib
+        import io
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = configs.cmd_physics_describe(["maria1km", "P04"])
+        self.assertEqual(rc, 0)
+        fields = buf.getvalue().strip("\n").split("\t")
+        self.assertEqual(fields[0], "SKIP")
+
+    def test_describe_unknown_case(self):
+        rc = configs.cmd_physics_describe(["no_such_case", "P00"])
+        self.assertEqual(rc, 2)
+
+    def test_describe_unknown_template(self):
+        rc = configs.cmd_physics_describe(["karina", "P99"])
+        self.assertEqual(rc, 2)
+
+
+class TestConfigFileGeneratedConfigs(unittest.TestCase):
+    """CONFIG_FILE (WTune D1 decomposition-space work): campaign/configs.py's own side of
+    consuming a predictor/decomp_space.py `to_campaign_configs`-shaped JSON file. The JSON here
+    is built by hand (not via `import decomp_space`) -- decomp_space.py uses `from __future__
+    import annotations` (Python >= 3.7 only, same reason wtune_decomp.py cannot be imported under
+    this file's own python3.6-compatibility requirement -- see configs.py's module docstring), so
+    this file, which must stay importable under the campaign's python3.6, cannot import it either.
+    predictor/tests/test_decomp_space.py owns decomp_space.py's own correctness."""
+
+    SAMPLE_CONFIGS = [
+        dict(id="G0001", ranks=448, omp=1, nx=8, ny=56, numtiles=8, dist="cyclic", blocktime="0",
+             patch_x=113, patch_y=17, numtiles_x=2, numtiles_y=4, tile_sz_x=0, tile_sz_y=0,
+             tile_strategy=3, tile_shape="2d", config_source="generated"),
+        dict(id="G0002", ranks=224, omp=2, nx=4, ny=56, numtiles=13, dist="block", blocktime="default",
+             patch_x=199, patch_y=17, numtiles_x=0, numtiles_y=0, tile_sz_x=0, tile_sz_y=0,
+             tile_strategy=0, tile_shape="1d_y", config_source="generated"),
+    ]
+
+    def _write_config_file(self, configs_list=None):
+        import tempfile
+        path = os.path.join(tempfile.mkdtemp(), "sample.json")
+        with open(path, "w") as f:
+            json.dump(configs_list if configs_list is not None else self.SAMPLE_CONFIGS, f)
+        return path
+
+    def test_load_generated_configs_bare_list(self):
+        path = self._write_config_file()
+        loaded = configs.load_generated_configs(path)
+        self.assertEqual(loaded, self.SAMPLE_CONFIGS)
+
+    def test_load_generated_configs_configs_key_wrapper(self):
+        path = self._write_config_file()
+        with open(path, "w") as f:
+            json.dump({"configs": self.SAMPLE_CONFIGS, "coverage": {}}, f)
+        loaded = configs.load_generated_configs(path)
+        self.assertEqual(loaded, self.SAMPLE_CONFIGS)
+
+    def test_cmd_case_generated_tsv_header_and_rows(self):
+        import contextlib
+        import io
+        path = self._write_config_file()
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = configs.cmd_case_generated("karina", path)
+        self.assertEqual(rc, 0)
+        lines = buf.getvalue().strip("\n").split("\n")
+        header = lines[0].split("\t")
+        self.assertEqual(header, [
+            "config_id", "ranks", "omp", "nproc_x", "nproc_y", "numtiles", "dist", "blocktime",
+            "patch_x", "patch_y", "numtiles_x", "numtiles_y", "tile_sz_x", "tile_sz_y",
+            "tile_strategy", "config_source",
+        ])
+        row0 = lines[1].split("\t")
+        self.assertEqual(row0[0], "G0001")
+        self.assertEqual(row0[1:10], ["448", "1", "8", "56", "8", "cyclic", "0", "113", "17"])
+        self.assertEqual(row0[10:], ["2", "4", "0", "0", "3", "generated"])
+        row1 = lines[2].split("\t")
+        self.assertEqual(row1[0], "G0002")
+        self.assertEqual(row1[-1], "generated")
+
+    def test_cmd_case_generated_unknown_case(self):
+        path = self._write_config_file()
+        rc = configs.cmd_case_generated("no_such_case", path)
+        self.assertEqual(rc, 2)
+
+    def test_main_dispatches_to_generated_when_config_file_env_set(self):
+        """configs.py CASE_ID, run through main(), reads CONFIG_FILE from the environment (as the
+        real CLI invocation in campaign/strict_campaign.sbatch does) instead of resolving
+        TEMPLATES."""
+        import contextlib
+        import io
+        path = self._write_config_file()
+        old = os.environ.get("CONFIG_FILE")
+        os.environ["CONFIG_FILE"] = path
+        try:
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                rc = configs.main(["karina"])
+            self.assertEqual(rc, 0)
+            self.assertIn("G0001", buf.getvalue())
+            self.assertIn("G0002", buf.getvalue())
+        finally:
+            if old is None:
+                os.environ.pop("CONFIG_FILE", None)
+            else:
+                os.environ["CONFIG_FILE"] = old
+
+    def test_main_without_config_file_env_is_unaffected(self):
+        """The same dispatch point, with CONFIG_FILE absent, must still resolve the ordinary
+        16 STRICT templates (byte-identical default behaviour)."""
+        import contextlib
+        import io
+        old = os.environ.pop("CONFIG_FILE", None)
+        try:
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                rc = configs.main(["karina"])
+            self.assertEqual(rc, 0)
+            self.assertIn("C01", buf.getvalue())
+            self.assertNotIn("G0001", buf.getvalue())
+        finally:
+            if old is not None:
+                os.environ["CONFIG_FILE"] = old
+
+    def test_cmd_order_generated_preserves_file_order_and_palindrome(self):
+        import contextlib
+        import io
+        path = self._write_config_file()
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = configs.cmd_order("karina", 2, config_file=path)
+        self.assertEqual(rc, 0)
+        lines = buf.getvalue().strip("\n").split("\n")
+        self.assertEqual(lines, ["G0001", "G0002", "G0002", "G0001"])
+
+    def test_cmd_order_without_config_file_uses_templates(self):
+        rc_out = []
+        import contextlib
+        import io
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = configs.cmd_order("karina", 1, config_file=None)
+        self.assertEqual(rc, 0)
+        lines = buf.getvalue().strip("\n").split("\n")
+        self.assertTrue(all(l.startswith("C") for l in lines), lines)
 
 
 if __name__ == "__main__":

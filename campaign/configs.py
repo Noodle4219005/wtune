@@ -40,6 +40,8 @@ import sys
 CAMPAIGN_DIR = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.dirname(CAMPAIGN_DIR)
 CASES_JSON_PATH = os.path.join(CAMPAIGN_DIR, "cases.json")
+PHYSICS_TEMPLATES_JSON_PATH = os.path.join(CAMPAIGN_DIR, "physics_templates.json")
+DEFAULT_SCREEN_DIR = "/home/u5727520/wrf-bench/wscore/physics"
 
 MIN_PATCH = 10
 TOTAL_CORES = 448  # 4 nodes x 112 cores, ct448
@@ -113,6 +115,18 @@ def load_cases(path=CASES_JSON_PATH):
 CASES = load_cases()
 
 
+def load_physics_templates(path=PHYSICS_TEMPLATES_JSON_PATH):
+    with open(path) as f:
+        data = json.load(f)
+    return data["templates"]
+
+
+PHYSICS_TEMPLATES = load_physics_templates()
+# "P00" < "P01" < ... sorts in numeric order lexicographically as long as ids stay
+# zero-padded to 2 digits (physics_templates.json's own convention).
+PHYSICS_TEMPLATE_ORDER = sorted(PHYSICS_TEMPLATES)
+
+
 # ---------------------------------------------------------------------------
 # Decomposition legality and shape ranking
 # ---------------------------------------------------------------------------
@@ -130,6 +144,12 @@ def patch_dims(extent, nproc):
     return q + 1 if rem else q
 
 
+def wrf_patch_legal(extent, nproc, min_patch=MIN_PATCH):
+    """WRF's startup patch-size gate: integer division extent/nproc >= min_patch
+    (share/module_check_a_mundo.F:3014-3029)."""
+    return extent // nproc >= min_patch
+
+
 def legal_shapes(e_we, e_sn, ranks, min_patch=MIN_PATCH):
     """All (nx, ny, patch_x, patch_y) with nx*ny == ranks passing the MIN_PATCH gate.
 
@@ -139,16 +159,20 @@ def legal_shapes(e_we, e_sn, ranks, min_patch=MIN_PATCH):
     min_patch -- a shape can be legal on d01 alone yet illegal on a smaller
     nested domain, and this must reject that shape, not just score d01.
     patch_x/patch_y in the returned tuples are always d01's (index 0) patch
-    dims, since ranking/reporting is d01-based regardless of domain count."""
+    dims, since ranking/reporting is d01-based regardless of domain count.
+
+    2026-09-15: the gate itself now uses WRF's own rule, Fortran integer division
+    e_we(i)/nproc_x >= 10 (share/module_check_a_mundo.F:3014-3029), via wrf_patch_legal.
+    The earlier ceil-based gate was looser: e.g. conus12 e_sn=300 with nproc_y=32 gives
+    ceil 10 (accepted) but floor 9, which WRF aborts on. None of the measured C01-C16
+    shapes was affected (all pass the floor rule, predictor/decomp_space.py check)."""
     we_list = list(e_we) if isinstance(e_we, (list, tuple)) else [e_we]
     sn_list = list(e_sn) if isinstance(e_sn, (list, tuple)) else [e_sn]
     out = []
     for nx, ny in factor_pairs(ranks):
         px = patch_dims(we_list[0], nx)
         py = patch_dims(sn_list[0], ny)
-        if px < min_patch or py < min_patch:
-            continue
-        if all(patch_dims(we_d, nx) >= min_patch and patch_dims(sn_d, ny) >= min_patch
+        if all(wrf_patch_legal(we_d, nx, min_patch) and wrf_patch_legal(sn_d, ny, min_patch)
                for we_d, sn_d in zip(we_list, sn_list)):
             out.append((nx, ny, px, py))
     return out
@@ -327,18 +351,27 @@ def _delete_key_lines(text, key, ignore_case=False):
     return pattern.sub("", text)
 
 
-def _insert_after_domains(text, nproc_x, nproc_y, numtiles, max_dom=1):
+def _insert_after_domains(text, nproc_x, nproc_y, numtiles, max_dom=1, extra=None):
     """numtiles, nproc_x and nproc_y are single namelist-global values (Registry dimension 1), so they are
     always written once, whatever max_dom is. Writing numtiles as a per-domain list ("numtiles=13, 13, 13,")
     makes the Fortran namelist read fail: smoke jobs 1074506-1074508 all aborted with
-    "ERROR reading namelist domains". max_dom is accepted for interface compatibility and ignored here."""
+    "ERROR reading namelist domains". max_dom is accepted for interface compatibility and ignored here.
+
+    `extra` is an optional ordered list of (key, value) pairs (WTune D1 decomposition-space work:
+    numtiles_x/numtiles_y/tile_sz_x/tile_sz_y/tile_strategy, Registry.EM_COMMON, all dimension 1
+    like numtiles/nproc_x/nproc_y) appended onto the SAME &domains line, once each -- callers
+    (edit_namelist) only pass a key here when its CLI/param value was actually given, so a default
+    (extra=None or []) call produces byte-identical output to before this parameter existed."""
     idx = text.find("&domains")
     if idx == -1:
         raise ValueError("no &domains section found in namelist")
     eol = text.find("\n", idx)
     if eol == -1:
         eol = len(text)
-    new_line = " nproc_x=%d, nproc_y=%d, numtiles=%d,\n" % (nproc_x, nproc_y, numtiles)
+    parts = ["nproc_x=%d" % nproc_x, "nproc_y=%d" % nproc_y, "numtiles=%d" % numtiles]
+    for key, value in (extra or []):
+        parts.append("%s=%d" % (key, value))
+    new_line = " " + ", ".join(parts) + ",\n"
     return text[: eol + 1] + new_line + text[eol + 1 :]
 
 
@@ -408,14 +441,24 @@ def _set_history_interval(text, history_minutes, max_dom, nest_history_on=False)
     return _set_scalar(text, key, minutes)
 
 
-def _set_history_mode(text, history_mode, run_minutes, max_dom, nest_history_on=False):
-    """Apply one of the two STRICT-campaign history policies (2026-09-14 user
-    decision: timing runs write no history at all; correctness is checked in
-    a separate small batch).
+def _set_history_mode(text, history_mode, run_minutes, max_dom, nest_history_on=False,
+                       history_minutes=None):
+    """Apply one of the STRICT/PHYSICS-GRAY campaign history policies (2026-09-14
+    user decision: timing runs write no history at all; correctness is checked
+    in a separate small batch; 2026-09-14 PHYSICS-GRAY data campaign decision
+    0051 adds 'interval' for fidelity replicates).
 
     'off' (timing runs): every history-interval variant is 0 for every domain
     -- no wrfout_d0* frame is ever written, so a timing run's wall time never
     includes history I/O.
+
+    'interval' (PHYSICS-GRAY fidelity replicate 1): d01 writes a frame every
+    history_minutes, starting at t=0 (history_begin*=0 for every domain --
+    begin=0 always triggers the very first interval boundary, so the t=0
+    frame is included, unlike 'end_d01' below which deliberately skips it).
+    Nested domains still get 0 (off), same nest_history_on-gated rule as
+    'off'/'end_d01' -- diffwrf/fidelity_gate.py only ever compare
+    wrfout_d01_* frames. Requires history_minutes.
 
     'end_d01' (correctness runs): d01 writes exactly one frame, at the end of
     the run, via history_begin==history_interval==run_minutes (nested domains
@@ -432,6 +475,13 @@ def _set_history_mode(text, history_mode, run_minutes, max_dom, nest_history_on=
     way it always has, in case a future case opts back into nest history."""
     if history_mode == "off":
         return _set_history_interval(text, 0, max_dom, nest_history_on=False)
+    if history_mode == "interval":
+        if history_minutes is None:
+            raise ValueError("history_minutes is required when history_mode='interval'")
+        text = _set_history_interval(text, history_minutes, max_dom, nest_history_on)
+        _interval_key, begin_key, _value = _history_key_and_value(text, history_minutes)
+        begin_values = [0] * max_dom if max_dom > 1 else [0]
+        return _replace_list_line(text, begin_key, begin_values)
     if history_mode == "end_d01":
         text = _set_history_interval(text, run_minutes, max_dom, nest_history_on)
         _interval_key, begin_key, value = _history_key_and_value(text, run_minutes)
@@ -440,7 +490,7 @@ def _set_history_mode(text, history_mode, run_minutes, max_dom, nest_history_on=
         else:
             begin_values = [value]
         return _replace_list_line(text, begin_key, begin_values)
-    raise ValueError("history_mode must be 'off' or 'end_d01', got %r" % (history_mode,))
+    raise ValueError("history_mode must be 'off', 'interval' or 'end_d01', got %r" % (history_mode,))
 
 
 def _set_or_insert_time_control_scalar(text, key, value):
@@ -516,19 +566,323 @@ def _apply_adios2(text, ranks, max_dom):
     return text
 
 
+# ---------------------------------------------------------------------------
+# PHYSICS-GRAY physics-template editing (decision 0051, physics_templates.json)
+# ---------------------------------------------------------------------------
+
+def _find_namelist_key(text, key):
+    """Locate the first (case-sensitive, non-comment) namelist assignment of
+    `key`, ANYWHERE on its line -- not just when it is the first token. Real
+    templates in this campaign jam several physics keys onto one line (e.g.
+    karina's prep_dir namelist.input: " mp_physics=8, ra_lw_physics=4,
+    ra_sw_physics=4, radt=15,", or its &domains "time_step=15, max_dom=1,
+    e_we=901, ..."), so anchoring the key to column 1 would silently miss a
+    key that is genuinely present. Uses the same lazy-prefix-plus-negative-
+    lookbehind recipe as _set_or_insert_time_control_scalar (proven against
+    exactly this shape by TestAdios2MultiKeyLine) rather than a line-start
+    anchor. Returns None if `key` has no assignment anywhere, else a dict:
+      value_start, value_end -- span in `text` covering EXACTLY this key's own
+        comma-separated value list (safe to replace with a fresh value list;
+        text[:value_start] is "...key = " and text[value_end:] is whatever
+        follows -- a same-line trailing key's own assignment jammed onto the
+        same line, an inline '!' comment, or the rest of the file starting
+        with '\\n' -- all preserved untouched)
+      values -- list of this key's own value tokens (stripped; a trailing
+        empty token from a trailing comma is dropped)
+    Stops consuming comma-separated tokens as soon as one contains '=' (that
+    token belongs to a DIFFERENT key's assignment on the same line, not a
+    value of this one) -- this is only safe for keys whose own values are
+    never quoted strings (a quoted string could itself contain ',' or '=');
+    true of every physics_templates.json key used so far (mp_physics,
+    radt, swint_opt, time_step -- all numeric)."""
+    pattern = re.compile(
+        r"(?m)^(?![ \t]*!)(?:.*?)(?<![A-Za-z0-9_])(%s[ \t]*=[ \t]*)" % re.escape(key)
+    )
+    m = pattern.search(text)
+    if not m:
+        return None
+    key_start = m.start(1)
+    value_start = m.end()
+    line_end = text.find("\n", value_start)
+    if line_end == -1:
+        line_end = len(text)
+    rest = text[value_start:line_end]
+    bang = rest.find("!")
+    scan = rest if bang == -1 else rest[:bang]
+    values = []
+    consumed = 0
+    pos = 0
+    n = len(scan)
+    while True:
+        comma = scan.find(",", pos)
+        tok = scan[pos:comma] if comma != -1 else scan[pos:]
+        if "=" in tok:
+            break
+        stripped = tok.strip()
+        if stripped:
+            values.append(stripped)
+        consumed = (comma + 1) if comma != -1 else n
+        if comma == -1:
+            break
+        pos = comma + 1
+    return dict(key_start=key_start, value_start=value_start,
+                value_end=value_start + consumed, values=values)
+
+
+def _insert_after_section_header(text, section, line):
+    """Insert `line` (expected to already end with '\\n') right after the
+    first line containing `section` (e.g. '&physics'). Raises ValueError if
+    the section is not present at all."""
+    idx = text.find(section)
+    if idx == -1:
+        raise ValueError("no %s section found in namelist" % (section,))
+    eol = text.find("\n", idx)
+    if eol == -1:
+        eol = len(text)
+    return text[: eol + 1] + line + text[eol + 1 :]
+
+
+def apply_physics_edit(text, edit, max_dom):
+    """Apply one physics_templates.json 'edits' entry (a {'op':...} dict) to
+    `text`. Returns (new_text, old_active, new_active): old_active/new_active
+    are the active-domain value lists before/after for 'set'/'mul' (None for
+    'delete'). Raises ValueError (with a message identifying the offending
+    key/op) when the edit cannot be applied -- see physics_templates.json's
+    top-level '_comment' for the exact semantics of each op, the -1
+    physics_suite 'mul' restriction, and the single-value insert-when-absent
+    convention for 'set'."""
+    op = edit["op"]
+    key = edit["key"]
+    section = edit.get("section", "&physics")
+    if op == "delete":
+        found = _find_namelist_key(text, key)
+        if found is None:
+            raise ValueError("physics template: key %r not found for 'delete'" % (key,))
+        # Span removal (not _delete_key_lines' whole-line removal): safe when this
+        # key is jammed on a line with others (karina-style), since it only removes
+        # this key's own "key=value," text, never a neighbour's assignment. If that
+        # leaves the line containing nothing but whitespace, drop the now-empty
+        # line too (cosmetic only -- a namelist blank line is harmless either way).
+        new_text = text[:found["key_start"]] + text[found["value_end"]:]
+        line_start = new_text.rfind("\n", 0, found["key_start"]) + 1
+        line_end = new_text.find("\n", found["key_start"])
+        if line_end == -1:
+            line_end = len(new_text)
+        if new_text[line_start:line_end].strip() == "":
+            new_text = new_text[:line_start] + new_text[line_end + 1:]
+        return new_text, None, None
+    found = _find_namelist_key(text, key)
+    if found is None:
+        if op != "set":
+            raise ValueError("physics template: key %r not found for op %r" % (key, op))
+        new_active = [str(edit["value"])]
+        line = " %s = %s,\n" % (key, ", ".join(new_active))
+        return _insert_after_section_header(text, section, line), [], new_active
+    values = found["values"]
+    n_active = min(len(values), max_dom) if max_dom else len(values)
+    if n_active == 0:
+        raise ValueError("physics template: key %r has no value(s) to edit" % (key,))
+    active_old = values[:n_active]
+    trailing = values[n_active:]
+    if op == "set":
+        active_new = [str(edit["value"])] * n_active
+    elif op == "mul":
+        factor = edit["factor"]
+        round_int = edit.get("round") == "int"
+        mn, mx = edit.get("min"), edit.get("max")
+        active_new = []
+        for v in active_old:
+            try:
+                native = float(v)
+            except ValueError:
+                raise ValueError("physics template: key %r value %r is not numeric" % (key, v))
+            if native == -1:
+                raise ValueError(
+                    "physics template: cannot 'mul' key %r whose native value is -1 "
+                    "(physics_suite default) -- use 'set' to override a suite key "
+                    "instead" % (key,)
+                )
+            new_v = native * factor
+            new_v = int(round(new_v)) if round_int else new_v
+            if mn is not None:
+                new_v = max(new_v, mn)
+            if mx is not None:
+                new_v = min(new_v, mx)
+            active_new.append(str(new_v))
+    else:
+        raise ValueError("unknown physics edit op %r" % (op,))
+    new_values_str = ", ".join(active_new + trailing) + ","
+    new_text = text[:found["value_start"]] + new_values_str + text[found["value_end"]:]
+    return new_text, active_old, active_new
+
+
+def apply_physics_template(text, template, max_dom, case_id=None):
+    """Apply every edit in template['edits'] to `text`, in order, followed by
+    template['extra_edits'][case_id] when case_id is given (per-case paired
+    edits, e.g. lafe's aer_opt=0 next to a scheme swap). Returns
+    (new_text, edits_summary) where edits_summary is a list of
+    {'key','op','old','new'} dicts (old/new are None for 'delete'), in the
+    same order as the edits were applied. Raises ValueError
+    (propagated from apply_physics_edit) if any edit cannot be applied --
+    callers must not use a partially-applied `text` from a raised call."""
+    summary = []
+    edits = list(template.get("edits", []))
+    if case_id is not None:
+        edits += list((template.get("extra_edits") or {}).get(case_id, []))
+    for edit in edits:
+        text, old, new = apply_physics_edit(text, edit, max_dom)
+        summary.append(dict(key=edit["key"], op=edit["op"], old=old, new=new))
+    return text, summary
+
+
+def physics_template_applicability(case_id, template):
+    """(applicable: bool, reason: str or None) for one template on one case,
+    from the template's optional 'applies_to' allowlist and 'skip_cases' map
+    only -- does NOT attempt the edits themselves (see resolve_physics_config
+    for that; a template can be 'applicable' here and still fail to resolve,
+    e.g. a 'mul' on a physics_suite -1 value)."""
+    applies_to = template.get("applies_to")
+    if applies_to is not None and case_id not in applies_to:
+        return False, "not in applies_to %s" % (applies_to,)
+    skip_reason = (template.get("skip_cases") or {}).get(case_id)
+    if skip_reason is not None:
+        return False, skip_reason
+    return True, None
+
+
+def _case_effective_max_dom(case):
+    """max_dom as edit_namelist will actually see it for this case: a
+    namelist_overrides.max_dom (e.g. lafe trims 3 -> 1) wins over the case's
+    own top-level max_dom field (e.g. maria1km's 2, no override)."""
+    overrides = case.get("namelist_overrides") or {}
+    if "max_dom" in overrides:
+        try:
+            return int(overrides["max_dom"])
+        except (TypeError, ValueError):
+            pass
+    return case.get("max_dom", 1)
+
+
+def _case_namelist_path(case):
+    return case.get("namelist_template") or os.path.join(case["prep_dir"], "namelist.input")
+
+
+def resolve_physics_config(case_id, template_id, cases=None, templates=None):
+    """Resolve one physics template against one case by reading the case's
+    OWN real namelist.input (namelist_template, or prep_dir/namelist.input),
+    the same file edit-namelist itself would edit -- so the reported
+    old/new values are the case's actual native physics, not cases.json's
+    d01-scalar-for-ledger convention. Returns (edits_summary, None) on
+    success (edits_summary is [] for a template with no edits, i.e. P00) or
+    (None, reason) when the template does not apply to this case (see
+    physics_template_applicability) or an edit op errors for it (e.g. 'mul'
+    on a native -1 physics_suite value)."""
+    cases = CASES if cases is None else cases
+    templates = PHYSICS_TEMPLATES if templates is None else templates
+    case = cases.get(case_id)
+    if case is None:
+        return None, "unknown case %r" % (case_id,)
+    template = templates.get(template_id)
+    if template is None:
+        return None, "unknown physics template %r" % (template_id,)
+    ok, reason = physics_template_applicability(case_id, template)
+    if not ok:
+        return None, reason
+    path = _case_namelist_path(case)
+    try:
+        with open(path) as f:
+            text = f.read()
+    except IOError as e:
+        return None, "cannot read namelist template %s: %s" % (path, e)
+    max_dom = _case_effective_max_dom(case)
+    try:
+        _new_text, summary = apply_physics_template(text, template, max_dom, case_id=case_id)
+    except ValueError as e:
+        return None, str(e)
+    return summary, None
+
+
+def format_physics_edits(summary):
+    """'edits=' notes-field value for a resolve_physics_config() summary:
+    ';'-joined 'key=newvalue' tokens (no spaces -- ledger notes are
+    space-separated key=value tokens), multi-domain new values '/'-joined
+    within one key. Empty string for a no-edit template (P00)."""
+    parts = []
+    for e in summary:
+        if e["op"] == "delete":
+            parts.append("%s=DELETED" % (e["key"],))
+        else:
+            parts.append("%s=%s" % (e["key"], "/".join(e["new"])))
+    return ";".join(parts)
+
+
+_PROBE_VERDICT_RE = re.compile(
+    r"(?m)^[ \t]*(?P<knob>\S+)[ \t]+\[(?:PHYSICS-GRAY|STRICT)[ \t]*\][ \t]+(?P<verdict>\S+)"
+)
+
+
+def parse_probe_verdicts(screen_text):
+    """{knob: verdict} for every '<knob> [PHYSICS-GRAY ] VERDICT ...' or
+    '<knob> [STRICT ] VERDICT ...' line in a wtune screen/physics funnel
+    report's STAGE 2 SpeedyWeather-probe section (e.g.
+    /home/u5727520/wrf-bench/wscore/physics/screen_<case>.txt, job 1076060).
+    VERDICT is a single token (PASS->WRF, CONFIRM, REJECT, NEED-PROBE, ...).
+    A later line for the same knob overwrites an earlier one (there is
+    normally exactly one line per knob)."""
+    out = {}
+    for m in _PROBE_VERDICT_RE.finditer(screen_text):
+        out[m.group("knob")] = m.group("verdict")
+    return out
+
+
+def probe_verdicts_for_case(case_id, keys, screen_dir=DEFAULT_SCREEN_DIR):
+    """'probe=<knob>:<verdict>,...' notes-field value for the given edited
+    knob names (order preserved, duplicates kept as given), reading
+    screen_<case_id>.txt from screen_dir. 'probe=none' when there are no
+    keys to look up (e.g. P00) or the screen file does not exist. A key with
+    no matching verdict line in the screen file maps to 'NOTFOUND'."""
+    if not keys:
+        return "probe=none"
+    path = os.path.join(screen_dir, "screen_%s.txt" % (case_id,))
+    if not os.path.isfile(path):
+        return "probe=none"
+    with open(path) as f:
+        verdicts = parse_probe_verdicts(f.read())
+    parts = ["%s:%s" % (k, verdicts.get(k, "NOTFOUND")) for k in keys]
+    return "probe=" + ",".join(parts)
+
+
+def physics_tag_template(tag):
+    """(template_id, role) for one physics-campaign run-set tag, as produced
+    by cmd_physics_order/build_order: 'P00_ref' -> ('P00','reference'),
+    'P00_twin' -> ('P00','twin'), any other tag (a Pxx id) -> (tag,
+    'candidate')."""
+    if tag == "P00_ref":
+        return "P00", "reference"
+    if tag == "P00_twin":
+        return "P00", "twin"
+    return tag, "candidate"
+
+
 def edit_namelist(text, nproc_x, nproc_y, numtiles, run_minutes,
                    max_dom=1, overrides=None, delete_keys=None, nest_history_on=False,
-                   history_mode="off", adios2=True, ranks=None):
+                   history_mode="off", adios2=True, ranks=None,
+                   history_minutes=None, physics_template=None, physics_case=None,
+                   numtiles_x=None, numtiles_y=None, tile_sz_x=None, tile_sz_y=None,
+                   tile_strategy=None):
     """Apply all campaign namelist edits and return the new text. Physics and
-    everything else not listed below is left untouched.
+    everything else not listed below is left untouched, UNLESS physics_template
+    names a physics_templates.json template id (see below).
 
     max_dom controls how many per-domain values are written for numtiles and
     the history-interval variant (see _insert_after_domains/_set_history_mode).
-    history_mode is 'off' (timing runs: no domain writes history) or
-    'end_d01' (correctness runs: d01 writes only its final frame; see
-    _set_history_mode's docstring). run_minutes alone now drives the
-    history-interval value the campaign always kept equal to it, so there is
-    no separate history_interval knob to pass in any more.
+    history_mode is 'off' (timing runs: no domain writes history), 'interval'
+    (PHYSICS-GRAY fidelity replicates, decision 0051: d01 writes a frame every
+    history_minutes starting at t=0; requires history_minutes) or 'end_d01'
+    (correctness runs: d01 writes only its final frame; see
+    _set_history_mode's docstring). For 'off'/'end_d01', run_minutes alone
+    drives the history-interval value the campaign always kept equal to it,
+    so there is no separate history_interval knob to pass in for those modes.
     nest_history_on is forwarded to _set_history_mode/_set_history_interval:
     default False zeroes nested-domain history (diffwrf only compares d01;
     nested history/IO dominates wall time per the isc21/maria1km smoke jobs).
@@ -551,16 +905,45 @@ def edit_namelist(text, nproc_x, nproc_y, numtiles, run_minutes,
     (case-insensitive, any group) -- for namelist templates that assign a key
     this WRF build no longer has under that name (e.g. lafe's
     bl_mynn_tkebudget/opt_run, see cases.json's lafe notes for the Registry
-    successors and why deleting them changes nothing else)."""
+    successors and why deleting them changes nothing else).
+    physics_template (PHYSICS-GRAY data campaign, decision 0051) names a
+    physics_templates.json template id (e.g. 'P02') to apply ON TOP OF every
+    other edit above, including ADIOS2 -- see apply_physics_template. Raises
+    ValueError for an unknown template id or (propagated from
+    apply_physics_edit) when the template's edits do not resolve for this
+    namelist (e.g. 'mul' on a physics_suite -1 value); callers that need a
+    resolve-without-raising check should call resolve_physics_config first.
+
+    numtiles_x/numtiles_y/tile_sz_x/tile_sz_y/tile_strategy (WTune D1
+    decomposition-space work, predictor/decomp_space.py) are the tile-geometry
+    &domains keys frame/module_tiles.F actually reads (Registry.EM_COMMON,
+    dimension 1, same "written once" convention as numtiles/nproc_x/nproc_y --
+    see _insert_after_domains). Each is None by default and, when None, is
+    NEVER TOUCHED: no line is deleted, nothing is written, and the namelist
+    text comes out byte-identical to a call that predates these parameters.
+    Passing a value (including 0, WRF's own default for all five) deletes any
+    stale line for that key and writes a fresh one on the same &domains line
+    as nproc_x/nproc_y/numtiles."""
     text = _set_scalar(text, "run_days", 0)
     text = _set_scalar(text, "run_hours", 0)
     text = _set_scalar(text, "run_minutes", run_minutes)
-    text = _set_history_mode(text, history_mode, run_minutes, max_dom, nest_history_on)
+    text = _set_history_mode(text, history_mode, run_minutes, max_dom, nest_history_on,
+                              history_minutes=history_minutes)
     if not adios2:
         text = _set_scalar(text, "io_form_history", 2)
     for key in ("nproc_x", "nproc_y", "numtiles"):
         text = _delete_key_lines(text, key)
-    text = _insert_after_domains(text, nproc_x, nproc_y, numtiles, max_dom)
+    tile_extra = []
+    for key, value in (
+        ("numtiles_x", numtiles_x), ("numtiles_y", numtiles_y),
+        ("tile_sz_x", tile_sz_x), ("tile_sz_y", tile_sz_y),
+        ("tile_strategy", tile_strategy),
+    ):
+        if value is not None:
+            tile_extra.append((key, value))
+    for key, _value in tile_extra:
+        text = _delete_key_lines(text, key)
+    text = _insert_after_domains(text, nproc_x, nproc_y, numtiles, max_dom, extra=tile_extra)
     if delete_keys:
         for key in delete_keys:
             text = _delete_key_lines(text, key, ignore_case=True)
@@ -569,6 +952,11 @@ def edit_namelist(text, nproc_x, nproc_y, numtiles, run_minutes,
             text = _set_scalar(text, key, value)
     if adios2:
         text = _apply_adios2(text, ranks, max_dom)
+    if physics_template:
+        template = PHYSICS_TEMPLATES.get(physics_template)
+        if template is None:
+            raise ValueError("unknown physics template %r" % (physics_template,))
+        text, _summary = apply_physics_template(text, template, max_dom, case_id=physics_case)
     return text
 
 
@@ -659,13 +1047,66 @@ def cmd_case(case_id):
     return 0
 
 
-def cmd_order(case_id, reps):
+# ---------------------------------------------------------------------------
+# CONFIG_FILE: run a predictor/decomp_space.py-generated config set instead of
+# the fixed C01-C16 STRICT templates (WTune D1 decomposition-space work).
+# Entirely opt-in via the CONFIG_FILE env var -- every function above (TEMPLATES,
+# resolve_case, cmd_case, the default cmd_order path) is untouched and byte-identical
+# when CONFIG_FILE is unset; see edit_namelist's own numtiles_x/y etc. docstring for
+# the matching guarantee on the namelist-editing side.
+# ---------------------------------------------------------------------------
+
+_GENERATED_TILE_FIELDS = ("numtiles_x", "numtiles_y", "tile_sz_x", "tile_sz_y", "tile_strategy")
+
+
+def load_generated_configs(path):
+    """Config dicts from a predictor/decomp_space.py `to_campaign_configs()` JSON file: either a
+    bare JSON list, or {"configs": [...]} (decomp_space.py's `sample` CLI output shape) -- both
+    accepted so a file can be fed either straight from `to_campaign_configs` or from `sample`."""
+    with open(path) as f:
+        data = json.load(f)
+    if isinstance(data, dict):
+        data = data.get("configs", data)
+    return data
+
+
+def cmd_case_generated(case_id, config_file):
+    """CONFIG_FILE-driven equivalent of cmd_case: prints the SAME first 10 TSV columns
+    (config_id..patch_y) plus 5 tile-geometry columns and a config_source column, for every
+    config in `config_file`, in file order (no scoring/dedup -- decomp_space.py's sample_design
+    already produced a deduplicated, deliberately-ordered list)."""
+    case = CASES.get(case_id)
+    if case is None:
+        sys.stderr.write("unknown case %r\n" % case_id)
+        return 2
+    if not case.get("enabled", True):
+        sys.stderr.write("case %s is disabled: %s\n" % (case_id, case.get("reason", "(no reason recorded)")))
+        return 1
+    configs_list = load_generated_configs(config_file)
+    header = ["config_id", "ranks", "omp", "nproc_x", "nproc_y", "numtiles", "dist", "blocktime",
+              "patch_x", "patch_y"] + list(_GENERATED_TILE_FIELDS) + ["config_source"]
+    print("\t".join(header))
+    for cfg in configs_list:
+        row = [cfg.get("id"), cfg.get("ranks"), cfg.get("omp"), cfg.get("nx"), cfg.get("ny"),
+               cfg.get("numtiles"), cfg.get("dist"), cfg.get("blocktime"),
+               cfg.get("patch_x"), cfg.get("patch_y")]
+        row += [cfg.get(k, 0) for k in _GENERATED_TILE_FIELDS]
+        row.append(cfg.get("config_source", "generated"))
+        print("\t".join("" if v is None else str(v) for v in row))
+    return 0
+
+
+def cmd_order(case_id, reps, config_file=None):
     case = CASES.get(case_id)
     if case is None or not case.get("enabled", True):
         sys.stderr.write("case %s unknown or disabled\n" % case_id)
         return 2
-    kept, _skipped, _aliases = resolve_case(case)
-    for cid in build_order([c["id"] for c in kept], reps):
+    if config_file:
+        ids = [cfg["id"] for cfg in load_generated_configs(config_file)]
+    else:
+        kept, _skipped, _aliases = resolve_case(case)
+        ids = [c["id"] for c in kept]
+    for cid in build_order(ids, reps):
         print(cid)
     return 0
 
@@ -717,10 +1158,21 @@ def _cmd_edit_namelist(argv):
     ap.add_argument("--max-dom", type=int, default=1,
                      help="number of active domains; controls how many per-domain "
                           "values are written for numtiles and history_interval*")
-    ap.add_argument("--history-mode", choices=["off", "end_d01"], default="off",
+    ap.add_argument("--history-mode", choices=["off", "interval", "end_d01"], default="off",
                      help="'off' (default, timing runs): no domain writes history. "
-                          "'end_d01': d01 writes only its final frame (correctness "
-                          "runs); nested domains always get 0.")
+                          "'interval' (PHYSICS-GRAY fidelity replicates): d01 writes a "
+                          "frame every --history-minutes, starting at t=0; requires "
+                          "--history-minutes. 'end_d01': d01 writes only its final "
+                          "frame (correctness runs); nested domains always get 0.")
+    ap.add_argument("--history-minutes", type=int, default=None,
+                     help="required when --history-mode interval is given")
+    ap.add_argument("--physics-template", default=None, metavar="Pxx",
+                     help="apply a physics_templates.json template id (decision "
+                          "0051 PHYSICS-GRAY data campaign) on top of every other "
+                          "edit, including ADIOS2, e.g. --physics-template P02")
+    ap.add_argument("--physics-case", default=None, metavar="CASE",
+                     help="cases.json case id whose extra_edits (per-case paired "
+                          "edits) are applied with --physics-template")
     ap.add_argument("--set", action="append", default=[], metavar="KEY=VALUE",
                      help="repeatable; forces namelist scalar KEY to VALUE after "
                           "every other edit except ADIOS2, e.g. --set max_dom=2 "
@@ -738,9 +1190,24 @@ def _cmd_edit_namelist(argv):
     ap.add_argument("--ranks", type=int, default=None,
                      help="MPI rank count; required unless --no-adios2 is given "
                           "(adios2_numaggregators MUST equal the rank count)")
+    ap.add_argument("--numtiles-x", type=int, default=None, metavar="N",
+                     help="&domains numtiles_x (WTune D1 decomposition-space work); "
+                          "not written at all when omitted")
+    ap.add_argument("--numtiles-y", type=int, default=None, metavar="N",
+                     help="&domains numtiles_y; not written at all when omitted")
+    ap.add_argument("--tile-sz-x", type=int, default=None, metavar="N",
+                     help="&domains tile_sz_x (overrides numtiles entirely, "
+                          "frame/module_tiles.F:353); not written at all when omitted")
+    ap.add_argument("--tile-sz-y", type=int, default=None, metavar="N",
+                     help="&domains tile_sz_y; not written at all when omitted")
+    ap.add_argument("--tile-strategy", type=int, default=None, metavar="N",
+                     help="&domains tile_strategy (TILE_NONE=0 TILE_X=1 TILE_Y=2 TILE_XY=3, "
+                          "module_machine.F:11); not written at all when omitted")
     a = ap.parse_args(argv)
     if a.adios2 and a.ranks is None:
         ap.error("--ranks is required unless --no-adios2 is given")
+    if a.history_mode == "interval" and a.history_minutes is None:
+        ap.error("--history-minutes is required when --history-mode interval is given")
     overrides = {}
     for kv in a.set:
         key, sep, value = kv.partition("=")
@@ -752,9 +1219,158 @@ def _cmd_edit_namelist(argv):
     new_text = edit_namelist(text, a.nproc_x, a.nproc_y, a.numtiles, a.run_minutes,
                               max_dom=a.max_dom, overrides=overrides,
                               delete_keys=a.delete_keys, nest_history_on=a.nest_history_on,
-                              history_mode=a.history_mode, adios2=a.adios2, ranks=a.ranks)
+                              history_mode=a.history_mode, adios2=a.adios2, ranks=a.ranks,
+                              history_minutes=a.history_minutes,
+                              physics_template=a.physics_template,
+                              physics_case=a.physics_case,
+                              numtiles_x=a.numtiles_x, numtiles_y=a.numtiles_y,
+                              tile_sz_x=a.tile_sz_x, tile_sz_y=a.tile_sz_y,
+                              tile_strategy=a.tile_strategy)
     with open(a.outfile, "w") as f:
         f.write(new_text)
+    return 0
+
+
+def cmd_physics_list(argv):
+    ap = argparse.ArgumentParser(prog="configs.py physics-list")
+    ap.add_argument("case_id")
+    ap.add_argument("--json", action="store_true",
+                     help="print applicable non-P00 template ids as a JSON list "
+                          "(PHYSICS_TEMPLATE_ORDER order) instead of the "
+                          "human-readable per-template report")
+    a = ap.parse_args(argv)
+    if a.case_id not in CASES:
+        sys.stderr.write("unknown case %r\n" % (a.case_id,))
+        return 2
+    if a.json:
+        applicable = []
+        for tid in PHYSICS_TEMPLATE_ORDER:
+            if tid == "P00":
+                continue
+            summary, _reason = resolve_physics_config(a.case_id, tid)
+            if summary is not None:
+                applicable.append(tid)
+        print(json.dumps(applicable))
+        return 0
+    for tid in PHYSICS_TEMPLATE_ORDER:
+        template = PHYSICS_TEMPLATES[tid]
+        family = template.get("family", "-")
+        summary, reason = resolve_physics_config(a.case_id, tid)
+        if summary is None:
+            print("%s (%s) SKIP: %s" % (tid, family, reason))
+            continue
+        if not summary:
+            print("%s (%s) APPLICABLE: (no edits -- reference template)" % (tid, family))
+            continue
+        edit_strs = []
+        for e in summary:
+            if e["op"] == "delete":
+                edit_strs.append("%s: DELETED" % (e["key"],))
+            else:
+                edit_strs.append("%s: %s -> %s" % (
+                    e["key"], ",".join(e["old"]), ",".join(e["new"])))
+        print("%s (%s) APPLICABLE: %s" % (tid, family, "; ".join(edit_strs)))
+    return 0
+
+
+def cmd_physics_order(argv):
+    ap = argparse.ArgumentParser(prog="configs.py physics-order")
+    ap.add_argument("case_id")
+    ap.add_argument("--pconfigs", default=None,
+                     help="'+'-separated physics template ids (default: every "
+                          "template applicable to this case, in "
+                          "PHYSICS_TEMPLATE_ORDER, excluding P00)")
+    ap.add_argument("--reps", type=int, default=2)
+    a = ap.parse_args(argv)
+    if a.case_id not in CASES:
+        sys.stderr.write("unknown case %r\n" % (a.case_id,))
+        return 2
+    if a.pconfigs:
+        pconfigs = [p for p in a.pconfigs.split("+") if p]
+    else:
+        pconfigs = []
+        for tid in PHYSICS_TEMPLATE_ORDER:
+            if tid == "P00":
+                continue
+            summary, _reason = resolve_physics_config(a.case_id, tid)
+            if summary is not None:
+                pconfigs.append(tid)
+    entries = ["P00_ref", "P00_twin"] + pconfigs
+    for tag in build_order(entries, a.reps):
+        print(tag)
+    return 0
+
+
+# ledger columns a physics template edit can actually change (time_step is its own
+# ledger column, distinct from the physics_* columns, but goes through the same
+# native-value-then-override logic as the rest -- see physics_ledger_columns).
+_LEDGER_PHYSICS_KEYS = (
+    "time_step", "mp_physics", "cu_physics", "bl_pbl_physics", "sf_sfclay_physics",
+    "sf_surface_physics", "ra_lw_physics", "ra_sw_physics", "radt", "cudt",
+)
+
+
+def physics_ledger_columns(case, summary):
+    """{ledger column name: value string} for a resolved physics template
+    summary (resolve_physics_config's non-None first element): starts from
+    the case's own native d01-scalar-for-ledger values (case['dt'] for
+    time_step, case['physics'][key] for the rest -- the same convention
+    cases.json/strict_campaign.sbatch already use for STRICT ledger rows),
+    then overrides any key the template actually edited with its new D01
+    (first active-domain) value -- so a P02/P03/P04 row's edited column(s)
+    show the edited value while every other physics column keeps showing the
+    case's native one, exactly like an unedited STRICT row would."""
+    cols = {"time_step": case["dt"]}
+    phys = case.get("physics", {})
+    for k in _LEDGER_PHYSICS_KEYS:
+        if k == "time_step":
+            continue
+        cols[k] = phys.get(k, "")
+    for e in summary:
+        key = e["key"]
+        if key not in _LEDGER_PHYSICS_KEYS or e["op"] == "delete":
+            continue
+        cols[key] = e["new"][0]
+    return cols
+
+
+def cmd_physics_describe(argv):
+    """physics-describe CASE_ID TEMPLATE_ID: one TSV line summarizing
+    everything strict_campaign.sbatch's MODE=physics needs for one (case,
+    template) pair's ledger row --
+      family edits probe time_step mp_physics cu_physics bl_pbl_physics \
+      sf_sfclay_physics sf_surface_physics ra_lw_physics ra_sw_physics radt cudt
+    or, when the template does not apply to this case:
+      SKIP <reason>
+    (2 fields only -- callers must check field 1 == 'SKIP' first)."""
+    ap = argparse.ArgumentParser(prog="configs.py physics-describe")
+    ap.add_argument("case_id")
+    ap.add_argument("template_id")
+    ap.add_argument("--screen-dir", default=DEFAULT_SCREEN_DIR)
+    a = ap.parse_args(argv)
+    case = CASES.get(a.case_id)
+    if case is None:
+        sys.stderr.write("unknown case %r\n" % (a.case_id,))
+        return 2
+    template = PHYSICS_TEMPLATES.get(a.template_id)
+    if template is None:
+        sys.stderr.write("unknown physics template %r\n" % (a.template_id,))
+        return 2
+    summary, reason = resolve_physics_config(a.case_id, a.template_id)
+    if summary is None:
+        print("SKIP\t%s" % (reason,))
+        return 0
+    family = template.get("family", "-")
+    edits_str = format_physics_edits(summary)
+    edited_keys = [e["key"] for e in summary if e["op"] != "delete"]
+    probe_str = probe_verdicts_for_case(a.case_id, edited_keys, screen_dir=a.screen_dir)
+    cols = physics_ledger_columns(case, summary)
+    print("\t".join(str(x) for x in [
+        family, edits_str, probe_str,
+        cols["time_step"], cols["mp_physics"], cols["cu_physics"],
+        cols["bl_pbl_physics"], cols["sf_sfclay_physics"], cols["sf_surface_physics"],
+        cols["ra_lw_physics"], cols["ra_sw_physics"], cols["radt"], cols["cudt"],
+    ]))
     return 0
 
 
@@ -784,25 +1400,42 @@ def main(argv=None):
         sys.stderr.write(
             "usage: configs.py CASE_ID | --all | order CASE_ID [--reps N] | "
             "edit-namelist IN OUT --nproc-x X --nproc-y Y --numtiles N "
-            "--run-minutes M [--max-dom N] [--history-mode off|end_d01] "
-            "[--set KEY=VALUE ...] [--delete-key KEY ...] [--nest-history-on] "
-            "[--ranks N] [--no-adios2] | "
-            "step-stats STEPS_FILE\n"
+            "--run-minutes M [--max-dom N] [--history-mode off|interval|end_d01] "
+            "[--history-minutes N] [--set KEY=VALUE ...] [--delete-key KEY ...] "
+            "[--nest-history-on] [--ranks N] [--no-adios2] "
+            "[--numtiles-x N] [--numtiles-y N] [--tile-sz-x N] [--tile-sz-y N] "
+            "[--tile-strategy N] [--physics-template Pxx] | "
+            "step-stats STEPS_FILE | "
+            "physics-list CASE_ID [--json] | "
+            "physics-order CASE_ID [--pconfigs P01+P02+...] [--reps N] | "
+            "physics-describe CASE_ID TEMPLATE_ID\n"
+            "CONFIG_FILE=path.json env (predictor/decomp_space.py to_campaign_configs/sample "
+            "output): CASE_ID and order CASE_ID measure that generated config set instead of "
+            "the fixed C01-C16 STRICT templates.\n"
         )
         return 2
     if argv[0] == "edit-namelist":
         return _cmd_edit_namelist(argv[1:])
     if argv[0] == "step-stats":
         return _cmd_step_stats(argv[1:])
+    if argv[0] == "physics-list":
+        return cmd_physics_list(argv[1:])
+    if argv[0] == "physics-order":
+        return cmd_physics_order(argv[1:])
+    if argv[0] == "physics-describe":
+        return cmd_physics_describe(argv[1:])
     assert_strict_compliance()
     if argv[0] == "--all":
         return cmd_all()
+    config_file = os.environ.get("CONFIG_FILE")
     if argv[0] == "order":
         ap = argparse.ArgumentParser(prog="configs.py order")
         ap.add_argument("case_id")
         ap.add_argument("--reps", type=int, default=2)
         a = ap.parse_args(argv[1:])
-        return cmd_order(a.case_id, a.reps)
+        return cmd_order(a.case_id, a.reps, config_file=config_file)
+    if config_file:
+        return cmd_case_generated(argv[0], config_file)
     return cmd_case(argv[0])
 
 

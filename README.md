@@ -215,6 +215,29 @@ benchmark 1075654 -- leave-one-case-out median regret catboost_pairwise 0.4% vs 
 C01) 15.2% over 6 cases, but conus12 and leave-one-hardware-out do not generalise. The
 predictor outputs a ranked shortlist; the final configuration is the user's decision.
 
+`predictor/recommend.py` is the user-facing shortlist command (STRICT and PHYSICS-GRAY); see
+`predictor/README.md` for flags, evidence warnings, and status rules.
+
+### PHYSICS-GRAY data campaign and fidelity gate (decision 0051)
+
+- `campaign/physics_templates.json`: fixed templates P01–P06 plus an `excluded` list with reasons, derived from a WRF 4.8 source compatibility survey.
+  - P01 `swint_opt`; P02 `radt`×2+`swint_opt`; P03 `time_step`×1.2; P04 WSM6; P05 PBL+sfclay swap; P06 RRTM/Dudhia.
+- `strict_campaign.sbatch MODE=physics` (env `PCONFIGS`, `DECOMP`, `TWIN_DECOMP`, `SIM_MINUTES`, `HIST_MINUTES`) runs three kinds of run:
+  - reference P00 at DECOMP;
+  - a same-physics twin at TWIN_DECOMP;
+  - each candidate at DECOMP.
+- Replicate 1 writes interval history (fidelity), replicate 2 is timing only. Every candidate is scored by `fidelity_gate.py`.
+- `fidelity_gate.py --reference --twin --candidate --family` computes, per field:
+  - the chaos-floor ratio RMS(ref,cand)/RMS(ref,twin)
+  - the normalized distance
+  - bias and precipitation accumulation difference
+
+  It gives a provisional, overridable label WITHIN-FLOOR / SMALL-DRIFT / LARGE-DRIFT / INVALID. The label describes model self-drift, not observed skill; acceptability is the user's call.
+
+### Decomposition space (research step D1)
+
+`predictor/decomp_space.py` enumerates the full legal stock-WRF decomposition and tiling space per case with WRF's exact patch and tile rules. It also draws a stratified ground-truth sample that `strict_campaign.sbatch CONFIG_FILE=...` can measure.
+
 ## Measured results
 
 | item | result | conditions |

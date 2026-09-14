@@ -518,6 +518,12 @@ _CAMPAIGN_INT_FIELDS = (
     "sf_sfclay_physics", "sf_surface_physics", "ra_lw_physics", "ra_sw_physics", "radt", "cudt",
     "io_form_history", "n_nodes", "n_ranks", "omp_threads", "nproc_x", "nproc_y", "numtiles",
     "n_steps_measured", "diffwrf_differing_fields",
+    # kmp_blocktime: reuses _i's existing "non-numeric string -> None" behavior so a CSV cell of
+    # "default" or "" both normalize to None, matching recommend.py's in-memory candidate rows
+    # (None means unset/"default", else an int) -- otherwise features.config_key tuples built from
+    # a campaign ledger row ("0", a str) and an in-memory candidate row (0, an int) compare unequal
+    # for what is otherwise the identical configuration.
+    "kmp_blocktime",
 )
 _CAMPAIGN_FLOAT_FIELDS = (
     "dx", "dy", "time_step", "history_interval", "s_per_step_median", "s_per_step_mean",
@@ -530,12 +536,19 @@ def adapt_campaign_ledger(path):
     rows, failed, correctness = [], 0, 0
     with open(path, newline="") as fh:
         for r in csv.DictReader(fh):
-            if _f(r.get("s_per_step_median")) is None:
+            notes = r.get("notes") or ""
+            is_physics = "mode=physics" in notes
+            # A physics-campaign row with no s_per_step_median is a FAILED run (status=FAILED in
+            # notes), not a timing gap -- predictor/physics.py needs it to count INFEASIBLE
+            # candidates, so it is kept (with s_per_step_median=None) rather than dropped here.
+            # Every other row (STRICT/RESEARCH, or a physics row with real timing) keeps the
+            # existing drop-if-no-timing behaviour unchanged.
+            if _f(r.get("s_per_step_median")) is None and not is_physics:
                 failed += 1
                 continue
             # correctness-mode rows (history=end_d01, C02/C06/C13 only) are diffwrf evidence, not
             # timing replicates: counting them made C02/C06/C13 the modal config, i.e. the baseline.
-            if "mode=correctness" in (r.get("notes") or ""):
+            if "mode=correctness" in notes:
                 correctness += 1
                 continue
             row = new_row(**{k: (r.get(k) or None) for k in LEDGER_FIELDS})
@@ -614,6 +627,14 @@ def classify_rows(rows):
         for row in grp:
             if row["binary_kind"] in ("plov", "wtimer"):
                 row["compliance_class"] = "RESEARCH"
+                continue
+            # physics-campaign rows (mode=physics in notes) are never re-derived here: their
+            # namelist edits (swint_opt, PBL/sfclay pair swaps, aer_opt, ...) are not all
+            # KNOB_CATALOG_NAME/LEDGER_FIELDS columns, so this knob-diff-from-baseline scan would
+            # silently miss e.g. a swint_opt-only template and misclassify it STRICT. The campaign
+            # itself already writes the correct compliance_class (STRICT for P00/twin,
+            # PHYSICS-GRAY for Pxx candidates) -- keep it as-is.
+            if "mode=physics" in (row.get("notes") or ""):
                 continue
             tup = _config_tuple(row)
             worst = "STRICT"

@@ -395,14 +395,22 @@ PY
                 if [ -f "${FID_PREFIX}.json" ]; then
                   # 2>/dev/null + tail -n1: the python one-liner prints exactly one real
                   # line; defends the read against any stray noise line preceding it.
-                  read -r FID_LABEL FID_ND FID_FLOOR FID_DECIDING < <($PY - "${FID_PREFIX}.json" 2>/dev/null <<'PYEOF'
+                  # (the pipe must sit on the heredoc's command line: a line starting with
+                  # '| tail' after PYEOF is a runtime syntax error inside $(...) that aborted
+                  # the whole physics block in smoke jobs 1076238/1076240)
+                  # FID_ND / FID_FLOOR are the MEASURED maxima over fields at the last common
+                  # time, not the thresholds.
+                  read -r FID_LABEL FID_ND FID_FLOOR FID_DECIDING < <($PY - "${FID_PREFIX}.json" 2>/dev/null <<'PYEOF' | tail -n1
 import json, sys
 d = json.load(open(sys.argv[1]))
-thr = d.get("thresholds") or {}
-deciding = str(d.get("deciding") or "").replace(" ", "_")
-print(d.get("label") or "", thr.get("nd_max", ""), thr.get("floor_ratio_max", ""), deciding)
+summ = d.get("per_field_summary_at_last_time") or {}
+def vmax(key):
+    vals = [v.get(key) for v in summ.values() if isinstance(v, dict) and isinstance(v.get(key), (int, float))]
+    return ("%.6g" % max(vals)) if vals else "NA"
+deciding = str(d.get("deciding") or "NA").replace(" ", "_")
+print(d.get("label") or "NA", vmax("nd"), vmax("floor_ratio"), deciding)
 PYEOF
-                  | tail -n1)
+)
                   cp "${FID_PREFIX}.json" "${FID_PREFIX}.csv" "$FIDOUT/" 2>/dev/null
                   GOT_FIDELITY=$((GOT_FIDELITY + 1))
                 else
@@ -419,14 +427,22 @@ PYEOF
                 if [ -f "${FID_PREFIX}.json" ]; then
                   # 2>/dev/null + tail -n1: the python one-liner prints exactly one real
                   # line; defends the read against any stray noise line preceding it.
-                  read -r FID_LABEL FID_ND FID_FLOOR FID_DECIDING < <($PY - "${FID_PREFIX}.json" 2>/dev/null <<'PYEOF'
+                  # (the pipe must sit on the heredoc's command line: a line starting with
+                  # '| tail' after PYEOF is a runtime syntax error inside $(...) that aborted
+                  # the whole physics block in smoke jobs 1076238/1076240)
+                  # FID_ND / FID_FLOOR are the MEASURED maxima over fields at the last common
+                  # time, not the thresholds.
+                  read -r FID_LABEL FID_ND FID_FLOOR FID_DECIDING < <($PY - "${FID_PREFIX}.json" 2>/dev/null <<'PYEOF' | tail -n1
 import json, sys
 d = json.load(open(sys.argv[1]))
-thr = d.get("thresholds") or {}
-deciding = str(d.get("deciding") or "").replace(" ", "_")
-print(d.get("label") or "", thr.get("nd_max", ""), thr.get("floor_ratio_max", ""), deciding)
+summ = d.get("per_field_summary_at_last_time") or {}
+def vmax(key):
+    vals = [v.get(key) for v in summ.values() if isinstance(v, dict) and isinstance(v.get(key), (int, float))]
+    return ("%.6g" % max(vals)) if vals else "NA"
+deciding = str(d.get("deciding") or "NA").replace(" ", "_")
+print(d.get("label") or "NA", vmax("nd"), vmax("floor_ratio"), deciding)
 PYEOF
-                  | tail -n1)
+)
                   cp "${FID_PREFIX}.json" "${FID_PREFIX}.csv" "$FIDOUT/" 2>/dev/null
                   GOT_FIDELITY=$((GOT_FIDELITY + 1))
                 else
@@ -510,6 +526,13 @@ PY
 
   echo "=== done (MODE=physics)"
   exit 0
+fi
+# A runtime error inside the physics block (e.g. a syntax error in a command substitution)
+# aborts that compound command and resumes HERE; never fall through into the STRICT loop
+# (smoke jobs 1076238/1076240 did, and ran C01-C16 with an empty --history-mode until timeout).
+if [ "$MODE" = "physics" ]; then
+  echo "MODE=physics block aborted before completion -- refusing to fall through to the STRICT loop" >&2
+  exit 1
 fi
 
 mapfile -t ORDER < <($PY "$CAMPAIGN/configs.py" order "$CASE" --reps "$REPS")

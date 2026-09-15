@@ -252,7 +252,13 @@ def test_add_perf_targets_recovers_known_multiplier_and_infeasible():
             crows = [r for r in rows if r["case_base"] == case and physics._template_of(r) == tmpl]
             ys = [r["y"] for r in crows if r["y"] is not None]
             assert len(ys) == len(crows) == 2
-            assert (sum(ys) / len(ys)) == pytest.approx(math.log(M_T[tmpl]), abs=0.01)
+            # y is cost per SIMULATED second (s_per_step / time_step): a template that changes
+            # time_step also shifts y by -log(dt_candidate / dt_P00) on top of its per-step M_T
+            base_dt = float([r for r in rows if r["case_base"] == case
+                             and physics._template_of(r) == "P00"][0]["time_step"])
+            dt_ratio = float(crows[0]["time_step"]) / base_dt
+            expected = math.log(M_T[tmpl]) - math.log(dt_ratio)
+            assert (sum(ys) / len(ys)) == pytest.approx(expected, abs=0.01)
 
     failed_rows = [r for r in rows if r["case_base"] == "isc21" and physics._template_of(r) == "P03"]
     assert len(failed_rows) == 2 and all(r["y"] is None for r in failed_rows)

@@ -137,8 +137,15 @@ def _status_of(row):
 
 
 def _log_s(row):
+    """log of wall-clock cost per SIMULATED second (s_per_step_median / time_step), not per step:
+    a template that changes time_step (P03 x1.2) keeps per-step cost flat but needs 1/1.2 as many
+    steps, so per-step cost hid its real ~17% time-to-solution change (campaign 1077168-1077173).
+    Falls back to per-step cost only when time_step is unknown."""
     s = _num(row.get("s_per_step_median"))
-    return math.log(s) if s and s > 0 else None
+    if not s or s <= 0:
+        return None
+    dt = _num(row.get("time_step"))
+    return math.log(s / dt) if dt and dt > 0 else math.log(s)
 
 
 # ---------------------------------------------------------------------------

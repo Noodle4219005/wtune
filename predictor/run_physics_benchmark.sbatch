@@ -5,8 +5,10 @@
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=8
 #SBATCH --time=00:30:00
-#SBATCH --output=/home/u5727520/wrf-bench/wscore/predictor/physics_bench_%j/slurm.out
-#SBATCH --error=/home/u5727520/wrf-bench/wscore/predictor/physics_bench_%j/slurm.err
+#SBATCH --output=/home/u5727520/wrf-bench/wscore/predictor/physics_bench_%j.out
+#SBATCH --error=/home/u5727520/wrf-bench/wscore/predictor/physics_bench_%j.err
+# (stdout/stderr must be plain files in an existing directory: a per-job subdirectory does not
+# exist yet at launch and the job fails in seconds -- job 1077878)
 #
 # PHYSICS-GRAY predictor benchmark (decision 0051, predictor/physics.py). Same shape as
 # run_benchmark.sbatch (STRICT phase A): test -> benchmark, but over the physics-campaign ledger

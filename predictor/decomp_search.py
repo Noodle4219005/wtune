@@ -497,7 +497,7 @@ def propose_for_case(case_name, case_json, case_fields, prior_rows, state, batch
                       total_cores=448, nodes=4, hardware_id=ds.DEFAULT_HARDWARE,
                       kappa=DEFAULT_KAPPA, max_per_rank_omp=DEFAULT_MAX_PER_RANK_OMP,
                       ensemble_size=DEFAULT_ENSEMBLE_SIZE, ensemble_seed=0,
-                      max_rounds=DEFAULT_MAX_ROUNDS):
+                      max_rounds=DEFAULT_MAX_ROUNDS, max_omp=None):
     """Lower-level entry point: `case_json` (decomp_space.enumerate_space-shaped: e_we/e_sn/
     e_vert/max_dom[/e_we_list/e_sn_list]) and `case_fields` (ledger-row-shaped case fields, see
     case_row_fields) are supplied directly rather than looked up from campaign/cases.json -- lets
@@ -508,6 +508,10 @@ def propose_for_case(case_name, case_json, case_fields, prior_rows, state, batch
     stopped. Does not mutate `state`; the caller applies bookkeeping once it has written the
     proposal file."""
     candidates, _axis = ds.enumerate_space(case_json, total_cores, nodes, hardware_id)
+    if max_omp is not None:
+        # failed runs are never ingested, so D3 cannot learn that a thread count crashes (WRF-Fire
+        # cases rc=137/139 with any OMP>1: c34 1078296, marshall 1078390) -- exclude it up front
+        candidates = [c for c in candidates if c["omp"] <= max_omp]
 
     case_measured_rows = build_case_measured_rows(state, case_name, case_fields, hardware_id, nodes)
     # case_measured_rows FIRST: _dedup_rows keeps the first occurrence, so if `prior_rows` also
@@ -539,7 +543,7 @@ def propose_for_case(case_name, case_json, case_fields, prior_rows, state, batch
 def propose(case_name, ledger_paths, state, batch_size, total_cores=448, nodes=4,
             hardware_id=ds.DEFAULT_HARDWARE, kappa=DEFAULT_KAPPA,
             max_per_rank_omp=DEFAULT_MAX_PER_RANK_OMP, ensemble_size=DEFAULT_ENSEMBLE_SIZE,
-            ensemble_seed=0, max_rounds=DEFAULT_MAX_ROUNDS):
+            ensemble_seed=0, max_rounds=DEFAULT_MAX_ROUNDS, max_omp=None):
     """CLI-facing convenience wrapper: `case_name` must be a campaign/cases.json case id. See
     propose_for_case for the reusable core."""
     case_json = campaign_configs.CASES.get(case_name)
@@ -556,7 +560,7 @@ def propose(case_name, ledger_paths, state, batch_size, total_cores=448, nodes=4
         case_name, case_json, case_fields, prior_rows, state, batch_size,
         total_cores=total_cores, nodes=nodes, hardware_id=hardware_id, kappa=kappa,
         max_per_rank_omp=max_per_rank_omp, ensemble_size=ensemble_size,
-        ensemble_seed=ensemble_seed, max_rounds=max_rounds)
+        ensemble_seed=ensemble_seed, max_rounds=max_rounds, max_omp=max_omp)
 
 
 def sbatch_command(case_name, config_file, partition=DEFAULT_PARTITION, reps=DEFAULT_REPS):
@@ -826,13 +830,16 @@ def _cmd_propose(argv):
     ap.add_argument("--ensemble-seed", type=int, default=0)
     ap.add_argument("--partition", default=DEFAULT_PARTITION)
     ap.add_argument("--reps", type=int, default=DEFAULT_REPS)
+    ap.add_argument("--max-omp", type=int, default=None,
+                    help="only propose configs with at most this many OpenMP threads per rank")
     a = ap.parse_args(argv)
 
     state = load_state(a.state)
     result, configs_out = propose(
         a.case, a.ledger, state, a.batch, total_cores=a.total_cores, nodes=a.nodes,
         hardware_id=a.hardware_id, kappa=a.kappa, max_per_rank_omp=a.max_per_rank_omp,
-        ensemble_size=a.ensemble_size, ensemble_seed=a.ensemble_seed, max_rounds=a.max_rounds)
+        ensemble_size=a.ensemble_size, ensemble_seed=a.ensemble_seed, max_rounds=a.max_rounds,
+        max_omp=a.max_omp)
 
     if result["stopped"]:
         print("STOP (round %d): %s" % (result["round"], result["reason"]))

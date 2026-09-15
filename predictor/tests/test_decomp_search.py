@@ -651,3 +651,19 @@ def test_real_karina_incumbent_unchanged_whether_or_not_own_round_ledger_is_dupl
     assert result_only.get("incumbent_y") is not None
     assert result_only["incumbent_y"] == pytest.approx(result_dup["incumbent_y"], abs=1e-9)
     assert result_only.get("n_training_rows") == result_dup.get("n_training_rows")
+
+
+def test_propose_for_case_max_omp_excludes_threaded_candidates(tmp_path):
+    case_json = dict(e_we=505, e_sn=505, e_vert=45, max_dom=1)
+    rows = []
+    for p in ("ledger_isc21_1075293.csv", "ledger_lafe_1075295.csv", "ledger_karina_1075297.csv"):
+        path = os.path.join("/home/u5727520/wrf-bench/wscore/campaign", p)
+        if not os.path.exists(path):
+            pytest.skip("campaign ledgers not present")
+        rows.extend(benchmark.load_ledger(path))
+    result, configs_out = dsearch.propose_for_case(
+        "maxomptest", case_json, dsearch.case_row_fields(case_json), rows,
+        dict(configs={}, measured={}, rounds=[]), batch_size=8, total_cores=448, nodes=4,
+        hardware_id=HARDWARE_ID, ensemble_size=3, ensemble_seed=0, max_omp=1)
+    assert not result["stopped"]
+    assert configs_out and all(c["omp"] == 1 for c in configs_out)

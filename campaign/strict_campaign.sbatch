@@ -45,7 +45,14 @@ OUT=/home/u5727520/wrf-bench/wscore/campaign
 # different pools never share a hardware_id
 HARDWARE_ID=f1-spr-$(hostname -s | sed 's/[0-9]*$//')
 PIXI_ENV=/home/u5727520/wrf-stack/wtune-pixi-env-20260830
-CONV=/home/u5727520/SC26-WRF-p0/scripts/vendor/wrf-adios2-to-netcdf4/convert.py
+# vendored into this repo 2026-09-15: the old external path
+# /home/u5727520/SC26-WRF-p0/scripts/vendor/wrf-adios2-to-netcdf4/convert.py disappeared, and
+# physics smoke 1076771-1076776 silently produced no netCDF / no fidelity at all.
+CONV=${CONV:-/home/u5727520/wrf-stack/wtune-autotuner/tools/wrf_adios2_to_netcdf4/convert.py}
+if [ "${MODE:-timing}" != "timing" ] && [ ! -f "$CONV" ]; then
+  echo "FATAL: ADIOS2->netCDF converter not found at $CONV (needed by MODE=${MODE}) -- refusing to run" >&2
+  exit 1
+fi
 
 REPS=${REPS:-2}
 TIMEOUT_S=${TIMEOUT_S:-600}

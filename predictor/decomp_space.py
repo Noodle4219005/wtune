@@ -626,6 +626,32 @@ def sample_design(space, n, seed, must_include=None):
     return chosen, coverage
 
 
+def seed_design(space, numtiles_targets=(None, 12), max_omp=14):
+    """Cold-start screen for a case/allocation with no measurements (e.g. 1-node cases where the
+    448-core templates do not exist): for every ranks x omp group, the most balanced legal patch
+    shape (min patch aspect), default 1-D tiles, dist=block, KMP_BLOCKTIME=0, at numtiles nearest
+    each target (None = one tile per thread). Thread counts above `max_omp` are skipped (lafe 8x56
+    segfaulted, job 1078094). Deterministic; ties broken by _candidate_key."""
+    def aspect(c):
+        px, py = c.get("patch_x") or 0, c.get("patch_y") or 0
+        return max(px, py) / float(min(px, py)) if px and py else float("inf")
+
+    base = [c for c in space if c["omp"] <= max_omp and c["tile_shape"] == "1d_y" and c["dist"] == "block"
+            and str(c["blocktime"]) == "0"]
+    chosen, seen = [], set()
+    for omp in sorted({c["omp"] for c in base}):
+        group = sorted((c for c in base if c["omp"] == omp), key=lambda c: (aspect(c), _candidate_key(c)))
+        best_shape = (group[0]["nx"], group[0]["ny"])
+        shape = [c for c in group if (c["nx"], c["ny"]) == best_shape]
+        for target in numtiles_targets:
+            t = max(1, omp) if target is None else target
+            c = min(shape, key=lambda c: (abs(c["numtiles"] - t), c["numtiles"]))
+            if _candidate_key(c) not in seen:
+                seen.add(_candidate_key(c))
+                chosen.append(c)
+    return chosen
+
+
 def to_campaign_configs(candidates, prefix="G"):
     """Config dicts campaign/configs.py's generated-config runner (CONFIG_FILE=... env,
     campaign/strict_campaign.sbatch) can execute directly: zero-padded ids (G0001, G0002, ...,
@@ -713,6 +739,28 @@ def _cmd_sample(argv):
     return 0
 
 
+def _cmd_seed(argv):
+    ap = argparse.ArgumentParser(prog="decomp_space.py seed")
+    ap.add_argument("case_id")
+    ap.add_argument("--out", required=True)
+    ap.add_argument("--total-cores", type=int, default=448)
+    ap.add_argument("--nodes", type=int, default=4)
+    ap.add_argument("--hardware-id", default=DEFAULT_HARDWARE)
+    ap.add_argument("--prefix", default="S")
+    a = ap.parse_args(argv)
+    case = campaign_configs.CASES.get(a.case_id)
+    if case is None:
+        sys.stderr.write("unknown case %r\n" % (a.case_id,))
+        return 2
+    candidates, axis = enumerate_space(case, a.total_cores, a.nodes, a.hardware_id)
+    configs_out = to_campaign_configs(seed_design(candidates), prefix=a.prefix)
+    with open(a.out, "w") as f:
+        json.dump(dict(case_id=a.case_id, total_space=axis["total"], configs=configs_out), f,
+                  indent=2, sort_keys=True)
+    print("wrote %d seed configs (space=%d) to %s" % (len(configs_out), axis["total"], a.out))
+    return 0
+
+
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
     if not argv:
@@ -727,6 +775,8 @@ def main(argv=None):
         return _cmd_summary(argv[1:])
     if argv[0] == "sample":
         return _cmd_sample(argv[1:])
+    if argv[0] == "seed":
+        return _cmd_seed(argv[1:])
     sys.stderr.write("unknown subcommand %r\n" % (argv[0],))
     return 2
 

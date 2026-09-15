@@ -73,7 +73,8 @@ fi
 for r in $(seq 1 "$ROUNDS"); do
   P="$D/proposal_r${r}.json"
   echo "===== R$r propose"
-  $PY predictor/decomp_search.py propose --case "$CASE" --ledger $PRIOR_LEDGERS "$LEDGER" \
+  LEDGER_ARGS="$PRIOR_LEDGERS"; [ -f "$LEDGER" ] && LEDGER_ARGS="$LEDGER_ARGS $LEDGER"  # absent until a run happens (TEMPLATES=none)
+  $PY predictor/decomp_search.py propose --case "$CASE" --ledger $LEDGER_ARGS \
       --state "$STATE" --batch "$BATCH" --out "$P" --total-cores "$TOTAL_CORES" --nodes "$NODES" \
       --hardware-id "$HARDWARE_ID" --reps "$REPS" $PROPOSE_LIMITS 2>&1 | grep -vE "WARN cache|^sbatch "
   [ -f "$P" ] || { echo "R$r: no proposal (stopped)"; break; }
@@ -88,10 +89,11 @@ done
 
 if [ "$CONFIRM_TOP" -gt 0 ]; then
   echo "===== CF confirm top $CONFIRM_TOP"
-  $PY campaign/decomp_summary.py --case "$CASE" --ledger "$LEDGER" --top "$CONFIRM_TOP" \
+  $PY campaign/decomp_summary.py --case "$CASE" --ledger ${EXTRA_LEDGERS:-} "$LEDGER" --top "$CONFIRM_TOP" \
       --confirm-out "$D/confirm.json" > /dev/null 2>&1
   [ -f "$D/confirm.json" ] && run_campaign 1 CONFIG_FILE="$D/confirm.json" 2>&1 | grep -E "^RESULT|ERROR|FATAL|ABORT"
 fi
 
 echo "===== FINAL ranking ($CASE, job $J)"
-$PY campaign/decomp_summary.py --case "$CASE" --ledger "$LEDGER" --tsv "$D/ranking.tsv" 2>&1 | grep -v "WARN cache"
+RANK_LEDGERS="${EXTRA_LEDGERS:-}"; [ -f "$LEDGER" ] && RANK_LEDGERS="$RANK_LEDGERS $LEDGER"
+$PY campaign/decomp_summary.py --case "$CASE" --ledger $RANK_LEDGERS --tsv "$D/ranking.tsv" 2>&1 | grep -v "WARN cache"

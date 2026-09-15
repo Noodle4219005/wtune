@@ -461,14 +461,34 @@ PY
         if [ ${#FRAMES[@]} -eq 0 ]; then
           CONV_OK=0
         fi
+        # Convert every frame of THIS run in parallel (2026-09-15 fix): the previous
+        # one-frame-at-a-time serial loop measured ~3 min per BP frame on the
+        # 1000x1000x100 lafe grid, which alone burned through the whole job's time limit
+        # before the run set finished (job 1076893, cancelled mid-P06). Launch one
+        # --exclusive srun step per frame in the background -- Slurm packs them onto
+        # whatever nodes/cores are free in this job's own allocation, no manual node
+        # assignment needed -- then wait for every one before checking results, so one
+        # slow frame does not stall the others.
+        CONV_PIDS=()
         for bf in "${FRAMES[@]}"; do
           ncf="${bf}.nc"
-          srun -N1 -n1 -c8 bash -c "cd $PIXI_ENV && pixi run python $CONV --input $RUNDIR/$bf --output $RUNDIR/$ncf" \
-            > "convert_${bf}.log" 2>&1
-          if [ $? -ne 0 ] || [ ! -s "$ncf" ]; then
+          srun --exclusive -N1 -n1 -c8 bash -c "cd $PIXI_ENV && pixi run python $CONV --input $RUNDIR/$bf --output $RUNDIR/$ncf" \
+            > "convert_${bf}.log" 2>&1 &
+          CONV_PIDS+=("$!")
+        done
+        CONV_RCS=()
+        for pid in "${CONV_PIDS[@]}"; do
+          wait "$pid"
+          CONV_RCS+=("$?")
+        done
+        for i in "${!FRAMES[@]}"; do
+          bf="${FRAMES[$i]}"
+          ncf="${bf}.nc"
+          rc="${CONV_RCS[$i]:-1}"
+          if [ "$rc" != "0" ] || [ ! -s "$ncf" ]; then
             CONV_OK=0
             rm -f "$ncf"
-            break
+            continue
           fi
           NC_FILES+=("$RUNDIR/$ncf")
           # problem 1: BP history is never needed again once its netCDF is verified

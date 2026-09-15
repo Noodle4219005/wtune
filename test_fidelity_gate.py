@@ -1,6 +1,7 @@
 import json
 import subprocess
 import sys
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import netCDF4
@@ -247,6 +248,104 @@ def test_invalid_no_common_times(tmp_path):
     assert "no common valid times" in payload["deciding"]
 
 
+def test_time_tolerance_matches_post_init_time(tmp_path):
+    # A candidate whose time_step differs from the reference's writes history at times
+    # that no longer coincide exactly (2026-09-15 fix: karina/isc21 P03, a 1.2x time_step
+    # multiplier, used to match ONLY at t=0 under exact-string matching and were labelled
+    # WITHIN-FLOOR with nd=0/floor_ratio=0 -- a false "no change"). t=0 (initialization)
+    # still lines up exactly; every later time is offset by a fixed 90s, comfortably
+    # inside the default 180s --time-tol-s, so the fix must still reach a real
+    # post-initialization comparison instead of only t=0.
+    ref = _base_fields()
+    noise = _make_noise(ref, frac=1e-2)
+    twin = _scaled_noise(ref, noise, 1.0)
+    cand = _scaled_noise(ref, noise, 1.5)  # same pattern as test_within_floor: floor_ratio ~= 1.5
+
+    def _plus_90s(t):
+        dt = datetime.strptime(t, "%Y-%m-%d_%H:%M:%S") + timedelta(seconds=90)
+        return dt.strftime("%Y-%m-%d_%H:%M:%S")
+
+    shifted_times = [TIMES[0]] + [_plus_90s(t) for t in TIMES[1:]]
+
+    ref_path = tmp_path / "ref.nc"
+    twin_path = tmp_path / "twin.nc"
+    cand_path = tmp_path / "cand.nc"
+    _write(ref_path, ref)
+    _write(twin_path, twin)
+    _write(cand_path, cand, times=shifted_times)
+
+    out_prefix = tmp_path / "out"
+    result = _run(
+        "--reference", ref_path, "--twin", twin_path, "--candidate", cand_path,
+        "--family", "dynamics", "--bdy-width", "0", "--out-prefix", out_prefix,
+    )
+    payload = json.loads(out_prefix.with_suffix(".json").read_text())
+    assert result.returncode == 0
+    # Under the OLD exact-string matching this candidate would share NO time with the
+    # reference after t=0 (common_times == [TIMES[0]] only) -> last_time == TIMES[0] and
+    # the comparison would be a false no-op. The fix must reach the actual last time.
+    assert payload["last_time"] == TIMES[-1]
+    assert payload["last_time_match"]["candidate"] == shifted_times[-1]
+    assert abs(payload["last_time_match"]["candidate_offset_s"] - 90.0) < 1e-6
+    assert payload["last_time_match"]["twin_offset_s"] == 0.0
+    assert payload["label"] == "WITHIN-FLOOR"
+
+
+def test_time_only_initial_overlap_is_invalid(tmp_path):
+    # A candidate that only has the initialization time in common with the reference
+    # (e.g. every later output drifted outside --time-tol-s, or the run only produced
+    # t=0) must not be silently compared at t=0 only -- that reads as "no change" when
+    # nothing was actually compared post-initialization.
+    ref = _base_fields()
+    noise = _make_noise(ref, frac=1e-4)
+    twin = _scaled_noise(ref, noise, 1.0)
+    cand_trunc = {name: arr[:1] for name, arr in ref.items()}
+
+    ref_path = tmp_path / "ref.nc"
+    twin_path = tmp_path / "twin.nc"
+    cand_path = tmp_path / "cand.nc"
+    _write(ref_path, ref)
+    _write(twin_path, twin)
+    _write(cand_path, cand_trunc, times=TIMES[:1])
+
+    out_prefix = tmp_path / "out"
+    result = _run(
+        "--reference", ref_path, "--twin", twin_path, "--candidate", cand_path,
+        "--family", "dynamics", "--bdy-width", "0", "--out-prefix", out_prefix,
+    )
+    payload = json.loads(out_prefix.with_suffix(".json").read_text())
+    assert result.returncode == 0
+    assert payload["label"] == "INVALID"
+    assert payload["deciding"] == "no matched valid time after initialization"
+    assert payload["common_times"] == TIMES[:1]  # the t=0 match was found, just unusable
+
+
+def test_low_variance_field_nd_undefined_not_large_drift(tmp_path):
+    # maria1km P02 (nighttime): nd(SWDOWN)=1.4e6 because the reference SWDOWN has ~zero
+    # spatial variance at night, so even a tiny absolute difference normalizes to a huge
+    # relative one. Here the reference SWDOWN is exactly zero (its twin -- built from the
+    # same std-scaled noise helpers -- is then bit-identical, floor_zero); the candidate
+    # gets a physically negligible absolute offset. nd must be left undefined, and that
+    # alone must never force the comparison to LARGE-DRIFT.
+    ref = _base_fields()
+    ref["SWDOWN"] = np.zeros_like(ref["SWDOWN"])
+
+    noise = _make_noise(ref, frac=1e-4)  # scaled by each field's own std -> 0 for SWDOWN
+    twin = _scaled_noise(ref, noise, 1.0)
+    cand = _shift(ref, frac=0.01)  # SMALL-DRIFT-scale on every field (0 for SWDOWN too)
+    cand["SWDOWN"] = ref["SWDOWN"] + np.float32(1e-3)  # tiny absolute offset, not std-scaled
+
+    result, payload, _ = _gate(tmp_path, ref, twin, cand, family="radiation")
+    assert result.returncode == 0
+    swdown = payload["per_field_summary_at_last_time"]["SWDOWN"]
+    assert swdown["low_variance"] is True
+    assert swdown["nd"] is None
+    assert swdown["nd_status"] == "undefined_low_variance"
+    assert swdown["floor_zero"] is True
+    assert abs(swdown["bias"]) < fg.DEFAULT_THRESHOLDS["bias_swdown_max"]
+    assert payload["label"] == "SMALL-DRIFT"
+
+
 def test_boundary_exclusion(tmp_path):
     ny, nx, ring = 10, 12, 2
     ref = _base_fields(ny=ny, nx=nx)
@@ -274,6 +373,12 @@ def test_boundary_exclusion(tmp_path):
 
 
 def test_floor_zero(tmp_path):
+    # 2026-09-15 fix: maria1km/lafe twins came back bit-identical to the reference (twin
+    # decomposition doesn't perturb them at all), so the OLD floor_ratio = rms_diff /
+    # max(floor, tiny) divided by ~0 and printed an astronomically large, uninformative
+    # number (1e9-1e10) for every field. floor_ratio is now left null (undefined) instead
+    # -- WITHIN-FLOOR for a floor_zero field requires rms_diff == 0.0 exactly; any nonzero
+    # diff falls back to the nd/bias criteria rather than a meaningless giant ratio.
     ref = _base_fields()
     twin = dict(ref)  # bit-identical twin -> floor == 0 for every field
 
@@ -282,7 +387,8 @@ def test_floor_zero(tmp_path):
     assert payload_id["label"] == "WITHIN-FLOOR"
     t2_id = payload_id["per_field_summary_at_last_time"]["T2"]
     assert t2_id["floor_zero"] is True
-    assert t2_id["floor_ratio"] == 0.0
+    assert t2_id["rms_diff"] == 0.0
+    assert t2_id["floor_ratio"] is None  # undefined, not the old tiny-fallback 0.0
 
     noise = _make_noise(ref, frac=1e-3)
     cand = _scaled_noise(ref, noise, 1.0)
@@ -290,8 +396,10 @@ def test_floor_zero(tmp_path):
     assert result_tiny.returncode == 0
     t2_tiny = payload_tiny["per_field_summary_at_last_time"]["T2"]
     assert t2_tiny["floor_zero"] is True
-    assert t2_tiny["floor_ratio"] > 2.0  # any nonzero diff against an exact-zero floor fails the ratio test
-    assert payload_tiny["label"] == "SMALL-DRIFT"  # but nd/bias are still tiny
+    assert t2_tiny["rms_diff"] > 0.0
+    assert t2_tiny["floor_ratio"] is None  # undefined, not the old giant tiny-fallback ratio
+    assert t2_tiny["nd"] is not None and 0.0 < t2_tiny["nd"] < 0.01  # frac=1e-3 noise scale, well under nd_max
+    assert payload_tiny["label"] == "SMALL-DRIFT"  # nd/bias are tiny; decided without floor_ratio
 
 
 def test_threshold_override(tmp_path):

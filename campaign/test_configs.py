@@ -488,6 +488,32 @@ class TestHistoryMode(unittest.TestCase):
                                      history_mode="off", ranks=448)
         self.assertIn("history_interval_s = 0, 0, 0,", out)
 
+    def test_off_with_nwp_diagnostics_uses_never_elapsing_d01_interval(self):
+        # WRF aborts on nwp_diagnostics!=0 with history_interval(1)==0 (smoke job 1078290)
+        text = self.NEST_MINUTES.replace("&time_control\n", "&time_control\n nwp_diagnostics = 1,\n", 1)
+        self.assertNotEqual(text, self.NEST_MINUTES)
+        out = configs.edit_namelist(text, 4, 28, 6, 30, max_dom=2, history_mode="off", ranks=112)
+        n = configs.HISTORY_NEVER_MINUTES
+        self.assertIn("history_interval = %d, %d," % (n, n), out)
+        self.assertIn("history_begin = %d, %d," % (n, n), out)
+        self.assertIn("nwp_diagnostics = 1,", out)
+
+    def test_off_with_hailcast_on_nest_only_uses_never_elapsing_interval_every_domain(self):
+        # hailcast_opt aborts when ANY domain's history_interval is 0 (debug job 1078305)
+        for line in (" hailcast_opt = 1, 1,\n", " hailcast_opt = 0, 1,\n", " afwa_diag_opt = 1,\n"):
+            text = self.NEST_MINUTES.replace("&time_control\n", "&time_control\n" + line, 1)
+            out = configs.edit_namelist(text, 4, 28, 6, 30, max_dom=2, history_mode="off", ranks=112)
+            n = configs.HISTORY_NEVER_MINUTES
+            self.assertIn("history_interval = %d, %d," % (n, n), out)
+            self.assertIn("history_begin = %d, %d," % (n, n), out)
+
+    def test_off_with_nwp_diagnostics_zero_or_commented_is_unchanged(self):
+        for line in (" nwp_diagnostics = 0,\n", "! nwp_diagnostics = 1,\n", " hailcast_opt = 0, 0,\n"):
+            text = self.NEST_MINUTES.replace("&time_control\n", "&time_control\n" + line, 1)
+            out = configs.edit_namelist(text, 4, 28, 6, 30, max_dom=2, history_mode="off", ranks=112)
+            self.assertIn("history_interval = 0, 0,", out)
+            self.assertNotIn("history_begin", out)
+
     def test_end_d01_sets_history_begin_single_domain_max_dom_1(self):
         out = configs.edit_namelist(self.SINGLE, 14, 16, 12, 8, history_mode="end_d01", ranks=224)
         self.assertIn("history_interval=8,", out)
@@ -1612,6 +1638,69 @@ class TestQuotaFreeGibCLI(unittest.TestCase):
         rc, out = self._run_cli(MMLSQUOTA_SAMPLE, argv=["--filesystem", "work1"])
         self.assertEqual(rc, 0)
         self.assertLess(float(out), 60)
+
+
+class TestCasesJsonEnv(unittest.TestCase):
+    """CASES_JSON env var swaps the case file configs.py loads at import; unset keeps cases.json."""
+
+    def _import_in_subprocess(self, env_value):
+        import subprocess
+        env = dict(os.environ)
+        env.pop("CASES_JSON", None)
+        if env_value is not None:
+            env["CASES_JSON"] = env_value
+        code = "import json, configs; print(json.dumps([configs.CASES_JSON_PATH, sorted(configs.CASES)]))"
+        p = subprocess.run([sys.executable, "-c", code], cwd=os.path.dirname(os.path.abspath(__file__)),
+                           env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                           universal_newlines=True, check=True)
+        return json.loads(p.stdout.strip().splitlines()[-1])
+
+    def test_default_is_cases_json(self):
+        path, ids = self._import_in_subprocess(None)
+        self.assertEqual(path, os.path.join(os.path.dirname(os.path.abspath(__file__)), "cases.json"))
+        self.assertIn("karina", ids)
+
+    def test_env_points_at_fragment(self):
+        import tempfile
+        frag = {"cases": {"fragcase": dict(configs.CASES["karina"])}}
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
+            json.dump(frag, f)
+        try:
+            path, ids = self._import_in_subprocess(f.name)
+            self.assertEqual(path, f.name)
+            self.assertEqual(ids, ["fragcase"])
+        finally:
+            os.unlink(f.name)
+
+
+class TestSbatchNodeCount(unittest.TestCase):
+    """strict_campaign.sbatch derives ranks-per-node and the ledger n_nodes column from the
+    allocation (SLURM_JOB_NUM_NODES, default 4) instead of a hard-coded 4, so a -N1 cf112 run of a
+    small case launches correctly while the 4-node default stays identical."""
+
+    def _text(self):
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "strict_campaign.sbatch")) as f:
+            return f.read()
+
+    def test_no_hardcoded_four_nodes(self):
+        s = self._text()
+        self.assertNotIn("ranks / 4", s)
+        self.assertNotIn('N_NODES="4"', s)
+        self.assertEqual(s.count("ntasks_per_node=$(( ranks / ALLOC_NODES ))"), 2)
+        self.assertEqual(s.count('N_NODES="$ALLOC_NODES"'), 3)
+
+    def test_default_is_four_and_follows_allocation(self):
+        import subprocess
+        line = [l for l in self._text().splitlines() if l.startswith("ALLOC_NODES=")]
+        self.assertEqual(line, ["ALLOC_NODES=${SLURM_JOB_NUM_NODES:-4}"])
+        for env_nodes, want in ((None, "4"), ("4", "4"), ("1", "1")):
+            env = dict(os.environ)
+            env.pop("SLURM_JOB_NUM_NODES", None)
+            if env_nodes is not None:
+                env["SLURM_JOB_NUM_NODES"] = env_nodes
+            out = subprocess.run(["bash", "-c", line[0] + '; ranks=56; echo "$ALLOC_NODES $(( ranks / ALLOC_NODES ))"'],
+                                 env=env, stdout=subprocess.PIPE, universal_newlines=True, check=True).stdout.split()
+            self.assertEqual(out, [want, str(56 // int(want))])
 
 
 if __name__ == "__main__":

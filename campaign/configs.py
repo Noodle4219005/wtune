@@ -39,7 +39,9 @@ import sys
 
 CAMPAIGN_DIR = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.dirname(CAMPAIGN_DIR)
-CASES_JSON_PATH = os.path.join(CAMPAIGN_DIR, "cases.json")
+# CASES_JSON env var (optional) points every consumer at an alternate case file with the same
+# {"cases": {...}} schema, e.g. a not-yet-merged fragment for a smoke run; unset = cases.json.
+CASES_JSON_PATH = os.environ.get("CASES_JSON") or os.path.join(CAMPAIGN_DIR, "cases.json")
 PHYSICS_TEMPLATES_JSON_PATH = os.path.join(CAMPAIGN_DIR, "physics_templates.json")
 DEFAULT_SCREEN_DIR = "/home/u5727520/wrf-bench/wscore/physics"
 
@@ -54,6 +56,7 @@ TOTAL_CORES = 448  # 4 nodes x 112 cores, ct448
 # maria1km (2-domain cold start) are added now that their inputs are prepared.
 CASE_ORDER = [
     "karina", "conus25", "conus12", "isc21", "maria1km", "lafe",
+    "severe2023", "matthew", "c34", "zhengzhou", "elevconv", "marshall", "bigchill",
 ]
 
 # Fixed config templates. ranks*omp must equal TOTAL_CORES for every row (asserted
@@ -441,6 +444,26 @@ def _set_history_interval(text, history_minutes, max_dom, nest_history_on=False)
     return _set_scalar(text, key, minutes)
 
 
+HISTORY_NEVER_MINUTES = 1000000  # ~694 days: longer than any campaign run, fits int32 as seconds
+
+
+# Diagnostics that make WRF abort when a domain's history_interval is 0:
+# nwp_diagnostics (share/module_check_a_mundo.F:2105-2111, bigchill smoke 1078290) and
+# hailcast_opt (phys/module_diagnostics_driver.F:264, debug job 1078305); afwa_diag_opt uses the
+# same history-alarm path.
+HISTORY_REQUIRING_DIAGNOSTICS = ("nwp_diagnostics", "hailcast_opt", "afwa_diag_opt")
+
+
+def _history_requiring_diagnostics_on(text):
+    """True when a non-comment assignment of any HISTORY_REQUIRING_DIAGNOSTICS key has a nonzero
+    value for any domain (e.g. `hailcast_opt = 1, 1,`)."""
+    for key in HISTORY_REQUIRING_DIAGNOSTICS:
+        for m in re.finditer(r"(?mi)^(?![ \t]*!)[^\n]*?(?<![A-Za-z0-9_])%s[ \t]*=([^\n!]*)" % key, text):
+            if any(int(v) != 0 for v in re.findall(r"-?\d+", m.group(1))):
+                return True
+    return False
+
+
 def _set_history_mode(text, history_mode, run_minutes, max_dom, nest_history_on=False,
                        history_minutes=None):
     """Apply one of the STRICT/PHYSICS-GRAY campaign history policies (2026-09-14
@@ -474,6 +497,15 @@ def _set_history_mode(text, history_mode, run_minutes, max_dom, nest_history_on=
     nest_history_on (default False) still governs nested domains the same
     way it always has, in case a future case opts back into nest history."""
     if history_mode == "off":
+        if _history_requiring_diagnostics_on(text):
+            # WRF aborts when these diagnostics are on and a domain's history_interval is 0 (see
+            # HISTORY_REQUIRING_DIAGNOSTICS). Keep the diagnostics (not ours to change) and still
+            # write nothing: every active domain gets an interval that never elapses with
+            # history_begin == interval, which also skips the t=0 frame (same begin mechanism as
+            # 'end_d01'). Namelists without these diagnostics are unchanged.
+            text = _set_history_interval(text, HISTORY_NEVER_MINUTES, max_dom, nest_history_on=True)
+            _interval_key, begin_key, value = _history_key_and_value(text, HISTORY_NEVER_MINUTES)
+            return _replace_list_line(text, begin_key, [value] * max_dom)
         return _set_history_interval(text, 0, max_dom, nest_history_on=False)
     if history_mode == "interval":
         if history_minutes is None:

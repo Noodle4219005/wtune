@@ -56,6 +56,9 @@ fi
 
 REPS=${REPS:-2}
 TIMEOUT_S=${TIMEOUT_S:-600}
+# nodes in this allocation (srun --ntasks-per-node and the ledger n_nodes column); the #SBATCH
+# header's 4-node shape gives 4 exactly as before, and a -N1 cf112 run (small cases) gives 1
+ALLOC_NODES=${SLURM_JOB_NUM_NODES:-4}
 MODE=${MODE:-timing}
 case "$MODE" in
   timing) HISTORY_MODE_ARG=off ;;
@@ -159,9 +162,10 @@ echo "job $J case $CASE nodes $SLURM_JOB_NODELIST reps $REPS timeout $TIMEOUT_S"
 
 # ---- case metadata from cases.json --------------------------------------------
 eval "$(python3 - "$CASE" <<'PY'
-import json, sys
+import json, os, sys
 case_id = sys.argv[1]
-d = json.load(open("/home/u5727520/wrf-stack/wtune-autotuner/campaign/cases.json"))["cases"]
+# CASES_JSON (optional): alternate case file, same schema; configs.py honours the same env var
+d = json.load(open(os.environ.get("CASES_JSON") or "/home/u5727520/wrf-stack/wtune-autotuner/campaign/cases.json"))["cases"]
 c = d.get(case_id)
 if c is None:
     print('echo "unknown case %s" >&2; exit 1' % case_id)
@@ -308,7 +312,7 @@ if [ "$MODE" = "physics" ]; then
 
     ranks=${CFG_RANKS[$DECOMP_ID]}; omp=${CFG_OMP[$DECOMP_ID]}; nx=${CFG_NX[$DECOMP_ID]}; ny=${CFG_NY[$DECOMP_ID]}
     numtiles=${CFG_NUMTILES[$DECOMP_ID]}; dist=${CFG_DIST[$DECOMP_ID]}; blocktime=${CFG_BLOCKTIME[$DECOMP_ID]}
-    ntasks_per_node=$(( ranks / 4 ))
+    ntasks_per_node=$(( ranks / ALLOC_NODES ))
 
     # 2>/dev/null + tail -n1: physics-describe prints exactly one real line (SKIP\treason
     # or the 13-field TSV); this defends the read against any stray noise line (e.g. a
@@ -337,7 +341,7 @@ if [ "$MODE" = "physics" ]; then
         RA_LW_PHYSICS="$PHYS_RA_LW_PHYSICS" RA_SW_PHYSICS="$PHYS_RA_SW_PHYSICS" \
         RADT="$PHYS_RADT" CUDT="$PHYS_CUDT" \
         HISTORY_INTERVAL="0" IO_FORM_HISTORY="14" \
-        N_NODES="4" N_RANKS="$ranks" OMP_THREADS="$omp" NPROC_X="$nx" NPROC_Y="$ny" \
+        N_NODES="$ALLOC_NODES" N_RANKS="$ranks" OMP_THREADS="$omp" NPROC_X="$nx" NPROC_Y="$ny" \
         NUMTILES="$numtiles" DISTRIBUTION="$dist" KMP_BLOCKTIME_COL="$blocktime" \
         S_PER_STEP_MEDIAN="" S_PER_STEP_MEAN="" N_STEPS_MEASURED="" \
         DIFFWRF_DIFFERING_FIELDS="" FIDELITY_LABEL="" NOTES="$NOTES" PHYSICS_SUITE_NOTE="$PHYSICS_SUITE"
@@ -602,7 +606,7 @@ PYEOF
       RA_LW_PHYSICS="$P_RLW" RA_SW_PHYSICS="$P_RSW" \
       RADT="$P_RADT" CUDT="$P_CUDT" \
       HISTORY_INTERVAL="$([ "$rep" = "1" ] && echo "$HIST_MINUTES" || echo 0)" IO_FORM_HISTORY="14" \
-      N_NODES="4" N_RANKS="$ranks" OMP_THREADS="$omp" NPROC_X="$nx" NPROC_Y="$ny" \
+      N_NODES="$ALLOC_NODES" N_RANKS="$ranks" OMP_THREADS="$omp" NPROC_X="$nx" NPROC_Y="$ny" \
       NUMTILES="$numtiles" DISTRIBUTION="$dist" KMP_BLOCKTIME_COL="$blocktime" \
       S_PER_STEP_MEDIAN="$MED" S_PER_STEP_MEAN="$MEAN" N_STEPS_MEASURED="$NMEAS" \
       DIFFWRF_DIFFERING_FIELDS="" FIDELITY_LABEL="$FID_LABEL" NOTES="$NOTES" \
@@ -704,7 +708,7 @@ for cid in "${ORDER[@]}"; do
   rep=${REPCOUNT[$cid]}
   ranks=${CFG_RANKS[$cid]}; omp=${CFG_OMP[$cid]}; nx=${CFG_NX[$cid]}; ny=${CFG_NY[$cid]}
   numtiles=${CFG_NUMTILES[$cid]}; dist=${CFG_DIST[$cid]}; blocktime=${CFG_BLOCKTIME[$cid]}
-  ntasks_per_node=$(( ranks / 4 ))
+  ntasks_per_node=$(( ranks / ALLOC_NODES ))
 
   check_disk_guard "${cid}_r${rep}"
 
@@ -874,7 +878,7 @@ for cid in "${ORDER[@]}"; do
     RA_LW_PHYSICS="$PHYS_RA_LW_PHYSICS" RA_SW_PHYSICS="$PHYS_RA_SW_PHYSICS" \
     RADT="$PHYS_RADT" CUDT="$PHYS_CUDT" \
     HISTORY_INTERVAL="$([ "$MODE" = correctness ] && echo "$MIN" || echo 0)" IO_FORM_HISTORY="14" \
-    N_NODES="4" N_RANKS="$ranks" OMP_THREADS="$omp" NPROC_X="$nx" NPROC_Y="$ny" \
+    N_NODES="$ALLOC_NODES" N_RANKS="$ranks" OMP_THREADS="$omp" NPROC_X="$nx" NPROC_Y="$ny" \
     NUMTILES="$numtiles" DISTRIBUTION="$dist" KMP_BLOCKTIME_COL="$blocktime" \
     S_PER_STEP_MEDIAN="$MED" S_PER_STEP_MEAN="$MEAN" N_STEPS_MEASURED="$NMEAS" \
     DIFFWRF_DIFFERING_FIELDS="$DIFF_FIELDS" FIDELITY_LABEL="" NOTES="$NOTES" \

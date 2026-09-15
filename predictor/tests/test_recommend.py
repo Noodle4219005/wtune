@@ -22,6 +22,7 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import decomp_space
 import ledger
 import recommend
 import targets
@@ -974,3 +975,137 @@ def test_physics_gray_speed_gate_no_benefit_forces_unconfirmed(tmp_path, ledger_
 
     report = recommend.format_physics_report(result)
     assert "time-to-sol vs P00" in report
+
+
+# ---------------------------------------------------------------------------
+# WTune D4: --space full / --propose-batch (recommend_full_space, run_propose_batch). Uses its
+# OWN ledger fixture with hardware_id="f1-spr-icpnp" (a REAL entry in features.HARDWARE_TABLE) --
+# decomp_space.enumerate_space reads that table unconditionally (NUMA-aligned omp options), unlike
+# the STRICT-templates path above, which never touches it and so tolerates the shared fixtures'
+# synthetic HARDWARE_ID_TRAIN.
+# ---------------------------------------------------------------------------
+FULL_SPACE_HARDWARE = "f1-spr-icpnp"
+FULL_SPACE_OMP_OPTIONS = [1, 2]
+FULL_SPACE_TILE_OPTIONS = dict(numtiles_multiples=(1,), max_numtiles=16, include_2d=True,
+                                tile_sz_variants=())
+
+
+@pytest.fixture
+def full_space_ledger_csv(tmp_path):
+    rows = []
+    for c in TRAIN_CASES:
+        rows += _case_rows(c, FULL_SPACE_HARDWARE, 901, 901, 45, BASE_LOG_S[c])
+    path = tmp_path / "full_space_runs.csv"
+    write_ledger_csv(rows, str(path))
+    return str(path)
+
+
+def test_space_full_returns_only_legal_candidates(full_space_ledger_csv, main_namelist):
+    result = recommend.recommend_full_space(
+        ledger_path=full_space_ledger_csv, namelist_path=main_namelist, case_name="synthtest",
+        hardware_id=FULL_SPACE_HARDWARE, nodes=4, top_k=25,
+        omp_options=FULL_SPACE_OMP_OPTIONS, tile_options=FULL_SPACE_TILE_OPTIONS)
+
+    assert result["total_candidates"] > 0
+    assert 0 < len(result["shortlist"]) <= 25
+
+    # cross-check every reported shape against decomp_space's own ground-truth legality gate
+    for e in result["shortlist"]:
+        legal = decomp_space.legal_shapes_exact([901], [901], e["n_ranks"])
+        assert (e["nproc_x"], e["nproc_y"]) in legal, "reported candidate %s is ILLEGAL" % e
+
+    # total_candidates matches an independent re-enumeration with the same parameters
+    _candidates2, axis2 = decomp_space.enumerate_space(
+        dict(e_we=901, e_sn=901, e_vert=45, max_dom=1), total_cores=448, nodes=4,
+        hardware_id=FULL_SPACE_HARDWARE, omp_options=FULL_SPACE_OMP_OPTIONS,
+        tile_options=FULL_SPACE_TILE_OPTIONS)
+    assert result["total_candidates"] == axis2["total"]
+
+
+def test_space_full_top_k_size(full_space_ledger_csv, main_namelist):
+    result = recommend.recommend_full_space(
+        ledger_path=full_space_ledger_csv, namelist_path=main_namelist, case_name="synthtest",
+        hardware_id=FULL_SPACE_HARDWARE, nodes=4, top_k=3,
+        omp_options=FULL_SPACE_OMP_OPTIONS, tile_options=FULL_SPACE_TILE_OPTIONS)
+    assert len(result["shortlist"]) == 3
+    assert [e["rank"] for e in result["shortlist"]] == [1, 2, 3]
+    assert result["total_candidates"] > 3
+
+
+def test_space_full_extrapolation_fires_for_unseen_ranks_omp_and_tile_shape(
+        full_space_ledger_csv, main_namelist):
+    # Training rows (_case_rows) are ALL ranks=448/omp=1/nproc_x=8/nproc_y=56/tile_shape=1d_y --
+    # every ranks=224 (omp=2) candidate, and every tile_shape="2d" candidate, must be flagged.
+    # top_k covers the WHOLE constrained pool so the assertions do not depend on ranking order.
+    result = recommend.recommend_full_space(
+        ledger_path=full_space_ledger_csv, namelist_path=main_namelist, case_name="synthtest",
+        hardware_id=FULL_SPACE_HARDWARE, nodes=4, top_k=100000,
+        omp_options=FULL_SPACE_OMP_OPTIONS, tile_options=FULL_SPACE_TILE_OPTIONS)
+
+    assert any(e["omp_threads"] == 2 for e in result["shortlist"]), (
+        "fixture bug: no omp=2 candidate in the enumerated pool")
+    assert any(e["tile_shape"] == "2d" for e in result["shortlist"]), (
+        "fixture bug: no 2d-tile candidate in the enumerated pool")
+
+    for e in result["shortlist"]:
+        if e["omp_threads"] == 2:
+            assert e["extrapolated"] is True
+            assert any("ranks x omp" in r for r in e["extrapolation_reasons"])
+            assert e["label"] == "EXPERIMENTAL"
+        if e["tile_shape"] == "2d":
+            assert e["extrapolated"] is True
+            assert any("tile shape" in r for r in e["extrapolation_reasons"])
+            assert e["label"] == "EXPERIMENTAL"
+
+    # a candidate at exactly a MEASURED point (448x1, 8x56, numtiles=8, 1d_y) must NOT be flagged
+    measured = next(e for e in result["shortlist"]
+                     if e["n_ranks"] == 448 and e["omp_threads"] == 1
+                     and e["nproc_x"] == 8 and e["nproc_y"] == 56
+                     and e["tile_shape"] == "1d_y" and e["numtiles"] == 8)
+    assert measured["extrapolated"] is False
+    assert measured["extrapolation_reasons"] == []
+
+
+def test_space_templates_output_unchanged(ledger_csv, main_namelist, tmp_path, capsys):
+    """--space defaults to 'templates' and must not change recommend()'s own output: run the CLI
+    with and without an explicit --space templates and diff the JSON byte-for-byte."""
+    json1 = tmp_path / "out1.json"
+    json2 = tmp_path / "out2.json"
+    rc1 = recommend.main([
+        "--ledger", ledger_csv, "--namelist", main_namelist, "--case-name", "synthtest",
+        "--hardware-id", HARDWARE_ID_TRAIN, "--model", "ridge", "--json", str(json1)])
+    capsys.readouterr()
+    rc2 = recommend.main([
+        "--ledger", ledger_csv, "--namelist", main_namelist, "--case-name", "synthtest",
+        "--hardware-id", HARDWARE_ID_TRAIN, "--model", "ridge", "--space", "templates",
+        "--json", str(json2)])
+    capsys.readouterr()
+    assert rc1 == 0 and rc2 == 0
+    with open(json1) as f:
+        d1 = json.load(f)
+    with open(json2) as f:
+        d2 = json.load(f)
+    assert d1 == d2
+
+
+def test_propose_batch_writes_valid_config_file(full_space_ledger_csv, main_namelist, tmp_path):
+    result, configs_out = recommend.run_propose_batch(
+        full_space_ledger_csv, main_namelist, "synthtest", FULL_SPACE_HARDWARE, 4, None, 5)
+    assert result["stopped"] is False
+    assert 0 < len(configs_out) <= 5
+
+    for cfg in configs_out:
+        for key in ("id", "ranks", "omp", "nx", "ny", "numtiles", "dist", "blocktime",
+                    "config_source"):
+            assert key in cfg
+        assert cfg["config_source"] == "generated"
+
+    # accepted by campaign/configs.py's own CONFIG_FILE loader (read-only use)
+    out_path = tmp_path / "propose_batch.json"
+    with open(out_path, "w") as f:
+        json.dump(dict(configs=configs_out), f)
+    loaded = campaign_configs.load_generated_configs(str(out_path))
+    assert [c["id"] for c in loaded] == [c["id"] for c in configs_out]
+    for c in loaded:
+        legal = decomp_space.legal_shapes_exact([901], [901], c["ranks"])
+        assert (c["nx"], c["ny"]) in legal

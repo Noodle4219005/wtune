@@ -5,3 +5,4 @@ __pycache__/
 slurm-*.out
 rankfiles/
 *.csv
+catboost_info/

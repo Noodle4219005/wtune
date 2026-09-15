@@ -115,6 +115,31 @@ def rsl_patch_extents(extent, nproc):
     return q, (q + 1 if rem else q)
 
 
+def rsl_patch_width_for_rank(extent, nproc, rank_index):
+    """Width of ONE specific 0-indexed rank's patch along one dimension, under RSL-lite's
+    remainder-at-both-ends rule (external/RSL_LITE/task_for_point.c:6-15,87-116 -- the same rule
+    `rsl_patch_extents` computes the (min,max) ENVELOPE of): of `nproc` ranks, `rem = extent %
+    nproc` get `extent//nproc + 1` points, split as `rem//2` FRONT ranks (index 0..front-1) and
+    `rem-front` BACK ranks (index nproc-back..nproc-1); the remaining `nproc-rem` MIDDLE ranks get
+    exactly `extent//nproc`.
+
+    Added 2026-09-15 (WTune D3/D4 tile-geometry ground-truth check, smoke job 1078036): answers
+    "what is rank `rank_index`'s OWN patch", which `enumerate_space`'s `patch_x`/`patch_y`
+    (deliberately the SMALLEST-patch envelope bound, for 1D->2D-switch risk assessment -- see that
+    function's docstring) does NOT in general equal. Confirmed against real WRF rank-0 tile
+    printouts: for karina's 8x56 shape (e_sn=901, nproc_y=56, rem=5, front=2) rank 0 lands in the
+    front group and gets the LARGEST y-patch (17, not the smallest 16); for its 4x56 shape
+    (e_we=901, nproc_x=4, rem=1, front=0) rank 0 lands in the MIDDLE group and gets the smallest
+    x-patch (225) instead -- which extreme rank 0 falls on is independent per dimension, so no
+    fixed choice of min/max stands in for it in general; this function computes it directly."""
+    q, rem = divmod(extent, nproc)
+    front = rem // 2
+    back = rem - front
+    if rank_index < front or rank_index >= nproc - back:
+        return q + 1
+    return q
+
+
 def legal_shapes_exact(we_list, sn_list, ranks, min_patch=MIN_PATCH):
     """All (nx, ny) with nx*ny == ranks that pass WRF's REAL startup gate
     (share/module_check_a_mundo.F:3014-3029): floor(e_we(i)/nproc_x) >= 10 and
@@ -307,10 +332,15 @@ def domain_patch_geometry(we_list, sn_list, nx, ny):
     for we, sn in zip(we_list, sn_list):
         px_min, px_max = rsl_patch_extents(we, nx)
         py_min, py_max = rsl_patch_extents(sn, ny)
+        # rank 0's own patch (see rsl_patch_width_for_rank's docstring: NOT reliably equal to
+        # either the min or max envelope bound above, independently per dimension).
+        px_rank0 = rsl_patch_width_for_rank(we, nx, 0)
+        py_rank0 = rsl_patch_width_for_rank(sn, ny, 0)
         out.append(dict(
             e_we=we, e_sn=sn,
             patch_x_min=px_min, patch_x_max=px_max,
             patch_y_min=py_min, patch_y_max=py_max,
+            patch_x_rank0=px_rank0, patch_y_rank0=py_rank0,
             halo_interior_ratio_min=_halo_ratio(px_min, py_min),
             halo_interior_ratio_max=_halo_ratio(px_max, py_max),
         ))
@@ -423,6 +453,7 @@ def enumerate_space(case, total_cores=448, nodes=4, hardware_id=DEFAULT_HARDWARE
             d01 = domains[0]
             rep_px, rep_py = d01["patch_x_min"], d01["patch_y_min"]
             max_px, max_py = d01["patch_x_max"], d01["patch_y_max"]
+            rank0_px, rank0_py = d01["patch_x_rank0"], d01["patch_y_rank0"]
 
             for numtiles in nt_cands:
                 tile_variants = [("1d_y", 0, 0, 0, 0, TILE_NONE)]
@@ -437,6 +468,14 @@ def enumerate_space(case, total_cores=448, nodes=4, hardware_id=DEFAULT_HARDWARE
                                                        ntx, nty, tsx, tsy, tstrat)
                     geo_max = tile_geometry_for_patch(max_px, max_py, e_vert, numtiles,
                                                        ntx, nty, tsx, tsy, tstrat)
+                    # rank 0's ACTUAL realized tile geometry (added 2026-09-15, smoke job
+                    # 1078036 ground-truth check) -- geo_min/geo_max above are the worst/best-case
+                    # ENVELOPE across every rank (kept unchanged for that purpose); this is what a
+                    # real WRF run's rank-0 "WRF TILE .../WRF NUMBER OF TILES" printout actually
+                    # shows, and neither geo_min nor geo_max reliably matches it (see
+                    # rsl_patch_width_for_rank's docstring).
+                    geo_rank0 = tile_geometry_for_patch(rank0_px, rank0_py, e_vert, numtiles,
+                                                         ntx, nty, tsx, tsy, tstrat)
                     for dist in DIST_OPTIONS:
                         for blocktime in BLOCKTIME_OPTIONS:
                             candidates.append(dict(
@@ -447,6 +486,7 @@ def enumerate_space(case, total_cores=448, nodes=4, hardware_id=DEFAULT_HARDWARE
                                 dist=dist, blocktime=blocktime,
                                 patch_x=rep_px, patch_y=rep_py,
                                 patch_x_max=max_px, patch_y_max=max_py,
+                                patch_x_rank0=rank0_px, patch_y_rank0=rank0_py,
                                 halo_interior_ratio=d01["halo_interior_ratio_min"],
                                 halo_interior_ratio_max=d01["halo_interior_ratio_max"],
                                 numtiles_x_used=geo_min["numtiles_x"],
@@ -458,6 +498,14 @@ def enumerate_space(case, total_cores=448, nodes=4, hardware_id=DEFAULT_HARDWARE
                                 cells_per_tile_max=geo_max["cells_per_tile_max"],
                                 tile_aspect_min=geo_min["tile_aspect_min"],
                                 tile_aspect_max=geo_min["tile_aspect_max"],
+                                numtiles_x_rank0=geo_rank0["numtiles_x"],
+                                numtiles_y_rank0=geo_rank0["numtiles_y"],
+                                went_2d_rank0=geo_rank0["went_2d"],
+                                realized_num_tiles_rank0=geo_rank0["realized_num_tiles"],
+                                cells_per_tile_rank0_min=geo_rank0["cells_per_tile_min"],
+                                cells_per_tile_rank0_max=geo_rank0["cells_per_tile_max"],
+                                tile_aspect_rank0_min=geo_rank0["tile_aspect_min"],
+                                tile_aspect_rank0_max=geo_rank0["tile_aspect_max"],
                                 ranks_per_node=ranks_per_node, ranks_per_numa=ranks_per_numa,
                                 threads_per_numa=threads_per_numa, numa_aligned=numa_aligned,
                                 domains=domains,

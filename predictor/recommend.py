@@ -43,6 +43,8 @@ for _p in (_HERE, _REPO_ROOT, _CAMPAIGN_DIR):
         sys.path.insert(0, _p)
 
 import benchmark                       # predictor/benchmark.py: load_ledger()
+import decomp_space as decompspace     # predictor/decomp_space.py: enumerate_space (WTune D4)
+import decomp_search as decompsearch   # predictor/decomp_search.py: propose_for_case (WTune D4)
 import features as feat                # predictor/features.py
 import ledger as ledgermod             # predictor/ledger.py: CORES_PER_NODE
 import models as modelmod              # predictor/models.py
@@ -805,6 +807,364 @@ def recommend(ledger_path, namelist_path, case_name, hardware_id, nodes=4,
 
 
 # ---------------------------------------------------------------------------
+# --space full (WTune D4): score the WHOLE legal decomp_space.enumerate_space pool for this case
+# instead of just the 16 fixed STRICT templates. Still STRICT-only (decomp_space's pool is plain
+# WRF decomposition/tiling knobs, no physics deviation) and still "narrows the search, human
+# decides" -- see recommend()'s own module docstring, unchanged for --space templates (the
+# default).
+# ---------------------------------------------------------------------------
+def _decomp_space_case_dict(case_fields, max_dom):
+    """The subset of decomp_space.enumerate_space's case-shaped input this tool can read off a
+    namelist (see build_candidates, which builds the same dict inline for the STRICT-templates
+    path -- kept separate here rather than refactored into a shared helper both call, so neither
+    path risks a regression from touching code the other one depends on)."""
+    case_dict = dict(e_we=case_fields["e_we"], e_sn=case_fields["e_sn"],
+                      e_vert=case_fields["e_vert"], max_dom=max_dom)
+    we_list, sn_list = case_fields.get("e_we_list"), case_fields.get("e_sn_list")
+    if we_list and sn_list:
+        case_dict["e_we_list"] = we_list
+        case_dict["e_sn_list"] = sn_list
+    return case_dict
+
+
+# campaign/strict_campaign.sbatch's own notes convention for a CONFIG_FILE-generated run (see
+# ledger.py's adapt_campaign_ledger docstring): "config_source=generated numtiles_x=.. ...". Not
+# parsed into a ledger column by ledger.py/benchmark.py (LEDGER_FIELDS has no such columns), so
+# it must be read back out of `notes` here to know a training row's ACTUAL tile geometry.
+_NOTES_KV_RE = re.compile(r"(\w+)=(\S*)")
+
+
+def _parse_notes_tile_geometry(notes):
+    """(numtiles_x, numtiles_y, tile_sz_x, tile_sz_y, tile_strategy) parsed from a ledger row's
+    `notes` field -- all 0 when notes carries none of these keys, which is every STRICT template
+    C01-C16 run: WRF's own default 1D-Y tile resolution, no explicit override (see
+    campaign/configs.py TEMPLATES: only `numtiles` is ever set)."""
+    if not notes:
+        return 0, 0, 0, 0, 0
+    kv = dict(_NOTES_KV_RE.findall(notes))
+
+    def _i(k):
+        try:
+            return int(kv.get(k))
+        except (TypeError, ValueError):
+            return 0
+    return _i("numtiles_x"), _i("numtiles_y"), _i("tile_sz_x"), _i("tile_sz_y"), _i("tile_strategy")
+
+
+def _tile_shape_label(numtiles_x, numtiles_y, tile_sz_x, tile_sz_y):
+    """Same three-way label decomp_space.py's own candidates carry as `tile_shape`."""
+    if tile_sz_x or tile_sz_y:
+        return "tile_sz"
+    if numtiles_x or numtiles_y:
+        return "2d"
+    return "1d_y"
+
+
+def _hardware_seen_sets(scope_rows, hardware_id):
+    """What has actually been MEASURED on `hardware_id` among `scope_rows` (already scoped to
+    compliance=STRICT by the caller): {(ranks,omp) seen}, {tile_shape seen}, and the [min,max]
+    range of feat.config_features' own (approximate, ceil-based) patch_x/patch_y among those rows
+    -- the three axes --space full's extrapolation warning checks a candidate against."""
+    same_hw = [r for r in scope_rows if r.get("hardware_id") == hardware_id]
+    seen_ranks_omp = set()
+    seen_tile_shapes = set()
+    patch_xs, patch_ys = [], []
+    for r in same_hw:
+        n_ranks, omp = r.get("n_ranks"), r.get("omp_threads")
+        if n_ranks and omp:
+            seen_ranks_omp.add((int(n_ranks), int(omp)))
+        ntx, nty, tsx, tsy, _tstrat = _parse_notes_tile_geometry(r.get("notes"))
+        seen_tile_shapes.add(_tile_shape_label(ntx, nty, tsx, tsy))
+        cf = feat.config_features(r)
+        if cf.get("patch_x") is not None:
+            patch_xs.append(cf["patch_x"])
+        if cf.get("patch_y") is not None:
+            patch_ys.append(cf["patch_y"])
+    patch_x_range = (min(patch_xs), max(patch_xs)) if patch_xs else None
+    patch_y_range = (min(patch_ys), max(patch_ys)) if patch_ys else None
+    return dict(n_rows=len(same_hw), ranks_omp=seen_ranks_omp, tile_shapes=seen_tile_shapes,
+                patch_x_range=patch_x_range, patch_y_range=patch_y_range)
+
+
+def _candidate_extrapolation_reasons(cfg, cfg_row, seen):
+    """[reason, ...] -- empty iff this candidate's ranks x omp, tile shape, AND approximate patch
+    size all fall within what `seen` (see _hardware_seen_sets) already measured on this hardware.
+    Any non-empty result forces the candidate's label to EXPERIMENTAL regardless of what its own
+    conformal interval would otherwise say (see recommend_full_space)."""
+    reasons = []
+    ro = (cfg["ranks"], cfg["omp"])
+    if ro not in seen["ranks_omp"]:
+        reasons.append("ranks x omp = %dx%d never measured on this hardware" % ro)
+    tshape = cfg.get("tile_shape")
+    if tshape not in seen["tile_shapes"]:
+        reasons.append("tile shape %r never measured on this hardware" % (tshape,))
+    cf = feat.config_features(cfg_row)
+    px, py = cf.get("patch_x"), cf.get("patch_y")
+    pxr, pyr = seen["patch_x_range"], seen["patch_y_range"]
+    if pxr is None or px is None or not (pxr[0] <= px <= pxr[1]):
+        reasons.append("patch_x=%s outside measured range %s" % (px, pxr))
+    if pyr is None or py is None or not (pyr[0] <= py <= pyr[1]):
+        reasons.append("patch_y=%s outside measured range %s" % (py, pyr))
+    return reasons
+
+
+DEFAULT_FULL_SPACE_TOP_K = 10
+
+
+def recommend_full_space(ledger_path, namelist_path, case_name, hardware_id, nodes=4,
+                          model="catboost_pairwise", top_k=DEFAULT_FULL_SPACE_TOP_K,
+                          no_intervals=False, max_dom=None, holdout_case=None,
+                          tile_options=None, omp_options=None):
+    """Like recommend() (STRICT only, same "narrows the search, human decides" contract), but
+    scores decomp_space.enumerate_space's WHOLE legal pool for this case/resource allocation
+    instead of just the 16 fixed STRICT templates -- the pool can run into the thousands (see
+    decomp_space.py's own module docstring), so conformal intervals (validate.py scores ONE
+    candidate row at a time per fold -- see conformal_intervals_for_new_rows) are computed only
+    for the already-ranked top_k, not the whole pool; this is the one deliberate accuracy/cost
+    tradeoff vs recommend()'s STRICT-templates path, where 16 candidates make scoring everything
+    cheap enough not to matter."""
+    case_fields = parse_case_from_namelist(namelist_path)
+    effective_max_dom = resolve_max_dom(max_dom, case_fields)
+    if case_fields["e_we"] is None or case_fields["e_sn"] is None or case_fields["e_vert"] is None:
+        raise ValueError(
+            "cannot enumerate the full decomposition space: e_we/e_sn/e_vert not found in the "
+            "namelist's &domains section -- refusing to guess a grid size (e_vert is required "
+            "here, unlike the STRICT-templates path, because decomp_space.py's tile-geometry "
+            "cells_per_tile fields multiply by it directly)")
+    case_dict = _decomp_space_case_dict(case_fields, effective_max_dom)
+    total_cores = nodes * ledgermod.CORES_PER_NODE
+    candidates, axis = decompspace.enumerate_space(
+        case_dict, total_cores=total_cores, nodes=nodes, hardware_id=hardware_id,
+        omp_options=omp_options, tile_options=tile_options)
+
+    warnings = [
+        "--space full: enumerated %d legal candidate(s) (omp options=%s; total_cores=%d, "
+        "nodes=%d) via decomp_space.enumerate_space -- conformal intervals below are computed "
+        "only for the top_k shown, not the whole pool (see recommend_full_space's docstring)"
+        % (axis["total"], axis["omp_options"], total_cores, nodes),
+        "run-to-run noise floor: predicted differences smaller than ~%.2f%% (targets.NOISE) are "
+        "not a reliable ordering -- do not read a rank gap below this as a real effect"
+        % (100 * (math.exp(targets.NOISE) - 1)),
+    ]
+    if not candidates:
+        return dict(case_name=case_name, hardware_id=hardware_id, nodes=nodes, space="full",
+                    max_dom=effective_max_dom, total_candidates=0, shortlist=[], warnings=warnings,
+                    auto_apply_disclaimer=(
+                        "This tool only narrows the search to a shortlist. A human decides and "
+                        "applies the final config -- nothing here is auto-applied."))
+
+    training_rows = load_training_rows(ledger_path)
+    if holdout_case:
+        n_before = len(training_rows)
+        training_rows = [r for r in training_rows if r.get("case_base") != holdout_case]
+        if n_before != len(training_rows):
+            warnings.append("--holdout-case=%r: dropped %d training row(s) before fitting"
+                             % (holdout_case, n_before - len(training_rows)))
+    scope_rows = [r for r in training_rows if r.get("compliance_class") == "STRICT"]
+    seen = _hardware_seen_sets(scope_rows, hardware_id)
+    warnings.append(
+        "training evidence on hardware_id=%r (scope=STRICT): %d row(s); ranks x omp combos "
+        "measured: %d; tile shapes measured: %s"
+        % (hardware_id, seen["n_rows"], len(seen["ranks_omp"]), sorted(seen["tile_shapes"])))
+    force_experimental_all = (seen["n_rows"] == 0)
+    if force_experimental_all:
+        warnings.append(
+            "zero training rows share hardware_id=%r: every candidate below is forced "
+            "EXPERIMENTAL regardless of predicted performance" % hardware_id)
+
+    candidate_rows = [decompsearch.candidate_row(None, case_fields, hardware_id, nodes, c,
+                                                  run_id="full:%d" % i)
+                      for i, c in enumerate(candidates)]
+
+    model_name, fitted_model, attempts = _fit_with_fallback(model, scope_rows)
+    if model_name != model:
+        warnings.append(
+            "requested model %r unavailable or had insufficient training data; fell back to %r"
+            % (model, model_name))
+    preds, ref_idx, scored = _score_candidates(model_name, fitted_model, candidate_rows)
+
+    companion_name, companion_model, _companion_attempts = _fit_with_fallback(
+        "catboost_point", scope_rows)
+    preds_c, ref_idx_c, scored_c = _score_candidates(companion_name, companion_model, candidate_rows)
+    assert ref_idx_c == ref_idx, "reference candidate must be model-independent"
+    ref_pred_c = preds_c[ref_idx_c]
+
+    order = sorted(range(len(candidate_rows)), key=lambda i: preds[i])[:top_k]
+
+    intervals_c, interval_note_c = _compute_intervals(
+        training_rows, companion_name, [candidate_rows[i] for i in order], "STRICT", no_intervals)
+    if interval_note_c:
+        warnings.append("magnitude companion: %s" % interval_note_c)
+
+    shortlist = []
+    for rank, i in enumerate(order, start=1):
+        cfg = candidates[i]
+        row = candidate_rows[i]
+        reasons = _candidate_extrapolation_reasons(cfg, row, seen)
+        is_pairwise = (model_name == "catboost_pairwise")
+
+        iv_c, label, rec = None, "EXPERIMENTAL", None
+        local_idx = rank - 1  # position within the top_k-only intervals_c mapping (order[rank-1]==i)
+        if not force_experimental_all and intervals_c is not None and local_idx in intervals_c:
+            iv_c = {alpha: (lo - ref_pred_c, hi - ref_pred_c)
+                    for alpha, (lo, hi) in intervals_c[local_idx].items()}
+            label, rec = _label_for(preds_c[i] - ref_pred_c, iv_c)
+        if reasons:
+            label = "EXPERIMENTAL"
+
+        shortlist.append(dict(
+            rank=rank, n_ranks=cfg["ranks"], omp_threads=cfg["omp"],
+            nproc_x=cfg["nx"], nproc_y=cfg["ny"],
+            patch_x=cfg.get("patch_x"), patch_x_max=cfg.get("patch_x_max"),
+            patch_y=cfg.get("patch_y"), patch_y_max=cfg.get("patch_y_max"),
+            numtiles=cfg["numtiles"], tile_shape=cfg["tile_shape"],
+            numtiles_x=cfg.get("numtiles_x", 0), numtiles_y=cfg.get("numtiles_y", 0),
+            tile_sz_x=cfg.get("tile_sz_x", 0), tile_sz_y=cfg.get("tile_sz_y", 0),
+            tile_strategy=cfg.get("tile_strategy", 0),
+            cells_per_tile_min=cfg.get("cells_per_tile_min"),
+            cells_per_tile_max=cfg.get("cells_per_tile_max"),
+            distribution=cfg["dist"], kmp_blocktime=row["kmp_blocktime"],
+            score_kind=scored[i]["kind"], value=scored[i]["value"],
+            magnitude_value=scored_c[i]["value"],
+            magnitude_interval_95=(list(iv_c[0.05]) if iv_c and 0.05 in iv_c else None),
+            magnitude_interval_90=(list(iv_c[0.10]) if iv_c and 0.10 in iv_c else None),
+            predicted_gain=(rec["predicted_gain"] if rec else None),
+            gain_lower_95=(rec["gain_lower_95"] if rec else None),
+            label=label, extrapolated=bool(reasons), extrapolation_reasons=reasons,
+            is_reference=(i == ref_idx), is_pairwise_ranking=is_pairwise,
+            namelist_edit_command=_full_space_edit_command(cfg, effective_max_dom),
+            run_command=_full_space_run_command(cfg, nodes),
+        ))
+
+    return dict(
+        case_name=case_name, hardware_id=hardware_id, nodes=nodes, space="full",
+        max_dom=effective_max_dom, total_candidates=axis["total"],
+        model_requested=model, model_used=model_name, magnitude_model_used=companion_name,
+        shortlist=shortlist, warnings=warnings,
+        auto_apply_disclaimer=(
+            "This tool only narrows the search to a shortlist. A human decides and applies the "
+            "final config -- nothing here is auto-applied."),
+    )
+
+
+def _full_space_edit_command(cfg, max_dom):
+    parts = ["python3 campaign/configs.py edit-namelist namelist.input.orig namelist.input",
+             "--nproc-x %d --nproc-y %d --numtiles %d" % (cfg["nx"], cfg["ny"], cfg["numtiles"]),
+             "--run-minutes <RUN_MINUTES> --max-dom %d --history-mode off --ranks %d"
+             % (max_dom, cfg["ranks"])]
+    if cfg.get("numtiles_x"):
+        parts.append("--numtiles-x %d" % cfg["numtiles_x"])
+    if cfg.get("numtiles_y"):
+        parts.append("--numtiles-y %d" % cfg["numtiles_y"])
+    if cfg.get("tile_sz_x"):
+        parts.append("--tile-sz-x %d" % cfg["tile_sz_x"])
+    if cfg.get("tile_sz_y"):
+        parts.append("--tile-sz-y %d" % cfg["tile_sz_y"])
+    if cfg.get("tile_strategy"):
+        parts.append("--tile-strategy %d" % cfg["tile_strategy"])
+    return " ".join(parts)
+
+
+def _full_space_run_command(cfg, nodes):
+    ranks, omp = cfg["ranks"], cfg["omp"]
+    ntasks_per_node = ranks // nodes
+    kmp_line = ("unset KMP_BLOCKTIME  # blocktime=default (not overridden)"
+                if cfg["blocktime"] != "0" else "export KMP_BLOCKTIME=0")
+    return "\n".join([
+        "export OMP_NUM_THREADS=%d" % omp,
+        kmp_line,
+        "srun --mpi=pmi2 --distribution=%s -n %d --ntasks-per-node=%d -c %d ./wrf.exe"
+        % (cfg["dist"], ranks, ntasks_per_node, omp),
+    ])
+
+
+def format_full_space_report(result):
+    lines = []
+    lines.append("=" * 78)
+    lines.append("WTune STRICT full-space shortlist -- case=%s hardware=%s nodes=%s max_dom=%s"
+                  % (result["case_name"], result["hardware_id"], result["nodes"],
+                     result.get("max_dom")))
+    lines.append(result["auto_apply_disclaimer"])
+    lines.append("=" * 78)
+    if result["warnings"]:
+        lines.append("\n-- Evidence warnings --")
+        for w in result["warnings"]:
+            lines.append("  * %s" % w)
+    if not result.get("shortlist"):
+        lines.append("\nNo shortlist: the enumerated space was empty for this case/resource "
+                      "allocation.")
+        return "\n".join(lines)
+
+    lines.append("\n-- Model: requested=%s, used=%s%s; magnitude companion=%s --" % (
+        result["model_requested"], result["model_used"],
+        "" if result["model_requested"] == result["model_used"] else " (FELL BACK)",
+        result["magnitude_model_used"]))
+    lines.append("\n-- Shortlist (top %d of %d legal candidate(s)) --"
+                  % (len(result["shortlist"]), result["total_candidates"]))
+    header = ("%-4s %-9s %-9s %-16s %-16s %-8s %-8s %-16s %-11s %-20s %-12s %s"
+              % ("rank", "ranksxomp", "nprocxXy", "patch_x min-max", "patch_y min-max",
+                 "numtiles", "tileshape", "tile cells min-max", "dist/KMPBT", "magnitude 95% CI",
+                 "label", "extrapolated"))
+    lines.append(header)
+    for e in result["shortlist"]:
+        patchx = "%s-%s" % (e.get("patch_x"), e.get("patch_x_max"))
+        patchy = "%s-%s" % (e.get("patch_y"), e.get("patch_y_max"))
+        cells = "%s-%s" % (e.get("cells_per_tile_min"), e.get("cells_per_tile_max"))
+        distbt = "%s/%s" % (e["distribution"], "default" if e["kmp_blocktime"] is None
+                             else e["kmp_blocktime"])
+        iv = e.get("magnitude_interval_95")
+        ivstr = "n/a" if iv is None else "[%+.2f%%, %+.2f%%]" % (
+            (math.exp(iv[0]) - 1) * 100.0, (math.exp(iv[1]) - 1) * 100.0)
+        magval = "%+.2f%%" % (e["magnitude_value"] * 100.0)
+        lines.append("%-4d %-9s %-9s %-16s %-16s %-8d %-9s %-16s %-11s %-20s %-12s %s%s" % (
+            e["rank"], "%dx%d" % (e["n_ranks"], e["omp_threads"]),
+            "%dx%d" % (e["nproc_x"], e["nproc_y"]), patchx, patchy, e["numtiles"],
+            e["tile_shape"], cells, distbt, "%s %s" % (magval, ivstr), e["label"],
+            "YES: %s" % "; ".join(e["extrapolation_reasons"]) if e["extrapolated"] else "no",
+            "  <- reference" if e["is_reference"] else ""))
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# --propose-batch (WTune D4 hook into D3): a stateless, always-round-1 call into
+# decomp_search.propose_for_case, so --case-name need not be registered in campaign/cases.json at
+# all (unlike decomp_search.py's own CLI `propose`, which looks the case up there). For a real
+# multi-round search, seed decomp_search.py's own state file with this call's output and continue
+# with its `propose`/`ingest` CLI directly -- recommend.py itself keeps no persistent state.
+# ---------------------------------------------------------------------------
+def run_propose_batch(ledger_path, namelist_path, case_name, hardware_id, nodes, max_dom,
+                       batch_size):
+    """Returns (result_dict_from_propose_core, configs_out) -- see decomp_search.propose_core."""
+    case_fields = parse_case_from_namelist(namelist_path)
+    effective_max_dom = resolve_max_dom(max_dom, case_fields)
+    if case_fields["e_we"] is None or case_fields["e_sn"] is None or case_fields["e_vert"] is None:
+        raise ValueError(
+            "cannot run --propose-batch: e_we/e_sn/e_vert not found in the namelist's &domains "
+            "section -- refusing to guess a grid size")
+    case_json = _decomp_space_case_dict(case_fields, effective_max_dom)
+    total_cores = nodes * ledgermod.CORES_PER_NODE
+    prior_rows = benchmark.load_ledger(ledger_path)
+    prior_rows = [r for r in prior_rows if r.get("compliance_class") != "RESEARCH"]
+    state = dict(configs={}, measured={}, rounds=[])
+    return decompsearch.propose_for_case(
+        case_name, case_json, case_fields, prior_rows, state, batch_size,
+        total_cores=total_cores, nodes=nodes, hardware_id=hardware_id)
+
+
+def format_propose_batch_report(case_name, result, configs_out, out_path):
+    lines = ["\n-- WTune D3 propose-batch (round %d) --" % result["round"]]
+    if result["stopped"]:
+        lines.append("  STOP: %s" % result["reason"])
+        return "\n".join(lines)
+    lines.append("  proposed %d config(s), n_training_rows=%d, ensemble_size=%d"
+                  % (len(configs_out), result["n_training_rows"], result["ensemble_size"]))
+    lines.append("  wrote CONFIG_FILE JSON: %s" % out_path)
+    lines.append("  %s" % decompsearch.sbatch_command(case_name, os.path.abspath(out_path)))
+    lines.append("  the human decides whether to run this -- nothing here is auto-submitted")
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
 # PHYSICS-GRAY (decision 0051): a separate top-level function, not a branch inside recommend()
 # above -- recommend() stays STRICT-only (its own docstring, and every existing STRICT test,
 # already say so), and calling recommend(compliance="PHYSICS-GRAY") directly still raises
@@ -1337,6 +1697,23 @@ def _build_arg_parser():
                           "use this to get an honest out-of-sample shortlist when --case-name "
                           "(or its grid) is itself already in the training ledger")
 
+    ap.add_argument("--space", choices=["templates", "full"], default="templates",
+                     help="STRICT only (WTune D4). 'templates' (default, unchanged): the 16 "
+                          "fixed campaign/configs.py STRICT templates. 'full': enumerate every "
+                          "legal decomp_space.py candidate for this namelist's grid/--nodes and "
+                          "score the whole pool; can run into the thousands, so conformal "
+                          "intervals are computed only for the ranked --top-k, and candidates "
+                          "whose ranks x omp / tile shape / patch size were never measured on "
+                          "--hardware-id are flagged EXTRAPOLATED and forced EXPERIMENTAL")
+    ap.add_argument("--propose-batch", type=int, default=None, dest="propose_batch",
+                     help="in addition to the shortlist above, also emit a WTune D3 round-1 "
+                          "active-search proposal for this case (predictor/decomp_search.py): a "
+                          "CONFIG_FILE JSON of this many candidates plus the exact sbatch command "
+                          "to measure them. Requires --case-name to be a campaign/cases.json case "
+                          "id UNLESS the namelist alone is enough (this tool builds the case from "
+                          "the parsed namelist either way, so an unregistered case works too). "
+                          "The tool only proposes -- the human decides whether to run it")
+
     ap.add_argument("--decomp", default=None,
                      help="PHYSICS-GRAY only: reference STRICT decomposition id (e.g. C02) to "
                           "run P00 and the physics candidates at; default: this run's own STRICT "
@@ -1405,6 +1782,13 @@ def main(argv=None):
                 max_template_large_rate=args.max_template_large_rate,
                 min_speedup_pct=args.min_speedup_pct)
             report = format_physics_report(result)
+        elif args.space == "full":
+            result = recommend_full_space(
+                ledger_path=args.ledger, namelist_path=args.namelist, case_name=args.case_name,
+                hardware_id=args.hardware_id, nodes=args.nodes, model=args.model,
+                top_k=args.top_k, no_intervals=args.no_intervals, max_dom=args.max_dom,
+                holdout_case=args.holdout_case)
+            report = format_full_space_report(result)
         else:
             result = recommend(
                 ledger_path=args.ledger, namelist_path=args.namelist, case_name=args.case_name,
@@ -1412,6 +1796,18 @@ def main(argv=None):
                 model=args.model, top_k=args.top_k, no_intervals=args.no_intervals,
                 max_dom=args.max_dom, holdout_case=args.holdout_case)
             report = format_report(result)
+
+        if args.propose_batch and args.compliance != "PHYSICS-GRAY":
+            pb_result, pb_configs = run_propose_batch(
+                args.ledger, args.namelist, args.case_name, args.hardware_id, args.nodes,
+                args.max_dom, args.propose_batch)
+            pb_out = (os.path.splitext(args.json_out)[0] + ".propose_batch.json"
+                      if args.json_out else "%s_propose_batch.json" % args.case_name)
+            if not pb_result["stopped"]:
+                with open(pb_out, "w") as f:
+                    json.dump(dict(case_id=args.case_name, round=pb_result["round"],
+                                    configs=pb_configs), f, indent=2, sort_keys=True)
+            report += "\n" + format_propose_batch_report(args.case_name, pb_result, pb_configs, pb_out)
     except UnsupportedComplianceError as e:
         sys.stderr.write("UNDERPOWERED: %s\n" % e)
         return 2

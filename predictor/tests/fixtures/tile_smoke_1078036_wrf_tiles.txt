@@ -1,0 +1,109 @@
+G0001 namelist: nproc_x=8, nproc_y=56, numtiles=1, numtiles_x=0, numtiles_y=0, tile_sz_x=0, tile_sz_y=0, tile_strategy=0,
+G0001 rank0: WRF TILE   1 IS      1 IE    113 JS      1 JE     17
+G0001 rank0: WRF NUMBER OF TILES =   1
+G0002 namelist: nproc_x=8, nproc_y=56, numtiles=8, numtiles_x=0, numtiles_y=0, tile_sz_x=0, tile_sz_y=0, tile_strategy=0,
+G0002 rank0: WRF TILE   1 IS      1 IE    113 JS      1 JE      3
+G0002 rank0: WRF TILE   2 IS      1 IE    113 JS      4 JE      5
+G0002 rank0: WRF TILE   3 IS      1 IE    113 JS      6 JE      7
+G0002 rank0: WRF TILE   4 IS      1 IE    113 JS      8 JE      9
+G0002 rank0: WRF TILE   5 IS      1 IE    113 JS     10 JE     11
+G0002 rank0: WRF TILE   6 IS      1 IE    113 JS     12 JE     13
+G0002 rank0: WRF TILE   7 IS      1 IE    113 JS     14 JE     15
+G0002 rank0: WRF TILE   8 IS      1 IE    113 JS     16 JE     17
+G0002 rank0: WRF NUMBER OF TILES =   8
+G0019 namelist: nproc_x=4, nproc_y=56, numtiles=16, numtiles_x=4, numtiles_y=4, tile_sz_x=0, tile_sz_y=0, tile_strategy=3,
+G0019 rank0: WRF TILE   1 IS      1 IE     57 JS      1 JE      5
+G0019 rank0: WRF TILE   2 IS     58 IE    113 JS      1 JE      5
+G0019 rank0: WRF TILE   3 IS    114 IE    169 JS      1 JE      5
+G0019 rank0: WRF TILE   4 IS    170 IE    225 JS      1 JE      5
+G0019 rank0: WRF TILE   5 IS      1 IE     57 JS      6 JE      9
+G0019 rank0: WRF TILE   6 IS     58 IE    113 JS      6 JE      9
+G0019 rank0: WRF TILE   7 IS    114 IE    169 JS      6 JE      9
+G0019 rank0: WRF TILE   8 IS    170 IE    225 JS      6 JE      9
+G0019 rank0: WRF TILE   9 IS      1 IE     57 JS     10 JE     13
+G0019 rank0: WRF TILE  10 IS     58 IE    113 JS     10 JE     13
+G0019 rank0: WRF TILE  11 IS    114 IE    169 JS     10 JE     13
+G0019 rank0: WRF TILE  12 IS    170 IE    225 JS     10 JE     13
+G0019 rank0: WRF TILE  13 IS      1 IE     57 JS     14 JE     17
+G0019 rank0: WRF TILE  14 IS     58 IE    113 JS     14 JE     17
+G0019 rank0: WRF TILE  15 IS    114 IE    169 JS     14 JE     17
+G0019 rank0: WRF TILE  16 IS    170 IE    225 JS     14 JE     17
+G0019 rank0: WRF NUMBER OF TILES =  16
+G0033 namelist: nproc_x=64, nproc_y=1, numtiles=13, numtiles_x=13, numtiles_y=1, tile_sz_x=0, tile_sz_y=0, tile_strategy=3,
+G0033 rank0: WRF TILE   1 IS      1 IE      2 JS      1 JE    901
+G0033 rank0: WRF TILE   2 IS      3 IE      3 JS      1 JE    901
+G0033 rank0: WRF TILE   3 IS      4 IE      4 JS      1 JE    901
+G0033 rank0: WRF TILE   4 IS      5 IE      5 JS      1 JE    901
+G0033 rank0: WRF TILE   5 IS      6 IE      6 JS      1 JE    901
+G0033 rank0: WRF TILE   6 IS      7 IE      7 JS      1 JE    901
+G0033 rank0: WRF TILE   7 IS      8 IE      8 JS      1 JE    901
+G0033 rank0: WRF TILE   8 IS      9 IE      9 JS      1 JE    901
+G0033 rank0: WRF TILE   9 IS     10 IE     10 JS      1 JE    901
+G0033 rank0: WRF TILE  10 IS     11 IE     11 JS      1 JE    901
+G0033 rank0: WRF TILE  11 IS     12 IE     12 JS      1 JE    901
+G0033 rank0: WRF TILE  12 IS     13 IE     13 JS      1 JE    901
+G0033 rank0: WRF TILE  13 IS     14 IE     15 JS      1 JE    901
+G0033 rank0: WRF NUMBER OF TILES =  13
+G0046 namelist: nproc_x=4, nproc_y=8, numtiles=16, numtiles_x=4, numtiles_y=4, tile_sz_x=0, tile_sz_y=0, tile_strategy=3,
+G0046 rank0: WRF TILE   1 IS      1 IE     57 JS      1 JE     29
+G0046 rank0: WRF TILE   2 IS     58 IE    113 JS      1 JE     29
+G0046 rank0: WRF TILE   3 IS    114 IE    169 JS      1 JE     29
+G0046 rank0: WRF TILE   4 IS    170 IE    225 JS      1 JE     29
+G0046 rank0: WRF TILE   5 IS      1 IE     57 JS     30 JE     57
+G0046 rank0: WRF TILE   6 IS     58 IE    113 JS     30 JE     57
+G0046 rank0: WRF TILE   7 IS    114 IE    169 JS     30 JE     57
+G0046 rank0: WRF TILE   8 IS    170 IE    225 JS     30 JE     57
+G0046 rank0: WRF TILE   9 IS      1 IE     57 JS     58 JE     85
+G0046 rank0: WRF TILE  10 IS     58 IE    113 JS     58 JE     85
+G0046 rank0: WRF TILE  11 IS    114 IE    169 JS     58 JE     85
+G0046 rank0: WRF TILE  12 IS    170 IE    225 JS     58 JE     85
+G0046 rank0: WRF TILE  13 IS      1 IE     57 JS     86 JE    113
+G0046 rank0: WRF TILE  14 IS     58 IE    113 JS     86 JE    113
+G0046 rank0: WRF TILE  15 IS    114 IE    169 JS     86 JE    113
+G0046 rank0: WRF TILE  16 IS    170 IE    225 JS     86 JE    113
+G0046 rank0: WRF NUMBER OF TILES =  16
+G0051 namelist: nproc_x=8, nproc_y=56, numtiles=16, numtiles_x=4, numtiles_y=4, tile_sz_x=0, tile_sz_y=0, tile_strategy=3,
+G0051 rank0: WRF TILE   1 IS      1 IE     29 JS      1 JE      5
+G0051 rank0: WRF TILE   2 IS     30 IE     57 JS      1 JE      5
+G0051 rank0: WRF TILE   3 IS     58 IE     85 JS      1 JE      5
+G0051 rank0: WRF TILE   4 IS     86 IE    113 JS      1 JE      5
+G0051 rank0: WRF TILE   5 IS      1 IE     29 JS      6 JE      9
+G0051 rank0: WRF TILE   6 IS     30 IE     57 JS      6 JE      9
+G0051 rank0: WRF TILE   7 IS     58 IE     85 JS      6 JE      9
+G0051 rank0: WRF TILE   8 IS     86 IE    113 JS      6 JE      9
+G0051 rank0: WRF TILE   9 IS      1 IE     29 JS     10 JE     13
+G0051 rank0: WRF TILE  10 IS     30 IE     57 JS     10 JE     13
+G0051 rank0: WRF TILE  11 IS     58 IE     85 JS     10 JE     13
+G0051 rank0: WRF TILE  12 IS     86 IE    113 JS     10 JE     13
+G0051 rank0: WRF TILE  13 IS      1 IE     29 JS     14 JE     17
+G0051 rank0: WRF TILE  14 IS     30 IE     57 JS     14 JE     17
+G0051 rank0: WRF TILE  15 IS     58 IE     85 JS     14 JE     17
+G0051 rank0: WRF TILE  16 IS     86 IE    113 JS     14 JE     17
+G0051 rank0: WRF NUMBER OF TILES =  16
+T0001 namelist: nproc_x=8, nproc_y=56, numtiles=8, numtiles_x=0, numtiles_y=0, tile_sz_x=28, tile_sz_y=4, tile_strategy=0,
+T0001 rank0: WRF TILE   1 IS      1 IE     23 JS      1 JE      4
+T0001 rank0: WRF TILE   2 IS     24 IE     46 JS      1 JE      4
+T0001 rank0: WRF TILE   3 IS     47 IE     68 JS      1 JE      4
+T0001 rank0: WRF TILE   4 IS     69 IE     90 JS      1 JE      4
+T0001 rank0: WRF TILE   5 IS     91 IE    113 JS      1 JE      4
+T0001 rank0: WRF TILE   6 IS      1 IE     23 JS      5 JE      7
+T0001 rank0: WRF TILE   7 IS     24 IE     46 JS      5 JE      7
+T0001 rank0: WRF TILE   8 IS     47 IE     68 JS      5 JE      7
+T0001 rank0: WRF TILE   9 IS     69 IE     90 JS      5 JE      7
+T0001 rank0: WRF TILE  10 IS     91 IE    113 JS      5 JE      7
+T0001 rank0: WRF TILE  11 IS      1 IE     23 JS      8 JE     10
+T0001 rank0: WRF TILE  12 IS     24 IE     46 JS      8 JE     10
+T0001 rank0: WRF TILE  13 IS     47 IE     68 JS      8 JE     10
+T0001 rank0: WRF TILE  14 IS     69 IE     90 JS      8 JE     10
+T0001 rank0: WRF TILE  15 IS     91 IE    113 JS      8 JE     10
+T0001 rank0: WRF TILE  16 IS      1 IE     23 JS     11 JE     13
+T0001 rank0: WRF TILE  17 IS     24 IE     46 JS     11 JE     13
+T0001 rank0: WRF TILE  18 IS     47 IE     68 JS     11 JE     13
+T0001 rank0: WRF TILE  19 IS     69 IE     90 JS     11 JE     13
+T0001 rank0: WRF TILE  20 IS     91 IE    113 JS     11 JE     13
+T0001 rank0: WRF TILE  21 IS      1 IE     23 JS     14 JE     17
+T0001 rank0: WRF TILE  22 IS     24 IE     46 JS     14 JE     17
+T0001 rank0: WRF TILE  23 IS     47 IE     68 JS     14 JE     17
+T0001 rank0: WRF TILE  24 IS     69 IE     90 JS     14 JE     17
+T0001 rank0: WRF TILE  25 IS     91 IE    113 JS     14 JE     17
+T0001 rank0: WRF NUMBER OF TILES =  25

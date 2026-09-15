@@ -104,6 +104,32 @@ def test_select_batch_forced_still_counts_against_diversity_cap():
     assert chosen == [cfgs[2]]
 
 
+def test_select_batch_skips_strip_shapes_and_blocktime_duplicates():
+    # round-1 proposals 2026-09-15 were dominated by 64x1 strips (15x slower in smoke 1078036)
+    # and pairs differing only in KMP_BLOCKTIME
+    strip = dict(_mk_cfg(64, 7, 64, 1, 13), patch_x=14, patch_y=901)
+    good = dict(_mk_cfg(448, 1, 8, 56, 8), patch_x=113, patch_y=17)
+    good_bt = dict(good, blocktime="default")
+    other = dict(_mk_cfg(224, 2, 8, 28, 14), patch_x=113, patch_y=33)
+    scored = [(-1.0, strip, 0.0, 1.0), (-0.2, good, -0.1, 0.1), (-0.19, good_bt, -0.1, 0.1),
+              (-0.1, other, -0.05, 0.05)]
+    chosen = dsearch.select_batch(scored, batch_size=4, max_per_rank_omp=2)
+    assert strip not in chosen                      # aspect 64 > 20
+    assert not (good in chosen and good_bt in chosen)  # same shape, blocktime only
+    assert other in chosen
+
+
+def test_select_batch_mixes_exploitation_and_exploration():
+    # A has the best predicted mean but a poor LCB; B has the best LCB (high sigma) but a hopeless
+    # mean (> log 1.5); C is a reasonable exploration pick. Exploitation must take A, exploration C.
+    a = dict(_mk_cfg(448, 1, 8, 56, 8), patch_x=113, patch_y=17)
+    b = dict(_mk_cfg(224, 2, 8, 28, 14), patch_x=113, patch_y=33)
+    c = dict(_mk_cfg(112, 4, 8, 14, 16), patch_x=113, patch_y=65)
+    scored = [(-0.05, a, -0.10, 0.03), (-2.0, b, 0.60, 1.7), (-0.30, c, 0.10, 0.27)]
+    chosen = dsearch.select_batch(scored, batch_size=2, max_per_rank_omp=2)
+    assert a in chosen and c in chosen and b not in chosen
+
+
 # ---------------------------------------------------------------------------
 # propose_core: stop rule
 # ---------------------------------------------------------------------------

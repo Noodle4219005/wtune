@@ -219,24 +219,53 @@ def ensemble_predict(models_, rows):
 # ---------------------------------------------------------------------------
 # Acquisition + batch diversity
 # ---------------------------------------------------------------------------
-def select_batch(scored, batch_size, max_per_rank_omp, forced=None):
+DEFAULT_MAX_PATCH_ASPECT = 20.0     # skip strip shapes (e.g. 64x1 on 901x901, aspect 64: 15x slower, smoke 1078036)
+DEFAULT_EXPLOIT_FRACTION = 0.5      # share of each batch picked by lowest predicted mean, not LCB
+DEFAULT_MAX_EXPLORE_SLOWDOWN = 0.40  # LCB picks must have a predicted mean at most log(1.5) slower
+
+
+def _patch_aspect(c):
+    px, py = c.get("patch_x") or 0, c.get("patch_y") or 0
+    if not px or not py:
+        return 1.0
+    return max(px, py) / float(min(px, py))
+
+
+def _shape_key(c):
+    """Candidates differing only in distribution/KMP_BLOCKTIME share a shape; one per shape per
+    batch so a round is not spent on blocktime-only duplicates (round-1 proposals 2026-09-15)."""
+    return (c["ranks"], c["omp"], c.get("nx"), c.get("ny"), c.get("numtiles"),
+            c.get("numtiles_x"), c.get("numtiles_y"), c.get("tile_sz_x"), c.get("tile_sz_y"))
+
+
+def select_batch(scored, batch_size, max_per_rank_omp, forced=None,
+                 exploit_fraction=DEFAULT_EXPLOIT_FRACTION,
+                 max_patch_aspect=DEFAULT_MAX_PATCH_ASPECT,
+                 max_explore_slowdown=DEFAULT_MAX_EXPLORE_SLOWDOWN):
     """`scored`: [(acq, candidate_dict, mu, sigma), ...], already excludes measured candidates.
-    Returns up to `batch_size` candidate dicts: `forced` first (still counted against the
-    per-(ranks,omp) diversity cap), then the remaining lowest-acquisition candidates, at most
-    `max_per_rank_omp` per (ranks, omp) allocation."""
-    scored_sorted = sorted(scored, key=lambda t: t[0])
-    chosen, chosen_keys = [], set()
+    Returns up to `batch_size` candidate dicts: `forced` first, then about `exploit_fraction` of the
+    batch by lowest predicted mean (exploitation), then the rest by lowest LCB (exploration) among
+    candidates whose predicted mean is not hopeless (mu <= max_explore_slowdown). Strip shapes with
+    patch aspect > `max_patch_aspect` are never proposed (pure LCB picked 64x1 / 56x1 / 32x1 strips
+    because their ensemble sigma is huge). Caps: `max_per_rank_omp` per (ranks, omp) and one
+    candidate per shape (ignoring distribution / KMP_BLOCKTIME)."""
+    pool = [t for t in scored if _patch_aspect(t[1]) <= max_patch_aspect]
+    by_mean = sorted(pool, key=lambda t: t[2])
+    by_acq = sorted((t for t in pool if t[2] <= max_explore_slowdown), key=lambda t: t[0])
+    chosen, chosen_keys, chosen_shapes = [], set(), set()
     per_group = defaultdict(int)
 
     def _try_add(c):
         k = candidate_key(c)
-        if k in chosen_keys:
+        s = _shape_key(c)
+        if k in chosen_keys or s in chosen_shapes:
             return False
         grp = (c["ranks"], c["omp"])
         if per_group[grp] >= max_per_rank_omp:
             return False
         chosen.append(c)
         chosen_keys.add(k)
+        chosen_shapes.add(s)
         per_group[grp] += 1
         return True
 
@@ -244,7 +273,16 @@ def select_batch(scored, batch_size, max_per_rank_omp, forced=None):
         if len(chosen) >= batch_size:
             break
         _try_add(c)
-    for _acq, c, _mu, _sigma in scored_sorted:
+    n_exploit_target = len(chosen) + int(round(exploit_fraction * max(batch_size - len(chosen), 0)))
+    for _acq, c, _mu, _sigma in by_mean:
+        if len(chosen) >= n_exploit_target:
+            break
+        _try_add(c)
+    for _acq, c, _mu, _sigma in by_acq:
+        if len(chosen) >= batch_size:
+            break
+        _try_add(c)
+    for _acq, c, _mu, _sigma in by_mean:   # fill if the exploration pool ran dry
         if len(chosen) >= batch_size:
             break
         _try_add(c)

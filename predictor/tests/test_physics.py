@@ -471,8 +471,14 @@ def test_predict_physics_shortlist_status_logic():
                        and physics._template_of(r) == "P00" and "_twin" not in r["run_id"]
                        and r["rep_index"] == 1)
     candidates = [
+        # P01 is WITHIN-FLOOR-safe but only ~0.1% SLOWER (M_T["P01"]=1.001 in this fixture) --
+        # since the lead-review speed-benefit gate landed, P01 no longer qualifies as
+        # RECOMMENDABLE just for being fidelity-safe (see the dedicated assertion below); P06
+        # (WITHIN-FLOOR, ~10% faster) is this test's "should end up RECOMMENDABLE" example.
         dict(template="P01", family="radiation", applicable=True,
              changes={"swint_opt": {"from": None, "to": 1}}),
+        dict(template="P06", family="radiation", applicable=True,
+             changes={"ra_lw_physics": {"from": 4, "to": 1}, "ra_sw_physics": {"from": 4, "to": 1}}),
         dict(template="P04", family="microphysics", applicable=True,
              changes={"mp_physics": {"from": 8, "to": 6}}),
         dict(template="P99", family="dynamics", applicable=False, skip_reason="not on this grid",
@@ -492,11 +498,20 @@ def test_predict_physics_shortlist_status_logic():
     assert by_t["P04"]["probe_verdict"] == "REJECT"
     assert any("REJECT" in r for r in by_t["P04"]["reasons"])
 
-    # allowed label + probe not REJECT + same-hardware training data -> RECOMMENDABLE
-    assert by_t["P01"]["status"] == "RECOMMENDABLE"
+    # P01: allowed label + probe not REJECT + same-hardware training data, but no real predicted
+    # speed benefit -> the speed-benefit gate (lead-review gate B) keeps it UNCONFIRMED.
+    assert by_t["P01"]["status"] == "UNCONFIRMED"
     assert by_t["P01"]["probe_verdict"] is None
     assert by_t["P01"]["predicted_fidelity_label"] in physics.DEFAULT_ALLOWED_LABELS
-    assert by_t["P01"]["predicted_y"] is not None
+    assert any("no predicted speed benefit" in r for r in by_t["P01"]["reasons"])
+
+    # P06: allowed label + probe not REJECT + same-hardware training data + a real (~10%)
+    # predicted speedup -> RECOMMENDABLE.
+    assert by_t["P06"]["status"] == "RECOMMENDABLE"
+    assert by_t["P06"]["probe_verdict"] is None
+    assert by_t["P06"]["predicted_fidelity_label"] in physics.DEFAULT_ALLOWED_LABELS
+    assert by_t["P06"]["predicted_y"] is not None
+    assert by_t["P06"]["predicted_time_to_solution_pct"] < -1.0
 
     # ranking: every RECOMMENDABLE candidate sorts before every UNCONFIRMED one
     statuses = [c["status"] for c in shortlist]
@@ -505,7 +520,7 @@ def test_predict_physics_shortlist_status_logic():
 
     # no same-hardware training data -> UNCONFIRMED even with a clean probe verdict
     fake_hw_case = dict(karina_p00, hardware_id="no-such-hardware")
-    shortlist_no_hw = physics.predict_physics_shortlist(rows, fake_hw_case, candidates[:2],
+    shortlist_no_hw = physics.predict_physics_shortlist(rows, fake_hw_case, [candidates[1]],
                                                           probe_verdicts={})
     assert all(c["status"] == "UNCONFIRMED" for c in shortlist_no_hw)
     assert any("no same-hardware training data" in r
@@ -856,8 +871,11 @@ def test_predict_physics_shortlist_infeasibility_and_dangerous_miss():
                        and physics._template_of(r) == "P00" and "_twin" not in r["run_id"]
                        and r["rep_index"] == 1)
     candidates = [
-        dict(template="P01", family="radiation", applicable=True,
-             changes={"swint_opt": {"from": None, "to": 1}}),
+        # P06 (WITHIN-FLOOR, ~10% faster) is the "clean bill of health" example here -- P01 is
+        # fidelity-safe too but has no real speed benefit (see the lead-review gate B tests
+        # below), so it no longer serves as a "should be RECOMMENDABLE" example on its own.
+        dict(template="P06", family="radiation", applicable=True,
+             changes={"ra_lw_physics": {"from": 4, "to": 1}, "ra_sw_physics": {"from": 4, "to": 1}}),
         dict(template="P03", family="dynamics", applicable=True,
              changes={"time_step": {"from": 15, "to": 18}}),
     ]
@@ -874,8 +892,120 @@ def test_predict_physics_shortlist_infeasibility_and_dangerous_miss():
     by_t_lenient = {c["template"]: c for c in lenient}
     assert not any("infeasible in" in r for r in by_t_lenient["P03"]["reasons"])
 
-    assert by_t["P01"]["dangerous_miss"]["insufficient"] is False
-    assert by_t["P01"]["dangerous_miss"]["dangerous_miss_rate"] == 0.0
-    assert by_t["P01"]["infeasibility"]["rate"] == 0.0
-    assert by_t["P01"]["status"] == "RECOMMENDABLE"
-    assert by_t["P01"]["predicted_time_to_solution_pct"] is not None
+    assert by_t["P06"]["dangerous_miss"]["insufficient"] is False
+    assert by_t["P06"]["dangerous_miss"]["dangerous_miss_rate"] == 0.0
+    assert by_t["P06"]["infeasibility"]["rate"] == 0.0
+    assert by_t["P06"]["template_track_record"]["rate"] == 0.0
+    assert by_t["P06"]["status"] == "RECOMMENDABLE"
+    assert by_t["P06"]["predicted_time_to_solution_pct"] is not None
+
+
+# ---------------------------------------------------------------------------
+# 14. Lead-review gate A: template_large_drift_rate (model-free measured-label track record).
+# ---------------------------------------------------------------------------
+def test_template_large_drift_rate_matches_known_fixture_labels():
+    rows = make_physics_ledger()
+    rates = physics.template_large_drift_rate(rows)
+
+    # P04 is LARGE-DRIFT for every case it ran (5 of 6 -- maria1km is skipped).
+    assert rates["P04"]["n_cases_labeled"] == 5
+    assert rates["P04"]["n_cases_large"] == 5
+    assert rates["P04"]["rate"] == 1.0
+
+    # P01/P03/P06 are WITHIN-FLOOR and P02/P05 are SMALL-DRIFT for every case -- never LARGE-DRIFT.
+    for tmpl in ("P01", "P02", "P03", "P05", "P06"):
+        assert rates[tmpl]["n_cases_large"] == 0
+        assert rates[tmpl]["rate"] == 0.0
+
+
+def test_template_large_drift_rate_empty_for_no_rows():
+    assert physics.template_large_drift_rate([]) == {}
+
+
+def test_predict_physics_shortlist_track_record_gate_overrides_regression(monkeypatch):
+    """Isolates the track-record gate from whatever the fidelity regression naturally predicts,
+    by forcing every ordinal-score-to-label call to return the ALLOWED "SMALL-DRIFT" -- the exact
+    shape of the real karina/P05 holdout miss (regression said SMALL-DRIFT; the template's own
+    measured track record said otherwise)."""
+    rows = make_physics_ledger()
+    physics.attach_change_context(rows)
+    physics.add_perf_targets(rows)
+    physics.add_fidelity_targets(rows)
+    karina_p00 = next(r for r in rows if r["case_base"] == "karina"
+                       and physics._template_of(r) == "P00" and "_twin" not in r["run_id"]
+                       and r["rep_index"] == 1)
+    candidates = [dict(template="P04", family="microphysics", applicable=True,
+                        changes={"mp_physics": {"from": 8, "to": 6}})]
+
+    monkeypatch.setattr(physics, "_label_from_ordinal_score", lambda score: "SMALL-DRIFT")
+    shortlist = physics.predict_physics_shortlist(rows, karina_p00, candidates, probe_verdicts={})
+    p04 = shortlist[0]
+    assert p04["predicted_fidelity_label"] == "SMALL-DRIFT"  # the (forced) regression verdict
+    assert p04["template_track_record"]["rate"] == 1.0       # P04 is LARGE-DRIFT in every case
+    assert p04["status"] == "UNCONFIRMED"
+    assert any("LARGE-DRIFT in %d/%d training cases" % (5, 5) in r for r in p04["reasons"])
+
+    lenient = physics.predict_physics_shortlist(rows, karina_p00, candidates, probe_verdicts={},
+                                                 max_template_large_rate=1.01)
+    p04_lenient = lenient[0]
+    assert not any("LARGE-DRIFT in" in r for r in p04_lenient["reasons"])
+
+
+# ---------------------------------------------------------------------------
+# 15. Lead-review gate B: speed-benefit requirement.
+# ---------------------------------------------------------------------------
+def test_predict_physics_shortlist_speed_gate_point_estimate_threshold():
+    rows = make_physics_ledger()
+    physics.attach_change_context(rows)
+    physics.add_perf_targets(rows)
+    physics.add_fidelity_targets(rows)
+    karina_p00 = next(r for r in rows if r["case_base"] == "karina"
+                       and physics._template_of(r) == "P00" and "_twin" not in r["run_id"]
+                       and r["rep_index"] == 1)
+    # P01 is WITHIN-FLOOR-safe with a near-noise-floor effect (M_T["P01"]=1.001, ~0.1% SLOWER per
+    # its own raw multiplier) -- fit jointly with every other (much larger-effect) template, the
+    # shared regression's own point estimate for it happens to land just past the default -1.0%
+    # threshold, so what actually blocks it here is the conformal interval's own upper bound not
+    # being < 0 (its tiny true effect is swamped by the spread of every OTHER template's own
+    # residuals), not the point-estimate check itself -- see the dedicated interval test below for
+    # the other branch.
+    candidates = [dict(template="P01", family="radiation", applicable=True,
+                        changes={"swint_opt": {"from": None, "to": 1}})]
+
+    default_shortlist = physics.predict_physics_shortlist(rows, karina_p00, candidates,
+                                                            probe_verdicts={})
+    p01 = default_shortlist[0]
+    assert p01["predicted_time_to_solution_pct"] <= physics.DEFAULT_MIN_SPEEDUP_PCT
+    assert p01["status"] == "UNCONFIRMED"
+    assert any("no predicted speed benefit" in r for r in p01["reasons"])
+    assert any("interval upper bound" in r for r in p01["reasons"])
+    assert not any("need <=" in r for r in p01["reasons"])
+
+    # Loosening --min-speedup-pct cannot rescue this one: the point-estimate check already
+    # passed, and the interval-upper-bound check is independent of this flag by design.
+    lenient_shortlist = physics.predict_physics_shortlist(
+        rows, karina_p00, candidates, probe_verdicts={}, min_speedup_pct=50.0)
+    p01_lenient = lenient_shortlist[0]
+    assert any("interval upper bound" in r for r in p01_lenient["reasons"])
+    assert p01_lenient["status"] == "UNCONFIRMED"
+
+
+def test_predict_physics_shortlist_speed_gate_interval_upper_bound():
+    rows = make_physics_ledger()
+    physics.attach_change_context(rows)
+    physics.add_perf_targets(rows)
+    physics.add_fidelity_targets(rows)
+    karina_p00 = next(r for r in rows if r["case_base"] == "karina"
+                       and physics._template_of(r) == "P00" and "_twin" not in r["run_id"]
+                       and r["rep_index"] == 1)
+    candidates = [dict(template="P01", family="radiation", applicable=True,
+                        changes={"swint_opt": {"from": None, "to": 1}})]
+    shortlist = physics.predict_physics_shortlist(rows, karina_p00, candidates, probe_verdicts={})
+    p01 = shortlist[0]
+    # Whichever branch actually fired, the reported interval (when present) must be internally
+    # consistent with the gate's own definition: an interval whose upper bound is already < 0
+    # can only combine with a "no predicted speed benefit" status if the POINT ESTIMATE itself
+    # failed the threshold (never the interval branch in that case).
+    iv = p01["time_to_solution_interval_pct"]
+    if iv is not None and iv[1] < 0:
+        assert p01["predicted_time_to_solution_pct"] > physics.DEFAULT_MIN_SPEEDUP_PCT

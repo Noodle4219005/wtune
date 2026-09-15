@@ -936,7 +936,9 @@ def recommend_physics_gray(ledger_path, namelist_path, case_name, hardware_id, n
                             max_dom=None, holdout_case=None, decomp=None, physics_ledgers=(),
                             allowed_labels=DEFAULT_PHYSICS_ALLOWED_LABELS, probe_screen=None,
                             run_probe=True, latlon=None, wps=None, wrfinput=None,
-                            max_infeasible_rate=0.0, max_dangerous_miss=0.0):
+                            max_infeasible_rate=0.0, max_dangerous_miss=0.0,
+                            max_template_large_rate=physicsmod.DEFAULT_MAX_TEMPLATE_LARGE_RATE,
+                            min_speedup_pct=physicsmod.DEFAULT_MIN_SPEEDUP_PCT):
     """Build a PHYSICS-GRAY physics-template shortlist for one case (decision 0051). Same
     "narrows the search, human decides" contract as recommend(): NEVER auto-applies anything.
     Every applicable candidate template is always listed with its changes and SpeedyWeather probe
@@ -1060,7 +1062,8 @@ def recommend_physics_gray(ledger_path, namelist_path, case_name, hardware_id, n
     shortlist = physicsmod.predict_physics_shortlist(
         train_rows, case_features_row, candidates, allowed_labels=allowed_labels,
         probe_verdicts=probe_verdicts_used, max_infeasible_rate=max_infeasible_rate,
-        max_dangerous_miss=max_dangerous_miss)
+        max_dangerous_miss=max_dangerous_miss, max_template_large_rate=max_template_large_rate,
+        min_speedup_pct=min_speedup_pct)
 
     # Defect 4: the time-to-solution interval's "not feasible" reason (if any) is the SAME string
     # on every shortlist row (performance_conformal_setup runs once) -- surface it in warnings a
@@ -1144,9 +1147,14 @@ def format_physics_report(result):
                   "OOF-miss: leave-one-case-out out-of-fold dangerous-miss <n>/<total> "
                   "(predicted allowed, measured LARGE-DRIFT), or insuff(n=<n>) below the "
                   "%d-prediction floor." % physicsmod.MIN_OOF_DANGEROUS_MISS)
-    lines.append("%-4s %-9s %-42s %-20s %-20s %-9s %-9s %-9s %-13s %s"
+    lines.append("  train LARGE: MEASURED (not predicted) LARGE-DRIFT <k>/<labeled training "
+                  "cases> -- a model-free track record that forces UNCONFIRMED on its own once "
+                  "the rate reaches --max-template-large-rate, regardless of the fidelity "
+                  "regression's own predicted label.")
+    lines.append("%-4s %-9s %-42s %-20s %-20s %-9s %-9s %-11s %-9s %-13s %s"
                   % ("rank", "template", "changes (key old->new)", "time-to-sol vs P00",
-                     "fidelity", "infeasible", "OOF-miss", "probe", "status", "reasons"))
+                     "fidelity", "infeasible", "OOF-miss", "train LARGE", "probe", "status",
+                     "reasons"))
     for i, c in enumerate(result["shortlist"], start=1):
         changes = changes_by_template.get(c["template"], {})
         changes_str = ", ".join("%s %s->%s" % (k, v["from"], v["to"]) for k, v in changes.items()) or "-"
@@ -1176,9 +1184,13 @@ def format_physics_report(result):
             oof_str = "insuff(n=%d)" % dang["n"]
         else:
             oof_str = "%d/%d" % (dang["dangerous_miss_n"], dang["n"])
-        lines.append("%-4d %-9s %-42s %-20s %-20s %-9s %-9s %-9s %-13s %s" % (
+        track = c.get("template_track_record")
+        track_str = ("LARGE %d/%d" % (track["n_cases_large"], track["n_cases_labeled"])
+                     if track is not None else "n/a")
+        lines.append("%-4d %-9s %-42s %-20s %-20s %-9s %-9s %-11s %-9s %-13s %s" % (
             i, c["template"], changes_str[:42], perf_str, fid_str, infeasible_str, oof_str,
-            c.get("probe_verdict") or "none", c["status"], "; ".join(c.get("reasons") or [])))
+            track_str, c.get("probe_verdict") or "none", c["status"],
+            "; ".join(c.get("reasons") or [])))
 
     vp = result.get("verify_plan")
     if vp:
@@ -1348,6 +1360,19 @@ def _build_arg_parser():
                           "exceeds this is forced UNCONFIRMED; default 0.0. Fewer than "
                           "physics.MIN_OOF_DANGEROUS_MISS out-of-fold predictions for a template "
                           "is ALWAYS insufficient evidence -> UNCONFIRMED regardless of this flag")
+    ap.add_argument("--max-template-large-rate", type=float,
+                     default=physicsmod.DEFAULT_MAX_TEMPLATE_LARGE_RATE,
+                     dest="max_template_large_rate",
+                     help="PHYSICS-GRAY only: a template MEASURED LARGE-DRIFT in at least this "
+                          "fraction of its own labeled training cases is forced UNCONFIRMED, "
+                          "regardless of the regression's own predicted label for the new case "
+                          "(model-free track record; default 0.5)")
+    ap.add_argument("--min-speedup-pct", type=float, default=physicsmod.DEFAULT_MIN_SPEEDUP_PCT,
+                     dest="min_speedup_pct",
+                     help="PHYSICS-GRAY only: a candidate is only RECOMMENDABLE if its predicted "
+                          "time-to-solution change is at most this (negative=faster) and, when a "
+                          "conformal interval exists, its upper bound is also < 0; default -1.0 "
+                          "(at least 1%% faster)")
     ap.add_argument("--probe-screen", default=None, dest="probe_screen",
                      help="PHYSICS-GRAY only: path to a saved 'wtune.py screen ... --json' "
                           "stdout capture, used for the SpeedyWeather probe verdicts instead of "
@@ -1376,7 +1401,9 @@ def main(argv=None):
                 probe_screen=args.probe_screen, run_probe=args.run_probe, latlon=args.latlon,
                 wps=args.wps, wrfinput=args.wrfinput,
                 max_infeasible_rate=args.max_infeasible_rate,
-                max_dangerous_miss=args.max_dangerous_miss)
+                max_dangerous_miss=args.max_dangerous_miss,
+                max_template_large_rate=args.max_template_large_rate,
+                min_speedup_pct=args.min_speedup_pct)
             report = format_physics_report(result)
         else:
             result = recommend(

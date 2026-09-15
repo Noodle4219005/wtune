@@ -908,3 +908,69 @@ def test_physics_gray_verify_plan_uses_twin_override_for_isc21(ledger_csv, main_
     assert result["verify_plan"]["twin_decomp"] == "C13"
     assert any("isc21" in w and "TWIN_DECOMP=C13" in w for w in result["warnings"])
     assert any("floor_zero hint" in w for w in result["warnings"])
+
+
+# ---------------------------------------------------------------------------
+# Lead-review gate A (2026-09-15): template track-record prior (--max-template-large-rate).
+# ---------------------------------------------------------------------------
+def test_physics_gray_track_record_gate_reason_and_flag(tmp_path, ledger_csv, main_namelist,
+                                                          probe_screen_file):
+    # make_physics_training_rows()'s P02 is LARGE-DRIFT in every one of the 6 synthetic cases --
+    # a track record clearly over the default 0.5 threshold.
+    rows = make_physics_training_rows()
+    phys_ledger_path = tmp_path / "physics_runs.csv"
+    write_ledger_csv(rows, str(phys_ledger_path))
+
+    result = recommend.recommend_physics_gray(
+        ledger_path=ledger_csv, namelist_path=main_namelist, case_name="synthtest",
+        hardware_id=HARDWARE_ID_TRAIN, physics_ledgers=[str(phys_ledger_path)],
+        probe_screen=probe_screen_file)
+    p02 = next(c for c in result["shortlist"] if c["template"] == "P02")
+    assert p02["status"] == "UNCONFIRMED"
+    assert p02["template_track_record"]["rate"] == 1.0
+    assert any("LARGE-DRIFT in %d/%d training cases" % (len(PHYS_TRAIN_CASES), len(PHYS_TRAIN_CASES))
+               in r for r in p02["reasons"])
+
+    lenient = recommend.recommend_physics_gray(
+        ledger_path=ledger_csv, namelist_path=main_namelist, case_name="synthtest",
+        hardware_id=HARDWARE_ID_TRAIN, physics_ledgers=[str(phys_ledger_path)],
+        probe_screen=probe_screen_file, max_template_large_rate=1.01)
+    p02_lenient = next(c for c in lenient["shortlist"] if c["template"] == "P02")
+    assert not any("LARGE-DRIFT in" in r for r in p02_lenient["reasons"])
+
+    report = recommend.format_physics_report(result)
+    assert "train LARGE" in report
+    assert "LARGE %d/%d" % (len(PHYS_TRAIN_CASES), len(PHYS_TRAIN_CASES)) in report
+
+
+# ---------------------------------------------------------------------------
+# Lead-review gate B (2026-09-15): speed-benefit requirement (--min-speedup-pct).
+# ---------------------------------------------------------------------------
+def test_physics_gray_speed_gate_no_benefit_forces_unconfirmed(tmp_path, ledger_csv, main_namelist,
+                                                                 probe_screen_file):
+    # P01 measured essentially UNCHANGED speed (identical s_per_step to P00) across all 6
+    # training cases, always WITHIN-FLOOR -- the motivating real example: isc21/P02 measured
+    # ~0% per step and must not be recommended as a speed change just for being fidelity-safe.
+    rows = []
+    for case in PHYS_TRAIN_CASES:
+        for rep in (1, 2):
+            rows.append(_phys_row("%s_P00_r%d" % (case, rep), "P00", "none", {}, PHYS_NATIVE,
+                                   "C02", rep, 1.0, case=case))
+        for rep in (1, 2):
+            rows.append(_phys_row("%s_P01_r%d" % (case, rep), "P01", "radiation",
+                                   {"swint_opt": "1"}, PHYS_NATIVE, "C02", rep, 1.0,
+                                   fidelity_label="WITHIN-FLOOR", nd=0.01,
+                                   probe={"swint_opt": "CONFIRM"}, case=case))
+    phys_ledger_path = tmp_path / "physics_runs.csv"
+    write_ledger_csv(rows, str(phys_ledger_path))
+
+    result = recommend.recommend_physics_gray(
+        ledger_path=ledger_csv, namelist_path=main_namelist, case_name="synthtest",
+        hardware_id=HARDWARE_ID_TRAIN, physics_ledgers=[str(phys_ledger_path)],
+        probe_screen=probe_screen_file)
+    p01 = next(c for c in result["shortlist"] if c["template"] == "P01")
+    assert p01["status"] == "UNCONFIRMED"
+    assert any("no predicted speed benefit" in r for r in p01["reasons"])
+
+    report = recommend.format_physics_report(result)
+    assert "time-to-sol vs P00" in report

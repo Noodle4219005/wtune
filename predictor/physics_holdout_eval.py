@@ -135,7 +135,9 @@ def _measured_outcomes(perf_group):
 # One held-out case.
 # ---------------------------------------------------------------------------
 def evaluate_case(all_rows, case, allowed_labels=DEFAULT_ALLOWED_LABELS, max_infeasible_rate=0.0,
-                   max_dangerous_miss=0.0, templates_json_path=None):
+                   max_dangerous_miss=0.0,
+                   max_template_large_rate=physicsmod.DEFAULT_MAX_TEMPLATE_LARGE_RATE,
+                   min_speedup_pct=physicsmod.DEFAULT_MIN_SPEEDUP_PCT, templates_json_path=None):
     """Run the PHYSICS-GRAY recommendation logic for `case` held fully out of training, scored
     against `case`'s own real measured outcomes. Returns None when this case has no measured
     candidate templates at all (nothing to evaluate), else a dict with "case", "per_template"
@@ -173,7 +175,8 @@ def evaluate_case(all_rows, case, allowed_labels=DEFAULT_ALLOWED_LABELS, max_inf
     predicted = physicsmod.predict_physics_shortlist(
         train_rows, case_features_row, candidates, allowed_labels=allowed_labels,
         probe_verdicts=probe_verdicts, max_infeasible_rate=max_infeasible_rate,
-        max_dangerous_miss=max_dangerous_miss)
+        max_dangerous_miss=max_dangerous_miss, max_template_large_rate=max_template_large_rate,
+        min_speedup_pct=min_speedup_pct)
 
     per_template = []
     for c in predicted:
@@ -212,7 +215,9 @@ def evaluate_case(all_rows, case, allowed_labels=DEFAULT_ALLOWED_LABELS, max_inf
 # All cases + report.
 # ---------------------------------------------------------------------------
 def run_holdout_eval(ledger_paths, out_dir, allowed_labels=DEFAULT_ALLOWED_LABELS,
-                      max_infeasible_rate=0.0, max_dangerous_miss=0.0, templates_json_path=None):
+                      max_infeasible_rate=0.0, max_dangerous_miss=0.0,
+                      max_template_large_rate=physicsmod.DEFAULT_MAX_TEMPLATE_LARGE_RATE,
+                      min_speedup_pct=physicsmod.DEFAULT_MIN_SPEEDUP_PCT, templates_json_path=None):
     all_rows = []
     for p in ledger_paths:
         all_rows.extend(benchmark.load_ledger(p))
@@ -224,6 +229,8 @@ def run_holdout_eval(ledger_paths, out_dir, allowed_labels=DEFAULT_ALLOWED_LABEL
         res = evaluate_case(list(all_rows), case, allowed_labels=allowed_labels,
                              max_infeasible_rate=max_infeasible_rate,
                              max_dangerous_miss=max_dangerous_miss,
+                             max_template_large_rate=max_template_large_rate,
+                             min_speedup_pct=min_speedup_pct,
                              templates_json_path=templates_json_path)
         if res is not None:
             case_results.append(res)
@@ -285,12 +292,19 @@ def main(argv=None):
     ap.add_argument("--allowed-labels", default="WITHIN-FLOOR,SMALL-DRIFT", dest="allowed_labels")
     ap.add_argument("--max-infeasible-rate", type=float, default=0.0, dest="max_infeasible_rate")
     ap.add_argument("--max-dangerous-miss", type=float, default=0.0, dest="max_dangerous_miss")
+    ap.add_argument("--max-template-large-rate", type=float,
+                     default=physicsmod.DEFAULT_MAX_TEMPLATE_LARGE_RATE,
+                     dest="max_template_large_rate")
+    ap.add_argument("--min-speedup-pct", type=float, default=physicsmod.DEFAULT_MIN_SPEEDUP_PCT,
+                     dest="min_speedup_pct")
     ap.add_argument("--templates-json", default=None, dest="templates_json")
     args = ap.parse_args(argv)
     allowed = tuple(s.strip() for s in args.allowed_labels.split(",") if s.strip())
     run_holdout_eval(args.ledgers, args.out_dir, allowed_labels=allowed,
                       max_infeasible_rate=args.max_infeasible_rate,
                       max_dangerous_miss=args.max_dangerous_miss,
+                      max_template_large_rate=args.max_template_large_rate,
+                      min_speedup_pct=args.min_speedup_pct,
                       templates_json_path=args.templates_json)
     return 0
 

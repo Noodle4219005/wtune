@@ -334,6 +334,17 @@ MIN_CANDIDATES_PER_CASE = 3
 # required before a template can ever be RECOMMENDABLE).
 MIN_OOF_DANGEROUS_MISS = 5
 
+# Lead-review gates (2026-09-15). Gate A: a template's own measured-label track record (see
+# template_large_drift_rate) at or above this LARGE-DRIFT fraction forces UNCONFIRMED, regardless
+# of what the regression predicts for the new case -- catches a case the regression's fitted
+# features fool it on (the real karina/P05 holdout miss). Gate B: a candidate must have a genuine
+# predicted speed benefit -- at least this many percent faster (min_speedup_pct is NEGATIVE,
+# time-to-solution convention: negative=faster) -- to ever be RECOMMENDABLE; a "safe but not
+# actually faster" candidate (e.g. isc21/P02, measured ~0% per step) is not a useful
+# recommendation just because its fidelity is clean.
+DEFAULT_MAX_TEMPLATE_LARGE_RATE = 0.5
+DEFAULT_MIN_SPEEDUP_PCT = -1.0
+
 
 def data_sufficiency(rows):
     """Cases (case_base) with >=3 distinct candidate templates that received a performance target
@@ -597,6 +608,46 @@ def template_infeasibility(rows):
         k = len(failed.get(tmpl, ()))
         out[tmpl] = dict(n_cases_tried=n, n_cases_failed=k,
                           failed_cases=sorted(failed.get(tmpl, ())), rate=(k / n if n else None))
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Lead-review gate A (2026-09-15, on top of decision 0051's defects 2/3): the real karina/P05
+# holdout result showed the REGRESSION's out-of-fold prediction can still miss a template that is
+# LARGE-DRIFT in essentially every training case it has ever run in, when the held-out case's own
+# grid/physics differ enough from training to fool the fitted model. A simple, model-FREE track
+# record (measured labels only, no regression) is a cheap second opinion the regression cannot
+# talk itself out of.
+# ---------------------------------------------------------------------------
+def template_large_drift_rate(rows):
+    """Per-template measured-label track record from TRAINING rows only (never a prediction): for
+    each candidate template, the distinct case_base(s) that have a trainable MEASURED fidelity
+    label (WITHIN-FLOOR/SMALL-DRIFT/LARGE-DRIFT -- same trainable set fidelity_dataset() uses) for
+    that template, and how many of those cases were LARGE-DRIFT. One vote per (case, template) --
+    the rep-1 row (the only replicate that ever carries a label, see the module docstring's ledger
+    contract), not per replicate. Returns {template: {"n_cases_labeled": n, "n_cases_large": k,
+    "large_cases": [case_base,...] sorted, "rate": k/n or None}}; a template with zero labeled
+    cases is simply absent (nothing to report)."""
+    labeled, large = defaultdict(set), defaultdict(set)
+    for r in physics_rows(rows):
+        tmpl = _template_of(r)
+        if tmpl in (None, "P00"):
+            continue
+        label = (r.get("fidelity_label") or "").strip()
+        if label not in FIDELITY_ORDER:
+            continue
+        case_base = r.get("case_base")
+        if case_base is None:
+            continue
+        labeled[tmpl].add(case_base)
+        if label == "LARGE-DRIFT":
+            large[tmpl].add(case_base)
+    out = {}
+    for tmpl, cases in labeled.items():
+        n = len(cases)
+        k = len(large.get(tmpl, ()))
+        out[tmpl] = dict(n_cases_labeled=n, n_cases_large=k,
+                          large_cases=sorted(large.get(tmpl, ())), rate=(k / n if n else None))
     return out
 
 
@@ -1108,7 +1159,9 @@ def physics_candidates_from_namelist(namelist_text, case_name, max_dom, template
 # ---------------------------------------------------------------------------
 def predict_physics_shortlist(train_rows, case_features, candidates,
                                allowed_labels=DEFAULT_ALLOWED_LABELS, probe_verdicts=None,
-                               max_infeasible_rate=0.0, max_dangerous_miss=0.0):
+                               max_infeasible_rate=0.0, max_dangerous_miss=0.0,
+                               max_template_large_rate=DEFAULT_MAX_TEMPLATE_LARGE_RATE,
+                               min_speedup_pct=DEFAULT_MIN_SPEEDUP_PCT):
     """train_rows: the full (already add_perf_targets/add_fidelity_targets'd) ledger.
     case_features: a ledger-row-shaped dict describing THIS case's own grid/native-physics(as the
     case actually runs it, i.e. resolved, not -1)/hardware -- typically its own P00 reference row
@@ -1122,13 +1175,25 @@ def predict_physics_shortlist(train_rows, case_features, candidates,
         miss rate (see per_template_dangerous_miss) exceeds this is forced UNCONFIRMED; fewer than
         MIN_OOF_DANGEROUS_MISS out-of-fold predictions for a template is ALWAYS "insufficient
         evidence" -> UNCONFIRMED, regardless of this flag's value.
+    max_template_large_rate: a template that was MEASURED LARGE-DRIFT in at least this fraction of
+        the training cases it has a label in (see template_large_drift_rate -- a model-free track
+        record, not the regression) is forced UNCONFIRMED, regardless of what the fidelity
+        regression predicts for the new case (lead-review gate A, catches the karina/P05 holdout
+        miss: the regression predicted SMALL-DRIFT for a template that was LARGE-DRIFT in every
+        other training case).
+    min_speedup_pct: a candidate is only RECOMMENDABLE if its predicted time-to-solution change is
+        at most this (negative = faster) AND, when a conformal interval is available, the
+        interval's own upper bound is also < 0 (lead-review gate B: a fidelity-clean candidate
+        with no real speed benefit, e.g. isc21/P02 at ~0% per step, is not a useful
+        recommendation).
 
     One dict per candidate: template, family, status (RECOMMENDABLE|UNCONFIRMED), reasons,
     predicted_time_to_solution_pct (negative=faster), time_to_solution_interval_pct
     ((lo_pct, hi_pct) or None), time_to_solution_interval_note (why None, or None when available),
     predicted_y, predicted_fidelity_label, predicted_fidelity_nd, probe_verdict,
     same_hardware_data, infeasibility (template_infeasibility()'s entry for this template, or
-    None), dangerous_miss (per_template_dangerous_miss()'s entry for this template, or None).
+    None), dangerous_miss (per_template_dangerous_miss()'s entry for this template, or None),
+    template_track_record (template_large_drift_rate()'s entry for this template, or None).
     Sorted RECOMMENDABLE-first, then by predicted_y ascending (faster first)."""
     probe_verdicts = probe_verdicts or {}
     no_campaign_data = not physics_rows(train_rows)
@@ -1157,6 +1222,9 @@ def predict_physics_shortlist(train_rows, case_features, candidates,
     infeasibility_by_template = template_infeasibility(train_rows)
     dangerous_miss_by_template = per_template_dangerous_miss(train_rows, allowed_labels=allowed_labels)
     fold_models, fold_residuals, tts_interval_note = performance_conformal_setup(perf_rows)
+    # Lead-review gate A: a model-free measured-label track record, computed once from training
+    # rows only (never a prediction) -- see template_large_drift_rate's own docstring.
+    track_record_by_template = template_large_drift_rate(train_rows)
 
     hardware_id = case_features.get("hardware_id")
     same_hw = any(r.get("hardware_id") == hardware_id for r in perf_rows)
@@ -1171,7 +1239,7 @@ def predict_physics_shortlist(train_rows, case_features, candidates,
                              time_to_solution_interval_note=None, predicted_y=None,
                              predicted_fidelity_label=None, predicted_fidelity_nd=None,
                              probe_verdict=None, same_hardware_data=None,
-                             infeasibility=None, dangerous_miss=None))
+                             infeasibility=None, dangerous_miss=None, template_track_record=None))
             continue
 
         row = dict(case_features)
@@ -1264,9 +1332,45 @@ def predict_physics_shortlist(train_rows, case_features, candidates,
                     % (dang_info["dangerous_miss_rate"], max_dangerous_miss,
                        dang_info["dangerous_miss_n"], dang_info["n"]))
 
+        # Lead-review gate A: model-free measured-label track record, attached to EVERY row
+        # (template_track_record=None only when the template has zero labeled training cases at
+        # all). A rate at/above the threshold forces UNCONFIRMED regardless of the regression's
+        # own predicted_label -- this is exactly what the karina/P05 holdout miss needed: P05 was
+        # LARGE-DRIFT in every OTHER training case, but the regression still predicted SMALL-DRIFT
+        # for karina's own (differently-shaped) case.
+        track_info = track_record_by_template.get(cand["template"])
+        track_over_threshold = (
+            track_info is not None and track_info["rate"] is not None
+            and track_info["rate"] >= max_template_large_rate)
+        if track_over_threshold:
+            reasons.append(
+                "LARGE-DRIFT in %d/%d training cases: %s"
+                % (track_info["n_cases_large"], track_info["n_cases_labeled"],
+                   ", ".join(track_info["large_cases"])))
+
+        # Lead-review gate B: a candidate must have a genuine predicted speed benefit to ever be
+        # RECOMMENDABLE -- a fidelity-clean candidate with no real speedup (e.g. isc21/P02 at ~0%
+        # per step) is not a useful recommendation. When a conformal interval exists, its own
+        # upper (slowest) bound must also stay < 0, not just the point estimate.
+        if predicted_tts_pct is None:
+            speed_reason = "no predicted speed benefit (no performance prediction)"
+        elif predicted_tts_pct > min_speedup_pct:
+            speed_reason = (
+                "no predicted speed benefit: predicted %+.2f%% (time-to-solution vs P00), need "
+                "<= %+.2f%% (--min-speedup-pct)" % (predicted_tts_pct, min_speedup_pct))
+        elif tts_interval_pct is not None and tts_interval_pct[1] >= 0:
+            speed_reason = (
+                "no predicted speed benefit: interval upper bound %+.2f%% is not < 0 (point "
+                "estimate %+.2f%%)" % (tts_interval_pct[1], predicted_tts_pct))
+        else:
+            speed_reason = None
+        if speed_reason:
+            reasons.append(speed_reason)
+
         status = "RECOMMENDABLE" if (
             predicted_allowed and probe_verdict != "REJECT" and same_hw and predicted_y is not None
             and not infeasible_over_threshold and not dangerous_over_threshold
+            and not track_over_threshold and speed_reason is None
         ) else "UNCONFIRMED"
 
         out.append(dict(template=cand["template"], family=cand.get("family"), status=status,
@@ -1276,7 +1380,7 @@ def predict_physics_shortlist(train_rows, case_features, candidates,
                          predicted_y=predicted_y, predicted_fidelity_label=predicted_label,
                          predicted_fidelity_nd=predicted_nd, probe_verdict=probe_verdict,
                          same_hardware_data=same_hw, infeasibility=infeas_info,
-                         dangerous_miss=dang_info))
+                         dangerous_miss=dang_info, template_track_record=track_info))
 
     out.sort(key=lambda d: (0 if d["status"] == "RECOMMENDABLE" else 1,
                              d["predicted_y"] if d["predicted_y"] is not None else float("inf")))

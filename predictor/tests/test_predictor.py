@@ -575,3 +575,21 @@ def test_campaign_correctness_rows_skipped_and_classification_scoped(tmp_path):
                                   s_per_step_median=0.3))
     ledger.classify_rows(rows + old)
     assert all(r["compliance_class"] == "STRICT" for r in rows)
+
+
+def test_config_key_separates_tile_geometry_but_keeps_strict_keys():
+    base = dict(nproc_x=8, nproc_y=28, numtiles=12, omp_threads=2, distribution="block",
+                kmp_blocktime=0, n_nodes=4, n_ranks=224)
+    strict = feat.config_key(base)
+    assert len(strict) == 8
+    assert feat.config_key(dict(base, numtiles_x=0, tile_sz_x="", tile_strategy=None)) == strict
+    a = feat.config_key(dict(base, numtiles_x=3, numtiles_y=4))
+    b = feat.config_key(dict(base, tile_sz_x=24, tile_sz_y=24))
+    assert len({strict, a, b}) == 3
+
+
+def test_decision_group_key_io_form_history_int_and_str_match():
+    row = dict(case_base="lafe", hardware_id="f1-spr-icpnp", compliance_class="STRICT",
+               n_nodes=4, n_ranks=448, omp_threads=1, binary_kind="dmsm")
+    assert (feat.decision_group_key(dict(row, io_form_history=14))
+            == feat.decision_group_key(dict(row, io_form_history="14")))

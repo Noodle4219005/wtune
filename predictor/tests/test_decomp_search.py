@@ -8,6 +8,7 @@ Run with:
 """
 import csv
 import json
+import math
 import os
 import sys
 
@@ -15,11 +16,16 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import benchmark
 import decomp_search as dsearch
 import decomp_space as ds
+import features as feat
 import ledger as ledgermod
 import models as modelmod
+import targets
 import configs as campaign_configs   # decomp_search.py itself inserts campaign/ onto sys.path
+
+_FIXTURES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures")
 
 HARDWARE_ID = "f1-spr-icpnp"
 
@@ -375,3 +381,273 @@ def test_propose_end_to_end_with_real_karina_ledger(tmp_path):
         json.dump(dict(configs=configs_out), f)
     loaded = campaign_configs.load_generated_configs(str(out_path))
     assert [c["id"] for c in loaded] == [c["id"] for c in configs_out]
+
+
+# ---------------------------------------------------------------------------
+# Baseline/scale-consistency regression tests (2026-09-15 lafe/karina round-2 bug): a case's own
+# already-measured rows (candidate_row()/case_row_fields(), built from state['measured']) and rows
+# loaded from a real campaign ledger (benchmark.load_ledger) must land in the SAME
+# features.decision_group_key scope, and the same physical measurement must never be counted twice
+# when it appears via both state['measured'] and a --ledger file.
+# ---------------------------------------------------------------------------
+class TestBaselineScaleConsistency:
+    def test_normalize_decision_group_fields_equalizes_int_and_str_io_form_history(self):
+        # case_row_fields()/candidate_row() default io_form_history to a Python int (14); a real
+        # ledger row loaded by benchmark.load_ledger keeps it as the raw CSV string ("14") since
+        # benchmark._f()'s numeric-cast list omits io_form_history (predictor/benchmark.py:42-56).
+        # features.decision_group_key compares io_form_history RAW -- unlike n_nodes/total_cores it
+        # is never passed through features._num() -- so before the fix these two otherwise-
+        # identical rows landed in different decision groups.
+        row_int = dsearch.candidate_row("c", CASE_FIELDS, HARDWARE_ID, 4, _mk_cfg(448, 1, 8, 56, 1),
+                                         run_id="r1")
+        row_str = dict(row_int)
+        row_str["io_form_history"] = "14"
+        assert row_int["io_form_history"] == 14
+        # features.decision_group_key now normalizes io_form_history itself (2026-09-15), so the
+        # raw rows already agree; the decomp_search normalizer stays as defense in depth.
+        assert feat.decision_group_key(row_int) == feat.decision_group_key(row_str)
+
+        dsearch._normalize_decision_group_fields([row_int, row_str])
+        assert row_int["io_form_history"] == row_str["io_form_history"] == "14"
+        assert feat.decision_group_key(row_int) == feat.decision_group_key(row_str)  # fixed
+
+    def test_normalize_decision_group_fields_leaves_none_and_blank_alone(self):
+        # None/'' are legitimate, distinct groups (features.decision_group_known) -- not a type
+        # mismatch to paper over.
+        row_none, row_blank = dict(io_form_history=None), dict(io_form_history="")
+        dsearch._normalize_decision_group_fields([row_none, row_blank])
+        assert row_none["io_form_history"] is None
+        assert row_blank["io_form_history"] == ""
+
+    def test_dedup_rows_collapses_same_measurement_by_run_id(self):
+        a = dict(run_id="lafe_R01D0001_r1_1078094", job_id="1078094", rep_index=1,
+                 s_per_step_median=1.47)
+        b = dict(a)  # a distinct dict object with an identical run_id, as if loaded from a
+                     # duplicate ledger that also names this measurement
+        c = dict(run_id="lafe_R01D0001_r2_1078094", job_id="1078094", rep_index=2,
+                 s_per_step_median=1.50)
+        out = dsearch._dedup_rows([a, b, c])
+        assert out == [a, c]  # b dropped as a's duplicate; first occurrence survives
+
+    def test_dedup_rows_fallback_key_survives_job_id_rep_index_type_mismatch(self):
+        # No run_id -- falls back to (case_base, config_key, job_id, rep_index). job_id/rep_index
+        # must be compared as strings regardless of Python type, the same trap io_form_history fell
+        # into (int 14 vs str "14"): a real ledger row's job_id/rep_index stay raw CSV strings
+        # (benchmark.load_ledger never casts them), while ingest()'s int(parsed["rep"]) makes
+        # state['measured'][cid][i]['rep_index'] an int.
+        cfg = _mk_cfg(448, 1, 8, 56, 1)
+        a = dsearch.candidate_row("c", CASE_FIELDS, HARDWARE_ID, 4, cfg, run_id=None,
+                                   job_id="99", rep_index=1)
+        b = dsearch.candidate_row("c", CASE_FIELDS, HARDWARE_ID, 4, cfg, run_id=None,
+                                   job_id=99, rep_index="1")
+        assert dsearch._dedup_rows([a, b]) == [a]
+
+    def test_propose_for_case_baselines_incumbent_against_merged_case_reference(self, tmp_path):
+        """The lafe symptom, minimized: REF is this case's own already-measured C01-equivalent
+        config, also present (2 earlier reps) in the real STRICT campaign ledger. OTHER_A/OTHER_B
+        are two round candidates that collide on features.config_key once tile_shape is dropped
+        (candidate_key's own docstring) and, pre-fix, formed an isolated round-only scope's modal
+        "baseline" -- outvoting the true reference and making the truly-fastest incumbent's y come
+        out far more negative than it should."""
+        hardware_id = HARDWARE_ID
+        case_json = dict(e_we=901, e_sn=901, e_vert=45, max_dom=1)
+        ref_cfg = _mk_cfg(448, 1, 8, 56, 1)                      # the C01-equivalent reference
+        other_a = _mk_cfg(224, 2, 8, 28, 16, dist="block")       # 1d_y
+        other_b = dict(_mk_cfg(224, 2, 8, 28, 16, dist="block", tile_shape="2d"),
+                       numtiles_x=4, numtiles_y=4, tile_strategy=3)  # SAME config_key as other_a
+
+        state = dict(
+            configs={"REF": ref_cfg, "OTHER_A": other_a, "OTHER_B": other_b},
+            measured={
+                "REF": [dict(run_id="testcase_REF_r1_1", job_id="1", rep_index=1,
+                             s_per_step_median=1.0),
+                        dict(run_id="testcase_REF_r2_1", job_id="1", rep_index=2,
+                             s_per_step_median=1.0)],
+                "OTHER_A": [dict(run_id="testcase_OTHER_A_r1_1", job_id="1", rep_index=1,
+                                 s_per_step_median=9.0),
+                            dict(run_id="testcase_OTHER_A_r2_1", job_id="1", rep_index=2,
+                                 s_per_step_median=9.0)],
+                "OTHER_B": [dict(run_id="testcase_OTHER_B_r1_1", job_id="1", rep_index=1,
+                                 s_per_step_median=8.0),
+                            dict(run_id="testcase_OTHER_B_r2_1", job_id="1", rep_index=2,
+                                 s_per_step_median=8.0)],
+            },
+            hardware_id=hardware_id, nodes=4, total_cores=448, rounds=[{"round": 1}],
+        )
+
+        prior_row_kwargs = dict(CASE_FIELDS)
+        prior_row_kwargs.update(
+            source_dataset="strict_campaign", case_raw="testcase", case_base="testcase",
+            case_family=None, hardware_id=hardware_id, binary_kind="pristine",
+            compliance_class="STRICT", n_nodes=4, distribution="cyclic", kmp_blocktime=0,
+            n_ranks=448, omp_threads=1, nproc_x=8, nproc_y=56, numtiles=1, io_form_history=14)
+        prior_rows_raw = [
+            ledgermod.new_row(run_id="testcase_C01_r1_9001", job_id="9001", rep_index=1,
+                               s_per_step_median=2.0, **prior_row_kwargs),
+            ledgermod.new_row(run_id="testcase_C01_r2_9001", job_id="9001", rep_index=2,
+                               s_per_step_median=2.0, **prior_row_kwargs),
+        ]
+        ledger_path = tmp_path / "prior_ledger.csv"
+        _write_campaign_style_ledger(prior_rows_raw, str(ledger_path))
+        prior_rows = benchmark.load_ledger(str(ledger_path))
+        # This fixture must genuinely reproduce the type mismatch (real ledger rows keep
+        # io_form_history as the raw CSV string) -- pin that before trusting the rest of the test.
+        assert prior_rows[0]["io_form_history"] == "14"
+
+        result, _configs_out = dsearch.propose_for_case(
+            "testcase", case_json, CASE_FIELDS, prior_rows, state, batch_size=4,
+            total_cores=448, nodes=4, hardware_id=hardware_id, ensemble_size=5, ensemble_seed=0)
+
+        assert result["incumbent"] == ref_cfg
+        # geometric mean of {2.0, 2.0 (prior C01), 1.0, 1.0 (this case's own REF)} = sqrt(2);
+        # y = ln(1.0) - ln(sqrt(2)) = -ln(2)/2. Deterministic (incumbent_y never touches the
+        # surrogate) -- see bc -l verification in the task's own debug session.
+        assert result["incumbent_y"] == pytest.approx(-math.log(2) / 2, abs=1e-6)
+
+        # Without decomp_search's own normalization the result must now be identical too:
+        # features.decision_group_key normalizes io_form_history and config_key keeps OTHER_B's
+        # tile geometry apart from OTHER_A (2026-09-15), so neither half of the bug reproduces.
+        case_measured_rows_raw = dsearch.build_case_measured_rows(
+            state, "testcase", CASE_FIELDS, hardware_id, 4)
+        unnormalized_combined = list(prior_rows) + case_measured_rows_raw
+        unnormalized_baselines = targets.compute_case_baselines(unnormalized_combined)
+        targets.add_y(unnormalized_combined, unnormalized_baselines)
+        broken_cfg, broken_y = dsearch.incumbent_from_measured(case_measured_rows_raw)
+        assert broken_cfg == ref_cfg
+        assert broken_y == pytest.approx(result["incumbent_y"], abs=1e-6)
+
+    def test_propose_for_case_row_counts_unaffected_by_duplicate_ledger_of_own_measured_round(
+            self, tmp_path):
+        """The karina symptom, minimized: the case's own already-measured round is ALSO passed via
+        --ledger (2026-09-15: EXTRA_LEDGERS duplicated the ledger that had just been ingested into
+        the state file). Every measurement must be counted once in the combined/labeled row set
+        (and hence in the ensemble's training weight and the baseline vote) regardless of how many
+        sources name it."""
+        hardware_id = HARDWARE_ID
+        ref_cfg = _mk_cfg(448, 1, 8, 56, 1)
+        fast_cfg = _mk_cfg(224, 2, 8, 28, 12, dist="block")
+        state = dict(
+            configs={"REF": ref_cfg, "FAST": fast_cfg},
+            measured={
+                "REF": [dict(run_id="dup_REF_r1_555", job_id="555", rep_index=1,
+                             s_per_step_median=2.0),
+                        dict(run_id="dup_REF_r2_555", job_id="555", rep_index=2,
+                             s_per_step_median=2.0)],
+                "FAST": [dict(run_id="dup_FAST_r1_555", job_id="555", rep_index=1,
+                              s_per_step_median=1.0),
+                         dict(run_id="dup_FAST_r2_555", job_id="555", rep_index=2,
+                              s_per_step_median=1.0)],
+            },
+            hardware_id=hardware_id, nodes=4, total_cores=448, rounds=[{"round": 1}],
+        )
+        case_measured_rows = dsearch.build_case_measured_rows(state, "dup", CASE_FIELDS,
+                                                                hardware_id, 4)
+        assert len(case_measured_rows) == 4  # REF x2 + FAST x2
+
+        dup_kwargs = dict(CASE_FIELDS)
+        dup_kwargs.update(
+            source_dataset="strict_campaign", case_raw="dup", case_base="dup",
+            hardware_id=hardware_id, binary_kind="pristine", compliance_class="STRICT",
+            n_nodes=4, n_ranks=448, omp_threads=1, nproc_x=8, nproc_y=56, numtiles=1,
+            distribution="cyclic", kmp_blocktime=0, io_form_history=14)
+        duplicate_ledger_rows = [
+            ledgermod.new_row(run_id="dup_REF_r1_555", job_id="555", rep_index=1,
+                               s_per_step_median=2.0, **dup_kwargs),
+            ledgermod.new_row(run_id="dup_REF_r2_555", job_id="555", rep_index=2,
+                               s_per_step_median=2.0, **dup_kwargs),
+        ]
+        path = tmp_path / "duplicate_round1_ledger.csv"
+        _write_campaign_style_ledger(duplicate_ledger_rows, str(path))
+        prior_rows_dup = benchmark.load_ledger(str(path))
+
+        combined_no_dup = dsearch._dedup_rows(case_measured_rows + [])
+        combined_with_dup = dsearch._dedup_rows(case_measured_rows + list(prior_rows_dup))
+        assert len(combined_no_dup) == len(combined_with_dup) == 4  # never inflates to 6
+
+        case_json = dict(e_we=901, e_sn=901, e_vert=45, max_dom=1)
+        result_no_dup, _ = dsearch.propose_for_case(
+            "dup", case_json, CASE_FIELDS, [], dict(state), batch_size=4, total_cores=448,
+            nodes=4, hardware_id=hardware_id, ensemble_size=5, ensemble_seed=0)
+        result_with_dup, _ = dsearch.propose_for_case(
+            "dup", case_json, CASE_FIELDS, prior_rows_dup, dict(state), batch_size=4,
+            total_cores=448, nodes=4, hardware_id=hardware_id, ensemble_size=5, ensemble_seed=0)
+        assert result_no_dup["incumbent"] == result_with_dup["incumbent"] == fast_cfg
+        assert result_no_dup["incumbent_y"] == pytest.approx(result_with_dup["incumbent_y"], abs=1e-9)
+        assert result_no_dup["n_training_rows"] == result_with_dup["n_training_rows"]
+
+
+def test_ingest_never_records_a_failed_run_as_measured(tmp_path):
+    """(c): a failed run (no s_per_step_median -- crash/timeout, matching the real
+    lafe_R01D0011/R01D0012 rows in ledger_lafe_1078094.csv, notes '... rc=139 ok=0') must never
+    enter state['measured'], so it can never become a baseline or an incumbent."""
+    state = dict(configs={"R01D0001": _mk_cfg(448, 1, 8, 56, 1)}, measured={}, rounds=[])
+    rows = [
+        ledgermod.new_row(
+            run_id="case_R01D0001_r1_42", source_dataset="strict_campaign", job_id="42",
+            rep_index=1, case_raw="case", case_base="case", hardware_id=HARDWARE_ID,
+            binary_kind="pristine", compliance_class="STRICT", e_we=901, e_sn=901, e_vert=45,
+            n_nodes=4, n_ranks=448, omp_threads=1, nproc_x=8, nproc_y=56, numtiles=1,
+            distribution="cyclic", kmp_blocktime=0,
+            s_per_step_median=None, notes="config=R01D0001 mode=timing rc=139 ok=0"),
+    ]
+    path = tmp_path / "failed_run.csv"
+    _write_campaign_style_ledger(rows, str(path))
+    n_in, n_skip, _reasons = dsearch.ingest(state, str(path))
+    # ledger.adapt_campaign_ledger() already drops a failed (no s_per_step_median) STRICT row
+    # itself -- printing "NOTE ...: skipped N failed/timed-out run(s)..." -- before ingest()'s own
+    # loop ever sees it, so ingest() here reports n_skip=0, not 1 (its own "no s_per_step_median"
+    # skip path guards a row shape adapt_campaign_ledger doesn't already filter). The invariant
+    # that matters for (c) is state['measured'] staying empty either way.
+    assert n_in == 0
+    assert n_skip == 0
+    assert state.get("measured", {}) == {}
+
+
+# ---------------------------------------------------------------------------
+# Hermetic reproduction against the REAL 2026-09-15 lafe/karina D3 state + ledger snapshots
+# (predictor/tests/fixtures/) -- pins the corrected behavior against the exact data that exposed
+# the bug, not just the hand-built synthetic analog above.
+# ---------------------------------------------------------------------------
+_LAFE_STATE_R1 = os.path.join(_FIXTURES, "state_lafe_r1.json")
+_LAFE_PRIOR_LEDGER = os.path.join(_FIXTURES, "ledger_lafe_1075295.csv")
+_KARINA_STATE_R1R2 = os.path.join(_FIXTURES, "state_karina_r1r2.json")
+_KARINA_PRIOR_LEDGER = os.path.join(_FIXTURES, "ledger_karina_1075297.csv")
+_KARINA_ROUND1_LEDGER = os.path.join(_FIXTURES, "ledger_karina_1078093.csv")
+
+
+@pytest.mark.skipif(not os.path.exists(_LAFE_STATE_R1), reason="fixture not present")
+def test_real_lafe_round2_incumbent_is_now_on_the_campaign_reference_scale():
+    """Reproduces the exact 2026-09-15 lafe round-2 STOP: propose() computed incumbent_y=-0.37442
+    for R01D0003 (measured 1.304/1.317 s/step) against an isolated round-1-only baseline of
+    ~1.90 s/step, instead of the true C01-equivalent reference (~1.52-1.56 s/step, since R01D0001
+    -- this case's own measured C01-equivalent -- merges with the prior campaign's own C01).
+    baseline_config_key becomes (8, 56, 1, 1, 'cyclic', 0, 4, 448) with s_baseline=1.52418 (the
+    true C01-equivalent scale), and incumbent_y=-0.15606 (Slurm-job-verified against this exact
+    fixture data, job 1078178, debug_baseline_scale.py): incumbent_from_measured() picks the single
+    best-measured REPLICATE's y (R01D0003 rep 1, s=1.30395), not a config's mean-of-replicates y,
+    so this is ln(1.30395/1.52418), not ln(mean(1.30395,1.31708)/1.52418)."""
+    state = dsearch.load_state(_LAFE_STATE_R1)
+    result, _configs_out = dsearch.propose(
+        "lafe", [_LAFE_PRIOR_LEDGER], state, batch_size=8, ensemble_size=5, ensemble_seed=0)
+    assert result.get("incumbent_y") is not None
+    assert result["incumbent_y"] == pytest.approx(-0.1560599127209296, abs=1e-4)
+    ic = result["incumbent"]
+    assert (ic["ranks"], ic["omp"], ic["nx"], ic["ny"]) == (224, 2, 8, 28)  # R01D0003
+
+
+@pytest.mark.skipif(
+    not (os.path.exists(_KARINA_STATE_R1R2) and os.path.exists(_KARINA_ROUND1_LEDGER)),
+    reason="fixture not present")
+def test_real_karina_incumbent_unchanged_whether_or_not_own_round_ledger_is_duplicated():
+    """Reproduces the 2026-09-15 karina round-2 bug: the round-1 ledger was passed both via
+    --ledger/EXTRA_LEDGERS and (already) via state['measured'] -- with the fix, including it a
+    second time must not change the result."""
+    result_only, _ = dsearch.propose(
+        "karina", [_KARINA_PRIOR_LEDGER], dsearch.load_state(_KARINA_STATE_R1R2), batch_size=8,
+        ensemble_size=5, ensemble_seed=0)
+    result_dup, _ = dsearch.propose(
+        "karina", [_KARINA_PRIOR_LEDGER, _KARINA_ROUND1_LEDGER],
+        dsearch.load_state(_KARINA_STATE_R1R2), batch_size=8, ensemble_size=5, ensemble_seed=0)
+    assert result_only.get("incumbent_y") is not None
+    assert result_only["incumbent_y"] == pytest.approx(result_dup["incumbent_y"], abs=1e-9)
+    assert result_only.get("n_training_rows") == result_dup.get("n_training_rows")

@@ -239,11 +239,16 @@ def has_profile_data(rows):
 def config_key(row):
     """Identity of "the same configuration" for target/pairwise/kNN logic: the tuple of
     config_features that is not itself derived-redundant (drop the geometry derived from
-    nproc_x/nproc_y/numtiles/omp_threads, which is fully determined by the raw knobs)."""
-    return (
+    nproc_x/nproc_y/numtiles/omp_threads, which is fully determined by the raw knobs).
+    Tile geometry (numtiles_x/y, tile_sz_x/y, tile_strategy) is appended only when non-default, so
+    STRICT-campaign keys are unchanged but distinct D2 tile shapes are no longer merged (2026-09-15)."""
+    key = (
         row.get("nproc_x"), row.get("nproc_y"), row.get("numtiles"), row.get("omp_threads"),
         row.get("distribution"), row.get("kmp_blocktime"), row.get("n_nodes"), row.get("n_ranks"),
     )
+    tiles = tuple(_num(row.get(k)) or 0 for k in
+                  ("numtiles_x", "numtiles_y", "tile_sz_x", "tile_sz_y", "tile_strategy"))
+    return key + (tiles,) if any(tiles) else key
 
 
 # ---------------------------------------------------------------------------
@@ -290,8 +295,11 @@ def decision_group_key(row):
     cores = total_cores(row)
     if n_nodes is None or cores is None:
         return None
+    io_form = row.get("io_form_history")
+    if _num(io_form) is not None:  # ledger CSV gives "14", namelist/case rows give 14 (2026-09-15)
+        io_form = str(int(_num(io_form)))
     return (row.get("case_base"), row.get("hardware_id"), row.get("compliance_class"),
-            n_nodes, cores, row.get("binary_kind"), row.get("io_form_history"))
+            n_nodes, cores, row.get("binary_kind"), io_form)
 
 
 def decision_group_known(row):

@@ -135,11 +135,13 @@ def case_row_fields(case_json, io_form_history=14):
     )
 
 
-def candidate_row(case_name, case_fields, hardware_id, nodes, c, run_id, s_per_step_median=None):
+def candidate_row(case_name, case_fields, hardware_id, nodes, c, run_id, s_per_step_median=None,
+                   job_id=None, rep_index=None):
     """A ledger-row-shaped dict for one decomp_space candidate `c`, suitable for
     features.case_features()/config_features() and targets.compute_case_baselines/add_y -- same
     shape/contract as recommend.py's `_candidate_row`, extended with the tile-geometry fields
-    (numtiles_x/y, tile_sz_x/y, tile_strategy) config_features() also reads."""
+    (numtiles_x/y, tile_sz_x/y, tile_strategy) config_features() also reads. `job_id`/`rep_index`
+    are optional passthrough (not features -- see _dedup_key's fallback identity)."""
     blocktime = c["blocktime"]
     kmp_blocktime = 0 if str(blocktime) == "0" else None
     row = dict(
@@ -151,7 +153,7 @@ def candidate_row(case_name, case_fields, hardware_id, nodes, c, run_id, s_per_s
         tile_sz_x=c.get("tile_sz_x", 0) or 0, tile_sz_y=c.get("tile_sz_y", 0) or 0,
         tile_strategy=c.get("tile_strategy", 0) or 0,
         distribution=c["dist"], kmp_blocktime=kmp_blocktime,
-        s_per_step_median=s_per_step_median,
+        s_per_step_median=s_per_step_median, job_id=job_id, rep_index=rep_index,
     )
     row.update(case_fields)
     row["_cfg"] = c
@@ -314,16 +316,91 @@ def measured_candidate_keys(state):
 def build_case_measured_rows(state, case_name, case_fields, hardware_id, nodes):
     """Ledger-row-shaped dicts (WITHOUT y attached -- see propose()/simulate(), which attach y
     differently) for every replicate recorded in state['measured'], one row per replicate so
-    targets.aggregate_by_config's own mean-of-log-across-replicates convention applies unchanged."""
+    targets.aggregate_by_config's own mean-of-log-across-replicates convention applies unchanged.
+    Reuses the REAL run_id/job_id ingest() recorded from the measured ledger (not a synthetic
+    "decompsearch:..." placeholder) so this same physical measurement can be recognized -- and
+    de-duplicated -- if a caller's --ledger also happens to include it (see _dedup_key/_dedup_rows;
+    2026-09-15 karina round-2 duplicate-EXTRA_LEDGERS bug). Falls back to a synthetic run_id only
+    for legacy state rows ingested before this field existed."""
     rows = []
     for cid, reps in state.get("measured", {}).items():
         cfg = state["configs"][cid]
         for i, rep in enumerate(reps):
             rows.append(candidate_row(
                 case_name, case_fields, hardware_id, nodes, cfg,
-                run_id="decompsearch:%s:%s:%d" % (case_name, cid, i),
-                s_per_step_median=rep.get("s_per_step_median")))
+                run_id=rep.get("run_id") or "decompsearch:%s:%s:%d" % (case_name, cid, i),
+                s_per_step_median=rep.get("s_per_step_median"),
+                job_id=rep.get("job_id"), rep_index=rep.get("rep_index")))
     return rows
+
+
+# ---------------------------------------------------------------------------
+# Baseline/scale consistency across row sources (2026-09-15 lafe/karina round-2 bug): rows built
+# by candidate_row() (this case's own already-measured configs) and rows loaded straight off a real
+# campaign ledger (--ledger, benchmark.load_ledger) must land in the SAME
+# features.decision_group_key scope and never double-count one physical measurement, or
+# targets.compute_case_baselines picks the wrong "most frequent config" as the case's baseline and
+# every row's y ends up on a different scale than the candidates the surrogate is scored against.
+# ---------------------------------------------------------------------------
+def _normalize_decision_group_fields(rows):
+    """Mutates `rows` in place so io_form_history is comparable across sources regardless of
+    Python type: benchmark.load_ledger leaves it exactly as the raw CSV string (its `_f()` cast
+    list omits io_form_history, predictor/benchmark.py:42-56), while this module's own
+    case_row_fields()/candidate_row() historically set it to a Python int (14). features.
+    decision_group_key compares io_form_history RAW -- unlike n_nodes/total_cores it is never
+    passed through features._num() -- so int 14 vs str "14" silently split one case's own
+    round-1 measured rows from its prior STRICT-campaign C01 reference into two disjoint decision
+    groups: compute_case_baselines then picked the majority config within the small round-1-only
+    group instead of the true C01-equivalent reference (lafe R01D0007+R01D0010 at ~1.90 s/step
+    instead of the true ~1.52-1.56 s/step baseline; see test_decomp_search.py::
+    TestBaselineScaleConsistency). None/'' pass through unchanged -- an unresolvable
+    io_form_history is its own legitimate, distinct group (see features.decision_group_known)."""
+    for row in rows:
+        v = row.get("io_form_history")
+        if v is None or v == "":
+            continue
+        try:
+            row["io_form_history"] = str(int(float(v)))
+        except (TypeError, ValueError):
+            row["io_form_history"] = str(v)
+    return rows
+
+
+def _dedup_key(row):
+    """Identity of "the same physical measurement" for de-duplicating rows drawn from more than
+    one source -- e.g. a case's own state['measured'] reconstruction (build_case_measured_rows)
+    AND a --ledger file that happens to also carry that case's already-ingested rows (2026-09-15
+    karina round-2 bug: the same round-1 ledger was passed both via --ledger/EXTRA_LEDGERS and via
+    the state file, doubling that config's weight in both the baseline vote and the ensemble's
+    training rows). Prefers run_id, unique per case+config+replicate+job by this repo's own
+    run_id convention (see parse_run_id/_RUN_ID_RE) and, since build_case_measured_rows now reuses
+    the real ingested run_id rather than a synthetic placeholder, identical across both sources for
+    the same measurement. Falls back to (case_base, config_key, job_id, rep_index) -- each cast to
+    str so an int/str type mismatch (the same trap io_form_history fell into) can't defeat it --
+    for a row with no usable run_id."""
+    run_id = row.get("run_id")
+    if run_id:
+        return ("run_id", run_id)
+    job_id = row.get("job_id")
+    rep_index = row.get("rep_index")
+    return ("fallback", row.get("case_base"), feat.config_key(row),
+            None if job_id is None else str(job_id),
+            None if rep_index is None else str(rep_index))
+
+
+def _dedup_rows(rows):
+    """First occurrence wins. Callers put the more-authoritative source first (propose_for_case
+    puts this case's own state-derived rows before rows loaded from --ledger, so a duplicate
+    --ledger row is the one dropped)."""
+    seen = set()
+    out = []
+    for r in rows:
+        k = _dedup_key(r)
+        if k in seen:
+            continue
+        seen.add(k)
+        out.append(r)
+    return out
 
 
 def load_state(path):
@@ -433,7 +510,13 @@ def propose_for_case(case_name, case_json, case_fields, prior_rows, state, batch
     candidates, _axis = ds.enumerate_space(case_json, total_cores, nodes, hardware_id)
 
     case_measured_rows = build_case_measured_rows(state, case_name, case_fields, hardware_id, nodes)
-    combined = list(prior_rows) + case_measured_rows
+    # case_measured_rows FIRST: _dedup_rows keeps the first occurrence, so if `prior_rows` also
+    # happens to carry one of this case's own already-measured rows (a --ledger argument that
+    # includes this case's own prior round -- 2026-09-15 karina duplicate-EXTRA_LEDGERS bug), the
+    # state-derived row is what survives and case_measured_rows keeps referencing the SAME dict
+    # object add_y() below attaches y to (incumbent_from_measured reads case_measured_rows itself).
+    combined = _dedup_rows(case_measured_rows + list(prior_rows))
+    _normalize_decision_group_fields(combined)
     baselines = targets.compute_case_baselines(combined)
     targets.add_y(combined, baselines)
     labeled_rows = [r for r in combined if r.get("y") is not None]

@@ -1353,6 +1353,21 @@ class TestPhysicsListAndOrder(unittest.TestCase):
 
 
 class TestPhysicsDescribe(unittest.TestCase):
+    def test_describe_p00_has_no_empty_fields_so_bash_read_cannot_shift_columns(self):
+        # regression: P00 has no edits; an empty TSV field made bash `IFS=$'\t' read` shift
+        # every later column (time_step got mp_physics) in campaign ledgers 1077168-1077173
+        import contextlib
+        import io
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = configs.cmd_physics_describe(["karina", "P00"])
+        self.assertEqual(rc, 0)
+        fields = buf.getvalue().strip("\n").split("\t")
+        self.assertEqual(len(fields), 13)
+        self.assertTrue(all(f != "" for f in fields), fields)
+        self.assertEqual(fields[1], "-")            # empty edits written as "-"
+        self.assertEqual(fields[3], str(configs.CASES["karina"]["dt"]))  # time_step stays in place
+
     def test_describe_applicable_template(self):
         import contextlib
         import io

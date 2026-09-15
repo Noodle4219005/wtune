@@ -315,6 +315,10 @@ if [ "$MODE" = "physics" ]; then
     # pixi cache warning) landing before it.
     IFS=$'\t' read -r P_FAMILY P_EDITS P_PROBE P_TS P_MP P_CU P_BL P_SFCLAY P_SFSURF P_RLW P_RSW P_RADT P_CUDT \
       < <($PY "$CAMPAIGN/configs.py" physics-describe "$CASE" "$TEMPLATE_ID" 2>/dev/null | tail -n1)
+    # physics-describe writes "-" for empty fields (tab IFS collapses empty fields); map back
+    [ "$P_FAMILY" != "SKIP" ] && for _v in P_EDITS P_PROBE P_TS P_MP P_CU P_BL P_SFCLAY P_SFSURF P_RLW P_RSW P_RADT P_CUDT; do
+      [ "${!_v}" = "-" ] && printf -v "$_v" '%s' ""
+    done
 
     if [ "$ROLE" = "candidate" ] && [ "$rep" = "1" ] && [ "$P_FAMILY" != "SKIP" ]; then
       EXPECTED_CANDIDATE[$tag]=1

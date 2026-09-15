@@ -1374,6 +1374,13 @@ def physics_ledger_columns(case, summary):
     return cols
 
 
+def describe_field(value):
+    """physics-describe TSV field: '-' for empty, since bash `IFS=$'\\t' read` collapses empty
+    tab-separated fields (strict_campaign.sbatch maps '-' back to empty)."""
+    s = "" if value is None else str(value)
+    return s if s != "" else "-"
+
+
 def cmd_physics_describe(argv):
     """physics-describe CASE_ID TEMPLATE_ID: one TSV line summarizing
     everything strict_campaign.sbatch's MODE=physics needs for one (case,
@@ -1405,7 +1412,10 @@ def cmd_physics_describe(argv):
     edited_keys = [e["key"] for e in summary if e["op"] != "delete"]
     probe_str = probe_verdicts_for_case(a.case_id, edited_keys, screen_dir=a.screen_dir)
     cols = physics_ledger_columns(case, summary)
-    print("\t".join(str(x) for x in [
+    # Empty fields are written as "-": bash `IFS=$'\t' read` treats tab as whitespace and
+    # collapses consecutive tabs, so an empty edits field (P00) shifted every later column left
+    # by one and put mp_physics into time_step in campaign ledgers 1077168-1077173.
+    print("\t".join(describe_field(x) for x in [
         family, edits_str, probe_str,
         cols["time_step"], cols["mp_physics"], cols["cu_physics"],
         cols["bl_pbl_physics"], cols["sf_sfclay_physics"], cols["sf_surface_physics"],

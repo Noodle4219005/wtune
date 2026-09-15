@@ -1511,5 +1511,93 @@ class TestConfigFileGeneratedConfigs(unittest.TestCase):
         self.assertTrue(all(l.startswith("C") for l in lines), lines)
 
 
+MMLSQUOTA_SAMPLE = """\
+                         Block Limits                                    |     File Limits
+Filesystem type             KB      quota      limit   in_doubt    grace |    files   quota    limit in_doubt    grace  Remarks
+home1      USR       978611440 1048576000 1153433600    5725280     none |  3750507       0        0      102     none
+project    GOV115003  USR           12672          0          0          0     none |        8       0        0        0     none
+work1      USR       100004448  104857600  209715200    1997808     none |  1859892       0        0      120     none
+work2      USR            none
+scratch    USR           12672          0          0          0     none |        8       0        0        0     none
+"""
+
+
+class TestQuotaFreeGib(unittest.TestCase):
+    def test_home1_free_gib_matches_known_sample(self):
+        # 1048576000 KB quota - 978611440 KB used = 69964560 KB free = 66.72... GiB
+        free = configs.quota_free_gib(MMLSQUOTA_SAMPLE, filesystem="home1")
+        self.assertIsNotNone(free)
+        self.assertAlmostEqual(free, (1048576000 - 978611440) / (1024.0 * 1024.0), places=3)
+        self.assertAlmostEqual(free, 66.72, places=1)
+
+    def test_ignores_header_banner_and_noquota_rows(self):
+        # the header/banner lines and 'work2 USR none' (no numeric columns) must not
+        # be mistaken for a real row -- only 'home1  USR  <int> <int> <int>' matches
+        free = configs.quota_free_gib(MMLSQUOTA_SAMPLE, filesystem="work2")
+        self.assertIsNone(free)
+
+    def test_work1_near_soft_quota_small_headroom(self):
+        # 104857600 KB quota - 100004448 KB used = 4853152 KB ~= 4.63 GiB free -- well
+        # under a 60 GiB MIN_FREE_GIB guard threshold, the near-full-quota case the guard
+        # exists to catch (a used > quota row would work the same way and go negative,
+        # this sample is the observed near-full case from the mmlsquota wiki notes)
+        free = configs.quota_free_gib(MMLSQUOTA_SAMPLE, filesystem="work1")
+        self.assertAlmostEqual(free, (104857600 - 100004448) / (1024.0 * 1024.0), places=3)
+        self.assertLess(free, 60)
+
+    def test_quota_zero_is_no_limit_not_free_gib(self):
+        # a quota column of 0 means "not tracked at the user level" (see the fileset-vs-
+        # user mmlsquota trap note -- 'project''s real row has this shape too, but with an
+        # extra fileset-name column between the filesystem and USR that the parser never
+        # matches at all; 'scratch' isolates the quota=0 case on its own) -- must return
+        # None, not a huge false-positive free_gib from (0 - used)
+        free = configs.quota_free_gib(MMLSQUOTA_SAMPLE, filesystem="scratch")
+        self.assertIsNone(free)
+
+    def test_project_row_extra_fileset_column_does_not_match(self):
+        # 'project    GOV115003  USR ...' has an extra fileset-name column between the
+        # filesystem and USR -- the parser must not mistake GOV115003 for the used-KB
+        # column or otherwise misparse this row; it should simply not match
+        free = configs.quota_free_gib(MMLSQUOTA_SAMPLE, filesystem="project")
+        self.assertIsNone(free)
+
+    def test_missing_filesystem_returns_none(self):
+        self.assertIsNone(configs.quota_free_gib(MMLSQUOTA_SAMPLE, filesystem="work3"))
+
+    def test_empty_or_garbled_text_returns_none(self):
+        self.assertIsNone(configs.quota_free_gib("", filesystem="home1"))
+        self.assertIsNone(configs.quota_free_gib("mmlsquota: command not found\n", filesystem="home1"))
+
+
+class TestQuotaFreeGibCLI(unittest.TestCase):
+    def _run_cli(self, stdin_text, argv=None):
+        import contextlib
+        import io
+        buf_out = io.StringIO()
+        old_stdin = sys.stdin
+        sys.stdin = io.StringIO(stdin_text)
+        try:
+            with contextlib.redirect_stdout(buf_out):
+                rc = configs._cmd_quota_free_gib(argv or [])
+        finally:
+            sys.stdin = old_stdin
+        return rc, buf_out.getvalue().strip()
+
+    def test_cli_prints_free_gib_for_home1(self):
+        rc, out = self._run_cli(MMLSQUOTA_SAMPLE)
+        self.assertEqual(rc, 0)
+        self.assertAlmostEqual(float(out), 66.72, places=1)
+
+    def test_cli_prints_na_and_nonzero_rc_when_unparseable(self):
+        rc, out = self._run_cli("mmlsquota: command not found\n")
+        self.assertEqual(rc, 1)
+        self.assertEqual(out, "NA")
+
+    def test_cli_respects_filesystem_flag(self):
+        rc, out = self._run_cli(MMLSQUOTA_SAMPLE, argv=["--filesystem", "work1"])
+        self.assertEqual(rc, 0)
+        self.assertLess(float(out), 60)
+
+
 if __name__ == "__main__":
     unittest.main()

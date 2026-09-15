@@ -23,11 +23,16 @@ JSON output so a label is reproducible from the file alone):
   INVALID       no common valid times, a required core field missing, or NaN/Inf
   WITHIN-FLOOR  every key field's floor_ratio <= floor_ratio_max at the last
                 common time (floor_ratio = rms_diff(ref,cand) / rms_diff(ref,twin))
-  SMALL-DRIFT   not within floor, but at the last common time: max normalized
-                distance nd = rms_diff(ref,cand)/std(ref) over key fields <= nd_max,
-                AND |bias(T2)| <= bias_t2_max, AND |bias(SWDOWN)| <= bias_swdown_max
-                (if SWDOWN present), AND |precip accumulation rel diff| <=
-                precip_rel_max for every present accumulated-precip field
+  SMALL-DRIFT   not within floor, but at the last common time EVERY key field passes
+                nd = rms_diff(ref,cand)/std(ref) <= nd_max OR floor_ratio <=
+                floor_ratio_max (a field individually indistinguishable from the
+                twin's own chaos floor passes even if its nd alone is high -- a sparse
+                hydrometeor field can have a tiny std(ref), so a decomposition-scale
+                absolute difference normalizes to a large nd; measured: karina
+                nd(QSNOW)=0.117 with floor_ratio=1, conus12 nd(QICE)=0.032), AND
+                |bias(T2)| <= bias_t2_max, AND |bias(SWDOWN)| <= bias_swdown_max (if
+                SWDOWN present), AND |precip accumulation rel diff| <= precip_rel_max
+                for every present accumulated-precip field
   LARGE-DRIFT   otherwise
 
 This tool reports numbers and a provisional label. It does not decide acceptability;
@@ -270,10 +275,29 @@ def decide_label(rows_at_last_time, thresholds):
         )
 
     reasons = []
-    worst_nd = max(rows_at_last_time.items(), key=lambda kv: kv[1]["nd"])
-    ok = worst_nd[1]["nd"] <= thresholds["nd_max"]
-    if not ok:
-        reasons.append("nd %s > %.6g" % (_fmt(worst_nd[0], worst_nd[1]["nd"]), thresholds["nd_max"]))
+    ok = True
+
+    # Per-field drift test (2026-09-15 fix): a field passes if nd <= nd_max OR its OWN
+    # floor_ratio <= floor_ratio_max -- i.e. it is individually indistinguishable from the
+    # twin's chaos floor even though its nd alone is high. The OLD rule (worst nd over ALL
+    # key fields <= nd_max) labelled that as drift: a sparse hydrometeor field can have a
+    # tiny std(ref), so a decomposition-scale absolute difference (the same size as the
+    # twin's own floor) normalizes to a large nd purely from the small denominator.
+    # Measured on real output: karina nd(QSNOW)=0.117 (> nd_max 0.10) with floor_ratio=1;
+    # conus12 nd(QICE)=0.032 after 30 simulated minutes.
+    failing = [
+        (name, m) for name, m in rows_at_last_time.items()
+        if m["nd"] > thresholds["nd_max"] and m["floor_ratio"] > thresholds["floor_ratio_max"]
+    ]
+    if failing:
+        ok = False
+        worst_name, worst_m = max(failing, key=lambda kv: kv[1]["nd"])
+        reasons.append(
+            "nd(%s)=%.6g > %.6g and floor_ratio(%s)=%.6g > %.6g" % (
+                worst_name, worst_m["nd"], thresholds["nd_max"],
+                worst_name, worst_m["floor_ratio"], thresholds["floor_ratio_max"],
+            )
+        )
 
     if "T2" in rows_at_last_time:
         b = abs(rows_at_last_time["T2"]["bias"])
@@ -297,6 +321,7 @@ def decide_label(rows_at_last_time, thresholds):
             reasons.append("|precip_rel_diff(%s)|=%.6g > %.6g" % (field, r, thresholds["precip_rel_max"]))
 
     if ok:
+        worst_nd = max(rows_at_last_time.items(), key=lambda kv: kv[1]["nd"])
         return LABEL_SMALL_DRIFT, "not within floor (%s); all SMALL-DRIFT checks passed, max nd %s" % (
             _fmt(worst_floor[0], worst_floor[1]["floor_ratio"]), _fmt(worst_nd[0], worst_nd[1]["nd"]),
         )

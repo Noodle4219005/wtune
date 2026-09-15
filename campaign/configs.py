@@ -995,6 +995,46 @@ def step_stats(values):
 
 
 # ---------------------------------------------------------------------------
+# Disk quota guard (problem 1, 2026-09-15: PHYSICS-GRAY smoke jobs 1076238-1076340 kept
+# every failed/incomplete run's BP history and netCDF and filled home1's soft quota; this
+# is the parser half of the guard strict_campaign.sbatch runs before every WRF srun in
+# both the physics loop and the STRICT loop -- see quota-free-gib in main()/_cmd_quota_free_gib)
+# ---------------------------------------------------------------------------
+
+def quota_free_gib(mmlsquota_text, filesystem="home1"):
+    """Parse `mmlsquota -u $USER <filesystem>` output and return the free space (GiB)
+    below the SOFT quota (the 'quota' column, not the hard 'limit') for `filesystem`'s USR
+    block-usage row, or None if no such row is found -- e.g. mmlsquota is unavailable, its
+    output is empty/garbled, or the row's quota column is 0 (mmlsquota's "no limit enforced
+    at the user level here" for a fileset only quota'd at the fileset level -- see
+    [[mmlsquota-u-says-no-limit-while-the-fileset-is-99-percent-full]] -- not a signal to
+    abort a run on).
+
+    Robust to noise around the real row: the 'Block Limits'/'File Limits' banner line, the
+    'Filesystem type KB quota limit ...' header, a stray login-shell warning line, or a
+    no-quota row for another filesystem with no numeric columns at all (observed:
+    'work2      USR            none'). Only a line shaped like
+    '<filesystem>  USR  <used_kb>  <quota_kb>  <limit_kb> ...' matches.
+
+    KB columns are raw GPFS blocks (1024-byte units), so GiB = KB / 1024 / 1024 -- verified
+    against home1's real quota row (1048576000 KB quota == 1000.0 GiB, see
+    [[f1-home1-soft-quota-raised-to-1000gb]])."""
+    pattern = re.compile(r"^\s*(\S+)\s+USR\s+(\d+)\s+(\d+)\s+(\d+)")
+    for line in mmlsquota_text.splitlines():
+        m = pattern.match(line)
+        if m is None:
+            continue
+        fs, used_kb, quota_kb, _limit_kb = m.groups()
+        if fs != filesystem:
+            continue
+        quota_kb = int(quota_kb)
+        if quota_kb <= 0:
+            return None
+        return (quota_kb - int(used_kb)) / (1024.0 * 1024.0)
+    return None
+
+
+# ---------------------------------------------------------------------------
 # STRICT compliance assertion
 # ---------------------------------------------------------------------------
 
@@ -1394,6 +1434,19 @@ def _cmd_step_stats(argv):
     return 0
 
 
+def _cmd_quota_free_gib(argv):
+    ap = argparse.ArgumentParser(prog="configs.py quota-free-gib")
+    ap.add_argument("--filesystem", default="home1")
+    a = ap.parse_args(argv)
+    text = sys.stdin.read()
+    free_gib = quota_free_gib(text, filesystem=a.filesystem)
+    if free_gib is None:
+        print("NA")
+        return 1
+    print("%.3f" % free_gib)
+    return 0
+
+
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
     if not argv:
@@ -1408,7 +1461,8 @@ def main(argv=None):
             "step-stats STEPS_FILE | "
             "physics-list CASE_ID [--json] | "
             "physics-order CASE_ID [--pconfigs P01+P02+...] [--reps N] | "
-            "physics-describe CASE_ID TEMPLATE_ID\n"
+            "physics-describe CASE_ID TEMPLATE_ID | "
+            "quota-free-gib [--filesystem home1] (reads mmlsquota text on stdin)\n"
             "CONFIG_FILE=path.json env (predictor/decomp_space.py to_campaign_configs/sample "
             "output): CASE_ID and order CASE_ID measure that generated config set instead of "
             "the fixed C01-C16 STRICT templates.\n"
@@ -1418,6 +1472,8 @@ def main(argv=None):
         return _cmd_edit_namelist(argv[1:])
     if argv[0] == "step-stats":
         return _cmd_step_stats(argv[1:])
+    if argv[0] == "quota-free-gib":
+        return _cmd_quota_free_gib(argv[1:])
     if argv[0] == "physics-list":
         return cmd_physics_list(argv[1:])
     if argv[0] == "physics-order":

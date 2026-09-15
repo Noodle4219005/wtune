@@ -27,6 +27,7 @@ FIELD_DIMS = {
     "W": ("Time", "bottom_top_stag", "south_north", "west_east"),
     "RAINNC": ("Time", "south_north", "west_east"),
     "SWDOWN": ("Time", "south_north", "west_east"),
+    "QSNOW": ("Time", "south_north", "west_east"),
 }
 
 
@@ -310,6 +311,67 @@ def test_threshold_override(tmp_path):
     assert loose_result.returncode == 0
     assert loose_payload["label"] == "SMALL-DRIFT"
     assert loose_payload["thresholds"]["nd_max"] == 0.5
+
+
+def _sparse_qsnow_fields(twin_frac, cand_frac):
+    """A QSNOW-like field with a single sparse nonzero cell (tiny std(ref)) plus a
+    reference/twin/candidate triple where QSNOW's twin/candidate diffs from reference are
+    UNIFORM shifts of frac * std(QSNOW) -- so nd(QSNOW) == frac and floor_ratio(QSNOW) ==
+    cand_frac / twin_frac EXACTLY (a uniform shift's rms over any slice equals the shift
+    itself), independent of std(QSNOW)'s actual value.
+
+    Every OTHER field gets floor-scale noise for the twin and a real (if small) uniform
+    shift for the candidate -- their own nd stays comfortably under nd_max but their
+    floor_ratio is pushed well past floor_ratio_max, so the aggregate WITHIN-FLOOR
+    short-circuit (worst floor_ratio over ALL key fields) does not mask the
+    QSNOW-specific per-field behaviour under test."""
+    ref = _base_fields()
+    qsnow = np.zeros((NT, NY, NX), dtype=np.float32)
+    qsnow[:, 0, 0] = 1e-3  # single sparse nonzero cell -> tiny std(ref), like a real QSNOW field
+    ref["QSNOW"] = qsnow
+    std_ref = float(np.std(ref["QSNOW"]))
+
+    twin = dict(ref)
+    cand = dict(ref)
+    twin["QSNOW"] = ref["QSNOW"] + np.float32(twin_frac * std_ref)
+    cand["QSNOW"] = ref["QSNOW"] + np.float32(cand_frac * std_ref)
+
+    other = [n for n in ref if n != "QSNOW"]
+    other_noise = _make_noise(ref, frac=1e-4)
+    twin = _scaled_noise(twin, other_noise, 1.0, names=other)
+    cand = _shift(cand, frac=0.005, names=other)
+    return ref, twin, cand
+
+
+def test_sparse_field_high_nd_but_floor_ratio_ok_stays_small_drift(tmp_path):
+    # Mirrors measured karina QSNOW: nd=0.117 (> nd_max 0.10) but floor_ratio=1 (the
+    # candidate's QSNOW diff from reference is the SAME size as the twin's own chaos
+    # floor) -- under the OLD rule (max nd over all fields <= nd_max) this alone would
+    # have flipped the whole comparison to LARGE-DRIFT. It must not: QSNOW is
+    # individually indistinguishable from the floor, so it passes the per-field test.
+    ref, twin, cand = _sparse_qsnow_fields(twin_frac=0.117, cand_frac=0.117)
+
+    result, payload, _ = _gate(tmp_path, ref, twin, cand, family="microphysics")
+    assert result.returncode == 0
+    qsnow = payload["per_field_summary_at_last_time"]["QSNOW"]
+    assert qsnow["nd"] > 0.10
+    assert abs(qsnow["floor_ratio"] - 1.0) < 0.05
+    assert payload["label"] == "SMALL-DRIFT"
+
+
+def test_sparse_field_high_nd_and_high_floor_ratio_is_large_drift(tmp_path):
+    # Same sparse QSNOW field, but now the candidate's diff is 5x the twin's own floor --
+    # both nd AND floor_ratio exceed their thresholds, so this field must fail (a high nd
+    # alone must not be forgiven when the field is also far from the chaos floor).
+    ref, twin, cand = _sparse_qsnow_fields(twin_frac=0.05, cand_frac=0.5)
+
+    result, payload, _ = _gate(tmp_path, ref, twin, cand, family="microphysics")
+    assert result.returncode == 0
+    qsnow = payload["per_field_summary_at_last_time"]["QSNOW"]
+    assert qsnow["nd"] > 0.10
+    assert qsnow["floor_ratio"] > 2.0
+    assert payload["label"] == "LARGE-DRIFT"
+    assert "QSNOW" in payload["deciding"]
 
 
 def test_multi_file_per_role_matched_by_times(tmp_path):

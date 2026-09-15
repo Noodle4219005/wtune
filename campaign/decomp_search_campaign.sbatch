@@ -15,7 +15,11 @@
 # Usage: sbatch --export=ALL,CASE=zhengzhou campaign/decomp_search_campaign.sbatch
 #        sbatch -p cf112 -N1 --time=00:45:00 --export=ALL,CASE=severe2023,TEMPLATES= campaign/decomp_search_campaign.sbatch
 # Env:   CASE (required), TEMPLATES (default C01+C02+C07+C08+C10; C01 is the y baseline),
-#        ROUNDS (3), BATCH (8), REPS (1), CONFIRM_TOP (3), STATE_DIR, PRIOR_LEDGERS.
+#        ROUNDS (3), BATCH (8), REPS (1), CONFIRM_TOP (3), STATE_DIR, PRIOR_LEDGERS,
+#        EXTRA_LEDGERS (appended to PRIOR_LEDGERS, e.g. this case's earlier ledgers),
+#        TEMPLATES=none (skip R0 entirely: this case's baseline rows come from EXTRA_LEDGERS),
+#        MAX_OMP / MIN_TILE_ROWS / TILE_SHAPES (restrict D3 proposals: crashing thread counts,
+#        hanging tile depths, tile geometries such as 1d_y only).
 set -uo pipefail
 : "${CASE:?CASE env var is required}"
 
@@ -35,17 +39,25 @@ J=$SLURM_JOB_ID
 LEDGER="$OUT/ledger_${CASE}_${J}.csv"      # strict_campaign.sbatch appends every round here
 L=$OUT
 PRIOR_LEDGERS=${PRIOR_LEDGERS:-"$L/ledger_isc21_1075293.csv $L/ledger_maria1km_1075294.csv $L/ledger_lafe_1075295.csv $L/ledger_conus25_1075296.csv $L/ledger_karina_1075297.csv $L/ledger_conus12_1075298.csv $L/ledger_karina_1078036.csv $L/ledger_karina_1078093.csv $L/ledger_lafe_1078094.csv $L/ledger_karina_1078158.csv $L/ledger_lafe_1078238.csv"}
+PRIOR_LEDGERS="$PRIOR_LEDGERS ${EXTRA_LEDGERS:-}"
+PROPOSE_LIMITS=""
+[ -n "${MAX_OMP:-}" ] && PROPOSE_LIMITS="$PROPOSE_LIMITS --max-omp $MAX_OMP"
+[ -n "${MIN_TILE_ROWS:-}" ] && PROPOSE_LIMITS="$PROPOSE_LIMITS --min-tile-rows $MIN_TILE_ROWS"
+[ -n "${TILE_SHAPES:-}" ] && PROPOSE_LIMITS="$PROPOSE_LIMITS --tile-shapes $TILE_SHAPES"
 D="$STATE_DIR/${CASE}_${J}"
 mkdir -p "$D"
 STATE="$D/state.json"
 cd "$REPO" || exit 1
+echo "limits:${PROPOSE_LIMITS:- none} extra_ledgers=${EXTRA_LEDGERS:-none}"
 echo "decompsearch case=$CASE job=$J nodes=$NODES cores=$TOTAL_CORES hw=$HARDWARE_ID templates='${TEMPLATES}' rounds=$ROUNDS batch=$BATCH reps=$REPS confirm_top=$CONFIRM_TOP dir=$D"
 
 run_campaign () {  # env for one strict_campaign.sbatch pass; it uses $SLURM_JOB_ID -> same $LEDGER
   env CASE="$CASE" MODE=timing REPS="$1" "${@:2}" bash "$REPO/campaign/strict_campaign.sbatch"
 }
 
-if [ -n "$TEMPLATES" ]; then
+if [ "$TEMPLATES" = "none" ]; then
+  echo "===== R0 skipped (TEMPLATES=none)"
+elif [ -n "$TEMPLATES" ]; then
   echo "===== R0 templates $TEMPLATES"
   run_campaign "$REPS" CONFIGS="$TEMPLATES" 2>&1 | grep -E "^RESULT|ERROR|FATAL|ABORT"
 else
@@ -63,7 +75,7 @@ for r in $(seq 1 "$ROUNDS"); do
   echo "===== R$r propose"
   $PY predictor/decomp_search.py propose --case "$CASE" --ledger $PRIOR_LEDGERS "$LEDGER" \
       --state "$STATE" --batch "$BATCH" --out "$P" --total-cores "$TOTAL_CORES" --nodes "$NODES" \
-      --hardware-id "$HARDWARE_ID" --reps "$REPS" 2>&1 | grep -vE "WARN cache|^sbatch "
+      --hardware-id "$HARDWARE_ID" --reps "$REPS" $PROPOSE_LIMITS 2>&1 | grep -vE "WARN cache|^sbatch "
   [ -f "$P" ] || { echo "R$r: no proposal (stopped)"; break; }
   jq -r '.configs[] | [.id,.ranks,.omp,.nx,.ny,.numtiles,.tile_shape,.dist,.blocktime] | @tsv' "$P"
   echo "===== R$r measure"

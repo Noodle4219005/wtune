@@ -667,3 +667,12 @@ def test_propose_for_case_max_omp_excludes_threaded_candidates(tmp_path):
         hardware_id=HARDWARE_ID, ensemble_size=3, ensemble_seed=0, max_omp=1)
     assert not result["stopped"]
     assert configs_out and all(c["omp"] == 1 for c in configs_out)
+
+
+def test_tile_rows_uses_smallest_patch_and_tile_geometry():
+    base = dict(ranks=448, omp=1, nx=14, ny=32, patch_x=40, patch_y=14, numtiles=8, tile_shape="1d_y",
+                numtiles_x=0, numtiles_y=0, tile_sz_x=0, tile_sz_y=0)
+    assert dsearch.tile_rows(base) == 1
+    assert dsearch.tile_rows(dict(base, numtiles=2)) == 7
+    assert dsearch.tile_rows(dict(base, tile_shape="2d", numtiles_x=4, numtiles_y=2)) == 7
+    assert dsearch.tile_rows(dict(base, tile_shape="tile_sz", tile_sz_y=5)) == 5

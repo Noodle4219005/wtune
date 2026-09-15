@@ -493,11 +493,21 @@ def parse_run_id(run_id):
     return m.groupdict() if m else None
 
 
+def tile_rows(c):
+    """Smallest tile depth in y (grid rows) for candidate `c`: the smallest patch (`patch_y`) split
+    by the y tile count of its tile geometry (1D-Y numtiles, 2D numtiles_y, or explicit tile_sz_y)."""
+    patch_y = c.get("patch_y") or 0
+    if c.get("tile_sz_y"):
+        return min(c["tile_sz_y"], patch_y)
+    ny_tiles = c.get("numtiles_y") if c.get("tile_shape") == "2d" and c.get("numtiles_y") else c.get("numtiles") or 1
+    return patch_y // max(1, ny_tiles)
+
+
 def propose_for_case(case_name, case_json, case_fields, prior_rows, state, batch_size,
                       total_cores=448, nodes=4, hardware_id=ds.DEFAULT_HARDWARE,
                       kappa=DEFAULT_KAPPA, max_per_rank_omp=DEFAULT_MAX_PER_RANK_OMP,
                       ensemble_size=DEFAULT_ENSEMBLE_SIZE, ensemble_seed=0,
-                      max_rounds=DEFAULT_MAX_ROUNDS, max_omp=None):
+                      max_rounds=DEFAULT_MAX_ROUNDS, max_omp=None, min_tile_rows=None, tile_shapes=None):
     """Lower-level entry point: `case_json` (decomp_space.enumerate_space-shaped: e_we/e_sn/
     e_vert/max_dom[/e_we_list/e_sn_list]) and `case_fields` (ledger-row-shaped case fields, see
     case_row_fields) are supplied directly rather than looked up from campaign/cases.json -- lets
@@ -512,6 +522,14 @@ def propose_for_case(case_name, case_json, case_fields, prior_rows, state, batch
         # failed runs are never ingested, so D3 cannot learn that a thread count crashes (WRF-Fire
         # cases rc=137/139 with any OMP>1: c34 1078296, marshall 1078390) -- exclude it up front
         candidates = [c for c in candidates if c["omp"] <= max_omp]
+    if min_tile_rows is not None:
+        # bigchill/elevconv (topo_shading/hailcast/nwp_diagnostics) hang before step 1 when tiles are
+        # only 1-3 rows deep (numtiles 8/12/14 on 14-28-row patches, jobs 1078391/1078392); 7 rows ran
+        candidates = [c for c in candidates if tile_rows(c) >= min_tile_rows]
+    if tile_shapes:
+        # 2D / tile_sz variants ran 20-150% slower on every case measured (karina, lafe, matthew,
+        # severe2023, zhengzhou); restricting the pool keeps a rerun from spending its batch on them
+        candidates = [c for c in candidates if c["tile_shape"] in tile_shapes]
 
     case_measured_rows = build_case_measured_rows(state, case_name, case_fields, hardware_id, nodes)
     # case_measured_rows FIRST: _dedup_rows keeps the first occurrence, so if `prior_rows` also
@@ -543,7 +561,7 @@ def propose_for_case(case_name, case_json, case_fields, prior_rows, state, batch
 def propose(case_name, ledger_paths, state, batch_size, total_cores=448, nodes=4,
             hardware_id=ds.DEFAULT_HARDWARE, kappa=DEFAULT_KAPPA,
             max_per_rank_omp=DEFAULT_MAX_PER_RANK_OMP, ensemble_size=DEFAULT_ENSEMBLE_SIZE,
-            ensemble_seed=0, max_rounds=DEFAULT_MAX_ROUNDS, max_omp=None):
+            ensemble_seed=0, max_rounds=DEFAULT_MAX_ROUNDS, max_omp=None, min_tile_rows=None, tile_shapes=None):
     """CLI-facing convenience wrapper: `case_name` must be a campaign/cases.json case id. See
     propose_for_case for the reusable core."""
     case_json = campaign_configs.CASES.get(case_name)
@@ -560,7 +578,8 @@ def propose(case_name, ledger_paths, state, batch_size, total_cores=448, nodes=4
         case_name, case_json, case_fields, prior_rows, state, batch_size,
         total_cores=total_cores, nodes=nodes, hardware_id=hardware_id, kappa=kappa,
         max_per_rank_omp=max_per_rank_omp, ensemble_size=ensemble_size,
-        ensemble_seed=ensemble_seed, max_rounds=max_rounds, max_omp=max_omp)
+        ensemble_seed=ensemble_seed, max_rounds=max_rounds, max_omp=max_omp,
+        min_tile_rows=min_tile_rows, tile_shapes=tile_shapes)
 
 
 def sbatch_command(case_name, config_file, partition=DEFAULT_PARTITION, reps=DEFAULT_REPS):
@@ -832,6 +851,10 @@ def _cmd_propose(argv):
     ap.add_argument("--reps", type=int, default=DEFAULT_REPS)
     ap.add_argument("--max-omp", type=int, default=None,
                     help="only propose configs with at most this many OpenMP threads per rank")
+    ap.add_argument("--min-tile-rows", type=int, default=None,
+                    help="only propose configs whose smallest tile is at least this many rows deep")
+    ap.add_argument("--tile-shapes", default=None,
+                    help="comma-separated tile_shape values to allow, e.g. 1d_y")
     a = ap.parse_args(argv)
 
     state = load_state(a.state)
@@ -839,7 +862,8 @@ def _cmd_propose(argv):
         a.case, a.ledger, state, a.batch, total_cores=a.total_cores, nodes=a.nodes,
         hardware_id=a.hardware_id, kappa=a.kappa, max_per_rank_omp=a.max_per_rank_omp,
         ensemble_size=a.ensemble_size, ensemble_seed=a.ensemble_seed, max_rounds=a.max_rounds,
-        max_omp=a.max_omp)
+        max_omp=a.max_omp, min_tile_rows=a.min_tile_rows,
+        tile_shapes=a.tile_shapes.split(",") if a.tile_shapes else None)
 
     if result["stopped"]:
         print("STOP (round %d): %s" % (result["round"], result["reason"]))

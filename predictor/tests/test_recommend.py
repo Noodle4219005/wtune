@@ -591,10 +591,10 @@ def _physics_notes(template, family, edits_str, decomp, sim_minutes=30, hist_min
 
 
 def _phys_row(run_id, template, family, edits_dict, physics_fields, decomp, rep, s,
-              fidelity_label=None, nd=None, probe=None, hardware_id=PHYS_HW):
+              fidelity_label=None, nd=None, probe=None, hardware_id=PHYS_HW, case="phystrain"):
     return ledger.new_row(
         run_id=run_id, source_dataset="strict_campaign", job_id="1", rep_index=rep,
-        case_raw="phystrain", case_base="phystrain", case_family=ledger.case_family_of("phystrain"),
+        case_raw=case, case_base=case, case_family=ledger.case_family_of(case),
         hardware_id=hardware_id, binary_kind="pristine",
         compliance_class=("STRICT" if template == "P00" else "PHYSICS-GRAY"),
         e_we=901.0, e_sn=901.0, e_vert=45.0, dx=3000.0, dy=3000.0,
@@ -617,24 +617,36 @@ def _phys_row(run_id, template, family, edits_dict, physics_fields, decomp, rep,
     )
 
 
-def make_physics_training_rows():
-    """One synthetic case ('phystrain', same grid as main_namelist) x (P00 + P01 + P02) x 2 reps:
-    P01 measured 5% faster and WITHIN-FLOOR (probe-clean) -> should end up RECOMMENDABLE; P02
-    measured faster still but LARGE-DRIFT (probe-clean too) -> must stay UNCONFIRMED on fidelity
-    grounds alone, independent of the probe."""
+PHYS_TRAIN_CASES = ["phystrain%d" % i for i in range(6)]  # >=5 cases: leave-one-case-out
+# out-of-fold dangerous-miss evidence (physics.MIN_OOF_DANGEROUS_MISS=5) needs at least that many
+# distinct case_base groups per template, or every candidate is forced UNCONFIRMED as
+# "insufficient evidence" regardless of everything else (see defect 3's fix).
+
+
+def make_physics_training_rows(cases=PHYS_TRAIN_CASES):
+    """`len(cases)` synthetic cases (same grid as main_namelist) x (P00 + P01 + P02) x 2 reps each:
+    P01 always measured 5% faster and WITHIN-FLOOR (probe-clean) -> should end up RECOMMENDABLE;
+    P02 always measured faster still but LARGE-DRIFT (probe-clean too) -> must stay UNCONFIRMED on
+    fidelity grounds alone, independent of the probe. Deliberately identical numbers across cases
+    (this fixture is about status LOGIC, not about across-case variance) -- >=5 cases so
+    per_template_dangerous_miss has enough leave-one-case-out out-of-fold evidence to call both
+    templates' rates 0.0 (never insufficient), same defaults every caller of predict_physics_
+    shortlist/recommend_physics_gray relies on."""
     rows = []
-    for rep in (1, 2):
-        rows.append(_phys_row("phystrain_P00_r%d" % rep, "P00", "none", {}, PHYS_NATIVE, "C02", rep, 1.0))
-    for rep in (1, 2):
-        rows.append(_phys_row("phystrain_P01_r%d" % rep, "P01", "radiation", {"swint_opt": "1"},
-                               PHYS_NATIVE, "C02", rep, 0.95, fidelity_label="WITHIN-FLOOR", nd=0.01,
-                               probe={"swint_opt": "CONFIRM"}))
-    p02_fields = dict(PHYS_NATIVE, radt=30.0)
-    for rep in (1, 2):
-        rows.append(_phys_row("phystrain_P02_r%d" % rep, "P02", "radiation",
-                               {"radt": "30", "swint_opt": "1"}, p02_fields, "C02", rep, 0.90,
-                               fidelity_label="LARGE-DRIFT", nd=0.5,
-                               probe={"radt": "CONFIRM", "swint_opt": "CONFIRM"}))
+    for case in cases:
+        for rep in (1, 2):
+            rows.append(_phys_row("%s_P00_r%d" % (case, rep), "P00", "none", {}, PHYS_NATIVE,
+                                   "C02", rep, 1.0, case=case))
+        for rep in (1, 2):
+            rows.append(_phys_row("%s_P01_r%d" % (case, rep), "P01", "radiation", {"swint_opt": "1"},
+                                   PHYS_NATIVE, "C02", rep, 0.95, fidelity_label="WITHIN-FLOOR",
+                                   nd=0.01, probe={"swint_opt": "CONFIRM"}, case=case))
+        p02_fields = dict(PHYS_NATIVE, radt=30.0)
+        for rep in (1, 2):
+            rows.append(_phys_row("%s_P02_r%d" % (case, rep), "P02", "radiation",
+                                   {"radt": "30", "swint_opt": "1"}, p02_fields, "C02", rep, 0.90,
+                                   fidelity_label="LARGE-DRIFT", nd=0.5,
+                                   probe={"radt": "CONFIRM", "swint_opt": "CONFIRM"}, case=case))
     return rows
 
 
@@ -678,7 +690,13 @@ def test_physics_gray_recommendable_with_synthetic_ledger(tmp_path, ledger_csv, 
 
     by_t = {c["template"]: c for c in result["shortlist"]}
     assert by_t["P01"]["status"] == "RECOMMENDABLE"
-    assert by_t["P01"]["predicted_gain_pct"] is not None and by_t["P01"]["predicted_gain_pct"] > 0
+    # time-to-solution vs P00: NEGATIVE = faster (defect 4 rename/sign-flip from the old
+    # predicted_gain_pct, which used the opposite convention).
+    assert (by_t["P01"]["predicted_time_to_solution_pct"] is not None
+            and by_t["P01"]["predicted_time_to_solution_pct"] < 0)
+    assert by_t["P01"]["infeasibility"]["rate"] == 0.0
+    assert by_t["P01"]["dangerous_miss"]["insufficient"] is False
+    assert by_t["P01"]["dangerous_miss"]["dangerous_miss_rate"] == 0.0
 
     # probe REJECT on the edited knob forces UNCONFIRMED regardless of prediction
     assert by_t["P04"]["status"] == "UNCONFIRMED"
@@ -756,3 +774,137 @@ def test_physics_gray_format_report_does_not_crash(ledger_csv, main_namelist, pr
     report = recommend.format_physics_report(result)
     assert "WTune PHYSICS-GRAY template shortlist" in report
     assert "Evidence warnings" in report
+    assert "time-to-sol vs P00" in report
+    assert "infeasible" in report and "OOF-miss" in report
+
+
+# ---------------------------------------------------------------------------
+# Defect 1 (real physics-campaign smoke, job 1077893): --holdout-case was accepted but never
+# actually applied to --physics-ledger rows, so a "holdout" run for a case already in the given
+# ledger silently trained on that case's own rows and never warned IN-SAMPLE.
+# ---------------------------------------------------------------------------
+def test_physics_gray_holdout_case_drops_physics_ledger_rows_and_in_sample_warning(
+        tmp_path, ledger_csv, main_namelist, probe_screen_file):
+    phys_ledger_path = tmp_path / "physics_runs.csv"
+    write_ledger_csv(make_physics_training_rows(), str(phys_ledger_path))
+    held_out = PHYS_TRAIN_CASES[0]
+
+    # Recommending for a case already IN the training ledger, WITHOUT --holdout-case: in-sample,
+    # and the training-evidence count must include all 6 synthetic cases.
+    in_sample = recommend.recommend_physics_gray(
+        ledger_path=ledger_csv, namelist_path=main_namelist, case_name=held_out,
+        hardware_id=HARDWARE_ID_TRAIN, physics_ledgers=[str(phys_ledger_path)],
+        probe_screen=probe_screen_file)
+    assert any("IN-SAMPLE" in w and held_out in w for w in in_sample["warnings"])
+    assert any("%d case(s)" % len(PHYS_TRAIN_CASES) in w for w in in_sample["warnings"]
+               if "training evidence" in w)
+
+    # --holdout-case for that SAME case_base must actually drop its rows (defect 1's fix) --
+    # the IN-SAMPLE warning disappears and the training-evidence count drops by exactly one case.
+    held = recommend.recommend_physics_gray(
+        ledger_path=ledger_csv, namelist_path=main_namelist, case_name=held_out,
+        hardware_id=HARDWARE_ID_TRAIN, physics_ledgers=[str(phys_ledger_path)],
+        probe_screen=probe_screen_file, holdout_case=held_out)
+    assert not any("IN-SAMPLE" in w for w in held["warnings"])
+    assert any(("--holdout-case=%r" % held_out) in w and "dropped" in w for w in held["warnings"])
+    assert any("%d case(s)" % (len(PHYS_TRAIN_CASES) - 1) in w for w in held["warnings"]
+               if "training evidence" in w)
+
+
+def test_physics_gray_holdout_case_unmatched_warns_zero_dropped(
+        tmp_path, ledger_csv, main_namelist, probe_screen_file):
+    phys_ledger_path = tmp_path / "physics_runs.csv"
+    write_ledger_csv(make_physics_training_rows(), str(phys_ledger_path))
+    result = recommend.recommend_physics_gray(
+        ledger_path=ledger_csv, namelist_path=main_namelist, case_name="synthtest",
+        hardware_id=HARDWARE_ID_TRAIN, physics_ledgers=[str(phys_ledger_path)],
+        probe_screen=probe_screen_file, holdout_case="no-such-case")
+    assert any("matched ZERO PHYSICS-GRAY training rows" in w for w in result["warnings"])
+
+
+# ---------------------------------------------------------------------------
+# Defect 2: per-template infeasibility evidence and gating (--max-infeasible-rate).
+# ---------------------------------------------------------------------------
+def test_physics_gray_infeasible_template_forced_unconfirmed(tmp_path, ledger_csv, main_namelist,
+                                                                probe_screen_file):
+    rows = make_physics_training_rows()
+    # P03 crashes (both reps FAILED) in every one of the 6 training cases -- template_infeasibility
+    # must catch this and force UNCONFIRMED regardless of anything else (the real physics-campaign
+    # smoke job 1077893 ranked exactly this kind of candidate #1 RECOMMENDABLE).
+    for case in PHYS_TRAIN_CASES:
+        for rep in (1, 2):
+            rows.append(_phys_row("%s_P03_r%d" % (case, rep), "P03", "dynamics",
+                                   {"time_step": "18"}, dict(PHYS_NATIVE, time_step=18.0), "C02",
+                                   rep, None, case=case))
+    phys_ledger_path = tmp_path / "physics_runs.csv"
+    write_ledger_csv(rows, str(phys_ledger_path))
+
+    result = recommend.recommend_physics_gray(
+        ledger_path=ledger_csv, namelist_path=main_namelist, case_name="synthtest",
+        hardware_id=HARDWARE_ID_TRAIN, physics_ledgers=[str(phys_ledger_path)],
+        probe_screen=probe_screen_file)
+    by_t = {c["template"]: c for c in result["shortlist"]}
+    assert by_t["P03"]["status"] == "UNCONFIRMED"
+    assert by_t["P03"]["infeasibility"]["n_cases_failed"] == len(PHYS_TRAIN_CASES)
+    assert by_t["P03"]["infeasibility"]["rate"] == 1.0
+    assert any("infeasible in %d/%d" % (len(PHYS_TRAIN_CASES), len(PHYS_TRAIN_CASES)) in r
+               for r in by_t["P03"]["reasons"])
+
+    # --max-infeasible-rate=1.0 (accept up to 100% observed failure) lifts the infeasibility gate
+    # alone.
+    lenient = recommend.recommend_physics_gray(
+        ledger_path=ledger_csv, namelist_path=main_namelist, case_name="synthtest",
+        hardware_id=HARDWARE_ID_TRAIN, physics_ledgers=[str(phys_ledger_path)],
+        probe_screen=probe_screen_file, max_infeasible_rate=1.0)
+    by_t_lenient = {c["template"]: c for c in lenient["shortlist"]}
+    assert not any("infeasible in" in r for r in by_t_lenient["P03"]["reasons"])
+
+
+# ---------------------------------------------------------------------------
+# Defect 3: leave-one-case-out out-of-fold dangerous-miss gating -- a single-case training ledger
+# gives ZERO leave-one-case-out folds, which must read as "insufficient evidence", never as a
+# clean pass.
+# ---------------------------------------------------------------------------
+def test_physics_gray_insufficient_oof_evidence_forces_unconfirmed(
+        tmp_path, ledger_csv, main_namelist, probe_screen_file):
+    rows = make_physics_training_rows(cases=["onlycase"])
+    phys_ledger_path = tmp_path / "physics_runs.csv"
+    write_ledger_csv(rows, str(phys_ledger_path))
+
+    result = recommend.recommend_physics_gray(
+        ledger_path=ledger_csv, namelist_path=main_namelist, case_name="synthtest",
+        hardware_id=HARDWARE_ID_TRAIN, physics_ledgers=[str(phys_ledger_path)],
+        probe_screen=probe_screen_file)
+    by_t = {c["template"]: c for c in result["shortlist"]}
+    assert by_t["P01"]["status"] == "UNCONFIRMED"
+    assert by_t["P01"]["dangerous_miss"] is None
+    assert any("insufficient out-of-fold fidelity evidence" in r for r in by_t["P01"]["reasons"])
+
+
+# ---------------------------------------------------------------------------
+# Defect 5: isc21's known bit-identical (floor_zero) TWIN_DECOMP=C06 must be overridden to C13;
+# every other case keeps the generic default; the general floor_zero hint is always printed.
+# ---------------------------------------------------------------------------
+def test_default_twin_decomp_known_floor_zero_override():
+    twin, note = recommend._default_twin_decomp("C02", "isc21")
+    assert twin == "C13"
+    assert note is not None and "isc21" in note and "TWIN_DECOMP=C13" in note
+
+    twin2, note2 = recommend._default_twin_decomp("C02", "karina")
+    assert twin2 == "C06"
+    assert note2 is None
+
+    # generic collision-avoidance still fires when DECOMP itself resolves to the module default twin
+    twin3, note3 = recommend._default_twin_decomp("C06", "karina")
+    assert twin3 == "C13"
+    assert note3 is None
+
+
+def test_physics_gray_verify_plan_uses_twin_override_for_isc21(ledger_csv, main_namelist,
+                                                                  probe_screen_file):
+    result = recommend.recommend_physics_gray(
+        ledger_path=ledger_csv, namelist_path=main_namelist, case_name="isc21",
+        hardware_id=HARDWARE_ID_TRAIN, probe_screen=probe_screen_file, decomp="C02")
+    assert result["verify_plan"]["twin_decomp"] == "C13"
+    assert any("isc21" in w and "TWIN_DECOMP=C13" in w for w in result["warnings"])
+    assert any("floor_zero hint" in w for w in result["warnings"])

@@ -719,3 +719,163 @@ def test_generic_extra_edits_p04_p06_aerosol_and_wsm6_skip():
     for tid in ("P04", "P06"):
         edits, skip = physics.generic_extra_edits(tid, dict(mp_physics=8))
         assert edits == [] and skip is None
+
+
+# ---------------------------------------------------------------------------
+# 10. Defect 2 (real physics-campaign smoke, job 1077893): per-template infeasibility evidence
+# aggregated ACROSS a template's physics groups (cases), not just per group.
+# ---------------------------------------------------------------------------
+def test_template_infeasibility_aggregates_across_cases():
+    rows = make_physics_ledger()
+    physics.add_perf_targets(rows)
+    infeas = physics.template_infeasibility(rows)
+
+    # isc21/P03 is this fixture's only synthetic crash (both reps FAILED) -- exactly 1 of the 6
+    # cases P03 was tried in.
+    assert infeas["P03"]["n_cases_tried"] == len(CASES)
+    assert infeas["P03"]["n_cases_failed"] == 1
+    assert infeas["P03"]["failed_cases"] == ["isc21"]
+    assert infeas["P03"]["rate"] == pytest.approx(1.0 / len(CASES))
+
+    for tmpl in TEMPLATES:
+        if tmpl == "P03":
+            continue
+        assert infeas[tmpl]["n_cases_failed"] == 0
+        assert infeas[tmpl]["rate"] == 0.0
+
+    # P04 is skipped entirely for maria1km (SKIP dict) -- never attempted there, so it must not
+    # count toward n_cases_tried.
+    assert infeas["P04"]["n_cases_tried"] == len(CASES) - 1
+
+
+def test_template_infeasibility_empty_for_no_rows():
+    assert physics.template_infeasibility([]) == {}
+
+
+# ---------------------------------------------------------------------------
+# 11. Defect 3: leave-one-case-out out-of-fold dangerous-miss estimate, cross-checked against a
+# manual recount from the same cross_validate_physics predictions.
+# ---------------------------------------------------------------------------
+def test_per_template_dangerous_miss_matches_manual_recount():
+    rows = make_physics_ledger()
+    physics.attach_change_context(rows)
+    physics.add_fidelity_targets(rows)
+    result = physics.per_template_dangerous_miss(rows)
+
+    label_rows = [r for r in physics.physics_rows(rows) if r.get("y_fidelity_label") is not None]
+    predictions, _ = physics.cross_validate_physics(
+        label_rows, "case_base", lambda: physics.PhysicsLinearModel(target="y_fidelity_label"),
+        "y_fidelity_label")
+    pred_label = {rid: physics._label_from_ordinal_score(p) for rid, p in predictions.items()}
+
+    for tmpl in TEMPLATES:
+        trows = [r for r in label_rows if physics._template_of(r) == tmpl]
+        n = sum(1 for r in trows if r["run_id"] in pred_label)
+        if n == 0:
+            assert tmpl not in result
+            continue
+        dangerous = sum(1 for r in trows
+                         if pred_label.get(r["run_id"]) in physics.DEFAULT_ALLOWED_LABELS
+                         and r.get("fidelity_label") == "LARGE-DRIFT")
+        assert result[tmpl]["n"] == n
+        assert result[tmpl]["dangerous_miss_n"] == dangerous
+        assert result[tmpl]["dangerous_miss_rate"] == pytest.approx(dangerous / n)
+        assert result[tmpl]["insufficient"] == (n < physics.MIN_OOF_DANGEROUS_MISS)
+
+    # P01 is WITHIN-FLOOR for every case it ran (6) -- plenty of out-of-fold evidence, and its
+    # measured label is never LARGE-DRIFT, so its dangerous-miss rate must be exactly 0.
+    assert result["P01"]["insufficient"] is False
+    assert result["P01"]["dangerous_miss_rate"] == 0.0
+    # P04 is LARGE-DRIFT for every case it ran (5 of 6 -- maria1km is skipped): exactly enough
+    # out-of-fold evidence (n=5) to not be "insufficient".
+    assert result["P04"]["n"] == 5
+    assert result["P04"]["insufficient"] is False
+
+
+def test_per_template_dangerous_miss_insufficient_below_floor():
+    # A single case_base gives ZERO leave-one-case-out folds -- every template must come back
+    # either absent or, if present at all, with n below MIN_OOF_DANGEROUS_MISS.
+    rows = [r for r in make_physics_ledger() if r["case_base"] == "karina"]
+    physics.attach_change_context(rows)
+    physics.add_fidelity_targets(rows)
+    result = physics.per_template_dangerous_miss(rows)
+    assert result == {}  # cross_validate_physics itself raises NotEnoughGroups (1 group only)
+
+
+# ---------------------------------------------------------------------------
+# 12. Defect 4: performance conformal interval helpers (jackknife+ over cross_validate_physics'
+# own leave-one-case-out folds).
+# ---------------------------------------------------------------------------
+def test_performance_conformal_interval_runs_and_brackets_point_estimate():
+    rows = make_physics_ledger()
+    physics.attach_change_context(rows)
+    physics.add_perf_targets(rows)
+    perf_rows = [r for r in physics.physics_rows(rows)
+                 if physics._template_of(r) not in (None, "P00") and r.get("y") is not None]
+
+    fold_models, fold_residuals, reason = physics.performance_conformal_setup(perf_rows)
+    assert reason is None
+    assert fold_models and fold_residuals
+
+    karina_p01 = next(r for r in rows if r["case_base"] == "karina"
+                       and physics._template_of(r) == "P01" and r["rep_index"] == 1)
+    iv = physics.performance_conformal_interval_pct(fold_models, fold_residuals, karina_p01)
+    assert iv is not None
+    lo, hi = iv
+    assert lo <= hi
+    # loose sanity margin (not a calibration check): the interval should be somewhere near the
+    # known M_T["P01"] effect in percent terms.
+    known_pct = (M_T["P01"] - 1) * 100
+    assert lo - 10 <= known_pct <= hi + 10
+
+
+def test_performance_conformal_setup_reason_when_too_few_groups():
+    rows = [r for r in make_physics_ledger() if r["case_base"] == "karina"]
+    physics.attach_change_context(rows)
+    physics.add_perf_targets(rows)
+    perf_rows = [r for r in physics.physics_rows(rows)
+                 if physics._template_of(r) not in (None, "P00") and r.get("y") is not None]
+    fold_models, fold_residuals, reason = physics.performance_conformal_setup(perf_rows)
+    assert fold_models is None and fold_residuals is None
+    assert reason is not None and "time-to-solution interval unavailable" in reason
+
+
+# ---------------------------------------------------------------------------
+# 13. predict_physics_shortlist with the new infeasibility/dangerous-miss gates (defects 2/3),
+# on top of the existing status-logic test above -- P03 (1/6 training-case failure) must be
+# UNCONFIRMED with the evidence attached to every row; P01 stays RECOMMENDABLE and its
+# dangerous-miss rate is a clean 0.0/sufficient, unaffected by the new gates.
+# ---------------------------------------------------------------------------
+def test_predict_physics_shortlist_infeasibility_and_dangerous_miss():
+    rows = make_physics_ledger()
+    physics.attach_change_context(rows)
+    physics.add_perf_targets(rows)
+    physics.add_fidelity_targets(rows)
+
+    karina_p00 = next(r for r in rows if r["case_base"] == "karina"
+                       and physics._template_of(r) == "P00" and "_twin" not in r["run_id"]
+                       and r["rep_index"] == 1)
+    candidates = [
+        dict(template="P01", family="radiation", applicable=True,
+             changes={"swint_opt": {"from": None, "to": 1}}),
+        dict(template="P03", family="dynamics", applicable=True,
+             changes={"time_step": {"from": 15, "to": 18}}),
+    ]
+    shortlist = physics.predict_physics_shortlist(rows, karina_p00, candidates, probe_verdicts={})
+    by_t = {c["template"]: c for c in shortlist}
+
+    assert by_t["P03"]["infeasibility"]["n_cases_failed"] == 1
+    assert by_t["P03"]["infeasibility"]["n_cases_tried"] == len(CASES)
+    assert by_t["P03"]["status"] == "UNCONFIRMED"
+    assert any("infeasible in 1/%d" % len(CASES) in r for r in by_t["P03"]["reasons"])
+
+    lenient = physics.predict_physics_shortlist(rows, karina_p00, candidates, probe_verdicts={},
+                                                 max_infeasible_rate=1.0)
+    by_t_lenient = {c["template"]: c for c in lenient}
+    assert not any("infeasible in" in r for r in by_t_lenient["P03"]["reasons"])
+
+    assert by_t["P01"]["dangerous_miss"]["insufficient"] is False
+    assert by_t["P01"]["dangerous_miss"]["dangerous_miss_rate"] == 0.0
+    assert by_t["P01"]["infeasibility"]["rate"] == 0.0
+    assert by_t["P01"]["status"] == "RECOMMENDABLE"
+    assert by_t["P01"]["predicted_time_to_solution_pct"] is not None

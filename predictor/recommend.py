@@ -892,8 +892,32 @@ def _default_decomp(ledger_path, namelist_path, case_name, hardware_id, nodes, m
     return _DEFAULT_PHYSICS_DECOMP, "fallback default (STRICT shortlist was empty)"
 
 
-def _default_twin_decomp(decomp):
-    return _TWIN_DECOMP_FALLBACK if decomp == _DEFAULT_PHYSICS_TWIN_DECOMP else _DEFAULT_PHYSICS_TWIN_DECOMP
+# Defect 5 (real physics-campaign data, ledger jobs 1077042/1077171 and their predecessors):
+# isc21's DECOMP=C02/TWIN_DECOMP=C06 pair was found BIT-IDENTICAL (rms diff 0 on every compared
+# field -- fidelity_gate.py's explicit "floor_zero" case) the one time it was tried; every real
+# isc21 physics-campaign run since has used TWIN_DECOMP=C13 instead. There is no cheap way to
+# predict a bit-identical twin ahead of a real measurement (it depends on WRF's own reduction
+# order, not on anything resolve_case()'s dedupe key -- ranks/omp/nx/ny/numtiles/dist/blocktime --
+# can see, since DECOMP and TWIN_DECOMP always differ in ranks*omp by construction), so this table
+# only records CASES ALREADY OBSERVED to hit it; see the general floor_zero hint printed
+# unconditionally below for any case not in this table.
+_KNOWN_FLOOR_ZERO_TWIN = {
+    ("isc21", _DEFAULT_PHYSICS_DECOMP): _TWIN_DECOMP_FALLBACK,
+}
+
+
+def _default_twin_decomp(decomp, case_name=None):
+    """(twin_decomp, note). `note` is non-None only when a known-bad (DECOMP, TWIN_DECOMP) pair
+    for this case_name was avoided (see _KNOWN_FLOOR_ZERO_TWIN) -- the general floor_zero hint that
+    applies to every case regardless is printed separately by the caller, always, not just here."""
+    override = _KNOWN_FLOOR_ZERO_TWIN.get((case_name, decomp))
+    if override is not None:
+        return override, (
+            "case_name=%r at DECOMP=%s: TWIN_DECOMP=%s is a KNOWN bit-identical (floor_zero) pair "
+            "for this case (measured campaign data) -- using TWIN_DECOMP=%s instead"
+            % (case_name, decomp, _DEFAULT_PHYSICS_TWIN_DECOMP, override))
+    twin = _TWIN_DECOMP_FALLBACK if decomp == _DEFAULT_PHYSICS_TWIN_DECOMP else _DEFAULT_PHYSICS_TWIN_DECOMP
+    return twin, None
 
 
 def _native_physics_from_case_fields(case_fields):
@@ -911,7 +935,8 @@ def _native_physics_from_case_fields(case_fields):
 def recommend_physics_gray(ledger_path, namelist_path, case_name, hardware_id, nodes=4, top_k=5,
                             max_dom=None, holdout_case=None, decomp=None, physics_ledgers=(),
                             allowed_labels=DEFAULT_PHYSICS_ALLOWED_LABELS, probe_screen=None,
-                            run_probe=True, latlon=None, wps=None, wrfinput=None):
+                            run_probe=True, latlon=None, wps=None, wrfinput=None,
+                            max_infeasible_rate=0.0, max_dangerous_miss=0.0):
     """Build a PHYSICS-GRAY physics-template shortlist for one case (decision 0051). Same
     "narrows the search, human decides" contract as recommend(): NEVER auto-applies anything.
     Every applicable candidate template is always listed with its changes and SpeedyWeather probe
@@ -971,14 +996,45 @@ def recommend_physics_gray(ledger_path, namelist_path, case_name, hardware_id, n
     train_rows = []
     for p in (physics_ledgers or []):
         train_rows.extend(benchmark.load_ledger(p))
+
+    # Defect 1 (real physics-campaign smoke, job 1077893): --holdout-case was accepted but never
+    # actually applied to --physics-ledger rows -- a holdout run for a case already IN the given
+    # ledger(s) (e.g. lafe, isc21) silently trained on that case's own rows and reported an
+    # in-sample shortlist as if it were honest out-of-sample evidence. Apply it here, the same way
+    # recommend()'s STRICT path already does for --ledger.
+    if holdout_case:
+        n_before = len(train_rows)
+        train_rows = [r for r in train_rows if r.get("case_base") != holdout_case]
+        n_dropped = n_before - len(train_rows)
+        if n_dropped:
+            warnings.append(
+                "--holdout-case=%r: dropped %d PHYSICS-GRAY training row(s) with that case_base "
+                "before fitting (honest out-of-sample evaluation)" % (holdout_case, n_dropped))
+        else:
+            warnings.append(
+                "--holdout-case=%r matched ZERO PHYSICS-GRAY training rows -- check the spelling "
+                "against the ledger's case_base values; nothing was actually held out"
+                % holdout_case)
+
     physicsmod.attach_change_context(train_rows)
     physicsmod.add_perf_targets(train_rows)
     physicsmod.add_fidelity_targets(train_rows)
+
+    all_cases_present = sorted({r.get("case_base") for r in physicsmod.physics_rows(train_rows)
+                                 if r.get("case_base") is not None})
+    if case_name in all_cases_present:
+        warnings.append(
+            "IN-SAMPLE: case_base=%r is still present in the PHYSICS-GRAY training rows used to "
+            "fit this model; the shortlist is not an out-of-sample prediction%s"
+            % (case_name, "" if holdout_case == case_name else
+               " -- pass --holdout-case %r to see an honest out-of-sample shortlist" % case_name))
+
     if not physicsmod.physics_rows(train_rows):
         warnings.append(
             "no PHYSICS-GRAY campaign data (%s): every candidate below is UNCONFIRMED"
             % ("--physics-ledger not given" if not physics_ledgers
-               else "the given --physics-ledger file(s) have zero mode=physics rows"))
+               else "the given --physics-ledger file(s) have zero mode=physics rows (after "
+                    "--holdout-case, if any)"))
     else:
         same_hw = [r for r in physicsmod.physics_rows(train_rows) if r.get("hardware_id") == hardware_id]
         cases_hw = sorted({r.get("case_base") for r in same_hw if r.get("case_base") is not None})
@@ -1003,13 +1059,31 @@ def recommend_physics_gray(ledger_path, namelist_path, case_name, hardware_id, n
     )
     shortlist = physicsmod.predict_physics_shortlist(
         train_rows, case_features_row, candidates, allowed_labels=allowed_labels,
-        probe_verdicts=probe_verdicts_used)
+        probe_verdicts=probe_verdicts_used, max_infeasible_rate=max_infeasible_rate,
+        max_dangerous_miss=max_dangerous_miss)
+
+    # Defect 4: the time-to-solution interval's "not feasible" reason (if any) is the SAME string
+    # on every shortlist row (performance_conformal_setup runs once) -- surface it in warnings a
+    # single time instead of repeating it per row.
+    tts_note = next((c["time_to_solution_interval_note"] for c in shortlist
+                      if c.get("time_to_solution_interval_note")), None)
+    if tts_note:
+        warnings.append(tts_note)
 
     decomp_source = "--decomp"
     if decomp is None:
         decomp, decomp_source = _default_decomp(
             ledger_path, namelist_path, case_name, hardware_id, nodes, effective_max_dom, holdout_case)
-    twin_decomp = _default_twin_decomp(decomp)
+    twin_decomp, twin_note = _default_twin_decomp(decomp, case_name)
+    if twin_note:
+        warnings.append(twin_note)
+    warnings.append(
+        "floor_zero hint: if DECOMP=%s and TWIN_DECOMP=%s happen to produce BIT-IDENTICAL output "
+        "(rms diff 0 on every compared field), the twin's chaos floor is floor_zero -- a real "
+        "degenerate case fidelity_gate.py handles explicitly, but a candidate's drift cannot be "
+        "judged against a zero floor. If fidelity_gate.py reports floor_zero for this pair, rerun "
+        "the twin at a different TWIN_DECOMP (known example: isc21's C02/C06 pair was "
+        "bit-identical; C13 was used instead)." % (decomp, twin_decomp))
 
     top3 = [c["template"] for c in shortlist[:3]]
     verify_plan = None
@@ -1063,14 +1137,26 @@ def format_physics_report(result):
 
     changes_by_template = {c["template"]: c.get("changes") or {} for c in result["candidates"]}
     lines.append("\n-- Shortlist (%d template(s)) --" % len(result["shortlist"]))
-    lines.append("%-4s %-9s %-42s %-16s %-20s %-9s %-13s %s"
-                  % ("rank", "template", "changes (key old->new)", "perf vs P00",
-                     "fidelity", "probe", "status", "reasons"))
+    lines.append("  time-to-solution vs P00: NEGATIVE = FASTER (cost per simulated second); "
+                  "[lo%,hi%] is a 95% leave-one-case-out jackknife+ interval when available, else "
+                  "n/a with the reason in the warnings above (printed once, not per row).")
+    lines.append("  infeasible: <failed>/<tried> training cases (every replicate FAILED); "
+                  "OOF-miss: leave-one-case-out out-of-fold dangerous-miss <n>/<total> "
+                  "(predicted allowed, measured LARGE-DRIFT), or insuff(n=<n>) below the "
+                  "%d-prediction floor." % physicsmod.MIN_OOF_DANGEROUS_MISS)
+    lines.append("%-4s %-9s %-42s %-20s %-20s %-9s %-9s %-9s %-13s %s"
+                  % ("rank", "template", "changes (key old->new)", "time-to-sol vs P00",
+                     "fidelity", "infeasible", "OOF-miss", "probe", "status", "reasons"))
     for i, c in enumerate(result["shortlist"], start=1):
         changes = changes_by_template.get(c["template"], {})
         changes_str = ", ".join("%s %s->%s" % (k, v["from"], v["to"]) for k, v in changes.items()) or "-"
-        perf_str = ("%+.2f%% [n/a]" % c["predicted_gain_pct"]
-                    if c.get("predicted_gain_pct") is not None else "n/a")
+        tts, iv = c.get("predicted_time_to_solution_pct"), c.get("time_to_solution_interval_pct")
+        if tts is None:
+            perf_str = "n/a"
+        elif iv is not None:
+            perf_str = "%+.2f%% [%+.1f,%+.1f]" % (tts, iv[0], iv[1])
+        else:
+            perf_str = "%+.2f%% [n/a]" % tts
         label, nd = c.get("predicted_fidelity_label"), c.get("predicted_fidelity_nd")
         if label and nd is not None:
             fid_str = "%s (nd~%.3f)" % (label, nd)
@@ -1080,8 +1166,18 @@ def format_physics_report(result):
             fid_str = "nd~%.3f" % nd
         else:
             fid_str = "n/a"
-        lines.append("%-4d %-9s %-42s %-16s %-20s %-9s %-13s %s" % (
-            i, c["template"], changes_str[:42], perf_str, fid_str,
+        infeas = c.get("infeasibility")
+        infeasible_str = ("%d/%d" % (infeas["n_cases_failed"], infeas["n_cases_tried"])
+                           if infeas is not None else "n/a")
+        dang = c.get("dangerous_miss")
+        if dang is None:
+            oof_str = "insuff(n=0)"
+        elif dang["insufficient"]:
+            oof_str = "insuff(n=%d)" % dang["n"]
+        else:
+            oof_str = "%d/%d" % (dang["dangerous_miss_n"], dang["n"])
+        lines.append("%-4d %-9s %-42s %-20s %-20s %-9s %-9s %-9s %-13s %s" % (
+            i, c["template"], changes_str[:42], perf_str, fid_str, infeasible_str, oof_str,
             c.get("probe_verdict") or "none", c["status"], "; ".join(c.get("reasons") or [])))
 
     vp = result.get("verify_plan")
@@ -1241,6 +1337,17 @@ def _build_arg_parser():
     ap.add_argument("--allowed-labels", default="WITHIN-FLOOR,SMALL-DRIFT", dest="allowed_labels",
                      help="PHYSICS-GRAY only: comma-separated fidelity labels a candidate must "
                           "be predicted to have to ever be RECOMMENDABLE")
+    ap.add_argument("--max-infeasible-rate", type=float, default=0.0, dest="max_infeasible_rate",
+                     help="PHYSICS-GRAY only: a template that FAILED every replicate in more than "
+                          "this fraction of the training cases it was tried in is forced "
+                          "UNCONFIRMED (still listed); default 0.0 = any observed training "
+                          "failure at all")
+    ap.add_argument("--max-dangerous-miss", type=float, default=0.0, dest="max_dangerous_miss",
+                     help="PHYSICS-GRAY only: a template whose leave-one-case-out out-of-fold "
+                          "fidelity dangerous-miss rate (predicted allowed, measured LARGE-DRIFT) "
+                          "exceeds this is forced UNCONFIRMED; default 0.0. Fewer than "
+                          "physics.MIN_OOF_DANGEROUS_MISS out-of-fold predictions for a template "
+                          "is ALWAYS insufficient evidence -> UNCONFIRMED regardless of this flag")
     ap.add_argument("--probe-screen", default=None, dest="probe_screen",
                      help="PHYSICS-GRAY only: path to a saved 'wtune.py screen ... --json' "
                           "stdout capture, used for the SpeedyWeather probe verdicts instead of "
@@ -1267,7 +1374,9 @@ def main(argv=None):
                 max_dom=args.max_dom, holdout_case=args.holdout_case, decomp=args.decomp,
                 physics_ledgers=args.physics_ledger, allowed_labels=args.allowed_labels,
                 probe_screen=args.probe_screen, run_probe=args.run_probe, latlon=args.latlon,
-                wps=args.wps, wrfinput=args.wrfinput)
+                wps=args.wps, wrfinput=args.wrfinput,
+                max_infeasible_rate=args.max_infeasible_rate,
+                max_dangerous_miss=args.max_dangerous_miss)
             report = format_physics_report(result)
         else:
             result = recommend(

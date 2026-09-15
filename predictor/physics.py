@@ -326,6 +326,14 @@ def add_fidelity_targets(rows):
 UNDERPOWERED_MIN_CASES = 5
 MIN_CANDIDATES_PER_CASE = 3
 
+# A per-template leave-one-case-out out-of-fold fidelity-label estimate (see
+# per_template_dangerous_miss below) with fewer than this many out-of-fold predictions is not
+# trusted -- "insufficient evidence" forces UNCONFIRMED regardless of the observed rate (decision
+# 0051 real-campaign defect: lafe's in-sample P05 prediction was SMALL-DRIFT/RECOMMENDABLE while
+# measured LARGE-DRIFT; an honest out-of-fold estimate of how often that happens per template is
+# required before a template can ever be RECOMMENDABLE).
+MIN_OOF_DANGEROUS_MISS = 5
+
 
 def data_sufficiency(rows):
     """Cases (case_base) with >=3 distinct candidate templates that received a performance target
@@ -514,10 +522,14 @@ def _label_from_ordinal_score(score):
 # validate.cross_validate's contract (a fold too thin to fit is recorded unavailable, never
 # crashes).
 # ---------------------------------------------------------------------------
-def cross_validate_physics(rows, group_field, model_factory, target):
+def cross_validate_physics(rows, group_field, model_factory, target, return_models=False):
     """`group_field` is "case_base" or "template" (leave-one-template-out; P00 is never a
     left-out group there since it is not a candidate template). Returns ({run_id: prediction},
-    unavailable_groups)."""
+    unavailable_groups); with return_models=True, also returns (fold_models: {group: fitted
+    model}, fold_test_rows: {group: rows}) -- the same shape validate.cross_validate uses, so a
+    caller (see per_template_dangerous_miss and the performance-interval helpers below) can reuse
+    this exact set of leave-one-`group`-out folds to build a jackknife+ residual pool for a
+    brand-new row that has no group of its own, instead of re-fitting a second set of folds."""
     usable = [r for r in rows if r.get(target) is not None]
     if group_field == "template":
         groups = sorted({_template_of(r) for r in usable} - {None, "P00"})
@@ -527,6 +539,7 @@ def cross_validate_physics(rows, group_field, model_factory, target):
         raise NotEnoughGroups("%s has %d distinct group(s), need >=2" % (group_field, len(groups)))
 
     predictions, unavailable = {}, set()
+    fold_models, fold_test_rows = {}, {}
     for g in groups:
         if group_field == "template":
             train = [r for r in usable if _template_of(r) != g]
@@ -546,7 +559,149 @@ def cross_validate_physics(rows, group_field, model_factory, target):
         preds = model.score(test)
         for r, p in zip(test, preds):
             predictions[r["run_id"]] = p
+        if return_models:
+            fold_models[g] = model
+            fold_test_rows[g] = test
+    if return_models:
+        return predictions, unavailable, fold_models, fold_test_rows
     return predictions, unavailable
+
+
+# ---------------------------------------------------------------------------
+# Defect 2 (real physics-campaign smoke, job 1077893): feasibility risk was ignored -- P03
+# crashed/timed out in 3 of 6 training cases yet was still ranked #1 RECOMMENDABLE. This aggregates
+# infeasible_candidates()'s per-GROUP "every replicate FAILED" fact ACROSS a template's groups
+# (cases), so predict_physics_shortlist can refuse to recommend a template with observed failures.
+# ---------------------------------------------------------------------------
+def template_infeasibility(rows):
+    """Per-template infeasibility evidence aggregated across physics groups (cases): for each
+    candidate template, which case_base(s) it was actually attempted in (>=1 replicate with an
+    attempt, failed or not) and which of those cases it FAILED IN COMPLETELY (every replicate in
+    that case's physics group had no usable s_per_step_median -- the same n_ok==0 definition
+    infeasible_candidates() already uses per group, aggregated here across a template's cases).
+    Returns {template: {"n_cases_tried": n, "n_cases_failed": k, "failed_cases": [case_base,...]
+    sorted, "rate": k/n}}; a template never attempted anywhere is simply absent (nothing to
+    report)."""
+    tried, failed = defaultdict(set), defaultdict(set)
+    for key, g in performance_targets(rows).items():
+        case_base = key[0]
+        for tmpl, tdata in g["templates"].items():
+            if tdata["n_ok"] + tdata["n_failed"] == 0:
+                continue
+            tried[tmpl].add(case_base)
+            if tdata["n_ok"] == 0:
+                failed[tmpl].add(case_base)
+    out = {}
+    for tmpl, cases in tried.items():
+        n = len(cases)
+        k = len(failed.get(tmpl, ()))
+        out[tmpl] = dict(n_cases_tried=n, n_cases_failed=k,
+                          failed_cases=sorted(failed.get(tmpl, ())), rate=(k / n if n else None))
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Defect 3 (same smoke): fidelity uncertainty was ignored -- an IN-SAMPLE prediction (lafe P05
+# predicted SMALL-DRIFT, measured LARGE-DRIFT) was still RECOMMENDABLE. This estimates, per
+# template, how often the fidelity-label model's OWN leave-one-case-out OUT-OF-FOLD prediction
+# would have called a truly-LARGE-DRIFT case "allowed" -- an honest, pre-registered measure of
+# exactly the failure mode that slipped through, independent of whichever new case is currently
+# being recommended for.
+# ---------------------------------------------------------------------------
+def per_template_dangerous_miss(rows, allowed_labels=DEFAULT_ALLOWED_LABELS):
+    """Leave-one-case-out OUT-OF-FOLD fidelity-label predictions (PhysicsLinearModel/ridge on
+    y_fidelity_label -- the same estimator predict_physics_shortlist's own in-sample label_model
+    uses), aggregated per template: how often the out-of-fold PREDICTED label was allowed
+    (WITHIN-FLOOR/SMALL-DRIFT) while the MEASURED label was LARGE-DRIFT (a "dangerous miss" -- same
+    definition fidelity_confusion() uses, broken out per template here instead of pooled). A
+    template with fewer than MIN_OOF_DANGEROUS_MISS out-of-fold predictions is marked
+    insufficient=True rather than given a possibly-noisy rate. Returns {template: {"n": n,
+    "dangerous_miss_n": d, "dangerous_miss_rate": d/n or None, "insufficient": bool}}; a template
+    with ZERO out-of-fold predictions is simply absent (treat a missing key the same as
+    insufficient=True, n=0)."""
+    label_rows = [r for r in physics_rows(rows) if r.get("y_fidelity_label") is not None]
+    try:
+        predictions, _unavailable = cross_validate_physics(
+            label_rows, "case_base", lambda: PhysicsLinearModel(target="y_fidelity_label"),
+            "y_fidelity_label")
+    except (NotEnoughGroups, modelmod.NotEnoughData):
+        predictions = {}
+    pred_label = {rid: _label_from_ordinal_score(p) for rid, p in predictions.items()}
+    by_tmpl = defaultdict(lambda: dict(n=0, dangerous=0))
+    for r in label_rows:
+        tmpl = _template_of(r)
+        if tmpl in (None, "P00"):
+            continue
+        pl = pred_label.get(r["run_id"])
+        if pl is None:
+            continue
+        d = by_tmpl[tmpl]
+        d["n"] += 1
+        if pl in allowed_labels and r.get("fidelity_label") == "LARGE-DRIFT":
+            d["dangerous"] += 1
+    out = {}
+    for tmpl, d in by_tmpl.items():
+        n = d["n"]
+        out[tmpl] = dict(n=n, dangerous_miss_n=d["dangerous"],
+                          dangerous_miss_rate=(d["dangerous"] / n if n else None),
+                          insufficient=n < MIN_OOF_DANGEROUS_MISS)
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Defect 4: the shortlist's performance column ("+11.36%" for a candidate that is actually FASTER)
+# was ambiguous, and its "interval" was a literal hardcoded "[n/a]" string, never a real computed
+# interval. This reuses validate.py's own grouped jackknife+ idea (conformal_intervals_for_new_rows
+# -- every OTHER leave-one-case-out fold's model contributes to a brand-new row's interval, since
+# the row is not part of any training case_base's own held-out fold) over
+# cross_validate_physics/PhysicsLinearModel/row_features instead of validate.cross_validate's
+# STRICT ledger models/features. Computed ONCE per predict_physics_shortlist call (not once per
+# candidate row), so the "not feasible" reason is reported a single time, not repeated per row.
+# ---------------------------------------------------------------------------
+def _perf_fold_residuals(predictions, fold_test_rows):
+    fold_residuals = {}
+    for g, test_rows in fold_test_rows.items():
+        fold_residuals[g] = [abs(r["y"] - predictions[r["run_id"]])
+                              for r in test_rows if r.get("y") is not None and r["run_id"] in predictions]
+    return fold_residuals
+
+
+def performance_conformal_setup(perf_rows, model_cls=PhysicsLinearModel):
+    """(fold_models, fold_residuals, reason). `reason` is None iff the first two are usable;
+    otherwise both are None and `reason` explains why (too few case_base groups, or every fold's
+    residual pool came up empty) -- never raises."""
+    try:
+        predictions, _unavail, fold_models, fold_test_rows = cross_validate_physics(
+            perf_rows, "case_base", lambda: model_cls(target="y"), "y", return_models=True)
+    except (NotEnoughGroups, modelmod.NotEnoughData) as e:
+        return None, None, "time-to-solution interval unavailable: %s" % e
+    fold_residuals = _perf_fold_residuals(predictions, fold_test_rows)
+    if not any(fold_residuals.values()):
+        return None, None, ("time-to-solution interval unavailable: no fold produced a usable "
+                             "residual pool (too few labeled performance rows per case)")
+    return fold_models, fold_residuals, None
+
+
+def performance_conformal_interval_pct(fold_models, fold_residuals, row, alpha=0.05):
+    """Jackknife+ interval for one NEW row's time-to-solution PERCENT CHANGE vs P00 (negative =
+    faster), pooling every fold's residuals against that fold's own prediction at `row`. Returns
+    (lo_pct, hi_pct) or None if no fold produced a residual (should not happen once
+    performance_conformal_setup itself returned non-None fold_models/fold_residuals, but checked
+    defensively per row anyway since a specific `row` could still fail every fold's .score())."""
+    lo_pool, hi_pool = [], []
+    for g, model in fold_models.items():
+        resids = fold_residuals.get(g)
+        if not resids:
+            continue
+        pred_g = model.score([row])[0]
+        for resid in resids:
+            lo_pool.append(pred_g - resid)
+            hi_pool.append(pred_g + resid)
+    if not lo_pool:
+        return None
+    lo = float(np.quantile(lo_pool, alpha / 2))
+    hi = float(np.quantile(hi_pool, 1 - alpha / 2))
+    return (math.exp(lo) - 1) * 100.0, (math.exp(hi) - 1) * 100.0
 
 
 # ---------------------------------------------------------------------------
@@ -952,18 +1107,29 @@ def physics_candidates_from_namelist(namelist_text, case_name, max_dom, template
 # --compliance PHYSICS-GRAY will call. Never auto-applies; only ranks and labels.
 # ---------------------------------------------------------------------------
 def predict_physics_shortlist(train_rows, case_features, candidates,
-                               allowed_labels=DEFAULT_ALLOWED_LABELS, probe_verdicts=None):
+                               allowed_labels=DEFAULT_ALLOWED_LABELS, probe_verdicts=None,
+                               max_infeasible_rate=0.0, max_dangerous_miss=0.0):
     """train_rows: the full (already add_perf_targets/add_fidelity_targets'd) ledger.
     case_features: a ledger-row-shaped dict describing THIS case's own grid/native-physics(as the
     case actually runs it, i.e. resolved, not -1)/hardware -- typically its own P00 reference row
     once one exists.
     candidates: physics_candidates_for_case() output.
     probe_verdicts: {knob: verdict} for this case (from the probe-verdicts CSV).
+    max_infeasible_rate: a template with more than this fraction of training cases FAILED-ALL-
+        REPLICATES (see template_infeasibility) is forced UNCONFIRMED, however good its
+        performance/fidelity prediction looks (default 0.0: any observed training failure at all).
+    max_dangerous_miss: a template whose leave-one-case-out OUT-OF-FOLD fidelity-label dangerous-
+        miss rate (see per_template_dangerous_miss) exceeds this is forced UNCONFIRMED; fewer than
+        MIN_OOF_DANGEROUS_MISS out-of-fold predictions for a template is ALWAYS "insufficient
+        evidence" -> UNCONFIRMED, regardless of this flag's value.
 
     One dict per candidate: template, family, status (RECOMMENDABLE|UNCONFIRMED), reasons,
-    predicted_gain_pct, predicted_y, predicted_fidelity_label, predicted_fidelity_nd,
-    probe_verdict, same_hardware_data. Sorted RECOMMENDABLE-first, then by predicted_y ascending
-    (faster first)."""
+    predicted_time_to_solution_pct (negative=faster), time_to_solution_interval_pct
+    ((lo_pct, hi_pct) or None), time_to_solution_interval_note (why None, or None when available),
+    predicted_y, predicted_fidelity_label, predicted_fidelity_nd, probe_verdict,
+    same_hardware_data, infeasibility (template_infeasibility()'s entry for this template, or
+    None), dangerous_miss (per_template_dangerous_miss()'s entry for this template, or None).
+    Sorted RECOMMENDABLE-first, then by predicted_y ascending (faster first)."""
     probe_verdicts = probe_verdicts or {}
     no_campaign_data = not physics_rows(train_rows)
     perf_rows = [r for r in physics_rows(train_rows)
@@ -985,6 +1151,13 @@ def predict_physics_shortlist(train_rows, case_features, candidates,
     fidelity_model, fidelity_err = _try_fit(PhysicsLinearModel, "y_fidelity_nd", nd_rows)
     label_model, label_err = _try_fit(PhysicsLinearModel, "y_fidelity_label", label_rows)
 
+    # Defects 2/3 (real physics-campaign smoke job 1077893): feasibility and fidelity-uncertainty
+    # evidence, computed ONCE against the full training set (not per candidate/case), reused for
+    # every candidate template below.
+    infeasibility_by_template = template_infeasibility(train_rows)
+    dangerous_miss_by_template = per_template_dangerous_miss(train_rows, allowed_labels=allowed_labels)
+    fold_models, fold_residuals, tts_interval_note = performance_conformal_setup(perf_rows)
+
     hardware_id = case_features.get("hardware_id")
     same_hw = any(r.get("hardware_id") == hardware_id for r in perf_rows)
 
@@ -994,9 +1167,11 @@ def predict_physics_shortlist(train_rows, case_features, candidates,
             out.append(dict(template=cand["template"], family=cand.get("family"),
                              status="UNCONFIRMED",
                              reasons=["not applicable to this case: %s" % cand.get("skip_reason")],
-                             predicted_gain_pct=None, predicted_y=None,
+                             predicted_time_to_solution_pct=None, time_to_solution_interval_pct=None,
+                             time_to_solution_interval_note=None, predicted_y=None,
                              predicted_fidelity_label=None, predicted_fidelity_nd=None,
-                             probe_verdict=None, same_hardware_data=None))
+                             probe_verdict=None, same_hardware_data=None,
+                             infeasibility=None, dangerous_miss=None))
             continue
 
         row = dict(case_features)
@@ -1029,7 +1204,15 @@ def predict_physics_shortlist(train_rows, case_features, candidates,
         predicted_y = perf_model.score([row])[0] if perf_model else None
         if predicted_y is None:
             reasons.append(perf_err)
-        predicted_gain_pct = (1 - math.exp(predicted_y)) * 100 if predicted_y is not None else None
+        # Defect 4: "time-to-solution vs P00", negative=faster (this module's y is already
+        # log(cost-per-simulated-second_candidate / cost-per-simulated-second_P00) -- see the
+        # module docstring -- so exp(y)-1 IS the time-to-solution fractional change directly; the
+        # old predicted_gain_pct = (1-exp(y))*100 was the same magnitude with the OPPOSITE sign
+        # convention (positive=faster), which read as ambiguous in the shortlist report).
+        predicted_tts_pct = ((math.exp(predicted_y) - 1) * 100.0) if predicted_y is not None else None
+        tts_interval_pct = None
+        if predicted_y is not None and fold_models is not None:
+            tts_interval_pct = performance_conformal_interval_pct(fold_models, fold_residuals, row)
 
         predicted_nd = None
         if fidelity_model:
@@ -1047,15 +1230,53 @@ def predict_physics_shortlist(train_rows, case_features, candidates,
         if not same_hw:
             reasons.append("no same-hardware training data")
 
+        # Defect 2: per-template infeasibility evidence from training, attached to EVERY row
+        # (infeasibility=None only when the template was never attempted in any training case);
+        # a rate above the threshold forces UNCONFIRMED but the candidate is still listed.
+        infeas_info = infeasibility_by_template.get(cand["template"])
+        infeasible_over_threshold = (
+            infeas_info is not None and infeas_info["rate"] is not None
+            and infeas_info["rate"] > max_infeasible_rate)
+        if infeasible_over_threshold:
+            reasons.append(
+                "infeasible in %d/%d training case(s): %s"
+                % (infeas_info["n_cases_failed"], infeas_info["n_cases_tried"],
+                   ", ".join(infeas_info["failed_cases"])))
+
+        # Defect 3: leave-one-case-out out-of-fold dangerous-miss evidence, attached to EVERY row
+        # (dangerous_miss=None only when there is zero out-of-fold evidence at all for this
+        # template -- treated the same as insufficient=True below). Insufficient evidence (fewer
+        # than MIN_OOF_DANGEROUS_MISS out-of-fold predictions) always forces UNCONFIRMED,
+        # independent of --max-dangerous-miss, which only gates the RATE once there is enough
+        # evidence to trust it.
+        dang_info = dangerous_miss_by_template.get(cand["template"])
+        if dang_info is None or dang_info["insufficient"]:
+            dangerous_over_threshold = True
+            reasons.append(
+                "insufficient out-of-fold fidelity evidence for this template (n=%d, need >=%d)"
+                % (dang_info["n"] if dang_info else 0, MIN_OOF_DANGEROUS_MISS))
+        else:
+            dangerous_over_threshold = dang_info["dangerous_miss_rate"] > max_dangerous_miss
+            if dangerous_over_threshold:
+                reasons.append(
+                    "out-of-fold dangerous-miss rate %.2f > --max-dangerous-miss=%.2f (%d/%d "
+                    "out-of-fold prediction(s) predicted allowed but measured LARGE-DRIFT)"
+                    % (dang_info["dangerous_miss_rate"], max_dangerous_miss,
+                       dang_info["dangerous_miss_n"], dang_info["n"]))
+
         status = "RECOMMENDABLE" if (
             predicted_allowed and probe_verdict != "REJECT" and same_hw and predicted_y is not None
+            and not infeasible_over_threshold and not dangerous_over_threshold
         ) else "UNCONFIRMED"
 
         out.append(dict(template=cand["template"], family=cand.get("family"), status=status,
-                         reasons=reasons, predicted_gain_pct=predicted_gain_pct,
+                         reasons=reasons, predicted_time_to_solution_pct=predicted_tts_pct,
+                         time_to_solution_interval_pct=tts_interval_pct,
+                         time_to_solution_interval_note=tts_interval_note,
                          predicted_y=predicted_y, predicted_fidelity_label=predicted_label,
                          predicted_fidelity_nd=predicted_nd, probe_verdict=probe_verdict,
-                         same_hardware_data=same_hw))
+                         same_hardware_data=same_hw, infeasibility=infeas_info,
+                         dangerous_miss=dang_info))
 
     out.sort(key=lambda d: (0 if d["status"] == "RECOMMENDABLE" else 1,
                              d["predicted_y"] if d["predicted_y"] is not None else float("inf")))

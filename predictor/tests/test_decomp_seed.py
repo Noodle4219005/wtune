@@ -16,12 +16,23 @@ def test_seed_design_one_balanced_shape_per_thread_count_on_one_node():
     for c in seed:
         assert c["ranks"] * c["omp"] == 112
         assert c["tile_shape"] == "1d_y" and c["dist"] == "block" and str(c["blocktime"]) == "0"
-        group = [s for s in space if s["omp"] == c["omp"] and s["patch_x"] and s["patch_y"]]
-        best = min(max(s["patch_x"], s["patch_y"]) / min(s["patch_x"], s["patch_y"]) for s in group)
-        assert max(c["patch_x"], c["patch_y"]) / min(c["patch_x"], c["patch_y"]) == best
-    # at most two tile counts per thread count, no duplicates
     keys = [ds._candidate_key(c) for c in seed]
-    assert len(keys) == len(set(keys)) <= 2 * len(axis["omp_options"])
+    assert len(keys) == len(set(keys))  # no duplicates
+    # up to 2 shapes x 2 tile counts per thread count
+    assert len(keys) <= 4 * len(axis["omp_options"])
+
+
+def test_seed_design_covers_both_the_balanced_and_the_widest_x_shape():
+    """zhengzhou 112x4: the min-aspect shape (14x8) measured 3.477 s/step while the widest-in-x
+    shape (4x28) measured 2.780 -- the seed must not offer only the balanced one (jobs 1080108,
+    1078389)."""
+    zz = dict(e_we=601, e_sn=372, e_vert=60, max_dom=1)
+    space, _ = ds.enumerate_space(zz, 448, 4, ds.DEFAULT_HARDWARE)
+    seed = ds.seed_design(space)
+    shapes_at_omp4 = {(c["nx"], c["ny"]) for c in seed if c["omp"] == 4}
+    assert len(shapes_at_omp4) == 2
+    nxs = sorted(nx for nx, _ny in shapes_at_omp4)
+    assert nxs[0] < nxs[1]  # one narrow-in-nproc_x (= wide patch), one balanced
 
 
 def test_seed_design_is_deterministic():

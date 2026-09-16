@@ -630,8 +630,9 @@ def seed_design(space, numtiles_targets=(None, 12), max_omp=14):
     """Cold-start screen for a case/allocation with no measurements (e.g. 1-node cases where the
     448-core templates do not exist): for every ranks x omp group, the most balanced legal patch
     shape (min patch aspect), default 1-D tiles, dist=block, KMP_BLOCKTIME=0, at numtiles nearest
-    each target (None = one tile per thread). Thread counts above `max_omp` are skipped (lafe 8x56
-    segfaulted, job 1078094). Deterministic; ties broken by _candidate_key."""
+    each target (None = one tile per thread), for BOTH the most balanced patch and the widest-in-x
+    patch (see the comment in the body: balanced alone lost by 25% on zhengzhou). Thread counts above
+    `max_omp` are skipped (lafe 8x56 segfaulted, job 1078094). Deterministic; ties by _candidate_key."""
     def aspect(c):
         px, py = c.get("patch_x") or 0, c.get("patch_y") or 0
         return max(px, py) / float(min(px, py)) if px and py else float("inf")
@@ -640,15 +641,28 @@ def seed_design(space, numtiles_targets=(None, 12), max_omp=14):
             and str(c["blocktime"]) == "0"]
     chosen, seen = [], set()
     for omp in sorted({c["omp"] for c in base}):
-        group = sorted((c for c in base if c["omp"] == omp), key=lambda c: (aspect(c), _candidate_key(c)))
-        best_shape = (group[0]["nx"], group[0]["ny"])
-        shape = [c for c in group if (c["nx"], c["ny"]) == best_shape]
-        for target in numtiles_targets:
-            t = max(1, omp) if target is None else target
-            c = min(shape, key=lambda c: (abs(c["numtiles"] - t), c["numtiles"]))
-            if _candidate_key(c) not in seen:
-                seen.add(_candidate_key(c))
-                chosen.append(c)
+        group = [c for c in base if c["omp"] == omp]
+        if not group:
+            continue
+        # TWO shapes per thread count, because "most balanced patch" turned out to be the wrong
+        # heuristic on its own: zhengzhou's 112x4 at the min-aspect shape (14x8, patch 42x46) ran
+        # 3.477 s/step while the search's own 4x28 (patch 150x13, aspect 11.5) ran 2.780 -- 25%
+        # faster (jobs 1080108 vs 1078389). x is the contiguous direction, so a patch that is wide
+        # in x vectorises better; lafe (8x56) and karina (8x28) show the same preference.
+        shapes = []
+        for key in (lambda c: (aspect(c), _candidate_key(c)),          # most balanced patch
+                    lambda c: (c["nx"], -c["ny"], _candidate_key(c))):  # widest patch in x
+            pick = min(group, key=key)
+            if (pick["nx"], pick["ny"]) not in shapes:
+                shapes.append((pick["nx"], pick["ny"]))
+        for shape_xy in shapes:
+            shape = [c for c in group if (c["nx"], c["ny"]) == shape_xy]
+            for target in numtiles_targets:
+                t = max(1, omp) if target is None else target
+                c = min(shape, key=lambda c: (abs(c["numtiles"] - t), c["numtiles"]))
+                if _candidate_key(c) not in seen:
+                    seen.add(_candidate_key(c))
+                    chosen.append(c)
     return chosen
 
 

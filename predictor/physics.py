@@ -1038,11 +1038,18 @@ def generic_extra_edits(template_id, native_physics_resolved):
 
 def _template_case_entry(spec, case_name):
     """(has_case_entry, extra_edits, skip_reason) from physics_templates.json's own per-case
-    tables ONLY (no generic fallback) -- has_case_entry is True iff this exact case_name appears
+    tables and 'applies_to' allowlist ONLY (no generic fallback) -- has_case_entry is True iff this exact case_name appears
     in the template's own 'skip_cases' or 'extra_edits', i.e. JSON always wins over the generic
     rule when both could apply."""
     skip_cases = spec.get("skip_cases") or {}
     extra_edits_map = spec.get("extra_edits") or {}
+    applies_to = spec.get("applies_to")
+    if applies_to is not None and case_name not in applies_to:
+        # an allowlist is a per-case entry too: campaign/configs.py's
+        # physics_template_applicability treats it as a skip, and the two engines must agree
+        # (predictor/tests/test_physics.py::test_template_engine_consistency_across_real_case_namelists;
+        # D04/D06, 2026-09-16 -- before this the dict engine offered bigchill-only templates for karina)
+        return True, [], "not in applies_to %s" % (applies_to,)
     has_case_entry = case_name in skip_cases or case_name in extra_edits_map
     return has_case_entry, extra_edits_map.get(case_name, []), skip_cases.get(case_name)
 

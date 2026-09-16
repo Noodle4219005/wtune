@@ -1163,18 +1163,26 @@ class TestPhysicsTemplatesJson(unittest.TestCase):
     revised 2026-09-15 from the WRF 4.8 source compatibility survey)."""
 
     ALL = ["P00", "P01", "P02", "P03", "P04", "P05", "P06"]
-    DYNAMICS = ["D01", "D02", "D03"]  # &dynamics cost levers added 2026-09-16
+    DYNAMICS = ["D01", "D02", "D03", "D04", "D05", "D06"]  # cost levers added 2026-09-16
 
     def test_loads_and_has_p00_through_p06(self):
         self.assertEqual(set(configs.PHYSICS_TEMPLATES), set(self.ALL + self.DYNAMICS))
         self.assertEqual(configs.PHYSICS_TEMPLATE_ORDER, sorted(self.ALL + self.DYNAMICS))
 
     def test_dynamics_templates_are_in_the_dynamics_family_and_edit_that_section(self):
-        for tid in self.DYNAMICS:
+        for tid in ("D01", "D02", "D03"):
             tpl = configs.PHYSICS_TEMPLATES[tid]
             self.assertEqual(tpl["family"], "dynamics")
             for e in tpl["edits"]:
                 self.assertEqual(e["section"], "&dynamics")
+
+    def test_d04_d06_families_and_sections(self):
+        self.assertEqual(configs.PHYSICS_TEMPLATES["D04"]["family"], "diagnostics")
+        self.assertEqual(configs.PHYSICS_TEMPLATES["D05"]["family"], "pbl_surface")
+        self.assertEqual(configs.PHYSICS_TEMPLATES["D06"]["family"], "nesting")
+        sections = {e["section"] for tid in ("D04", "D05", "D06")
+                    for e in configs.PHYSICS_TEMPLATES[tid]["edits"]}
+        self.assertEqual(sections, {"&time_control", "&physics", "&bdy_control"})
 
     def test_p00_has_no_edits(self):
         self.assertEqual(configs.PHYSICS_TEMPLATES["P00"]["edits"], [])
@@ -1753,3 +1761,48 @@ class TestDynamicsTemplates(unittest.TestCase):
             out, _ = configs.apply_physics_template(self.NL, self._tpl(tid), max_dom=2)
             self.assertIn(" mp_physics = 8, 8,", out)
             self.assertIn(" diff_opt=1, km_opt=4,", out)
+
+
+class TestDiagnosticsAndCadenceTemplates(unittest.TestCase):
+    """D04-D06 (2026-09-16): diagnostics off, PBL call interval, one-way nesting."""
+
+    NL = ("&time_control\n nwp_diagnostics = 1,\n/\n"
+          "&domains\n time_step=15, max_dom=2,\n/\n"
+          "&physics\n mp_physics = 8, 8,\n hailcast_opt = 1, 1,\n do_radar_ref = 1,\n/\n"
+          "&bdy_control\n spec_bdy_width = 5,\n feedback = 1,\n/\n")
+
+    def test_d04_zeroes_all_three_diagnostics(self):
+        out, summary = configs.apply_physics_template(
+            self.NL, configs.PHYSICS_TEMPLATES["D04"], max_dom=2)
+        self.assertIn("nwp_diagnostics = 0,", out)
+        self.assertIn("hailcast_opt = 0, 0,", out)
+        self.assertIn("do_radar_ref = 0,", out)
+        self.assertEqual([e["key"] for e in summary],
+                         ["nwp_diagnostics", "hailcast_opt", "do_radar_ref"])
+
+    def test_d04_only_applies_to_the_two_cases_that_enable_them(self):
+        tpl = configs.PHYSICS_TEMPLATES["D04"]
+        self.assertEqual(set(tpl["applies_to"]), {"bigchill", "elevconv"})
+        ok, _why = configs.physics_template_applicability("bigchill", tpl)
+        self.assertTrue(ok)
+        ok, why = configs.physics_template_applicability("karina", tpl)
+        self.assertFalse(ok)
+        self.assertIn("applies_to", why)
+
+    def test_d05_inserts_bldt_for_every_active_domain(self):
+        out, _ = configs.apply_physics_template(
+            self.NL, configs.PHYSICS_TEMPLATES["D05"], max_dom=2)
+        self.assertIn("bldt = 10, 10,", out)
+        self.assertIn("&physics", out.split("bldt")[0][-300:])
+
+    def test_d06_sets_feedback_zero_in_bdy_control(self):
+        out, summary = configs.apply_physics_template(
+            self.NL, configs.PHYSICS_TEMPLATES["D06"], max_dom=2)
+        self.assertIn("feedback = 0,", out)
+        self.assertEqual(summary[0]["old"], ["1"])
+        self.assertIn(" spec_bdy_width = 5,", out)
+
+    def test_d06_is_nested_cases_only(self):
+        tpl = configs.PHYSICS_TEMPLATES["D06"]
+        self.assertNotIn("karina", tpl["applies_to"])
+        self.assertIn("zhengzhou", tpl["applies_to"])

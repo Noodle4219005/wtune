@@ -245,6 +245,68 @@
           "per_domain": true
         }
       ]
+    },
+    "D04": {
+      "family": "diagnostics",
+      "description": "Turn the output-only diagnostics off: nwp_diagnostics=0, hailcast_opt=0 (every active domain), do_radar_ref=0. These compute DIAGNOSTIC fields (hail size via hailstone_driver in phys/module_diagnostics_driver.F, NWP diagnostics, radar reflectivity) that are written out but never fed back into the prognostic equations, so this is the only cost lever in the table whose expected fidelity verdict is WITHIN-FLOOR -- every other speed-up pays with drift. Registry defaults are all 0; only bigchill and elevconv switch them on, so applies_to lists just those two. Second purpose: those two cases hang before step 1 whenever tiles are 1-3 rows deep (jobs 1078391/1078392) and disabling topo_shading or hailcast alone did not fix it (job 1078461) -- if D04 runs clean at C02's 8 tiles, this group is the remaining suspect.",
+      "applies_to": [
+        "bigchill",
+        "elevconv"
+      ],
+      "edits": [
+        {
+          "op": "set",
+          "key": "nwp_diagnostics",
+          "value": 0,
+          "section": "&time_control"
+        },
+        {
+          "op": "set",
+          "key": "hailcast_opt",
+          "value": 0,
+          "section": "&physics",
+          "per_domain": true
+        },
+        {
+          "op": "set",
+          "key": "do_radar_ref",
+          "value": 0,
+          "section": "&physics"
+        }
+      ]
+    },
+    "D05": {
+      "family": "pbl_surface",
+      "description": "bldt=10 minutes on every active domain (PBL call interval). Registry default 0 means the PBL and surface-layer drivers run EVERY step (module_pbl_driver.F:995-1012: bldt==0 -> DTBL=dt, STEPBL=1); bldt>0 makes WRF call them every nint(bldt*60/dt) steps instead -- karina dt=15 -> every 40 steps, conus12 dt=72 -> every 8. Same lever shape as radt (P02) but on the PBL bucket, which the profile puts well above radiation. radt x2 bought nothing measurable, so this tests whether the cadence lever is dead in general or only for radiation.",
+      "edits": [
+        {
+          "op": "set",
+          "key": "bldt",
+          "value": 10,
+          "section": "&physics",
+          "per_domain": true
+        }
+      ]
+    },
+    "D06": {
+      "family": "nesting",
+      "description": "feedback=0 (one-way nesting; Registry default 1 = two-way). With feedback on, every nested domain's solution is fed back onto its parent after the nest finishes its steps; turning it off removes that transfer and the parent's smoothing work (smooth_option stays at its default). Only meaningful for max_dom>1, hence applies_to lists the nested cases. This changes the parent's solution by construction, so a LARGE-DRIFT verdict would NOT be a surprise -- the number worth having is how much the two-way coupling costs.",
+      "applies_to": [
+        "zhengzhou",
+        "severe2023",
+        "bigchill",
+        "elevconv",
+        "maria1km",
+        "isc21"
+      ],
+      "edits": [
+        {
+          "op": "set",
+          "key": "feedback",
+          "value": 0,
+          "section": "&bdy_control"
+        }
+      ]
     }
   },
   "excluded": {

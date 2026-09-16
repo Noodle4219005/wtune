@@ -283,7 +283,9 @@ if [ "$MODE" = "physics" ]; then
   # noise line (e.g. a pixi cache warning) a $PY invocation might print to stdout,
   # which would otherwise silently splice a bogus entry into PORDER.
   mapfile -t PORDER < <($PY "$CAMPAIGN/configs.py" physics-order "$CASE" "${PCONFIGS_ARGS[@]}" --reps "$REPS" \
-    2>/dev/null | grep -E '^(P00_ref|P00_twin|P[0-9]+)$')
+    2>/dev/null | grep -E '^(P00_ref|P00_twin|[PD][0-9]+)$')  # [PD]: D01+ are the &dynamics/
+    # diagnostics/cadence templates (2026-09-16); a P-only filter silently dropped every one of them
+    # and left an empty candidate list (job 1080256)
   echo "physics order (${#PORDER[@]} runs): ${PORDER[*]}"
   if [ ${#PORDER[@]} -eq 0 ]; then
     echo "no physics templates resolved for case $CASE" >&2
@@ -666,7 +668,11 @@ PY
   # sweep also catches any residual wrfout_d0* BP dir (there should be none left: every
   # successful conversion deletes its own BP immediately above, and a failed run's BP
   # is purged by the retention block above too).
-  EXPECTED_FIDELITY=$(( 1 + ${#EXPECTED_CANDIDATE[@]} ))
+  # an EMPTY associative array expands to an unbound variable under set -u (job 1080256 died here
+  # once the filter above had dropped every candidate), so count it through a +x guard
+  EXPECTED_N=0
+  [ -n "${EXPECTED_CANDIDATE[*]+x}" ] && EXPECTED_N=${#EXPECTED_CANDIDATE[@]}
+  EXPECTED_FIDELITY=$(( 1 + EXPECTED_N ))
   rm -f "${REF_NC_FILES[@]}" "${TWIN_NC_FILES[@]}"
   for d in "$OUT/${CASE}_physics_"*"_${J}"; do
     [ -d "$d" ] || continue

@@ -10,37 +10,75 @@
       "family": "radiation",
       "description": "swint_opt=1 (SW zenith interpolation between radiation calls). Probe CONFIRM on karina/conus25/conus12/maria1km/lafe (job 1076060); isc21 already sets swint_opt=1 natively, so P01 is a no-op there but kept for cross-case uniformity. swint_opt is a scalar namelist variable.",
       "edits": [
-        {"op": "set", "key": "swint_opt", "value": 1, "section": "&physics"}
+        {
+          "op": "set",
+          "key": "swint_opt",
+          "value": 1,
+          "section": "&physics"
+        }
       ]
     },
     "P02": {
       "family": "radiation",
       "description": "radt x2 on every active domain, paired with swint_opt=1. Probe CONFIRM for conus12/isc21/lafe, REJECT (cloud-cap) for karina/conus25/maria1km (job 1076060) -- applied to all six so measured fidelity can test the probe's cloud-cap rule. WRF rounds radt*60/dt to whole steps silently (phys/module_physics_init.F:2276).",
       "edits": [
-        {"op": "mul", "key": "radt", "factor": 2, "round": "int", "min": 1, "section": "&physics"},
-        {"op": "set", "key": "swint_opt", "value": 1, "section": "&physics"}
+        {
+          "op": "mul",
+          "key": "radt",
+          "factor": 2,
+          "round": "int",
+          "min": 1,
+          "section": "&physics"
+        },
+        {
+          "op": "set",
+          "key": "swint_opt",
+          "value": 1,
+          "section": "&physics"
+        }
       ]
     },
     "P03": {
       "family": "dynamics",
       "description": "time_step x1.2 rounded to int (karina/conus25/isc21 15->18, conus12 72->86, maria1km 25->30, lafe 10->12). Probe PASS->WRF where evaluated; acoustic CFL is not in the probe, so a CFL abort is recorded as status=FAILED (infeasible). parent_time_step_ratio unchanged.",
       "edits": [
-        {"op": "mul", "key": "time_step", "factor": 1.2, "round": "int", "section": "&domains"}
+        {
+          "op": "mul",
+          "key": "time_step",
+          "factor": 1.2,
+          "round": "int",
+          "section": "&domains"
+        }
       ]
     },
     "P04": {
       "family": "microphysics",
       "description": "mp_physics=6 (WSM6) on every active entry. Probe REJECT on every case that evaluates it (job 1076060) -- run anyway to test that heuristic. lafe (native Thompson aerosol-aware 28) also gets aer_opt=0 and use_aero_icbc=.false., because the aerosol knobs become inert once mp is not 28/29 (share/module_check_a_mundo.F:2474-2606) and the explicit edit keeps the namelist self-documenting.",
       "edits": [
-        {"op": "set", "key": "mp_physics", "value": 6, "section": "&physics"}
+        {
+          "op": "set",
+          "key": "mp_physics",
+          "value": 6,
+          "section": "&physics"
+        }
       ],
       "skip_cases": {
         "maria1km": "physics_suite='tropical' already resolves mp_physics to WSM6 (share/module_check_a_mundo.F:3184-3196), so mp_physics=6 is a no-op, not a physics change"
       },
       "extra_edits": {
         "lafe": [
-          {"op": "set", "key": "aer_opt", "value": 0, "section": "&physics"},
-          {"op": "set", "key": "use_aero_icbc", "value": ".false.", "section": "&physics"}
+          {
+            "op": "set",
+            "key": "aer_opt",
+            "value": 0,
+            "section": "&physics"
+          },
+          {
+            "op": "set",
+            "key": "use_aero_icbc",
+            "value": ".false.",
+            "section": "&physics"
+          }
         ]
       }
     },
@@ -50,28 +88,88 @@
       "edits": [],
       "extra_edits": {
         "karina": [
-          {"op": "set", "key": "bl_pbl_physics", "value": 5, "section": "&physics"},
-          {"op": "set", "key": "sf_sfclay_physics", "value": 5, "section": "&physics"}
+          {
+            "op": "set",
+            "key": "bl_pbl_physics",
+            "value": 5,
+            "section": "&physics"
+          },
+          {
+            "op": "set",
+            "key": "sf_sfclay_physics",
+            "value": 5,
+            "section": "&physics"
+          }
         ],
         "maria1km": [
-          {"op": "set", "key": "bl_pbl_physics", "value": 5, "section": "&physics"},
-          {"op": "set", "key": "sf_sfclay_physics", "value": 5, "section": "&physics"}
+          {
+            "op": "set",
+            "key": "bl_pbl_physics",
+            "value": 5,
+            "section": "&physics"
+          },
+          {
+            "op": "set",
+            "key": "sf_sfclay_physics",
+            "value": 5,
+            "section": "&physics"
+          }
         ],
         "isc21": [
-          {"op": "set", "key": "bl_pbl_physics", "value": 1, "section": "&physics"},
-          {"op": "set", "key": "sf_sfclay_physics", "value": 1, "section": "&physics"}
+          {
+            "op": "set",
+            "key": "bl_pbl_physics",
+            "value": 1,
+            "section": "&physics"
+          },
+          {
+            "op": "set",
+            "key": "sf_sfclay_physics",
+            "value": 1,
+            "section": "&physics"
+          }
         ],
         "lafe": [
-          {"op": "set", "key": "bl_pbl_physics", "value": 1, "section": "&physics"},
-          {"op": "set", "key": "sf_sfclay_physics", "value": 1, "section": "&physics"}
+          {
+            "op": "set",
+            "key": "bl_pbl_physics",
+            "value": 1,
+            "section": "&physics"
+          },
+          {
+            "op": "set",
+            "key": "sf_sfclay_physics",
+            "value": 1,
+            "section": "&physics"
+          }
         ],
         "conus25": [
-          {"op": "set", "key": "bl_pbl_physics", "value": 1, "section": "&physics"},
-          {"op": "set", "key": "sf_sfclay_physics", "value": 1, "section": "&physics"}
+          {
+            "op": "set",
+            "key": "bl_pbl_physics",
+            "value": 1,
+            "section": "&physics"
+          },
+          {
+            "op": "set",
+            "key": "sf_sfclay_physics",
+            "value": 1,
+            "section": "&physics"
+          }
         ],
         "conus12": [
-          {"op": "set", "key": "bl_pbl_physics", "value": 1, "section": "&physics"},
-          {"op": "set", "key": "sf_sfclay_physics", "value": 1, "section": "&physics"}
+          {
+            "op": "set",
+            "key": "bl_pbl_physics",
+            "value": 1,
+            "section": "&physics"
+          },
+          {
+            "op": "set",
+            "key": "sf_sfclay_physics",
+            "value": 1,
+            "section": "&physics"
+          }
         ]
       }
     },
@@ -79,14 +177,74 @@
       "family": "radiation",
       "description": "ra_lw_physics=1, ra_sw_physics=1 (RRTM longwave / Dudhia shortwave) on every active entry, replacing RRTMG (4/4, native or suite). WRF silently forces o3input=0 for non-RRTMG radiation (share/module_check_a_mundo.F:2943-2962). lafe also gets aer_opt=0, since the aerosol-SW coupling requires RRTMG SW (phys/module_radiation_driver.F:1651-1667).",
       "edits": [
-        {"op": "set", "key": "ra_lw_physics", "value": 1, "section": "&physics"},
-        {"op": "set", "key": "ra_sw_physics", "value": 1, "section": "&physics"}
+        {
+          "op": "set",
+          "key": "ra_lw_physics",
+          "value": 1,
+          "section": "&physics"
+        },
+        {
+          "op": "set",
+          "key": "ra_sw_physics",
+          "value": 1,
+          "section": "&physics"
+        }
       ],
       "extra_edits": {
         "lafe": [
-          {"op": "set", "key": "aer_opt", "value": 0, "section": "&physics"}
+          {
+            "op": "set",
+            "key": "aer_opt",
+            "value": 0,
+            "section": "&physics"
+          }
         ]
       }
+    },
+    "D01": {
+      "family": "dynamics",
+      "description": "time_step_sound=3 on every active domain (acoustic substeps). The namelist default 0 means AUTO: dyn_em/solve_em.F:451-464 computes max(2*(INT(300*dt/min(dx,dy)-0.01)+1),4) and returns even numbers only -- all six campaign cases land on 4 (karina 300*15/3000=1.5 -> 4; conus12 300*72/12000=1.8 -> 4; lafe 1.2 -> 4; conus25 1.8 -> 4; maria1km 1.5 -> 4; isc21 -> 4). Setting 3 cuts small-step work ~25%. Acoustic CFL rises by the same factor (dts=dt/3 instead of dt/4), so a CFL abort is possible and is recorded as status=FAILED (infeasible), the same way P03's time_step increase is. Never screened by the probe (probe has no acoustic CFL).",
+      "edits": [
+        {
+          "op": "set",
+          "key": "time_step_sound",
+          "value": 3,
+          "section": "&dynamics",
+          "per_domain": true
+        }
+      ]
+    },
+    "D02": {
+      "family": "dynamics",
+      "description": "rk_ord=2 (RK2 instead of the default RK3, Registry.EM_COMMON default 3, scalar not per-domain). RK3 runs three dynamics stages per step, RK2 two, so this is a pure stage-count lever on the dynamics bucket. Accuracy drops from third to second order in time; expected to drift, but the cost/fidelity tradeoff has never been measured here.",
+      "edits": [
+        {
+          "op": "set",
+          "key": "rk_ord",
+          "value": 2,
+          "section": "&dynamics"
+        }
+      ]
+    },
+    "D03": {
+      "family": "dynamics",
+      "description": "moist_adv_opt=0 and scalar_adv_opt=0 on every active domain (Registry default 1 = positive-definite RK3 transport). Turning the limiter off removes its per-tracer work; WRF then permits negative moisture, so this is expected to be scientifically unacceptable -- it is here to QUANTIFY the limiter's cost, not as a shipping candidate. Compare against P04 (WSM6), the other microphysics-side cost lever.",
+      "edits": [
+        {
+          "op": "set",
+          "key": "moist_adv_opt",
+          "value": 0,
+          "section": "&dynamics",
+          "per_domain": true
+        },
+        {
+          "op": "set",
+          "key": "scalar_adv_opt",
+          "value": 0,
+          "section": "&dynamics",
+          "per_domain": true
+        }
+      ]
     }
   },
   "excluded": {
@@ -96,6 +254,7 @@
     "epssm": "terrain-only indirect gain, no speed evidence",
     "non_hydrostatic=.false.": "valid only for dx >= 10 km (conus12 here) -- cannot generalise across the six cases",
     "e_vert": "needs real.exe regeneration of wrfinput, not a namelist-only change",
-    "cu_physics/cudt": "cumulus is on only for isc21 d01 among the six cases"
+    "cu_physics/cudt": "cumulus is on only for isc21 d01 among the six cases",
+    "km_opt 4->1 / diff_opt 1->0": "same family as the probe-REJECTed h_mom_adv_order/diff_opt entry (job 1076060); revisit only if D01-D03 show the dynamics bucket is worth more measurement"
   }
 }

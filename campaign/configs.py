@@ -707,7 +707,11 @@ def apply_physics_edit(text, edit, max_dom):
     if found is None:
         if op != "set":
             raise ValueError("physics template: key %r not found for op %r" % (key, op))
-        new_active = [str(edit["value"])]
+        # per_domain: a max_domains key that is ABSENT (every domain at the Registry default, e.g.
+        # time_step_sound=0 -> auto) must be written for every active domain, or the nests keep the
+        # default while only d01 changes (2026-09-16, D01/D03 dynamics templates).
+        n_insert = max_dom if (edit.get("per_domain") and max_dom) else 1
+        new_active = [str(edit["value"])] * n_insert
         line = " %s = %s,\n" % (key, ", ".join(new_active))
         return _insert_after_section_header(text, section, line), [], new_active
     values = found["values"]

@@ -1163,10 +1163,18 @@ class TestPhysicsTemplatesJson(unittest.TestCase):
     revised 2026-09-15 from the WRF 4.8 source compatibility survey)."""
 
     ALL = ["P00", "P01", "P02", "P03", "P04", "P05", "P06"]
+    DYNAMICS = ["D01", "D02", "D03"]  # &dynamics cost levers added 2026-09-16
 
     def test_loads_and_has_p00_through_p06(self):
-        self.assertEqual(set(configs.PHYSICS_TEMPLATES), set(self.ALL))
-        self.assertEqual(configs.PHYSICS_TEMPLATE_ORDER, self.ALL)
+        self.assertEqual(set(configs.PHYSICS_TEMPLATES), set(self.ALL + self.DYNAMICS))
+        self.assertEqual(configs.PHYSICS_TEMPLATE_ORDER, sorted(self.ALL + self.DYNAMICS))
+
+    def test_dynamics_templates_are_in_the_dynamics_family_and_edit_that_section(self):
+        for tid in self.DYNAMICS:
+            tpl = configs.PHYSICS_TEMPLATES[tid]
+            self.assertEqual(tpl["family"], "dynamics")
+            for e in tpl["edits"]:
+                self.assertEqual(e["section"], "&dynamics")
 
     def test_p00_has_no_edits(self):
         self.assertEqual(configs.PHYSICS_TEMPLATES["P00"]["edits"], [])
@@ -1705,3 +1713,43 @@ class TestSbatchNodeCount(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestDynamicsTemplates(unittest.TestCase):
+    """D01-D03 (&dynamics cost levers, 2026-09-16). time_step_sound/moist_adv_opt are absent from
+    every campaign namelist, so they are inserted -- and must be inserted per active domain."""
+
+    NL = ("&domains\n time_step=15, max_dom=2,\n/\n"
+          "&physics\n mp_physics = 8, 8,\n/\n"
+          "&dynamics\n diff_opt=1, km_opt=4,\n/\n")
+
+    def _tpl(self, tid):
+        return configs.PHYSICS_TEMPLATES[tid]
+
+    def test_d01_inserts_time_step_sound_for_every_active_domain(self):
+        out, summary = configs.apply_physics_template(self.NL, self._tpl("D01"), max_dom=2)
+        self.assertIn("time_step_sound = 3, 3,", out)
+        self.assertIn("&dynamics", out.split("time_step_sound")[0][-200:])
+        self.assertEqual(summary[0]["new"], ["3", "3"])
+
+    def test_d01_single_domain_inserts_one_value(self):
+        out, _ = configs.apply_physics_template(self.NL, self._tpl("D01"), max_dom=1)
+        self.assertIn("time_step_sound = 3,", out)
+        self.assertNotIn("time_step_sound = 3, 3,", out)
+
+    def test_d02_rk_ord_is_scalar_not_per_domain(self):
+        out, _ = configs.apply_physics_template(self.NL, self._tpl("D02"), max_dom=2)
+        self.assertIn("rk_ord = 2,", out)
+        self.assertNotIn("rk_ord = 2, 2,", out)
+
+    def test_d03_sets_both_advection_limiters(self):
+        out, summary = configs.apply_physics_template(self.NL, self._tpl("D03"), max_dom=2)
+        self.assertIn("moist_adv_opt = 0, 0,", out)
+        self.assertIn("scalar_adv_opt = 0, 0,", out)
+        self.assertEqual([e["key"] for e in summary], ["moist_adv_opt", "scalar_adv_opt"])
+
+    def test_dynamics_templates_do_not_touch_physics_section(self):
+        for tid in ("D01", "D02", "D03"):
+            out, _ = configs.apply_physics_template(self.NL, self._tpl(tid), max_dom=2)
+            self.assertIn(" mp_physics = 8, 8,", out)
+            self.assertIn(" diff_opt=1, km_opt=4,", out)

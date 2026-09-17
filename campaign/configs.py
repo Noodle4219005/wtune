@@ -439,7 +439,14 @@ def _set_history_interval(text, history_minutes, max_dom, nest_history_on=False)
         if nest_history_on:
             values = [minutes] * max_dom
         else:
-            values = [minutes] + [0] * (max_dom - 1)
+            # A nest normally gets 0 (no history at all). But hailcast_opt aborts at init on any
+            # domain where it is ON and that domain's history_interval is 0 ("HAILCAST Error : No
+            # 'history_interval' defined in namelist", phys/module_diagnostics_driver.F; bigchill
+            # and elevconv reference runs, jobs 1081089/1081090). A never-elapsing interval
+            # satisfies the check and still writes nothing.
+            nest_value = (_history_key_and_value(text, HISTORY_NEVER_MINUTES)[2]
+                          if _history_requiring_diagnostics_on(text) else 0)
+            values = [minutes] + [nest_value] * (max_dom - 1)
         return _replace_list_line(text, key, values)
     return _set_scalar(text, key, minutes)
 

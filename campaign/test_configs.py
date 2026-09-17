@@ -1806,3 +1806,32 @@ class TestDiagnosticsAndCadenceTemplates(unittest.TestCase):
         tpl = configs.PHYSICS_TEMPLATES["D06"]
         self.assertNotIn("karina", tpl["applies_to"])
         self.assertIn("zhengzhou", tpl["applies_to"])
+
+
+class TestHailcastNestHistoryInterval(unittest.TestCase):
+    """hailcast_opt aborts at init on a domain whose history_interval is 0 ("HAILCAST Error : No
+    'history_interval' defined in namelist"), which killed the bigchill/elevconv reference runs
+    (jobs 1081089/1081090) because nest history is off by default. The nest must get a
+    never-elapsing interval instead of 0 -- still writes nothing."""
+
+    NEST = ("&time_control\n history_interval = 60, 60,\n/\n"
+            "&domains\n time_step=15, max_dom=2,\n/\n"
+            "&physics\n mp_physics = 8, 8,\n hailcast_opt = 1, 1,\n/\n")
+    NEST_NO_DIAG = NEST.replace(" hailcast_opt = 1, 1,\n", "")
+
+    def test_interval_mode_gives_the_nest_a_never_elapsing_interval_when_hailcast_is_on(self):
+        out = configs.edit_namelist(self.NEST, 4, 28, 6, 30, max_dom=2, history_mode="interval",
+                                     history_minutes=10, ranks=112)
+        n = configs.HISTORY_NEVER_MINUTES
+        self.assertIn("history_interval = 10, %d," % n, out)
+        self.assertNotIn("history_interval = 10, 0,", out)
+
+    def test_nest_still_gets_zero_without_those_diagnostics(self):
+        out = configs.edit_namelist(self.NEST_NO_DIAG, 4, 28, 6, 30, max_dom=2,
+                                     history_mode="interval", history_minutes=10, ranks=112)
+        self.assertIn("history_interval = 10, 0,", out)
+
+    def test_end_d01_mode_too(self):
+        out = configs.edit_namelist(self.NEST, 4, 28, 6, 30, max_dom=2, history_mode="end_d01",
+                                     ranks=112)
+        self.assertNotIn("history_interval = 30, 0,", out)

@@ -53,6 +53,7 @@ import models as modelmod              # predictor/models.py
 import physics as physicsmod           # predictor/physics.py: PHYSICS-GRAY models (decision 0051)
 import targets                         # predictor/targets.py
 import validate                        # predictor/validate.py
+import verify_obs                      # predictor/verify_obs.py: score_case() vs REAL observations
 import configs as campaign_configs     # campaign/configs.py
 import wtune as wtune_core             # repo-root wtune.py: parse_namelist()/first_value()
 
@@ -1502,6 +1503,11 @@ OBJECTIVES = ("perf", "accuracy")
 CHAOS_FLOOR_RATIO = 1.0
 ACCURACY_DIRECTION = "accuracy"
 COST_DIRECTION = "cost"
+# Which judge produced an entry's fidelity_error. OBSERVED comes from predictor/verify_obs.py
+# (distance from REALITY, lower = more correct); MODEL is nd against a reference RUN (lower =
+# more like the reference). Never rank the two in one list -- see _accuracy_entry.
+OBSERVED_ERROR = "observation"
+MODEL_ERROR = "model-vs-model"
 BELOW_FLOOR_NOTE = ("indistinguishable from changing the decomposition (floor_ratio %.3f <= %.2f): "
                     "its drift is at or below the chaos floor, so this is NOT an accuracy "
                     "improvement")
@@ -1563,29 +1569,99 @@ def measured_fidelity_by_template(train_rows):
     return out
 
 
-def _accuracy_entry(cand, measured, templates=None):
-    """One accuracy-mode row for one shortlist candidate. fidelity_error prefers the per-case
-    REGRESSION prediction (predicted_fidelity_nd) because it is the only thing that is about THIS
-    case; it falls back to the template's measured median across training cases, and is None when
-    neither exists (the production state today: no PHYSICS-GRAY campaign data at all)."""
+def _parse_obs_wrfout(specs):
+    """--obs-wrfout TEMPLATE=GLOB [...] -> {template: glob}. None/empty -> None."""
+    if not specs:
+        return None
+    out = {}
+    for spec in specs:
+        if "=" not in spec:
+            raise ValueError("--obs-wrfout wants TEMPLATE=GLOB (e.g. P01='run_P01/wrfout_d01_*'),"
+                             " got %r" % (spec,))
+        template, glob_pattern = spec.split("=", 1)
+        out[template.strip()] = glob_pattern
+    return out
+
+
+def case_observations(case_name, cases=None):
+    """The case's declared `observations` block from cases.json, or None when it declares none.
+
+    None is the normal state: only the two SC26 practice problems have real observation ground
+    truth, and every other case is judged model-vs-model exactly as before. A MALFORMED block
+    raises (verify_obs.observations_spec validates it) rather than being read as "no
+    observations" -- a typo'd path must not quietly downgrade the judge."""
+    cases = campaign_configs.CASES if cases is None else cases
+    entry = cases.get(case_name)
+    return None if not entry else verify_obs.observations_spec(entry)
+
+
+def observation_scores_for_case(case_name, wrfout_by_template, cases=None):
+    """{template_id: (error, source)} scored against the case's REAL observations.
+
+    `wrfout_by_template` is {template_id: wrfout path or glob(s)} for the candidates that have
+    ACTUALLY BEEN RUN. It is an input, not something this function goes and produces: there is
+    no observation error for a template whose run does not exist, and inventing one from a
+    model would defeat the point of scoring against observations at all.
+
+    Returns {} when the case declares no observations or nothing has been run, so the caller
+    falls back to model-vs-model fidelity with no extra branching."""
+    spec = case_observations(case_name, cases)
+    if spec is None or not wrfout_by_template:
+        return {}
+    scores = {}
+    for template, wrfout in wrfout_by_template.items():
+        result = verify_obs.verify(spec, wrfout)
+        scores[template] = (verify_obs.accuracy_error(result),
+                            verify_obs.accuracy_error_source(result))
+    return scores
+
+
+def _accuracy_entry(cand, measured, templates=None, obs_scores=None):
+    """One accuracy-mode row for one shortlist candidate. fidelity_error prefers, in order:
+
+      1. a MEASURED ERROR AGAINST REAL OBSERVATIONS for this template on this case
+         (obs_scores, from predictor/verify_obs.py) -- only the SC26 practice cases have
+         observation ground truth, but where it exists it outranks everything below,
+         because it answers the question the other two only stand in for;
+      2. the per-case REGRESSION prediction (predicted_fidelity_nd) -- model vs model, but
+         at least about THIS case;
+      3. the template's measured median nd across training cases;
+      4. None when none of those exists.
+
+    `fidelity_error_kind` records which, because 1 and 2/3 are not commensurable: nd is a
+    drift away from a REFERENCE RUN (lower = more like the reference), an observation error
+    is a distance from REALITY (lower = more correct). Ranking them in one list would be a
+    category error, so build_accuracy_view keeps them apart.
+
+    The chaos floor is NOT applied to an observation-scored entry: floor_ratio is a
+    model-vs-model concept (how far a same-physics twin drifts by decomposition alone), and
+    a real skill improvement that happens to be small has nothing to do with it. Marking
+    such an entry below_floor would silently drop a genuine accuracy gain off the Pareto
+    front (see pareto_front's exclusion rule)."""
     template = cand["template"]
     record = measured.get(template) or {}
     nd_rec, floor_rec = record.get("nd") or {}, record.get("floor_ratio") or {}
+    observed = (obs_scores or {}).get(template)
 
-    error, error_source = cand.get("predicted_fidelity_nd"), None
-    if error is not None:
+    error, error_source, error_kind = None, None, None
+    if observed is not None:
+        error, error_source = observed[0], observed[1]
+        error_kind = OBSERVED_ERROR
+    elif cand.get("predicted_fidelity_nd") is not None:
+        error, error_kind = cand["predicted_fidelity_nd"], MODEL_ERROR
         error_source = "predicted (fidelity regression, this case)"
     elif nd_rec.get("median") is not None:
-        error, error_source = nd_rec["median"], (
-            "measured median of %d row(s) over %d training case(s): %s"
-            % (nd_rec["n"], len(nd_rec["cases"]), ", ".join(nd_rec["cases"]) or "-"))
+        error, error_kind = nd_rec["median"], MODEL_ERROR
+        error_source = ("measured median of %d row(s) over %d training case(s): %s"
+                        % (nd_rec["n"], len(nd_rec["cases"]), ", ".join(nd_rec["cases"]) or "-"))
 
     floor_ratio, floor_source = floor_rec.get("median"), None
     if floor_ratio is not None:
         floor_source = ("measured median of %d row(s) over %d training case(s): %s"
                         % (floor_rec["n"], len(floor_rec["cases"]),
                            ", ".join(floor_rec["cases"]) or "-"))
-    below_floor = floor_ratio is not None and floor_ratio <= CHAOS_FLOOR_RATIO
+    below_floor = (error_kind != OBSERVED_ERROR
+                   and floor_ratio is not None and floor_ratio <= CHAOS_FLOOR_RATIO)
     return dict(
         template=template, family=cand.get("family"),
         direction=template_direction(template, templates),
@@ -1594,6 +1670,7 @@ def _accuracy_entry(cand, measured, templates=None):
         time_to_solution_interval_pct=cand.get("time_to_solution_interval_pct"),
         predicted_fidelity_label=cand.get("predicted_fidelity_label"),
         fidelity_error=error, fidelity_error_source=error_source,
+        fidelity_error_kind=error_kind,
         floor_ratio=floor_ratio, floor_ratio_source=floor_source,
         below_floor=below_floor,
         below_floor_note=(BELOW_FLOOR_NOTE % (floor_ratio, CHAOS_FLOOR_RATIO)) if below_floor else None,
@@ -1636,12 +1713,23 @@ def pareto_front(entries):
     return front
 
 
-def build_accuracy_view(shortlist, train_rows, templates=None):
+def build_accuracy_view(shortlist, train_rows, templates=None, obs_scores=None,
+                        observations=None):
     """Accuracy-first view over an existing perf-mode shortlist: the same candidates, re-ranked by
     fidelity error instead of predicted speed, split by template direction, with the chaos-floor
-    rule applied and the (cost, error) Pareto front marked. Never mutates `shortlist`."""
+    rule applied and the (cost, error) Pareto front marked. Never mutates `shortlist`.
+
+    `obs_scores` is {template_id: (error, source)} measured against REAL OBSERVATIONS by
+    predictor/verify_obs.py -- see observation_scores_for_case(). Entries scored that way are
+    ranked in their own block, ALWAYS ascending (a smaller distance from reality is better,
+    whatever the template's direction), because a template that trades work for fidelity is
+    judged by whether the forecast got closer to the observations, not by how far it moved the
+    solution. `observations` is the case's declared observations block, carried into the view so
+    a report can say which file the numbers were scored against. Both default to None, which is
+    exactly the pre-existing model-vs-model behaviour -- a case that declares no observations
+    falls back to it untouched."""
     measured = measured_fidelity_by_template(train_rows)
-    entries = [_accuracy_entry(c, measured, templates) for c in shortlist]
+    entries = [_accuracy_entry(c, measured, templates, obs_scores) for c in shortlist]
 
     # An UNKNOWN error sorts last in BOTH directions -- never first. A plain reverse=True on a
     # float("inf") sentinel would put every un-measured template at the top of the accuracy-lever
@@ -1655,25 +1743,33 @@ def build_accuracy_view(shortlist, train_rows, templates=None):
         v = e["fidelity_error"]
         return (v is None, -v if v is not None else 0.0)
 
-    cost_levers = [e for e in entries if e["direction"] == COST_DIRECTION]
-    accuracy_levers = [e for e in entries if e["direction"] == ACCURACY_DIRECTION]
+    # Observation-scored entries leave the nd blocks entirely: their error is a distance from
+    # reality, not a drift from a reference run, and the descending rule below would invert it.
+    observed = [e for e in entries if e["fidelity_error_kind"] == OBSERVED_ERROR]
+    modelled = [e for e in entries if e["fidelity_error_kind"] != OBSERVED_ERROR]
+    ranked_observed = sorted(observed, key=_error_key_asc)
+
+    cost_levers = [e for e in modelled if e["direction"] == COST_DIRECTION]
+    accuracy_levers = [e for e in modelled if e["direction"] == ACCURACY_DIRECTION]
     # Cost levers: ascending error -- least departure from the reference first.
     ranked = sorted([e for e in cost_levers if not e["below_floor"]], key=_error_key_asc)
     # Accuracy levers: DESCENDING error -- the largest measurable correction is the one most worth
     # having, and a small one means the reference was already converged (rule 3 above).
     ranked_accuracy = sorted([e for e in accuracy_levers if not e["below_floor"]],
                              key=_error_key_desc)
-    for i, e in enumerate(ranked, start=1):
-        e["accuracy_rank"] = i
-    for i, e in enumerate(ranked_accuracy, start=1):
-        e["accuracy_rank"] = i
+    for block in (ranked, ranked_accuracy, ranked_observed):
+        for i, e in enumerate(block, start=1):
+            e["accuracy_rank"] = i
     for e in entries:
         e.setdefault("accuracy_rank", None)
     front = pareto_front(entries)
     return dict(
         entries=entries, ranked_cost_levers=ranked, ranked_accuracy_levers=ranked_accuracy,
+        ranked_observed=ranked_observed,
         below_floor=[e for e in entries if e["below_floor"]], pareto_front=front,
-        chaos_floor_ratio=CHAOS_FLOOR_RATIO)
+        chaos_floor_ratio=CHAOS_FLOOR_RATIO,
+        observations=observations,
+        judged_against=(OBSERVED_ERROR if observed else MODEL_ERROR))
 
 
 def _accuracy_verify_plan(case_name, accuracy_view, candidates, decomp, twin_decomp, perf_plan):
@@ -1732,7 +1828,7 @@ def recommend_physics_gray(ledger_path, namelist_path, case_name, hardware_id, n
                             max_template_large_rate=physicsmod.DEFAULT_MAX_TEMPLATE_LARGE_RATE,
                             min_speedup_pct=physicsmod.DEFAULT_MIN_SPEEDUP_PCT,
                             objective="perf", min_bucket_share=DEFAULT_MIN_BUCKET_SHARE,
-                            profile_shares=None, frozen_keys=None):
+                            profile_shares=None, frozen_keys=None, obs_wrfout=None):
     """Build a PHYSICS-GRAY physics-template shortlist for one case (decision 0051). Same
     "narrows the search, human decides" contract as recommend(): NEVER auto-applies anything.
     Every applicable candidate template is always listed with its changes and SpeedyWeather probe
@@ -1808,6 +1904,18 @@ def recommend_physics_gray(ledger_path, namelist_path, case_name, hardware_id, n
         "fidelity labels describe the MODEL's OWN drift vs a same-physics twin at a different "
         "STRICT decomposition (the chaos floor), not observed forecast skill against any "
         "observation/reanalysis -- see decision 0051")
+    # ... unless this case has REAL observations, in which case saying "not observed forecast
+    # skill" next to numbers that ARE observed forecast skill would flatly contradict them.
+    _obs_spec = case_observations(case_name)
+    if _obs_spec is not None:
+        warnings.append(
+            "this case DOES have observation ground truth (%s, %s): with --objective accuracy "
+            "and wrfout for a candidate, predictor/verify_obs.py scores it against that file and "
+            "the score appears in accuracy_view['ranked_observed'], where lower is better and the "
+            "chaos floor does not apply. The fidelity-label caveat above still governs every "
+            "candidate that has NOT been scored that way. A FASTER config can legitimately be "
+            "MORE accurate here -- the problem statement's own settings were never optimised."
+            % (_obs_spec["kind"], _obs_spec["path"]))
 
     train_rows = []
     for p in (physics_ledgers or []):
@@ -1943,7 +2051,10 @@ def recommend_physics_gray(ledger_path, namelist_path, case_name, hardware_id, n
 
     accuracy_extra = {}
     if objective == ACCURACY_DIRECTION:
-        accuracy_view = build_accuracy_view(shortlist, train_rows)
+        obs_scores = observation_scores_for_case(case_name, obs_wrfout)
+        accuracy_view = build_accuracy_view(
+            shortlist, train_rows, obs_scores=obs_scores,
+            observations=case_observations(case_name))
         accuracy_view["verify_plan"] = _accuracy_verify_plan(
             case_name, accuracy_view, candidates, decomp, twin_decomp, verify_plan)
         accuracy_view["decomposition_note"] = (
@@ -2107,6 +2218,24 @@ def _format_accuracy_sections(av):
              "re-decomposing." % av["chaos_floor_ratio"],
              "  Predicted speed is still reported for every candidate: accuracy mode changes the "
              "RANKING, not the evidence."]
+
+    # Observation-scored candidates first, when this case has real ground truth: they answer the
+    # question the nd blocks below only stand in for, so burying them under model-vs-model
+    # rankings would be the wrong order to read the report in.
+    observed = av.get("ranked_observed") or []
+    if observed:
+        spec = av.get("observations") or {}
+        lines.append("\n-- Scored against REAL OBSERVATIONS (%d) --" % len(observed))
+        lines.append("  Ground truth: %s (%s). Metric: %s, LOWER IS BETTER; this is a distance "
+                     "from REALITY, not a drift from a reference run, so the chaos floor does "
+                     "NOT apply to it and a FASTER candidate can legitimately rank HIGHER -- the "
+                     "problem statement's own settings were never optimised."
+                     % (spec.get("path", "?"), spec.get("kind", "?"),
+                        verify_obs.PRIMARY_METRIC.get(spec.get("kind"), "?")))
+        lines.append(_ACC_HEADER % ("rank", "template", "direction", "observation error",
+                                    "floor_ratio (n/a)", "time-to-sol vs P00", "pareto", "status"))
+        for i, e in enumerate(observed, start=1):
+            lines.append(_acc_row(i, e))
 
     lines.append("\n-- Cost levers, ranked by LEAST departure from the reference (%d) --"
                  % len(av["ranked_cost_levers"]))
@@ -2325,6 +2454,20 @@ def _build_arg_parser():
                           "the parsed namelist either way, so an unregistered case works too). "
                           "The tool only proposes -- the human decides whether to run it")
 
+    ap.add_argument("--obs-wrfout", action="append", default=[], dest="obs_wrfout",
+                     metavar="TEMPLATE=GLOB",
+                     help="PHYSICS-GRAY + --objective accuracy only. Repeatable. Score an "
+                          "ALREADY-RUN candidate against this case's REAL OBSERVATIONS instead "
+                          "of against another model run, e.g. "
+                          "--obs-wrfout \"P01=runs/P01/wrfout_d01_*\". Only works for a case "
+                          "whose campaign/cases.json entry declares an 'observations' block "
+                          "(today: the SC26 practice problems); every other case, and every "
+                          "template with no run to point at, keeps the existing model-vs-model "
+                          "fidelity. predictor/verify_obs.py does the scoring and the result "
+                          "appears in accuracy_view['ranked_observed'], lower-is-better, with "
+                          "the chaos floor NOT applied -- a faster config can legitimately be "
+                          "more accurate, because the problem statement's own settings were "
+                          "never optimised")
     ap.add_argument("--decomp", default=None,
                      help="PHYSICS-GRAY only: reference STRICT decomposition id (e.g. C02) to "
                           "run P00 and the physics candidates at; default: this run's own STRICT "
@@ -2414,7 +2557,8 @@ def main(argv=None):
                 max_dangerous_miss=args.max_dangerous_miss,
                 max_template_large_rate=args.max_template_large_rate,
                 min_speedup_pct=args.min_speedup_pct, objective=args.objective,
-                min_bucket_share=args.min_bucket_share)
+                min_bucket_share=args.min_bucket_share,
+                obs_wrfout=_parse_obs_wrfout(args.obs_wrfout))
             report = format_physics_report(result)
         elif args.objective != "perf":
             raise ValueError(

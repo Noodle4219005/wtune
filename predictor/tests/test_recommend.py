@@ -1544,3 +1544,170 @@ def test_cli_without_objective_matches_objective_perf(ledger_csv, accuracy_namel
     explicit_out = capsys.readouterr().out
     assert default_out == explicit_out
     assert "ACCURACY-FIRST view" not in default_out
+
+
+# ---------------------------------------------------------------------------
+# Cost-share-aware template filtering (2026-09-17): the ledger's profile_*_share columns bound how
+# much a template can possibly save. SC26-P1's radiation is 1.9% of step cost, SC26-P2's is 47%
+# (~/SC26-WRF docs/testcase-atlas), so the same radt template is worth measuring on one and not the
+# other. A low share DEMOTES (still listed, with the number and the reason); it never hides.
+# ---------------------------------------------------------------------------
+def _sl(template, family, y=-0.05, status="RECOMMENDABLE"):
+    return dict(template=template, family=family, status=status, reasons=[], predicted_y=y)
+
+
+def test_bucket_share_demotes_a_low_share_family_and_says_why():
+    shortlist = [_sl("P02", "radiation"), _sl("D03", "dynamics")]
+    shares = {"profile_radiation_share": 0.019, "profile_dynamics_share": 0.60}
+    out, notes = recommend.annotate_bucket_shares(shortlist, shares, min_bucket_share=0.05)
+    by_id = {e["template"]: e for e in out}
+    p02 = by_id["P02"]
+    assert p02["bucket"] == "profile_radiation_share"
+    assert p02["bucket_share"] == pytest.approx(0.019)
+    assert p02["upper_bound_saving"] == pytest.approx(0.019)   # cannot save more than the bucket
+    assert p02["bucket_demoted"] is True
+    assert p02["status"] == "UNCONFIRMED"
+    assert any("DEMOTED on cost share" in r and "1.9%" in r for r in p02["reasons"])
+    assert by_id["D03"]["bucket_demoted"] is False
+    assert by_id["D03"]["status"] == "RECOMMENDABLE"
+    # demoted candidates are ranked last, not removed
+    assert [e["template"] for e in out] == ["D03", "P02"]
+    assert any("DEMOTED" in n and "P02" in n for n in notes)
+
+
+def test_bucket_share_keeps_a_high_share_family_even_at_the_same_threshold():
+    """The SC26-P2 half of the contrast: same template, same threshold, 47% bucket -> not demoted."""
+    out, _notes = recommend.annotate_bucket_shares(
+        [_sl("P02", "radiation")], {"profile_radiation_share": 0.47}, min_bucket_share=0.05)
+    assert out[0]["bucket_demoted"] is False
+    assert out[0]["status"] == "RECOMMENDABLE"
+    assert out[0]["upper_bound_saving"] == pytest.approx(0.47)
+
+
+def test_bucket_share_absent_profile_row_changes_nothing():
+    shortlist = [_sl("P02", "radiation"), _sl("D03", "dynamics")]
+    out, notes = recommend.annotate_bucket_shares(shortlist, {}, min_bucket_share=0.05)
+    assert out is shortlist
+    assert all("bucket" not in e and "bucket_demoted" not in e for e in out)
+    assert all(e["status"] == "RECOMMENDABLE" for e in out)
+    assert any("no profile row" in n for n in notes)
+
+
+def test_bucket_share_never_demotes_a_diagnostics_template():
+    """D04 (debug_level/history cadence) acts on no physics bucket, so no share can bound it --
+    demoting it on a cost share would be a category error, not a conservative default."""
+    shares = {"profile_radiation_share": 0.001, "profile_dynamics_share": 0.001,
+              "profile_micro_share": 0.001}
+    out, _notes = recommend.annotate_bucket_shares([_sl("D04", "diagnostics")], shares,
+                                                    min_bucket_share=0.05)
+    assert out[0]["bucket"] is None
+    assert out[0]["bucket_demoted"] is False
+    assert out[0]["status"] == "RECOMMENDABLE"
+
+
+def test_bucket_share_with_no_measurement_for_that_bucket_is_not_a_demotion():
+    out, _notes = recommend.annotate_bucket_shares(
+        [_sl("P04", "microphysics")], {"profile_radiation_share": 0.47}, min_bucket_share=0.05)
+    assert out[0]["bucket"] == "profile_micro_share"
+    assert out[0]["bucket_share"] is None
+    assert out[0]["bucket_demoted"] is False
+    assert any("no measured profile_micro_share" in r for r in out[0]["reasons"])
+
+
+def test_family_bucket_map_covers_every_template_family_in_use():
+    families = {t.get("family") for t in campaign_configs.PHYSICS_TEMPLATES.values()}
+    assert families <= set(recommend.FAMILY_PROFILE_BUCKET), families
+    # pbl_surface and nesting share the dynamics bucket: the ledger has no profile_pbl_share column
+    assert "profile_pbl_share" not in ledger.LEDGER_FIELDS
+    assert recommend.FAMILY_PROFILE_BUCKET["pbl_surface"] == "profile_dynamics_share"
+    assert recommend.FAMILY_PROFILE_BUCKET["nesting"] == "profile_dynamics_share"
+
+
+def test_case_profile_shares_reads_this_cases_rows_only_and_takes_the_median():
+    rows = [dict(case_base="a", profile_radiation_share=0.02),
+            dict(case_base="a", profile_radiation_share=0.04),
+            dict(case_base="b", profile_radiation_share=0.47),
+            dict(case_base="a", profile_micro_share=None)]
+    assert recommend.case_profile_shares(rows, "a") == {"profile_radiation_share": 0.03}
+    assert recommend.case_profile_shares(rows, "b") == {"profile_radiation_share": 0.47}
+    assert recommend.case_profile_shares(rows, "c") == {}
+    # percent-shaped values normalise to fractions (the atlas quotes 1.9% / 47%)
+    assert recommend.case_profile_shares(
+        [dict(case_base="a", profile_radiation_share=47.0)], "a") == {
+            "profile_radiation_share": pytest.approx(0.47)}
+
+
+def test_physics_gray_end_to_end_demotes_a_low_radiation_share_case(ledger_csv, main_namelist,
+                                                                     probe_screen_file):
+    result = recommend.recommend_physics_gray(
+        ledger_path=ledger_csv, namelist_path=main_namelist, case_name="synthtest",
+        hardware_id=HARDWARE_ID_TRAIN, probe_screen=probe_screen_file,
+        profile_shares={"profile_radiation_share": 0.019, "profile_dynamics_share": 0.55})
+    by_id = {c["template"]: c for c in result["shortlist"]}
+    assert by_id["P01"]["bucket_demoted"] is True
+    assert by_id["P02"]["bucket_demoted"] is True
+    assert by_id["D03"]["bucket_demoted"] is False
+    # the verify plan must not spend 4-node slots on a bucket that cannot pay
+    assert not any(t in ("P01", "P02", "P06", "A05") for t in result["verify_plan"]["pconfigs"])
+    assert "1.9%" in recommend.format_physics_report(result)
+
+
+def test_physics_gray_end_to_end_without_profile_shares_is_unchanged(ledger_csv, main_namelist,
+                                                                      probe_screen_file):
+    common = dict(ledger_path=ledger_csv, namelist_path=main_namelist, case_name="synthtest",
+                  hardware_id=HARDWARE_ID_TRAIN, probe_screen=probe_screen_file)
+    result = recommend.recommend_physics_gray(**common)
+    assert result["profile_shares"] == {}
+    assert all("bucket_demoted" not in c for c in result["shortlist"])
+    assert any("no profile row" in w for w in result["warnings"])
+
+
+# ---------------------------------------------------------------------------
+# Task-mandated frozen keys (2026-09-17). SC26-P1's problem statement fixes time_step = 10 and
+# debug_level = 50; a recommendation that changes one is a rules violation, not a trade-off.
+# Tested with a SYNTHETIC frozen_keys list -- no campaign/cases.json entry declares one.
+# ---------------------------------------------------------------------------
+def test_frozen_key_templates_are_excluded_with_the_reason_shown(ledger_csv, main_namelist,
+                                                                  probe_screen_file):
+    result = recommend.recommend_physics_gray(
+        ledger_path=ledger_csv, namelist_path=main_namelist, case_name="synthtest",
+        hardware_id=HARDWARE_ID_TRAIN, probe_screen=probe_screen_file,
+        frozen_keys=["time_step"])
+    cands = {c["template"]: c for c in result["candidates"]}
+    # P03 (time_step x1.2) and A01 (time_step x0.8) both edit the frozen key
+    for tid in ("P03", "A01"):
+        assert cands[tid]["applicable"] is False, tid
+        assert "time_step" in cands[tid]["skip_reason"], tid
+        assert cands[tid]["frozen_key_conflict"] == ["time_step"], tid
+    assert cands["P01"]["applicable"] is True
+    by_id = {c["template"]: c for c in result["shortlist"]}
+    assert by_id["P03"]["status"] == "UNCONFIRMED"
+    assert any("time_step" in r for r in by_id["P03"]["reasons"])
+    assert "P03" not in result["verify_plan"]["pconfigs"]
+    report = recommend.format_physics_report(result)
+    assert "frozen key" in report
+    assert result["frozen_keys"] == ["time_step"]
+
+
+def test_no_frozen_keys_is_the_default_and_excludes_nothing(ledger_csv, main_namelist,
+                                                             probe_screen_file):
+    result = recommend.recommend_physics_gray(
+        ledger_path=ledger_csv, namelist_path=main_namelist, case_name="synthtest",
+        hardware_id=HARDWARE_ID_TRAIN, probe_screen=probe_screen_file)
+    assert result["frozen_keys"] == []
+    cands = {c["template"]: c for c in result["candidates"]}
+    assert cands["P03"]["applicable"] is True
+    assert all("frozen_key_conflict" not in c for c in result["candidates"])
+
+
+def test_exclude_frozen_key_templates_also_catches_a_generic_per_case_pairing():
+    """A key that only appears in the RESOLVED changes (a generic extra-edit rule, not the
+    template's own JSON edits) must still be caught -- otherwise the pairing smuggles it back in."""
+    cands = [dict(template="P04", family="microphysics", applicable=True, skip_reason=None,
+                  changes={"mp_physics": {"from": 8, "to": 6},
+                           "aer_opt": {"from": 3, "to": 0}})]
+    out, notes = recommend.exclude_frozen_key_templates(cands, ["aer_opt"], "synth",
+                                                         templates={"P04": {"edits": []}})
+    assert out[0]["applicable"] is False
+    assert out[0]["frozen_key_conflict"] == ["aer_opt"]
+    assert any("aer_opt" in n for n in notes)

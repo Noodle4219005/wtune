@@ -681,6 +681,85 @@ def _insert_after_section_header(text, section, line):
     return text[: eol + 1] + line + text[eol + 1 :]
 
 
+def _set_values_for_domains(edit, n, max_dom):
+    """The n per-domain strings a 'set' edit writes, from either its scalar 'value' (the default,
+    unchanged: one value repeated on every active domain) or its optional 'values_by_domain'.
+
+    'values_by_domain' is a LIST (d01 first) or a MAPPING from 1-BASED domain index to value; JSON
+    object keys arrive as strings, so "1"/1 are both accepted. It exists because a nest does not
+    always want its parent's value: SC26-P1's d01 carries 3x its d02's acoustic margin at the same
+    dt (parent_time_step_ratio=1 -- see predictor/stability.py), so the tuned time_step_sound there
+    is a per-domain pair, not one number written twice.
+
+    Validated against the case's own domain count: `max_dom` when the case has one (which is what
+    the caller always passes for a real case), else the number of active entries `n` found in the
+    namelist. A length/index mismatch RAISES -- silently padding or truncating a per-domain list is
+    how a nest ends up at a value nobody chose."""
+    vbd = edit.get("values_by_domain")
+    if vbd is None:
+        return [str(edit["value"])] * n
+    key = edit["key"]
+    expected = int(max_dom) if max_dom else n
+    if isinstance(vbd, dict):
+        index = {}
+        for k, v in vbd.items():
+            try:
+                index[int(k)] = v
+            except (TypeError, ValueError):
+                raise ValueError(
+                    "physics template: key %r values_by_domain has a non-integer domain index %r "
+                    "(keys are 1-based domain numbers)" % (key, k))
+        outside = sorted(d for d in index if d < 1 or d > expected)
+        if outside:
+            raise ValueError(
+                "physics template: key %r values_by_domain names domain(s) %s outside this case's "
+                "%d active domain(s)" % (key, outside, expected))
+        missing = [d for d in range(1, expected + 1) if d not in index]
+        if missing:
+            raise ValueError(
+                "physics template: key %r values_by_domain is missing domain(s) %s of this case's "
+                "%d active domain(s)" % (key, missing, expected))
+        ordered = [index[d] for d in range(1, expected + 1)]
+    else:
+        ordered = list(vbd)
+        if len(ordered) != expected:
+            raise ValueError(
+                "physics template: key %r values_by_domain has %d value(s) for this case's %d "
+                "active domain(s)" % (key, len(ordered), expected))
+    if len(ordered) != n:
+        raise ValueError(
+            "physics template: key %r values_by_domain has %d value(s) but only %d namelist "
+            "entr(ies) are active for this key -- add the missing per-domain entries to the "
+            "namelist first" % (key, len(ordered), n))
+    return [str(v) for v in ordered]
+
+
+def case_frozen_keys(case):
+    """The namelist keys this case's TASK MANDATES (cases.json 'frozen_keys'), lowercased. A
+    competition problem statement can fix a parameter outright -- SC26-P1 mandates time_step=10 and
+    debug_level=50 -- and a recommendation that changes one is a RULES VIOLATION, not a tuning
+    trade-off, so no physics template may touch it. Empty list when the case declares none."""
+    return [str(k).strip().lower() for k in (case or {}).get("frozen_keys") or []]
+
+
+def template_frozen_key_conflicts(template, frozen_keys, case_id=None):
+    """The frozen keys `template` would write, in edit order, duplicates removed. Looks at
+    template['edits'] plus template['extra_edits'][case_id] -- the same edit list
+    apply_physics_template itself applies. Empty list when nothing conflicts."""
+    frozen = {str(k).strip().lower() for k in frozen_keys or ()}
+    if not frozen:
+        return []
+    edits = list((template or {}).get("edits") or [])
+    if case_id is not None:
+        edits += list(((template or {}).get("extra_edits") or {}).get(case_id, []))
+    hit = []
+    for e in edits:
+        k = str(e.get("key", "")).lower()
+        if k in frozen and k not in hit:
+            hit.append(k)
+    return hit
+
+
 def apply_physics_edit(text, edit, max_dom):
     """Apply one physics_templates.json 'edits' entry (a {'op':...} dict) to
     `text`. Returns (new_text, old_active, new_active): old_active/new_active
@@ -717,8 +796,10 @@ def apply_physics_edit(text, edit, max_dom):
         # per_domain: a max_domains key that is ABSENT (every domain at the Registry default, e.g.
         # time_step_sound=0 -> auto) must be written for every active domain, or the nests keep the
         # default while only d01 changes (2026-09-16, D01/D03 dynamics templates).
-        n_insert = max_dom if (edit.get("per_domain") and max_dom) else 1
-        new_active = [str(edit["value"])] * n_insert
+        # values_by_domain is per-domain by construction, so it implies per_domain on insert.
+        per_domain = edit.get("per_domain") or edit.get("values_by_domain") is not None
+        n_insert = max_dom if (per_domain and max_dom) else 1
+        new_active = _set_values_for_domains(edit, n_insert, max_dom if per_domain else None)
         line = " %s = %s,\n" % (key, ", ".join(new_active))
         return _insert_after_section_header(text, section, line), [], new_active
     values = found["values"]
@@ -728,7 +809,7 @@ def apply_physics_edit(text, edit, max_dom):
     active_old = values[:n_active]
     trailing = values[n_active:]
     if op == "set":
-        active_new = [str(edit["value"])] * n_active
+        active_new = _set_values_for_domains(edit, n_active, max_dom)
     elif op == "mul":
         factor = edit["factor"]
         round_int = edit.get("round") == "int"
@@ -759,7 +840,7 @@ def apply_physics_edit(text, edit, max_dom):
     return new_text, active_old, active_new
 
 
-def apply_physics_template(text, template, max_dom, case_id=None):
+def apply_physics_template(text, template, max_dom, case_id=None, frozen_keys=None):
     """Apply every edit in template['edits'] to `text`, in order, followed by
     template['extra_edits'][case_id] when case_id is given (per-case paired
     edits, e.g. lafe's aer_opt=0 next to a scheme swap). Returns
@@ -767,29 +848,47 @@ def apply_physics_template(text, template, max_dom, case_id=None):
     {'key','op','old','new'} dicts (old/new are None for 'delete'), in the
     same order as the edits were applied. Raises ValueError
     (propagated from apply_physics_edit) if any edit cannot be applied --
-    callers must not use a partially-applied `text` from a raised call."""
+    callers must not use a partially-applied `text` from a raised call.
+
+    `frozen_keys` (cases.json 'frozen_keys', see case_frozen_keys) are keys the
+    TASK mandates for this case: the whole template is REFUSED before a single
+    edit is applied when it would write one of them, because changing a mandated
+    parameter is a rules violation, not a tuning trade-off."""
     summary = []
     edits = list(template.get("edits", []))
     if case_id is not None:
         edits += list((template.get("extra_edits") or {}).get(case_id, []))
+    conflicts = template_frozen_key_conflicts(template, frozen_keys, case_id=case_id)
+    if conflicts:
+        raise ValueError(
+            "physics template: refusing to edit task-mandated frozen key(s) %s for case %s -- "
+            "cases.json lists them in 'frozen_keys', i.e. the task fixes their value and changing "
+            "one is a rules violation, not a tuning trade-off"
+            % (", ".join(conflicts), case_id if case_id is not None else "<unnamed>"))
     for edit in edits:
         text, old, new = apply_physics_edit(text, edit, max_dom)
         summary.append(dict(key=edit["key"], op=edit["op"], old=old, new=new))
     return text, summary
 
 
-def physics_template_applicability(case_id, template):
+def physics_template_applicability(case_id, template, frozen_keys=None):
     """(applicable: bool, reason: str or None) for one template on one case,
-    from the template's optional 'applies_to' allowlist and 'skip_cases' map
-    only -- does NOT attempt the edits themselves (see resolve_physics_config
-    for that; a template can be 'applicable' here and still fail to resolve,
-    e.g. a 'mul' on a physics_suite -1 value)."""
+    from the template's optional 'applies_to' allowlist, its 'skip_cases' map,
+    and the case's task-mandated `frozen_keys` -- does NOT attempt the edits
+    themselves (see resolve_physics_config for that; a template can be
+    'applicable' here and still fail to resolve, e.g. a 'mul' on a
+    physics_suite -1 value)."""
     applies_to = template.get("applies_to")
     if applies_to is not None and case_id not in applies_to:
         return False, "not in applies_to %s" % (applies_to,)
     skip_reason = (template.get("skip_cases") or {}).get(case_id)
     if skip_reason is not None:
         return False, skip_reason
+    conflicts = template_frozen_key_conflicts(template, frozen_keys, case_id=case_id)
+    if conflicts:
+        return False, ("edits task-mandated frozen key(s) %s for case %s: the task FIXES their "
+                       "value, so changing one is a rules violation, not a tuning trade-off"
+                       % (", ".join(conflicts), case_id))
     return True, None
 
 
@@ -828,7 +927,8 @@ def resolve_physics_config(case_id, template_id, cases=None, templates=None):
     template = templates.get(template_id)
     if template is None:
         return None, "unknown physics template %r" % (template_id,)
-    ok, reason = physics_template_applicability(case_id, template)
+    frozen = case_frozen_keys(case)
+    ok, reason = physics_template_applicability(case_id, template, frozen_keys=frozen)
     if not ok:
         return None, reason
     path = _case_namelist_path(case)
@@ -839,7 +939,8 @@ def resolve_physics_config(case_id, template_id, cases=None, templates=None):
         return None, "cannot read namelist template %s: %s" % (path, e)
     max_dom = _case_effective_max_dom(case)
     try:
-        _new_text, summary = apply_physics_template(text, template, max_dom, case_id=case_id)
+        _new_text, summary = apply_physics_template(text, template, max_dom, case_id=case_id,
+                                                    frozen_keys=frozen)
     except ValueError as e:
         return None, str(e)
     return summary, None

@@ -103,3 +103,90 @@ def test_assess_case_uses_the_parent_time_step_ratio_for_nests():
 
     single = dict(dt=15, dx=3000, dy=3000)
     assert len(st.assess_case(single)) == 1
+
+
+# ---------------------------------------------------------------------------
+# per_domain_variant (2026-09-17): the optional per-domain form of A02's time_step_sound edit.
+# Values are COMPUTED from each domain's own (dt, dx); nothing here hard-codes SC26-P1's answer.
+# ---------------------------------------------------------------------------
+SC26_P1 = dict(dt=10, dx=9000, dy=9000, max_dom=2, dx_list=[9000, 3000], dy_list=[9000, 3000],
+               parent_time_step_ratio_list=[1, 1])
+
+
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+
+def _a02():
+    import json
+    path = os.path.join(_REPO_ROOT, "campaign", "physics_templates.json")
+    with open(path) as fh:
+        return json.load(fh)["templates"]["A02"]
+
+
+def test_per_domain_sound_steps_is_computed_per_domain_not_assumed():
+    """SC26-P1 runs both domains at dt=10 (parent_time_step_ratio=1), so the 3x mesh refinement is
+    the ONLY thing separating them -- and it is enough to separate the safe sub-step count once the
+    limit is tight enough to bind on the nest. Both numbers come out of safe_sound_steps."""
+    tight, reason = st.per_domain_sound_steps(SC26_P1, cfl_limit=0.50)
+    assert reason is None
+    assert tight == [st.safe_sound_steps(10, 9000, cfl_limit=0.50),
+                     st.safe_sound_steps(10, 3000, cfl_limit=0.50)]
+    assert tight == [2, 4]
+
+
+def test_per_domain_variant_rewrites_a02_as_values_by_domain_in_the_cost_direction():
+    variant, values = st.per_domain_variant(_a02(), SC26_P1, cfl_limit=0.50)
+    assert variant is not None
+    assert values == [2, 4]
+    edit = variant["edits"][0]
+    assert edit["key"] == "time_step_sound"
+    assert edit["values_by_domain"] == [2, 4]
+    assert "value" not in edit           # the scalar form is replaced, not shadowed
+    assert edit["per_domain"] is True
+    # fewer sub-steps than the auto 4 is LESS acoustic work: the opposite of A02's own direction
+    assert _a02()["direction"] == "accuracy"
+    assert variant["direction"] == "cost"
+    assert _a02()["edits"][0]["value"] == 6      # the source template is not mutated
+
+
+def test_per_domain_variant_output_actually_applies_through_configs():
+    sys.path.insert(0, os.path.join(_REPO_ROOT, "campaign"))
+    import configs as campaign_configs
+    variant, _values = st.per_domain_variant(_a02(), SC26_P1, cfl_limit=0.50)
+    nl = "&domains\n time_step = 10, max_dom = 2,\n/\n&dynamics\n diff_opt = 1, 1,\n/\n"
+    out, summary = campaign_configs.apply_physics_template(nl, variant, max_dom=2)
+    assert "time_step_sound = 2, 4," in out
+    assert summary[0]["new"] == ["2", "4"]
+
+
+def test_per_domain_variant_is_skipped_when_every_domain_resolves_the_same():
+    """At the module default CFL_SAFE=0.60 SC26-P1's nest still fits in 2 sub-steps (CFL 0.567), so
+    both domains resolve to 2 and there is nothing per-domain to say. The threshold is the caller's
+    knob; the skip rule is what keeps a uniform answer out of the per-domain form."""
+    variant, reason = st.per_domain_variant(_a02(), SC26_P1, cfl_limit=st.CFL_SAFE)
+    assert variant is None
+    assert "time_step_sound=2" in reason and "already expresses it" in reason
+
+
+def test_per_domain_variant_is_skipped_for_a_single_domain_case():
+    karina = dict(dt=15, dx=3000, dy=3000, max_dom=1)
+    variant, reason = st.per_domain_variant(_a02(), karina)
+    assert variant is None
+    assert "single-domain" in reason
+
+
+def test_per_domain_variant_reports_a_case_with_no_per_domain_grid():
+    """No campaign/cases.json entry carries dx_list today -- they record a scalar dx and put the
+    nest geometry in notes -- so a registered nested case must say so instead of silently
+    answering for the parent only."""
+    scalar_only = dict(dt=10, dx=9000, dy=9000, max_dom=2)
+    variant, reason = st.per_domain_variant(_a02(), scalar_only, cfl_limit=0.50)
+    assert variant is None
+    assert "dx_list" in reason
+
+
+def test_effective_max_dom_follows_the_namelist_override():
+    assert st.effective_max_dom(dict(max_dom=3)) == 3
+    assert st.effective_max_dom(dict(max_dom=3, namelist_overrides={"max_dom": 1})) == 1
+    assert st.effective_max_dom(dict(max_dom=3), max_dom=2) == 2
+    assert st.effective_max_dom({}) == 1

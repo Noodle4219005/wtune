@@ -1295,6 +1295,173 @@ def _native_physics_from_case_fields(case_fields):
 
 
 # ---------------------------------------------------------------------------
+# Cost-share-aware template filtering (2026-09-17)
+#
+# The ledger has carried profile_{radiation,micro,dynamics,mpi,io}_share since phase B and nothing
+# in this file ever read them. A template can only ever save a fraction of the bucket it acts on,
+# so the bucket share is a hard UPPER BOUND on its benefit -- and the buckets differ by more than
+# an order of magnitude across cases: SC26-P1's radiation is 1.9% of step cost while SC26-P2's is
+# 47% (~/SC26-WRF docs/testcase-atlas/cases/sc26-p{1,2}-*.md). Proposing a radt template on P1
+# cannot pay, and radt x2 (P02) already bought nothing on six low-radiation-share cases.
+#
+# What this is NOT: a benefit predictor. The same atlas records radiation share failing to predict
+# a compiler-flag gain (P2 at 47% share gained 5.3%, LAFE at 40% gained 11.2%). An upper bound is
+# the only honest thing a share supports, so a low share DEMOTES a candidate -- it is still listed,
+# with the number and the reason -- and a high share promotes nothing.
+# ---------------------------------------------------------------------------
+FAMILY_PROFILE_BUCKET = {
+    "radiation": "profile_radiation_share",
+    "microphysics": "profile_micro_share",
+    "dynamics": "profile_dynamics_share",
+    # A nest's cost lands in the dynamics core, and there is no profile_pbl_share COLUMN in the
+    # ledger (see predictor/ledger.py LEDGER_FIELDS) -- pbl_surface therefore shares the dynamics
+    # bucket rather than inventing one. Change this the day a pbl bucket is actually measured.
+    "nesting": "profile_dynamics_share",
+    "pbl_surface": "profile_dynamics_share",
+    # A diagnostics/cadence template (D04: debug_level, history cadence) does not act on a physics
+    # bucket at all, so no share can bound it and this rule must never demote one.
+    "diagnostics": None,
+    "none": None,
+}
+PROFILE_BUCKET_FIELDS = ("profile_radiation_share", "profile_micro_share",
+                         "profile_dynamics_share", "profile_mpi_share", "profile_io_share")
+DEFAULT_MIN_BUCKET_SHARE = 0.05
+
+
+def _as_share_fraction(value):
+    """A profile share as a FRACTION of step cost. The ledger column has no writer in this repo
+    yet, so both conventions are accepted and normalised here: <= 1 is already a fraction, > 1 is
+    read as a percent (the atlas notes quote 1.9% / 47%) and divided by 100. None passes through."""
+    if value is None:
+        return None
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return None
+    if v != v or v < 0:            # NaN or nonsense
+        return None
+    return v / 100.0 if v > 1.0 else v
+
+
+def _median(values):
+    vals = sorted(values)
+    n = len(vals)
+    mid = n // 2
+    return vals[mid] if n % 2 else 0.5 * (vals[mid - 1] + vals[mid])
+
+
+def case_profile_shares(rows, case_name):
+    """{profile field: fraction of step cost} measured for `case_name`, the median over every
+    ledger row of that case_base carrying the field. {} when this case has no profile row at all --
+    which is the current state of the whole production ledger, and the reason the filter below is a
+    no-op until a profiled run lands."""
+    out = {}
+    case_rows = [r for r in rows if r.get("case_base") == case_name]
+    for field in PROFILE_BUCKET_FIELDS:
+        vals = [f for f in (_as_share_fraction(r.get(field)) for r in case_rows) if f is not None]
+        if vals:
+            out[field] = _median(vals)
+    return out
+
+
+def template_bucket(family):
+    """The profile bucket a template family acts on, or None when no bucket bounds it."""
+    return FAMILY_PROFILE_BUCKET.get(family)
+
+
+def annotate_bucket_shares(shortlist, shares, min_bucket_share=DEFAULT_MIN_BUCKET_SHARE):
+    """(shortlist, notes). With measured `shares`, annotate every shortlist entry with
+    `bucket` / `bucket_share` / `upper_bound_saving` (= bucket_share: a template cannot save more
+    than the bucket it acts on) / `bucket_demoted`, force a below-threshold candidate to
+    UNCONFIRMED with an explicit reason, and re-sort demoted candidates last so the verify plan
+    does not spend runs on them. Candidates are never hidden.
+
+    With no measured share for this case (`shares` empty) NOTHING changes: the same list object
+    comes back, unannotated, plus a note saying so."""
+    threshold = _as_share_fraction(min_bucket_share) or 0.0
+    if not shares:
+        return shortlist, [
+            "cost-share filter: this case has no profile row in the ledger "
+            "(profile_{radiation,micro,dynamics,mpi,io}_share all absent) -- no candidate was "
+            "annotated or demoted. Profile one run of this case to enable it."]
+    notes = ["cost-share filter: measured profile shares for this case: %s; a template whose "
+             "bucket is below --min-bucket-share=%.1f%% is DEMOTED (still listed) because its "
+             "saving cannot exceed that bucket"
+             % (", ".join("%s=%.1f%%" % (k.replace("profile_", "").replace("_share", ""), 100 * v)
+                          for k, v in sorted(shares.items())), 100 * threshold)]
+    for entry in shortlist:
+        family = entry.get("family")
+        bucket = template_bucket(family)
+        entry["bucket"] = bucket
+        share = shares.get(bucket) if bucket else None
+        entry["bucket_share"] = share
+        entry["upper_bound_saving"] = share
+        entry["bucket_demoted"] = False
+        if bucket is None:
+            entry.setdefault("reasons", []).append(
+                "no profile bucket bounds the %s family: cost share says nothing about this "
+                "template either way" % (family or "unknown",))
+            continue
+        if share is None:
+            entry.setdefault("reasons", []).append(
+                "this case has no measured %s: cost share cannot bound this template" % bucket)
+            continue
+        if share < threshold:
+            entry["bucket_demoted"] = True
+            entry["status"] = "UNCONFIRMED"
+            entry.setdefault("reasons", []).append(
+                "DEMOTED on cost share: the %s family acts on %s=%.1f%% of step cost, below "
+                "--min-bucket-share=%.1f%% -- even a perfect template cannot save more than "
+                "%.1f%% here (measured contrast: SC26-P1 radiation 1.9%% vs SC26-P2 47%%)"
+                % (family, bucket, 100 * share, 100 * threshold, 100 * share))
+    demoted = [e["template"] for e in shortlist if e.get("bucket_demoted")]
+    if demoted:
+        notes.append("cost-share DEMOTED (ranked last, not hidden): %s" % ", ".join(demoted))
+    shortlist = sorted(shortlist, key=lambda d: (
+        1 if d.get("bucket_demoted") else 0,
+        0 if d.get("status") == "RECOMMENDABLE" else 1,
+        d["predicted_y"] if d.get("predicted_y") is not None else float("inf")))
+    return shortlist, notes
+
+
+def exclude_frozen_key_templates(candidates, frozen_keys, case_name, templates=None):
+    """(candidates, notes): mark every candidate whose template would write a task-mandated frozen
+    key inapplicable, with the reason naming the key and the case. A competition problem statement
+    can FIX a parameter (SC26-P1 mandates time_step=10 and debug_level=50); a recommendation that
+    changes one is a rules violation, not a tuning trade-off, so it is excluded rather than ranked
+    low. Checks the template's declared edits AND the changes actually resolved for this case, so a
+    generic per-case pairing rule cannot smuggle a frozen key back in."""
+    frozen = [str(k).strip().lower() for k in frozen_keys or ()]
+    if not frozen:
+        return candidates, []
+    templates = campaign_configs.PHYSICS_TEMPLATES if templates is None else templates
+    frozen_set = set(frozen)
+    notes = ["task-mandated frozen key(s) for case %s: %s -- any template editing one is EXCLUDED "
+             "(changing a mandated parameter is a rules violation, not a tuning trade-off)"
+             % (case_name, ", ".join(frozen))]
+    excluded = []
+    for cand in candidates:
+        spec = templates.get(cand["template"]) or {}
+        hit = campaign_configs.template_frozen_key_conflicts(spec, frozen, case_id=case_name)
+        for key in cand.get("changes") or {}:
+            if key.lower() in frozen_set and key.lower() not in hit:
+                hit.append(key.lower())
+        if not hit:
+            continue
+        cand["frozen_key_conflict"] = hit
+        excluded.append(cand["template"])
+        if cand.get("applicable", True):
+            cand["applicable"] = False
+            cand["skip_reason"] = (
+                "edits task-mandated frozen key(s) %s for case %s: the task FIXES their value, so "
+                "changing one is a rules violation, not a tuning trade-off"
+                % (", ".join(hit), case_name))
+    if excluded:
+        notes.append("excluded on frozen keys: %s" % ", ".join(sorted(set(excluded))))
+    return candidates, notes
+
+
+# ---------------------------------------------------------------------------
 # Accuracy-first mode (--objective accuracy, 2026-09-17)
 #
 # The PHYSICS-GRAY shortlist above answers "which physics template is FASTEST while staying within
@@ -1564,7 +1731,8 @@ def recommend_physics_gray(ledger_path, namelist_path, case_name, hardware_id, n
                             max_infeasible_rate=0.0, max_dangerous_miss=0.0,
                             max_template_large_rate=physicsmod.DEFAULT_MAX_TEMPLATE_LARGE_RATE,
                             min_speedup_pct=physicsmod.DEFAULT_MIN_SPEEDUP_PCT,
-                            objective="perf"):
+                            objective="perf", min_bucket_share=DEFAULT_MIN_BUCKET_SHARE,
+                            profile_shares=None, frozen_keys=None):
     """Build a PHYSICS-GRAY physics-template shortlist for one case (decision 0051). Same
     "narrows the search, human decides" contract as recommend(): NEVER auto-applies anything.
     Every applicable candidate template is always listed with its changes and SpeedyWeather probe
@@ -1576,7 +1744,13 @@ def recommend_physics_gray(ledger_path, namelist_path, case_name, hardware_id, n
     objective="perf" (the default) is exactly the behaviour above and returns EXACTLY the keys it
     always has -- no accuracy key is added, so an existing --json consumer sees an unchanged
     document. objective="accuracy" ADDS "objective" and "accuracy_view" (build_accuracy_view) and
-    leaves every perf key untouched, so the two modes are strictly additive, not alternative."""
+    leaves every perf key untouched, so the two modes are strictly additive, not alternative.
+
+    min_bucket_share / profile_shares: the cost-share filter (annotate_bucket_shares). Shares are
+    read from this case's own ledger rows unless `profile_shares` is passed explicitly; with no
+    profile row for the case nothing is annotated and nothing is demoted.
+    frozen_keys: task-mandated namelist keys no template may edit; defaults to this case's
+    cases.json 'frozen_keys' entry (empty for every registered case today)."""
     if objective not in OBJECTIVES:
         raise ValueError("unknown objective %r (choose from %s)"
                          % (objective, ", ".join(OBJECTIVES)))
@@ -1611,6 +1785,12 @@ def recommend_physics_gray(ledger_path, namelist_path, case_name, hardware_id, n
     # call sites (physics_candidates_from_namelist itself stays general-purpose and still reports
     # P00, same as physics_candidates_for_case always has).
     candidates = [c for c in candidates if c["template"] != "P00"]
+    # Task-mandated frozen keys come BEFORE anything is ranked: a template that would violate the
+    # problem statement is not a low-ranked option, it is not an option.
+    if frozen_keys is None:
+        frozen_keys = campaign_configs.case_frozen_keys(campaign_configs.CASES.get(case_name))
+    candidates, frozen_notes = exclude_frozen_key_templates(candidates, frozen_keys, case_name)
+    warnings.extend(frozen_notes)
     # A per-candidate "generic_rule_used" flag fires for MOST templates on MOST cases (P01/P02/P03
     # never have a physics_templates.json per-case entry at all, and P04/P06 usually don't need
     # one either) -- that alone does not mean this case is unknown to the campaign, so the
@@ -1707,6 +1887,20 @@ def recommend_physics_gray(ledger_path, namelist_path, case_name, hardware_id, n
     if tts_note:
         warnings.append(tts_note)
 
+    # Cost-share filter: applied BEFORE top3/verify_plan, so a demoted template does not consume a
+    # 4-node verification slot it cannot pay back (see annotate_bucket_shares).
+    if profile_shares is None:
+        profile_rows = list(train_rows)
+        try:
+            profile_rows += benchmark.load_ledger(ledger_path)
+        except Exception:
+            # An unreadable STRICT ledger must never break the PHYSICS-GRAY shortlist -- the shares
+            # are an optional annotation, and train_rows alone may already carry them.
+            pass
+        profile_shares = case_profile_shares(profile_rows, case_name)
+    shortlist, share_notes = annotate_bucket_shares(shortlist, profile_shares, min_bucket_share)
+    warnings.extend(share_notes)
+
     decomp_source = "--decomp"
     if decomp is None:
         decomp, decomp_source = _default_decomp(
@@ -1771,6 +1965,8 @@ def recommend_physics_gray(ledger_path, namelist_path, case_name, hardware_id, n
         probe_source=probe_source, probe_valid=probe_valid, probe_verdicts=raw_verdicts,
         allowed_labels=list(allowed_labels), candidates=candidates, shortlist=shortlist,
         warnings=warnings, verify_plan=verify_plan,
+        profile_shares=profile_shares, min_bucket_share=min_bucket_share,
+        frozen_keys=list(frozen_keys),
     )
 
 
@@ -1796,14 +1992,18 @@ def format_physics_report(result):
                   "OOF-miss: leave-one-case-out out-of-fold dangerous-miss <n>/<total> "
                   "(predicted allowed, measured LARGE-DRIFT), or insuff(n=<n>) below the "
                   "%d-prediction floor." % physicsmod.MIN_OOF_DANGEROUS_MISS)
+    lines.append("  bucket: the profile bucket the template's family acts on and this case's "
+                  "measured share of step cost; upper-bound saving = that share (a template cannot "
+                  "save more than its bucket). '-' = no bucket bounds this family, or the case has "
+                  "no profile row. A DEMOTED row is ranked last, never hidden.")
     lines.append("  train LARGE: MEASURED (not predicted) LARGE-DRIFT <k>/<labeled training "
                   "cases> -- a model-free track record that forces UNCONFIRMED on its own once "
                   "the rate reaches --max-template-large-rate, regardless of the fidelity "
                   "regression's own predicted label.")
-    lines.append("%-4s %-9s %-42s %-20s %-20s %-9s %-9s %-11s %-9s %-13s %s"
+    lines.append("%-4s %-9s %-42s %-20s %-20s %-9s %-9s %-11s %-9s %-13s %-13s %s"
                   % ("rank", "template", "changes (key old->new)", "time-to-sol vs P00",
-                     "fidelity", "infeasible", "OOF-miss", "train LARGE", "probe", "status",
-                     "reasons"))
+                     "fidelity", "infeasible", "OOF-miss", "train LARGE", "probe", "bucket",
+                     "status", "reasons"))
     for i, c in enumerate(result["shortlist"], start=1):
         changes = changes_by_template.get(c["template"], {})
         changes_str = ", ".join("%s %s->%s" % (k, v["from"], v["to"]) for k, v in changes.items()) or "-"
@@ -1836,9 +2036,14 @@ def format_physics_report(result):
         track = c.get("template_track_record")
         track_str = ("LARGE %d/%d" % (track["n_cases_large"], track["n_cases_labeled"])
                      if track is not None else "n/a")
-        lines.append("%-4d %-9s %-42s %-20s %-20s %-9s %-9s %-11s %-9s %-13s %s" % (
+        share = c.get("bucket_share")
+        bucket_str = ("-" if share is None else
+                       "%s %.1f%%%s" % ((c.get("bucket") or "").replace("profile_", "")
+                                         .replace("_share", ""), 100 * share,
+                                         " DEMOTED" if c.get("bucket_demoted") else ""))
+        lines.append("%-4d %-9s %-42s %-20s %-20s %-9s %-9s %-11s %-9s %-13s %-13s %s" % (
             i, c["template"], changes_str[:42], perf_str, fid_str, infeasible_str, oof_str,
-            track_str, c.get("probe_verdict") or "none", c["status"],
+            track_str, c.get("probe_verdict") or "none", bucket_str, c["status"],
             "; ".join(c.get("reasons") or [])))
 
     av = result.get("accuracy_view")
@@ -2156,6 +2361,16 @@ def _build_arg_parser():
                           "time-to-solution change is at most this (negative=faster) and, when a "
                           "conformal interval exists, its upper bound is also < 0; default -1.0 "
                           "(at least 1%% faster)")
+    ap.add_argument("--min-bucket-share", type=float, default=DEFAULT_MIN_BUCKET_SHARE,
+                     dest="min_bucket_share",
+                     help="PHYSICS-GRAY only: a template whose profile bucket (radiation -> "
+                          "profile_radiation_share, microphysics -> micro, dynamics/nesting/"
+                          "pbl_surface -> dynamics) is below this fraction of measured step cost "
+                          "is DEMOTED to the bottom of the shortlist with the reason shown -- it "
+                          "cannot save more than the bucket it acts on. Default 0.05 (5%%); a "
+                          "value > 1 is read as a percent. Requires a profiled ledger row for the "
+                          "case: with none, nothing is annotated or demoted. Measured contrast: "
+                          "SC26-P1 radiation 1.9%% vs SC26-P2 47%%")
     ap.add_argument("--objective", choices=list(OBJECTIVES), default="perf",
                      help="PHYSICS-GRAY only. 'perf' (default, unchanged in every byte): rank "
                           "candidates by predicted speed, gated on an allowed fidelity label. "
@@ -2198,7 +2413,8 @@ def main(argv=None):
                 max_infeasible_rate=args.max_infeasible_rate,
                 max_dangerous_miss=args.max_dangerous_miss,
                 max_template_large_rate=args.max_template_large_rate,
-                min_speedup_pct=args.min_speedup_pct, objective=args.objective)
+                min_speedup_pct=args.min_speedup_pct, objective=args.objective,
+                min_bucket_share=args.min_bucket_share)
             report = format_physics_report(result)
         elif args.objective != "perf":
             raise ValueError(

@@ -153,6 +153,107 @@ def assess_case(case, wind_max=None, cfl_limit=CFL_SAFE):
     return out
 
 
+# ---------------------------------------------------------------------------
+# The per-domain form of a time_step_sound template (2026-09-17).
+#
+# campaign/configs.py's 'set' op writes ONE value to every active domain, which is right for every
+# key WRF requires to be identical across domains and wrong for the acoustic sub-step count: the
+# margin is a property of (dt, dx) and a nest does not share its parent's. SC26-P1 is the measured
+# example -- parent_time_step_ratio=1, so d01 (9 km) and d02 (3 km) run at the same dt=10 and the
+# nest carries exactly 3x the parent's acoustic Courant number (0.094 vs 0.283). One value for both
+# either wastes the parent's margin or overspends the nest's.
+#
+# The values are COMPUTED from safe_sound_steps per domain, never hard-coded: at cfl_limit=0.50
+# SC26-P1 resolves to [2, 4]; at the module default CFL_SAFE=0.60 it resolves to [2, 2] (d02's
+# n=2 lands at 0.567, still under 0.60) and the variant is SKIPPED as uniform. The threshold is the
+# caller's knob, and the skip rule is what keeps a uniform answer out of the per-domain form.
+#
+# Direction: safe_sound_steps returns the SMALLEST safe even count, so this variant does LESS
+# acoustic work than the auto 4 -- it is a COST lever, the opposite of A02's own accuracy direction
+# (A02 raises the count to 6). The returned variant therefore carries direction='cost', or
+# --objective accuracy would mistake a coarser acoustic integration for a converged reference.
+# ---------------------------------------------------------------------------
+def effective_max_dom(case, max_dom=None):
+    """How many domains this case actually runs: an explicit `max_dom` wins, then a
+    namelist_overrides.max_dom (lafe trims 3 -> 1), then the case's own max_dom, then 1. Mirrors
+    campaign/configs.py's _case_effective_max_dom precedence."""
+    if max_dom is not None:
+        return int(max_dom)
+    overrides = case.get("namelist_overrides") or {}
+    if "max_dom" in overrides:
+        try:
+            return int(overrides["max_dom"])
+        except (TypeError, ValueError):
+            pass
+    try:
+        return int(case.get("max_dom") or 1)
+    except (TypeError, ValueError):
+        return 1
+
+
+def per_domain_sound_steps(case, max_dom=None, cfl_limit=CFL_SAFE):
+    """(values, None) -- safe_sound_steps for every ACTIVE domain of `case` -- or (None, reason).
+
+    Needs the per-domain grid, i.e. `dx_list` (plus `dy_list`/`parent_time_step_ratio_list` when
+    they differ) on the case entry, the shape assess_case already reads. NOTE: no
+    campaign/cases.json entry carries those keys today -- they record a scalar `dx` and put the
+    nest geometry in `notes` -- so a registered nested case returns the reason string rather than a
+    silently parent-only answer."""
+    n = effective_max_dom(case, max_dom)
+    doms = assess_case(case, cfl_limit=cfl_limit)
+    if len(doms) < n:
+        return None, ("case declares max_dom=%d but carries per-domain grid information for only "
+                      "%d domain(s): add dx_list (and dy_list/parent_time_step_ratio_list when "
+                      "they differ) to the case entry -- campaign/cases.json records only a scalar "
+                      "dx today" % (n, len(doms)))
+    return [d["safe_sound_steps"] for d in doms[:n]], None
+
+
+def per_domain_variant(template, case, max_dom=None, cfl_limit=CFL_SAFE, key="time_step_sound"):
+    """(variant_template, values) or (None, reason): the optional per-domain form of an acoustic
+    sub-step template (A02), with its single 'set' edit on `key` rewritten to the
+    `values_by_domain` form campaign/configs.py understands.
+
+    SKIPPED, with a reason instead of a template, when the case runs one domain (the scalar form
+    already says everything), when every domain resolves to the same count (same reason), or when
+    the case carries no per-domain grid. The variant's `direction` is 'cost': fewer sub-steps is
+    less acoustic work, the mirror of A02's own accuracy direction."""
+    n = effective_max_dom(case, max_dom)
+    if n < 2:
+        return None, ("single-domain case (max_dom=%d): a per-domain variant cannot say anything "
+                      "the scalar value does not" % n)
+    edits = list((template or {}).get("edits") or [])
+    targets = [i for i, e in enumerate(edits)
+               if e.get("op") == "set" and e.get("key") == key]
+    if len(targets) != 1:
+        return None, ("template carries %d 'set' edit(s) on %r -- the per-domain variant is defined "
+                      "for exactly one" % (len(targets), key))
+    values, reason = per_domain_sound_steps(case, n, cfl_limit)
+    if values is None:
+        return None, reason
+    if len(set(values)) == 1:
+        return None, ("every active domain resolves to %s=%d at cfl_limit=%.2f: the scalar form "
+                      "already expresses it, so there is no per-domain variant to run"
+                      % (key, values[0], cfl_limit))
+    new_edits = [dict(e) for e in edits]
+    edit = new_edits[targets[0]]
+    edit.pop("value", None)
+    edit["per_domain"] = True
+    edit["values_by_domain"] = list(values)
+    variant = dict(template)
+    variant["edits"] = new_edits
+    variant["direction"] = "cost"
+    variant["description"] = (
+        "PER-DOMAIN VARIANT (predictor/stability.py per_domain_variant, cfl_limit=%.2f): %s = %s, "
+        "the smallest EVEN acoustic sub-step count per domain whose acoustic CFL stays <= %.2f "
+        "(computed from each domain's own dt/dx, never hard-coded). This is a COST lever -- fewer "
+        "sub-steps than the auto 4 -- and therefore the OPPOSITE direction to the template it is "
+        "derived from. Base template: %s"
+        % (cfl_limit, key, ", ".join(str(v) for v in values), cfl_limit,
+           (template or {}).get("description", "")))
+    return variant, values
+
+
 def _cli(argv=None):
     import argparse
     import json

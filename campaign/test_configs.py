@@ -2083,3 +2083,162 @@ class TestHailcastNestHistoryInterval(unittest.TestCase):
         out = configs.edit_namelist(self.NEST, 4, 28, 6, 30, max_dom=2, history_mode="end_d01",
                                      ranks=112)
         self.assertNotIn("history_interval = 30, 0,", out)
+
+
+class TestValuesByDomain(unittest.TestCase):
+    """apply_physics_edit's 'set' op with a per-domain value list (2026-09-17). The scalar 'value'
+    form is unchanged and still the default; 'values_by_domain' exists because a nest does not
+    always want its parent's value (SC26-P1's d01 carries 3x its d02's acoustic margin at the same
+    dt -- predictor/stability.py)."""
+
+    PRESENT = ("&dynamics\n time_step_sound = 4, 4,\n/\n")
+    ABSENT = ("&domains\n max_dom = 2,\n/\n&dynamics\n diff_opt = 1, 1,\n/\n")
+
+    def test_scalar_value_is_still_the_default_and_unchanged(self):
+        out, old, new = configs.apply_physics_edit(
+            self.PRESENT, {"op": "set", "key": "time_step_sound", "value": 6,
+                           "section": "&dynamics"}, 2)
+        self.assertEqual((old, new), (["4", "4"], ["6", "6"]))
+        self.assertIn("time_step_sound = 6, 6,", out)
+
+    def test_list_form_writes_one_value_per_domain(self):
+        out, old, new = configs.apply_physics_edit(
+            self.PRESENT, {"op": "set", "key": "time_step_sound",
+                           "values_by_domain": [2, 4], "section": "&dynamics"}, 2)
+        self.assertEqual((old, new), (["4", "4"], ["2", "4"]))
+        self.assertIn("time_step_sound = 2, 4,", out)
+
+    def test_mapping_form_accepts_json_string_keys_and_is_one_based(self):
+        out, _old, new = configs.apply_physics_edit(
+            self.PRESENT, {"op": "set", "key": "time_step_sound",
+                           "values_by_domain": {"1": 2, "2": 4}, "section": "&dynamics"}, 2)
+        self.assertEqual(new, ["2", "4"])
+        self.assertIn("time_step_sound = 2, 4,", out)
+        out2, _o2, new2 = configs.apply_physics_edit(
+            self.PRESENT, {"op": "set", "key": "time_step_sound",
+                           "values_by_domain": {1: 2, 2: 4}, "section": "&dynamics"}, 2)
+        self.assertEqual(new2, ["2", "4"])
+        self.assertEqual(out, out2)
+
+    def test_length_mismatch_is_refused(self):
+        with self.assertRaises(ValueError) as cm:
+            configs.apply_physics_edit(
+                self.PRESENT, {"op": "set", "key": "time_step_sound",
+                               "values_by_domain": [2, 4, 6], "section": "&dynamics"}, 2)
+        self.assertIn("3 value(s)", str(cm.exception))
+        self.assertIn("time_step_sound", str(cm.exception))
+
+    def test_missing_or_out_of_range_domain_index_is_refused(self):
+        with self.assertRaises(ValueError) as missing:
+            configs.apply_physics_edit(
+                self.PRESENT, {"op": "set", "key": "time_step_sound",
+                               "values_by_domain": {1: 2}, "section": "&dynamics"}, 2)
+        self.assertIn("missing domain(s) [2]", str(missing.exception))
+        with self.assertRaises(ValueError) as outside:
+            configs.apply_physics_edit(
+                self.PRESENT, {"op": "set", "key": "time_step_sound",
+                               "values_by_domain": {1: 2, 2: 4, 3: 6}, "section": "&dynamics"}, 2)
+        self.assertIn("[3]", str(outside.exception))
+
+    def test_absent_key_is_inserted_per_domain_without_an_explicit_per_domain_flag(self):
+        # values_by_domain is per-domain by construction, so it implies per_domain on insert.
+        out, old, new = configs.apply_physics_edit(
+            self.ABSENT, {"op": "set", "key": "time_step_sound",
+                          "values_by_domain": [2, 4], "section": "&dynamics"}, 2)
+        self.assertEqual((old, new), ([], ["2", "4"]))
+        self.assertIn("time_step_sound = 2, 4,", out)
+
+    def test_a02_scalar_path_still_works_for_a_single_domain_case(self):
+        out, _summary = configs.apply_physics_template(
+            self.ABSENT, configs.PHYSICS_TEMPLATES["A02"], max_dom=1)
+        self.assertIn("time_step_sound = 6,", out)
+        self.assertNotIn("time_step_sound = 6, 6,", out)
+
+
+class TestFrozenKeys(unittest.TestCase):
+    """cases.json 'frozen_keys' (2026-09-17): keys the TASK mandates (SC26-P1 fixes time_step=10
+    and debug_level=50). A template that edits one is refused outright -- that is a rules
+    violation, not a tuning trade-off. Tested against a SYNTHETIC case; no cases.json entry
+    declares frozen keys today."""
+
+    NL = ("&domains\n time_step = 10, max_dom = 1,\n/\n"
+          "&physics\n radt = 9,\n/\n")
+    TPL = {"family": "dynamics",
+           "edits": [{"op": "mul", "key": "time_step", "factor": 1.2, "round": "int",
+                      "section": "&domains"}]}
+    RADT = {"family": "radiation",
+            "edits": [{"op": "mul", "key": "radt", "factor": 2, "round": "int",
+                       "section": "&physics"}]}
+
+    def test_case_frozen_keys_lowercases_and_defaults_to_empty(self):
+        self.assertEqual(configs.case_frozen_keys({"frozen_keys": ["Time_Step", " debug_level "]}),
+                         ["time_step", "debug_level"])
+        self.assertEqual(configs.case_frozen_keys({}), [])
+        self.assertEqual(configs.case_frozen_keys(None), [])
+
+    def test_template_frozen_key_conflicts_sees_edits_and_per_case_extra_edits(self):
+        self.assertEqual(configs.template_frozen_key_conflicts(self.TPL, ["time_step"]),
+                         ["time_step"])
+        self.assertEqual(configs.template_frozen_key_conflicts(self.TPL, ["radt"]), [])
+        paired = dict(self.RADT, extra_edits={"synth": [{"op": "set", "key": "debug_level",
+                                                          "value": 0, "section": "&time_control"}]})
+        self.assertEqual(configs.template_frozen_key_conflicts(paired, ["debug_level"],
+                                                                case_id="synth"), ["debug_level"])
+        # ...and only for the named case.
+        self.assertEqual(configs.template_frozen_key_conflicts(paired, ["debug_level"],
+                                                                case_id="other"), [])
+
+    def test_apply_physics_template_refuses_a_frozen_key_and_names_key_and_case(self):
+        with self.assertRaises(ValueError) as cm:
+            configs.apply_physics_template(self.NL, self.TPL, 1, case_id="sc26p1",
+                                            frozen_keys=["time_step"])
+        msg = str(cm.exception)
+        self.assertIn("time_step", msg)
+        self.assertIn("sc26p1", msg)
+        self.assertIn("frozen", msg)
+
+    def test_a_frozen_key_refuses_before_any_edit_is_applied(self):
+        two = {"family": "dynamics",
+               "edits": [{"op": "mul", "key": "radt", "factor": 2, "round": "int",
+                          "section": "&physics"},
+                         {"op": "mul", "key": "time_step", "factor": 1.2, "round": "int",
+                          "section": "&domains"}]}
+        with self.assertRaises(ValueError):
+            configs.apply_physics_template(self.NL, two, 1, case_id="sc26p1",
+                                            frozen_keys=["time_step"])
+        # nothing partially applied: the unfrozen edit in the same template did not run either
+        ok, _summary = configs.apply_physics_template(self.NL, two, 1, case_id="sc26p1")
+        self.assertIn("radt = 18,", ok)
+
+    def test_a_template_that_touches_nothing_frozen_still_applies(self):
+        out, summary = configs.apply_physics_template(self.NL, self.RADT, 1, case_id="sc26p1",
+                                                       frozen_keys=["time_step", "debug_level"])
+        self.assertIn("radt = 18,", out)
+        self.assertEqual([e["key"] for e in summary], ["radt"])
+
+    def test_applicability_reports_the_frozen_key(self):
+        ok, reason = configs.physics_template_applicability("sc26p1", self.TPL,
+                                                             frozen_keys=["time_step"])
+        self.assertFalse(ok)
+        self.assertIn("time_step", reason)
+        self.assertIn("sc26p1", reason)
+        self.assertEqual(configs.physics_template_applicability("sc26p1", self.TPL),
+                         (True, None))
+
+    def test_resolve_physics_config_refuses_a_frozen_key_for_a_synthetic_case(self):
+        import tempfile
+        tmpdir = tempfile.mkdtemp()
+        path = os.path.join(tmpdir, "namelist.input")
+        with open(path, "w") as fh:
+            fh.write(self.NL)
+        cases = {"sc26p1": {"namelist_template": path, "max_dom": 1,
+                            "frozen_keys": ["time_step", "debug_level"]}}
+        templates = {"X": self.TPL, "R": self.RADT}
+        summary, reason = configs.resolve_physics_config("sc26p1", "X", cases=cases,
+                                                          templates=templates)
+        self.assertIsNone(summary)
+        self.assertIn("time_step", reason)
+        ok_summary, ok_reason = configs.resolve_physics_config("sc26p1", "R", cases=cases,
+                                                               templates=templates)
+        self.assertIsNone(ok_reason)
+        self.assertEqual([e["key"] for e in ok_summary], ["radt"])

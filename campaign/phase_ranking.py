@@ -97,8 +97,17 @@ def main(argv=None):
     # order reshuffled while the winner never changed, and the reshuffled configs were within 1.4%
     # of each other -- reporting that as "unstable" would have been misleading).
     best = [o[0] for o in order]
-    best_same = all(b == best[0] for b in best)
     meds = {lbl: m for lbl, m, _n in rows}
+    # "the winner changed" must survive the noise floor too: matthew's 48 h run (job 1081095) put
+    # V0028 first in window 3 by 0.47%, under the 0.5% floor, and a bare argmin comparison called
+    # that a winner change. Instead take each window's CO-WINNERS (everything within `noise` of that
+    # window's minimum); if some config co-wins EVERY window, one measurement is enough.
+    co_winners = []
+    for i in range(len(order)):
+        fastest = min(meds[lbl][i] for lbl in meds)
+        co_winners.append({lbl for lbl in meds if meds[lbl][i] / fastest - 1 <= a.noise})
+    always_co_winner = set.intersection(*co_winners) if co_winners else set()
+    best_same = bool(always_co_winner)
     # a reordering only counts when the pair is separated by more than the noise floor in some window
     real_swap = False
     for i in range(len(order)):
@@ -114,7 +123,11 @@ def main(argv=None):
                         if max(gap_i, gap_j) > a.noise:
                             real_swap = True
     lines.append("")
-    lines.append("BEST CONFIG STABLE: %s (per window: %s)" % (best_same, " -> ".join(best)))
+    lines.append("BEST CONFIG STABLE: %s (per-window winner: %s)" % (best_same, " -> ".join(best)))
+    lines.append("  co-winners per window (within %.1f%%): %s" % (
+        100 * a.noise, " | ".join(",".join(sorted(c)) for c in co_winners)))
+    if always_co_winner:
+        lines.append("  co-wins EVERY window: %s" % ",".join(sorted(always_co_winner)))
     lines.append("ORDER STABLE: %s%s" % (
         all(o == order[0] for o in order),
         "" if not real_swap else " (and at least one swap exceeds the %.1f%% noise floor)"

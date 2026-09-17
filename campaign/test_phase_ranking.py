@@ -36,6 +36,17 @@ def test_stable_ranking_is_reported_as_stable(tmp_path, capsys):
     assert "window 1 ranking: A < B" in out and "window 3 ranking: A < B" in out
 
 
+def test_winner_flip_inside_the_noise_floor_is_still_stable(tmp_path, capsys):
+    """matthew 48 h (job 1081095): B took window 2 by 0.47%, under the 0.5% floor. A bare argmin
+    called that a winner change; the co-winner rule must not."""
+    a = _run_dir(tmp_path, "c_A_r1_1", [9.0, 1.000, 1.000, 1.004, 1.004])
+    b = _run_dir(tmp_path, "c_B_r1_1", [9.0, 1.002, 1.002, 1.000, 1.000])
+    assert pr.main(["--run-dir", a, b, "--windows", "2"]) == 0
+    out = capsys.readouterr().out
+    assert "BEST CONFIG STABLE: True" in out
+    assert "VERDICT: one measurement is enough" in out
+
+
 def test_ranking_flip_between_windows_is_reported(tmp_path, capsys):
     # A is fastest early and slowest late; B the other way round
     a = _run_dir(tmp_path, "c_A_r1_1", [9.0, 1.0, 1.0, 5.0, 5.0])
@@ -43,7 +54,7 @@ def test_ranking_flip_between_windows_is_reported(tmp_path, capsys):
     assert pr.main(["--run-dir", a, b, "--windows", "2"]) == 0
     out = capsys.readouterr().out
     assert "BEST CONFIG STABLE: False" in out
-    assert "BEST CONFIG STABLE: False (per window: A -> B)" in out
+    assert "BEST CONFIG STABLE: False (per-window winner: A -> B)" in out
     assert "VERDICT: the best config depends on simulated time" in out
 
 

@@ -56,6 +56,7 @@ TOTAL_CORES = 448  # 4 nodes x 112 cores, ct448
 # maria1km (2-domain cold start) are added now that their inputs are prepared.
 CASE_ORDER = [
     "karina", "conus25", "conus12", "isc21", "maria1km", "lafe",
+    "sc26p1", "sc26p2", "sc26p2narr",
     "severe2023", "matthew", "c34", "zhengzhou", "elevconv", "marshall", "bigchill",
 ]
 

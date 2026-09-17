@@ -543,6 +543,143 @@
         "radt": 15,
         "cudt": 5
       }
+    },
+    "sc26p1": {
+      "prep_dir": "/home/u5727520/wrf-bench/atlas/sc26p1",
+      "bp_dir": "/home/u5727520/wrf-bench/atlas/sc26p1/bp",
+      "restart": false,
+      "input_files": [],
+      "history_key": "history_interval",
+      "dt": 10,
+      "e_we": 150,
+      "e_sn": 150,
+      "e_vert": 50,
+      "dx": 9000,
+      "dy": 9000,
+      "max_dom": 2,
+      "e_we_list": [
+        150,
+        100
+      ],
+      "e_sn_list": [
+        150,
+        100
+      ],
+      "e_vert_list": [
+        50,
+        50
+      ],
+      "namelist_overrides": {
+        "debug_level": 0
+      },
+      "case_family": "frontal_synoptic",
+      "steps": 162,
+      "physics_sim_minutes": 27,
+      "enabled": true,
+      "notes": "SC26-P1 official practice task 1, polar vortex / South Bend 2019-01-28 00Z -> 01-31 00Z (72 h). 2-domain Lambert, d01 150x150 @9 km + d02 100x100 @3 km, parent_grid_ratio=3 but parent_time_step_ratio=1 (the only reading under which BOTH domains have dt=10 s, which is what the problem statement asks for; it also makes d02 cost 3x fewer steps than the conventional ptsr=3). i/j_parent_start=59 centres d02 (span=(100-1)/3=33, (149-33)/2+1=59); geo_em corner check confirms d01 35.37-47.46N/-93.62..-77.23E and d02 40.34-43.03N/-87.96..-84.36E, matching the atlas's independently measured extents. e_vert=50 and debug_level=50 are both mandated by the problem statement. Driving data: 13 GRIB2 valid times, 6-hourly, from TWO products -- 8 x NCEI NAM-ANL grid 218 (2019-01-28 00Z .. 01-29 18Z) + 5 x NCAR GDEX ds609.0 NAM 00-h forecast (01-30 00Z .. 01-31 00Z), because NCEI's 201901 NAM-ANL archive stops at 01-29 (verified again 2026-09-17: the 20190130/20190131 directories do not exist). All 8 NCEI files md5-verified against the archive's published sums; GDEX publishes none. WPS job 1081381, real.exe job 1081385, BP conversion job 1081386. MEASURED from met_em, not copied from the task: num_metgrid_levels=40, num_st_layers=4, num_land_cat=21. radt=9 at dt=10 => STEPRA=54; steps=162 = 3 whole radiation cycles so the measured window holds 2 radiation steps (162*10 s = 27 min exactly, so the runner's ceil-to-whole-minutes rounding is a no-op). LEGAL RANK CAP 100 -- THE LOWEST IN THE INVENTORY: d02's 100 cells bound BOTH domains through the shared decomposition, so nproc_x<=10 and nproc_y<=10 (MIN_PATCH 10); d01 alone would allow 15x15. CONSEQUENCE: the stock STRICT templates C01-C16 are anchored at 448/224/112 ranks and EVERY ONE of them resolves to zero legal shapes for this case -- `configs.py sc26p1` prints 16 SKIP lines and an empty table. sc26p1 can only be measured through CONFIG_FILE (predictor/decomp_space.py sample --total-cores 112 --nodes 1), or by adding a <=100-rank STRICT template. debug_level: the campaign's namelist editor DOES preserve it -- configs.py edit_namelist only rewrites run_days/run_hours/run_minutes, the history keys, nproc_x/nproc_y/numtiles, the optional tile-geometry keys, explicit namelist_overrides and the ADIOS2 block, and debug_level is in none of those lists and is never deleted -- so the prep_dir template keeps the problem statement's debug_level=50 verbatim. BUT LEAVING IT AT 50 SILENTLY DESTROYS THE MEASUREMENT (measured here, smoke job 1081398): at debug_level=50 WRF prints mminlu = 'MODIFIED_IGBP_MODIS_NOAH\\0' three times, trailing Fortran NUL included, so rsl.out.0000 is a BINARY file (file(1) says 'data'); strict_campaign.sbatch's harvest is `grep \"Timing for main\" rsl.out.0000 | sed ...` with no -a, GNU grep answers 'Binary file ... matches' instead of the 324 real lines, steps_by_domain.txt and steps.txt come out EMPTY, and the run is logged as rc=0 ok=1 med= mean= n=0 -- a success with no timing at all, not a distorted timing. `grep -a` recovers all 324 lines; that one-flag fix in campaign/strict_campaign.sbatch is the lead's call and was deliberately not made here. Until it is made, this case carries namelist_overrides {debug_level: 0} so it is measurable; the atlas already showed the two settings produce BIT-IDENTICAL wrfout, so a timing campaign loses nothing scientific by overriding, and removing the override restores the literal problem configuration. The cost is real and NOT a uniform multiplier: atlas measured +44.0% wall, d01 non-radiation step median +40.0% but d02 step median +66.9%, plus about 2.7 GB of rsl per simulated hour at 72 ranks (strict_campaign deletes every rsl.* except rsl.out.0000/rsl.error.0000 only AFTER each run, so the peak is per-run: 162 steps = 0.45 sim-hours => order 1 GB, inside the MIN_FREE_GIB guard). Smoke 1081398 (cf112 -N1, 56 ranks omp=2, 7x8, numtiles=4, debug_level=50): rc=0, wall 32.7 s, zero steps harvested. SMOKE (working, debug_level overridden to 0): job 1081459, ct112 -N1 56 ranks omp=1, 7x8, numtiles=4, block, REPS=1, steps=162 -- rc=0 ok=1, s/step median 0.16708, mean 0.16941, n=161 measured, 1 excluded, wall 34.4 s; rsl.out.0000 comes out ASCII and all 324 'Timing for main' lines (162 d01 + 162 d02) are harvested. NOTE the excl=1 is step 1 only -- the runner's radiation-exclusion rule drops steps above 3x the median, and P1's radiation steps are only about 2x (r_rad ~2.0), so for this case s_per_step_median is NOT radiation-excluded the way it is for radiation-heavy cases. It ran on ct112 (icpnq, SNC 8x14) rather than cf112 (icpnp, 2 NUMA) because both partitions had zero idle nodes; HARDWARE_ID therefore differs from the other two smokes and this number must not be pooled with cf448/cf112 rows.",
+      "physics": {
+        "mp_physics": 4,
+        "cu_physics": 5,
+        "bl_pbl_physics": 2,
+        "sf_sfclay_physics": 2,
+        "sf_surface_physics": 2,
+        "ra_lw_physics": 1,
+        "ra_sw_physics": 2,
+        "radt": 9,
+        "cudt": 0
+      },
+      "dx_list": [
+        9000,
+        3000
+      ],
+      "dy_list": [
+        9000,
+        3000
+      ],
+      "parent_time_step_ratio_list": [
+        1,
+        1
+      ]
+    },
+    "sc26p2": {
+      "prep_dir": "/home/u5727520/wrf-bench/atlas/sc26p2/run_nam",
+      "bp_dir": "/home/u5727520/wrf-bench/atlas/sc26p2/run_nam/bp",
+      "restart": false,
+      "input_files": [],
+      "history_key": "history_interval",
+      "dt": 72,
+      "e_we": 170,
+      "e_sn": 130,
+      "e_vert": 40,
+      "dx": 12000,
+      "dy": 12000,
+      "max_dom": 1,
+      "e_we_list": [
+        170
+      ],
+      "e_sn_list": [
+        130
+      ],
+      "e_vert_list": [
+        40
+      ],
+      "namelist_overrides": {},
+      "case_family": "tropical_cyclone",
+      "steps": 50,
+      "physics_sim_minutes": 60,
+      "enabled": true,
+      "notes": "SC26-P2 official practice task 2 RUN 1, Hurricane Katrina dynamical downscaling 2005-08-27 00Z -> 08-29 00Z (48 h), driven by NCEI NAM-ANL grid 218 12 km analyses (9 GRIB1 valid times, 6-hourly, 918 MB). Single Mercator domain 170x130x40 @12 km, time_step=72 => 2400 steps for the full run, history_interval=60 (the problem statement says so explicitly). WPS job 1081381, real.exe job 1081385. MEASURED from met_em: num_metgrid_levels=40, num_st_layers=4. p_top_requested=10000 Pa is pinned to the SAME value as sc26p2narr on purpose: NARR's own top is 100 hPa, and a run pair on different vertical coordinates cannot be differenced point by point, which is the entire assignment. radt=12 at dt=72 => STEPRA=10; steps=50 = 5 whole radiation cycles (50*72 s = 60 min exactly) with 4 radiation steps inside the measured window. LEGAL RANK CAP 221: e_we=170 => nproc_x<=17, e_sn=130 => nproc_y<=13 (MIN_PATCH 10). Radiation-dominated shape (the atlas measured r_rad ~5.7 => ~47% of average step cost), the opposite extreme from sc26p1's 1.8% -- the two practice cases together bracket the inventory's cost-composition range. SMOKE: job 1081400, cf112 -N1 112 ranks omp=1, 14x8, numtiles=8 (4x2, tile_strategy=3), cyclic, REPS=1, steps=50 -- rc=0 ok=1, s/step median 0.06453, mean 0.09434, n=45 measured, 5 excluded (the 5 radiation steps -- r_rad here is large enough that the 3x rule does bite), wall 19.9 s. C13-C16 are the only stock STRICT templates that resolve for this case (112 ranks); C01-C12 sit at 448/224 ranks and exceed the 221 cap.",
+      "physics": {
+        "mp_physics": 8,
+        "cu_physics": 1,
+        "bl_pbl_physics": 1,
+        "sf_sfclay_physics": 1,
+        "sf_surface_physics": 2,
+        "ra_lw_physics": 4,
+        "ra_sw_physics": 4,
+        "radt": 12,
+        "cudt": 0
+      }
+    },
+    "sc26p2narr": {
+      "prep_dir": "/home/u5727520/wrf-bench/atlas/sc26p2/run_narr",
+      "bp_dir": "/home/u5727520/wrf-bench/atlas/sc26p2/run_narr/bp",
+      "restart": false,
+      "input_files": [],
+      "history_key": "history_interval",
+      "dt": 72,
+      "e_we": 170,
+      "e_sn": 130,
+      "e_vert": 40,
+      "dx": 12000,
+      "dy": 12000,
+      "max_dom": 1,
+      "e_we_list": [
+        170
+      ],
+      "e_sn_list": [
+        130
+      ],
+      "e_vert_list": [
+        40
+      ],
+      "namelist_overrides": {},
+      "case_family": "tropical_cyclone",
+      "steps": 50,
+      "physics_sim_minutes": 60,
+      "enabled": true,
+      "notes": "SC26-P2 official practice task 2 RUN 2, identical to sc26p2 in grid, period, time_step and physics -- ONLY the lateral-boundary data differs: NCEI NARR-A grid 221 32 km (9 GRIB1 valid times taken 6-hourly out of NARR's native 3-hourly stream, 479 MB, Vtable.NARR). This is the problem statement's own controlled comparison, so the pair must stay two separate cases. MEASURED from met_em: num_metgrid_levels=30 (vs 40 for sc26p2 -- the organisers' own hint flags this, and a wrong value makes real.exe FATAL in &domains), num_st_layers=4. p_top_requested=10000 Pa, the same as sc26p2, because NARR's top IS 100 hPa and the two runs must share a vertical coordinate to be differenced. WPS job 1081381, real.exe job 1081385. Same rank cap as sc26p2: nproc_x<=17, nproc_y<=13 => 221 ranks. For the PREDICTOR this pair is nearly a duplicate row (the atlas measured the two runs' non-radiation step medians 1.2% apart, i.e. swapping driving data changes the science, not the cost) -- useful as a same-shape noise control, but do not count it as an independent case when checking the >=4-configs-per-group / >=5-groups rule. SMOKE: job 1081401, same shape and settings as sc26p2's smoke -- rc=0 ok=1, s/step median 0.06388, mean 0.09419, n=45 measured, 5 excluded, wall 20.0 s. The pair differs by 1.0% in step median (0.06453 vs 0.06388), reproducing the atlas's 1.2% and confirming that swapping driving data changes the science, not the cost.",
+      "physics": {
+        "mp_physics": 8,
+        "cu_physics": 1,
+        "bl_pbl_physics": 1,
+        "sf_sfclay_physics": 1,
+        "sf_surface_physics": 2,
+        "ra_lw_physics": 4,
+        "ra_sw_physics": 4,
+        "radt": 12,
+        "cudt": 0
+      }
     }
   }
 }

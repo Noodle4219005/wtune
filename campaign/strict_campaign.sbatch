@@ -441,11 +441,12 @@ PY
     harvest_thompson_tables
 
     OK=0
-    if [ -f rsl.error.0000 ] && grep -q "SUCCESS COMPLETE WRF" rsl.error.0000; then
+    if [ -f rsl.error.0000 ] && grep -qa "SUCCESS COMPLETE WRF" rsl.error.0000; then
       OK=1
     fi
 
-    grep "Timing for main" rsl.out.0000 2>/dev/null | sed -nE 's/.*on domain +([0-9]+): +([0-9.]+) elapsed.*/\1 \2/p' > steps_by_domain.txt
+    grep -a "Timing for main" rsl.out.0000 2>/dev/null |   # -a: debug_level>=50 puts a Fortran NUL in mminlu, and GNU grep then prints "Binary file ... matches" and harvests ZERO steps (SC26-P1 job 1081398: rc=0 ok=1 but n=0 while all 324 timing lines were present)
+    sed -nE 's/.*on domain +([0-9]+): +([0-9.]+) elapsed.*/\1 \2/p' > steps_by_domain.txt
     awk '$1 == 1 { print $2 }' steps_by_domain.txt > steps.txt
 
     if [ "$RC" = "0" ] && [ "$OK" = "1" ]; then
@@ -779,7 +780,7 @@ for cid in "${ORDER[@]}"; do
   harvest_thompson_tables
 
   OK=0
-  if [ -f rsl.error.0000 ] && grep -q "SUCCESS COMPLETE WRF" rsl.error.0000; then
+  if [ -f rsl.error.0000 ] && grep -qa "SUCCESS COMPLETE WRF" rsl.error.0000; then
     OK=1
   fi
 
@@ -787,7 +788,8 @@ for cid in "${ORDER[@]}"; do
   # ALREADY INCLUDES the nested integration (smoke job 1074515, isc21: domain-1 lines sum 758.7 s against
   # 841 s total wall including ~90 s of init/IO, while d02+d03 lines alone sum 821 s). So a d01 step is its
   # domain-1 line only; adding nested lines double-counts. steps_by_domain.txt keeps all raw lines.
-  grep "Timing for main" rsl.out.0000 2>/dev/null | sed -nE 's/.*on domain +([0-9]+): +([0-9.]+) elapsed.*/\1 \2/p' > steps_by_domain.txt
+  grep -a "Timing for main" rsl.out.0000 2>/dev/null |   # -a: debug_level>=50 puts a Fortran NUL in mminlu, and GNU grep then prints "Binary file ... matches" and harvests ZERO steps (SC26-P1 job 1081398: rc=0 ok=1 but n=0 while all 324 timing lines were present)
+    sed -nE 's/.*on domain +([0-9]+): +([0-9.]+) elapsed.*/\1 \2/p' > steps_by_domain.txt
   awk '$1 == 1 { print $2 }' steps_by_domain.txt > steps.txt
 
   # step_stats() (campaign/configs.py) computes median (radiation-excluded, as

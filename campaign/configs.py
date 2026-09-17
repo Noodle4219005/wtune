@@ -1281,6 +1281,171 @@ def cmd_case_generated(case_id, config_file):
     return 0
 
 
+# ---------------------------------------------------------------------------
+# MODE=physics decomposition pair (2026-09-17): the reference decomposition and
+# the chaos-floor twin, resolved from ONE rule set whatever they are named in.
+#
+# Until now strict_campaign.sbatch's MODE=physics could only name fixed STRICT
+# template ids (DECOMP=C02 TWIN_DECOMP=C06), and sc26p1 resolves NONE of C01-C16:
+# its d02 has 100 cells, WRF needs floor(e/nproc) >= MIN_PATCH on every active
+# domain, so BOTH domains are capped at 10x10 = 100 ranks through the shared
+# decomposition while every template is anchored at 448/224/112 ranks --
+# `configs.py sc26p1` prints 16 SKIP lines and an empty table. PHYSICS-GRAY was
+# therefore unreachable for sc26p1, and for any case whose legal rank cap is
+# below 112.
+#
+# The fix reuses the CONFIG_FILE mechanism that already exists for the STRICT
+# loop rather than inventing a second one: with
+# CONFIG_FILE=<predictor/decomp_space.py sample|seed output>, DECOMP and
+# TWIN_DECOMP name ids from that file (G0001, S0003, R01D0007, ...) instead of
+# C01-C16, and cmd_case_generated already prints those configs in the TSV shape
+# the sbatch reads. Nothing here changes what a STRICT-template pair resolves to:
+# with CONFIG_FILE unset, resolve_decomp_pair looks the ids up in exactly the
+# resolve_case() output cmd_case prints, and the sbatch's own pre-existing
+# "not a resolved STRICT config" guards are left in place ahead of it.
+#
+# The twin is NOT a replicate. It is the same physics (P00) on a DIFFERENT
+# decomposition, and the reference-vs-twin spread is the chaos floor that
+# fidelity_gate.py compares every candidate against. An identical twin would
+# measure a floor of ~0 and relabel every real candidate LARGE-DRIFT, so an
+# identical pair is refused here instead of being measured.
+# ---------------------------------------------------------------------------
+
+#: What makes two decompositions genuinely different RUNS. patch_x/patch_y are derived
+#: from nx/ny, and id/config_source/tile_shape are labels, so none of them is compared.
+#: STRICT-resolved configs carry no tile-geometry keys at all and normalise to 0 here,
+#: which is exactly what the sbatch passes for them (TILE_ARGS default 0).
+DECOMP_IDENTITY_FIELDS = ("ranks", "omp", "nx", "ny", "numtiles", "dist", "blocktime",
+                          "numtiles_x", "numtiles_y", "tile_sz_x", "tile_sz_y", "tile_strategy")
+
+
+def _decomp_identity(cfg):
+    out = []
+    for k in DECOMP_IDENTITY_FIELDS:
+        v = cfg.get(k)
+        out.append("0" if v is None or v == "" else str(v))
+    return tuple(out)
+
+
+def describe_decomp(cfg):
+    """One-line human form of a decomposition, for error messages and the job log."""
+    return ("ranks=%s omp=%s nproc_x=%s nproc_y=%s numtiles=%s dist=%s blocktime=%s"
+            % (cfg.get("ranks"), cfg.get("omp"), cfg.get("nx"), cfg.get("ny"),
+               cfg.get("numtiles"), cfg.get("dist"), cfg.get("blocktime")))
+
+
+def available_decomps(case_id, config_file=None, cases=None):
+    """(ordered_ids, {id: config}, None) or (None, None, reason).
+
+    config_file set -> the generated set, in file order, no scoring/dedup (same source
+    cmd_case_generated prints). Unset -> resolve_case()'s kept STRICT configs, i.e.
+    exactly the ids cmd_case prints for this case."""
+    cases = CASES if cases is None else cases
+    case = cases.get(case_id)
+    if case is None:
+        return None, None, "unknown case %r" % (case_id,)
+    if not case.get("enabled", True):
+        return None, None, ("case %s is disabled: %s"
+                            % (case_id, case.get("reason", "(no reason recorded)")))
+    if config_file:
+        ids, by_id = [], {}
+        for c in load_generated_configs(config_file) or ():
+            if c.get("id") is None:
+                continue
+            cid = str(c["id"])
+            if cid not in by_id:
+                ids.append(cid)
+            by_id[cid] = c
+        if not ids:
+            return None, None, ("CONFIG_FILE %s carries no configs with an 'id' field "
+                                "(expected predictor/decomp_space.py sample|seed output: a bare "
+                                "JSON list or {\"configs\": [...]})" % (config_file,))
+        return ids, by_id, None
+    kept, skipped, _aliases = resolve_case(case)
+    if not kept:
+        first = skipped[0][1] if skipped else "no reason recorded"
+        return None, None, (
+            "case %s resolves ZERO of the %d STRICT templates C01-C16 (first reason: %s), so no "
+            "template id can name a decomposition for it. Generate a decomposition set instead -- "
+            "predictor/decomp_space.py sample %s --n N --seed S --total-cores C --nodes N "
+            "--out FILE.json -- and run with CONFIG_FILE=FILE.json plus DECOMP/TWIN_DECOMP ids "
+            "taken from that file" % (case_id, len(TEMPLATES), first, case_id))
+    return [c["id"] for c in kept], dict((c["id"], c) for c in kept), None
+
+
+def resolve_decomp_pair(case_id, decomp_id, twin_id, config_file=None, cases=None):
+    """(reference_cfg, twin_cfg, None) or (None, None, reason).
+
+    The single resolution+validation rule set behind MODE=physics's DECOMP/TWIN_DECOMP,
+    for both STRICT template ids (config_file=None) and a generated config set."""
+    ids, by_id, reason = available_decomps(case_id, config_file, cases)
+    if reason:
+        return None, None, reason
+    source = ("CONFIG_FILE=%s" % config_file) if config_file else "the STRICT templates C01-C16"
+    picked = []
+    for role, cid in (("DECOMP", decomp_id), ("TWIN_DECOMP", twin_id)):
+        cid = "" if cid is None else str(cid)
+        if not cid:
+            return None, None, "%s is empty: name one of %s" % (role, ", ".join(ids))
+        if "_" in cid or cid.split() != [cid]:
+            return None, None, (
+                "%s=%r contains an underscore or whitespace. A config id is embedded verbatim in "
+                "the ledger run_id (case_cid_rN_job, parsed by predictor/decomp_search.py "
+                "parse_run_id) and in the space-separated key=value notes field, so neither "
+                "character can appear in it" % (role, cid))
+        cfg = by_id.get(cid)
+        if cfg is None:
+            return None, None, (
+                "%s=%r is not a resolved config for case %s from %s -- available ids: %s"
+                % (role, cid, case_id, source, ", ".join(ids)))
+        picked.append(cfg)
+    ref, twin = picked
+    if _decomp_identity(ref) == _decomp_identity(twin):
+        return None, None, (
+            "TWIN_DECOMP=%s is the SAME decomposition as DECOMP=%s (%s). The twin is not a "
+            "replicate: it is the same physics on a DIFFERENT decomposition, and the "
+            "reference-vs-twin spread is the chaos floor fidelity_gate.py measures every "
+            "candidate against. An identical twin reports a floor of ~0 and would relabel every "
+            "real candidate LARGE-DRIFT, so pick a twin differing in at least one of: %s"
+            % (twin_id, decomp_id, describe_decomp(ref), ", ".join(DECOMP_IDENTITY_FIELDS)))
+    return ref, twin, None
+
+
+#: role + the same 15 value columns cmd_case_generated prints (minus patch_x/patch_y,
+#: which nothing downstream of the pair consumes).
+_DECOMP_PAIR_COLUMNS = ("role", "config_id", "ranks", "omp", "nproc_x", "nproc_y", "numtiles",
+                        "dist", "blocktime") + _GENERATED_TILE_FIELDS + ("config_source",)
+
+
+def cmd_decomp_pair(argv):
+    """Validate (and print) the MODE=physics reference/twin decomposition pair.
+
+    rc=0 + a 2-row TSV on stdout, or rc=2 + one 'DECOMP-PAIR ERROR: <reason>' line on
+    stderr. strict_campaign.sbatch calls this as a fail-fast gate before the first WRF
+    srun, so an unusable pair costs a few seconds instead of a whole allocation."""
+    ap = argparse.ArgumentParser(prog="configs.py decomp-pair")
+    ap.add_argument("case_id")
+    ap.add_argument("decomp")
+    ap.add_argument("twin_decomp")
+    ap.add_argument("--config-file", default=None,
+                    help="generated config set (predictor/decomp_space.py sample|seed output); "
+                         "default: the CONFIG_FILE env var, and unset means the STRICT templates")
+    a = ap.parse_args(argv)
+    config_file = a.config_file or os.environ.get("CONFIG_FILE")
+    ref, twin, reason = resolve_decomp_pair(a.case_id, a.decomp, a.twin_decomp, config_file)
+    if reason:
+        sys.stderr.write("DECOMP-PAIR ERROR: %s\n" % reason)
+        return 2
+    print("\t".join(_DECOMP_PAIR_COLUMNS))
+    for role, cfg in (("reference", ref), ("twin", twin)):
+        row = [role, cfg.get("id"), cfg.get("ranks"), cfg.get("omp"), cfg.get("nx"), cfg.get("ny"),
+               cfg.get("numtiles"), cfg.get("dist"), cfg.get("blocktime")]
+        row += [cfg.get(k, 0) for k in _GENERATED_TILE_FIELDS]
+        row.append(cfg.get("config_source", "strict_template"))
+        print("\t".join("" if v is None else str(v) for v in row))
+    return 0
+
+
 def cmd_order(case_id, reps, config_file=None):
     case = CASES.get(case_id)
     if case is None or not case.get("enabled", True):
@@ -1669,6 +1834,7 @@ def main(argv=None):
     if not argv:
         sys.stderr.write(
             "usage: configs.py CASE_ID | --all | order CASE_ID [--reps N] | "
+            "decomp-pair CASE_ID DECOMP TWIN_DECOMP [--config-file FILE.json] | "
             "edit-namelist IN OUT --nproc-x X --nproc-y Y --numtiles N "
             "--run-minutes M [--max-dom N] [--history-mode off|interval|end_d01] "
             "[--history-minutes N] [--set KEY=VALUE ...] [--delete-key KEY ...] "
@@ -1683,7 +1849,9 @@ def main(argv=None):
             "quota-free-gib [--filesystem home1] (reads mmlsquota text on stdin)\n"
             "CONFIG_FILE=path.json env (predictor/decomp_space.py to_campaign_configs/sample "
             "output): CASE_ID and order CASE_ID measure that generated config set instead of "
-            "the fixed C01-C16 STRICT templates.\n"
+            "the fixed C01-C16 STRICT templates, and decomp-pair resolves DECOMP/TWIN_DECOMP "
+            "from it -- which is how MODE=physics reaches a case that resolves no STRICT "
+            "template at all (sc26p1).\n"
         )
         return 2
     if argv[0] == "edit-namelist":
@@ -1701,6 +1869,8 @@ def main(argv=None):
     if argv[0] == "fidelity-tokens":
         return cmd_fidelity_tokens(argv[1:])
     assert_strict_compliance()
+    if argv[0] == "decomp-pair":
+        return cmd_decomp_pair(argv[1:])
     if argv[0] == "--all":
         return cmd_all()
     config_file = os.environ.get("CONFIG_FILE")

@@ -1163,7 +1163,9 @@ class TestPhysicsTemplatesJson(unittest.TestCase):
     revised 2026-09-15 from the WRF 4.8 source compatibility survey)."""
 
     ALL = ["P00", "P01", "P02", "P03", "P04", "P05", "P06"]
-    DYNAMICS = ["D01", "D02", "D03", "D04", "D05", "D06"]  # cost levers added 2026-09-16
+    # cost levers added 2026-09-16; D07 (time_step_sound=2) added 2026-09-17 as the first
+    # template proposed by a forward prediction (predictor/stability.py) rather than after a run
+    DYNAMICS = ["D01", "D02", "D03", "D04", "D05", "D06", "D07"]
     ACCURACY = ["A01", "A02", "A03", "A04", "A05"]         # accuracy levers added 2026-09-17
 
     def test_loads_and_has_p00_through_p06(self):
@@ -1173,7 +1175,7 @@ class TestPhysicsTemplatesJson(unittest.TestCase):
                          sorted(self.ALL + self.DYNAMICS + self.ACCURACY))
 
     def test_dynamics_templates_are_in_the_dynamics_family_and_edit_that_section(self):
-        for tid in ("D01", "D02", "D03"):
+        for tid in ("D01", "D02", "D03", "D07"):
             tpl = configs.PHYSICS_TEMPLATES[tid]
             self.assertEqual(tpl["family"], "dynamics")
             for e in tpl["edits"]:
@@ -1571,6 +1573,213 @@ class TestConfigFileGeneratedConfigs(unittest.TestCase):
         self.assertTrue(all(l.startswith("C") for l in lines), lines)
 
 
+class TestResolveDecompPair(unittest.TestCase):
+    """resolve_decomp_pair (2026-09-17): the single rule set behind MODE=physics's
+    DECOMP/TWIN_DECOMP, for both STRICT template ids and a CONFIG_FILE-generated set. The case
+    that forced it is sc26p1, which resolves ZERO of C01-C16 (d02 has 100 cells, WRF needs
+    floor(e/nproc) >= 10 on every active domain, so both domains cap at 10x10 = 100 ranks while
+    every template is anchored at 448/224/112)."""
+
+    GENERATED = [
+        dict(id="G0001", ranks=100, omp=1, nx=10, ny=10, numtiles=4, dist="block", blocktime="0",
+             patch_x=15, patch_y=15, numtiles_x=2, numtiles_y=2, tile_sz_x=0, tile_sz_y=0,
+             tile_strategy=3, tile_shape="2d", config_source="generated"),
+        dict(id="G0002", ranks=50, omp=2, nx=5, ny=10, numtiles=8, dist="cyclic", blocktime="0",
+             patch_x=30, patch_y=15, numtiles_x=0, numtiles_y=0, tile_sz_x=0, tile_sz_y=0,
+             tile_strategy=0, tile_shape="1d_y", config_source="generated"),
+        # byte-for-byte the same decomposition as G0001 under a different id: the twin-difference
+        # rule must catch this, not just an id equality check.
+        dict(id="G0003", ranks=100, omp=1, nx=10, ny=10, numtiles=4, dist="block", blocktime="0",
+             patch_x=15, patch_y=15, numtiles_x=2, numtiles_y=2, tile_sz_x=0, tile_sz_y=0,
+             tile_strategy=3, tile_shape="2d", config_source="generated"),
+        # same as G0001 except for the tile geometry -- different enough to be a legal twin
+        dict(id="G0004", ranks=100, omp=1, nx=10, ny=10, numtiles=4, dist="block", blocktime="0",
+             patch_x=15, patch_y=15, numtiles_x=4, numtiles_y=1, tile_sz_x=0, tile_sz_y=0,
+             tile_strategy=3, tile_shape="2d", config_source="generated"),
+    ]
+
+    def _config_file(self, configs_list=None):
+        import tempfile
+        path = os.path.join(tempfile.mkdtemp(), "pair.json")
+        with open(path, "w") as f:
+            json.dump({"case_id": "sc26p1",
+                       "configs": self.GENERATED if configs_list is None else configs_list}, f)
+        return path
+
+    # ---- STRICT template ids: unchanged behaviour -----------------------------------
+
+    def test_strict_template_pair_resolves_without_a_config_file(self):
+        ref, twin, reason = configs.resolve_decomp_pair("karina", "C02", "C06")
+        self.assertIsNone(reason)
+        self.assertEqual(ref["id"], "C02")
+        self.assertEqual(twin["id"], "C06")
+        self.assertEqual(ref["ranks"], 448)
+        self.assertEqual(twin["ranks"], 224)
+
+    def test_unknown_strict_id_lists_what_is_available(self):
+        ref, twin, reason = configs.resolve_decomp_pair("karina", "C99", "C06")
+        self.assertIsNone(ref)
+        self.assertIsNone(twin)
+        self.assertIn("C99", reason)
+        self.assertIn("available ids", reason)
+        self.assertIn("C02", reason)
+
+    def test_case_resolving_no_strict_template_says_so_and_names_the_way_out(self):
+        """sc26p1: the whole reason this function exists. The message must not read as
+        'bad id' -- it must say the case resolves none of them, and point at decomp_space."""
+        ref, _twin, reason = configs.resolve_decomp_pair("sc26p1", "C02", "C06")
+        self.assertIsNone(ref)
+        self.assertIn("ZERO", reason)
+        self.assertIn("decomp_space.py", reason)
+        self.assertIn("CONFIG_FILE", reason)
+
+    def test_unknown_case(self):
+        ref, _twin, reason = configs.resolve_decomp_pair("no_such_case", "C02", "C06")
+        self.assertIsNone(ref)
+        self.assertIn("unknown case", reason)
+
+    # ---- generated config set -------------------------------------------------------
+
+    def test_generated_pair_resolves_for_a_case_with_no_strict_template(self):
+        path = self._config_file()
+        ref, twin, reason = configs.resolve_decomp_pair("sc26p1", "G0001", "G0002",
+                                                        config_file=path)
+        self.assertIsNone(reason)
+        self.assertEqual((ref["ranks"], ref["nx"], ref["ny"]), (100, 10, 10))
+        self.assertEqual((twin["ranks"], twin["nx"], twin["ny"]), (50, 5, 10))
+        self.assertEqual(ref["numtiles_x"], 2)
+
+    def test_id_absent_from_the_config_file(self):
+        path = self._config_file()
+        ref, _twin, reason = configs.resolve_decomp_pair("sc26p1", "G0001", "G9999",
+                                                         config_file=path)
+        self.assertIsNone(ref)
+        self.assertIn("TWIN_DECOMP", reason)
+        self.assertIn("G9999", reason)
+        self.assertIn(path, reason)
+
+    def test_empty_config_file_is_refused_with_the_expected_shape_named(self):
+        path = self._config_file([])
+        ref, _twin, reason = configs.resolve_decomp_pair("sc26p1", "G0001", "G0002",
+                                                         config_file=path)
+        self.assertIsNone(ref)
+        self.assertIn("no configs", reason)
+
+    # ---- the twin must be a DIFFERENT decomposition ---------------------------------
+
+    def test_identical_id_is_refused(self):
+        path = self._config_file()
+        ref, _twin, reason = configs.resolve_decomp_pair("sc26p1", "G0001", "G0001",
+                                                         config_file=path)
+        self.assertIsNone(ref)
+        self.assertIn("SAME decomposition", reason)
+        self.assertIn("chaos floor", reason)
+
+    def test_different_id_but_identical_decomposition_is_also_refused(self):
+        path = self._config_file()
+        ref, _twin, reason = configs.resolve_decomp_pair("sc26p1", "G0001", "G0003",
+                                                         config_file=path)
+        self.assertIsNone(ref)
+        self.assertIn("SAME decomposition", reason)
+        self.assertIn("LARGE-DRIFT", reason)
+
+    def test_differing_only_in_tile_geometry_is_accepted(self):
+        path = self._config_file()
+        ref, twin, reason = configs.resolve_decomp_pair("sc26p1", "G0001", "G0004",
+                                                        config_file=path)
+        self.assertIsNone(reason)
+        self.assertEqual(twin["id"], "G0004")
+
+    def test_identical_strict_template_pair_is_refused_too(self):
+        ref, _twin, reason = configs.resolve_decomp_pair("karina", "C02", "C02")
+        self.assertIsNone(ref)
+        self.assertIn("SAME decomposition", reason)
+
+    # ---- id hygiene: run_id and notes both have to survive the id --------------------
+
+    def test_underscore_in_a_config_id_is_refused(self):
+        path = self._config_file([dict(self.GENERATED[0], id="G_0001"), self.GENERATED[1]])
+        ref, _twin, reason = configs.resolve_decomp_pair("sc26p1", "G_0001", "G0002",
+                                                         config_file=path)
+        self.assertIsNone(ref)
+        self.assertIn("underscore", reason)
+        self.assertIn("run_id", reason)
+
+    def test_whitespace_in_a_config_id_is_refused(self):
+        path = self._config_file([dict(self.GENERATED[0], id="G 0001"), self.GENERATED[1]])
+        ref, _twin, reason = configs.resolve_decomp_pair("sc26p1", "G 0001", "G0002",
+                                                         config_file=path)
+        self.assertIsNone(ref)
+        self.assertIn("whitespace", reason)
+
+    def test_empty_decomp_id(self):
+        ref, _twin, reason = configs.resolve_decomp_pair("karina", "", "C06")
+        self.assertIsNone(ref)
+        self.assertIn("DECOMP is empty", reason)
+
+
+class TestDecompPairCLI(unittest.TestCase):
+    """configs.py decomp-pair -- the fail-fast gate strict_campaign.sbatch's MODE=physics runs
+    before the first WRF srun."""
+
+    def _capture(self, argv, env_config_file=None):
+        import contextlib
+        import io
+        out, err = io.StringIO(), io.StringIO()
+        old = os.environ.get("CONFIG_FILE")
+        if env_config_file is not None:
+            os.environ["CONFIG_FILE"] = env_config_file
+        else:
+            os.environ.pop("CONFIG_FILE", None)
+        try:
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                rc = configs.main(argv)
+        finally:
+            if old is None:
+                os.environ.pop("CONFIG_FILE", None)
+            else:
+                os.environ["CONFIG_FILE"] = old
+        return rc, out.getvalue(), err.getvalue()
+
+    def test_strict_pair_prints_two_rows_and_rc_zero(self):
+        rc, out, err = self._capture(["decomp-pair", "karina", "C02", "C06"])
+        self.assertEqual(rc, 0, err)
+        lines = out.strip("\n").split("\n")
+        self.assertEqual(lines[0].split("\t"), [
+            "role", "config_id", "ranks", "omp", "nproc_x", "nproc_y", "numtiles", "dist",
+            "blocktime", "numtiles_x", "numtiles_y", "tile_sz_x", "tile_sz_y", "tile_strategy",
+            "config_source",
+        ])
+        self.assertEqual(len(lines), 3)
+        self.assertEqual(lines[1].split("\t")[:3], ["reference", "C02", "448"])
+        self.assertEqual(lines[2].split("\t")[:3], ["twin", "C06", "224"])
+        # a STRICT template has no tile geometry; it must read as the 0 the sbatch passes
+        self.assertEqual(lines[1].split("\t")[9:], ["0", "0", "0", "0", "0", "strict_template"])
+
+    def test_failure_is_rc2_with_one_tagged_stderr_line_and_no_stdout(self):
+        rc, out, err = self._capture(["decomp-pair", "sc26p1", "C02", "C06"])
+        self.assertEqual(rc, 2)
+        self.assertEqual(out, "")
+        self.assertTrue(err.startswith("DECOMP-PAIR ERROR: "), err)
+        self.assertEqual(len(err.strip("\n").split("\n")), 1)
+
+    def test_config_file_env_var_is_honoured(self):
+        path = TestResolveDecompPair()._config_file()
+        rc, out, err = self._capture(["decomp-pair", "sc26p1", "G0001", "G0002"],
+                                     env_config_file=path)
+        self.assertEqual(rc, 0, err)
+        rows = [l.split("\t") for l in out.strip("\n").split("\n")[1:]]
+        self.assertEqual([r[1] for r in rows], ["G0001", "G0002"])
+        self.assertEqual(rows[0][9:], ["2", "2", "0", "0", "3", "generated"])
+
+    def test_config_file_flag_overrides_the_env_var(self):
+        path = TestResolveDecompPair()._config_file()
+        rc, out, err = self._capture(
+            ["decomp-pair", "sc26p1", "G0001", "G0002", "--config-file", path])
+        self.assertEqual(rc, 0, err)
+        self.assertIn("G0001", out)
+
+
 MMLSQUOTA_SAMPLE = """\
                          Block Limits                                    |     File Limits
 Filesystem type             KB      quota      limit   in_doubt    grace |    files   quota    limit in_doubt    grace  Remarks
@@ -1809,6 +2018,74 @@ class TestDiagnosticsAndCadenceTemplates(unittest.TestCase):
         tpl = configs.PHYSICS_TEMPLATES["D06"]
         self.assertNotIn("karina", tpl["applies_to"])
         self.assertIn("zhengzhou", tpl["applies_to"])
+
+
+class TestSoundStepCostTemplate(unittest.TestCase):
+    """D07 (2026-09-17): time_step_sound=2, the halved acoustic sub-step count that
+    predictor/stability.py predicted FORWARD for sc26p1 (d01 acoustic CFL 0.094, d02 0.283 at
+    WRF's auto count of 4; 2 puts them at 0.189/0.567, both inside CFL_SAFE=0.60)."""
+
+    NL = ("&domains\n time_step=10, max_dom=2,\n/\n"
+          "&physics\n mp_physics = 4, 4,\n/\n"
+          "&dynamics\n diff_opt=1, km_opt=4,\n/\n")
+
+    def test_inserts_two_for_every_active_domain(self):
+        out, summary = configs.apply_physics_template(
+            self.NL, configs.PHYSICS_TEMPLATES["D07"], max_dom=2)
+        self.assertIn("time_step_sound = 2, 2,", out)
+        self.assertIn("&dynamics", out.split("time_step_sound")[0][-200:])
+        self.assertEqual(summary[0]["new"], ["2", "2"])
+
+    def test_value_is_even_and_below_d01s_odd_three(self):
+        # WRF's auto path returns even counts only, and the one odd value measured (D01's 3)
+        # hung conus12 before step 1 in both replicates (job 1080698) -- so the cost direction
+        # is taken 4 -> 2, never 4 -> 3.
+        edits = configs.PHYSICS_TEMPLATES["D07"]["edits"]
+        self.assertEqual(len(edits), 1)
+        self.assertEqual(edits[0]["key"], "time_step_sound")
+        self.assertEqual(edits[0]["value"], 2)
+        self.assertEqual(edits[0]["value"] % 2, 0)
+        self.assertTrue(edits[0]["per_domain"])
+
+    def test_is_a_cost_lever_not_an_accuracy_one(self):
+        # --objective accuracy must never mistake a COARSER acoustic integration for a
+        # converged reference; A02 (which raises the count) is the accuracy mirror.
+        self.assertEqual(configs.PHYSICS_TEMPLATES["D07"]["direction"], "cost")
+        self.assertEqual(configs.PHYSICS_TEMPLATES["A02"]["direction"], "accuracy")
+
+    def test_applies_only_to_the_case_with_the_measured_margin(self):
+        tpl = configs.PHYSICS_TEMPLATES["D07"]
+        self.assertEqual(tpl["applies_to"], ["sc26p1"])
+        ok, _why = configs.physics_template_applicability("sc26p1", tpl)
+        self.assertTrue(ok)
+        # conus12 would land at acoustic CFL 340*(72/2)/12000 = 1.02, past the classical limit
+        ok, why = configs.physics_template_applicability("conus12", tpl)
+        self.assertFalse(ok)
+        self.assertIn("applies_to", why)
+
+    def test_description_cites_the_source_and_the_measured_numbers(self):
+        d = configs.PHYSICS_TEMPLATES["D07"]["description"]
+        self.assertIn("dyn_em/solve_em.F:451-468", d)
+        self.assertIn("0.094", d)
+        self.assertIn("0.283", d)
+        self.assertIn("1080698", d)
+
+    def test_the_value_two_is_the_halved_auto_count_for_this_case(self):
+        """The 2 is not a magic number. Recomputed here in plain arithmetic rather than by
+        importing predictor/stability.py, which this file cannot do (it uses `from __future__
+        import annotations`, Python >= 3.7, and test_configs.py must stay importable under the
+        campaign's python3.6 -- same reason it cannot import decomp_space.py). The stability
+        module's own side of this is pinned in predictor/tests/test_stability.py."""
+        case = configs.CASES["sc26p1"]
+        dt = float(case["dt"])                       # 10 s, and parent_time_step_ratio_list is
+        self.assertEqual(case["parent_time_step_ratio_list"], [1, 1])   # [1,1], so d02 shares it
+        for dx, expect_cfl in zip(case["dx_list"], (0.094, 0.283)):
+            auto = max(2 * (int(300.0 * dt / dx - 0.01) + 1), 4)        # solve_em.F:462
+            self.assertEqual(auto, 4)
+            self.assertAlmostEqual(340.0 * (dt / auto) / dx, expect_cfl, places=3)
+            # the template's value doubles that CFL and must stay inside the advisory band
+            self.assertLess(340.0 * (dt / 2) / dx, 0.60)
+        self.assertEqual(configs.PHYSICS_TEMPLATES["D07"]["edits"][0]["value"], 4 // 2)
 
 
 class TestAccuracyTemplates(unittest.TestCase):

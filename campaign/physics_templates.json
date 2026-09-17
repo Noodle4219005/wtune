@@ -308,6 +308,23 @@
         }
       ]
     },
+    "D07": {
+      "family": "dynamics",
+      "direction": "cost",
+      "applies_to": [
+        "sc26p1"
+      ],
+      "description": "time_step_sound=2 on every active domain: HALF the acoustic sub-steps WRF's auto path would choose, and the first template in this table proposed by a FORWARD prediction rather than written to explain a measurement after the fact. dyn_em/solve_em.F:451-468 is the whole rule: with the namelist default time_step_sound=0 WRF takes the auto branch, num_sound_steps = max(2*(INT(300*dt/min(dx,dy)-0.01)+1),4) (:462, the non-adaptive arm; :457/:460 are the use_adaptive_time_step arms, not used here), and with a NONZERO value it takes the explicit branch num_sound_steps = grid%time_step_sound (:467) verbatim, with no check of any kind -- share/module_check_a_mundo.F never constrains time_step_sound against time_step, so an over-aggressive value simply goes unstable rather than being diagnosed. dts = dt/num_sound_steps (:470), so the acoustic Courant number c_s*dts/min(dx,dy) scales exactly inversely with the count. MEASURED for sc26p1 at its own settings (predictor/stability.py assess_case, c_s=340 m/s, parent_time_step_ratio=1 so BOTH domains run dt=10): the auto formula lands on 4 for both domains, giving d01 (9 km) acoustic CFL 0.094 and d02 (3 km) 0.283 -- the lowest pair in the inventory, d01 sitting at 9% of the classical limit because its dt is ~5x more conservative than the usual 6*dx_km rule. Dropping to 2 doubles those to 0.189 and 0.567, both still inside predictor/stability.py's CFL_SAFE=0.60 advisory band, and removes 50% of the acoustic sub-step work. THIS IS THE PREDICTION UNDER TEST: materially faster than P00 with fidelity WITHIN-FLOOR or SMALL-DRIFT (an acoustic sub-step change is a numerical-integration change, so some drift is expected); a CFL abort would falsify it outright and is recorded as status=FAILED (infeasible), the same way P03's and D01's are. ODD VALUES ARE EXCLUDED, not merely unpreferred: WRF's own auto path returns even numbers only (its comment at :452 says so), and the one odd value this campaign measured -- D01's time_step_sound=3 -- HUNG conus12 before the first step in both replicates (job 1080698) while running fine on karina, so 3 is a measured failure mode and not a theoretical one; that is why the cost direction is taken 4->2 rather than 4->3. APPLIES_TO IS DELIBERATELY NARROW: every other registered case sits at acoustic CFL 0.34-0.51 at its own auto count, so halving to 2 would put it at 0.68-1.02 -- past CFL_TIGHT=0.85 for several and past the classical limit of 1 for conus12 (dt=72, dx=12000: 340*36/12000 = 1.02). To widen this list, run `predictor/stability.py <case>` and add the case only when its `safe` column reads 2 on EVERY active domain at the default cfl_limit; do not widen it by assumption. Related: A02 is the accuracy mirror (it raises the count), and predictor/stability.py per_domain_variant computes an optional per-domain form of that lever which for sc26p1 SKIPS at cfl_limit=0.60 (the values [2,2] are uniform, i.e. exactly this template) and resolves to [2,4] only at cfl_limit=0.50.",
+      "edits": [
+        {
+          "op": "set",
+          "key": "time_step_sound",
+          "value": 2,
+          "section": "&dynamics",
+          "per_domain": true
+        }
+      ]
+    },
     "A01": {
       "family": "dynamics",
       "direction": "accuracy",

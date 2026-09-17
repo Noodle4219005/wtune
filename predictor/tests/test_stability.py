@@ -185,6 +185,40 @@ def test_per_domain_variant_reports_a_case_with_no_per_domain_grid():
     assert "dx_list" in reason
 
 
+def test_d07_is_this_modules_prediction_turned_into_a_campaign_template():
+    """campaign/physics_templates.json D07 (2026-09-17) is the first template in that table
+    written FORWARD from a prediction rather than backward from a measurement. Its value must be
+    exactly what this module resolves for sc26p1 -- read from the REGISTERED case entry, not from
+    a literal here -- and the case list must not have been widened past what is safe."""
+    sys.path.insert(0, os.path.join(_REPO_ROOT, "campaign"))
+    import configs as campaign_configs
+
+    case = campaign_configs.CASES["sc26p1"]
+    values, reason = st.per_domain_sound_steps(case, max_dom=2)
+    assert reason is None
+    assert values == [2, 2]                       # uniform at CFL_SAFE, i.e. a scalar template
+
+    d07 = campaign_configs.PHYSICS_TEMPLATES["D07"]
+    edit = d07["edits"][0]
+    assert edit["key"] == "time_step_sound"
+    assert edit["value"] == values[0]
+    assert d07["direction"] == "cost"
+    assert d07["family"] == "dynamics"
+
+    # and it must run on sc26p1 only: halving karina (0.425 -> 0.85) or conus12 (0.51 -> 1.02)
+    # would land at or past the classical limit, which is what CFL_SAFE is there to stop.
+    assert d07["applies_to"] == ["sc26p1"]
+    for name, dt, dx, dy in CASES:
+        assert st.safe_sound_steps(dt, dx, dy) > 2, name
+        assert name not in d07["applies_to"]
+
+    # it survives configs' own namelist editor as an even, per-domain insert
+    nl = "&domains\n time_step = 10, max_dom = 2,\n/\n&dynamics\n diff_opt = 1, 1,\n/\n"
+    out, summary = campaign_configs.apply_physics_template(nl, d07, max_dom=2)
+    assert "time_step_sound = 2, 2," in out
+    assert summary[0]["new"] == ["2", "2"]
+
+
 def test_effective_max_dom_follows_the_namelist_override():
     assert st.effective_max_dom(dict(max_dom=3)) == 3
     assert st.effective_max_dom(dict(max_dom=3, namelist_overrides={"max_dom": 1})) == 1

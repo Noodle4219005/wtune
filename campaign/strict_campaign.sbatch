@@ -34,8 +34,19 @@
 #        fixed C01-C16 STRICT templates in the default (non-MODE=physics) loop below -- same
 #        palindromic REPS order, same ledger schema (tile geometry goes into notes, see
 #        config_source= below). Unset (the default): every line below this comment behaves
-#        exactly as it did before CONFIG_FILE existed. Only honored by the default STRICT
-#        (timing/correctness) loop, not MODE=physics.
+#        exactly as it did before CONFIG_FILE existed.
+#        MODE=physics honors CONFIG_FILE too (2026-09-17), with a different meaning: it does
+#        NOT change the run set (that stays P00_ref + P00_twin + the requested templates) --
+#        it is where DECOMP and TWIN_DECOMP are looked up. This is the only way to run
+#        PHYSICS-GRAY on a case that resolves no STRICT template at all: sc26p1's d02 has 100
+#        cells and WRF needs floor(e/nproc) >= 10 on every active domain, capping BOTH domains
+#        at 10x10 = 100 ranks, while C01-C16 are anchored at 448/224/112 -- `configs.py sc26p1`
+#        prints 16 SKIP lines and an empty table. Example:
+#          sbatch -p cf112 -N1 --export=ALL,CASE=sc26p1,MODE=physics,\
+#            CONFIG_FILE=/abs/pair.json,DECOMP=G0001,TWIN_DECOMP=G0002,PCONFIGS=D07,REPS=2 \
+#            campaign/strict_campaign.sbatch
+#        Both ids must exist in the file and must be DIFFERENT decompositions (the twin is the
+#        chaos floor, not a replicate); configs.py decomp-pair enforces both, see below.
 set -uo pipefail
 
 W=/home/u5727520/wrf-stack/wrf/intel-adios2-dmsm/WRF
@@ -268,6 +279,17 @@ if [ "$MODE" = "physics" ]; then
     echo "ERROR: TWIN_DECOMP=$TWIN_DECOMP is not a resolved STRICT config for case $CASE" >&2
     exit 1
   fi
+  # Single rule set for the reference/twin pair, whether the ids are STRICT templates or come
+  # from CONFIG_FILE (configs.resolve_decomp_pair, unit-tested in campaign/test_configs.py
+  # TestResolveDecompPair / TestDecompPairCLI). It re-checks resolvability with a message that
+  # names the available ids -- the two guards above cannot, because their CFG_* tables are built
+  # with stderr discarded and look identical whether the id was wrong or configs.py itself failed
+  # -- and it additionally refuses TWIN_DECOMP == DECOMP, which would measure a ~0 chaos floor
+  # and relabel every candidate LARGE-DRIFT. Fail-fast: this runs before the first WRF srun.
+  if ! $PY "$CAMPAIGN/configs.py" decomp-pair "$CASE" "$DECOMP" "$TWIN_DECOMP"; then
+    echo "ERROR: DECOMP=$DECOMP / TWIN_DECOMP=$TWIN_DECOMP rejected for case $CASE (reason above; CONFIG_FILE=${CONFIG_FILE:-unset})" >&2
+    exit 1
+  fi
 
   SIM_MINUTES=${SIM_MINUTES:-$PHYSICS_SIM_MINUTES_DEFAULT}
   HIST_MINUTES_CALC=$(( (SIM_MINUTES + 3) / 6 ))
@@ -413,10 +435,23 @@ PY
     else
       HIST_ARGS=(--history-mode off)
     fi
+    # Tile geometry, same rule as the STRICT loop below: only a CONFIG_FILE-generated
+    # decomposition ever has these CFG_* entries populated, so with CONFIG_FILE unset TILE_ARGS
+    # stays empty and this edit-namelist call is byte-identical to before. Before 2026-09-17 the
+    # physics loop omitted them unconditionally, which silently dropped the tile geometry of any
+    # generated decomposition it was handed.
+    TILE_ARGS=()
+    if [ -n "${CONFIG_FILE:-}" ]; then
+      TILE_ARGS=(
+        --numtiles-x "${CFG_NTILES_X[$DECOMP_ID]:-0}" --numtiles-y "${CFG_NTILES_Y[$DECOMP_ID]:-0}"
+        --tile-sz-x "${CFG_TSZ_X[$DECOMP_ID]:-0}" --tile-sz-y "${CFG_TSZ_Y[$DECOMP_ID]:-0}"
+        --tile-strategy "${CFG_TSTRAT[$DECOMP_ID]:-0}"
+      )
+    fi
     python3 "$CAMPAIGN/configs.py" edit-namelist ./namelist.input.orig ./namelist.input \
       --nproc-x "$nx" --nproc-y "$ny" --numtiles "$numtiles" \
       --run-minutes "$SIM_MINUTES" --max-dom "$MAX_DOM" --ranks "$ranks" \
-      "${SET_ARGS[@]}" "${DELETE_ARGS[@]}" "${NEST_ARGS[@]}" "${HIST_ARGS[@]}" \
+      "${SET_ARGS[@]}" "${DELETE_ARGS[@]}" "${NEST_ARGS[@]}" "${HIST_ARGS[@]}" "${TILE_ARGS[@]}" \
       --physics-template "$TEMPLATE_ID" --physics-case "$CASE"
     rm -f ./namelist.input.orig
     ln -sf "$W/main/wrf.exe" ./wrf.exe
@@ -585,6 +620,11 @@ PY
 
     NOTES="mode=physics template=$TEMPLATE_ID family=$P_FAMILY edits=$P_EDITS decomp=$DECOMP_ID sim_minutes=$SIM_MINUTES hist_minutes=$HIST_MINUTES fidelity_nd_max=$FID_ND fidelity_floor_ratio_max=$FID_FLOOR fidelity_deciding=$FID_DECIDING tag=$tag role=$ROLE rep=$rep n_excluded_steps=$NEXCL mean_includes_radiation=1 n_all_steps=$NALL io=adios2 $P_PROBE"
     [ -n "$STATUS_NOTE" ] && NOTES="$NOTES $STATUS_NOTE"
+    # Same rule as the STRICT loop below: a CONFIG_FILE-generated decomposition's tile geometry
+    # has no ledger column of its own, so it goes into notes. Absent when CONFIG_FILE is unset.
+    if [ -n "${CONFIG_FILE:-}" ]; then
+      NOTES="$NOTES config_source=${CFG_SRC[$DECOMP_ID]:-generated} numtiles_x=${CFG_NTILES_X[$DECOMP_ID]:-} numtiles_y=${CFG_NTILES_Y[$DECOMP_ID]:-} tile_sz_x=${CFG_TSZ_X[$DECOMP_ID]:-} tile_sz_y=${CFG_TSZ_Y[$DECOMP_ID]:-} tile_strategy=${CFG_TSTRAT[$DECOMP_ID]:-} twin_decomp=$TWIN_DECOMP"
+    fi
     [ "$RC" != "0" ] && NOTES="$NOTES rc=$RC"
     [ "$OK" != "1" ] && NOTES="$NOTES ok=$OK"
 

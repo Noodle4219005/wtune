@@ -535,3 +535,24 @@ def test_family_field_selection_and_csv_rows(tmp_path):
     csv_text = Path(str(out_prefix) + ".csv").read_text().strip().splitlines()
     n_fields = len(payload["fields_requested"])
     assert len(csv_text) - 1 == n_fields * NT  # header + one row per field x time
+
+
+def test_every_template_family_is_a_legal_gate_family():
+    """The gate's --family choices must cover every family physics_templates.json actually uses, or
+    a clean run silently loses its verdict: D04 (family 'diagnostics') ran six times across two
+    cases (jobs 1081089/1081090, 1081237/1081238) and each time the gate exited with
+    "--family: invalid choice: 'diagnostics'" AFTER the WRF runs had been paid for. Same for
+    'nesting' (D06, zhengzhou job 1080703)."""
+    import json
+    import os
+    here = os.path.dirname(os.path.abspath(__file__))
+    with open(os.path.join(here, "campaign", "physics_templates.json")) as fh:
+        templates = json.load(fh)["templates"]
+    used = {t.get("family") for t in templates.values()} - {None, "none"}
+    missing = sorted(f for f in used if f not in fg.FAMILIES)
+    assert not missing, "families used by templates but rejected by the gate: %s" % missing
+
+
+def test_core_only_families_have_no_extra_fields():
+    for fam in ("dynamics", "diagnostics", "nesting"):
+        assert fg.FAMILY_FIELDS[fam] == [], fam

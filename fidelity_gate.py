@@ -59,7 +59,7 @@ PHYSICS-GRAY / UNCONFIRMED per wtune_compliance.py).
 usage:
   python3 fidelity_gate.py --reference REF.nc [REF2.nc ...] \\
       --twin TWIN.nc [...] --candidate CAND.nc [...] \\
-      --family {microphysics,cumulus,radiation,pbl_surface,dynamics,all} \\
+      --family {microphysics,cumulus,radiation,pbl_surface,dynamics,diagnostics,nesting,all} \\
       [--bdy-width 5] [--time-tol-s 180] \\
       [--thresholds '{"nd_max": 0.05}' | --thresholds path.json] \\
       --out-prefix PREFIX
@@ -87,8 +87,19 @@ FAMILY_FIELDS = {
     "radiation": ["SWDOWN", "GLW", "OLR", "TSK"],
     "pbl_surface": ["PBLH", "HFX", "LH", "UST", "TSK"],
     "dynamics": [],  # core-only family; W (already in core) is the field of interest
+    # Output-only diagnostics (nwp_diagnostics/hailcast_opt/do_radar_ref, template D04): they are
+    # never fed back into the prognostic equations, so turning them off must leave the CORE fields
+    # untouched -- that is exactly the claim to test, and it is a core-only comparison. Added
+    # 2026-09-17 after jobs 1081237/1081238 ran clean and then lost their verdict here:
+    # "--family: invalid choice: 'diagnostics'".
+    "diagnostics": [],
+    # Nesting changes (feedback=0, template D06) alter how the nest writes back onto its parent;
+    # the visible effect is on the parent's own core state. Same missing-choice failure
+    # (zhengzhou job 1080703 reported got_fidelity=2 of 3).
+    "nesting": [],
 }
-FAMILIES = ("microphysics", "cumulus", "radiation", "pbl_surface", "dynamics", "all")
+FAMILIES = ("microphysics", "cumulus", "radiation", "pbl_surface", "dynamics", "diagnostics",
+            "nesting", "all")
 
 PRECIP_FIELDS = {"RAINNC", "RAINC", "SNOWNC", "GRAUPELNC"}
 

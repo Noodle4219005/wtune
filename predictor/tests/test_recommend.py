@@ -581,18 +581,24 @@ def probe_screen_file(tmp_path):
 
 
 def _physics_notes(template, family, edits_str, decomp, sim_minutes=30, hist_minutes=30,
-                    fidelity_nd_max=None, probe=None):
+                    fidelity_nd_max=None, probe=None, fidelity_floor_ratio_max=None):
     parts = ["mode=physics", "template=%s" % template, "family=%s" % family,
              "edits=%s" % edits_str, "decomp=%s" % decomp,
              "sim_minutes=%d" % sim_minutes, "hist_minutes=%d" % hist_minutes]
     if fidelity_nd_max is not None:
         parts.append("fidelity_nd_max=%.4f" % fidelity_nd_max)
+    # The chaos-floor ratio is the other number strict_campaign.sbatch writes into notes (see
+    # configs.fidelity_notes_tokens); --objective accuracy needs it for the below-floor rule.
+    # Defaults to absent so every existing fixture row's notes string is byte-identical.
+    if fidelity_floor_ratio_max is not None:
+        parts.append("fidelity_floor_ratio_max=%.4f" % fidelity_floor_ratio_max)
     parts.append("probe=%s" % (",".join("%s:%s" % kv for kv in (probe or {}).items()) or "none"))
     return " ".join(parts)
 
 
 def _phys_row(run_id, template, family, edits_dict, physics_fields, decomp, rep, s,
-              fidelity_label=None, nd=None, probe=None, hardware_id=PHYS_HW, case="phystrain"):
+              fidelity_label=None, nd=None, probe=None, hardware_id=PHYS_HW, case="phystrain",
+              floor_ratio=None):
     return ledger.new_row(
         run_id=run_id, source_dataset="strict_campaign", job_id="1", rep_index=rep,
         case_raw=case, case_base=case, case_family=ledger.case_family_of(case),
@@ -614,7 +620,8 @@ def _phys_row(run_id, template, family, edits_dict, physics_fields, decomp, rep,
         profile_mpi_share=None, profile_io_share=None, profile_rank_imbalance=None,
         profile_thread_imbalance=None,
         notes=_physics_notes(template, family, ";".join("%s=%s" % kv for kv in edits_dict.items()),
-                              decomp, fidelity_nd_max=(nd if rep == 1 else None), probe=probe),
+                              decomp, fidelity_nd_max=(nd if rep == 1 else None), probe=probe,
+                              fidelity_floor_ratio_max=(floor_ratio if rep == 1 else None)),
     )
 
 
@@ -1109,3 +1116,431 @@ def test_propose_batch_writes_valid_config_file(full_space_ledger_csv, main_name
     for c in loaded:
         legal = decomp_space.legal_shapes_exact([901], [901], c["ranks"])
         assert (c["nx"], c["ny"]) in legal
+
+
+
+# ---------------------------------------------------------------------------
+# Accuracy-first mode: recommend.py --objective accuracy (2026-09-17).
+#
+# The contract has four parts, and each has its own test below:
+#   1. --objective perf (and omitting the flag) is unchanged in every byte.
+#   2. accuracy mode ranks by the numeric fidelity error, not by predicted speed, while still
+#      reporting predicted speed for every candidate.
+#   3. a candidate whose floor_ratio <= 1 is "indistinguishable from changing the decomposition"
+#      and is NEVER presented as an accuracy improvement.
+#   4. the STRICT decomposition stays a free axis -- it does not change the physics, so the
+#      fastest legal one is still what gets recommended.
+# ---------------------------------------------------------------------------
+
+# MAIN_NAMELIST has no &dynamics group at all, so A02/A03/A04 and D01-D03 cannot resolve against
+# it (apply_physics_edit raises "no &dynamics section found" and the candidate comes back not
+# applicable). A separate fixture rather than an edit to MAIN_NAMELIST: adding &dynamics there
+# would silently make the whole D-series applicable in every pre-existing test too.
+ACCURACY_NAMELIST = MAIN_NAMELIST + "\n&dynamics\n diff_opt = 1,\n km_opt = 4,\n /\n"
+
+
+@pytest.fixture
+def accuracy_namelist(tmp_path):
+    path = tmp_path / "namelist.input.accuracy"
+    path.write_text(ACCURACY_NAMELIST)
+    return str(path)
+
+
+def make_accuracy_training_rows(cases=PHYS_TRAIN_CASES):
+    """The perf fixture plus measured chaos-floor ratios, and two extra templates that separate
+    the three interesting fidelity regimes:
+      P01  nd 0.01, floor_ratio 4.2  -- small real drift, well above the floor
+      P02  nd 0.50, floor_ratio 18.0 -- large real drift
+      D02  nd 0.02, floor_ratio 0.80 -- BELOW the chaos floor: re-decomposing moves the solution
+                                        more than dropping an RK stage does (the real measured
+                                        conus12/RK2 number at 12 h was 1.593, i.e. only just
+                                        above; 0.80 is the same shape pushed under the floor)
+      A01  nd 0.30, floor_ratio 9.5  -- an accuracy-direction template with a real correction
+    """
+    rows = []
+    for case in cases:
+        for rep in (1, 2):
+            rows.append(_phys_row("%s_P00_r%d" % (case, rep), "P00", "none", {}, PHYS_NATIVE,
+                                   "C02", rep, 1.0, case=case))
+        for rep in (1, 2):
+            rows.append(_phys_row("%s_P01_r%d" % (case, rep), "P01", "radiation",
+                                   {"swint_opt": "1"}, PHYS_NATIVE, "C02", rep, 0.95,
+                                   fidelity_label="WITHIN-FLOOR", nd=0.01, floor_ratio=4.2,
+                                   probe={"swint_opt": "CONFIRM"}, case=case))
+        p02_fields = dict(PHYS_NATIVE, radt=30.0)
+        for rep in (1, 2):
+            rows.append(_phys_row("%s_P02_r%d" % (case, rep), "P02", "radiation",
+                                   {"radt": "30", "swint_opt": "1"}, p02_fields, "C02", rep, 0.90,
+                                   fidelity_label="LARGE-DRIFT", nd=0.5, floor_ratio=18.0,
+                                   probe={"radt": "CONFIRM", "swint_opt": "CONFIRM"}, case=case))
+        for rep in (1, 2):
+            rows.append(_phys_row("%s_D02_r%d" % (case, rep), "D02", "dynamics", {"rk_ord": "2"},
+                                   PHYS_NATIVE, "C02", rep, 0.80,
+                                   fidelity_label="WITHIN-FLOOR", nd=0.02, floor_ratio=0.80,
+                                   case=case))
+        a01_fields = dict(PHYS_NATIVE, time_step=12.0)
+        for rep in (1, 2):
+            rows.append(_phys_row("%s_A01_r%d" % (case, rep), "A01", "dynamics",
+                                   {"time_step": "12"}, a01_fields, "C02", rep, 1.25,
+                                   fidelity_label="LARGE-DRIFT", nd=0.30, floor_ratio=9.5,
+                                   case=case))
+    return rows
+
+
+@pytest.fixture
+def accuracy_physics_ledger(tmp_path):
+    path = tmp_path / "physics_runs_accuracy.csv"
+    write_ledger_csv(make_accuracy_training_rows(), str(path))
+    return str(path)
+
+
+def _err_keys(entries):
+    """The ordering build_accuracy_view actually promises: a known error sorts before an unknown
+    one in BOTH directions, so "no evidence" can never outrank a measured number."""
+    return [(e["fidelity_error"] is None, e["fidelity_error"]) for e in entries]
+
+
+def _acc_kwargs(ledger_csv, namelist, probe_screen_file, physics_ledger):
+    return dict(ledger_path=ledger_csv, namelist_path=namelist, case_name="synthtest",
+                hardware_id=HARDWARE_ID_TRAIN, physics_ledgers=[physics_ledger],
+                probe_screen=probe_screen_file)
+
+
+def _accuracy_result(ledger_csv, namelist, probe_screen_file, physics_ledger):
+    return recommend.recommend_physics_gray(
+        objective="accuracy",
+        **_acc_kwargs(ledger_csv, namelist, probe_screen_file, physics_ledger))
+
+
+# --- 1. perf mode is untouched -------------------------------------------------------------
+def test_objective_perf_is_the_default_and_adds_nothing(ledger_csv, accuracy_namelist,
+                                                         probe_screen_file,
+                                                         accuracy_physics_ledger):
+    common = _acc_kwargs(ledger_csv, accuracy_namelist, probe_screen_file,
+                         accuracy_physics_ledger)
+    default = recommend.recommend_physics_gray(**common)
+    explicit = recommend.recommend_physics_gray(objective="perf", **common)
+    assert list(default) == list(explicit)
+    assert "accuracy_view" not in default and "objective" not in default
+    assert recommend.format_physics_report(default) == recommend.format_physics_report(explicit)
+    # the accuracy blocks are genuinely absent, not merely empty
+    assert "ACCURACY-FIRST view" not in recommend.format_physics_report(default)
+
+
+def test_accuracy_mode_leaves_the_perf_shortlist_byte_identical(ledger_csv, accuracy_namelist,
+                                                                 probe_screen_file,
+                                                                 accuracy_physics_ledger):
+    common = _acc_kwargs(ledger_csv, accuracy_namelist, probe_screen_file,
+                         accuracy_physics_ledger)
+    perf = recommend.recommend_physics_gray(**common)
+    acc = recommend.recommend_physics_gray(objective="accuracy", **common)
+    assert perf["shortlist"] == acc["shortlist"]
+    assert perf["verify_plan"] == acc["verify_plan"]
+    assert perf["warnings"] == acc["warnings"]
+    assert acc["objective"] == "accuracy"
+
+
+def test_unknown_objective_is_rejected(ledger_csv, main_namelist, probe_screen_file):
+    with pytest.raises(ValueError, match="unknown objective"):
+        recommend.recommend_physics_gray(
+            ledger_path=ledger_csv, namelist_path=main_namelist, case_name="synthtest",
+            hardware_id=HARDWARE_ID_TRAIN, probe_screen=probe_screen_file, objective="fastest")
+
+
+def test_cli_objective_accuracy_refuses_strict_compliance(ledger_csv, main_namelist, capsys):
+    rc = recommend.main(["--ledger", ledger_csv, "--namelist", main_namelist,
+                         "--case-name", "synthtest", "--hardware-id", HARDWARE_ID_TRAIN,
+                         "--model", "ridge", "--objective", "accuracy"])
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert "requires --compliance PHYSICS-GRAY" in err
+    assert "never change the physics" in err
+
+
+# --- 2. ranking is by fidelity error, speed still reported ---------------------------------
+def test_accuracy_mode_ranks_cost_levers_by_least_departure(ledger_csv, accuracy_namelist,
+                                                             probe_screen_file,
+                                                             accuracy_physics_ledger):
+    result = _accuracy_result(ledger_csv, accuracy_namelist, probe_screen_file,
+                              accuracy_physics_ledger)
+    av = result["accuracy_view"]
+    ranked = av["ranked_cost_levers"]
+    assert ranked, "fixture bug: expected applicable cost-lever templates"
+    assert _err_keys(ranked) == sorted(_err_keys(ranked)), "ascending fidelity error"
+    assert all(e["direction"] == "cost" for e in ranked)
+    assert [e["accuracy_rank"] for e in ranked] == list(range(1, len(ranked) + 1))
+    # predicted speed is still reported -- accuracy mode changes the RANKING, not the evidence
+    assert all("predicted_time_to_solution_pct" in e for e in av["entries"])
+    assert any(e["predicted_time_to_solution_pct"] is not None for e in av["entries"])
+    # the perf shortlist orders by predicted speed, so the two orderings must genuinely differ
+    perf_order = [c["template"] for c in result["shortlist"]]
+    assert [e["template"] for e in ranked] != [t for t in perf_order if t in
+                                               {e["template"] for e in ranked}]
+
+
+def test_accuracy_levers_are_ranked_by_largest_correction_not_smallest(
+        ledger_csv, accuracy_namelist, probe_screen_file, accuracy_physics_ledger):
+    """nd is a distance from the reference. For a cost lever that IS the error it introduced, so
+    lower is better. For an A-series template the same number is the correction the extra work
+    applies, and a small one means the reference was already converged -- ranking them ascending
+    alongside the cost levers would reward exactly the templates that do nothing."""
+    av = _accuracy_result(ledger_csv, accuracy_namelist, probe_screen_file,
+                          accuracy_physics_ledger)["accuracy_view"]
+    ranked = av["ranked_accuracy_levers"]
+    assert ranked, "fixture bug: expected applicable A-series templates"
+    assert all(e["direction"] == "accuracy" for e in ranked)
+    assert all(e["template"].startswith("A") for e in ranked)
+    measured = [e["fidelity_error"] for e in ranked if e["fidelity_error"] is not None]
+    assert measured == sorted(measured, reverse=True)
+    # an un-measured template must never outrank one with a real measured correction
+    first_unknown = next((i for i, e in enumerate(ranked) if e["fidelity_error"] is None),
+                         len(ranked))
+    assert all(e["fidelity_error"] is not None for e in ranked[:first_unknown])
+
+
+def test_template_direction_comes_from_the_json():
+    assert recommend.template_direction("A01") == "accuracy"
+    assert recommend.template_direction("A05") == "accuracy"
+    for tid in ("P00", "P02", "P03", "D01", "D02", "D06"):
+        assert recommend.template_direction(tid) == "cost", tid
+    # a template id the JSON has never heard of is a cost lever, not a crash
+    assert recommend.template_direction("Z99") == "cost"
+
+
+def test_measured_fidelity_by_template_reads_both_numbers(accuracy_physics_ledger):
+    import benchmark
+    rows = benchmark.load_ledger(accuracy_physics_ledger)
+    measured = recommend.measured_fidelity_by_template(rows)
+    assert measured["D02"]["floor_ratio"]["median"] == pytest.approx(0.80)
+    assert measured["D02"]["nd"]["median"] == pytest.approx(0.02)
+    assert measured["P02"]["floor_ratio"]["median"] == pytest.approx(18.0)
+    # rep 2 carries no fidelity at all, so one measurement per training case
+    assert measured["A01"]["nd"]["n"] == len(PHYS_TRAIN_CASES)
+    assert sorted(measured["A01"]["nd"]["cases"]) == sorted(PHYS_TRAIN_CASES)
+
+
+def test_measured_fidelity_also_reads_a_parsed_ledger_column():
+    """ledger.adapt_campaign_ledger parses the notes tokens into row fields; rows arriving that
+    way must give the same answer as rows that still carry only the raw notes string."""
+    row = ledger.new_row(run_id="r1", case_base="c", source_dataset="strict_campaign",
+                          notes="mode=physics template=A02 probe=none")
+    row["fidelity_nd_max"], row["fidelity_floor_ratio_max"] = 0.25, 3.5
+    measured = recommend.measured_fidelity_by_template([row])
+    assert measured["A02"]["nd"]["median"] == pytest.approx(0.25)
+    assert measured["A02"]["floor_ratio"]["median"] == pytest.approx(3.5)
+
+
+# --- 3. the chaos-floor hard rule ----------------------------------------------------------
+def test_below_the_chaos_floor_is_never_an_accuracy_improvement(ledger_csv, accuracy_namelist,
+                                                                 probe_screen_file,
+                                                                 accuracy_physics_ledger):
+    av = _accuracy_result(ledger_csv, accuracy_namelist, probe_screen_file,
+                          accuracy_physics_ledger)["accuracy_view"]
+    by_t = {e["template"]: e for e in av["entries"]}
+    d02 = by_t["D02"]
+    assert d02["floor_ratio"] == pytest.approx(0.80)
+    assert d02["below_floor"] is True
+    assert "indistinguishable from changing the decomposition" in d02["below_floor_note"]
+    # never ranked as an improvement, in either direction...
+    assert d02 not in av["ranked_cost_levers"]
+    assert d02 not in av["ranked_accuracy_levers"]
+    assert d02["accuracy_rank"] is None
+    # ...and never allowed to anchor the Pareto front, however cheap it is
+    assert d02["on_pareto"] is False
+    assert d02["pareto_excluded_reason"] == "below the chaos floor"
+    assert d02 in av["below_floor"]
+    assert av["chaos_floor_ratio"] == 1.0
+    # a candidate whose drift IS above the floor is unaffected
+    assert by_t["P01"]["below_floor"] is False
+
+
+@pytest.mark.parametrize("floor_ratio,expect_below", [
+    (0.5, True), (0.999, True), (1.0, True),     # at the floor is still AT the floor
+    (1.001, False), (1.593, False), (18.0, False),
+])
+def test_chaos_floor_boundary_is_inclusive(floor_ratio, expect_below):
+    """floor_ratio <= 1 is the rule: a ratio of exactly 1 means the candidate moved the solution
+    exactly as much as re-decomposing did, which is not a distinguishable change. 1.593 is the
+    real measured conus12/RK2 number and is ABOVE the floor -- the rule must not swallow it."""
+    cand = dict(template="X01", family="dynamics", status="UNCONFIRMED",
+                predicted_time_to_solution_pct=-1.0, time_to_solution_interval_pct=None,
+                predicted_fidelity_label=None, predicted_fidelity_nd=0.05)
+    measured = {"X01": {"nd": {"median": 0.05, "n": 1, "cases": ["c"]},
+                        "floor_ratio": {"median": floor_ratio, "n": 1, "cases": ["c"]}}}
+    entry = recommend._accuracy_entry(cand, measured)
+    assert entry["below_floor"] is expect_below
+    assert (entry["below_floor_note"] is not None) is expect_below
+
+
+def test_accuracy_entry_prefers_the_prediction_but_falls_back_to_measurement():
+    measured = {"X01": {"nd": {"median": 0.42, "n": 3, "cases": ["a", "b"]},
+                        "floor_ratio": {"median": 5.0, "n": 3, "cases": ["a", "b"]}}}
+    base = dict(template="X01", family="dynamics", status="UNCONFIRMED",
+                predicted_time_to_solution_pct=-1.0, time_to_solution_interval_pct=None,
+                predicted_fidelity_label=None)
+    predicted = recommend._accuracy_entry(dict(base, predicted_fidelity_nd=0.07), measured)
+    assert predicted["fidelity_error"] == pytest.approx(0.07)
+    assert "predicted" in predicted["fidelity_error_source"]
+    fallback = recommend._accuracy_entry(dict(base, predicted_fidelity_nd=None), measured)
+    assert fallback["fidelity_error"] == pytest.approx(0.42)
+    assert "measured median of 3 row(s) over 2 training case(s)" in fallback["fidelity_error_source"]
+    # the chaos floor has no regression at all -- it is always the measured number
+    assert fallback["floor_ratio_source"].startswith("measured median")
+    nothing = recommend._accuracy_entry(dict(base, predicted_fidelity_nd=None), {})
+    assert nothing["fidelity_error"] is None and nothing["floor_ratio"] is None
+
+
+def test_report_states_the_hard_rule_and_the_measured_example(ledger_csv, accuracy_namelist,
+                                                               probe_screen_file,
+                                                               accuracy_physics_ledger):
+    result = _accuracy_result(ledger_csv, accuracy_namelist, probe_screen_file,
+                              accuracy_physics_ledger)
+    text = recommend.format_physics_report(result)
+    assert "ACCURACY-FIRST view" in text
+    assert "indistinguishable from changing the decomposition" in text
+    assert "1.593" in text          # the measured conus12/RK2 example
+    assert "NOT accuracy improvements" in text
+    assert "Pareto front over (predicted cost, fidelity error)" in text
+    assert "free axis" in text
+    # the perf shortlist table is still printed above it, unchanged
+    assert "-- Shortlist (" in text
+
+
+# --- the Pareto front ----------------------------------------------------------------------
+def _pareto_entry(template, cost, error, below_floor=False):
+    return dict(template=template, direction="cost", below_floor=below_floor,
+                predicted_time_to_solution_pct=cost, fidelity_error=error,
+                on_pareto=False, pareto_excluded_reason=None)
+
+
+def test_pareto_front_keeps_only_non_dominated_points():
+    a = _pareto_entry("A", -10.0, 0.50)   # cheapest, worst error      -> perf-first end
+    b = _pareto_entry("B", -5.0, 0.20)    # a genuine middle trade
+    c = _pareto_entry("C", +5.0, 0.01)    # most expensive, best error -> acc-first end
+    d = _pareto_entry("D", -4.0, 0.40)    # dominated by B on both axes
+    front = recommend.pareto_front([a, b, c, d])
+    assert [e["template"] for e in front] == ["A", "B", "C"]
+    assert d["on_pareto"] is False and d["pareto_excluded_reason"] is None
+    assert [e["on_pareto"] for e in (a, b, c)] == [True, True, True]
+    # the two ends of the front are exactly perf-first and acc-first
+    assert min(front, key=lambda e: e["predicted_time_to_solution_pct"])["template"] == "A"
+    assert min(front, key=lambda e: e["fidelity_error"])["template"] == "C"
+
+
+def test_pareto_front_records_why_a_point_was_left_off():
+    below = _pareto_entry("BF", -20.0, 0.001, below_floor=True)
+    no_cost = _pareto_entry("NC", None, 0.10)
+    no_error = _pareto_entry("NE", -1.0, None)
+    ok = _pareto_entry("OK", -2.0, 0.05)
+    front = recommend.pareto_front([below, no_cost, no_error, ok])
+    assert [e["template"] for e in front] == ["OK"]
+    assert below["pareto_excluded_reason"] == "below the chaos floor"
+    assert no_cost["pareto_excluded_reason"] == "no predicted time-to-solution"
+    assert no_error["pareto_excluded_reason"] == "no fidelity error (predicted or measured)"
+
+
+def test_pareto_front_keeps_identical_points_together():
+    a, b = _pareto_entry("A", -3.0, 0.1), _pareto_entry("B", -3.0, 0.1)
+    front = recommend.pareto_front([a, b])
+    assert {e["template"] for e in front} == {"A", "B"}
+
+
+def test_pareto_front_is_marked_on_the_real_view(ledger_csv, accuracy_namelist,
+                                                  probe_screen_file, accuracy_physics_ledger):
+    av = _accuracy_result(ledger_csv, accuracy_namelist, probe_screen_file,
+                          accuracy_physics_ledger)["accuracy_view"]
+    front = av["pareto_front"]
+    assert front, "expected at least one operating point with both coordinates known"
+    assert all(e["on_pareto"] for e in front)
+    assert not any(e["below_floor"] for e in front)
+    costs = [e["predicted_time_to_solution_pct"] for e in front]
+    assert costs == sorted(costs)
+    # a front point is never beaten on both axes at once
+    for e in front:
+        assert not any(o is not e
+                       and o["predicted_time_to_solution_pct"] <= e["predicted_time_to_solution_pct"]
+                       and o["fidelity_error"] <= e["fidelity_error"]
+                       and (o["predicted_time_to_solution_pct"] < e["predicted_time_to_solution_pct"]
+                            or o["fidelity_error"] < e["fidelity_error"])
+                       for o in front)
+
+
+# --- 4. the decomposition is a free axis ---------------------------------------------------
+def test_decomposition_stays_the_fastest_legal_one(ledger_csv, accuracy_namelist,
+                                                    probe_screen_file, accuracy_physics_ledger):
+    common = _acc_kwargs(ledger_csv, accuracy_namelist, probe_screen_file,
+                         accuracy_physics_ledger)
+    perf = recommend.recommend_physics_gray(**common)
+    acc = recommend.recommend_physics_gray(objective="accuracy", **common)
+    assert perf["verify_plan"]["decomp"] == acc["verify_plan"]["decomp"]
+    note = acc["accuracy_view"]["decomposition_note"]
+    assert "free axis" in note.lower()
+    assert "never change the physics" in note
+    assert perf["verify_plan"]["decomp"] in note
+
+
+def test_accuracy_verify_plan_is_two_stage_and_names_the_a_series(ledger_csv, accuracy_namelist,
+                                                                   probe_screen_file,
+                                                                   accuracy_physics_ledger):
+    av = _accuracy_result(ledger_csv, accuracy_namelist, probe_screen_file,
+                          accuracy_physics_ledger)["accuracy_view"]
+    vp = av["verify_plan"]
+    assert vp["accuracy_templates"], "expected applicable A-series templates"
+    assert all(t.startswith("A") for t in vp["accuracy_templates"])
+    assert "MODE=physics" in vp["stage1"]
+    assert "+".join(vp["accuracy_templates"]) in vp["stage1"]
+    # stage 2 is the whole point: measure against the CONVERGED solution, not against P00
+    assert any("--reference <A-TEMPLATE" in c for c in vp["stage2"])
+    assert "STAGE 2" in vp["note"] and "better-converged" in vp["note"]
+
+
+def test_accuracy_mode_works_with_no_campaign_data_at_all(ledger_csv, accuracy_namelist,
+                                                           probe_screen_file):
+    """Today's production state: no PHYSICS-GRAY rows exist, so there is no fidelity error and no
+    chaos-floor measurement for anything. Accuracy mode must still produce an honest, empty-front
+    report rather than inventing a ranking."""
+    result = recommend.recommend_physics_gray(
+        ledger_path=ledger_csv, namelist_path=accuracy_namelist, case_name="synthtest",
+        hardware_id=HARDWARE_ID_TRAIN, probe_screen=probe_screen_file, objective="accuracy")
+    av = result["accuracy_view"]
+    assert av["entries"], "every applicable template must still be listed"
+    assert all(e["fidelity_error"] is None for e in av["entries"])
+    assert all(e["floor_ratio"] is None for e in av["entries"])
+    assert av["below_floor"] == []
+    assert av["pareto_front"] == []
+    assert all(e["pareto_excluded_reason"] is not None for e in av["entries"])
+    text = recommend.format_physics_report(result)
+    assert "ACCURACY-FIRST view" in text
+    assert "(empty" in text
+
+
+def test_cli_objective_accuracy_end_to_end(tmp_path, ledger_csv, accuracy_namelist,
+                                            probe_screen_file, accuracy_physics_ledger, capsys):
+    out_json = tmp_path / "acc.json"
+    rc = recommend.main(["--ledger", ledger_csv, "--namelist", accuracy_namelist,
+                         "--case-name", "synthtest", "--hardware-id", HARDWARE_ID_TRAIN,
+                         "--compliance", "PHYSICS-GRAY", "--model", "ridge",
+                         "--physics-ledger", accuracy_physics_ledger,
+                         "--probe-screen", probe_screen_file,
+                         "--objective", "accuracy", "--json", str(out_json)])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "ACCURACY-FIRST view" in out
+    with open(out_json) as fh:
+        payload = json.load(fh)
+    assert payload["objective"] == "accuracy"
+    assert payload["accuracy_view"]["chaos_floor_ratio"] == 1.0
+
+
+def test_cli_without_objective_matches_objective_perf(ledger_csv, accuracy_namelist,
+                                                       probe_screen_file,
+                                                       accuracy_physics_ledger, capsys):
+    argv = ["--ledger", ledger_csv, "--namelist", accuracy_namelist, "--case-name", "synthtest",
+            "--hardware-id", HARDWARE_ID_TRAIN, "--compliance", "PHYSICS-GRAY", "--model", "ridge",
+            "--physics-ledger", accuracy_physics_ledger, "--probe-screen", probe_screen_file]
+    assert recommend.main(argv) == 0
+    default_out = capsys.readouterr().out
+    assert recommend.main(argv + ["--objective", "perf"]) == 0
+    explicit_out = capsys.readouterr().out
+    assert default_out == explicit_out
+    assert "ACCURACY-FIRST view" not in default_out

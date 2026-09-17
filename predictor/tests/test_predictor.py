@@ -593,3 +593,101 @@ def test_decision_group_key_io_form_history_int_and_str_match():
                n_nodes=4, n_ranks=448, omp_threads=1, binary_kind="dmsm")
     assert (feat.decision_group_key(dict(row, io_form_history=14))
             == feat.decision_group_key(dict(row, io_form_history="14")))
+
+
+# ---------------------------------------------------------------------------
+# Fidelity numerics in the `notes` column (2026-09-17).
+#
+# The 48-field LEDGER_FIELDS header is depended on by every campaign ledger CSV already on disk
+# and by the tests above, so the measured fidelity error is carried as extra key=value tokens in
+# `notes` -- which already carries mode=/template=/edits=/decomp=/... -- instead of as new
+# columns. strict_campaign.sbatch MODE=physics writes them (configs.fidelity_notes_tokens);
+# ledger.parse_fidelity_notes reads them back as numeric row fields.
+# ---------------------------------------------------------------------------
+def test_parse_fidelity_notes_reads_both_numbers():
+    notes = ("mode=physics template=A01 family=dynamics edits=time_step=12 decomp=C02 "
+             "sim_minutes=30 hist_minutes=30 fidelity_nd_max=0.032 "
+             "fidelity_floor_ratio_max=1.593 fidelity_deciding=nd(QICE)=0.032_>_0.03 tag=A01 "
+             "role=candidate rep=1")
+    got = ledger.parse_fidelity_notes(notes)
+    assert got == {"fidelity_nd_max": 0.032, "fidelity_floor_ratio_max": 1.593}
+    assert all(isinstance(v, float) for v in got.values())
+
+
+@pytest.mark.parametrize("notes", [
+    None,
+    "",
+    "mode=physics template=C02 config=C02 mode=timing",              # a STRICT row: no tokens
+    "mode=physics fidelity_nd_max= fidelity_floor_ratio_max=",       # ran, no fidelity JSON
+    "mode=physics fidelity_nd_max=NA fidelity_floor_ratio_max=NA",   # gate ran, no numeric field
+])
+def test_parse_fidelity_notes_defaults_to_none(notes):
+    assert ledger.parse_fidelity_notes(notes) == {"fidelity_nd_max": None,
+                                                  "fidelity_floor_ratio_max": None}
+
+
+def test_parse_fidelity_notes_ignores_a_lookalike_token():
+    # fidelity_deciding's own value contains '=' signs and the substring "fidelity_nd_max" must
+    # not be matched inside another token's value.
+    notes = "fidelity_deciding=fidelity_nd_max=9 fidelity_nd_max=0.5"
+    assert ledger.parse_fidelity_notes(notes)["fidelity_nd_max"] == 0.5
+
+
+def _physics_ledger_row(run_id, template, notes_extra, **over):
+    base = {k: "" for k in ledger.LEDGER_FIELDS}
+    base.update(run_id=run_id, source_dataset="strict_campaign", rep_index="1",
+                case_raw="conus12", case_base="conus12", hardware_id="f1-spr-icpnq",
+                binary_kind="pristine", compliance_class="PHYSICS-GRAY", e_we="425", e_sn="300",
+                e_vert="50", dx="12000", dy="12000", time_step="72", mp_physics="8",
+                io_form_history="14", n_nodes="4", n_ranks="448", omp_threads="1", nproc_x="16",
+                nproc_y="28", numtiles="8", distribution="cyclic", kmp_blocktime="0",
+                s_per_step_median="1.25", n_steps_measured="30", fidelity_label="SMALL-DRIFT",
+                notes="mode=physics template=%s decomp=C02 %s" % (template, notes_extra))
+    base.update(over)
+    return base
+
+
+def test_campaign_ledger_parses_fidelity_numbers_into_row_fields(tmp_path):
+    rows_in = [
+        _physics_ledger_row("c12_A01_r1_1", "A01",
+                            "fidelity_nd_max=0.0810 fidelity_floor_ratio_max=4.210"),
+        _physics_ledger_row("c12_D02_r1_1", "D02",
+                            "fidelity_nd_max=0.0320 fidelity_floor_ratio_max=1.593"),
+        # a MODE=physics run with no fidelity JSON: tokens present, values empty
+        _physics_ledger_row("c12_P00_r2_1", "P00",
+                            "fidelity_nd_max= fidelity_floor_ratio_max=", fidelity_label=""),
+    ]
+    path = tmp_path / "ledger_conus12_fid.csv"
+    with open(path, "w", newline="") as fh:
+        w = csv.DictWriter(fh, fieldnames=ledger.LEDGER_FIELDS)
+        w.writeheader()
+        for r in rows_in:
+            w.writerow(r)
+
+    rows = ledger.adapt_campaign_ledger(str(path))
+    by_id = {r["run_id"]: r for r in rows}
+    assert len(rows) == 3
+    assert by_id["c12_A01_r1_1"]["fidelity_nd_max"] == pytest.approx(0.0810)
+    assert by_id["c12_A01_r1_1"]["fidelity_floor_ratio_max"] == pytest.approx(4.210)
+    assert by_id["c12_D02_r1_1"]["fidelity_floor_ratio_max"] == pytest.approx(1.593)
+    assert by_id["c12_P00_r2_1"]["fidelity_nd_max"] is None
+    assert by_id["c12_P00_r2_1"]["fidelity_floor_ratio_max"] is None
+
+
+def test_fidelity_fields_do_not_widen_the_written_csv(tmp_path):
+    """The whole point of using `notes` was to leave the 48-column header alone: build()'s
+    DictWriter uses extrasaction='ignore', so the extra row keys must never reach the file."""
+    src = tmp_path / "ledger_conus12_fid2.csv"
+    with open(src, "w", newline="") as fh:
+        w = csv.DictWriter(fh, fieldnames=ledger.LEDGER_FIELDS)
+        w.writeheader()
+        w.writerow(_physics_ledger_row("c12_A02_r1_1", "A02",
+                                       "fidelity_nd_max=0.9 fidelity_floor_ratio_max=9.0"))
+    out = tmp_path / "out" / "runs.csv"
+    ledger.build(str(tmp_path / "no_such_wiki_dir"), str(out), campaign_ledgers=[str(src)])
+    with open(out, newline="") as fh:
+        reader = csv.DictReader(fh)
+        assert reader.fieldnames == ledger.LEDGER_FIELDS
+        written = next(reader)
+    assert "fidelity_nd_max" not in written
+    assert "fidelity_nd_max=0.9" in written["notes"]

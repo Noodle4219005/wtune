@@ -1164,10 +1164,13 @@ class TestPhysicsTemplatesJson(unittest.TestCase):
 
     ALL = ["P00", "P01", "P02", "P03", "P04", "P05", "P06"]
     DYNAMICS = ["D01", "D02", "D03", "D04", "D05", "D06"]  # cost levers added 2026-09-16
+    ACCURACY = ["A01", "A02", "A03", "A04", "A05"]         # accuracy levers added 2026-09-17
 
     def test_loads_and_has_p00_through_p06(self):
-        self.assertEqual(set(configs.PHYSICS_TEMPLATES), set(self.ALL + self.DYNAMICS))
-        self.assertEqual(configs.PHYSICS_TEMPLATE_ORDER, sorted(self.ALL + self.DYNAMICS))
+        self.assertEqual(set(configs.PHYSICS_TEMPLATES),
+                         set(self.ALL + self.DYNAMICS + self.ACCURACY))
+        self.assertEqual(configs.PHYSICS_TEMPLATE_ORDER,
+                         sorted(self.ALL + self.DYNAMICS + self.ACCURACY))
 
     def test_dynamics_templates_are_in_the_dynamics_family_and_edit_that_section(self):
         for tid in ("D01", "D02", "D03"):
@@ -1806,6 +1809,251 @@ class TestDiagnosticsAndCadenceTemplates(unittest.TestCase):
         tpl = configs.PHYSICS_TEMPLATES["D06"]
         self.assertNotIn("karina", tpl["applies_to"])
         self.assertIn("zhengzhou", tpl["applies_to"])
+
+
+class TestAccuracyTemplates(unittest.TestCase):
+    """A01-A05 (accuracy levers, 2026-09-17): the mirrors of the P/D cost levers. Every A-template
+    that edits a max_domains-shaped key must be per_domain, because time_step_sound /
+    moist_adv_opt / scalar_adv_opt / h_*_adv_order are absent from every campaign namelist and are
+    therefore INSERTED -- a non-per_domain insert would write d01 only and leave every nest at the
+    Registry default. time_step is the exception: it is declared scalar in Registry.EM_COMMON:2262
+    ('namelist,domains 1'), so A01 must NOT be per_domain."""
+
+    NL = ("&domains\n time_step=15, max_dom=2,\n/\n"
+          "&physics\n mp_physics = 8, 8,\n radt = 15, 15,\n/\n"
+          "&dynamics\n diff_opt=1, km_opt=4,\n/\n")
+
+    def _tpl(self, tid):
+        return configs.PHYSICS_TEMPLATES[tid]
+
+    def test_every_accuracy_template_is_marked_accuracy_direction(self):
+        for tid in ("A01", "A02", "A03", "A04", "A05"):
+            self.assertEqual(self._tpl(tid).get("direction"), "accuracy", tid)
+
+    def test_no_cost_template_claims_the_accuracy_direction(self):
+        for tid, tpl in configs.PHYSICS_TEMPLATES.items():
+            if not tid.startswith("A"):
+                self.assertNotEqual(tpl.get("direction"), "accuracy", tid)
+
+    def test_max_domains_shaped_accuracy_edits_are_per_domain(self):
+        for tid in ("A02", "A03", "A04", "A05"):
+            for e in self._tpl(tid)["edits"]:
+                self.assertTrue(e.get("per_domain"), "%s/%s" % (tid, e["key"]))
+
+    def test_a01_shrinks_time_step_and_is_not_per_domain(self):
+        edits = self._tpl("A01")["edits"]
+        self.assertEqual(len(edits), 1)
+        self.assertEqual((edits[0]["key"], edits[0]["op"], edits[0]["factor"]),
+                         ("time_step", "mul", 0.8))
+        self.assertEqual(edits[0].get("round"), "int")
+        self.assertEqual(edits[0]["section"], "&domains")
+        self.assertFalse(edits[0].get("per_domain"))
+        out, summary = configs.apply_physics_template(self.NL, self._tpl("A01"), max_dom=2)
+        self.assertIn("time_step=12,", out)
+        self.assertEqual(summary[0]["new"], ["12"])
+
+    def test_a01_is_the_mirror_of_p03(self):
+        # P03 multiplies the same key upward; together they bracket the case's native dt.
+        self.assertEqual(configs.PHYSICS_TEMPLATES["P03"]["edits"][0]["key"], "time_step")
+        self.assertGreater(configs.PHYSICS_TEMPLATES["P03"]["edits"][0]["factor"], 1.0)
+        self.assertLess(self._tpl("A01")["edits"][0]["factor"], 1.0)
+
+    def test_a01_min_clamp_keeps_a_one_second_step_legal(self):
+        nl = self.NL.replace("time_step=15,", "time_step=1,")
+        out, _ = configs.apply_physics_template(nl, self._tpl("A01"), max_dom=2)
+        self.assertIn("time_step=1,", out)
+        self.assertNotIn("time_step=0,", out)
+
+    def test_a02_inserts_an_even_time_step_sound_for_every_active_domain(self):
+        edit = self._tpl("A02")["edits"][0]
+        self.assertEqual(edit["value"], 6)
+        # dyn_em/solve_em.F:615 halves this with INTEGER division on RK substep 2, and WRF's own
+        # auto formula (solve_em.F:451-468) returns even numbers only -- odd values truncate.
+        self.assertEqual(edit["value"] % 2, 0)
+        self.assertGreater(edit["value"], configs.PHYSICS_TEMPLATES["D01"]["edits"][0]["value"])
+        out, summary = configs.apply_physics_template(self.NL, self._tpl("A02"), max_dom=2)
+        self.assertIn("time_step_sound = 6, 6,", out)
+        self.assertIn("&dynamics", out.split("time_step_sound")[0][-200:])
+        self.assertEqual(summary[0]["new"], ["6", "6"])
+
+    def test_a03_sets_monotonic_transport_on_every_active_domain(self):
+        out, summary = configs.apply_physics_template(self.NL, self._tpl("A03"), max_dom=2)
+        self.assertIn("moist_adv_opt = 2, 2,", out)
+        self.assertIn("scalar_adv_opt = 2, 2,", out)
+        self.assertEqual([e["key"] for e in summary], ["moist_adv_opt", "scalar_adv_opt"])
+        # D03 turns the same limiter off; A03 turns it up. Registry default is 1.
+        self.assertEqual([e["value"] for e in configs.PHYSICS_TEMPLATES["D03"]["edits"]], [0, 0])
+
+    def test_a03_skips_isc21_which_is_already_monotonic(self):
+        ok, why = configs.physics_template_applicability("isc21", self._tpl("A03"))
+        self.assertFalse(ok)
+        self.assertIn("moist_adv_opt=2", why)
+
+    def test_a04_sets_sixth_order_horizontal_advection_on_every_active_domain(self):
+        out, summary = configs.apply_physics_template(self.NL, self._tpl("A04"), max_dom=2)
+        self.assertIn("h_mom_adv_order = 6, 6,", out)
+        self.assertIn("h_sca_adv_order = 6, 6,", out)
+        self.assertEqual([e["key"] for e in summary], ["h_mom_adv_order", "h_sca_adv_order"])
+
+    def test_a04_order_is_even_and_at_the_halo_ceiling(self):
+        # module_advect_em.F implements 6/5/4/3/2 (and 0); dyn_em/solve_em.F:414 aborts above 6
+        # because the communication halos only exist to order 6.
+        for e in self._tpl("A04")["edits"]:
+            self.assertEqual(e["value"], 6, e["key"])
+
+    def test_a04_skips_isc21_because_monotonic_transport_is_order_5_only(self):
+        ok, why = configs.physics_template_applicability("isc21", self._tpl("A04"))
+        self.assertFalse(ok)
+        self.assertIn("advect_scalar_mono", why)
+
+    def test_a03_and_a04_incompatibility_is_recorded_in_excluded(self):
+        import json as _json
+        with open(configs.PHYSICS_TEMPLATES_JSON_PATH) as f:
+            excluded = _json.load(f)["excluded"]
+        key = next(k for k in excluded if k.startswith("A03 + A04"))
+        self.assertIn("9643", excluded[key])
+        self.assertIn("10016", excluded[key])
+
+    def test_a05_halves_radt_without_rounding_or_a_min_clamp(self):
+        edit = self._tpl("A05")["edits"][0]
+        self.assertEqual((edit["key"], edit["op"], edit["factor"]), ("radt", "mul", 0.5))
+        # A min clamp of 1 would silently make lafe/marshall (native radt=1) no-ops, and radt is
+        # REAL in Registry.EM_COMMON:2473, so no integer rounding is needed either.
+        self.assertIsNone(edit.get("round"))
+        self.assertIsNone(edit.get("min"))
+        out, summary = configs.apply_physics_template(self.NL, self._tpl("A05"), max_dom=2)
+        self.assertIn("radt = 7.5, 7.5,", out)
+        self.assertEqual(summary[0]["new"], ["7.5", "7.5"])
+
+    def test_a05_halving_a_one_minute_radt_is_not_clamped_away(self):
+        nl = self.NL.replace("radt = 15, 15,", "radt = 1, 1,")
+        out, _ = configs.apply_physics_template(nl, self._tpl("A05"), max_dom=2)
+        self.assertIn("radt = 0.5, 0.5,", out)
+
+    def test_a05_does_not_pair_swint_opt_the_way_p02_does(self):
+        self.assertEqual([e["key"] for e in self._tpl("A05")["edits"]], ["radt"])
+        self.assertIn("swint_opt", [e["key"] for e in configs.PHYSICS_TEMPLATES["P02"]["edits"]])
+
+    def test_accuracy_templates_do_not_touch_unrelated_sections(self):
+        for tid in ("A01", "A02", "A03", "A04"):
+            out, _ = configs.apply_physics_template(self.NL, self._tpl(tid), max_dom=2)
+            self.assertIn(" mp_physics = 8, 8,", out)
+            self.assertIn(" diff_opt=1, km_opt=4,", out)
+
+    def test_every_accuracy_template_has_a_family_and_a_real_description(self):
+        for tid in ("A01", "A02", "A03", "A04", "A05"):
+            tpl = self._tpl(tid)
+            self.assertIn(tpl["family"], ("dynamics", "radiation"), tid)
+            # Same bar as P00-P06/D01-D06: the description must cite the source it was read from.
+            self.assertGreater(len(tpl["description"]), 400, tid)
+            self.assertIn(".F:", tpl["description"], tid)
+
+
+class TestFidelityNotesTokens(unittest.TestCase):
+    """configs.fidelity_notes_tokens(): the shell-side extraction strict_campaign.sbatch
+    MODE=physics reads into FID_LABEL/FID_ND/FID_FLOOR/FID_DECIDING, which then become the
+    `fidelity_nd_max=` / `fidelity_floor_ratio_max=` tokens in the ledger `notes` column. It used
+    to be an inline heredoc (twice) and so could never be tested without running the sbatch."""
+
+    PAYLOAD = {
+        "label": "SMALL-DRIFT",
+        "deciding": "nd(QICE)=0.032 > 0.03 and floor_ratio(QICE)=1.593 > 2",
+        "per_field_summary_at_last_time": {
+            "T": {"nd": 0.012, "floor_ratio": 1.2, "floor_zero": False},
+            "QICE": {"nd": 0.032, "floor_ratio": 1.593, "floor_zero": False},
+            "U": {"nd": 0.004, "floor_ratio": 0.8, "floor_zero": False},
+        },
+    }
+
+    def test_reports_the_maxima_over_fields_not_the_thresholds(self):
+        label, nd, floor, deciding = configs.fidelity_notes_tokens(self.PAYLOAD)
+        self.assertEqual(label, "SMALL-DRIFT")
+        self.assertEqual(nd, "0.032")
+        self.assertEqual(floor, "1.593")
+        self.assertNotIn(" ", deciding)
+        self.assertIn("nd(QICE)=0.032", deciding)
+
+    def test_every_field_is_a_single_shell_word(self):
+        # `read -r A B C D` must see exactly four words, or FID_DECIDING swallows the rest.
+        line = " ".join(configs.fidelity_notes_tokens(self.PAYLOAD))
+        self.assertEqual(len(line.split()), 4)
+
+    def test_tokens_become_one_notes_token_each(self):
+        _label, nd, floor, _deciding = configs.fidelity_notes_tokens(self.PAYLOAD)
+        notes = "mode=physics template=A01 fidelity_nd_max=%s fidelity_floor_ratio_max=%s" % (nd, floor)
+        parsed = dict(t.split("=", 1) for t in notes.split())
+        self.assertEqual(float(parsed["fidelity_nd_max"]), 0.032)
+        self.assertEqual(float(parsed["fidelity_floor_ratio_max"]), 1.593)
+
+    def test_missing_pieces_fall_back_to_na_never_to_a_crash(self):
+        self.assertEqual(configs.fidelity_notes_tokens({}), ("NA", "NA", "NA", "NA"))
+        self.assertEqual(
+            configs.fidelity_notes_tokens({"label": "INVALID", "deciding": None,
+                                            "per_field_summary_at_last_time": None}),
+            ("INVALID", "NA", "NA", "NA"))
+
+    def test_floor_zero_fields_contribute_no_floor_ratio(self):
+        # fidelity_gate.py leaves floor_ratio null when the twin was bit-identical to the
+        # reference; that field must not be counted, and must not crash the max().
+        payload = {"label": "WITHIN-FLOOR", "deciding": "all key fields within floor",
+                   "per_field_summary_at_last_time": {
+                       "T": {"nd": 0.001, "floor_ratio": None, "floor_zero": True},
+                       "U": {"nd": 0.002, "floor_ratio": 0.5, "floor_zero": False}}}
+        _l, nd, floor, _d = configs.fidelity_notes_tokens(payload)
+        self.assertEqual((nd, floor), ("0.002", "0.5"))
+
+    def test_booleans_are_not_mistaken_for_numbers(self):
+        # isinstance(True, int) is True in Python; a bool must never become a fidelity number.
+        payload = {"per_field_summary_at_last_time": {"T": {"nd": True, "floor_ratio": False}}}
+        _l, nd, floor, _d = configs.fidelity_notes_tokens(payload)
+        self.assertEqual((nd, floor), ("NA", "NA"))
+
+    def test_cli_prints_one_line_and_refuses_a_missing_file(self):
+        import io as _io
+        import contextlib
+        import json as _json
+        import tempfile
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as fh:
+            _json.dump(self.PAYLOAD, fh)
+            path = fh.name
+        try:
+            buf = _io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                rc = configs.main(["fidelity-tokens", path])
+            self.assertEqual(rc, 0)
+            self.assertEqual(buf.getvalue().strip().split(), list(configs.fidelity_notes_tokens(self.PAYLOAD)))
+        finally:
+            os.unlink(path)
+        buf, err = _io.StringIO(), _io.StringIO()
+        with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(err):
+            rc = configs.main(["fidelity-tokens", path + ".gone"])
+        # Nothing printed -> the sbatch's `read` leaves FID_* empty -> the same notes shape as a
+        # MODE=physics run that produced no fidelity JSON at all.
+        self.assertEqual(rc, 2)
+        self.assertEqual(buf.getvalue(), "")
+
+
+class TestSbatchFidelityExtraction(unittest.TestCase):
+    """strict_campaign.sbatch MODE=physics must call the tested helper instead of carrying two
+    byte-identical inline python heredocs, and must still emit both numeric notes tokens."""
+
+    def _text(self):
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                               "strict_campaign.sbatch")) as f:
+            return f.read()
+
+    def test_calls_configs_fidelity_tokens_in_both_arms(self):
+        s = self._text()
+        self.assertEqual(s.count('configs.py" fidelity-tokens'), 2)
+        self.assertNotIn("per_field_summary_at_last_time", s)
+
+    def test_both_numeric_tokens_still_reach_the_notes_column(self):
+        s = self._text()
+        for tok in ("fidelity_nd_max=$FID_ND", "fidelity_floor_ratio_max=$FID_FLOOR"):
+            self.assertIn(tok, s)
+        # The SKIPPED-row notes template keeps the same tokens with empty values, which is the
+        # "no fidelity JSON" shape predictor/ledger.py must read back as None.
+        self.assertIn("fidelity_nd_max= fidelity_floor_ratio_max=", s)
 
 
 class TestHailcastNestHistoryInterval(unittest.TestCase):

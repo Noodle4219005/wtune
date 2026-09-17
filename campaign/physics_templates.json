@@ -1,5 +1,5 @@
 {
-  "_comment": "PHYSICS-GRAY fixed physics-template table for the physics-gray data campaign (decision 0051, /home/u5727520/my-llm-wiki/knowledge/decisions/0051-wtune-physics-gray-recommendation-fidelity-gate-and-campaign-plan.md). FINAL SET 2026-09-15 (lead): P00-P06, revised from the provisional P00-P04 using the WRF 4.8.0 source compatibility survey recorded in /home/u5727520/my-llm-wiki/knowledge/2026-09-14-wrf-4-8-physics-namelist-compatibility-rules-for-physics-gray-templates.md and the screen/probe verdicts of job 1076060. Build rules that shape these edits: mp_physics(i)=mp_physics(max_dom) for i<=max_dom (frame/module_configure.F:207-209), so 'set' on every ACTIVE entry is sufficient; sf_sfclay/sf_surface/ra_lw/ra_sw must be identical on all active domains and bl_pbl/cu must match d01 or be 0 (share/module_check_a_mundo.F:753-943), hence scheme 'set' ops write every active entry; time_step is an INTEGER namelist field (inc/config_reads.inc:174), hence mul round=int; ra 24/14 are not compiled (BUILD_RRTMG_FAST=0, BUILD_RRTMK=0); physics_suite: an explicit non -1 value overrides the suite for that option only ('conus' = cu 6, mp 8, ra 4/4, bl 2 MYJ, sfclay 2 MYJ, surface 2; 'tropical' = cu 16, mp 6 WSM6, ra 4/4, bl 1 YSU, sfclay 1, surface 2). All of this is read from source, not yet confirmed by a WRF smoke; the physics smoke must check namelist.output.\n\nSchema: 'templates' maps Pxx -> {family, description, edits:[ops], optional applies_to:[case], skip_cases:{case: reason}, extra_edits:{case:[ops]}}. extra_edits are applied after edits for that case only (configs.apply_physics_template case_id=...; predictor/physics.py physics_candidates_for_case). Ops: {'op':'set','key','value','section'} sets every active-domain entry (inserts a single d01 value if the key is absent); {'op':'mul','key','factor','round':'int','min','max','section'} per active entry, error on -1; {'op':'delete','key'}. 'excluded' documents candidate changes deliberately left out, with reasons.",
+  "_comment": "PHYSICS-GRAY fixed physics-template table for the physics-gray data campaign (decision 0051, /home/u5727520/my-llm-wiki/knowledge/decisions/0051-wtune-physics-gray-recommendation-fidelity-gate-and-campaign-plan.md). FINAL SET 2026-09-15 (lead): P00-P06, revised from the provisional P00-P04 using the WRF 4.8.0 source compatibility survey recorded in /home/u5727520/my-llm-wiki/knowledge/2026-09-14-wrf-4-8-physics-namelist-compatibility-rules-for-physics-gray-templates.md and the screen/probe verdicts of job 1076060. Build rules that shape these edits: mp_physics(i)=mp_physics(max_dom) for i<=max_dom (frame/module_configure.F:207-209), so 'set' on every ACTIVE entry is sufficient; sf_sfclay/sf_surface/ra_lw/ra_sw must be identical on all active domains and bl_pbl/cu must match d01 or be 0 (share/module_check_a_mundo.F:753-943), hence scheme 'set' ops write every active entry; time_step is an INTEGER namelist field (inc/config_reads.inc:174), hence mul round=int; ra 24/14 are not compiled (BUILD_RRTMG_FAST=0, BUILD_RRTMK=0); physics_suite: an explicit non -1 value overrides the suite for that option only ('conus' = cu 6, mp 8, ra 4/4, bl 2 MYJ, sfclay 2 MYJ, surface 2; 'tropical' = cu 16, mp 6 WSM6, ra 4/4, bl 1 YSU, sfclay 1, surface 2). All of this is read from source, not yet confirmed by a WRF smoke; the physics smoke must check namelist.output.\n\nA-SERIES 2026-09-17 (accuracy-first mode): A01-A05 move the OPPOSITE way from the P/D cost levers -- each buys a closer approach to a converged solution by doing MORE work, and each is the deliberate mirror of an existing cost lever (A01<->P03 time_step, A02<->D01 time_step_sound, A03<->D03 moist/scalar_adv_opt, A04<->the excluded h_*_adv_order 5->3, A05<->P02 radt). Every A-template's source claims were re-verified against /home/u5727520/wrf-stack/wrf/intel-adios2-dmsm/WRF for this build, including the two runtime-fatal interactions now recorded in 'excluded' (A03+A04, and order > 6).\n\nSchema: 'templates' maps Pxx -> {family, description, edits:[ops], optional direction:'cost'|'accuracy' (default 'cost'; 'accuracy' marks a template whose purpose is to REDUCE discretization error at higher cost -- predictor/recommend.py --objective accuracy reads this to decide which candidates can serve as the converged reference), optional applies_to:[case], skip_cases:{case: reason}, extra_edits:{case:[ops]}}. extra_edits are applied after edits for that case only (configs.apply_physics_template case_id=...; predictor/physics.py physics_candidates_for_case). Ops: {'op':'set','key','value','section'} sets every active-domain entry (inserts a single d01 value if the key is absent); {'op':'mul','key','factor','round':'int','min','max','section'} per active entry, error on -1; {'op':'delete','key'}. 'excluded' documents candidate changes deliberately left out, with reasons.",
   "templates": {
     "P00": {
       "family": "none",
@@ -307,9 +307,103 @@
           "section": "&bdy_control"
         }
       ]
+    },
+    "A01": {
+      "family": "dynamics",
+      "direction": "accuracy",
+      "description": "time_step x0.8 rounded to int, min 1 (karina/conus25/isc21/bigchill/elevconv 15->12, conus12 72->58, maria1km 25->20, lafe 10->8, zhengzhou 36->29, severe2023 180->144, matthew 150->120, c34/marshall 6->5). The ACCURACY mirror of P03's x1.2: a smaller dt lowers both the advective and the acoustic CFL and the RK3 temporal truncation error, at ~1/0.8 = 1.25x the step count. time_step is an INTEGER namelist field (inc/config_reads.inc:174) declared SCALAR, not max_domains (Registry.EM_COMMON:2262 'namelist,domains 1 -1'), hence 'mul round=int' and NO per_domain -- nests derive their own dt from the parent (share/set_timekeeping.F:339-359 sets the head grid, :365-369 divides by parent_time_step_ratio). Nothing in share/module_check_a_mundo.F constrains time_step against time_step_sound (a grep for time_step_sound there returns zero hits; :887-894 is a presence check only), so a dt/dts pairing is never diagnosed -- it simply runs or goes unstable.",
+      "edits": [
+        {
+          "op": "mul",
+          "key": "time_step",
+          "factor": 0.8,
+          "round": "int",
+          "min": 1,
+          "section": "&domains"
+        }
+      ]
+    },
+    "A02": {
+      "family": "dynamics",
+      "direction": "accuracy",
+      "description": "time_step_sound=6 on every active domain (acoustic substeps), the ACCURACY mirror of D01's 3. The namelist default 0 means AUTO: dyn_em/solve_em.F:451-468 computes max(2*(INT(300*dt/min(dx,dy)-0.01)+1),4), and because the 2* multiplier sits inside the max() whose floor 4 is itself even, the auto formula RETURNS EVEN NUMBERS ONLY -- its own comment says so (solve_em.F:452: 'This function will give 4 for 6*dx and 6 for 10*dx and returns even numbers only'). All six original campaign cases land on 4. ONLY EVEN VALUES ARE SAFE: RK3 substep 2 sets number_of_small_timesteps = num_sound_steps/2 as INTEGER division (solve_em.F:615, against :611 for substep 1 and :619 for substep 3), so an odd value silently truncates substep 2's acoustic loop -- which is why D01's 3 hung conus12, and why 6 (not 5) is the accuracy step above the auto 4. 6 raises the small-step count 50% and cuts dts = dt/num_sound_steps (solve_em.F:470) by the same factor, lowering the acoustic CFL. WRF validates this knob nowhere: an explicit value is taken verbatim at solve_em.F:467, and share/module_check_a_mundo.F never mentions time_step_sound.",
+      "edits": [
+        {
+          "op": "set",
+          "key": "time_step_sound",
+          "value": 6,
+          "section": "&dynamics",
+          "per_domain": true
+        }
+      ]
+    },
+    "A03": {
+      "family": "dynamics",
+      "direction": "accuracy",
+      "description": "moist_adv_opt=2 and scalar_adv_opt=2 on every active domain (MONOTONIC transport), the ACCURACY mirror of D03's 0. Registry.EM_COMMON:2927/2931 default both to 1, and the Registry package lines 3330-3334 fix the meanings exactly: 0=original, 1=positivedef, 2=monotonic, 3=weno_scalar, 4=wenopd_scalar -- so 1 (the default) is positive-definite and 2 is monotonic. The dispatch is in dyn_em/module_em.F:1265 (POSITIVEDEF -> advect_scalar_pd) versus :1282 (MONOTONIC -> advect_scalar_mono), both guarded by rk_step == rk_order, i.e. the limiter runs only on the LAST RK substep. Positive-definite only forbids negative mixing ratios; monotonic additionally forbids the transport step from creating new extrema, which is the stronger (and more expensive) statement. INCOMPATIBLE WITH A04 -- see the 'A03 + A04 combined' entry in 'excluded': advect_scalar_mono implements h_sca_adv_order 5 ONLY (dyn_em/module_advect_em.F:9643) and calls wrf_error_fatal on anything else at :10016-10017.",
+      "skip_cases": {
+        "isc21": "isc21's own namelist already sets moist_adv_opt=2,2,2 and scalar_adv_opt=2,2,2, so monotonic transport is a no-op there, not an accuracy change"
+      },
+      "edits": [
+        {
+          "op": "set",
+          "key": "moist_adv_opt",
+          "value": 2,
+          "section": "&dynamics",
+          "per_domain": true
+        },
+        {
+          "op": "set",
+          "key": "scalar_adv_opt",
+          "value": 2,
+          "section": "&dynamics",
+          "per_domain": true
+        }
+      ]
+    },
+    "A04": {
+      "family": "dynamics",
+      "direction": "accuracy",
+      "description": "h_mom_adv_order=6 and h_sca_adv_order=6 on every active domain (Registry.EM_COMMON:2922/2924, both default 5; no campaign namelist sets either, so every case is at the default). VERIFIED AVAILABLE IN THIS BUILD, which is why this is a template and not an 'excluded' entry: order 6 is a real 6th-order flux stencil in every routine that reads these knobs -- advect_u dyn_em/module_advect_em.F:230, advect_v :1640, advect_scalar :3137, advect_w :4470, advect_scalar_pd :6229 -- and none of those branches sits behind a preprocessor guard (module_advect_em.F has 6 '#if' lines, none of them in the order-dispatch chains). EVEN ORDERS ARE LEGAL: each chain is an IF/ELSE IF named horizontal_order_test with real branches for 6, 5, 4, 3 and 2 (and 0 = horizontal advection off, :1231-1233); anything outside the chain falls through to wrf_error_fatal (:1237-1238 for advect_u, and the same pattern at :2687, :4099, :5684, :7250, :10016). Two hard limits found while verifying: (1) order > 6 is impossible regardless -- the communication halos only exist up to 6 and dyn_em/solve_em.F:414 aborts with 'invalid h_sca_adv_order'; (2) the MONOTONIC limiter supports order 5 ONLY (advect_scalar_mono, module_advect_em.F:9643, fatal at :10016-10017), so this template must never be combined with A03 and is skipped for isc21, whose namelist already runs moist_adv_opt=2,2,2. Note that nothing in share/module_check_a_mundo.F catches either -- a grep of that file for 'adv_order' and for 'adv_opt' returns ZERO hits, so an illegal combination is only discovered as a fatal mid-integration. KNOWN GAP in that guard: it is a per-case skip_cases entry, and predictor/physics.py's generic_extra_edits fallback (the path taken for a case physics_templates.json has never seen) cannot reproduce it, because native_physics_resolved carries only the LEDGER physics columns and moist_adv_opt is not one of them. Before running A04 on a NEW case, grep its namelist.input for moist_adv_opt / scalar_adv_opt = 2 by hand. Why this is an accuracy lever: the default 5th order is the odd-order upwind-biased member of the pair, whose leading error term is an implicit hyperdiffusion; 6th order is the centred, non-diffusive member, i.e. less damped and one order more accurate, but it supplies no dissipation of its own (diff_opt/km_opt are unchanged and remain the only explicit diffusion).",
+      "skip_cases": {
+        "isc21": "isc21 natively runs moist_adv_opt=2,2,2 / scalar_adv_opt=2,2,2 (monotonic), and advect_scalar_mono implements h_sca_adv_order 5 only (dyn_em/module_advect_em.F:9643) -- h_sca_adv_order=6 would abort at module_advect_em.F:10016-10017 mid-integration, with no namelist-time check to catch it"
+      },
+      "edits": [
+        {
+          "op": "set",
+          "key": "h_mom_adv_order",
+          "value": 6,
+          "section": "&dynamics",
+          "per_domain": true
+        },
+        {
+          "op": "set",
+          "key": "h_sca_adv_order",
+          "value": 6,
+          "section": "&dynamics",
+          "per_domain": true
+        }
+      ]
+    },
+    "A05": {
+      "family": "radiation",
+      "direction": "accuracy",
+      "description": "radt x0.5 on every active domain (more frequent radiation calls), the ACCURACY mirror of P02's x2. radt is a REAL max_domains field (Registry.EM_COMMON:2473, default 0), so unlike A01's INTEGER time_step this edit needs no rounding and carries no min clamp: karina/conus12/bigchill/elevconv 15->7.5, conus25 10->5.0, maria1km 12,30->6.0,15.0, lafe 1->0.5, marshall 1->0.5. A clamp of min 1 would have made lafe and marshall no-ops, which is exactly the trap P02's 'min 1' does not hit because it multiplies upward. WRF converts radt to whole steps at phys/module_physics_init.F:2276-2277 (STEPRA = nint(radt*60/dt), then max(STEPRA,1)), so the lever saturates once radt*60/dt reaches ~1: lafe at dt=10 goes 6 steps -> 3, marshall at dt=6 goes 10 -> 5. The call gate is phys/module_radiation_driver.F:1125-1127 (MOD(itimestep,stepra) == 1+ra_call_offset), with radt=0 special-cased to every step at :1119-1120 and the first step always forced at :1113-1114 -- so a case whose native radt is 0 is already at the accuracy limit and this template is a harmless no-op there (0 x 0.5 = 0). Deliberately NOT paired with swint_opt=1: P01/P02 add the solar-zenith interpolation to compensate for sparse radiation calls, and halving the interval removes the deficiency it was compensating for.",
+      "edits": [
+        {
+          "op": "mul",
+          "key": "radt",
+          "factor": 0.5,
+          "section": "&physics",
+          "per_domain": true
+        }
+      ]
     }
   },
   "excluded": {
+    "A03 + A04 combined (monotonic transport at 6th-order horizontal advection)": "RUNTIME ABORT, not a namelist-time error. advect_scalar_mono implements h_sca_adv_order 5 ONLY -- dyn_em/module_advect_em.F:9643 is the single horizontal_order_test branch in that routine, and everything else falls through to wrf_error_fatal at :10016-10017. share/module_check_a_mundo.F never mentions adv_order or adv_opt at all (zero grep hits), so the combination passes every namelist check and dies mid-integration. A03 and A04 are therefore run as SEPARATE templates only, and both skip isc21 (native moist_adv_opt/scalar_adv_opt = 2,2,2)",
+    "h_mom_adv_order/h_sca_adv_order 7 or higher": "impossible in any build: the communication halos are only generated up to order 6, and dyn_em/solve_em.F:414 aborts with 'solve_em: invalid h_sca_adv_order' (same guard at :397/:405 and in module_first_rk_step_part1.F:1391-1396). 6 is the hard ceiling A04 already sits at",
+    "time_step_sound = 5 (or any odd accuracy value)": "odd acoustic substep counts are unsafe: RK3 substep 2 uses number_of_small_timesteps = num_sound_steps/2 as INTEGER division (dyn_em/solve_em.F:615), and WRF's own auto formula returns even numbers only (solve_em.F:451-468, comment at :452). D01's odd 3 hung conus12. A02 uses 6, the next EVEN value above the auto 4",
     "ra_lw_physics/ra_sw_physics=24 or 14": "RRTMG-fast and RRTMK are not compiled in this build (configure.wrf BUILD_RRTMG_FAST=0, BUILD_RRTMK=0); WRF aborts at share/module_check_a_mundo.F:2911-2941",
     "h_mom_adv_order/h_sca_adv_order 5->3, diff_opt": "probe REJECT on all six cases (job 1076060)",
     "use_adaptive_time_step": "probe REJECT on five of six cases; timing with a variable dt is not comparable per step",

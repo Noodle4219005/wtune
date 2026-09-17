@@ -522,24 +522,18 @@ PY
                   --candidate "${TWIN_NC_FILES[@]}" --family all --out-prefix "$FID_PREFIX" \
                   > "$RUNDIR/fidelity_gate.log" 2>&1
                 if [ -f "${FID_PREFIX}.json" ]; then
-                  # 2>/dev/null + tail -n1: the python one-liner prints exactly one real
-                  # line; defends the read against any stray noise line preceding it.
-                  # (the pipe must sit on the heredoc's command line: a line starting with
-                  # '| tail' after PYEOF is a runtime syntax error inside $(...) that aborted
-                  # the whole physics block in smoke jobs 1076238/1076240)
+                  # 2>/dev/null + tail -n1: fidelity-tokens prints exactly one real line;
+                  # defends the read against any stray noise line preceding it. The extraction
+                  # itself is configs.fidelity_notes_tokens() (unit-tested in
+                  # campaign/test_configs.py TestFidelityNotesTokens) rather than an inline
+                  # heredoc, which used to exist here as two byte-identical copies and once
+                  # aborted the whole physics block with a $(...) syntax error (smoke jobs
+                  # 1076238/1076240). If the helper fails, `read` gets nothing and FID_* stay
+                  # empty -- the same notes shape as a run with no fidelity JSON at all.
                   # FID_ND / FID_FLOOR are the MEASURED maxima over fields at the last common
                   # time, not the thresholds.
-                  read -r FID_LABEL FID_ND FID_FLOOR FID_DECIDING < <($PY - "${FID_PREFIX}.json" 2>/dev/null <<'PYEOF' | tail -n1
-import json, sys
-d = json.load(open(sys.argv[1]))
-summ = d.get("per_field_summary_at_last_time") or {}
-def vmax(key):
-    vals = [v.get(key) for v in summ.values() if isinstance(v, dict) and isinstance(v.get(key), (int, float))]
-    return ("%.6g" % max(vals)) if vals else "NA"
-deciding = str(d.get("deciding") or "NA").replace(" ", "_")
-print(d.get("label") or "NA", vmax("nd"), vmax("floor_ratio"), deciding)
-PYEOF
-)
+                  read -r FID_LABEL FID_ND FID_FLOOR FID_DECIDING \
+                    < <($PY "$CAMPAIGN/configs.py" fidelity-tokens "${FID_PREFIX}.json" 2>/dev/null | tail -n1)
                   cp "${FID_PREFIX}.json" "${FID_PREFIX}.csv" "$FIDOUT/" 2>/dev/null
                   GOT_FIDELITY=$((GOT_FIDELITY + 1))
                 else
@@ -554,24 +548,18 @@ PYEOF
                   --candidate "${NC_FILES[@]}" --family "$P_FAMILY" --out-prefix "$FID_PREFIX" \
                   > "$RUNDIR/fidelity_gate.log" 2>&1
                 if [ -f "${FID_PREFIX}.json" ]; then
-                  # 2>/dev/null + tail -n1: the python one-liner prints exactly one real
-                  # line; defends the read against any stray noise line preceding it.
-                  # (the pipe must sit on the heredoc's command line: a line starting with
-                  # '| tail' after PYEOF is a runtime syntax error inside $(...) that aborted
-                  # the whole physics block in smoke jobs 1076238/1076240)
+                  # 2>/dev/null + tail -n1: fidelity-tokens prints exactly one real line;
+                  # defends the read against any stray noise line preceding it. The extraction
+                  # itself is configs.fidelity_notes_tokens() (unit-tested in
+                  # campaign/test_configs.py TestFidelityNotesTokens) rather than an inline
+                  # heredoc, which used to exist here as two byte-identical copies and once
+                  # aborted the whole physics block with a $(...) syntax error (smoke jobs
+                  # 1076238/1076240). If the helper fails, `read` gets nothing and FID_* stay
+                  # empty -- the same notes shape as a run with no fidelity JSON at all.
                   # FID_ND / FID_FLOOR are the MEASURED maxima over fields at the last common
                   # time, not the thresholds.
-                  read -r FID_LABEL FID_ND FID_FLOOR FID_DECIDING < <($PY - "${FID_PREFIX}.json" 2>/dev/null <<'PYEOF' | tail -n1
-import json, sys
-d = json.load(open(sys.argv[1]))
-summ = d.get("per_field_summary_at_last_time") or {}
-def vmax(key):
-    vals = [v.get(key) for v in summ.values() if isinstance(v, dict) and isinstance(v.get(key), (int, float))]
-    return ("%.6g" % max(vals)) if vals else "NA"
-deciding = str(d.get("deciding") or "NA").replace(" ", "_")
-print(d.get("label") or "NA", vmax("nd"), vmax("floor_ratio"), deciding)
-PYEOF
-)
+                  read -r FID_LABEL FID_ND FID_FLOOR FID_DECIDING \
+                    < <($PY "$CAMPAIGN/configs.py" fidelity-tokens "${FID_PREFIX}.json" 2>/dev/null | tail -n1)
                   cp "${FID_PREFIX}.json" "${FID_PREFIX}.csv" "$FIDOUT/" 2>/dev/null
                   GOT_FIDELITY=$((GOT_FIDELITY + 1))
                 else

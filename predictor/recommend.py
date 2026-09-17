@@ -32,8 +32,10 @@ import json
 import math
 import os
 import re
+import statistics
 import subprocess
 import sys
+from collections import defaultdict
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _REPO_ROOT = os.path.dirname(_HERE)
@@ -1292,20 +1294,292 @@ def _native_physics_from_case_fields(case_fields):
     )
 
 
+# ---------------------------------------------------------------------------
+# Accuracy-first mode (--objective accuracy, 2026-09-17)
+#
+# The PHYSICS-GRAY shortlist above answers "which physics template is FASTEST while staying within
+# an allowed fidelity label". Accuracy-first answers the opposite question -- "which is CLOSEST to
+# the reference solution, and what does that cost" -- over the same candidate set plus the
+# physics_templates.json A-series, whose direction is "accuracy" (more work, less discretization
+# error) rather than the P/D series' "cost".
+#
+# Three facts shape this code, and all three are easy to get wrong:
+#
+# 1. THE CHAOS FLOOR IS THE RESOLUTION LIMIT. fidelity_gate.py measures a candidate's drift from
+#    the reference against the drift the SAME physics shows when merely re-decomposed (the twin).
+#    floor_ratio <= 1 means the candidate moved the solution no more than changing nproc_x/nproc_y
+#    does. Reporting such a candidate as an accuracy improvement is meaningless -- there is
+#    nothing there to improve. Measured example from this campaign: pure RK2 (D02) on conus12 at
+#    12 h had floor_ratio 1.593, i.e. dropping a whole RK stage was already within 2x of simply
+#    re-decomposing the run. CHAOS_FLOOR_RATIO below is that hard rule, and it applies in BOTH
+#    directions: a cost lever below the floor is a free speedup, an accuracy lever below the floor
+#    is pure wasted work because the reference was already converged in that knob.
+#
+# 2. THE DECOMPOSITION IS A FREE AXIS. STRICT knobs (nproc_x/nproc_y/numtiles/OMP/distribution)
+#    change only how the same arithmetic is distributed, never the physics. They set the chaos
+#    floor but they are not a fidelity lever, so accuracy mode keeps recommending the FASTEST
+#    legal decomposition exactly as perf mode does -- there is no accuracy to buy by slowing it
+#    down.
+#
+# 3. nd IS SIGNED BY DIRECTION, NOT BY MAGNITUDE. nd is the distance from the campaign REFERENCE
+#    (P00, the case as it actually runs). For a cost lever that distance IS the error it
+#    introduced, so lower is better. For an A-series lever the same number is the CORRECTION the
+#    extra work applies, and small means "the reference was already converged here", i.e. the
+#    template is not worth its cost. Ranking A-templates by ascending nd alongside the cost levers
+#    would perversely reward exactly the ones that do nothing, so they are split into their own
+#    block. See _accuracy_verify_plan: the way out is to re-run fidelity_gate.py with the surviving
+#    A-template's own wrfout as --reference, which turns every other candidate's nd into a genuine
+#    error against a better-converged solution. That two-stage plan is what accuracy mode emits.
+# ---------------------------------------------------------------------------
+OBJECTIVES = ("perf", "accuracy")
+CHAOS_FLOOR_RATIO = 1.0
+ACCURACY_DIRECTION = "accuracy"
+COST_DIRECTION = "cost"
+BELOW_FLOOR_NOTE = ("indistinguishable from changing the decomposition (floor_ratio %.3f <= %.2f): "
+                    "its drift is at or below the chaos floor, so this is NOT an accuracy "
+                    "improvement")
+
+
+def template_direction(template_id, templates=None):
+    """'accuracy' for a physics_templates.json template that buys fidelity with extra work
+    (the A-series), else 'cost'. An unknown template id is 'cost': the P/D series predate the
+    'direction' field entirely and every one of them is a cost lever."""
+    templates = campaign_configs.PHYSICS_TEMPLATES if templates is None else templates
+    tpl = templates.get(template_id) or {}
+    return ACCURACY_DIRECTION if tpl.get("direction") == ACCURACY_DIRECTION else COST_DIRECTION
+
+
+def _row_fidelity_value(row, key):
+    """Numeric fidelity measurement `key` for one ledger row, from the parsed column when the row
+    came through ledger.adapt_campaign_ledger (which now writes fidelity_nd_max /
+    fidelity_floor_ratio_max as row fields) and from the raw `notes` tokens otherwise --
+    benchmark.load_ledger, which the --physics-ledger path uses, does no notes parsing at all."""
+    v = row.get(key)
+    if isinstance(v, (int, float)) and not isinstance(v, bool):
+        return float(v)
+    notes = row.get("_phys_notes")
+    if not isinstance(notes, dict):
+        notes = physicsmod.parse_notes(row.get("notes"))
+    raw = notes.get(key)
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return None
+
+
+def measured_fidelity_by_template(train_rows):
+    """{template: {"nd": entry, "floor_ratio": entry}} where entry is
+    {"median", "n", "cases"} over the MEASURED physics rows for that template -- a model-free
+    track record in the same spirit as physics.template_large_drift_rate, not a prediction.
+    floor_ratio has no regression model at all (nothing predicts a chaos floor for a case that has
+    not been run), so this is the only source accuracy mode has for the below-floor rule."""
+    buckets = defaultdict(lambda: {"nd": [], "floor_ratio": []})
+    cases = defaultdict(lambda: {"nd": set(), "floor_ratio": set()})
+    for row in physicsmod.physics_rows(train_rows):
+        template = physicsmod._template_of(row)
+        if not template:
+            continue
+        for key, note_key in (("nd", "fidelity_nd_max"),
+                               ("floor_ratio", "fidelity_floor_ratio_max")):
+            value = _row_fidelity_value(row, note_key)
+            if value is None:
+                continue
+            buckets[template][key].append(value)
+            if row.get("case_base"):
+                cases[template][key].add(row["case_base"])
+    out = {}
+    for template, per_key in buckets.items():
+        out[template] = {
+            key: dict(median=(statistics.median(values) if values else None), n=len(values),
+                      cases=sorted(cases[template][key]))
+            for key, values in per_key.items()}
+    return out
+
+
+def _accuracy_entry(cand, measured, templates=None):
+    """One accuracy-mode row for one shortlist candidate. fidelity_error prefers the per-case
+    REGRESSION prediction (predicted_fidelity_nd) because it is the only thing that is about THIS
+    case; it falls back to the template's measured median across training cases, and is None when
+    neither exists (the production state today: no PHYSICS-GRAY campaign data at all)."""
+    template = cand["template"]
+    record = measured.get(template) or {}
+    nd_rec, floor_rec = record.get("nd") or {}, record.get("floor_ratio") or {}
+
+    error, error_source = cand.get("predicted_fidelity_nd"), None
+    if error is not None:
+        error_source = "predicted (fidelity regression, this case)"
+    elif nd_rec.get("median") is not None:
+        error, error_source = nd_rec["median"], (
+            "measured median of %d row(s) over %d training case(s): %s"
+            % (nd_rec["n"], len(nd_rec["cases"]), ", ".join(nd_rec["cases"]) or "-"))
+
+    floor_ratio, floor_source = floor_rec.get("median"), None
+    if floor_ratio is not None:
+        floor_source = ("measured median of %d row(s) over %d training case(s): %s"
+                        % (floor_rec["n"], len(floor_rec["cases"]),
+                           ", ".join(floor_rec["cases"]) or "-"))
+    below_floor = floor_ratio is not None and floor_ratio <= CHAOS_FLOOR_RATIO
+    return dict(
+        template=template, family=cand.get("family"),
+        direction=template_direction(template, templates),
+        status=cand.get("status"),
+        predicted_time_to_solution_pct=cand.get("predicted_time_to_solution_pct"),
+        time_to_solution_interval_pct=cand.get("time_to_solution_interval_pct"),
+        predicted_fidelity_label=cand.get("predicted_fidelity_label"),
+        fidelity_error=error, fidelity_error_source=error_source,
+        floor_ratio=floor_ratio, floor_ratio_source=floor_source,
+        below_floor=below_floor,
+        below_floor_note=(BELOW_FLOOR_NOTE % (floor_ratio, CHAOS_FLOOR_RATIO)) if below_floor else None,
+        on_pareto=False, pareto_excluded_reason=None)
+
+
+def pareto_front(entries):
+    """Mark the (predicted cost, fidelity error) Pareto front in place and return it. Both
+    coordinates are minimised: cost is predicted_time_to_solution_pct (negative = faster), error
+    is fidelity_error (lower = closer to the reference). perf-first and acc-first are the two ends
+    of this front, so a user can pick any operating point between them instead of being handed one
+    answer. An entry is on the front when no OTHER entry is at least as good on both coordinates
+    and strictly better on one.
+
+    Excluded, each with a recorded reason rather than silently: an entry missing either
+    coordinate (nothing to place it with) and a below-the-chaos-floor entry (rule 1 above -- its
+    "error" is numerical noise, so letting it anchor the accuracy end of the front would hand the
+    user an operating point that does not exist)."""
+    eligible = []
+    for e in entries:
+        if e["below_floor"]:
+            e["pareto_excluded_reason"] = "below the chaos floor"
+        elif e["predicted_time_to_solution_pct"] is None:
+            e["pareto_excluded_reason"] = "no predicted time-to-solution"
+        elif e["fidelity_error"] is None:
+            e["pareto_excluded_reason"] = "no fidelity error (predicted or measured)"
+        else:
+            eligible.append(e)
+    front = []
+    for e in eligible:
+        cost, err = e["predicted_time_to_solution_pct"], e["fidelity_error"]
+        dominated = any(
+            o is not e and o["predicted_time_to_solution_pct"] <= cost and o["fidelity_error"] <= err
+            and (o["predicted_time_to_solution_pct"] < cost or o["fidelity_error"] < err)
+            for o in eligible)
+        e["on_pareto"] = not dominated
+        if not dominated:
+            front.append(e)
+    front.sort(key=lambda e: (e["predicted_time_to_solution_pct"], e["fidelity_error"]))
+    return front
+
+
+def build_accuracy_view(shortlist, train_rows, templates=None):
+    """Accuracy-first view over an existing perf-mode shortlist: the same candidates, re-ranked by
+    fidelity error instead of predicted speed, split by template direction, with the chaos-floor
+    rule applied and the (cost, error) Pareto front marked. Never mutates `shortlist`."""
+    measured = measured_fidelity_by_template(train_rows)
+    entries = [_accuracy_entry(c, measured, templates) for c in shortlist]
+
+    # An UNKNOWN error sorts last in BOTH directions -- never first. A plain reverse=True on a
+    # float("inf") sentinel would put every un-measured template at the top of the accuracy-lever
+    # block, i.e. rank the candidates we know nothing about above the ones with a measured
+    # correction. The leading `is None` term keeps "no evidence" at the bottom either way.
+    def _error_key_asc(e):
+        v = e["fidelity_error"]
+        return (v is None, v if v is not None else 0.0)
+
+    def _error_key_desc(e):
+        v = e["fidelity_error"]
+        return (v is None, -v if v is not None else 0.0)
+
+    cost_levers = [e for e in entries if e["direction"] == COST_DIRECTION]
+    accuracy_levers = [e for e in entries if e["direction"] == ACCURACY_DIRECTION]
+    # Cost levers: ascending error -- least departure from the reference first.
+    ranked = sorted([e for e in cost_levers if not e["below_floor"]], key=_error_key_asc)
+    # Accuracy levers: DESCENDING error -- the largest measurable correction is the one most worth
+    # having, and a small one means the reference was already converged (rule 3 above).
+    ranked_accuracy = sorted([e for e in accuracy_levers if not e["below_floor"]],
+                             key=_error_key_desc)
+    for i, e in enumerate(ranked, start=1):
+        e["accuracy_rank"] = i
+    for i, e in enumerate(ranked_accuracy, start=1):
+        e["accuracy_rank"] = i
+    for e in entries:
+        e.setdefault("accuracy_rank", None)
+    front = pareto_front(entries)
+    return dict(
+        entries=entries, ranked_cost_levers=ranked, ranked_accuracy_levers=ranked_accuracy,
+        below_floor=[e for e in entries if e["below_floor"]], pareto_front=front,
+        chaos_floor_ratio=CHAOS_FLOOR_RATIO)
+
+
+def _accuracy_verify_plan(case_name, accuracy_view, candidates, decomp, twin_decomp, perf_plan):
+    """The two-stage campaign accuracy mode needs, which is NOT the perf plan with a different
+    sort order (see rule 3 above): stage 1 measures every applicable A-series template against
+    P00 to find out whether P00 is converged at all, and stage 2 re-runs fidelity_gate.py with the
+    surviving A-template's own wrfout as --reference, so every cost lever's nd becomes an error
+    against a better-converged solution instead of a distance from an arbitrary operating point."""
+    applicable = {c["template"] for c in candidates if c.get("applicable", True)}
+    # Sorted, not in shortlist order: this string goes into a PCONFIGS= sbatch line a human reads
+    # and re-runs, so it must be stable across runs rather than following whatever order the
+    # perf ranking happened to produce.
+    accuracy_templates = sorted(e["template"] for e in accuracy_view["entries"]
+                                if e["direction"] == ACCURACY_DIRECTION
+                                and e["template"] in applicable)
+    if not accuracy_templates:
+        return dict(stage1=None, stage2=None, accuracy_templates=[],
+                    note=("no applicable accuracy-direction (A-series) template for this case -- "
+                          "accuracy mode can only re-rank the existing cost levers by their drift "
+                          "from P00; there is nothing here that can establish a better-converged "
+                          "reference"))
+    stage1 = (
+        "sbatch --export=ALL,CASE=%s,MODE=physics,PCONFIGS=%s,DECOMP=%s,TWIN_DECOMP=%s "
+        "campaign/strict_campaign.sbatch" % (case_name, "+".join(accuracy_templates), decomp,
+                                             twin_decomp))
+    stage2 = [
+        "python3 fidelity_gate.py --reference <A-TEMPLATE wrfout_d01_*> --twin <TWIN wrfout_d01_*> "
+        "--candidate <P00 REFERENCE wrfout_d01_*> --family all --out-prefix "
+        "<out_dir>/fidelity_%s_P00_vs_converged" % case_name,
+    ]
+    if perf_plan:
+        stage2.append(
+            "then re-run each cost lever's gate the same way, swapping --reference for the "
+            "A-template's wrfout: %s" % "; ".join(perf_plan["pconfigs"]))
+    return dict(
+        stage1=stage1, stage2=stage2, accuracy_templates=accuracy_templates,
+        note=("STAGE 1 -- run the A-series at DECOMP alongside the usual P00 reference and "
+              "TWIN_DECOMP twin, and gate each A-template against P00. An A-template whose "
+              "floor_ratio <= %.2f means P00 was ALREADY converged in that knob: the extra work "
+              "bought nothing measurable and that template is pure added cost, never an accuracy "
+              "improvement. STAGE 2 -- for whichever A-template survives with the LARGEST drift "
+              "(the biggest real correction), re-run fidelity_gate.py using its own wrfout as "
+              "--reference. Only then is every other candidate's nd an error against a "
+              "better-converged solution rather than a distance from P00, which is what the "
+              "accuracy ranking above actually wants to measure. Until stage 2 exists, treat the "
+              "cost-lever ranking as 'least departure from the current operating point', not as "
+              "'most accurate'. The user makes the final decision -- this tool only narrows the "
+              "search." % CHAOS_FLOOR_RATIO))
+
+
 def recommend_physics_gray(ledger_path, namelist_path, case_name, hardware_id, nodes=4, top_k=5,
                             max_dom=None, holdout_case=None, decomp=None, physics_ledgers=(),
                             allowed_labels=DEFAULT_PHYSICS_ALLOWED_LABELS, probe_screen=None,
                             run_probe=True, latlon=None, wps=None, wrfinput=None,
                             max_infeasible_rate=0.0, max_dangerous_miss=0.0,
                             max_template_large_rate=physicsmod.DEFAULT_MAX_TEMPLATE_LARGE_RATE,
-                            min_speedup_pct=physicsmod.DEFAULT_MIN_SPEEDUP_PCT):
+                            min_speedup_pct=physicsmod.DEFAULT_MIN_SPEEDUP_PCT,
+                            objective="perf"):
     """Build a PHYSICS-GRAY physics-template shortlist for one case (decision 0051). Same
     "narrows the search, human decides" contract as recommend(): NEVER auto-applies anything.
     Every applicable candidate template is always listed with its changes and SpeedyWeather probe
     verdict (decision 0051: never leave a physics candidate un-vetted); it is only ranked/labelled
     RECOMMENDABLE by physics.predict_physics_shortlist when --physics-ledger training data
     actually supports that -- none exists in production yet, so every candidate is UNCONFIRMED
-    with reason "no PHYSICS-GRAY campaign data" until the physics campaign lands."""
+    with reason "no PHYSICS-GRAY campaign data" until the physics campaign lands.
+
+    objective="perf" (the default) is exactly the behaviour above and returns EXACTLY the keys it
+    always has -- no accuracy key is added, so an existing --json consumer sees an unchanged
+    document. objective="accuracy" ADDS "objective" and "accuracy_view" (build_accuracy_view) and
+    leaves every perf key untouched, so the two modes are strictly additive, not alternative."""
+    if objective not in OBJECTIVES:
+        raise ValueError("unknown objective %r (choose from %s)"
+                         % (objective, ", ".join(OBJECTIVES)))
     if isinstance(allowed_labels, str):
         allowed_labels = tuple(s.strip() for s in allowed_labels.split(",") if s.strip())
 
@@ -1473,9 +1747,24 @@ def recommend_physics_gray(ledger_path, namelist_path, case_name, hardware_id, n
     else:
         warnings.append("no applicable candidate template for this case -- no verify plan")
 
+    accuracy_extra = {}
+    if objective == ACCURACY_DIRECTION:
+        accuracy_view = build_accuracy_view(shortlist, train_rows)
+        accuracy_view["verify_plan"] = _accuracy_verify_plan(
+            case_name, accuracy_view, candidates, decomp, twin_decomp, verify_plan)
+        accuracy_view["decomposition_note"] = (
+            "DECOMP=%s (%s) is unchanged from perf mode: STRICT decomposition knobs "
+            "(nproc_x/nproc_y/numtiles/OMP/distribution) redistribute the same arithmetic and "
+            "never change the physics, so they are a FREE AXIS in accuracy mode -- the fastest "
+            "legal decomposition is also the most accurate one. They do set the chaos floor every "
+            "fidelity number below is judged against, which is the opposite of being a fidelity "
+            "lever: a decomposition change is the NOISE, not the signal."
+            % (decomp, decomp_source))
+        accuracy_extra = dict(objective=objective, accuracy_view=accuracy_view)
+
     return dict(
         case_name=case_name, hardware_id=hardware_id, compliance="PHYSICS-GRAY", nodes=nodes,
-        max_dom=effective_max_dom,
+        max_dom=effective_max_dom, **accuracy_extra,
         auto_apply_disclaimer=(
             "This tool only narrows the search to a shortlist. A human decides and applies the "
             "final physics template -- nothing here is auto-applied."),
@@ -1552,8 +1841,12 @@ def format_physics_report(result):
             track_str, c.get("probe_verdict") or "none", c["status"],
             "; ".join(c.get("reasons") or [])))
 
+    av = result.get("accuracy_view")
+    if av is not None:
+        lines.extend(_format_accuracy_sections(av))
+
     vp = result.get("verify_plan")
-    if vp:
+    if vp and av is None:
         lines.append("\n-- What to run to verify --")
         lines.append("  %s" % vp["note"])
         lines.append("  %s" % vp["sbatch_command"])
@@ -1561,6 +1854,119 @@ def format_physics_report(result):
             lines.append("  %s" % cmd)
 
     return "\n".join(lines)
+
+
+_ACC_HEADER = "%-4s %-9s %-9s %-22s %-22s %-20s %-6s %s"
+
+
+def _fmt_error(entry):
+    v = entry["fidelity_error"]
+    return "n/a" if v is None else "%.6g" % v
+
+
+def _fmt_floor(entry):
+    v = entry["floor_ratio"]
+    return "n/a" if v is None else "%.3f" % v
+
+
+def _fmt_tts(entry):
+    tts, iv = entry["predicted_time_to_solution_pct"], entry.get("time_to_solution_interval_pct")
+    if tts is None:
+        return "n/a"
+    return "%+.2f%% [%+.1f,%+.1f]" % (tts, iv[0], iv[1]) if iv is not None else "%+.2f%% [n/a]" % tts
+
+
+def _acc_row(i, e):
+    return _ACC_HEADER % (i, e["template"], e["direction"], _fmt_error(e), _fmt_floor(e),
+                          _fmt_tts(e), "yes" if e["on_pareto"] else "no", e["status"])
+
+
+def _format_accuracy_sections(av):
+    """The --objective accuracy blocks appended to the standard PHYSICS-GRAY report. The perf
+    shortlist above is left exactly as it prints in perf mode -- accuracy mode re-ranks the SAME
+    candidates rather than replacing them, so both orderings stay visible side by side."""
+    lines = ["\n" + "=" * 78,
+             "ACCURACY-FIRST view (--objective accuracy) -- same candidates, ranked by fidelity "
+             "error",
+             "=" * 78,
+             "  fidelity error = nd, the normalized difference from the campaign REFERENCE at the "
+             "last common time.",
+             "  floor_ratio = that drift divided by the chaos floor (the SAME physics re-run at "
+             "TWIN_DECOMP).",
+             "  HARD RULE: floor_ratio <= %.2f means the candidate moved the solution no more "
+             "than merely re-decomposing the run does. Such a candidate is reported as "
+             "indistinguishable from changing the decomposition and is NEVER presented as an "
+             "accuracy improvement -- chasing error below the chaos floor is meaningless. "
+             "Measured example from this campaign: pure RK2 (D02) on conus12 at 12 h had "
+             "floor_ratio 1.593, i.e. dropping an entire RK stage was already within 2x of just "
+             "re-decomposing." % av["chaos_floor_ratio"],
+             "  Predicted speed is still reported for every candidate: accuracy mode changes the "
+             "RANKING, not the evidence."]
+
+    lines.append("\n-- Cost levers, ranked by LEAST departure from the reference (%d) --"
+                 % len(av["ranked_cost_levers"]))
+    lines.append("  These are the P/D-series templates: they buy speed and pay in drift, so a "
+                 "SMALLER error is strictly better and rank 1 is the most conservative choice.")
+    lines.append(_ACC_HEADER % ("rank", "template", "direction", "fidelity error (nd)",
+                                "floor_ratio", "time-to-sol vs P00", "pareto", "status"))
+    for i, e in enumerate(av["ranked_cost_levers"], start=1):
+        lines.append(_acc_row(i, e))
+    if not av["ranked_cost_levers"]:
+        lines.append("  (none)")
+
+    lines.append("\n-- Accuracy levers (A-series), ranked by LARGEST measurable correction (%d) --"
+                 % len(av["ranked_accuracy_levers"]))
+    lines.append("  Ranked the OTHER WAY ROUND on purpose. For an A-series template the same nd "
+                 "is not an error, it is the correction the extra work applies to the reference; "
+                 "a small one means the reference was already converged in that knob and the "
+                 "template is pure added cost. Ranking these ascending alongside the cost levers "
+                 "would reward exactly the ones that do nothing.")
+    lines.append(_ACC_HEADER % ("rank", "template", "direction", "correction (nd)", "floor_ratio",
+                                "time-to-sol vs P00", "pareto", "status"))
+    for i, e in enumerate(av["ranked_accuracy_levers"], start=1):
+        lines.append(_acc_row(i, e))
+    if not av["ranked_accuracy_levers"]:
+        lines.append("  (none -- no applicable A-series template for this case)")
+
+    lines.append("\n-- Below the chaos floor: NOT accuracy improvements (%d) --"
+                 % len(av["below_floor"]))
+    if not av["below_floor"]:
+        lines.append("  (none)")
+    for e in av["below_floor"]:
+        lines.append("  %-9s %-9s %s" % (e["template"], e["direction"], e["below_floor_note"]))
+        if e["floor_ratio_source"]:
+            lines.append("            floor_ratio source: %s" % e["floor_ratio_source"])
+
+    lines.append("\n-- Pareto front over (predicted cost, fidelity error) (%d) --"
+                 % len(av["pareto_front"]))
+    lines.append("  Every operating point that is not beaten on BOTH axes at once. perf-first is "
+                 "the cheapest end of this front and acc-first the lowest-error end; anything "
+                 "between them is a legitimate trade the user can pick. A candidate off the front "
+                 "is strictly worse than something on it.")
+    if not av["pareto_front"]:
+        lines.append("  (empty -- every candidate is missing a coordinate or sits below the chaos "
+                     "floor; see the exclusions below)")
+    for e in av["pareto_front"]:
+        lines.append("  %-9s %-9s error=%-14s cost=%-22s %s"
+                     % (e["template"], e["direction"], _fmt_error(e), _fmt_tts(e),
+                        e["fidelity_error_source"] or ""))
+    excluded = [e for e in av["entries"] if e.get("pareto_excluded_reason")]
+    if excluded:
+        lines.append("  not placed on the front: " + "; ".join(
+            "%s (%s)" % (e["template"], e["pareto_excluded_reason"]) for e in excluded))
+
+    lines.append("\n-- Decomposition: a free axis in accuracy mode --")
+    lines.append("  %s" % av["decomposition_note"])
+
+    vp = av.get("verify_plan")
+    if vp:
+        lines.append("\n-- What to run to verify (accuracy campaign) --")
+        lines.append("  %s" % vp["note"])
+        if vp.get("stage1"):
+            lines.append("  STAGE 1: %s" % vp["stage1"])
+        for cmd in vp.get("stage2") or []:
+            lines.append("  STAGE 2: %s" % cmd)
+    return lines
 
 
 # ---------------------------------------------------------------------------
@@ -1750,6 +2156,18 @@ def _build_arg_parser():
                           "time-to-solution change is at most this (negative=faster) and, when a "
                           "conformal interval exists, its upper bound is also < 0; default -1.0 "
                           "(at least 1%% faster)")
+    ap.add_argument("--objective", choices=list(OBJECTIVES), default="perf",
+                     help="PHYSICS-GRAY only. 'perf' (default, unchanged in every byte): rank "
+                          "candidates by predicted speed, gated on an allowed fidelity label. "
+                          "'accuracy': keep the same candidates and the same predicted speeds but "
+                          "rank them by the MEASURED fidelity error instead, add the A-series "
+                          "accuracy templates' own block, print the Pareto front over (predicted "
+                          "cost, fidelity error) so any operating point between perf-first and "
+                          "acc-first can be picked, and refuse to call any candidate whose "
+                          "floor_ratio <= %.2f an accuracy improvement -- at or below the chaos "
+                          "floor it is indistinguishable from changing the decomposition. The "
+                          "decomposition itself stays a free axis: it does not change the physics, "
+                          "so the fastest legal one is still recommended" % CHAOS_FLOOR_RATIO)
     ap.add_argument("--probe-screen", default=None, dest="probe_screen",
                      help="PHYSICS-GRAY only: path to a saved 'wtune.py screen ... --json' "
                           "stdout capture, used for the SpeedyWeather probe verdicts instead of "
@@ -1780,8 +2198,15 @@ def main(argv=None):
                 max_infeasible_rate=args.max_infeasible_rate,
                 max_dangerous_miss=args.max_dangerous_miss,
                 max_template_large_rate=args.max_template_large_rate,
-                min_speedup_pct=args.min_speedup_pct)
+                min_speedup_pct=args.min_speedup_pct, objective=args.objective)
             report = format_physics_report(result)
+        elif args.objective != "perf":
+            raise ValueError(
+                "--objective %s requires --compliance PHYSICS-GRAY. STRICT knobs "
+                "(nproc_x/nproc_y/numtiles/OMP/distribution) redistribute the same arithmetic and "
+                "never change the physics, so there is no accuracy to buy on the STRICT axis -- "
+                "the fastest legal decomposition is also the most accurate one, which is what the "
+                "default --objective perf already recommends." % args.objective)
         elif args.space == "full":
             result = recommend_full_space(
                 ledger_path=args.ledger, namelist_path=args.namelist, case_name=args.case_name,

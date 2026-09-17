@@ -532,6 +532,38 @@ _CAMPAIGN_FLOAT_FIELDS = (
 )
 
 
+# The MEASURED fidelity error rides in the `notes` column, not in a column of its own: the
+# 48-field LEDGER_FIELDS header (= strict_campaign.sbatch's LEDGER_HEADER) is depended on by every
+# campaign ledger CSV already written and by the predictor/campaign tests, so adding
+# fidelity_nd_max/fidelity_floor_ratio_max as real columns would invalidate all of them. `notes`
+# already carries space-separated key=value tokens (mode=, template=, edits=, decomp=, ...), and
+# strict_campaign.sbatch MODE=physics writes the two fidelity numbers there via
+# configs.fidelity_notes_tokens(). This turns them back into numeric row fields.
+#
+# Only `fidelity_label` (the ordinal WITHIN-FLOOR/SMALL-DRIFT/LARGE-DRIFT verdict) has a real
+# column; the numbers behind it did not, which is why the fidelity models could never rank two
+# candidates that shared a label. predictor/physics.py already read fidelity_nd_max straight out
+# of the raw notes string; these fields give every consumer the parsed value without re-splitting.
+FIDELITY_NOTE_FIELDS = ("fidelity_floor_ratio_max", "fidelity_nd_max")
+
+
+def parse_fidelity_notes(notes):
+    """{'fidelity_floor_ratio_max': float|None, 'fidelity_nd_max': float|None} from a ledger
+    `notes` string. Both default to None when the token is absent (every pre-physics-campaign
+    row, and every STRICT/RESEARCH row), when it is present but empty (`fidelity_nd_max=`, which
+    is what a MODE=physics run with no fidelity JSON writes), and when it is the gate's own "NA"
+    placeholder (no field carried a numeric value for it) -- _f() maps all three to None, so a
+    consumer never has to distinguish "not measured" from "measured as nothing"."""
+    out = {k: None for k in FIDELITY_NOTE_FIELDS}
+    if not notes:
+        return out
+    for tok in str(notes).split():
+        key, sep, value = tok.partition("=")
+        if sep and key in out:
+            out[key] = _f(value)
+    return out
+
+
 def adapt_campaign_ledger(path):
     rows, failed, correctness = [], 0, 0
     with open(path, newline="") as fh:
@@ -557,6 +589,9 @@ def adapt_campaign_ledger(path):
             for k in _CAMPAIGN_FLOAT_FIELDS:
                 row[k] = _f(r.get(k))
             row["case_base"] = row["case_base"] or case_base_of(row["case_raw"])
+            # Extra keys beyond LEDGER_FIELDS are safe: build()'s DictWriter uses
+            # extrasaction="ignore", so these never widen the written CSV.
+            row.update(parse_fidelity_notes(notes))
             rows.append(row)
     if failed:
         print("NOTE %s: skipped %d failed/timed-out run(s) with no s_per_step_median"

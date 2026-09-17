@@ -1417,6 +1417,68 @@ def physics_ledger_columns(case, summary):
     return cols
 
 
+# ---------------------------------------------------------------------------
+# fidelity_gate.py JSON -> the four fields strict_campaign.sbatch MODE=physics puts in the ledger
+# `notes` column. The 48-column LEDGER_HEADER is depended on by many tests and by every existing
+# campaign ledger CSV on disk, so the MEASURED numeric error is carried as extra `key=value`
+# tokens inside `notes` (which already carries mode=/template=/edits=/decomp=/... tokens) rather
+# than as new columns -- predictor/ledger.py's parse_fidelity_notes() is the reader.
+#
+# This lived twice as an inline heredoc inside strict_campaign.sbatch (the twin-sanity arm and the
+# candidate arm, byte-identical copies). It is a pure function here so it can be unit-tested
+# without running the sbatch; the output line format is unchanged, so the notes format the
+# existing campaign ledgers were written with still parses.
+# ---------------------------------------------------------------------------
+FIDELITY_TOKEN_NA = "NA"
+
+
+def fidelity_max_over_fields(payload, key):
+    """MEASURED max of `key` over every field in fidelity_gate.py's
+    per_field_summary_at_last_time (i.e. at the last common time, not a threshold), formatted
+    '%.6g'; FIDELITY_TOKEN_NA when no field carries a numeric value for it. Booleans are
+    rejected explicitly: `floor_zero` is a bool and `isinstance(True, int)` is True in Python,
+    so a bare numeric check would let a flag through as 1/0 if a key were ever mistyped."""
+    summary = payload.get("per_field_summary_at_last_time") or {}
+    values = []
+    for field in summary.values():
+        if not isinstance(field, dict):
+            continue
+        v = field.get(key)
+        if isinstance(v, bool) or not isinstance(v, (int, float)):
+            continue
+        values.append(v)
+    return ("%.6g" % max(values)) if values else FIDELITY_TOKEN_NA
+
+
+def fidelity_notes_tokens(payload):
+    """(label, nd_max, floor_ratio_max, deciding) as 4 whitespace-free strings, for the
+    `read -r FID_LABEL FID_ND FID_FLOOR FID_DECIDING` in strict_campaign.sbatch MODE=physics.
+    Every field falls back to FIDELITY_TOKEN_NA, and `deciding` has its spaces replaced by '_'
+    so the whole record stays four shell words and each ledger note token stays one token."""
+    label = str(payload.get("label") or FIDELITY_TOKEN_NA)
+    deciding = str(payload.get("deciding") or FIDELITY_TOKEN_NA).replace(" ", "_")
+    return (label, fidelity_max_over_fields(payload, "nd"),
+            fidelity_max_over_fields(payload, "floor_ratio"), deciding)
+
+
+def cmd_fidelity_tokens(argv):
+    """fidelity-tokens FIDELITY_JSON: print the one line strict_campaign.sbatch reads into
+    FID_LABEL/FID_ND/FID_FLOOR/FID_DECIDING. Exits 2 without printing anything when the JSON is
+    missing or unreadable, so the caller's `read` leaves those variables empty -- which is exactly
+    the no-fidelity-JSON behaviour (notes carry `fidelity_nd_max=` with an empty value)."""
+    ap = argparse.ArgumentParser(prog="configs.py fidelity-tokens")
+    ap.add_argument("fidelity_json")
+    a = ap.parse_args(argv)
+    try:
+        with open(a.fidelity_json) as f:
+            payload = json.load(f)
+    except (IOError, OSError, ValueError) as e:
+        sys.stderr.write("cannot read fidelity JSON %s: %s\n" % (a.fidelity_json, e))
+        return 2
+    print(" ".join(fidelity_notes_tokens(payload)))
+    return 0
+
+
 def describe_field(value):
     """physics-describe TSV field: '-' for empty, since bash `IFS=$'\\t' read` collapses empty
     tab-separated fields (strict_campaign.sbatch maps '-' back to empty)."""
@@ -1515,6 +1577,7 @@ def main(argv=None):
             "physics-list CASE_ID [--json] | "
             "physics-order CASE_ID [--pconfigs P01+P02+...] [--reps N] | "
             "physics-describe CASE_ID TEMPLATE_ID | "
+            "fidelity-tokens FIDELITY_JSON | "
             "quota-free-gib [--filesystem home1] (reads mmlsquota text on stdin)\n"
             "CONFIG_FILE=path.json env (predictor/decomp_space.py to_campaign_configs/sample "
             "output): CASE_ID and order CASE_ID measure that generated config set instead of "
@@ -1533,6 +1596,8 @@ def main(argv=None):
         return cmd_physics_order(argv[1:])
     if argv[0] == "physics-describe":
         return cmd_physics_describe(argv[1:])
+    if argv[0] == "fidelity-tokens":
+        return cmd_fidelity_tokens(argv[1:])
     assert_strict_compliance()
     if argv[0] == "--all":
         return cmd_all()

@@ -1,0 +1,48 @@
+case,job,template,role,decomp,rc,ok,s_per_step_median,n_steps,wall_s,fidelity_label,nd_max_defined,floor_ratio_max_defined,deciding
+karina,1077039,P00_ref,reference,C02,0,1,0.26449,39,29.6,,,,
+karina,1077039,P00_twin,twin,C06,0,1,0.27535,39,27.6,WITHIN-FLOOR,0.02376279045446693,1.0,max floor_ratio T2=1 <= 2
+karina,1077039,P01,candidate,C02,0,1,0.27024,39,33.4,LARGE-DRIFT,0.06645711173601641,221898.0470730195,|bias(SWDOWN)|=6.80531 > 5
+karina,1077039,P02,candidate,C02,0,1,0.26295,38,28.2,LARGE-DRIFT,0.10017096470272292,334467.46119886317,nd(SWDOWN)=0.100171 > 0.1 and floor_ratio(SWDOWN)=334467 > 2; |bias(SWDOWN)|=10.2322 > 5
+karina,1077039,P03,candidate,C02,0,1,0.27950,33,27.7,SMALL-DRIFT,0.037240686910136225,56.789388737648075,not within floor (T=56.7894); all SMALL-DRIFT checks passed; max nd W=0.0372407
+karina,1077039,P04,candidate,C02,0,1,0.23096,38,27.2,LARGE-DRIFT,2.5949175432417806,928825208.597357,nd(QICE)=2.59492 > 0.1 and floor_ratio(QICE)=109.201 > 2; |precip_rel_diff(RAINNC)|=0.986764 > 0.1
+karina,1077039,P05,candidate,C02,0,1,0.35880,39,32.0,LARGE-DRIFT,0.6144985027879417,1191.375794125825,nd(PBLH)=0.614499 > 0.1 and floor_ratio(PBLH)=36.6276 > 2
+karina,1077039,P06,candidate,C02,0,1,0.26177,39,26.2,LARGE-DRIFT,0.3897188329365616,358807.8730554085,nd(OLR)=0.389719 > 0.1 and floor_ratio(OLR)=floor_zero > 2; |bias(SWDOWN)|=10.502 > 5
+conus25,1077040,P00_ref,reference,C02,0,1,0.71599,39,55.6,,,,
+conus25,1077040,P00_twin,twin,C06,0,1,0.66788,39,51.7,WITHIN-FLOOR,0.02995375861263477,1.0,max floor_ratio T2=1 <= 2
+conus25,1077040,P01,candidate,C02,0,1,0.72049,39,56.8,SMALL-DRIFT,0.027589395553438405,6396.430235712401,not within floor (SWDOWN=6396.43); all SMALL-DRIFT checks passed; max nd SWDOWN=0.0275894
+conus25,1077040,P02,candidate,C02,0,1,0.72415,39,56.8,SMALL-DRIFT,0.03172025661528371,7354.144751216576,not within floor (SWDOWN=7354.14); all SMALL-DRIFT checks passed; max nd SWDOWN=0.0317203
+conus25,1077040,P03,candidate,C02,137,0,,0,17.8,,,,
+conus25,1077040,P04,candidate,C02,0,1,0.63921,39,50.0,LARGE-DRIFT,0.21111664809315286,49452.57987746388,nd(QCLOUD)=0.211117 > 0.1 and floor_ratio(QCLOUD)=56.1632 > 2; |precip_rel_diff(RAINNC)|=832.099 > 0.1; |precip_rel_diff(SNOWNC)|=10830.7 > 0.1
+conus25,1077040,P05,candidate,C02,0,1,0.69808,39,54.6,LARGE-DRIFT,0.5286403506346706,1074.201766465714,nd(PBLH)=0.52864 > 0.1 and floor_ratio(PBLH)=17.6485 > 2; |bias(T2)|=0.411755 > 0.1
+conus25,1077040,P06,candidate,C02,0,1,0.71741,39,49.3,LARGE-DRIFT,0.20289945510914567,47040.98018225572,nd(SWDOWN)=0.202899 > 0.1 and floor_ratio(SWDOWN)=47041 > 2; |bias(SWDOWN)|=24.8421 > 5
+conus12,1077041,P00_ref,reference,C02,0,1,0.06128,23,15.1,,,,
+conus12,1077041,P00_twin,twin,C06,0,1,0.06073,23,14.3,WITHIN-FLOOR,0.03158200965677512,1.0,max floor_ratio T2=1 <= 2
+conus12,1077041,P01,candidate,C02,0,1,0.06097,23,14.0,LARGE-DRIFT,0.19941011707327513,2593.612966907095,nd(SWDOWN)=0.19941 > 0.1 and floor_ratio(SWDOWN)=2593.61 > 2
+conus12,1077041,P02,candidate,C02,0,1,0.06194,23,14.3,LARGE-DRIFT,0.2807648982955008,1088.3374760492995,nd(OLR)=0.280765 > 0.1 and floor_ratio(OLR)=787.821 > 2
+conus12,1077041,P03,candidate,C02,137,0,,0,9.4,,,,
+conus12,1077041,P04,candidate,C02,0,1,0.05402,23,12.5,LARGE-DRIFT,5.670719375373618,29812.03565958956,nd(QICE)=5.67072 > 0.1 and floor_ratio(QICE)=179.555 > 2; |bias(T2)|=0.132855 > 0.1; |precip_rel_diff(GRAUPELNC)|=6.39274 > 0.1; |precip_rel_diff(RAINNC)|=3.85776 > 0.1; |precip_rel_diff(SNOWNC)|=4.84874 > 0.1
+conus12,1077041,P05,candidate,C02,0,1,0.06534,23,21.5,LARGE-DRIFT,0.524053045347036,1655.0912075756105,nd(PBLH)=0.524053 > 0.1 and floor_ratio(PBLH)=27.686 > 2; |bias(T2)|=0.723593 > 0.1
+conus12,1077041,P06,candidate,C02,0,1,0.06146,23,24.0,LARGE-DRIFT,0.3810855784089611,4956.561443166795,nd(SWDOWN)=0.381086 > 0.1 and floor_ratio(SWDOWN)=4956.56 > 2; |bias(SWDOWN)|=5.3562 > 5
+isc21,1077042,P00_ref,reference,C02,0,1,5.90954,19,163.8,,,,
+isc21,1077042,P00_twin,twin,C13,0,1,6.50015,19,174.5,WITHIN-FLOOR,0.10157930491126906,1.0,max floor_ratio T2=1 <= 2
+isc21,1077042,P01,candidate,C02,0,1,5.92483,19,162.8,WITHIN-FLOOR,0.0,0.0,max floor_ratio T2=0 <= 2
+isc21,1077042,P02,candidate,C02,0,1,5.93159,19,154.2,LARGE-DRIFT,0.36794037848280065,5.009386050925918,nd(SWDOWN)=0.36794 > 0.1 and floor_ratio(SWDOWN)=3.6222 > 2; |bias(SWDOWN)|=9.1346 > 5
+isc21,1077042,P03,candidate,C02,0,1,5.91978,16,145.9,SMALL-DRIFT,0.044914751162726765,16.081308343518895,not within floor (W=16.0813); all SMALL-DRIFT checks passed; max nd W=0.0449148
+isc21,1077042,P04,candidate,C02,0,1,5.46122,19,151.6,LARGE-DRIFT,1.4156904189696313,4363.7841791254095,nd(QGRAUP)=1.41569 > 0.1 and floor_ratio(QGRAUP)=1013.54 > 2; |precip_rel_diff(GRAUPELNC)|=0.42318 > 0.1; |precip_rel_diff(RAINNC)|=0.336335 > 0.1
+isc21,1077042,P05,candidate,C02,0,1,5.27714,19,149.3,LARGE-DRIFT,1.0753660641598541,1997.5538554893476,nd(PBLH)=1.07537 > 0.1 and floor_ratio(PBLH)=1997.55 > 2; |bias(T2)|=0.190114 > 0.1
+isc21,1077042,P06,candidate,C02,0,1,5.75430,19,141.8,LARGE-DRIFT,0.6263232565186573,9.147364586168377,nd(SWDOWN)=0.626323 > 0.1 and floor_ratio(SWDOWN)=6.16585 > 2; |bias(T2)|=0.172495 > 0.1; |bias(SWDOWN)|=56.0773 > 5
+maria1km,1077043,P00_ref,reference,C02,0,1,4.99548,23,153.7,,,,
+maria1km,1077043,P00_twin,twin,C06,0,1,5.08526,23,150.5,WITHIN-FLOOR,0.0,,all key fields within floor (worst T2 floor_zero; rms_diff=0)
+maria1km,1077043,P01,candidate,C02,0,1,5.01600,23,153.5,WITHIN-FLOOR,0.0,,all key fields within floor (worst T2 floor_zero; rms_diff=0)
+maria1km,1077043,P02,candidate,C02,0,1,5.02364,23,153.5,SMALL-DRIFT,0.002713133848546357,,not within floor (T2 floor_zero rms_diff=0.000168358); all SMALL-DRIFT checks passed; max nd W=0.00271313
+maria1km,1077043,P03,candidate,C02,0,1,4.97592,19,133.2,SMALL-DRIFT,0.07435452190629761,,not within floor (T2 floor_zero rms_diff=0.0129035); all SMALL-DRIFT checks passed; max nd W=0.0743545
+maria1km,1077043,P05,candidate,C02,0,1,6.98236,23,201.4,LARGE-DRIFT,0.2995569718884142,,nd(PBLH)=0.299557 > 0.1 and floor_ratio(PBLH)=floor_zero > 2
+maria1km,1077043,P06,candidate,C02,0,1,4.89357,23,145.7,LARGE-DRIFT,0.5046964320193691,,nd(OLR)=0.504696 > 0.1 and floor_ratio(OLR)=floor_zero > 2
+lafe,1077044,P00_ref,reference,C02,0,1,1.27440,25,81.1,,,,
+lafe,1077044,P00_twin,twin,C06,0,1,1.44790,25,82.7,WITHIN-FLOOR,0.0,,all key fields within floor (worst T2 floor_zero; rms_diff=0)
+lafe,1077044,P01,candidate,C02,0,1,1.26026,25,82.3,WITHIN-FLOOR,0.0,,all key fields within floor (worst T2 floor_zero; rms_diff=0)
+lafe,1077044,P02,candidate,C02,0,1,1.25219,27,72.9,SMALL-DRIFT,0.05724674353266485,,not within floor (T2 floor_zero rms_diff=0.0356106); all SMALL-DRIFT checks passed; max nd OLR=0.0572467
+lafe,1077044,P03,candidate,C02,0,1,1.25109,20,75.3,SMALL-DRIFT,0.03930130434799891,,not within floor (T2 floor_zero rms_diff=0.0441563); all SMALL-DRIFT checks passed; max nd W=0.0393013
+lafe,1077044,P04,candidate,C02,0,1,0.93169,25,68.4,LARGE-DRIFT,0.8721402289580856,,nd(QICE)=0.87214 > 0.1 and floor_ratio(QICE)=floor_zero > 2; |precip_rel_diff(RAINNC)|=0.932903 > 0.1
+lafe,1077044,P05,candidate,C02,0,1,1.15985,25,76.9,LARGE-DRIFT,0.7404529188384847,,nd(PBLH)=0.740453 > 0.1 and floor_ratio(PBLH)=floor_zero > 2
+lafe,1077044,P06,candidate,C02,0,1,1.26831,29,64.2,LARGE-DRIFT,0.5817495666483765,,nd(OLR)=0.58175 > 0.1 and floor_ratio(OLR)=floor_zero > 2

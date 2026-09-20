@@ -3,9 +3,12 @@
 WTune = profile-guided, compliance-aware WRF performance and physics configuration autotuner
 (decision 0050). The full autotuner pipeline — profile → diagnosis → ceiling → candidates →
 experiments → correctness gate → compliance classification → selection — is being built in
-steps; **step 1 (the compliance model: `wtune_compliance.py`, `wtune.py compliance`, and
-`--compliance` on `knobs`/`physics`/`screen`) is what exists now.** Everything below describes
-the analytical/advisory pieces already in place, not the finished pipeline.
+steps. Landed so far: **step 1** (the compliance model: `wtune_compliance.py`, `wtune.py
+compliance`, `--compliance` on `knobs`/`physics`/`screen`), **step 2** (the phase
+fingerprinter), **steps 4-5** (the configuration predictor, the STRICT and PHYSICS-GRAY
+campaigns, the fidelity gate) and **research step D1** (the decomposition space and its
+active search). What is not yet built is the automatic end-to-end loop: the pieces below are
+run individually, and the selection at the end is always the user's.
 
 `wtune` does four things to a WRF run, **none of which modifies a WRF source file**:
 
@@ -216,27 +219,81 @@ C01) 15.2% over 6 cases, but conus12 and leave-one-hardware-out do not generalis
 predictor outputs a ranked shortlist; the final configuration is the user's decision.
 
 `predictor/recommend.py` is the user-facing shortlist command (STRICT and PHYSICS-GRAY); see
-`predictor/README.md` for flags, evidence warnings, and status rules.
+`predictor/README.md` for flags, evidence warnings, and status rules. It has two objective
+modes, `--objective perf` (default) and `--objective accuracy` (`OBJECTIVES` at
+`predictor/recommend.py:1502`): perf-first ranks on cost subject to a fidelity constraint,
+acc-first ranks on error and reports what the accuracy costs. Both emit a Pareto front over
+(cost, error) rather than a single answer.
+
+**The one invariant to preserve when touching physics templates**: the repo has *two* template
+engines and they must agree. The dict engine
+(`predictor/physics.py:physics_candidates_for_case`) reads the `physics` dict from
+`campaign/cases.json` and never opens a namelist; the text engine
+(`campaign/configs.py:resolve_physics_config`) edits the real `namelist.input` that WRF runs.
+`predictor/tests/test_physics.py:596` asserts they agree on applicability and on every changed
+key's target value across six real cases and every template. The known asymmetry is documented
+there at `:640-643` — the dict engine cannot know the native value of a namelist-only knob
+(`swint_opt`, `aer_opt`, `use_aero_icbc`), so the *from* value is compared only for
+`physics.CHANGE_FIELDS`.
+
+### I/O: a guarantee, not a tuning axis
+
+All WRF I/O goes through ADIOS2 (`io_form 14`). The codec is not searched: `campaign/configs.py`
+writes `adios2_compression_enable=.true.` and `adios2_blosc_compressor="zstd"` into every run's
+`&namelist_adios2`, because zstd wins on both axes measured (write 0.468 s vs lz4 0.496 s vs
+1.014 s uncompressed; 166.7 MB vs lz4 181.1 MB vs 595.9 MB for the same frame).
+`adios2_numaggregators` **must** equal the MPI rank count — values at or below the node count are
+silently ignored.
+
+`tools/bp_compression_check.py` asserts that compression actually applied, from the ratio of
+logical to stored bytes, because this ADIOS2 build carries no codec marker in BP metadata at all.
+It is needed: in this WRF build only the *first* ADIOS2 write stream of a run is compressed
+(`external/io_adios2/wrf_io.F90:1283-1285` assigns the codec name only on the branch that defines
+the operator), so `--history-mode interval` silently writes frames 2+ uncompressed. That is a WRF
+source bug, not a namelist one, and it is not patched here.
 
 ### PHYSICS-GRAY data campaign and fidelity gate (decision 0051)
 
-- `campaign/physics_templates.json`: fixed templates P01–P06 plus an `excluded` list with reasons, derived from a WRF 4.8 source compatibility survey.
-  - P01 `swint_opt`; P02 `radt`×2+`swint_opt`; P03 `time_step`×1.2; P04 WSM6; P05 PBL+sfclay swap; P06 RRTM/Dudhia.
-- `strict_campaign.sbatch MODE=physics` (env `PCONFIGS`, `DECOMP`, `TWIN_DECOMP`, `SIM_MINUTES`, `HIST_MINUTES`) runs three kinds of run:
+- `campaign/physics_templates.json`: 19 fixed templates in three families, plus an `excluded`
+  list with reasons, derived from a WRF 4.8 source compatibility survey. Each template carries a
+  `direction` field (`cost` or `accuracy`) that ties it to the objective modes below.
+  - **P00-P06 — physics** (`direction: cost`). P00 reference; P01 `swint_opt`; P02 `radt`×2+`swint_opt`;
+    P03 `time_step`×1.2; P04 WSM6; P05 PBL+sfclay swap; P06 RRTM/Dudhia.
+  - **D01-D07 — `&dynamics` cost levers** (`direction: cost`): advection options, `rk_ord`=2,
+    output diagnostics off, `bldt`, one-way nesting, `time_step_sound`.
+  - **A01-A05 — accuracy mirrors** (`direction: accuracy`): the same knobs pushed the other way, so
+    `recommend.py --objective accuracy` has candidates to rank.
+- `strict_campaign.sbatch MODE=physics` (env `PCONFIGS`, `DECOMP`, `TWIN_DECOMP`, `SIM_MINUTES`, `HIST_MINUTES`, `CONFIG_FILE`) runs three kinds of run:
   - reference P00 at DECOMP;
   - a same-physics twin at TWIN_DECOMP;
   - each candidate at DECOMP.
+  `CONFIG_FILE` is the only way to run a case that has no template of its own — it supplies the
+  decomposition pair directly (`campaign/configs.py decomp-pair`); see
+  `campaign/strict_campaign.sbatch:38-46`.
 - Replicate 1 writes interval history (fidelity), replicate 2 is timing only. Every candidate is scored by `fidelity_gate.py`.
-- `fidelity_gate.py --reference --twin --candidate --family` computes, per field:
+- `fidelity_gate.py --reference --twin --candidate --family --out-prefix` computes, per field:
   - the chaos-floor ratio RMS(ref,cand)/RMS(ref,twin)
   - the normalized distance
   - bias and precipitation accumulation difference
 
   It gives a provisional, overridable label WITHIN-FLOOR / SMALL-DRIFT / LARGE-DRIFT / INVALID. The label describes model self-drift, not observed skill; acceptability is the user's call.
 
-### Decomposition space (research step D1)
+  **Read `floor_zero=True` as "the floor was not measured", not "the candidate is fine."** Only
+  `nproc_x` changes WRF's arithmetic (the default tiling splits in J alone), so a twin that keeps
+  the reference's `nproc_x` has a chaos floor of exactly zero; WITHIN-FLOOR then degenerates into
+  "bit-identical to the reference" and every perturbation reads as LARGE-DRIFT.
 
-`predictor/decomp_space.py` enumerates the full legal stock-WRF decomposition and tiling space per case with WRF's exact patch and tile rules. It also draws a stratified ground-truth sample that `strict_campaign.sbatch CONFIG_FILE=...` can measure.
+### Decomposition space and active search (research step D1)
+
+`predictor/decomp_space.py` enumerates the full legal stock-WRF decomposition and tiling space per case with WRF's exact patch and tile rules (`enumerate`), draws a stratified ground-truth sample that `strict_campaign.sbatch CONFIG_FILE=...` can measure (`sample`), and emits a cold-start design of two shapes per thread count — most balanced and widest-in-x — for a case with no measurements at all (`seed`).
+
+`predictor/decomp_search.py` is the D3 active search: a bootstrap CatBoost ensemble with LCB acquisition proposes each round's batch, stopping when the remaining predicted gain falls inside the timing noise floor. `campaign/decomp_search_campaign.sbatch` runs seed → rounds → confirm → rank in one allocation; `campaign/phase_ranking.py` ranks per window from `rsl.error.0000` and settles the verdict with a co-winner rule inside the noise band, and `campaign/decomp_summary.py` groups results by the decomposition WRF actually used.
+
+### Judging accuracy against observations, not against another model run
+
+`predictor/verify_obs.py` is the only path in the repo that scores a configuration against something outside WRF. Two modes: `station` compares nearest-gridpoint T2 against an hourly observation CSV (RMSE, bias); `track` locates the storm centre from SLP and compares it with an HURDAT2 best track (great-circle km, `pmin` hPa, `vmax` m/s). `case` runs whichever the case declares. Everything else in this repo — including the fidelity gate — measures model self-drift, so this is what makes `--objective accuracy` mean anything.
+
+`predictor/stability.py` replicates WRF's acoustic sub-step formula (`dyn_em/solve_em.F:451-464`) and reports the acoustic CFL margin before a run, which is what makes the D07 `time_step_sound` template safe to propose per case. Its documented limit: acoustic CFL does **not** explain the P03 `time_step`×1.2 crashes.
 
 ## Measured results
 
@@ -290,13 +347,26 @@ predictor outputs a ranked shortlist; the final configuration is the user's deci
 | `wtune_transition_controller.py` | live (gate branch deprecated) | zero-measurement config + node-scaling projection |
 | `wtune_feedback.py` (+ test), `wtune_probe.py` (+ test) | live | PLOV controller replay; ABBA probe harness |
 | `wtune_oracle.py`, `wtune_oracle_train.py`, `wtune_segment_train.py`, `wrf_frame.py`, `featurize_frames.py`, `wtune_runtime_predict.py`, `wtune_runtime12.py`, `wtune_cost_model.py` | live | prediction layer |
+| `campaign/` | **live, production** | the measurement side: `strict_campaign.sbatch`, `configs.py`, `cases.json`, `physics_templates.json`, the decomposition-search campaign and its rankers |
+| `predictor/` | **live, production** | the decision side: ledger, benchmark, `recommend.py`, decomposition space and search, `stability.py`, `verify_obs.py` (`predictor/README.md`) |
+| `fidelity_gate.py` (+ test) | live | chaos-floor scoring of a candidate against a reference and a twin |
+| `fingerprint/` | live | out-of-process phase fingerprinter (autotuner step 2) |
+| `tools/` | live | `bp_compression_check.py`, `run_tests.sbatch`, the ADIOS2→netCDF4 converter |
+| `experiments/` | live | the harnesses that produced the conclusions, vendored with sha256 provenance (`experiments/README.md`) |
+| `results/derived-data/` | data | canonical processed CSV/JSON behind every reported number |
 | `profilers/` | live | PMPI `LD_PRELOAD` profilers (RESEARCH) |
 | `research/` | kept | one-off studies behind wiki notes (`research/README.md`) |
 | `deprecated/` | closed | migration/restart, placement, hotspot model and their tests (`deprecated/README.md`) |
 
-Tests: `pytest test_wtune_*.py` at the root (live, includes `test_wtune_compliance.py`),
-`pytest deprecated/` (archived, still green at the time of the move), `python3 wtune.py
-selftest` (now also runs `wtune_compliance.validate()`), `python3 wtune_transition_controller.py selftest`.
+Tests: `sbatch tools/run_tests.sbatch` runs the whole suite on a compute node and is the only
+command that covers all of it — **758 tests across two pixi environments**, because
+`predictor/tests` needs `../wtune-predictor-env` while everything else uses
+`../wtune-pixi-env-20260830`; running `predictor/` in the wrong one turns 18 skips into 19
+lightgbm failures that look like a regression. The pieces, if you need one of them directly:
+`pytest test_wtune_*.py test_fidelity_gate.py` at the root, `pytest campaign tools experiments`,
+`pytest predictor` (predictor env), `pytest deprecated/` (archived), `python3 wtune.py selftest`
+(also runs `wtune_compliance.validate()`), `python3 wtune_transition_controller.py selftest`
+(38/40; both failures are in the deprecated imbalance-gate branch).
 
 ## Status
 

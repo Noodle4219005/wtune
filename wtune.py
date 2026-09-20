@@ -19,6 +19,7 @@ import wtune_knobs as knobs
 import wtune_solar as wsolar
 import wtune_surrogate as surr
 import wtune_compliance as wc
+import wtune_version
 from wtune_feedback import (FeedbackController, FeedbackError, FeedbackSample,
                             decisions_to_csv, decisions_to_json)
 
@@ -1574,6 +1575,8 @@ def feedback_cmd(args):
 
 def main():
     parser = argparse.ArgumentParser(prog='wtune.py', description='WRF config autotuner analytical core')
+    parser.add_argument('--version', action='version',
+                        version='wtune %s' % wtune_version.__version__)
     sub = parser.add_subparsers(dest='command')
 
     p_plan = sub.add_parser('plan', help='generate ranked decomposition shortlist')

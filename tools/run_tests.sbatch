@@ -3,7 +3,7 @@
 #SBATCH --account=ACD110018
 #SBATCH --partition=ct112
 #SBATCH --nodes=1 --ntasks=1 --cpus-per-task=2 --mem=8G
-#SBATCH --time=00:10:00
+#SBATCH --time=00:15:00
 #SBATCH --output=/home/u5727520/wrf-bench/wscore/autotuner/wtune-tests-%j.out
 #
 # Full WTune test suite for a worktree/branch, on a compute node (never on the login node).
@@ -12,6 +12,7 @@
 set -uo pipefail
 REPO=${REPO:-/home/u5727520/wrf-stack/wtune-autotuner}
 PIXI="pixi run --manifest-path /home/u5727520/wrf-stack/wtune-pixi-env-20260830/pixi.toml"
+PIXI_PRED="pixi run --manifest-path /home/u5727520/wrf-stack/wtune-predictor-env/pixi.toml"
 cd "$REPO" || exit 2
 echo "repo=$REPO branch=$(git branch --show-current) head=$(git rev-parse --short HEAD) dirty=$(git status --short | wc -l)"
 fail=0
@@ -21,7 +22,14 @@ stage() {
   if "$@"; then echo "=== $name PASS"; else echo "=== $name FAIL rc=$?"; fail=1; fi
 }
 stage py_compile $PIXI python -m py_compile wtune.py wtune_*.py test_wtune_*.py
-stage pytest $PIXI python -m pytest -q test_wtune_*.py $(ls plov/tests/test_*.py 2>/dev/null)
+# Root tests. test_fidelity_gate.py does NOT match test_wtune_*.py and was silently skipped
+# until 2026-09-20; name it explicitly rather than widening the glob into wtune_*.py sources.
+stage pytest $PIXI python -m pytest -q test_wtune_*.py test_fidelity_gate.py $(ls plov/tests/test_*.py 2>/dev/null)
+stage pytest_campaign $PIXI python -m pytest -q campaign tools experiments
+# predictor/tests needs the OTHER pixi env (lightgbm/catboost). Running it under $PIXI turns
+# 18 skips into 19 failures that look exactly like a regression -- see predictor/run_benchmark.sbatch:20.
+stage pytest_predictor $PIXI_PRED python -m pytest -q predictor
+stage pytest_deprecated $PIXI python -m pytest -q deprecated
 stage selftest $PIXI python wtune.py selftest
 stage compliance_validate $PIXI python wtune.py compliance validate
 # The transition controller has checks that already fail on the base branch; this stage passes when the

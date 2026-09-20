@@ -782,7 +782,9 @@ def main(argv=None):
             "usage: decomp_space.py summary CASE_ID [--total-cores N] [--nodes N] "
             "[--hardware-id ID] | "
             "decomp_space.py sample CASE_ID --n N --seed S [--out FILE.json] "
-            "[--no-must-include] [--prefix P]\n"
+            "[--no-must-include] [--prefix P] | "
+            "decomp_space.py seed CASE_ID --out FILE.json [--total-cores N] [--nodes N] "
+            "[--hardware-id ID] [--prefix P]\n"
         )
         return 2
     if argv[0] == "summary":

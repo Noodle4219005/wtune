@@ -54,8 +54,10 @@ shortlist with evidence; it never selects or applies the final configuration.
   with the nest-history-off convention; `fidelity_gate.py --family` rejected `diagnostics` and
   `nesting` only *after* WRF had run; and ADIOS2 compression reaches only the first write stream
   of a run.
-- `tools/run_tests.sbatch` ran ~10% of the suite: `test_fidelity_gate.py` matched no glob, and
-  `campaign/`, `predictor/`, `tools/`, `experiments/` and `deprecated/` had no stage at all.
+- `tools/run_tests.sbatch` ran ~10% of the suite: it collected 74 tests where the repo has 762,
+  because `test_fidelity_gate.py` matched no glob — the core fidelity logic's own test file had
+  never run under the "full suite" — and `campaign/`, `predictor/`, `tools/`, `experiments/` and
+  `deprecated/` had no stage at all. Now 744 passed / 18 skipped, job 1088417.
 - `.gitignore`'s blanket `*.csv` excluded `results/derived-data/`, so the processed data behind
   the reported numbers was one `git clean` from gone.
 

@@ -359,7 +359,8 @@ source bug, not a namelist one, and it is not patched here.
 | `deprecated/` | closed | migration/restart, placement, hotspot model and their tests (`deprecated/README.md`) |
 
 Tests: `sbatch tools/run_tests.sbatch` runs the whole suite on a compute node and is the only
-command that covers all of it — **758 tests across two pixi environments**, because
+command that covers all of it — **744 passed / 18 skipped across two pixi environments**
+(job 1088417, 1m57s on one `ct112` node) — because
 `predictor/tests` needs `../wtune-predictor-env` while everything else uses
 `../wtune-pixi-env-20260830`; running `predictor/` in the wrong one turns 18 skips into 19
 lightgbm failures that look like a regression. The pieces, if you need one of them directly:

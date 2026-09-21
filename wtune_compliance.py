@@ -161,7 +161,10 @@ CATALOG = [
        evidence='cost-weighted 1-5 cores/rank +7.9% [[the-micro-thread-controller-is-built-it-halves-the-imbalance-and-loses-7-9-percent]]',
        legal=_unverified('int', min=1, source='srun(1)',
                          constraints=["this catalog's own evidence tested cost-weighted 1-5 cores/rank "
-                                      '(status closed, +7.9% regression)'])),
+                                      '(status closed, +7.9% regression)',
+                                      'WRF-Fire (ifire>0): omp must be 1 -- crashes at first step '
+                                      'otherwise [[wtune-one-node-decomposition-search-beats-40-random-'
+                                      'configs-on-matthew-and-severe2023]]'])),
     _k('srun_distribution', 'launcher', _S, 'none', ALL, status='gain',
        evidence='cyclic -2.2%, diffwrf empty [[cyclic-rank-placement-plus-adaptive-node-local-stealing-is-7-7-percent-faster-per-step-bit-identical-with-no-source-change]]',
        legal=_legal('enum', values=['cyclic', 'block'], source='campaign/configs.py:95-110',

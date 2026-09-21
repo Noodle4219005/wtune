@@ -287,10 +287,19 @@ def resolve_config(case, template):
     about nesting. The ranked list is then filtered to shapes that are ALSO
     legal (ceil(extent/n) >= MIN_PATCH) on every active domain, so a shape
     that only wtune_decomp/d01 would have accepted but a smaller nested
-    domain would reject is dropped here, uniformly for both scoring methods."""
+    domain would reject is dropped here, uniformly for both scoring methods.
+
+    case["max_omp"] (optional, absent = no cap): a per-case hard ceiling on OMP threads
+    per rank, e.g. c34/marshall's max_omp=1 (WRF-Fire crashes rc=137/139 at the first d01
+    step with any omp>1, see cases.json's notes for those cases). A template whose omp
+    exceeds it is skipped here with the same reason-string convention as every other
+    illegal-shape rejection below, so it never reaches resolve_case()'s kept list."""
     ranks, omp = template["ranks"], template["omp"]
     if ranks * omp != TOTAL_CORES:
         return None, "ranks(%d)*omp(%d) != %d" % (ranks, omp, TOTAL_CORES)
+    max_omp = case.get("max_omp")
+    if max_omp is not None and omp > max_omp:
+        return None, "omp(%d) exceeds case max_omp=%d" % (omp, max_omp)
     shapes, method = ranked_shapes(case["e_we"], case["e_sn"], case["e_vert"], ranks, omp)
     we_list, sn_list = _active_domain_extents(case)
     if len(we_list) > 1:

@@ -257,6 +257,39 @@ def test_no_loco_keeps_target_case_rows_in_recommend_ledger(tmp_path, monkeypatc
 
 
 # ---------------------------------------------------------------------------
+# case["max_omp"] (c34/marshall in campaign/cases.json: WRF-Fire crashes rc=137/139 at the
+# first d01 step with any omp>1) -- defense-in-depth: recommend()'s own shortlist is already
+# built from campaign_configs.resolve_case()'s filtered pool (predictor/recommend.py
+# build_candidates), but this fake recommend() bypasses resolve_case entirely, so this test
+# exercises _build_candidates's OWN filter, not resolve_case's.
+# ---------------------------------------------------------------------------
+_SHORTLIST_C08_OMP2 = [
+    dict(config_id="C08", rank=1, n_ranks=224, omp_threads=2, nproc_x=7, nproc_y=32,
+         numtiles=2, distribution="cyclic", kmp_blocktime=0,
+         predicted_gain=0.05, gain_lower_95=0.01, label="SAFE"),
+]
+
+
+def test_template_space_excludes_recommended_candidate_above_case_max_omp(tmp_path, monkeypatch):
+    monkeypatch.setitem(campaign_configs.CASES, "karina",
+                         dict(campaign_configs.CASES["karina"], max_omp=1))
+    ledger = tmp_path / "ledger.csv"
+    _write_csv(ledger, _karina_rows())
+    captured = []
+    _install_fake_recommend(monkeypatch, _SHORTLIST_C08_OMP2, capture=captured)
+
+    args = _plan_args(tmp_path, case="karina", ledger_paths=[str(ledger)], out=tmp_path / "plan")
+    plan = ex.cmd_plan(args)
+
+    ids = {c["config_id"] for c in plan["candidates"]}
+    assert "C08" not in ids
+    assert "C01" in ids   # baseline, omp=1, unaffected by the cap
+
+    excluded = plan["recommend"]["excluded"]
+    assert excluded == [dict(label="C08", omp=2, reason="omp(2) exceeds case max_omp=1")]
+
+
+# ---------------------------------------------------------------------------
 # configs.json round-trip through campaign/configs.py's CONFIG_FILE loader
 # ---------------------------------------------------------------------------
 def test_configs_json_round_trips_through_config_file_loader(tmp_path):
@@ -671,6 +704,48 @@ def test_space_generated_forces_it_for_a_template_resolving_case(tmp_path, monke
     ids = {c["config_id"] for c in plan["candidates"]}
     assert "GBASE" in ids
     assert "C01" not in ids
+
+
+# ---------------------------------------------------------------------------
+# case["max_omp"] on the generated-space path: c34 (campaign/cases.json) carries max_omp=1 for
+# the same WRF-Fire omp>1 crash as the template-path tests above -- must (a) reach
+# decomp_search.propose_for_case's own max_omp kwarg and (b) drop any omp>max_omp candidate
+# still returned, via _build_generated_candidates's own filter (this fake propose_for_case does
+# not itself implement the real module's max_omp filtering, so only (b) is what actually keeps
+# the omp=2 entry below out of the plan).
+# ---------------------------------------------------------------------------
+def test_generated_space_excludes_chosen_candidate_above_case_max_omp(tmp_path, monkeypatch):
+    case_json = campaign_configs.CASES["c34"]
+    assert case_json.get("max_omp") == 1, "c34 must carry max_omp=1 in cases.json for this test"
+
+    chosen = [
+        dict(ranks=110, omp=1, nx=10, ny=11, numtiles=1, dist="cyclic", blocktime="0"),
+        dict(ranks=56, omp=2, nx=7, ny=8, numtiles=1, dist="block", blocktime="0"),
+    ]
+    ledger = tmp_path / "ledger.csv"
+    _write_csv(ledger, [_row(case_base="c34", case_raw="c34", n_nodes="1",
+                              s_per_step_median="0.41339", s_per_step_mean="0.41820",
+                              n_steps_measured="30")])
+    _install_fake_benchmark(monkeypatch)
+    captured = []
+    _install_fake_decomp_search(monkeypatch, chosen=chosen, capture=captured)
+
+    args = _plan_args(tmp_path, case="c34", ledger_paths=[str(ledger)], nodes=1, top_k=2,
+                       out=tmp_path / "plan")
+    plan = ex.cmd_plan(args)
+
+    assert plan["space"] == "generated"
+    assert captured[0]["kwargs"]["max_omp"] == 1   # the cap must reach propose_for_case
+
+    rec = [c for c in plan["candidates"] if c["config_id"].startswith("GREC")]
+    assert len(rec) == 1
+    assert rec[0]["config_id"] == "GREC1"
+    assert rec[0]["omp"] == 1
+
+    excluded = plan["recommend"]["excluded"]
+    assert len(excluded) == 1
+    assert excluded[0]["omp"] == 2
+    assert excluded[0]["reason"] == "omp(2) exceeds case max_omp=1"
 
 
 def test_configs_flag_rejected_with_space_generated(tmp_path):

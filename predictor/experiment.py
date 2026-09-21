@@ -407,6 +407,31 @@ class _Candidates(object):
         return self._by_id
 
 
+def _filter_max_omp(entries, max_omp, get_omp, get_label):
+    """Split `entries` into (kept, excluded) against case_json.get("max_omp") (None = no cap,
+    every entry kept -- unchanged behaviour for every case without the key, e.g. c34/marshall's
+    WRF-Fire omp>1 crash is the only case that sets it today). `get_omp`/`get_label` pull the omp
+    thread count / a human-readable id out of one entry. `excluded` entries are plain dicts
+    (label, omp, reason) -- the reason string plan.json records for the drop, matching the
+    convention campaign/configs.py resolve_config uses for its own skip reasons. This is a
+    defense-in-depth filter: campaign/configs.py resolve_case() already keeps omp>max_omp
+    templates out of the template-path candidate pool, and decomp_search.propose_for_case's own
+    max_omp filtering (once experiment.py passes the cap through) already keeps the generated
+    space from proposing them -- but a candidate reaching here has already cleared both, so this
+    is the last gate before it is written into plan.json/configs.json."""
+    if max_omp is None:
+        return list(entries), []
+    kept, excluded = [], []
+    for e in entries:
+        omp = get_omp(e)
+        if omp > max_omp:
+            excluded.append(dict(label=get_label(e), omp=omp,
+                                  reason="omp(%d) exceeds case max_omp=%d" % (omp, max_omp)))
+        else:
+            kept.append(e)
+    return kept, excluded
+
+
 def _build_candidates(args, case_json, id_to_cfg, full_rows):
     cands = _Candidates()
     recommend_info = None
@@ -438,7 +463,11 @@ def _build_candidates(args, case_json, id_to_cfg, full_rows):
             n_ledger_rows_total=len(full_rows), n_ledger_rows_used=len(train_rows),
             merged_ledger=merged_path,
         )
-        for entry in result.get("shortlist", []):
+        shortlist, excluded = _filter_max_omp(
+            result.get("shortlist", []), case_json.get("max_omp"),
+            lambda e: e["omp_threads"], lambda e: e["config_id"])
+        recommend_info["excluded"] = excluded
+        for entry in shortlist:
             cid = entry["config_id"]
             cfg = dict(ranks=entry["n_ranks"], omp=entry["omp_threads"], nx=entry["nproc_x"],
                        ny=entry["nproc_y"], numtiles=entry["numtiles"], dist=entry["distribution"],
@@ -558,9 +587,14 @@ def _call_decomp_search_propose(ledger_paths, case, case_json, hardware_id, node
 
     case_fields = decomp_search.case_row_fields(case_json)
     state = dict(configs={}, measured={}, rounds=[])
+    # case_json["max_omp"] (optional, e.g. c34/marshall's WRF-Fire omp>1 crash, see
+    # campaign/cases.json): propose_for_case already implements this cap (decomp_search.py:521-524,
+    # "failed runs are never ingested, so D3 cannot learn that a thread count crashes") -- it is
+    # only ever exercised when a caller actually passes it, which experiment.py did not do before.
     result, _configs_out = decomp_search.propose_for_case(
         case, case_json, case_fields, prior_rows, state, top_k,
-        total_cores=total_cores, nodes=nodes, hardware_id=hardware_id, kappa=0.0)
+        total_cores=total_cores, nodes=nodes, hardware_id=hardware_id, kappa=0.0,
+        max_omp=case_json.get("max_omp"))
     result = dict(result)
     result["n_ledger_rows_total"] = n_total
     result["n_ledger_rows_used"] = n_used
@@ -585,7 +619,11 @@ def _build_generated_candidates(args, case_json, full_rows, nodes, total_cores):
         stopped=result.get("stopped"), reason=result.get("reason"), round=result.get("round"),
         n_training_rows=result.get("n_training_rows"), ensemble_size=result.get("ensemble_size"),
     )
-    for i, c in enumerate(result.get("chosen") or [], start=1):
+    chosen, excluded = _filter_max_omp(
+        result.get("chosen") or [], case_json.get("max_omp"),
+        lambda c: c["omp"], lambda c: "%dx%d(omp%d)" % (c["nx"], c["ny"], c["omp"]))
+    recommend_info["excluded"] = excluded
+    for i, c in enumerate(chosen, start=1):
         cfg = dict(ranks=c["ranks"], omp=c["omp"], nx=c["nx"], ny=c["ny"], numtiles=c["numtiles"],
                    dist=c["dist"], blocktime=c["blocktime"],
                    numtiles_x=c.get("numtiles_x", 0), numtiles_y=c.get("numtiles_y", 0),

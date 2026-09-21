@@ -106,6 +106,56 @@ class TestDedupe(unittest.TestCase):
         self.assertEqual(aliases, {})
 
 
+class TestMaxOmp(unittest.TestCase):
+    """case["max_omp"] (e.g. c34/marshall in campaign/cases.json: WRF-Fire crashes rc=137/139
+    at the first d01 step with any omp>1) must keep resolve_config/resolve_case from ever
+    proposing an omp>max_omp template, while an absent key changes nothing."""
+
+    def test_resolve_config_rejects_omp_above_case_cap(self):
+        case = dict(configs.CASES["karina"], max_omp=1)
+        template = dict(id="C06", ranks=224, omp=2, shape="best", numtiles=12,
+                         dist="cyclic", blocktime="0")
+        cfg, err = configs.resolve_config(case, template)
+        self.assertIsNone(cfg)
+        self.assertEqual(err, "omp(2) exceeds case max_omp=1")
+
+    def test_resolve_config_keeps_omp_at_or_below_case_cap(self):
+        case = dict(configs.CASES["karina"], max_omp=1)
+        template = dict(id="C01", ranks=448, omp=1, shape="best", numtiles=1,
+                         dist="cyclic", blocktime="0")
+        cfg, err = configs.resolve_config(case, template)
+        self.assertIsNone(err)
+        self.assertEqual(cfg["omp"], 1)
+
+    def test_resolve_config_absent_max_omp_is_unchanged_behaviour(self):
+        # karina itself carries no max_omp key -- omp=2 templates must resolve exactly as
+        # before this feature existed.
+        case = configs.CASES["karina"]
+        self.assertNotIn("max_omp", case)
+        template = dict(id="C06", ranks=224, omp=2, shape="best", numtiles=12,
+                         dist="cyclic", blocktime="0")
+        cfg, err = configs.resolve_config(case, template)
+        self.assertIsNone(err)
+        self.assertEqual(cfg["omp"], 2)
+
+    def test_resolve_case_with_max_omp_1_keeps_only_omp_1_templates(self):
+        # karina resolves all 16 TEMPLATES with no cap (asserted by the no-cap branch above);
+        # capping it to max_omp=1 must keep exactly the four omp=1 templates (C01-C04) and
+        # skip every omp=2/omp=4 template with the new reason string.
+        case = dict(configs.CASES["karina"], max_omp=1)
+        kept, skipped, aliases = configs.resolve_case(case)
+        self.assertEqual(sorted(c["id"] for c in kept), ["C01", "C02", "C03", "C04"])
+        skipped_by_id = dict(skipped)
+        for tid in ("C05", "C06", "C07", "C08", "C09", "C10", "C11", "C12"):
+            self.assertEqual(skipped_by_id[tid], "omp(2) exceeds case max_omp=1")
+        for tid in ("C13", "C14", "C15", "C16"):
+            self.assertEqual(skipped_by_id[tid], "omp(4) exceeds case max_omp=1")
+
+    def test_c34_and_marshall_carry_max_omp_1_in_cases_json(self):
+        for case_id in ("c34", "marshall"):
+            self.assertEqual(configs.CASES[case_id].get("max_omp"), 1, case_id)
+
+
 class TestBuildOrder(unittest.TestCase):
     def test_reps_two_is_palindrome(self):
         order = configs.build_order(["A", "B", "C"], 2)

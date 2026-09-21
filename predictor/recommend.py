@@ -223,10 +223,17 @@ def resolve_max_dom(requested_max_dom, case_fields):
 # Candidate generation: campaign/configs.py's 16 STRICT templates, resolved against this case's
 # grid. resolve_case() (not reimplemented here) already (a) rejects a template with no legal
 # shape at the requested rank count and (b) checks legality against EVERY active nested domain,
-# not just d01. `max_dom` is the EFFECTIVE domain count (see resolve_max_dom above), not
-# necessarily case_fields["max_dom"] (the namelist's own raw value).
+# not just d01, and (c) rejects a template whose omp exceeds case_dict["max_omp"] (e.g. c34/
+# marshall: WRF-Fire crashes rc=137/139 at the first d01 step with any omp>1). `max_dom` is the
+# EFFECTIVE domain count (see resolve_max_dom above), not necessarily case_fields["max_dom"]
+# (the namelist's own raw value). case_dict is otherwise built ENTIRELY from case_fields (this
+# namelist's own parsed values) -- max_omp is the one exception: it is not derivable from a
+# namelist, so it is looked up from campaign/cases.json by case_name instead (same
+# CASES.get(case_name) pattern verify_run_minutes and case_frozen_keys already use elsewhere in
+# this file); a case_name recommend() does not recognise (not in cases.json, or None) leaves
+# case_dict without "max_omp", i.e. unchanged pre-existing behaviour (no cap).
 # ---------------------------------------------------------------------------
-def build_candidates(case_fields, nodes, max_dom):
+def build_candidates(case_fields, nodes, max_dom, case_name=None):
     if case_fields["e_we"] is None or case_fields["e_sn"] is None:
         raise ValueError(
             "cannot generate candidates: e_we/e_sn not found in the namelist's &domains section "
@@ -234,6 +241,9 @@ def build_candidates(case_fields, nodes, max_dom):
 
     case_dict = dict(e_we=case_fields["e_we"], e_sn=case_fields["e_sn"],
                       e_vert=case_fields["e_vert"], max_dom=max_dom)
+    known_case = campaign_configs.CASES.get(case_name)
+    if known_case is not None and known_case.get("max_omp") is not None:
+        case_dict["max_omp"] = known_case["max_omp"]
     domain_note = None
     we_list, sn_list = case_fields["e_we_list"], case_fields["e_sn_list"]
     if we_list and sn_list:
@@ -574,7 +584,7 @@ def recommend(ledger_path, namelist_path, case_name, hardware_id, nodes=4,
     case_fields = parse_case_from_namelist(namelist_path)
     effective_max_dom = resolve_max_dom(max_dom, case_fields)
     kept, skipped, aliases, domain_note, node_note = build_candidates(
-        case_fields, nodes, effective_max_dom)
+        case_fields, nodes, effective_max_dom, case_name=case_name)
 
     warnings = []
     if domain_note:

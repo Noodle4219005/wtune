@@ -193,7 +193,11 @@ class TestNamelistEditing(unittest.TestCase):
         self.assertIn("io_form_history=14,", out)
         # ADIOS2 settings that don't need a pre-existing line always get inserted
         self.assertIn('input_inname="wrfinput_d<domain>.bp", bdy_inname="wrfbdy_d<domain>.bp",', out)
-        self.assertIn("&namelist_adios2\n adios2_numaggregators=224,\n/\n", out)
+        self.assertIn("&namelist_adios2\n"
+                      " adios2_numaggregators=224,\n"
+                      " adios2_compression_enable=.true.,\n"
+                      ' adios2_blosc_compressor="zstd",\n'
+                      "/\n", out)
         # time_step untouched (not a campaign-edited knob)
         self.assertIn("time_step=15", out)
 
@@ -590,7 +594,11 @@ class TestAdios2(unittest.TestCase):
         self.assertIn("io_form_restart=14,", out)
         self.assertIn("restart_interval=1000000,", out)
         self.assertIn('input_inname="wrfinput_d<domain>.bp", bdy_inname="wrfbdy_d<domain>.bp",', out)
-        self.assertIn("&namelist_adios2\n adios2_numaggregators=224,\n/\n", out)
+        self.assertIn("&namelist_adios2\n"
+                      " adios2_numaggregators=224,\n"
+                      " adios2_compression_enable=.true.,\n"
+                      ' adios2_blosc_compressor="zstd",\n'
+                      "/\n", out)
         self.assertEqual(out.count("input_inname"), 1)
         self.assertEqual(out.count("&namelist_adios2"), 1)
 
@@ -666,6 +674,88 @@ class TestAdios2(unittest.TestCase):
         for ranks in (112, 224, 448):
             out = configs.edit_namelist(self.SYNTHETIC_NO_ADIOS2, 14, 16, 12, 8, ranks=ranks)
             self.assertIn("adios2_numaggregators=%d," % ranks, out)
+
+
+class TestAdios2Compression(unittest.TestCase):
+    """The compression keys must be WRITTEN, not inherited from the Registry.
+
+    WRF's ADIOS2 backend treats every compression failure as a non-fatal
+    wrf_debug(WARN), so a run that silently fell back to uncompressed BP looks
+    exactly like a run that compressed. Recording the settings in the run's own
+    namelist is the first half of making that impossible to miss; the second
+    half is tools/bp_compression_check.py, which measures the output.
+    """
+
+    def _out(self, ranks=224):
+        return configs.edit_namelist(TestAdios2.SYNTHETIC_NO_ADIOS2, 14, 16, 12, 8,
+                                     ranks=ranks)
+
+    def test_compression_keys_are_written_explicitly(self):
+        out = self._out()
+        self.assertIn(" adios2_compression_enable=.true.,\n", out)
+        self.assertIn(' adios2_blosc_compressor="zstd",\n', out)
+
+    def test_codec_comes_from_the_module_constants(self):
+        # The measured choice lives in one place; the emitter must not hardcode it.
+        self.assertEqual(configs.ADIOS2_BLOSC_COMPRESSOR, "zstd")
+        self.assertEqual(configs.ADIOS2_COMPRESSION_ENABLE, ".true.")
+        out = self._out()
+        self.assertIn(' adios2_blosc_compressor="%s",' % configs.ADIOS2_BLOSC_COMPRESSOR, out)
+        self.assertIn(" adios2_compression_enable=%s," % configs.ADIOS2_COMPRESSION_ENABLE, out)
+
+    def test_each_key_appears_exactly_once(self):
+        out = self._out()
+        self.assertEqual(out.count("adios2_compression_enable"), 1)
+        self.assertEqual(out.count("adios2_blosc_compressor"), 1)
+        self.assertEqual(out.count("adios2_numaggregators"), 1)
+
+    def test_numaggregators_behaviour_is_unchanged(self):
+        # The compression keys are additive: numaggregators still equals ranks,
+        # still leads the block, and is still the first line after the group header.
+        for ranks in (112, 224, 448):
+            out = configs.edit_namelist(TestAdios2.SYNTHETIC_NO_ADIOS2, 14, 16, 12, 8,
+                                        ranks=ranks)
+            self.assertIn("&namelist_adios2\n adios2_numaggregators=%d,\n" % ranks, out)
+
+    def test_stale_block_is_replaced_not_appended(self):
+        out = configs.edit_namelist(TestAdios2.SYNTHETIC_STALE_ADIOS2, 14, 16, 12, 8,
+                                    ranks=224)
+        self.assertEqual(out.count("&namelist_adios2"), 1)
+        self.assertEqual(out.count("adios2_compression_enable"), 1)
+        self.assertEqual(out.count("adios2_blosc_compressor"), 1)
+
+    def test_a_template_that_already_sets_a_different_codec_is_overwritten(self):
+        stale = TestAdios2.SYNTHETIC_NO_ADIOS2.rstrip("\n") + (
+            "\n&namelist_adios2\n"
+            " adios2_numaggregators=7,\n"
+            ' adios2_blosc_compressor="lz4",\n'
+            " adios2_compression_enable=.false.,\n"
+            "/\n")
+        out = configs.edit_namelist(stale, 14, 16, 12, 8, ranks=224)
+        self.assertNotIn('adios2_blosc_compressor="lz4"', out)
+        self.assertNotIn("adios2_compression_enable=.false.", out)
+        self.assertNotIn("adios2_numaggregators=7,", out)
+        self.assertIn('adios2_blosc_compressor="zstd",', out)
+
+    def test_no_adios2_still_writes_no_compression_keys(self):
+        out = configs.edit_namelist(TestAdios2.SYNTHETIC_NO_ADIOS2, 14, 16, 12, 8,
+                                    adios2=False)
+        self.assertNotIn("&namelist_adios2", out)
+        self.assertNotIn("adios2_blosc_compressor", out)
+        self.assertNotIn("adios2_compression_enable", out)
+
+    def test_block_is_valid_fortran_namelist_shape(self):
+        out = self._out()
+        start = out.index("&namelist_adios2")
+        block = out[start:out.index("\n/\n", start) + 3]
+        lines = block.strip().splitlines()
+        self.assertEqual(lines[0], "&namelist_adios2")
+        self.assertEqual(lines[-1], "/")
+        for line in lines[1:-1]:
+            self.assertTrue(line.startswith(" "), line)
+            self.assertTrue(line.endswith(","), line)
+            self.assertIn("=", line)
+
 
 
 class TestStepStats(unittest.TestCase):

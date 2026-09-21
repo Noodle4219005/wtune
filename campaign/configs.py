@@ -48,6 +48,34 @@ DEFAULT_SCREEN_DIR = "/home/u5727520/wrf-bench/wscore/physics"
 MIN_PATCH = 10
 TOTAL_CORES = 448  # 4 nodes x 112 cores, ct448
 
+# ADIOS2 compression, written explicitly into every run's &namelist_adios2 block
+# (see _apply_adios2) rather than inherited from the WRF Registry defaults in
+# Registry/registry.io_boilerplate:149-150 (.true. / "lz4"). A run's own namelist
+# must record what it used: the codec is a measured choice, not a default.
+#
+# zstd over lz4: established by tier-a-runtime-battery (2026-08-22, jobs
+# 1037956-64, 4N/448) -- zstd steady write 0.468 s vs lz4 0.496 s vs none
+# 1.014 s -- and confirmed on size by conus12 job 1082176, which had been the
+# missing half of that comparison: frame 1 stored 166,682,400 B with zstd
+# against 181,090,208 B with lz4 and 595,875,392 B uncompressed, i.e. zstd
+# 3.57x, lz4 3.29x, zstd 8.0% smaller than lz4.
+#
+# KNOWN LIMITATION of the WTune build (/home/u5727520/wrf-stack/wrf/
+# intel-adios2-dmsm/WRF), measured by job 1082176 and NOT fixed by these keys:
+# only the FIRST ADIOS2 write stream of a run is actually compressed.
+# wrf_io.F90:1283-1285 assigns DH%blosc_compressor only on the branch that
+# DEFINES the operator; a later stream's adios2_inquire_operator succeeds, so
+# %valid is true but its DH%blosc_compressor is blank, and the codec chain at
+# wrf_io.F90:2497-2508 matches nothing, so adios2_add_operation is never
+# called. Measured: frames 2 and 3 of a 3-frame conus12 run stored exactly the
+# uncompressed 595,875,392 B in BOTH the zstd and the lz4 arm. This is a WRF
+# source bug, not a namelist one. It does not affect MODE=timing (no history)
+# or --history-mode end_d01 (exactly one frame, which is the first stream and
+# does compress); it DOES affect --history-mode interval. tools/
+# bp_compression_check.py is how a campaign detects it instead of assuming.
+ADIOS2_COMPRESSION_ENABLE = ".true."
+ADIOS2_BLOSC_COMPRESSOR = "zstd"
+
 # Deterministic case order (matches the task table); used by --all and cmd_order so
 # output does not depend on JSON/dict iteration order.
 # 2026-09-14: deep_conv_ot, arctic_sbl, edouard_landfall and lowell_cat4 were removed from the campaign at
@@ -573,6 +601,12 @@ def _apply_adios2(text, ranks, max_dom):
     one aggregator per node) combined with --distribution=cyclic produced BP
     output that cannot be read back ("Read past end of file ... data.3").
 
+    adios2_compression_enable/adios2_blosc_compressor are written explicitly
+    (ADIOS2_COMPRESSION_ENABLE/ADIOS2_BLOSC_COMPRESSOR at the top of this file,
+    where the evidence for the codec and the WRF first-stream-only limitation
+    is recorded) so a run's namelist states its own I/O settings instead of
+    silently inheriting the Registry defaults.
+
     Called LAST in edit_namelist, after `overrides`, so a case override that
     sets an io_form (e.g. lafe's old io_form_input=2 for pnetcdf) can never
     revert ADIOS2 -- see cases.json's lafe namelist_overrides notes.
@@ -596,7 +630,12 @@ def _apply_adios2(text, ranks, max_dom):
     new_line = ' input_inname="wrfinput_d<domain>.bp", bdy_inname="wrfbdy_d<domain>.bp",\n'
     text = text[: eol + 1] + new_line + text[eol + 1 :]
     text = re.sub(r"(?ms)^&namelist_adios2\b.*?^/[ \t]*\n?", "", text)
-    text = text.rstrip("\n") + "\n&namelist_adios2\n adios2_numaggregators=%d,\n/\n" % ranks
+    text = text.rstrip("\n") + (
+        "\n&namelist_adios2\n"
+        " adios2_numaggregators=%d,\n"
+        " adios2_compression_enable=%s,\n"
+        ' adios2_blosc_compressor="%s",\n'
+        "/\n" % (ranks, ADIOS2_COMPRESSION_ENABLE, ADIOS2_BLOSC_COMPRESSOR))
     # Quilting (WRF I/O server ranks) is always off: with nio_tasks_per_group=32, nio_groups=4 (the LAFE
     # template) 128 of 224 ranks become I/O servers, nproc_x*nproc_y no longer matches the compute ranks,
     # and WRF hangs after "Quilting with 4 groups of 32 I/O tasks" (smoke job 1074562, 1500 s timeout).

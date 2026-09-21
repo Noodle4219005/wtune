@@ -6,3 +6,6 @@ slurm-*.out
 rankfiles/
 *.csv
 catboost_info/
+# ... except the canonical processed data behind a reported number, which must be in the repo
+!results/derived-data/*.csv
+!tools/testdata/*.csv

@@ -1,0 +1,44 @@
+{
+  "artifact_dir": "/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/monitor-native-job/case-guzw4i9b/job artifacts 'quoted'",
+  "cadence": {
+    "sparse_reason": "the short probe gates same-session artifact review",
+    "sparse_seconds": 300,
+    "startup_seconds": 60
+  },
+  "created_utc": "2026-09-13T00:13:26Z",
+  "deadline_utc": "2026-09-13T01:13:26Z",
+  "dependent_action": "review evidence, then decide whether to compare performance",
+  "job_id": "123",
+  "last_native_observation": {
+    "native_log_exists": true,
+    "native_log_size": 19,
+    "native_log_tail_file": "observation-0003-native-tail.bin",
+    "sacct_file": "observation-0003-sacct.txt",
+    "slurm_state": "RUNNING",
+    "squeue_file": "observation-0003-squeue.txt",
+    "utc": "2026-09-13T00:13:27Z"
+  },
+  "native_at_id": "9004",
+  "native_log": "/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/monitor-native-job/case-guzw4i9b/job artifacts 'quoted'/native log.bin",
+  "next_proposed_check": "Collect exact job status and native log tail.",
+  "next_utc": "2026-09-13T00:14:27Z",
+  "observation_count": 3,
+  "operation": "one exact native WRF validation run",
+  "pass_criterion": "native exit zero and bitwise report passes",
+  "scheduled_nonce": "fe1cba8540b191ee1736f726c91adc3c",
+  "startup_gate": {
+    "complete": false,
+    "elapsed_seconds": 0,
+    "required_elapsed_seconds": 240,
+    "required_running_observations": 4,
+    "running_observations": 1,
+    "running_since_utc": "2026-09-13T00:13:27Z"
+  },
+  "status": "scheduled",
+  "tools": {
+    "at": "/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/monitor-native-job/case-guzw4i9b/job artifacts 'quoted'/bin/at-mock",
+    "sacct": "/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/monitor-native-job/case-guzw4i9b/job artifacts 'quoted'/bin/sacct-mock",
+    "squeue": "/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/monitor-native-job/case-guzw4i9b/job artifacts 'quoted'/bin/squeue-mock"
+  },
+  "version": 1
+}

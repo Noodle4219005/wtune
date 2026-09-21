@@ -1,0 +1,54 @@
+{
+  "comparison_scope": {
+    "container_bytes": "not compared; storage format, compression, and endianness may differ",
+    "data": "libnetcdf primitive typed values compared as native-memory bytes",
+    "maximum_slab_bytes": 8388608,
+    "unsupported": [
+      "child groups",
+      "NC_STRING",
+      "user-defined types",
+      "VLEN"
+    ]
+  },
+  "first_difference": {
+    "attribute": "TITLE",
+    "category": "variable_attribute",
+    "message": "variable attribute type or length differs",
+    "variable": "<global>"
+  },
+  "ignored_global_attributes": {
+    "names": [
+      "_NCProperties",
+      "history"
+    ],
+    "present_left": [
+      "history"
+    ],
+    "present_right": [
+      "history"
+    ],
+    "scope": "Only the named volatile provenance attributes are ignored."
+  },
+  "left": {
+    "path": "/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/netcdf-bitwise/base.nc",
+    "sha256": "ff2d762646e3767c85bb07772fa2f0c909d9837f7851e74fe1de12a7b9555da6"
+  },
+  "library": {
+    "requested_path": "/home/u5727520/wrf-stack/intel/lib/libnetcdf.so",
+    "resolved_path": "/home/u5727520/wrf-stack/spack-opt/linux-sapphirerapids/netcdf-c-4.10.0-anszrtulh723djgjuypk3c5fk4vazq22/lib/libnetcdf.so.22.2.0",
+    "version": "4.10.0 of Aug 20 2026 11:23:08 $"
+  },
+  "result": "different",
+  "right": {
+    "path": "/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/netcdf-bitwise/global-attribute.nc",
+    "sha256": "682f2513a0f59933d60f352bce386eaf2753137890f6228e67ca1e0522b2b61b"
+  },
+  "statistics": {
+    "compared_attribute_bytes": 0,
+    "compared_bytes": 0,
+    "compared_data_bytes": 0,
+    "compared_global_attributes": 0,
+    "compared_variable_attributes": 0,
+    "compared_variables": 0
+  }
+}

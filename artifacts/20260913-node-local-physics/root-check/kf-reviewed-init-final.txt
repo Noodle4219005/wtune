@@ -1,0 +1,13 @@
+test_changed_compiler_output_stops_at_next_boundary (plov.tests.test_kf_reviewed_build.ReviewedKfBuildTests.test_changed_compiler_output_stops_at_next_boundary) ... ok
+test_default_execute_prepares_link_only (plov.tests.test_kf_reviewed_build.ReviewedKfBuildTests.test_default_execute_prepares_link_only) ... ok
+test_end_to_end_fake_link_records_terminal_identity (plov.tests.test_kf_reviewed_build.ReviewedKfBuildTests.test_end_to_end_fake_link_records_terminal_identity) ... ok
+test_existing_and_symlink_link_outputs_refused_before_marker (plov.tests.test_kf_reviewed_build.ReviewedKfBuildTests.test_existing_and_symlink_link_outputs_refused_before_marker) ... ok
+test_fake_link_failure_is_terminal_and_cannot_replay (plov.tests.test_kf_reviewed_build.ReviewedKfBuildTests.test_fake_link_failure_is_terminal_and_cannot_replay) ... ok
+test_review_schema_rejects_boolean_and_local_counter_claims (plov.tests.test_kf_reviewed_build.ReviewedKfBuildTests.test_review_schema_rejects_boolean_and_local_counter_claims) ... ok
+test_review_source_library_module_and_flags_drift_refused_before_marker (plov.tests.test_kf_reviewed_build.ReviewedKfBuildTests.test_review_source_library_module_and_flags_drift_refused_before_marker) ... ok
+test_reviewed_profile_macros_and_human_claims (plov.tests.test_kf_reviewed_build.ReviewedKfBuildTests.test_reviewed_profile_macros_and_human_claims) ... ok
+
+----------------------------------------------------------------------
+Ran 8 tests in 21.190s
+
+OK

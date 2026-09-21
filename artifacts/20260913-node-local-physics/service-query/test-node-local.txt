@@ -1,0 +1,3 @@
+x86_64-conda-linux-gnu-cc -std=c11 -Wall -Wextra -Werror -pedantic -pthread -fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=all -I/home/u5727520/wrf-stack/wtune/plov /home/u5727520/wrf-stack/wtune/plov/wt_node_local.c /home/u5727520/wrf-stack/wtune/plov/tests/test_node_local.c -o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/service-query/test_node_local
+/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/service-query/test_node_local /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/service-query
+node-local service tests passed

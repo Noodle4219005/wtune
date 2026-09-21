@@ -1,0 +1,2 @@
+/home/u5727520/wrf-stack/wtune-runtime-dev-20260912/.pixi/envs/default/bin/x86_64-conda-linux-gnu-gcc -std=c11 -Wall -Wextra -Werror -O1 -g -I /home/u5727520/wrf-stack/wtune/plov /home/u5727520/wrf-stack/wtune/plov/wt_kf_batch.c /home/u5727520/wrf-stack/wtune/plov/wt_kf_batch_codec.c /home/u5727520/wrf-stack/wtune/plov/tests/test_kf_batch.c -o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/kf/batch-strict
+PASS KF batch 104 checks

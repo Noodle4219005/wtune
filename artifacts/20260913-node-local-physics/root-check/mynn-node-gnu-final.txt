@@ -1,0 +1,8 @@
+test_node (plov.tests.test_mynn_node.MynnNodeTest.test_node) ... ok
+test_real_init_then_two_continuations_on_forked_helper (plov.tests.test_mynn_node_fortran.MynnNodeFortranTests.test_real_init_then_two_continuations_on_forked_helper) ... ok
+
+----------------------------------------------------------------------
+Ran 2 tests in 86.387s
+
+OK
+PASS MYNN true GNU node differential: /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw

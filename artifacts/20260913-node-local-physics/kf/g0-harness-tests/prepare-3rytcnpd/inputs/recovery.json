@@ -1,0 +1,81 @@
+{
+  "archive_sha256": "d027f107151aa425055694d9f936428f83922be9285cbfa3f71e69e59c93a22a",
+  "artifact_type": "wtune_isc21_g0_recovery",
+  "members": {
+    "freezeH2O.dat": {
+      "bytes": 13,
+      "sha256": "691b28fea685e87f4c8cfc3f49bf910fe27486aafba639f9546d26b54cf37bec"
+    },
+    "namelist.input": {
+      "bytes": 338,
+      "sha256": "d91822c45ebfae1240bd5fe1b3cb7a61a6b638404bc702e546177d5ecf7ace42"
+    },
+    "qr_acr_qgV2.dat": {
+      "bytes": 15,
+      "sha256": "0f740d98efbd9d1690dbd50a4df37ec5ac00ac116527f71c0e730979abd42ce2"
+    },
+    "qr_acr_qsV2.dat": {
+      "bytes": 15,
+      "sha256": "cbdf8adf638961ad47c66e83bfa67838e6f8b54d547cde5bfe3c671776d2db00"
+    },
+    "wrfbdy_d01": {
+      "bytes": 10,
+      "sha256": "8409946004a88333e5bf963ca70f47cc9d4a085337c0ef63c499e0aaa1e32d5a"
+    },
+    "wrfinput_d01": {
+      "bytes": 12,
+      "sha256": "af8bafa8353ee43155f45cda67ee4164de4aaf8df3fa54dc0c5e109908fb9d7d"
+    }
+  },
+  "plan": {
+    "archive": "/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/kf/g0-harness-tests/prepare-3rytcnpd/tiny.tar",
+    "archive_identity": {
+      "ctime_ns": 1789257436573368208,
+      "dev": 55,
+      "ino": 1596670198,
+      "mtime_ns": 1789257436573401000,
+      "size": 10240
+    },
+    "artifact_type": "wtune_isc21_g0_recovery_plan",
+    "dt": 15,
+    "extract_archive_hash_read_bytes": 10240,
+    "members": {
+      "freezeH2O.dat": {
+        "bytes": 13,
+        "offset": 4608
+      },
+      "namelist.input": {
+        "bytes": 338,
+        "offset": 2560
+      },
+      "qr_acr_qgV2.dat": {
+        "bytes": 15,
+        "offset": 5632
+      },
+      "qr_acr_qsV2.dat": {
+        "bytes": 15,
+        "offset": 3584
+      },
+      "wrfbdy_d01": {
+        "bytes": 10,
+        "offset": 512
+      },
+      "wrfinput_d01": {
+        "bytes": 12,
+        "offset": 1536
+      }
+    },
+    "namelist": "&time_control\n  run_minutes = 5,\n  io_form_auxhist24 = 0,\n  run_days = 0,\n  run_hours = 0,\n  run_seconds = 0,\n  start_year = 2016,\n  start_month = 8,\n  start_day = 29,\n  start_hour = 9,\n  start_minute = 0,\n  start_second = 0,\n  end_year = 2016,\n  end_month = 8,\n  end_day = 29,\n  end_hour = 9,\n  end_minute = 5,\n  end_second = 0,\n  history_interval = 5,\n  frames_per_outfile = 1,\n  io_form_input = 2,\n  io_form_boundary = 2,\n  io_form_history = 2,\n  restart = .false.,\n  write_input = .false.,\n  input_inname = \"wrfinput_d<domain>\",\n  bdy_inname = \"wrfbdy_d<domain>\",\n/\n\n&domains\n  time_step = 15,\n  e_we = 793,805,1001,\n  e_sn = 853,805,1001,\n  e_vert = 51,51,51,\n  eta_levels = 1.0, 0.9,\n0.5, 0.0,\n  max_dom = 1,\n  nproc_x = 7,\n  nproc_y = 8,\n  numtiles = 12,\n  use_adaptive_time_step = .false.,\n/\n\n&physics\n  cu_physics = 1,0,0,\n  bl_pbl_physics = 5,5,5,\n  sf_sfclay_physics = 5,5,5,\n  mp_physics = 8,8,8,\n/\n\n",
+    "namelist_sha256": "faa8b1c590c9c98533dcf6d5f0f95cbdf30342b6df139a6da80e8e4952e89f90",
+    "note": "No payload recovery performed; extraction hashes full archive and six outputs.",
+    "output": "/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/kf/g0-harness-tests/prepare-3rytcnpd/inputs",
+    "prefix": "WRF_ISC21_3_DOMAIN/",
+    "source_namelist_sha256": "d91822c45ebfae1240bd5fe1b3cb7a61a6b638404bc702e546177d5ecf7ace42",
+    "status": "plan-only",
+    "steps": 20,
+    "total_extract_bytes": 403,
+    "version": 1
+  },
+  "status": "complete",
+  "version": 1
+}

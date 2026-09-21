@@ -1,0 +1,3 @@
+/home/u5727520/wrf-stack/wtune-fortran-dev-20260912/.pixi/envs/default/bin/x86_64-conda-linux-gnu-cc -std=c11 -O1 -g -Wall -Wextra -Werror -pedantic -pthread -Iplov plov/wt_mynn_layout.c plov/wt_mynn_batch.c plov/wt_mynn_node.c plov/wt_node_local.c plov/tests/test_mynn_node_shadow.c -o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/shadow/test-mynn-shadow-strict
+PASS MYNN node shadow
+returncode=0

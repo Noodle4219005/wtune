@@ -1,0 +1,537 @@
+test_live_production_chain (plov.tests.test_kf_node_live.KFNodeLiveTest.test_live_production_chain) ... ok
+test_live_scope_runtime (plov.tests.test_kf_live.KfLiveTests.test_live_scope_runtime) ... ok
+test_attested_build_uses_defaults_and_reports_states (plov.tests.test_kf_bootstrap.KfBootstrapTests.test_attested_build_uses_defaults_and_reports_states) ... ok
+test_bad_budget_is_immutable_refusal (plov.tests.test_kf_bootstrap.KfBootstrapTests.test_bad_budget_is_immutable_refusal) ... ok
+test_build_proof_macros_reject_nonboolean_and_unpaired_chain (plov.tests.test_kf_bootstrap.KfBootstrapTests.test_build_proof_macros_reject_nonboolean_and_unpaired_chain) ... ok
+test_disabled_request_skips_budget_parse_and_configures_off (plov.tests.test_kf_bootstrap.KfBootstrapTests.test_disabled_request_skips_budget_parse_and_configures_off) ... ok
+test_dump_has_profile_proofs_budgets_and_reason_labels (plov.tests.test_kf_bootstrap.KfBootstrapTests.test_dump_has_profile_proofs_budgets_and_reason_labels) ... ok
+test_malformed_bound_refuses_before_native_configuration (plov.tests.test_kf_bootstrap.KfBootstrapTests.test_malformed_bound_refuses_before_native_configuration) ... ok
+test_unattested_build_cannot_be_enabled_by_environment (plov.tests.test_kf_bootstrap.KfBootstrapTests.test_unattested_build_cannot_be_enabled_by_environment) ... ok
+test_c_fortran_capture_and_actual_openmp (plov.tests.test_kf_native_capture.NativeCaptureTests.test_c_fortran_capture_and_actual_openmp) ... FAIL
+test_plain_fortran_symbol_override (plov.tests.test_kf_native_capture.NativeCaptureTests.test_plain_fortran_symbol_override) ... FAIL
+test_wide_default_integer_and_logical_refuse_capture (plov.tests.test_kf_native_capture.NativeCaptureTests.test_wide_default_integer_and_logical_refuse_capture) ... FAIL
+test_wide_default_real_refuses_capture (plov.tests.test_kf_native_capture.NativeCaptureTests.test_wide_default_real_refuses_capture) ... FAIL
+test_guard_off_keeps_previous_report_and_needs_no_bootstrap (plov.tests.test_kf_timer_bootstrap.KfTimerBootstrapTests.test_guard_off_keeps_previous_report_and_needs_no_bootstrap) ... ok
+test_guard_on_forwards_request_grid_and_reports_live_state (plov.tests.test_kf_timer_bootstrap.KfTimerBootstrapTests.test_guard_on_forwards_request_grid_and_reports_live_state) ... ok
+test_guard_on_uses_parsed_grid_default_and_malformed_fallback (plov.tests.test_kf_timer_bootstrap.KfTimerBootstrapTests.test_guard_on_uses_parsed_grid_default_and_malformed_fallback) ... ok
+
+======================================================================
+FAIL: test_c_fortran_capture_and_actual_openmp (plov.tests.test_kf_native_capture.NativeCaptureTests.test_c_fortran_capture_and_actual_openmp)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/u5727520/wrf-stack/wtune/plov/tests/test_kf_native_capture.py", line 199, in test_c_fortran_capture_and_actual_openmp
+    library, cc, cflags, objects = self.build(directory)
+                                   ^^^^^^^^^^^^^^^^^^^^^
+  File "/home/u5727520/wrf-stack/wtune/plov/tests/test_kf_native_capture.py", line 135, in build
+    self.run_command(fc + fflags + ["-c", str(source), "-o", obj], directory)
+  File "/home/u5727520/wrf-stack/wtune/plov/tests/test_kf_native_capture.py", line 107, in run_command
+    self.assertEqual(result.returncode, 0,
+AssertionError: 1 != 0 : /usr/bin/gfortran -fall-intrinsics -std=f2018 -Wall -Wextra -Werror -fcheck=all -fPIC -c /home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90 -o fortran1.o
+/home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90:61:17:
+
+         if (.not. is_contiguous(node%rfield_1d)) exit
+                 1
+Error: Function ‘is_contiguous’ at (1) has no IMPLICIT type
+/home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90:70:17:
+
+         if (.not. is_contiguous(node%rfield_2d)) exit
+                 1
+Error: Function ‘is_contiguous’ at (1) has no IMPLICIT type
+/home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90:79:17:
+
+         if (.not. is_contiguous(node%rfield_3d)) exit
+                 1
+Error: Function ‘is_contiguous’ at (1) has no IMPLICIT type
+/home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90:89:17:
+
+         if (.not. is_contiguous(node%rfield_4d)) exit
+                 1
+Error: Function ‘is_contiguous’ at (1) has no IMPLICIT type
+/home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90:100:17:
+
+         if (.not. is_contiguous(node%rfield_5d)) exit
+                 1
+Error: Function ‘is_contiguous’ at (1) has no IMPLICIT type
+/home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90:111:17:
+
+         if (.not. is_contiguous(node%rfield_6d)) exit
+                 1
+Error: Function ‘is_contiguous’ at (1) has no IMPLICIT type
+/home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90:122:17:
+
+         if (.not. is_contiguous(node%rfield_7d)) exit
+                 1
+Error: Function ‘is_contiguous’ at (1) has no IMPLICIT type
+/home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90:145:17:
+
+         if (.not. is_contiguous(node%dfield_1d)) exit
+                 1
+Error: Function ‘is_contiguous’ at (1) has no IMPLICIT type
+/home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90:154:17:
+
+         if (.not. is_contiguous(node%dfield_2d)) exit
+                 1
+Error: Function ‘is_contiguous’ at (1) has no IMPLICIT type
+/home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90:163:17:
+
+         if (.not. is_contiguous(node%dfield_3d)) exit
+                 1
+Error: Function ‘is_contiguous’ at (1) has no IMPLICIT type
+/home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90:173:17:
+
+         if (.not. is_contiguous(node%dfield_4d)) exit
+                 1
+Error: Function ‘is_contiguous’ at (1) has no IMPLICIT type
+/home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90:184:17:
+
+         if (.not. is_contiguous(node%dfield_5d)) exit
+                 1
+Error: Function ‘is_contiguous’ at (1) has no IMPLICIT type
+/home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90:195:17:
+
+         if (.not. is_contiguous(node%dfield_6d)) exit
+                 1
+Error: Function ‘is_contiguous’ at (1) has no IMPLICIT type
+/home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90:206:17:
+
+         if (.not. is_contiguous(node%dfield_7d)) exit
+                 1
+Error: Function ‘is_contiguous’ at (1) has no IMPLICIT type
+/home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90:229:17:
+
+         if (.not. is_contiguous(node%ifield_1d)) exit
+                 1
+Error: Function ‘is_contiguous’ at (1) has no IMPLICIT type
+/home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90:238:17:
+
+         if (.not. is_contiguous(node%ifield_2d)) exit
+                 1
+Error: Function ‘is_contiguous’ at (1) has no IMPLICIT type
+/home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90:247:17:
+
+         if (.not. is_contiguous(node%ifield_3d)) exit
+                 1
+Error: Function ‘is_contiguous’ at (1) has no IMPLICIT type
+/home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90:257:17:
+
+         if (.not. is_contiguous(node%ifield_4d)) exit
+                 1
+Error: Function ‘is_contiguous’ at (1) has no IMPLICIT type
+/home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90:268:17:
+
+         if (.not. is_contiguous(node%ifield_5d)) exit
+                 1
+Error: Function ‘is_contiguous’ at (1) has no IMPLICIT type
+/home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90:279:17:
+
+         if (.not. is_contiguous(node%ifield_6d)) exit
+                 1
+Error: Function ‘is_contiguous’ at (1) has no IMPLICIT type
+/home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90:290:17:
+
+         if (.not. is_contiguous(node%ifield_7d)) exit
+                 1
+Error: Function ‘is_contiguous’ at (1) has no IMPLICIT type
+/home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90:313:17:
+
+         if (.not. is_contiguous(node%lfield_1d)) exit
+                 1
+Error: Function ‘is_contiguous’ at (1) has no IMPLICIT type
+/home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90:322:17:
+
+         if (.not. is_contiguous(node%lfield_2d)) exit
+                 1
+Error: Function ‘is_contiguous’ at (1) has no IMPLICIT type
+
+
+======================================================================
+FAIL: test_plain_fortran_symbol_override (plov.tests.test_kf_native_capture.NativeCaptureTests.test_plain_fortran_symbol_override)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/u5727520/wrf-stack/wtune/plov/tests/test_kf_native_capture.py", line 220, in test_plain_fortran_symbol_override
+    library, *_ = self.build(Path(tmp), override=True)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/u5727520/wrf-stack/wtune/plov/tests/test_kf_native_capture.py", line 135, in build
+    self.run_command(fc + fflags + ["-c", str(source), "-o", obj], directory)
+  File "/home/u5727520/wrf-stack/wtune/plov/tests/test_kf_native_capture.py", line 107, in run_command
+    self.assertEqual(result.returncode, 0,
+AssertionError: 1 != 0 : /usr/bin/gfortran -fall-intrinsics -std=f2018 -Wall -Wextra -Werror -fcheck=all -fPIC -c /home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90 -o fortran1.o
+/home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90:61:17:
+
+         if (.not. is_contiguous(node%rfield_1d)) exit
+                 1
+Error: Function ‘is_contiguous’ at (1) has no IMPLICIT type
+/home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90:70:17:
+
+         if (.not. is_contiguous(node%rfield_2d)) exit
+                 1
+Error: Function ‘is_contiguous’ at (1) has no IMPLICIT type
+/home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90:79:17:
+
+         if (.not. is_contiguous(node%rfield_3d)) exit
+                 1
+Error: Function ‘is_contiguous’ at (1) has no IMPLICIT type
+/home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90:89:17:
+
+         if (.not. is_contiguous(node%rfield_4d)) exit
+                 1
+Error: Function ‘is_contiguous’ at (1) has no IMPLICIT type
+/home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90:100:17:
+
+         if (.not. is_contiguous(node%rfield_5d)) exit
+                 1
+Error: Function ‘is_contiguous’ at (1) has no IMPLICIT type
+/home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90:111:17:
+
+         if (.not. is_contiguous(node%rfield_6d)) exit
+                 1
+Error: Function ‘is_contiguous’ at (1) has no IMPLICIT type
+/home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90:122:17:
+
+         if (.not. is_contiguous(node%rfield_7d)) exit
+                 1
+Error: Function ‘is_contiguous’ at (1) has no IMPLICIT type
+/home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90:145:17:
+
+         if (.not. is_contiguous(node%dfield_1d)) exit
+                 1
+Error: Function ‘is_contiguous’ at (1) has no IMPLICIT type
+/home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90:154:17:
+
+         if (.not. is_contiguous(node%dfield_2d)) exit
+                 1
+Error: Function ‘is_contiguous’ at (1) has no IMPLICIT type
+/home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90:163:17:
+
+         if (.not. is_contiguous(node%dfield_3d)) exit
+                 1
+Error: Function ‘is_contiguous’ at (1) has no IMPLICIT type
+/home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90:173:17:
+
+         if (.not. is_contiguous(node%dfield_4d)) exit
+                 1
+Error: Function ‘is_contiguous’ at (1) has no IMPLICIT type
+/home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90:184:17:
+
+         if (.not. is_contiguous(node%dfield_5d)) exit
+                 1
+Error: Function ‘is_contiguous’ at (1) has no IMPLICIT type
+/home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90:195:17:
+
+         if (.not. is_contiguous(node%dfield_6d)) exit
+                 1
+Error: Function ‘is_contiguous’ at (1) has no IMPLICIT type
+/home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90:206:17:
+
+         if (.not. is_contiguous(node%dfield_7d)) exit
+                 1
+Error: Function ‘is_contiguous’ at (1) has no IMPLICIT type
+/home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90:229:17:
+
+         if (.not. is_contiguous(node%ifield_1d)) exit
+                 1
+Error: Function ‘is_contiguous’ at (1) has no IMPLICIT type
+/home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90:238:17:
+
+         if (.not. is_contiguous(node%ifield_2d)) exit
+                 1
+Error: Function ‘is_contiguous’ at (1) has no IMPLICIT type
+/home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90:247:17:
+
+         if (.not. is_contiguous(node%ifield_3d)) exit
+                 1
+Error: Function ‘is_contiguous’ at (1) has no IMPLICIT type
+/home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90:257:17:
+
+         if (.not. is_contiguous(node%ifield_4d)) exit
+                 1
+Error: Function ‘is_contiguous’ at (1) has no IMPLICIT type
+/home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90:268:17:
+
+         if (.not. is_contiguous(node%ifield_5d)) exit
+                 1
+Error: Function ‘is_contiguous’ at (1) has no IMPLICIT type
+/home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90:279:17:
+
+         if (.not. is_contiguous(node%ifield_6d)) exit
+                 1
+Error: Function ‘is_contiguous’ at (1) has no IMPLICIT type
+/home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90:290:17:
+
+         if (.not. is_contiguous(node%ifield_7d)) exit
+                 1
+Error: Function ‘is_contiguous’ at (1) has no IMPLICIT type
+/home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90:313:17:
+
+         if (.not. is_contiguous(node%lfield_1d)) exit
+                 1
+Error: Function ‘is_contiguous’ at (1) has no IMPLICIT type
+/home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90:322:17:
+
+         if (.not. is_contiguous(node%lfield_2d)) exit
+                 1
+Error: Function ‘is_contiguous’ at (1) has no IMPLICIT type
+
+
+======================================================================
+FAIL: test_wide_default_integer_and_logical_refuse_capture (plov.tests.test_kf_native_capture.NativeCaptureTests.test_wide_default_integer_and_logical_refuse_capture)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/u5727520/wrf-stack/wtune/plov/tests/test_kf_native_capture.py", line 215, in test_wide_default_integer_and_logical_refuse_capture
+    library, *_ = self.build(Path(tmp), ["-fdefault-integer-8"])
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/u5727520/wrf-stack/wtune/plov/tests/test_kf_native_capture.py", line 135, in build
+    self.run_command(fc + fflags + ["-c", str(source), "-o", obj], directory)
+  File "/home/u5727520/wrf-stack/wtune/plov/tests/test_kf_native_capture.py", line 107, in run_command
+    self.assertEqual(result.returncode, 0,
+AssertionError: 1 != 0 : /usr/bin/gfortran -fall-intrinsics -std=f2018 -Wall -Wextra -Werror -fcheck=all -fPIC -fdefault-integer-8 -c /home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90 -o fortran1.o
+/home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90:61:17:
+
+         if (.not. is_contiguous(node%rfield_1d)) exit
+                 1
+Error: Function ‘is_contiguous’ at (1) has no IMPLICIT type
+/home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90:70:17:
+
+         if (.not. is_contiguous(node%rfield_2d)) exit
+                 1
+Error: Function ‘is_contiguous’ at (1) has no IMPLICIT type
+/home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90:79:17:
+
+         if (.not. is_contiguous(node%rfield_3d)) exit
+                 1
+Error: Function ‘is_contiguous’ at (1) has no IMPLICIT type
+/home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90:89:17:
+
+         if (.not. is_contiguous(node%rfield_4d)) exit
+                 1
+Error: Function ‘is_contiguous’ at (1) has no IMPLICIT type
+/home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90:100:17:
+
+         if (.not. is_contiguous(node%rfield_5d)) exit
+                 1
+Error: Function ‘is_contiguous’ at (1) has no IMPLICIT type
+/home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90:111:17:
+
+         if (.not. is_contiguous(node%rfield_6d)) exit
+                 1
+Error: Function ‘is_contiguous’ at (1) has no IMPLICIT type
+/home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90:122:17:
+
+         if (.not. is_contiguous(node%rfield_7d)) exit
+                 1
+Error: Function ‘is_contiguous’ at (1) has no IMPLICIT type
+/home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90:145:17:
+
+         if (.not. is_contiguous(node%dfield_1d)) exit
+                 1
+Error: Function ‘is_contiguous’ at (1) has no IMPLICIT type
+/home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90:154:17:
+
+         if (.not. is_contiguous(node%dfield_2d)) exit
+                 1
+Error: Function ‘is_contiguous’ at (1) has no IMPLICIT type
+/home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90:163:17:
+
+         if (.not. is_contiguous(node%dfield_3d)) exit
+                 1
+Error: Function ‘is_contiguous’ at (1) has no IMPLICIT type
+/home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90:173:17:
+
+         if (.not. is_contiguous(node%dfield_4d)) exit
+                 1
+Error: Function ‘is_contiguous’ at (1) has no IMPLICIT type
+/home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90:184:17:
+
+         if (.not. is_contiguous(node%dfield_5d)) exit
+                 1
+Error: Function ‘is_contiguous’ at (1) has no IMPLICIT type
+/home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90:195:17:
+
+         if (.not. is_contiguous(node%dfield_6d)) exit
+                 1
+Error: Function ‘is_contiguous’ at (1) has no IMPLICIT type
+/home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90:206:17:
+
+         if (.not. is_contiguous(node%dfield_7d)) exit
+                 1
+Error: Function ‘is_contiguous’ at (1) has no IMPLICIT type
+/home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90:229:17:
+
+         if (.not. is_contiguous(node%ifield_1d)) exit
+                 1
+Error: Function ‘is_contiguous’ at (1) has no IMPLICIT type
+/home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90:238:17:
+
+         if (.not. is_contiguous(node%ifield_2d)) exit
+                 1
+Error: Function ‘is_contiguous’ at (1) has no IMPLICIT type
+/home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90:247:17:
+
+         if (.not. is_contiguous(node%ifield_3d)) exit
+                 1
+Error: Function ‘is_contiguous’ at (1) has no IMPLICIT type
+/home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90:257:17:
+
+         if (.not. is_contiguous(node%ifield_4d)) exit
+                 1
+Error: Function ‘is_contiguous’ at (1) has no IMPLICIT type
+/home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90:268:17:
+
+         if (.not. is_contiguous(node%ifield_5d)) exit
+                 1
+Error: Function ‘is_contiguous’ at (1) has no IMPLICIT type
+/home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90:279:17:
+
+         if (.not. is_contiguous(node%ifield_6d)) exit
+                 1
+Error: Function ‘is_contiguous’ at (1) has no IMPLICIT type
+/home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90:290:17:
+
+         if (.not. is_contiguous(node%ifield_7d)) exit
+                 1
+Error: Function ‘is_contiguous’ at (1) has no IMPLICIT type
+/home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90:313:17:
+
+         if (.not. is_contiguous(node%lfield_1d)) exit
+                 1
+Error: Function ‘is_contiguous’ at (1) has no IMPLICIT type
+/home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90:322:17:
+
+         if (.not. is_contiguous(node%lfield_2d)) exit
+                 1
+Error: Function ‘is_contiguous’ at (1) has no IMPLICIT type
+
+
+======================================================================
+FAIL: test_wide_default_real_refuses_capture (plov.tests.test_kf_native_capture.NativeCaptureTests.test_wide_default_real_refuses_capture)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/u5727520/wrf-stack/wtune/plov/tests/test_kf_native_capture.py", line 210, in test_wide_default_real_refuses_capture
+    library, *_ = self.build(Path(tmp), ["-fdefault-real-8"])
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/u5727520/wrf-stack/wtune/plov/tests/test_kf_native_capture.py", line 135, in build
+    self.run_command(fc + fflags + ["-c", str(source), "-o", obj], directory)
+  File "/home/u5727520/wrf-stack/wtune/plov/tests/test_kf_native_capture.py", line 107, in run_command
+    self.assertEqual(result.returncode, 0,
+AssertionError: 1 != 0 : /usr/bin/gfortran -fall-intrinsics -std=f2018 -Wall -Wextra -Werror -fcheck=all -fPIC -fdefault-real-8 -c /home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90 -o fortran1.o
+/home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90:61:17:
+
+         if (.not. is_contiguous(node%rfield_1d)) exit
+                 1
+Error: Function ‘is_contiguous’ at (1) has no IMPLICIT type
+/home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90:70:17:
+
+         if (.not. is_contiguous(node%rfield_2d)) exit
+                 1
+Error: Function ‘is_contiguous’ at (1) has no IMPLICIT type
+/home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90:79:17:
+
+         if (.not. is_contiguous(node%rfield_3d)) exit
+                 1
+Error: Function ‘is_contiguous’ at (1) has no IMPLICIT type
+/home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90:89:17:
+
+         if (.not. is_contiguous(node%rfield_4d)) exit
+                 1
+Error: Function ‘is_contiguous’ at (1) has no IMPLICIT type
+/home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90:100:17:
+
+         if (.not. is_contiguous(node%rfield_5d)) exit
+                 1
+Error: Function ‘is_contiguous’ at (1) has no IMPLICIT type
+/home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90:111:17:
+
+         if (.not. is_contiguous(node%rfield_6d)) exit
+                 1
+Error: Function ‘is_contiguous’ at (1) has no IMPLICIT type
+/home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90:122:17:
+
+         if (.not. is_contiguous(node%rfield_7d)) exit
+                 1
+Error: Function ‘is_contiguous’ at (1) has no IMPLICIT type
+/home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90:145:17:
+
+         if (.not. is_contiguous(node%dfield_1d)) exit
+                 1
+Error: Function ‘is_contiguous’ at (1) has no IMPLICIT type
+/home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90:154:17:
+
+         if (.not. is_contiguous(node%dfield_2d)) exit
+                 1
+Error: Function ‘is_contiguous’ at (1) has no IMPLICIT type
+/home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90:163:17:
+
+         if (.not. is_contiguous(node%dfield_3d)) exit
+                 1
+Error: Function ‘is_contiguous’ at (1) has no IMPLICIT type
+/home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90:173:17:
+
+         if (.not. is_contiguous(node%dfield_4d)) exit
+                 1
+Error: Function ‘is_contiguous’ at (1) has no IMPLICIT type
+/home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90:184:17:
+
+         if (.not. is_contiguous(node%dfield_5d)) exit
+                 1
+Error: Function ‘is_contiguous’ at (1) has no IMPLICIT type
+/home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90:195:17:
+
+         if (.not. is_contiguous(node%dfield_6d)) exit
+                 1
+Error: Function ‘is_contiguous’ at (1) has no IMPLICIT type
+/home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90:206:17:
+
+         if (.not. is_contiguous(node%dfield_7d)) exit
+                 1
+Error: Function ‘is_contiguous’ at (1) has no IMPLICIT type
+/home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90:229:17:
+
+         if (.not. is_contiguous(node%ifield_1d)) exit
+                 1
+Error: Function ‘is_contiguous’ at (1) has no IMPLICIT type
+/home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90:238:17:
+
+         if (.not. is_contiguous(node%ifield_2d)) exit
+                 1
+Error: Function ‘is_contiguous’ at (1) has no IMPLICIT type
+/home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90:247:17:
+
+         if (.not. is_contiguous(node%ifield_3d)) exit
+                 1
+Error: Function ‘is_contiguous’ at (1) has no IMPLICIT type
+/home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90:257:17:
+
+         if (.not. is_contiguous(node%ifield_4d)) exit
+                 1
+Error: Function ‘is_contiguous’ at (1) has no IMPLICIT type
+/home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90:268:17:
+
+         if (.not. is_contiguous(node%ifield_5d)) exit
+                 1
+Error: Function ‘is_contiguous’ at (1) has no IMPLICIT type
+/home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90:279:17:
+
+         if (.not. is_contiguous(node%ifield_6d)) exit
+                 1
+Error: Function ‘is_contiguous’ at (1) has no IMPLICIT type
+/home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90:290:17:
+
+         if (.not. is_contiguous(node%ifield_7d)) exit
+                 1
+Error: Function ‘is_contiguous’ at (1) has no IMPLICIT type
+/home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90:313:17:
+
+         if (.not. is_contiguous(node%lfield_1d)) exit
+                 1
+Error: Function ‘is_contiguous’ at (1) has no IMPLICIT type
+/home/u5727520/wrf-stack/wtune/plov/wt_grid_spans.f90:322:17:
+
+         if (.not. is_contiguous(node%lfield_2d)) exit
+                 1
+Error: Function ‘is_contiguous’ at (1) has no IMPLICIT type
+
+
+----------------------------------------------------------------------
+Ran 16 tests in 30.577s
+
+FAILED (failures=4)

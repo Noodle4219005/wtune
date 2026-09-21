@@ -1,0 +1,6 @@
+test_node_local_service (plov.tests.test_node_local.NodeLocalServiceTest.test_node_local_service) ... ok
+
+----------------------------------------------------------------------
+Ran 1 test in 0.604s
+
+OK

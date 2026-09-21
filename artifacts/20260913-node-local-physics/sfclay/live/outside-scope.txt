@@ -1,0 +1,35 @@
+/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/sfclay/live/test_sfclay_node_live outside-scope
+# wt_sfclay_node_identity pid=2328443 local_rank=0 phase=91561241887065 grid=0 epoch=0 configuration=configured owner_remote_committed=0
+# wt_sfclay_node mode=forced-g0 adaptive=pending serialized_native=0 shadow_remote=0 scheme=91 fractional_seaice=0 profile=3977193313445709821 init=1803173529494650525 requested=1 donated=0 self=0 helper=0 committed=0 fallback=1 fatal=0 pack_ns=0 native_ns=5591 progress_ns=0 shadow_checked=0 shadow_failed=0 shadow_bytes=0
+# wt_sfclay_node refusal.config=0
+# wt_sfclay_node refusal.abi=0
+# wt_sfclay_node refusal.init=0
+# wt_sfclay_node refusal.scope=1
+# wt_sfclay_node refusal.mapper=0
+# wt_sfclay_node refusal.omp=0
+# wt_sfclay_node refusal.capacity=0
+# wt_sfclay_node refusal.geometry=0
+# wt_sfclay_node refusal.single_row=0
+# wt_sfclay_node refusal.alias=0
+# wt_sfclay_node refusal.budget=0
+# wt_sfclay_node refusal.slot=0
+# wt_sfclay_node refusal.prepare=0
+# wt_sfclay_node refusal.native_query=0
+# wt_sfclay_node_identity pid=2328444 local_rank=1 phase=91561241887065 grid=0 epoch=0 configuration=configured owner_remote_committed=0
+# wt_sfclay_node mode=forced-g0 adaptive=pending serialized_native=0 shadow_remote=0 scheme=91 fractional_seaice=0 profile=3977193313445709821 init=1803173529494650525 requested=1 donated=0 self=0 helper=0 committed=0 fallback=1 fatal=0 pack_ns=0 native_ns=5902 progress_ns=0 shadow_checked=0 shadow_failed=0 shadow_bytes=0
+# wt_sfclay_node refusal.config=0
+# wt_sfclay_node refusal.abi=0
+# wt_sfclay_node refusal.init=0
+# wt_sfclay_node refusal.scope=1
+# wt_sfclay_node refusal.mapper=0
+# wt_sfclay_node refusal.omp=0
+# wt_sfclay_node refusal.capacity=0
+# wt_sfclay_node refusal.geometry=0
+# wt_sfclay_node refusal.single_row=0
+# wt_sfclay_node refusal.alias=0
+# wt_sfclay_node refusal.budget=0
+# wt_sfclay_node refusal.slot=0
+# wt_sfclay_node refusal.prepare=0
+# wt_sfclay_node refusal.native_query=0
+SFCLAY production node-live fork/OMP2 chain passed
+returncode=0

@@ -1,0 +1,8 @@
+test_changed_prospective_source_module_and_baseline_fail (__main__.NativePreproofVerifierTests.test_changed_prospective_source_module_and_baseline_fail) ... ok
+test_loader_output_controls_selection_and_conflicts_fail (__main__.NativePreproofVerifierTests.test_loader_output_controls_selection_and_conflicts_fail) ... ok
+test_object_must_match_executor_ledger (__main__.NativePreproofVerifierTests.test_object_must_match_executor_ledger) ... ok
+
+----------------------------------------------------------------------
+Ran 3 tests in 0.005s
+
+OK

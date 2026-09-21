@@ -1,0 +1,3 @@
+/home/u5727520/wrf-stack/wtune-fortran-dev-20260912/.pixi/envs/default/bin/x86_64-conda-linux-gnu-cc -std=c11 -O1 -g -Wall -Wextra -Werror -pedantic -pthread -Iplov plov/wt_sfclay_batch.c plov/wt_sfclay_batch_codec.c plov/wt_sfclay_node.c plov/wt_node_local.c plov/tests/test_sfclay_node_shadow.c -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer -o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/sfclay/shadow/test-sfclay-shadow-sanitized
+PASS SFCLAY node shadow
+returncode=0

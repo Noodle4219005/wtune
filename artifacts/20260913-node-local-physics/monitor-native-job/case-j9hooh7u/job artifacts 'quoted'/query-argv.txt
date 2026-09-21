@@ -1,0 +1,16 @@
+squeue-mock	-h	-j	123	-o	%i|%T|%M|%V|%S|%R
+sacct-mock	-n	-X	-j	123	--format=JobIDRaw,State,ExitCode,Elapsed,NNodes,NCPUS	--parsable2
+squeue-mock	-h	-j	123	-o	%i|%T|%M|%V|%S|%R
+sacct-mock	-n	-X	-j	123	--format=JobIDRaw,State,ExitCode,Elapsed,NNodes,NCPUS	--parsable2
+squeue-mock	-h	-j	123	-o	%i|%T|%M|%V|%S|%R
+sacct-mock	-n	-X	-j	123	--format=JobIDRaw,State,ExitCode,Elapsed,NNodes,NCPUS	--parsable2
+squeue-mock	-h	-j	123	-o	%i|%T|%M|%V|%S|%R
+sacct-mock	-n	-X	-j	123	--format=JobIDRaw,State,ExitCode,Elapsed,NNodes,NCPUS	--parsable2
+squeue-mock	-h	-j	123	-o	%i|%T|%M|%V|%S|%R
+sacct-mock	-n	-X	-j	123	--format=JobIDRaw,State,ExitCode,Elapsed,NNodes,NCPUS	--parsable2
+squeue-mock	-h	-j	123	-o	%i|%T|%M|%V|%S|%R
+sacct-mock	-n	-X	-j	123	--format=JobIDRaw,State,ExitCode,Elapsed,NNodes,NCPUS	--parsable2
+squeue-mock	-h	-j	123	-o	%i|%T|%M|%V|%S|%R
+sacct-mock	-n	-X	-j	123	--format=JobIDRaw,State,ExitCode,Elapsed,NNodes,NCPUS	--parsable2
+squeue-mock	-h	-j	123	-o	%i|%T|%M|%V|%S|%R
+sacct-mock	-n	-X	-j	123	--format=JobIDRaw,State,ExitCode,Elapsed,NNodes,NCPUS	--parsable2

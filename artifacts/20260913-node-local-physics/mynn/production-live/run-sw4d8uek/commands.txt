@@ -1,0 +1,1306 @@
+/home/u5727520/wrf-stack/wtune-fortran-dev-20260912/.pixi/envs/default/bin/x86_64-conda-linux-gnu-gfortran -cpp -ffree-form -O1 -g -fcheck=all -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer -J /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/mod -I /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/mod -c /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/wt_mynn_static_state.f90 -o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/wt_mynn_static_state.o
+RETURN 0
+/home/u5727520/wrf-stack/wtune-fortran-dev-20260912/.pixi/envs/default/bin/x86_64-conda-linux-gnu-gfortran -cpp -ffree-form -O1 -g -fcheck=all -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer -J /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/mod -I /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/mod -c /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/caller.f90 -o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/caller.o
+RETURN 0
+/home/u5727520/wrf-stack/wtune-fortran-dev-20260912/.pixi/envs/default/bin/python /home/u5727520/wrf-stack/wtune/plov/gen_mynn_bridge.py --source /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/module_bl_mynnedmf_driver.f90 --schema /home/u5727520/wrf-stack/wtune/plov/mynn_schema.json --symbol __module_bl_mynnedmf_driver_MOD_mynnedmf_driver --output /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/bridge.c
+RETURN 0
+/home/u5727520/wrf-stack/wtune-fortran-dev-20260912/.pixi/envs/default/bin/x86_64-conda-linux-gnu-cc -std=c11 -Wall -Wextra -Werror -O1 -g -fopenmp -pthread -DWT_MYNN_NODE_LOCAL -DWT_SFCLAY_SCOPE_TEST_HELPERS -I /home/u5727520/wrf-stack/wtune/plov -I /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek '-DWT_KF_NODE_SHM_DIRECTORY="/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek"' '-DWT_MYNN_BUILD_PROFILE_ID="GNU-production-fixture-only"' -DWT_MYNN_BUILD_ABI_VERIFIED=1 -DWT_MYNN_BUILD_CALLER_VERIFIED=1 -DWT_MYNN_BUILD_STATIC_STATE_VERIFIED=1 -c /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/bridge.c -o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/bridge-strict.o
+RETURN 0
+/home/u5727520/wrf-stack/wtune-fortran-dev-20260912/.pixi/envs/default/bin/x86_64-conda-linux-gnu-cc -std=c11 -Wall -Wextra -Werror -O1 -g -fopenmp -pthread -DWT_MYNN_NODE_LOCAL -DWT_SFCLAY_SCOPE_TEST_HELPERS -I /home/u5727520/wrf-stack/wtune/plov -I /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek '-DWT_KF_NODE_SHM_DIRECTORY="/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek"' '-DWT_MYNN_BUILD_PROFILE_ID="GNU-production-fixture-only"' -DWT_MYNN_BUILD_ABI_VERIFIED=1 -DWT_MYNN_BUILD_CALLER_VERIFIED=1 -DWT_MYNN_BUILD_STATIC_STATE_VERIFIED=1 -c /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/abi.c -o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/abi-strict.o
+RETURN 0
+/home/u5727520/wrf-stack/wtune-fortran-dev-20260912/.pixi/envs/default/bin/x86_64-conda-linux-gnu-cc -std=c11 -Wall -Wextra -Werror -O1 -g -fopenmp -pthread -DWT_MYNN_NODE_LOCAL -DWT_SFCLAY_SCOPE_TEST_HELPERS -I /home/u5727520/wrf-stack/wtune/plov -I /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek '-DWT_KF_NODE_SHM_DIRECTORY="/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek"' '-DWT_MYNN_BUILD_PROFILE_ID="GNU-production-fixture-only"' -DWT_MYNN_BUILD_ABI_VERIFIED=1 -DWT_MYNN_BUILD_CALLER_VERIFIED=1 -DWT_MYNN_BUILD_STATIC_STATE_VERIFIED=1 -c /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/test_mynn_node_live.c -o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/test_mynn_node_live-strict.o
+RETURN 0
+/home/u5727520/wrf-stack/wtune-fortran-dev-20260912/.pixi/envs/default/bin/x86_64-conda-linux-gnu-cc -std=c11 -Wall -Wextra -Werror -O1 -g -fopenmp -pthread -DWT_MYNN_NODE_LOCAL -DWT_SFCLAY_SCOPE_TEST_HELPERS -I /home/u5727520/wrf-stack/wtune/plov -I /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek '-DWT_KF_NODE_SHM_DIRECTORY="/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek"' '-DWT_MYNN_BUILD_PROFILE_ID="GNU-production-fixture-only"' -DWT_MYNN_BUILD_ABI_VERIFIED=1 -DWT_MYNN_BUILD_CALLER_VERIFIED=1 -DWT_MYNN_BUILD_STATIC_STATE_VERIFIED=1 -c /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/wt_live_spans.c -o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/wt_live_spans-strict.o
+RETURN 0
+/home/u5727520/wrf-stack/wtune-fortran-dev-20260912/.pixi/envs/default/bin/x86_64-conda-linux-gnu-cc -std=c11 -Wall -Wextra -Werror -O1 -g -fopenmp -pthread -DWT_MYNN_NODE_LOCAL -DWT_SFCLAY_SCOPE_TEST_HELPERS -I /home/u5727520/wrf-stack/wtune/plov -I /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek '-DWT_KF_NODE_SHM_DIRECTORY="/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek"' '-DWT_MYNN_BUILD_PROFILE_ID="GNU-production-fixture-only"' -DWT_MYNN_BUILD_ABI_VERIFIED=1 -DWT_MYNN_BUILD_CALLER_VERIFIED=1 -DWT_MYNN_BUILD_STATIC_STATE_VERIFIED=1 -c /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/wt_mynn_layout.c -o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/wt_mynn_layout-strict.o
+RETURN 0
+/home/u5727520/wrf-stack/wtune-fortran-dev-20260912/.pixi/envs/default/bin/x86_64-conda-linux-gnu-cc -std=c11 -Wall -Wextra -Werror -O1 -g -fopenmp -pthread -DWT_MYNN_NODE_LOCAL -DWT_SFCLAY_SCOPE_TEST_HELPERS -I /home/u5727520/wrf-stack/wtune/plov -I /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek '-DWT_KF_NODE_SHM_DIRECTORY="/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek"' '-DWT_MYNN_BUILD_PROFILE_ID="GNU-production-fixture-only"' -DWT_MYNN_BUILD_ABI_VERIFIED=1 -DWT_MYNN_BUILD_CALLER_VERIFIED=1 -DWT_MYNN_BUILD_STATIC_STATE_VERIFIED=1 -c /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/wt_mynn_batch.c -o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/wt_mynn_batch-strict.o
+RETURN 0
+/home/u5727520/wrf-stack/wtune-fortran-dev-20260912/.pixi/envs/default/bin/x86_64-conda-linux-gnu-cc -std=c11 -Wall -Wextra -Werror -O1 -g -fopenmp -pthread -DWT_MYNN_NODE_LOCAL -DWT_SFCLAY_SCOPE_TEST_HELPERS -I /home/u5727520/wrf-stack/wtune/plov -I /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek '-DWT_KF_NODE_SHM_DIRECTORY="/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek"' '-DWT_MYNN_BUILD_PROFILE_ID="GNU-production-fixture-only"' -DWT_MYNN_BUILD_ABI_VERIFIED=1 -DWT_MYNN_BUILD_CALLER_VERIFIED=1 -DWT_MYNN_BUILD_STATIC_STATE_VERIFIED=1 -c /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/wt_mynn_node.c -o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/wt_mynn_node-strict.o
+RETURN 0
+/home/u5727520/wrf-stack/wtune-fortran-dev-20260912/.pixi/envs/default/bin/x86_64-conda-linux-gnu-cc -std=c11 -Wall -Wextra -Werror -O1 -g -fopenmp -pthread -DWT_MYNN_NODE_LOCAL -DWT_SFCLAY_SCOPE_TEST_HELPERS -I /home/u5727520/wrf-stack/wtune/plov -I /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek '-DWT_KF_NODE_SHM_DIRECTORY="/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek"' '-DWT_MYNN_BUILD_PROFILE_ID="GNU-production-fixture-only"' -DWT_MYNN_BUILD_ABI_VERIFIED=1 -DWT_MYNN_BUILD_CALLER_VERIFIED=1 -DWT_MYNN_BUILD_STATIC_STATE_VERIFIED=1 -c /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/wt_node_local.c -o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/wt_node_local-strict.o
+RETURN 0
+/home/u5727520/wrf-stack/wtune-fortran-dev-20260912/.pixi/envs/default/bin/x86_64-conda-linux-gnu-cc -std=c11 -Wall -Wextra -Werror -O1 -g -fopenmp -pthread -DWT_MYNN_NODE_LOCAL -DWT_SFCLAY_SCOPE_TEST_HELPERS -I /home/u5727520/wrf-stack/wtune/plov -I /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek '-DWT_KF_NODE_SHM_DIRECTORY="/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek"' '-DWT_MYNN_BUILD_PROFILE_ID="GNU-production-fixture-only"' -DWT_MYNN_BUILD_ABI_VERIFIED=1 -DWT_MYNN_BUILD_CALLER_VERIFIED=1 -DWT_MYNN_BUILD_STATIC_STATE_VERIFIED=1 -c /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/wt_kf_node_shm.c -o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/wt_kf_node_shm-strict.o
+RETURN 0
+/home/u5727520/wrf-stack/wtune-fortran-dev-20260912/.pixi/envs/default/bin/x86_64-conda-linux-gnu-cc -std=c11 -Wall -Wextra -Werror -O1 -g -fopenmp -pthread -DWT_MYNN_NODE_LOCAL -DWT_SFCLAY_SCOPE_TEST_HELPERS -I /home/u5727520/wrf-stack/wtune/plov -I /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek '-DWT_KF_NODE_SHM_DIRECTORY="/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek"' '-DWT_MYNN_BUILD_PROFILE_ID="GNU-production-fixture-only"' -DWT_MYNN_BUILD_ABI_VERIFIED=1 -DWT_MYNN_BUILD_CALLER_VERIFIED=1 -DWT_MYNN_BUILD_STATIC_STATE_VERIFIED=1 -c /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/wt_mynn_native.c -o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/wt_mynn_native-strict.o
+RETURN 0
+/home/u5727520/wrf-stack/wtune-fortran-dev-20260912/.pixi/envs/default/bin/x86_64-conda-linux-gnu-cc -std=c11 -Wall -Wextra -Werror -O1 -g -fopenmp -pthread -DWT_MYNN_NODE_LOCAL -DWT_SFCLAY_SCOPE_TEST_HELPERS -I /home/u5727520/wrf-stack/wtune/plov -I /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek '-DWT_KF_NODE_SHM_DIRECTORY="/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek"' '-DWT_MYNN_BUILD_PROFILE_ID="GNU-production-fixture-only"' -DWT_MYNN_BUILD_ABI_VERIFIED=1 -DWT_MYNN_BUILD_CALLER_VERIFIED=1 -DWT_MYNN_BUILD_STATIC_STATE_VERIFIED=1 -c /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/wt_mynn_node_live.c -o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/wt_mynn_node_live-strict.o
+RETURN 0
+/home/u5727520/wrf-stack/wtune-fortran-dev-20260912/.pixi/envs/default/bin/x86_64-conda-linux-gnu-cc -std=c11 -Wall -Wextra -Werror -O1 -g -fopenmp -pthread -DWT_MYNN_NODE_LOCAL -DWT_SFCLAY_SCOPE_TEST_HELPERS -I /home/u5727520/wrf-stack/wtune/plov -I /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek '-DWT_KF_NODE_SHM_DIRECTORY="/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek"' '-DWT_MYNN_BUILD_PROFILE_ID="GNU-production-fixture-only"' -DWT_MYNN_BUILD_ABI_VERIFIED=1 -DWT_MYNN_BUILD_CALLER_VERIFIED=1 -DWT_MYNN_BUILD_STATIC_STATE_VERIFIED=1 -c /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/wt_mynn_bootstrap.c -o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/wt_mynn_bootstrap-strict.o
+RETURN 0
+/home/u5727520/wrf-stack/wtune-fortran-dev-20260912/.pixi/envs/default/bin/x86_64-conda-linux-gnu-cc -std=c11 -Wall -Wextra -Werror -O1 -g -fopenmp -pthread -DWT_MYNN_NODE_LOCAL -DWT_SFCLAY_SCOPE_TEST_HELPERS -I /home/u5727520/wrf-stack/wtune/plov -I /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek '-DWT_KF_NODE_SHM_DIRECTORY="/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek"' '-DWT_MYNN_BUILD_PROFILE_ID="GNU-production-fixture-only"' -DWT_MYNN_BUILD_ABI_VERIFIED=1 -DWT_MYNN_BUILD_CALLER_VERIFIED=1 -DWT_MYNN_BUILD_STATIC_STATE_VERIFIED=1 -c /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/wt_sfclay_scope_bridge.c -o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/wt_sfclay_scope_bridge-strict.o
+RETURN 0
+/home/u5727520/wrf-stack/wtune-fortran-dev-20260912/.pixi/envs/default/bin/x86_64-conda-linux-gnu-gfortran -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer -fopenmp -pthread /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/ccpp_kind_types.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/module_model_constants.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/module_bl_mynnedmf_common.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/module_bl_mynnedmf.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/module_bl_mynnedmf_driver.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/wt_mynn_static_state.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/caller.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/bridge-strict.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/abi-strict.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/test_mynn_node_live-strict.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/wt_live_spans-strict.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/wt_mynn_layout-strict.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/wt_mynn_batch-strict.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/wt_mynn_node-strict.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/wt_node_local-strict.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/wt_kf_node_shm-strict.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/wt_mynn_native-strict.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/wt_mynn_node_live-strict.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/wt_mynn_bootstrap-strict.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/wt_sfclay_scope_bridge-strict.o -Wl,--wrap=__module_bl_mynnedmf_driver_MOD_mynnedmf_driver -Wl,--wrap=module_first_rk_step_part1_mp_first_rk_step_part1_ -Wl,--wrap=wt_mynn_bridge_dispatch -o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/strict
+RETURN 0
+/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/strict /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/strict-0.bin
+# wt_mynn_node_g0 event=helper pid=2431422 rank=1 thread=1 owner=0 owner_thread=0 executor=1 work=1 grid=4 epoch=1 init=6679059554425913294
+# wt_mynn_node_g0 event=helper pid=2431422 rank=1 thread=0 owner=0 owner_thread=1 executor=1 work=2 grid=4 epoch=1 init=6679059554425913294
+# wt_mynn_node_g0 event=commit pid=2431422 rank=1 thread=1 owner=1 owner_thread=1 executor=1 work=3 grid=4 epoch=1 init=6679059554425913294
+# wt_mynn_node_g0 event=commit pid=2431422 rank=1 thread=0 owner=1 owner_thread=0 executor=1 work=4 grid=4 epoch=1 init=6679059554425913294
+# wt_mynn_node_g0 event=commit pid=2431421 rank=0 thread=0 owner=0 owner_thread=0 executor=1 work=1 grid=4 epoch=1 init=6679059554425913294
+# wt_mynn_node_g0 event=commit pid=2431421 rank=0 thread=1 owner=0 owner_thread=1 executor=1 work=2 grid=4 epoch=1 init=6679059554425913294
+# wt_mynn_node_g0 event=commit pid=2431422 rank=1 thread=0 owner=1 owner_thread=0 executor=1 work=5 grid=4 epoch=2 init=6679059554425913294
+# wt_mynn_node_g0 event=helper pid=2431422 rank=1 thread=1 owner=0 owner_thread=0 executor=1 work=7 grid=4 epoch=2 init=6679059554425913294
+# wt_mynn_node_g0 event=commit pid=2431421 rank=0 thread=0 owner=0 owner_thread=0 executor=1 work=7 grid=4 epoch=2 init=6679059554425913294
+# wt_mynn_node_g0 event=commit pid=2431422 rank=1 thread=1 owner=1 owner_thread=1 executor=1 work=6 grid=4 epoch=2 init=6679059554425913294
+# wt_mynn_bootstrap requested=1 configured=1 profile=GNU-production-fixture-only abi=1 caller=1 static=1
+# wt_mynn_node mode=forced-g0 adaptive=pending shadow_remote=0 pid=2431422 rank=1 grid=4 epoch=2 init=6679059554425913294 serialized=1 requested=5 donated=4 committed=4 self=4 helper=3 remote=0 fallback=1 fatal=0 pack_ns=691266 native_ns=5296325 progress_ns=1882877 shadow_checked=0 shadow_failed=0 shadow_bytes=0
+# wt_mynn_node refusal.config=1
+# wt_mynn_node refusal.abi=0
+# wt_mynn_node refusal.static=0
+# wt_mynn_node refusal.scope=0
+# wt_mynn_node refusal.mapper=0
+# wt_mynn_node refusal.omp=0
+# wt_mynn_node refusal.capacity=0
+# wt_mynn_node refusal.geometry=0
+# wt_mynn_node refusal.init=0
+# wt_mynn_node refusal.single_row=0
+# wt_mynn_node refusal.alias=0
+# wt_mynn_node refusal.budget=0
+# wt_mynn_node refusal.slot=0
+# wt_mynn_node refusal.prepare=0
+# wt_mynn_node_g0 event=commit pid=2431421 rank=0 thread=1 owner=0 owner_thread=1 executor=0 work=8 grid=4 epoch=2 init=6679059554425913294
+# wt_mynn_bootstrap requested=1 configured=1 profile=GNU-production-fixture-only abi=1 caller=1 static=1
+# wt_mynn_node mode=forced-g0 adaptive=pending shadow_remote=0 pid=2431421 rank=0 grid=4 epoch=2 init=6679059554425913294 serialized=1 requested=5 donated=4 committed=4 self=1 helper=0 remote=3 fallback=1 fatal=0 pack_ns=710463 native_ns=8045253 progress_ns=102640 shadow_checked=0 shadow_failed=0 shadow_bytes=0
+# wt_mynn_node refusal.config=1
+# wt_mynn_node refusal.abi=0
+# wt_mynn_node refusal.static=0
+# wt_mynn_node refusal.scope=0
+# wt_mynn_node refusal.mapper=0
+# wt_mynn_node refusal.omp=0
+# wt_mynn_node refusal.capacity=0
+# wt_mynn_node refusal.geometry=0
+# wt_mynn_node refusal.init=0
+# wt_mynn_node refusal.single_row=0
+# wt_mynn_node refusal.alias=0
+# wt_mynn_node refusal.budget=0
+# wt_mynn_node refusal.slot=0
+# wt_mynn_node refusal.prepare=0
+PASS MYNN production bootstrap/firstRK84/bridge132/fork/OMP2 realGNU full132 both epochs
+RETURN 0
+/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/strict /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/strict-1.bin
+# wt_mynn_node_g0 event=commit pid=2431445 rank=0 thread=0 owner=0 owner_thread=0 executor=0 work=2 grid=4 epoch=1 init=6679059554425913294
+# wt_mynn_node_g0 event=commit pid=2431459 rank=1 thread=1 owner=1 owner_thread=1 executor=1 work=3 grid=4 epoch=21 init=6679059554425913294
+# wt_mynn_node_g0 event=commit pid=2431445 rank=0 thread=1 owner=0 owner_thread=1 executor=0 work=1 grid=4 epoch=1 init=6679059554425913294
+# wt_mynn_node_g0 event=commit pid=2431459 rank=1 thread=0 owner=1 owner_thread=0 executor=1 work=4 grid=4 epoch=21 init=6679059554425913294
+# wt_mynn_node_g0 event=commit pid=2431459 rank=1 thread=0 owner=1 owner_thread=0 executor=1 work=7 grid=4 epoch=22 init=6679059554425913294
+# wt_mynn_node_g0 event=commit pid=2431445 rank=0 thread=0 owner=0 owner_thread=0 executor=0 work=5 grid=4 epoch=2 init=6679059554425913294
+# wt_mynn_node_g0 event=commit pid=2431445 rank=0 thread=1 owner=0 owner_thread=1 executor=0 work=6 grid=4 epoch=2 init=6679059554425913294
+# wt_mynn_bootstrap requested=1 configured=1 profile=GNU-production-fixture-only abi=1 caller=1 static=1
+# wt_mynn_node mode=forced-g0 adaptive=pending shadow_remote=0 pid=2431445 rank=0 grid=4 epoch=2 init=6679059554425913294 serialized=1 requested=5 donated=4 committed=4 self=4 helper=0 remote=0 fallback=1 fatal=0 pack_ns=546327 native_ns=4162759 progress_ns=23758 shadow_checked=0 shadow_failed=0 shadow_bytes=0
+# wt_mynn_node refusal.config=1
+# wt_mynn_node refusal.abi=0
+# wt_mynn_node refusal.static=0
+# wt_mynn_node refusal.scope=0
+# wt_mynn_node refusal.mapper=0
+# wt_mynn_node refusal.omp=0
+# wt_mynn_node refusal.capacity=0
+# wt_mynn_node refusal.geometry=0
+# wt_mynn_node refusal.init=0
+# wt_mynn_node refusal.single_row=0
+# wt_mynn_node refusal.alias=0
+# wt_mynn_node refusal.budget=0
+# wt_mynn_node refusal.slot=0
+# wt_mynn_node refusal.prepare=0
+# wt_mynn_node_g0 event=commit pid=2431459 rank=1 thread=1 owner=1 owner_thread=1 executor=1 work=8 grid=4 epoch=22 init=6679059554425913294
+# wt_mynn_bootstrap requested=1 configured=1 profile=GNU-production-fixture-only abi=1 caller=1 static=1
+# wt_mynn_node mode=forced-g0 adaptive=pending shadow_remote=0 pid=2431459 rank=1 grid=4 epoch=22 init=6679059554425913294 serialized=1 requested=5 donated=4 committed=4 self=4 helper=0 remote=0 fallback=1 fatal=0 pack_ns=619904 native_ns=4139441 progress_ns=30596 shadow_checked=0 shadow_failed=0 shadow_bytes=0
+# wt_mynn_node refusal.config=1
+# wt_mynn_node refusal.abi=0
+# wt_mynn_node refusal.static=0
+# wt_mynn_node refusal.scope=0
+# wt_mynn_node refusal.mapper=0
+# wt_mynn_node refusal.omp=0
+# wt_mynn_node refusal.capacity=0
+# wt_mynn_node refusal.geometry=0
+# wt_mynn_node refusal.init=0
+# wt_mynn_node refusal.single_row=0
+# wt_mynn_node refusal.alias=0
+# wt_mynn_node refusal.budget=0
+# wt_mynn_node refusal.slot=0
+# wt_mynn_node refusal.prepare=0
+PASS MYNN production bootstrap/firstRK84/bridge132/fork/OMP2 realGNU full132 both epochs
+RETURN 0
+/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/strict /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/strict-2.bin
+# wt_mynn_bootstrap requested=1 configured=1 profile=GNU-production-fixture-only abi=1 caller=1 static=1
+# wt_mynn_node mode=forced-g0 adaptive=pending shadow_remote=0 pid=2431510 rank=0 grid=0 epoch=0 init=0 serialized=1 requested=5 donated=0 committed=0 self=0 helper=0 remote=0 fallback=5 fatal=0 pack_ns=0 native_ns=3956406 progress_ns=0 shadow_checked=0 shadow_failed=0 shadow_bytes=0
+# wt_mynn_node refusal.config=1
+# wt_mynn_node refusal.abi=0
+# wt_mynn_node refusal.static=0
+# wt_mynn_node refusal.scope=4
+# wt_mynn_node refusal.mapper=0
+# wt_mynn_node refusal.omp=0
+# wt_mynn_node refusal.capacity=0
+# wt_mynn_node refusal.geometry=0
+# wt_mynn_node refusal.init=0
+# wt_mynn_node refusal.single_row=0
+# wt_mynn_node refusal.alias=0
+# wt_mynn_node refusal.budget=0
+# wt_mynn_node refusal.slot=0
+# wt_mynn_node refusal.prepare=0
+# wt_mynn_bootstrap requested=1 configured=1 profile=GNU-production-fixture-only abi=1 caller=1 static=1
+# wt_mynn_node mode=forced-g0 adaptive=pending shadow_remote=0 pid=2431512 rank=1 grid=0 epoch=0 init=0 serialized=1 requested=5 donated=0 committed=0 self=0 helper=0 remote=0 fallback=5 fatal=0 pack_ns=0 native_ns=3731358 progress_ns=0 shadow_checked=0 shadow_failed=0 shadow_bytes=0
+# wt_mynn_node refusal.config=1
+# wt_mynn_node refusal.abi=0
+# wt_mynn_node refusal.static=0
+# wt_mynn_node refusal.scope=4
+# wt_mynn_node refusal.mapper=0
+# wt_mynn_node refusal.omp=0
+# wt_mynn_node refusal.capacity=0
+# wt_mynn_node refusal.geometry=0
+# wt_mynn_node refusal.init=0
+# wt_mynn_node refusal.single_row=0
+# wt_mynn_node refusal.alias=0
+# wt_mynn_node refusal.budget=0
+# wt_mynn_node refusal.slot=0
+# wt_mynn_node refusal.prepare=0
+PASS MYNN production bootstrap/firstRK84/bridge132/fork/OMP2 realGNU full132 both epochs
+RETURN 0
+/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/strict /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/strict-3.bin
+# wt_mynn_node_g0 event=commit pid=2431543 rank=0 thread=1 owner=0 owner_thread=1 executor=0 work=1 grid=4 epoch=1 init=6679059554425913294
+# wt_mynn_node_g0 event=commit pid=2431549 rank=1 thread=0 owner=1 owner_thread=0 executor=1 work=3 grid=4 epoch=1 init=6679059554425913294
+# wt_mynn_node_g0 event=commit pid=2431543 rank=0 thread=0 owner=0 owner_thread=0 executor=0 work=2 grid=4 epoch=1 init=6679059554425913294
+# wt_mynn_node_g0 event=commit pid=2431549 rank=1 thread=1 owner=1 owner_thread=1 executor=1 work=4 grid=4 epoch=1 init=6679059554425913294
+# wt_mynn_node_g0 event=commit pid=2431549 rank=1 thread=0 owner=1 owner_thread=0 executor=1 work=5 grid=4 epoch=2 init=6679059554425913294
+# wt_mynn_node_g0 event=commit pid=2431549 rank=1 thread=1 owner=1 owner_thread=1 executor=1 work=6 grid=4 epoch=2 init=6679059554425913294
+# wt_mynn_bootstrap requested=1 configured=1 profile=GNU-production-fixture-only abi=1 caller=1 static=1
+# wt_mynn_node mode=forced-g0-owner-only adaptive=pending shadow_remote=0 pid=2431549 rank=1 grid=4 epoch=2 init=6679059554425913294 serialized=1 requested=5 donated=4 committed=4 self=4 helper=0 remote=0 fallback=1 fatal=0 pack_ns=551083 native_ns=3939732 progress_ns=0 shadow_checked=0 shadow_failed=0 shadow_bytes=0
+# wt_mynn_node refusal.config=1
+# wt_mynn_node refusal.abi=0
+# wt_mynn_node refusal.static=0
+# wt_mynn_node refusal.scope=0
+# wt_mynn_node refusal.mapper=0
+# wt_mynn_node refusal.omp=0
+# wt_mynn_node refusal.capacity=0
+# wt_mynn_node refusal.geometry=0
+# wt_mynn_node refusal.init=0
+# wt_mynn_node refusal.single_row=0
+# wt_mynn_node refusal.alias=0
+# wt_mynn_node refusal.budget=0
+# wt_mynn_node refusal.slot=0
+# wt_mynn_node refusal.prepare=0
+# wt_mynn_node_g0 event=commit pid=2431543 rank=0 thread=0 owner=0 owner_thread=0 executor=0 work=7 grid=4 epoch=2 init=6679059554425913294
+# wt_mynn_node_g0 event=commit pid=2431543 rank=0 thread=1 owner=0 owner_thread=1 executor=0 work=8 grid=4 epoch=2 init=6679059554425913294
+# wt_mynn_bootstrap requested=1 configured=1 profile=GNU-production-fixture-only abi=1 caller=1 static=1
+# wt_mynn_node mode=forced-g0-owner-only adaptive=pending shadow_remote=0 pid=2431543 rank=0 grid=4 epoch=2 init=6679059554425913294 serialized=1 requested=5 donated=4 committed=4 self=4 helper=0 remote=0 fallback=1 fatal=0 pack_ns=632641 native_ns=4231569 progress_ns=0 shadow_checked=0 shadow_failed=0 shadow_bytes=0
+# wt_mynn_node refusal.config=1
+# wt_mynn_node refusal.abi=0
+# wt_mynn_node refusal.static=0
+# wt_mynn_node refusal.scope=0
+# wt_mynn_node refusal.mapper=0
+# wt_mynn_node refusal.omp=0
+# wt_mynn_node refusal.capacity=0
+# wt_mynn_node refusal.geometry=0
+# wt_mynn_node refusal.init=0
+# wt_mynn_node refusal.single_row=0
+# wt_mynn_node refusal.alias=0
+# wt_mynn_node refusal.budget=0
+# wt_mynn_node refusal.slot=0
+# wt_mynn_node refusal.prepare=0
+PASS MYNN production bootstrap/firstRK84/bridge132/fork/OMP2 realGNU full132 both epochs
+RETURN 0
+/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/strict /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/strict-4.bin
+MYNN_NATIVE pid=2431560 epoch=1 j=2
+MYNN_NATIVE pid=2431560 epoch=1 j=4
+
+Program received signal SIGABRT: Process abort signal.
+
+Backtrace for this error:
+
+Program received signal SIGABRT: Process abort signal.
+
+Backtrace for this error:
+#0  0x149ca3e54b7f in ???
+#0  0x149ca3e54b7f in ???
+#1  0x149ca3e54aff in ???
+#1  0x149ca3e54aff in ???
+#2  0x149ca3e27ea4 in ???
+#2  0x149ca3e27ea4 in ???
+#3  0x56011cb66450 in die
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/wt_mynn_node_live.c:35
+#3  0x56011cb66450 in die
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/wt_mynn_node_live.c:35
+#4  0x56011cb6710e in wt_mynn_bridge_dispatch
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/wt_mynn_node_live.c:221
+#4  0x56011cb6710e in wt_mynn_bridge_dispatch
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/wt_mynn_node_live.c:221
+#5  0x56011cb5fae5 in __wrap_wt_mynn_bridge_dispatch
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/test_mynn_node_live.c:140
+#5  0x56011cb5fae5 in __wrap_wt_mynn_bridge_dispatch
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/test_mynn_node_live.c:140
+#6  0x56011cb5e051 in __wrap___module_bl_mynnedmf_driver_MOD_mynnedmf_driver
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/bridge.c:16
+#6  0x56011cb5e051 in __wrap___module_bl_mynnedmf_driver_MOD_mynnedmf_driver
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/bridge.c:16
+#7  0x56011cb5e852 in mynn_live_driver_call
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/abi.c:5
+#8  0x56011cb5e911 in mynn_live_first_real._omp_fn.0
+#7  0x56011cb5e852 in mynn_live_driver_call
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/test_mynn_node_live.c:63
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/abi.c:5
+#8  0x56011cb5e911 in mynn_live_first_real._omp_fn.0
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/test_mynn_node_live.c:63
+#9  0x149ca59c9f35 in GOMP_parallel
+	at ../../../libgomp/parallel.c:178
+#10  0x56011cb5f785 in mynn_live_first_real
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/test_mynn_node_live.c:57
+#11  0x56011cb5e551 in module_first_rk_step_part1_mp_first_rk_step_part1_
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/abi.c:3
+#12  0x56011cb67e25 in __wrap_module_first_rk_step_part1_mp_first_rk_step_part1_
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/wt_sfclay_scope_bridge.c:20
+#13  0x56011cb6801c in wt_sfclay_scope_test_call
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/wt_sfclay_scope_bridge.c:30
+#14  0x56011cb5f0b8 in rank_run
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/test_mynn_node_live.c:102
+#15  0x56011cb5fc0e in __wrap_wt_mynn_bridge_dispatch
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/test_mynn_node_live.c:148
+#16  0x56011cb5e051 in __wrap___module_bl_mynnedmf_driver_MOD_mynnedmf_driver
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/bridge.c:16
+#9  0x149ca59d3f8d in gomp_thread_start
+	at ../../../libgomp/team.c:129
+#17  0x56011cb42900 in mynn_bridge_driver
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/caller.f90:389
+#18  0x56011cb5d50d in main
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/caller.f90:2
+RETURN -6
+/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/strict /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/strict-5.bin
+MYNN_NATIVE pid=2432083 epoch=1 j=2
+MYNN_NATIVE pid=2432083 epoch=1 j=4
+MYNN_NATIVE pid=2432083 epoch=1 j=3
+MYNN_NATIVE pid=2432083 epoch=1 j=5
+
+Program received signal SIGABRT: Process abort signal.
+
+Backtrace for this error:
+
+Program received signal SIGABRT: Process abort signal.
+
+Backtrace for this error:
+#0  0x150213c68b7f in ???
+#0  0x150213c68b7f in ???
+#1  0x150213c68aff in ???
+#1  0x150213c68aff in ???
+#2  0x150213c3bea4 in ???
+#2  0x150213c3bea4 in ???
+#3  0x560808f19450 in die
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/wt_mynn_node_live.c:35
+#3  0x560808f19450 in die
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/wt_mynn_node_live.c:35
+#4  0x560808f1a182 in wt_mynn_bridge_dispatch
+#4  0x560808f1a182 in wt_mynn_bridge_dispatch
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/wt_mynn_node_live.c:224
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/wt_mynn_node_live.c:224
+#5  0x560808f12ae5 in __wrap_wt_mynn_bridge_dispatch
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/test_mynn_node_live.c:140
+#5  0x560808f12ae5 in __wrap_wt_mynn_bridge_dispatch
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/test_mynn_node_live.c:140
+#6  0x560808f11051 in __wrap___module_bl_mynnedmf_driver_MOD_mynnedmf_driver
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/bridge.c:16
+#6  0x560808f11051 in __wrap___module_bl_mynnedmf_driver_MOD_mynnedmf_driver
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/bridge.c:16
+#7  0x560808f11852 in mynn_live_driver_call
+#7  0x560808f11852 in mynn_live_driver_call
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/abi.c:5
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/abi.c:5
+#8  0x560808f11911 in mynn_live_first_real._omp_fn.0
+#8  0x560808f11911 in mynn_live_first_real._omp_fn.0
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/test_mynn_node_live.c:63
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/test_mynn_node_live.c:63
+#9  0x1502157ddf35 in GOMP_parallel
+	at ../../../libgomp/parallel.c:178
+#10  0x560808f12785 in mynn_live_first_real
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/test_mynn_node_live.c:57
+#11  0x560808f11551 in module_first_rk_step_part1_mp_first_rk_step_part1_
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/abi.c:3
+#12  0x560808f1ae25 in __wrap_module_first_rk_step_part1_mp_first_rk_step_part1_
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/wt_sfclay_scope_bridge.c:20
+#13  0x560808f1b01c in wt_sfclay_scope_test_call
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/wt_sfclay_scope_bridge.c:30
+#14  0x560808f120b8 in rank_run
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/test_mynn_node_live.c:102
+#15  0x560808f12c0e in __wrap_wt_mynn_bridge_dispatch
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/test_mynn_node_live.c:148
+#16  0x560808f11051 in __wrap___module_bl_mynnedmf_driver_MOD_mynnedmf_driver
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/bridge.c:16
+#9  0x1502157e7f8d in gomp_thread_start
+	at ../../../libgomp/team.c:129
+#17  0x560808ef5900 in mynn_bridge_driver
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/caller.f90:389
+#18  0x560808f1050d in main
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/caller.f90:2
+RETURN -6
+/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/strict /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/strict-6.bin
+MYNN_NATIVE pid=2432643 epoch=1 j=2
+MYNN_NATIVE pid=2432644 epoch=1 j=2
+MYNN_NATIVE pid=2432643 epoch=1 j=4
+MYNN_NATIVE pid=2432644 epoch=1 j=4
+MYNN_NATIVE pid=2432643 epoch=2 j=4
+MYNN_NATIVE pid=2432644 epoch=2 j=4
+MYNN_NATIVE pid=2432643 epoch=2 j=2
+MYNN_NATIVE pid=2432644 epoch=2 j=2
+MYNN_NATIVE pid=2432644 epoch=2 j=3
+MYNN_NATIVE pid=2432643 epoch=2 j=3
+MYNN_NATIVE pid=2432644 epoch=2 j=5
+MYNN_NATIVE pid=2432643 epoch=2 j=5
+# wt_mynn_node_g0 event=helper pid=2432644 rank=1 thread=1 owner=0 owner_thread=0 executor=1 work=2 grid=4 epoch=2 init=6679059554425913294
+# wt_mynn_node_g0 event=helper pid=2432643 rank=0 thread=1 owner=1 owner_thread=0 executor=0 work=3 grid=4 epoch=2 init=6679059554425913294
+# wt_mynn_node_g0 event=helper pid=2432644 rank=1 thread=0 owner=0 owner_thread=1 executor=1 work=1 grid=4 epoch=2 init=6679059554425913294
+# wt_mynn_node_g0 event=commit pid=2432643 rank=0 thread=1 owner=0 owner_thread=1 executor=1 work=1 grid=4 epoch=2 init=6679059554425913294
+# wt_mynn_node_g0 event=commit pid=2432644 rank=1 thread=0 owner=1 owner_thread=0 executor=0 work=3 grid=4 epoch=2 init=6679059554425913294
+# wt_mynn_node_g0 event=helper pid=2432643 rank=0 thread=0 owner=1 owner_thread=1 executor=0 work=4 grid=4 epoch=2 init=6679059554425913294
+# wt_mynn_node_g0 event=commit pid=2432644 rank=1 thread=1 owner=1 owner_thread=1 executor=0 work=4 grid=4 epoch=2 init=6679059554425913294
+# wt_mynn_node_g0 event=commit pid=2432643 rank=0 thread=0 owner=0 owner_thread=0 executor=1 work=2 grid=4 epoch=2 init=6679059554425913294
+MYNN_NATIVE pid=2432644 epoch=3 j=4
+MYNN_NATIVE pid=2432643 epoch=3 j=2
+MYNN_NATIVE pid=2432644 epoch=3 j=2
+MYNN_NATIVE pid=2432643 epoch=3 j=4
+MYNN_NATIVE pid=2432644 epoch=3 j=3
+MYNN_NATIVE pid=2432643 epoch=3 j=3
+MYNN_NATIVE pid=2432644 epoch=3 j=5
+# wt_mynn_node_g0 event=helper pid=2432644 rank=1 thread=1 owner=0 owner_thread=0 executor=1 work=8 grid=4 epoch=3 init=6679059554425913294
+# wt_mynn_node_g0 event=helper pid=2432643 rank=0 thread=0 owner=1 owner_thread=0 executor=0 work=6 grid=4 epoch=3 init=6679059554425913294
+# wt_mynn_node_g0 event=commit pid=2432643 rank=0 thread=0 owner=0 owner_thread=0 executor=1 work=8 grid=4 epoch=3 init=6679059554425913294
+# wt_mynn_node_g0 event=helper pid=2432644 rank=1 thread=0 owner=0 owner_thread=1 executor=1 work=7 grid=4 epoch=3 init=6679059554425913294
+# wt_mynn_node_g0 event=commit pid=2432644 rank=1 thread=0 owner=1 owner_thread=0 executor=0 work=6 grid=4 epoch=3 init=6679059554425913294
+MYNN_NATIVE pid=2432643 epoch=3 j=5
+# wt_mynn_node_g0 event=helper pid=2432643 rank=0 thread=1 owner=1 owner_thread=1 executor=0 work=5 grid=4 epoch=3 init=6679059554425913294
+# wt_mynn_node_g0 event=commit pid=2432644 rank=1 thread=1 owner=1 owner_thread=1 executor=0 work=5 grid=4 epoch=3 init=6679059554425913294
+# wt_mynn_node_g0 event=commit pid=2432643 rank=0 thread=1 owner=0 owner_thread=1 executor=1 work=7 grid=4 epoch=3 init=6679059554425913294
+# wt_mynn_bootstrap requested=1 configured=1 profile=GNU-production-fixture-only abi=1 caller=1 static=1
+# wt_mynn_node mode=forced-g0 adaptive=pending shadow_remote=0 pid=2432644 rank=1 grid=4 epoch=3 init=6679059554425913294 serialized=1 requested=7 donated=4 committed=4 self=0 helper=4 remote=4 fallback=3 fatal=0 pack_ns=568062 native_ns=4946015 progress_ns=2746606 shadow_checked=0 shadow_failed=0 shadow_bytes=0
+# wt_mynn_bootstrap requested=1 configured=1 profile=GNU-production-fixture-only abi=1 caller=1 static=1
+# wt_mynn_node refusal.config=1
+# wt_mynn_node refusal.abi=0
+# wt_mynn_node refusal.static=0
+# wt_mynn_node refusal.scope=0
+# wt_mynn_node refusal.mapper=0
+# wt_mynn_node refusal.omp=0
+# wt_mynn_node refusal.capacity=0
+# wt_mynn_node refusal.geometry=0
+# wt_mynn_node refusal.init=2
+# wt_mynn_node refusal.single_row=0
+# wt_mynn_node refusal.alias=0
+# wt_mynn_node refusal.budget=0
+# wt_mynn_node refusal.slot=0
+# wt_mynn_node refusal.prepare=0
+# wt_mynn_node mode=forced-g0 adaptive=pending shadow_remote=0 pid=2432643 rank=0 grid=4 epoch=3 init=6679059554425913294 serialized=1 requested=7 donated=4 committed=4 self=0 helper=4 remote=4 fallback=3 fatal=0 pack_ns=636551 native_ns=5303291 progress_ns=4314686 shadow_checked=0 shadow_failed=0 shadow_bytes=0
+# wt_mynn_node refusal.config=1
+# wt_mynn_node refusal.abi=0
+# wt_mynn_node refusal.static=0
+# wt_mynn_node refusal.scope=0
+# wt_mynn_node refusal.mapper=0
+# wt_mynn_node refusal.omp=0
+# wt_mynn_node refusal.capacity=0
+# wt_mynn_node refusal.geometry=0
+# wt_mynn_node refusal.init=2
+# wt_mynn_node refusal.single_row=0
+# wt_mynn_node refusal.alias=0
+# wt_mynn_node refusal.budget=0
+# wt_mynn_node refusal.slot=0
+# wt_mynn_node refusal.prepare=0
+PASS MYNN production bootstrap/firstRK84/bridge132/fork/OMP2 realGNU full132 both epochs
+RETURN 0
+/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/strict /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/strict-7.bin
+
+Program received signal SIGABRT: Process abort signal.
+
+Backtrace for this error:
+MYNN_NATIVE pid=2432657 epoch=1 j=2
+MYNN_NATIVE pid=2432657 epoch=1 j=3
+# wt_mynn_node_g0 event=commit pid=2432657 rank=0 thread=0 owner=0 owner_thread=0 executor=0 work=1 grid=4 epoch=1 init=6679059554425913294
+#0  0x14f988499b7f in ???
+#1  0x14f988499aff in ???
+#2  0x14f98846cea4 in ???
+#3  0x559e21c97450 in die
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/wt_mynn_node_live.c:35
+#4  0x559e21c97f70 in wt_mynn_bridge_dispatch
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/wt_mynn_node_live.c:182
+#5  0x559e21c90ae5 in __wrap_wt_mynn_bridge_dispatch
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/test_mynn_node_live.c:140
+#6  0x559e21c8f051 in __wrap___module_bl_mynnedmf_driver_MOD_mynnedmf_driver
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/bridge.c:16
+#7  0x559e21c8f852 in mynn_live_driver_call
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/abi.c:5
+#8  0x559e21c8f911 in mynn_live_first_real._omp_fn.0
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/test_mynn_node_live.c:63
+#9  0x14f98a018f8d in gomp_thread_start
+	at ../../../libgomp/team.c:129
+#10  0x14f9897956e6 in asan_thread_start
+	at ../../../../libsanitizer/asan/asan_interceptors.cpp:246
+#11  0x14f9888191c9 in ???
+#12  0x14f988484e72 in ???
+#13  0xffffffffffffffff in ???
+RETURN -6
+/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/strict /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/strict-8.bin
+MYNN_NATIVE pid=2433056 epoch=1 j=4
+MYNN_NATIVE pid=2433056 epoch=1 j=2
+MYNN_NATIVE pid=2433062 epoch=1 j=2
+MYNN_NATIVE pid=2433062 epoch=1 j=4
+MYNN_NATIVE pid=2433056 epoch=2 j=4
+MYNN_NATIVE pid=2433056 epoch=2 j=2
+# wt_mynn_bootstrap requested=1 configured=0 profile=GNU-production-fixture-only abi=1 caller=1 static=1
+# wt_mynn_node mode=forced-g0 adaptive=pending shadow_remote=0 pid=2433056 rank=0 grid=0 epoch=0 init=0 serialized=1 requested=5 donated=0 committed=0 self=0 helper=0 remote=0 fallback=5 fatal=0 pack_ns=0 native_ns=4199056 progress_ns=0 shadow_checked=0 shadow_failed=0 shadow_bytes=0
+# wt_mynn_node refusal.config=5
+# wt_mynn_node refusal.abi=0
+# wt_mynn_node refusal.static=0
+# wt_mynn_node refusal.scope=0
+# wt_mynn_node refusal.mapper=0
+# wt_mynn_node refusal.omp=0
+# wt_mynn_node refusal.capacity=0
+# wt_mynn_node refusal.geometry=0
+# wt_mynn_node refusal.init=0
+# wt_mynn_node refusal.single_row=0
+# wt_mynn_node refusal.alias=0
+# wt_mynn_node refusal.budget=0
+# wt_mynn_node refusal.slot=0
+# wt_mynn_node refusal.prepare=0
+MYNN_NATIVE pid=2433062 epoch=2 j=4
+MYNN_NATIVE pid=2433062 epoch=2 j=2
+# wt_mynn_bootstrap requested=1 configured=0 profile=GNU-production-fixture-only abi=1 caller=1 static=1
+# wt_mynn_node mode=forced-g0 adaptive=pending shadow_remote=0 pid=2433062 rank=0 grid=0 epoch=0 init=0 serialized=1 requested=5 donated=0 committed=0 self=0 helper=0 remote=0 fallback=5 fatal=0 pack_ns=0 native_ns=3936896 progress_ns=0 shadow_checked=0 shadow_failed=0 shadow_bytes=0
+# wt_mynn_node refusal.config=5
+# wt_mynn_node refusal.abi=0
+# wt_mynn_node refusal.static=0
+# wt_mynn_node refusal.scope=0
+# wt_mynn_node refusal.mapper=0
+# wt_mynn_node refusal.omp=0
+# wt_mynn_node refusal.capacity=0
+# wt_mynn_node refusal.geometry=0
+# wt_mynn_node refusal.init=0
+# wt_mynn_node refusal.single_row=0
+# wt_mynn_node refusal.alias=0
+# wt_mynn_node refusal.budget=0
+# wt_mynn_node refusal.slot=0
+# wt_mynn_node refusal.prepare=0
+PASS MYNN production bootstrap/firstRK84/bridge132/fork/OMP2 realGNU full132 both epochs
+RETURN 0
+/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/strict /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/strict-9.bin
+MYNN_NATIVE pid=2433075 epoch=1 j=2
+MYNN_NATIVE pid=2433076 epoch=1 j=4
+MYNN_NATIVE pid=2433076 epoch=1 j=2
+MYNN_NATIVE pid=2433076 epoch=1 j=3
+MYNN_NATIVE pid=2433076 epoch=1 j=5
+# wt_mynn_node_g0 event=helper pid=2433076 rank=1 thread=1 owner=0 owner_thread=0 executor=1 work=1 grid=4 epoch=1 init=6679059554425913294
+MYNN_NATIVE pid=2433076 epoch=1 j=5
+# wt_mynn_node_g0 event=helper pid=2433076 rank=1 thread=0 owner=0 owner_thread=1 executor=1 work=2 grid=4 epoch=1 init=6679059554425913294
+MYNN_NATIVE pid=2433076 epoch=1 j=3
+# wt_mynn_node_g0 event=commit pid=2433076 rank=1 thread=1 owner=1 owner_thread=1 executor=1 work=3 grid=4 epoch=1 init=6679059554425913294
+# wt_mynn_node_g0 event=commit pid=2433076 rank=1 thread=0 owner=1 owner_thread=0 executor=1 work=4 grid=4 epoch=1 init=6679059554425913294
+MYNN_NATIVE pid=2433075 epoch=1 j=4
+MYNN_NATIVE pid=2433075 epoch=1 j=3
+MYNN_NATIVE pid=2433075 epoch=1 j=5
+MYNN_NATIVE pid=2433076 epoch=2 j=2
+# wt_mynn_node_g0 event=commit pid=2433075 rank=0 thread=0 owner=0 owner_thread=0 executor=1 work=1 grid=4 epoch=1 init=6679059554425913294
+MYNN_NATIVE pid=2433076 epoch=2 j=4
+# wt_mynn_node_g0 event=commit pid=2433075 rank=0 thread=1 owner=0 owner_thread=1 executor=1 work=2 grid=4 epoch=1 init=6679059554425913294
+MYNN_NATIVE pid=2433076 epoch=2 j=3
+MYNN_NATIVE pid=2433076 epoch=2 j=5
+# wt_mynn_node_g0 event=commit pid=2433076 rank=1 thread=0 owner=1 owner_thread=0 executor=1 work=5 grid=4 epoch=2 init=6679059554425913294
+# wt_mynn_node_g0 event=commit pid=2433076 rank=1 thread=1 owner=1 owner_thread=1 executor=1 work=6 grid=4 epoch=2 init=6679059554425913294
+# wt_mynn_bootstrap requested=1 configured=1 profile=GNU-production-fixture-only abi=1 caller=1 static=1
+# wt_mynn_node mode=forced-g0 adaptive=pending shadow_remote=1 pid=2433076 rank=1 grid=4 epoch=2 init=6679059554425913294 serialized=1 requested=5 donated=4 committed=4 self=4 helper=2 remote=0 fallback=1 fatal=0 pack_ns=569289 native_ns=4466166 progress_ns=1186303 shadow_checked=0 shadow_failed=0 shadow_bytes=0
+# wt_mynn_node refusal.config=1
+# wt_mynn_node refusal.abi=0
+# wt_mynn_node refusal.static=0
+# wt_mynn_node refusal.scope=0
+# wt_mynn_node refusal.mapper=0
+# wt_mynn_node refusal.omp=0
+# wt_mynn_node refusal.capacity=0
+# wt_mynn_node refusal.geometry=0
+# wt_mynn_node refusal.init=0
+# wt_mynn_node refusal.single_row=0
+# wt_mynn_node refusal.alias=0
+# wt_mynn_node refusal.budget=0
+# wt_mynn_node refusal.slot=0
+# wt_mynn_node refusal.prepare=0
+MYNN_NATIVE pid=2433075 epoch=2 j=4
+MYNN_NATIVE pid=2433075 epoch=2 j=2
+MYNN_NATIVE pid=2433075 epoch=2 j=5
+MYNN_NATIVE pid=2433075 epoch=2 j=3
+# wt_mynn_node_g0 event=commit pid=2433075 rank=0 thread=1 owner=0 owner_thread=1 executor=0 work=8 grid=4 epoch=2 init=6679059554425913294
+# wt_mynn_node_g0 event=commit pid=2433075 rank=0 thread=0 owner=0 owner_thread=0 executor=0 work=7 grid=4 epoch=2 init=6679059554425913294
+# wt_mynn_bootstrap requested=1 configured=1 profile=GNU-production-fixture-only abi=1 caller=1 static=1
+# wt_mynn_node mode=forced-g0 adaptive=pending shadow_remote=1 pid=2433075 rank=0 grid=4 epoch=2 init=6679059554425913294 serialized=1 requested=5 donated=4 committed=4 self=2 helper=0 remote=2 fallback=1 fatal=0 pack_ns=547856 native_ns=8204699 progress_ns=2260 shadow_checked=2 shadow_failed=0 shadow_bytes=28400
+# wt_mynn_node refusal.config=1
+# wt_mynn_node refusal.abi=0
+# wt_mynn_node refusal.static=0
+# wt_mynn_node refusal.scope=0
+# wt_mynn_node refusal.mapper=0
+# wt_mynn_node refusal.omp=0
+# wt_mynn_node refusal.capacity=0
+# wt_mynn_node refusal.geometry=0
+# wt_mynn_node refusal.init=0
+# wt_mynn_node refusal.single_row=0
+# wt_mynn_node refusal.alias=0
+# wt_mynn_node refusal.budget=0
+# wt_mynn_node refusal.slot=0
+# wt_mynn_node refusal.prepare=0
+PASS MYNN production bootstrap/firstRK84/bridge132/fork/OMP2 realGNU full132 both epochs
+RETURN 0
+/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/strict /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/strict-10.bin
+MYNN_NATIVE pid=2433082 epoch=1 j=2
+MYNN_NATIVE pid=2433082 epoch=1 j=4
+MYNN_NATIVE pid=2433088 epoch=1 j=2
+MYNN_NATIVE pid=2433082 epoch=2 j=2
+MYNN_NATIVE pid=2433088 epoch=1 j=4
+MYNN_NATIVE pid=2433082 epoch=2 j=4
+# wt_mynn_bootstrap requested=1 configured=0 profile=GNU-production-fixture-only abi=1 caller=1 static=1
+# wt_mynn_node mode=forced-g0 adaptive=pending shadow_remote=0 pid=2433082 rank=0 grid=0 epoch=0 init=0 serialized=1 requested=5 donated=0 committed=0 self=0 helper=0 remote=0 fallback=5 fatal=0 pack_ns=0 native_ns=3843963 progress_ns=0 shadow_checked=0 shadow_failed=0 shadow_bytes=0
+# wt_mynn_node refusal.config=5
+# wt_mynn_node refusal.abi=0
+# wt_mynn_node refusal.static=0
+# wt_mynn_node refusal.scope=0
+# wt_mynn_node refusal.mapper=0
+# wt_mynn_node refusal.omp=0
+# wt_mynn_node refusal.capacity=0
+# wt_mynn_node refusal.geometry=0
+# wt_mynn_node refusal.init=0
+# wt_mynn_node refusal.single_row=0
+# wt_mynn_node refusal.alias=0
+# wt_mynn_node refusal.budget=0
+# wt_mynn_node refusal.slot=0
+# wt_mynn_node refusal.prepare=0
+MYNN_NATIVE pid=2433088 epoch=2 j=4
+MYNN_NATIVE pid=2433088 epoch=2 j=2
+# wt_mynn_bootstrap requested=1 configured=0 profile=GNU-production-fixture-only abi=1 caller=1 static=1
+# wt_mynn_node mode=forced-g0 adaptive=pending shadow_remote=0 pid=2433088 rank=0 grid=0 epoch=0 init=0 serialized=1 requested=5 donated=0 committed=0 self=0 helper=0 remote=0 fallback=5 fatal=0 pack_ns=0 native_ns=3878877 progress_ns=0 shadow_checked=0 shadow_failed=0 shadow_bytes=0
+# wt_mynn_node refusal.config=5
+# wt_mynn_node refusal.abi=0
+# wt_mynn_node refusal.static=0
+# wt_mynn_node refusal.scope=0
+# wt_mynn_node refusal.mapper=0
+# wt_mynn_node refusal.omp=0
+# wt_mynn_node refusal.capacity=0
+# wt_mynn_node refusal.geometry=0
+# wt_mynn_node refusal.init=0
+# wt_mynn_node refusal.single_row=0
+# wt_mynn_node refusal.alias=0
+# wt_mynn_node refusal.budget=0
+# wt_mynn_node refusal.slot=0
+# wt_mynn_node refusal.prepare=0
+PASS MYNN production bootstrap/firstRK84/bridge132/fork/OMP2 realGNU full132 both epochs
+RETURN 0
+/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/strict /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/strict-11.bin
+MYNN_NATIVE pid=2433096 epoch=1 j=4
+MYNN_NATIVE pid=2433096 epoch=1 j=2
+MYNN_NATIVE pid=2433096 epoch=2 j=2
+MYNN_NATIVE pid=2433096 epoch=2 j=4
+# wt_mynn_bootstrap requested=1 configured=0 profile=GNU-production-fixture-only abi=1 caller=1 static=1
+# wt_mynn_node mode=forced-g0 adaptive=pending shadow_remote=0 pid=2433096 rank=0 grid=0 epoch=0 init=0 serialized=1 requested=5 donated=0 committed=0 self=0 helper=0 remote=0 fallback=5 fatal=0 pack_ns=0 native_ns=4063982 progress_ns=0 shadow_checked=0 shadow_failed=0 shadow_bytes=0
+# wt_mynn_node refusal.config=5
+# wt_mynn_node refusal.abi=0
+# wt_mynn_node refusal.static=0
+# wt_mynn_node refusal.scope=0
+# wt_mynn_node refusal.mapper=0
+# wt_mynn_node refusal.omp=0
+# wt_mynn_node refusal.capacity=0
+# wt_mynn_node refusal.geometry=0
+# wt_mynn_node refusal.init=0
+# wt_mynn_node refusal.single_row=0
+# wt_mynn_node refusal.alias=0
+# wt_mynn_node refusal.budget=0
+# wt_mynn_node refusal.slot=0
+# wt_mynn_node refusal.prepare=0
+MYNN_NATIVE pid=2433095 epoch=1 j=2
+MYNN_NATIVE pid=2433095 epoch=1 j=4
+MYNN_NATIVE pid=2433095 epoch=2 j=4
+MYNN_NATIVE pid=2433095 epoch=2 j=2
+# wt_mynn_bootstrap requested=1 configured=0 profile=GNU-production-fixture-only abi=1 caller=1 static=1
+# wt_mynn_node mode=forced-g0 adaptive=pending shadow_remote=0 pid=2433095 rank=0 grid=0 epoch=0 init=0 serialized=1 requested=5 donated=0 committed=0 self=0 helper=0 remote=0 fallback=5 fatal=0 pack_ns=0 native_ns=3787595 progress_ns=0 shadow_checked=0 shadow_failed=0 shadow_bytes=0
+# wt_mynn_node refusal.config=5
+# wt_mynn_node refusal.abi=0
+# wt_mynn_node refusal.static=0
+# wt_mynn_node refusal.scope=0
+# wt_mynn_node refusal.mapper=0
+# wt_mynn_node refusal.omp=0
+# wt_mynn_node refusal.capacity=0
+# wt_mynn_node refusal.geometry=0
+# wt_mynn_node refusal.init=0
+# wt_mynn_node refusal.single_row=0
+# wt_mynn_node refusal.alias=0
+# wt_mynn_node refusal.budget=0
+# wt_mynn_node refusal.slot=0
+# wt_mynn_node refusal.prepare=0
+PASS MYNN production bootstrap/firstRK84/bridge132/fork/OMP2 realGNU full132 both epochs
+RETURN 0
+/home/u5727520/wrf-stack/wtune-fortran-dev-20260912/.pixi/envs/default/bin/x86_64-conda-linux-gnu-cc -std=c11 -Wall -Wextra -Werror -O1 -g -fopenmp -pthread -DWT_MYNN_NODE_LOCAL -DWT_SFCLAY_SCOPE_TEST_HELPERS -I /home/u5727520/wrf-stack/wtune/plov -I /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek '-DWT_KF_NODE_SHM_DIRECTORY="/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek"' '-DWT_MYNN_BUILD_PROFILE_ID="GNU-production-fixture-only"' -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer -DWT_MYNN_BUILD_ABI_VERIFIED=1 -DWT_MYNN_BUILD_CALLER_VERIFIED=1 -DWT_MYNN_BUILD_STATIC_STATE_VERIFIED=1 -c /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/bridge.c -o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/bridge-sanitized.o
+RETURN 0
+/home/u5727520/wrf-stack/wtune-fortran-dev-20260912/.pixi/envs/default/bin/x86_64-conda-linux-gnu-cc -std=c11 -Wall -Wextra -Werror -O1 -g -fopenmp -pthread -DWT_MYNN_NODE_LOCAL -DWT_SFCLAY_SCOPE_TEST_HELPERS -I /home/u5727520/wrf-stack/wtune/plov -I /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek '-DWT_KF_NODE_SHM_DIRECTORY="/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek"' '-DWT_MYNN_BUILD_PROFILE_ID="GNU-production-fixture-only"' -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer -DWT_MYNN_BUILD_ABI_VERIFIED=1 -DWT_MYNN_BUILD_CALLER_VERIFIED=1 -DWT_MYNN_BUILD_STATIC_STATE_VERIFIED=1 -c /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/abi.c -o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/abi-sanitized.o
+RETURN 0
+/home/u5727520/wrf-stack/wtune-fortran-dev-20260912/.pixi/envs/default/bin/x86_64-conda-linux-gnu-cc -std=c11 -Wall -Wextra -Werror -O1 -g -fopenmp -pthread -DWT_MYNN_NODE_LOCAL -DWT_SFCLAY_SCOPE_TEST_HELPERS -I /home/u5727520/wrf-stack/wtune/plov -I /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek '-DWT_KF_NODE_SHM_DIRECTORY="/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek"' '-DWT_MYNN_BUILD_PROFILE_ID="GNU-production-fixture-only"' -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer -DWT_MYNN_BUILD_ABI_VERIFIED=1 -DWT_MYNN_BUILD_CALLER_VERIFIED=1 -DWT_MYNN_BUILD_STATIC_STATE_VERIFIED=1 -c /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/test_mynn_node_live.c -o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/test_mynn_node_live-sanitized.o
+RETURN 0
+/home/u5727520/wrf-stack/wtune-fortran-dev-20260912/.pixi/envs/default/bin/x86_64-conda-linux-gnu-cc -std=c11 -Wall -Wextra -Werror -O1 -g -fopenmp -pthread -DWT_MYNN_NODE_LOCAL -DWT_SFCLAY_SCOPE_TEST_HELPERS -I /home/u5727520/wrf-stack/wtune/plov -I /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek '-DWT_KF_NODE_SHM_DIRECTORY="/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek"' '-DWT_MYNN_BUILD_PROFILE_ID="GNU-production-fixture-only"' -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer -DWT_MYNN_BUILD_ABI_VERIFIED=1 -DWT_MYNN_BUILD_CALLER_VERIFIED=1 -DWT_MYNN_BUILD_STATIC_STATE_VERIFIED=1 -c /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/wt_live_spans.c -o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/wt_live_spans-sanitized.o
+RETURN 0
+/home/u5727520/wrf-stack/wtune-fortran-dev-20260912/.pixi/envs/default/bin/x86_64-conda-linux-gnu-cc -std=c11 -Wall -Wextra -Werror -O1 -g -fopenmp -pthread -DWT_MYNN_NODE_LOCAL -DWT_SFCLAY_SCOPE_TEST_HELPERS -I /home/u5727520/wrf-stack/wtune/plov -I /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek '-DWT_KF_NODE_SHM_DIRECTORY="/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek"' '-DWT_MYNN_BUILD_PROFILE_ID="GNU-production-fixture-only"' -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer -DWT_MYNN_BUILD_ABI_VERIFIED=1 -DWT_MYNN_BUILD_CALLER_VERIFIED=1 -DWT_MYNN_BUILD_STATIC_STATE_VERIFIED=1 -c /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/wt_mynn_layout.c -o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/wt_mynn_layout-sanitized.o
+RETURN 0
+/home/u5727520/wrf-stack/wtune-fortran-dev-20260912/.pixi/envs/default/bin/x86_64-conda-linux-gnu-cc -std=c11 -Wall -Wextra -Werror -O1 -g -fopenmp -pthread -DWT_MYNN_NODE_LOCAL -DWT_SFCLAY_SCOPE_TEST_HELPERS -I /home/u5727520/wrf-stack/wtune/plov -I /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek '-DWT_KF_NODE_SHM_DIRECTORY="/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek"' '-DWT_MYNN_BUILD_PROFILE_ID="GNU-production-fixture-only"' -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer -DWT_MYNN_BUILD_ABI_VERIFIED=1 -DWT_MYNN_BUILD_CALLER_VERIFIED=1 -DWT_MYNN_BUILD_STATIC_STATE_VERIFIED=1 -c /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/wt_mynn_batch.c -o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/wt_mynn_batch-sanitized.o
+RETURN 0
+/home/u5727520/wrf-stack/wtune-fortran-dev-20260912/.pixi/envs/default/bin/x86_64-conda-linux-gnu-cc -std=c11 -Wall -Wextra -Werror -O1 -g -fopenmp -pthread -DWT_MYNN_NODE_LOCAL -DWT_SFCLAY_SCOPE_TEST_HELPERS -I /home/u5727520/wrf-stack/wtune/plov -I /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek '-DWT_KF_NODE_SHM_DIRECTORY="/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek"' '-DWT_MYNN_BUILD_PROFILE_ID="GNU-production-fixture-only"' -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer -DWT_MYNN_BUILD_ABI_VERIFIED=1 -DWT_MYNN_BUILD_CALLER_VERIFIED=1 -DWT_MYNN_BUILD_STATIC_STATE_VERIFIED=1 -c /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/wt_mynn_node.c -o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/wt_mynn_node-sanitized.o
+RETURN 0
+/home/u5727520/wrf-stack/wtune-fortran-dev-20260912/.pixi/envs/default/bin/x86_64-conda-linux-gnu-cc -std=c11 -Wall -Wextra -Werror -O1 -g -fopenmp -pthread -DWT_MYNN_NODE_LOCAL -DWT_SFCLAY_SCOPE_TEST_HELPERS -I /home/u5727520/wrf-stack/wtune/plov -I /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek '-DWT_KF_NODE_SHM_DIRECTORY="/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek"' '-DWT_MYNN_BUILD_PROFILE_ID="GNU-production-fixture-only"' -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer -DWT_MYNN_BUILD_ABI_VERIFIED=1 -DWT_MYNN_BUILD_CALLER_VERIFIED=1 -DWT_MYNN_BUILD_STATIC_STATE_VERIFIED=1 -c /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/wt_node_local.c -o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/wt_node_local-sanitized.o
+RETURN 0
+/home/u5727520/wrf-stack/wtune-fortran-dev-20260912/.pixi/envs/default/bin/x86_64-conda-linux-gnu-cc -std=c11 -Wall -Wextra -Werror -O1 -g -fopenmp -pthread -DWT_MYNN_NODE_LOCAL -DWT_SFCLAY_SCOPE_TEST_HELPERS -I /home/u5727520/wrf-stack/wtune/plov -I /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek '-DWT_KF_NODE_SHM_DIRECTORY="/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek"' '-DWT_MYNN_BUILD_PROFILE_ID="GNU-production-fixture-only"' -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer -DWT_MYNN_BUILD_ABI_VERIFIED=1 -DWT_MYNN_BUILD_CALLER_VERIFIED=1 -DWT_MYNN_BUILD_STATIC_STATE_VERIFIED=1 -c /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/wt_kf_node_shm.c -o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/wt_kf_node_shm-sanitized.o
+RETURN 0
+/home/u5727520/wrf-stack/wtune-fortran-dev-20260912/.pixi/envs/default/bin/x86_64-conda-linux-gnu-cc -std=c11 -Wall -Wextra -Werror -O1 -g -fopenmp -pthread -DWT_MYNN_NODE_LOCAL -DWT_SFCLAY_SCOPE_TEST_HELPERS -I /home/u5727520/wrf-stack/wtune/plov -I /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek '-DWT_KF_NODE_SHM_DIRECTORY="/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek"' '-DWT_MYNN_BUILD_PROFILE_ID="GNU-production-fixture-only"' -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer -DWT_MYNN_BUILD_ABI_VERIFIED=1 -DWT_MYNN_BUILD_CALLER_VERIFIED=1 -DWT_MYNN_BUILD_STATIC_STATE_VERIFIED=1 -c /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/wt_mynn_native.c -o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/wt_mynn_native-sanitized.o
+RETURN 0
+/home/u5727520/wrf-stack/wtune-fortran-dev-20260912/.pixi/envs/default/bin/x86_64-conda-linux-gnu-cc -std=c11 -Wall -Wextra -Werror -O1 -g -fopenmp -pthread -DWT_MYNN_NODE_LOCAL -DWT_SFCLAY_SCOPE_TEST_HELPERS -I /home/u5727520/wrf-stack/wtune/plov -I /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek '-DWT_KF_NODE_SHM_DIRECTORY="/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek"' '-DWT_MYNN_BUILD_PROFILE_ID="GNU-production-fixture-only"' -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer -DWT_MYNN_BUILD_ABI_VERIFIED=1 -DWT_MYNN_BUILD_CALLER_VERIFIED=1 -DWT_MYNN_BUILD_STATIC_STATE_VERIFIED=1 -c /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/wt_mynn_node_live.c -o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/wt_mynn_node_live-sanitized.o
+RETURN 0
+/home/u5727520/wrf-stack/wtune-fortran-dev-20260912/.pixi/envs/default/bin/x86_64-conda-linux-gnu-cc -std=c11 -Wall -Wextra -Werror -O1 -g -fopenmp -pthread -DWT_MYNN_NODE_LOCAL -DWT_SFCLAY_SCOPE_TEST_HELPERS -I /home/u5727520/wrf-stack/wtune/plov -I /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek '-DWT_KF_NODE_SHM_DIRECTORY="/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek"' '-DWT_MYNN_BUILD_PROFILE_ID="GNU-production-fixture-only"' -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer -DWT_MYNN_BUILD_ABI_VERIFIED=1 -DWT_MYNN_BUILD_CALLER_VERIFIED=1 -DWT_MYNN_BUILD_STATIC_STATE_VERIFIED=1 -c /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/wt_mynn_bootstrap.c -o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/wt_mynn_bootstrap-sanitized.o
+RETURN 0
+/home/u5727520/wrf-stack/wtune-fortran-dev-20260912/.pixi/envs/default/bin/x86_64-conda-linux-gnu-cc -std=c11 -Wall -Wextra -Werror -O1 -g -fopenmp -pthread -DWT_MYNN_NODE_LOCAL -DWT_SFCLAY_SCOPE_TEST_HELPERS -I /home/u5727520/wrf-stack/wtune/plov -I /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek '-DWT_KF_NODE_SHM_DIRECTORY="/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek"' '-DWT_MYNN_BUILD_PROFILE_ID="GNU-production-fixture-only"' -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer -DWT_MYNN_BUILD_ABI_VERIFIED=1 -DWT_MYNN_BUILD_CALLER_VERIFIED=1 -DWT_MYNN_BUILD_STATIC_STATE_VERIFIED=1 -c /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/wt_sfclay_scope_bridge.c -o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/wt_sfclay_scope_bridge-sanitized.o
+RETURN 0
+/home/u5727520/wrf-stack/wtune-fortran-dev-20260912/.pixi/envs/default/bin/x86_64-conda-linux-gnu-gfortran -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer -fopenmp -pthread /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/ccpp_kind_types.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/module_model_constants.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/module_bl_mynnedmf_common.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/module_bl_mynnedmf.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/module_bl_mynnedmf_driver.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/wt_mynn_static_state.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/caller.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/bridge-sanitized.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/abi-sanitized.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/test_mynn_node_live-sanitized.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/wt_live_spans-sanitized.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/wt_mynn_layout-sanitized.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/wt_mynn_batch-sanitized.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/wt_mynn_node-sanitized.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/wt_node_local-sanitized.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/wt_kf_node_shm-sanitized.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/wt_mynn_native-sanitized.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/wt_mynn_node_live-sanitized.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/wt_mynn_bootstrap-sanitized.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/wt_sfclay_scope_bridge-sanitized.o -Wl,--wrap=__module_bl_mynnedmf_driver_MOD_mynnedmf_driver -Wl,--wrap=module_first_rk_step_part1_mp_first_rk_step_part1_ -Wl,--wrap=wt_mynn_bridge_dispatch -o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/sanitized
+RETURN 0
+/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/sanitized /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/sanitized-0.bin
+# wt_mynn_node_g0 event=helper pid=2434925 rank=1 thread=1 owner=0 owner_thread=0 executor=1 work=1 grid=4 epoch=1 init=6679059554425913294
+# wt_mynn_node_g0 event=helper pid=2434925 rank=1 thread=0 owner=0 owner_thread=1 executor=1 work=2 grid=4 epoch=1 init=6679059554425913294
+# wt_mynn_node_g0 event=commit pid=2434925 rank=1 thread=1 owner=1 owner_thread=1 executor=1 work=4 grid=4 epoch=1 init=6679059554425913294
+# wt_mynn_node_g0 event=commit pid=2434925 rank=1 thread=0 owner=1 owner_thread=0 executor=1 work=3 grid=4 epoch=1 init=6679059554425913294
+# wt_mynn_node_g0 event=commit pid=2434924 rank=0 thread=0 owner=0 owner_thread=0 executor=1 work=1 grid=4 epoch=1 init=6679059554425913294
+# wt_mynn_node_g0 event=commit pid=2434924 rank=0 thread=1 owner=0 owner_thread=1 executor=1 work=2 grid=4 epoch=1 init=6679059554425913294
+# wt_mynn_node_g0 event=commit pid=2434925 rank=1 thread=1 owner=1 owner_thread=1 executor=1 work=5 grid=4 epoch=2 init=6679059554425913294
+# wt_mynn_node_g0 event=commit pid=2434925 rank=1 thread=0 owner=1 owner_thread=0 executor=1 work=6 grid=4 epoch=2 init=6679059554425913294
+# wt_mynn_bootstrap requested=1 configured=1 profile=GNU-production-fixture-only abi=1 caller=1 static=1
+# wt_mynn_node mode=forced-g0 adaptive=pending shadow_remote=0 pid=2434925 rank=1 grid=4 epoch=2 init=6679059554425913294 serialized=1 requested=5 donated=4 committed=4 self=4 helper=2 remote=0 fallback=1 fatal=0 pack_ns=886160 native_ns=6780281 progress_ns=3016965 shadow_checked=0 shadow_failed=0 shadow_bytes=0
+# wt_mynn_node refusal.config=1
+# wt_mynn_node refusal.abi=0
+# wt_mynn_node refusal.static=0
+# wt_mynn_node refusal.scope=0
+# wt_mynn_node refusal.mapper=0
+# wt_mynn_node refusal.omp=0
+# wt_mynn_node refusal.capacity=0
+# wt_mynn_node refusal.geometry=0
+# wt_mynn_node refusal.init=0
+# wt_mynn_node refusal.single_row=0
+# wt_mynn_node refusal.alias=0
+# wt_mynn_node refusal.budget=0
+# wt_mynn_node refusal.slot=0
+# wt_mynn_node refusal.prepare=0
+# wt_mynn_node_g0 event=commit pid=2434924 rank=0 thread=0 owner=0 owner_thread=0 executor=0 work=7 grid=4 epoch=2 init=6679059554425913294
+# wt_mynn_node_g0 event=commit pid=2434924 rank=0 thread=1 owner=0 owner_thread=1 executor=0 work=8 grid=4 epoch=2 init=6679059554425913294
+# wt_mynn_bootstrap requested=1 configured=1 profile=GNU-production-fixture-only abi=1 caller=1 static=1
+# wt_mynn_node mode=forced-g0 adaptive=pending shadow_remote=0 pid=2434924 rank=0 grid=4 epoch=2 init=6679059554425913294 serialized=1 requested=5 donated=4 committed=4 self=2 helper=0 remote=2 fallback=1 fatal=0 pack_ns=974452 native_ns=12387499 progress_ns=17064 shadow_checked=0 shadow_failed=0 shadow_bytes=0
+# wt_mynn_node refusal.config=1
+# wt_mynn_node refusal.abi=0
+# wt_mynn_node refusal.static=0
+# wt_mynn_node refusal.scope=0
+# wt_mynn_node refusal.mapper=0
+# wt_mynn_node refusal.omp=0
+# wt_mynn_node refusal.capacity=0
+# wt_mynn_node refusal.geometry=0
+# wt_mynn_node refusal.init=0
+# wt_mynn_node refusal.single_row=0
+# wt_mynn_node refusal.alias=0
+# wt_mynn_node refusal.budget=0
+# wt_mynn_node refusal.slot=0
+# wt_mynn_node refusal.prepare=0
+PASS MYNN production bootstrap/firstRK84/bridge132/fork/OMP2 realGNU full132 both epochs
+RETURN 0
+/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/sanitized /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/sanitized-1.bin
+# wt_mynn_node_g0 event=commit pid=2434932 rank=1 thread=0 owner=1 owner_thread=0 executor=1 work=3 grid=4 epoch=21 init=6679059554425913294
+# wt_mynn_node_g0 event=commit pid=2434930 rank=0 thread=0 owner=0 owner_thread=0 executor=0 work=1 grid=4 epoch=1 init=6679059554425913294
+# wt_mynn_node_g0 event=commit pid=2434932 rank=1 thread=1 owner=1 owner_thread=1 executor=1 work=4 grid=4 epoch=21 init=6679059554425913294
+# wt_mynn_node_g0 event=commit pid=2434930 rank=0 thread=1 owner=0 owner_thread=1 executor=0 work=2 grid=4 epoch=1 init=6679059554425913294
+# wt_mynn_node_g0 event=commit pid=2434932 rank=1 thread=0 owner=1 owner_thread=0 executor=1 work=5 grid=4 epoch=22 init=6679059554425913294
+# wt_mynn_node_g0 event=commit pid=2434930 rank=0 thread=0 owner=0 owner_thread=0 executor=0 work=7 grid=4 epoch=2 init=6679059554425913294
+# wt_mynn_node_g0 event=commit pid=2434930 rank=0 thread=1 owner=0 owner_thread=1 executor=0 work=8 grid=4 epoch=2 init=6679059554425913294
+# wt_mynn_node_g0 event=commit pid=2434932 rank=1 thread=1 owner=1 owner_thread=1 executor=1 work=6 grid=4 epoch=22 init=6679059554425913294
+# wt_mynn_bootstrap requested=1 configured=1 profile=GNU-production-fixture-only abi=1 caller=1 static=1
+# wt_mynn_bootstrap requested=1 configured=1 profile=GNU-production-fixture-only abi=1 caller=1 static=1
+# wt_mynn_node mode=forced-g0 adaptive=pending shadow_remote=0 pid=2434930 rank=0 grid=4 epoch=2 init=6679059554425913294 serialized=1 requested=5 donated=4 committed=4 self=4 helper=0 remote=0 fallback=1 fatal=0 pack_ns=969338 native_ns=6385923 progress_ns=3587877 shadow_checked=0 shadow_failed=0 shadow_bytes=0
+# wt_mynn_node mode=forced-g0 adaptive=pending shadow_remote=0 pid=2434932 rank=1 grid=4 epoch=22 init=6679059554425913294 serialized=1 requested=5 donated=4 committed=4 self=4 helper=0 remote=0 fallback=1 fatal=0 pack_ns=1026942 native_ns=5993083 progress_ns=3582017 shadow_checked=0 shadow_failed=0 shadow_bytes=0
+# wt_mynn_node refusal.config=1
+# wt_mynn_node refusal.abi=0
+# wt_mynn_node refusal.static=0
+# wt_mynn_node refusal.config=1
+# wt_mynn_node refusal.scope=0
+# wt_mynn_node refusal.abi=0
+# wt_mynn_node refusal.mapper=0
+# wt_mynn_node refusal.static=0
+# wt_mynn_node refusal.omp=0
+# wt_mynn_node refusal.scope=0
+# wt_mynn_node refusal.capacity=0
+# wt_mynn_node refusal.mapper=0
+# wt_mynn_node refusal.geometry=0
+# wt_mynn_node refusal.omp=0
+# wt_mynn_node refusal.init=0
+# wt_mynn_node refusal.capacity=0
+# wt_mynn_node refusal.geometry=0
+# wt_mynn_node refusal.init=0
+# wt_mynn_node refusal.single_row=0
+# wt_mynn_node refusal.single_row=0
+# wt_mynn_node refusal.alias=0
+# wt_mynn_node refusal.alias=0
+# wt_mynn_node refusal.budget=0
+# wt_mynn_node refusal.budget=0
+# wt_mynn_node refusal.slot=0
+# wt_mynn_node refusal.slot=0
+# wt_mynn_node refusal.prepare=0
+# wt_mynn_node refusal.prepare=0
+PASS MYNN production bootstrap/firstRK84/bridge132/fork/OMP2 realGNU full132 both epochs
+RETURN 0
+/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/sanitized /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/sanitized-2.bin
+# wt_mynn_bootstrap requested=1 configured=1 profile=GNU-production-fixture-only abi=1 caller=1 static=1
+# wt_mynn_node mode=forced-g0 adaptive=pending shadow_remote=0 pid=2434940 rank=0 grid=0 epoch=0 init=0 serialized=1 requested=5 donated=0 committed=0 self=0 helper=0 remote=0 fallback=5 fatal=0 pack_ns=0 native_ns=4970294 progress_ns=0 shadow_checked=0 shadow_failed=0 shadow_bytes=0
+# wt_mynn_node refusal.config=1
+# wt_mynn_node refusal.abi=0
+# wt_mynn_node refusal.static=0
+# wt_mynn_node refusal.scope=4
+# wt_mynn_node refusal.mapper=0
+# wt_mynn_node refusal.omp=0
+# wt_mynn_node refusal.capacity=0
+# wt_mynn_node refusal.geometry=0
+# wt_mynn_node refusal.init=0
+# wt_mynn_node refusal.single_row=0
+# wt_mynn_node refusal.alias=0
+# wt_mynn_node refusal.budget=0
+# wt_mynn_node refusal.slot=0
+# wt_mynn_node refusal.prepare=0
+# wt_mynn_bootstrap requested=1 configured=1 profile=GNU-production-fixture-only abi=1 caller=1 static=1
+# wt_mynn_node mode=forced-g0 adaptive=pending shadow_remote=0 pid=2434941 rank=1 grid=0 epoch=0 init=0 serialized=1 requested=5 donated=0 committed=0 self=0 helper=0 remote=0 fallback=5 fatal=0 pack_ns=0 native_ns=4755922 progress_ns=0 shadow_checked=0 shadow_failed=0 shadow_bytes=0
+# wt_mynn_node refusal.config=1
+# wt_mynn_node refusal.abi=0
+# wt_mynn_node refusal.static=0
+# wt_mynn_node refusal.scope=4
+# wt_mynn_node refusal.mapper=0
+# wt_mynn_node refusal.omp=0
+# wt_mynn_node refusal.capacity=0
+# wt_mynn_node refusal.geometry=0
+# wt_mynn_node refusal.init=0
+# wt_mynn_node refusal.single_row=0
+# wt_mynn_node refusal.alias=0
+# wt_mynn_node refusal.budget=0
+# wt_mynn_node refusal.slot=0
+# wt_mynn_node refusal.prepare=0
+PASS MYNN production bootstrap/firstRK84/bridge132/fork/OMP2 realGNU full132 both epochs
+RETURN 0
+/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/sanitized /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/sanitized-3.bin
+# wt_mynn_node_g0 event=commit pid=2434952 rank=0 thread=1 owner=0 owner_thread=1 executor=0 work=2 grid=4 epoch=1 init=6679059554425913294
+# wt_mynn_node_g0 event=commit pid=2434957 rank=1 thread=1 owner=1 owner_thread=1 executor=1 work=3 grid=4 epoch=1 init=6679059554425913294
+# wt_mynn_node_g0 event=commit pid=2434957 rank=1 thread=0 owner=1 owner_thread=0 executor=1 work=4 grid=4 epoch=1 init=6679059554425913294
+# wt_mynn_node_g0 event=commit pid=2434952 rank=0 thread=0 owner=0 owner_thread=0 executor=0 work=1 grid=4 epoch=1 init=6679059554425913294
+# wt_mynn_node_g0 event=commit pid=2434957 rank=1 thread=0 owner=1 owner_thread=0 executor=1 work=6 grid=4 epoch=2 init=6679059554425913294
+# wt_mynn_node_g0 event=commit pid=2434952 rank=0 thread=0 owner=0 owner_thread=0 executor=0 work=5 grid=4 epoch=2 init=6679059554425913294
+# wt_mynn_node_g0 event=commit pid=2434957 rank=1 thread=1 owner=1 owner_thread=1 executor=1 work=8 grid=4 epoch=2 init=6679059554425913294
+# wt_mynn_node_g0 event=commit pid=2434952 rank=0 thread=1 owner=0 owner_thread=1 executor=0 work=7 grid=4 epoch=2 init=6679059554425913294
+# wt_mynn_bootstrap requested=1 configured=1 profile=GNU-production-fixture-only abi=1 caller=1 static=1
+# wt_mynn_bootstrap requested=1 configured=1 profile=GNU-production-fixture-only abi=1 caller=1 static=1
+# wt_mynn_node mode=forced-g0-owner-only adaptive=pending shadow_remote=0 pid=2434952 rank=0 grid=4 epoch=2 init=6679059554425913294 serialized=1 requested=5 donated=4 committed=4 self=4 helper=0 remote=0 fallback=1 fatal=0 pack_ns=838781 native_ns=5708964 progress_ns=0 shadow_checked=0 shadow_failed=0 shadow_bytes=0
+# wt_mynn_node mode=forced-g0-owner-only adaptive=pending shadow_remote=0 pid=2434957 rank=1 grid=4 epoch=2 init=6679059554425913294 serialized=1 requested=5 donated=4 committed=4 self=4 helper=0 remote=0 fallback=1 fatal=0 pack_ns=869533 native_ns=5426896 progress_ns=0 shadow_checked=0 shadow_failed=0 shadow_bytes=0
+# wt_mynn_node refusal.config=1
+# wt_mynn_node refusal.abi=0
+# wt_mynn_node refusal.config=1
+# wt_mynn_node refusal.static=0
+# wt_mynn_node refusal.abi=0
+# wt_mynn_node refusal.scope=0
+# wt_mynn_node refusal.static=0
+# wt_mynn_node refusal.mapper=0
+# wt_mynn_node refusal.scope=0
+# wt_mynn_node refusal.omp=0
+# wt_mynn_node refusal.mapper=0
+# wt_mynn_node refusal.capacity=0
+# wt_mynn_node refusal.omp=0
+# wt_mynn_node refusal.geometry=0
+# wt_mynn_node refusal.capacity=0
+# wt_mynn_node refusal.init=0
+# wt_mynn_node refusal.geometry=0
+# wt_mynn_node refusal.init=0
+# wt_mynn_node refusal.single_row=0
+# wt_mynn_node refusal.alias=0
+# wt_mynn_node refusal.single_row=0
+# wt_mynn_node refusal.budget=0
+# wt_mynn_node refusal.alias=0
+# wt_mynn_node refusal.slot=0
+# wt_mynn_node refusal.budget=0
+# wt_mynn_node refusal.prepare=0
+# wt_mynn_node refusal.slot=0
+# wt_mynn_node refusal.prepare=0
+PASS MYNN production bootstrap/firstRK84/bridge132/fork/OMP2 realGNU full132 both epochs
+RETURN 0
+/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/sanitized /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/sanitized-4.bin
+MYNN_NATIVE pid=2435028 epoch=1 j=2
+MYNN_NATIVE pid=2435028 epoch=1 j=4
+
+Program received signal SIGABRT: Process abort signal.
+
+Backtrace for this error:
+
+Program received signal SIGABRT: Process abort signal.
+
+Backtrace for this error:
+#0  0x14c6b0289b7f in ???
+#1  0x14c6b0289aff in ???
+#0  0x14c6b0289b7f in ???
+#2  0x14c6b025cea4 in ???
+#1  0x14c6b0289aff in ???
+#2  0x14c6b025cea4 in ???
+#3  0x55e40f8aa5c5 in die
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/wt_mynn_node_live.c:35
+#3  0x55e40f8aa5c5 in die
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/wt_mynn_node_live.c:35
+#4  0x55e40f8accfb in wt_mynn_bridge_dispatch
+#4  0x55e40f8accfb in wt_mynn_bridge_dispatch
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/wt_mynn_node_live.c:221
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/wt_mynn_node_live.c:221
+#5  0x55e40f88e150 in __wrap_wt_mynn_bridge_dispatch
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/test_mynn_node_live.c:140
+#5  0x55e40f88e150 in __wrap_wt_mynn_bridge_dispatch
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/test_mynn_node_live.c:140
+#6  0x55e40f88661e in __wrap___module_bl_mynnedmf_driver_MOD_mynnedmf_driver
+#6  0x55e40f88661e in __wrap___module_bl_mynnedmf_driver_MOD_mynnedmf_driver
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/bridge.c:16
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/bridge.c:16
+#7  0x55e40f889bfa in mynn_live_driver_call
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/abi.c:5
+#8  0x55e40f88aa7a in mynn_live_first_real._omp_fn.0
+#7  0x55e40f889bfa in mynn_live_driver_call
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/test_mynn_node_live.c:63
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/abi.c:5
+#8  0x55e40f88aa7a in mynn_live_first_real._omp_fn.0
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/test_mynn_node_live.c:63
+#9  0x14c6b1dfef35 in GOMP_parallel
+	at ../../../libgomp/parallel.c:178
+#10  0x55e40f88dac0 in mynn_live_first_real
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/test_mynn_node_live.c:57
+#11  0x55e40f8878df in module_first_rk_step_part1_mp_first_rk_step_part1_
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/abi.c:3
+#12  0x55e40f8aeef4 in __wrap_module_first_rk_step_part1_mp_first_rk_step_part1_
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/wt_sfclay_scope_bridge.c:20
+#13  0x55e40f8b02d6 in wt_sfclay_scope_test_call
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/wt_sfclay_scope_bridge.c:30
+#14  0x55e40f88c44e in rank_run
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/test_mynn_node_live.c:102
+#15  0x55e40f88e452 in __wrap_wt_mynn_bridge_dispatch
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/test_mynn_node_live.c:148
+#16  0x55e40f88661e in __wrap___module_bl_mynnedmf_driver_MOD_mynnedmf_driver
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/bridge.c:16
+#9  0x14c6b1e08f8d in gomp_thread_start
+	at ../../../libgomp/team.c:129
+#17  0x55e40f8679e0 in mynn_bridge_driver
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/caller.f90:389
+#18  0x55e40f8825ed in main
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/caller.f90:2
+RETURN -6
+/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/sanitized /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/sanitized-5.bin
+MYNN_NATIVE pid=2435385 epoch=1 j=2
+MYNN_NATIVE pid=2435385 epoch=1 j=4
+MYNN_NATIVE pid=2435385 epoch=1 j=3
+MYNN_NATIVE pid=2435385 epoch=1 j=5
+
+Program received signal SIGABRT: Process abort signal.
+
+Backtrace for this error:
+
+Program received signal SIGABRT: Process abort signal.
+
+Backtrace for this error:
+#0  0x154cb5981b7f in ???
+#1  0x154cb5981aff in ???
+#0  0x154cb5981b7f in ???
+#2  0x154cb5954ea4 in ???
+#1  0x154cb5981aff in ???
+#2  0x154cb5954ea4 in ???
+#3  0x564d5acb75c5 in die
+#3  0x564d5acb75c5 in die
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/wt_mynn_node_live.c:35
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/wt_mynn_node_live.c:35
+#4  0x564d5acb9e03 in wt_mynn_bridge_dispatch
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/wt_mynn_node_live.c:224
+#4  0x564d5acb9e03 in wt_mynn_bridge_dispatch
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/wt_mynn_node_live.c:224
+#5  0x564d5ac9b150 in __wrap_wt_mynn_bridge_dispatch
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/test_mynn_node_live.c:140
+#5  0x564d5ac9b150 in __wrap_wt_mynn_bridge_dispatch
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/test_mynn_node_live.c:140
+#6  0x564d5ac9361e in __wrap___module_bl_mynnedmf_driver_MOD_mynnedmf_driver
+#6  0x564d5ac9361e in __wrap___module_bl_mynnedmf_driver_MOD_mynnedmf_driver
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/bridge.c:16
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/bridge.c:16
+#7  0x564d5ac96bfa in mynn_live_driver_call
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/abi.c:5
+#7  0x564d5ac96bfa in mynn_live_driver_call
+#8  0x564d5ac97a7a in mynn_live_first_real._omp_fn.0
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/abi.c:5
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/test_mynn_node_live.c:63
+#8  0x564d5ac97a7a in mynn_live_first_real._omp_fn.0
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/test_mynn_node_live.c:63
+#9  0x154cb74f6f35 in GOMP_parallel
+	at ../../../libgomp/parallel.c:178
+#10  0x564d5ac9aac0 in mynn_live_first_real
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/test_mynn_node_live.c:57
+#11  0x564d5ac948df in module_first_rk_step_part1_mp_first_rk_step_part1_
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/abi.c:3
+#12  0x564d5acbbef4 in __wrap_module_first_rk_step_part1_mp_first_rk_step_part1_
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/wt_sfclay_scope_bridge.c:20
+#13  0x564d5acbd2d6 in wt_sfclay_scope_test_call
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/wt_sfclay_scope_bridge.c:30
+#14  0x564d5ac9944e in rank_run
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/test_mynn_node_live.c:102
+#15  0x564d5ac9b452 in __wrap_wt_mynn_bridge_dispatch
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/test_mynn_node_live.c:148
+#16  0x564d5ac9361e in __wrap___module_bl_mynnedmf_driver_MOD_mynnedmf_driver
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/bridge.c:16
+#9  0x154cb7500f8d in gomp_thread_start
+	at ../../../libgomp/team.c:129
+#17  0x564d5ac749e0 in mynn_bridge_driver
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/caller.f90:389
+#18  0x564d5ac8f5ed in main
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/caller.f90:2
+RETURN -6
+/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/sanitized /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/sanitized-6.bin
+MYNN_NATIVE pid=2435894 epoch=1 j=2
+MYNN_NATIVE pid=2435895 epoch=1 j=2
+MYNN_NATIVE pid=2435894 epoch=1 j=4
+MYNN_NATIVE pid=2435895 epoch=1 j=4
+MYNN_NATIVE pid=2435894 epoch=2 j=2
+MYNN_NATIVE pid=2435895 epoch=2 j=2
+MYNN_NATIVE pid=2435894 epoch=2 j=4
+MYNN_NATIVE pid=2435895 epoch=2 j=4
+MYNN_NATIVE pid=2435894 epoch=2 j=3
+MYNN_NATIVE pid=2435895 epoch=2 j=3
+MYNN_NATIVE pid=2435895 epoch=2 j=5
+MYNN_NATIVE pid=2435894 epoch=2 j=5
+# wt_mynn_node_g0 event=helper pid=2435894 rank=0 thread=0 owner=1 owner_thread=0 executor=0 work=3 grid=4 epoch=2 init=6679059554425913294
+# wt_mynn_node_g0 event=helper pid=2435895 rank=1 thread=0 owner=0 owner_thread=0 executor=1 work=1 grid=4 epoch=2 init=6679059554425913294
+# wt_mynn_node_g0 event=commit pid=2435895 rank=1 thread=0 owner=1 owner_thread=0 executor=0 work=3 grid=4 epoch=2 init=6679059554425913294
+# wt_mynn_node_g0 event=commit pid=2435894 rank=0 thread=0 owner=0 owner_thread=0 executor=1 work=1 grid=4 epoch=2 init=6679059554425913294
+# wt_mynn_node_g0 event=helper pid=2435894 rank=0 thread=1 owner=1 owner_thread=1 executor=0 work=4 grid=4 epoch=2 init=6679059554425913294
+# wt_mynn_node_g0 event=helper pid=2435895 rank=1 thread=1 owner=0 owner_thread=1 executor=1 work=2 grid=4 epoch=2 init=6679059554425913294
+# wt_mynn_node_g0 event=commit pid=2435894 rank=0 thread=1 owner=0 owner_thread=1 executor=1 work=2 grid=4 epoch=2 init=6679059554425913294
+# wt_mynn_node_g0 event=commit pid=2435895 rank=1 thread=1 owner=1 owner_thread=1 executor=0 work=4 grid=4 epoch=2 init=6679059554425913294
+MYNN_NATIVE pid=2435894 epoch=3 j=2
+MYNN_NATIVE pid=2435895 epoch=3 j=2
+MYNN_NATIVE pid=2435895 epoch=3 j=4
+MYNN_NATIVE pid=2435894 epoch=3 j=4
+MYNN_NATIVE pid=2435894 epoch=3 j=3
+MYNN_NATIVE pid=2435895 epoch=3 j=3
+MYNN_NATIVE pid=2435895 epoch=3 j=5
+MYNN_NATIVE pid=2435894 epoch=3 j=5
+# wt_mynn_node_g0 event=helper pid=2435894 rank=0 thread=0 owner=1 owner_thread=0 executor=0 work=6 grid=4 epoch=3 init=6679059554425913294
+# wt_mynn_node_g0 event=helper pid=2435895 rank=1 thread=0 owner=0 owner_thread=0 executor=1 work=5 grid=4 epoch=3 init=6679059554425913294
+# wt_mynn_node_g0 event=commit pid=2435894 rank=0 thread=0 owner=0 owner_thread=0 executor=1 work=5 grid=4 epoch=3 init=6679059554425913294
+# wt_mynn_node_g0 event=commit pid=2435895 rank=1 thread=0 owner=1 owner_thread=0 executor=0 work=6 grid=4 epoch=3 init=6679059554425913294
+# wt_mynn_node_g0 event=helper pid=2435894 rank=0 thread=1 owner=1 owner_thread=1 executor=0 work=8 grid=4 epoch=3 init=6679059554425913294
+# wt_mynn_node_g0 event=helper pid=2435895 rank=1 thread=1 owner=0 owner_thread=1 executor=1 work=7 grid=4 epoch=3 init=6679059554425913294
+# wt_mynn_node_g0 event=commit pid=2435894 rank=0 thread=1 owner=0 owner_thread=1 executor=1 work=7 grid=4 epoch=3 init=6679059554425913294
+# wt_mynn_node_g0 event=commit pid=2435895 rank=1 thread=1 owner=1 owner_thread=1 executor=0 work=8 grid=4 epoch=3 init=6679059554425913294
+# wt_mynn_bootstrap requested=1 configured=1 profile=GNU-production-fixture-only abi=1 caller=1 static=1
+# wt_mynn_bootstrap requested=1 configured=1 profile=GNU-production-fixture-only abi=1 caller=1 static=1
+# wt_mynn_node mode=forced-g0 adaptive=pending shadow_remote=0 pid=2435894 rank=0 grid=4 epoch=3 init=6679059554425913294 serialized=1 requested=7 donated=4 committed=4 self=0 helper=4 remote=4 fallback=3 fatal=0 pack_ns=976030 native_ns=7774179 progress_ns=4296671 shadow_checked=0 shadow_failed=0 shadow_bytes=0
+# wt_mynn_node mode=forced-g0 adaptive=pending shadow_remote=0 pid=2435895 rank=1 grid=4 epoch=3 init=6679059554425913294 serialized=1 requested=7 donated=4 committed=4 self=0 helper=4 remote=4 fallback=3 fatal=0 pack_ns=1071600 native_ns=7381226 progress_ns=4291248 shadow_checked=0 shadow_failed=0 shadow_bytes=0
+# wt_mynn_node refusal.config=1
+# wt_mynn_node refusal.abi=0
+# wt_mynn_node refusal.config=1
+# wt_mynn_node refusal.static=0
+# wt_mynn_node refusal.abi=0
+# wt_mynn_node refusal.scope=0
+# wt_mynn_node refusal.static=0
+# wt_mynn_node refusal.mapper=0
+# wt_mynn_node refusal.scope=0
+# wt_mynn_node refusal.omp=0
+# wt_mynn_node refusal.mapper=0
+# wt_mynn_node refusal.capacity=0
+# wt_mynn_node refusal.omp=0
+# wt_mynn_node refusal.geometry=0
+# wt_mynn_node refusal.capacity=0
+# wt_mynn_node refusal.init=2
+# wt_mynn_node refusal.geometry=0
+# wt_mynn_node refusal.init=2
+# wt_mynn_node refusal.single_row=0
+# wt_mynn_node refusal.single_row=0
+# wt_mynn_node refusal.alias=0
+# wt_mynn_node refusal.alias=0
+# wt_mynn_node refusal.budget=0
+# wt_mynn_node refusal.budget=0
+# wt_mynn_node refusal.slot=0
+# wt_mynn_node refusal.slot=0
+# wt_mynn_node refusal.prepare=0
+# wt_mynn_node refusal.prepare=0
+PASS MYNN production bootstrap/firstRK84/bridge132/fork/OMP2 realGNU full132 both epochs
+RETURN 0
+/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/sanitized /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/sanitized-7.bin
+
+Program received signal SIGABRT: Process abort signal.
+
+Backtrace for this error:
+MYNN_NATIVE pid=2435905 epoch=1 j=2
+MYNN_NATIVE pid=2435905 epoch=1 j=3
+# wt_mynn_node_g0 event=commit pid=2435905 rank=0 thread=0 owner=0 owner_thread=0 executor=0 work=1 grid=4 epoch=1 init=6679059554425913294
+#0  0x14b51a270b7f in ???
+#1  0x14b51a270aff in ???
+#2  0x14b51a243ea4 in ???
+#3  0x55e3a253b5c5 in die
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/wt_mynn_node_live.c:35
+#4  0x55e3a253d47f in wt_mynn_bridge_dispatch
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/wt_mynn_node_live.c:182
+#5  0x55e3a251f150 in __wrap_wt_mynn_bridge_dispatch
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/test_mynn_node_live.c:140
+#6  0x55e3a251761e in __wrap___module_bl_mynnedmf_driver_MOD_mynnedmf_driver
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/bridge.c:16
+#7  0x55e3a251abfa in mynn_live_driver_call
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/abi.c:5
+#8  0x55e3a251ba7a in mynn_live_first_real._omp_fn.0
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/test_mynn_node_live.c:63
+#9  0x14b51bdeff8d in gomp_thread_start
+	at ../../../libgomp/team.c:129
+#10  0x14b51b56c6e6 in asan_thread_start
+	at ../../../../libsanitizer/asan/asan_interceptors.cpp:246
+#11  0x14b51a5f01c9 in ???
+#12  0x14b51a25be72 in ???
+#13  0xffffffffffffffff in ???
+RETURN -6
+/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/sanitized /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/sanitized-8.bin
+MYNN_NATIVE pid=2436666 epoch=1 j=2
+MYNN_NATIVE pid=2436672 epoch=1 j=2
+MYNN_NATIVE pid=2436666 epoch=1 j=4
+MYNN_NATIVE pid=2436672 epoch=1 j=4
+MYNN_NATIVE pid=2436666 epoch=2 j=4
+MYNN_NATIVE pid=2436672 epoch=2 j=4
+MYNN_NATIVE pid=2436666 epoch=2 j=2
+MYNN_NATIVE pid=2436672 epoch=2 j=2
+# wt_mynn_bootstrap requested=1 configured=0 profile=GNU-production-fixture-only abi=1 caller=1 static=1
+# wt_mynn_node mode=forced-g0 adaptive=pending shadow_remote=0 pid=2436666 rank=0 grid=0 epoch=0 init=0 serialized=1 requested=5 donated=0 committed=0 self=0 helper=0 remote=0 fallback=5 fatal=0 pack_ns=0 native_ns=5412842 progress_ns=0 shadow_checked=0 shadow_failed=0 shadow_bytes=0
+# wt_mynn_node refusal.config=5
+# wt_mynn_node refusal.abi=0
+# wt_mynn_node refusal.static=0
+# wt_mynn_node refusal.scope=0
+# wt_mynn_node refusal.mapper=0
+# wt_mynn_node refusal.omp=0
+# wt_mynn_node refusal.capacity=0
+# wt_mynn_node refusal.geometry=0
+# wt_mynn_node refusal.init=0
+# wt_mynn_node refusal.single_row=0
+# wt_mynn_node refusal.alias=0
+# wt_mynn_node refusal.budget=0
+# wt_mynn_node refusal.slot=0
+# wt_mynn_node refusal.prepare=0
+# wt_mynn_bootstrap requested=1 configured=0 profile=GNU-production-fixture-only abi=1 caller=1 static=1
+# wt_mynn_node mode=forced-g0 adaptive=pending shadow_remote=0 pid=2436672 rank=0 grid=0 epoch=0 init=0 serialized=1 requested=5 donated=0 committed=0 self=0 helper=0 remote=0 fallback=5 fatal=0 pack_ns=0 native_ns=4989147 progress_ns=0 shadow_checked=0 shadow_failed=0 shadow_bytes=0
+# wt_mynn_node refusal.config=5
+# wt_mynn_node refusal.abi=0
+# wt_mynn_node refusal.static=0
+# wt_mynn_node refusal.scope=0
+# wt_mynn_node refusal.mapper=0
+# wt_mynn_node refusal.omp=0
+# wt_mynn_node refusal.capacity=0
+# wt_mynn_node refusal.geometry=0
+# wt_mynn_node refusal.init=0
+# wt_mynn_node refusal.single_row=0
+# wt_mynn_node refusal.alias=0
+# wt_mynn_node refusal.budget=0
+# wt_mynn_node refusal.slot=0
+# wt_mynn_node refusal.prepare=0
+PASS MYNN production bootstrap/firstRK84/bridge132/fork/OMP2 realGNU full132 both epochs
+RETURN 0
+/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/sanitized /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/sanitized-9.bin
+MYNN_NATIVE pid=2436685 epoch=1 j=4
+MYNN_NATIVE pid=2436692 epoch=1 j=4
+MYNN_NATIVE pid=2436692 epoch=1 j=2
+MYNN_NATIVE pid=2436692 epoch=1 j=3
+MYNN_NATIVE pid=2436692 epoch=1 j=5
+# wt_mynn_node_g0 event=helper pid=2436692 rank=1 thread=1 owner=0 owner_thread=0 executor=1 work=1 grid=4 epoch=1 init=6679059554425913294
+MYNN_NATIVE pid=2436692 epoch=1 j=5
+# wt_mynn_node_g0 event=helper pid=2436692 rank=1 thread=0 owner=0 owner_thread=1 executor=1 work=2 grid=4 epoch=1 init=6679059554425913294
+MYNN_NATIVE pid=2436692 epoch=1 j=3
+MYNN_NATIVE pid=2436685 epoch=1 j=2
+# wt_mynn_node_g0 event=commit pid=2436692 rank=1 thread=1 owner=1 owner_thread=1 executor=1 work=4 grid=4 epoch=1 init=6679059554425913294
+# wt_mynn_node_g0 event=commit pid=2436692 rank=1 thread=0 owner=1 owner_thread=0 executor=1 work=3 grid=4 epoch=1 init=6679059554425913294
+MYNN_NATIVE pid=2436685 epoch=1 j=3
+MYNN_NATIVE pid=2436685 epoch=1 j=5
+MYNN_NATIVE pid=2436692 epoch=2 j=2
+# wt_mynn_node_g0 event=commit pid=2436685 rank=0 thread=0 owner=0 owner_thread=0 executor=1 work=1 grid=4 epoch=1 init=6679059554425913294
+MYNN_NATIVE pid=2436692 epoch=2 j=4
+MYNN_NATIVE pid=2436692 epoch=2 j=3
+MYNN_NATIVE pid=2436692 epoch=2 j=5
+# wt_mynn_node_g0 event=commit pid=2436685 rank=0 thread=1 owner=0 owner_thread=1 executor=1 work=2 grid=4 epoch=1 init=6679059554425913294
+# wt_mynn_node_g0 event=commit pid=2436692 rank=1 thread=0 owner=1 owner_thread=0 executor=1 work=6 grid=4 epoch=2 init=6679059554425913294
+# wt_mynn_node_g0 event=commit pid=2436692 rank=1 thread=1 owner=1 owner_thread=1 executor=1 work=5 grid=4 epoch=2 init=6679059554425913294
+# wt_mynn_bootstrap requested=1 configured=1 profile=GNU-production-fixture-only abi=1 caller=1 static=1
+# wt_mynn_node mode=forced-g0 adaptive=pending shadow_remote=1 pid=2436692 rank=1 grid=4 epoch=2 init=6679059554425913294 serialized=1 requested=5 donated=4 committed=4 self=4 helper=2 remote=0 fallback=1 fatal=0 pack_ns=943981 native_ns=6994263 progress_ns=3142807 shadow_checked=0 shadow_failed=0 shadow_bytes=0
+# wt_mynn_node refusal.config=1
+# wt_mynn_node refusal.abi=0
+# wt_mynn_node refusal.static=0
+# wt_mynn_node refusal.scope=0
+# wt_mynn_node refusal.mapper=0
+# wt_mynn_node refusal.omp=0
+# wt_mynn_node refusal.capacity=0
+# wt_mynn_node refusal.geometry=0
+# wt_mynn_node refusal.init=0
+# wt_mynn_node refusal.single_row=0
+# wt_mynn_node refusal.alias=0
+# wt_mynn_node refusal.budget=0
+# wt_mynn_node refusal.slot=0
+# wt_mynn_node refusal.prepare=0
+MYNN_NATIVE pid=2436685 epoch=2 j=2
+MYNN_NATIVE pid=2436685 epoch=2 j=4
+MYNN_NATIVE pid=2436685 epoch=2 j=3
+MYNN_NATIVE pid=2436685 epoch=2 j=5
+# wt_mynn_node_g0 event=commit pid=2436685 rank=0 thread=0 owner=0 owner_thread=0 executor=0 work=7 grid=4 epoch=2 init=6679059554425913294
+# wt_mynn_node_g0 event=commit pid=2436685 rank=0 thread=1 owner=0 owner_thread=1 executor=0 work=8 grid=4 epoch=2 init=6679059554425913294
+# wt_mynn_bootstrap requested=1 configured=1 profile=GNU-production-fixture-only abi=1 caller=1 static=1
+# wt_mynn_node mode=forced-g0 adaptive=pending shadow_remote=1 pid=2436685 rank=0 grid=4 epoch=2 init=6679059554425913294 serialized=1 requested=5 donated=4 committed=4 self=2 helper=0 remote=2 fallback=1 fatal=0 pack_ns=988138 native_ns=13191013 progress_ns=17680 shadow_checked=2 shadow_failed=0 shadow_bytes=28400
+# wt_mynn_node refusal.config=1
+# wt_mynn_node refusal.abi=0
+# wt_mynn_node refusal.static=0
+# wt_mynn_node refusal.scope=0
+# wt_mynn_node refusal.mapper=0
+# wt_mynn_node refusal.omp=0
+# wt_mynn_node refusal.capacity=0
+# wt_mynn_node refusal.geometry=0
+# wt_mynn_node refusal.init=0
+# wt_mynn_node refusal.single_row=0
+# wt_mynn_node refusal.alias=0
+# wt_mynn_node refusal.budget=0
+# wt_mynn_node refusal.slot=0
+# wt_mynn_node refusal.prepare=0
+PASS MYNN production bootstrap/firstRK84/bridge132/fork/OMP2 realGNU full132 both epochs
+RETURN 0
+/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/sanitized /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/sanitized-10.bin
+MYNN_NATIVE pid=2436736 epoch=1 j=2
+MYNN_NATIVE pid=2436738 epoch=1 j=2
+MYNN_NATIVE pid=2436736 epoch=1 j=4
+MYNN_NATIVE pid=2436738 epoch=1 j=4
+MYNN_NATIVE pid=2436736 epoch=2 j=4
+MYNN_NATIVE pid=2436736 epoch=2 j=2
+MYNN_NATIVE pid=2436738 epoch=2 j=4
+# wt_mynn_bootstrap requested=1 configured=0 profile=GNU-production-fixture-only abi=1 caller=1 static=1
+# wt_mynn_node mode=forced-g0 adaptive=pending shadow_remote=0 pid=2436736 rank=0 grid=0 epoch=0 init=0 serialized=1 requested=5 donated=0 committed=0 self=0 helper=0 remote=0 fallback=5 fatal=0 pack_ns=0 native_ns=5151934 progress_ns=0 shadow_checked=0 shadow_failed=0 shadow_bytes=0
+# wt_mynn_node refusal.config=5
+# wt_mynn_node refusal.abi=0
+# wt_mynn_node refusal.static=0
+# wt_mynn_node refusal.scope=0
+# wt_mynn_node refusal.mapper=0
+# wt_mynn_node refusal.omp=0
+# wt_mynn_node refusal.capacity=0
+# wt_mynn_node refusal.geometry=0
+# wt_mynn_node refusal.init=0
+# wt_mynn_node refusal.single_row=0
+# wt_mynn_node refusal.alias=0
+# wt_mynn_node refusal.budget=0
+# wt_mynn_node refusal.slot=0
+MYNN_NATIVE pid=2436738 epoch=2 j=2
+# wt_mynn_node refusal.prepare=0
+# wt_mynn_bootstrap requested=1 configured=0 profile=GNU-production-fixture-only abi=1 caller=1 static=1
+# wt_mynn_node mode=forced-g0 adaptive=pending shadow_remote=0 pid=2436738 rank=0 grid=0 epoch=0 init=0 serialized=1 requested=5 donated=0 committed=0 self=0 helper=0 remote=0 fallback=5 fatal=0 pack_ns=0 native_ns=4842171 progress_ns=0 shadow_checked=0 shadow_failed=0 shadow_bytes=0
+# wt_mynn_node refusal.config=5
+# wt_mynn_node refusal.abi=0
+# wt_mynn_node refusal.static=0
+# wt_mynn_node refusal.scope=0
+# wt_mynn_node refusal.mapper=0
+# wt_mynn_node refusal.omp=0
+# wt_mynn_node refusal.capacity=0
+# wt_mynn_node refusal.geometry=0
+# wt_mynn_node refusal.init=0
+# wt_mynn_node refusal.single_row=0
+# wt_mynn_node refusal.alias=0
+# wt_mynn_node refusal.budget=0
+# wt_mynn_node refusal.slot=0
+# wt_mynn_node refusal.prepare=0
+PASS MYNN production bootstrap/firstRK84/bridge132/fork/OMP2 realGNU full132 both epochs
+RETURN 0
+/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/sanitized /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/sanitized-11.bin
+MYNN_NATIVE pid=2436749 epoch=1 j=2
+MYNN_NATIVE pid=2436751 epoch=1 j=2
+MYNN_NATIVE pid=2436749 epoch=1 j=4
+MYNN_NATIVE pid=2436751 epoch=1 j=4
+MYNN_NATIVE pid=2436749 epoch=2 j=2
+MYNN_NATIVE pid=2436751 epoch=2 j=4
+MYNN_NATIVE pid=2436749 epoch=2 j=4
+MYNN_NATIVE pid=2436751 epoch=2 j=2
+# wt_mynn_bootstrap requested=1 configured=0 profile=GNU-production-fixture-only abi=1 caller=1 static=1
+# wt_mynn_node mode=forced-g0 adaptive=pending shadow_remote=0 pid=2436749 rank=0 grid=0 epoch=0 init=0 serialized=1 requested=5 donated=0 committed=0 self=0 helper=0 remote=0 fallback=5 fatal=0 pack_ns=0 native_ns=5235522 progress_ns=0 shadow_checked=0 shadow_failed=0 shadow_bytes=0
+# wt_mynn_bootstrap requested=1 configured=0 profile=GNU-production-fixture-only abi=1 caller=1 static=1
+# wt_mynn_node refusal.config=5
+# wt_mynn_node refusal.abi=0
+# wt_mynn_node refusal.static=0
+# wt_mynn_node refusal.scope=0
+# wt_mynn_node refusal.mapper=0
+# wt_mynn_node refusal.omp=0
+# wt_mynn_node refusal.capacity=0
+# wt_mynn_node refusal.geometry=0
+# wt_mynn_node refusal.init=0
+# wt_mynn_node refusal.single_row=0
+# wt_mynn_node refusal.alias=0
+# wt_mynn_node refusal.budget=0
+# wt_mynn_node refusal.slot=0
+# wt_mynn_node refusal.prepare=0
+# wt_mynn_node mode=forced-g0 adaptive=pending shadow_remote=0 pid=2436751 rank=0 grid=0 epoch=0 init=0 serialized=1 requested=5 donated=0 committed=0 self=0 helper=0 remote=0 fallback=5 fatal=0 pack_ns=0 native_ns=4545919 progress_ns=0 shadow_checked=0 shadow_failed=0 shadow_bytes=0
+# wt_mynn_node refusal.config=5
+# wt_mynn_node refusal.abi=0
+# wt_mynn_node refusal.static=0
+# wt_mynn_node refusal.scope=0
+# wt_mynn_node refusal.mapper=0
+# wt_mynn_node refusal.omp=0
+# wt_mynn_node refusal.capacity=0
+# wt_mynn_node refusal.geometry=0
+# wt_mynn_node refusal.init=0
+# wt_mynn_node refusal.single_row=0
+# wt_mynn_node refusal.alias=0
+# wt_mynn_node refusal.budget=0
+# wt_mynn_node refusal.slot=0
+# wt_mynn_node refusal.prepare=0
+PASS MYNN production bootstrap/firstRK84/bridge132/fork/OMP2 realGNU full132 both epochs
+RETURN 0
+/home/u5727520/wrf-stack/wtune-fortran-dev-20260912/.pixi/envs/default/bin/x86_64-conda-linux-gnu-cc -std=c11 -Wall -Wextra -Werror -O1 -g -fopenmp -pthread -DWT_MYNN_NODE_LOCAL -DWT_SFCLAY_SCOPE_TEST_HELPERS -I /home/u5727520/wrf-stack/wtune/plov -I /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek '-DWT_KF_NODE_SHM_DIRECTORY="/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek"' '-DWT_MYNN_BUILD_PROFILE_ID="GNU-production-fixture-only"' -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer -DMYNN_LIVE_UNATTESTED -c /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/bridge.c -o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/bridge-unattested.o
+RETURN 0
+/home/u5727520/wrf-stack/wtune-fortran-dev-20260912/.pixi/envs/default/bin/x86_64-conda-linux-gnu-cc -std=c11 -Wall -Wextra -Werror -O1 -g -fopenmp -pthread -DWT_MYNN_NODE_LOCAL -DWT_SFCLAY_SCOPE_TEST_HELPERS -I /home/u5727520/wrf-stack/wtune/plov -I /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek '-DWT_KF_NODE_SHM_DIRECTORY="/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek"' '-DWT_MYNN_BUILD_PROFILE_ID="GNU-production-fixture-only"' -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer -DMYNN_LIVE_UNATTESTED -c /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/abi.c -o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/abi-unattested.o
+RETURN 0
+/home/u5727520/wrf-stack/wtune-fortran-dev-20260912/.pixi/envs/default/bin/x86_64-conda-linux-gnu-cc -std=c11 -Wall -Wextra -Werror -O1 -g -fopenmp -pthread -DWT_MYNN_NODE_LOCAL -DWT_SFCLAY_SCOPE_TEST_HELPERS -I /home/u5727520/wrf-stack/wtune/plov -I /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek '-DWT_KF_NODE_SHM_DIRECTORY="/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek"' '-DWT_MYNN_BUILD_PROFILE_ID="GNU-production-fixture-only"' -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer -DMYNN_LIVE_UNATTESTED -c /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/test_mynn_node_live.c -o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/test_mynn_node_live-unattested.o
+RETURN 0
+/home/u5727520/wrf-stack/wtune-fortran-dev-20260912/.pixi/envs/default/bin/x86_64-conda-linux-gnu-cc -std=c11 -Wall -Wextra -Werror -O1 -g -fopenmp -pthread -DWT_MYNN_NODE_LOCAL -DWT_SFCLAY_SCOPE_TEST_HELPERS -I /home/u5727520/wrf-stack/wtune/plov -I /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek '-DWT_KF_NODE_SHM_DIRECTORY="/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek"' '-DWT_MYNN_BUILD_PROFILE_ID="GNU-production-fixture-only"' -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer -DMYNN_LIVE_UNATTESTED -c /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/wt_live_spans.c -o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/wt_live_spans-unattested.o
+RETURN 0
+/home/u5727520/wrf-stack/wtune-fortran-dev-20260912/.pixi/envs/default/bin/x86_64-conda-linux-gnu-cc -std=c11 -Wall -Wextra -Werror -O1 -g -fopenmp -pthread -DWT_MYNN_NODE_LOCAL -DWT_SFCLAY_SCOPE_TEST_HELPERS -I /home/u5727520/wrf-stack/wtune/plov -I /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek '-DWT_KF_NODE_SHM_DIRECTORY="/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek"' '-DWT_MYNN_BUILD_PROFILE_ID="GNU-production-fixture-only"' -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer -DMYNN_LIVE_UNATTESTED -c /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/wt_mynn_layout.c -o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/wt_mynn_layout-unattested.o
+RETURN 0
+/home/u5727520/wrf-stack/wtune-fortran-dev-20260912/.pixi/envs/default/bin/x86_64-conda-linux-gnu-cc -std=c11 -Wall -Wextra -Werror -O1 -g -fopenmp -pthread -DWT_MYNN_NODE_LOCAL -DWT_SFCLAY_SCOPE_TEST_HELPERS -I /home/u5727520/wrf-stack/wtune/plov -I /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek '-DWT_KF_NODE_SHM_DIRECTORY="/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek"' '-DWT_MYNN_BUILD_PROFILE_ID="GNU-production-fixture-only"' -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer -DMYNN_LIVE_UNATTESTED -c /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/wt_mynn_batch.c -o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/wt_mynn_batch-unattested.o
+RETURN 0
+/home/u5727520/wrf-stack/wtune-fortran-dev-20260912/.pixi/envs/default/bin/x86_64-conda-linux-gnu-cc -std=c11 -Wall -Wextra -Werror -O1 -g -fopenmp -pthread -DWT_MYNN_NODE_LOCAL -DWT_SFCLAY_SCOPE_TEST_HELPERS -I /home/u5727520/wrf-stack/wtune/plov -I /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek '-DWT_KF_NODE_SHM_DIRECTORY="/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek"' '-DWT_MYNN_BUILD_PROFILE_ID="GNU-production-fixture-only"' -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer -DMYNN_LIVE_UNATTESTED -c /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/wt_mynn_node.c -o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/wt_mynn_node-unattested.o
+RETURN 0
+/home/u5727520/wrf-stack/wtune-fortran-dev-20260912/.pixi/envs/default/bin/x86_64-conda-linux-gnu-cc -std=c11 -Wall -Wextra -Werror -O1 -g -fopenmp -pthread -DWT_MYNN_NODE_LOCAL -DWT_SFCLAY_SCOPE_TEST_HELPERS -I /home/u5727520/wrf-stack/wtune/plov -I /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek '-DWT_KF_NODE_SHM_DIRECTORY="/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek"' '-DWT_MYNN_BUILD_PROFILE_ID="GNU-production-fixture-only"' -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer -DMYNN_LIVE_UNATTESTED -c /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/wt_node_local.c -o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/wt_node_local-unattested.o
+RETURN 0
+/home/u5727520/wrf-stack/wtune-fortran-dev-20260912/.pixi/envs/default/bin/x86_64-conda-linux-gnu-cc -std=c11 -Wall -Wextra -Werror -O1 -g -fopenmp -pthread -DWT_MYNN_NODE_LOCAL -DWT_SFCLAY_SCOPE_TEST_HELPERS -I /home/u5727520/wrf-stack/wtune/plov -I /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek '-DWT_KF_NODE_SHM_DIRECTORY="/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek"' '-DWT_MYNN_BUILD_PROFILE_ID="GNU-production-fixture-only"' -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer -DMYNN_LIVE_UNATTESTED -c /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/wt_kf_node_shm.c -o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/wt_kf_node_shm-unattested.o
+RETURN 0
+/home/u5727520/wrf-stack/wtune-fortran-dev-20260912/.pixi/envs/default/bin/x86_64-conda-linux-gnu-cc -std=c11 -Wall -Wextra -Werror -O1 -g -fopenmp -pthread -DWT_MYNN_NODE_LOCAL -DWT_SFCLAY_SCOPE_TEST_HELPERS -I /home/u5727520/wrf-stack/wtune/plov -I /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek '-DWT_KF_NODE_SHM_DIRECTORY="/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek"' '-DWT_MYNN_BUILD_PROFILE_ID="GNU-production-fixture-only"' -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer -DMYNN_LIVE_UNATTESTED -c /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/wt_mynn_native.c -o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/wt_mynn_native-unattested.o
+RETURN 0
+/home/u5727520/wrf-stack/wtune-fortran-dev-20260912/.pixi/envs/default/bin/x86_64-conda-linux-gnu-cc -std=c11 -Wall -Wextra -Werror -O1 -g -fopenmp -pthread -DWT_MYNN_NODE_LOCAL -DWT_SFCLAY_SCOPE_TEST_HELPERS -I /home/u5727520/wrf-stack/wtune/plov -I /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek '-DWT_KF_NODE_SHM_DIRECTORY="/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek"' '-DWT_MYNN_BUILD_PROFILE_ID="GNU-production-fixture-only"' -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer -DMYNN_LIVE_UNATTESTED -c /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/wt_mynn_node_live.c -o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/wt_mynn_node_live-unattested.o
+RETURN 0
+/home/u5727520/wrf-stack/wtune-fortran-dev-20260912/.pixi/envs/default/bin/x86_64-conda-linux-gnu-cc -std=c11 -Wall -Wextra -Werror -O1 -g -fopenmp -pthread -DWT_MYNN_NODE_LOCAL -DWT_SFCLAY_SCOPE_TEST_HELPERS -I /home/u5727520/wrf-stack/wtune/plov -I /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek '-DWT_KF_NODE_SHM_DIRECTORY="/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek"' '-DWT_MYNN_BUILD_PROFILE_ID="GNU-production-fixture-only"' -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer -DMYNN_LIVE_UNATTESTED -c /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/wt_mynn_bootstrap.c -o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/wt_mynn_bootstrap-unattested.o
+RETURN 0
+/home/u5727520/wrf-stack/wtune-fortran-dev-20260912/.pixi/envs/default/bin/x86_64-conda-linux-gnu-cc -std=c11 -Wall -Wextra -Werror -O1 -g -fopenmp -pthread -DWT_MYNN_NODE_LOCAL -DWT_SFCLAY_SCOPE_TEST_HELPERS -I /home/u5727520/wrf-stack/wtune/plov -I /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek '-DWT_KF_NODE_SHM_DIRECTORY="/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek"' '-DWT_MYNN_BUILD_PROFILE_ID="GNU-production-fixture-only"' -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer -DMYNN_LIVE_UNATTESTED -c /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/src/wt_sfclay_scope_bridge.c -o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/wt_sfclay_scope_bridge-unattested.o
+RETURN 0
+/home/u5727520/wrf-stack/wtune-fortran-dev-20260912/.pixi/envs/default/bin/x86_64-conda-linux-gnu-gfortran -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer -fopenmp -pthread /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/ccpp_kind_types.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/module_model_constants.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/module_bl_mynnedmf_common.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/module_bl_mynnedmf.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/module_bl_mynnedmf_driver.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/wt_mynn_static_state.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/caller.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/bridge-unattested.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/abi-unattested.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/test_mynn_node_live-unattested.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/wt_live_spans-unattested.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/wt_mynn_layout-unattested.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/wt_mynn_batch-unattested.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/wt_mynn_node-unattested.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/wt_node_local-unattested.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/wt_kf_node_shm-unattested.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/wt_mynn_native-unattested.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/wt_mynn_node_live-unattested.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/wt_mynn_bootstrap-unattested.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/obj/wt_sfclay_scope_bridge-unattested.o -Wl,--wrap=__module_bl_mynnedmf_driver_MOD_mynnedmf_driver -Wl,--wrap=module_first_rk_step_part1_mp_first_rk_step_part1_ -Wl,--wrap=wt_mynn_bridge_dispatch -o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/unattested
+RETURN 0
+/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/unattested /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-sw4d8uek/unattested-3.bin
+# wt_mynn_bootstrap requested=1 configured=0 profile=GNU-production-fixture-only abi=0 caller=0 static=0
+# wt_mynn_node mode=forced-g0-owner-only adaptive=pending shadow_remote=0 pid=2437537 rank=0 grid=0 epoch=0 init=0 serialized=1 requested=5 donated=0 committed=0 self=0 helper=0 remote=0 fallback=5 fatal=0 pack_ns=0 native_ns=5213006 progress_ns=0 shadow_checked=0 shadow_failed=0 shadow_bytes=0
+# wt_mynn_node refusal.config=5
+# wt_mynn_node refusal.abi=0
+# wt_mynn_node refusal.static=0
+# wt_mynn_node refusal.scope=0
+# wt_mynn_node refusal.mapper=0
+# wt_mynn_node refusal.omp=0
+# wt_mynn_node refusal.capacity=0
+# wt_mynn_node refusal.geometry=0
+# wt_mynn_node refusal.init=0
+# wt_mynn_node refusal.single_row=0
+# wt_mynn_node refusal.alias=0
+# wt_mynn_node refusal.budget=0
+# wt_mynn_node refusal.slot=0
+# wt_mynn_node refusal.prepare=0
+# wt_mynn_bootstrap requested=1 configured=0 profile=GNU-production-fixture-only abi=0 caller=0 static=0
+# wt_mynn_node mode=forced-g0-owner-only adaptive=pending shadow_remote=0 pid=2437538 rank=0 grid=0 epoch=0 init=0 serialized=1 requested=5 donated=0 committed=0 self=0 helper=0 remote=0 fallback=5 fatal=0 pack_ns=0 native_ns=4983275 progress_ns=0 shadow_checked=0 shadow_failed=0 shadow_bytes=0
+# wt_mynn_node refusal.config=5
+# wt_mynn_node refusal.abi=0
+# wt_mynn_node refusal.static=0
+# wt_mynn_node refusal.scope=0
+# wt_mynn_node refusal.mapper=0
+# wt_mynn_node refusal.omp=0
+# wt_mynn_node refusal.capacity=0
+# wt_mynn_node refusal.geometry=0
+# wt_mynn_node refusal.init=0
+# wt_mynn_node refusal.single_row=0
+# wt_mynn_node refusal.alias=0
+# wt_mynn_node refusal.budget=0
+# wt_mynn_node refusal.slot=0
+# wt_mynn_node refusal.prepare=0
+PASS MYNN production bootstrap/firstRK84/bridge132/fork/OMP2 realGNU full132 both epochs
+RETURN 0

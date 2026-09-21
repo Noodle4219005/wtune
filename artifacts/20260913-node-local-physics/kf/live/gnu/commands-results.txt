@@ -1,0 +1,60 @@
+/usr/bin/gfortran -O1 -g -fcheck=all -fbacktrace -c module_wrf_error.f90 module_cu_kfeta.f90
+/home/u5727520/wrf-stack/wtune-fortran-dev-20260912/.pixi/envs/default/bin/x86_64-conda-linux-gnu-cc -std=c11 -Wall -Wextra -Werror -O1 -g -gdwarf-4 -gz=none -fopenmp -pthread -DSTORAGE=4080 -DWT_KF_NODE_GNU_CPS -DWT_KF_NODE_LOCAL -DWT_KF_BUILD_SOURCE_ABI_VERIFIED=1 -DWT_KF_BUILD_CALLER_CHAIN_VERIFIED=1 -DWT_KF_BUILD_INIT_TABLES_VERIFIED=1 '-DWT_KF_BUILD_PROFILE_ID="gnu-fixture-frozen-cps"' '-DWT_KF_NODE_SHM_DIRECTORY="/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/kf/live/gnu"' -I /home/u5727520/wrf-stack/wtune/plov -I /home/u5727520/wrf-stack/wtune/plov/tests -I /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/kf/live/gnu -Dmodule_cu_kfeta_mp_ttab_=__module_cu_kfeta_MOD_ttab -Dmodule_cu_kfeta_mp_qstab_=__module_cu_kfeta_MOD_qstab -Dmodule_cu_kfeta_mp_the0k_=__module_cu_kfeta_MOD_the0k -Dmodule_cu_kfeta_mp_alu_=__module_cu_kfeta_MOD_alu -Dmodule_cu_kfeta_mp_rdpr_=__module_cu_kfeta_MOD_rdpr -Dmodule_cu_kfeta_mp_rdthk_=__module_cu_kfeta_MOD_rdthk -Dmodule_cu_kfeta_mp_plutop_=__module_cu_kfeta_MOD_plutop -Dwt_kf_bridge_dispatch=wt_kf_live_dispatch -c /home/u5727520/wrf-stack/wtune/plov/wt_kf_bridge.c -o bridge.o
+/home/u5727520/wrf-stack/wtune-fortran-dev-20260912/.pixi/envs/default/bin/x86_64-conda-linux-gnu-cc -std=c11 -Wall -Wextra -Werror -O1 -g -gdwarf-4 -gz=none -fopenmp -pthread -DSTORAGE=4080 -DWT_KF_NODE_GNU_CPS -DWT_KF_NODE_LOCAL -DWT_KF_BUILD_SOURCE_ABI_VERIFIED=1 -DWT_KF_BUILD_CALLER_CHAIN_VERIFIED=1 -DWT_KF_BUILD_INIT_TABLES_VERIFIED=1 '-DWT_KF_BUILD_PROFILE_ID="gnu-fixture-frozen-cps"' '-DWT_KF_NODE_SHM_DIRECTORY="/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/kf/live/gnu"' -I /home/u5727520/wrf-stack/wtune/plov -I /home/u5727520/wrf-stack/wtune/plov/tests -I /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/kf/live/gnu -Dmodule_cu_kfeta_mp_ttab_=__module_cu_kfeta_MOD_ttab -Dmodule_cu_kfeta_mp_qstab_=__module_cu_kfeta_MOD_qstab -Dmodule_cu_kfeta_mp_the0k_=__module_cu_kfeta_MOD_the0k -Dmodule_cu_kfeta_mp_alu_=__module_cu_kfeta_MOD_alu -Dmodule_cu_kfeta_mp_rdpr_=__module_cu_kfeta_MOD_rdpr -Dmodule_cu_kfeta_mp_rdthk_=__module_cu_kfeta_MOD_rdthk -Dmodule_cu_kfeta_mp_plutop_=__module_cu_kfeta_MOD_plutop -c /home/u5727520/wrf-stack/wtune/plov/wt_live_spans.c /home/u5727520/wrf-stack/wtune/plov/wt_kf_capacity.c /home/u5727520/wrf-stack/wtune/plov/wt_kf_dispatch.c /home/u5727520/wrf-stack/wtune/plov/wt_cumulus.c /home/u5727520/wrf-stack/wtune/plov/wt_kf_live.c /home/u5727520/wrf-stack/wtune/plov/wt_kf_native.c /home/u5727520/wrf-stack/wtune/plov/wt_kf_bootstrap.c /home/u5727520/wrf-stack/wtune/plov/wt_kf_batch.c /home/u5727520/wrf-stack/wtune/plov/wt_kf_batch_codec.c /home/u5727520/wrf-stack/wtune/plov/wt_kf_node.c /home/u5727520/wrf-stack/wtune/plov/wt_node_local.c /home/u5727520/wrf-stack/wtune/plov/wt_kf_node_live.c /home/u5727520/wrf-stack/wtune/plov/wt_kf_node_shm.c /home/u5727520/wrf-stack/wtune/plov/wt_kf_init_bridge.c /home/u5727520/wrf-stack/wtune/plov/tests/test_kf_node_live.c real-abi.c native-adapter.c
+/usr/bin/gfortran -fopenmp -pthread wt_live_spans.o wt_kf_capacity.o wt_kf_dispatch.o wt_cumulus.o wt_kf_live.o wt_kf_native.o wt_kf_bootstrap.o wt_kf_batch.o wt_kf_batch_codec.o wt_kf_node.o wt_node_local.o wt_kf_node_live.o wt_kf_node_shm.o wt_kf_init_bridge.o test_kf_node_live.o real-abi.o native-adapter.o module_wrf_error.o module_cu_kfeta.o bridge.o -Wl,--wrap=module_cu_kfeta_mp_kf_eta_cps_ -Wl,--wrap=module_cu_kfeta_mp_kf_eta_init_ -Wl,--wrap=wt_nl_try_execute -Wl,--wrap=wt_nl_owner_execute -lm -o gnu-live
+/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/kf/live/gnu/gnu-live normal
+# wt_kf_node_g0 event=helper pid=2053824 local_rank=1 thread=0 owner_rank=0 owner_thread=0 executor_rank=1 work_id=1 grid=4 ktau=12 profile=583981011496642573 init=1874916247806120693
+# wt_kf_node_g0 event=helper pid=2053824 local_rank=1 thread=1 owner_rank=0 owner_thread=1 executor_rank=1 work_id=2 grid=4 ktau=12 profile=583981011496642573 init=1874916247806120693
+# wt_kf_node_g0 event=commit pid=2053824 local_rank=1 thread=0 owner_rank=1 owner_thread=0 executor_rank=1 work_id=3 grid=4 ktau=12 profile=583981011496642573 init=1874916247806120693
+# wt_kf_node_g0 event=commit pid=2053824 local_rank=1 thread=1 owner_rank=1 owner_thread=1 executor_rank=1 work_id=4 grid=4 ktau=12 profile=583981011496642573 init=1874916247806120693
+# wt_kf_bootstrap profile=gnu-fixture-frozen-cps source_abi_verified=1 caller_chain_verified=1 requested=1 grid_selector=4 max_spans=4096 max_nodes=8192 byte_budget=268435456 configured=1 refusal=configured dispatch_requested=2 staged=2 fallback=0
+# wt_kf_bootstrap reason.disabled=0
+# wt_kf_bootstrap reason.source_abi=0
+# wt_kf_bootstrap reason.no_scope=0
+# wt_kf_bootstrap reason.omp=0
+# wt_kf_bootstrap reason.capacity=0
+# wt_kf_bootstrap reason.tiles=0
+# wt_kf_bootstrap reason.argument_abi=0
+# wt_kf_bootstrap reason.prepare=0
+# wt_kf_node_identity pid=2053824 local_rank=1 grid=4 last_ktau=12 configuration=configured owner_remote_committed=0
+# wt_kf_node mode=forced-g0 adaptive=pending serialized_native=1 shadow_remote=0 profile=583981011496642573 init=1874916247806120693 requested=2 donated=2 self=2 helper=2 committed=2 fallback=0 fatal=0 pack_ns=138039 native_ns=195222 progress_ns=407997 shadow_checked=0 shadow_failed=0 shadow_bytes=0
+# wt_kf_node refusal.config=0
+# wt_kf_node refusal.abi=0
+# wt_kf_node refusal.init=0
+# wt_kf_node refusal.scope=0
+# wt_kf_node refusal.mapper=0
+# wt_kf_node refusal.omp=0
+# wt_kf_node refusal.capacity=0
+# wt_kf_node refusal.geometry=0
+# wt_kf_node refusal.single_row=0
+# wt_kf_node refusal.alias=0
+# wt_kf_node refusal.budget=0
+# wt_kf_node refusal.slot=0
+# wt_kf_node refusal.prepare=0
+# wt_kf_node_g0 event=commit pid=2053823 local_rank=0 thread=0 owner_rank=0 owner_thread=0 executor_rank=1 work_id=1 grid=4 ktau=12 profile=583981011496642573 init=1874916247806120693
+# wt_kf_node_g0 event=commit pid=2053823 local_rank=0 thread=1 owner_rank=0 owner_thread=1 executor_rank=1 work_id=2 grid=4 ktau=12 profile=583981011496642573 init=1874916247806120693
+# wt_kf_bootstrap profile=gnu-fixture-frozen-cps source_abi_verified=1 caller_chain_verified=1 requested=1 grid_selector=4 max_spans=4096 max_nodes=8192 byte_budget=268435456 configured=1 refusal=configured dispatch_requested=2 staged=2 fallback=0
+# wt_kf_bootstrap reason.disabled=0
+# wt_kf_bootstrap reason.source_abi=0
+# wt_kf_bootstrap reason.no_scope=0
+# wt_kf_bootstrap reason.omp=0
+# wt_kf_bootstrap reason.capacity=0
+# wt_kf_bootstrap reason.tiles=0
+# wt_kf_bootstrap reason.argument_abi=0
+# wt_kf_bootstrap reason.prepare=0
+# wt_kf_node_identity pid=2053823 local_rank=0 grid=4 last_ktau=12 configuration=configured owner_remote_committed=2
+# wt_kf_node mode=forced-g0 adaptive=pending serialized_native=1 shadow_remote=0 profile=583981011496642573 init=1874916247806120693 requested=2 donated=2 self=0 helper=0 committed=2 fallback=0 fatal=0 pack_ns=118379 native_ns=11631187 progress_ns=1648 shadow_checked=0 shadow_failed=0 shadow_bytes=0
+# wt_kf_node refusal.config=0
+# wt_kf_node refusal.abi=0
+# wt_kf_node refusal.init=0
+# wt_kf_node refusal.scope=0
+# wt_kf_node refusal.mapper=0
+# wt_kf_node refusal.omp=0
+# wt_kf_node refusal.capacity=0
+# wt_kf_node refusal.geometry=0
+# wt_kf_node refusal.single_row=0
+# wt_kf_node refusal.alias=0
+# wt_kf_node refusal.budget=0
+# wt_kf_node refusal.slot=0
+# wt_kf_node refusal.prepare=0
+PASS KF production bootstrap/outer/bridge/node with actual OMP2, 37 checks

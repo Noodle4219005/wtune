@@ -1,0 +1,15 @@
+test_frozen_gnu_live_chain (plov.tests.test_kf_node_live.KFNodeLiveTest.test_frozen_gnu_live_chain) ... ok
+test_live_production_chain (plov.tests.test_kf_node_live.KFNodeLiveTest.test_live_production_chain) ... FAIL
+
+======================================================================
+FAIL: test_live_production_chain (plov.tests.test_kf_node_live.KFNodeLiveTest.test_live_production_chain)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/u5727520/wrf-stack/wtune/plov/tests/test_kf_node_live.py", line 57, in test_live_production_chain
+    self.assertEqual(result.returncode,0,result.stdout.decode())
+AssertionError: -6 != 0 : 
+
+----------------------------------------------------------------------
+Ran 2 tests in 29.723s
+
+FAILED (failures=1)

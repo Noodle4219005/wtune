@@ -1,0 +1,9 @@
+test_linker_wrap_forwards_all_pointers_null_optionals_nested_and_threads (plov.tests.test_mynn_bridge.MynnBridgeTests.test_linker_wrap_forwards_all_pointers_null_optionals_nested_and_threads) ... ok
+test_locked_generator_produces_exact_reference_bridge (plov.tests.test_mynn_bridge.MynnBridgeTests.test_locked_generator_produces_exact_reference_bridge) ... ok
+test_sanitizer_configuration_rejects_an_actual_ub_witness (plov.tests.test_mynn_bridge.MynnBridgeTests.test_sanitizer_configuration_rejects_an_actual_ub_witness) ... ok
+test_stale_hash_same_length_reorder_unsupported_abi_and_cli_are_refused (plov.tests.test_mynn_bridge.MynnBridgeTests.test_stale_hash_same_length_reorder_unsupported_abi_and_cli_are_refused) ... ok
+
+----------------------------------------------------------------------
+Ran 4 tests in 1.249s
+
+OK

@@ -1,0 +1,9 @@
+# ISC21 CP-1 G0 retained-input inventory — read-only
+
+Status: **PENDING**. Immediate metadata for `/home/u5727520/wrf-bench/atlas/isc21` retains `WRF_ISC21_3_DOMAIN.tar` (6,712,514,560 bytes), `prep_d01_1071708/`, `st_A_1071708/`, and `st_Ec_1071708/`. The runner-cited extracted source directory is absent. Next exact read-only paths are the retained prep/run directories’ `namelist.input` and dereferenceable d01 inputs; archive streaming/extraction was not performed.
+
+Runner: `/home/u5727520/wrf-stack/wtune/plov/atlas_isc21_d01.sbatch`, SHA-256 `caf998379d63e189d43158148021eab34014c8654b005072518cddcaf432a2fa`. It declares d01-only, 400 steps, nproc 7×32, numtiles 12; launcher `srun --mpi=pmi2 --distribution=<block|cyclic> -n 224 --ntasks-per-node=56 -c 2`, OMP=2 and KMP_BLOCKTIME=0. Historical wiki evidence, not live namelist proof, says cu=1/bl_pbl=5/sfclay=5/dt=15/radt=3.
+
+A baseline, owner B, and helper C must use identical reviewed placement; the historical block-versus-cyclic comparison is not a G0 phase gate. The frozen runner hardcodes `run.exe` as a symlink to `$W/main/wrf_wtimer.exe`; a candidate requires a separate reviewed validation harness preserving its launcher/namelist, not a runner or executable overwrite. Helper runtime still needs numeric JOB_ID/STEP_ID/LOCALID and homogeneous STEP_TASKS_PER_NODE; no scheduler query was made.
+
+Resolved retained run evidence: all three namelists exist (4,268 B); prep SHA-256 `e0b6de2893d1b78a95aa1b185e5f4db890250ac077e71003273babe5ebad1886`. It sets BP input/boundary/history form 14, `run_minutes=100` (400 steps at dt=15), nproc 7×32, numtiles 12, radt=3, sfclay=5, PBL=5, and cu=1,0,0. A run.exe dereferences to `wrf_wtimer.1aec2f2.exe` (86,279,808 B); Ec dereferences to `wrf_wtimer.exe` (86,277,520 B). Both BP input links target `atlas/isc21/bp/{wrfinput_d01,wrfbdy_d01}.bp` but targets are absent: retained namelist is available, retained runtime inputs are not.

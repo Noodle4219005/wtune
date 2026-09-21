@@ -1,0 +1,8 @@
+test_node_local_service (plov.tests.test_node_local.NodeLocalServiceTest.test_node_local_service) ... ok
+test_frozen_gnu_live_chain (plov.tests.test_kf_node_live.KFNodeLiveTest.test_frozen_gnu_live_chain) ... ok
+test_live_production_chain (plov.tests.test_kf_node_live.KFNodeLiveTest.test_live_production_chain) ... ok
+
+----------------------------------------------------------------------
+Ran 3 tests in 32.807s
+
+OK

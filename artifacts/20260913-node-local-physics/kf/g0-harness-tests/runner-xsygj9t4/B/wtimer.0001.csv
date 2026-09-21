@@ -1,0 +1,19 @@
+# rank=1
+# omp_max_threads=2 omp_num_threads_env=2
+# stage_flags WTIMER_STAGE_MICRO=0 WTIMER_STAGE_RAD=0 WTIMER_STAGE_PBL=0 WTIMER_STAGE_SURFACE=0 WTIMER_STAGE_CUMULUS=1
+# wt_kf_bootstrap profile=reviewed-g0-v1:1111111111111111111111111111111111111111111111111111111111111111 configured=1
+# wt_kf_node_identity pid=101 local_rank=1 grid=1 last_ktau=20 owner_remote_committed=0
+# wt_kf_node mode=forced-g0-owner-only requested=20 donated=1 self=1 helper=0 committed=1 fallback=19 fatal=0 shadow_checked=0 shadow_failed=0 shadow_bytes=0 shadow_remote=0 serialized_native=1 profile=1814565187684550604 init=99
+# wt_kf_node refusal.config=0
+# wt_kf_node refusal.abi=0
+# wt_kf_node refusal.init=0
+# wt_kf_node refusal.scope=0
+# wt_kf_node refusal.mapper=0
+# wt_kf_node refusal.omp=0
+# wt_kf_node refusal.capacity=0
+# wt_kf_node refusal.geometry=0
+# wt_kf_node refusal.single_row=19
+# wt_kf_node refusal.alias=0
+# wt_kf_node refusal.budget=0
+# wt_kf_node refusal.slot=0
+# wt_kf_node refusal.prepare=0

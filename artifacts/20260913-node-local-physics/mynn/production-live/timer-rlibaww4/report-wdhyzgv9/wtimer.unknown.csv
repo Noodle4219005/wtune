@@ -1,0 +1,18 @@
+# wtimer: per-call seconds of WRF physics drivers, via -Wl,--wrap (no source change)
+# rank=unknown tsc_hz=1.9957e+09 wall_s=0.000044
+# stage_grid=4
+# stage_flags WTIMER_STAGE_MICRO=1 WTIMER_STAGE_RAD=0 WTIMER_STAGE_CUMULUS=0 WTIMER_STAGE_PBL=1 WTIMER_STAGE_SURFACE=0
+# stage_effective WTIMER_STAGE_MICRO=unchecked WTIMER_STAGE_RAD=disabled WTIMER_STAGE_CUMULUS=disabled WTIMER_STAGE_PBL=refused WTIMER_STAGE_SURFACE=disabled
+# STAGE_PBL requested but not implemented (refused)
+# micro_thr=0 base_thr=0 base_cpu=-1+0 micro_cpu=-1+0 mode=static
+# alloc_ncpu=112 ph_base=0 ph_micro=0
+# omp_max_threads=0 omp_num_procs=0 cpus_at_init=112 omp_num_threads_env=unset
+# ncall: micro=0 radiation=0 pre_radiation=0 pbl=0 surface=0 cumulus=0
+# overflow: micro=0 radiation=0 pre_radiation=0 pbl=0 surface=0 cumulus=0
+# micro_calls=0 micro_staged=0 micro_refused=0 micro_share_out=0 micro_share_in=0 micro_share_wait_ms=0.000000 micro_share_work_ms=0.000000 micro_rows_out=0 micro_chunks_in=0 micro_sig_mismatch=0
+# rad_calls=0 rad_steps=0 rad_staged=0 rad_refused=0 rad_share_out=0 rad_share_in=0 rad_wait_us=0 rad_sig_mismatch=0
+# probe_n=0 probe_sum=0 probe_hist=0,0,0,0,0,0,0,0
+# lewi_lend=0 lewi_acq=0 lewi_acq_cores=0 lewi_miss=0 lewi_repin=0 lewi_stolen=0 lewi_short=0
+# mpi_wait_total_s=0.000000 mpi_wait_calls=0
+# by_kind: Wait=0/0.0000s Waitall=0/0.0000s Waitany=0/0.0000s Barrier=0/0.0000s Allreduce=0/0.0000s Bcast=0/0.0000s Sendrecv=0/0.0000s
+call,micro,radiation,pre_radiation,pbl,surface,cumulus,mpi_wait,mpi_calls

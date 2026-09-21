@@ -1,0 +1,73 @@
+{
+  "arm": "A",
+  "launches": {
+    "0": {
+      "affinity": [
+        0,
+        1
+      ],
+      "hostname": "fixture-node",
+      "job": 1,
+      "local_rank": 0,
+      "pid": 100,
+      "step": 0,
+      "world_rank": 0
+    },
+    "1": {
+      "affinity": [
+        2,
+        3
+      ],
+      "hostname": "fixture-node",
+      "job": 1,
+      "local_rank": 1,
+      "pid": 101,
+      "step": 0,
+      "world_rank": 1
+    }
+  },
+  "outputs": [
+    "wrfout_d01_2016-08-29_09:00:00",
+    "wrfout_d01_2016-08-29_09:05:00"
+  ],
+  "ranks": [
+    {
+      "bootstrap": {
+        "configured": "0",
+        "profile": "reviewed-g0-v1:1111111111111111111111111111111111111111111111111111111111111111",
+        "requested": "0",
+        "staged": "0"
+      },
+      "identity": null,
+      "node": null,
+      "rank": 0,
+      "refusals": {}
+    },
+    {
+      "bootstrap": {
+        "configured": "0",
+        "profile": "reviewed-g0-v1:1111111111111111111111111111111111111111111111111111111111111111",
+        "requested": "0",
+        "staged": "0"
+      },
+      "identity": null,
+      "node": null,
+      "rank": 1,
+      "refusals": {}
+    }
+  ],
+  "sums": {
+    "committed": 0,
+    "donated": 0,
+    "fallback": 0,
+    "fatal": 0,
+    "helper": 0,
+    "owner_remote_committed": 0,
+    "requested": 0,
+    "self": 0,
+    "shadow_bytes": 0,
+    "shadow_checked": 0,
+    "shadow_failed": 0
+  },
+  "wall_seconds": 0.003647230565547943
+}

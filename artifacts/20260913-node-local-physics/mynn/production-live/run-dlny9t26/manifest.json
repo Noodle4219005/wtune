@@ -1,0 +1,25 @@
+{
+  "scope": "Real GNU arithmetic + production bootstrap/firstRK84/bridge132/fork/OMP2; native grid/cfg are fixture adapters",
+  "accepted_closure": "/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw",
+  "inputs": {
+    "/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw/src/ccpp_kind_types.f90": "a69fcccd5e8115cfa4b15b209e3ce0993d494d91d8b65fbd36d1a6b0a4177f0b",
+    "/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw/obj/ccpp_kind_types.o": "eef44c00c6b187653fff3266b1a44199fdaba0308a25addb67775efe6b85bb7c",
+    "/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw/src/module_model_constants.f90": "c387a51c2992da393551ac63291c79afbf6b78efbca2045a18cf9c94381f9954",
+    "/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw/obj/module_model_constants.o": "1bced38c100e1f4fa5f61715dd2c1941629e666233ce558c955e8bbeb47cea80",
+    "/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw/src/module_bl_mynnedmf_common.f90": "960a7370de0f33a85bc948eaf13e2a9811f6553450ac111e8f6839ea8f132cd8",
+    "/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw/obj/module_bl_mynnedmf_common.o": "5ef6d533c121a10c8e04f67eb50b353d33fde41d0a8c2d884496bd49274b627d",
+    "/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw/src/module_bl_mynnedmf.f90": "a93d0c0e453738c16751525aec04403ec129b735b577e5f399b1edfd2129937b",
+    "/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw/obj/module_bl_mynnedmf.o": "d774ad9e2ef7bd77ed057f4305b240792de0e6b9979d533b35c38b4a3c694dc0",
+    "/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw/src/module_bl_mynnedmf_driver.f90": "9b339c1bb9e318086113b99e40f691d731639adbe57b579cf98046bf3f2dcfde",
+    "/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw/obj/module_bl_mynnedmf_driver.o": "493cc2dbb252db6170c273bf0ca3e4de92083bfff3b155edc1775134064cc694",
+    "/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw/mod/module_bl_mynnedmf_driver.mod": "abb3dc568922acb7675fe722edf2192b39cd2f3c6548285b1bc82ab5bb362657",
+    "/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw/mod/module_bl_mynnedmf_common.mod": "e113b9259100a42be8fe28b710241201ace08da3ad66cfc14fd7670f634f8883",
+    "/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw/mod/module_bl_mynnedmf.mod": "6c30f6cd9ca307977ffc4c1d5184b8864e912be57d18357346142788a121047b",
+    "/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw/mod/module_model_constants.mod": "341810051c3c888b48541f06c8b2d93af2dfbbf385a860fd6fe292cc3bf46e16",
+    "/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw/mod/ccpp_kind_types.mod": "a18576d5c0f8982bf340e21675ed2acf05443bf18421e83cb575ccd512bebe80",
+    "/home/u5727520/wrf-stack/wtune/plov/wt_mynn_static_state.f90": "90a2946eb94e88557e4ec5ce73c57afe56d2603da5c590db2edb5a7436fc6231",
+    "/home/u5727520/wrf-stack/wtune/plov/tests/test_mynn_node_live.c": "7b495d4ce40035e047fe2b7f88530cdf466d01b8c043a731d756664c8b043c20"
+  },
+  "work": "/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-dlny9t26",
+  "status": "PASS"
+}

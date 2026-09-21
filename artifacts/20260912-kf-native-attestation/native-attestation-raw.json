@@ -1,0 +1,466 @@
+{
+  "created_utc": "2026-09-12T11:27:51.546007Z",
+  "root": "/home/u5727520/wrf-stack/wrf/intel-adios2-dmsm/WRF",
+  "scope": "Local artifact metadata only; no compiler, MPI, WRF, remote or scheduler execution",
+  "attestation_complete": false,
+  "uncertainty": [
+    "Named -l libraries and their transitive dependencies are not resolved/scanned by this bounded inventory.",
+    "mpiifx compiler-wrapper implicit runtime/startup/link inputs are not resolved or executed.",
+    "Matching current archive/loose bytes does not prove source-to-object provenance or compiler/module ABI congruence.",
+    "Historical compile.log command is an artifact, not independent proof that every current input was used by the deployed executable."
+  ],
+  "commands": [
+    {
+      "argv": [
+        "ar",
+        "t",
+        "/home/u5727520/wrf-stack/wrf/intel-adios2-dmsm/WRF/main/libwrflib.a"
+      ],
+      "returncode": 0,
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "ar",
+        "p",
+        "/home/u5727520/wrf-stack/wrf/intel-adios2-dmsm/WRF/main/libwrflib.a",
+        "solve_em.o"
+      ],
+      "returncode": 0,
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "ar",
+        "p",
+        "/home/u5727520/wrf-stack/wrf/intel-adios2-dmsm/WRF/main/libwrflib.a",
+        "module_first_rk_step_part1.o"
+      ],
+      "returncode": 0,
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "ar",
+        "p",
+        "/home/u5727520/wrf-stack/wrf/intel-adios2-dmsm/WRF/main/libwrflib.a",
+        "module_cumulus_driver.o"
+      ],
+      "returncode": 0,
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "ar",
+        "p",
+        "/home/u5727520/wrf-stack/wrf/intel-adios2-dmsm/WRF/main/libwrflib.a",
+        "module_cu_kfeta.o"
+      ],
+      "returncode": 0,
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "ar",
+        "p",
+        "/home/u5727520/wrf-stack/wrf/intel-adios2-dmsm/WRF/main/libwrflib.a",
+        "module_domain.o"
+      ],
+      "returncode": 0,
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "ar",
+        "p",
+        "/home/u5727520/wrf-stack/wrf/intel-adios2-dmsm/WRF/main/libwrflib.a",
+        "module_domain_type.o"
+      ],
+      "returncode": 0,
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "nm",
+        "-A",
+        "-u",
+        "/home/u5727520/wrf-stack/wrf/intel-adios2-dmsm/WRF/main/wrf.o"
+      ],
+      "returncode": 0,
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "nm",
+        "-A",
+        "-u",
+        "/home/u5727520/wrf-stack/wrf/intel-adios2-dmsm/WRF/main/module_wrf_top.o"
+      ],
+      "returncode": 0,
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "nm",
+        "-A",
+        "-u",
+        "/home/u5727520/wrf-stack/wrf/intel-adios2-dmsm/WRF/main/libwrflib.a"
+      ],
+      "returncode": 0,
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "nm",
+        "-A",
+        "-u",
+        "/home/u5727520/wrf-stack/wrf/intel-adios2-dmsm/WRF/external/fftpack/fftpack5/libfftpack.a"
+      ],
+      "returncode": 0,
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "nm",
+        "-A",
+        "-u",
+        "/home/u5727520/wrf-stack/wrf/intel-adios2-dmsm/WRF/external/io_grib1/libio_grib1.a"
+      ],
+      "returncode": 0,
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "nm",
+        "-A",
+        "-u",
+        "/home/u5727520/wrf-stack/wrf/intel-adios2-dmsm/WRF/external/io_grib_share/libio_grib_share.a"
+      ],
+      "returncode": 0,
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "nm",
+        "-A",
+        "-u",
+        "/home/u5727520/wrf-stack/wrf/intel-adios2-dmsm/WRF/external/io_int/libwrfio_int.a"
+      ],
+      "returncode": 0,
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "nm",
+        "-A",
+        "-u",
+        "/home/u5727520/wrf-stack/wrf/intel-adios2-dmsm/WRF/external/RSL_LITE/librsl_lite.a"
+      ],
+      "returncode": 0,
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "nm",
+        "-A",
+        "-u",
+        "/home/u5727520/wrf-stack/wrf/intel-adios2-dmsm/WRF/frame/module_internal_header_util.o"
+      ],
+      "returncode": 0,
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "nm",
+        "-A",
+        "-u",
+        "/home/u5727520/wrf-stack/wrf/intel-adios2-dmsm/WRF/frame/pack_utils.o"
+      ],
+      "returncode": 0,
+      "stderr": ""
+    }
+  ],
+  "historical_link": {
+    "path": "/home/u5727520/wrf-stack/wrf/intel-adios2-dmsm/WRF/compile.log",
+    "line": 6208,
+    "command": "time mpiifx -o wrf.exe -qopenmp -fpp -auto -O3 -xSAPPHIRERAPIDS -qopt-zmm-usage=high -ip -fp-model precise -w -ftz -align all -fno-alias -FR -convert big_endian   -ip   wrf.o ../main/module_wrf_top.o libwrflib.a  /home/u5727520/wrf-stack/wrf/intel-adios2-dmsm/WRF/external/fftpack/fftpack5/libfftpack.a /home/u5727520/wrf-stack/wrf/intel-adios2-dmsm/WRF/external/io_grib1/libio_grib1.a /home/u5727520/wrf-stack/wrf/intel-adios2-dmsm/WRF/external/io_grib_share/libio_grib_share.a /home/u5727520/wrf-stack/wrf/intel-adios2-dmsm/WRF/external/io_int/libwrfio_int.a -L/home/u5727520/wrf-stack/wrf/intel-adios2-dmsm/WRF/external/esmf_time_f90 -lesmf_time /home/u5727520/wrf-stack/wrf/intel-adios2-dmsm/WRF/external/RSL_LITE/librsl_lite.a /home/u5727520/wrf-stack/wrf/intel-adios2-dmsm/WRF/frame/module_internal_header_util.o /home/u5727520/wrf-stack/wrf/intel-adios2-dmsm/WRF/frame/pack_utils.o -L/home/u5727520/wrf-stack/wrf/intel-adios2-dmsm/WRF/external/io_netcdf -lwrfio_nf -L/home/u5727520/wrf-stack/intel/lib -lnetcdff -lnetcdf   -L/home/u5727520/wrf-stack/wrf/intel-adios2-dmsm/WRF/external/io_pnetcdf -lwrfio_pnf -L/home/u5727520/wrf-stack/intel/lib -lpnetcdf   -L/home/u5727520/wrf-stack/intel/lib -lhdf5_hl_fortran -lhdf5_hl -lhdf5_fortran -lhdf5 -lm -lz -L/home/u5727520/wrf-stack/wrf/intel-adios2-dmsm/WRF/external/io_adios2 -lwrfio_adios2 -L/home/u5727520/wrf-stack/spack-opt/linux-sapphirerapids/adios2-2.10.2-vdr663cyspbiz6isg4rna37qflcf3ykl/lib64 -ladios2_fortran_mpi -ladios2_fortran    -L/home/u5727520/wrf-stack/spack-opt/linux-sapphirerapids/netcdf-c-4.10.0-anszrtulh723djgjuypk3c5fk4vazq22/lib -lnetcdf -L/home/u5727520/wrf-stack/spack-opt/linux-sapphirerapids/netcdf-fortran-4.6.2-23vov2bddpn62zgc2soeypzvndd3ujha/lib -lnetcdff -lnetcdf -lnetcdf -lm ",
+    "working_directory": "/home/u5727520/wrf-stack/wrf/intel-adios2-dmsm/WRF/main",
+    "working_directory_basis": "Assigned explicit main/wrf.o path and relative command inputs"
+  },
+  "archive": {
+    "path": "/home/u5727520/wrf-stack/wrf/intel-adios2-dmsm/WRF/main/libwrflib.a",
+    "size_bytes": 105758972,
+    "sha256": "af01a79381cf90e65d3a1e4fb960593979c7c8d5c6dc69b4a3c6226dfb0b2e0e",
+    "magic": "b'!<arch>\\n'",
+    "member_count": 584
+  },
+  "member_comparisons": [
+    {
+      "loose": {
+        "path": "/home/u5727520/wrf-stack/wrf/intel-adios2-dmsm/WRF/dyn_em/solve_em.o",
+        "size_bytes": 488920,
+        "sha256": "90b640673916ec8f5f4d23025ca81011fc6e33b47969ca71590fe800a191803a"
+      },
+      "archive_member": "solve_em.o",
+      "member_occurrences": 1,
+      "match": true,
+      "archive_member_size_bytes": 488920,
+      "archive_member_sha256": "90b640673916ec8f5f4d23025ca81011fc6e33b47969ca71590fe800a191803a",
+      "ar_returncode": 0
+    },
+    {
+      "loose": {
+        "path": "/home/u5727520/wrf-stack/wrf/intel-adios2-dmsm/WRF/dyn_em/module_first_rk_step_part1.o",
+        "size_bytes": 398728,
+        "sha256": "544e29d35ca7e7971597849d0a845e0cfe16ab65ecaaf54bb9a54d69ff2b77f8"
+      },
+      "archive_member": "module_first_rk_step_part1.o",
+      "member_occurrences": 1,
+      "match": true,
+      "archive_member_size_bytes": 398728,
+      "archive_member_sha256": "544e29d35ca7e7971597849d0a845e0cfe16ab65ecaaf54bb9a54d69ff2b77f8",
+      "ar_returncode": 0
+    },
+    {
+      "loose": {
+        "path": "/home/u5727520/wrf-stack/wrf/intel-adios2-dmsm/WRF/phys/module_cumulus_driver.o",
+        "size_bytes": 66560,
+        "sha256": "24a262224f26f855bb1f7b5b25d4ff77792c7624a84e12f1a8eba288e0628778"
+      },
+      "archive_member": "module_cumulus_driver.o",
+      "member_occurrences": 1,
+      "match": true,
+      "archive_member_size_bytes": 66560,
+      "archive_member_sha256": "24a262224f26f855bb1f7b5b25d4ff77792c7624a84e12f1a8eba288e0628778",
+      "ar_returncode": 0
+    },
+    {
+      "loose": {
+        "path": "/home/u5727520/wrf-stack/wrf/intel-adios2-dmsm/WRF/phys/module_cu_kfeta.o",
+        "size_bytes": 198824,
+        "sha256": "9025c4e0b0a88cab47d5cc3a3916c63f15e33c87df7ff35840f5afaf67d496e4"
+      },
+      "archive_member": "module_cu_kfeta.o",
+      "member_occurrences": 1,
+      "match": true,
+      "archive_member_size_bytes": 198824,
+      "archive_member_sha256": "9025c4e0b0a88cab47d5cc3a3916c63f15e33c87df7ff35840f5afaf67d496e4",
+      "ar_returncode": 0
+    },
+    {
+      "loose": {
+        "path": "/home/u5727520/wrf-stack/wrf/intel-adios2-dmsm/WRF/frame/module_domain.o",
+        "size_bytes": 604128,
+        "sha256": "e1a59cc8e8920f742cd0230da8b1e07c6861af30afbe51b3c19244e73d2da32a"
+      },
+      "archive_member": "module_domain.o",
+      "member_occurrences": 1,
+      "match": true,
+      "archive_member_size_bytes": 604128,
+      "archive_member_sha256": "e1a59cc8e8920f742cd0230da8b1e07c6861af30afbe51b3c19244e73d2da32a",
+      "ar_returncode": 0
+    },
+    {
+      "loose": {
+        "path": "/home/u5727520/wrf-stack/wrf/intel-adios2-dmsm/WRF/frame/module_domain_type.o",
+        "size_bytes": 2416,
+        "sha256": "803f42afe868f1422a1da10d1128f22da206b5eee2af1da7cef184e87c687418"
+      },
+      "archive_member": "module_domain_type.o",
+      "member_occurrences": 1,
+      "match": true,
+      "archive_member_size_bytes": 2416,
+      "archive_member_sha256": "803f42afe868f1422a1da10d1128f22da206b5eee2af1da7cef184e87c687418",
+      "ar_returncode": 0
+    }
+  ],
+  "all_six_archive_members_match": true,
+  "source_and_module_inputs": [
+    {
+      "path": "/home/u5727520/wrf-stack/wrf/intel-adios2-dmsm/WRF/dyn_em/solve_em.f90",
+      "size_bytes": 251216,
+      "sha256": "e3462d09aa7da52ec798838b3d097dfd5209a8c9cdaa2d380629189d2201c554"
+    },
+    {
+      "path": "/home/u5727520/wrf-stack/wrf/intel-adios2-dmsm/WRF/dyn_em/module_first_rk_step_part1.f90",
+      "size_bytes": 81240,
+      "sha256": "4668213aaec35d72f7bdbd2473d810b4538370f8aadf5979ef940f315be9c43b"
+    },
+    {
+      "path": "/home/u5727520/wrf-stack/wrf/intel-adios2-dmsm/WRF/phys/module_cumulus_driver.f90",
+      "size_bytes": 72298,
+      "sha256": "83d31f87aaf52bdf163ee94894ae7b52339d3ab9a4e807c0048e7502487e0814"
+    },
+    {
+      "path": "/home/u5727520/wrf-stack/wrf/intel-adios2-dmsm/WRF/phys/module_cu_kfeta.f90",
+      "size_bytes": 81995,
+      "sha256": "9533f8600ad060a2e8aa491ed9b7fece633c3d1e2f445e001208cdceed6f1c05"
+    },
+    {
+      "path": "/home/u5727520/wrf-stack/wrf/intel-adios2-dmsm/WRF/frame/module_domain.f90",
+      "size_bytes": 176809,
+      "sha256": "79cc5b96a3f6b7c4c6d666459cac0dbeb1055cb82fe7033f758bbda34e14a0b5"
+    },
+    {
+      "path": "/home/u5727520/wrf-stack/wrf/intel-adios2-dmsm/WRF/frame/module_domain_type.f90",
+      "size_bytes": 309347,
+      "sha256": "691266e4b57ae8355f73b2ec290ca308f42c5375118897af7318281cb839d7d6"
+    },
+    {
+      "path": "/home/u5727520/wrf-stack/wrf/intel-adios2-dmsm/WRF/inc/model_data_order.inc",
+      "size_bytes": 323,
+      "sha256": "8e1c4502b3593808f4879c5bc685987be969107de4a33990e859b44754068d93"
+    },
+    {
+      "path": "/home/u5727520/wrf-stack/wrf/intel-adios2-dmsm/WRF/frame/module_domain_type.mod",
+      "size_bytes": 1152783,
+      "sha256": "33f9a38dad67ad93dc11450a39fe7df97d915a3708d490efac617f868297df6a"
+    }
+  ],
+  "explicit_link_inputs": [
+    {
+      "path": "/home/u5727520/wrf-stack/wrf/intel-adios2-dmsm/WRF/main/wrf.o",
+      "size_bytes": 1696,
+      "sha256": "8157592ebd53226b3b53100fe983098958ea04246bab5262dc500fee01284000",
+      "nm_returncode": 0,
+      "nm_stderr": "",
+      "nm_stdout_sha256": "f331c7a3cea80bfd5e61d915ecb0174cfdde07ce267e6e3e14ff9cbf96fcf1c0",
+      "nm_stdout_lines": 8,
+      "cps_references": []
+    },
+    {
+      "path": "/home/u5727520/wrf-stack/wrf/intel-adios2-dmsm/WRF/main/module_wrf_top.o",
+      "size_bytes": 18480,
+      "sha256": "727d39e23a049b5e5a9a8c6789759070699e7e8d11857000e4e10598894c6aca",
+      "nm_returncode": 0,
+      "nm_stderr": "",
+      "nm_stdout_sha256": "c78f6416edcea4e36b8bdd215dfda72f5fb4e336db915b28b0f2e5be4f890d7a",
+      "nm_stdout_lines": 52,
+      "cps_references": []
+    },
+    {
+      "path": "/home/u5727520/wrf-stack/wrf/intel-adios2-dmsm/WRF/main/libwrflib.a",
+      "size_bytes": 105758972,
+      "sha256": "af01a79381cf90e65d3a1e4fb960593979c7c8d5c6dc69b4a3c6226dfb0b2e0e",
+      "nm_returncode": 0,
+      "nm_stderr": "",
+      "nm_stdout_sha256": "1bdf7764d950cb5967c722d995d67412a1264f1e0b5b6f7bb7795b2b37b9f356",
+      "nm_stdout_lines": 11386,
+      "cps_references": [
+        "/home/u5727520/wrf-stack/wrf/intel-adios2-dmsm/WRF/main/libwrflib.a:module_cumulus_driver.o:                 U module_cu_kfeta_mp_kf_eta_cps_"
+      ]
+    },
+    {
+      "path": "/home/u5727520/wrf-stack/wrf/intel-adios2-dmsm/WRF/external/fftpack/fftpack5/libfftpack.a",
+      "size_bytes": 745122,
+      "sha256": "85c8201b0818e7aa463f42c289f9f90b0ad4e72d4f6e7c791bf4af293ac2378b",
+      "nm_returncode": 0,
+      "nm_stderr": "",
+      "nm_stdout_sha256": "80ae1c711fa175f871cf19332cd162fe75ed792b5c1bae0deb348f497a6225db",
+      "nm_stdout_lines": 365,
+      "cps_references": []
+    },
+    {
+      "path": "/home/u5727520/wrf-stack/wrf/intel-adios2-dmsm/WRF/external/io_grib1/libio_grib1.a",
+      "size_bytes": 588856,
+      "sha256": "e49ecd6f73f05c33cffc9be7f1e0a97e44ac2505805f7ba87dc81c4f2c322004",
+      "nm_returncode": 0,
+      "nm_stderr": "",
+      "nm_stdout_sha256": "f4f17cb0a57f7ea0aec3abee88cd7eeab26474638fe40dd9fe1740e50a379115",
+      "nm_stdout_lines": 405,
+      "cps_references": []
+    },
+    {
+      "path": "/home/u5727520/wrf-stack/wrf/intel-adios2-dmsm/WRF/external/io_grib_share/libio_grib_share.a",
+      "size_bytes": 51422,
+      "sha256": "86551d430d2364788383b7dfef52b0a603cf06fa3e26b844a5d0fb290ef68613",
+      "nm_returncode": 0,
+      "nm_stderr": "",
+      "nm_stdout_sha256": "18f845a6c291e6c9d15721a9c7bb2d4c34deb34551ca68a90779ff313128a6e0",
+      "nm_stdout_lines": 48,
+      "cps_references": []
+    },
+    {
+      "path": "/home/u5727520/wrf-stack/wrf/intel-adios2-dmsm/WRF/external/io_int/libwrfio_int.a",
+      "size_bytes": 94182,
+      "sha256": "6bfed034cbb13c36ce3e17b8f36e026ee8c6c971a77bfdedb095232675d11d40",
+      "nm_returncode": 0,
+      "nm_stderr": "",
+      "nm_stdout_sha256": "695fb2e4003cda19e269942d71edc967f8e05fd0dad6964576f292bb0a4f5d84",
+      "nm_stdout_lines": 68,
+      "cps_references": []
+    },
+    {
+      "path": "/home/u5727520/wrf-stack/wrf/intel-adios2-dmsm/WRF/external/RSL_LITE/librsl_lite.a",
+      "size_bytes": 244762,
+      "sha256": "0151c94f0ecc9346dfa44d5720a1c97005d2d4f3e21aab8ad995c860cebd75e7",
+      "nm_returncode": 0,
+      "nm_stderr": "",
+      "nm_stdout_sha256": "856b50c73755a57b6a18d998f60ea61b476a39c7cd0b5c6f6ca41e229845c7d3",
+      "nm_stdout_lines": 102,
+      "cps_references": []
+    },
+    {
+      "path": "/home/u5727520/wrf-stack/wrf/intel-adios2-dmsm/WRF/frame/module_internal_header_util.o",
+      "size_bytes": 28416,
+      "sha256": "2b98ee359a0f487308c0310e16948fb8c52924a25ecef0e750d8a4c7f233bb20",
+      "nm_returncode": 0,
+      "nm_stderr": "",
+      "nm_stdout_sha256": "3e97a0452e5b36217032afe21d025c8ce10d86d1786b6e73a8b1eebc1d397653",
+      "nm_stdout_lines": 7,
+      "cps_references": []
+    },
+    {
+      "path": "/home/u5727520/wrf-stack/wrf/intel-adios2-dmsm/WRF/frame/pack_utils.o",
+      "size_bytes": 9848,
+      "sha256": "f5afeec7d8dfeeae1559672ce6c5fd5fa8c7fa6f3aa2df1300bf980812bfc929",
+      "nm_returncode": 0,
+      "nm_stderr": "",
+      "nm_stdout_sha256": "f1ba139dc5a2651b6d0d1ed7918380f759163720c3cdce5d581463bd66817156",
+      "nm_stdout_lines": 10,
+      "cps_references": []
+    }
+  ],
+  "cps_undefined_references": [
+    {
+      "input": "/home/u5727520/wrf-stack/wrf/intel-adios2-dmsm/WRF/main/libwrflib.a",
+      "native_line": "/home/u5727520/wrf-stack/wrf/intel-adios2-dmsm/WRF/main/libwrflib.a:module_cumulus_driver.o:                 U module_cu_kfeta_mp_kf_eta_cps_"
+    }
+  ],
+  "named_libraries_unresolved": [
+    "esmf_time",
+    "wrfio_nf",
+    "netcdff",
+    "netcdf",
+    "wrfio_pnf",
+    "pnetcdf",
+    "hdf5_hl_fortran",
+    "hdf5_hl",
+    "hdf5_fortran",
+    "hdf5",
+    "m",
+    "z",
+    "wrfio_adios2",
+    "adios2_fortran_mpi",
+    "adios2_fortran",
+    "netcdf",
+    "netcdff",
+    "netcdf",
+    "netcdf",
+    "m"
+  ],
+  "link_search_directories": [
+    "/home/u5727520/wrf-stack/wrf/intel-adios2-dmsm/WRF/external/esmf_time_f90",
+    "/home/u5727520/wrf-stack/wrf/intel-adios2-dmsm/WRF/external/io_netcdf",
+    "/home/u5727520/wrf-stack/intel/lib",
+    "/home/u5727520/wrf-stack/wrf/intel-adios2-dmsm/WRF/external/io_pnetcdf",
+    "/home/u5727520/wrf-stack/intel/lib",
+    "/home/u5727520/wrf-stack/intel/lib",
+    "/home/u5727520/wrf-stack/wrf/intel-adios2-dmsm/WRF/external/io_adios2",
+    "/home/u5727520/wrf-stack/spack-opt/linux-sapphirerapids/adios2-2.10.2-vdr663cyspbiz6isg4rna37qflcf3ykl/lib64",
+    "/home/u5727520/wrf-stack/spack-opt/linux-sapphirerapids/netcdf-c-4.10.0-anszrtulh723djgjuypk3c5fk4vazq22/lib",
+    "/home/u5727520/wrf-stack/spack-opt/linux-sapphirerapids/netcdf-fortran-4.6.2-23vov2bddpn62zgc2soeypzvndd3ujha/lib"
+  ],
+  "explicit_input_scan_complete": true,
+  "conclusion": "All six audited loose objects match archive-member bytes. CPS caller enumeration is complete only across listed explicit .a/.o inputs."
+}

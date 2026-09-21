@@ -1,0 +1,13 @@
+test_dump_is_comment_prefixed_csv_and_null_safe (plov.tests.test_sfclay_bootstrap.BootstrapTests.test_dump_is_comment_prefixed_csv_and_null_safe) ... ok
+test_duplicate_and_failed_start_are_terminal (plov.tests.test_sfclay_bootstrap.BootstrapTests.test_duplicate_and_failed_start_are_terminal) ... ok
+test_effective_state_requires_actual_staged_counter (plov.tests.test_sfclay_bootstrap.BootstrapTests.test_effective_state_requires_actual_staged_counter) ... ok
+test_proof_macros_reject_noncanonical_and_inconsistent_builds (plov.tests.test_sfclay_bootstrap.BootstrapTests.test_proof_macros_reject_noncanonical_and_inconsistent_builds) ... ok
+test_runtime_disabled_and_each_missing_proof (plov.tests.test_sfclay_bootstrap.BootstrapTests.test_runtime_disabled_and_each_missing_proof) ... ok
+test_strict_positive_decimal_budgets_and_exact_values (plov.tests.test_sfclay_bootstrap.BootstrapTests.test_strict_positive_decimal_budgets_and_exact_values) ... ok
+test_actual_live_path (plov.tests.test_sfclay_native.NativeTests.test_actual_live_path) ... ok
+test_bounded_adapter_contract (plov.tests.test_sfclay_native.NativeTests.test_bounded_adapter_contract) ... ok
+
+----------------------------------------------------------------------
+Ran 8 tests in 5.698s
+
+OK

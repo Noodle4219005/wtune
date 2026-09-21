@@ -1,0 +1,9 @@
+test_every_bit_sensitive_case_is_different (plov.tests.test_wrf_netcdf_bitwise.WrfNetcdfBitwiseTests.test_every_bit_sensitive_case_is_different) ... ok
+test_identical_cross_format_ignores_only_named_global_metadata (plov.tests.test_wrf_netcdf_bitwise.WrfNetcdfBitwiseTests.test_identical_cross_format_ignores_only_named_global_metadata) ... ok
+test_slab_planner_never_exceeds_eight_mib (plov.tests.test_wrf_netcdf_bitwise.WrfNetcdfBitwiseTests.test_slab_planner_never_exceeds_eight_mib) ... ok
+test_unreadable_unsupported_and_grouped_inputs_are_errors (plov.tests.test_wrf_netcdf_bitwise.WrfNetcdfBitwiseTests.test_unreadable_unsupported_and_grouped_inputs_are_errors) ... ok
+
+----------------------------------------------------------------------
+Ran 4 tests in 1.286s
+
+OK

@@ -1,0 +1,17 @@
+{
+  "artifact_type": "wtune_kf_linked_candidate_identity",
+  "build_manifest_sha256": "07a20d5f911282d5b778e496e854bc7eb843ff5781b9c75db6d8c2d450c06051",
+  "candidate": {
+    "path": "/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/kf/g0-harness-tests/runner-hnc7y5sw/candidate",
+    "sha256": "dde8374f45510faa3a11b40f4b04ec334013b8f0545ab3183f0412c36cc2cf62",
+    "size": 22
+  },
+  "link_map": {
+    "path": "/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/kf/g0-harness-tests/runner-hnc7y5sw/link.map",
+    "sha256": "2a07a7860f3d2fae4d68a916d8fcccc15cc05044eb8fb9d5a85fb8301cf9de1f",
+    "size": 21
+  },
+  "plan_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+  "profile_id": "reviewed-g0-v1:1111111111111111111111111111111111111111111111111111111111111111",
+  "version": 1
+}

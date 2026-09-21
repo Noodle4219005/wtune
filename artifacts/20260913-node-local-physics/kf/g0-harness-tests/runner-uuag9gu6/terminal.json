@@ -1,0 +1,21 @@
+{
+  "link_executed": true,
+  "link_map": {
+    "path": "/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/kf/g0-harness-tests/runner-uuag9gu6/link.map",
+    "sha256": "2a07a7860f3d2fae4d68a916d8fcccc15cc05044eb8fb9d5a85fb8301cf9de1f",
+    "size": 21
+  },
+  "linked_candidate": {
+    "path": "/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/kf/g0-harness-tests/runner-uuag9gu6/candidate",
+    "sha256": "dde8374f45510faa3a11b40f4b04ec334013b8f0545ab3183f0412c36cc2cf62",
+    "size": 22
+  },
+  "manifest_sha256": "fbf1b0fb9b796b0374ac3333822fe5f09a9e1a9ebd7f54b4b84b264ebd9ac3ea",
+  "native_identity_record": {
+    "path": "/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/kf/g0-harness-tests/runner-uuag9gu6/native.json",
+    "sha256": "8105685020649314f2ca9aff46a93f5a48d70ed3ca6d7564e6735ed5cef2cbb6",
+    "size": 851
+  },
+  "plan_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+  "status": "complete"
+}

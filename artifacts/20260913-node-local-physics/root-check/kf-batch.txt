@@ -1,0 +1,6 @@
+test_batch (plov.tests.test_kf_batch.KFBatchTest.test_batch) ... ok
+
+----------------------------------------------------------------------
+Ran 1 test in 1.417s
+
+OK

@@ -1,0 +1,16 @@
+test_actual_archived_groups_match_frozen_registry (plov.tests.test_prepare_isc21_node_g0.PrepareTests.test_actual_archived_groups_match_frozen_registry) ... ok
+test_namelist_fixed_geometry_io_and_preserved_physics (plov.tests.test_prepare_isc21_node_g0.PrepareTests.test_namelist_fixed_geometry_io_and_preserved_physics) ... ok
+test_plan_then_exact_extract_no_retry (plov.tests.test_prepare_isc21_node_g0.PrepareTests.test_plan_then_exact_extract_no_retry) ... ok
+test_symlink_traversal_missing_duplicate_size_and_changed_source (plov.tests.test_prepare_isc21_node_g0.PrepareTests.test_symlink_traversal_missing_duplicate_size_and_changed_source) ... ok
+test_abc_compares_all_outputs_and_ab_failure_prevents_c (plov.tests.test_run_kf_node_g0.RunTests.test_abc_compares_all_outputs_and_ab_failure_prevents_c) ... ok
+test_candidate_requires_review_terminal_link_and_exact_hash (plov.tests.test_run_kf_node_g0.RunTests.test_candidate_requires_review_terminal_link_and_exact_hash) ... ok
+test_environment_and_srun_are_identical_except_experiment_controls (plov.tests.test_run_kf_node_g0.RunTests.test_environment_and_srun_are_identical_except_experiment_controls) ... ok
+test_failed_a_never_launches_b_or_c_and_preserves_summary (plov.tests.test_run_kf_node_g0.RunTests.test_failed_a_never_launches_b_or_c_and_preserves_summary) ... ok
+test_mock_complete_abc_and_table_copy_isolation (plov.tests.test_run_kf_node_g0.RunTests.test_mock_complete_abc_and_table_copy_isolation) ... ok
+test_native_rank_counters_steps_and_zero_steal_are_gates (plov.tests.test_run_kf_node_g0.RunTests.test_native_rank_counters_steps_and_zero_steal_are_gates) ... ok
+test_nonzero_subprocess_and_bitwise_fail_stop (plov.tests.test_run_kf_node_g0.RunTests.test_nonzero_subprocess_and_bitwise_fail_stop) ... ok
+
+----------------------------------------------------------------------
+Ran 11 tests in 0.223s
+
+OK

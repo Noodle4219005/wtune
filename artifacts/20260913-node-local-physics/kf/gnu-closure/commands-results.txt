@@ -1,0 +1,11 @@
+/usr/bin/gfortran --version
+GNU Fortran (GCC) 8.5.0 20210514 (Red Hat 8.5.0-15)
+Copyright (C) 2018 Free Software Foundation, Inc.
+This is free software; see the source for copying conditions.  There is NO
+warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+/usr/bin/gfortran -O1 -g -fcheck=all -fbacktrace -J /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/kf/gnu-closure -I /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/kf/gnu-closure -c module_wrf_error.f90 module_cu_kfeta.f90
+/home/u5727520/wrf-stack/wtune-runtime-dev-20260912/.pixi/envs/default/bin/x86_64-conda-linux-gnu-gcc -std=c11 -Wall -Wextra -Werror -O1 -g -gdwarf-4 -gz=none -I /home/u5727520/wrf-stack/wtune/plov -I /home/u5727520/wrf-stack/wtune/plov/tests -c /home/u5727520/wrf-stack/wtune/plov/wt_kf_batch.c /home/u5727520/wrf-stack/wtune/plov/wt_kf_batch_codec.c /home/u5727520/wrf-stack/wtune/plov/wt_kf_node.c /home/u5727520/wrf-stack/wtune/plov/wt_node_local.c native_fixture.c
+/usr/bin/gfortran module_wrf_error.o module_cu_kfeta.o wt_kf_batch.o wt_kf_batch_codec.o wt_kf_node.o wt_node_local.o native_fixture.o -pthread -lm -o native-fixture
+/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/kf/gnu-closure/native-fixture
+PASS frozen GNU CPS full-state bitwise, EDRATES 0/1, other-process helper, 29 checks, diagnostics 0/0

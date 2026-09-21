@@ -1,0 +1,457 @@
+/home/u5727520/wrf-stack/wtune-fortran-dev-20260912/.pixi/envs/default/bin/x86_64-conda-linux-gnu-gfortran -cpp -ffree-form -O1 -g -fcheck=all -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer -J /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw/mod -I /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw/mod -c /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw/src/ccpp_kind_types.f90 -o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw/obj/ccpp_kind_types.o
+RETURN 0
+/home/u5727520/wrf-stack/wtune-fortran-dev-20260912/.pixi/envs/default/bin/x86_64-conda-linux-gnu-gfortran -cpp -ffree-form -O1 -g -fcheck=all -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer -J /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw/mod -I /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw/mod -c /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw/src/module_model_constants.f90 -o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw/obj/module_model_constants.o
+RETURN 0
+/home/u5727520/wrf-stack/wtune-fortran-dev-20260912/.pixi/envs/default/bin/x86_64-conda-linux-gnu-gfortran -cpp -ffree-form -O1 -g -fcheck=all -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer -J /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw/mod -I /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw/mod -c /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw/src/module_bl_mynnedmf_common.f90 -o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw/obj/module_bl_mynnedmf_common.o
+RETURN 0
+/home/u5727520/wrf-stack/wtune-fortran-dev-20260912/.pixi/envs/default/bin/x86_64-conda-linux-gnu-gfortran -cpp -ffree-form -O1 -g -fcheck=all -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer -J /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw/mod -I /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw/mod -c /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw/src/module_bl_mynnedmf.f90 -o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw/obj/module_bl_mynnedmf.o
+RETURN 0
+/home/u5727520/wrf-stack/wtune-fortran-dev-20260912/.pixi/envs/default/bin/x86_64-conda-linux-gnu-gfortran -cpp -ffree-form -O1 -g -fcheck=all -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer -J /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw/mod -I /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw/mod -c /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw/src/module_bl_mynnedmf_driver.f90 -o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw/obj/module_bl_mynnedmf_driver.o
+RETURN 0
+/home/u5727520/wrf-stack/wtune-fortran-dev-20260912/.pixi/envs/default/bin/x86_64-conda-linux-gnu-gfortran -cpp -ffree-form -O1 -g -fcheck=all -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer -J /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw/mod -I /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw/mod -c /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw/src/parameter-bits.f90 -o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw/obj/parameter-bits.o
+RETURN 0
+nm -S --defined-only /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw/obj/ccpp_kind_types.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw/obj/module_model_constants.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw/obj/module_bl_mynnedmf_common.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw/obj/module_bl_mynnedmf.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw/obj/module_bl_mynnedmf_driver.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw/obj/parameter-bits.o
+
+/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw/obj/ccpp_kind_types.o:
+0000000000000000 0000000000000010 t _sub_I_00099_0
+
+/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw/obj/module_model_constants.o:
+0000000000000000 0000000000000059 T __module_model_constants_MOD_init_module_model_constants
+0000000000000059 0000000000000017 t _sub_D_00099_0
+0000000000000070 0000000000000021 t _sub_I_00099_1
+0000000000000000 0000000000000004 b is_recursive.0.0
+
+/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw/obj/module_bl_mynnedmf_common.o:
+0000000000000000 0000000000000010 t _sub_I_00099_0
+
+/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw/obj/module_bl_mynnedmf.o:
+0000000000000000 r .LC1
+00000000000000e8 r .LC100
+0000000000000388 r .LC1003
+000000000000038c r .LC1005
+0000000000000390 r .LC1006
+00000000000000ec r .LC101
+0000000000000394 r .LC1011
+00000000000000f0 r .LC102
+00000000000000f4 r .LC105
+00000000000000f8 r .LC106
+0000000000000398 r .LC1067
+00000000000000fc r .LC107
+000000000000039c r .LC1075
+00000000000003a0 r .LC1078
+0000000000000100 r .LC108
+00000000000003a4 r .LC1083
+00000000000003a8 r .LC1086
+00000000000003ac r .LC1088
+0000000000000104 r .LC109
+00000000000003b0 r .LC1091
+00000000000003b4 r .LC1092
+00000000000003b8 r .LC1095
+00000000000003bc r .LC1096
+0000000000000108 r .LC110
+00000000000003c0 r .LC1103
+0000000000000040 r .LC1108
+00000000000003c4 r .LC1109
+00000000000003c8 r .LC1117
+00000000000003cc r .LC1125
+00000000000003d0 r .LC1126
+00000000000003d4 r .LC1127
+00000000000003d8 r .LC1128
+00000000000003dc r .LC1129
+000000000000010c r .LC113
+00000000000003e0 r .LC1130
+00000000000003e4 r .LC1131
+00000000000003e8 r .LC1132
+00000000000003ec r .LC1133
+00000000000003f0 r .LC1134
+00000000000003f4 r .LC1135
+00000000000003f8 r .LC1136
+0000000000000008 r .LC1137
+0000000000000110 r .LC114
+00000000000003fc r .LC1144
+0000000000000400 r .LC1147
+0000000000000404 r .LC1148
+0000000000000114 r .LC115
+0000000000000010 r .LC1150
+0000000000000018 r .LC1151
+0000000000000020 r .LC1152
+0000000000000028 r .LC1153
+0000000000000030 r .LC1154
+0000000000000038 r .LC1155
+0000000000000040 r .LC1156
+0000000000000048 r .LC1157
+0000000000000050 r .LC1158
+0000000000000058 r .LC1159
+0000000000000118 r .LC116
+0000000000000060 r .LC1160
+0000000000000068 r .LC1162
+0000000000000070 r .LC1163
+0000000000000078 r .LC1164
+0000000000000408 r .LC1165
+000000000000040c r .LC1166
+0000000000000410 r .LC1167
+0000000000000080 r .LC1168
+0000000000000414 r .LC1169
+000000000000011c r .LC117
+0000000000000418 r .LC1170
+0000000000000120 r .LC118
+000000000000041c r .LC1186
+0000000000000124 r .LC119
+0000000000000420 r .LC1195
+0000000000000424 r .LC1197
+000000000000000c r .LC12
+0000000000000128 r .LC120
+0000000000000428 r .LC1203
+0000000000000208 r .LC1206
+000000000000012c r .LC121
+0000000000000130 r .LC122
+0000000000000134 r .LC123
+0000000000000138 r .LC124
+000000000000013c r .LC125
+0000000000000140 r .LC126
+0000000000000144 r .LC127
+0000000000000148 r .LC128
+000000000000014c r .LC129
+000000000000042c r .LC1294
+0000000000000430 r .LC1295
+0000000000000434 r .LC1297
+0000000000000150 r .LC130
+0000000000000154 r .LC131
+0000000000000438 r .LC1318
+0000000000000158 r .LC132
+000000000000015c r .LC133
+0000000000000160 r .LC134
+0000000000000164 r .LC135
+000000000000043c r .LC1367
+0000000000000168 r .LC140
+000000000000016c r .LC141
+0000000000000170 r .LC142
+0000000000000174 r .LC143
+0000000000000178 r .LC144
+000000000000017c r .LC145
+0000000000000180 r .LC146
+0000000000000184 r .LC147
+0000000000000188 r .LC148
+0000000000000000 r .LC149
+000000000000018c r .LC152
+0000000000000190 r .LC153
+0000000000000194 r .LC154
+0000000000000198 r .LC155
+0000000000000000 r .LC156
+0000000000000010 r .LC16
+000000000000019c r .LC164
+00000000000001a0 r .LC165
+0000000000000014 r .LC17
+00000000000000e0 r .LC172
+0000000000000048 r .LC174
+00000000000001a4 r .LC184
+00000000000001a8 r .LC187
+00000000000001ac r .LC188
+00000000000001b0 r .LC189
+00000000000001b4 r .LC190
+0000000000000004 r .LC2
+00000000000001b8 r .LC212
+00000000000001bc r .LC213
+00000000000001c0 r .LC214
+00000000000001c4 r .LC215
+00000000000001c8 r .LC216
+00000000000001cc r .LC217
+00000000000001d0 r .LC218
+00000000000001d4 r .LC219
+00000000000001d8 r .LC220
+00000000000001dc r .LC224
+00000000000001e0 r .LC225
+00000000000001e4 r .LC229
+00000000000001e8 r .LC230
+00000000000001ec r .LC231
+00000000000001f0 r .LC232
+00000000000001f4 r .LC234
+00000000000001f8 r .LC237
+00000000000001fc r .LC238
+0000000000000200 r .LC243
+0000000000000020 r .LC250
+0000000000000010 r .LC251
+0000000000000198 r .LC254
+0000000000000204 r .LC255
+0000000000000208 r .LC256
+000000000000020c r .LC257
+0000000000000210 r .LC258
+0000000000000214 r .LC259
+0000000000000218 r .LC260
+0000000000000018 r .LC27
+000000000000021c r .LC277
+000000000000001c r .LC28
+0000000000000220 r .LC281
+0000000000000224 r .LC288
+0000000000000228 r .LC289
+0000000000000020 r .LC29
+000000000000022c r .LC290
+0000000000000230 r .LC291
+0000000000000234 r .LC292
+0000000000000238 r .LC293
+000000000000023c r .LC294
+0000000000000240 r .LC295
+0000000000000244 r .LC296
+0000000000000248 r .LC297
+000000000000024c r .LC298
+0000000000000250 r .LC299
+0000000000000008 r .LC3
+0000000000000024 r .LC30
+0000000000000254 r .LC300
+0000000000000258 r .LC301
+000000000000025c r .LC305
+0000000000000260 r .LC306
+0000000000000264 r .LC307
+0000000000000268 r .LC308
+0000000000000028 r .LC31
+000000000000002c r .LC32
+000000000000026c r .LC324
+0000000000000270 r .LC329
+0000000000000030 r .LC33
+0000000000000274 r .LC330
+0000000000000278 r .LC331
+000000000000027c r .LC332
+0000000000000280 r .LC333
+0000000000000284 r .LC334
+0000000000000034 r .LC34
+0000000000000288 r .LC345
+000000000000028c r .LC346
+0000000000000290 r .LC347
+0000000000000294 r .LC348
+0000000000000038 r .LC35
+000000000000003c r .LC36
+0000000000000040 r .LC37
+0000000000000044 r .LC38
+0000000000000048 r .LC39
+0000000000000298 r .LC391
+000000000000029c r .LC398
+000000000000004c r .LC40
+0000000000000050 r .LC41
+0000000000000054 r .LC42
+00000000000002a0 r .LC426
+00000000000002a4 r .LC427
+00000000000002a8 r .LC428
+00000000000002ac r .LC429
+00000000000002b0 r .LC430
+00000000000002b4 r .LC431
+00000000000002b8 r .LC432
+00000000000002bc r .LC433
+00000000000002c0 r .LC434
+00000000000002c4 r .LC435
+00000000000002c8 r .LC436
+00000000000002cc r .LC437
+00000000000002d0 r .LC438
+00000000000002d4 r .LC439
+00000000000002d8 r .LC440
+00000000000002dc r .LC441
+00000000000002e0 r .LC442
+00000000000002e4 r .LC443
+00000000000002e8 r .LC444
+00000000000002ec r .LC445
+00000000000002f0 r .LC448
+00000000000002f4 r .LC449
+00000000000002f8 r .LC458
+00000000000002fc r .LC459
+0000000000000300 r .LC460
+0000000000000058 r .LC47
+000000000000005c r .LC48
+0000000000000000 r .LC49
+0000000000000060 r .LC50
+0000000000000064 r .LC51
+0000000000000068 r .LC52
+000000000000006c r .LC53
+0000000000000070 r .LC54
+0000000000000304 r .LC541
+0000000000000074 r .LC55
+0000000000000078 r .LC56
+000000000000007c r .LC57
+0000000000000080 r .LC58
+0000000000000308 r .LC585
+000000000000030c r .LC590
+0000000000000020 r .LC594
+0000000000000310 r .LC595
+0000000000000084 r .LC63
+0000000000000088 r .LC64
+000000000000008c r .LC65
+0000000000000090 r .LC68
+0000000000000094 r .LC69
+0000000000000098 r .LC73
+000000000000009c r .LC74
+00000000000000a0 r .LC75
+00000000000000a4 r .LC78
+00000000000000a8 r .LC79
+0000000000000314 r .LC798
+0000000000000318 r .LC800
+000000000000031c r .LC801
+00000000000000ac r .LC82
+0000000000000320 r .LC827
+0000000000000324 r .LC828
+00000000000000b0 r .LC83
+00000000000000b4 r .LC84
+00000000000000b8 r .LC85
+00000000000000bc r .LC86
+0000000000000010 r .LC87
+00000000000000c0 r .LC88
+00000000000000c4 r .LC89
+0000000000000328 r .LC891
+00000000000000c8 r .LC90
+0000000000000030 r .LC904
+00000000000000cc r .LC91
+000000000000032c r .LC913
+0000000000000330 r .LC914
+0000000000000334 r .LC915
+0000000000000338 r .LC916
+000000000000033c r .LC917
+00000000000000d0 r .LC92
+0000000000000340 r .LC920
+0000000000000030 r .LC921
+0000000000000040 r .LC922
+0000000000000000 r .LC923
+0000000000000344 r .LC924
+0000000000000348 r .LC925
+000000000000034c r .LC926
+0000000000000350 r .LC927
+00000000000000d4 r .LC93
+0000000000000354 r .LC933
+0000000000000358 r .LC934
+000000000000035c r .LC935
+0000000000000360 r .LC936
+0000000000000364 r .LC937
+0000000000000368 r .LC938
+000000000000036c r .LC939
+00000000000000d8 r .LC94
+0000000000000370 r .LC940
+0000000000000374 r .LC941
+0000000000000378 r .LC942
+000000000000037c r .LC943
+0000000000000380 r .LC944
+00000000000000dc r .LC95
+00000000000000e0 r .LC98
+00000000000000e4 r .LC99
+0000000000000384 r .LC993
+000000000008809b 0000000000001b89 T __module_bl_mynnedmf_MOD_boulac_length
+0000000000089c24 00000000000014b8 T __module_bl_mynnedmf_MOD_boulac_length0
+0000000000004939 0000000000001240 T __module_bl_mynnedmf_MOD_condensation_ddmf
+0000000000013126 00000000000005ec T __module_bl_mynnedmf_MOD_condensation_edmf
+00000000000044b5 0000000000000484 T __module_bl_mynnedmf_MOD_condensation_edmf_r
+0000000000005b79 000000000000d5ad T __module_bl_mynnedmf_MOD_ddmp_mf
+0000000000013712 000000000001c3ba T __module_bl_mynnedmf_MOD_dmp_mf
+0000000000003efa 00000000000002bb T __module_bl_mynnedmf_MOD_esat_blend
+000000000002facc 0000000000000cba T __module_bl_mynnedmf_MOD_get_pblh
+000000000003cfd5 0000000000001346 T __module_bl_mynnedmf_MOD_moisture_check
+0000000000074d2c 0000000000005ced T __module_bl_mynnedmf_MOD_mym_condensation
+0000000000099a27 0000000000003730 T __module_bl_mynnedmf_MOD_mym_initialize
+000000000008b0dc 0000000000005e29 T __module_bl_mynnedmf_MOD_mym_length
+0000000000090f05 000000000000323f T __module_bl_mynnedmf_MOD_mym_level2
+000000000007aa19 000000000000d682 T __module_bl_mynnedmf_MOD_mym_predict
+0000000000094144 00000000000058e3 T __module_bl_mynnedmf_MOD_mym_turbulence
+0000000000037ae4 00000000000054f1 T __module_bl_mynnedmf_MOD_mynn_mix_chem
+0000000000032eb1 0000000000004c33 T __module_bl_mynnedmf_MOD_mynn_mix_scalars
+000000000003e31b 0000000000036a11 T __module_bl_mynnedmf_MOD_mynn_tendencies
+000000000009d157 0000000000017f1f T __module_bl_mynnedmf_MOD_mynnedmf
+00000000000031eb 0000000000000395 T __module_bl_mynnedmf_MOD_phih
+0000000000003580 00000000000003e9 T __module_bl_mynnedmf_MOD_phim
+0000000000003abd 000000000000043d T __module_bl_mynnedmf_MOD_qsat_blend
+00000000000327ba 00000000000006f7 T __module_bl_mynnedmf_MOD_retrieve_exchange_coeffs
+00000000000041b5 0000000000000300 T __module_bl_mynnedmf_MOD_scale_aware
+0000000000000000 00000000000031eb T __module_bl_mynnedmf_MOD_topdown_cloudrad
+0000000000031dab 0000000000000a0f T __module_bl_mynnedmf_MOD_tridiag
+0000000000031253 0000000000000b58 T __module_bl_mynnedmf_MOD_tridiag2
+0000000000030786 0000000000000acd T __module_bl_mynnedmf_MOD_tridiag3
+0000000000003969 0000000000000154 T __module_bl_mynnedmf_MOD_xl_blend
+00000000000b5076 0000000000000017 t _sub_D_00099_0
+00000000000b508d 0000000000000021 t _sub_I_00099_1
+0000000000000080 0000000000000004 b flq.2
+00000000000000c0 0000000000000004 b flt.3
+0000000000000040 0000000000000004 b fltv.1
+00000000000007c0 0000000000000004 b is_recursive.121.33
+0000000000000780 0000000000000004 b is_recursive.122.32
+0000000000000740 0000000000000004 b is_recursive.123.31
+0000000000000700 0000000000000004 b is_recursive.124.30
+0000000000000500 0000000000000004 b is_recursive.1331.22
+00000000000006c0 0000000000000004 b is_recursive.134.29
+0000000000000680 0000000000000004 b is_recursive.136.28
+00000000000004c0 0000000000000004 b is_recursive.1360.21
+0000000000000480 0000000000000004 b is_recursive.1378.20
+0000000000000440 0000000000000004 b is_recursive.1391.19
+0000000000000400 0000000000000004 b is_recursive.1414.18
+00000000000003c0 0000000000000004 b is_recursive.1488.17
+0000000000000380 0000000000000004 b is_recursive.1582.16
+0000000000000340 0000000000000004 b is_recursive.1622.15
+0000000000000300 0000000000000004 b is_recursive.2019.14
+00000000000002c0 0000000000000004 b is_recursive.2288.13
+0000000000000280 0000000000000004 b is_recursive.2511.12
+0000000000000240 0000000000000004 b is_recursive.2752.11
+0000000000000200 0000000000000004 b is_recursive.2864.10
+00000000000001c0 0000000000000004 b is_recursive.2888.9
+0000000000000180 0000000000000004 b is_recursive.2985.8
+0000000000000140 0000000000000004 b is_recursive.3174.7
+0000000000000100 0000000000000004 b is_recursive.3350.6
+0000000000000640 0000000000000004 b is_recursive.395.27
+0000000000000000 0000000000000004 b is_recursive.3951.0
+0000000000000600 0000000000000004 b is_recursive.549.26
+00000000000005c0 0000000000000004 b is_recursive.552.25
+0000000000000580 0000000000000004 b is_recursive.561.24
+0000000000000800 0000000000000004 b is_recursive.68.34
+0000000000000540 0000000000000004 b is_recursive.986.23
+
+/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw/obj/module_bl_mynnedmf_driver.o:
+0000000000000014 r .LC169
+0000000000000018 r .LC170
+000000000000001c r .LC171
+0000000000000020 r .LC172
+0000000000000004 r .LC28
+0000000000000008 r .LC29
+000000000000000c r .LC30
+0000000000000010 r .LC31
+0000000000000000 r .LC35
+0000000000000000 r .LC606
+0000000000000000 r .LC8
+000000000000202c 00000000000008f3 T __module_bl_mynnedmf_driver_MOD_moisture_check2
+000000000000291f 000000000001cb6e T __module_bl_mynnedmf_driver_MOD_mynnedmf_driver
+000000000001f48d 0000000000000059 T __module_bl_mynnedmf_driver_MOD_mynnedmf_finalize
+000000000001f4e6 000000000000110b T __module_bl_mynnedmf_driver_MOD_mynnedmf_init
+0000000000000000 000000000000136e T __module_bl_mynnedmf_driver_MOD_mynnedmf_post_run
+000000000000136e 0000000000000cbe T __module_bl_mynnedmf_driver_MOD_mynnedmf_pre_run
+00000000000205f1 0000000000000017 t _sub_D_00099_0
+0000000000020608 0000000000000021 t _sub_I_00099_1
+0000000000000080 0000000000000004 b is_recursive.1139.2
+0000000000000040 0000000000000004 b is_recursive.1258.1
+0000000000000000 0000000000000004 b is_recursive.1319.0
+0000000000000140 0000000000000004 b is_recursive.24.5
+0000000000000100 0000000000000004 b is_recursive.45.4
+00000000000000c0 0000000000000004 b is_recursive.61.3
+
+/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw/obj/parameter-bits.o:
+0000000000001b14 0000000000000017 t _sub_D_00099_0
+0000000000001b2b 0000000000000021 t _sub_I_00099_1
+0000000000000000 0000000000000004 b is_recursive.0.0
+0000000000000000 0000000000001b14 T mynn_parameter_bits
+RETURN 0
+/home/u5727520/wrf-stack/wtune-fortran-dev-20260912/.pixi/envs/default/bin/x86_64-conda-linux-gnu-gfortran -cpp -ffree-form -O1 -g -fcheck=all -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer -J /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw/mod -I /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw/mod -c /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw/src/caller.f90 -o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw/obj/caller.o
+RETURN 0
+/home/u5727520/wrf-stack/wtune-fortran-dev-20260912/.pixi/envs/default/bin/x86_64-conda-linux-gnu-gfortran -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw/obj/ccpp_kind_types.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw/obj/module_model_constants.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw/obj/module_bl_mynnedmf_common.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw/obj/module_bl_mynnedmf.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw/obj/module_bl_mynnedmf_driver.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw/obj/parameter-bits.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw/obj/caller.o -pthread -o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw/direct
+RETURN 0
+/home/u5727520/wrf-stack/wtune-fortran-dev-20260912/.pixi/envs/default/bin/python /home/u5727520/wrf-stack/wtune/plov/gen_mynn_bridge.py --source /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw/src/module_bl_mynnedmf_driver.f90 --schema /home/u5727520/wrf-stack/wtune/plov/mynn_schema.json --symbol __module_bl_mynnedmf_driver_MOD_mynnedmf_driver --output /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw/src/bridge.c
+RETURN 0
+/home/u5727520/wrf-stack/wtune-fortran-dev-20260912/.pixi/envs/default/bin/x86_64-conda-linux-gnu-cc -std=c11 -Wall -Wextra -Werror -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer -I /home/u5727520/wrf-stack/wtune/plov -I /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw -pthread -c /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw/src/bridge.c -o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw/obj/bridge.o
+RETURN 0
+/home/u5727520/wrf-stack/wtune-fortran-dev-20260912/.pixi/envs/default/bin/x86_64-conda-linux-gnu-cc -std=c11 -Wall -Wextra -Werror -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer -I /home/u5727520/wrf-stack/wtune/plov -I /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw -pthread -c /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw/src/test_mynn_node_fortran.c -o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw/obj/test_mynn_node_fortran.o
+RETURN 0
+/home/u5727520/wrf-stack/wtune-fortran-dev-20260912/.pixi/envs/default/bin/x86_64-conda-linux-gnu-cc -std=c11 -Wall -Wextra -Werror -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer -I /home/u5727520/wrf-stack/wtune/plov -I /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw -pthread -c /home/u5727520/wrf-stack/wtune/plov/wt_mynn_layout.c -o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw/obj/wt_mynn_layout.o
+RETURN 0
+/home/u5727520/wrf-stack/wtune-fortran-dev-20260912/.pixi/envs/default/bin/x86_64-conda-linux-gnu-cc -std=c11 -Wall -Wextra -Werror -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer -I /home/u5727520/wrf-stack/wtune/plov -I /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw -pthread -c /home/u5727520/wrf-stack/wtune/plov/wt_mynn_batch.c -o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw/obj/wt_mynn_batch.o
+RETURN 0
+/home/u5727520/wrf-stack/wtune-fortran-dev-20260912/.pixi/envs/default/bin/x86_64-conda-linux-gnu-cc -std=c11 -Wall -Wextra -Werror -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer -I /home/u5727520/wrf-stack/wtune/plov -I /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw -pthread -c /home/u5727520/wrf-stack/wtune/plov/wt_mynn_node.c -o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw/obj/wt_mynn_node.o
+RETURN 0
+/home/u5727520/wrf-stack/wtune-fortran-dev-20260912/.pixi/envs/default/bin/x86_64-conda-linux-gnu-cc -std=c11 -Wall -Wextra -Werror -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer -I /home/u5727520/wrf-stack/wtune/plov -I /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw -pthread -c /home/u5727520/wrf-stack/wtune/plov/wt_node_local.c -o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw/obj/wt_node_local.o
+RETURN 0
+/home/u5727520/wrf-stack/wtune-fortran-dev-20260912/.pixi/envs/default/bin/x86_64-conda-linux-gnu-gfortran -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw/obj/ccpp_kind_types.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw/obj/module_model_constants.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw/obj/module_bl_mynnedmf_common.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw/obj/module_bl_mynnedmf.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw/obj/module_bl_mynnedmf_driver.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw/obj/parameter-bits.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw/obj/caller.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw/obj/bridge.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw/obj/test_mynn_node_fortran.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw/obj/wt_mynn_layout.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw/obj/wt_mynn_batch.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw/obj/wt_mynn_node.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw/obj/wt_node_local.o -pthread -Wl,--wrap=__module_bl_mynnedmf_driver_MOD_mynnedmf_driver -o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw/node
+RETURN 0
+/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw/direct /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw/direct.bin
+RETURN 0
+/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw/node /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/gnu-node/run-zbfuf_jw/node.bin
+MYNN_GNU_HELPER pid=1796422 owner_pid=1796420 epoch=2 rows=2 init=10870066704996651326
+MYNN_GNU_HELPER pid=1796424 owner_pid=1796420 epoch=3 rows=2 init=10870066704996651326
+MYNN_GNU_NODE calls=3 continuation=2 helper=4 full132=1
+RETURN 0

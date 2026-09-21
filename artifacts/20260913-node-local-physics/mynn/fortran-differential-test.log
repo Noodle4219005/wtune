@@ -1,0 +1,6 @@
+test_real_driver_direct_and_wrapped_two_call_state_match (plov.tests.test_mynn_bridge_fortran.MynnBridgeFortranTests.test_real_driver_direct_and_wrapped_two_call_state_match) ... ok
+
+----------------------------------------------------------------------
+Ran 1 test in 73.653s
+
+OK

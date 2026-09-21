@@ -1,0 +1,40 @@
+test_actual_archived_groups_match_frozen_registry (plov.tests.test_prepare_isc21_node_g0.PrepareTests.test_actual_archived_groups_match_frozen_registry) ... FAIL
+
+======================================================================
+FAIL: test_actual_archived_groups_match_frozen_registry (plov.tests.test_prepare_isc21_node_g0.PrepareTests.test_actual_archived_groups_match_frozen_registry)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/u5727520/wrf-stack/wtune/plov/tests/test_prepare_isc21_node_g0.py", line 115, in test_actual_archived_groups_match_frozen_registry
+    self.assertEqual(list(after), list(before))
+AssertionError: Lists differ: ['tim[38 chars]a', 'bdy_control', 'grib', 'namelist_quilt'] != ['tim[38 chars]a', 'dynamics', 'bdy_control', 'grib2', 'namel[21 chars]rol']
+
+First differing element 4:
+'bdy_control'
+'dynamics'
+
+Second list contains 2 additional elements.
+First extra element 7:
+'namelist_quilt'
+
+  ['time_control',
+   'domains',
+   'physics',
+   'fdda',
++  'dynamics',
+   'bdy_control',
+-  'grib',
++  'grib2',
+?       +
+
+-  'namelist_quilt']
+?                  ^
+
++  'namelist_quilt',
+?                  ^
+
++  'dfi_control']
+
+----------------------------------------------------------------------
+Ran 1 test in 0.107s
+
+FAILED (failures=1)

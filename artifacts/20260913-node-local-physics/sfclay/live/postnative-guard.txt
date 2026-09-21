@@ -1,0 +1,4 @@
+/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/sfclay/live/test_sfclay_node_live postnative-guard
+# wt_sfclay_node_g0 fatal function=wt_sfclay_node_live_dispatch line=418
+# wt_sfclay_node_g0 fatal function=wt_sfclay_node_live_dispatch line=418
+returncode=-6

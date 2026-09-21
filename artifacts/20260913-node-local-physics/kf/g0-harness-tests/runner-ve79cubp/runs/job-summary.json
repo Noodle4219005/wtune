@@ -1,0 +1,239 @@
+{
+  "arms": {},
+  "artifact_type": "wtune_kf_native_g0_result",
+  "comparisons": [],
+  "error": "module 'shlex' has no attribute 'join'",
+  "job": "123",
+  "plan": {
+    "arms": {
+      "A": {
+        "argv": [
+          "timeout",
+          "--signal=TERM",
+          "--kill-after=20s",
+          "420s",
+          "srun",
+          "--mpi=pmi2",
+          "--nodes=1",
+          "--ntasks=56",
+          "--ntasks-per-node=56",
+          "--cpus-per-task=2",
+          "--distribution=block:block",
+          "--cpu-bind=cores",
+          "--hint=nomultithread",
+          "/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/kf/g0-harness-tests/runner-ve79cubp/candidate",
+          "/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/kf/g0-harness-tests/runner-ve79cubp/candidate",
+          "rank-exec",
+          "--candidate",
+          "/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/kf/g0-harness-tests/runner-ve79cubp/candidate"
+        ],
+        "controls": {
+          "I_MPI_PIN": "1",
+          "I_MPI_PIN_DOMAIN": "omp",
+          "I_MPI_PMI_LIBRARY": "/usr/lib64/libpmi2.so",
+          "KMP_BLOCKTIME": "0",
+          "OMP_DYNAMIC": "FALSE",
+          "OMP_NUM_THREADS": "2",
+          "OMP_PLACES": "cores",
+          "OMP_PROC_BIND": "close",
+          "OMP_STACKSIZE": "512M",
+          "WTIMER_DIR": "/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/kf/g0-harness-tests/runner-ve79cubp/runs/A",
+          "WTIMER_STAGE_CUMULUS": "0",
+          "WTIMER_STAGE_GRID": "1",
+          "WTIMER_STAGE_MICRO": "0",
+          "WTIMER_STAGE_PBL": "0",
+          "WTIMER_STAGE_RAD": "0",
+          "WTIMER_STAGE_SURFACE": "0",
+          "WT_KF_BYTE_BUDGET": "268435456",
+          "WT_KF_NODE_DEADLINE_MS": "30000",
+          "WT_KF_NODE_G0": "1",
+          "WT_KF_NODE_G0_OWNER_ONLY": "0",
+          "WT_KF_NODE_G0_SHADOW": "0",
+          "WT_KF_NODE_G0_TRACE": "1",
+          "WT_KF_NODE_SHARED_BUDGET": "1073741824",
+          "WT_KF_NODE_SLOT_BYTES": "4194304"
+        }
+      },
+      "B": {
+        "argv": [
+          "timeout",
+          "--signal=TERM",
+          "--kill-after=20s",
+          "420s",
+          "srun",
+          "--mpi=pmi2",
+          "--nodes=1",
+          "--ntasks=56",
+          "--ntasks-per-node=56",
+          "--cpus-per-task=2",
+          "--distribution=block:block",
+          "--cpu-bind=cores",
+          "--hint=nomultithread",
+          "/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/kf/g0-harness-tests/runner-ve79cubp/candidate",
+          "/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/kf/g0-harness-tests/runner-ve79cubp/candidate",
+          "rank-exec",
+          "--candidate",
+          "/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/kf/g0-harness-tests/runner-ve79cubp/candidate"
+        ],
+        "controls": {
+          "I_MPI_PIN": "1",
+          "I_MPI_PIN_DOMAIN": "omp",
+          "I_MPI_PMI_LIBRARY": "/usr/lib64/libpmi2.so",
+          "KMP_BLOCKTIME": "0",
+          "OMP_DYNAMIC": "FALSE",
+          "OMP_NUM_THREADS": "2",
+          "OMP_PLACES": "cores",
+          "OMP_PROC_BIND": "close",
+          "OMP_STACKSIZE": "512M",
+          "WTIMER_DIR": "/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/kf/g0-harness-tests/runner-ve79cubp/runs/B",
+          "WTIMER_STAGE_CUMULUS": "1",
+          "WTIMER_STAGE_GRID": "1",
+          "WTIMER_STAGE_MICRO": "0",
+          "WTIMER_STAGE_PBL": "0",
+          "WTIMER_STAGE_RAD": "0",
+          "WTIMER_STAGE_SURFACE": "0",
+          "WT_KF_BYTE_BUDGET": "268435456",
+          "WT_KF_NODE_DEADLINE_MS": "30000",
+          "WT_KF_NODE_G0": "1",
+          "WT_KF_NODE_G0_OWNER_ONLY": "1",
+          "WT_KF_NODE_G0_SHADOW": "0",
+          "WT_KF_NODE_G0_TRACE": "1",
+          "WT_KF_NODE_SHARED_BUDGET": "1073741824",
+          "WT_KF_NODE_SLOT_BYTES": "4194304"
+        }
+      },
+      "C": {
+        "argv": [
+          "timeout",
+          "--signal=TERM",
+          "--kill-after=20s",
+          "420s",
+          "srun",
+          "--mpi=pmi2",
+          "--nodes=1",
+          "--ntasks=56",
+          "--ntasks-per-node=56",
+          "--cpus-per-task=2",
+          "--distribution=block:block",
+          "--cpu-bind=cores",
+          "--hint=nomultithread",
+          "/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/kf/g0-harness-tests/runner-ve79cubp/candidate",
+          "/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/kf/g0-harness-tests/runner-ve79cubp/candidate",
+          "rank-exec",
+          "--candidate",
+          "/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/kf/g0-harness-tests/runner-ve79cubp/candidate"
+        ],
+        "controls": {
+          "I_MPI_PIN": "1",
+          "I_MPI_PIN_DOMAIN": "omp",
+          "I_MPI_PMI_LIBRARY": "/usr/lib64/libpmi2.so",
+          "KMP_BLOCKTIME": "0",
+          "OMP_DYNAMIC": "FALSE",
+          "OMP_NUM_THREADS": "2",
+          "OMP_PLACES": "cores",
+          "OMP_PROC_BIND": "close",
+          "OMP_STACKSIZE": "512M",
+          "WTIMER_DIR": "/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/kf/g0-harness-tests/runner-ve79cubp/runs/C",
+          "WTIMER_STAGE_CUMULUS": "1",
+          "WTIMER_STAGE_GRID": "1",
+          "WTIMER_STAGE_MICRO": "0",
+          "WTIMER_STAGE_PBL": "0",
+          "WTIMER_STAGE_RAD": "0",
+          "WTIMER_STAGE_SURFACE": "0",
+          "WT_KF_BYTE_BUDGET": "268435456",
+          "WT_KF_NODE_DEADLINE_MS": "30000",
+          "WT_KF_NODE_G0": "1",
+          "WT_KF_NODE_G0_OWNER_ONLY": "0",
+          "WT_KF_NODE_G0_SHADOW": "1",
+          "WT_KF_NODE_G0_TRACE": "1",
+          "WT_KF_NODE_SHARED_BUDGET": "1073741824",
+          "WT_KF_NODE_SLOT_BYTES": "4194304"
+        }
+      }
+    },
+    "artifact_type": "wtune_kf_native_g0_run_plan",
+    "build": {
+      "candidate": {
+        "path": "/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/kf/g0-harness-tests/runner-ve79cubp/candidate",
+        "sha256": "dde8374f45510faa3a11b40f4b04ec334013b8f0545ab3183f0412c36cc2cf62",
+        "size": 22
+      },
+      "manifest": {
+        "path": "/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/kf/g0-harness-tests/runner-ve79cubp/build-manifest.json",
+        "sha256": "c6ecd7fc4fa56e3d426fa8adb75d1683880650a72f2807e8d5c2be0b18952826",
+        "size": 1015
+      },
+      "native_identity": {
+        "path": "/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/kf/g0-harness-tests/runner-ve79cubp/native.json",
+        "sha256": "69b8b871244b6c98a137e95e417bc42efbae1530df45cfe92ebcbd31ddcf5e1b",
+        "size": 851
+      },
+      "profile_id": "reviewed-g0-v1:1111111111111111111111111111111111111111111111111111111111111111",
+      "terminal": {
+        "path": "/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/kf/g0-harness-tests/runner-ve79cubp/terminal.json",
+        "sha256": "7ce11a930f274d33c89c5c66af0abeeaf7f1daa2a91a2d960bb46a817e759777",
+        "size": 994
+      }
+    },
+    "inputs": {
+      "freezeH2O.dat": {
+        "path": "/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/kf/g0-harness-tests/runner-ve79cubp/freezeH2O.dat",
+        "sha256": "242ac86da722742d7f01bf12aef803789d539f93867d8d4041b45113745d87c6",
+        "size": 18
+      },
+      "namelist.g0": {
+        "path": "/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/kf/g0-harness-tests/runner-ve79cubp/namelist.g0",
+        "sha256": "7658ff0f684e22627afcf52112a190e2bfe5b4c095e7b5e1fe585fd8c4f4672f",
+        "size": 16
+      },
+      "qr_acr_qgV2.dat": {
+        "path": "/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/kf/g0-harness-tests/runner-ve79cubp/qr_acr_qgV2.dat",
+        "sha256": "ff26a9679d10225f64fa1a01b565f567fb366ccc9c702679cc492189e56eb8bc",
+        "size": 20
+      },
+      "qr_acr_qsV2.dat": {
+        "path": "/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/kf/g0-harness-tests/runner-ve79cubp/qr_acr_qsV2.dat",
+        "sha256": "ebe4fb12fb7ba5ff5feb0aa4a6caf00b651faa7f3a7fe221f2027e0b9bdb4647",
+        "size": 20
+      },
+      "wrfbdy_d01": {
+        "path": "/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/kf/g0-harness-tests/runner-ve79cubp/wrfbdy_d01",
+        "sha256": "fe35f0bb71dc7d70cbcbfbef8db81072f9c74400d159a94d1019282b0b6fabf4",
+        "size": 15
+      },
+      "wrfinput_d01": {
+        "path": "/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/kf/g0-harness-tests/runner-ve79cubp/wrfinput_d01",
+        "sha256": "9fe48239c3ceb9d8466a1dca73891ea49e35607690e30a4fd869507a86ac726f",
+        "size": 17
+      }
+    },
+    "output": "/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/kf/g0-harness-tests/runner-ve79cubp/runs",
+    "support": {},
+    "tools": {
+      "comparator": {
+        "path": "/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/kf/g0-harness-tests/runner-ve79cubp/candidate",
+        "sha256": "dde8374f45510faa3a11b40f4b04ec334013b8f0545ab3183f0412c36cc2cf62",
+        "size": 22
+      },
+      "library": {
+        "path": "/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/kf/g0-harness-tests/runner-ve79cubp/candidate",
+        "sha256": "dde8374f45510faa3a11b40f4b04ec334013b8f0545ab3183f0412c36cc2cf62",
+        "size": 22
+      },
+      "python": {
+        "path": "/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/kf/g0-harness-tests/runner-ve79cubp/candidate",
+        "sha256": "dde8374f45510faa3a11b40f4b04ec334013b8f0545ab3183f0412c36cc2cf62",
+        "size": 22
+      },
+      "runner": {
+        "path": "/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/kf/g0-harness-tests/runner-ve79cubp/candidate",
+        "sha256": "dde8374f45510faa3a11b40f4b04ec334013b8f0545ab3183f0412c36cc2cf62",
+        "size": 22
+      }
+    },
+    "version": 1
+  },
+  "returncode": null,
+  "status": "failed",
+  "version": 1
+}

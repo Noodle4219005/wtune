@@ -1,0 +1,2 @@
+/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/sfclay/live/test_sfclay_node_live reinit
+returncode=-6

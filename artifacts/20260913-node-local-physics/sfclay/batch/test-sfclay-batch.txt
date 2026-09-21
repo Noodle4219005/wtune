@@ -1,0 +1,3 @@
+/home/u5727520/wrf-stack/wtune-fortran-dev-20260912/.pixi/envs/default/bin/x86_64-conda-linux-gnu-cc -std=c11 -Wall -Wextra -Werror -pedantic -pthread -fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=all -I/home/u5727520/wrf-stack/wtune/plov /home/u5727520/wrf-stack/wtune/plov/wt_sfclay_batch.c /home/u5727520/wrf-stack/wtune/plov/wt_sfclay_batch_codec.c /home/u5727520/wrf-stack/wtune/plov/tests/test_sfclay_batch.c -o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/sfclay/batch/test_sfclay_batch
+/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/sfclay/batch/test_sfclay_batch
+SFCLAY row batch tests passed

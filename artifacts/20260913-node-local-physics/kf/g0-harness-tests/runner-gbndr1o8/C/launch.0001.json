@@ -1,0 +1,12 @@
+{
+  "affinity": [
+    2,
+    3
+  ],
+  "hostname": "fixture-node",
+  "job": 1,
+  "local_rank": 1,
+  "pid": 101,
+  "step": 0,
+  "world_rank": 1
+}

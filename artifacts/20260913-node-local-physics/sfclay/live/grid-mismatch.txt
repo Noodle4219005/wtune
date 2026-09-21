@@ -1,0 +1,7 @@
+/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/sfclay/live/test_sfclay_node_live grid-mismatch
+SFCLAY production node-live fork/OMP2 chain passed
+# wt_sfclay_node_g0 event=commit pid=1816885 local_rank=0 thread=0 owner_rank=0 owner_thread=0 executor_rank=0 work_id=1 phase=91561241887065 grid=4 epoch=1 profile=3977193313445709821 init=1803173529494650525
+# wt_sfclay_node_g0 event=commit pid=1816887 local_rank=1 thread=0 owner_rank=1 owner_thread=0 executor_rank=1 work_id=3 phase=91561241887065 grid=5 epoch=1 profile=3977193313445709821 init=1803173529494650525
+# wt_sfclay_node_g0 event=commit pid=1816887 local_rank=1 thread=1 owner_rank=1 owner_thread=1 executor_rank=1 work_id=4 phase=91561241887065 grid=5 epoch=1 profile=3977193313445709821 init=1803173529494650525
+# wt_sfclay_node_g0 event=commit pid=1816885 local_rank=0 thread=1 owner_rank=0 owner_thread=1 executor_rank=0 work_id=2 phase=91561241887065 grid=4 epoch=1 profile=3977193313445709821 init=1803173529494650525
+returncode=0

@@ -1,0 +1,13 @@
+test_deadline_stops_monitoring_without_cancelling_job (plov.tests.test_monitor_native_job.NativeJobMonitorTest.test_deadline_stops_monitoring_without_cancelling_job) ... ok
+test_early_terminal_records_incomplete_gate_without_dependent_action (plov.tests.test_monitor_native_job.NativeJobMonitorTest.test_early_terminal_records_incomplete_gate_without_dependent_action) ... ok
+test_failed_at_is_blocked_with_next_check (plov.tests.test_monitor_native_job.NativeJobMonitorTest.test_failed_at_is_blocked_with_next_check) ... ok
+test_invalid_job_id_never_schedules (plov.tests.test_monitor_native_job.NativeJobMonitorTest.test_invalid_job_id_never_schedules) ... ok
+test_lock_existing_state_and_stale_nonce_prevent_duplicates (plov.tests.test_monitor_native_job.NativeJobMonitorTest.test_lock_existing_state_and_stale_nonce_prevent_duplicates) ... ok
+test_missing_native_log_does_not_start_gate_or_create_log (plov.tests.test_monitor_native_job.NativeJobMonitorTest.test_missing_native_log_does_not_start_gate_or_create_log) ... ok
+test_slurm_failure_is_observed_and_blocked_without_retry (plov.tests.test_monitor_native_job.NativeJobMonitorTest.test_slurm_failure_is_observed_and_blocked_without_retry) ... ok
+test_startup_cadence_exact_queries_and_tail (plov.tests.test_monitor_native_job.NativeJobMonitorTest.test_startup_cadence_exact_queries_and_tail) ... ok
+
+----------------------------------------------------------------------
+Ran 8 tests in 4.398s
+
+OK

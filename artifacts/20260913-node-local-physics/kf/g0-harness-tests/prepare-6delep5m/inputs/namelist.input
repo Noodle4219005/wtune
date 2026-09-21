@@ -1,0 +1,22 @@
+&time_control
+run_minutes=30,
+history_interval_s=0,
+iofields_filename="unused",
+io_form_auxhist24=2,
+/
+outside_ignored=1,
+&domains
+time_step=15,
+e_we=793,805,1001,
+e_sn=853,805,1001,
+e_vert=51,51,51,
+eta_levels=1.0, 0.9,
+0.5, 0.0,
+max_dom=3,
+/
+&physics
+cu_physics=1,0,0,
+bl_pbl_physics=5,5,5,
+sf_sfclay_physics=5,5,5,
+mp_physics=8,8,8,
+/

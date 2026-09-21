@@ -1,0 +1,36 @@
+{
+  "artifact_dir": "/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/monitor-native-job/case-ws7l617q/job artifacts 'quoted'",
+  "blocked_reason": "at scheduling failed (exit 7): mock at unavailable",
+  "cadence": {
+    "sparse_reason": "the short probe gates same-session artifact review",
+    "sparse_seconds": 300,
+    "startup_seconds": 60
+  },
+  "created_utc": "2026-09-13T00:10:23Z",
+  "deadline_utc": "2026-09-13T01:10:23Z",
+  "dependent_action": "review evidence, then decide whether to compare performance",
+  "job_id": "123",
+  "last_native_observation": null,
+  "native_at_id": null,
+  "native_log": "/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/monitor-native-job/case-ws7l617q/job artifacts 'quoted'/native log.bin",
+  "next_proposed_check": "Check the recorded at error and at service availability; do not submit or retry the native job.",
+  "next_utc": null,
+  "observation_count": 0,
+  "operation": "one exact native WRF validation run",
+  "pass_criterion": "native exit zero and bitwise report passes",
+  "scheduled_nonce": null,
+  "startup_gate": {
+    "complete": false,
+    "elapsed_seconds": 0,
+    "required_elapsed_seconds": 240,
+    "required_running_observations": 4,
+    "running_observations": 0
+  },
+  "status": "blocked",
+  "tools": {
+    "at": "/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/monitor-native-job/case-ws7l617q/job artifacts 'quoted'/bin/at-mock",
+    "sacct": "/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/monitor-native-job/case-ws7l617q/job artifacts 'quoted'/bin/sacct-mock",
+    "squeue": "/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/monitor-native-job/case-ws7l617q/job artifacts 'quoted'/bin/squeue-mock"
+  },
+  "version": 1
+}

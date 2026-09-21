@@ -1,0 +1,42 @@
+/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/sfclay/live/test_sfclay_node_live normal
+# wt_sfclay_node_identity pid=2328394 local_rank=0 phase=91561241887065 grid=4 epoch=12 configuration=configured owner_remote_committed=2
+# wt_sfclay_node mode=forced-g0 adaptive=pending serialized_native=0 shadow_remote=0 scheme=91 fractional_seaice=0 profile=3977193313445709821 init=1803173529494650525 requested=2 donated=2 self=0 helper=1 committed=2 fallback=0 fatal=0 pack_ns=462076 native_ns=101229550 progress_ns=166407 shadow_checked=0 shadow_failed=0 shadow_bytes=0
+# wt_sfclay_node refusal.config=0
+# wt_sfclay_node refusal.abi=0
+# wt_sfclay_node refusal.init=0
+# wt_sfclay_node refusal.scope=0
+# wt_sfclay_node refusal.mapper=0
+# wt_sfclay_node refusal.omp=0
+# wt_sfclay_node refusal.capacity=0
+# wt_sfclay_node refusal.geometry=0
+# wt_sfclay_node refusal.single_row=0
+# wt_sfclay_node refusal.alias=0
+# wt_sfclay_node refusal.budget=0
+# wt_sfclay_node refusal.slot=0
+# wt_sfclay_node refusal.prepare=0
+# wt_sfclay_node refusal.native_query=0
+# wt_sfclay_node_identity pid=2328396 local_rank=1 phase=91561241887065 grid=4 epoch=12 configuration=configured owner_remote_committed=1
+# wt_sfclay_node mode=forced-g0 adaptive=pending serialized_native=0 shadow_remote=0 scheme=91 fractional_seaice=0 profile=3977193313445709821 init=1803173529494650525 requested=2 donated=2 self=1 helper=2 committed=2 fallback=0 fatal=0 pack_ns=98479237 native_ns=22700 progress_ns=372082 shadow_checked=0 shadow_failed=0 shadow_bytes=0
+# wt_sfclay_node refusal.config=0
+# wt_sfclay_node refusal.abi=0
+# wt_sfclay_node refusal.init=0
+# wt_sfclay_node refusal.scope=0
+# wt_sfclay_node refusal.mapper=0
+# wt_sfclay_node refusal.omp=0
+# wt_sfclay_node refusal.capacity=0
+# wt_sfclay_node refusal.geometry=0
+# wt_sfclay_node refusal.single_row=0
+# wt_sfclay_node refusal.alias=0
+# wt_sfclay_node refusal.budget=0
+# wt_sfclay_node refusal.slot=0
+# wt_sfclay_node refusal.prepare=0
+# wt_sfclay_node refusal.native_query=0
+SFCLAY production node-live fork/OMP2 chain passed
+# wt_sfclay_node_g0 event=helper pid=2328396 local_rank=1 thread=0 owner_rank=0 owner_thread=0 executor_rank=1 work_id=1 phase=91561241887065 grid=4 epoch=12 profile=3977193313445709821 init=1803173529494650525
+# wt_sfclay_node_g0 event=helper pid=2328396 local_rank=1 thread=1 owner_rank=0 owner_thread=1 executor_rank=1 work_id=2 phase=91561241887065 grid=4 epoch=12 profile=3977193313445709821 init=1803173529494650525
+# wt_sfclay_node_g0 event=commit pid=2328396 local_rank=1 thread=1 owner_rank=1 owner_thread=1 executor_rank=1 work_id=4 phase=91561241887065 grid=4 epoch=12 profile=3977193313445709821 init=1803173529494650525
+# wt_sfclay_node_g0 event=helper pid=2328394 local_rank=0 thread=1 owner_rank=1 owner_thread=0 executor_rank=0 work_id=3 phase=91561241887065 grid=4 epoch=12 profile=3977193313445709821 init=1803173529494650525
+# wt_sfclay_node_g0 event=commit pid=2328394 local_rank=0 thread=1 owner_rank=0 owner_thread=1 executor_rank=1 work_id=2 phase=91561241887065 grid=4 epoch=12 profile=3977193313445709821 init=1803173529494650525
+# wt_sfclay_node_g0 event=commit pid=2328394 local_rank=0 thread=0 owner_rank=0 owner_thread=0 executor_rank=1 work_id=1 phase=91561241887065 grid=4 epoch=12 profile=3977193313445709821 init=1803173529494650525
+# wt_sfclay_node_g0 event=commit pid=2328396 local_rank=1 thread=0 owner_rank=1 owner_thread=0 executor_rank=0 work_id=3 phase=91561241887065 grid=4 epoch=12 profile=3977193313445709821 init=1803173529494650525
+returncode=0

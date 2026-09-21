@@ -1,0 +1,29 @@
+/home/u5727520/wrf-stack/wtune-runtime-dev-20260912/.pixi/envs/default/bin/x86_64-conda-linux-gnu-gcc -std=c11 -Wall -Wextra -Werror -O1 -g -fopenmp -pthread -DWT_KF_NODE_LOCAL -DWT_KF_BUILD_SOURCE_ABI_VERIFIED=1 -DWT_KF_BUILD_CALLER_CHAIN_VERIFIED=1 -DWT_KF_BUILD_INIT_TABLES_VERIFIED=1 '-DWT_KF_BUILD_PROFILE_ID="test-fixture-only"' '-DWT_KF_NODE_SHM_DIRECTORY="/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/kf/live"' -I /home/u5727520/wrf-stack/wtune/plov -I /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/kf/live -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer /home/u5727520/wrf-stack/wtune/plov/wt_live_spans.c /home/u5727520/wrf-stack/wtune/plov/wt_kf_capacity.c /home/u5727520/wrf-stack/wtune/plov/wt_kf_dispatch.c /home/u5727520/wrf-stack/wtune/plov/wt_cumulus.c /home/u5727520/wrf-stack/wtune/plov/wt_kf_live.c /home/u5727520/wrf-stack/wtune/plov/wt_kf_native.c /home/u5727520/wrf-stack/wtune/plov/wt_kf_bootstrap.c /home/u5727520/wrf-stack/wtune/plov/wt_kf_batch.c /home/u5727520/wrf-stack/wtune/plov/wt_kf_batch_codec.c /home/u5727520/wrf-stack/wtune/plov/wt_kf_node.c /home/u5727520/wrf-stack/wtune/plov/wt_node_local.c /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/kf/init-mismatch-diagnosis/wt_kf_node_live_instrumented.c /home/u5727520/wrf-stack/wtune/plov/wt_kf_node_shm.c /home/u5727520/wrf-stack/wtune/plov/wt_kf_init_bridge.c /home/u5727520/wrf-stack/wtune/plov/tests/test_kf_node_live.c /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/kf/live/real-abi.c /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/kf/live/bridge-sanitized.o -Wl,--wrap=module_cu_kfeta_mp_kf_eta_cps_ -Wl,--wrap=module_cu_kfeta_mp_kf_eta_init_ -o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/kf/init-mismatch-diagnosis/rollback-red -Wl,--wrap=wt_nl_try_execute -Wl,--wrap=wt_nl_owner_execute
+ROLLBACK helper reserved, owner observed pending, helper retired
+# wt_kf_bootstrap profile=test-fixture-only source_abi_verified=1 caller_chain_verified=1 requested=1 grid_selector=4 max_spans=4096 max_nodes=8192 byte_budget=268435456 configured=1 refusal=configured dispatch_requested=2 staged=2 fallback=0
+# wt_kf_bootstrap reason.disabled=0
+# wt_kf_bootstrap reason.source_abi=0
+# wt_kf_bootstrap reason.no_scope=0
+# wt_kf_bootstrap reason.omp=0
+# wt_kf_bootstrap reason.capacity=0
+# wt_kf_bootstrap reason.tiles=0
+# wt_kf_bootstrap reason.argument_abi=0
+# wt_kf_bootstrap reason.prepare=0
+# wt_kf_node_identity pid=1442145 local_rank=1 grid=4 last_ktau=12 configuration=configured owner_remote_committed=1
+# wt_kf_node mode=forced-g0 adaptive=pending serialized_native=1 profile=11393910105783799046 init=15688817141157392157 requested=2 donated=2 self=1 helper=0 committed=2 fallback=0 fatal=0 pack_ns=457680 native_ns=13036 progress_ns=2140212
+# wt_kf_node refusal.config=0
+# wt_kf_node refusal.abi=0
+# wt_kf_node refusal.init=0
+# wt_kf_node refusal.scope=0
+# wt_kf_node refusal.mapper=0
+# wt_kf_node refusal.omp=0
+# wt_kf_node refusal.capacity=0
+# wt_kf_node refusal.geometry=0
+# wt_kf_node refusal.single_row=0
+# wt_kf_node refusal.alias=0
+# wt_kf_node refusal.budget=0
+# wt_kf_node refusal.slot=0
+# wt_kf_node refusal.prepare=0
+KF_RUNTIME_ABORT line=279
+
+RETURN -6

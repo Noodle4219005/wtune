@@ -1,0 +1,3 @@
+/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/sfclay/live/test_sfclay_node_live bad-combined
+PASS SFCLAY node G0 malformed mode rejected
+returncode=0

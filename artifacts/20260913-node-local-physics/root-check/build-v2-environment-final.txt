@@ -1,0 +1,6 @@
+test_execute_exact_argv_spaces_and_never_link (plov.tests.test_execute_build_recipe.ExecuteBuildRecipeTests.test_execute_exact_argv_spaces_and_never_link) ... ok
+
+----------------------------------------------------------------------
+Ran 1 test in 2.401s
+
+OK

@@ -1,0 +1,15 @@
+test_sfclay_node (plov.tests.test_sfclay_node.SfclayNodeTest.test_sfclay_node) ... ok
+test_sfclay_batch (plov.tests.test_sfclay_batch.SfclayBatchTest.test_sfclay_batch) ... ok
+test_frozen_sfclay_helper (plov.tests.test_sfclay_node_fortran.SfclayNodeFortranTest.test_frozen_sfclay_helper) ... ok
+ExecuteRecipeTests (unittest.loader._FailedTest.ExecuteRecipeTests) ... ERROR
+test_end_to_end_fake_link_records_terminal_identity (plov.tests.test_kf_reviewed_build.ReviewedKfBuildTests.test_end_to_end_fake_link_records_terminal_identity) ... ok
+
+======================================================================
+ERROR: ExecuteRecipeTests (unittest.loader._FailedTest.ExecuteRecipeTests)
+----------------------------------------------------------------------
+AttributeError: module 'plov.tests.test_execute_build_recipe' has no attribute 'ExecuteRecipeTests'
+
+----------------------------------------------------------------------
+Ran 5 tests in 11.195s
+
+FAILED (errors=1)

@@ -1,0 +1,4 @@
+cc -std=c11 -Wall -Wextra -Werror -pedantic -pthread -fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=all -I/home/u5727520/wrf-stack/wtune/plov /home/u5727520/wrf-stack/wtune/plov/wt_node_local.c /home/u5727520/wrf-stack/wtune/plov/wt_sfclay_batch.c /home/u5727520/wrf-stack/wtune/plov/wt_sfclay_batch_codec.c /home/u5727520/wrf-stack/wtune/plov/wt_sfclay_node.c /home/u5727520/wrf-stack/wtune/plov/tests/test_sfclay_node.c -o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/sfclay/node/test_sfclay_node
+/usr/bin/ld: cannot find /usr/lib64/libasan.so.5.0.0
+/usr/bin/ld: cannot find /usr/lib64/libubsan.so.1.0.0
+collect2: error: ld returned 1 exit status

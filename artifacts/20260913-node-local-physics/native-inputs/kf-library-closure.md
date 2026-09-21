@@ -1,0 +1,7 @@
+# KF r3 library closure (read-only)
+
+Source: r3 `recipe/link-manifest.json`, historical `compile.log:6208`. Explicit static WRF libraries resolve uniquely: `external/esmf_time_f90/libesmf_time.a`, `external/io_netcdf/libwrfio_nf.a`, `external/io_pnetcdf/libwrfio_pnf.a`, `external/io_adios2/libwrfio_adios2.a`. ADIOS2 Fortran shared libraries resolve under the manifest Spack ADIOS2 lib64. No `-Bstatic/-Bdynamic` appears, so default shared-preferred ordered search selects `/home/u5727520/wrf-stack/intel/lib/libnetcdff.so` then `/home/u5727520/wrf-stack/intel/lib/libnetcdf.so`; later Spack NetCDF copies are unused shadow risk, not link ambiguity. Pin the selected realpaths/sonames and record shadows. HDF5/PnetCDF resolve from Intel lib by order; system `m,z,rt` and compiler/MPI runtimes remain implicit.
+
+Frozen `main/wrf.exe` DT_NEEDED includes Intel `libimf.so`, `libiomp5.so`, Intel MPI `libmpifort.so.12/libmpi.so.12`, NetCDF, PnetCDF, HDF5, ADIOS2, and glibc libraries; its only recorded RUNPATH is `/pkg/compiler/intel/2024/mpi/2021.11/lib`. This is runtime provenance, not candidate proof. The unwrapped frozen CPS symbol `module_cu_kfeta_mp_kf_eta_cps_` is global in the executable; r3 links `--wrap=module_cu_kfeta_mp_kf_eta_cps_`. Candidate link must also resolve generated `__real_...` and all six existing wrap callees, plus every compiler implicit runtime.
+
+For a proof job pin selected `-l` realpaths/sonames and compiler+MPI runtime dirs, then use readelf DT_NEEDED/RUNPATH on the separate candidate output; do not infer closure from manifest success.

@@ -1,0 +1,12 @@
+test_c_fortran_capture_and_actual_openmp (plov.tests.test_kf_native_capture.NativeCaptureTests.test_c_fortran_capture_and_actual_openmp) ... ok
+test_plain_fortran_symbol_override (plov.tests.test_kf_native_capture.NativeCaptureTests.test_plain_fortran_symbol_override) ... ok
+test_wide_default_integer_and_logical_refuse_capture (plov.tests.test_kf_native_capture.NativeCaptureTests.test_wide_default_integer_and_logical_refuse_capture) ... ok
+test_wide_default_real_refuses_capture (plov.tests.test_kf_native_capture.NativeCaptureTests.test_wide_default_real_refuses_capture) ... ok
+test_guard_off_keeps_previous_report_and_needs_no_bootstrap (plov.tests.test_kf_timer_bootstrap.KfTimerBootstrapTests.test_guard_off_keeps_previous_report_and_needs_no_bootstrap) ... ok
+test_guard_on_forwards_request_grid_and_reports_live_state (plov.tests.test_kf_timer_bootstrap.KfTimerBootstrapTests.test_guard_on_forwards_request_grid_and_reports_live_state) ... ok
+test_guard_on_uses_parsed_grid_default_and_malformed_fallback (plov.tests.test_kf_timer_bootstrap.KfTimerBootstrapTests.test_guard_on_uses_parsed_grid_default_and_malformed_fallback) ... ok
+
+----------------------------------------------------------------------
+Ran 7 tests in 4.317s
+
+OK

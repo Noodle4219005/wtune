@@ -1,0 +1,145 @@
+{
+  "arm": "B",
+  "launches": {
+    "0": {
+      "affinity": [
+        0,
+        1
+      ],
+      "hostname": "fixture-node",
+      "job": 1,
+      "local_rank": 0,
+      "pid": 100,
+      "step": 0,
+      "world_rank": 0
+    },
+    "1": {
+      "affinity": [
+        2,
+        3
+      ],
+      "hostname": "fixture-node",
+      "job": 1,
+      "local_rank": 1,
+      "pid": 101,
+      "step": 0,
+      "world_rank": 1
+    }
+  },
+  "outputs": [
+    "wrfout_d01_2016-08-29_09:00:00",
+    "wrfout_d01_2016-08-29_09:05:00"
+  ],
+  "ranks": [
+    {
+      "bootstrap": {
+        "configured": "1",
+        "profile": "reviewed-g0-v1:1111111111111111111111111111111111111111111111111111111111111111",
+        "requested": "1",
+        "staged": "1"
+      },
+      "identity": {
+        "grid": "1",
+        "last_ktau": "20",
+        "local_rank": "0",
+        "owner_remote_committed": "0",
+        "pid": "100"
+      },
+      "node": {
+        "committed": "1",
+        "donated": "1",
+        "fallback": "19",
+        "fatal": "0",
+        "helper": "0",
+        "init": "99",
+        "mode": "forced-g0-owner-only",
+        "profile": "1814565187684550604",
+        "requested": "20",
+        "self": "1",
+        "serialized_native": "1",
+        "shadow_bytes": "0",
+        "shadow_checked": "0",
+        "shadow_failed": "0",
+        "shadow_remote": "0"
+      },
+      "rank": 0,
+      "refusals": {
+        "refusal.abi": 0,
+        "refusal.alias": 0,
+        "refusal.budget": 0,
+        "refusal.capacity": 0,
+        "refusal.config": 0,
+        "refusal.geometry": 0,
+        "refusal.init": 0,
+        "refusal.mapper": 0,
+        "refusal.omp": 0,
+        "refusal.prepare": 0,
+        "refusal.scope": 0,
+        "refusal.single_row": 19,
+        "refusal.slot": 0
+      }
+    },
+    {
+      "bootstrap": {
+        "configured": "1",
+        "profile": "reviewed-g0-v1:1111111111111111111111111111111111111111111111111111111111111111",
+        "requested": "1",
+        "staged": "1"
+      },
+      "identity": {
+        "grid": "1",
+        "last_ktau": "20",
+        "local_rank": "1",
+        "owner_remote_committed": "0",
+        "pid": "101"
+      },
+      "node": {
+        "committed": "1",
+        "donated": "1",
+        "fallback": "19",
+        "fatal": "0",
+        "helper": "0",
+        "init": "99",
+        "mode": "forced-g0-owner-only",
+        "profile": "1814565187684550604",
+        "requested": "20",
+        "self": "1",
+        "serialized_native": "1",
+        "shadow_bytes": "0",
+        "shadow_checked": "0",
+        "shadow_failed": "0",
+        "shadow_remote": "0"
+      },
+      "rank": 1,
+      "refusals": {
+        "refusal.abi": 0,
+        "refusal.alias": 0,
+        "refusal.budget": 0,
+        "refusal.capacity": 0,
+        "refusal.config": 0,
+        "refusal.geometry": 0,
+        "refusal.init": 0,
+        "refusal.mapper": 0,
+        "refusal.omp": 0,
+        "refusal.prepare": 0,
+        "refusal.scope": 0,
+        "refusal.single_row": 19,
+        "refusal.slot": 0
+      }
+    }
+  ],
+  "sums": {
+    "committed": 2,
+    "donated": 2,
+    "fallback": 38,
+    "fatal": 0,
+    "helper": 0,
+    "owner_remote_committed": 0,
+    "requested": 40,
+    "self": 2,
+    "shadow_bytes": 0,
+    "shadow_checked": 0,
+    "shadow_failed": 0
+  },
+  "wall_seconds": 0.0033247414976358414
+}

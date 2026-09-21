@@ -1,0 +1,28 @@
+{
+  "manifest": "/home/u5727520/wrf-stack/wtune-kf-native-recipe-20260913-r3/recipe/link-manifest.json",
+  "unique_static": [
+    "libesmf_time.a",
+    "libwrfio_nf.a",
+    "libwrfio_pnf.a",
+    "libwrfio_adios2.a"
+  ],
+  "frozen_needed": [
+    "libnetcdff.so.7",
+    "libnetcdf.so.22",
+    "libpnetcdf.so.7",
+    "libhdf5.so.200",
+    "libimf.so",
+    "libadios2_fortran_mpi.so.2.10",
+    "libmpifort.so.12",
+    "libmpi.so.12",
+    "libiomp5.so"
+  ],
+  "runpath": "/pkg/compiler/intel/2024/mpi/2021.11/lib",
+  "kf_cps": "module_cu_kfeta_mp_kf_eta_cps_",
+  "selected_netcdf": {
+    "netcdff": "/home/u5727520/wrf-stack/intel/lib/libnetcdff.so",
+    "netcdf": "/home/u5727520/wrf-stack/intel/lib/libnetcdf.so",
+    "mode": "default shared-preferred; first -L match"
+  },
+  "shadow_risk": "later Spack netcdf-c/netcdf-fortran paths"
+}\n

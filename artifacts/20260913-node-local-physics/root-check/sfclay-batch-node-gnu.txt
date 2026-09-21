@@ -1,0 +1,22 @@
+test_sfclay_batch (plov.tests.test_sfclay_batch.SfclayBatchTest.test_sfclay_batch) ... ok
+test_sfclay_node (plov.tests.test_sfclay_node.SfclayNodeTest.test_sfclay_node) ... ok
+test_frozen_sfclay_helper (plov.tests.test_sfclay_node_fortran.SfclayNodeFortranTest.test_frozen_sfclay_helper) ... ERROR
+
+======================================================================
+ERROR: test_frozen_sfclay_helper (plov.tests.test_sfclay_node_fortran.SfclayNodeFortranTest.test_frozen_sfclay_helper)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/u5727520/wrf-stack/wtune/plov/tests/test_sfclay_node_fortran.py", line 95, in test_frozen_sfclay_helper
+    run_fixture(DEFAULT_ARTIFACT)
+  File "/home/u5727520/wrf-stack/wtune/plov/tests/test_sfclay_node_fortran.py", line 78, in run_fixture
+    run_logged([*fc, "-pthread", "-fsanitize=address,undefined",
+  File "/home/u5727520/wrf-stack/wtune/plov/tests/test_sfclay_node_fortran.py", line 27, in run_logged
+    subprocess.run(command, cwd=ROOT, check=True, stdout=log,
+  File "/home/u5727520/wrf-stack/wtune-runtime-dev-20260912/.pixi/envs/default/lib/python3.11/subprocess.py", line 571, in run
+    raise CalledProcessError(retcode, process.args,
+subprocess.CalledProcessError: Command '['/usr/bin/gfortran', '-pthread', '-fsanitize=address,undefined', '-fno-sanitize-recover=all', '/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/sfclay/fortran/sfclay.o', '/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/sfclay/fortran/test_sfclay_node_fortran.o', '/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/sfclay/fortran/wt_sfclay.o', '/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/sfclay/fortran/wt_node_local.o', '/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/sfclay/fortran/wt_sfclay_batch.o', '/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/sfclay/fortran/wt_sfclay_batch_codec.o', '/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/sfclay/fortran/wt_sfclay_node.o', '/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/sfclay/fortran/bridge.o', '-Wl,--wrap=__module_sf_sfclay_MOD_sfclay', '-o', '/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/sfclay/fortran/test_sfclay_node_fortran']' returned non-zero exit status 1.
+
+----------------------------------------------------------------------
+Ran 3 tests in 6.268s
+
+FAILED (errors=1)

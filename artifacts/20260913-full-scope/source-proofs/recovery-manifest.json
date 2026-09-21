@@ -1,0 +1,38 @@
+[
+  {
+    "source": "/tmp/u5727520/wtune-rk-scalar-compiled-abi-20260912.json",
+    "copy": "/home/u5727520/wrf-stack/wtune/artifacts/20260913-full-scope/source-proofs/wtune-rk-scalar-compiled-abi-20260912.json",
+    "sha256": "18cd06a09574f03f2d7a9bb8284fb7aebe47a63f810064073635589288e1785a",
+    "bytes": 9672
+  },
+  {
+    "source": "/tmp/u5727520/wtune-rk-scalar-local-closure-20260912.md",
+    "copy": "/home/u5727520/wrf-stack/wtune/artifacts/20260913-full-scope/source-proofs/wtune-rk-scalar-local-closure-20260912.md",
+    "sha256": "3177695c52d9cbf506dde67b4a155a6b59603019c6afc8304ee651708c3ee7cf",
+    "bytes": 8827
+  },
+  {
+    "source": "/tmp/u5727520/wtune-mynn-core-admission-review-20260912.md",
+    "copy": "/home/u5727520/wrf-stack/wtune/artifacts/20260913-full-scope/source-proofs/wtune-mynn-core-admission-review-20260912.md",
+    "sha256": "cac61b9fdf7d42a590b41206743b3cb955ce620ab6d531a5021aca24aceb678e",
+    "bytes": 9262
+  },
+  {
+    "source": "/tmp/u5727520/wtune-sfclay-native-provider-proof-20260912.md",
+    "copy": "/home/u5727520/wrf-stack/wtune/artifacts/20260913-full-scope/source-proofs/wtune-sfclay-native-provider-proof-20260912.md",
+    "sha256": "108cb46a7528fa06b035f98f035219c6e90e2a66bb7d91c500f60b2db3c5d7cc",
+    "bytes": 9681
+  },
+  {
+    "source": "/tmp/u5727520/wtune-sfclay-live-invariants-20260912.md",
+    "copy": "/home/u5727520/wrf-stack/wtune/artifacts/20260913-full-scope/source-proofs/wtune-sfclay-live-invariants-20260912.md",
+    "sha256": "4a57352cad8efc9b2c3ec2d186214c0966221020e95c6a5252f130de8fc6c9e0",
+    "bytes": 11028
+  },
+  {
+    "source": "/tmp/u5727520/wtune-sfclay-live-review-20260912.md",
+    "copy": "/home/u5727520/wrf-stack/wtune/artifacts/20260913-full-scope/source-proofs/wtune-sfclay-live-review-20260912.md",
+    "sha256": "f99073efec607d11f67889ca78d82c0318c0f6b36101b44d1e71a033f5ea65c5",
+    "bytes": 7494
+  }
+]

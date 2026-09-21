@@ -1,0 +1,183 @@
+/home/u5727520/wrf-stack/wtune-fortran-dev-20260912/.pixi/envs/default/bin/x86_64-conda-linux-gnu-gfortran -cpp -ffree-form -O1 -g -fcheck=all -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer -J /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m/mod -I /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m/mod -c /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m/src/wt_mynn_static_state.f90 -o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m/obj/wt_mynn_static_state.o
+RETURN 0
+/home/u5727520/wrf-stack/wtune-fortran-dev-20260912/.pixi/envs/default/bin/x86_64-conda-linux-gnu-gfortran -cpp -ffree-form -O1 -g -fcheck=all -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer -J /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m/mod -I /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m/mod -c /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m/src/caller.f90 -o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m/obj/caller.o
+RETURN 0
+/home/u5727520/wrf-stack/wtune-fortran-dev-20260912/.pixi/envs/default/bin/python /home/u5727520/wrf-stack/wtune/plov/gen_mynn_bridge.py --source /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m/src/module_bl_mynnedmf_driver.f90 --schema /home/u5727520/wrf-stack/wtune/plov/mynn_schema.json --symbol __module_bl_mynnedmf_driver_MOD_mynnedmf_driver --output /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m/src/bridge.c
+RETURN 0
+/home/u5727520/wrf-stack/wtune-fortran-dev-20260912/.pixi/envs/default/bin/x86_64-conda-linux-gnu-cc -std=c11 -Wall -Wextra -Werror -O1 -g -fopenmp -pthread -DWT_MYNN_NODE_LOCAL -DWT_SFCLAY_SCOPE_TEST_HELPERS -I /home/u5727520/wrf-stack/wtune/plov -I /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m '-DWT_KF_NODE_SHM_DIRECTORY="/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m"' '-DWT_MYNN_BUILD_PROFILE_ID="GNU-production-fixture-only"' -DWT_MYNN_BUILD_ABI_VERIFIED=1 -DWT_MYNN_BUILD_CALLER_VERIFIED=1 -DWT_MYNN_BUILD_STATIC_STATE_VERIFIED=1 -c /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m/src/bridge.c -o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m/obj/bridge-strict.o
+RETURN 0
+/home/u5727520/wrf-stack/wtune-fortran-dev-20260912/.pixi/envs/default/bin/x86_64-conda-linux-gnu-cc -std=c11 -Wall -Wextra -Werror -O1 -g -fopenmp -pthread -DWT_MYNN_NODE_LOCAL -DWT_SFCLAY_SCOPE_TEST_HELPERS -I /home/u5727520/wrf-stack/wtune/plov -I /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m '-DWT_KF_NODE_SHM_DIRECTORY="/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m"' '-DWT_MYNN_BUILD_PROFILE_ID="GNU-production-fixture-only"' -DWT_MYNN_BUILD_ABI_VERIFIED=1 -DWT_MYNN_BUILD_CALLER_VERIFIED=1 -DWT_MYNN_BUILD_STATIC_STATE_VERIFIED=1 -c /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m/src/abi.c -o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m/obj/abi-strict.o
+RETURN 0
+/home/u5727520/wrf-stack/wtune-fortran-dev-20260912/.pixi/envs/default/bin/x86_64-conda-linux-gnu-cc -std=c11 -Wall -Wextra -Werror -O1 -g -fopenmp -pthread -DWT_MYNN_NODE_LOCAL -DWT_SFCLAY_SCOPE_TEST_HELPERS -I /home/u5727520/wrf-stack/wtune/plov -I /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m '-DWT_KF_NODE_SHM_DIRECTORY="/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m"' '-DWT_MYNN_BUILD_PROFILE_ID="GNU-production-fixture-only"' -DWT_MYNN_BUILD_ABI_VERIFIED=1 -DWT_MYNN_BUILD_CALLER_VERIFIED=1 -DWT_MYNN_BUILD_STATIC_STATE_VERIFIED=1 -c /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m/src/test_mynn_node_live.c -o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m/obj/test_mynn_node_live-strict.o
+RETURN 0
+/home/u5727520/wrf-stack/wtune-fortran-dev-20260912/.pixi/envs/default/bin/x86_64-conda-linux-gnu-cc -std=c11 -Wall -Wextra -Werror -O1 -g -fopenmp -pthread -DWT_MYNN_NODE_LOCAL -DWT_SFCLAY_SCOPE_TEST_HELPERS -I /home/u5727520/wrf-stack/wtune/plov -I /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m '-DWT_KF_NODE_SHM_DIRECTORY="/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m"' '-DWT_MYNN_BUILD_PROFILE_ID="GNU-production-fixture-only"' -DWT_MYNN_BUILD_ABI_VERIFIED=1 -DWT_MYNN_BUILD_CALLER_VERIFIED=1 -DWT_MYNN_BUILD_STATIC_STATE_VERIFIED=1 -c /home/u5727520/wrf-stack/wtune/plov/wt_live_spans.c -o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m/obj/wt_live_spans-strict.o
+RETURN 0
+/home/u5727520/wrf-stack/wtune-fortran-dev-20260912/.pixi/envs/default/bin/x86_64-conda-linux-gnu-cc -std=c11 -Wall -Wextra -Werror -O1 -g -fopenmp -pthread -DWT_MYNN_NODE_LOCAL -DWT_SFCLAY_SCOPE_TEST_HELPERS -I /home/u5727520/wrf-stack/wtune/plov -I /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m '-DWT_KF_NODE_SHM_DIRECTORY="/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m"' '-DWT_MYNN_BUILD_PROFILE_ID="GNU-production-fixture-only"' -DWT_MYNN_BUILD_ABI_VERIFIED=1 -DWT_MYNN_BUILD_CALLER_VERIFIED=1 -DWT_MYNN_BUILD_STATIC_STATE_VERIFIED=1 -c /home/u5727520/wrf-stack/wtune/plov/wt_mynn_layout.c -o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m/obj/wt_mynn_layout-strict.o
+RETURN 0
+/home/u5727520/wrf-stack/wtune-fortran-dev-20260912/.pixi/envs/default/bin/x86_64-conda-linux-gnu-cc -std=c11 -Wall -Wextra -Werror -O1 -g -fopenmp -pthread -DWT_MYNN_NODE_LOCAL -DWT_SFCLAY_SCOPE_TEST_HELPERS -I /home/u5727520/wrf-stack/wtune/plov -I /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m '-DWT_KF_NODE_SHM_DIRECTORY="/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m"' '-DWT_MYNN_BUILD_PROFILE_ID="GNU-production-fixture-only"' -DWT_MYNN_BUILD_ABI_VERIFIED=1 -DWT_MYNN_BUILD_CALLER_VERIFIED=1 -DWT_MYNN_BUILD_STATIC_STATE_VERIFIED=1 -c /home/u5727520/wrf-stack/wtune/plov/wt_mynn_batch.c -o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m/obj/wt_mynn_batch-strict.o
+RETURN 0
+/home/u5727520/wrf-stack/wtune-fortran-dev-20260912/.pixi/envs/default/bin/x86_64-conda-linux-gnu-cc -std=c11 -Wall -Wextra -Werror -O1 -g -fopenmp -pthread -DWT_MYNN_NODE_LOCAL -DWT_SFCLAY_SCOPE_TEST_HELPERS -I /home/u5727520/wrf-stack/wtune/plov -I /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m '-DWT_KF_NODE_SHM_DIRECTORY="/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m"' '-DWT_MYNN_BUILD_PROFILE_ID="GNU-production-fixture-only"' -DWT_MYNN_BUILD_ABI_VERIFIED=1 -DWT_MYNN_BUILD_CALLER_VERIFIED=1 -DWT_MYNN_BUILD_STATIC_STATE_VERIFIED=1 -c /home/u5727520/wrf-stack/wtune/plov/wt_mynn_node.c -o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m/obj/wt_mynn_node-strict.o
+RETURN 0
+/home/u5727520/wrf-stack/wtune-fortran-dev-20260912/.pixi/envs/default/bin/x86_64-conda-linux-gnu-cc -std=c11 -Wall -Wextra -Werror -O1 -g -fopenmp -pthread -DWT_MYNN_NODE_LOCAL -DWT_SFCLAY_SCOPE_TEST_HELPERS -I /home/u5727520/wrf-stack/wtune/plov -I /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m '-DWT_KF_NODE_SHM_DIRECTORY="/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m"' '-DWT_MYNN_BUILD_PROFILE_ID="GNU-production-fixture-only"' -DWT_MYNN_BUILD_ABI_VERIFIED=1 -DWT_MYNN_BUILD_CALLER_VERIFIED=1 -DWT_MYNN_BUILD_STATIC_STATE_VERIFIED=1 -c /home/u5727520/wrf-stack/wtune/plov/wt_node_local.c -o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m/obj/wt_node_local-strict.o
+RETURN 0
+/home/u5727520/wrf-stack/wtune-fortran-dev-20260912/.pixi/envs/default/bin/x86_64-conda-linux-gnu-cc -std=c11 -Wall -Wextra -Werror -O1 -g -fopenmp -pthread -DWT_MYNN_NODE_LOCAL -DWT_SFCLAY_SCOPE_TEST_HELPERS -I /home/u5727520/wrf-stack/wtune/plov -I /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m '-DWT_KF_NODE_SHM_DIRECTORY="/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m"' '-DWT_MYNN_BUILD_PROFILE_ID="GNU-production-fixture-only"' -DWT_MYNN_BUILD_ABI_VERIFIED=1 -DWT_MYNN_BUILD_CALLER_VERIFIED=1 -DWT_MYNN_BUILD_STATIC_STATE_VERIFIED=1 -c /home/u5727520/wrf-stack/wtune/plov/wt_kf_node_shm.c -o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m/obj/wt_kf_node_shm-strict.o
+RETURN 0
+/home/u5727520/wrf-stack/wtune-fortran-dev-20260912/.pixi/envs/default/bin/x86_64-conda-linux-gnu-cc -std=c11 -Wall -Wextra -Werror -O1 -g -fopenmp -pthread -DWT_MYNN_NODE_LOCAL -DWT_SFCLAY_SCOPE_TEST_HELPERS -I /home/u5727520/wrf-stack/wtune/plov -I /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m '-DWT_KF_NODE_SHM_DIRECTORY="/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m"' '-DWT_MYNN_BUILD_PROFILE_ID="GNU-production-fixture-only"' -DWT_MYNN_BUILD_ABI_VERIFIED=1 -DWT_MYNN_BUILD_CALLER_VERIFIED=1 -DWT_MYNN_BUILD_STATIC_STATE_VERIFIED=1 -c /home/u5727520/wrf-stack/wtune/plov/wt_mynn_native.c -o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m/obj/wt_mynn_native-strict.o
+RETURN 0
+/home/u5727520/wrf-stack/wtune-fortran-dev-20260912/.pixi/envs/default/bin/x86_64-conda-linux-gnu-cc -std=c11 -Wall -Wextra -Werror -O1 -g -fopenmp -pthread -DWT_MYNN_NODE_LOCAL -DWT_SFCLAY_SCOPE_TEST_HELPERS -I /home/u5727520/wrf-stack/wtune/plov -I /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m '-DWT_KF_NODE_SHM_DIRECTORY="/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m"' '-DWT_MYNN_BUILD_PROFILE_ID="GNU-production-fixture-only"' -DWT_MYNN_BUILD_ABI_VERIFIED=1 -DWT_MYNN_BUILD_CALLER_VERIFIED=1 -DWT_MYNN_BUILD_STATIC_STATE_VERIFIED=1 -c /home/u5727520/wrf-stack/wtune/plov/wt_mynn_node_live.c -o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m/obj/wt_mynn_node_live-strict.o
+RETURN 0
+/home/u5727520/wrf-stack/wtune-fortran-dev-20260912/.pixi/envs/default/bin/x86_64-conda-linux-gnu-cc -std=c11 -Wall -Wextra -Werror -O1 -g -fopenmp -pthread -DWT_MYNN_NODE_LOCAL -DWT_SFCLAY_SCOPE_TEST_HELPERS -I /home/u5727520/wrf-stack/wtune/plov -I /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m '-DWT_KF_NODE_SHM_DIRECTORY="/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m"' '-DWT_MYNN_BUILD_PROFILE_ID="GNU-production-fixture-only"' -DWT_MYNN_BUILD_ABI_VERIFIED=1 -DWT_MYNN_BUILD_CALLER_VERIFIED=1 -DWT_MYNN_BUILD_STATIC_STATE_VERIFIED=1 -c /home/u5727520/wrf-stack/wtune/plov/wt_mynn_bootstrap.c -o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m/obj/wt_mynn_bootstrap-strict.o
+RETURN 0
+/home/u5727520/wrf-stack/wtune-fortran-dev-20260912/.pixi/envs/default/bin/x86_64-conda-linux-gnu-cc -std=c11 -Wall -Wextra -Werror -O1 -g -fopenmp -pthread -DWT_MYNN_NODE_LOCAL -DWT_SFCLAY_SCOPE_TEST_HELPERS -I /home/u5727520/wrf-stack/wtune/plov -I /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m '-DWT_KF_NODE_SHM_DIRECTORY="/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m"' '-DWT_MYNN_BUILD_PROFILE_ID="GNU-production-fixture-only"' -DWT_MYNN_BUILD_ABI_VERIFIED=1 -DWT_MYNN_BUILD_CALLER_VERIFIED=1 -DWT_MYNN_BUILD_STATIC_STATE_VERIFIED=1 -c /home/u5727520/wrf-stack/wtune/plov/wt_sfclay_scope_bridge.c -o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m/obj/wt_sfclay_scope_bridge-strict.o
+RETURN 0
+/home/u5727520/wrf-stack/wtune-fortran-dev-20260912/.pixi/envs/default/bin/x86_64-conda-linux-gnu-gfortran -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer -fopenmp -pthread /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m/obj/ccpp_kind_types.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m/obj/module_model_constants.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m/obj/module_bl_mynnedmf_common.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m/obj/module_bl_mynnedmf.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m/obj/module_bl_mynnedmf_driver.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m/obj/wt_mynn_static_state.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m/obj/caller.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m/obj/bridge-strict.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m/obj/abi-strict.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m/obj/test_mynn_node_live-strict.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m/obj/wt_live_spans-strict.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m/obj/wt_mynn_layout-strict.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m/obj/wt_mynn_batch-strict.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m/obj/wt_mynn_node-strict.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m/obj/wt_node_local-strict.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m/obj/wt_kf_node_shm-strict.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m/obj/wt_mynn_native-strict.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m/obj/wt_mynn_node_live-strict.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m/obj/wt_mynn_bootstrap-strict.o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m/obj/wt_sfclay_scope_bridge-strict.o -Wl,--wrap=__module_bl_mynnedmf_driver_MOD_mynnedmf_driver -Wl,--wrap=module_first_rk_step_part1_mp_first_rk_step_part1_ -Wl,--wrap=wt_mynn_bridge_dispatch -o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m/strict
+RETURN 0
+/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m/strict /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m/strict-0.bin
+At line 5 of file /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m/src/wt_mynn_static_state.f90
+Fortran runtime error: Recursive call to nonrecursive procedure 'wt_mynn_static_bits'
+
+Error termination. Backtrace:
+At line 5 of file /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m/src/wt_mynn_static_state.f90
+Fortran runtime error: Recursive call to nonrecursive procedure 'wt_mynn_static_bits'
+
+Error termination. Backtrace:
+# wt_mynn_node_g0 event=helper pid=2017231 rank=1 thread=0 owner=0 owner_thread=1 executor=1 work=1 grid=4 epoch=1 init=6679059554425913294
+# wt_mynn_node_g0 event=commit pid=2017231 rank=1 thread=0 owner=1 owner_thread=0 executor=1 work=2 grid=4 epoch=1 init=6679059554425913294
+# wt_mynn_node_g0 event=commit pid=2017229 rank=0 thread=1 owner=0 owner_thread=1 executor=1 work=1 grid=4 epoch=1 init=6679059554425913294
+#0  0x5624a11d8490 in wt_mynn_static_bits_
+#0  0x5624a11d8490 in wt_mynn_static_bits_
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m/src/wt_mynn_static_state.f90:5
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m/src/wt_mynn_static_state.f90:5
+#1  0x5624a12018bd in fingerprint
+#1  0x5624a12018bd in fingerprint
+	at /home/u5727520/wrf-stack/wtune/plov/wt_mynn_native.c:26
+	at /home/u5727520/wrf-stack/wtune/plov/wt_mynn_native.c:26
+#2  0x5624a12029b7 in wt_mynn_bridge_dispatch
+	at /home/u5727520/wrf-stack/wtune/plov/wt_mynn_node_live.c:150
+#2  0x5624a12029b7 in wt_mynn_bridge_dispatch
+	at /home/u5727520/wrf-stack/wtune/plov/wt_mynn_node_live.c:150
+#3  0x5624a11fb6ec in __wrap_wt_mynn_bridge_dispatch
+#3  0x5624a11fb6ec in __wrap_wt_mynn_bridge_dispatch
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m/src/test_mynn_node_live.c:120
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m/src/test_mynn_node_live.c:120
+#4  0x5624a11fa0bd in __wrap___module_bl_mynnedmf_driver_MOD_mynnedmf_driver
+#4  0x5624a11fa0bd in __wrap___module_bl_mynnedmf_driver_MOD_mynnedmf_driver
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m/src/bridge.c:16
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m/src/bridge.c:16
+#5  0x5624a11fa8be in mynn_live_driver_call
+#5  0x5624a11fa8be in mynn_live_driver_call
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m/src/abi.c:5
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m/src/abi.c:5
+#6  0x5624a11fa983 in mynn_live_first_real._omp_fn.0
+#6  0x5624a11fa983 in mynn_live_first_real._omp_fn.0
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m/src/test_mynn_node_live.c:62
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m/src/test_mynn_node_live.c:62
+#7  0x14768dd13f35 in GOMP_parallel
+	at ../../../libgomp/parallel.c:178
+#8  0x5624a11fb445 in mynn_live_first_real
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m/src/test_mynn_node_live.c:57
+#9  0x5624a11fa5bd in module_first_rk_step_part1_mp_first_rk_step_part1_
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m/src/abi.c:3
+#10  0x5624a12036e3 in __wrap_module_first_rk_step_part1_mp_first_rk_step_part1_
+	at /home/u5727520/wrf-stack/wtune/plov/wt_sfclay_scope_bridge.c:20
+#11  0x5624a12038da in wt_sfclay_scope_test_call
+	at /home/u5727520/wrf-stack/wtune/plov/wt_sfclay_scope_bridge.c:30
+#12  0x5624a11fafc8 in rank_run
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m/src/test_mynn_node_live.c:92
+#13  0x5624a11fb9f4 in __wrap_wt_mynn_bridge_dispatch
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m/src/test_mynn_node_live.c:149
+#14  0x5624a11fa0bd in __wrap___module_bl_mynnedmf_driver_MOD_mynnedmf_driver
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m/src/bridge.c:16
+#7  0x14768dd1df8d in gomp_thread_start
+	at ../../../libgomp/team.c:129
+#15  0x5624a11de96c in mynn_bridge_driver
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m/src/caller.f90:389
+#16  0x5624a11f9579 in main
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m/src/caller.f90:2
+
+Program received signal SIGABRT: Process abort signal.
+
+Backtrace for this error:
+#0  0x14768c19eb7f in ???
+#1  0x14768c19eaff in ???
+#2  0x14768c171ea4 in ???
+#3  0x5624a1202010 in die
+	at /home/u5727520/wrf-stack/wtune/plov/wt_mynn_node_live.c:34
+#4  0x5624a1202329 in wt_mynn_node_live_close
+	at /home/u5727520/wrf-stack/wtune/plov/wt_mynn_node_live.c:242
+#5  0x14768c1a129b in ???
+#6  0x14768c1a13cf in ???
+#7  0x5624a11d8490 in wt_mynn_static_bits_
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m/src/wt_mynn_static_state.f90:5
+#8  0x5624a12018bd in fingerprint
+	at /home/u5727520/wrf-stack/wtune/plov/wt_mynn_native.c:26
+#9  0x5624a12029b7 in wt_mynn_bridge_dispatch
+	at /home/u5727520/wrf-stack/wtune/plov/wt_mynn_node_live.c:150
+#10  0x5624a11fb6ec in __wrap_wt_mynn_bridge_dispatch
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m/src/test_mynn_node_live.c:120
+#11  0x5624a11fa0bd in __wrap___module_bl_mynnedmf_driver_MOD_mynnedmf_driver
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m/src/bridge.c:16
+#12  0x5624a11fa8be in mynn_live_driver_call
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m/src/abi.c:5
+#13  0x5624a11fa983 in mynn_live_first_real._omp_fn.0
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m/src/test_mynn_node_live.c:62
+#14  0x14768dd13f35 in GOMP_parallel
+	at ../../../libgomp/parallel.c:178
+#15  0x5624a11fb445 in mynn_live_first_real
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m/src/test_mynn_node_live.c:57
+#16  0x5624a11fa5bd in module_first_rk_step_part1_mp_first_rk_step_part1_
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m/src/abi.c:3
+#17  0x5624a12036e3 in __wrap_module_first_rk_step_part1_mp_first_rk_step_part1_
+	at /home/u5727520/wrf-stack/wtune/plov/wt_sfclay_scope_bridge.c:20
+#18  0x5624a12038da in wt_sfclay_scope_test_call
+	at /home/u5727520/wrf-stack/wtune/plov/wt_sfclay_scope_bridge.c:30
+#19  0x5624a11fafc8 in rank_run
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m/src/test_mynn_node_live.c:92
+#20  0x5624a11fb9f4 in __wrap_wt_mynn_bridge_dispatch
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m/src/test_mynn_node_live.c:149
+#21  0x5624a11fa0bd in __wrap___module_bl_mynnedmf_driver_MOD_mynnedmf_driver
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m/src/bridge.c:16
+#22  0x5624a11de96c in mynn_bridge_driver
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m/src/caller.f90:389
+#23  0x5624a11f9579 in main
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m/src/caller.f90:2
+#8  0x14768d49a6e6 in asan_thread_start
+	at ../../../../libsanitizer/asan/asan_interceptors.cpp:246
+#9  0x14768c51e1c9 in ???
+#10  0x14768c189e72 in ???
+#11  0xffffffffffffffff in ???
+
+Program received signal SIGABRT: Process abort signal.
+
+Backtrace for this error:
+#0  0x14768c19eb7f in ???
+#1  0x14768c19eaff in ???
+#2  0x14768c171ea4 in ???
+#3  0x5624a1202010 in die
+	at /home/u5727520/wrf-stack/wtune/plov/wt_mynn_node_live.c:34
+#4  0x5624a1202329 in wt_mynn_node_live_close
+	at /home/u5727520/wrf-stack/wtune/plov/wt_mynn_node_live.c:242
+#5  0x14768c1a129b in ???
+#6  0x14768c1a13cf in ???
+#7  0x5624a11d8490 in wt_mynn_static_bits_
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m/src/wt_mynn_static_state.f90:5
+#8  0x5624a12018bd in fingerprint
+	at /home/u5727520/wrf-stack/wtune/plov/wt_mynn_native.c:26
+#9  0x5624a12029b7 in wt_mynn_bridge_dispatch
+	at /home/u5727520/wrf-stack/wtune/plov/wt_mynn_node_live.c:150
+#10  0x5624a11fb6ec in __wrap_wt_mynn_bridge_dispatch
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m/src/test_mynn_node_live.c:120
+#11  0x5624a11fa0bd in __wrap___module_bl_mynnedmf_driver_MOD_mynnedmf_driver
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m/src/bridge.c:16
+#12  0x5624a11fa8be in mynn_live_driver_call
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m/src/abi.c:5
+#13  0x5624a11fa983 in mynn_live_first_real._omp_fn.0
+	at /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-c01txa8m/src/test_mynn_node_live.c:62
+#14  0x14768dd1df8d in gomp_thread_start
+	at ../../../libgomp/team.c:129
+#15  0x14768d49a6e6 in asan_thread_start
+	at ../../../../libsanitizer/asan/asan_interceptors.cpp:246
+#16  0x14768c51e1c9 in ???
+#17  0x14768c189e72 in ???
+#18  0xffffffffffffffff in ???
+RETURN -6

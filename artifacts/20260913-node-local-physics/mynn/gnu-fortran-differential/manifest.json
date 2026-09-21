@@ -1,0 +1,16 @@
+{
+  "arguments": 132,
+  "direct_bytes": 128448,
+  "driver_symbol": "__module_bl_mynnedmf_driver_MOD_mynnedmf_driver",
+  "scope": "GNU-only source-closure MYNN driver differential; not Intel/WRF attestation",
+  "serial_calls": 2,
+  "source_sha256": {
+    "phys/ccpp_kind_types.f90": "a69fcccd5e8115cfa4b15b209e3ce0993d494d91d8b65fbd36d1a6b0a4177f0b",
+    "phys/module_bl_mynnedmf.f90": "a93d0c0e453738c16751525aec04403ec129b735b577e5f399b1edfd2129937b",
+    "phys/module_bl_mynnedmf_common.f90": "960a7370de0f33a85bc948eaf13e2a9811f6553450ac111e8f6839ea8f132cd8",
+    "phys/module_bl_mynnedmf_driver.f90": "9b339c1bb9e318086113b99e40f691d731639adbe57b579cf98046bf3f2dcfde",
+    "share/module_model_constants.f90": "c387a51c2992da393551ac63291c79afbf6b78efbca2045a18cf9c94381f9954"
+  },
+  "wrapped_bytes": 128448,
+  "wrapped_dispatch_stderr": "MYNN_GNU_DISPATCH=2\n"
+}

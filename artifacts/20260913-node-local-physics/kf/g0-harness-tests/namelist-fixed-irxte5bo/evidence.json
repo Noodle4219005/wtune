@@ -1,0 +1,18 @@
+{
+  "command": [
+    "/home/u5727520/wrf-stack/wtune-runtime-dev-20260912/.pixi/envs/default/bin/python",
+    "-m",
+    "unittest",
+    "plov.tests.test_prepare_isc21_node_g0",
+    "plov.tests.test_run_kf_node_g0",
+    "-v"
+  ],
+  "returncode": 0,
+  "source_sha256": {
+    "plov/prepare_isc21_node_g0.py": "4e086e20a4f0653a2f2d43d0d577f5eadd696cdc337b516eefa5d20b9c6a70af",
+    "plov/tests/test_prepare_isc21_node_g0.py": "66b46d498874121d0adba17385f17aa1d925cc2ddcb9dd9db8b1832decc4bdf1"
+  },
+  "corrected_plan": "/home/u5727520/wrf-stack/wtune-kf-g0-20260913-r1/prepare-plan-v2.json",
+  "corrected_plan_sha256": "1fea68ef05a861300ee537e9545ed2f508e658b4ef6e83e72a167ca0f80deae6",
+  "scope": "original 4179-byte archived namelist and frozen declarations; no material extraction or native execution"
+}

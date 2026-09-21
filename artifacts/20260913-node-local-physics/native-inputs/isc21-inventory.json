@@ -1,0 +1,52 @@
+{
+  "status": "PENDING: exact retained BP targets absent",
+  "runner_sha256": "caf998379d63e189d43158148021eab34014c8654b005072518cddcaf432a2fa",
+  "archive": {
+    "path": "/home/u5727520/wrf-bench/atlas/isc21/WRF_ISC21_3_DOMAIN.tar",
+    "bytes": 6712514560
+  },
+  "next_paths": [
+    "/home/u5727520/wrf-bench/atlas/isc21/prep_d01_1071708",
+    "/home/u5727520/wrf-bench/atlas/isc21/st_A_1071708",
+    "/home/u5727520/wrf-bench/atlas/isc21/st_Ec_1071708"
+  ],
+  "historical_unverified": {
+    "cu_physics": 1,
+    "bl_pbl_physics": 5,
+    "sf_sfclay_physics": 5,
+    "time_step": 15,
+    "radt": 3
+  },
+  "g0": "A/B/C same placement",
+  "namelist": {
+    "sha256": "e0b6de2893d1b78a95aa1b185e5f4db890250ac077e71003273babe5ebad1886",
+    "dt": 15,
+    "steps": 400,
+    "nproc": [
+      7,
+      32
+    ],
+    "numtiles": 12,
+    "io_form": 14,
+    "cu": [
+      1,
+      0,
+      0
+    ],
+    "pbl": [
+      5,
+      5,
+      5
+    ],
+    "sfclay": [
+      5,
+      5,
+      5
+    ]
+  },
+  "executables": {
+    "A": "wrf_wtimer.1aec2f2.exe:86279808",
+    "Ec": "wrf_wtimer.exe:86277520"
+  },
+  "bp_links": "present but dereference targets absent"
+}\n

@@ -1,0 +1,47 @@
+module_cu_kfeta_mp_kf_eta_cps_
+module_cu_kfeta_mp_kf_eta_para_
+b873:	48 8b 0d 00 00 00 00 	mov    0x0(%rip),%rcx        # b87a <module_cu_kfeta_mp_kf_eta_para_+0x1f3a>	b876: R_X86_64_REX_GOTPCRELX	module_cu_kfeta_mp_alu_-0x4
+cb34:	48 8b 0d 00 00 00 00 	mov    0x0(%rip),%rcx        # cb3b <module_cu_kfeta_mp_kf_eta_para_+0x31fb>	cb37: R_X86_64_REX_GOTPCRELX	module_cu_kfeta_mp_alu_-0x4
+10661:	4c 8b 2d 00 00 00 00 	mov    0x0(%rip),%r13        # 10668 <module_cu_kfeta_mp_kf_eta_para_+0x6d28>	10664: R_X86_64_REX_GOTPCRELX	module_cu_kfeta_mp_alu_-0x4
+10ed2:	4c 8b 2d 00 00 00 00 	mov    0x0(%rip),%r13        # 10ed9 <module_cu_kfeta_mp_kf_eta_para_+0x7599>	10ed5: R_X86_64_REX_GOTPCRELX	module_cu_kfeta_mp_alu_-0x4
+134a6:	48 8b 05 00 00 00 00 	mov    0x0(%rip),%rax        # 134ad <module_cu_kfeta_mp_kf_eta_para_+0x9b6d>	134a9: R_X86_64_REX_GOTPCRELX	module_cu_kfeta_mp_plutop_-0x4
+134bd:	48 8b 05 00 00 00 00 	mov    0x0(%rip),%rax        # 134c4 <module_cu_kfeta_mp_kf_eta_para_+0x9b84>	134c0: R_X86_64_REX_GOTPCRELX	module_cu_kfeta_mp_rdpr_-0x4
+134e4:	48 8b 0d 00 00 00 00 	mov    0x0(%rip),%rcx        # 134eb <module_cu_kfeta_mp_kf_eta_para_+0x9bab>	134e7: R_X86_64_REX_GOTPCRELX	module_cu_kfeta_mp_the0k_-0x4
+13506:	48 8b 0d 00 00 00 00 	mov    0x0(%rip),%rcx        # 1350d <module_cu_kfeta_mp_kf_eta_para_+0x9bcd>	13509: R_X86_64_REX_GOTPCRELX	module_cu_kfeta_mp_rdthk_-0x4
+13532:	48 8b 35 00 00 00 00 	mov    0x0(%rip),%rsi        # 13539 <module_cu_kfeta_mp_kf_eta_para_+0x9bf9>	13535: R_X86_64_REX_GOTPCRELX	module_cu_kfeta_mp_ttab_-0x4
+13558:	48 8b 3d 00 00 00 00 	mov    0x0(%rip),%rdi        # 1355f <module_cu_kfeta_mp_kf_eta_para_+0x9c1f>	1355b: R_X86_64_REX_GOTPCRELX	module_cu_kfeta_mp_qstab_-0x4
+145c7:	48 8b 0d 00 00 00 00 	mov    0x0(%rip),%rcx        # 145ce <module_cu_kfeta_mp_kf_eta_para_+0xac8e>	145ca: R_X86_64_REX_GOTPCRELX	module_cu_kfeta_mp_the0k_-0x4
+14613:	48 03 05 00 00 00 00 	add    0x0(%rip),%rax        # 1461a <module_cu_kfeta_mp_kf_eta_para_+0xacda>	14616: R_X86_64_REX_GOTPCRELX	module_cu_kfeta_mp_ttab_-0x4
+1485b:	48 8b 0d 00 00 00 00 	mov    0x0(%rip),%rcx        # 14862 <module_cu_kfeta_mp_kf_eta_para_+0xaf22>	1485e: R_X86_64_REX_GOTPCRELX	module_cu_kfeta_mp_the0k_-0x4
+14890:	4c 8b 0d 00 00 00 00 	mov    0x0(%rip),%r9        # 14897 <module_cu_kfeta_mp_kf_eta_para_+0xaf57>	14893: R_X86_64_REX_GOTPCRELX	module_cu_kfeta_mp_ttab_-0x4
+148a9:	4c 8b 05 00 00 00 00 	mov    0x0(%rip),%r8        # 148b0 <module_cu_kfeta_mp_kf_eta_para_+0xaf70>	148ac: R_X86_64_REX_GOTPCRELX	module_cu_kfeta_mp_qstab_-0x4
+174d5:	48 8b 0d 00 00 00 00 	mov    0x0(%rip),%rcx        # 174dc <module_cu_kfeta_mp_kf_eta_para_+0xdb9c>	174d8: R_X86_64_REX_GOTPCRELX	module_cu_kfeta_mp_alu_-0x4
+179e0:	48 8b 05 00 00 00 00 	mov    0x0(%rip),%rax        # 179e7 <module_cu_kfeta_mp_kf_eta_para_+0xe0a7>	179e3: R_X86_64_REX_GOTPCRELX	module_cu_kfeta_mp_plutop_-0x4
+179eb:	48 8b 05 00 00 00 00 	mov    0x0(%rip),%rax        # 179f2 <module_cu_kfeta_mp_kf_eta_para_+0xe0b2>	179ee: R_X86_64_REX_GOTPCRELX	module_cu_kfeta_mp_rdpr_-0x4
+179f6:	48 8b 05 00 00 00 00 	mov    0x0(%rip),%rax        # 179fd <module_cu_kfeta_mp_kf_eta_para_+0xe0bd>	179f9: R_X86_64_REX_GOTPCRELX	module_cu_kfeta_mp_rdthk_-0x4
+17cd6:	48 8b 0d 00 00 00 00 	mov    0x0(%rip),%rcx        # 17cdd <module_cu_kfeta_mp_kf_eta_para_+0xe39d>	17cd9: R_X86_64_REX_GOTPCRELX	module_cu_kfeta_mp_the0k_-0x4
+17d07:	4c 8b 1d 00 00 00 00 	mov    0x0(%rip),%r11        # 17d0e <module_cu_kfeta_mp_kf_eta_para_+0xe3ce>	17d0a: R_X86_64_REX_GOTPCRELX	module_cu_kfeta_mp_ttab_-0x4
+17d20:	48 8b 35 00 00 00 00 	mov    0x0(%rip),%rsi        # 17d27 <module_cu_kfeta_mp_kf_eta_para_+0xe3e7>	17d23: R_X86_64_REX_GOTPCRELX	module_cu_kfeta_mp_qstab_-0x4
+17dd2:	48 8b 0d 00 00 00 00 	mov    0x0(%rip),%rcx        # 17dd9 <module_cu_kfeta_mp_kf_eta_para_+0xe499>	17dd5: R_X86_64_REX_GOTPCRELX	module_cu_kfeta_mp_alu_-0x4
+1ad6d:	41 b8 00 00 00 00    	mov    $0x0,%r8d	1ad6f: R_X86_64_32	.data+0x23c
+1b20b:	41 b8 00 00 00 00    	mov    $0x0,%r8d	1b20d: R_X86_64_32	.data+0x4b4
+1b44e:	41 b8 00 00 00 00    	mov    $0x0,%r8d	1b450: R_X86_64_32	.data+0x404
+1b5c9:	41 b8 00 00 00 00    	mov    $0x0,%r8d	1b5cb: R_X86_64_32	.data+0x380
+1b7ba:	41 b8 00 00 00 00    	mov    $0x0,%r8d	1b7bc: R_X86_64_32	.data+0x23c
+1b9a2:	41 b8 00 00 00 00    	mov    $0x0,%r8d	1b9a4: R_X86_64_32	.data+0x36c
+1bfc7:	41 b8 00 00 00 00    	mov    $0x0,%r8d	1bfc9: R_X86_64_32	.data+0x300
+1c417:	41 b8 00 00 00 00    	mov    $0x0,%r8d	1c419: R_X86_64_32	.data+0x210
+1cb0d:	41 b8 00 00 00 00    	mov    $0x0,%r8d	1cb0f: R_X86_64_32	.data+0x1c0
+1cfa9:	41 b9 00 00 00 00    	mov    $0x0,%r9d	1cfab: R_X86_64_32	.data+0x8a8
+1d2c1:	41 b9 00 00 00 00    	mov    $0x0,%r9d	1d2c3: R_X86_64_32	.data+0x774
+1d60f:	41 b9 00 00 00 00    	mov    $0x0,%r9d	1d611: R_X86_64_32	.data+0x894
+1d680:	41 b9 00 00 00 00    	mov    $0x0,%r9d	1d682: R_X86_64_32	.data+0x7e0
+1d8cc:	41 b9 00 00 00 00    	mov    $0x0,%r9d	1d8ce: R_X86_64_32	.data+0x54
+1d9ba:	41 b9 00 00 00 00    	mov    $0x0,%r9d	1d9bc: R_X86_64_32	.data
+module_cu_kfeta_mp_tpmix2_
+20f02:	48 8b 05 00 00 00 00 	mov    0x0(%rip),%rax        # 20f09 <module_cu_kfeta_mp_tpmix2_+0x19>	20f05: R_X86_64_REX_GOTPCRELX	module_cu_kfeta_mp_plutop_-0x4
+20f0d:	48 8b 05 00 00 00 00 	mov    0x0(%rip),%rax        # 20f14 <module_cu_kfeta_mp_tpmix2_+0x24>	20f10: R_X86_64_REX_GOTPCRELX	module_cu_kfeta_mp_rdpr_-0x4
+20f35:	48 8b 05 00 00 00 00 	mov    0x0(%rip),%rax        # 20f3c <module_cu_kfeta_mp_tpmix2_+0x4c>	20f38: R_X86_64_REX_GOTPCRELX	module_cu_kfeta_mp_the0k_-0x4
+20f5d:	48 8b 05 00 00 00 00 	mov    0x0(%rip),%rax        # 20f64 <module_cu_kfeta_mp_tpmix2_+0x74>	20f60: R_X86_64_REX_GOTPCRELX	module_cu_kfeta_mp_rdthk_-0x4
+21022:	48 8b 3d 00 00 00 00 	mov    0x0(%rip),%rdi        # 21029 <module_cu_kfeta_mp_tpmix2_+0x139>	21025: R_X86_64_REX_GOTPCRELX	module_cu_kfeta_mp_ttab_-0x4
+2104c:	4c 8b 1d 00 00 00 00 	mov    0x0(%rip),%r11        # 21053 <module_cu_kfeta_mp_tpmix2_+0x163>	2104f: R_X86_64_REX_GOTPCRELX	module_cu_kfeta_mp_qstab_-0x4

@@ -1,0 +1,46 @@
+{
+  "artifact_dir": "/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/monitor-native-job/case-wesrpmh2/job artifacts 'quoted'",
+  "blocked_reason": "Slurm terminal failure observed: FAILED",
+  "cadence": {
+    "sparse_reason": "the short probe gates same-session artifact review",
+    "sparse_seconds": 300,
+    "startup_seconds": 60
+  },
+  "created_utc": "2026-09-13T00:13:20Z",
+  "deadline_utc": "2026-09-13T01:13:20Z",
+  "dependent_action": "review evidence, then decide whether to compare performance",
+  "job_id": "123",
+  "last_native_observation": {
+    "native_log_exists": true,
+    "native_log_size": 75300,
+    "native_log_tail_file": "observation-0001-native-tail.bin",
+    "sacct_file": "observation-0001-sacct.txt",
+    "slurm_state": "FAILED",
+    "squeue_file": "observation-0001-squeue.txt",
+    "utc": "2026-09-13T00:13:20Z"
+  },
+  "native_at_id": null,
+  "native_log": "/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/monitor-native-job/case-wesrpmh2/job artifacts 'quoted'/native log.bin",
+  "next_proposed_check": "Inspect the recorded exact sacct row and native log tail; diagnose only, with no automatic retry.",
+  "next_utc": null,
+  "observation_count": 1,
+  "operation": "one exact native WRF validation run",
+  "pass_criterion": "native exit zero and bitwise report passes",
+  "scheduled_nonce": null,
+  "startup_gate": {
+    "complete": false,
+    "elapsed_seconds": 0,
+    "incomplete_at_terminal": true,
+    "required_elapsed_seconds": 240,
+    "required_running_observations": 4,
+    "running_observations": 0,
+    "running_since_utc": null
+  },
+  "status": "blocked",
+  "tools": {
+    "at": "/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/monitor-native-job/case-wesrpmh2/job artifacts 'quoted'/bin/at-mock",
+    "sacct": "/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/monitor-native-job/case-wesrpmh2/job artifacts 'quoted'/bin/sacct-mock",
+    "squeue": "/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/monitor-native-job/case-wesrpmh2/job artifacts 'quoted'/bin/squeue-mock"
+  },
+  "version": 1
+}

@@ -1,0 +1,6 @@
+test_frozen_sfclay_helper (plov.tests.test_sfclay_node_fortran.SfclayNodeFortranTest.test_frozen_sfclay_helper) ... ok
+
+----------------------------------------------------------------------
+Ran 1 test in 5.248s
+
+OK

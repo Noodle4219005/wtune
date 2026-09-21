@@ -1,0 +1,11 @@
+test_complete_signature_and_declarations (plov.tests.test_sfclay_scope.SfclayScopeTests.test_complete_signature_and_declarations) ... ok
+test_invalid_cli_inputs_preserve_existing_output (plov.tests.test_sfclay_scope.SfclayScopeTests.test_invalid_cli_inputs_preserve_existing_output) ... ok
+test_linked_runtime_scope_forwarding (plov.tests.test_sfclay_scope.SfclayScopeTests.test_linked_runtime_scope_forwarding) ... ok
+test_profile_digest_is_literal_pin_not_recomputed_on_import (plov.tests.test_sfclay_scope.SfclayScopeTests.test_profile_digest_is_literal_pin_not_recomputed_on_import)
+A future profile edit must fail closed until its audit pin is reviewed. ... ok
+test_reject_truncation_names_and_unsafe_declarations (plov.tests.test_sfclay_scope.SfclayScopeTests.test_reject_truncation_names_and_unsafe_declarations) ... ok
+
+----------------------------------------------------------------------
+Ran 5 tests in 2.448s
+
+OK

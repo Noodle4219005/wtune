@@ -1,0 +1,19 @@
+{
+  "command": [
+    "/home/u5727520/wrf-stack/wtune-runtime-dev-20260912/.pixi/envs/default/bin/python",
+    "-m",
+    "unittest",
+    "plov.tests.test_prepare_isc21_node_g0",
+    "plov.tests.test_run_kf_node_g0",
+    "-v"
+  ],
+  "returncode": 0,
+  "sources": {
+    "plov/prepare_isc21_node_g0.py": "a836e437fc2eee9f6fc6426b9d53e6659d7a6a68d5d082868aac60ee9ba3ef31",
+    "plov/kf_node_g0_contract.py": "5cc2aea6fd1530e96f0d72b11a554c08f3085d64a27f2c6cce0dafb845989547",
+    "plov/run_kf_node_g0.py": "4cedc4ec35e83c442426eabe788286ccadd42608914edbb2acf458932a79fbf8",
+    "plov/tests/test_prepare_isc21_node_g0.py": "9f219e91cee88834503caf9a424e329e6fa795719b2e3a0e600d94f545b089db",
+    "plov/tests/test_run_kf_node_g0.py": "3f5e165554efe07a3ca73e170456a50bef2bd88ec7f79fe7495a7ce36f7886ab"
+  },
+  "scope": "tiny archives and mocked launches only; no native WRF, extraction, build or Slurm"
+}

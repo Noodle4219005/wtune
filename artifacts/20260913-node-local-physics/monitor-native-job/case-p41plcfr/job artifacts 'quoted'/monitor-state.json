@@ -1,0 +1,37 @@
+{
+  "artifact_dir": "/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/monitor-native-job/case-p41plcfr/job artifacts 'quoted'",
+  "created_utc": "2026-09-13T00:02:28Z",
+  "deadline_utc": "2026-09-13T01:07:28Z",
+  "dependent_action": "review evidence, then decide whether to compare performance",
+  "job_id": "123",
+  "last_native_observation": {
+    "native_log_size": 75300,
+    "native_log_tail_file": "observation-0004-native-tail.bin",
+    "sacct_file": "observation-0004-sacct.txt",
+    "slurm_state": "RUNNING",
+    "squeue_file": "observation-0004-squeue.txt",
+    "utc": "2026-09-13T00:07:29Z"
+  },
+  "native_at_id": "9005",
+  "native_log": "/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/monitor-native-job/case-p41plcfr/job artifacts 'quoted'/native log.bin",
+  "next_proposed_check": "Collect exact job status and native log tail.",
+  "next_utc": "2026-09-13T00:12:29Z",
+  "observation_count": 4,
+  "operation": "one exact native WRF validation run",
+  "pass_criterion": "native exit zero and bitwise report passes",
+  "scheduled_nonce": "1b62298d743e72a01f73af421a336340",
+  "startup_gate": {
+    "complete": true,
+    "elapsed_seconds": 301,
+    "required_elapsed_seconds": 240,
+    "required_running_observations": 4,
+    "running_observations": 4
+  },
+  "status": "scheduled",
+  "tools": {
+    "at": "/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/monitor-native-job/case-p41plcfr/job artifacts 'quoted'/bin/at-mock",
+    "sacct": "/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/monitor-native-job/case-p41plcfr/job artifacts 'quoted'/bin/sacct-mock",
+    "squeue": "/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/monitor-native-job/case-p41plcfr/job artifacts 'quoted'/bin/squeue-mock"
+  },
+  "version": 1
+}

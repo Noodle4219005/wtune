@@ -1,0 +1,4 @@
+# rank=1
+# omp_max_threads=2 omp_num_threads_env=2
+# stage_flags WTIMER_STAGE_MICRO=0 WTIMER_STAGE_RAD=0 WTIMER_STAGE_PBL=0 WTIMER_STAGE_SURFACE=0 WTIMER_STAGE_CUMULUS=0
+# wt_kf_bootstrap profile=reviewed-g0-v1:1111111111111111111111111111111111111111111111111111111111111111 configured=0 requested=0 staged=0

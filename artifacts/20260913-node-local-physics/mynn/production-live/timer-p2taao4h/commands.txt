@@ -1,0 +1,14 @@
+/home/u5727520/wrf-stack/wtune-fortran-dev-20260912/.pixi/envs/default/bin/x86_64-conda-linux-gnu-cc -std=c11 -Wall -Wextra -Werror -O1 -I /home/u5727520/wrf-stack/wtune/plov /home/u5727520/wrf-stack/wtune/plov/wtimer.c /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/timer-p2taao4h/mock.c -o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/timer-p2taao4h/off
+guard off: no bootstrap symbols linked
+guard off: no bootstrap symbols linked
+guard off: no bootstrap symbols linked
+guard off: no bootstrap symbols linked
+guard off: no bootstrap symbols linked
+guard off: no bootstrap symbols linked
+/home/u5727520/wrf-stack/wtune-fortran-dev-20260912/.pixi/envs/default/bin/x86_64-conda-linux-gnu-cc -std=c11 -Wall -Wextra -Werror -O1 -I /home/u5727520/wrf-stack/wtune/plov -DWT_MYNN_NODE_LOCAL /home/u5727520/wrf-stack/wtune/plov/wtimer.c /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/timer-p2taao4h/mock.c -o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/timer-p2taao4h/on
+constructor calls=1 requested=0 grid=4
+constructor calls=1 requested=0 grid=4
+constructor calls=1 requested=0 grid=4
+constructor calls=1 requested=1 grid=4
+constructor calls=1 requested=1 grid=4
+constructor calls=1 requested=1 grid=4

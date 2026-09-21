@@ -1,0 +1,7 @@
+Captured GNU16 UBSan diagnostic before the memcpy wire-header correction:
+/home/u5727520/wrf-stack/wtune/plov/wt_mynn_batch.c:109:16: runtime error: member access within misaligned address 0x146341d60174 for type 'const struct myb_header', which requires 8 byte alignment
+0x146341d60174: note: pointer points here
+  02 00 00 00 31 57 4f 52  4e 4e 59 4d 01 00 00 00  01 00 00 00 b8 15 00 00  00 00 00 00 01 00 00 00
+              ^
+Stack: header_ok -> wt_mynn_batch_execute -> wt_mynn_node execute -> wt_nl_try_execute -> forked_rows.
+Correction: wt_mynn_batch_execute memcpy-decodes request header into aligned local storage and memcpy-encodes result header.

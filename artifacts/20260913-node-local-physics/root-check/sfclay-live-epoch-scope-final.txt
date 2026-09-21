@@ -1,0 +1,11 @@
+test_cross_process_omp2_and_compatibility (plov.tests.test_sfclay_node_live.SfclayNodeLiveTests.test_cross_process_omp2_and_compatibility) ... ok
+test_post_native_failures_abort_without_replay (plov.tests.test_sfclay_node_live.SfclayNodeLiveTests.test_post_native_failures_abort_without_replay) ... ok
+test_sf_historical_mynn_only_and_composed_order (plov.tests.test_physics_scope_bridge.PhysicsScopeBridgeTests.test_sf_historical_mynn_only_and_composed_order) ... ok
+test_grid_default_and_malformed_fallback (plov.tests.test_sfclay_timer_bootstrap.SfclayTimerBootstrapTests.test_grid_default_and_malformed_fallback) ... ok
+test_macro_off_preserves_refusal (plov.tests.test_sfclay_timer_bootstrap.SfclayTimerBootstrapTests.test_macro_off_preserves_refusal) ... ok
+test_macro_on_forwards_request_grid_and_state (plov.tests.test_sfclay_timer_bootstrap.SfclayTimerBootstrapTests.test_macro_on_forwards_request_grid_and_state) ... ok
+
+----------------------------------------------------------------------
+Ran 6 tests in 5.903s
+
+OK

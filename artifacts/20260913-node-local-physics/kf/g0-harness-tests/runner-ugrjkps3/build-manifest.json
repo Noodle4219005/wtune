@@ -1,0 +1,29 @@
+{
+  "artifact_type": "wtune_kf_build_recipe",
+  "attestation": {
+    "baseline_closure_verified": true,
+    "caller_chain_verified": true,
+    "compiler_module_abi_verified": true,
+    "library_closure_verified": true,
+    "source_abi_verified": true
+  },
+  "executed": false,
+  "node_local_profile": {
+    "attestation": {
+      "caller_chain_verified": true,
+      "concurrency_verified": false,
+      "init_verified": true,
+      "source_abi_verified": true
+    },
+    "enabled": true,
+    "name": "reviewed-g0-v1",
+    "profile_id": "reviewed-g0-v1:1111111111111111111111111111111111111111111111111111111111111111",
+    "proof_activation_implemented": true,
+    "review_record": {
+      "path": "/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/kf/g0-harness-tests/runner-ugrjkps3/review.json",
+      "sha256": "5d4b1f944aff0034de9a486a07e26700ccaeb20192c5f77e00fb6118d696aa88"
+    }
+  },
+  "plan_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+  "version": 3
+}

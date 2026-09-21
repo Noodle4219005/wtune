@@ -1,0 +1,9 @@
+test_c_fortran_capture_and_actual_openmp (plov.tests.test_kf_native_capture.NativeCaptureTests.test_c_fortran_capture_and_actual_openmp) ... ok
+test_plain_fortran_symbol_override (plov.tests.test_kf_native_capture.NativeCaptureTests.test_plain_fortran_symbol_override) ... ok
+test_wide_default_integer_and_logical_refuse_capture (plov.tests.test_kf_native_capture.NativeCaptureTests.test_wide_default_integer_and_logical_refuse_capture) ... ok
+test_wide_default_real_refuses_capture (plov.tests.test_kf_native_capture.NativeCaptureTests.test_wide_default_real_refuses_capture) ... ok
+
+----------------------------------------------------------------------
+Ran 4 tests in 4.306s
+
+OK

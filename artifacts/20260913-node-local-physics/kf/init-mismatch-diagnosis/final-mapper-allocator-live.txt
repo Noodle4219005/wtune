@@ -1,0 +1,7 @@
+test_frozen_gnu_live_chain (plov.tests.test_kf_node_live.KFNodeLiveTest.test_frozen_gnu_live_chain) ... ok
+test_live_production_chain (plov.tests.test_kf_node_live.KFNodeLiveTest.test_live_production_chain) ... ok
+
+----------------------------------------------------------------------
+Ran 2 tests in 36.765s
+
+OK

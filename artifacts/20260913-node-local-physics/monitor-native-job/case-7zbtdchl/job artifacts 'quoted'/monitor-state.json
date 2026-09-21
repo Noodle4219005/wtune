@@ -1,0 +1,43 @@
+{
+  "artifact_dir": "/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/monitor-native-job/case-7zbtdchl/job artifacts 'quoted'",
+  "blocked_reason": "monitoring deadline reached; the native job was not cancelled",
+  "cadence": {
+    "sparse_reason": "the short probe gates same-session artifact review",
+    "sparse_seconds": 300,
+    "startup_seconds": 60
+  },
+  "created_utc": "2026-09-13T00:08:42Z",
+  "deadline_utc": "2000-01-01T00:00:00Z",
+  "dependent_action": "review evidence, then decide whether to compare performance",
+  "job_id": "123",
+  "last_native_observation": {
+    "native_log_size": 75300,
+    "native_log_tail_file": "observation-0001-native-tail.bin",
+    "sacct_file": "observation-0001-sacct.txt",
+    "slurm_state": "RUNNING",
+    "squeue_file": "observation-0001-squeue.txt",
+    "utc": "2026-09-13T00:08:42Z"
+  },
+  "native_at_id": null,
+  "native_log": "/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/monitor-native-job/case-7zbtdchl/job artifacts 'quoted'/native log.bin",
+  "next_proposed_check": "Request a new monitoring decision and query only job 123 before any dependent action.",
+  "next_utc": null,
+  "observation_count": 1,
+  "operation": "one exact native WRF validation run",
+  "pass_criterion": "native exit zero and bitwise report passes",
+  "scheduled_nonce": null,
+  "startup_gate": {
+    "complete": false,
+    "elapsed_seconds": 0,
+    "required_elapsed_seconds": 240,
+    "required_running_observations": 4,
+    "running_observations": 1
+  },
+  "status": "blocked",
+  "tools": {
+    "at": "/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/monitor-native-job/case-7zbtdchl/job artifacts 'quoted'/bin/at-mock",
+    "sacct": "/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/monitor-native-job/case-7zbtdchl/job artifacts 'quoted'/bin/sacct-mock",
+    "squeue": "/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/monitor-native-job/case-7zbtdchl/job artifacts 'quoted'/bin/squeue-mock"
+  },
+  "version": 1
+}

@@ -1,0 +1,49 @@
+{
+  "archive": "/home/u5727520/wrf-bench/atlas/isc21/WRF_ISC21_3_DOMAIN.tar",
+  "archive_identity": {
+    "ctime_ns": 1789123527123679462,
+    "dev": 55,
+    "ino": 873628323,
+    "mtime_ns": 1789123527123679462,
+    "size": 6712514560
+  },
+  "artifact_type": "wtune_isc21_g0_recovery_plan",
+  "dt": 15,
+  "extract_archive_hash_read_bytes": 6712514560,
+  "members": {
+    "freezeH2O.dat": {
+      "bytes": 254944848,
+      "offset": 3817735680
+    },
+    "namelist.input": {
+      "bytes": 4179,
+      "offset": 5624946176
+    },
+    "qr_acr_qgV2.dat": {
+      "bytes": 89959776,
+      "offset": 4072681472
+    },
+    "qr_acr_qsV2.dat": {
+      "bytes": 43764288,
+      "offset": 2820771840
+    },
+    "wrfbdy_d01": {
+      "bytes": 964952328,
+      "offset": 1024
+    },
+    "wrfinput_d01": {
+      "bytes": 1087552017,
+      "offset": 5624951296
+    }
+  },
+  "namelist": "&time_control\n  run_days = 0,\n  run_hours = 0,\n  run_minutes = 5,\n  run_seconds = 0,\n  start_year = 2016,\n  start_month = 8,\n  start_day = 29,\n  start_hour = 9,\n  end_year = 2016,\n  end_month = 8,\n  end_day = 29,\n  end_hour = 9,\n  interval_seconds = 10800,\n  input_from_file = .true., .true., .true.,\n  frames_per_outfile = 1,\n  restart = .false.,\n  restart_interval = 50000,\n  io_form_history = 2,\n  io_form_auxhist24 = 0,\n  frames_per_auxhist24 = 1, 1, 1,\n  start_minute = 0,\n  start_second = 0,\n  end_minute = 5,\n  end_second = 0,\n  history_interval = 5,\n  io_form_input = 2,\n  io_form_boundary = 2,\n  write_input = .false.,\n  input_inname = \"wrfinput_d<domain>\",\n  bdy_inname = \"wrfbdy_d<domain>\",\n/\n\n&domains\n  eta_levels = 1.00000,0.99381,0.98643,0.97786,0.96815,\n0.95731,0.94538,0.93122,0.91490,0.89653,0.87621,0.85405,0.82911,\n0.80160,0.77175,0.73981,0.70509,0.66798,0.62889,0.58823,0.54957,\n0.51281,0.47788,0.44471,0.41323,0.38336,0.35503,0.32819,0.30276,\n0.27869,0.25592,0.23439,0.21405,0.19484,0.17672,0.15963,0.14352,\n0.12836,0.11410,0.10070,0.08811,0.07630,0.06523,0.05487,0.04517,\n0.03611,0.02765,0.01977,0.01243,0.00560,0.00000,\n  time_step = 15,\n  time_step_fract_num = 0,\n  time_step_fract_den = 1,\n  time_step_dfi = 12,\n  max_dom = 1,\n  e_we = 793, 805, 1001,\n  e_sn = 853, 805, 1001,\n  e_vert = 51, 51, 51,\n  p_top_requested = 3000.0,\n  dx = 3000,\n  dy = 3000,\n  grid_id = 1, 2, 3,\n  parent_id = 1, 1, 2,\n  i_parent_start = 1, 271, 151,\n  j_parent_start = 1, 301, 151,\n  parent_grid_ratio = 1, 3, 2,\n  parent_time_step_ratio = 1, 3, 2,\n  feedback = 1,\n  smooth_option = 0,\n  rh2qv_wrt_liquid = .false.,\n  nproc_x = 7,\n  nproc_y = 8,\n  numtiles = 12,\n  use_adaptive_time_step = .false.,\n/\n\n&physics\n  mp_physics = 8, 8, 8,\n  ra_lw_physics = 4, 4, 4,\n  ra_sw_physics = 4, 4, 4,\n  aer_opt = 0,\n  swint_opt = 1,\n  radt = 3, 3, 3,\n  sf_sfclay_physics = 5, 5, 5,\n  sf_surface_physics = 2, 2, 2,\n  bl_pbl_physics = 5, 5, 5,\n  bldt = 0, 0, 0,\n  topo_wind = 0, 0, 0,\n  cu_physics = 1, 0, 0,\n  cudt = 0, 0, 0,\n  shcu_physics = 0, 0, 0,\n  isfflx = 1,\n  ifsnow = 1,\n  icloud = 1,\n  surface_input_source = 1,\n  num_soil_layers = 4,\n  num_land_cat = 21,\n  sf_urban_physics = 0, 0, 0,\n/\n\n&fdda\n  rk_ord = 3,\n  w_damping = 1,\n  diff_opt = 1,  1,  1,\n  km_opt = 4, 4, 4,\n  epssm = 0.20, 0.20, 0.20,\n  diff_6th_opt = 2, 2, 2,\n  diff_6th_factor = 0.30, 0.30, 0.30,\n  base_temp = 290.,\n  damp_opt = 3,\n  dampcoef = 0.30, 0.30, 0.30,\n  zdamp = 5000., 5000., 5000.,\n  khdif = 0, 0, 0,\n  kvdif = 0, 0, 0,\n  mix_full_fields = .true., .true., .true.,\n  non_hydrostatic = .true., .true., .true.,\n  moist_adv_opt = 2, 2, 2,\n  scalar_adv_opt = 2, 2, 2,\n/\n\n&bdy_control\n  spec_bdy_width = 7,\n  spec_zone = 1,\n  relax_zone = 6,\n  specified = .true., .false., .false.,\n  nested = .false., .true., .true.,\n/\n\n&grib\n/\n\n&namelist_quilt\n  dfi_opt = 0,\n  dfi_nfilter = 7,\n  dfi_cutoff_seconds = 3600,\n  dfi_time_dim = 2000,\n  dfi_write_filtered_input = .false.,\n  dfi_write_dfi_history = .false.,\n  dfi_bckstop_year = 2016,\n  dfi_bckstop_month = 08,\n  dfi_bckstop_day = 28,\n  dfi_bckstop_hour = 23,\n  dfi_bckstop_minute = 00,\n  dfi_bckstop_second = 00,\n  dfi_fwdstop_year = 2016,\n  dfi_fwdstop_month = 08,\n  dfi_fwdstop_day = 29,\n  dfi_fwdstop_hour = 00,\n  dfi_fwdstop_minute = 30,\n  dfi_fwdstop_second = 00,\n/\n\n",
+  "namelist_sha256": "5508ead4bee4098b77d8521400802f3f5c082a8846661871f573d824b4f56fe4",
+  "note": "No payload recovery performed; extraction hashes full archive and six outputs.",
+  "output": "/home/u5727520/wrf-stack/wtune-kf-g0-20260913-r1/inputs",
+  "prefix": "WRF_ISC21_3_DOMAIN/",
+  "source_namelist_sha256": "6c2c704278fe82ec6dbb1765d66122bb029065d0ba4c96cd76ee47a5edec6700",
+  "status": "plan-only",
+  "steps": 20,
+  "total_extract_bytes": 2441177436,
+  "version": 1
+}

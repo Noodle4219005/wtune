@@ -1,0 +1,24 @@
+/home/u5727520/wrf-stack/wtune-fortran-dev-20260912/.pixi/envs/default/bin/x86_64-conda-linux-gnu-gfortran -cpp -ffree-form -O1 -g -fcheck=all -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer -J /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-iet4_tmz/mod -I /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-iet4_tmz/mod -c /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-iet4_tmz/src/wt_mynn_static_state.f90 -o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-iet4_tmz/obj/wt_mynn_static_state.o
+RETURN 0
+/home/u5727520/wrf-stack/wtune-fortran-dev-20260912/.pixi/envs/default/bin/x86_64-conda-linux-gnu-gfortran -cpp -ffree-form -O1 -g -fcheck=all -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer -J /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-iet4_tmz/mod -I /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-iet4_tmz/mod -c /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-iet4_tmz/src/caller.f90 -o /home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-iet4_tmz/obj/caller.o
+/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-iet4_tmz/src/caller.f90:257:3:
+
+  257 |   rublten_before = rublten
+      |   1~~~~~~~~~~~~~~
+Error: Different shape for array assignment at (1) on dimension 3 (4 and 6)
+/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-iet4_tmz/src/caller.f90:391:10-27:
+
+  391 |   if (any(rublten(1,:,:) /= rublten_before(1,:,:))) error stop "tile i-low sentinel changed"
+      |          1                2
+Error: Shapes for operands at (1) and (2) are not conformable
+/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-iet4_tmz/src/caller.f90:392:10-27:
+
+  392 |   if (any(rublten(4,:,:) /= rublten_before(4,:,:))) error stop "tile i-high sentinel changed"
+      |          1                2
+Error: Shapes for operands at (1) and (2) are not conformable
+/home/u5727520/wrf-stack/wtune/artifacts/20260913-node-local-physics/mynn/production-live/run-iet4_tmz/src/caller.f90:394:47:
+
+  394 |   if (any(rublten(:,:,6) /= rublten_before(:,:,6))) error stop "tile j-high sentinel changed"
+      |                                               1
+Warning: Array reference at (1) is out of bounds (6 > 4) in dimension 3
+RETURN 1

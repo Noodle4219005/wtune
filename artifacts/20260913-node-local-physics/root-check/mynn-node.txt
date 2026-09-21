@@ -1,0 +1,6 @@
+test_node (plov.tests.test_mynn_node.MynnNodeTest.test_node) ... ok
+
+----------------------------------------------------------------------
+Ran 1 test in 4.298s
+
+OK

@@ -1,0 +1,7 @@
+test_checked_layout_fixture (plov.tests.test_rk_layout.RkLayoutTests.test_checked_layout_fixture) ... ok
+test_schema_generator_pins_complete_proof (plov.tests.test_rk_layout.RkLayoutTests.test_schema_generator_pins_complete_proof) ... ok
+
+----------------------------------------------------------------------
+Ran 2 tests in 0.893s
+
+OK

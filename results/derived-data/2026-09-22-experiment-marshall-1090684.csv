@@ -1,0 +1,6 @@
+case,job_id,config_id,roles,ranks,omp,nx,ny,numtiles,dist,blocktime,n,s_median,s_min,s_max,success,predicted_gain,gain_lower_95,label,verdict,regret,speedup_vs_c01
+marshall,1090684,C01,baseline,448,1,14,32,1,cyclic,0,2,1.489855,1.47406,1.50565,True,,,,INCONCLUSIVE,,
+marshall,1090684,C06,recommended:3,224,2,7,32,12,cyclic,0,0,,,,False,0.011638619764538838,-0.5549672008541371,EXPERIMENTAL,INCONCLUSIVE,,
+marshall,1090684,C09,recommended:1,224,2,8,28,12,cyclic,0,0,,,,False,0.007351871256747189,-0.5605005016725979,EXPERIMENTAL,INCONCLUSIVE,,
+marshall,1090684,C11,recommended:2,224,2,7,32,12,block,0,0,,,,False,0.013282785335642755,-0.5547366285453788,EXPERIMENTAL,INCONCLUSIVE,,
+marshall,1090684,R01D0004,best_known,448,1,14,32,13,block,0,2,1.403705,1.38945,1.41796,True,,,,INCONCLUSIVE,,

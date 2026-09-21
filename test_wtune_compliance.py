@@ -114,6 +114,70 @@ class CatalogValidationTests(unittest.TestCase):
         self.assertTrue(any('duplicate name' in m for m in errs), errs)
 
 
+class LegalValuesTests(unittest.TestCase):
+    def test_every_entry_has_legal_values(self):
+        for e in CATALOG:
+            self.assertIn('legal_values', e, e['name'])
+            lv = e['legal_values']
+            for field in ('type', 'values', 'min', 'max', 'constraints', 'source', 'verified'):
+                self.assertIn(field, lv, '{} legal_values missing {}'.format(e['name'], field))
+
+    def test_every_strict_and_physics_gray_knob_has_legal_values(self):
+        for e in CATALOG:
+            if e['classification'] in (STRICT, PHYSICS_GRAY):
+                lv = e['legal_values']
+                self.assertTrue(lv['type'], e['name'])
+                self.assertTrue(lv['source'], '{} legal_values.source is empty'.format(e['name']))
+
+    def test_mp_physics_enum_contains_6_and_8(self):
+        lv = _entry('mp_physics')['legal_values']
+        self.assertEqual(lv['type'], 'enum')
+        self.assertIn(6, lv['values'])   # WSM6
+        self.assertIn(8, lv['values'])   # Thompson
+
+    def test_cu_physics_excludes_an_arw_fatal_value(self):
+        # module_check_a_mundo.F:671-681: "Option cu_physics = 4 should not be used for ARW;
+        # cu_physics = 95 is suggested" -- cu_physics=4 (scalesasscheme) is fatal for ARW.
+        lv = _entry('cu_physics')['legal_values']
+        self.assertEqual(lv['type'], 'enum')
+        self.assertIn(4, [0, 1, 2, 3, 4, 5, 6, 7, 10, 11, 14, 16, 93, 94, 95, 96, 99])  # full Registry set has 4
+        self.assertNotIn(4, lv['values'])  # but it is excluded as ARW-fatal
+        self.assertIn(95, lv['values'])    # the suggested replacement stays legal
+
+    def test_numtiles_is_int_with_min_1(self):
+        lv = _entry('numtiles')['legal_values']
+        self.assertEqual(lv['type'], 'int')
+        self.assertEqual(lv['min'], 1)
+
+
+class ValidateRejectsBadLegalValuesTests(unittest.TestCase):
+    def test_rejects_empty_enum_values(self):
+        e = _entry('mp_physics')
+        e['legal_values'] = dict(e['legal_values'], type='enum', values=[])
+        errs = validate([e])
+        self.assertTrue(any('enum requires non-empty values' in m for m in errs), errs)
+
+    def test_rejects_min_greater_than_max(self):
+        e = _entry('numtiles')
+        e['legal_values'] = dict(e['legal_values'], min=10, max=1)
+        errs = validate([e])
+        self.assertTrue(any('min > max' in m for m in errs), errs)
+
+    def test_rejects_gain_status_with_evidence_lacking_slug(self):
+        e = _entry('numtiles')
+        self.assertEqual(e['status'], 'gain')
+        e['evidence'] = 'no bracket reference here'
+        errs = validate([e])
+        self.assertTrue(any('requires evidence to contain at least one' in m for m in errs), errs)
+
+    def test_rejects_unmeasured_status_with_evidence_not_starting_unmeasured(self):
+        e = _entry('tile_sz_x')
+        self.assertEqual(e['status'], 'unmeasured')
+        e['evidence'] = 'not the right prefix'
+        errs = validate([e])
+        self.assertTrue(any("requires evidence to start with 'unmeasured'" in m for m in errs), errs)
+
+
 class ClassifyTests(unittest.TestCase):
     def test_known_names(self):
         self.assertEqual(classify('numtiles'), STRICT)

@@ -51,6 +51,7 @@ static inline uint64_t tsc(void)
 #include <sys/mman.h>
 #include <time.h>
 #include <unistd.h>
+#include "wt_plan.h"
 #define IARG(k) (*(int *)wt_argv[k])
 
 extern size_t wt_alloc_size(const void *p);
@@ -300,6 +301,8 @@ typedef struct __attribute__((aligned(64))) {
 _Static_assert(sizeof(wt_share_hdr) == 64, "slot header must stay one cache line: payload offset is sizeof *h");
 typedef struct {
     uint64_t t_full_ticks, step;
+    uint64_t pred_ticks;   /* EWMA(0.7) of this rank's own micro work: pass 1 + its chunks, wherever computed */
+    int64_t nj;            /* stageable j-rows of this rank's patch */
 } wt_share_stats;
 typedef char wt_share_hdr_size_check[(sizeof(wt_share_hdr) == 64) ? 1 : -1];
 
@@ -317,6 +320,26 @@ static double adapt_tsc_hz;
 static int adapt_R_prev = -1;                       /* integrator state: rows published last call */
 static int adapt_stole_prev;                        /* chunks stolen last call: a stealer is not overloaded */
 static double adapt_gain = 0.5;
+/* Predictive PLOV (WTIMER_STAGE_PREDICT): 0 reactive adaptive (production), 1 predicted R,
+ * 2 predicted R + node-local owner->donor assignment taken after the donor's own work,
+ * 3 as 2 but the donor takes its assigned chunks at micro entry, before its own work. */
+static double pred_own_ewma;
+static int predict_mode = -1, trace_on = -1;
+static FILE *trace_fp;
+static int wt_predict_mode(void)
+{
+    if (predict_mode < 0) {
+        const char *e = getenv("WTIMER_STAGE_PREDICT");
+        predict_mode = e ? atoi(e) : 0;
+        if (predict_mode < 0 || predict_mode > 3) predict_mode = 0;
+    }
+    return predict_mode;
+}
+static int wt_trace_on(void)
+{
+    if (trace_on < 0) { const char *e = getenv("WTIMER_TRACE"); trace_on = e && e[0] == '1' && !e[1]; }
+    return trace_on;
+}
 
 static int wt_stage_share_enabled(void)
 {
@@ -454,6 +477,8 @@ static int wt_share_init(size_t need, int first, int adaptive)
     }
     if (share_stats) {
         __atomic_store_n(&share_stats[me].t_full_ticks, 0, __ATOMIC_RELAXED);
+        __atomic_store_n(&share_stats[me].pred_ticks, 0, __ATOMIC_RELAXED);
+        __atomic_store_n(&share_stats[me].nj, 0, __ATOMIC_RELAXED);
         __atomic_store_n(&share_stats[me].step, 0, __ATOMIC_RELEASE);
     }
     share_init_state = 1;
@@ -744,6 +769,41 @@ done:
     return stolen;
 }
 
+/* Take chunk c of local owner o if it is PUBLISHED now; returns its work ticks, 0 if not taken.
+ * Same gates, save/restore and state transitions as wt_adapt_steal, for one addressed slot. */
+static uint64_t wt_take_chunk(int o, int c, int mp, int NI, int NK, const int *w3, int n3,
+                              const int *w2, int n2, int grid, int max_rows, int nt, int first)
+{
+    if (o < 0 || o >= share_nlocal || o == share_me || c < 0 || c >= share_k) return 0;
+    wt_share_hdr *h = wt_share_slot(o * share_k + c);
+    int expected = WT_SHARE_PUBLISHED;
+    if (__atomic_load_n(&h->state, __ATOMIC_ACQUIRE) != WT_SHARE_PUBLISHED) return 0;
+    if (!__atomic_compare_exchange_n(&h->state, &expected, WT_SHARE_CLAIMED_OTHER, 0,
+                                     __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) return 0;
+    if (!wt_share_signature_ok(h, mp, NI, NK, n3, n2, grid, 1, max_rows)) {
+        wt_micro_sig_mismatch++;
+        __atomic_store_n(&h->state, WT_SHARE_PUBLISHED, __ATOMIC_RELEASE);
+        return 0;
+    }
+    if (h->ncol <= 0 || !wt_adapt_need_fits(1, h->ncol, NK, n3, n2, share_cap)) {
+        __atomic_store_n(&h->state, WT_SHARE_PUBLISHED, __ATOMIC_RELEASE);
+        return 0;
+    }
+    void *save[WT_NARG];
+    memcpy(save, wt_argv, sizeof save);
+    uint64_t work0 = tsc();
+    wt_micro_share_in++;
+    wt_micro_chunks_in++;
+    wt_share_pass2((float *)((char *)h + sizeof *h), h->ncol, NK, n3, w3, n2, w2, save, nt, first);
+    memcpy(wt_argv, save, sizeof save);
+    uint64_t work = tsc() - work0;
+    if (!work) work = 1;
+    __atomic_store_n(&h->work_ticks, work, __ATOMIC_RELEASE);
+    wt_micro_share_work_ticks += work;
+    __atomic_store_n(&h->state, WT_SHARE_DONE, __ATOMIC_RELEASE);
+    return work;
+}
+
 static int wt_micro_adaptive_call(int CH, int mp, int grid, int ims, int jms, int kms, int NI, int NK,
                                   int ips, int ipe, int jps, int jpe,
                                   int ids, int ide, int jds, int jde, int sz,
@@ -780,13 +840,45 @@ static int wt_micro_adaptive_call(int CH, int mp, int grid, int ims, int jms, in
     max_need = (size_t)NIC * (size_t)max_rows * fields * sizeof(float);
     if (!wt_share_init(max_need, first, 1)) return 0;
     wt_adapt_read_stats(previous, &t_me, &t_mean, &nvalid);
+    int mode = wt_predict_mode(), tron = wt_trace_on();
+    if ((mode || tron) && !debug_rank) wt_adapt_calibrate();
+    double hz = adapt_tsc_hz > 0 ? adapt_tsc_hz : 2.0e9;
+    double pred_prev = pred_own_ewma;
+    static wt_plan plan;
+    int plan_ok = 0;
+    plan.nslot = 0;
+    if (mode) {
+        double predv[WT_PLAN_MAXR];
+        int njv[WT_PLAN_MAXR];
+        int n = share_nlocal < WT_PLAN_MAXR ? share_nlocal : WT_PLAN_MAXR;
+        for (int r = 0; r < n; r++) {
+            wt_share_stats *st = &share_stats[r];
+            uint64_t s1 = __atomic_load_n(&st->step, __ATOMIC_ACQUIRE);
+            uint64_t pv = __atomic_load_n(&st->pred_ticks, __ATOMIC_ACQUIRE);
+            int64_t nv = __atomic_load_n(&st->nj, __ATOMIC_ACQUIRE);
+            uint64_t s2 = __atomic_load_n(&st->step, __ATOMIC_ACQUIRE);
+            int ok = previous && s1 == previous && s1 == s2 && pv > 0 && nv > 0 && nv < INT_MAX;
+            predv[r] = ok ? (double)pv : 0.0;
+            njv[r] = ok ? (int)nv : 0;
+        }
+        const char *pe = getenv("WTIMER_STAGE_MAX_PCT");
+        int ppct = pe ? atoi(pe) : 50;
+        if (ppct < 0) ppct = 0;
+        if (ppct > 100) ppct = 100;
+        const char *oe = getenv("WTIMER_PREDICT_OVH_MS");
+        double ovh_ms = oe ? atof(oe) : 1.0;
+        wt_plan_build(&plan, n, predv, njv, CH, K, ppct / 100.0, ovh_ms * hz / 1000.0);
+        plan_ok = plan.valid * 2 >= share_nlocal && share_me < plan.n;
+    }
 
     /* Feedback on the MEASURED wrapped-call time (pack + passes + waits + steals), not on an
      * open-loop estimate: job 1070120 showed a rank giving 34% of its rows dropped only
      * 45.2 -> 37.3 ms (predicted 29.9) because the tail rows are colder than its average and
      * the clipped tile list is uneven across threads. Integrate until t_call meets the node mean. */
     if (adapt_R_prev < 0) adapt_R_prev = CH;
-    if (nvalid * 2 < share_nlocal || !t_me) {
+    if (mode && plan_ok) {
+        R = plan.chunks_out[share_me] * CH;         /* frozen per-rank EWMA predictor + node-local plan */
+    } else if (nvalid * 2 < share_nlocal || !t_me) {
         R = adapt_R_prev;
     } else {
         long long maxr = (long long)CH * K;
@@ -812,6 +904,54 @@ static int wt_micro_adaptive_call(int CH, int mp, int grid, int ims, int jms, in
         fprintf(stderr, "[wtimer] adapt step=%d t_me=%.3fms t_mean=%.3fms nvalid=%d R=%d chunks=%d\n",
                 (int)step, wt_adapt_ms(t_me), wt_adapt_ms(t_mean), nvalid, R, nchunks);
 
+    int des_n = 0, des_owner[WT_PLAN_MAXS], des_chunk[WT_PLAN_MAXS], des_done[WT_PLAN_MAXS];
+    double assigned_out_ms = 0, assigned_in_ms = 0;
+    char role = 'N';
+    if (mode && plan_ok) {
+        assigned_out_ms = plan.assigned_out_ms[share_me] * 1e3 / hz;
+        assigned_in_ms = plan.assigned_in_ms[share_me] * 1e3 / hz;
+        role = plan.chunks_out[share_me] ? 'O' : plan.chunks_in[share_me] ? 'D' : 'N';
+    }
+    if (mode >= 2 && plan_ok) {
+        int off[WT_PLAN_MAXR];
+        memset(off, 0, sizeof off);
+        for (int k = 0; k < plan.nslot; k++) {
+            for (int c = 0; c < plan.slot[k].chunks; c++) {
+                int idx = off[plan.slot[k].owner]++;
+                if (plan.slot[k].donor == share_me && des_n < WT_PLAN_MAXS && idx < share_k) {
+                    des_owner[des_n] = plan.slot[k].owner;
+                    des_chunk[des_n] = idx;
+                    des_done[des_n] = 0;
+                    des_n++;
+                }
+            }
+        }
+    }
+    uint64_t out0 = wt_micro_share_out, in0 = wt_micro_share_in;
+    uint64_t waitk0 = wt_micro_share_wait_ticks, workk0 = wt_micro_share_work_ticks;
+    uint64_t idle_ticks = 0, pack_ticks = 0, commit_ticks = 0;
+    if (mode == 3 && des_n) {
+        const char *we = getenv("WTIMER_PREDICT_WAIT_US");
+        double wait_us = we ? atof(we) : 2000.0;
+        uint64_t deadline = call_start + (uint64_t)(wait_us * 1e-6 * hz);
+        int left = des_n;
+        unsigned spin = 0;
+        while (left) {
+            int progress = 0;
+            for (int i = 0; i < des_n; i++) {
+                if (des_done[i]) continue;
+                if (wt_take_chunk(des_owner[i], des_chunk[i], mp, NI, NK, w3, n3, w2, n2, grid, CH, nt, first)) {
+                    des_done[i] = 1; left--; progress = 1;
+                }
+            }
+            if (!left || progress) continue;
+            if (tsc() >= deadline) break;
+            uint64_t p0 = tsc();
+            wt_share_pause(spin++);
+            idle_ticks += tsc() - p0;
+        }
+    }
+
     uint64_t t_full = 0;
     if (R == 0) {
         uint64_t t0 = tsc();
@@ -822,6 +962,7 @@ static int wt_micro_adaptive_call(int CH, int mp, int grid, int ims, int jms, in
         int jsplit = jp1 - R + 1;
         uint64_t own_work = 0;
         memcpy(save, wt_argv, sizeof save);
+        uint64_t pack0 = tsc();
         for (int c = 0; c < nchunks; c++) {
             int cj0 = jsplit + c * CH;
             int cj1 = cj0 + CH - 1;
@@ -837,6 +978,7 @@ static int wt_micro_adaptive_call(int CH, int mp, int grid, int ims, int jms, in
             __atomic_store_n(&h->work_ticks, 0, __ATOMIC_RELAXED);
             __atomic_store_n(&h->state, WT_SHARE_PUBLISHED, __ATOMIC_RELEASE);
         }
+        pack_ticks = tsc() - pack0;
         wt_micro_rows_out += (uint64_t)R;
         uint64_t pass0 = tsc();
         wt_share_pass1(save, jsplit, first);
@@ -876,8 +1018,10 @@ static int wt_micro_adaptive_call(int CH, int mp, int grid, int ims, int jms, in
                 uint64_t work = tsc() - work0;
                 __atomic_store_n(&h->work_ticks, work, __ATOMIC_RELEASE);
                 own_work += work;
+                uint64_t cm0 = tsc();
                 wt_share_commit((float *)((char *)h + sizeof *h), save, ims, jms, NI, NK,
                                 i0, i1, cj0, cj1, ncol, n3, w3, n2, w2);
+                commit_ticks += tsc() - cm0;
                 memcpy(wt_argv, save, sizeof save);
                 __atomic_store_n(&h->state, WT_SHARE_EMPTY, __ATOMIC_RELEASE);
             } else {
@@ -885,8 +1029,10 @@ static int wt_micro_adaptive_call(int CH, int mp, int grid, int ims, int jms, in
                 wt_micro_share_wait_ticks += tsc() - wait0;
                 uint64_t work = __atomic_load_n(&h->work_ticks, __ATOMIC_ACQUIRE);
                 own_work += work;
+                uint64_t cm0 = tsc();
                 wt_share_commit((float *)((char *)h + sizeof *h), save, ims, jms, NI, NK,
                                 i0, i1, cj0, cj1, ncol, n3, w3, n2, w2);
+                commit_ticks += tsc() - cm0;
                 memcpy(wt_argv, save, sizeof save);
                 __atomic_store_n(&h->state, WT_SHARE_EMPTY, __ATOMIC_RELEASE);
             }
@@ -894,17 +1040,61 @@ static int wt_micro_adaptive_call(int CH, int mp, int grid, int ims, int jms, in
         t_full += own_work;
         wt_micro_staged++;
     }
-    adapt_stole_prev = wt_adapt_steal(mp, NI, NK, w3, n3, w2, n2, grid, CH, nt, first, call_start,
-                                       nvalid * 2 >= share_nlocal ? t_mean : 0);
+    uint64_t own_ticks = t_full, own_done = tsc();
+    if (mode >= 2 && plan_ok) {
+        uint64_t sp0 = tsc(), wsum = 0;
+        int got = 0;
+        for (int i = 0; i < des_n; i++) {
+            if (des_done[i]) continue;
+            uint64_t w = wt_take_chunk(des_owner[i], des_chunk[i], mp, NI, NK, w3, n3, w2, n2, grid, CH, nt, first);
+            if (w) { des_done[i] = 1; wsum += w; got++; }
+        }
+        uint64_t spent = tsc() - sp0;
+        idle_ticks += spent > wsum ? spent - wsum : 0;
+        adapt_stole_prev = got;
+    } else {
+        uint64_t sp0 = tsc(), wk0 = wt_micro_share_work_ticks;
+        adapt_stole_prev = wt_adapt_steal(mp, NI, NK, w3, n3, w2, n2, grid, CH, nt, first, call_start,
+                                           nvalid * 2 >= share_nlocal ? t_mean : 0);
+        uint64_t spent = tsc() - sp0, wk = wt_micro_share_work_ticks - wk0;
+        idle_ticks += spent > wk ? spent - wk : 0;
+    }
     (void)t_full;
     t_full = tsc() - call_start;                    /* published sample = whole wrapped call */
     if (!t_full) t_full = 1;
     /* Invalidate only now, not at entry: ranks enter micro within ms of each other in random
      * order, and an early invalidation would leave the last rank in with no valid neighbours.
      * Readers reject a previous step number paired with a half-written t_full_ticks. */
+    if (own_ticks)
+        pred_own_ewma = pred_own_ewma > 0 ? 0.7 * (double)own_ticks + 0.3 * pred_own_ewma : (double)own_ticks;
     __atomic_store_n(&share_stats[share_me].step, 0, __ATOMIC_RELEASE);
     __atomic_store_n(&share_stats[share_me].t_full_ticks, t_full, __ATOMIC_RELAXED);
+    __atomic_store_n(&share_stats[share_me].pred_ticks, (uint64_t)pred_own_ewma, __ATOMIC_RELAXED);
+    __atomic_store_n(&share_stats[share_me].nj, (int64_t)NJp, __ATOMIC_RELAXED);
     __atomic_store_n(&share_stats[share_me].step, step, __ATOMIC_RELEASE);
+    if (tron) {
+        if (!trace_fp) {
+            const char *dir = getenv("WTIMER_DIR"), *rk = getenv("SLURM_PROCID");
+            char path[4096];
+            if (!rk) rk = getenv("PMI_RANK");
+            snprintf(path, sizeof path, "%s/plov.%s.csv", dir ? dir : ".", rk ? rk : "x");
+            trace_fp = fopen(path, "w");
+            if (trace_fp)
+                fprintf(trace_fp, "step,mode,role,entry_tsc,own_done_tsc,exit_tsc,pred_ms,rows_pub,chunks_pub,chunks_out,"
+                                  "chunks_in,work_in_ms,assigned_out_ms,assigned_in_ms,wait_ms,idle_ms,pack_ms,commit_ms\n");
+        }
+        if (trace_fp) {
+            char rl = mode ? role : (R > 0 ? 'O' : (wt_micro_share_in > in0 ? 'D' : 'N'));
+            fprintf(trace_fp, "%llu,%d,%c,%llu,%llu,%llu,%.4f,%d,%d,%llu,%llu,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f\n",
+                    (unsigned long long)step, mode, rl, (unsigned long long)call_start, (unsigned long long)own_done,
+                    (unsigned long long)tsc(), pred_prev * 1e3 / hz, R, nchunks,
+                    (unsigned long long)(wt_micro_share_out - out0), (unsigned long long)(wt_micro_share_in - in0),
+                    (double)(wt_micro_share_work_ticks - workk0) * 1e3 / hz, assigned_out_ms, assigned_in_ms,
+                    (double)(wt_micro_share_wait_ticks - waitk0) * 1e3 / hz, (double)idle_ticks * 1e3 / hz,
+                    (double)pack_ticks * 1e3 / hz, (double)commit_ticks * 1e3 / hz);
+            fflush(trace_fp);
+        }
+    }
     return 1;
 }
 
@@ -1309,12 +1499,63 @@ static void wt_micro_staged_call(int rows)
     wt_micro_staged++;
 }
 
+/* Tile probe (research measurement, off unless WTIMER_TILE_PROBE=1): call the real driver once per
+ * original tile and time each call, so this rank's per-tile cost map is observable. Every tile's
+ * columns are still computed exactly once per step; only the OpenMP grouping changes (one tile per
+ * call), the same tile-list rewrite that pass 1 already uses bit-identically. Staging is bypassed. */
+static int tile_probe = -1;
+static FILE *tile_fp;
+
+static int wt_tile_probe_enabled(void)
+{
+    if (tile_probe < 0) {
+        const char *e = getenv("WTIMER_TILE_PROBE");
+        tile_probe = e && e[0] == '1' && e[1] == 0;
+    }
+    return tile_probe;
+}
+
+static void wt_micro_tile_probe(void)
+{
+    static int i0[1], i1[1], j0[1], j1[1], one = 1;
+    int nt = IARG(WT_A_NUM_TILES); if (nt > 64) nt = 64;
+    const int *oi0 = wt_argv[WT_A_I_START], *oi1 = wt_argv[WT_A_I_END];
+    const int *oj0 = wt_argv[WT_A_J_START], *oj1 = wt_argv[WT_A_J_END];
+    void *save[WT_NARG];
+    memcpy(save, wt_argv, sizeof save);
+    if (!tile_fp) {
+        const char *dir = getenv("WTIMER_DIR"), *r = getenv("SLURM_PROCID");
+        char path[4096];
+        if (!r) r = getenv("PMI_RANK");
+        snprintf(path, sizeof path, "%s/tiles.%s.csv", dir ? dir : ".", r ? r : "x");
+        tile_fp = fopen(path, "w");
+        if (tile_fp) fprintf(tile_fp, "step,tile,its,ite,jts,jte,ticks\n");
+    }
+    for (int t = 0; t < nt; t++) {
+        i0[0] = oi0[t]; i1[0] = oi1[t]; j0[0] = oj0[t]; j1[0] = oj1[t];
+        wt_argv[WT_A_I_START] = i0; wt_argv[WT_A_I_END] = i1;
+        wt_argv[WT_A_J_START] = j0; wt_argv[WT_A_J_END] = j1;
+        wt_argv[WT_A_NUM_TILES] = &one;
+        uint64_t a = tsc();
+        wt_call_n((void *)__real_module_microphysics_driver_mp_microphysics_driver_, wt_argv, WT_NARG);
+        uint64_t b = tsc();
+        memcpy(wt_argv, save, sizeof save);
+        if (tile_fp)
+            fprintf(tile_fp, "%llu,%d,%d,%d,%d,%d,%llu\n", (unsigned long long)wt_micro_calls, t,
+                    oi0[t], oi1[t], oj0[t], oj1[t], (unsigned long long)(b - a));
+    }
+    if (tile_fp) fflush(tile_fp);
+}
+
 void wt_micro_call(void)
 {
     uint64_t t0 = tsc();
     wt_pre(0);
     wt_micro_calls++;
-    if (!wt_stage_micro_enabled()) {
+    if (wt_tile_probe_enabled()) {
+        wt_micro_stage_state = 0;
+        wt_micro_tile_probe();
+    } else if (!wt_stage_micro_enabled()) {
         wt_micro_stage_state = 0;
         wt_call_n((void *)__real_module_microphysics_driver_mp_microphysics_driver_,
                   wt_argv, WT_NARG);

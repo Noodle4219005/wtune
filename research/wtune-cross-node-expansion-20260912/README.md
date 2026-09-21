@@ -31,7 +31,7 @@ staging (the shipped, gate-passed mechanism) into:
 
 **Correction (2026-09-13, previous version of this file overstated this):** the native
 compile recipe did NOT always fail before producing a link manifest. Job **1073389** (r1)
-and its r2 successor failed before compiling anything; but r3, **job 1073533, COMPLETED**
+and its r2 successor were failed attempts; but r3, **job 1073533, COMPLETED**
 (20260913-r3/terminal-review.md): all 18 objects compiled with the Intel toolchain and a
 real `recipe/link-manifest.json` was produced. The card was scoped to stop there —
 `link_executed=false` is the card's designed boundary, not a failure. What genuinely has
@@ -83,5 +83,6 @@ MYNN/SFCLAY too) — it is archived here **only because it has never been linked
 run against the actual Intel-built WRF binary on the cluster**, the same bar micro/rad
 had to clear via job 1072441. It is not dead the way cumulus's whole-driver wrap or the
 cross-node transport are; a future attempt does not need to re-litigate an architectural
-blocker, only get past native compile/link (where r1/r2/r3 all failed before producing
-a link manifest) and then run the real regression gate.
+blocker. The remaining native gate is precise: the r1/r2 attempts failed, while
+r3 produced 18 Intel-compiled objects and `recipe/link-manifest.json` but did not execute
+the linker or run WRF. A future attempt must complete that linker/WRF regression gate.

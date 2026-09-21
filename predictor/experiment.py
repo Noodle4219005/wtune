@@ -29,6 +29,19 @@ deferred to the call site and raises a clear, actionable error if the predictor'
 (scikit-learn at minimum; catboost/lightgbm optional with their own fallback chain inside
 recommend.py) is not importable -- see _call_recommend().
 
+Generated space (--space generated, or auto-selected -- see `plan`'s --space below): for a case
+whose grid is too small for every C01-C16 template (every template is anchored at 448/224/112
+ranks; WRF needs floor(extent/nproc) >= 10 on every active domain, share/module_check_a_mundo.F:
+3014-3029), resolve_case() resolves NO C01 and the template path above has no baseline to plan
+against. predictor/decomp_space.py (enumerate_space/legal_shapes_exact/rsl_patch_extents) is
+ALSO plain-stdlib-importable (no numpy/sklearn -- verified: it imports campaign/configs.py and
+predictor/features.py only) and is imported directly by _generated_baseline(), same as
+campaign_configs/dsum above -- the generated-space BASELINE is always buildable with no ML stack
+at all. Only the generated space's RECOMMENDED candidates need predictor/decomp_search.py (via
+_call_decomp_search_propose()), which -- like recommend.py -- needs scikit-learn/catboost
+(predictor/models.py) and is therefore ALSO deferred to its call site with the same clear-error
+contract as _call_recommend().
+
 Deliberately NOT imported: predictor/ledger.py (imports repo-root wtune_compliance.py) and
 predictor/benchmark.py (imports predictor/models.py, i.e. sklearn) -- this file reads/writes
 campaign ledger CSVs itself via the stdlib csv module using the canonical LEDGER_HEADER
@@ -46,12 +59,14 @@ FILE-named generated set OR resolve_case()'s STRICT templates, never both at onc
 every candidate in a plan is a template id, the sbatch command selects them via
 CONFIGS=Cxx+Cyy (the already-tested resolve_case()/TEMPLATES path -- the smallest faithful
 option). configs.json is still always written in the CONFIG_FILE JSON shape (a documented,
-round-trippable record of exactly what was measured, and the only mechanism available at all
-for a future non-template candidate, e.g. a predictor/decomp_search.py proposal or a
-predictor/decomp_space.py generated decomposition) -- when a plan ever contains a
-non-template candidate, the sbatch command switches to CONFIG_FILE=configs.json instead
-(which must then carry EVERY candidate, template ids included, since CONFIG_FILE replaces
-the whole config set for that job).
+round-trippable record of exactly what was measured, and the mechanism used for every
+non-template candidate: a predictor/decomp_search.py proposal, a predictor/decomp_space.py
+generated decomposition -- see "Generated space" above -- or a future kind not yet invented)
+-- when a plan ever contains a non-template candidate (every candidate in a --space generated
+plan always is, since GBASE/GREC* ids never appear in campaign_configs.resolve_case()'s
+TEMPLATES table), the sbatch command switches to CONFIG_FILE=configs.json instead (which must
+then carry EVERY candidate, template ids included, since CONFIG_FILE replaces the whole config
+set for that job).
 """
 from __future__ import annotations
 
@@ -115,6 +130,18 @@ SBATCH_SCRIPT_REL = "campaign/strict_campaign.sbatch"   # relative to repo root,
                                                           # predictor/decomp_search.py's own
                                                           # sbatch_command() convention
 BASELINE_ID = "C01"
+GENERATED_BASELINE_ID = "GBASE"          # generated-space C01 analogue, see GENERATED_BASELINE_RULE
+GENERATED_REC_PREFIX = "GREC"            # generated-space recommended:i candidate ids, GREC1..GRECk
+GENERATED_BASELINE_RULE = (
+    "generated-space baseline (C01 analogue, _generated_baseline()): omp=1, ranks = the MAXIMUM "
+    "legal rank count <= total_cores (scanned descending via predictor/decomp_space.py's "
+    "legal_shapes_exact, decomp_space.py:143), numtiles=1, dist=cyclic, blocktime='0'; among "
+    "legal (nx,ny) shapes at that rank count, pick the least aspect of d01's RSL min-patch "
+    "(max(patch_x,patch_y)/min(patch_x,patch_y) via decomp_space.rsl_patch_extents, "
+    "decomp_space.py:107 -- the same metric decomp_space.seed_design()'s own aspect() helper "
+    "uses, decomp_space.py:636-638, for the identical 'cold-start, no C01' scenario), tie-broken "
+    "by legal_shapes_exact's own ascending-nx factor_pairs order (decomp_space.py:102,150)."
+)
 DEFAULT_LEDGER_DIR = "/home/u5727520/wrf-bench/wscore/campaign"   # strict_campaign.sbatch's
                                                                     # own $OUT; only a fallback,
                                                                     # always override with
@@ -438,6 +465,145 @@ def _build_candidates(args, case_json, id_to_cfg, full_rows):
 
 
 # ---------------------------------------------------------------------------
+# generated-space candidate assembly (predictor/decomp_space.py -- a case that resolves no C01
+# STRICT template, see the module docstring's "Generated space" paragraph)
+# ---------------------------------------------------------------------------
+def _generated_baseline(case_json, total_cores, nodes, hardware_id):
+    """The generated-space C01 analogue -- see GENERATED_BASELINE_RULE. Always resolvable from
+    predictor/decomp_space.enumerate_space's exact legal-shape gate: scoped to
+    total_cores=<the chosen max-legal rank count>, not the caller's total_cores, because the
+    caller's own total_cores can itself be illegal at omp=1 -- enumerate_space(total_cores=
+    nodes*112, omp_options=[1]) would enumerate ZERO omp=1 candidates whenever ranks=total_cores
+    itself has no legal (nx,ny) split (e.g. matthew 91x100 at total_cores=112: legal_shapes_exact
+    is empty there; the true max legal rank count is 90, shape 9x10)."""
+    try:
+        import decomp_space
+    except ImportError as e:
+        raise SystemExit(
+            "predictor/decomp_space.py could not be imported (%s: %s) -- it should need only "
+            "the stdlib plus campaign/configs.py and predictor/features.py; check those modules "
+            "if this is unexpected" % (type(e).__name__, e))
+
+    we_list, sn_list = campaign_configs._active_domain_extents(case_json)
+    shapes = []
+    ranks = total_cores
+    for ranks in range(total_cores, 0, -1):
+        shapes = decomp_space.legal_shapes_exact(we_list, sn_list, ranks)
+        if shapes:
+            break
+    if not shapes:
+        raise SystemExit(
+            "no legal MPI decomposition exists at omp=1 for any rank count 1..%d -- cannot "
+            "build a generated-space baseline" % total_cores)
+
+    we0, sn0 = we_list[0], sn_list[0]
+
+    def _aspect(shape):
+        nx, ny = shape
+        px, _ = decomp_space.rsl_patch_extents(we0, nx)
+        py, _ = decomp_space.rsl_patch_extents(sn0, ny)
+        return max(px, py) / float(min(px, py))
+
+    shape = min(shapes, key=lambda s: (_aspect(s), s))
+
+    base_candidates, _axis = decomp_space.enumerate_space(
+        case_json, total_cores=ranks, nodes=nodes, hardware_id=hardware_id, omp_options=[1],
+        tile_options=dict(numtiles_multiples=(), max_numtiles=1, include_2d=False))
+    base = next(c for c in base_candidates
+                if (c["nx"], c["ny"]) == shape and c["dist"] == "cyclic" and c["blocktime"] == "0")
+    return dict(
+        ranks=base["ranks"], omp=1, nx=base["nx"], ny=base["ny"], numtiles=1,
+        dist="cyclic", blocktime="0",
+        numtiles_x=base.get("numtiles_x", 0), numtiles_y=base.get("numtiles_y", 0),
+        tile_sz_x=base.get("tile_sz_x", 0), tile_sz_y=base.get("tile_sz_y", 0),
+        tile_strategy=base.get("tile_strategy", 0),
+        patch_x=base.get("patch_x"), patch_y=base.get("patch_y"),
+    )
+
+
+def _call_decomp_search_propose(ledger_paths, case, case_json, hardware_id, nodes, total_cores,
+                                 top_k, loco):
+    """predictor/decomp_search.py's dependency chain needs scikit-learn/catboost (via
+    predictor/models.py), exactly like predictor/recommend.py's -- see _call_recommend above.
+    Calls decomp_search.propose_for_case (decomp_search.py:505), that module's own documented
+    low-level reuse entry point ("lets a caller with its OWN namelist-derived case ... reuse this
+    loop"), which itself calls propose_core (decomp_search.py:426) as a PURE-EXPLOITATION
+    recommender: kappa=0.0 makes the LCB acquisition mu - kappa*sigma degenerate to mu (rank
+    candidates by predicted mean only, no exploration bonus for uncertain ones -- see the
+    acq = mu - kappa*sigma line, decomp_search.py:463). `state` is a FRESH, never-measured
+    decomp_search state (the same shape decomp_search.load_state(None) returns for a path that
+    does not exist) -- nothing is read from or written to disk; decomp_search's own round-
+    tracking state is never persisted here, only experiment.py's plan.json records what was
+    chosen."""
+    try:
+        import benchmark as benchmark_mod
+        import decomp_search
+    except ImportError as e:
+        raise SystemExit(
+            "predictor/decomp_search.py could not be imported (%s: %s) -- its dependency chain "
+            "needs scikit-learn/catboost at minimum (predictor/models.py); install/activate the "
+            "predictor pixi env to use the generated-space recommender, or pass --space template "
+            "for a case that resolves %s instead" % (type(e).__name__, e, BASELINE_ID))
+
+    prior_rows = []
+    for p in ledger_paths:
+        prior_rows.extend(benchmark_mod.load_ledger(p))
+    prior_rows = [r for r in prior_rows if r.get("compliance_class") != "RESEARCH"]
+    n_total = len(prior_rows)
+    # --loco: drop every row whose case_base == this case BEFORE the surrogate ever sees them --
+    # same "one filter, one place" convention _build_candidates uses ahead of _call_recommend.
+    if loco:
+        prior_rows = [r for r in prior_rows if r.get("case_base") != case]
+    n_used = len(prior_rows)
+
+    case_fields = decomp_search.case_row_fields(case_json)
+    state = dict(configs={}, measured={}, rounds=[])
+    result, _configs_out = decomp_search.propose_for_case(
+        case, case_json, case_fields, prior_rows, state, top_k,
+        total_cores=total_cores, nodes=nodes, hardware_id=hardware_id, kappa=0.0)
+    result = dict(result)
+    result["n_ledger_rows_total"] = n_total
+    result["n_ledger_rows_used"] = n_used
+    return result
+
+
+def _build_generated_candidates(args, case_json, full_rows, nodes, total_cores):
+    """Generated-space equivalent of _build_candidates: GBASE (the C01 analogue, always added)
+    plus up to --top-k GREC1..GRECk from decomp_search.propose_core used as a pure-exploitation
+    recommender, plus best_known (unchanged logic, same as the template path)."""
+    cands = _Candidates()
+
+    cands.add(GENERATED_BASELINE_ID,
+              _generated_baseline(case_json, total_cores, nodes, args.hardware_id), "baseline")
+
+    result = _call_decomp_search_propose(args.ledger, args.case, case_json, args.hardware_id,
+                                          nodes, total_cores, args.top_k, bool(args.loco))
+    recommend_info = dict(
+        space="generated", loco=bool(args.loco), kappa=0.0, top_k=args.top_k,
+        n_ledger_rows_total=result.get("n_ledger_rows_total"),
+        n_ledger_rows_used=result.get("n_ledger_rows_used"),
+        stopped=result.get("stopped"), reason=result.get("reason"), round=result.get("round"),
+        n_training_rows=result.get("n_training_rows"), ensemble_size=result.get("ensemble_size"),
+    )
+    for i, c in enumerate(result.get("chosen") or [], start=1):
+        cfg = dict(ranks=c["ranks"], omp=c["omp"], nx=c["nx"], ny=c["ny"], numtiles=c["numtiles"],
+                   dist=c["dist"], blocktime=c["blocktime"],
+                   numtiles_x=c.get("numtiles_x", 0), numtiles_y=c.get("numtiles_y", 0),
+                   tile_sz_x=c.get("tile_sz_x", 0), tile_sz_y=c.get("tile_sz_y", 0),
+                   tile_strategy=c.get("tile_strategy", 0),
+                   patch_x=c.get("patch_x"), patch_y=c.get("patch_y"))
+        cands.add("%s%d" % (GENERATED_REC_PREFIX, i), cfg, "recommended:%d" % i)
+
+    bk = _best_known(_rows_on_nodes(full_rows, nodes), args.case)
+    if bk is not None:
+        bk_id, bk_cfg, bk_median, bk_n = bk
+        cands.add(bk_id, bk_cfg, "best_known",
+                   best_known_measured_median=bk_median, best_known_measured_n=bk_n)
+
+    return cands, recommend_info, bk
+
+
+# ---------------------------------------------------------------------------
 # CONFIG_FILE writer (campaign/configs.py load_generated_configs()/cmd_case_generated() shape)
 # ---------------------------------------------------------------------------
 def _write_configs_json(path, candidate_ids, candidates, case_json):
@@ -490,12 +656,30 @@ def cmd_plan(args):
     case_json = _case_json(args.case)
     id_to_cfg, skipped, aliases = _resolve_case_configs(args.case)
     full_rows = _read_ledgers(args.ledger)
+    nodes = args.nodes or DEFAULT_NODES
+    total_cores = nodes * CORES_PER_NODE
 
-    cands, recommend_info, bk = _build_candidates(args, case_json, id_to_cfg, full_rows)
+    space = args.space
+    if space == "auto":
+        space = "template" if BASELINE_ID in id_to_cfg else "generated"
+
+    if space == "template":
+        cands, recommend_info, bk = _build_candidates(args, case_json, id_to_cfg, full_rows)
+        baseline_rule = None
+    else:
+        if args.configs:
+            raise SystemExit(
+                "--configs (a template-id list resolved against campaign/configs.py TEMPLATES) "
+                "is not supported with --space generated -- the generated space has no fixed "
+                "template-id table to resolve ids against; drop --configs, or use --space "
+                "template/auto with a case that resolves %s" % BASELINE_ID)
+        cands, recommend_info, bk = _build_generated_candidates(args, case_json, full_rows,
+                                                                  nodes, total_cores)
+        baseline_rule = GENERATED_BASELINE_RULE
+
     candidate_ids = cands.ids()
     candidates = cands.as_dict()
 
-    nodes = args.nodes or DEFAULT_NODES
     partition = PARTITION_SMALL if nodes == 1 else PARTITION_FULL
     s_est, s_source = _s_per_step_estimates(_rows_on_nodes(full_rows, nodes), args.case,
                                             candidate_ids, case_json)
@@ -523,6 +707,7 @@ def cmd_plan(args):
     plan = dict(
         case=args.case, hardware_id=args.hardware_id, nodes=nodes, partition=partition,
         reps=args.reps, top_k=args.top_k, loco=bool(args.loco),
+        space=space, baseline_rule=baseline_rule,
         namelist=os.path.abspath(args.namelist) if args.namelist else None,
         ledgers=[os.path.abspath(p) for p in args.ledger],
         explicit_configs=os.path.abspath(args.configs) if args.configs else None,
@@ -778,6 +963,13 @@ def _build_arg_parser():
     p_plan.add_argument("--nodes", type=int, default=DEFAULT_NODES)
     p_plan.add_argument("--top-k", type=int, default=DEFAULT_TOP_K, dest="top_k")
     p_plan.add_argument("--loco", action="store_true")
+    p_plan.add_argument("--space", choices=("auto", "template", "generated"), default="auto",
+                         help="'template' forces campaign/configs.py's C01-C16 STRICT templates "
+                              "(fails if the case resolves no C01 baseline); 'generated' forces "
+                              "predictor/decomp_space.py's exact-legality decomposition space "
+                              "(GBASE baseline + decomp_search.propose_core top-k); 'auto' "
+                              "(default) picks 'template' when the case resolves C01, else "
+                              "'generated'")
     p_plan.add_argument("--configs", default=None)
     p_plan.add_argument("--reps", type=int, default=DEFAULT_REPS)
     p_plan.add_argument("--out", required=True)

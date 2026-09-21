@@ -25,6 +25,10 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
 
 import experiment as ex          # noqa: E402
 import configs as campaign_configs  # noqa: E402  -- campaign/configs.py, for the round-trip test
+import decomp_space              # noqa: E402  -- predictor/decomp_space.py: real (not faked) in
+                                  # every generated-space test below, stdlib-only, no sklearn
+                                  # needed (unlike decomp_search, which every generated-space
+                                  # test DOES fake -- see _install_fake_decomp_search)
 
 
 # ---------------------------------------------------------------------------
@@ -70,11 +74,11 @@ def _karina_rows(case="karina", c01=(0.40, 0.41), c06=(0.255, 0.257), c05=(0.262
 
 
 def _plan_args(tmp_path, case="karina", ledger_paths=None, loco=False, configs=None,
-               out=None, reps=2, nodes=4, top_k=3, namelist=None):
+               out=None, reps=2, nodes=4, top_k=3, namelist=None, space="auto"):
     return SimpleNamespace(
         case=case, ledger=ledger_paths or [], namelist=namelist or os.devnull,
         hardware_id="f1-spr-icpnq", nodes=nodes, top_k=top_k, loco=loco, configs=configs,
-        reps=reps, out=str(out or (tmp_path / "plan")),
+        reps=reps, out=str(out or (tmp_path / "plan")), space=space,
     )
 
 
@@ -102,6 +106,90 @@ def _install_fake_recommend(monkeypatch, shortlist, capture=None):
 
     mod.recommend = recommend
     monkeypatch.setitem(sys.modules, "recommend", mod)
+    return mod
+
+
+# ---------------------------------------------------------------------------
+# generated-space fakes: predictor/benchmark.py and predictor/decomp_search.py both need
+# scikit-learn/catboost transitively (benchmark.py -> models.py -> sklearn, same as
+# decomp_search.py -> models.py), so both are faked the same way _install_fake_recommend fakes
+# predictor/recommend.py.
+# ---------------------------------------------------------------------------
+_NUMERIC_LEDGER_FIELDS = (
+    "e_we", "e_sn", "e_vert", "dx", "dy", "time_step", "radt", "cudt",
+    "history_interval", "n_nodes", "n_ranks", "omp_threads", "nproc_x",
+    "nproc_y", "numtiles", "kmp_blocktime", "s_per_step_median",
+    "s_per_step_mean", "n_steps_measured", "diffwrf_differing_fields",
+    "mp_physics", "cu_physics", "bl_pbl_physics", "sf_sfclay_physics",
+    "sf_surface_physics", "ra_lw_physics", "ra_sw_physics",
+    "profile_micro_share", "profile_radiation_share", "profile_dynamics_share",
+    "profile_mpi_share", "profile_io_share", "profile_rank_imbalance",
+    "profile_thread_imbalance",
+)
+_NULLABLE_LEDGER_FIELDS = (
+    "job_id", "rep_index", "case_raw", "case_base", "case_family",
+    "hardware_id", "binary_kind", "compliance_class", "distribution",
+    "fidelity_label", "notes", "run_id", "source_dataset",
+)
+
+
+def _install_fake_benchmark(monkeypatch):
+    """Fake predictor/benchmark.py: only load_ledger() is needed by
+    experiment._call_decomp_search_propose, and its real implementation is plain stdlib csv +
+    float coercion (the ModuleNotFoundError comes only from benchmark.py's OWN unconditional
+    `import models as modelmod` at module scope, unrelated to load_ledger's own logic) --
+    reproduced verbatim here rather than importing the real module."""
+    mod = types.ModuleType("benchmark")
+
+    def _f(v):
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return None
+
+    def load_ledger(path):
+        with open(path, newline="") as fh:
+            rows = []
+            for r in csv.DictReader(fh):
+                row = dict(r)
+                for key in _NUMERIC_LEDGER_FIELDS:
+                    row[key] = _f(row.get(key))
+                for key in _NULLABLE_LEDGER_FIELDS:
+                    if row.get(key) == "":
+                        row[key] = None
+                rows.append(row)
+        return rows
+
+    mod.load_ledger = load_ledger
+    monkeypatch.setitem(sys.modules, "benchmark", mod)
+    return mod
+
+
+def _install_fake_decomp_search(monkeypatch, chosen=(), capture=None, stopped=False, reason=None):
+    """Inject a fake `decomp_search` module into sys.modules so experiment.py's lazy `import
+    decomp_search` picks it up instead of the real predictor/decomp_search.py (which needs
+    scikit-learn/catboost via predictor/models.py, unavailable in this test environment). Stands
+    in for both case_row_fields() and propose_for_case() (decomp_search.py:505, which itself
+    calls propose_core at decomp_search.py:426 in the real module)."""
+    mod = types.ModuleType("decomp_search")
+
+    def case_row_fields(case_json):
+        return dict(e_we=case_json.get("e_we"), e_sn=case_json.get("e_sn"))
+
+    def propose_for_case(case_name, case_json, case_fields, prior_rows, state, batch_size,
+                          total_cores=448, nodes=4, hardware_id=None, kappa=1.5, **kw):
+        if capture is not None:
+            capture.append(dict(case_name=case_name, case_json=case_json,
+                                 case_fields=case_fields, prior_rows=prior_rows, state=state,
+                                 batch_size=batch_size, total_cores=total_cores, nodes=nodes,
+                                 hardware_id=hardware_id, kappa=kappa, kwargs=kw))
+        result = dict(stopped=stopped, round=1, reason=reason,
+                      chosen=[] if stopped else list(chosen[:batch_size]))
+        return result, []
+
+    mod.case_row_fields = case_row_fields
+    mod.propose_for_case = propose_for_case
+    monkeypatch.setitem(sys.modules, "decomp_search", mod)
     return mod
 
 
@@ -392,6 +480,227 @@ def test_explicit_configs_unknown_id_raises(tmp_path):
                        out=tmp_path / "plan")
     with pytest.raises(SystemExit):
         ex.cmd_plan(args)
+
+
+# ---------------------------------------------------------------------------
+# generated space (--space): matthew (91x100, campaign/cases.json) resolves no C01 STRICT
+# template at any of the 448/224/112-rank anchors (every legal (nx,ny) at ranks=112 needs
+# nx<=9 (91//nx>=10) and ny<=10 (100//ny>=10), so the max legal ranks is 9*10=90, not 112) --
+# real motivating case from the problem statement's 6 small cluster cases.
+# ---------------------------------------------------------------------------
+_HW = "f1-spr-icpnq"
+
+
+def _matthew_case():
+    return campaign_configs.CASES["matthew"]
+
+
+def _matthew_space(total_cores=112, nodes=1):
+    return decomp_space.enumerate_space(_matthew_case(), total_cores=total_cores, nodes=nodes,
+                                         hardware_id=_HW)
+
+
+def _matthew_cost_row(s=1.0):
+    """A minimal STRICT row for matthew at n_nodes=1 so _s_per_step_estimates() (unchanged,
+    pre-existing logic -- not part of this change) has a case_median fallback for cost
+    estimation; matthew has no campaign/configs.py COST_GUESS entry for its grid. Its
+    decomposition identity matches none of GBASE/GREC*, so it never becomes a best_known
+    candidate -- purely a cost-estimate fallback row."""
+    return _row(case_base="matthew", case_raw="matthew", n_nodes="1",
+                s_per_step_median=str(s), s_per_step_mean=str(s), n_steps_measured="30")
+
+
+def test_generated_space_auto_selected_with_max_legal_baseline_and_full_membership(
+        tmp_path, monkeypatch):
+    case_json = _matthew_case()
+    assert campaign_configs.resolve_case(case_json)[0] == [], \
+        "matthew must resolve ZERO STRICT templates for this test to be meaningful"
+
+    candidates, axis = _matthew_space()
+    # omp=1 has ZERO legal shapes at total_cores=112 (axis["shapes_count"][1] == 0 -- this IS
+    # why the baseline needs its own scan down to ranks=90, see _generated_baseline); the
+    # recommender searches this same (total_cores=112, nodes=1) pool, whose legal omp values are
+    # {2, 7, 14} instead (axis["omp_options"]). A real, legal 2-candidate shortlist (not
+    # fabricated), so "every candidate is in the legal space" is exercised on genuine
+    # decomp_space output, not hand-rolled numbers.
+    assert axis["shapes_count"][1] == 0
+    pool = [c for c in candidates if c["tile_shape"] == "1d_y" and c["numtiles"] == 1
+            and c["dist"] == "cyclic" and c["blocktime"] == "0"]
+    assert pool, "expected at least one legal 1d_y/numtiles=1/cyclic/blocktime=0 candidate"
+    captured = []
+    ledger = tmp_path / "ledger.csv"
+    _write_csv(ledger, [_matthew_cost_row()])
+    _install_fake_benchmark(monkeypatch)
+    _install_fake_decomp_search(monkeypatch, chosen=pool[:2], capture=captured)
+
+    args = _plan_args(tmp_path, case="matthew", ledger_paths=[str(ledger)], nodes=1, top_k=2,
+                       out=tmp_path / "plan")
+    plan = ex.cmd_plan(args)
+
+    assert plan["space"] == "generated"
+    assert plan["baseline_rule"] == ex.GENERATED_BASELINE_RULE
+
+    base = next(c for c in plan["candidates"] if c["config_id"] == "GBASE")
+    assert base["roles"] == ["baseline"]
+    assert base["ranks"] == 90 and base["omp"] == 1 and base["numtiles"] == 1
+    assert base["dist"] == "cyclic" and base["blocktime"] == "0"
+    # WRF's real legality gate (share/module_check_a_mundo.F:3014-3029), not the ceil
+    # approximation: floor(91/9)=10>=10, floor(100/10)=10>=10 -- both at the MIN_PATCH floor.
+    assert (base["nx"], base["ny"]) == (9, 10)
+    assert base["patch_x"] is not None and base["patch_y"] is not None
+
+    # ranks=90 (not total_cores=112) is the max legal rank count at omp=1 -- 91,92,...,112 all
+    # have zero legal (nx,ny) shapes (nx<=9, ny<=10 caps the product at 90).
+    we_list, sn_list = campaign_configs._active_domain_extents(case_json)
+    for ranks in range(91, 113):
+        assert decomp_space.legal_shapes_exact(we_list, sn_list, ranks) == []
+    assert decomp_space.legal_shapes_exact(we_list, sn_list, 90) == [(9, 10)]
+
+    # every GBASE/GREC* candidate must be a member of the legal space: its own (ranks, nx, ny)
+    # passes legal_shapes_exact for that ranks value (checked directly, the same predicate
+    # enumerate_space itself is built on).
+    for c in plan["candidates"]:
+        if c["config_id"] in ("GBASE",) or c["config_id"].startswith("GREC"):
+            assert (c["nx"], c["ny"]) in decomp_space.legal_shapes_exact(
+                we_list, sn_list, c["ranks"])
+
+    rec_ids = [c["config_id"] for c in plan["candidates"] if c["config_id"].startswith("GREC")]
+    assert rec_ids == ["GREC1", "GREC2"]
+    for i, cid in enumerate(rec_ids, start=1):
+        c = next(x for x in plan["candidates"] if x["config_id"] == cid)
+        assert c["roles"] == ["recommended:%d" % i]
+
+    assert len(captured) == 1
+    assert captured[0]["kappa"] == 0.0            # pure exploitation, no LCB exploration bonus
+    assert captured[0]["batch_size"] == 2          # top_k
+    assert captured[0]["state"] == dict(configs={}, measured={}, rounds=[])   # fresh state
+    assert plan["recommend"]["space"] == "generated"
+    assert plan["recommend"]["kappa"] == 0.0
+
+
+def test_generated_space_loco_drops_target_rows_before_propose_core_but_best_known_uses_full_ledger(
+        tmp_path, monkeypatch):
+    ledger = tmp_path / "ledger.csv"
+    rows = (_karina_rows(case="matthew")
+            + _karina_rows(case="conus25", c01=(1.0, 1.01), c06=(0.9, 0.91), c05=(0.95, 0.96))
+            + [_matthew_cost_row()])
+    _write_csv(ledger, rows)
+
+    _install_fake_benchmark(monkeypatch)
+    captured = []
+    _install_fake_decomp_search(monkeypatch, chosen=[], capture=captured)
+
+    args = _plan_args(tmp_path, case="matthew", ledger_paths=[str(ledger)], loco=True, nodes=1,
+                       out=tmp_path / "plan_loco")
+    plan = ex.cmd_plan(args)
+
+    assert plan["space"] == "generated"
+    assert len(captured) == 1
+    seen_cases = {r.get("case_base") for r in captured[0]["prior_rows"]}
+    assert "matthew" not in seen_cases, "LOCO must drop every matthew row before propose_core runs"
+    assert "conus25" in seen_cases, "LOCO must not touch other cases' rows"
+
+    # best_known must still reflect matthew's OWN full (unfiltered) history: C06 (0.256 median)
+    # beats C05 (0.261) and C01 (0.405) in _karina_rows()'s fixture medians (n_nodes="4" there,
+    # but this plan is 1-node -- best_known is filtered to nodes=1 rows, so it must be null).
+    assert plan["best_known"] is None
+    assert plan["recommend"]["loco"] is True
+    assert plan["recommend"]["n_ledger_rows_used"] < plan["recommend"]["n_ledger_rows_total"]
+
+
+def test_generated_space_best_known_uses_full_ledger_on_matching_node_count(tmp_path, monkeypatch):
+    ledger = tmp_path / "ledger.csv"
+    rows = [dict(r, n_nodes="1") for r in _karina_rows(case="matthew")]
+    _write_csv(ledger, rows)
+    _install_fake_benchmark(monkeypatch)
+    _install_fake_decomp_search(monkeypatch, chosen=[])
+
+    args = _plan_args(tmp_path, case="matthew", ledger_paths=[str(ledger)], nodes=1,
+                       out=tmp_path / "plan")
+    plan = ex.cmd_plan(args)
+    assert plan["best_known"]["config_id"] == "C06"
+    assert plan["best_known"]["measured_median_s_per_step"] == pytest.approx(0.256, abs=1e-9)
+
+
+def test_generated_space_configs_json_round_trips_and_sbatch_uses_config_file_small_partition(
+        tmp_path, monkeypatch):
+    candidates, _axis = _matthew_space()
+    pool = [c for c in candidates if c["tile_shape"] == "1d_y" and c["numtiles"] == 1
+            and c["dist"] == "cyclic" and c["blocktime"] == "0"]
+    ledger = tmp_path / "ledger.csv"
+    _write_csv(ledger, [_matthew_cost_row()])
+    _install_fake_benchmark(monkeypatch)
+    _install_fake_decomp_search(monkeypatch, chosen=pool[:1])
+
+    args = _plan_args(tmp_path, case="matthew", ledger_paths=[str(ledger)], nodes=1, top_k=1,
+                       out=tmp_path / "plan")
+    plan = ex.cmd_plan(args)
+
+    assert plan["template_ids"] == []
+    assert set(plan["nontemplate_ids"]) == {"GBASE", "GREC1"}
+
+    loaded = campaign_configs.load_generated_configs(plan["configs_json_path"])
+    assert {c["id"] for c in loaded} == {"GBASE", "GREC1"}
+    for cfg in loaded:
+        assert cfg["patch_x"] not in (None, "")
+        assert cfg["patch_y"] not in (None, "")
+
+    ids, by_id, reason = campaign_configs.available_decomps(
+        "matthew", config_file=plan["configs_json_path"])
+    assert reason is None
+    assert set(ids) == {"GBASE", "GREC1"}
+
+    assert "CONFIG_FILE=%s" % plan["configs_json_path"] in plan["sbatch"]["command"]
+    assert " -p cf112 -N 1 " in plan["sbatch"]["command"]
+    assert plan["partition"] == "cf112"
+
+
+def test_space_generated_forces_it_for_a_template_resolving_case(tmp_path, monkeypatch):
+    ledger = tmp_path / "ledger.csv"
+    _write_csv(ledger, _karina_rows())
+    kept, _skipped, _aliases = campaign_configs.resolve_case(campaign_configs.CASES["karina"])
+    assert "C01" in {c["id"] for c in kept}, "karina must resolve C01 for this test to be meaningful"
+
+    _install_fake_benchmark(monkeypatch)
+    _install_fake_decomp_search(monkeypatch, chosen=[])
+
+    args = _plan_args(tmp_path, case="karina", ledger_paths=[str(ledger)], space="generated",
+                       out=tmp_path / "plan")
+    plan = ex.cmd_plan(args)
+    assert plan["space"] == "generated"
+    ids = {c["config_id"] for c in plan["candidates"]}
+    assert "GBASE" in ids
+    assert "C01" not in ids
+
+
+def test_configs_flag_rejected_with_space_generated(tmp_path):
+    ledger = tmp_path / "ledger.csv"
+    _write_csv(ledger, _karina_rows())
+    explicit = tmp_path / "explicit.json"
+    explicit.write_text(json.dumps(["C06"]))
+    args = _plan_args(tmp_path, case="karina", ledger_paths=[str(ledger)], configs=str(explicit),
+                       space="generated", out=tmp_path / "plan")
+    with pytest.raises(SystemExit):
+        ex.cmd_plan(args)
+
+
+def test_template_space_unaffected_when_case_resolves_c01(tmp_path, monkeypatch):
+    """Template path behaviour must be unchanged for cases that resolve C01 -- auto-selects
+    'template' exactly as before this change, and decomp_search is never even imported."""
+    # sys.modules[name] = None makes `import name` raise ImportError (a documented CPython
+    # import-system convention) -- if the template path ever imports decomp_search, cmd_plan
+    # raises SystemExit here instead of returning a plan, failing this test.
+    monkeypatch.setitem(sys.modules, "decomp_search", None)
+    ledger = tmp_path / "ledger.csv"
+    _write_csv(ledger, _karina_rows())
+    captured = []
+    _install_fake_recommend(monkeypatch, _SHORTLIST_C06_TOP1, capture=captured)
+
+    args = _plan_args(tmp_path, case="karina", ledger_paths=[str(ledger)], out=tmp_path / "plan")
+    plan = ex.cmd_plan(args)
+    assert plan["space"] == "template"
+    assert plan["baseline_rule"] is None
+    assert len(captured) == 1
 
 
 # ---------------------------------------------------------------------------

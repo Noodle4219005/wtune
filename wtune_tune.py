@@ -69,6 +69,7 @@ except ImportError:
     wtune_predict = None
 
 campaign_configs = sweep.campaign_configs
+decomp_space = sweep.decomp_space
 
 DEFAULT_MAX_NODES = 13                 # scc compute pool: work[1-13], head excluded (scc_sweep.py)
 DEFAULT_STEPS = 20
@@ -79,6 +80,8 @@ CONFIRM_REPS = 2
 ROUND0_BUDGET_FRACTION = 0.35          # share of the total budget round 0's parallel slots may use
 ADAPTIVE_STOP_FRACTION = 0.75          # spec: "stop proposing when projected finish > 75% of budget"
 ADAPTIVE_MAX_ROUNDS = 6
+KAPPA_ESCALATION_FACTOR = 2.0          # retry a round that stopped early with more exploration
+KAPPA_MAX_ESCALATIONS = 2              # pressure before falling back to raw decomp_space diversity
 DEFAULT_POLL_INTERVAL_S = 20.0
 PROGRESS_BAR_WIDTH = 24
 
@@ -185,7 +188,15 @@ def choose_nodes_knee(profile, max_nodes):
             return n_i, ("policy=knee: doubling nodes=%d->%d has predicted marginal speedup "
                           "%.2fx < 1.5x; stopping at nodes=%d" % (n_i, n_j, marginal, n_i))
     n = rows[-1]["nodes"]
-    return n, ("policy=knee: every profiled doubling step up to cap=%d still clears 1.5x; "
+    if n < max_nodes:
+        # Every doubling among the LEGAL profiled node counts cleared 1.5x, but nothing above n
+        # is legal for this case's grid (or was not among wtune_case's fixed checkpoints) -- say
+        # so explicitly, so "using nodes=%d" is never read as if it had verified doubling all the
+        # way to --max-nodes and then inexplicably stopped short.
+        return n, ("policy=knee: every doubling among the LEGAL profiled node counts (<=%d) "
+                   "clears 1.5x; nodes=%d is the largest one wtune_case profiled as legal "
+                   "(--max-nodes cap is %d, not reached)" % (n, n, max_nodes))
+    return n, ("policy=knee: every profiled doubling step up to --max-nodes cap=%d clears 1.5x; "
                "using nodes=%d" % (max_nodes, n))
 
 
@@ -222,6 +233,26 @@ def chunk_round_robin(items, n):
     for i, item in enumerate(items):
         chunks[i % n].append(item)
     return [c for c in chunks if c]
+
+
+def sample_more_diverse_configs(ctx, exclude_configs, k, seed):
+    """Up to `k` NOT-yet-measured decomp_space candidates -- the same enumerate_space/sample_design
+    pool round0 itself draws from (predictor/decomp_space.py), covering omp levels, numtiles and
+    aspect ratios round0/adaptive rounds have not tried yet. Used both to top up round0 when it
+    turns out cheaper than assumed and, in run_adaptive_rounds, as the fallback once
+    predictor/decomp_search.py's own Bayesian proposer has nothing left to suggest -- reused
+    (never re-derived): `exclude_configs`' identity is scc_sweep.py's own build_configs dedup key
+    (_identity: ranks/omp/nx/ny/numtiles/dist/blocktime). Returns [] when the pool is exhausted."""
+    total_cores = ctx.nodes * ctx.cores_per_node
+    candidates, _axis = decomp_space.enumerate_space(ctx.case_json, total_cores, ctx.nodes,
+                                                       ctx.hardware_id)
+    seen = {sweep._identity(c) for c in exclude_configs if c}
+    fresh = [c for c in candidates if sweep._identity(c) not in seen]
+    if not fresh or k <= 0:
+        return []
+    chosen, _coverage = decomp_space.sample_design(fresh, min(k, len(fresh)), seed,
+                                                     must_include=None)
+    return decomp_space.to_campaign_configs(chosen, prefix="D")
 
 
 def aggregate_by_cid(rows, configs_by_cid):
@@ -439,6 +470,30 @@ def submit_configs_job(ctx, configs, reps, name_suffix, s_est, time_est=None):
 # ---------------------------------------------------------------------------
 # round 0: anchor + diverse sample, fanned out across parallel slots
 # ---------------------------------------------------------------------------
+def _submit_round0_wave(ctx, configs, slots, s_est, name_prefix):
+    """Chunks `configs` round-robin across `slots` parallel jobs (each a fresh SLURM allocation of
+    ctx.nodes nodes) sized at `s_est` s/step, submits every chunk that still fits the budget, and
+    waits for all of them. Shared by round0's first wave and its top-up wave."""
+    chunks = chunk_round_robin(configs, slots)
+    job_ids, configs_by_cid = [], {}
+    for i, chunk in enumerate(chunks):
+        time_est = sweep.estimate_time(len(chunk), 1, ctx.steps, s_est)
+        if would_exceed_budget(ctx.elapsed(), time_est["job_hours"] * 3600.0, ctx.budget_s):
+            print("%s slot %d: SKIP -- estimated end would exceed budget" % (name_prefix, i))
+            continue
+        job_id, _path, _te = submit_configs_job(ctx, chunk, reps=1,
+                                                  name_suffix="%s-s%d" % (name_prefix, i),
+                                                  s_est=s_est)
+        job_ids.append(job_id)
+        for c in chunk:
+            configs_by_cid[c["id"]] = c
+        print("%s slot %d: submitted job %s (%d configs)" % (name_prefix, i, job_id, len(chunk)))
+
+    wait_for_jobs(ctx, job_ids, name_prefix)
+    rows = ctx.ledger_reader(ctx.case, job_ids)
+    return job_ids, configs_by_cid, rows
+
+
 def run_round0(ctx):
     s_est, s_source, n_rows = sweep.estimate_s_per_step(ctx.case, ctx.nodes, ctx.ledger_dir,
                                                           ctx.hardware_id)
@@ -454,24 +509,38 @@ def run_round0(ctx):
           % (s_est, s_source, n_rows, slots, configs_per_job, len(built["configs"]),
              built["skip_reason"] or "ok"))
     if built["skip_reason"]:
-        return [], {}
+        return [], {}, []
 
-    chunks = chunk_round_robin(built["configs"], slots)
-    job_ids, configs_by_cid = [], {}
-    for i, chunk in enumerate(chunks):
-        time_est = sweep.estimate_time(len(chunk), 1, ctx.steps, s_est)
-        if would_exceed_budget(ctx.elapsed(), time_est["job_hours"] * 3600.0, ctx.budget_s):
-            print("round0 slot %d: SKIP -- estimated end would exceed budget" % i)
-            continue
-        job_id, _path, _te = submit_configs_job(ctx, chunk, reps=1, name_suffix="round0-s%d" % i,
-                                                  s_est=s_est)
-        job_ids.append(job_id)
-        for c in chunk:
-            configs_by_cid[c["id"]] = c
-        print("round0 slot %d: submitted job %s (%d configs)" % (i, job_id, len(chunk)))
+    job_ids, configs_by_cid, rows = _submit_round0_wave(ctx, built["configs"], slots, s_est,
+                                                          "round0")
 
-    wait_for_jobs(ctx, job_ids, "round0")
-    rows = ctx.ledger_reader(ctx.case, job_ids)
+    # Top-up wave: `s_est` above is the PRE-round0 estimate (ledger history, or the no-ledger
+    # fallback CONSERVATIVE_S_PER_STEP=10s/step for a case never run on scc before), so wave 0
+    # itself can be badly under-provisioned on a fast case -- 2026-09-22 sc26p2 run: real cost
+    # ~0.03s/step, fallback assumed 10s/step (333x higher), so configs_per_job floored to 1 and
+    # only 6 configs (slots) got tried out of a budget that could fund far more. Once wave 0's own
+    # measurements are in, refresh s_est and, if real cost came in below what wave 0 assumed and
+    # there is still budget, spend one more wave sampling MORE not-yet-measured decomp_space
+    # candidates (other omp levels/numtiles/aspect ratios) sized off the now-accurate estimate.
+    if job_ids:
+        wave0_results = aggregate_by_cid(rows, configs_by_cid)
+        refreshed_s_est = update_s_est(wave0_results, s_est)
+        if refreshed_s_est < s_est and ctx.elapsed() < ctx.budget_s:
+            topup_per_run_s = sweep.STARTUP_S + ctx.steps * refreshed_s_est
+            topup_budget_s = min(ctx.budget_s - ctx.elapsed(), ctx.budget_s * ROUND0_BUDGET_FRACTION)
+            topup_configs_per_job = max(1, int(topup_budget_s // topup_per_run_s))
+            topup_k = slots * topup_configs_per_job
+            fresh = sample_more_diverse_configs(ctx, list(configs_by_cid.values()), topup_k,
+                                                 ctx.seed + 1)
+            print("round0 top-up: s_est=%.3fs/step (measured, was %.3fs/step) configs_per_job=%d "
+                  "candidates=%d" % (refreshed_s_est, s_est, topup_configs_per_job, len(fresh)))
+            if fresh:
+                topup_ids, topup_by_cid, topup_rows = _submit_round0_wave(
+                    ctx, fresh, slots, refreshed_s_est, "round0-topup")
+                job_ids = job_ids + topup_ids
+                configs_by_cid.update(topup_by_cid)
+                rows = rows + topup_rows
+
     return job_ids, configs_by_cid, rows
 
 
@@ -495,11 +564,11 @@ def _default_proposer(ctx):
         except Exception:
             continue    # best-effort cross-case prior; a malformed sibling ledger is not fatal
 
-    def proposer(state, batch_size):
+    def proposer(state, batch_size, kappa=None):
         return decomp_search.propose_for_case(
             ctx.case, ctx.case_json, case_fields, prior_rows, state, batch_size,
             total_cores=ctx.nodes * ctx.cores_per_node, nodes=ctx.nodes,
-            hardware_id=ctx.hardware_id, kappa=ctx.kappa)
+            hardware_id=ctx.hardware_id, kappa=ctx.kappa if kappa is None else kappa)
 
     return proposer
 
@@ -533,12 +602,43 @@ def run_adaptive_rounds(ctx, all_configs_by_cid, all_results, s_est):
         per_run_s = sweep.STARTUP_S + ctx.steps * s_est
         batch_size = max(1, int(min(remaining_s, ctx.budget_s * ROUND0_BUDGET_FRACTION) // per_run_s))
 
-        result, configs_out = proposer(state, batch_size)
-        state.setdefault("rounds", []).append(dict(round=round_idx, batch_size=batch_size))
+        # `state["rounds"]` (propose_core's own round counter) must grow exactly once per LOGICAL
+        # round_idx, so a kappa retry below re-reads the SAME internal round_idx from
+        # propose_core's perspective -- appending on every attempt would desync round_idx==1's
+        # C01-reference forcing and the round cap from what was actually measured.
+        result, configs_out, kappa = None, [], ctx.kappa
+        for attempt in range(KAPPA_MAX_ESCALATIONS + 1):
+            result, configs_out = proposer(state, batch_size, kappa=kappa)
+            if not result.get("stopped") and configs_out:
+                break
+            if attempt < KAPPA_MAX_ESCALATIONS:
+                next_kappa = kappa * KAPPA_ESCALATION_FACTOR
+                print("adaptive round %d: proposer stopped at kappa=%.3g (%s); retrying with more "
+                      "exploration pressure (kappa=%.3g)"
+                      % (round_idx, kappa, result.get("reason", ""), next_kappa))
+                kappa = next_kappa
+
         if result.get("stopped") or not configs_out:
-            print("adaptive rounds: stopped at round %d (%s)"
-                  % (round_idx, result.get("reason", "no candidates proposed")))
-            return
+            # Bayesian exploitation is exhausted even after escalating kappa -- fall back to raw
+            # decomp_space diversity sampling (other omp levels/numtiles/aspect ratios not yet
+            # measured) before accepting there is genuinely nothing left worth trying. Keeps
+            # proposing until the 75% budget line or the legal decomp_space pool is exhausted,
+            # instead of stopping at round 1 with most of the budget still unused (2026-09-22
+            # sc26p2 run: stopped with 90% of the budget left after only 6 measured configs).
+            fresh = sample_more_diverse_configs(ctx, list(all_configs_by_cid.values()), batch_size,
+                                                 ctx.seed + round_idx)
+            if not fresh:
+                print("adaptive rounds: stopped at round %d -- proposer exhausted even after "
+                      "kappa escalation (%s) and the decomp_space pool has no unmeasured "
+                      "candidate left" % (round_idx, result.get("reason", "no candidates proposed")))
+                return
+            print("adaptive round %d: proposer exhausted (%s); falling back to %d decomp_space-"
+                  "diverse candidate(s) not yet measured"
+                  % (round_idx, result.get("reason", ""), len(fresh)))
+            configs_out = fresh
+
+        state.setdefault("rounds", []).append(dict(round=round_idx, batch_size=batch_size,
+                                                     kappa=kappa))
 
         time_est = sweep.estimate_time(len(configs_out), 1, ctx.steps, s_est)
         projected_end = elapsed + time_est["job_hours"] * 3600.0
@@ -571,17 +671,56 @@ def run_adaptive_rounds(ctx, all_configs_by_cid, all_results, s_est):
 # ---------------------------------------------------------------------------
 def run_confirm(ctx, all_configs_by_cid, all_results, anchor_cid, s_est):
     entries = select_confirm_entries(all_results, anchor_cid)
-    configs = [e["config"] for e in entries]
-    if not configs:
+    if not entries:
         print("confirm: SKIP -- no measured configs to confirm")
         return None, None
 
-    configs_with_s = [(e["config"], e["median"]) for e in entries]
-    time_est = estimate_time_per_config(configs_with_s, CONFIRM_REPS, ctx.steps)
-    if would_exceed_budget(ctx.elapsed(), time_est["job_hours"] * 3600.0, ctx.budget_s):
-        print("confirm: SKIP -- estimated end would exceed budget; final ranking uses round "
-              "measurements only (not independently re-confirmed)")
+    # Log every candidate's own measured median + per-run estimate up front, always -- the
+    # 2026-09-22 sc26p2 run skipped confirm entirely at elapsed 2.7/30 min on a case measured at
+    # 0.03-0.04 s/step with no visibility into WHY; this makes the actual numbers behind that
+    # decision show up in the log every time, not just when something looks wrong.
+    for e in entries:
+        per_run_s = sweep.STARTUP_S + ctx.steps * e["median"]
+        print("confirm candidate %-8s median=%.4fs/step (n=%d) -> per_run~%.1fs x REPS=%d"
+              % (e["cid"], e["median"], e["n"], per_run_s, CONFIRM_REPS))
+
+    # Greedily keep the cheapest candidates that still fit the remaining budget, cheapest first,
+    # instead of an all-or-nothing decision on the WHOLE top-3+anchor set: with round0 sampling
+    # only a handful of configs (see run_round0's top-up fix), "top-3 by median" can be forced to
+    # include a genuinely slow outlier just to fill 3 slots (e.g. one ~6.7s/step config next to an
+    # anchor at 0.03s/step) -- that single candidate's own real cost dominated the combined
+    # estimate and vetoed confirming the fast ones too, even though they trivially fit alone.
+    entries_sorted = sorted(entries, key=lambda e: e["median"])
+    kept, dropped, time_est = [], [], None
+    for e in entries_sorted:
+        trial = kept + [e]
+        trial_est = estimate_time_per_config([(x["config"], x["median"]) for x in trial],
+                                              CONFIRM_REPS, ctx.steps)
+        if would_exceed_budget(ctx.elapsed(), trial_est["job_hours"] * 3600.0, ctx.budget_s):
+            dropped.append(e)
+            continue
+        kept.append(e)
+        time_est = trial_est
+
+    if not kept:
+        solo_est = estimate_time_per_config(
+            [(entries_sorted[0]["config"], entries_sorted[0]["median"])], CONFIRM_REPS, ctx.steps)
+        print("confirm: SKIP -- even the cheapest candidate alone (%s, %.4fs/step) is estimated "
+              "at %s, which would exceed the remaining budget (elapsed=%s / budget=%s)"
+              % (entries_sorted[0]["cid"], entries_sorted[0]["median"],
+                 _fmt_hms(solo_est["job_hours"] * 3600.0), _fmt_hms(ctx.elapsed()),
+                 _fmt_hms(ctx.budget_s)))
         return None, None
+
+    if dropped:
+        print("confirm: dropping %d candidate(s) that would not fit the remaining budget: %s"
+              % (len(dropped),
+                 ", ".join("%s(%.4fs/step)" % (e["cid"], e["median"]) for e in dropped)))
+
+    configs = [e["config"] for e in kept]
+    print("confirm: estimated %s for %d config(s) (REPS=%d) -- elapsed=%s / budget=%s"
+          % (_fmt_hms(time_est["job_hours"] * 3600.0), len(configs), CONFIRM_REPS,
+             _fmt_hms(ctx.elapsed()), _fmt_hms(ctx.budget_s)))
 
     job_id, _path, _te = submit_configs_job(ctx, configs, reps=CONFIRM_REPS, name_suffix="confirm",
                                               s_est=s_est, time_est=time_est)

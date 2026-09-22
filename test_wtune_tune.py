@@ -184,8 +184,32 @@ def test_choose_nodes_knee_caps_by_max_nodes():
         {"nodes": 2, "legal": True, "efficiency_E": 0.95},
         {"nodes": 4, "legal": True, "efficiency_E": 0.90},
     ]
-    nodes, _note = wtune_tune.choose_nodes_knee(_profile(table), max_nodes=2)
+    nodes, note = wtune_tune.choose_nodes_knee(_profile(table), max_nodes=2)
     assert nodes == 2
+    # genuinely reached --max-nodes with speedup still clearing 1.5x at every step checked
+    assert "--max-nodes cap=2" in note
+
+
+def test_choose_nodes_knee_does_not_claim_cap_when_only_a_smaller_node_count_is_legal():
+    # Regression: real sc26p2 run logged "using nodes=2" together with "every profiled doubling
+    # step up to cap=13 still clears 1.5x" -- read as a contradiction (if it really cleared every
+    # doubling up to the cap, it should have picked 13, or the largest legal <=13). The actual
+    # cause: nodes 4/8/13 are simply not LEGAL for this case's grid, so the table only ever had
+    # legal rows at 1 and 2 -- "using nodes=2" was already correct (the largest legal node count),
+    # but the message wrongly implied the cap (13) had been checked and cleared. It must now say
+    # so honestly and never mention "cap=13" as if doubling had been verified that far.
+    table = [
+        {"nodes": 1, "legal": True, "efficiency_E": 0.99},
+        {"nodes": 2, "legal": True, "efficiency_E": 0.95},
+        {"nodes": 4, "legal": False},
+        {"nodes": 8, "legal": False},
+        {"nodes": 13, "legal": False},
+    ]
+    nodes, note = wtune_tune.choose_nodes_knee(_profile(table), max_nodes=13)
+    assert nodes == 2                       # the largest LEGAL node count, correctly
+    assert "cap=13" not in note             # never claim the --max-nodes cap was reached/checked
+    assert "not reached" in note
+    assert "legal" in note.lower()
 
 
 def test_choose_nodes_knee_stops_at_first_step_when_doubling_never_pays_off():
@@ -315,6 +339,50 @@ def test_select_confirm_configs_missing_anchor_is_fine():
     assert ids == ["G0001"]
 
 
+def test_run_confirm_drops_a_slow_outlier_instead_of_skipping_everything():
+    # Regression for the 2026-09-22 sc26p2 run: "confirm: SKIP -- estimated end would exceed
+    # budget" fired at elapsed 2.7/30 min on a case measured at 0.03-0.04 s/step, because top-3-
+    # by-median was forced (round0 only measured 6 configs) to include one genuine outlier
+    # (~6.74 s/step) alongside the anchor and a fast candidate -- and the OLD all-or-nothing check
+    # let that single outlier veto confirming the two fast ones too, even though they trivially
+    # fit the budget on their own.
+    anchor_cfg = dict(id="ANCHOR", ranks=144, omp=1, nx=144, ny=1, numtiles=1, dist="block")
+    g1_cfg = dict(id="G0001", ranks=144, omp=1, nx=72, ny=2, numtiles=1, dist="block")
+    g2_cfg = dict(id="G0002", ranks=144, omp=1, nx=12, ny=12, numtiles=1, dist="cyclic")
+    all_results = {
+        "ANCHOR": _result("ANCHOR", 0.0283, anchor_cfg),
+        "G0001": _result("G0001", 0.031, g1_cfg),
+        "G0002": _result("G0002", 6.74, g2_cfg),   # the outlier
+    }
+
+    sbatch_runner, sbatch_calls, job_to_configs_path = make_fake_sbatch(start=8000)
+    ledger_reader = make_ledger_reader_from_configs(job_to_configs_path, base_s=0.03)
+    clock = FakeClock(start=0.0)
+    ctx = _ctx(sbatch_runner=sbatch_runner, ledger_reader=ledger_reader, clock=clock,
+               budget_s=1800.0, steps=20)
+    clock.t = 162.0   # elapsed = 2.7 minutes, matching the real run
+
+    job_id, confirm_results = wtune_tune.run_confirm(ctx, {}, all_results, anchor_cid="ANCHOR",
+                                                       s_est=0.03)
+
+    assert job_id is not None                            # confirm did NOT skip outright
+    assert confirm_results is not None
+    assert set(confirm_results) == {"ANCHOR", "G0001"}    # outlier dropped, fast ones confirmed
+    with open(job_to_configs_path[job_id]) as f:
+        submitted = json.load(f)
+    assert {c["id"] for c in submitted["configs"]} == {"ANCHOR", "G0001"}
+
+
+def test_run_confirm_skips_only_when_even_the_cheapest_candidate_alone_exceeds_budget():
+    all_results = {"SLOW": _result("SLOW", 50.0, dict(id="SLOW", ranks=8, omp=1, nx=2, ny=4,
+                                                        numtiles=1, dist="block"))}
+    ctx = _ctx(budget_s=60.0, steps=20)   # 60s budget, nowhere near enough for one 50s/step config
+    job_id, confirm_results = wtune_tune.run_confirm(ctx, {}, all_results, anchor_cid=None,
+                                                       s_est=50.0)
+    assert job_id is None
+    assert confirm_results is None
+
+
 # ---------------------------------------------------------------------------
 # budget stop
 # ---------------------------------------------------------------------------
@@ -370,18 +438,22 @@ def test_wait_for_jobs_does_not_cancel_when_jobs_finish_in_time():
 # ---------------------------------------------------------------------------
 # adaptive rounds (proposer injected -- never imports predictor/decomp_search.py)
 # ---------------------------------------------------------------------------
-def test_run_adaptive_rounds_submits_one_round_then_stops():
-    calls = {"n": 0}
+def test_run_adaptive_rounds_falls_back_to_diversity_sampling_after_kappa_escalation():
+    # Regression for the 2026-09-22 sc26p2 run: predictor/decomp_search.py's own LCB-vs-incumbent
+    # stop rule fired at round 1 with 90% of the budget unused. wtune_tune.py must not accept that
+    # as final -- it retries with escalating kappa (more exploration pressure), and only once that
+    # ALSO fails to unstick the proposer does it fall back to raw decomp_space diversity sampling.
+    calls = []
 
-    def fake_proposer(state, batch_size):
-        calls["n"] += 1
-        if calls["n"] == 1:
+    def fake_proposer(state, batch_size, kappa=None):
+        calls.append(kappa)
+        if len(calls) == 1:
             cfg = dict(id="R01D0001", ranks=72, omp=1, nx=8, ny=9, numtiles=1, dist="block",
                        blocktime="0")
             return dict(stopped=False, round=1), [cfg]
-        return dict(stopped=True, reason="no more candidates"), []
+        return dict(stopped=True, reason="LCB does not beat incumbent"), []
 
-    sbatch_runner, _calls, _paths = make_fake_sbatch(start=2000)
+    sbatch_runner, sbatch_calls, _paths = make_fake_sbatch(start=2000)
 
     def ledger_reader(case, job_ids):
         rows = []
@@ -391,17 +463,47 @@ def test_run_adaptive_rounds_submits_one_round_then_stops():
         return rows
 
     ctx = _ctx(sbatch_runner=sbatch_runner, ledger_reader=ledger_reader, proposer=fake_proposer,
-               budget_s=3600.0)
+               budget_s=3600.0, kappa=0.5)
     all_configs_by_cid, all_results = {}, {}
     wtune_tune.run_adaptive_rounds(ctx, all_configs_by_cid, all_results, s_est=2.0)
 
-    assert calls["n"] == 2
-    assert ctx.owned_jobs == ["2001"]
+    # round1 succeeds at kappa=0.5; round2's proposer stops at kappa=0.5, then gets retried with
+    # KAPPA_MAX_ESCALATIONS=2 rounds of escalation (x2.0 each: 0.5 -> 1.0 -> 2.0) before giving up
+    # on the Bayesian proposer and falling back to decomp_space diversity sampling -- and, with
+    # ample budget (3600s) and plenty of legal space left, keeps doing that every round up to
+    # ADAPTIVE_MAX_ROUNDS rather than accepting the very first "stopped" as final.
+    assert calls[:4] == [0.5, 0.5, 1.0, 2.0]
+    assert len(ctx.owned_jobs) == wtune_tune.ADAPTIVE_MAX_ROUNDS   # round1 + a fallback every round after
+    assert sbatch_calls                      # the fallback really did submit real Slurm jobs
     assert all_results["R01D0001"]["median"] == pytest.approx(1.234)
+    fallback_cids = [cid for cid in all_configs_by_cid if cid != "R01D0001"]
+    assert fallback_cids and all(cid.startswith("D") for cid in fallback_cids)
+
+
+def test_run_adaptive_rounds_stops_when_diversity_pool_also_exhausted():
+    # The genuine terminal condition: the Bayesian proposer has nothing left AND every legal
+    # decomp_space candidate is already accounted for -- must still stop cleanly, no phantom job.
+    def always_stops_proposer(state, batch_size, kappa=None):
+        return dict(stopped=True, reason="no candidates"), []
+
+    sbatch_runner, sbatch_calls, _paths = make_fake_sbatch(start=3000)
+    ctx = _ctx(sbatch_runner=sbatch_runner, proposer=always_stops_proposer, budget_s=3600.0)
+
+    total_cores = ctx.nodes * ctx.cores_per_node
+    candidates, _axis = wtune_tune.decomp_space.enumerate_space(ctx.case_json, total_cores,
+                                                                  ctx.nodes, ctx.hardware_id)
+    every_config = wtune_tune.decomp_space.to_campaign_configs(candidates, prefix="ALL")
+    all_configs_by_cid = {c["id"]: c for c in every_config}
+    all_results = {}
+
+    wtune_tune.run_adaptive_rounds(ctx, all_configs_by_cid, all_results, s_est=2.0)
+
+    assert sbatch_calls == []
+    assert ctx.owned_jobs == []
 
 
 def test_run_adaptive_rounds_stops_at_75pct_projected_finish():
-    def fake_proposer(state, batch_size):
+    def fake_proposer(state, batch_size, kappa=None):
         cfg = dict(id="RX", ranks=72, omp=1, nx=8, ny=9, numtiles=1, dist="block", blocktime="0")
         return dict(stopped=False, round=1), [cfg] * batch_size
 
@@ -472,7 +574,7 @@ def test_run_end_to_end(monkeypatch, tmp_path):
     scancel_runner, scancel_calls = make_fake_scancel()
     ledger_reader = make_ledger_reader_from_configs(job_to_configs_path)
 
-    def stop_immediately_proposer(state, batch_size):
+    def stop_immediately_proposer(state, batch_size, kappa=None):
         return dict(stopped=True, reason="test stub"), []
 
     args = wtune_tune.build_arg_parser().parse_args([
@@ -528,7 +630,7 @@ def test_round0_measuring_0_3s_per_step_lets_adaptive_and_confirm_both_run_withi
 
     proposer_calls = {"n": 0}
 
-    def one_round_proposer(state, batch_size):
+    def one_round_proposer(state, batch_size, kappa=None):
         proposer_calls["n"] += 1
         if proposer_calls["n"] == 1:
             cfg = dict(id="R01D0001", ranks=72, omp=1, nx=8, ny=9, numtiles=1, dist="block",
@@ -545,8 +647,9 @@ def test_round0_measuring_0_3s_per_step_lets_adaptive_and_confirm_both_run_withi
                              scancel_runner=scancel_runner, ledger_reader=ledger_reader,
                              proposer=one_round_proposer, clock=FakeClock())
 
-    assert proposer_calls["n"] == 2                              # adaptive round DID submit a batch
+    assert proposer_calls["n"] >= 2                              # adaptive round DID submit a batch
     assert any(row["confirmed"] for row in report["ranking"])    # confirm DID run
+    assert len(report["ranking"]) > 1                             # round0's top-up widened coverage
     assert scancel_calls == []                                   # everything fit inside the budget
     assert report["elapsed_minutes"] < report["budget_minutes"]  # budget was not exhausted
 

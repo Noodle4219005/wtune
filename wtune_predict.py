@@ -127,13 +127,71 @@ def _parse_scalar(tok):
     return tok
 
 
+def _mask_quotes(line):
+    """Replace the CONTENTS of single/double-quoted spans with '\\0' (same
+    length, same positions), so a later scan for identifier '=' boundaries
+    never mistakes a quoted string's contents for a key or matches an '='
+    that happens to appear inside one. Quote characters themselves are kept
+    so string-valued tokens still parse correctly downstream.
+    """
+    out = []
+    in_quote = None
+    for ch in line:
+        if in_quote:
+            out.append(ch if ch == in_quote else "\0")
+            if ch == in_quote:
+                in_quote = None
+        else:
+            if ch in ("'", '"'):
+                in_quote = ch
+            out.append(ch)
+    return "".join(out)
+
+
+_ASSIGNMENT_RE = re.compile(r"[A-Za-z_]\w*\s*=(?!=)")
+
+
+def _split_assignments(line):
+    """Split a namelist line into [(key, raw_value_text), ...], handling any
+    number of 'key = value[, value...]' assignments on one line (real WRF
+    namelists commonly pack run_days/run_hours/run_minutes/run_seconds, or
+    time_step/time_step_fract_num/time_step_fract_den, onto a single line).
+    Returns [] if the line has no top-level 'identifier=' at all (a pure
+    continuation line).
+    """
+    masked = _mask_quotes(line)
+    matches = list(_ASSIGNMENT_RE.finditer(masked))
+    if not matches:
+        return []
+    out = []
+    for i, m in enumerate(matches):
+        key = m.group(0).split("=", 1)[0].strip()
+        value_end = matches[i + 1].start() if i + 1 < len(matches) else len(line)
+        out.append((key, line[m.end():value_end]))
+    return out
+
+
+def _append_values(bucket, raw_value_text):
+    rest = raw_value_text.strip().rstrip(",").strip()
+    if not rest:
+        return
+    for tok in rest.split(","):
+        tok = tok.strip()
+        if tok == "":
+            continue
+        bucket.append(_parse_scalar(tok))
+
+
 def parse_namelist(path):
     """Minimal Fortran namelist reader, list/per-domain aware.
 
-    Returns {group: {key: [scalar, ...]}}, group/key lowercased. A line with
-    no '=' that isn't a group header or '/' is treated as a continuation of
-    the previous key's value list (WRF namelists sometimes wrap long
-    per-domain lists across lines).
+    Returns {group: {key: [scalar, ...]}}, group/key lowercased. A line may
+    carry any number of 'key = value[, value...]' assignments (values may
+    themselves be comma lists); the next key starts at the next identifier
+    followed by '=', outside quotes. A line with no top-level 'key=' at all
+    that isn't a group header or '/' is treated as a continuation of the
+    previous key's value list (WRF namelists sometimes wrap long per-domain
+    lists across lines).
     """
     text = Path(path).read_text()
     text = re.sub(r"!.*$", "", text, flags=re.M)
@@ -162,26 +220,16 @@ def parse_namelist(path):
         if group is None:
             continue
 
-        m = re.match(r"([A-Za-z_]\w*)\s*=\s*(.*)$", line)
-        if m:
-            key = m.group(1).lower()
-            rest = m.group(2)
-            last_key = key
-            groups[group].setdefault(key, [])
+        assignments = _split_assignments(line)
+        if assignments:
+            for key, raw_value in assignments:
+                key = key.lower()
+                last_key = key
+                groups[group].setdefault(key, [])
+                _append_values(groups[group][key], raw_value)
         elif last_key is not None:
-            key = last_key
-            rest = line
-        else:
-            continue
-
-        rest = rest.strip().rstrip(",").strip()
-        if not rest:
-            continue
-        for tok in rest.split(","):
-            tok = tok.strip()
-            if tok == "":
-                continue
-            groups[group][key].append(_parse_scalar(tok))
+            _append_values(groups[group][last_key], line)
+        # else: stray line with no assignment and no prior key -- ignore.
 
     return groups
 

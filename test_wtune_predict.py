@@ -94,6 +94,59 @@ def test_run_length_days_hours_minutes_seconds_combine(tmp_path):
     assert run_s == 1 * 86400 + 2 * 3600 + 3 * 60 + 4
 
 
+def test_multiple_assignments_on_one_line(tmp_path):
+    """sc26p2 bug (2026-09-22): a real namelist packs several 'key = value,'
+    assignments onto ONE line, e.g.
+    ' run_days = 0, run_hours = 48, run_minutes = 0, run_seconds = 0,'
+    and similarly for time_step/time_step_fract_num/time_step_fract_den. The
+    old reader took the whole rest of the line as run_days's value list, so
+    run_hours/run_minutes/run_seconds were never set at all (silently 0) and
+    the run length came out zero -> PredictError. The reader must split on
+    every top-level 'identifier=' on the line, not just the first."""
+    nl_path = _write(str(tmp_path / "namelist.input"), """\
+&time_control
+ run_days = 0, run_hours = 48, run_minutes = 0, run_seconds = 0,
+ history_interval = 60,
+ /
+&domains
+ max_dom = 1,
+ e_we = 100,
+ e_sn = 100,
+ e_vert = 30,
+ time_step = 15, time_step_fract_num = 1, time_step_fract_den = 2,
+ /
+""")
+    nl = wp.parse_namelist(nl_path)
+    assert nl["time_control"]["run_days"] == [0]
+    assert nl["time_control"]["run_hours"] == [48]
+    assert nl["time_control"]["run_minutes"] == [0]
+    assert nl["time_control"]["run_seconds"] == [0]
+    assert nl["domains"]["time_step"] == [15]
+    assert nl["domains"]["time_step_fract_num"] == [1]
+    assert nl["domains"]["time_step_fract_den"] == [2]
+
+    run_s = wp.get_run_seconds(nl)
+    assert run_s == 48 * 3600
+    steps, run_s2, dt, note = wp.get_d01_steps(nl)
+    assert dt == 15.5
+    assert steps == round(48 * 3600 / 15.5)
+
+
+def test_multiple_assignments_with_quoted_string_value(tmp_path):
+    """A quoted string value must not confuse the per-line assignment
+    splitter (no '=' or bare identifier inside the quotes is mistaken for
+    the next key)."""
+    nl_path = _write(str(tmp_path / "namelist.input"), """\
+&time_control
+ title = "run = 48h test", run_days = 2, run_hours = 0,
+ /
+""")
+    nl = wp.parse_namelist(nl_path)
+    assert nl["time_control"]["title"] == ["run = 48h test"]
+    assert nl["time_control"]["run_days"] == [2]
+    assert nl["time_control"]["run_hours"] == [0]
+
+
 def test_timestep_fraction_and_non_exact_multiple_flagged(tmp_path):
     nl_path = _write(str(tmp_path / "namelist.input"), """\
 &time_control

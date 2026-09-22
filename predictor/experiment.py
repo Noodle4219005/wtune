@@ -129,6 +129,54 @@ PARTITION_SMALL = "cf112"
 SBATCH_SCRIPT_REL = "campaign/strict_campaign.sbatch"   # relative to repo root, matches
                                                           # predictor/decomp_search.py's own
                                                           # sbatch_command() convention
+
+# SITE table (decision 0050 step 8, minimal hardware abstraction): --site f1|scc, default f1.
+# f1's own entry documents (does not change) the constants above -- every f1 code path below
+# keeps reading CORES_PER_NODE/SU_PER_CORE_HOUR/PARTITION_* directly, byte-identical to before
+# --site existed. scc: single partition "compute" regardless of node count (no cf112/cf448 size
+# split); every job needs --exclusive (the whole node, since --ntasks-per-node must also drop
+# from f1's 112 to 72) and --exclude=head (the login node is a member of partition "compute"
+# too -- SITE FACTS); no accounting on scc, so no -A/--account is ever emitted for it (same as
+# f1: this file has never emitted one -- strict_campaign.sbatch's #SBATCH header carries f1's
+# ACD110018 unconditionally, harmless on scc since it has no accounting plugin to validate
+# against). On the login node, scc's own predictor pixi env is invoked as
+# `$HOME/.pixi/bin/pixi run --manifest-path $HOME/wtune-envs/predictor/pixi.toml python
+# predictor/experiment.py plan --site scc ...` -- this file itself shells out to nothing, so
+# that convention lives only in how an operator invokes it, not in any code path here.
+SITE_TABLE = {
+    "f1": dict(cores_per_node=CORES_PER_NODE, hardware_id_default=None, extra_sbatch_args=()),
+    "scc": dict(cores_per_node=72, hardware_id_default="scc-gh200",
+                extra_sbatch_args=("--exclusive", "--exclude=head")),
+}
+
+
+def _site_cfg(site):
+    try:
+        return SITE_TABLE[site]
+    except KeyError:
+        raise SystemExit("--site must be one of %s, got %r" % (sorted(SITE_TABLE), site))
+
+
+def _partition_for(site, nodes):
+    if site == "scc":
+        return "compute"
+    return PARTITION_SMALL if nodes == 1 else PARTITION_FULL
+
+
+def _site_sbatch_extras(site, nodes):
+    """(extra_export, extra_args) for _sbatch_command(): both empty for site=="f1", so every f1
+    sbatch command stays byte-identical to before --site existed."""
+    site_cfg = _site_cfg(site)
+    if site == "f1":
+        return [], ()
+    cores_per_node = site_cfg["cores_per_node"]
+    extra_export = [("SITE", site), ("WTUNE_TOTAL_CORES", nodes * cores_per_node)]
+    # --ntasks-per-node must drop from f1's #SBATCH header default (112) to this site's actual
+    # cores/node, or sbatch rejects the job outright (more tasks/node requested than it has).
+    extra_args = site_cfg["extra_sbatch_args"] + ("--ntasks-per-node=%d" % cores_per_node,)
+    return extra_export, extra_args
+
+
 BASELINE_ID = "C01"
 GENERATED_BASELINE_ID = "GBASE"          # generated-space C01 analogue, see GENERATED_BASELINE_RULE
 GENERATED_REC_PREFIX = "GREC"            # generated-space recommended:i candidate ids, GREC1..GRECk
@@ -878,14 +926,21 @@ def _write_configs_json(path, candidate_ids, candidates, case_json):
 # ---------------------------------------------------------------------------
 # cost estimate
 # ---------------------------------------------------------------------------
-def _cost_estimate(case_json, candidate_ids, s_est, startup_s, reps, nodes):
+def _cost_estimate(case_json, candidate_ids, s_est, startup_s, reps, nodes, site="f1"):
+    """site="f1" (the default, unchanged) reports the AGENTS.md SU line (0.2/core-hour);
+    scc has no accounting/SU rate (SITE FACTS) -- its cost_line reports node-hours only, su=None."""
     steps = case_json["steps"]
     total_seconds = sum(reps * (steps * s_est[cid] + startup_s) for cid in candidate_ids)
     job_hours = total_seconds / 3600.0 + FIXED_JOB_OVERHEAD_MIN / 60.0
     node_hours = nodes * job_hours
-    su = node_hours * CORES_PER_NODE * SU_PER_CORE_HOUR
-    cost_line = ("1 jobs x %d nodes x %.2f h = %.2f node-hours = %.2f SU, wall-clock ~%.2f h"
-                 % (nodes, job_hours, node_hours, su, job_hours))
+    if site == "f1":
+        su = node_hours * CORES_PER_NODE * SU_PER_CORE_HOUR
+        cost_line = ("1 jobs x %d nodes x %.2f h = %.2f node-hours = %.2f SU, wall-clock ~%.2f h"
+                     % (nodes, job_hours, node_hours, su, job_hours))
+    else:
+        su = None
+        cost_line = ("1 jobs x %d nodes x %.2f h = %.2f node-hours, wall-clock ~%.2f h"
+                     % (nodes, job_hours, node_hours, job_hours))
     time_str = _format_hms(TIME_SAFETY_FACTOR * job_hours * 60.0 + TIME_PAD_MIN)
     return dict(steps=steps, n_configs=len(candidate_ids), reps=reps,
                 s_per_step_est=s_est, startup_s=startup_s,
@@ -902,12 +957,12 @@ def _cost_estimate(case_json, candidate_ids, s_est, startup_s, reps, nodes):
 # with different (reps, steps, extra --export=) parameters.
 # ---------------------------------------------------------------------------
 def _job_configs_and_cost(filename, out_dir, case, case_json, id_to_cfg, candidates,
-                           candidate_ids, full_rows, nodes, reps, steps=None):
+                           candidate_ids, full_rows, nodes, reps, steps=None, site="f1"):
     s_est, s_source = _s_per_step_estimates(_rows_on_nodes(full_rows, nodes), case,
                                              candidate_ids, case_json)
     startup_s, startup_assumed = _startup_s(full_rows)
     job_case_json = case_json if steps is None else dict(case_json, steps=steps)
-    cost = _cost_estimate(job_case_json, candidate_ids, s_est, startup_s, reps, nodes)
+    cost = _cost_estimate(job_case_json, candidate_ids, s_est, startup_s, reps, nodes, site=site)
     cost["s_per_step_source"] = s_source
     cost["startup_assumed"] = startup_assumed
 
@@ -920,7 +975,7 @@ def _job_configs_and_cost(filename, out_dir, case, case_json, id_to_cfg, candida
 
 
 def _sbatch_command(case, mode, reps, nodes, partition, time_limit, nontemplate_ids,
-                     candidate_ids, configs_json_path, extra_export=()):
+                     candidate_ids, configs_json_path, extra_export=(), extra_args=()):
     export_parts = ["ALL", "CASE=%s" % case, "MODE=%s" % mode, "REPS=%d" % reps]
     for k, v in extra_export:
         export_parts.append("%s=%s" % (k, v))
@@ -928,8 +983,9 @@ def _sbatch_command(case, mode, reps, nodes, partition, time_limit, nontemplate_
         export_parts.append("CONFIG_FILE=%s" % configs_json_path)
     else:
         export_parts.append("CONFIGS=%s" % "+".join(candidate_ids))
-    return ("sbatch -p %s -N %d --time %s --export=%s %s"
-            % (partition, nodes, time_limit, ",".join(export_parts), SBATCH_SCRIPT_REL))
+    args_str = "".join(" %s" % a for a in extra_args)
+    return ("sbatch -p %s -N %d --time %s%s --export=%s %s"
+            % (partition, nodes, time_limit, args_str, ",".join(export_parts), SBATCH_SCRIPT_REL))
 
 
 def _screen_timeout_s(startup_s, s_est):
@@ -947,7 +1003,9 @@ def cmd_plan(args):
     id_to_cfg, skipped, aliases = _resolve_case_configs(args.case)
     full_rows = _read_ledgers(args.ledger)
     nodes = args.nodes or DEFAULT_NODES
-    total_cores = nodes * CORES_PER_NODE
+    site = getattr(args, "site", None) or "f1"
+    site_cfg = _site_cfg(site)
+    total_cores = nodes * site_cfg["cores_per_node"]
 
     # PART C: --screen-spares S (default 0 -- see cmd_plan's else-branch below, left byte-for-
     # byte unchanged from before PART C) asks the recommender/proposer for top_k+S candidates
@@ -961,7 +1019,12 @@ def cmd_plan(args):
 
     space = args.space
     if space == "auto":
-        space = "template" if BASELINE_ID in id_to_cfg else "generated"
+        # scc's C01-C16 STRICT templates never resolve there (they are anchored at f1's fixed
+        # 448/224/112 rank counts; scc's 72 cores/node divides none of them -- SITE FACTS) -- so
+        # --space auto (the default) is FORCED straight to the generated space on scc, without
+        # even checking id_to_cfg first. An explicit --space template on scc is respected as
+        # written (it will simply fail below with configs.py's own SKIP reasons, same as f1).
+        space = "generated" if site == "scc" else ("template" if BASELINE_ID in id_to_cfg else "generated")
 
     if space == "template":
         cands, recommend_info, bk = _build_candidates(build_args, case_json, id_to_cfg, full_rows)
@@ -980,7 +1043,8 @@ def cmd_plan(args):
     candidate_ids = cands.ids()
     candidates = cands.as_dict()
 
-    partition = PARTITION_SMALL if nodes == 1 else PARTITION_FULL
+    partition = _partition_for(site, nodes)
+    site_export, site_args = _site_sbatch_extras(site, nodes)
 
     screen_block = None
     if screen_spares > 0:
@@ -993,12 +1057,13 @@ def cmd_plan(args):
         os.makedirs(screen_dir, exist_ok=True)
         cost, configs_json_path, template_ids, nontemplate_ids = _job_configs_and_cost(
             "configs.json", screen_dir, args.case, case_json, id_to_cfg, candidates,
-            candidate_ids, full_rows, nodes, reps=1, steps=SCREEN_STEPS)
+            candidate_ids, full_rows, nodes, reps=1, steps=SCREEN_STEPS, site=site)
         timeout_s = _screen_timeout_s(cost["startup_s"], cost["s_per_step_est"])
         sbatch_command = _sbatch_command(
             args.case, "timing", 1, nodes, partition, cost["time_limit"], nontemplate_ids,
             candidate_ids, configs_json_path,
-            extra_export=[("STEPS", SCREEN_STEPS), ("TIMEOUT_S", timeout_s)])
+            extra_export=[("STEPS", SCREEN_STEPS), ("TIMEOUT_S", timeout_s)] + site_export,
+            extra_args=site_args)
         print(cost["cost_line"])
         print(sbatch_command)
         screen_block = dict(
@@ -1014,7 +1079,8 @@ def cmd_plan(args):
         s_est, s_source = _s_per_step_estimates(_rows_on_nodes(full_rows, nodes), args.case,
                                                 candidate_ids, case_json)
         startup_s, startup_assumed = _startup_s(full_rows)
-        cost = _cost_estimate(case_json, candidate_ids, s_est, startup_s, args.reps, nodes)
+        cost = _cost_estimate(case_json, candidate_ids, s_est, startup_s, args.reps, nodes,
+                              site=site)
         cost["s_per_step_source"] = s_source
         cost["startup_assumed"] = startup_assumed
 
@@ -1023,20 +1089,19 @@ def cmd_plan(args):
 
         template_ids = [c for c in candidate_ids if c in id_to_cfg]
         nontemplate_ids = [c for c in candidate_ids if c not in id_to_cfg]
-        export_parts = ["ALL", "CASE=%s" % args.case, "MODE=timing", "REPS=%d" % args.reps]
-        if nontemplate_ids:
-            export_parts.append("CONFIG_FILE=%s" % os.path.abspath(configs_json_path))
-        else:
-            export_parts.append("CONFIGS=%s" % "+".join(candidate_ids))
-        sbatch_command = ("sbatch -p %s -N %d --time %s --export=%s %s"
-                           % (partition, nodes, cost["time_limit"], ",".join(export_parts),
-                              SBATCH_SCRIPT_REL))
+        # site=="f1" (site_export=[], site_args=()) makes this call emit byte-identically to the
+        # plain "sbatch -p %s -N %d --time %s --export=%s %s" string used before --site existed.
+        sbatch_command = _sbatch_command(
+            args.case, "timing", args.reps, nodes, partition, cost["time_limit"], nontemplate_ids,
+            candidate_ids, os.path.abspath(configs_json_path),
+            extra_export=site_export, extra_args=site_args)
         print(cost["cost_line"])
         print(sbatch_command)
         configs_json_path = os.path.abspath(configs_json_path)
 
     plan = dict(
         case=args.case, hardware_id=args.hardware_id, nodes=nodes, partition=partition,
+        site=site,
         reps=args.reps, top_k=args.top_k, loco=bool(args.loco),
         space=space, baseline_rule=baseline_rule,
         namelist=os.path.abspath(args.namelist) if args.namelist else None,
@@ -1162,12 +1227,15 @@ def screen(plan_dir, ledger_dir=None):
     id_to_cfg, _skipped, _aliases = _resolve_case_configs(case)
     full_rows = _read_ledgers(plan["ledgers"])
     nodes = plan["nodes"]
+    site = plan.get("site") or "f1"
+    site_export, site_args = _site_sbatch_extras(site, nodes)
     cost, configs_json_path, template_ids, nontemplate_ids = _job_configs_and_cost(
         "configs.json", plan_dir, case, case_json, id_to_cfg, by_config_id, final_ids,
-        full_rows, nodes, reps=plan["reps"])
+        full_rows, nodes, reps=plan["reps"], site=site)
     sbatch_command = _sbatch_command(case, "timing", plan["reps"], nodes, plan["partition"],
                                       cost["time_limit"], nontemplate_ids, final_ids,
-                                      configs_json_path)
+                                      configs_json_path, extra_export=site_export,
+                                      extra_args=site_args)
 
     plan["cost"] = cost
     plan["configs_json_path"] = configs_json_path
@@ -1424,6 +1492,13 @@ def _build_arg_parser():
                               "(default) picks 'template' when the case resolves C01, else "
                               "'generated'")
     p_plan.add_argument("--configs", default=None)
+    p_plan.add_argument("--site", choices=tuple(SITE_TABLE), default="f1",
+                         help="decision 0050 step 8: 'f1' (default) is unchanged. 'scc' selects "
+                              "partition compute, 72 cores/node, --exclusive --exclude=head, no "
+                              "-A, --export=...,SITE=scc,WTUNE_TOTAL_CORES=<nodes*72>,... and "
+                              "forces --space to 'generated' when --space is left at 'auto' "
+                              "(scc's 72 cores/node resolves none of the C01-C16 STRICT "
+                              "templates, which are anchored at f1's fixed rank counts).")
     p_plan.add_argument("--reps", type=int, default=DEFAULT_REPS)
     p_plan.add_argument("--screen-spares", type=int, default=0, dest="screen_spares",
                          help="PART C: 0 (default) is the old behaviour -- one direct timing "

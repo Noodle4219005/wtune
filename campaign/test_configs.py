@@ -2041,6 +2041,85 @@ class TestCasesJsonEnv(unittest.TestCase):
             os.unlink(f.name)
 
 
+class TestTotalCoresEnv(unittest.TestCase):
+    """WTUNE_TOTAL_CORES env var (decision 0050 step 8, scc site) swaps TOTAL_CORES at import;
+    unset keeps the f1 default of 448 -- same subprocess-import pattern as TestCasesJsonEnv,
+    since TOTAL_CORES is bound once at module import time."""
+
+    def _import_in_subprocess(self, env_value):
+        import subprocess
+        env = dict(os.environ)
+        env.pop("WTUNE_TOTAL_CORES", None)
+        if env_value is not None:
+            env["WTUNE_TOTAL_CORES"] = env_value
+        code = "import configs; print(configs.TOTAL_CORES)"
+        p = subprocess.run([sys.executable, "-c", code], cwd=os.path.dirname(os.path.abspath(__file__)),
+                           env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                           universal_newlines=True, check=True)
+        return int(p.stdout.strip().splitlines()[-1])
+
+    def test_default_is_448(self):
+        self.assertEqual(self._import_in_subprocess(None), 448)
+
+    def test_env_overrides_total_cores(self):
+        self.assertEqual(self._import_in_subprocess("288"), 288)
+
+
+class TestCaseOverlay(unittest.TestCase):
+    """campaign/cases.<site>.json overlays cases.json per-case when SITE != f1 (decision 0050
+    step 8); SITE unset/"f1" must leave CASES byte-identical to before SITE existed."""
+
+    def test_f1_default_is_unmodified(self):
+        cases = configs.load_cases(site="f1")
+        self.assertEqual(cases["conus25"]["prep_dir"],
+                         "/home/u5727520/wrf-bench/atlas/v4.4_bench_conus2.5km")
+
+    def test_scc_overlay_replaces_prep_dir_and_bp_dir_only(self):
+        cases = configs.load_cases(site="scc")
+        c = cases["conus25"]
+        self.assertEqual(c["prep_dir"], "/nfs/data/wrf/v4.4_bench_conus2.5km")
+        # scc has no ADIOS2 .bp inputs: empty bp_dir => netCDF inputs (WTUNE_INPUT_FORMAT=netcdf)
+        self.assertEqual(c["bp_dir"], "")
+        # geometry untouched by the overlay
+        self.assertEqual(c["e_we"], configs.load_cases(site="f1")["conus25"]["e_we"])
+
+    def test_netcdf_input_format_keeps_inputs_at_io_form_2(self):
+        nl = "&time_control\n io_form_history = 2,\n/\n&domains\n/\n"
+        old = os.environ.get("WTUNE_INPUT_FORMAT")
+        try:
+            os.environ["WTUNE_INPUT_FORMAT"] = "netcdf"
+            out = configs._apply_adios2(nl, 72, 1)
+        finally:
+            if old is None:
+                os.environ.pop("WTUNE_INPUT_FORMAT", None)
+            else:
+                os.environ["WTUNE_INPUT_FORMAT"] = old
+        self.assertRegex(out, r"io_form_input\s*=\s*2")
+        self.assertRegex(out, r"io_form_boundary\s*=\s*2")
+        self.assertRegex(out, r"io_form_history\s*=\s*14")
+        self.assertNotIn("wrfinput_d<domain>.bp", out)
+
+    def test_scc_overlay_expands_home_and_tilde(self):
+        cases = configs.load_cases(site="scc")
+        self.assertNotIn("$HOME", cases["isc21"]["prep_dir"])
+        self.assertTrue(os.path.isabs(cases["isc21"]["prep_dir"]))
+
+    def test_unknown_site_with_no_overlay_file_is_unmodified(self):
+        cases = configs.load_cases(site="nosuchsite")
+        self.assertEqual(cases["conus25"]["prep_dir"],
+                         "/home/u5727520/wrf-bench/atlas/v4.4_bench_conus2.5km")
+
+    def test_module_level_cases_respects_site_env_at_import(self):
+        import subprocess
+        env = dict(os.environ)
+        env["SITE"] = "scc"
+        code = "import configs; print(configs.CASES['conus25']['prep_dir'])"
+        p = subprocess.run([sys.executable, "-c", code], cwd=os.path.dirname(os.path.abspath(__file__)),
+                           env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                           universal_newlines=True, check=True)
+        self.assertEqual(p.stdout.strip().splitlines()[-1], "/nfs/data/wrf/v4.4_bench_conus2.5km")
+
+
 class TestSbatchNodeCount(unittest.TestCase):
     """strict_campaign.sbatch derives ranks-per-node and the ledger n_nodes column from the
     allocation (SLURM_JOB_NUM_NODES, default 4) instead of a hard-coded 4, so a -N1 cf112 run of a

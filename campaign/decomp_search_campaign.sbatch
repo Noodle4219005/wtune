@@ -23,8 +23,19 @@
 set -uo pipefail
 : "${CASE:?CASE env var is required}"
 
-REPO=/home/u5727520/wrf-stack/wtune-autotuner
-OUT=/home/u5727520/wrf-bench/wscore/campaign
+# SITE/REPO (decision 0050 step 8): same site-conditional-default + campaign/sites/$SITE.sh
+# pattern as strict_campaign.sbatch, so OUT/HARDWARE_ID/CORES_PER_NODE here are guaranteed
+# identical to what the nested strict_campaign.sbatch calls below (run_campaign) compute
+# themselves, instead of a second, driftable copy of the same per-site absolute paths.
+SITE=${SITE:-f1}
+export SITE
+if [ "$SITE" = "scc" ]; then
+  REPO=${REPO:-$HOME/wtune}
+else
+  REPO=${REPO:-/home/u5727520/wrf-stack/wtune-autotuner}
+fi
+export CAMPAIGN="$REPO/campaign"
+source "$CAMPAIGN/sites/$SITE.sh"   # OUT, HARDWARE_ID, CORES_PER_NODE (site_env/site_launch unused here)
 STATE_DIR=${STATE_DIR:-/home/u5727520/wrf-bench/wscore/decomp/search}
 PY="pixi run --manifest-path /home/u5727520/wrf-stack/wtune-predictor-env/pixi.toml python"
 TEMPLATES=${TEMPLATES-C01+C02+C07+C08+C10}
@@ -33,8 +44,7 @@ BATCH=${BATCH:-8}
 REPS=${REPS:-1}
 CONFIRM_TOP=${CONFIRM_TOP:-3}
 NODES=${SLURM_JOB_NUM_NODES:?}
-TOTAL_CORES=$(( NODES * 112 ))
-HARDWARE_ID=f1-spr-$(hostname -s | sed 's/[0-9]*$//')
+TOTAL_CORES=$(( NODES * CORES_PER_NODE ))
 J=$SLURM_JOB_ID
 LEDGER="$OUT/ledger_${CASE}_${J}.csv"      # strict_campaign.sbatch appends every round here
 L=$OUT

@@ -44,9 +44,19 @@ REPO_ROOT = os.path.dirname(CAMPAIGN_DIR)
 CASES_JSON_PATH = os.environ.get("CASES_JSON") or os.path.join(CAMPAIGN_DIR, "cases.json")
 PHYSICS_TEMPLATES_JSON_PATH = os.path.join(CAMPAIGN_DIR, "physics_templates.json")
 DEFAULT_SCREEN_DIR = "/home/u5727520/wrf-bench/wscore/physics"
+# SITE env var (optional, decision 0050 step 8 minimal hardware abstraction): unset/"f1" leaves
+# every consumer of CASES/TOTAL_CORES below byte-identical to before SITE existed. Any other
+# value additionally overlays campaign/cases.<site>.json onto cases.json in load_cases() below.
+SITE = os.environ.get("SITE") or "f1"
 
 MIN_PATCH = 10
-TOTAL_CORES = 448  # 4 nodes x 112 cores, ct448
+# 4 nodes x 112 cores, ct448 -- f1's own C01-C16 TEMPLATES table (below) is anchored at this
+# exact value (ranks*omp == TOTAL_CORES, asserted by test_configs.py) and is NOT rescaled by
+# WTUNE_TOTAL_CORES; a different total (e.g. a non-448 node count on f1, or any node count on
+# scc, whose 72 cores/node never divides 448/224/112 evenly) simply makes every template fail
+# resolve_config's ranks*omp==TOTAL_CORES check and skip -- by design, see the "generated space"
+# fallback in predictor/experiment.py and the module docstring of predictor/decomp_space.py.
+TOTAL_CORES = int(os.environ.get("WTUNE_TOTAL_CORES", 448))
 
 # ADIOS2 compression, written explicitly into every run's &namelist_adios2 block
 # (see _apply_adios2) rather than inherited from the WRF Registry defaults in
@@ -138,10 +148,34 @@ COST_GUESS = {
 }
 
 
-def load_cases(path=CASES_JSON_PATH):
+def load_cases(path=CASES_JSON_PATH, site=None):
+    """cases.json, optionally overlaid by campaign/cases.<site>.json (decision 0050 step 8):
+    {"cases": {id: {overriding keys}}}, merged key-by-key OVER the matching cases.json entry (a
+    case absent from the overlay is untouched; a key absent from an override entry keeps its
+    cases.json value). site=None (the default) reads the module-level SITE env var; site="f1"
+    (or SITE unset/"f1") never overlays anything, so CASES below is byte-identical to before
+    SITE existed. A str override value may use $VAR/~ (e.g. "$HOME/..." -- a site's real $HOME
+    is not known at authoring time) and is expanded here, same rule as
+    strict_campaign.sbatch's own CASES_JSON reader."""
     with open(path) as f:
         data = json.load(f)
-    return data["cases"]
+    cases = data["cases"]
+    site = SITE if site is None else site
+    if site and site != "f1":
+        overlay_path = os.path.join(CAMPAIGN_DIR, "cases.%s.json" % site)
+        if os.path.exists(overlay_path):
+            with open(overlay_path) as f:
+                overlay = json.load(f)["cases"]
+            merged = dict(cases)
+            for cid, over in overlay.items():
+                base = dict(merged.get(cid, {}))
+                for k, v in over.items():
+                    if isinstance(v, str):
+                        v = os.path.expanduser(os.path.expandvars(v))
+                    base[k] = v
+                merged[cid] = base
+            cases = merged
+    return cases
 
 
 CASES = load_cases()
@@ -625,8 +659,13 @@ def _apply_adios2(text, ranks, max_dom):
     still gets ADIOS2 forced, rather than silently keeping WRF's default."""
     if ranks is None:
         raise ValueError("ranks is required when adios2=True (for adios2_numaggregators)")
+    # WTUNE_INPUT_FORMAT=netcdf (set by strict_campaign.sbatch when the case has no bp_dir,
+    # e.g. on scc where only the official netCDF wrfinput/wrfbdy exist): inputs stay netCDF
+    # (io_form 2, default file names); history/restart are still forced to ADIOS2.
+    netcdf_inputs = os.environ.get("WTUNE_INPUT_FORMAT", "adios2") == "netcdf"
     for key in ("io_form_input", "io_form_boundary", "io_form_history", "io_form_restart"):
-        text = _set_or_insert_time_control_scalar(text, key, 14)
+        value = 2 if netcdf_inputs and key in ("io_form_input", "io_form_boundary") else 14
+        text = _set_or_insert_time_control_scalar(text, key, value)
     text = _set_or_insert_time_control_scalar(text, "restart_interval", 1000000)
     text = _delete_key_lines(text, "input_inname")
     text = _delete_key_lines(text, "bdy_inname")
@@ -636,8 +675,9 @@ def _apply_adios2(text, ranks, max_dom):
     eol = text.find("\n", idx)
     if eol == -1:
         eol = len(text)
-    new_line = ' input_inname="wrfinput_d<domain>.bp", bdy_inname="wrfbdy_d<domain>.bp",\n'
-    text = text[: eol + 1] + new_line + text[eol + 1 :]
+    if not netcdf_inputs:
+        new_line = ' input_inname="wrfinput_d<domain>.bp", bdy_inname="wrfbdy_d<domain>.bp",\n'
+        text = text[: eol + 1] + new_line + text[eol + 1 :]
     text = re.sub(r"(?ms)^&namelist_adios2\b.*?^/[ \t]*\n?", "", text)
     text = text.rstrip("\n") + (
         "\n&namelist_adios2\n"

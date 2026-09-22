@@ -49,17 +49,23 @@
 #        chaos floor, not a replicate); configs.py decomp-pair enforces both, see below.
 set -uo pipefail
 
-W=/home/u5727520/wrf-stack/wrf/intel-adios2-dmsm/WRF
-CAMPAIGN=/home/u5727520/wrf-stack/wtune-autotuner/campaign
-OUT=/home/u5727520/wrf-bench/wscore/campaign
-# derived from the node pool (icpnq = ct448 SNC 8x14, icpnp = cf448 2 NUMA) so ledgers from
-# different pools never share a hardware_id
-HARDWARE_ID=f1-spr-$(hostname -s | sed 's/[0-9]*$//')
-PIXI_ENV=/home/u5727520/wrf-stack/wtune-pixi-env-20260830
-# vendored into this repo 2026-09-15: the old external path
-# /home/u5727520/SC26-WRF-p0/scripts/vendor/wrf-adios2-to-netcdf4/convert.py disappeared, and
-# physics smoke 1076771-1076776 silently produced no netCDF / no fidelity at all.
-CONV=${CONV:-/home/u5727520/wrf-stack/wtune-autotuner/tools/wrf_adios2_to_netcdf4/convert.py}
+SITE=${SITE:-f1}
+export SITE
+# CAMPAIGN locates this checkout's campaign/ dir, so its own default must vary by site (the repo
+# lives at a different absolute path on each cluster) -- everything else site-specific is inside
+# campaign/sites/$SITE.sh, sourced below, which f1.sh reproduces byte-for-byte as it stood before
+# SITE existed. export: CASES_JSON's default path (below) and the CASES_JSON overlay merge both
+# need CAMPAIGN from a plain python3 subprocess, not just from this shell.
+if [ "$SITE" = "scc" ]; then
+  CAMPAIGN=${CAMPAIGN:-$HOME/wtune/campaign}
+else
+  CAMPAIGN=${CAMPAIGN:-/home/u5727520/wrf-stack/wtune-autotuner/campaign}
+fi
+export CAMPAIGN
+# campaign/sites/$SITE.sh defines W, OUT, HARDWARE_ID, PIXI_ENV, CONV, CASES_JSON_DEFAULT,
+# CORES_PER_NODE and the functions site_env() (module load / MPI+IO env, called once below) and
+# site_launch() (the per-run srun/mpirun invocation, called from both loops below).
+source "$CAMPAIGN/sites/$SITE.sh"
 if [ "${MODE:-timing}" != "timing" ] && [ ! -f "$CONV" ]; then
   echo "FATAL: ADIOS2->netCDF converter not found at $CONV (needed by MODE=${MODE}) -- refusing to run" >&2
   exit 1
@@ -84,10 +90,7 @@ PY="pixi run --manifest-path $PIXI_ENV/pixi.toml python"
 
 mkdir -p "$OUT"
 
-module load intel/2024_01_46 2>/dev/null || true
-export I_MPI_PMI_LIBRARY=/usr/lib64/libpmi2.so OMP_STACKSIZE=512M OMP_PROC_BIND=false
-for L in NETCDF PNETCDF HDF5 ADIOS2; do export $L=/home/u5727520/wrf-stack/intel; done
-export LD_LIBRARY_PATH=/home/u5727520/wrf-stack/intel/lib64:/home/u5727520/wrf-stack/intel/lib:${LD_LIBRARY_PATH:-}
+site_env
 
 J=$SLURM_JOB_ID
 LEDGER="$OUT/ledger_${CASE}_${J}.csv"
@@ -101,6 +104,20 @@ LEDGER_HEADER="run_id,source_dataset,job_id,rep_index,case_raw,case_base,case_fa
 # check_disk_guard is called right before every WRF srun (both loops below) so a job
 # stops itself with a clear message and a ledger row instead of running blind into that.
 MIN_FREE_GIB=${MIN_FREE_GIB:-60}
+# Inputs: ADIOS2 .bp from bp_dir (f1 default), or -- when a site's case overlay leaves bp_dir
+# empty (scc has only the official netCDF files) -- netCDF wrfinput/wrfbdy from prep_dir, with
+# WTUNE_INPUT_FORMAT=netcdf telling configs.py to write io_form_input/boundary=2.
+link_wrf_inputs() {
+  local d df
+  for ((d = 1; d <= MAX_DOM; d++)); do
+    df=$(printf "d%02d" "$d")
+    if [ -n "$BP_DIR" ]; then ln -sf "$BP_DIR/wrfinput_${df}.bp" "wrfinput_${df}.bp"
+    else ln -sf "$PREP_DIR/wrfinput_${df}" "wrfinput_${df}"; fi
+  done
+  if [ -n "$BP_DIR" ]; then ln -sf "$BP_DIR/wrfbdy_d01.bp" "wrfbdy_d01.bp"
+  else ln -sf "$PREP_DIR/wrfbdy_d01" "wrfbdy_d01"; fi
+}
+
 check_disk_guard () {
   local ctx="$1" q_text free_gib
   if ! q_text=$(mmlsquota -u "$USER" home1 2>&1); then
@@ -169,14 +186,61 @@ harvest_thompson_tables () {
   done
 }
 
+# ---- per-run OpenMP/threading env (site-conditional) ----------------------------------
+# f1's KMP_BLOCKTIME knob has no equivalent under scc's nvhpc OpenMP runtime (SITE FACTS,
+# decision 0050 step 8) -- never export it there, and record the ledger's kmp_blocktime column
+# as "n/a" instead of the numeric/"default" value configs.py generated. scc uses OMP_PLACES/
+# OMP_PROC_BIND for in-rank thread pinning instead (only meaningful when omp>1). Sets
+# OMP_NUM_THREADS and BLOCKTIME_RECORD (the ledger column value) on both sites; call once per
+# run, before site_launch, with the same (omp, blocktime) already resolved for this config.
+configure_omp_env () {
+  local omp="$1" blocktime="$2"
+  export OMP_NUM_THREADS="$omp"
+  if [ "$SITE" = "scc" ]; then
+    unset KMP_BLOCKTIME
+    if [ "$omp" -gt 1 ]; then
+      export OMP_PLACES=cores OMP_PROC_BIND=close
+    else
+      unset OMP_PLACES OMP_PROC_BIND
+    fi
+    BLOCKTIME_RECORD="n/a"
+  else
+    if [ "$blocktime" = "default" ]; then
+      unset KMP_BLOCKTIME
+    else
+      export KMP_BLOCKTIME=$blocktime
+    fi
+    BLOCKTIME_RECORD="$blocktime"
+  fi
+}
+
 echo "job $J case $CASE nodes $SLURM_JOB_NODELIST reps $REPS timeout $TIMEOUT_S"
 
 # ---- case metadata from cases.json --------------------------------------------
 eval "$(python3 - "$CASE" <<'PY'
 import json, os, sys
 case_id = sys.argv[1]
+campaign_dir = os.environ.get("CAMPAIGN") or "/home/u5727520/wrf-stack/wtune-autotuner/campaign"
+site = os.environ.get("SITE") or "f1"
 # CASES_JSON (optional): alternate case file, same schema; configs.py honours the same env var
-d = json.load(open(os.environ.get("CASES_JSON") or "/home/u5727520/wrf-stack/wtune-autotuner/campaign/cases.json"))["cases"]
+d = json.load(open(os.environ.get("CASES_JSON") or os.path.join(campaign_dir, "cases.json")))["cases"]
+if site != "f1":
+    # campaign/cases.<site>.json (decision 0050 step 8): {"cases": {id: {overriding keys}}},
+    # e.g. prep_dir/bp_dir -- merged over cases.json for THIS case only, same rule as
+    # campaign/configs.py's own load_cases() overlay. A str value may use $VAR/~ (expanded here,
+    # since a site's real $HOME is not known at authoring time); unset SITE (f1) never applies
+    # this at all, so f1's case metadata is byte-identical to before SITE existed.
+    overlay_path = os.path.join(campaign_dir, "cases.%s.json" % site)
+    if os.path.exists(overlay_path):
+        over = json.load(open(overlay_path))["cases"].get(case_id)
+        if over:
+            merged = dict(d.get(case_id, {}))
+            for k, v in over.items():
+                if isinstance(v, str):
+                    v = os.path.expanduser(os.path.expandvars(v))
+                merged[k] = v
+            d = dict(d)
+            d[case_id] = merged
 c = d.get(case_id)
 if c is None:
     print('echo "unknown case %s" >&2; exit 1' % case_id)
@@ -213,6 +277,9 @@ print("PHYSICS_SUITE=%s" % q(phys.get("physics_suite", "")))
 print("PHYSICS_SIM_MINUTES_DEFAULT=%s" % q(c.get("physics_sim_minutes", 60)))
 PY
 )"
+
+# empty bp_dir (site overlay, e.g. scc) => netCDF inputs; see link_wrf_inputs
+if [ -z "$BP_DIR" ]; then export WTUNE_INPUT_FORMAT=netcdf; else export WTUNE_INPUT_FORMAT=adios2; fi
 
 STEPS=${STEPS:-$STEPS_DEFAULT}
 MIN=$(( (STEPS * DT + 59) / 60 ))
@@ -337,6 +404,11 @@ if [ "$MODE" = "physics" ]; then
     ranks=${CFG_RANKS[$DECOMP_ID]}; omp=${CFG_OMP[$DECOMP_ID]}; nx=${CFG_NX[$DECOMP_ID]}; ny=${CFG_NY[$DECOMP_ID]}
     numtiles=${CFG_NUMTILES[$DECOMP_ID]}; dist=${CFG_DIST[$DECOMP_ID]}; blocktime=${CFG_BLOCKTIME[$DECOMP_ID]}
     ntasks_per_node=$(( ranks / ALLOC_NODES ))
+    # ledger kmp_blocktime column: "n/a" on scc (no such knob under nvhpc OpenMP, see
+    # configure_omp_env below), else the template/generated value verbatim, unchanged from before
+    # SITE existed. Computed here too (not only in configure_omp_env) so a SKIP row below -- which
+    # never reaches configure_omp_env, since no run happens -- still records the right value.
+    if [ "$SITE" = "scc" ]; then BLOCKTIME_RECORD="n/a"; else BLOCKTIME_RECORD="$blocktime"; fi
 
     # 2>/dev/null + tail -n1: physics-describe prints exactly one real line (SKIP\treason
     # or the 13-field TSV); this defends the read against any stray noise line (e.g. a
@@ -366,7 +438,7 @@ if [ "$MODE" = "physics" ]; then
         RADT="$PHYS_RADT" CUDT="$PHYS_CUDT" \
         HISTORY_INTERVAL="0" IO_FORM_HISTORY="14" \
         N_NODES="$ALLOC_NODES" N_RANKS="$ranks" OMP_THREADS="$omp" NPROC_X="$nx" NPROC_Y="$ny" \
-        NUMTILES="$numtiles" DISTRIBUTION="$dist" KMP_BLOCKTIME_COL="$blocktime" \
+        NUMTILES="$numtiles" DISTRIBUTION="$dist" KMP_BLOCKTIME_COL="$BLOCKTIME_RECORD" \
         S_PER_STEP_MEDIAN="" S_PER_STEP_MEAN="" N_STEPS_MEASURED="" \
         DIFFWRF_DIFFERING_FIELDS="" FIDELITY_LABEL="" NOTES="$NOTES" PHYSICS_SUITE_NOTE="$PHYSICS_SUITE"
       python3 - "$LEDGER" <<'PY'
@@ -404,11 +476,7 @@ PY
     for f in "${INPUT_FILES_ARR[@]}"; do
       ln -sf "$PREP_DIR/$f" "$f"
     done
-    for ((d = 1; d <= MAX_DOM; d++)); do
-      df=$(printf "d%02d" "$d")
-      ln -sf "$BP_DIR/wrfinput_${df}.bp" "wrfinput_${df}.bp"
-    done
-    ln -sf "$BP_DIR/wrfbdy_d01.bp" "wrfbdy_d01.bp"
+    link_wrf_inputs
     link_thompson_tables
     for f in "$W"/run/*; do
       b=$(basename "$f")
@@ -456,16 +524,11 @@ PY
     rm -f ./namelist.input.orig
     ln -sf "$W/main/wrf.exe" ./wrf.exe
 
-    export OMP_NUM_THREADS=$omp
-    if [ "$blocktime" = "default" ]; then
-      unset KMP_BLOCKTIME
-    else
-      export KMP_BLOCKTIME=$blocktime
-    fi
+    configure_omp_env "$omp" "$blocktime"
 
     T0=$(date +%s.%N)
-    timeout "$TIMEOUT_S" srun --mpi=pmi2 --distribution="$dist" -n "$ranks" \
-      --ntasks-per-node="$ntasks_per_node" -c "$omp" ./wrf.exe > wrf.out 2>&1
+    site_launch "$ranks" "$ntasks_per_node" "$omp" "$dist"
+    timeout "$TIMEOUT_S" "${SITE_LAUNCH_CMD[@]}" > wrf.out 2>&1
     RC=$?
     T1=$(date +%s.%N)
     WALL=$(python3 -c "print('%.1f' % ($T1 - $T0))")
@@ -638,7 +701,7 @@ PY
       RADT="$P_RADT" CUDT="$P_CUDT" \
       HISTORY_INTERVAL="$([ "$rep" = "1" ] && echo "$HIST_MINUTES" || echo 0)" IO_FORM_HISTORY="14" \
       N_NODES="$ALLOC_NODES" N_RANKS="$ranks" OMP_THREADS="$omp" NPROC_X="$nx" NPROC_Y="$ny" \
-      NUMTILES="$numtiles" DISTRIBUTION="$dist" KMP_BLOCKTIME_COL="$blocktime" \
+      NUMTILES="$numtiles" DISTRIBUTION="$dist" KMP_BLOCKTIME_COL="$BLOCKTIME_RECORD" \
       S_PER_STEP_MEDIAN="$MED" S_PER_STEP_MEAN="$MEAN" N_STEPS_MEASURED="$NMEAS" \
       DIFFWRF_DIFFERING_FIELDS="" FIDELITY_LABEL="$FID_LABEL" NOTES="$NOTES" \
       PHYSICS_SUITE_NOTE="$PHYSICS_SUITE"
@@ -755,11 +818,7 @@ for cid in "${ORDER[@]}"; do
   done
   # all-ADIOS2: wrfinput_d0N.bp (N <= max_dom) and wrfbdy_d01.bp come from bp_dir,
   # never from prep_dir's netCDF originals (input_files no longer lists them).
-  for ((d = 1; d <= MAX_DOM; d++)); do
-    df=$(printf "d%02d" "$d")
-    ln -sf "$BP_DIR/wrfinput_${df}.bp" "wrfinput_${df}.bp"
-  done
-  ln -sf "$BP_DIR/wrfbdy_d01.bp" "wrfbdy_d01.bp"
+  link_wrf_inputs
   link_thompson_tables
   for f in "$W"/run/*; do
     b=$(basename "$f")
@@ -801,16 +860,11 @@ for cid in "${ORDER[@]}"; do
   rm -f ./namelist.input.orig
   ln -sf "$W/main/wrf.exe" ./wrf.exe
 
-  export OMP_NUM_THREADS=$omp
-  if [ "$blocktime" = "default" ]; then
-    unset KMP_BLOCKTIME
-  else
-    export KMP_BLOCKTIME=$blocktime
-  fi
+  configure_omp_env "$omp" "$blocktime"
 
   T0=$(date +%s.%N)
-  timeout "$TIMEOUT_S" srun --mpi=pmi2 --distribution="$dist" -n "$ranks" \
-    --ntasks-per-node="$ntasks_per_node" -c "$omp" ./wrf.exe > wrf.out 2>&1
+  site_launch "$ranks" "$ntasks_per_node" "$omp" "$dist"
+  timeout "$TIMEOUT_S" "${SITE_LAUNCH_CMD[@]}" > wrf.out 2>&1
   RC=$?
   T1=$(date +%s.%N)
   WALL=$(python3 -c "print('%.1f' % ($T1 - $T0))")
@@ -915,7 +969,7 @@ for cid in "${ORDER[@]}"; do
     RADT="$PHYS_RADT" CUDT="$PHYS_CUDT" \
     HISTORY_INTERVAL="$([ "$MODE" = correctness ] && echo "$MIN" || echo 0)" IO_FORM_HISTORY="14" \
     N_NODES="$ALLOC_NODES" N_RANKS="$ranks" OMP_THREADS="$omp" NPROC_X="$nx" NPROC_Y="$ny" \
-    NUMTILES="$numtiles" DISTRIBUTION="$dist" KMP_BLOCKTIME_COL="$blocktime" \
+    NUMTILES="$numtiles" DISTRIBUTION="$dist" KMP_BLOCKTIME_COL="$BLOCKTIME_RECORD" \
     S_PER_STEP_MEDIAN="$MED" S_PER_STEP_MEAN="$MEAN" N_STEPS_MEASURED="$NMEAS" \
     DIFFWRF_DIFFERING_FIELDS="$DIFF_FIELDS" FIDELITY_LABEL="" NOTES="$NOTES" \
     PHYSICS_SUITE_NOTE="$PHYSICS_SUITE"

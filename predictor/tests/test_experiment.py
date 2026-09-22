@@ -519,6 +519,69 @@ def test_explicit_configs_unknown_id_raises(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# --site (decision 0050 step 8, minimal hardware abstraction)
+# ---------------------------------------------------------------------------
+def test_plan_site_f1_default_is_byte_identical(tmp_path, monkeypatch):
+    """No --site (or --site f1 explicitly) must reproduce today's f1-only sbatch command and
+    cost line -- this is the regression the whole --site plumbing must never break."""
+    captured = []
+    _install_fake_recommend(monkeypatch, _SHORTLIST_C06_TOP1, capture=captured)
+    ledger = tmp_path / "ledger.csv"
+    _write_csv(ledger, _karina_rows())
+
+    args = _plan_args(tmp_path, ledger_paths=[str(ledger)], out=tmp_path / "plan")
+    plan_no_site = ex.cmd_plan(args)
+
+    args2 = _plan_args(tmp_path, ledger_paths=[str(ledger)], out=tmp_path / "plan2")
+    args2.site = "f1"
+    plan_explicit_f1 = ex.cmd_plan(args2)
+
+    assert plan_no_site["sbatch"]["command"] == plan_explicit_f1["sbatch"]["command"]
+    assert plan_no_site["space"] == "template"
+    assert " SU," in plan_no_site["cost"]["cost_line"]
+    assert plan_no_site["cost"]["su"] is not None
+    assert "--exclusive" not in plan_no_site["sbatch"]["command"]
+    assert "SITE=" not in plan_no_site["sbatch"]["command"]
+
+
+def test_plan_site_scc_forces_generated_space_and_emits_scc_sbatch_args(tmp_path, monkeypatch):
+    # karina resolves C01 on f1 (test_plan_site_f1_default_is_byte_identical above confirms
+    # --space auto picks 'template' for it there) -- this documents that --site scc overrides
+    # that pick to 'generated' regardless, since scc's 72 cores/node resolves none of the
+    # C01-C16 STRICT templates (anchored at f1's fixed 448/224/112 rank counts).
+    _install_fake_benchmark(monkeypatch)
+    _install_fake_decomp_search(monkeypatch, chosen=[])
+    ledger = tmp_path / "ledger.csv"
+    _write_csv(ledger, _karina_rows())
+
+    args = _plan_args(tmp_path, case="karina", ledger_paths=[str(ledger)], out=tmp_path / "plan")
+    args.site = "scc"
+    plan = ex.cmd_plan(args)
+
+    assert plan["space"] == "generated"
+    assert plan["site"] == "scc"
+    assert plan["partition"] == "compute"
+
+    cmd = plan["sbatch"]["command"]
+    assert cmd.startswith("sbatch -p compute -N %d --time " % args.nodes)
+    assert "--exclusive" in cmd
+    assert "--exclude=head" in cmd
+    assert "--ntasks-per-node=72" in cmd
+    assert "SITE=scc" in cmd
+    assert "WTUNE_TOTAL_CORES=%d" % (args.nodes * 72) in cmd
+    assert " -A " not in cmd and "--account" not in cmd
+
+    assert plan["cost"]["su"] is None
+    assert "SU" not in plan["cost"]["cost_line"]
+    assert "node-hours" in plan["cost"]["cost_line"]
+
+
+def test_site_table_rejects_unknown_site():
+    with pytest.raises(SystemExit):
+        ex._site_cfg("nosuchsite")
+
+
+# ---------------------------------------------------------------------------
 # generated space (--space): matthew (91x100, campaign/cases.json) resolves no C01 STRICT
 # template at any of the 448/224/112-rank anchors (every legal (nx,ny) at ranks=112 needs
 # nx<=9 (91//nx>=10) and ny<=10 (100//ny>=10), so the max legal ranks is 9*10=90, not 112) --

@@ -1,0 +1,22 @@
+{
+  "_comment": "scc site overlay (decision 0050 step 8): path overrides merged over cases.json per case when SITE=scc. Geometry is identical to cases.json and not repeated. bp_dir is empty on purpose: scc has only the official netCDF wrfinput/wrfbdy, so strict_campaign.sbatch links those from prep_dir and exports WTUNE_INPUT_FORMAT=netcdf (configs.py then writes io_form_input/boundary=2; history/restart stay ADIOS2). Thompson/aux input_files at the maria1km/isc21 paths are not yet verified on scc.",
+  "cases": {
+    "conus25": {
+      "prep_dir": "/nfs/data/wrf/v4.4_bench_conus2.5km",
+      "bp_dir": ""
+    },
+    "maria1km": {
+      "prep_dir": "/nfs/data/wrf/ob3-maria1km/maria1km",
+      "bp_dir": ""
+    },
+    "isc21": {
+      "prep_dir": "$HOME/wrf-cases/isc21/WRF_ISC21_3_DOMAIN",
+      "bp_dir": ""
+    },
+    "lafe": {
+      "prep_dir": "/nfs/data/wrf/doi4-lafe2017",
+      "bp_dir": "",
+      "namelist_template": "/nfs/data/wrf/doi4-lafe2017/namelist.input.d01only"
+    }
+  }
+}

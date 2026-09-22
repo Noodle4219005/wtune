@@ -1010,8 +1010,21 @@ def cmd_write_iofields(args):
 
 
 def cmd_edit_namelist_timeline(args):
+    """--run-minutes takes precedence over --hours*60 when given (temporal_validation.py's
+    RUN_MINUTES, job 587/588 postmortem correction 5): --hours*60 cannot represent a genuine
+    sub-hour run length (isc21: 30 minutes -> int(0) if only whole hours are available) nor an
+    already-capped length that is not a whole multiple of 60 minutes, and silently re-deriving it
+    from HOURS here would undo temporal_validation.py's own minute-precision resolution. --hours
+    stays accepted (default None) for any caller that still only has a whole-hour budget; exactly
+    one of --run-minutes/--hours must be given."""
     with open(args.infile) as f:
         text = f.read()
+    if args.run_minutes is not None:
+        run_minutes = args.run_minutes
+    elif args.hours is not None:
+        run_minutes = args.hours * 60
+    else:
+        raise SystemExit("edit-namelist-timeline: one of --run-minutes or --hours is required")
     dt0 = args.dt if args.dt is not None else tv.case_json(args.case)["dt"]
     # Raise a too-short interval to the 20xdt floor instead of failing (matthew dt=150 s needs >= 50
     # min; the 30 min default aborted job 464's namelist step).
@@ -1022,7 +1035,7 @@ def cmd_edit_namelist_timeline(args):
     validate_aux_interval_minutes(args.aux_interval, dt0)
     out = edit_namelist_timeline(
         text, args.nproc_x, args.nproc_y, args.numtiles, args.ranks, args.max_dom,
-        args.hours * 60, args.every * 60, args.aux_stream, args.aux_interval,
+        run_minutes, args.every * 60, args.aux_stream, args.aux_interval,
         args.iofields_filename, frames_per_auxhist=args.frames_per_auxhist)
     with open(args.outfile, "w") as f:
         f.write(out)
@@ -1103,7 +1116,11 @@ def build_arg_parser():
     sp.add_argument("infile")
     sp.add_argument("outfile")
     sp.add_argument("--case", required=True)
-    sp.add_argument("--hours", type=int, required=True)
+    sp.add_argument("--hours", type=int, default=None)
+    sp.add_argument("--run-minutes", type=int, default=None, dest="run_minutes",
+                     help="exact run length in minutes; takes precedence over --hours*60 "
+                          "(job 587/588 postmortem: --hours*60 cannot represent a sub-hour "
+                          "or non-whole-hour run length)")
     sp.add_argument("--every", type=int, required=True)
     sp.add_argument("--nproc-x", type=int, required=True, dest="nproc_x")
     sp.add_argument("--nproc-y", type=int, required=True, dest="nproc_y")

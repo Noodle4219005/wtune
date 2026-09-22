@@ -120,6 +120,41 @@ def steps_to_minutes(steps, dt_seconds):
     return (total_s + 59) // 60
 
 
+def resolve_run_minutes(full_hours, hours_cap):
+    """Effective LONG/TIMELINE run length in whole MINUTES -- min(full_hours, hours_cap) when the
+    template's own length is known, else hours_cap alone, rounded to the nearest minute (never
+    floored to whole hours first).
+
+    Jobs 587 (lafe) and 588 (isc21) were killed at their 20-minute SLURM wall limit from TWO
+    separate, compounding defects, neither of which is "HOURS=0 correctly means the full case" --
+    that claim was checked against the real cluster namelists and was FALSE for both cases, for
+    two different reasons (see read_run_length_hours's own docstring for the full mechanism):
+
+    isc21 (run_minutes=30, every other run_* key 0, start/end date span 15h): a genuine 30-minute
+    case. The OLD `hours = min(int(full_hours), args.hours)` computed int(0.5) == 0, and that 0
+    used to be exported as HOURS and fed straight into the namelist edit -- which does NOT mean
+    "run 30 minutes"; because campaign/configs.py's edit_namelist always writes literal
+    run_days/run_hours/run_minutes values (never skips the write), HOURS=0 there means
+    run_minutes=0, which is WRF's OWN trigger for "derive the run length from start_date ->
+    end_date instead" -- i.e. it silently turned a 30-minute run into a 15-HOUR one. This function
+    fixes that: resolve_run_minutes(0.5, 12) == 30, and cmd_submit_timeline now plumbs this exact
+    minute count to the namelist edit via RUN_MINUTES (see build_timeline_sbatch_command), never
+    through HOURS*60.
+
+    lafe (all four run_* keys 0, start/end date span 24h): read_run_length_hours(text) used to
+    return 0.0 here NOT because the case is short, but because its length is expressed only via
+    start_date/end_date, which the old implementation never read at all. That 0.0 is what this
+    function used to receive as `full_hours` and floor to 1 minute (max(1, ...)) -- sizing a
+    24-hour job for 1 minute. read_run_length_hours now resolves this case itself (computing the
+    real 24h span when every run_* key is 0), so `full_hours` reaching this function is already
+    correct; this function's own min(full_hours, hours_cap)*60 logic did not need to change."""
+    if full_hours is not None:
+        hours = min(full_hours, hours_cap) if hours_cap else full_hours
+    else:
+        hours = hours_cap or DEFAULT_HOURS
+    return max(1, int(round(hours * 60)))
+
+
 # ---------------------------------------------------------------------------
 # case metadata
 # ---------------------------------------------------------------------------
@@ -169,14 +204,58 @@ def read_case_start_datetime(text):
     return datetime.datetime(y, mo, d, h, mi, s)
 
 
-def read_run_length_hours(text):
-    """run_days*24 + run_hours + run_minutes/60 + run_seconds/3600 from the namelist's own
-    &time_control run-length keys (0 for any key that is absent, matching WRF's own default)."""
+def read_case_end_datetime(text):
+    """d01's end_year/month/day/hour/minute/second (its first value) -- same convention as
+    read_case_start_datetime (minute/second default to 0, only y/mo/d are mandatory). Returns
+    None when end_year/month/day cannot all be found."""
+    y = _first_namelist_int(text, "end_year")
+    mo = _first_namelist_int(text, "end_month")
+    d = _first_namelist_int(text, "end_day")
+    if y is None or mo is None or d is None:
+        return None
+    h = _first_namelist_int(text, "end_hour", 0)
+    mi = _first_namelist_int(text, "end_minute", 0)
+    s = _first_namelist_int(text, "end_second", 0)
+    return datetime.datetime(y, mo, d, h, mi, s)
+
+
+def read_run_length_hours(text, path=None):
+    """The run length WRF will ACTUALLY use, in hours -- not merely what the run_days/run_hours/
+    run_minutes/run_seconds &time_control keys literally sum to.
+
+    When at least one of those four keys is nonzero, they mean exactly what they say:
+    days*24 + hours + minutes/60 + seconds/3600 (0 for any key that is absent, matching WRF's own
+    default) -- this is the isc21 shape (run_minutes=30, every other run_* key 0): a genuine
+    30-minute run, returned as 0.5.
+
+    When ALL FOUR are zero (or absent), WRF does NOT run a zero-length case -- it falls back to
+    computing the run length from &time_control's start_date -> end_date instead (WRF's own
+    documented behaviour once every run_days/run_hours/run_minutes/run_seconds is 0; verified
+    against campaign/configs.py's _set_scalar/edit_namelist, which writes exactly these four keys
+    verbatim and nothing else). This is the lafe shape (all four run_* keys 0, start=2017-08-23
+    06:00 -> end=2017-08-24 06:00): a genuine 24-hour run, NOT a 0-hour one. Returning 0 here for
+    that case previously made every downstream consumer (auto_select_cases, cmd_plan,
+    cmd_submit_long, cmd_submit_timeline) treat a real 24-hour case as if it had no run length at
+    all -- job 587/588's second, independent DEFECT, distinct from isc21's sub-hour truncation.
+
+    Raises ValueError (citing `path` when given) if NEITHER source yields a positive length: 0 is
+    never returned for what claims to be a runnable case, since every caller here already treats
+    0 as "unset", not as a genuine zero-length run (WRF has no such thing)."""
     days = _first_namelist_int(text, "run_days", 0)
     hrs = _first_namelist_int(text, "run_hours", 0)
     mins = _first_namelist_int(text, "run_minutes", 0)
     secs = _first_namelist_int(text, "run_seconds", 0)
-    return days * 24 + hrs + mins / 60.0 + secs / 3600.0
+    if days or hrs or mins or secs:
+        return days * 24 + hrs + mins / 60.0 + secs / 3600.0
+    start_dt = read_case_start_datetime(text)
+    end_dt = read_case_end_datetime(text)
+    if start_dt is not None and end_dt is not None and end_dt > start_dt:
+        return (end_dt - start_dt).total_seconds() / 3600.0
+    raise ValueError(
+        "read_run_length_hours: run_days/run_hours/run_minutes/run_seconds are all 0 AND "
+        "start_date/end_date do not establish a positive span%s -- this namelist has no "
+        "run length WRF could actually use"
+        % (" (%s)" % path if path else ""))
 
 
 def auto_select_cases(min_hours=DEFAULT_HOURS):
@@ -190,10 +269,10 @@ def auto_select_cases(min_hours=DEFAULT_HOURS):
         c = campaign_configs.CASES.get(case_id)
         if not c or not c.get("enabled", True):
             continue
-        text, _path = read_case_template(c)
+        text, path = read_case_template(c)
         if text is None:
             continue
-        if read_run_length_hours(text) >= min_hours:
+        if read_run_length_hours(text, path) >= min_hours:
             out.append(case_id)
     return out
 
@@ -616,9 +695,9 @@ def build_samples_sbatch_command(case, restart_hours, long_run_dir, configs_path
     return "source %s; %s" % (scc_sweep._expand(env_source), sbatch)
 
 
-def build_timeline_sbatch_command(case, nodes, cores_per_node, hours, every, configs_path,
-                                   time_limit, out_dir, aux_interval_minutes, aux_stream=None,
-                                   frames_per_auxhist=2000, fields=None,
+def build_timeline_sbatch_command(case, nodes, cores_per_node, hours, every, run_minutes,
+                                   configs_path, time_limit, out_dir, aux_interval_minutes,
+                                   aux_stream=None, frames_per_auxhist=2000, fields=None,
                                    env_source=DEFAULT_ENV_SOURCE, sbatch_script=DEFAULT_SBATCH_SCRIPT,
                                    site="scc"):
     """TV_MODE=timeline: same LONG-run shape (full length or --hours, cold start, netCDF restart
@@ -627,10 +706,19 @@ def build_timeline_sbatch_command(case, nodes, cores_per_node, hours, every, con
     same CONFIG_FILE-driven loop tools/temporal_run.sbatch's own SAMPLES branch already uses (see
     that file's header). aux_stream=None lets the sbatch script auto-detect a free stream against
     the case's own namelist template (tools/state_timeline.py pick-aux-stream) rather than fixing
-    one here at plan time, since only the runner has the exact template text at hand."""
-    export = ("ALL,SITE=%s,CASE=%s,TV_MODE=timeline,HOURS=%d,EVERY=%d,CONFIG_FILE=%s,"
+    one here at plan time, since only the runner has the exact template text at hand.
+
+    RUN_MINUTES (job 587/588 postmortem, correction 5) is exported ALONGSIDE HOURS, not instead of
+    it: HOURS is still whatever cmd_submit_timeline's own `hours` (int, possibly 0) is, kept for
+    any other consumer of that var, but the sbatch script's TV_MODE=timeline branch now passes
+    RUN_MINUTES -- not HOURS -- to tools/state_timeline.py's edit-namelist-timeline --run-minutes,
+    so the namelist's actual run length is whatever resolve_run_minutes() computed (e.g. isc21's
+    genuine 30 minutes), never HOURS*60 (which would silently re-truncate a sub-hour length to 0,
+    or an already-capped length to a coarser multiple of 60 minutes)."""
+    export = ("ALL,SITE=%s,CASE=%s,TV_MODE=timeline,HOURS=%d,EVERY=%d,RUN_MINUTES=%d,CONFIG_FILE=%s,"
               "AUX_INTERVAL_MIN=%d,FRAMES_PER_AUXHIST=%d"
-              % (site, case, hours, every, configs_path, aux_interval_minutes, frames_per_auxhist))
+              % (site, case, hours, every, run_minutes, configs_path, aux_interval_minutes,
+                 frames_per_auxhist))
     if aux_stream is not None:
         export += ",AUX_STREAM=%d" % aux_stream
     if fields:
@@ -738,34 +826,73 @@ def cmd_submit_timeline(args):
     DEFAULT_TIMELINE_K alternative decompositions, each writing the auxiliary state stream
     tools/temporal_run.sbatch's TV_MODE=timeline branch configures. Config set generation and
     sbatch-command shape otherwise mirror cmd_submit_long/cmd_submit_samples exactly (same
-    hours-resolution, same s/step-ledger time estimate, same --dry-run contract)."""
+    hours-resolution, same s/step-ledger time estimate, same --dry-run contract).
+
+    Two DEFECT fixes from the job 587 (lafe)/588 (isc21) postmortem, both pre-registered
+    invariants, not negotiable:
+
+    DEFECT A (both the wall limit AND the actual namelist run length were wrong for a run length
+    below one hour, or one expressed only via start_date/end_date): steps_est is now derived from
+    resolve_run_minutes()'s MINUTE-precision effective run length (fed by read_run_length_hours,
+    itself now correct for both the isc21 shape -- genuine sub-hour run_minutes -- and the lafe
+    shape -- all run_* keys 0, length defined by the date span; see both functions' own
+    docstrings), never from int(hours). The SAME run_minutes value is now also exported as
+    RUN_MINUTES and plumbed all the way to tools/state_timeline.py's edit-namelist-timeline
+    --run-minutes (see build_timeline_sbatch_command), so the namelist's actual run length always
+    matches what steps_est assumed -- HOURS/HOURS*60 no longer drives the TIMELINE namelist edit
+    at all.
+
+    DEFECT B (wall limit sized off the unmeasured 5s/step constant): when
+    scc_sweep.estimate_s_per_step falls back to DEFAULT_LONG_S_PER_STEP_FALLBACK (source
+    'fallback_10s', meaning: no ledger row for this case/node-count/hardware combination), that
+    estimate is routinely off by close to an order of magnitude (isc21 measured 4.94s/step at 8
+    nodes vs. the 5.0s/step *1-node* fallback used for job 588 -- roughly 8x low once node-count
+    scaling is accounted for) and WILL undersize --time. Refuse to submit in that case (still
+    printing the full plan first, even under --dry-run, so an operator sees exactly what would be
+    refused) unless --s-per-step overrides it with a measured value (source 'override')."""
     cj = case_json(args.case)
     text, path = read_case_template(cj)
-    full_hours = read_run_length_hours(text) if text is not None else None
+    full_hours = read_run_length_hours(text, path) if text is not None else None
     hours = min(int(full_hours), args.hours) if full_hours is not None else args.hours
+    run_minutes = resolve_run_minutes(full_hours, args.hours)
     configs_list, configs_path = ensure_timeline_configs(
         args.root, args.case, args.nodes, args.cores_per_node, args.hardware_id, args.k, args.seed)
-    s_est, s_source, _n = scc_sweep.estimate_s_per_step(
-        args.case, args.nodes, args.ledger_dir, args.hardware_id,
-        fallback=DEFAULT_LONG_S_PER_STEP_FALLBACK)
-    steps_est = max(1, int(hours * 3600 / cj["dt"]))
+    if args.s_per_step is not None:
+        s_est, s_source = args.s_per_step, "override"
+    else:
+        s_est, s_source, _n = scc_sweep.estimate_s_per_step(
+            args.case, args.nodes, args.ledger_dir, args.hardware_id,
+            fallback=DEFAULT_LONG_S_PER_STEP_FALLBACK)
+    steps_est = max(1, int(run_minutes * 60 / cj["dt"]))
     # One sbatch job runs every config in configs_list sequentially (temporal_run.sbatch's
     # CONFIG_FILE loop) -- n_configs multiplies the single-run estimate, same
     # n_configs*reps*per_run shape scc_sweep.estimate_time already uses for SAMPLES-style loops.
     time_est = scc_sweep.estimate_time(len(configs_list), 1, steps_est, s_est)
     out_dir = scc_sweep._expand(args.out_dir)
     cmd_str = build_timeline_sbatch_command(
-        args.case, args.nodes, args.cores_per_node, hours, args.every,
+        args.case, args.nodes, args.cores_per_node, hours, args.every, run_minutes,
         os.path.abspath(configs_path), time_est["time_limit"], out_dir, args.aux_interval_minutes,
         aux_stream=args.aux_stream, frames_per_auxhist=args.frames_per_auxhist,
         fields=args.fields, env_source=args.env_source, sbatch_script=args.sbatch_script,
         site=args.site)
-    print("TIMELINE case=%s hours=%d every=%d configs=%d aux_interval=%dmin "
+    print("TIMELINE case=%s hours=%d every=%d configs=%d aux_interval=%dmin run_min=%d "
           "s_est=%.3fs/step[%s] time=%s" % (
               args.case, hours, args.every, len(configs_list), args.aux_interval_minutes,
-              s_est, s_source, time_est["time_limit"]))
+              run_minutes, s_est, s_source, time_est["time_limit"]))
     if args.dry_run:
         print("DRY-RUN: %s" % cmd_str)
+    if s_source == "fallback_10s":
+        raise SystemExit(
+            "submit-timeline: refusing to submit -- s/step estimate for case=%s at %d node(s) on "
+            "hardware=%s has no ledger row (source=fallback_10s, %.1fs/step constant), which is "
+            "typically off by close to an order of magnitude and undersizes --time (see jobs 587/"
+            "588, both killed at their 20-minute wall limit). Produce a ledger row first:\n"
+            "  tools/scc_sweep.py submit --cases %s --nodes %d --hardware-id %s\n"
+            "then re-run this submit-timeline command, or pass --s-per-step <measured s/step> to "
+            "override." % (args.case, args.nodes, args.hardware_id,
+                            DEFAULT_LONG_S_PER_STEP_FALLBACK, args.case, args.nodes,
+                            args.hardware_id))
+    if args.dry_run:
         return 0
     job_id = scc_sweep.submit_job(cmd_str, sbatch_runner=args.sbatch_runner)
     print("submitted job %s (output under %s)" % (job_id, out_dir))
@@ -967,6 +1094,8 @@ def build_arg_parser():
     sp.add_argument("--frames-per-auxhist", type=int, default=2000, dest="frames_per_auxhist")
     sp.add_argument("--fields", type=lambda s: [x.strip() for x in s.split(",") if x.strip()],
                      default=None, help="override the default 2-D field list (comma-separated)")
+    sp.add_argument("--s-per-step", type=float, default=None, dest="s_per_step",
+                     help="measured s/step, bypassing the no-ledger-row refusal (source 'override')")
     _add_generation_args(sp)
     sp.set_defaults(k=DEFAULT_TIMELINE_K)
     _add_submit_args(sp)

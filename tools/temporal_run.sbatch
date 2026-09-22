@@ -32,15 +32,19 @@ set -uo pipefail
 #   TV_MODE=long:     HOURS, EVERY required.
 #   TV_MODE=samples:  LONG_RUN_DIR, RESTART_HOURS, CONFIG_FILE required; STEPS (default 30),
 #                      TIMEOUT_S (default 1200) optional.
-#   TV_MODE=timeline: HOURS, EVERY, CONFIG_FILE required (state_timeline.py training-data
-#                      extension, added on top of the LONG-run shape: same cold-start/full-length/
-#                      netCDF-restart run, looped over CONFIG_FILE's up to-3 configs -- SAMPLES'
-#                      own CONFIG_FILE loop convention, not LONG's single-anchor shape -- PLUS an
-#                      auxiliary 2-D state history stream). AUX_INTERVAL_MIN (default 30),
-#                      AUX_STREAM (default: auto-detect a free stream, preferring 23),
-#                      FRAMES_PER_AUXHIST (default 2000), AUX_FIELDS (default:
-#                      `$TS default-fields`) optional. Backward compatible: long/samples callers
-#                      and their env-var contracts are untouched by this addition.
+#   TV_MODE=timeline: HOURS, RUN_MINUTES, EVERY, CONFIG_FILE required (state_timeline.py
+#                      training-data extension, added on top of the LONG-run shape: same
+#                      cold-start/full-length/netCDF-restart run, looped over CONFIG_FILE's
+#                      up to-3 configs -- SAMPLES' own CONFIG_FILE loop convention, not LONG's
+#                      single-anchor shape -- PLUS an auxiliary 2-D state history stream).
+#                      RUN_MINUTES (job 587/588 postmortem) is the exact namelist run length in
+#                      minutes -- HOURS is still required and still passed through to
+#                      edit-namelist-timeline, but RUN_MINUTES is authoritative (see
+#                      tools/temporal_validation.py's build_timeline_sbatch_command docstring).
+#                      AUX_INTERVAL_MIN (default 30), AUX_STREAM (default: auto-detect a free
+#                      stream, preferring 23), FRAMES_PER_AUXHIST (default 2000), AUX_FIELDS
+#                      (default: `$TS default-fields`) optional. Backward compatible: long/samples
+#                      callers and their env-var contracts are untouched by this addition.
 
 SITE=${SITE:-scc}
 export SITE
@@ -223,6 +227,13 @@ elif [ "$TV_MODE" = samples ]; then
 
 elif [ "$TV_MODE" = timeline ]; then
   : "${HOURS:?HOURS env var is required for TV_MODE=timeline}"
+  # RUN_MINUTES (job 587/588 postmortem correction 5) is the authoritative namelist run length --
+  # HOURS/HOURS*60 cannot represent a sub-hour case (isc21: 30 min) or a date-span-defined case
+  # (lafe: all run_* keys 0) correctly; see tools/temporal_validation.py's
+  # build_timeline_sbatch_command/resolve_run_minutes/read_run_length_hours docstrings for why.
+  # HOURS itself is still required and still passed to edit-namelist-timeline (kept for any other
+  # consumer / as a sanity cross-check), but --run-minutes is what actually sets the namelist.
+  : "${RUN_MINUTES:?RUN_MINUTES env var is required for TV_MODE=timeline}"
   : "${EVERY:?EVERY env var is required for TV_MODE=timeline}"
   : "${CONFIG_FILE:?CONFIG_FILE env var is required for TV_MODE=timeline}"
   export CONFIG_FILE
@@ -259,7 +270,7 @@ elif [ "$TV_MODE" = timeline ]; then
 
     cp "$NAMELIST_TEMPLATE" ./namelist.input.orig
     $TS edit-namelist-timeline ./namelist.input.orig ./namelist.input \
-      --case "$CASE" --hours "$HOURS" --every "$EVERY" \
+      --case "$CASE" --hours "$HOURS" --run-minutes "$RUN_MINUTES" --every "$EVERY" \
       --nproc-x "$nx" --nproc-y "$ny" --numtiles "$numtiles" --ranks "$ranks" --max-dom "$MAX_DOM" \
       --aux-stream "$AUX_STREAM" --aux-interval "$AUX_INTERVAL_MIN" \
       --frames-per-auxhist "$FRAMES_PER_AUXHIST" --iofields-filename iofields_timeline.txt \

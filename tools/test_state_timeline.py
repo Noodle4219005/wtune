@@ -658,13 +658,46 @@ def test_cmd_edit_namelist_timeline(tmp_path, monkeypatch):
     outfile = tmp_path / "out.input"
     infile.write_text(NML_1DOM)
     args = argparse.Namespace(
-        infile=str(infile), outfile=str(outfile), case="synth", hours=12, every=3,
-        nproc_x=9, nproc_y=8, numtiles=1, ranks=72, max_dom=1, aux_stream=23, aux_interval=30,
-        frames_per_auxhist=500, iofields_filename="iof.txt", dt=None)
+        infile=str(infile), outfile=str(outfile), case="synth", hours=12, run_minutes=None,
+        every=3, nproc_x=9, nproc_y=8, numtiles=1, ranks=72, max_dom=1, aux_stream=23,
+        aux_interval=30, frames_per_auxhist=500, iofields_filename="iof.txt", dt=None)
     st.cmd_edit_namelist_timeline(args)
     out = outfile.read_text()
     assert "auxhist23_interval = 30," in out
-    assert "run_minutes = 720" in out
+    assert "run_minutes = 720" in out   # falls back to --hours*60 when --run-minutes is absent
+
+
+def test_cmd_edit_namelist_timeline_run_minutes_takes_precedence_over_hours(tmp_path, monkeypatch):
+    # job 587/588 postmortem: --run-minutes must win even when --hours is also given (the sbatch
+    # caller passes both), and must represent a length --hours*60 could never express exactly.
+    monkeypatch.setattr(st.tv.campaign_configs, "CASES", {"synth": dict(MATTHEW_LIKE)})
+    infile = tmp_path / "in.input"
+    outfile = tmp_path / "out.input"
+    infile.write_text(NML_1DOM)
+    args = argparse.Namespace(
+        infile=str(infile), outfile=str(outfile), case="synth", hours=12, run_minutes=30,
+        every=3, nproc_x=9, nproc_y=8, numtiles=1, ranks=72, max_dom=1, aux_stream=23,
+        aux_interval=30, frames_per_auxhist=500, iofields_filename="iof.txt", dt=None)
+    st.cmd_edit_namelist_timeline(args)
+    out = outfile.read_text()
+    assert "run_minutes = 30," in out
+    assert "run_minutes = 720" not in out
+
+
+def test_cmd_edit_namelist_timeline_requires_hours_or_run_minutes(tmp_path, monkeypatch):
+    monkeypatch.setattr(st.tv.campaign_configs, "CASES", {"synth": dict(MATTHEW_LIKE)})
+    infile = tmp_path / "in.input"
+    outfile = tmp_path / "out.input"
+    infile.write_text(NML_1DOM)
+    args = argparse.Namespace(
+        infile=str(infile), outfile=str(outfile), case="synth", hours=None, run_minutes=None,
+        every=3, nproc_x=9, nproc_y=8, numtiles=1, ranks=72, max_dom=1, aux_stream=23,
+        aux_interval=30, frames_per_auxhist=500, iofields_filename="iof.txt", dt=None)
+    try:
+        st.cmd_edit_namelist_timeline(args)
+        assert False, "expected SystemExit"
+    except SystemExit:
+        pass
 
 
 def test_cmd_edit_namelist_timeline_raises_interval_below_20x_dt_to_the_floor(tmp_path, monkeypatch):
@@ -675,9 +708,9 @@ def test_cmd_edit_namelist_timeline_raises_interval_below_20x_dt_to_the_floor(tm
     infile.write_text(NML_1DOM)
     outfile = tmp_path / "out.input"
     args = argparse.Namespace(
-        infile=str(infile), outfile=str(outfile), case="synth", hours=1, every=1,
-        nproc_x=1, nproc_y=1, numtiles=1, ranks=1, max_dom=1, aux_stream=23, aux_interval=1,
-        frames_per_auxhist=10, iofields_filename="iof.txt", dt=None)
+        infile=str(infile), outfile=str(outfile), case="synth", hours=1, run_minutes=None,
+        every=1, nproc_x=1, nproc_y=1, numtiles=1, ranks=1, max_dom=1, aux_stream=23,
+        aux_interval=1, frames_per_auxhist=10, iofields_filename="iof.txt", dt=None)
     # MATTHEW_LIKE dt=20s -> floor is ceil(20*20/60) = 7 min
     st.cmd_edit_namelist_timeline(args)
     assert args.aux_interval == 7

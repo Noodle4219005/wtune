@@ -54,6 +54,57 @@ NML_2DOM = NML_1DOM.replace(
     "start_second = 00,", "start_second = 00, 00,").replace(
     "max_dom = 1,", "max_dom = 2,")
 
+# job 587/588 postmortem shapes, transcribed from the real cluster namelists cited in the
+# coordinator's rejection (isc21: /home/nkli/wrf-cases/isc21/WRF_ISC21_3_DOMAIN/namelist.input;
+# lafe: /nfs/data/wrf/doi4-lafe2017/namelist.input.LAFE_2500_500_100_MYNN) -- only the
+# &time_control keys read_run_length_hours/read_case_start_datetime/read_case_end_datetime
+# actually consume.
+NML_ISC21_SHAPE = """&time_control
+ run_days = 0,
+ run_hours = 0,
+ run_minutes = 30,
+ run_seconds = 00,
+ start_year = 2016,
+ start_month = 08,
+ start_day = 29,
+ start_hour = 09,
+ start_minute = 00,
+ start_second = 00,
+ end_year = 2016,
+ end_month = 08,
+ end_day = 30,
+ end_hour = 00,
+ end_minute = 00,
+ end_second = 00,
+/
+&domains
+ max_dom = 1,
+/
+"""
+
+NML_LAFE_SHAPE = """&time_control
+ run_days = 0,
+ run_hours = 0,
+ run_minutes = 0,
+ run_seconds = 0,
+ start_year = 2017,
+ start_month = 08,
+ start_day = 23,
+ start_hour = 06,
+ start_minute = 00,
+ start_second = 00,
+ end_year = 2017,
+ end_month = 08,
+ end_day = 24,
+ end_hour = 06,
+ end_minute = 00,
+ end_second = 00,
+/
+&domains
+ max_dom = 1,
+/
+"""
+
 
 # ---------------------------------------------------------------------------
 # restart time offsets
@@ -378,6 +429,43 @@ def test_read_run_length_hours():
     assert tv.read_run_length_hours(NML_1DOM) == 12.0
 
 
+# ---------------------------------------------------------------------------
+# read_run_length_hours: job 587/588 postmortem -- 0 from run_* keys is ambiguous between
+# "genuinely short" and "length is defined by start_date -> end_date"; these two must resolve
+# to DIFFERENT, correct answers, never to the same wrong 0.
+# ---------------------------------------------------------------------------
+def test_read_run_length_hours_isc21_shape_sub_hour_run_minutes_wins_over_date_span():
+    # run_minutes=30 alone is nonzero -> the explicit 30-minute run_* value is authoritative;
+    # the 15-hour start->end date span must NOT override it.
+    assert tv.read_run_length_hours(NML_ISC21_SHAPE) == 0.5
+
+
+def test_read_run_length_hours_lafe_shape_all_run_star_zero_uses_date_span():
+    # every run_* key is 0 -> WRF derives the length from start_date (2017-08-23 06:00) ->
+    # end_date (2017-08-24 06:00) = 24 hours (1440 minutes), NOT 0 and NOT a 1-minute floor.
+    hours = tv.read_run_length_hours(NML_LAFE_SHAPE)
+    assert hours == 24.0
+    assert hours * 60 == 1440.0
+
+
+def test_read_run_length_hours_raises_when_neither_source_available():
+    text = "&time_control\n run_days = 0,\n run_hours = 0,\n run_minutes = 0,\n run_seconds = 0,\n/\n&domains\n/\n"
+    try:
+        tv.read_run_length_hours(text, path="/fake/namelist.input")
+        assert False, "expected ValueError"
+    except ValueError as e:
+        assert "/fake/namelist.input" in str(e)
+
+
+def test_read_case_end_datetime_single_domain():
+    dt = tv.read_case_end_datetime(NML_LAFE_SHAPE)
+    assert dt == datetime.datetime(2017, 8, 24, 6, 0, 0)
+
+
+def test_read_case_end_datetime_missing_fields_returns_none():
+    assert tv.read_case_end_datetime("&time_control\n/\n") is None
+
+
 def test_read_case_start_datetime_single_domain():
     dt = tv.read_case_start_datetime(NML_1DOM)
     assert dt == datetime.datetime(2018, 8, 25, 0, 0, 0)
@@ -559,11 +647,13 @@ def test_ensure_timeline_configs_path_distinct_from_samples_configs(tmp_path, mo
 
 def test_build_timeline_sbatch_command_shape():
     cmd = tv.build_timeline_sbatch_command(
-        "synth", nodes=2, cores_per_node=72, hours=12, every=3, configs_path="/tmp/tl.json",
-        time_limit="01:00:00", out_dir="/tmp/out", aux_interval_minutes=30, aux_stream=23,
-        frames_per_auxhist=500, fields=["RAINNC", "SWDOWN"])
+        "synth", nodes=2, cores_per_node=72, hours=12, every=3, run_minutes=30,
+        configs_path="/tmp/tl.json", time_limit="01:00:00", out_dir="/tmp/out",
+        aux_interval_minutes=30, aux_stream=23, frames_per_auxhist=500,
+        fields=["RAINNC", "SWDOWN"])
     assert "TV_MODE=timeline" in cmd
     assert "HOURS=12" in cmd
+    assert "RUN_MINUTES=30" in cmd
     assert "EVERY=3" in cmd
     assert "CONFIG_FILE=/tmp/tl.json" in cmd
     assert "AUX_INTERVAL_MIN=30" in cmd
@@ -575,10 +665,22 @@ def test_build_timeline_sbatch_command_shape():
 
 def test_build_timeline_sbatch_command_omits_aux_stream_when_none():
     cmd = tv.build_timeline_sbatch_command(
-        "synth", nodes=1, cores_per_node=72, hours=6, every=3, configs_path="/tmp/tl.json",
-        time_limit="00:30:00", out_dir="/tmp/out", aux_interval_minutes=30)
+        "synth", nodes=1, cores_per_node=72, hours=6, every=3, run_minutes=360,
+        configs_path="/tmp/tl.json", time_limit="00:30:00", out_dir="/tmp/out",
+        aux_interval_minutes=30)
     assert "AUX_STREAM=" not in cmd
     assert "AUX_FIELDS=" not in cmd
+
+
+def test_build_timeline_sbatch_command_run_minutes_independent_of_hours():
+    # job 587/588 postmortem: RUN_MINUTES must carry the exact (possibly sub-hour, possibly
+    # date-span-derived) value -- it must never be silently re-derived as hours*60.
+    cmd = tv.build_timeline_sbatch_command(
+        "synth", nodes=1, cores_per_node=72, hours=0, every=3, run_minutes=30,
+        configs_path="/tmp/tl.json", time_limit="00:30:00", out_dir="/tmp/out",
+        aux_interval_minutes=30)
+    assert "HOURS=0" in cmd
+    assert "RUN_MINUTES=30" in cmd
 
 
 def test_cmd_submit_timeline_dry_run_builds_command_without_submitting(monkeypatch, tmp_path, capsys):
@@ -589,7 +691,7 @@ def test_cmd_submit_timeline_dry_run_builds_command_without_submitting(monkeypat
         frames_per_auxhist=2000, fields=None, nodes=1, cores_per_node=72,
         hardware_id="scc-gh200", k=7, seed=1, root=str(tmp_path), out_dir="/tmp/out",
         env_source="$HOME/env.sh", sbatch_script="/tmp/temporal_run.sbatch", site="scc",
-        ledger_dir="/tmp/ledger", dry_run=True, sbatch_runner=runner)
+        ledger_dir="/tmp/ledger", dry_run=True, s_per_step=4.94, sbatch_runner=runner)
     rc = tv.cmd_submit_timeline(args)
     assert rc == 0
     assert calls == []
@@ -597,6 +699,7 @@ def test_cmd_submit_timeline_dry_run_builds_command_without_submitting(monkeypat
     assert "DRY-RUN" in out
     assert "TV_MODE=timeline" in out
     assert "configs=" in out
+    assert "[override]" in out
 
 
 def test_cmd_submit_timeline_submits_one_job_for_all_configs(monkeypatch, tmp_path):
@@ -607,12 +710,177 @@ def test_cmd_submit_timeline_submits_one_job_for_all_configs(monkeypatch, tmp_pa
         frames_per_auxhist=2000, fields=None, nodes=1, cores_per_node=72,
         hardware_id="scc-gh200", k=2, seed=1, root=str(tmp_path), out_dir="/tmp/out",
         env_source="$HOME/env.sh", sbatch_script="/tmp/temporal_run.sbatch", site="scc",
-        ledger_dir="/tmp/ledger", dry_run=False, sbatch_runner=runner)
+        ledger_dir="/tmp/ledger", dry_run=False, s_per_step=4.94, sbatch_runner=runner)
     rc = tv.cmd_submit_timeline(args)
     assert rc == 0
     assert len(calls) == 1   # ALL configs run sequentially inside ONE sbatch job, unlike SAMPLES
     assert "TV_MODE=timeline" in calls[0]
     assert (tmp_path / "synth" / "timeline_configs.json").exists()
+
+
+# ---------------------------------------------------------------------------
+# DEFECT A regression (job 587/588 postmortem): sub-hour run length must not truncate to a
+# 1-step estimate while the sbatch side still runs the case's full (sub-hour) length.
+# ---------------------------------------------------------------------------
+def test_resolve_run_minutes_sub_hour_case_is_nonzero():
+    # full_hours=0.5 (a real isc21/lafe-shaped case), cap=12 (default, does not bind) -> 30 min,
+    # never int(0.5)==0 the way the old `min(int(full_hours), args.hours)` computation did.
+    assert tv.resolve_run_minutes(0.5, 12) == 30
+
+
+def test_resolve_run_minutes_cap_binds_when_smaller():
+    assert tv.resolve_run_minutes(12.0, 3) == 180
+
+
+def test_resolve_run_minutes_unmeasured_template_uses_cap():
+    assert tv.resolve_run_minutes(None, 6) == 360
+    assert tv.resolve_run_minutes(None, 0) == tv.DEFAULT_HOURS * 60
+
+
+def test_cmd_submit_timeline_isc21_shape_run_minutes_reaches_namelist_edit(monkeypatch, tmp_path, capsys):
+    # isc21 shape (job 587/588 evidence): namelist run length is a genuine 30 minutes
+    # (run_hours=0, run_minutes=30), template's own start->end date span is 15h. dt=20s
+    # (MATTHEW_LIKE) -> steps_est must reflect the true 30-minute run (30*60/20 = 90 steps), and
+    # -- the part that matters -- the value that reaches the namelist edit (RUN_MINUTES in the
+    # exported sbatch command) must be 30, NOT 0 (which would select the 15h date span via WRF's
+    # own end-date fallback: HOURS=0 is exported unchanged for other consumers, but RUN_MINUTES,
+    # not HOURS, is what tools/state_timeline.py's edit-namelist-timeline now uses).
+    case_dir = tmp_path / "case"
+    case_dir.mkdir()
+    (case_dir / "namelist.input").write_text(NML_ISC21_SHAPE)
+    fake_case = dict(MATTHEW_LIKE, prep_dir=str(case_dir))
+    monkeypatch.setattr(tv.campaign_configs, "CASES", {"synth": fake_case})
+    runner, calls = _fake_sbatch_runner()
+    args = argparse.Namespace(
+        case="synth", hours=12, every=3, aux_interval_minutes=30, aux_stream=None,
+        frames_per_auxhist=2000, fields=None, nodes=1, cores_per_node=72,
+        hardware_id="scc-gh200", k=2, seed=1, root=str(tmp_path), out_dir="/tmp/out",
+        env_source="$HOME/env.sh", sbatch_script="/tmp/temporal_run.sbatch", site="scc",
+        ledger_dir="/tmp/ledger", dry_run=True, s_per_step=4.94, sbatch_runner=runner)
+    rc = tv.cmd_submit_timeline(args)
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "hours=0" in out          # HOURS is still exported unchanged (kept for other
+                                      # consumers) -- it is RUN_MINUTES, not HOURS, that now
+                                      # drives the actual namelist edit; see the DRY-RUN line below
+    assert "run_min=30" in out       # Python-side estimate sees the true length
+    dry_run_line = next(ln for ln in out.splitlines() if ln.startswith("DRY-RUN:"))
+    assert "RUN_MINUTES=30" in dry_run_line   # the value that actually reaches the namelist edit
+    assert "HOURS=0" in dry_run_line
+    # time_limit must not be sized for a 1-step run: 90 steps at s_est=4.94s/step is well over
+    # the old code's ~120s (STARTUP_S) + 1*4.94s floor.
+    time_str = next(ln for ln in out.splitlines() if ln.startswith("TIMELINE"))
+    assert "time=00:20:00" not in time_str
+
+
+def test_cmd_submit_timeline_lafe_shape_uncapped_run_minutes_reaches_namelist_edit(monkeypatch, tmp_path, capsys):
+    # lafe shape (job 587/588 evidence): all four run_* keys are 0, start->end date span is 24h
+    # (1440 min). With a cap that does not bind (--hours=30), the full 1440 minutes must reach the
+    # namelist edit -- NOT 0 and NOT a 1-minute floor (the old resolve_run_minutes(0.0, cap) bug).
+    case_dir = tmp_path / "case"
+    case_dir.mkdir()
+    (case_dir / "namelist.input").write_text(NML_LAFE_SHAPE)
+    fake_case = dict(MATTHEW_LIKE, prep_dir=str(case_dir))
+    monkeypatch.setattr(tv.campaign_configs, "CASES", {"synth": fake_case})
+    runner, calls = _fake_sbatch_runner()
+    args = argparse.Namespace(
+        case="synth", hours=30, every=3, aux_interval_minutes=30, aux_stream=None,
+        frames_per_auxhist=2000, fields=None, nodes=1, cores_per_node=72,
+        hardware_id="scc-gh200", k=2, seed=1, root=str(tmp_path), out_dir="/tmp/out",
+        env_source="$HOME/env.sh", sbatch_script="/tmp/temporal_run.sbatch", site="scc",
+        ledger_dir="/tmp/ledger", dry_run=True, s_per_step=4.94, sbatch_runner=runner)
+    rc = tv.cmd_submit_timeline(args)
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "run_min=1440" in out
+    dry_run_line = next(ln for ln in out.splitlines() if ln.startswith("DRY-RUN:"))
+    assert "RUN_MINUTES=1440" in dry_run_line
+    assert "HOURS=24" in dry_run_line
+
+
+def test_cmd_submit_timeline_lafe_shape_cap_still_binds(monkeypatch, tmp_path, capsys):
+    # Same lafe shape, but with the DEFAULT --hours=12 cap, which DOES bind (24h measured > 12h
+    # cap): the operator's cap must still be honoured -- 720 minutes, not 1440 and not 0/1.
+    case_dir = tmp_path / "case"
+    case_dir.mkdir()
+    (case_dir / "namelist.input").write_text(NML_LAFE_SHAPE)
+    fake_case = dict(MATTHEW_LIKE, prep_dir=str(case_dir))
+    monkeypatch.setattr(tv.campaign_configs, "CASES", {"synth": fake_case})
+    runner, calls = _fake_sbatch_runner()
+    args = argparse.Namespace(
+        case="synth", hours=12, every=3, aux_interval_minutes=30, aux_stream=None,
+        frames_per_auxhist=2000, fields=None, nodes=1, cores_per_node=72,
+        hardware_id="scc-gh200", k=2, seed=1, root=str(tmp_path), out_dir="/tmp/out",
+        env_source="$HOME/env.sh", sbatch_script="/tmp/temporal_run.sbatch", site="scc",
+        ledger_dir="/tmp/ledger", dry_run=True, s_per_step=4.94, sbatch_runner=runner)
+    rc = tv.cmd_submit_timeline(args)
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "run_min=720" in out
+    dry_run_line = next(ln for ln in out.splitlines() if ln.startswith("DRY-RUN:"))
+    assert "RUN_MINUTES=720" in dry_run_line
+    assert "HOURS=12" in dry_run_line
+
+
+# ---------------------------------------------------------------------------
+# DEFECT B regression (job 587/588 postmortem): no ledger row -> refuse rather than submit on
+# the unmeasured fallback_10s constant.
+# ---------------------------------------------------------------------------
+def test_cmd_submit_timeline_refuses_on_fallback_estimate(monkeypatch, tmp_path):
+    monkeypatch.setattr(tv.campaign_configs, "CASES", {"synth": dict(MATTHEW_LIKE)})
+    runner, calls = _fake_sbatch_runner()
+    args = argparse.Namespace(
+        case="synth", hours=6, every=3, aux_interval_minutes=30, aux_stream=None,
+        frames_per_auxhist=2000, fields=None, nodes=1, cores_per_node=72,
+        hardware_id="scc-gh200", k=2, seed=1, root=str(tmp_path), out_dir="/tmp/out",
+        env_source="$HOME/env.sh", sbatch_script="/tmp/temporal_run.sbatch", site="scc",
+        ledger_dir=str(tmp_path / "no-ledger-here"), dry_run=False, s_per_step=None,
+        sbatch_runner=runner)
+    try:
+        tv.cmd_submit_timeline(args)
+        assert False, "expected SystemExit"
+    except SystemExit as e:
+        assert "fallback" in str(e)
+        assert "tools/scc_sweep.py submit --cases synth --nodes 1 --hardware-id scc-gh200" in str(e)
+    assert calls == []   # never submitted
+
+
+def test_cmd_submit_timeline_dry_run_still_refuses_on_fallback_estimate(monkeypatch, tmp_path, capsys):
+    monkeypatch.setattr(tv.campaign_configs, "CASES", {"synth": dict(MATTHEW_LIKE)})
+    runner, calls = _fake_sbatch_runner()
+    args = argparse.Namespace(
+        case="synth", hours=6, every=3, aux_interval_minutes=30, aux_stream=None,
+        frames_per_auxhist=2000, fields=None, nodes=1, cores_per_node=72,
+        hardware_id="scc-gh200", k=2, seed=1, root=str(tmp_path), out_dir="/tmp/out",
+        env_source="$HOME/env.sh", sbatch_script="/tmp/temporal_run.sbatch", site="scc",
+        ledger_dir=str(tmp_path / "no-ledger-here"), dry_run=True, s_per_step=None,
+        sbatch_runner=runner)
+    try:
+        tv.cmd_submit_timeline(args)
+        assert False, "expected SystemExit even under --dry-run"
+    except SystemExit as e:
+        assert "fallback" in str(e)
+    out = capsys.readouterr().out
+    assert "DRY-RUN" in out          # the plan is still printed before the refusal
+    assert "TV_MODE=timeline" in out
+    assert calls == []
+
+
+def test_cmd_submit_timeline_s_per_step_override_bypasses_refusal(monkeypatch, tmp_path, capsys):
+    monkeypatch.setattr(tv.campaign_configs, "CASES", {"synth": dict(MATTHEW_LIKE)})
+    runner, calls = _fake_sbatch_runner()
+    args = argparse.Namespace(
+        case="synth", hours=6, every=3, aux_interval_minutes=30, aux_stream=None,
+        frames_per_auxhist=2000, fields=None, nodes=1, cores_per_node=72,
+        hardware_id="scc-gh200", k=2, seed=1, root=str(tmp_path), out_dir="/tmp/out",
+        env_source="$HOME/env.sh", sbatch_script="/tmp/temporal_run.sbatch", site="scc",
+        ledger_dir=str(tmp_path / "no-ledger-here"), dry_run=False, s_per_step=4.94,
+        sbatch_runner=runner)
+    rc = tv.cmd_submit_timeline(args)
+    assert rc == 0
+    assert len(calls) == 1
+    out = capsys.readouterr().out
+    assert "s_est=4.940s/step[override]" in out
 
 
 def test_build_arg_parser_submit_timeline_defaults_k_to_timeline_k():

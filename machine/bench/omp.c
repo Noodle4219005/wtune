@@ -80,12 +80,12 @@ static double bench_barrier(int threads, double budget_s, long *reps_out) {
             sink += 1;
             local_reps++;
             if ((local_reps & 0xFFF) == 0) {
-                #pragma omp masked
+                #pragma omp master
                 shared_elapsed = now_s() - t0;
                 #pragma omp barrier /* all threads see the updated elapsed */
             }
         }
-        #pragma omp masked
+        #pragma omp master
         reps = local_reps;
     }
     double elapsed = now_s() - t0;

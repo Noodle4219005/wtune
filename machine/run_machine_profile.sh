@@ -30,7 +30,13 @@
 #   PYTHON                    default python3
 
 set -u
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# sbatch copies this script into the Slurm spool dir, so $(dirname $0) is not the repo there:
+# pass MACHINE_DIR=<repo>/machine when submitting with sbatch.
+SCRIPT_DIR="${MACHINE_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
+# Compiler-family flags (defaults are gcc/gfortran; nvhpc: OPENMP_FLAG=-mp MODDIR_FLAG=-module WARN_FLAGS=)
+OPENMP_FLAG=${OPENMP_FLAG:--fopenmp}
+MODDIR_FLAG=${MODDIR_FLAG:--J}
+WARN_FLAGS=${WARN_FLAGS--Wall}
 BENCH_DIR="$SCRIPT_DIR/bench"
 
 CC=${CC:-gcc}
@@ -69,12 +75,12 @@ try_build() {
     fi
 }
 
-try_build freq    "$CC" $CFLAGS -fopenmp -Wall "$BENCH_DIR/freq.c"    -o "$TMP_DIR/build/freq"    -lm
-try_build stream  "$CC" $CFLAGS -fopenmp -Wall "$BENCH_DIR/stream.c"  -o "$TMP_DIR/build/stream"  -lm
-try_build omp     "$CC" $CFLAGS -fopenmp -Wall "$BENCH_DIR/omp.c"     -o "$TMP_DIR/build/omp"     -lm
-try_build io      "$CC" $CFLAGS          -Wall "$BENCH_DIR/io.c"      -o "$TMP_DIR/build/io"
-try_build kernels "$FC" $FFLAGS -fopenmp -Wall -J "$TMP_DIR/build" "$BENCH_DIR/kernels.f90" -o "$TMP_DIR/build/kernels"
-try_build halo    "$MPICC" $CFLAGS -Wall "$BENCH_DIR/halo.c" -o "$TMP_DIR/build/halo" -lm
+try_build freq    "$CC" $CFLAGS $OPENMP_FLAG $WARN_FLAGS "$BENCH_DIR/freq.c"    -o "$TMP_DIR/build/freq"    -lm
+try_build stream  "$CC" $CFLAGS $OPENMP_FLAG $WARN_FLAGS "$BENCH_DIR/stream.c"  -o "$TMP_DIR/build/stream"  -lm
+try_build omp     "$CC" $CFLAGS $OPENMP_FLAG $WARN_FLAGS "$BENCH_DIR/omp.c"     -o "$TMP_DIR/build/omp"     -lm
+try_build io      "$CC" $CFLAGS          $WARN_FLAGS "$BENCH_DIR/io.c"      -o "$TMP_DIR/build/io"
+try_build kernels "$FC" $FFLAGS $OPENMP_FLAG $WARN_FLAGS $MODDIR_FLAG "$TMP_DIR/build" "$BENCH_DIR/kernels.f90" -o "$TMP_DIR/build/kernels"
+try_build halo    "$MPICC" $CFLAGS $WARN_FLAGS "$BENCH_DIR/halo.c" -o "$TMP_DIR/build/halo" -lm
 
 built() {
     for f in "${build_fail[@]}"; do [[ "$f" == "$1" ]] && return 1; done

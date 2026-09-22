@@ -45,6 +45,7 @@ import csv
 import dataclasses
 import glob
 import json
+import math
 import os
 import re
 import statistics
@@ -141,27 +142,71 @@ def compute_slots(max_nodes, nodes):
     return max(1, int(max_nodes) // int(nodes))
 
 
-def choose_nodes_auto(profile, max_nodes):
-    """(nodes, note): the largest node count wtune_case's core_count_priors.efficiency_table
-    checked (capped by max_nodes, legal shapes only) whose predicted efficiency proxy is still
-    >= 0.8 -- i.e. use as much parallelism as the profile's own halo-overhead knee allows before
-    the efficiency cliff, not the smallest node count that happens to clear the bar (trivially
-    N=1, since the proxy is monotonically non-increasing in node count). Falls back to the
-    smallest legal node count when even the smallest checked N is already below 0.8."""
+def _legal_rows(profile, max_nodes):
     table = profile.get("core_count_priors", {}).get("efficiency_table", [])
-    legal = [r for r in table if r.get("legal") and r["nodes"] <= max_nodes]
-    good = [r for r in legal if r.get("efficiency_E", 0.0) >= 0.8]
-    if good:
-        best = max(good, key=lambda r: r["nodes"])
-        return best["nodes"], ("knee: nodes=%d is the largest profiled node count (cap=%d) with "
-                                "predicted efficiency %.3f >= 0.8" % (best["nodes"], max_nodes,
-                                                                       best["efficiency_E"]))
-    if legal:
-        best = min(legal, key=lambda r: r["nodes"])
-        return best["nodes"], ("no profiled node count reaches efficiency>=0.8 within cap=%d; "
-                                "falling back to the smallest legal nodes=%d (E=%.3f)"
-                                % (max_nodes, best["nodes"], best.get("efficiency_E", 0.0)))
-    return 1, "no legal node count in the profile table; defaulting to nodes=1"
+    return sorted((r for r in table if r.get("legal") and r["nodes"] <= max_nodes),
+                  key=lambda r: r["nodes"])
+
+
+def choose_nodes_min(profile, max_nodes):
+    """policy=min: the smallest legal profiled node count -- the conservative choice when the
+    efficiency proxy is not trusted at all."""
+    rows = _legal_rows(profile, max_nodes)
+    if not rows:
+        return 1, "policy=min: no legal node count in the profile table; defaulting to nodes=1"
+    return rows[0]["nodes"], "policy=min: smallest legal profiled node count (cap=%d)" % max_nodes
+
+
+def choose_nodes_cap(profile, max_nodes):
+    """policy=cap: the largest legal profiled node count within --max-nodes, ignoring the
+    efficiency proxy entirely -- maximum parallelism, no scaling-model trust required."""
+    rows = _legal_rows(profile, max_nodes)
+    if not rows:
+        return max_nodes, ("policy=cap: no legal node count in the profile table; defaulting to "
+                            "--max-nodes=%d" % max_nodes)
+    return rows[-1]["nodes"], "policy=cap: largest legal profiled node count within cap=%d" % max_nodes
+
+
+def choose_nodes_knee(profile, max_nodes):
+    """policy=knee (default): the node count where predicted marginal speedup of the next
+    doubling step (wtune_case's own NODE_COUNTS_TO_CHECK table: 1,2,4,8,13) drops below 1.5x.
+    actual_speedup(n) = n*E(n) (E = wtune_case's efficiency proxy), so the wall-time speedup of
+    going from n_i to n_j is (n_j*E(n_j)) / (n_i*E(n_i)); stops at the first n_i whose next step
+    does not clear 1.5x, or at the largest capped node count if every step still does."""
+    rows = _legal_rows(profile, max_nodes)
+    if not rows:
+        return 1, "policy=knee: no legal node count in the profile table; defaulting to nodes=1"
+    for i in range(len(rows) - 1):
+        n_i, e_i = rows[i]["nodes"], rows[i].get("efficiency_E") or 0.0
+        n_j, e_j = rows[i + 1]["nodes"], rows[i + 1].get("efficiency_E") or 0.0
+        speedup_i, speedup_j = n_i * e_i, n_j * e_j
+        marginal = (speedup_j / speedup_i) if speedup_i > 0 else float("inf")
+        if marginal < 1.5:
+            return n_i, ("policy=knee: doubling nodes=%d->%d has predicted marginal speedup "
+                          "%.2fx < 1.5x; stopping at nodes=%d" % (n_i, n_j, marginal, n_i))
+    n = rows[-1]["nodes"]
+    return n, ("policy=knee: every profiled doubling step up to cap=%d still clears 1.5x; "
+               "using nodes=%d" % (max_nodes, n))
+
+
+NODES_POLICIES = {"min": choose_nodes_min, "cap": choose_nodes_cap, "knee": choose_nodes_knee}
+
+
+def choose_nodes(profile, max_nodes, policy):
+    """(nodes, note, warning). The efficiency proxy every policy but `cap` is built on
+    (wtune_case.py's E(px,py), halo constant c=1.0) is UNCALIBRATED -- never fit against a real
+    strong-scaling run -- so this never silently commits to a threshold crossing (the old
+    behaviour: falling back to nodes=1 with no comment when nothing cleared an 0.8 bar). The
+    policy is always explicit and the choice always carries a printable warning."""
+    fn = NODES_POLICIES.get(policy)
+    if fn is None:
+        raise SystemExit("unknown --nodes-policy %r (choices: %s)"
+                          % (policy, ", ".join(sorted(NODES_POLICIES))))
+    nodes, note = fn(profile, max_nodes)
+    warning = ("scaling model is UNCALIBRATED (wtune_case.py's halo-efficiency proxy, c=1.0, "
+               "never fit to a real measurement) -- nodes=%d (policy=%s) is a starting point, "
+               "not a validated optimum" % (nodes, policy))
+    return nodes, note, warning
 
 
 def would_exceed_budget(elapsed_s, estimated_job_s, budget_s):
@@ -201,21 +246,59 @@ def aggregate_by_cid(rows, configs_by_cid):
     return out
 
 
-def select_confirm_configs(all_results, anchor_cid):
-    """Top-3 measured configs by median s/step, plus the anchor if it did not already make the
-    top 3 (order preserved, deduped by cid) -- the confirm-stage candidate list."""
+def select_confirm_entries(all_results, anchor_cid):
+    """Top-3 measured results by median s/step, plus the anchor's own result if it did not
+    already make the top 3 (order preserved, deduped by cid) -- the confirm-stage candidate list,
+    as full aggregate_by_cid entries (config + this run's own measured medians)."""
     ranked = sorted(all_results.values(), key=lambda r: r["median"])
     top = list(ranked[:3])
     cids = {r["cid"] for r in top}
     if anchor_cid in all_results and anchor_cid not in cids:
         top.append(all_results[anchor_cid])
-    seen, configs = set(), []
+    seen, entries = set(), []
     for r in top:
         if r["cid"] in seen or r["config"] is None:
             continue
         seen.add(r["cid"])
-        configs.append(r["config"])
-    return configs
+        entries.append(r)
+    return entries
+
+
+def select_confirm_configs(all_results, anchor_cid):
+    """[config, ...] -- select_confirm_entries's configs only (kept for callers/tests that just
+    want the candidate list, not each entry's own measured s_values)."""
+    return [e["config"] for e in select_confirm_entries(all_results, anchor_cid)]
+
+
+def estimate_time_per_config(configs_with_s, reps, steps):
+    """Like scc_sweep.estimate_time, but sized from each config's OWN already-measured s/step
+    instead of one blended scalar -- confirm-stage sizing ("per-config for confirm"): by the time
+    confirm runs we already know which few configs are in it and how fast each one measured, so
+    use that directly rather than a single s_est that would over- or under-count a job whose
+    configs differ a lot in cost. `configs_with_s`: [(config, s_per_step), ...]. Same padding
+    formula as scc_sweep.estimate_time (TIME_SAFETY_FACTOR/TIME_PAD_MIN/TIME_CAP_HOURS), summed
+    over each config's own per_run_s instead of n_configs * one s_est."""
+    per_run_s_list = [sweep.STARTUP_S + steps * s for _cfg, s in configs_with_s]
+    total_s = reps * sum(per_run_s_list)
+    job_hours = total_s / 3600.0
+    padded_hours = job_hours * sweep.TIME_SAFETY_FACTOR + sweep.TIME_PAD_MIN / 60.0
+    capped_hours = min(padded_hours, sweep.TIME_CAP_HOURS)
+    max_per_run_s = max(per_run_s_list) if per_run_s_list else 0.0
+    timeout_s = max(sweep.TIMEOUT_MIN_S, int(math.ceil(sweep.TIMEOUT_MULTIPLIER * max_per_run_s)))
+    return dict(job_hours=capped_hours, uncapped_hours=padded_hours, total_run_s=total_s,
+                time_limit=sweep.campaign_experiment._format_hms(capped_hours * 60.0),
+                timeout_s=timeout_s)
+
+
+def update_s_est(all_results, fallback):
+    """This run's own s_est, refreshed from THIS run's successful measurements so far (median of
+    each measured config's own median s/step) -- must win over the ledger-history/no-ledger
+    `fallback` once real numbers exist, or every later budget decision keeps sizing jobs off a
+    number this run has already disproven (see the run() call site for the bug this fixes)."""
+    medians = [r["median"] for r in all_results.values() if r.get("median")]
+    if not medians:
+        return fallback
+    return statistics.median(medians)
 
 
 def local_param_table(config, nodes):
@@ -337,8 +420,9 @@ def wait_for_jobs(ctx, job_ids, stage, note=""):
 # ---------------------------------------------------------------------------
 # submitting one CONFIG_FILE job (thin wrapper around scc_sweep's own builders)
 # ---------------------------------------------------------------------------
-def submit_configs_job(ctx, configs, reps, name_suffix, s_est):
-    time_est = sweep.estimate_time(len(configs), reps, ctx.steps, s_est)
+def submit_configs_job(ctx, configs, reps, name_suffix, s_est, time_est=None):
+    if time_est is None:
+        time_est = sweep.estimate_time(len(configs), reps, ctx.steps, s_est)
     job_out_dir = os.path.join(ctx.out_dir, name_suffix)
     os.makedirs(job_out_dir, exist_ok=True)
     configs_path = os.path.join(job_out_dir, "configs.json")
@@ -479,25 +563,28 @@ def run_adaptive_rounds(ctx, all_configs_by_cid, all_results, s_est):
             state["measured"][cid] = [dict(run_id="%s_%s_r%d_%s" % (ctx.case, cid, i, job_id),
                                             job_id=job_id, rep_index=i, s_per_step_median=s)
                                        for i, s in enumerate(r["s_values"])]
+        s_est = update_s_est(all_results, s_est)   # keep sizing off this run's freshest numbers
 
 
 # ---------------------------------------------------------------------------
 # confirm stage
 # ---------------------------------------------------------------------------
 def run_confirm(ctx, all_configs_by_cid, all_results, anchor_cid, s_est):
-    configs = select_confirm_configs(all_results, anchor_cid)
+    entries = select_confirm_entries(all_results, anchor_cid)
+    configs = [e["config"] for e in entries]
     if not configs:
         print("confirm: SKIP -- no measured configs to confirm")
         return None, None
 
-    time_est = sweep.estimate_time(len(configs), CONFIRM_REPS, ctx.steps, s_est)
+    configs_with_s = [(e["config"], e["median"]) for e in entries]
+    time_est = estimate_time_per_config(configs_with_s, CONFIRM_REPS, ctx.steps)
     if would_exceed_budget(ctx.elapsed(), time_est["job_hours"] * 3600.0, ctx.budget_s):
         print("confirm: SKIP -- estimated end would exceed budget; final ranking uses round "
               "measurements only (not independently re-confirmed)")
         return None, None
 
     job_id, _path, _te = submit_configs_job(ctx, configs, reps=CONFIRM_REPS, name_suffix="confirm",
-                                              s_est=s_est)
+                                              s_est=s_est, time_est=time_est)
     print("confirm: submitted job %s (%d configs, REPS=%d)" % (job_id, len(configs), CONFIRM_REPS))
     wait_for_jobs(ctx, [job_id], "confirm")
     rows = ctx.ledger_reader(ctx.case, [job_id])
@@ -509,7 +596,38 @@ def run_confirm(ctx, all_configs_by_cid, all_results, anchor_cid, s_est):
 # ---------------------------------------------------------------------------
 # report
 # ---------------------------------------------------------------------------
-def build_full_run_prediction(ctx, best_config, nodes):
+_PROBE_LEDGER_FIELDS = ["case_base", "n_ranks", "omp_threads", "nproc_x", "nproc_y", "numtiles",
+                         "s_per_step_median"]
+
+
+def write_probe_ledger(ctx, all_results, confirm_results):
+    """Writes every config THIS run actually measured (confirm's own numbers win when a config
+    was both round-measured and confirmed) as a minimal ledger-shaped CSV -- exactly the columns
+    wtune_predict.resolve_probe()/load_ledger_rows() read (case_base, n_ranks, omp_threads,
+    nproc_x, nproc_y, numtiles, s_per_step_median), one row per replicate so a REPS=2 confirm run
+    still reports its measured spread. Passed back into wtune_predict only through its own public
+    build_prediction(ledger_paths=...) -- wtune_predict.py itself is never edited. Returns the
+    path, or None when there is nothing measured to write."""
+    merged = dict(all_results)
+    merged.update(confirm_results or {})
+    entries = [r for r in merged.values() if r.get("config") and r.get("s_values")]
+    if not entries:
+        return None
+    os.makedirs(ctx.out_dir, exist_ok=True)
+    path = os.path.join(ctx.out_dir, "predict_probe.csv")
+    with open(path, "w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=_PROBE_LEDGER_FIELDS)
+        w.writeheader()
+        for r in entries:
+            cfg = r["config"]
+            for s in r["s_values"]:
+                w.writerow(dict(case_base=ctx.case, n_ranks=cfg["ranks"], omp_threads=cfg["omp"],
+                                 nproc_x=cfg["nx"], nproc_y=cfg["ny"], numtiles=cfg["numtiles"],
+                                 s_per_step_median=s))
+    return path
+
+
+def build_full_run_prediction(ctx, best_config, nodes, all_results, confirm_results):
     if wtune_predict is None or best_config is None:
         return ("full-run prediction: run `python3 wtune.py predict %s --nodes %d --config "
                 "'%s'`" % (ctx.case_json["prep_dir"], nodes,
@@ -518,11 +636,17 @@ def build_full_run_prediction(ctx, best_config, nodes):
                                             numtiles=best_config["numtiles"]))
                            if best_config else "..."))
     try:
+        # Bug fix: this used to pass ledger_paths=None, so wtune_predict's own resolve_probe()
+        # never saw this run's measurements and always fell back to source=no_probe_fallback
+        # (+-50%) even right after measuring the winning config directly. Feed it back in through
+        # wtune_predict's own public ledger_paths parameter instead.
+        probe_path = write_probe_ledger(ctx, all_results, confirm_results)
         pred = wtune_predict.build_prediction(
             namelist_path=ctx.namelist_path, case_dir=ctx.case_json["prep_dir"], nodes=nodes,
             config=dict(ranks=best_config["ranks"], omp=best_config["omp"], nx=best_config["nx"],
                         ny=best_config["ny"], numtiles=best_config["numtiles"]),
-            ledger_paths=None, calibration_path=str(wtune_predict.DEFAULT_CALIBRATION),
+            ledger_paths=[probe_path] if probe_path else None,
+            calibration_path=str(wtune_predict.DEFAULT_CALIBRATION),
             io_form_override=None, io_target="nfs", case_name=ctx.case)
         return wtune_predict.render_text(pred)
     except Exception as e:
@@ -560,7 +684,8 @@ def build_report(ctx, nodes, nodes_note, all_results, confirm_results, anchor_ci
         budget_minutes=ctx.budget_s / 60.0, elapsed_minutes=ctx.elapsed() / 60.0,
         job_ids=list(ctx.owned_jobs), cancelled_job_ids=list(ctx.cancelled_jobs),
         anchor_id=anchor_cid, ranking=table, best=best, param_table=param_table,
-        full_run_prediction=build_full_run_prediction(ctx, best_config, nodes),
+        full_run_prediction=build_full_run_prediction(ctx, best_config, nodes, all_results,
+                                                        confirm_results),
     )
 
 
@@ -616,7 +741,8 @@ def run(args, sbatch_runner=None, sacct_runner=None, scancel_runner=None, ledger
 
     max_nodes = min(int(args.max_nodes), DEFAULT_MAX_NODES)
     if args.nodes == "auto":
-        nodes, nodes_note = choose_nodes_auto(profile, max_nodes)
+        nodes, nodes_note, nodes_warning = choose_nodes(profile, max_nodes, args.nodes_policy)
+        print("WARNING: %s" % nodes_warning)
     else:
         nodes = int(args.nodes)
         nodes_note = "user-specified (cap=%d)" % max_nodes
@@ -646,6 +772,15 @@ def run(args, sbatch_runner=None, sacct_runner=None, scancel_runner=None, ledger
     job_ids0, configs_by_cid, rows0 = run_round0(ctx)
     all_results = aggregate_by_cid(rows0, configs_by_cid)
     anchor_cid = "ANCHOR" if "ANCHOR" in configs_by_cid else None
+
+    # Bug fix: s_est above is the PRE-round0 estimate (ledger history, or the fallback when this
+    # case has never run on scc before -- correct for SIZING round0 itself, since nothing of this
+    # case's own is measured yet). Every stage after round0 must use what round0 itself just
+    # measured instead, or every later job looks too slow against the stale fallback and nothing
+    # after round0 ever runs even when real per-step cost is far below the fallback (2026-09-22
+    # conus12 run: fallback stayed 10s/step all the way through, so neither the adaptive round nor
+    # confirm ever submitted, leaving 13.6 of 30 minutes unused).
+    s_est = update_s_est(all_results, s_est)
 
     if job_ids0:
         run_adaptive_rounds(ctx, configs_by_cid, all_results, s_est)
@@ -684,6 +819,11 @@ def build_arg_parser():
     p.add_argument("--site", default="scc")
     p.add_argument("--minutes", type=float, required=True)
     p.add_argument("--nodes", default="auto")
+    p.add_argument("--nodes-policy", choices=sorted(NODES_POLICIES), default="knee",
+                    dest="nodes_policy",
+                    help="how --nodes auto picks a node count from the (uncalibrated) profile: "
+                         "min=smallest legal, cap=largest legal within --max-nodes, "
+                         "knee=stop doubling once marginal speedup drops below 1.5x (default)")
     p.add_argument("--max-nodes", type=int, default=DEFAULT_MAX_NODES, dest="max_nodes")
     p.add_argument("--out", default=None)
     p.add_argument("--steps", type=int, default=DEFAULT_STEPS)
@@ -702,6 +842,14 @@ def build_arg_parser():
 
 
 def main(argv=None):
+    # Line-buffer stdout: under `nohup ... &` stdout is redirected to a file, which Python
+    # block-buffers by default (not line-buffered like a tty), so the log stayed empty for the
+    # whole run and only flushed at exit. This run can take the entire --minutes budget, so a
+    # human watching the log needs each progress line as it happens, not at the end.
+    try:
+        sys.stdout.reconfigure(line_buffering=True)
+    except (AttributeError, ValueError):
+        pass
     args = build_arg_parser().parse_args(argv)
     if args.site != "scc":
         print("ERROR: only --site scc is supported", file=sys.stderr)

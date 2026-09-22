@@ -7,6 +7,7 @@ injects one). Run with:
 
   /home/nk/miniforge3/envs/hqvit-pixi/bin/python3 -m pytest test_wtune_tune.py
 """
+import csv
 import json
 import os
 import re
@@ -160,9 +161,11 @@ def test_chunk_round_robin_drops_empty_chunks():
 
 
 # ---------------------------------------------------------------------------
-# --nodes auto choice from a synthetic profile
+# --nodes auto choice from a synthetic profile (--nodes-policy min/cap/knee)
 # ---------------------------------------------------------------------------
-def test_choose_nodes_auto_picks_largest_at_or_above_threshold():
+def test_choose_nodes_knee_stops_when_next_doubling_drops_below_1_5x():
+    # speedup(n)=n*E(n): 0.99, 1.90, 3.32, 4.96, 5.20 -- 4->8 is the first step whose ratio
+    # (4.96/3.32=1.494) drops below 1.5x, so knee must stop at nodes=4.
     table = [
         {"nodes": 1, "legal": True, "efficiency_E": 0.99},
         {"nodes": 2, "legal": True, "efficiency_E": 0.95},
@@ -170,44 +173,84 @@ def test_choose_nodes_auto_picks_largest_at_or_above_threshold():
         {"nodes": 8, "legal": True, "efficiency_E": 0.62},
         {"nodes": 13, "legal": True, "efficiency_E": 0.40},
     ]
-    nodes, note = wtune_tune.choose_nodes_auto(_profile(table), max_nodes=13)
+    nodes, note = wtune_tune.choose_nodes_knee(_profile(table), max_nodes=13)
     assert nodes == 4
-    assert "0.8" in note
+    assert "1.5" in note
 
 
-def test_choose_nodes_auto_caps_by_max_nodes():
+def test_choose_nodes_knee_caps_by_max_nodes():
     table = [
         {"nodes": 1, "legal": True, "efficiency_E": 0.99},
         {"nodes": 2, "legal": True, "efficiency_E": 0.95},
         {"nodes": 4, "legal": True, "efficiency_E": 0.90},
     ]
-    nodes, _note = wtune_tune.choose_nodes_auto(_profile(table), max_nodes=2)
+    nodes, _note = wtune_tune.choose_nodes_knee(_profile(table), max_nodes=2)
     assert nodes == 2
 
 
-def test_choose_nodes_auto_falls_back_when_nothing_reaches_threshold():
+def test_choose_nodes_knee_stops_at_first_step_when_doubling_never_pays_off():
+    # speedup(1)=0.5, speedup(2)=0.6 -- ratio 1.2 < 1.5x on the very first step.
     table = [
         {"nodes": 1, "legal": True, "efficiency_E": 0.5},
         {"nodes": 2, "legal": True, "efficiency_E": 0.3},
     ]
-    nodes, note = wtune_tune.choose_nodes_auto(_profile(table), max_nodes=13)
+    nodes, note = wtune_tune.choose_nodes_knee(_profile(table), max_nodes=13)
     assert nodes == 1
-    assert "fall" in note.lower() or "no profiled" in note.lower()
+    assert "1.5" in note
 
 
-def test_choose_nodes_auto_skips_illegal_rows():
+def test_choose_nodes_knee_skips_illegal_rows():
     table = [
         {"nodes": 1, "legal": False},
         {"nodes": 2, "legal": True, "efficiency_E": 0.85},
     ]
-    nodes, _note = wtune_tune.choose_nodes_auto(_profile(table), max_nodes=13)
+    nodes, _note = wtune_tune.choose_nodes_knee(_profile(table), max_nodes=13)
     assert nodes == 2
 
 
-def test_choose_nodes_auto_empty_table_defaults_to_one():
-    nodes, note = wtune_tune.choose_nodes_auto(_profile([]), max_nodes=13)
+def test_choose_nodes_knee_empty_table_defaults_to_one():
+    nodes, note = wtune_tune.choose_nodes_knee(_profile([]), max_nodes=13)
     assert nodes == 1
     assert "no legal" in note
+
+
+def test_choose_nodes_min_picks_smallest_legal():
+    table = [
+        {"nodes": 1, "legal": False},
+        {"nodes": 2, "legal": True, "efficiency_E": 0.9},
+        {"nodes": 4, "legal": True, "efficiency_E": 0.8},
+    ]
+    nodes, note = wtune_tune.choose_nodes_min(_profile(table), max_nodes=13)
+    assert nodes == 2
+    assert "policy=min" in note
+
+
+def test_choose_nodes_cap_picks_largest_legal_within_cap():
+    table = [
+        {"nodes": 1, "legal": True, "efficiency_E": 0.9},
+        {"nodes": 2, "legal": True, "efficiency_E": 0.7},
+        {"nodes": 4, "legal": True, "efficiency_E": 0.5},
+        {"nodes": 8, "legal": True, "efficiency_E": 0.1},
+    ]
+    nodes, note = wtune_tune.choose_nodes_cap(_profile(table), max_nodes=4)
+    assert nodes == 4
+    assert "policy=cap" in note
+
+
+def test_choose_nodes_dispatches_by_policy_and_always_warns_uncalibrated():
+    table = [{"nodes": 1, "legal": True, "efficiency_E": 0.9},
+             {"nodes": 2, "legal": True, "efficiency_E": 0.85}]
+    for policy, expect_nodes in (("min", 1), ("cap", 2), ("knee", 2)):
+        nodes, _note, warning = wtune_tune.choose_nodes(_profile(table), max_nodes=13,
+                                                          policy=policy)
+        assert nodes == expect_nodes
+        assert "UNCALIBRATED" in warning
+        assert policy in warning
+
+
+def test_choose_nodes_rejects_unknown_policy():
+    with pytest.raises(SystemExit):
+        wtune_tune.choose_nodes(_profile([]), max_nodes=13, policy="bogus")
 
 
 # ---------------------------------------------------------------------------
@@ -452,3 +495,111 @@ def test_run_end_to_end(monkeypatch, tmp_path):
     with open(tmp_path / "out" / "tune_report.json") as f:
         on_disk = json.load(f)
     assert on_disk["case"] == "matthew"
+
+
+# ---------------------------------------------------------------------------
+# regression: s_est must be refreshed from round0's own measurements (bug: it stayed pinned to
+# the no-ledger fallback of 10 s/step forever, so every later job looked too slow and neither the
+# adaptive round nor confirm ever ran even with 13.6 of 30 minutes still unused -- 2026-09-22
+# conus12 run).
+# ---------------------------------------------------------------------------
+def test_update_s_est_prefers_this_runs_own_measurements_over_the_fallback():
+    all_results = {"ANCHOR": _result("ANCHOR", 0.93), "G0001": _result("G0001", 0.30),
+                   "G0002": _result("G0002", 0.45)}
+    assert wtune_tune.update_s_est(all_results, fallback=10.0) == pytest.approx(0.45)  # median
+    assert wtune_tune.update_s_est({}, fallback=10.0) == 10.0   # nothing measured yet: keep it
+
+
+def test_round0_measuring_0_3s_per_step_lets_adaptive_and_confirm_both_run_within_budget(
+        monkeypatch, tmp_path):
+    case_json = dict(MATTHEW_LIKE, prep_dir=str(tmp_path / "matthew"))
+    profile = _profile([{"nodes": 1, "legal": True, "efficiency_E": 0.95}])
+    monkeypatch.setattr(
+        wtune_tune, "resolve_case",
+        lambda case, cores_per_node: (case_json, str(tmp_path / "namelist.input"), profile))
+
+    sbatch_runner, sbatch_calls, job_to_configs_path = make_fake_sbatch(start=9700)
+    sacct_runner = make_fake_sacct({})
+    scancel_runner, scancel_calls = make_fake_scancel()
+    # round0 measures 0.30/0.27/0.25 s/step here -- matching the real conus12 run's 0.30-0.93
+    # s/step -- instead of the no-ledger fallback (CONSERVATIVE_S_PER_STEP=10s/step) every later
+    # stage used to stay pinned to.
+    ledger_reader = make_ledger_reader_from_configs(job_to_configs_path, base_s=0.3)
+
+    proposer_calls = {"n": 0}
+
+    def one_round_proposer(state, batch_size):
+        proposer_calls["n"] += 1
+        if proposer_calls["n"] == 1:
+            cfg = dict(id="R01D0001", ranks=72, omp=1, nx=8, ny=9, numtiles=1, dist="block",
+                       blocktime="0")
+            return dict(stopped=False, round=1), [cfg]
+        return dict(stopped=True, reason="test stub"), []
+
+    args = wtune_tune.build_arg_parser().parse_args([
+        "matthew", "--site", "scc", "--minutes", "30", "--nodes", "1", "--max-nodes", "1",
+        "--out", str(tmp_path / "out"), "--steps", "20",
+        "--ledger-dir", str(tmp_path / "ledger"),
+    ])
+    report = wtune_tune.run(args, sbatch_runner=sbatch_runner, sacct_runner=sacct_runner,
+                             scancel_runner=scancel_runner, ledger_reader=ledger_reader,
+                             proposer=one_round_proposer, clock=FakeClock())
+
+    assert proposer_calls["n"] == 2                              # adaptive round DID submit a batch
+    assert any(row["confirmed"] for row in report["ranking"])    # confirm DID run
+    assert scancel_calls == []                                   # everything fit inside the budget
+    assert report["elapsed_minutes"] < report["budget_minutes"]  # budget was not exhausted
+
+
+# ---------------------------------------------------------------------------
+# regression: the full-run-prediction hook must feed wtune_predict this run's own measurements,
+# not call it with ledger_paths=None (which always fell back to source=no_probe_fallback, +-50%,
+# even right after measuring the winning config directly).
+# ---------------------------------------------------------------------------
+_PREDICT_TEST_NAMELIST = """\
+&time_control
+ run_days = 0,
+ run_hours = 1,
+ run_minutes = 0,
+ run_seconds = 0,
+ history_interval = 60,
+ io_form_history = 2,
+ /
+&domains
+ max_dom = 1,
+ e_we = 91,
+ e_sn = 100,
+ e_vert = 45,
+ dx = 3000,
+ dy = 3000,
+ time_step = 15,
+ /
+&physics
+ radt = 10,
+ /
+"""
+
+
+def test_write_probe_ledger_makes_full_run_prediction_use_measured_source(tmp_path):
+    assert wtune_tune.wtune_predict is not None, "wtune_predict.py must be importable for this test"
+    namelist_path = tmp_path / "namelist.input"
+    namelist_path.write_text(_PREDICT_TEST_NAMELIST)
+
+    best_config = dict(id="ANCHOR", ranks=72, omp=1, nx=8, ny=9, numtiles=1, dist="block")
+    ctx = _ctx(namelist_path=str(namelist_path),
+               case_json=dict(MATTHEW_LIKE, prep_dir=str(tmp_path)), out_dir=str(tmp_path / "out"))
+    all_results = {"ANCHOR": _result("ANCHOR", 0.93, best_config)}
+    confirm_results = {"ANCHOR": dict(cid="ANCHOR", config=best_config, s_values=[0.90, 0.93],
+                                      median=0.915, lo=0.90, hi=0.93, n=2)}
+
+    probe_path = wtune_tune.write_probe_ledger(ctx, all_results, confirm_results)
+    assert probe_path and os.path.exists(probe_path)
+    with open(probe_path) as f:
+        probe_rows = list(csv.DictReader(f))
+    assert len(probe_rows) == 2   # confirm's own REPS=2 replicates, not round0's single value
+    assert {r["s_per_step_median"] for r in probe_rows} == {"0.9", "0.93"}
+
+    text = wtune_tune.build_full_run_prediction(ctx, best_config, nodes=1, all_results=all_results,
+                                                 confirm_results=confirm_results)
+    assert "source=measured" in text
+    assert "no_probe_fallback" not in text

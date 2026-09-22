@@ -870,31 +870,60 @@ def predict_init(case_dir, nl, calibration):
 # --------------------------------------------------------------------------
 
 def build_param_table(config, nodes, io_form, io_target):
-    ranks, omp, nx, ny, numtiles = (
-        config["ranks"], config["omp"], config["nx"], config["ny"], config["numtiles"])
-    dist = config.get("dist", "cyclic")
+    # ranks/omp/nx/ny are load-bearing INSIDE the launch line itself (-np R
+    # ... PE=OMP); a half-"UNKNOWN" mpirun command is worse than no command,
+    # so these are REQUIRED -- refuse loudly rather than guess or print junk.
+    missing = [k for k in ("ranks", "omp", "nx", "ny") if config.get(k) is None]
+    if missing:
+        raise PredictError(
+            "build_param_table: config is missing required field(s) %s (got %r); "
+            "the launch line cannot be built without them" % (missing, config))
+    ranks, omp, nx, ny = config["ranks"], config["omp"], config["nx"], config["ny"]
+
+    # numtiles/dist/io_form are NOT load-bearing for the mpirun skeleton itself
+    # (dist only ever adds/omits one optional trailing flag; numtiles/io_form
+    # are reported separately, not embedded in launch_line's positional
+    # values), so an absent value is marked UNKNOWN rather than silently
+    # defaulted to a plausible-looking but possibly WRONG value -- see the
+    # 2026-09-23 scc blind-test bug: this used to default dist to "cyclic"
+    # and print a --rank-by node line for a config whose real (measured)
+    # dist was "block", i.e. a launch line for a DIFFERENT run than the one
+    # actually being recommended.
+    dist = config.get("dist")
+    numtiles = config.get("numtiles")
+    io_form_display = io_form if io_form is not None else "UNKNOWN"
+
     tpn = ranks // nodes if nodes else None
-    warn = None
+    warnings = []
     if nodes and ranks % nodes != 0:
-        warn = "ranks (%d) not evenly divisible by nodes (%d); TPN rounded down to %d" % (
-            ranks, nodes, tpn)
+        warnings.append("ranks (%d) not evenly divisible by nodes (%d); TPN rounded down to %d" % (
+            ranks, nodes, tpn))
 
     # Matches campaign/sites/scc.sh site_launch() exactly: --rank-by node reproduces
     # WRF's cyclic across-node rank order for dist=cyclic; block is OMPI5's own
-    # default rank-by, so the block case adds no extra flag.
+    # default rank-by, so the block case adds no extra flag. dist=UNKNOWN adds
+    # neither -- the line is INCOMPLETE, not equivalent to block, hence the note.
     launch = ("mpirun -np %d --map-by ppr:%d:node:PE=%d --bind-to core"
               % (ranks, tpn if tpn else 0, omp))
     if dist == "cyclic":
         launch += " --rank-by node"
+    elif dist is None:
+        warnings.append("dist not provided; launch line incomplete (cannot tell whether "
+                         "--rank-by node is needed -- see campaign/sites/scc.sh site_launch())")
+
     env = {"OMP_NUM_THREADS": str(omp), "OMP_STACKSIZE": "1G",
            "OMP_PLACES": "cores", "OMP_PROC_BIND": "close", "ulimit -s": "unlimited"}
-    namelist_lines = ["nproc_x = %d," % nx, "nproc_y = %d," % ny, "numtiles = %d," % numtiles]
+    numtiles_display = numtiles if numtiles is not None else "UNKNOWN"
+    if numtiles is None:
+        warnings.append("numtiles not provided; namelist numtiles line is UNKNOWN, not a guessed default")
+    namelist_lines = ["nproc_x = %d," % nx, "nproc_y = %d," % ny, "numtiles = %s," % numtiles_display]
 
-    return {"nproc_x": nx, "nproc_y": ny, "numtiles": numtiles,
+    return {"nproc_x": nx, "nproc_y": ny, "numtiles": numtiles_display,
             "ranks": ranks, "omp": omp, "nodes": nodes, "ranks_per_node": tpn,
-            "dist": dist, "io_form": io_form, "io_target": io_target,
+            "dist": dist if dist is not None else "UNKNOWN",
+            "io_form": io_form_display, "io_target": io_target,
             "launch_line": launch, "env": env, "namelist_lines": namelist_lines,
-            "warning": warn}
+            "warning": "; ".join(warnings) if warnings else None}
 
 
 # --------------------------------------------------------------------------
@@ -912,7 +941,10 @@ def resolve_config(args):
         nx = int(raw["nx"] if "nx" in raw else raw["nproc_x"])
         ny = int(raw["ny"] if "ny" in raw else raw["nproc_y"])
         numtiles = int(raw.get("numtiles", 1))
-        dist = raw.get("dist", getattr(args, "dist", None) or "cyclic")
+        # dist is NOT defaulted (see build_param_table): a config dict or CLI
+        # invocation that doesn't say block/cyclic must produce dist=UNKNOWN
+        # downstream, never a silently-assumed "cyclic".
+        dist = raw.get("dist", getattr(args, "dist", None))
     else:
         if args.nx is None or args.ny is None:
             raise PredictError("must give --config JSON, or --nx and --ny "
@@ -921,7 +953,7 @@ def resolve_config(args):
         omp = int(args.omp) if args.omp is not None else 1
         numtiles = int(args.numtiles) if args.numtiles is not None else 1
         ranks = int(args.ranks) if args.ranks is not None else nx * ny
-        dist = getattr(args, "dist", None) or "cyclic"
+        dist = getattr(args, "dist", None)
     return {"ranks": ranks, "omp": omp, "nx": nx, "ny": ny, "numtiles": numtiles, "dist": dist}
 
 
@@ -1040,7 +1072,7 @@ def render_text(pred):
     out.append("")
     out.append("--- recommended parameters ---")
     p = pred["param_table"]
-    out.append("nproc_x=%d nproc_y=%d numtiles=%d  ranks=%d x omp=%d  nodes=%d  ranks/node=%s  dist=%s"
+    out.append("nproc_x=%d nproc_y=%d numtiles=%s  ranks=%d x omp=%d  nodes=%d  ranks/node=%s  dist=%s"
                 % (p["nproc_x"], p["nproc_y"], p["numtiles"], p["ranks"], p["omp"],
                    p["nodes"] or 0, p["ranks_per_node"], p["dist"]))
     out.append("io_form=%s  io_target=%s" % (p["io_form"], p["io_target"]))
@@ -1074,7 +1106,9 @@ def add_subparser(sub):
     p.add_argument("--ny", type=int, default=None, help="nproc_y")
     p.add_argument("--numtiles", type=int, default=None, help="numtiles (default 1)")
     p.add_argument("--dist", choices=["block", "cyclic"], default=None,
-                   help="srun/mpirun rank distribution (default cyclic; ignored if --config sets 'dist')")
+                   help="srun/mpirun rank distribution (block or cyclic; NOT defaulted -- if "
+                        "omitted and --config has no 'dist', the launch line prints dist=UNKNOWN "
+                        "and omits --rank-by rather than guessing)")
     p.add_argument("--probe", action="append", default=None,
                    help="strict_campaign ledger CSV (repeatable)")
     p.add_argument("--calibration", default=str(DEFAULT_CALIBRATION),

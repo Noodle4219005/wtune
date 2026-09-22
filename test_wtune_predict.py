@@ -22,6 +22,7 @@ import math
 import os
 import subprocess
 import sys
+import types
 
 import pytest
 
@@ -360,18 +361,65 @@ def test_param_table_launch_line_matches_scc_sites_site_launch():
     assert p_cyclic["dist"] == "cyclic"
     assert p_cyclic["launch_line"] == "mpirun -np 448 --map-by ppr:112:node:PE=1 --bind-to core --rank-by node"
 
-    # config with no 'dist' key at all defaults to cyclic (the repo's predominant convention)
+    # config with no 'dist' key at all must NOT guess cyclic (2026-09-23 scc blind-test
+    # bug: this used to silently default to "cyclic" and print --rank-by node for a
+    # config whose real/measured dist was "block" -- a launch line for a DIFFERENT run).
     config_default = {"ranks": 448, "omp": 1, "nx": 16, "ny": 28, "numtiles": 1}
     p_default = wp.build_param_table(config_default, nodes=4, io_form=2, io_target="nfs")
-    assert p_default["dist"] == "cyclic"
-    assert p_default["launch_line"] == p_cyclic["launch_line"]
+    assert p_default["dist"] == "UNKNOWN"
+    assert p_default["launch_line"] == p_block["launch_line"]  # no --rank-by when unknown
+    assert p_default["launch_line"] != p_cyclic["launch_line"]
+    assert "dist not provided" in p_default["warning"]
 
 
 def test_param_table_warns_on_uneven_ranks_per_node():
-    config = {"ranks": 720, "omp": 1, "nx": 24, "ny": 30, "numtiles": 1}
+    config = {"ranks": 720, "omp": 1, "nx": 24, "ny": 30, "numtiles": 1, "dist": "block"}
     p = wp.build_param_table(config, nodes=7, io_form=2, io_target="nfs")
     assert p["warning"] is not None
     assert "not evenly divisible" in p["warning"]
+
+
+def test_param_table_numtiles_unknown_when_not_provided():
+    config = {"ranks": 448, "omp": 1, "nx": 16, "ny": 28, "dist": "block"}  # no numtiles
+    p = wp.build_param_table(config, nodes=4, io_form=2, io_target="nfs")
+    assert p["numtiles"] == "UNKNOWN"
+    assert p["namelist_lines"][2] == "numtiles = UNKNOWN,"
+    assert "numtiles not provided" in p["warning"]
+    # launch_line itself never mentions numtiles, so it's still complete/usable
+    assert "UNKNOWN" not in p["launch_line"]
+
+
+def test_param_table_io_form_unknown_when_none():
+    config = {"ranks": 448, "omp": 1, "nx": 16, "ny": 28, "numtiles": 1, "dist": "block"}
+    p = wp.build_param_table(config, nodes=4, io_form=None, io_target="nfs")
+    assert p["io_form"] == "UNKNOWN"
+
+
+def test_param_table_requires_ranks_omp_nx_ny():
+    for missing_key in ("ranks", "omp", "nx", "ny"):
+        config = {"ranks": 448, "omp": 1, "nx": 16, "ny": 28, "numtiles": 1, "dist": "block"}
+        del config[missing_key]
+        with pytest.raises(wp.PredictError):
+            wp.build_param_table(config, nodes=4, io_form=2, io_target="nfs")
+
+
+def test_resolve_config_dist_not_defaulted_via_cli_args():
+    """The --dist CLI flag (and --config JSON's 'dist' key) must NOT fall back
+    to "cyclic" when omitted -- that CLI-level default was the other half of
+    the same 2026-09-23 bug (a user who forgets --dist would otherwise get a
+    silently-plausible-but-possibly-wrong launch line, same as a programmatic
+    caller omitting 'dist' from a config dict)."""
+    args_no_dist = types.SimpleNamespace(config=None, nx=16, ny=28, ranks=None,
+                                          omp=None, numtiles=None, dist=None)
+    assert wp.resolve_config(args_no_dist)["dist"] is None
+
+    args_block = types.SimpleNamespace(config=None, nx=16, ny=28, ranks=None,
+                                        omp=None, numtiles=None, dist="block")
+    assert wp.resolve_config(args_block)["dist"] == "block"
+
+    args_config_json = types.SimpleNamespace(config='{"nx": 16, "ny": 28}', nx=None, ny=None,
+                                              ranks=None, omp=None, numtiles=None, dist=None)
+    assert wp.resolve_config(args_config_json)["dist"] is None
 
 
 # --------------------------------------------------------------------------

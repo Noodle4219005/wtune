@@ -7,6 +7,7 @@ docstring on lazy netCDF4 import). Run with:
   /home/nk/miniforge3/envs/hqvit-pixi/bin/python3 -m pytest -q tools/test_state_timeline.py tools/test_temporal_validation.py
 """
 import argparse
+import datetime
 import json
 import os
 import sys
@@ -448,13 +449,20 @@ def test_merge_interval_rows_missing_state_or_target_is_none_not_dropped():
     state_by_bucket = {0: {c: 1.0 for c in st.STATE_COLUMNS}}
     target_by_domain_bucket = {1: {0: dict(s_step_normal_median=0.5, s_step_rad_median=None, n_steps=10),
                                     1: dict(s_step_normal_median=0.6, s_step_rad_median=None, n_steps=10)}}
+    bucket_hours = {0: 0.0, 1: 0.5}
     rows = st.merge_interval_rows(state_by_bucket, target_by_domain_bucket, max_dom=1,
-                                   interval_minutes=30)
+                                   bucket_start_hours=bucket_hours)
     assert [r["interval_index"] for r in rows] == [0, 1]
     assert rows[0]["t_sim_hours"] == 0.0
     assert rows[1]["t_sim_hours"] == 0.5
     assert rows[1]["precip_frac"] is None          # no state for bucket 1
     assert rows[0]["s_step_normal_median_d01"] == 0.5
+
+
+def test_merge_interval_rows_t_sim_hours_none_when_bucket_has_no_edge():
+    rows = st.merge_interval_rows({0: {c: 1.0 for c in st.STATE_COLUMNS}}, {}, max_dom=1,
+                                   bucket_start_hours={})
+    assert rows[0]["t_sim_hours"] is None
 
 
 def test_timeline_csv_fieldnames_includes_per_domain_targets():
@@ -468,7 +476,7 @@ def test_write_timeline_csv_round_trip(tmp_path):
     rows = st.merge_interval_rows(
         {0: {c: 1.0 for c in st.STATE_COLUMNS}}, {1: {0: dict(
             s_step_normal_median=0.5, s_step_rad_median=1.5, n_steps=30)}}, max_dom=1,
-        interval_minutes=30)
+        bucket_start_hours={0: 0.0})
     path = str(tmp_path / "case__cfg__timeline.csv")
     st.write_timeline_csv(path, rows, max_dom=1)
     with open(path) as f:
@@ -483,6 +491,129 @@ def test_write_timeline_header_json_round_trip(tmp_path):
     st.write_timeline_header_json(path, dict(case="synth", dt=20))
     with open(path) as f:
         assert json.load(f) == dict(case="synth", dt=20)
+
+
+# ---------------------------------------------------------------------------
+# 9b. TIMELINE bucketing from REAL auxhist frame times, not an assumed fixed grid.
+# Regression for scc job 465/matthew: a requested 50 min interval landed all 96 frames in ONE
+# netCDF file; the fixed-K-grid bucketer (step_target_features) never saw real frame boundaries
+# and every STATE column came out empty. step_target_features_by_frame_edges/
+# bucket_edges_from_frame_times bucket against the ACTUAL Times values instead.
+# ---------------------------------------------------------------------------
+def test_parse_wrf_times():
+    dts = st.parse_wrf_times(["2016-10-06_00:00:00", "2016-10-06_00:50:00"])
+    assert dts[0] == datetime.datetime(2016, 10, 6, 0, 0, 0)
+    assert dts[1] == datetime.datetime(2016, 10, 6, 0, 50, 0)
+
+
+def test_bucket_edges_from_frame_times_irregular_spacing():
+    # Requested interval was 30 min, but real frames land at 0, 25, 65 min (irregular) -- the bug
+    # report's exact shape: real spacing must NOT be assumed to equal the request.
+    times = st.parse_wrf_times(["2016-10-06_00:00:00", "2016-10-06_00:25:00", "2016-10-06_01:05:00"])
+    edges = st.bucket_edges_from_frame_times(times, times[0])
+    assert edges == [0.0, 25 * 60.0, 65 * 60.0]
+
+
+def test_bucket_start_hours_map():
+    assert st.bucket_start_hours_map([0.0, 1800.0, 5400.0]) == {0: 0.0, 1: 0.5}
+
+
+def test_bucket_index_for_sim_seconds_matches_irregular_edges():
+    edges = [0.0, 1500.0, 3900.0]   # bucket0=[0,1500) bucket1=[1500,3900) then open-ended
+    assert st._bucket_index_for_sim_seconds(0.0, edges) == 0
+    assert st._bucket_index_for_sim_seconds(1499.0, edges) == 0
+    assert st._bucket_index_for_sim_seconds(1500.0, edges) == 1
+    assert st._bucket_index_for_sim_seconds(3899.0, edges) == 1
+    assert st._bucket_index_for_sim_seconds(9999.0, edges) == 1   # clamped into last bucket
+    assert st._bucket_index_for_sim_seconds(-1.0, edges) is None
+
+
+def test_step_target_features_by_frame_edges_uses_real_irregular_spacing():
+    # dt=150s (matthew), requested-but-not-actual 30min grid would put a 150s-step boundary at
+    # step 12 (1800s); the REAL first frame is at 25min (1500s, step 10) -- bucketing on real
+    # edges must split there, not at the requested-grid point.
+    edges = [0.0, 1500.0, 3900.0]
+    values = [float(i) for i in range(1, 27)]   # 26 steps of "wall time" = their own step number
+    out = st.step_target_features_by_frame_edges(values, dt_seconds=150, radt_minutes=1000,
+                                                   edges=edges)
+    # steps 1..10 have sim_s = (i-1)*150 in [0,1500) -> bucket 0 (10 steps: i=1..10, sim_s 0..1350)
+    assert out[0]["n_steps"] == 10
+    # steps 11..26 -> sim_s in [1500, 3900) or beyond -> bucket 1 (all remaining, clamp-open-ended)
+    assert out[1]["n_steps"] == 16
+
+
+def test_step_target_features_by_frame_edges_empty_edges_drops_everything():
+    assert st.step_target_features_by_frame_edges([1.0, 2.0], dt_seconds=10, radt_minutes=5,
+                                                    edges=[]) == {}
+
+
+# ---------------------------------------------------------------------------
+# 9c. config id / decomposition resolved from the run directory (extract with no --config)
+# ---------------------------------------------------------------------------
+def test_parse_config_id_from_run_dir():
+    assert st.parse_config_id_from_run_dir(
+        "/out/temporal_matthew_timeline_ANCHOR_465", "matthew") == "ANCHOR"
+    assert st.parse_config_id_from_run_dir(
+        "/out/temporal_matthew_timeline_G03_465", "matthew") == "G03"
+
+
+def test_parse_config_id_from_run_dir_no_match_returns_none():
+    assert st.parse_config_id_from_run_dir("/out/some-other-dir", "matthew") is None
+    assert st.parse_config_id_from_run_dir(
+        "/out/temporal_othercase_timeline_ANCHOR_465", "matthew") is None
+
+
+def test_read_decomposition_from_namelist():
+    text = "&domains\n nproc_x=8, nproc_y=9, numtiles=1,\n/\n"
+    assert st.read_decomposition_from_namelist(text) == (8, 9)
+
+
+def test_read_decomposition_from_namelist_missing_returns_none_none():
+    assert st.read_decomposition_from_namelist("&domains\n/\n") == (None, None)
+
+
+def test_resolve_run_config_fills_config_id_and_decomposition(tmp_path):
+    run_dir = tmp_path / "temporal_matthew_timeline_ANCHOR_465"
+    run_dir.mkdir()
+    (run_dir / "namelist.input").write_text("&domains\n nproc_x=8, nproc_y=9,\n/\n")
+    cfg = st.resolve_run_config(str(run_dir), "matthew", {})
+    assert cfg["config_id"] == "ANCHOR"
+    assert cfg["nx"] == 8
+    assert cfg["ny"] == 9
+
+
+def test_resolve_run_config_does_not_overwrite_explicit_config(tmp_path):
+    run_dir = tmp_path / "temporal_matthew_timeline_ANCHOR_465"
+    run_dir.mkdir()
+    (run_dir / "namelist.input").write_text("&domains\n nproc_x=8, nproc_y=9,\n/\n")
+    cfg = st.resolve_run_config(str(run_dir), "matthew", {"config_id": "G01", "nx": 4, "ny": 4})
+    assert cfg == {"config_id": "G01", "nx": 4, "ny": 4}
+
+
+def test_resolve_run_config_no_namelist_leaves_decomposition_none(tmp_path):
+    run_dir = tmp_path / "temporal_matthew_timeline_ANCHOR_465"
+    run_dir.mkdir()
+    cfg = st.resolve_run_config(str(run_dir), "matthew", {})
+    assert cfg["config_id"] == "ANCHOR"
+    assert cfg.get("nx") is None
+
+
+# ---------------------------------------------------------------------------
+# 9d. static field (XLAT/XLONG/LANDMASK) wrfinput_d01 fallback -- no-netCDF4 branches only
+# (the actual netCDF open is not exercised here; see this module's own docstring on lazy import).
+# ---------------------------------------------------------------------------
+def test_read_static_fields_from_wrfinput_unknown_case_is_unreachable_not_absent():
+    found, missing = st.read_static_fields_from_wrfinput("no-such-case", ["LANDMASK"])
+    assert found is None
+    assert missing == ["LANDMASK"]
+
+
+def test_read_static_fields_from_wrfinput_missing_file_is_unreachable_not_absent(monkeypatch, tmp_path):
+    monkeypatch.setattr(st.campaign_configs, "CASES",
+                         {"matthew": dict(MATTHEW_LIKE, prep_dir=str(tmp_path))})
+    found, missing = st.read_static_fields_from_wrfinput("matthew", ["LANDMASK", "XLAT"])
+    assert found is None
+    assert missing == ["LANDMASK", "XLAT"]
 
 
 # ---------------------------------------------------------------------------

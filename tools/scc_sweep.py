@@ -458,10 +458,11 @@ def cmd_submit(args):
                 continue
 
             if in_flight + nodes > args.max_nodes_in_flight:
-                print("%s N=%-2d: STOP -- would exceed --max-nodes-in-flight=%d "
-                      "(in_flight=%d, this job needs %d)"
+                # Skip, don't stop: stopping here made a 13-node pair block every smaller pair
+                # behind it while 1 node was busy (scc feeder stalled for hours after severe2023 N=13).
+                print("%s N=%-2d: DEFER -- would exceed --max-nodes-in-flight=%d "
+                      "(in_flight=%d, this job needs %d); trying smaller pairs"
                       % (case, nodes, args.max_nodes_in_flight, in_flight, nodes))
-                stopped = True
                 remaining.append(key)
                 continue
 

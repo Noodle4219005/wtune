@@ -225,6 +225,22 @@ def test_max_nodes_in_flight_stops_and_reports_remaining():
         assert {r["nodes"] for r in rows} == {"8", "4"}
 
 
+def test_oversized_pair_does_not_block_smaller_pairs_behind_it():
+    # regression: a pair that does not fit used to STOP the loop, so a 13-node pair stalled every
+    # 1..8-node pair queued after it for hours on scc. It must be deferred, the rest submitted.
+    sw.campaign_configs.CASES["synth_hol_test"] = dict(MATTHEW_LIKE, steps=30, enabled=True)
+    sbatch_runner, sacct_runner, calls = _fake_runners()
+    with tempfile.TemporaryDirectory() as tmp:
+        root = os.path.join(tmp, "sweep")
+        args = _args(cases=["synth_hol_test"], nodes=[8, 8, 1], root=root,
+                     ledger_dir=os.path.join(tmp, "ledger"), max_nodes_in_flight=13,
+                     sbatch_runner=sbatch_runner, sacct_runner=sacct_runner)
+        args.nodes = [8, 13, 1]   # 8 fits, 13 does not (8+13 > 13), 1 must still go through
+        assert sw.cmd_submit(args) == 0
+        rows = sw.read_manifest(os.path.join(root, "manifest.csv"))
+        assert {r["nodes"] for r in rows} == {"8", "1"}
+
+
 def test_max_nodes_in_flight_allows_exact_budget():
     sw.campaign_configs.CASES["synth_budget_exact_test"] = dict(MATTHEW_LIKE, steps=30, enabled=True)
     sbatch_runner, sacct_runner, calls = _fake_runners()

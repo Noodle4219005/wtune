@@ -38,10 +38,19 @@ I/O
     per domain with io_form_history != 0. bytes/frame = e_we*e_sn*e_vert *
     calibration.derived.bytes_per_cell_level. seconds = bytes /
     calibration effective_rate[io_form][io_target].
-    auxhist<N>: same shape, keyed off io_form_auxhistN + auxhistN_interval[_s|_m].
-    When iofields_filename is set the stream cannot be sized exactly -> uses
-    calibration.fallback_auxhist_fraction of a full same-domain frame, flagged
-    'size unknown'.
+    auxhist<N>: per domain, keyed off io_form_auxhistN + auxhistN_interval[_s|_m],
+    honoring auxhistN_begin/end[_s|_m|_h] as the write window (default: the
+    whole run) -- frames = floor((end-begin)/interval) + 1. Sizing, no
+    calibration constant involved: when iofields_filename is set, reads that
+    per-domain field-list file (case_dir, or --iofields-dir) and sizes the
+    frame as sum over its '+'-listed fields of (points x 4 bytes), points =
+    e_we*e_sn*e_vert for a 3-D field or e_we*e_sn for 2-D (U/V get +1 point in
+    their staggered horizontal dimension), classified via a small built-in
+    name table (unknown names default to 3-D and are flagged as guessed). If
+    the file can't be found/read/matched for that stream number, the stream
+    is flagged 'size unknown' (no seconds estimated) rather than guessed at.
+    With no iofields_filename at all, the stream is assumed to carry a full
+    same-domain frame (bytes_per_cell_level model, same as history).
     restart: floor(run_minutes / restart_interval) writes, for EVERY active
     domain, each write costing calibration.restart.restart_to_history_time_ratio
     (MEASURED, job 427: 431.2s restart write / 100.7s mean history-frame write
@@ -299,6 +308,135 @@ def get_aux_interval_minutes(nl, n, dom_index):
     return None, None
 
 
+def get_aux_window_minutes(nl, n, dom_index, run_minutes):
+    """auxhistN_begin[_s|_m|_h] / auxhistN_end[_s|_m|_h]: the sub-window of the
+    run this stream actually writes in (WRF default: the whole run, i.e.
+    begin=0, end=run length). Returns (begin_min, end_min), end clipped to
+    run_minutes.
+    """
+    begin_min = 0.0
+    end_min = run_minutes
+    for prefix, default in (("begin", 0.0), ("end", run_minutes)):
+        for suffix, scale in (("_s", 1.0 / 60.0), ("_m", 1.0), ("_h", 60.0), ("", 1.0)):
+            key = "auxhist%d_%s%s" % (n, prefix, suffix)
+            vals = nl.get("time_control", {}).get(key)
+            if vals:
+                v = g_dom(nl, "time_control", key, dom_index)
+                if v is not None:
+                    if prefix == "begin":
+                        begin_min = float(v) * scale
+                    else:
+                        end_min = float(v) * scale
+                    break
+    return begin_min, min(end_min, run_minutes)
+
+
+# --------------------------------------------------------------------------
+# iofields_filename field-subset sizing (first principles: sum of listed
+# fields' point counts x 4 bytes/point; no calibration constant involved)
+# --------------------------------------------------------------------------
+
+# Not exhaustive -- common WRF output fields only. Anything not listed here
+# defaults to 3-D (the caller records which names were defaulted/guessed).
+FIELD_3D_NAMES = {
+    "U", "V", "W", "T", "PH", "PHB", "P", "PB", "QVAPOR", "QCLOUD", "QRAIN",
+    "QICE", "QSNOW", "QGRAUP", "QNICE", "QNRAIN", "REFL_10CM", "THETA",
+    "TKE", "CLDFRA", "ALT", "AL", "GEOPT", "P_HYD", "DNW", "RTHRATEN",
+}
+FIELD_2D_NAMES = {
+    "T2", "Q2", "U10", "V10", "PSFC", "RAINNC", "RAINC", "SWDOWN", "OLR",
+    "PBLH", "HFX", "LH", "TSK", "XLAT", "XLONG", "LU_INDEX", "HGT",
+    "LANDMASK", "SST", "SNOW", "SNOWH", "SEAICE", "GLW", "ALBEDO", "EMISS",
+    "UST", "ZNT", "QFX", "SR", "MOL", "GSW", "SNOWC", "COSZEN", "SNOWNC",
+    "GRAUPELNC", "RAINSH", "TH2", "MU", "MUB",
+}
+# Horizontally staggered fields: +1 grid point in the given namelist
+# dimension relative to an unstaggered (mass) field of the same e_we/e_sn.
+FIELD_STAGGER = {"U": "x", "V": "y"}
+
+
+def field_points(name, e_we, e_sn, e_vert):
+    """Returns (points, is_guessed). points = e_we*e_sn*e_vert for a 3-D
+    field or e_we*e_sn for 2-D, per the given sizing rule; U/V get +1 in
+    their staggered horizontal dimension. Unknown names default to 3-D.
+    """
+    name_u = name.strip().upper()
+    we, sn = e_we, e_sn
+    stag = FIELD_STAGGER.get(name_u)
+    if stag == "x":
+        we = e_we + 1
+    elif stag == "y":
+        sn = e_sn + 1
+    if name_u in FIELD_2D_NAMES:
+        return we * sn, False
+    if name_u in FIELD_3D_NAMES:
+        return we * sn * e_vert, False
+    return we * sn * e_vert, True  # unknown -> default to 3-D, flagged
+
+
+def parse_iofields_file(path):
+    """Parse a WRF iofields_filename file. Returns {stream_num: set(names)}.
+
+    WRF convention, one entry per (usually one) line: '<+|-> : <h|i> :
+    <comma/space-separated stream numbers> : <comma-separated field names>'.
+    '+' adds the named fields to the given stream(s) (this is how an
+    auxhist stream, which otherwise defaults to empty, gets populated);
+    '-' removes fields (used to trim the primary history stream, which
+    otherwise defaults to everything). A line that doesn't match the
+    '<+|-> : ...' pattern is treated as a continuation of the previous
+    entry's field list (long lists sometimes wrap). '#'/'!' lines are
+    comments.
+    """
+    streams = {}
+    pending_nums = None
+    pending_add = True
+    for raw_line in Path(path).read_text().splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or line.startswith("!"):
+            continue
+        m = re.match(r"^([+-])\s*:\s*[A-Za-z]\s*:\s*([\d,\s]+)\s*:\s*(.*)$", line)
+        if m:
+            sign, nums, names_part = m.groups()
+            pending_add = (sign == "+")
+            pending_nums = [int(x) for x in re.split(r"[,\s]+", nums.strip()) if x]
+        elif pending_nums is not None:
+            names_part = line
+        else:
+            continue
+        names_part = names_part.strip().rstrip(",").strip()
+        if not names_part:
+            continue
+        names = [nm.strip().upper() for nm in names_part.split(",") if nm.strip()]
+        for sn in pending_nums:
+            bucket = streams.setdefault(sn, set())
+            if pending_add:
+                bucket.update(names)
+            else:
+                bucket.difference_update(names)
+    return streams
+
+
+def iofields_frame_bytes(path, stream_num, e_we, e_sn, e_vert):
+    """Returns {'bytes': float, 'names': [...], 'guessed': [...]} sized from
+    an iofields_filename file's entries for this stream number, or None if
+    the file has no '+' entries naming this stream (nothing to size from).
+    Raises OSError/IOError if the file cannot be read (caller decides how to
+    report that).
+    """
+    streams = parse_iofields_file(path)
+    names = sorted(streams.get(stream_num, set()))
+    if not names:
+        return None
+    total = 0.0
+    guessed = []
+    for nm in names:
+        pts, is_guess = field_points(nm, e_we, e_sn, e_vert)
+        total += pts * 4.0
+        if is_guess:
+            guessed.append(nm)
+    return {"bytes": total, "names": names, "guessed": guessed}
+
+
 # --------------------------------------------------------------------------
 # Calibration
 # --------------------------------------------------------------------------
@@ -489,7 +627,8 @@ def segment_compute(compute, run_hours, dt):
 # I/O model
 # --------------------------------------------------------------------------
 
-def predict_io(nl, max_dom, run_min, calibration, io_form_override, io_target):
+def predict_io(nl, max_dom, run_min, calibration, io_form_override, io_target,
+               case_dir=None, iofields_dir=None):
     bpcl = calibration.get("derived", {}).get("bytes_per_cell_level")
     if bpcl is None:
         raise PredictError("calibration.derived.bytes_per_cell_level missing")
@@ -532,35 +671,88 @@ def predict_io(nl, max_dom, run_min, calibration, io_form_override, io_target):
         form_val = g(nl, "time_control", form_key, 0)
         if not form_val:
             continue
-        interval_min, ikey = get_aux_interval_minutes(nl, n, 0)
-        if interval_min is None or interval_min <= 0:
-            streams.append({"stream": "auxhist%d" % n,
-                             "note": "io_form_auxhist%d set but no auxhist%d_interval[_s|_m] found; skipped" % (n, n)})
-            continue
-        e_we, e_sn, e_vert = get_domain_geom(nl, 0)
-        full_bytes = bpcl * cells_levels(e_we, e_sn, e_vert)
-        iofields = nl.get("time_control", {}).get("iofields_filename")
-        size_unknown = bool(iofields)
-        fraction = calibration.get("fallback_auxhist_fraction", 1.0) if size_unknown else 1.0
-        bytes_frame = full_bytes * fraction
-        n_frames = int(math.floor(run_min / interval_min)) + 1
         rate = get_effective_rate(calibration, form_val, io_target)
-        entry = {"stream": "auxhist%d" % n, "interval_min": interval_min,
-                 "interval_key": ikey, "n_frames": n_frames,
-                 "bytes_per_frame": bytes_frame, "size_unknown": size_unknown,
-                 "fraction_used": fraction}
-        if rate["unmeasured"]:
-            entry["note"] = ("UNMEASURED rate for io_form=%s io_target=%s (%s); seconds not estimated"
-                              % (form_val, io_target, rate["source"]))
+        iofields_vals = nl.get("time_control", {}).get("iofields_filename")
+
+        for d in range(max_dom):
+            interval_min, ikey = get_aux_interval_minutes(nl, n, d)
+            if interval_min is None or interval_min <= 0:
+                streams.append({"domain": d + 1, "stream": "auxhist%d" % n,
+                                 "note": "io_form_auxhist%d set but no auxhist%d_interval[_s|_m] found; skipped"
+                                         % (n, n)})
+                continue
+            begin_min, end_min = get_aux_window_minutes(nl, n, d, run_min)
+            window = end_min - begin_min
+            if window < 0:
+                streams.append({"domain": d + 1, "stream": "auxhist%d" % n,
+                                 "note": "auxhist%d_end before auxhist%d_begin; skipped" % (n, n)})
+                continue
+            n_frames = int(math.floor(window / interval_min)) + 1
+            e_we, e_sn, e_vert = get_domain_geom(nl, d)
+
+            entry = {"domain": d + 1, "stream": "auxhist%d" % n, "interval_min": interval_min,
+                     "interval_key": ikey, "n_frames": n_frames,
+                     "begin_min": begin_min, "end_min": end_min}
+
+            # Sizing, in priority order: (1) first-principles from the per-domain
+            # iofields_filename file, when it can be found and read and has '+'
+            # entries for this stream number; (2) a clear 'size unknown' note
+            # (no seconds estimated) when iofields_filename is referenced but
+            # the file can't be resolved/read/matched; (3) a full same-domain
+            # frame (bytes_per_cell_level model) when no iofields_filename is
+            # given at all -- this stream is presumed to carry everything.
+            sized = None
+            size_note = None
+            if iofields_vals:
+                fname = g_dom(nl, "time_control", "iofields_filename", d)
+                search_dir = iofields_dir or case_dir
+                if not fname:
+                    size_note = "iofields_filename referenced but no filename resolved for domain %d; size unknown" % (d + 1)
+                elif not search_dir:
+                    size_note = ("iofields_filename=%s referenced but no case_dir/--iofields-dir given; size unknown"
+                                  % fname)
+                else:
+                    fpath = Path(search_dir) / fname
+                    if not fpath.exists():
+                        size_note = ("iofields_filename=%s referenced but not found at %s; size unknown "
+                                      "(pass --iofields-dir to point at the real files)" % (fname, fpath))
+                    else:
+                        try:
+                            sized = iofields_frame_bytes(str(fpath), n, e_we, e_sn, e_vert)
+                        except (OSError, IOError) as exc:
+                            size_note = "iofields file %s unreadable: %s; size unknown" % (fpath, exc)
+                        if sized is None and size_note is None:
+                            size_note = ("iofields file %s has no '+' entries for stream %d; size unknown"
+                                          % (fpath, n))
+
+            if sized is not None:
+                bytes_frame = sized["bytes"]
+                entry["bytes_per_frame"] = bytes_frame
+                entry["fields"] = sized["names"]
+                if sized["guessed"]:
+                    entry["fields_guessed_3d"] = sized["guessed"]
+                entry["sizing"] = "first-principles: sum(listed fields x points x 4 bytes), see iofields file"
+            elif size_note is not None:
+                entry["note"] = size_note
+                streams.append(entry)
+                continue
+            else:
+                bytes_frame = bpcl * cells_levels(e_we, e_sn, e_vert)
+                entry["bytes_per_frame"] = bytes_frame
+                entry["sizing"] = "full frame (no iofields_filename given for this stream)"
+
+            if rate["unmeasured"]:
+                entry["note"] = ("UNMEASURED rate for io_form=%s io_target=%s (%s); seconds not estimated"
+                                  % (form_val, io_target, rate["source"]))
+                streams.append(entry)
+                continue
+            seconds = n_frames * bytes_frame / rate["rate_bytes_per_s"]
+            unc = seconds * (rate["uncertainty_pct"] / 100.0) if rate["uncertainty_pct"] else 0.0
+            entry["seconds"] = seconds
+            entry["rate_source"] = rate["source"]
             streams.append(entry)
-            continue
-        seconds = n_frames * bytes_frame / rate["rate_bytes_per_s"]
-        unc = seconds * (rate["uncertainty_pct"] / 100.0) if rate["uncertainty_pct"] else 0.0
-        entry["seconds"] = seconds
-        entry["rate_source"] = rate["source"]
-        streams.append(entry)
-        total_s += seconds
-        total_uncertainty_sq += unc * unc
+            total_s += seconds
+            total_uncertainty_sq += unc * unc
 
     restart_interval = g(nl, "time_control", "restart_interval", None)
     if restart_interval and restart_interval > 0:
@@ -686,7 +878,8 @@ def resolve_config(args):
 
 
 def build_prediction(namelist_path, case_dir, nodes, config, ledger_paths,
-                      calibration_path, io_form_override, io_target, case_name=None):
+                      calibration_path, io_form_override, io_target, case_name=None,
+                      iofields_dir=None):
     nl = parse_namelist(namelist_path)
     max_dom = get_max_dom(nl)
     steps, run_s, dt, steps_note = get_d01_steps(nl)
@@ -706,7 +899,8 @@ def build_prediction(namelist_path, case_dir, nodes, config, ledger_paths,
     io_target = io_target or "nfs"
     io_form_history_effective = io_form_override if io_form_override is not None else \
         g(nl, "time_control", "io_form_history", 2)
-    io = predict_io(nl, max_dom, run_min, calibration, io_form_override, io_target)
+    io = predict_io(nl, max_dom, run_min, calibration, io_form_override, io_target,
+                    case_dir=case_dir, iofields_dir=iofields_dir)
 
     init = predict_init(case_dir, nl, calibration)
 
@@ -735,7 +929,9 @@ def build_prediction(namelist_path, case_dir, nodes, config, ledger_paths,
 # --------------------------------------------------------------------------
 
 def _fmt_hms(seconds):
-    seconds = max(0.0, seconds)
+    # Round to display precision FIRST, so e.g. 419.9996s doesn't decompose
+    # into "6m59.9996s" and then print-round up to the impossible "6m60.00s".
+    seconds = round(max(0.0, seconds), 2)
     h = int(seconds // 3600)
     m = int((seconds % 3600) // 60)
     s = seconds % 60
@@ -773,7 +969,11 @@ def render_text(pred):
         if "seconds" in st:
             label = st.get("stream", "?")
             dom = (" d%02d" % st["domain"]) if "domain" in st else ""
-            extra = " [size unknown, fraction=%.2f]" % st["fraction_used"] if st.get("size_unknown") else ""
+            extra = ""
+            if st.get("fields"):
+                extra = " [fields: %s]" % ",".join(st["fields"])
+                if st.get("fields_guessed_3d"):
+                    extra += " (guessed 3-D: %s)" % ",".join(st["fields_guessed_3d"])
             out.append("  %s%s: frames=%d bytes/frame=%.3e -> %s%s"
                         % (label, dom, st.get("n_frames", st.get("n_writes", 0)),
                            st.get("bytes_per_frame", st.get("bytes_per_write", 0.0)),
@@ -835,6 +1035,9 @@ def add_subparser(sub):
                    help="override io_form_history (default: read from namelist)")
     p.add_argument("--io-target", choices=["nfs", "local"], default="nfs",
                    help="write target (default nfs; local is UNMEASURED)")
+    p.add_argument("--iofields-dir", default=None,
+                   help="directory holding the real iofields_filename field-list file(s) "
+                        "(default: case_dir); used to size field-subset aux streams exactly")
     p.add_argument("--json", default=None, help="also write the full prediction as JSON to this path")
     return p
 
@@ -849,7 +1052,8 @@ def predict_cmd(args):
         pred = build_prediction(
             namelist_path=namelist_path, case_dir=args.case_dir, nodes=args.nodes,
             config=config, ledger_paths=args.probe, calibration_path=args.calibration,
-            io_form_override=args.io_form, io_target=args.io_target)
+            io_form_override=args.io_form, io_target=args.io_target,
+            iofields_dir=args.iofields_dir)
     except PredictError as exc:
         print("ERROR: %s" % exc, file=sys.stderr)
         return 1

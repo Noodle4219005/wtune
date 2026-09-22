@@ -90,8 +90,7 @@
     "note": "Modeled as a separate line item for EVERY active domain, once per restart_interval, whenever restart_interval > 0 in the namelist -- including the conus25-calibration fixture itself (test_wtune_predict.py's self-consistency fixture now sets restart_interval=300, since history and restart are no longer blended into one rate)."
   },
 
-  "fallback_auxhist_fraction": 0.1,
-  "fallback_auxhist_fraction_note": "UNCALIBRATED GUESS: used when an auxhist stream references an iofields_filename (a named subset of variables) and so cannot be sized exactly. 0.1 = 10% of a same-domain full history frame's bytes, a rough guess, not a measurement.",
+  "fallback_auxhist_fraction_REMOVED_note": "2026-09-22: the 'fallback_auxhist_fraction: 0.1' UNCALIBRATED GUESS is REMOVED. Field-subset (iofields_filename) aux streams are now sized first-principles in wtune_predict.py itself (sum over the file's listed fields of points*4 bytes, no calibration constant), not scaled from a fraction of a full frame. No per-frame fixed overhead was added on top: nothing in the conus25 calibration run (a full-frame, non-field-subset history write) gives an independent basis for a field-subset stream's per-frame overhead, so none is assumed.",
 
   "drift_band_pct": 5,
   "drift_band_note": "NOT VALIDATED (offline temporal validation pending): applied as a symmetric +-5% band on the whole predicted wall time to account for possible compute-rate drift over long simulated durations (e.g. seasonal/diurnal load changes across a 30h forecast). No case in this repo has been used to check whether s_per_step actually stays flat over many simulated hours.",

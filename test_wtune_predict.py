@@ -172,29 +172,58 @@ def test_history_frame_count_includes_t0(tmp_path):
     assert io["total_s"] == pytest.approx(400.0)
 
 
-def test_auxhist_stream_full_size_and_size_unknown_fraction(tmp_path):
-    base_tc = "history_interval = 999999,\n io_form_history = 2,\n io_form_auxhist1 = 2,\n auxhist1_interval_s = 600,\n"
-    nl_full = _parse(tmp_path, "&time_control\n" + base_tc + "/\n&domains\n max_dom=1,\n e_we=10,\n e_sn=10,\n e_vert=1,\n time_step=1,\n/\n",
+AUXHIST_BASE_TC = "history_interval = 999999,\n io_form_history = 2,\n io_form_auxhist1 = 2,\n auxhist1_interval_s = 600,\n"
+
+
+def test_auxhist_full_frame_when_no_iofields(tmp_path):
+    nl_full = _parse(tmp_path, "&time_control\n" + AUXHIST_BASE_TC + "/\n&domains\n max_dom=1,\n e_we=10,\n e_sn=10,\n e_vert=1,\n time_step=1,\n/\n",
                      name="full.input")
     io_full = wp.predict_io(nl_full, max_dom=1, run_min=90.0, calibration=STUB_CAL,
                             io_form_override=None, io_target="nfs")
     aux_full = [s for s in io_full["streams"] if s.get("stream") == "auxhist1"][0]
-    # run_min=90 -> run_s=5400; floor(5400/600)+1 = 10 frames; no iofields_filename -> full fraction
+    # run_min=90 -> run_s=5400; floor(5400/600)+1 = 10 frames; no iofields_filename -> full frame
     assert aux_full["n_frames"] == 10
-    assert aux_full["size_unknown"] is False
+    assert "fields" not in aux_full
+    assert aux_full["sizing"].startswith("full frame")
     assert aux_full["bytes_per_frame"] == pytest.approx(100.0)
     assert aux_full["seconds"] == pytest.approx(1000.0)
 
-    nl_unk = _parse(tmp_path, "&time_control\n" + base_tc +
-                    ' iofields_filename = "fields_d01.txt",\n/\n&domains\n max_dom=1,\n e_we=10,\n e_sn=10,\n e_vert=1,\n time_step=1,\n/\n',
-                    name="unk.input")
-    io_unk = wp.predict_io(nl_unk, max_dom=1, run_min=90.0, calibration=STUB_CAL,
-                           io_form_override=None, io_target="nfs")
-    aux_unk = [s for s in io_unk["streams"] if s.get("stream") == "auxhist1"][0]
-    assert aux_unk["size_unknown"] is True
-    assert aux_unk["fraction_used"] == pytest.approx(0.5)
-    assert aux_unk["bytes_per_frame"] == pytest.approx(50.0)  # half of the full 100-byte frame
-    assert aux_unk["seconds"] == pytest.approx(500.0)
+
+def test_auxhist_first_principles_sizing_from_iofields_file(tmp_path):
+    """Replaces the removed fallback_auxhist_fraction UNCALIBRATED GUESS: when
+    iofields_filename points at a real field-list file, size = sum over its
+    '+'-listed fields of points*4 bytes (points = e_we*e_sn*e_vert for 3-D,
+    e_we*e_sn for 2-D; U/V get +1 point in their staggered dimension); an
+    unrecognized name defaults to 3-D and is recorded as guessed.
+    """
+    case_dir = tmp_path / "case_fp"
+    case_dir.mkdir()
+    (case_dir / "fields_d01.txt").write_text("+:h:1:T,U,FOO\n")
+    nl = _parse(tmp_path, "&time_control\n" + AUXHIST_BASE_TC +
+               ' iofields_filename = "fields_d01.txt",\n/\n&domains\n max_dom=1,\n e_we=10,\n e_sn=10,\n e_vert=2,\n time_step=1,\n/\n',
+               name="fp.input")
+    io = wp.predict_io(nl, max_dom=1, run_min=90.0, calibration=STUB_CAL,
+                       io_form_override=None, io_target="nfs", case_dir=str(case_dir))
+    aux = [s for s in io["streams"] if s.get("stream") == "auxhist1"][0]
+    assert aux["fields"] == ["FOO", "T", "U"]
+    assert aux["fields_guessed_3d"] == ["FOO"]  # not in the built-in table -> defaulted to 3-D, flagged
+    # T (unstaggered 3-D): 10*10*2=200 pts; U (staggered +1 in x): 11*10*2=220 pts;
+    # FOO (unknown, defaults 3-D, unstaggered): 10*10*2=200 pts. bytes = (200+220+200)*4
+    assert aux["bytes_per_frame"] == pytest.approx(620.0 * 4.0)
+    assert aux["seconds"] == pytest.approx(10 * 620.0 * 4.0)  # 10 frames * bpcl-rate(1.0)
+
+
+def test_auxhist_missing_iofields_file_flags_size_unknown(tmp_path):
+    case_dir = tmp_path / "case_missing"
+    case_dir.mkdir()
+    nl = _parse(tmp_path, "&time_control\n" + AUXHIST_BASE_TC +
+               ' iofields_filename = "fields_d01.txt",\n/\n&domains\n max_dom=1,\n e_we=10,\n e_sn=10,\n e_vert=1,\n time_step=1,\n/\n',
+               name="missing.input")
+    io = wp.predict_io(nl, max_dom=1, run_min=90.0, calibration=STUB_CAL,
+                       io_form_override=None, io_target="nfs", case_dir=str(case_dir))
+    aux = [s for s in io["streams"] if s.get("stream") == "auxhist1"][0]
+    assert "seconds" not in aux
+    assert "not found" in aux["note"] and "size unknown" in aux["note"]
 
 
 def test_restart_write_count_and_local_target_unmeasured(tmp_path):
@@ -405,13 +434,19 @@ def test_conus25_self_consistency_within_5pct(tmp_path):
 #        at t=120min, for EVERY active domain -- d01 AND d02);
 #        frames_per_outfile is present in the real namelist but is NOT
 #        modeled by wtune_predict.py (noted, not simulated).
-#      - isc21: UNCHANGED from the first calibration pass -- native
-#        io_form_history=0 (primary wrfout stream off) with
-#        io_form_auxhist24=2 / auxhist24_interval_s=60 and iofields_filename
-#        set (per cases.json's notes -- output sized via the documented
-#        UNCALIBRATED 10% fallback fraction, since the aux stream only
-#        writes a named field subset). Not touched by the 2026-09-22
-#        conus25 write-rate/restart-ratio fix below; still ASSUMED.
+#      - isc21: 2026-09-22 REAL settings from the cluster (namelist +
+#        fields_d0N.txt content), replacing the earlier ASSUMED ones:
+#        io_form_history=0 (primary wrfout off); io_form_auxhist24=2 on all
+#        3 domains; auxhist24_interval_s=60,60,60; auxhist24_begin_s=0,0,0;
+#        auxhist24_end_s=300,300,300 (write window clipped to the first 5
+#        simulated minutes -> 6 frames/domain, matching the 6 files/domain
+#        actually observed); frames_per_auxhist24=1,1,1 (present, NOT
+#        modeled -- doesn't change total bytes/time); iofields_filename =
+#        fields_d01/02/03.txt, all three IDENTICAL, one line each:
+#        '+:h:24:U,V,T,QVAPOR,XLAT,XLONG,LU_INDEX,HGT'. Sized first-principles
+#        (no calibration constant): U/V staggered +1 in x/y, T/QVAPOR
+#        unstaggered 3-D, XLAT/XLONG/LU_INDEX/HGT 2-D -- all 8 names are in
+#        wtune_predict.py's built-in table, nothing guessed.
 # --------------------------------------------------------------------------
 
 MARIA1KM_NAMELIST = """\
@@ -449,7 +484,10 @@ ISC21_NAMELIST = """\
  run_seconds = 0,
  io_form_history = 0,
  io_form_auxhist24 = 2,
- auxhist24_interval_s = 60,
+ auxhist24_interval_s = 60, 60, 60,
+ auxhist24_begin_s = 0, 0, 0,
+ auxhist24_end_s = 300, 300, 300,
+ frames_per_auxhist24 = 1, 1, 1,
  iofields_filename = "fields_d01.txt","fields_d02.txt","fields_d03.txt",
  /
 &domains
@@ -468,11 +506,16 @@ ISC21_NAMELIST = """\
  /
 """
 
+# Real content, identical for all 3 domains (from the cluster's fields_d0N.txt).
+ISC21_IOFIELDS_LINE = "+:h:24:U,V,T,QVAPOR,XLAT,XLONG,LU_INDEX,HGT\n"
 
-def _holdout_predict(tmp_path, name, namelist_text, ranks_probe_row):
+
+def _holdout_predict(tmp_path, name, namelist_text, ranks_probe_row, extra_files=None):
     case_dir = tmp_path / name
     case_dir.mkdir()
     _write(str(case_dir / "namelist.input"), namelist_text)
+    for fname, content in (extra_files or {}).items():
+        _write(str(case_dir / fname), content)
     ledger_path = tmp_path / ("ledger_%s.csv" % name)
     _write(str(ledger_path), LEDGER_HEADER + "\n" + _ledger_row(**ranks_probe_row) + "\n")
     config = {"ranks": 448, "omp": 1, "nx": 16, "ny": 28, "numtiles": 1}
@@ -483,28 +526,39 @@ def _holdout_predict(tmp_path, name, namelist_text, ranks_probe_row):
     return pred
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "pre-registered held-out check FAILED 2026-09-22 (2nd pass): predicted 789.0 s vs measured "
-    "1004.0 s (ratio 0.7859), just outside +-20%. Regressed from the 1st pass's 862/1004=0.859 PASS "
-    "because fixing conus25's calibration (task: split the blended 17.2 MB/s history+restart rate "
-    "into a history-only 27.67 MB/s rate) makes the SAME auxhist24 bytes write faster, shrinking "
-    "isc21's modeled I/O contribution. isc21's own aux stream is UNCHANGED/ASSUMED (not touched by "
-    "the conus25 fix): fallback_auxhist_fraction=0.1 (uncalibrated guess) most likely understates the "
-    "real aux frame -- the coordinator's own rsl reading puts isc21's real aux frames at ~345 MB "
-    "each, well above 0.1 * a full d01 frame (~107 MB). That fraction is an UNCALIBRATED cross-case "
-    "guess and must NOT be tuned against isc21 (held-out) to close this gap -- see instructions. "
-    "strict=True: if this starts passing, the xfail must be removed."))
 def test_holdout_isc21_within_20pct(tmp_path):
-    """job 430: d01 median 4.0675 s/step over 120 d01 steps; measured wall 1004s."""
+    """job 430: d01 median 4.0675 s/step over 120 d01 steps; measured wall 1004s.
+
+    2026-09-22 (3rd pass): with the REAL fields_d0N.txt content (identical
+    3-domain '+:h:24:U,V,T,QVAPOR,XLAT,XLONG,LU_INDEX,HGT' line) and the real
+    begin/end window (6 frames/domain, not 31), first-principles sizing gives
+    per-domain frame bytes of 563.1/539.5/834.1 MB (d01/d02/d03) and a total
+    predicted wall of 1089.5s vs measured 1004.0s: ratio 1.085 -- PASSES
+    +-20% (xfail removed; the 2nd pass's 0.7859 FAIL was an artifact of the
+    now-abandoned 10% fallback-fraction guess, not of this sizing method).
+    Per-domain predicted write times (20.4/19.5/30.2 s/frame) vs measured
+    means (22.1/13.4/20.2 s/frame) show the real per-byte write rate for
+    this small multi-field file type isn't identical to conus25's single
+    large history file's 27.67 MB/s -- close by coincidence for d01, over
+    for d02/d03 -- a genuine, disclosed generalization gap, not corrected
+    here (no calibration constant was tuned against this held-out case).
+    """
     row = dict(case_base="isc21", job_id=430, e_we=793, e_sn=853, e_vert=51, dx=3000,
               time_step=15, radt=3, io_form_history=0, n_nodes=4, n_ranks=448,
               omp_threads=1, nproc_x=16, nproc_y=28, numtiles=1,
               s_per_step_median=4.0675, n_steps_measured=120, notes="config=probe430")
-    pred = _holdout_predict(tmp_path, "isc21", ISC21_NAMELIST, row)
+    extra_files = {"fields_d01.txt": ISC21_IOFIELDS_LINE,
+                   "fields_d02.txt": ISC21_IOFIELDS_LINE,
+                   "fields_d03.txt": ISC21_IOFIELDS_LINE}
+    pred = _holdout_predict(tmp_path, "isc21", ISC21_NAMELIST, row, extra_files=extra_files)
     measured_wall = 1004.0
     ratio = pred["total_s"] / measured_wall
     print("\nISC21 held-out: predicted=%.1fs measured=%.1fs ratio=%.4f" %
           (pred["total_s"], measured_wall, ratio))
+    for st in pred["io"]["streams"]:
+        if "seconds" in st:
+            print("  %s d%s: %.1f MB/frame, %.2fs/frame" %
+                  (st["stream"], st.get("domain"), st["bytes_per_frame"] / 1e6, st["seconds"] / st["n_frames"]))
     assert 0.80 <= ratio <= 1.20, (
         "isc21 held-out prediction %.1fs is outside +-20%% of measured %.1fs (ratio %.4f)"
         % (pred["total_s"], measured_wall, ratio))

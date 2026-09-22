@@ -24,6 +24,8 @@ CORES_PER_NODE=72
 W=${WRF_TREE:-$HOME/wrf-stack/wrf/nvhpc-fast-adios2-dmsm/WRF}
 OUT=$HOME/wtune-runs/campaign
 HARDWARE_ID=scc-gh200
+# pixi lives in ~/.pixi/bin, which is not on PATH inside a batch job (smoke job 437: "pixi: command not found").
+export PATH=$HOME/.pixi/bin:$PATH
 PIXI_ENV=$HOME/wtune-envs/campaign
 CONV=${CONV:-$HOME/wtune/tools/wrf_adios2_to_netcdf4/convert.py}
 CASES_JSON_DEFAULT=$HOME/wtune/campaign/cases.json

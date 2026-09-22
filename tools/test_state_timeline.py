@@ -535,20 +535,21 @@ def test_cmd_edit_namelist_timeline(tmp_path, monkeypatch):
     assert "run_minutes = 720" in out
 
 
-def test_cmd_edit_namelist_timeline_rejects_interval_below_20x_dt(tmp_path, monkeypatch):
+def test_cmd_edit_namelist_timeline_raises_interval_below_20x_dt_to_the_floor(tmp_path, monkeypatch):
+    # Behaviour changed after scc job 464: the CLI raises a too-short interval to the 20xdt floor
+    # instead of aborting (the pure validate_aux_interval_minutes still raises, tested above).
     monkeypatch.setattr(st.tv.campaign_configs, "CASES", {"synth": dict(MATTHEW_LIKE)})
     infile = tmp_path / "in.input"
     infile.write_text(NML_1DOM)
+    outfile = tmp_path / "out.input"
     args = argparse.Namespace(
-        infile=str(infile), outfile=str(tmp_path / "out.input"), case="synth", hours=1, every=1,
+        infile=str(infile), outfile=str(outfile), case="synth", hours=1, every=1,
         nproc_x=1, nproc_y=1, numtiles=1, ranks=1, max_dom=1, aux_stream=23, aux_interval=1,
         frames_per_auxhist=10, iofields_filename="iof.txt", dt=None)
-    # MATTHEW_LIKE dt=20s -> floor is 20*20/60 = 6.67min; aux_interval=1min must be rejected.
-    try:
-        st.cmd_edit_namelist_timeline(args)
-        assert False, "expected ValueError"
-    except ValueError:
-        pass
+    # MATTHEW_LIKE dt=20s -> floor is ceil(20*20/60) = 7 min
+    st.cmd_edit_namelist_timeline(args)
+    assert args.aux_interval == 7
+    assert "auxhist23_interval = 7," in outfile.read_text()
 
 
 def test_cmd_default_fields(capsys):

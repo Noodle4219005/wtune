@@ -765,6 +765,12 @@ def cmd_edit_namelist_timeline(args):
     with open(args.infile) as f:
         text = f.read()
     dt0 = args.dt if args.dt is not None else tv.case_json(args.case)["dt"]
+    # Raise a too-short interval to the 20xdt floor instead of failing (matthew dt=150 s needs >= 50
+    # min; the 30 min default aborted job 464's namelist step).
+    floor_min = int(math.ceil(MIN_INTERVAL_DT_MULTIPLE * dt0 / 60.0))
+    if args.aux_interval < floor_min:
+        sys.stderr.write("aux interval %g min < 20xdt floor; using %d min\n" % (args.aux_interval, floor_min))
+        args.aux_interval = floor_min
     validate_aux_interval_minutes(args.aux_interval, dt0)
     out = edit_namelist_timeline(
         text, args.nproc_x, args.nproc_y, args.numtiles, args.ranks, args.max_dom,

@@ -262,7 +262,10 @@ elif [ "$TV_MODE" = timeline ]; then
       --case "$CASE" --hours "$HOURS" --every "$EVERY" \
       --nproc-x "$nx" --nproc-y "$ny" --numtiles "$numtiles" --ranks "$ranks" --max-dom "$MAX_DOM" \
       --aux-stream "$AUX_STREAM" --aux-interval "$AUX_INTERVAL_MIN" \
-      --frames-per-auxhist "$FRAMES_PER_AUXHIST" --iofields-filename iofields_timeline.txt
+      --frames-per-auxhist "$FRAMES_PER_AUXHIST" --iofields-filename iofields_timeline.txt \
+      || { echo "RESULT case=$CASE tv_mode=timeline config=$cid rc=90 ok=0 reason=namelist_edit_failed"; cd "$OUT"; continue; }
+    # job 464 launched WRF with no namelist.input after this step failed; never do that again
+    [ -s ./namelist.input ] || { echo "RESULT case=$CASE tv_mode=timeline config=$cid rc=91 ok=0 reason=no_namelist"; cd "$OUT"; continue; }
     rm -f ./namelist.input.orig
     ln -sf "$W/main/wrf.exe" ./wrf.exe
 

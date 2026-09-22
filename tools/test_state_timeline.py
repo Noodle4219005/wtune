@@ -721,3 +721,9 @@ def test_detect_radiation_phase_matches_scc_matthew_pattern():
 
 def test_detect_radiation_phase_short_series_falls_back_to_zero():
     assert st.detect_radiation_phase([0.03] * 5, 6) == 0
+
+
+def test_steps_per_radiation_call_rounds_half_up_like_fortran_nint():
+    # conus12 on scc: radt 15 min, dt 72 s -> 12.5 -> WRF radiates every 13 steps (spikes 14, 27, 40, 53)
+    assert st.steps_per_radiation_call(15, 72) == 13
+    assert st.steps_per_radiation_call(9, 10) == 54

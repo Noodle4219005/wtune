@@ -116,7 +116,10 @@ def steps_per_radiation_call(radt_minutes, dt_seconds):
         raise ValueError("dt_seconds must be > 0")
     if radt_minutes <= 0:
         raise ValueError("radt_minutes must be > 0")
-    return max(1, int(round(radt_minutes * 60.0 / dt_seconds)))
+    # Fortran NINT rounds halves away from zero; Python round() rounds halves to even. conus12
+    # (radt 15 min, dt 72 s -> 12.5) radiates every 13 steps on scc, round() said 12 and the
+    # phase detection then filed every radiation step as normal (r_rad came out 1.00).
+    return max(1, int(math.floor(radt_minutes * 60.0 / dt_seconds + 0.5)))
 
 
 def classify_steps(n_steps, stepra):

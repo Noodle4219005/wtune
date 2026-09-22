@@ -75,13 +75,23 @@ static double bench_barrier(int threads, double budget_s, long *reps_out) {
     #pragma omp parallel num_threads(threads) shared(reps, t0, shared_elapsed) reduction(+:sink)
     {
         long local_reps = 0;
-        while (shared_elapsed < budget_s) {
+        for (;;) {
+            /* atomic read: without it nvc hoisted the load out of the loop and the
+               barrier bench spun for the whole job (scc job 431, 55 min timeout). */
+            double seen;
+            #pragma omp atomic read
+            seen = shared_elapsed;
+            if (seen >= budget_s) break;
             #pragma omp barrier
             sink += 1;
             local_reps++;
             if ((local_reps & 0xFFF) == 0) {
                 #pragma omp master
-                shared_elapsed = now_s() - t0;
+                {
+                    double e = now_s() - t0;
+                    #pragma omp atomic write
+                    shared_elapsed = e;
+                }
                 #pragma omp barrier /* all threads see the updated elapsed */
             }
         }

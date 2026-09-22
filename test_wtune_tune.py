@@ -344,16 +344,19 @@ def test_run_confirm_drops_a_slow_outlier_instead_of_skipping_everything():
     # Regression for the 2026-09-22 sc26p2 run: "confirm: SKIP -- estimated end would exceed
     # budget" fired at elapsed 2.7/30 min on a case measured at 0.03-0.04 s/step, because top-3-
     # by-median was forced (round0 only measured 6 configs) to include one genuine outlier
-    # (~6.74 s/step) alongside the anchor and a fast candidate -- and the OLD all-or-nothing check
-    # let that single outlier veto confirming the two fast ones too, even though they trivially
-    # fit the budget on their own.
+    # alongside the anchor and a fast candidate -- and the OLD all-or-nothing check let that
+    # single outlier veto confirming the two fast ones too, even though they trivially fit the
+    # budget on their own. (500 s/step here, not sc26p2's real ~6.74: once the 2026-09-23
+    # padded-vs-expected bug is fixed, a 6.74 s/step candidate's own REPS=2 job fits a 30-minute
+    # budget fine on raw/expected arithmetic -- this needs a candidate that is genuinely
+    # unaffordable even under CORRECT arithmetic, to keep exercising the drop path at all.)
     anchor_cfg = dict(id="ANCHOR", ranks=144, omp=1, nx=144, ny=1, numtiles=1, dist="block")
     g1_cfg = dict(id="G0001", ranks=144, omp=1, nx=72, ny=2, numtiles=1, dist="block")
     g2_cfg = dict(id="G0002", ranks=144, omp=1, nx=12, ny=12, numtiles=1, dist="cyclic")
     all_results = {
         "ANCHOR": _result("ANCHOR", 0.0283, anchor_cfg),
         "G0001": _result("G0001", 0.031, g1_cfg),
-        "G0002": _result("G0002", 6.74, g2_cfg),   # the outlier
+        "G0002": _result("G0002", 500.0, g2_cfg),   # the outlier -- genuinely unaffordable
     }
 
     sbatch_runner, sbatch_calls, job_to_configs_path = make_fake_sbatch(start=8000)
@@ -384,6 +387,34 @@ def test_run_confirm_skips_only_when_even_the_cheapest_candidate_alone_exceeds_b
     assert confirm_results is None
 
 
+def test_run_confirm_accepts_exact_conus25_numbers():
+    # Regression for the 2026-09-23 conus25 run: "confirm candidate G0001 median=2.3145s/step
+    # -> per_run~166.3s x REPS=2" then "confirm: SKIP ... estimated at 18:18" at elapsed 13:26 of
+    # a 30-minute budget. 166.3s x REPS=2 = 5.5 minutes (raw/expected), not 18:18 (that was
+    # job_hours, the x1.5 + 10min sbatch --time padding, used where a budget decision belongs).
+    # elapsed 13:26 + ~5.5 min expected is comfortably under 30 min, so confirm must NOT skip.
+    g1_cfg = dict(id="G0001", ranks=144, omp=1, nx=12, ny=12, numtiles=1, dist="block")
+    all_results = {"G0001": _result("G0001", 2.3145, g1_cfg)}
+    clock = FakeClock(start=0.0)
+    clock.t = 13 * 60 + 26   # elapsed = 13:26
+    assert wtune_tune.DEFAULT_STEPS == 20   # STEPS default, as reported
+    sbatch_runner, _calls, job_to_configs_path = make_fake_sbatch(start=1000)
+    ledger_reader = make_ledger_reader_from_configs(job_to_configs_path, base_s=2.3145)
+    ctx = _ctx(clock=clock, budget_s=30 * 60.0, steps=wtune_tune.DEFAULT_STEPS,
+               sbatch_runner=sbatch_runner, ledger_reader=ledger_reader)
+
+    job_id, confirm_results = wtune_tune.run_confirm(ctx, {}, all_results, anchor_cid=None,
+                                                       s_est=2.3145)
+
+    assert job_id is not None
+    assert confirm_results is not None
+    assert "G0001" in confirm_results
+    # the exact expected duration this scenario must compute: 2*(120+20*2.3145) = 332.58s
+    expected_total_run_s = 2 * (wtune_tune.DEFAULT_STARTUP_S + 20 * 2.3145)
+    assert expected_total_run_s == pytest.approx(332.58, abs=0.01)
+    assert ctx.elapsed() + expected_total_run_s < ctx.budget_s   # comfortably fits, unlike job_hours
+
+
 # ---------------------------------------------------------------------------
 # budget stop
 # ---------------------------------------------------------------------------
@@ -411,6 +442,96 @@ def test_run_round0_submits_when_budget_allows():
     assert calls
     assert set(job_ids) == set(ctx.owned_jobs)
     assert "ANCHOR" in configs_by_cid
+
+
+# ---------------------------------------------------------------------------
+# expected vs padded duration (2026-09-23 conus25 bug: budget decisions used the safety-padded
+# sbatch --time estimate instead of the raw expected duration)
+# ---------------------------------------------------------------------------
+def test_estimate_run_time_separates_expected_from_padded():
+    # 1 config, 1 rep, steps=20, s_est=2.3145, startup_s=120 (documented default) -- exactly the
+    # reported conus25 numbers: per_run=166.29s, expected(REPS=2)=332.58s=5.5min, but padded
+    # job_hours ~= 18 minutes (x1.5 safety factor + 10min fixed pad).
+    est = wtune_tune.estimate_run_time(1, 2, 20, s_est=2.3145, startup_s=120.0)
+    assert est["total_run_s"] == pytest.approx(332.58, abs=0.01)
+    assert est["job_hours"] * 3600.0 == pytest.approx(1099.05, abs=1.0)   # ~18:19, the padded value
+    assert est["total_run_s"] < est["job_hours"] * 3600.0 / 2   # expected is well under half the padded
+
+
+def test_estimate_run_time_per_config_pairs_mode_ignores_s_est():
+    cfgs = [({"id": "A"}, 1.0), ({"id": "B"}, 3.0)]
+    est = wtune_tune.estimate_run_time(cfgs, 1, steps=10, startup_s=100.0)
+    # per_run: (100+10*1)=110, (100+10*3)=130 -> total_run_s = 110+130 = 240
+    assert est["total_run_s"] == pytest.approx(240.0)
+
+
+def test_parse_slurm_elapsed():
+    assert wtune_tune._parse_slurm_elapsed("00:01:30") == 90.0
+    assert wtune_tune._parse_slurm_elapsed("01:23:45") == 5025.0
+    assert wtune_tune._parse_slurm_elapsed("23:45") == 23 * 60 + 45
+    assert wtune_tune._parse_slurm_elapsed("1-00:01:23") == 86400 + 83
+    assert wtune_tune._parse_slurm_elapsed("") is None
+    assert wtune_tune._parse_slurm_elapsed(None) is None
+    assert wtune_tune._parse_slurm_elapsed("garbage") is None
+
+
+def test_measure_startup_s_from_completed_jobs():
+    cfg_a = dict(id="A", ranks=8, omp=1, nx=2, ny=4, numtiles=1, dist="block")
+    cfg_b = dict(id="B", ranks=8, omp=1, nx=4, ny=2, numtiles=1, dist="block")
+    job_configs = {"1001": [cfg_a, cfg_b]}
+    states = {"1001": ("COMPLETED", "00:05:00")}          # 300s elapsed for 2 runs
+    wave_results = {"A": dict(median=2.0), "B": dict(median=3.0)}   # steps=10: compute=20+30=50s
+    startup_s, n_runs = wtune_tune.measure_startup_s(job_configs, states, wave_results, steps=10)
+    assert startup_s == pytest.approx(125.0)               # (300-50)/2
+    assert n_runs == 2
+
+
+def test_measure_startup_s_ignores_non_completed_jobs():
+    cfg_a = dict(id="A", ranks=8, omp=1, nx=2, ny=4, numtiles=1, dist="block")
+    job_configs = {"1001": [cfg_a]}
+    states = {"1001": ("CANCELLED", "00:30:00")}   # elapsed reflects the deadline, not real cost
+    wave_results = {"A": dict(median=2.0)}
+    startup_s, n_runs = wtune_tune.measure_startup_s(job_configs, states, wave_results, steps=10)
+    assert startup_s is None
+    assert n_runs == 0
+
+
+def test_run_round0_measures_startup_s_from_slurm_elapsed_and_logs_the_source():
+    sbatch_runner, _calls, _paths = make_fake_sbatch(start=1000)
+    sacct_runner = make_fake_sacct({"1001": ("COMPLETED", "00:03:00")})   # 180s elapsed
+
+    def ledger_reader(case, job_ids):
+        return [dict(run_id="%s_ANCHOR_r1_%s" % (case, j), job_id=j, s_per_step_median="0.5")
+                for j in job_ids]
+
+    ctx = _ctx(sbatch_runner=sbatch_runner, sacct_runner=sacct_runner, ledger_reader=ledger_reader,
+               nodes=1, max_nodes=1, budget_s=1800.0, steps=20)
+    assert ctx.startup_s == wtune_tune.DEFAULT_STARTUP_S
+    assert "documented constant" in ctx.startup_source
+
+    wtune_tune.run_round0(ctx)
+
+    # measured: (180s elapsed - 20 steps * 0.5 s/step compute) / 1 run = 170s
+    assert ctx.startup_s == pytest.approx(170.0)
+    assert "measured" in ctx.startup_source
+
+
+def test_round0_topup_packs_many_configs_when_slots_is_one():
+    # Regression for the throughput half of the 2026-09-23 conus25 report: nodes=2,
+    # --max-nodes 3 -> slots=floor(3/2)=1, so round0 has only ONE parallel job available and must
+    # pack MORE configs into it (not leave the budget idle) once wave 0 shows the real per-config
+    # cost is cheap, rather than being stuck at wave 0's own single conservative-fallback-sized job.
+    sbatch_runner, _calls, job_to_configs_path = make_fake_sbatch(start=7000)
+    ledger_reader = make_ledger_reader_from_configs(job_to_configs_path, base_s=0.05)
+
+    ctx = _ctx(sbatch_runner=sbatch_runner, ledger_reader=ledger_reader, nodes=2, max_nodes=3,
+               budget_s=1800.0, steps=20)
+    assert wtune_tune.compute_slots(ctx.max_nodes, ctx.nodes) == 1
+
+    job_ids, configs_by_cid, _rows = wtune_tune.run_round0(ctx)
+
+    assert len(job_ids) >= 2               # wave0's own lone job + a top-up wave
+    assert len(configs_by_cid) > 4         # far more than wave0's single conservatively-sized job
 
 
 # ---------------------------------------------------------------------------

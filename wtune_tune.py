@@ -333,24 +333,105 @@ def select_confirm_configs(all_results, anchor_cid):
     return [e["config"] for e in select_confirm_entries(all_results, anchor_cid)]
 
 
-def estimate_time_per_config(configs_with_s, reps, steps):
-    """Like scc_sweep.estimate_time, but sized from each config's OWN already-measured s/step
-    instead of one blended scalar -- confirm-stage sizing ("per-config for confirm"): by the time
-    confirm runs we already know which few configs are in it and how fast each one measured, so
-    use that directly rather than a single s_est that would over- or under-count a job whose
-    configs differ a lot in cost. `configs_with_s`: [(config, s_per_step), ...]. Same padding
-    formula as scc_sweep.estimate_time (TIME_SAFETY_FACTOR/TIME_PAD_MIN/TIME_CAP_HOURS), summed
-    over each config's own per_run_s instead of n_configs * one s_est."""
-    per_run_s_list = [sweep.STARTUP_S + steps * s for _cfg, s in configs_with_s]
-    total_s = reps * sum(per_run_s_list)
-    job_hours = total_s / 3600.0
+DEFAULT_STARTUP_S = sweep.STARTUP_S
+# scc_sweep.py's own documented constant ("per-run startup overhead assumed for the time-limit
+# estimate") -- the fallback until THIS run has real Slurm elapsed time of its own to measure a
+# better number from (see measure_startup_s / Ctx.startup_s).
+
+
+def estimate_run_time(n_or_pairs, reps, steps, s_est=None, startup_s=DEFAULT_STARTUP_S):
+    """Wall-time estimate for one Slurm job running `reps` replicate(s) each. `n_or_pairs` is
+    EITHER a plain config COUNT, sized off one blended `s_est` (round0/adaptive rounds, before
+    anything in the batch is measured -- `s_est` is required in this form), OR a list of
+    [(config, s_per_step), ...] PAIRS, sized off each config's OWN already-measured median
+    (confirm, round0's top-up -- `s_est` is ignored in this form: "per-config" sizing).
+
+    Returns two DIFFERENT numbers and callers must never confuse them -- this function exists
+    because a prior version didn't, and every budget decision silently used the wrong one (2026-
+    09-23 conus25 run: a raw 5.5-minute confirm job was rejected as if it were an 18-minute one):
+      total_run_s   RAW/EXPECTED duration (reps * sum(startup_s + steps*s_per_step)), no safety
+                    padding at all. The ONLY number would_exceed_budget/projected-finish-vs-75%
+                    or any other budget/feasibility decision may ever use.
+      job_hours/time_limit/timeout_s
+                    the SAME padding formula as scc_sweep.estimate_time (TIME_SAFETY_FACTOR x1.5
+                    + TIME_PAD_MIN 10min, capped at TIME_CAP_HOURS; TIMEOUT_MULTIPLIER/
+                    TIMEOUT_MIN_S -- every constant reused from scc_sweep.py, not copied),
+                    generalized to take `startup_s` as a parameter instead of scc_sweep.py's own
+                    fixed STARTUP_S. For the sbatch --time/TIMEOUT_S request ONLY -- never for a
+                    budget decision."""
+    if isinstance(n_or_pairs, int):
+        per_run_s_list = [startup_s + steps * s_est] * n_or_pairs
+    else:
+        per_run_s_list = [startup_s + steps * s for _cfg, s in n_or_pairs]
+    total_run_s = reps * sum(per_run_s_list)
+    job_hours = total_run_s / 3600.0
     padded_hours = job_hours * sweep.TIME_SAFETY_FACTOR + sweep.TIME_PAD_MIN / 60.0
     capped_hours = min(padded_hours, sweep.TIME_CAP_HOURS)
     max_per_run_s = max(per_run_s_list) if per_run_s_list else 0.0
     timeout_s = max(sweep.TIMEOUT_MIN_S, int(math.ceil(sweep.TIMEOUT_MULTIPLIER * max_per_run_s)))
-    return dict(job_hours=capped_hours, uncapped_hours=padded_hours, total_run_s=total_s,
+    return dict(total_run_s=total_run_s, job_hours=capped_hours, uncapped_hours=padded_hours,
                 time_limit=sweep.campaign_experiment._format_hms(capped_hours * 60.0),
                 timeout_s=timeout_s)
+
+
+def _parse_slurm_elapsed(s):
+    """Seconds from a Slurm --format=Elapsed value ('[D-][HH:]MM:SS'), or None if empty/unparsable."""
+    if not s:
+        return None
+    days = 0
+    if "-" in s:
+        d, s = s.split("-", 1)
+        try:
+            days = int(d)
+        except ValueError:
+            return None
+    parts = s.split(":")
+    try:
+        parts = [int(p) for p in parts]
+    except ValueError:
+        return None
+    while len(parts) < 3:
+        parts.insert(0, 0)
+    if len(parts) != 3:
+        return None
+    h, m, sec = parts
+    return float(days * 86400 + h * 3600 + m * 60 + sec)
+
+
+def measure_startup_s(job_configs, states, wave_results, steps):
+    """(startup_s, n_runs) measured from THIS wave's own Slurm elapsed time (sacct, via
+    wait_for_jobs' return value) minus its own measured compute time (steps * each config's
+    measured s/step, from aggregate_by_cid) -- the empirical alternative to
+    DEFAULT_STARTUP_S/scc_sweep.py's documented constant, which cannot know what THIS case's real
+    per-run overhead (Slurm dispatch, WRF init/read, ...) actually is. `job_configs`:
+    {job_id: [config, ...]} -- exactly what that job ran, REPS=1 assumed (round0/adaptive only,
+    never confirm's REPS=2, whose per-run duration this formula does not disentangle). Only
+    COMPLETED jobs count: a cancelled or TIMEOUT_S-killed job's elapsed reflects the budget
+    deadline or the watchdog, not real per-run cost. (None, 0) when nothing usable is available --
+    the caller then keeps whatever startup_s it already had."""
+    total_elapsed_s, total_compute_s, n_runs = 0.0, 0.0, 0
+    for job_id, configs in job_configs.items():
+        state, elapsed_str = states.get(job_id, ("UNKNOWN", ""))
+        if state != "COMPLETED":
+            continue
+        elapsed_s = _parse_slurm_elapsed(elapsed_str)
+        if elapsed_s is None:
+            continue
+        compute_s, counted = 0.0, 0
+        for c in configs:
+            r = wave_results.get(c["id"])
+            if r is None:
+                continue
+            compute_s += steps * r["median"]
+            counted += 1
+        if counted == 0:
+            continue
+        total_elapsed_s += elapsed_s
+        total_compute_s += compute_s
+        n_runs += counted
+    if n_runs == 0:
+        return None, 0
+    return max(0.0, (total_elapsed_s - total_compute_s) / n_runs), n_runs
 
 
 def update_s_est(all_results, fallback):
@@ -429,6 +510,12 @@ class Ctx:
     confirm_reps: int = CONFIRM_REPS
     prediction_cfg: dict = dataclasses.field(
         default_factory=lambda: copy.deepcopy(wtune_config.DEFAULTS["prediction"]))
+    # Per-run startup overhead every estimate_run_time call sizes off -- starts at
+    # DEFAULT_STARTUP_S (scc_sweep.py's documented constant) and is refreshed once round0's own
+    # Slurm elapsed time gives a real measurement (measure_startup_s); startup_source records
+    # which one is currently in effect, for the log line.
+    startup_s: float = DEFAULT_STARTUP_S
+    startup_source: str = "documented constant (scc_sweep.STARTUP_S)"
 
     def elapsed(self):
         return self.clock.now() - self.start_time
@@ -473,10 +560,12 @@ def cancel_jobs(ctx, job_ids):
 def wait_for_jobs(ctx, job_ids, stage, note=""):
     """Polls sacct until every id in `job_ids` is out of PENDING/RUNNING, or the budget deadline
     passes (in which case only THOSE ids -- never any other job -- are scancel'd). Prints one
-    progress line per poll."""
+    progress line per poll. Returns the last sacct states dict seen ({job_id: (State, Elapsed)},
+    {} when `job_ids` was empty) -- callers use the terminal Elapsed to measure real per-run
+    startup cost (measure_startup_s)."""
     job_ids = [j for j in job_ids if j]
     if not job_ids:
-        return
+        return {}
     while True:
         elapsed = ctx.elapsed()
         states = sweep.sacct_states(job_ids, sacct_runner=ctx.sacct_runner, sacct_cmd=ctx.sacct_cmd)
@@ -484,10 +573,10 @@ def wait_for_jobs(ctx, job_ids, stage, note=""):
                      if states.get(j, ("UNKNOWN", ""))[0] in sweep.IN_FLIGHT_STATES]
         print_progress(stage, elapsed, ctx.budget_s, note)
         if not in_flight:
-            return
+            return states
         if elapsed >= ctx.budget_s:
             cancel_jobs(ctx, in_flight)
-            return
+            return states
         ctx.clock.sleep(min(ctx.poll_interval, max(0.0, ctx.budget_s - elapsed)))
 
 
@@ -496,7 +585,8 @@ def wait_for_jobs(ctx, job_ids, stage, note=""):
 # ---------------------------------------------------------------------------
 def submit_configs_job(ctx, configs, reps, name_suffix, s_est, time_est=None):
     if time_est is None:
-        time_est = sweep.estimate_time(len(configs), reps, ctx.steps, s_est)
+        time_est = estimate_run_time(len(configs), reps, ctx.steps, s_est=s_est,
+                                      startup_s=ctx.startup_s)
     job_out_dir = os.path.join(ctx.out_dir, name_suffix)
     os.makedirs(job_out_dir, exist_ok=True)
     configs_path = os.path.join(job_out_dir, "configs.json")
@@ -515,32 +605,36 @@ def submit_configs_job(ctx, configs, reps, name_suffix, s_est, time_est=None):
 # ---------------------------------------------------------------------------
 def _submit_round0_wave(ctx, configs, slots, s_est, name_prefix):
     """Chunks `configs` round-robin across `slots` parallel jobs (each a fresh SLURM allocation of
-    ctx.nodes nodes) sized at `s_est` s/step, submits every chunk that still fits the budget, and
-    waits for all of them. Shared by round0's first wave and its top-up wave."""
+    ctx.nodes nodes) sized at `s_est` s/step and ctx.startup_s per run, submits every chunk whose
+    RAW expected duration (never the safety-padded one) still fits the budget, and waits for all
+    of them. Shared by round0's first wave and its top-up wave. Returns (job_ids, configs_by_cid,
+    rows, job_configs, states) -- job_configs ({job_id: [config,...]}) and states (wait_for_jobs'
+    own sacct snapshot) are what measure_startup_s needs afterward."""
     chunks = chunk_round_robin(configs, slots)
-    job_ids, configs_by_cid = [], {}
+    job_ids, configs_by_cid, job_configs = [], {}, {}
     for i, chunk in enumerate(chunks):
-        time_est = sweep.estimate_time(len(chunk), 1, ctx.steps, s_est)
-        if would_exceed_budget(ctx.elapsed(), time_est["job_hours"] * 3600.0, ctx.budget_s):
+        time_est = estimate_run_time(len(chunk), 1, ctx.steps, s_est=s_est, startup_s=ctx.startup_s)
+        if would_exceed_budget(ctx.elapsed(), time_est["total_run_s"], ctx.budget_s):
             print("%s slot %d: SKIP -- estimated end would exceed budget" % (name_prefix, i))
             continue
         job_id, _path, _te = submit_configs_job(ctx, chunk, reps=1,
                                                   name_suffix="%s-s%d" % (name_prefix, i),
-                                                  s_est=s_est)
+                                                  s_est=s_est, time_est=time_est)
         job_ids.append(job_id)
+        job_configs[job_id] = chunk
         for c in chunk:
             configs_by_cid[c["id"]] = c
         print("%s slot %d: submitted job %s (%d configs)" % (name_prefix, i, job_id, len(chunk)))
 
-    wait_for_jobs(ctx, job_ids, name_prefix)
+    states = wait_for_jobs(ctx, job_ids, name_prefix)
     rows = ctx.ledger_reader(ctx.case, job_ids)
-    return job_ids, configs_by_cid, rows
+    return job_ids, configs_by_cid, rows, job_configs, states
 
 
 def run_round0(ctx):
     s_est, s_source, n_rows = sweep.estimate_s_per_step(ctx.case, ctx.nodes, ctx.ledger_dir,
                                                           ctx.hardware_id)
-    per_run_s = sweep.STARTUP_S + ctx.steps * s_est
+    per_run_s = ctx.startup_s + ctx.steps * s_est
     slots = compute_slots(ctx.max_nodes, ctx.nodes)
     round0_budget_s = min(ctx.budget_s - ctx.elapsed(), ctx.budget_s * ROUND0_BUDGET_FRACTION)
     configs_per_job = max(1, int(round0_budget_s // per_run_s))
@@ -548,9 +642,10 @@ def run_round0(ctx):
 
     built = sweep.build_configs(ctx.case, ctx.case_json, ctx.nodes, max(0, total_k - 1), ctx.seed,
                                  ctx.hardware_id, ctx.cores_per_node)
-    print("round0: s_est=%.3fs/step[%s,n=%d] slots=%d configs_per_job=%d total=%d (%s)"
-          % (s_est, s_source, n_rows, slots, configs_per_job, len(built["configs"]),
-             built["skip_reason"] or "ok"))
+    print("round0: s_est=%.3fs/step[%s,n=%d] startup_s=%.1fs[%s] slots=%d configs_per_job=%d "
+          "total=%d (%s)"
+          % (s_est, s_source, n_rows, ctx.startup_s, ctx.startup_source, slots, configs_per_job,
+             len(built["configs"]), built["skip_reason"] or "ok"))
     if built["skip_reason"]:
         return [], {}, []
 
@@ -560,30 +655,49 @@ def run_round0(ctx):
               "search restrictions/exclude rules")
         return [], {}, []
 
-    job_ids, configs_by_cid, rows = _submit_round0_wave(ctx, configs0, slots, s_est, "round0")
+    job_ids, configs_by_cid, rows, job_configs, states = _submit_round0_wave(
+        ctx, configs0, slots, s_est, "round0")
 
-    # Top-up wave: `s_est` above is the PRE-round0 estimate (ledger history, or the no-ledger
-    # fallback CONSERVATIVE_S_PER_STEP=10s/step for a case never run on scc before), so wave 0
-    # itself can be badly under-provisioned on a fast case -- 2026-09-22 sc26p2 run: real cost
-    # ~0.03s/step, fallback assumed 10s/step (333x higher), so configs_per_job floored to 1 and
-    # only 6 configs (slots) got tried out of a budget that could fund far more. Once wave 0's own
-    # measurements are in, refresh s_est and, if real cost came in below what wave 0 assumed and
-    # there is still budget, spend one more wave sampling MORE not-yet-measured decomp_space
-    # candidates (other omp levels/numtiles/aspect ratios) sized off the now-accurate estimate.
     if job_ids:
         wave0_results = aggregate_by_cid(rows, configs_by_cid)
+
+        # Measured startup: refresh ctx.startup_s from THIS wave's own Slurm elapsed time before
+        # sizing the top-up below, so the top-up (and every later stage) sizes off what this run
+        # actually measured, not the documented fallback constant -- logged either way so a run's
+        # own log always says which one is in effect (2026-09-23 conus25 ask).
+        measured_startup, n_runs = measure_startup_s(job_configs, states, wave0_results, ctx.steps)
+        if measured_startup is not None:
+            print("startup_s: measured %.1fs/run from %d completed run(s) in round0 (was %.1fs, %s)"
+                  % (measured_startup, n_runs, ctx.startup_s, ctx.startup_source))
+            ctx.startup_s = measured_startup
+            ctx.startup_source = "measured from round0 (n=%d completed runs)" % n_runs
+        else:
+            print("startup_s: no COMPLETED round0 run to measure from; keeping %.1fs (%s)"
+                  % (ctx.startup_s, ctx.startup_source))
+
+        # Top-up wave: `s_est` above is the PRE-round0 estimate (ledger history, or the no-ledger
+        # fallback CONSERVATIVE_S_PER_STEP=10s/step for a case never run on scc before), so wave 0
+        # itself can be badly under-provisioned on a fast case -- 2026-09-22 sc26p2 run: real cost
+        # ~0.03s/step, fallback assumed 10s/step (333x higher), so configs_per_job floored to 1
+        # and only 6 configs (slots) got tried out of a budget that could fund far more. Once wave
+        # 0's own measurements are in, refresh s_est and, if real cost came in below what wave 0
+        # assumed and there is still budget, spend one more wave sampling MORE not-yet-measured
+        # decomp_space candidates (other omp levels/numtiles/aspect ratios) sized off the now-
+        # accurate estimate -- this is also how a single-slot case (slots==1, e.g. --max-nodes
+        # close to --nodes) still gets more than one job's worth of exploration out of round0.
         refreshed_s_est = update_s_est(wave0_results, s_est)
         if refreshed_s_est < s_est and ctx.elapsed() < ctx.budget_s:
-            topup_per_run_s = sweep.STARTUP_S + ctx.steps * refreshed_s_est
+            topup_per_run_s = ctx.startup_s + ctx.steps * refreshed_s_est
             topup_budget_s = min(ctx.budget_s - ctx.elapsed(), ctx.budget_s * ROUND0_BUDGET_FRACTION)
             topup_configs_per_job = max(1, int(topup_budget_s // topup_per_run_s))
             topup_k = slots * topup_configs_per_job
             fresh = sample_more_diverse_configs(ctx, list(configs_by_cid.values()), topup_k,
                                                  ctx.seed + 1)
-            print("round0 top-up: s_est=%.3fs/step (measured, was %.3fs/step) configs_per_job=%d "
-                  "candidates=%d" % (refreshed_s_est, s_est, topup_configs_per_job, len(fresh)))
+            print("round0 top-up: s_est=%.3fs/step (measured, was %.3fs/step) startup_s=%.1fs "
+                  "configs_per_job=%d candidates=%d"
+                  % (refreshed_s_est, s_est, ctx.startup_s, topup_configs_per_job, len(fresh)))
             if fresh:
-                topup_ids, topup_by_cid, topup_rows = _submit_round0_wave(
+                topup_ids, topup_by_cid, topup_rows, _jc, _st = _submit_round0_wave(
                     ctx, fresh, slots, refreshed_s_est, "round0-topup")
                 job_ids = job_ids + topup_ids
                 configs_by_cid.update(topup_by_cid)
@@ -647,7 +761,7 @@ def run_adaptive_rounds(ctx, all_configs_by_cid, all_results, s_est):
             return
 
         remaining_s = ctx.budget_s - elapsed
-        per_run_s = sweep.STARTUP_S + ctx.steps * s_est
+        per_run_s = ctx.startup_s + ctx.steps * s_est
         batch_size = max(1, int(min(remaining_s, ctx.budget_s * ROUND0_BUDGET_FRACTION) // per_run_s))
 
         # `state["rounds"]` (propose_core's own round counter) must grow exactly once per LOGICAL
@@ -694,15 +808,17 @@ def run_adaptive_rounds(ctx, all_configs_by_cid, all_results, s_est):
         state.setdefault("rounds", []).append(dict(round=round_idx, batch_size=batch_size,
                                                      kappa=kappa))
 
-        time_est = sweep.estimate_time(len(configs_out), 1, ctx.steps, s_est)
-        projected_end = elapsed + time_est["job_hours"] * 3600.0
+        time_est = estimate_run_time(len(configs_out), 1, ctx.steps, s_est=s_est,
+                                      startup_s=ctx.startup_s)
+        projected_end = elapsed + time_est["total_run_s"]        # RAW/EXPECTED -- never job_hours
         if projected_end > ADAPTIVE_STOP_FRACTION * ctx.budget_s:
             print("adaptive rounds: stopping before round %d -- projected finish %s > %.0f%% "
                   "of budget" % (round_idx, _fmt_hms(projected_end), ADAPTIVE_STOP_FRACTION * 100))
             return
 
         job_id, _path, _te = submit_configs_job(ctx, configs_out, reps=1,
-                                                  name_suffix="round%d" % round_idx, s_est=s_est)
+                                                  name_suffix="round%d" % round_idx, s_est=s_est,
+                                                  time_est=time_est)
         print("adaptive round %d: submitted job %s (%d configs)"
               % (round_idx, job_id, len(configs_out)))
         for c in configs_out:
@@ -734,35 +850,40 @@ def run_confirm(ctx, all_configs_by_cid, all_results, anchor_cid, s_est):
     # 0.03-0.04 s/step with no visibility into WHY; this makes the actual numbers behind that
     # decision show up in the log every time, not just when something looks wrong.
     for e in entries:
-        per_run_s = sweep.STARTUP_S + ctx.steps * e["median"]
-        print("confirm candidate %-8s median=%.4fs/step (n=%d) -> per_run~%.1fs x REPS=%d"
-              % (e["cid"], e["median"], e["n"], per_run_s, ctx.confirm_reps))
+        per_run_s = ctx.startup_s + ctx.steps * e["median"]
+        print("confirm candidate %-8s median=%.4fs/step (n=%d) -> per_run~%.1fs (startup_s=%.1fs) "
+              "x REPS=%d" % (e["cid"], e["median"], e["n"], per_run_s, ctx.startup_s,
+                              ctx.confirm_reps))
 
     # Greedily keep the cheapest candidates that still fit the remaining budget, cheapest first,
     # instead of an all-or-nothing decision on the WHOLE top-3+anchor set: with round0 sampling
     # only a handful of configs (see run_round0's top-up fix), "top-3 by median" can be forced to
     # include a genuinely slow outlier just to fill 3 slots (e.g. one ~6.7s/step config next to an
     # anchor at 0.03s/step) -- that single candidate's own real cost dominated the combined
-    # estimate and vetoed confirming the fast ones too, even though they trivially fit alone.
+    # estimate and vetoed confirming the fast ones too, even though they trivially fit alone. Uses
+    # total_run_s (RAW/EXPECTED), never job_hours (safety-padded x1.5 + 10min, sbatch --time only)
+    # -- 2026-09-23 conus25 run: a real 5.5-minute confirm job was rejected as an 18-minute one.
     entries_sorted = sorted(entries, key=lambda e: e["median"])
     kept, dropped, time_est = [], [], None
     for e in entries_sorted:
         trial = kept + [e]
-        trial_est = estimate_time_per_config([(x["config"], x["median"]) for x in trial],
-                                              ctx.confirm_reps, ctx.steps)
-        if would_exceed_budget(ctx.elapsed(), trial_est["job_hours"] * 3600.0, ctx.budget_s):
+        trial_est = estimate_run_time([(x["config"], x["median"]) for x in trial],
+                                       ctx.confirm_reps, ctx.steps, startup_s=ctx.startup_s)
+        if would_exceed_budget(ctx.elapsed(), trial_est["total_run_s"], ctx.budget_s):
             dropped.append(e)
             continue
         kept.append(e)
         time_est = trial_est
 
     if not kept:
-        solo_est = estimate_time_per_config(
-            [(entries_sorted[0]["config"], entries_sorted[0]["median"])], ctx.confirm_reps, ctx.steps)
+        solo_est = estimate_run_time(
+            [(entries_sorted[0]["config"], entries_sorted[0]["median"])], ctx.confirm_reps,
+            ctx.steps, startup_s=ctx.startup_s)
         print("confirm: SKIP -- even the cheapest candidate alone (%s, %.4fs/step) is estimated "
-              "at %s, which would exceed the remaining budget (elapsed=%s / budget=%s)"
+              "at %s (expected, REPS=%d), which would exceed the remaining budget "
+              "(elapsed=%s / budget=%s)"
               % (entries_sorted[0]["cid"], entries_sorted[0]["median"],
-                 _fmt_hms(solo_est["job_hours"] * 3600.0), _fmt_hms(ctx.elapsed()),
+                 _fmt_hms(solo_est["total_run_s"]), ctx.confirm_reps, _fmt_hms(ctx.elapsed()),
                  _fmt_hms(ctx.budget_s)))
         return None, None
 
@@ -772,8 +893,9 @@ def run_confirm(ctx, all_configs_by_cid, all_results, anchor_cid, s_est):
                  ", ".join("%s(%.4fs/step)" % (e["cid"], e["median"]) for e in dropped)))
 
     configs = [e["config"] for e in kept]
-    print("confirm: estimated %s for %d config(s) (REPS=%d) -- elapsed=%s / budget=%s"
-          % (_fmt_hms(time_est["job_hours"] * 3600.0), len(configs), ctx.confirm_reps,
+    print("confirm: estimated %s for %d config(s) (REPS=%d, expected -- not the padded --time "
+          "request) -- elapsed=%s / budget=%s"
+          % (_fmt_hms(time_est["total_run_s"]), len(configs), ctx.confirm_reps,
              _fmt_hms(ctx.elapsed()), _fmt_hms(ctx.budget_s)))
 
     job_id, _path, _te = submit_configs_job(ctx, configs, reps=ctx.confirm_reps, name_suffix="confirm",

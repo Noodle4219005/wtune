@@ -741,6 +741,30 @@ def profile_cmd(args):
     return 0
 
 
+def machine_profile_cmd(args):
+    """Hook into machine/profile.py: print a human summary of a merged
+    machine profile JSON (produced by machine/run_machine_profile.sh).
+    Loaded via importlib (not sys.path + import) so machine/profile.py
+    never shadows the stdlib 'profile' module for the rest of the process.
+    """
+    import importlib.util
+    mp_path = Path(__file__).resolve().parent / 'machine' / 'profile.py'
+    if not mp_path.exists():
+        print("ERROR: {} not found".format(mp_path), file=sys.stderr)
+        return 1
+    spec = importlib.util.spec_from_file_location('wtune_machine_profile', mp_path)
+    mprofile = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mprofile)
+    try:
+        doc = json.loads(Path(args.json_path).read_text())
+    except (IOError, OSError, ValueError) as exc:
+        print("ERROR reading {}: {}".format(args.json_path, exc), file=sys.stderr)
+        return 1
+    for line in mprofile.summarize(doc):
+        print(line)
+    return 0
+
+
 def physics_cmd(args):
     """Physics diagnosis + numerics advice + (optional) scheme menu."""
     try:
@@ -1673,6 +1697,9 @@ def main():
     p_profile.add_argument('--cores-per-node', type=int, default=None, help='default 72 (GH200 Grace)')
     p_profile.add_argument('--json', default=None, help='also write the full profile as JSON to this path')
 
+    p_mprofile = sub.add_parser('machine-profile', help='print a human summary of a machine/run_machine_profile.sh JSON (MEASURED machine speed, not the case profile)')
+    p_mprofile.add_argument('json_path', help='machine_profile_<host>_<date>.json produced by machine/run_machine_profile.sh')
+
     p_omap = sub.add_parser('oracle-map', help='DIAGNOSTIC spatial physics-load map (per-cell phase cost + hotspots); NOT a partition selector')
     p_omap.add_argument('--namelist', required=True, help='path to namelist.input (for date + cu_physics + run length)')
     p_omap.add_argument('--snapshot', default=None, help='wrfout/wrfinput NetCDF with model-state fields (defaults to --wrfinput)')
@@ -1715,6 +1742,10 @@ def main():
         physics_cmd(args)
     elif args.command == 'profile':
         status = profile_cmd(args)
+        if status:
+            sys.exit(status)
+    elif args.command == 'machine-profile':
+        status = machine_profile_cmd(args)
         if status:
             sys.exit(status)
     elif args.command == 'hotspot':

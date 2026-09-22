@@ -36,6 +36,13 @@ HARDWARE_TABLE = {
         cores_per_node=112, cores_per_numa=56, numa_per_node=2, smt=False,
         cache_per_core_mb=None, mem_bw_per_core=None,
     ),
+    # scc GH200 (Grace, 72 Neoverse-V2, SMT off, one NUMA node with memory; HBM not onlined).
+    # Measured 2026-09-22 (machine profile job 431): L2 1 MiB/core, STREAM triad saturates at
+    # ~455 GB/s from 32 threads -> 6.32 GB/s per core at full node.
+    "scc-gh200": dict(
+        cores_per_node=72, cores_per_numa=72, numa_per_node=1, smt=False,
+        cache_per_core_mb=1.0, mem_bw_per_core=6.32,
+    ),
 }
 
 # Physics scheme vocabularies actually observed in this corpus (config-cost separability note:

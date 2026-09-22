@@ -7,6 +7,7 @@ docstring on lazy netCDF4 import). Run with:
   /home/nk/miniforge3/envs/hqvit-pixi/bin/python3 -m pytest -q tools/test_state_timeline.py tools/test_temporal_validation.py
 """
 import argparse
+import statistics
 import datetime
 import json
 import os
@@ -700,3 +701,23 @@ def test_cmd_plan_training_unknown_when_no_ledger(monkeypatch, tmp_path, capsys)
     out = capsys.readouterr().out
     assert "s/step unknown" in out
     assert "submit-timeline --case synth" in out
+
+
+def test_detect_radiation_phase_matches_scc_matthew_pattern():
+    # scc job 465 (matthew, STEPRA 6): radiation spikes ~0.058 s on rsl lines 103, 109, ... (i % 6 == 1)
+    times = []
+    for i in range(1, 200):
+        w = 0.0305
+        if i % 6 == 1 and i > 1:
+            w = 0.058
+        if i == 145:
+            w = 2.05   # restart write
+        times.append(w)
+    assert st.detect_radiation_phase(times, 6) == 1
+    flags = st.classify_steps_detected(times, 6)
+    rad = [w for w, f in zip(times, flags) if f]
+    assert statistics.median(rad) > 0.05
+
+
+def test_detect_radiation_phase_short_series_falls_back_to_zero():
+    assert st.detect_radiation_phase([0.03] * 5, 6) == 0

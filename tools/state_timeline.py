@@ -132,6 +132,33 @@ def classify_steps(n_steps, stepra):
     return [(i == 1) or (i % stepra == 0) for i in range(1, n_steps + 1)]
 
 
+def detect_radiation_phase(step_wall_times, stepra):
+    """Offset p in [0, stepra) such that rsl line i is a radiation step when i % stepra == p,
+    chosen as the phase whose steps have the highest MEDIAN wall time (medians ignore the rare
+    I/O-write spikes). The documented WRF rule (mod(itimestep, STEPRA)==0) did not match the rsl
+    line numbering on scc: matthew (dt 150 s, radt 15 min, STEPRA 6) spikes on lines 103, 109, ...,
+    i.e. phase 1, so a fixed phase 0 filed every radiation step as a normal step. Falls back to 0
+    when there are fewer than 2*stepra steps or the phases are indistinguishable."""
+    n = len(step_wall_times)
+    if stepra <= 1 or n < 2 * stepra:
+        return 0
+    best, best_med = 0, None
+    for p in range(stepra):
+        vals = [w for i, w in enumerate(step_wall_times, start=1) if i > 1 and i % stepra == p]
+        if not vals:
+            continue
+        med = statistics.median(vals)
+        if best_med is None or med > best_med:
+            best, best_med = p, med
+    return best
+
+
+def classify_steps_detected(step_wall_times, stepra):
+    """classify_steps with the radiation phase detected from the data (see detect_radiation_phase)."""
+    p = detect_radiation_phase(step_wall_times, stepra)
+    return [(i == 1) or (stepra > 0 and i % stepra == p) for i in range(1, len(step_wall_times) + 1)]
+
+
 def _finalize_step_buckets(buckets):
     out = {}
     for b, d in buckets.items():
@@ -159,7 +186,7 @@ def step_target_features(step_wall_times, dt_seconds, radt_minutes, interval_min
     kept as a standalone pure function/tested building block for anything that genuinely has a
     fixed grid."""
     stepra = steps_per_radiation_call(radt_minutes, dt_seconds)
-    flags = classify_steps(len(step_wall_times), stepra)
+    flags = classify_steps_detected(step_wall_times, stepra)
     interval_seconds = interval_minutes * 60.0
     buckets = {}
     for i, (w, is_rad) in enumerate(zip(step_wall_times, flags), start=1):
@@ -218,7 +245,7 @@ def step_target_features_by_frame_edges(step_wall_times, dt_seconds, radt_minute
     from the request. Steps before edges[0] (should not occur for a normal cold-start run, edges[0]
     is ~0) are silently dropped, not misattributed to bucket 0."""
     stepra = steps_per_radiation_call(radt_minutes, dt_seconds)
-    flags = classify_steps(len(step_wall_times), stepra)
+    flags = classify_steps_detected(step_wall_times, stepra)
     buckets = {}
     for i, (w, is_rad) in enumerate(zip(step_wall_times, flags), start=1):
         sim_s = (i - 1) * dt_seconds

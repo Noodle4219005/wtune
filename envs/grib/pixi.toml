@@ -1,0 +1,20 @@
+[workspace]
+name = "wtune-grib"
+description = "GRIB analysis/forecast data environment for tools/grib_state.py and tools/metdata.py (WRF-run-free physical-state trajectory)"
+channels = ["conda-forge"]
+platforms = ["linux-64", "linux-aarch64"]
+version = "0.1.0"
+
+[dependencies]
+python = "3.11.*"
+numpy = "*"
+eccodes = "*"
+cfgrib = "*"
+xarray = "*"
+netcdf4 = "*"
+requests = "*"
+
+[tasks]
+grib-state = "python3 tools/grib_state.py"
+metdata = "python3 tools/metdata.py"
+test = "python3 -m pytest -q tools/test_grib_state.py tools/test_metdata.py"

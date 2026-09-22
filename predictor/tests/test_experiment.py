@@ -12,6 +12,7 @@ Run with:
 """
 import csv
 import json
+import math
 import os
 import sys
 import types
@@ -74,11 +75,13 @@ def _karina_rows(case="karina", c01=(0.40, 0.41), c06=(0.255, 0.257), c05=(0.262
 
 
 def _plan_args(tmp_path, case="karina", ledger_paths=None, loco=False, configs=None,
-               out=None, reps=2, nodes=4, top_k=3, namelist=None, space="auto"):
+               out=None, reps=2, nodes=4, top_k=3, namelist=None, space="auto",
+               screen_spares=0):
     return SimpleNamespace(
         case=case, ledger=ledger_paths or [], namelist=namelist or os.devnull,
         hardware_id="f1-spr-icpnq", nodes=nodes, top_k=top_k, loco=loco, configs=configs,
         reps=reps, out=str(out or (tmp_path / "plan")), space=space,
+        screen_spares=screen_spares,
     )
 
 
@@ -795,3 +798,512 @@ def test_summarize_reports_totals(tmp_path, capsys):
     assert rows[0]["verdict"] in ("PASS", "FAIL")
     out = capsys.readouterr().out
     assert "TOTAL" in out
+
+
+# ---------------------------------------------------------------------------
+# PART A: feasibility ledger (_failure_index) -- results/derived-data/2026-09-22-atlas-loco-
+# phase1-verdicts.csv: 3/10 LOCO cases FAILED-infeasible because a failed row (empty median,
+# non-zero rc= in notes) is silently invisible to every candidate-building path above. This index
+# reads that dropped half of the ledger directly.
+# ---------------------------------------------------------------------------
+def _fail_row(case, cid, rc, ranks, omp, nx, ny, numtiles=1, nodes=4, run_suffix="f1", notes=None):
+    if notes is None:
+        notes = "config=%s rc=%d" % (cid, rc)
+    return _row(run_id="%s_%s_%s_9003" % (case, cid, run_suffix), case_base=case, case_raw=case,
+                n_ranks=str(ranks), omp_threads=str(omp), nproc_x=str(nx), nproc_y=str(ny),
+                numtiles=str(numtiles), s_per_step_median="", s_per_step_mean="",
+                n_steps_measured="0", n_nodes=str(nodes), notes=notes)
+
+
+_C08_IDENTITY = (224, 2, 7, 32, 2, "cyclic", "0", 0, 0, 0, 0, 0)
+_C06_IDENTITY = (224, 2, 7, 32, 12, "cyclic", "0", 0, 0, 0, 0, 0)
+
+
+def test_failure_index_counts_ok_and_fail_separately_by_case_nodes_identity():
+    rows = _karina_rows() + [
+        _fail_row("karina", "C08", 137, ranks=224, omp=2, nx=7, ny=32, numtiles=2)]
+    idx = ex._failure_index(rows)
+    assert idx[("karina", 4, _C08_IDENTITY)] == dict(fail=1, ok=0, rcs=[137], kinds={"crash"})
+    # C06's identity (2 successful rows from _karina_rows(), no failures) must be unaffected.
+    assert idx[("karina", 4, _C06_IDENTITY)]["ok"] == 2
+    assert idx[("karina", 4, _C06_IDENTITY)]["fail"] == 0
+
+
+def test_failure_index_rc124_is_timeout_other_nonzero_rc_is_crash():
+    rows = [_fail_row("elevconv", "C09", 124, ranks=224, omp=2, nx=7, ny=32, numtiles=12),
+            _fail_row("marshall", "C08", 137, ranks=224, omp=2, nx=7, ny=32, numtiles=2,
+                      run_suffix="f2")]
+    idx = ex._failure_index(rows)
+    assert idx[("elevconv", 4, (224, 2, 7, 32, 12, "cyclic", "0", 0, 0, 0, 0, 0))]["kinds"] \
+        == {"timeout"}
+    assert idx[("marshall", 4, _C08_IDENTITY)]["kinds"] == {"crash"}
+
+
+def test_failure_index_excludes_physics_edit_failure_but_includes_p00_reference():
+    # same decomposition (56 ranks, omp=2, 7x8) under TWO physics rows: one an edited template
+    # (P07, a real physics-knob change) that crashed, one the P00 REFERENCE (no edits) that also
+    # crashed -- only the P00 row is a decomposition-feasibility observation (PART A's rule).
+    physics_edit_fail = _row(
+        case_base="c34", case_raw="c34", n_ranks="56", omp_threads="2", nproc_x="7", nproc_y="8",
+        numtiles="1", s_per_step_median="", s_per_step_mean="", n_steps_measured="0", n_nodes="1",
+        notes="mode=physics template=P07 family=microphysics edits=mp_physics=8 decomp=C01 rc=139")
+    p00_fail = _row(
+        case_base="c34", case_raw="c34", n_ranks="56", omp_threads="2", nproc_x="7", nproc_y="8",
+        numtiles="1", s_per_step_median="", s_per_step_mean="", n_steps_measured="0", n_nodes="1",
+        notes="mode=physics template=P00 family=- edits= decomp=C01 rc=139")
+    idx = ex._failure_index([physics_edit_fail, p00_fail])
+    key = ("c34", 1, (56, 2, 7, 8, 1, "cyclic", "0", 0, 0, 0, 0, 0))
+    assert idx[key] == dict(fail=1, ok=0, rcs=[139], kinds={"crash"})
+
+
+def test_failure_index_skips_non_strict_rows():
+    row = _fail_row("karina", "C08", 137, ranks=224, omp=2, nx=7, ny=32, numtiles=2)
+    row["compliance_class"] = "RESEARCH"
+    assert ex._failure_index([row]) == {}
+
+
+# ---------------------------------------------------------------------------
+# PART B: same-case known-infeasible exclusion (in plan, non-LOCO) / no leakage under --loco
+# ---------------------------------------------------------------------------
+def test_template_space_excludes_recommended_candidate_known_infeasible_on_case(
+        tmp_path, monkeypatch):
+    ledger = tmp_path / "ledger.csv"
+    rows = _karina_rows() + [
+        _fail_row("karina", "C08", 137, ranks=224, omp=2, nx=7, ny=32, numtiles=2)]
+    _write_csv(ledger, rows)
+    _install_fake_recommend(monkeypatch, _SHORTLIST_C08_OMP2)
+
+    args = _plan_args(tmp_path, case="karina", ledger_paths=[str(ledger)], out=tmp_path / "plan")
+    plan = ex.cmd_plan(args)
+
+    ids = {c["config_id"] for c in plan["candidates"]}
+    assert "C08" not in ids
+    assert "C01" in ids   # baseline unaffected
+    excluded = plan["recommend"]["excluded"]
+    assert dict(label="C08", reason="known_infeasible_on_case", rcs=[137],
+                kinds=["crash"]) in excluded
+
+
+def test_template_space_loco_does_not_leak_target_case_own_failure_history(tmp_path, monkeypatch):
+    # WITHOUT --loco this exact fixture excludes C08 (proved above). WITH --loco for karina, the
+    # failure index must be built from train_rows (karina's own rows dropped BEFORE the index is
+    # built), so C08 must survive here -- excluding it WOULD be leakage: the target case's own
+    # measured failure informing what a supposedly-blind recommendation run is allowed to keep.
+    ledger = tmp_path / "ledger.csv"
+    rows = _karina_rows() + [
+        _fail_row("karina", "C08", 137, ranks=224, omp=2, nx=7, ny=32, numtiles=2)]
+    _write_csv(ledger, rows)
+    _install_fake_recommend(monkeypatch, _SHORTLIST_C08_OMP2)
+
+    args = _plan_args(tmp_path, case="karina", ledger_paths=[str(ledger)], loco=True,
+                       out=tmp_path / "plan_loco")
+    plan = ex.cmd_plan(args)
+
+    ids = {c["config_id"] for c in plan["candidates"]}
+    assert "C08" in ids
+    excluded = plan["recommend"]["excluded"]
+    assert not any(e.get("reason") == "known_infeasible_on_case" for e in excluded)
+
+
+def test_template_space_keeps_flaky_candidate_with_mixed_evidence(tmp_path, monkeypatch):
+    ledger = tmp_path / "ledger.csv"
+    rows = _karina_rows() + [
+        _row(run_id="karina_C08_ok_9004", case_base="karina", case_raw="karina", n_ranks="224",
+             omp_threads="2", nproc_x="7", nproc_y="32", numtiles="2", s_per_step_median="0.30",
+             s_per_step_mean="0.30", n_steps_measured="30", notes="config=C08 rc=0"),
+        _fail_row("karina", "C08", 137, ranks=224, omp=2, nx=7, ny=32, numtiles=2),
+    ]
+    _write_csv(ledger, rows)
+    _install_fake_recommend(monkeypatch, _SHORTLIST_C08_OMP2)
+
+    args = _plan_args(tmp_path, case="karina", ledger_paths=[str(ledger)], out=tmp_path / "plan")
+    plan = ex.cmd_plan(args)
+
+    c08 = next(c for c in plan["candidates"] if c["config_id"] == "C08")
+    assert c08["flaky"] is True
+    assert not any(e.get("label") == "C08" for e in plan["recommend"]["excluded"])
+    other_ids = {c["config_id"] for c in plan["candidates"] if c["config_id"] != "C08"}
+    assert all(not c.get("flaky") for c in plan["candidates"] if c["config_id"] in other_ids)
+
+
+def test_generated_space_excludes_chosen_candidate_known_infeasible_on_case(tmp_path, monkeypatch):
+    # generated-space equivalent, c34-shaped: the SAME identity (110 ranks, omp=1, 10x11) that
+    # crashed before must be excluded from a fresh plan even though its omp already clears
+    # max_omp=1 (proving this is PART B's OWN filter, not PART D's/PART A's max_omp filter).
+    case_json = campaign_configs.CASES["c34"]
+    assert case_json.get("max_omp") == 1
+    chosen = [dict(ranks=110, omp=1, nx=10, ny=11, numtiles=1, dist="cyclic", blocktime="0")]
+    ledger = tmp_path / "ledger.csv"
+    rows = [_fail_row("c34", "R01D0001", 139, ranks=110, omp=1, nx=10, ny=11, numtiles=1,
+                       nodes=1),
+            # a successful row too, purely so _s_per_step_estimates has a case_median fallback
+            # for GBASE's own cost estimate (c34 has no campaign/configs.py COST_GUESS entry).
+            _row(case_base="c34", case_raw="c34", n_nodes="1", s_per_step_median="0.41339",
+                 s_per_step_mean="0.41820", n_steps_measured="30")]
+    _write_csv(ledger, rows)
+    _install_fake_benchmark(monkeypatch)
+    _install_fake_decomp_search(monkeypatch, chosen=chosen)
+
+    args = _plan_args(tmp_path, case="c34", ledger_paths=[str(ledger)], nodes=1, top_k=1,
+                       out=tmp_path / "plan")
+    plan = ex.cmd_plan(args)
+
+    rec = [c for c in plan["candidates"] if c["config_id"].startswith("GREC")]
+    assert rec == []
+    excluded = plan["recommend"]["excluded"]
+    assert any(e.get("reason") == "known_infeasible_on_case" for e in excluded)
+
+
+# ---------------------------------------------------------------------------
+# PART D: c34's generated-space max_omp=1 caused ZERO recommended candidates (job 1090690,
+# "after fix propose returns 0 recs") -- diagnosed as decomp_search.propose_for_case's exact-fit
+# ranks=total_cores//omp having no legal shape at omp=1/total_cores=112 for c34's 118x118 grid
+# (every factor pair of 112 needs a side >11; floor(118/x)>=10 caps x<=11). Fix:
+# _call_decomp_search_propose now downscales total_cores to the largest under-subscribed legal
+# ranks at max_omp (the SAME rule _generated_baseline already used for GBASE) before calling
+# decomp_search.propose_for_case, which is NOT owned by this change.
+# ---------------------------------------------------------------------------
+def test_c34_grid_has_no_legal_shape_at_112_ranks_but_110_is_legal():
+    # confirms the diagnosed root cause directly against the real decomp_space module (imported
+    # for real at the top of this file, no fake).
+    case_json = campaign_configs.CASES["c34"]
+    we_list, sn_list = campaign_configs._active_domain_extents(case_json)
+    assert decomp_space.legal_shapes_exact(we_list, sn_list, 112) == []
+    assert decomp_space.legal_shapes_exact(we_list, sn_list, 110) == [(10, 11), (11, 10)]
+
+
+def test_max_legal_ranks_scans_down_to_110_for_c34_at_omp1():
+    case_json = campaign_configs.CASES["c34"]
+    ranks, shapes = ex._max_legal_ranks(case_json, 112)
+    assert ranks == 110
+    assert (10, 11) in shapes
+
+
+def test_generated_space_c34_downscales_total_cores_so_propose_gets_a_legal_ranks_value(
+        tmp_path, monkeypatch):
+    case_json = campaign_configs.CASES["c34"]
+    assert case_json.get("max_omp") == 1
+    ledger = tmp_path / "ledger.csv"
+    _write_csv(ledger, [_row(case_base="c34", case_raw="c34", n_nodes="1",
+                              s_per_step_median="0.41339", s_per_step_mean="0.41820",
+                              n_steps_measured="30")])
+    _install_fake_benchmark(monkeypatch)
+    captured = []
+    # a REAL (not fabricated) omp=1 candidate at the downscaled ranks -- proves the fake
+    # decomp_search actually received a total_cores whose exact-fit division (110 // 1) is a
+    # legal ranks value, by construction of this assertion against the real decomp_space module.
+    chosen = [dict(ranks=110, omp=1, nx=10, ny=11, numtiles=1, dist="cyclic", blocktime="0")]
+    _install_fake_decomp_search(monkeypatch, chosen=chosen, capture=captured)
+
+    args = _plan_args(tmp_path, case="c34", ledger_paths=[str(ledger)], nodes=1, top_k=1,
+                       out=tmp_path / "plan")
+    plan = ex.cmd_plan(args)
+
+    assert len(captured) == 1
+    effective_total_cores = captured[0]["total_cores"]
+    assert effective_total_cores == 110          # NOT the naive nodes*112 == 112
+    we_list, sn_list = campaign_configs._active_domain_extents(case_json)
+    assert decomp_space.legal_shapes_exact(we_list, sn_list, effective_total_cores // 1) != []
+
+    rec = [c for c in plan["candidates"] if c["config_id"].startswith("GREC")]
+    assert len(rec) == 1 and rec[0]["omp"] == 1   # PART D: >=1 omp=1 candidate, not zero
+
+
+def test_generated_space_matthew_total_cores_unchanged_no_max_omp(tmp_path, monkeypatch):
+    # matthew has no max_omp at all -- the PART D downscale must never trigger for it, so
+    # enumerate_space keeps seeing the FULL nodes*112 total_cores exactly as before PART D
+    # (predictor/tests/test_decomp_space.py's own shapes_count[1]==0 assertion for a tiny grid
+    # depends on this NOT changing).
+    ledger = tmp_path / "ledger.csv"
+    _write_csv(ledger, [_matthew_cost_row()])
+    _install_fake_benchmark(monkeypatch)
+    captured = []
+    _install_fake_decomp_search(monkeypatch, chosen=[], capture=captured)
+
+    args = _plan_args(tmp_path, case="matthew", ledger_paths=[str(ledger)], nodes=1, top_k=1,
+                       out=tmp_path / "plan")
+    ex.cmd_plan(args)
+    assert captured[0]["total_cores"] == 112
+
+
+# ---------------------------------------------------------------------------
+# PART E: recommend.build_candidates caps omp=1 when the namelist's &fire ifire>0 on any active
+# domain, independent of whether the case is even registered in campaign/cases.json. Tested
+# against the REAL predictor/recommend.py (not the fakes _install_fake_recommend/_install_fake_
+# decomp_search inject elsewhere in this file): its sklearn-only dependency modules (benchmark/
+# decomp_search/models/physics/validate -- see predictor/models.py's `from sklearn...` import,
+# unavailable in this test environment, same reason experiment.py's own module docstring gives
+# for never importing predictor/recommend.py directly) are stubbed as attribute-permissive dummy
+# modules; parse_case_from_namelist/build_candidates (this test's only targets) never touch them,
+# but recommend.py's own module-scope code (argparse defaults sourced from e.g.
+# physics.DEFAULT_MAX_TEMPLATE_LARGE_RATE) evaluates at import time and needs SOME attribute
+# value there, not a real one.
+# ---------------------------------------------------------------------------
+def _import_real_recommend(monkeypatch):
+    class _AnyAttrModule(types.ModuleType):
+        def __getattr__(self, name):
+            return 0
+
+    for name in ("benchmark", "decomp_search", "models", "physics", "validate"):
+        monkeypatch.setitem(sys.modules, name, _AnyAttrModule(name))
+    monkeypatch.delitem(sys.modules, "recommend", raising=False)
+    import recommend as recommend_mod
+    monkeypatch.delitem(sys.modules, "recommend", raising=False)  # don't leak the real module
+    return recommend_mod
+
+
+_KARINA_GRID_NAMELIST = (
+    "&domains\n"
+    " max_dom = 1,\n"
+    " e_we = 901,\n"
+    " e_sn = 901,\n"
+    " e_vert = 45,\n"
+    " dx = 1000,\n"
+    " dy = 1000,\n"
+    " time_step = 6,\n"
+    "/\n"
+    "&physics\n"
+    " mp_physics = 6,\n"
+    "/\n"
+    "&fire\n"
+    " ifire = %s,\n"
+    "/\n"
+)
+
+
+_TWO_DOMAIN_FIRE_NAMELIST = (
+    "&domains\n"
+    " max_dom = 2,\n"
+    " e_we = 118, 118,\n"
+    " e_sn = 118, 118,\n"
+    " e_vert = 45, 45,\n"
+    " dx = 1000,\n"
+    " dy = 1000,\n"
+    " time_step = 6,\n"
+    "/\n"
+    "&physics\n"
+    " mp_physics = 6, 6,\n"
+    "/\n"
+    "&fire\n"
+    " ifire = 0, 2,\n"
+    "/\n"
+)
+
+
+def test_recommend_parses_ifire_list_from_namelist_fire_group(tmp_path, monkeypatch):
+    # c34-shaped 2-domain namelist (d01 ifire=0, d02 ifire=2, matching cases.json's own c34/
+    # marshall notes) -- proves ifire is read per-domain, like e_we/e_sn, not just d01's value.
+    recommend_mod = _import_real_recommend(monkeypatch)
+    namelist = tmp_path / "namelist.input"
+    namelist.write_text(_TWO_DOMAIN_FIRE_NAMELIST)
+    case_fields = recommend_mod.parse_case_from_namelist(str(namelist))
+    assert case_fields["ifire_list"] == [0, 2]
+
+
+def test_recommend_build_candidates_caps_omp_when_namelist_ifire_positive(tmp_path, monkeypatch):
+    recommend_mod = _import_real_recommend(monkeypatch)
+    namelist = tmp_path / "namelist.input"
+    namelist.write_text(_KARINA_GRID_NAMELIST % "2")
+    case_fields = recommend_mod.parse_case_from_namelist(str(namelist))
+    assert case_fields["ifire_list"] == [2]
+
+    # case_name="karina" is registered in cases.json but carries NO max_omp of its own -- proves
+    # the cap comes from ifire, via min(1, case_dict.get("max_omp", 1)), not from cases.json.
+    assert campaign_configs.CASES["karina"].get("max_omp") is None
+    kept, _skipped, _aliases, _dn, _nn = recommend_mod.build_candidates(
+        case_fields, nodes=4, max_dom=1, case_name="karina")
+    assert kept, "expected at least one legal STRICT template for this 901x901 grid"
+    assert all(c["omp"] == 1 for c in kept)
+
+
+def test_recommend_build_candidates_no_ifire_allows_omp_above_1(tmp_path, monkeypatch):
+    # control: the SAME grid, ifire=0 everywhere -- omp>1 templates must NOT be capped.
+    recommend_mod = _import_real_recommend(monkeypatch)
+    namelist = tmp_path / "namelist.input"
+    namelist.write_text(_KARINA_GRID_NAMELIST % "0")
+    case_fields = recommend_mod.parse_case_from_namelist(str(namelist))
+    assert case_fields["ifire_list"] == [0]
+
+    kept, _skipped, _aliases, _dn, _nn = recommend_mod.build_candidates(
+        case_fields, nodes=4, max_dom=1, case_name="karina")
+    assert any(c["omp"] > 1 for c in kept)
+
+
+# ---------------------------------------------------------------------------
+# PART C: feasibility screen -- --screen-spares S (default 0 = old behaviour, exercised by every
+# test above this section) writes a cheap MODE=timing/REPS=1/STEPS=SCREEN_STEPS screen job
+# instead of the direct timing plan; `screen` reads its ledger back and rewrites the plan for the
+# real timing job with only the candidates the screen job proved feasible.
+# ---------------------------------------------------------------------------
+_SHORTLIST_4 = [
+    dict(config_id="C20", rank=1, n_ranks=224, omp_threads=2, nproc_x=7, nproc_y=32, numtiles=2,
+         distribution="cyclic", kmp_blocktime=0, predicted_gain=0.06, gain_lower_95=0.02,
+         label="SAFE"),
+    dict(config_id="C21", rank=2, n_ranks=224, omp_threads=2, nproc_x=7, nproc_y=32, numtiles=3,
+         distribution="cyclic", kmp_blocktime=0, predicted_gain=0.05, gain_lower_95=0.01,
+         label="SAFE"),
+    dict(config_id="C22", rank=3, n_ranks=224, omp_threads=2, nproc_x=7, nproc_y=32, numtiles=4,
+         distribution="cyclic", kmp_blocktime=0, predicted_gain=0.04, gain_lower_95=-0.01,
+         label="EXPERIMENTAL"),
+    dict(config_id="C23", rank=4, n_ranks=224, omp_threads=2, nproc_x=7, nproc_y=32, numtiles=5,
+         distribution="cyclic", kmp_blocktime=0, predicted_gain=0.03, gain_lower_95=-0.02,
+         label="EXPERIMENTAL"),
+]
+
+
+def test_screen_spares_zero_is_old_behaviour(tmp_path, monkeypatch):
+    ledger = tmp_path / "ledger.csv"
+    _write_csv(ledger, _karina_rows())
+    _install_fake_recommend(monkeypatch, _SHORTLIST_C06_TOP1)
+    plan_dir = tmp_path / "plan"
+    args = _plan_args(tmp_path, ledger_paths=[str(ledger)], out=plan_dir)
+    plan = ex.cmd_plan(args)
+    assert plan["screen_spares"] == 0
+    assert plan["screen"] is None
+    assert not os.path.isdir(str(plan_dir / "screen"))
+    assert plan["cost"]["reps"] == 2   # args.reps, unchanged behaviour
+
+
+def test_screen_plan_writes_screen_job_params(tmp_path, monkeypatch):
+    ledger = tmp_path / "ledger.csv"
+    _write_csv(ledger, _karina_rows())
+    captured = []
+    _install_fake_recommend(monkeypatch, _SHORTLIST_4, capture=captured)
+
+    plan_dir = tmp_path / "plan"
+    args = _plan_args(tmp_path, ledger_paths=[str(ledger)], top_k=2, out=plan_dir,
+                       screen_spares=2)
+    plan = ex.cmd_plan(args)
+
+    assert captured[0]["top_k"] == 4     # top_k(2) + screen_spares(2) reached the recommender
+    rec_ids = sorted(c["config_id"] for c in plan["candidates"]
+                      if any(r.startswith("recommended:") for r in c["roles"]))
+    assert rec_ids == ["C20", "C21", "C22", "C23"]     # all 4 screened, not just top_k=2
+
+    sblock = plan["screen"]
+    assert sblock["spares"] == 2 and sblock["top_k"] == 2 and sblock["steps"] == ex.SCREEN_STEPS
+    assert "STEPS=%d" % ex.SCREEN_STEPS in sblock["sbatch"]["command"]
+    assert "REPS=1" in sblock["sbatch"]["command"]
+    assert "MODE=timing" in sblock["sbatch"]["command"]
+    assert "TIMEOUT_S=%d" % sblock["timeout_s"] in sblock["sbatch"]["command"]
+    assert plan["sbatch"]["command"] == sblock["sbatch"]["command"]   # top-level == screen job
+
+    startup_s = sblock["cost"]["startup_s"]
+    s_est_max = max(sblock["cost"]["s_per_step_est"].values())
+    expected_timeout = max(
+        ex.SCREEN_TIMEOUT_MIN_S,
+        int(math.ceil(ex.SCREEN_TIMEOUT_MULTIPLIER * (startup_s + ex.SCREEN_STEPS * s_est_max))))
+    assert sblock["timeout_s"] == expected_timeout
+
+    assert os.path.exists(sblock["configs_json_path"])
+    assert sblock["configs_json_path"] == plan["configs_json_path"]
+    assert plan["cost"]["reps"] == 1
+    assert plan["cost"]["steps"] == ex.SCREEN_STEPS
+
+
+def test_screen_to_timing_rewrite_keeps_first_k_feasible_in_rank_order_plus_controls(
+        tmp_path, monkeypatch):
+    ledger = tmp_path / "ledger.csv"
+    _write_csv(ledger, _karina_rows())
+    _install_fake_recommend(monkeypatch, _SHORTLIST_4)
+
+    plan_dir = tmp_path / "plan"
+    args = _plan_args(tmp_path, case="karina", ledger_paths=[str(ledger)], top_k=2,
+                       out=plan_dir, screen_spares=2)
+    plan = ex.cmd_plan(args)
+    assert set(plan["screen"]["candidate_ids"]) == {"C01", "C06", "C20", "C21", "C22", "C23"}
+
+    ex.cmd_record(SimpleNamespace(plan=str(plan_dir), job_id="9101", stage="screen"))
+
+    # screen ledger: rank-1 C20 crashes (rc=137, infeasible); C21/C22/C23 all measure fine
+    # (feasible); baseline C01 ALSO crashes in the screen -- it must survive anyway ("always").
+    screen_ledger_dir = tmp_path / "screen_job_ledgers"
+    screen_ledger_dir.mkdir()
+    screen_rows = [
+        _fail_row("karina", "C01", 99, ranks=448, omp=1, nx=8, ny=56, numtiles=1, run_suffix="s"),
+        _fail_row("karina", "C20", 137, ranks=224, omp=2, nx=7, ny=32, numtiles=2, run_suffix="s"),
+        _row(run_id="karina_C21_s_9101", case_base="karina", case_raw="karina", n_ranks="224",
+             omp_threads="2", nproc_x="7", nproc_y="32", numtiles="3", s_per_step_median="0.20",
+             s_per_step_mean="0.20", n_steps_measured=str(ex.SCREEN_STEPS),
+             notes="config=C21 rc=0"),
+        _row(run_id="karina_C22_s_9101", case_base="karina", case_raw="karina", n_ranks="224",
+             omp_threads="2", nproc_x="7", nproc_y="32", numtiles="4", s_per_step_median="0.21",
+             s_per_step_mean="0.21", n_steps_measured=str(ex.SCREEN_STEPS),
+             notes="config=C22 rc=0"),
+        _row(run_id="karina_C23_s_9101", case_base="karina", case_raw="karina", n_ranks="224",
+             omp_threads="2", nproc_x="7", nproc_y="32", numtiles="5", s_per_step_median="0.22",
+             s_per_step_mean="0.22", n_steps_measured=str(ex.SCREEN_STEPS),
+             notes="config=C23 rc=0"),
+        # best_known C06 is untouched by this screen job at all (no row for it) -- must still
+        # survive into the final timing plan via its best_known role.
+    ]
+    _write_csv(screen_ledger_dir / "ledger_karina_9101.csv", screen_rows)
+
+    plan = ex.screen(str(plan_dir), ledger_dir=str(screen_ledger_dir))
+
+    assert plan["screen"]["kept_recommended_ids"] == ["C21", "C22"]   # first 2 feasible, in rank order
+    assert set(plan["screen"]["dropped_ids"]) == {"C20", "C23"}       # infeasible + excess feasible
+    assert plan["screen"]["underfilled"] is False
+
+    final_ids = {c["config_id"] for c in plan["candidates"]}
+    assert final_ids == {"C01", "C06", "C21", "C22"}   # baseline + best_known ALWAYS kept
+    assert "C20" not in final_ids and "C23" not in final_ids
+
+    # rewritten for the REAL timing job: REPS back to plan["reps"] (2), full case steps (not
+    # SCREEN_STEPS), MODE=timing, and record()/reconcile() need no --stage afterward.
+    assert plan["cost"]["reps"] == 2
+    assert plan["cost"]["steps"] != ex.SCREEN_STEPS
+    assert "REPS=2" in plan["sbatch"]["command"]
+    assert "STEPS=" not in plan["sbatch"]["command"]
+    assert plan["state"] == "draft"
+
+    ex.cmd_record(SimpleNamespace(plan=str(plan_dir), job_id="9102"))   # no --stage: timing
+    reloaded = json.loads((plan_dir / "plan.json").read_text())
+    assert reloaded["job_id"] == "9102"
+    assert reloaded["screen"]["job_id"] == "9101"   # screen's own job_id is untouched
+
+
+def test_screen_fewer_than_top_k_feasible_keeps_what_exists_and_notes_underfilled(
+        tmp_path, monkeypatch):
+    ledger = tmp_path / "ledger.csv"
+    _write_csv(ledger, _karina_rows())
+    _install_fake_recommend(monkeypatch, _SHORTLIST_4)
+
+    plan_dir = tmp_path / "plan"
+    args = _plan_args(tmp_path, case="karina", ledger_paths=[str(ledger)], top_k=3,
+                       out=plan_dir, screen_spares=1)
+    ex.cmd_plan(args)
+    ex.cmd_record(SimpleNamespace(plan=str(plan_dir), job_id="9201", stage="screen"))
+
+    screen_ledger_dir = tmp_path / "screen_job_ledgers"
+    screen_ledger_dir.mkdir()
+    # only ONE of the 4 screened recommended candidates (top_k=3, spares=1) comes back feasible.
+    screen_rows = [
+        _fail_row("karina", "C20", 124, ranks=224, omp=2, nx=7, ny=32, numtiles=2, run_suffix="u"),
+        _fail_row("karina", "C22", 137, ranks=224, omp=2, nx=7, ny=32, numtiles=4, run_suffix="u"),
+        _fail_row("karina", "C23", 137, ranks=224, omp=2, nx=7, ny=32, numtiles=5, run_suffix="u"),
+        _row(run_id="karina_C21_u_9201", case_base="karina", case_raw="karina", n_ranks="224",
+             omp_threads="2", nproc_x="7", nproc_y="32", numtiles="3", s_per_step_median="0.20",
+             s_per_step_mean="0.20", n_steps_measured=str(ex.SCREEN_STEPS),
+             notes="config=C21 rc=0"),
+    ]
+    _write_csv(screen_ledger_dir / "ledger_karina_9201.csv", screen_rows)
+
+    plan = ex.screen(str(plan_dir), ledger_dir=str(screen_ledger_dir))
+
+    assert plan["screen"]["kept_recommended_ids"] == ["C21"]
+    assert plan["screen"]["underfilled"] is True
+    final_rec_ids = {c["config_id"] for c in plan["candidates"]
+                     if any(r.startswith("recommended:") for r in c["roles"])}
+    assert final_rec_ids == {"C21"}
+
+
+def test_record_stage_screen_requires_screen_block(tmp_path, monkeypatch):
+    ledger = tmp_path / "ledger.csv"
+    _write_csv(ledger, _karina_rows())
+    _install_fake_recommend(monkeypatch, _SHORTLIST_C06_TOP1)
+    plan_dir = tmp_path / "plan"
+    args = _plan_args(tmp_path, ledger_paths=[str(ledger)], out=plan_dir)   # screen_spares=0
+    ex.cmd_plan(args)
+    with pytest.raises(SystemExit):
+        ex.cmd_record(SimpleNamespace(plan=str(plan_dir), job_id="1", stage="screen"))

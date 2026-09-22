@@ -148,6 +148,17 @@ DEFAULT_LEDGER_DIR = "/home/u5727520/wrf-bench/wscore/campaign"   # strict_campa
                                                                     # --ledger-dir off-cluster
 DEFAULT_RESULTS_DIR = os.path.join(_REPO_ROOT, "results", "derived-data")
 
+# PART C: feasibility screen. A cheap MODE=timing/REPS=1/STEPS=SCREEN_STEPS probe of top_k +
+# --screen-spares candidates, run BEFORE committing to the full REPS/full-steps timing job, so
+# an infeasible candidate (WRF-Fire omp>1 crash, elevconv/bigchill numtiles>=12 timeout -- see
+# PART A/B above) is caught even under --loco, where PART B's same-case history is deliberately
+# blind to the target case. TIMEOUT_S is a PER-RUN watchdog (strict_campaign.sbatch's own
+# `timeout "$TIMEOUT_S" srun ...`, rc=124 on expiry) -- independent of --time (the whole job's
+# Slurm wall-clock, via _cost_estimate/TIME_SAFETY_FACTOR).
+SCREEN_STEPS = 5
+SCREEN_TIMEOUT_MULTIPLIER = 3.0
+SCREEN_TIMEOUT_MIN_S = 120
+
 CRITERION_TEXT = (
     "PASS iff min over recommended configs of measured median s/step <= %.2fx best_known "
     "measured median in the same job; also report speedup of best recommended vs %s."
@@ -325,6 +336,131 @@ def _s_per_step_estimates(full_rows, case, candidate_ids, case_json):
 
 
 # ---------------------------------------------------------------------------
+# PART A: feasibility ledger -- results/derived-data/2026-09-22-atlas-loco-phase1-verdicts.csv:
+# 3 of 10 LOCO cases FAILED-infeasible because the recommender proposed configs that cannot
+# actually run at all (WRF-Fire omp>1 crash rc=137/139; elevconv/bigchill 224x2 numtiles>=12
+# always time out rc=124, 0/19 historically). Root cause: every candidate-building path above
+# (_s_per_step_estimates, recommend.recommend(), decomp_search.propose_core) trains/ranks only on
+# rows with a NUMERIC s_per_step_median -- a FAILED row (empty median, non-zero rc in notes) is
+# silently dropped, so nothing ever learns a decomposition is unrunnable. This index reads that
+# dropped half of the ledger directly.
+# ---------------------------------------------------------------------------
+def _is_physics_row(row):
+    return dsum._notes_fields(row.get("notes")).get("mode") == "physics"
+
+
+def row_is_decomposition_observation(row):
+    """True if `row` should count toward _failure_index's per-(case,nodes,identity) ok/fail
+    tally: STRICT compliance, and either not a MODE=physics row at all (an ordinary STRICT
+    decomposition-only run), or a physics row whose OWN template is P00 (the physics reference --
+    same decomposition as whatever DECOMP_ID was selected, no physics edit applied, notes'
+    edits= empty -- campaign/strict_campaign.sbatch:621) -- ANY OTHER Pxx template's failure is a
+    physics-EDIT failure (a namelist knob crashed WRF, not the decomposition), and must not
+    pollute a feasibility index that answers "can this decomposition run at all"."""
+    if row.get("compliance_class") != "STRICT":
+        return False
+    if not _is_physics_row(row):
+        return True
+    notes = dsum._notes_fields(row.get("notes"))
+    return notes.get("template") == "P00" and not notes.get("edits")
+
+
+def _row_rc(row):
+    """int(notes' rc=<int> token), or None if absent/unparseable. strict_campaign.sbatch only
+    ever writes rc= when the run's own exit code was non-zero (lines 628/906: `[ "$RC" != "0" ]
+    && NOTES="$NOTES rc=$RC"`) -- a successful row (rc=0) never carries the token at all."""
+    rc = dsum._notes_fields(row.get("notes")).get("rc")
+    if rc is None:
+        return None
+    try:
+        return int(rc)
+    except ValueError:
+        return None
+
+
+def _failure_index(rows):
+    """{(case_base, n_nodes, decomposition_identity): {'fail': n, 'ok': n, 'rcs': [...],
+    'kinds': {'timeout'|'crash'}}} -- `decomposition_identity` is
+    campaign/decomp_summary.row_identity(row) (ranks/omp/nx/ny/numtiles/dist/blocktime/tile
+    geometry), the SAME physical-run grouping key decomp_summary.summarize() uses for
+    best_known, so a candidate can be looked up here with the identical key
+    _identity_from_cfg() builds from its own resolved cfg fields.
+
+    Only rows passing row_is_decomposition_observation() are counted. 'ok' = a numeric
+    s_per_step_median (the run measured normally). 'fail' = an empty median whose notes carry a
+    non-zero rc= token (seen so far: 124 timeout, 137/139/1/38/174 crash -- see cases.json's
+    c34/marshall/elevconv/bigchill notes); rc=124 is `timeout(1)`'s own SIGTERM exit code
+    (strict_campaign.sbatch's `timeout "$TIMEOUT_S" srun ...`), every other non-zero rc is
+    bucketed 'crash'. A row with neither a numeric median nor an rc= token (e.g. still running,
+    or a row shape this index does not recognise) is silently skipped -- absence of evidence, not
+    evidence of failure."""
+    index = {}
+    for r in rows:
+        if not row_is_decomposition_observation(r):
+            continue
+        n_nodes = _float_or_none(r.get("n_nodes"))
+        if n_nodes is None:
+            continue
+        key = (r.get("case_base"), int(n_nodes), dsum.row_identity(r))
+        entry = index.setdefault(key, dict(fail=0, ok=0, rcs=[], kinds=set()))
+        median = _float_or_none(r.get("s_per_step_median"))
+        if median is not None:
+            entry["ok"] += 1
+            continue
+        rc = _row_rc(r)
+        if not rc:            # None or 0 -- no failure evidence either way
+            continue
+        entry["fail"] += 1
+        entry["rcs"].append(rc)
+        entry["kinds"].add("timeout" if rc == 124 else "crash")
+    return index
+
+
+def _identity_from_cfg(cfg):
+    """decomp_summary.row_identity()-shaped 12-tuple built from a CANDIDATE's own resolved cfg
+    dict (ranks/omp/nx/ny/numtiles/dist/blocktime[/numtiles_x/numtiles_y/tile_sz_x/tile_sz_y/
+    tile_strategy]) instead of a measured ledger row, so an unmeasured candidate can be looked up
+    in _failure_index's ledger-derived keys. blocktime is normalised via _blocktime_str first: a
+    candidate's blocktime is an int/None (recommend.py shortlist entries) or a string
+    (campaign_configs templates / decomp_search chosen dicts) depending on source, while
+    row_identity's own bucket is always exactly '0' or 'default'."""
+    blocktime = "0" if _blocktime_str(cfg.get("blocktime")) == "0" else "default"
+    return (int(cfg["ranks"]), int(cfg["omp"]), int(cfg["nx"]), int(cfg["ny"]),
+            int(cfg.get("numtiles") or 1), cfg.get("dist") or "", blocktime,
+            int(cfg.get("numtiles_x") or 0), int(cfg.get("numtiles_y") or 0),
+            int(cfg.get("tile_sz_x") or 0), int(cfg.get("tile_sz_y") or 0),
+            int(cfg.get("tile_strategy") or 0))
+
+
+def _exclude_known_infeasible(entries, get_cfg, get_label, case, nodes, failure_index):
+    """PART B: split `entries` (recommend()'s shortlist dicts, or decomp_search's chosen dicts --
+    NOT baseline/best_known, which are added separately by the caller after this filter runs)
+    into (kept, excluded) against `failure_index` (see _failure_index above) on (case, nodes,
+    identity): fail>=1 and ok==0 -> excluded, reason 'known_infeasible_on_case', with the rcs and
+    kinds observed. fail>=1 and ok>=1 -> KEPT (mixed evidence -- flaky, not reliably infeasible)
+    but tagged entry['flaky']=True in place, same convention _filter_max_omp's `excluded` dicts
+    use for its own reason string.
+
+    `failure_index` must be built from the SAME rows the caller's own --loco filtering already
+    produced (train_rows, not full_rows) -- under --loco this makes the exclusion rule blind to
+    the target case's own history too (no leakage), exactly like the recommender's training rows
+    themselves; under a normal (non-LOCO) plan train_rows IS full_rows, so nothing changes there.
+    """
+    kept, excluded = [], []
+    for e in entries:
+        ident = _identity_from_cfg(get_cfg(e))
+        info = failure_index.get((case, nodes, ident))
+        if info and info["fail"] >= 1 and info["ok"] == 0:
+            excluded.append(dict(label=get_label(e), reason="known_infeasible_on_case",
+                                  rcs=list(info["rcs"]), kinds=sorted(info["kinds"])))
+            continue
+        if info and info["fail"] >= 1 and info["ok"] >= 1:
+            e["flaky"] = True
+        kept.append(e)
+    return kept, excluded
+
+
+# ---------------------------------------------------------------------------
 # candidate assembly
 # ---------------------------------------------------------------------------
 def _load_explicit_ids(path):
@@ -393,6 +529,9 @@ class _Candidates(object):
                 patch_x=cfg.get("patch_x"), patch_y=cfg.get("patch_y"),
                 predicted_gain=None, gain_lower_95=None, label=None,
                 best_known_measured_median=None, best_known_measured_n=None,
+                flaky=False,   # PART B: mixed ok/fail evidence on (case, nodes, identity) --
+                                # see _exclude_known_infeasible; stays False for every entry
+                                # whose add() call never passes flaky=True explicitly.
             )
             self._by_id[config_id] = entry
         if role not in entry["roles"]:
@@ -463,10 +602,21 @@ def _build_candidates(args, case_json, id_to_cfg, full_rows):
             n_ledger_rows_total=len(full_rows), n_ledger_rows_used=len(train_rows),
             merged_ledger=merged_path,
         )
-        shortlist, excluded = _filter_max_omp(
+        shortlist, excluded_omp = _filter_max_omp(
             result.get("shortlist", []), case_json.get("max_omp"),
             lambda e: e["omp_threads"], lambda e: e["config_id"])
-        recommend_info["excluded"] = excluded
+        # PART B: same-case exclusion -- built from train_rows (LOCO-filtered above), never
+        # full_rows, so under --loco this rule is exactly as blind to the target case's own
+        # history as the recommender itself (no leakage); under a normal plan train_rows ==
+        # full_rows, so nothing changes there. See _exclude_known_infeasible's docstring.
+        shortlist, excluded_infeasible = _exclude_known_infeasible(
+            shortlist,
+            lambda e: dict(ranks=e["n_ranks"], omp=e["omp_threads"], nx=e["nproc_x"],
+                            ny=e["nproc_y"], numtiles=e["numtiles"], dist=e["distribution"],
+                            blocktime=e.get("kmp_blocktime")),
+            lambda e: e["config_id"], args.case, args.nodes or DEFAULT_NODES,
+            _failure_index(train_rows))
+        recommend_info["excluded"] = excluded_omp + excluded_infeasible
         for entry in shortlist:
             cid = entry["config_id"]
             cfg = dict(ranks=entry["n_ranks"], omp=entry["omp_threads"], nx=entry["nproc_x"],
@@ -475,7 +625,7 @@ def _build_candidates(args, case_json, id_to_cfg, full_rows):
             cands.add(cid, cfg, "recommended:%d" % entry["rank"],
                       predicted_gain=entry.get("predicted_gain"),
                       gain_lower_95=entry.get("gain_lower_95"),
-                      label=entry.get("label"))
+                      label=entry.get("label"), flaky=bool(entry.get("flaky")))
 
     if BASELINE_ID not in id_to_cfg:
         raise SystemExit(
@@ -497,6 +647,35 @@ def _build_candidates(args, case_json, id_to_cfg, full_rows):
 # generated-space candidate assembly (predictor/decomp_space.py -- a case that resolves no C01
 # STRICT template, see the module docstring's "Generated space" paragraph)
 # ---------------------------------------------------------------------------
+def _import_decomp_space():
+    try:
+        import decomp_space
+    except ImportError as e:
+        raise SystemExit(
+            "predictor/decomp_space.py could not be imported (%s: %s) -- it should need only "
+            "the stdlib plus campaign/configs.py and predictor/features.py; check those modules "
+            "if this is unexpected" % (type(e).__name__, e))
+    return decomp_space
+
+
+def _max_legal_ranks(case_json, max_ranks):
+    """Largest ranks in 1..max_ranks with >=1 legal WRF shape for `case_json`'s active domains
+    (predictor/decomp_space.legal_shapes_exact -- the exact floor-based share/module_check_a_
+    mundo.F gate), scanning downward from max_ranks: (ranks, shapes), or (None, []) if no rank
+    count in that range has any legal shape at all. This is GENERATED_BASELINE_RULE's own
+    downward scan (_generated_baseline below), factored out so PART D's
+    _call_decomp_search_propose fix (a case whose max_omp caps every candidate to a SINGLE omp
+    value whose exact-fit ranks=total_cores//omp has no legal shape -- see that function's
+    docstring) can reuse the identical rule instead of a second implementation."""
+    decomp_space = _import_decomp_space()
+    we_list, sn_list = campaign_configs._active_domain_extents(case_json)
+    for ranks in range(max_ranks, 0, -1):
+        shapes = decomp_space.legal_shapes_exact(we_list, sn_list, ranks)
+        if shapes:
+            return ranks, shapes
+    return None, []
+
+
 def _generated_baseline(case_json, total_cores, nodes, hardware_id):
     """The generated-space C01 analogue -- see GENERATED_BASELINE_RULE. Always resolvable from
     predictor/decomp_space.enumerate_space's exact legal-shape gate: scoped to
@@ -505,22 +684,10 @@ def _generated_baseline(case_json, total_cores, nodes, hardware_id):
     nodes*112, omp_options=[1]) would enumerate ZERO omp=1 candidates whenever ranks=total_cores
     itself has no legal (nx,ny) split (e.g. matthew 91x100 at total_cores=112: legal_shapes_exact
     is empty there; the true max legal rank count is 90, shape 9x10)."""
-    try:
-        import decomp_space
-    except ImportError as e:
-        raise SystemExit(
-            "predictor/decomp_space.py could not be imported (%s: %s) -- it should need only "
-            "the stdlib plus campaign/configs.py and predictor/features.py; check those modules "
-            "if this is unexpected" % (type(e).__name__, e))
-
+    decomp_space = _import_decomp_space()
     we_list, sn_list = campaign_configs._active_domain_extents(case_json)
-    shapes = []
-    ranks = total_cores
-    for ranks in range(total_cores, 0, -1):
-        shapes = decomp_space.legal_shapes_exact(we_list, sn_list, ranks)
-        if shapes:
-            break
-    if not shapes:
+    ranks, shapes = _max_legal_ranks(case_json, total_cores)
+    if ranks is None:
         raise SystemExit(
             "no legal MPI decomposition exists at omp=1 for any rank count 1..%d -- cannot "
             "build a generated-space baseline" % total_cores)
@@ -591,10 +758,37 @@ def _call_decomp_search_propose(ledger_paths, case, case_json, hardware_id, node
     # campaign/cases.json): propose_for_case already implements this cap (decomp_search.py:521-524,
     # "failed runs are never ingested, so D3 cannot learn that a thread count crashes") -- it is
     # only ever exercised when a caller actually passes it, which experiment.py did not do before.
+    max_omp = case_json.get("max_omp")
+    # PART D fix (diagnosed against c34, campaign/cases.json e_we=e_sn=118, max_omp=1):
+    # decomp_search.propose_for_case (decomp_search.py:520) calls decomp_space.enumerate_space
+    # at the EXACT ranks=total_cores//omp for every omp in default_omp_options, then filters
+    # omp<=max_omp AFTER the fact (decomp_search.py:521-524) -- it never scans downward the way
+    # _generated_baseline does. When max_omp caps the survivors to ONE omp value whose own
+    # exact-fit ranks has NO legal shape at all (c34 at omp=1, total_cores=112: every factor pair
+    # of 112 needs one side >11, but floor(118/x)>=10 requires x<=11 -- confirmed empty via
+    # decomp_space.legal_shapes_exact([118,118],[118,118],112) == []), every candidate at that
+    # omp is filtered out and NOTHING survives -- job 1090690's "after fix propose returns 0
+    # recs". decomp_search.py is NOT owned by this change (see PART D's file-ownership note), so
+    # the fix cannot live in propose_for_case's own filtering order; instead, shrink the
+    # total_cores THIS FUNCTION passes down to the largest under-subscribed rank count that IS
+    # legal at max_omp -- the SAME downward-scan rule _generated_baseline uses for GBASE
+    # (_max_legal_ranks above) -- so propose_for_case's own unmodified exact-fit division
+    # (ranks = effective_total_cores // max_omp) lands on a legal shape instead. c34: ranks=110
+    # (10x11), matching cases.json's own "largest legal pure-MPI counts are 110 (10x11)" note.
+    # Deliberately scoped to `max_omp is not None`: a case with no max_omp (e.g. matthew) is
+    # completely unaffected -- enumerate_space keeps enumerating ZERO omp=1 shapes for it exactly
+    # as before (predictor/tests/test_decomp_space.py's own shapes_count[1]==0 assertion for a
+    # tiny case is untouched), because matthew still has OTHER legal omp values (2, 7, 14) to
+    # supply real recommended candidates from, so no downscale is needed or applied there.
+    effective_total_cores = total_cores
+    if max_omp is not None:
+        ranks, _shapes = _max_legal_ranks(case_json, total_cores // max_omp)
+        if ranks is not None:
+            effective_total_cores = ranks * max_omp
     result, _configs_out = decomp_search.propose_for_case(
         case, case_json, case_fields, prior_rows, state, top_k,
-        total_cores=total_cores, nodes=nodes, hardware_id=hardware_id, kappa=0.0,
-        max_omp=case_json.get("max_omp"))
+        total_cores=effective_total_cores, nodes=nodes, hardware_id=hardware_id, kappa=0.0,
+        max_omp=max_omp)
     result = dict(result)
     result["n_ledger_rows_total"] = n_total
     result["n_ledger_rows_used"] = n_used
@@ -619,10 +813,22 @@ def _build_generated_candidates(args, case_json, full_rows, nodes, total_cores):
         stopped=result.get("stopped"), reason=result.get("reason"), round=result.get("round"),
         n_training_rows=result.get("n_training_rows"), ensemble_size=result.get("ensemble_size"),
     )
-    chosen, excluded = _filter_max_omp(
+    chosen, excluded_omp = _filter_max_omp(
         result.get("chosen") or [], case_json.get("max_omp"),
         lambda c: c["omp"], lambda c: "%dx%d(omp%d)" % (c["nx"], c["ny"], c["omp"]))
-    recommend_info["excluded"] = excluded
+    # PART B (generated-space equivalent of _build_candidates' own exclusion above): train_rows
+    # is `full_rows` (this function's own parameter, loaded once by cmd_plan) LOCO-filtered the
+    # same way -- deliberately a SEPARATE read from _call_decomp_search_propose's own internal
+    # benchmark_mod.load_ledger(args.ledger) + RESEARCH-row-drop + loco-filter (that one feeds
+    # decomp_search's trained surrogate; this one only ever counts ok/fail rc= evidence, and
+    # reusing the already-loaded full_rows avoids a second ledger read).
+    train_rows = full_rows
+    if args.loco:
+        train_rows = [r for r in full_rows if r.get("case_base") != args.case]
+    chosen, excluded_infeasible = _exclude_known_infeasible(
+        chosen, lambda c: c, lambda c: "%dx%d(omp%d)" % (c["nx"], c["ny"], c["omp"]),
+        args.case, nodes, _failure_index(train_rows))
+    recommend_info["excluded"] = excluded_omp + excluded_infeasible
     for i, c in enumerate(chosen, start=1):
         cfg = dict(ranks=c["ranks"], omp=c["omp"], nx=c["nx"], ny=c["ny"], numtiles=c["numtiles"],
                    dist=c["dist"], blocktime=c["blocktime"],
@@ -630,7 +836,8 @@ def _build_generated_candidates(args, case_json, full_rows, nodes, total_cores):
                    tile_sz_x=c.get("tile_sz_x", 0), tile_sz_y=c.get("tile_sz_y", 0),
                    tile_strategy=c.get("tile_strategy", 0),
                    patch_x=c.get("patch_x"), patch_y=c.get("patch_y"))
-        cands.add("%s%d" % (GENERATED_REC_PREFIX, i), cfg, "recommended:%d" % i)
+        cands.add("%s%d" % (GENERATED_REC_PREFIX, i), cfg, "recommended:%d" % i,
+                  flaky=bool(c.get("flaky")))
 
     bk = _best_known(_rows_on_nodes(full_rows, nodes), args.case)
     if bk is not None:
@@ -687,6 +894,51 @@ def _cost_estimate(case_json, candidate_ids, s_est, startup_s, reps, nodes):
 
 
 # ---------------------------------------------------------------------------
+# PART C helpers: configs.json + cost estimate + sbatch command for ONE job. cmd_plan's own
+# non-screen (--screen-spares 0, the default/old-behaviour) path is left untouched below, byte-
+# for-byte, to keep zero regression risk on its many existing tests; these two helpers are used
+# only by the NEW screen-job path (cmd_plan when --screen-spares>0) and by cmd_screen's
+# screen->timing rewrite, which both need the identical configs.json/cost/sbatch construction
+# with different (reps, steps, extra --export=) parameters.
+# ---------------------------------------------------------------------------
+def _job_configs_and_cost(filename, out_dir, case, case_json, id_to_cfg, candidates,
+                           candidate_ids, full_rows, nodes, reps, steps=None):
+    s_est, s_source = _s_per_step_estimates(_rows_on_nodes(full_rows, nodes), case,
+                                             candidate_ids, case_json)
+    startup_s, startup_assumed = _startup_s(full_rows)
+    job_case_json = case_json if steps is None else dict(case_json, steps=steps)
+    cost = _cost_estimate(job_case_json, candidate_ids, s_est, startup_s, reps, nodes)
+    cost["s_per_step_source"] = s_source
+    cost["startup_assumed"] = startup_assumed
+
+    configs_json_path = os.path.join(out_dir, filename)
+    _write_configs_json(configs_json_path, candidate_ids, candidates, case_json)
+
+    template_ids = [c for c in candidate_ids if c in id_to_cfg]
+    nontemplate_ids = [c for c in candidate_ids if c not in id_to_cfg]
+    return cost, os.path.abspath(configs_json_path), template_ids, nontemplate_ids
+
+
+def _sbatch_command(case, mode, reps, nodes, partition, time_limit, nontemplate_ids,
+                     candidate_ids, configs_json_path, extra_export=()):
+    export_parts = ["ALL", "CASE=%s" % case, "MODE=%s" % mode, "REPS=%d" % reps]
+    for k, v in extra_export:
+        export_parts.append("%s=%s" % (k, v))
+    if nontemplate_ids:
+        export_parts.append("CONFIG_FILE=%s" % configs_json_path)
+    else:
+        export_parts.append("CONFIGS=%s" % "+".join(candidate_ids))
+    return ("sbatch -p %s -N %d --time %s --export=%s %s"
+            % (partition, nodes, time_limit, ",".join(export_parts), SBATCH_SCRIPT_REL))
+
+
+def _screen_timeout_s(startup_s, s_est):
+    s_est_max = max(s_est.values()) if s_est else 0.0
+    return max(SCREEN_TIMEOUT_MIN_S,
+               int(math.ceil(SCREEN_TIMEOUT_MULTIPLIER * (startup_s + SCREEN_STEPS * s_est_max))))
+
+
+# ---------------------------------------------------------------------------
 # plan
 # ---------------------------------------------------------------------------
 def cmd_plan(args):
@@ -697,12 +949,22 @@ def cmd_plan(args):
     nodes = args.nodes or DEFAULT_NODES
     total_cores = nodes * CORES_PER_NODE
 
+    # PART C: --screen-spares S (default 0 -- see cmd_plan's else-branch below, left byte-for-
+    # byte unchanged from before PART C) asks the recommender/proposer for top_k+S candidates
+    # instead of top_k, via a shallow args copy so _build_candidates/_build_generated_candidates
+    # (which both read args.top_k internally) need no change of their own.
+    screen_spares = getattr(args, "screen_spares", 0) or 0
+    build_args = args
+    if screen_spares > 0:
+        build_args = argparse.Namespace(**vars(args))
+        build_args.top_k = args.top_k + screen_spares
+
     space = args.space
     if space == "auto":
         space = "template" if BASELINE_ID in id_to_cfg else "generated"
 
     if space == "template":
-        cands, recommend_info, bk = _build_candidates(args, case_json, id_to_cfg, full_rows)
+        cands, recommend_info, bk = _build_candidates(build_args, case_json, id_to_cfg, full_rows)
         baseline_rule = None
     else:
         if args.configs:
@@ -711,7 +973,7 @@ def cmd_plan(args):
                 "is not supported with --space generated -- the generated space has no fixed "
                 "template-id table to resolve ids against; drop --configs, or use --space "
                 "template/auto with a case that resolves %s" % BASELINE_ID)
-        cands, recommend_info, bk = _build_generated_candidates(args, case_json, full_rows,
+        cands, recommend_info, bk = _build_generated_candidates(build_args, case_json, full_rows,
                                                                   nodes, total_cores)
         baseline_rule = GENERATED_BASELINE_RULE
 
@@ -719,28 +981,59 @@ def cmd_plan(args):
     candidates = cands.as_dict()
 
     partition = PARTITION_SMALL if nodes == 1 else PARTITION_FULL
-    s_est, s_source = _s_per_step_estimates(_rows_on_nodes(full_rows, nodes), args.case,
-                                            candidate_ids, case_json)
-    startup_s, startup_assumed = _startup_s(full_rows)
-    cost = _cost_estimate(case_json, candidate_ids, s_est, startup_s, args.reps, nodes)
-    cost["s_per_step_source"] = s_source
-    cost["startup_assumed"] = startup_assumed
 
-    configs_json_path = os.path.join(args.out, "configs.json")
-    _write_configs_json(configs_json_path, candidate_ids, candidates, case_json)
-
-    template_ids = [c for c in candidate_ids if c in id_to_cfg]
-    nontemplate_ids = [c for c in candidate_ids if c not in id_to_cfg]
-    export_parts = ["ALL", "CASE=%s" % args.case, "MODE=timing", "REPS=%d" % args.reps]
-    if nontemplate_ids:
-        export_parts.append("CONFIG_FILE=%s" % os.path.abspath(configs_json_path))
+    screen_block = None
+    if screen_spares > 0:
+        # SCREEN job: REPS=1/STEPS=SCREEN_STEPS/TIMEOUT_S=<computed>, written to DIR/screen/
+        # configs.json (kept as a permanent record) -- the TOP-LEVEL configs.json/sbatch/cost
+        # below describe THIS job (the only one that can be submitted right now); `screen`
+        # (cmd_screen) later rewrites those same top-level fields for the real timing job once
+        # this job's ledger says which candidates are actually feasible.
+        screen_dir = os.path.join(args.out, "screen")
+        os.makedirs(screen_dir, exist_ok=True)
+        cost, configs_json_path, template_ids, nontemplate_ids = _job_configs_and_cost(
+            "configs.json", screen_dir, args.case, case_json, id_to_cfg, candidates,
+            candidate_ids, full_rows, nodes, reps=1, steps=SCREEN_STEPS)
+        timeout_s = _screen_timeout_s(cost["startup_s"], cost["s_per_step_est"])
+        sbatch_command = _sbatch_command(
+            args.case, "timing", 1, nodes, partition, cost["time_limit"], nontemplate_ids,
+            candidate_ids, configs_json_path,
+            extra_export=[("STEPS", SCREEN_STEPS), ("TIMEOUT_S", timeout_s)])
+        print(cost["cost_line"])
+        print(sbatch_command)
+        screen_block = dict(
+            spares=screen_spares, top_k=args.top_k, steps=SCREEN_STEPS, timeout_s=timeout_s,
+            candidate_ids=candidate_ids, configs_json_path=configs_json_path,
+            cost=cost, sbatch=dict(
+                command=sbatch_command,
+                config_file=(configs_json_path if nontemplate_ids else None),
+                configs_env=("+".join(candidate_ids) if not nontemplate_ids else None)),
+            job_id=None, state="draft",
+        )
     else:
-        export_parts.append("CONFIGS=%s" % "+".join(candidate_ids))
-    sbatch_command = ("sbatch -p %s -N %d --time %s --export=%s %s"
-                       % (partition, nodes, cost["time_limit"], ",".join(export_parts),
-                          SBATCH_SCRIPT_REL))
-    print(cost["cost_line"])
-    print(sbatch_command)
+        s_est, s_source = _s_per_step_estimates(_rows_on_nodes(full_rows, nodes), args.case,
+                                                candidate_ids, case_json)
+        startup_s, startup_assumed = _startup_s(full_rows)
+        cost = _cost_estimate(case_json, candidate_ids, s_est, startup_s, args.reps, nodes)
+        cost["s_per_step_source"] = s_source
+        cost["startup_assumed"] = startup_assumed
+
+        configs_json_path = os.path.join(args.out, "configs.json")
+        _write_configs_json(configs_json_path, candidate_ids, candidates, case_json)
+
+        template_ids = [c for c in candidate_ids if c in id_to_cfg]
+        nontemplate_ids = [c for c in candidate_ids if c not in id_to_cfg]
+        export_parts = ["ALL", "CASE=%s" % args.case, "MODE=timing", "REPS=%d" % args.reps]
+        if nontemplate_ids:
+            export_parts.append("CONFIG_FILE=%s" % os.path.abspath(configs_json_path))
+        else:
+            export_parts.append("CONFIGS=%s" % "+".join(candidate_ids))
+        sbatch_command = ("sbatch -p %s -N %d --time %s --export=%s %s"
+                           % (partition, nodes, cost["time_limit"], ",".join(export_parts),
+                              SBATCH_SCRIPT_REL))
+        print(cost["cost_line"])
+        print(sbatch_command)
+        configs_json_path = os.path.abspath(configs_json_path)
 
     plan = dict(
         case=args.case, hardware_id=args.hardware_id, nodes=nodes, partition=partition,
@@ -756,11 +1049,13 @@ def cmd_plan(args):
                     if bk is not None else None),
         criterion=dict(text=CRITERION_TEXT, threshold_multiplier=PASS_THRESHOLD_MULTIPLIER),
         cost=cost,
-        configs_json_path=os.path.abspath(configs_json_path),
+        configs_json_path=configs_json_path,
         sbatch=dict(command=sbatch_command,
-                    config_file=(os.path.abspath(configs_json_path) if nontemplate_ids else None),
+                    config_file=(configs_json_path if nontemplate_ids else None),
                     configs_env=("+".join(candidate_ids) if not nontemplate_ids else None)),
         recommend=recommend_info,
+        screen_spares=screen_spares,
+        screen=screen_block,
         created=_utcnow_iso(), git_head=_git_head(),
         state="draft",
     )
@@ -774,11 +1069,131 @@ def cmd_plan(args):
 def cmd_record(args):
     plan_path = os.path.join(args.plan, "plan.json")
     plan = _load_json(plan_path)
-    plan["job_id"] = args.job_id
-    plan["submitted_at"] = _utcnow_iso()
-    plan["state"] = "submitted"
+    stage = getattr(args, "stage", None) or "timing"
+    if stage == "screen":
+        if not plan.get("screen"):
+            raise SystemExit(
+                "plan.json has no screen block -- run `plan --screen-spares S` (S>0) first")
+        plan["screen"]["job_id"] = args.job_id
+        plan["screen"]["submitted_at"] = _utcnow_iso()
+        plan["screen"]["state"] = "submitted"
+        plan["state"] = "screen_submitted"
+        _write_json(plan_path, plan)
+        print("recorded screen job_id=%s for plan=%s" % (args.job_id, args.plan))
+    else:
+        plan["job_id"] = args.job_id
+        plan["submitted_at"] = _utcnow_iso()
+        plan["state"] = "submitted"
+        _write_json(plan_path, plan)
+        print("recorded job_id=%s for plan=%s" % (args.job_id, args.plan))
+    return plan
+
+
+# ---------------------------------------------------------------------------
+# PART C: screen -- reads the screen job's own ledger (recorded via `record --stage screen`),
+# marks each screen candidate feasible (a numeric median came back) or infeasible (it did not),
+# keeps the first top_k feasible RECOMMENDED candidates in rank order plus baseline/best_known
+# (always kept regardless of their own screen outcome), and rewrites the plan's TOP-LEVEL
+# configs.json/cost/sbatch for the real timing job -- exactly the shape cmd_plan's own non-screen
+# path already produces, so `record`/`reconcile` need no --stage afterward (backward compatible).
+# ---------------------------------------------------------------------------
+def _recommended_rank(entry):
+    for role in entry.get("roles", ()):
+        if role.startswith("recommended:"):
+            return int(role.split(":", 1)[1])
+    return None
+
+
+def screen(plan_dir, ledger_dir=None):
+    """Core, directly-testable screen logic (the `screen` CLI subcommand is a thin argv wrapper,
+    same convention as reconcile())."""
+    plan_path = os.path.join(plan_dir, "plan.json")
+    plan = _load_json(plan_path)
+    sblock = plan.get("screen")
+    if not sblock:
+        raise SystemExit("plan.json has no screen block -- run `plan --screen-spares S` first")
+    job_id = sblock.get("job_id")
+    if not job_id:
+        raise SystemExit("screen block has no job_id -- run `record --plan %s --job-id N "
+                          "--stage screen` first" % plan_dir)
+
+    case = plan["case"]
+    ledger_dir = ledger_dir or DEFAULT_LEDGER_DIR
+    screen_ledger_path = os.path.join(ledger_dir, "ledger_%s_%s.csv" % (case, job_id))
+    screen_rows = (_read_ledger_csv(screen_ledger_path)
+                   if os.path.exists(screen_ledger_path) else [])
+
+    ranked = dsum.summarize(screen_rows, case)
+    by_config_id_measured = {}
+    for g in ranked:
+        for cid in g["ids"]:
+            by_config_id_measured[cid] = g
+    notes_rows_by_cid = {}
+    for r in screen_rows:
+        cid = dsum.config_id(r)
+        if cid:
+            notes_rows_by_cid.setdefault(cid, []).append(r)
+
+    by_config_id = {c["config_id"]: c for c in plan["candidates"]}
+    results = {}
+    for cid in sblock["candidate_ids"]:
+        g = by_config_id_measured.get(cid)
+        feasible = g is not None
+        rcs = [] if feasible else [rc for rc in (_row_rc(r) for r in notes_rows_by_cid.get(cid, ()))
+                                    if rc]
+        results[cid] = dict(feasible=feasible, s_median=(g["s_median"] if g else None), rcs=rcs)
+
+    recommended_ids = sorted(
+        (cid for cid in sblock["candidate_ids"] if _recommended_rank(by_config_id.get(cid, {})) is not None),
+        key=lambda cid: _recommended_rank(by_config_id[cid]))
+    kept_recommended = [cid for cid in recommended_ids if results[cid]["feasible"]][: sblock["top_k"]]
+    dropped_ids = [cid for cid in recommended_ids if cid not in kept_recommended]
+    underfilled = len(kept_recommended) < sblock["top_k"]
+
+    # "+ baseline + best_known, always" -- keep an id carrying either role even when it is ALSO
+    # a recommended candidate that the feasibility filter above would otherwise have dropped
+    # (test_dedupe_collapses_multiple_roles_onto_one_candidate's same "one id, several roles"
+    # shape, e.g. the historical best_known happening to also be this round's rank-1 pick).
+    always_ids = [cid for cid in sblock["candidate_ids"]
+                  if set(by_config_id.get(cid, {}).get("roles", ())) & {"baseline", "best_known"}]
+    final_ids = sorted(set(always_ids) | set(kept_recommended))
+
+    case_json = _case_json(case)
+    id_to_cfg, _skipped, _aliases = _resolve_case_configs(case)
+    full_rows = _read_ledgers(plan["ledgers"])
+    nodes = plan["nodes"]
+    cost, configs_json_path, template_ids, nontemplate_ids = _job_configs_and_cost(
+        "configs.json", plan_dir, case, case_json, id_to_cfg, by_config_id, final_ids,
+        full_rows, nodes, reps=plan["reps"])
+    sbatch_command = _sbatch_command(case, "timing", plan["reps"], nodes, plan["partition"],
+                                      cost["time_limit"], nontemplate_ids, final_ids,
+                                      configs_json_path)
+
+    plan["cost"] = cost
+    plan["configs_json_path"] = configs_json_path
+    plan["template_ids"] = template_ids
+    plan["nontemplate_ids"] = nontemplate_ids
+    plan["candidates"] = [by_config_id[cid] for cid in final_ids]
+    plan["sbatch"] = dict(command=sbatch_command,
+                           config_file=(configs_json_path if nontemplate_ids else None),
+                           configs_env=("+".join(final_ids) if not nontemplate_ids else None))
+    plan["screen"]["results"] = results
+    plan["screen"]["kept_recommended_ids"] = kept_recommended
+    plan["screen"]["dropped_ids"] = dropped_ids
+    plan["screen"]["underfilled"] = underfilled
+    plan["screen"]["screened_at"] = _utcnow_iso()
+    plan["state"] = "draft"
     _write_json(plan_path, plan)
-    print("recorded job_id=%s for plan=%s" % (args.job_id, args.plan))
+    return plan
+
+
+def cmd_screen(args):
+    plan = screen(args.plan, ledger_dir=args.ledger_dir)
+    print(plan["cost"]["cost_line"])
+    print(plan["sbatch"]["command"])
+    if plan["screen"]["underfilled"]:
+        print("WARNING: only %d/%d recommended candidates were feasible in the screen job"
+              % (len(plan["screen"]["kept_recommended_ids"]), plan["top_k"]))
     return plan
 
 
@@ -1010,13 +1425,31 @@ def _build_arg_parser():
                               "'generated'")
     p_plan.add_argument("--configs", default=None)
     p_plan.add_argument("--reps", type=int, default=DEFAULT_REPS)
+    p_plan.add_argument("--screen-spares", type=int, default=0, dest="screen_spares",
+                         help="PART C: 0 (default) is the old behaviour -- one direct timing "
+                              "plan. >0 asks for top_k+S candidates and writes a cheap REPS=1/"
+                              "STEPS=%d feasibility-screen job (DIR/screen/configs.json) instead; "
+                              "run it, `record --stage screen`, then `screen --plan DIR` to "
+                              "rewrite this plan for the real timing job with only the feasible "
+                              "candidates." % SCREEN_STEPS)
     p_plan.add_argument("--out", required=True)
     p_plan.set_defaults(func=cmd_plan)
 
     p_record = sub.add_parser("record", help="store a submitted job id into plan.json")
     p_record.add_argument("--plan", required=True)
     p_record.add_argument("--job-id", required=True, dest="job_id")
+    p_record.add_argument("--stage", choices=("screen", "timing"), default=None,
+                           help="PART C: 'screen' records the feasibility-screen job's id under "
+                                "plan.json's screen block; omitted (default) or 'timing' records "
+                                "the real timing job's id, exactly as before PART C existed.")
     p_record.set_defaults(func=cmd_record)
+
+    p_screen = sub.add_parser(
+        "screen", help="PART C: reconcile the feasibility-screen job and rewrite the plan for "
+                        "the real timing job")
+    p_screen.add_argument("--plan", required=True)
+    p_screen.add_argument("--ledger-dir", default=None, dest="ledger_dir")
+    p_screen.set_defaults(func=cmd_screen)
 
     p_rec = sub.add_parser("reconcile", help="reconcile sacct + ledger against the plan")
     p_rec.add_argument("--plan", required=True)

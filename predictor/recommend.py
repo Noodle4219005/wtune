@@ -174,12 +174,19 @@ def parse_case_from_namelist(namelist_path):
     e_we_list = _domain_list(nl, "domains", "e_we", max_dom)
     e_sn_list = _domain_list(nl, "domains", "e_sn", max_dom)
     e_vert_list = _domain_list(nl, "domains", "e_vert", max_dom)
+    # WRF-Fire &fire ifire (PART E, per-domain like e_we/e_sn -- c34/marshall's known omp>1
+    # crash is ifire=2 on d02 while d01 stays ifire=0, see campaign/cases.json notes): read
+    # straight off the namelist so the omp=1 cap below (build_candidates) also protects a case
+    # not yet registered in cases.json (or registered without max_omp) -- never guessed/defaulted,
+    # same as every other field here.
+    ifire_list = _domain_list(nl, "fire", "ifire", max_dom)
     return dict(
         max_dom=max_dom,
         e_we=(e_we_list[0] if e_we_list else None),
         e_sn=(e_sn_list[0] if e_sn_list else None),
         e_vert=(e_vert_list[0] if e_vert_list else None),
         e_we_list=e_we_list, e_sn_list=e_sn_list, e_vert_list=e_vert_list,
+        ifire_list=ifire_list,
         dx=_scalar(nl, "domains", "dx"), dy=_scalar(nl, "domains", "dy"),
         time_step=_scalar(nl, "domains", "time_step"),
         mp_physics=_int_scalar(nl, "physics", "mp_physics"),
@@ -244,6 +251,13 @@ def build_candidates(case_fields, nodes, max_dom, case_name=None):
     known_case = campaign_configs.CASES.get(case_name)
     if known_case is not None and known_case.get("max_omp") is not None:
         case_dict["max_omp"] = known_case["max_omp"]
+    # PART E: ifire>0 on ANY active domain (WRF-Fire, c34/marshall's known omp>1 crash -- see
+    # cases.json notes and wtune_compliance.py's per_rank_omp_threads constraint) caps omp=1
+    # regardless of whether case_name is registered in cases.json at all -- min() with whatever
+    # cases.json's own max_omp already set above (never widens an existing, possibly stricter,
+    # cap; case_dict.get("max_omp", 1) treats "no cap yet" as unbounded-but-about-to-become-1).
+    if any(v is not None and v > 0 for v in (case_fields.get("ifire_list") or ())):
+        case_dict["max_omp"] = min(1, case_dict.get("max_omp", 1))
     domain_note = None
     we_list, sn_list = case_fields["e_we_list"], case_fields["e_sn_list"]
     if we_list and sn_list:

@@ -127,7 +127,7 @@ if [ "$TV_MODE" = long ]; then
   # tools/scc_sweep.py's own estimate_time() uses, floored at 30 min.
   TIME_LIMIT_S=${TIME_LIMIT_S:-$(( HOURS * 3600 * 3 > 1800 ? HOURS * 3600 * 3 : 1800 ))}
   T0=$(date +%s.%N)
-  timeout "$TIME_LIMIT_S" "${SITE_LAUNCH_CMD[@]}" > wrf.out 2>&1
+  timeout "$TIME_LIMIT_S" "${SITE_LAUNCH_CMD[@]}" > wrf.out 2>&1 < /dev/null
   RC=$?
   T1=$(date +%s.%N)
   WALL=$(python3 -c "print('%.1f' % ($T1 - $T0))")
@@ -201,7 +201,7 @@ elif [ "$TV_MODE" = samples ]; then
     configure_omp_env "$omp" "$blocktime"
     site_launch "$ranks" "$((ranks / ALLOC_NODES))" "$omp" "$dist"
     T0=$(date +%s.%N)
-    timeout "$TIMEOUT_S" "${SITE_LAUNCH_CMD[@]}" > wrf.out 2>&1
+    timeout "$TIMEOUT_S" "${SITE_LAUNCH_CMD[@]}" > wrf.out 2>&1 < /dev/null
     RC=$?
     T1=$(date +%s.%N)
     WALL=$(python3 -c "print('%.1f' % ($T1 - $T0))")
@@ -273,7 +273,7 @@ elif [ "$TV_MODE" = timeline ]; then
     site_launch "$ranks" "$((ranks / ALLOC_NODES))" "$omp" "$dist"
     TIME_LIMIT_S=${TIME_LIMIT_S:-$(( HOURS * 3600 * 3 > 1800 ? HOURS * 3600 * 3 : 1800 ))}
     T0=$(date +%s.%N)
-    timeout "$TIME_LIMIT_S" "${SITE_LAUNCH_CMD[@]}" > wrf.out 2>&1
+    timeout "$TIME_LIMIT_S" "${SITE_LAUNCH_CMD[@]}" > wrf.out 2>&1 < /dev/null
     RC=$?
     T1=$(date +%s.%N)
     WALL=$(python3 -c "print('%.1f' % ($T1 - $T0))")

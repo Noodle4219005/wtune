@@ -1737,7 +1737,13 @@ def main():
     import wtune_predict
     wtune_predict.add_subparser(sub)
 
+    p_tune = sub.add_parser('tune', help='budgeted on-cluster tuner (scc): probe, screen, confirm, report')
+    p_tune.add_argument('tune_args', nargs=argparse.REMAINDER, help='forwarded to wtune_tune.py')
+
     args = parser.parse_args()
+    if args.command == 'tune':
+        import wtune_tune
+        sys.exit(wtune_tune.main(args.tune_args))
 
     if args.command == 'plan':
         plan(args)

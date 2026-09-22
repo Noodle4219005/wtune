@@ -1,5 +1,5 @@
 {
-  "_comment": "scc site overlay (decision 0050 step 8): path overrides merged over cases.json per case when SITE=scc. Geometry is identical to cases.json and not repeated. bp_dir is empty on purpose: scc has only the official netCDF wrfinput/wrfbdy, so strict_campaign.sbatch links those from prep_dir and exports WTUNE_INPUT_FORMAT=netcdf (configs.py then writes io_form_input/boundary=2; history/restart stay ADIOS2). Thompson/aux input_files at the maria1km/isc21 paths are not yet verified on scc.",
+  "_comment": "scc site overlay (decision 0050 step 8): path overrides merged over cases.json per case when SITE=scc. Geometry is identical to cases.json and not repeated. bp_dir is empty on purpose: scc has only the official netCDF wrfinput/wrfbdy, so strict_campaign.sbatch links those from prep_dir and exports WTUNE_INPUT_FORMAT=netcdf (configs.py then writes io_form_input/boundary=2; history/restart stay ADIOS2). Thompson/aux input_files at the maria1km/isc21 paths are not yet verified on scc. Cases other than conus25/maria1km/isc21/lafe were relayed from f1 (2026-09-22, ssh tar stream: wrfinput_d0N, wrfbdy_d01, namelist, *.txt/*.dat/*.TBL) into $HOME/wrf-cases/<case>/ with flat file names.",
   "cases": {
     "conus25": {
       "prep_dir": "/nfs/data/wrf/v4.4_bench_conus2.5km",
@@ -17,6 +17,55 @@
       "prep_dir": "/nfs/data/wrf/doi4-lafe2017",
       "bp_dir": "",
       "namelist_template": "/nfs/data/wrf/doi4-lafe2017/namelist.input.d01only"
+    },
+    "karina": {
+      "prep_dir": "$HOME/wrf-cases/karina",
+      "bp_dir": ""
+    },
+    "conus12": {
+      "prep_dir": "$HOME/wrf-cases/conus12",
+      "bp_dir": ""
+    },
+    "severe2023": {
+      "prep_dir": "$HOME/wrf-cases/severe2023",
+      "bp_dir": ""
+    },
+    "matthew": {
+      "prep_dir": "$HOME/wrf-cases/matthew",
+      "bp_dir": "",
+      "namelist_template": "$HOME/wrf-cases/matthew/namelist.input.atlas-io14"
+    },
+    "c34": {
+      "prep_dir": "$HOME/wrf-cases/c34",
+      "bp_dir": ""
+    },
+    "zhengzhou": {
+      "prep_dir": "$HOME/wrf-cases/zhengzhou",
+      "bp_dir": ""
+    },
+    "elevconv": {
+      "prep_dir": "$HOME/wrf-cases/elevconv",
+      "bp_dir": ""
+    },
+    "marshall": {
+      "prep_dir": "$HOME/wrf-cases/marshall",
+      "bp_dir": ""
+    },
+    "bigchill": {
+      "prep_dir": "$HOME/wrf-cases/bigchill",
+      "bp_dir": ""
+    },
+    "sc26p1": {
+      "prep_dir": "$HOME/wrf-cases/sc26p1",
+      "bp_dir": ""
+    },
+    "sc26p2": {
+      "prep_dir": "$HOME/wrf-cases/sc26p2",
+      "bp_dir": ""
+    },
+    "sc26p2narr": {
+      "prep_dir": "$HOME/wrf-cases/sc26p2narr",
+      "bp_dir": ""
     }
   }
 }

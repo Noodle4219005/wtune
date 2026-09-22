@@ -1734,6 +1734,9 @@ def main():
     p_compliance.add_argument('compliance_args', nargs=argparse.REMAINDER,
                               help='forwarded to wtune_compliance.py (validate | list [--compliance LEVEL] [--json] | classify NAME...)')
 
+    import wtune_predict
+    wtune_predict.add_subparser(sub)
+
     args = parser.parse_args()
 
     if args.command == 'plan':
@@ -1772,6 +1775,8 @@ def main():
         sys.exit(selftest())
     elif args.command == 'compliance':
         sys.exit(wc._main(args.compliance_args))
+    elif args.command == 'predict':
+        sys.exit(wtune_predict.predict_cmd(args))
     else:
         parser.print_help()
         sys.exit(1)

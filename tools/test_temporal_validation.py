@@ -529,6 +529,99 @@ def test_cmd_submit_samples_submits_one_job_per_restart_time(monkeypatch, tmp_pa
 
 
 # ---------------------------------------------------------------------------
+# submit-timeline (TIMELINE mode, decision 0053 step 2's training-data extension)
+# ---------------------------------------------------------------------------
+def test_ensure_timeline_configs_caps_at_default_timeline_k(tmp_path, monkeypatch):
+    monkeypatch.setattr(tv.campaign_configs, "CASES", {"synth": dict(MATTHEW_LIKE)})
+    configs_list, path = tv.ensure_timeline_configs(
+        str(tmp_path), "synth", nodes=1, cores_per_node=72, hardware_id="scc-gh200",
+        k=7, seed=1)
+    # anchor + up to DEFAULT_TIMELINE_K(2) alternatives = at most 3, never scc_sweep's own k=7
+    assert len(configs_list) <= 1 + tv.DEFAULT_TIMELINE_K
+    assert os.path.basename(path) == "timeline_configs.json"
+
+
+def test_ensure_timeline_configs_reuses_existing_file(tmp_path, monkeypatch):
+    monkeypatch.setattr(tv.campaign_configs, "CASES", {"synth": dict(MATTHEW_LIKE)})
+    first, path = tv.ensure_timeline_configs(str(tmp_path), "synth", 1, 72, "scc-gh200", 2, 1)
+    # Corrupt CASES so a second call would raise if it tried to regenerate instead of reusing.
+    monkeypatch.setattr(tv.campaign_configs, "CASES", {})
+    second, path2 = tv.ensure_timeline_configs(str(tmp_path), "synth", 1, 72, "scc-gh200", 2, 1)
+    assert path == path2
+    assert first == second
+
+
+def test_ensure_timeline_configs_path_distinct_from_samples_configs(tmp_path, monkeypatch):
+    monkeypatch.setattr(tv.campaign_configs, "CASES", {"synth": dict(MATTHEW_LIKE)})
+    tv.ensure_timeline_configs(str(tmp_path), "synth", 1, 72, "scc-gh200", 2, 1)
+    assert tv.sample_configs_path(str(tmp_path), "synth") != tv.timeline_configs_path(str(tmp_path), "synth")
+
+
+def test_build_timeline_sbatch_command_shape():
+    cmd = tv.build_timeline_sbatch_command(
+        "synth", nodes=2, cores_per_node=72, hours=12, every=3, configs_path="/tmp/tl.json",
+        time_limit="01:00:00", out_dir="/tmp/out", aux_interval_minutes=30, aux_stream=23,
+        frames_per_auxhist=500, fields=["RAINNC", "SWDOWN"])
+    assert "TV_MODE=timeline" in cmd
+    assert "HOURS=12" in cmd
+    assert "EVERY=3" in cmd
+    assert "CONFIG_FILE=/tmp/tl.json" in cmd
+    assert "AUX_INTERVAL_MIN=30" in cmd
+    assert "AUX_STREAM=23" in cmd
+    assert "FRAMES_PER_AUXHIST=500" in cmd
+    assert "AUX_FIELDS=RAINNC,SWDOWN" in cmd
+    assert "-N 2" in cmd
+
+
+def test_build_timeline_sbatch_command_omits_aux_stream_when_none():
+    cmd = tv.build_timeline_sbatch_command(
+        "synth", nodes=1, cores_per_node=72, hours=6, every=3, configs_path="/tmp/tl.json",
+        time_limit="00:30:00", out_dir="/tmp/out", aux_interval_minutes=30)
+    assert "AUX_STREAM=" not in cmd
+    assert "AUX_FIELDS=" not in cmd
+
+
+def test_cmd_submit_timeline_dry_run_builds_command_without_submitting(monkeypatch, tmp_path, capsys):
+    monkeypatch.setattr(tv.campaign_configs, "CASES", {"synth": dict(MATTHEW_LIKE)})
+    runner, calls = _fake_sbatch_runner()
+    args = argparse.Namespace(
+        case="synth", hours=12, every=3, aux_interval_minutes=30, aux_stream=None,
+        frames_per_auxhist=2000, fields=None, nodes=1, cores_per_node=72,
+        hardware_id="scc-gh200", k=7, seed=1, root=str(tmp_path), out_dir="/tmp/out",
+        env_source="$HOME/env.sh", sbatch_script="/tmp/temporal_run.sbatch", site="scc",
+        ledger_dir="/tmp/ledger", dry_run=True, sbatch_runner=runner)
+    rc = tv.cmd_submit_timeline(args)
+    assert rc == 0
+    assert calls == []
+    out = capsys.readouterr().out
+    assert "DRY-RUN" in out
+    assert "TV_MODE=timeline" in out
+    assert "configs=" in out
+
+
+def test_cmd_submit_timeline_submits_one_job_for_all_configs(monkeypatch, tmp_path):
+    monkeypatch.setattr(tv.campaign_configs, "CASES", {"synth": dict(MATTHEW_LIKE)})
+    runner, calls = _fake_sbatch_runner()
+    args = argparse.Namespace(
+        case="synth", hours=6, every=3, aux_interval_minutes=30, aux_stream=None,
+        frames_per_auxhist=2000, fields=None, nodes=1, cores_per_node=72,
+        hardware_id="scc-gh200", k=2, seed=1, root=str(tmp_path), out_dir="/tmp/out",
+        env_source="$HOME/env.sh", sbatch_script="/tmp/temporal_run.sbatch", site="scc",
+        ledger_dir="/tmp/ledger", dry_run=False, sbatch_runner=runner)
+    rc = tv.cmd_submit_timeline(args)
+    assert rc == 0
+    assert len(calls) == 1   # ALL configs run sequentially inside ONE sbatch job, unlike SAMPLES
+    assert "TV_MODE=timeline" in calls[0]
+    assert (tmp_path / "synth" / "timeline_configs.json").exists()
+
+
+def test_build_arg_parser_submit_timeline_defaults_k_to_timeline_k():
+    args = tv.build_arg_parser().parse_args(["submit-timeline", "--case", "synth"])
+    assert args.k == tv.DEFAULT_TIMELINE_K
+    assert args.aux_interval_minutes == 30
+
+
+# ---------------------------------------------------------------------------
 # analyze end-to-end
 # ---------------------------------------------------------------------------
 def test_cmd_analyze_end_to_end(tmp_path, capsys):

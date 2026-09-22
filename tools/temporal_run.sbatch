@@ -28,10 +28,19 @@ set -uo pipefail
 # CASE-INPUT SCOPE LIMIT: netCDF wrfinput/wrfbdy only (bp_dir is never consulted) -- matches scc,
 # the only site decision 0053 step 2 targets, where bp_dir is empty for every case already.
 #
-# Env: SITE (default scc), CASE (required), TV_MODE=long|samples (required).
-#   TV_MODE=long:    HOURS, EVERY required.
-#   TV_MODE=samples: LONG_RUN_DIR, RESTART_HOURS, CONFIG_FILE required; STEPS (default 30),
-#                     TIMEOUT_S (default 1200) optional.
+# Env: SITE (default scc), CASE (required), TV_MODE=long|samples|timeline (required).
+#   TV_MODE=long:     HOURS, EVERY required.
+#   TV_MODE=samples:  LONG_RUN_DIR, RESTART_HOURS, CONFIG_FILE required; STEPS (default 30),
+#                      TIMEOUT_S (default 1200) optional.
+#   TV_MODE=timeline: HOURS, EVERY, CONFIG_FILE required (state_timeline.py training-data
+#                      extension, added on top of the LONG-run shape: same cold-start/full-length/
+#                      netCDF-restart run, looped over CONFIG_FILE's up to-3 configs -- SAMPLES'
+#                      own CONFIG_FILE loop convention, not LONG's single-anchor shape -- PLUS an
+#                      auxiliary 2-D state history stream). AUX_INTERVAL_MIN (default 30),
+#                      AUX_STREAM (default: auto-detect a free stream, preferring 23),
+#                      FRAMES_PER_AUXHIST (default 2000), AUX_FIELDS (default:
+#                      `$TS default-fields`) optional. Backward compatible: long/samples callers
+#                      and their env-var contracts are untouched by this addition.
 
 SITE=${SITE:-scc}
 export SITE
@@ -41,6 +50,7 @@ TOOLS=${TOOLS:-$HOME/wtune/tools}
 source "$CAMPAIGN/sites/$SITE.sh"
 PY="pixi run --manifest-path $PIXI_ENV/pixi.toml python"
 TV="$PY $TOOLS/temporal_validation.py"
+TS="$PY $TOOLS/state_timeline.py"   # TV_MODE=timeline plumbing only (aux-stream/iofields/namelist)
 
 : "${CASE:?CASE env var is required}"
 : "${TV_MODE:?TV_MODE env var is required (long|samples)}"
@@ -211,7 +221,77 @@ elif [ "$TV_MODE" = samples ]; then
   echo "SAMPLES_LEDGER=$SAMPLES_LEDGER"
   echo "=== done (TV_MODE=samples) case=$CASE T=+${RESTART_HOURS}h"
 
+elif [ "$TV_MODE" = timeline ]; then
+  : "${HOURS:?HOURS env var is required for TV_MODE=timeline}"
+  : "${EVERY:?EVERY env var is required for TV_MODE=timeline}"
+  : "${CONFIG_FILE:?CONFIG_FILE env var is required for TV_MODE=timeline}"
+  export CONFIG_FILE
+  AUX_INTERVAL_MIN=${AUX_INTERVAL_MIN:-30}
+  FRAMES_PER_AUXHIST=${FRAMES_PER_AUXHIST:-2000}
+  AUX_FIELDS=${AUX_FIELDS:-$($TS default-fields)}
+
+  # Aux-stream pick + Registry field validation are done ONCE per job (same case/build for every
+  # config this job loops over below) against the untouched template -- not per-config.
+  AUX_STREAM=${AUX_STREAM:-$($TS pick-aux-stream "$NAMELIST_TEMPLATE")}
+  VALIDATED_FIELDS=$($TS check-iofields --wrf-tree "$W" --fields "$AUX_FIELDS")
+  if [ -z "$VALIDATED_FIELDS" ]; then
+    echo "ERROR: TV_MODE=timeline: every requested aux field was dropped by check-iofields (wrf-tree=$W, fields=$AUX_FIELDS) -- nothing to write to the aux stream" >&2
+    exit 1
+  fi
+  echo "TIMELINE aux_stream=$AUX_STREAM aux_interval_min=$AUX_INTERVAL_MIN fields=$VALIDATED_FIELDS"
+
+  while IFS=$'\t' read -r cid ranks omp nx ny numtiles dist blocktime patchx patchy \
+                          ntx nty tsx tsy tstrat src; do
+    [ "$cid" = "config_id" ] && continue
+    [ -z "$cid" ] && continue
+
+    RUNDIR="$OUT/temporal_${CASE}_timeline_${cid}_${J}"
+    rm -rf "$RUNDIR"; mkdir -p "$RUNDIR"; cd "$RUNDIR"
+    link_case_input_files
+    link_static_run_files
+    for ((d = 1; d <= MAX_DOM; d++)); do
+      df=$(printf "d%02d" "$d")
+      ln -sf "$PREP_DIR/wrfinput_${df}" "wrfinput_${df}"
+    done
+    ln -sf "$PREP_DIR/wrfbdy_d01" wrfbdy_d01
+
+    $TS write-iofields ./iofields_timeline.txt --stream "$AUX_STREAM" --fields "$VALIDATED_FIELDS"
+
+    cp "$NAMELIST_TEMPLATE" ./namelist.input.orig
+    $TS edit-namelist-timeline ./namelist.input.orig ./namelist.input \
+      --case "$CASE" --hours "$HOURS" --every "$EVERY" \
+      --nproc-x "$nx" --nproc-y "$ny" --numtiles "$numtiles" --ranks "$ranks" --max-dom "$MAX_DOM" \
+      --aux-stream "$AUX_STREAM" --aux-interval "$AUX_INTERVAL_MIN" \
+      --frames-per-auxhist "$FRAMES_PER_AUXHIST" --iofields-filename iofields_timeline.txt
+    rm -f ./namelist.input.orig
+    ln -sf "$W/main/wrf.exe" ./wrf.exe
+
+    configure_omp_env "$omp" "$blocktime"
+    site_launch "$ranks" "$((ranks / ALLOC_NODES))" "$omp" "$dist"
+    TIME_LIMIT_S=${TIME_LIMIT_S:-$(( HOURS * 3600 * 3 > 1800 ? HOURS * 3600 * 3 : 1800 ))}
+    T0=$(date +%s.%N)
+    timeout "$TIME_LIMIT_S" "${SITE_LAUNCH_CMD[@]}" > wrf.out 2>&1
+    RC=$?
+    T1=$(date +%s.%N)
+    WALL=$(python3 -c "print('%.1f' % ($T1 - $T0))")
+
+    OK=0
+    if [ -f rsl.error.0000 ] && grep -qa "SUCCESS COMPLETE WRF" rsl.error.0000; then OK=1; fi
+    echo "RESULT case=$CASE tv_mode=timeline config=$cid hours=$HOURS every=$EVERY rc=$RC ok=$OK wall=$WALL"
+
+    $TV parse-timing rsl.out.0000 > "$OUT/temporal_${CASE}_timeline_${cid}_${J}_timing.csv"
+    N_RST=$(ls -1 wrfrst_d01_* 2>/dev/null | wc -l)
+    N_AUX=$(ls -1 "auxhist${AUX_STREAM}_d01_"* 2>/dev/null | wc -l)
+    echo "TIMELINE_RUN_DIR config=$cid dir=$RUNDIR aux_stream=$AUX_STREAM aux_frames=$N_AUX wrfrst_d01_files=$N_RST"
+
+    find . -maxdepth 1 -name 'rsl.*' ! -name 'rsl.out.0000' ! -name 'rsl.error.0000' -delete
+    [ "$RC" = "0" ] && [ "$OK" = "1" ] && rm -f wrf.out
+    cd "$OUT"
+  done < <($PY "$CAMPAIGN/configs.py" "$CASE" 2>/dev/null)
+
+  echo "=== done (TV_MODE=timeline) case=$CASE hours=$HOURS aux_stream=$AUX_STREAM"
+
 else
-  echo "TV_MODE must be 'long' or 'samples', got '$TV_MODE'" >&2
+  echo "TV_MODE must be 'long', 'samples' or 'timeline', got '$TV_MODE'" >&2
   exit 1
 fi

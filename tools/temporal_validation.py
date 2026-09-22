@@ -79,6 +79,7 @@ DEFAULT_TAU_THRESHOLD = 0.7
 DEFAULT_PCT_THRESHOLD = 0.02
 DEFAULT_ROOT = "$HOME/wtune-runs/temporal"
 DEFAULT_TIMEOUT_S = 1200
+DEFAULT_TIMELINE_K = 2               # anchor + up to 2 alternatives = up to 3 configs (task spec)
 DEFAULT_LONG_S_PER_STEP_FALLBACK = 5.0     # task spec: "steps x s_est ... else 5 s/step"
 DEFAULT_ENV_SOURCE = "$HOME/wtune-scc/env.sh"
 DEFAULT_SBATCH_SCRIPT = os.path.join(_HERE, "temporal_run.sbatch")
@@ -564,6 +565,29 @@ def ensure_samples_configs(root, case, nodes, cores_per_node, hardware_id, k, se
     return built["configs"], path
 
 
+def timeline_configs_path(root, case):
+    return os.path.join(scc_sweep._expand(root), case, "timeline_configs.json")
+
+
+def ensure_timeline_configs(root, case, nodes, cores_per_node, hardware_id, k, seed):
+    """Same load-or-build-once convention as ensure_samples_configs, but capped at
+    DEFAULT_TIMELINE_K alternatives (anchor + up to 2 = up to 3 configs total, this task's own
+    "config x state interaction" spec) and written to its own timeline_configs.json path so a
+    TIMELINE run's config set is never confused with (or overwritten by) a SAMPLES run's
+    samples_configs.json for the same case/root."""
+    k = min(k, DEFAULT_TIMELINE_K)
+    path = timeline_configs_path(root, case)
+    if os.path.exists(path):
+        with open(path) as f:
+            return json.load(f)["configs"], path
+    cj = case_json(case)
+    built = build_sample_configs(case, cj, nodes, cores_per_node, hardware_id, k, seed)
+    if built["skip_reason"]:
+        raise SystemExit("temporal_validation: %s" % built["skip_reason"])
+    scc_sweep.write_configs_json(path, built["configs"])
+    return built["configs"], path
+
+
 # ---------------------------------------------------------------------------
 # sbatch command builders (reusing scc_sweep._expand / default_sbatch_runner / submit_job)
 # ---------------------------------------------------------------------------
@@ -588,6 +612,32 @@ def build_samples_sbatch_command(case, restart_hours, long_run_dir, configs_path
     sbatch = ("sbatch -p compute -N %d --ntasks-per-node=%d --exclusive --exclude=head "
               "--time=%s --job-name=tv-smp-%s-h%d --output=%s/temporal-samples-%%j.out --export=%s %s"
               % (nodes, cores_per_node, time_limit, case, restart_hours, out_dir, export,
+                 scc_sweep._expand(sbatch_script)))
+    return "source %s; %s" % (scc_sweep._expand(env_source), sbatch)
+
+
+def build_timeline_sbatch_command(case, nodes, cores_per_node, hours, every, configs_path,
+                                   time_limit, out_dir, aux_interval_minutes, aux_stream=None,
+                                   frames_per_auxhist=2000, fields=None,
+                                   env_source=DEFAULT_ENV_SOURCE, sbatch_script=DEFAULT_SBATCH_SCRIPT,
+                                   site="scc"):
+    """TV_MODE=timeline: same LONG-run shape (full length or --hours, cold start, netCDF restart
+    every `every` hours) as build_long_sbatch_command, but looped over `configs_path` (anchor +
+    up to DEFAULT_TIMELINE_K alternatives, see ensure_timeline_configs) inside ONE sbatch job --
+    same CONFIG_FILE-driven loop tools/temporal_run.sbatch's own SAMPLES branch already uses (see
+    that file's header). aux_stream=None lets the sbatch script auto-detect a free stream against
+    the case's own namelist template (tools/state_timeline.py pick-aux-stream) rather than fixing
+    one here at plan time, since only the runner has the exact template text at hand."""
+    export = ("ALL,SITE=%s,CASE=%s,TV_MODE=timeline,HOURS=%d,EVERY=%d,CONFIG_FILE=%s,"
+              "AUX_INTERVAL_MIN=%d,FRAMES_PER_AUXHIST=%d"
+              % (site, case, hours, every, configs_path, aux_interval_minutes, frames_per_auxhist))
+    if aux_stream is not None:
+        export += ",AUX_STREAM=%d" % aux_stream
+    if fields:
+        export += ",AUX_FIELDS=%s" % ",".join(fields)
+    sbatch = ("sbatch -p compute -N %d --ntasks-per-node=%d --exclusive --exclude=head "
+              "--time=%s --job-name=tv-tl-%s --output=%s/temporal-timeline-%%j.out --export=%s %s"
+              % (nodes, cores_per_node, time_limit, case, out_dir, export,
                  scc_sweep._expand(sbatch_script)))
     return "source %s; %s" % (scc_sweep._expand(env_source), sbatch)
 
@@ -679,6 +729,46 @@ def cmd_submit_samples(args):
             continue
         job_id = scc_sweep.submit_job(cmd_str, sbatch_runner=args.sbatch_runner)
         print("  submitted job %s" % job_id)
+    return 0
+
+
+def cmd_submit_timeline(args):
+    """TIMELINE mode (decision 0053 step 2's own training-data extension, tools/state_timeline.py):
+    one sbatch job runs the case's full length (or --hours) at anchor + up to
+    DEFAULT_TIMELINE_K alternative decompositions, each writing the auxiliary state stream
+    tools/temporal_run.sbatch's TV_MODE=timeline branch configures. Config set generation and
+    sbatch-command shape otherwise mirror cmd_submit_long/cmd_submit_samples exactly (same
+    hours-resolution, same s/step-ledger time estimate, same --dry-run contract)."""
+    cj = case_json(args.case)
+    text, path = read_case_template(cj)
+    full_hours = read_run_length_hours(text) if text is not None else None
+    hours = min(int(full_hours), args.hours) if full_hours is not None else args.hours
+    configs_list, configs_path = ensure_timeline_configs(
+        args.root, args.case, args.nodes, args.cores_per_node, args.hardware_id, args.k, args.seed)
+    s_est, s_source, _n = scc_sweep.estimate_s_per_step(
+        args.case, args.nodes, args.ledger_dir, args.hardware_id,
+        fallback=DEFAULT_LONG_S_PER_STEP_FALLBACK)
+    steps_est = max(1, int(hours * 3600 / cj["dt"]))
+    # One sbatch job runs every config in configs_list sequentially (temporal_run.sbatch's
+    # CONFIG_FILE loop) -- n_configs multiplies the single-run estimate, same
+    # n_configs*reps*per_run shape scc_sweep.estimate_time already uses for SAMPLES-style loops.
+    time_est = scc_sweep.estimate_time(len(configs_list), 1, steps_est, s_est)
+    out_dir = scc_sweep._expand(args.out_dir)
+    cmd_str = build_timeline_sbatch_command(
+        args.case, args.nodes, args.cores_per_node, hours, args.every,
+        os.path.abspath(configs_path), time_est["time_limit"], out_dir, args.aux_interval_minutes,
+        aux_stream=args.aux_stream, frames_per_auxhist=args.frames_per_auxhist,
+        fields=args.fields, env_source=args.env_source, sbatch_script=args.sbatch_script,
+        site=args.site)
+    print("TIMELINE case=%s hours=%d every=%d configs=%d aux_interval=%dmin "
+          "s_est=%.3fs/step[%s] time=%s" % (
+              args.case, hours, args.every, len(configs_list), args.aux_interval_minutes,
+              s_est, s_source, time_est["time_limit"]))
+    if args.dry_run:
+        print("DRY-RUN: %s" % cmd_str)
+        return 0
+    job_id = scc_sweep.submit_job(cmd_str, sbatch_runner=args.sbatch_runner)
+    print("submitted job %s (output under %s)" % (job_id, out_dir))
     return 0
 
 
@@ -867,6 +957,20 @@ def build_arg_parser():
     _add_generation_args(sp)
     _add_submit_args(sp)
 
+    sp = sub.add_parser("submit-timeline")
+    sp.add_argument("--case", required=True)
+    sp.add_argument("--hours", type=int, default=DEFAULT_HOURS)
+    sp.add_argument("--every", type=int, default=DEFAULT_EVERY)
+    sp.add_argument("--aux-interval-minutes", type=int, default=30, dest="aux_interval_minutes")
+    sp.add_argument("--aux-stream", type=int, default=None, dest="aux_stream",
+                     help="fix the aux stream number instead of auto-detecting on the runner")
+    sp.add_argument("--frames-per-auxhist", type=int, default=2000, dest="frames_per_auxhist")
+    sp.add_argument("--fields", type=lambda s: [x.strip() for x in s.split(",") if x.strip()],
+                     default=None, help="override the default 2-D field list (comma-separated)")
+    _add_generation_args(sp)
+    sp.set_defaults(k=DEFAULT_TIMELINE_K)
+    _add_submit_args(sp)
+
     sp = sub.add_parser("analyze")
     sp.add_argument("--case", required=True)
     sp.add_argument("--root", default=DEFAULT_ROOT)
@@ -926,6 +1030,7 @@ def main(argv=None):
         "plan": cmd_plan,
         "submit-long": cmd_submit_long,
         "submit-samples": cmd_submit_samples,
+        "submit-timeline": cmd_submit_timeline,
         "analyze": cmd_analyze,
         "case-metadata": cmd_case_metadata,
         "anchor-config": cmd_anchor_config,

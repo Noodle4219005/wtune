@@ -34,6 +34,9 @@ site_env () {
   # nvhpc 26.5 + HPC-X 2.50 / Open MPI 5.0.10; sets NETCDF/HDF5/PNETCDF/ADIOS2_DIR/BLOSC2_LIB,
   # WRF_TREE, OMP_STACKSIZE=1G, and PATH/LD_LIBRARY_PATH for all of the above.
   source "$HOME/wtune-scc/env.sh"
+  # The nvhpc build uses -Mstack_arrays: automatic arrays live on the stack, and the 8 MiB default
+  # segfaulted every rank (rc=139, smoke job 439). run-case.sbatch already did this.
+  ulimit -s unlimited
 }
 
 # site_launch <ranks> <tpn> <omp> <dist>: fills the global array SITE_LAUNCH_CMD, same contract

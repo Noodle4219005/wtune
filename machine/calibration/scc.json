@@ -24,8 +24,10 @@
     "s_per_step_mean_note": "mean over all 1440 steps, INCLUDES the I/O-heavy steps -- higher than the median because it is not robust to those few outliers. Confirms the median is the 'normal (non I/O) step' cost.",
     "n_history_frames": 7,
     "bytes_per_history_frame": 2786477540,
-    "writing_total_s": 1136.14,
-    "writing_total_note": "WRF 'Timing for Writing' summed over all 7 hourly wrfout frames of this run. restart_interval=300min in this 6h (360min) run means exactly ONE restart write occurred (at t=300min), and its bytes are UNKNOWN -- the 1136.14s figure is a BLENDED total that already includes that one restart write's cost folded in with no separate size estimate. ASSUMPTION: wtune_predict.py's self-consistency fixture (test_wtune_predict.py) therefore omits restart_interval entirely (validates the history-frame pathway only) so the general model's separate, uncalibrated restart-write term (see 'restart' below) is never double-counted against this one figure.",
+    "history_frames_write_s_total": 705.0,
+    "history_frame_write_s_mean": 100.7,
+    "restart_write_s_d01": 431.2,
+    "writing_total_note": "CORRECTED (was: a single blended writing_total_s=1136.14s covering history+restart together, which the first calibration pass used directly, without knowing the restart write's own share). The scc rsl 'Timing for Writing' lines were re-read per event: the 7 history frames alone took 705.0s total (mean 100.7s/frame, matching 7*100.7=704.9~=705.0), and the ONE restart write (restart_interval=300min in this 6h run -> one write at t=300min) took 431.2s on its own -- 705.0+431.2=1136.2, consistent with the old blended figure, but now correctly SPLIT so the write rate below is history-only (not slowed down by folding in the restart) and the restart cost is its own measured ratio (see 'restart' below), not a byte-size guess. The old writing_total_s field and its 17.2 MB/s blended rate are REMOVED; the self-consistency fixture in test_wtune_predict.py now includes restart_interval=300 explicitly, since the model can compute the two pieces separately without double-counting.",
     "first_frame_write_s": 88.2,
     "wrfinput_read_s": 48.97
   },
@@ -34,8 +36,8 @@
     "bytes_per_cell_level": 30.914472671840755,
     "bytes_per_cell_level_formula": "conus25_calibration_run.bytes_per_history_frame / (e_we * e_sn * e_vert) = 2786477540 / (1501*1201*50). Applied identically (e_we*e_sn*e_vert, no staggered-grid -1 correction) on both the calibration side and every prediction, so any staggered-vs-mass-point offset cancels.",
 
-    "netcdf_nfs_write_rate_bytes_per_s": 17168080.324607883,
-    "netcdf_nfs_write_rate_formula": "(7 * bytes_per_history_frame) / writing_total_s = (7*2786477540)/1136.14. This is a LOWER-BOUND/pessimistic blended rate: the numerator counts only the 7 known history frames' bytes, but the denominator time also contains the one unsized restart write, so the true pure-history rate is somewhat higher than this.",
+    "netcdf_nfs_write_rate_bytes_per_s": 27667152.879432622,
+    "netcdf_nfs_write_rate_formula": "CORRECTED: (7 * bytes_per_history_frame) / history_frames_write_s_total = (7*2786477540)/705.0, history-frame writes ONLY (the restart write is excluded from this rate and modeled separately -- see 'restart' below). Supersedes the earlier (7*bytes_per_history_frame)/writing_total_s=1136.14 blended rate (17.17 MB/s), which understated the true history write rate because its denominator also contained the restart write's 431.2s.",
     "netcdf_nfs_write_rate_uncertainty_pct": 10,
     "netcdf_nfs_write_rate_uncertainty_source": "single measurement (job 427), no repeated trials; +-10% is a documented judgment call, not itself measured",
 
@@ -43,20 +45,20 @@
     "read_rate_formula": "ASSUMED wrfinput file bytes for the calibration case == one history frame's bytes (bytes_per_history_frame), since wrfinput carries a comparable number of 3D atmospheric fields to a wrfout frame and its real on-disk size was not recorded. read_rate = bytes_per_history_frame / wrfinput_read_s = 2786477540/48.97. Used both to size an estimated wrfinput (bytes_per_cell_level * cells, same formula as a frame) when case_dir has no real wrfinput/wrfbdy files, and as the read RATE applied to real on-disk bytes when they exist.",
     "read_rate_uncertainty_pct": 20,
 
-    "wrf_ior_ratio": 0.14750231772592803,
-    "wrf_ior_ratio_formula": "netcdf_nfs_write_rate_bytes_per_s / (IOR posix single-writer rate in B/s) = 17168080.32/(111*1024*1024). WRF's io_form=2 write path (rank-0 collects then writes one file) is treated as directly comparable to IOR's POSIX single-writer pattern. This ratio is then applied to OTHER IOR patterns to estimate how WRF would perform on io_form 11/14, since WRF-path efficiency vs IOR is only independently known for netCDF.",
+    "wrf_ior_ratio": 0.23770678476756862,
+    "wrf_ior_ratio_formula": "netcdf_nfs_write_rate_bytes_per_s / (IOR posix single-writer rate in B/s) = 27667152.88/(111*1024*1024). WRF's io_form=2 write path (rank-0 collects then writes one file) is treated as directly comparable to IOR's POSIX single-writer pattern. This ratio is then applied to OTHER IOR patterns to estimate how WRF would perform on io_form 11/14, since WRF-path efficiency vs IOR is only independently known for netCDF. Recomputed from the corrected (history-only) write rate above; the io_form 11/14 NFS rates below moved up with it.",
 
     "io_form_rate_table": {
       "2": {
-        "nfs": {"rate_bytes_per_s": 17168080.324607883, "uncertainty_pct": 10, "source": "measured, job 427 (see netcdf_nfs_write_rate above)"},
+        "nfs": {"rate_bytes_per_s": 27667152.879432622, "uncertainty_pct": 10, "source": "measured, job 427, history frames only (see netcdf_nfs_write_rate above)"},
         "local": {"rate_bytes_per_s": null, "uncertainty_pct": null, "source": "UNMEASURED: local NVMe/tmpfs write rate has not been benchmarked on scc. --io-target local must be refused/flagged, not silently guessed."}
       },
       "11": {
-        "nfs": {"rate_bytes_per_s": 8506706.467148049, "uncertainty_pct": 40, "source": "DERIVED, not measured for WRF: wrf_ior_ratio * IOR PnetCDF-shared rate (55 MiB/s, job 432, 144 ranks, 2.88GB total on /nfs). Wide uncertainty because the WRF/IOR efficiency ratio was only established for the netCDF path, not PnetCDF."},
+        "nfs": {"rate_bytes_per_s": 13708949.624944093, "uncertainty_pct": 40, "source": "DERIVED, not measured for WRF: wrf_ior_ratio * IOR PnetCDF-shared rate (55 MiB/s, job 432, 144 ranks, 2.88GB total on /nfs). Wide uncertainty because the WRF/IOR efficiency ratio was only established for the netCDF path, not PnetCDF."},
         "local": {"rate_bytes_per_s": null, "uncertainty_pct": null, "source": "UNMEASURED"}
       },
       "14": {
-        "nfs": {"rate_bytes_per_s": 34645495.42983933, "uncertainty_pct": 40, "source": "DERIVED, not measured for WRF: wrf_ior_ratio * IOR file-per-process rate (224 MiB/s, job 432), used as the ADIOS2 (io_form 14, one file per aggregator) proxy since that write pattern is closest to file-per-process. Same wide uncertainty caveat as io_form 11."},
+        "nfs": {"rate_bytes_per_s": 55832813.01795412, "uncertainty_pct": 40, "source": "DERIVED, not measured for WRF: wrf_ior_ratio * IOR file-per-process rate (224 MiB/s, job 432), used as the ADIOS2 (io_form 14, one file per aggregator) proxy since that write pattern is closest to file-per-process. Same wide uncertainty caveat as io_form 11."},
         "local": {"rate_bytes_per_s": null, "uncertainty_pct": null, "source": "UNMEASURED"}
       }
     }
@@ -83,9 +85,9 @@
   "fallback_s_per_cell_step_ns_formula": "UNCALIBRATED GUESS, used only when NO probe ledger row exists for the case at ANY rank count: (s_per_step_median * n_ranks / (e_we*e_sn*e_vert)) * 1e9 from the ONE conus25 calibration run = (0.5555*720/90135050)*1e9. Applying a conus25-suite compute rate to a case with a different physics suite/hardware mix is NOT validated -- treat predictions on this path with a wide (50%) uncertainty band.",
 
   "restart": {
-    "size_multiplier_vs_history_frame": 2.0,
-    "size_multiplier_source": "UNCALIBRATED GUESS: no independent restart-file size measurement exists anywhere in this repo. Restart files carry more prognostic/tendency arrays than a single history frame, so 2x a same-domain history frame's bytes is used as an order-of-magnitude placeholder, not a measurement.",
-    "note": "Modeled as a separate line item ONLY when the namelist's restart_interval differs from what produced conus25_calibration_run.writing_total_s (i.e. never for the exact conus25-calibration fixture -- see writing_total_note above)."
+    "restart_to_history_time_ratio": 4.282025819265144,
+    "restart_to_history_time_ratio_formula": "MEASURED, job 427: conus25_calibration_run.restart_write_s_d01 / conus25_calibration_run.history_frame_write_s_mean = 431.2/100.7. Supersedes the earlier 'size_multiplier_vs_history_frame: 2.0' UNCALIBRATED GUESS. Applied as: restart write seconds for a domain = ratio * (that domain's history-frame bytes / the SAME netcdf_nfs_write_rate) -- i.e. a restart write is modeled as taking 4.28x as long as one history frame write of that domain, not as a separately-sized byte count. Only validated at d01 scale (900x900x50..1501x1201x50); not independently checked for a much smaller or larger domain.",
+    "note": "Modeled as a separate line item for EVERY active domain, once per restart_interval, whenever restart_interval > 0 in the namelist -- including the conus25-calibration fixture itself (test_wtune_predict.py's self-consistency fixture now sets restart_interval=300, since history and restart are no longer blended into one rate)."
   },
 
   "fallback_auxhist_fraction": 0.1,

@@ -42,12 +42,13 @@ I/O
     When iofields_filename is set the stream cannot be sized exactly -> uses
     calibration.fallback_auxhist_fraction of a full same-domain frame, flagged
     'size unknown'.
-    restart: floor(run_minutes / restart_interval) writes (io_form_restart,
-    default = io_form_history), sized as calibration.restart.
-    size_multiplier_vs_history_frame times a same-domain history frame -- an
-    UNCALIBRATED GUESS, see scc.json. Never modeled for the exact conus25
-    calibration fixture (see scc.json conus25_calibration_run.writing_total_note)
-    to avoid double-counting against that run's own empirical total.
+    restart: floor(run_minutes / restart_interval) writes, for EVERY active
+    domain, each write costing calibration.restart.restart_to_history_time_ratio
+    (MEASURED, job 427: 431.2s restart write / 100.7s mean history-frame write
+    = 4.28x) times that domain's own history-frame write time (io_form_restart,
+    default = io_form_history). Modeled as a normal, separate line item even
+    for the conus25 calibration fixture itself, since history and restart
+    write rates are calibrated independently (see scc.json conus25_calibration_run).
 
 init
     read_s = (on-disk wrfinput_d*/wrfbdy_d* bytes in case_dir, else an ESTIMATE
@@ -566,15 +567,19 @@ def predict_io(nl, max_dom, run_min, calibration, io_form_override, io_target):
         n_restart = int(math.floor(run_min / restart_interval))
         if n_restart > 0:
             io_form_restart = g(nl, "time_control", "io_form_restart", io_form_history)
-            mult = calibration.get("restart", {}).get("size_multiplier_vs_history_frame", 1.0)
+            ratio = calibration.get("restart", {}).get("restart_to_history_time_ratio", 1.0)
+            # restart write seconds for a domain = ratio * (that domain's history-frame
+            # bytes / the history write rate) -- MEASURED ratio (see calibration.restart),
+            # not a byte-size guess. Folding the ratio into an equivalent "bytes" term
+            # keeps the same bytes/rate formula as every other stream.
             restart_bytes = 0.0
             for d in range(max_dom):
                 e_we, e_sn, e_vert = get_domain_geom(nl, d)
-                restart_bytes += bpcl * cells_levels(e_we, e_sn, e_vert) * mult
+                restart_bytes += bpcl * cells_levels(e_we, e_sn, e_vert) * ratio
             rate = get_effective_rate(calibration, io_form_restart, io_target)
             entry = {"stream": "restart", "n_writes": n_restart, "bytes_per_write": restart_bytes,
-                     "size_multiplier_vs_history_frame": mult,
-                     "note": "UNCALIBRATED GUESS restart size (see calibration.restart)"}
+                     "restart_to_history_time_ratio": ratio,
+                     "note": "MEASURED restart_to_history_time_ratio (see calibration.restart)"}
             if rate["unmeasured"]:
                 entry["note"] += "; UNMEASURED rate for io_form=%s io_target=%s" % (io_form_restart, io_target)
             else:
@@ -627,21 +632,27 @@ def predict_init(case_dir, nl, calibration):
 def build_param_table(config, nodes, io_form, io_target):
     ranks, omp, nx, ny, numtiles = (
         config["ranks"], config["omp"], config["nx"], config["ny"], config["numtiles"])
+    dist = config.get("dist", "cyclic")
     tpn = ranks // nodes if nodes else None
     warn = None
     if nodes and ranks % nodes != 0:
         warn = "ranks (%d) not evenly divisible by nodes (%d); TPN rounded down to %d" % (
             ranks, nodes, tpn)
 
+    # Matches campaign/sites/scc.sh site_launch() exactly: --rank-by node reproduces
+    # WRF's cyclic across-node rank order for dist=cyclic; block is OMPI5's own
+    # default rank-by, so the block case adds no extra flag.
     launch = ("mpirun -np %d --map-by ppr:%d:node:PE=%d --bind-to core"
               % (ranks, tpn if tpn else 0, omp))
+    if dist == "cyclic":
+        launch += " --rank-by node"
     env = {"OMP_NUM_THREADS": str(omp), "OMP_STACKSIZE": "1G",
            "OMP_PLACES": "cores", "OMP_PROC_BIND": "close", "ulimit -s": "unlimited"}
     namelist_lines = ["nproc_x = %d," % nx, "nproc_y = %d," % ny, "numtiles = %d," % numtiles]
 
     return {"nproc_x": nx, "nproc_y": ny, "numtiles": numtiles,
             "ranks": ranks, "omp": omp, "nodes": nodes, "ranks_per_node": tpn,
-            "dist": "cyclic", "io_form": io_form, "io_target": io_target,
+            "dist": dist, "io_form": io_form, "io_target": io_target,
             "launch_line": launch, "env": env, "namelist_lines": namelist_lines,
             "warning": warn}
 
@@ -661,15 +672,17 @@ def resolve_config(args):
         nx = int(raw["nx"] if "nx" in raw else raw["nproc_x"])
         ny = int(raw["ny"] if "ny" in raw else raw["nproc_y"])
         numtiles = int(raw.get("numtiles", 1))
+        dist = raw.get("dist", getattr(args, "dist", None) or "cyclic")
     else:
         if args.nx is None or args.ny is None:
             raise PredictError("must give --config JSON, or --nx and --ny "
-                                "(with optional --ranks/--omp/--numtiles)")
+                                "(with optional --ranks/--omp/--numtiles/--dist)")
         nx, ny = int(args.nx), int(args.ny)
         omp = int(args.omp) if args.omp is not None else 1
         numtiles = int(args.numtiles) if args.numtiles is not None else 1
         ranks = int(args.ranks) if args.ranks is not None else nx * ny
-    return {"ranks": ranks, "omp": omp, "nx": nx, "ny": ny, "numtiles": numtiles}
+        dist = getattr(args, "dist", None) or "cyclic"
+    return {"ranks": ranks, "omp": omp, "nx": nx, "ny": ny, "numtiles": numtiles, "dist": dist}
 
 
 def build_prediction(namelist_path, case_dir, nodes, config, ledger_paths,
@@ -812,6 +825,8 @@ def add_subparser(sub):
     p.add_argument("--nx", type=int, default=None, help="nproc_x")
     p.add_argument("--ny", type=int, default=None, help="nproc_y")
     p.add_argument("--numtiles", type=int, default=None, help="numtiles (default 1)")
+    p.add_argument("--dist", choices=["block", "cyclic"], default=None,
+                   help="srun/mpirun rank distribution (default cyclic; ignored if --config sets 'dist')")
     p.add_argument("--probe", action="append", default=None,
                    help="strict_campaign ledger CSV (repeatable)")
     p.add_argument("--calibration", default=str(DEFAULT_CALIBRATION),

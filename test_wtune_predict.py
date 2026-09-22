@@ -140,7 +140,7 @@ STUB_CAL = {
         },
     },
     "fallback_auxhist_fraction": 0.5,
-    "restart": {"size_multiplier_vs_history_frame": 2.0},
+    "restart": {"restart_to_history_time_ratio": 2.0},
 }
 
 
@@ -216,7 +216,7 @@ def test_restart_write_count_and_local_target_unmeasured(tmp_path):
                        io_form_override=None, io_target="nfs")
     restart = [s for s in io["streams"] if s.get("stream") == "restart"][0]
     assert restart["n_writes"] == 2  # floor(90/40) writes, at t=40 and t=80
-    assert restart["bytes_per_write"] == pytest.approx(200.0)  # 100 bytes * multiplier 2.0
+    assert restart["bytes_per_write"] == pytest.approx(200.0)  # 100 bytes * restart_to_history_time_ratio 2.0
     assert restart["seconds"] == pytest.approx(400.0)
 
     io_local = wp.predict_io(nl, max_dom=1, run_min=90.0, calibration=STUB_CAL,
@@ -252,14 +252,37 @@ def test_short_run_not_segmented():
 # --------------------------------------------------------------------------
 
 def test_param_table_launch_line_and_namelist_lines():
-    config = {"ranks": 448, "omp": 2, "nx": 16, "ny": 14, "numtiles": 12}
+    config = {"ranks": 448, "omp": 2, "nx": 16, "ny": 14, "numtiles": 12, "dist": "cyclic"}
     p = wp.build_param_table(config, nodes=4, io_form=2, io_target="nfs")
     assert p["ranks_per_node"] == 112
     assert p["warning"] is None
-    assert p["launch_line"] == "mpirun -np 448 --map-by ppr:112:node:PE=2 --bind-to core"
+    assert p["launch_line"] == "mpirun -np 448 --map-by ppr:112:node:PE=2 --bind-to core --rank-by node"
     assert p["env"]["OMP_NUM_THREADS"] == "2"
     assert p["env"]["OMP_STACKSIZE"] == "1G"
     assert p["namelist_lines"] == ["nproc_x = 16,", "nproc_y = 14,", "numtiles = 12,"]
+
+
+def test_param_table_launch_line_matches_scc_sites_site_launch():
+    """campaign/sites/scc.sh site_launch(): --map-by ppr:<tpn>:node:PE=<omp> --bind-to
+    core, PLUS --rank-by node for dist=cyclic only (block is OMPI5's own default
+    rank-by, so site_launch adds nothing extra for it). build_param_table's
+    launch_line must match exactly, taking dist from config (not hardcoded)."""
+    config_block = {"ranks": 448, "omp": 1, "nx": 16, "ny": 28, "numtiles": 1, "dist": "block"}
+    p_block = wp.build_param_table(config_block, nodes=4, io_form=2, io_target="nfs")
+    assert p_block["dist"] == "block"
+    assert p_block["launch_line"] == "mpirun -np 448 --map-by ppr:112:node:PE=1 --bind-to core"
+    assert "--rank-by" not in p_block["launch_line"]
+
+    config_cyclic = dict(config_block, dist="cyclic")
+    p_cyclic = wp.build_param_table(config_cyclic, nodes=4, io_form=2, io_target="nfs")
+    assert p_cyclic["dist"] == "cyclic"
+    assert p_cyclic["launch_line"] == "mpirun -np 448 --map-by ppr:112:node:PE=1 --bind-to core --rank-by node"
+
+    # config with no 'dist' key at all defaults to cyclic (the repo's predominant convention)
+    config_default = {"ranks": 448, "omp": 1, "nx": 16, "ny": 28, "numtiles": 1}
+    p_default = wp.build_param_table(config_default, nodes=4, io_form=2, io_target="nfs")
+    assert p_default["dist"] == "cyclic"
+    assert p_default["launch_line"] == p_cyclic["launch_line"]
 
 
 def test_param_table_warns_on_uneven_ranks_per_node():
@@ -302,7 +325,13 @@ def test_resolve_probe_no_data_for_case_returns_none():
 
 # --------------------------------------------------------------------------
 # 6. conus25 self-consistency (this IS the calibration case): must reproduce
-#    the measured 2090s wall within +-5%.
+#    the measured 2090s wall within +-5%. restart_interval=300 (one restart
+#    write at t=300min) is included on purpose: history and restart write
+#    rates are now calibrated independently (history-only write rate from
+#    the 7 history frames' 705.0s; restart modeled via the separately
+#    measured restart_to_history_time_ratio, 431.2/100.7=4.28x), so both can
+#    be modeled together here without double-counting -- see
+#    machine/calibration/scc.json conus25_calibration_run.writing_total_note.
 # --------------------------------------------------------------------------
 
 CONUS25_NAMELIST = """\
@@ -313,6 +342,7 @@ CONUS25_NAMELIST = """\
  run_seconds = 0,
  history_interval = 60,
  io_form_history = 2,
+ restart_interval = 300,
  /
 &domains
  max_dom = 1,
@@ -367,19 +397,21 @@ def test_conus25_self_consistency_within_5pct(tmp_path):
 #    job 429: 432 d01 steps at dt=25s = 180 simulated minutes; isc21 job 430:
 #    120 d01 steps at dt=15s = 30 simulated minutes -- 30min also happens to
 #    match cases.json's isc21 physics_sim_minutes field).
-#    Everything cases.json does NOT give a number for is an explicit ASSUMED
-#    fixture parameter, chosen from the most directly documented repo
-#    convention available (not reverse-engineered from the measured wall):
-#      - maria1km: history_interval=60min ASSUMED (matches conus25's own
-#        convention at this site); d02 history OFF (history_interval's 2nd
-#        value = 0) matching configs.py's documented nest_history_on=False
-#        default; io_form_history=2 (native, per cases.json's notes); no
-#        restart_interval (native restart=.false., per cases.json notes).
-#      - isc21: native io_form_history=0 (primary wrfout stream off) with
+#      - maria1km: 2026-09-22 REAL output settings (root-caused from scc rsl
+#        "Timing for Writing" lines, job 429), replacing the earlier ASSUMED
+#        ones: history_interval = 0, 60 (d01 OFF, d02 ON hourly -- matches
+#        the "0,60,60" reported; the 3rd value is beyond max_dom=2 and is
+#        never read); io_form_history=2; restart_interval=120 (ONE restart
+#        at t=120min, for EVERY active domain -- d01 AND d02);
+#        frames_per_outfile is present in the real namelist but is NOT
+#        modeled by wtune_predict.py (noted, not simulated).
+#      - isc21: UNCHANGED from the first calibration pass -- native
+#        io_form_history=0 (primary wrfout stream off) with
 #        io_form_auxhist24=2 / auxhist24_interval_s=60 and iofields_filename
 #        set (per cases.json's notes -- output sized via the documented
 #        UNCALIBRATED 10% fallback fraction, since the aux stream only
-#        writes a named field subset).
+#        writes a named field subset). Not touched by the 2026-09-22
+#        conus25 write-rate/restart-ratio fix below; still ASSUMED.
 # --------------------------------------------------------------------------
 
 MARIA1KM_NAMELIST = """\
@@ -388,8 +420,10 @@ MARIA1KM_NAMELIST = """\
  run_hours = 3,
  run_minutes = 0,
  run_seconds = 0,
- history_interval = 60, 0,
+ history_interval = 0, 60, 60,
  io_form_history = 2,
+ restart_interval = 120,
+ frames_per_outfile = 0, 1,
  /
 &domains
  max_dom = 2,
@@ -449,6 +483,17 @@ def _holdout_predict(tmp_path, name, namelist_text, ranks_probe_row):
     return pred
 
 
+@pytest.mark.xfail(strict=True, reason=(
+    "pre-registered held-out check FAILED 2026-09-22 (2nd pass): predicted 789.0 s vs measured "
+    "1004.0 s (ratio 0.7859), just outside +-20%. Regressed from the 1st pass's 862/1004=0.859 PASS "
+    "because fixing conus25's calibration (task: split the blended 17.2 MB/s history+restart rate "
+    "into a history-only 27.67 MB/s rate) makes the SAME auxhist24 bytes write faster, shrinking "
+    "isc21's modeled I/O contribution. isc21's own aux stream is UNCHANGED/ASSUMED (not touched by "
+    "the conus25 fix): fallback_auxhist_fraction=0.1 (uncalibrated guess) most likely understates the "
+    "real aux frame -- the coordinator's own rsl reading puts isc21's real aux frames at ~345 MB "
+    "each, well above 0.1 * a full d01 frame (~107 MB). That fraction is an UNCALIBRATED cross-case "
+    "guess and must NOT be tuned against isc21 (held-out) to close this gap -- see instructions. "
+    "strict=True: if this starts passing, the xfail must be removed."))
 def test_holdout_isc21_within_20pct(tmp_path):
     """job 430: d01 median 4.0675 s/step over 120 d01 steps; measured wall 1004s."""
     row = dict(case_base="isc21", job_id=430, e_we=793, e_sn=853, e_vert=51, dx=3000,
@@ -465,27 +510,25 @@ def test_holdout_isc21_within_20pct(tmp_path):
         % (pred["total_s"], measured_wall, ratio))
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "pre-registered held-out check FAILED 2026-09-22: predicted 2361 s vs measured 3499 s (0.675). "
-    "Suspected: nested d02 (1661x1591) output and per-step overhead not modelled; some output "
-    "intervals are ASSUMED. strict=True: if this starts passing, the xfail must be removed."))
 def test_holdout_maria1km_within_20pct(tmp_path):
     """job 429: d01 median 4.1615 s/step over 432 d01 steps (d01 wall already
     includes the 2160 nested d02 substeps at parent_time_step_ratio=5);
     measured wall 3499s.
 
-    KNOWN RESULT, NOT TUNED AWAY: with the documented ASSUMED fixture above
-    (d02 history off, matching this repo's configs.py default; no restart
-    write, matching cases.json's native restart=.false.), this model predicts
-    ~2361s -- about 32% LOW, outside +-20%. The gap is far larger than the
-    ~14% shortfall on isc21's very similar (also multi-domain) case, so it is
-    not simply "nesting is unmodeled": it is most likely nested d02 history
-    I/O and/or other per-step overhead specific to this case's much larger
-    d02 grid (1661x1591 vs isc21's d02/d03 ~800-1000) that a d01-step-rate +
-    a la carte I/O model does not capture. This assertion is intentionally
-    left failing per the task's instruction to report a real miss honestly
-    rather than adjust a calibration constant (e.g. r_rad, bytes_per_cell_level,
-    or a restart/nest-history assumption) until it passes.
+    ROOT-CAUSED AND FIXED 2026-09-22 (was a pre-registered FAIL in the 1st
+    calibration pass: predicted 2361 s vs 3499 s, ratio 0.675). The 1st pass's
+    conus25 calibration blended one restart write's time into the history
+    write rate (17.17 MB/s) and guessed the restart was 2x a history frame's
+    BYTES; both were wrong, and the maria1km fixture had also guessed d02
+    history OFF and no restart (ASSUMED, before the real settings were read
+    from scc rsl output). With conus25 recalibrated from ONLY its own
+    measurements -- history-only write rate 27.67 MB/s (7 frames / 705.0s)
+    and a MEASURED restart_to_history_time_ratio=4.28 (431.2s restart /
+    100.7s mean history-frame write) -- and this fixture now using maria1km's
+    REAL output settings (d02-only hourly history, restart_interval=120 for
+    BOTH domains), this model predicts 3486.0 s vs measured 3499.0 s, ratio
+    0.9963: within +-20% (and even +-5%). No constant was tuned on maria1km
+    itself -- every calibration number above comes from conus25 (job 427) alone.
     """
     row = dict(case_base="maria1km", job_id=429, e_we=900, e_sn=900, e_vert=50, dx=5000,
               time_step=25, radt=12, io_form_history=2, n_nodes=4, n_ranks=448,

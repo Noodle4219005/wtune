@@ -41,6 +41,7 @@ wtune_predict.py (full-run prediction + parameter-table shape, best-effort impor
 from __future__ import annotations
 
 import argparse
+import copy
 import csv
 import dataclasses
 import glob
@@ -62,6 +63,9 @@ for _p in (_TOOLS_DIR, _PREDICTOR_DIR, _HERE):
 
 import scc_sweep as sweep      # tools/scc_sweep.py -- see module docstring for what is reused
 import wtune_case              # wtune_case.py: build_profile (PRIOR, pre-measurement)
+import wtune_config            # wtune_config.py: --config YAML (search restrictions, budget/probe/
+                                # prediction overrides) -- stdlib only (PyYAML is imported lazily,
+                                # only when --config is actually given), safe to import unconditionally
 
 try:
     import wtune_predict        # wtune_predict.py -- owned by another agent; best-effort only
@@ -235,6 +239,29 @@ def chunk_round_robin(items, n):
     return [c for c in chunks if c]
 
 
+def _apply_search_filter(ctx, configs):
+    """The ONE shared config-search filter (wtune_config.candidate_allowed/filter_candidates),
+    applied at every place this controller generates decomposition candidates: round0's own
+    ANCHOR + sampled configs, round0's top-up wave, the adaptive-round proposer's own output, and
+    the diverse-sampling fallback (sample_more_diverse_configs, below -- shared by both the top-up
+    wave and the adaptive-round fallback). With no --config given, ctx.search_cfg is
+    wtune_config.DEFAULTS['search'] (every axis None) and ctx.exclude_rules is [], so this is a
+    no-op and behaviour is unchanged from before --config existed.
+
+    The anchor (scc_sweep.build_anchor's own id="ANCHOR"/config_source="anchor") is exempt from
+    the STRICT search restrictions (omp/numtiles/rank_distribution/aspect_max) but still must obey
+    `exclude` rules -- an anchor dropped by `exclude` is simply omitted, not replaced."""
+    out = []
+    for c in configs:
+        exempt = c.get("config_source") == "anchor" or c.get("id") == "ANCHOR"
+        if wtune_config.candidate_allowed(c, ctx.search_cfg, ctx.exclude_rules, ctx.is_fire,
+                                           exempt_search=exempt):
+            out.append(c)
+        elif exempt:
+            print("config: ANCHOR excluded by an `exclude` rule")
+    return out
+
+
 def sample_more_diverse_configs(ctx, exclude_configs, k, seed):
     """Up to `k` NOT-yet-measured decomp_space candidates -- the same enumerate_space/sample_design
     pool round0 itself draws from (predictor/decomp_space.py), covering omp levels, numtiles and
@@ -242,10 +269,15 @@ def sample_more_diverse_configs(ctx, exclude_configs, k, seed):
     turns out cheaper than assumed and, in run_adaptive_rounds, as the fallback once
     predictor/decomp_search.py's own Bayesian proposer has nothing left to suggest -- reused
     (never re-derived): `exclude_configs`' identity is scc_sweep.py's own build_configs dedup key
-    (_identity: ranks/omp/nx/ny/numtiles/dist/blocktime). Returns [] when the pool is exhausted."""
+    (_identity: ranks/omp/nx/ny/numtiles/dist/blocktime). Returns [] when the pool is exhausted.
+
+    Filtered through `_apply_search_filter` BEFORE `sample_design` draws from it, so a --config
+    search restriction actually shrinks the pool sample_design samples from, not just what
+    survives afterward."""
     total_cores = ctx.nodes * ctx.cores_per_node
     candidates, _axis = decomp_space.enumerate_space(ctx.case_json, total_cores, ctx.nodes,
                                                        ctx.hardware_id)
+    candidates = _apply_search_filter(ctx, candidates)
     seen = {sweep._identity(c) for c in exclude_configs if c}
     fresh = [c for c in candidates if sweep._identity(c) not in seen]
     if not fresh or k <= 0:
@@ -386,6 +418,17 @@ class Ctx:
     start_time: float = 0.0
     owned_jobs: list = dataclasses.field(default_factory=list)
     cancelled_jobs: list = dataclasses.field(default_factory=list)
+    # --config wiring (wtune_config.py): defaults reproduce pre---config behaviour exactly --
+    # search_cfg with every axis None / exclude_rules=[] is a no-op filter, is_fire=False never
+    # matches a `when: fire` exclude rule, confirm_reps==CONFIRM_REPS, prediction_cfg is
+    # wtune_config.DEFAULTS['prediction'] (io_target="nfs", no drift override, r_rad not requested).
+    search_cfg: dict = dataclasses.field(
+        default_factory=lambda: copy.deepcopy(wtune_config.DEFAULTS["search"]))
+    exclude_rules: list = dataclasses.field(default_factory=list)
+    is_fire: bool = False
+    confirm_reps: int = CONFIRM_REPS
+    prediction_cfg: dict = dataclasses.field(
+        default_factory=lambda: copy.deepcopy(wtune_config.DEFAULTS["prediction"]))
 
     def elapsed(self):
         return self.clock.now() - self.start_time
@@ -511,8 +554,13 @@ def run_round0(ctx):
     if built["skip_reason"]:
         return [], {}, []
 
-    job_ids, configs_by_cid, rows = _submit_round0_wave(ctx, built["configs"], slots, s_est,
-                                                          "round0")
+    configs0 = _apply_search_filter(ctx, built["configs"])
+    if not configs0:
+        print("round0: SKIP -- every candidate (including the anchor) was excluded by --config "
+              "search restrictions/exclude rules")
+        return [], {}, []
+
+    job_ids, configs_by_cid, rows = _submit_round0_wave(ctx, configs0, slots, s_est, "round0")
 
     # Top-up wave: `s_est` above is the PRE-round0 estimate (ledger history, or the no-ledger
     # fallback CONSERVATIVE_S_PER_STEP=10s/step for a case never run on scc before), so wave 0
@@ -618,6 +666,12 @@ def run_adaptive_rounds(ctx, all_configs_by_cid, all_results, s_est):
                       % (round_idx, kappa, result.get("reason", ""), next_kappa))
                 kappa = next_kappa
 
+        # Constrain the Bayesian proposer's own output too -- predictor/decomp_search.py knows
+        # nothing about --config search restrictions, so a proposal outside them must be dropped
+        # here (never submitted). If that empties the batch, fall through to the already-filtered
+        # diverse-sampling fallback below exactly as if the proposer itself had stopped.
+        configs_out = _apply_search_filter(ctx, configs_out)
+
         if result.get("stopped") or not configs_out:
             # Bayesian exploitation is exhausted even after escalating kappa -- fall back to raw
             # decomp_space diversity sampling (other omp levels/numtiles/aspect ratios not yet
@@ -682,7 +736,7 @@ def run_confirm(ctx, all_configs_by_cid, all_results, anchor_cid, s_est):
     for e in entries:
         per_run_s = sweep.STARTUP_S + ctx.steps * e["median"]
         print("confirm candidate %-8s median=%.4fs/step (n=%d) -> per_run~%.1fs x REPS=%d"
-              % (e["cid"], e["median"], e["n"], per_run_s, CONFIRM_REPS))
+              % (e["cid"], e["median"], e["n"], per_run_s, ctx.confirm_reps))
 
     # Greedily keep the cheapest candidates that still fit the remaining budget, cheapest first,
     # instead of an all-or-nothing decision on the WHOLE top-3+anchor set: with round0 sampling
@@ -695,7 +749,7 @@ def run_confirm(ctx, all_configs_by_cid, all_results, anchor_cid, s_est):
     for e in entries_sorted:
         trial = kept + [e]
         trial_est = estimate_time_per_config([(x["config"], x["median"]) for x in trial],
-                                              CONFIRM_REPS, ctx.steps)
+                                              ctx.confirm_reps, ctx.steps)
         if would_exceed_budget(ctx.elapsed(), trial_est["job_hours"] * 3600.0, ctx.budget_s):
             dropped.append(e)
             continue
@@ -704,7 +758,7 @@ def run_confirm(ctx, all_configs_by_cid, all_results, anchor_cid, s_est):
 
     if not kept:
         solo_est = estimate_time_per_config(
-            [(entries_sorted[0]["config"], entries_sorted[0]["median"])], CONFIRM_REPS, ctx.steps)
+            [(entries_sorted[0]["config"], entries_sorted[0]["median"])], ctx.confirm_reps, ctx.steps)
         print("confirm: SKIP -- even the cheapest candidate alone (%s, %.4fs/step) is estimated "
               "at %s, which would exceed the remaining budget (elapsed=%s / budget=%s)"
               % (entries_sorted[0]["cid"], entries_sorted[0]["median"],
@@ -719,12 +773,12 @@ def run_confirm(ctx, all_configs_by_cid, all_results, anchor_cid, s_est):
 
     configs = [e["config"] for e in kept]
     print("confirm: estimated %s for %d config(s) (REPS=%d) -- elapsed=%s / budget=%s"
-          % (_fmt_hms(time_est["job_hours"] * 3600.0), len(configs), CONFIRM_REPS,
+          % (_fmt_hms(time_est["job_hours"] * 3600.0), len(configs), ctx.confirm_reps,
              _fmt_hms(ctx.elapsed()), _fmt_hms(ctx.budget_s)))
 
-    job_id, _path, _te = submit_configs_job(ctx, configs, reps=CONFIRM_REPS, name_suffix="confirm",
+    job_id, _path, _te = submit_configs_job(ctx, configs, reps=ctx.confirm_reps, name_suffix="confirm",
                                               s_est=s_est, time_est=time_est)
-    print("confirm: submitted job %s (%d configs, REPS=%d)" % (job_id, len(configs), CONFIRM_REPS))
+    print("confirm: submitted job %s (%d configs, REPS=%d)" % (job_id, len(configs), ctx.confirm_reps))
     wait_for_jobs(ctx, [job_id], "confirm")
     rows = ctx.ledger_reader(ctx.case, [job_id])
     confirm_configs_by_cid = {c["id"]: c for c in configs}
@@ -766,6 +820,29 @@ def write_probe_ledger(ctx, all_results, confirm_results):
     return path
 
 
+def _calibration_with_drift_override(ctx, calibration_path, drift_pct):
+    """wtune_predict.build_prediction() has no drift_band_pct PARAMETER -- it always reads
+    calibration.get("drift_band_pct", 5.0) from whatever calibration_path it is given (see
+    wtune_predict.py's own build_prediction). A --config prediction.drift_band_pct override is
+    therefore wired in by writing a copy of the calibration file with that one field overridden
+    and pointing calibration_path at the copy, never by editing wtune_predict.py itself. Returns
+    (calibration_path_to_use, note)."""
+    try:
+        with open(calibration_path) as f:
+            calib = json.load(f)
+    except (OSError, ValueError) as e:
+        return calibration_path, ("NOTE: prediction.drift_band_pct=%s requested but the default "
+                                   "calibration file %s could not be read (%s); using it unmodified"
+                                   % (drift_pct, calibration_path, e))
+    calib["drift_band_pct"] = drift_pct
+    os.makedirs(ctx.out_dir, exist_ok=True)
+    out_path = os.path.join(ctx.out_dir, "calibration_override.json")
+    with open(out_path, "w") as f:
+        json.dump(calib, f)
+    return out_path, ("NOTE: prediction.drift_band_pct=%s applied via calibration override %s"
+                       % (drift_pct, out_path))
+
+
 def build_full_run_prediction(ctx, best_config, nodes, all_results, confirm_results):
     if wtune_predict is None or best_config is None:
         return ("full-run prediction: run `python3 wtune.py predict %s --nodes %d --config "
@@ -780,14 +857,31 @@ def build_full_run_prediction(ctx, best_config, nodes, all_results, confirm_resu
         # (+-50%) even right after measuring the winning config directly. Feed it back in through
         # wtune_predict's own public ledger_paths parameter instead.
         probe_path = write_probe_ledger(ctx, all_results, confirm_results)
+        calibration_path = str(wtune_predict.DEFAULT_CALIBRATION)
+        drift_note = None
+        if ctx.prediction_cfg.get("drift_band_pct") is not None:
+            calibration_path, drift_note = _calibration_with_drift_override(
+                ctx, calibration_path, ctx.prediction_cfg["drift_band_pct"])
         pred = wtune_predict.build_prediction(
             namelist_path=ctx.namelist_path, case_dir=ctx.case_json["prep_dir"], nodes=nodes,
             config=dict(ranks=best_config["ranks"], omp=best_config["omp"], nx=best_config["nx"],
                         ny=best_config["ny"], numtiles=best_config["numtiles"]),
             ledger_paths=[probe_path] if probe_path else None,
-            calibration_path=str(wtune_predict.DEFAULT_CALIBRATION),
-            io_form_override=None, io_target="nfs", case_name=ctx.case)
-        return wtune_predict.render_text(pred)
+            calibration_path=calibration_path, io_form_override=None,
+            io_target=ctx.prediction_cfg.get("io_target") or "nfs", case_name=ctx.case)
+        text = wtune_predict.render_text(pred)
+        if drift_note:
+            text += "\n" + drift_note
+        if ctx.prediction_cfg.get("measure_r_rad"):
+            # Honesty requirement (see wtune_config.py's schema doc): wtune_predict.py has no
+            # option to derive r_rad from this run's own probe measurements -- it always uses
+            # calibration["radiation"]["r_rad_default"]. Report the request as unimplemented
+            # rather than silently using the fixed default with no indication anything was asked.
+            text += ("\nNOTE: prediction.measure_r_rad requested (derive the radiation-step cost "
+                      "multiplier r_rad from this run's own probe measurements) -- NOT YET "
+                      "IMPLEMENTED by wtune_predict.py; used its fixed calibration default "
+                      "(radiation.r_rad_default) instead.")
+        return text
     except Exception as e:
         return ("full-run prediction FAILED (%s: %s); run `python3 wtune.py predict ...` manually"
                  % (type(e).__name__, e))
@@ -876,34 +970,81 @@ def run(args, sbatch_runner=None, sacct_runner=None, scancel_runner=None, ledger
     ledger_reader = ledger_reader or (lambda case, job_ids: default_ledger_reader(
         ledger_dir, case, job_ids))
 
-    case_json, namelist_path, profile = resolve_case(args.case, args.cores_per_node)
+    # --config resolution (wtune_config.py). Precedence: CLI flag > file > built-in defaults.
+    # With no --config, `cfg` is resolve_config({})'s pure built-in-defaults result, so every
+    # merge below reproduces this module's own pre---config hardcoded argparse defaults exactly
+    # (DEFAULT_MAX_NODES=13, "auto", "knee", DEFAULT_STEPS=20, CONFIRM_REPS=2).
+    config_path = getattr(args, "config", None)
+    if config_path:
+        try:
+            cfg = wtune_config.load_config(config_path)
+        except wtune_config.ConfigError as e:
+            raise SystemExit("--config %s is invalid:\n%s"
+                              % (config_path, "\n".join("  - %s" % m for m in e.errors)))
+    else:
+        cfg, _errs = wtune_config.resolve_config({})
 
-    max_nodes = min(int(args.max_nodes), DEFAULT_MAX_NODES)
-    if args.nodes == "auto":
-        nodes, nodes_note, nodes_warning = choose_nodes(profile, max_nodes, args.nodes_policy)
+    case = args.case if args.case is not None else cfg["case"]
+    if case is None:
+        if cfg.get("case_dir"):
+            raise SystemExit(
+                "config declares case_dir=%r, but wtune_tune.py cannot run a tune against an "
+                "arbitrary case_dir yet (only `wtune config show`/`config init` preview it) -- "
+                "pass a registered case name positionally, or set 'case' in --config instead"
+                % cfg["case_dir"])
+        raise SystemExit("case is required: pass it positionally or set 'case' in --config")
+
+    minutes = args.minutes if args.minutes is not None else cfg["budget"]["minutes"]
+    if minutes is None:
+        raise SystemExit("--minutes is required: pass it on the command line or set "
+                          "budget.minutes in --config")
+
+    nodes_raw = args.nodes if args.nodes is not None else cfg["budget"]["nodes"]
+    if isinstance(nodes_raw, list):
+        if len(nodes_raw) != 1:
+            raise SystemExit(
+                "budget.nodes as a list of multiple node counts (%r) is not yet run by `wtune "
+                "tune` (its pipeline targets one node count per run) -- use `wtune config show` "
+                "to preview candidate counts across node counts, or pass a single --nodes value"
+                % (nodes_raw,))
+        nodes_raw = nodes_raw[0]
+
+    nodes_policy = args.nodes_policy if args.nodes_policy is not None else cfg["budget"]["nodes_policy"]
+    max_nodes_requested = args.max_nodes if args.max_nodes is not None else cfg["budget"]["max_nodes"]
+    steps = args.steps if args.steps is not None else cfg["probe"]["steps"]
+    confirm_reps = args.confirm_reps if args.confirm_reps is not None else cfg["probe"]["confirm_reps"]
+
+    case_json, namelist_path, profile = resolve_case(case, args.cores_per_node)
+    is_fire = wtune_config.is_fire_case(case_json, namelist_path)
+
+    max_nodes = min(int(max_nodes_requested), DEFAULT_MAX_NODES)
+    if nodes_raw in ("auto", None):
+        nodes, nodes_note, nodes_warning = choose_nodes(profile, max_nodes, nodes_policy)
         print("WARNING: %s" % nodes_warning)
     else:
-        nodes = int(args.nodes)
+        nodes = int(nodes_raw)
         nodes_note = "user-specified (cap=%d)" % max_nodes
         if nodes > max_nodes:
             raise SystemExit("--nodes %d exceeds --max-nodes %d" % (nodes, max_nodes))
 
     out_dir = sweep._expand(args.out) if args.out else sweep._expand(
-        "$HOME/wtune-runs/tune/%s" % args.case)
+        "$HOME/wtune-runs/tune/%s" % case)
     os.makedirs(out_dir, exist_ok=True)
 
-    ctx = Ctx(case=args.case, case_json=case_json, namelist_path=namelist_path, nodes=nodes,
-              cores_per_node=args.cores_per_node, hardware_id=args.hardware_id, steps=args.steps,
-              seed=args.seed, kappa=args.kappa, budget_s=args.minutes * 60.0, max_nodes=max_nodes,
+    ctx = Ctx(case=case, case_json=case_json, namelist_path=namelist_path, nodes=nodes,
+              cores_per_node=args.cores_per_node, hardware_id=args.hardware_id, steps=steps,
+              seed=args.seed, kappa=args.kappa, budget_s=minutes * 60.0, max_nodes=max_nodes,
               out_dir=out_dir, ledger_dir=ledger_dir, env_source=args.env_source,
               sbatch_script=args.sbatch_script, sacct_cmd=args.sacct_cmd,
               poll_interval=args.poll_interval, sbatch_runner=sbatch_runner,
               sacct_runner=sacct_runner, scancel_runner=scancel_runner,
-              ledger_reader=ledger_reader, proposer=proposer, clock=clock)
+              ledger_reader=ledger_reader, proposer=proposer, clock=clock,
+              search_cfg=cfg["search"], exclude_rules=cfg["exclude"], is_fire=is_fire,
+              confirm_reps=confirm_reps, prediction_cfg=cfg["prediction"])
     ctx.start_time = clock.now()
 
     print("case=%s nodes=%d (%s) budget=%.1f min max_nodes=%d out=%s"
-          % (args.case, nodes, nodes_note, args.minutes, max_nodes, out_dir))
+          % (case, nodes, nodes_note, minutes, max_nodes, out_dir))
 
     s_est, _src, _n = sweep.estimate_s_per_step(ctx.case, ctx.nodes, ctx.ledger_dir,
                                                  ctx.hardware_id)
@@ -954,18 +1095,30 @@ def run(args, sbatch_runner=None, sacct_runner=None, scancel_runner=None, ledger
 # ---------------------------------------------------------------------------
 def build_arg_parser():
     p = argparse.ArgumentParser(prog="wtune_tune.py")
-    p.add_argument("case")
+    p.add_argument("case", nargs="?", default=None,
+                    help="registered campaign/cases.json case id; required here or via "
+                         "--config's 'case' key")
+    p.add_argument("--config", default=None,
+                    help="wtune_config.py YAML file: search-space restrictions + budget/probe/"
+                         "prediction defaults (wtune_config.py); CLI flags given explicitly still "
+                         "override it, which overrides this module's own built-in defaults")
     p.add_argument("--site", default="scc")
-    p.add_argument("--minutes", type=float, required=True)
-    p.add_argument("--nodes", default="auto")
-    p.add_argument("--nodes-policy", choices=sorted(NODES_POLICIES), default="knee",
+    p.add_argument("--minutes", type=float, default=None,
+                    help="required here or via --config's budget.minutes")
+    p.add_argument("--nodes", default=None, help="default: 'auto' (or --config's budget.nodes)")
+    p.add_argument("--nodes-policy", choices=sorted(NODES_POLICIES), default=None,
                     dest="nodes_policy",
                     help="how --nodes auto picks a node count from the (uncalibrated) profile: "
                          "min=smallest legal, cap=largest legal within --max-nodes, "
-                         "knee=stop doubling once marginal speedup drops below 1.5x (default)")
-    p.add_argument("--max-nodes", type=int, default=DEFAULT_MAX_NODES, dest="max_nodes")
+                         "knee=stop doubling once marginal speedup drops below 1.5x "
+                         "(default: 'knee', or --config's budget.nodes_policy)")
+    p.add_argument("--max-nodes", type=int, default=None, dest="max_nodes",
+                    help="default: %d (or --config's budget.max_nodes)" % DEFAULT_MAX_NODES)
     p.add_argument("--out", default=None)
-    p.add_argument("--steps", type=int, default=DEFAULT_STEPS)
+    p.add_argument("--steps", type=int, default=None,
+                    help="default: %d (or --config's probe.steps)" % DEFAULT_STEPS)
+    p.add_argument("--confirm-reps", type=int, default=None, dest="confirm_reps",
+                    help="default: %d (or --config's probe.confirm_reps)" % CONFIRM_REPS)
     p.add_argument("--seed", type=int, default=DEFAULT_SEED)
     p.add_argument("--kappa", type=float, default=DEFAULT_KAPPA)
     p.add_argument("--cores-per-node", type=int, default=sweep.DEFAULT_CORES_PER_NODE,

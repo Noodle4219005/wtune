@@ -14,6 +14,7 @@ import re
 
 import pytest
 
+import wtune_config
 import wtune_tune
 
 MATTHEW_LIKE = dict(e_we=91, e_sn=100, e_vert=45)
@@ -706,3 +707,220 @@ def test_write_probe_ledger_makes_full_run_prediction_use_measured_source(tmp_pa
                                                  confirm_results=confirm_results)
     assert "source=measured" in text
     assert "no_probe_fallback" not in text
+
+
+# ---------------------------------------------------------------------------
+# --config wiring (wtune_config.py): shared search filter, confirm_reps, prediction_cfg,
+# CLI > file > defaults precedence.
+# ---------------------------------------------------------------------------
+def test_apply_search_filter_exempts_anchor_from_search_but_not_from_exclude():
+    ctx = _ctx(search_cfg=dict(omp=[1]), exclude_rules=[dict(omp_gt=1, when="fire")], is_fire=True)
+    anchor = dict(id="ANCHOR", config_source="anchor", omp=2, numtiles=1, nx=8, ny=9, dist="block")
+    sampled_ok = dict(id="G0001", omp=1, numtiles=1, nx=8, ny=9, dist="block")
+    sampled_bad_omp = dict(id="G0002", omp=2, numtiles=1, nx=8, ny=9, dist="block")
+
+    out = wtune_tune._apply_search_filter(ctx, [anchor, sampled_ok, sampled_bad_omp])
+
+    # anchor: omp=2 would fail search_cfg's omp=[1], but is exempt from that -- however this
+    # anchor's omp=2 ALSO matches the `exclude` fire rule, which is never exempt, so it is dropped.
+    assert [c["id"] for c in out] == ["G0001"]
+
+
+def test_apply_search_filter_anchor_survives_when_exclude_does_not_match():
+    ctx = _ctx(search_cfg=dict(omp=[1]), exclude_rules=[dict(omp_gt=1, when="fire")], is_fire=False)
+    anchor = dict(id="ANCHOR", omp=2, numtiles=1, nx=8, ny=9, dist="block")
+    out = wtune_tune._apply_search_filter(ctx, [anchor])
+    assert [c["id"] for c in out] == ["ANCHOR"]   # exempt from search, exclude rule inert (not fire)
+
+
+def test_apply_search_filter_is_a_no_op_with_default_ctx():
+    ctx = _ctx()   # default search_cfg/exclude_rules/is_fire -- unrestricted, matches pre-config behaviour
+    configs = [dict(id="G0001", omp=9, numtiles=37, nx=1, ny=91, dist="cyclic")]
+    assert wtune_tune._apply_search_filter(ctx, configs) == configs
+
+
+def test_sample_more_diverse_configs_respects_search_cfg_before_sampling():
+    ctx = _ctx(case_json=dict(MATTHEW_LIKE, prep_dir="/fake/matthew"), nodes=1,
+               search_cfg=dict(omp=[1, 2]))
+    fresh = wtune_tune.sample_more_diverse_configs(ctx, [], k=50, seed=1)
+    assert fresh
+    assert all(c["omp"] in (1, 2) for c in fresh)
+
+
+def test_run_confirm_uses_ctx_confirm_reps_not_a_hardcoded_default():
+    sbatch_runner, sbatch_calls, _paths = make_fake_sbatch()
+    ctx = _ctx(sbatch_runner=sbatch_runner, confirm_reps=3)
+    all_results = {"ANCHOR": _result("ANCHOR", 0.10, dict(id="ANCHOR", ranks=1, omp=1, nx=1, ny=1,
+                                                            numtiles=1, dist="block"))}
+    job_id, confirm_results = wtune_tune.run_confirm(ctx, {}, all_results, "ANCHOR", s_est=0.10)
+    assert job_id is not None
+    assert any("REPS=3" in c for c in sbatch_calls)
+    assert not any("REPS=2" in c for c in sbatch_calls)
+
+
+def test_confirm_reps_default_matches_the_previous_hardcoded_constant():
+    ctx = _ctx()
+    assert ctx.confirm_reps == wtune_tune.CONFIRM_REPS == 2
+
+
+def test_build_full_run_prediction_applies_drift_band_override_and_flags_measure_r_rad(tmp_path):
+    assert wtune_tune.wtune_predict is not None, "wtune_predict.py must be importable for this test"
+    namelist_path = tmp_path / "namelist.input"
+    namelist_path.write_text(_PREDICT_TEST_NAMELIST)
+    best_config = dict(id="ANCHOR", ranks=72, omp=1, nx=8, ny=9, numtiles=1, dist="block")
+    ctx = _ctx(namelist_path=str(namelist_path),
+               case_json=dict(MATTHEW_LIKE, prep_dir=str(tmp_path)), out_dir=str(tmp_path / "out"),
+               prediction_cfg=dict(io_target="nfs", drift_band_pct=9.5, measure_r_rad=True))
+    all_results = {"ANCHOR": _result("ANCHOR", 0.93, best_config)}
+
+    text = wtune_tune.build_full_run_prediction(ctx, best_config, nodes=1, all_results=all_results,
+                                                 confirm_results=None)
+
+    assert "prediction.drift_band_pct=9.5 applied via calibration override" in text
+    override_path = os.path.join(str(tmp_path / "out"), "calibration_override.json")
+    assert os.path.exists(override_path)
+    with open(override_path) as f:
+        assert json.load(f)["drift_band_pct"] == 9.5
+    assert "measure_r_rad requested" in text
+    assert "NOT YET IMPLEMENTED" in text
+
+
+def test_build_full_run_prediction_no_drift_override_by_default(tmp_path):
+    assert wtune_tune.wtune_predict is not None, "wtune_predict.py must be importable for this test"
+    namelist_path = tmp_path / "namelist.input"
+    namelist_path.write_text(_PREDICT_TEST_NAMELIST)
+    best_config = dict(id="ANCHOR", ranks=72, omp=1, nx=8, ny=9, numtiles=1, dist="block")
+    ctx = _ctx(namelist_path=str(namelist_path),
+               case_json=dict(MATTHEW_LIKE, prep_dir=str(tmp_path)), out_dir=str(tmp_path / "out"))
+    all_results = {"ANCHOR": _result("ANCHOR", 0.93, best_config)}
+
+    text = wtune_tune.build_full_run_prediction(ctx, best_config, nodes=1, all_results=all_results,
+                                                 confirm_results=None)
+
+    assert "calibration override" not in text
+    assert "measure_r_rad" not in text
+    assert not os.path.exists(os.path.join(str(tmp_path / "out"), "calibration_override.json"))
+
+
+def _patched_load_config(raw):
+    """A stand-in for wtune_config.load_config that skips real YAML parsing entirely -- resolves
+    `raw` (a plain dict, the same shape a parsed YAML file would produce) through
+    wtune_config.resolve_config directly. Lets the --config wiring in wtune_tune.run() (CLI > file
+    > defaults precedence, search filtering, probe/prediction plumbing) be exercised without
+    requiring PyYAML in this test environment -- only wtune_config.py's OWN load_config/CLI tests
+    (test_wtune_config.py) need real YAML and are skipped there when PyYAML is absent."""
+    def fake(path):
+        cfg, errs = wtune_config.resolve_config(raw)
+        if errs:
+            raise wtune_config.ConfigError(errs)
+        return cfg
+    return fake
+
+
+def _run_e2e_with_config(tmp_path, raw_config=None, extra_argv=(), monkeypatch=None):
+    case_json = dict(MATTHEW_LIKE, prep_dir=str(tmp_path / "matthew"))
+    profile = _profile([{"nodes": 1, "legal": True, "efficiency_E": 0.95}])
+    monkeypatch.setattr(wtune_tune, "resolve_case",
+                         lambda case, cores_per_node: (case_json, str(tmp_path / "namelist.input"),
+                                                        profile))
+    if raw_config is not None:
+        monkeypatch.setattr(wtune_config, "load_config", _patched_load_config(raw_config))
+
+    sbatch_runner, sbatch_calls, job_to_configs_path = make_fake_sbatch(start=30000)
+    sacct_runner = make_fake_sacct({})
+    scancel_runner, _scancel_calls = make_fake_scancel()
+    ledger_reader = make_ledger_reader_from_configs(job_to_configs_path)
+
+    def stop_immediately_proposer(state, batch_size, kappa=None):
+        return dict(stopped=True, reason="test stub"), []
+
+    argv = ["matthew", "--site", "scc", "--max-nodes", "13",
+            "--out", str(tmp_path / "out"), "--ledger-dir", str(tmp_path / "ledger")]
+    if raw_config is not None:
+        argv += ["--config", str(tmp_path / "wtune.yaml")]   # path is never actually read (patched)
+    argv += list(extra_argv)
+
+    args = wtune_tune.build_arg_parser().parse_args(argv)
+    report = wtune_tune.run(args, sbatch_runner=sbatch_runner, sacct_runner=sacct_runner,
+                             scancel_runner=scancel_runner, ledger_reader=ledger_reader,
+                             proposer=stop_immediately_proposer, clock=FakeClock())
+    return report, sbatch_calls
+
+
+def test_config_budget_minutes_is_used_when_no_cli_minutes_given(tmp_path, monkeypatch):
+    report, _calls = _run_e2e_with_config(
+        tmp_path, raw_config=dict(case="matthew", budget=dict(minutes=12)), monkeypatch=monkeypatch)
+    assert report["budget_minutes"] == pytest.approx(12.0)
+
+
+def test_cli_flag_overrides_config_file_value(tmp_path, monkeypatch):
+    # budget.minutes: 12 in the file, but --minutes 41 on the command line must win (CLI > file).
+    report, _calls = _run_e2e_with_config(
+        tmp_path, raw_config=dict(case="matthew", budget=dict(minutes=12)),
+        extra_argv=["--minutes", "41"], monkeypatch=monkeypatch)
+    assert report["budget_minutes"] == pytest.approx(41.0)
+
+
+def test_config_probe_steps_and_confirm_reps_are_wired_through(tmp_path, monkeypatch):
+    report, calls = _run_e2e_with_config(
+        tmp_path,
+        raw_config=dict(case="matthew", budget=dict(minutes=30),
+                         probe=dict(steps=7, confirm_reps=4)),
+        monkeypatch=monkeypatch)
+    assert any("STEPS=7" in c for c in calls)
+    assert any("REPS=4" in c for c in calls)
+
+
+def test_config_search_omp_restriction_constrains_round0_and_confirm(tmp_path, monkeypatch):
+    report, _calls = _run_e2e_with_config(
+        tmp_path,
+        raw_config=dict(case="matthew", budget=dict(minutes=30),
+                         search=dict(omp=[2], numtiles=[1])),
+        monkeypatch=monkeypatch)
+    non_anchor_rows = [r for r in report["ranking"] if r["id"] != "ANCHOR"]
+    assert non_anchor_rows   # the restriction did not eliminate everything
+    assert all(r["omp"] == 2 for r in non_anchor_rows)
+    assert all(r["numtiles"] == 1 for r in non_anchor_rows)
+
+
+def test_run_raises_systemexit_with_every_violation_for_an_invalid_config(tmp_path, monkeypatch):
+    monkeypatch.setattr(wtune_config, "load_config",
+                         _patched_load_config(dict(case="matthew", search=dict(omp=[0]), bogus=1)))
+    args = wtune_tune.build_arg_parser().parse_args(
+        ["matthew", "--minutes", "30", "--config", str(tmp_path / "wtune.yaml")])
+    with pytest.raises(SystemExit) as exc_info:
+        wtune_tune.run(args)
+    msg = str(exc_info.value)
+    assert "search.omp" in msg
+    assert "bogus" in msg
+
+
+def test_run_requires_case_from_cli_or_config():
+    args = wtune_tune.build_arg_parser().parse_args(["--minutes", "30"])
+    with pytest.raises(SystemExit, match="case is required"):
+        wtune_tune.run(args)
+
+
+def test_run_requires_minutes_from_cli_or_config():
+    args = wtune_tune.build_arg_parser().parse_args(["matthew"])
+    with pytest.raises(SystemExit, match="--minutes is required"):
+        wtune_tune.run(args)
+
+
+def test_run_rejects_case_dir_only_config_as_not_yet_runnable(tmp_path, monkeypatch):
+    monkeypatch.setattr(wtune_config, "load_config",
+                         _patched_load_config(dict(case_dir="/some/where", budget=dict(minutes=10))))
+    args = wtune_tune.build_arg_parser().parse_args(
+        ["--minutes", "30", "--config", str(tmp_path / "wtune.yaml")])
+    with pytest.raises(SystemExit, match="case_dir"):
+        wtune_tune.run(args)
+
+
+def test_run_rejects_a_multi_value_budget_nodes_list(tmp_path, monkeypatch):
+    monkeypatch.setattr(wtune_config, "load_config",
+                         _patched_load_config(dict(case="matthew",
+                                                    budget=dict(minutes=10, nodes=[1, 2, 4]))))
+    args = wtune_tune.build_arg_parser().parse_args(
+        ["--minutes", "30", "--config", str(tmp_path / "wtune.yaml")])
+    with pytest.raises(SystemExit, match="not yet run"):
+        wtune_tune.run(args)

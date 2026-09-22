@@ -719,6 +719,28 @@ def plan(args):
         print("  NOTE: model narrows the candidate list; it does not predict wall time.")
 
 
+def profile_cmd(args):
+    """Case-understanding profile: hooks wtune_case.py's build_profile/render_text in."""
+    import wtune_case as wcase
+    namelist, wrfinput = wcase.find_case_inputs(args.case_dir, args.namelist, args.wrfinput)
+    if not os.path.exists(namelist):
+        print("ERROR: no namelist found at {} (pass --namelist)".format(namelist), file=sys.stderr)
+        return 1
+    cores_per_node = args.cores_per_node or wcase.DEFAULT_CORES_PER_NODE
+    try:
+        profile = wcase.build_profile(namelist, wrfinput, cores_per_node)
+    except Exception as exc:
+        print("ERROR building profile: {}".format(exc), file=sys.stderr)
+        return 1
+    if args.json:
+        with open(args.json, 'w') as fh:
+            json.dump(profile, fh, indent=2)
+        print('wrote {}'.format(args.json))
+    for line in wcase.render_text(profile):
+        print(line)
+    return 0
+
+
 def physics_cmd(args):
     """Physics diagnosis + numerics advice + (optional) scheme menu."""
     try:
@@ -1644,6 +1666,13 @@ def main():
     p_screen.add_argument('--compliance', choices=sorted(wc.LEVELS), default=None,
                           help='keep only candidates admitted at this compliance level (decision 0050); default: show all, labelled')
 
+    p_profile = sub.add_parser('profile', help='case-understanding profile (PRIOR, pre-measurement): identity/physics/cost-structure/imbalance/core-count priors')
+    p_profile.add_argument('case_dir', help='directory with namelist.input (+ optional wrfinput_d0N)')
+    p_profile.add_argument('--namelist', default=None, help='explicit namelist.input path (default: <case_dir>/namelist.input)')
+    p_profile.add_argument('--wrfinput', default=None, help='explicit wrfinput/wrfout path (default: first wrfinput_d0N in case_dir)')
+    p_profile.add_argument('--cores-per-node', type=int, default=None, help='default 72 (GH200 Grace)')
+    p_profile.add_argument('--json', default=None, help='also write the full profile as JSON to this path')
+
     p_omap = sub.add_parser('oracle-map', help='DIAGNOSTIC spatial physics-load map (per-cell phase cost + hotspots); NOT a partition selector')
     p_omap.add_argument('--namelist', required=True, help='path to namelist.input (for date + cu_physics + run length)')
     p_omap.add_argument('--snapshot', default=None, help='wrfout/wrfinput NetCDF with model-state fields (defaults to --wrfinput)')
@@ -1684,6 +1713,10 @@ def main():
         plan(args)
     elif args.command == 'physics':
         physics_cmd(args)
+    elif args.command == 'profile':
+        status = profile_cmd(args)
+        if status:
+            sys.exit(status)
     elif args.command == 'hotspot':
         hotspot_cmd(args)
     elif args.command == 'oracle-map':

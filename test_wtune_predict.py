@@ -17,9 +17,11 @@ calibration constant to force a pass -- if a held-out case misses +-20%,
 that test is expected to (and does) fail, and the failure is reported
 honestly rather than hidden.
 """
+import datetime
 import json
 import math
 import os
+import statistics
 import subprocess
 import sys
 import types
@@ -794,142 +796,520 @@ def test_wtune_py_predict_subcommand_smoke(tmp_path):
 
 
 # --------------------------------------------------------------------------
-# 9. r_rad / s_normal measured from a probe's own rsl.error.0000 step timings
+# 9. r_night/r_day/s_normal measured from a probe's own rsl.error.0000 step
+#    timings, via SCHEDULE-based radiation-step identification (not cost)
+#    plus a day/night sunlit-fraction model.
 # --------------------------------------------------------------------------
 
-def _rsl_lines(normal_s=2.0, n_normal=8, rad_s=6.0, n_rad=2, step1_s=50.0):
-    """8 normal d01 steps @ normal_s, 2 radiation d01 steps @ rad_s, plus a
-    dropped step-1 outlier, interleaved with domain-2 lines that must be
-    ignored. Chosen so pooled-after-dropping-step-1 = [normal_s]*8 + [rad_s]*2
-    (n=10) has an exact median of normal_s (n_normal even, both middle values
-    are normal_s), so 1.8x that median cleanly separates rad_s (6.0 > 3.6)
-    from normal_s (2.0 <= 3.6) with no ambiguity.
-    """
-    lines = ["Timing for main: time 2020-01-01_00:00:01 on domain   1:  %.6f elapsed seconds" % step1_s,
-             "Timing for main: time 2020-01-01_00:00:01 on domain   2:  9.000000 elapsed seconds"]
-    for i in range(n_normal):
-        lines.append("Timing for main: time 2020-01-01_00:%02d:01 on domain   1:  %.6f elapsed seconds"
-                     % (i + 2, normal_s))
-        lines.append("Timing for main: time 2020-01-01_00:%02d:01 on domain   2:  0.500000 elapsed seconds"
-                     % (i + 2))
-    for i in range(n_rad):
-        lines.append("Timing for main: time 2020-01-01_00:%02d:01 on domain   1:  %.6f elapsed seconds"
-                     % (i + 20, rad_s))
-    return "\n".join(lines) + "\n"
+def _write_rsl(path, entries):
+    """entries: [(sim_dt_or_None, domain, seconds), ...] -> writes a
+    synthetic rsl.error.0000-shaped file, one 'Timing for main' line per
+    entry, in the given order."""
+    lines = []
+    for sim_dt, dom, sec in entries:
+        t = sim_dt.strftime("%Y-%m-%d_%H:%M:%S") if sim_dt else "0000-00-00_00:00:00"
+        lines.append("Timing for main: time %s on domain   %d:  %.6f elapsed seconds" % (t, dom, sec))
+    _write(str(path), "\n".join(lines) + "\n")
 
 
-def test_parse_rsl_d01_step_seconds_ignores_other_domains(tmp_path):
-    rsl_path = tmp_path / "rsl.error.0000"
-    text = _rsl_lines()
-    assert "on domain   2:" in text  # sanity: fixture really has d02 noise present
-    _write(str(rsl_path), text)
-    d01 = wp.parse_rsl_d01_step_seconds(str(rsl_path))
-    assert d01 == [50.0] + [2.0] * 8 + [6.0, 6.0]
-    assert not any(v == 9.0 or v == 0.5 for v in d01)  # d02-only values excluded
+# --- 9a. schedule-based radiation-step identification (the severe2023 fix) ---
+
+def test_classify_steps_detected_finds_radiation_steps_below_old_cost_threshold():
+    """The OLD heuristic ('step time > 1.8x the pooled median') is exactly
+    what missed severe2023's night radiation steps (measured cost ~1.05x a
+    normal step). Build a synthetic wall-time series where radiation steps
+    (schedule period stepra=6: i==1 or i%6==0) cost only 1.3x a normal step
+    -- well under 1.8x -- and verify classify_steps_detected still finds
+    them all, purely from the schedule."""
+    stepra = 6
+    n = 24
+    normal_s, night_rad_s = 2.0, 2.6  # ratio 1.3, BELOW the old 1.8x threshold
+    assert night_rad_s / normal_s < 1.8
+    wall = [(night_rad_s if ((i == 1) or (i % stepra == 0)) else normal_s) for i in range(1, n + 1)]
+    flags = wp.classify_steps_detected(wall, stepra)
+    expected = [(i == 1) or (i % stepra == 0) for i in range(1, n + 1)]
+    assert flags == expected
+    assert sum(flags) == 5  # i = 1, 6, 12, 18, 24
 
 
-def test_measure_rad_from_rsl_exact_values(tmp_path):
-    rsl_path = tmp_path / "rsl.error.0000"
-    _write(str(rsl_path), _rsl_lines())
-
-    d01 = wp.parse_rsl_d01_step_seconds(str(rsl_path))
-    assert d01 == [50.0] + [2.0] * 8 + [6.0, 6.0]
-
-    result = wp.measure_rad_from_rsl([str(rsl_path)], default_r_rad=5.0)
-    assert result["r_rad_source"] == "probe_rsl"
-    assert result["s_normal"] == pytest.approx(2.0)
-    assert result["r_rad"] == pytest.approx(3.0)
-    assert result["n_radiation_steps"] == 2
-    assert result["n_steps_pooled"] == 10  # step 1 dropped
+def test_steps_per_radiation_call_rounds_fortran_nint():
+    # conus12: radt=15min, dt=72s -> 15*60/72=12.5; Fortran NINT rounds
+    # halves away from zero (13), NOT Python round()'s round-half-to-even (12).
+    assert wp.steps_per_radiation_call(15, 72) == 13
+    assert wp.steps_per_radiation_call(9, 10) == 54  # sc26p1 worked example
 
 
-def test_measure_rad_from_rsl_pools_multiple_files(tmp_path):
-    p1 = tmp_path / "rsl.error.0000"
-    p2 = tmp_path / "rsl.error.0001"
-    _write(str(p1), _rsl_lines(n_normal=4, n_rad=1))
-    _write(str(p2), _rsl_lines(n_normal=4, n_rad=1))
-    result = wp.measure_rad_from_rsl([str(p1), str(p2)], default_r_rad=5.0)
-    assert result["n_steps_pooled"] == 10  # (4+1)*2, each file's own step1 dropped
-    assert result["n_radiation_steps"] == 2  # 1+1, only >= 2 pooled unlocks probe_rsl
-    assert result["r_rad_source"] == "probe_rsl"
-    assert result["r_rad"] == pytest.approx(3.0)
+# --- 9b. least-squares day/night fit ---
+
+def test_fit_day_night_r_rad_recovers_known_levels_from_two_regime_probe():
+    r_night_true, r_day_true = 2.0, 4.0
+    samples = [(frac, r_night_true + (r_day_true - r_night_true) * frac)
+              for frac in (0.0, 0.2, 0.4, 0.6, 0.8, 1.0)]
+    r_night, r_day, source = wp.fit_day_night_r_rad(samples, day_night_ratio=1.87)
+    assert source == "fit_day_night"
+    assert r_night == pytest.approx(r_night_true)
+    assert r_day == pytest.approx(r_day_true)
 
 
-def test_measure_rad_from_rsl_falls_back_when_lt2_radiation_steps(tmp_path):
-    rsl_path = tmp_path / "rsl.error.0000"
-    # all steps identical (after dropping step 1) -> zero outliers
-    _write(str(rsl_path), _rsl_lines(n_normal=5, n_rad=0))
-    result = wp.measure_rad_from_rsl([str(rsl_path)], default_r_rad=5.0)
-    assert result["r_rad_source"] == "default_unmeasured"
-    assert result["r_rad"] == 5.0
-    assert result["n_radiation_steps"] == 0
+def test_fit_day_night_r_rad_single_night_regime_uses_ratio():
+    # sunlit fractions all near 0 (spread 0.1 < RADIATION_FIT_MIN_SUNLIT_SPREAD) --
+    # a probe whose t0 fixed it to a single (night) regime, e.g. matthew's 00Z t0.
+    samples = [(0.0, 1.9), (0.05, 1.95), (0.1, 2.0)]
+    r_night, r_day, source = wp.fit_day_night_r_rad(samples, day_night_ratio=1.87)
+    assert source == "ratio_from_night"
+    mean_y = statistics.mean(s[1] for s in samples)
+    assert r_night == pytest.approx(mean_y)
+    assert r_day == pytest.approx(mean_y * 1.87)
 
 
-RSL_COMPUTE_NAMELIST = """\
+def test_fit_day_night_r_rad_single_day_regime_uses_ratio():
+    samples = [(0.9, 3.8), (0.95, 3.9), (1.0, 4.0)]
+    r_night, r_day, source = wp.fit_day_night_r_rad(samples, day_night_ratio=1.87)
+    assert source == "ratio_from_day"
+    mean_y = statistics.mean(s[1] for s in samples)
+    assert r_day == pytest.approx(mean_y)
+    assert r_night == pytest.approx(mean_y / 1.87)
+
+
+# --- 9c. sunlit fraction (solar position) ---
+
+def test_sunlit_fraction_zero_at_midnight_one_at_noon_mid_latitude():
+    """A small domain (a tight cluster of sample points) around 40N, 0E.
+    lon=0 makes local solar time == UTC exactly (this test's own ASSUMPTION
+    choice, matching solar_cos_zenith's own equation-of-time-free model), so
+    UTC 12:00 is local solar noon and UTC 00:00 is local solar midnight.
+    2020-03-20 is within a day of the equinox, so declination is ~0 and does
+    not change the day/night sign at this latitude."""
+    sample_points = [(40.0, 0.0), (40.1, 0.05), (39.9, -0.05), (40.05, -0.02)]
+    noon = datetime.datetime(2020, 3, 20, 12, 0, 0)
+    midnight = datetime.datetime(2020, 3, 20, 0, 0, 0)
+    assert wp.sunlit_fraction(sample_points, noon) == pytest.approx(1.0)
+    assert wp.sunlit_fraction(sample_points, midnight) == pytest.approx(0.0)
+
+
+def test_sample_lattice_5x5_uses_real_center_not_corner_average():
+    sw, nw, ne, se = (20.0, -125.0), (45.0, -125.0), (45.0, -65.0), (20.0, -65.0)
+    real_cen = (33.0, -97.0)  # deliberately NOT the corners' arithmetic mean (32.5, -95.0)
+    pts = wp.sample_lattice_5x5(sw, nw, ne, se, real_cen)
+    assert len(pts) == 25
+    assert pts[12] == real_cen  # index (v=0.5,u=0.5) is the 13th point (row 2, col 2) of a 5x5 lattice
+    assert pts[0] == sw
+    assert pts[4] == se
+    assert pts[20] == nw
+    assert pts[24] == ne
+
+
+def test_parse_wrfinput_corners_reads_ncdump_header_text():
+    ncdump_text = """netcdf wrfinput_d01 {
+// global attributes:
+\t\t:CEN_LAT = 39.5f ;
+\t\t:CEN_LON = -98.35f ;
+\t\t:CORNER_LATS = 20.0f, 20.1f, 20.2f, 20.3f, 45.0f, 45.1f, 45.2f, 45.3f, 45.5f, 45.6f, 45.7f, 45.8f, 20.5f, 20.6f, 20.7f, 20.8f ;
+\t\t:CORNER_LONS = -125.0f, -124.9f, -124.8f, -124.7f, -125.5f, -125.4f, -125.3f, -125.2f, -65.0f, -64.9f, -64.8f, -64.7f, -64.5f, -64.4f, -64.3f, -64.2f ;
+}
+"""
+    parsed = wp.parse_wrfinput_corners(ncdump_text)
+    assert parsed["cen"] == (39.5, -98.35)
+    # mass-point (index c*4) corners: SW=idx0, NW=idx4, NE=idx8, SE=idx12
+    assert parsed["corners"] == ((20.0, -125.0), (45.0, -125.5), (45.5, -65.0), (20.5, -64.5))
+
+    points = wp.domain_sample_points_from_ncdump(ncdump_text)
+    assert len(points) == 25
+    assert points[12] == (39.5, -98.35)  # real CEN overrides the bilinear centre
+
+
+def test_parse_wrfinput_corners_missing_cen_lat_returns_none():
+    assert wp.parse_wrfinput_corners("netcdf x {\n// global attributes:\n}\n") is None
+
+
+def test_domain_sample_points_from_ncdump_degrades_to_centre_only_without_corners():
+    ncdump_text = "netcdf x {\n// global attributes:\n\t\t:CEN_LAT = 10.0f ;\n\t\t:CEN_LON = 20.0f ;\n}\n"
+    points = wp.domain_sample_points_from_ncdump(ncdump_text)
+    assert points == [(10.0, 20.0)]
+
+
+# --- 9c-bis. real XLAT/XLONG grid sampling (2026-09-23 scc finding: a real
+#     real.exe wrfinput_d01 has NO CORNER_LATS/CORNER_LONS at all) ---
+
+# Real conus12 wrfinput_d01 corners, measured 2026-09-23 on scc from the
+# XLAT/XLONG arrays themselves (424 x 299 mass points, row-major, south row
+# first): SW=(20.606,-121.482) SE=(20.606,-74.518) NW=(50.804,-136.748)
+# NE=(50.804,-59.252). A synthetic 5x5 grid built from these same corners
+# (with the lattice sized exactly 5x5) lets _lattice_indices resolve to
+# [0,1,2,3,4] with no rounding ambiguity, so the sampled corners must come
+# back byte-exact.
+_CONUS12_SW = (20.606, -121.482)
+_CONUS12_SE = (20.606, -74.518)
+_CONUS12_NW = (50.804, -136.748)
+_CONUS12_NE = (50.804, -59.252)
+
+
+def _synthetic_xlat_xlong_5x5():
+    """5x5 lat/lon grids (row 0 = south) spanning exactly the conus12
+    corners above, linearly interpolated in between (interior values are
+    not physically exact, only the 4 corners need to be)."""
+    lat_rows = [_CONUS12_SW[0] + (_CONUS12_NW[0] - _CONUS12_SW[0]) * r / 4.0 for r in range(5)]
+    lon_south = [_CONUS12_SW[1] + (_CONUS12_SE[1] - _CONUS12_SW[1]) * c / 4.0 for c in range(5)]
+    lon_north = [_CONUS12_NW[1] + (_CONUS12_NE[1] - _CONUS12_NW[1]) * c / 4.0 for c in range(5)]
+    lat2d = [[lat_rows[r]] * 5 for r in range(5)]
+    lon2d = [[lon_south[c] + (lon_north[c] - lon_south[c]) * r / 4.0 for c in range(5)] for r in range(5)]
+    return lat2d, lon2d
+
+
+def _build_ncdump_v_text(n_rows, n_cols, lat2d, lon2d):
+    """A synthetic `ncdump -v XLAT,XLONG <file>` TEXT output shaped like the
+    real thing: dimensions block (Time UNLIMITED, south_north, west_east),
+    variable declarations, then each variable's flattened row-major data."""
+    def flat(vals2d):
+        return ",\n  ".join("%.6ff" % v for row in vals2d for v in row)
+    return """netcdf wrfinput_d01 {
+dimensions:
+\tTime = UNLIMITED ; // (1 currently)
+\tsouth_north = %d ;
+\twest_east = %d ;
+variables:
+\tfloat XLAT(Time, south_north, west_east) ;
+\tfloat XLONG(Time, south_north, west_east) ;
+
+// global attributes:
+\t\t:CEN_LAT = 40.00001f ;
+\t\t:CEN_LON = -98.f ;
+data:
+
+ XLAT =
+  %s ;
+
+ XLONG =
+  %s ;
+}
+""" % (n_rows, n_cols, flat(lat2d), flat(lon2d))
+
+
+def test_parse_ncdump_dims_reads_south_north_west_east():
+    lat2d, lon2d = _synthetic_xlat_xlong_5x5()
+    text = _build_ncdump_v_text(5, 5, lat2d, lon2d)
+    dims = wp.parse_ncdump_dims(text)
+    assert dims["south_north"] == 5
+    assert dims["west_east"] == 5
+    assert "Time" not in dims  # UNLIMITED, no bare integer on that line
+
+
+def test_parse_ncdump_2d_var_and_grid_lattice_match_conus12_corners():
+    lat2d, lon2d = _synthetic_xlat_xlong_5x5()
+    text = _build_ncdump_v_text(5, 5, lat2d, lon2d)
+    dims = wp.parse_ncdump_dims(text)
+    parsed_lat = wp.parse_ncdump_2d_var(text, "XLAT", dims["south_north"], dims["west_east"])
+    parsed_lon = wp.parse_ncdump_2d_var(text, "XLONG", dims["south_north"], dims["west_east"])
+    assert parsed_lat[0][0] == pytest.approx(_CONUS12_SW[0])
+    assert parsed_lon[0][0] == pytest.approx(_CONUS12_SW[1])
+
+    points = wp.sample_lattice_5x5_from_grid(parsed_lat, parsed_lon)
+    assert len(points) == 25
+    assert points[0] == pytest.approx(_CONUS12_SW)     # (j=0,i=0): south-west
+    assert points[4] == pytest.approx(_CONUS12_SE)     # (j=0,i=4): south-east
+    assert points[20] == pytest.approx(_CONUS12_NW)    # (j=4,i=0): north-west
+    assert points[24] == pytest.approx(_CONUS12_NE)    # (j=4,i=4): north-east
+
+
+def test_parse_ncdump_2d_var_returns_none_on_wrong_count():
+    text = _build_ncdump_v_text(5, 5, *_synthetic_xlat_xlong_5x5())
+    assert wp.parse_ncdump_2d_var(text, "XLAT", 6, 6) is None  # wrong shape
+    assert wp.parse_ncdump_2d_var(text, "NOSUCHVAR", 5, 5) is None
+
+
+def test_sample_points_via_ncdump_arrays_end_to_end(tmp_path, monkeypatch):
+    """Full _sample_points_via_ncdump_arrays pipeline, with subprocess.run
+    monkeypatched to return the synthetic ncdump -v text instead of
+    actually invoking a real ncdump binary (none is required on this dev
+    machine -- see _find_ncdump_binary's own docstring for why scc's own
+    ncdump isn't even on PATH there)."""
+    text = _build_ncdump_v_text(5, 5, *_synthetic_xlat_xlong_5x5())
+
+    class _FakeResult:
+        returncode = 0
+        stdout = text
+
+    def _fake_run(args, **kwargs):
+        assert args[0].endswith("ncdump")
+        assert "-v" in args
+        return _FakeResult()
+
+    monkeypatch.setattr(wp.subprocess, "run", _fake_run)
+    points = wp._sample_points_via_ncdump_arrays(tmp_path / "wrfinput_d01")
+    assert points[0] == pytest.approx(_CONUS12_SW)
+    assert points[24] == pytest.approx(_CONUS12_NE)
+
+
+def test_find_ncdump_binary_prefers_netcdf_env_var(tmp_path, monkeypatch):
+    netcdf_root = tmp_path / "netcdf-4.9.2"
+    bin_dir = netcdf_root / "bin"
+    bin_dir.mkdir(parents=True)
+    ncdump_path = bin_dir / "ncdump"
+    ncdump_path.write_text("#!/bin/sh\n")
+    monkeypatch.setenv("NETCDF", str(netcdf_root))
+    assert wp._find_ncdump_binary() == str(ncdump_path)
+
+
+def test_find_ncdump_binary_falls_back_to_path_lookup(monkeypatch):
+    monkeypatch.delenv("NETCDF", raising=False)
+    assert wp._find_ncdump_binary() == "ncdump"
+
+    monkeypatch.setenv("NETCDF", "/nonexistent/netcdf/root")
+    assert wp._find_ncdump_binary() == "ncdump"
+
+
+def test_read_wrfinput_sample_points_geometry_source_none_without_file(tmp_path):
+    points, source = wp.read_wrfinput_sample_points(str(tmp_path))
+    assert points is None
+    assert source == "none"
+
+
+def test_read_wrfinput_sample_points_geometry_source_ncdump_arrays(tmp_path, monkeypatch):
+    text = _build_ncdump_v_text(5, 5, *_synthetic_xlat_xlong_5x5())
+    (tmp_path / "wrfinput_d01").write_text("placeholder")  # only existence is checked before ncdump runs
+
+    class _FakeResult:
+        returncode = 0
+        stdout = text
+
+    def _fake_run(args, **kwargs):
+        return _FakeResult()
+
+    monkeypatch.setattr(wp.subprocess, "run", _fake_run)
+    points, source = wp.read_wrfinput_sample_points(str(tmp_path))
+    assert source == "ncdump_arrays"
+    assert points[0] == pytest.approx(_CONUS12_SW)
+
+
+def test_render_text_warns_when_geometry_source_is_none(tmp_path):
+    nl_text = ("&time_control\n run_minutes = 60,\n /\n&domains\n max_dom = 1,\n"
+               " e_we = 10, e_sn = 10, e_vert = 10,\n time_step = 60,\n /\n"
+               "&physics\n radt = 10,\n /\n")
+    case_dir = tmp_path / "nogeom"
+    case_dir.mkdir()
+    _write(str(case_dir / "namelist.input"), nl_text)  # no wrfinput_d01 present
+    pred = wp.build_prediction(
+        namelist_path=str(case_dir / "namelist.input"), case_dir=str(case_dir), nodes=1,
+        config={"ranks": 1, "omp": 1, "nx": 1, "ny": 1, "numtiles": 1},
+        ledger_paths=None, calibration_path=CALIBRATION, io_form_override=None, io_target="nfs")
+    assert pred["compute"]["geometry_source"] == "none"
+    text = wp.render_text(pred)
+    assert "domain geometry source: none" in text
+    assert "WARNING: no domain geometry found" in text
+    assert "sunlit-fraction weighting is DISABLED" in text
+
+
+# --- 9d. measure_rad_from_rsl end-to-end (schedule + day/night geometry fit) ---
+
+RAD_RSL_NAMELIST = """\
 &time_control
- run_minutes = 40,
+ run_minutes = 1440,
  /
 &domains
  max_dom = 1,
  e_we = 10,
  e_sn = 10,
  e_vert = 10,
- time_step = 60,
+ time_step = 3600,
  /
 &physics
- radt = 10,
+ radt = 180,
  /
 """
 
 
-def test_predict_compute_uses_rsl_s_normal_and_r_rad_without_ledger(tmp_path):
-    nl = wp.parse_namelist(_write(str(tmp_path / "namelist.input"), RSL_COMPUTE_NAMELIST))
+def _build_two_regime_rsl_entries(r_night_true, r_day_true, s_normal_true=2.0):
+    """24 hourly d01 steps (dt=3600s), radt=180min -> stepra=3 (radiation at
+    i=1,3,6,9,12,15,18,21,24). start_dt=2020-03-20T00:00 (equinox, lon=0 ==
+    UTC solar time -- see test_sunlit_fraction_zero_at_midnight_one_at_noon):
+    hours 2,5,20,23 are night (i=3,6,21,24), hours 8,11,14,17 are day
+    (i=9,12,15,18) -- an exact, evenly-split two-regime probe. Step 1 (i=1,
+    also schedule-radiation) gets an outlier value, since measure_rad_from_rsl
+    is documented to drop it regardless of category."""
+    start = datetime.datetime(2020, 3, 20, 0, 0, 0)
+    stepra = 3
+    entries = []
+    for i in range(1, 25):
+        t = start + datetime.timedelta(hours=i - 1)
+        is_rad = (i == 1) or (i % stepra == 0)
+        if i == 1:
+            sec = 999.0  # dropped outlier -- must not affect s_normal or the fit
+        elif is_rad:
+            is_day = 6 < t.hour < 18
+            sec = (r_day_true if is_day else r_night_true) * s_normal_true
+        else:
+            sec = s_normal_true
+        entries.append((t, 1, sec))
+    return entries
+
+
+def test_measure_rad_from_rsl_two_regime_end_to_end(tmp_path):
+    entries = _build_two_regime_rsl_entries(r_night_true=2.0, r_day_true=4.0)
+    rsl_path = tmp_path / "rsl.error.0000"
+    _write_rsl(rsl_path, entries)
+    result = wp.measure_rad_from_rsl(
+        [str(rsl_path)], radt_minutes=180, dt_seconds=3600, sample_points=[(0.0, 0.0)],
+        default_r_rad=5.0, day_night_ratio=1.87)
+
+    assert result["source"] == "fit_day_night"
+    assert result["s_normal"] == pytest.approx(2.0)
+    assert result["r_night"] == pytest.approx(2.0)
+    assert result["r_day"] == pytest.approx(4.0)
+    assert result["n_radiation_steps"] == 8  # i=3,6,9,12,15,18,21,24 (step 1 dropped)
+    assert result["mean_sunlit_fraction"] == pytest.approx(0.5)  # 4 night + 4 day
+
+
+def test_measure_rad_from_rsl_single_night_regime_end_to_end(tmp_path):
+    """Restrict the probe window to entirely-night hours (like matthew's 00Z
+    t0): only i=1 (dropped) and i=3,6 fall in-window, both night."""
+    start = datetime.datetime(2020, 3, 20, 0, 0, 0)
+    entries = [(start + datetime.timedelta(hours=0), 1, 999.0),               # i=1, dropped
+              (start + datetime.timedelta(hours=1), 1, 2.0),                  # i=2, normal
+              (start + datetime.timedelta(hours=2), 1, 1.9 * 2.0),            # i=3, radiation, night (02:00)
+              (start + datetime.timedelta(hours=3), 1, 2.0),                  # i=4
+              (start + datetime.timedelta(hours=4), 1, 2.0),                  # i=5
+              (start + datetime.timedelta(hours=5), 1, 2.1 * 2.0)]            # i=6, radiation, night (05:00)
+    rsl_path = tmp_path / "rsl.error.0000"
+    _write_rsl(rsl_path, entries)
+    result = wp.measure_rad_from_rsl([str(rsl_path)], radt_minutes=180, dt_seconds=3600,
+                                     sample_points=[(0.0, 0.0)], default_r_rad=5.0,
+                                     day_night_ratio=1.87)
+    assert result["source"] == "ratio_from_night"
+    assert result["r_night"] == pytest.approx(2.0)  # mean(1.9, 2.1)
+    assert result["r_day"] == pytest.approx(2.0 * 1.87)
+
+
+def test_measure_rad_from_rsl_pools_multiple_files(tmp_path):
+    entries = _build_two_regime_rsl_entries(r_night_true=2.0, r_day_true=4.0)
+    half = len(entries) // 2
+    p1, p2 = tmp_path / "rsl.error.0000", tmp_path / "rsl.error.0001"
+    # step 1 must be present in EACH file (its own file-relative index 0 is
+    # what gets dropped), so replicate it into both halves.
+    _write_rsl(p1, [entries[0]] + entries[1:half])
+    _write_rsl(p2, [entries[0]] + entries[half:])
+    result = wp.measure_rad_from_rsl(
+        [str(p1), str(p2)], radt_minutes=180, dt_seconds=3600, sample_points=[(0.0, 0.0)],
+        default_r_rad=5.0, day_night_ratio=1.87)
+    assert result["source"] == "fit_day_night"
+    assert result["r_night"] == pytest.approx(2.0)
+    assert result["r_day"] == pytest.approx(4.0)
+
+
+def test_measure_rad_from_rsl_falls_back_when_lt2_radiation_samples(tmp_path):
+    # radt=180min, dt=3600s -> stepra=3 (radiation at i=1,3,6,...); a 5-step
+    # window only has i=1 (dropped) and i=3 as schedule-radiation -> exactly
+    # 1 usable radiation sample, below the fit's own >=2 requirement.
+    start = datetime.datetime(2020, 3, 20, 0, 0, 0)
+    entries = [(start + datetime.timedelta(hours=i), 1, 2.0) for i in range(5)]
+    rsl_path = tmp_path / "rsl.error.0000"
+    _write_rsl(rsl_path, entries)
+    result = wp.measure_rad_from_rsl([str(rsl_path)], radt_minutes=180, dt_seconds=3600,
+                                     sample_points=[(0.0, 0.0)], default_r_rad=5.0,
+                                     day_night_ratio=1.87)
+    assert result["source"] == "default_unmeasured"
+    assert result["r_night"] == 5.0
+    assert result["r_day"] == 5.0
+    assert result["n_radiation_steps"] == 1
+
+
+def test_measure_rad_from_rsl_falls_back_without_sample_points(tmp_path):
+    """No domain geometry at all (sample_points=None) -> no radiation sample
+    can be placed against a sunlit fraction, regardless of how many
+    schedule-radiation steps exist."""
+    entries = _build_two_regime_rsl_entries(r_night_true=2.0, r_day_true=4.0)
+    rsl_path = tmp_path / "rsl.error.0000"
+    _write_rsl(rsl_path, entries)
+    result = wp.measure_rad_from_rsl([str(rsl_path)], radt_minutes=180, dt_seconds=3600,
+                                     sample_points=None, default_r_rad=5.0, day_night_ratio=1.87)
+    assert result["source"] == "default_unmeasured"
+    assert result["s_normal"] == pytest.approx(2.0)  # normal steps still usable
+
+
+# --- 9e. predict_radiation_extra: hand-computed integration ---
+
+def test_predict_radiation_extra_integrates_to_hand_computed_value():
+    run_start_dt = datetime.datetime(2020, 3, 20, 0, 0, 0)
+    sample_points = [(0.0, 0.0)]  # equator/prime-meridian: sunrise/sunset ~06:00/18:00 UTC at equinox
+    rad_steps, rad_extra_s, mean_frac, sampling_advice = wp.predict_radiation_extra(
+        steps=12, radt=180, dt_seconds=3600, s_normal=2.0, r_night=1.5, r_day=3.0,
+        run_start_dt=run_start_dt, sample_points=sample_points, default_r_rad=5.0)
+    # stepra=NINT(180*60/3600)=3 -> radiation steps i=1,3,6,9,12, offsets 0,2,5,8,11h.
+    # hours 0,2,5 = night (frac=0); hours 8,11 = day (frac=1).
+    assert rad_steps == 5
+    expected = 3 * (1.5 - 1.0) * 2.0 + 2 * (3.0 - 1.0) * 2.0
+    assert rad_extra_s == pytest.approx(expected)
+    assert rad_extra_s == pytest.approx(11.0)
+    assert mean_frac == pytest.approx(2.0 / 5.0)
+    assert sampling_advice["night_sunlit_fraction"] == pytest.approx(0.0)
+    assert sampling_advice["day_sunlit_fraction"] == pytest.approx(1.0)
+
+
+def test_predict_radiation_extra_uniform_fallback_without_geometry():
+    rad_steps, rad_extra_s, mean_frac, sampling_advice = wp.predict_radiation_extra(
+        steps=12, radt=180, dt_seconds=3600, s_normal=2.0, r_night=1.5, r_day=3.0,
+        run_start_dt=None, sample_points=None, default_r_rad=5.0)
+    assert rad_steps == 5
+    assert rad_extra_s == pytest.approx(5 * ((1.5 + 3.0) / 2.0 - 1.0) * 2.0)
+    assert mean_frac is None
+    assert sampling_advice is None
+
+
+# --- 9f. predict_compute integration (full plumbing) ---
+
+def test_predict_compute_uses_rsl_day_night_model_without_ledger(tmp_path):
+    nl = wp.parse_namelist(_write(str(tmp_path / "namelist.input"), RAD_RSL_NAMELIST))
     steps, run_s, dt, _ = wp.get_d01_steps(nl)
     run_min = run_s / 60.0
     rsl_path = tmp_path / "rsl.error.0000"
-    _write(str(rsl_path), _rsl_lines())
+    _write_rsl(rsl_path, _build_two_regime_rsl_entries(r_night_true=2.0, r_day_true=4.0))
 
-    compute = wp.predict_compute(nl, 1, steps, run_min, ranks=1, omp=1, probe_result=None,
-                                 calibration={"radiation": {"r_rad_default": 5.0}},
-                                 rsl_paths=[str(rsl_path)])
+    compute = wp.predict_compute(
+        nl, 1, steps, run_min, ranks=1, omp=1, probe_result=None,
+        calibration={"radiation": {"r_rad_default": 5.0, "r_rad_day_night_ratio": 1.87}},
+        rsl_paths=[str(rsl_path)], dt_seconds=dt, sample_points=[(0.0, 0.0)],
+        run_start_dt=datetime.datetime(2020, 3, 20, 0, 0, 0))
     assert compute["source"] == "probe_rsl"
     assert compute["s_normal"] == pytest.approx(2.0)
-    assert compute["r_rad"] == pytest.approx(3.0)
-    assert compute["r_rad_source"] == "probe_rsl"
-    # radt=10min, run_min=40 -> rad_steps = floor(40/10) = 4
-    assert compute["rad_steps"] == 4
-    assert compute["rad_extra_s"] == pytest.approx(4 * (3.0 - 1.0) * 2.0)
+    assert compute["r_night"] == pytest.approx(2.0)
+    assert compute["r_day"] == pytest.approx(4.0)
+    assert compute["r_rad_source"] == "fit_day_night"
+    assert compute["run_mean_sunlit_fraction"] is not None
+    assert compute["sampling_advice"] is not None
 
 
-def test_predict_compute_ledger_s_normal_wins_rsl_still_sets_r_rad(tmp_path):
+def test_predict_compute_ledger_s_normal_wins_rsl_still_sets_day_night(tmp_path):
     """Per spec: --probe (ledger) keeps supplying s_normal when it has a
     match; --probe-rsl only supplies s_normal when the ledger gave none.
-    r_rad, however, is always eligible to come from --probe-rsl."""
-    nl = wp.parse_namelist(_write(str(tmp_path / "namelist.input"), RSL_COMPUTE_NAMELIST))
+    r_night/r_day, however, are always eligible to come from --probe-rsl."""
+    nl = wp.parse_namelist(_write(str(tmp_path / "namelist.input"), RAD_RSL_NAMELIST))
     steps, run_s, dt, _ = wp.get_d01_steps(nl)
     run_min = run_s / 60.0
     rsl_path = tmp_path / "rsl.error.0000"
-    _write(str(rsl_path), _rsl_lines())
+    _write_rsl(rsl_path, _build_two_regime_rsl_entries(r_night_true=2.0, r_day_true=4.0))
 
     probe_result = {"s_normal": 9.0, "source": "measured", "spread_pct": None}
-    compute = wp.predict_compute(nl, 1, steps, run_min, ranks=1, omp=1, probe_result=probe_result,
-                                 calibration={"radiation": {"r_rad_default": 5.0}},
-                                 rsl_paths=[str(rsl_path)])
+    compute = wp.predict_compute(
+        nl, 1, steps, run_min, ranks=1, omp=1, probe_result=probe_result,
+        calibration={"radiation": {"r_rad_default": 5.0, "r_rad_day_night_ratio": 1.87}},
+        rsl_paths=[str(rsl_path)], dt_seconds=dt, sample_points=[(0.0, 0.0)],
+        run_start_dt=datetime.datetime(2020, 3, 20, 0, 0, 0))
     assert compute["s_normal"] == pytest.approx(9.0)  # ledger value, unchanged
     assert compute["source"] == "measured"
-    assert compute["r_rad"] == pytest.approx(3.0)  # measured from rsl, not the 5.0 default
-    assert compute["r_rad_source"] == "probe_rsl"
+    assert compute["r_night"] == pytest.approx(2.0)  # measured from rsl, not the default
+    assert compute["r_day"] == pytest.approx(4.0)
+    assert compute["r_rad_source"] == "fit_day_night"
 
 
-def test_predict_compute_r_rad_default_when_no_probe_rsl_given(tmp_path):
-    nl = wp.parse_namelist(_write(str(tmp_path / "namelist.input"), RSL_COMPUTE_NAMELIST))
+def test_predict_compute_default_r_rad_when_no_probe_rsl_given(tmp_path):
+    nl = wp.parse_namelist(_write(str(tmp_path / "namelist.input"), RAD_RSL_NAMELIST))
     steps, run_s, dt, _ = wp.get_d01_steps(nl)
     run_min = run_s / 60.0
     compute = wp.predict_compute(nl, 1, steps, run_min, ranks=1, omp=1, probe_result=None,
                                  calibration={"radiation": {"r_rad_default": 5.0},
                                               "fallback_s_per_cell_step_ns": 1.0},
-                                 rsl_paths=None)
-    assert compute["r_rad"] == 5.0
+                                 rsl_paths=None, dt_seconds=dt)
+    assert compute["r_night"] == 5.0
+    assert compute["r_day"] == 5.0
     assert compute["r_rad_source"] == "default_unmeasured"
 
 

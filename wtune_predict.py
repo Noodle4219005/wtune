@@ -26,30 +26,70 @@ compute (normal, non-radiation, non-I/O step cost)
        -> 'extrapolated'.
     3. else, when --probe-rsl gives one or more rsl.error.0000 probe logs and
        the ledger produced no probe_result at all (no --probe row matched this
-       case), s_normal is the median non-radiation d01 step time measured
-       directly from those logs (see measure_rad_from_rsl below) -> 'probe_rsl'.
+       case), s_normal is the median SCHEDULE-identified (not cost-threshold)
+       non-radiation d01 step time from those logs (see measure_rad_from_rsl
+       and the 'radiation' section below) -> 'probe_rsl'.
     4. else calibration.fallback_s_per_cell_step_ns (documented UNCALIBRATED
        GUESS from the one conus25 reference run) -> 'no_probe_fallback'.
 
-radiation
-    radiation steps = floor(run_minutes / d01 radt). Each one costs r_rad times
-    a normal step; modeled as an ADD-ON: extra_s = rad_steps * (r_rad-1) *
-    s_normal, since s_normal (probe median) already represents a
-    normal/non-radiation step. r_rad itself:
-      - when --probe-rsl gives one or more rsl.error.0000 logs with >= 2
-        radiation-cost steps observed (step time > 1.8x the pooled non-first-
-        step median), r_rad = median(those steps) / median(the rest)
-        -> 'probe_rsl', measured per-case/per-hardware instead of assumed.
-        ASSUMPTION: the probe window has no mid-run history/restart writes,
-        so every step-time outlier is radiation cost, not I/O -- true for the
-        campaign probe convention (probes write nothing mid-window); a probe
-        that DOES write mid-window will have its I/O steps misclassified as
-        radiation steps by this heuristic.
-      - otherwise r_rad = calibration.radiation.r_rad_default (5.0) ->
-        'default_unmeasured'. Measured atlas CONUS 2.5km range was 4.63-5.66,
-        but a 2026-09-23 scc validation found it case-dependent and as low as
-        2.04 (severe2023) to 4.58 (sc26p2), i.e. the hard-coded 5.0 is not a
-        safe universal default -- this is exactly why 'probe_rsl' exists.
+radiation (DAY/NIGHT model, 2026-09-23 5-run validation)
+    Radiation steps are identified by WRF's own CALL SCHEDULE, not by cost:
+    stepra = steps_per_radiation_call(radt, dt) = NINT(radt*60/dt) (Fortran
+    NINT; ported from tools/state_timeline.py, see that function's docstring
+    for why this is a port and not an import), and step i (1-indexed) is a
+    radiation step iff i==1 or i%stepra==0 (classify_steps, the DOCUMENTED
+    schedule -- used for the run being PREDICTED, which has no real timing
+    data to detect a phase from) or the data-detected phase variant
+    (classify_steps_detected, used against a --probe-rsl log's OWN step
+    numbering, since real rsl line numbering does not always land on phase 0
+    -- see detect_radiation_phase). This REPLACES the previous "step time >
+    1.8x the median" cost heuristic, which silently misclassified severe2023's
+    night radiation steps (measured cost only ~1.05x a normal step, well under
+    1.8x) as normal steps.
+
+    Radiation cost is NOT a single multiplier: RRTMG shortwave only runs for
+    sunlit columns, so the per-call cost is a two-level day/night switch
+    measured 2026-09-23 across 5 full runs: matthew 1.92-1.97 (night) vs
+    3.42-3.64 (day), sc26p2 2.47-2.52 vs 4.57-4.70, sc26p2narr 2.45-2.48 vs
+    4.61-4.71 (day/night ratio 1.85-1.90x, mean 1.87). Model:
+        r(t) = r_night + (r_day - r_night) * sunlit_fraction(t)
+    sunlit_fraction(t): fraction of a 25-point (5x5) lat/lon sample lattice
+    over the domain (bilinearly filled from d01's 4 corners, centre sample
+    overridden by the real projected CEN_LAT/CEN_LON -- see
+    sample_lattice_5x5) with cos(solar zenith) > 0 at simulated time t (see
+    solar_cos_zenith: declination + hour-angle formula, equation of time and
+    refraction OMITTED -- see that function's own docstring). Domain geometry
+    is read from case_dir/wrfinput_d01's global attributes via `ncdump -h`
+    TEXT output (read_wrfinput_sample_points) -- no netCDF4 dependency, per
+    this module's own standalone rule; when wrfinput_d01/ncdump aren't
+    available the day/night model degrades to a single uniform level (see
+    below), not a hard error.
+
+    r_night/r_day are obtained, in order:
+      1. --probe-rsl log(s) with >= 2 schedule-identified radiation steps AND
+         a resolvable simulated time + domain geometry for each: least-
+         squares fit of (radiation step seconds / s_normal) against that
+         step's own sunlit_fraction(t) (fit_day_night_r_rad) when the
+         observed sunlit fractions span >= 0.5 (both regimes seen) ->
+         'fit_day_night'.
+      2. same data but ALL observed radiation steps fall in one regime (a
+         probe's t0 fixes its time of day, so a single probe window usually
+         sees only one -- e.g. matthew's t0 is 00Z/night): the observed
+         level's mean is r_night or r_day directly, and the OTHER level is
+         derived via calibration.radiation.r_rad_day_night_ratio (1.87,
+         MEASURED from the 3 cases above) -> 'ratio_from_night' /
+         'ratio_from_day'.
+      3. no usable radiation-step/sunlit-fraction data at all (no
+         --probe-rsl, or geometry/sim-time unavailable): r_night = r_day =
+         calibration.radiation.r_rad_default (5.0, UNCALIBRATED default) ->
+         'default_unmeasured'.
+    Predicted radiation extra: for each of the PREDICTED run's own schedule-
+    identified radiation steps k at simulated time t_k (from &time_control's
+    start_date + (k-1)*dt, when start_date is present), extra_s = sum_k
+    (r(t_k) - 1) * s_normal. When start_date or domain geometry is
+    unavailable, r(t_k) falls back to the uniform mean (r_night+r_day)/2 for
+    every radiation step (documented "day/night phase unknown for this run"
+    fallback), rather than refusing to predict at all.
 
 I/O
     history: frames = floor(run_minutes / history_interval) + 1 (t0 frame),
@@ -123,6 +163,7 @@ import math
 import os
 import re
 import statistics
+import subprocess
 import sys
 from pathlib import Path
 
@@ -149,9 +190,15 @@ PROBE_NOISE_FALLBACK_PCT = 50.0
 # measured uncertainty.
 PROBE_NOISE_RSL_PCT = 5.0
 
-# A step's d01 wall time is classified as a radiation step when it exceeds
-# this multiple of the pooled non-first-step median (see measure_rad_from_rsl).
-RSL_RADIATION_STEP_THRESHOLD = 1.8
+# fit_day_night_r_rad: a --probe-rsl's observed sunlit fractions must span at
+# least this much (max - min) to trust a least-squares day/night fit; below
+# it, the probe effectively saw one regime (see module docstring's
+# 'radiation' section, level 2: derive the other level via the calibrated
+# day/night ratio instead of extrapolating a near-degenerate regression).
+RADIATION_FIT_MIN_SUNLIT_SPREAD = 0.5
+
+DEFAULT_R_RAD_DAY_NIGHT_RATIO = 1.87  # see module docstring; MEASURED mean of
+                                       # matthew/sc26p2/sc26p2narr (1.85, 1.87, 1.90)
 
 
 class PredictError(Exception):
@@ -681,91 +728,659 @@ def resolve_probe(ledger_rows, case_name, config):
 
 
 # --------------------------------------------------------------------------
-# RSL probe (r_rad / s_normal measured from a run's own d01 step timings)
+# WRF radiation call schedule (ported from tools/state_timeline.py -- NOT
+# imported: that module pulls in campaign/configs.py, predictor/decomp_space.py,
+# tools/scc_sweep.py and tools/temporal_validation.py via sys.path
+# manipulation, none of which this module may depend on, per its own
+# "standalone" rule -- see module docstring's opening paragraph)
+# --------------------------------------------------------------------------
+
+def steps_per_radiation_call(radt_minutes, dt_seconds):
+    """STEPRA = NINT(radt_minutes*60/dt_seconds), WRF's own radiation-call
+    cadence (phys/module_radiation_driver.F via
+    share/module_first_rk_step_part1.F). Same function/semantics as
+    tools/state_timeline.py's steps_per_radiation_call. Fortran NINT rounds
+    halves away from zero; Python's round() rounds halves to even and gets
+    conus12 wrong (radt=15min, dt=72s -> 12.5; round()=12, floor(x+0.5)=13,
+    the correct cadence -- campaign/cases.json's sc26p1 note: "radt=9 at
+    dt=10 => STEPRA=54" is floor(9*60/10+0.5)==54). Floored at 1 (a radt so
+    small relative to dt it would fire every step).
+    """
+    if dt_seconds <= 0:
+        raise ValueError("dt_seconds must be > 0")
+    if radt_minutes <= 0:
+        raise ValueError("radt_minutes must be > 0")
+    return max(1, int(math.floor(radt_minutes * 60.0 / dt_seconds + 0.5)))
+
+
+def detect_radiation_phase(step_wall_times, stepra):
+    """Offset p in [0, stepra) such that step i (1-indexed, i>1) is a
+    radiation step when i % stepra == p, chosen as the phase whose steps
+    have the highest MEDIAN wall time (median ignores rare I/O-write
+    spikes) -- ported from tools/state_timeline.py. The documented
+    mod(itimestep,STEPRA)==0 rule does not always match a real rsl log's
+    own line numbering (state_timeline's matthew citation: dt 150s, radt
+    15min, STEPRA 6, spikes land on phase 1, not phase 0). Comparing every
+    candidate phase's median against every OTHER phase's median is also
+    what makes severe2023's ~1.05x night-radiation bump detectable at all:
+    it is a RELATIVE comparison across schedule phases, not a fixed
+    absolute cost threshold (the bug this whole redesign fixes -- see
+    module docstring). Falls back to phase 0 when there are fewer than
+    2*stepra steps or the phases are statistically indistinguishable.
+    """
+    n = len(step_wall_times)
+    if stepra <= 1 or n < 2 * stepra:
+        return 0
+    best, best_med = 0, None
+    for p in range(stepra):
+        vals = [w for i, w in enumerate(step_wall_times, start=1) if i > 1 and i % stepra == p]
+        if not vals:
+            continue
+        med = statistics.median(vals)
+        if best_med is None or med > best_med:
+            best, best_med = p, med
+    return best
+
+
+def classify_steps_detected(step_wall_times, stepra):
+    """[is_radiation, ...] (1-indexed, same length as step_wall_times) using
+    the DATA-DETECTED phase (detect_radiation_phase) -- for a real
+    --probe-rsl log. Ported from tools/state_timeline.py."""
+    p = detect_radiation_phase(step_wall_times, stepra)
+    return [(i == 1) or (stepra > 0 and i % stepra == p) for i in range(1, len(step_wall_times) + 1)]
+
+
+def classify_steps(n_steps, stepra):
+    """[is_radiation, ...] for 1-indexed itimestep in 1..n_steps, using WRF's
+    DOCUMENTED schedule (itimestep==1 or itimestep%stepra==0) rather than a
+    data-detected phase -- used for the run being PREDICTED, which has no
+    real rsl timing to detect a phase from. Ported from
+    tools/state_timeline.py."""
+    if n_steps <= 0:
+        return []
+    return [(i == 1) or (i % stepra == 0) for i in range(1, n_steps + 1)]
+
+
+# --------------------------------------------------------------------------
+# Solar position / domain geometry (day/night radiation sunlit fraction)
+# --------------------------------------------------------------------------
+
+def solar_cos_zenith(lat_deg, lon_deg, dt_utc):
+    """cos(solar zenith angle) at (lat_deg, lon_deg), dt_utc (a naive UTC
+    datetime -- WRF simulated times are UTC). Declination + hour-angle
+    formula:
+      declination (Cooper 1969 approximation):
+        dec_deg = 23.45 * sin(360/365 * (284 + day_of_year))
+      hour angle (solar time approximated as UTC + lon_deg/15h, i.e. every
+      15 degrees of longitude = 1 hour of solar time):
+        H_deg = 15 * (solar_hour - 12)
+      cos(zenith) = sin(lat)*sin(dec) + cos(lat)*cos(dec)*cos(H)
+    EQUATION OF TIME (a seasonal +-16-minute correction to solar time) and
+    atmospheric refraction are OMITTED -- explicitly out of scope per this
+    feature's spec. > 0 means sunlit (sun above the local horizon, ignoring
+    refraction's small horizon-dip correction).
+    """
+    day_of_year = dt_utc.timetuple().tm_yday
+    dec = math.radians(23.45 * math.sin(math.radians(360.0 / 365.0 * (284 + day_of_year))))
+    lat = math.radians(lat_deg)
+    solar_hour = dt_utc.hour + dt_utc.minute / 60.0 + dt_utc.second / 3600.0 + lon_deg / 15.0
+    hour_angle = math.radians(15.0 * (solar_hour - 12.0))
+    return math.sin(lat) * math.sin(dec) + math.cos(lat) * math.cos(dec) * math.cos(hour_angle)
+
+
+def _bilinear_latlon(sw, nw, ne, se, u, v):
+    """Bilinear interpolation of 4 corner (lat, lon) pairs; u in [0,1] west
+    (0) -> east (1), v in [0,1] south (0) -> north (1)."""
+    bot_lat = sw[0] * (1 - u) + se[0] * u
+    bot_lon = sw[1] * (1 - u) + se[1] * u
+    top_lat = nw[0] * (1 - u) + ne[0] * u
+    top_lon = nw[1] * (1 - u) + ne[1] * u
+    return bot_lat * (1 - v) + top_lat * v, bot_lon * (1 - v) + top_lon * v
+
+
+def sample_lattice_5x5(corner_sw, corner_nw, corner_ne, corner_se, center):
+    """25 (lat, lon) sample points on a 5x5 grid, bilinearly interpolated
+    from the domain's 4 corners (_bilinear_latlon), EXCEPT the exact centre
+    sample (u=v=0.5), which is replaced by the wrfinput-reported
+    CEN_LAT/CEN_LON -- the real map-projected centre, not necessarily the
+    corners' arithmetic mean under WRF's Lambert/Mercator/polar-stereographic
+    projections."""
+    pts = []
+    lattice = (0.0, 0.25, 0.5, 0.75, 1.0)
+    for v in lattice:
+        for u in lattice:
+            if u == 0.5 and v == 0.5:
+                pts.append(center)
+            else:
+                pts.append(_bilinear_latlon(corner_sw, corner_nw, corner_ne, corner_se, u, v))
+    return pts
+
+
+def sunlit_fraction(sample_points, dt_utc):
+    """Fraction of sample_points ([(lat, lon), ...]) with cos(solar zenith)
+    > 0 at dt_utc (solar_cos_zenith). None if sample_points is empty."""
+    if not sample_points:
+        return None
+    lit = sum(1 for lat, lon in sample_points if solar_cos_zenith(lat, lon, dt_utc) > 0)
+    return lit / float(len(sample_points))
+
+
+def _parse_ncdump_number(tok):
+    tok = tok.strip()
+    tok = re.sub(r"[fFdD]$", "", tok)  # NetCDF float/double literal suffix (ncdump -h convention)
+    return float(tok)
+
+
+def _parse_ncdump_scalar(text, name):
+    m = re.search(r":%s\s*=\s*([^;]+);" % re.escape(name), text)
+    if not m:
+        return None
+    try:
+        return _parse_ncdump_number(m.group(1))
+    except ValueError:
+        return None
+
+
+def _parse_ncdump_array(text, name):
+    m = re.search(r":%s\s*=\s*([^;]+);" % re.escape(name), text)
+    if not m:
+        return None
+    out = []
+    for tok in m.group(1).split(","):
+        tok = tok.strip()
+        if not tok:
+            continue
+        try:
+            out.append(_parse_ncdump_number(tok))
+        except ValueError:
+            return None
+    return out
+
+
+def parse_wrfinput_corners(ncdump_text):
+    """Parse CEN_LAT/CEN_LON/CORNER_LATS/CORNER_LONS global attributes out
+    of `ncdump -h` TEXT output for a wrfinput_d01 (or wrfout) file -- no
+    netCDF4 dependency, per this module's standalone rule. WRF's
+    corner_lats/corner_lons global attributes hold 16 values: 4 corners
+    (SW, NW, NE, SE) x 4 stagger variants (mass, u, v, unstaggered); the
+    mass-point (unstaggered T-grid) corner for corner index c is array
+    index c*4 (WRF Registry / share/module_bc.F corner ordering) --
+    ASSUMED, not independently verified against a real wrfinput file in
+    this repo (no netCDF tooling on this dev machine -- see
+    read_wrfinput_sample_points). Falls back to treating a 4-element array
+    as the four corners directly (SW, NW, NE, SE in file order) when the
+    array isn't the expected 16-element form.
+    Returns None when CEN_LAT/CEN_LON are missing (nothing usable at all);
+    else {"cen": (lat, lon), "corners": (sw, nw, ne, se) or None (when
+    CORNER_LATS/CORNER_LONS are absent, malformed, or an unrecognized
+    length -- caller degrades to a centre-only sample)}.
+    """
+    cen_lat = _parse_ncdump_scalar(ncdump_text, "CEN_LAT")
+    cen_lon = _parse_ncdump_scalar(ncdump_text, "CEN_LON")
+    if cen_lat is None or cen_lon is None:
+        return None
+    lats = _parse_ncdump_array(ncdump_text, "CORNER_LATS")
+    lons = _parse_ncdump_array(ncdump_text, "CORNER_LONS")
+    corners = None
+    if lats and lons and len(lats) == len(lons):
+        if len(lats) >= 16:
+            idx = (0, 4, 8, 12)
+        elif len(lats) == 4:
+            idx = (0, 1, 2, 3)
+        else:
+            idx = None
+        if idx:
+            corners = tuple((lats[i], lons[i]) for i in idx)
+    return {"cen": (cen_lat, cen_lon), "corners": corners}
+
+
+def domain_sample_points_from_ncdump(ncdump_text):
+    """sample_lattice_5x5 built from parse_wrfinput_corners(ncdump_text), or
+    a single-point [center] sample when corners aren't available (degrades
+    the day/night model to a coarser but still non-trivial estimate), or
+    None when even CEN_LAT/CEN_LON are missing."""
+    parsed = parse_wrfinput_corners(ncdump_text)
+    if parsed is None:
+        return None
+    if parsed["corners"] is None:
+        return [parsed["cen"]]
+    sw, nw, ne, se = parsed["corners"]
+    return sample_lattice_5x5(sw, nw, ne, se, parsed["cen"])
+
+
+# --------------------------------------------------------------------------
+# Real XLAT/XLONG grid sampling (2026-09-23 scc finding: a real real.exe
+# wrfinput_d01 has NO CORNER_LATS/CORNER_LONS global attributes at all --
+# only CEN_LAT/CEN_LON -- so parse_wrfinput_corners/domain_sample_points_
+# from_ncdump above NEVER fire on a real wrfinput and read_wrfinput_
+# sample_points ALWAYS fell back to sample_points=None, i.e. the day/night
+# model silently used the uniform (r_night+r_day)/2 level on every real scc
+# run. Fixed by reading the actual XLAT/XLONG mass-point arrays -- exact
+# grid values, no bilinear guess needed -- via netCDF4 when available, else
+# `ncdump -v XLAT,XLONG` array text; CORNER_LATS/CORNER_LONS remains a
+# fallback of last resort for a met_em/wrfout file that DOES carry them.
+# --------------------------------------------------------------------------
+
+def _lattice_indices(n, count=5):
+    """count evenly spaced integer indices in [0, n-1], including BOTH
+    edges (index 0 and n-1) whenever count >= 2. Used to pick a 5x5 lattice
+    directly out of a real XLAT/XLONG grid (no interpolation needed -- the
+    grid already has a real value at every index)."""
+    if n <= 1:
+        return [0] * count
+    return [round(t * (n - 1) / (count - 1)) for t in range(count)]
+
+
+def sample_lattice_5x5_from_grid(lat2d, lon2d):
+    """25 (lat, lon) sample points read DIRECTLY from a real 2-D XLAT/XLONG
+    grid (lat2d/lon2d, indexed [south_north][west_east], row 0 = the
+    southernmost row -- WRF's south_north index increases northward), at 5
+    evenly spaced south_north indices x 5 evenly spaced west_east indices
+    (_lattice_indices), both including their domain edges. No bilinear
+    interpolation, unlike sample_lattice_5x5 -- every sampled point is a
+    real grid value, since we have the whole array."""
+    n_rows = len(lat2d)
+    n_cols = len(lat2d[0]) if n_rows else 0
+    j_idx = _lattice_indices(n_rows)
+    i_idx = _lattice_indices(n_cols)
+    return [(lat2d[j][i], lon2d[j][i]) for j in j_idx for i in i_idx]
+
+
+def _sample_points_via_netcdf4(path):
+    """netCDF4 is an OPTIONAL import, done here (not at module level) so
+    this module stays importable/standalone without it (see module
+    docstring) -- most wtune_predict.py callers, including scc itself as of
+    2026-09-23, don't have netCDF4 installed, so this path routinely
+    returns None and the ncdump-array path below does the real work.
+    Reads XLAT[0]/XLONG[0] (dropping the length-1 Time axis) and takes a
+    5x5 lattice directly (sample_lattice_5x5_from_grid). Returns None on
+    ANY failure (no netCDF4, file won't open, vars missing) -- this is a
+    best-effort fast path, not a required one.
+    """
+    try:
+        import netCDF4
+    except ImportError:
+        return None
+    try:
+        ds = netCDF4.Dataset(str(path))
+    except Exception:
+        return None
+    try:
+        if "XLAT" not in ds.variables or "XLONG" not in ds.variables:
+            return None
+        lat = ds.variables["XLAT"][0]
+        lon = ds.variables["XLONG"][0]
+        lat2d = [[float(lat[j][i]) for i in range(lat.shape[1])] for j in range(lat.shape[0])]
+        lon2d = [[float(lon[j][i]) for i in range(lon.shape[1])] for j in range(lon.shape[0])]
+        return sample_lattice_5x5_from_grid(lat2d, lon2d)
+    except Exception:
+        return None
+    finally:
+        ds.close()
+
+
+def parse_ncdump_dims(ncdump_text):
+    """Parse the 'dimensions:' block of `ncdump` TEXT output into
+    {name: size} (int). Only scans between the 'dimensions:' and
+    'variables:' section headers, so a same-named global attribute or data
+    value elsewhere in the file can't be mistaken for a dimension."""
+    m = re.search(r"dimensions:\s*\n(.*?)\nvariables:", ncdump_text, re.S)
+    if not m:
+        return {}
+    dims = {}
+    for line in m.group(1).splitlines():
+        mm = re.match(r"\s*(\w+)\s*=\s*(\d+)\s*;", line)
+        if mm:
+            dims[mm.group(1)] = int(mm.group(2))
+    return dims
+
+
+def parse_ncdump_2d_var(ncdump_text, var_name, n_rows, n_cols):
+    """Parse a flattened (Time, south_north, west_east) variable's data
+    block (Time size 1 assumed, per this module's wrfinput_d01 use) out of
+    `ncdump -v <var_name>[,...]` TEXT output into a 2-D list [row][col].
+    ncdump prints a variable's values flattened in row-major (C) order,
+    outermost dimension first -- for (Time=1, south_north, west_east) that
+    is exactly south_north-major, west_east-minor, i.e. row 0 is the
+    southernmost south_north index. \\b anchors the variable name so e.g.
+    'XLAT' doesn't match inside 'XLAT_U'. Returns None if the variable's
+    data block isn't found, a value fails to parse, or the value count
+    isn't exactly n_rows*n_cols.
+    """
+    m = re.search(r"\b%s\s*=\s*([^;]+);" % re.escape(var_name), ncdump_text)
+    if not m:
+        return None
+    toks = [t.strip() for t in m.group(1).split(",") if t.strip()]
+    try:
+        vals = [_parse_ncdump_number(t) for t in toks]
+    except ValueError:
+        return None
+    if len(vals) != n_rows * n_cols:
+        return None
+    return [vals[r * n_cols:(r + 1) * n_cols] for r in range(n_rows)]
+
+
+def _find_ncdump_binary():
+    """Ordered candidates: $NETCDF/bin/ncdump, then a bare 'ncdump' resolved
+    via PATH. 2026-09-23 finding: on scc, `ncdump` is NOT on PATH even after
+    sourcing the site's own env.sh, but env.sh exports NETCDF
+    (/nfs/software/netcdf/<ver>) and $NETCDF/bin/ncdump exists there --
+    without this, every ncdump-based path here silently no-ops on scc."""
+    netcdf_root = os.environ.get("NETCDF")
+    if netcdf_root:
+        candidate = Path(netcdf_root) / "bin" / "ncdump"
+        if candidate.exists():
+            return str(candidate)
+    return "ncdump"
+
+
+def _run_ncdump(args, timeout=60):
+    """subprocess.run(_find_ncdump_binary(), *args), returning stdout text
+    or None on any failure (binary missing, non-zero exit, timeout)."""
+    try:
+        result = subprocess.run([_find_ncdump_binary()] + list(args),
+                                capture_output=True, text=True, timeout=timeout)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0:
+        return None
+    return result.stdout
+
+
+def _sample_points_via_ncdump_arrays(path):
+    """`ncdump -v XLAT,XLONG <path>` -> parse_ncdump_dims +
+    parse_ncdump_2d_var -> sample_lattice_5x5_from_grid. Returns None on any
+    failure (ncdump unavailable/fails, dims or either variable unparseable)."""
+    text = _run_ncdump(["-v", "XLAT,XLONG", str(path)])
+    if text is None:
+        return None
+    dims = parse_ncdump_dims(text)
+    n_rows = dims.get("south_north")
+    n_cols = dims.get("west_east")
+    if not n_rows or not n_cols:
+        return None
+    lat2d = parse_ncdump_2d_var(text, "XLAT", n_rows, n_cols)
+    lon2d = parse_ncdump_2d_var(text, "XLONG", n_rows, n_cols)
+    if lat2d is None or lon2d is None:
+        return None
+    return sample_lattice_5x5_from_grid(lat2d, lon2d)
+
+
+def read_wrfinput_sample_points(case_dir):
+    """Locates case_dir/wrfinput_d01 and returns (sample_points, source),
+    source in {'netcdf4', 'ncdump_arrays', 'corner_attrs', 'none'}, trying
+    in order:
+      1. netCDF4 (optional import), reading XLAT[0]/XLONG[0] directly
+         (_sample_points_via_netcdf4) -> 'netcdf4'.
+      2. `ncdump -v XLAT,XLONG` array text parsing
+         (_sample_points_via_ncdump_arrays) -> 'ncdump_arrays'. This is the
+         path that actually fires on scc (netCDF4 isn't installed there
+         either, as of 2026-09-23).
+      3. `ncdump -h` CORNER_LATS/CORNER_LONS global attributes
+         (domain_sample_points_from_ncdump) -> 'corner_attrs'. Fallback of
+         LAST resort: a real real.exe wrfinput_d01, checked 2026-09-23 on
+         scc (conus12), has NO CORNER_LATS/CORNER_LONS at all (only
+         CEN_LAT/CEN_LON), so this path never fires for a real wrfinput --
+         it exists for met_em/wrfout files, which may carry these attrs.
+      4. (None, 'none') when nothing above works -- case_dir/wrfinput_d01
+         is missing, or every method above failed. Callers MUST surface
+         this visibly (a WARNING that sunlit weighting is disabled), not
+         degrade silently -- see render_text/predict_compute.
+    """
+    if not case_dir:
+        return None, "none"
+    path = Path(case_dir) / "wrfinput_d01"
+    if not path.exists():
+        return None, "none"
+
+    points = _sample_points_via_netcdf4(path)
+    if points:
+        return points, "netcdf4"
+
+    points = _sample_points_via_ncdump_arrays(path)
+    if points:
+        return points, "ncdump_arrays"
+
+    text = _run_ncdump(["-h", str(path)], timeout=30)
+    if text is not None:
+        points = domain_sample_points_from_ncdump(text)
+        if points:
+            return points, "corner_attrs"
+
+    return None, "none"
+
+
+# --------------------------------------------------------------------------
+# RSL probe (s_normal / r_night / r_day measured from a run's own d01 step
+# timings)
 # --------------------------------------------------------------------------
 
 _RSL_TIMING_RE = re.compile(
-    r"Timing for main:.*?on domain\s+(\d+):\s+([\d.]+)\s+elapsed seconds")
+    r"Timing for main: time (\S+) on domain\s+(\d+):\s+([\d.]+)\s+elapsed seconds")
+
+_WRF_TIME_FMT = "%Y-%m-%d_%H:%M:%S"  # WRF's own Times-variable timestamp format
 
 
 def parse_rsl_d01_step_seconds(path):
     """Parse a WRF rsl.error.0000-style log's 'Timing for main: time <t> on
     domain   1:   <sec> elapsed seconds' lines for domain 1 (d01) only,
-    returning their elapsed-second values as a list of floats in file
-    (i.e. step) order. Nested-domain lines (domain 2, 3, ...) are ignored --
-    same d01-step-cost-already-includes-nested-substeps convention as the
-    rest of this module (see get_d01_steps/nested_equivalent_cells).
+    returning [(sim_datetime_or_None, elapsed_seconds), ...] in file (i.e.
+    step) order. Nested-domain lines (domain 2, 3, ...) are ignored -- same
+    d01-step-cost-already-includes-nested-substeps convention as the rest of
+    this module (see get_d01_steps/nested_equivalent_cells). sim_datetime is
+    None when <t> isn't WRF's usual '%Y-%m-%d_%H:%M:%S' Times format (the
+    step's elapsed_seconds is still returned; only the day/night model needs
+    the timestamp).
     """
     text = Path(path).read_text()
     out = []
     for m in _RSL_TIMING_RE.finditer(text):
-        if int(m.group(1)) == 1:
-            out.append(float(m.group(2)))
+        if int(m.group(2)) != 1:
+            continue
+        try:
+            sim_dt = datetime.datetime.strptime(m.group(1), _WRF_TIME_FMT)
+        except ValueError:
+            sim_dt = None
+        out.append((sim_dt, float(m.group(3))))
     return out
 
 
-def measure_rad_from_rsl(rsl_paths, default_r_rad):
-    """Pool d01 step times from one or more rsl.error.0000 probe logs
-    (parse_rsl_d01_step_seconds), dropping each file's own step 1 (startup/
-    first-step outlier, not representative of steady-state cost), then:
-      m = median of the pooled remaining steps
-      radiation steps = steps > RSL_RADIATION_STEP_THRESHOLD (1.8) * m
-      normal steps = the rest
-      s_normal = median(normal steps)
-      r_rad = median(radiation steps) / s_normal, only when >= 2 radiation
-              steps were observed (a single outlier is not enough to trust
-              as a radiation-step estimate; falls back to default_r_rad).
-
-    ASSUMPTION (see module docstring's 'radiation' section): the probe
-    window has no mid-run history/restart writes, so an outlier step is
-    radiation cost, not I/O. Multiple rsl_paths are pooled BEFORE computing
-    the median/threshold, not averaged per-file first.
-
-    Returns a dict: s_normal (float or None if no normal steps could be
-    isolated), r_rad, r_rad_source ('probe_rsl' or 'default_unmeasured'),
-    n_steps_pooled, n_radiation_steps.
+def fit_day_night_r_rad(radiation_samples, day_night_ratio):
+    """radiation_samples: [(sunlit_fraction, ratio), ...], ratio = one
+    radiation step's own elapsed seconds / s_normal. Simple linear
+    least-squares fit ratio = a + b*sunlit_fraction (a=r_night,
+    b=r_day-r_night) when the observed sunlit fractions span >=
+    RADIATION_FIT_MIN_SUNLIT_SPREAD (both regimes seen) -> 'fit_day_night'.
+    Otherwise the single observed level's mean is taken directly and the
+    OTHER level is derived via day_night_ratio (day = night*ratio) ->
+    'ratio_from_night' / 'ratio_from_day' (the source name records which
+    level was actually observed).
+    Returns (r_night, r_day, source), or (None, None, None) for an empty
+    radiation_samples.
     """
-    pooled = []
+    if not radiation_samples:
+        return None, None, None
+    xs = [s for s, _ in radiation_samples]
+    ys = [r for _, r in radiation_samples]
+    spread = max(xs) - min(xs)
+    if len(radiation_samples) >= 2 and spread >= RADIATION_FIT_MIN_SUNLIT_SPREAD:
+        n = len(xs)
+        mean_x = sum(xs) / n
+        mean_y = sum(ys) / n
+        cov = sum((x - mean_x) * (y - mean_y) for x, y in zip(xs, ys))
+        var = sum((x - mean_x) ** 2 for x in xs)
+        if var > 0:
+            b = cov / var
+            a = mean_y - b * mean_x
+            return a, a + b, "fit_day_night"
+    mean_x = sum(xs) / len(xs)
+    mean_y = sum(ys) / len(ys)
+    if mean_x >= 0.5:
+        r_day = mean_y
+        return r_day / day_night_ratio, r_day, "ratio_from_day"
+    r_night = mean_y
+    return r_night, r_night * day_night_ratio, "ratio_from_night"
+
+
+def measure_rad_from_rsl(rsl_paths, radt_minutes, dt_seconds, sample_points,
+                         default_r_rad, day_night_ratio):
+    """Measure s_normal and the day/night radiation model (r_night, r_day)
+    from one or more rsl.error.0000 probe logs, using the SCHEDULE (not
+    cost) to identify radiation steps -- see classify_steps_detected /
+    steps_per_radiation_call above and the module docstring's 'radiation'
+    section. This is the fix for the bug the previous ("step time > 1.8x
+    the pooled median") heuristic had: severe2023's NIGHT radiation steps
+    cost only ~1.05x a normal step (well under 1.8x), so that heuristic
+    silently filed them as normal steps and a night-time probe fell all the
+    way back to r_rad=5 -- the schedule now identifies them correctly
+    regardless of their absolute cost.
+
+    Each file's own step 1 is dropped from both categories (startup/
+    first-step outlier, not representative of steady-state cost -- WRF does
+    call radiation at itimestep 1, but that step's wall time is dominated by
+    MPI/exchange setup, not physics cost, so it isn't a trustworthy
+    radiation-cost sample either).
+
+    sample_points (sample_lattice_5x5 / read_wrfinput_sample_points) and
+    each step's own parsed simulated time are both required to place a
+    radiation step's cost against its sunlit_fraction; a step with no
+    parseable simulated time, or no sample_points at all, is excluded from
+    the day/night fit (its wall time still counts toward s_normal if it's a
+    normal/non-radiation step).
+
+    Returns a dict: s_normal, r_night, r_day, source (in {'fit_day_night',
+    'ratio_from_night', 'ratio_from_day', 'default_unmeasured'}),
+    mean_sunlit_fraction (over the samples actually used in the fit, or
+    None), n_steps_pooled, n_radiation_steps (the count usable for the
+    day/night fit, not just schedule-identified).
+    """
+    stepra = steps_per_radiation_call(radt_minutes, dt_seconds)
+    pooled_normal = []
+    per_file = []
+    n_steps_pooled = 0
     for path in rsl_paths or []:
-        steps = parse_rsl_d01_step_seconds(path)
-        pooled.extend(steps[1:])  # drop this file's own step 1
+        file_steps = parse_rsl_d01_step_seconds(path)
+        if len(file_steps) < 2:
+            continue
+        wall = [sec for _, sec in file_steps]
+        flags = classify_steps_detected(wall, stepra)
+        per_file.append((file_steps, flags))
+        n_steps_pooled += len(file_steps) - 1  # step 1 dropped
+        for i in range(1, len(file_steps)):  # skip index 0 == step 1
+            if not flags[i]:
+                pooled_normal.append(file_steps[i][1])
 
-    if not pooled:
-        return {"s_normal": None, "r_rad": default_r_rad,
-                "r_rad_source": "default_unmeasured",
-                "n_steps_pooled": 0, "n_radiation_steps": 0}
+    if not pooled_normal:
+        return {"s_normal": None, "r_night": default_r_rad, "r_day": default_r_rad,
+                "source": "default_unmeasured", "mean_sunlit_fraction": None,
+                "n_steps_pooled": n_steps_pooled, "n_radiation_steps": 0}
 
-    m = statistics.median(pooled)
-    normal = [s for s in pooled if s <= RSL_RADIATION_STEP_THRESHOLD * m]
-    radiation = [s for s in pooled if s > RSL_RADIATION_STEP_THRESHOLD * m]
-    s_normal = statistics.median(normal) if normal else None
+    s_normal = statistics.median(pooled_normal)
 
-    if len(radiation) < 2:
-        return {"s_normal": s_normal, "r_rad": default_r_rad,
-                "r_rad_source": "default_unmeasured",
-                "n_steps_pooled": len(pooled), "n_radiation_steps": len(radiation)}
+    radiation_samples = []
+    for file_steps, flags in per_file:
+        for i in range(1, len(file_steps)):
+            if not flags[i]:
+                continue
+            sim_dt, sec = file_steps[i]
+            if sim_dt is None or not sample_points:
+                continue
+            frac = sunlit_fraction(sample_points, sim_dt)
+            if frac is None:
+                continue
+            radiation_samples.append((frac, sec / s_normal))
 
-    r_rad = statistics.median(radiation) / s_normal
-    return {"s_normal": s_normal, "r_rad": r_rad, "r_rad_source": "probe_rsl",
-            "n_steps_pooled": len(pooled), "n_radiation_steps": len(radiation)}
+    if len(radiation_samples) < 2:
+        return {"s_normal": s_normal, "r_night": default_r_rad, "r_day": default_r_rad,
+                "source": "default_unmeasured", "mean_sunlit_fraction": None,
+                "n_steps_pooled": n_steps_pooled, "n_radiation_steps": len(radiation_samples)}
+
+    r_night, r_day, source = fit_day_night_r_rad(radiation_samples, day_night_ratio)
+    mean_frac = sum(f for f, _ in radiation_samples) / len(radiation_samples)
+    return {"s_normal": s_normal, "r_night": r_night, "r_day": r_day, "source": source,
+            "mean_sunlit_fraction": mean_frac,
+            "n_steps_pooled": n_steps_pooled, "n_radiation_steps": len(radiation_samples)}
 
 
 # --------------------------------------------------------------------------
 # Compute model
 # --------------------------------------------------------------------------
 
+def predict_radiation_extra(steps, radt, dt_seconds, s_normal, r_night, r_day,
+                            run_start_dt, sample_points, default_r_rad):
+    """Identify the PREDICTED run's own radiation steps by SCHEDULE
+    (classify_steps -- the DOCUMENTED phase, since a not-yet-run prediction
+    has no real rsl data to detect a phase from) and price each one
+    individually against its own simulated time's sunlit fraction:
+        r(t_k) = r_night + (r_day - r_night) * sunlit_fraction(t_k)
+        rad_extra_s = sum_k (r(t_k) - 1) * s_normal
+    when both run_start_dt (from &time_control's start_date) and
+    sample_points (domain geometry) are available. Otherwise every
+    radiation step uses the single uniform level (r_night+r_day)/2 instead
+    (falling back further to default_r_rad if r_night/r_day are themselves
+    None) -- "day/night phase unknown for this run", not a refusal to
+    predict.
+    Returns (rad_steps, rad_extra_s, run_mean_sunlit_fraction,
+    sampling_advice): sampling_advice is {night_sim_time,
+    night_sunlit_fraction, day_sim_time, day_sunlit_fraction} (the run's own
+    lowest/highest-sunlit-fraction radiation steps -- the recommended probe
+    windows) when the per-step model ran, else None.
+    """
+    if not radt or not dt_seconds:
+        return 0, 0.0, None, None
+    stepra = steps_per_radiation_call(radt, dt_seconds)
+    flags = classify_steps(steps, stepra)
+    rad_step_indices = [i for i, is_rad in enumerate(flags, start=1) if is_rad]
+    rad_steps = len(rad_step_indices)
+    if not rad_steps:
+        return 0, 0.0, None, None
+
+    if run_start_dt is not None and sample_points:
+        rad_extra_s = 0.0
+        fracs = []
+        driest_night = None   # (frac, sim_dt) with the lowest sunlit fraction seen
+        brightest_day = None  # (frac, sim_dt) with the highest sunlit fraction seen
+        for i in rad_step_indices:
+            t_k = run_start_dt + datetime.timedelta(seconds=(i - 1) * dt_seconds)
+            frac = sunlit_fraction(sample_points, t_k)
+            fracs.append(frac)
+            r_k = r_night + (r_day - r_night) * frac
+            rad_extra_s += (r_k - 1.0) * s_normal
+            if driest_night is None or frac < driest_night[0]:
+                driest_night = (frac, t_k)
+            if brightest_day is None or frac > brightest_day[0]:
+                brightest_day = (frac, t_k)
+        run_mean_sunlit_fraction = sum(fracs) / len(fracs)
+        sampling_advice = {
+            "night_sim_time": driest_night[1], "night_sunlit_fraction": driest_night[0],
+            "day_sim_time": brightest_day[1], "day_sunlit_fraction": brightest_day[0],
+        }
+        return rad_steps, rad_extra_s, run_mean_sunlit_fraction, sampling_advice
+
+    r_uniform = (r_night + r_day) / 2.0 if (r_night is not None and r_day is not None) else default_r_rad
+    return rad_steps, rad_steps * (r_uniform - 1.0) * s_normal, None, None
+
+
 def predict_compute(nl, max_dom, steps, run_min, ranks, omp, probe_result, calibration,
-                    rsl_paths=None):
+                    rsl_paths=None, dt_seconds=None, sample_points=None, run_start_dt=None,
+                    geometry_source="none"):
     radt = g_dom(nl, "physics", "radt", 0, default=None)
     default_r_rad = calibration.get("radiation", {}).get("r_rad_default", 5.0)
+    day_night_ratio = calibration.get("radiation", {}).get(
+        "r_rad_day_night_ratio", DEFAULT_R_RAD_DAY_NIGHT_RATIO)
 
-    rsl_meas = measure_rad_from_rsl(rsl_paths, default_r_rad) if rsl_paths else None
-    if rsl_meas is not None:
-        r_rad = rsl_meas["r_rad"]
-        r_rad_source = rsl_meas["r_rad_source"]
+    rad_meas = None
+    if rsl_paths and radt and dt_seconds:
+        rad_meas = measure_rad_from_rsl(rsl_paths, radt, dt_seconds, sample_points,
+                                        default_r_rad, day_night_ratio)
+
+    if rad_meas is not None:
+        r_night, r_day, r_rad_source = rad_meas["r_night"], rad_meas["r_day"], rad_meas["source"]
+        probe_mean_sunlit_fraction = rad_meas["mean_sunlit_fraction"]
     else:
-        r_rad = default_r_rad
+        r_night = r_day = default_r_rad
         r_rad_source = "default_unmeasured"
+        probe_mean_sunlit_fraction = None
 
     if probe_result is not None:
         s_normal = probe_result["s_normal"]
@@ -777,13 +1392,13 @@ def predict_compute(nl, max_dom, steps, run_min, ranks, omp, probe_result, calib
         else:
             noise_pct = PROBE_NOISE_EXTRAPOLATED_PCT
         detail = dict(probe_result)
-    elif rsl_meas is not None and rsl_meas["s_normal"] is not None:
-        s_normal = rsl_meas["s_normal"]
+    elif rad_meas is not None and rad_meas["s_normal"] is not None:
+        s_normal = rad_meas["s_normal"]
         source = "probe_rsl"
         noise_pct = PROBE_NOISE_RSL_PCT
         detail = {"source": source, "rsl_paths": list(rsl_paths),
-                  "n_steps_pooled": rsl_meas["n_steps_pooled"],
-                  "n_radiation_steps": rsl_meas["n_radiation_steps"]}
+                  "n_steps_pooled": rad_meas["n_steps_pooled"],
+                  "n_radiation_steps": rad_meas["n_radiation_steps"]}
     else:
         cl_eq = nested_equivalent_cells(nl, max_dom)
         ns_per_cell_core = calibration.get("fallback_s_per_cell_step_ns")
@@ -796,18 +1411,19 @@ def predict_compute(nl, max_dom, steps, run_min, ranks, omp, probe_result, calib
         detail = {"source": source, "nested_equivalent_cells": cl_eq, "cores": cores,
                   "fallback_s_per_cell_step_ns": ns_per_cell_core}
 
-    rad_steps = 0
-    rad_extra_s = 0.0
-    if radt:
-        rad_steps = int(math.floor(run_min / radt))
-        rad_extra_s = rad_steps * (r_rad - 1.0) * s_normal
+    rad_steps, rad_extra_s, run_mean_sunlit_fraction, sampling_advice = predict_radiation_extra(
+        steps, radt, dt_seconds, s_normal, r_night, r_day, run_start_dt, sample_points, default_r_rad)
 
     compute_total_s = steps * s_normal + rad_extra_s
     noise_abs_s = compute_total_s * (noise_pct / 100.0)
 
     return {
         "s_normal": s_normal, "source": source, "detail": detail,
-        "steps": steps, "radt_min": radt, "r_rad": r_rad, "r_rad_source": r_rad_source,
+        "steps": steps, "radt_min": radt,
+        "r_night": r_night, "r_day": r_day, "r_rad_source": r_rad_source,
+        "probe_mean_sunlit_fraction": probe_mean_sunlit_fraction,
+        "run_mean_sunlit_fraction": run_mean_sunlit_fraction,
+        "sampling_advice": sampling_advice, "geometry_source": geometry_source,
         "rad_steps": rad_steps, "rad_extra_s": rad_extra_s,
         "compute_total_s": compute_total_s,
         "noise_pct": noise_pct, "noise_abs_s": noise_abs_s,
@@ -1177,8 +1793,19 @@ def build_prediction(namelist_path, case_dir, nodes, config, ledger_paths,
     name = case_name or (Path(case_dir).name if case_dir else "unknown")
     probe_result = resolve_probe(ledger_rows, name, config)
 
+    # Domain geometry (for the day/night sunlit-fraction radiation model) and
+    # the run's own absolute start time (to place each PREDICTED radiation
+    # step at a real simulated time) -- both optional; predict_compute
+    # degrades gracefully (uniform r_night/r_day level, no sampling advice)
+    # when either is unavailable (see that function's docstring and
+    # read_wrfinput_sample_points' geometry_source values).
+    sample_points, geometry_source = read_wrfinput_sample_points(case_dir)
+    run_start_dt = get_time_control_datetime(nl, "start")
+
     compute = predict_compute(nl, max_dom, steps, run_min, config["ranks"], config["omp"],
-                              probe_result, calibration, rsl_paths=rsl_paths)
+                              probe_result, calibration, rsl_paths=rsl_paths, dt_seconds=dt,
+                              sample_points=sample_points, run_start_dt=run_start_dt,
+                              geometry_source=geometry_source)
     segments = segment_compute(compute, run_hours, dt)
 
     io_target = io_target or "nfs"
@@ -1269,9 +1896,29 @@ def render_text(pred):
     out.append("compute (normal steps, source=%s): s/step=%.4f  steps=%d  -> %s"
                 % (c["source"], c["s_normal"], c["steps"], _fmt_hms(c["steps"] * c["s_normal"])))
     if c["radt_min"]:
-        out.append("  + radiation surcharge: radt=%.1fmin  rad_steps=%d  r_rad=%.2f (source=%s)  -> %s"
-                    % (c["radt_min"], c["rad_steps"], c["r_rad"], c["r_rad_source"],
+        out.append("  + radiation surcharge: radt=%.1fmin  rad_steps=%d  r_night=%.2f  r_day=%.2f "
+                    "(source=%s)  -> %s"
+                    % (c["radt_min"], c["rad_steps"], c["r_night"], c["r_day"], c["r_rad_source"],
                        _fmt_hms(c["rad_extra_s"])))
+        out.append("    domain geometry source: %s" % c["geometry_source"])
+        if c["geometry_source"] == "none":
+            out.append("    WARNING: no domain geometry found for wrfinput_d01 (tried netCDF4, "
+                        "ncdump -v XLAT,XLONG, and ncdump -h CORNER_LATS/CORNER_LONS) -- "
+                        "sunlit-fraction weighting is DISABLED; every radiation step uses the "
+                        "uniform (r_night+r_day)/2 level instead of its own simulated time's "
+                        "sunlit fraction")
+        if c["run_mean_sunlit_fraction"] is not None:
+            out.append("    predicted run mean sunlit fraction (over its own radiation steps): %.2f"
+                        % c["run_mean_sunlit_fraction"])
+        if c["probe_mean_sunlit_fraction"] is not None:
+            out.append("    probe mean sunlit fraction (radiation steps used in the r_night/r_day fit): %.2f"
+                        % c["probe_mean_sunlit_fraction"])
+        if c["sampling_advice"]:
+            sa = c["sampling_advice"]
+            out.append("    recommended probe windows -- night: sim time ~%s (sunlit=%.2f)  "
+                        "day: sim time ~%s (sunlit=%.2f)"
+                        % (sa["night_sim_time"], sa["night_sunlit_fraction"],
+                           sa["day_sim_time"], sa["day_sunlit_fraction"]))
     out.append("  compute total: %s  (+-%.1f%% = +-%s, source=%s)"
                 % (_fmt_hms(c["compute_total_s"]), c["noise_pct"], _fmt_hms(c["noise_abs_s"]), c["source"]))
     if pred["segments"]:

@@ -78,7 +78,11 @@
   "radiation": {
     "r_rad_default": 5.0,
     "r_rad_range": [4.63, 5.66],
-    "source": "atlas CONUS 2.5km measured radiation-step cost multiplier range (radiation step cost / normal step cost); not re-derived from job 427 -- used as an independent multiplier on top of s_per_step_median."
+    "source": "atlas CONUS 2.5km measured radiation-step cost multiplier range (radiation step cost / normal step cost); not re-derived from job 427 -- used as an independent multiplier on top of s_per_step_median.",
+    "r_rad_default_note": "SUPERSEDED as the default model by r_rad_day_night_ratio below once wtune_predict.py has a --probe-rsl day or night sample to derive the other level from; r_rad_default/r_rad_range remain the last-resort fallback when no radiation-step/sunlit-fraction data is available at all (source='default_unmeasured').",
+
+    "r_rad_day_night_ratio": 1.87,
+    "r_rad_day_night_ratio_source": "MEASURED, 2026-09-23, 5 full scc runs' rsl.error.0000 (schedule-identified radiation steps, see wtune_predict.py's steps_per_radiation_call/classify_steps_detected): matthew night 1.92-1.97 vs day 3.42-3.64 (ratio 1.85), sc26p2 night 2.47-2.52 vs day 4.57-4.70 (ratio 1.87), sc26p2narr night 2.45-2.48 vs day 4.61-4.71 (ratio 1.90); mean of the 3 ratios = 1.87. conus12 (all-day run, no night regime observed) measured 3.83-3.98, consistent with a day-level r_rad in this same family. severe2023's night radiation-step cost (2.02-2.06 daytime; night NOT DETECTED by the OLD cost-threshold heuristic) is exactly the case that exposed the old single-r_rad model as wrong -- see wtune_predict.py module docstring's 'radiation' section."
   },
 
   "fallback_s_per_cell_step_ns": 4437.341522526475,

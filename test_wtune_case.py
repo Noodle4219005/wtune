@@ -13,6 +13,7 @@ import tempfile
 import pytest
 
 import wtune_case as wc
+import wtune_physics as phys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -136,6 +137,23 @@ def isc21_namelist(tmp_path):
 @pytest.fixture
 def dx12_namelist(tmp_path):
     return _write_namelist(str(tmp_path), DX12KM)
+
+
+# cu_physics=5 (Grell-3D) crashed the sc26p1 blind test with KeyError('?') because _CU had no
+# entry for it; cu_physics=999 is a value the WRF Registry does not list at all, used to exercise
+# the generic unknown-scheme degrade path (see wtune_physics.cost_weight).
+CU5_NAMELIST = CONUS_2500M.replace('cu_physics = 0,', 'cu_physics = 5,')
+CU_UNKNOWN_NAMELIST = CONUS_2500M.replace('cu_physics = 0,', 'cu_physics = 999,')
+
+
+@pytest.fixture
+def cu5_namelist(tmp_path):
+    return _write_namelist(str(tmp_path), CU5_NAMELIST)
+
+
+@pytest.fixture
+def cu_unknown_namelist(tmp_path):
+    return _write_namelist(str(tmp_path), CU_UNKNOWN_NAMELIST)
 
 
 # --- (a) convection-permitting, no cumulus mismatch; R_max exact hand-check -----------------
@@ -281,3 +299,39 @@ def test_wrfinput_optional_no_netcdf4_needed(conus_namelist):
     p = wc.build_profile(conus_namelist, '/nonexistent/wrfinput_d01', cores_per_node=72)
     assert p['identity']['bbox_exact'] is None
     assert p['load_imbalance_drivers']['land_fraction'] is None
+
+
+# --- (f) cu_physics=5 (Grell-3D) -- the sc26p1 crash: KeyError('?') because _CU had no entry --
+
+def test_cu_physics_5_resolves_grell3d_with_real_cost():
+    info = phys.scheme_info('cu_physics', 5)
+    assert info['name'] == 'Grell-3D'
+    assert info['cost'] != '?'
+    assert info['cost'] in wc.COST_WEIGHT  # must be a real, lookup-able weight
+
+
+def test_cu_physics_5_profile_builds_without_crash(cu5_namelist):
+    p = wc.build_profile(cu5_namelist, None, cores_per_node=72)
+    cu_phase = next(ph for ph in p['expected_cost_structure']['phases_ranked'] if ph['phase'] == 'cumulus')
+    assert cu_phase['weight'] == wc.COST_WEIGHT['med']
+    assert 'Grell-3D' in cu_phase['detail']
+
+
+# --- (g) a cu_physics value absent from the table degrades to 'med' and WARNS, never crashes --
+
+def test_unknown_cu_physics_defaults_to_med_and_warns(capsys):
+    weight = phys.cost_weight('cu_physics', 999, wc.COST_WEIGHT)
+    captured = capsys.readouterr()
+    assert weight == wc.COST_WEIGHT['med']
+    assert 'WARNING' in captured.err
+    assert 'cu_physics=999' in captured.err
+    assert 'unmeasured' in captured.err
+
+
+def test_build_cost_structure_completes_for_unknown_cu_physics(cu_unknown_namelist):
+    # Reproduces the sc26p1 failure mode for a value the WRF Registry does not list at all:
+    # profile-building must complete (not raise KeyError) and fall back to the 'med' weight.
+    p = wc.build_profile(cu_unknown_namelist, None, cores_per_node=72)
+    cost = p['expected_cost_structure']
+    cu_phase = next(ph for ph in cost['phases_ranked'] if ph['phase'] == 'cumulus')
+    assert cu_phase['weight'] == wc.COST_WEIGHT['med']

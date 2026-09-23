@@ -309,7 +309,7 @@ def _build_physics(resolved, filled):
 def _build_cost_structure(resolved, doms, dom_i):
     dom = doms[dom_i]
     rad_spacing = wt.radiation_spacing(resolved)
-    w = {cat: COST_WEIGHT[phys.scheme_info(cat, resolved.get(cat, -1))['cost']] for cat in _PHYS_CATS}
+    w = {cat: phys.cost_weight(cat, resolved.get(cat, -1), COST_WEIGHT) for cat in _PHYS_CATS}
     ra_w = (w['ra_lw_physics'] + w['ra_sw_physics']) / max(1, rad_spacing)
     columns_x_vert = dom['columns'] * dom['e_vert']
     phases = [

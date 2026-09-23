@@ -7,6 +7,8 @@ CHOSEN physics, (c) ADVISES results-preserving/gated numerics only (radt,
 time_step). It NEVER recommends swapping a scheme for speed.
 """
 
+import sys
+
 import wtune_solar as _wsolar
 
 _MP = {
@@ -53,9 +55,31 @@ _CU = {
     1: {'name': 'KF', 'cost': 'med', 'vec': '?', 'note': ''},
     2: {'name': 'BMJ', 'cost': 'low', 'vec': '?', 'note': ''},
     3: {'name': 'GF', 'cost': 'med', 'vec': '?', 'note': ''},
+    4: {'name': 'scale-aware SAS', 'cost': 'med', 'vec': '?',
+        'note': 'unmeasured: scale-aware mass-flux closure, assumed comparable to GF (opt 3) scale-awareness overhead'},
+    5: {'name': 'Grell-3D', 'cost': 'med', 'vec': '?',
+        'note': 'unmeasured: same Grell ensemble mass-flux lineage as GF (opt 3), which is a scale-aware '
+                'evolution of this scheme; assumed comparable cost pending measurement'},
     6: {'name': 'Tiedtke', 'cost': 'med', 'vec': '?', 'note': ''},
+    7: {'name': 'CAM Zhang-McFarlane', 'cost': 'med', 'vec': '?',
+        'note': 'unmeasured: mass-flux deep-convection scheme, structurally comparable to KF/Tiedtke (opts 1, 6)'},
+    10: {'name': 'KF-CuP', 'cost': 'med', 'vec': '?',
+         'note': 'unmeasured: KF variant with added subgrid cloud-aerosol coupling; assumed >= KF (opt 1) cost'},
     11: {'name': 'multiscale KF', 'cost': 'med', 'vec': '?', 'note': ''},
+    14: {'name': 'KIAPS SAS', 'cost': 'med', 'vec': '?',
+         'note': 'unmeasured: scale-aware SAS variant, assumed comparable to scale-aware SAS (opt 4)'},
     16: {'name': 'New Tiedtke', 'cost': 'med', 'vec': '?', 'note': ''},
+    93: {'name': 'Grell-Devenyi', 'cost': 'high', 'vec': '?',
+         'note': 'unmeasured: ensemble multi-closure mass-flux scheme (averages many closures per column), '
+                 'structurally heavier than the single-closure schemes in this table'},
+    94: {'name': 'SAS', 'cost': 'low', 'vec': '?',
+         'note': 'unmeasured: single-closure simplified Arakawa-Schubert, assumed comparable to BMJ (opt 2) simplicity'},
+    95: {'name': 'old SAS', 'cost': 'low', 'vec': '?',
+         'note': 'unmeasured: predecessor of SAS (opt 94), assumed same low-cost single-closure class'},
+    96: {'name': 'New SAS', 'cost': 'low', 'vec': '?',
+         'note': 'unmeasured: revised SAS closure, assumed same low-cost single-closure class as SAS (opt 94)'},
+    99: {'name': 'Kain-Fritsch (original)', 'cost': 'med', 'vec': '?',
+         'note': 'unmeasured: original KF formulation, assumed comparable to KF (opt 1)'},
 }
 
 _SF_SURFACE = {
@@ -151,6 +175,24 @@ def scheme_info(category, value):
 
 def scheme_name(category, value):
     return scheme_info(category, value)['name']
+
+
+def cost_weight(category, value, weight_table):
+    """Resolve (category, value) to a weight in weight_table via scheme_info()['cost'].
+
+    A scheme absent from the _KB tables (scheme_info returns cost='?') is NOT free: it
+    degrades to the 'med' weight rather than raising KeyError, and the substitution is
+    surfaced on stderr -- never silent -- so profile-building degrades gracefully instead
+    of crashing the whole tuning run on one legal-but-untabulated WRF option.
+    """
+    cost = scheme_info(category, value)['cost']
+    if cost not in weight_table:
+        print("WARNING cost_weight: {}={} has no cost entry in the physics knowledge base "
+              "(scheme_info returned cost={!r}); defaulting to 'med' weight ({}) -- "
+              "this is an unmeasured default, not a profiled cost".format(
+                  category, value, cost, weight_table['med']), file=sys.stderr)
+        return weight_table['med']
+    return weight_table[cost]
 
 
 def diagnose(case):

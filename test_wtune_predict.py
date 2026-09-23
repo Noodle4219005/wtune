@@ -857,18 +857,22 @@ def test_fit_day_night_r_rad_single_night_regime_uses_ratio():
     samples = [(0.0, 1.9), (0.05, 1.95), (0.1, 2.0)]
     r_night, r_day, source = wp.fit_day_night_r_rad(samples, day_night_ratio=1.87)
     assert source == "ratio_from_night"
+    # The observation is at mean sunlit fraction 0.05, not 0: invert r = r_night*(1+(k-1)f).
     mean_y = statistics.mean(s[1] for s in samples)
-    assert r_night == pytest.approx(mean_y)
-    assert r_day == pytest.approx(mean_y * 1.87)
+    mean_x = statistics.mean(s[0] for s in samples)
+    assert r_night == pytest.approx(mean_y / (1 + 0.87 * mean_x))
+    assert r_day == pytest.approx(r_night * 1.87)
 
 
 def test_fit_day_night_r_rad_single_day_regime_uses_ratio():
     samples = [(0.9, 3.8), (0.95, 3.9), (1.0, 4.0)]
     r_night, r_day, source = wp.fit_day_night_r_rad(samples, day_night_ratio=1.87)
     assert source == "ratio_from_day"
+    # The observation is at mean sunlit fraction 0.95, not 1: invert r = r_night*(1+(k-1)f).
     mean_y = statistics.mean(s[1] for s in samples)
-    assert r_day == pytest.approx(mean_y)
-    assert r_night == pytest.approx(mean_y / 1.87)
+    mean_x = statistics.mean(s[0] for s in samples)
+    assert r_night == pytest.approx(mean_y / (1 + 0.87 * mean_x))
+    assert r_day == pytest.approx(r_night * 1.87)
 
 
 # --- 9c. sunlit fraction (solar position) ---
@@ -1538,3 +1542,23 @@ def test_wtune_predict_cli_case_name_flag(tmp_path):
     doc = json.loads(out_json.read_text())
     assert doc["compute"]["source"] == "measured"
     assert doc["compute"]["s_normal"] == pytest.approx(8.587)
+
+
+def test_fit_day_night_single_regime_inverts_at_observed_sunlit_fraction():
+    # Probe saw one regime at mean sunlit fraction 0.4 (large domain at dawn): the observed ratio
+    # is r_night * (1 + (k-1)*0.4), not r_night. conus12's 12Z probe was mis-read as pure night.
+    k = 1.87
+    r_night_true = 2.0
+    obs = r_night_true * (1 + (k - 1) * 0.4)
+    r_night, r_day, source = wp.fit_day_night_r_rad([(0.4, obs), (0.4, obs), (0.4, obs)], k)
+    assert r_night == pytest.approx(r_night_true, rel=1e-3)
+    assert r_day == pytest.approx(r_night_true * k, rel=1e-3)
+    assert source == "ratio_from_night"
+
+
+def test_unmeasured_radiation_uses_calibrated_day_night_levels():
+    cal = {"radiation": {"r_rad_default": 5.0, "r_rad_default_night": 2.46, "r_rad_default_day": 3.93}}
+    import inspect
+    src = inspect.getsource(wp.predict_compute)
+    assert "default_calibrated" in src and "r_rad_default_night" in src
+    assert cal["radiation"]["r_rad_default_night"] < cal["radiation"]["r_rad_default_day"] < cal["radiation"]["r_rad_default"]

@@ -1213,13 +1213,15 @@ def fit_day_night_r_rad(radiation_samples, day_night_ratio):
             b = cov / var
             a = mean_y - b * mean_x
             return a, a + b, "fit_day_night"
+    # Single regime: the observed mean was taken at mean sunlit fraction mean_x, not at 0 or 1.
+    # Invert the model r(f) = r_night * (1 + (k - 1) * f), k = day_night_ratio, at f = mean_x.
+    # Treating the observation as a pure level double-counted the sun for large domains: conus12's
+    # 12Z probe (east of the domain already in daylight) gave r_day 6.8 against ~3.9 measured.
     mean_x = sum(xs) / len(xs)
     mean_y = sum(ys) / len(ys)
-    if mean_x >= 0.5:
-        r_day = mean_y
-        return r_day / day_night_ratio, r_day, "ratio_from_day"
-    r_night = mean_y
-    return r_night, r_night * day_night_ratio, "ratio_from_night"
+    r_night = mean_y / (1.0 + (day_night_ratio - 1.0) * mean_x)
+    source = "ratio_from_day" if mean_x >= 0.5 else "ratio_from_night"
+    return r_night, r_night * day_night_ratio, source
 
 
 def measure_rad_from_rsl(rsl_paths, radt_minutes, dt_seconds, sample_points,
@@ -1381,6 +1383,14 @@ def predict_compute(nl, max_dom, steps, run_min, ranks, omp, probe_result, calib
         r_night = r_day = default_r_rad
         r_rad_source = "default_unmeasured"
         probe_mean_sunlit_fraction = None
+
+    # A probe shorter than one radiation interval sees no radiation step (karina: every 60 steps,
+    # sc26p1: every 54, probes are 30). Prefer measured typical day/night levels over the flat
+    # r_rad_default of 5, which alone produced severe2023's +25% (2026-09-23 validation).
+    cal_rad = calibration.get("radiation", {})
+    if r_rad_source == "default_unmeasured" and cal_rad.get("r_rad_default_night") and cal_rad.get("r_rad_default_day"):
+        r_night, r_day = float(cal_rad["r_rad_default_night"]), float(cal_rad["r_rad_default_day"])
+        r_rad_source = "default_calibrated"
 
     if probe_result is not None:
         s_normal = probe_result["s_normal"]

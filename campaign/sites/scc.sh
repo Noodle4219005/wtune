@@ -45,6 +45,12 @@ site_env () {
 # dist=cyclic (block is OMPI5's own default rank-by, so the block case adds nothing extra).
 site_launch () {
   local ranks="$1" tpn="$2" omp="$3" dist="$4"
+  # Callers pass tpn = ranks / nodes with integer division, which floors. When the legal anchor
+  # rank count does not divide by the node count (c34 121 ranks on 2 nodes -> ppr:60 maps only 120)
+  # mpirun refuses with rc=213 before WRF starts (jobs 760, 773). Round up instead: 61+60 fits.
+  # Computed here because this file is sourced at run time, so already-queued jobs pick it up.
+  local nn="${SLURM_JOB_NUM_NODES:-1}"
+  [ $(( tpn * nn )) -lt "$ranks" ] && tpn=$(( (ranks + nn - 1) / nn ))
   SITE_LAUNCH_CMD=(mpirun -np "$ranks" --map-by "ppr:${tpn}:node:PE=${omp}" --bind-to core)
   if [ "$dist" = "cyclic" ]; then
     SITE_LAUNCH_CMD+=(--rank-by node)

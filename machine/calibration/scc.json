@@ -2,7 +2,6 @@
   "schema_version": 1,
   "site": "scc",
   "description": "Calibration constants for wtune_predict.py's offline wall-time model. Every derived number cites the raw measured fact(s) it came from; anything not backed by a direct measurement is labelled UNCALIBRATED GUESS or ASSUMED and carries a wide uncertainty.",
-
   "conus25_calibration_run": {
     "_comment": "job 427: CONUS 2.5km, 720 ranks, 24x30 decomposition, netCDF (io_form 2) history to NFS. This is the ONLY run used to calibrate compute-rate self-consistency and the netCDF/NFS write+read rates -- everything under 'derived' is computed from these fields.",
     "job_id": 427,
@@ -31,39 +30,57 @@
     "first_frame_write_s": 88.2,
     "wrfinput_read_s": 48.97
   },
-
   "derived": {
     "bytes_per_cell_level": 30.914472671840755,
     "bytes_per_cell_level_formula": "conus25_calibration_run.bytes_per_history_frame / (e_we * e_sn * e_vert) = 2786477540 / (1501*1201*50). Applied identically (e_we*e_sn*e_vert, no staggered-grid -1 correction) on both the calibration side and every prediction, so any staggered-vs-mass-point offset cancels.",
-
     "netcdf_nfs_write_rate_bytes_per_s": 27667152.879432622,
     "netcdf_nfs_write_rate_formula": "CORRECTED: (7 * bytes_per_history_frame) / history_frames_write_s_total = (7*2786477540)/705.0, history-frame writes ONLY (the restart write is excluded from this rate and modeled separately -- see 'restart' below). Supersedes the earlier (7*bytes_per_history_frame)/writing_total_s=1136.14 blended rate (17.17 MB/s), which understated the true history write rate because its denominator also contained the restart write's 431.2s.",
     "netcdf_nfs_write_rate_uncertainty_pct": 10,
     "netcdf_nfs_write_rate_uncertainty_source": "single measurement (job 427), no repeated trials; +-10% is a documented judgment call, not itself measured",
-
     "read_rate_bytes_per_s": 56901726.363079436,
     "read_rate_formula": "ASSUMED wrfinput file bytes for the calibration case == one history frame's bytes (bytes_per_history_frame), since wrfinput carries a comparable number of 3D atmospheric fields to a wrfout frame and its real on-disk size was not recorded. read_rate = bytes_per_history_frame / wrfinput_read_s = 2786477540/48.97. Used both to size an estimated wrfinput (bytes_per_cell_level * cells, same formula as a frame) when case_dir has no real wrfinput/wrfbdy files, and as the read RATE applied to real on-disk bytes when they exist.",
     "read_rate_uncertainty_pct": 20,
-
     "wrf_ior_ratio": 0.23770678476756862,
     "wrf_ior_ratio_formula": "netcdf_nfs_write_rate_bytes_per_s / (IOR posix single-writer rate in B/s) = 27667152.88/(111*1024*1024). WRF's io_form=2 write path (rank-0 collects then writes one file) is treated as directly comparable to IOR's POSIX single-writer pattern. This ratio is then applied to OTHER IOR patterns to estimate how WRF would perform on io_form 11/14, since WRF-path efficiency vs IOR is only independently known for netCDF. Recomputed from the corrected (history-only) write rate above; the io_form 11/14 NFS rates below moved up with it.",
-
     "io_form_rate_table": {
       "2": {
-        "nfs": {"rate_bytes_per_s": 27667152.879432622, "uncertainty_pct": 10, "source": "measured, job 427, history frames only (see netcdf_nfs_write_rate above)"},
-        "local": {"rate_bytes_per_s": null, "uncertainty_pct": null, "source": "UNMEASURED: local NVMe/tmpfs write rate has not been benchmarked on scc. --io-target local must be refused/flagged, not silently guessed."}
+        "nfs": {
+          "rate_bytes_per_s": 27667152.879432622,
+          "uncertainty_pct": 10,
+          "source": "measured, job 427, history frames only (see netcdf_nfs_write_rate above)"
+        },
+        "local": {
+          "rate_bytes_per_s": null,
+          "uncertainty_pct": null,
+          "source": "UNMEASURED: local NVMe/tmpfs write rate has not been benchmarked on scc. --io-target local must be refused/flagged, not silently guessed."
+        }
       },
       "11": {
-        "nfs": {"rate_bytes_per_s": 13708949.624944093, "uncertainty_pct": 40, "source": "DERIVED, not measured for WRF: wrf_ior_ratio * IOR PnetCDF-shared rate (55 MiB/s, job 432, 144 ranks, 2.88GB total on /nfs). Wide uncertainty because the WRF/IOR efficiency ratio was only established for the netCDF path, not PnetCDF."},
-        "local": {"rate_bytes_per_s": null, "uncertainty_pct": null, "source": "UNMEASURED"}
+        "nfs": {
+          "rate_bytes_per_s": 13708949.624944093,
+          "uncertainty_pct": 40,
+          "source": "DERIVED, not measured for WRF: wrf_ior_ratio * IOR PnetCDF-shared rate (55 MiB/s, job 432, 144 ranks, 2.88GB total on /nfs). Wide uncertainty because the WRF/IOR efficiency ratio was only established for the netCDF path, not PnetCDF."
+        },
+        "local": {
+          "rate_bytes_per_s": null,
+          "uncertainty_pct": null,
+          "source": "UNMEASURED"
+        }
       },
       "14": {
-        "nfs": {"rate_bytes_per_s": 55832813.01795412, "uncertainty_pct": 40, "source": "DERIVED, not measured for WRF: wrf_ior_ratio * IOR file-per-process rate (224 MiB/s, job 432), used as the ADIOS2 (io_form 14, one file per aggregator) proxy since that write pattern is closest to file-per-process. Same wide uncertainty caveat as io_form 11."},
-        "local": {"rate_bytes_per_s": null, "uncertainty_pct": null, "source": "UNMEASURED"}
+        "nfs": {
+          "rate_bytes_per_s": 55832813.01795412,
+          "uncertainty_pct": 40,
+          "source": "DERIVED, not measured for WRF: wrf_ior_ratio * IOR file-per-process rate (224 MiB/s, job 432), used as the ADIOS2 (io_form 14, one file per aggregator) proxy since that write pattern is closest to file-per-process. Same wide uncertainty caveat as io_form 11."
+        },
+        "local": {
+          "rate_bytes_per_s": null,
+          "uncertainty_pct": null,
+          "source": "UNMEASURED"
+        }
       }
     }
   },
-
   "ior_benchmark_job432": {
     "_comment": "job 432: IOR on /nfs, 144 ranks, 2.88 GB total. Used only to derive the io_form 11/14 NFS rates above via wrf_ior_ratio -- never consumed directly by wtune_predict.py.",
     "n_ranks": 144,
@@ -74,44 +91,39 @@
     "pnetcdf_shared_MiBps": 55,
     "hdf5_shared_MiBps": 43
   },
-
   "radiation": {
     "r_rad_default": 5.0,
-    "r_rad_range": [4.63, 5.66],
+    "r_rad_range": [
+      4.63,
+      5.66
+    ],
     "source": "atlas CONUS 2.5km measured radiation-step cost multiplier range (radiation step cost / normal step cost); not re-derived from job 427 -- used as an independent multiplier on top of s_per_step_median.",
     "r_rad_default_note": "SUPERSEDED as the default model by r_rad_day_night_ratio below once wtune_predict.py has a --probe-rsl day or night sample to derive the other level from; r_rad_default/r_rad_range remain the last-resort fallback when no radiation-step/sunlit-fraction data is available at all (source='default_unmeasured').",
-
     "r_rad_day_night_ratio": 1.87,
     "r_rad_day_night_ratio_source": "MEASURED, 2026-09-23, 5 full scc runs' rsl.error.0000 (schedule-identified radiation steps, see wtune_predict.py's steps_per_radiation_call/classify_steps_detected): matthew night 1.92-1.97 vs day 3.42-3.64 (ratio 1.85), sc26p2 night 2.47-2.52 vs day 4.57-4.70 (ratio 1.87), sc26p2narr night 2.45-2.48 vs day 4.61-4.71 (ratio 1.90); mean of the 3 ratios = 1.87. conus12 (all-day run, no night regime observed) measured 3.83-3.98, consistent with a day-level r_rad in this same family. severe2023's night radiation-step cost (2.02-2.06 daytime; night NOT DETECTED by the OLD cost-threshold heuristic) is exactly the case that exposed the old single-r_rad model as wrong -- see wtune_predict.py module docstring's 'radiation' section."
   },
-
   "fallback_s_per_cell_step_ns": 4437.341522526475,
   "fallback_s_per_cell_step_ns_formula": "UNCALIBRATED GUESS, used only when NO probe ledger row exists for the case at ANY rank count: (s_per_step_median * n_ranks / (e_we*e_sn*e_vert)) * 1e9 from the ONE conus25 calibration run = (0.5555*720/90135050)*1e9. Applying a conus25-suite compute rate to a case with a different physics suite/hardware mix is NOT validated -- treat predictions on this path with a wide (50%) uncertainty band.",
-
   "restart": {
     "restart_to_history_time_ratio": 4.282025819265144,
     "restart_to_history_time_ratio_formula": "MEASURED, job 427: conus25_calibration_run.restart_write_s_d01 / conus25_calibration_run.history_frame_write_s_mean = 431.2/100.7. Supersedes the earlier 'size_multiplier_vs_history_frame: 2.0' UNCALIBRATED GUESS. Applied as: restart write seconds for a domain = ratio * (that domain's history-frame bytes / the SAME netcdf_nfs_write_rate) -- i.e. a restart write is modeled as taking 4.28x as long as one history frame write of that domain, not as a separately-sized byte count. Only validated at d01 scale (900x900x50..1501x1201x50); not independently checked for a much smaller or larger domain.",
     "note": "Modeled as a separate line item for EVERY active domain, once per restart_interval, whenever restart_interval > 0 in the namelist -- including the conus25-calibration fixture itself (test_wtune_predict.py's self-consistency fixture now sets restart_interval=300, since history and restart are no longer blended into one rate)."
   },
-
   "fallback_auxhist_fraction_REMOVED_note": "2026-09-22: the 'fallback_auxhist_fraction: 0.1' UNCALIBRATED GUESS is REMOVED. Field-subset (iofields_filename) aux streams are now sized first-principles in wtune_predict.py itself (sum over the file's listed fields of points*4 bytes, no calibration constant), not scaled from a fraction of a full frame. No per-frame fixed overhead was added on top: nothing in the conus25 calibration run (a full-frame, non-field-subset history write) gives an independent basis for a field-subset stream's per-frame overhead, so none is assumed.",
-
   "drift_band_pct": 5,
   "drift_band_note": "NOT VALIDATED (offline temporal validation pending): applied as a symmetric +-5% band on the whole predicted wall time to account for possible compute-rate drift over long simulated durations (e.g. seasonal/diurnal load changes across a 30h forecast). No case in this repo has been used to check whether s_per_step actually stays flat over many simulated hours.",
-
-  "startup_s": null,
-  "startup_s_source": null,
+  "startup_s": 19.4,
+  "startup_s_source": "2026-09-23 ground-truth full runs on scc, 1 node, 72x1: median of wall - sum('Timing for main') over the 4 small cases whose end-of-run writes are negligible (matthew 18.6, severe2023 21.7, sc26p2 20.1, sc26p2narr 17.2 s). conus12 (40.1 s) and karina (185.6 s) are excluded: their outside-loop time is dominated by the t=0 and final history/restart writes (karina: 21.2 + 24.9 + 122.2 s) that the I/O term already counts. Measured at 1 node only; not validated at other node counts.",
   "startup_s_comment": "UNCALIBRATED: pending fit from the 2026-09-23 ground-truth 8-run validation. wall - sum(per-step times) was 17-22s on EVERY 1-node scc run in that set (MPI launch, reading wrfinput, first step, finalise) -- the whole-run model's init term is otherwise < 1s, which was one of the three gaps the 2026-09-23 validation attributed the -23%..+25% whole-run wall error to. Fill startup_s (seconds) and startup_s_source (what it was fitted from) once the fit is done; wtune_predict.py adds startup_s to the init term when non-null and prints 'startup: UNCALIBRATED' when null.",
-
-  "history_write_rate_MBps_low": null,
-  "history_write_rate_MBps_high": null,
+  "history_write_rate_MBps_low": 13.5,
+  "history_write_rate_MBps_high": 58.1,
   "history_write_rate_MBps_comment": "UNCALIBRATED: pending fit from the 2026-09-23 ground-truth 8-run validation. NFS history write time was measured to vary 2.4x for IDENTICAL writes under concurrent load on that date (sc26p2 56.5s vs sc26p2narr 134.0s for the same 53 writes, same grid, concurrent jobs on one NFS server) -- a point rate cannot capture this, hence a low/high bracket instead of a single number. Units: decimal MB/s (1e6 bytes/s), matching the '_MBps' key name (NOT MiB/s, unlike the ior_benchmark_job432 figures elsewhere in this file). The existing point rate (derived.io_form_rate_table['2'].nfs.rate_bytes_per_s, 27667152.88 B/s = 27.67 MB/s) stays the point estimate; low/high only widen wtune_predict.py's printed range (fast total uses high_mbps, slow total uses low_mbps), they do not replace the point rate used for the central prediction.",
-
   "probe_noise_pct": {
     "measured_lt2_reps": 3,
     "measured_ge2_reps": "use the observed spread across reps instead of this constant",
     "extrapolated": 15,
     "no_probe_fallback": 50
   },
-  "probe_noise_pct_note": "Default +-3% for a single measured rep (no repeats to derive spread from); +-15% when the probe config was extrapolated to a different rank count via ideal scaling (an additional, unvalidated assumption on top of measurement noise); +-50% when compute falls all the way back to fallback_s_per_cell_step_ns (an uncalibrated cross-case guess)."
+  "probe_noise_pct_note": "Default +-3% for a single measured rep (no repeats to derive spread from); +-15% when the probe config was extrapolated to a different rank count via ideal scaling (an additional, unvalidated assumption on top of measurement noise); +-50% when compute falls all the way back to fallback_s_per_cell_step_ns (an uncalibrated cross-case guess).",
+  "history_write_rate_range_source": "2026-09-23 ground-truth runs on scc (NFS on head, concurrent jobs): ratio of predicted to measured total write time (sum of 'Timing for Writing') ranged 0.49 (sc26p2narr) to 2.10 (severe2023) over 6 runs (matthew 1.02, sc26p2 1.16, conus12 1.16, karina 1.48); low/high = 27.67 MB/s x 0.49 / x 2.10. Identical writes varied 2.4x between sc26p2 and sc26p2narr (56.5 vs 134.0 s), so this is contention, not a model defect."
 }

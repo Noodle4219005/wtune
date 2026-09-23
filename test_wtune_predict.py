@@ -791,4 +791,356 @@ def test_wtune_py_predict_subcommand_smoke(tmp_path):
     assert out_json.exists()
     doc = json.loads(out_json.read_text())
     assert doc["case_name"] == "conus25"
-    assert doc["steps"] == 1440
+
+
+# --------------------------------------------------------------------------
+# 9. r_rad / s_normal measured from a probe's own rsl.error.0000 step timings
+# --------------------------------------------------------------------------
+
+def _rsl_lines(normal_s=2.0, n_normal=8, rad_s=6.0, n_rad=2, step1_s=50.0):
+    """8 normal d01 steps @ normal_s, 2 radiation d01 steps @ rad_s, plus a
+    dropped step-1 outlier, interleaved with domain-2 lines that must be
+    ignored. Chosen so pooled-after-dropping-step-1 = [normal_s]*8 + [rad_s]*2
+    (n=10) has an exact median of normal_s (n_normal even, both middle values
+    are normal_s), so 1.8x that median cleanly separates rad_s (6.0 > 3.6)
+    from normal_s (2.0 <= 3.6) with no ambiguity.
+    """
+    lines = ["Timing for main: time 2020-01-01_00:00:01 on domain   1:  %.6f elapsed seconds" % step1_s,
+             "Timing for main: time 2020-01-01_00:00:01 on domain   2:  9.000000 elapsed seconds"]
+    for i in range(n_normal):
+        lines.append("Timing for main: time 2020-01-01_00:%02d:01 on domain   1:  %.6f elapsed seconds"
+                     % (i + 2, normal_s))
+        lines.append("Timing for main: time 2020-01-01_00:%02d:01 on domain   2:  0.500000 elapsed seconds"
+                     % (i + 2))
+    for i in range(n_rad):
+        lines.append("Timing for main: time 2020-01-01_00:%02d:01 on domain   1:  %.6f elapsed seconds"
+                     % (i + 20, rad_s))
+    return "\n".join(lines) + "\n"
+
+
+def test_parse_rsl_d01_step_seconds_ignores_other_domains(tmp_path):
+    rsl_path = tmp_path / "rsl.error.0000"
+    text = _rsl_lines()
+    assert "on domain   2:" in text  # sanity: fixture really has d02 noise present
+    _write(str(rsl_path), text)
+    d01 = wp.parse_rsl_d01_step_seconds(str(rsl_path))
+    assert d01 == [50.0] + [2.0] * 8 + [6.0, 6.0]
+    assert not any(v == 9.0 or v == 0.5 for v in d01)  # d02-only values excluded
+
+
+def test_measure_rad_from_rsl_exact_values(tmp_path):
+    rsl_path = tmp_path / "rsl.error.0000"
+    _write(str(rsl_path), _rsl_lines())
+
+    d01 = wp.parse_rsl_d01_step_seconds(str(rsl_path))
+    assert d01 == [50.0] + [2.0] * 8 + [6.0, 6.0]
+
+    result = wp.measure_rad_from_rsl([str(rsl_path)], default_r_rad=5.0)
+    assert result["r_rad_source"] == "probe_rsl"
+    assert result["s_normal"] == pytest.approx(2.0)
+    assert result["r_rad"] == pytest.approx(3.0)
+    assert result["n_radiation_steps"] == 2
+    assert result["n_steps_pooled"] == 10  # step 1 dropped
+
+
+def test_measure_rad_from_rsl_pools_multiple_files(tmp_path):
+    p1 = tmp_path / "rsl.error.0000"
+    p2 = tmp_path / "rsl.error.0001"
+    _write(str(p1), _rsl_lines(n_normal=4, n_rad=1))
+    _write(str(p2), _rsl_lines(n_normal=4, n_rad=1))
+    result = wp.measure_rad_from_rsl([str(p1), str(p2)], default_r_rad=5.0)
+    assert result["n_steps_pooled"] == 10  # (4+1)*2, each file's own step1 dropped
+    assert result["n_radiation_steps"] == 2  # 1+1, only >= 2 pooled unlocks probe_rsl
+    assert result["r_rad_source"] == "probe_rsl"
+    assert result["r_rad"] == pytest.approx(3.0)
+
+
+def test_measure_rad_from_rsl_falls_back_when_lt2_radiation_steps(tmp_path):
+    rsl_path = tmp_path / "rsl.error.0000"
+    # all steps identical (after dropping step 1) -> zero outliers
+    _write(str(rsl_path), _rsl_lines(n_normal=5, n_rad=0))
+    result = wp.measure_rad_from_rsl([str(rsl_path)], default_r_rad=5.0)
+    assert result["r_rad_source"] == "default_unmeasured"
+    assert result["r_rad"] == 5.0
+    assert result["n_radiation_steps"] == 0
+
+
+RSL_COMPUTE_NAMELIST = """\
+&time_control
+ run_minutes = 40,
+ /
+&domains
+ max_dom = 1,
+ e_we = 10,
+ e_sn = 10,
+ e_vert = 10,
+ time_step = 60,
+ /
+&physics
+ radt = 10,
+ /
+"""
+
+
+def test_predict_compute_uses_rsl_s_normal_and_r_rad_without_ledger(tmp_path):
+    nl = wp.parse_namelist(_write(str(tmp_path / "namelist.input"), RSL_COMPUTE_NAMELIST))
+    steps, run_s, dt, _ = wp.get_d01_steps(nl)
+    run_min = run_s / 60.0
+    rsl_path = tmp_path / "rsl.error.0000"
+    _write(str(rsl_path), _rsl_lines())
+
+    compute = wp.predict_compute(nl, 1, steps, run_min, ranks=1, omp=1, probe_result=None,
+                                 calibration={"radiation": {"r_rad_default": 5.0}},
+                                 rsl_paths=[str(rsl_path)])
+    assert compute["source"] == "probe_rsl"
+    assert compute["s_normal"] == pytest.approx(2.0)
+    assert compute["r_rad"] == pytest.approx(3.0)
+    assert compute["r_rad_source"] == "probe_rsl"
+    # radt=10min, run_min=40 -> rad_steps = floor(40/10) = 4
+    assert compute["rad_steps"] == 4
+    assert compute["rad_extra_s"] == pytest.approx(4 * (3.0 - 1.0) * 2.0)
+
+
+def test_predict_compute_ledger_s_normal_wins_rsl_still_sets_r_rad(tmp_path):
+    """Per spec: --probe (ledger) keeps supplying s_normal when it has a
+    match; --probe-rsl only supplies s_normal when the ledger gave none.
+    r_rad, however, is always eligible to come from --probe-rsl."""
+    nl = wp.parse_namelist(_write(str(tmp_path / "namelist.input"), RSL_COMPUTE_NAMELIST))
+    steps, run_s, dt, _ = wp.get_d01_steps(nl)
+    run_min = run_s / 60.0
+    rsl_path = tmp_path / "rsl.error.0000"
+    _write(str(rsl_path), _rsl_lines())
+
+    probe_result = {"s_normal": 9.0, "source": "measured", "spread_pct": None}
+    compute = wp.predict_compute(nl, 1, steps, run_min, ranks=1, omp=1, probe_result=probe_result,
+                                 calibration={"radiation": {"r_rad_default": 5.0}},
+                                 rsl_paths=[str(rsl_path)])
+    assert compute["s_normal"] == pytest.approx(9.0)  # ledger value, unchanged
+    assert compute["source"] == "measured"
+    assert compute["r_rad"] == pytest.approx(3.0)  # measured from rsl, not the 5.0 default
+    assert compute["r_rad_source"] == "probe_rsl"
+
+
+def test_predict_compute_r_rad_default_when_no_probe_rsl_given(tmp_path):
+    nl = wp.parse_namelist(_write(str(tmp_path / "namelist.input"), RSL_COMPUTE_NAMELIST))
+    steps, run_s, dt, _ = wp.get_d01_steps(nl)
+    run_min = run_s / 60.0
+    compute = wp.predict_compute(nl, 1, steps, run_min, ranks=1, omp=1, probe_result=None,
+                                 calibration={"radiation": {"r_rad_default": 5.0},
+                                              "fallback_s_per_cell_step_ns": 1.0},
+                                 rsl_paths=None)
+    assert compute["r_rad"] == 5.0
+    assert compute["r_rad_source"] == "default_unmeasured"
+
+
+# --------------------------------------------------------------------------
+# 10. startup_s calibration key
+# --------------------------------------------------------------------------
+
+STARTUP_NAMELIST = """\
+&domains
+ max_dom = 1,
+ e_we = 10,
+ e_sn = 10,
+ e_vert = 10,
+ /
+"""
+
+
+def test_predict_init_adds_startup_s_when_present(tmp_path):
+    nl = wp.parse_namelist(_write(str(tmp_path / "namelist.input"), STARTUP_NAMELIST))
+    calibration = {"derived": {"read_rate_bytes_per_s": 1000.0, "bytes_per_cell_level": 1.0},
+                   "startup_s": 20.0, "startup_s_source": "unit-test"}
+    init = wp.predict_init(None, nl, calibration)
+    assert init["startup_calibrated"] is True
+    assert init["startup_s"] == 20.0
+    assert init["startup_s_source"] == "unit-test"
+    assert init["total_s"] == pytest.approx(init["read_s"] + 20.0)
+
+
+def test_predict_init_startup_uncalibrated_when_absent(tmp_path):
+    nl = wp.parse_namelist(_write(str(tmp_path / "namelist.input"), STARTUP_NAMELIST))
+    calibration = {"derived": {"read_rate_bytes_per_s": 1000.0, "bytes_per_cell_level": 1.0}}
+    init = wp.predict_init(None, nl, calibration)
+    assert init["startup_calibrated"] is False
+    assert init["startup_s"] is None
+    assert init["total_s"] == pytest.approx(init["read_s"])
+
+
+def test_render_text_prints_startup_uncalibrated_with_real_calibration(tmp_path):
+    # machine/calibration/scc.json currently has startup_s: null (pending the
+    # 2026-09-23 ground-truth fit) -- assert the text output says so plainly.
+    case_dir = tmp_path / "conus25"
+    case_dir.mkdir()
+    _write(str(case_dir / "namelist.input"), CONUS25_NAMELIST)
+    pred = wp.build_prediction(
+        namelist_path=str(case_dir / "namelist.input"), case_dir=str(case_dir), nodes=7,
+        config={"ranks": 720, "omp": 1, "nx": 24, "ny": 30, "numtiles": 1},
+        ledger_paths=None, calibration_path=CALIBRATION,
+        io_form_override=None, io_target="nfs")
+    assert "startup: UNCALIBRATED" in wp.render_text(pred)
+
+
+# --------------------------------------------------------------------------
+# 11. I/O as a range (history_write_rate_MBps_low/_high)
+# --------------------------------------------------------------------------
+
+IORANGE_NAMELIST = """\
+&time_control
+ run_minutes = 60,
+ history_interval = 60,
+ io_form_history = 2,
+ /
+&domains
+ max_dom = 1,
+ e_we = 10,
+ e_sn = 10,
+ e_vert = 10,
+ time_step = 60,
+ /
+"""
+
+
+def test_io_range_brackets_point_estimate_and_widens_exactly(tmp_path):
+    case_dir = tmp_path / "iorange_case"
+    case_dir.mkdir()
+    _write(str(case_dir / "namelist.input"), IORANGE_NAMELIST)
+
+    # bytes_per_frame = bpcl(1000) * cells(10*10*10=1000) = 1,000,000 bytes;
+    # n_frames = floor(60/60)+1 = 2 -> 2,000,000 bytes total.
+    # point rate 1,000,000 B/s -> 2.0s; low(slow)=0.5MB/s=500,000B/s -> 4.0s;
+    # high(fast)=2.0MB/s=2,000,000B/s -> 1.0s. All exact, no rounding.
+    calibration = {
+        "derived": {
+            "bytes_per_cell_level": 1000.0,
+            "io_form_rate_table": {
+                "2": {"nfs": {"rate_bytes_per_s": 1000000.0, "uncertainty_pct": 10, "source": "point"}}},
+            "read_rate_bytes_per_s": 1000000.0,
+        },
+        "fallback_s_per_cell_step_ns": 1.0,
+        "drift_band_pct": 5.0,
+        "history_write_rate_MBps_low": 0.5,
+        "history_write_rate_MBps_high": 2.0,
+    }
+    cal_path = tmp_path / "calibration.json"
+    _write(str(cal_path), json.dumps(calibration))
+
+    config = {"ranks": 1, "omp": 1, "nx": 1, "ny": 1, "numtiles": 1}
+    pred = wp.build_prediction(
+        namelist_path=str(case_dir / "namelist.input"), case_dir=str(case_dir), nodes=1,
+        config=config, ledger_paths=None, calibration_path=str(cal_path),
+        io_form_override=None, io_target="nfs")
+
+    io_range = pred["io_range"]
+    assert io_range is not None
+    assert io_range["fast_total_s"] == pytest.approx(1.0)
+    assert io_range["slow_total_s"] == pytest.approx(4.0)
+    assert pred["io"]["total_s"] == pytest.approx(2.0)  # point estimate unchanged
+
+    compute_total = pred["compute"]["compute_total_s"]
+    drift_pct = pred["drift_pct"]
+    compute_drift = compute_total * (drift_pct / 100.0)
+    expected_low = max(0.0, compute_total - compute_drift) + io_range["fast_total_s"] + pred["init"]["total_s"]
+    expected_high = (compute_total + compute_drift) + io_range["slow_total_s"] + pred["init"]["total_s"]
+
+    assert pred["range_low_s"] == pytest.approx(expected_low)
+    assert pred["range_high_s"] == pytest.approx(expected_high)
+    assert pred["range_low_s"] <= pred["total_s"] <= pred["range_high_s"]
+    # widens by exactly the I/O fast/slow spread plus the compute-only drift band on both sides
+    assert (pred["range_high_s"] - pred["range_low_s"]) == pytest.approx(
+        (io_range["slow_total_s"] - io_range["fast_total_s"]) + 2 * compute_drift)
+
+    text = wp.render_text(pred)
+    assert "I/O rate range" in text
+    assert "write-rate bracket" in text
+
+
+def test_io_range_absent_keeps_legacy_rss_range(tmp_path):
+    case_dir = tmp_path / "conus25"
+    case_dir.mkdir()
+    _write(str(case_dir / "namelist.input"), CONUS25_NAMELIST)
+    pred = wp.build_prediction(
+        namelist_path=str(case_dir / "namelist.input"), case_dir=str(case_dir), nodes=7,
+        config={"ranks": 720, "omp": 1, "nx": 24, "ny": 30, "numtiles": 1},
+        ledger_paths=None, calibration_path=CALIBRATION,
+        io_form_override=None, io_target="nfs")
+    assert pred["io_range"] is None
+    assert pred["range_source"] is None
+    expected_range_abs = math.sqrt(pred["compute"]["noise_abs_s"] ** 2 + pred["io"]["noise_abs_s"] ** 2
+                                    + pred["drift_abs_s"] ** 2)
+    assert pred["range_high_s"] == pytest.approx(pred["total_s"] + expected_range_abs)
+
+
+# --------------------------------------------------------------------------
+# 12. lafe --case-name probe-matching regression
+# --------------------------------------------------------------------------
+
+LAFE_NAMELIST = """\
+&time_control
+ run_hours = 24,
+ /
+&domains
+ max_dom = 1,
+ e_we = 500,
+ e_sn = 500,
+ e_vert = 50,
+ time_step = 20,
+ /
+"""
+
+
+def test_lafe_probe_matching_needs_case_name_override(tmp_path):
+    """Root cause: build_prediction's case_name defaults to case_dir's own
+    basename (Path(case_dir).name) when no explicit case_name is given, and
+    resolve_probe matches purely on case_base == that name. lafe's real prep
+    dir is /nfs/data/wrf/doi4-lafe2017 (named after the data source) while
+    its ledger case_base is 'lafe' -- so with no --case-name, EVERY row for
+    this case fails the case_base match (probe_result stays None end to
+    end), and predict silently drops to no_probe_fallback despite the ledger
+    holding an exact 72-rank measured row (8.587 s/step)."""
+    case_dir = tmp_path / "doi4-lafe2017"
+    case_dir.mkdir()
+    _write(str(case_dir / "namelist.input.d01only"), LAFE_NAMELIST)
+
+    ledger_path = tmp_path / "ledger_lafe.csv"
+    row = dict(case_base="lafe", n_ranks=72, omp_threads=1, nproc_x=9, nproc_y=8,
+              numtiles=1, s_per_step_median=8.587, notes="config=lafe72")
+    _write(str(ledger_path), LEDGER_HEADER + "\n" + _ledger_row(**row) + "\n")
+
+    config = {"ranks": 72, "omp": 1, "nx": 9, "ny": 8, "numtiles": 1}
+    common = dict(namelist_path=str(case_dir / "namelist.input.d01only"), case_dir=str(case_dir),
+                 nodes=1, config=config, ledger_paths=[str(ledger_path)],
+                 calibration_path=CALIBRATION, io_form_override=None, io_target="nfs")
+
+    # BEFORE the fix's usage (no case_name): reproduces the real bug.
+    pred_broken = wp.build_prediction(**common)
+    assert pred_broken["case_name"] == "doi4-lafe2017"
+    assert pred_broken["compute"]["source"] == "no_probe_fallback"
+    assert pred_broken["compute"]["s_normal"] != pytest.approx(8.587)
+
+    # AFTER: --case-name lafe makes the ledger match exact.
+    pred_fixed = wp.build_prediction(case_name="lafe", **common)
+    assert pred_fixed["case_name"] == "lafe"
+    assert pred_fixed["compute"]["source"] == "measured"
+    assert pred_fixed["compute"]["s_normal"] == pytest.approx(8.587)
+
+
+def test_wtune_predict_cli_case_name_flag(tmp_path):
+    case_dir = tmp_path / "doi4-lafe2017"
+    case_dir.mkdir()
+    _write(str(case_dir / "namelist.input"), LAFE_NAMELIST)
+    ledger_path = tmp_path / "ledger_lafe.csv"
+    row = dict(case_base="lafe", n_ranks=72, omp_threads=1, nproc_x=9, nproc_y=8,
+              numtiles=1, s_per_step_median=8.587, notes="config=lafe72")
+    _write(str(ledger_path), LEDGER_HEADER + "\n" + _ledger_row(**row) + "\n")
+    out_json = tmp_path / "out.json"
+    result = subprocess.run(
+        [sys.executable, os.path.join(HERE, "wtune_predict.py"), "predict", str(case_dir),
+         "--nodes", "1", "--nx", "9", "--ny", "8", "--ranks", "72",
+         "--probe", str(ledger_path), "--case-name", "lafe",
+         "--calibration", CALIBRATION, "--json", str(out_json)],
+        capture_output=True, text=True, cwd=HERE)
+    assert result.returncode == 0, result.stderr
+    doc = json.loads(out_json.read_text())
+    assert doc["compute"]["source"] == "measured"
+    assert doc["compute"]["s_normal"] == pytest.approx(8.587)

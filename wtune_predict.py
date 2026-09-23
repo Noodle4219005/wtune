@@ -24,14 +24,32 @@ compute (normal, non-radiation, non-I/O step cost)
     2. else nearest measured config of the SAME case at a DIFFERENT rank
        count, scaled by ideal strong scaling (s_per_step *= ranks_old/ranks_new)
        -> 'extrapolated'.
-    3. else calibration.fallback_s_per_cell_step_ns (documented UNCALIBRATED
+    3. else, when --probe-rsl gives one or more rsl.error.0000 probe logs and
+       the ledger produced no probe_result at all (no --probe row matched this
+       case), s_normal is the median non-radiation d01 step time measured
+       directly from those logs (see measure_rad_from_rsl below) -> 'probe_rsl'.
+    4. else calibration.fallback_s_per_cell_step_ns (documented UNCALIBRATED
        GUESS from the one conus25 reference run) -> 'no_probe_fallback'.
 
 radiation
     radiation steps = floor(run_minutes / d01 radt). Each one costs r_rad times
-    a normal step (r_rad default 5.0, source: atlas CONUS 2.5km measured range
-    4.63-5.66); modeled as an ADD-ON: extra_s = rad_steps * (r_rad-1) * s_normal,
-    since s_normal (probe median) already represents a normal/non-radiation step.
+    a normal step; modeled as an ADD-ON: extra_s = rad_steps * (r_rad-1) *
+    s_normal, since s_normal (probe median) already represents a
+    normal/non-radiation step. r_rad itself:
+      - when --probe-rsl gives one or more rsl.error.0000 logs with >= 2
+        radiation-cost steps observed (step time > 1.8x the pooled non-first-
+        step median), r_rad = median(those steps) / median(the rest)
+        -> 'probe_rsl', measured per-case/per-hardware instead of assumed.
+        ASSUMPTION: the probe window has no mid-run history/restart writes,
+        so every step-time outlier is radiation cost, not I/O -- true for the
+        campaign probe convention (probes write nothing mid-window); a probe
+        that DOES write mid-window will have its I/O steps misclassified as
+        radiation steps by this heuristic.
+      - otherwise r_rad = calibration.radiation.r_rad_default (5.0) ->
+        'default_unmeasured'. Measured atlas CONUS 2.5km range was 4.63-5.66,
+        but a 2026-09-23 scc validation found it case-dependent and as low as
+        2.04 (severe2023) to 4.58 (sc26p2), i.e. the hard-coded 5.0 is not a
+        safe universal default -- this is exactly why 'probe_rsl' exists.
 
 I/O
     history: frames = floor(run_minutes / history_interval) + 1 (t0 frame),
@@ -62,26 +80,49 @@ I/O
 init
     read_s = (on-disk wrfinput_d*/wrfbdy_d* bytes in case_dir, else an ESTIMATE
     = bytes_per_cell_level * d01 cells) / calibration.derived.read_rate_bytes_per_s,
-    plus calibration.fixed_startup_s (default 0.0, not independently measured).
+    plus calibration.fixed_startup_s (default 0.0, not independently measured;
+    dead/legacy -- no calibration file sets it) plus calibration.startup_s
+    (optional, a single measured seconds constant for MPI launch + wrfinput
+    read + first step + finalise; a 2026-09-23 scc validation found wall -
+    sum(per-step times) was 17-22s on every 1-node run, i.e. materially
+    nonzero). When startup_s is null/absent, the text output prints
+    "startup: UNCALIBRATED" rather than silently treating the gap as 0.
 
 drift
-    +-calibration.drift_band_pct on the whole total, labelled NOT VALIDATED.
+    +-calibration.drift_band_pct: on the whole total when no I/O rate range is
+    calibrated (see 'range' below), or scoped to the compute total ONLY when
+    calibration.history_write_rate_MBps_low/_high are set, in which case I/O's
+    own uncertainty is expressed as the fast/slow bracket instead. Labelled
+    NOT VALIDATED either way.
 
 range
-    combines (root-sum-square, in absolute seconds) probe noise on the compute
-    total, the drift band on the grand total, and the I/O calibration
-    uncertainty on the I/O total.
+    Without calibration.history_write_rate_MBps_low/_high: combines
+    (root-sum-square, in absolute seconds) probe noise on the compute total,
+    the drift band on the grand total, and the I/O calibration uncertainty on
+    the I/O total.
+    With calibration.history_write_rate_MBps_low/_high set: the printed range
+    is instead [compute_total - compute_drift .. compute_total + compute_drift]
+    + [I/O total computed at the HIGH (fast) rate .. I/O total computed at the
+    LOW (slow) rate] + init_total, i.e. an explicit measured I/O bracket
+    (NFS write time was observed to vary 2.4x for identical writes under
+    concurrent load on 2026-09-23) plus a compute-only drift band, reported
+    separately (compute.noise_abs_s is still computed and reported but not
+    folded into this bracket) so the printed range's two sources -- I/O rate
+    variance vs compute drift -- stay distinguishable rather than blended by
+    root-sum-square.
 """
 
 from __future__ import annotations
 
 import argparse
+import copy
 import csv
 import datetime
 import json
 import math
 import os
 import re
+import statistics
 import sys
 from pathlib import Path
 
@@ -101,6 +142,16 @@ LONG_RUN_HOURS = 12.0  # threshold above which the compute row is segmented
 PROBE_NOISE_MEASURED_PCT = 3.0
 PROBE_NOISE_EXTRAPOLATED_PCT = 15.0
 PROBE_NOISE_FALLBACK_PCT = 50.0
+# A probe_rsl s_normal is a single run's own step-timing sample (not
+# cross-validated against a separate ledger measurement the way a --probe
+# 'measured' row often is), so it gets a slightly wider band than
+# PROBE_NOISE_MEASURED_PCT -- an explicit, disclosed judgment call, not a
+# measured uncertainty.
+PROBE_NOISE_RSL_PCT = 5.0
+
+# A step's d01 wall time is classified as a radiation step when it exceeds
+# this multiple of the pooled non-first-step median (see measure_rad_from_rsl).
+RSL_RADIATION_STEP_THRESHOLD = 1.8
 
 
 class PredictError(Exception):
@@ -630,12 +681,91 @@ def resolve_probe(ledger_rows, case_name, config):
 
 
 # --------------------------------------------------------------------------
+# RSL probe (r_rad / s_normal measured from a run's own d01 step timings)
+# --------------------------------------------------------------------------
+
+_RSL_TIMING_RE = re.compile(
+    r"Timing for main:.*?on domain\s+(\d+):\s+([\d.]+)\s+elapsed seconds")
+
+
+def parse_rsl_d01_step_seconds(path):
+    """Parse a WRF rsl.error.0000-style log's 'Timing for main: time <t> on
+    domain   1:   <sec> elapsed seconds' lines for domain 1 (d01) only,
+    returning their elapsed-second values as a list of floats in file
+    (i.e. step) order. Nested-domain lines (domain 2, 3, ...) are ignored --
+    same d01-step-cost-already-includes-nested-substeps convention as the
+    rest of this module (see get_d01_steps/nested_equivalent_cells).
+    """
+    text = Path(path).read_text()
+    out = []
+    for m in _RSL_TIMING_RE.finditer(text):
+        if int(m.group(1)) == 1:
+            out.append(float(m.group(2)))
+    return out
+
+
+def measure_rad_from_rsl(rsl_paths, default_r_rad):
+    """Pool d01 step times from one or more rsl.error.0000 probe logs
+    (parse_rsl_d01_step_seconds), dropping each file's own step 1 (startup/
+    first-step outlier, not representative of steady-state cost), then:
+      m = median of the pooled remaining steps
+      radiation steps = steps > RSL_RADIATION_STEP_THRESHOLD (1.8) * m
+      normal steps = the rest
+      s_normal = median(normal steps)
+      r_rad = median(radiation steps) / s_normal, only when >= 2 radiation
+              steps were observed (a single outlier is not enough to trust
+              as a radiation-step estimate; falls back to default_r_rad).
+
+    ASSUMPTION (see module docstring's 'radiation' section): the probe
+    window has no mid-run history/restart writes, so an outlier step is
+    radiation cost, not I/O. Multiple rsl_paths are pooled BEFORE computing
+    the median/threshold, not averaged per-file first.
+
+    Returns a dict: s_normal (float or None if no normal steps could be
+    isolated), r_rad, r_rad_source ('probe_rsl' or 'default_unmeasured'),
+    n_steps_pooled, n_radiation_steps.
+    """
+    pooled = []
+    for path in rsl_paths or []:
+        steps = parse_rsl_d01_step_seconds(path)
+        pooled.extend(steps[1:])  # drop this file's own step 1
+
+    if not pooled:
+        return {"s_normal": None, "r_rad": default_r_rad,
+                "r_rad_source": "default_unmeasured",
+                "n_steps_pooled": 0, "n_radiation_steps": 0}
+
+    m = statistics.median(pooled)
+    normal = [s for s in pooled if s <= RSL_RADIATION_STEP_THRESHOLD * m]
+    radiation = [s for s in pooled if s > RSL_RADIATION_STEP_THRESHOLD * m]
+    s_normal = statistics.median(normal) if normal else None
+
+    if len(radiation) < 2:
+        return {"s_normal": s_normal, "r_rad": default_r_rad,
+                "r_rad_source": "default_unmeasured",
+                "n_steps_pooled": len(pooled), "n_radiation_steps": len(radiation)}
+
+    r_rad = statistics.median(radiation) / s_normal
+    return {"s_normal": s_normal, "r_rad": r_rad, "r_rad_source": "probe_rsl",
+            "n_steps_pooled": len(pooled), "n_radiation_steps": len(radiation)}
+
+
+# --------------------------------------------------------------------------
 # Compute model
 # --------------------------------------------------------------------------
 
-def predict_compute(nl, max_dom, steps, run_min, ranks, omp, probe_result, calibration):
+def predict_compute(nl, max_dom, steps, run_min, ranks, omp, probe_result, calibration,
+                    rsl_paths=None):
     radt = g_dom(nl, "physics", "radt", 0, default=None)
-    r_rad = calibration.get("radiation", {}).get("r_rad_default", 5.0)
+    default_r_rad = calibration.get("radiation", {}).get("r_rad_default", 5.0)
+
+    rsl_meas = measure_rad_from_rsl(rsl_paths, default_r_rad) if rsl_paths else None
+    if rsl_meas is not None:
+        r_rad = rsl_meas["r_rad"]
+        r_rad_source = rsl_meas["r_rad_source"]
+    else:
+        r_rad = default_r_rad
+        r_rad_source = "default_unmeasured"
 
     if probe_result is not None:
         s_normal = probe_result["s_normal"]
@@ -647,6 +777,13 @@ def predict_compute(nl, max_dom, steps, run_min, ranks, omp, probe_result, calib
         else:
             noise_pct = PROBE_NOISE_EXTRAPOLATED_PCT
         detail = dict(probe_result)
+    elif rsl_meas is not None and rsl_meas["s_normal"] is not None:
+        s_normal = rsl_meas["s_normal"]
+        source = "probe_rsl"
+        noise_pct = PROBE_NOISE_RSL_PCT
+        detail = {"source": source, "rsl_paths": list(rsl_paths),
+                  "n_steps_pooled": rsl_meas["n_steps_pooled"],
+                  "n_radiation_steps": rsl_meas["n_radiation_steps"]}
     else:
         cl_eq = nested_equivalent_cells(nl, max_dom)
         ns_per_cell_core = calibration.get("fallback_s_per_cell_step_ns")
@@ -670,7 +807,7 @@ def predict_compute(nl, max_dom, steps, run_min, ranks, omp, probe_result, calib
 
     return {
         "s_normal": s_normal, "source": source, "detail": detail,
-        "steps": steps, "radt_min": radt, "r_rad": r_rad,
+        "steps": steps, "radt_min": radt, "r_rad": r_rad, "r_rad_source": r_rad_source,
         "rad_steps": rad_steps, "rad_extra_s": rad_extra_s,
         "compute_total_s": compute_total_s,
         "noise_pct": noise_pct, "noise_abs_s": noise_abs_s,
@@ -702,6 +839,25 @@ def segment_compute(compute, run_hours, dt):
         remaining -= n
         start_h += seg_hours
     return segments
+
+
+def _rate_override_calibration(calibration, io_form, io_target, rate_bytes_per_s):
+    """Return a deep-copied calibration dict with ONLY
+    derived.io_form_rate_table[io_form][io_target].rate_bytes_per_s replaced
+    by rate_bytes_per_s. Every other stream's rate (a different io_form --
+    e.g. an auxhist stream on a different io_form, or the restart write when
+    io_form_restart != io_form_history -- or a different io_target) is left
+    exactly as calibrated, since only the (io_form, io_target) pair actually
+    named by the override should move. Used to price the SAME set of writes
+    at a measured-low/measured-high NFS write rate instead of the point
+    estimate, for the --io-range calibration bracket (see build_prediction).
+    """
+    patched = copy.deepcopy(calibration)
+    table = patched.setdefault("derived", {}).setdefault("io_form_rate_table", {})
+    entry = table.setdefault(str(int(io_form)), {})
+    target_entry = entry.setdefault(io_target, {})
+    target_entry["rate_bytes_per_s"] = rate_bytes_per_s
+    return patched
 
 
 # --------------------------------------------------------------------------
@@ -894,8 +1050,15 @@ def predict_init(case_dir, nl, calibration):
 
     read_s = total_bytes / read_rate
     fixed_startup_s = calibration.get("fixed_startup_s", 0.0)
+    startup_s = calibration.get("startup_s")
+    startup_s_source = calibration.get("startup_s_source")
+    startup_calibrated = startup_s is not None
+    startup_term = float(startup_s) if startup_calibrated else 0.0
     return {"bytes": total_bytes, "source": source, "read_s": read_s,
-            "fixed_startup_s": fixed_startup_s, "total_s": read_s + fixed_startup_s}
+            "fixed_startup_s": fixed_startup_s,
+            "startup_s": startup_s, "startup_s_source": startup_s_source,
+            "startup_calibrated": startup_calibrated,
+            "total_s": read_s + fixed_startup_s + startup_term}
 
 
 # --------------------------------------------------------------------------
@@ -992,7 +1155,7 @@ def resolve_config(args):
 
 def build_prediction(namelist_path, case_dir, nodes, config, ledger_paths,
                       calibration_path, io_form_override, io_target, case_name=None,
-                      iofields_dir=None):
+                      iofields_dir=None, rsl_paths=None):
     nl = parse_namelist(namelist_path)
     max_dom = get_max_dom(nl)
     steps, run_s, dt, steps_note = get_d01_steps(nl)
@@ -1002,11 +1165,20 @@ def build_prediction(namelist_path, case_dir, nodes, config, ledger_paths,
     calibration = load_calibration(calibration_path)
 
     ledger_rows = load_ledger_rows(ledger_paths)
+    # case_name lets the caller give the case's LEDGER identity explicitly
+    # (case_base in the --probe CSV) when it differs from case_dir's own
+    # basename -- e.g. a case whose prep directory is named after its data
+    # source (doi4-lafe2017) rather than its short campaign name (lafe).
+    # Falling back silently to the directory basename here is exactly the
+    # bug this parameter exists to let the caller avoid: with no override,
+    # resolve_probe's case_base match fails, probe_result is None end to
+    # end, and the model drops to no_probe_fallback despite the ledger
+    # holding an exact, measured row for this case/config.
     name = case_name or (Path(case_dir).name if case_dir else "unknown")
     probe_result = resolve_probe(ledger_rows, name, config)
 
     compute = predict_compute(nl, max_dom, steps, run_min, config["ranks"], config["omp"],
-                              probe_result, calibration)
+                              probe_result, calibration, rsl_paths=rsl_paths)
     segments = segment_compute(compute, run_hours, dt)
 
     io_target = io_target or "nfs"
@@ -1019,10 +1191,41 @@ def build_prediction(namelist_path, case_dir, nodes, config, ledger_paths,
 
     drift_pct = calibration.get("drift_band_pct", 5.0)
     total_s = compute["compute_total_s"] + io["total_s"] + init["total_s"]
-    drift_abs_s = total_s * (drift_pct / 100.0)
 
-    range_abs_s = math.sqrt(compute["noise_abs_s"] ** 2 + io["noise_abs_s"] ** 2 + drift_abs_s ** 2)
-    low, high = max(0.0, total_s - range_abs_s), total_s + range_abs_s
+    # I/O rate range (calibration.history_write_rate_MBps_low/_high): when
+    # calibrated, replace the generic drift-on-everything range with an
+    # explicit [fast I/O .. slow I/O] bracket for the I/O component, and
+    # scope the drift band to compute only (see module docstring's 'range').
+    io_low_mbps = calibration.get("history_write_rate_MBps_low")
+    io_high_mbps = calibration.get("history_write_rate_MBps_high")
+    io_range = None
+    if io_low_mbps is not None and io_high_mbps is not None:
+        cal_slow = _rate_override_calibration(
+            calibration, io_form_history_effective, io_target, io_low_mbps * 1e6)
+        cal_fast = _rate_override_calibration(
+            calibration, io_form_history_effective, io_target, io_high_mbps * 1e6)
+        io_slow = predict_io(nl, max_dom, run_min, cal_slow, io_form_override, io_target,
+                             case_dir=case_dir, iofields_dir=iofields_dir)
+        io_fast = predict_io(nl, max_dom, run_min, cal_fast, io_form_override, io_target,
+                             case_dir=case_dir, iofields_dir=iofields_dir)
+        io_range = {"low_mbps": io_low_mbps, "high_mbps": io_high_mbps,
+                    "fast_total_s": io_fast["total_s"], "slow_total_s": io_slow["total_s"]}
+
+    if io_range is not None:
+        compute_drift_abs_s = compute["compute_total_s"] * (drift_pct / 100.0)
+        drift_abs_s = compute_drift_abs_s
+        low = (max(0.0, compute["compute_total_s"] - compute_drift_abs_s)
+               + io_range["fast_total_s"] + init["total_s"])
+        high = (compute["compute_total_s"] + compute_drift_abs_s
+                + io_range["slow_total_s"] + init["total_s"])
+        range_source = ("I/O: measured %.1f-%.1f MB/s write-rate bracket; "
+                        "compute: +-%.0f%% drift band (NOT VALIDATED)"
+                        % (io_low_mbps, io_high_mbps, drift_pct))
+    else:
+        drift_abs_s = total_s * (drift_pct / 100.0)
+        range_abs_s = math.sqrt(compute["noise_abs_s"] ** 2 + io["noise_abs_s"] ** 2 + drift_abs_s ** 2)
+        low, high = max(0.0, total_s - range_abs_s), total_s + range_abs_s
+        range_source = None
 
     params = build_param_table(config, nodes, io_form_history_effective, io_target)
 
@@ -1030,9 +1233,9 @@ def build_prediction(namelist_path, case_dir, nodes, config, ledger_paths,
         "case_name": name, "namelist": str(namelist_path),
         "max_dom": max_dom, "steps": steps, "run_s": run_s, "run_min": run_min,
         "run_hours": run_hours, "dt_s": dt, "steps_note": steps_note,
-        "compute": compute, "segments": segments, "io": io, "init": init,
+        "compute": compute, "segments": segments, "io": io, "io_range": io_range, "init": init,
         "total_s": total_s, "drift_pct": drift_pct, "drift_abs_s": drift_abs_s,
-        "range_low_s": low, "range_high_s": high,
+        "range_low_s": low, "range_high_s": high, "range_source": range_source,
         "param_table": params, "nodes": nodes,
     }
 
@@ -1066,8 +1269,9 @@ def render_text(pred):
     out.append("compute (normal steps, source=%s): s/step=%.4f  steps=%d  -> %s"
                 % (c["source"], c["s_normal"], c["steps"], _fmt_hms(c["steps"] * c["s_normal"])))
     if c["radt_min"]:
-        out.append("  + radiation surcharge: radt=%.1fmin  rad_steps=%d  r_rad=%.2f  -> %s"
-                    % (c["radt_min"], c["rad_steps"], c["r_rad"], _fmt_hms(c["rad_extra_s"])))
+        out.append("  + radiation surcharge: radt=%.1fmin  rad_steps=%d  r_rad=%.2f (source=%s)  -> %s"
+                    % (c["radt_min"], c["rad_steps"], c["r_rad"], c["r_rad_source"],
+                       _fmt_hms(c["rad_extra_s"])))
     out.append("  compute total: %s  (+-%.1f%% = +-%s, source=%s)"
                 % (_fmt_hms(c["compute_total_s"]), c["noise_pct"], _fmt_hms(c["noise_abs_s"]), c["source"]))
     if pred["segments"]:
@@ -1078,6 +1282,11 @@ def render_text(pred):
 
     io = pred["io"]
     out.append("I/O: total %s" % _fmt_hms(io["total_s"]))
+    if pred.get("io_range"):
+        ior = pred["io_range"]
+        out.append("  I/O rate range: fast(%.1f MB/s)=%s .. slow(%.1f MB/s)=%s"
+                    % (ior["high_mbps"], _fmt_hms(ior["fast_total_s"]),
+                       ior["low_mbps"], _fmt_hms(ior["slow_total_s"])))
     for st in io["streams"]:
         if "seconds" in st:
             label = st.get("stream", "?")
@@ -1095,12 +1304,23 @@ def render_text(pred):
             out.append("  %s: %s" % (st.get("stream", "?"), st["note"]))
 
     init = pred["init"]
-    out.append("init (read): %s  [%s]" % (_fmt_hms(init["total_s"]), init["source"]))
+    if init["startup_calibrated"]:
+        out.append("init (read+startup): %s  [%s]  startup=%s [%s]"
+                    % (_fmt_hms(init["total_s"]), init["source"],
+                       _fmt_hms(init["startup_s"]), init["startup_s_source"] or "calibrated"))
+    else:
+        out.append("init (read): %s  [%s]  startup: UNCALIBRATED"
+                    % (_fmt_hms(init["total_s"]), init["source"]))
 
     out.append("")
-    out.append("TOTAL predicted wall: %s  (range %s .. %s, includes +-%.0f%% NOT VALIDATED drift band)"
-                % (_fmt_hms(pred["total_s"]), _fmt_hms(pred["range_low_s"]),
-                   _fmt_hms(pred["range_high_s"]), pred["drift_pct"]))
+    if pred.get("range_source"):
+        out.append("TOTAL predicted wall: %s  (range %s .. %s -- %s)"
+                    % (_fmt_hms(pred["total_s"]), _fmt_hms(pred["range_low_s"]),
+                       _fmt_hms(pred["range_high_s"]), pred["range_source"]))
+    else:
+        out.append("TOTAL predicted wall: %s  (range %s .. %s, includes +-%.0f%% NOT VALIDATED drift band)"
+                    % (_fmt_hms(pred["total_s"]), _fmt_hms(pred["range_low_s"]),
+                       _fmt_hms(pred["range_high_s"]), pred["drift_pct"]))
 
     out.append("")
     out.append("--- recommended parameters ---")
@@ -1144,6 +1364,18 @@ def add_subparser(sub):
                         "and omits --rank-by rather than guessing)")
     p.add_argument("--probe", action="append", default=None,
                    help="strict_campaign ledger CSV (repeatable)")
+    p.add_argument("--probe-rsl", action="append", default=None,
+                   help="path to a probe run's rsl.error.0000 (repeatable); measures r_rad "
+                        "(and, when --probe gives no matching ledger row, s_normal) from the "
+                        "probe's own d01 step timings instead of the hard-coded r_rad default "
+                        "(see measure_rad_from_rsl -- ASSUMES the probe window has no mid-run "
+                        "history/restart writes)")
+    p.add_argument("--case-name", default=None,
+                   help="the case's ledger identity (case_base in --probe's CSV), when it "
+                        "differs from case_dir's own basename (default: case_dir's basename) "
+                        "-- e.g. a case whose prep dir is /nfs/data/wrf/doi4-lafe2017 but whose "
+                        "ledger case_base is 'lafe'; without this, --probe rows for that case "
+                        "silently fail to match and prediction falls back to no_probe_fallback")
     p.add_argument("--calibration", default=str(DEFAULT_CALIBRATION),
                    help="calibration JSON (default machine/calibration/scc.json)")
     p.add_argument("--io-form", type=int, default=None, choices=[2, 11, 14],
@@ -1168,7 +1400,8 @@ def predict_cmd(args):
             namelist_path=namelist_path, case_dir=args.case_dir, nodes=args.nodes,
             config=config, ledger_paths=args.probe, calibration_path=args.calibration,
             io_form_override=args.io_form, io_target=args.io_target,
-            iofields_dir=args.iofields_dir)
+            case_name=args.case_name, iofields_dir=args.iofields_dir,
+            rsl_paths=args.probe_rsl)
     except PredictError as exc:
         print("ERROR: %s" % exc, file=sys.stderr)
         return 1

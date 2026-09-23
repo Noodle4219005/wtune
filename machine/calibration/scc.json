@@ -95,6 +95,14 @@
   "drift_band_pct": 5,
   "drift_band_note": "NOT VALIDATED (offline temporal validation pending): applied as a symmetric +-5% band on the whole predicted wall time to account for possible compute-rate drift over long simulated durations (e.g. seasonal/diurnal load changes across a 30h forecast). No case in this repo has been used to check whether s_per_step actually stays flat over many simulated hours.",
 
+  "startup_s": null,
+  "startup_s_source": null,
+  "startup_s_comment": "UNCALIBRATED: pending fit from the 2026-09-23 ground-truth 8-run validation. wall - sum(per-step times) was 17-22s on EVERY 1-node scc run in that set (MPI launch, reading wrfinput, first step, finalise) -- the whole-run model's init term is otherwise < 1s, which was one of the three gaps the 2026-09-23 validation attributed the -23%..+25% whole-run wall error to. Fill startup_s (seconds) and startup_s_source (what it was fitted from) once the fit is done; wtune_predict.py adds startup_s to the init term when non-null and prints 'startup: UNCALIBRATED' when null.",
+
+  "history_write_rate_MBps_low": null,
+  "history_write_rate_MBps_high": null,
+  "history_write_rate_MBps_comment": "UNCALIBRATED: pending fit from the 2026-09-23 ground-truth 8-run validation. NFS history write time was measured to vary 2.4x for IDENTICAL writes under concurrent load on that date (sc26p2 56.5s vs sc26p2narr 134.0s for the same 53 writes, same grid, concurrent jobs on one NFS server) -- a point rate cannot capture this, hence a low/high bracket instead of a single number. Units: decimal MB/s (1e6 bytes/s), matching the '_MBps' key name (NOT MiB/s, unlike the ior_benchmark_job432 figures elsewhere in this file). The existing point rate (derived.io_form_rate_table['2'].nfs.rate_bytes_per_s, 27667152.88 B/s = 27.67 MB/s) stays the point estimate; low/high only widen wtune_predict.py's printed range (fast total uses high_mbps, slow total uses low_mbps), they do not replace the point rate used for the central prediction.",
+
   "probe_noise_pct": {
     "measured_lt2_reps": 3,
     "measured_ge2_reps": "use the observed spread across reps instead of this constant",

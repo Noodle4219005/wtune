@@ -64,9 +64,12 @@ Vtable.GFS field list, not checked against a real .idx).
 from __future__ import annotations
 
 import argparse
+import calendar
 import datetime
 import os
+import re
 import sys
+import time
 
 import numpy as np
 
@@ -562,6 +565,18 @@ STATE_FIELD_SPECS = {
     'u10':   dict(var='UGRD',  level='10 m above ground',  cfgrib_short='u10',   cfgrib_level='heightAboveGround'),
     'v10':   dict(var='VGRD',  level='10 m above ground',  cfgrib_short='v10',   cfgrib_level='heightAboveGround'),
     'shtfl': dict(var='SHTFL', level='surface',            cfgrib_short='sshf',  cfgrib_level='surface'),
+    # 2026-09-24 (case_rebuild.py analog, R6-C): pattern-matching fields for a candidate date's
+    # weather vs. the case's own state. cfgrib short names follow the SAME convention as the
+    # entries above (var/level VERIFIED against a real GFS pgrb2 .idx layout; cfgrib's own
+    # shortName/typeOfLevel mapping is NOT independently verified here either, same caveat as
+    # this module's docstring already states for the original 7 entries).
+    'hgt500':  dict(var='HGT',  level='500 mb',              cfgrib_short='gh',   cfgrib_level='isobaricInhPa'),
+    'tmp850':  dict(var='TMP',  level='850 mb',               cfgrib_short='t',    cfgrib_level='isobaricInhPa'),
+    'ugrd850': dict(var='UGRD', level='850 mb',               cfgrib_short='u',    cfgrib_level='isobaricInhPa'),
+    'vgrd850': dict(var='VGRD', level='850 mb',               cfgrib_short='v',    cfgrib_level='isobaricInhPa'),
+    'pwat':    dict(var='PWAT', level='entire atmosphere (considered as a single layer)',
+                    cfgrib_short='pwat', cfgrib_level='atmosphereSingleLayer'),
+    'tmp2m':   dict(var='TMP',  level='2 m above ground',     cfgrib_short='2t',   cfgrib_level='heightAboveGround'),
 }
 
 # GFS 0.25deg pgrb2 mandatory pressure levels (hPa), standard product set.
@@ -575,10 +590,18 @@ _WPS_SURFACE_FIELDS = [
     ('TMP', 'surface'),        # SKINTEMP in Vtable.GFS
     ('LAND', 'surface'), ('ICEC', 'surface'),
     ('WEASD', 'surface'), ('SNOD', 'surface'),
-    ('TMP', '0-10 cm below ground'), ('TMP', '10-40 cm below ground'),
-    ('TMP', '40-100 cm below ground'), ('TMP', '100-200 cm below ground'),
-    ('SOILW', '0-10 cm below ground'), ('SOILW', '10-40 cm below ground'),
-    ('SOILW', '40-100 cm below ground'), ('SOILW', '100-200 cm below ground'),
+    # 2026-09-24 fix: these 8 soil entries were 'TMP'/'cm' (e.g. ('TMP', '0-10 cm below
+    # ground')) -- stale and WRONG. The live GFS .idx (verified 2023-03-31 00Z f000) names soil
+    # temperature/moisture TSOIL/SOILW with METER-denominated layers, e.g.
+    # 'TSOIL:0-0.1 m below ground'. The old strings matched NOTHING in a real file, and the
+    # not-found path was never treated as fatal, so severe2023's met_em silently ended up with
+    # NUM_METGRID_SOIL_LEVELS=0. See select_wps_messages/validate_wps_selection below for the
+    # dynamic, idx-driven replacement the actual WPS fetch path now uses; this static list is
+    # kept correct too, for any caller still using WPS_FIELD_SPECS directly (S3).
+    ('TSOIL', '0-0.1 m below ground'), ('TSOIL', '0.1-0.4 m below ground'),
+    ('TSOIL', '0.4-1 m below ground'), ('TSOIL', '1-2 m below ground'),
+    ('SOILW', '0-0.1 m below ground'), ('SOILW', '0.1-0.4 m below ground'),
+    ('SOILW', '0.4-1 m below ground'), ('SOILW', '1-2 m below ground'),
 ]
 
 
@@ -598,6 +621,463 @@ def _build_wps_field_specs():
 
 
 WPS_FIELD_SPECS = _build_wps_field_specs()
+
+
+# ---------------------------------------------------------------------------
+# Idx-driven WPS message selection (2026-09-24; aws/nomads per-message path only -- the WHOLE
+# reason WPS_FIELD_SPECS/GFS_PRESSURE_LEVELS_HPA above are wrong: they hardcode which
+# (var, level) pairs to ask for, so a real file whose pressure levels or soil-layer
+# names/units differ (GFS actually carries 41 levels down to 0.01 mb, not
+# GFS_PRESSURE_LEVELS_HPA's 26; soil layers are TSOIL/SOILW in METERS, not TMP/'cm') just
+# silently returns nothing for those messages -- and the old code never treated "message not
+# found" as fatal, so severe2023's met_em ended up with NUM_METGRID_SOIL_LEVELS=0,
+# num_metgrid_levels=27 (should be 4 / 32). select_wps_messages selects directly from the
+# FILE'S OWN parsed .idx (parse_idx's output) instead; validate_wps_selection makes "not enough
+# messages" a hard failure, with the missing (var, level) list printed, not a silent partial
+# fetch that looks like success.
+# ---------------------------------------------------------------------------
+
+_MB_LEVEL_RE = re.compile(r'^([\d.]+)\s*mb$', re.I)
+_SOIL_LAYER_RE = re.compile(r'^[\d.]+\s*-\s*[\d.]+\s*m below ground$', re.I)
+
+_WPS_SURFACE_SET = frozenset((var, level.lower()) for var, level in (
+    ('PRMSL', 'mean sea level'),
+    ('PRES', 'surface'), ('HGT', 'surface'), ('TMP', 'surface'),
+    ('LAND', 'surface'), ('ICEC', 'surface'), ('WEASD', 'surface'), ('SNOD', 'surface'),
+    ('TMP', '2 m above ground'), ('RH', '2 m above ground'),
+    ('UGRD', '10 m above ground'), ('VGRD', '10 m above ground'),
+))
+_WPS_SOIL_VARS = frozenset(('TSOIL', 'SOILW'))
+_WPS_SOIL_LAYERS_REQUIRED = frozenset((
+    '0-0.1 m below ground', '0.1-0.4 m below ground',
+    '0.4-1 m below ground', '1-2 m below ground',
+))
+_WPS_SURFACE_REQUIRED = (('LAND', 'surface'), ('TMP', 'surface'), ('PRES', 'surface'))
+_WPS_MIN_PRESSURE_LEVELS = 20
+
+
+def select_wps_messages(entries, fcst_substr=None):
+    """Select the .idx `entries` (parse_idx's result, for ONE file/cycle/fhour) Vtable.GFS
+    needs, driven entirely by what that file itself actually has:
+      - var in {HGT, TMP, RH, UGRD, VGRD} at any '<p> mb' level with p >= 1 mb (GFS's own
+        pressure-level set, whatever it is -- not a hardcoded list);
+      - the fixed surface set (PRMSL/PRES/HGT/TMP/LAND/ICEC/WEASD/SNOD/2m TMP+RH/10m UGRD+VGRD);
+      - TSOIL/SOILW at any 'X-Y m below ground' layer (whatever layers the file has).
+    `fcst_substr`, when given, additionally requires each entry's fcst field to contain 'anl'
+    OR `fcst_substr` (an idx normally covers exactly one fhour already, so this is a defensive
+    filter, not the primary selection mechanism)."""
+    selected = []
+    for e in entries:
+        if fcst_substr:
+            fcst = e.get('fcst', '').lower()
+            if 'anl' not in fcst and fcst_substr.lower() not in fcst:
+                continue
+        var = e['var'].upper()
+        level = e['level'].strip()
+        # NOTE: these three checks are NOT mutually exclusive by var (TMP/HGT/UGRD/VGRD each
+        # appear in BOTH the pressure-level set AND the surface set, e.g. TMP:surface,
+        # TMP:2 m above ground, HGT:surface, UGRD/VGRD:10 m above ground) -- an early
+        # `continue` after only the pressure-level check wrongly skipped every one of those
+        # surface-level messages for those vars. Check every category per entry.
+        matched = False
+        if var in _WPS_PLEVEL_VARS:
+            m = _MB_LEVEL_RE.match(level)
+            if m and float(m.group(1)) >= 1.0:
+                matched = True
+        if not matched and (var, level.lower()) in _WPS_SURFACE_SET:
+            matched = True
+        if not matched and var in _WPS_SOIL_VARS and _SOIL_LAYER_RE.match(level):
+            matched = True
+        if matched:
+            selected.append(e)
+    return selected
+
+
+def validate_wps_selection(selected):
+    """Raises RuntimeError (listing every missing (var, level)/shortfall) when `selected`
+    (select_wps_messages' result) cannot actually support ungrib/Vtable.GFS: any of the 4
+    TSOIL + 4 SOILW layers, LAND, TMP surface, or PRES surface missing, or fewer than
+    _WPS_MIN_PRESSURE_LEVELS pressure levels for ANY of HGT/TMP/RH/UGRD/VGRD. This is the fix
+    for 'the previous run printed OK for every message and still produced zero soil levels' --
+    an incomplete selection must fail loudly, not silently pass."""
+    have = set((e['var'].upper(), e['level'].strip().lower()) for e in selected)
+    missing = []
+    for soil_var in sorted(_WPS_SOIL_VARS):
+        for layer in sorted(_WPS_SOIL_LAYERS_REQUIRED):
+            if (soil_var, layer) not in have:
+                missing.append((soil_var, layer))
+    for var, level in _WPS_SURFACE_REQUIRED:
+        if (var, level) not in have:
+            missing.append((var, level))
+    plevel_counts = {}
+    for e in selected:
+        var = e['var'].upper()
+        if var in _WPS_PLEVEL_VARS:
+            plevel_counts[var] = plevel_counts.get(var, 0) + 1
+    for var in _WPS_PLEVEL_VARS:
+        n = plevel_counts.get(var, 0)
+        if n < _WPS_MIN_PRESSURE_LEVELS:
+            missing.append((var, 'only %d pressure levels (need >= %d)'
+                                 % (n, _WPS_MIN_PRESSURE_LEVELS)))
+    if missing:
+        raise RuntimeError('WPS message selection incomplete, missing: %s' % missing)
+    return True
+
+
+def fetch_wps_messages_idx_driven(cycle_dt, fhour, source, cache_dir, host=None):
+    """The WPS-purpose, per-message fetch for aws/nomads (S1/S3, 2026-09-24): parses the
+    file's OWN .idx (live), selects via select_wps_messages, and FAILS (validate_wps_selection
+    raises RuntimeError, listing exactly what's missing) rather than silently returning a
+    partial set -- do_fetch's WPS+aws/nomads path uses this instead of the WPS_FIELD_SPECS
+    static-lookup fetch_message path. rda/local sources are unaffected (no per-message .idx
+    concept there -- fetch_rda_file/fetch_local, unchanged).
+    Returns [(selected_idx_entry, local_grib2_path), ...]."""
+    if source == 'aws':
+        grib_url, idx_url = aws_grib_url(cycle_dt, fhour), aws_idx_url(cycle_dt, fhour)
+    elif source == 'nomads':
+        grib_url, idx_url = nomads_grib_url(cycle_dt, fhour), nomads_idx_url(cycle_dt, fhour)
+    else:
+        raise ValueError('fetch_wps_messages_idx_driven only supports aws/nomads, got {!r}'.format(source))
+    key_base = '{}_gfswps_{}_f{:03d}'.format(source, cycle_dt.strftime('%Y%m%d%H'), fhour)
+    entries = parse_idx(_idx_text_cached(idx_url, cache_dir, key_base))
+    selected = select_wps_messages(entries)
+    validate_wps_selection(selected)
+    out = []
+    for sel in selected:
+        start, end = byte_range(entries, sel)
+        msg_path = _cache_path(cache_dir, '{}_{}_{}.grib2'.format(key_base, sel['var'], sel['num']))
+        if not os.path.exists(msg_path):
+            rng = 'bytes={}-{}'.format(start, end if end is not None else '')
+            _http_download(grib_url, msg_path, range_header=rng)
+        out.append((sel, msg_path))
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Forcing source fallback chain (2026-09-24, probed live from the scc login node) -- a
+# WPS/ungrib-purpose, whole-file source resolution ADDITIVE to select_source()/fetch_message()
+# above, which stay UNCHANGED (tools/grib_state.py's state-purpose path keeps using them
+# unmodified). Exists because select_source()'s single date-rule (nomads/aws/rda/local) reports
+# "no GFS 0.25deg source" for any date before 2015-01-15 -- true for GFS 0.25deg specifically,
+# but WRONG as "no forcing data exists": NCEI's GFS analysis archive (0.5/1 deg) covers back to
+# 2004, NCEP's FNL back to 1999-07-30, and CFSR reanalysis covers 1979-2010.
+#
+# URL patterns below are VERIFIED (live HTTP, scc login node, 2026-09-24) exactly as given, not
+# invented:
+#   NCEI g4 (0.5deg GRIB2): .../model-gfs-g4-anl-files-old/YYYYMM/YYYYMMDD/gfsanl_4_YYYYMMDD_HH00_FFF.grb2
+#     FFF in 000/003/006, cycles 00/06/12/18 -> 3h valid times. 200 for 2007-01-01 and
+#     2010-01-01; 404 for 2005-01-01 (g4 starts 2007-01-01). Catalog months 200403..202005.
+#   NCEI g3 (1deg): same host, model-gfs-g3-anl-files-old, gfsanl_3_YYYYMMDD_HH00_FFF.grb
+#     (GRIB1, verified for 2005-01-01) or .grb2 (unverified cutover date) -- BOTH extensions are
+#     offered as probe alternatives, not a single hardcoded guess (see ncei_g3_wps_entry).
+#   FNL d083002 (1deg, 6h, analysis): GRIB2
+#     .../d083002/grib2/YYYY/YYYY.MM/fnl_YYYYMMDD_HH_00.grib2 (verified 2010-01-01); GRIB1 before
+#     2007-12-06: .../d083002/grib1/YYYY/YYYY.MM/fnl_YYYYMMDD_HH_00.grib1 (verified 2005-01-01).
+#     Coverage from 1999-07-30.
+#   CFSR d093000 (0.5deg, 6h, reanalysis, 1979-2010): 5-day tar per stream per year dir:
+#     .../d093000/YYYY/pgbh06.gdas.YYYYMMDD-YYYYMMDD.tar and flxf06.gdas.<same span>.tar (pgbh06
+#     ~1.8 GB; verified 200 for 19900101-19900105). Spans: 01-05/06-10/11-15/16-20/21-25/
+#     26-<last day of month>. Vtable.CFSR; pgbh06+flxf06 are linked together into ONE ungrib pass.
+#   Vtables present in scc's WPS: Vtable.GFS, Vtable.CFSR, Vtable.NNRP, Vtable.NCEP2 (verified).
+#   d090000 (NNRP)'s THREDDS catalog is EMPTY -> not auto-fetchable (not wired into the chain
+#   below; report unsupported with that reason if ever asked for explicitly).
+# ---------------------------------------------------------------------------
+
+NCEI_HOST = 'https://www.ncei.noaa.gov/thredds/fileServer'
+FNL_GRIB2_CUTOVER = datetime.date(2007, 12, 6)   # VERIFIED: 2010-01-01 is grib2, 2005-01-01 is grib1
+NCEI_G4_START = datetime.date(2007, 1, 1)        # VERIFIED: 200 at 2007-01-01/2010-01-01, 404 at 2005-01-01
+NCEI_G3_START = datetime.date(2004, 3, 2)
+FNL_START = datetime.date(1999, 7, 30)
+CFSR_START = datetime.date(1979, 1, 1)
+CFSR_END = datetime.date(2010, 12, 31)
+
+
+def _as_date(valid_dt):
+    return valid_dt.date() if hasattr(valid_dt, 'date') else valid_dt
+
+
+class ForcingSource:
+    """One WPS/ungrib forcing source. `url_fn(valid_dt, host=None)` returns
+    [(local_filename, [url, ...]), ...] -- one entry per physical file this source needs for
+    that valid time (normally one; CFSR's own per-window helper below needs two, one per
+    stream); the inner URL list holds ORDERED ALTERNATIVES (e.g. g3's grib1-vs-grib2 extension
+    guess) -- the first one a probe finds existing wins, never both required at once.
+    `prefix`/`vtable` are namelist.wps &ungrib prefix / the Vtable.* file to link -- see
+    tools/coldstart_sample.py's fix-wps-namelist and run.sbatch's per-window ungrib step."""
+    __slots__ = ('provider', 'dataset', 'product', 'resolution_deg', 'format',
+                 'forcing_interval_h', 'source_kind', 'vtable', 'prefix', 'valid_from',
+                 'valid_to', 'url_fn')
+
+    def __init__(self, provider, dataset, product, resolution_deg, format, forcing_interval_h,
+                source_kind, vtable, prefix, valid_from, valid_to, url_fn):
+        self.provider = provider
+        self.dataset = dataset
+        self.product = product
+        self.resolution_deg = resolution_deg
+        self.format = format
+        self.forcing_interval_h = forcing_interval_h
+        self.source_kind = source_kind
+        self.vtable = vtable
+        self.prefix = prefix
+        self.valid_from = valid_from
+        self.valid_to = valid_to
+        self.url_fn = url_fn
+
+    def urls_for(self, valid_dt, host=None):
+        return self.url_fn(valid_dt, host=host)
+
+    def to_dict(self):
+        return {
+            'provider': self.provider, 'dataset': self.dataset, 'product': self.product,
+            'resolution_deg': self.resolution_deg, 'format': self.format,
+            'forcing_interval_h': self.forcing_interval_h, 'source_kind': self.source_kind,
+            'vtable': self.vtable, 'prefix': self.prefix,
+            'valid_from': self.valid_from.isoformat() if self.valid_from else None,
+            'valid_to': self.valid_to.isoformat() if self.valid_to else None,
+        }
+
+    def __repr__(self):
+        return 'ForcingSource(%s)' % self.dataset
+
+
+# ---- per-dataset URL builders (pure, offline-testable) --------------------
+
+def gfs_nomads_wps_entry(valid_dt, host=None):
+    cycle_dt, fhour = gfs_cycle_for(valid_dt)
+    fname = 'nomads_gfs_{}_f{:03d}.grib2'.format(cycle_dt.strftime('%Y%m%d%H'), fhour)
+    return [(fname, [nomads_grib_url(cycle_dt, fhour)])]
+
+
+def gfs_aws_wps_entry(valid_dt, host=None):
+    cycle_dt, fhour = gfs_cycle_for(valid_dt)
+    fname = 'aws_gfs_{}_f{:03d}.grib2'.format(cycle_dt.strftime('%Y%m%d%H'), fhour)
+    return [(fname, [aws_grib_url(cycle_dt, fhour)])]
+
+
+def gfs_rda_wps_entry(valid_dt, host=None):
+    cycle_dt, fhour = gfs_cycle_for(valid_dt)
+    fname = 'rda_gfs_{}_f{:03d}.grib2'.format(cycle_dt.strftime('%Y%m%d%H'), fhour)
+    return [(fname, [rda_fileserver_url(cycle_dt, fhour, host=host)])]
+
+
+def ncei_g4_url(valid_dt):
+    cycle_dt, fhour = gfs_cycle_for(valid_dt)
+    return '{}/model-gfs-g4-anl-files-old/{}/{}/gfsanl_4_{}_{}00_{:03d}.grb2'.format(
+        NCEI_HOST, cycle_dt.strftime('%Y%m'), cycle_dt.strftime('%Y%m%d'),
+        cycle_dt.strftime('%Y%m%d'), cycle_dt.strftime('%H'), fhour)
+
+
+def ncei_g4_wps_entry(valid_dt, host=None):
+    cycle_dt, fhour = gfs_cycle_for(valid_dt)
+    fname = 'ncei_g4_{}_f{:03d}.grb2'.format(cycle_dt.strftime('%Y%m%d%H'), fhour)
+    return [(fname, [ncei_g4_url(valid_dt)])]
+
+
+def ncei_g3_url(valid_dt, ext):
+    cycle_dt, fhour = gfs_cycle_for(valid_dt)
+    return '{}/model-gfs-g3-anl-files-old/{}/{}/gfsanl_3_{}_{}00_{:03d}.{}'.format(
+        NCEI_HOST, cycle_dt.strftime('%Y%m'), cycle_dt.strftime('%Y%m%d'),
+        cycle_dt.strftime('%Y%m%d'), cycle_dt.strftime('%H'), fhour, ext)
+
+
+def ncei_g3_wps_entry(valid_dt, host=None):
+    cycle_dt, fhour = gfs_cycle_for(valid_dt)
+    fname = 'ncei_g3_{}_f{:03d}.grb'.format(cycle_dt.strftime('%Y%m%d%H'), fhour)
+    # extension cutover unverified for g3 (only FNL's 2007-12-06 switch is confirmed) -- offer
+    # BOTH, in date-informed order, and let the probe (check_url) pick the one that exists.
+    exts = ('grb', 'grb2') if _as_date(valid_dt) < FNL_GRIB2_CUTOVER else ('grb2', 'grb')
+    return [(fname, [ncei_g3_url(valid_dt, e) for e in exts])]
+
+
+def fnl_url(valid_dt, fmt):
+    return '{}/{}/{}/fnl_{}_{}_00.{}'.format(
+        'https://thredds.rda.ucar.edu/thredds/fileServer/files/g/d083002', fmt,
+        valid_dt.strftime('%Y/%Y.%m'), valid_dt.strftime('%Y%m%d'), valid_dt.strftime('%H'), fmt)
+
+
+def fnl_wps_entry(valid_dt, host=None):
+    fname = 'fnl_{}.grib'.format(valid_dt.strftime('%Y%m%d%H'))
+    fmts = ('grib1', 'grib2') if _as_date(valid_dt) < FNL_GRIB2_CUTOVER else ('grib2', 'grib1')
+    return [(fname, [fnl_url(valid_dt, f) for f in fmts])]
+
+
+def cfsr_tar_span(dt):
+    """(start_date, end_date) of the 5-day CFSR tar covering `dt`: 01-05/06-10/11-15/16-20/
+    21-25/26-<last day of month> -- VERIFIED spans (1990-01: ...26-19900131)."""
+    d = _as_date(dt)
+    day = d.day
+    if day <= 5:
+        start, end = 1, 5
+    elif day <= 10:
+        start, end = 6, 10
+    elif day <= 15:
+        start, end = 11, 15
+    elif day <= 20:
+        start, end = 16, 20
+    elif day <= 25:
+        start, end = 21, 25
+    else:
+        start, end = 26, calendar.monthrange(d.year, d.month)[1]
+    return (datetime.date(d.year, d.month, start), datetime.date(d.year, d.month, end))
+
+
+def cfsr_tar_urls(dt, host=None):
+    """(pgbh06_url, flxf06_url) for the 5-day tar span covering `dt` -- both streams are linked
+    together into ONE ungrib pass (Vtable.CFSR)."""
+    d = _as_date(dt)
+    start, end = cfsr_tar_span(d)
+    span = '{}-{}'.format(start.strftime('%Y%m%d'), end.strftime('%Y%m%d'))
+    base = 'https://thredds.rda.ucar.edu/thredds/fileServer/files/g/d093000/{}'.format(d.year)
+    return ('{}/pgbh06.gdas.{}.tar'.format(base, span), '{}/flxf06.gdas.{}.tar'.format(base, span))
+
+
+def cfsr_wps_entry(valid_dt, host=None):
+    pgb_url, flx_url = cfsr_tar_urls(valid_dt, host=host)
+    start, end = cfsr_tar_span(valid_dt)
+    span = '{}-{}'.format(start.strftime('%Y%m%d'), end.strftime('%Y%m%d'))
+    return [('pgbh06.gdas.{}.tar'.format(span), [pgb_url]),
+            ('flxf06.gdas.{}.tar'.format(span), [flx_url])]
+
+
+SRC_NOMADS_WPS = ForcingSource('ncep', 'gfs_nomads', 'gfs.0p25', 0.25, 'grib2', 3, 'forecast',
+                               'Vtable.GFS', 'GFS', None, None, gfs_nomads_wps_entry)
+SRC_AWS_WPS = ForcingSource('noaa', 'gfs_aws', 'gfs.0p25', 0.25, 'grib2', 3, 'forecast',
+                            'Vtable.GFS', 'GFS', AWS_CUTOVER, None, gfs_aws_wps_entry)
+SRC_RDA_D084001 = ForcingSource('ncar-rda', 'd084001', 'gfs.0p25', 0.25, 'grib2', 3, 'forecast',
+                                'Vtable.GFS', 'GFS', RDA_CUTOVER, None, gfs_rda_wps_entry)
+# NCEI gfsanl: only _000 carries the full 3-D analysis; _003/_006 hold ~8 accumulation messages
+# (verified 2005-08-27 12Z: f000 286 messages, f003 8) -> 6 h cadence, f000 only.
+# T13 (2026-09-24, V5 sc26p2): ncei_g3/g4 and FNL use Vtable.GFS_PRMSL, not Vtable.GFS --
+# real.exe FATAL'd 'ERROR in psfc: flag_psfc=1, flag_soilhgt=1, flag_slp=0' on a 2005 ncei_g3
+# GRIB1 file. Stock Vtable.GFS's active PMSL line maps from MSLET (GRIB1 param 130 / GRIB2
+# 0-3-192); the 2005 file has only PRMSL (indicatorOfParameter 2) -- Vtable.GFS's own comment
+# says exactly this ("older GFS files carry only PRMSL") and gives the commented-out PRMSL line
+# to use instead. d084001/aws/nomads (current-era GFS, always has MSLET) keep Vtable.GFS. FNL
+# uses PRMSL too: the probe cannot know in advance whether a given FNL file has MSLET, and
+# PRMSL is always present in GFS/GDAS pressure-grib files per Vtable.GFS's own comment, so it is
+# the safe universal choice for FNL specifically. See
+# coldstart_sample.generate_vtable_gfs_prmsl (the transform that produces Vtable.GFS_PRMSL from
+# a real Vtable.GFS at stage time -- this constant just names it).
+SRC_NCEI_G4 = ForcingSource('ncei', 'ncei_g4', 'gfsanl_4', 0.5, 'grib2', 6, 'analysis',
+                            'Vtable.GFS_PRMSL', 'GFS', NCEI_G4_START, None, ncei_g4_wps_entry)
+SRC_NCEI_G3 = ForcingSource('ncei', 'ncei_g3', 'gfsanl_3', 1.0, 'grib1', 6, 'analysis',
+                            'Vtable.GFS_PRMSL', 'GFS', NCEI_G3_START, None, ncei_g3_wps_entry)
+SRC_FNL = ForcingSource('ncar-rda', 'd083002', 'fnl', 1.0, 'grib1', 6, 'analysis',
+                        'Vtable.GFS_PRMSL', 'FNL', FNL_START, None, fnl_wps_entry)
+SRC_CFSR = ForcingSource('ncar-rda', 'd093000', 'cfsr', 0.5, 'grib2-tar', 6, 'reanalysis',
+                         'Vtable.CFSR', 'CFSR', CFSR_START, CFSR_END, cfsr_wps_entry)
+
+
+def resolve_forcing_chain(valid_dt, now=None, grib_dir=None):
+    """Ordered [ForcingSource, ...] candidates for `valid_dt`, WPS/ungrib purpose. Date BANDS
+    (newest-wins, mutually exclusive -- NOT cumulative: a 1990 date gets [cfsr] only, not
+    [cfsr, fnl, ncei_g3, ...]) matching the coordinator's verified fallback design:
+      >=2021-01-01: [aws, d084001, fnl]          >=2015-01-15: [d084001, fnl]
+      >=2007-01-01: [ncei_g4, fnl]               >=2004-03-02: [ncei_g3, fnl]
+      >=1999-07-30: [fnl]                        1979-01-01..2010-12-31: [cfsr]
+      older: [] -- unsupported, unless --grib-dir (existing local path, unchanged).
+    A 'nomads' entry is prepended whenever valid_dt is within NOMADS_WINDOW_DAYS of `now`
+    (same rule as select_source), same as today. FNL is appended as the LAST fallback of the two
+    newest bands too (2026-09-24: d083002's own THREDDS catalog root lists
+    fnl_20210101_00_00.grib2 and continuing year directories -- it runs to the present, not just
+    back to 1999-07-30, so it is a legitimate last-resort alternative to AWS/RDA GFS 0.25deg, not
+    only the fallback once those stop existing)."""
+    now = now or datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
+    d = _as_date(valid_dt)
+    age_days = (now - valid_dt).days
+    recent = -1 <= age_days <= NOMADS_WINDOW_DAYS
+
+    if d >= AWS_CUTOVER:
+        chain = ([SRC_NOMADS_WPS] if recent else []) + [SRC_AWS_WPS, SRC_RDA_D084001, SRC_FNL]
+    elif d >= RDA_CUTOVER:
+        chain = ([SRC_NOMADS_WPS] if recent else []) + [SRC_RDA_D084001, SRC_FNL]
+    elif d >= NCEI_G4_START:
+        chain = [SRC_NCEI_G4, SRC_FNL]
+    elif d >= NCEI_G3_START:
+        chain = [SRC_NCEI_G3, SRC_FNL]
+    elif d >= FNL_START:
+        chain = [SRC_FNL]
+    elif CFSR_START <= d <= CFSR_END:
+        chain = [SRC_CFSR]
+    else:
+        chain = []
+
+    if not chain and grib_dir:
+        chain = [ForcingSource('local', 'local', 'local', None, 'grib', None, 'local', None,
+                               'GFS', None, None, None)]
+    return chain
+
+
+# T4a (2026-09-24): three concurrent fetch processes against RDA THREDDS made d084001 probes
+# fail (matthew 2016-10-06, sc26p1 72h span, conus12 12h span) -> fetch fell back to a coarser
+# source, or reported nothing found -- re-probing the SAME URLs minutes later returned 200 for
+# all. The probe was treating a transient failure (server momentarily overloaded/timing out) the
+# same as a genuinely missing file. Retry backoff below; only a 404 (or 403, an unambiguous
+# "this object doesn't exist" response) is treated as missing WITHOUT retrying.
+PROBE_RETRY_BACKOFFS_S = (2, 5, 15)   # 4 total attempts: 1 initial + 3 retries
+
+
+def _is_transient_probe_status(status):
+    """True for a status worth retrying (timeout/connection error -> check_url's own status=
+    None; HTTP 429 too-many-requests; any 5xx server error) -- False for a definitive "not
+    found" (404, 403) or an outright unexpected status, which is reported as missing at once."""
+    if status is None:
+        return True
+    if status == 429:
+        return True
+    if isinstance(status, int) and 500 <= status < 600:
+        return True
+    return False
+
+
+def probe_url_with_retry(url, backoffs=PROBE_RETRY_BACKOFFS_S, sleep_fn=None):
+    """check_url(url), retrying on a TRANSIENT failure (see _is_transient_probe_status) up to
+    len(backoffs) additional times with the given backoff delays (default 2s, 5s, 15s -> 4 total
+    attempts). Returns (final_result_dict, attempts) -- attempts records EVERY probe, not just
+    the last, as [{'status', 'detail'}, ...]. `sleep_fn` is injectable so tests never actually
+    sleep through a real backoff."""
+    sleep_fn = sleep_fn or time.sleep
+    attempts = []
+    result = None
+    for i in range(len(backoffs) + 1):
+        result = check_url(url)
+        attempts.append({'status': result.get('status'), 'detail': result.get('detail')})
+        if result['exists']:
+            return result, attempts
+        if not _is_transient_probe_status(result.get('status')):
+            break
+        if i < len(backoffs):
+            sleep_fn(backoffs[i])
+    return result, attempts
+
+
+def probe_forcing_entries(entries, sleep_fn=None):
+    """entries: [(filename, [url, ...]), ...] (one ForcingSource.urls_for() call's result, or
+    several concatenated). Probes every URL with probe_url_with_retry (HTTP HEAD, falling back
+    to a 1-byte ranged GET, retried on a transient failure -- see that function; tests mock
+    check_url/_http_head/_http_get_range_status directly, never touch the network, and pass a
+    no-op sleep_fn to avoid actually sleeping through a retry backoff in the test suite).
+    PROBES RUN SEQUENTIALLY -- no thread pool (T4c, 2026-09-24): concurrent probing against the
+    same upstream is what caused the transient failures T4a retries for in the first place, so
+    adding concurrency back here would defeat the fix. Returns (all_found, [{'filename',
+    'chosen_url', 'checked': [...]}, ...]); all_found is True iff EVERY entry has at least one
+    existing URL among its alternatives. Each `checked` entry now also carries 'attempts' (every
+    probe of that one URL, per probe_url_with_retry)."""
+    results = []
+    all_found = True
+    for filename, urls in entries:
+        chosen = None
+        checked = []
+        for u in urls:
+            r, attempts = probe_url_with_retry(u, sleep_fn=sleep_fn)
+            checked.append({'url': u, 'exists': r['exists'], 'status': r['status'],
+                            'attempts': attempts})
+            if r['exists'] and chosen is None:
+                chosen = u
+        if chosen is None:
+            all_found = False
+        results.append({'filename': filename, 'chosen_url': chosen, 'checked': checked})
+    return all_found, results
 
 
 # ---------------------------------------------------------------------------
@@ -761,6 +1241,29 @@ def do_fetch(plan, cache_dir, bbox_crop, grib_dir, host, case=None, wrfinput_pat
     for entry in plan:
         if entry['source'] is None:
             results.append({'valid_time': entry['valid_time'], 'status': 'skipped', 'detail': entry['reason']})
+            continue
+        # WPS purpose + aws/nomads (S3, 2026-09-24): use the idx-driven selection
+        # (fetch_wps_messages_idx_driven / select_wps_messages / validate_wps_selection) instead
+        # of the static WPS_FIELD_SPECS lookup below -- that lookup silently matched nothing
+        # against a real file's actual pressure/soil-layer set (severe2023:
+        # NUM_METGRID_SOIL_LEVELS ended up 0) and never failed loudly. rda/local/state-purpose
+        # entries are untouched -- they fall through to the unchanged per-message loop.
+        is_wps_purpose = bool(entry['messages']) and 'cfgrib_short' not in entry['messages'][0]
+        if is_wps_purpose and entry['source'] in ('aws', 'nomads'):
+            vt_label = entry['valid_time'].strftime('%Y-%m-%d_%H')
+            try:
+                selected = fetch_wps_messages_idx_driven(
+                    entry['cycle'], entry['fhour'], entry['source'], cache_dir, host=host)
+                for sel, path in selected:
+                    field = '{}_{}'.format(sel['var'], sel['level']).replace(' ', '_')
+                    results.append({'valid_time': entry['valid_time'], 'field': field,
+                                    'status': 'ok', 'path': path})
+                print('OK   {} wps: {} messages selected from live .idx (cache={})'.format(
+                    vt_label, len(selected), cache_dir))
+            except Exception as exc:
+                results.append({'valid_time': entry['valid_time'], 'field': 'wps',
+                                'status': 'error', 'detail': str(exc)})
+                print('FAIL {} wps -- {}'.format(vt_label, exc))
             continue
         for msg in entry['messages']:
             try:

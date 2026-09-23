@@ -15,6 +15,7 @@ Run with:
   /home/nk/miniforge3/envs/hqvit-pixi/bin/python3 -m pytest -q tools/test_metdata.py
 """
 import datetime
+import inspect
 import os
 import sys
 import unittest
@@ -390,6 +391,19 @@ class TestFieldSpecs(unittest.TestCase):
             self.assertIn('level', spec)
             self.assertIn('cfgrib_short', spec)
 
+    def test_state_field_specs_cover_analog_needs(self):
+        # R6-C (case_rebuild.py analog): HGT 500mb, TMP 850mb, UGRD/VGRD 850mb, PWAT, TMP 2m.
+        expect = {
+            'hgt500': ('HGT', '500 mb'), 'tmp850': ('TMP', '850 mb'),
+            'ugrd850': ('UGRD', '850 mb'), 'vgrd850': ('VGRD', '850 mb'),
+            'tmp2m': ('TMP', '2 m above ground'),
+        }
+        for key, (var, level) in expect.items():
+            self.assertIn(key, md.STATE_FIELD_SPECS)
+            self.assertEqual(md.STATE_FIELD_SPECS[key]['var'], var)
+            self.assertEqual(md.STATE_FIELD_SPECS[key]['level'], level)
+        self.assertEqual(md.STATE_FIELD_SPECS['pwat']['var'], 'PWAT')
+
     def test_wps_field_specs_nonempty_and_cover_plevels(self):
         self.assertGreater(len(md.WPS_FIELD_SPECS), 100)
         plevel_keys = [k for k in md.WPS_FIELD_SPECS if k.startswith('TMP_') and k.endswith('mb')]
@@ -399,6 +413,223 @@ class TestFieldSpecs(unittest.TestCase):
         surf_vars = {spec['var'] for spec in md.WPS_FIELD_SPECS.values() if 'mb' not in spec['level']}
         self.assertIn('PRMSL', surf_vars)
         self.assertIn('SOILW', surf_vars)
+
+    def test_wps_field_specs_soil_entries_are_tsoil_m_not_tmp_cm(self):
+        # 2026-09-24 fix: the old entries were ('TMP', '0-10 cm below ground')-style and matched
+        # NOTHING in a real GFS file (severe2023: NUM_METGRID_SOIL_LEVELS ended up 0).
+        soil_specs = [spec for spec in md.WPS_FIELD_SPECS.values() if 'below ground' in spec['level']]
+        self.assertEqual(len(soil_specs), 8)
+        for spec in soil_specs:
+            self.assertIn(spec['var'], ('TSOIL', 'SOILW'))
+            self.assertTrue(spec['level'].endswith(' m below ground'), spec['level'])
+            self.assertNotIn('cm', spec['level'])
+        self.assertEqual({spec['level'] for spec in soil_specs},
+                         {'0-0.1 m below ground', '0.1-0.4 m below ground',
+                          '0.4-1 m below ground', '1-2 m below ground'})
+
+
+# ---------------------------------------------------------------------------
+# select_wps_messages / validate_wps_selection (2026-09-24) -- idx-driven WPS message selection,
+# replacing the hardcoded-list lookup for the aws/nomads per-message fetch path. Fixture built
+# from the EXACT strings verified live (2023-03-31 00Z f000): 41 pressure levels (8 of them
+# below 1 mb, which must be excluded), the surface set, TSOIL/SOILW soil layers in meters, plus
+# a couple of irrelevant messages (SOILL, TCDC) that must NOT be selected.
+# ---------------------------------------------------------------------------
+
+_VERIFIED_PLEVELS_MB = (0.01, 0.02, 0.04, 0.07, 0.1, 0.2, 0.4, 0.7, 1, 2, 3, 5, 7, 10, 15, 20,
+                        30, 40, 50, 70, 100, 150, 200, 250, 300, 350, 400, 450, 500, 550, 600,
+                        650, 700, 750, 800, 850, 900, 925, 950, 975, 1000)
+
+
+def _fmt_mb(x):
+    return ('%g' % x)
+
+
+def _build_severe2023_idx_text():
+    lines = []
+    n = 1
+    offset = 0
+    def add(var, level, fcst='anl'):
+        nonlocal n, offset
+        lines.append('%d:%d:d=2023033100:%s:%s:%s:' % (n, offset, var, level, fcst))
+        n += 1
+        offset += 1000
+
+    for var in ('HGT', 'TMP', 'RH', 'UGRD', 'VGRD'):
+        for p in _VERIFIED_PLEVELS_MB:
+            add(var, '%s mb' % _fmt_mb(p))
+    for var, level in (('PRMSL', 'mean sea level'), ('PRES', 'surface'), ('HGT', 'surface'),
+                       ('TMP', 'surface'), ('LAND', 'surface'), ('ICEC', 'surface'),
+                       ('WEASD', 'surface'), ('SNOD', 'surface'),
+                       ('TMP', '2 m above ground'), ('RH', '2 m above ground'),
+                       ('UGRD', '10 m above ground'), ('VGRD', '10 m above ground')):
+        add(var, level)
+    for var in ('TSOIL', 'SOILW'):
+        for layer in ('0-0.1 m below ground', '0.1-0.4 m below ground',
+                     '0.4-1 m below ground', '1-2 m below ground'):
+            add(var, layer)
+    # irrelevant messages that must NOT be selected
+    add('SOILL', '0-0.1 m below ground')
+    add('TCDC', 'entire atmosphere')
+    return '\n'.join(lines)
+
+
+class TestSelectWpsMessages(unittest.TestCase):
+    def setUp(self):
+        self.entries = md.parse_idx(_build_severe2023_idx_text())
+        self.selected = md.select_wps_messages(self.entries)
+
+    def test_selected_count_matches_33_levels_x_5_vars_plus_surface_plus_soil(self):
+        n_plevel = sum(1 for e in self.selected if e['var'].upper() in
+                      ('HGT', 'TMP', 'RH', 'UGRD', 'VGRD') and e['level'].endswith('mb'))
+        self.assertEqual(n_plevel, 33 * 5)
+        self.assertEqual(len(self.selected), 33 * 5 + 12 + 8)
+
+    def test_all_8_soil_messages_selected(self):
+        soil = [(e['var'].upper(), e['level'].strip()) for e in self.selected
+               if e['var'].upper() in ('TSOIL', 'SOILW')]
+        self.assertEqual(len(soil), 8)
+        for var in ('TSOIL', 'SOILW'):
+            for layer in ('0-0.1 m below ground', '0.1-0.4 m below ground',
+                         '0.4-1 m below ground', '1-2 m below ground'):
+                self.assertIn((var, layer), soil)
+
+    def test_sub_1mb_levels_excluded(self):
+        selected_pairs = {(e['var'].upper(), e['level'].strip()) for e in self.selected}
+        for p in (0.01, 0.02, 0.04, 0.07, 0.1, 0.2, 0.4, 0.7):
+            self.assertNotIn(('TMP', '%s mb' % _fmt_mb(p)), selected_pairs)
+
+    def test_soill_and_tcdc_excluded(self):
+        selected_vars = {e['var'].upper() for e in self.selected}
+        self.assertNotIn('SOILL', selected_vars)
+        self.assertNotIn('TCDC', selected_vars)
+
+
+class TestValidateWpsSelection(unittest.TestCase):
+    def test_complete_selection_passes(self):
+        entries = md.parse_idx(_build_severe2023_idx_text())
+        selected = md.select_wps_messages(entries)
+        self.assertTrue(md.validate_wps_selection(selected))
+
+    def test_missing_one_soil_layer_fails_and_lists_it(self):
+        text = _build_severe2023_idx_text()
+        # drop the TSOIL:1-2 m below ground line
+        text_missing = '\n'.join(l for l in text.splitlines()
+                                 if 'TSOIL:1-2 m below ground' not in l)
+        entries = md.parse_idx(text_missing)
+        selected = md.select_wps_messages(entries)
+        with self.assertRaises(RuntimeError) as ctx:
+            md.validate_wps_selection(selected)
+        self.assertIn('TSOIL', str(ctx.exception))
+        self.assertIn('1-2 m below ground', str(ctx.exception))
+
+    def test_too_few_pressure_levels_fails(self):
+        lines = []
+        n = 1
+        offset = 0
+        for p in (1000, 900, 800):   # only 3 levels, well under the 20 minimum
+            lines.append('%d:%d:d=2023033100:TMP:%s mb:anl:' % (n, offset, p))
+            n += 1
+            offset += 1000
+        for var, level in (('LAND', 'surface'), ('TMP', 'surface'), ('PRES', 'surface')):
+            lines.append('%d:%d:d=2023033100:%s:%s:anl:' % (n, offset, var, level))
+            n += 1
+            offset += 1000
+        for var in ('TSOIL', 'SOILW'):
+            for layer in ('0-0.1 m below ground', '0.1-0.4 m below ground',
+                         '0.4-1 m below ground', '1-2 m below ground'):
+                lines.append('%d:%d:d=2023033100:%s:%s:anl:' % (n, offset, var, layer))
+                n += 1
+                offset += 1000
+        entries = md.parse_idx('\n'.join(lines))
+        selected = md.select_wps_messages(entries)
+        with self.assertRaises(RuntimeError) as ctx:
+            md.validate_wps_selection(selected)
+        self.assertIn('TMP', str(ctx.exception))
+        self.assertIn('pressure levels', str(ctx.exception))
+
+
+class TestFetchWpsMessagesIdxDriven(unittest.TestCase):
+    def test_downloads_only_the_selected_messages_via_byte_range(self):
+        import tempfile
+        idx_text = _build_severe2023_idx_text()
+        downloads = []
+
+        def fake_download(url, dest_path, range_header=None, timeout=120):
+            downloads.append(range_header)
+            with open(dest_path, 'wb') as fh:
+                fh.write(b'FAKEGRIB')
+            return dest_path
+
+        with tempfile.TemporaryDirectory() as cache_dir:
+            with mock.patch.object(md, '_http_get_text', return_value=idx_text), \
+                 mock.patch.object(md, '_http_download', side_effect=fake_download):
+                dt = datetime.datetime(2023, 3, 31, 0)
+                out = md.fetch_wps_messages_idx_driven(dt, 0, 'aws', cache_dir)
+        self.assertEqual(len(out), 33 * 5 + 12 + 8)
+        self.assertEqual(len(downloads), 33 * 5 + 12 + 8)   # one ranged GET per selected message
+        selected_vars = {e['var'].upper() for e, _path in out}
+        self.assertNotIn('SOILL', selected_vars)
+        self.assertNotIn('TCDC', selected_vars)
+
+    def test_incomplete_idx_raises_before_downloading(self):
+        import tempfile
+        text_missing = '\n'.join(l for l in _build_severe2023_idx_text().splitlines()
+                                 if 'TSOIL:1-2 m below ground' not in l)
+        with tempfile.TemporaryDirectory() as cache_dir:
+            with mock.patch.object(md, '_http_get_text', return_value=text_missing), \
+                 mock.patch.object(md, '_http_download') as dl:
+                dt = datetime.datetime(2023, 3, 31, 0)
+                with self.assertRaises(RuntimeError) as ctx:
+                    md.fetch_wps_messages_idx_driven(dt, 0, 'aws', cache_dir)
+                dl.assert_not_called()
+        self.assertIn('TSOIL', str(ctx.exception))
+
+
+class TestDoFetchWpsIdxDriven(unittest.TestCase):
+    def _wps_entry(self, source='aws'):
+        return {
+            'valid_time': datetime.datetime(2023, 3, 31, 0, 0, 0),
+            'cycle': datetime.datetime(2023, 3, 31, 0, 0, 0), 'fhour': 0,
+            'source': source, 'reason': 'test',
+            'messages': [{'field': 'HGT_1000mb', 'var': 'HGT', 'level': '1000 mb', 'fhour': 0,
+                         'url': 'https://example/x.grib2'}],
+        }
+
+    def test_wps_aws_routes_through_idx_driven_selection(self):
+        import tempfile
+        idx_text = _build_severe2023_idx_text()
+        with tempfile.TemporaryDirectory() as cache_dir:
+            with mock.patch.object(md, '_http_get_text', return_value=idx_text), \
+                 mock.patch.object(md, '_http_download',
+                                   side_effect=lambda url, dest, **kw: open(dest, 'wb').write(b'x')):
+                results = md.do_fetch([self._wps_entry()], cache_dir, False, None, None)
+        ok = [r for r in results if r['status'] == 'ok']
+        self.assertEqual(len(ok), 33 * 5 + 12 + 8)
+
+    def test_wps_aws_incomplete_selection_reports_fail_not_ok(self):
+        # This is the exact 2026-09-24 regression: the OLD static-spec path printed OK for
+        # every message even when the real file couldn't support ungrib's soil-level needs.
+        import tempfile
+        text_missing = '\n'.join(l for l in _build_severe2023_idx_text().splitlines()
+                                 if 'TSOIL:1-2 m below ground' not in l)
+        with tempfile.TemporaryDirectory() as cache_dir:
+            with mock.patch.object(md, '_http_get_text', return_value=text_missing), \
+                 mock.patch.object(md, '_http_download') as dl:
+                results = md.do_fetch([self._wps_entry()], cache_dir, False, None, None)
+            dl.assert_not_called()
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]['status'], 'error')
+        self.assertIn('TSOIL', results[0]['detail'])
+
+    def test_rda_source_unaffected_stays_on_whole_file_path(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as cache_dir:
+            with mock.patch.object(md, 'download_full', return_value='/cache/rda.grib2') as dl:
+                results = md.do_fetch([self._wps_entry(source='rda')], cache_dir, False, None, None)
+        self.assertEqual(results[0]['status'], 'ok')
+        self.assertEqual(results[0]['path'], '/cache/rda.grib2')
+        dl.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
@@ -578,5 +809,269 @@ class TestBuildPlan(unittest.TestCase):
             md.print_find(plan, warnings)   # must not raise
 
 
+# ---------------------------------------------------------------------------
+# Forcing source fallback chain (2026-09-24) -- resolve_forcing_chain date bands, verified URL
+# patterns, FNL grib1/grib2 cutover, CFSR tar spans. All pure/offline (date rules + string
+# formatting only -- no network).
+# ---------------------------------------------------------------------------
+
+class TestForcingChainDateBands(unittest.TestCase):
+    NOW = datetime.datetime(2026, 9, 24, 12, 0, 0)
+
+    def _datasets(self, dt):
+        return [s.dataset for s in md.resolve_forcing_chain(dt, now=self.NOW)]
+
+    def test_2023_03_31_aws_then_d084001_then_fnl(self):
+        # R4 (2026-09-24): FNL (d083002) is a legitimate last-resort fallback here too -- its
+        # THREDDS catalog runs to the present, not just back to 1999-07-30.
+        self.assertEqual(self._datasets(datetime.datetime(2023, 3, 31)),
+                         ['gfs_aws', 'd084001', 'd083002'])
+
+    def test_2019_01_28_d084001_then_fnl(self):
+        self.assertEqual(self._datasets(datetime.datetime(2019, 1, 28)),
+                         ['d084001', 'd083002'])
+
+    def test_2010_01_01_ncei_g4_then_fnl(self):
+        self.assertEqual(self._datasets(datetime.datetime(2010, 1, 1)),
+                         ['ncei_g4', 'd083002'])
+
+    def test_2005_01_01_ncei_g3_then_fnl(self):
+        self.assertEqual(self._datasets(datetime.datetime(2005, 1, 1)),
+                         ['ncei_g3', 'd083002'])
+
+    def test_2001_06_01_fnl_only(self):
+        self.assertEqual(self._datasets(datetime.datetime(2001, 6, 1)), ['d083002'])
+
+    def test_1990_01_03_cfsr_reanalysis_fallback(self):
+        chain = md.resolve_forcing_chain(datetime.datetime(1990, 1, 3), now=self.NOW)
+        self.assertEqual([s.dataset for s in chain], ['d093000'])
+        self.assertEqual(chain[0].source_kind, 'reanalysis')
+
+    def test_1975_01_01_empty_no_grib_dir(self):
+        self.assertEqual(md.resolve_forcing_chain(datetime.datetime(1975, 1, 1), now=self.NOW), [])
+
+    def test_1975_01_01_local_fallback_with_grib_dir(self):
+        chain = md.resolve_forcing_chain(datetime.datetime(1975, 1, 1), now=self.NOW,
+                                         grib_dir='/some/grib/dir')
+        self.assertEqual([s.dataset for s in chain], ['local'])
+
+
+# ---------------------------------------------------------------------------
+# T13 (2026-09-24, V5 sc26p2): ncei_g3/g4 + FNL use Vtable.GFS_PRMSL (PRMSL, not MSLET) --
+# real.exe FATAL'd 'ERROR in psfc' on a 2005 ncei_g3 GRIB1 file whose only sea-level-pressure
+# message was PRMSL, which stock Vtable.GFS's active MSLET-only mapping never picks up.
+# ---------------------------------------------------------------------------
+
+class TestSourceVtableMapping(unittest.TestCase):
+    def test_ncei_and_fnl_use_prmsl_vtable(self):
+        for src in (md.SRC_NCEI_G3, md.SRC_NCEI_G4, md.SRC_FNL):
+            self.assertEqual(src.vtable, 'Vtable.GFS_PRMSL', src.dataset)
+
+    def test_current_era_gfs_and_cfsr_keep_their_own_vtable(self):
+        self.assertEqual(md.SRC_NOMADS_WPS.vtable, 'Vtable.GFS')
+        self.assertEqual(md.SRC_AWS_WPS.vtable, 'Vtable.GFS')
+        self.assertEqual(md.SRC_RDA_D084001.vtable, 'Vtable.GFS')
+        self.assertEqual(md.SRC_CFSR.vtable, 'Vtable.CFSR')
+
+    def test_to_dict_carries_the_vtable_choice(self):
+        # forcing.json's 'chosen' record is exactly ForcingSource.to_dict() -- confirms T13's
+        # vtable choice reaches the record with no further plumbing needed.
+        self.assertEqual(md.SRC_NCEI_G3.to_dict()['vtable'], 'Vtable.GFS_PRMSL')
+        self.assertEqual(md.SRC_RDA_D084001.to_dict()['vtable'], 'Vtable.GFS')
+
+
+class TestForcingUrlPatterns(unittest.TestCase):
+    def test_ncei_g4_url_cycle_and_fhour(self):
+        self.assertEqual(
+            md.ncei_g4_url(datetime.datetime(2010, 1, 1, 0)),
+            'https://www.ncei.noaa.gov/thredds/fileServer/model-gfs-g4-anl-files-old/'
+            '201001/20100101/gfsanl_4_20100101_0000_000.grb2')
+        self.assertEqual(
+            md.ncei_g4_url(datetime.datetime(2010, 1, 1, 3)),
+            'https://www.ncei.noaa.gov/thredds/fileServer/model-gfs-g4-anl-files-old/'
+            '201001/20100101/gfsanl_4_20100101_0000_003.grb2')
+
+    def test_ncei_g3_url_grb_extension(self):
+        self.assertEqual(
+            md.ncei_g3_url(datetime.datetime(2005, 1, 1, 0), 'grb'),
+            'https://www.ncei.noaa.gov/thredds/fileServer/model-gfs-g3-anl-files-old/'
+            '200501/20050101/gfsanl_3_20050101_0000_000.grb')
+
+    def test_ncei_g3_wps_entry_offers_both_extensions_early_grb_first(self):
+        fname, urls = md.ncei_g3_wps_entry(datetime.datetime(2005, 1, 1))[0]
+        self.assertEqual(urls[0].rsplit('.', 1)[1], 'grb')
+        self.assertEqual(urls[1].rsplit('.', 1)[1], 'grb2')
+
+    def test_ncei_g3_wps_entry_offers_both_extensions_late_grb2_first(self):
+        fname, urls = md.ncei_g3_wps_entry(datetime.datetime(2010, 1, 1))[0]
+        self.assertEqual(urls[0].rsplit('.', 1)[1], 'grb2')
+        self.assertEqual(urls[1].rsplit('.', 1)[1], 'grb')
+
+    def test_fnl_url_grib2(self):
+        self.assertEqual(
+            md.fnl_url(datetime.datetime(2010, 1, 1, 0), 'grib2'),
+            'https://thredds.rda.ucar.edu/thredds/fileServer/files/g/d083002/grib2/'
+            '2010/2010.01/fnl_20100101_00_00.grib2')
+
+    def test_fnl_url_grib1(self):
+        self.assertEqual(
+            md.fnl_url(datetime.datetime(2005, 1, 1, 0), 'grib1'),
+            'https://thredds.rda.ucar.edu/thredds/fileServer/files/g/d083002/grib1/'
+            '2005/2005.01/fnl_20050101_00_00.grib1')
+
+    def test_fnl_grib1_vs_grib2_switch_at_2007_12_06(self):
+        before = md.fnl_wps_entry(datetime.datetime(2007, 12, 5, 0))[0][1]
+        on = md.fnl_wps_entry(datetime.datetime(2007, 12, 6, 0))[0][1]
+        after = md.fnl_wps_entry(datetime.datetime(2007, 12, 7, 0))[0][1]
+        self.assertTrue(before[0].endswith('.grib1'))
+        self.assertTrue(on[0].endswith('.grib2'))
+        self.assertTrue(after[0].endswith('.grib2'))
+
+    def test_cfsr_tar_urls(self):
+        pgb, flx = md.cfsr_tar_urls(datetime.datetime(1990, 1, 3))
+        self.assertEqual(
+            pgb, 'https://thredds.rda.ucar.edu/thredds/fileServer/files/g/d093000/1990/'
+                 'pgbh06.gdas.19900101-19900105.tar')
+        self.assertEqual(
+            flx, 'https://thredds.rda.ucar.edu/thredds/fileServer/files/g/d093000/1990/'
+                 'flxf06.gdas.19900101-19900105.tar')
+
+
+class TestCfsrTarSpan(unittest.TestCase):
+    def test_1990_01_03(self):
+        self.assertEqual(md.cfsr_tar_span(datetime.date(1990, 1, 3)),
+                         (datetime.date(1990, 1, 1), datetime.date(1990, 1, 5)))
+
+    def test_1990_01_28(self):
+        self.assertEqual(md.cfsr_tar_span(datetime.date(1990, 1, 28)),
+                         (datetime.date(1990, 1, 26), datetime.date(1990, 1, 31)))
+
+    def test_1992_02_27_leap_year(self):
+        self.assertEqual(md.cfsr_tar_span(datetime.date(1992, 2, 27)),
+                         (datetime.date(1992, 2, 26), datetime.date(1992, 2, 29)))
+
+
+class TestProbeForcingEntries(unittest.TestCase):
+    def test_all_found(self):
+        with mock.patch.object(md, '_http_head', return_value=(200, {})):
+            ok, results = md.probe_forcing_entries([('a.grib2', ['https://x/a.grib2'])])
+        self.assertTrue(ok)
+        self.assertEqual(results[0]['chosen_url'], 'https://x/a.grib2')
+
+    def test_missing_one_fails(self):
+        def fake_head(url, timeout=30):
+            return (200, {}) if 'ok' in url else (404, {})
+        with mock.patch.object(md, '_http_head', side_effect=fake_head):
+            ok, results = md.probe_forcing_entries([('a', ['https://x/ok.grib2']),
+                                                     ('b', ['https://x/missing.grib2'])])
+        self.assertFalse(ok)
+        self.assertEqual(results[1]['chosen_url'], None)
+        self.assertEqual(results[0]['chosen_url'], 'https://x/ok.grib2')
+
+    def test_alternates_first_missing_second_found(self):
+        def fake_head(url, timeout=30):
+            return (200, {}) if url.endswith('.grib2') else (404, {})
+        with mock.patch.object(md, '_http_head', side_effect=fake_head):
+            ok, results = md.probe_forcing_entries(
+                [('a', ['https://x/a.grb', 'https://x/a.grib2'])])
+        self.assertTrue(ok)
+        self.assertEqual(results[0]['chosen_url'], 'https://x/a.grib2')
+
+
+class TestProbeUrlWithRetry(unittest.TestCase):
+    def test_503_twice_then_200_exists_after_retry(self):
+        calls = {'n': 0}
+        sleeps = []
+
+        def fake_head(url, timeout=30):
+            calls['n'] += 1
+            if calls['n'] <= 2:
+                return (503, {})
+            return (200, {})
+
+        with mock.patch.object(md, '_http_head', side_effect=fake_head):
+            result, attempts = md.probe_url_with_retry('https://x/a.grib2',
+                                                        sleep_fn=sleeps.append)
+        self.assertTrue(result['exists'])
+        self.assertEqual(calls['n'], 3)
+        self.assertEqual(len(attempts), 3)
+        self.assertEqual([a['status'] for a in attempts], [503, 503, 200])
+        # backoff schedule used: 2s then 5s (only 2 sleeps needed before the 3rd, successful try)
+        self.assertEqual(sleeps, [2, 5])
+
+    def test_404_is_missing_without_retry(self):
+        calls = {'n': 0}
+        sleeps = []
+
+        def fake_head(url, timeout=30):
+            calls['n'] += 1
+            return (404, {})
+
+        with mock.patch.object(md, '_http_head', side_effect=fake_head):
+            result, attempts = md.probe_url_with_retry('https://x/missing.grib2',
+                                                        sleep_fn=sleeps.append)
+        self.assertFalse(result['exists'])
+        self.assertEqual(calls['n'], 1)          # no retry at all
+        self.assertEqual(len(attempts), 1)
+        self.assertEqual(attempts[0]['status'], 404)
+        self.assertEqual(sleeps, [])
+
+    def test_exhausts_all_retries_on_persistent_5xx(self):
+        sleeps = []
+        with mock.patch.object(md, '_http_head', return_value=(500, {})):
+            result, attempts = md.probe_url_with_retry('https://x/a.grib2', sleep_fn=sleeps.append)
+        self.assertFalse(result['exists'])
+        self.assertEqual(len(attempts), 4)       # 1 initial + 3 retries
+        self.assertEqual(sleeps, [2, 5, 15])
+
+    def test_connection_error_status_none_is_transient(self):
+        def raiser(url, timeout=30):
+            raise OSError("connection reset")
+        sleeps = []
+        with mock.patch.object(md, '_http_head', side_effect=raiser):
+            result, attempts = md.probe_url_with_retry('https://x/a.grib2', sleep_fn=sleeps.append)
+        self.assertFalse(result['exists'])
+        self.assertEqual(len(attempts), 4)
+        self.assertTrue(all(a['status'] is None for a in attempts))
+        self.assertEqual(sleeps, [2, 5, 15])
+
+
+class TestProbeForcingEntriesRetryIntegration(unittest.TestCase):
+    def test_transient_failure_retried_then_found(self):
+        calls = {'n': 0}
+
+        def fake_head(url, timeout=30):
+            calls['n'] += 1
+            return (503, {}) if calls['n'] == 1 else (200, {})
+
+        with mock.patch.object(md, '_http_head', side_effect=fake_head):
+            ok, results = md.probe_forcing_entries([('a.grib2', ['https://x/a.grib2'])],
+                                                    sleep_fn=lambda s: None)
+        self.assertTrue(ok)
+        self.assertEqual(results[0]['chosen_url'], 'https://x/a.grib2')
+        self.assertEqual(len(results[0]['checked'][0]['attempts']), 2)
+
+
+class TestProbeNoThreadPool(unittest.TestCase):
+    def test_metdata_module_never_imports_a_thread_pool(self):
+        # T4c (2026-09-24): concurrent probing against the same RDA THREDDS upstream is exactly
+        # what caused the transient-failure-treated-as-missing bug T4a retries for -- probing
+        # must stay sequential. metdata.py has no other use for a thread pool, so the strongest
+        # honest check is a static one: this module must never import concurrent.futures /
+        # ThreadPoolExecutor / threading at all (a regression here would silently reintroduce
+        # concurrent probing without touching probe_forcing_entries's own source).
+        src = inspect.getsource(md)
+        self.assertNotIn('ThreadPoolExecutor', src)
+        self.assertNotIn('concurrent.futures', src)
+        self.assertNotIn('import threading', src)
+
+
 if __name__ == '__main__':
     unittest.main()
+
+
+class TestNceiCadenceIsSixHours(unittest.TestCase):
+    def test_ncei_sources_are_6h_f000_only(self):
+        # gfsanl _003 files hold ~8 accumulation messages, no 3-D fields (scc 2026-09-24).
+        self.assertEqual(md.SRC_NCEI_G4.forcing_interval_h, 6)
+        self.assertEqual(md.SRC_NCEI_G3.forcing_interval_h, 6)

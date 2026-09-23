@@ -176,6 +176,77 @@ spread is at the profiling noise floor; at 3 km/448 ranks it is learnable (withi
 Spearman +0.44..+0.85). But no live actuator consumes "which rank is hot" — PLOV measures
 it — so the per-rank hotspot model itself is in `deprecated/` (decision 0045).
 
+### Cold-start sampling (`tools/coldstart_sample.py`) — unknown-case prediction
+
+For a case with only a `namelist.input` (+ a projection source) and NO wrfinput/wrfbdy/restart
+files, `wtune_predict.py`'s probe-based model has nothing to measure from. `coldstart_sample.py`
+closes that gap: it picks K "characteristic point" sampling times inside the run, fetches only
+the GFS GRIB times those windows need, stages ONE sbatch running geogrid -> ungrib -> metgrid ->
+real.exe (one per window) -> wrf.exe (one short cold-start window per sampling time, all at the
+configuration being predicted), then scores the windows and prints a whole-run wall-time
+prediction. Each window is an independent cold start from GFS state at time `T_k` (not a
+restart — an unknown case has none). Measured on the cluster (conus12, 3 times x paired with
+true restarts): cold-start cost equals restart cost within 0.35% once the first ~1 simulated
+hour is discarded, so every window budgets a spin-up discard before it starts measuring.
+
+    python3 tools/coldstart_sample.py inspect --case-dir D [--namelist-wps P | --geo-from-wrfinput P] [--grib-dir G]
+    python3 tools/coldstart_sample.py plan --case-dir D --out PLAN_DIR --k 4 --nodes N --ranks R --omp T --nx X --ny Y
+    python3 tools/coldstart_sample.py fetch --plan PLAN_DIR         # login node; needs network
+    python3 tools/coldstart_sample.py stage --plan PLAN_DIR --site scc
+    sbatch PLAN_DIR/run.sbatch
+    python3 tools/coldstart_sample.py score --plan PLAN_DIR --json PLAN_DIR/score.json
+
+`inspect` names every blocker explicitly (no projection source; a run time older than the GFS
+0.25deg archive's 2015-01-15 start with no `--grib-dir`; `ifire>0` — WRF-SFIRE unsupported; a
+nest whose start time differs from d01's; `sf_lake_physics>0` with no `lake_depth` dataset under
+geog; `sf_urban_physics` 2/3 — BEP/BEM need urban parameter data geog doesn't carry; `chem_opt>0`
+— WRF-Chem emissions; `obs_nudge_opt>0` — observation files) and, separately, what is
+completable but "filled differently" than the case's own namelist asked for (hydrometeors/number
+concentrations start at zero — always, from GFS via Vtable.GFS — which is *why* cold-start
+windows discard a spin-up hour; `mp_physics=28` with no aerosol climatology wired in; a
+`num_land_cat` mismatch against whichever landuse dataset the geog directory actually has;
+`sf_surface_physics=3` with `num_soil_layers!=4`; `grid_fdda>0` nudging files only covering the
+sampled windows). The geog capability check reads the real `geog_data_path` directory listing
+(`--geog-path`, else `$WPS_GEOG`/`/nfs/data/wrf/WPS_GEOG/`) rather than a hardcoded dataset list,
+so it degrades to "skipped" (never a false blocker) on a site whose mirror can't be listed, and
+still works on a site whose geog mirror differs from scc's. Projection (namelist.input carries
+none) comes from `--namelist-wps`/`D/namelist.wps` first, else `--geo-from-wrfinput`/
+`D/wrfinput_d01`'s global attributes — generalised from the proven-on-cluster, conus12-hardcoded
+`.route1-ref/make_namelist_wps.py` recipe, dropping its nested-case MOAD_CEN_LAT refusal (d01's
+own MOAD_CEN_LAT always equals CEN_LAT, so that check never distinguished a real nest; nest
+placement comes from namelist.input's own per-domain lists instead). Namelist edits reuse the
+same packed-line-safe `set_list`/`count_key` approach `.route1-ref/gate2_stage_window.py` proved
+on the cluster (key-count invariants; a `history_interval*` key that doesn't already exist is
+never added; `fix-real-namelist`'s `num_land_cat` overwrite from met_em is required by real.exe
+and stays, but now prints old->new instead of changing it silently). `ungrib`/`metgrid` run once
+PER WINDOW (`fix-wps-namelist` narrows namelist.wps `&share` start/end to that window's own
+`[t, t_end]` first — running them once against the whole run's span makes metgrid walk every
+interval and die on the first GRIB time `fetch` never downloaded), and a window that fails at
+any step is recorded `ok=0` in `windows_status.txt` and does not abort the remaining windows;
+`score` skips `ok=0` windows and errors only if none are usable. `run.sbatch` sources
+`campaign/sites/scc.sh` for `site_env`/`site_launch`/`site_hygiene` and
+`campaign/node_hygiene.sh` for orphan reap/dirty-node census rather than reimplementing either —
+`--exclude=head`, `--signal=B:USR1@90` (USR1/TERM/INT kill the in-flight run, reap, record
+`INTERRUPTED`, and exit 3), no `LD_PRELOAD`, no wrapper around `wrf.exe`. `tools/metdata.py` and
+`tools/grib_state.py` (both need numpy, which scc's compute-node `python3` doesn't have) are
+imported lazily and only by `inspect`/`plan --state`/`fetch` — every compute-node subcommand
+(`fix-wps-namelist`, `fix-real-namelist`, `fix-wrf-namelist`, `stage`, `score`) never touches
+them. `score` classifies radiation steps from each window's own data
+(`classify_steps_detected`), fits a day/night radiation ratio (`fit_day_night_r_rad`), and
+linearly interpolates each window's measured step cost across the full run between window
+measured-part midpoints; I/O and init come from `wtune_predict.build_prediction` against
+`PLAN_DIR/win_0/real` (the generated wrfinput), never the original case_dir, which in an unknown
+case has none and in a held-out validation case would be leakage.
+
+Tests: `tools/test_coldstart_sample.py` (65 cases, offline/no network — namelist.wps field
+derivation including per-window time narrowing, nested-domain list copying and sbatch linking,
+inspect blockers and capability-gap warnings driven by a real tmp geog listing, window selection
+on a synthetic 72h run, the `dt=72/radt=15 -> stepra=13` window-size arithmetic, wrf-window
+namelist key-count invariants, score's spin-up exclusion + exact trapezoid interpolation +
+`ok=0` window skipping + case_dir non-leakage, the USR1-trap/TOOL-path/GRIB-fallback shape of
+the generated sbatch text, and that every compute-node code path stays importable with numpy
+blocked).
+
 ## 5. Measurement — where the time goes
 
 - **Per-rank driver timers** come free with PLOV: `wtimer.<rank>.csv` under `WTIMER_DIR`

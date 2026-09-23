@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 #SBATCH --job-name=wtune-temporal
 #SBATCH --time=02:00:00
+#SBATCH --signal=B:USR1@90
+# --signal=B:USR1@90 (job 740 postmortem, 2026-09; see campaign/strict_campaign.sbatch's own
+# copy of this directive for the full writeup): Slurm delivers SIGUSR1 to the batch shell 90s
+# before --time expires, allocation still fully alive. tools/temporal_validation.py's own
+# build_long_sbatch_command/build_samples_sbatch_command/build_timeline_sbatch_command (the
+# only builders of this script's sbatch command line) do not pass --signal, so this in-script
+# directive is never overridden.
 set -uo pipefail
 #
 # tools/temporal_run.sbatch -- WRF runner for decision 0053 step 2 (offline temporal
@@ -81,20 +88,66 @@ run_node_hygiene () {
   REAP_N=$(printf '%s\n' "$out" | awk '/^REAPED_ORPHANS /{for(i=1;i<=NF;i++){split($i,kv,"="); if(kv[1]=="n") s+=kv[2]}} END{print s+0}')
 }
 
-# on-exit reap: Slurm sends SIGTERM then SIGKILL after KillWait=30s (TIMEOUT included), so
-# this must finish well inside that window -- timeout 20 bounds it, and NODE_HYGIENE_TRAP_DONE
-# stops a TERM/INT trap's own `exit` from re-running the EXIT trap's reap a second time.
+# job 740 postmortem (2026-09; see campaign/strict_campaign.sbatch's own copy of this comment
+# for the full writeup): a plain foreground `timeout ... "${SITE_LAUNCH_CMD[@]}"` defers every
+# trap until that child exits, so Slurm's TIMEOUT SIGTERM was silently swallowed for the full
+# 30s KillWait and SIGKILL hit before any trap ran -- every rank survived. Fix: launch each run
+# in the BACKGROUND and `wait` on it explicitly (a trapped signal interrupts a blocked `wait`
+# immediately, verified locally), plus `#SBATCH --signal=B:USR1@90` above for an early-warning
+# signal 90s before the hard time limit, while the allocation is still alive.
+WRF_PID=""
+CUR_RUN_ID=""
+
+stop_run_and_reap () {
+  # stop_run_and_reap <kill_wait_s> <reap_tmo_s> -- see strict_campaign.sbatch's own copy for
+  # the full contract. Safe to call with nothing in flight: the kill step is then a no-op.
+  local kill_wait="$1" reap_tmo="$2" i
+  if [ -n "$WRF_PID" ] && kill -0 "$WRF_PID" 2>/dev/null; then
+    kill -TERM "$WRF_PID" 2>/dev/null || true
+    for ((i = 0; i < kill_wait; i++)); do
+      kill -0 "$WRF_PID" 2>/dev/null || break
+      sleep 1
+    done
+    kill -0 "$WRF_PID" 2>/dev/null && { kill -KILL "$WRF_PID" 2>/dev/null || true; }
+  fi
+  run_node_hygiene reap "$reap_tmo"
+}
+
+write_interrupted_row () {
+  # CUR_RUN_ID is set only for the window between launching a run in the background and
+  # capturing its RC (all three TV_MODE loops below). TV_MODE=samples is the only one of the
+  # three with a ledger to write into (SAMPLES_LEDGER); long/timeline have no ledger row at
+  # all (see the node-hygiene header comment above), so they are logged only, same as the
+  # existing "missing restart file" row shape a few lines below in the samples loop.
+  local sig="$1"
+  [ -z "$CUR_RUN_ID" ] && return 0
+  echo "INTERRUPTED case=$CASE tv_mode=$TV_MODE run=$CUR_RUN_ID reason=preempt_sig${sig}" >&2
+  if [ "$TV_MODE" = samples ] && [ -n "${SAMPLES_LEDGER:-}" ]; then
+    echo "$RESTART_HOURS,$cid,$ranks,$omp,$nx,$ny,$numtiles,$dist,interrupted,0," >> "$SAMPLES_LEDGER"
+  fi
+  CUR_RUN_ID=""
+}
+
+# NODE_HYGIENE_TRAP_DONE: USR1's own `exit 0` re-enters this function via the EXIT trap -- the
+# guard makes that second entry a fast no-op (see strict_campaign.sbatch's own copy for the
+# locally-verified transcript of this exact double-fire).
 NODE_HYGIENE_TRAP_DONE=0
 node_hygiene_trap () {
   local sig="$1"
   [ "$NODE_HYGIENE_TRAP_DONE" = "1" ] && return 0
   NODE_HYGIENE_TRAP_DONE=1
-  run_node_hygiene reap 20 >&2 || true
+  if [ "$sig" = "USR1" ]; then
+    stop_run_and_reap 10 30 >&2 || true   # T-90s, allocation alive: generous budget
+  else
+    stop_run_and_reap 3 15 >&2 || true    # real TERM/INT/EXIT: KillWait=30s total
+  fi
+  write_interrupted_row "$sig" >&2 || true
   [ "$sig" != "EXIT" ] && exit 0
 }
 trap 'node_hygiene_trap EXIT' EXIT
 trap 'node_hygiene_trap TERM' TERM
 trap 'node_hygiene_trap INT' INT
+trap 'node_hygiene_trap USR1' USR1
 
 # preflight (design point 1): the allocation is held before any WRF launch, so any wrf.exe
 # found here is an orphan from a dead job -- reap is safe. Census still runs and logs
@@ -168,9 +221,17 @@ if [ "$TV_MODE" = long ]; then
   # HOURS worth of wall time plus the same 3x-per_run watchdog multiplier
   # tools/scc_sweep.py's own estimate_time() uses, floored at 30 min.
   TIME_LIMIT_S=${TIME_LIMIT_S:-$(( HOURS * 3600 * 3 > 1800 ? HOURS * 3600 * 3 : 1800 ))}
+  # background + explicit wait -- see the node-hygiene block's job-740 comment above for why.
+  CUR_RUN_ID="${CASE}_long_${J}"
   T0=$(date +%s.%N)
-  timeout "$TIME_LIMIT_S" "${SITE_LAUNCH_CMD[@]}" > wrf.out 2>&1 < /dev/null
+  timeout "$TIME_LIMIT_S" "${SITE_LAUNCH_CMD[@]}" > wrf.out 2>&1 < /dev/null &
+  WRF_PID=$!
+  wait "$WRF_PID"
   RC=$?
+  # RC>128 here is a narrow-race safety net only -- node_hygiene_trap already logged the
+  # interruption and exited before this line otherwise (see strict_campaign.sbatch's copy).
+  WRF_PID=""
+  CUR_RUN_ID=""
   T1=$(date +%s.%N)
   WALL=$(python3 -c "print('%.1f' % ($T1 - $T0))")
 
@@ -247,9 +308,16 @@ elif [ "$TV_MODE" = samples ]; then
 
     configure_omp_env "$omp" "$blocktime"
     site_launch "$ranks" "$((ranks / ALLOC_NODES))" "$omp" "$dist"
+    # background + explicit wait -- see the node-hygiene block's job-740 comment above for why.
+    CUR_RUN_ID="${CASE}_s${RESTART_HOURS}_${cid}_${J}"
     T0=$(date +%s.%N)
-    timeout "$TIMEOUT_S" "${SITE_LAUNCH_CMD[@]}" > wrf.out 2>&1 < /dev/null
+    timeout "$TIMEOUT_S" "${SITE_LAUNCH_CMD[@]}" > wrf.out 2>&1 < /dev/null &
+    WRF_PID=$!
+    wait "$WRF_PID"
     RC=$?
+    # RC>128 here is a narrow-race safety net only -- see the TV_MODE=long block's own copy.
+    WRF_PID=""
+    CUR_RUN_ID=""
     T1=$(date +%s.%N)
     WALL=$(python3 -c "print('%.1f' % ($T1 - $T0))")
 
@@ -330,9 +398,16 @@ elif [ "$TV_MODE" = timeline ]; then
     configure_omp_env "$omp" "$blocktime"
     site_launch "$ranks" "$((ranks / ALLOC_NODES))" "$omp" "$dist"
     TIME_LIMIT_S=${TIME_LIMIT_S:-$(( HOURS * 3600 * 3 > 1800 ? HOURS * 3600 * 3 : 1800 ))}
+    # background + explicit wait -- see the node-hygiene block's job-740 comment above for why.
+    CUR_RUN_ID="${CASE}_timeline_${cid}_${J}"
     T0=$(date +%s.%N)
-    timeout "$TIME_LIMIT_S" "${SITE_LAUNCH_CMD[@]}" > wrf.out 2>&1 < /dev/null
+    timeout "$TIME_LIMIT_S" "${SITE_LAUNCH_CMD[@]}" > wrf.out 2>&1 < /dev/null &
+    WRF_PID=$!
+    wait "$WRF_PID"
     RC=$?
+    # RC>128 here is a narrow-race safety net only -- see the TV_MODE=long block's own copy.
+    WRF_PID=""
+    CUR_RUN_ID=""
     T1=$(date +%s.%N)
     WALL=$(python3 -c "print('%.1f' % ($T1 - $T0))")
 

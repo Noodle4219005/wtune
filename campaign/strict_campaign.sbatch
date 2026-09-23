@@ -5,7 +5,16 @@
 #SBATCH --nodes=4 --ntasks-per-node=112
 #SBATCH --time=02:00:00
 #SBATCH --output=/home/u5727520/wrf-bench/wscore/campaign/strictcamp-%x-%j.out
+#SBATCH --signal=B:USR1@90
 #
+# --signal=B:USR1@90 (job 740 postmortem, 2026-09): Slurm delivers SIGUSR1 to the batch shell
+# (the B: prefix, not to every rank) 90s before --time expires, while the allocation is still
+# fully alive -- the USR1 trap below uses that window to kill the in-flight run and reap every
+# node BEFORE Slurm's own SIGTERM/SIGKILL (KillWait=30s) arrives. Neither tools/scc_sweep.py's
+# nor tools/temporal_validation.py's build_*_sbatch_command() pass --signal on the sbatch
+# command line (verified 2026-09: grep shows only -p/-N/--ntasks-per-node/--exclusive/
+# --exclude/--time/--job-name/--output/--export), so this in-script #SBATCH directive is
+# never overridden by either caller.
 # STRICT-configuration data campaign runner (predictor phase B). Measures every
 # STRICT config campaign/configs.py generates for one WRF case, with replicates in
 # palindromic order, and appends one row per run to the predictor run-ledger CSV.
@@ -126,20 +135,83 @@ run_node_hygiene () {
   fi
 }
 
-# on-exit reap: Slurm sends SIGTERM then SIGKILL after KillWait=30s (TIMEOUT included), so
-# this must finish well inside that window -- timeout 20 bounds it, and NODE_HYGIENE_TRAP_DONE
-# stops a TERM/INT trap's own `exit` from re-running the EXIT trap's reap a second time.
+# job 740 postmortem (2026-09): a plain foreground `timeout ... "${SITE_LAUNCH_CMD[@]}"` blocks
+# bash in a way that DEFERS every trap until that foreground child exits -- Slurm's TIMEOUT
+# SIGTERM landed, mpirun tried (and failed) to tear down ranks it had already lost track of,
+# and SIGKILL arrived 30s later (KillWait) having never let our trap run at all: the job log
+# shows zero REAPED_ORPHANS/trap output, and a census of work3 afterwards found all 72 ranks
+# still alive, pinned at 100%. Fix: launch the run in the BACKGROUND and `wait` on it
+# explicitly -- a trapped signal interrupts a blocked `wait` immediately (verified locally: the
+# trap runs before the next script line, even mid-`wait`; see this task's report for the
+# transcript), so USR1/TERM/INT now fire in time. `#SBATCH --signal=B:USR1@90` above adds an
+# early-warning signal 90s before the hard time limit, while the allocation is still alive, so
+# there is time to kill the run and reap every node BEFORE Slurm's own KillWait=30s TERM/KILL.
+WRF_PID=""
+CUR_RUN_ID=""
+
+stop_run_and_reap () {
+  # stop_run_and_reap <kill_wait_s> <reap_tmo_s>: if a run is in flight (WRF_PID alive), TERM
+  # it, poll up to <kill_wait_s> for it to exit, KILL if it hasn't, then reap every node. Safe
+  # to call with nothing in flight (WRF_PID unset/dead): the kill step is then a silent no-op
+  # and only the reap runs, exactly like the old TERM/INT/EXIT-only reap did.
+  local kill_wait="$1" reap_tmo="$2" i
+  if [ -n "$WRF_PID" ] && kill -0 "$WRF_PID" 2>/dev/null; then
+    kill -TERM "$WRF_PID" 2>/dev/null || true
+    for ((i = 0; i < kill_wait; i++)); do
+      kill -0 "$WRF_PID" 2>/dev/null || break
+      sleep 1
+    done
+    kill -0 "$WRF_PID" 2>/dev/null && { kill -KILL "$WRF_PID" 2>/dev/null || true; }
+  fi
+  run_node_hygiene reap "$reap_tmo"
+}
+
+write_interrupted_row () {
+  # write_interrupted_row <sig>: record the in-flight config's ledger row as INTERRUPTED.
+  # CUR_RUN_ID is set only for the exact window between launching a run in the background and
+  # capturing its RC (both loops below); a signal landing outside a run (editing a namelist,
+  # blocked on check_disk_guard, etc.) has nothing in flight and this is a no-op. Same
+  # minimal-row shape as check_disk_guard's own abort row above.
+  local sig="$1"
+  [ -z "$CUR_RUN_ID" ] && return 0
+  RUN_ID="$CUR_RUN_ID" JOB_ID="$J" CASE_RAW="$CASE" CASE_BASE="$CASE" \
+    HARDWARE_ID="$HARDWARE_ID" \
+    NOTES_ABORT="status=INTERRUPTED reason=preempt_sig${sig} $NODE_DIRTY_NOTE" \
+    python3 - "$LEDGER" <<'PY'
+import csv, os, sys
+ledger = sys.argv[1]
+e = os.environ.get
+row = [e("RUN_ID", ""), "interrupted", e("JOB_ID", ""), "", e("CASE_RAW", ""), e("CASE_BASE", ""),
+       "", e("HARDWARE_ID", ""), "", ""] + [""] * 37 + [e("NOTES_ABORT", "")]
+with open(ledger, "a", newline="") as f:
+    csv.writer(f).writerow(row)
+PY
+  echo "WROTE_INTERRUPTED_ROW run_id=$CUR_RUN_ID sig=$sig" >&2
+  CUR_RUN_ID=""
+}
+
+# NODE_HYGIENE_TRAP_DONE: USR1's own `exit 0` below re-enters this same function via the EXIT
+# trap -- the guard makes that second entry a fast no-op instead of a second kill/reap/write
+# (verified locally: EXIT fires after USR1's exit, sees the guard, returns immediately).
 NODE_HYGIENE_TRAP_DONE=0
 node_hygiene_trap () {
   local sig="$1"
   [ "$NODE_HYGIENE_TRAP_DONE" = "1" ] && return 0
   NODE_HYGIENE_TRAP_DONE=1
-  run_node_hygiene reap 20 >&2 || true
+  if [ "$sig" = "USR1" ]; then
+    # T-90s, allocation still alive: generous budget (well inside the 90s window).
+    stop_run_and_reap 10 30 >&2 || true
+  else
+    # real Slurm TERM/INT, or plain script exit: KillWait=30s total, so a much tighter budget.
+    stop_run_and_reap 3 15 >&2 || true
+  fi
+  write_interrupted_row "$sig" >&2 || true
   [ "$sig" != "EXIT" ] && exit 0
 }
 trap 'node_hygiene_trap EXIT' EXIT
 trap 'node_hygiene_trap TERM' TERM
 trap 'node_hygiene_trap INT' INT
+trap 'node_hygiene_trap USR1' USR1
 
 # preflight (design point 1): the allocation is held --exclusive and no WRF launch has
 # happened yet, so any wrf.exe found here is an orphan from a dead job -- reap is safe.
@@ -577,8 +649,21 @@ PY
 
     T0=$(date +%s.%N)
     site_launch "$ranks" "$ntasks_per_node" "$omp" "$dist"
-    timeout "$TIMEOUT_S" "${SITE_LAUNCH_CMD[@]}" > wrf.out 2>&1
+    # background + explicit wait, not a foreground pipeline -- see the node-hygiene block's
+    # own comment above (job 740) for why. CUR_RUN_ID marks exactly the window a USR1/TERM/INT
+    # trap should record as interrupted if it lands here.
+    CUR_RUN_ID="${CASE}_physics_${tag}_r${rep}_${J}"
+    timeout "$TIMEOUT_S" "${SITE_LAUNCH_CMD[@]}" > wrf.out 2>&1 &
+    WRF_PID=$!
+    wait "$WRF_PID"
     RC=$?
+    # wait returns 128+signum instead of the launched program's own exit status when a trapped
+    # signal interrupts it; node_hygiene_trap already wrote this run's ledger row and exited
+    # before this line in that case, so RC>128 here can only be a narrow race (signal landing
+    # after wait returned but before CUR_RUN_ID is cleared below) -- keep OK=0/FAILED, never
+    # treat it as success.
+    WRF_PID=""
+    CUR_RUN_ID=""
     T1=$(date +%s.%N)
     WALL=$(python3 -c "print('%.1f' % ($T1 - $T0))")
 
@@ -919,8 +1004,17 @@ for cid in "${ORDER[@]}"; do
 
   T0=$(date +%s.%N)
   site_launch "$ranks" "$ntasks_per_node" "$omp" "$dist"
-  timeout "$TIMEOUT_S" "${SITE_LAUNCH_CMD[@]}" > wrf.out 2>&1
+  # background + explicit wait -- see the physics loop's own copy above (and the node-hygiene
+  # block's job-740 comment) for why.
+  CUR_RUN_ID="${CASE}_${cid}_r${rep}_${J}"
+  timeout "$TIMEOUT_S" "${SITE_LAUNCH_CMD[@]}" > wrf.out 2>&1 &
+  WRF_PID=$!
+  wait "$WRF_PID"
   RC=$?
+  # see the physics loop's own copy above: RC>128 here is a narrow-race safety net only, since
+  # node_hygiene_trap already wrote the interrupted row and exited before this line otherwise.
+  WRF_PID=""
+  CUR_RUN_ID=""
   T1=$(date +%s.%N)
   WALL=$(python3 -c "print('%.1f' % ($T1 - $T0))")
 

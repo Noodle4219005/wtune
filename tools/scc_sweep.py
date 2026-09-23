@@ -251,7 +251,11 @@ def estimate_s_per_step(case, nodes, ledger_dir, hardware_id=DEFAULT_HARDWARE_ID
     """Median of (measured s_per_step_median * n_nodes_measured / nodes) over every ledger row
     for `case` on `hardware_id`, scanning ledger_dir/ledger_<case>_*.csv -- ideal linear
     core-count scaling (72*n_measured/(72*nodes), the 72 cancels). `fallback` (source
-    'fallback_10s') when no matching row exists at all. Returns (s_est, source, n_rows_used)."""
+    'fallback_10s') when no matching row exists at all. Returns (s_est, source, n_rows_used).
+
+    ledger_dir is expanded here (not just by CLI-level callers) so an unexpanded default like
+    "$HOME/wtune-runs/campaign" resolves correctly regardless of what the caller passes."""
+    ledger_dir = _expand(ledger_dir)
     scaled = []
     for path in sorted(glob.glob(os.path.join(ledger_dir, "ledger_%s_*.csv" % case))):
         try:

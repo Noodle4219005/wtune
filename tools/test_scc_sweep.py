@@ -156,6 +156,26 @@ def test_estimate_s_per_step_scales_and_falls_back():
         assert s_est2 == sw.CONSERVATIVE_S_PER_STEP
 
 
+def test_estimate_s_per_step_expands_unexpanded_ledger_dir(monkeypatch):
+    # Regression for the bug where ledger_dir was never expanded inside estimate_s_per_step:
+    # a caller passing the literal default DEFAULT_LEDGER_DIR="$HOME/wtune-runs/campaign" (or any
+    # other unexpanded $VAR-style path) silently matched zero files via glob.glob and fell back to
+    # the constant for every case, even with measured rows on disk.
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "ledger_isc21_777.csv")
+        with open(path, "w", newline="") as f:
+            w = csv.writer(f)
+            w.writerow(["case_base", "hardware_id", "n_nodes", "s_per_step_median"])
+            w.writerow(["isc21", "scc-gh200", "2", "16.0"])
+        monkeypatch.setenv("WTUNE_TEST_LEDGER_DIR", tmp)
+        # nodes=4 == 2*n_measured -> ideal scaling halves 16.0 to 8.0
+        s_est, source, n = sw.estimate_s_per_step(
+            "isc21", nodes=4, ledger_dir="$WTUNE_TEST_LEDGER_DIR/", hardware_id="scc-gh200")
+        assert source == "ledger"
+        assert n == 1
+        assert abs(s_est - 8.0) < 1e-9
+
+
 # ---------------------------------------------------------------------------
 # manifest idempotency (fake sbatch/sacct via injectable runner functions)
 # ---------------------------------------------------------------------------

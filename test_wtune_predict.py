@@ -1347,16 +1347,29 @@ def test_predict_init_startup_uncalibrated_when_absent(tmp_path):
     assert init["total_s"] == pytest.approx(init["read_s"])
 
 
+def _calibration_with_nulls(tmp_path, *keys):
+    """Copy of the real calibration with `keys` set to null, so a test of the
+    uncalibrated path does not depend on whether scc.json has been fitted yet."""
+    import json as _json
+    d = _json.load(open(CALIBRATION))
+    for k in keys:
+        d[k] = None
+    out = tmp_path / "calibration_nulls.json"
+    out.write_text(_json.dumps(d))
+    return str(out)
+
+
 def test_render_text_prints_startup_uncalibrated_with_real_calibration(tmp_path):
-    # machine/calibration/scc.json currently has startup_s: null (pending the
-    # 2026-09-23 ground-truth fit) -- assert the text output says so plainly.
+    # With startup_s unset the text output must say so plainly. The real scc.json
+    # was fitted on 2026-09-23, so null the key in a copy rather than rely on it.
+    cal = _calibration_with_nulls(tmp_path, "startup_s", "startup_s_source")
     case_dir = tmp_path / "conus25"
     case_dir.mkdir()
     _write(str(case_dir / "namelist.input"), CONUS25_NAMELIST)
     pred = wp.build_prediction(
         namelist_path=str(case_dir / "namelist.input"), case_dir=str(case_dir), nodes=7,
         config={"ranks": 720, "omp": 1, "nx": 24, "ny": 30, "numtiles": 1},
-        ledger_paths=None, calibration_path=CALIBRATION,
+        ledger_paths=None, calibration_path=cal,
         io_form_override=None, io_target="nfs")
     assert "startup: UNCALIBRATED" in wp.render_text(pred)
 
@@ -1436,13 +1449,14 @@ def test_io_range_brackets_point_estimate_and_widens_exactly(tmp_path):
 
 
 def test_io_range_absent_keeps_legacy_rss_range(tmp_path):
+    cal = _calibration_with_nulls(tmp_path, "history_write_rate_MBps_low", "history_write_rate_MBps_high")
     case_dir = tmp_path / "conus25"
     case_dir.mkdir()
     _write(str(case_dir / "namelist.input"), CONUS25_NAMELIST)
     pred = wp.build_prediction(
         namelist_path=str(case_dir / "namelist.input"), case_dir=str(case_dir), nodes=7,
         config={"ranks": 720, "omp": 1, "nx": 24, "ny": 30, "numtiles": 1},
-        ledger_paths=None, calibration_path=CALIBRATION,
+        ledger_paths=None, calibration_path=cal,
         io_form_override=None, io_target="nfs")
     assert pred["io_range"] is None
     assert pred["range_source"] is None

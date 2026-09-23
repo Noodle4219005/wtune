@@ -64,6 +64,44 @@ site_env
 J=$SLURM_JOB_ID
 ALLOC_NODES=${SLURM_JOB_NUM_NODES:-1}
 
+# ---- node hygiene: orphan wrf.exe reap (scc prte/pgid incident, 2026-09) -- see
+# campaign/strict_campaign.sbatch's own copy of this block for the incident writeup and
+# campaign/node_hygiene.sh for the per-node reap logic dispatched here (duplicated in
+# miniature here rather than sourced, same rule this file's configure_omp_env already
+# follows). This script writes no notes/metadata column anywhere (SAMPLES_LEDGER has none,
+# long/timeline write no ledger row at all besides echoed RESULT lines), so a dirty node is
+# logged only, never recorded in a ledger.
+run_node_hygiene () {
+  # run_node_hygiene <mode> <timeout_s>   mode: reap | census | reap+census. Sets REAP_N to
+  # the total orphans reaped across every node, this call only.
+  local mode="$1" tmo="$2" out
+  site_hygiene "$mode"
+  out=$(timeout "$tmo" "${SITE_HYGIENE_CMD[@]}" 2>&1) || true
+  [ -n "$out" ] && echo "$out"
+  REAP_N=$(printf '%s\n' "$out" | awk '/^REAPED_ORPHANS /{for(i=1;i<=NF;i++){split($i,kv,"="); if(kv[1]=="n") s+=kv[2]}} END{print s+0}')
+}
+
+# on-exit reap: Slurm sends SIGTERM then SIGKILL after KillWait=30s (TIMEOUT included), so
+# this must finish well inside that window -- timeout 20 bounds it, and NODE_HYGIENE_TRAP_DONE
+# stops a TERM/INT trap's own `exit` from re-running the EXIT trap's reap a second time.
+NODE_HYGIENE_TRAP_DONE=0
+node_hygiene_trap () {
+  local sig="$1"
+  [ "$NODE_HYGIENE_TRAP_DONE" = "1" ] && return 0
+  NODE_HYGIENE_TRAP_DONE=1
+  run_node_hygiene reap 20 >&2 || true
+  [ "$sig" != "EXIT" ] && exit 0
+}
+trap 'node_hygiene_trap EXIT' EXIT
+trap 'node_hygiene_trap TERM' TERM
+trap 'node_hygiene_trap INT' INT
+
+# preflight (design point 1): the allocation is held before any WRF launch, so any wrf.exe
+# found here is an orphan from a dead job -- reap is safe. Census still runs and logs
+# NODE_DIRTY lines (design point 1b); with no notes/metadata column in this script's own
+# output (see above) there is nothing to fold the result into, so it is logged only.
+run_node_hygiene reap+census 90
+
 echo "job $J case $CASE site $SITE tv_mode $TV_MODE nodes $SLURM_JOB_NODELIST"
 
 eval "$($TV case-metadata "$CASE")"
@@ -135,6 +173,11 @@ if [ "$TV_MODE" = long ]; then
   RC=$?
   T1=$(date +%s.%N)
   WALL=$(python3 -c "print('%.1f' % ($T1 - $T0))")
+
+  # post-run reap (design point 2): mpirun returned (normal exit or watchdog TIMEOUT) --
+  # reap any wrf.exe it left behind before the next run starts.
+  run_node_hygiene reap 60
+  [ "${REAP_N:-0}" -gt 0 ] && echo "WARN orphans_after_run cfg=long n=$REAP_N"
 
   OK=0
   if [ -f rsl.error.0000 ] && grep -qa "SUCCESS COMPLETE WRF" rsl.error.0000; then OK=1; fi
@@ -209,6 +252,10 @@ elif [ "$TV_MODE" = samples ]; then
     RC=$?
     T1=$(date +%s.%N)
     WALL=$(python3 -c "print('%.1f' % ($T1 - $T0))")
+
+    # post-run reap (design point 2): see the TV_MODE=long block's own copy above for why.
+    run_node_hygiene reap 60
+    [ "${REAP_N:-0}" -gt 0 ] && echo "WARN orphans_after_run cfg=$cid n=$REAP_N"
 
     OK=0
     if [ -f rsl.error.0000 ] && grep -qa "SUCCESS COMPLETE WRF" rsl.error.0000; then OK=1; fi
@@ -288,6 +335,10 @@ elif [ "$TV_MODE" = timeline ]; then
     RC=$?
     T1=$(date +%s.%N)
     WALL=$(python3 -c "print('%.1f' % ($T1 - $T0))")
+
+    # post-run reap (design point 2): see the TV_MODE=long block's own copy above for why.
+    run_node_hygiene reap 60
+    [ "${REAP_N:-0}" -gt 0 ] && echo "WARN orphans_after_run cfg=$cid n=$REAP_N"
 
     OK=0
     if [ -f rsl.error.0000 ] && grep -qa "SUCCESS COMPLETE WRF" rsl.error.0000; then OK=1; fi

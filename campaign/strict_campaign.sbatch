@@ -97,6 +97,55 @@ LEDGER="$OUT/ledger_${CASE}_${J}.csv"
 LEDGER_HEADER="run_id,source_dataset,job_id,rep_index,case_raw,case_base,case_family,hardware_id,binary_kind,compliance_class,e_we,e_sn,e_vert,dx,dy,time_step,mp_physics,cu_physics,bl_pbl_physics,sf_sfclay_physics,sf_surface_physics,ra_lw_physics,ra_sw_physics,radt,cudt,history_interval,io_form_history,n_nodes,n_ranks,omp_threads,nproc_x,nproc_y,numtiles,distribution,kmp_blocktime,s_per_step_median,s_per_step_mean,n_steps_measured,diffwrf_differing_fields,fidelity_label,profile_micro_share,profile_radiation_share,profile_dynamics_share,profile_mpi_share,profile_io_share,profile_rank_imbalance,profile_thread_imbalance,notes"
 [ -f "$LEDGER" ] || echo "$LEDGER_HEADER" > "$LEDGER"
 
+# ---- node hygiene: orphan wrf.exe reap + dirty-node census (scc prte/pgid incident,
+# 2026-09) ------------------------------------------------------------------------------
+# scc's Slurm has ProctrackType=pgid and no TaskPlugin; Open MPI 5's prte launcher puts the
+# ranks it spawns into their own process group, so a TIMEOUT'd job -- or one whose per-run
+# watchdog (TIMEOUT_S below) kills mpirun -- leaves those ranks running as invisible orphans.
+# A node census found orphaned wrf.exe owned by our user on 8/12 compute nodes, 8-20h old,
+# each spinning a full core on CPU 64; every later benchmark on those nodes was contaminated
+# (pure-MPI ~35% slower, hybrid MPI+OpenMP 20-130x slower, from OpenMP barriers waiting on a
+# scheduler time slice shared with the spinner). f1's site_hygiene (campaign/sites/f1.sh) is a
+# no-op: its site_launch uses srun, not mpirun/prte, so it has no equivalent failure mode.
+# See campaign/node_hygiene.sh for the per-node reap/census logic dispatched here.
+NODE_DIRTY_NOTE="node_dirty=none"
+
+run_node_hygiene () {
+  # run_node_hygiene <mode> <timeout_s>   mode: reap | census | reap+census
+  # Sets REAP_N (total orphans reaped across every node, this call only) and, when a census
+  # was requested and found a dirty node, NODE_DIRTY_NOTE (sticky -- the caller records the
+  # preflight's one measurement in every ledger row this job writes, not a per-run
+  # re-measurement).
+  local mode="$1" tmo="$2" out
+  site_hygiene "$mode"
+  out=$(timeout "$tmo" "${SITE_HYGIENE_CMD[@]}" 2>&1) || true
+  [ -n "$out" ] && echo "$out"
+  REAP_N=$(printf '%s\n' "$out" | awk '/^REAPED_ORPHANS /{for(i=1;i<=NF;i++){split($i,kv,"="); if(kv[1]=="n") s+=kv[2]}} END{print s+0}')
+  if printf '%s\n' "$out" | grep -q '^NODE_DIRTY '; then
+    NODE_DIRTY_NOTE="node_dirty=$(printf '%s\n' "$out" | awk '/^NODE_DIRTY /{h=c=b="";for(i=1;i<=NF;i++){split($i,kv,"="); if(kv[1]=="host")h=kv[2]; else if(kv[1]=="cpu")c=kv[2]; else if(kv[1]=="busy")b=kv[2]} printf "%s:cpu%s:%s,",h,c,b}' | sed 's/,$//')"
+  fi
+}
+
+# on-exit reap: Slurm sends SIGTERM then SIGKILL after KillWait=30s (TIMEOUT included), so
+# this must finish well inside that window -- timeout 20 bounds it, and NODE_HYGIENE_TRAP_DONE
+# stops a TERM/INT trap's own `exit` from re-running the EXIT trap's reap a second time.
+NODE_HYGIENE_TRAP_DONE=0
+node_hygiene_trap () {
+  local sig="$1"
+  [ "$NODE_HYGIENE_TRAP_DONE" = "1" ] && return 0
+  NODE_HYGIENE_TRAP_DONE=1
+  run_node_hygiene reap 20 >&2 || true
+  [ "$sig" != "EXIT" ] && exit 0
+}
+trap 'node_hygiene_trap EXIT' EXIT
+trap 'node_hygiene_trap TERM' TERM
+trap 'node_hygiene_trap INT' INT
+
+# preflight (design point 1): the allocation is held --exclusive and no WRF launch has
+# happened yet, so any wrf.exe found here is an orphan from a dead job -- reap is safe.
+# One measurement for the whole job; every ledger row below carries this same NODE_DIRTY_NOTE.
+run_node_hygiene reap+census 90
+
 # ---- disk-quota guard (problem 1, 2026-09-15) -----------------------------------------
 # Smoke jobs 1076238-1076340 kept every failed/incomplete MODE=physics run's BP history
 # and converted netCDF whenever any expected fidelity JSON was missing, filling home1's
@@ -132,7 +181,7 @@ check_disk_guard () {
   if awk -v f="$free_gib" -v m="$MIN_FREE_GIB" 'BEGIN { exit !(f < m) }'; then
     echo "ABORT: home1 free space ${free_gib} GiB < MIN_FREE_GIB=${MIN_FREE_GIB} GiB before $ctx -- stopping job (case=$CASE job=$J) to avoid a mid-run Disk quota exceeded failure" >&2
     RUN_ID="${CASE}_${ctx}_${J}" JOB_ID="$J" CASE_RAW="$CASE" CASE_BASE="$CASE" \
-      HARDWARE_ID="$HARDWARE_ID" NOTES_ABORT="status=ABORTED reason=low_disk free_gib=${free_gib} min_free_gib=${MIN_FREE_GIB} context=${ctx}" \
+      HARDWARE_ID="$HARDWARE_ID" NOTES_ABORT="status=ABORTED reason=low_disk free_gib=${free_gib} min_free_gib=${MIN_FREE_GIB} context=${ctx} $NODE_DIRTY_NOTE" \
       python3 - "$LEDGER" <<'PY'
 import csv, os, sys
 ledger = sys.argv[1]
@@ -427,7 +476,7 @@ if [ "$MODE" = "physics" ]; then
     if [ "$P_FAMILY" = "SKIP" ]; then
       REASON_TXT=$(echo "$P_EDITS" | tr ' \t' '__')
       echo "SKIP case=$CASE template=$TEMPLATE_ID tag=$tag rep=$rep reason=$P_EDITS"
-      NOTES="mode=physics template=$TEMPLATE_ID family=- edits= decomp=$DECOMP_ID sim_minutes=$SIM_MINUTES hist_minutes=$HIST_MINUTES fidelity_nd_max= fidelity_floor_ratio_max= fidelity_deciding= tag=$tag role=$ROLE rep=$rep probe=none status=SKIPPED reason=$REASON_TXT"
+      NOTES="mode=physics template=$TEMPLATE_ID family=- edits= decomp=$DECOMP_ID sim_minutes=$SIM_MINUTES hist_minutes=$HIST_MINUTES fidelity_nd_max= fidelity_floor_ratio_max= fidelity_deciding= tag=$tag role=$ROLE rep=$rep probe=none status=SKIPPED reason=$REASON_TXT $NODE_DIRTY_NOTE"
       export RUN_ID="${CASE}_physics_${tag}_r${rep}_${J}" SRC_DATASET="physics_campaign" JOB_ID="$J" \
         REP_INDEX="$rep" CASE_RAW="$CASE" CASE_BASE="$CASE" CASE_FAMILY="$CASE_FAMILY" \
         HARDWARE_ID="$HARDWARE_ID" BINARY_KIND="pristine" COMPLIANCE_CLASS="$COMPLIANCE_CLASS" \
@@ -532,6 +581,11 @@ PY
     RC=$?
     T1=$(date +%s.%N)
     WALL=$(python3 -c "print('%.1f' % ($T1 - $T0))")
+
+    # post-run reap (design point 2): mpirun returned (normal exit or TIMEOUT_S watchdog) --
+    # reap any wrf.exe it left behind before the next run starts.
+    run_node_hygiene reap 60
+    [ "${REAP_N:-0}" -gt 0 ] && echo "WARN orphans_after_run cfg=$tag n=$REAP_N"
 
     # harvest any freshly-computed Thompson table BEFORE the retention cleanup below
     # (which, on a failed run, purges everything except the 5 diagnostic files) so a
@@ -690,6 +744,7 @@ PY
     fi
     [ "$RC" != "0" ] && NOTES="$NOTES rc=$RC"
     [ "$OK" != "1" ] && NOTES="$NOTES ok=$OK"
+    NOTES="$NOTES $NODE_DIRTY_NOTE"
 
     export RUN_ID="${CASE}_physics_${tag}_r${rep}_${J}" SRC_DATASET="physics_campaign" JOB_ID="$J" \
       REP_INDEX="$rep" CASE_RAW="$CASE" CASE_BASE="$CASE" CASE_FAMILY="$CASE_FAMILY" \
@@ -869,6 +924,10 @@ for cid in "${ORDER[@]}"; do
   T1=$(date +%s.%N)
   WALL=$(python3 -c "print('%.1f' % ($T1 - $T0))")
 
+  # post-run reap (design point 2): see the physics loop's own copy above for why.
+  run_node_hygiene reap 60
+  [ "${REAP_N:-0}" -gt 0 ] && echo "WARN orphans_after_run cfg=$cid n=$REAP_N"
+
   # harvest any freshly-computed Thompson table before the cleanup at the bottom of
   # this loop touches the run dir -- runs regardless of RC/OK.
   harvest_thompson_tables
@@ -959,6 +1018,7 @@ for cid in "${ORDER[@]}"; do
   NOTES="$NOTES mean_includes_radiation=1 n_all_steps=$NALL"
   [ "$RC" != "0" ] && NOTES="$NOTES rc=$RC"
   [ "$OK" != "1" ] && NOTES="$NOTES ok=$OK"
+  NOTES="$NOTES $NODE_DIRTY_NOTE"
   export RUN_ID="${CASE}_${cid}_r${rep}_${J}" SRC_DATASET="strict_campaign" JOB_ID="$J" \
     REP_INDEX="$rep" CASE_RAW="$CASE" CASE_BASE="$CASE" CASE_FAMILY="$CASE_FAMILY" \
     HARDWARE_ID="$HARDWARE_ID" BINARY_KIND="pristine" COMPLIANCE_CLASS="STRICT" \

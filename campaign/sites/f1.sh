@@ -39,3 +39,14 @@ site_launch () {
   SITE_LAUNCH_CMD=(srun --mpi=pmi2 --distribution="$dist" -n "$ranks" \
     --ntasks-per-node="$tpn" -c "$omp" ./wrf.exe)
 }
+
+# site_hygiene <mode>: no-op. site_launch above uses srun (native Slurm task launch), not
+# mpirun/prte, so ranks stay in the job step's own process group the whole time and Slurm's
+# own tracking reaps them on TIMEOUT/kill like any other step. f1 has no equivalent of the scc
+# orphan-wrf.exe incident (Open MPI 5's prte spawning ranks outside Slurm's process-group
+# tracking under ProctrackType=pgid, see campaign/sites/scc.sh's site_hygiene) to guard
+# against. Kept as a callable no-op so strict_campaign.sbatch/temporal_run.sbatch need no
+# per-site branch of their own.
+site_hygiene () {
+  SITE_HYGIENE_CMD=(true)
+}

@@ -51,3 +51,18 @@ site_launch () {
   fi
   SITE_LAUNCH_CMD+=(./wrf.exe)
 }
+
+# site_hygiene <mode>: fills SITE_HYGIENE_CMD with the per-node dispatch for
+# campaign/node_hygiene.sh (mode: reap | census | reap+census). scc's Slurm has
+# ProctrackType=pgid and no TaskPlugin; Open MPI 5's prte launcher puts the ranks it spawns
+# into their own process group, so a job that ends on TIMEOUT -- or whose per-run watchdog
+# kills mpirun -- leaves those ranks invisible to Slurm's cleanup. Node census (2026-09) found
+# orphaned wrf.exe owned by our user on 8/12 compute nodes, 8-20h old, each spinning a full
+# core on CPU 64 -- pure-MPI runs on those nodes ran ~35% slower, hybrid MPI+OpenMP 20-130x
+# slower. srun is unreliable here (see the site_launch note above), so hygiene is dispatched
+# the same way as WRF itself: mpirun can launch a non-MPI executable, and
+# --map-by ppr:1:node runs exactly one copy of the helper per node in the allocation.
+site_hygiene () {
+  local mode="$1"
+  SITE_HYGIENE_CMD=(mpirun -np "$ALLOC_NODES" --map-by "ppr:1:node" "$CAMPAIGN/node_hygiene.sh" "$mode")
+}

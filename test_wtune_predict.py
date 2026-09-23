@@ -1562,3 +1562,47 @@ def test_unmeasured_radiation_uses_calibrated_day_night_levels():
     src = inspect.getsource(wp.predict_compute)
     assert "default_calibrated" in src and "r_rad_default_night" in src
     assert cal["radiation"]["r_rad_default_night"] < cal["radiation"]["r_rad_default_day"] < cal["radiation"]["r_rad_default"]
+
+
+# --------------------------------------------------------------------------
+# idealized cases (2026-09-24 scc): radt = 0 and overflowing end_minute
+# --------------------------------------------------------------------------
+
+NORAD_NAMELIST = """\
+&time_control
+ run_days = 0, run_hours = 0, run_minutes = 1, run_seconds = 0,
+ start_year = 0001, start_month = 01, start_day = 01, start_hour = 00, start_minute = 00, start_second = 00,
+ end_year = 0001, end_month = 01, end_day = 01, end_hour = 00, end_minute = 120, end_second = 00,
+/
+&domains
+ time_step = 1, max_dom = 1, e_we = 40, e_sn = 40, e_vert = 40, dx = 100, dy = 100,
+/
+&physics
+ radt = 0,
+/
+"""
+
+
+def test_predict_compute_uses_probe_rsl_when_radt_is_zero(tmp_path):
+    # em_les has radt = 0; the probe used to be ignored and the uncalibrated no-probe constant
+    # was used instead (0.284 s/step against 0.033 probed).
+    nl = wp.parse_namelist(_write(str(tmp_path / "namelist.input"), NORAD_NAMELIST))
+    steps, run_s, dt, _ = wp.get_d01_steps(nl)
+    rsl = tmp_path / "rsl.error.0000"
+    secs = [5.0, 0.03, 0.04, 0.03, 0.05, 0.03]
+    rsl.write_text("".join(
+        "Timing for main: time 0001-01-01_00:00:%02d on domain   1:    %.5f elapsed seconds\n"
+        % (i + 1, s) for i, s in enumerate(secs)))
+    compute = wp.predict_compute(nl, 1, steps, run_s / 60.0, ranks=1, omp=1, probe_result=None,
+                                 calibration={"radiation": {"r_rad_default": 5.0},
+                                              "fallback_s_per_cell_step_ns": 4437.0},
+                                 rsl_paths=[str(rsl)], dt_seconds=dt)
+    assert compute["source"] == "probe_rsl"
+    assert compute["s_normal"] == pytest.approx(statistics.median(secs[1:]))
+    assert compute["rad_steps"] == 0
+
+
+def test_time_control_datetime_accepts_overflowing_minutes(tmp_path):
+    nl = wp.parse_namelist(_write(str(tmp_path / "namelist.input"), NORAD_NAMELIST))
+    assert wp.get_time_control_datetime(nl, "end") == datetime.datetime(1, 1, 1, 2, 0, 0)
+    assert wp.get_time_control_datetime(nl, "start") == datetime.datetime(1, 1, 1, 0, 0, 0)

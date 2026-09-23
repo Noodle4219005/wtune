@@ -296,6 +296,58 @@ class TestGridCheck(unittest.TestCase):
             ds_c.close()
 
 
+# ---------------------------------------------------------------------------
+# K5 (2026-09-24): --targets-from-report's "nothing improved -> write nothing" path never
+# reaches netCDF4 at all (the early return is before `import netCDF4`), so it's exercised here
+# unconditionally, not gated on HAVE_NETCDF4.
+# ---------------------------------------------------------------------------
+
+class TestApplyTargetsFromReportNoNetcdf4Needed(unittest.TestCase):
+    def _report(self, **improved_flags):
+        n_feat = len(scm.FEATURE_NAMES)
+        model = {"kind": "ridge", "w": [1.0] + [0.0] * n_feat,
+                 "mu": [0.0] * n_feat, "sd": [1.0] * n_feat, "alpha": 1.0}
+        return {"n_cases": 5, "n_rows": 100,
+                "targets": {k: {"kind": "residual", "model": model, "improved": v}
+                           for k, v in improved_flags.items()}}
+
+    def test_no_improved_targets_writes_nothing_and_returns_none(self):
+        with tempfile.TemporaryDirectory() as d:
+            report_path = os.path.join(d, "report.json")
+            with open(report_path, "w") as f:
+                json.dump(self._report(dT__low=False, dQV__mid=False), f)
+            wrfinput_in = os.path.join(d, "wrfinput_d01")   # never opened -- doesn't even exist
+            out = os.path.join(d, "wrfinput_d01.ml")
+            result = scm.apply_correction(report_path, wrfinput_in, out,
+                                          targets_from_report=True)
+            self.assertIsNone(result)
+            self.assertFalse(os.path.exists(out))
+
+    def test_some_improved_still_requires_the_refusal_checks(self):
+        # the --out == --wrfinput / --out-already-exists refusals must still fire even when
+        # targets_from_report is set and the eventual netCDF4 work would never be reached.
+        with tempfile.TemporaryDirectory() as d:
+            report_path = os.path.join(d, "report.json")
+            with open(report_path, "w") as f:
+                json.dump(self._report(dT__low=True), f)
+            wrfinput_in = os.path.join(d, "wrfinput_d01")
+            with self.assertRaises(scm.StateCorrectionError):
+                scm.apply_correction(report_path, wrfinput_in, wrfinput_in,
+                                     targets_from_report=True)
+
+    def test_cli_targets_from_report_no_improved_exits_0(self):
+        with tempfile.TemporaryDirectory() as d:
+            report_path = os.path.join(d, "report.json")
+            with open(report_path, "w") as f:
+                json.dump(self._report(dT__low=False), f)
+            wrfinput_in = os.path.join(d, "wrfinput_d01")
+            out = os.path.join(d, "wrfinput_d01.ml")
+            rc = scm.main(["apply", "--model", report_path, "--wrfinput", wrfinput_in,
+                          "--out", out, "--targets-from-report"])
+            self.assertEqual(rc, 0)
+            self.assertFalse(os.path.exists(out))
+
+
 @unittest.skipUnless(HAVE_NETCDF4, "netCDF4 not installed in this interpreter")
 class TestApply(unittest.TestCase):
     def setUp(self):
@@ -348,6 +400,45 @@ class TestApply(unittest.TestCase):
                                            landmask_before)
             t_after = np.array(ds_out.variables["T"][:])
             np.testing.assert_allclose(t_after, t_before + 1.25, atol=1e-4)
+        finally:
+            ds_out.close()
+
+    def test_targets_from_report_skips_non_improved_targets(self):
+        # K5: a target with a fitted model but improved=False must be SKIPPED entirely under
+        # --targets-from-report, even though a plain (non-filtered) apply would have used it.
+        n_feat = len(scm.FEATURE_NAMES)
+        decoy_model = {"kind": "ridge", "w": [999.0] + [0.0] * n_feat,   # would be obviously
+                       "mu": [0.0] * n_feat, "sd": [1.0] * n_feat,       # wrong if applied
+                       "alpha": 1.0}
+        report = {
+            "n_cases": 5, "n_rows": 100,
+            "targets": {
+                "dT__low": {"kind": "residual",
+                           "model": {"kind": "ridge", "w": [1.25] + [0.0] * n_feat,
+                                    "mu": [0.0] * n_feat, "sd": [1.0] * n_feat, "alpha": 1.0},
+                           "improved": True},
+                "dQV__low": {"kind": "residual", "model": decoy_model, "improved": False},
+            },
+        }
+        report_path = os.path.join(self.tmp, "report_mixed.json")
+        with open(report_path, "w") as f:
+            json.dump(report, f)
+
+        ds_in = netCDF4.Dataset(self.wrfinput)
+        qv_before = np.array(ds_in.variables["QVAPOR"][:])
+        t_before = np.array(ds_in.variables["T"][:])
+        ds_in.close()
+
+        out = os.path.join(self.tmp, "filtered.nc")
+        scm.apply_correction(report_path, self.wrfinput, out, targets_from_report=True)
+
+        ds_out = netCDF4.Dataset(out)
+        try:
+            t_after = np.array(ds_out.variables["T"][:])
+            qv_after = np.array(ds_out.variables["QVAPOR"][:])
+            np.testing.assert_allclose(t_after, t_before + 1.25, atol=1e-4)
+            np.testing.assert_allclose(qv_after, qv_before, atol=1e-9)   # dQV__low NOT applied
+            self.assertEqual(ds_out.getncattr("STATE_CORRECTION_TARGETS"), "dT__low")
         finally:
             ds_out.close()
 

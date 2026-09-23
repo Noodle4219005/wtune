@@ -561,6 +561,76 @@ class TestNtasksPerNodeIsCeil(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# K5 (2026-09-24): ML state completion hook -- default OFF, opt-in via plan['ml_model'].
+# ---------------------------------------------------------------------------
+
+class TestMlModelHook(unittest.TestCase):
+    def _plan(self, ml_model=None):
+        return {
+            "windows": [{"t": "2019-11-26_15:00:00", "reason": "t0"}],
+            "nodes": 1, "config": {"ranks": 72, "omp": 1, "nx": 9, "ny": 8, "numtiles": 1},
+            "ml_model": ml_model,
+        }
+
+    def test_default_off_no_ml_code_at_all(self):
+        text = cs.render_run_sbatch(self._plan(ml_model=None), site="scc")
+        self.assertNotIn("ML_MODEL=", text)
+        self.assertNotIn("TOOL_SCM=", text)
+        self.assertNotIn("GRIB_PY=", text)
+        self.assertNotIn("--targets-from-report", text)
+        # LAST_ML_STATUS stays initialized (so the status line is well-formed either way), but
+        # the `if [ -n "${ML_MODEL:-}" ` guard means the apply step itself never runs.
+        self.assertIn("LAST_ML_STATUS=\"off\"", text)
+
+    def test_ml_model_wires_grib_python_and_apply_step(self):
+        text = cs.render_run_sbatch(self._plan(ml_model="/plan/dir/report.json"), site="scc")
+        self.assertIn("ML_MODEL=/plan/dir/report.json", text)
+        self.assertIn("TOOL_SCM=", text)
+        self.assertIn("state_correction_model.py", text)
+        self.assertIn("GRIB_PY=${GRIB_PYTHON:-$HOME/wtune/envs/grib/.pixi/envs/default/bin/python}",
+                     text)
+        self.assertIn("\"$GRIB_PY\" \"$TOOL_SCM\" apply", text)
+        self.assertIn("--targets-from-report", text)
+        # never /usr/bin/python3 for the ML step specifically
+        self.assertNotIn("/usr/bin/python3", text)
+
+    def test_windows_status_records_ml_fields(self):
+        text = cs.render_run_sbatch(self._plan(ml_model="/plan/dir/report.json"), site="scc")
+        self.assertIn("ml=$LAST_ML_STATUS ml_targets=$LAST_ML_TARGETS", text)
+
+    def test_read_windows_status_tolerates_trailing_ml_fields(self):
+        # the parser only anchors on the leading WINDOW/rc/ok fields (no end-of-line anchor) --
+        # appended ml=/ml_targets= fields must not break it.
+        with tempfile.TemporaryDirectory() as d:
+            with open(os.path.join(d, "windows_status.txt"), "w") as f:
+                f.write("WINDOW 0 rc=0 ok=1 real=decomp wrf=ok ml=applied ml_targets=dT__low\n")
+            status = cs.read_windows_status(d)
+        self.assertEqual(status, {0: True})
+
+    def test_build_plan_stores_ml_model_absolute_path(self):
+        with tempfile.TemporaryDirectory() as d:
+            case_dir = os.path.join(d, "case")
+            os.makedirs(case_dir)
+            write_namelist(os.path.join(case_dir, "namelist.input"))
+            write_namelist_wps(os.path.join(case_dir, "namelist.wps"))
+            report_path = os.path.join(d, "report.json")
+            with open(report_path, "w") as f:
+                f.write("{}")
+            plan = cs.build_plan(case_dir, os.path.join(d, "plan"), spinup_min=1,
+                                 ml_model=report_path)
+            self.assertEqual(plan["ml_model"], os.path.abspath(report_path))
+
+    def test_build_plan_default_ml_model_is_none(self):
+        with tempfile.TemporaryDirectory() as d:
+            case_dir = os.path.join(d, "case")
+            os.makedirs(case_dir)
+            write_namelist(os.path.join(case_dir, "namelist.input"))
+            write_namelist_wps(os.path.join(case_dir, "namelist.wps"))
+            plan = cs.build_plan(case_dir, os.path.join(d, "plan"), spinup_min=1)
+            self.assertIsNone(plan["ml_model"])
+
+
+# ---------------------------------------------------------------------------
 # plan: end-to-end smoke test (no network -- select_source's date rule is pure/offline)
 # ---------------------------------------------------------------------------
 

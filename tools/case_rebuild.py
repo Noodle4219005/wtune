@@ -124,6 +124,26 @@ def registry_group_for_key(key, registry):
     return None
 
 
+def registry_per_domain(key, registry, default=True):
+    """True if wtune_catalog_registry.json's own entry for `key` says it is max_domains-valued
+    (one value per domain, e.g. mp_physics), False if it says single-valued (dimension 1, e.g.
+    damp_opt), or `default` if the catalog has no entry for it at all. T14 (2026-09-24, cluster
+    check against real namelists -- zhengzhou/conus12/sc26p1): damp_opt was written
+    'damp_opt = 3, 3, 3,' (broadcast per domain) but WRF's Registry declares it dimension 1 --
+    a strict namelist reader can reject the extra values. The catalog's own entries already
+    carry a 'per_domain' bool per key (verified 2026-09-24: e.g. {'name': 'damp_opt',
+    'per_domain': false}, {'name': 'mp_physics', 'per_domain': true}) -- read it from there
+    rather than guessing or hand-listing which keys are which. `default=True` preserves the
+    pre-T14 broadcast-by-default behavior for any key the catalog does not cover at all, rather
+    than silently narrowing an unknown key to one value."""
+    for group, entries in registry.get("groups", {}).items():
+        for e in entries:
+            if e.get("name", "").lower() == key.lower():
+                pd = e.get("per_domain")
+                return bool(pd) if pd is not None else default
+    return default
+
+
 # T12 (2026-09-24): moved to coldstart_sample.py (case_rebuild imports coldstart_sample, not the
 # reverse, and coldstart_sample.apply_vertical_grid_override needs this too) -- aliased here so
 # every existing `cr._namelist_values_equal` call site keeps working unchanged.
@@ -169,7 +189,15 @@ def complete_namelist(nl_text, facts, registry=None, vertical_grid=None):
     def group_for(key, default="time_control"):
         return registry_group_for_key(key, registry) or default
 
-    def sync(key, value, ndom=1, reason=""):
+    def ndom_for(key):
+        # T14 (2026-09-24): dimension comes from the catalog, not from what the caller asks
+        # for -- every sync()/fill_if_missing() call site used to pass its own ndom guess (some
+        # right, some wrong: damp_opt/hypsometric_opt/use_theta_m were broadcast per domain when
+        # the Registry says dimension 1; frames_per_outfile was written single when the Registry
+        # says per-domain). One value when max_dom==1 either way (nothing to get wrong).
+        return max_dom if (max_dom > 1 and registry_per_domain(key, registry)) else 1
+
+    def sync(key, value, reason="", group_default="time_control"):
         nonlocal txt
         old = cs.get_first(txt, key)
         new_str = str(value)
@@ -177,37 +205,39 @@ def complete_namelist(nl_text, facts, registry=None, vertical_grid=None):
         # spelling of the same one -- do not log it.
         if old is not None and _namelist_values_equal(old.strip(), new_str):
             return
-        txt = cs.set_list(txt, key, value, ndom, new_key_group=group_for(key))
+        txt = cs.set_list(txt, key, value, ndom_for(key),
+                          new_key_group=group_for(key, default=group_default))
         changes.append({"key": key, "old": old, "new": new_str, "reason": reason})
 
-    def fill_if_missing(key, value, ndom=1, reason=""):
+    def fill_if_missing(key, value, reason="", group_default="time_control"):
         nonlocal txt
         if cs.count_key(txt, key) > 0:
             return
-        txt = cs.set_list(txt, key, value, ndom, new_key_group=group_for(key))
+        txt = cs.set_list(txt, key, value, ndom_for(key),
+                          new_key_group=group_for(key, default=group_default))
         changes.append({"key": key, "old": None, "new": str(value), "reason": reason})
 
     # -- always sync --
-    sync("num_metgrid_levels", int(facts["num_metgrid_levels"]), 1, "met_em NUM_METGRID_LEVELS")
+    sync("num_metgrid_levels", int(facts["num_metgrid_levels"]), "met_em NUM_METGRID_LEVELS")
     if facts.get("num_metgrid_soil_levels") is not None:
-        sync("num_metgrid_soil_levels", int(facts["num_metgrid_soil_levels"]), 1,
+        sync("num_metgrid_soil_levels", int(facts["num_metgrid_soil_levels"]),
             "met_em NUM_METGRID_SOIL_LEVELS")
     if facts.get("num_land_cat") is not None:
-        sync("num_land_cat", int(facts["num_land_cat"]), 1, "met_em/geo_em NUM_LAND_CAT")
-    sync("interval_seconds", int(facts["interval_seconds"]), 1, "forcing cadence")
+        sync("num_land_cat", int(facts["num_land_cat"]), "met_em/geo_em NUM_LAND_CAT")
+    sync("interval_seconds", int(facts["interval_seconds"]), "forcing cadence")
 
     start_dt, end_dt = facts["start_dt"], facts["end_dt"]
     for k, v in (("year", start_dt.year), ("month", start_dt.month), ("day", start_dt.day),
                  ("hour", start_dt.hour), ("minute", start_dt.minute), ("second", start_dt.second)):
-        sync("start_" + k, v, max_dom, "rebuild span start")
+        sync("start_" + k, v, "rebuild span start")
     for k, v in (("year", end_dt.year), ("month", end_dt.month), ("day", end_dt.day),
                  ("hour", end_dt.hour), ("minute", end_dt.minute), ("second", end_dt.second)):
-        sync("end_" + k, v, max_dom, "rebuild span end")
+        sync("end_" + k, v, "rebuild span end")
     run_s = int(round((end_dt - start_dt).total_seconds()))
-    sync("run_days", 0, 1, "rebuild span")
-    sync("run_hours", 0, 1, "rebuild span")
-    sync("run_minutes", 0, 1, "rebuild span")
-    sync("run_seconds", run_s, 1, "rebuild span")
+    sync("run_days", 0, "rebuild span")
+    sync("run_hours", 0, "rebuild span")
+    sync("run_minutes", 0, "rebuild span")
+    sync("run_seconds", run_s, "rebuild span")
 
     # -- fill only if missing --
     if vertical_grid is not None:
@@ -224,7 +254,7 @@ def complete_namelist(nl_text, facts, registry=None, vertical_grid=None):
         old_e_vert = cs.get_first(txt, "e_vert")
         new_e_vert = str(len(eta_levels))
         if old_e_vert is None or not _namelist_values_equal(old_e_vert.strip(), new_e_vert):
-            txt = cs.set_list(txt, "e_vert", len(eta_levels), max_dom,
+            txt = cs.set_list(txt, "e_vert", len(eta_levels), ndom_for("e_vert"),
                               new_key_group=group_for("e_vert"))
             changes.append({"key": "e_vert", "old": old_e_vert, "new": new_e_vert,
                             "reason": "= len(wrfinput ZNW)"})
@@ -237,16 +267,17 @@ def complete_namelist(nl_text, facts, registry=None, vertical_grid=None):
         # dict apply_vertical_grid_override/read_vertical_grid_or_warn use in coldstart_sample).
         new_ptop = str(vertical_grid["p_top_pa"])
         if old_ptop is None or not _namelist_values_equal(old_ptop.strip(), new_ptop):
-            txt = cs.set_list(txt, "p_top_requested", vertical_grid["p_top_pa"], 1,
+            txt = cs.set_list(txt, "p_top_requested", vertical_grid["p_top_pa"],
+                              ndom_for("p_top_requested"),
                               new_key_group=group_for("p_top_requested"))
             changes.append({"key": "p_top_requested", "old": old_ptop, "new": new_ptop,
                             "reason": "= wrfinput P_TOP"})
     else:
-        fill_if_missing("e_vert", 45, max_dom, "default vertical levels")
-        fill_if_missing("p_top_requested", 5000, 1, "default model top (Pa)")
+        fill_if_missing("e_vert", 45, "default vertical levels")
+        fill_if_missing("p_top_requested", 5000, "default model top (Pa)")
     dx_km = float(facts["dx_km"])
     time_step = max(1, int(6.0 * dx_km))
-    fill_if_missing("time_step", time_step, 1, "largest int <= 6*dx_km(d01), >=1")
+    fill_if_missing("time_step", time_step, "largest int <= 6*dx_km(d01), >=1")
     if max_dom > 1 and cs.count_key(txt, "parent_time_step_ratio") == 0:
         ratios = [1] + [int(facts["parent_grid_ratio"][d]) for d in range(1, max_dom)]
         txt = cs.set_list_values(txt, "parent_time_step_ratio", ratios,
@@ -254,13 +285,15 @@ def complete_namelist(nl_text, facts, registry=None, vertical_grid=None):
         changes.append({"key": "parent_time_step_ratio", "old": None, "new": str(ratios),
                         "reason": "= parent_grid_ratio per nest"})
     if cs.count_key(txt, "history_interval") == 0 and cs.count_key(txt, "history_interval_m") == 0:
-        fill_if_missing("history_interval", 60, max_dom, "default history cadence (minutes)")
-    fill_if_missing("frames_per_outfile", 1, 1, "default")
-    fill_if_missing("restart", ".false.", 1, "default")
+        fill_if_missing("history_interval", 60, "default history cadence (minutes)")
+    # T14 (2026-09-24): frames_per_outfile IS per-domain per the Registry catalog (was
+    # hardcoded to a single value before -- ndom_for now corrects it).
+    fill_if_missing("frames_per_outfile", 1, "default")
+    fill_if_missing("restart", ".false.", "default")
     run_minutes = int(round(run_s / 60.0))
-    fill_if_missing("restart_interval", run_minutes, 1, "one restart at the end of the run")
+    fill_if_missing("restart_interval", run_minutes, "one restart at the end of the run")
     for key in ("io_form_history", "io_form_restart", "io_form_input", "io_form_boundary"):
-        fill_if_missing(key, 2, 1, "default netCDF io_form")
+        fill_if_missing(key, 2, "default netCDF io_form")
 
     scheme_keys = ("mp_physics", "ra_lw_physics", "ra_sw_physics", "bl_pbl_physics", "cu_physics",
                   "sf_sfclay_physics", "sf_surface_physics", "physics_suite")
@@ -269,7 +302,782 @@ def complete_namelist(nl_text, facts, registry=None, vertical_grid=None):
         changes.append({"key": "physics_suite", "old": None, "new": "'CONUS'",
                         "reason": "no &physics scheme key present at all"})
 
+    # T14 (2026-09-24, cluster check against conus12's real namelist): a namelist using
+    # physics_suite carries -1 placeholders for the individual scheme keys (mp_physics=-1,
+    # ra_lw_physics=-1, ...) -- NOT unset/missing, it means "use the suite's own default for
+    # this key". A comparison tool diffing this namelist against one that names the scheme
+    # explicitly (e.g. mp_physics=8) must treat -1-vs-explicit as EQUIVALENT, not a real
+    # difference. Nothing is modified here -- this only records the fact as a note (old==new)
+    # so it's visible in namelist_changes.json for whatever reads it next.
+    suite_val = cs.get_first(txt, "physics_suite")
+    if suite_val:
+        placeholder_keys = [k for k in scheme_keys if k != "physics_suite"
+                            and (cs.get_first(txt, k) or "").strip().rstrip(",") == "-1"]
+        if placeholder_keys:
+            changes.append({
+                "key": "physics_suite_placeholders", "old": suite_val, "new": suite_val,
+                "reason": ("physics_suite=%s with -1 placeholders for %s -- these mean 'use "
+                          "the suite's own default', not unset; treat an explicit scheme "
+                          "value in a comparison as EQUIVALENT to -1 here, not a mismatch"
+                          % (suite_val, ", ".join(placeholder_keys))),
+            })
+
+    # T16 (2026-09-24, job 986 follow-up): complete_namelist must guarantee the SAME 8 groups
+    # K1 now guarantees (time_control/domains/physics/fdda/dynamics/bdy_control/grib2/
+    # namelist_quilt) -- a real user namelist.input, or K2's own from-scratch output, can be
+    # missing any of these entirely, and WRF's namelist reader FATALs on a MISSING GROUP, not
+    # just a missing key (same root cause T15 fixed for K1). &bdy_control gets K1's identical
+    # defaults for whichever of its 5 keys are missing (never overriding one already present);
+    # &namelist_quilt gets its 2 keys only if absent; every OTHER group that's still missing
+    # after that is created EMPTY.
+    fill_if_missing("spec_bdy_width", 5, "default lateral boundary width",
+                    group_default="bdy_control")
+    fill_if_missing("spec_zone", 1, "default", group_default="bdy_control")
+    fill_if_missing("relax_zone", 4, "default", group_default="bdy_control")
+    if cs.count_key(txt, "specified") == 0:
+        specified_vals = [".true."] + [".false."] * (max_dom - 1)
+        txt = cs.set_list_values(txt, "specified", specified_vals,
+                                 new_key_group=group_for("specified", default="bdy_control"))
+        changes.append({"key": "specified", "old": None, "new": str(specified_vals),
+                        "reason": "d01 is specified by the lateral boundary file; nests are not"})
+    if cs.count_key(txt, "nested") == 0:
+        nested_vals = [".false."] + [".true."] * (max_dom - 1)
+        txt = cs.set_list_values(txt, "nested", nested_vals,
+                                 new_key_group=group_for("nested", default="bdy_control"))
+        changes.append({"key": "nested", "old": None, "new": str(nested_vals),
+                        "reason": "every domain but d01 is nested"})
+
+    fill_if_missing("nio_tasks_per_group", 0, "default", group_default="namelist_quilt")
+    fill_if_missing("nio_groups", 1, "default", group_default="namelist_quilt")
+
+    for group in ("time_control", "domains", "physics", "fdda", "dynamics", "bdy_control",
+                 "grib2", "namelist_quilt"):
+        if re.search(r"&%s\b" % re.escape(group), txt, re.I) is None:
+            txt = txt.rstrip("\n") + "\n\n&%s\n/\n" % group
+            changes.append({"key": "&%s" % group, "old": None, "new": "(empty group)",
+                            "reason": "WRF's namelist reader requires this group to exist "
+                                      "even when empty"})
+
     return txt, changes
+
+
+# ===========================================================================
+# K1 (2026-09-24): namelist-from-wrfinput -- build a complete namelist.input from wrfinput_d0N
+# (+ wrfbdy_d01 if present) alone, for a user who supplies wrfinput but no namelist. Split into
+# a PURE mapping function (namelist_fields_from_wrfinput_facts -- no netCDF4, independently
+# testable) and a netCDF4-reading wrapper (cmd_namelist_from_wrfinput), same separation this
+# module already uses for grid_identity_check/target_fields_from_wrfinput.
+# ===========================================================================
+
+# Per-domain grid attrs, direct copy (verified on scc 2026-09-24: wrfinput_d01's own e_we/e_sn
+# match *_GRID_DIMENSION exactly -- same mapping coldstart_sample.geo_from_wrfinput_attrs uses).
+_GRID_ATTRS = [
+    ("e_we", "WEST-EAST_GRID_DIMENSION"), ("e_sn", "SOUTH-NORTH_GRID_DIMENSION"),
+    ("e_vert", "BOTTOM-TOP_GRID_DIMENSION"),
+    ("grid_id", "GRID_ID"), ("parent_id", "PARENT_ID"),
+    ("i_parent_start", "I_PARENT_START"), ("j_parent_start", "J_PARENT_START"),
+    ("parent_grid_ratio", "PARENT_GRID_RATIO"),
+]
+_GRID_FLOAT_ATTRS = [("dx", "DX"), ("dy", "DY")]
+
+# Physics options, per domain, direct copy -- verified present as wrfinput_d01 global attrs on
+# scc 2026-09-24 (radt is NOT among them -- computed separately, rule_default, below).
+_PHYSICS_ATTRS = [
+    ("mp_physics", "MP_PHYSICS"), ("ra_lw_physics", "RA_LW_PHYSICS"),
+    ("ra_sw_physics", "RA_SW_PHYSICS"), ("sf_sfclay_physics", "SF_SFCLAY_PHYSICS"),
+    ("sf_surface_physics", "SF_SURFACE_PHYSICS"), ("bl_pbl_physics", "BL_PBL_PHYSICS"),
+    ("cu_physics", "CU_PHYSICS"), ("diff_opt", "DIFF_OPT"), ("km_opt", "KM_OPT"),
+    ("damp_opt", "DAMP_OPT"), ("hypsometric_opt", "HYPSOMETRIC_OPT"),
+    ("use_theta_m", "USE_THETA_M"), ("gwd_opt", "GWD_OPT"),
+    ("sf_urban_physics", "SF_URBAN_PHYSICS"),
+]
+
+
+def render_namelist_input(groups):
+    """groups: [(group_name, [(key, [v1, ..., vN]), ...]), ...] -> WRF namelist.input text, one
+    '&group' / '/' block per group, one 'key = v1, v2, ..., vN,' line per key."""
+    lines = []
+    for group, items in groups:
+        lines.append("&%s" % group)
+        for key, values in items:
+            lines.append(" %s = %s," % (key, ", ".join(str(v) for v in values)))
+        lines.append("/")
+        lines.append("")
+    return "\n".join(lines)
+
+
+def namelist_fields_from_wrfinput_facts(domain_facts, wrfbdy_times=None, hours=None,
+                                        registry=None, wrfbdy_bdy_width=None):
+    """PURE (no netCDF4 -- independently testable; DOES read wtune_catalog_registry.json, which
+    is plain JSON, not netCDF4). domain_facts: [{'attrs': {...global attrs of THIS domain's own
+    wrfinput_d0N...}}, ...], d01 first; d01's dict may also carry 'znw'/'p_top'/'dzs'
+    (lists/float, already netCDF4-read) and 'times' ([datetime,...], from wrfinput_d01's own
+    Times -- used only to cross-check SIMULATION_START_DATE). wrfbdy_times: [datetime,...] from
+    wrfbdy_d01's Times, or None. hours: --hours override. `registry` (default: load_registry()):
+    used to decide, per key, whether it is single-valued or max_domains-valued (T14, 2026-09-24
+    -- see registry_per_domain's docstring: a physics option like damp_opt is single-valued even
+    though it is read from EVERY domain's own wrfinput file, so only d01's copy of it is used),
+    and which &group each key belongs in (T15(a), 2026-09-24 -- registry_group_for_key).
+    `wrfbdy_bdy_width` (T15(c)): the wrfbdy_d01 file's own 'bdy_width' dimension size, when
+    known -- used for spec_bdy_width (provenance 'wrfbdy') instead of the Registry default (5,
+    provenance 'rule_default').
+
+    Returns (groups, provenance, notes): groups ready for render_namelist_input, with ALL 8
+    groups WRF's namelist reader reads present even when empty (T15(b), 2026-09-24, job 986:
+    wrf.exe FATAL'd 'ERROR reading namelist namelist_quilt' because K1's output had no
+    &namelist_quilt/&bdy_control/&dynamics/&fdda/&grib2 groups at all -- WRF's reader errors on
+    a MISSING group, not just a missing key); provenance = {namelist_key: 'wrfinput_attr'|
+    'wrfbdy'|'given'|'rule_default'}; notes = [str, ...] (things worth printing -- a
+    SIMULATION_START_DATE/Times[0] mismatch, a rule_default fallback, the run-length source, the
+    group-list/per-key-group-fallback disclosures T15(a)/(b) call for)."""
+    if not domain_facts:
+        raise RebuildError("namelist-from-wrfinput: no domain facts given")
+    registry = registry if registry is not None else load_registry()
+    max_dom = len(domain_facts)
+    notes = []
+    provenance = {}
+    items = {}   # key -> [v1, ..., vN], insertion order preserved -- T15(a): which &group each
+                # key ends up in is decided LATER, from the catalog, not by which python list
+                # this loop happened to append to (that was T15's own bug: damp_opt/diff_opt/
+                # km_opt landed in &physics because they were read alongside mp_physics etc.,
+                # but the catalog says they are &dynamics).
+
+    def prov(key, tag):
+        provenance[key] = tag
+
+    def put(key, values):
+        items[key] = values
+
+    def attr_per_domain(attr):
+        vals = []
+        for d in domain_facts:
+            if attr not in d["attrs"]:
+                raise RebuildError("namelist-from-wrfinput: a domain's wrfinput is missing "
+                                   "global attr %s" % attr)
+            vals.append(d["attrs"][attr])
+        return vals
+
+    for key, attr in _GRID_ATTRS:
+        put(key, [int(round(float(v))) for v in attr_per_domain(attr)])
+        prov(key, "wrfinput_attr")
+    for key, attr in _GRID_FLOAT_ATTRS:
+        put(key, [float(v) for v in attr_per_domain(attr)])
+        prov(key, "wrfinput_attr")
+
+    # parent_time_step_ratio = parent_grid_ratio, per the spec's explicit instruction.
+    put("parent_time_step_ratio", list(items["parent_grid_ratio"]))
+    prov("parent_time_step_ratio", "wrfinput_attr")
+    put("max_dom", [max_dom])
+    prov("max_dom", "wrfinput_attr")
+
+    for key, attr in _PHYSICS_ATTRS:
+        if any(attr not in d["attrs"] for d in domain_facts):
+            continue   # not every physics option is present on every WRF build's wrfinput
+        if registry_per_domain(key, registry):
+            vals = [int(round(float(d["attrs"][attr]))) for d in domain_facts]
+        else:
+            # T14 (2026-09-24): single-valued per the Registry catalog (e.g. damp_opt) -- use
+            # d01's own copy of it, even though every domain's wrfinput carries the same attr.
+            vals = [int(round(float(domain_facts[0]["attrs"][attr])))]
+        put(key, vals)
+        prov(key, "wrfinput_attr")
+
+    d01 = domain_facts[0]
+    dx_km = float(d01["attrs"]["DX"]) / 1000.0
+
+    # time_step (+ time_step_fract_num/den if d01's own DT is not integral)
+    dt = float(d01["attrs"]["DT"])
+    if abs(dt - round(dt)) < 1e-6:
+        put("time_step", [int(round(dt))])
+        prov("time_step", "wrfinput_attr")
+    else:
+        whole = int(math.floor(dt))
+        den = 100   # rule_default granularity -- exact to 2 decimal places of DT
+        num = int(round((dt - whole) * den))
+        put("time_step", [whole])
+        put("time_step_fract_num", [num])
+        put("time_step_fract_den", [den])
+        prov("time_step", "wrfinput_attr")
+        prov("time_step_fract_num", "wrfinput_attr")
+        prov("time_step_fract_den", "wrfinput_attr")
+
+    if d01.get("znw") is not None:
+        put("eta_levels", list(d01["znw"]))
+        prov("eta_levels", "wrfinput_attr")
+    if d01.get("p_top") is not None:
+        put("p_top_requested", [d01["p_top"]])
+        prov("p_top_requested", "wrfinput_attr")
+    if d01.get("dzs") is not None:
+        put("num_soil_layers", [len(d01["dzs"])])
+        prov("num_soil_layers", "wrfinput_attr")
+    if "NUM_LAND_CAT" in d01["attrs"]:
+        put("num_land_cat", [int(d01["attrs"]["NUM_LAND_CAT"])])
+        prov("num_land_cat", "wrfinput_attr")
+
+    # start date: SIMULATION_START_DATE, cross-checked against d01's own Times[0].
+    sim_start_raw = d01["attrs"].get("SIMULATION_START_DATE")
+    if not sim_start_raw:
+        raise RebuildError("namelist-from-wrfinput: wrfinput_d01 has no SIMULATION_START_DATE")
+    start_dt = datetime.datetime.strptime(str(sim_start_raw).rstrip("\x00"), _WRF_TIME_FMT)
+    if d01.get("times"):
+        t0 = d01["times"][0]
+        if t0 != start_dt:
+            notes.append("wrfinput_d01 SIMULATION_START_DATE=%s != Times[0]=%s -- using "
+                        "SIMULATION_START_DATE"
+                        % (start_dt.strftime(_WRF_TIME_FMT), t0.strftime(_WRF_TIME_FMT)))
+    for k, v in (("year", start_dt.year), ("month", start_dt.month), ("day", start_dt.day),
+                ("hour", start_dt.hour), ("minute", start_dt.minute),
+                ("second", start_dt.second)):
+        put("start_" + k, [v] * max_dom)
+        prov("start_" + k, "wrfinput_attr")
+
+    # interval_seconds: wrfbdy Times spacing.
+    if wrfbdy_times and len(wrfbdy_times) >= 2:
+        interval_s = int(round((wrfbdy_times[1] - wrfbdy_times[0]).total_seconds()))
+        put("interval_seconds", [interval_s])
+        prov("interval_seconds", "wrfbdy")
+    else:
+        interval_s = 10800
+        put("interval_seconds", [interval_s])
+        prov("interval_seconds", "rule_default")
+        notes.append("no wrfbdy_d01 Times to derive interval_seconds from -- rule_default 3h "
+                    "(10800s)")
+
+    # run length: --hours, else the wrfbdy span (last Times + one interval), else rule_default.
+    if hours is not None:
+        run_s = int(round(hours * 3600))
+        run_prov = "given"
+    elif wrfbdy_times:
+        run_s = int(round((wrfbdy_times[-1] - start_dt).total_seconds())) + interval_s
+        run_prov = "wrfbdy"
+        notes.append("--hours not given -- run length taken from wrfbdy span (last Times + one "
+                    "interval) = %.2fh" % (run_s / 3600.0))
+    else:
+        run_s = 6 * 3600
+        run_prov = "rule_default"
+        notes.append("neither --hours nor wrfbdy_d01 Times available -- run length defaulted "
+                    "to rule_default 6h")
+    end_dt = start_dt + datetime.timedelta(seconds=run_s)
+    for k, v in (("year", end_dt.year), ("month", end_dt.month), ("day", end_dt.day),
+                ("hour", end_dt.hour), ("minute", end_dt.minute), ("second", end_dt.second)):
+        put("end_" + k, [v] * max_dom)
+        prov("end_" + k, run_prov)
+    put("run_days", [0])
+    put("run_hours", [run_s // 3600])
+    put("run_minutes", [(run_s % 3600) // 60])
+    put("run_seconds", [run_s % 60])
+    for k in ("run_days", "run_hours", "run_minutes", "run_seconds"):
+        prov(k, run_prov)
+
+    # rule defaults
+    radt = max(1, int(round(dx_km)))
+    put("radt", [radt] * max_dom)
+    prov("radt", "rule_default")
+    notes.append("radt = round(dx_km) = %d min (WRF guideline: 1 min per km of d01 dx) -- "
+                "rule_default" % radt)
+
+    def _ndom_vals(key, value):
+        # T14 (2026-09-24): dimension from the catalog, not a hardcoded [v] or [v]*max_dom.
+        return [value] * max_dom if registry_per_domain(key, registry) else [value]
+
+    put("history_interval", _ndom_vals("history_interval", 60))
+    prov("history_interval", "rule_default")
+    put("frames_per_outfile", _ndom_vals("frames_per_outfile", 1))
+    prov("frames_per_outfile", "rule_default")
+    put("restart", _ndom_vals("restart", ".false."))
+    prov("restart", "rule_default")
+    put("restart_interval", _ndom_vals("restart_interval", run_s // 60))
+    prov("restart_interval", "rule_default")
+    for k in ("io_form_history", "io_form_restart", "io_form_input", "io_form_boundary"):
+        put(k, _ndom_vals(k, 2))
+        prov(k, "rule_default")
+
+    # T15(c) (2026-09-24, job 986: wrf.exe FATAL 'ERROR reading namelist namelist_quilt' --
+    # K1's output had no &bdy_control/&namelist_quilt/&dynamics/&fdda/&grib2 groups at all):
+    # &bdy_control. spec_bdy_width comes from the wrfbdy file's own bdy_width dimension when
+    # known (provenance 'wrfbdy'); WRF's Registry default (5) otherwise. specified is .true.
+    # for d01 only (d01 IS specified by the lateral boundary file); every nest is .false. and
+    # instead nested=.true. (d01 nested=.false. -- it has no parent to nest inside).
+    if wrfbdy_bdy_width is not None:
+        put("spec_bdy_width", [int(wrfbdy_bdy_width)])
+        prov("spec_bdy_width", "wrfbdy")
+    else:
+        put("spec_bdy_width", [5])
+        prov("spec_bdy_width", "rule_default")
+        notes.append("no wrfbdy_d01 bdy_width dimension available -- spec_bdy_width "
+                    "rule_default 5")
+    put("spec_zone", [1])
+    prov("spec_zone", "rule_default")
+    put("relax_zone", [4])
+    prov("relax_zone", "rule_default")
+    # specified/nested ARE per-domain per the catalog (verified 2026-09-24) -- d01 is specified
+    # by the lateral boundary file and is not itself nested; every other domain is the reverse.
+    put("specified", [".true."] + [".false."] * (max_dom - 1))
+    prov("specified", "rule_default")
+    put("nested", [".false."] + [".true."] * (max_dom - 1))
+    prov("nested", "rule_default")
+
+    # T15(d): &namelist_quilt -- no catalog entry at all for this group (same gap T11 already
+    # found: nio_groups/nio_tasks_per_group are real WRF keys the catalog doesn't cover).
+    put("nio_tasks_per_group", [0])
+    prov("nio_tasks_per_group", "rule_default")
+    put("nio_groups", [1])
+    prov("nio_groups", "rule_default")
+
+    # T15(a)+(b): bucket every key into its CATALOG group (registry_group_for_key), and always
+    # emit all 8 groups WRF's namelist reader reads, even empty (job 986's FATAL was exactly a
+    # missing &namelist_quilt group -- WRF's namelist reader errors on a MISSING group, not
+    # just a missing key). wtune_catalog_registry.json's own top-level keys ('meta'/'counts'/
+    # 'groups') carry no list of which groups the reader itself consumes -- only per-key group
+    # membership -- so this uses the given list and says so.
+    always_groups = ["time_control", "domains", "physics", "fdda", "dynamics", "bdy_control",
+                     "grib2", "namelist_quilt"]
+    notes.append("emitted groups: wtune_catalog_registry.json does not record which groups "
+                "WRF's namelist reader itself reads (only per-key group membership) -- using "
+                "the given list: %s" % ", ".join(always_groups))
+    quilt_fallback_keys = ("nio_tasks_per_group", "nio_groups")
+    buckets = {g: [] for g in always_groups}
+    for key, values in items.items():
+        group = registry_group_for_key(key, registry)
+        if group is None:
+            group = "namelist_quilt" if key in quilt_fallback_keys else "time_control"
+            notes.append("key %r has no Registry catalog entry -- placed in &%s by fallback"
+                        % (key, group))
+        if group not in buckets:
+            buckets[group] = []
+            notes.append("key %r's catalog group &%s is not in the always-emitted group list "
+                        "-- emitting &%s anyway" % (key, group, group))
+        buckets[group].append((key, values))
+
+    groups = [(g, buckets[g]) for g in always_groups]
+    groups += [(g, buckets[g]) for g in sorted(buckets) if g not in always_groups]
+    return groups, provenance, notes
+
+
+def _read_wrf_times(ds):
+    """[datetime, ...] from a WRF file's Times(Time,DateStrLen) char variable. Same decode
+    approach as state_correction_model._read_times / state_timeline.read_times -- kept LOCAL
+    (those files are owned by other concurrent agents, not imported across)."""
+    out = []
+    for row in ds.variables["Times"][:]:
+        if hasattr(row, "tobytes"):
+            s = row.tobytes().decode("utf-8", "replace")
+        else:
+            s = "".join(c.decode("utf-8", "replace") if isinstance(c, (bytes, bytearray))
+                        else str(c) for c in row)
+        s = s.split("\x00")[0]
+        out.append(datetime.datetime.strptime(s, _WRF_TIME_FMT))
+    return out
+
+
+def _read_wrfinput_domain_facts(path, with_vertical=False):
+    """netCDF4 read (K1 -- PLAN/login-time only, never in a batch job): {'attrs': {...global
+    attrs...}, 'times': [...] (if Times present), and, when with_vertical (d01 only):
+    'znw'/'p_top'/'dzs'}."""
+    import numpy as np
+    import netCDF4
+    ds = netCDF4.Dataset(path)
+    try:
+        facts = {"attrs": {a: ds.getncattr(a) for a in ds.ncattrs()}}
+        if "Times" in ds.variables:
+            facts["times"] = _read_wrf_times(ds)
+        if with_vertical:
+            if "ZNW" in ds.variables:
+                facts["znw"] = [round(float(v), 6) for v in np.asarray(ds.variables["ZNW"][0])]
+            if "P_TOP" in ds.variables:
+                facts["p_top"] = float(np.asarray(ds.variables["P_TOP"][:]).reshape(-1)[0])
+            if "DZS" in ds.variables:
+                facts["dzs"] = [float(v) for v in np.asarray(ds.variables["DZS"][0])]
+        return facts
+    finally:
+        ds.close()
+
+
+def cmd_namelist_from_wrfinput(case_dir, out_path, hours=None):
+    wrfinput_names = sorted(p for p in os.listdir(case_dir) if re.match(r"^wrfinput_d\d\d$", p))
+    if not wrfinput_names:
+        raise RebuildError("namelist-from-wrfinput: no wrfinput_d0N in %s" % case_dir)
+    domain_facts = [_read_wrfinput_domain_facts(os.path.join(case_dir, name),
+                                                with_vertical=(i == 0))
+                    for i, name in enumerate(wrfinput_names)]
+    wrfbdy_path = os.path.join(case_dir, "wrfbdy_d01")
+    wrfbdy_times = None
+    wrfbdy_bdy_width = None
+    if os.path.exists(wrfbdy_path):
+        import netCDF4
+        ds = netCDF4.Dataset(wrfbdy_path)
+        try:
+            wrfbdy_times = _read_wrf_times(ds)
+            # T15(c) (2026-09-24): the boundary width WRF actually wrote (bdy_width dimension)
+            # -- verify against this rather than assuming the Registry default (5).
+            if "bdy_width" in ds.dimensions:
+                wrfbdy_bdy_width = len(ds.dimensions["bdy_width"])
+        finally:
+            ds.close()
+
+    groups, provenance, notes = namelist_fields_from_wrfinput_facts(
+        domain_facts, wrfbdy_times=wrfbdy_times, hours=hours,
+        wrfbdy_bdy_width=wrfbdy_bdy_width)
+    text = render_namelist_input(groups)
+    with open(out_path, "w") as f:
+        f.write(text)
+    out_dir = os.path.dirname(os.path.abspath(out_path))
+    prov_path = os.path.join(out_dir, "namelist_provenance.json")
+    with open(prov_path, "w") as f:
+        json.dump({"provenance": provenance, "notes": notes}, f, indent=2)
+    for n in notes:
+        print("NOTE: %s" % n)
+    print("wrote %s (%d domain(s)) -- provenance: %s" % (out_path, len(domain_facts), prov_path))
+    return text, provenance, notes
+
+
+# ===========================================================================
+# K2 (2026-09-24): new-domain -- for a user who only knows where and when. Single-domain,
+# d01-only (no nests: a user who only gives center/size/dx has no basis to place a nest).
+# ===========================================================================
+
+def new_domain_fields(center_lat, center_lon, size_km, dx_km, start_dt, hours, e_vert=45):
+    """PURE (no netCDF4/I/O). center_lat/center_lon: floats (deg). size_km: (W, H) in km.
+    dx_km: float. start_dt: datetime. hours: float run length. e_vert: int (default 45).
+
+    Projection by |center_lat| (WRF Registry MAP_PROJ 1=lambert, 2=polar stereographic,
+    3=mercator):
+      |lat| < 25          -> mercator,  truelat1 = lat
+      25 <= |lat| <= 65    -> lambert,   truelat1 = truelat2 = lat, stand_lon = lon
+      |lat| > 65           -> polar,     truelat1 = lat
+    e_we/e_sn = round(size_km / dx_km) + 1 (one more grid POINT than the number of DX cells
+    spanning the requested size). time_step = floor(6*dx_km) (same 6x-dx rule of thumb
+    coldstart_sample/case_rebuild.complete_namelist already use). physics_suite='TROPICAL' when
+    |lat|<25 else 'CONUS'; cu_physics=0 (convection-permitting) when dx_km<4. radt=round(dx_km)
+    minutes.
+
+    Returns (namelist_groups, wps_fields, provenance, notes): namelist_groups ready for
+    render_namelist_input; wps_fields ready for coldstart_sample.render_namelist_wps;
+    provenance = {key: 'given'|'rule_default'} (every key the user's four inputs --center/
+    --size-km/--dx-km/--start-- determine DIRECTLY, with no rule/formula applied, is 'given';
+    everything derived through a rule -- e_we/e_sn/time_step/map_proj/truelat*/physics_suite/
+    cu_physics/radt/interval_seconds/history_interval/... -- is 'rule_default', even where the
+    rule's OUTPUT happens to equal a raw input, e.g. truelat1==center_lat)."""
+    w_km, h_km = size_km
+    e_we = int(round(w_km / dx_km)) + 1
+    e_sn = int(round(h_km / dx_km)) + 1
+    time_step = max(1, int(math.floor(6.0 * dx_km)))
+    alat = abs(center_lat)
+    if alat < 25.0:
+        map_proj, truelat1, truelat2, stand_lon = "mercator", center_lat, None, None
+    elif alat <= 65.0:
+        map_proj, truelat1, truelat2, stand_lon = "lambert", center_lat, center_lat, center_lon
+    else:
+        map_proj, truelat1, truelat2, stand_lon = "polar", center_lat, None, None
+    physics_suite = "TROPICAL" if alat < 25.0 else "CONUS"
+    convection_permitting = dx_km < 4.0
+    radt = max(1, int(round(dx_km)))
+    dx_m = dx_km * 1000.0
+    end_dt = start_dt + datetime.timedelta(hours=hours)
+    run_s = int(round(hours * 3600.0))
+
+    provenance = {}
+    notes = []
+
+    def prov(key, tag):
+        provenance[key] = tag
+
+    domains_items = [
+        ("max_dom", [1]), ("e_we", [e_we]), ("e_sn", [e_sn]), ("e_vert", [e_vert]),
+        ("dx", [dx_m]), ("dy", [dx_m]), ("time_step", [time_step]),
+        ("grid_id", [1]), ("parent_id", [0]), ("i_parent_start", [1]), ("j_parent_start", [1]),
+        ("parent_grid_ratio", [1]), ("parent_time_step_ratio", [1]),
+    ]
+    for k in ("max_dom", "e_we", "e_sn", "time_step", "grid_id", "parent_id",
+             "i_parent_start", "j_parent_start", "parent_grid_ratio", "parent_time_step_ratio"):
+        prov(k, "rule_default")
+    prov("e_vert", "given" if e_vert != 45 else "rule_default")
+    prov("dx", "given")
+    prov("dy", "given")
+    if e_vert == 45:
+        notes.append("e_vert=45 (WRF's common default) -- --e-vert not given")
+
+    time_control_items = []
+    for k, v in (("year", start_dt.year), ("month", start_dt.month), ("day", start_dt.day),
+                ("hour", start_dt.hour), ("minute", start_dt.minute),
+                ("second", start_dt.second)):
+        time_control_items.append(("start_" + k, [v]))
+        prov("start_" + k, "given")
+    for k, v in (("year", end_dt.year), ("month", end_dt.month), ("day", end_dt.day),
+                ("hour", end_dt.hour), ("minute", end_dt.minute), ("second", end_dt.second)):
+        time_control_items.append(("end_" + k, [v]))
+        prov("end_" + k, "given")
+    time_control_items += [("run_days", [0]), ("run_hours", [run_s // 3600]),
+                           ("run_minutes", [(run_s % 3600) // 60]), ("run_seconds", [run_s % 60])]
+    for k in ("run_days", "run_hours", "run_minutes", "run_seconds"):
+        prov(k, "given")
+    time_control_items += [
+        ("interval_seconds", [10800]), ("history_interval", [60]),
+        ("frames_per_outfile", [1]), ("restart", [".false."]),
+        ("restart_interval", [max(1, run_s // 60)]),
+    ]
+    for k in ("interval_seconds", "history_interval", "frames_per_outfile", "restart",
+             "restart_interval"):
+        prov(k, "rule_default")
+    for k in ("io_form_history", "io_form_restart", "io_form_input", "io_form_boundary"):
+        time_control_items.append((k, [2]))
+        prov(k, "rule_default")
+
+    physics_items = [("physics_suite", ["'%s'" % physics_suite])]
+    prov("physics_suite", "rule_default")
+    if convection_permitting:
+        physics_items.append(("cu_physics", [0]))
+        prov("cu_physics", "rule_default")
+        notes.append("cu_physics=0 (convection-permitting): dx_km=%.3f < 4 km" % dx_km)
+    physics_items.append(("radt", [radt]))
+    prov("radt", "rule_default")
+    notes.append("radt = round(dx_km) = %d min -- rule_default" % radt)
+    notes.append("projection=%s (|center_lat|=%.2f): %s" % (
+        map_proj, alat,
+        "< 25 -> mercator" if alat < 25.0 else
+        "<= 65 -> lambert" if alat <= 65.0 else "> 65 -> polar"))
+
+    groups = [("time_control", time_control_items), ("domains", domains_items),
+             ("physics", physics_items)]
+
+    wps_fields = {
+        "max_dom": 1, "map_proj": map_proj, "ref_lat": center_lat, "ref_lon": center_lon,
+        "truelat1": truelat1, "truelat2": truelat2, "stand_lon": stand_lon,
+        "dx": dx_m, "dy": dx_m, "e_we": [e_we], "e_sn": [e_sn],
+        "start_date": start_dt.strftime(_WRF_TIME_FMT), "end_date": end_dt.strftime(_WRF_TIME_FMT),
+        "interval_seconds": 10800, "parent_id": [1], "parent_grid_ratio": [1],
+        "i_parent_start": [1], "j_parent_start": [1], "geog_data_res": ["default"],
+        "geog_data_path": "/nfs/data/wrf/WPS_GEOG/",
+    }
+    prov("ref_lat", "given")
+    prov("ref_lon", "given")
+    prov("map_proj", "rule_default")
+    prov("truelat1", "rule_default")
+    if truelat2 is not None:
+        prov("truelat2", "rule_default")
+    if stand_lon is not None:
+        prov("stand_lon", "rule_default")
+
+    return groups, wps_fields, provenance, notes
+
+
+def cmd_new_domain(center=None, size_km=None, dx_km=None, start=None, hours=None, e_vert=45,
+                   out_dir=None):
+    """center: 'LAT,LON'. size_km: 'W,H'. start: 'YYYY-MM-DD_HH:MM:SS'. Refuses with a clear
+    message if only SOME of center/size_km/dx_km/start is given (K4's front door may call this
+    with any of them missing -- e.g. inventory case (e): nothing located the domain at all, or
+    only some of the four)."""
+    given = {"--center": center, "--size-km": size_km, "--dx-km": dx_km, "--start": start}
+    present = {k: v for k, v in given.items() if v is not None}
+    if present and len(present) < len(given):
+        raise RebuildError(
+            "new-domain: --center/--size-km/--dx-km/--start must be given ALL TOGETHER or not "
+            "at all -- got %s, missing %s"
+            % (", ".join(sorted(present)), ", ".join(sorted(set(given) - set(present)))))
+    if not present:
+        raise RebuildError("new-domain: --center/--size-km/--dx-km/--start are all required")
+    if hours is None:
+        raise RebuildError("new-domain: --hours is required")
+    if out_dir is None:
+        raise RebuildError("new-domain: --out is required")
+
+    center_lat, center_lon = (float(x) for x in center.split(","))
+    w_km, h_km = (float(x) for x in size_km.split(","))
+    dx_km_f = float(dx_km)
+    start_dt = datetime.datetime.strptime(start, _WRF_TIME_FMT)
+
+    groups, wps_fields, provenance, notes = new_domain_fields(
+        center_lat, center_lon, (w_km, h_km), dx_km_f, start_dt, float(hours), e_vert=e_vert)
+
+    os.makedirs(out_dir, exist_ok=True)
+    nl_text = render_namelist_input(groups)
+    nl_path = os.path.join(out_dir, "namelist.input")
+    with open(nl_path, "w") as f:
+        f.write(nl_text)
+    nlw_text = cs.render_namelist_wps(wps_fields)
+    nlw_path = os.path.join(out_dir, "namelist.wps")
+    with open(nlw_path, "w") as f:
+        f.write(nlw_text)
+    prov_path = os.path.join(out_dir, "namelist_provenance.json")
+    with open(prov_path, "w") as f:
+        json.dump({"provenance": provenance, "notes": notes}, f, indent=2)
+    for n in notes:
+        print("NOTE: %s" % n)
+    print("wrote %s and %s -- provenance: %s" % (nl_path, nlw_path, prov_path))
+    return nl_text, nlw_text, provenance, notes
+
+
+# ===========================================================================
+# K4 (2026-09-24): `complete` -- the front door. Inventories --in DIR (filesystem presence only,
+# no netCDF4 needed for the DECISION itself -- inventory_case_dir/choose_completion_path are
+# PURE) and dispatches to K1 (namelist-from-wrfinput), K2 (new-domain), K3 (--keep-wrfinput) or
+# the existing rebuild flow, in the priority order the spec gives: (a) everything present -> as
+# is; (b) wrfinput(+wrfbdy) but no namelist -> K1; (c) wrfinput but no wrfbdy -> K1 if needed +
+# K3; (d) namelist(+projection) only -> existing rebuild; (e) nothing but
+# center/size/dx/start -> K2 then rebuild; (f) refuse, naming exactly what's missing.
+# ===========================================================================
+
+def inventory_case_dir(in_dir):
+    """PURE filesystem check (no netCDF4): {'namelist_input': bool, 'namelist_wps': bool,
+    'wrfinput_domains': [wrfinput_d01, ...] sorted, or [] if none, 'wrfbdy_d01': bool}."""
+    wrfinput_domains = []
+    if os.path.isdir(in_dir):
+        wrfinput_domains = sorted(p for p in os.listdir(in_dir)
+                                  if re.match(r"^wrfinput_d\d\d$", p))
+    return {
+        "namelist_input": os.path.exists(os.path.join(in_dir, "namelist.input")),
+        "namelist_wps": os.path.exists(os.path.join(in_dir, "namelist.wps")),
+        "wrfinput_domains": wrfinput_domains,
+        "wrfbdy_d01": os.path.exists(os.path.join(in_dir, "wrfbdy_d01")),
+    }
+
+
+def choose_completion_path(inventory, have_center_size_dx_start=False):
+    """PURE decision logic (K4). `inventory`: inventory_case_dir's result.
+    `have_center_size_dx_start`: True iff --center/--size-km/--dx-km/--start were ALL given
+    (the caller validates all-or-nothing before this point -- see cmd_new_domain's own check,
+    reused identically by cmd_complete). Returns {'path': one of 'as_is'/'k1_and_or_k3'/
+    'existing_rebuild'/'k2_then_rebuild'/'refuse', 'needs_k1': bool, 'needs_k3': bool,
+    'reason': str}."""
+    has_namelist = inventory["namelist_input"]
+    has_wrfinput = bool(inventory["wrfinput_domains"])
+    has_wrfbdy = inventory["wrfbdy_d01"]
+    has_projection = inventory["namelist_wps"] or has_wrfinput
+
+    # (a) everything present -> as is (+ a t0 consistency check against the fetched analysis,
+    # done by the ORCHESTRATOR via compare()/analog -- see cmd_complete).
+    if has_namelist and has_wrfinput and has_wrfbdy:
+        return {"path": "as_is", "needs_k1": False, "needs_k3": False,
+               "reason": "namelist.input + wrfinput_d0N + wrfbdy_d01 all present -- use as is "
+                         "(compared against the fetched analysis at t0)"}
+
+    # (b)+(c): wrfinput present -> K1 if there's no namelist yet, K3 (--keep-wrfinput) if
+    # there's no wrfbdy yet -- independent flags, since a case can need either, both, or (if it
+    # has a namelist AND a wrfbdy already) neither of these two once wrfinput itself is present.
+    needs_k1 = has_wrfinput and not has_namelist
+    needs_k3 = has_wrfinput and not has_wrfbdy
+    if needs_k1 or needs_k3:
+        parts = []
+        if needs_k1:
+            parts.append("K1 (namelist-from-wrfinput: no namelist.input)")
+        if needs_k3:
+            parts.append("K3 --keep-wrfinput (no wrfbdy_d01)")
+        return {"path": "k1_and_or_k3", "needs_k1": needs_k1, "needs_k3": needs_k3,
+               "reason": "wrfinput_d0N present -- " + " + ".join(parts)}
+
+    # (d) namelist(+projection), no wrfinput -> the existing rebuild flow (it fetches its own
+    # wrfinput/wrfbdy from the analysis).
+    if has_namelist and not has_wrfinput and has_projection:
+        return {"path": "existing_rebuild", "needs_k1": False, "needs_k3": False,
+               "reason": "namelist.input (+ projection source) present, no wrfinput_d0N -- "
+                         "existing rebuild flow"}
+
+    # (e) nothing that locates the domain except --center/--size-km/--dx-km/--start -> K2 then
+    # the existing rebuild flow on K2's own output.
+    if not has_namelist and not has_wrfinput and have_center_size_dx_start:
+        return {"path": "k2_then_rebuild", "needs_k1": False, "needs_k3": False,
+               "reason": "no namelist.input/wrfinput_d0N -- --center/--size-km/--dx-km/--start "
+                         "given -- K2 (new-domain) then rebuild"}
+
+    # (f) refuse, naming exactly what's needed.
+    need = []
+    if not has_namelist:
+        need.append("namelist.input")
+    if not has_wrfinput:
+        need.append("wrfinput_d0N")
+    if has_namelist and not has_projection:
+        need.append("a projection source (namelist.wps, or a wrfinput_d0N to read MAP_PROJ "
+                    "from)")
+    if not have_center_size_dx_start:
+        need.append("--center/--size-km/--dx-km/--start (all four) to build a domain from "
+                    "scratch")
+    return {"path": "refuse", "needs_k1": False, "needs_k3": False,
+           "reason": "nothing locates the domain -- need one of: " + "; or ".join(need)}
+
+
+def _print_completion_table(rows):
+    print("%-42s %s" % ("item", "method"))
+    print("-" * 60)
+    for r in rows:
+        print("%-42s %s" % (r["item"], r["method"]))
+
+
+def cmd_complete(in_dir, out_dir, center=None, size_km=None, dx_km=None, start=None, hours=None,
+                 ml_model=None):
+    """The front door (K4). Inventories --in DIR, chooses a completion path (see
+    choose_completion_path), dispatches to K1/K2/K3/the existing rebuild plan step, and writes
+    OUT/completion_report.json (one row per WRF input item, method in {given, wrfinput_attr,
+    wrfbdy, rule_default, analysis_rebuild, ml_state_correction, analog, missing}) plus a
+    human-readable table to stdout. Like `rebuild plan`, this STOPS after writing the plan +
+    instructions for the batch stage -- it does not itself run geogrid/ungrib/real.exe."""
+    given = {"center": center, "size_km": size_km, "dx_km": dx_km, "start": start}
+    present = {k: v for k, v in given.items() if v is not None}
+    if present and len(present) < len(given):
+        raise RebuildError(
+            "complete: --center/--size-km/--dx-km/--start must be given ALL TOGETHER or not at "
+            "all -- got %s, missing %s"
+            % (", ".join(sorted(present)), ", ".join(sorted(set(given) - set(present)))))
+    have_four = len(present) == len(given)
+
+    inventory = inventory_case_dir(in_dir)
+    decision = choose_completion_path(inventory, have_center_size_dx_start=have_four)
+    print("complete: inventory = %s" % json.dumps(inventory))
+    print("complete: path = %s -- %s" % (decision["path"], decision["reason"]))
+    if decision["path"] == "refuse":
+        raise RebuildError("complete: " + decision["reason"])
+
+    os.makedirs(out_dir, exist_ok=True)
+    rows = []
+    case_dir_for_plan = in_dir
+    namelist_for_plan = os.path.join(in_dir, "namelist.input")
+
+    if decision["path"] == "as_is":
+        rows.append({"item": "namelist.input", "method": "given"})
+        rows.append({"item": "wrfinput_d0N", "method": "given"})
+        rows.append({"item": "wrfbdy_d01", "method": "given"})
+        rows.append({"item": "t0 consistency vs. analysis", "method": "analysis_rebuild",
+                    "note": "run `case_rebuild.py compare --original <wrfinput_d0N> --rebuilt "
+                            "<a freshly fetched/rebuilt t0 wrfinput>`; on state-mismatch, "
+                            "`case_rebuild.py analog` suggests an analog date"})
+    elif decision["path"] == "k2_then_rebuild":
+        cmd_new_domain(center=center, size_km=size_km, dx_km=dx_km, start=start, hours=hours,
+                      out_dir=out_dir)
+        case_dir_for_plan = out_dir
+        namelist_for_plan = os.path.join(out_dir, "namelist.input")
+        rows.append({"item": "domain (center/size/dx/start)", "method": "given"})
+        rows.append({"item": "namelist.input/namelist.wps (K2 rules)", "method": "rule_default"})
+    else:
+        if decision["needs_k1"]:
+            namelist_for_plan = os.path.join(out_dir, "namelist.input")
+            _text, provenance, _notes = cmd_namelist_from_wrfinput(in_dir, namelist_for_plan,
+                                                                    hours=hours)
+            for key, tag in provenance.items():
+                rows.append({"item": "namelist.%s" % key, "method": tag})
+        else:
+            rows.append({"item": "namelist.input", "method": "given"})
+        if decision["needs_k3"]:
+            rows.append({"item": "interior state (wrfinput_d0N)", "method": "given"})
+            rows.append({"item": "boundaries (wrfbdy_d01)", "method": "analysis_rebuild"})
+            rows.append({"item": "finalize step", "method": "missing",
+                        "note": "run `case_rebuild.py rebuild finalize --out %s "
+                                "--keep-wrfinput` after the batch job" % out_dir})
+        elif decision["path"] == "existing_rebuild" or decision["needs_k1"]:
+            rows.append({"item": "wrfinput_d0N + wrfbdy_d01", "method": "analysis_rebuild"})
+
+    if ml_model:
+        rows.append({"item": "post-real.exe state completion", "method": "ml_state_correction"})
+
+    plan = cmd_rebuild_plan(case_dir_for_plan, out_dir, namelist=namelist_for_plan,
+                            ml_model=ml_model)
+
+    completion_report = {"inventory": inventory, "decision": decision, "rows": rows,
+                         "plan_dir": os.path.abspath(out_dir)}
+    with open(os.path.join(out_dir, "completion_report.json"), "w") as f:
+        json.dump(completion_report, f, indent=2, default=str)
+    _print_completion_table(rows)
+    print("complete: plan written to %s -- run `rebuild fetch`/`rebuild stage` next (batch "
+         "stage instructions above)" % out_dir)
+    return completion_report
 
 
 # ===========================================================================
@@ -291,7 +1099,8 @@ def rebuild_span(nl, date_shift_to=None):
 
 def cmd_rebuild_plan(case_dir, out_dir, namelist=None, namelist_wps=None, geo_from_wrfinput=None,
                      date_shift_to=None, forcing=None, verify_steps=0, nodes=1, ranks=72, omp=1,
-                     nx=None, ny=None, ncdump=None, now=None, geog_path=None, grib_dir=None):
+                     nx=None, ny=None, ncdump=None, now=None, geog_path=None, grib_dir=None,
+                     ml_model=None):
     rows, blockers, nl = cs.inspect_case(case_dir, namelist=namelist, namelist_wps=namelist_wps,
                                          geo_from_wrfinput=geo_from_wrfinput, grib_dir=grib_dir,
                                          ncdump=ncdump, now=now, geog_path=geog_path)
@@ -355,6 +1164,8 @@ def cmd_rebuild_plan(case_dir, out_dir, namelist=None, namelist_wps=None, geo_fr
         # vertical_grid below is what it actually applies).
         "wrfinput_path": os.path.abspath(wi_path) if os.path.exists(wi_path) else None,
         "vertical_grid": vertical_grid, "vertical_grid_warning": vertical_grid_warning,
+        # K5 (2026-09-24): ML state completion, default OFF -- None unless --ml-model was given.
+        "ml_model": os.path.abspath(ml_model) if ml_model else None,
     }
     os.makedirs(out_dir, exist_ok=True)
     with open(os.path.join(out_dir, "plan.json"), "w") as f:
@@ -501,11 +1312,21 @@ def cmd_rebuild_stage(out_dir, site="scc"):
     return sbatch_path
 
 
-def cmd_rebuild_finalize(out_dir):
+def cmd_rebuild_finalize(out_dir, keep_wrfinput=False):
     """Login-node, after the job: collect OUT/case/ (copies, not symlinks) of namelist.wps,
     namelist.input, wrfinput_d0N, wrfbdy_d01, wrflowinp_d0N if produced, plus rebuild_report.json
     (changes from complete_namelist, forcing source + probe record, span, shift, and inspect's
-    own capability/geog warnings)."""
+    own capability/geog warnings).
+
+    K3 (2026-09-24, zhengzhou -- a case with wrfinput_d0N but no wrfbdy_d01): keep_wrfinput=True
+    keeps real.exe's OWN wrfbdy_d01 (and wrflowinp -- boundaries come from the fetched analysis,
+    which is the only source that CAN produce a time-varying boundary) but puts the case's
+    ORIGINAL wrfinput_d0N into case/ instead of real.exe's freshly-built one (the interior state
+    comes from the user's own file, not a diagnostic cold start). Grid identity between the
+    original and real's own t0 wrfinput is checked (compare()'s own grid_identity_check --
+    refuses with RebuildError on a mismatch, same as compare() always does), and compare()'s
+    full metric report between them is included in rebuild_report.json so the report shows
+    exactly how consistent the kept interior and the analysis's own t0 state are."""
     with open(os.path.join(out_dir, "plan.json")) as f:
         plan = json.load(f)
     case_out = os.path.join(out_dir, "case")
@@ -521,8 +1342,23 @@ def cmd_rebuild_finalize(out_dir):
     real_namelist = os.path.join(out_dir, "real", "namelist.input")
     copy_if_exists(real_namelist, "namelist.input")
     max_dom = plan["max_dom"]
+    kept_wrfinput_compare = None
+    kept_wrfinput_domains = []
     for d in range(1, max_dom + 1):
-        copy_if_exists(os.path.join(out_dir, "real", "wrfinput_d%02d" % d), "wrfinput_d%02d" % d)
+        dom_name = "wrfinput_d%02d" % d
+        real_wrfinput = os.path.join(out_dir, "real", dom_name)
+        original_wrfinput = os.path.join(plan["case_dir"], dom_name)
+        if keep_wrfinput and os.path.exists(original_wrfinput) and os.path.exists(real_wrfinput):
+            cmp_report = compare(original_wrfinput, real_wrfinput)   # raises on grid mismatch
+            if d == 1:
+                kept_wrfinput_compare = cmp_report
+            kept_wrfinput_domains.append(dom_name)
+            shutil.copyfile(original_wrfinput, os.path.join(case_out, dom_name))
+        elif keep_wrfinput and not os.path.exists(original_wrfinput):
+            raise RebuildError(
+                "finalize --keep-wrfinput: %s has no %s to keep" % (plan["case_dir"], dom_name))
+        else:
+            copy_if_exists(real_wrfinput, dom_name)
         copy_if_exists(os.path.join(out_dir, "real", "wrflowinp_d%02d" % d),
                        "wrflowinp_d%02d" % d)
     copy_if_exists(os.path.join(out_dir, "real", "wrfbdy_d01"), "wrfbdy_d01")
@@ -543,8 +1379,20 @@ def cmd_rebuild_finalize(out_dir):
         "shift_s": plan["shift_s"], "capability_warnings": capability_notes,
         "blockers": blockers,
     }
+    if keep_wrfinput:
+        report["keep_wrfinput"] = {
+            "domains": kept_wrfinput_domains,
+            "note": ("boundaries (wrfbdy_d01%s) come from the fetched analysis; the interior "
+                    "state (%s) comes from the case's own original wrfinput -- NOT real.exe's "
+                    "own cold-start output"
+                    % (" + wrflowinp" if any(
+                        os.path.exists(os.path.join(case_out, "wrflowinp_d%02d" % d))
+                        for d in range(1, max_dom + 1)) else "",
+                       ", ".join(kept_wrfinput_domains))),
+            "d01_vs_analysis_t0_compare": kept_wrfinput_compare,
+        }
     with open(os.path.join(out_dir, "rebuild_report.json"), "w") as f:
-        json.dump(report, f, indent=2)
+        json.dump(report, f, indent=2, default=str)
     print("finalized %s -> %s" % (out_dir, case_out))
     return report
 
@@ -688,6 +1536,13 @@ def render_rebuild_sbatch(plan, chosen, site="scc", estimate_min=30):
     lines.append("set -uo pipefail")
     lines.append("")
     lines.append("TOOL=%s" % cs._sh_quote(os.path.abspath(__file__)))
+    ml_model = plan.get("ml_model")
+    if ml_model:
+        # K5 (2026-09-24): see coldstart_sample.render_run_sbatch's identical fix -- ML state
+        # completion, default OFF, never /usr/bin/python3 for it.
+        lines.append("TOOL_SCM=%s" % cs._sh_quote(cs._SCM_PATH))
+        lines.append("ML_MODEL=%s" % cs._sh_quote(os.path.abspath(ml_model)))
+        lines.append("GRIB_PY=${GRIB_PYTHON:-$HOME/wtune/envs/grib/.pixi/envs/default/bin/python}")
     lines.append("SITE=%s" % site)
     lines.append("CAMPAIGN=${CAMPAIGN:-$HOME/wtune/campaign}")
     lines.append("source \"$CAMPAIGN/sites/$SITE.sh\"   # site_env / site_launch / site_hygiene -- "
@@ -789,6 +1644,24 @@ def render_rebuild_sbatch(plan, chosen, site="scc", estimate_min=30):
     lines.append("fi")
     lines.append("[ $rc -ne 0 ] && { echo \"FATAL real.exe rc=$rc\"; exit 1; }")
     lines.append("[ -f wrfinput_d01 ] && [ -f wrfbdy_d01 ] || { echo \"FATAL: no wrfinput/wrfbdy\"; exit 1; }")
+    if ml_model:
+        # K5 (2026-09-24): see coldstart_sample.render_run_sbatch's identical ML-apply step --
+        # emitted ONLY when the plan was built with --ml-model (Default: OFF). Recorded in
+        # REBUILD_DIR/ml_status.txt since rebuild has no per-window windows_status.txt
+        # equivalent to append to.
+        lines.append("ML_OUT=$(\"$GRIB_PY\" \"$TOOL_SCM\" apply --model \"$ML_MODEL\" "
+                      "--targets-from-report --wrfinput wrfinput_d01 --out wrfinput_d01.ml 2>&1)")
+        lines.append("ml_rc=$?")
+        lines.append("ML_TARGETS=$(printf '%s\\n' \"$ML_OUT\" | "
+                      "grep '^APPLIED_TARGETS=' | tail -1 | sed 's/^APPLIED_TARGETS=//')")
+        lines.append("if [ $ml_rc -eq 0 ] && [ -f wrfinput_d01.ml ]; then")
+        lines.append("  mv wrfinput_d01 wrfinput_d01.noml && mv wrfinput_d01.ml wrfinput_d01")
+        lines.append("  echo \"ml=applied ml_targets=$ML_TARGETS\" > \"$REBUILD_DIR/ml_status.txt\"")
+        lines.append("else")
+        lines.append("  rm -f wrfinput_d01.ml")
+        lines.append("  echo \"ml=skipped ml_targets=$ML_TARGETS\" > \"$REBUILD_DIR/ml_status.txt\"")
+        lines.append("  printf '%s\\n' \"$ML_OUT\" >&2")
+        lines.append("fi")
     lines.append("CUR_WINDOW=\"\"")
     if verify_steps > 0:
         lines.append("")
@@ -1645,6 +2518,10 @@ def main(argv=None):
     sp.add_argument("--ncdump")
     sp.add_argument("--geog-path")
     sp.add_argument("--grib-dir")
+    sp.add_argument("--ml-model", metavar="REPORT.json", default=None,
+                    help="K5 (2026-09-24): after real.exe, apply state_correction_model.py's "
+                    "ML state correction (--targets-from-report) to the fresh wrfinput_d01 "
+                    "before any wrf.exe smoke run. Default: off.")
 
     sp = rebuild_sub.add_parser("fetch")
     sp.add_argument("--out", required=True)
@@ -1658,6 +2535,11 @@ def main(argv=None):
 
     sp = rebuild_sub.add_parser("finalize")
     sp.add_argument("--out", required=True)
+    sp.add_argument("--keep-wrfinput", action="store_true",
+                    help="K3 (2026-09-24): keep the case's ORIGINAL wrfinput_d0N (interior "
+                    "state) instead of real.exe's own cold-start one, while still keeping "
+                    "real.exe's wrfbdy_d01/wrflowinp (boundaries) -- for a case that has "
+                    "wrfinput but no wrfbdy_d01 of its own. Refuses on a grid mismatch.")
 
     sp = rebuild_sub.add_parser("fix-span-wps-namelist")
     sp.add_argument("--out", required=True)
@@ -1672,6 +2554,30 @@ def main(argv=None):
     sp.add_argument("--nproc-x", type=int, required=True)
     sp.add_argument("--nproc-y", type=int, required=True)
     sp.add_argument("--numtiles", type=int, default=1)
+
+    sp = sub.add_parser("namelist-from-wrfinput")
+    sp.add_argument("--case-dir", required=True)
+    sp.add_argument("--out", required=True)
+    sp.add_argument("--hours", type=float, default=None)
+
+    sp = sub.add_parser("new-domain")
+    sp.add_argument("--center", required=True, metavar="LAT,LON")
+    sp.add_argument("--size-km", required=True, metavar="W,H")
+    sp.add_argument("--dx-km", required=True, type=float)
+    sp.add_argument("--start", required=True, metavar="YYYY-MM-DD_HH:MM:SS")
+    sp.add_argument("--hours", required=True, type=float)
+    sp.add_argument("--e-vert", type=int, default=45)
+    sp.add_argument("--out", required=True)
+
+    sp = sub.add_parser("complete")
+    sp.add_argument("--in", dest="in_dir", required=True)
+    sp.add_argument("--out", required=True)
+    sp.add_argument("--center", metavar="LAT,LON")
+    sp.add_argument("--size-km", metavar="W,H")
+    sp.add_argument("--dx-km", type=float)
+    sp.add_argument("--start", metavar="YYYY-MM-DD_HH:MM:SS")
+    sp.add_argument("--hours", type=float)
+    sp.add_argument("--ml-model", metavar="REPORT.json", default=None)
 
     sp = sub.add_parser("compare")
     sp.add_argument("--original", required=True)
@@ -1707,7 +2613,7 @@ def main(argv=None):
                                  verify_steps=args.verify_steps, nodes=args.nodes,
                                  ranks=args.ranks, omp=args.omp, nx=args.nx, ny=args.ny,
                                  ncdump=args.ncdump, geog_path=args.geog_path,
-                                 grib_dir=args.grib_dir)
+                                 grib_dir=args.grib_dir, ml_model=args.ml_model)
                 return 0
             if args.rebuild_cmd == "fetch":
                 cmd_rebuild_fetch(args.out, cache_dir=args.cache_dir, grib_dir=args.grib_dir,
@@ -1717,7 +2623,7 @@ def main(argv=None):
                 cmd_rebuild_stage(args.out, site=args.site)
                 return 0
             if args.rebuild_cmd == "finalize":
-                cmd_rebuild_finalize(args.out)
+                cmd_rebuild_finalize(args.out, keep_wrfinput=args.keep_wrfinput)
                 return 0
             if args.rebuild_cmd == "fix-span-wps-namelist":
                 cmd_rebuild_fix_span_wps_namelist(args.out)
@@ -1730,6 +2636,22 @@ def main(argv=None):
                 cmd_rebuild_fix_span_wrf_namelist(args.out, args.nproc_x, args.nproc_y,
                                                   numtiles=args.numtiles)
                 return 0
+
+        if args.cmd == "namelist-from-wrfinput":
+            cmd_namelist_from_wrfinput(args.case_dir, args.out, hours=args.hours)
+            return 0
+
+        if args.cmd == "new-domain":
+            cmd_new_domain(center=args.center, size_km=args.size_km, dx_km=args.dx_km,
+                           start=args.start, hours=args.hours, e_vert=args.e_vert,
+                           out_dir=args.out)
+            return 0
+
+        if args.cmd == "complete":
+            cmd_complete(args.in_dir, args.out, center=args.center, size_km=args.size_km,
+                        dx_km=args.dx_km, start=args.start, hours=args.hours,
+                        ml_model=args.ml_model)
+            return 0
 
         if args.cmd == "compare":
             result = compare(args.original, args.rebuilt,

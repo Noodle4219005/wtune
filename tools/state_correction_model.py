@@ -614,7 +614,15 @@ def _predict_grid(model_entry, feats_flat, mask_flat):
     return out
 
 
-def apply_correction(report_path, wrfinput_in, wrfinput_out):
+def apply_correction(report_path, wrfinput_in, wrfinput_out, targets_from_report=False):
+    """Writes a corrected COPY of wrfinput_in to wrfinput_out, using report_path's fitted
+    per-target models. `targets_from_report` (K5, 2026-09-24): apply ONLY the targets whose
+    evaluate() verdict is 'improved' (report['targets'][k]['improved'] is True) -- a target
+    evaluate() found NOT to help (LOCO RMSE/CSI didn't clear the bar) must never be applied
+    blind just because a model happens to exist for it. If NONE of the report's targets are
+    improved, nothing is written at all (no wrfinput_out, no netCDF4 import even attempted) and
+    this returns None -- the caller (this module's own CLI, or coldstart_sample/case_rebuild's
+    sbatch ML-apply step) must treat that as 'skip, keep the original', not an error."""
     if os.path.abspath(wrfinput_in) == os.path.abspath(wrfinput_out):
         raise StateCorrectionError("apply: --out must differ from --wrfinput (refusing to "
                                     "overwrite the input in place)")
@@ -623,6 +631,16 @@ def apply_correction(report_path, wrfinput_in, wrfinput_out):
                                     % wrfinput_out)
     with open(report_path) as f:
         report = json.load(f)
+
+    if targets_from_report:
+        improved = {k: v for k, v in report.get("targets", {}).items() if v.get("improved")}
+        if not improved:
+            print("apply: --targets-from-report: no target in %s has verdict 'improved' -- "
+                  "nothing written" % report_path)
+            print("APPLIED_TARGETS=")
+            return None
+        report = dict(report)
+        report["targets"] = improved
 
     import netCDF4
     import shutil
@@ -707,10 +725,17 @@ def apply_correction(report_path, wrfinput_in, wrfinput_out):
             ds.variables["QRAIN"][0] = np.clip(qr0 + precip, 0.0, None).astype(
                 ds.variables["QRAIN"].dtype)
 
+        applied_keys = sorted(report["targets"].keys())
         ds.setncattr("STATE_CORRECTION_MODEL", os.path.basename(report_path))
         ds.setncattr("STATE_CORRECTION_VARS", "T,QVAPOR,U,V,QCLOUD,QRAIN")
+        ds.setncattr("STATE_CORRECTION_TARGETS", ",".join(applied_keys))
     finally:
         ds.close()
+    # K5 (2026-09-24): a stable, bash-grep-able marker line -- coldstart_sample/case_rebuild's
+    # sbatch ML-apply step (running under the grib-env python, not /usr/bin/python3) captures
+    # this to record which targets it actually applied in windows_status.txt / the rebuild
+    # report, without needing netCDF4/ncdump just to read the attr back.
+    print("APPLIED_TARGETS=%s" % ",".join(applied_keys))
     return wrfinput_out
 
 
@@ -741,6 +766,10 @@ def main(argv=None):
     sp.add_argument("--model", required=True, help="report.json from evaluate")
     sp.add_argument("--wrfinput", required=True)
     sp.add_argument("--out", required=True)
+    sp.add_argument("--targets-from-report", action="store_true",
+                     help="apply ONLY the targets evaluate() found improved (report.json's own "
+                     "targets[*].improved) -- refuse a target's correction just because a "
+                     "model happens to exist for it. Writes nothing if none are improved.")
 
     args = ap.parse_args(argv)
     try:
@@ -753,7 +782,10 @@ def main(argv=None):
             evaluate(args.pairs, args.out)
             return 0
         if args.cmd == "apply":
-            out = apply_correction(args.model, args.wrfinput, args.out)
+            out = apply_correction(args.model, args.wrfinput, args.out,
+                                    targets_from_report=args.targets_from_report)
+            if out is None:
+                return 0   # --targets-from-report with nothing improved: already explained
             print("apply: wrote %s" % out)
             return 0
     except StateCorrectionError as e:

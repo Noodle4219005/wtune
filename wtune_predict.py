@@ -391,7 +391,10 @@ def get_time_control_datetime(nl, prefix):
     h = g(nl, "time_control", prefix + "_hour", 0) or 0
     mi = g(nl, "time_control", prefix + "_minute", 0) or 0
     s = g(nl, "time_control", prefix + "_second", 0) or 0
-    return datetime.datetime(int(y), int(mo), int(d), int(h), int(mi), int(s))
+    # hour/minute/second may overflow their clock range: WRF accepts e.g. end_minute = 120
+    # (idealized em_quarter_ss) because run_* decides the length -- normalise via a timedelta.
+    return (datetime.datetime(int(y), int(mo), int(d))
+            + datetime.timedelta(hours=int(h), minutes=int(mi), seconds=int(s)))
 
 
 def get_run_seconds(nl):
@@ -1375,6 +1378,18 @@ def predict_compute(nl, max_dom, steps, run_min, ranks, omp, probe_result, calib
     if rsl_paths and radt and dt_seconds:
         rad_meas = measure_rad_from_rsl(rsl_paths, radt, dt_seconds, sample_points,
                                         default_r_rad, day_night_ratio)
+    elif rsl_paths and dt_seconds:
+        # radt = 0 (no radiation scheme, e.g. idealized em_les / em_heldsuarez): every step after
+        # the first is a normal step. Without this branch the probe was ignored and the
+        # uncalibrated no-probe constant was used instead (em_les: 0.284 s/step vs 0.033 probed).
+        pooled = []
+        for path in rsl_paths:
+            pooled += [sec for _, sec in parse_rsl_d01_step_seconds(path)[1:]]
+        if pooled:
+            rad_meas = {"s_normal": statistics.median(pooled), "r_night": default_r_rad,
+                        "r_day": default_r_rad, "source": "no_radiation",
+                        "mean_sunlit_fraction": None, "n_steps_pooled": len(pooled),
+                        "n_radiation_steps": 0}
 
     if rad_meas is not None:
         r_night, r_day, r_rad_source = rad_meas["r_night"], rad_meas["r_day"], rad_meas["source"]

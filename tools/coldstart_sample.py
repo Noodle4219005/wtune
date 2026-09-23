@@ -54,6 +54,9 @@ import wtune_predict as predict   # repo root -- delegates run-length resolution
 DEFAULT_CALIBRATION = os.path.join(_REPO_ROOT, "machine", "calibration", "scc.json")
 _WRF_TIME_FMT = "%Y-%m-%d_%H:%M:%S"
 _SELF_PATH = os.path.abspath(__file__)
+# K5 (2026-09-24): state_correction_model.py lives next to this file -- the ML-apply sbatch step
+# invokes it with the grib-env python (never /usr/bin/python3: it needs numpy+netCDF4).
+_SCM_PATH = os.path.join(os.path.dirname(_SELF_PATH), "state_correction_model.py")
 
 
 class ColdstartError(Exception):
@@ -976,7 +979,7 @@ def build_plan(case_dir, out_dir, k=4, nodes=1, ranks=72, omp=1, nx=None, ny=Non
                spinup_min=60, namelist=None, namelist_wps=None, geo_from_wrfinput=None,
                grib_dir=None, ncdump=None, use_state=False, now=None, geog_path=None,
                forcing=None, date_shift_to=None, analog_path=None, times=None,
-               real_only=False):
+               real_only=False, ml_model=None):
     rows, blockers, nl = inspect_case(case_dir, namelist=namelist, namelist_wps=namelist_wps,
                                        geo_from_wrfinput=geo_from_wrfinput, grib_dir=grib_dir,
                                        ncdump=ncdump, now=now, geog_path=geog_path)
@@ -1152,6 +1155,8 @@ def build_plan(case_dir, out_dir, k=4, nodes=1, ranks=72, omp=1, nx=None, ny=Non
         "namelist_wps_fields": wps_fields,
         "nodes": nodes, "config": config, "real_only": bool(real_only),
         "vertical_grid": vertical_grid, "vertical_grid_warning": vertical_grid_warning,
+        # K5 (2026-09-24): ML state completion, default OFF -- None unless --ml-model was given.
+        "ml_model": os.path.abspath(ml_model) if ml_model else None,
     }
     os.makedirs(out_dir, exist_ok=True)
     with open(os.path.join(out_dir, "plan.json"), "w") as f:
@@ -2149,6 +2154,15 @@ def render_run_sbatch(plan, site="scc", per_window_estimate_min=15, wps_estimate
     # does not exist (PLAN_DIR is not a subdirectory of tools/); every fix-*-namelist call below
     # must invoke the actual installed location.
     lines.append("TOOL=%s" % _sh_quote(_SELF_PATH))
+    ml_model = plan.get("ml_model")
+    if ml_model:
+        # K5 (2026-09-24): ML state completion, default OFF -- only emitted when the plan was
+        # built with --ml-model. TOOL_SCM/GRIB_PY are ONLY used inside run_window()'s ML-apply
+        # step below; every other fix-*-namelist call keeps using plain "python3 $TOOL" (stdlib
+        # only, /usr/bin/python3 is fine for those).
+        lines.append("TOOL_SCM=%s" % _sh_quote(_SCM_PATH))
+        lines.append("ML_MODEL=%s" % _sh_quote(os.path.abspath(ml_model)))
+        lines.append("GRIB_PY=${GRIB_PYTHON:-$HOME/wtune/envs/grib/.pixi/envs/default/bin/python}")
     lines.append("SITE=%s" % site)
     lines.append("CAMPAIGN=${CAMPAIGN:-$HOME/wtune/campaign}")
     lines.append("source \"$CAMPAIGN/sites/$SITE.sh\"   # site_env / site_launch / site_hygiene -- "
@@ -2214,6 +2228,11 @@ def render_run_sbatch(plan, site="scc", per_window_estimate_min=15, wps_estimate
     # LAST_WRF_STATUS's default of "skipped" is what ends up in windows_status.txt for that
     # case; the non-real-only wrf.exe branch below overwrites it to "ok" on success.
     lines.append("  LAST_WRF_STATUS=\"skipped\"")
+    # K5 (2026-09-24): "off" unless --ml-model was given (ML_MODEL unset -> the block below
+    # never runs at all); "skipped" if it ran but nothing was improved/it failed; "applied" only
+    # on a genuine swap-in.
+    lines.append("  LAST_ML_STATUS=\"off\"")
+    lines.append("  LAST_ML_TARGETS=\"\"")
     # OMP_NUM_THREADS=1 for WPS + real.exe (unset for the rest of the window until the wrf.exe
     # launch below sets it back to the predicted config's own omp) -- otherwise these steps are
     # not timed/run under the same threading conditions as the ground-truth runner
@@ -2276,6 +2295,28 @@ def render_run_sbatch(plan, site="scc", per_window_estimate_min=15, wps_estimate
     lines.append("  [ $rc -ne 0 ] && return 1")
     lines.append("  [ -f wrfinput_d01 ] && [ -f wrfbdy_d01 ] || return 1")
     lines.append("")
+    if ml_model:
+        # K5 (2026-09-24): ML state completion on the fresh wrfinput_d01, BEFORE wrf.exe sees it
+        # -- emitted ONLY when the plan was built with --ml-model (Default: OFF means no trace
+        # of this step in the rendered script at all, not just a runtime no-op guard). Never
+        # /usr/bin/python3 here: this needs numpy+netCDF4 (GRIB_PY, from the PLAN-time
+        # preamble). Swap in wrfinput_d01.ml ONLY on a genuine apply (rc=0 AND the file exists --
+        # --targets-from-report legitimately writes nothing when no target improved, which is
+        # NOT a failure); otherwise keep the original untouched.
+        lines.append("  ML_OUT=$(\"$GRIB_PY\" \"$TOOL_SCM\" apply --model \"$ML_MODEL\" "
+                      "--targets-from-report --wrfinput wrfinput_d01 --out wrfinput_d01.ml 2>&1)")
+        lines.append("  ml_rc=$?")
+        lines.append("  LAST_ML_TARGETS=$(printf '%s\\n' \"$ML_OUT\" | "
+                      "grep '^APPLIED_TARGETS=' | tail -1 | sed 's/^APPLIED_TARGETS=//')")
+        lines.append("  if [ $ml_rc -eq 0 ] && [ -f wrfinput_d01.ml ]; then")
+        lines.append("    mv wrfinput_d01 wrfinput_d01.noml && mv wrfinput_d01.ml wrfinput_d01")
+        lines.append("    LAST_ML_STATUS=\"applied\"")
+        lines.append("  else")
+        lines.append("    rm -f wrfinput_d01.ml")
+        lines.append("    LAST_ML_STATUS=\"skipped\"")
+        lines.append("    printf '%s\\n' \"$ML_OUT\" >&2")
+        lines.append("  fi")
+        lines.append("")
     real_only = bool(plan.get("real_only"))
     if real_only:
         # T2 (2026-09-24): --real-only stops each window here -- no fix-wrf-namelist, no
@@ -2325,11 +2366,11 @@ def render_run_sbatch(plan, site="scc", per_window_estimate_min=15, wps_estimate
                 + [str(len(expected_met))] + expected_met)
         args = " ".join(shlex.quote(x) for x in argv)
         lines.append("if run_window %s; then" % args)
-        lines.append("  echo \"WINDOW %d rc=0 ok=1 real=$LAST_REAL_PATH wrf=$LAST_WRF_STATUS\" "
-                      ">> \"$STATUS\"" % k)
+        lines.append("  echo \"WINDOW %d rc=0 ok=1 real=$LAST_REAL_PATH wrf=$LAST_WRF_STATUS "
+                      "ml=$LAST_ML_STATUS ml_targets=$LAST_ML_TARGETS\" >> \"$STATUS\"" % k)
         lines.append("else")
-        lines.append("  echo \"WINDOW %d rc=1 ok=0 real=$LAST_REAL_PATH wrf=$LAST_WRF_STATUS\" "
-                      ">> \"$STATUS\"" % k)
+        lines.append("  echo \"WINDOW %d rc=1 ok=0 real=$LAST_REAL_PATH wrf=$LAST_WRF_STATUS "
+                      "ml=$LAST_ML_STATUS ml_targets=$LAST_ML_TARGETS\" >> \"$STATUS\"" % k)
         lines.append("fi")
         lines.append("CUR_WINDOW=\"\"")
         lines.append("")
@@ -2649,6 +2690,10 @@ def main(argv=None):
     sp.add_argument("--real-only", action="store_true",
                     help="T2 (2026-09-24): each window stops after real.exe succeeds -- no "
                     "wrf.exe, no cost prediction. `score` refuses a --real-only plan.")
+    sp.add_argument("--ml-model", metavar="REPORT.json", default=None,
+                    help="K5 (2026-09-24): after each window's real.exe, apply "
+                    "state_correction_model.py's ML state correction (--targets-from-report) "
+                    "to the fresh wrfinput_d01 before wrf.exe runs. Default: off.")
 
     sp = sub.add_parser("fetch")
     sp.add_argument("--plan", required=True)
@@ -2719,7 +2764,7 @@ def main(argv=None):
                               ncdump=args.ncdump, use_state=args.state, geog_path=args.geog_path,
                               forcing=args.forcing, date_shift_to=args.date_shift_to,
                               analog_path=args.analog_path, times=times,
-                              real_only=args.real_only)
+                              real_only=args.real_only, ml_model=args.ml_model)
             print_plan(plan)
             return 0
 

@@ -142,6 +142,34 @@ class TestCompleteNamelistFillOnlyIfMissing(unittest.TestCase):
         self.assertEqual(cs.count_key(txt, "history_interval"), 0)
         self.assertEqual(cs.get_first(txt, "history_interval_m"), "30")
 
+    def test_physics_suite_with_minus1_placeholders_gets_a_note(self):
+        # T14 (2026-09-24, cluster check against conus12): physics_suite='CONUS' with
+        # mp_physics=-1 (a placeholder meaning 'use the suite default') is a real, valid
+        # namelist -- record a note so a future comparison tool doesn't flag -1 vs an explicit
+        # scheme value as a mismatch. Nothing is MODIFIED (old==new).
+        text = BASE_NL_TEXT.replace(
+            "&physics\n",
+            "&physics\n physics_suite = 'CONUS',\n mp_physics = -1,\n ra_lw_physics = -1,\n")
+        txt, changes = cr.complete_namelist(text, BASE_FACTS)
+        note = next(c for c in changes if c["key"] == "physics_suite_placeholders")
+        self.assertEqual(note["old"], "'CONUS'")
+        self.assertEqual(note["new"], "'CONUS'")
+        self.assertIn("mp_physics", note["reason"])
+        self.assertIn("ra_lw_physics", note["reason"])
+        self.assertIn("EQUIVALENT", note["reason"])
+        # the namelist text itself is untouched by this note
+        self.assertEqual(cs.get_first(txt, "mp_physics"), "-1")
+
+    def test_no_placeholder_note_when_physics_suite_absent(self):
+        txt, changes = cr.complete_namelist(BASE_NL_TEXT, BASE_FACTS)
+        self.assertFalse(any(c["key"] == "physics_suite_placeholders" for c in changes))
+
+    def test_no_placeholder_note_when_no_keys_are_minus1(self):
+        text = BASE_NL_TEXT.replace(
+            "&physics\n", "&physics\n physics_suite = 'CONUS',\n mp_physics = 8,\n")
+        txt, changes = cr.complete_namelist(text, BASE_FACTS)
+        self.assertFalse(any(c["key"] == "physics_suite_placeholders" for c in changes))
+
 
 class TestCompleteNamelistNestedParentTimeStepRatio(unittest.TestCase):
     def test_parent_time_step_ratio_filled_per_nest(self):
@@ -151,6 +179,103 @@ class TestCompleteNamelistNestedParentTimeStepRatio(unittest.TestCase):
         # full list check (set_list_values wrote "1, 3,")
         m = __import__("re").search(r"parent_time_step_ratio\s*=\s*([^\n/]+)", txt)
         self.assertEqual(m.group(1).strip().rstrip(","), "1, 3")
+
+
+# ---------------------------------------------------------------------------
+# T14 (2026-09-24, cluster check against real namelists): complete_namelist's fill_if_missing/
+# sync must decide EACH key's namelist dimension from wtune_catalog_registry.json's own
+# 'per_domain' field, not a hardcoded ndom -- frames_per_outfile is per_domain=True there but
+# was previously always written as a single value.
+# ---------------------------------------------------------------------------
+
+class TestCompleteNamelistDimensionFromRegistry(unittest.TestCase):
+    def test_frames_per_outfile_is_broadcast_per_domain(self):
+        registry = cr.load_registry()
+        self.assertTrue(cr.registry_per_domain("frames_per_outfile", registry))
+        facts = dict(BASE_FACTS, max_dom=2, parent_grid_ratio=[1, 3])
+        txt, changes = cr.complete_namelist(BASE_NL_TEXT, facts, registry=registry)
+        m = re.search(r"(?<![A-Za-z0-9_])frames_per_outfile\s*=\s*([^\n/]+)", txt)
+        self.assertEqual(m.group(1).strip().rstrip(","), "1, 1")
+
+    def test_restart_is_single_valued_regardless_of_max_dom(self):
+        registry = cr.load_registry()
+        self.assertFalse(cr.registry_per_domain("restart", registry))
+        facts = dict(BASE_FACTS, max_dom=2, parent_grid_ratio=[1, 3])
+        txt, changes = cr.complete_namelist(BASE_NL_TEXT, facts, registry=registry)
+        m = re.search(r"(?<![A-Za-z0-9_])restart\s*=\s*([^\n/]+)", txt)
+        self.assertEqual(m.group(1).strip().rstrip(","), ".false.")
+
+    def test_single_domain_unaffected(self):
+        # max_dom=1: per-domain vs single-valued is not observable (both render one value) --
+        # confirms the fix does not disturb the existing single-domain behavior.
+        txt, changes = cr.complete_namelist(BASE_NL_TEXT, BASE_FACTS)
+        self.assertEqual(cs.get_first(txt, "frames_per_outfile"), "1")
+
+
+# ---------------------------------------------------------------------------
+# T16 (2026-09-24, job 986 follow-up): complete_namelist must guarantee the same 8 groups K1
+# guarantees (T15), creating any missing group EMPTY except &bdy_control (K1's same defaults,
+# fill-only-if-missing) and &namelist_quilt (its 2 keys, only if absent).
+# ---------------------------------------------------------------------------
+
+class TestCompleteNamelistGuaranteesAllEightGroups(unittest.TestCase):
+    def _parse(self, txt):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "namelist.input")
+            with open(path, "w") as f:
+                f.write(txt)
+            return predict.parse_namelist(path)
+
+    def test_k2_output_becomes_complete_through_complete_namelist(self):
+        # K2 (new-domain) only ever writes &time_control/&domains/&physics -- complete_namelist
+        # must fill in the rest automatically.
+        groups, wps, provenance, notes = cr.new_domain_fields(
+            40.0, -98.0, (1200.0, 1200.0), 12.0, datetime.datetime(2020, 6, 1), 6.0)
+        k2_text = cr.render_namelist_input(groups)
+        parsed_before = self._parse(k2_text)
+        for missing in ("fdda", "dynamics", "bdy_control", "grib2", "namelist_quilt"):
+            self.assertNotIn(missing, parsed_before)
+
+        facts = dict(BASE_FACTS, max_dom=1)
+        txt, changes = cr.complete_namelist(k2_text, facts)
+        parsed_after = self._parse(txt)
+        for group in ("time_control", "domains", "physics", "fdda", "dynamics", "bdy_control",
+                     "grib2", "namelist_quilt"):
+            self.assertIn(group, parsed_after, "missing &%s after complete_namelist" % group)
+        self.assertEqual(parsed_after["fdda"], {})
+        self.assertEqual(parsed_after["grib2"], {})
+        bdy = parsed_after["bdy_control"]
+        self.assertEqual(bdy["spec_bdy_width"], [5])
+        self.assertEqual(bdy["spec_zone"], [1])
+        self.assertEqual(bdy["relax_zone"], [4])
+        self.assertEqual(bdy["specified"], [True])
+        self.assertEqual(bdy["nested"], [False])
+        quilt = parsed_after["namelist_quilt"]
+        self.assertEqual(quilt["nio_tasks_per_group"], [0])
+        self.assertEqual(quilt["nio_groups"], [1])
+
+    def test_bdy_control_partial_present_keeps_user_value_fills_the_rest(self):
+        text = BASE_NL_TEXT.replace(
+            "&physics\n", "&physics\n/\n\n&bdy_control\n specified = .true.,\n")
+        txt, changes = cr.complete_namelist(text, BASE_FACTS)
+        parsed = self._parse(txt)
+        bdy = parsed["bdy_control"]
+        self.assertEqual(bdy["specified"], [True])   # user's own value, untouched
+        self.assertEqual(bdy["spec_bdy_width"], [5])
+        self.assertEqual(bdy["spec_zone"], [1])
+        self.assertEqual(bdy["relax_zone"], [4])
+        self.assertEqual(bdy["nested"], [False])
+        self.assertFalse(any(c["key"] == "specified" for c in changes))
+        self.assertTrue(any(c["key"] == "spec_bdy_width" for c in changes))
+
+    def test_all_groups_already_present_makes_no_group_changes(self):
+        text = BASE_NL_TEXT.replace(
+            "&physics\n",
+            "&physics\n/\n\n&fdda\n/\n\n&dynamics\n/\n\n&bdy_control\n spec_bdy_width = 5,\n"
+            " spec_zone = 1,\n relax_zone = 4,\n specified = .true.,\n nested = .false.,\n/\n\n"
+            "&grib2\n/\n\n&namelist_quilt\n nio_tasks_per_group = 0,\n nio_groups = 1,\n")
+        txt, changes = cr.complete_namelist(text, BASE_FACTS)
+        self.assertFalse(any(c["key"].startswith("&") for c in changes))
 
 
 # ---------------------------------------------------------------------------
@@ -244,6 +369,659 @@ dx                                  = 12000,
         facts = dict(BASE_FACTS, interval_seconds=10800)   # same value, leading-zero spelling
         txt, changes = cr.complete_namelist(nl_text, facts)
         self.assertFalse(any(c["key"] == "interval_seconds" for c in changes))
+
+
+# ---------------------------------------------------------------------------
+# K1 (2026-09-24): namelist-from-wrfinput -- pure attr->namelist mapping (no netCDF4 needed).
+# ---------------------------------------------------------------------------
+
+class TestNamelistFieldsFromWrfinputFactsPure(unittest.TestCase):
+    def _facts(self):
+        attrs = {
+            "WEST-EAST_GRID_DIMENSION": 425, "SOUTH-NORTH_GRID_DIMENSION": 300,
+            "BOTTOM-TOP_GRID_DIMENSION": 45, "DX": 12000.0, "DY": 12000.0,
+            "GRID_ID": 1, "PARENT_ID": 0, "I_PARENT_START": 1, "J_PARENT_START": 1,
+            "PARENT_GRID_RATIO": 1, "DT": 72.0,
+            "MP_PHYSICS": 8, "RA_LW_PHYSICS": 4, "RA_SW_PHYSICS": 4,
+            "SF_SFCLAY_PHYSICS": 1, "SF_SURFACE_PHYSICS": 2, "BL_PBL_PHYSICS": 1,
+            "CU_PHYSICS": 6, "DIFF_OPT": 1, "KM_OPT": 4, "DAMP_OPT": 3,
+            "HYPSOMETRIC_OPT": 2, "USE_THETA_M": 1, "GWD_OPT": 1, "SF_URBAN_PHYSICS": 0,
+            "NUM_LAND_CAT": 21, "SIMULATION_START_DATE": "2019-11-26_12:00:00",
+        }
+        d01 = {"attrs": attrs, "znw": [1.0, 0.5, 0.0], "p_top": 5000.0,
+              "dzs": [0.1, 0.3, 0.6, 1.0], "times": [datetime.datetime(2019, 11, 26, 12, 0, 0)]}
+        return [d01]
+
+    def test_full_mapping_and_provenance(self):
+        wrfbdy_times = [datetime.datetime(2019, 11, 26, 12, 0, 0) + datetime.timedelta(hours=3 * i)
+                       for i in range(3)]   # 0h/3h/6h -> interval=3h
+        groups, provenance, notes = cr.namelist_fields_from_wrfinput_facts(
+            self._facts(), wrfbdy_times=wrfbdy_times, hours=None)
+        gdict = {g: dict(items) for g, items in groups}
+        self.assertEqual(gdict["domains"]["e_we"], [425])
+        self.assertEqual(gdict["domains"]["e_sn"], [300])
+        self.assertEqual(gdict["domains"]["e_vert"], [45])
+        self.assertEqual(gdict["domains"]["dx"], [12000.0])
+        self.assertEqual(gdict["domains"]["parent_grid_ratio"], [1])
+        self.assertEqual(gdict["domains"]["parent_time_step_ratio"], [1])
+        self.assertEqual(gdict["domains"]["time_step"], [72])
+        self.assertEqual(gdict["domains"]["eta_levels"], [1.0, 0.5, 0.0])
+        self.assertEqual(gdict["domains"]["p_top_requested"], [5000.0])
+        self.assertEqual(gdict["domains"]["max_dom"], [1])
+        self.assertEqual(gdict["physics"]["num_soil_layers"], [4])
+        self.assertEqual(gdict["physics"]["num_land_cat"], [21])
+        self.assertEqual(gdict["physics"]["mp_physics"], [8])
+        # T15(a): gwd_opt/damp_opt/diff_opt/km_opt/use_theta_m are &dynamics per the Registry
+        # catalog, not &physics -- job 986's wrf.exe FATAL traced back to this misplacement.
+        self.assertEqual(gdict["dynamics"]["gwd_opt"], [1])
+        self.assertEqual(gdict["dynamics"]["damp_opt"], [3])
+        self.assertEqual(gdict["physics"]["radt"], [12])   # round(dx_km=12.0)
+        self.assertEqual(gdict["time_control"]["start_year"], [2019])
+        self.assertEqual(gdict["time_control"]["start_month"], [11])
+        self.assertEqual(gdict["time_control"]["start_day"], [26])
+        self.assertEqual(gdict["time_control"]["start_hour"], [12])
+        self.assertEqual(gdict["time_control"]["interval_seconds"], [10800])   # 3h, from wrfbdy
+        # run length = last wrfbdy Times (start+6h) + one interval (3h) = 9h
+        self.assertEqual(gdict["time_control"]["run_days"], [0])
+        self.assertEqual(gdict["time_control"]["run_hours"], [9])
+        self.assertEqual(gdict["time_control"]["run_minutes"], [0])
+        self.assertEqual(gdict["time_control"]["run_seconds"], [0])
+        self.assertEqual(gdict["time_control"]["history_interval"], [60])
+        self.assertEqual(gdict["time_control"]["restart"], [".false."])
+        self.assertEqual(gdict["time_control"]["restart_interval"], [9 * 60])
+        for k in ("io_form_history", "io_form_restart", "io_form_input", "io_form_boundary"):
+            self.assertEqual(gdict["time_control"][k], [2])
+
+        self.assertEqual(provenance["e_we"], "wrfinput_attr")
+        self.assertEqual(provenance["eta_levels"], "wrfinput_attr")
+        self.assertEqual(provenance["p_top_requested"], "wrfinput_attr")
+        self.assertEqual(provenance["num_soil_layers"], "wrfinput_attr")
+        self.assertEqual(provenance["interval_seconds"], "wrfbdy")
+        self.assertEqual(provenance["run_hours"], "wrfbdy")
+        self.assertEqual(provenance["radt"], "rule_default")
+        self.assertEqual(provenance["history_interval"], "rule_default")
+        self.assertEqual(provenance["restart"], "rule_default")
+
+    def test_hours_override_takes_precedence_and_is_tagged_given(self):
+        groups, provenance, notes = cr.namelist_fields_from_wrfinput_facts(
+            self._facts(), wrfbdy_times=None, hours=6.0)
+        gdict = {g: dict(items) for g, items in groups}
+        self.assertEqual(gdict["time_control"]["run_hours"], [6])
+        self.assertEqual(provenance["run_hours"], "given")
+        self.assertEqual(provenance["interval_seconds"], "rule_default")   # no wrfbdy at all
+        self.assertTrue(any("rule_default 3h" in n for n in notes))
+
+    def test_non_integral_dt_writes_fract_fields(self):
+        facts = self._facts()
+        facts[0]["attrs"]["DT"] = 45.5
+        groups, provenance, notes = cr.namelist_fields_from_wrfinput_facts(
+            facts, wrfbdy_times=None, hours=6.0)
+        gdict = {g: dict(items) for g, items in groups}
+        self.assertEqual(gdict["domains"]["time_step"], [45])
+        self.assertEqual(gdict["domains"]["time_step_fract_num"], [50])
+        self.assertEqual(gdict["domains"]["time_step_fract_den"], [100])
+
+    def test_times_mismatch_with_simulation_start_date_notes_it(self):
+        facts = self._facts()
+        facts[0]["times"] = [datetime.datetime(2019, 11, 26, 13, 0, 0)]   # != SIM_START 12:00
+        groups, provenance, notes = cr.namelist_fields_from_wrfinput_facts(
+            facts, wrfbdy_times=None, hours=6.0)
+        self.assertTrue(any("SIMULATION_START_DATE" in n and "Times[0]" in n for n in notes))
+
+    def test_missing_simulation_start_date_raises(self):
+        facts = self._facts()
+        del facts[0]["attrs"]["SIMULATION_START_DATE"]
+        with self.assertRaises(cr.RebuildError):
+            cr.namelist_fields_from_wrfinput_facts(facts, wrfbdy_times=None, hours=6.0)
+
+    def test_missing_grid_attr_raises(self):
+        facts = self._facts()
+        del facts[0]["attrs"]["BOTTOM-TOP_GRID_DIMENSION"]
+        with self.assertRaises(cr.RebuildError):
+            cr.namelist_fields_from_wrfinput_facts(facts, wrfbdy_times=None, hours=6.0)
+
+    def test_two_domains_parent_fields_per_domain(self):
+        d01 = self._facts()[0]
+        d02_attrs = dict(d01["attrs"])
+        d02_attrs.update({"WEST-EAST_GRID_DIMENSION": 151, "SOUTH-NORTH_GRID_DIMENSION": 121,
+                          "DX": 4000.0, "DY": 4000.0, "GRID_ID": 2, "PARENT_ID": 1,
+                          "I_PARENT_START": 50, "J_PARENT_START": 40, "PARENT_GRID_RATIO": 3})
+        d02 = {"attrs": d02_attrs}
+        groups, provenance, notes = cr.namelist_fields_from_wrfinput_facts(
+            [d01, d02], wrfbdy_times=None, hours=6.0)
+        gdict = {g: dict(items) for g, items in groups}
+        self.assertEqual(gdict["domains"]["e_we"], [425, 151])
+        self.assertEqual(gdict["domains"]["parent_id"], [0, 1])
+        self.assertEqual(gdict["domains"]["parent_grid_ratio"], [1, 3])
+        self.assertEqual(gdict["domains"]["parent_time_step_ratio"], [1, 3])
+        self.assertEqual(gdict["domains"]["max_dom"], [2])
+
+    def test_physics_key_dimension_comes_from_the_registry_catalog(self):
+        # T14 (2026-09-24, cluster check against conus12/sc26p1/zhengzhou real namelists):
+        # damp_opt was rendered 'damp_opt = 3, 3, 3,' (broadcast per domain) but WRF's Registry
+        # declares it dimension 1 -- a strict namelist reader can reject the extra values. The
+        # expected dimension for each tested key is read from the SAME catalog K1 itself
+        # consults (registry_per_domain), not hardcoded here, so this test tracks the catalog
+        # rather than encoding an assumption about which keys are which.
+        d01 = self._facts()[0]
+        d02_attrs = dict(d01["attrs"])
+        d02_attrs.update({"WEST-EAST_GRID_DIMENSION": 151, "SOUTH-NORTH_GRID_DIMENSION": 121,
+                          "DX": 4000.0, "DY": 4000.0, "GRID_ID": 2, "PARENT_ID": 1,
+                          "I_PARENT_START": 50, "J_PARENT_START": 40, "PARENT_GRID_RATIO": 3})
+        d02 = {"attrs": d02_attrs}
+        registry = cr.load_registry()
+        groups, provenance, notes = cr.namelist_fields_from_wrfinput_facts(
+            [d01, d02], wrfbdy_times=None, hours=6.0, registry=registry)
+        gdict = {g: dict(items) for g, items in groups}
+        all_items = {}
+        for _g, items in groups:
+            all_items.update(dict(items))
+        physics_keys = [key for key, _attr in cr._PHYSICS_ATTRS]
+        checked_single = checked_per_domain = 0
+        for key in physics_keys:
+            if key not in all_items:
+                continue   # not every physics option is present in every fixture (none skipped
+                          # here, but stay honest about the general case)
+            expected_len = 2 if cr.registry_per_domain(key, registry) else 1
+            self.assertEqual(len(all_items[key]), expected_len,
+                             "%s: expected %d value(s) per registry_per_domain=%s, got %r"
+                             % (key, expected_len,
+                                cr.registry_per_domain(key, registry), all_items[key]))
+            if expected_len == 1:
+                checked_single += 1
+            else:
+                checked_per_domain += 1
+        # sanity: the fixture actually exercises BOTH dimensions (damp_opt/hypsometric_opt/
+        # use_theta_m single; mp_physics/gwd_opt/... per-domain), not just one.
+        self.assertGreater(checked_single, 0)
+        self.assertGreater(checked_per_domain, 0)
+        # exact spot-checks named in the cluster finding -- damp_opt/gwd_opt are &dynamics per
+        # the catalog (T15(a)), not &physics.
+        self.assertEqual(gdict["dynamics"]["damp_opt"], [3])
+        self.assertEqual(gdict["physics"]["mp_physics"], [8, 8])
+        self.assertEqual(gdict["dynamics"]["gwd_opt"], [1, 1])
+
+    def test_frames_per_outfile_is_per_domain_per_registry(self):
+        # T14: frames_per_outfile is per_domain=True in the catalog -- was hardcoded to a
+        # single value before.
+        d01 = self._facts()[0]
+        d02 = {"attrs": dict(d01["attrs"], **{"WEST-EAST_GRID_DIMENSION": 151,
+                                              "SOUTH-NORTH_GRID_DIMENSION": 121, "GRID_ID": 2,
+                                              "PARENT_ID": 1})}
+        registry = cr.load_registry()
+        groups, provenance, notes = cr.namelist_fields_from_wrfinput_facts(
+            [d01, d02], wrfbdy_times=None, hours=6.0, registry=registry)
+        gdict = {g: dict(items) for g, items in groups}
+        self.assertTrue(cr.registry_per_domain("frames_per_outfile", registry))
+        self.assertEqual(gdict["time_control"]["frames_per_outfile"], [1, 1])
+
+    def _two_domain_facts(self):
+        d01 = self._facts()[0]
+        d02_attrs = dict(d01["attrs"])
+        d02_attrs.update({"WEST-EAST_GRID_DIMENSION": 151, "SOUTH-NORTH_GRID_DIMENSION": 121,
+                          "DX": 4000.0, "DY": 4000.0, "GRID_ID": 2, "PARENT_ID": 1,
+                          "I_PARENT_START": 50, "J_PARENT_START": 40, "PARENT_GRID_RATIO": 3})
+        return [d01, {"attrs": d02_attrs}]
+
+    def _render_and_parse(self, wrfbdy_times=None, wrfbdy_bdy_width=None):
+        registry = cr.load_registry()
+        groups, provenance, notes = cr.namelist_fields_from_wrfinput_facts(
+            self._two_domain_facts(), wrfbdy_times=wrfbdy_times, hours=6.0, registry=registry,
+            wrfbdy_bdy_width=wrfbdy_bdy_width)
+        text = cr.render_namelist_input(groups)
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "namelist.input")
+            with open(path, "w") as f:
+                f.write(text)
+            parsed = predict.parse_namelist(path)
+        return groups, parsed, provenance, notes, registry
+
+    def test_every_checked_key_is_in_its_catalog_group(self):
+        # T15(a) (2026-09-24, job 986): each key's group is looked up from the SAME catalog K1
+        # itself consults (registry_group_for_key) -- not hardcoded here either.
+        groups, parsed, provenance, notes, registry = self._render_and_parse()
+        for key in ("diff_opt", "km_opt", "damp_opt", "use_theta_m", "hypsometric_opt",
+                   "gwd_opt", "time_step", "eta_levels", "p_top_requested"):
+            expected_group = cr.registry_group_for_key(key, registry)
+            self.assertIsNotNone(expected_group, "%s has no catalog group at all" % key)
+            self.assertIn(key, parsed.get(expected_group, {}),
+                          "%s: expected in &%s (per the catalog), parsed groups were %s"
+                          % (key, expected_group, sorted(parsed.keys())))
+
+    def test_all_eight_groups_present_even_when_empty(self):
+        # T15(b) (2026-09-24, job 986): wrf.exe FATAL'd 'ERROR reading namelist namelist_quilt'
+        # because K1's rendered namelist had NO &namelist_quilt group at all (WRF's reader
+        # errors on a missing GROUP, not just a missing key) -- every group WRF reads must be
+        # present, even empty ones this fixture doesn't populate (&fdda, &grib2).
+        groups, parsed, provenance, notes, registry = self._render_and_parse()
+        for group in ("time_control", "domains", "physics", "fdda", "dynamics", "bdy_control",
+                     "grib2", "namelist_quilt"):
+            self.assertIn(group, parsed, "missing &%s entirely" % group)
+        self.assertEqual(parsed.get("fdda", "MISSING"), {})
+        self.assertEqual(parsed.get("grib2", "MISSING"), {})
+        self.assertTrue(any("does not record which groups" in n for n in notes))
+
+    def test_bdy_control_exact_values_rule_default(self):
+        # T15(c): no wrfbdy fixture given here -> spec_bdy_width rule_default (5); specified is
+        # .true. for d01 only, nested is .true. for every OTHER domain.
+        groups, parsed, provenance, notes, registry = self._render_and_parse()
+        bdy = parsed["bdy_control"]
+        self.assertEqual(bdy["spec_bdy_width"], [5])
+        self.assertEqual(bdy["spec_zone"], [1])
+        self.assertEqual(bdy["relax_zone"], [4])
+        self.assertEqual(bdy["specified"], [True, False])
+        self.assertEqual(bdy["nested"], [False, True])
+        self.assertEqual(provenance["spec_bdy_width"], "rule_default")
+        self.assertEqual(provenance["specified"], "rule_default")
+
+    def test_spec_bdy_width_from_wrfbdy_bdy_width_when_present(self):
+        # T15(c): the wrfbdy file's own bdy_width dimension, when known, wins over the
+        # Registry default -- provenance 'wrfbdy'.
+        groups, parsed, provenance, notes, registry = self._render_and_parse(wrfbdy_bdy_width=4)
+        bdy = parsed["bdy_control"]
+        self.assertEqual(bdy["spec_bdy_width"], [4])
+        self.assertEqual(provenance["spec_bdy_width"], "wrfbdy")
+
+    def test_namelist_quilt_rule_defaults(self):
+        # T15(d)
+        groups, parsed, provenance, notes, registry = self._render_and_parse()
+        quilt = parsed["namelist_quilt"]
+        self.assertEqual(quilt["nio_tasks_per_group"], [0])
+        self.assertEqual(quilt["nio_groups"], [1])
+        self.assertEqual(provenance["nio_tasks_per_group"], "rule_default")
+        self.assertEqual(provenance["nio_groups"], "rule_default")
+
+
+class TestRenderNamelistInput(unittest.TestCase):
+    def test_renders_group_key_value_lines(self):
+        groups = [("time_control", [("run_hours", [6])]),
+                 ("domains", [("e_we", [425, 151]), ("eta_levels", [1.0, 0.5, 0.0])])]
+        text = cr.render_namelist_input(groups)
+        self.assertIn("&time_control", text)
+        self.assertIn(" run_hours = 6,", text)
+        self.assertIn("&domains", text)
+        self.assertIn(" e_we = 425, 151,", text)
+        self.assertIn(" eta_levels = 1.0, 0.5, 0.0,", text)
+        self.assertEqual(text.count("/"), 2)
+
+
+@unittest.skipUnless(HAS_NETCDF4, "netCDF4 not installed in this dev environment")
+class TestCmdNamelistFromWrfinput(unittest.TestCase):
+    def _write_wrfinput(self, path, e_we=425, e_sn=300, e_vert=45, grid_id=1, parent_id=0,
+                        i_parent_start=1, j_parent_start=1, parent_grid_ratio=1, dx=12000.0,
+                        start="2019-11-26_12:00:00", with_vertical=True):
+        import netCDF4
+        ds = netCDF4.Dataset(path, "w")
+        ds.createDimension("Time", None)
+        ds.createDimension("DateStrLen", 19)
+        ds.createDimension("bottom_top_stag", e_vert + 1)
+        ds.createDimension("soil_layers_stag", 4)
+        ds.setncattr("WEST-EAST_GRID_DIMENSION", e_we)
+        ds.setncattr("SOUTH-NORTH_GRID_DIMENSION", e_sn)
+        ds.setncattr("BOTTOM-TOP_GRID_DIMENSION", e_vert)
+        ds.setncattr("DX", dx); ds.setncattr("DY", dx)
+        ds.setncattr("GRID_ID", grid_id); ds.setncattr("PARENT_ID", parent_id)
+        ds.setncattr("I_PARENT_START", i_parent_start)
+        ds.setncattr("J_PARENT_START", j_parent_start)
+        ds.setncattr("PARENT_GRID_RATIO", parent_grid_ratio)
+        ds.setncattr("DT", 72.0)
+        for k, v in (("MP_PHYSICS", 8), ("RA_LW_PHYSICS", 4), ("RA_SW_PHYSICS", 4),
+                    ("SF_SFCLAY_PHYSICS", 1), ("SF_SURFACE_PHYSICS", 2),
+                    ("BL_PBL_PHYSICS", 1), ("CU_PHYSICS", 6), ("DIFF_OPT", 1),
+                    ("KM_OPT", 4), ("DAMP_OPT", 3), ("HYPSOMETRIC_OPT", 2),
+                    ("USE_THETA_M", 1), ("GWD_OPT", 1), ("SF_URBAN_PHYSICS", 0),
+                    ("NUM_LAND_CAT", 21)):
+            ds.setncattr(k, v)
+        ds.setncattr("SIMULATION_START_DATE", start)
+        times = ds.createVariable("Times", "S1", ("Time", "DateStrLen"))
+        times[0] = np.array(list(start), "S1")
+        if with_vertical:
+            znw = ds.createVariable("ZNW", "f4", ("Time", "bottom_top_stag"))
+            znw[0] = np.linspace(1.0, 0.0, e_vert + 1)
+            p_top = ds.createVariable("P_TOP", "f4", ("Time",))
+            p_top[0] = 5000.0
+            dzs = ds.createVariable("DZS", "f4", ("Time", "soil_layers_stag"))
+            dzs[0] = [0.1, 0.3, 0.6, 1.0]
+        ds.close()
+
+    def _write_wrfbdy(self, path, start, hours_span, interval_h=3):
+        import netCDF4
+        ds = netCDF4.Dataset(path, "w")
+        n = hours_span // interval_h + 1
+        ds.createDimension("Time", None)
+        ds.createDimension("DateStrLen", 19)
+        times = ds.createVariable("Times", "S1", ("Time", "DateStrLen"))
+        base = datetime.datetime.strptime(start, cr._WRF_TIME_FMT)
+        strs = [(base + datetime.timedelta(hours=interval_h * i)).strftime(cr._WRF_TIME_FMT)
+               for i in range(n)]
+        times[:] = np.array([list(x) for x in strs], "S1")
+        ds.close()
+
+    def test_every_key_and_provenance_single_domain_with_wrfbdy(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._write_wrfinput(os.path.join(d, "wrfinput_d01"))
+            self._write_wrfbdy(os.path.join(d, "wrfbdy_d01"), "2019-11-26_12:00:00", 6,
+                               interval_h=3)
+            out_path = os.path.join(d, "namelist.input")
+            text, provenance, notes = cr.cmd_namelist_from_wrfinput(d, out_path)
+
+            self.assertTrue(os.path.exists(out_path))
+            prov_path = os.path.join(d, "namelist_provenance.json")
+            self.assertTrue(os.path.exists(prov_path))
+            with open(prov_path) as f:
+                on_disk = json.load(f)
+            self.assertEqual(on_disk["provenance"], provenance)
+
+            self.assertEqual(cs.get_first(text, "e_we"), "425")
+            self.assertEqual(cs.get_first(text, "e_vert"), "45")
+            self.assertEqual(cs.get_first(text, "p_top_requested"), "5000.0")
+            self.assertEqual(cs.count_key(text, "eta_levels"), 1)
+            self.assertEqual(cs.get_first(text, "num_soil_layers"), "4")
+            self.assertEqual(cs.get_first(text, "interval_seconds"), "10800")
+            self.assertEqual(cs.get_first(text, "run_hours"), "9")   # 6h span + one 3h interval
+            self.assertEqual(provenance["interval_seconds"], "wrfbdy")
+            self.assertEqual(provenance["run_hours"], "wrfbdy")
+            self.assertEqual(provenance["eta_levels"], "wrfinput_attr")
+            self.assertEqual(provenance["radt"], "rule_default")
+
+    def test_hours_override_and_no_wrfbdy(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._write_wrfinput(os.path.join(d, "wrfinput_d01"))
+            out_path = os.path.join(d, "namelist.input")
+            text, provenance, notes = cr.cmd_namelist_from_wrfinput(d, out_path, hours=12.0)
+            self.assertEqual(cs.get_first(text, "run_hours"), "12")
+            self.assertEqual(provenance["run_hours"], "given")
+            self.assertEqual(provenance["interval_seconds"], "rule_default")
+
+
+# ---------------------------------------------------------------------------
+# K2 (2026-09-24): new-domain -- for a user who only knows where and when.
+# ---------------------------------------------------------------------------
+
+class TestNewDomainFields(unittest.TestCase):
+    START = datetime.datetime(2020, 6, 1, 0, 0, 0)
+
+    def test_lat_10_is_mercator(self):
+        groups, wps, provenance, notes = cr.new_domain_fields(
+            10.0, 100.0, (1200.0, 1200.0), 12.0, self.START, 6.0)
+        self.assertEqual(wps["map_proj"], "mercator")
+        self.assertEqual(wps["truelat1"], 10.0)
+        self.assertIsNone(wps["truelat2"])
+        self.assertIsNone(wps["stand_lon"])
+
+    def test_lat_40_is_lambert(self):
+        groups, wps, provenance, notes = cr.new_domain_fields(
+            40.0, -98.0, (1200.0, 1200.0), 12.0, self.START, 6.0)
+        self.assertEqual(wps["map_proj"], "lambert")
+        self.assertEqual(wps["truelat1"], 40.0)
+        self.assertEqual(wps["truelat2"], 40.0)
+        self.assertEqual(wps["stand_lon"], -98.0)
+
+    def test_lat_75_is_polar(self):
+        groups, wps, provenance, notes = cr.new_domain_fields(
+            75.0, 10.0, (1200.0, 1200.0), 12.0, self.START, 6.0)
+        self.assertEqual(wps["map_proj"], "polar")
+        self.assertEqual(wps["truelat1"], 75.0)
+        self.assertIsNone(wps["truelat2"])
+
+    def test_e_we_for_w1200_dx12_is_101(self):
+        groups, wps, provenance, notes = cr.new_domain_fields(
+            40.0, -98.0, (1200.0, 1200.0), 12.0, self.START, 6.0)
+        gdict = {g: dict(items) for g, items in groups}
+        self.assertEqual(gdict["domains"]["e_we"], [101])
+        self.assertEqual(wps["e_we"], [101])
+
+    def test_tropical_physics_suite_and_convection_permitting(self):
+        groups, wps, provenance, notes = cr.new_domain_fields(
+            10.0, 100.0, (400.0, 400.0), 3.0, self.START, 6.0)
+        gdict = {g: dict(items) for g, items in groups}
+        self.assertEqual(gdict["physics"]["physics_suite"], ["'TROPICAL'"])
+        self.assertEqual(gdict["physics"]["cu_physics"], [0])   # dx_km=3 < 4
+
+    def test_conus_physics_suite_no_cu_override_above_4km(self):
+        groups, wps, provenance, notes = cr.new_domain_fields(
+            40.0, -98.0, (1200.0, 1200.0), 12.0, self.START, 6.0)
+        gdict = {g: dict(items) for g, items in groups}
+        self.assertEqual(gdict["physics"]["physics_suite"], ["'CONUS'"])
+        self.assertNotIn("cu_physics", gdict["physics"])
+
+    def test_radt_equals_round_dx_km(self):
+        groups, wps, provenance, notes = cr.new_domain_fields(
+            40.0, -98.0, (1200.0, 1200.0), 12.0, self.START, 6.0)
+        gdict = {g: dict(items) for g, items in groups}
+        self.assertEqual(gdict["physics"]["radt"], [12])
+
+    def test_time_step_is_floor_6x_dx(self):
+        groups, wps, provenance, notes = cr.new_domain_fields(
+            40.0, -98.0, (1200.0, 1200.0), 12.5, self.START, 6.0)
+        gdict = {g: dict(items) for g, items in groups}
+        self.assertEqual(gdict["domains"]["time_step"], [75])   # floor(6*12.5)=75
+
+    def test_given_vs_rule_default_provenance(self):
+        groups, wps, provenance, notes = cr.new_domain_fields(
+            40.0, -98.0, (1200.0, 1200.0), 12.0, self.START, 6.0)
+        self.assertEqual(provenance["ref_lat"], "given")
+        self.assertEqual(provenance["ref_lon"], "given")
+        self.assertEqual(provenance["dx"], "given")
+        self.assertEqual(provenance["start_year"], "given")
+        self.assertEqual(provenance["run_hours"], "given")
+        self.assertEqual(provenance["e_we"], "rule_default")
+        self.assertEqual(provenance["map_proj"], "rule_default")
+        self.assertEqual(provenance["truelat1"], "rule_default")
+        self.assertEqual(provenance["radt"], "rule_default")
+
+
+class TestCmdNewDomain(unittest.TestCase):
+    def test_refuses_partial_four_inputs(self):
+        with self.assertRaises(cr.RebuildError):
+            cr.cmd_new_domain(center="40,-98", size_km=None, dx_km="12", start="2020-06-01_00:00:00",
+                              hours=6.0, out_dir="/tmp/whatever")
+
+    def test_refuses_none_of_the_four(self):
+        with self.assertRaises(cr.RebuildError):
+            cr.cmd_new_domain(hours=6.0, out_dir="/tmp/whatever")
+
+    def test_writes_namelist_input_and_wps_and_provenance(self):
+        with tempfile.TemporaryDirectory() as d:
+            out_dir = os.path.join(d, "domain")
+            cr.cmd_new_domain(center="40,-98", size_km="1200,1200", dx_km="12",
+                              start="2020-06-01_00:00:00", hours=6.0, out_dir=out_dir)
+            nl_path = os.path.join(out_dir, "namelist.input")
+            nlw_path = os.path.join(out_dir, "namelist.wps")
+            prov_path = os.path.join(out_dir, "namelist_provenance.json")
+            self.assertTrue(os.path.exists(nl_path))
+            self.assertTrue(os.path.exists(nlw_path))
+            self.assertTrue(os.path.exists(prov_path))
+            with open(nl_path) as f:
+                nl_text = f.read()
+            self.assertEqual(cs.get_first(nl_text, "e_we"), "101")
+            with open(nlw_path) as f:
+                nlw_text = f.read()
+            self.assertIn("map_proj          = 'lambert',", nlw_text)
+
+
+# ---------------------------------------------------------------------------
+# K3 (2026-09-24, zhengzhou -- wrfinput_d0N but no wrfbdy_d01): finalize --keep-wrfinput keeps
+# real.exe's own wrfbdy/wrflowinp (boundaries) but the case's ORIGINAL wrfinput (interior).
+# compare() itself (grid_identity_check + metrics) is mocked here -- it needs real netCDF4
+# files, and its own internals are covered elsewhere; this tests the ORCHESTRATION K3 adds:
+# which file gets kept, that compare() is called with the right two paths, that a grid mismatch
+# (compare() raising) propagates as a refusal, and that the report records the choice.
+# ---------------------------------------------------------------------------
+
+class TestCmdRebuildFinalizeKeepWrfinput(unittest.TestCase):
+    def _setup(self, d, with_original_wrfinput=True):
+        out_dir = os.path.join(d, "out")
+        case_dir = os.path.join(d, "case")
+        real_dir = os.path.join(out_dir, "real")
+        wps_dir = os.path.join(out_dir, "wps")
+        os.makedirs(real_dir)
+        os.makedirs(wps_dir)
+        os.makedirs(case_dir)
+        plan = {"case_dir": case_dir, "max_dom": 1,
+               "namelist_input": os.path.join(case_dir, "namelist.input"),
+               "span_start": "2020-01-01_00:00:00", "span_end": "2020-01-01_06:00:00",
+               "stated_start": "2020-01-01_00:00:00", "analog_start": None, "shift_s": 0.0,
+               "forcing_chain_primary": {"dataset": "d084001", "prefix": "GFS",
+                                        "vtable": "Vtable.GFS", "forcing_interval_h": 3},
+               "forcing_pin": None}
+        with open(os.path.join(out_dir, "plan.json"), "w") as f:
+            json.dump(plan, f)
+        with open(os.path.join(real_dir, "wrfinput_d01"), "w") as f:
+            f.write("REAL-WRFINPUT")
+        with open(os.path.join(real_dir, "wrfbdy_d01"), "w") as f:
+            f.write("REAL-WRFBDY")
+        with open(os.path.join(real_dir, "namelist.input"), "w") as f:
+            f.write("&time_control\n/\n")
+        if with_original_wrfinput:
+            with open(os.path.join(case_dir, "wrfinput_d01"), "w") as f:
+                f.write("ORIGINAL-WRFINPUT")
+        return out_dir, case_dir, real_dir
+
+    def test_default_copies_reals_own_wrfinput(self):
+        with tempfile.TemporaryDirectory() as d:
+            out_dir, case_dir, real_dir = self._setup(d)
+            with mock.patch.object(cs, "inspect_case", return_value=([], [], {})):
+                cr.cmd_rebuild_finalize(out_dir, keep_wrfinput=False)
+            with open(os.path.join(out_dir, "case", "wrfinput_d01")) as f:
+                self.assertEqual(f.read(), "REAL-WRFINPUT")
+
+    def test_keep_wrfinput_keeps_original_and_calls_compare(self):
+        with tempfile.TemporaryDirectory() as d:
+            out_dir, case_dir, real_dir = self._setup(d)
+            fake_report = {"verdict": "consistent"}
+            with mock.patch.object(cs, "inspect_case", return_value=([], [], {})), \
+                 mock.patch.object(cr, "compare", return_value=fake_report) as mock_compare:
+                report = cr.cmd_rebuild_finalize(out_dir, keep_wrfinput=True)
+            mock_compare.assert_called_once_with(
+                os.path.join(case_dir, "wrfinput_d01"), os.path.join(real_dir, "wrfinput_d01"))
+            with open(os.path.join(out_dir, "case", "wrfinput_d01")) as f:
+                self.assertEqual(f.read(), "ORIGINAL-WRFINPUT")
+            # wrfbdy still comes from real.exe -- the case had none of its own
+            with open(os.path.join(out_dir, "case", "wrfbdy_d01")) as f:
+                self.assertEqual(f.read(), "REAL-WRFBDY")
+            self.assertEqual(report["keep_wrfinput"]["d01_vs_analysis_t0_compare"], fake_report)
+            self.assertIn("wrfinput_d01", report["keep_wrfinput"]["domains"])
+            self.assertIn("boundaries", report["keep_wrfinput"]["note"])
+            self.assertIn("interior", report["keep_wrfinput"]["note"])
+
+    def test_keep_wrfinput_without_original_raises(self):
+        with tempfile.TemporaryDirectory() as d:
+            out_dir, case_dir, real_dir = self._setup(d, with_original_wrfinput=False)
+            with mock.patch.object(cs, "inspect_case", return_value=([], [], {})):
+                with self.assertRaises(cr.RebuildError):
+                    cr.cmd_rebuild_finalize(out_dir, keep_wrfinput=True)
+
+    def test_keep_wrfinput_propagates_grid_mismatch_refusal(self):
+        with tempfile.TemporaryDirectory() as d:
+            out_dir, case_dir, real_dir = self._setup(d)
+            with mock.patch.object(cs, "inspect_case", return_value=([], [], {})), \
+                 mock.patch.object(cr, "compare",
+                                   side_effect=cr.RebuildError("grid identity check FAILED: x")):
+                with self.assertRaises(cr.RebuildError):
+                    cr.cmd_rebuild_finalize(out_dir, keep_wrfinput=True)
+
+
+# ---------------------------------------------------------------------------
+# K4 (2026-09-24): `complete` front door -- inventory + path selection. Pure filesystem checks,
+# no netCDF4 needed for the DECISION (files are touched empty). One test per inventory (a)-(f).
+# ---------------------------------------------------------------------------
+
+class TestInventoryAndChoosePathSixCases(unittest.TestCase):
+    def _touch(self, d, *names):
+        for name in names:
+            open(os.path.join(d, name), "w").close()
+
+    def test_a_everything_present_is_as_is(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._touch(d, "namelist.input", "namelist.wps", "wrfinput_d01", "wrfbdy_d01")
+            inv = cr.inventory_case_dir(d)
+            decision = cr.choose_completion_path(inv, have_center_size_dx_start=False)
+            self.assertEqual(decision["path"], "as_is")
+            self.assertFalse(decision["needs_k1"])
+            self.assertFalse(decision["needs_k3"])
+
+    def test_b_wrfinput_and_wrfbdy_no_namelist_is_k1_only(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._touch(d, "wrfinput_d01", "wrfbdy_d01")
+            inv = cr.inventory_case_dir(d)
+            decision = cr.choose_completion_path(inv, have_center_size_dx_start=False)
+            self.assertEqual(decision["path"], "k1_and_or_k3")
+            self.assertTrue(decision["needs_k1"])
+            self.assertFalse(decision["needs_k3"])
+
+    def test_c_wrfinput_and_namelist_no_wrfbdy_is_k3_only(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._touch(d, "wrfinput_d01", "namelist.input")
+            inv = cr.inventory_case_dir(d)
+            decision = cr.choose_completion_path(inv, have_center_size_dx_start=False)
+            self.assertEqual(decision["path"], "k1_and_or_k3")
+            self.assertFalse(decision["needs_k1"])
+            self.assertTrue(decision["needs_k3"])
+
+    def test_d_namelist_and_projection_only_is_existing_rebuild(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._touch(d, "namelist.input", "namelist.wps")
+            inv = cr.inventory_case_dir(d)
+            decision = cr.choose_completion_path(inv, have_center_size_dx_start=False)
+            self.assertEqual(decision["path"], "existing_rebuild")
+
+    def test_e_nothing_but_center_size_dx_start_is_k2_then_rebuild(self):
+        with tempfile.TemporaryDirectory() as d:
+            inv = cr.inventory_case_dir(d)
+            decision = cr.choose_completion_path(inv, have_center_size_dx_start=True)
+            self.assertEqual(decision["path"], "k2_then_rebuild")
+
+    def test_f_nothing_at_all_refuses_naming_what_is_needed(self):
+        with tempfile.TemporaryDirectory() as d:
+            inv = cr.inventory_case_dir(d)
+            decision = cr.choose_completion_path(inv, have_center_size_dx_start=False)
+            self.assertEqual(decision["path"], "refuse")
+            self.assertIn("namelist.input", decision["reason"])
+            self.assertIn("wrfinput_d0N", decision["reason"])
+            self.assertIn("--center/--size-km/--dx-km/--start", decision["reason"])
+
+    def test_wrfinput_with_namelist_and_wrfbdy_but_no_namelist_wps_is_still_as_is(self):
+        # namelist.input carries its own projection (via a wrfinput_d01, which is also present)
+        # -- (a) does not require namelist.wps specifically, only namelist.input+wrfinput+wrfbdy.
+        with tempfile.TemporaryDirectory() as d:
+            self._touch(d, "namelist.input", "wrfinput_d01", "wrfbdy_d01")
+            inv = cr.inventory_case_dir(d)
+            decision = cr.choose_completion_path(inv, have_center_size_dx_start=False)
+            self.assertEqual(decision["path"], "as_is")
+
+
+class TestCmdComplete(unittest.TestCase):
+    def test_refuses_partial_four_domain_args(self):
+        with tempfile.TemporaryDirectory() as d:
+            in_dir = os.path.join(d, "in")
+            os.makedirs(in_dir)
+            with self.assertRaises(cr.RebuildError):
+                cr.cmd_complete(in_dir, os.path.join(d, "out"), center="40,-98", size_km=None,
+                                dx_km=12.0, start="2020-06-01_00:00:00")
+
+    def test_refuses_when_nothing_locates_the_domain(self):
+        with tempfile.TemporaryDirectory() as d:
+            in_dir = os.path.join(d, "in")
+            os.makedirs(in_dir)
+            with self.assertRaises(cr.RebuildError):
+                cr.cmd_complete(in_dir, os.path.join(d, "out"))
+
+    def test_k2_then_rebuild_path_calls_new_domain_and_rebuild_plan(self):
+        with tempfile.TemporaryDirectory() as d:
+            in_dir = os.path.join(d, "in")
+            out_dir = os.path.join(d, "out")
+            os.makedirs(in_dir)
+            fake_plan = {"span_start": "2020-06-01_00:00:00"}
+            with mock.patch.object(cr, "cmd_rebuild_plan", return_value=fake_plan) as mock_plan:
+                report = cr.cmd_complete(in_dir, out_dir, center="40,-98", size_km="1200,1200",
+                                         dx_km=12.0, start="2020-06-01_00:00:00", hours=6.0)
+            self.assertTrue(os.path.exists(os.path.join(out_dir, "namelist.input")))
+            mock_plan.assert_called_once()
+            call_kwargs = mock_plan.call_args
+            self.assertEqual(call_kwargs.args[0], out_dir)   # case_dir_for_plan = out_dir (K2's)
+            self.assertEqual(report["decision"]["path"], "k2_then_rebuild")
+            self.assertTrue(os.path.exists(os.path.join(out_dir, "completion_report.json")))
 
 
 # ---------------------------------------------------------------------------
@@ -404,6 +1182,27 @@ class TestRenderRebuildSbatch(unittest.TestCase):
         self.assertIn("wrf.exe smoke run: 20 steps", text)
         self.assertIn("export OMP_NUM_THREADS=2", text)
         self.assertIn("unset OMP_PLACES OMP_PROC_BIND", text)
+
+    def test_ml_model_default_off_no_ml_code_at_all(self):
+        plan = self._plan()
+        plan["ml_model"] = None
+        text = cr.render_rebuild_sbatch(plan, self._chosen())
+        self.assertNotIn("ML_MODEL=", text)
+        self.assertNotIn("TOOL_SCM=", text)
+        self.assertNotIn("--targets-from-report", text)
+        self.assertNotIn("ml_status.txt", text)
+
+    def test_ml_model_wires_grib_python_and_apply_step(self):
+        plan = self._plan()
+        plan["ml_model"] = "/out/dir/report.json"
+        text = cr.render_rebuild_sbatch(plan, self._chosen())
+        self.assertIn("ML_MODEL=/out/dir/report.json", text)
+        self.assertIn("state_correction_model.py", text)
+        self.assertIn("GRIB_PY=${GRIB_PYTHON:-$HOME/wtune/envs/grib/.pixi/envs/default/bin/python}",
+                     text)
+        self.assertIn("\"$GRIB_PY\" \"$TOOL_SCM\" apply", text)
+        self.assertIn("--targets-from-report", text)
+        self.assertIn("REBUILD_DIR/ml_status.txt", text)
 
 
 # ---------------------------------------------------------------------------

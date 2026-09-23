@@ -487,6 +487,59 @@ class TestBuildPlan(unittest.TestCase):
             plan, _w = md.build_plan(d, purpose='wps', now=datetime.datetime(2026, 9, 22))
             self.assertEqual(len(plan), 3)   # 0,3,6h at 3h interval over a 6h run
 
+    def test_build_plan_wps_purpose_lafe_shape_five_times(self):
+        """Regression for the wtune.py:extract_case bug where run_total_hours came out 0 for
+        the lafe shape (every run_* key is 0; length is expressed only via start_date
+        (2017-08-23 06:00) -> end_date (2017-08-24 06:00) = 24h) -- 'metdata find --purpose wps'
+        used to emit ONE GRIB time (0h only) instead of the FIVE (0,6,12,18,24h) a 24h case at
+        the default 6h WPS interval actually needs; WPS would get an initial condition and no
+        lateral boundary data. Fixture transcribed verbatim from the real cluster namelist
+        (leading-zero months, per-domain comma lists, irregular spacing preserved -- see
+        tools/test_temporal_validation.py's NML_LAFE_SHAPE for the same shape). No namelist.wps
+        is provided, so resolve_wps_times falls back to its own 6h default interval_seconds,
+        which happens to equal this template's own &time_control interval_seconds=21600."""
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            nl_path = os.path.join(d, 'namelist.input')
+            with open(nl_path, 'w') as fh:
+                fh.write("""\
+ &time_control
+ run_days                            = 0,
+ run_hours                           = 0,
+ run_minutes                         = 0,
+ run_seconds                         = 0,
+ start_year                          = 2017, 2017, 2017,
+ start_month                         = 08,   08,   08,
+ start_day                           = 23,   23,   23,
+ start_hour                          = 06,   06,   06,
+ start_minute                        = 00,   00,   00,
+ start_second                        = 00,   00,   00,
+ end_year                            = 2017, 2017, 2017,
+ end_month                           = 08,   08,   08,
+ end_day                             = 24,   24,   24,
+ end_hour                            = 06,   06,   06,
+ end_minute                          = 00,   00,   00,
+ end_second                          = 00,   00,   00,
+ interval_seconds                    = 21600,
+ /
+ &domains
+ max_dom                             = 1,
+ e_we                                = 1000,
+ e_sn                                = 1000,
+ e_vert                              = 100,
+ dx                                  = 2500,
+ dy                                  = 2500,
+ ref_lat                             = 36.21,
+ ref_lon                             = -97.48,
+ /
+ &physics
+ /
+""")
+            plan, _w = md.build_plan(d, purpose='wps', now=datetime.datetime(2026, 9, 22))
+            self.assertEqual(len(plan), 5)   # 0,6,12,18,24h at the default 6h interval over 24h
+            self.assertEqual(plan[0]['valid_time'], datetime.datetime(2017, 8, 23, 6))
+            self.assertEqual(plan[-1]['valid_time'], datetime.datetime(2017, 8, 24, 6))
+
     def test_build_plan_too_old_returns_none_source_and_no_messages(self):
         import tempfile
         with tempfile.TemporaryDirectory() as d:

@@ -148,6 +148,78 @@ def test_multiple_assignments_with_quoted_string_value(tmp_path):
     assert nl["time_control"]["run_hours"] == [0]
 
 
+# ---------------------------------------------------------------------------
+# get_run_seconds: date-span fallback (job 587/588 postmortem shapes, transcribed verbatim from
+# the real cluster namelists -- leading-zero months, per-domain comma lists, irregular spacing
+# all preserved, since those are exactly what break a naive parser). See
+# tools/test_temporal_validation.py's NML_LAFE_SHAPE/NML_ISC21_SHAPE for the same two cases
+# exercised through read_run_length_hours, test_wtune.py for extract_case, and
+# tools/test_metdata.py for the WPS GRIB-time count.
+# ---------------------------------------------------------------------------
+LAFE_TIME_CONTROL = """\
+ &time_control
+ run_days                            = 0,
+ run_hours                           = 0,
+ run_minutes                         = 0,
+ run_seconds                         = 0,
+ start_year                          = 2017, 2017, 2017,
+ start_month                         = 08,   08,   08,
+ start_day                           = 23,   23,   23,
+ start_hour                          = 06,   06,   06,
+ start_minute                        = 00,   00,   00,
+ start_second                        = 00,   00,   00,
+ end_year                            = 2017, 2017, 2017,
+ end_month                           = 08,   08,   08,
+ end_day                             = 24,   24,   24,
+ end_hour                            = 06,   06,   06,
+ end_minute                          = 00,   00,   00,
+ end_second                          = 00,   00,   00,
+ interval_seconds                    = 21600,
+ /
+"""
+
+ISC21_TIME_CONTROL = """\
+&time_control
+   run_days = 0,
+   run_hours = 0,
+   run_minutes = 30,
+   run_seconds = 00,
+   start_year =  2016, 2016, 2016
+   start_month = 08,   08,   08,
+   start_day =   29,   29,   29,
+   start_hour =  09,   09,   09,
+   end_year =    2016, 2016, 2016,
+   end_month =   08,   08,   08,
+   end_day =     30,   30,   30,
+   end_hour =    00,   00,   00,
+   interval_seconds = 10800,
+ /
+"""
+
+
+def test_get_run_seconds_lafe_shape_uses_date_span(tmp_path):
+    """Every run_* key is 0 -> falls back to start_date (2017-08-23 06:00) -> end_date
+    (2017-08-24 06:00) = exactly 86400s (24h), not 0 and not a PredictError."""
+    nl_path = _write(str(tmp_path / "namelist.input"), LAFE_TIME_CONTROL)
+    nl = wp.parse_namelist(nl_path)
+    assert wp.get_run_seconds(nl) == 86400.0
+
+
+def test_get_run_seconds_isc21_shape_run_minutes_wins_over_date_span(tmp_path):
+    """run_minutes=30 alone is nonzero -> 1800s exactly, even though start->end spans a
+    DIFFERENT 15h (2016-08-29 09:00 -> 2016-08-30 00:00) that must NOT win."""
+    nl_path = _write(str(tmp_path / "namelist.input"), ISC21_TIME_CONTROL)
+    nl = wp.parse_namelist(nl_path)
+    assert wp.get_run_seconds(nl) == 1800.0
+
+
+def test_get_run_seconds_raises_predicterror_when_neither_source_available():
+    nl = {"time_control": {"run_days": [0], "run_hours": [0], "run_minutes": [0],
+                            "run_seconds": [0]}}
+    with pytest.raises(wp.PredictError):
+        wp.get_run_seconds(nl)
+
+
 def test_timestep_fraction_and_non_exact_multiple_flagged(tmp_path):
     nl_path = _write(str(tmp_path / "namelist.input"), """\
 &time_control

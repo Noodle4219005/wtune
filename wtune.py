@@ -20,6 +20,8 @@ import wtune_solar as wsolar
 import wtune_surrogate as surr
 import wtune_compliance as wc
 import wtune_version
+import wtune_runlength as runlen         # resolve_run_seconds: single-sourced run_* keys vs.
+                                          # start/end date-span resolver (dependency-free)
 from wtune_feedback import (FeedbackController, FeedbackError, FeedbackSample,
                             decisions_to_csv, decisions_to_json)
 
@@ -142,7 +144,40 @@ def extract_case(nl):
 
     run_hours = scalar(t, 'run_hours', 0) or 0
     run_days = scalar(t, 'run_days', 0) or 0
-    total_run_hours = run_hours + run_days * 24
+    run_minutes = scalar(t, 'run_minutes', 0) or 0
+    run_seconds = scalar(t, 'run_seconds', 0) or 0
+
+    import datetime as _dt
+
+    def _time_control_datetime(prefix):
+        """d01 <prefix>_year/month/day/hour/minute/second (first value) -> datetime, or None when
+        year/month/day are not all present. Local to run-length resolution only: the output
+        dict's own 'start_year' etc. fields below default to a synthetic 2021-01-01 for OTHER
+        consumers (solar/radiation calc) and must not leak into the run-length date-span
+        fallback, which needs to know when a date is genuinely absent."""
+        y = scalar(t, prefix + '_year', None)
+        mo = scalar(t, prefix + '_month', None)
+        dy = scalar(t, prefix + '_day', None)
+        if y is None or mo is None or dy is None:
+            return None
+        h = scalar(t, prefix + '_hour', 0) or 0
+        mi = scalar(t, prefix + '_minute', 0) or 0
+        se = scalar(t, prefix + '_second', 0) or 0
+        return _dt.datetime(int(y), int(mo), int(dy), int(h), int(mi), int(se))
+
+    # run_total_hours: run_days/run_hours/run_minutes/run_seconds when their sum is > 0 (this
+    # used to silently DROP run_minutes/run_seconds, e.g. isc21's run_minutes=30 -> 0); otherwise
+    # the start_date -> end_date span (this case, e.g. lafe's all-four-zero shape, used to have
+    # no fallback at all and also come out 0). Falls back to 0.0 ("unset", extract_case's own
+    # existing convention for every other missing field) rather than raising, since extract_case
+    # is called from contexts that never need run length at all (physics-suite resolution, pure
+    # domain-geometry queries) and must keep returning a best-effort dict.
+    try:
+        total_run_hours = runlen.resolve_run_seconds(
+            run_days, run_hours, run_minutes, run_seconds,
+            _time_control_datetime('start'), _time_control_datetime('end')) / 3600.0
+    except ValueError:
+        total_run_hours = 0.0
 
     history_interval = scalar(t, 'history_interval_m', None)
     if history_interval is None:

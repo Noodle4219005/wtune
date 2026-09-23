@@ -66,6 +66,8 @@ os.environ.setdefault("SITE", "scc")
 import configs as campaign_configs          # campaign/configs.py, stdlib only
 import scc_sweep                            # tools/scc_sweep.py: config generation + sbatch helpers
                                              # (imports predictor/decomp_space.py itself)
+import wtune_runlength                      # repo root: resolve_run_seconds, the single-sourced
+                                             # run_*-keys-vs-date-span resolver (dependency-free)
 
 DEFAULT_HOURS = 12
 DEFAULT_EVERY = 3
@@ -240,22 +242,31 @@ def read_run_length_hours(text, path=None):
 
     Raises ValueError (citing `path` when given) if NEITHER source yields a positive length: 0 is
     never returned for what claims to be a runnable case, since every caller here already treats
-    0 as "unset", not as a genuine zero-length run (WRF has no such thing)."""
+    0 as "unset", not as a genuine zero-length run (WRF has no such thing).
+
+    Thin adapter over wtune_runlength.resolve_run_seconds (the single-sourced resolver every
+    other "how long does this case run" call site now also goes through) -- this function still
+    owns its OWN raw-text field reads (_first_namelist_int / read_case_start_datetime /
+    read_case_end_datetime; a different in-memory representation from wtune.py's/
+    wtune_predict.py's own namelist parsers, see wtune_runlength.py's module docstring) and just
+    hands the six already-extracted scalars to the shared resolver, converting its result to
+    HOURS and re-wrapping its generic ValueError with this module's own path-citing message so
+    this function's behaviour (and this module's own tests) are unchanged."""
     days = _first_namelist_int(text, "run_days", 0)
     hrs = _first_namelist_int(text, "run_hours", 0)
     mins = _first_namelist_int(text, "run_minutes", 0)
     secs = _first_namelist_int(text, "run_seconds", 0)
-    if days or hrs or mins or secs:
-        return days * 24 + hrs + mins / 60.0 + secs / 3600.0
     start_dt = read_case_start_datetime(text)
     end_dt = read_case_end_datetime(text)
-    if start_dt is not None and end_dt is not None and end_dt > start_dt:
-        return (end_dt - start_dt).total_seconds() / 3600.0
-    raise ValueError(
-        "read_run_length_hours: run_days/run_hours/run_minutes/run_seconds are all 0 AND "
-        "start_date/end_date do not establish a positive span%s -- this namelist has no "
-        "run length WRF could actually use"
-        % (" (%s)" % path if path else ""))
+    try:
+        run_s = wtune_runlength.resolve_run_seconds(days, hrs, mins, secs, start_dt, end_dt)
+    except ValueError:
+        raise ValueError(
+            "read_run_length_hours: run_days/run_hours/run_minutes/run_seconds are all 0 AND "
+            "start_date/end_date do not establish a positive span%s -- this namelist has no "
+            "run length WRF could actually use"
+            % (" (%s)" % path if path else ""))
+    return run_s / 3600.0
 
 
 def auto_select_cases(min_hours=DEFAULT_HOURS):

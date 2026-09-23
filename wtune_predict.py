@@ -77,12 +77,19 @@ from __future__ import annotations
 
 import argparse
 import csv
+import datetime
 import json
 import math
 import os
 import re
 import sys
 from pathlib import Path
+
+import wtune_runlength as runlen  # repo root: resolve_run_seconds, the single-sourced run_*
+                                   # keys vs. start/end date-span resolver -- dependency-free
+                                   # (stdlib only), so importing it does not pull in wtune.py or
+                                   # any of its physics/knobs/surrogate dependencies (this
+                                   # module's own "standalone" property, see module docstring)
 
 HERE = Path(__file__).resolve().parent
 DEFAULT_CALIBRATION = HERE / "machine" / "calibration" / "scc.json"
@@ -272,17 +279,43 @@ def cells_levels(e_we, e_sn, e_vert):
     return e_we * e_sn * e_vert
 
 
+def get_time_control_datetime(nl, prefix):
+    """d01 <prefix>_year/month/day/hour/minute/second (first value only, same
+    broadcast-last-value indifference as g() -- every active domain of a
+    run-length-defining start/end pair is aligned to the same wall time) -> datetime, or None
+    when year/month/day are not all present (minute/second default to 0; many real templates,
+    e.g. lafe's, omit start_second/end_second when it is 0)."""
+    y = g(nl, "time_control", prefix + "_year", None)
+    mo = g(nl, "time_control", prefix + "_month", None)
+    d = g(nl, "time_control", prefix + "_day", None)
+    if y is None or mo is None or d is None:
+        return None
+    h = g(nl, "time_control", prefix + "_hour", 0) or 0
+    mi = g(nl, "time_control", prefix + "_minute", 0) or 0
+    s = g(nl, "time_control", prefix + "_second", 0) or 0
+    return datetime.datetime(int(y), int(mo), int(d), int(h), int(mi), int(s))
+
+
 def get_run_seconds(nl):
+    """days*86400 + hours*3600 + minutes*60 + seconds from &time_control's run_days/run_hours/
+    run_minutes/run_seconds when that sum is > 0; otherwise the first domain's start_date ->
+    end_date span (WRF's own fallback once every run_* key is 0/absent -- see
+    wtune_runlength.py's module docstring for the lafe/isc21 evidence). Delegates to
+    wtune_runlength.resolve_run_seconds (single-sourced with wtune.py:extract_case and
+    tools/temporal_validation.py:read_run_length_hours) and translates its ValueError into this
+    module's own PredictError so callers' existing except PredictError contract is unchanged."""
     days = g(nl, "time_control", "run_days", 0) or 0
     hours = g(nl, "time_control", "run_hours", 0) or 0
     minutes = g(nl, "time_control", "run_minutes", 0) or 0
     seconds = g(nl, "time_control", "run_seconds", 0) or 0
-    total = days * 86400 + hours * 3600 + minutes * 60 + seconds
-    if total <= 0:
+    start_dt = get_time_control_datetime(nl, "start")
+    end_dt = get_time_control_datetime(nl, "end")
+    try:
+        return runlen.resolve_run_seconds(days, hours, minutes, seconds, start_dt, end_dt)
+    except ValueError:
         raise PredictError(
-            "run length is zero: no run_days/run_hours/run_minutes/run_seconds "
-            "found in &time_control")
-    return float(total)
+            "run length is zero: no run_days/run_hours/run_minutes/run_seconds found in "
+            "&time_control, and start_date/end_date do not establish a positive span either")
 
 
 def get_timestep_seconds(nl):

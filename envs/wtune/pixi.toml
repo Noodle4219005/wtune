@@ -17,6 +17,8 @@ requests = "*"
 catboost = "*"
 scikit-learn = "*"
 pytest = "*"
+wrf-python = "*"
+tempest-extremes = "*"
 
 [tasks]
 test = "python -m pytest -q test_wtune_predict.py tools/"

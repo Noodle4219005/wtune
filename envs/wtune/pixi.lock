@@ -153,9 +153,12 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/scikit-learn-1.9.1-np2py311h1e9b377_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/scipy-1.17.1-py311hbe70eeb_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/snappy-1.2.2-h34e00bb_2.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-64/tempest-extremes-2.4.2-nompi_hdb5528a_103.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/tk-8.6.13-noxft_h1df4ec4_4.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/unicodedata2-18.0.0-py311h0d48ccd_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/wayland-1.26.0-hc1c935e_2.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-64/wrapt-2.4.1-py311h194be0f_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-64/wrf-python-1.4.2-np2py311h1c08552_3.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/xkeyboard-config-2.48-h280c20c_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/xorg-libice-1.1.2-h280c20c_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/xorg-libsm-1.2.6-h0d788c3_1.conda
@@ -363,9 +366,12 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/scikit-learn-1.9.1-np2py311h2f4a80d_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/scipy-1.17.1-py311had2d2e4_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/snappy-1.2.2-h7d29b6f_2.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/tempest-extremes-2.4.2-nompi_h46cb0a9_103.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/tk-8.6.13-noxft_hf03c496_4.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/unicodedata2-18.0.0-py311h5a00dd8_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/wayland-1.26.0-h637a836_2.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/wrapt-2.4.1-py311h0de9f98_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/wrf-python-1.4.2-np2py311h1833730_3.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/xkeyboard-config-2.48-h80f16a2_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/xorg-libice-1.1.2-h80f16a2_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/xorg-libsm-1.2.6-hf23e593_1.conda
@@ -2668,6 +2674,20 @@ packages:
     - snappy >=1.2.2,<1.3.0a0
   size: 45695
   timestamp: 1790063285616
+- conda: https://conda.anaconda.org/conda-forge/linux-64/tempest-extremes-2.4.2-nompi_hdb5528a_103.conda
+  sha256: 3a3e9027966d10f17a820a8b495dbe107fa433f0c0e1f07747bf9e26fd831e0e
+  md5: 281552eaafd70d9e8e48f5459755539b
+  depends:
+  - libnetcdf * nompi_*
+  - libstdcxx >=14
+  - libgcc >=14
+  - __glibc >=2.17,<3.0.a0
+  - libnetcdf >=4.10.1,<4.10.2.0a0
+  license: BSD-2-Clause
+  license_family: BSD
+  run_exports: {}
+  size: 2839162
+  timestamp: 1783888566484
 - conda: https://conda.anaconda.org/conda-forge/linux-64/tk-8.6.13-noxft_h1df4ec4_4.conda
   build_number: 104
   sha256: a1a241d172c1ccab067ba245206dd048bc3c2d1b84504b53c9468e99adfc16a1
@@ -2713,6 +2733,40 @@ packages:
     - wayland >=1.26.0,<2.0a0
   size: 340058
   timestamp: 1787793849093
+- conda: https://conda.anaconda.org/conda-forge/linux-64/wrapt-2.4.1-py311h194be0f_0.conda
+  sha256: ab721e89ba4eb5023480b71aa18eac112295322a0fb21041248ed8e831860758
+  md5: 0dc74d7ba694c1a362f4142392d18d4f
+  depends:
+  - python
+  - libgcc >=15
+  - __glibc >=2.17,<3.0.a0
+  - python_abi 3.11.* *_cp311
+  license: BSD-2-Clause
+  license_family: BSD
+  run_exports: {}
+  size: 147870
+  timestamp: 1789986014542
+- conda: https://conda.anaconda.org/conda-forge/linux-64/wrf-python-1.4.2-np2py311h1c08552_3.conda
+  sha256: f72cd024a2213f797ebeca736a0673bd602de4de3406941fe20dd2d59a952090
+  md5: 0abe93c30b34513ecb43390d879f21b1
+  depends:
+  - numpy >=2.4.6,<3.0a0
+  - netcdf4
+  - python
+  - setuptools
+  - wrapt
+  - xarray
+  - libgfortran5 >=15.3.0
+  - libgfortran
+  - libgcc >=15
+  - __glibc >=2.17,<3.0.a0
+  - numpy >=1.23,<3
+  - python_abi 3.11.* *_cp311
+  license: Apache-2.0
+  license_family: APACHE
+  run_exports: {}
+  size: 5319022
+  timestamp: 1789816893169
 - conda: https://conda.anaconda.org/conda-forge/linux-64/xkeyboard-config-2.48-h280c20c_0.conda
   sha256: 3b04afd5d1a65d2d27ac2d49a63b01ab8bcd875776779ec63e337370ed38afdc
   md5: b233b41be0bf210989d57160ed39b394
@@ -5110,6 +5164,19 @@ packages:
     - snappy >=1.2.2,<1.3.0a0
   size: 49317
   timestamp: 1790063273732
+- conda: https://conda.anaconda.org/conda-forge/linux-aarch64/tempest-extremes-2.4.2-nompi_h46cb0a9_103.conda
+  sha256: 62e5261c266fe336bce008065c7d52944858f7c8e2d0681cf8d2c0919df5b88d
+  md5: 55b35fa9fb376c34a2431681e7604a2d
+  depends:
+  - libnetcdf * nompi_*
+  - libstdcxx >=14
+  - libgcc >=14
+  - libnetcdf >=4.10.1,<4.10.2.0a0
+  license: BSD-2-Clause
+  license_family: BSD
+  run_exports: {}
+  size: 3797409
+  timestamp: 1783888588223
 - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/tk-8.6.13-noxft_hf03c496_4.conda
   build_number: 104
   sha256: a1aa0d0f0b3d539644ff992e6dd0facf950c79df58fc37590ce5be84ff5e3f22
@@ -5152,6 +5219,38 @@ packages:
     - wayland >=1.26.0,<2.0a0
   size: 339803
   timestamp: 1787793907254
+- conda: https://conda.anaconda.org/conda-forge/linux-aarch64/wrapt-2.4.1-py311h0de9f98_0.conda
+  sha256: 074cc9894de194a04598382a41b47fd92e1e840a29873f05f269b5609795ddc0
+  md5: d2f2a50094a048b7e6497b11dea284de
+  depends:
+  - python
+  - libgcc >=15
+  - python_abi 3.11.* *_cp311
+  license: BSD-2-Clause
+  license_family: BSD
+  run_exports: {}
+  size: 146962
+  timestamp: 1789986016429
+- conda: https://conda.anaconda.org/conda-forge/linux-aarch64/wrf-python-1.4.2-np2py311h1833730_3.conda
+  sha256: 7ad020bf3418bd0e4f8f3a9d66de304c63d7229af80e8a7ce028e62fbb73baa7
+  md5: 657720e610c155152422288f937dcadf
+  depends:
+  - numpy >=2.4.6,<3.0a0
+  - netcdf4
+  - python
+  - setuptools
+  - wrapt
+  - xarray
+  - libgcc >=15
+  - libgfortran5 >=15.3.0
+  - libgfortran
+  - python_abi 3.11.* *_cp311
+  - numpy >=1.23,<3
+  license: Apache-2.0
+  license_family: APACHE
+  run_exports: {}
+  size: 5326532
+  timestamp: 1789816872765
 - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/xkeyboard-config-2.48-h80f16a2_0.conda
   sha256: 96078068df25ddccc60958be740e6fa99efb1e0fa2dae2f84e775201bf84d70c
   md5: 3dbc6d9e1f8a8768e7ef9f57585a43ca

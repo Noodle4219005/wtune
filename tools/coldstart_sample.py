@@ -384,6 +384,32 @@ def _fmt_num(x):
     return repr(xf)
 
 
+WPS_STATIC_DIR_ENV = "WTUNE_WPS_STATIC_DIR"
+
+
+def wps_constants_for(nl, static_dir=None):
+    """Absolute paths for &metgrid constants_name that the case's physics needs but no GFS-family
+    analysis carries. Thompson aerosol-aware input (use_aero_icbc / wif_input_opt, per
+    https://www2.mmm.ucar.edu/wrf/users/physics/mp28_updated.html): wif_input_opt=2 (WRF 4.4+,
+    with black carbon) needs QNWFA_QNIFA_QNBCA_SIGMA_MONTHLY.dat, otherwise
+    QNWFA_QNIFA_SIGMA_MONTHLY.dat. lafe (scc job 1009) died in real.exe with 'mp_physics=28 and
+    use_aero_icbc=.true. but aerosol climatology field(s) missing'. Raises when a needed file is
+    not in static_dir ($WTUNE_WPS_STATIC_DIR) -- at plan time, not an hour later in real.exe."""
+    icbc = str(predict.g(nl, "physics", "use_aero_icbc", "") or "").strip(".").lower() in ("true", "t")
+    wif = int(predict.g(nl, "domains", "wif_input_opt", 0) or 0)
+    if not icbc and wif == 0:
+        return []
+    name = ("QNWFA_QNIFA_QNBCA_SIGMA_MONTHLY.dat" if wif == 2
+            else "QNWFA_QNIFA_SIGMA_MONTHLY.dat")
+    static_dir = static_dir or os.environ.get(WPS_STATIC_DIR_ENV)
+    path = os.path.join(static_dir, name) if static_dir else None
+    if not path or not os.path.isfile(path):
+        raise ColdstartError(
+            "case needs %s (use_aero_icbc=%s wif_input_opt=%d) for metgrid constants_name; put it "
+            "in $%s (got %r)" % (name, icbc, wif, WPS_STATIC_DIR_ENV, static_dir))
+    return [os.path.abspath(path)]
+
+
 def build_namelist_wps_fields(nl, geo_d01, start_dt, end_dt, interval_seconds, geog_data_path=None,
                               prefix="GFS"):
     """Pure builder: the exact set of values namelist.wps will carry, for both rendering and
@@ -415,6 +441,7 @@ def build_namelist_wps_fields(nl, geo_d01, start_dt, end_dt, interval_seconds, g
         "interval_seconds": int(interval_seconds),
         "start_date": start_dt.strftime(_WRF_TIME_FMT),
         "end_date": end_dt.strftime(_WRF_TIME_FMT),
+        "constants_name": wps_constants_for(nl),
     }
 
 
@@ -471,6 +498,8 @@ def render_namelist_wps(fields):
     lines.append("")
     lines.append("&metgrid")
     lines.append(" fg_name = '%s'," % prefix)
+    if fields.get("constants_name"):
+        lines.append(" constants_name = %s" % _wps_list(fields["constants_name"], quote=True))
     lines.append(" io_form_metgrid = 2,")
     lines.append("/")
     lines.append("")

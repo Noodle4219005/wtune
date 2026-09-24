@@ -2369,3 +2369,41 @@ class TestWindowEndTimeWrittenWithoutCaseMinuteKeys(unittest.TestCase):
         T = datetime.datetime(2017, 9, 20, 9)
         txt = cs.build_real_namelist_text(self.NL, T, T + datetime.timedelta(minutes=90), 34, 4, 21)
         self.assertRegex(txt, r"end_minute\s*=\s*30, 30,")
+
+
+class TestAerosolClimatologyConstants(unittest.TestCase):
+    # lafe (scc job 1009): mp_physics=28 + use_aero_icbc needs the QNWFA/QNIFA climatology in
+    # met_em, which no GFS-family analysis carries
+    def _nl(self, physics, domains=""):
+        with tempfile.NamedTemporaryFile("w", suffix=".input", delete=False) as f:
+            f.write("&domains\n max_dom = 1,\n%s/\n&physics\n%s/\n" % (domains, physics))
+        self.addCleanup(os.remove, f.name)
+        return cs.predict.parse_namelist(f.name)
+
+    def test_no_aerosol_input_adds_nothing(self):
+        self.assertEqual(cs.wps_constants_for(self._nl(" mp_physics = 8,\n"), "/nonexistent"), [])
+
+    def test_use_aero_icbc_resolves_sigma_file_and_renders(self):
+        with tempfile.TemporaryDirectory() as d:
+            open(os.path.join(d, "QNWFA_QNIFA_SIGMA_MONTHLY.dat"), "w").close()
+            nl = self._nl(" mp_physics = 28,\n use_aero_icbc = .true.,\n", " wif_input_opt = 1,\n")
+            got = cs.wps_constants_for(nl, d)
+        self.assertEqual(got, [os.path.join(os.path.abspath(d), "QNWFA_QNIFA_SIGMA_MONTHLY.dat")])
+        fields = {"max_dom": 1, "start_date": "x", "end_date": "y", "interval_seconds": 10800,
+                  "parent_id": [1], "parent_grid_ratio": [1], "i_parent_start": [1],
+                  "j_parent_start": [1], "e_we": [10], "e_sn": [10], "geog_data_res": ["default"],
+                  "dx": 1000, "dy": 1000, "map_proj": "lambert", "ref_lat": 0, "ref_lon": 0,
+                  "geog_data_path": "/g", "constants_name": got}
+        self.assertIn(" constants_name = '%s'," % got[0], cs.render_namelist_wps(fields))
+
+    def test_missing_file_raises_at_plan_time(self):
+        nl = self._nl(" mp_physics = 28,\n use_aero_icbc = .true.,\n")
+        with tempfile.TemporaryDirectory() as d:
+            with self.assertRaisesRegex(cs.ColdstartError, "QNWFA_QNIFA_SIGMA_MONTHLY.dat"):
+                cs.wps_constants_for(nl, d)
+
+    def test_wif_input_opt_2_needs_black_carbon_file(self):
+        nl = self._nl(" mp_physics = 28,\n use_aero_icbc = .true.,\n", " wif_input_opt = 2,\n")
+        with tempfile.TemporaryDirectory() as d:
+            with self.assertRaisesRegex(cs.ColdstartError, "QNWFA_QNIFA_QNBCA_SIGMA_MONTHLY.dat"):
+                cs.wps_constants_for(nl, d)

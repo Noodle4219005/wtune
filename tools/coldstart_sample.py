@@ -2273,6 +2273,10 @@ def render_run_sbatch(plan, site="scc", per_window_estimate_min=15, wps_estimate
     # nests: link met_em for EVERY domain (d02..dN carry at least their initialization time t;
     # d01 carries every time in [t, t_end] -- both come from this window's own namelist.wps).
     lines.append("  ln -sf \"$PLAN\"/wps/met_em.d0*.*.nc .")
+    # metgrid always writes 'YYYY-MM-DD_HH:MM:SS' names, but real.exe under the case's own
+    # nocolons=.true. (lafe) opens 'YYYY-MM-DD_HH_MM_SS' (scc job 983: every window FATAL
+    # 'error opening met_em.d01.2017-08-23_06_00_00.nc'); link both spellings, namelist untouched
+    lines.append("  for f in met_em.d0*.*.nc; do [ \"$f\" = \"${f//:/_}\" ] || ln -sf \"$f\" \"${f//:/_}\"; done")
     lines.append("  python3 \"$TOOL\" fix-real-namelist --plan \"$PLAN\" --win \"$k\" || return 1")
     # 2026-09-24 cluster findings (sc26p1/severe2023): real.exe HANGS (100% CPU, no rsl
     # progress) at SOME decompositions (3x3, 5x5 observed) with no odd/square pattern -- do not

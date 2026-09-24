@@ -2236,6 +2236,16 @@ class TestPlanRealOnly(unittest.TestCase):
         self.assertNotIn("SITE_LAUNCH_CMD", text)
         self.assertIn("wrf=$LAST_WRF_STATUS", text)
 
+    def test_real_step_links_nocolons_met_em_names(self):
+        plan = {
+            "windows": [{"t": "2020-01-01_03:00:00", "t_end": "2020-01-01_06:00:00",
+                        "reason": "pinned"}],
+            "nodes": 1, "config": {"ranks": 72, "omp": 1, "nx": 9, "ny": 8, "numtiles": 1},
+        }
+        text = cs.render_run_sbatch(plan, site="scc")
+        self.assertIn('ln -sf "$f" "${f//:/_}"', text)
+        self.assertLess(text.index("wps/met_em.d0*.*.nc ."), text.index('"${f//:/_}"'))
+
     def test_per_window_min_scales_wrf_timeout_and_time_limit(self):
         # job 982 (maria1km): the fixed 15 min wrf.exe timeout killed a 1 km window at 899 s
         plan = {

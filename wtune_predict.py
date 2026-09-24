@@ -1796,7 +1796,7 @@ def resolve_config(args):
 
 def build_prediction(namelist_path, case_dir, nodes, config, ledger_paths,
                       calibration_path, io_form_override, io_target, case_name=None,
-                      iofields_dir=None, rsl_paths=None):
+                      iofields_dir=None, rsl_paths=None, include_io=False):
     nl = parse_namelist(namelist_path)
     max_dom = get_max_dom(nl)
     steps, run_s, dt, steps_note = get_d01_steps(nl)
@@ -1842,7 +1842,11 @@ def build_prediction(namelist_path, case_dir, nodes, config, ledger_paths,
     init = predict_init(case_dir, nl, calibration)
 
     drift_pct = calibration.get("drift_band_pct", 5.0)
-    total_s = compute["compute_total_s"] + io["total_s"] + init["total_s"]
+    # History I/O is estimated and reported but, by default, NOT added to total_s or the range
+    # (user decision 2026-09-24): the write rate was off in both directions on the SC26 atlas
+    # (marshall -42%, maria +51%, isc21 +156%). include_io=True restores the old sum.
+    io_w = 1.0 if include_io else 0.0
+    total_s = compute["compute_total_s"] + io_w * io["total_s"] + init["total_s"]
 
     # I/O rate range (calibration.history_write_rate_MBps_low/_high): when
     # calibrated, replace the generic drift-on-everything range with an
@@ -1867,15 +1871,16 @@ def build_prediction(namelist_path, case_dir, nodes, config, ledger_paths,
         compute_drift_abs_s = compute["compute_total_s"] * (drift_pct / 100.0)
         drift_abs_s = compute_drift_abs_s
         low = (max(0.0, compute["compute_total_s"] - compute_drift_abs_s)
-               + io_range["fast_total_s"] + init["total_s"])
+               + io_w * io_range["fast_total_s"] + init["total_s"])
         high = (compute["compute_total_s"] + compute_drift_abs_s
-                + io_range["slow_total_s"] + init["total_s"])
+                + io_w * io_range["slow_total_s"] + init["total_s"])
         range_source = ("I/O: measured %.1f-%.1f MB/s write-rate bracket; "
                         "compute: +-%.0f%% drift band (NOT VALIDATED)"
                         % (io_low_mbps, io_high_mbps, drift_pct))
     else:
         drift_abs_s = total_s * (drift_pct / 100.0)
-        range_abs_s = math.sqrt(compute["noise_abs_s"] ** 2 + io["noise_abs_s"] ** 2 + drift_abs_s ** 2)
+        range_abs_s = math.sqrt(compute["noise_abs_s"] ** 2 + (io_w * io["noise_abs_s"]) ** 2
+                                + drift_abs_s ** 2)
         low, high = max(0.0, total_s - range_abs_s), total_s + range_abs_s
         range_source = None
 
@@ -1886,6 +1891,7 @@ def build_prediction(namelist_path, case_dir, nodes, config, ledger_paths,
         "max_dom": max_dom, "steps": steps, "run_s": run_s, "run_min": run_min,
         "run_hours": run_hours, "dt_s": dt, "steps_note": steps_note,
         "compute": compute, "segments": segments, "io": io, "io_range": io_range, "init": init,
+        "io_included": include_io,
         "total_s": total_s, "drift_pct": drift_pct, "drift_abs_s": drift_abs_s,
         "range_low_s": low, "range_high_s": high, "range_source": range_source,
         "param_table": params, "nodes": nodes,
@@ -1953,7 +1959,9 @@ def render_text(pred):
             out.append("    %-12s steps=%-6d %s" % (seg["sim_time"], seg["steps"], _fmt_hms(seg["compute_s"])))
 
     io = pred["io"]
-    out.append("I/O: total %s" % _fmt_hms(io["total_s"]))
+    out.append("I/O: total %s%s" % (_fmt_hms(io["total_s"]),
+                                    "" if pred.get("io_included", True)
+                                    else "  (estimate only, NOT in TOTAL; --include-io adds it)"))
     if pred.get("io_range"):
         ior = pred["io_range"]
         out.append("  I/O rate range: fast(%.1f MB/s)=%s .. slow(%.1f MB/s)=%s"
@@ -2054,6 +2062,9 @@ def add_subparser(sub):
                    help="override io_form_history (default: read from namelist)")
     p.add_argument("--io-target", choices=["nfs", "local"], default="nfs",
                    help="write target (default nfs; local is UNMEASURED)")
+    p.add_argument("--include-io", action="store_true",
+                   help="add the history I/O estimate to TOTAL and its range (off by default: "
+                        "the write rate is not predictable enough, see build_prediction)")
     p.add_argument("--iofields-dir", default=None,
                    help="directory holding the real iofields_filename field-list file(s) "
                         "(default: case_dir); used to size field-subset aux streams exactly")
@@ -2073,7 +2084,7 @@ def predict_cmd(args):
             config=config, ledger_paths=args.probe, calibration_path=args.calibration,
             io_form_override=args.io_form, io_target=args.io_target,
             case_name=args.case_name, iofields_dir=args.iofields_dir,
-            rsl_paths=args.probe_rsl)
+            rsl_paths=args.probe_rsl, include_io=args.include_io)
     except PredictError as exc:
         print("ERROR: %s" % exc, file=sys.stderr)
         return 1

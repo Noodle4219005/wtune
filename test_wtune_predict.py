@@ -581,7 +581,7 @@ def test_conus25_self_consistency_within_5pct(tmp_path):
     pred = wp.build_prediction(
         namelist_path=str(case_dir / "namelist.input"), case_dir=str(case_dir), nodes=7,
         config=config, ledger_paths=[str(ledger_path)], calibration_path=CALIBRATION,
-        io_form_override=None, io_target="nfs")
+        io_form_override=None, io_target="nfs", include_io=True)
 
     assert pred["compute"]["source"] == "measured"
     measured_wall = 2090.0
@@ -697,7 +697,7 @@ def _holdout_predict(tmp_path, name, namelist_text, ranks_probe_row, extra_files
     pred = wp.build_prediction(
         namelist_path=str(case_dir / "namelist.input"), case_dir=str(case_dir), nodes=4,
         config=config, ledger_paths=[str(ledger_path)], calibration_path=CALIBRATION,
-        io_form_override=None, io_target="nfs")
+        io_form_override=None, io_target="nfs", include_io=True)
     return pred
 
 
@@ -1426,7 +1426,7 @@ def test_io_range_brackets_point_estimate_and_widens_exactly(tmp_path):
     pred = wp.build_prediction(
         namelist_path=str(case_dir / "namelist.input"), case_dir=str(case_dir), nodes=1,
         config=config, ledger_paths=None, calibration_path=str(cal_path),
-        io_form_override=None, io_target="nfs")
+        io_form_override=None, io_target="nfs", include_io=True)
 
     io_range = pred["io_range"]
     assert io_range is not None
@@ -1461,12 +1461,31 @@ def test_io_range_absent_keeps_legacy_rss_range(tmp_path):
         namelist_path=str(case_dir / "namelist.input"), case_dir=str(case_dir), nodes=7,
         config={"ranks": 720, "omp": 1, "nx": 24, "ny": 30, "numtiles": 1},
         ledger_paths=None, calibration_path=cal,
-        io_form_override=None, io_target="nfs")
+        io_form_override=None, io_target="nfs", include_io=True)
     assert pred["io_range"] is None
     assert pred["range_source"] is None
     expected_range_abs = math.sqrt(pred["compute"]["noise_abs_s"] ** 2 + pred["io"]["noise_abs_s"] ** 2
                                     + pred["drift_abs_s"] ** 2)
     assert pred["range_high_s"] == pytest.approx(pred["total_s"] + expected_range_abs)
+
+
+def test_io_excluded_from_total_and_range_by_default(tmp_path):
+    # user decision 2026-09-24: history I/O is reported, not predicted into TOTAL
+    case_dir = tmp_path / "conus25"
+    case_dir.mkdir()
+    _write(str(case_dir / "namelist.input"), CONUS25_NAMELIST)
+    kw = dict(namelist_path=str(case_dir / "namelist.input"), case_dir=str(case_dir), nodes=7,
+              config={"ranks": 720, "omp": 1, "nx": 24, "ny": 30, "numtiles": 1},
+              ledger_paths=None, calibration_path=str(wp.DEFAULT_CALIBRATION),
+              io_form_override=None, io_target="nfs")
+    off = wp.build_prediction(**kw)
+    on = wp.build_prediction(include_io=True, **kw)
+    assert off["io"]["total_s"] > 0
+    assert off["io_included"] is False
+    assert off["total_s"] == pytest.approx(off["compute"]["compute_total_s"] + off["init"]["total_s"])
+    assert on["total_s"] == pytest.approx(off["total_s"] + off["io"]["total_s"])
+    assert off["range_high_s"] < on["range_high_s"]
+    assert "NOT in TOTAL" in wp.render_text(off)
 
 
 # --------------------------------------------------------------------------

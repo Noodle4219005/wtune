@@ -2586,7 +2586,7 @@ def predicted_compute_total(steps_n, dt, stepra, run_start_dt, anchors, sample_p
     return sum(s_values) + rad_extra, s_values
 
 
-def score_plan(plan_dir, calibration_path=DEFAULT_CALIBRATION, json_out=None):
+def score_plan(plan_dir, calibration_path=DEFAULT_CALIBRATION, json_out=None, include_io=False):
     with open(os.path.join(plan_dir, "plan.json")) as f:
         plan = json.load(f)
     if plan.get("real_only"):
@@ -2649,12 +2649,15 @@ def score_plan(plan_dir, calibration_path=DEFAULT_CALIBRATION, json_out=None):
         range_note = ("analog_quality=%s widened the compute drift band to +-%.0f%% (measured "
                       "on scc: -9%%..+6.5%%, rounded)" % (analog_quality, analog_drift_pct))
     compute_drift_abs = compute_total * drift_frac
-    total_s = compute_total + io["total_s"] + init["total_s"]
+    # I/O estimated but not in TOTAL by default -- same rule as wtune_predict.build_prediction
+    io_w = 1.0 if include_io else 0.0
+    total_s = compute_total + io_w * io["total_s"] + init["total_s"]
     if io_range is not None:
-        low = max(0.0, compute_total - compute_drift_abs) + io_range["fast_total_s"] + init["total_s"]
-        high = compute_total + compute_drift_abs + io_range["slow_total_s"] + init["total_s"]
+        low = (max(0.0, compute_total - compute_drift_abs) + io_w * io_range["fast_total_s"]
+               + init["total_s"])
+        high = compute_total + compute_drift_abs + io_w * io_range["slow_total_s"] + init["total_s"]
     else:
-        io_noise = io.get("noise_abs_s", 0.0)
+        io_noise = io_w * io.get("noise_abs_s", 0.0)
         band = math.sqrt(compute_drift_abs ** 2 + io_noise ** 2)
         low = max(0.0, total_s - band)
         high = total_s + band
@@ -2663,7 +2666,7 @@ def score_plan(plan_dir, calibration_path=DEFAULT_CALIBRATION, json_out=None):
         "windows": windows_out, "r_night": r_night, "r_day": r_day, "r_source": r_source,
         "geometry_source": geom_source, "n_radiation_samples": len(pooled_radiation_samples),
         "compute_s": compute_total, "flat_alternative_s": flat_total,
-        "io": io, "init": init, "total_s": total_s,
+        "io": io, "io_included": include_io, "init": init, "total_s": total_s,
         "range_low_s": low, "range_high_s": high, "drift_frac": drift_frac,
         "steps": steps_n, "analog_quality": analog_quality, "range_note": range_note,
     }
@@ -2682,8 +2685,9 @@ def print_score(result):
                  w.get("shift_s", 0.0)))
     print("r_night=%.4f r_day=%.4f (source=%s, geometry=%s)"
           % (result["r_night"], result["r_day"], result["r_source"], result["geometry_source"]))
-    print("compute=%.1fs  flat_alternative=%.1fs  io=%.1fs  init=%.1fs"
+    print("compute=%.1fs  flat_alternative=%.1fs  io=%.1fs%s  init=%.1fs"
           % (result["compute_s"], result["flat_alternative_s"], result["io"]["total_s"],
+             "" if result.get("io_included", True) else " (not in TOTAL)",
              result["init"]["total_s"]))
     print("TOTAL=%.1fs  range=[%.1f, %.1f]s" % (result["total_s"], result["range_low_s"],
                                                  result["range_high_s"]))
@@ -2766,6 +2770,8 @@ def main(argv=None):
     sp.add_argument("--plan", required=True)
     sp.add_argument("--json")
     sp.add_argument("--calibration", default=DEFAULT_CALIBRATION)
+    sp.add_argument("--include-io", action="store_true",
+                    help="add the history I/O estimate to TOTAL (off by default)")
 
     sp = sub.add_parser("fix-wps-namelist")
     sp.add_argument("--plan", required=True)
@@ -2835,7 +2841,8 @@ def main(argv=None):
             return 0
 
         if args.cmd == "score":
-            result = score_plan(args.plan, calibration_path=args.calibration, json_out=args.json)
+            result = score_plan(args.plan, calibration_path=args.calibration, json_out=args.json,
+                                include_io=args.include_io)
             print_score(result)
             return 0
 

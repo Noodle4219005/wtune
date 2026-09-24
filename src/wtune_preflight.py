@@ -500,22 +500,32 @@ def check_c4_aerosol_climatology(nl, run_dir, findings):
     Real incident: atlas-validate/cs-lafe cold start -- real.exe: 'aerosol climatology
     field(s) missing'.
     """
+    max_dom = wp.get_max_dom(nl)
+    # wif_input_opt is a &domains key (Registry: 'rconfig integer wif_input_opt namelist,domains',
+    # default 0); tempo_aerosolaware is &physics (default 0)
+    wif_input_opt = int(wp.g(nl, "domains", "wif_input_opt", 0) or 0)
+    tempo_aero = int(wp.g(nl, "physics", "tempo_aerosolaware", 0) or 0)
+    mps = {_resolved_physics(nl, d).get("mp_physics") for d in range(max_dom)}
+    # WTF test ralbNE (scc job 1086): real.exe FATAL 'wif_input_opt=0 but mp_physics=28, 29, or 88'
+    # -- dyn_em/module_initialize_real.F ~2741-2748 (THOMPSONAERO, RCON, or TEMPO with
+    # tempo_aerosolaware=1, and wif_input_opt == 0)
+    aero_mp = sorted(m for m in mps if m in (28, 29) or (m == 88 and tempo_aero == 1))
+    if aero_mp and wif_input_opt == 0:
+        findings.append(Finding(
+            FATAL, "C4",
+            "mp_physics=%s needs wif_input_opt >= 1 (&domains); real.exe aborts with "
+            "'wif_input_opt=0 but mp_physics=28, 29, or 88'" % ",".join(map(str, aero_mp)),
+            evidence="dyn_em/module_initialize_real.F if_thompsonaero_3d; WTF ralbNE",
+            fix="set wif_input_opt = 1 (and num_wif_levels = 30) in &domains, with the "
+                "QNWFA_QNIFA climatology in metgrid constants_name"))
+        return
+    if 28 not in mps:
+        return
     if not HAVE_NETCDF4:
         findings.append(Finding(INFO, "C4", "SKIPPED (netCDF4 not available)"))
         return
 
-    max_dom = wp.get_max_dom(nl)
-    needs_aero = False
-    for d in range(max_dom):
-        phys = _resolved_physics(nl, d)
-        if phys.get("mp_physics") == 28:
-            needs_aero = True
-            break
-    if not needs_aero:
-        return
-
     use_aero_icbc = wp.g(nl, "physics", "use_aero_icbc", False)
-    wif_input_opt = wp.g(nl, "physics", "wif_input_opt", 0) or 0
     if not (use_aero_icbc or int(wif_input_opt) >= 1):
         return
 

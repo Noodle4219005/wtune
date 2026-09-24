@@ -404,9 +404,12 @@ def test_c3_wrf_run_dir_extension_less_file_flagged(tmp_path):
 # C4 -- aerosol climatology
 # --------------------------------------------------------------------------
 
-def _lafe_like_namelist(tmp_path, use_aero_icbc=True):
-    text = one_domain_namelist(extra_physics=" mp_physics = 28,\n use_aero_icbc = .true.,\n" if use_aero_icbc
-                                else " mp_physics = 28,\n")
+def _lafe_like_namelist(tmp_path, use_aero_icbc=True, wif_input_opt=1):
+    # lafe's own namelist: mp_physics=28 with wif_input_opt=1 / num_wif_levels=30 in &domains
+    domains = (" wif_input_opt = %d,\n num_wif_levels = 30,\n" % wif_input_opt) if wif_input_opt else ""
+    text = one_domain_namelist(extra_domains=domains,
+                               extra_physics=" mp_physics = 28,\n use_aero_icbc = .true.,\n" if use_aero_icbc
+                               else " mp_physics = 28,\n")
     text = text.replace(" mp_physics = 6,\n", "")
     write_namelist(tmp_path, text)
     return wp.parse_namelist(str(tmp_path / "namelist.input"))
@@ -435,8 +438,39 @@ def test_c4_qnwfa_qnifa_present_silent(tmp_path):
     assert clean_findings(findings) == []
 
 
-def test_c4_not_applicable_without_aero_icbc_silent(tmp_path):
-    nl = _lafe_like_namelist(tmp_path, use_aero_icbc=False)
+def test_c4_mp28_with_wif_input_opt_0_is_fatal_without_netcdf(tmp_path):
+    # WTF ralbNE (scc job 1086): real.exe 'wif_input_opt=0 but mp_physics=28, 29, or 88'
+    nl = _lafe_like_namelist(tmp_path, use_aero_icbc=False, wif_input_opt=0)
+    findings = []
+    pf.check_c4_aerosol_climatology(nl, tmp_path, findings)
+    fatals = [f for f in findings if f.severity == "FATAL" and f.id == "C4"]
+    assert len(fatals) == 1
+    assert "wif_input_opt" in fatals[0].message
+
+
+def test_c4_tempo_only_fatal_when_aerosolaware(tmp_path):
+    text = one_domain_namelist(extra_physics=" mp_physics = 88,\n")
+    text = text.replace(" mp_physics = 6,\n", "")
+    write_namelist(tmp_path, text)
+    findings = []
+    pf.check_c4_aerosol_climatology(wp.parse_namelist(str(tmp_path / "namelist.input")),
+                                    tmp_path, findings)
+    assert [f for f in findings if f.severity == "FATAL"] == []
+    write_namelist(tmp_path, text.replace(" mp_physics = 88,\n",
+                                          " mp_physics = 88,\n tempo_aerosolaware = 1,\n"))
+    findings = []
+    pf.check_c4_aerosol_climatology(wp.parse_namelist(str(tmp_path / "namelist.input")),
+                                    tmp_path, findings)
+    assert [f.id for f in findings if f.severity == "FATAL"] == ["C4"]
+
+
+def test_c4_not_applicable_without_aero_scheme_silent(tmp_path):
+    # premise corrected 2026-09-25: mp_physics=28 WITHOUT wif_input_opt is not "not applicable"
+    # -- real.exe aborts (see the ralbNE test above); a non-aerosol scheme is
+    text = one_domain_namelist(extra_physics=" mp_physics = 8,\n")
+    text = text.replace(" mp_physics = 6,\n", "")
+    write_namelist(tmp_path, text)
+    nl = wp.parse_namelist(str(tmp_path / "namelist.input"))
     # no wrfinput at all -- must not even try
     findings = []
     pf.check_c4_aerosol_climatology(nl, tmp_path, findings)

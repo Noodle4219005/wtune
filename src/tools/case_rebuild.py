@@ -1631,6 +1631,9 @@ def render_rebuild_sbatch(plan, chosen, site="scc", estimate_min=30):
     lines.append("echo \"=== real.exe ($(date -u +%FT%TZ)) ===\"")
     lines.append("cd \"$REBUILD_DIR/real\"")
     lines.append("rm -f met_em.d0*.*.nc; ln -sf \"$REBUILD_DIR\"/wps/met_em.d0*.*.nc .")
+    # nocolons=.true. cases (lafe): real.exe opens 'YYYY-MM-DD_HH_MM_SS' names -- same fix as
+    # coldstart_sample's run.sbatch (V6 lafe-real/-fict FATAL 'bad date in namelist or file not in directory')
+    lines.append("for f in met_em.d0*.*.nc; do [ \"$f\" = \"${f//:/_}\" ] || ln -sf \"$f\" \"${f//:/_}\"; done")
     lines.append("python3 \"$TOOL\" rebuild fix-span-real-namelist --out \"$REBUILD_DIR\" || exit 1")
     lines.append("timeout 600 mpirun -np %d --map-by ppr:%d:node:PE=1 --bind-to core ./real.exe"
                   % (ranks, real_tpn))

@@ -1101,6 +1101,12 @@ class TestRenderRebuildSbatch(unittest.TestCase):
     def _chosen(self):
         return {"prefix": "GFS", "vtable": "Vtable.GFS", "forcing_interval_h": 3}
 
+    def test_real_step_links_nocolons_met_em_names(self):
+        # V6 lafe-real/-fict (scc jobs 1059/1060): nocolons=.true. -> real.exe wants '_' names
+        text = cr.render_rebuild_sbatch(self._plan(), self._chosen())
+        self.assertIn('ln -sf "$f" "${f//:/_}"', text)
+        self.assertLess(text.index('/wps/met_em.d0*.*.nc .'), text.index('"${f//:/_}"'))
+
     def test_no_forbidden_content(self):
         text = cr.render_rebuild_sbatch(self._plan(), self._chosen())
         self.assertNotIn("LD_PRELOAD", text)

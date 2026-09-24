@@ -1374,6 +1374,15 @@ def test_predict_init_startup_cap_grows_with_nodes(tmp_path):
         four["read_s"] + 19.4)
 
 
+def test_predict_init_ignores_negative_startup_slopes(tmp_path):
+    nl = wp.parse_namelist(_write(str(tmp_path / "namelist.input"), STARTUP_NAMELIST))
+    cal = {"derived": {"read_rate_bytes_per_s": 1000.0, "bytes_per_cell_level": 1.0},
+           "startup_s": 19.4, "startup_s_base": 60.0, "startup_s_per_rank": -1.93,
+           "startup_s_per_node": -2.89}
+    init = wp.predict_init(None, nl, cal, ranks=288, nodes=4)
+    assert init["total_s"] == pytest.approx(init["read_s"] + 19.4)
+
+
 def test_predict_init_startup_uncalibrated_when_absent(tmp_path):
     nl = wp.parse_namelist(_write(str(tmp_path / "namelist.input"), STARTUP_NAMELIST))
     calibration = {"derived": {"read_rate_bytes_per_s": 1000.0, "bytes_per_cell_level": 1.0}}

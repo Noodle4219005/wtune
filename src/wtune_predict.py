@@ -1699,13 +1699,15 @@ def predict_init(case_dir, nl, calibration, ranks=None, nodes=None):
     # ~32 s vs the 1-node 19.4 s cap, the out-of-sample miss); per-node slope comes from
     # wtune.py calibrate; absent -> 0, i.e. the old single-node cap
     per_node = calibration.get("startup_s_per_node")
-    if startup_calibrated and nodes and per_node:
+    if startup_calibrated and nodes and per_node and per_node > 0:
         startup_term += per_node * max(0, nodes - 1)
     # rank-dependent startup (2026-09-24): wall - sum(d01 'Timing for main') is 1.9-2.8 s at 1
     # rank, 3.5 s at 6, 6.5 s at 12 (idealized truths), ~17-22 s at 72 (the startup_s fit), so
     # min(startup_s, base + per_rank * ranks); startup_s stays the cap for large runs
     per_rank = calibration.get("startup_s_per_rank")
-    if startup_calibrated and ranks and per_rank is not None:
+    # a negative slope would make min() pick an unbounded negative startup (a contaminated
+    # calibration produced total_s = -376.6 s for conus12); only a non-negative fit is used
+    if startup_calibrated and ranks and per_rank is not None and per_rank >= 0:
         startup_term = min(startup_term, calibration.get("startup_s_base", 0.0) + per_rank * ranks)
     return {"bytes": total_bytes, "source": source, "read_s": read_s,
             "fixed_startup_s": fixed_startup_s,

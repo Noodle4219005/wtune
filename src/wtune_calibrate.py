@@ -39,12 +39,38 @@ Two subcommands:
   wtune_calibrate.py fit --runs DIR --out machine/calibration/<name>.json
       [--base machine/calibration/scc.json] [--cores-per-node 72] [--host HOST]
 
-    Reads back the run directories plan's sbatch scripts create under DIR (run_<ranks>_<jobid>/,
-    each with wall.txt + rsl.error.0000/rsl.out.0000, matched against MANIFEST.json when
-    present), fits startup_s/startup_s_base/startup_s_per_rank (same min(cap, base +
-    per_rank*ranks) model wtune_predict.py already implements), measures a history-write rate
-    from the one written frame when present, and attempts to separate a read rate from the
-    startup window (kept from --base, clearly marked TRANSFERRED, when it is not separable).
+    --runs is repeatable: pass it once per plan --out directory (e.g. once for a small case's
+    1/36/72/100-rank sweep that anchors startup_s/_base/_per_rank, and once for a second case's
+    multi-node sweep -- 1/2/3/4 nodes at that case's own legal rank counts -- that anchors
+    startup_s_per_node). Every run across every --runs dir is pooled before fitting: which runs
+    end up feeding which constant falls out naturally from each run's own (ranks, nodes), not
+    from which --runs directory it came from.
+
+    Reads back the run directories plan's sbatch scripts create under each DIR
+    (run_<ranks>_<jobid>/, each with wall.txt + rsl.error.0000/rsl.out.0000, matched against
+    that DIR's MANIFEST.json when present), fits:
+      - startup_s (the 1-node cap): median of wall - sum(d01 'Timing for main') over every run
+        with ranks>=cores_per_node AND nodes==1 (a fully-loaded single node; from wall.txt's own
+        NODES field) -- a sub-node run feeds startup_s_base/_per_rank instead, a multi-node run
+        feeds startup_s_per_node instead, neither should also pull the cap's own median.
+      - startup_s_base/startup_s_per_rank: least-squares wall - sum(main) over runs with
+        ranks < --cores-per-node (same min(cap, base + per_rank*ranks) sub-node model
+        wtune_predict.py already implements).
+      - startup_s_per_node: the cap's growth per additional node beyond one (predict_init:
+        startup_term = startup_s + startup_s_per_node*(nodes-1), evidence: a 4-node/192-rank
+        sc26p2 run's wall - sum(main) ~32s vs a 1-node run's ~19.4s). Fitted from every run with
+        a known node count AND real on-disk wrfinput_d*/wrfbdy_d* bytes: each run's own predicted
+        read_s (those bytes / the effective read rate) is subtracted from wall - sum(main) first
+        -- reads happen once from shared storage and do not scale with node count, so leaving
+        them in would contaminate the per-node slope with per-run I/O noise instead of MPI/launch
+        overhead. The 1-node points set a read-subtracted "cap_pure" baseline; a least-squares
+        slope of (read-subtracted startup - cap_pure) against (nodes-1), forced through the
+        origin, gives startup_s_per_node. None of this touches startup_s itself, which stays the
+        RAW (not read-subtracted) 1-node median -- predict_init still adds read_s separately on
+        top, unchanged from the existing scc.json convention.
+      - a history-write rate from the one written frame when present (informational only).
+      - a read rate, only when a run's rsl log has a separable read-only timing line distinct
+        from the startup window; otherwise kept from --base and clearly marked TRANSFERRED.
     Every emitted field carries provenance: freshly measured fields get a MEASURED ... source
     string naming host/date/runs; everything else is carried over from --base and listed in
     calibration_provenance.transferred_fields instead of being silently presented as measured.
@@ -99,11 +125,26 @@ class CalibrateError(Exception):
 # plan
 # --------------------------------------------------------------------------
 
-def pick_near_square(shapes):
-    """Of the legal (nx, ny) shapes for one rank count, pick the one closest to square:
-    minimum |nx-ny|, tie-broken by the smaller max(nx,ny) (fewer ranks along the more
-    constrained dimension), then by nx ascending for full determinism."""
-    return min(shapes, key=lambda xy: (abs(xy[0] - xy[1]), max(xy), xy[0]))
+def pick_near_square(shapes, aspect=1.0):
+    """Of the legal (nx, ny) shapes for one rank count, pick the one whose PATCH is closest to
+    square: patch_x/patch_y = (e_we/nx)/(e_sn/ny) = aspect*(ny/nx), so patch_x==patch_y exactly
+    when nx/ny == aspect (e_we/e_sn) -- minimising |log(nx/ny) - log(aspect)| picks that shape
+    (log scale so nx/ny=2*aspect and nx/ny=aspect/2 are equally bad, not asymmetric). aspect
+    defaults to 1.0 (square domain -> minimise |log(nx/ny)|, i.e. the old rank-count-only
+    behaviour). Ties broken by the smaller max(nx,ny), then by nx ascending, for full
+    determinism. On a non-square domain (e.g. e_we=170 e_sn=130, aspect~1.31) this is why 72
+    ranks picks (9,8) over (8,9): patch (170/9, 130/8)=(18.9, 16.25) is more square than
+    (170/8, 130/9)=(21.25, 14.4).
+
+    Uses log(nx)-log(ny) rather than log(nx/ny): IEEE754 subtraction is exactly antisymmetric
+    (fl(a-b) == -fl(b-a)), so at the default aspect=1.0 a genuine tie like (3,4) vs (4,3) stays
+    an EXACT tie and falls through to the deterministic tie-break below; log(nx/ny) does not
+    have that guarantee (4/3 is not exactly representable, so log(3/4) and log(4/3) can differ
+    from each other's negation in the last bit, silently deciding a tie that should not be
+    decided by floating-point noise)."""
+    log_aspect = math.log(aspect)
+    return min(shapes, key=lambda xy: (abs((math.log(xy[0]) - math.log(xy[1])) - log_aspect),
+                                        max(xy), xy[0]))
 
 
 def build_decomp(nl, max_dom, ranks, min_patch):
@@ -115,7 +156,10 @@ def build_decomp(nl, max_dom, ranks, min_patch):
     shapes = ds.legal_shapes_exact(we_list, sn_list, ranks, min_patch=min_patch)
     if not shapes:
         return None
-    return pick_near_square(shapes)
+    # d01's own aspect ratio drives the "square patch" target for every domain at once (the
+    # decomposition is shared across all active domains -- see legal_shapes_exact above).
+    aspect = we_list[0] / sn_list[0]
+    return pick_near_square(shapes, aspect=aspect)
 
 
 PLAN_SBATCH_TEMPLATE = """#!/usr/bin/env bash
@@ -170,11 +214,15 @@ export OMP_NUM_THREADS=1 OMP_STACKSIZE=1G OMP_PLACES=cores OMP_PROC_BIND=close
 
 # preflight reap: this allocation's own nodes only, before any launch (see
 # campaign/strict_campaign.sbatch's identical preflight comment -- ProctrackType=pgid on scc
-# leaves a TIMEOUT'd mpirun's ranks invisible to Slurm's own cleanup).
+# leaves a TIMEOUT'd mpirun's ranks invisible to Slurm's own cleanup). ALLOC_NODES MUST be set
+# before the first site_hygiene call: scc.sh's site_hygiene() body reads $ALLOC_NODES itself,
+# and `set -u` turns a reference to it before this line into a silent whole-script abort (its
+# error goes to hygiene.log below, not to this job's own .out, which is why it once looked like
+# the job died with no output at all).
+ALLOC_NODES="${{SLURM_JOB_NUM_NODES:-{nodes}}}"
 if command -v site_hygiene >/dev/null 2>&1; then
-  site_hygiene reap >/dev/null 2>&1 || true
-  ALLOC_NODES="${{SLURM_JOB_NUM_NODES:-{nodes}}}"
-  [ -n "${{SITE_HYGIENE_CMD:-}}" ] && timeout 90 "${{SITE_HYGIENE_CMD[@]}}" >/dev/null 2>&1 || true
+  site_hygiene reap >> hygiene.log 2>&1 || true
+  [ -n "${{SITE_HYGIENE_CMD:-}}" ] && ( timeout 90 "${{SITE_HYGIENE_CMD[@]}}" >> hygiene.log 2>&1 || true )
 fi
 
 T0=$(date +%s.%N)
@@ -202,7 +250,7 @@ fi
 
 # post-run reap: this allocation's own nodes only, same as strict_campaign.sbatch.
 if [ -n "${{SITE_HYGIENE_CMD:-}}" ]; then
-  timeout 60 "${{SITE_HYGIENE_CMD[@]}}" >/dev/null 2>&1 || true
+  timeout 60 "${{SITE_HYGIENE_CMD[@]}}" >> hygiene.log 2>&1 || true
 fi
 
 exit 0
@@ -375,17 +423,26 @@ def _dir_bytes(run_dir, patterns):
 
 
 def collect_runs(runs_dir, manifest):
-    """Returns (used, excluded): used is [{ranks, startup_measured, wall_s, write_s,
-    write_bytes, read_s, read_bytes, dir}], excluded is [{ranks, dir, reason}]."""
+    """Returns (used, excluded): used is [{ranks, nodes, startup_measured, wall_s, sum_main_s,
+    write_s, write_bytes, read_s, read_bytes, real_input_bytes, manifest_geom, dir}], excluded
+    is [{ranks, dir, reason}]. Does not raise when every run it finds is excluded -- fit_cmd
+    pools runs across every --runs dir given and only raises once nothing usable survived any
+    of them; it DOES raise when this one directory has no run_<ranks>_<jobid>/ at all (almost
+    always a wrong --runs path, worth failing on immediately rather than silently contributing
+    nothing)."""
     run_dirs = sorted(runs_dir.glob("run_*_*"))
     if not run_dirs:
         raise CalibrateError("no run_<ranks>_<jobid> directories found under %s "
                               "(nothing to fit -- did the plan_*.sbatch jobs run yet?)" % runs_dir)
 
     manifest_by_ranks = {}
+    manifest_geom = None
     if manifest:
         for r in manifest.get("runs", []):
             manifest_by_ranks[r["ranks"]] = r
+        if manifest.get("e_we") and manifest.get("e_sn"):
+            manifest_geom = {"e_we": manifest["e_we"][0], "e_sn": manifest["e_sn"][0],
+                              "max_dom": manifest.get("max_dom")}
 
     used, excluded = [], []
     for run_dir in run_dirs:
@@ -407,6 +464,12 @@ def collect_runs(runs_dir, manifest):
             excluded.append({"ranks": ranks, "dir": str(run_dir),
                               "reason": "wall.txt malformed (%s)" % exc})
             continue
+        nodes = None
+        if "NODES" in wall:
+            try:
+                nodes = int(wall["NODES"])
+            except ValueError:
+                nodes = None
         if rc != 0 or ok != 1:
             excluded.append({"ranks": ranks, "dir": str(run_dir),
                               "reason": "run did not complete (RC=%d OK=%d)" % (rc, ok)})
@@ -448,23 +511,42 @@ def collect_runs(runs_dir, manifest):
             if read_bytes == 0:
                 read_bytes = None
 
+        # Real on-disk wrfinput_d*/wrfbdy_d* bytes, independent of whether a separable read
+        # TIMING line exists (that's read_bytes above, for fit_read_rate's own use) -- this one
+        # feeds fit_startup_per_node's read_s subtraction, which needs the bytes even when no
+        # such line is present (it predicts read_s from the RATE, not from a measured read_s).
+        real_input_bytes, _names = _dir_bytes(run_dir, ["wrfinput_d*", "wrfbdy_d*"])
+        real_input_bytes = real_input_bytes or None
+
         used.append({
-            "ranks": ranks, "wall_s": wall_s, "sum_main_s": sum_main,
+            "ranks": ranks, "nodes": nodes, "wall_s": wall_s, "sum_main_s": sum_main,
             "startup_measured": startup_measured, "write_s": write_s, "write_bytes": write_bytes,
-            "read_s": read_s, "read_bytes": read_bytes, "dir": str(run_dir),
+            "read_s": read_s, "read_bytes": read_bytes, "real_input_bytes": real_input_bytes,
+            "manifest_geom": manifest_geom, "dir": str(run_dir),
             "manifest": manifest_by_ranks.get(ranks),
         })
-    if not used:
-        raise CalibrateError("every run under %s was excluded -- see reasons above; nothing to fit" %
-                              runs_dir)
     return used, excluded
+
+
+def _is_cap_point(u, cores_per_node):
+    """The cap is the FULLY-LOADED single-node plateau: ranks>=cores_per_node (excludes the
+    sub-node ranks that startup_s_base/_per_rank models instead) AND nodes==1 (excludes the
+    multi-node runs that startup_s_per_node models instead -- with that field now modelling
+    growth beyond node 1, blending a 2+-node run's larger startup into this median would double
+    count that growth once startup_s_per_node is added back on top in predict_init). wall.txt
+    (written by plan's sbatch template) always carries NODES; nodes==1 is ASSUMED when it is
+    missing (a run directory from before that field existed), matching this function's
+    pre-existing ranks-only behaviour exactly."""
+    if u["ranks"] < cores_per_node:
+        return False
+    return u.get("nodes") in (None, 1)
 
 
 def fit_startup(used, cores_per_node):
     below = sorted((u["ranks"], u["startup_measured"]) for u in used if u["ranks"] < cores_per_node)
-    at_or_above = [u["startup_measured"] for u in used if u["ranks"] >= cores_per_node]
+    one_node = [u["startup_measured"] for u in used if _is_cap_point(u, cores_per_node)]
 
-    cap = statistics.median(at_or_above) if at_or_above else None
+    cap = statistics.median(one_node) if one_node else None
 
     base = per_rank = None
     if len(below) >= 2:
@@ -486,23 +568,110 @@ def fit_startup(used, cores_per_node):
         base = 0.0
     base_clipped = max(0.0, base) if base is not None else None
 
-    return {"cap": cap, "cap_n": len(at_or_above), "base": base_clipped,
+    # predict_init (wtune_predict.py) computes startup_term = min(startup_s + ...,
+    # startup_s_base + startup_s_per_rank*ranks) -- that min() assumes per_rank >= 0 (a
+    # sub-node line that rises toward the cap and gets clamped by it). A NEGATIVE per_rank
+    # makes that second term fall WITHOUT BOUND as ranks grows, so min() picks it over the cap
+    # at large rank counts and predict_init returns a deeply negative "total_s" -- confirmed on
+    # scc 2026-09-25 (a contaminated severe2023 1-rank point gave per_rank=-1.93, and predicting
+    # conus12 at 288 ranks with the resulting calibration returned total_s=-376.6s). A negative
+    # slope is not a smaller sub-node effect, it is measurement noise (most likely NFS/fabric
+    # contention skewing a single small-sample point) masquerading as a fit -- reject it rather
+    # than let it silently corrupt every prediction at a rank count larger than the points it
+    # was fitted from.
+    rejected_reason = None
+    if per_rank is not None and per_rank < 0:
+        rejected_reason = (
+            "least-squares fit gave a NEGATIVE startup_s_per_rank=%.6g from points %s -- "
+            "physically implausible (startup cannot fall without bound as ranks grow) and "
+            "would make predict_init's min(startup_s+..., startup_s_base+per_rank*ranks) return "
+            "unbounded-negative totals at rank counts beyond these points; rejected, not written"
+            % (per_rank, below))
+        base_clipped = None
+        per_rank = None
+
+    return {"cap": cap, "cap_n": len(one_node), "base": base_clipped,
             "base_unclipped": base, "per_rank": per_rank,
-            "below_points": below, "at_or_above_points": at_or_above}
+            "below_points": below, "one_node_points": one_node,
+            "rejected_reason": rejected_reason}
 
 
-def fit_history_write_rate(used, base_calibration, geom):
+def fit_startup_per_node(used, effective_read_rate):
+    """startup_s_per_node: seconds the 1-node cap grows per additional node (predict_init:
+    startup_term = startup_s + startup_s_per_node*(nodes-1), evidence: sc26p2 4 nodes/192 ranks
+    wall-sum(main) ~32s vs the 1-node ~19.4s cap). Isolates the growth from read-time noise: each
+    run's OWN predicted read_s (its real on-disk wrfinput_d*/wrfbdy_d* bytes / effective_read_rate)
+    is subtracted from wall - sum(main) first, since a read from shared storage happens once and
+    does not scale with node count -- leaving it in would fold per-run I/O variance into what is
+    supposed to be a pure launch/MPI-coordination slope. The 1-node points set a read-subtracted
+    baseline (cap_pure); the multi-node points' distance from that baseline, divided by
+    (nodes-1) via least squares forced through the origin (no intercept -- by construction a
+    0-node run does not exist), is the slope. Returns None without enough of both kinds of point."""
+    pts = []
+    for u in used:
+        if u.get("nodes") is None or not u.get("real_input_bytes") or not effective_read_rate:
+            continue
+        read_s_pred = u["real_input_bytes"] / effective_read_rate
+        startup_pure = (u["wall_s"] - u["sum_main_s"]) - read_s_pred
+        pts.append({"nodes": u["nodes"], "ranks": u["ranks"], "startup_pure": startup_pure,
+                    "read_s_pred": read_s_pred, "dir": u["dir"]})
+
+    one_node = [p["startup_pure"] for p in pts if p["nodes"] == 1]
+    multi_node = [p for p in pts if p["nodes"] > 1]
+    if not one_node or not multi_node:
+        return None
+
+    cap_pure = statistics.median(one_node)
+    num = sum((p["nodes"] - 1) * (p["startup_pure"] - cap_pure) for p in multi_node)
+    den = sum((p["nodes"] - 1) ** 2 for p in multi_node)
+    if den == 0:
+        return None
+    slope = num / den
+
+    result = {"per_node": slope, "cap_pure": cap_pure, "one_node_n": len(one_node),
+              "multi_node_points": [(p["nodes"], p["ranks"], round(p["startup_pure"], 3))
+                                     for p in multi_node],
+              "effective_read_rate": effective_read_rate, "rejected_reason": None}
+
+    # Symmetric guard to fit_startup's per_rank rejection above: predict_init documents this
+    # field as "the cap grows with node count" (startup_term += per_node*(nodes-1)) -- a
+    # NEGATIVE slope means the model would predict a SHRINKING cap at higher node counts,
+    # contradicting the evidence the field was added for (sc26p2 4 nodes ~32s vs 1 node
+    # ~19.4s) and, same as a negative per_rank, is far more likely to be a contaminated
+    # 1-node cap_pure (one noisy single-node run pulling the median off) than a real effect.
+    if slope < 0:
+        result["per_node"] = None
+        result["rejected_reason"] = (
+            "least-squares fit gave a NEGATIVE startup_s_per_node=%.6g (cap_pure=%.3fs from "
+            "%d nodes==1 point(s), multi-node points (nodes,ranks,startup_pure)=%s) -- "
+            "physically implausible (the cap should grow, not shrink, with node count) and "
+            "most likely means cap_pure itself is contaminated by a noisy 1-node run; "
+            "rejected, not written" %
+            (slope, cap_pure, len(one_node), result["multi_node_points"]))
+
+    return result
+
+
+def fit_history_write_rate(used, base_calibration):
     for u in used:
         if u["write_s"]:
             bytes_ = u["write_bytes"]
             source = "measured wrfout_d01 file size"
             if bytes_ is None:
                 bpcl = base_calibration.get("derived", {}).get("bytes_per_cell_level")
-                if bpcl is not None and geom is not None:
-                    e_we, e_sn, e_vert = geom
-                    bytes_ = bpcl * e_we * e_sn * e_vert
-                    source = ("ESTIMATED via base calibration's bytes_per_cell_level "
-                               "(no wrfout_d01_* file found on disk)")
+                geom = u.get("manifest_geom")
+                if bpcl is not None and geom and geom.get("e_we") and geom.get("e_sn"):
+                    # e_vert is not in MANIFEST.json (plan doesn't record it); without a real
+                    # e_vert this ESTIMATED path can't be computed either, so it only ever fires
+                    # when a real wrfout file was NOT found on disk AND geometry is known but
+                    # e_vert still is not -- i.e. effectively never with the current MANIFEST.json
+                    # schema. Left in place (rather than removed) because MANIFEST.json gaining
+                    # e_vert later should make this branch start working with no code change here.
+                    e_vert = geom.get("e_vert")
+                    if e_vert:
+                        bytes_ = bpcl * geom["e_we"] * geom["e_sn"] * e_vert
+                        source = ("ESTIMATED via base calibration's bytes_per_cell_level "
+                                   "(no wrfout_d01_* file found on disk)")
             if bytes_ is None:
                 continue
             rate_bps = bytes_ / u["write_s"]
@@ -523,8 +692,8 @@ def _now_iso():
     return datetime.datetime.now().isoformat(timespec="seconds")
 
 
-def build_output_calibration(args, used, excluded, startup_fit, write_fit, read_fit,
-                              base_calibration, base_path, host):
+def build_output_calibration(args, used, excluded, startup_fit, per_node_fit, write_fit,
+                              read_fit, base_calibration, base_path, host):
     out = copy.deepcopy(base_calibration)
     date = _now_iso()
     measured_fields = []
@@ -533,27 +702,26 @@ def build_output_calibration(args, used, excluded, startup_fit, write_fit, read_
         if k not in ("site", "description")
     )
 
+    runs_dirs = args.runs if isinstance(args.runs, list) else [args.runs]
     out["site"] = args.site
     out["description"] = (
         "Auto-generated by wtune_calibrate.py fit on %s from runs under %s "
         "(base template: %s). Fields listed in calibration_provenance.measured_fields below "
         "were fitted from this machine's own runs; everything else is copied verbatim from the "
         "base file and is TRANSFERRED, not measured here -- see calibration_provenance." %
-        (date, args.runs, base_path))
+        (date, runs_dirs, base_path))
 
     if startup_fit["cap"] is not None:
         out["startup_s"] = startup_fit["cap"]
         out["startup_s_source"] = (
             "MEASURED on %s %s by wtune_calibrate.py fit: median wall - sum(d01 'Timing for "
-            "main') over %d run(s) with ranks >= cores_per_node=%d (%s)" %
-            (host, date, startup_fit["cap_n"], args.cores_per_node,
-             startup_fit["at_or_above_points"]))
+            "main') over %d run(s) with nodes==1 (%s)" %
+            (host, date, startup_fit["cap_n"], startup_fit["one_node_points"]))
         measured_fields += ["startup_s", "startup_s_source"]
     else:
         out.setdefault("startup_s_note", "")
-        out["startup_s_note"] = ("no run with ranks >= cores_per_node=%d completed -- startup_s "
-                                  "TRANSFERRED from %s, not re-measured" %
-                                  (args.cores_per_node, base_path))
+        out["startup_s_note"] = ("no completed run had nodes==1 -- startup_s TRANSFERRED from "
+                                  "%s, not re-measured" % base_path)
 
     if startup_fit["base"] is not None and startup_fit["per_rank"] is not None:
         out["startup_s_base"] = startup_fit["base"]
@@ -564,11 +732,43 @@ def build_output_calibration(args, used, excluded, startup_fit, write_fit, read_
             "min(startup_s, startup_s_base + startup_s_per_rank*ranks)" %
             (host, date, args.cores_per_node, startup_fit["below_points"]))
         measured_fields += ["startup_s_base", "startup_s_per_rank", "startup_s_scaling_source"]
+    elif startup_fit.get("rejected_reason"):
+        out["startup_s_scaling_note"] = (
+            "REJECTED, not fitted: %s -- startup_s_base/startup_s_per_rank TRANSFERRED from %s "
+            "instead" % (startup_fit["rejected_reason"], base_path))
     else:
         out["startup_s_scaling_note"] = (
             "fewer than 2 runs below one node (cores_per_node=%d) completed -- "
             "startup_s_base/startup_s_per_rank TRANSFERRED from %s, not re-fitted" %
             (args.cores_per_node, base_path))
+
+    if per_node_fit is not None and per_node_fit.get("rejected_reason"):
+        out["startup_s_per_node_note"] = (
+            "REJECTED, not fitted: %s -- startup_s_per_node left ABSENT (predict_init treats a "
+            "missing key as 0, i.e. no cap growth with node count, same as before this field "
+            "existed); this is not a TRANSFERRED value, --base has no such key to copy" %
+            per_node_fit["rejected_reason"])
+    elif per_node_fit is not None:
+        out["startup_s_per_node"] = per_node_fit["per_node"]
+        out["startup_s_per_node_source"] = (
+            "MEASURED on %s %s by wtune_calibrate.py fit: read_s-subtracted (wall - sum(d01 "
+            "'Timing for main') - real_input_bytes/effective_read_rate[=%.6g B/s]) startup at "
+            "%d node(s)==1 point(s) (median=cap_pure=%.3fs) vs %d multi-node point(s) "
+            "[(nodes,ranks,startup_pure), ...]=%s; least-squares slope of "
+            "(startup_pure - cap_pure) against (nodes-1), forced through the origin. Consumed by "
+            "predict_init as startup_term = startup_s + startup_s_per_node*(nodes-1), BEFORE the "
+            "min(...) against startup_s_base + startup_s_per_rank*ranks -- startup_s itself stays "
+            "the raw (not read-subtracted) 1-node median, unchanged." %
+            (host, date, per_node_fit["effective_read_rate"], per_node_fit["one_node_n"],
+             per_node_fit["cap_pure"], len(per_node_fit["multi_node_points"]),
+             per_node_fit["multi_node_points"]))
+        measured_fields += ["startup_s_per_node", "startup_s_per_node_source"]
+    else:
+        out["startup_s_per_node_note"] = (
+            "not fitted: need at least one nodes==1 run and one nodes>1 run, both with real "
+            "on-disk wrfinput_d*/wrfbdy_d* bytes -- startup_s_per_node left ABSENT (predict_init "
+            "treats a missing key as 0, i.e. no cap growth with node count, same as before this "
+            "field existed); this is not a TRANSFERRED value, --base has no such key to copy")
 
     if write_fit is not None:
         out["history_write_rate_MBps_measured"] = write_fit["rate_MBps"]
@@ -606,7 +806,7 @@ def build_output_calibration(args, used, excluded, startup_fit, write_fit, read_
 
     out["calibration_provenance"] = {
         "generated_by": "wtune_calibrate.py fit", "generated_at": date, "host": host,
-        "base_file": str(base_path), "runs_dir": str(args.runs),
+        "base_file": str(base_path), "runs_dirs": [str(d) for d in runs_dirs],
         "measured_fields": measured_fields,
         "transferred_fields": transferred_fields,
     }
@@ -620,19 +820,31 @@ def build_output_calibration(args, used, excluded, startup_fit, write_fit, read_
     return out
 
 
-def render_summary(used, excluded, startup_fit, write_fit, read_fit, out_path):
+def render_summary(used, excluded, startup_fit, per_node_fit, write_fit, read_fit, out_path):
     lines = []
     lines.append("runs found: %d used, %d excluded" % (len(used), len(excluded)))
-    lines.append("%-8s %10s %12s %12s" % ("ranks", "wall_s", "sum_main_s", "startup_s"))
-    for u in sorted(used, key=lambda x: x["ranks"]):
-        lines.append("%-8d %10.3f %12.3f %12.3f" %
-                      (u["ranks"], u["wall_s"], u["sum_main_s"], u["startup_measured"]))
+    lines.append("%-8s %6s %10s %12s %12s" % ("ranks", "nodes", "wall_s", "sum_main_s", "startup_s"))
+    for u in sorted(used, key=lambda x: (x["ranks"], x.get("nodes") or 0)):
+        lines.append("%-8d %6s %10.3f %12.3f %12.3f" %
+                      (u["ranks"], u.get("nodes"), u["wall_s"], u["sum_main_s"],
+                       u["startup_measured"]))
     for e in excluded:
         lines.append("EXCLUDED ranks=%s dir=%s reason=%s" % (e["ranks"], e["dir"], e["reason"]))
     lines.append("")
-    lines.append("startup fit: cap=%s (n=%d, >=cores_per_node)  base=%s  per_rank=%s" %
+    lines.append("startup fit: cap=%s (n=%d, nodes==1)  base=%s  per_rank=%s" %
                   (startup_fit["cap"], startup_fit["cap_n"], startup_fit["base"],
                    startup_fit["per_rank"]))
+    if startup_fit.get("rejected_reason"):
+        lines.append("startup_s_base/per_rank REJECTED: %s" % startup_fit["rejected_reason"])
+    if per_node_fit is not None and per_node_fit.get("rejected_reason"):
+        lines.append("startup_s_per_node REJECTED: %s" % per_node_fit["rejected_reason"])
+    elif per_node_fit:
+        lines.append("startup_s_per_node fit: per_node=%.4fs/node  cap_pure=%.3fs (n=%d nodes==1)  "
+                      "multi-node points (nodes,ranks,startup_pure)=%s" %
+                      (per_node_fit["per_node"], per_node_fit["cap_pure"],
+                       per_node_fit["one_node_n"], per_node_fit["multi_node_points"]))
+    else:
+        lines.append("startup_s_per_node fit: not enough nodes==1/nodes>1 points -- left unset")
     if write_fit:
         lines.append("history write rate: %.3f MB/s (ranks=%d, %.0f bytes / %.3fs)" %
                       (write_fit["rate_MBps"], write_fit["ranks"], write_fit["bytes"],
@@ -651,38 +863,41 @@ def render_summary(used, excluded, startup_fit, write_fit, read_fit, out_path):
 
 
 def fit_cmd(args):
-    runs_dir = Path(args.runs).resolve()
-    manifest = None
-    manifest_path = runs_dir / "MANIFEST.json"
-    if manifest_path.exists():
-        manifest = json.loads(manifest_path.read_text())
+    runs_arg = args.runs if isinstance(args.runs, list) else [args.runs]
 
-    used, excluded = collect_runs(runs_dir, manifest)
+    used, excluded = [], []
+    for runs_dir_str in runs_arg:
+        runs_dir = Path(runs_dir_str).resolve()
+        manifest = None
+        manifest_path = runs_dir / "MANIFEST.json"
+        if manifest_path.exists():
+            manifest = json.loads(manifest_path.read_text())
+        u, e = collect_runs(runs_dir, manifest)
+        used += u
+        excluded += e
+    if not used:
+        raise CalibrateError(
+            "every run across all --runs dirs (%s) was excluded -- see reasons above; nothing "
+            "to fit" % runs_arg)
+
     startup_fit = fit_startup(used, args.cores_per_node)
 
     base_calibration = wp.load_calibration(args.base)
-    geom = None
-    if manifest and manifest.get("e_we") and manifest.get("e_sn"):
-        # d01 geometry only (write_fit's bytes_per_cell_level fallback is a d01-frame estimate,
-        # same convention as wtune_predict.predict_init's own no-real-wrfinput fallback).
-        geom = (manifest["e_we"][0], manifest["e_sn"][0], None)
-        e_vert = base_calibration.get("derived", {}).get("bytes_per_cell_level")
-        # e_vert is not in MANIFEST.json (plan doesn't record it); without it the bytes_per_cell_level
-        # fallback can't be computed, so geom stays usable only when a real wrfout file is on disk.
-        geom = None if e_vert is None else geom
-
-    write_fit = fit_history_write_rate(used, base_calibration, geom)
+    write_fit = fit_history_write_rate(used, base_calibration)
     read_fit = fit_read_rate(used)
+    effective_read_rate = (read_fit["rate_bytes_per_s"] if read_fit is not None
+                            else base_calibration.get("derived", {}).get("read_rate_bytes_per_s"))
+    per_node_fit = fit_startup_per_node(used, effective_read_rate)
 
     host = args.host or socket.gethostname()
-    out = build_output_calibration(args, used, excluded, startup_fit, write_fit, read_fit,
-                                    base_calibration, args.base, host)
+    out = build_output_calibration(args, used, excluded, startup_fit, per_node_fit, write_fit,
+                                    read_fit, base_calibration, args.base, host)
 
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(out, indent=2, sort_keys=True) + "\n")
 
-    print(render_summary(used, excluded, startup_fit, write_fit, read_fit, out_path))
+    print(render_summary(used, excluded, startup_fit, per_node_fit, write_fit, read_fit, out_path))
     return 0
 
 
@@ -711,7 +926,10 @@ def add_plan_subparser(sub):
 
 def add_fit_subparser(sub):
     p = sub.add_parser("fit", help="fit a calibration JSON from plan's completed runs")
-    p.add_argument("--runs", required=True, help="the --out directory plan wrote into (now containing run_<ranks>_<jobid>/)")
+    p.add_argument("--runs", required=True, action="append",
+                    help="a --out directory plan wrote into (now containing run_<ranks>_<jobid>/); "
+                         "repeatable -- give one per plan run (e.g. once for a small case's "
+                         "1/36/72/100-rank sweep, once for a second case's multi-node sweep)")
     p.add_argument("--out", required=True, help="output calibration JSON path")
     p.add_argument("--base", default=str(DEFAULT_CALIBRATION),
                     help="template calibration JSON to copy untouched fields from "

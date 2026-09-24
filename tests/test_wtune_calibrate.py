@@ -77,6 +77,48 @@ def test_build_decomp_returns_none_when_geometry_forbids_every_shape(tmp_path):
     assert wc.build_decomp(nl, 2, 100, 10) == (10, 10)
 
 
+def test_pick_near_square_accounts_for_domain_aspect_ratio():
+    # sc26p2-like domain (e_we=170, e_sn=130, aspect~1.308); at 72 ranks the near-tie is
+    # (8,9) vs (9,8) -- the wider dimension (e_we) should get MORE ranks (nx=9) for the more
+    # square PATCH: (170/9,130/8)=(18.9,16.25) [aspect 1.16] vs (170/8,130/9)=(21.25,14.4)
+    # [aspect 1.47]; the plain |nx-ny| metric (aspect=1.0 default) cannot tell these apart.
+    shapes = [(6, 12), (12, 6), (8, 9), (9, 8)]
+    assert wc.pick_near_square(shapes, aspect=170 / 130) == (9, 8)
+    assert wc.pick_near_square(shapes) in ((8, 9), (9, 8))  # aspect=1.0 default is ambiguous here
+
+
+SC26P2_LIKE_NAMELIST = """\
+&time_control
+ run_days = 0,
+ run_hours = 6,
+ run_minutes = 0,
+ run_seconds = 0,
+ restart = .false.,
+ io_form_history = 2
+ /
+&domains
+ time_step = 60,
+ max_dom = 1,
+ e_we = 170,
+ e_sn = 130,
+ e_vert = 45,
+ /
+&physics
+ /
+"""
+
+
+def test_build_decomp_picks_sc26p2_style_shapes_for_every_planned_rank_count(tmp_path):
+    # the exact (ranks -> nx,ny) the coordinator specified for the sc26p2 startup_s_per_node
+    # sweep (72->1 node, 144->2, 204->3, 221->4 at cores_per_node=72); 204/221 have only one
+    # legal shape each (no choice), 72/144 are where pick_near_square's aspect-awareness matters.
+    nl = wp.parse_namelist(_write(str(tmp_path / "namelist.input"), SC26P2_LIKE_NAMELIST))
+    assert wc.build_decomp(nl, 1, 72, 10) == (9, 8)
+    assert wc.build_decomp(nl, 1, 144, 10) == (12, 12)
+    assert wc.build_decomp(nl, 1, 204, 10) == (17, 12)
+    assert wc.build_decomp(nl, 1, 221, 10) == (17, 13)
+
+
 # --------------------------------------------------------------------------
 # plan: writes sbatch scripts + MANIFEST.json, skips infeasible rank counts
 # --------------------------------------------------------------------------
@@ -121,6 +163,12 @@ def test_plan_skips_infeasible_ranks_and_writes_manifest(tmp_path):
         assert "#SBATCH --exclude=head" in text
         assert "--no-adios2" in text
         assert "--set restart=.false." in text
+        # regression (scc job 1090/1091, 2026-09-25): scc.sh's site_hygiene() reads
+        # $ALLOC_NODES itself; calling it before ALLOC_NODES is assigned made `set -u` abort
+        # the WHOLE script silently (its stderr was redirected away), with an empty .out and
+        # no wall.txt -- bash -n cannot catch this (it is a runtime-only ordering bug), so it
+        # is pinned here by textual position instead.
+        assert text.index("ALLOC_NODES=") < text.index("site_hygiene reap")
 
     mprof = out_dir / "machine_profile.sbatch"
     assert mprof.exists()
@@ -153,7 +201,8 @@ def _rsl_main_lines(seconds_list):
 
 
 def _make_run(runs_dir, ranks, jobid, main_seconds, startup_s, rc=0, ok=1,
-              write_seconds=None, write_bytes=None, extra_rsl=""):
+              write_seconds=None, write_bytes=None, extra_rsl="", nodes=1,
+              input_bytes=None):
     run_dir = runs_dir / ("run_%d_%s" % (ranks, jobid))
     run_dir.mkdir(parents=True)
     sum_main = sum(main_seconds)
@@ -166,15 +215,18 @@ def _make_run(runs_dir, ranks, jobid, main_seconds, startup_s, rc=0, ok=1,
             (run_dir / "wrfout_d01_2023-03-31_01:00:00").write_bytes(b"\0" * write_bytes)
     rsl_text += extra_rsl
     _write(str(run_dir / "rsl.error.0000"), rsl_text)
-    wall_text = "WALL_S %.6f\nRC %d\nOK %d\nRANKS %d\nNODES 1\nNX 1\nNY 1\n" % (
-        wall_s, rc, ok, ranks)
+    wall_text = "WALL_S %.6f\nRC %d\nOK %d\nRANKS %d\nNODES %d\nNX 1\nNY 1\n" % (
+        wall_s, rc, ok, ranks, nodes)
     _write(str(run_dir / "wall.txt"), wall_text)
+    if input_bytes is not None:
+        (run_dir / "wrfinput_d01").write_bytes(b"\0" * input_bytes)
     return run_dir
 
 
 def _fit_args(runs_dir, out_path, base=REAL_CALIBRATION, cores_per_node=72, site=None, host="unit-test-host"):
+    runs = runs_dir if isinstance(runs_dir, list) else [str(runs_dir)]
     return wc.argparse.Namespace(
-        runs=str(runs_dir), out=str(out_path), base=base, cores_per_node=cores_per_node,
+        runs=[str(r) for r in runs], out=str(out_path), base=base, cores_per_node=cores_per_node,
         site=site, host=host)
 
 
@@ -268,6 +320,135 @@ def test_fit_measures_read_rate_when_a_separable_line_exists(tmp_path):
     assert out["derived"]["read_rate_bytes_per_s"] == pytest.approx(100_000.0)  # 500000/5
     assert "MEASURED" in out["derived"]["read_rate_formula"]
     assert "derived.read_rate_bytes_per_s" in out["calibration_provenance"]["measured_fields"]
+
+
+def test_fit_recovers_startup_s_per_node_from_multi_node_runs(tmp_path):
+    # cap_true=19.4 (1 node), per_node_true=4.2 -> pure startup 19.4/23.6/27.8/32.0 at
+    # nodes=1/2/3/4 (32.0 at 4 nodes matches the coordinator's own sc26p2 evidence number).
+    # Each run's raw (wall-sum_main) startup = pure + read_s_pred, read_s_pred = 2,000,000
+    # bytes / 1,000,000 B/s effective_read_rate = 2.0s constant, so raw = pure + 2.0.
+    runs_dir = tmp_path / "runs"
+    runs_dir.mkdir()
+    _make_run(runs_dir, 72, "j1", [100.0], startup_s=21.4, nodes=1, input_bytes=2_000_000)
+    _make_run(runs_dir, 144, "j2", [100.0], startup_s=25.6, nodes=2, input_bytes=2_000_000)
+    _make_run(runs_dir, 204, "j3", [100.0], startup_s=29.8, nodes=3, input_bytes=2_000_000)
+    _make_run(runs_dir, 221, "j4", [100.0], startup_s=34.0, nodes=4, input_bytes=2_000_000)
+
+    base = tmp_path / "base.json"
+    _write(str(base), json.dumps({"derived": {"read_rate_bytes_per_s": 1_000_000.0}}))
+
+    out_path = tmp_path / "scc-auto-test.json"
+    rc = wc.fit_cmd(_fit_args(runs_dir, out_path, base=str(base)))
+    assert rc == 0
+    out = json.loads(out_path.read_text())
+
+    assert out["startup_s_per_node"] == pytest.approx(4.2, abs=1e-6)
+    assert "MEASURED" in out["startup_s_per_node_source"]
+    assert "startup_s_per_node" in out["calibration_provenance"]["measured_fields"]
+    # startup_s itself stays the RAW (not read-subtracted) 1-node value: 21.4, not 19.4.
+    assert out["startup_s"] == pytest.approx(21.4)
+
+
+def test_fit_rejects_negative_startup_s_per_node_slope(tmp_path):
+    # regression (scc 2026-09-25): a contaminated 1-node point inflates cap_pure so far above
+    # the real multi-node points that the least-squares slope against (nodes-1) comes out
+    # NEGATIVE -- physically implausible (the model's whole premise is that the cap GROWS with
+    # node count) and must be rejected, not written, symmetric to the per_rank guard above.
+    runs_dir = tmp_path / "runs"
+    runs_dir.mkdir()
+    _make_run(runs_dir, 72, "j1", [10.0], startup_s=105.757, nodes=1, input_bytes=2_000_000)
+    _make_run(runs_dir, 144, "j2", [10.0], startup_s=47.0, nodes=2, input_bytes=2_000_000)
+    _make_run(runs_dir, 204, "j3", [10.0], startup_s=41.3, nodes=3, input_bytes=2_000_000)
+
+    base = tmp_path / "base.json"
+    _write(str(base), json.dumps({"derived": {"read_rate_bytes_per_s": 1_000_000.0}}))
+
+    out_path = tmp_path / "scc-auto-test.json"
+    rc = wc.fit_cmd(_fit_args(runs_dir, out_path, base=str(base)))
+    assert rc == 0
+    out = json.loads(out_path.read_text())
+
+    assert "startup_s_per_node" not in out
+    assert "REJECTED" in out["startup_s_per_node_note"]
+    assert "negative" in out["startup_s_per_node_note"].lower()
+    assert "startup_s_per_node" not in out["calibration_provenance"]["measured_fields"]
+
+
+def test_fit_startup_s_per_node_absent_without_multi_node_runs(tmp_path):
+    runs_dir = tmp_path / "runs"
+    runs_dir.mkdir()
+    _make_run(runs_dir, 1, "j1", [10.0], startup_s=2.4, nodes=1)
+    _make_run(runs_dir, 36, "j2", [10.0], startup_s=16.4, nodes=1)
+
+    out_path = tmp_path / "scc-auto-test.json"
+    wc.fit_cmd(_fit_args(runs_dir, out_path))
+    out = json.loads(out_path.read_text())
+
+    assert "startup_s_per_node" not in out
+    assert "not fitted" in out["startup_s_per_node_note"]
+    assert "startup_s_per_node" not in out["calibration_provenance"]["measured_fields"]
+
+
+def test_fit_rejects_negative_per_rank_slope(tmp_path):
+    # regression (scc 2026-09-25): a contaminated 1-rank point (startup=105.757s, vs 36 ranks'
+    # 38.239s) fits a NEGATIVE per_rank=-1.929 -- fed into predict_init's min(startup_s+...,
+    # startup_s_base+per_rank*ranks), that makes the second term fall without bound as ranks
+    # grows, so predicting a large-rank-count case with the resulting calibration returned a
+    # deeply NEGATIVE total_s (conus12 at 288 ranks: -376.6s). The fit must refuse to write a
+    # negative per_rank rather than silently corrupt every downstream prediction.
+    runs_dir = tmp_path / "runs"
+    runs_dir.mkdir()
+    _make_run(runs_dir, 1, "j1", [82.749], startup_s=105.757, nodes=1)
+    _make_run(runs_dir, 36, "j2", [5.890], startup_s=38.239, nodes=1)
+    _make_run(runs_dir, 72, "j3", [5.065], startup_s=48.182, nodes=1)
+
+    out_path = tmp_path / "scc-auto-test.json"
+    rc = wc.fit_cmd(_fit_args(runs_dir, out_path))
+    assert rc == 0
+    out = json.loads(out_path.read_text())
+
+    assert "startup_s_base" not in out or out["startup_s_base"] == json.load(open(REAL_CALIBRATION)).get("startup_s_base")
+    assert "startup_s_per_rank" not in out or out["startup_s_per_rank"] == json.load(open(REAL_CALIBRATION)).get("startup_s_per_rank")
+    assert "startup_s_base" not in out["calibration_provenance"]["measured_fields"]
+    assert "startup_s_per_rank" not in out["calibration_provenance"]["measured_fields"]
+    assert "REJECTED" in out["startup_s_scaling_note"]
+    assert "negative" in out["startup_s_scaling_note"].lower()
+
+    # and predict_init must not be handed a negative slope at all: build_prediction on a
+    # large rank count must not go negative.
+    case_dir = tmp_path / "predict_case"
+    case_dir.mkdir()
+    _write(str(case_dir / "namelist.input"), PREDICT_FIXTURE_NAMELIST)
+    pred = wp.build_prediction(
+        namelist_path=str(case_dir / "namelist.input"), case_dir=str(case_dir), nodes=4,
+        config={"ranks": 288, "omp": 1, "nx": 18, "ny": 16, "numtiles": 1},
+        ledger_paths=None, calibration_path=str(out_path),
+        io_form_override=None, io_target="nfs")
+    assert pred["total_s"] > 0
+
+
+def test_fit_pools_multiple_runs_directories(tmp_path):
+    # --runs is repeatable: one small-rank sweep (severe2023-shaped) + one separate multi-node
+    # sweep (sc26p2-shaped) both feed the same fit, without the caller merging directories.
+    runs_a = tmp_path / "runs_severe"
+    runs_a.mkdir()
+    runs_b = tmp_path / "runs_sc26p2"
+    runs_b.mkdir()
+    _make_run(runs_a, 1, "j1", [10.0], startup_s=2.4, nodes=1)
+    _make_run(runs_a, 36, "j2", [10.0], startup_s=16.4, nodes=1)
+    _make_run(runs_b, 72, "j3", [10.0], startup_s=19.4, nodes=1)
+    _make_run(runs_b, 144, "j4", [10.0], startup_s=23.6, nodes=2)
+
+    out_path = tmp_path / "out.json"
+    rc = wc.fit_cmd(_fit_args([runs_a, runs_b], out_path))
+    assert rc == 0
+    out = json.loads(out_path.read_text())
+
+    assert out["validity"]["n_runs_used"] == 4
+    assert out["startup_s"] == pytest.approx(19.4)       # from runs_b's lone nodes==1 point
+    assert out["startup_s_base"] == pytest.approx(2.0)    # from runs_a's ranks<72 points
+    assert out["startup_s_per_rank"] == pytest.approx(0.4)
+    assert set(out["calibration_provenance"]["runs_dirs"]) == {str(runs_a.resolve()), str(runs_b.resolve())}
 
 
 def test_fit_raises_when_no_run_directories_found(tmp_path):

@@ -1,0 +1,1116 @@
+#!/usr/bin/env python3
+"""wtune_preflight.py -- pre-submission WRF run_dir sanity checker (`wtune.py check`).
+
+A real WRF user runs this BEFORE `sbatch`. Every check here is motivated by a real incident
+that silently wasted a job in this project (see each check's docstring for the specific job/
+directory). The unifying failure mode this file exists to catch: WRF either aborts with a
+message that does not point at the actual mistake, or -- worse -- hangs forever with NO
+message at all, burning the full walltime allocation for nothing.
+
+Severities (see SEVERITY_ORDER below for the exit-code mapping):
+    FATAL  WRF will abort at/near startup with an error message.
+    HANG   WRF will hang with NO error message -- the worst outcome: the job sits at 100%
+           node occupancy producing nothing until the walltime kills it.
+    WARN   WRF will run to completion, but the result or the wall time is not what the user
+           thinks (wrong window, silently ignored setting, slow first step, tight disk).
+    INFO   Informational / SKIPPED (a check could not run, e.g. netCDF4 unavailable).
+
+Exit code: 0 if no FATAL/HANG/WARN finding, 1 if the worst finding is WARN, 2 if there is any
+FATAL or HANG finding.
+
+Dependency policy: the core of this module is stdlib-only (re, os, datetime, json, argparse,
+pathlib) because scc's system `/usr/bin/python3` (3.14) has neither numpy nor netCDF4 --
+confirmed 2026-09-24 via `ssh scc '/usr/bin/python3 -c "import numpy"'` (ModuleNotFoundError)
+and the same for netCDF4. Every netCDF-backed check (C4 aerosol fields, C6 grid-dim/time
+consistency) imports netCDF4 lazily and, when it is not importable, emits an explicit
+"SKIPPED (netCDF4 not available)" finding for that check -- never silence.
+
+Reuses, rather than re-implements, this repo's existing single-sourced parsers:
+    wtune_predict.parse_namelist / g / g_dom / get_max_dom / get_domain_geom / get_run_seconds
+        -- the list/per-domain-aware namelist reader and WRF's own broadcast-last-value rule.
+    wtune_predict._split_assignments -- reused (not re-implemented) so "which lines does the
+        real parser treat as assignments" and "which lines does C2 flag as out-of-block" are
+        answered by the exact same regex, not two regexes that can silently drift apart.
+    wtune_runlength.resolve_run_seconds -- WRF's run_days/hours/minutes/seconds-vs-start/end
+        fallback rule (see that module's docstring for the lafe/isc21 evidence).
+    wtune_physics.resolve_suite -- physics_suite sentinel resolution (-1 -> the suite's actual
+        scheme numbers), needed because real templates like atlas-validate/conus25 set
+        physics_suite='conus' with mp_physics=ra_lw_physics=...=-1 and the *_physics IDs C3
+        needs to look up a scheme's required data files are only visible after this resolves.
+    predictor.decomp_space.rsl_patch_extents -- WRF's own RSL-lite remainder-at-both-ends patch
+        split (external/RSL_LITE/task_for_point.c), the same rule WRF's own startup legality
+        gate (share/module_check_a_mundo.F:3014-3029, floor(extent/nproc) >= 10) divides.
+
+Ground-truth verification performed 2026-09-24 against the real WRF 4.x tree on scc
+(/nfs/home/nkli/wrf-stack/wrf/nvhpc-fast-adios2-dmsm/WRF): run/README.physics_files (per-scheme
+data-file table), Registry/Registry.EM_COMMON (ghg_input default=1, reasonable_time_step_ratio,
+use_adaptive_time_step, nocolons, sst_update, use_aero_icbc, all namelist,physics/domains/
+time_control scalar-vs-per-domain-array shape), dyn_em/start_em.F:288-311 (the REAL time-step
+FATAL gate: domain 1 ONLY, first trip, real-data cases only, non-adaptive-timestep only) and
+phys/module_physics_init.F:1010-1021 + phys/module_ra_clWRF_support.F:100-204 (the REAL
+CAMtr_volume_mixing_ratio gate: ghg_input==1 and NOT idealized, for EVERY non-CAM lw scheme --
+CAM has its own built-in fallback table and is the one scheme exempted, model=="CAM" branch).
+Two corrections to the originally assumed design came directly out of that verification; both
+are called out at the top of the C8 and C3 docstrings below.
+"""
+from __future__ import annotations
+
+import argparse
+import datetime
+import json
+import os
+import re
+import sys
+from pathlib import Path
+
+_HERE = os.path.dirname(os.path.abspath(__file__))
+if _HERE not in sys.path:
+    sys.path.insert(0, _HERE)
+
+import wtune_predict as wp  # parse_namelist / g / g_dom / get_max_dom / get_domain_geom / ...
+import wtune_physics as wphys  # resolve_suite (physics_suite sentinel resolution)
+import wtune_runlength as runlen  # resolve_run_seconds
+
+try:
+    from predictor.decomp_space import rsl_patch_extents, MIN_PATCH
+except Exception:  # pragma: no cover -- exercised only if predictor/ is not shipped alongside
+    MIN_PATCH = 10
+
+    def rsl_patch_extents(extent, nproc):
+        q, rem = divmod(extent, nproc)
+        return q, (q + 1 if rem else q)
+
+try:
+    import netCDF4
+    HAVE_NETCDF4 = True
+except ImportError:
+    netCDF4 = None
+    HAVE_NETCDF4 = False
+
+
+FATAL = "FATAL"
+HANG = "HANG"
+WARN = "WARN"
+INFO = "INFO"
+
+# exit-code precedence, worst first
+_SEVERITY_RANK = {HANG: 3, FATAL: 3, WARN: 1, INFO: 0}
+
+
+class Finding:
+    __slots__ = ("severity", "id", "message", "evidence", "fix")
+
+    def __init__(self, severity, id, message, evidence="", fix=""):
+        self.severity = severity
+        self.id = id
+        self.message = message
+        self.evidence = evidence
+        self.fix = fix
+
+    def format(self):
+        line = "%s %s %s" % (self.severity, self.id, self.message)
+        if self.evidence:
+            line += "\n    evidence: %s" % self.evidence
+        if self.fix:
+            line += "\n    fix: %s" % self.fix
+        return line
+
+    def to_dict(self):
+        return {
+            "severity": self.severity,
+            "id": self.id,
+            "message": self.message,
+            "evidence": self.evidence,
+            "fix": self.fix,
+        }
+
+
+# --------------------------------------------------------------------------
+# small shared helpers
+# --------------------------------------------------------------------------
+
+def _domain_datetime(nl, prefix, dom_index):
+    """Per-domain <prefix>_year/month/day/hour/minute/second -> datetime, or None when
+    year/month/day are not resolvable for this domain (WRF's own broadcast-last-value rule via
+    g_dom -- a namelist that gives fewer values than max_dom reuses the last one, same as WRF).
+    minute/second default to 0 (many real templates, e.g. lafe's, omit start_second/end_second
+    when it is 0). hour/minute/second may legitimately overflow their clock range (WRF accepts
+    e.g. end_minute = 120 in idealized cases) -- normalised via timedelta, never via %."""
+    y = wp.g_dom(nl, "time_control", prefix + "_year", dom_index, None)
+    mo = wp.g_dom(nl, "time_control", prefix + "_month", dom_index, None)
+    d = wp.g_dom(nl, "time_control", prefix + "_day", dom_index, None)
+    if y is None or mo is None or d is None:
+        return None
+    h = wp.g_dom(nl, "time_control", prefix + "_hour", dom_index, 0) or 0
+    mi = wp.g_dom(nl, "time_control", prefix + "_minute", dom_index, 0) or 0
+    s = wp.g_dom(nl, "time_control", prefix + "_second", dom_index, 0) or 0
+    try:
+        return (datetime.datetime(int(y), int(mo), int(d))
+                + datetime.timedelta(hours=int(h), minutes=int(mi), seconds=int(s)))
+    except (TypeError, ValueError):
+        return None
+
+
+def find_out_of_block_assignments(namelist_path):
+    """Every 'key = value' assignment that sits OUTSIDE every &group.../ block, i.e. the exact
+    complement of what wtune_predict.parse_namelist actually captures (its own comment: "else:
+    stray line with no assignment and no prior key -- ignore."). Uses the SAME group-tracking
+    regexes as parse_namelist and the SAME wp._split_assignments() key-detection the real parser
+    uses inside a block, so "assignment" means the same thing in both places.
+
+    Real incident: /nfs/data/atlas-b/elevconv2022/namelist.input line 39,
+    ' iofields_filename = \\'prates_out.txt\\'' sits between &time_control's closing '/' and the
+    next '&domains' -- Fortran's namelist read silently ignores it; the FIRST iofields_filename
+    (line 31, storm_diags_d01.txt) is the one WRF actually uses.
+
+    Returns [(lineno, key_lower, raw_line_text), ...].
+    """
+    text = Path(namelist_path).read_text()
+    text = re.sub(r"!.*$", "", text, flags=re.M)
+    out = []
+    group = None
+    for lineno, raw_line in enumerate(text.splitlines(), start=1):
+        line = raw_line.strip()
+        if not line:
+            continue
+        m = re.match(r"&([A-Za-z_]\w*)", line)
+        if m:
+            group = m.group(1).lower()
+            continue
+        if line.startswith("/"):
+            group = None
+            continue
+        if group is not None:
+            continue
+        for key, _raw_value in wp._split_assignments(line):
+            out.append((lineno, key.lower(), line))
+    return out
+
+
+def _resolved_physics(nl, dom_index):
+    """physics_suite-resolved *_physics scheme IDs for one domain (wtune_physics.resolve_suite
+    fills -1 sentinels from the suite table -- needed because real templates such as
+    atlas-validate/conus25 set physics_suite='conus' with every *_physics=-1)."""
+    case = {
+        "physics_suite": wp.g(nl, "physics", "physics_suite", None),
+        "mp_physics": wp.g_dom(nl, "physics", "mp_physics", dom_index, 0),
+        "ra_lw_physics": wp.g_dom(nl, "physics", "ra_lw_physics", dom_index, 0),
+        "ra_sw_physics": wp.g_dom(nl, "physics", "ra_sw_physics", dom_index, 0),
+        "bl_pbl_physics": wp.g_dom(nl, "physics", "bl_pbl_physics", dom_index, 0),
+        "cu_physics": wp.g_dom(nl, "physics", "cu_physics", dom_index, 0),
+        "sf_surface_physics": wp.g_dom(nl, "physics", "sf_surface_physics", dom_index, 0),
+        "sf_sfclay_physics": wp.g_dom(nl, "physics", "sf_sfclay_physics", dom_index, 0),
+    }
+    resolved, _filled = wphys.resolve_suite(case)
+    return resolved
+
+
+def _resolve_path(run_dir, fname):
+    p = Path(fname)
+    return p if p.is_absolute() else Path(run_dir) / p
+
+
+def _fmt_bytes(n):
+    for unit in ("B", "KiB", "MiB", "GiB", "TiB"):
+        if abs(n) < 1024.0:
+            return "%.1f%s" % (n, unit)
+        n /= 1024.0
+    return "%.1fPiB" % n
+
+
+# --------------------------------------------------------------------------
+# C1 -- per-domain time window (HANG/WARN/FATAL)
+# --------------------------------------------------------------------------
+
+def check_c1_time_windows(nl, findings):
+    """d01's own run window comes from run_days/hours/minutes/seconds when their sum is > 0,
+    else from d01's own start_date -> end_date span (wtune_runlength.resolve_run_seconds, WRF's
+    own documented fallback). Every NESTED domain (2..max_dom) uses its OWN end_date regardless
+    of what governs d01 -- run_days/hours/minutes/seconds NEVER extends a nest.
+
+    Real incidents:
+      - atlas-b/yagi2024 job 1038 (rebuild/wrf/namelist.input): run_days=5 sets d01's window to
+        2024-09-03T12:00 -> 2024-09-08T12:00, but d02's own end_* (end_minute=30, all other end_*
+        unset/0) is 2024-09-03T12:30 -- a smoke-test value that survived into the "truth" run.
+        d02 silently freezes 30 minutes in while d01 keeps integrating for 5 days.
+      - atlas-validate/maria1km: d02 has no end_minute at all (defaults to 0), so it stops on
+        the hour while d01's window (from run_*) extends further.
+    """
+    max_dom = wp.get_max_dom(nl)
+    d01_start = _domain_datetime(nl, "start", 0)
+    if d01_start is None:
+        findings.append(Finding(
+            INFO, "C1",
+            "d01 start_year/month/day not resolvable; cannot evaluate per-domain time windows",
+        ))
+        return
+
+    days = wp.g(nl, "time_control", "run_days", 0) or 0
+    hours = wp.g(nl, "time_control", "run_hours", 0) or 0
+    minutes = wp.g(nl, "time_control", "run_minutes", 0) or 0
+    seconds = wp.g(nl, "time_control", "run_seconds", 0) or 0
+    total = (days or 0) * 86400 + (hours or 0) * 3600 + (minutes or 0) * 60 + (seconds or 0)
+
+    if total > 0:
+        d01_end = d01_start + datetime.timedelta(seconds=total)
+        d01_source = "run_days/run_hours/run_minutes/run_seconds"
+    else:
+        d01_end = _domain_datetime(nl, "end", 0)
+        d01_source = "start_date -> end_date span (run_* all 0/absent)"
+        if d01_end is None:
+            findings.append(Finding(
+                FATAL, "C1",
+                "d01 has no run_days/run_hours/run_minutes/run_seconds AND no resolvable "
+                "end_date -- WRF has no run length to use",
+            ))
+            return
+
+    if d01_end <= d01_start:
+        findings.append(Finding(
+            FATAL, "C1",
+            "d01 end (%s) <= d01 start (%s) via %s" % (d01_end, d01_start, d01_source),
+            evidence="start=%s end=%s" % (d01_start, d01_end),
+            fix="fix &time_control's run_days/hours/minutes/seconds or end_year/month/day/"
+                "hour/minute/second for domain 1",
+        ))
+        return
+
+    for d in range(1, max_dom):
+        start_d = _domain_datetime(nl, "start", d)
+        end_d = _domain_datetime(nl, "end", d)
+        if start_d is None or end_d is None:
+            findings.append(Finding(
+                INFO, "C1",
+                "domain %d start/end not resolvable; skipped" % (d + 1),
+            ))
+            continue
+        if end_d <= start_d:
+            findings.append(Finding(
+                FATAL, "C1",
+                "nest d%02d end (%s) <= its own start (%s)" % (d + 1, end_d, start_d),
+                evidence="start_*[%d]=%s end_*[%d]=%s" % (d, start_d, d, end_d),
+                fix="fix end_year/month/day/hour/minute/second for domain %d" % (d + 1),
+            ))
+        elif end_d < d01_end:
+            findings.append(Finding(
+                WARN, "C1",
+                "nest d%02d stops at %s (d01 runs to %s via %s)"
+                % (d + 1, end_d, d01_end, d01_source),
+                evidence="d%02d end_*=%s; d01 end=%s" % (d + 1, end_d, d01_end),
+                fix="set end_year/month/day/hour/minute/second for domain %d to match or "
+                    "exceed d01's window, or accept that the nest freezes at %s"
+                    % (d + 1, end_d),
+            ))
+
+
+# --------------------------------------------------------------------------
+# C2 -- iofields_filename (HANG) + out-of-block assignments (WARN)
+# --------------------------------------------------------------------------
+
+def check_c2_iofields(nl, run_dir, namelist_path, findings):
+    """Each domain's iofields_filename (when not 'NONE_SPECIFIED') must exist in run_dir, or
+    WRF 4.8 hangs FOREVER at init with no further output -- NOT a clean abort -- even with
+    ignore_iofields_warning=.true..
+
+    Real incident: /nfs/data/atlas-b/elevconv2022, 72 AND 576 ranks: log shows only 'Problem
+    opening storm_diags_d01.txt' (frame/module_domain.F) and then nothing ever again; the job
+    sat at full node occupancy until walltime. An empty file at that path is a legal iofields
+    file (zero extra fields) and avoids the hang entirely.
+
+    Also flags any out-of-block 'key = value' assignment (find_out_of_block_assignments) --
+    elevconv2022's OWN namelist has a second iofields_filename line sitting between
+    &time_control's '/' and '&domains' that Fortran's namelist read silently ignores; the first
+    (in-block) iofields_filename line is the one that actually takes effect.
+    """
+    max_dom = wp.get_max_dom(nl)
+    for d in range(max_dom):
+        fname = wp.g_dom(nl, "time_control", "iofields_filename", d, None)
+        if not fname or not isinstance(fname, str):
+            continue
+        if fname.strip().upper() in ("NONE_SPECIFIED", ""):
+            continue
+        full = _resolve_path(run_dir, fname)
+        if not full.exists():
+            findings.append(Finding(
+                HANG, "C2",
+                "iofields_filename=%r for domain %d does not exist" % (fname, d + 1),
+                evidence=str(full),
+                fix="create an empty file at %s (WRF 4.8 hangs at init instead of erroring "
+                    "when this is missing, even with ignore_iofields_warning=.true. -- "
+                    "elevconv2022 incident) or set iofields_filename='NONE_SPECIFIED'" % full,
+            ))
+
+    for lineno, key, raw_line in find_out_of_block_assignments(namelist_path):
+        findings.append(Finding(
+            WARN, "C2",
+            "%s:%d: '%s' sits outside every &group.../ block and is SILENTLY IGNORED by "
+            "Fortran's namelist read" % (Path(namelist_path).name, lineno, key),
+            evidence=raw_line,
+            fix="move this assignment inside the correct &group block",
+        ))
+
+
+# --------------------------------------------------------------------------
+# C3 -- data files required by the chosen physics (FATAL, Thompson WARN-only)
+# --------------------------------------------------------------------------
+
+# scheme id -> required run_dir files, verified 2026-09-24 against
+# /nfs/home/nkli/wrf-stack/wrf/nvhpc-fast-adios2-dmsm/WRF/run/README.physics_files
+_RA_LW_FILES = {
+    1: ["RRTM_DATA"],                              # RRTM
+    3: ["CAM_ABS_DATA", "CAM_AEROPT_DATA"],        # CAM
+    4: ["RRTMG_LW_DATA"],                          # RRTMG
+}
+_RA_SW_FILES = {
+    3: ["CAM_ABS_DATA", "CAM_AEROPT_DATA"],        # CAM
+    4: ["RRTMG_SW_DATA"],                          # RRTMG
+}
+_LSM_FILES = {
+    2: ["LANDUSE.TBL", "VEGPARM.TBL", "SOILPARM.TBL", "GENPARM.TBL"],       # Noah
+}
+# Noah-MP (4): LANDUSE.TBL/VEGPARM.TBL/SOILPARM.TBL/GENPARM.TBL are NOT used by Noah-MP itself,
+# but its own table (MPTABLE.TBL in older WRF, renamed NoahmpTable.TBL from ~4.x on -- confirmed
+# on scc's WRF tree, which ships NoahmpTable.TBL and no MPTABLE.TBL) is required; accept either
+# name so this doesn't false-FATAL across WRF versions.
+_NOAHMP_TABLE_NAMES = ("NoahmpTable.TBL", "MPTABLE.TBL")
+
+# ghg_input==1 (the WRF default -- Registry.EM_COMMON: 'rconfig integer ghg_input
+# namelist,physics 1 1 rh') makes phys/module_physics_init.F:1010-1021 call
+# read_CAMgases(...,.true.,name,...) once per domain at init for EVERY non-idealized run,
+# independent of which lw scheme is active -- 'name' is only set to "CAM" when ra_lw_physics==3
+# (CAMLWSCHEME); read_CAMgases's own fallback (module_ra_clWRF_support.F:187-201) uses a
+# built-in table when model=="CAM" but calls wrf_error_fatal("CLWRF: 'CAMtr_volume_mixing_ratio'
+# does not exist") for every OTHER model name if the file is missing. So: required for every
+# ra_lw_physics != 3 when ghg_input resolves to 1 -- not just the RRTMG/RRTM subset this check
+# was originally scoped to; CAM is the one scheme exempted via its own fallback table.
+_CAMTR_EXEMPT_RA_LW = {3}
+
+_THOMPSON_MP = {8, 28, 38}
+_THOMPSON_DAT_FILES = ["freezeH2O.dat", "qr_acr_qg_V4.dat", "qr_acr_qsV2.dat"]
+
+# extension whitelist used by an earlier (buggy) staging tool -- kept here only as the
+# incident's own evidence trail, not used by this checker (see --wrf-run-dir below).
+# real incident: sc26p2-n4 staging used an extension whitelist and missed the extension-less
+# CAMtr_volume_mixing_ratio -> FATAL 'CLWRF: CAMtr_volume_mixing_ratio does not exist'.
+
+
+def _require_files(run_dir, dom_index, files, findings, note=""):
+    for fname in files:
+        full = _resolve_path(run_dir, fname)
+        if not full.exists():
+            findings.append(Finding(
+                FATAL, "C3",
+                "domain %d: required physics data file %s does not exist%s"
+                % (dom_index + 1, fname, (" (%s)" % note) if note else ""),
+                evidence=str(full),
+                fix="copy/link %s from WRF's own run/ directory into the run_dir" % fname,
+            ))
+
+
+def check_c3_physics_files(nl, run_dir, findings, wrf_run_dir=None):
+    max_dom = wp.get_max_dom(nl)
+    ghg_input = wp.g(nl, "physics", "ghg_input", 1)
+    if ghg_input is None:
+        ghg_input = 1
+
+    for d in range(max_dom):
+        phys = _resolved_physics(nl, d)
+        ra_lw = phys.get("ra_lw_physics")
+        ra_sw = phys.get("ra_sw_physics")
+        mp = phys.get("mp_physics")
+        sf = phys.get("sf_surface_physics")
+
+        if ra_lw in _RA_LW_FILES:
+            _require_files(run_dir, d, _RA_LW_FILES[ra_lw], findings,
+                            note="ra_lw_physics=%s" % ra_lw)
+        if ra_sw in _RA_SW_FILES:
+            _require_files(run_dir, d, _RA_SW_FILES[ra_sw], findings,
+                            note="ra_sw_physics=%s" % ra_sw)
+
+        if int(ghg_input) == 1 and ra_lw not in _CAMTR_EXEMPT_RA_LW:
+            full = _resolve_path(run_dir, "CAMtr_volume_mixing_ratio")
+            if not full.exists():
+                findings.append(Finding(
+                    FATAL, "C3",
+                    "domain %d: ghg_input=1 (default) with ra_lw_physics=%s (not CAM) requires "
+                    "CAMtr_volume_mixing_ratio, which does not exist" % (d + 1, ra_lw),
+                    evidence=str(full),
+                    fix="link CAMtr_volume_mixing_ratio (WRF's run/ ships *.SSP245 as the "
+                        "default) into the run_dir, or set ghg_input=0",
+                ))
+
+        if sf in _LSM_FILES:
+            _require_files(run_dir, d, _LSM_FILES[sf], findings,
+                            note="sf_surface_physics=%s (Noah)" % sf)
+        elif sf == 4:  # Noah-MP
+            if not any(_resolve_path(run_dir, n).exists() for n in _NOAHMP_TABLE_NAMES):
+                findings.append(Finding(
+                    FATAL, "C3",
+                    "domain %d: sf_surface_physics=4 (Noah-MP) requires NoahmpTable.TBL "
+                    "(or MPTABLE.TBL on older WRF), neither exists" % (d + 1),
+                    evidence=str(_resolve_path(run_dir, _NOAHMP_TABLE_NAMES[0])),
+                    fix="copy NoahmpTable.TBL from WRF's own run/ directory into the run_dir",
+                ))
+
+        if mp in _THOMPSON_MP:
+            missing = [f for f in _THOMPSON_DAT_FILES
+                       if not _resolve_path(run_dir, f).exists()]
+            if missing:
+                findings.append(Finding(
+                    WARN, "C3",
+                    "domain %d: mp_physics=%s (Thompson) is missing prestaged lookup table(s) "
+                    "%s -- WRF recomputes them at init instead of failing, costing minutes"
+                    % (d + 1, mp, ", ".join(missing)),
+                    evidence="checked in %s" % run_dir,
+                    fix="prestage %s in the run_dir to skip the init-time table build"
+                        % ", ".join(missing),
+                ))
+
+    if wrf_run_dir:
+        wrf_run_dir = Path(wrf_run_dir)
+        if wrf_run_dir.is_dir():
+            for entry in sorted(wrf_run_dir.iterdir()):
+                if not entry.is_file():
+                    continue
+                if not (Path(run_dir) / entry.name).exists():
+                    findings.append(Finding(
+                        WARN, "C3",
+                        "%s is present in WRF's own run/ (%s) but absent from run_dir"
+                        % (entry.name, wrf_run_dir),
+                        evidence=str(entry),
+                        fix="stage %s into run_dir if the active physics options need it "
+                            "(real incident: sc26p2-n4 staging used an extension whitelist and "
+                            "missed the extension-less CAMtr_volume_mixing_ratio)" % entry.name,
+                    ))
+        else:
+            findings.append(Finding(
+                INFO, "C3", "--wrf-run-dir %s is not a directory; skipped" % wrf_run_dir,
+            ))
+
+
+# --------------------------------------------------------------------------
+# C4 -- aerosol climatology fields (FATAL, netCDF4 optional)
+# --------------------------------------------------------------------------
+
+def check_c4_aerosol_climatology(nl, run_dir, findings):
+    """mp_physics=28 (Thompson aerosol-aware) with use_aero_icbc=.true. (or wif_input_opt>=1)
+    requires QNWFA/QNIFA fields in wrfinput_d01 (wrf.exe stage) or in the met_em files
+    (real.exe stage, when met_em.* are present and wrfinput does not exist yet).
+
+    Real incident: atlas-validate/cs-lafe cold start -- real.exe: 'aerosol climatology
+    field(s) missing'.
+    """
+    if not HAVE_NETCDF4:
+        findings.append(Finding(INFO, "C4", "SKIPPED (netCDF4 not available)"))
+        return
+
+    max_dom = wp.get_max_dom(nl)
+    needs_aero = False
+    for d in range(max_dom):
+        phys = _resolved_physics(nl, d)
+        if phys.get("mp_physics") == 28:
+            needs_aero = True
+            break
+    if not needs_aero:
+        return
+
+    use_aero_icbc = wp.g(nl, "physics", "use_aero_icbc", False)
+    wif_input_opt = wp.g(nl, "physics", "wif_input_opt", 0) or 0
+    if not (use_aero_icbc or int(wif_input_opt) >= 1):
+        return
+
+    run_dir = Path(run_dir)
+    met_em = sorted(run_dir.glob("met_em.d01.*"))
+    wrfinput = run_dir / "wrfinput_d01"
+
+    def _has_qnwfa_qnifa(path):
+        try:
+            ds = netCDF4.Dataset(str(path))
+        except Exception as exc:
+            return None, "could not open %s: %s" % (path, exc)
+        try:
+            names = set(ds.variables.keys())
+        finally:
+            ds.close()
+        missing = [v for v in ("QNWFA", "QNIFA") if v not in names]
+        return (len(missing) == 0), missing
+
+    if wrfinput.exists():
+        ok, missing = _has_qnwfa_qnifa(wrfinput)
+        if ok is None:
+            findings.append(Finding(INFO, "C4", missing))
+        elif not ok:
+            findings.append(Finding(
+                FATAL, "C4",
+                "mp_physics=28 with use_aero_icbc/wif_input_opt requires QNWFA/QNIFA in "
+                "wrfinput_d01; missing %s" % missing,
+                evidence=str(wrfinput),
+                fix="regenerate wrfinput_d01 via real.exe with an aerosol climatology input "
+                    "(cs-lafe cold-start incident: 'aerosol climatology field(s) missing')",
+            ))
+    elif met_em:
+        ok, missing = _has_qnwfa_qnifa(met_em[0])
+        if ok is None:
+            findings.append(Finding(INFO, "C4", missing))
+        elif not ok:
+            findings.append(Finding(
+                FATAL, "C4",
+                "mp_physics=28 with use_aero_icbc/wif_input_opt requires QNWFA/QNIFA in "
+                "met_em files (real.exe stage); missing %s in %s"
+                % (missing, met_em[0].name),
+                evidence=str(met_em[0]),
+                fix="rerun metgrid with an aerosol climatology field, or set "
+                    "use_aero_icbc=.false. if aerosol ICBC was not intended",
+            ))
+    else:
+        findings.append(Finding(
+            INFO, "C4",
+            "mp_physics=28 with use_aero_icbc/wif_input_opt but neither wrfinput_d01 nor "
+            "met_em.d01.* found in run_dir; cannot check QNWFA/QNIFA",
+        ))
+
+
+# --------------------------------------------------------------------------
+# C5 -- met_em naming vs nocolons (FATAL, real.exe stage only)
+# --------------------------------------------------------------------------
+
+_MET_EM_RE = re.compile(
+    r"^(met_em\.d\d\d\.\d{4}-\d\d-\d\d)_(\d\d)([_:])(\d\d)\3(\d\d)(\.nc)?$")
+
+
+def check_c5_met_em_naming(nl, run_dir, findings):
+    """real.exe's own filename convention follows nocolons: nocolons=.true. -> it opens
+    'met_em.dNN.YYYY-MM-DD_HH_MM_SS[.nc]' (underscores); nocolons=.false./absent (WRF default)
+    -> it opens the colon form 'met_em.dNN.YYYY-MM-DD_HH:MM:SS[.nc]'. Only the OTHER form
+    existing is a real.exe-stage FATAL (file not found).
+
+    Real incident: atlas-validate/cs-lafe cold start, nocolons=.true. in the namelist but only
+    colon-named met_em files existed at first.
+    """
+    run_dir = Path(run_dir)
+    met_em = sorted(p for p in run_dir.glob("met_em.*") if p.is_file())
+    if not met_em:
+        return
+
+    nocolons = bool(wp.g(nl, "time_control", "nocolons", False))
+    wanted_sep = "_" if nocolons else ":"
+    have_seps = set()
+    parsed = []
+    for p in met_em:
+        m = _MET_EM_RE.match(p.name)
+        if not m:
+            continue
+        prefix, hh, sep, mm, ss, ext = m.groups()
+        have_seps.add(sep)
+        parsed.append((prefix, hh, mm, ss, ext or ""))
+
+    if wanted_sep in have_seps:
+        return  # the form real.exe will actually look for exists
+
+    if not parsed:
+        return  # nothing matched the expected met_em pattern at all; not this check's job
+
+    other_sep = ":" if wanted_sep == "_" else "_"
+    example_prefix, hh, mm, ss, ext = parsed[0]
+    wanted_name = "%s_%s%s%s%s%s" % (
+        example_prefix, hh, wanted_sep, mm, wanted_sep, ss) + ext
+    findings.append(Finding(
+        FATAL, "C5",
+        "nocolons=%s but only %s-separated met_em filenames exist; real.exe opens "
+        "'YYYY-MM-DD_HH%sMM%sSS' names and will not find them"
+        % (nocolons, "colon" if other_sep == ":" else "underscore",
+           wanted_sep, wanted_sep),
+        evidence="e.g. %s (want %s)" % (met_em[0].name, wanted_name),
+        fix="create %s-separated met_em links/copies alongside the existing ones "
+            "(cs-lafe cold-start incident)" % ("underscore" if wanted_sep == "_" else "colon"),
+    ))
+
+
+# --------------------------------------------------------------------------
+# C6 -- input consistency (FATAL/WARN, netCDF4 optional)
+# --------------------------------------------------------------------------
+
+def _open_nc(path):
+    try:
+        return netCDF4.Dataset(str(path)), None
+    except Exception as exc:
+        return None, str(exc)
+
+
+def check_c6_input_consistency(nl, run_dir, findings):
+    if not HAVE_NETCDF4:
+        findings.append(Finding(INFO, "C6", "SKIPPED (netCDF4 not available)"))
+        return
+
+    run_dir = Path(run_dir)
+    max_dom = wp.get_max_dom(nl)
+
+    for d in range(max_dom):
+        wrfinput = run_dir / ("wrfinput_d%02d" % (d + 1))
+        if not wrfinput.exists():
+            continue
+        ds, err = _open_nc(wrfinput)
+        if ds is None:
+            findings.append(Finding(INFO, "C6", "could not open %s: %s" % (wrfinput, err)))
+            continue
+        try:
+            try:
+                e_we, e_sn, e_vert = wp.get_domain_geom(nl, d)
+            except wp.PredictError as exc:
+                findings.append(Finding(INFO, "C6", str(exc)))
+                continue
+            dims = {}
+            for attr in ("WEST-EAST_GRID_DIMENSION", "SOUTH-NORTH_GRID_DIMENSION",
+                         "BOTTOM-TOP_GRID_DIMENSION"):
+                try:
+                    dims[attr] = int(ds.getncattr(attr))
+                except AttributeError:
+                    dims[attr] = None
+            expected = {
+                "WEST-EAST_GRID_DIMENSION": int(e_we),
+                "SOUTH-NORTH_GRID_DIMENSION": int(e_sn),
+                "BOTTOM-TOP_GRID_DIMENSION": int(e_vert),
+            }
+            mismatches = [
+                "%s: namelist=%s wrfinput=%s" % (k, expected[k], dims[k])
+                for k in expected if dims[k] is not None and dims[k] != expected[k]
+            ]
+            if mismatches:
+                findings.append(Finding(
+                    FATAL, "C6",
+                    "domain %d: %s grid dims do not match namelist e_we/e_sn/e_vert"
+                    % (d + 1, wrfinput.name),
+                    evidence="; ".join(mismatches),
+                    fix="regenerate wrfinput_d%02d with real.exe using the SAME e_we/e_sn/"
+                        "e_vert as this namelist, or fix the namelist to match" % (d + 1),
+                ))
+
+            try:
+                sim_start = ds.getncattr("SIMULATION_START_DATE")
+            except AttributeError:
+                sim_start = None
+            nl_start = _domain_datetime(nl, "start", d)
+            if sim_start and nl_start is not None:
+                nl_start_str = nl_start.strftime("%Y-%m-%d_%H:%M:%S")
+                if sim_start != nl_start_str:
+                    findings.append(Finding(
+                        WARN, "C6",
+                        "domain %d: %s SIMULATION_START_DATE=%s does not match namelist "
+                        "start_date %s" % (d + 1, wrfinput.name, sim_start, nl_start_str),
+                        evidence="SIMULATION_START_DATE=%s namelist=%s"
+                                 % (sim_start, nl_start_str),
+                        fix="regenerate wrfinput_d%02d for this namelist's start date, or fix "
+                            "start_year/month/day/hour/minute/second" % (d + 1),
+                    ))
+        finally:
+            ds.close()
+
+    wrfbdy = run_dir / "wrfbdy_d01"
+    if wrfbdy.exists():
+        ds, err = _open_nc(wrfbdy)
+        if ds is None:
+            findings.append(Finding(INFO, "C6", "could not open %s: %s" % (wrfbdy, err)))
+        else:
+            try:
+                if "Times" in ds.variables:
+                    times_raw = ds.variables["Times"][:]
+                    time_strs = []
+                    for row in times_raw:
+                        try:
+                            time_strs.append(
+                                b"".join(bytes(c) if not isinstance(c, bytes) else c
+                                         for c in row).decode("ascii"))
+                        except Exception:
+                            pass
+                    parsed_times = []
+                    for s in time_strs:
+                        try:
+                            parsed_times.append(datetime.datetime.strptime(
+                                s.strip(), "%Y-%m-%d_%H:%M:%S"))
+                        except ValueError:
+                            continue
+                    if parsed_times:
+                        last_bdy = max(parsed_times)
+                        interval_s = wp.g(nl, "time_control", "interval_seconds", None)
+                        d01_start = _domain_datetime(nl, "start", 0)
+                        days = wp.g(nl, "time_control", "run_days", 0) or 0
+                        hours = wp.g(nl, "time_control", "run_hours", 0) or 0
+                        minutes = wp.g(nl, "time_control", "run_minutes", 0) or 0
+                        seconds = wp.g(nl, "time_control", "run_seconds", 0) or 0
+                        total = days * 86400 + hours * 3600 + minutes * 60 + seconds
+                        d01_end = None
+                        if d01_start is not None and total > 0:
+                            d01_end = d01_start + datetime.timedelta(seconds=total)
+                        elif d01_start is not None:
+                            d01_end = _domain_datetime(nl, "end", 0)
+                        if d01_end is not None and interval_s:
+                            bdy_reach = last_bdy + datetime.timedelta(seconds=float(interval_s))
+                            if bdy_reach < d01_end:
+                                findings.append(Finding(
+                                    FATAL, "C6",
+                                    "wrfbdy_d01's last boundary time (%s) + interval_seconds "
+                                    "(%ss) = %s, before d01's end (%s)"
+                                    % (last_bdy, interval_s, bdy_reach, d01_end),
+                                    evidence="last Times=%s interval_seconds=%s d01 end=%s"
+                                             % (last_bdy, interval_s, d01_end),
+                                    fix="rerun real.exe with boundary data covering the full "
+                                        "d01 window (wrf_get_next_time will fail at run time "
+                                        "otherwise)",
+                                ))
+            finally:
+                ds.close()
+
+    sst_update = wp.g(nl, "physics", "sst_update", 0) or 0
+    if int(sst_update) == 1:
+        for d in range(max_dom):
+            wrflowinp = run_dir / ("wrflowinp_d%02d" % (d + 1))
+            if not wrflowinp.exists():
+                findings.append(Finding(
+                    FATAL, "C6",
+                    "sst_update=1 requires wrflowinp_d%02d, which does not exist" % (d + 1),
+                    evidence=str(wrflowinp),
+                    fix="generate wrflowinp_d%02d (real.exe with sst_update=1 inputs), or set "
+                        "sst_update=0" % (d + 1),
+                ))
+
+
+# --------------------------------------------------------------------------
+# C7 -- decomposition (FATAL)
+# --------------------------------------------------------------------------
+
+def check_c7_decomposition(nl, findings, ranks=None, nproc_x=None, nproc_y=None):
+    """nproc_x*nproc_y must equal the rank count, and every domain's patch (WRF's own RSL-lite
+    remainder-at-both-ends split, predictor.decomp_space.rsl_patch_extents) must be >= 10 mass
+    points wide in BOTH directions on EVERY active domain (share/module_check_a_mundo.F:
+    3014-3029, floor(e_we(i)/nproc_x) >= 10 using Fortran integer division).
+
+    nproc_x/nproc_y default to the namelist's OWN &domains nproc_x/nproc_y (real templates here
+    -- conus25, c34, marshall, isc21, lafe -- all set these directly); --nproc-x/--nproc-y/
+    --ranks override the namelist when given (the actual sbatch resource request may differ
+    from a stale namelist value).
+    """
+    nl_nproc_x = wp.g(nl, "domains", "nproc_x", None)
+    nl_nproc_y = wp.g(nl, "domains", "nproc_y", None)
+    eff_x = nproc_x if nproc_x is not None else nl_nproc_x
+    eff_y = nproc_y if nproc_y is not None else nl_nproc_y
+
+    if eff_x is None and eff_y is None and ranks is None:
+        findings.append(Finding(
+            INFO, "C7",
+            "no nproc_x/nproc_y in the namelist and no --ranks/--nproc-x/--nproc-y given; "
+            "decomposition not checked",
+        ))
+        return
+
+    if eff_x is not None and eff_y is not None:
+        eff_x, eff_y = int(eff_x), int(eff_y)
+        implied_ranks = eff_x * eff_y
+        if ranks is not None and int(ranks) != implied_ranks:
+            findings.append(Finding(
+                FATAL, "C7",
+                "nproc_x*nproc_y (%d*%d=%d) does not equal --ranks (%d)"
+                % (eff_x, eff_y, implied_ranks, ranks),
+                fix="make --ranks match nproc_x*nproc_y, or change nproc_x/nproc_y",
+            ))
+        eff_ranks = implied_ranks
+    elif ranks is not None:
+        eff_ranks = int(ranks)
+    else:
+        findings.append(Finding(
+            INFO, "C7",
+            "only one of nproc_x/nproc_y is set (x=%s y=%s); cannot check patch legality"
+            % (eff_x, eff_y),
+        ))
+        return
+
+    if eff_x is None or eff_y is None:
+        return  # ranks given but no shape to check patch sizes against
+
+    max_dom = wp.get_max_dom(nl)
+    for d in range(max_dom):
+        try:
+            e_we, e_sn, e_vert = wp.get_domain_geom(nl, d)
+        except wp.PredictError as exc:
+            findings.append(Finding(INFO, "C7", str(exc)))
+            continue
+        min_we, _max_we = rsl_patch_extents(int(e_we), eff_x)
+        min_sn, _max_sn = rsl_patch_extents(int(e_sn), eff_y)
+        if min_we < MIN_PATCH:
+            findings.append(Finding(
+                FATAL, "C7",
+                "domain %d: nproc_x=%d gives a %d-point-wide patch in e_we=%d (< %d minimum)"
+                % (d + 1, eff_x, min_we, int(e_we), MIN_PATCH),
+                evidence="rsl_patch_extents(%d, %d) -> min=%d" % (int(e_we), eff_x, min_we),
+                fix="reduce nproc_x or use a domain-1 shape with enough e_we per rank",
+            ))
+        if min_sn < MIN_PATCH:
+            findings.append(Finding(
+                FATAL, "C7",
+                "domain %d: nproc_y=%d gives a %d-point-wide patch in e_sn=%d (< %d minimum)"
+                % (d + 1, eff_y, min_sn, int(e_sn), MIN_PATCH),
+                evidence="rsl_patch_extents(%d, %d) -> min=%d" % (int(e_sn), eff_y, min_sn),
+                fix="reduce nproc_y or use a domain-1 shape with enough e_sn per rank",
+            ))
+
+
+# --------------------------------------------------------------------------
+# C8 -- time step vs grid spacing (FATAL for d01, WARN for nests)
+# --------------------------------------------------------------------------
+
+def check_c8_time_step(nl, findings):
+    """CORRECTED from the originally assumed design after reading dyn_em/start_em.F:280-311:
+    WRF's OWN fatal gate (`IF (dt_s/dx_km > config_flags%reasonable_time_step_ratio)
+    wrf_error_fatal('--- ERROR: Time step too large')`) checks ONLY domain 1 -- gated on
+    `grid%id==1`, `first_trip_for_this_domain`, `config_flags%map_proj /= 0` (real-data grids
+    only, never idealized) and `.NOT. use_adaptive_time_step`. It is NOT re-checked per nest
+    with parent_time_step_ratio the way the request assumed. This checker reports the REAL
+    FATAL for d01, and separately reports nests exceeding the same ratio (via their own
+    effective dt/dx, derived through the parent_id/parent_time_step_ratio/parent_grid_ratio
+    chain) as WARN, since WRF will not catch those at startup -- they can go numerically
+    unstable mid-run instead of failing cleanly at init.
+
+    reasonable_time_step_ratio itself is a real namelist,domains knob (default 6.0, confirmed
+    via Registry.EM_COMMON) -- read from the namelist rather than hardcoded, because real
+    templates override it (/nfs/data/atlas-b/elevconv2022/namelist.input sets it to 6.5).
+    Equality is allowed (the check is strictly '>').
+    """
+    max_dom = wp.get_max_dom(nl)
+    use_adaptive = bool(wp.g(nl, "domains", "use_adaptive_time_step", False))
+    if use_adaptive:
+        findings.append(Finding(
+            INFO, "C8", "SKIPPED: use_adaptive_time_step=.true. (WRF does not apply the "
+                        "fixed-ratio check)",
+        ))
+        return
+
+    rrs = wp.g(nl, "domains", "reasonable_time_step_ratio", 6.0)
+    if rrs is None:
+        rrs = 6.0
+    rrs = float(rrs)
+
+    def _dt_seconds(dom_index):
+        ts = wp.g_dom(nl, "domains", "time_step", dom_index, None)
+        if ts is None:
+            return None
+        num = wp.g_dom(nl, "domains", "time_step_fract_num", dom_index, 0) or 0
+        den = wp.g_dom(nl, "domains", "time_step_fract_den", dom_index, 1) or 1
+        return float(ts) + float(num) / float(den)
+
+    dt0 = _dt_seconds(0)
+    dx0 = wp.g_dom(nl, "domains", "dx", 0, None)
+    dy0 = wp.g_dom(nl, "domains", "dy", 0, None)
+    if dt0 is None or dx0 is None or dy0 is None:
+        findings.append(Finding(
+            INFO, "C8", "domain 1 time_step/dx/dy not resolvable; C8 skipped",
+        ))
+        return
+
+    dt_by_domain = [None] * max_dom
+    dx_by_domain = [None] * max_dom
+    dt_by_domain[0] = dt0
+    dx_by_domain[0] = min(float(dx0), float(dy0))
+
+    dx0_km = dx_by_domain[0] / 1000.0
+    ratio0 = dt_by_domain[0] / dx0_km
+    if ratio0 > rrs:
+        findings.append(Finding(
+            FATAL, "C8",
+            "d01: time_step/dx ratio %.3f exceeds reasonable_time_step_ratio %.3f"
+            % (ratio0, rrs),
+            evidence="time_step=%.3fs dx=min(%s,%s)m=%.1fkm ratio=%.3f"
+                     % (dt0, dx0, dy0, dx0_km, ratio0),
+            fix="reduce time_step (dyn_em/start_em.F:305 aborts with 'Time step too large' "
+                "at this ratio) or raise reasonable_time_step_ratio if you have verified "
+                "stability",
+        ))
+
+    for d in range(1, max_dom):
+        pid_raw = wp.g_dom(nl, "domains", "parent_id", d, d)
+        pid = int(pid_raw) - 1 if pid_raw else d - 1
+        if pid < 0 or pid >= d or dt_by_domain[pid] is None:
+            pid = d - 1
+        ptsr = wp.g_dom(nl, "domains", "parent_time_step_ratio", d, 1) or 1
+        pgr = wp.g_dom(nl, "domains", "parent_grid_ratio", d, 1) or 1
+        dt_by_domain[d] = dt_by_domain[pid] / float(ptsr)
+        dx_by_domain[d] = dx_by_domain[pid] / float(pgr)
+        dx_km = dx_by_domain[d] / 1000.0
+        if dx_km <= 0:
+            continue
+        ratio = dt_by_domain[d] / dx_km
+        if ratio > rrs:
+            findings.append(Finding(
+                WARN, "C8",
+                "d%02d: effective time_step/dx ratio %.3f (via parent_time_step_ratio/"
+                "parent_grid_ratio) exceeds reasonable_time_step_ratio %.3f -- WRF's own "
+                "startup gate only checks d01 (dyn_em/start_em.F:288, grid%%id==1), so this "
+                "will NOT abort at init and may go numerically unstable mid-run instead"
+                % (d + 1, ratio, rrs),
+                evidence="dt=%.3fs dx=%.1fkm ratio=%.3f" % (dt_by_domain[d], dx_km, ratio),
+                fix="raise parent_time_step_ratio for domain %d or reduce d01's time_step"
+                    % (d + 1),
+            ))
+
+
+# --------------------------------------------------------------------------
+# C9 -- disk (WARN)
+# --------------------------------------------------------------------------
+
+_ASSUMED_3D_FIELDS = 40           # conservative: typical wrfout has ~40 full 3-D fields
+_BYTES_PER_VALUE = 4              # io_form 2 (NetCDF) default REAL is 4 bytes
+
+
+def _history_interval_minutes(nl, dom_index):
+    v = wp.g_dom(nl, "time_control", "history_interval", dom_index, None)
+    if v is not None:
+        return float(v)
+    v = wp.g_dom(nl, "time_control", "history_interval_m", dom_index, None)
+    if v is not None:
+        return float(v)
+    v = wp.g_dom(nl, "time_control", "history_interval_h", dom_index, None)
+    if v is not None:
+        return float(v) * 60.0
+    v = wp.g_dom(nl, "time_control", "history_interval_s", dom_index, None)
+    if v is not None:
+        return float(v) / 60.0
+    return None
+
+
+def check_c9_disk(nl, run_dir, findings):
+    """Conservative estimate: bytes_per_frame = e_we*e_sn*e_vert*4 bytes*~40 3-D fields, summed
+    over every active domain's history frames (floor(run_minutes/history_interval)+1, the same
+    frame-count rule wtune_predict.py uses), compared against os.statvfs(run_dir) free space."""
+    try:
+        run_s = wp.get_run_seconds(nl)
+    except wp.PredictError as exc:
+        findings.append(Finding(INFO, "C9", "run length not resolvable: %s" % exc))
+        return
+    run_min = run_s / 60.0
+
+    max_dom = wp.get_max_dom(nl)
+    total_bytes = 0
+    detail = []
+    for d in range(max_dom):
+        try:
+            e_we, e_sn, e_vert = wp.get_domain_geom(nl, d)
+        except wp.PredictError:
+            continue
+        hist_min = _history_interval_minutes(nl, d)
+        if not hist_min or hist_min <= 0:
+            continue
+        frames = int(run_min // hist_min) + 1
+        bytes_per_frame = e_we * e_sn * e_vert * _BYTES_PER_VALUE * _ASSUMED_3D_FIELDS
+        domain_bytes = bytes_per_frame * frames
+        total_bytes += domain_bytes
+        detail.append("d%02d: %d frames x %s = %s"
+                       % (d + 1, frames, _fmt_bytes(bytes_per_frame), _fmt_bytes(domain_bytes)))
+
+    if total_bytes <= 0:
+        return
+
+    try:
+        st = os.statvfs(str(run_dir))
+    except (OSError, AttributeError) as exc:
+        findings.append(Finding(INFO, "C9", "could not statvfs run_dir: %s" % exc))
+        return
+    free_bytes = st.f_bavail * st.f_frsize
+
+    if total_bytes > free_bytes:
+        findings.append(Finding(
+            WARN, "C9",
+            "estimated history output ~%s exceeds free space ~%s on run_dir's filesystem"
+            % (_fmt_bytes(total_bytes), _fmt_bytes(free_bytes)),
+            evidence="; ".join(detail),
+            fix="reduce history_interval/frames_per_outfile, use iofields_filename to shrink "
+                "the field set, or point run_dir at a filesystem with more free space",
+        ))
+
+
+# --------------------------------------------------------------------------
+# orchestration
+# --------------------------------------------------------------------------
+
+def run_checks(nl, run_dir, namelist_path, ranks=None, nproc_x=None, nproc_y=None,
+                wrf_run_dir=None):
+    findings = []
+    checks = [
+        ("C1", lambda: check_c1_time_windows(nl, findings)),
+        ("C2", lambda: check_c2_iofields(nl, run_dir, namelist_path, findings)),
+        ("C3", lambda: check_c3_physics_files(nl, run_dir, findings, wrf_run_dir=wrf_run_dir)),
+        ("C4", lambda: check_c4_aerosol_climatology(nl, run_dir, findings)),
+        ("C5", lambda: check_c5_met_em_naming(nl, run_dir, findings)),
+        ("C6", lambda: check_c6_input_consistency(nl, run_dir, findings)),
+        ("C7", lambda: check_c7_decomposition(nl, findings, ranks=ranks, nproc_x=nproc_x,
+                                               nproc_y=nproc_y)),
+        ("C8", lambda: check_c8_time_step(nl, findings)),
+        ("C9", lambda: check_c9_disk(nl, run_dir, findings)),
+    ]
+    for cid, fn in checks:
+        try:
+            fn()
+        except Exception as exc:  # a checker bug must never take down the other checkers
+            findings.append(Finding(
+                INFO, cid, "internal error in %s: %r" % (cid, exc),
+            ))
+    return findings
+
+
+def exit_code_for(findings):
+    worst = max((_SEVERITY_RANK.get(f.severity, 0) for f in findings), default=0)
+    if worst >= 3:
+        return 2
+    if worst >= 1:
+        return 1
+    return 0
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(
+        prog="wtune.py check",
+        description="pre-submission WRF run_dir sanity checker",
+    )
+    parser.add_argument("run_dir", help="directory WRF will be run from")
+    parser.add_argument("--namelist", default=None,
+                         help="path to namelist.input (default: <run_dir>/namelist.input)")
+    parser.add_argument("--ranks", type=int, default=None, help="total MPI ranks")
+    parser.add_argument("--nproc-x", type=int, default=None, dest="nproc_x",
+                         help="override namelist's &domains nproc_x")
+    parser.add_argument("--nproc-y", type=int, default=None, dest="nproc_y",
+                         help="override namelist's &domains nproc_y")
+    parser.add_argument("--wrf-run-dir", default=None, dest="wrf_run_dir",
+                         help="WRF's own run/ directory, to list files present there but "
+                              "missing from run_dir (C3)")
+    parser.add_argument("--json", default=None, help="also write findings as JSON to this path")
+    args = parser.parse_args(argv)
+
+    run_dir = Path(args.run_dir)
+    namelist_path = Path(args.namelist) if args.namelist else run_dir / "namelist.input"
+
+    if not namelist_path.exists():
+        print("FATAL C0 namelist not found: %s" % namelist_path)
+        return 2
+
+    try:
+        nl = wp.parse_namelist(str(namelist_path))
+    except Exception as exc:
+        print("FATAL C0 failed to parse %s: %r" % (namelist_path, exc))
+        return 2
+
+    findings = run_checks(
+        nl, run_dir, namelist_path,
+        ranks=args.ranks, nproc_x=args.nproc_x, nproc_y=args.nproc_y,
+        wrf_run_dir=args.wrf_run_dir,
+    )
+
+    for f in findings:
+        print(f.format())
+    if not findings:
+        print("(no findings)")
+
+    if args.json:
+        Path(args.json).write_text(json.dumps([f.to_dict() for f in findings], indent=2))
+
+    return exit_code_for(findings)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1781,6 +1781,11 @@ def main():
     p_metdata = sub.add_parser('metdata', help='GRIB source selection/availability/download (tools/metdata.py): find | check | fetch')
     p_metdata.add_argument('metdata_args', nargs=argparse.REMAINDER, help='forwarded to tools/metdata.py')
 
+    p_check = sub.add_parser('check', help='pre-submission WRF run_dir sanity checker (wtune_preflight.py): time windows, iofields, physics data files, decomposition, disk')
+    p_check.add_argument('check_args', nargs=argparse.REMAINDER, help='forwarded to wtune_preflight.py')
+    p_cal = sub.add_parser('calibrate', help='machine calibration for a new cluster (wtune_calibrate.py plan | fit)')
+    p_cal.add_argument('calibrate_args', nargs=argparse.REMAINDER, help='forwarded to wtune_calibrate.py')
+
     args = parser.parse_args()
     if args.command == 'tune':
         import wtune_tune
@@ -1794,6 +1799,14 @@ def main():
         sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'tools'))
         import metdata
         sys.exit(metdata.main(args.metdata_args))
+
+    if args.command == 'check':
+        import wtune_preflight
+        sys.exit(wtune_preflight.main(args.check_args))
+
+    if args.command == 'calibrate':
+        import wtune_calibrate
+        sys.exit(wtune_calibrate.main(args.calibrate_args))
 
     if args.command == 'plan':
         plan(args)

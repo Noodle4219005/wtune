@@ -1668,7 +1668,7 @@ def predict_io(nl, max_dom, run_min, calibration, io_form_override, io_target,
 # Init (read) model
 # --------------------------------------------------------------------------
 
-def predict_init(case_dir, nl, calibration):
+def predict_init(case_dir, nl, calibration, ranks=None):
     read_rate = calibration.get("derived", {}).get("read_rate_bytes_per_s")
     if not read_rate:
         raise PredictError("calibration.derived.read_rate_bytes_per_s missing")
@@ -1695,9 +1695,16 @@ def predict_init(case_dir, nl, calibration):
     startup_s_source = calibration.get("startup_s_source")
     startup_calibrated = startup_s is not None
     startup_term = float(startup_s) if startup_calibrated else 0.0
+    # rank-dependent startup (2026-09-24): wall - sum(d01 'Timing for main') is 1.9-2.8 s at 1
+    # rank, 3.5 s at 6, 6.5 s at 12 (idealized truths), ~17-22 s at 72 (the startup_s fit), so
+    # min(startup_s, base + per_rank * ranks); startup_s stays the cap for large runs
+    per_rank = calibration.get("startup_s_per_rank")
+    if startup_calibrated and ranks and per_rank is not None:
+        startup_term = min(startup_term, calibration.get("startup_s_base", 0.0) + per_rank * ranks)
     return {"bytes": total_bytes, "source": source, "read_s": read_s,
             "fixed_startup_s": fixed_startup_s,
             "startup_s": startup_s, "startup_s_source": startup_s_source,
+            "startup_term_s": startup_term,
             "startup_calibrated": startup_calibrated,
             "total_s": read_s + fixed_startup_s + startup_term}
 
@@ -1839,7 +1846,7 @@ def build_prediction(namelist_path, case_dir, nodes, config, ledger_paths,
     io = predict_io(nl, max_dom, run_min, calibration, io_form_override, io_target,
                     case_dir=case_dir, iofields_dir=iofields_dir)
 
-    init = predict_init(case_dir, nl, calibration)
+    init = predict_init(case_dir, nl, calibration, ranks=config.get("ranks") if config else None)
 
     drift_pct = calibration.get("drift_band_pct", 5.0)
     # History I/O is estimated and reported but, by default, NOT added to total_s or the range

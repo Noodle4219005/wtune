@@ -1342,6 +1342,21 @@ def test_predict_init_adds_startup_s_when_present(tmp_path):
     assert init["total_s"] == pytest.approx(init["read_s"] + 20.0)
 
 
+def test_predict_init_startup_scales_with_ranks_and_caps_at_startup_s(tmp_path):
+    # 2026-09-24: idealized 1-rank truths start in ~2 s, not the 72-rank 19.4 s
+    nl = wp.parse_namelist(_write(str(tmp_path / "namelist.input"), STARTUP_NAMELIST))
+    calibration = {"derived": {"read_rate_bytes_per_s": 1000.0, "bytes_per_cell_level": 1.0},
+                   "startup_s": 19.4, "startup_s_base": 2.0, "startup_s_per_rank": 0.4}
+    one = wp.predict_init(None, nl, calibration, ranks=1)
+    twelve = wp.predict_init(None, nl, calibration, ranks=12)
+    big = wp.predict_init(None, nl, calibration, ranks=288)
+    legacy = wp.predict_init(None, nl, calibration)
+    assert one["total_s"] == pytest.approx(one["read_s"] + 2.4)
+    assert twelve["total_s"] == pytest.approx(twelve["read_s"] + 6.8)
+    assert big["total_s"] == pytest.approx(big["read_s"] + 19.4)
+    assert legacy["total_s"] == pytest.approx(legacy["read_s"] + 19.4)
+
+
 def test_predict_init_startup_uncalibrated_when_absent(tmp_path):
     nl = wp.parse_namelist(_write(str(tmp_path / "namelist.input"), STARTUP_NAMELIST))
     calibration = {"derived": {"read_rate_bytes_per_s": 1000.0, "bytes_per_cell_level": 1.0}}

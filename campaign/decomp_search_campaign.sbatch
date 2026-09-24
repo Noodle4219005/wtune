@@ -74,7 +74,7 @@ else
   # no templates for this allocation (e.g. 1 node): balanced shape per thread count instead, so D3's
   # first proposal is trained on this case's own rows rather than extrapolated from 448-core cases
   echo "===== R0 seed design"
-  $PY predictor/decomp_space.py seed "$CASE" --out "$D/seed.json" --total-cores "$TOTAL_CORES" \
+  $PY src/predictor/decomp_space.py seed "$CASE" --out "$D/seed.json" --total-cores "$TOTAL_CORES" \
       --nodes "$NODES" --hardware-id "$HARDWARE_ID" 2>&1 | grep -v "WARN cache"
   jq -r '.configs[] | [.id,.ranks,.omp,.nx,.ny,.numtiles] | @tsv' "$D/seed.json"
   run_campaign "$REPS" CONFIG_FILE="$D/seed.json" 2>&1 | grep -E "^RESULT|ERROR|FATAL|ABORT"
@@ -84,7 +84,7 @@ for r in $(seq 1 "$ROUNDS"); do
   P="$D/proposal_r${r}.json"
   echo "===== R$r propose"
   LEDGER_ARGS="$PRIOR_LEDGERS"; [ -f "$LEDGER" ] && LEDGER_ARGS="$LEDGER_ARGS $LEDGER"  # absent until a run happens (TEMPLATES=none)
-  $PY predictor/decomp_search.py propose --case "$CASE" --ledger $LEDGER_ARGS \
+  $PY src/predictor/decomp_search.py propose --case "$CASE" --ledger $LEDGER_ARGS \
       --state "$STATE" --batch "$BATCH" --out "$P" --total-cores "$TOTAL_CORES" --nodes "$NODES" \
       --hardware-id "$HARDWARE_ID" --reps "$REPS" $PROPOSE_LIMITS 2>&1 | grep -vE "WARN cache|^sbatch "
   [ -f "$P" ] || { echo "R$r: no proposal (stopped)"; break; }
@@ -94,7 +94,7 @@ for r in $(seq 1 "$ROUNDS"); do
   # ingest only this round's rows: ingest() appends, so re-reading earlier rounds would double them
   RL="$D/ledger_r${r}.csv"
   { head -1 "$LEDGER"; grep "^${CASE}_R$(printf %02d "$r")D" "$LEDGER"; } > "$RL"
-  $PY predictor/decomp_search.py ingest --state "$STATE" --ledger "$RL" 2>&1 | grep -v "WARN cache"
+  $PY src/predictor/decomp_search.py ingest --state "$STATE" --ledger "$RL" 2>&1 | grep -v "WARN cache"
 done
 
 if [ "$CONFIRM_TOP" -gt 0 ]; then

@@ -1,6 +1,7 @@
 __pycache__/
 *.pyc
 *.bak-*
+.pytest_cache/
 # generated at run time, not source
 slurm-*.out
 rankfiles/
@@ -8,4 +9,4 @@ rankfiles/
 catboost_info/
 # ... except the canonical processed data behind a reported number, which must be in the repo
 !results/derived-data/*.csv
-!tools/testdata/*.csv
+!tests/tools/testdata/*.csv

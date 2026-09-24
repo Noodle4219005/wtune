@@ -27,7 +27,7 @@ for f in "$G1"/perf.r*.data.gz; do
   echo "perf script $r lines=$(gunzip -c "$T/$r.txt.gz" | wc -l) err_lines=$(wc -l < "$T/$r.err")"
   rm -f "$T/$r.data"
 done
-$PIXI python fingerprint/fingerprint.py --preflight-perf-script "$T"/perf.r*.txt.gz; pre_rc=$?
+$PIXI python src/fingerprint/fingerprint.py --preflight-perf-script "$T"/perf.r*.txt.gz; pre_rc=$?
 echo "=== preflight rc=$pre_rc"
 
 # End-to-end sampler check with the EXACT production perf command lines (job 1074372 lesson): a fake
@@ -50,10 +50,10 @@ with open("rsl.out.0000", "a") as f:
         f.flush()
 ' ) &
 FAKE=$!
-POLL_S=1 bash fingerprint/sampler_node.sh "$E" "$E/fp" 250 2 8
+POLL_S=1 bash src/fingerprint/sampler_node.sh "$E" "$E/fp" 250 2 8
 wait $FAKE
 cat "$E"/fp/meta.*.txt | grep -vE '^PID'
-E2E_OUT=$($PIXI python fingerprint/fingerprint.py --sampler-dir "$E/fp" --run-dir "$E" --omp-threads 1 --out "$E/fingerprint" 2>&1); e2e_rc=$?
+E2E_OUT=$($PIXI python src/fingerprint/fingerprint.py --sampler-dir "$E/fp" --run-dir "$E" --omp-threads 1 --out "$E/fingerprint" 2>&1); e2e_rc=$?
 echo "$E2E_OUT" | tail -3
 $PIXI python - "$E/fingerprint.json" <<'PY'; e2e_check=$?
 import json, sys

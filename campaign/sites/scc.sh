@@ -27,7 +27,7 @@ HARDWARE_ID=scc-gh200
 # pixi lives in ~/.pixi/bin, which is not on PATH inside a batch job (smoke job 437: "pixi: command not found").
 export PATH=$HOME/.pixi/bin:$PATH
 PIXI_ENV=$HOME/wtune-envs/campaign
-CONV=${CONV:-$HOME/wtune/tools/wrf_adios2_to_netcdf4/convert.py}
+CONV=${CONV:-$HOME/wtune/src/tools/wrf_adios2_to_netcdf4/convert.py}
 CASES_JSON_DEFAULT=$HOME/wtune/campaign/cases.json
 
 site_env () {

@@ -19,7 +19,7 @@ set -uo pipefail
 W=/home/u5727520/wrf-stack/wrf/intel-adios2-dmsm/WRF
 PREP=/home/u5727520/wrf-bench/stprep_1070876
 OUT=/home/u5727520/wrf-bench/wscore/fingerprint
-S=/home/u5727520/wrf-stack/wtune-autotuner/fingerprint
+S=/home/u5727520/wrf-stack/wtune-autotuner/src/fingerprint
 WTIMER_EXE=/home/u5727520/wrf-stack/wtimer/wrf_wtimer.exe
 PIXI="pixi run --manifest-path /home/u5727520/wrf-stack/wtune-pixi-env-20260830/pixi.toml"
 

@@ -451,7 +451,7 @@ fi
 # pass, with no separate deferred/pending-file bookkeeping needed.
 # =================================================================================
 if [ "$MODE" = "physics" ]; then
-  FIDELITY_GATE="$(dirname "$CAMPAIGN")/fidelity_gate.py"
+  FIDELITY_GATE="$(dirname "$CAMPAIGN")/src/fidelity_gate.py"
   if [ ! -f "$FIDELITY_GATE" ]; then
     echo "ERROR: fidelity_gate.py not found at $FIDELITY_GATE -- required for MODE=physics" >&2
     exit 1

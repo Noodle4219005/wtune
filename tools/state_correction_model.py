@@ -22,6 +22,7 @@ import datetime
 import json
 import os
 import sys
+import time
 
 import numpy as np
 
@@ -388,30 +389,44 @@ def _standardize_fit(X):
     return mu, sd
 
 
-def _ridge_loo_mae(X, y, alpha):
-    n = len(y)
-    if n < 3:
-        return np.inf
-    errs = np.empty(n)
-    for i in range(n):
-        mask = np.ones(n, bool)
-        mask[i] = False
-        mu, sd = _standardize_fit(X[mask])
-        Xs = (X[mask] - mu) / sd
-        w = oc_train.ridge_fit(Xs, y[mask], lam=alpha)
-        xi = (X[i:i + 1] - mu) / sd
-        errs[i] = abs(oc_train.ridge_pred(w, xi)[0] - y[i])
-    return float(errs.mean())
+def _inner_loco_rmse(X, y, groups, alpha):
+    """Pooled RMSE from an INNER leave-one-CASE-out sweep over (X, y, groups) -- each inner
+    fold standardizes on its own inner-training subset only. T17 (2026-09-24): replaces the old
+    leave-one-SAMPLE-out alpha search (_ridge_loo_mae, O(n^2 d): n refits of an O(n d) ridge
+    solve each), which took 2h17m/49m on real ~2e6/3.4e5-row datasets and had to be killed.
+    Inner LOCO with (say) 4 training cases is 4 fits total, independent of n. Returns None if
+    fewer than 2 distinct cases are present (the caller falls back to a fixed alpha)."""
+    groups = np.asarray(groups)
+    cases = sorted(set(groups.tolist()))
+    if len(cases) < 2:
+        return None
+    preds = np.empty(len(y), dtype=float)
+    for c in cases:
+        train = groups != c
+        test = groups == c
+        mu, sd = _standardize_fit(X[train])
+        w = oc_train.ridge_fit((X[train] - mu) / sd, y[train], lam=alpha)
+        preds[test] = oc_train.ridge_pred(w, (X[test] - mu) / sd)
+    return _rmse(preds, y)
 
 
-def fit_ridge_nested(X, y, alphas=RIDGE_ALPHAS):
-    """Ridge with alpha chosen by leave-one-sample-out MAE on X/y alone (the TRAINING fold
-    only -- callers must never pass the held-out LOCO case's rows in here)."""
-    best_alpha, best_mae = alphas[0], None
-    for a in alphas:
-        mae = _ridge_loo_mae(X, y, a)
-        if best_mae is None or mae < best_mae:
-            best_alpha, best_mae = a, mae
+def fit_ridge_nested(X, y, groups=None, alphas=RIDGE_ALPHAS):
+    """Ridge with alpha chosen by INNER leave-one-CASE-out on (X, y, groups) -- see
+    _inner_loco_rmse. `groups` identifies the case each row of X/y belongs to WITHIN this
+    training fold; callers (loco_predict) must never pass the OUTER held-out LOCO case's rows
+    in here, so `groups` here can only ever contain the remaining training cases. Falls back to
+    alpha=1.0 (announced) when `groups` is None or has fewer than 2 distinct cases (T17(a))."""
+    best_alpha, best_rmse = None, None
+    if groups is not None:
+        for a in alphas:
+            rmse_a = _inner_loco_rmse(X, y, groups, a)
+            if rmse_a is not None and (best_rmse is None or rmse_a < best_rmse):
+                best_alpha, best_rmse = a, rmse_a
+    if best_alpha is None:
+        best_alpha = 1.0
+        n_cases = len(set(np.asarray(groups).tolist())) if groups is not None else 0
+        print("fit_ridge_nested: training fold has %d case(s) (< 2) -- alpha fallback = 1.0"
+              % n_cases, flush=True)
     mu, sd = _standardize_fit(X)
     Xs = (X - mu) / sd
     w = oc_train.ridge_fit(Xs, y, lam=best_alpha)
@@ -427,18 +442,40 @@ def ridge_predict_model(model, X):
     return oc_train.ridge_pred(w, Xs)
 
 
-def knn_predict(X_train, y_train, X_test, k=3):
-    """Plain-numpy kNN regression: mean of the k nearest (Euclidean) training labels."""
+def knn_predict(X_train, y_train, X_test, k=3, chunk_size=2000):
+    """Plain-numpy kNN regression: mean of the k nearest (Euclidean) training labels. T17(b)
+    (2026-09-24): distances are computed in chunks of at most `chunk_size` test rows at a time
+    instead of one (n_test, n_train, d) broadcast tensor -- the unchunked version is O(n_test *
+    n_train * d) memory, which is what made this unusable at real dataset sizes. Numerically
+    IDENTICAL to the unchunked computation (same per-row nearest-k selection and mean, just
+    computed in slices)."""
     k_eff = min(k, len(X_train))
-    d = np.sqrt(((X_test[:, None, :] - X_train[None, :, :]) ** 2).sum(-1))
-    idx = np.argsort(d, axis=1)[:, :k_eff]
-    return y_train[idx].mean(axis=1)
+    n_test = len(X_test)
+    out = np.empty(n_test, dtype=float)
+    for start in range(0, n_test, max(1, chunk_size)):
+        end = min(start + chunk_size, n_test)
+        chunk = X_test[start:end]
+        d = np.sqrt(((chunk[:, None, :] - X_train[None, :, :]) ** 2).sum(-1))
+        idx = np.argsort(d, axis=1)[:, :k_eff]
+        out[start:end] = y_train[idx].mean(axis=1)
+    return out
 
 
-def fit_knn(X, y, k=3):
+def fit_knn(X, y, groups=None, k=3, max_train_rows=20000, seed=0):
+    """T17(b) (2026-09-24): fits on a reproducible random subsample of at most `max_train_rows`
+    training rows -- an unbounded training set makes knn_predict's per-test-row distance/sort
+    cost O(n_train), unusable at real dataset sizes (~1e5-1e6 rows). `subsample_size` is
+    recorded in the returned model (and therefore in evaluate()'s report, when this model kind
+    is used for a target). `groups` is accepted (unused -- kNN does no alpha/case selection)
+    only so loco_predict's uniform fit_fn(X, y, groups) calling convention works for it too."""
+    n = len(X)
+    if n > max_train_rows:
+        rng = np.random.default_rng(seed)
+        sub = rng.choice(n, size=max_train_rows, replace=False)
+        X, y = X[sub], y[sub]
     mu, sd = _standardize_fit(X)
     return {"kind": "knn", "X": ((X - mu) / sd).tolist(), "y": y.tolist(), "mu": mu.tolist(),
-            "sd": sd.tolist(), "k": k}
+            "sd": sd.tolist(), "k": k, "subsample_size": int(len(X)), "seed": seed}
 
 
 def knn_predict_model(model, X):
@@ -450,28 +487,39 @@ def knn_predict_model(model, X):
     return knn_predict(Xtr, ytr, Xs, k=model["k"])
 
 
-def loco_predict(X, y, groups, fit_fn, predict_fn):
+def loco_predict(X, y, groups, fit_fn, predict_fn, verbose=False):
     """Leave-one-CASE-out: for every distinct value in `groups`, fit on every OTHER group's
     rows and predict this group's rows. Returns an array the same length/order as y. fit_fn's
-    training input NEVER includes a row from the group being predicted this iteration."""
+    training input NEVER includes a row from the group being predicted this iteration. fit_fn is
+    called as fit_fn(X_train, y_train, groups_train) -- T17(a): groups_train lets fit_ridge_nested
+    (and fit_two_part) run their OWN inner leave-one-CASE-out alpha selection without ever
+    seeing the row being held out this outer iteration (groups_train structurally excludes it).
+    `verbose` (T17(d)): prints one flushed progress line per outer fold, for a long run."""
     groups = np.asarray(groups)
+    cases = sorted(set(groups.tolist()))
     preds = np.empty(len(y), dtype=float)
-    for c in sorted(set(groups.tolist())):
+    for i, c in enumerate(cases):
         train = groups != c
         test = groups == c
-        model = fit_fn(X[train], y[train])
+        model = fit_fn(X[train], y[train], groups[train])
         preds[test] = predict_fn(model, X[test])
+        if verbose:
+            print("  LOCO fold %d/%d (held out %s): %d train rows, %d test rows"
+                  % (i + 1, len(cases), c, int(train.sum()), int(test.sum())), flush=True)
     return preds
 
 
-def fit_two_part(X, y_amount, threshold=1e-5, alphas=RIDGE_ALPHAS):
+def fit_two_part(X, y_amount, groups=None, threshold=1e-5, alphas=RIDGE_ALPHAS):
     """Presence (ridge-regressed 0/1, thresholded at predict time) + amount-where-present
     (ridge on log1p(amount*1e6)) -- the spec's "logistic-ish ... ridge on features then
-    threshold" option."""
+    threshold" option. T17(c): both parts use the SAME inner leave-one-CASE-out alpha
+    selection as fit_ridge_nested (`groups` sliced to the amount-where-present mask for the
+    second part)."""
     presence = (y_amount > threshold).astype(float)
-    clf = fit_ridge_nested(X, presence, alphas=alphas)
+    clf = fit_ridge_nested(X, presence, groups, alphas=alphas)
     mask = y_amount > threshold
-    reg = fit_ridge_nested(X[mask], np.log1p(y_amount[mask] * 1e6), alphas=alphas) \
+    reg = fit_ridge_nested(X[mask], np.log1p(y_amount[mask] * 1e6),
+                           groups[mask] if groups is not None else None, alphas=alphas) \
         if mask.sum() >= 3 else None
     return {"kind": "two_part", "clf": clf, "reg": reg, "threshold": threshold}
 
@@ -529,13 +577,40 @@ def is_improved_condensate(model_csi, baseline_csi, n_cases, min_abs=0.10, min_c
     return (model_csi - baseline_csi) >= min_abs
 
 
-def evaluate(dataset_npz, out_path):
+def _subsample_rows_per_pair(pair_idx, max_rows_per_pair, seed=0):
+    """T17(e) (2026-09-24): boolean mask selecting at most `max_rows_per_pair` rows per distinct
+    `pair_idx` value, chosen reproducibly (seeded RNG) -- for a quick evaluate() run on a
+    subset. `max_rows_per_pair=None` -> mask selects everything (no-op)."""
+    n = len(pair_idx)
+    if max_rows_per_pair is None:
+        return np.ones(n, dtype=bool)
+    rng = np.random.default_rng(seed)
+    mask = np.zeros(n, dtype=bool)
+    for p in sorted(set(pair_idx.tolist())):
+        rows = np.where(pair_idx == p)[0]
+        if len(rows) > max_rows_per_pair:
+            rows = rng.choice(rows, size=max_rows_per_pair, replace=False)
+        mask[rows] = True
+    return mask
+
+
+def evaluate(dataset_npz, out_path, max_rows_per_pair=None, seed=0):
+    """`max_rows_per_pair` (T17(e), default None = all rows): reproducibly subsamples to at
+    most this many rows per pair_idx before evaluating, for a quick run. `seed` (T17(a)/(b)):
+    used for this subsampling AND for fit_knn's own training-row subsampling (kNN is not
+    currently wired into any target here, but the seed threads through for when it is)."""
+    t0 = time.time()
     d = np.load(dataset_npz, allow_pickle=False)
-    X = d["X"]
-    case_id = d["case_id"]
-    pressure = d["pressure_pa"]
+    row_mask = _subsample_rows_per_pair(d["pair_idx"], max_rows_per_pair, seed=seed)
+    X = d["X"][row_mask]
+    case_id = d["case_id"][row_mask]
+    pressure = d["pressure_pa"][row_mask]
+    target_arrays = {tgt: d[tgt][row_mask] for tgt in RESIDUAL_TARGETS + CONDENSATE_TARGETS}
     n_cases = len(set(case_id.tolist()))
     n_rows = len(X)
+    if max_rows_per_pair is not None:
+        print("evaluate: --max-rows-per-pair=%d (seed=%d) -> %d/%d rows kept"
+              % (max_rows_per_pair, seed, n_rows, len(row_mask)), flush=True)
     report = {"n_cases": n_cases, "n_rows": n_rows, "targets": {}}
 
     for name, mask_fn in LEVEL_GROUPS:
@@ -545,12 +620,14 @@ def evaluate(dataset_npz, out_path):
         Xs, cases_s = X[lvl_mask], case_id[lvl_mask]
 
         for tgt in RESIDUAL_TARGETS:
-            y = d[tgt][lvl_mask]
-            preds = loco_predict(Xs, y, cases_s, fit_ridge_nested, ridge_predict_model)
+            y = target_arrays[tgt][lvl_mask]
+            print("evaluate: %s__%s (n=%d)" % (tgt, name, len(y)), flush=True)
+            preds = loco_predict(Xs, y, cases_s, fit_ridge_nested, ridge_predict_model,
+                                 verbose=True)
             baseline_rmse = _rmse(np.zeros_like(y), y)   # baseline = uncorrected (residual 0)
             model_rmse = _rmse(preds, y)
             improved = is_improved(model_rmse, baseline_rmse, n_cases)
-            model_full = fit_ridge_nested(Xs, y)
+            model_full = fit_ridge_nested(Xs, y, cases_s)
             report["targets"]["%s__%s" % (tgt, name)] = {
                 "kind": "residual", "level_group": name, "n": int(len(y)),
                 "baseline_rmse": baseline_rmse, "model_rmse": model_rmse,
@@ -561,16 +638,17 @@ def evaluate(dataset_npz, out_path):
             }
 
         for tgt in CONDENSATE_TARGETS:
-            y = d[tgt][lvl_mask]
+            y = target_arrays[tgt][lvl_mask]
+            print("evaluate: %s__%s (n=%d)" % (tgt, name, len(y)), flush=True)
             truth_present = y > CONDENSATE_THRESHOLD
-            preds = loco_predict(Xs, y, cases_s, fit_two_part, two_part_predict)
+            preds = loco_predict(Xs, y, cases_s, fit_two_part, two_part_predict, verbose=True)
             pred_present = preds > CONDENSATE_THRESHOLD
             baseline_rmse = _rmse(np.zeros_like(y), y)   # baseline = 0 amount everywhere
             model_rmse = _rmse(preds, y)
             baseline_csi = _csi(np.zeros_like(truth_present, dtype=bool), truth_present)
             model_csi = _csi(pred_present, truth_present)
             improved = is_improved_condensate(model_csi, baseline_csi, n_cases)
-            model_full = fit_two_part(Xs, y)
+            model_full = fit_two_part(Xs, y, cases_s)
             report["targets"]["%s__%s" % (tgt, name)] = {
                 "kind": "condensate", "level_group": name, "n": int(len(y)),
                 "baseline_rmse": baseline_rmse, "model_rmse": model_rmse,
@@ -590,6 +668,8 @@ def evaluate(dataset_npz, out_path):
     for key, t in report["targets"].items():
         verdict = "IMPROVED" if t["improved"] else "not enough evidence"
         print("  %-16s n=%-6d %s" % (key, t["n"], verdict))
+    elapsed = time.time() - t0
+    print("evaluate: total wall time %.1fs" % elapsed, flush=True)
     return report
 
 
@@ -761,6 +841,12 @@ def main(argv=None):
     sp = sub.add_parser("evaluate")
     sp.add_argument("--pairs", required=True, help="pairs.npz from build-pairs")
     sp.add_argument("--out", required=True)
+    sp.add_argument("--max-rows-per-pair", type=int, default=None,
+                    help="T17(e): reproducibly subsample to at most N rows per pair, for a "
+                    "quick run (default: all rows)")
+    sp.add_argument("--seed", type=int, default=0,
+                    help="T17: seed for --max-rows-per-pair subsampling and for kNN's own "
+                    "training-row subsampling")
 
     sp = sub.add_parser("apply")
     sp.add_argument("--model", required=True, help="report.json from evaluate")
@@ -779,7 +865,8 @@ def main(argv=None):
                   % (args.out, stats["n_rows"], stats["n_pairs"]))
             return 0
         if args.cmd == "evaluate":
-            evaluate(args.pairs, args.out)
+            evaluate(args.pairs, args.out, max_rows_per_pair=args.max_rows_per_pair,
+                    seed=args.seed)
             return 0
         if args.cmd == "apply":
             out = apply_correction(args.model, args.wrfinput, args.out,

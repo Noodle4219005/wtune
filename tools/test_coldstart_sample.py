@@ -2236,6 +2236,19 @@ class TestPlanRealOnly(unittest.TestCase):
         self.assertNotIn("SITE_LAUNCH_CMD", text)
         self.assertIn("wrf=$LAST_WRF_STATUS", text)
 
+    def test_per_window_min_scales_wrf_timeout_and_time_limit(self):
+        # job 982 (maria1km): the fixed 15 min wrf.exe timeout killed a 1 km window at 899 s
+        plan = {
+            "windows": [{"t": "2020-01-01_03:00:00", "t_end": "2020-01-01_06:00:00",
+                        "reason": "pinned"}],
+            "nodes": 1, "config": {"ranks": 72, "omp": 1, "nx": 9, "ny": 8, "numtiles": 1},
+        }
+        self.assertIn("timeout 900 ", cs.render_run_sbatch(plan, site="scc"))
+        text = cs.render_run_sbatch(plan, site="scc", per_window_estimate_min=60)
+        self.assertIn("timeout 3600 ", text)
+        self.assertNotIn("timeout 900 ", text)
+        self.assertIn("#SBATCH --time=02:40:00", text)
+
     def test_rendered_sbatch_still_has_real_exe_timeout_and_serial_fallback(self):
         plan = {
             "windows": [{"t": "2020-01-01_03:00:00", "t_end": "2020-01-01_06:00:00",

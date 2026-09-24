@@ -12,7 +12,9 @@ import math
 import os
 import sys
 import tempfile
+import time
 import unittest
+from unittest import mock
 
 import numpy as np
 
@@ -99,8 +101,11 @@ class TestLOCOSpy(unittest.TestCase):
         # loco_predict must never hand it a row from the case currently held out.
         seen_by_call = []
 
-        def fit_spy(Xtr, ytr):
+        def fit_spy(Xtr, ytr, groups_tr):
+            # T17 (2026-09-24): loco_predict now calls fit_fn(X, y, groups) -- groups_tr must
+            # exactly match the training rows' own groups (never the held-out one).
             seen_by_call.append({y_to_group[float(v)] for v in ytr})
+            self.assertEqual(set(groups_tr.tolist()), {y_to_group[float(v)] for v in ytr})
             return {"mean": float(ytr.mean())}
 
         def predict_spy(model, Xte):
@@ -135,6 +140,111 @@ class TestRidgeExactOffset(unittest.TestCase):
         self.assertLess(model_rmse, 1e-8)
         np.testing.assert_allclose(preds, 0.5, atol=1e-8)
         self.assertTrue(scm.is_improved(model_rmse, baseline_rmse, n_cases=n_cases))
+
+
+# ---------------------------------------------------------------------------
+# T17 (2026-09-24): inner leave-one-CASE-out alpha selection replaces the old O(n^2)
+# leave-one-SAMPLE-out search (killed at 2h17m/49m on real ~2e6/3.4e5-row datasets).
+# ---------------------------------------------------------------------------
+
+class TestInnerAlphaSelectionNeverSeesOuterHeldout(unittest.TestCase):
+    def test_inner_ridge_fits_stay_within_their_own_outer_training_fold(self):
+        # Every low-level oc_train.ridge_fit call made DURING one outer LOCO fold's
+        # fit_ridge_nested must only ever see rows whose case is in THAT fold's own training
+        # set -- which loco_predict already constructs to exclude the outer held-out case. A
+        # violation here would mean the inner alpha search somehow reached past its own
+        # groups_train argument (e.g. a closure-capture bug) back into the full dataset.
+        rng = np.random.default_rng(3)
+        n_cases = 5
+        rows_per_case = 20
+        n = n_cases * rows_per_case
+        X = rng.normal(size=(n, 3))
+        y = np.arange(n, dtype=float)   # unique per row -> identifies which rows a call saw
+        groups = np.array(["c%d" % (i // rows_per_case) for i in range(n)])
+        y_to_group = {float(v): g for v, g in zip(y, groups)}
+
+        violations = []
+        real_ridge_fit = scm.oc_train.ridge_fit
+        current_allowed = {"groups": None}
+
+        def spy_ridge_fit(Xtr, ytr, lam):
+            seen = {y_to_group[float(v)] for v in ytr}
+            if current_allowed["groups"] is not None and not seen <= current_allowed["groups"]:
+                violations.append(seen - current_allowed["groups"])
+            return real_ridge_fit(Xtr, ytr, lam)
+
+        real_fit_ridge_nested = scm.fit_ridge_nested
+
+        def outer_fit_wrapper(Xtr, ytr, groups_tr):
+            current_allowed["groups"] = set(groups_tr.tolist())
+            try:
+                return real_fit_ridge_nested(Xtr, ytr, groups_tr)
+            finally:
+                current_allowed["groups"] = None
+
+        with mock.patch.object(scm.oc_train, "ridge_fit", side_effect=spy_ridge_fit):
+            preds = scm.loco_predict(X, y, groups, outer_fit_wrapper, scm.ridge_predict_model)
+
+        self.assertEqual(len(preds), n)
+        self.assertEqual(violations, [])
+
+
+class TestInnerAlphaSelectionChoosesBestAlpha(unittest.TestCase):
+    def test_alpha_with_lowest_inner_loco_rmse_is_chosen(self):
+        # y is pure noise, independent of X: a weakly-regularized fit (alpha=0.01) overfits
+        # each inner-training case's noise and generalizes badly to the held-out inner case,
+        # while heavy shrinkage (alpha=1000) predicts close to the (correct) near-zero
+        # coefficients and generalizes far better -- unambiguously the lower inner-LOCO RMSE.
+        rng = np.random.default_rng(4)
+        n_cases = 6
+        rows_per_case = 30
+        n_feat = 5
+        X = rng.normal(size=(n_cases * rows_per_case, n_feat))
+        y = rng.normal(scale=1.0, size=n_cases * rows_per_case)
+        groups = np.array(["c%d" % (i // rows_per_case) for i in range(len(y))])
+
+        model = scm.fit_ridge_nested(X, y, groups, alphas=(0.01, 1000.0))
+        self.assertEqual(model["alpha"], 1000.0)
+
+    def test_fewer_than_2_cases_falls_back_to_alpha_1(self):
+        X = np.array([[1.0], [2.0], [3.0]])
+        y = np.array([1.0, 2.0, 3.0])
+        groups = np.array(["only_case", "only_case", "only_case"])
+        model = scm.fit_ridge_nested(X, y, groups)
+        self.assertEqual(model["alpha"], 1.0)
+
+    def test_no_groups_falls_back_to_alpha_1(self):
+        X = np.array([[1.0], [2.0], [3.0]])
+        y = np.array([1.0, 2.0, 3.0])
+        model = scm.fit_ridge_nested(X, y, groups=None)
+        self.assertEqual(model["alpha"], 1.0)
+
+
+class TestKnnChunkedMatchesUnchunked(unittest.TestCase):
+    def test_chunked_equals_unchunked_result(self):
+        rng = np.random.default_rng(5)
+        X_train = rng.normal(size=(53, 4))
+        y_train = rng.normal(size=53)
+        X_test = rng.normal(size=(37, 4))
+        unchunked = scm.knn_predict(X_train, y_train, X_test, k=3, chunk_size=10_000)
+        chunked = scm.knn_predict(X_train, y_train, X_test, k=3, chunk_size=7)
+        np.testing.assert_allclose(chunked, unchunked)
+
+    def test_fit_knn_subsamples_reproducibly_and_records_size(self):
+        rng = np.random.default_rng(6)
+        X = rng.normal(size=(50, 3))
+        y = rng.normal(size=50)
+        model_a = scm.fit_knn(X, y, max_train_rows=10, seed=42)
+        model_b = scm.fit_knn(X, y, max_train_rows=10, seed=42)
+        self.assertEqual(model_a["subsample_size"], 10)
+        np.testing.assert_array_equal(np.asarray(model_a["y"]), np.asarray(model_b["y"]))
+
+    def test_fit_knn_no_subsample_needed_below_max_rows(self):
+        rng = np.random.default_rng(7)
+        X = rng.normal(size=(5, 3))
+        y = rng.normal(size=5)
+        model = scm.fit_knn(X, y, max_train_rows=10, seed=0)
+        self.assertEqual(model["subsample_size"], 5)
 
 
 # ---------------------------------------------------------------------------
@@ -459,6 +569,70 @@ class TestBuildPairs(unittest.TestCase):
         d = np.load(out)
         self.assertEqual(d["X"].shape, (5 * NZ, len(scm.FEATURE_NAMES)))
         self.assertEqual(len(set(d["case_id"].tolist())), 1)
+
+
+# ---------------------------------------------------------------------------
+# T17 (2026-09-24): timing guard -- the ORIGINAL O(n^2) leave-one-SAMPLE-out alpha search took
+# 2h17m/49m on real ~2e6/3.4e5-row datasets and had to be killed; the new inner leave-one-
+# CASE-out search must make a dataset of this shape finish in well under a minute. Needs no
+# netCDF4 at all -- evaluate() only reads a plain .npz.
+# ---------------------------------------------------------------------------
+
+class TestSubsampleRowsPerPair(unittest.TestCase):
+    def test_caps_each_pair_reproducibly(self):
+        pair_idx = np.array([0] * 10 + [1] * 3 + [2] * 10)
+        mask_a = scm._subsample_rows_per_pair(pair_idx, max_rows_per_pair=5, seed=0)
+        mask_b = scm._subsample_rows_per_pair(pair_idx, max_rows_per_pair=5, seed=0)
+        np.testing.assert_array_equal(mask_a, mask_b)   # reproducible
+        self.assertEqual(int(mask_a[:10].sum()), 5)      # pair 0: 10 rows -> capped to 5
+        self.assertEqual(int(mask_a[10:13].sum()), 3)    # pair 1: only 3 rows -> all kept
+        self.assertEqual(int(mask_a[13:].sum()), 5)       # pair 2: 10 rows -> capped to 5
+
+    def test_none_keeps_everything(self):
+        pair_idx = np.array([0, 0, 1, 1, 1])
+        mask = scm._subsample_rows_per_pair(pair_idx, max_rows_per_pair=None)
+        self.assertTrue(mask.all())
+
+
+class TestEvaluateTimingGuard(unittest.TestCase):
+    def test_5case_20k_row_dataset_finishes_under_60s(self):
+        rng = np.random.default_rng(8)
+        n_cases = 5
+        rows_per_case = 4000   # 5 x 4000 = 20,000 rows total
+        n = n_cases * rows_per_case
+        n_feat = len(scm.FEATURE_NAMES)
+        X = rng.normal(size=(n, n_feat))
+        # spans all three LEVEL_GROUPS buckets (low/mid/high) so every target actually runs.
+        pressure = rng.uniform(15000.0, 100000.0, size=n)
+        dT = rng.normal(scale=0.5, size=n)
+        dQV = rng.normal(scale=1e-4, size=n)
+        dU = rng.normal(scale=1.0, size=n)
+        dV = rng.normal(scale=1.0, size=n)
+        cloud = np.clip(rng.normal(scale=1e-5, size=n), 0.0, None)
+        precip = np.clip(rng.normal(scale=1e-5, size=n), 0.0, None)
+        case_id = np.array(["case%d" % (i // rows_per_case) for i in range(n)])
+        pair_idx = np.array([i // rows_per_case for i in range(n)])
+
+        with tempfile.TemporaryDirectory() as d:
+            npz_path = os.path.join(d, "pairs.npz")
+            np.savez_compressed(
+                npz_path, X=X, feature_names=np.array(scm.FEATURE_NAMES), dT=dT, dQV=dQV,
+                dU=dU, dV=dV, cloud=cloud, precip=precip, pressure_pa=pressure,
+                case_id=case_id, pair_idx=pair_idx, col_j=np.zeros(n, dtype=int),
+                col_i=np.zeros(n, dtype=int), level_idx=np.zeros(n, dtype=int),
+                hydrometeors_by_case=np.array(json.dumps({})))
+            out_path = os.path.join(d, "report.json")
+
+            t0 = time.time()
+            report = scm.evaluate(npz_path, out_path)
+            elapsed = time.time() - t0
+            self.assertTrue(os.path.exists(out_path))
+
+        print("T17 TIMING GUARD: evaluate() on %d cases x %d rows took %.2fs"
+              % (n_cases, n, elapsed))
+        self.assertEqual(report["n_cases"], n_cases)
+        self.assertEqual(report["n_rows"], n)
+        self.assertLess(elapsed, 60.0)
 
 
 if __name__ == "__main__":

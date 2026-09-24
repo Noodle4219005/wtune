@@ -1890,7 +1890,7 @@ def generate_vtable_gfs_prmsl(vtable_gfs_text):
     return "\n".join(out)
 
 
-def stage_plan(plan_dir, site="scc"):
+def stage_plan(plan_dir, site="scc", per_window_min=15):
     with open(os.path.join(plan_dir, "plan.json")) as f:
         plan = json.load(f)
 
@@ -1963,7 +1963,8 @@ def stage_plan(plan_dir, site="scc"):
 
     plan["_plan_dir"] = os.path.abspath(plan_dir)
     per_window_forcing = _per_window_forcing_from_forcing_json(plan_dir, plan)
-    sbatch_text = render_run_sbatch(plan, site=site, per_window_forcing=per_window_forcing)
+    sbatch_text = render_run_sbatch(plan, site=site, per_window_forcing=per_window_forcing,
+                                    per_window_estimate_min=per_window_min)
     sbatch_path = os.path.join(plan_dir, "run.sbatch")
     with open(sbatch_path, "w") as f:
         f.write(sbatch_text)
@@ -2707,6 +2708,9 @@ def main(argv=None):
     sp = sub.add_parser("stage")
     sp.add_argument("--plan", required=True)
     sp.add_argument("--site", default="scc")
+    # also the wrf.exe per-window `timeout` (seconds = 60x): maria1km (job 982, 1 km d02, 202
+    # d01 steps at ~9.3 s/step) was killed at exactly 899 s by the old fixed 15 min
+    sp.add_argument("--per-window-min", type=int, default=15)
 
     sp = sub.add_parser("score")
     sp.add_argument("--plan", required=True)
@@ -2777,7 +2781,7 @@ def main(argv=None):
             return 0
 
         if args.cmd == "stage":
-            stage_plan(args.plan, site=args.site)
+            stage_plan(args.plan, site=args.site, per_window_min=args.per_window_min)
             return 0
 
         if args.cmd == "score":

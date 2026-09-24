@@ -1668,7 +1668,7 @@ def predict_io(nl, max_dom, run_min, calibration, io_form_override, io_target,
 # Init (read) model
 # --------------------------------------------------------------------------
 
-def predict_init(case_dir, nl, calibration, ranks=None):
+def predict_init(case_dir, nl, calibration, ranks=None, nodes=None):
     read_rate = calibration.get("derived", {}).get("read_rate_bytes_per_s")
     if not read_rate:
         raise PredictError("calibration.derived.read_rate_bytes_per_s missing")
@@ -1695,6 +1695,12 @@ def predict_init(case_dir, nl, calibration, ranks=None):
     startup_s_source = calibration.get("startup_s_source")
     startup_calibrated = startup_s is not None
     startup_term = float(startup_s) if startup_calibrated else 0.0
+    # the cap grows with node count (2026-09-24, sc26p2 4 nodes/192 ranks: wall - sum(main)
+    # ~32 s vs the 1-node 19.4 s cap, the out-of-sample miss); per-node slope comes from
+    # wtune.py calibrate; absent -> 0, i.e. the old single-node cap
+    per_node = calibration.get("startup_s_per_node")
+    if startup_calibrated and nodes and per_node:
+        startup_term += per_node * max(0, nodes - 1)
     # rank-dependent startup (2026-09-24): wall - sum(d01 'Timing for main') is 1.9-2.8 s at 1
     # rank, 3.5 s at 6, 6.5 s at 12 (idealized truths), ~17-22 s at 72 (the startup_s fit), so
     # min(startup_s, base + per_rank * ranks); startup_s stays the cap for large runs
@@ -1846,7 +1852,8 @@ def build_prediction(namelist_path, case_dir, nodes, config, ledger_paths,
     io = predict_io(nl, max_dom, run_min, calibration, io_form_override, io_target,
                     case_dir=case_dir, iofields_dir=iofields_dir)
 
-    init = predict_init(case_dir, nl, calibration, ranks=config.get("ranks") if config else None)
+    init = predict_init(case_dir, nl, calibration, ranks=config.get("ranks") if config else None,
+                        nodes=nodes)
 
     drift_pct = calibration.get("drift_band_pct", 5.0)
     # History I/O is estimated and reported but, by default, NOT added to total_s or the range

@@ -1357,6 +1357,23 @@ def test_predict_init_startup_scales_with_ranks_and_caps_at_startup_s(tmp_path):
     assert legacy["total_s"] == pytest.approx(legacy["read_s"] + 19.4)
 
 
+def test_predict_init_startup_cap_grows_with_nodes(tmp_path):
+    # sc26p2 4 nodes / 192 ranks started in ~32 s against the 1-node 19.4 s cap
+    nl = wp.parse_namelist(_write(str(tmp_path / "namelist.input"), STARTUP_NAMELIST))
+    cal = {"derived": {"read_rate_bytes_per_s": 1000.0, "bytes_per_cell_level": 1.0},
+           "startup_s": 19.4, "startup_s_base": 2.0, "startup_s_per_rank": 0.4,
+           "startup_s_per_node": 4.0}
+    one = wp.predict_init(None, nl, cal, ranks=72, nodes=1)
+    four = wp.predict_init(None, nl, cal, ranks=192, nodes=4)
+    small = wp.predict_init(None, nl, cal, ranks=1, nodes=1)
+    assert one["total_s"] == pytest.approx(one["read_s"] + 19.4)
+    assert four["total_s"] == pytest.approx(four["read_s"] + 19.4 + 12.0)
+    assert small["total_s"] == pytest.approx(small["read_s"] + 2.4)
+    del cal["startup_s_per_node"]
+    assert wp.predict_init(None, nl, cal, ranks=192, nodes=4)["total_s"] == pytest.approx(
+        four["read_s"] + 19.4)
+
+
 def test_predict_init_startup_uncalibrated_when_absent(tmp_path):
     nl = wp.parse_namelist(_write(str(tmp_path / "namelist.input"), STARTUP_NAMELIST))
     calibration = {"derived": {"read_rate_bytes_per_s": 1000.0, "bytes_per_cell_level": 1.0}}

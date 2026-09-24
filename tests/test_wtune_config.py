@@ -445,7 +445,7 @@ def test_template_renders_valid_yaml_that_resolves_cleanly():
 def test_examples_wtune_yaml_matches_the_rendered_template_and_validates():
     pytest.importorskip("yaml")
     import yaml
-    here = os.path.dirname(os.path.abspath(__file__))
+    here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # tests/ -> repo root
     path = os.path.join(here, "examples", "wtune.yaml")
     with open(path) as f:
         text = f.read()

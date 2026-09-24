@@ -50,7 +50,8 @@ import targets
 # (set/mul/delete, rounding, min/max clamps, the -1 physics_suite 'mul' restriction) actually
 # changes a namelist -- see _apply_edit_via_configs and physics_candidates_from_namelist below,
 # which delegate to it instead of physics.py maintaining its own second copy of that arithmetic.
-_CAMPAIGN_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "campaign")
+_CAMPAIGN_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "campaign")
 if _CAMPAIGN_DIR not in sys.path:
     sys.path.insert(0, _CAMPAIGN_DIR)
 import configs as campaign_configs

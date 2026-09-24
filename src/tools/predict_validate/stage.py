@@ -21,7 +21,7 @@ import sys
 
 W = os.path.expanduser("~/wtune")
 sys.path.insert(0, W)
-import wtune as wt  # noqa: E402  (single-source run length via extract_case -> wtune_runlength)
+import wtune_cli as wt  # noqa: E402  (single-source run length via extract_case -> wtune_runlength)
 
 cj = json.load(open(W + "/campaign/cases.scc.json"))
 cases = cj.get("cases", cj)

@@ -15,7 +15,7 @@ import pytest
 import wtune_case as wc
 import wtune_physics as phys
 
-HERE = os.path.dirname(os.path.abspath(__file__))
+HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # tests/ -> repo root
 
 
 def _write_namelist(tmp_path, body):

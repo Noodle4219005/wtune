@@ -174,7 +174,7 @@ import wtune_runlength as runlen  # repo root: resolve_run_seconds, the single-s
                                    # module's own "standalone" property, see module docstring)
 
 HERE = Path(__file__).resolve().parent
-DEFAULT_CALIBRATION = HERE / "machine" / "calibration" / "scc.json"
+DEFAULT_CALIBRATION = HERE.parent / "machine" / "calibration" / "scc.json"  # HERE is src/; machine/ stays at repo root
 
 CORES_PER_NODE = 112  # scc site convention (see predictor/ledger.py CORES_PER_NODE)
 SEGMENT_HOURS = 6.0   # long-run compute display chunking

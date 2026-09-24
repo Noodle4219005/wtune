@@ -264,14 +264,15 @@ _DECOMP_TRIED = False
 
 
 def _load_decomp():
-    """Try to import wtune_decomp from the repo root. Returns the module or None.
+    """Try to import wtune_decomp from src/. Returns the module or None.
     Caches the result (including failure) for the life of the process."""
     global _DECOMP, _DECOMP_TRIED
     if _DECOMP_TRIED:
         return _DECOMP
     _DECOMP_TRIED = True
-    if REPO_ROOT not in sys.path:
-        sys.path.insert(0, REPO_ROOT)
+    _src = os.path.join(REPO_ROOT, "src")
+    if _src not in sys.path:
+        sys.path.insert(0, _src)
     try:
         import wtune_decomp
         _DECOMP = wtune_decomp
@@ -1287,8 +1288,9 @@ _COMPLIANCE_KNOBS = (
 
 
 def assert_strict_compliance():
-    if REPO_ROOT not in sys.path:
-        sys.path.insert(0, REPO_ROOT)
+    _src = os.path.join(REPO_ROOT, "src")
+    if _src not in sys.path:
+        sys.path.insert(0, _src)
     try:
         import wtune_compliance
     except Exception as e:

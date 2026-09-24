@@ -35,7 +35,7 @@ import sys
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _PREDICTOR_DIR = os.path.join(_HERE, "predictor")
-_CAMPAIGN_DIR = os.path.join(_HERE, "campaign")
+_CAMPAIGN_DIR = os.path.join(os.path.dirname(_HERE), "campaign")  # campaign/ stays at repo root
 for _p in (_HERE, _PREDICTOR_DIR, _CAMPAIGN_DIR):
     if _p not in sys.path:
         sys.path.insert(0, _p)
@@ -454,7 +454,7 @@ def is_fire_case(case_json=None, namelist_path=None):
         return True
     if namelist_path and os.path.exists(namelist_path):
         try:
-            import wtune as _wtune_core  # root wtune.py: parse_namelist (stdlib only)
+            import wtune_cli as _wtune_core  # root wtune.py: parse_namelist (stdlib only)
             nl = _wtune_core.parse_namelist(namelist_path)
             ifire_raw = nl.get("fire", {}).get("ifire")
             if any(v and v > 0 for v in _all_numbers(ifire_raw)):
@@ -586,7 +586,7 @@ def case_json_from_dir(case_dir):
     if not os.path.isfile(namelist_path):
         return None, None, "no namelist.input in case_dir %r" % case_dir
     try:
-        import wtune as _wtune_core
+        import wtune_cli as _wtune_core
         nl = _wtune_core.parse_namelist(namelist_path)
     except Exception as exc:
         return None, None, "cannot parse %s: %s" % (namelist_path, exc)

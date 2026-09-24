@@ -35,7 +35,7 @@ _PREDICTOR_DIR = os.path.join(_HERE, 'predictor')
 if _PREDICTOR_DIR not in sys.path:
     sys.path.insert(0, _PREDICTOR_DIR)
 
-import wtune as wt                     # repo root: parse_namelist/_parse_nl_kv/extract_case/...
+import wtune_cli as wt                     # repo root: parse_namelist/_parse_nl_kv/extract_case/...
 import wtune_physics as phys           # physics knowledge base + advisor
 import wtune_shape as shape            # patch_dims/tiling (MIN_PATCH=10, cost-model constants)
 import wtune_solar as wsolar           # terminator load map, domain_bbox, day_of_year

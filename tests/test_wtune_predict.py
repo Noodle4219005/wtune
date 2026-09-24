@@ -30,7 +30,7 @@ import pytest
 
 import wtune_predict as wp
 
-HERE = os.path.dirname(os.path.abspath(__file__))
+HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # tests/ -> repo root
 CALIBRATION = os.path.join(HERE, "machine", "calibration", "scc.json")
 
 LEDGER_HEADER = (
@@ -1567,7 +1567,7 @@ def test_wtune_predict_cli_case_name_flag(tmp_path):
     _write(str(ledger_path), LEDGER_HEADER + "\n" + _ledger_row(**row) + "\n")
     out_json = tmp_path / "out.json"
     result = subprocess.run(
-        [sys.executable, os.path.join(HERE, "wtune_predict.py"), "predict", str(case_dir),
+        [sys.executable, os.path.join(HERE, "src", "wtune_predict.py"), "predict", str(case_dir),
          "--nodes", "1", "--nx", "9", "--ny", "8", "--ranks", "72",
          "--probe", str(ledger_path), "--case-name", "lafe",
          "--calibration", CALIBRATION, "--json", str(out_json)],

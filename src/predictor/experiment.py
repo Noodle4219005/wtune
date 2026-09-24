@@ -82,7 +82,7 @@ import subprocess
 import sys
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
-_REPO_ROOT = os.path.dirname(_HERE)
+_REPO_ROOT = os.path.dirname(os.path.dirname(_HERE))  # true repo root; _HERE moved one level deeper under src/
 _CAMPAIGN_DIR = os.path.join(_REPO_ROOT, "campaign")
 for _p in (_HERE, _REPO_ROOT, _CAMPAIGN_DIR):
     if _p not in sys.path:

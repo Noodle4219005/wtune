@@ -17,7 +17,7 @@ through the other call sites).
 """
 import os
 
-import wtune as wt
+import wtune_cli as wt
 
 LAFE_NML = """\
  &time_control

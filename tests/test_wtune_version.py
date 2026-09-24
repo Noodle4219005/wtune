@@ -8,7 +8,7 @@ import re
 
 import wtune_version
 
-HERE = os.path.dirname(os.path.abspath(__file__))
+HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # tests/ -> repo root
 CHANGELOG = os.path.join(HERE, "CHANGELOG.md")
 
 

@@ -14,7 +14,7 @@ import pytest
 import wtune_calibrate as wc
 import wtune_predict as wp
 
-HERE = os.path.dirname(os.path.abspath(__file__))
+HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # tests/ -> repo root
 REAL_CALIBRATION = os.path.join(HERE, "machine", "calibration", "scc.json")
 
 

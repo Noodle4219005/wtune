@@ -64,13 +64,14 @@ import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
+REPO_ROOT = HERE.parent  # HERE is src/; machine/ and campaign/ stay at the true repo root
 sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(HERE / "predictor"))
 
 import wtune_predict as wp          # noqa: E402  (path insert above)
 import decomp_space as ds           # noqa: E402  (predictor/decomp_space.py)
 
-DEFAULT_CALIBRATION = HERE / "machine" / "calibration" / "scc.json"
+DEFAULT_CALIBRATION = REPO_ROOT / "machine" / "calibration" / "scc.json"
 DEFAULT_RANKS_LIST = "1,36,72,144,288"
 DEFAULT_CORES_PER_NODE = 72
 DEFAULT_STEPS = 20
@@ -289,8 +290,8 @@ def plan_cmd(args):
 
     largest_ranks = max(p["ranks"] for p in planned)
 
-    campaign_dir = HERE / "campaign"
-    machine_dir = HERE / "machine"
+    campaign_dir = REPO_ROOT / "campaign"
+    machine_dir = REPO_ROOT / "machine"
     runs = []
     for p in planned:
         ranks, nx, ny = p["ranks"], p["nx"], p["ny"]

@@ -38,7 +38,7 @@ import sys
 from collections import defaultdict
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
-_REPO_ROOT = os.path.dirname(_HERE)
+_REPO_ROOT = os.path.dirname(os.path.dirname(_HERE))  # true repo root; _HERE moved one level deeper under src/
 _CAMPAIGN_DIR = os.path.join(_REPO_ROOT, "campaign")
 for _p in (_HERE, _REPO_ROOT, _CAMPAIGN_DIR):
     if _p not in sys.path:
@@ -55,7 +55,7 @@ import targets                         # predictor/targets.py
 import validate                        # predictor/validate.py
 import verify_obs                      # predictor/verify_obs.py: score_case() vs REAL observations
 import configs as campaign_configs     # campaign/configs.py
-import wtune as wtune_core             # repo-root wtune.py: parse_namelist()/first_value()
+import wtune_cli as wtune_core             # repo-root wtune.py: parse_namelist()/first_value()
 
 
 class UnsupportedComplianceError(Exception):

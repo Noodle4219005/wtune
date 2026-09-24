@@ -10,7 +10,8 @@ import sys
 import tempfile
 import unittest
 
-FINGERPRINT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'fingerprint')
+FINGERPRINT_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'src', 'fingerprint')
 sys.path.insert(0, FINGERPRINT_DIR)
 
 import phase_classify  # noqa: E402

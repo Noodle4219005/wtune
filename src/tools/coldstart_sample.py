@@ -51,7 +51,8 @@ import wtune_predict as predict   # repo root -- delegates run-length resolution
                                    # wtune_runlength.resolve_run_seconds internally
                                    # (stdlib only, per its own docstring -- no numpy)
 
-DEFAULT_CALIBRATION = os.path.join(_REPO_ROOT, "machine", "calibration", "scc.json")
+DEFAULT_CALIBRATION = os.path.join(
+    os.path.dirname(_REPO_ROOT), "machine", "calibration", "scc.json")  # machine/ stays at repo root
 _WRF_TIME_FMT = "%Y-%m-%d_%H:%M:%S"
 _SELF_PATH = os.path.abspath(__file__)
 # K5 (2026-09-24): state_correction_model.py lives next to this file -- the ML-apply sbatch step

@@ -91,7 +91,7 @@ from datetime import datetime, timedelta
 import numpy as np
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
-_REPO_ROOT = os.path.dirname(_HERE)
+_REPO_ROOT = os.path.dirname(os.path.dirname(_HERE))  # true repo root; _HERE moved one level deeper under src/
 _CAMPAIGN_DIR = os.path.join(_REPO_ROOT, "campaign")
 for _p in (_HERE, _REPO_ROOT, _CAMPAIGN_DIR):
     if _p not in sys.path:
@@ -940,9 +940,7 @@ def main(argv=None):
                 ocean_only=not args.include_land, min_match_frac=args.min_match_frac,
                 time_tol_s=args.time_tol_s, synoptic_only=not args.all_records)
         else:
-            cases_path = args.cases or os.path.join(
-                os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                "campaign", "cases.json")
+            cases_path = args.cases or os.path.join(_REPO_ROOT, "campaign", "cases.json")
             spec = observations_spec(load_case(cases_path, args.case))
             if spec is None:
                 print(f"case {args.case!r} declares no 'observations' block: there is no "

@@ -917,7 +917,7 @@ class TestCasesJsonStrictCampaignEdits(unittest.TestCase):
 
 class TestComplianceKnobs(unittest.TestCase):
     def test_all_varied_knobs_are_strict(self):
-        sys.path.insert(0, configs.REPO_ROOT)
+        sys.path.insert(0, os.path.join(configs.REPO_ROOT, "src"))
         try:
             import wtune_compliance
         except Exception as e:  # pragma: no cover - only if repo layout changes

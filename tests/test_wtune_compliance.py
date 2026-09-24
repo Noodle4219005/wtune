@@ -11,7 +11,8 @@ from wtune_compliance import (
     STRICT, UNCLASSIFIED, admits, classify, validate,
 )
 
-ROOT = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # tests/ -> repo root
+SRC = os.path.join(ROOT, "src")
 
 # Params the knob advisor (wtune_knobs.py) emits today -- all PHYSICS-GRAY.
 KNOBS_PARAMS = [
@@ -38,12 +39,12 @@ def _entry(name):
 
 
 def _extract_knobs_params():
-    text = open(os.path.join(ROOT, 'wtune_knobs.py')).read()
+    text = open(os.path.join(SRC, 'wtune_knobs.py')).read()
     return set(re.findall(r"_finding\('([^']+)'", text))
 
 
 def _extract_physics_params():
-    text = open(os.path.join(ROOT, 'wtune_physics.py')).read()
+    text = open(os.path.join(SRC, 'wtune_physics.py')).read()
     m = re.search(r"def _effective_opinion\(.*?\n(?=def )", text, re.S)
     self_assert = m is not None
     block = m.group(0) if m else ''

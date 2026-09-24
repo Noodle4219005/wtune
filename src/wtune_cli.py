@@ -783,7 +783,7 @@ def machine_profile_cmd(args):
     never shadows the stdlib 'profile' module for the rest of the process.
     """
     import importlib.util
-    mp_path = Path(__file__).resolve().parent / 'machine' / 'profile.py'
+    mp_path = Path(__file__).resolve().parent.parent / 'machine' / 'profile.py'
     if not mp_path.exists():
         print("ERROR: {} not found".format(mp_path), file=sys.stderr)
         return 1

@@ -51,8 +51,9 @@ import statistics
 import sys
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
-_REPO_ROOT = os.path.dirname(_HERE)
-_CAMPAIGN_DIR = os.path.join(_REPO_ROOT, "campaign")
+_REPO_ROOT = os.path.dirname(_HERE)  # == src/ (tools/ moved one level deeper under src/)
+_TRUE_ROOT = os.path.dirname(_REPO_ROOT)  # actual repo root; campaign/ did not move
+_CAMPAIGN_DIR = os.path.join(_TRUE_ROOT, "campaign")
 _PREDICTOR_DIR = os.path.join(_REPO_ROOT, "predictor")
 for _p in (_CAMPAIGN_DIR, _PREDICTOR_DIR, _REPO_ROOT, _HERE):
     if _p not in sys.path:

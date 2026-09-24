@@ -259,8 +259,9 @@ def _cli(argv=None):
     import json
     import os
     import sys
-    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                                    "campaign"))
+    sys.path.insert(0, os.path.join(
+        os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+        "campaign"))
     import configs as campaign_configs
 
     ap = argparse.ArgumentParser(prog="stability.py")

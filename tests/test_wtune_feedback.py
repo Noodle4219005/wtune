@@ -102,7 +102,7 @@ class FeedbackTests(unittest.TestCase):
         self.assertEqual(json.loads(rows[0]['ownership_before']), 'a')
 
     def test_cli_publication_and_invalid_input(self):
-        root = os.path.dirname(__file__)
+        root = os.path.dirname(os.path.dirname(__file__))  # tests/ -> repo root, where wtune.py lives
         with tempfile.TemporaryDirectory() as directory:
             source = os.path.join(directory, 'input.json')
             output_json = os.path.join(directory, 'decisions.json')

@@ -331,7 +331,7 @@ def partition_sweep(path, ranks, doy, utc_hours, run_hours=0.0, stride=4,
     coupling; the perfect-balance prize is ~8%, not the raw max/mean). Use this only to
     RANK partitions, never as an absolute wall-critical-path claim; if the ranking ever
     disagrees with a measured wall sweep, trust the measurement."""
-    import wtune as _w
+    import wtune_cli as _w
     feats = extract_features(path, stride=stride)
     fields = phase_cost_fields(feats, doy, utc_hours, run_hours=run_hours, cu_on=cu_on)
     w = phase_weights(cu_on)

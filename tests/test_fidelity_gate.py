@@ -545,7 +545,7 @@ def test_every_template_family_is_a_legal_gate_family():
     'nesting' (D06, zhengzhou job 1080703)."""
     import json
     import os
-    here = os.path.dirname(os.path.abspath(__file__))
+    here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # tests/ -> repo root
     with open(os.path.join(here, "campaign", "physics_templates.json")) as fh:
         templates = json.load(fh)["templates"]
     used = {t.get("family") for t in templates.values()} - {None, "none"}

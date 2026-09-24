@@ -1786,6 +1786,9 @@ def main():
     p_cal = sub.add_parser('calibrate', help='machine calibration for a new cluster (wtune_calibrate.py plan | fit)')
     p_cal.add_argument('calibrate_args', nargs=argparse.REMAINDER, help='forwarded to wtune_calibrate.py')
 
+    p_analyze = sub.add_parser('analyze', help='TC diagnostics/tracking via wrf-python + TempestExtremes (analysis/cli.py): diag | tc-track')
+    p_analyze.add_argument('analyze_args', nargs=argparse.REMAINDER, help='forwarded to analysis/cli.py')
+
     args = parser.parse_args()
     if args.command == 'tune':
         import wtune_tune
@@ -1807,6 +1810,10 @@ def main():
     if args.command == 'calibrate':
         import wtune_calibrate
         sys.exit(wtune_calibrate.main(args.calibrate_args))
+
+    if args.command == 'analyze':
+        from analysis import cli as analysis_cli
+        sys.exit(analysis_cli.main(args.analyze_args))
 
     if args.command == 'plan':
         plan(args)

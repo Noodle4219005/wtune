@@ -26,6 +26,11 @@ flag; passing an unrecognized flag dumps the usage list, which is how these were
     (analysis.diagnostics writes this as `ncol`, row-major from the original (ny, nx)) --
     passing the original 2-D (y, x) field shape to `--in_connect` fails with "Variable ...
     has inconsistent auxiliary dimensions (3) than specified on command line (2)".
+    StitchNodes ALSO needs `--in_connect` for this grid type -- without it, its node-file
+    parser assumes DetectNodes' structured-grid output (2 index columns, i and j) and
+    rejects the unstructured 1-column (ncol index) format DetectNodes actually wrote
+    ("first 2 columns are not integer indices ... if an unstructured grid is being used
+    make sure --in_connect is specified"). Both are passed the same connectivity file.
     This was verified end-to-end on a synthetic curvilinear grid (non-axis-aligned lat/lon)
     in test_analysis_tc_track.py: DetectNodes/StitchNodes correctly followed the moving
     low through the flattened ncol + connectivity path.
@@ -146,6 +151,15 @@ def _run(cmd, cwd):
     return proc.returncode, proc.stdout, proc.stderr
 
 
+def _hours_spec(hours):
+    """TempestExtremes' Time-string parser rejects a decimal point ("12.0h": "Cannot mix
+    Free and Time format") -- it wants a bare integer count. Convert to whole hours when
+    possible, else whole minutes."""
+    if float(hours).is_integer():
+        return f"{int(hours)}h"
+    return f"{int(round(hours * 60))}m"
+
+
 def detect_and_stitch(fields_nc, workdir, params=None):
     """Run TempestExtremes DetectNodes + StitchNodes on a fields_nc written by
     analysis.diagnostics.wrfout_to_tc_fields.
@@ -208,9 +222,9 @@ def detect_and_stitch(fields_nc, workdir, params=None):
     stitch_cmd = [stitchnodes, "--in", nodes_path, "--out", track_path,
                  "--in_fmt", "lon,lat,slp,wind",
                  "--range", str(params.stitch_range_deg),
-                 "--mintime", f"{params.mintime_hours}h",
-                 "--maxgap", f"{params.maxgap_hours}h",
-                 "--out_file_format", "csv", "--caltype", "standard"]
+                 "--mintime", _hours_spec(params.mintime_hours),
+                 "--maxgap", _hours_spec(params.maxgap_hours),
+                 "--out_file_format", "csv", "--caltype", "standard"] + in_connect_args
     rc, out, err = _run(stitch_cmd, workdir)
     if rc != 0:
         raise TCTrackError(f"StitchNodes failed (exit {rc}):\n{err}\ncmd: {stitch_cmd}")

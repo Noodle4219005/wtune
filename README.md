@@ -189,12 +189,12 @@ restart — an unknown case has none). Measured on the cluster (conus12, 3 times
 true restarts): cold-start cost equals restart cost within 0.35% once the first ~1 simulated
 hour is discarded, so every window budgets a spin-up discard before it starts measuring.
 
-    python3 tools/coldstart_sample.py inspect --case-dir D [--namelist-wps P | --geo-from-wrfinput P] [--grib-dir G]
-    python3 tools/coldstart_sample.py plan --case-dir D --out PLAN_DIR --k 4 --nodes N --ranks R --omp T --nx X --ny Y
-    python3 tools/coldstart_sample.py fetch --plan PLAN_DIR         # login node; needs network
-    python3 tools/coldstart_sample.py stage --plan PLAN_DIR --site scc
+    python3 src/tools/coldstart_sample.py inspect --case-dir D [--namelist-wps P | --geo-from-wrfinput P] [--grib-dir G]
+    python3 src/tools/coldstart_sample.py plan --case-dir D --out PLAN_DIR --k 4 --nodes N --ranks R --omp T --nx X --ny Y
+    python3 src/tools/coldstart_sample.py fetch --plan PLAN_DIR         # login node; needs network
+    python3 src/tools/coldstart_sample.py stage --plan PLAN_DIR --site scc
     sbatch PLAN_DIR/run.sbatch
-    python3 tools/coldstart_sample.py score --plan PLAN_DIR --json PLAN_DIR/score.json
+    python3 src/tools/coldstart_sample.py score --plan PLAN_DIR --json PLAN_DIR/score.json
 
 `inspect` names every blocker explicitly (no projection source; a run time older than the GFS
 0.25deg archive's 2015-01-15 start with no `--grib-dir`; `ifire>0` — WRF-SFIRE unsupported; a
@@ -404,40 +404,62 @@ source bug, not a namelist one, and it is not patched here.
   `../wtune-pixi-env-20260830/` (`pixi run python`, never the env's `bin/python` directly:
   HPC scripts put the Intel stack first on `LD_LIBRARY_PATH`).
 - `ncdump` for headers; Julia + SpeedyWeather.jl for the convective probe
-  (`julia --project=jlenv -e 'using Pkg; Pkg.instantiate()'`).
+  (`julia --project=src/jlenv -e 'using Pkg; Pkg.instantiate()'`).
 - PLOV: Intel compilers + Intel MPI and a WRF `dm+sm` build (`-qopenmp` live) with
   `libwrflib.a`; see `plov/build.sbatch`.
 
 ## Layout
 
+The repo root is user-facing only; everything else lives under one of these directories
+(2026-09-24 `src/` layout refactor — pure move + import/path fix, no behaviour change).
+
 | path | status | contents |
 |---|---|---|
-| `plov/` | **live, production** | wrap trampolines, stagers, build/gate/harness scripts, `production.env` |
-| `wtune.py`, `wtune_physics.py`, `wtune_knobs.py`, `wtune_solar.py`, `wtune_surrogate.py`, `speedy_probe.jl`, `speedy_hotspot.jl`, `wind_probe.py`, `wtune_decomp.py`, `wtune_shape.py`, `gen_registry_catalog.py`, `wtune_catalog_registry.json` | live | advisory layer |
-| `wtune_config_gate.py` (+ test) | live | calibration gate for result-affecting knobs |
-| `wtune_transition_controller.py` | live (gate branch deprecated) | zero-measurement config + node-scaling projection |
-| `wtune_feedback.py` (+ test), `wtune_probe.py` (+ test) | live | PLOV controller replay; ABBA probe harness |
-| `wtune_oracle.py`, `wtune_oracle_train.py`, `wtune_segment_train.py`, `wrf_frame.py`, `featurize_frames.py`, `wtune_runtime_predict.py`, `wtune_runtime12.py`, `wtune_cost_model.py` | live | prediction layer |
-| `campaign/` | **live, production** | the measurement side: `strict_campaign.sbatch`, `configs.py`, `cases.json`, `physics_templates.json`, the decomposition-search campaign and its rankers |
-| `predictor/` | **live, production** | the decision side: ledger, benchmark, `recommend.py`, decomposition space and search, `stability.py`, `verify_obs.py` (`predictor/README.md`) |
-| `fidelity_gate.py` (+ test) | live | chaos-floor scoring of a candidate against a reference and a twin |
-| `fingerprint/` | live | out-of-process phase fingerprinter (autotuner step 2) |
-| `tools/` | live | `bp_compression_check.py`, `run_tests.sbatch`, the ADIOS2→netCDF4 converter |
-| `experiments/` | live | the harnesses that produced the conclusions, vendored with sha256 provenance (`experiments/README.md`) |
-| `results/derived-data/` | data | canonical processed CSV/JSON behind every reported number |
-| `profilers/` | live | PMPI `LD_PRELOAD` profilers (RESEARCH) |
-| `research/` | kept | one-off studies behind wiki notes (`research/README.md`) |
-| `deprecated/` | closed | migration/restart, placement, hotspot model and their tests (`deprecated/README.md`) |
+| `wtune.py` | live | thin entry point: puts `src/` on `sys.path` and calls `wtune_cli.main()` |
+| `bin/wtune` | live | runs `wtune.py` under the `envs/wtune` pixi env |
+| `src/wtune_cli.py` | live | the ~1800-line CLI body (formerly `wtune.py` itself) |
+| `src/wtune_physics.py`, `wtune_knobs.py`, `wtune_solar.py`, `wtune_surrogate.py`, `speedy_probe.jl`, `speedy_hotspot.jl`, `jlenv/`, `wind_probe.py`, `wtune_decomp.py`, `wtune_shape.py`, `gen_registry_catalog.py`, `wtune_catalog_registry.json` | live | advisory layer |
+| `src/wtune_config_gate.py` (+ test) | live | calibration gate for result-affecting knobs |
+| `src/wtune_transition_controller.py` | live (gate branch deprecated) | zero-measurement config + node-scaling projection |
+| `src/wtune_feedback.py` (+ test), `wtune_probe.py` (+ test) | live | PLOV controller replay; ABBA probe harness |
+| `src/wtune_oracle.py`, `wtune_oracle_train.py`, `wtune_segment_train.py`, `wrf_frame.py`, `featurize_frames.py`, `wtune_runtime_predict.py`, `wtune_runtime12.py`, `wtune_cost_model.py` | live | prediction layer |
+| `campaign/` | **live, production** (unmoved) | the measurement side: `strict_campaign.sbatch`, `configs.py`, `cases.json`, `physics_templates.json`, the decomposition-search campaign and its rankers |
+| `machine/` | **live, production** (unmoved) | hardware calibration data and probes (`machine/calibration/*.json`, `machine/bench/`) |
+| `src/predictor/` | **live, production** | the decision side: ledger, benchmark, `recommend.py`, decomposition space and search, `stability.py`, `verify_obs.py` (`src/predictor/README.md`) |
+| `src/fidelity_gate.py` (+ test) | live | chaos-floor scoring of a candidate against a reference and a twin |
+| `src/fingerprint/` | live | out-of-process phase fingerprinter (autotuner step 2) -- moved into `src/` late in the refactor after `tests/test_wtune_fingerprint.py` proved it is imported, not dead |
+| `src/tools/` | live | `bp_compression_check.py`, `run_tests.sbatch`, the ADIOS2→netCDF4 converter, `predict_validate/` |
+| `src/analysis/` | live (not yet wired/tested) | wrf-python + TempestExtremes wrappers |
+| `tests/` | live | every test (`tests/`, `tests/tools/`, `tests/predictor/` incl. fixtures) + `tests/conftest.py`, which puts `src/`, `src/predictor`, `src/tools` on `sys.path` |
+| `results/derived-data/` | data (unmoved) | canonical processed CSV/JSON behind every reported number |
+| `examples/`, `docs/` | unmoved | example configs; docs |
+| `archive/` | **not imported by any live code or test** — see below | `plov/`, `research/`, `experiments/`, `profilers/`, `deprecated/` |
 
-Tests: `sbatch tools/run_tests.sbatch` runs the whole suite on a compute node and is the only
-command that covers all of it — **744 passed / 18 skipped across two pixi environments**
-(job 1088417, 1m57s on one `ct112` node) — because
-`predictor/tests` needs `../wtune-predictor-env` while everything else uses
-`../wtune-pixi-env-20260830`; running `predictor/` in the wrong one turns 18 skips into 19
-lightgbm failures that look like a regression. The pieces, if you need one of them directly:
-`pytest test_wtune_*.py test_fidelity_gate.py` at the root, `pytest campaign tools experiments`,
-`pytest predictor` (predictor env), `pytest deprecated/` (archived), `python3 wtune.py selftest`
-(also runs `wtune_compliance.validate()`), `python3 wtune_transition_controller.py selftest`
+`archive/` holds code confirmed (by grep for real `import`/`sys.path`/`subprocess`
+references, not just comment mentions) to have zero coupling to this repo's Python import
+graph: `archive/plov/` (wrap trampolines, stagers, build/gate/harness scripts —
+**its own `README.md` calls it "live, production"; it is a standalone C/asm rebalancer
+built and deployed independently of the wtune Python tooling, not something this Python
+refactor's "imported by live code or a test" test can certify as dead in a deployment
+sense**), `archive/experiments/` (harnesses behind reported numbers, vendored with sha256
+provenance — same caveat, see `archive/experiments/README.md`), `archive/research/`
+(one-off studies behind wiki notes), `archive/profilers/` (PMPI `LD_PRELOAD` profilers),
+`archive/deprecated/` (migration/restart, placement, hotspot model and their tests).
+`fingerprint/` looked like a candidate too but is not archived (see above).
+
+Running the suite: `python3 -m pytest -q tests/` (pixi env at `envs/wtune/`, or
+`uv run --with pytest --with numpy --with netCDF4 --with scikit-learn --with catboost
+python -m pytest -q tests/`) — **1351 passed / 12 skipped / 3 known pre-existing failures**
+(`tests/predictor/test_decomp_search.py::test_real_lafe_round2_incumbent_is_now_on_the_campaign_reference_scale`,
+`tests/predictor/test_physics.py::test_template_engine_consistency_across_real_case_namelists`,
+`tests/predictor/test_physics.py::test_physics_candidates_from_namelist_matches_text_engine_for_karina`).
+`src/tools/run_tests.sbatch` runs the whole suite on a compute node the same way it always
+did (`predictor/tests` needs the predictor pixi env; running it in the other one turns 18
+skips into 19 lightgbm failures that look like a regression). The pieces, if you need one
+directly: `pytest tests/test_wtune_*.py tests/test_fidelity_gate.py`, `pytest campaign
+tests/tools archive/experiments`, `pytest tests/predictor` (predictor env), `pytest
+archive/deprecated/` (archived), `python3 wtune.py selftest` (also runs
+`wtune_compliance.validate()`), `python3 src/wtune_transition_controller.py selftest`
 (38/40; both failures are in the deprecated imbalance-gate branch).
 
 ## Status

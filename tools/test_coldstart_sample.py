@@ -2333,3 +2333,39 @@ class TestDownloadRetriesAndFailsOnMissing(unittest.TestCase):
             with self.assertRaisesRegex(cs.ColdstartError, "fnl_2024090312.grib"):
                 cs._download_forcing_for_window(md.SRC_FNL, self.T, self.T_end, d,
                                                 download_fn=only_18z, sleep_fn=lambda s: None)
+
+
+class TestWindowEndTimeWrittenWithoutCaseMinuteKeys(unittest.TestCase):
+    # maria1km (scc job 1006): namelist has no end_minute/end_second, so d02 stopped at 10:00:00
+    NL = """&time_control
+ run_hours = 3,
+ start_year = 2017, 2017,
+ start_month = 09, 09,
+ start_day = 20, 20,
+ start_hour = 09, 09,
+ end_year = 2017, 2017,
+ end_month = 09, 09,
+ end_day = 20, 20,
+ end_hour = 12, 12,
+/
+&domains
+ max_dom = 2,
+ time_step = 25,
+/
+"""
+
+    def _vals(self, text, key):
+        return cs.get_first(text, key)
+
+    def test_wrf_window_end_has_minute_and_second_for_every_domain(self):
+        T = datetime.datetime(2017, 9, 20, 9, 0, 0)
+        txt = cs.build_wrf_window_namelist_text(self.NL, T, 202, 25, 16, 18, 1)
+        self.assertRegex(txt, r"end_hour\s*=\s*10, 10,")
+        self.assertRegex(txt, r"end_minute\s*=\s*24, 24,")
+        self.assertRegex(txt, r"end_second\s*=\s*10, 10,")
+        self.assertRegex(txt, r"start_minute\s*=\s*00, 00,")
+
+    def test_real_namelist_end_has_minute_for_every_domain(self):
+        T = datetime.datetime(2017, 9, 20, 9)
+        txt = cs.build_real_namelist_text(self.NL, T, T + datetime.timedelta(minutes=90), 34, 4, 21)
+        self.assertRegex(txt, r"end_minute\s*=\s*30, 30,")

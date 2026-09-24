@@ -1562,12 +1562,15 @@ def build_real_namelist_text(case_namelist_text, T, T_end, num_metgrid_levels,
     txt = text0
     for k, v in (("year", T.year), ("month", "%02d" % T.month), ("day", "%02d" % T.day),
                  ("hour", "%02d" % T.hour), ("minute", "%02d" % T.minute), ("second", "%02d" % T.second)):
-        if count_key(text0, "start_" + k):
+        # minute/second are written even when the case omits them: WRF defaults a missing
+        # end_minute to 0, so maria1km (scc job 1006) nest d02 stopped at 10:00:00 while d01
+        # ran on to 10:24:10 via run_seconds, and the post-spin-up window timed d01 alone
+        if count_key(text0, "start_" + k) or k in ("minute", "second"):
             txt = set_list(txt, "start_" + k, v, ndom)
     for k, v in (("year", T_end.year), ("month", "%02d" % T_end.month), ("day", "%02d" % T_end.day),
                  ("hour", "%02d" % T_end.hour), ("minute", "%02d" % T_end.minute),
                  ("second", "%02d" % T_end.second)):
-        if count_key(text0, "end_" + k):
+        if count_key(text0, "end_" + k) or k in ("minute", "second"):
             txt = set_list(txt, "end_" + k, v, ndom)
     win_seconds = int(round((T_end - T).total_seconds()))
     for k, v in (("run_days", 0), ("run_hours", 0), ("run_minutes", 0), ("run_seconds", win_seconds)):
@@ -1611,12 +1614,12 @@ def build_wrf_window_namelist_text(real_namelist_text, T, win_steps, dt_seconds,
     txt = text0
     for k, v in (("year", T.year), ("month", "%02d" % T.month), ("day", "%02d" % T.day),
                  ("hour", "%02d" % T.hour), ("minute", "%02d" % T.minute), ("second", "%02d" % T.second)):
-        if count_key(text0, "start_" + k):
+        if count_key(text0, "start_" + k) or k in ("minute", "second"):
             txt = set_list(txt, "start_" + k, v, ndom)
     for k, v in (("year", end.year), ("month", "%02d" % end.month), ("day", "%02d" % end.day),
                  ("hour", "%02d" % end.hour), ("minute", "%02d" % end.minute),
                  ("second", "%02d" % end.second)):
-        if count_key(text0, "end_" + k):
+        if count_key(text0, "end_" + k) or k in ("minute", "second"):
             txt = set_list(txt, "end_" + k, v, ndom)
     for k, v in (("run_days", 0), ("run_hours", 0), ("run_minutes", 0), ("run_seconds", win_seconds)):
         txt = set_list(txt, k, v, 1)

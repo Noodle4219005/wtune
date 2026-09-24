@@ -189,14 +189,34 @@ RUNDIR="{out_dir}/run_{ranks}_${{SLURM_JOB_ID:-manual}}"
 mkdir -p "$RUNDIR"
 cd "$RUNDIR" || exit 1
 
-# WRF run-time support files (LOOKUP tables etc.), same link pattern as
-# campaign/strict_campaign.sbatch -- never overwrite an existing namelist/output file.
+# WRF run-time support files (LOOKUP tables etc.): link EVERY file in $W/run -- no
+# extension/name whitelist -- except namelist.input, which is skipped because $W/run/namelist.input
+# is a REAL file in this build (confirmed 2026-09-25) and `configs.py edit-namelist` writes its
+# OUT path with a plain open(..., "w"), which follows a symlink and would corrupt that shared
+# source-tree file; every other name is linked unconditionally, matching
+# campaign/strict_campaign.sbatch's own file-linking loop.
 for f in "$W"/run/*; do
   b=$(basename "$f")
-  case "$b" in
-    namelist.input|wrfout*|wrfinput*|wrfbdy*|wrfrst*|rsl.*) ;;
-    *) [ -e "$b" ] || ln -sf "$f" "$b" ;;
-  esac
+  [ "$b" = "namelist.input" ] && continue
+  [ -e "$b" ] || ln -sf "$f" "$b"
+done
+
+# Thompson microphysics lookup tables (freezeH2O.dat/qr_acr_qg_V4.dat/qr_acr_qsV2.dat):
+# module_mp_thompson.F computes and WRITES these into the run dir at init whenever a
+# same-named file is not already there, and this build's $W/run ships none of them (confirmed
+# 2026-09-25 by the generic loop above finding nothing to link) -- computing them fresh is not
+# fast (qr_acr_qg alone measured 32.3s at 1 rank) and, because it happened silently inside
+# every calibration run's own timed window, it inflated every measured startup by however long
+# that run's table computation took, contaminating jobs 1090-1099's whole calibration fit (see
+# campaign/strict_campaign.sbatch's THOMPSON_TABLE_NAMES/link_thompson_tables/OUT for the
+# identical production pattern this mirrors -- $OUT is site.sh's own campaign run-output dir,
+# already exported by site_env above; $OUT/thompson_tables is where prior campaign runs on
+# THIS site already cached them). A brand-new site with nothing cached yet just falls through
+# ([ -f ... ] guard) and WRF computes fresh, same as before this fix -- no worse, not harvested
+# back into the cache by this script (only linked, never written).
+for tbl in freezeH2O.dat qr_acr_qg_V4.dat qr_acr_qsV2.dat; do
+  [ -e "$tbl" ] && continue
+  [ -f "$OUT/thompson_tables/$tbl" ] && ln -sf "$OUT/thompson_tables/$tbl" "$tbl"
 done
 
 cp {case_dir}/namelist.input ./namelist.input.orig
@@ -479,6 +499,27 @@ def collect_runs(runs_dir, manifest):
             excluded.append({"ranks": ranks, "dir": str(run_dir),
                               "reason": "no rsl.error.0000/rsl.out.0000"})
             continue
+        text = rsl_path.read_text()
+
+        # Thompson-table contamination (scc jobs 1090-1099, 2026-09-25): before this run dir's
+        # $OUT/thompson_tables link fix, a missing cached table made WRF compute it from
+        # scratch at init (module_mp_thompson.F "ThompMP: computing ..."), silently adding
+        # tens of seconds INSIDE the measured startup window every time it happened. A run
+        # whose rsl still shows this (a stale run dir from before the fix, or a genuinely new
+        # site with no cache yet) cannot be trusted for a startup/init fit and is excluded
+        # outright, even though it completed successfully (RC=0/OK=1) -- "ran to completion" and
+        # "measures what we think it measures" are different questions.
+        contam_markers = [ln for ln in text.splitlines()
+                          if "ThompMP: computing" in ln or "Timing for table computation" in ln]
+        if contam_markers:
+            excluded.append({"ranks": ranks, "dir": str(run_dir),
+                              "reason": ("contaminated: Thompson lookup table(s) computed at "
+                                         "init instead of linked from cache (%d marker line(s), "
+                                         "e.g. %r) -- startup window is not comparable to a run "
+                                         "with the table already linked" %
+                                         (len(contam_markers), contam_markers[0]))})
+            continue
+
         main_steps = wp.parse_rsl_d01_step_seconds(str(rsl_path))
         if not main_steps:
             excluded.append({"ranks": ranks, "dir": str(run_dir),
@@ -491,8 +532,6 @@ def collect_runs(runs_dir, manifest):
                               "reason": ("startup_measured < 0 (wall=%.3f sum_main=%.3f) -- "
                                          "clock/parsing inconsistency" % (wall_s, sum_main))})
             continue
-
-        text = rsl_path.read_text()
         write_s, write_bytes = None, None
         writes = [float(mm.group(2)) for mm in _RSL_WRITE_RE.finditer(text)
                   if int(mm.group(1)) == 1]
@@ -693,7 +732,8 @@ def _now_iso():
 
 
 def build_output_calibration(args, used, excluded, startup_fit, per_node_fit, write_fit,
-                              read_fit, base_calibration, base_path, host):
+                              read_fit, base_calibration, base_path, host,
+                              read_rate_disabled_reason=None):
     out = copy.deepcopy(base_calibration)
     date = _now_iso()
     measured_fields = []
@@ -788,7 +828,13 @@ def build_output_calibration(args, used, excluded, startup_fit, per_node_fit, wr
             "from %s" % base_path)
 
     derived = out.setdefault("derived", {})
-    if read_fit is not None:
+    if read_rate_disabled_reason:
+        derived["read_rate_transferred_note"] = (
+            "read-rate measurement disabled for this fit (--no-read-rate): %s -- "
+            "derived.read_rate_bytes_per_s TRANSFERRED verbatim from %s, NOT measured on this "
+            "machine even though a separable read-timing line may have been present" %
+            (read_rate_disabled_reason, base_path))
+    elif read_fit is not None:
         derived["read_rate_bytes_per_s"] = read_fit["rate_bytes_per_s"]
         derived["read_rate_formula"] = (
             "MEASURED on %s %s by wtune_calibrate.py fit: ranks=%d run, %.0f bytes of real "
@@ -884,14 +930,17 @@ def fit_cmd(args):
 
     base_calibration = wp.load_calibration(args.base)
     write_fit = fit_history_write_rate(used, base_calibration)
-    read_fit = fit_read_rate(used)
+    read_rate_disabled_reason = args.no_read_rate_reason if args.no_read_rate_reason else (
+        "--no-read-rate was given" if args.no_read_rate else None)
+    read_fit = None if read_rate_disabled_reason else fit_read_rate(used)
     effective_read_rate = (read_fit["rate_bytes_per_s"] if read_fit is not None
                             else base_calibration.get("derived", {}).get("read_rate_bytes_per_s"))
     per_node_fit = fit_startup_per_node(used, effective_read_rate)
 
     host = args.host or socket.gethostname()
     out = build_output_calibration(args, used, excluded, startup_fit, per_node_fit, write_fit,
-                                    read_fit, base_calibration, args.base, host)
+                                    read_fit, base_calibration, args.base, host,
+                                    read_rate_disabled_reason=read_rate_disabled_reason)
 
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -938,6 +987,15 @@ def add_fit_subparser(sub):
                     help="default %d" % DEFAULT_CORES_PER_NODE)
     p.add_argument("--site", default=None, help="'site' field to stamp in the output (default: base file's site + '-auto')")
     p.add_argument("--host", default=None, help="override the host name recorded in provenance strings (default: this machine's hostname)")
+    p.add_argument("--no-read-rate", action="store_true",
+                    help="never write a MEASURED derived.read_rate_bytes_per_s from this batch's "
+                         "runs, even if a separable read-timing line exists -- always TRANSFER "
+                         "it from --base instead (use when this batch's reads are known-suspect, "
+                         "e.g. NFS client-cache warmed by back-to-back same-file runs, as scc's "
+                         "2026-09-25 396 MB/s outlier was: 7x the base file's measured rate)")
+    p.add_argument("--no-read-rate-reason", default=None,
+                    help="custom explanation recorded in derived.read_rate_transferred_note; "
+                         "implies --no-read-rate")
     return p
 
 

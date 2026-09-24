@@ -169,6 +169,17 @@ def test_plan_skips_infeasible_ranks_and_writes_manifest(tmp_path):
         # no wall.txt -- bash -n cannot catch this (it is a runtime-only ordering bug), so it
         # is pinned here by textual position instead.
         assert text.index("ALLOC_NODES=") < text.index("site_hygiene reap")
+        # regression (scc jobs 1090-1099, 2026-09-25): the run dir never linked the cached
+        # Thompson lookup tables, so WRF computed them from scratch inside every measured
+        # startup window (qr_acr_qg alone: 32.3s at 1 rank), contaminating the whole fit.
+        # $W/run/namelist.input is skipped (a real file, would corrupt edit-namelist's write-
+        # through) but every other file is linked with no name/extension filter, and the three
+        # Thompson tables are linked from $OUT/thompson_tables when cached there.
+        assert '[ "$b" = "namelist.input" ] && continue' in text
+        for tbl in ("freezeH2O.dat", "qr_acr_qg_V4.dat", "qr_acr_qsV2.dat"):
+            assert tbl in text
+        assert "$OUT/thompson_tables" in text
+        assert "wrfout*|wrfinput*|wrfbdy*|wrfrst*|rsl.*" not in text  # the old blanket blacklist is gone
 
     mprof = out_dir / "machine_profile.sbatch"
     assert mprof.exists()
@@ -223,11 +234,12 @@ def _make_run(runs_dir, ranks, jobid, main_seconds, startup_s, rc=0, ok=1,
     return run_dir
 
 
-def _fit_args(runs_dir, out_path, base=REAL_CALIBRATION, cores_per_node=72, site=None, host="unit-test-host"):
+def _fit_args(runs_dir, out_path, base=REAL_CALIBRATION, cores_per_node=72, site=None,
+              host="unit-test-host", no_read_rate=False, no_read_rate_reason=None):
     runs = runs_dir if isinstance(runs_dir, list) else [str(runs_dir)]
     return wc.argparse.Namespace(
         runs=[str(r) for r in runs], out=str(out_path), base=base, cores_per_node=cores_per_node,
-        site=site, host=host)
+        site=site, host=host, no_read_rate=no_read_rate, no_read_rate_reason=no_read_rate_reason)
 
 
 def test_fit_recovers_known_startup_base_per_rank_and_cap(tmp_path):
@@ -270,6 +282,50 @@ def test_fit_excludes_failed_run_with_reason(tmp_path):
     assert excluded["ranks"] == 6
     assert "did not complete" in excluded["reason"]
     assert "RC=1" in excluded["reason"]
+
+
+def test_fit_excludes_thompson_table_contaminated_run(tmp_path):
+    # regression (scc jobs 1090-1099, 2026-09-25): a run whose rsl shows the table being
+    # computed from scratch at init is NOT comparable to one that linked the cached table --
+    # it must be excluded even though it completed successfully (RC=0/OK=1).
+    runs_dir = tmp_path / "runs"
+    runs_dir.mkdir()
+    _make_run(runs_dir, 1, "j1", [10.0], startup_s=2.4)  # clean
+    _make_run(runs_dir, 36, "j2", [10.0], startup_s=16.4,
+              extra_rsl=("ThompMP: computing qr_acr_qg table: qr_acr_qg_V4.dat\n"
+                         "Timing for table computation qr_acr_qg_V4.dat:   32.25516 elapsed seconds\n"))
+
+    out_path = tmp_path / "scc-auto-test.json"
+    wc.fit_cmd(_fit_args(runs_dir, out_path))
+    out = json.loads(out_path.read_text())
+
+    assert out["validity"]["n_runs_used"] == 1
+    assert out["validity"]["n_runs_excluded"] == 1
+    excluded = out["validity"]["excluded"][0]
+    assert excluded["ranks"] == 36
+    assert "contaminated" in excluded["reason"]
+    assert "Thompson" in excluded["reason"]
+
+
+def test_fit_no_read_rate_forces_transfer_even_with_a_separable_line(tmp_path):
+    runs_dir = tmp_path / "runs"
+    runs_dir.mkdir()
+    run_dir = _make_run(runs_dir, 1, "j1", [10.0], startup_s=2.4,
+                         extra_rsl=("Timing for input for domain        1:   "
+                                    "5.000000 elapsed seconds\n"))
+    (run_dir / "wrfinput_d01").write_bytes(b"\0" * 500_000)
+    _make_run(runs_dir, 36, "j2", [10.0], startup_s=16.4)
+
+    out_path = tmp_path / "scc-auto-test.json"
+    wc.fit_cmd(_fit_args(runs_dir, out_path, no_read_rate=True,
+                          no_read_rate_reason="NFS client cache warmed by back-to-back runs"))
+    out = json.loads(out_path.read_text())
+
+    base = json.load(open(REAL_CALIBRATION))
+    assert out["derived"]["read_rate_bytes_per_s"] == base["derived"]["read_rate_bytes_per_s"]
+    assert "derived.read_rate_bytes_per_s" not in out["calibration_provenance"]["measured_fields"]
+    assert "NFS client cache" in out["derived"]["read_rate_transferred_note"]
+    assert "--no-read-rate" in out["derived"]["read_rate_transferred_note"]
 
 
 def test_fit_provenance_measured_vs_transferred(tmp_path):

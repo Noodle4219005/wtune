@@ -10,15 +10,15 @@ sbatch runner. Stdlib only, Python 3.6 compatible (no f-strings avoided is not
 required -- f-strings are fine on 3.6 -- but no dataclasses, no walrus, no
 `from __future__ import annotations`).
 
-IMPORTANT ENVIRONMENT FACT (verified 2026-09-14): wtune_decomp.py, the repo's "own
-decomposition scorer" this generator is asked to prefer, opens with
-`from __future__ import annotations`, a Python >=3.7 feature. This host's `python3`
-is 3.6.8, and this campaign is required to run under python3 (3.6) on both the
-login node and (via the same module environment) the compute nodes. So
-`import wtune_decomp` raises SyntaxError at import time here -- not a missing file,
-a language-version mismatch. `_load_decomp()` below tries the import, catches the
-failure, and every shape lookup on this host silently and correctly falls through
-to the documented fallback scorer:
+IMPORTANT ENVIRONMENT FACT (verified 2026-09-14, f1-SPECIFIC -- see 2026-09-24 update):
+wtune_decomp.py, the repo's "own decomposition scorer" this generator is asked to
+prefer, opens with `from __future__ import annotations`, a Python >=3.7 feature. On
+f1, where this campaign is required to run under the bare `python3` on both the login
+node and (via the same module environment) the compute nodes, `python3` is 3.6.8, so
+`import wtune_decomp` raises SyntaxError at import time -- not a missing file, a
+language-version mismatch. `_load_decomp()` below tries the import, catches the
+failure, and every shape lookup on f1 silently and correctly falls through to the
+documented fallback scorer:
 
     score(nx, ny) = |log((e_we/nx) / (e_sn/ny))| + 0.1 * (nx > ny)
 
@@ -28,6 +28,15 @@ for a documented difference in which patch dimension the two check). If this cod
 is ever run under Python >=3.7, `_load_decomp` will succeed and the generator will
 prefer wtune_decomp.enumerate_configs's own `score` field instead, per-group, with
 no code change needed here.
+
+UPDATE 2026-09-24: the paragraph above describes f1's interpreter, not every host
+this repo runs on. On scc, the bare `python3` is 3.14 (>=3.7), so `import
+wtune_decomp` succeeds there and `_load_decomp` takes the real-scorer branch, not
+the fallback, with no code change needed. Across the whole WTune toolset (this
+generator, the tuner, and anything under predictor/ needing numpy/netCDF4/catboost/
+scikit-learn, none of which scc's bare `python3` has), the supported interpreter is
+now the envs/wtune pixi environment, launched via `bin/wtune` -- see that script and
+envs/wtune/pixi.toml.
 """
 import argparse
 import json

@@ -311,6 +311,11 @@ def test_aggregate_by_cid_medians_across_replicates():
 # confirm stage picks top-3 + anchor
 # ---------------------------------------------------------------------------
 def test_select_confirm_configs_top3_plus_anchor():
+    # No real namelist in this ctx (see _ctx()'s fake namelist_path), so every candidate's
+    # wtune_predict.build_prediction() call raises -- predict_candidates flags pred_error for
+    # all of them and rank_predicted_entries falls back to median s/step, reproducing the
+    # pre-prediction ranking exactly (see rank_predicted_entries's docstring).
+    ctx = _ctx()
     all_results = {
         "ANCHOR": _result("ANCHOR", 1.0),
         "G0001": _result("G0001", 0.5),
@@ -318,25 +323,30 @@ def test_select_confirm_configs_top3_plus_anchor():
         "G0003": _result("G0003", 0.7),
         "G0004": _result("G0004", 0.8),
     }
-    ids = [c["id"] for c in wtune_tune.select_confirm_configs(all_results, anchor_cid="ANCHOR")]
+    ids = [c["id"] for c in
+           wtune_tune.select_confirm_configs(ctx, 1, all_results, anchor_cid="ANCHOR")]
     assert ids == ["G0001", "G0002", "G0003", "ANCHOR"]
 
 
 def test_select_confirm_configs_anchor_already_in_top3_not_duplicated():
+    ctx = _ctx()
     all_results = {
         "ANCHOR": _result("ANCHOR", 0.4),
         "G0001": _result("G0001", 0.5),
         "G0002": _result("G0002", 0.6),
         "G0003": _result("G0003", 0.7),
     }
-    ids = [c["id"] for c in wtune_tune.select_confirm_configs(all_results, anchor_cid="ANCHOR")]
+    ids = [c["id"] for c in
+           wtune_tune.select_confirm_configs(ctx, 1, all_results, anchor_cid="ANCHOR")]
     assert ids == ["ANCHOR", "G0001", "G0002"]
     assert len(ids) == len(set(ids))
 
 
 def test_select_confirm_configs_missing_anchor_is_fine():
+    ctx = _ctx()
     all_results = {"G0001": _result("G0001", 0.5)}
-    ids = [c["id"] for c in wtune_tune.select_confirm_configs(all_results, anchor_cid=None)]
+    ids = [c["id"] for c in
+           wtune_tune.select_confirm_configs(ctx, 1, all_results, anchor_cid=None)]
     assert ids == ["G0001"]
 
 
@@ -921,6 +931,185 @@ def test_build_full_run_prediction_no_drift_override_by_default(tmp_path):
     assert "calibration override" not in text
     assert "measure_r_rad" not in text
     assert not os.path.exists(os.path.join(str(tmp_path / "out"), "calibration_override.json"))
+
+
+# ---------------------------------------------------------------------------
+# ranking by PREDICTED whole-run wall time (2026-09-24 decision), not raw median s/step --
+# predict_candidates/rank_predicted_entries. wtune_predict.build_prediction is monkeypatched in
+# most of these: the point is to test THIS module's consumption of a prediction (ranking, tie
+# rule, failure handling), not wtune_predict's own physics model (that belongs to
+# test_wtune_predict.py). Tests that need a REAL prediction (the h:mm:ss column, the
+# include_io=False guarantee end to end) reuse _PREDICT_TEST_NAMELIST/MATTHEW_LIKE, the same
+# fixture the build_full_run_prediction tests above already rely on.
+# ---------------------------------------------------------------------------
+def test_predict_candidates_ranking_can_invert_relative_to_median_s_per_step(tmp_path, monkeypatch):
+    # G_FAST has the lower measured s/step (0.5) but -- e.g. because its own probe measured an
+    # expensive radiation ratio over the FULL run's many more radiation calls -- a much higher
+    # PREDICTED total; G_SLOW is the reverse. The tuner must pick by predicted total.
+    ctx = _ctx(out_dir=str(tmp_path / "out"))
+    cfg_fast = dict(id="G_FAST", ranks=72, omp=1, nx=8, ny=9, numtiles=1, dist="block")
+    cfg_slow = dict(id="G_SLOW", ranks=48, omp=1, nx=6, ny=8, numtiles=1, dist="block")
+    results = {
+        "G_FAST": _result("G_FAST", 0.5, cfg_fast),
+        "G_SLOW": _result("G_SLOW", 0.8, cfg_slow),
+    }
+    fake_totals = {72: 5000.0, 48: 3000.0}   # inverted vs s/step
+
+    def fake_build_prediction(namelist_path, case_dir, nodes, config, ledger_paths,
+                               calibration_path, io_form_override, io_target, case_name=None,
+                               iofields_dir=None, rsl_paths=None, include_io=False):
+        assert include_io is False
+        total = fake_totals[config["ranks"]]
+        return {"total_s": total, "range_low_s": total * 0.95, "range_high_s": total * 1.05,
+                "compute": {"r_rad_source": "fake_test_source"}}
+
+    monkeypatch.setattr(wtune_tune.wtune_predict, "build_prediction", fake_build_prediction)
+
+    predicted = wtune_tune.predict_candidates(ctx, nodes=1, results=results)
+    assert predicted["G_FAST"]["pred_total_s"] == 5000.0
+    assert predicted["G_SLOW"]["pred_total_s"] == 3000.0
+    assert predicted["G_FAST"]["pred_source"] == "fake_test_source"
+
+    ranked = wtune_tune.rank_predicted_entries(predicted, anchor_cid=None)
+    assert [r["cid"] for r in ranked] == ["G_SLOW", "G_FAST"]   # predicted total wins, not median
+
+    report = wtune_tune.build_report(ctx, nodes=1, nodes_note="test", all_results=results,
+                                      confirm_results=None, anchor_cid=None)
+    assert report["best"]["id"] == "G_SLOW"
+    assert report["ranking"][0]["predicted_total_s"] == 3000.0
+
+
+def test_rank_predicted_entries_failed_prediction_ranks_last_and_is_flagged(tmp_path, monkeypatch):
+    ctx = _ctx(out_dir=str(tmp_path / "out"))
+    cfg_ok = dict(id="G_OK", ranks=72, omp=1, nx=8, ny=9, numtiles=1, dist="block")
+    cfg_bad = dict(id="G_BAD", ranks=48, omp=1, nx=6, ny=8, numtiles=1, dist="block")
+    results = {
+        "G_OK": _result("G_OK", 2.0, cfg_ok),     # far WORSE median s/step than G_BAD...
+        "G_BAD": _result("G_BAD", 0.1, cfg_bad),  # ...but G_BAD's own prediction raises
+    }
+
+    def fake_build_prediction(namelist_path, case_dir, nodes, config, ledger_paths,
+                               calibration_path, io_form_override, io_target, case_name=None,
+                               iofields_dir=None, rsl_paths=None, include_io=False):
+        if config["ranks"] == 48:
+            raise RuntimeError("synthetic prediction failure")
+        return {"total_s": 999.0, "range_low_s": 950.0, "range_high_s": 1050.0,
+                "compute": {"r_rad_source": "fake_test_source"}}
+
+    monkeypatch.setattr(wtune_tune.wtune_predict, "build_prediction", fake_build_prediction)
+
+    predicted = wtune_tune.predict_candidates(ctx, nodes=1, results=results)
+    assert predicted["G_BAD"]["pred_total_s"] is None
+    assert "synthetic prediction failure" in predicted["G_BAD"]["pred_error"]
+    assert predicted["G_OK"]["pred_error"] is None
+
+    ranked = wtune_tune.rank_predicted_entries(predicted, anchor_cid=None)
+    # the failed prediction ranks LAST despite its far better raw median s/step
+    assert [r["cid"] for r in ranked] == ["G_OK", "G_BAD"]
+
+    report = wtune_tune.build_report(ctx, nodes=1, nodes_note="test", all_results=results,
+                                      confirm_results=None, anchor_cid=None)
+    assert report["ranking"][-1]["id"] == "G_BAD"
+    assert report["ranking"][-1]["pred_error"] and "synthetic prediction failure" \
+        in report["ranking"][-1]["pred_error"]
+    text = wtune_tune.render_report_text(report)
+    assert "PREDICTION FAILED for G_BAD" in text
+
+
+def test_rank_predicted_entries_tie_within_noise_floor_keeps_anchor_first():
+    # All three differ by ~0.1-0.2% -- well inside predictor/targets.py NOISE (0.5% relative) for
+    # every pairwise comparison, so none of these differences may reorder the outcome-independent
+    # tie-break: anchor first, then the pre-ranking (dict-insertion) order.
+    predicted = {
+        "G0001": dict(cid="G0001", config={}, median=1.0, pred_total_s=1000.0,
+                      pred_low_s=950.0, pred_high_s=1050.0, pred_error=None),
+        "ANCHOR": dict(cid="ANCHOR", config={}, median=1.0, pred_total_s=1000.0 * 1.001,
+                       pred_low_s=950.0, pred_high_s=1050.0, pred_error=None),
+        "G0002": dict(cid="G0002", config={}, median=1.0, pred_total_s=1000.0 * 0.999,
+                      pred_low_s=950.0, pred_high_s=1050.0, pred_error=None),
+    }
+    ranked = wtune_tune.rank_predicted_entries(predicted, anchor_cid="ANCHOR")
+    assert [r["cid"] for r in ranked] == ["ANCHOR", "G0001", "G0002"]
+
+
+def test_rank_predicted_entries_clustering_is_transitive_and_input_order_independent():
+    # A=100.0, B=100.3 (0.3% above A, < NOISE=0.5% -> same cluster as A), C=100.6 (0.6% above A,
+    # >= NOISE -> its own cluster) -- the non-transitive case a pairwise cmp_to_key comparator
+    # gets wrong: A~B is a tie and B~C is a tie (each pair < 0.5% apart), but A~C is NOT (0.6%
+    # apart) -- so the "within NOISE" relation is not transitive across the three. The clustering
+    # algorithm must still produce ONE deterministic answer regardless of input (dict-insertion)
+    # order: A and B are the anchor-relative-to-A's cluster HEAD, C starts a new cluster after it.
+    def make(order):
+        vals = {"A": 100.0, "B": 100.3, "C": 100.6}
+        return {cid: dict(cid=cid, config={}, median=1.0, pred_total_s=vals[cid],
+                           pred_low_s=vals[cid] * 0.95, pred_high_s=vals[cid] * 1.05,
+                           pred_error=None)
+                for cid in order}
+
+    ranked_abc = wtune_tune.rank_predicted_entries(make(["A", "B", "C"]), anchor_cid=None)
+    ranked_cba = wtune_tune.rank_predicted_entries(make(["C", "B", "A"]), anchor_cid=None)
+
+    assert [r["cid"] for r in ranked_abc] == ["A", "B", "C"]
+    assert [r["cid"] for r in ranked_cba] == ["A", "B", "C"]   # same answer regardless of input order
+
+
+def test_rank_predicted_entries_anchor_sorts_first_within_its_cluster_even_when_not_fastest():
+    # G_FAST (non-anchor) has the numerically lowest pred_total_s, but ANCHOR is within NOISE of
+    # it (same cluster) -- the anchor must still sort first within that cluster.
+    predicted = {
+        "G_FAST": dict(cid="G_FAST", config={}, median=1.0, pred_total_s=100.0,
+                       pred_low_s=95.0, pred_high_s=105.0, pred_error=None),
+        "ANCHOR": dict(cid="ANCHOR", config={}, median=1.0, pred_total_s=100.2,
+                       pred_low_s=95.0, pred_high_s=105.0, pred_error=None),
+    }
+    ranked = wtune_tune.rank_predicted_entries(predicted, anchor_cid="ANCHOR")
+    assert [r["cid"] for r in ranked] == ["ANCHOR", "G_FAST"]
+
+
+def test_render_report_text_shows_predicted_total_hms_column(tmp_path):
+    assert wtune_tune.wtune_predict is not None, "wtune_predict.py must be importable for this test"
+    namelist_path = tmp_path / "namelist.input"
+    namelist_path.write_text(_PREDICT_TEST_NAMELIST)
+    best_config = dict(id="ANCHOR", ranks=72, omp=1, nx=8, ny=9, numtiles=1, dist="block")
+    ctx = _ctx(namelist_path=str(namelist_path),
+               case_json=dict(MATTHEW_LIKE, prep_dir=str(tmp_path)), out_dir=str(tmp_path / "out"))
+    ctx.owned_jobs = ["1001"]
+    all_results = {"ANCHOR": _result("ANCHOR", 0.93, best_config)}
+
+    report = wtune_tune.build_report(ctx, nodes=1, nodes_note="test", all_results=all_results,
+                                      confirm_results=None, anchor_cid="ANCHOR")
+    hms = report["ranking"][0]["predicted_total_hms"]
+    assert hms and re.match(r"^\d+:\d{2}(:\d{2})?$", hms)
+    assert report["ranking"][0]["predicted_total_s"] > 0
+
+    text = wtune_tune.render_report_text(report)
+    assert "pred_total" in text        # header column
+    assert hms in text                 # the actual h:mm:ss value appears in the rendered table
+
+
+def test_build_prediction_never_called_with_include_io_true(tmp_path, monkeypatch):
+    assert wtune_tune.wtune_predict is not None, "wtune_predict.py must be importable for this test"
+    namelist_path = tmp_path / "namelist.input"
+    namelist_path.write_text(_PREDICT_TEST_NAMELIST)
+    best_config = dict(id="ANCHOR", ranks=72, omp=1, nx=8, ny=9, numtiles=1, dist="block")
+    ctx = _ctx(namelist_path=str(namelist_path),
+               case_json=dict(MATTHEW_LIKE, prep_dir=str(tmp_path)), out_dir=str(tmp_path / "out"))
+    all_results = {"ANCHOR": _result("ANCHOR", 0.93, best_config)}
+
+    real_build_prediction = wtune_tune.wtune_predict.build_prediction
+    seen_include_io = []
+
+    def spy(*args, **kwargs):
+        seen_include_io.append(kwargs.get("include_io", False))
+        return real_build_prediction(*args, **kwargs)
+
+    monkeypatch.setattr(wtune_tune.wtune_predict, "build_prediction", spy)
+
+    wtune_tune.build_report(ctx, nodes=1, nodes_note="test", all_results=all_results,
+                             confirm_results=None, anchor_cid="ANCHOR")
+
+    assert seen_include_io, "build_prediction was never called (test fixture is stale)"
+    assert all(v is False for v in seen_include_io)
 
 
 def _patched_load_config(raw):

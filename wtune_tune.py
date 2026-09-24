@@ -66,6 +66,11 @@ import wtune_case              # wtune_case.py: build_profile (PRIOR, pre-measur
 import wtune_config            # wtune_config.py: --config YAML (search restrictions, budget/probe/
                                 # prediction overrides) -- stdlib only (PyYAML is imported lazily,
                                 # only when --config is actually given), safe to import unconditionally
+import targets as pred_targets # predictor/targets.py -- stdlib-only (math + predictor/features.py,
+                                # itself stdlib-only), safe to import unconditionally like wtune_config
+                                # above; used only for its NOISE constant (run-to-run reproducibility
+                                # floor, log(1.005) ~ 0.5% relative) to keep the predicted-wall-time
+                                # ranking's tie-break stable across noise-level differences.
 
 try:
     import wtune_predict        # wtune_predict.py -- owned by another agent; best-effort only
@@ -288,10 +293,13 @@ def sample_more_diverse_configs(ctx, exclude_configs, k, seed):
 
 
 def aggregate_by_cid(rows, configs_by_cid):
-    """cid -> {cid, config, s_values, median, lo, hi, n} -- one entry per config id that has at
-    least one row with a real s_per_step_median (a failed run has an empty s_per_step_median and
-    an rc= note -- see campaign/strict_campaign.sbatch -- so it is silently dropped here, not
-    counted as a measurement)."""
+    """cid -> {cid, config, s_values, median, lo, hi, n, run_ids} -- one entry per config id that
+    has at least one row with a real s_per_step_median (a failed run has an empty
+    s_per_step_median and an rc= note -- see campaign/strict_campaign.sbatch -- so it is silently
+    dropped here, not counted as a measurement). run_ids is each contributing row's own run_id
+    string (parallel to s_values), kept so a caller can locate that exact run's own RUNDIR --
+    campaign/strict_campaign.sbatch's RUNDIR="$OUT/${CASE}_${cid}_r${rep}_${J}" has run_id
+    "${CASE}_${cid}_r${rep}_${J}" as its own basename verbatim -- see _rsl_paths_for_entry."""
     by_cid = {}
     for r in rows:
         parsed = parse_run_id(r.get("run_id"))
@@ -300,24 +308,86 @@ def aggregate_by_cid(rows, configs_by_cid):
         s = sweep._to_float(r.get("s_per_step_median"))
         if s is None or s <= 0:
             continue
-        by_cid.setdefault(parsed["cid"], []).append(s)
+        by_cid.setdefault(parsed["cid"], []).append((s, r.get("run_id")))
     out = {}
-    for cid, svals in by_cid.items():
+    for cid, pairs in by_cid.items():
+        svals = [p[0] for p in pairs]
         out[cid] = dict(cid=cid, config=configs_by_cid.get(cid), s_values=svals,
                          median=statistics.median(svals), lo=min(svals), hi=max(svals),
-                         n=len(svals))
+                         n=len(svals), run_ids=[p[1] for p in pairs])
     return out
 
 
-def select_confirm_entries(all_results, anchor_cid):
-    """Top-3 measured results by median s/step, plus the anchor's own result if it did not
+def _log_key(value):
+    """log(value), or -inf for a non-positive value (degenerate -- a real wall-time prediction or
+    median s/step is always > 0, but this keeps sorting well-defined instead of raising)."""
+    return math.log(value) if value > 0 else float("-inf")
+
+
+def _cluster_rank(entries, log_key, anchor_cid, order_index):
+    """Rank `entries` by log_key ascending, but a run-to-run difference smaller than
+    predictor/targets.py NOISE (0.5% relative -- the reproducibility floor, see that module's own
+    docstring) is not a reliable ordering. Fixes a real correctness bug in the previous
+    functools.cmp_to_key pairwise comparator: pairwise "within NOISE of each OTHER" is not
+    transitive (e.g. log-ratios 0/0.3%/0.6% -- first and third both differ from the middle one by
+    less than NOISE, but not from each other), so sorted()'s result depended on the input order,
+    meaning the winner was not deterministic. This is a proper two-pass algorithm instead:
+
+      1. stable-sort every entry by (log_key, order_index) -- a single, transitive ordering.
+      2. walk that sorted list left to right and greedily group into clusters: a cluster's HEAD is
+         its first (fastest) member; a later entry joins the current cluster iff
+         log_key(entry) - log_key(head) < NOISE, else it starts a new cluster. Comparing only
+         against the head (not the previous element) keeps a cluster's own spread bounded to
+         < NOISE, and clusters partition the sorted list, so the cluster order itself is exactly
+         the log_key order -- no cross-cluster ambiguity, no input-order dependence.
+      3. within one cluster, the anchor (anchor_cid) sorts first; every other member keeps its
+         pre-sort order_index (the candidate set's original, pre-ranking order) -- the existing
+         outcome-independent tie-break, now applied per cluster instead of pairwise."""
+    ordered = sorted(entries, key=lambda e: (log_key(e), order_index.get(e["cid"], 0)))
+    out = []
+    i, n = 0, len(ordered)
+    while i < n:
+        head_key = log_key(ordered[i])
+        j = i + 1
+        while j < n and (log_key(ordered[j]) - head_key) < pred_targets.NOISE:
+            j += 1
+        cluster = ordered[i:j]
+        cluster.sort(key=lambda e: (e["cid"] != anchor_cid, order_index.get(e["cid"], 0)))
+        out.extend(cluster)
+        i = j
+    return out
+
+
+def rank_predicted_entries(predicted, anchor_cid):
+    """Full ranking of predict_candidates() output, PREDICTED WHOLE-RUN WALL TIME ascending
+    (2026-09-24 decision: the tuner picks by predicted total wall time, not raw s/step) --
+    successfully predicted entries first (clustered/tie-broken by _cluster_rank on
+    log(pred_total_s)), then entries whose prediction raised (pred_error set), clustered the same
+    way on log(median) instead. order_index is by cid, sorted -- a canonical order that depends
+    only on the candidate SET, not on `predicted`'s dict-construction order, so the within-cluster
+    tie-break (and therefore the final ranking) is the same regardless of what order a caller
+    happened to build the dict in -- see _cluster_rank's docstring for why raw dict-insertion
+    order broke transitivity across a chain of near-ties."""
+    order_index = {cid: i for i, cid in enumerate(sorted(predicted))}
+    ok = [e for e in predicted.values() if e.get("pred_total_s") is not None]
+    failed = [e for e in predicted.values() if e.get("pred_total_s") is None]
+    ranked_ok = _cluster_rank(ok, lambda e: _log_key(e["pred_total_s"]), anchor_cid, order_index)
+    ranked_failed = _cluster_rank(failed, lambda e: _log_key(e["median"]), anchor_cid, order_index)
+    return ranked_ok + ranked_failed
+
+
+def select_confirm_entries(ctx, nodes, all_results, anchor_cid):
+    """Top-3 by PREDICTED whole-run wall time (predict_candidates + rank_predicted_entries; an
+    entry whose prediction failed falls back to median s/step and ranks after every successfully
+    predicted entry -- see rank_predicted_entries), plus the anchor's own result if it did not
     already make the top 3 (order preserved, deduped by cid) -- the confirm-stage candidate list,
-    as full aggregate_by_cid entries (config + this run's own measured medians)."""
-    ranked = sorted(all_results.values(), key=lambda r: r["median"])
+    as full aggregate_by_cid entries (config + this run's own measured medians + pred_* fields)."""
+    predicted = predict_candidates(ctx, nodes, all_results)
+    ranked = rank_predicted_entries(predicted, anchor_cid)
     top = list(ranked[:3])
     cids = {r["cid"] for r in top}
-    if anchor_cid in all_results and anchor_cid not in cids:
-        top.append(all_results[anchor_cid])
+    if anchor_cid in predicted and anchor_cid not in cids:
+        top.append(predicted[anchor_cid])
     seen, entries = set(), []
     for r in top:
         if r["cid"] in seen or r["config"] is None:
@@ -327,10 +397,10 @@ def select_confirm_entries(all_results, anchor_cid):
     return entries
 
 
-def select_confirm_configs(all_results, anchor_cid):
+def select_confirm_configs(ctx, nodes, all_results, anchor_cid):
     """[config, ...] -- select_confirm_entries's configs only (kept for callers/tests that just
-    want the candidate list, not each entry's own measured s_values)."""
-    return [e["config"] for e in select_confirm_entries(all_results, anchor_cid)]
+    want the candidate list, not each entry's own measured s_values/predictions)."""
+    return [e["config"] for e in select_confirm_entries(ctx, nodes, all_results, anchor_cid)]
 
 
 DEFAULT_STARTUP_S = sweep.STARTUP_S
@@ -840,7 +910,7 @@ def run_adaptive_rounds(ctx, all_configs_by_cid, all_results, s_est):
 # confirm stage
 # ---------------------------------------------------------------------------
 def run_confirm(ctx, all_configs_by_cid, all_results, anchor_cid, s_est):
-    entries = select_confirm_entries(all_results, anchor_cid)
+    entries = select_confirm_entries(ctx, ctx.nodes, all_results, anchor_cid)
     if not entries:
         print("confirm: SKIP -- no measured configs to confirm")
         return None, None
@@ -921,8 +991,13 @@ def write_probe_ledger(ctx, all_results, confirm_results):
     wtune_predict.resolve_probe()/load_ledger_rows() read (case_base, n_ranks, omp_threads,
     nproc_x, nproc_y, numtiles, s_per_step_median), one row per replicate so a REPS=2 confirm run
     still reports its measured spread. Passed back into wtune_predict only through its own public
-    build_prediction(ledger_paths=...) -- wtune_predict.py itself is never edited. Returns the
-    path, or None when there is nothing measured to write."""
+    build_prediction(ledger_paths=...) -- wtune_predict.py itself is never edited. An entry whose
+    config is missing one of the 5 decomposition fields (a degenerate/partial config, e.g. a
+    hand-built test double that only carries "id") is skipped rather than raising -- this
+    function no longer runs only on the final winner (predict_candidates now calls it once per
+    round/confirm result set too), so a config this incomplete must not take down every other
+    candidate's probe row with it. Returns the path, or None when there is nothing measured to
+    write."""
     merged = dict(all_results)
     merged.update(confirm_results or {})
     entries = [r for r in merged.values() if r.get("config") and r.get("s_values")]
@@ -935,11 +1010,83 @@ def write_probe_ledger(ctx, all_results, confirm_results):
         w.writeheader()
         for r in entries:
             cfg = r["config"]
+            if any(k not in cfg for k in ("ranks", "omp", "nx", "ny", "numtiles")):
+                continue
             for s in r["s_values"]:
                 w.writerow(dict(case_base=ctx.case, n_ranks=cfg["ranks"], omp_threads=cfg["omp"],
                                  nproc_x=cfg["nx"], nproc_y=cfg["ny"], numtiles=cfg["numtiles"],
                                  s_per_step_median=s))
     return path
+
+
+def _rsl_paths_for_entry(ctx, entry):
+    """[path, ...] of THIS entry's own kept rsl.error.0000 probe logs, or [] when it has no
+    run_ids (e.g. a result built directly by a test, not via aggregate_by_cid) or none of its
+    RUNDIRs still have an rsl.error.0000 on disk. RUNDIR = ctx.ledger_dir/<run_id> exactly --
+    campaign/strict_campaign.sbatch's RUN_ID="${CASE}_${cid}_r${rep}_${J}" IS its own RUNDIR's
+    basename (RUNDIR="$OUT/${CASE}_${cid}_r${rep}_${J}", and $OUT == ctx.ledger_dir -- see
+    campaign/sites/scc.sh's OUT= and tools/scc_sweep.py's DEFAULT_LEDGER_DIR), and cleanup keeps
+    rsl.out.0000/rsl.error.0000 (never removes RUNDIR itself) in every MODE -- see that script's
+    'cleanup: keep rsl.out.0000, rsl.error.0000' comment -- so a plain path join is exact, no
+    reparsing of run_id needed."""
+    if not entry:
+        return []
+    return [p for rid in (entry.get("run_ids") or [])
+            for p in [os.path.join(ctx.ledger_dir, rid, "rsl.error.0000")]
+            if os.path.exists(p)]
+
+
+def predict_candidates(ctx, nodes, results):
+    """{cid: {...results[cid]'s own keys..., pred_total_s, pred_low_s, pred_high_s, pred_source,
+    pred_error}} -- one wtune_predict.build_prediction() call per candidate's OWN config, so the
+    tuner can rank by PREDICTED WHOLE-RUN WALL TIME (compute + init, no I/O) instead of raw
+    s/step (2026-09-24 decision). Every call shares ONE write_probe_ledger() CSV across every
+    candidate: wtune_predict.resolve_probe() matches a call's own ranks/omp/nx/ny/numtiles
+    exactly, so a candidate's prediction only ever sees ITS OWN measured probe rows even though
+    the shared file holds every candidate's rows. rsl_paths (this candidate's own kept
+    rsl.error.0000 logs, see _rsl_paths_for_entry) are scoped per candidate the same way, never
+    shared. NEVER passes include_io=True: history I/O is estimated but, by user decision
+    2026-09-24, excluded from the ranking objective (write rate was off -42%..+156% across cases
+    on the SC26 atlas -- see wtune_predict.build_prediction's own module comment). A candidate
+    with no config, or whose build_prediction() call raises, gets pred_total_s=None and a
+    pred_error string instead of raising out of this function."""
+    out = {}
+    if wtune_predict is None:
+        for cid, entry in results.items():
+            out[cid] = dict(entry, pred_total_s=None, pred_low_s=None, pred_high_s=None,
+                             pred_source=None, pred_error="wtune_predict not importable")
+        return out
+
+    probe_path = write_probe_ledger(ctx, results, None)
+    calibration_path = str(wtune_predict.DEFAULT_CALIBRATION)
+    if ctx.prediction_cfg.get("drift_band_pct") is not None:
+        calibration_path, _note = _calibration_with_drift_override(
+            ctx, calibration_path, ctx.prediction_cfg["drift_band_pct"])
+
+    for cid, entry in results.items():
+        cfg = entry.get("config")
+        if cfg is None:
+            out[cid] = dict(entry, pred_total_s=None, pred_low_s=None, pred_high_s=None,
+                             pred_source=None, pred_error="no config")
+            continue
+        rsl_paths = _rsl_paths_for_entry(ctx, entry)
+        try:
+            pred = wtune_predict.build_prediction(
+                namelist_path=ctx.namelist_path, case_dir=ctx.case_json["prep_dir"], nodes=nodes,
+                config=dict(ranks=cfg["ranks"], omp=cfg["omp"], nx=cfg["nx"], ny=cfg["ny"],
+                            numtiles=cfg["numtiles"]),
+                ledger_paths=[probe_path] if probe_path else None,
+                calibration_path=calibration_path, io_form_override=None,
+                io_target=ctx.prediction_cfg.get("io_target") or "nfs", case_name=ctx.case,
+                rsl_paths=rsl_paths or None, include_io=False)
+        except Exception as e:
+            out[cid] = dict(entry, pred_total_s=None, pred_low_s=None, pred_high_s=None,
+                             pred_source=None, pred_error="%s: %s" % (type(e).__name__, e))
+            continue
+        out[cid] = dict(entry, pred_total_s=pred["total_s"], pred_low_s=pred["range_low_s"],
+                         pred_high_s=pred["range_high_s"],
+                         pred_source=pred["compute"]["r_rad_source"], pred_error=None)
+    return out
 
 
 def _calibration_with_drift_override(ctx, calibration_path, drift_pct):
@@ -984,25 +1131,36 @@ def build_full_run_prediction(ctx, best_config, nodes, all_results, confirm_resu
         if ctx.prediction_cfg.get("drift_band_pct") is not None:
             calibration_path, drift_note = _calibration_with_drift_override(
                 ctx, calibration_path, ctx.prediction_cfg["drift_band_pct"])
+        entry = (confirm_results or {}).get(best_config.get("id")) or \
+            (all_results or {}).get(best_config.get("id"))
+        rsl_paths = _rsl_paths_for_entry(ctx, entry)
         pred = wtune_predict.build_prediction(
             namelist_path=ctx.namelist_path, case_dir=ctx.case_json["prep_dir"], nodes=nodes,
             config=dict(ranks=best_config["ranks"], omp=best_config["omp"], nx=best_config["nx"],
                         ny=best_config["ny"], numtiles=best_config["numtiles"]),
             ledger_paths=[probe_path] if probe_path else None,
             calibration_path=calibration_path, io_form_override=None,
-            io_target=ctx.prediction_cfg.get("io_target") or "nfs", case_name=ctx.case)
+            io_target=ctx.prediction_cfg.get("io_target") or "nfs", case_name=ctx.case,
+            rsl_paths=rsl_paths or None, include_io=False)
         text = wtune_predict.render_text(pred)
         if drift_note:
             text += "\n" + drift_note
         if ctx.prediction_cfg.get("measure_r_rad"):
-            # Honesty requirement (see wtune_config.py's schema doc): wtune_predict.py has no
-            # option to derive r_rad from this run's own probe measurements -- it always uses
-            # calibration["radiation"]["r_rad_default"]. Report the request as unimplemented
-            # rather than silently using the fixed default with no indication anything was asked.
-            text += ("\nNOTE: prediction.measure_r_rad requested (derive the radiation-step cost "
-                      "multiplier r_rad from this run's own probe measurements) -- NOT YET "
-                      "IMPLEMENTED by wtune_predict.py; used its fixed calibration default "
-                      "(radiation.r_rad_default) instead.")
+            # Honesty requirement (see wtune_config.py's schema doc): report whether r_rad was
+            # actually derived from this run's own probe measurements (now possible when this
+            # candidate's own rsl.error.0000 logs survived -- see _rsl_paths_for_entry) rather
+            # than silently using the fixed calibration default with no indication either way.
+            r_rad_source = pred["compute"]["r_rad_source"]
+            if r_rad_source in ("fit_day_night", "ratio_from_night", "ratio_from_day"):
+                text += ("\nNOTE: prediction.measure_r_rad requested -- derived from this run's "
+                          "own probe rsl.error.0000 logs (source=%s)." % r_rad_source)
+            else:
+                text += ("\nNOTE: prediction.measure_r_rad requested (derive the radiation-step "
+                          "cost multiplier r_rad from this run's own probe measurements) -- no "
+                          "usable rsl.error.0000 probe log for this candidate's own runs "
+                          "(source=%s); deriving r_rad from measurements is NOT YET IMPLEMENTED "
+                          "without one -- used the fixed calibration default instead."
+                          % r_rad_source)
         return text
     except Exception as e:
         return ("full-run prediction FAILED (%s: %s); run `python3 wtune.py predict ...` manually"
@@ -1011,19 +1169,30 @@ def build_full_run_prediction(ctx, best_config, nodes, all_results, confirm_resu
 
 def build_report(ctx, nodes, nodes_note, all_results, confirm_results, anchor_cid):
     ranked_source = confirm_results if confirm_results else all_results
-    ranked = sorted(ranked_source.values(), key=lambda r: r["median"])
+    predicted = predict_candidates(ctx, nodes, ranked_source)
+    ranked = rank_predicted_entries(predicted, anchor_cid)
     anchor_median = (all_results.get(anchor_cid) or {}).get("median")
+    anchor_pred_total_s = (predicted.get(anchor_cid) or {}).get("pred_total_s")
 
     table = []
     for r in ranked:
         cfg = r["config"] or {}
         speedup = (anchor_median / r["median"]) if anchor_median else None
+        pred_total_s = r.get("pred_total_s")
+        speedup_pred = ((anchor_pred_total_s / pred_total_s)
+                         if anchor_pred_total_s and pred_total_s else None)
         table.append(dict(
             id=r["cid"], ranks=cfg.get("ranks"), omp=cfg.get("omp"),
             nproc_x=cfg.get("nx"), nproc_y=cfg.get("ny"), numtiles=cfg.get("numtiles"),
             dist=cfg.get("dist"), median_s_per_step=r["median"], range_s_per_step=[r["lo"], r["hi"]],
             n_measurements=r["n"], speedup_vs_anchor=speedup,
             confirmed=bool(confirm_results and r["cid"] in confirm_results),
+            predicted_total_s=pred_total_s,
+            predicted_total_hms=_fmt_hms(pred_total_s) if pred_total_s is not None else None,
+            predicted_range_s=([r["pred_low_s"], r["pred_high_s"]]
+                                if pred_total_s is not None else None),
+            pred_source=r.get("pred_source"), pred_error=r.get("pred_error"),
+            speedup_vs_anchor_predicted=speedup_pred,
         ))
 
     best = table[0] if table else None
@@ -1054,16 +1223,29 @@ def render_report_text(report):
     if report["cancelled_job_ids"]:
         lines.append("cancelled (budget deadline): %s" % ",".join(report["cancelled_job_ids"]))
     lines.append("")
-    lines.append("%-10s %6s %4s %5s %5s %5s %7s %10s %14s %6s %4s %s"
-                  % ("id", "ranks", "omp", "nx", "ny", "tiles", "dist", "median_s",
-                     "range_s", "speedup", "n", "confirmed"))
+    # predicted_total (whole-run wall time: compute + init, no I/O -- see predict_candidates) is
+    # the ranking key and comes first; median_s/range/speedup are still the raw per-step
+    # measurement this run made, kept for comparison.
+    lines.append("%-10s %12s %6s %4s %5s %5s %5s %7s %10s %14s %7s %8s %4s %-11s %s"
+                  % ("id", "pred_total", "ranks", "omp", "nx", "ny", "tiles", "dist", "median_s",
+                     "range_s", "speedup", "pred_spd", "n", "pred_source", "confirmed"))
     for row in report["ranking"]:
         rng = "%.4f-%.4f" % tuple(row["range_s_per_step"]) if row["range_s_per_step"] else "-"
         spd = ("%.3fx" % row["speedup_vs_anchor"]) if row["speedup_vs_anchor"] else "-"
-        lines.append("%-10s %6s %4s %5s %5s %5s %7s %10.4f %14s %6s %4s %s"
-                      % (row["id"], row["ranks"], row["omp"], row["nproc_x"], row["nproc_y"],
-                         row["numtiles"], row["dist"], row["median_s_per_step"], rng, spd,
-                         row["n_measurements"], row["confirmed"]))
+        pred_spd = ("%.3fx" % row["speedup_vs_anchor_predicted"]
+                    if row["speedup_vs_anchor_predicted"] else "-")
+        pred_hms = row["predicted_total_hms"] or "FAILED"
+        lines.append("%-10s %12s %6s %4s %5s %5s %5s %7s %10.4f %14s %7s %8s %4s %-11s %s"
+                      % (row["id"], pred_hms, row["ranks"], row["omp"], row["nproc_x"],
+                         row["nproc_y"], row["numtiles"], row["dist"], row["median_s_per_step"],
+                         rng, spd, pred_spd, row["n_measurements"], row["pred_source"] or "-",
+                         row["confirmed"]))
+    failed = [row for row in report["ranking"] if row.get("pred_error")]
+    if failed:
+        lines.append("")
+        for row in failed:
+            lines.append("PREDICTION FAILED for %s: %s -- ranked by median s/step instead"
+                          % (row["id"], row["pred_error"]))
     if report["best"]:
         lines.append("")
         lines.append("BEST: %s" % report["best"]["id"])

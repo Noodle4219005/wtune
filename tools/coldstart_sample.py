@@ -1200,7 +1200,7 @@ def _extract_cfsr_members(tar_path, valid_times, out_dir):
 
 
 def _download_forcing_for_window(source, T, T_end, cache_dir, keep_archives=False,
-                                 download_fn=None):
+                                 download_fn=None, attempts=3, sleep_fn=None):
     """Downloads whatever `source` needs to cover [T, T_end] into cache_dir. Whole-file per
     valid time for every source except CFSR (d093000), which downloads the covering 5-day
     tar(s) once and extracts only the needed members (tarfile, stdlib), deleting the tar
@@ -1233,20 +1233,34 @@ def _download_forcing_for_window(source, T, T_end, cache_dir, keep_archives=Fals
                 else:
                     os.remove(tar_path)
         return paths
+    # yagi2024 rebuild (scc job 1002): one transient RDA failure on fnl_2024090312 was swallowed
+    # here, fetch still "succeeded" with 20 of 21 files, and ungrib died later on the missing
+    # span start. Retry each URL with backoff, and fail fetch itself when any file is absent.
+    import time
+    sleep_fn = sleep_fn or time.sleep
+    missing = []
     for vt in valid_times:
         for filename, urls in source.urls_for(vt):
             dest = os.path.join(cache_dir, filename)
+            for attempt in range(attempts):
+                if os.path.exists(dest):
+                    break
+                if attempt:
+                    sleep_fn(5 * 2 ** (attempt - 1))
+                for url in urls:
+                    try:
+                        download_fn(url, dest)
+                    except Exception:
+                        continue
+                    if os.path.exists(dest):
+                        break
             if os.path.exists(dest):
                 paths.add(os.path.abspath(dest))
-                continue
-            for url in urls:
-                try:
-                    download_fn(url, dest)
-                except Exception:
-                    continue
-                if os.path.exists(dest):
-                    paths.add(os.path.abspath(dest))
-                    break
+            else:
+                missing.append(filename)
+    if missing:
+        raise ColdstartError("fetch: %s: %d file(s) still missing after %d attempts: %s"
+                             % (source.dataset, len(missing), attempts, ", ".join(missing)))
     return paths
 
 

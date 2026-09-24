@@ -2299,3 +2299,37 @@ class TestPlanRealOnly(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestDownloadRetriesAndFailsOnMissing(unittest.TestCase):
+    # yagi2024 rebuild (scc job 1002): a swallowed transient failure left fnl_2024090312 out
+    T = datetime.datetime(2024, 9, 3, 12)
+    T_end = datetime.datetime(2024, 9, 3, 18)
+
+    def test_transient_failure_is_retried(self):
+        calls = []
+
+        def flaky(url, dest):
+            calls.append(url)
+            if len(calls) <= 2:          # first attempt: both grib2 and grib1 urls fail
+                raise OSError("503")
+            open(dest, "w").close()
+
+        with tempfile.TemporaryDirectory() as d:
+            import metdata as md
+            paths = cs._download_forcing_for_window(md.SRC_FNL, self.T, self.T_end, d,
+                                                    download_fn=flaky, sleep_fn=lambda s: None)
+            names = sorted(os.path.basename(p) for p in paths)
+        self.assertEqual(names, ["fnl_2024090312.grib", "fnl_2024090318.grib"])
+
+    def test_persistent_failure_raises_naming_the_file(self):
+        def only_18z(url, dest):
+            if "_12_00" in url:
+                raise OSError("503")
+            open(dest, "w").close()
+
+        with tempfile.TemporaryDirectory() as d:
+            import metdata as md
+            with self.assertRaisesRegex(cs.ColdstartError, "fnl_2024090312.grib"):
+                cs._download_forcing_for_window(md.SRC_FNL, self.T, self.T_end, d,
+                                                download_fn=only_18z, sleep_fn=lambda s: None)

@@ -1386,10 +1386,16 @@ def _set_list_rhs(text, key, rhs, new_key_group="time_control"):
     new, n = pat.subn(lambda m: m.group(1) + rhs, text, count=1)
     if n:
         return new
-    pat2 = re.compile(keyre + r"([^,=\n/!]*?)\s*$", re.I | re.M)
+    # a value list whose LAST entry has no trailing comma ("2024, 2024,2024" -- yagi2024's own
+    # namelist); the first pattern needs a comma after every entry, and falling through to the
+    # insert below used to add a SECOND start_year line (fix-span-wrf-namelist: 'keys not present
+    # exactly once')
+    pat2 = re.compile(keyre + r"([^=\n/!]*?)\s*(?=[A-Za-z_][A-Za-z0-9_%]*\s*=|$|/|!)", re.I | re.M)
     new, n = pat2.subn(lambda m: m.group(1) + rhs, text, count=1)
     if n:
         return new
+    if count_key(text, key):
+        raise ColdstartError("set_list: %s exists but its value list could not be parsed" % key)
     group_re = re.compile(r"(&%s[^\n]*\n)" % re.escape(new_key_group), re.I)
     new, n = group_re.subn(r"\g<1> %s = %s\n" % (key, rhs), text, count=1)
     if n:

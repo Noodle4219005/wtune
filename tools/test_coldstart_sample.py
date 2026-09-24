@@ -2407,3 +2407,24 @@ class TestAerosolClimatologyConstants(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             with self.assertRaisesRegex(cs.ColdstartError, "QNWFA_QNIFA_QNBCA_SIGMA_MONTHLY.dat"):
                 cs.wps_constants_for(nl, d)
+
+
+class TestSetListValueWithoutTrailingComma(unittest.TestCase):
+    # yagi2024 rebuild (scc job 1021): "start_year = 2024, 2024,2024" got a duplicate line
+    def test_replaces_in_place(self):
+        t = "&time_control\nstart_year                          = 2024, 2024,2024\n/\n"
+        out = cs.set_list(t, "start_year", 2024, 2)
+        self.assertEqual(cs.count_key(out, "start_year"), 1)
+        self.assertIn("start_year                          = 2024, 2024,", out)
+
+    def test_packed_line_neighbor_kept(self):
+        t = "&time_control\n start_hour = 12, 12,12 end_hour = 06, 06,\n/\n"
+        out = cs.set_list(t, "start_hour", "00", 2)
+        self.assertEqual(cs.count_key(out, "start_hour"), 1)
+        self.assertIn("end_hour = 06, 06,", out)
+        self.assertIn("start_hour = 00, 00,", out)
+
+    def test_single_value_without_comma(self):
+        out = cs.set_list("&domains\n max_dom = 2\n/\n", "max_dom", 1, 1)
+        self.assertIn("max_dom = 1,", out)
+        self.assertEqual(cs.count_key(out, "max_dom"), 1)

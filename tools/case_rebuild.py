@@ -2013,6 +2013,10 @@ DEFAULT_LU_AGREE_THRESH_PCT = 90.0
 DEFAULT_CORR_Z500_THRESH = 0.9
 DEFAULT_CORR_T850_THRESH = 0.8
 DEFAULT_CORR_PW_THRESH = 0.7
+# 850 hPa wind (V3, 2026-09-24): real dates 0.955-0.994, the relabelled conus12 0.13/0.15, even
+# the best real analog day 0.44 -- the field that actually separates them; Z500/T850/PW share
+# the same seasonal gradients and passed or nearly passed on the fictional case
+DEFAULT_CORR_WIND850_THRESH = 0.8
 
 
 def compare_verdict(terrain_rmse_m, lu_agreement_pct, corr_z500, corr_t850, corr_pw,
@@ -2020,7 +2024,8 @@ def compare_verdict(terrain_rmse_m, lu_agreement_pct, corr_z500, corr_t850, corr
                     lu_agree_thresh=DEFAULT_LU_AGREE_THRESH_PCT,
                     corr_z500_thresh=DEFAULT_CORR_Z500_THRESH,
                     corr_t850_thresh=DEFAULT_CORR_T850_THRESH,
-                    corr_pw_thresh=DEFAULT_CORR_PW_THRESH):
+                    corr_pw_thresh=DEFAULT_CORR_PW_THRESH, corr_u850=None, corr_v850=None,
+                    corr_wind850_thresh=DEFAULT_CORR_WIND850_THRESH):
     """(verdict, static_ok, state_ok). verdict in {'consistent', 'different-static-data',
     'state-mismatch'}: consistent = static_ok & state_ok; different-static-data =
     (not static_ok) & state_ok; state-mismatch = not state_ok (the stated date's real weather is
@@ -2030,6 +2035,9 @@ def compare_verdict(terrain_rmse_m, lu_agreement_pct, corr_z500, corr_t850, corr
     static_ok = (terrain_rmse_m < static_rmse_thresh) and (lu_agreement_pct >= lu_agree_thresh)
     state_ok = (corr_z500 >= corr_z500_thresh and corr_t850 >= corr_t850_thresh
                and corr_pw >= corr_pw_thresh)
+    for corr_wind in (corr_u850, corr_v850):
+        if corr_wind is not None and not corr_wind >= corr_wind850_thresh:   # NaN fails
+            state_ok = False
     if not state_ok:
         verdict = "state-mismatch"
     elif not static_ok:
@@ -2086,7 +2094,8 @@ def read_wrfinput_fields_netcdf4(path):
 
 def compare(original_path, rebuilt_path, static_rmse_thresh=DEFAULT_STATIC_RMSE_THRESH_M,
            lu_agree_thresh=DEFAULT_LU_AGREE_THRESH_PCT, corr_z500_thresh=DEFAULT_CORR_Z500_THRESH,
-           corr_t850_thresh=DEFAULT_CORR_T850_THRESH, corr_pw_thresh=DEFAULT_CORR_PW_THRESH):
+           corr_t850_thresh=DEFAULT_CORR_T850_THRESH, corr_pw_thresh=DEFAULT_CORR_PW_THRESH,
+           corr_wind850_thresh=DEFAULT_CORR_WIND850_THRESH):
     """R6-B orchestration: read both files (lazy netCDF4), refuse unless grid identity holds,
     compute every metric, return the full report dict."""
     import numpy as np
@@ -2160,11 +2169,14 @@ def compare(original_path, rebuilt_path, static_rmse_thresh=DEFAULT_STATIC_RMSE_
     corr_z500 = state.get("Z500", {}).get("corr", float("nan"))
     corr_t850 = state.get("T850", {}).get("corr", float("nan"))
     corr_pw = state.get("PW", {}).get("corr", float("nan"))
+    corr_u850 = state.get("U850", {}).get("corr", float("nan"))
+    corr_v850 = state.get("V850", {}).get("corr", float("nan"))
     verdict, static_ok, state_ok = compare_verdict(
         static["terrain_rmse_m"], static["lu_index_agreement_pct"], corr_z500, corr_t850, corr_pw,
         static_rmse_thresh=static_rmse_thresh, lu_agree_thresh=lu_agree_thresh,
         corr_z500_thresh=corr_z500_thresh, corr_t850_thresh=corr_t850_thresh,
-        corr_pw_thresh=corr_pw_thresh)
+        corr_pw_thresh=corr_pw_thresh, corr_u850=corr_u850, corr_v850=corr_v850,
+        corr_wind850_thresh=corr_wind850_thresh)
 
     return {
         "static": static, "state": state, "verdict": verdict,
@@ -2172,7 +2184,8 @@ def compare(original_path, rebuilt_path, static_rmse_thresh=DEFAULT_STATIC_RMSE_
         "thresholds": {"static_rmse_thresh_m": static_rmse_thresh,
                        "lu_agree_thresh_pct": lu_agree_thresh,
                        "corr_z500_thresh": corr_z500_thresh, "corr_t850_thresh": corr_t850_thresh,
-                       "corr_pw_thresh": corr_pw_thresh},
+                       "corr_pw_thresh": corr_pw_thresh,
+                       "corr_wind850_thresh": corr_wind850_thresh},
         "note": "PW uses the P+PB level-difference dp method (MU/C1H..C4H not implemented -- "
                 "see module docstring)",
     }
@@ -2588,6 +2601,7 @@ def main(argv=None):
     sp.add_argument("--corr-z500-thresh", type=float, default=DEFAULT_CORR_Z500_THRESH)
     sp.add_argument("--corr-t850-thresh", type=float, default=DEFAULT_CORR_T850_THRESH)
     sp.add_argument("--corr-pw-thresh", type=float, default=DEFAULT_CORR_PW_THRESH)
+    sp.add_argument("--corr-wind850-thresh", type=float, default=DEFAULT_CORR_WIND850_THRESH)
 
     sp = sub.add_parser("analog")
     sp.add_argument("--case-dir", required=True)
@@ -2659,7 +2673,8 @@ def main(argv=None):
                              lu_agree_thresh=args.lu_agree_thresh,
                              corr_z500_thresh=args.corr_z500_thresh,
                              corr_t850_thresh=args.corr_t850_thresh,
-                             corr_pw_thresh=args.corr_pw_thresh)
+                             corr_pw_thresh=args.corr_pw_thresh,
+                             corr_wind850_thresh=args.corr_wind850_thresh)
             print(json.dumps(result, indent=2, default=str))
             if args.json:
                 with open(args.json, "w") as f:

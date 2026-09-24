@@ -1754,3 +1754,24 @@ class TestNoNumpyAtModuleImport(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestWind850Verdict(unittest.TestCase):
+    # V3 (conus12 relabelled 2019 -> 2023): Z500 0.816 / T850 0.842 / PW 0.687 was a thin miss;
+    # U850 0.130 / V850 0.150 is what separates it from real dates (0.955-0.994)
+    def test_wind_alone_flags_state_mismatch(self):
+        verdict, _, state_ok = cr.compare_verdict(10.0, 95.0, 0.95, 0.9, 0.8,
+                                                  corr_u850=0.13, corr_v850=0.15)
+        self.assertEqual(verdict, "state-mismatch")
+        self.assertFalse(state_ok)
+
+    def test_real_date_winds_stay_consistent(self):
+        verdict, _, _ = cr.compare_verdict(10.0, 95.0, 0.996, 0.994, 0.986,
+                                           corr_u850=0.955, corr_v850=0.97)
+        self.assertEqual(verdict, "consistent")
+
+    def test_nan_wind_fails_and_absent_wind_is_ignored(self):
+        self.assertEqual(cr.compare_verdict(10.0, 95.0, 0.95, 0.9, 0.8,
+                                            corr_u850=float("nan"), corr_v850=0.99)[0],
+                         "state-mismatch")
+        self.assertEqual(cr.compare_verdict(10.0, 95.0, 0.95, 0.9, 0.8)[0], "consistent")

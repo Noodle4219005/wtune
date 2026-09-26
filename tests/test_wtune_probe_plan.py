@@ -423,3 +423,26 @@ def test_posthoc_g0014_combine_vs_truth():
     # continuous ramp is expected to be within a working margin, not exact; require materially
     # better than the old single-t0-probe model (which under-predicted by 9.6%).
     assert abs(rel_err) < 0.05
+
+
+def test_measurement_locates_radiation_by_global_step_for_unaligned_restart(tmp_path):
+    # C3 job 1231: restart at 20:02 (global step 488, stepra 40); radiation fired at local #33
+    # (global 521). Local-index parsing took #41 (normal) and read r=0.995.
+    import datetime as _dt
+    run_start = _dt.datetime(2019, 11, 26, 18)
+    rsl = tmp_path / "rsl.error.0000"
+    rsl.write_text("".join("Timing for main: time %s on domain   1:    1.0 elapsed seconds\n"
+                           % (run_start + _dt.timedelta(seconds=15 * g)).strftime("%Y-%m-%d_%H:%M:%S")
+                           for g in range(489, 541)))
+    g0 = plan.first_global_step_from_rsl(str(rsl), run_start, 15.0)
+    assert g0 == 489
+    wall = [5.2] + [1.1] * 51          # step 1 = restart overhead
+    wall[32] = 5.4                      # local #33 == global 521 == radiation
+    steps = tmp_path / "steps.txt"
+    steps.write_text("\n".join("%.3f" % w for w in wall) + "\n")
+    m = plan.measurement_from_steps_file(str(steps), 40, run_start, "r", "trajectory",
+                                                     first_global_step=g0)
+    assert m.n_rad == 1 and abs(m.r - 5.4 / 1.1) < 1e-6
+    legacy = plan.measurement_from_steps_file(str(steps), 40, run_start, "r",
+                                                          "trajectory")
+    assert abs(legacy.r - 1.0) < 1e-6    # the bug: local #41 is a normal step

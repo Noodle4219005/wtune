@@ -1287,6 +1287,8 @@ def run_trajectory_points(ctx, points, best_config, nodes, run_start, stepra, ou
     if state != "COMPLETED":
         raise RuntimeError("C3 trajectory job %s ended in state %s (expected COMPLETED) -- "
                             "infrastructure failure, stop and diagnose read-only" % (job_id, state))
+    _n, _run_s, dt, _note = wtune_predict.get_d01_steps(
+        wtune_predict.parse_namelist(ctx.namelist_path))
     measurements = []
     for i, p in enumerate(points):
         rep = i + 1
@@ -1295,8 +1297,10 @@ def run_trajectory_points(ctx, points, best_config, nodes, run_start, stepra, ou
         if not os.path.exists(steps_path) or os.path.getsize(steps_path) == 0:
             raise RuntimeError("C3 trajectory job %s: %s missing/empty for point %s (rep %d)"
                                 % (job_id, steps_path, p.at.isoformat(), rep))
+        g0 = wtune_probe_plan.first_global_step_from_rsl(
+            os.path.join(rundir, "rsl.error.0000"), run_start, dt)
         measurements.append(wtune_probe_plan.measurement_from_steps_file(
-            steps_path, stepra, p.at, p.reason, p.source))
+            steps_path, stepra, p.at, p.reason, p.source, first_global_step=g0))
     return measurements, job_id
 
 

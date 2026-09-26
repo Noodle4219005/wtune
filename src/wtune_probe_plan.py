@@ -586,7 +586,22 @@ def build_spinup_writer_namelist_text(namelist_text, spinup_minutes, restart_io_
 # ---------------------------------------------------------------------------
 # trajectory/restart measurement extraction (steps.txt -> PointMeasurement)
 # ---------------------------------------------------------------------------
-def measurement_from_steps_file(path, stepra, at, reason, source):
+def first_global_step_from_rsl(rsl_path, run_start, dt):
+    """Global d01 step number of the FIRST 'Timing for main' line of a (restart-started) run:
+    the printed time is the END of that step, so g = (time - run_start) / dt. Needed because a
+    window that does not start on the radiation cycle (e.g. a restart at 20:02 with radt=10 min)
+    has its radiation steps at global g % stepra == 1, not at local i % stepra == 1 (C3 job 1231:
+    the 20:02 window's real radiation step was local #33; local #41 read r=0.995)."""
+    with open(rsl_path) as f:
+        for line in f:
+            if "Timing for main" in line:
+                t = datetime.datetime.strptime(line.split("time", 1)[1].split()[0],
+                                               "%Y-%m-%d_%H:%M:%S")
+                return int(round((t - run_start).total_seconds() / dt))
+    raise ProbePlanError("first_global_step_from_rsl: no 'Timing for main' line in %s" % rsl_path)
+
+
+def measurement_from_steps_file(path, stepra, at, reason, source, first_global_step=None):
     """Reads a strict_campaign.sbatch-produced steps.txt (one d01 'Timing for main' wall-clock
     seconds per line, in step order -- the SAME file configs.py step-stats/the RESULT line's
     med=/mean= are computed from) and returns a PointMeasurement.
@@ -604,14 +619,19 @@ def measurement_from_steps_file(path, stepra, at, reason, source):
     BOTH buckets entirely -- startup/restart-read overhead dominates it regardless of whether the
     schedule also computes radiation there -- matching wtune_predict.measure_rad_from_rsl's own
     convention. s_normal/r use the MEDIAN (robust to an occasional history-write step landing on
-    the same index), matching step_stats()'s and this task's diagnosis's own methodology."""
+    the same index), matching step_stats()'s and this task's diagnosis's own methodology.
+
+    first_global_step: when given (see first_global_step_from_rsl), radiation steps are located
+    by GLOBAL step number (g % stepra == 1) instead of the local index, which is only correct
+    for windows that start on the radiation cycle (t0, or a restart at a multiple of radt)."""
     with open(path) as f:
         wall = [float(x) for x in f if x.strip()]
+    g0 = 1 if first_global_step is None else int(first_global_step)
     normal, rad = [], []
     for i, w in enumerate(wall, start=1):
         if i == 1:
             continue
-        (rad if i % stepra == 1 else normal).append(w)
+        (rad if (g0 + i - 1) % stepra == 1 else normal).append(w)
     if not normal:
         raise ProbePlanError("measurement_from_steps_file: %s has no usable normal steps" % path)
     s_normal = statistics.median(normal)

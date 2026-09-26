@@ -1,0 +1,53 @@
+[workspace]
+name = "ai"
+description = "GPU env for ECMWF AIFS-single-1.0 inference on scc GH200 (aarch64, conda-forge pytorch-gpu). anemoi-inference + anemoi-models (Apache-2.0) load the ecmwf/aifs-single-1.0 checkpoint (weights CC BY 4.0); the pickled checkpoint needs flash_attn and the old anemoi-models/torch-geometric pins below. ERA5 ICs from the public ARCO-ERA5 zarr (key-free)."
+channels = ["conda-forge"]
+platforms = ["linux-aarch64", "linux-64"]
+version = "0.1.0"
+
+[system-requirements]
+cuda = "12.0"
+
+[dependencies]
+python = "3.11.*"
+# NOT pinned to torch==2.4.0 (ECMWF's own notebook version): that pin turned out to be
+# unnecessary (torch itself never appeared in any unpickling error, see anemoi-models /
+# torch-geometric pins below) and conflicts with conda-forge's linux-aarch64 flash-attn builds,
+# whose oldest available libtorch constraint is >=2.5.1. Let the solver pick the newest
+# aarch64+CUDA build instead.
+pytorch-gpu = "*"
+numpy = "*"
+scipy = "*"
+netcdf4 = "*"
+xarray = "*"
+zarr = "*"
+gcsfs = "*"
+eccodes = "*"
+requests = "*"
+pytest = "*"
+pyyaml = "*"
+earthkit-regrid = "*"
+# The checkpoint was pickled as a full nn.Module with attention_implementation=flash_attention,
+# so unpickling it literally needs the flash_attn module present (ModuleNotFoundError otherwise),
+# not merely "faster if installed" -- confirmed directly on scc. No PyPI wheel exists for
+# linux-aarch64 (PyPI only ships an sdist that needs an nvcc source build); conda-forge has
+# prebuilt linux-aarch64 CUDA builds, so use that instead of building from source.
+flash-attn = "*"
+
+[pypi-dependencies]
+# ecmwf/aifs-single-1.0's checkpoint file is a pickled torch.nn.Module (not a state_dict),
+# pickled against anemoi.models 0.3.1.dev30+g97c1577 (per the runner's own environment-validation
+# warning, observed directly on scc). Newer anemoi-models/anemoi-inference/torch-geometric all
+# reorganize internal module paths, which breaks unpickling outright:
+#   - torch_geometric >=2.5 moved Inspector from nn.conv.utils.inspector to a top-level module
+#     -> ModuleNotFoundError: torch_geometric.nn.conv.utils.inspector
+#   - anemoi-models >=~0.5 (current PyPI: 0.19.0) reorganized anemoi.models.layers
+#     -> ModuleNotFoundError: anemoi.models.layers.chunk
+# Pinning to the exact versions ECMWF's own run_AIFS_v1.ipynb uses for this checkpoint
+# (anemoi-inference==0.4.9, anemoi-models==0.3.1) is the fix; torch is left unpinned (see above).
+anemoi-inference = { version = "==0.4.9", extras = ["huggingface"] }
+anemoi-models = "==0.3.1"
+torch-geometric = "==2.4.0"
+
+[tasks]
+test = "python -m pytest -q tests/test_aifs_infer_contract.py"

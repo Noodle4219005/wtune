@@ -1890,9 +1890,10 @@ def build_prediction(namelist_path, case_dir, nodes, config, ledger_paths,
                + io_w * io_range["fast_total_s"] + init["total_s"])
         high = (compute["compute_total_s"] + compute_drift_abs_s
                 + io_w * io_range["slow_total_s"] + init["total_s"])
-        range_source = ("I/O: measured %.1f-%.1f MB/s write-rate bracket; "
-                        "compute: +-%.0f%% drift band (NOT VALIDATED)"
-                        % (io_low_mbps, io_high_mbps, drift_pct))
+        range_source = (("I/O: measured %.1f-%.1f MB/s write-rate bracket; "
+                         % (io_low_mbps, io_high_mbps) if io_w else
+                         "I/O excluded (--include-io adds it); ")
+                        + "compute: +-%.0f%% drift band (NOT VALIDATED)" % drift_pct)
     else:
         drift_abs_s = total_s * (drift_pct / 100.0)
         range_abs_s = math.sqrt(compute["noise_abs_s"] ** 2 + (io_w * io["noise_abs_s"]) ** 2

@@ -942,7 +942,8 @@ def choose_forcing_for_window(T, T_end, chain, probe_fn=None):
             if r["chosen_url"] is None:
                 checked0 = r["checked"][0] if r.get("checked") else {}
                 attempts = checked0.get("attempts") or [{"status": checked0.get("status")}]
-                first_missing = {"url": checked0.get("url"), "final_status": attempts[-1].get("status")}
+                first_missing = {"url": checked0.get("url"), "final_status": attempts[-1].get("status"),
+                                 "detail": attempts[-1].get("detail") or checked0.get("detail")}
                 break
         tried.append({"dataset": src.dataset, "ok": ok, "n_files": len(entries),
                       "missing": [r["filename"] for r in results if r["chosen_url"] is None],
@@ -1325,7 +1326,12 @@ def resolve_and_fetch_forcing(plan, plan_dir, cache_dir, grib_dir=None, keep_arc
                 if t.get("first_missing"):
                     first_missing = t["first_missing"]
                     break
-            detail = ("%s (final status %s)" % (first_missing["url"], first_missing["final_status"])
+            # status None means the probe itself raised (e.g. job 1231's driver ran in an env
+            # without `requests`); show the exception instead of implying the file is absent.
+            detail = ("%s (final status %s%s)" % (
+                first_missing["url"], first_missing["final_status"],
+                ("; probe error: %s" % first_missing["detail"])
+                if first_missing.get("final_status") is None and first_missing.get("detail") else "")
                       if first_missing and first_missing.get("url") else "none")
             raise ColdstartError(
                 "fetch: window %d [%s..%s]: no forcing source in the chain has every needed "

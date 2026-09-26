@@ -2822,5 +2822,61 @@ class TestRestartFrom(unittest.TestCase):
         self.assertNotIn("restart_interval = 1000000", out)
 
 
+class TestRestartTime(unittest.TestCase):
+    """case_start_datetime/cmd_restart_time -- the `configs.py restart-time CASE MINUTES` CLI
+    campaign/strict_campaign.sbatch's RANKING_START=spinup block calls once per job to compute
+    the --restart-from value every candidate's second edit-namelist pass uses (2026-09-26,
+    end-to-end wiring)."""
+
+    NL_TEXT = (
+        "&time_control\n"
+        " start_year = 2019, 2019, 2019,\n"
+        " start_month = 11, 11, 11,\n"
+        " start_day = 25, 25, 25,\n"
+        " start_hour = 12, 12, 12,\n"
+        "/\n"
+    )
+
+    def test_case_start_datetime_defaults_minute_second_to_zero(self):
+        import datetime
+        self.assertEqual(configs.case_start_datetime(self.NL_TEXT),
+                          datetime.datetime(2019, 11, 25, 12, 0, 0))
+
+    def test_case_start_datetime_reads_explicit_minute_second(self):
+        import datetime
+        text = self.NL_TEXT.replace(
+            " start_hour = 12, 12, 12,\n",
+            " start_hour = 12, 12, 12,\n start_minute = 30, 30, 30,\n"
+            " start_second = 15, 15, 15,\n")
+        self.assertEqual(configs.case_start_datetime(text),
+                          datetime.datetime(2019, 11, 25, 12, 30, 15))
+
+    def test_cmd_restart_time_prints_t0_plus_spinup(self):
+        import tempfile
+        tmpdir = tempfile.mkdtemp()
+        nl_path = os.path.join(tmpdir, "namelist.input")
+        with open(nl_path, "w") as f:
+            f.write(self.NL_TEXT)
+        configs.CASES["_test_restart_time_case"] = {"prep_dir": tmpdir}
+        try:
+            import io
+            import contextlib
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                rc = configs.main(["restart-time", "_test_restart_time_case", "90"])
+            self.assertEqual(rc, 0)
+            self.assertEqual(buf.getvalue().strip(), "2019-11-25_13:30:00")
+        finally:
+            del configs.CASES["_test_restart_time_case"]
+
+    def test_cmd_restart_time_unknown_case_is_an_error(self):
+        rc = configs.main(["restart-time", "_no_such_case_at_all", "60"])
+        self.assertEqual(rc, 2)
+
+    def test_cmd_restart_time_wrong_arg_count_is_an_error(self):
+        rc = configs.main(["restart-time", "onlyone"])
+        self.assertEqual(rc, 2)
+
+
 if __name__ == "__main__":
     unittest.main()

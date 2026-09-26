@@ -643,6 +643,30 @@ def _set_or_insert_time_control_scalar(text, key, value):
     return text[: eol + 1] + " %s=%s,\n" % (key, value) + text[eol + 1 :]
 
 
+def _get_scalar_first(text, key, default=None):
+    """First value of namelist key `key` (a comma-list's first entry, or a bare scalar) --
+    read-only counterpart to _set_scalar. Used by case_start_datetime for the RANKING-restart
+    spin-up (2026-09-26, end-to-end wiring): needs the case's own t0 to compute the shared
+    restart's absolute time (t0 + write_restart_interval minutes)."""
+    m = re.search(r"\b%s\b[ \t]*=[ \t]*([^,\n]*)" % re.escape(key), text)
+    if not m:
+        return default
+    return m.group(1).strip()
+
+
+def case_start_datetime(text):
+    """(datetime) from &time_control's start_year/month/day/hour/minute/second -- domain 1's
+    values (every domain in this campaign shares one simulated t0). minute/second default to 0
+    when absent, same convention as tools/coldstart_sample.py's own start-time readers."""
+    year = int(_get_scalar_first(text, "start_year"))
+    month = int(_get_scalar_first(text, "start_month"))
+    day = int(_get_scalar_first(text, "start_day"))
+    hour = int(_get_scalar_first(text, "start_hour", "0") or 0)
+    minute = int(_get_scalar_first(text, "start_minute", "0") or 0)
+    second = int(_get_scalar_first(text, "start_second", "0") or 0)
+    return datetime.datetime(year, month, day, hour, minute, second)
+
+
 def _apply_restart_from(text, restart_time, max_dom):
     """Overrides EVERY active domain's start_year/month/day/hour/minute/second to
     `restart_time` (a datetime) and forces restart='.true.' -- the per-domain rewrite
@@ -1375,6 +1399,27 @@ def cmd_case(case_id):
     return 0
 
 
+def cmd_restart_time(case_id, spinup_minutes):
+    """Prints (t0 + spinup_minutes), 'YYYY-MM-DD_HH:MM:SS' -- the RANKING-restart's absolute
+    time (2026-09-26, end-to-end wiring): campaign/strict_campaign.sbatch's RANKING_START=spinup
+    block calls this once per job (not per candidate) to get the --restart-from value every
+    candidate's second edit-namelist pass uses. t0 is read from the case's own namelist template
+    (case_start_datetime), same file edit_namelist itself edits -- so the reported time always
+    matches whatever this case's namelist actually starts at, even if cases.json's own metadata
+    (not read here) disagreed."""
+    case = CASES.get(case_id)
+    if case is None:
+        sys.stderr.write("unknown case %r\n" % case_id)
+        return 2
+    namelist_template = case.get("namelist_template") or (case["prep_dir"] + "/namelist.input")
+    with open(namelist_template) as f:
+        text = f.read()
+    start = case_start_datetime(text)
+    restart_time = start + datetime.timedelta(minutes=float(spinup_minutes))
+    print(restart_time.strftime("%Y-%m-%d_%H:%M:%S"))
+    return 0
+
+
 # ---------------------------------------------------------------------------
 # CONFIG_FILE: run a predictor/decomp_space.py-generated config set instead of
 # the fixed C01-C16 STRICT templates (WTune D1 decomposition-space work).
@@ -2035,6 +2080,11 @@ def main(argv=None):
         return cmd_physics_describe(argv[1:])
     if argv[0] == "fidelity-tokens":
         return cmd_fidelity_tokens(argv[1:])
+    if argv[0] == "restart-time":
+        if len(argv) != 3:
+            sys.stderr.write("usage: configs.py restart-time CASE_ID SPINUP_MINUTES\n")
+            return 2
+        return cmd_restart_time(argv[1], argv[2])
     assert_strict_compliance()
     if argv[0] == "decomp-pair":
         return cmd_decomp_pair(argv[1:])

@@ -937,6 +937,101 @@ if [ ${#ORDER[@]} -eq 0 ]; then
   echo "no configs resolved for case $CASE" >&2
   exit 1
 fi
+
+# ---------------------------------------------------------------------------
+# RANKING_START=spinup (2026-09-26, wtune probe multi-point redesign, wired end-to-end): every
+# candidate in the STRICT loop below starts from a SHARED WRF restart (t0+SPINUP_MIN) instead of
+# t0, so a short ranking probe lands in a representative (post-spin-up) part of the run instead
+# of the artificially-cheap cold-start ramp -- see wtune_probe_plan.py's module docstring and
+# configs.py's edit_namelist restart_from/write_restart_interval/restart_io_form params. Fully
+# opt-in via RANKING_START (default "t0"): unset/"t0" makes every line in this block and the
+# RESTART_ARGS append below UNREACHABLE, so a run with RANKING_START unset is byte-identical to
+# before this block existed (proof: `bash -n` plus a rendered-namelist diff, both run offline --
+# see this task's report). Only meaningful for MODE=timing and only for a CONFIG_FILE-driven run
+# (needs an ANCHOR row; the fixed STRICT C01-C16 templates have none).
+RANKING_START=${RANKING_START:-t0}
+case "$RANKING_START" in
+  t0|spinup) ;;
+  *) echo "RANKING_START must be 't0' or 'spinup', got '$RANKING_START'" >&2; exit 1 ;;
+esac
+SPINUP_MIN=${SPINUP_MIN:-60}
+RESTART_SRC_DIR=${RESTART_SRC_DIR:-}
+RANKING_SPINUP_OK=""
+RESTART_TIME=""
+ANCHOR_NAMELIST=""
+RESTART_ARGS=()
+
+physics_signature () {
+  # Stable, order-fixed extraction of the physics keys a restart-compat check cares about.
+  # STRICT compliance (compliance: strict) never varies physics across CONFIG_FILE-driven
+  # candidates in THIS loop today, so this check is not expected to ever trip here -- it exists
+  # as a safety net against a future NAMELIST_OVERRIDES/physics_template change that would make
+  # the anchor's restart file physically incompatible (a different restart variable set),
+  # per-candidate, without crashing the job (see the per-candidate use below).
+  local f="$1" k
+  for k in mp_physics cu_physics bl_pbl_physics sf_sfclay_physics sf_surface_physics \
+           ra_lw_physics ra_sw_physics; do
+    grep -oE "^[[:space:]]*${k}[[:space:]]*=[^,!]*" "$f" 2>/dev/null | head -1
+  done
+}
+
+if [ "$RANKING_START" = "spinup" ] && [ "$MODE" = "timing" ]; then
+  if [ -z "${CFG_RANKS[ANCHOR]:-}" ]; then
+    echo "ERROR: RANKING_START=spinup requires an ANCHOR config (CONFIG_FILE-driven run only)" >&2
+    exit 1
+  fi
+  if [ -n "$RESTART_SRC_DIR" ] && ls "$RESTART_SRC_DIR"/wrfrst_d0*_* >/dev/null 2>&1 \
+     && [ -f "$RESTART_SRC_DIR/namelist.input" ]; then
+    echo "RANKING_SPINUP: reusing existing restart at $RESTART_SRC_DIR"
+    RANKING_SPINUP_OK=1
+    ANCHOR_NAMELIST="$RESTART_SRC_DIR/namelist.input"
+  else
+    check_disk_guard "rankspinup"
+    A_RANKS=${CFG_RANKS[ANCHOR]}; A_OMP=${CFG_OMP[ANCHOR]}; A_NX=${CFG_NX[ANCHOR]}
+    A_NY=${CFG_NY[ANCHOR]}; A_NUMTILES=${CFG_NUMTILES[ANCHOR]}; A_DIST=${CFG_DIST[ANCHOR]}
+    A_BLOCKTIME=${CFG_BLOCKTIME[ANCHOR]}
+    A_NTASKS_PER_NODE=$(( A_RANKS / ALLOC_NODES ))
+    RESTART_SRC_DIR="$OUT/${CASE}_rankspinup_${J}"
+    rm -rf "$RESTART_SRC_DIR"; mkdir -p "$RESTART_SRC_DIR"; cd "$RESTART_SRC_DIR"
+    for f in "${INPUT_FILES_ARR[@]}"; do ln -sf "$PREP_DIR/$f" "$f"; done
+    link_wrf_inputs
+    link_thompson_tables
+    for f in "$W"/run/*; do
+      b=$(basename "$f")
+      case "$b" in namelist.input|wrfout*|wrfinput*|wrfbdy*|wrfrst*|rsl.*) ;;
+        *) [ -e "$b" ] || ln -sf "$f" "$b" ;; esac
+    done
+    cp "$NAMELIST_TEMPLATE" ./namelist.input.orig
+    python3 "$CAMPAIGN/configs.py" edit-namelist ./namelist.input.orig ./namelist.input \
+      --nproc-x "$A_NX" --nproc-y "$A_NY" --numtiles "$A_NUMTILES" \
+      --run-minutes "$SPINUP_MIN" --max-dom "$MAX_DOM" --history-mode off --ranks "$A_RANKS" \
+      --write-restart-interval "$SPINUP_MIN" --restart-io-form 2
+    rm -f ./namelist.input.orig
+    ln -sf "$W/main/wrf.exe" ./wrf.exe
+    configure_omp_env "$A_OMP" "$A_BLOCKTIME"
+    echo "RANKING_SPINUP: launching anchor spin-up (SPINUP_MIN=$SPINUP_MIN) in $RESTART_SRC_DIR"
+    site_launch "$A_RANKS" "$A_NTASKS_PER_NODE" "$A_OMP" "$A_DIST"
+    timeout "$TIMEOUT_S" "${SITE_LAUNCH_CMD[@]}" > wrf.out 2>&1 &
+    WRF_PID=$!
+    wait "$WRF_PID"
+    RANKING_SPINUP_RC=$?
+    WRF_PID=""
+    run_node_hygiene reap 60
+    if [ "$RANKING_SPINUP_RC" -ne 0 ] || ! ls wrfrst_d0*_* >/dev/null 2>&1; then
+      echo "WARNING: RANKING_SPINUP failed (rc=$RANKING_SPINUP_RC) or wrote no wrfrst_d0* -- RANKING_START=spinup disabled for this job, every candidate falls back to t0" >&2
+    else
+      echo "RANKING_SPINUP: OK, restart written in $RESTART_SRC_DIR"
+      RANKING_SPINUP_OK=1
+      ANCHOR_NAMELIST="$RESTART_SRC_DIR/namelist.input"
+    fi
+    cd "$OUT"
+  fi
+  if [ -n "$RANKING_SPINUP_OK" ]; then
+    RESTART_TIME=$(python3 "$CAMPAIGN/configs.py" restart-time "$CASE" "$SPINUP_MIN")
+    echo "RANKING_SPINUP: restart time = $RESTART_TIME"
+  fi
+fi
+
 declare -A REPCOUNT
 REF_NC=""
 REF_CONFIG=""
@@ -998,6 +1093,26 @@ for cid in "${ORDER[@]}"; do
     --history-mode "$HISTORY_MODE_ARG" --ranks "$ranks" \
     "${SET_ARGS[@]}" "${DELETE_ARGS[@]}" "${NEST_ARGS[@]}" "${TILE_ARGS[@]}"
   rm -f ./namelist.input.orig
+  # RANKING_START=spinup (see the setup block above): a SECOND, additive edit-namelist pass that
+  # re-points this candidate's namelist.input at the shared anchor restart -- never changes the
+  # FIRST pass above, so RANKING_START unset/"t0" leaves this candidate's rendered namelist
+  # byte-identical to before this feature existed (the block below is unreachable then).
+  if [ -n "$RANKING_SPINUP_OK" ]; then
+    if [ -n "$(diff <(physics_signature "$ANCHOR_NAMELIST") <(physics_signature ./namelist.input))" ]; then
+      echo "RESTART_COMPAT_FALLBACK cid=$cid reason=physics_mismatch -- starting from t0 instead of the shared restart"
+    else
+      ln -sf "$RESTART_SRC_DIR"/wrfrst_d0*_* .
+      cp ./namelist.input ./namelist.input.restart_orig
+      python3 "$CAMPAIGN/configs.py" edit-namelist ./namelist.input.restart_orig ./namelist.input \
+        --nproc-x "$nx" --nproc-y "$ny" --numtiles "$numtiles" \
+        --run-minutes "$MIN" --max-dom "$MAX_DOM" \
+        --history-mode "$HISTORY_MODE_ARG" --ranks "$ranks" \
+        "${SET_ARGS[@]}" "${DELETE_ARGS[@]}" "${NEST_ARGS[@]}" "${TILE_ARGS[@]}" \
+        --restart-from "$RESTART_TIME" --restart-io-form 2
+      rm -f ./namelist.input.restart_orig
+      echo "RANKING_START=spinup: cid=$cid starts from the shared restart at $RESTART_TIME"
+    fi
+  fi
   ln -sf "$W/main/wrf.exe" ./wrf.exe
 
   configure_omp_env "$omp" "$blocktime"

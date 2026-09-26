@@ -15,7 +15,7 @@ from scenario.base import ScenarioRequest, get_generator
 from scenario.generators.aifs import G, netcdf_to_records
 
 
-def _make_synthetic_nc(path):
+def _make_synthetic_nc(path, omit=()):
     ds = netCDF4.Dataset(path, "w")
     try:
         ds.createDimension("time", 1)
@@ -60,8 +60,9 @@ def _make_synthetic_nc(path):
         var_10v = ds.createVariable("10v", "f4", ("time", "lat", "lon"))
         var_10v[:] = np.full((1, 4, 5), -1.0, dtype=np.float32)
 
-        var_sp = ds.createVariable("sp", "f4", ("time", "lat", "lon"))
-        var_sp[:] = np.full((1, 4, 5), 101300.0, dtype=np.float32)
+        if "sp" not in omit:
+            var_sp = ds.createVariable("sp", "f4", ("time", "lat", "lon"))
+            var_sp[:] = np.full((1, 4, 5), 101300.0, dtype=np.float32)
 
         var_skt = ds.createVariable("skt", "f4", ("time", "lat", "lon"))
         var_skt[:] = np.full((1, 4, 5), 290.0, dtype=np.float32)
@@ -129,10 +130,32 @@ def test_aifs_generator_end_to_end_with_nc_paths(tmp_path):
     )
     forcing = gen.generate(req, nc_paths={valid_time: nc_path})
     assert len(forcing.files) == 1
+    # PSFC/PMSL are atmospheric state (fill.PRESSURE_GROUP): having PSFC (this synthetic file's
+    # "sp") is enough that generate() does not raise, but PMSL must still come out with NO fill
+    # rule -- fill may never supply either from the analog (real.exe derives one from the other).
+    # It stays in fields_missing (genuinely absent from the final output), just unfilled.
     assert "PMSL" in forcing.fields_missing
+    assert "PMSL" not in forcing.fill_rules
     assert "SOILHGT" in forcing.fields_missing
-    assert forcing.fill_rules["PMSL"] == "analog-era5"
     assert forcing.fill_rules["SOILHGT"] == "WPS_GEOG"
 
     recs = wi.read_fields(forcing.files[0])
     assert any(r.field == "TT" for r in recs)
+
+
+def test_aifs_generator_raises_when_both_psfc_and_pmsl_are_absent(tmp_path):
+    """Neither PSFC nor PMSL at all (fill.PRESSURE_GROUP entirely absent) is a real capability
+    gap -- fill may not supply either from the analog, so this must raise, not silently fill."""
+    from scenario.base import ScenarioError
+
+    nc_path = tmp_path / "synthetic_no_pressure.nc"
+    _make_synthetic_nc(nc_path, omit=("sp",))
+
+    gen = get_generator("aifs")
+    valid_time = datetime.datetime(2031, 7, 15, 0)
+    req = ScenarioRequest(
+        bbox=(15.0, 35.0, -8.0, 8.0), start=valid_time, end=valid_time, interval_h=6,
+        out_dir=tmp_path / "out",
+    )
+    with pytest.raises(ScenarioError, match="PSFC/PMSL"):
+        gen.generate(req, nc_paths={valid_time: nc_path})

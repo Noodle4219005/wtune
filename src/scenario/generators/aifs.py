@@ -255,7 +255,8 @@ class AifsGenerator(ScenarioGenerator):
 
         fields_present = sorted(set(ALL_FIELDS) - seen_missing)
         cropped_caps = dataclasses.replace(self.capabilities(), fields=tuple(fields_present))
-        analog_missing, fill_rules = scenario_fill.compute_missing(cropped_caps)
+        analog_missing, fill_rules = scenario_fill.compute_missing(cropped_caps,
+                                                                     generator_name=self.name)
         fields_missing = sorted(set(seen_missing) | set(analog_missing))
 
         if analog_generator is not None and analog_missing:

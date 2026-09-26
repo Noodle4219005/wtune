@@ -28,25 +28,40 @@ def _parse_iso(s: str) -> datetime.datetime:
     return datetime.datetime.fromisoformat(s)
 
 
-def _interval_h_from_case(case_dir) -> float:
-    """Hours between forcing times, read from the case's own namelist.wps &share.interval_seconds
-    -- SAME field and parse path as tools/metdata.py's resolve_wps_times() (parse_namelist() +
-    first_value()), so a case's forcing cadence means one thing across both tools. 21600s (6h,
-    WPS's own conventional default) when namelist.wps is absent under case_dir or unparseable,
-    matching that module's own fallback."""
+def _interval_h_from_case(case_dir):
+    """(interval_h, source): hours between forcing times, and which file it came from. Tries the
+    case's own namelist.wps &share.interval_seconds first -- SAME field and parse path as
+    tools/metdata.py's resolve_wps_times() (parse_namelist() + first_value()), so a case's forcing
+    cadence means one thing across both tools. Falls back to namelist.input's own
+    &time_control.interval_seconds (the field real.exe/wrf.exe themselves enforce for boundary
+    reads) when namelist.wps is absent -- most user cases ship only namelist.input, not a
+    namelist.wps. 21600s (6h, WPS's own conventional default) when neither file exists under
+    case_dir or has a usable interval_seconds."""
     import wtune_cli as wt
 
     wps_path = Path(case_dir) / "namelist.wps"
-    interval_s = 21600
     if wps_path.exists():
         try:
             nlw = wt.parse_namelist(str(wps_path))
             share = nlw.get("share", {})
             if "interval_seconds" in share:
                 interval_s = int(float(wt.first_value(share["interval_seconds"])))
+                return interval_s / 3600.0, "%s (&share.interval_seconds)" % wps_path
         except Exception:
             pass
-    return interval_s / 3600.0
+
+    input_path = Path(case_dir) / "namelist.input"
+    if input_path.exists():
+        try:
+            nlw = wt.parse_namelist(str(input_path))
+            time_control = nlw.get("time_control", {})
+            if "interval_seconds" in time_control:
+                interval_s = int(float(wt.first_value(time_control["interval_seconds"])))
+                return interval_s / 3600.0, "%s (&time_control.interval_seconds)" % input_path
+        except Exception:
+            pass
+
+    return 21600 / 3600.0, "default (no namelist.wps/namelist.input interval_seconds under %s)" % case_dir
 
 
 def _resolve_interval_h(args, caps):
@@ -60,21 +75,21 @@ def _resolve_interval_h(args, caps):
         requested_h = float(args.interval_h)
         source = "--interval-h"
     elif args.case_dir is not None:
-        requested_h = _interval_h_from_case(args.case_dir)
-        source = "%s/namelist.wps" % args.case_dir
+        requested_h, source = _interval_h_from_case(args.case_dir)
     else:
         requested_h = 6.0
         source = "default (no --interval-h, no --case-dir)"
 
     used_h = requested_h
     coarsened = None
-    note = None
     if caps.min_interval_h > requested_h:
         used_h = float(caps.min_interval_h)
         coarsened = {"requested_h": requested_h, "used_h": used_h}
-        note = ("scenario generate: %r's min_interval_h=%gh is coarser than the %gh requested "
-                 "(from %s) -- coarsening to %gh, NOT interpolating in time"
-                 % (args.generator, used_h, requested_h, source, used_h))
+        note = ("scenario generate: interval %gh from %s; %r's min_interval_h=%gh is coarser "
+                 "-- coarsening to %gh, NOT interpolating in time"
+                 % (requested_h, source, args.generator, used_h, used_h))
+    else:
+        note = "scenario generate: interval %gh from %s" % (requested_h, source)
     return used_h, note, coarsened
 
 
@@ -112,7 +127,7 @@ def cmd_generate(args) -> int:
 
     if args.dry_run:
         analog_date_chosen = req.analog_date or select_analog_date(req.start)
-        missing, fill_rules = compute_missing(caps)
+        missing, fill_rules = compute_missing(caps, generator_name=args.generator)
         times = valid_times(req)
         print("generator: %s (license: %s)" % (args.generator, caps.license))
         print("analog date: %s" % analog_date_chosen.isoformat())

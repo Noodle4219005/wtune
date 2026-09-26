@@ -92,6 +92,28 @@ def test_interval_h_derived_from_case_namelist(tmp_path, monkeypatch, capsys):
     assert "files expected: 3" in out
 
 
+def test_interval_h_falls_back_to_namelist_input_when_no_namelist_wps(tmp_path, monkeypatch, capsys):
+    # most user cases ship only namelist.input, not a namelist.wps.
+    case_dir = tmp_path / "case"
+    case_dir.mkdir()
+    (case_dir / "namelist.input").write_text("&time_control\n interval_seconds = 10800,\n/\n")
+    monkeypatch.setattr(scenario_cli, "select_analog_date",
+                         lambda start, **kw: datetime.datetime(2025, 8, 29, 12))
+
+    rc = scenario_cli.main([
+        "generate", "--generator", "analog",
+        "--start", "2031-07-15T00:00:00", "--end", "2031-07-15T06:00:00",
+        "--bbox", "30,40,-110,-100", "--out", str(tmp_path / "out"),
+        "--case-dir", str(case_dir), "--dry-run",
+    ])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "interval_h: 3 (interval_seconds=10800)" in out
+    assert "namelist.input" in out
+    assert "&time_control.interval_seconds" in out
+    assert "files expected: 3" in out
+
+
 def test_interval_h_explicit_flag_wins_over_case_dir(tmp_path, monkeypatch, capsys):
     case_dir = _case_dir_with_interval(tmp_path, 10800)
     monkeypatch.setattr(scenario_cli, "select_analog_date",

@@ -53,3 +53,19 @@ def test_spinup_minutes_never_contains_a_comma_inside_export():
 def test_spinup_minutes_with_comma_is_refused():
     with pytest.raises(ValueError, match="sbatch --export"):
         _cmd("60,122")
+
+
+def test_adios2_restart_xml_selects_bp4_for_every_domain(tmp_path):
+    # WRF's ADIOS2 reader inquires Times without BeginStep; BP5 (default) fails there (job 1273).
+    text = SBATCH.read_text()
+    fn = re.search(r"(write_adios2_restart_xml\(\) \{.*?\n\})", text, re.S).group(1)
+    script = ("RANKING_RESTART_IO_FORM=14\n" + fn +
+              "\nwrite_adios2_restart_xml %s 2019-11-26_19:00:00 3\n" % tmp_path)
+    subprocess.run(["bash", "-c", script], check=True)
+    xml = (tmp_path / "adios2.xml").read_text()
+    for d in (1, 2, 3):
+        assert '<io name="wrfrst_d%02d_2019-11-26_19:00:00">' % d in xml
+    assert xml.count('<engine type="BP4"/>') == 3
+    subprocess.run(["bash", "-c", script.replace("=14\n", "=2\n").replace(str(tmp_path), str(tmp_path / "n"))],
+                   check=True)
+    assert not (tmp_path / "n" / "adios2.xml").exists()

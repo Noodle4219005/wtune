@@ -984,6 +984,25 @@ case "$RANKING_START" in
   *) echo "RANKING_START must be 't0' or 'spinup', got '$RANKING_START'" >&2; exit 1 ;;
 esac
 SPINUP_MIN=${SPINUP_MIN:-60}
+# Restart format for the ranking spin-up -> candidate handoff. 14 = ADIOS2 BP (parallel; 11.5 GB
+# conus25 restart took 324 s to write / 120 s to read as serial netCDF, job 1231), with
+# adios2_numaggregators = rank count set by configs.py _apply_adios2 (a smaller value corrupts the
+# heap on read after a rank-placement change, wiki adios2-numaggregators-below-node-count-...).
+# 2 = serial netCDF (the pre-2026-09-27 behaviour).
+RANKING_RESTART_IO_FORM=${RANKING_RESTART_IO_FORM:-14}
+case "$RANKING_RESTART_IO_FORM" in 2|14) ;; *) echo "RANKING_RESTART_IO_FORM must be 2 or 14" >&2; exit 1 ;; esac
+# WRF's ADIOS2 reader opens with adios2_mode_read and inquires Times without BeginStep; with the
+# default BP5 engine that is a streaming read and the inquiry fails (job 1273: "adios2 error in
+# ext_adios2_open_for_read_begin"). BP4 keeps file-mode reads working. WRF picks up ./adios2.xml
+# at init (io_adios2/wrf_io.F90), so the engine is chosen per restart file there -- no code change.
+write_adios2_restart_xml() {  # dir restart_time max_dom
+  [ "$RANKING_RESTART_IO_FORM" = 14 ] || return 0
+  { echo '<?xml version="1.0"?>'; echo '<adios-config>'
+    for d in $(seq 1 "$3"); do
+      printf '  <io name="wrfrst_d%02d_%s">\n    <engine type="BP4"/>\n  </io>\n' "$d" "$2"
+    done
+    echo '</adios-config>'; } > "$1/adios2.xml"
+}
 SPINUP_MINUTES=${SPINUP_MINUTES:-$SPINUP_MIN}
 # ':' separated (',' also accepted): a ',' inside a value collides with sbatch --export's own
 # KEY=VAL,KEY=VAL syntax, which silently truncated 60,122 to 60 in job 1225.
@@ -1046,8 +1065,9 @@ if [ "$RANKING_START" = "spinup" ] && [ "$MODE" = "timing" ]; then
       python3 "$CAMPAIGN/configs.py" edit-namelist ./namelist.input.orig ./namelist.input \
         --nproc-x "$A_NX" --nproc-y "$A_NY" --numtiles "$A_NUMTILES" \
         --run-minutes "$M" --max-dom "$MAX_DOM" --history-mode off --ranks "$A_RANKS" \
-        --write-restart-interval "$M" --restart-io-form 2
+        --write-restart-interval "$M" --restart-io-form "$RANKING_RESTART_IO_FORM"
       rm -f ./namelist.input.orig
+      write_adios2_restart_xml "$SRC_DIR" "$(python3 "$CAMPAIGN/configs.py" restart-time "$CASE" "$M")" "$MAX_DOM"
       ln -sf "$W/main/wrf.exe" ./wrf.exe
       configure_omp_env "$A_OMP" "$A_BLOCKTIME"
       echo "RANKING_SPINUP[m=$M]: launching anchor spin-up in $SRC_DIR"
@@ -1157,13 +1177,14 @@ for cid in "${ORDER[@]}"; do
       echo "RESTART_COMPAT_FALLBACK cid=$cid reason=physics_mismatch -- starting from t0 instead of the shared restart"
     else
       ln -sf "$RESTART_SRC_DIR"/wrfrst_d0*_* .
+      write_adios2_restart_xml . "$RESTART_TIME" "$MAX_DOM"
       cp ./namelist.input ./namelist.input.restart_orig
       python3 "$CAMPAIGN/configs.py" edit-namelist ./namelist.input.restart_orig ./namelist.input \
         --nproc-x "$nx" --nproc-y "$ny" --numtiles "$numtiles" \
         --run-minutes "$MIN" --max-dom "$MAX_DOM" \
         --history-mode "$HISTORY_MODE_ARG" --ranks "$ranks" \
         "${SET_ARGS[@]}" "${DELETE_ARGS[@]}" "${NEST_ARGS[@]}" "${TILE_ARGS[@]}" \
-        --restart-from "$RESTART_TIME" --restart-io-form 2
+        --restart-from "$RESTART_TIME" --restart-io-form "$RANKING_RESTART_IO_FORM"
       rm -f ./namelist.input.restart_orig
       echo "RANKING_START=spinup: cid=$cid starts from the shared restart at $RESTART_TIME"
     fi

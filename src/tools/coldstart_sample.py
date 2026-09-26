@@ -896,11 +896,72 @@ def expected_met_em_files(max_dom, T, T_end, interval_seconds):
 # realignment; metdata.py owns URL construction and the HTTP probe.
 # ---------------------------------------------------------------------------
 
+ERA5_DATASET = "era5_arco"
+
+
+def _era5_source():
+    """ERA5 from the public ARCO store, written straight to WPS intermediate files (no GRIB, no
+    ungrib) by tools/era5_intermediate.py -- hourly, with cloud water/ice (and rain/snow from the
+    137-level store when WTUNE_ERA5_RAIN_SNOW=1), so a rebuild segment starts with clouds
+    (decision 0054 phase 3). Only reachable through an explicit forcing pin."""
+    md_mod = _metdata()
+    return md_mod.ForcingSource("arco-gcs", ERA5_DATASET, "era5-0p25", 0.25, "wps-intermediate",
+                                1, "reanalysis", "none", "ERA5",
+                                datetime.datetime(1940, 1, 1), None, lambda dt, host=None: [])
+
+
 def _forcing_sources_by_dataset():
     md_mod = _metdata()
-    return {s.dataset: s for s in (md_mod.SRC_NOMADS_WPS, md_mod.SRC_AWS_WPS,
+    srcs = {s.dataset: s for s in (md_mod.SRC_NOMADS_WPS, md_mod.SRC_AWS_WPS,
                                    md_mod.SRC_RDA_D084001, md_mod.SRC_NCEI_G4, md_mod.SRC_NCEI_G3,
                                    md_mod.SRC_FNL, md_mod.SRC_CFSR)}
+    srcs[ERA5_DATASET] = _era5_source()
+    return srcs
+
+
+def _d01_bbox_from_case(case_dir):
+    """(lat_min, lat_max, lon_min, lon_max) of the case's own wrfinput_d01 grid."""
+    import netCDF4
+    with netCDF4.Dataset(os.path.join(case_dir, "wrfinput_d01")) as d:
+        lat, lon = d["XLAT"][0], d["XLONG"][0]
+        return (float(lat.min()), float(lat.max()), float(lon.min()), float(lon.max()))
+
+
+def _fetch_era5_intermediate(plan, plan_dir, runner=None):
+    """fetch for the ERA5 pin: write ERA5:<time> intermediate files for every hourly valid time
+    of every window into PLAN/wps via the envs/ai interpreter (xarray/zarr/gcsfs live there)."""
+    src = _era5_source()
+    times = sorted({t for w in plan["windows"]
+                    for t in window_valid_times(datetime.datetime.strptime(w["t"], _WRF_TIME_FMT),
+                                                datetime.datetime.strptime(w["t_end"], _WRF_TIME_FMT),
+                                                3600)})
+    bbox = _d01_bbox_from_case(plan["case_dir"])
+    wps_dir = os.path.join(plan_dir, "wps")
+    os.makedirs(wps_dir, exist_ok=True)
+    repo = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    ai_python = os.environ.get("WTUNE_AI_PYTHON",
+                               os.path.join(repo, "envs", "ai", ".pixi", "envs", "default", "bin", "python"))
+    cmd = [ai_python, os.path.join(repo, "src", "tools", "era5_intermediate.py"),
+           "--bbox", ",".join("%.3f" % v for v in bbox),
+           "--times", ",".join(t.strftime("%Y-%m-%d_%H") for t in times),
+           "--out", wps_dir, "--prefix", src.prefix]
+    if os.environ.get("WTUNE_ERA5_RAIN_SNOW") == "1":
+        cmd.append("--rain-snow")
+    (runner or (lambda c: subprocess.run(c, check=True)))(cmd)
+    names = ["%s:%s" % (src.prefix, t.strftime("%Y-%m-%d_%H")) for t in times]
+    missing = [n for n in names if not os.path.exists(os.path.join(wps_dir, n))]
+    if missing:
+        raise ColdstartError("fetch: ERA5 intermediate files missing after generation: %s"
+                             % ", ".join(missing))
+    total_bytes = sum(os.path.getsize(os.path.join(wps_dir, n)) for n in names)
+    windows_out = [{"win": k, "chosen": src.to_dict(), "candidates_tried": []}
+                   for k in range(len(plan["windows"]))]
+    forcing = {"windows": windows_out, "files": names, "intermediate": True}
+    with open(os.path.join(plan_dir, "forcing.json"), "w") as f:
+        json.dump(forcing, f, indent=2)
+    open(os.path.join(plan_dir, "grib_manifest.txt"), "w").close()
+    print("fetched %d bytes of ERA5 intermediate files (%d valid times)" % (total_bytes, len(names)))
+    return total_bytes, forcing
 
 
 def resolve_forcing_chain_for(valid_dt, grib_dir=None, forcing_pin=None, now=None):
@@ -1306,6 +1367,8 @@ def resolve_and_fetch_forcing(plan, plan_dir, cache_dir, grib_dir=None, keep_arc
     actually fetched. Writes PLAN_DIR/forcing.json. Returns (total_bytes, forcing_dict)."""
     os.makedirs(cache_dir, exist_ok=True)
     forcing_pin = plan.get("forcing_pin")
+    if forcing_pin == ERA5_DATASET:
+        return _fetch_era5_intermediate(plan, plan_dir)
     window_interval_s = plan.get("window_interval_seconds")
     windows_out = []
     all_paths = set()   # dedup across windows -- see _download_forcing_for_window's docstring
@@ -1670,8 +1733,9 @@ def build_wrf_window_namelist_text(real_namelist_text, T, win_steps, dt_seconds,
     if count_key(text0, "restart_interval"):
         txt = set_list(txt, "restart_interval", 999999, 1)
     history_keys = sorted(set(m.group(1).lower() for m in _HISTORY_KEY_RE.finditer(text0)))
+    # 0 = history off. A huge interval still writes the t0 frame (job 1238: 68 s for 2.3 GB).
     for hk in history_keys:
-        txt = set_list(txt, hk, 999999, ndom)
+        txt = set_list(txt, hk, 0, ndom)
     # The decomposition is what is being measured, so it is written even when the case's own
     # namelist omits it (conus25 has no nproc_x/nproc_y/numtiles: C3 job 1237's rebuild window
     # silently ran WRF's default decomposition, +21% per step vs the G0014 truth).
@@ -2243,9 +2307,20 @@ def render_run_sbatch(plan, site="scc", per_window_estimate_min=15, wps_estimate
     max_dom = plan.get("max_dom", 1)
     geo_em_expected = ["geo_em.d%02d.nc" % d for d in range(1, max_dom + 1)]
     lines.append("cd \"$PLAN/wps\"")
+    # geo_em depends only on the &geogrid/&share domain definition and the static data, never on
+    # the date: cache it per domain (rebuild job 1238: geogrid was 62 of 845 s, repeated per point).
+    lines.append("GEO_CACHE=\"${WTUNE_GEO_CACHE:-$HOME/wtune-runs/geo_cache}/$(sed -n '/&share/,/^\\//p;/&geogrid/,/^\\//p' namelist.wps | grep -vE 'start_date|end_date|interval_seconds' | sha1sum | cut -c1-16)\"")
+    lines.append("GEO_CACHED=1; for f in %s; do [ -s \"$GEO_CACHE/$f\" ] || GEO_CACHED=0; done"
+                 % " ".join(geo_em_expected))
+    lines.append("if [ $GEO_CACHED = 1 ]; then")
+    lines.append("  echo \"=== geogrid: cached $GEO_CACHE ($(date -u +%FT%TZ)) ===\"")
+    lines.append("  for f in %s; do ln -sf \"$GEO_CACHE/$f\" .; done" % " ".join(geo_em_expected))
+    lines.append("  echo 'Successful completion of geogrid (cached)' > geogrid.log.cached; rc=0")
+    lines.append("else")
     lines.append("echo \"=== geogrid.exe ($(date -u +%FT%TZ)) ===\"")
     lines.append("mpirun -np %d --map-by ppr:%d:node:PE=1 --bind-to core ./geogrid.exe" % (ppn, ppn))
     lines.append("rc=$?; pkill -u \"$USER\" -x geogrid.exe 2>/dev/null")
+    lines.append("fi")
     # geogrid.exe MPI_Abort()s with errorcode 0 on a missing GEOGRID.TBL (jobs 941/942,
     # 2026-09-24), so mpirun's own rc alone does NOT catch that failure -- also require every
     # geo_em.d0N.nc (N=1..max_dom) to exist and the log to say 'Successful completion'.
@@ -2256,7 +2331,14 @@ def render_run_sbatch(plan, site="scc", per_window_estimate_min=15, wps_estimate
                   "|| ! grep -q 'Successful completion' geogrid.log* 2>/dev/null; then")
     lines.append("  echo \"FATAL geogrid rc=$rc missing=${GEO_EM_MISSING[*]:-none}\"; exit 1")
     lines.append("fi")
+    lines.append("if [ $GEO_CACHED = 0 ]; then mkdir -p \"$GEO_CACHE\" && cp -f %s \"$GEO_CACHE/\" 2>/dev/null; fi"
+                 % " ".join(geo_em_expected))
     lines.append("")
+    all_intermediate = bool(per_window_forcing) and all(
+        f.get("vtable") == "none" for f in per_window_forcing)
+    if all_intermediate:
+        lines.append("echo \"=== link_grib.csh: skipped (intermediate forcing) ===\"")
+    lines.append("if [ %d = 0 ]; then" % int(all_intermediate))
     lines.append("echo \"=== link_grib.csh ($(date -u +%FT%TZ)) ===\"")
     lines.append("rm -f GRIBFILE.*")
     # T9 (2026-09-24): link exactly what `fetch` wrote (grib_manifest.txt, written by
@@ -2277,6 +2359,7 @@ def render_run_sbatch(plan, site="scc", per_window_estimate_min=15, wps_estimate
     lines.append("fi")
     lines.append("./link_grib.csh \"${GRIB_FILES[@]}\"")
     lines.append("[ $? -ne 0 ] && { echo \"FATAL link_grib.csh failed\"; exit 1; }")
+    lines.append("fi")
     lines.append("")
 
     lines.append("run_window() {")
@@ -2309,11 +2392,15 @@ def render_run_sbatch(plan, site="scc", per_window_estimate_min=15, wps_estimate
     # Vtable.GFS/Vtable.CFSR were symlinked into $PLAN/wps by their real names at stage time
     # (from $WPS_DIR/ungrib/Variable_Tables); relink the generic 'Vtable' ungrib itself reads to
     # whichever this window's chosen forcing source actually needs.
+    # vtable "none": the intermediate files were written directly at fetch time (ERA5 pin).
+    lines.append("  if [ \"$vtable\" = none ]; then rc=0")
+    lines.append("  else")
     lines.append("  if [ -e \"$vtable\" ]; then ln -sf \"$vtable\" Vtable")
     lines.append("  else echo \"window $k: $vtable not staged in $PLAN/wps (is \\$WPS_DIR set?)\" >&2; return 1; fi")
     lines.append("  rm -f \"${prefix}:\"*")
     lines.append("  ./ungrib.exe")
     lines.append("  rc=$?; pkill -u \"$USER\" -x ungrib.exe 2>/dev/null")
+    lines.append("  fi")
     lines.append("  for f in \"${expected[@]}\"; do [ -f \"$f\" ] || missing+=(\"$f\"); done")
     lines.append("  if [ $rc -ne 0 ] || [ ${#missing[@]} -gt 0 ]; then")
     lines.append("    echo \"window $k: ungrib rc=$rc missing=${missing[*]:-none}\" >&2; return 1")
@@ -2401,6 +2488,11 @@ def render_run_sbatch(plan, site="scc", per_window_estimate_min=15, wps_estimate
         lines.append("  ln -sf ../real/wrfbdy_d01 .")
         lines.append("  shopt -s nullglob; WRFLOWINP=(../real/wrflowinp_d0*); shopt -u nullglob")
         lines.append("  [ ${#WRFLOWINP[@]} -gt 0 ] && ln -sf ../real/wrflowinp_d0* .")
+        # Thompson computes qr_acr_q*/freezeH2O tables at init when absent (job 1238: ~70 s of
+        # the first step). They depend only on the WRF build: cache per build.
+        lines.append("  TBL_CACHE=\"${WTUNE_TABLE_CACHE:-$HOME/wtune-runs/thompson_tables}/$(readlink -f \"$WRF_TREE/main/wrf.exe\" | sha1sum | cut -c1-16)\"")
+        lines.append("  shopt -s nullglob; for f in \"$TBL_CACHE\"/qr_acr_q*.dat \"$TBL_CACHE\"/freezeH2O.dat; do "
+                     "[ -e \"$(basename \"$f\")\" ] || ln -s \"$f\" .; done; shopt -u nullglob")
         lines.append("  python3 \"$TOOL\" fix-wrf-namelist --plan \"$PLAN\" --win \"$k\" "
                       "--nproc-x %d --nproc-y %d --numtiles %d || return 1" % (nx, ny, numtiles))
         # OMP_NUM_THREADS/OMP_PLACES/OMP_PROC_BIND for the ACTUAL timed run must match the
@@ -2415,6 +2507,9 @@ def render_run_sbatch(plan, site="scc", per_window_estimate_min=15, wps_estimate
         lines.append("  rc=$?; WRF_PID=\"\"")
         lines.append("  pkill -u \"$USER\" -x wrf.exe 2>/dev/null")
         lines.append("  [ $rc -ne 0 ] && return 1")
+        lines.append("  shopt -s nullglob; TBLS=(qr_acr_q*.dat freezeH2O.dat); shopt -u nullglob")
+        lines.append("  for f in \"${TBLS[@]}\"; do [ -L \"$f\" ] || { mkdir -p \"$TBL_CACHE\" && "
+                     "[ -e \"$TBL_CACHE/$f\" ] || cp -f \"$f\" \"$TBL_CACHE/\"; }; done")
         lines.append("  LAST_WRF_STATUS=\"ok\"")
         lines.append("  return 0")
     lines.append("}")

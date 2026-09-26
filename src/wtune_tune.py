@@ -1305,7 +1305,7 @@ def run_trajectory_points(ctx, points, best_config, nodes, run_start, stepra, ou
 
 
 def run_rebuild_points(ctx, points, best_config, nodes, case_dir, out_dir, run_start,
-                       spinup_min=60, grib_dir=None, date_shift_to=None):
+                       spinup_min=60, grib_dir=None, date_shift_to=None, forcing=None):
     """Measures every rebuild-sourced ProbePoint of `points` in ONE coldstart_sample job: plans
     (wtune_probe_plan.plan_rebuild_segments -- one build_plan(times=[...]) call covering every
     point, pinning each one's forcing-grid START T recovered from its already-resolved measured
@@ -1329,36 +1329,55 @@ def run_rebuild_points(ctx, points, best_config, nodes, case_dir, out_dir, run_s
     infrastructure failure -- never silently drops a point."""
     if not points:
         return []
+    missing_env = [v for v in ("WPS_DIR", "WRF_TREE") if not os.environ.get(v)]
+    if missing_env:
+        # job 1236: staged without these, the window dirs had no geogrid/wrf executables and the
+        # job died in 3 s. Fail before submitting instead.
+        raise RuntimeError("run_rebuild_points: %s not set -- source the site env (e.g. "
+                           "~/wtune-scc/env.sh) before running the driver" % ", ".join(missing_env))
     config = dict(ranks=best_config["ranks"], omp=best_config["omp"], nx=best_config["nx"],
                   ny=best_config["ny"], numtiles=best_config.get("numtiles", 1), nodes=nodes)
-    plan = wtune_probe_plan.plan_rebuild_segments(
-        case_dir, points, config, out_dir, spinup_min=spinup_min, date_shift_to=date_shift_to,
-        grib_dir=grib_dir)
+    # One plan dir and one job PER POINT, all submitted before waiting: the segments are
+    # independent, so the wall time is that of the slowest segment rather than their sum
+    # (decision 0054). They cannot share one job's $PLAN/wps (ungrib/metgrid of different
+    # windows would overwrite each other's FILE:/met_em files). Forcing is fetched once into a
+    # shared cache; geogrid and the Thompson tables come from the run.sbatch caches.
     cache_dir = os.path.join(out_dir, "grib")
-    total_bytes, forcing = coldstart.resolve_and_fetch_forcing(plan, out_dir, cache_dir,
-                                                                grib_dir=grib_dir)
-    print("C3 rebuild: fetched %.1f MB forcing for %d point(s)" % (total_bytes / 1e6, len(points)))
-    sbatch_path = coldstart.stage_plan(out_dir, site="scc")
-    job_id = sweep.submit_job("sbatch %s" % sbatch_path, sbatch_runner=ctx.sbatch_runner)
-    ctx.owned_jobs.append(job_id)
-    print("C3 rebuild job submitted: %s (%s)" % (job_id, sbatch_path))
-    states = wait_for_jobs(ctx, [job_id], "c3-rebuild")
-    state = states.get(job_id, ("UNKNOWN", ""))[0]
-    if state != "COMPLETED":
-        raise RuntimeError("C3 rebuild job %s ended in state %s (expected COMPLETED) -- "
-                            "infrastructure failure, stop and diagnose read-only" % (job_id, state))
-    plan["_plan_dir"] = out_dir
+    plans, job_ids = [], []
+    for i, p in enumerate(points):
+        pdir = os.path.join(out_dir, "pt_%d" % i)
+        plan = wtune_probe_plan.plan_rebuild_segments(
+            case_dir, [p], config, pdir, spinup_min=spinup_min, date_shift_to=date_shift_to,
+            grib_dir=grib_dir, forcing=forcing)
+        total_bytes, _forcing = coldstart.resolve_and_fetch_forcing(plan, pdir, cache_dir,
+                                                                     grib_dir=grib_dir)
+        print("C3 rebuild point %d (%s): fetched %.1f MB forcing"
+              % (i, p.at.isoformat(), total_bytes / 1e6))
+        sbatch_path = coldstart.stage_plan(pdir, site="scc")
+        job_id = sweep.submit_job("sbatch %s" % sbatch_path, sbatch_runner=ctx.sbatch_runner)
+        ctx.owned_jobs.append(job_id)
+        print("C3 rebuild job submitted: %s (%s)" % (job_id, sbatch_path))
+        plan["_plan_dir"] = pdir
+        plans.append(plan)
+        job_ids.append(job_id)
+    states = wait_for_jobs(ctx, job_ids, "c3-rebuild")
+    bad = {j: states.get(j, ("UNKNOWN", ""))[0] for j in job_ids
+           if states.get(j, ("UNKNOWN", ""))[0] != "COMPLETED"}
+    if bad:
+        raise RuntimeError("C3 rebuild job(s) %s not COMPLETED -- infrastructure failure, stop "
+                           "and diagnose read-only" % bad)
     sample_points, _geom_src = wtune_predict.read_wrfinput_sample_points(case_dir)
     calibration = wtune_predict.load_calibration(str(wtune_predict.DEFAULT_CALIBRATION))
-    windows_out, _pooled, anchors = coldstart.score_windows_from_rsl(plan, sample_points,
-                                                                      calibration)
     measurements = []
-    for w, (anchor_s, _s_k) in zip(windows_out, anchors):
-        at = run_start + datetime.timedelta(seconds=anchor_s)
-        measurements.append(wtune_probe_plan.PointMeasurement(
-            at=at, reason=w["reason"], source="rebuild", s_normal=w["s_k"], n_rad=w["n_rad"],
-            r=w["r_local"]))
-    return measurements, job_id
+    for plan in plans:
+        windows_out, _pooled, anchors = coldstart.score_windows_from_rsl(plan, sample_points,
+                                                                          calibration)
+        for w, (anchor_s, _s_k) in zip(windows_out, anchors):
+            at = run_start + datetime.timedelta(seconds=anchor_s)
+            measurements.append(wtune_probe_plan.PointMeasurement(
+                at=at, reason=w["reason"], source="rebuild", s_normal=w["s_k"],
+                n_rad=w["n_rad"], r=w["r_local"]))
+    return measurements, ",".join(job_ids)
 
 
 def run_c3_prediction(ctx, best_config, nodes, out_dir, sbatch_script=None, campaign_dir=None,

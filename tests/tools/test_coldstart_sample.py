@@ -409,7 +409,7 @@ class TestWrfWindowNamelist(unittest.TestCase):
     def test_values(self):
         self.assertEqual(cs.get_first(self.txt, "restart"), ".false.")
         self.assertEqual(cs.get_first(self.txt, "restart_interval"), "999999")
-        self.assertEqual(cs.get_first(self.txt, "history_interval_m"), "999999")
+        self.assertEqual(cs.get_first(self.txt, "history_interval_m"), "0")
         self.assertEqual(int(cs.get_first(self.txt, "run_seconds")), 31 * 72)
         self.assertEqual(cs.get_first(self.txt, "nproc_x"), "6")
         self.assertEqual(cs.get_first(self.txt, "nproc_y"), "12")
@@ -2448,3 +2448,30 @@ def test_wrf_window_namelist_inserts_decomposition_when_case_omits_it():
     auto = cs.build_wrf_window_namelist_text(text, _dt.datetime(2019, 11, 26, 22), 50, 15.0,
                                              -1, -1, 1)
     assert cs.count_key(auto, "nproc_x") == 0 and cs.count_key(auto, "numtiles") == 0
+
+
+def test_era5_pin_fetch_writes_intermediate_manifest(tmp_path):
+    netCDF4 = __import__("pytest").importorskip("netCDF4")
+    import numpy as _np
+    case = tmp_path / "case"; case.mkdir()
+    with netCDF4.Dataset(case / "wrfinput_d01", "w") as d:
+        d.createDimension("Time", 1); d.createDimension("south_north", 2); d.createDimension("west_east", 2)
+        for name, val in (("XLAT", [[20.0, 20.0], [50.0, 50.0]]), ("XLONG", [[-120.0, -70.0], [-120.0, -70.0]])):
+            v = d.createVariable(name, "f4", ("Time", "south_north", "west_east")); v[0] = _np.array(val)
+    plan = {"case_dir": str(case), "forcing_pin": cs.ERA5_DATASET,
+            "windows": [{"t": "2019-11-26_21:00:00", "t_end": "2019-11-26_23:00:00"}]}
+    seen = {}
+
+    def runner(cmd):
+        seen["cmd"] = cmd
+        out = cmd[cmd.index("--out") + 1]
+        for t in cmd[cmd.index("--times") + 1].split(","):
+            open(os.path.join(out, "ERA5:" + t), "wb").write(b"x")
+
+    total, forcing = cs._fetch_era5_intermediate(plan, str(tmp_path), runner=runner)
+    assert seen["cmd"][seen["cmd"].index("--bbox") + 1] == "20.000,50.000,-120.000,-70.000"
+    assert forcing["files"] == ["ERA5:2019-11-26_21", "ERA5:2019-11-26_22", "ERA5:2019-11-26_23"]
+    assert forcing["windows"][0]["chosen"]["vtable"] == "none" and total == 3
+    pwf = cs._per_window_forcing_from_forcing_json(str(tmp_path), plan)
+    assert pwf == [{"prefix": "ERA5", "vtable": "none", "forcing_interval_h": 1}]
+    assert cs.resolve_forcing_chain_for(None, forcing_pin=cs.ERA5_DATASET)[0].prefix == "ERA5"

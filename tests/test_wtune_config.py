@@ -156,6 +156,173 @@ def test_non_positive_aspect_max_is_reported():
     assert any("search.aspect_max" in e for e in errs)
 
 
+# ---------------------------------------------------------------------------
+# probe.* (2026-09-26 multi-point probe redesign) -- each new key's bad value must be an error
+# naming that key.
+# ---------------------------------------------------------------------------
+def test_probe_steps_accepts_auto_and_rejects_other_strings():
+    raw = _valid_raw()
+    raw["probe"]["steps"] = "auto"
+    cfg, errs = wcfg.resolve_config(raw)
+    assert errs == [], errs
+    assert cfg["probe"]["steps"] == "auto"
+
+    raw = _valid_raw()
+    raw["probe"]["steps"] = "sometimes"
+    cfg, errs = wcfg.resolve_config(raw)
+    assert cfg is None
+    assert any("probe.steps" in e for e in errs)
+
+
+def test_probe_steps_rejects_non_positive_int():
+    raw = _valid_raw()
+    raw["probe"]["steps"] = 0
+    cfg, errs = wcfg.resolve_config(raw)
+    assert cfg is None
+    assert any("probe.steps" in e for e in errs)
+
+
+def test_probe_spinup_min_rejects_negative():
+    raw = _valid_raw()
+    raw["probe"]["spinup_min"] = -1
+    cfg, errs = wcfg.resolve_config(raw)
+    assert cfg is None
+    assert any("probe.spinup_min" in e for e in errs)
+
+
+def test_probe_ranking_start_rejects_bad_choice():
+    raw = _valid_raw()
+    raw["probe"]["ranking_start"] = "never"
+    cfg, errs = wcfg.resolve_config(raw)
+    assert cfg is None
+    assert any("probe.ranking_start" in e and "never" in e for e in errs)
+
+
+def test_probe_ranking_start_accepts_t0_and_spinup():
+    for v in ("t0", "spinup"):
+        raw = _valid_raw()
+        raw["probe"]["ranking_start"] = v
+        cfg, errs = wcfg.resolve_config(raw)
+        assert errs == [], errs
+
+
+def test_probe_max_points_rejects_zero_and_non_int():
+    raw = _valid_raw()
+    raw["probe"]["max_points"] = 0
+    cfg, errs = wcfg.resolve_config(raw)
+    assert cfg is None
+    assert any("probe.max_points" in e for e in errs)
+
+    raw = _valid_raw()
+    raw["probe"]["max_points"] = 2.5
+    cfg, errs = wcfg.resolve_config(raw)
+    assert cfg is None
+    assert any("probe.max_points" in e for e in errs)
+
+
+def test_probe_budget_pct_rejects_out_of_range():
+    raw = _valid_raw()
+    raw["probe"]["budget_pct"] = 0
+    cfg, errs = wcfg.resolve_config(raw)
+    assert cfg is None
+    assert any("probe.budget_pct" in e for e in errs)
+
+    raw = _valid_raw()
+    raw["probe"]["budget_pct"] = 101
+    cfg, errs = wcfg.resolve_config(raw)
+    assert cfg is None
+    assert any("probe.budget_pct" in e for e in errs)
+
+
+def test_probe_sources_rejects_unknown_and_duplicate():
+    raw = _valid_raw()
+    raw["probe"]["sources"] = ["trajectory", "teleport"]
+    cfg, errs = wcfg.resolve_config(raw)
+    assert cfg is None
+    assert any("probe.sources" in e and "teleport" in e for e in errs)
+
+    raw = _valid_raw()
+    raw["probe"]["sources"] = ["trajectory", "trajectory"]
+    cfg, errs = wcfg.resolve_config(raw)
+    assert cfg is None
+    assert any("probe.sources" in e and "duplicate" in e for e in errs)
+
+
+def test_probe_sources_accepts_legacy_coldstart_alias():
+    raw = _valid_raw()
+    raw["probe"]["sources"] = ["trajectory", "coldstart"]
+    cfg, errs = wcfg.resolve_config(raw)
+    assert errs == [], errs
+    # a bare "coldstart" plus its canonical "rebuild" IS a duplicate once normalized
+    raw["probe"]["sources"] = ["rebuild", "coldstart"]
+    cfg, errs = wcfg.resolve_config(raw)
+    assert cfg is None
+    assert any("probe.sources" in e and "duplicate" in e for e in errs)
+
+
+def test_probe_sources_rejects_empty_list():
+    raw = _valid_raw()
+    raw["probe"]["sources"] = []
+    cfg, errs = wcfg.resolve_config(raw)
+    assert cfg is None
+    assert any("probe.sources" in e for e in errs)
+
+
+def test_probe_points_auto_is_fine():
+    raw = _valid_raw()
+    raw["probe"]["points"] = "auto"
+    cfg, errs = wcfg.resolve_config(raw)
+    assert errs == [], errs
+
+
+def test_probe_points_rejects_unrecognized_form():
+    raw = _valid_raw()
+    raw["probe"]["points"] = ["banana"]
+    cfg, errs = wcfg.resolve_config(raw)
+    assert cfg is None
+    assert any("probe.points[0]" in e and "banana" in e for e in errs)
+
+
+def test_probe_points_accepts_all_three_string_forms_and_mapping_form():
+    raw = _valid_raw()
+    raw["probe"]["points"] = ["+90m", "+2h", "70%", "2019-11-26_23:00:00",
+                              {"at": "+3h", "reason": "night", "source": "rebuild"}]
+    cfg, errs = wcfg.resolve_config(raw)
+    assert errs == [], errs
+
+
+def test_probe_points_mapping_form_requires_at():
+    raw = _valid_raw()
+    raw["probe"]["points"] = [{"reason": "night"}]
+    cfg, errs = wcfg.resolve_config(raw)
+    assert cfg is None
+    assert any("probe.points[0]" in e and "'at'" in e for e in errs)
+
+
+def test_probe_points_mapping_form_rejects_unknown_key():
+    raw = _valid_raw()
+    raw["probe"]["points"] = [{"at": "+1h", "bogus": 1}]
+    cfg, errs = wcfg.resolve_config(raw)
+    assert cfg is None
+    assert any("probe.points[0]" in e and "bogus" in e for e in errs)
+
+
+def test_probe_points_mapping_form_rejects_unknown_source():
+    raw = _valid_raw()
+    raw["probe"]["points"] = [{"at": "+1h", "source": "teleport"}]
+    cfg, errs = wcfg.resolve_config(raw)
+    assert cfg is None
+    assert any("probe.points[0].source" in e and "teleport" in e for e in errs)
+
+
+def test_probe_points_rejects_empty_list():
+    raw = _valid_raw()
+    raw["probe"]["points"] = []
+    cfg, errs = wcfg.resolve_config(raw)
+    assert cfg is None
+    assert any("probe.points" in e for e in errs)
+
+
 def test_physics_gray_knob_under_strict_compliance_is_reported():
     """physics_gray knobs require compliance: physics-gray -- once physics_gray is actually
     requested (enabled: true), not when it is merely declared-but-disabled (the shipped template

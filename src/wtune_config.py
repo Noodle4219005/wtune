@@ -79,7 +79,20 @@ DEFAULTS = {
         "io": {"enabled": False, "io_form_history": [2, 11, 14], "target": ["nfs", "local"]},
     },
     "physics_gray": {"enabled": False, "knobs": {}},
-    "probe": {"steps": 20, "confirm_reps": 2},
+    # 2026-09-26 probe multi-point redesign (see wtune_probe_plan.py's module docstring): steps
+    # default changes from a fixed 20 to "auto" (max(30, stepra+10), >=1 radiation step always
+    # inside -- the whole reason this redesign exists). spinup_min/ranking_start are the RANKING
+    # layer (every round0/adaptive/confirm candidate); points/max_points/budget_pct/sources are
+    # the PREDICTION layer (the winner's own full-run estimate, wtune_probe_plan.plan_points).
+    # ranking_start defaults to "t0", NOT "spinup": restart-based ranking-probe start is not yet
+    # wired into campaign/strict_campaign.sbatch's run loop (campaign/configs.py's edit_namelist
+    # restart_from/write_restart_interval/restart_io_form params are ready; nothing submits the
+    # anchor spin-up job or stages its wrfrst yet -- see this task's report). A default must not
+    # name behaviour that isn't wired -- selecting "spinup" explicitly still works exactly as
+    # documented (prints/reports a NOTE and runs every candidate from t0 until the wiring lands).
+    "probe": {"steps": "auto", "confirm_reps": 2, "spinup_min": 60, "ranking_start": "t0",
+              "points": "auto", "max_points": 5, "budget_pct": 10.0,
+              "sources": ["trajectory", "restart", "rebuild"]},
     "prediction": {"io_target": "nfs", "drift_band_pct": None, "measure_r_rad": False},
     "exclude": [],
 }
@@ -91,7 +104,16 @@ SEARCH_KEYS = {"omp", "numtiles", "rank_distribution", "aspect_max", "io"}
 SEARCH_IO_KEYS = {"enabled", "io_form_history", "target"}
 PHYSICS_GRAY_KEYS = {"enabled", "knobs"}
 PHYSICS_GRAY_KNOB_KEYS = {"multiply"}
-PROBE_KEYS = {"steps", "confirm_reps"}
+PROBE_KEYS = {"steps", "confirm_reps", "spinup_min", "ranking_start", "points", "max_points",
+              "budget_pct", "sources"}
+RANKING_START_CHOICES = ("t0", "spinup")
+# "coldstart" is the pre-2026-09-26 name, still accepted (wtune_probe_plan.canonical_source
+# normalizes it to "rebuild" everywhere downstream) -- never rejected as an unknown source.
+PROBE_SOURCE_CHOICES = ("trajectory", "restart", "rebuild")
+PROBE_SOURCE_ALIASES = {"coldstart": "rebuild"}
+_PROBE_POINT_OFFSET_RE = re.compile(r"^\+\d+(?:\.\d+)?[mh]$")
+_PROBE_POINT_PCT_RE = re.compile(r"^\d+(?:\.\d+)?%$")
+_PROBE_POINT_ISO_RE = re.compile(r"^\d{4}-\d{2}-\d{2}_\d{2}:\d{2}:\d{2}$")
 PREDICTION_KEYS = {"io_target", "drift_band_pct", "measure_r_rad"}
 EXCLUDE_RULE_KEYS = {"when"} | {"%s_%s" % (field, op)
                                  for field in ("omp", "numtiles", "nx", "ny", "ranks")
@@ -374,10 +396,61 @@ def _validate_semantics(cfg, errors):
 
     # -- probe --
     p = cfg["probe"]
-    for key in ("steps", "confirm_reps"):
-        v = p[key]
-        if isinstance(v, bool) or not isinstance(v, int) or v <= 0:
-            errors.append("probe.%s: must be a positive integer, got %r" % (key, v))
+    if p["steps"] != "auto" and (isinstance(p["steps"], bool) or not isinstance(p["steps"], int)
+                                  or p["steps"] <= 0):
+        errors.append("probe.steps: must be a positive integer or 'auto', got %r" % (p["steps"],))
+    if isinstance(p["confirm_reps"], bool) or not isinstance(p["confirm_reps"], int) \
+            or p["confirm_reps"] <= 0:
+        errors.append("probe.confirm_reps: must be a positive integer, got %r" % (p["confirm_reps"],))
+    if isinstance(p["spinup_min"], bool) or not isinstance(p["spinup_min"], (int, float)) \
+            or p["spinup_min"] < 0:
+        errors.append("probe.spinup_min: must be a non-negative number, got %r" % (p["spinup_min"],))
+    if p["ranking_start"] not in RANKING_START_CHOICES:
+        errors.append("probe.ranking_start: %r not in %s"
+                       % (p["ranking_start"], list(RANKING_START_CHOICES)))
+    if isinstance(p["max_points"], bool) or not isinstance(p["max_points"], int) or p["max_points"] < 1:
+        errors.append("probe.max_points: must be a positive integer, got %r" % (p["max_points"],))
+    if isinstance(p["budget_pct"], bool) or not isinstance(p["budget_pct"], (int, float)) \
+            or not (0 < p["budget_pct"] <= 100):
+        errors.append("probe.budget_pct: must be a number in (0, 100], got %r" % (p["budget_pct"],))
+    if not isinstance(p["sources"], list) or not p["sources"]:
+        errors.append("probe.sources: must be a non-empty list")
+    else:
+        seen_src = set()
+        for s in p["sources"]:
+            canon = PROBE_SOURCE_ALIASES.get(s, s)
+            if canon not in PROBE_SOURCE_CHOICES:
+                errors.append("probe.sources: %r not in %s (or legacy alias %s)"
+                               % (s, list(PROBE_SOURCE_CHOICES), list(PROBE_SOURCE_ALIASES)))
+            elif canon in seen_src:
+                errors.append("probe.sources: duplicate entry %r" % (s,))
+            seen_src.add(canon)
+    points = p["points"]
+    if points != "auto":
+        if not isinstance(points, list) or not points:
+            errors.append("probe.points: must be 'auto' or a non-empty list")
+        else:
+            for i, item in enumerate(points):
+                at = item
+                if isinstance(item, dict):
+                    if "at" not in item:
+                        errors.append("probe.points[%d]: mapping form requires 'at'" % i)
+                        continue
+                    at = item["at"]
+                    extra = set(item) - {"at", "reason", "source"}
+                    if extra:
+                        errors.append("probe.points[%d]: unknown key(s) %s" % (i, sorted(extra)))
+                    src = item.get("source")
+                    if src is not None and PROBE_SOURCE_ALIASES.get(src, src) not in PROBE_SOURCE_CHOICES:
+                        errors.append("probe.points[%d].source: %r not in %s (or legacy alias %s)"
+                                       % (i, src, list(PROBE_SOURCE_CHOICES),
+                                          list(PROBE_SOURCE_ALIASES)))
+                if not isinstance(at, str) or not (
+                        _PROBE_POINT_OFFSET_RE.match(at) or _PROBE_POINT_PCT_RE.match(at)
+                        or _PROBE_POINT_ISO_RE.match(at)):
+                    errors.append(
+                        "probe.points[%d]: %r is not a recognized form "
+                        "('+<N>m', '+<N>h', '<N>%%', or 'YYYY-MM-DD_HH:MM:SS')" % (i, at))
 
     # -- prediction --
     pr = cfg["prediction"]
@@ -680,8 +753,21 @@ physics_gray:                     # PHYSICS-GRAY knobs -- only legal at complian
     time_step: {multiply: [1.0, 1.1, 1.2]}  # PHYSICS-GRAY knob: dynamics time step multiplier (namelist time_step)
 
 probe:
-  steps: 20                       # WRF steps run per candidate during round0/adaptive probing (--steps)
+  steps: auto                     # WRF steps run per candidate during round0/adaptive probing (--steps) --
+                                   # auto = max(30, stepra+10), so a probe always contains >= 1 radiation
+                                   # step; or a fixed positive integer
   confirm_reps: 2                 # replicate count for the confirm stage's top candidates
+  spinup_min: 60                  # RANKING layer: minutes the anchor spin-up run advances before every
+                                   # candidate starts from ITS shared restart (0 disables -> t0 start)
+  ranking_start: t0                # t0 | spinup (spinup not yet wired into strict_campaign.sbatch;
+                                   # selecting it prints a NOTE and runs from t0)
+  points: auto                    # PREDICTION layer (winner's own full-run estimate): auto placement, or
+                                   # an explicit list, e.g. ["+90m", "70%%", "2019-11-26_23:00:00",
+                                   # {at: "+3h", reason: night, source: rebuild}]
+  max_points: 5                   # cap on the number of prediction-layer probe points
+  budget_pct: 10                  # cap the points' own measurement cost to this %% of the predicted run
+  sources: [trajectory, restart, rebuild]   # preference order per point ("coldstart" also accepted,
+                                             # legacy name for "rebuild")
 
 prediction:
   io_target: nfs                  # nfs | local -- calibration target for the full-run I/O estimate

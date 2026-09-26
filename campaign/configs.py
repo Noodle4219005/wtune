@@ -39,6 +39,7 @@ now the envs/wtune pixi environment, launched via `bin/wtune` -- see that script
 envs/wtune/pixi.toml.
 """
 import argparse
+import datetime
 import json
 import math
 import os
@@ -642,6 +643,25 @@ def _set_or_insert_time_control_scalar(text, key, value):
     return text[: eol + 1] + " %s=%s,\n" % (key, value) + text[eol + 1 :]
 
 
+def _apply_restart_from(text, restart_time, max_dom):
+    """Overrides EVERY active domain's start_year/month/day/hour/minute/second to
+    `restart_time` (a datetime) and forces restart='.true.' -- the per-domain rewrite
+    edit_namelist's own `overrides`/--set cannot express (see edit_namelist's restart_from
+    docstring). Uses _replace_list_line (delete + reinsert), same as _set_history_interval's own
+    max_dom>1 branch, so every domain gets the SAME restart_time (a ranking probe measures one
+    config from one shared point, not per-domain analog times). Second is written even when the
+    template omits it (same reasoning as coldstart_sample.build_wrf_window_namelist_text: a
+    missing end_second/start_second defaults to 0, which would silently start every domain 0-59s
+    off restart_time otherwise)."""
+    for key in ("start_year", "start_month", "start_day", "start_hour", "start_minute",
+                "start_second"):
+        value = {"start_year": restart_time.year, "start_month": restart_time.month,
+                 "start_day": restart_time.day, "start_hour": restart_time.hour,
+                 "start_minute": restart_time.minute, "start_second": restart_time.second}[key]
+        text = _replace_list_line(text, key, [value] * max_dom)
+    return _set_scalar(text, "restart", ".true.")
+
+
 def _apply_adios2(text, ranks, max_dom):
     """Force ADIOS2 I/O for input/boundary/history/restart (2026-09-14 user
     decision: all WRF I/O in this campaign uses ADIOS2, io_form 14) and
@@ -1112,7 +1132,8 @@ def edit_namelist(text, nproc_x, nproc_y, numtiles, run_minutes,
                    history_mode="off", adios2=True, ranks=None,
                    history_minutes=None, physics_template=None, physics_case=None,
                    numtiles_x=None, numtiles_y=None, tile_sz_x=None, tile_sz_y=None,
-                   tile_strategy=None):
+                   tile_strategy=None, restart_from=None, restart_io_form=None,
+                   write_restart_interval=None):
     """Apply all campaign namelist edits and return the new text. Physics and
     everything else not listed below is left untouched, UNLESS physics_template
     names a physics_templates.json template id (see below).
@@ -1166,7 +1187,24 @@ def edit_namelist(text, nproc_x, nproc_y, numtiles, run_minutes,
     text comes out byte-identical to a call that predates these parameters.
     Passing a value (including 0, WRF's own default for all five) deletes any
     stale line for that key and writes a fresh one on the same &domains line
-    as nproc_x/nproc_y/numtiles."""
+    as nproc_x/nproc_y/numtiles.
+
+    restart_from/restart_io_form/write_restart_interval (WTune probe multi-point redesign,
+    2026-09-26 -- see wtune_probe_plan.py's module docstring and this task's report for why):
+    all three default to None, which reproduces byte-identical output to before they existed.
+    restart_from (a datetime) makes this a RANKING-PROBE run that starts from an existing WRF
+    restart file instead of from the case's own t0: every active domain's start_year/month/day/
+    hour/minute/second is overridden to restart_from (see _apply_restart_from -- the per-domain
+    list rewrite `overrides`/--set cannot do, since _set_scalar only ever touches the FIRST
+    comma-separated value) and restart is forced to '.true.'. write_restart_interval (minutes)
+    is the OPPOSITE direction: the ONE anchor spin-up run that WRITES the shared restart file at
+    t0+spinup -- restart_interval is set to exactly this value (restart itself is left untouched,
+    i.e. still '.false.': this run starts at t0 like any other). restart_io_form (e.g. 2 for
+    netCDF -- decomposition-independent, unlike ADIOS2's io_form 14) overrides io_form_restart on
+    EITHER kind of run. All three are applied AFTER `overrides` and AFTER _apply_adios2 (last),
+    the same "never let a stale default win" ordering _apply_adios2's own docstring already uses
+    for `overrides` -- adios2=True's own io_form_restart=14/restart_interval=1000000 would
+    otherwise silently undo exactly what these three parameters are for."""
     text = _set_scalar(text, "run_days", 0)
     text = _set_scalar(text, "run_hours", 0)
     text = _set_scalar(text, "run_minutes", run_minutes)
@@ -1195,6 +1233,12 @@ def edit_namelist(text, nproc_x, nproc_y, numtiles, run_minutes,
             text = _set_scalar(text, key, value)
     if adios2:
         text = _apply_adios2(text, ranks, max_dom)
+    if restart_from is not None:
+        text = _apply_restart_from(text, restart_from, max_dom)
+    if write_restart_interval is not None:
+        text = _set_or_insert_time_control_scalar(text, "restart_interval", write_restart_interval)
+    if restart_io_form is not None:
+        text = _set_or_insert_time_control_scalar(text, "io_form_restart", restart_io_form)
     if physics_template:
         template = PHYSICS_TEMPLATES.get(physics_template)
         if template is None:
@@ -1652,11 +1696,33 @@ def _cmd_edit_namelist(argv):
     ap.add_argument("--tile-strategy", type=int, default=None, metavar="N",
                      help="&domains tile_strategy (TILE_NONE=0 TILE_X=1 TILE_Y=2 TILE_XY=3, "
                           "module_machine.F:11); not written at all when omitted")
+    ap.add_argument("--restart-from", default=None, metavar="YYYY-MM-DD_HH:MM:SS",
+                     help="WTune probe multi-point (2026-09-26): this is a RANKING-PROBE run "
+                          "that starts from an existing WRF restart file at this time instead "
+                          "of the case's own t0 -- every domain's start_* is overridden to it "
+                          "and restart is forced to .true. (see edit_namelist's docstring). "
+                          "Not written at all when omitted (default: unchanged behaviour).")
+    ap.add_argument("--restart-io-form", type=int, default=None, metavar="N",
+                     help="overrides io_form_restart on EITHER a --restart-from run or a "
+                          "--write-restart-interval run, applied after --no-adios2/ADIOS2's own "
+                          "default (e.g. 2 for netCDF, decomposition-independent -- unlike "
+                          "ADIOS2's io_form 14). Not written at all when omitted.")
+    ap.add_argument("--write-restart-interval", type=int, default=None, metavar="MINUTES",
+                     help="the ANCHOR spin-up run that WRITES the shared restart file: sets "
+                          "restart_interval to exactly this value (restart itself is left "
+                          "'.false.' -- this run still starts at t0). Not written at all when "
+                          "omitted.")
     a = ap.parse_args(argv)
     if a.adios2 and a.ranks is None:
         ap.error("--ranks is required unless --no-adios2 is given")
     if a.history_mode == "interval" and a.history_minutes is None:
         ap.error("--history-minutes is required when --history-mode interval is given")
+    restart_from_dt = None
+    if a.restart_from is not None:
+        try:
+            restart_from_dt = datetime.datetime.strptime(a.restart_from, "%Y-%m-%d_%H:%M:%S")
+        except ValueError:
+            ap.error("--restart-from must be YYYY-MM-DD_HH:MM:SS, got %r" % a.restart_from)
     overrides = {}
     for kv in a.set:
         key, sep, value = kv.partition("=")
@@ -1674,7 +1740,9 @@ def _cmd_edit_namelist(argv):
                               physics_case=a.physics_case,
                               numtiles_x=a.numtiles_x, numtiles_y=a.numtiles_y,
                               tile_sz_x=a.tile_sz_x, tile_sz_y=a.tile_sz_y,
-                              tile_strategy=a.tile_strategy)
+                              tile_strategy=a.tile_strategy, restart_from=restart_from_dt,
+                              restart_io_form=a.restart_io_form,
+                              write_restart_interval=a.write_restart_interval)
     with open(a.outfile, "w") as f:
         f.write(new_text)
     return 0

@@ -44,6 +44,7 @@ import argparse
 import copy
 import csv
 import dataclasses
+import datetime
 import glob
 import json
 import math
@@ -76,6 +77,15 @@ try:
     import wtune_predict        # wtune_predict.py -- owned by another agent; best-effort only
 except ImportError:
     wtune_predict = None
+
+try:
+    import wtune_probe_plan     # wtune_probe_plan.py -- multi-point probe planning/combine
+                                 # (2026-09-26 redesign); best-effort only, same convention as
+                                 # wtune_predict above (it depends on wtune_predict + coldstart_
+                                 # sample, so anything that makes either unimportable also makes
+                                 # this unimportable).
+except ImportError:
+    wtune_probe_plan = None
 
 campaign_configs = sweep.campaign_configs
 decomp_space = sweep.decomp_space
@@ -580,6 +590,14 @@ class Ctx:
     confirm_reps: int = CONFIRM_REPS
     prediction_cfg: dict = dataclasses.field(
         default_factory=lambda: copy.deepcopy(wtune_config.DEFAULTS["prediction"]))
+    # probe.* beyond steps/confirm_reps (spinup_min/ranking_start/points/max_points/budget_pct/
+    # sources -- 2026-09-26 multi-point redesign): threaded through so build_full_run_prediction
+    # can call wtune_probe_plan.plan_points for the winner. Default reproduces pre-redesign
+    # behaviour's OWN steps/confirm_reps via the ctx.steps/ctx.confirm_reps fields above, which
+    # this dict does not override.
+    probe_cfg: dict = dataclasses.field(
+        default_factory=lambda: copy.deepcopy(wtune_config.DEFAULTS["probe"]))
+    ranking_start_note: str = None
     # Per-run startup overhead every estimate_run_time call sizes off -- starts at
     # DEFAULT_STARTUP_S (scc_sweep.py's documented constant) and is refreshed once round0's own
     # Slurm elapsed time gives a real measurement (measure_startup_s); startup_source records
@@ -601,6 +619,34 @@ def resolve_case(case_id, cores_per_node):
     _, wrfinput_path = wtune_case.find_case_inputs(prep_dir)
     profile = wtune_case.build_profile(namelist_path, wrfinput_path, cores_per_node)
     return case_json, namelist_path, profile
+
+
+def resolve_auto_probe_steps(namelist_path):
+    """probe.steps='auto' (2026-09-26 multi-point redesign, wtune_probe_plan.steps_for_stepra):
+    max(30, stepra+10), so round0/adaptive/confirm's own probe always contains >= 1 radiation
+    step -- the whole reason this redesign exists (see this task's report / wtune_probe_plan.py's
+    module docstring for the conus25 evidence: a fixed 20-step t0 probe never reached radt=10min/
+    dt=15s's own 40-step radiation cadence). Returns (steps, note_or_None). Never raises: falls
+    back to DEFAULT_STEPS with an explanatory note when wtune_predict/wtune_probe_plan are not
+    importable or the namelist's own dt/radt cannot be read -- probing with a slightly-wrong step
+    count is better than refusing to run at all."""
+    if wtune_predict is None or wtune_probe_plan is None:
+        return DEFAULT_STEPS, ("probe.steps='auto' requested but wtune_predict/wtune_probe_plan "
+                                "is not importable -- using DEFAULT_STEPS=%d instead" % DEFAULT_STEPS)
+    try:
+        nl = wtune_predict.parse_namelist(namelist_path)
+        dt = wtune_predict.get_timestep_seconds(nl)
+        radt = wtune_predict.g(nl, "physics", "radt", None)
+        if radt is None:
+            raise ValueError("no radt in &physics")
+        stepra = wtune_predict.steps_per_radiation_call(float(radt), dt)
+        steps = wtune_probe_plan.steps_for_stepra(stepra)
+        return steps, ("probe.steps='auto' resolved to %d steps (dt=%.3fs, radt=%smin, stepra=%d)"
+                        % (steps, dt, radt, stepra))
+    except Exception as e:
+        return DEFAULT_STEPS, ("probe.steps='auto' requested but could not be resolved from %s "
+                                "(%s: %s) -- using DEFAULT_STEPS=%d instead"
+                                % (namelist_path, type(e).__name__, e, DEFAULT_STEPS))
 
 
 # ---------------------------------------------------------------------------
@@ -1112,7 +1158,44 @@ def _calibration_with_drift_override(ctx, calibration_path, drift_pct):
                        % (drift_pct, out_path))
 
 
-def build_full_run_prediction(ctx, best_config, nodes, all_results, confirm_results):
+def _probe_plan_preview(ctx, nodes, best_config):
+    """(points, notes, run_start, run_end, dt, stepra) from wtune_probe_plan.plan_points, or None
+    on ANY failure (namelist can't be parsed, wtune_probe_plan not importable, ...) -- this is a
+    best-effort, purely informational PREVIEW of where the PREDICTION-layer would probe, not a
+    requirement; a failure here must never break the (already-working) single-probe prediction
+    build_full_run_prediction falls back to. See that function's own probe_measurements
+    parameter for the actual multi-point combine() path, used only when points were measured."""
+    if wtune_predict is None or wtune_probe_plan is None:
+        return None
+    try:
+        nl = wtune_predict.parse_namelist(ctx.namelist_path)
+        steps_n, run_s, dt, _note = wtune_predict.get_d01_steps(nl)
+        run_start = wtune_predict.get_time_control_datetime(nl, "start")
+        if run_start is None:
+            return None
+        run_end = run_start + datetime.timedelta(seconds=run_s)
+        radt = wtune_predict.g(nl, "physics", "radt", None)
+        if radt is None:
+            return None
+        stepra = wtune_predict.steps_per_radiation_call(float(radt), dt)
+        spinup_s = float(ctx.probe_cfg.get("spinup_min") or 0) * 60.0
+        points, notes = wtune_probe_plan.plan_points(
+            nl, run_start, run_end, dt, stepra, spinup_s, ctx.probe_cfg,
+            case_dir=ctx.case_json.get("prep_dir"))
+        return points, notes, run_start, run_end, dt, stepra
+    except Exception:
+        return None
+
+
+def build_full_run_prediction(ctx, best_config, nodes, all_results, confirm_results,
+                               probe_measurements=None):
+    """probe_measurements (2026-09-26 multi-point redesign): [wtune_probe_plan.PointMeasurement,
+    ...] for the winner, when the PREDICTION layer's planned points (see _probe_plan_preview)
+    were actually measured -- combine()s them into the whole-run prediction instead of today's
+    single t0-probe wtune_predict.build_prediction call. No caller populates this yet (measuring
+    multiple points needs the same submission wiring Layer A's probe.ranking_start=spinup is
+    waiting on -- see ctx.ranking_start_note / this task's report): the single-probe path below
+    is what every real run takes today, and SAYS so via the appended probe-plan preview note."""
     if wtune_predict is None or best_config is None:
         return ("full-run prediction: run `python3 wtune.py predict %s --nodes %d --config "
                 "'%s'`" % (ctx.case_json["prep_dir"], nodes,
@@ -1120,6 +1203,43 @@ def build_full_run_prediction(ctx, best_config, nodes, all_results, confirm_resu
                                             nx=best_config["nx"], ny=best_config["ny"],
                                             numtiles=best_config["numtiles"]))
                            if best_config else "..."))
+    if probe_measurements and wtune_probe_plan is not None:
+        try:
+            nl = wtune_predict.parse_namelist(ctx.namelist_path)
+            steps_n, run_s, dt, _note = wtune_predict.get_d01_steps(nl)
+            run_start = wtune_predict.get_time_control_datetime(nl, "start")
+            run_end = run_start + datetime.timedelta(seconds=run_s)
+            radt = wtune_predict.g(nl, "physics", "radt", None)
+            stepra = wtune_predict.steps_per_radiation_call(float(radt), dt)
+            calibration = wtune_predict.load_calibration(str(wtune_predict.DEFAULT_CALIBRATION))
+            if ctx.prediction_cfg.get("drift_band_pct") is not None:
+                calibration = dict(calibration, drift_band_pct=ctx.prediction_cfg["drift_band_pct"])
+            sample_points, _src = wtune_predict.read_wrfinput_sample_points(
+                ctx.case_json["prep_dir"])
+            result = wtune_probe_plan.combine(
+                probe_measurements, run_start, run_end, dt, stepra, calibration=calibration,
+                sample_points=sample_points, case_dir=ctx.case_json["prep_dir"], nl=nl,
+                ranks=best_config.get("ranks"), nodes=nodes)
+            lines = ["=== full-run prediction (MULTI-POINT, wtune_probe_plan.combine, "
+                     "%d measured point(s)) ===" % len(probe_measurements),
+                     "compute_total: %s   init: %.1fs   TOTAL: %s (range %s - %s, "
+                     "+-%.1f%% drift)"
+                     % (_fmt_hms(result["compute_total_s"]), result["init_s"],
+                        _fmt_hms(result["total_s"]), _fmt_hms(result["range_low_s"]),
+                        _fmt_hms(result["range_high_s"]), result["drift_pct"]),
+                     "r_rad: night=%.3f day=%.3f source=%s"
+                     % (result["r_night"], result["r_day"], result["r_source"])]
+            for p in result["points"]:
+                lines.append("  point %s reason=%s source=%s s_normal=%.4f n_rad=%d r=%s"
+                              % (p["at"].isoformat(), p["reason"], p["source"], p["s_normal"],
+                                 p["n_rad"], ("%.3f" % p["r"]) if p["r"] is not None else "-"))
+            if result.get("init_note"):
+                lines.append("NOTE: " + result["init_note"])
+            return "\n".join(lines)
+        except Exception as e:
+            return ("full-run prediction (multi-point) FAILED (%s: %s); falling back would "
+                     "need a re-run -- run `python3 wtune.py predict ...` manually"
+                     % (type(e).__name__, e))
     try:
         # Bug fix: this used to pass ledger_paths=None, so wtune_predict's own resolve_probe()
         # never saw this run's measurements and always fell back to source=no_probe_fallback
@@ -1161,6 +1281,18 @@ def build_full_run_prediction(ctx, best_config, nodes, all_results, confirm_resu
                           "(source=%s); deriving r_rad from measurements is NOT YET IMPLEMENTED "
                           "without one -- used the fixed calibration default instead."
                           % r_rad_source)
+        preview = _probe_plan_preview(ctx, nodes, best_config)
+        if preview:
+            preview_points, preview_notes, _rs, _re, _dt, _stepra = preview
+            text += ("\nNOTE: multi-point probe planning (wtune_probe_plan.plan_points) would "
+                     "place %d point(s) for this winner (%s) -- none measured for this run, so "
+                     "the single t0-probe prediction above was used; see this task's report for "
+                     "the Layer A/B wiring status."
+                     % (len(preview_points),
+                        ", ".join("%s@%s" % (p.reason, p.at.strftime("%m-%d_%H:%M"))
+                                  for p in preview_points)))
+            for n in preview_notes:
+                text += "\nNOTE: " + n
         return text
     except Exception as e:
         return ("full-run prediction FAILED (%s: %s); run `python3 wtune.py predict ...` manually"
@@ -1210,6 +1342,7 @@ def build_report(ctx, nodes, nodes_note, all_results, confirm_results, anchor_ci
         anchor_id=anchor_cid, ranking=table, best=best, param_table=param_table,
         full_run_prediction=build_full_run_prediction(ctx, best_config, nodes, all_results,
                                                         confirm_results),
+        ranking_start_note=ctx.ranking_start_note,
     )
 
 
@@ -1258,6 +1391,9 @@ def render_report_text(report):
             lines.append("  NOTE:     " + pt["note"])
     lines.append("")
     lines.append(report["full_run_prediction"])
+    if report.get("ranking_start_note"):
+        lines.append("")
+        lines.append("NOTE: " + report["ranking_start_note"])
     return "\n".join(lines)
 
 
@@ -1315,11 +1451,35 @@ def run(args, sbatch_runner=None, sacct_runner=None, scancel_runner=None, ledger
 
     nodes_policy = args.nodes_policy if args.nodes_policy is not None else cfg["budget"]["nodes_policy"]
     max_nodes_requested = args.max_nodes if args.max_nodes is not None else cfg["budget"]["max_nodes"]
-    steps = args.steps if args.steps is not None else cfg["probe"]["steps"]
+    steps_cfg = args.steps if args.steps is not None else cfg["probe"]["steps"]
     confirm_reps = args.confirm_reps if args.confirm_reps is not None else cfg["probe"]["confirm_reps"]
 
     case_json, namelist_path, profile = resolve_case(case, args.cores_per_node)
     is_fire = wtune_config.is_fire_case(case_json, namelist_path)
+
+    if steps_cfg == "auto":
+        steps, steps_note = resolve_auto_probe_steps(namelist_path)
+    else:
+        steps, steps_note = steps_cfg, None
+    if steps_note:
+        print("NOTE: %s" % steps_note)
+    ranking_start_note = None
+    if cfg["probe"].get("ranking_start") == "spinup":
+        # 2026-09-26 multi-point redesign, Layer A (see this task's report): restart-based
+        # ranking-probe start needs a shared-restart hand-off in campaign/strict_campaign.sbatch's
+        # run loop that is not wired yet (campaign/configs.py's edit_namelist(restart_from=...,
+        # write_restart_interval=..., restart_io_form=...) is ready -- see that function's
+        # docstring -- but nothing yet submits the anchor's spin-up run or stages its wrfrst into
+        # each candidate's RUNDIR). Every candidate is still probed from t0 until that wiring
+        # lands; SAY so rather than silently ignoring probe.ranking_start=spinup, same honesty
+        # convention as prediction.measure_r_rad below.
+        ranking_start_note = (
+            "probe.ranking_start=spinup requested but restart-based ranking-probe start is NOT "
+            "YET WIRED to the campaign submission pipeline (campaign/configs.py's edit_namelist "
+            "restart_from/write_restart_interval/restart_io_form params exist; the sbatch run-"
+            "loop wiring that would use them does not yet) -- every candidate is still probed "
+            "from t0, exactly as before probe.ranking_start existed.")
+        print("NOTE: %s" % ranking_start_note)
 
     max_nodes = min(int(max_nodes_requested), DEFAULT_MAX_NODES)
     if nodes_raw in ("auto", None):
@@ -1344,7 +1504,8 @@ def run(args, sbatch_runner=None, sacct_runner=None, scancel_runner=None, ledger
               sacct_runner=sacct_runner, scancel_runner=scancel_runner,
               ledger_reader=ledger_reader, proposer=proposer, clock=clock,
               search_cfg=cfg["search"], exclude_rules=cfg["exclude"], is_fire=is_fire,
-              confirm_reps=confirm_reps, prediction_cfg=cfg["prediction"])
+              confirm_reps=confirm_reps, prediction_cfg=cfg["prediction"],
+              probe_cfg=cfg["probe"], ranking_start_note=ranking_start_note)
     ctx.start_time = clock.now()
 
     print("case=%s nodes=%d (%s) budget=%.1f min max_nodes=%d out=%s"

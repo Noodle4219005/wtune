@@ -2738,3 +2738,89 @@ class TestFrozenKeys(unittest.TestCase):
                                                                templates=templates)
         self.assertIsNone(ok_reason)
         self.assertEqual([e["key"] for e in ok_summary], ["radt"])
+
+
+class TestRestartFrom(unittest.TestCase):
+    """edit_namelist's restart_from/restart_io_form/write_restart_interval (WTune probe
+    multi-point redesign, 2026-09-26): a RANKING-PROBE run starting from an existing WRF restart
+    file instead of from t0 -- see edit_namelist's own docstring and wtune_probe_plan.py."""
+
+    SYNTHETIC_3DOM_RESTART = (
+        "&time_control\n"
+        " run_days = 0, run_hours = 6, run_minutes = 0, run_seconds = 0,\n"
+        " start_year = 2019, 2019, 2019,\n"
+        " start_month = 11, 11, 11,\n"
+        " start_day = 25, 25, 25,\n"
+        " start_hour = 12, 12, 12,\n"
+        " start_minute = 00, 00, 00,\n"
+        " restart = .false.,\n"
+        " restart_interval = 1440,\n"
+        " io_form_restart = 2,\n"
+        "/\n"
+        "&domains\n"
+        " max_dom = 3,\n"
+        " time_step=15, e_we=793, 805, 1001, e_sn=853, 805, 1001,\n"
+        "/\n"
+    )
+
+    def test_restart_from_sets_start_for_every_domain_and_restart_true(self):
+        import datetime
+        t = datetime.datetime(2019, 11, 26, 23, 0, 0)
+        out = configs.edit_namelist(self.SYNTHETIC_3DOM_RESTART, 16, 28, 8, 50, max_dom=3,
+                                     adios2=False, restart_from=t)
+        self.assertIn("start_year = 2019, 2019, 2019,", out)   # unchanged: same year
+        self.assertIn("start_month = 11, 11, 11,", out)
+        self.assertIn("start_day = 26, 26, 26,", out)
+        self.assertIn("start_hour = 23, 23, 23,", out)
+        self.assertIn("start_minute = 0, 0, 0,", out)
+        self.assertIn("start_second = 0, 0, 0,", out)
+        self.assertIn("restart = .true.,", out)
+        self.assertNotIn("restart = .false.,", out)
+        # run length = steps*dt handled by the caller via run_minutes (50 here); this function
+        # only overrides start_*/restart, so run_minutes=50 still comes through untouched
+        # (spacing preserved from the template's own "key = value" style -- see _set_scalar).
+        self.assertIn("run_minutes = 50", out)
+
+    def test_restart_from_none_is_byte_identical_to_before(self):
+        out_a = configs.edit_namelist(self.SYNTHETIC_3DOM_RESTART, 16, 28, 8, 50, max_dom=3,
+                                       adios2=False)
+        out_b = configs.edit_namelist(self.SYNTHETIC_3DOM_RESTART, 16, 28, 8, 50, max_dom=3,
+                                       adios2=False, restart_from=None, restart_io_form=None,
+                                       write_restart_interval=None)
+        self.assertEqual(out_a, out_b)
+        self.assertIn("restart = .false.,", out_a)   # untouched: no restart_from given
+
+    def test_restart_io_form_overrides_after_adios2(self):
+        import datetime
+        t = datetime.datetime(2019, 11, 26, 23, 0, 0)
+        out = configs.edit_namelist(self.SYNTHETIC_3DOM_RESTART, 16, 28, 8, 50, max_dom=3,
+                                     adios2=True, ranks=448, restart_from=t, restart_io_form=2)
+        # ADIOS2 forces io_form_restart=14 first; restart_io_form=2 must win (netCDF, so the
+        # restart file is decomposition-independent -- see edit_namelist's docstring). Spacing
+        # preserved from the template's own "key = value" style (the line already existed).
+        self.assertIn("io_form_restart = 2,", out)
+        self.assertNotIn("io_form_restart = 14", out)
+        # history/input/boundary stay on ADIOS2 -- only restart's OWN format is overridden
+        self.assertIn("io_form_history=14,", out)
+
+    def test_write_restart_interval_sets_interval_without_forcing_restart_true(self):
+        out = configs.edit_namelist(self.SYNTHETIC_3DOM_RESTART, 16, 28, 8, 360, max_dom=3,
+                                     adios2=False, write_restart_interval=60,
+                                     restart_io_form=2)
+        self.assertIn("restart_interval = 60", out)
+        self.assertNotIn("restart_interval = 1440", out)
+        self.assertIn("restart = .false.,", out)   # spin-up writer still starts at t0
+        self.assertIn("io_form_restart = 2", out)
+
+    def test_write_restart_interval_survives_adios2_default(self):
+        # adios2=True forces restart_interval=1000000 (see _apply_adios2's docstring) -- without
+        # write_restart_interval winning afterward, the spin-up run could never actually write a
+        # restart at t0+spinup.
+        out = configs.edit_namelist(self.SYNTHETIC_3DOM_RESTART, 16, 28, 8, 60, max_dom=3,
+                                     adios2=True, ranks=448, write_restart_interval=60)
+        self.assertIn("restart_interval = 60,", out)
+        self.assertNotIn("restart_interval = 1000000", out)
+
+
+if __name__ == "__main__":
+    unittest.main()

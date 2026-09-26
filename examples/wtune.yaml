@@ -46,8 +46,21 @@ physics_gray:                     # PHYSICS-GRAY knobs -- only legal at complian
     time_step: {multiply: [1.0, 1.1, 1.2]}  # PHYSICS-GRAY knob: dynamics time step multiplier (namelist time_step)
 
 probe:
-  steps: 20                       # WRF steps run per candidate during round0/adaptive probing (--steps)
+  steps: auto                     # WRF steps run per candidate during round0/adaptive probing (--steps) --
+                                   # auto = max(30, stepra+10), so a probe always contains >= 1 radiation
+                                   # step; or a fixed positive integer
   confirm_reps: 2                 # replicate count for the confirm stage's top candidates
+  spinup_min: 60                  # RANKING layer: minutes the anchor spin-up run advances before every
+                                   # candidate starts from ITS shared restart (0 disables -> t0 start)
+  ranking_start: t0                # t0 | spinup (spinup not yet wired into strict_campaign.sbatch;
+                                   # selecting it prints a NOTE and runs from t0)
+  points: auto                    # PREDICTION layer (winner's own full-run estimate): auto placement, or
+                                   # an explicit list, e.g. ["+90m", "70%", "2019-11-26_23:00:00",
+                                   # {at: "+3h", reason: night, source: rebuild}]
+  max_points: 5                   # cap on the number of prediction-layer probe points
+  budget_pct: 10                  # cap the points' own measurement cost to this % of the predicted run
+  sources: [trajectory, restart, rebuild]   # preference order per point ("coldstart" also accepted,
+                                             # legacy name for "rebuild")
 
 prediction:
   io_target: nfs                  # nfs | local -- calibration target for the full-run I/O estimate

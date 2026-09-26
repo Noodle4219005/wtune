@@ -1789,6 +1789,9 @@ def main():
     p_analyze = sub.add_parser('analyze', help='TC diagnostics/tracking via wrf-python + TempestExtremes (analysis/cli.py): diag | tc-track')
     p_analyze.add_argument('analyze_args', nargs=argparse.REMAINDER, help='forwarded to analysis/cli.py')
 
+    p_scenario = sub.add_parser('scenario', help='pluggable scenario generators for fictional-date WRF forcing (scenario/cli.py): list | generate | inspect')
+    p_scenario.add_argument('scenario_args', nargs=argparse.REMAINDER, help='forwarded to scenario/cli.py')
+
     args = parser.parse_args()
     if args.command == 'tune':
         import wtune_tune
@@ -1814,6 +1817,10 @@ def main():
     if args.command == 'analyze':
         from analysis import cli as analysis_cli
         sys.exit(analysis_cli.main(args.analyze_args))
+
+    if args.command == 'scenario':
+        from scenario import cli as scenario_cli
+        sys.exit(scenario_cli.main(args.scenario_args))
 
     if args.command == 'plan':
         plan(args)

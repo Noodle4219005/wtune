@@ -2231,6 +2231,32 @@ def candidate_dates(stated_start, years, doy_window, hour="same"):
     return sorted(out)
 
 
+def climatological_analog(stated_start, years, hour="same"):
+    """The no-target climatological analog: SAME day-of-year, same UTC hour, in the MOST RECENT
+    year of `years` (y1) -- this is the one function that rule lives in; cmd_analog's own
+    no-wrfinput branch and scenario.generators.analog.select_analog_date() both call this rather
+    than re-deriving it.
+
+    BUG FIX (T14, 2026-09-26): this used to be computed as max(candidate_dates(...)), which is
+    NOT "same DOY, most recent year" despite the docstring/note saying so -- max() of the
+    +-doy_window candidate set returns the LAST day of that window in the most recent year (e.g.
+    stated 2026-09-26 with the default doy_window=45 -> 2025-11-10, not 2025-09-26). Fixed to
+    construct the same-DOY date in y1 directly.
+
+    Edge case: when stated_start's day-of-year is 366 and y1 is not a leap year, y1 has no such
+    day -- naive `datetime(y1,1,1) + timedelta(days=365)` rolls over into Jan 1 of y1+1, which
+    this function detects (the result's year != y1) and corrects by falling back to the nearest
+    real day in y1 itself: Dec 31 (one day short of 366)."""
+    y0, y1 = years
+    stated_doy = doy_of(stated_start)
+    hh = stated_start.hour if hour == "same" else int(hour)
+    candidate = datetime.datetime(y1, 1, 1) + datetime.timedelta(days=stated_doy - 1)
+    if candidate.year != y1:
+        # stated DOY 366 doesn't exist in y1 (y1 is not a leap year) -- nearest real day in y1.
+        candidate = datetime.datetime(y1, 12, 31)
+    return datetime.datetime(candidate.year, candidate.month, candidate.day, hh)
+
+
 def block_average(field2d, block=8, min_blocks=10):
     """Block-average `field2d` down to a coarse grid (~block x block cells per block), but never
     below `min_blocks` x `min_blocks` blocks -- shrinks the block size (never below 1) when the
@@ -2390,8 +2416,10 @@ def cmd_analog(case_dir, out_dir, wrfinput=None, wrfbdy=None, years="2021-2025",
     wi_path = wrfinput or os.path.join(case_dir, "wrfinput_d01")
     os.makedirs(out_dir, exist_ok=True)
     if not os.path.exists(wi_path):
-        # No target: climatological analog -- same DOY/hour, most recent year with data.
-        chosen_dt = max(candidates_dt) if candidates_dt else None
+        # No target: climatological analog -- same DOY/hour, most recent year with data (T14,
+        # 2026-09-26: was max(candidates_dt), which is the WINDOW'S LAST DAY, not same-DOY --
+        # see climatological_analog()'s docstring for the fix and why).
+        chosen_dt = climatological_analog(stated_start, (y0, y1), hour=hour)
         out = {"ranked": [], "chosen":
                {"date": chosen_dt.strftime(_WRF_TIME_FMT)} if chosen_dt else None,
                "quality": "no-target",

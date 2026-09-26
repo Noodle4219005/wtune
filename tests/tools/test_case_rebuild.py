@@ -1393,6 +1393,53 @@ class TestCandidateDatesDoyWrap(unittest.TestCase):
         self.assertTrue(all(c.hour == 6 for c in cands))
 
 
+class TestClimatologicalAnalog(unittest.TestCase):
+    """T14 (2026-09-26): climatological_analog() replaces max(candidate_dates(...)) for the
+    no-target case -- that was NOT "same DOY, most recent year" (it was the +-doy_window
+    window's LAST day), e.g. stated 2026-09-26 with doy_window=45 -> 2025-11-10, not
+    2025-09-26."""
+
+    def test_same_doy_same_hour_most_recent_year(self):
+        stated = datetime.datetime(2026, 9, 26, 0, 0, 0)
+        got = cr.climatological_analog(stated, (2021, 2025), hour="same")
+        self.assertEqual(got, datetime.datetime(2025, 9, 26, 0, 0, 0))
+
+    def test_leap_doy_366_falls_back_to_dec31_in_non_leap_y1(self):
+        stated = datetime.datetime(2028, 12, 31, 12, 0, 0)   # DOY 366 (2028 is a leap year)
+        got = cr.climatological_analog(stated, (2021, 2025), hour="same")   # 2025 is not leap
+        self.assertEqual(got, datetime.datetime(2025, 12, 31, 12, 0, 0))
+
+    def test_jan5_maps_to_jan5_of_y1(self):
+        stated = datetime.datetime(2031, 1, 5, 18, 0, 0)
+        got = cr.climatological_analog(stated, (2021, 2025), hour="same")
+        self.assertEqual(got, datetime.datetime(2025, 1, 5, 18, 0, 0))
+
+    def test_leap_doy_366_in_leap_y1_maps_directly(self):
+        stated = datetime.datetime(2028, 12, 31, 0, 0, 0)   # DOY 366 (2028 is a leap year)
+        got = cr.climatological_analog(stated, (2021, 2024), hour="same")   # 2024 IS leap too
+        self.assertEqual(got, datetime.datetime(2024, 12, 31, 0, 0, 0))
+
+    def test_explicit_hour_override(self):
+        stated = datetime.datetime(2026, 9, 26, 3, 0, 0)
+        got = cr.climatological_analog(stated, (2021, 2025), hour=18)
+        self.assertEqual(got, datetime.datetime(2025, 9, 26, 18, 0, 0))
+
+    def test_no_target_cmd_analog_writes_corrected_date(self):
+        with tempfile.TemporaryDirectory() as d:
+            case_dir = os.path.join(d, "case")
+            os.makedirs(case_dir)
+            with open(os.path.join(case_dir, "namelist.input"), "w") as f:
+                f.write(" &time_control\n start_year=2026,\n start_month=9,\n start_day=26,\n"
+                        " start_hour=0,\n run_hours=6,\n /\n &domains\n max_dom=1,\n /\n")
+            out_dir = os.path.join(d, "out")
+            result = cr.cmd_analog(case_dir, out_dir, years="2021-2025", doy_window=45)
+            self.assertEqual(result["quality"], "no-target")
+            self.assertEqual(result["chosen"]["date"][:10], "2025-09-26")
+            with open(os.path.join(out_dir, "analog.json")) as f:
+                on_disk = json.load(f)
+            self.assertEqual(on_disk["chosen"]["date"][:10], "2025-09-26")
+
+
 class TestBlockAverage(unittest.TestCase):
     def test_exact_averages_evenly_divisible(self):
         field = np.arange(16.0).reshape(4, 4)

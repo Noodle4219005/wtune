@@ -52,6 +52,7 @@ from __future__ import annotations
 import dataclasses
 import datetime
 import os
+import subprocess
 import sys
 from pathlib import Path
 from typing import Optional, Sequence, Tuple
@@ -115,11 +116,24 @@ def _request_valid_times(start, end, interval_h):
     return out
 
 
+def _cycle_and_fhour(t: datetime.datetime) -> Tuple[datetime.datetime, int]:
+    """(cycle_dt, fhour): the synoptic GFS cycle (00/06/12/18Z) at or before `t`, and the forecast
+    hour from that cycle to `t`. GFS issues analyses ONLY at those four hours -- a non-synoptic
+    valid time (this generator's own `interval_h` may well not divide 6, e.g. a 3h/1h cadence)
+    needs the matching short-range forecast hour from the last cycle, not fhour=0 at an
+    analysis that does not exist."""
+    cycle_hour = (t.hour // 6) * 6
+    cycle = t.replace(hour=cycle_hour, minute=0, second=0, microsecond=0)
+    fhour = int(round((t - cycle).total_seconds() / 3600.0))
+    return cycle, fhour
+
+
 def _default_download(analog_times, bbox, out_dir):
-    """Best-effort production default: fetches real GFS analysis GRIB for each analog time via
-    this repo's existing source chain (tools/metdata.py: GFS/AWS -> RDA -> NCEI -> FNL -> CFSR,
-    metdata.select_source()/url_for()). Real network; NOT exercised by the offline test suite --
-    pass an explicit `download=` callable (tests always do)."""
+    """Best-effort production default: fetches real GFS analysis/short-range-forecast GRIB for
+    each analog time via this repo's existing source chain (tools/metdata.py:
+    GFS/AWS -> RDA -> NCEI -> FNL -> CFSR, metdata.select_source()/url_for()). Real network; NOT
+    exercised by the offline test suite -- pass an explicit `download=` callable (tests always
+    do)."""
     if _TOOLS_DIR not in sys.path:
         sys.path.insert(0, _TOOLS_DIR)
     import metdata as md
@@ -128,22 +142,98 @@ def _default_download(analog_times, bbox, out_dir):
     grib_dir.mkdir(parents=True, exist_ok=True)
     paths = []
     for t in analog_times:
-        source = md.select_source(t)
-        url = md.url_for(source, t, 0)
-        dest = grib_dir / ("%s.grib2" % t.strftime("%Y%m%d%H"))
-        md.download_full(url, str(dest))
+        # select_source() returns (source, reason) -- NOT just the source string.
+        source, _reason = md.select_source(t)
+        if not source:
+            raise ScenarioError("analog generator: no GFS 0.25deg source covers %s (%s)"
+                                 % (t.isoformat(), _reason))
+        cycle, fhour = _cycle_and_fhour(t)
+        url = md.url_for(source, cycle, fhour)
+        dest = grib_dir / ("%s_f%03d.grib2" % (cycle.strftime("%Y%m%d%H"), fhour))
+        md.download_full(url, str(dest), timeout=600)
         paths.append(dest)
     return paths
 
 
 def _default_run_ungrib(grib_paths, analog_times, bbox, out_dir, prefix):
-    """Best-effort production default: would stage Vtable.GFS and run a real ungrib.exe over
-    `grib_paths`. Needs a real WPS install and real GRIB input, so it is NOT reproduced here --
-    pass an explicit `run_ungrib=` callable (tests always do); see coldstart_sample.py for this
-    repo's own ungrib orchestration (rendered as an sbatch script, not run synchronously)."""
-    raise ScenarioError(
-        "analog generator's default run_ungrib needs a real WPS/ungrib.exe install; pass an "
-        "explicit run_ungrib= callable, or use --dry-run on the CLI")
+    """Best-effort production default: stages Vtable.GFS + a scratch namelist.wps under
+    <out_dir>/ungrib_work and runs a real ungrib.exe (needs $WPS_DIR, a built WPS install -- see
+    knowledge/hpc/2026-09-23-wps-460-manual-build-on-scc-nvhpc.md) over `grib_paths`. Returns the
+    resulting intermediate file paths in the SAME order as `analog_times`, matched by each
+    output file's own HDATE (ungrib names each file "<prefix>:YYYY-MM-DD_HH"; the filesystem
+    listing order is not guaranteed to match `analog_times`' order, so this matches explicitly
+    rather than assuming it). ungrib_work/ is left in place (not cleaned up) on success --
+    generate()'s caller can diff it against the relabelled output files it's used to produce, to
+    confirm relabelling changed only HDATE (see tests/test_scenario_analog.py's synthetic version
+    of that same check)."""
+    wps_dir = os.environ.get("WPS_DIR")
+    if not wps_dir:
+        raise ScenarioError(
+            "analog generator's default run_ungrib needs $WPS_DIR set (a built WPS install); "
+            "pass an explicit run_ungrib= callable instead")
+
+    work = Path(out_dir) / "ungrib_work"
+    work.mkdir(parents=True, exist_ok=True)
+
+    for exe in ("ungrib.exe", "link_grib.csh"):
+        src = os.path.join(wps_dir, exe)
+        dst = work / exe
+        if os.path.lexists(dst):
+            os.remove(dst)
+        os.symlink(src, dst)
+    vtable_src = os.path.join(wps_dir, "ungrib", "Variable_Tables", "Vtable.GFS")
+    vtable_dst = work / "Vtable"
+    if os.path.lexists(vtable_dst):
+        os.remove(vtable_dst)
+    os.symlink(vtable_src, vtable_dst)
+
+    start, end = min(analog_times), max(analog_times)
+    sorted_times = sorted(analog_times)
+    interval_s = (int(round((sorted_times[1] - sorted_times[0]).total_seconds()))
+                  if len(sorted_times) > 1 else 21600)
+    namelist = (
+        "&share\n"
+        " wrf_core = 'ARW',\n"
+        " max_dom = 1,\n"
+        " start_date = '%s',\n"
+        " end_date   = '%s',\n"
+        " interval_seconds = %d,\n"
+        " io_form_geogrid = 2,\n"
+        "/\n"
+        "&ungrib\n"
+        " out_format = 'WPS',\n"
+        " prefix = '%s',\n"
+        "/\n"
+    ) % (start.strftime("%Y-%m-%d_%H:%M:%S"), end.strftime("%Y-%m-%d_%H:%M:%S"), interval_s, prefix)
+    (work / "namelist.wps").write_text(namelist)
+
+    for stale in list(work.glob("GRIBFILE.*")) + list(work.glob("%s:*" % prefix)):
+        stale.unlink()
+
+    link_proc = subprocess.run(
+        ["./link_grib.csh"] + [str(Path(p).resolve()) for p in grib_paths],
+        cwd=str(work), capture_output=True, text=True)
+    if link_proc.returncode != 0:
+        raise ScenarioError("link_grib.csh failed (rc=%d) in %s: %s"
+                             % (link_proc.returncode, work, link_proc.stderr[-2000:]))
+
+    ungrib_proc = subprocess.run(["./ungrib.exe"], cwd=str(work),
+                                  capture_output=True, text=True)
+    if ungrib_proc.returncode != 0:
+        raise ScenarioError("ungrib.exe failed (rc=%d) in %s: %s"
+                             % (ungrib_proc.returncode, work, ungrib_proc.stdout[-2000:]))
+
+    produced = {}
+    for p in sorted(work.glob("%s:*" % prefix)):
+        hdate_str = p.name.split(":", 1)[1]
+        produced[datetime.datetime.strptime(hdate_str, "%Y-%m-%d_%H")] = p
+    missing = [t for t in analog_times if t not in produced]
+    if missing:
+        raise ScenarioError(
+            "ungrib.exe produced no %s:* file for %d of %d requested times in %s (missing: %s)"
+            % (prefix, len(missing), len(analog_times), work,
+               ", ".join(t.isoformat() for t in missing)))
+    return [produced[t] for t in analog_times]
 
 
 @register

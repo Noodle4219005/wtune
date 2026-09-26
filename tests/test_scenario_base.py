@@ -75,7 +75,7 @@ def test_config_unknown_key_raises():
 def test_config_defaults():
     cfg = parse_scenario({})
     assert cfg.when == "auto"
-    assert cfg.generator == "analog"
+    assert cfg.generator == "aifs"   # condition 5 winner (decision 0054)
     assert cfg.ic == "analog"
     assert cfg.ensemble is None
     assert cfg.allow_noncommercial is False

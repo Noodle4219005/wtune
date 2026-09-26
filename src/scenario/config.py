@@ -21,7 +21,11 @@ _VALID_GPU = {"auto", "true", "false"}
 @dataclass(frozen=True)
 class ScenarioConfig:
     when: str = "auto"
-    generator: str = "analog"
+    # Condition 5 (decision 0054, 2026-09-27): median |error| aifs 7.46% vs analog 7.53% over 3
+    # pseudo-fictional cases -- the registered rule makes the smaller one the default, but the
+    # gap is within run-to-run noise. aifs needs the GPU env (envs/ai); use generator: analog
+    # where there is no GPU.
+    generator: str = "aifs"
     ic: str = "analog"
     ensemble: Optional[Tuple[str, ...]] = None
     allow_noncommercial: bool = False
@@ -47,7 +51,7 @@ def parse_scenario(d: dict) -> ScenarioConfig:
     when = d.get("when", "auto")
     _check_choice(when, _VALID_WHEN, "when")
 
-    generator = d.get("generator", "analog")
+    generator = d.get("generator", ScenarioConfig.generator)
     ic = d.get("ic", "analog")
     _check_choice(ic, _VALID_IC, "ic")
 

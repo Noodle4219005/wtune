@@ -766,6 +766,7 @@ def plan_rebuild_segments(case_dir, points, config, out_dir, spinup_min=60, date
     plan = coldstart.build_plan(
         case_dir, out_dir, k=len(points), nodes=config.get("nodes", 1), ranks=config["ranks"],
         omp=config.get("omp", 1), nx=config.get("nx"), ny=config.get("ny"),
+        numtiles=config.get("numtiles", 1),
         spinup_min=spinup_min, namelist=namelist, grib_dir=grib_dir, forcing=forcing, now=now,
         date_shift_to=(date_shift_to.strftime(_ISO_FMT) if date_shift_to else None),
         times=pinned)

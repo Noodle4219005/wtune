@@ -2428,3 +2428,23 @@ class TestSetListValueWithoutTrailingComma(unittest.TestCase):
         out = cs.set_list("&domains\n max_dom = 2\n/\n", "max_dom", 1, 1)
         self.assertIn("max_dom = 1,", out)
         self.assertEqual(cs.count_key(out, "max_dom"), 1)
+
+
+def test_wrf_window_namelist_inserts_decomposition_when_case_omits_it():
+    # conus25's namelist has no nproc_x/nproc_y/numtiles; C3 job 1237's rebuild window then ran
+    # WRF's default decomposition instead of the config being predicted (+21% per step).
+    import datetime as _dt
+    text = ("&time_control\n run_days = 0,\n run_hours = 6,\n run_minutes = 0,\n"
+            " run_seconds = 0,\n start_year = 2019,\n start_month = 11,\n start_day = 26,\n"
+            " start_hour = 18,\n end_year = 2019,\n end_month = 11,\n end_day = 27,\n"
+            " end_hour = 00,\n history_interval = 60,\n/\n"
+            "&domains\n time_step = 15,\n max_dom = 1,\n e_we = 100,\n/\n")
+    out = cs.build_wrf_window_namelist_text(text, _dt.datetime(2019, 11, 26, 22), 50, 15.0,
+                                            12, 24, 8)
+    dom = out.split("&domains", 1)[1]
+    assert cs.count_key(dom, "nproc_x") == 1 and "nproc_x = 12," in dom.replace("  ", " ")
+    assert cs.count_key(dom, "nproc_y") == 1 and cs.count_key(dom, "numtiles") == 1
+    assert cs.count_key(out.split("&domains", 1)[0], "numtiles") == 0
+    auto = cs.build_wrf_window_namelist_text(text, _dt.datetime(2019, 11, 26, 22), 50, 15.0,
+                                             -1, -1, 1)
+    assert cs.count_key(auto, "nproc_x") == 0 and cs.count_key(auto, "numtiles") == 0

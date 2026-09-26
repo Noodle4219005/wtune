@@ -1010,7 +1010,7 @@ def build_plan(case_dir, out_dir, k=4, nodes=1, ranks=72, omp=1, nx=None, ny=Non
                spinup_min=60, namelist=None, namelist_wps=None, geo_from_wrfinput=None,
                grib_dir=None, ncdump=None, use_state=False, now=None, geog_path=None,
                forcing=None, date_shift_to=None, analog_path=None, times=None,
-               real_only=False, ml_model=None):
+               real_only=False, ml_model=None, numtiles=1):
     rows, blockers, nl = inspect_case(case_dir, namelist=namelist, namelist_wps=namelist_wps,
                                        geo_from_wrfinput=geo_from_wrfinput, grib_dir=grib_dir,
                                        ncdump=ncdump, now=now, geog_path=geog_path)
@@ -1156,7 +1156,7 @@ def build_plan(case_dir, out_dir, k=4, nodes=1, ranks=72, omp=1, nx=None, ny=Non
         prefix=primary_source.prefix)
 
     config = {"ranks": ranks, "omp": omp, "nx": nx or 1, "ny": ny or ranks // max(omp, 1),
-              "numtiles": 1}
+              "numtiles": int(numtiles or 1)}
 
     # T12 (2026-09-24, job 965): read ZNW/P_TOP HERE (login node, netCDF4/numpy available) --
     # fix-real-namelist runs inside the batch job under /usr/bin/python3 (stdlib only) and can no
@@ -1672,12 +1672,15 @@ def build_wrf_window_namelist_text(real_namelist_text, T, win_steps, dt_seconds,
     history_keys = sorted(set(m.group(1).lower() for m in _HISTORY_KEY_RE.finditer(text0)))
     for hk in history_keys:
         txt = set_list(txt, hk, 999999, ndom)
-    if count_key(text0, "nproc_x"):
-        txt = set_list(txt, "nproc_x", nproc_x, 1)
-    if count_key(text0, "nproc_y"):
-        txt = set_list(txt, "nproc_y", nproc_y, 1)
-    if count_key(text0, "numtiles"):
-        txt = set_list(txt, "numtiles", numtiles, 1)
+    # The decomposition is what is being measured, so it is written even when the case's own
+    # namelist omits it (conus25 has no nproc_x/nproc_y/numtiles: C3 job 1237's rebuild window
+    # silently ran WRF's default decomposition, +21% per step vs the G0014 truth).
+    for key, val, default in (("nproc_x", nproc_x, -1), ("nproc_y", nproc_y, -1),
+                              ("numtiles", numtiles, 1)):
+        if count_key(text0, key):
+            txt = set_list(txt, key, val, 1)
+        elif int(val) != default:
+            txt = set_list(txt, key, val, 1, new_key_group="domains")
 
     required = (["start_" + k for k in ("year", "month", "day", "hour") if count_key(text0, "start_" + k)]
                 + ["run_days", "run_hours", "run_minutes", "run_seconds"]
@@ -2171,6 +2174,7 @@ def render_run_sbatch(plan, site="scc", per_window_estimate_min=15, wps_estimate
     omp = plan["config"]["omp"]
     nx = plan["config"]["nx"]
     ny = plan["config"]["ny"]
+    numtiles = int(plan["config"].get("numtiles", 1) or 1)
     # T7 (2026-09-24, jobs on scc): ranks-per-node = ceil(ranks/nodes), not floor -- floor
     # under-requests Slurm slots (90 ranks/4 nodes: floor=22 -> --ntasks-per-node=22 -> only 88
     # slots allocated, but real.exe's own mpirun -np 90 --map-by ppr:23:node (and site_launch's
@@ -2398,7 +2402,7 @@ def render_run_sbatch(plan, site="scc", per_window_estimate_min=15, wps_estimate
         lines.append("  shopt -s nullglob; WRFLOWINP=(../real/wrflowinp_d0*); shopt -u nullglob")
         lines.append("  [ ${#WRFLOWINP[@]} -gt 0 ] && ln -sf ../real/wrflowinp_d0* .")
         lines.append("  python3 \"$TOOL\" fix-wrf-namelist --plan \"$PLAN\" --win \"$k\" "
-                      "--nproc-x %d --nproc-y %d --numtiles 1 || return 1" % (nx, ny))
+                      "--nproc-x %d --nproc-y %d --numtiles %d || return 1" % (nx, ny, numtiles))
         # OMP_NUM_THREADS/OMP_PLACES/OMP_PROC_BIND for the ACTUAL timed run must match the
         # ground-truth runner (predict_validate/truth_n.sbatch) exactly, or the window isn't
         # measuring the same conditions the prediction will be compared against.

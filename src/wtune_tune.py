@@ -1326,7 +1326,7 @@ def run_rebuild_points(ctx, points, best_config, nodes, case_dir, out_dir, run_s
     if not points:
         return []
     config = dict(ranks=best_config["ranks"], omp=best_config["omp"], nx=best_config["nx"],
-                  ny=best_config["ny"], nodes=nodes)
+                  ny=best_config["ny"], numtiles=best_config.get("numtiles", 1), nodes=nodes)
     plan = wtune_probe_plan.plan_rebuild_segments(
         case_dir, points, config, out_dir, spinup_min=spinup_min, date_shift_to=date_shift_to,
         grib_dir=grib_dir)

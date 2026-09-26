@@ -1343,8 +1343,7 @@ def run_rebuild_points(ctx, points, best_config, nodes, case_dir, out_dir, run_s
     # windows would overwrite each other's FILE:/met_em files). Forcing is fetched once into a
     # shared cache; geogrid and the Thompson tables come from the run.sbatch caches.
     cache_dir = os.path.join(out_dir, "grib")
-    plans, job_ids = [], []
-    for i, p in enumerate(points):
+    def _prepare_and_submit(i, p):
         pdir = os.path.join(out_dir, "pt_%d" % i)
         plan = wtune_probe_plan.plan_rebuild_segments(
             case_dir, [p], config, pdir, spinup_min=spinup_min, date_shift_to=date_shift_to,
@@ -1352,14 +1351,21 @@ def run_rebuild_points(ctx, points, best_config, nodes, case_dir, out_dir, run_s
         total_bytes, _forcing = coldstart.resolve_and_fetch_forcing(plan, pdir, cache_dir,
                                                                      grib_dir=grib_dir)
         print("C3 rebuild point %d (%s): fetched %.1f MB forcing"
-              % (i, p.at.isoformat(), total_bytes / 1e6))
+              % (i, p.at.isoformat(), total_bytes / 1e6), flush=True)
         sbatch_path = coldstart.stage_plan(pdir, site="scc")
         job_id = sweep.submit_job("sbatch %s" % sbatch_path, sbatch_runner=ctx.sbatch_runner)
-        ctx.owned_jobs.append(job_id)
-        print("C3 rebuild job submitted: %s (%s)" % (job_id, sbatch_path))
+        print("C3 rebuild job submitted: %s (%s)" % (job_id, sbatch_path), flush=True)
         plan["_plan_dir"] = pdir
-        plans.append(plan)
-        job_ids.append(job_id)
+        return plan, job_id
+
+    # Fetch/stage/submit every point concurrently: each fetch is network-bound (ERA5 ~3.5 min
+    # per point), so doing them in sequence delayed the last submission by the sum of all fetches.
+    import concurrent.futures
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, len(points))) as pool:
+        done = list(pool.map(lambda ip: _prepare_and_submit(*ip), enumerate(points)))
+    plans = [d[0] for d in done]
+    job_ids = [d[1] for d in done]
+    ctx.owned_jobs.extend(job_ids)
     states = wait_for_jobs(ctx, job_ids, "c3-rebuild")
     bad = {j: states.get(j, ("UNKNOWN", ""))[0] for j in job_ids
            if states.get(j, ("UNKNOWN", ""))[0] != "COMPLETED"}

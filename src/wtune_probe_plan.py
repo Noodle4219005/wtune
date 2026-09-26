@@ -35,10 +35,12 @@ Point SOURCES (probe.sources, preference order -- see wtune_config.py's schema):
                 configs) re-derive the point from real historical forcing: fetch -> WPS/real.exe
                 regenerates wrfinput/wrfbdy AT that exact time -> the cold-start spin-up is run
                 and thrown away -> the candidate is measured on the freshly rebuilt segment.
-                This is tools/coldstart_sample.py's plan/fetch/stage machinery, elevated here to
-                a first-class, single-point-addressable operation via
-                plan_rebuild_segment_files() in that module (added 2026-09-26) -- not a fallback,
-                the DEFAULT choice once a point is outside the trajectory horizon, for any case
+                This is tools/coldstart_sample.py's plan/fetch/stage/run.sbatch machinery,
+                elevated here to a first-class, multi-point-addressable operation via
+                plan_rebuild_segments() below (build_plan's own `times=` pin, added
+                independently of this feature) plus run_rebuild_points() in wtune_tune.py, which
+                fetches/stages/submits/scores it -- not a fallback, the DEFAULT choice once a
+                point is outside the trajectory horizon, for any case
                 whose date resolves to real, fetchable forcing. Only usable for a case whose
                 start date is a real calendar date; resolve_rebuild_target_date() below detects a
                 FICTIONAL case date (no forcing source covers it) and substitutes an analog real
@@ -58,6 +60,7 @@ from __future__ import annotations
 
 import dataclasses
 import datetime
+import math
 import os
 import re
 import statistics
@@ -82,6 +85,12 @@ class ProbePoint:
     reason: str
     source: str            # "trajectory" | "restart" | "rebuild", or None if unresolved
     steps: int
+    # requested_at (2026-09-26, cadence-aware rebuild placement): the ORIGINALLY targeted time
+    # (P) that resolution actually served at `at` (M). Equal to `at` for every source except
+    # 'rebuild', where a rebuild segment starts at a forcing-grid time T and is only measured
+    # after its own spin-up (M = T + spinup_s) -- see resolve_rebuild_point -- so the measured
+    # point can differ from what was originally targeted; both are always reported.
+    requested_at: "datetime.datetime | None" = None
 
 
 @dataclasses.dataclass
@@ -207,10 +216,46 @@ def _restart_file_glob(at):
         at.year, at.month, at.day, at.hour, at.minute, at.second)
 
 
-def resolve_point_source(at, run_start, sources_pref, case_dir=None,
-                          trajectory_horizon_s=None, is_real_calendar=None):
-    """First entry of `sources_pref` (already alias-normalized) that can serve a probe point at
-    `at`. Returns the chosen source name, or None (caller drops the point).
+def resolve_rebuild_point(p_at, run_start, run_end, spinup_s, rebuild_measure_window_s,
+                           forcing_interval_h):
+    """(M, T) for a rebuild candidate targeting P=p_at (2026-09-26 cadence-aware placement rule):
+    a rebuild segment starts AT a forcing-grid time T and is only usable after its own spin-up --
+    the point actually MEASURED is M = T + spinup_s, never P snapped onto the grid. T is the
+    LATEST forcing-grid time (multiples of forcing_interval_h hours since the UNIX epoch -- the
+    same grid tools/coldstart_sample.align_to_interval uses, but FLOORED here instead of
+    ceiling'd: 'P between grid times picks the earlier T') with T + spinup_s <= P.
+
+    `rebuild_measure_window_s` MUST be the window length the rebuild job will ACTUALLY measure
+    with (tools/coldstart_sample.compute_window_seconds's own max(30, 2*stepra)*dt sizing, NOT
+    plan_points' own steps_for_stepra(stepra) window) -- using the wrong, smaller window here
+    would pass planning-time validation and then fail for real inside build_plan's own 'time +
+    window does not fit in the run' check (this task's report: exactly the bug this rule fixes).
+
+    Returns (None, T) -- dropped -- when M + rebuild_measure_window_s > run_end (M's own
+    measurement would overrun the run). T is always returned, even when M is None, so the
+    caller/report can show what was tried. Never raises."""
+    interval_s = forcing_interval_h * 3600.0
+    limit = p_at - datetime.timedelta(seconds=spinup_s)
+    epoch = datetime.datetime(1970, 1, 1)
+    limit_s = (limit - epoch).total_seconds()
+    t_s = math.floor(limit_s / interval_s) * interval_s
+    T = epoch + datetime.timedelta(seconds=t_s)
+    M = T + datetime.timedelta(seconds=spinup_s)
+    if M + datetime.timedelta(seconds=rebuild_measure_window_s) > run_end:
+        return None, T
+    return M, T
+
+
+def resolve_point_source(at, run_start, run_end, sources_pref, spinup_s=0.0,
+                          measure_window_s=0.0, rebuild_measure_window_s=None, case_dir=None,
+                          trajectory_horizon_s=None, is_real_calendar=None,
+                          forcing_interval_h=None):
+    """First entry of `sources_pref` (already alias-normalized) that can serve a probe point
+    requested at `at` (=P). Returns (source, effective_at, requested_at): effective_at == at for
+    'trajectory'/'restart' (those measure exactly the requested time); for 'rebuild',
+    effective_at is M from resolve_rebuild_point (may differ from `at` -- see that function's
+    docstring) and requested_at is always the original `at`. Returns (None, None, at) when
+    nothing in sources_pref can serve it (caller drops the point).
 
       'trajectory' -- available when trajectory_horizon_s is given and
                       (at - run_start) <= trajectory_horizon_s (the anchor's own spin-up restart
@@ -222,21 +267,27 @@ def resolve_point_source(at, run_start, sources_pref, case_dir=None,
                       >= 1900 heuristic when the caller does not resolve it more precisely --
                       see resolve_rebuild_target_date for the real check, which also handles a
                       FICTIONAL case date via an analog substitution before this function is
-                      ever asked to place the point).
+                      ever asked to place the point) AND forcing_interval_h is known AND
+                      resolve_rebuild_point finds a usable M for `at` (never overruns run_end).
     """
     real = is_real_calendar if is_real_calendar is not None else (at.year >= 1900)
+    rebuild_window = rebuild_measure_window_s if rebuild_measure_window_s is not None \
+        else measure_window_s
     for src in sources_pref:
         src = canonical_source(src)
         if src == "trajectory":
             if trajectory_horizon_s is not None and (at - run_start).total_seconds() <= trajectory_horizon_s:
-                return src
+                return src, at, at
         elif src == "restart":
             if case_dir and os.path.exists(os.path.join(case_dir, _restart_file_glob(at))):
-                return src
+                return src, at, at
         elif src == "rebuild":
-            if real:
-                return src
-    return None
+            if real and forcing_interval_h is not None:
+                M, _T = resolve_rebuild_point(at, run_start, run_end, spinup_s, rebuild_window,
+                                              forcing_interval_h)
+                if M is not None:
+                    return src, M, at
+    return None, None, at
 
 
 def resolve_rebuild_target_date(case_dir, at, namelist=None, forcing_probe_fn=None,
@@ -292,9 +343,36 @@ def resolve_rebuild_target_date(case_dir, at, namelist=None, forcing_probe_fn=No
 # ---------------------------------------------------------------------------
 # plan_points
 # ---------------------------------------------------------------------------
+def _merge_resolved_points(points, min_gap_s):
+    """points: sorted [[effective_at, reason, source, requested_at, priority_idx], ...] (lists,
+    mutated in place -- same convention as _merge_close_points). Consecutive points within
+    min_gap_s of the last KEPT point's effective_at are merged into it: reason gains the
+    merged-in one (tagged with its own source, and its own requested time when that differs from
+    its effective time -- e.g. a rebuild point whose M coincides with an existing trajectory
+    point's own time); priority_idx becomes the MIN of the two, so a lower-priority auto pick
+    that happens to collapse onto an earlier, higher-priority one is never treated as lower-
+    priority than it now effectively is for budget trimming."""
+    if not points:
+        return []
+    out = [list(points[0])]
+    for at, reason, source, req_at, idx in points[1:]:
+        prev = out[-1]
+        if (at - prev[0]).total_seconds() < min_gap_s:
+            tag = reason + "@" + source
+            if req_at != at:
+                tag += "(P=%s)" % req_at.isoformat()
+            if tag not in prev[1].split("+"):
+                prev[1] = prev[1] + "+" + tag
+            prev[4] = min(prev[4], idx)
+            continue
+        out.append([at, reason, source, req_at, idx])
+    return out
+
+
 def plan_points(case_nl, run_start, run_end, dt, stepra, spinup_s, cfg,
                  sample_points=None, precip_lookup=None, s_est=None,
-                 predicted_run_s=None, case_dir=None):
+                 predicted_run_s=None, case_dir=None, forcing_interval_h=None,
+                 grib_dir=None):
     """Places one or more probe measurement points on [run_start, run_end]. Returns
     (points: [ProbePoint, ...], notes: [str, ...]) -- notes covers short-run fallback, budget
     capping, and any point dropped for lack of a usable source; never raises for THOSE
@@ -305,20 +383,66 @@ def plan_points(case_nl, run_start, run_end, dt, stepra, spinup_s, cfg,
     wtune_config.py's schema). case_nl is unused by this function directly today (kept in the
     signature for callers/future placement rules that need namelist facts beyond
     dt/stepra/run_start/run_end -- e.g. per-domain geometry); accepted and ignored otherwise.
-    """
+
+    Pipeline (2026-09-26, cadence-aware rebuild placement -- a bug fix to auto placement, not a
+    post-hoc change: resolve the forcing chain/cadence for rebuild candidates FIRST, then place,
+    then trim by budget, so the returned plan is always executable):
+      1. resolve forcing_interval_h (if 'rebuild' is a possible source and not given explicitly --
+         tests inject it directly; a real caller lets this resolve from case_dir/grib_dir).
+      2. generate raw candidates (auto via tools/coldstart_sample.select_windows, or parsed from
+         an explicit probe.points list) -- UNCHANGED, source-agnostic.
+      3. resolve EACH candidate's source; for 'rebuild' this ALSO resolves its actual measured
+         time M (resolve_rebuild_point) -- may differ from the candidate's own requested time P.
+      4. merge points whose EFFECTIVE (post-resolution) times collapse within one measure window
+         of each other -- this can merge a rebuild point's M onto an unrelated trajectory/restart
+         point's own time, which could only be detected after step 3.
+      5. trim to budget_pct (by ORIGINAL selection priority, not by time -- the merge in step 4
+         tracks each merged point's best/lowest priority index for exactly this).
+    The trajectory/restart sources are unaffected by any of this (their effective time always
+    equals what was requested)."""
     notes = []
     steps_cfg = cfg.get("steps", "auto")
     steps = steps_for_stepra(stepra) if steps_cfg in (None, "auto") else int(steps_cfg)
     measure_window_s = steps * dt
+    # coldstart_sample's OWN window sizing (compute_window_seconds: max(30, 2*stepra) steps) --
+    # NOT plan_points' own steps_for_stepra(stepra) -- is what a rebuild job will ACTUALLY
+    # measure with (tools/coldstart_sample.build_plan/render_run_sbatch), so the drop-if-overrun
+    # check in resolve_rebuild_point must use THIS window, or planning can approve a point that
+    # then fails for real inside build_plan's own bounds check (this task's report).
+    rebuild_measure_window_s = max(30, 2 * stepra) * dt
     duration_s = (run_end - run_start).total_seconds()
     sources_pref = [canonical_source(s) for s in (cfg.get("sources") or list(PROBE_SOURCES))]
     max_points = cfg.get("max_points") or 5
     budget_pct = cfg.get("budget_pct")
 
+    if forcing_interval_h is None and "rebuild" in sources_pref and case_dir:
+        try:
+            chain = coldstart.resolve_forcing_chain_for(run_start, grib_dir=grib_dir)
+        except Exception as e:
+            chain = []
+            notes.append("probe: rebuild source requested but forcing-chain lookup failed for "
+                         "%s (%s: %s)" % (run_start.isoformat(), type(e).__name__, e))
+        else:
+            if chain:
+                forcing_interval_h = chain[0].forcing_interval_h
+            else:
+                notes.append("probe: rebuild source requested but no forcing source covers %s"
+                             % run_start.isoformat())
+
+    def _resolve(at, reason, forced_source):
+        pref = [forced_source] if forced_source else sources_pref
+        src, eff_at, req_at = resolve_point_source(
+            at, run_start, run_end, pref, spinup_s=spinup_s, measure_window_s=measure_window_s,
+            rebuild_measure_window_s=rebuild_measure_window_s, case_dir=case_dir,
+            trajectory_horizon_s=trajectory_horizon_s, forcing_interval_h=forcing_interval_h)
+        return src, eff_at, req_at, pref
+
     def _fallback_point(reason):
-        source = resolve_point_source(run_start, run_start, sources_pref, case_dir=case_dir,
-                                       trajectory_horizon_s=0.0)
-        return [ProbePoint(at=run_start, reason=reason, source=source, steps=steps)]
+        src, eff_at, req_at, _pref = _resolve(run_start, reason, None)
+        return [ProbePoint(at=eff_at or run_start, reason=reason, source=src, steps=steps,
+                           requested_at=req_at)]
+
+    trajectory_horizon_s = spinup_s + max_points * measure_window_s
 
     if duration_s < spinup_s + measure_window_s:
         notes.append(
@@ -361,30 +485,34 @@ def plan_points(case_nl, run_start, run_end, dt, stepra, spinup_s, cfg,
                                          precip_lookup=precip_lookup)
         raw_points = [(at, reason, None) for at, reason in picks]
 
-    if s_est and predicted_run_s and budget_pct:
-        cost_per_point = (spinup_s / dt + steps) * s_est
-        budget_s = (budget_pct / 100.0) * predicted_run_s
-        n_afford = max(1, int(budget_s / cost_per_point)) if cost_per_point > 0 else len(raw_points)
-        if n_afford < len(raw_points):
-            notes.append("probe: budget_pct=%s capped points to %d (of %d placed)"
-                         % (budget_pct, n_afford, len(raw_points)))
-            raw_points = raw_points[:n_afford]
-
-    trajectory_horizon_s = spinup_s + max_points * measure_window_s
-    points = []
-    for at, reason, source in raw_points:
-        if source is None:
-            source = resolve_point_source(at, run_start, sources_pref, case_dir=case_dir,
-                                          trajectory_horizon_s=trajectory_horizon_s)
-        if source is None:
+    resolved = []
+    for idx, (at, reason, source) in enumerate(raw_points):
+        eff_source, eff_at, req_at, pref = _resolve(at, reason, source)
+        if eff_source is None:
             notes.append("probe: dropped point %s (reason=%s) -- no source in %s could serve it"
-                         % (at.isoformat(), reason, sources_pref))
+                         % (at.isoformat(), reason, pref))
             continue
-        points.append(ProbePoint(at=at, reason=reason, source=source, steps=steps))
+        resolved.append([eff_at, reason, eff_source, req_at, idx])
 
-    if not points:
+    if not resolved:
         notes.append("probe: every placed point was dropped -- falling back to a single t0 point")
         return _fallback_point("t0_fallback"), notes
+
+    resolved.sort(key=lambda p: p[0])
+    merged = _merge_resolved_points(resolved, measure_window_s)
+
+    if s_est and predicted_run_s and budget_pct and len(merged) > 1:
+        cost_per_point = (spinup_s / dt + steps) * s_est
+        budget_s = (budget_pct / 100.0) * predicted_run_s
+        n_afford = max(1, int(budget_s / cost_per_point)) if cost_per_point > 0 else len(merged)
+        if n_afford < len(merged):
+            notes.append("probe: budget_pct=%s capped points to %d (of %d placed)"
+                         % (budget_pct, n_afford, len(merged)))
+            by_priority = sorted(merged, key=lambda p: p[4])[:n_afford]
+            merged = sorted(by_priority, key=lambda p: p[0])
+
+    points = [ProbePoint(at=eff_at, reason=reason, source=src, steps=steps, requested_at=req_at)
+              for eff_at, reason, src, req_at, _idx in merged]
     return points, notes
 
 
@@ -453,6 +581,43 @@ def build_spinup_writer_namelist_text(namelist_text, spinup_minutes, restart_io_
     for hk in history_keys:
         text0 = coldstart.set_list(text0, hk, 999999, ndom)
     return text0
+
+
+# ---------------------------------------------------------------------------
+# trajectory/restart measurement extraction (steps.txt -> PointMeasurement)
+# ---------------------------------------------------------------------------
+def measurement_from_steps_file(path, stepra, at, reason, source):
+    """Reads a strict_campaign.sbatch-produced steps.txt (one d01 'Timing for main' wall-clock
+    seconds per line, in step order -- the SAME file configs.py step-stats/the RESULT line's
+    med=/mean= are computed from) and returns a PointMeasurement.
+
+    Does NOT use wtune_predict.classify_steps_detected here: that function's phase detector
+    needs n >= 2*stepra samples to trust its own result (see its docstring) and otherwise falls
+    back to an assumed schedule phase 0 -- a RANKING-probe window (probe.steps='auto' ==
+    max(30, stepra+10), typically far short of 2*stepra) never has enough data for that detector
+    to be reliable. This task's diagnosis (2026-09-26, conus25/G0014 C2/C3 validation) instead
+    directly VERIFIED the schedule empirically against both a 52-step restart-started probe and
+    the full 1440-step truth run's own rsl: radiation fires at LOCAL integration step i=1 and
+    every i with (i mod stepra) == 1 thereafter (i=41,81,... for stepra=40) -- schedule PHASE 1,
+    not phase 0 (wtune_predict.classify_steps's own documented i==1-or-i%stepra==0 formula, i.e.
+    phase 0, does NOT match this WRF build's actual behaviour). Step 1 (i==1) is dropped from
+    BOTH buckets entirely -- startup/restart-read overhead dominates it regardless of whether the
+    schedule also computes radiation there -- matching wtune_predict.measure_rad_from_rsl's own
+    convention. s_normal/r use the MEDIAN (robust to an occasional history-write step landing on
+    the same index), matching step_stats()'s and this task's diagnosis's own methodology."""
+    with open(path) as f:
+        wall = [float(x) for x in f if x.strip()]
+    normal, rad = [], []
+    for i, w in enumerate(wall, start=1):
+        if i == 1:
+            continue
+        (rad if i % stepra == 1 else normal).append(w)
+    if not normal:
+        raise ProbePlanError("measurement_from_steps_file: %s has no usable normal steps" % path)
+    s_normal = statistics.median(normal)
+    r = (statistics.median(rad) / s_normal) if rad else None
+    return PointMeasurement(at=at, reason=reason, source=source, s_normal=s_normal,
+                            n_rad=len(rad), r=r)
 
 
 # ---------------------------------------------------------------------------
@@ -547,40 +712,64 @@ def combine(points_measurements, run_start, run_end, dt, stepra, calibration=Non
 # T1 comment) -- `times` already lets a caller replace the K-auto-window selection with exactly
 # the pinned time(s) it wants, which is precisely "one specific time, one specific config".
 # ---------------------------------------------------------------------------
-def plan_rebuild_segment(case_dir, at, config, out_dir, spinup_min=60, date_shift_to=None,
-                          namelist=None, grib_dir=None, forcing=None, now=None):
+def plan_rebuild_segments(case_dir, points, config, out_dir, spinup_min=60, date_shift_to=None,
+                           namelist=None, grib_dir=None, forcing=None, now=None):
     """Plans (writes plan.json/namelist.wps/... under out_dir, exactly as build_plan always has
-    -- does not fetch/stage/run) ONE rebuild segment at `at` for ONE decomposition `config`
-    ({"ranks", "omp", "nx", "ny", "nodes"} -- nx/ny/nodes/omp optional, same defaults as
-    build_plan). `at` need not already be exactly on the forcing grid: this snaps it forward to
-    the nearest forcing-grid time (tools/coldstart_sample.align_to_interval) and records BOTH the
-    requested and the snapped time on the returned plan dict ('rebuild_requested_at'/
-    'rebuild_snapped_to') -- never silently measures a different time without saying so.
-    `date_shift_to` (a datetime): use this ANALOG date's weather instead of `at`'s own calendar
-    date (see resolve_rebuild_target_date) -- forwarded to build_plan's own date_shift_to, which
-    keeps the PREDICTED run's own timeline (run_start/run_end) on the case's stated dates while
-    the fetched/measured weather comes from the analog. Raises ProbePlanError when no forcing
-    source covers the target date at all (never silently falls back on its own -- the caller,
-    plan_points/resolve_rebuild_target_date, is responsible for the analog decision before
-    calling this). Actual fetch/stage/run of the segment this returns still goes through
-    coldstart_sample's own resolve_and_fetch_forcing/stage_plan/render_run_sbatch, unchanged."""
-    target = date_shift_to or at
+    -- does not fetch/stage/run) ALL rebuild-sourced segments of ONE prediction, for ONE
+    decomposition `config` ({"ranks", "omp", "nx", "ny", "nodes"} -- nx/ny/nodes/omp optional,
+    same defaults as build_plan), in a SINGLE build_plan(times=[...]) call -- decision 0054 "one
+    allocation where feasible": every rebuild point of one prediction shares ONE plan/fetch/stage/
+    run.sbatch, so it runs as one job (build_plan's own T1 `times=` pin already replaces its
+    K-auto-window selection with exactly the pinned times given, in file order -- render_run_
+    sbatch then runs them as sequential windows inside that one allocation).
+
+    `points`: [ProbePoint, ...], all source='rebuild', as produced by plan_points -- each `.at`
+    is ALREADY the resolved measured point M = T + spinup_min*60 (resolve_rebuild_point's own
+    floor-to-grid rule; `.requested_at` is P, what was originally targeted). `spinup_min` here
+    MUST equal the spinup_s (in minutes) plan_points was called with -- it is used to recover
+    each point's own forcing-grid start T = M - spinup_min*60s, which is what is actually pinned
+    via build_plan's `times=` (a rebuild segment starts AT T and is only usable after ITS OWN
+    spin-up; the measured point is T+spinup_min, never M or P re-snapped onto the grid -- see
+    resolve_rebuild_point's docstring). T is NOT re-derived via tools/coldstart_sample.
+    align_to_interval here (that rounds UP/ceiling and would silently move the point plan_points
+    already correctly floor-resolved -- this task's report: exactly the bug this fixes); it is
+    recovered algebraically from the already-resolved M instead, and build_plan's own internal
+    grid-alignment check (which raises if a pinned time is not exactly on the grid) is the proof
+    that stays correct. `date_shift_to` (a datetime): use this ANALOG date's weather for EVERY
+    point instead of each point's own calendar date (see resolve_rebuild_target_date) --
+    forwarded to build_plan's own date_shift_to, which keeps the PREDICTED run's own timeline
+    (run_start/run_end) on the case's stated dates while the fetched/measured weather comes from
+    the analog. The returned plan dict records both P and M, in point order, under
+    'rebuild_requested_at'/'rebuild_snapped_to'. Raises ProbePlanError when no forcing source
+    covers the (shifted) target date at all. Actual fetch/stage/run of the segments this plans
+    still goes through coldstart_sample's own resolve_and_fetch_forcing/stage_plan/
+    render_run_sbatch, unchanged."""
+    if not points:
+        raise ProbePlanError("plan_rebuild_segments: no points given")
+    spinup_s = spinup_min * 60.0
+    target = date_shift_to or points[0].at
     try:
         chain = coldstart.resolve_forcing_chain_for(target, grib_dir=grib_dir, forcing_pin=forcing,
                                                      now=now)
     except Exception as e:
-        raise ProbePlanError("plan_rebuild_segment: forcing-chain lookup for %s failed (%s: %s)"
+        raise ProbePlanError("plan_rebuild_segments: forcing-chain lookup for %s failed (%s: %s)"
                               % (target.isoformat(), type(e).__name__, e))
     if not chain:
-        raise ProbePlanError("plan_rebuild_segment: no forcing source covers %s"
+        raise ProbePlanError("plan_rebuild_segments: no forcing source covers %s"
                               % target.isoformat())
-    snapped = coldstart.align_to_interval(target, chain[0].forcing_interval_h)
+    starts = [p.at - datetime.timedelta(seconds=spinup_s) for p in points]
+    if date_shift_to:
+        shift_s = (date_shift_to - points[0].at).total_seconds()
+        pinned = [t + datetime.timedelta(seconds=shift_s) for t in starts]
+    else:
+        pinned = starts
     plan = coldstart.build_plan(
-        case_dir, out_dir, k=1, nodes=config.get("nodes", 1), ranks=config["ranks"],
+        case_dir, out_dir, k=len(points), nodes=config.get("nodes", 1), ranks=config["ranks"],
         omp=config.get("omp", 1), nx=config.get("nx"), ny=config.get("ny"),
         spinup_min=spinup_min, namelist=namelist, grib_dir=grib_dir, forcing=forcing, now=now,
         date_shift_to=(date_shift_to.strftime(_ISO_FMT) if date_shift_to else None),
-        times=[snapped])
-    plan["rebuild_requested_at"] = at.isoformat()
-    plan["rebuild_snapped_to"] = snapped.isoformat()
+        times=pinned)
+    plan["rebuild_requested_at"] = [(p.requested_at or p.at).isoformat() for p in points]
+    plan["rebuild_snapped_to"] = [p.at.isoformat() for p in points]   # M, the measured point
+    plan["rebuild_starts_at"] = [t.isoformat() for t in pinned]        # T, the forcing-grid start
     return plan

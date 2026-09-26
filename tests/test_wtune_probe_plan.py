@@ -96,7 +96,8 @@ def test_plan_points_night_day_respect_sunlit():
     sample_points = [(lat, lon) for lat in (-10.0, 0.0, 10.0) for lon in (-10.0, 0.0, 10.0)]
     cfg = dict(_DEFAULT_CFG, sources=["rebuild"])
     points, notes = plan.plan_points({}, run_start, run_end, dt=60.0, stepra=15,
-                                      spinup_s=0.0, cfg=cfg, sample_points=sample_points)
+                                      spinup_s=0.0, cfg=cfg, sample_points=sample_points,
+                                      forcing_interval_h=1.0)
     by_reason = {p.reason: p for p in points}
     assert "night" in by_reason and "day" in by_reason
     night_frac = predict.sunlit_fraction(sample_points, by_reason["night"].at)
@@ -123,9 +124,11 @@ def test_plan_points_explicit_duplicates_merge_not_error():
                points=[{"at": "+1h", "reason": "a"}, {"at": "+1h", "reason": "b"}, "+61m"],
                sources=["rebuild"])
     points, notes = plan.plan_points({}, run_start, run_end, dt=15.0, stepra=40,
-                                      spinup_s=0.0, cfg=cfg)
+                                      spinup_s=0.0, cfg=cfg, forcing_interval_h=1.0)
     assert len(points) == 1   # all three collapse into one (well within one measure window)
-    assert "a" in points[0].reason and "b" in points[0].reason   # merged reasons kept, not dropped
+    assert points[0].source == "rebuild"
+    tokens = points[0].reason.split("+")
+    assert "a" in tokens and "b" in tokens   # merged reasons kept, not dropped
 
 
 def test_plan_points_budget_caps_the_count():
@@ -133,13 +136,91 @@ def test_plan_points_budget_caps_the_count():
     run_end = run_start + datetime.timedelta(hours=24)
     cfg = dict(_DEFAULT_CFG, sources=["rebuild"], max_points=5, budget_pct=10.0)
     points_uncapped, _n = plan.plan_points({}, run_start, run_end, dt=60.0, stepra=15,
-                                           spinup_s=0.0, cfg=dict(cfg, budget_pct=None))
+                                           spinup_s=0.0, cfg=dict(cfg, budget_pct=None),
+                                           forcing_interval_h=1.0)
     assert len(points_uncapped) > 1
     points_capped, notes = plan.plan_points({}, run_start, run_end, dt=60.0, stepra=15,
                                             spinup_s=0.0, cfg=cfg, s_est=1.0,
-                                            predicted_run_s=100.0)
+                                            predicted_run_s=100.0, forcing_interval_h=1.0)
     assert len(points_capped) < len(points_uncapped)
     assert any("budget_pct" in n for n in notes)
+
+
+# ---------------------------------------------------------------------------
+# cadence-aware rebuild placement (2026-09-26 coordinator rule): a rebuild segment starts AT a
+# forcing-grid time T and is only measured after its own spin-up -- M = T + spinup_s, not P
+# snapped onto the grid. A bug fix to auto placement, recorded before any C3 result.
+# ---------------------------------------------------------------------------
+def test_resolve_rebuild_point_picks_the_earlier_T_between_grid_times():
+    # 3h cadence grid: ...,18:00,21:00,00:00,... . spinup=60min. P=20:00 is BETWEEN 18:00 and
+    # 21:00 once shifted back by spinup (limit=19:00, still in [18:00,21:00)) -> T=18:00 (the
+    # EARLIER of the two surrounding grid times, floored, never ceiling'd), M=19:00.
+    run_start = _dt("2019-11-26_18:00:00")
+    run_end = run_start + datetime.timedelta(hours=6)
+    p = _dt("2019-11-26_20:00:00")
+    M, T = plan.resolve_rebuild_point(p, run_start, run_end, spinup_s=3600.0,
+                                      rebuild_measure_window_s=1200.0, forcing_interval_h=3.0)
+    assert T == _dt("2019-11-26_18:00:00")
+    assert M == _dt("2019-11-26_19:00:00")
+
+
+def test_resolve_rebuild_point_drops_when_M_would_overrun_run_end():
+    # Same grid/spinup, but a SHORT run (ends 22:15): T=21:00 (the latest grid time <=
+    # p-spinup) gives M=22:00; M's own 1200s (20min) measure window would end at 22:20, past
+    # run_end=22:15 -> dropped (M is None), T is still reported.
+    run_start = _dt("2019-11-26_18:00:00")
+    run_end = _dt("2019-11-26_22:15:00")
+    p = _dt("2019-11-26_23:50:00")
+    M, T = plan.resolve_rebuild_point(p, run_start, run_end, spinup_s=3600.0,
+                                      rebuild_measure_window_s=1200.0, forcing_interval_h=3.0)
+    assert M is None
+    assert T == _dt("2019-11-26_21:00:00")
+
+
+def test_resolve_rebuild_point_1h_cadence_gives_distinct_Ms():
+    # At 1h cadence the grid is fine enough that two P's 75 minutes apart resolve to DIFFERENT
+    # T/M (unlike the 3h-cadence collapse the plan_points integration test below exercises).
+    run_start = _dt("2019-11-26_18:00:00")
+    run_end = run_start + datetime.timedelta(hours=6)
+    p1 = _dt("2019-11-26_20:02:30")
+    p2 = _dt("2019-11-26_21:17:30")
+    M1, _T1 = plan.resolve_rebuild_point(p1, run_start, run_end, spinup_s=3600.0,
+                                         rebuild_measure_window_s=1200.0, forcing_interval_h=1.0)
+    M2, _T2 = plan.resolve_rebuild_point(p2, run_start, run_end, spinup_s=3600.0,
+                                         rebuild_measure_window_s=1200.0, forcing_interval_h=1.0)
+    assert M1 != M2
+    assert M1 == _dt("2019-11-26_20:00:00")
+    assert M2 == _dt("2019-11-26_21:00:00")
+
+
+def test_plan_points_rebuild_merges_with_existing_trajectory_point_at_3h_cadence():
+    # The exact conus25/G0014 C3 scenario: 3h cadence, 6h run 18Z-00Z, spinup 60min. A rebuild
+    # point targeted at +2h (20:00, farther than the trajectory horizon) resolves to M=19:00,
+    # which collides with the already-placed trajectory point at +1h (19:00) -- merged, not two
+    # separate points.
+    run_start = _dt("2019-11-26_18:00:00")
+    run_end = run_start + datetime.timedelta(hours=6)
+    cfg = dict(_DEFAULT_CFG,
+               points=[{"at": "+1h", "source": "trajectory"}, {"at": "+2h", "source": "rebuild"}])
+    points, notes = plan.plan_points({}, run_start, run_end, dt=15.0, stepra=40, spinup_s=3600.0,
+                                      cfg=cfg, forcing_interval_h=3.0)
+    assert len(points) == 1
+    assert points[0].at == _dt("2019-11-26_19:00:00")
+    assert points[0].source == "trajectory"   # the trajectory point was placed FIRST (idx 0),
+                                               # so it keeps priority in the merge
+    assert "rebuild" in points[0].reason
+
+
+def test_plan_points_rebuild_point_from_T_21z_at_3h_cadence():
+    run_start = _dt("2019-11-26_18:00:00")
+    run_end = run_start + datetime.timedelta(hours=6)
+    cfg = dict(_DEFAULT_CFG, points=[{"at": "+255m", "source": "rebuild"}])   # P=22:15 (4h15m)
+    points, notes = plan.plan_points({}, run_start, run_end, dt=15.0, stepra=40, spinup_s=3600.0,
+                                      cfg=cfg, forcing_interval_h=3.0)
+    assert len(points) == 1
+    assert points[0].at == _dt("2019-11-26_22:00:00")          # M = T(21:00) + spinup(1h)
+    assert points[0].requested_at == _dt("2019-11-26_22:15:00")  # P, reported alongside M
+    assert points[0].source == "rebuild"
 
 
 # ---------------------------------------------------------------------------
@@ -207,6 +288,29 @@ def test_build_restart_start_namelist_writes_decomp_when_given():
     assert "nproc_x = 4," in out
     assert "nproc_y = 16," in out
     assert "numtiles = 2," in out
+
+
+# ---------------------------------------------------------------------------
+# measurement_from_steps_file (2026-09-26 C3 end-to-end wiring)
+# ---------------------------------------------------------------------------
+def test_measurement_from_steps_file_finds_radiation_at_phase_1(tmp_path):
+    # stepra=4 (tiny, for a short test file): radiation schedule is i=1 (dropped) and i%4==1
+    # thereafter -> i=5,9,13,...; NOT i%4==0 (i=4,8,12,...), which is the WRONG legacy assumption
+    # this function deliberately does not use (see its own docstring).
+    vals = []
+    for i in range(1, 17):
+        vals.append(9.0 if i == 1 else (5.0 if i % 4 == 1 else 1.0))
+    steps_path = tmp_path / "steps.txt"
+    steps_path.write_text("\n".join("%.5f" % v for v in vals) + "\n")
+    at = _dt("2020-06-01_00:00:00")
+    pm = plan.measurement_from_steps_file(str(steps_path), stepra=4, at=at, reason="probe",
+                                          source="trajectory")
+    assert pm.s_normal == pytest.approx(1.0)
+    assert pm.n_rad == 3   # i=5,9,13 (i=1 dropped, i=17 doesn't exist)
+    assert pm.r == pytest.approx(5.0)
+    assert pm.at == at and pm.reason == "probe" and pm.source == "trajectory"
+    # a phase-0 reader (i%4==0) would instead sample the plain 1.0-valued steps as "radiation"
+    # and report r~=1.0, not 5.0 -- the assertion above already discriminates that bug.
 
 
 # ---------------------------------------------------------------------------

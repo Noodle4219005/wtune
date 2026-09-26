@@ -95,6 +95,22 @@ esac
 # config generation needs Python >= 3.7 so configs.py can import wtune_decomp's scorer
 # (it uses `from __future__ import annotations`; the system python3 is 3.6 and silently falls back)
 PY="pixi run --manifest-path $PIXI_ENV/pixi.toml python"
+# PYBIN (2026-09-26, job 1218 postmortem): pixi's own startup chatter (e.g. its "cache is on a
+# network/parallel filesystem" cold-cache warning) prints to STDOUT, not stderr, on the FIRST
+# `pixi run` invocation of a job -- `2>/dev/null` on a $PY call does NOT catch it, and it
+# silently corrupts any caller that parses that stdout as data (job 1218: the CONFIG_FILE TSV
+# read loop below got a stray line spliced in and misread a tile-geometry column, rc=127).
+# Resolving the underlying interpreter's own absolute path ONCE, here, and invoking THAT
+# directly (not through `pixi run`) for every call whose stdout is parsed as data means pixi's
+# own wrapper -- and whatever it prints before exec'ing the interpreter -- never runs again for
+# those calls, so its chatter can never reach a data stream. `tail -1`: this resolution call is
+# ITSELF pixi's first invocation and could be polluted the same way; the real sys.executable
+# line is always LAST (pixi's own chatter, if any, prints before the child process runs).
+PYBIN=$($PY -c 'import sys; print(sys.executable)' 2>/dev/null | tail -1)
+if [ -z "$PYBIN" ] || [ ! -x "$PYBIN" ]; then
+  echo "FATAL: could not resolve a usable python interpreter via \$PY ('$PY') -- got PYBIN='$PYBIN'" >&2
+  exit 1
+fi
 : "${CASE:?CASE env var is required, e.g. --export=ALL,CASE=karina}"
 
 mkdir -p "$OUT"
@@ -245,7 +261,7 @@ check_disk_guard () {
     echo "WARNING: mmlsquota unavailable ($q_text) -- skipping disk guard for $ctx" >&2
     return 0
   fi
-  free_gib=$(printf '%s\n' "$q_text" | $PY "$CAMPAIGN/configs.py" quota-free-gib)
+  free_gib=$(printf '%s\n' "$q_text" | "$PYBIN" "$CAMPAIGN/configs.py" quota-free-gib)
   if [ -z "$free_gib" ] || [ "$free_gib" = "NA" ]; then
     echo "WARNING: could not parse mmlsquota output -- skipping disk guard for $ctx" >&2
     return 0
@@ -417,7 +433,10 @@ echo "case metadata: e_we=$E_WE e_sn=$E_SN e_vert=$E_VERT dt=$DT restart=$RESTAR
 declare -A CFG_RANKS CFG_OMP CFG_NX CFG_NY CFG_NUMTILES CFG_DIST CFG_BLOCKTIME
 declare -A CFG_NTILES_X CFG_NTILES_Y CFG_TSZ_X CFG_TSZ_Y CFG_TSTRAT CFG_SRC
 if [ -n "${CONFIG_FILE:-}" ]; then
-  while IFS=$'\t' read -r cid ranks omp nx ny numtiles dist blocktime patchx patchy \
+  # Tab is IFS whitespace, so `IFS=$'\t' read` collapses consecutive tabs and an EMPTY field
+  # (e.g. patch_x/patch_y of a generated config) shifts every later column left -- job 1225 got
+  # tile_sz_y='anchor'. Translate tabs to \037 (not whitespace) so empty fields survive.
+  while IFS=$'\037' read -r cid ranks omp nx ny numtiles dist blocktime patchx patchy \
                           ntx nty tsx tsy tstrat src; do
     [ "$cid" = "config_id" ] && continue
     [ -z "$cid" ] && continue
@@ -425,14 +444,14 @@ if [ -n "${CONFIG_FILE:-}" ]; then
     CFG_NUMTILES[$cid]=$numtiles; CFG_DIST[$cid]=$dist; CFG_BLOCKTIME[$cid]=$blocktime
     CFG_NTILES_X[$cid]=$ntx; CFG_NTILES_Y[$cid]=$nty; CFG_TSZ_X[$cid]=$tsx; CFG_TSZ_Y[$cid]=$tsy
     CFG_TSTRAT[$cid]=$tstrat; CFG_SRC[$cid]=$src
-  done < <($PY "$CAMPAIGN/configs.py" "$CASE" 2>/dev/null)
+  done < <("$PYBIN" "$CAMPAIGN/configs.py" "$CASE" 2>/dev/null | tr '\t' '\037')
 else
   while IFS=$'\t' read -r cid ranks omp nx ny numtiles dist blocktime patchx patchy; do
     [ "$cid" = "config_id" ] && continue
     [ -z "$cid" ] && continue
     CFG_RANKS[$cid]=$ranks; CFG_OMP[$cid]=$omp; CFG_NX[$cid]=$nx; CFG_NY[$cid]=$ny
     CFG_NUMTILES[$cid]=$numtiles; CFG_DIST[$cid]=$dist; CFG_BLOCKTIME[$cid]=$blocktime
-  done < <($PY "$CAMPAIGN/configs.py" "$CASE" 2>/dev/null)
+  done < <("$PYBIN" "$CAMPAIGN/configs.py" "$CASE" 2>/dev/null)
 fi
 
 
@@ -492,7 +511,7 @@ if [ "$MODE" = "physics" ]; then
   # 2>/dev/null + a tag-shaped grep filter: defends the run order against any stray
   # noise line (e.g. a pixi cache warning) a $PY invocation might print to stdout,
   # which would otherwise silently splice a bogus entry into PORDER.
-  mapfile -t PORDER < <($PY "$CAMPAIGN/configs.py" physics-order "$CASE" "${PCONFIGS_ARGS[@]}" --reps "$REPS" \
+  mapfile -t PORDER < <("$PYBIN" "$CAMPAIGN/configs.py" physics-order "$CASE" "${PCONFIGS_ARGS[@]}" --reps "$REPS" \
     2>/dev/null | grep -E '^(P00_ref|P00_twin|[PD][0-9]+)$')  # [PD]: D01+ are the &dynamics/
     # diagnostics/cadence templates (2026-09-16); a P-only filter silently dropped every one of them
     # and left an empty candidate list (job 1080256)
@@ -535,7 +554,7 @@ if [ "$MODE" = "physics" ]; then
     # or the 13-field TSV); this defends the read against any stray noise line (e.g. a
     # pixi cache warning) landing before it.
     IFS=$'\t' read -r P_FAMILY P_EDITS P_PROBE P_TS P_MP P_CU P_BL P_SFCLAY P_SFSURF P_RLW P_RSW P_RADT P_CUDT \
-      < <($PY "$CAMPAIGN/configs.py" physics-describe "$CASE" "$TEMPLATE_ID" 2>/dev/null | tail -n1)
+      < <("$PYBIN" "$CAMPAIGN/configs.py" physics-describe "$CASE" "$TEMPLATE_ID" 2>/dev/null | tail -n1)
     # physics-describe writes "-" for empty fields (tab IFS collapses empty fields); map back
     [ "$P_FAMILY" != "SKIP" ] && for _v in P_EDITS P_PROBE P_TS P_MP P_CU P_BL P_SFCLAY P_SFSURF P_RLW P_RSW P_RADT P_CUDT; do
       [ "${!_v}" = "-" ] && printf -v "$_v" '%s' ""
@@ -687,7 +706,7 @@ PY
     awk '$1 == 1 { print $2 }' steps_by_domain.txt > steps.txt
 
     if [ "$RC" = "0" ] && [ "$OK" = "1" ]; then
-      STATS=$($PY "$CAMPAIGN/configs.py" step-stats steps.txt)
+      STATS=$("$PYBIN" "$CAMPAIGN/configs.py" step-stats steps.txt)
     else
       NALL_RAW=$(wc -l < steps.txt 2>/dev/null || echo 0)
       NALL=$(( NALL_RAW > 0 ? NALL_RAW - 1 : 0 ))
@@ -771,7 +790,7 @@ PY
                   # FID_ND / FID_FLOOR are the MEASURED maxima over fields at the last common
                   # time, not the thresholds.
                   read -r FID_LABEL FID_ND FID_FLOOR FID_DECIDING \
-                    < <($PY "$CAMPAIGN/configs.py" fidelity-tokens "${FID_PREFIX}.json" 2>/dev/null | tail -n1)
+                    < <("$PYBIN" "$CAMPAIGN/configs.py" fidelity-tokens "${FID_PREFIX}.json" 2>/dev/null | tail -n1)
                   cp "${FID_PREFIX}.json" "${FID_PREFIX}.csv" "$FIDOUT/" 2>/dev/null
                   GOT_FIDELITY=$((GOT_FIDELITY + 1))
                 else
@@ -797,7 +816,7 @@ PY
                   # FID_ND / FID_FLOOR are the MEASURED maxima over fields at the last common
                   # time, not the thresholds.
                   read -r FID_LABEL FID_ND FID_FLOOR FID_DECIDING \
-                    < <($PY "$CAMPAIGN/configs.py" fidelity-tokens "${FID_PREFIX}.json" 2>/dev/null | tail -n1)
+                    < <("$PYBIN" "$CAMPAIGN/configs.py" fidelity-tokens "${FID_PREFIX}.json" 2>/dev/null | tail -n1)
                   cp "${FID_PREFIX}.json" "${FID_PREFIX}.csv" "$FIDOUT/" 2>/dev/null
                   GOT_FIDELITY=$((GOT_FIDELITY + 1))
                 else
@@ -923,7 +942,7 @@ if [ "$MODE" = "physics" ]; then
   exit 1
 fi
 
-mapfile -t ORDER < <($PY "$CAMPAIGN/configs.py" order "$CASE" --reps "$REPS")
+mapfile -t ORDER < <("$PYBIN" "$CAMPAIGN/configs.py" order "$CASE" --reps "$REPS")
 # optional subset for smoke tests: CONFIGS=C02+C05 keeps only those ids, preserving the order
 # ('+' separated: sbatch --export splits its argument on commas, so CONFIGS=C02,C05 would arrive as C02)
 if [ -n "${CONFIGS:-}" ]; then
@@ -940,7 +959,7 @@ fi
 
 # ---------------------------------------------------------------------------
 # RANKING_START=spinup (2026-09-26, wtune probe multi-point redesign, wired end-to-end): every
-# candidate in the STRICT loop below starts from a SHARED WRF restart (t0+SPINUP_MIN) instead of
+# candidate in the STRICT loop below starts from a SHARED WRF restart (t0+<minutes>) instead of
 # t0, so a short ranking probe lands in a representative (post-spin-up) part of the run instead
 # of the artificially-cheap cold-start ramp -- see wtune_probe_plan.py's module docstring and
 # configs.py's edit_namelist restart_from/write_restart_interval/restart_io_form params. Fully
@@ -949,13 +968,28 @@ fi
 # before this block existed (proof: `bash -n` plus a rendered-namelist diff, both run offline --
 # see this task's report). Only meaningful for MODE=timing and only for a CONFIG_FILE-driven run
 # (needs an ANCHOR row; the fixed STRICT C01-C16 templates have none).
+#
+# SPINUP_MINUTES (2026-09-26, C3 end-to-end multi-point wiring, decision 0054 "one allocation
+# where feasible"): comma-separated list of simulated minutes, one restart TARGET per
+# trajectory/restart-sourced probe point in ONE prediction, all measured within this SAME
+# allocation. Each candidate's REPLICATE index (rep, 1-indexed, the existing REPS/build_order
+# palindrome loop) selects its target via `(rep-1) mod len(targets)` -- REPS=len(targets) gives
+# each replicate a DIFFERENT target; REPS=1 (or SPINUP_MINUTES unset) always resolves to index 0,
+# reproducing the single-target behaviour byte-for-byte. Defaults to SPINUP_MIN alone (a single-
+# element list), so every caller that only ever set SPINUP_MIN (every job before SPINUP_MINUTES
+# existed) is unaffected.
 RANKING_START=${RANKING_START:-t0}
 case "$RANKING_START" in
   t0|spinup) ;;
   *) echo "RANKING_START must be 't0' or 'spinup', got '$RANKING_START'" >&2; exit 1 ;;
 esac
 SPINUP_MIN=${SPINUP_MIN:-60}
+SPINUP_MINUTES=${SPINUP_MINUTES:-$SPINUP_MIN}
+# ':' separated (',' also accepted): a ',' inside a value collides with sbatch --export's own
+# KEY=VAL,KEY=VAL syntax, which silently truncated 60,122 to 60 in job 1225.
+IFS=':,' read -ra TARGET_MIN_ARR <<< "$SPINUP_MINUTES"
 RESTART_SRC_DIR=${RESTART_SRC_DIR:-}
+declare -A RESTART_SRC_DIR_BY_MIN RESTART_TIME_BY_MIN RANKING_SPINUP_OK_BY_MIN ANCHOR_NAMELIST_BY_MIN
 RANKING_SPINUP_OK=""
 RESTART_TIME=""
 ANCHOR_NAMELIST=""
@@ -980,56 +1014,65 @@ if [ "$RANKING_START" = "spinup" ] && [ "$MODE" = "timing" ]; then
     echo "ERROR: RANKING_START=spinup requires an ANCHOR config (CONFIG_FILE-driven run only)" >&2
     exit 1
   fi
-  if [ -n "$RESTART_SRC_DIR" ] && ls "$RESTART_SRC_DIR"/wrfrst_d0*_* >/dev/null 2>&1 \
-     && [ -f "$RESTART_SRC_DIR/namelist.input" ]; then
-    echo "RANKING_SPINUP: reusing existing restart at $RESTART_SRC_DIR"
-    RANKING_SPINUP_OK=1
-    ANCHOR_NAMELIST="$RESTART_SRC_DIR/namelist.input"
-  else
-    check_disk_guard "rankspinup"
-    A_RANKS=${CFG_RANKS[ANCHOR]}; A_OMP=${CFG_OMP[ANCHOR]}; A_NX=${CFG_NX[ANCHOR]}
-    A_NY=${CFG_NY[ANCHOR]}; A_NUMTILES=${CFG_NUMTILES[ANCHOR]}; A_DIST=${CFG_DIST[ANCHOR]}
-    A_BLOCKTIME=${CFG_BLOCKTIME[ANCHOR]}
-    A_NTASKS_PER_NODE=$(( A_RANKS / ALLOC_NODES ))
-    RESTART_SRC_DIR="$OUT/${CASE}_rankspinup_${J}"
-    rm -rf "$RESTART_SRC_DIR"; mkdir -p "$RESTART_SRC_DIR"; cd "$RESTART_SRC_DIR"
-    for f in "${INPUT_FILES_ARR[@]}"; do ln -sf "$PREP_DIR/$f" "$f"; done
-    link_wrf_inputs
-    link_thompson_tables
-    for f in "$W"/run/*; do
-      b=$(basename "$f")
-      case "$b" in namelist.input|wrfout*|wrfinput*|wrfbdy*|wrfrst*|rsl.*) ;;
-        *) [ -e "$b" ] || ln -sf "$f" "$b" ;; esac
-    done
-    cp "$NAMELIST_TEMPLATE" ./namelist.input.orig
-    python3 "$CAMPAIGN/configs.py" edit-namelist ./namelist.input.orig ./namelist.input \
-      --nproc-x "$A_NX" --nproc-y "$A_NY" --numtiles "$A_NUMTILES" \
-      --run-minutes "$SPINUP_MIN" --max-dom "$MAX_DOM" --history-mode off --ranks "$A_RANKS" \
-      --write-restart-interval "$SPINUP_MIN" --restart-io-form 2
-    rm -f ./namelist.input.orig
-    ln -sf "$W/main/wrf.exe" ./wrf.exe
-    configure_omp_env "$A_OMP" "$A_BLOCKTIME"
-    echo "RANKING_SPINUP: launching anchor spin-up (SPINUP_MIN=$SPINUP_MIN) in $RESTART_SRC_DIR"
-    site_launch "$A_RANKS" "$A_NTASKS_PER_NODE" "$A_OMP" "$A_DIST"
-    timeout "$TIMEOUT_S" "${SITE_LAUNCH_CMD[@]}" > wrf.out 2>&1 &
-    WRF_PID=$!
-    wait "$WRF_PID"
-    RANKING_SPINUP_RC=$?
-    WRF_PID=""
-    run_node_hygiene reap 60
-    if [ "$RANKING_SPINUP_RC" -ne 0 ] || ! ls wrfrst_d0*_* >/dev/null 2>&1; then
-      echo "WARNING: RANKING_SPINUP failed (rc=$RANKING_SPINUP_RC) or wrote no wrfrst_d0* -- RANKING_START=spinup disabled for this job, every candidate falls back to t0" >&2
+  A_RANKS=${CFG_RANKS[ANCHOR]}; A_OMP=${CFG_OMP[ANCHOR]}; A_NX=${CFG_NX[ANCHOR]}
+  A_NY=${CFG_NY[ANCHOR]}; A_NUMTILES=${CFG_NUMTILES[ANCHOR]}; A_DIST=${CFG_DIST[ANCHOR]}
+  A_BLOCKTIME=${CFG_BLOCKTIME[ANCHOR]}
+  A_NTASKS_PER_NODE=$(( A_RANKS / ALLOC_NODES ))
+  for M in "${TARGET_MIN_ARR[@]}"; do
+    SRC_DIR="$OUT/${CASE}_rankspinup_m${M}_${J}"
+    if [ -n "$RESTART_SRC_DIR" ] && [ "${#TARGET_MIN_ARR[@]}" -eq 1 ] \
+       && ls "$RESTART_SRC_DIR"/wrfrst_d0*_* >/dev/null 2>&1 \
+       && [ -f "$RESTART_SRC_DIR/namelist.input" ]; then
+      # legacy single-target reuse path (RESTART_SRC_DIR given): only safe/meaningful with
+      # exactly one target -- reusing one caller-supplied restart for several DIFFERENT targets
+      # would silently mislabel every target after the first, so multi-target reuse is refused
+      # and this branch is skipped (falls through to writing a fresh one below) instead.
+      SRC_DIR="$RESTART_SRC_DIR"
+      echo "RANKING_SPINUP[m=$M]: reusing existing restart at $SRC_DIR"
+      RANKING_SPINUP_OK_BY_MIN[$M]=1
+      ANCHOR_NAMELIST_BY_MIN[$M]="$SRC_DIR/namelist.input"
     else
-      echo "RANKING_SPINUP: OK, restart written in $RESTART_SRC_DIR"
-      RANKING_SPINUP_OK=1
-      ANCHOR_NAMELIST="$RESTART_SRC_DIR/namelist.input"
+      check_disk_guard "rankspinup_m${M}"
+      rm -rf "$SRC_DIR"; mkdir -p "$SRC_DIR"; cd "$SRC_DIR"
+      for f in "${INPUT_FILES_ARR[@]}"; do ln -sf "$PREP_DIR/$f" "$f"; done
+      link_wrf_inputs
+      link_thompson_tables
+      for f in "$W"/run/*; do
+        b=$(basename "$f")
+        case "$b" in namelist.input|wrfout*|wrfinput*|wrfbdy*|wrfrst*|rsl.*) ;;
+          *) [ -e "$b" ] || ln -sf "$f" "$b" ;; esac
+      done
+      cp "$NAMELIST_TEMPLATE" ./namelist.input.orig
+      python3 "$CAMPAIGN/configs.py" edit-namelist ./namelist.input.orig ./namelist.input \
+        --nproc-x "$A_NX" --nproc-y "$A_NY" --numtiles "$A_NUMTILES" \
+        --run-minutes "$M" --max-dom "$MAX_DOM" --history-mode off --ranks "$A_RANKS" \
+        --write-restart-interval "$M" --restart-io-form 2
+      rm -f ./namelist.input.orig
+      ln -sf "$W/main/wrf.exe" ./wrf.exe
+      configure_omp_env "$A_OMP" "$A_BLOCKTIME"
+      echo "RANKING_SPINUP[m=$M]: launching anchor spin-up in $SRC_DIR"
+      site_launch "$A_RANKS" "$A_NTASKS_PER_NODE" "$A_OMP" "$A_DIST"
+      timeout "$TIMEOUT_S" "${SITE_LAUNCH_CMD[@]}" > wrf.out 2>&1 &
+      WRF_PID=$!
+      wait "$WRF_PID"
+      RANKING_SPINUP_RC=$?
+      WRF_PID=""
+      run_node_hygiene reap 60
+      if [ "$RANKING_SPINUP_RC" -ne 0 ] || ! ls wrfrst_d0*_* >/dev/null 2>&1; then
+        echo "WARNING: RANKING_SPINUP[m=$M] failed (rc=$RANKING_SPINUP_RC) or wrote no wrfrst_d0* -- this target falls back to t0 for any candidate that maps to it" >&2
+      else
+        echo "RANKING_SPINUP[m=$M]: OK, restart written in $SRC_DIR"
+        RANKING_SPINUP_OK_BY_MIN[$M]=1
+        ANCHOR_NAMELIST_BY_MIN[$M]="$SRC_DIR/namelist.input"
+      fi
+      cd "$OUT"
     fi
-    cd "$OUT"
-  fi
-  if [ -n "$RANKING_SPINUP_OK" ]; then
-    RESTART_TIME=$(python3 "$CAMPAIGN/configs.py" restart-time "$CASE" "$SPINUP_MIN")
-    echo "RANKING_SPINUP: restart time = $RESTART_TIME"
-  fi
+    RESTART_SRC_DIR_BY_MIN[$M]="$SRC_DIR"
+    if [ -n "${RANKING_SPINUP_OK_BY_MIN[$M]:-}" ]; then
+      RESTART_TIME_BY_MIN[$M]=$(python3 "$CAMPAIGN/configs.py" restart-time "$CASE" "$M")
+      echo "RANKING_SPINUP[m=$M]: restart time = ${RESTART_TIME_BY_MIN[$M]}"
+    fi
+  done
 fi
 
 declare -A REPCOUNT
@@ -1042,6 +1085,18 @@ for cid in "${ORDER[@]}"; do
   ranks=${CFG_RANKS[$cid]}; omp=${CFG_OMP[$cid]}; nx=${CFG_NX[$cid]}; ny=${CFG_NY[$cid]}
   numtiles=${CFG_NUMTILES[$cid]}; dist=${CFG_DIST[$cid]}; blocktime=${CFG_BLOCKTIME[$cid]}
   ntasks_per_node=$(( ranks / ALLOC_NODES ))
+
+  # RANKING_START=spinup, SPINUP_MINUTES multi-target: this replicate's own target minute, and
+  # that target's own restart state (see the setup block above). (rep-1) mod len(targets) means
+  # REPS=1 (or SPINUP_MINUTES unset -> a single-element list) always resolves index 0, so this
+  # is a no-op lookup returning the SAME single target every rep -- unchanged from before
+  # SPINUP_MINUTES existed.
+  CUR_TARGET_IDX=$(( (rep - 1) % ${#TARGET_MIN_ARR[@]} ))
+  CUR_TARGET_MIN=${TARGET_MIN_ARR[$CUR_TARGET_IDX]}
+  RANKING_SPINUP_OK=${RANKING_SPINUP_OK_BY_MIN[$CUR_TARGET_MIN]:-}
+  RESTART_SRC_DIR=${RESTART_SRC_DIR_BY_MIN[$CUR_TARGET_MIN]:-}
+  RESTART_TIME=${RESTART_TIME_BY_MIN[$CUR_TARGET_MIN]:-}
+  ANCHOR_NAMELIST=${ANCHOR_NAMELIST_BY_MIN[$CUR_TARGET_MIN]:-}
 
   check_disk_guard "${cid}_r${rep}"
 
@@ -1160,7 +1215,7 @@ for cid in "${ORDER[@]}"; do
   # reported success; a failed/truncated run's partial steps.txt is not a real
   # sample.
   if [ "$RC" = "0" ] && [ "$OK" = "1" ]; then
-    STATS=$($PY "$CAMPAIGN/configs.py" step-stats steps.txt)
+    STATS=$("$PYBIN" "$CAMPAIGN/configs.py" step-stats steps.txt)
   else
     NALL_RAW=$(wc -l < steps.txt 2>/dev/null || echo 0)
     NALL=$(( NALL_RAW > 0 ? NALL_RAW - 1 : 0 ))

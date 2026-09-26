@@ -87,6 +87,13 @@ try:
 except ImportError:
     wtune_probe_plan = None
 
+try:
+    import coldstart_sample as coldstart   # tools/coldstart_sample.py -- REBUILD-source
+                                            # execution (fetch/stage/score_windows_from_rsl);
+                                            # same best-effort convention as the two imports above.
+except ImportError:
+    coldstart = None
+
 campaign_configs = sweep.campaign_configs
 decomp_space = sweep.decomp_space
 
@@ -1185,6 +1192,223 @@ def _probe_plan_preview(ctx, nodes, best_config):
         return points, notes, run_start, run_end, dt, stepra
     except Exception:
         return None
+
+
+# ---------------------------------------------------------------------------
+# C3 execution: measuring the planned points for real (2026-09-26 end-to-end wiring, decision
+# 0054 "one allocation where feasible"). trajectory/restart points share ONE strict_campaign.
+# sbatch job (RANKING_START=spinup, one replicate per point -- see that script's own
+# SPINUP_MINUTES docstring); rebuild points share ONE coldstart_sample plan/fetch/stage/
+# run.sbatch job (build_plan's own multi-`times=` pin). Each source type is its own allocation
+# (not literally "one" across the whole prediction): trajectory/restart uses the STRICT/wrf.exe-
+# only loop, rebuild needs the full WPS+real.exe+wrf.exe chain -- fundamentally different
+# execution machinery, so combining them into a single job would mean reimplementing one inside
+# the other rather than reusing either, which this task's "reuse, don't reimplement" directive
+# rules out.
+# ---------------------------------------------------------------------------
+_RANKING_RUNDIR_ROOT = os.path.expanduser("~/wtune-runs/campaign")   # campaign/sites/scc.sh's
+                                                                       # own OUT (hardcoded there,
+                                                                       # not overridable via env --
+                                                                       # see that file's top-level
+                                                                       # OUT= assignment)
+
+
+def build_ranking_sbatch_command(case, nodes, cores_per_node, time_limit, timeout_s, reps, steps,
+                                  configs_path, out_dir, spinup_minutes, env_source=None,
+                                  sbatch_script=None, campaign_dir=None):
+    """sbatch command for a RANKING_START=spinup trajectory/restart measurement job -- same shape
+    as scc_sweep.build_sbatch_command (reused: -p compute -N/--ntasks-per-node/--exclusive/
+    --exclude=head/--time/--job-name/--output/--export), plus RANKING_START=spinup,
+    SPINUP_MINUTES=<':'-separated list; a ',' would split sbatch --export> (one target per probe point, see strict_campaign.
+    sbatch's own docstring for the rep-index mapping), and CAMPAIGN= when given (points a
+    non-default checkout, e.g. a deployed validation copy, without needing $CAMPAIGN exported in
+    the submitting shell)."""
+    env_source = env_source or sweep.DEFAULT_ENV_SOURCE
+    sbatch_script = sbatch_script or sweep.DEFAULT_SBATCH_SCRIPT
+    total_cores = nodes * cores_per_node
+    export = ("ALL,SITE=scc,WTUNE_TOTAL_CORES=%d,CASE=%s,MODE=timing,REPS=%d,STEPS=%d,"
+              "TIMEOUT_S=%d,CONFIG_FILE=%s,RANKING_START=spinup,SPINUP_MINUTES=%s"
+              % (total_cores, case, reps, steps, timeout_s, configs_path, spinup_minutes))
+    if "," in str(spinup_minutes):
+        raise ValueError("SPINUP_MINUTES %r contains ',' which sbatch --export would split; "
+                         "use ':'" % (spinup_minutes,))
+    if campaign_dir:
+        export += ",CAMPAIGN=%s" % campaign_dir
+    sbatch = ("sbatch -p compute -N %d --ntasks-per-node=%d --exclusive --exclude=head "
+              "--time=%s --job-name=c3-traj-%s-n%d --output=%s/c3traj-%%j.out --export=%s %s"
+              % (nodes, cores_per_node, time_limit, case, nodes, out_dir, export,
+                 sweep._expand(sbatch_script)))
+    return "source %s; %s" % (sweep._expand(env_source), sbatch)
+
+
+def run_trajectory_points(ctx, points, best_config, nodes, run_start, stepra, out_dir,
+                          sbatch_script=None, campaign_dir=None):
+    """Measures every trajectory/restart-sourced ProbePoint of `points` in ONE strict_campaign.
+    sbatch job (RANKING_START=spinup): one CONFIG_FILE entry (id=ANCHOR, best_config's own
+    decomposition -- the winner IS the candidate being measured, so ranking the anchor against
+    anything else is not needed here), REPS=len(points), SPINUP_MINUTES = each point's own
+    t0-relative minute (rounded to the nearest whole minute -- WRF's run-minutes/restart_interval
+    namelist keys are integers; sub-minute drift from rounding is <=30s out of an hours-long run).
+    Waits for the job (wait_for_jobs), then parses each replicate's own steps.txt (rep r ->
+    points[r-1], matching strict_campaign.sbatch's (rep-1) mod len(targets) rule with
+    reps==len(targets), no wraparound) via measurement_from_steps_file. Returns
+    [PointMeasurement, ...] in `points` order. Raises RuntimeError on any infrastructure failure
+    (job not COMPLETED, a replicate's steps.txt missing/empty) -- never silently drops a point."""
+    if not points:
+        return []
+    minute_list = [int(round((p.at - run_start).total_seconds() / 60.0)) for p in points]
+    reps = len(points)
+    cfg = dict(id="ANCHOR", ranks=best_config["ranks"], omp=best_config["omp"],
+               nx=best_config["nx"], ny=best_config["ny"], numtiles=best_config["numtiles"],
+               dist=best_config["dist"], blocktime=best_config.get("blocktime", 0),
+               patch_x=None, patch_y=None, numtiles_x=0, numtiles_y=0, tile_sz_x=0,
+               tile_sz_y=0, tile_strategy=0, config_source="anchor")
+    os.makedirs(out_dir, exist_ok=True)
+    configs_path = os.path.join(out_dir, "configs_trajectory.json")
+    with open(configs_path, "w") as f:
+        json.dump({"configs": [cfg]}, f)
+    steps = points[0].steps
+    # per-run watchdog: budget 20s of wall time per simulated minute of anchor spin-up (job 1211's
+    # postmortem, this task's report: a 300-min anchor needed MORE than a 20x-per-minute budget
+    # once TIMEOUT_S=1800 -- 1800/300=6s/min -- was not enough) plus a floor for the short probe
+    # runs/overhead.
+    timeout_s = max(1800, max(minute_list) * 20)
+    time_min = max(45, timeout_s // 60 + 15)
+    time_limit = "%02d:%02d:00" % (time_min // 60, time_min % 60)
+    cmd_str = build_ranking_sbatch_command(
+        ctx.case, nodes, ctx.cores_per_node, time_limit, timeout_s, reps, steps,
+        os.path.abspath(configs_path), out_dir, ":".join(str(m) for m in minute_list),
+        env_source=ctx.env_source, sbatch_script=sbatch_script, campaign_dir=campaign_dir)
+    job_id = sweep.submit_job(cmd_str, sbatch_runner=ctx.sbatch_runner)
+    ctx.owned_jobs.append(job_id)
+    print("C3 trajectory job submitted: %s (targets=%s minutes)" % (job_id, minute_list))
+    states = wait_for_jobs(ctx, [job_id], "c3-trajectory")
+    state = states.get(job_id, ("UNKNOWN", ""))[0]
+    if state != "COMPLETED":
+        raise RuntimeError("C3 trajectory job %s ended in state %s (expected COMPLETED) -- "
+                            "infrastructure failure, stop and diagnose read-only" % (job_id, state))
+    measurements = []
+    for i, p in enumerate(points):
+        rep = i + 1
+        rundir = os.path.join(_RANKING_RUNDIR_ROOT, "%s_ANCHOR_r%d_%s" % (ctx.case, rep, job_id))
+        steps_path = os.path.join(rundir, "steps.txt")
+        if not os.path.exists(steps_path) or os.path.getsize(steps_path) == 0:
+            raise RuntimeError("C3 trajectory job %s: %s missing/empty for point %s (rep %d)"
+                                % (job_id, steps_path, p.at.isoformat(), rep))
+        measurements.append(wtune_probe_plan.measurement_from_steps_file(
+            steps_path, stepra, p.at, p.reason, p.source))
+    return measurements, job_id
+
+
+def run_rebuild_points(ctx, points, best_config, nodes, case_dir, out_dir, run_start,
+                       spinup_min=60, grib_dir=None, date_shift_to=None):
+    """Measures every rebuild-sourced ProbePoint of `points` in ONE coldstart_sample job: plans
+    (wtune_probe_plan.plan_rebuild_segments -- one build_plan(times=[...]) call covering every
+    point, pinning each one's forcing-grid START T recovered from its already-resolved measured
+    point M -- see that function's docstring), fetches forcing (coldstart_sample.resolve_and_
+    fetch_forcing, real network), stages (coldstart_sample.stage_plan, writes run.sbatch),
+    submits it (a plain `sbatch run.sbatch` -- the generated script is self-contained: #SBATCH
+    --exclude=head/-N/--exclusive/--time are already in its own header, see render_run_sbatch),
+    waits, then reads each window's own s_k/n_rad/r_local via coldstart_sample.score_windows_
+    from_rsl (data-driven radiation-phase detection -- reliable here because coldstart's own
+    window sizing, measure_steps=max(30,2*stepra), is long enough for it, unlike the RANKING
+    probe's shorter window -- see measurement_from_steps_file's docstring).
+
+    `spinup_min` MUST equal the spinup (in minutes) plan_points was called with -- plan_
+    rebuild_segments uses it to recover each point's own T from its already-resolved M (see that
+    function's docstring); a mismatch here would silently re-derive the WRONG start time.
+    Each returned PointMeasurement's `.at` is score_windows_from_rsl's own measured-part MIDPOINT
+    (recovered from its `anchors` return value, run_start-relative), NOT the window's raw 't'
+    field (which is T, the pinned forcing-grid START -- using that directly would misplace every
+    rebuild point by ~spinup_min minutes in combine()'s interpolation). Returns
+    [PointMeasurement, ...] in `points` order. Raises RuntimeError/ProbePlanError on any
+    infrastructure failure -- never silently drops a point."""
+    if not points:
+        return []
+    config = dict(ranks=best_config["ranks"], omp=best_config["omp"], nx=best_config["nx"],
+                  ny=best_config["ny"], nodes=nodes)
+    plan = wtune_probe_plan.plan_rebuild_segments(
+        case_dir, points, config, out_dir, spinup_min=spinup_min, date_shift_to=date_shift_to,
+        grib_dir=grib_dir)
+    cache_dir = os.path.join(out_dir, "grib")
+    total_bytes, forcing = coldstart.resolve_and_fetch_forcing(plan, out_dir, cache_dir,
+                                                                grib_dir=grib_dir)
+    print("C3 rebuild: fetched %.1f MB forcing for %d point(s)" % (total_bytes / 1e6, len(points)))
+    sbatch_path = coldstart.stage_plan(out_dir, site="scc")
+    job_id = sweep.submit_job("sbatch %s" % sbatch_path, sbatch_runner=ctx.sbatch_runner)
+    ctx.owned_jobs.append(job_id)
+    print("C3 rebuild job submitted: %s (%s)" % (job_id, sbatch_path))
+    states = wait_for_jobs(ctx, [job_id], "c3-rebuild")
+    state = states.get(job_id, ("UNKNOWN", ""))[0]
+    if state != "COMPLETED":
+        raise RuntimeError("C3 rebuild job %s ended in state %s (expected COMPLETED) -- "
+                            "infrastructure failure, stop and diagnose read-only" % (job_id, state))
+    plan["_plan_dir"] = out_dir
+    sample_points, _geom_src = wtune_predict.read_wrfinput_sample_points(case_dir)
+    calibration = wtune_predict.load_calibration(str(wtune_predict.DEFAULT_CALIBRATION))
+    windows_out, _pooled, anchors = coldstart.score_windows_from_rsl(plan, sample_points,
+                                                                      calibration)
+    measurements = []
+    for w, (anchor_s, _s_k) in zip(windows_out, anchors):
+        at = run_start + datetime.timedelta(seconds=anchor_s)
+        measurements.append(wtune_probe_plan.PointMeasurement(
+            at=at, reason=w["reason"], source="rebuild", s_normal=w["s_k"], n_rad=w["n_rad"],
+            r=w["r_local"]))
+    return measurements, job_id
+
+
+def run_c3_prediction(ctx, best_config, nodes, out_dir, sbatch_script=None, campaign_dir=None,
+                      grib_dir=None):
+    """Full C3 measurement + prediction for `best_config` (the already-known winner): plan_points
+    for its own timeline, split by source, measure trajectory/restart points (run_trajectory_
+    points, one job) and rebuild points (run_rebuild_points, one job) -- decision 0054, one
+    allocation PER SOURCE TYPE (trajectory/restart share the STRICT wrf.exe-only loop; rebuild
+    needs the full WPS+real.exe+wrf.exe chain -- see the module comment above run_trajectory_
+    points for why these are not merged into one job) -- then combine()s every measurement into
+    one whole-run prediction. Returns (result_dict, points, notes, job_ids). Raises on any
+    infrastructure failure from either run_* function; a point plan_points itself could not
+    assign a source to is named in `notes` (never silently dropped, never fails the whole
+    prediction by itself)."""
+    nl = wtune_predict.parse_namelist(ctx.namelist_path)
+    steps_n, run_s, dt, _note = wtune_predict.get_d01_steps(nl)
+    run_start = wtune_predict.get_time_control_datetime(nl, "start")
+    run_end = run_start + datetime.timedelta(seconds=run_s)
+    radt = wtune_predict.g(nl, "physics", "radt", None)
+    stepra = wtune_predict.steps_per_radiation_call(float(radt), dt)
+    spinup_s = float(ctx.probe_cfg.get("spinup_min") or 0) * 60.0
+    case_dir = ctx.case_json["prep_dir"]
+    points, notes = wtune_probe_plan.plan_points(
+        nl, run_start, run_end, dt, stepra, spinup_s, ctx.probe_cfg, case_dir=case_dir)
+
+    traj_points = [p for p in points if p.source in ("trajectory", "restart")]
+    rebuild_points = [p for p in points if p.source == "rebuild"]
+
+    job_ids = []
+    measurements = []
+    if traj_points:
+        out_traj = os.path.join(out_dir, "c3_trajectory")
+        m, jid = run_trajectory_points(ctx, traj_points, best_config, nodes, run_start, stepra,
+                                        out_traj, sbatch_script=sbatch_script,
+                                        campaign_dir=campaign_dir)
+        measurements.extend(m)
+        job_ids.append(jid)
+    if rebuild_points:
+        out_rebuild = os.path.join(out_dir, "c3_rebuild")
+        spinup_min = ctx.probe_cfg.get("spinup_min") or 60
+        m, jid = run_rebuild_points(ctx, rebuild_points, best_config, nodes, case_dir, out_rebuild,
+                                     run_start, spinup_min=spinup_min, grib_dir=grib_dir)
+        measurements.extend(m)
+        job_ids.append(jid)
+
+    calibration = wtune_predict.load_calibration(str(wtune_predict.DEFAULT_CALIBRATION))
+    if ctx.prediction_cfg.get("drift_band_pct") is not None:
+        calibration = dict(calibration, drift_band_pct=ctx.prediction_cfg["drift_band_pct"])
+    sample_points, _geom_src = wtune_predict.read_wrfinput_sample_points(case_dir)
+    result = wtune_probe_plan.combine(
+        measurements, run_start, run_end, dt, stepra, calibration=calibration,
+        sample_points=sample_points, case_dir=case_dir, nl=nl, ranks=best_config.get("ranks"),
+        nodes=nodes)
+    return result, points, notes, job_ids
 
 
 def build_full_run_prediction(ctx, best_config, nodes, all_results, confirm_results,

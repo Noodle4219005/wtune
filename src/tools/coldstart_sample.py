@@ -2531,12 +2531,20 @@ def score_windows_from_rsl(plan, sample_points, calibration):
             raise ColdstartError("window %d: no normal (non-radiation) steps after spin-up" % k)
         s_k = statistics.median(normal)
         n_rad = 0
+        rad_ratios = []   # this window's OWN (sec/s_k) samples -- see r_local below
         for i, (sd, sec) in enumerate(kept):
             if flags[i]:
                 n_rad += 1
+                rad_ratios.append(sec / s_k)
                 frac = predict.sunlit_fraction(sample_points, sd) if sample_points else None
                 if frac is not None:
                     pooled_radiation_samples.append((frac, sec / s_k))
+        # r_local (2026-09-26, wtune probe multi-point "rebuild" source wiring, additive): this
+        # window's OWN radiation-step ratio, median of rad_ratios (None if n_rad==0) -- unlike
+        # pooled_radiation_samples (flat across every window, used for the whole-plan day/night
+        # fit), this is per-window, for a caller that wants ONE (s_k, r) pair per window/point
+        # (e.g. wtune_probe_plan.PointMeasurement) instead of the pooled fit.
+        r_local = statistics.median(rad_ratios) if rad_ratios else None
         mid_dt = T + datetime.timedelta(seconds=spinup_seconds + (plan["W_seconds"] - spinup_seconds) / 2.0)
         # R6-D date-shifted sampling: T (and so mid_dt) is on the ANALOG timeline the window
         # actually ran at; map it back to the STATED timeline (what the whole-run prediction's
@@ -2546,7 +2554,7 @@ def score_windows_from_rsl(plan, sample_points, calibration):
         anchors.append(((mid_dt_stated - run_start_dt).total_seconds(), s_k))
         forcing = _load_window_forcing(plan["_plan_dir"], k) or plan.get("forcing_chain_primary")
         windows_out.append({"t": w["t"], "reason": w["reason"], "s_k": s_k,
-                            "n_normal": len(normal), "n_rad": n_rad,
+                            "n_normal": len(normal), "n_rad": n_rad, "r_local": r_local,
                             "shift_s": w.get("shift_s", 0.0), "forcing": forcing})
     if not windows_out:
         raise ColdstartError(

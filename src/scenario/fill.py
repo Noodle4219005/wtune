@@ -165,6 +165,17 @@ def merge_fill(primary_files: Iterable, fill_files: Iterable, missing_fields: It
             "fill may only supply surface/sub-surface fields (%s)"
             % (", ".join(disallowed), ", ".join(FILLABLE_SURFACE_FIELDS)))
 
+    # Soil fields are only meaningful under their OWN land mask: metgrid interpolates them masked
+    # by LANDSEA, so mixing the analog's soil (GFS: 0 K / 0 over ocean) with the primary's mask
+    # (AIFS lsm: fractional after regridding) interpolates ocean zeros into coastal land
+    # (tw3km-2031: met_em ST000010 -23 K, SM -0.02 -> NaN within 10 min). So whenever any soil
+    # field is filled, LANDSEA comes from the fill source too and the primary's own is dropped.
+    replace_fields = set()
+    if set(missing_fields) & set(SOIL_FIELDS):
+        replace_fields.add("LANDSEA")
+        if "LANDSEA" not in missing_fields:
+            missing_fields.append("LANDSEA")
+
     if not fill_files:
         raise ValueError("merge_fill: no fill_files given")
 
@@ -192,7 +203,7 @@ def merge_fill(primary_files: Iterable, fill_files: Iterable, missing_fields: It
         best_fill = min(fill_times, key=sort_key)
         fill_records = fill_records_by_file[best_fill]
 
-        merged = list(primary_records)
+        merged = [r for r in primary_records if r.field.strip() not in replace_fields]
         for fieldname in missing_fields:
             for rec in fill_records:
                 if rec.field.strip() == fieldname:

@@ -4,6 +4,18 @@ NOT imported here) that writes one netCDF forecast file, then converts that netC
 intermediate files with wps_intermediate.write_fields(). Missing soil/SST/snow/seaice fields are
 then filled from the `analog` generator's real forcing for the same request (fill.merge_fill).
 
+Fictional dates (2026-09-26 fix): AIFS is initialized from real ERA5, exactly like the analog
+generator is initialized from real GFS -- so for a FICTIONAL req.start (any date with no real
+forcing, e.g. a future date), generate() must run the AIFS model at the SAME climatological analog
+date analog.select_analog_date() picks (real ERA5 exists there), not at req.start itself. Bug this
+closes, found running a genuinely-future case (tw3km-2031, req.start=2031-08-20): the previous
+version passed req.start straight through as the runner's init_time; ARCO-ERA5's zarr array is
+pre-declared out to 2050 but any date that hasn't happened yet is unwritten placeholder, not
+missing-key -- aifs_infer.py's ERA5 fetch silently returns an all-NaN slice instead of erroring,
+so the "AIFS" forecast was entirely NaN. generate() now runs inference at the analog date and
+relabels the resulting records' HDATE to the fictional valid time (wps_intermediate style, same
+idea as analog.wi.relabel_date) -- SLAB bytes are the real AIFS forecast, only HDATE changes.
+
 netCDF contract (what the runner's output file must look like):
     dims: (time, level, lat, lon)
     coords:
@@ -224,30 +236,42 @@ class AifsGenerator(ScenarioGenerator):
     def generate(self, req, *, runner=None, nc_paths: Optional[Dict] = None,
                  analog_generator=None) -> ForcingSet:
         """nc_paths: optional {valid_time: nc_path} map that skips `runner` entirely (tests pass
-        a synthetic file this way). runner(init_time, lead_h, out_nc_path): default shells out
-        to the AIFS inference runner (see _default_runner); called once per requested valid
-        time when nc_paths is not given. analog_generator: an already-constructed `analog`
-        ScenarioGenerator instance -- when given, its ForcingSet for the same bbox/window is
-        used to fill soil/SST/snow/seaice/LANDSEA fields AIFS's own variable map never supplies
-        (fill.merge_fill)."""
+        a synthetic file this way) -- when given, it is assumed to already be at the RIGHT
+        (real) dates; no analog-date resolution or relabelling is applied on top of it.
+        runner(init_time, lead_h, out_nc_path): default shells out to the AIFS inference runner
+        (see _default_runner); called once per requested valid time, at the REAL analog date
+        (see module docstring), when nc_paths is not given. analog_generator: an
+        already-constructed `analog` ScenarioGenerator instance -- when given, its ForcingSet for
+        the same bbox/window is used to fill soil/SST/snow/seaice/LANDSEA fields AIFS's own
+        variable map never supplies (fill.merge_fill)."""
+        from .analog import select_analog_date
+
         valid_times = _request_valid_times(req.start, req.end, req.interval_h)
         req.out_dir.mkdir(parents=True, exist_ok=True)
 
         if nc_paths is None:
+            analog_date = req.analog_date or select_analog_date(req.start)
+            real_times = [analog_date + (t - req.start) for t in valid_times]
             runner_fn = runner or _default_runner
             nc_paths = {}
-            for t in valid_times:
-                lead_h = int((t - req.start).total_seconds() // 3600)
-                out_nc = req.out_dir / ("aifs_%s.nc" % t.strftime("%Y%m%d%H"))
-                runner_fn(req.start, lead_h, out_nc)
+            for t, real_t in zip(valid_times, real_times):
+                lead_h = int((real_t - analog_date).total_seconds() // 3600)
+                out_nc = req.out_dir / ("aifs_%s.nc" % real_t.strftime("%Y%m%d%H"))
+                runner_fn(analog_date, lead_h, out_nc)
                 nc_paths[t] = out_nc
+        else:
+            analog_date = None
+            real_times = list(valid_times)
 
         prefix = "AIFS"
         out_files = []
         seen_missing = set()
-        for t in valid_times:
+        for t, real_t in zip(valid_times, real_times):
             per_time = netcdf_to_records(nc_paths[t], req.bbox)
-            _, records, missing = _select_time_entry(per_time, t)
+            _, records, missing = _select_time_entry(per_time, real_t)
+            if real_t != t:
+                fictional_hdate = t.strftime("%Y-%m-%d_%H:%M:%S")
+                records = [dataclasses.replace(r, hdate=fictional_hdate) for r in records]
             seen_missing.update(missing)
             dst_path = req.out_dir / ("%s:%s" % (prefix, t.strftime("%Y-%m-%d_%H")))
             wi.write_fields(dst_path, records)
@@ -260,7 +284,8 @@ class AifsGenerator(ScenarioGenerator):
         fields_missing = sorted(set(seen_missing) | set(analog_missing))
 
         if analog_generator is not None and analog_missing:
-            analog_req = dataclasses.replace(req, out_dir=req.out_dir / "analog_fill")
+            analog_req = dataclasses.replace(req, out_dir=req.out_dir / "analog_fill",
+                                              analog_date=analog_date)
             analog_set = analog_generator.generate(analog_req)
             merged_dir = req.out_dir / "merged"
             out_files = scenario_fill.merge_fill(out_files, analog_set.files, analog_missing,
@@ -272,7 +297,7 @@ class AifsGenerator(ScenarioGenerator):
             "version": None,
             "weights_sha256": None,
             "license": self.license,
-            "analog_date": None,
+            "analog_date": analog_date,
             "created_utc": datetime.datetime.utcnow(),
             "request": request_to_dict(req),
         }

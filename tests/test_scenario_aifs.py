@@ -15,7 +15,8 @@ from scenario.base import ScenarioRequest, get_generator
 from scenario.generators.aifs import G, netcdf_to_records
 
 
-def _make_synthetic_nc(path, omit=()):
+def _make_synthetic_nc(path, omit=(), valid_time=None):
+    valid_time = valid_time or datetime.datetime(2031, 7, 15, 0)
     ds = netCDF4.Dataset(path, "w")
     try:
         ds.createDimension("time", 1)
@@ -24,7 +25,7 @@ def _make_synthetic_nc(path, omit=()):
         ds.createDimension("lon", 5)
 
         time_var = ds.createVariable("time", "f8", ("time",))
-        time_var.units = "hours since 2031-07-15 00:00:00"
+        time_var.units = "hours since %s" % valid_time.strftime("%Y-%m-%d %H:%M:%S")
         time_var[:] = [0.0]
 
         level_var = ds.createVariable("level", "f4", ("level",))
@@ -159,3 +160,38 @@ def test_aifs_generator_raises_when_both_psfc_and_pmsl_are_absent(tmp_path):
     )
     with pytest.raises(ScenarioError, match="PSFC/PMSL"):
         gen.generate(req, nc_paths={valid_time: nc_path})
+
+
+def test_aifs_generator_runs_at_analog_date_and_relabels_to_fictional_date(tmp_path, monkeypatch):
+    """Bug found running a genuinely-future case (tw3km-2031): generate() used to pass the
+    FICTIONAL req.start straight through as the AIFS runner's init_time. ARCO-ERA5 has no data
+    for a date that hasn't happened yet (ordinary NaN placeholder, not a missing-key error), so
+    every field came back NaN. generate() must run the runner at the real climatological analog
+    date instead (same date analog.select_analog_date() picks), and relabel the resulting
+    records' HDATE back to the fictional valid time -- everything else (SLAB bytes) unchanged."""
+    monkeypatch.setattr("scenario.generators.analog.select_analog_date",
+                         lambda start, **kw: datetime.datetime(2025, 8, 20, 0))
+
+    calls = []
+
+    def fake_runner(init_time, lead_h, out_nc):
+        calls.append((init_time, lead_h))
+        _make_synthetic_nc(out_nc, valid_time=init_time + datetime.timedelta(hours=lead_h))
+
+    gen = get_generator("aifs")
+    fictional_time = datetime.datetime(2031, 8, 20, 0)
+    req = ScenarioRequest(
+        bbox=(15.0, 35.0, -8.0, 8.0), start=fictional_time, end=fictional_time, interval_h=6,
+        out_dir=tmp_path / "out",
+    )
+    forcing = gen.generate(req, runner=fake_runner)
+
+    # the runner was asked to initialize at the REAL analog date, not the fictional one.
+    assert calls == [(datetime.datetime(2025, 8, 20, 0), 0)]
+    assert forcing.provenance["analog_date"] == datetime.datetime(2025, 8, 20, 0)
+
+    # but every record's HDATE is relabelled to the FICTIONAL valid time.
+    recs = wi.read_fields(forcing.files[0])
+    assert recs
+    for r in recs:
+        assert r.hdate == "2031-08-20_00:00:00"

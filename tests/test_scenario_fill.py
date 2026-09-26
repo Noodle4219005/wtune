@@ -166,3 +166,52 @@ def test_merge_fill_requires_fill_files(tmp_path):
     _write_soil_record(primary_path, "2031-07-15_12:00:00", "TT", 300.0)
     with pytest.raises(ValueError):
         fill.merge_fill([primary_path], [], ["ST000010"], tmp_path / "merged")
+
+
+def _surface_record(hdate, field, slab):
+    return wi.Record(hdate=hdate, xfcst=0.0, map_source="TEST", field=field, units="-",
+                     desc=field, xlvl=wi.SURFACE_PA, nx=2, ny=2, iproj=0, startloc="SWCORNER",
+                     startlat=0.0, startlon=0.0, deltalat=1.0, deltalon=1.0,
+                     earth_radius=wi.EARTH_RADIUS_KM, is_wind_earth_rel=True,
+                     slab=np.asarray(slab, dtype=np.float32))
+
+
+def test_merge_fill_takes_landsea_from_the_soil_source(tmp_path):
+    """Soil is only valid under its own land mask (metgrid interpolates it masked by LANDSEA).
+    tw3km-2031: AIFS's fractional LANDSEA + GFS soil (0 over ocean) gave met_em ST000010 -23 K
+    and the run went NaN in 10 min. When soil is filled, the fill source's LANDSEA must replace
+    the primary's."""
+    hdate = "2031-08-20_00:00:00"
+    primary_path = tmp_path / "AIFS:2031-08-20_00"
+    wi.write_fields(primary_path, [
+        _surface_record(hdate, "LANDSEA", [[0.0, 0.33], [0.66, 1.0]]),
+        _surface_record(hdate, "SKINTEMP", [[300.0, 301.0], [302.0, 303.0]]),
+    ])
+    fill_path = tmp_path / "FILE:2025-08-20_00"
+    wi.write_fields(fill_path, [
+        _surface_record("2025-08-20_00:00:00", "LANDSEA", [[0.0, 0.0], [1.0, 1.0]]),
+        _surface_record("2025-08-20_00:00:00", "ST000010", [[0.0, 0.0], [295.0, 296.0]]),
+    ])
+
+    out = fill.merge_fill([primary_path], [fill_path], ["ST000010"], tmp_path / "merged")
+    recs = wi.read_fields(out[0])
+    landsea = [r for r in recs if r.field.strip() == "LANDSEA"]
+    assert len(landsea) == 1
+    np.testing.assert_array_equal(landsea[0].slab, [[0.0, 0.0], [1.0, 1.0]])
+    assert landsea[0].hdate == hdate
+    assert {r.field.strip() for r in recs} == {"LANDSEA", "SKINTEMP", "ST000010"}
+
+
+def test_merge_fill_keeps_primary_landsea_when_no_soil_is_filled(tmp_path):
+    hdate = "2031-08-20_00:00:00"
+    primary_path = tmp_path / "AIFS:2031-08-20_00"
+    wi.write_fields(primary_path, [_surface_record(hdate, "LANDSEA", [[0.0, 1.0], [0.0, 1.0]])])
+    fill_path = tmp_path / "FILE:2025-08-20_00"
+    wi.write_fields(fill_path, [
+        _surface_record("2025-08-20_00:00:00", "LANDSEA", [[1.0, 1.0], [1.0, 1.0]]),
+        _surface_record("2025-08-20_00:00:00", "SNOW", [[0.0, 0.0], [0.0, 0.0]]),
+    ])
+    out = fill.merge_fill([primary_path], [fill_path], ["SNOW"], tmp_path / "merged")
+    landsea = [r for r in wi.read_fields(out[0]) if r.field.strip() == "LANDSEA"]
+    assert len(landsea) == 1
+    np.testing.assert_array_equal(landsea[0].slab, [[0.0, 1.0], [0.0, 1.0]])

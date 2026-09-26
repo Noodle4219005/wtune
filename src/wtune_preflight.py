@@ -1036,6 +1036,127 @@ def check_c9_disk(nl, run_dir, findings):
 
 
 # --------------------------------------------------------------------------
+# C10 -- wrfinput physical sanity (FATAL, netCDF4 optional)
+# --------------------------------------------------------------------------
+
+# varname -> (lo, hi, land_only). land_only=True masks the check to LANDMASK==1 points (when
+# LANDMASK exists in the file; otherwise every point is checked, which is conservative).
+_C10_RANGE_VARS = {
+    "TSLB": (200.0, 350.0, False),
+    "SMOIS": (0.0, 1.0, True),
+    "TSK": (180.0, 350.0, False),
+    "SST": (180.0, 350.0, False),
+}
+_C10_NAN_VARS = ("T", "U", "V", "QVAPOR", "TSLB", "SMOIS", "PSFC")
+
+
+def _c10_filled(var):
+    """netCDF4 Variable -> float64 ndarray, with any masked entries (fill values) turned into
+    NaN rather than left as a sentinel like -1e30 that would otherwise fail the range check for
+    the wrong reason and be indistinguishable from a real physical excursion."""
+    import numpy as np
+    raw = var[:]
+    if np.ma.isMaskedArray(raw):
+        return raw.filled(np.nan).astype("float64")
+    return np.asarray(raw, dtype="float64")
+
+
+def check_c10_wrfinput_sanity(nl, run_dir, findings):
+    """wrfinput_d0N physical-plausibility gate, run BEFORE real.exe/wrf.exe ever start.
+
+    Real incident: scc tw3km-2031 case_I (AIFS generator, analog-soil fill path). AIFS's
+    regridded LANDSEA is fractional (~33% of points land/sea-mixed after interpolation) while
+    the analog GFS's soil fields are binary land(=1)/water(=0)-masked; metgrid's LANDSEA-masked
+    horizontal interpolation of the filled soil field then blended water-point state (TSLB/SMOIS
+    effectively undefined over open ocean) into land points, producing ST000010 (TSLB level 1)
+    around -23 C and SM000010 (SMOIS level 1) around -0.02 in wrfinput_d01. Neither real.exe nor
+    wrf.exe checks this: wrf.exe went entirely NaN by simulation hour 1 (wrfout_d01 valid at
+    2031-08-20_01:00:00 all-NaN in U/V/T/PSFC) while its own log still printed 'SUCCESS COMPLETE
+    WRF' at the end of the 12 h run. This check catches it at `wtune check` time, before any
+    node-hour is spent.
+
+    Bounds: TSLB in [200, 350] K, SMOIS in [0, 1] fraction (LANDMASK==1 points only -- water
+    points legitimately carry a sentinel/near-saturated value outside this range on some LSMs),
+    TSK/SST in [180, 350] K. Any non-finite (NaN/Inf) value anywhere in T, U, V, QVAPOR, TSLB,
+    SMOIS, or PSFC is FATAL regardless of range, land or water.
+    """
+    if not HAVE_NETCDF4:
+        findings.append(Finding(INFO, "C10", "SKIPPED (netCDF4 not available)"))
+        return
+    try:
+        import numpy as np
+    except ImportError:
+        findings.append(Finding(INFO, "C10", "SKIPPED (numpy not available)"))
+        return
+
+    run_dir = Path(run_dir)
+    max_dom = wp.get_max_dom(nl)
+    checked_any = False
+    for d in range(max_dom):
+        wrfinput = run_dir / ("wrfinput_d%02d" % (d + 1))
+        if not wrfinput.exists():
+            continue
+        checked_any = True
+        ds, err = _open_nc(wrfinput)
+        if ds is None:
+            findings.append(Finding(INFO, "C10", "could not open %s: %s" % (wrfinput, err)))
+            continue
+        try:
+            landmask = None
+            if "LANDMASK" in ds.variables:
+                landmask = _c10_filled(ds.variables["LANDMASK"])
+
+            for varname in _C10_NAN_VARS:
+                if varname not in ds.variables:
+                    continue
+                arr = _c10_filled(ds.variables[varname])
+                bad = ~np.isfinite(arr)
+                if bad.any():
+                    idx = tuple(int(i) for i in np.argwhere(bad)[0])
+                    findings.append(Finding(
+                        FATAL, "C10",
+                        "domain %d: %s in %s has %d non-finite (NaN/Inf) value(s)"
+                        % (d + 1, varname, wrfinput.name, int(bad.sum())),
+                        evidence="first bad index=%s" % (idx,),
+                        fix="regenerate wrfinput_d%02d -- real.exe's interpolation already "
+                            "broke; wrf.exe propagates this silently and may still print "
+                            "SUCCESS COMPLETE" % (d + 1),
+                    ))
+
+            for varname, (lo, hi, land_only) in _C10_RANGE_VARS.items():
+                if varname not in ds.variables:
+                    continue
+                arr = _c10_filled(ds.variables[varname])
+                mask = np.isfinite(arr)
+                if land_only and landmask is not None:
+                    lm = landmask
+                    if lm.ndim < arr.ndim:
+                        lm = np.broadcast_to(lm[:, np.newaxis, ...], arr.shape)
+                    mask = mask & (lm > 0.5)
+                bad = mask & ((arr < lo) | (arr > hi))
+                if bad.any():
+                    idx = tuple(int(i) for i in np.argwhere(bad)[0])
+                    val = float(arr[idx])
+                    findings.append(Finding(
+                        FATAL, "C10",
+                        "domain %d: %s in %s has %d value(s) outside [%.0f, %.0f]%s "
+                        "(min=%.3f max=%.3f)"
+                        % (d + 1, varname, wrfinput.name, int(bad.sum()), lo, hi,
+                           " (land points)" if land_only else "",
+                           float(arr[mask & ((arr < lo) | (arr > hi))].min()),
+                           float(arr[mask & ((arr < lo) | (arr > hi))].max())),
+                        evidence="first bad index=%s value=%.3f" % (idx, val),
+                        fix="regenerate wrfinput_d%02d -- a mismatched LANDSEA mask between a "
+                            "fill source and the primary forcing can blend water-point soil "
+                            "state into land points (tw3km-2031/case_I incident)" % (d + 1),
+                    ))
+        finally:
+            ds.close()
+    if not checked_any:
+        findings.append(Finding(INFO, "C10", "no wrfinput_d0N found in run_dir; skipped"))
+
+
+# --------------------------------------------------------------------------
 # orchestration
 # --------------------------------------------------------------------------
 
@@ -1053,6 +1174,7 @@ def run_checks(nl, run_dir, namelist_path, ranks=None, nproc_x=None, nproc_y=Non
                                                nproc_y=nproc_y)),
         ("C8", lambda: check_c8_time_step(nl, findings)),
         ("C9", lambda: check_c9_disk(nl, run_dir, findings)),
+        ("C10", lambda: check_c10_wrfinput_sanity(nl, run_dir, findings)),
     ]
     for cid, fn in checks:
         try:

@@ -11,6 +11,7 @@ import os
 import pytest
 
 netCDF4 = pytest.importorskip("netCDF4")
+import numpy as np
 
 import wtune_preflight as pf
 import wtune_predict as wp
@@ -770,6 +771,147 @@ def test_c9_sufficient_disk_silent(tmp_path):
     findings = []
     pf.check_c9_disk(nl, tmp_path, findings)  # real tmp_path filesystem, tiny domain
     assert clean_findings(findings) == []
+
+
+# --------------------------------------------------------------------------
+# C10 -- wrfinput physical sanity
+# --------------------------------------------------------------------------
+
+_C10_SHAPE_4D = (1, 2, 2, 2)   # Time, bottom_top|soil_layers_stag, south_north, west_east
+_C10_SHAPE_SFC = (1, 2, 2)     # Time, south_north, west_east
+
+
+def _c10_full(shape, fill):
+    return np.full(shape, fill, dtype="f4")
+
+
+def write_wrfinput(path, overrides=None):
+    """Synthetic wrfinput_d01 with every C10-checked field at a clean, in-range value;
+    `overrides` replaces individual variables' ndarrays for one test's bad-value injection."""
+    overrides = overrides or {}
+    data = {
+        "T": _c10_full(_C10_SHAPE_4D, 290.0),
+        "U": _c10_full(_C10_SHAPE_4D, 5.0),
+        "V": _c10_full(_C10_SHAPE_4D, -3.0),
+        "QVAPOR": _c10_full(_C10_SHAPE_4D, 0.005),
+        "TSLB": _c10_full(_C10_SHAPE_4D, 290.0),
+        "SMOIS": _c10_full(_C10_SHAPE_4D, 0.3),
+        "PSFC": _c10_full(_C10_SHAPE_SFC, 101300.0),
+        "TSK": _c10_full(_C10_SHAPE_SFC, 295.0),
+        "SST": _c10_full(_C10_SHAPE_SFC, 290.0),
+        "LANDMASK": _c10_full(_C10_SHAPE_SFC, 1.0),
+    }
+    data.update(overrides)
+    dim4 = ("Time", "bottom_top", "south_north", "west_east")
+    dim_sfc = ("Time", "south_north", "west_east")
+    write_nc(
+        path,
+        dims={"Time": None, "bottom_top": 2, "south_north": 2, "west_east": 2},
+        vars_={
+            "T": ("f4", dim4, data["T"]),
+            "U": ("f4", dim4, data["U"]),
+            "V": ("f4", dim4, data["V"]),
+            "QVAPOR": ("f4", dim4, data["QVAPOR"]),
+            "TSLB": ("f4", dim4, data["TSLB"]),
+            "SMOIS": ("f4", dim4, data["SMOIS"]),
+            "PSFC": ("f4", dim_sfc, data["PSFC"]),
+            "TSK": ("f4", dim_sfc, data["TSK"]),
+            "SST": ("f4", dim_sfc, data["SST"]),
+            "LANDMASK": ("f4", dim_sfc, data["LANDMASK"]),
+        },
+    )
+
+
+def test_c10_clean_wrfinput_silent(tmp_path):
+    text = one_domain_namelist()
+    write_namelist(tmp_path, text)
+    write_wrfinput(tmp_path / "wrfinput_d01")
+    nl = wp.parse_namelist(str(tmp_path / "namelist.input"))
+    findings = []
+    pf.check_c10_wrfinput_sanity(nl, tmp_path, findings)
+    assert clean_findings(findings) == []
+
+
+def test_c10_nan_in_qvapor_is_fatal(tmp_path):
+    text = one_domain_namelist()
+    write_namelist(tmp_path, text)
+    q = _c10_full(_C10_SHAPE_4D, 0.005)
+    q[0, 0, 0, 0] = np.nan
+    write_wrfinput(tmp_path / "wrfinput_d01", overrides={"QVAPOR": q})
+    nl = wp.parse_namelist(str(tmp_path / "namelist.input"))
+    findings = []
+    pf.check_c10_wrfinput_sanity(nl, tmp_path, findings)
+    fatals = [f for f in findings if f.severity == "FATAL" and f.id == "C10"
+              and "QVAPOR" in f.message and "non-finite" in f.message]
+    assert len(fatals) == 1
+
+
+def test_c10_tslb_out_of_range_is_fatal(tmp_path):
+    text = one_domain_namelist()
+    write_namelist(tmp_path, text)
+    tslb = _c10_full(_C10_SHAPE_4D, 290.0)
+    tslb[0, 0, 0, 0] = 150.0  # below the 200 K floor
+    write_wrfinput(tmp_path / "wrfinput_d01", overrides={"TSLB": tslb})
+    nl = wp.parse_namelist(str(tmp_path / "namelist.input"))
+    findings = []
+    pf.check_c10_wrfinput_sanity(nl, tmp_path, findings)
+    fatals = [f for f in findings if f.severity == "FATAL" and f.id == "C10" and "TSLB" in f.message]
+    assert len(fatals) == 1
+
+
+def test_c10_smois_out_of_range_is_fatal_on_land_only(tmp_path):
+    """Real tw3km-2031/case_I incident shape: SMOIS goes negative at a LAND point (must be
+    FATAL) and, separately, at a WATER point (LANDMASK==0, must NOT be flagged -- SMOIS is not
+    physically meaningful over open ocean on this LSM)."""
+    text = one_domain_namelist()
+    write_namelist(tmp_path, text)
+    sm = _c10_full(_C10_SHAPE_4D, 0.3)
+    sm[0, 0, 0, 0] = -0.02   # land point, bad -- the actual incident's SM000010 value
+    sm[0, 0, 1, 1] = -0.5    # water point, would be bad if checked, must be masked out
+    lm = _c10_full(_C10_SHAPE_SFC, 1.0)
+    lm[0, 1, 1] = 0.0        # (south_north=1, west_east=1) is water
+    write_wrfinput(tmp_path / "wrfinput_d01", overrides={"SMOIS": sm, "LANDMASK": lm})
+    nl = wp.parse_namelist(str(tmp_path / "namelist.input"))
+    findings = []
+    pf.check_c10_wrfinput_sanity(nl, tmp_path, findings)
+    fatals = [f for f in findings if f.severity == "FATAL" and f.id == "C10" and "SMOIS" in f.message]
+    assert len(fatals) == 1
+    assert "has 1 value(s)" in fatals[0].message  # only the land point counted, not the water one
+
+
+def test_c10_tsk_out_of_range_is_fatal(tmp_path):
+    text = one_domain_namelist()
+    write_namelist(tmp_path, text)
+    tsk = _c10_full(_C10_SHAPE_SFC, 295.0)
+    tsk[0, 0, 0] = 100.0  # below the 180 K floor
+    write_wrfinput(tmp_path / "wrfinput_d01", overrides={"TSK": tsk})
+    nl = wp.parse_namelist(str(tmp_path / "namelist.input"))
+    findings = []
+    pf.check_c10_wrfinput_sanity(nl, tmp_path, findings)
+    fatals = [f for f in findings if f.severity == "FATAL" and f.id == "C10" and "TSK" in f.message]
+    assert len(fatals) == 1
+
+
+def test_c10_no_wrfinput_gives_info_only(tmp_path):
+    text = one_domain_namelist()
+    write_namelist(tmp_path, text)
+    nl = wp.parse_namelist(str(tmp_path / "namelist.input"))
+    findings = []
+    pf.check_c10_wrfinput_sanity(nl, tmp_path, findings)
+    assert clean_findings(findings) == []
+    assert any(f.id == "C10" and f.severity == "INFO" for f in findings)
+
+
+def test_c10_netcdf4_unavailable_skips_explicitly(tmp_path, monkeypatch):
+    text = one_domain_namelist()
+    write_namelist(tmp_path, text)
+    nl = wp.parse_namelist(str(tmp_path / "namelist.input"))
+    monkeypatch.setattr(pf, "HAVE_NETCDF4", False)
+    findings = []
+    pf.check_c10_wrfinput_sanity(nl, tmp_path, findings)
+    assert len(findings) == 1
+    assert findings[0].severity == "INFO"
+    assert "netCDF4 not available" in findings[0].message
 
 
 # --------------------------------------------------------------------------

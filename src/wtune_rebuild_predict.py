@@ -192,7 +192,7 @@ def recommend_time(range_high_s, io_s):
             "covers_io": io_s is not None}
 
 
-def _ctx(case_dir, nodes, out_dir):
+def _ctx(case_dir, nodes, out_dir, max_wait_hours=24.0):
     import scc_sweep as sweep
     import wtune_tune
     clock = wtune_tune.RealClock()
@@ -206,6 +206,11 @@ def _ctx(case_dir, nodes, out_dir):
         scancel_runner=wtune_tune.default_scancel_runner, ledger_reader=None, proposer=None,
         clock=clock)
     ctx.start_time = clock.now()
+    # The 4 h budget counts RUNNING time only; queueing is charged to a separate wall cap
+    # (elevconv, 2026-09-27: three 8-node segments queued 4 h behind another user's jobs and the
+    # wall-clock budget cancelled them before they ever started).
+    ctx.budget_mode = "running"
+    ctx.max_wall_s = float(max_wait_hours) * 3600.0
     return ctx
 
 
@@ -240,6 +245,9 @@ def main(argv=None):
     ap.add_argument("--out", default=None,
                     help="default ./wtune-rebuild-<case>-<utc> (never inside CASE_DIR: the user's case "
                          "directory is not modified)")
+    ap.add_argument("--max-wait-hours", type=float, default=24.0,
+                    help="wall-clock cap including queueing (default 24); the 4 h budget counts "
+                         "only time with a segment running")
     ap.add_argument("--dry-run", action="store_true", help="print the plan, submit nothing")
     a = ap.parse_args(argv)
 
@@ -284,7 +292,7 @@ def main(argv=None):
     os.makedirs(out, exist_ok=True)
     best = dict(id="target", ranks=ranks, omp=a.omp, nx=a.nx, ny=a.ny, numtiles=a.numtiles,
                 dist="block", blocktime=0)
-    ctx = _ctx(case_dir, a.nodes, out)
+    ctx = _ctx(case_dir, a.nodes, out, max_wait_hours=a.max_wait_hours)
     meas, job_ids = wtune_tune.run_rebuild_points(
         ctx, points, best, a.nodes, case_dir, os.path.join(out, "rebuild"), run_start,
         spinup_min=spinup, forcing=None if forcing == "auto" else forcing,

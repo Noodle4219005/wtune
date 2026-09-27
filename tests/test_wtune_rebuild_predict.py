@@ -178,3 +178,9 @@ def test_read_probe_writes_from_the_probe_plan_dir(tmp_path):
     (tmp_path / "win_0" / "wrf" / "rsl.error.0000").write_text(
         "Timing for Writing wrfout_d01_2019-11-26_03:40:00 for domain        1:   13.90594 elapsed seconds\n")
     assert wrp.read_probe_writes(str(tmp_path))[1]["history"] == {1: [13.90594]}
+
+
+def test_ctx_charges_running_time_only(tmp_path):
+    ctx = wrp._ctx(str(tmp_path), 8, str(tmp_path / "o"), max_wait_hours=12)
+    assert ctx.budget_mode == "running" and ctx.max_wall_s == 12 * 3600.0
+    assert ctx.budget_s == 4 * 3600.0

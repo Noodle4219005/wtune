@@ -1792,6 +1792,9 @@ def main():
     p_prb = sub.add_parser('predict-rebuild', help='whole-run wall-time prediction from rebuilt segments measured in parallel on the target config (wtune_rebuild_predict.py)')
     p_prb.add_argument('prb_args', nargs=argparse.REMAINDER, help='forwarded to wtune_rebuild_predict.py')
 
+    p_watch = sub.add_parser('watch', help='read-only monitor of a WRF run dir: progress, remaining time, hang/nest-stop/failure warnings (wtune_watch.py)')
+    p_watch.add_argument('watch_args', nargs=argparse.REMAINDER, help='forwarded to wtune_watch.py')
+
     p_scenario = sub.add_parser('scenario', help='pluggable scenario generators for fictional-date WRF forcing (scenario/cli.py): list | generate | inspect')
     p_scenario.add_argument('scenario_args', nargs=argparse.REMAINDER, help='forwarded to scenario/cli.py')
 
@@ -1824,6 +1827,10 @@ def main():
     if args.command == 'predict-rebuild':
         import wtune_rebuild_predict
         sys.exit(wtune_rebuild_predict.main(args.prb_args))
+
+    if args.command == 'watch':
+        import wtune_watch
+        sys.exit(wtune_watch.main(args.watch_args))
 
     if args.command == 'scenario':
         from scenario import cli as scenario_cli

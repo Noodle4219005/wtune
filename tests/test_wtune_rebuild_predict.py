@@ -92,3 +92,85 @@ def test_measure_steps_option():
     assert _measure_steps("20", 17) == 20
     with pytest.raises(SystemExit):
         _measure_steps("17", 17)
+
+
+# --- I/O estimate and --time recommendation -----------------------------------------------
+
+_NL_IO = """\
+ &time_control
+ run_hours = 24,
+ start_year = 2019, start_month = 11, start_day = 26, start_hour = 0,
+ history_interval = 60, 180,
+ io_form_history = 2,
+ restart_interval = 720,
+ /
+ &domains
+ time_step = 60, max_dom = 2,
+ /
+"""
+
+
+def _nl(tmp_path, text):
+    import wtune_predict as wp
+    p = tmp_path / "namelist.input"
+    p.write_text(text)
+    return wp.parse_namelist(str(p))
+
+
+def test_user_frames_history_on_off_begin_and_restart(tmp_path):
+    f = wrp.user_io_frames(_nl(tmp_path, _NL_IO), 86400)
+    assert f["history"] == [25, 9] and f["restart"] == 2
+    f = wrp.user_io_frames(_nl(tmp_path, _NL_IO.replace("= 60, 180,", "= 60, 0,")), 86400)
+    assert f["history"] == [25, 0]                                   # interval 0 -> off
+    f = wrp.user_io_frames(_nl(tmp_path, _NL_IO.replace(" io_form_history = 2,",
+                                                        " history_begin_h = 6, 6,")), 86400)
+    assert f["history"] == [19, 7]                                   # frames from 06:00 on
+    f = wrp.user_io_frames(_nl(tmp_path, _NL_IO.replace("io_form_history = 2", "io_form_history = 0")
+                               .replace("restart_interval = 720", "restart_interval = 7200")), 86400)
+    assert f["history"] == [0, 0] and f["restart"] == 0
+    f = wrp.user_io_frames(_nl(tmp_path, _NL_IO.replace(" io_form_history", " restart = .true.,\n io_form_history")), 86400)
+    assert f["history"] == [24, 8] and f["notes"]                    # resumed: no t=0 frame
+
+
+def test_io_estimate_multiplies_medians_by_frames():
+    frames = {"history": [25, 0], "restart": 2, "notes": []}
+    writes = {"history": {1: [10.0, 14.0, 12.0], 2: [3.0]}, "restart": {1: [100.0], 2: [20.0]}}
+    io = wrp.io_estimate(frames, writes, dt.datetime(2019, 11, 26, 3, 40))
+    assert io["ok"] and io["io_s"] == pytest.approx(25 * 12.0 + 2 * 120.0)
+    assert io["history"][0]["seconds"] == pytest.approx(300.0) and "seconds" not in io["history"][1]
+    assert io["source"] == "measured (1 frame at 2019-11-26_03:40:00)"
+    bad = wrp.io_estimate(frames, {"history": {}, "restart": {}}, None)
+    assert not bad["ok"] and bad["io_s"] is None and bad["missing"] == ["history d01", "restart"]
+    assert wrp.io_estimate({"history": [0, 0], "restart": 0}, None, None)["io_s"] == 0.0
+
+
+def test_recommendation_arithmetic_and_rounding():
+    r = wrp.recommend_time(3600.0, 600.0)        # 3600 + 1200 + 300 = 5100 -> 5100 (x300)
+    assert r["time_s"] == 5100 and r["time"] == "01:25:00" and r["covers_io"]
+    assert wrp.recommend_time(3601.0, 600.0)["time_s"] == 5400
+    assert wrp.recommend_time(100000.0, 0.0)["time"] == "27:55:00"
+    f = wrp.recommend_time(3601.0, None)          # probe failed: range_high + 5 min, rounded up
+    assert f["time_s"] == 4200 and not f["covers_io"]
+
+
+def test_probe_marks_only_the_last_point(monkeypatch, capsys, tmp_path):
+    monkeypatch.setattr(wrp, "plan", _fake_plan)
+    wrp.main([str(tmp_path), "--nodes", "4", "--nx", "16", "--ny", "18", "--dry-run"])
+    lines = [l for l in capsys.readouterr().out.splitlines() if l.startswith("  point")]
+    assert ["I/O probe" in l for l in lines] == [False, True]
+    wrp.main([str(tmp_path), "--nodes", "4", "--nx", "16", "--ny", "18", "--dry-run",
+              "--no-io-probe"])
+    assert "I/O probe" not in capsys.readouterr().out
+
+
+def test_read_probe_writes_from_the_probe_plan_dir(tmp_path):
+    import json
+    plan = {"windows": [{"t": "2019-11-26_03:00:00"}], "measure_steps": 20, "spinup_min": 20,
+            "dt_s": 60.0, "io_probe": {"window": 0, "history_prefix": "wrfout_d"}}
+    (tmp_path / "plan.json").write_text(json.dumps(plan))
+    probe, writes, at = wrp.read_probe_writes(str(tmp_path))
+    assert writes is None and at == dt.datetime(2019, 11, 26, 3, 40)
+    (tmp_path / "win_0" / "wrf").mkdir(parents=True)
+    (tmp_path / "win_0" / "wrf" / "rsl.error.0000").write_text(
+        "Timing for Writing wrfout_d01_2019-11-26_03:40:00 for domain        1:   13.90594 elapsed seconds\n")
+    assert wrp.read_probe_writes(str(tmp_path))[1]["history"] == {1: [13.90594]}

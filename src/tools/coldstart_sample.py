@@ -1084,7 +1084,9 @@ def build_plan(case_dir, out_dir, k=4, nodes=1, ranks=72, omp=1, nx=None, ny=Non
                spinup_min=60, namelist=None, namelist_wps=None, geo_from_wrfinput=None,
                grib_dir=None, ncdump=None, use_state=False, now=None, geog_path=None,
                forcing=None, date_shift_to=None, analog_path=None, times=None,
-               real_only=False, ml_model=None, numtiles=1, measure_steps=None):
+               real_only=False, ml_model=None, numtiles=1, measure_steps=None, io_probe=False):
+    """Writes OUT_DIR/plan.json + namelist.wps. `io_probe` (default False: plan.json unchanged)
+    adds plan['io_probe'] (plan_io_probe), applied to the LAST window -- see apply_io_probe."""
     rows, blockers, nl = inspect_case(case_dir, namelist=namelist, namelist_wps=namelist_wps,
                                        geo_from_wrfinput=geo_from_wrfinput, grib_dir=grib_dir,
                                        ncdump=ncdump, now=now, geog_path=geog_path)
@@ -1264,6 +1266,12 @@ def build_plan(case_dir, out_dir, k=4, nodes=1, ranks=72, omp=1, nx=None, ny=Non
         # K5 (2026-09-24): ML state completion, default OFF -- None unless --ml-model was given.
         "ml_model": os.path.abspath(ml_model) if ml_model else None,
     }
+    if io_probe:
+        probe = plan_io_probe(nl, case_dir, run_s)
+        probe["window"] = len(windows) - 1
+        plan["io_probe"] = probe
+        for w in probe["warnings"]:
+            print("WARNING: io probe: %s" % w)
     os.makedirs(out_dir, exist_ok=True)
     with open(os.path.join(out_dir, "plan.json"), "w") as f:
         json.dump(plan, f, indent=2)
@@ -1724,12 +1732,15 @@ _HISTORY_KEY_RE = re.compile(r"(?<![A-Za-z0-9_])(history_interval\w*)\s*=", re.I
 
 
 def build_wrf_window_namelist_text(real_namelist_text, T, win_steps, dt_seconds,
-                                    nproc_x, nproc_y, numtiles):
+                                    nproc_x, nproc_y, numtiles, io_probe=None):
     """SPEC.md Inputs: 'wrf.exe namelist per window: the real namelist plus: restart=.false.;
     history and restart output disabled (restart_interval and every history_interval* key that
     EXISTS set to a huge value -- only touch keys already present); run length = window steps x
     time_step exactly; nproc_x/nproc_y/numtiles from the config being predicted. Use key-count
-    assertions exactly like gate2_stage_window.py.'"""
+    assertions exactly like gate2_stage_window.py.' `io_probe` (plan.json's 'io_probe' block,
+    only for the probe window; None = the above, unchanged) re-enables ONE history frame per
+    history-writing domain and, when the case writes restarts, one restart, both at the window
+    end -- see apply_io_probe."""
     text0 = real_namelist_text
     ndom = int(get_first(text0, "max_dom", "1"))
     win_seconds = int(round(win_steps * dt_seconds))
@@ -1770,8 +1781,175 @@ def build_wrf_window_namelist_text(real_namelist_text, T, win_steps, dt_seconds,
                 + (["restart"] if count_key(text0, "restart") else [])
                 + (["restart_interval"] if count_key(text0, "restart_interval") else [])
                 + history_keys)
+    if io_probe is not None:
+        txt, probe_keys = apply_io_probe(text0, txt, ndom, win_seconds, io_probe)
+        required += [k for k in probe_keys if k not in required]
     assert_no_key_drift(text0, txt, "wrf window namelist T=%s" % T.strftime(_WRF_TIME_FMT), required)
     return txt
+
+
+# ---------------------------------------------------------------------------
+# I/O probe (opt-in: build_plan(io_probe=True)). The LAST window writes exactly one history frame
+# per history-writing domain (+ one restart when the case's own run writes restarts) at its END,
+# with the case's own io_form_history/io_form_restart/history_outname/frames_per_outfile/
+# iofields_filename; WRF times each write itself ('Timing for Writing <file> for domain N: <s>
+# elapsed seconds'). WRF semantics (Registry/registry.io_boilerplate, inc/set_timekeeping_
+# alarms.inc, share/set_timekeeping.F, frame/module_integrate.F): history_interval[_d|_h|_m|_s]
+# and history_begin[_d|_h|_m|_s] are SUMMED per domain (the _m key falls back to the plain one
+# when 0); with begin > 0 the history ringer is not switched on at t=0, so history_begin = W
+# writes only the end frame. The end-of-run history and restart writes happen in
+# med_last_solve_io, AFTER the last 'Timing for main' line, so no measured step absorbs them.
+# restart_interval[_d|_h|_m|_s] is an interval-only alarm (no t=0 write).
+# ---------------------------------------------------------------------------
+
+IO_PROBE_TIMEOUT_EXTRA_MIN = 15   # stage_plan: allowance for the end-of-window writes (restart
+                                  # writes of ~300 s were measured on scc, marshall)
+_HISTORY_BEGIN_END_KEY_RE = re.compile(r"(?<![A-Za-z0-9_])(history_(?:begin|end)\w*)\s*=",
+                                       re.I | re.M)
+_RESTART_INTERVAL_KEY_RE = re.compile(r"(?<![A-Za-z0-9_])(restart_interval\w*)\s*=", re.I | re.M)
+
+
+def wrf_interval_minutes(nl, base, dom_index=0):
+    """WRF's own sum for `base`[_d|_h|_m|_s] of parsed namelist `nl`, in minutes: d*1440 + h*60 +
+    (m, or the plain `base` key when m is 0) + s/60. 0 = off/absent."""
+    def v(key):
+        return float(predict.g_dom(nl, "time_control", key, dom_index, 0) or 0)
+    return (v(base + "_d") * 1440.0 + v(base + "_h") * 60.0 + (v(base + "_m") or v(base))
+            + v(base + "_s") / 60.0)
+
+
+def case_writes_restart(nl, run_s):
+    """True when the case's own run writes at least one restart (restart_interval <= run length)."""
+    ri = wrf_interval_minutes(nl, "restart_interval")
+    return ri > 0 and math.floor(run_s / 60.0 / ri + 1e-9) >= 1
+
+
+def history_file_prefix(nl):
+    """Basename prefix of the case's history files (history_outname up to its first '<'; WRF's
+    default 'wrfout_d<domain>_<date>' -> 'wrfout_d') -- what parse_rsl_write_seconds uses to tell
+    history writes from auxhist ones."""
+    name = predict.g(nl, "time_control", "history_outname", None) or "wrfout_d<domain>_<date>"
+    return os.path.basename(str(name).strip()).split("<")[0]
+
+
+def plan_io_probe(nl, case_dir, run_s):
+    """plan.json's 'io_probe' block for parsed case namelist `nl`: per-domain history on/off
+    (io_form_history != 0 and a history interval > 0), whether a restart is probed
+    (case_writes_restart), per-domain iofields files (None where the case sets none or the file is
+    missing -- the missing one is a WARNING and the probe window gets 'NONE_SPECIFIED', WRF's own
+    no-file value, because WRF hangs on a missing iofields file), and 'auxhist not probed' when
+    any io_form_auxhistN is set."""
+    max_dom = predict.get_max_dom(nl)
+    io_form = predict.g(nl, "time_control", "io_form_history", 2)
+    history = [bool(io_form) and wrf_interval_minutes(nl, "history_interval", d) > 0
+               for d in range(max_dom)]
+    warnings, notes = [], []
+    iofields = None
+    if nl.get("time_control", {}).get("iofields_filename"):
+        iofields = []
+        for d in range(max_dom):
+            fname = str(predict.g_dom(nl, "time_control", "iofields_filename", d) or "").strip()
+            if not fname or fname == "NONE_SPECIFIED":
+                iofields.append(None)
+                continue
+            path = fname if os.path.isabs(fname) else os.path.join(case_dir, fname)
+            if os.path.isfile(path):
+                iofields.append({"name": fname, "path": os.path.abspath(path)})
+            else:
+                iofields.append(None)
+                warnings.append("iofields_filename d%02d=%s not found at %s: not used by the I/O "
+                                "probe (WRF hangs on a missing iofields file) -- the probed frame "
+                                "carries the default history field list" % (d + 1, fname, path))
+    aux = [n for n in range(1, 25) if predict.g(nl, "time_control", "io_form_auxhist%d" % n, 0)]
+    if aux:
+        notes.append("auxhist not probed (io_form_auxhist%s set)" % ",".join(str(n) for n in aux))
+    return {"history": history, "restart": case_writes_restart(nl, run_s),
+            "io_form_history": io_form,
+            "io_form_restart": predict.g(nl, "time_control", "io_form_restart", io_form),
+            "history_prefix": history_file_prefix(nl), "iofields": iofields,
+            "warnings": warnings, "notes": notes}
+
+
+def apply_io_probe(text0, txt, ndom, win_seconds, probe):
+    """The probe edits on top of build_wrf_window_namelist_text's output `txt` (history/restart
+    already off): history_interval = history_begin = W per history-writing domain (0 elsewhere),
+    in minutes, or the _s keys when W is not whole minutes; every other history_begin*/end* key
+    the case sets is zeroed (WRF sums them); iofields_filename rewritten per plan_io_probe; when
+    probe['restart'], restart_interval = W (other restart_interval_* keys zeroed). Returns
+    (txt, keys that must be present exactly once)."""
+    suffix, val = ("", win_seconds // 60) if win_seconds % 60 == 0 else ("_s", win_seconds)
+    hist = list(probe.get("history") or [])
+    hist = (hist + [hist[-1] if hist else False] * ndom)[:ndom]
+    keys = []
+    if any(hist):
+        on = [val if h else 0 for h in hist]
+        h_int, h_beg = "history_interval" + suffix, "history_begin" + suffix
+        for k in sorted(set(m.group(1).lower() for m in _HISTORY_BEGIN_END_KEY_RE.finditer(text0))):
+            if k != h_beg:
+                txt = set_list(txt, k, 0, ndom)
+        txt = set_list_values(txt, h_int, on)
+        txt = set_list_values(txt, h_beg, on)
+        keys += [h_int, h_beg]
+        iof = probe.get("iofields")
+        if iof is not None and count_key(text0, "iofields_filename"):
+            iof = (list(iof) + [iof[-1] if iof else None] * ndom)[:ndom]
+            txt = set_list_values(txt, "iofields_filename",
+                                  ["'%s'" % (f["name"] if f else "NONE_SPECIFIED") for f in iof])
+            keys.append("iofields_filename")
+    if probe.get("restart"):
+        r_int = "restart_interval" + suffix
+        for k in sorted(set(m.group(1).lower() for m in _RESTART_INTERVAL_KEY_RE.finditer(text0))):
+            if k != r_int:
+                txt = set_list(txt, k, 0, 1)
+        txt = set_list(txt, r_int, val, 1)
+        keys.append(r_int)
+    return txt, keys
+
+
+_RSL_WRITE_RE = re.compile(r"Timing for Writing (.+?) for domain\s+(\d+):\s+([\d.]+)\s+elapsed seconds")
+_RSL_MAIN_RE = re.compile(r"Timing for main: time (\S+) on domain\s+(\d+):\s+([\d.]+)\s+elapsed seconds")
+
+
+def parse_rsl_write_seconds(path, history_prefix="wrfout_d"):
+    """{'history': {dom: [s, ...]}, 'restart': {dom: [s, ...]}, 'other': [(name, dom, s), ...]}
+    from WRF's 'Timing for Writing <name> for domain N: <s> elapsed seconds' lines, in file order.
+    A history write is one whose file basename starts with `history_prefix` (history_file_
+    prefix); 'restart' is WRF's own literal name for restart writes; anything else (auxhist,
+    filter output) goes to 'other'."""
+    out = {"history": {}, "restart": {}, "other": []}
+    with open(path, errors="replace") as f:
+        for line in f:
+            m = _RSL_WRITE_RE.search(line)
+            if not m:
+                continue
+            name, dom, sec = m.group(1).strip(), int(m.group(2)), float(m.group(3))
+            base = os.path.basename(name)
+            if name == "restart":
+                out["restart"].setdefault(dom, []).append(sec)
+            elif base.startswith(history_prefix) and (history_prefix or not base.startswith("auxhist")):
+                out["history"].setdefault(dom, []).append(sec)
+            else:
+                out["other"].append((name, dom, sec))
+    return out
+
+
+def rsl_write_absorbing_d01_times(path):
+    """Set of d01 step sim-time strings whose 'Timing for main' line FOLLOWS a 'Timing for
+    Writing' line (any stream, any domain) since the previous d01 step line: WRF's step timer
+    starts before med_before_solve_io, so that step's elapsed seconds include the write."""
+    out = set()
+    pending = False
+    with open(path, errors="replace") as f:
+        for line in f:
+            if _RSL_WRITE_RE.search(line):
+                pending = True
+                continue
+            m = _RSL_MAIN_RE.search(line)
+            if m and int(m.group(2)) == 1:
+                if pending:
+                    out.add(m.group(1))
+                pending = False
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -1944,8 +2122,10 @@ def cmd_fix_wrf_namelist(plan_dir, win, nproc_x, nproc_y, numtiles, ncdump=None)
     w = plan["windows"][win]
     T = datetime.datetime.strptime(w["t"], _WRF_TIME_FMT)
     win_steps = plan["measure_steps"] + int(round(plan["spinup_min"] * 60.0 / plan["dt_s"]))
+    probe = plan.get("io_probe")
     txt = build_wrf_window_namelist_text(real_text, T, win_steps, plan["dt_s"], nproc_x, nproc_y,
-                                          numtiles)
+                                          numtiles,
+                                          io_probe=probe if probe and probe.get("window") == win else None)
     out_path = os.path.join(wrf_dir, "namelist.input")
     if os.path.lexists(out_path):
         os.remove(out_path)
@@ -2106,6 +2286,16 @@ def stage_plan(plan_dir, site="scc", per_window_min=15):
             os.makedirs(real_dir, exist_ok=True)
             os.makedirs(wrf_dir, exist_ok=True)
 
+    probe = plan.get("io_probe")
+    if probe:
+        # the probe window reads the case's own iofields file(s) from its run directory
+        wrf_dir = os.path.join(plan_dir, "win_%d" % probe["window"], "wrf")
+        for f in probe.get("iofields") or []:
+            if f and not os.path.isabs(f["name"]):
+                dst = os.path.join(wrf_dir, f["name"])
+                os.makedirs(os.path.dirname(dst), exist_ok=True)
+                _symlink_one(f["path"], dst)
+        per_window_min = per_window_min + IO_PROBE_TIMEOUT_EXTRA_MIN
     plan["_plan_dir"] = os.path.abspath(plan_dir)
     per_window_forcing = _per_window_forcing_from_forcing_json(plan_dir, plan)
     sbatch_text = render_run_sbatch(plan, site=site, per_window_forcing=per_window_forcing,
@@ -2651,7 +2841,20 @@ def score_windows_from_rsl(plan, sample_points, calibration):
         if not kept:
             raise ColdstartError("window %d: no post-spinup steps found in %s (spinup=%.0fs)"
                                   % (k, rsl_path, spinup_seconds))
+        # A step whose timer absorbed a history/restart/auxhist write is not a compute sample
+        # (rsl_write_absorbing_d01_times). It keeps its index for radiation-phase detection, with
+        # its wall replaced by the median of the other kept steps, and is then left out of both
+        # the normal and the radiation samples.
+        absorbed_times = rsl_write_absorbing_d01_times(rsl_path) if os.path.exists(rsl_path) else set()
+        absorbed = [sd.strftime(_WRF_TIME_FMT) in absorbed_times for sd, _ in kept]
         wall = [sec for _, sec in kept]
+        if any(absorbed):
+            clean = [sec for i, sec in enumerate(wall) if not absorbed[i]]
+            if not clean:
+                raise ColdstartError("window %d: every post-spinup step absorbed a write in %s"
+                                      % (k, rsl_path))
+            fill = statistics.median(clean)
+            wall = [fill if absorbed[i] else sec for i, sec in enumerate(wall)]
         if plan.get("measure_steps", 2 * stepra) < 2 * stepra:
             # An explicitly shortened window (compute_window_seconds' measure_steps) has too few
             # samples for classify_steps_detected's phase detection. Each window is a fresh run
@@ -2660,14 +2863,14 @@ def score_windows_from_rsl(plan, sample_points, calibration):
             flags = [int(round((sd - T).total_seconds() / dt)) % stepra == 1 for sd, _ in kept]
         else:
             flags = predict.classify_steps_detected(wall, stepra)
-        normal = [sec for i, (_sd, sec) in enumerate(kept) if not flags[i]]
+        normal = [sec for i, (_sd, sec) in enumerate(kept) if not flags[i] and not absorbed[i]]
         if not normal:
             raise ColdstartError("window %d: no normal (non-radiation) steps after spin-up" % k)
         s_k = statistics.median(normal)
         n_rad = 0
         rad_ratios = []   # this window's OWN (sec/s_k) samples -- see r_local below
         for i, (sd, sec) in enumerate(kept):
-            if flags[i]:
+            if flags[i] and not absorbed[i]:
                 n_rad += 1
                 rad_ratios.append(sec / s_k)
                 frac = predict.sunlit_fraction(sample_points, sd) if sample_points else None

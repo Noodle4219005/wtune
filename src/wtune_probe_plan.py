@@ -91,6 +91,9 @@ class ProbePoint:
     # after its own spin-up (M = T + spinup_s) -- see resolve_rebuild_point -- so the measured
     # point can differ from what was originally targeted; both are always reported.
     requested_at: "datetime.datetime | None" = None
+    # io_probe: this point's rebuild segment also times one history frame (+ one restart when the
+    # case writes restarts) at its end -- plan_rebuild_segments -> coldstart build_plan(io_probe=).
+    io_probe: bool = False
 
 
 @dataclasses.dataclass
@@ -734,7 +737,7 @@ def combine(points_measurements, run_start, run_end, dt, stepra, calibration=Non
 # ---------------------------------------------------------------------------
 def plan_rebuild_segments(case_dir, points, config, out_dir, spinup_min=60, date_shift_to=None,
                            namelist=None, grib_dir=None, forcing=None, now=None,
-                           measure_steps=None, real_only=False):
+                           measure_steps=None, real_only=False, io_probe=False):
     """Plans (writes plan.json/namelist.wps/... under out_dir, exactly as build_plan always has
     -- does not fetch/stage/run) ALL rebuild-sourced segments of ONE prediction, for ONE
     decomposition `config` ({"ranks", "omp", "nx", "ny", "nodes"} -- nx/ny/nodes/omp optional,
@@ -766,7 +769,8 @@ def plan_rebuild_segments(case_dir, points, config, out_dir, spinup_min=60, date
     still goes through coldstart_sample's own resolve_and_fetch_forcing/stage_plan/
     render_run_sbatch, unchanged. `real_only` (decision 0055, default False = unchanged) is
     forwarded to build_plan: the job then stops after real.exe, leaving win_<k>/real/
-    {wrfinput_d0*,wrfbdy_d01,namelist.input} for wtune_tune.prepare_rebuilt_points."""
+    {wrfinput_d0*,wrfbdy_d01,namelist.input} for wtune_tune.prepare_rebuilt_points. `io_probe`
+    (default False), or any point with .io_probe set, is forwarded to build_plan(io_probe=)."""
     if not points:
         raise ProbePlanError("plan_rebuild_segments: no points given")
     spinup_s = spinup_min * 60.0
@@ -792,7 +796,8 @@ def plan_rebuild_segments(case_dir, points, config, out_dir, spinup_min=60, date
         numtiles=config.get("numtiles", 1), measure_steps=measure_steps,
         spinup_min=spinup_min, namelist=namelist, grib_dir=grib_dir, forcing=forcing, now=now,
         date_shift_to=(date_shift_to.strftime(_ISO_FMT) if date_shift_to else None),
-        times=pinned, real_only=real_only)
+        times=pinned, real_only=real_only,
+        io_probe=bool(io_probe or any(getattr(p, "io_probe", False) for p in points)))
     plan["rebuild_requested_at"] = [(p.requested_at or p.at).isoformat() for p in points]
     plan["rebuild_snapped_to"] = [p.at.isoformat() for p in points]   # M, the measured point
     plan["rebuild_starts_at"] = [t.isoformat() for t in pinned]        # T, the forcing-grid start

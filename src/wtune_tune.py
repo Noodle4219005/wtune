@@ -1342,14 +1342,16 @@ def run_rebuild_points(ctx, points, best_config, nodes, case_dir, out_dir, run_s
     # (decision 0054). They cannot share one job's $PLAN/wps (ungrib/metgrid of different
     # windows would overwrite each other's FILE:/met_em files). Forcing is fetched once into a
     # shared cache; geogrid and the Thompson tables come from the run.sbatch caches.
-    cache_dir = os.path.join(out_dir, "grib")
     def _prepare_and_submit(i, p):
         pdir = os.path.join(out_dir, "pt_%d" % i)
         plan = wtune_probe_plan.plan_rebuild_segments(
             case_dir, [p], config, pdir, spinup_min=spinup_min, date_shift_to=date_shift_to,
             grib_dir=grib_dir, forcing=forcing)
-        total_bytes, _forcing = coldstart.resolve_and_fetch_forcing(plan, pdir, cache_dir,
-                                                                     grib_dir=grib_dir)
+        # The point's own PLAN/grib: run.sbatch links "$PLAN/grib/<manifest name>", so a cache
+        # shared across point dirs left every GRIB link dangling (ungrib "unable to open
+        # GRIBFILE.AAA", GFS-chain zhengzhou 2026-09-27; ERA5 has no GRIB and was unaffected).
+        total_bytes, _forcing = coldstart.resolve_and_fetch_forcing(
+            plan, pdir, os.path.join(pdir, "grib"), grib_dir=grib_dir)
         print("C3 rebuild point %d (%s): fetched %.1f MB forcing"
               % (i, p.at.isoformat(), total_bytes / 1e6), flush=True)
         sbatch_path = coldstart.stage_plan(pdir, site="scc")

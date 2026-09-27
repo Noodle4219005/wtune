@@ -1435,6 +1435,16 @@ done
 
 [ -n "$REF_NC" ] && [ -e "$REF_NC" ] && rm -f "$REF_NC"
 
+# The shared spin-up restarts this job wrote are only needed by this job's candidates (conus25:
+# ~12 GB per spin-up; 23 of them had piled up to 251 GB on scc by 2026-09-28). Remove them unless
+# WTUNE_KEEP_SPINUP_RESTART=1. Only this job's own "<case>_rankspinup_m<M>_<J>" dirs are touched,
+# never a caller-supplied RESTART_SRC_DIR (the legacy reuse path).
+if [ "${WTUNE_KEEP_SPINUP_RESTART:-0}" != "1" ]; then
+  for d in "$OUT/${CASE}"_rankspinup_m*_"${J}"; do
+    [ -d "$d" ] && rm -f "$d"/wrfrst_d0*_*
+  done
+fi
+
 echo "=== summary"
 python3 - "$LEDGER" <<'PY'
 import csv, re, statistics as st, sys

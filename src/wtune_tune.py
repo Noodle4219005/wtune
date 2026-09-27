@@ -1304,6 +1304,27 @@ def run_trajectory_points(ctx, points, best_config, nodes, run_start, stepra, ou
     return measurements, job_id
 
 
+def rebuild_segment_timeout_min(case_dir, spinup_min, ranks, omp=1, safety=3.0, floor_min=30):
+    """wrf.exe watchdog for one rebuild segment (spin-up + coldstart's measure window), from the
+    uncalibrated cell-step cost model x `safety`, never below `floor_min`. The coldstart default
+    of 15 min killed every maria1km segment (106 d01 steps x ~9.6 s = ~17 min, 2026-09-27); the
+    watchdog only guards against hangs, so it errs long."""
+    try:
+        nl = wtune_predict.parse_namelist(os.path.join(case_dir, "namelist.input"))
+        _n, _run_s, dt, _note = wtune_predict.get_d01_steps(nl)
+        stepra = wtune_predict.steps_per_radiation_call(
+            float(wtune_predict.g(nl, "physics", "radt", None)), dt)
+        max_dom = int(wtune_predict.g(nl, "domains", "max_dom", 1))
+        cal = wtune_predict.load_calibration(str(wtune_predict.DEFAULT_CALIBRATION))
+        s_step = (cal["fallback_s_per_cell_step_ns"] * 1e-9
+                  * wtune_predict.nested_equivalent_cells(nl, max_dom) / max(ranks * omp, 1))
+        steps = (spinup_min * 60.0) / dt + max(30, 2 * stepra)
+        est_s = steps * s_step * 1.5 + 120.0          # radiation steps + init
+        return max(floor_min, int(math.ceil(safety * est_s / 60.0)))
+    except Exception:
+        return 90
+
+
 def run_rebuild_points(ctx, points, best_config, nodes, case_dir, out_dir, run_start,
                        spinup_min=60, grib_dir=None, date_shift_to=None, forcing=None):
     """Measures every rebuild-sourced ProbePoint of `points` in ONE coldstart_sample job: plans
@@ -1342,6 +1363,9 @@ def run_rebuild_points(ctx, points, best_config, nodes, case_dir, out_dir, run_s
     # (decision 0054). They cannot share one job's $PLAN/wps (ungrib/metgrid of different
     # windows would overwrite each other's FILE:/met_em files). Forcing is fetched once into a
     # shared cache; geogrid and the Thompson tables come from the run.sbatch caches.
+    seg_timeout_min = rebuild_segment_timeout_min(case_dir, spinup_min, config["ranks"],
+                                                  config.get("omp", 1))
+
     def _prepare_and_submit(i, p):
         pdir = os.path.join(out_dir, "pt_%d" % i)
         plan = wtune_probe_plan.plan_rebuild_segments(
@@ -1354,7 +1378,7 @@ def run_rebuild_points(ctx, points, best_config, nodes, case_dir, out_dir, run_s
             plan, pdir, os.path.join(pdir, "grib"), grib_dir=grib_dir)
         print("C3 rebuild point %d (%s): fetched %.1f MB forcing"
               % (i, p.at.isoformat(), total_bytes / 1e6), flush=True)
-        sbatch_path = coldstart.stage_plan(pdir, site="scc")
+        sbatch_path = coldstart.stage_plan(pdir, site="scc", per_window_min=seg_timeout_min)
         job_id = sweep.submit_job("sbatch %s" % sbatch_path, sbatch_runner=ctx.sbatch_runner)
         print("C3 rebuild job submitted: %s (%s)" % (job_id, sbatch_path), flush=True)
         plan["_plan_dir"] = pdir

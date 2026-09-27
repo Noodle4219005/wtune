@@ -629,8 +629,28 @@ class Ctx:
     # stage-1 per-job record {job_id: {s_anchor_job, excluded, reason}} (_record_stage1_gates),
     # consumed by stage1_normalized_ranking; always {} in t0 mode.
     stage1_jobs: dict = dataclasses.field(default_factory=dict)
+    # Budget clock (decision 0055 gap 3). budget_mode "wall" (default, t0 mode): elapsed() is
+    # plain wall time, exactly as before. "running" (predicted mode): elapsed() excludes every
+    # wait_for_jobs interval during which none of the waited jobs was RUNNING (queue_only_s) --
+    # the budget pays for running + controller work, not for queueing -- and max_wall_s is the
+    # hard wall-clock cap (default 3x budget) after which in-flight jobs are cancelled anyway.
+    budget_mode: str = "wall"
+    queue_only_s: float = 0.0
+    max_wall_s: float = None
+    # predicted-mode stage-2 reserve inputs (stage2_reserve_s) and the s/step prior used before
+    # anything is measured; job_cids/not_measured record which candidates each submitted job
+    # carried and which were cancelled unstarted at the stage-1 cutoff.
+    reserve: dict = None
+    s_prior: float = None
+    job_cids: dict = dataclasses.field(default_factory=dict)
+    not_measured: list = dataclasses.field(default_factory=list)
+
+    def wall_elapsed(self):
+        return self.clock.now() - self.start_time
 
     def elapsed(self):
+        if self.budget_mode == "running":
+            return self.clock.now() - self.start_time - self.queue_only_s
         return self.clock.now() - self.start_time
 
 
@@ -698,15 +718,18 @@ def cancel_jobs(ctx, job_ids):
     ctx.cancelled_jobs.extend(job_ids)
 
 
-def wait_for_jobs(ctx, job_ids, stage, note=""):
+def wait_for_jobs(ctx, job_ids, stage, note="", pending_cutoff=None):
     """Polls sacct until every id in `job_ids` is out of PENDING/RUNNING, or the budget deadline
     passes (in which case only THOSE ids -- never any other job -- are scancel'd). Prints one
     progress line per poll. Returns the last sacct states dict seen ({job_id: (State, Elapsed)},
     {} when `job_ids` was empty) -- callers use the terminal Elapsed to measure real per-run
-    startup cost (measure_startup_s)."""
+    startup cost (measure_startup_s). With ctx.budget_mode == "running" (predicted mode) the
+    loop is _wait_running_budget instead; `pending_cutoff` is only used there."""
     job_ids = [j for j in job_ids if j]
     if not job_ids:
         return {}
+    if ctx.budget_mode == "running":
+        return _wait_running_budget(ctx, job_ids, stage, note, pending_cutoff)
     while True:
         elapsed = ctx.elapsed()
         states = sweep.sacct_states(job_ids, sacct_runner=ctx.sacct_runner, sacct_cmd=ctx.sacct_cmd)
@@ -719,6 +742,68 @@ def wait_for_jobs(ctx, job_ids, stage, note=""):
             cancel_jobs(ctx, in_flight)
             return states
         ctx.clock.sleep(min(ctx.poll_interval, max(0.0, ctx.budget_s - elapsed)))
+
+
+def _wait_running_budget(ctx, job_ids, stage, note, pending_cutoff):
+    """wait_for_jobs under the RUNNING-time budget (decision 0055 gap 3; helper any mode can
+    adopt by setting ctx.budget_mode="running"). Each poll interval is charged to the budget
+    only when at least one waited job was RUNNING at the start of it; otherwise it is added to
+    ctx.queue_only_s (pure queueing). Cancels every in-flight id (cancel_jobs) once the
+    running-time budget or ctx.max_wall_s (hard wall-clock cap) is reached. `pending_cutoff`
+    (callable -> bool, optional): once true, ids still PENDING are cancelled as never-started
+    (cancel_unstarted -- their candidates are "not measured", not an error) while RUNNING ones
+    are waited for."""
+    while True:
+        elapsed = ctx.elapsed()
+        wall = ctx.wall_elapsed()
+        states = sweep.sacct_states(job_ids, sacct_runner=ctx.sacct_runner, sacct_cmd=ctx.sacct_cmd)
+        in_flight = [j for j in job_ids
+                     if states.get(j, ("UNKNOWN", ""))[0] in sweep.IN_FLIGHT_STATES
+                     and j not in ctx.cancelled_jobs]
+        print_progress(stage, elapsed, ctx.budget_s,
+                       (note + " " if note else "") + "(running budget; wall %s, queue-only %s)"
+                       % (_fmt_hms(wall), _fmt_hms(ctx.queue_only_s)))
+        if not in_flight:
+            return states
+        if pending_cutoff is not None and pending_cutoff():
+            pend = [j for j in in_flight if states.get(j, ("", ""))[0] == "PENDING"]
+            if pend:
+                cancel_unstarted(ctx, pend, stage)
+                in_flight = [j for j in in_flight if j not in pend]
+                if not in_flight:
+                    return states
+        if elapsed >= ctx.budget_s or (ctx.max_wall_s is not None and wall >= ctx.max_wall_s):
+            if elapsed < ctx.budget_s:
+                print("hard wall-clock cap reached (wall %s >= %s)"
+                      % (_fmt_hms(wall), _fmt_hms(ctx.max_wall_s)))
+            cancel_jobs(ctx, in_flight)
+            return states
+        running = any(states.get(j, ("", ""))[0] == "RUNNING" for j in in_flight)
+        step = min(ctx.poll_interval, max(0.0, ctx.budget_s - elapsed))
+        if ctx.max_wall_s is not None:
+            step = min(step, max(0.0, ctx.max_wall_s - wall))
+        if not running:
+            # nothing is consuming budget: poll at the normal interval, bounded only by the
+            # wall-clock cap (the running budget cannot run out while nothing runs)
+            step = ctx.poll_interval if ctx.max_wall_s is None else \
+                min(ctx.poll_interval, max(0.0, ctx.max_wall_s - wall))
+        t0 = ctx.clock.now()
+        ctx.clock.sleep(step)
+        if not running:
+            ctx.queue_only_s += ctx.clock.now() - t0
+
+
+def cancel_unstarted(ctx, job_ids, stage):
+    """Stage-1 cutoff: scancel jobs that never started and record their candidates (from
+    ctx.job_cids, minus ANCHOR/ANCHOREND) in ctx.not_measured -- reported, not an error."""
+    print("%s: stage-1 cutoff reached -- cancelling %d job(s) that never started: %s "
+          "(their candidates are not measured)" % (stage, len(job_ids), ",".join(job_ids)))
+    ctx.scancel_runner(job_ids)
+    ctx.cancelled_jobs.extend(job_ids)
+    for j in job_ids:
+        cids = [c for c in ctx.job_cids.get(j, []) if c not in ("ANCHOR", ANCHOR_END_ID)]
+        ctx.not_measured.append(dict(job_id=j, cids=cids, stage=stage,
+                                     reason="job still PENDING at the stage-1 cutoff"))
 
 
 # ---------------------------------------------------------------------------
@@ -752,6 +837,7 @@ def submit_configs_job(ctx, configs, reps, name_suffix, s_est, time_est=None, ra
         extra_export=ranking_export(ranking, time_est) if ranking else None)
     job_id = sweep.submit_job(cmd_str, sbatch_runner=ctx.sbatch_runner)
     ctx.owned_jobs.append(job_id)
+    ctx.job_cids[job_id] = [c["id"] for c in configs]
     return job_id, configs_path, time_est
 
 
@@ -773,6 +859,10 @@ def _submit_round0_wave(ctx, configs, slots, s_est, name_prefix):
         if would_exceed_budget(ctx.elapsed(), time_est["total_run_s"], ctx.budget_s):
             print("%s slot %d: SKIP -- estimated end would exceed budget" % (name_prefix, i))
             continue
+        ok, why = _stage1_may_start(ctx, time_est["total_run_s"])
+        if not ok:
+            print("%s slot %d: SKIP -- %s" % (name_prefix, i, why))
+            continue
         job_id, _path, _te = submit_configs_job(ctx, chunk, reps=1,
                                                   name_suffix="%s-s%d" % (name_prefix, i),
                                                   s_est=s_est, time_est=time_est)
@@ -782,7 +872,7 @@ def _submit_round0_wave(ctx, configs, slots, s_est, name_prefix):
             configs_by_cid[c["id"]] = c
         print("%s slot %d: submitted job %s (%d configs)" % (name_prefix, i, job_id, len(chunk)))
 
-    states = wait_for_jobs(ctx, job_ids, name_prefix)
+    states = wait_for_jobs(ctx, job_ids, name_prefix, pending_cutoff=_stage1_cutoff(ctx))
     rows = ctx.ledger_reader(_ledger_case(ctx), job_ids)
     _record_stage1_gates(ctx, job_ids, rows, name_prefix)
     return job_ids, configs_by_cid, rows, job_configs, states
@@ -791,9 +881,14 @@ def _submit_round0_wave(ctx, configs, slots, s_est, name_prefix):
 def run_round0(ctx):
     s_est, s_source, n_rows = sweep.estimate_s_per_step(ctx.case, ctx.nodes, ctx.ledger_dir,
                                                           ctx.hardware_id)
+    if ctx.ranking and ctx.s_prior and n_rows == 0:
+        # predicted mode, no ledger history: the cell-step model beats the 10 s/step fallback,
+        # which would also inflate the stage-2 reserve until nothing in stage 1 fits
+        s_est, s_source = ctx.s_prior, "cell-step model"
     per_run_s = ctx.startup_s + ctx.steps * s_est
     slots = compute_slots(ctx.max_nodes, ctx.nodes)
-    round0_budget_s = min(ctx.budget_s - ctx.elapsed(), ctx.budget_s * ROUND0_BUDGET_FRACTION)
+    round0_budget_s = min(ctx.budget_s - ctx.elapsed() - stage2_reserve_s(ctx),
+                          ctx.budget_s * ROUND0_BUDGET_FRACTION)
     configs_per_job = max(1, int(round0_budget_s // per_run_s))
     total_k = slots * configs_per_job
 
@@ -914,12 +1009,16 @@ def run_adaptive_rounds(ctx, all_configs_by_cid, all_results, s_est):
 
     for round_idx in range(1, ADAPTIVE_MAX_ROUNDS + 1):
         elapsed = ctx.elapsed()
-        if elapsed >= ADAPTIVE_STOP_FRACTION * ctx.budget_s:
+        if not ctx.ranking and elapsed >= ADAPTIVE_STOP_FRACTION * ctx.budget_s:
             print("adaptive rounds: stopping before round %d -- elapsed already >= %.0f%% of budget"
                   % (round_idx, ADAPTIVE_STOP_FRACTION * 100))
             return
 
-        remaining_s = ctx.budget_s - elapsed
+        remaining_s = ctx.budget_s - elapsed - stage2_reserve_s(ctx)
+        if ctx.ranking and remaining_s <= 0:
+            print("adaptive rounds: stopping before round %d -- the stage-2 reserve (%s) leaves "
+                  "no stage-1 time" % (round_idx, _fmt_hms(stage2_reserve_s(ctx))))
+            return
         per_run_s = ctx.startup_s + ctx.steps * s_est
         batch_size = max(1, int(min(remaining_s, ctx.budget_s * ROUND0_BUDGET_FRACTION) // per_run_s))
 
@@ -969,7 +1068,11 @@ def run_adaptive_rounds(ctx, all_configs_by_cid, all_results, s_est):
 
         time_est = _job_time_est(ctx, len(_ranking_wrap(ctx, configs_out)), 1, s_est)
         projected_end = elapsed + time_est["total_run_s"]        # RAW/EXPECTED -- never job_hours
-        if projected_end > ADAPTIVE_STOP_FRACTION * ctx.budget_s:
+        ok, why = _stage1_may_start(ctx, time_est["total_run_s"])
+        if not ok:
+            print("adaptive rounds: stopping before round %d -- %s" % (round_idx, why))
+            return
+        if not ctx.ranking and projected_end > ADAPTIVE_STOP_FRACTION * ctx.budget_s:
             print("adaptive rounds: stopping before round %d -- projected finish %s > %.0f%% "
                   "of budget" % (round_idx, _fmt_hms(projected_end), ADAPTIVE_STOP_FRACTION * 100))
             return
@@ -983,7 +1086,7 @@ def run_adaptive_rounds(ctx, all_configs_by_cid, all_results, s_est):
             all_configs_by_cid[c["id"]] = c
             state["configs"][c["id"]] = c
 
-        wait_for_jobs(ctx, [job_id], "round%d" % round_idx)
+        wait_for_jobs(ctx, [job_id], "round%d" % round_idx, pending_cutoff=_stage1_cutoff(ctx))
         rows = ctx.ledger_reader(_ledger_case(ctx), [job_id])
         _record_stage1_gates(ctx, [job_id], rows, "round%d" % round_idx)
         new_results = aggregate_by_cid(rows, all_configs_by_cid)
@@ -1732,6 +1835,67 @@ ANCHOR_DRIFT_MAX = 0.01                # |s(ANCHOREND)/s(ANCHOR) - 1| allowed in
 TOP_K_STAGE2 = 3
 
 
+PREDICTED_MAX_POINTS = 3               # predicted-mode default (probe.max_points / --max-points win)
+MAX_WALL_FACTOR = 3.0                  # predicted-mode hard wall-clock cap = 3x the budget
+RESTART_READ_S = 120.0                 # per-run restart read on top of startup_s (conus25 netCDF)
+
+
+def estimate_stage2_s(n_points, n_configs, steps, spinup_min, dt, s_step, slots, startup_s,
+                      restart_read_s=RESTART_READ_S):
+    """Expected RUNNING time of stage 2: one job per point, each = shared spin-up
+    (startup + spinup_min*60/dt steps) + n_configs runs (startup + restart read + steps), every
+    step at s_step x1.5 (radiation) -- the same model as ranking_job_timeouts' `expected`. The
+    point jobs run in parallel, but only `slots` (= floor(max_nodes/nodes)) allocations at once:
+    ceil(n_points/slots) sequential waves."""
+    spin = startup_s + (spinup_min * 60.0 / dt) * s_step * 1.5
+    per_run = startup_s + restart_read_s + steps * s_step * 1.5
+    waves = int(math.ceil(float(n_points) / max(1, int(slots))))
+    return waves * (spin + n_configs * per_run)
+
+
+def _reserve_s_step(ctx):
+    """s/step the stage-2 reserve is sized with: the median of stage 1's own per-job anchor
+    normalizers once any exist (measured at P*, this allocation shape), else ctx.s_prior."""
+    vals = [j["s_anchor_job"] for j in ctx.stage1_jobs.values() if j.get("s_anchor_job")]
+    return statistics.median(vals) if vals else ctx.s_prior
+
+
+def stage2_reserve_s(ctx):
+    """Running time stage 1 must leave for stage 2 (predicted mode; 0.0 otherwise, so every t0
+    budget expression is unchanged): estimate_stage2_s over ctx.reserve (n_points, steps,
+    spinup_min, dt, n_configs=TOP_K_STAGE2+2, slots) at _reserve_s_step."""
+    r = ctx.reserve
+    if not ctx.ranking or not r:
+        return 0.0
+    s_step = _reserve_s_step(ctx)
+    if not s_step:
+        return 0.0
+    return estimate_stage2_s(r["n_points"], r["n_configs"], r["steps"], r["spinup_min"], r["dt"],
+                             s_step, r["slots"], ctx.startup_s)
+
+
+def _stage1_may_start(ctx, job_run_s):
+    """(ok, reason): a stage-1 job/round may start only if elapsed_running + its own expected
+    running time + the stage-2 reserve still fits the budget. Always ok outside predicted mode
+    (t0 keeps its own checks only)."""
+    if not ctx.ranking:
+        return True, None
+    reserve = stage2_reserve_s(ctx)
+    if ctx.elapsed() + job_run_s + reserve > ctx.budget_s:
+        return False, ("elapsed %s + this job %s + stage-2 reserve %s > budget %s"
+                       % (_fmt_hms(ctx.elapsed()), _fmt_hms(job_run_s), _fmt_hms(reserve),
+                          _fmt_hms(ctx.budget_s)))
+    return True, None
+
+
+def _stage1_cutoff(ctx):
+    """pending_cutoff for stage-1 waits in predicted mode (None otherwise): true once
+    elapsed_running + the stage-2 reserve reaches the budget."""
+    if not ctx.ranking:
+        return None
+    return lambda: ctx.elapsed() + stage2_reserve_s(ctx) >= ctx.budget_s
+
+
 def _ledger_case(ctx):
     """Case id ranking-job ledgers/RUNDIRs are named after: the rebuilt point's own id in
     predicted mode (ledger_<id>_<job>.csv), ctx.case otherwise (unchanged)."""
@@ -2358,12 +2522,26 @@ def run_predicted(ctx, nodes, nodes_note, s_est):
         ctx, points, anchor, case_dir, ctx.namelist_path, ctx.case_json,
         os.path.join(ctx.out_dir, "rebuilt"), spinup_min, stepra, dt)
     rp_star = rebuilt[p_idx]
+    s_led, _s_src, n_led = sweep.estimate_s_per_step(ctx.case, ctx.nodes, ctx.ledger_dir,
+                                                      ctx.hardware_id)
+    if n_led:
+        ctx.s_prior = s_led
+    else:
+        try:
+            ctx.s_prior = _fallback_s_per_step(nl, anchor["ranks"], anchor.get("omp", 1))
+        except Exception:
+            ctx.s_prior = s_led
+    ctx.reserve = dict(n_points=len(rebuilt), n_configs=TOP_K_STAGE2 + 2, steps=rp_star["steps"],
+                       spinup_min=spinup_min, dt=dt,
+                       slots=compute_slots(ctx.max_nodes, ctx.nodes))
     ctx.steps = rp_star["steps"]
     ctx.ranking = ranking_context(rp_star["case_id"], rp_star["cases_json"], spinup_min,
                                   rp_star["steps"], anchor, restart_io_form=ctx.restart_io_form)
     ctx.ranking["dt"] = dt
-    print("stage 1: ranking at P* (case %s, start %s, STEPS=%d, RANKING_RESTART_IO_FORM=%d)"
-          % (rp_star["case_id"], rp_star["T"].isoformat(), ctx.steps, ctx.restart_io_form))
+    print("stage 1: ranking at P* (case %s, start %s, STEPS=%d, RANKING_RESTART_IO_FORM=%d); "
+          "stage-2 reserve %s (s_prior %.4fs/step)"
+          % (rp_star["case_id"], rp_star["T"].isoformat(), ctx.steps, ctx.restart_io_form,
+             _fmt_hms(stage2_reserve_s(ctx)), ctx.s_prior or 0.0))
 
     job_ids0, configs_by_cid, rows0 = run_round0(ctx)
     configs_by_cid.pop(ANCHOR_END_ID, None)
@@ -2380,13 +2558,23 @@ def run_predicted(ctx, nodes, nodes_note, s_est):
     if not top and "ANCHOR" not in all_results:
         raise SystemExit("--rank-by predicted: stage 1 measured nothing -- see gate warnings")
     s_by_cid = {cid: r["median"] for cid, r in all_results.items()}
-    print("stage 2: %s + ANCHOR/ANCHOREND at all %d point(s)"
-          % (", ".join("%s(%.4fs/step, %.4fx anchor)" % (r["cid"], r["median"], r["norm_key"])
-                       for r in stage1[:TOP_K_STAGE2])
-             or "(no candidate besides ANCHOR)", len(rebuilt)))
+    for x in ctx.not_measured:
+        print("stage 1: job %s never started -- not measured: %s"
+              % (x["job_id"], ", ".join(x["cids"]) or "-"))
     ctx.ranking = None                                   # stage 2 builds its own per-point contexts
-    meas_by_cid, gates, stage2_jobs = measure_candidates_at_points(
-        ctx, top, rebuilt, anchor, s_by_cid=s_by_cid)
+    top, stage2_est, skip_reason = fit_stage2(ctx, top, anchor, rebuilt, s_by_cid, nl)
+    if skip_reason:
+        print("stage 2: SKIPPED -- %s" % skip_reason)
+        meas_by_cid, gates, stage2_jobs = {}, [], []
+    else:
+        print("stage 2: %s + ANCHOR/ANCHOREND at all %d point(s), expected running %s "
+              "(elapsed %s / budget %s)"
+              % (", ".join("%s(%.4fs/step, %.4fx anchor)" % (r["cid"], r["median"], r["norm_key"])
+                           for r in stage1 if r["cid"] in {c["id"] for c in top})
+                 or "(no candidate besides ANCHOR)", len(rebuilt), _fmt_hms(stage2_est),
+                 _fmt_hms(ctx.elapsed()), _fmt_hms(ctx.budget_s)))
+        meas_by_cid, gates, stage2_jobs = measure_candidates_at_points(
+            ctx, top, rebuilt, anchor, s_by_cid=s_by_cid)
     calibration = wtune_predict.load_calibration(str(wtune_predict.DEFAULT_CALIBRATION))
     if ctx.prediction_cfg.get("drift_band_pct") is not None:
         calibration = dict(calibration, drift_band_pct=ctx.prediction_cfg["drift_band_pct"])
@@ -2404,8 +2592,39 @@ def run_predicted(ctx, nodes, nodes_note, s_est):
                                        norm_key=e["norm_key"], jobs=e["jobs"],
                                        stage2=e["cid"] in {c["id"] for c in top})
                                   for e in stage1],
-                  stage1_excluded=stage1_excluded)
+                  stage1_excluded=stage1_excluded, not_measured=list(ctx.not_measured),
+                  stage2_estimate_s=stage2_est, stage2_skipped_reason=skip_reason)
     return report
+
+
+def fit_stage2(ctx, top, anchor, rebuilt, s_by_cid, nl=None):
+    """(top_fit, expected_running_s, skip_reason): stage 2 never starts with less running budget
+    left than its own estimate. Expected = ceil(points/slots) waves x the slowest point job's
+    ranking_job_timeouts `expected` (spin-up + ANCHOR + candidates + ANCHOREND, measured stage-1
+    s/step where known). Drops the lowest-ranked candidate until it fits (fewer than 2
+    candidates is fine -- run with what exists); if not even the best single candidate (or,
+    with no candidate at all, ANCHOR alone) fits, skip stage 2 with the reason (reported, the
+    tuner then has no predicted ranking rather than a cancelled one)."""
+    slots = compute_slots(ctx.max_nodes, ctx.nodes)
+    waves = int(math.ceil(float(len(rebuilt)) / max(1, slots)))
+    left = ctx.budget_s - ctx.elapsed()
+    est = None
+    for k in range(len(top), min(1, len(top)) - 1, -1):
+        wrapped = wrap_with_anchors(top[:k], anchor)
+        per_job = max(ranking_job_timeouts(ctx, wrapped, rp["steps"], rp["spinup_min"],
+                                           float(rp["dt"]), s_by_cid=s_by_cid, nl=nl,
+                                           restart_read_s=RESTART_READ_S)[3]
+                      for rp in rebuilt)
+        est = waves * per_job
+        if est <= left:
+            if k < len(top):
+                print("stage 2: dropped %s to fit the budget (expected %s, left %s)"
+                      % (", ".join(c["id"] for c in top[k:]), _fmt_hms(est), _fmt_hms(left)))
+            return top[:k], est, None
+    return [], est, ("even %s needs an expected %s of running time; only %s of the budget is "
+                     "left (elapsed %s / budget %s)"
+                     % ("the best candidate" if top else "ANCHOR alone", _fmt_hms(est or 0),
+                        _fmt_hms(max(0.0, left)), _fmt_hms(ctx.elapsed()), _fmt_hms(ctx.budget_s)))
 
 
 def build_predicted_report(ctx, nodes, nodes_note, ranked, meas_by_cid, cfg_by_cid, stage1,
@@ -2443,6 +2662,13 @@ def build_predicted_report(ctx, nodes, nodes_note, ranked, meas_by_cid, cfg_by_c
         plan_notes=list(plan_notes), stage2_job_ids=list(stage2_jobs),
         gates=list(ctx.ranking_gates) if ctx.ranking_gates else list(gates),
         job_timing=timing,
+        # budget accounting (running-time budget): elapsed_minutes above is RUNNING time
+        running_elapsed_minutes=ctx.elapsed() / 60.0,
+        wall_elapsed_minutes=ctx.wall_elapsed() / 60.0,
+        queue_only_minutes=ctx.queue_only_s / 60.0,
+        max_wall_minutes=(ctx.max_wall_s / 60.0) if ctx.max_wall_s else None,
+        total_queue_s=sum(t["queue_s"] for t in timing.values() if t["queue_s"] is not None),
+        total_job_run_s=sum(t["run_s"] for t in timing.values() if t["run_s"] is not None),
         full_run_prediction=_predicted_winner_text(ranked[0]) if ranked else "no ranking",
         ranking_start_note=ctx.ranking_start_note)
 
@@ -2464,9 +2690,12 @@ def _predicted_winner_text(entry):
 def render_predicted_report_text(report):
     lines = ["=== wtune_tune (rank_by=predicted): %s ===" % report["case"],
              "nodes=%d (%s)" % (report["nodes"], report["nodes_note"]),
-             "budget=%.1f min  elapsed=%.1f min  jobs=%s"
-             % (report["budget_minutes"], report["elapsed_minutes"],
-                ",".join(report["job_ids"]) or "-")]
+             "budget=%.1f min (running time)  running=%.1f min  wall=%.1f min  queue-only=%.1f min"
+             "  hard wall cap=%s  jobs=%s"
+             % (report["budget_minutes"], report["running_elapsed_minutes"],
+                report["wall_elapsed_minutes"], report["queue_only_minutes"],
+                ("%.1f min" % report["max_wall_minutes"]) if report.get("max_wall_minutes")
+                else "-", ",".join(report["job_ids"]) or "-")]
     for p in report["points"]:
         lines.append("point %d %s %-8s case=%s start=%s rebuild_job=%s%s"
                      % (p["index"], p["at"], p["reason"], p["case_id"], p["start"],
@@ -2499,6 +2728,12 @@ def render_predicted_report_text(report):
                             "  -> stage 2" if e["stage2"] else ""))
         for x in report.get("stage1_excluded") or []:
             lines.append("  %-10s EXCLUDED: %s" % (x["cid"], x["reason"]))
+        for x in report.get("not_measured") or []:
+            lines.append("  not measured (job %s never started before the stage-1 cutoff): %s"
+                         % (x["job_id"], ", ".join(x["cids"]) or "-"))
+    if report.get("stage2_skipped_reason"):
+        lines.append("")
+        lines.append("STAGE 2 SKIPPED: %s" % report["stage2_skipped_reason"])
     lines.append("")
     for g in report["gates"]:
         if g.get("excluded"):
@@ -2508,6 +2743,9 @@ def render_predicted_report_text(report):
                      % (g.get("stage", "-"), g["job_id"], "PASS" if g["ok"] else "FAIL", drift,
                         ("  " + "; ".join(g["failures"])) if g["failures"] else ""))
     lines.append("")
+    lines.append("jobs: total queue %s, total running %s (per job below)"
+                 % (_fmt_hms(report.get("total_queue_s") or 0),
+                    _fmt_hms(report.get("total_job_run_s") or 0)))
     for jid, t in sorted(report["job_timing"].items()):
         lines.append("job %s: queue=%s run=%s" % (
             jid, _fmt_hms(t["queue_s"]) if t["queue_s"] is not None else "-",
@@ -2528,6 +2766,19 @@ def render_predicted_report_text(report):
 # ---------------------------------------------------------------------------
 # top-level run
 # ---------------------------------------------------------------------------
+def _probe_key_explicit(config_path, key):
+    """True when the --config YAML itself sets probe.<key> (not just the built-in default)."""
+    if not config_path:
+        return False
+    try:
+        yaml = wtune_config._load_yaml_module()
+        with open(config_path) as f:
+            raw = yaml.safe_load(f) or {}
+        return key in (raw.get("probe") or {})
+    except Exception:
+        return False
+
+
 def _final_cancel_safety_net(ctx):
     """Nothing owned by this run should still be in flight once we report: past the budget
     deadline, cancel whatever of ctx.owned_jobs sacct still shows PENDING/RUNNING."""
@@ -2595,6 +2846,10 @@ def run(args, sbatch_runner=None, sacct_runner=None, scancel_runner=None, ledger
     steps_cfg = args.steps if args.steps is not None else cfg["probe"]["steps"]
     confirm_reps = args.confirm_reps if args.confirm_reps is not None else cfg["probe"]["confirm_reps"]
     rank_by = getattr(args, "rank_by", None) or cfg["probe"].get("rank_by") or "t0"
+    if getattr(args, "max_points", None) is not None:
+        cfg["probe"]["max_points"] = args.max_points
+    elif rank_by == "predicted" and not _probe_key_explicit(config_path, "max_points"):
+        cfg["probe"]["max_points"] = PREDICTED_MAX_POINTS
     restart_io_form = getattr(args, "restart_io_form", None) or \
         cfg["probe"].get("restart_io_form") or 14
     if rank_by not in RANK_BY_CHOICES:
@@ -2664,6 +2919,13 @@ def run(args, sbatch_runner=None, sacct_runner=None, scancel_runner=None, ledger
     if rank_by == "predicted":
         # decision 0055: stage 1 at P*'s shared restart, stage 2 at every rebuilt point, winner
         # by predicted whole-run compute+init -- see run_predicted. Replaces round0..confirm.
+        # Budget = RUNNING time (queue-only intervals are not charged), hard wall cap on top.
+        ctx.budget_mode = "running"
+        max_wall_min = getattr(args, "max_wall_minutes", None)
+        ctx.max_wall_s = (max_wall_min if max_wall_min is not None
+                          else MAX_WALL_FACTOR * minutes) * 60.0
+        print("predicted mode: budget %.1f min of RUNNING time, hard wall-clock cap %.1f min"
+              % (minutes, ctx.max_wall_s / 60.0))
         report = run_predicted(ctx, nodes, nodes_note, s_est)
         _final_cancel_safety_net(ctx)
         text = render_predicted_report_text(report)
@@ -2746,6 +3008,13 @@ def build_arg_parser():
                     help="--rank-by predicted only: io_form of the shared ranking restart "
                          "(RANKING_RESTART_IO_FORM); default 14 (ADIOS2), or --config's "
                          "probe.restart_io_form")
+    p.add_argument("--max-points", type=int, default=None, dest="max_points",
+                    help="probe.max_points override (--rank-by predicted default: %d)"
+                         % PREDICTED_MAX_POINTS)
+    p.add_argument("--max-wall-minutes", type=float, default=None, dest="max_wall_minutes",
+                    help="--rank-by predicted only: hard wall-clock cap (default %gx --minutes); "
+                         "the --minutes budget itself counts only RUNNING time there"
+                         % MAX_WALL_FACTOR)
     p.add_argument("--seed", type=int, default=DEFAULT_SEED)
     p.add_argument("--kappa", type=float, default=DEFAULT_KAPPA)
     p.add_argument("--cores-per-node", type=int, default=sweep.DEFAULT_CORES_PER_NODE,

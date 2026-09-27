@@ -15,7 +15,7 @@ import pytest
 import scc_sweep
 import wtune_config
 import wtune_tune as wt
-from test_wtune_tune import _ctx, make_fake_sbatch
+from test_wtune_tune import _ctx, make_fake_sacct, make_fake_sbatch
 
 REPO = Path(__file__).resolve().parents[1]
 SBATCH = REPO / "campaign" / "strict_campaign.sbatch"
@@ -503,3 +503,205 @@ def test_campaign_sbatch_commands_honour_extra_exclude(monkeypatch):
     cmd = wt.build_ranking_sbatch_command("conus25", 4, 72, "01:00:00", 600, 1, 30, "/x/c.json",
                                           "/x", "20")
     assert "--exclude=head,work5,work7 " in cmd
+
+
+# ---------------------------------------------------------------------------
+# running-time budget, hard wall cap, stage-1 cutoff, stage-2 reserve (conus25-pred1 postmortem)
+# ---------------------------------------------------------------------------
+from test_wtune_tune import FakeClock, make_fake_scancel   # noqa: E402
+
+
+def timeline_sacct(clock, timelines):
+    """sacct fake driven by the virtual clock: timelines {job: [(t_until, State), ...]} -- the
+    first entry with clock.t < t_until wins, COMPLETED after the last; a scancel'd job (in
+    `cancelled`) reports CANCELLED."""
+    cancelled = set()
+
+    def runner(cmd):
+        ids = cmd[cmd.index("-j") + 1].split(",")
+        out = []
+        for j in ids:
+            state = "COMPLETED"
+            if j in cancelled:
+                state = "CANCELLED"
+            else:
+                for t_until, st in timelines.get(j, []):
+                    if clock.t < t_until:
+                        state = st
+                        break
+            out.append("%s|%s|00:00:10" % (j, state))
+        return "\n".join(out)
+
+    return runner, cancelled
+
+
+def _running_ctx(tmp_path, clock, sacct, budget_s, max_wall_s=None, **kw):
+    scancel, scalls = make_fake_scancel()
+    ctx = _ctx(out_dir=str(tmp_path), clock=clock, sacct_runner=sacct, scancel_runner=scancel,
+               budget_s=budget_s, poll_interval=10.0, **kw)
+    ctx.budget_mode = "running"
+    ctx.max_wall_s = max_wall_s
+    return ctx, scalls
+
+
+def test_running_budget_does_not_charge_queue_time(tmp_path):
+    clock = FakeClock()
+    sacct, _c = timeline_sacct(clock, {"1": [(600, "PENDING"), (900, "RUNNING")]})
+    ctx, scalls = _running_ctx(tmp_path, clock, sacct, budget_s=400, max_wall_s=3000)
+    states = wt.wait_for_jobs(ctx, ["1"], "round0")
+    assert states["1"][0] == "COMPLETED" and scalls == []
+    assert ctx.queue_only_s == pytest.approx(600)
+    assert ctx.elapsed() == pytest.approx(300) and ctx.wall_elapsed() == pytest.approx(900)
+
+
+def test_wall_mode_unchanged_charges_queue_time(tmp_path):
+    clock = FakeClock()
+    sacct, _c = timeline_sacct(clock, {"1": [(600, "PENDING"), (900, "RUNNING")]})
+    ctx, scalls = _running_ctx(tmp_path, clock, sacct, budget_s=400)
+    ctx.budget_mode = "wall"
+    wt.wait_for_jobs(ctx, ["1"], "round0")
+    assert scalls == [["1"]] and ctx.elapsed() == pytest.approx(400)
+
+
+def test_hard_wall_cap_cancels_pending(tmp_path):
+    clock = FakeClock()
+    sacct, _c = timeline_sacct(clock, {"1": [(10 ** 9, "PENDING")]})
+    ctx, scalls = _running_ctx(tmp_path, clock, sacct, budget_s=400, max_wall_s=100)
+    wt.wait_for_jobs(ctx, ["1"], "stage2")
+    assert scalls == [["1"]] and clock.t == pytest.approx(100) and ctx.elapsed() == 0
+
+
+def test_running_budget_exhausted_while_running_cancels(tmp_path):
+    clock = FakeClock()
+    sacct, _c = timeline_sacct(clock, {"1": [(100, "PENDING"), (10 ** 9, "RUNNING")]})
+    ctx, scalls = _running_ctx(tmp_path, clock, sacct, budget_s=200, max_wall_s=10 ** 6)
+    wt.wait_for_jobs(ctx, ["1"], "stage2")
+    assert scalls == [["1"]] and clock.t == pytest.approx(300)
+
+
+def test_stage1_cutoff_cancels_unstarted_slot_as_not_measured(tmp_path):
+    clock = FakeClock()
+    sacct, _c = timeline_sacct(clock, {"1": [(500, "RUNNING")], "2": [(10 ** 9, "PENDING")]})
+    ctx, scalls = _running_ctx(tmp_path, clock, sacct, budget_s=1000, max_wall_s=10 ** 6)
+    ctx.job_cids = {"1": ["ANCHOR", "G1", "ANCHOREND"], "2": ["ANCHOR", "G2", "G3", "ANCHOREND"]}
+    states = wt.wait_for_jobs(ctx, ["1", "2"], "round0",
+                              pending_cutoff=lambda: ctx.elapsed() >= 200)
+    assert scalls == [["2"]]                       # only the never-started slot
+    assert ctx.not_measured == [dict(job_id="2", cids=["G2", "G3"], stage="round0",
+                                     reason="job still PENDING at the stage-1 cutoff")]
+    assert states["1"][0] == "COMPLETED" and clock.t == pytest.approx(500)
+    assert "2" in ctx.cancelled_jobs
+
+
+def test_estimate_stage2_waves_and_model():
+    # 3 points, 2 slots -> 2 waves; spin = 120 + 35*1*1.5; run = 120+120+36*1*1.5
+    est = wt.estimate_stage2_s(3, 5, 36, 21, 36.0, 1.0, 2, 120.0)
+    assert est == pytest.approx(2 * ((120 + 52.5) + 5 * (240 + 54)))
+    assert wt.estimate_stage2_s(3, 5, 36, 21, 36.0, 1.0, 3, 120.0) == pytest.approx(est / 2)
+
+
+def _reserved_ctx(tmp_path, budget_s, **kw):
+    ctx = _ctx(out_dir=str(tmp_path), budget_s=budget_s, **kw)
+    ctx.ranking = wt.ranking_context("matthewp0", "/r.json", 21, 36, ANCHOR)
+    ctx.ranking["dt"] = 36.0
+    ctx.s_prior = 1.0
+    ctx.startup_s = 120.0
+    ctx.reserve = dict(n_points=3, n_configs=5, steps=36, spinup_min=21, dt=36.0, slots=3)
+    return ctx
+
+
+def test_reserve_blocks_stage1_jobs_that_would_eat_stage2(tmp_path):
+    reserve = wt.estimate_stage2_s(3, 5, 36, 21, 36.0, 1.0, 3, 120.0)      # 1642.5 s
+    sb, calls, _p = make_fake_sbatch()
+    ctx = _reserved_ctx(tmp_path, budget_s=reserve + 500, sbatch_runner=sb)
+    assert wt.stage2_reserve_s(ctx) == pytest.approx(reserve)
+    ok, why = wt._stage1_may_start(ctx, 400)
+    assert ok
+    ok, why = wt._stage1_may_start(ctx, 600)
+    assert not ok and "stage-2 reserve" in why
+    wt._submit_round0_wave(ctx, [dict(ANCHOR)] + [_cfg("G%d" % i) for i in range(1, 6)], 1,
+                           1.0, "round0")
+    assert calls == []                              # 7 runs + spin-up do not fit before stage 2
+    # measured anchor normalizers replace the prior
+    ctx.stage1_jobs = {"9": dict(s_anchor_job=0.5, excluded=False)}
+    assert wt.stage2_reserve_s(ctx) == pytest.approx(
+        wt.estimate_stage2_s(3, 5, 36, 21, 36.0, 0.5, 3, 120.0))
+
+
+def test_reserve_is_zero_and_checks_inert_in_t0_mode(tmp_path):
+    ctx = _ctx(out_dir=str(tmp_path))
+    ctx.reserve = dict(n_points=3, n_configs=5, steps=36, spinup_min=21, dt=36.0, slots=3)
+    ctx.s_prior = 1.0
+    assert wt.stage2_reserve_s(ctx) == 0.0
+    assert wt._stage1_may_start(ctx, 10 ** 9) == (True, None)
+    assert wt._stage1_cutoff(ctx) is None
+
+
+def test_stage1_cutoff_fires_when_reserve_reached(tmp_path):
+    clock = FakeClock()
+    ctx = _reserved_ctx(tmp_path, budget_s=2000, clock=clock)
+    cut = wt._stage1_cutoff(ctx)
+    assert not cut()
+    clock.t = 2000 - wt.stage2_reserve_s(ctx)
+    assert cut()
+
+
+def _rebuilt(n=3):
+    return [dict(index=i, point=types.SimpleNamespace(at=T0), case_id="matthewp%d" % i, T=T0,
+                 cases_json="/r.json", steps=36, spinup_min=21, stepra=17, dt=36.0)
+            for i in range(n)]
+
+
+def test_fit_stage2_shrinks_then_skips(tmp_path):
+    clock = FakeClock()
+    ctx = _ctx(out_dir=str(tmp_path), clock=clock, budget_s=10 ** 6, max_nodes=12, nodes=4)
+    ctx.startup_s = 120.0
+    top = [_cfg("G1"), _cfg("G2"), _cfg("G3")]
+    s_by = {"ANCHOR": 1.0, "G1": 1.0, "G2": 1.0, "G3": 1.0}
+    fit, est, why = wt.fit_stage2(ctx, top, ANCHOR, _rebuilt(), s_by)
+    assert [c["id"] for c in fit] == ["G1", "G2", "G3"] and why is None
+    per_run = 120 + 120 + 36 * 1.5
+    ctx.budget_s = est - per_run / 2                 # one run short -> drop G3
+    fit, est2, why = wt.fit_stage2(ctx, top, ANCHOR, _rebuilt(), s_by)
+    assert [c["id"] for c in fit] == ["G1", "G2"] and est2 == pytest.approx(est - per_run)
+    ctx.budget_s = 10.0
+    fit, _e, why = wt.fit_stage2(ctx, top, ANCHOR, _rebuilt(), s_by)
+    assert fit == [] and "best candidate" in why
+    ctx.budget_s = 10 ** 6
+    fit, _e, why = wt.fit_stage2(ctx, [_cfg("G1")], ANCHOR, _rebuilt(), s_by)   # <2 candidates
+    assert [c["id"] for c in fit] == ["G1"] and why is None
+
+
+def test_run_predicted_branch_sets_running_budget_and_max_points(monkeypatch, tmp_path):
+    seen = {}
+    monkeypatch.setattr(wt, "resolve_case", lambda case, cpn: (
+        dict(e_we=91, e_sn=100, e_vert=45, prep_dir=str(tmp_path)), str(tmp_path / "nl"),
+        {"core_count_priors": {"efficiency_table": []}}))
+
+    def fake_run_predicted(ctx, nodes, nodes_note, s_est):
+        seen.update(mode=ctx.budget_mode, wall=ctx.max_wall_s,
+                    max_points=ctx.probe_cfg["max_points"])
+        return {}
+
+    monkeypatch.setattr(wt, "run_predicted", fake_run_predicted)
+    monkeypatch.setattr(wt, "render_predicted_report_text", lambda r: "")
+    base = ["matthew", "--minutes", "60", "--nodes", "1", "--steps", "5",
+            "--out", str(tmp_path / "o"), "--ledger-dir", str(tmp_path / "l"),
+            "--rank-by", "predicted"]
+    wt.run(wt.build_arg_parser().parse_args(base), sacct_runner=make_fake_sacct({}),
+           clock=FakeClock())
+    assert seen == dict(mode="running", wall=3 * 60 * 60.0, max_points=3)
+    wt.run(wt.build_arg_parser().parse_args(base + ["--max-points", "5",
+                                                    "--max-wall-minutes", "90"]),
+           sacct_runner=make_fake_sacct({}), clock=FakeClock())
+    assert seen == dict(mode="running", wall=90 * 60.0, max_points=5)
+
+
+def test_probe_key_explicit(tmp_path):
+    pytest.importorskip("yaml")
+    y = tmp_path / "c.yaml"
+    y.write_text("probe:\n  max_points: 5\n")
+    assert wt._probe_key_explicit(str(y), "max_points")
+    y.write_text("probe:\n  steps: 30\n")
+    assert not wt._probe_key_explicit(str(y), "max_points")
+    assert not wt._probe_key_explicit(None, "max_points")

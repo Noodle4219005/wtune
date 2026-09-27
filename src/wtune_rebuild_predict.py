@@ -30,11 +30,13 @@ ERA5_PIN = "era5_arco"
 
 
 def _measure_steps(arg, stepra):
-    """None -> coldstart's default window; 'short' -> stepra+10 (one radiation step plus
-    margin, located by known phase in score_windows_from_rsl); else an int >= stepra+1."""
+    """None -> coldstart's default window; 'short' -> max(30, stepra+10) (at least one radiation
+    step plus margin; the 30-step floor keeps >= ~20 normal samples when stepra is small -- lafe,
+    stepra 6: stepra+10 left 13); else an int >= stepra+1. Most of the saving comes from the
+    shorter spin-up, not from these steps."""
     if arg is None:
         return None
-    n = stepra + 10 if arg == "short" else int(arg)
+    n = max(30, stepra + 10) if arg == "short" else int(arg)
     if n < stepra + 1:
         raise SystemExit("--measure-steps %d < stepra+1 (%d)" % (n, stepra + 1))
     return n
@@ -98,7 +100,7 @@ def main(argv=None):
     ap.add_argument("--max-points", type=int, default=None)
     ap.add_argument("--measure-steps", default=None,
                     help="steps measured after spin-up: an integer >= stepra+1, or 'short' for "
-                         "stepra+10 (default max(30, 2*stepra))")
+                         "max(30, stepra+10) (default max(30, 2*stepra))")
     ap.add_argument("--rain-snow", action="store_true",
                     help="era5 only: add rain/snow from the 137-level store (optional; ~+1 pp on "
                          "zhengzhou, within rerun noise)")

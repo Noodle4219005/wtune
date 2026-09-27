@@ -86,7 +86,9 @@ def test_segment_timeout_scales_with_case_cost_and_has_a_floor(monkeypatch):
 def test_measure_steps_option():
     from wtune_rebuild_predict import _measure_steps
     assert _measure_steps(None, 17) is None
-    assert _measure_steps("short", 17) == 27
+    assert _measure_steps("short", 17) == 30   # 30-step floor
+    assert _measure_steps("short", 29) == 39
+    assert _measure_steps("short", 6) == 30
     assert _measure_steps("20", 17) == 20
     with pytest.raises(SystemExit):
         _measure_steps("17", 17)

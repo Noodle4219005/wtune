@@ -619,6 +619,9 @@ def _reserved_ctx(tmp_path, budget_s, **kw):
     ctx.s_prior = 1.0
     ctx.startup_s = 120.0
     ctx.reserve = dict(n_points=3, n_configs=5, steps=36, spinup_min=21, dt=36.0, slots=3)
+    # as if a first stage-1 wave had run 3 jobs at once at 1.0 s/step: concurrency 3, full top-3
+    ctx.stage1_max_running = 3
+    ctx.stage1_jobs = {"0": dict(s_anchor_job=1.0, excluded=False)}
     return ctx
 
 
@@ -670,8 +673,12 @@ def test_fit_stage2_shrinks_then_skips(tmp_path):
     ctx.startup_s = 120.0
     top = [_cfg("G1"), _cfg("G2"), _cfg("G3")]
     s_by = {"ANCHOR": 1.0, "G1": 1.0, "G2": 1.0, "G3": 1.0}
+    ctx.stage1_max_running = 3                       # 3 point jobs at once -> 1 wave
     fit, est, why = wt.fit_stage2(ctx, top, ANCHOR, _rebuilt(), s_by)
     assert [c["id"] for c in fit] == ["G1", "G2", "G3"] and why is None
+    ctx.stage1_max_running = 1                       # serial cluster -> 3 waves
+    assert wt.fit_stage2(ctx, top, ANCHOR, _rebuilt(), s_by)[1] == pytest.approx(3 * est)
+    ctx.stage1_max_running = 3
     per_run = wt.ranking_cost_model(120.0, 30.0, 36, 35, 17, 1.0)["per_run_s"]
     ctx.budget_s = est - per_run / 2                 # one run short -> drop G3
     fit, est2, why = wt.fit_stage2(ctx, top, ANCHOR, _rebuilt(), s_by)
@@ -784,9 +791,13 @@ def test_feasibility_precheck_refuses_before_submitting(monkeypatch, tmp_path):
     assert called == [] and calls == []
 
 
-def test_conus25_like_60min_runs_stage1_and_stage2(monkeypatch, tmp_path):
+@pytest.mark.parametrize("stage2_extra_s", [0.0, 3000.0])
+def test_conus25_like_runs_stage1_and_stage2(monkeypatch, tmp_path, stage2_extra_s):
     """Observed (attempt 1, job 1388): ~200 s per candidate run (restart read + ~87 s startup +
-    82 steps x ~1.3 s); rebuild prep 7 min. 60 min of running budget, 4 nodes, max-nodes 12."""
+    82 steps x ~1.3 s); rebuild prep 7 min; 4 nodes, max-nodes 12. 80 min of running budget:
+    with nothing observed yet, stage-2 concurrency is 1 (conservative), which puts the minimum
+    at ~77 min for 3 points (60 min is now refused up front -- attempt 3 really needed ~81).
+    stage2_extra_s > 0: stage 2 runs 50 min past its estimate -> completes, overrun reported."""
     _predicted_env(monkeypatch)
     clock = FakeClock()
     ledger_dir = tmp_path / "ledger"
@@ -838,6 +849,7 @@ def test_conus25_like_60min_runs_stage1_and_stage2(monkeypatch, tmp_path):
     def measure(ctx, configs, rebuilt, anchor, s_by_cid=None, **k):
         stage2["cids"] = [c["id"] for c in configs]
         stage2["left_s"] = ctx.budget_s - ctx.elapsed()
+        clock.t += stage2_extra_s
         meas = {}
         for c in [anchor] + list(configs):
             meas[c["id"]] = [PM(at=rp["point"].at, reason="auto", source="rebuild",
@@ -848,7 +860,7 @@ def test_conus25_like_60min_runs_stage1_and_stage2(monkeypatch, tmp_path):
     monkeypatch.setattr(wt, "prepare_rebuilt_points", prepare)
     monkeypatch.setattr(wt, "measure_candidates_at_points", measure)
     scancel, scalls = make_fake_scancel()
-    ctx = _ctx(out_dir=str(tmp_path / "out"), ledger_dir=str(ledger_dir), budget_s=3600.0,
+    ctx = _ctx(out_dir=str(tmp_path / "out"), ledger_dir=str(ledger_dir), budget_s=4800.0,
                nodes=4, max_nodes=12, clock=clock, poll_interval=20.0, sbatch_runner=sbatch,
                sacct_runner=sacct, scancel_runner=scancel, ledger_reader=reader,
                proposer=lambda state, bs, kappa=None: (dict(stopped=True, reason="stub"), []),
@@ -861,5 +873,104 @@ def test_conus25_like_60min_runs_stage1_and_stage2(monkeypatch, tmp_path):
     assert stage2["cids"] and len(stage2["cids"]) >= 1
     assert report["ranking"] and report["stage2_skipped_reason"] is None
     assert scalls == []                              # nothing hit the budget or the wall cap
-    assert ctx.elapsed() <= ctx.budget_s
     assert "concurrent" in report["stage2_reserve_note"]
+    assert report["stage1_max_running"] == 3 and report["stage2_concurrency"] == 3
+    if stage2_extra_s:
+        assert report["stage2_overrun_s"] > 0 and "STAGE 2 OVERRUN" in \
+            wt.render_predicted_report_text(report)
+    else:
+        assert ctx.elapsed() <= ctx.budget_s and not report["stage2_overrun_s"]
+
+
+def test_conus25_60min_is_refused_with_conservative_concurrency(monkeypatch, tmp_path):
+    _predicted_env(monkeypatch)
+    monkeypatch.setattr(wt, "prepare_rebuilt_points", lambda *a, **k: pytest.fail("submitted"))
+    ctx = _ctx(out_dir=str(tmp_path), budget_s=3600.0, nodes=4, max_nodes=12,
+               case_json=dict(e_we=1501, e_sn=1201, e_vert=50, prep_dir=str(tmp_path)))
+    ctx.budget_mode = "running"
+    with pytest.raises(SystemExit, match=r"needs at least 7\d min .*1 concurrent"):
+        wt.run_predicted(ctx, 4, "user", 1.3)
+
+
+# ---------------------------------------------------------------------------
+# attempt 3 (conus25-pred3): observed stage-1 concurrency; stage 2 exempt from the budget
+# ---------------------------------------------------------------------------
+def _conc_ctx(tmp_path, clock, sacct, budget_s=5000.0, max_wall_s=10 ** 6):
+    ctx, scalls = _running_ctx(tmp_path, clock, sacct, budget_s=budget_s, max_wall_s=max_wall_s,
+                               nodes=4, max_nodes=12)
+    ctx.ranking = wt.ranking_context("matthewp0", "/r.json", 21, 36, ANCHOR)
+    ctx.ranking["dt"] = 36.0
+    ctx.s_prior = 1.0
+    ctx.startup_s = 120.0
+    ctx.reserve = dict(n_points=3, n_configs=5, steps=36, spinup_min=21, dt=36.0, slots=3)
+    return ctx, scalls
+
+
+def test_serial_stage1_jobs_give_concurrency_1_reserve(tmp_path):
+    clock = FakeClock()
+    # both submitted at t=0; the busy cluster runs them one at a time (1417/1418)
+    sacct, _c = timeline_sacct(clock, {"1417": [(300, "RUNNING")],
+                                       "1418": [(300, "PENDING"), (600, "RUNNING")]})
+    ctx, _s = _conc_ctx(tmp_path, clock, sacct)
+    assert wt.stage2_concurrency(ctx) == 1           # nothing observed yet: conservative
+    wt.wait_for_jobs(ctx, ["1417", "1418"], "round0")
+    assert ctx.stage1_max_running == 1 and wt.stage2_concurrency(ctx) == 1
+    ctx.stage1_jobs = {"1417": dict(s_anchor_job=1.0, excluded=False)}
+    assert wt.stage2_reserve_s(ctx) == pytest.approx(
+        wt.estimate_stage2_s(3, 5, 36, 21, 36.0, 1.0, 1, 120.0, 30.0))   # 3 waves
+    assert "1 concurrent: observed max 1" in wt.describe_stage2_reserve(ctx)
+
+
+def test_parallel_stage1_jobs_raise_concurrency_capped(tmp_path):
+    clock = FakeClock()
+    sacct, _c = timeline_sacct(clock, {j: [(300, "RUNNING")] for j in ("1", "2", "3", "4")})
+    ctx, _s = _conc_ctx(tmp_path, clock, sacct)
+    wt.wait_for_jobs(ctx, ["1", "2", "3", "4"], "round0")
+    assert ctx.stage1_max_running == 4 and wt.stage2_concurrency(ctx) == 3   # floor(12/4)
+
+
+def test_concurrency_not_observed_outside_stage1(tmp_path):
+    clock = FakeClock()
+    sacct, _c = timeline_sacct(clock, {j: [(300, "RUNNING")] for j in ("1", "2", "3")})
+    ctx, _s = _conc_ctx(tmp_path, clock, sacct)
+    ctx.ranking = None                               # rebuild prep / stage 2
+    wt.wait_for_jobs(ctx, ["1", "2", "3"], "rebuild-prep")
+    assert ctx.stage1_max_running == 0
+
+
+def test_stage2_exempt_from_running_budget_completes(tmp_path):
+    clock = FakeClock()
+    sacct, _c = timeline_sacct(clock, {"1436": [(840, "RUNNING")],
+                                       "1437": [(840, "PENDING"), (1680, "RUNNING")]})
+    ctx, scalls = _conc_ctx(tmp_path, clock, sacct, budget_s=600)
+    ctx.ranking = None
+    states = wt.wait_for_jobs(ctx, ["1436", "1437"], "stage2", exempt_budget=True)
+    assert scalls == [] and states["1437"][0] == "COMPLETED"
+    assert ctx.elapsed() == pytest.approx(1680) and ctx.elapsed() - ctx.budget_s > 0
+
+
+def test_stage2_exempt_still_hits_wall_cap(tmp_path):
+    clock = FakeClock()
+    sacct, _c = timeline_sacct(clock, {"1436": [(10 ** 9, "RUNNING")]})
+    ctx, scalls = _conc_ctx(tmp_path, clock, sacct, budget_s=600, max_wall_s=1000)
+    ctx.ranking = None
+    wt.wait_for_jobs(ctx, ["1436"], "stage2", exempt_budget=True)
+    assert scalls == [["1436"]] and clock.t == pytest.approx(1000)
+
+
+def test_stage2_wall_cap_cancel_still_raises(tmp_path):
+    clock = FakeClock()
+    sacct, cancelled = timeline_sacct(clock, {"501": [(10 ** 9, "RUNNING")]})
+    ctx, scalls = _conc_ctx(tmp_path, clock, sacct, budget_s=600, max_wall_s=1000)
+    ctx.ranking = None
+    sb, _calls, _p = make_fake_sbatch(start=500)
+    ctx.sbatch_runner = sb
+
+    def scancel(ids):
+        scalls.append(list(ids))
+        cancelled.update(ids)
+
+    ctx.scancel_runner = scancel
+    with pytest.raises(RuntimeError, match="not COMPLETED"):
+        wt.measure_candidates_at_points(ctx, [_cfg("G1")], [_rp(tmp_path)], ANCHOR)
+    assert scalls == [["501"]]

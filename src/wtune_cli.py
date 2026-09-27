@@ -1794,6 +1794,8 @@ def main():
 
     p_watch = sub.add_parser('watch', help='read-only monitor of a WRF run dir: progress, remaining time, hang/nest-stop/failure warnings (wtune_watch.py)')
     p_watch.add_argument('watch_args', nargs=argparse.REMAINDER, help='forwarded to wtune_watch.py')
+    p_run = sub.add_parser('run', help='segmented WRF execution with restart hand-offs, per-segment config and opt-in CFL rescue (wtune_run.py)')
+    p_run.add_argument('run_args', nargs=argparse.REMAINDER, help='forwarded to wtune_run.py')
 
     p_scenario = sub.add_parser('scenario', help='pluggable scenario generators for fictional-date WRF forcing (scenario/cli.py): list | generate | inspect')
     p_scenario.add_argument('scenario_args', nargs=argparse.REMAINDER, help='forwarded to scenario/cli.py')
@@ -1831,6 +1833,9 @@ def main():
     if args.command == 'watch':
         import wtune_watch
         sys.exit(wtune_watch.main(args.watch_args))
+    if args.command == 'run':
+        import wtune_run
+        sys.exit(wtune_run.main(args.run_args))
 
     if args.command == 'scenario':
         from scenario import cli as scenario_cli

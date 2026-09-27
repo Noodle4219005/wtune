@@ -648,9 +648,21 @@ class Ctx:
     # in either mode (ctx.ranking is set only for pstar). None outside stage 1 and in t0 mode.
     stage1: dict = None
     stage1_mode: str = "t0"                # predicted mode's stage 1: "t0" (default) | "pstar"
+    # stage1=t0 (2026-09-28): --minutes is the STAGE-1 search budget only; stage 2 is a
+    # separate, announced cost. reserve_in_stage1=False there (no stage-2 reserve held back from
+    # stage 1; pstar keeps True). uncharged_s: controller time that is not stage-1 work (the
+    # rebuild-prep fetch/stage/submit), excluded from the running clock like queue_only_s.
+    # stage2_budget_s: optional --stage2-minutes cap -- the only thing fit_stage2 trims to in
+    # stage1=t0. max_wall_explicit: --max-wall-minutes was given (else it is derived).
+    reserve_in_stage1: bool = True
+    uncharged_s: float = 0.0
+    stage2_budget_s: float = None
+    max_wall_explicit: bool = False
     # stage1=t0: rebuild prep's estimate, held back from the stage-1 budget on top of the
     # stage-2 reserve (prep runs concurrently with stage 1); 0.0 otherwise
     stage1_extra_reserve_s: float = 0.0
+    stage2_estimate_start_s: float = None
+    prep_submit_s: float = 0.0
     # jobs of this run that run in the background of a stage-1 wait (rebuild prep in
     # stage1=t0): sampled for "is anything of ours RUNNING" (running budget), never waited on
     background_jobs: list = dataclasses.field(default_factory=list)
@@ -664,7 +676,7 @@ class Ctx:
 
     def elapsed(self):
         if self.budget_mode == "running":
-            return self.clock.now() - self.start_time - self.queue_only_s
+            return self.clock.now() - self.start_time - self.queue_only_s - self.uncharged_s
         return self.clock.now() - self.start_time
 
 
@@ -1024,10 +1036,14 @@ def run_round0(ctx):
                           ctx.budget_s * ROUND0_BUDGET_FRACTION)
     configs_per_job = max(1, int(round0_budget_s // per_run_s))
     total_k = slots * configs_per_job
-    if _stage1_active(ctx):
-        # predicted mode: what one job can hold after its spin-up (pstar only) and two anchor
-        # runs, with the stage-1 reserve (stage 2, + rebuild prep in stage1=t0) set aside; +1
-        # because build_configs' ANCHOR is stripped again (every slot carries its own)
+    if _stage1_active(ctx) and not ctx.ranking:
+        # stage1=t0: the t0 tuner's own round0 sizing (above) exactly; +1 because
+        # build_configs' ANCHOR is stripped again -- every slot carries its own ANCHOR/ANCHOREND
+        # on top (two extra runs per job; fit_stage1_job trims a slot that then overruns)
+        total_k = slots * configs_per_job + 1
+    elif _stage1_active(ctx):
+        # stage1=pstar: what one job can hold after its spin-up and two anchor runs, with the
+        # stage-1 reserve (the stage-2 reserve) set aside; +1 as above
         est1 = _job_time_est(ctx, 1, 1, s_est)
         m = est1.get("cost_model")
         per_run = m["per_run_s"] if m else est1["total_run_s"]
@@ -1167,8 +1183,10 @@ def run_adaptive_rounds(ctx, all_configs_by_cid, all_results, s_est):
 
         remaining_s = ctx.budget_s - elapsed - stage1_reserve_s(ctx)
         if _stage1_active(ctx) and remaining_s <= 0:
-            print("adaptive rounds: stopping before round %d -- the stage-2 reserve (%s) leaves "
-                  "no stage-1 time" % (round_idx, _fmt_hms(stage1_reserve_s(ctx))))
+            print("adaptive rounds: stopping before round %d -- no stage-1 time left (elapsed %s, "
+                  "stage-1 reserve %s, budget %s)"
+                  % (round_idx, _fmt_hms(elapsed), _fmt_hms(stage1_reserve_s(ctx)),
+                     _fmt_hms(ctx.budget_s)))
             return
         per_run_s = ctx.startup_s + ctx.steps * s_est
         batch_size = max(1, int(min(remaining_s, ctx.budget_s * ROUND0_BUDGET_FRACTION) // per_run_s))
@@ -2116,10 +2134,11 @@ def stage2_reserve_s(ctx):
 
 
 def stage1_reserve_s(ctx):
-    """What every stage-1 decision holds back: the stage-2 reserve, plus (stage1=t0) the
-    rebuild-prep estimate, since prep runs beside stage 1. Equals stage2_reserve_s for pstar
-    and 0.0 outside predicted-mode stage 1."""
-    if not _stage1_active(ctx):
+    """What every stage-1 decision holds back from --minutes: the stage-2 reserve (+
+    stage1_extra_reserve_s) when ctx.reserve_in_stage1 (stage1=pstar: --minutes covers both
+    stages), 0.0 in stage1=t0 (--minutes is the stage-1 search budget only, stage 2 is a
+    separate announced cost) and outside predicted-mode stage 1."""
+    if not _stage1_active(ctx) or not ctx.reserve_in_stage1:
         return 0.0
     return stage2_reserve_s(ctx) + ctx.stage1_extra_reserve_s
 
@@ -2145,10 +2164,12 @@ def describe_stage2_reserve(ctx):
                            r["spinup_min"] * 60.0 / r["dt"], r.get("stepra"), s_step)
     conc = stage2_concurrency(ctx)
     waves = int(math.ceil(float(r["n_points"]) / conc))
-    return ("stage-2 reserve %s = %d wave(s) [%d point job(s), %d concurrent: observed max %d "
+    return ("stage-2 %s %s = %d wave(s) [%d point job(s), %d concurrent: observed max %d "
             "stage-1 job(s) running at once, cap floor(max_nodes/nodes)=%d] x (spin-up + %d "
             "runs); %s"
-            % (_fmt_hms(stage2_reserve_s(ctx)), waves, r["n_points"], conc,
+            % ("reserve" if ctx.reserve_in_stage1 else
+               "estimate (NOT held back from --minutes, stage1=t0)",
+               _fmt_hms(stage2_reserve_s(ctx)), waves, r["n_points"], conc,
                ctx.stage1_max_running, compute_slots(ctx.max_nodes, ctx.nodes),
                _reserve_k(ctx, s_step) + 2, describe_cost_model(m)))
 
@@ -2845,11 +2866,17 @@ def run_predicted(ctx, nodes, nodes_note, s_est):
            t0 (default, conus25-pred4 G3: the P*-restart stage 1 was so expensive per candidate
               that the t0 tuner's winner was never in the pool) -- the ordinary broad t0 search
               (run_round0 + run_adaptive_rounds, no ranking context, t0 STEPS), ANCHOR/ANCHOREND
-              in every job for per-job normalization, on the running-time budget minus the
-              stage-2 reserve and the rebuild-prep estimate. Rebuild prep is SUBMITTED first and
-              runs beside stage 1; it is awaited only before stage 2.
+              in every job for per-job normalization. BUDGET SEMANTICS (2026-09-28,
+              conus25-pred5): --minutes is the STAGE-1 SEARCH budget only (running time, same
+              meaning as t0 mode) -- no stage-2 reserve is held back. Stage 2 is a separate cost,
+              announced at start ("stage 2 will need about X min more"), always run after stage 1
+              and trimmed only to an optional --stage2-minutes cap. Rebuild prep is SUBMITTED
+              first (its controller fetch/submit is not charged), runs beside stage 1 (charged
+              only while no stage-1 job runs) and is awaited only before stage 2.
            pstar -- rebuild prep first, then round0 + adaptive rounds with P*'s ranking context
-              (every job spins up once at P*, every candidate starts from that restart).
+              (every job spins up once at P*, every candidate starts from that restart). Budget
+              semantics unchanged: --minutes covers stage 1 AND the stage-2 reserve (stage 2 is
+              exempt once started; overrun reported).
       2. Stage 2 (replaces confirm): top-3 by stage-1 ANCHOR-NORMALIZED median (each run / its
          own job's mean(ANCHOR, ANCHOREND); stage1_normalized_ranking) + ANCHOR/ANCHOREND measured
          at ALL points (measure_candidates_at_points, all jobs in parallel; gates raise); winner
@@ -2889,17 +2916,35 @@ def run_predicted(ctx, nodes, nodes_note, s_est):
             ctx.s_prior = s_led
     steps = rebuilt_steps(stepra)
     slots = compute_slots(ctx.max_nodes, ctx.nodes)
-    need_s, detail = predicted_min_budget_s(ctx, len(points), steps, spinup_min, dt, stepra,
-                                            ctx.s_prior, stage2_concurrency(ctx),
-                                            stage1_mode=ctx.stage1_mode)
+    ctx.reserve = dict(n_points=len(points), n_configs=TOP_K_STAGE2 + 2, steps=steps,
+                       spinup_min=spinup_min, dt=dt, stepra=stepra, slots=slots)
+    stage2_est0 = _stage2_estimate(ctx, TOP_K_STAGE2 + 2, ctx.s_prior)
+    if ctx.stage1_mode == "t0":
+        # --minutes is the stage-1 search budget only: refuse only when it cannot hold one
+        # minimal stage-1 job (ANCHOR + 1 + ANCHOREND at t0 STEPS); stage 2 is announced
+        need_s = estimate_run_time(3, 1, ctx.steps, s_est=ctx.s_prior,
+                                   startup_s=ctx.startup_s)["total_run_s"]
+        detail = ("stage-1 minimum %s = one t0 job, ANCHOR + 1 + ANCHOREND x %d steps at "
+                  "%.3fs/step + startup %.0fs" % (_fmt_hms(need_s), ctx.steps, ctx.s_prior,
+                                                  ctx.startup_s))
+    else:
+        need_s, detail = predicted_min_budget_s(ctx, len(points), steps, spinup_min, dt, stepra,
+                                                ctx.s_prior, stage2_concurrency(ctx),
+                                                stage1_mode=ctx.stage1_mode)
     print("predicted mode: feasibility -- %s" % detail)
+    ctx.stage2_estimate_start_s = stage2_est0
+    print("predicted mode: stage 2 will need about %.0f min %s (%d point(s) x (spin-up + %d "
+          "runs), concurrency %d, estimated at %.3fs/step)"
+          % (stage2_est0 / 60.0,
+             "MORE, on top of --minutes" if ctx.stage1_mode == "t0" else "INSIDE --minutes",
+             len(points), TOP_K_STAGE2 + 2, stage2_concurrency(ctx), ctx.s_prior))
+    if ctx.stage1_mode == "t0" and not ctx.max_wall_explicit and ctx.max_wall_s is not None:
+        ctx.max_wall_s = MAX_WALL_FACTOR * (ctx.budget_s + stage2_est0)
     if ctx.budget_s < need_s:
         raise SystemExit("predicted mode needs at least %.0f min of running time for %s at %d "
                          "node(s) (have %.0f): %s"
                          % (math.ceil(need_s / 60.0), ctx.case, ctx.nodes, ctx.budget_s / 60.0,
                             detail))
-    ctx.reserve = dict(n_points=len(points), n_configs=TOP_K_STAGE2 + 2, steps=steps,
-                       spinup_min=spinup_min, dt=dt, stepra=stepra, slots=slots)
     rebuild_args = (ctx, points, anchor, case_dir, ctx.namelist_path, ctx.case_json,
                     os.path.join(ctx.out_dir, "rebuilt"), spinup_min, stepra, dt)
     rebuilt, prep_handle = None, None
@@ -2918,14 +2963,20 @@ def run_predicted(ctx, nodes, nodes_note, s_est):
               % (rp_star["case_id"], rp_star["T"].isoformat(), ctx.steps, ctx.restart_io_form,
                  ctx.s_prior or 0.0, "ledger" if n_led else "cell-step model"))
     else:
-        # stage 1 does not need the rebuilt points: submit prep now, await it before stage 2
+        # stage 1 does not need the rebuilt points: submit prep now, await it before stage 2.
+        # The controller's fetch/stage/submit is not stage-1 work: excluded from the clock.
+        t_prep = ctx.clock.now()
         prep_handle = submit_rebuilt_points(*rebuild_args)
+        ctx.prep_submit_s = ctx.clock.now() - t_prep
+        ctx.uncharged_s += ctx.prep_submit_s
         ctx.background_jobs = list(prep_handle["job_ids"])
         ctx.stage1 = dict(mode="t0", anchor=anchor)
-        ctx.stage1_extra_reserve_s = REBUILD_PREP_EST_S
-        print("stage 1 (t0): broad t0 search, STEPS=%d, ANCHOR/ANCHOREND in every job; rebuild "
-              "prep job(s) %s running beside it (%s held back); s_prior %.4fs/step [%s]"
-              % (ctx.steps, ",".join(prep_handle["job_ids"]), _fmt_hms(REBUILD_PREP_EST_S),
+        ctx.reserve_in_stage1 = False
+        ctx.stage1_extra_reserve_s = 0.0
+        print("stage 1 (t0): broad t0 search on the whole --minutes (%s of running time), "
+              "STEPS=%d, ANCHOR/ANCHOREND in every job; rebuild prep job(s) %s running beside "
+              "it; s_prior %.4fs/step [%s]"
+              % (_fmt_hms(ctx.budget_s), ctx.steps, ",".join(prep_handle["job_ids"]),
                  ctx.s_prior or 0.0, "ledger" if n_led else "cell-step model"))
     print(describe_stage2_reserve(ctx))
 
@@ -2948,13 +2999,18 @@ def run_predicted(ctx, nodes, nodes_note, s_est):
         print("stage 1: job %s never started -- not measured: %s"
               % (x["job_id"], ", ".join(x["cids"]) or "-"))
     reserve_note = describe_stage2_reserve(ctx)
+    stage1_running_s = ctx.elapsed()
     ctx.ranking = None                                   # stage 2 builds its own per-point contexts
     ctx.stage1 = None
     ctx.stage1_extra_reserve_s = 0.0
     if prep_handle is not None:
         ctx.background_jobs = []
         rebuilt = finish_rebuilt_points(ctx, prep_handle)
-    top, stage2_est, skip_reason = fit_stage2(ctx, top, anchor, rebuilt, s_by_cid, nl)
+    if ctx.stage1_mode == "t0":
+        top, stage2_est, skip_reason = fit_stage2(ctx, top, anchor, rebuilt, s_by_cid, nl,
+                                                  left_s=ctx.stage2_budget_s)
+    else:
+        top, stage2_est, skip_reason = fit_stage2(ctx, top, anchor, rebuilt, s_by_cid, nl)
     if skip_reason:
         print("stage 2: SKIPPED -- %s" % skip_reason)
         meas_by_cid, gates, stage2_jobs = {}, [], []
@@ -2969,10 +3025,12 @@ def run_predicted(ctx, nodes, nodes_note, s_est):
             meas_by_cid, gates, stage2_jobs = measure_candidates_at_points(
                 ctx, top, rebuilt, anchor, s_by_cid=s_by_cid)
         finally:
-            ctx.stage2_overrun_s = max(0.0, ctx.elapsed() - ctx.budget_s)
+            if ctx.stage1_mode != "t0":   # stage1=t0: stage 2 is outside --minutes by design
+                ctx.stage2_overrun_s = max(0.0, ctx.elapsed() - ctx.budget_s)
         if ctx.stage2_overrun_s:
             print("stage 2: ran %s of running time past the budget (exempt once started)"
                   % _fmt_hms(ctx.stage2_overrun_s))
+    stage2_running_s = ctx.elapsed() - stage1_running_s
     calibration = wtune_predict.load_calibration(str(wtune_predict.DEFAULT_CALIBRATION))
     if ctx.prediction_cfg.get("drift_band_pct") is not None:
         calibration = dict(calibration, drift_band_pct=ctx.prediction_cfg["drift_band_pct"])
@@ -2996,20 +3054,36 @@ def run_predicted(ctx, nodes, nodes_note, s_est):
                   stage2_overrun_s=ctx.stage2_overrun_s,
                   stage2_concurrency=stage2_concurrency(ctx),
                   stage1_max_running=ctx.stage1_max_running,
-                  stage2_estimate_s=stage2_est, stage2_skipped_reason=skip_reason)
+                  stage2_estimate_s=stage2_est, stage2_skipped_reason=skip_reason,
+                  stage1_running_min=stage1_running_s / 60.0,
+                  stage2_running_min=stage2_running_s / 60.0,
+                  stage2_estimate_min=stage2_est0 / 60.0,
+                  prep_submit_min=ctx.prep_submit_s / 60.0,
+                  total_running_min=(stage1_running_s + stage2_running_s
+                                     + ctx.prep_submit_s) / 60.0,
+                  stage2_minutes_cap=(ctx.stage2_budget_s / 60.0
+                                      if ctx.stage2_budget_s is not None else None),
+                  budget_semantics=("--minutes = stage-1 search only; stage 2 separate"
+                                    if ctx.stage1_mode == "t0" else
+                                    "--minutes = stage 1 + stage-2 reserve (pstar)"))
     return report
 
 
-def fit_stage2(ctx, top, anchor, rebuilt, s_by_cid, nl=None):
+_BUDGET_LEFT = object()
+
+
+def fit_stage2(ctx, top, anchor, rebuilt, s_by_cid, nl=None, left_s=_BUDGET_LEFT):
     """(top_fit, expected_running_s, skip_reason): stage 2 never starts with less running budget
     left than its own estimate. Expected = ceil(points/stage2_concurrency) waves x the slowest point job's
     ranking_job_timeouts `expected` (spin-up + ANCHOR + candidates + ANCHOREND, measured stage-1
     s/step where known). Drops the lowest-ranked candidate until it fits (fewer than 2
     candidates is fine -- run with what exists); if not even the best single candidate (or,
     with no candidate at all, ANCHOR alone) fits, skip stage 2 with the reason (reported, the
-    tuner then has no predicted ranking rather than a cancelled one)."""
+    tuner then has no predicted ranking rather than a cancelled one). `left_s`: the running
+    time stage 2 may use -- default (pstar) what is left of --minutes; stage1=t0 passes the
+    optional --stage2-minutes cap, and None there means no cap: nothing is trimmed."""
     waves = int(math.ceil(float(len(rebuilt)) / stage2_concurrency(ctx)))
-    left = ctx.budget_s - ctx.elapsed()
+    left = ctx.budget_s - ctx.elapsed() if left_s is _BUDGET_LEFT else left_s
     est = None
     for k in range(len(top), min(1, len(top)) - 1, -1):
         wrapped = wrap_with_anchors(top[:k], anchor)
@@ -3018,7 +3092,7 @@ def fit_stage2(ctx, top, anchor, rebuilt, s_by_cid, nl=None):
                                            stepra=rp.get("stepra"))[3]
                       for rp in rebuilt)
         est = waves * per_job
-        if est <= left:
+        if left is None or est <= left:
             if k < len(top):
                 print("stage 2: dropped %s to fit the budget (expected %s, left %s)"
                       % (", ".join(c["id"] for c in top[k:]), _fmt_hms(est), _fmt_hms(left)))
@@ -3026,7 +3100,8 @@ def fit_stage2(ctx, top, anchor, rebuilt, s_by_cid, nl=None):
     return [], est, ("even %s needs an expected %s of running time; only %s of the budget is "
                      "left (elapsed %s / budget %s)"
                      % ("the best candidate" if top else "ANCHOR alone", _fmt_hms(est or 0),
-                        _fmt_hms(max(0.0, left)), _fmt_hms(ctx.elapsed()), _fmt_hms(ctx.budget_s)))
+                        _fmt_hms(max(0.0, left)), _fmt_hms(ctx.elapsed()),
+                        _fmt_hms(ctx.budget_s if left_s is _BUDGET_LEFT else left)))
 
 
 def build_predicted_report(ctx, nodes, nodes_note, ranked, meas_by_cid, cfg_by_cid, stage1,
@@ -3133,6 +3208,16 @@ def render_predicted_report_text(report):
         for x in report.get("not_measured") or []:
             lines.append("  not measured (job %s never started before the stage-1 cutoff): %s"
                          % (x["job_id"], ", ".join(x["cids"]) or "-"))
+    if report.get("stage1_running_min") is not None:
+        lines.append("")
+        lines.append("running time: stage 1 %.1f min + stage 2 %.1f min (estimated %.1f at start"
+                     "%s) + rebuild-prep submit %.1f min = %.1f min  [%s]"
+                     % (report["stage1_running_min"], report["stage2_running_min"],
+                        report["stage2_estimate_min"],
+                        (", cap %.1f" % report["stage2_minutes_cap"])
+                        if report.get("stage2_minutes_cap") else "",
+                        report.get("prep_submit_min") or 0.0, report["total_running_min"],
+                        report.get("budget_semantics", "")))
     if report.get("stage2_overrun_s"):
         lines.append("")
         lines.append("STAGE 2 OVERRUN: %s of running time past the budget (stage 2 is exempt once "
@@ -3255,6 +3340,9 @@ def run(args, sbatch_runner=None, sacct_runner=None, scancel_runner=None, ledger
     confirm_reps = args.confirm_reps if args.confirm_reps is not None else cfg["probe"]["confirm_reps"]
     rank_by = getattr(args, "rank_by", None) or cfg["probe"].get("rank_by") or "t0"
     stage1_mode = getattr(args, "stage1", None) or cfg["probe"].get("stage1") or "t0"
+    stage2_minutes = getattr(args, "stage2_minutes", None)
+    if stage2_minutes is None:
+        stage2_minutes = cfg["probe"].get("stage2_minutes")
     if stage1_mode not in STAGE1_CHOICES:
         raise SystemExit("--stage1 %r not in %s" % (stage1_mode, list(STAGE1_CHOICES)))
     if getattr(args, "max_points", None) is not None:
@@ -3332,7 +3420,9 @@ def run(args, sbatch_runner=None, sacct_runner=None, scancel_runner=None, ledger
         # by predicted whole-run compute+init -- see run_predicted. Replaces round0..confirm.
         # Budget = RUNNING time (queue-only intervals are not charged), hard wall cap on top.
         ctx.budget_mode = "running"
+        ctx.stage2_budget_s = stage2_minutes * 60.0 if stage2_minutes is not None else None
         max_wall_min = getattr(args, "max_wall_minutes", None)
+        ctx.max_wall_explicit = max_wall_min is not None
         ctx.max_wall_s = (max_wall_min if max_wall_min is not None
                           else MAX_WALL_FACTOR * minutes) * 60.0
         print("predicted mode: budget %.1f min of RUNNING time, hard wall-clock cap %.1f min"
@@ -3424,6 +3514,10 @@ def build_arg_parser():
                          "probe.stage1): the broad t0 tuner search, rebuild prep running beside "
                          "it. pstar: every stage-1 job spins up at P* and starts candidates "
                          "from that restart (pre-2026-09-28 behaviour)")
+    p.add_argument("--stage2-minutes", type=float, default=None, dest="stage2_minutes",
+                    help="--rank-by predicted --stage1 t0 only: optional cap on stage 2's "
+                         "running time (fit_stage2 trims the shortlist to it); default none -- "
+                         "stage 2 always runs, its estimated cost is announced at start")
     p.add_argument("--max-points", type=int, default=None, dest="max_points",
                     help="probe.max_points override (--rank-by predicted default: %d)"
                          % PREDICTED_MAX_POINTS)

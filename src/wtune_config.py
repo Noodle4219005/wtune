@@ -97,7 +97,8 @@ DEFAULTS = {
               # ERA5-rebuilt points, each spun up once and shared by every candidate (wtune_tune
               # run_predicted); t0 (default) is the pre-0055 behaviour. restart_io_form is the
               # shared restart's io_form in that mode (14 ADIOS2 BP, or 2 netCDF).
-              "rank_by": "t0", "restart_io_form": 14, "stage1": "t0"},
+              "rank_by": "t0", "restart_io_form": 14, "stage1": "t0",
+              "stage2_minutes": None},
     "prediction": {"io_target": "nfs", "drift_band_pct": None, "measure_r_rad": False},
     "exclude": [],
 }
@@ -110,7 +111,8 @@ SEARCH_IO_KEYS = {"enabled", "io_form_history", "target"}
 PHYSICS_GRAY_KEYS = {"enabled", "knobs"}
 PHYSICS_GRAY_KNOB_KEYS = {"multiply"}
 PROBE_KEYS = {"steps", "confirm_reps", "spinup_min", "ranking_start", "points", "max_points",
-              "budget_pct", "sources", "rank_by", "restart_io_form", "stage1"}
+              "budget_pct", "sources", "rank_by", "restart_io_form", "stage1",
+              "stage2_minutes"}
 RANKING_START_CHOICES = ("t0", "spinup")
 RANK_BY_CHOICES = ("t0", "predicted")
 RESTART_IO_FORM_CHOICES = (14, 2)
@@ -423,6 +425,11 @@ def _validate_semantics(cfg, errors):
         errors.append("probe.budget_pct: must be a number in (0, 100], got %r" % (p["budget_pct"],))
     if p["rank_by"] not in RANK_BY_CHOICES:
         errors.append("probe.rank_by: %r not in %s" % (p["rank_by"], list(RANK_BY_CHOICES)))
+    if p["stage2_minutes"] is not None and (isinstance(p["stage2_minutes"], bool) or not
+                                            isinstance(p["stage2_minutes"], (int, float))
+                                            or p["stage2_minutes"] <= 0):
+        errors.append("probe.stage2_minutes: must be a positive number or null, got %r"
+                       % (p["stage2_minutes"],))
     if p["stage1"] not in STAGE1_CHOICES:
         errors.append("probe.stage1: %r not in %s" % (p["stage1"], list(STAGE1_CHOICES)))
     if isinstance(p["restart_io_form"], bool) or p["restart_io_form"] not in RESTART_IO_FORM_CHOICES:
@@ -787,6 +794,7 @@ probe:
                                    # ERA5-rebuilt, spun-up points; CLI --rank-by)
   restart_io_form: 14             # rank_by=predicted only: shared restart io_form, 14 (ADIOS2) or 2
   stage1: t0                      # rank_by=predicted only: t0 (broad t0 search) | pstar (P* restart)
+  stage2_minutes: null            # stage1=t0 only: optional cap on stage 2 (else it always runs)
 
 prediction:
   io_target: nfs                  # nfs | local -- calibration target for the full-run I/O estimate

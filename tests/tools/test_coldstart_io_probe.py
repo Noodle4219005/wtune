@@ -205,3 +205,14 @@ def test_stage_plan_links_iofields_and_extends_timeout(tmp_path, monkeypatch):
     cs.stage_plan(str(pdir), per_window_min=30)
     assert os.path.realpath(pdir / "win_0" / "wrf" / "case_io.txt") == str(src)
     assert seen["min"] == 30 + cs.IO_PROBE_TIMEOUT_EXTRA_MIN
+
+
+def test_metgrid_uses_all_nodes_capped_by_grid():
+    import coldstart_sample as cs
+    big = {"nodes": 4, "geo": {"e_we": 664, "e_sn": 700}}
+    assert cs.metgrid_ranks(big, 72) == 288            # 664*700/1600 = 290 -> all 4 nodes
+    small = {"nodes": 4, "geo": {"e_we": 118, "e_sn": 118}}
+    assert cs.metgrid_ranks(small, 72) == 72           # never below the old one-node count
+    mid = {"nodes": 4, "geo": {"e_we": 400, "e_sn": 400}}
+    assert cs.metgrid_ranks(mid, 72) == 100            # 160000/1600
+    assert cs.metgrid_ranks({"nodes": 4}, 72) == 72    # no geometry -> old behaviour

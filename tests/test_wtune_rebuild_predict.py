@@ -23,7 +23,8 @@ def test_dry_run_prints_plan_and_defaults(monkeypatch, capsys, tmp_path):
     monkeypatch.setattr(wrp, "plan", plan)
     assert wrp.main([str(tmp_path), "--nodes", "4", "--nx", "16", "--ny", "18", "--dry-run"]) == 0
     out = capsys.readouterr().out
-    assert seen == {"forcing": "era5_arco", "spinup": 20, "max_points": None}
+    assert seen == {"forcing": "era5_arco", "spinup": 10, "max_points": None}
+    assert "measure 30 steps" in out                          # short window: max(30, 17+10)
     assert "288 ranks, 16x18" in out and "2 parallel jobs x 4 nodes" in out
     wrp.main([str(tmp_path), "--nodes", "4", "--nx", "16", "--ny", "18", "--forcing", "auto",
               "--max-points", "3", "--dry-run"])

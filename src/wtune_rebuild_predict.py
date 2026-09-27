@@ -230,11 +230,12 @@ def main(argv=None):
     ap.add_argument("--forcing", choices=("era5", "auto"), default="era5",
                     help="era5: ARCO-ERA5 with cloud water/ice, 1 h (default); auto: GFS/RDA/... chain")
     ap.add_argument("--spinup-min", type=int, default=None,
-                    help="default 20 with era5 (phase 3), 60 with auto")
+                    help="default 10 with era5 (short window, 2026-09-28), 60 with auto")
     ap.add_argument("--max-points", type=int, default=None)
     ap.add_argument("--measure-steps", default=None,
-                    help="steps measured after spin-up: an integer >= stepra+1, or 'short' for "
-                         "max(30, stepra+10) (default max(30, 2*stepra))")
+                    help="steps measured after spin-up: an integer >= stepra+1, 'short' for "
+                         "max(30, stepra+10) (default with era5), or 'long' for max(30, 2*stepra) "
+                         "(default with auto)")
     ap.add_argument("--rain-snow", action="store_true",
                     help="era5 only: add rain/snow from the 137-level store (optional; ~+1 pp on "
                          "zhengzhou, within rerun noise)")
@@ -253,12 +254,17 @@ def main(argv=None):
 
     case_dir = os.path.abspath(a.case_dir)
     forcing = ERA5_PIN if a.forcing == "era5" else "auto"
-    spinup = a.spinup_min if a.spinup_min is not None else (20 if forcing == ERA5_PIN else 60)
+    # ERA5 default = the short window (spin-up 10 min, max(30, stepra+10) steps): same-day paired
+    # checks moved the prediction -1.11% (dorian2019) and +0.38% (lafe) vs 20 min + 2*stepra, and
+    # cut zhengzhou's driver wall 805 -> 627 s. GFS (auto) keeps 60 min + the long window.
+    spinup = a.spinup_min if a.spinup_min is not None else (10 if forcing == ERA5_PIN else 60)
     ranks = a.ranks or a.nx * a.ny
     t_start = time.time()
     nl, run_start, run_end, dt_s, stepra, points, notes = plan(case_dir, forcing, spinup,
                                                                a.max_points)
-    measure_steps = _measure_steps(a.measure_steps, stepra)
+    measure_arg = a.measure_steps if a.measure_steps is not None else (
+        "short" if forcing == ERA5_PIN else None)
+    measure_steps = _measure_steps(None if measure_arg == "long" else measure_arg, stepra)
     probe_idx = len(points) - 1 if a.io_probe and points else None
     if probe_idx is not None:
         points[probe_idx] = _with_io_probe(points[probe_idx])

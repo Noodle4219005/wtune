@@ -206,3 +206,68 @@ def test_stage_plan_links_iofields_and_extends_timeout(tmp_path, monkeypatch):
     assert os.path.realpath(pdir / "win_0" / "wrf" / "case_io.txt") == str(src)
     assert seen["min"] == 30 + cs.IO_PROBE_TIMEOUT_EXTRA_MIN
 
+
+
+_ELEV_LIKE = """&time_control
+ run_hours = 15,
+ start_year = 2022, 2022,
+ start_month = 05, 05,
+ start_day = 12, 12,
+ start_hour = 00, 00,
+ end_year = 2022, 2022,
+ end_month = 05, 05,
+ end_day = 12, 12,
+ end_hour = 15, 15,
+ history_interval = 60, 15,
+ restart = .false.,
+ restart_interval = 1440,
+ iofields_filename = 'storm_diags_d01.txt', 'storm_diags_d01.txt',
+/
+ iofields_filename = 'stray.txt',
+&domains
+ time_step = 15,
+ max_dom = 2,
+ e_we = 400, 300,
+ e_sn = 400, 300,
+/
+&physics
+ nwp_diagnostics = 1,
+/
+"""
+
+
+def test_out_of_group_assignment_is_commented_not_counted():
+    import coldstart_sample as cs
+    t = cs.comment_out_of_group_assignments(_ELEV_LIKE)
+    assert cs.count_key(t, "iofields_filename") == 1
+    assert "! (outside any namelist group; ignored by Fortran)  iofields_filename = 'stray.txt'" in t
+    assert cs.count_key(t, "nwp_diagnostics") == 1          # inside &physics: untouched
+
+
+def test_nwp_diagnostics_window_keeps_history_interval_nonzero_and_no_frame():
+    import datetime
+    import coldstart_sample as cs
+    txt = cs.build_wrf_window_namelist_text(_ELEV_LIKE, datetime.datetime(2022, 5, 12, 14), 100,
+                                            15.0, 16, 18, 1)
+    assert "history_interval = 999999, 999999" in txt.replace("  ", " ") or \
+        cs.get_first(txt, "history_interval") == "999999"
+    assert cs.get_first(txt, "history_begin") == "999999"
+    plain = _ELEV_LIKE.replace(" nwp_diagnostics = 1,", " nwp_diagnostics = 0,")
+    txt0 = cs.build_wrf_window_namelist_text(plain, datetime.datetime(2022, 5, 12, 14), 100,
+                                             15.0, 16, 18, 1)
+    assert cs.get_first(txt0, "history_interval") == "0" and cs.count_key(txt0, "history_begin") == 0
+
+
+def test_run_sbatch_stops_wrf_after_fatal():
+    import subprocess, tempfile, os
+    import coldstart_sample as cs
+    plan = {"windows": [{"t": "2019-11-26_15:00:00", "reason": "t0"}], "nodes": 1,
+            "config": {"ranks": 72, "omp": 1, "nx": 9, "ny": 8, "numtiles": 1}}
+    text = cs.render_run_sbatch(plan, site="scc")
+    assert "grep -lqs 'FATAL CALLED' rsl.error.*" in text and "FATAL_WATCH_PID" in text
+    with tempfile.NamedTemporaryFile("w", suffix=".sh", delete=False) as f:
+        f.write(text)
+    try:
+        assert subprocess.run(["bash", "-n", f.name]).returncode == 0
+    finally:
+        os.unlink(f.name)

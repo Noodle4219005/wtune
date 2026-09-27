@@ -1731,6 +1731,32 @@ def build_real_namelist_text(case_namelist_text, T, T_end, num_metgrid_levels,
 _HISTORY_KEY_RE = re.compile(r"(?<![A-Za-z0-9_])(history_interval\w*)\s*=", re.I | re.M)
 
 
+HUGE_HISTORY_MIN = 999999
+
+
+def comment_out_of_group_assignments(text):
+    """Comment out `key = value` lines that sit OUTSIDE every &group ... / block. Fortran's
+    namelist read ignores them, but they break key-count checks (elevconv: a second
+    iofields_filename between two groups -> 'keys not present exactly once', 2026-09-28).
+    Semantics-preserving; lines inside groups are untouched."""
+    out, inside = [], False
+    for line in text.splitlines(keepends=True):
+        code = line.split("!")[0].strip()
+        if code.startswith("&"):
+            inside = True
+            out.append(line)
+            continue
+        if inside and code.startswith("/"):
+            inside = False
+            out.append(line)
+            continue
+        if not inside and "=" in code:
+            out.append("! (outside any namelist group; ignored by Fortran) " + line)
+            continue
+        out.append(line)
+    return "".join(out)
+
+
 def build_wrf_window_namelist_text(real_namelist_text, T, win_steps, dt_seconds,
                                     nproc_x, nproc_y, numtiles, io_probe=None):
     """SPEC.md Inputs: 'wrf.exe namelist per window: the real namelist plus: restart=.false.;
@@ -1741,7 +1767,7 @@ def build_wrf_window_namelist_text(real_namelist_text, T, win_steps, dt_seconds,
     only for the probe window; None = the above, unchanged) re-enables ONE history frame per
     history-writing domain and, when the case writes restarts, one restart, both at the window
     end -- see apply_io_probe."""
-    text0 = real_namelist_text
+    text0 = comment_out_of_group_assignments(real_namelist_text)
     ndom = int(get_first(text0, "max_dom", "1"))
     win_seconds = int(round(win_steps * dt_seconds))
     end = T + datetime.timedelta(seconds=win_seconds)
@@ -1764,8 +1790,23 @@ def build_wrf_window_namelist_text(real_namelist_text, T, win_steps, dt_seconds,
         txt = set_list(txt, "restart_interval", 999999, 1)
     history_keys = sorted(set(m.group(1).lower() for m in _HISTORY_KEY_RE.finditer(text0)))
     # 0 = history off. A huge interval still writes the t0 frame (job 1238: 68 s for 2.3 GB).
+    # nwp_diagnostics = 1 makes check_a_mundo FATAL on history_interval(1) == 0 ('nwp_diagnostics
+    # requires the use of "history_interval"', elevconv 2026-09-28): there, keep a huge plain
+    # history_interval and push history_begin past the window instead (no frame at all).
+    nwp_diag = str(get_first(text0, "nwp_diagnostics", "0")).strip() == "1"
     for hk in history_keys:
-        txt = set_list(txt, hk, 0, ndom)
+        txt = set_list(txt, hk, HUGE_HISTORY_MIN if (nwp_diag and hk == "history_interval") else 0,
+                       ndom)
+    if nwp_diag:
+        if "history_interval" not in history_keys:
+            txt = set_list(txt, "history_interval", HUGE_HISTORY_MIN, ndom,
+                           new_key_group="time_control")
+            history_keys = sorted(history_keys + ["history_interval"])
+        for bk in ("history_begin_d", "history_begin_h", "history_begin_m", "history_begin_s"):
+            if count_key(text0, bk):
+                txt = set_list(txt, bk, 0, ndom)
+        txt = set_list(txt, "history_begin", HUGE_HISTORY_MIN, ndom,
+                       new_key_group=None if count_key(text0, "history_begin") else "time_control")
     # The decomposition is what is being measured, so it is written even when the case's own
     # namelist omits it (conus25 has no nproc_x/nproc_y/numtiles: C3 job 1237's rebuild window
     # silently ran WRF's default decomposition, +21% per step vs the G0014 truth).
@@ -2720,8 +2761,17 @@ def render_run_sbatch(plan, site="scc", per_window_estimate_min=15, wps_estimate
         lines.append("  site_launch %d %d %d block" % (ranks, ppn, omp))
         lines.append("  timeout %d \"${SITE_LAUNCH_CMD[@]}\" > wrf.out 2>&1 &" % wrf_timeout_s)
         lines.append("  WRF_PID=$!")
+        # A WRF FATAL (MPI_Abort) can leave mpirun hanging until the window timeout (elevconv
+        # 2026-09-28: 'namelist settings are wrong' at init, then 40 min idle). Stop the launch
+        # 30 s after any rank prints FATAL CALLED.
+        lines.append("  ( while kill -0 \"$WRF_PID\" 2>/dev/null; do "
+                     "if grep -lqs 'FATAL CALLED' rsl.error.* 2>/dev/null; then sleep 30; "
+                     "kill -TERM \"$WRF_PID\" 2>/dev/null; sleep 20; kill -KILL \"$WRF_PID\" 2>/dev/null; "
+                     "echo \"window $k: WRF FATAL CALLED -- launch stopped\" >&2; break; fi; sleep 10; done ) &")
+        lines.append("  FATAL_WATCH_PID=$!")
         lines.append("  wait \"$WRF_PID\"")
         lines.append("  rc=$?; WRF_PID=\"\"")
+        lines.append("  kill \"$FATAL_WATCH_PID\" 2>/dev/null; wait \"$FATAL_WATCH_PID\" 2>/dev/null")
         lines.append("  pkill -u \"$USER\" -x wrf.exe 2>/dev/null")
         lines.append("  [ $rc -ne 0 ] && return 1")
         lines.append("  shopt -s nullglob; TBLS=(qr_acr_q*.dat freezeH2O.dat); shopt -u nullglob")

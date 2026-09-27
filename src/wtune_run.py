@@ -11,35 +11,42 @@ CASE_DIR is never modified and --out may not be inside it. The run [start, end] 
 fall on a whole d01 time step). The run is split into segments; segment k runs in OUT/seg_<k> as
 its own Slurm job and hands off to k+1 through the restart files it writes at its end.
 
-Segment planning (plan_segments_fixed / plan_segments_wall; boundaries are d01 step indices)
-    Every inner boundary is a whole minute AND a whole d01 step (quantum = lcm(dt, 60 s); a nest
-    step always divides its parent's step, so every domain's step divides it too), and is rounded
-    down onto the d01 history interval grid when that grid still fits.
-    --segment-minutes M   fixed M-minute segments, the last one shorter.
-    --wall-limit L        the longest segments whose predicted wall <= 0.8 L, where predicted wall
-                          = compute over the interval + init + restart read (k > 0) + restart write
-                          (not the last) + history frames written inside the interval.
-    neither               one segment.
-    Compute over [a, b] = C(b) - C(a), C(n) = tools/coldstart_sample.predicted_compute_total over
-    steps 1..n (the same arithmetic wtune_probe_plan.combine uses for the whole run; every step's
-    term depends only on its own index, so the difference is exactly the in-interval sum). Its
+Segment planning (plan_run; boundaries are d01 step indices)
+    ONE restart quantum L for the whole run (segments never set override_restart_timers, so the
+    restart file carries every alarm's phase AND segment 0's restart interval to later segments --
+    scc R1: with the override, d01's 60-min history alarm re-anchored at a 00:30 boundary and the
+    01:00 frame was never written). L is whole minutes on the d01 step grid (quantum = lcm(dt,
+    60 s); a nest step divides its parent's, so every domain's step divides it); every segment is
+    one L block [jL, (j+1)L] from the run start, the last possibly shorter, and restart_interval =
+    L in every segment (a segment ending on the grid, the last included, writes a restart).
+    --segment-minutes M   L = M.
+    --wall-limit W        L = the largest quantum multiple for which EVERY L-grid segment's
+                          predicted wall <= 0.8 W (choose_restart_quantum), where predicted wall =
+                          compute over the interval + init + restart read (k > 0) + restart write
+                          (end on the grid) + history frames written inside the interval.
+    neither               one segment, no restart (restart_interval = RESTART_OFF_MIN).
+    Compute over [a, b] = C(b) - C(a), C a prefix sum of tools/coldstart_sample.
+    predicted_compute_total's per-step terms (the same arithmetic wtune_probe_plan.combine uses
+    for the whole run; C(N) is asserted equal to its total). Its
     inputs come from --prediction's pred_rebuild.json (result.points at/s_normal, result.r_night/
     r_day, result.init_s, io.restart.per_write_s, io.history[].median_s) or from each
     --tune-report ranking row (points at/s_normal/r/n_rad; r_night/r_day pooled exactly like
     combine via wtune_probe_plan._resolve_r_rad_from_points). With neither: the uncalibrated
-    cell-step model (wtune_tune._fallback_s_per_step) x FALLBACK_RADIATION_FACTOR and constant
-    overheads, and after the first completed segment the remaining segments are re-planned from
-    its observed rate (mean d01 step incl. history writes, overhead = job elapsed - sum d01).
+    cell-step model (wtune_tune._fallback_s_per_step) x FALLBACK_RADIATION_FACTOR. Without a
+    measured `io` block, restart and history I/O scale from measured scc anchors by grid points x
+    levels (fallback_overheads; conus25 restart per io_form, dorian2019 history). After each
+    segment its observed overhead (job elapsed - sum d01) -- and, without a prediction, its mean
+    d01 step -- replace the predictions in later segments' --time; never the L grid.
 
 Segment namelist (render_segment_namelist; tools/coldstart_sample set_list & co. do the editing)
     start_* / end_* of EVERY active domain = the segment's start / end (yagi truth 1038: a nest
     whose end_* was not updated stopped early); run_days/hours/minutes = 0, run_seconds = segment
-    length; nproc_x/nproc_y/numtiles of the segment's config; restart_interval = segment length in
-    minutes (restart_interval_d/_h/_s zeroed, _m set equal when present) so the restart lands
-    exactly at the segment end -- the last segment writes none (RESTART_OFF_MIN); io_form_restart
-    per --restart-io-form; k > 0: restart=.true. and override_restart_timers=.true. (without it WRF
-    reuses the intervals stored in the restart file -- measured on scc). write_hist_at_0h_rst is
-    never set (its default .false. avoids a duplicate history frame at the boundary); every other
+    length; nproc_x/nproc_y/numtiles of the segment's config; restart_interval = L minutes in every
+    segment (restart_interval_d/_h/_s zeroed, _m set equal when present); io_form_restart per
+    --restart-io-form; k > 0: restart=.true.; override_restart_timers is never set (a case value
+    .true. is set .false.: the tuner's restart-start probes want the override, a chain must not
+    have it). write_hist_at_0h_rst is never set (its default .false. avoids a duplicate history
+    frame at the boundary); every other
     history setting is untouched. adios2_numaggregators, when the case sets it, follows the
     segment's rank count (configs._apply_adios2: it must equal the rank count).
 
@@ -62,6 +69,7 @@ Controller (run_controller): submit, wait (sacct), inspect with wtune_watch.snap
 done when watch says 'done' and (not last) every domain's wrfrst at its end exists. Otherwise, with
 --cfl-rescue and a CFL line or NaN in the rsl, the SAME segment is re-run once per run from the
 same restart with time_step = the largest integer in [0.5 dt, 0.75 dt] dividing the segment length
+and L
 (and the d01 history interval and radt when possible); the run is then PHYSICS-GRAY and later segments go
 back to the case's time_step. Anything else stops with an error -- never a silent retry.
 OUT/run_report.json is rewritten after every segment attempt.
@@ -160,7 +168,7 @@ def _frac_lcm(a, b):
 def case_geometry(nl):
     """Run geometry from a parsed namelist: {start, end, dt, steps, stepra, max_dom, radt_s,
     quantum (d01 steps per whole-minute boundary), hist (per domain {iv_s, begin_s} or None),
-    hist_align (d01 steps between d01 history frames, None when not a whole step count)}."""
+    points (per domain e_we x e_sn x e_vert, for the I/O fallbacks)}."""
     steps, run_s, dt_s, note = wp.get_d01_steps(nl)
     if note:
         raise RunError("case: %s" % note)
@@ -179,15 +187,14 @@ def case_geometry(nl):
         iv = coldstart.wrf_interval_minutes(nl, "history_interval", d) * 60.0
         begin = coldstart.wrf_interval_minutes(nl, "history_begin", d) * 60.0
         hist.append({"iv_s": iv, "begin_s": begin} if io_hist and iv > 0 else None)
-    hist_align = None
-    if hist[0]:
-        h = _frac(hist[0]["iv_s"]) / _frac(dt_s)
-        if h.denominator == 1:
-            hist_align = int(h) * int(quantum) // math.gcd(int(h), int(quantum))
+    points = []
+    for d in range(max_dom):
+        e_we, e_sn, e_vert = wp.get_domain_geom(nl, d)
+        points.append(e_we * e_sn * e_vert)
     return {"start": start, "end": start + dt.timedelta(seconds=run_s), "dt": dt_s,
             "steps": steps, "stepra": stepra, "max_dom": max_dom,
             "radt_s": float(radt) * 60.0 if radt else None, "quantum": int(quantum),
-            "hist": hist, "hist_align": hist_align}
+            "hist": hist, "points": points}
 
 
 def domain_start(nl, d):
@@ -224,6 +231,13 @@ def resolve_end_step(geo, stop_at=None):
 # ---------------------------------------------------------------------------
 # segment planning (pure)
 # ---------------------------------------------------------------------------
+# WRF restart semantics this plan relies on (scc R1, 2026-09-27, dorian2019 30+30 min chain):
+# with override_restart_timers=.true. a resumed run RE-ANCHORS every alarm at its own start
+# (d01 history 60 min resumed at 00:30 -> next frame 01:30; the 01:00 frame was lost), so segments
+# never set it. With the default .false. the restart file carries every alarm's phase (history,
+# auxhist, restart) across the boundary -- and also the restart interval written by segment 0,
+# which then governs every later segment. Hence ONE restart quantum L for the whole run:
+# restart_interval = L in every segment, every boundary a multiple of L from the run start.
 def plan_segments_fixed(n_end, steps_per_segment, n0=0):
     """[(a, b), ...] d01 step intervals of `steps_per_segment` from n0 to n_end, last shorter."""
     if steps_per_segment <= 0:
@@ -245,54 +259,92 @@ def segment_steps_for_minutes(geo, minutes):
     return int(n)
 
 
-def plan_segments_wall(n_end, quantum, wall_fn, budget_s, align=None, n0=0):
-    """Greedy: from a, the largest b on the absolute `quantum` grid (or n_end itself) with
-    wall_fn(a, b) <= budget_s; b is rounded down onto the `align` grid when that is still > a.
-    wall_fn must be non-decreasing in b. RunError when even one quantum does not fit."""
-    segs, a = [], n0
-    while a < n_end:
-        if wall_fn(a, n_end) <= budget_s:
-            segs.append((a, n_end))
-            break
-        first = (a // quantum + 1) * quantum
-        if first >= n_end or wall_fn(a, first) > budget_s:
-            raise RunError("a %d-step segment from step %d already exceeds the %.0f s budget "
-                           "(%.0f s predicted)" % (min(first, n_end) - a, a, budget_s,
-                                                     wall_fn(a, min(first, n_end))))
-        lo, hi = first // quantum, (n_end - 1) // quantum     # grid indices strictly < n_end
-        while lo < hi:
-            mid = (lo + hi + 1) // 2
-            if wall_fn(a, mid * quantum) <= budget_s:
-                lo = mid
-            else:
-                hi = mid - 1
-        b = lo * quantum
-        if align and align > quantum and (b // align) * align > a:
-            b = (b // align) * align
-        segs.append((a, b))
-        a = b
-    return segs
+def choose_restart_quantum(n_end, quantum, wall_fn, budget_s):
+    """--wall-limit: the largest L (d01 steps, a multiple of `quantum`, i.e. whole minutes on the
+    step grid) such that EVERY segment of the L grid [jL, min((j+1)L, n_end)] has
+    wall_fn(a, b, L) <= budget_s -- computed once for the whole run (the most expensive segment
+    decides). None when the whole run fits in one segment; RunError when not even one quantum
+    fits. Exhaustive over m (sum over m of n_end/(m q) segments ~ N log N wall evaluations), so no
+    monotonicity assumption is needed."""
+    if wall_fn(0, n_end, None) <= budget_s:
+        return None
+    for m in range((n_end - 1) // quantum, 0, -1):
+        L = m * quantum
+        if all(wall_fn(a, b, L) <= budget_s for a, b in plan_segments_fixed(n_end, L)):
+            return L
+    raise RunError("even %d-step segments exceed the %.0f s budget (%.0f s predicted for the "
+                   "first)" % (quantum, budget_s, wall_fn(0, min(quantum, n_end), quantum)))
 
 
 # ---------------------------------------------------------------------------
 # wall model
 # ---------------------------------------------------------------------------
+# Fallback I/O anchors, used only when the prediction has no measured `io` block (scc R2: the
+# constant 300 s restart / 30 s frame fallbacks predicted 578/548 s for segments observed at
+# 198/168 s). Both scale linearly with grid points x levels summed over the domains written.
+#  - restart: conus25 (1 domain 1500x1200x50 = 90e6 points, netCDF restart 11.5 GB) on scc wrote
+#    in 324 s / read in 120 s with io_form 2; ADIOS2 BP4 (io_form 14) wrote 1.05 s / read 2.3 s.
+#    Cross-check: dorian2019 netCDF restart at 6 h (f1 atlas profile, 26.7e6 points) wrote in
+#    75.5 + 34.3 = 109.8 s vs 96 s from this scaling.
+#  - history: dorian2019 scc truth (job 1019, 6 h; d01 664x700x40 every 60 min = 7 frames, d02
+#    451x451x40 every 15 min = 25 frames) summed 300.5 s of history writes (rank 0 'Timing for
+#    Writing') -> 300.5 / (7 x 18.592e6 + 25 x 8.136e6) = 9.0e-7 s per point per frame. The f1
+#    atlas dorian netCDF frames agree (d01 ~15.7 s = 8.4e-7, d02 ~7.4 s = 9.1e-7). One netCDF
+#    anchor is used for every io_form_history (conservative for ADIOS2 history).
+CONUS25_RESTART_POINTS = 1500 * 1200 * 50
+RESTART_IO_ANCHOR_S = {2: (324.0, 120.0), 14: (1.05, 2.3)}   # io_form: (write, read) at conus25
+DORIAN_HISTORY_WRITE_S = 300.5
+DORIAN_HISTORY_POINT_FRAMES = 7 * 664 * 700 * 40 + 25 * 451 * 451 * 40
+HISTORY_S_PER_POINT_FRAME = DORIAN_HISTORY_WRITE_S / DORIAN_HISTORY_POINT_FRAMES
+
+
+def fallback_restart_io_s(geo, io_form):
+    """(write_s, read_s) of one restart (all domains) scaled from the conus25 anchor."""
+    w, r = RESTART_IO_ANCHOR_S[int(io_form)]
+    f = sum(geo["points"]) / float(CONUS25_RESTART_POINTS)
+    return w * f, r * f
+
+
+def fallback_history_frame_s(geo):
+    """Per-domain seconds for one history frame, scaled from the dorian2019 anchor."""
+    return [p * HISTORY_S_PER_POINT_FRAME for p in geo["points"]]
+
+
+def fallback_overheads(geo, io_form_restart):
+    w, r = fallback_restart_io_s(geo, io_form_restart)
+    return overheads(init_s=FALLBACK_INIT_S, restart_read_s=r, restart_write_s=w,
+                     history_frame_s=fallback_history_frame_s(geo),
+                     source="fallback (conus25/dorian2019 I/O anchors)")
+
+
 def compute_fn_from_points(geo, anchors_at, r_night, r_day, sample_points):
-    """compute(a, b) seconds over d01 steps a+1..b from coldstart_sample.predicted_compute_total
-    (C(b) - C(a), memoized). anchors_at: [(datetime, s_normal), ...]."""
+    """compute(a, b) seconds over d01 steps a+1..b = C(b) - C(a), C a prefix-sum array over the
+    whole case run. Per-step terms: s(t_i) from coldstart_sample.predicted_compute_total's own
+    s_values plus its radiation term (r(t_i)-1)*s(t_i) on predict.classify_steps' steps -- the
+    same loop, restated only to keep the per-step values; C(N) is asserted equal to
+    predicted_compute_total's total, so any drift in coldstart fails loudly here."""
     if not anchors_at:
         raise RunError("prediction has no measured points")
-    start = geo["start"]
+    start, dt_s, n = geo["start"], geo["dt"], geo["steps"]
+    stepra = geo["stepra"] or 1
     anchors = [((at - start).total_seconds(), float(s)) for at, s in anchors_at]
-    cache = {0: 0.0}
-
-    def cum(n):
-        if n not in cache:
-            cache[n] = coldstart.predicted_compute_total(
-                n, geo["dt"], geo["stepra"] or 1, start, anchors, sample_points,
-                r_night, r_day)[0]
-        return cache[n]
-    return lambda a, b: cum(b) - cum(a)
+    total, s_values = coldstart.predicted_compute_total(n, dt_s, stepra, start, anchors,
+                                                        sample_points, r_night, r_day)
+    flags = wp.classify_steps(n, stepra)
+    cum = [0.0]
+    for i in range(n):
+        x = s_values[i]
+        if flags[i]:
+            t_i = start + dt.timedelta(seconds=(i + 1) * dt_s)
+            frac = wp.sunlit_fraction(sample_points, t_i) if sample_points else None
+            r_t = (r_night + (r_day - r_night) * frac) if frac is not None \
+                else (r_night + r_day) / 2.0
+            x += (r_t - 1.0) * s_values[i]
+        cum.append(cum[-1] + x)
+    if abs(cum[-1] - total) > 1e-6 * max(1.0, abs(total)):
+        raise RunError("internal: prefix compute %.6f != predicted_compute_total %.6f"
+                       % (cum[-1], total))
+    return lambda a, b: cum[b] - cum[a]
 
 
 def constant_compute_fn(s_per_step):
@@ -302,7 +354,7 @@ def constant_compute_fn(s_per_step):
 def history_frames(geo, d, a, b):
     """History frames domain d writes in a segment over steps (a, b] (+ the t=0 frame for the
     first segment; a resumed segment does not write its start frame: write_hist_at_0h_rst is
-    left at its .false. default)."""
+    left at its .false. default, and the restart file carries the alarm phase)."""
     h = geo["hist"][d] if d < len(geo["hist"]) else None
     if not h:
         return 0
@@ -323,15 +375,26 @@ def overheads(init_s=FALLBACK_INIT_S, restart_read_s=FALLBACK_RESTART_IO_S,
             "source": source}
 
 
-def segment_wall(geo, compute, over, a, b, n_end, n0=0):
-    """Predicted wall of one segment (a, b]: compute + init + restart read (a > n0) + restart
-    write (b < n_end) + history frames written inside it."""
+def writes_restart(b, L):
+    """Segment ending at step b writes a restart iff b is on the L grid (restart alarm)."""
+    return bool(L) and b > 0 and b % L == 0
+
+
+def segment_wall(geo, compute, over, a, b, L):
+    """Predicted wall of one segment (a, b]: compute + init + restart read (a > 0) + restart
+    write (b on the L grid) + history frames written inside it."""
     w = compute(a, b) + over["init_s"]
-    if a > n0:
+    if a > 0:
         w += over["restart_read_s"]
-    if b < n_end:
+    if writes_restart(b, L):
         w += over["restart_write_s"]
+    return w + history_wall(geo, over, a, b)
+
+
+def history_wall(geo, over, a, b):
+    """Seconds of history writes in segment (a, b]: frames x per-domain frame seconds."""
     per = over.get("history_frame_s")
+    w = 0.0
     for d in range(geo["max_dom"]):
         fs = FALLBACK_HISTORY_FRAME_S if per is None else (per[d] if d < len(per) else per[-1])
         w += history_frames(geo, d, a, b) * (fs or 0.0)
@@ -357,19 +420,24 @@ def _parse_at(s):
     return dt.datetime.fromisoformat(s) if "T" in s or " " in s else dt.datetime.strptime(s, WRF_FMT)
 
 
-def model_from_prediction(pred, geo, sample_points):
-    """(compute_fn, overheads) from a pred_rebuild.json record."""
+def model_from_prediction(pred, geo, sample_points, fallback):
+    """(compute_fn, overheads) from a pred_rebuild.json record; its measured `io` block wins,
+    `fallback` (fallback_overheads) fills whatever it does not measure."""
     res = pred["result"]
     pts = [(_parse_at(p["at"]), p["s_normal"]) for p in res["points"]]
     comp = compute_fn_from_points(geo, pts, res["r_night"], res["r_day"], sample_points)
     io = pred.get("io") or {}
-    rst = (io.get("restart") or {}).get("per_write_s") or FALLBACK_RESTART_IO_S
-    hist = None
-    if io.get("history"):
-        hist = [e.get("median_s") if e.get("median_s") is not None else FALLBACK_HISTORY_FRAME_S
-                for e in io["history"]]
-    return comp, overheads(init_s=res.get("init_s") or FALLBACK_INIT_S, restart_read_s=rst,
-                           restart_write_s=rst, history_frame_s=hist, source="prediction")
+    rst = (io.get("restart") or {}).get("per_write_s")
+    hist = list(fallback["history_frame_s"])
+    for d, e in enumerate(io.get("history") or []):
+        if e.get("median_s") is not None and d < len(hist):
+            hist[d] = e["median_s"]
+    measured = bool(rst) or bool(io.get("history"))
+    return comp, overheads(
+        init_s=res.get("init_s") or FALLBACK_INIT_S,
+        restart_read_s=rst if rst else fallback["restart_read_s"],
+        restart_write_s=rst if rst else fallback["restart_write_s"], history_frame_s=hist,
+        source="prediction" + (" (measured io)" if measured else " + " + fallback["source"]))
 
 
 def compute_fn_from_tune_row(row, geo, sample_points, calibration):
@@ -418,35 +486,48 @@ def make_config(nx, ny, numtiles, omp, nodes, cid="cli", dist="block"):
             "nodes": nodes, "dist": dist}
 
 
-def assign_segments(geo, bounds, candidates, over, n_end, wall_limit_s=None, n0=0):
+def assign_segments(geo, bounds, candidates, over, L, wall_limit_s=None):
     """Segment dicts for step intervals `bounds`: the candidate with the lowest predicted compute
     over each interval (ties -> first listed), its predicted wall and --time."""
     segs = []
-    for a, b in bounds:
+    for i, (a, b) in enumerate(bounds):
         best = min(candidates, key=lambda c: c["compute"](a, b))
-        wall = segment_wall(geo, best["compute"], over, a, b, n_end, n0)
-        segs.append({"start_step": a, "end_step": b, "start": _fmt(step_time(geo, a)),
-                     "end": _fmt(step_time(geo, b)), "config": dict(best["config"]),
+        wall = segment_wall(geo, best["compute"], over, a, b, L)
+        segs.append({"index": i, "start_step": a, "end_step": b,
+                     "start": _fmt(step_time(geo, a)), "end": _fmt(step_time(geo, b)),
+                     "config": dict(best["config"]), "writes_restart": writes_restart(b, L),
                      "predicted_compute_s": best["compute"](a, b), "predicted_wall_s": wall,
                      "time_limit": _hms(time_limit_s(wall, wall_limit_s))})
     return segs
 
 
-def plan_run(geo, n_end, candidates, over, segment_minutes=None, wall_limit_s=None, n0=0):
-    """Step intervals, then segment dicts (see module docstring)."""
+def plan_run(geo, n_end, candidates, over, segment_minutes=None, wall_limit_s=None):
+    """(L, segments): L = the restart quantum in d01 steps (None: one segment, no restart), each
+    segment one L block [jL, (j+1)L], the last possibly shorter (see module docstring)."""
     if segment_minutes:
-        bounds = plan_segments_fixed(n_end, segment_steps_for_minutes(geo, segment_minutes), n0)
+        L = segment_steps_for_minutes(geo, segment_minutes)
+        if (L * geo["dt"]) % 60:
+            raise RunError("--segment-minutes must give whole minutes")
+        if L >= n_end:
+            L = None
     elif wall_limit_s:
-        def wall_fn(a, b):
-            return min(segment_wall(geo, c["compute"], over, a, b, n_end, 0) for c in candidates)
-        bounds = plan_segments_wall(n_end, geo["quantum"], wall_fn, WALL_FRACTION * wall_limit_s,
-                                    align=geo["hist_align"], n0=n0)
+        def wall_fn(a, b, L):
+            return min(segment_wall(geo, c["compute"], over, a, b, L) for c in candidates)
+        L = choose_restart_quantum(n_end, geo["quantum"], wall_fn, WALL_FRACTION * wall_limit_s)
     else:
-        bounds = [(n0, n_end)]
-    segs = assign_segments(geo, bounds, candidates, over, n_end, wall_limit_s)
-    for i, s in enumerate(segs):
-        s["index"] = i
-    return segs
+        L = None
+    bounds = plan_segments_fixed(n_end, L) if L else [(0, n_end)]
+    return L, assign_segments(geo, bounds, candidates, over, L, wall_limit_s)
+
+
+def restart_interval_minutes(geo, L):
+    """restart_interval (minutes) for quantum L; RESTART_OFF_MIN for a single segment."""
+    if not L:
+        return RESTART_OFF_MIN
+    m = _frac(geo["dt"]) * L / 60
+    if m.denominator != 1:
+        raise RunError("restart quantum %d steps is not whole minutes" % L)
+    return int(m)
 
 
 # ---------------------------------------------------------------------------
@@ -467,8 +548,8 @@ def _set_one(txt, key, value, group="time_control"):
     return coldstart.set_list(txt, key, value, 1, new_key_group=group)
 
 
-def render_segment_namelist(text, seg_start, seg_end, k, is_last, config, restart_io_form=14,
-                            time_step=None):
+def render_segment_namelist(text, seg_start, seg_end, k, config, restart_interval_min,
+                            restart_io_form=14, time_step=None):
     """The case's namelist.input text -> segment k's (see module docstring). seg_start/seg_end
     are datetimes; time_step (int s) overrides the d01 time step (CFL rescue)."""
     cs = coldstart
@@ -487,12 +568,7 @@ def render_segment_namelist(text, seg_start, seg_end, k, is_last, config, restar
     for key, v in (("nproc_x", config["nx"]), ("nproc_y", config["ny"]),
                    ("numtiles", config["numtiles"])):
         txt = _set_one(txt, key, v, "domains")
-    if is_last:
-        rst_min = RESTART_OFF_MIN
-    else:
-        if length_s % 60:
-            raise RunError("inner segment length %d s is not a whole minute" % length_s)
-        rst_min = length_s // 60
+    rst_min = int(restart_interval_min)
     txt = _set_one(txt, "restart_interval", rst_min)
     for suffix, v in (("_d", 0), ("_h", 0), ("_s", 0), ("_m", rst_min)):
         if cs.count_key(text, "restart_interval" + suffix):
@@ -500,15 +576,16 @@ def render_segment_namelist(text, seg_start, seg_end, k, is_last, config, restar
     txt = _set_one(txt, "io_form_restart", int(restart_io_form))
     if k > 0:
         txt = _set_one(txt, "restart", ".true.")
-        txt = _set_one(txt, "override_restart_timers", ".true.")
     elif cs.count_key(text, "restart"):
         txt = _set_one(txt, "restart", ".false.")
+    if cs.count_key(text, "override_restart_timers"):       # never .true.: see planning notes
+        txt = _set_one(txt, "override_restart_timers", ".false.")
     if cs.count_key(text, "adios2_numaggregators"):
         txt = _set_one(txt, "adios2_numaggregators", config["ranks"], "namelist_adios2")
     required = (["%s_%s" % (p, q) for p in ("start", "end") for q in _TIME_PARTS]
                 + ["run_days", "run_hours", "run_minutes", "run_seconds", "nproc_x", "nproc_y",
                    "numtiles", "restart_interval", "io_form_restart"]
-                + (["restart", "override_restart_timers"] if k > 0 else []))
+                + (["restart"] if k > 0 else []))
     if time_step is not None:
         txt = _set_one(txt, "time_step", int(time_step), "domains")
         if cs.count_key(text, "time_step_fract_num"):
@@ -696,10 +773,10 @@ def _write_report(path, report):
 
 def run_controller(ctx):
     """Execute ctx['segments'] in order (see module docstring). Returns 0 on success, 1 on a
-    stop. ctx keys: case_dir, out, text, geo, n_end, segments, candidates, over, restart_io_form,
-    cfl_rescue, replan (bool), segment_minutes, wall_limit_s, wrf_tree, env_source,
-    campaign_dir, sbatch_runner, sacct_runner, sacct_cmd, snapshot_fn, poll_s, sleep, log,
-    report."""
+    stop. ctx keys: case_dir, out, text, geo, n_end, segments, restart_min (restart_interval of
+    every segment), over, restart_io_form, cfl_rescue, replan (bool: no prediction), wall_limit_s,
+    wrf_tree, env_source, campaign_dir, sbatch_runner, sacct_runner, sacct_cmd, snapshot_fn,
+    poll_s, sleep, log, report."""
     geo, log, report = ctx["geo"], ctx["log"], ctx["report"]
     report_path = os.path.join(ctx["out"], "run_report.json")
     segs = ctx["segments"]
@@ -718,8 +795,9 @@ def run_controller(ctx):
             seg_dir = os.path.join(ctx["out"], name)
             t_a = dt.datetime.strptime(seg["start"], WRF_FMT)
             t_b = dt.datetime.strptime(seg["end"], WRF_FMT)
-            txt = render_segment_namelist(ctx["text"], t_a, t_b, k, is_last, seg["config"],
-                                          ctx["restart_io_form"], time_step=time_step)
+            txt = render_segment_namelist(ctx["text"], t_a, t_b, k, seg["config"],
+                                          ctx["restart_min"], ctx["restart_io_form"],
+                                          time_step=time_step)
             links = []
             if k > 0:
                 found = restart_files(prev_dir, seg["start"], geo["max_dom"])
@@ -731,7 +809,8 @@ def run_controller(ctx):
                 links = [p for d in sorted(found) for p in found[d]]
             xml = None
             if int(ctx["restart_io_form"]) == 14:
-                times = ([seg["start"]] if k > 0 else []) + ([] if is_last else [seg["end"]])
+                times = (([seg["start"]] if k > 0 else [])
+                         + ([seg["end"]] if seg["writes_restart"] else []))
                 xml = render_adios2_restart_xml(times, geo["max_dom"], ctx.get("case_adios2_xml"))
             setup_segment_dir(ctx["case_dir"], seg_dir, txt, links, xml, ctx.get("wrf_tree"))
             script = render_segment_sbatch(
@@ -769,6 +848,8 @@ def run_controller(ctx):
             cfl = "CFL" in codes or nan or rsl_has_cfl(seg_dir)
             if ctx["cfl_rescue"] and cfl and not rescue_used:
                 seg_len = int(round((t_b - t_a).total_seconds()))
+                if ctx["restart_min"] != RESTART_OFF_MIN:      # keep the restart alarm whole too
+                    seg_len = math.gcd(seg_len, ctx["restart_min"] * 60)
                 hist = geo["hist"][0]["iv_s"] if geo["hist"][0] else None
                 new_dt = rescue_time_step(geo["dt"], seg_len, (hist, geo["radt_s"]))
                 if new_dt is None:
@@ -795,35 +876,41 @@ def run_controller(ctx):
             raise RunError("segment %d (%s) failed: %s" % (k, seg_dir, reason))
         prev_dir = seg["run_dir"]
         report["decisions"].append({"segment": k, "decision": "done" if is_last else "next"})
-        if ctx["replan"] and not is_last and snap.get("n_d01_steps"):
-            _replan_from_observed(ctx, k, snap, elapsed)
-            segs = ctx["segments"]
-            report["segments"] = segs
+        if not is_last:
+            _update_from_observed(ctx, k, snap, elapsed)
         _write_report(report_path, report)
         k += 1
     return 0
 
 
-def _replan_from_observed(ctx, k, snap, elapsed):
-    """No prediction: re-plan segments after k from segment k's observed rate (mean d01 step,
-    history writes included) and overhead (job elapsed - sum d01: init + end writes)."""
-    geo, seg = ctx["geo"], ctx["segments"][k]
-    s_step = snap["sum_d01_elapsed_s"] / snap["n_d01_steps"]
-    ovh = (elapsed - snap["sum_d01_elapsed_s"]) if elapsed else FALLBACK_INIT_S
-    over = overheads(init_s=max(ovh, 0.0), restart_read_s=FALLBACK_RESTART_IO_S,
-                     restart_write_s=0.0, history_frame_s=[0.0] * geo["max_dom"],
-                     source="observed segment %d" % k)
-    cand = [{"config": seg["config"], "compute": constant_compute_fn(s_step)}]
-    rest = plan_run(geo, ctx["n_end"], cand, over, ctx["segment_minutes"], ctx["wall_limit_s"],
-                    n0=seg["end_step"])
-    for i, r in enumerate(rest):
-        r["index"] = k + 1 + i
-    ctx["segments"] = ctx["segments"][:k + 1] + rest
+def _update_from_observed(ctx, k, snap, elapsed):
+    """Segment k's observed overhead (job elapsed - sum d01: init, restart read/write, end-of-run
+    writes) replaces the predicted overheads in every later segment's predicted wall and --time;
+    a segment-0 observation gets the restart read added (segment 0 reads none). Without a
+    prediction, the observed mean d01 step (history writes included) also replaces the compute
+    model. The L grid (segment boundaries) never changes."""
+    geo, over = ctx["geo"], ctx["over"]
+    sum_d01, n = snap.get("sum_d01_elapsed_s"), snap.get("n_d01_steps")
+    if elapsed is None or not n or sum_d01 is None:
+        return
+    ovh = max(0.0, elapsed - sum_d01)
+    read = over["restart_read_s"] if k == 0 else 0.0
+    s_step = sum_d01 / n if ctx["replan"] else None
+    for seg in ctx["segments"][k + 1:]:
+        a, b = seg["start_step"], seg["end_step"]
+        if s_step is not None:
+            seg["predicted_compute_s"] = s_step * (b - a)
+            wall = seg["predicted_compute_s"] + ovh + read
+        else:
+            wall = seg["predicted_compute_s"] + ovh + read + history_wall(geo, over, a, b)
+        seg["predicted_wall_s"] = wall
+        seg["time_limit"] = _hms(time_limit_s(wall, ctx["wall_limit_s"]))
+        seg["wall_source"] = "observed overhead of segment %d" % k
     ctx["report"]["decisions"].append({
-        "segment": k, "decision": "replan", "observed_s_per_step": s_step,
-        "observed_overhead_s": ovh, "remaining_segments": len(rest)})
-    ctx["log"]("re-planned %d remaining segment(s) from segment %d: %.3f s/step, overhead %.0f s"
-               % (len(rest), k, s_step, ovh))
+        "segment": k, "decision": "observed_overhead", "overhead_s": ovh,
+        "observed_s_per_step": sum_d01 / n, "compute_replaced": s_step is not None})
+    ctx["log"]("segment %d observed: overhead %.0f s, %.3f s/step -> later --time updated"
+               % (k, ovh, sum_d01 / n))
 
 
 # ---------------------------------------------------------------------------
@@ -889,11 +976,12 @@ def main(argv=None, sbatch_runner=None, sacct_runner=None, snapshot_fn=None, sle
         sample_points = None
         if a.prediction or a.tune_report:
             sample_points, _src = wp.read_wrfinput_sample_points(case_dir)
-        candidates, over, notes = [], overheads(), []
+        over = fallback_overheads(geo, a.restart_io_form)
+        candidates, notes = [], []
         if a.prediction:
             with open(a.prediction) as f:
                 pred = json.load(f)
-            comp, over = model_from_prediction(pred, geo, sample_points)
+            comp, over = model_from_prediction(pred, geo, sample_points, over)
             hw = pred.get("hardware") or {}
             if (hw.get("nx"), hw.get("ny"), hw.get("omp", 1)) != (a.nx, a.ny, a.omp) \
                     or (pred.get("nodes") not in (None, a.nodes)):
@@ -909,9 +997,14 @@ def main(argv=None, sbatch_runner=None, sacct_runner=None, snapshot_fn=None, sle
         if replan:
             s = fallback_s_per_step(nl, config["ranks"], config["omp"])
             candidates = [{"config": config, "compute": constant_compute_fn(s)}]
-            notes.append("no prediction: %.3f s/step fallback (cell-step model x %.1f); "
-                         "re-planned from segment 0's observed rate" % (s, FALLBACK_RADIATION_FACTOR))
-        segs = plan_run(geo, n_end, candidates, over, a.segment_minutes, wall_limit_s)
+            notes.append("no prediction: %.3f s/step fallback (cell-step model x %.1f); later "
+                         "segments' --time from each finished segment's observed rate"
+                         % (s, FALLBACK_RADIATION_FACTOR))
+        L, segs = plan_run(geo, n_end, candidates, over, a.segment_minutes, wall_limit_s)
+        restart_min = restart_interval_minutes(geo, L)
+        if coldstart.get_first(text, "override_restart_timers", ".false.").lower().startswith(".t"):
+            notes.append("case sets override_restart_timers=.true.: set .false. in every segment "
+                         "(it would re-anchor the history alarms at each segment start)")
         if segs and geo["hist"][0] is None:
             notes.append("d01 writes no history")
         if coldstart.get_first(text, "write_hist_at_0h_rst", ".false.").lower().startswith(".t"):
@@ -921,9 +1014,10 @@ def main(argv=None, sbatch_runner=None, sacct_runner=None, snapshot_fn=None, sle
         print("error: %s" % e, file=sys.stderr)
         return 2
 
-    log("run %s -> %s (%d d01 steps of %gs)%s; %d segment(s), overheads: %s"
+    log("run %s -> %s (%d d01 steps of %gs)%s; %d segment(s), restart_interval %s, overheads: %s"
         % (_fmt(geo["start"]), _fmt(step_time(geo, n_end)), n_end, geo["dt"],
-           " stop-at" if n_end < geo["steps"] else "", len(segs), over["source"]))
+           " stop-at" if n_end < geo["steps"] else "", len(segs),
+           "%d min (every segment)" % restart_min if L else "off (one segment)", over["source"]))
     for s in segs:
         c = s["config"]
         log("  seg %d  %s -> %s  %-8s %dx%d t%d omp%d  predicted %s  --time=%s"
@@ -935,7 +1029,7 @@ def main(argv=None, sbatch_runner=None, sacct_runner=None, snapshot_fn=None, sle
         for s in segs[:2]:
             t_a = dt.datetime.strptime(s["start"], WRF_FMT)
             t_b = dt.datetime.strptime(s["end"], WRF_FMT)
-            new = render_segment_namelist(text, t_a, t_b, s["index"], s is segs[-1], s["config"],
+            new = render_segment_namelist(text, t_a, t_b, s["index"], s["config"], restart_min,
                                           a.restart_io_form)
             log("namelist diff, segment %d:" % s["index"])
             for ln in namelist_diff_summary(text, new):
@@ -947,12 +1041,12 @@ def main(argv=None, sbatch_runner=None, sacct_runner=None, snapshot_fn=None, sle
               "run_end": _fmt(step_time(geo, n_end)), "stop_at": a.stop_at, "dt": geo["dt"],
               "restart_io_form": a.restart_io_form, "cfl_rescue": a.cfl_rescue,
               "prediction": a.prediction, "tune_report": a.tune_report, "overheads": over,
+              "restart_quantum_steps": L, "restart_interval_min": restart_min,
               "notes": notes, "physics_gray": False, "decisions": [], "status": "running",
               "started_utc": dt.datetime.utcnow().isoformat()}
     ctx = dict(case_dir=case_dir, out=out, text=text, geo=geo, n_end=n_end, segments=segs,
-               candidates=candidates, over=over, restart_io_form=a.restart_io_form,
-               cfl_rescue=a.cfl_rescue, replan=replan, segment_minutes=a.segment_minutes,
-               wall_limit_s=wall_limit_s, wrf_tree=a.wrf_tree or os.environ.get("WRF_TREE"),
+               restart_min=restart_min, over=over, restart_io_form=a.restart_io_form,
+               cfl_rescue=a.cfl_rescue, replan=replan, wall_limit_s=wall_limit_s, wrf_tree=a.wrf_tree or os.environ.get("WRF_TREE"),
                env_source=a.env_source, campaign_dir=a.campaign_dir,
                sbatch_runner=sbatch_runner or sweep.default_sbatch_runner,
                sacct_runner=sacct_runner or sweep.default_sacct_runner, sacct_cmd=a.sacct_cmd,

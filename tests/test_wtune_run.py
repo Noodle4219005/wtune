@@ -78,7 +78,8 @@ def _cfg(nx=8, ny=9, numtiles=1, omp=1, nodes=1, cid="cli"):
 # ---------------------------------------------------------------------------
 def test_geometry_of_3dom_case(tmp_path):
     g = _geo(tmp_path)
-    assert (g["steps"], g["dt"], g["max_dom"], g["quantum"], g["hist_align"]) == (720, 60.0, 3, 1, 60)
+    assert (g["steps"], g["dt"], g["max_dom"], g["quantum"]) == (720, 60.0, 3, 1)
+    assert g["points"] == [100 * 100 * 45, 100 * 91 * 45, 91 * 91 * 45]
     assert g["end"] == _dt("2020-06-01_12:00:00")
 
 
@@ -127,42 +128,95 @@ def test_compute_over_interval_is_difference_of_whole_run_totals(tmp_path):
     assert comp(0, 300) < comp(300, 600)            # rising s_normal
 
 
+def _assert_l_grid(segs, L, n_end):
+    assert segs[0]["start_step"] == 0 and segs[-1]["end_step"] == n_end
+    for x, y in zip(segs, segs[1:]):
+        assert x["end_step"] == y["start_step"]
+    for s in segs:
+        assert s["start_step"] % L == 0
+        assert s["end_step"] % L == 0 or s["end_step"] == n_end
+    assert [s["index"] for s in segs] == list(range(len(segs)))
+
+
+def test_plan_fixed_minutes_is_the_restart_quantum(tmp_path):
+    g = _geo(tmp_path)
+    comp, over = _synthetic_model(g)
+    L, segs = wr.plan_run(g, 700, [{"config": _cfg(), "compute": comp}], over,
+                          segment_minutes=300)
+    assert L == 300 and wr.restart_interval_minutes(g, L) == 300
+    _assert_l_grid(segs, L, 700)
+    assert [(s["start_step"], s["end_step"]) for s in segs] == [(0, 300), (300, 600), (600, 700)]
+    assert [s["writes_restart"] for s in segs] == [True, True, False]
+    L1, one = wr.plan_run(g, 720, [{"config": _cfg(), "compute": comp}], over)
+    assert L1 is None and len(one) == 1
+    assert wr.restart_interval_minutes(g, None) == wr.RESTART_OFF_MIN
+
+
 def test_plan_wall_limit_with_synthetic_prediction(tmp_path):
     g = _geo(tmp_path)
     comp, over = _synthetic_model(g)
     cand = [{"config": _cfg(), "compute": comp}]
     limit = 400.0                                  # budget 320 s
-    segs = wr.plan_run(g, 720, cand, over, wall_limit_s=limit)
-    assert segs[0]["start_step"] == 0 and segs[-1]["end_step"] == 720
-    for x, y in zip(segs, segs[1:]):
-        assert x["end_step"] == y["start_step"]
+    L, segs = wr.plan_run(g, 720, cand, over, wall_limit_s=limit)
+    _assert_l_grid(segs, L, 720)
     for s in segs:
         assert s["predicted_wall_s"] <= 0.8 * limit + 1e-9
         assert s["time_limit"] <= "00:06:40"       # capped at --wall-limit
-    for s in segs[:-1]:
-        assert s["end_step"] % g["hist_align"] == 0            # on the history grid
-        a, b = s["start_step"], s["end_step"]
-        # the next history-aligned end would not have fit
-        assert wr.segment_wall(g, comp, over, a, b + g["hist_align"], 720) > 0.8 * limit
-    assert [s["index"] for s in segs] == list(range(len(segs)))
+    # one more quantum would push the most expensive L-grid segment over the budget
+    walls = [wr.segment_wall(g, comp, over, a, b, L + 1)
+             for a, b in wr.plan_segments_fixed(720, L + 1)]
+    assert max(walls) > 0.8 * limit
+    # uniform: every segment but the last is exactly L long
+    assert all(s["end_step"] - s["start_step"] == L for s in segs[:-1])
 
 
 def test_plan_wall_limit_boundaries_whole_minutes_and_steps(tmp_path):
     txt = NAMELIST_3DOM.replace("time_step                           = 60,",
-                                "time_step                           = 36,").replace(
-        "history_interval                    = 60,  60,   60,",
-        "history_interval                    = 0,  0,   0,")
+                                "time_step                           = 36,")
     g = _geo(tmp_path, txt)
-    assert g["hist_align"] is None
     cand = [{"config": _cfg(), "compute": wr.constant_compute_fn(0.5)}]
     over = wr.overheads(init_s=30.0, restart_read_s=10.0, restart_write_s=10.0,
                         history_frame_s=[0, 0, 0])
-    segs = wr.plan_run(g, g["steps"], cand, over, wall_limit_s=300.0)
-    assert len(segs) > 2
+    L, segs = wr.plan_run(g, g["steps"], cand, over, wall_limit_s=300.0)
+    assert len(segs) > 2 and L % 5 == 0             # quantum lcm(36, 60) = 180 s = 5 steps
+    assert (L * 36) % 60 == 0 and wr.restart_interval_minutes(g, L) == L * 36 // 60
+    _assert_l_grid(segs, L, g["steps"])
     for s in segs[:-1]:
-        secs = s["end_step"] * 36
-        assert secs % 60 == 0 and s["end_step"] % 5 == 0
         assert _dt(s["end"]).second == 0
+
+
+def test_fallback_io_scales_from_conus25_and_dorian_anchors(tmp_path):
+    conus = NAMELIST_3DOM.replace("max_dom                             = 3,",
+                                  "max_dom                             = 1,").replace(
+        "e_we                                = 100, 100, 91,", "e_we = 1500,").replace(
+        "e_sn                                = 100, 91,  91,", "e_sn = 1200,").replace(
+        "e_vert                              = 45,  45,  45,", "e_vert = 50,")
+    g = _geo(tmp_path, conus)
+    assert wr.fallback_restart_io_s(g, 2) == pytest.approx((324.0, 120.0))
+    assert wr.fallback_restart_io_s(g, 14) == pytest.approx((1.05, 2.3))
+    over = wr.fallback_overheads(g, 14)
+    assert (over["restart_write_s"], over["restart_read_s"]) == pytest.approx((1.05, 2.3))
+    half = dict(g, points=[g["points"][0] / 2])
+    assert wr.fallback_restart_io_s(half, 2) == pytest.approx((162.0, 60.0))
+    dorian = dict(g, points=[664 * 700 * 40, 451 * 451 * 40], max_dom=2)
+    d01, d02 = wr.fallback_history_frame_s(dorian)
+    assert 7 * d01 + 25 * d02 == pytest.approx(300.5)          # the anchor reproduces itself
+    assert d01 == pytest.approx(16.75, abs=0.05)               # f1 atlas measured ~15.7 s
+
+
+def test_prediction_io_block_wins_over_fallback(tmp_path):
+    g = _geo(tmp_path)
+    fb = wr.fallback_overheads(g, 2)
+    pred = {"result": {"points": [{"at": g["start"].isoformat(), "s_normal": 1.0}],
+                       "r_night": 1.0, "r_day": 1.0, "init_s": 50.0}}
+    _c, over = wr.model_from_prediction(pred, g, None, fb)
+    assert over["restart_write_s"] == fb["restart_write_s"]
+    assert over["history_frame_s"] == fb["history_frame_s"]
+    pred["io"] = {"restart": {"per_write_s": 7.0}, "history": [{"median_s": 1.5}]}
+    _c, over = wr.model_from_prediction(pred, g, None, fb)
+    assert over["restart_write_s"] == over["restart_read_s"] == 7.0
+    assert over["history_frame_s"][0] == 1.5 and over["history_frame_s"][1:] == \
+        fb["history_frame_s"][1:]
 
 
 def test_plan_wall_limit_too_small_raises(tmp_path):
@@ -184,7 +238,7 @@ def test_tune_report_picks_lowest_predicted_compute_per_segment(tmp_path):
         {"id": "C", "nproc_x": 4, "nproc_y": 4, "numtiles": 1, "omp": 1, "points": []}]}
     cands = wr.tune_candidates(report, g, None, {}, 1)
     assert [c["config"]["id"] for c in cands] == ["A", "B"]
-    segs = wr.plan_run(g, 720, cands, wr.overheads(), segment_minutes=360)
+    _L, segs = wr.plan_run(g, 720, cands, wr.overheads(), segment_minutes=360)
     assert [s["config"]["id"] for s in segs] == ["A", "B"]
     with pytest.raises(wr.RunError):
         wr.tune_candidates(report, g, None, {}, 2)          # measured at 1 node
@@ -201,13 +255,14 @@ def test_rescue_time_step():
 # ---------------------------------------------------------------------------
 # segment namelist
 # ---------------------------------------------------------------------------
-def _render(k, is_last, start="2020-06-01_06:00:00", end="2020-06-01_12:00:00", **kw):
-    return wr.render_segment_namelist(NAMELIST_3DOM, _dt(start), _dt(end), k, is_last,
-                                      _cfg(nx=12, ny=6, numtiles=4), **kw)
+def _render(k, start="2020-06-01_06:00:00", end="2020-06-01_12:00:00", L_min=180,
+            text=NAMELIST_3DOM, **kw):
+    return wr.render_segment_namelist(text, _dt(start), _dt(end), k,
+                                      _cfg(nx=12, ny=6, numtiles=4), L_min, **kw)
 
 
 def test_namelist_every_domain_start_end_and_run_length(tmp_path):
-    txt = _render(1, False, "2020-06-01_06:00:00", "2020-06-01_09:00:00")
+    txt = _render(1, "2020-06-01_06:00:00", "2020-06-01_09:00:00")
     nl = _nl_from_text(tmp_path, txt)
     tc = nl["time_control"]
     for key, want in (("start_year", 2020), ("start_month", 6), ("start_day", 1),
@@ -229,19 +284,26 @@ def test_namelist_every_domain_start_end_and_run_length(tmp_path):
     assert "io_form_input                       = 2" in lines
 
 
-def test_namelist_restart_keys_k0_vs_k1(tmp_path):
-    nl0 = _nl_from_text(tmp_path, _render(0, False, "2020-06-01_00:00:00", "2020-06-01_06:00:00"),
-                        "k0")
-    tc0 = nl0["time_control"]
-    assert tc0["restart"] == [False] and "override_restart_timers" not in tc0
-    assert tc0["restart_interval"] == [360] and tc0["io_form_restart"] == [14]
-    nl1 = _nl_from_text(tmp_path, _render(1, False, "2020-06-01_06:00:00",
-                                          "2020-06-01_09:00:00", restart_io_form=2), "k1")
-    tc1 = nl1["time_control"]
-    assert tc1["restart"] == [True] and tc1["override_restart_timers"] == [True]
-    assert tc1["restart_interval"] == [180] and tc1["io_form_restart"] == [2]
-    last = _nl_from_text(tmp_path, _render(2, True), "k2")["time_control"]
-    assert last["restart_interval"] == [wr.RESTART_OFF_MIN] and last["restart"] == [True]
+def test_namelist_restart_keys_same_quantum_no_override(tmp_path):
+    segs = [(0, "2020-06-01_00:00:00", "2020-06-01_03:00:00"),
+            (1, "2020-06-01_03:00:00", "2020-06-01_06:00:00"),
+            (2, "2020-06-01_06:00:00", "2020-06-01_08:00:00")]        # last one shorter
+    for k, a, b in segs:
+        txt = _render(k, a, b, L_min=180, restart_io_form=2 if k == 1 else 14)
+        assert "override_restart_timers" not in txt
+        tc = _nl_from_text(tmp_path, txt, "k%d" % k)["time_control"]
+        assert tc["restart_interval"] == [180]                         # L in EVERY segment
+        assert tc["restart"] == [k > 0]
+        assert tc["io_form_restart"] == [2 if k == 1 else 14]
+
+
+def test_namelist_case_override_restart_timers_forced_false(tmp_path):
+    base = NAMELIST_3DOM.replace(" restart                             = .false.,",
+                                 " restart                             = .false.,\n"
+                                 " override_restart_timers = .true.,")
+    for k in (0, 1):
+        tc = _nl_from_text(tmp_path, _render(k, text=base), "o%d" % k)["time_control"]
+        assert tc["override_restart_timers"] == [False]
 
 
 def test_namelist_restart_interval_variants_and_time_step_override(tmp_path):
@@ -249,7 +311,7 @@ def test_namelist_restart_interval_variants_and_time_step_override(tmp_path):
                                  " restart_interval                    = 7200,\n"
                                  " restart_interval_h = 5,\n restart_interval_m = 30,")
     txt = wr.render_segment_namelist(base, _dt("2020-06-01_00:00:00"),
-                                     _dt("2020-06-01_06:00:00"), 0, False, _cfg(),
+                                     _dt("2020-06-01_06:00:00"), 0, _cfg(), 360,
                                      time_step=45)
     tc = _nl_from_text(tmp_path, txt)["time_control"]
     assert tc["restart_interval_h"] == [0] and tc["restart_interval_m"] == [360]
@@ -258,8 +320,8 @@ def test_namelist_restart_interval_variants_and_time_step_override(tmp_path):
 
 
 def test_namelist_diff_summary_lists_changes():
-    diff = wr.namelist_diff_summary(NAMELIST_3DOM, _render(1, False))
-    assert any(ln.startswith("+") and "override_restart_timers" in ln for ln in diff)
+    diff = wr.namelist_diff_summary(NAMELIST_3DOM, _render(1))
+    assert any(ln.startswith("+") and "restart " in ln and ".true." in ln for ln in diff)
     assert any(ln.startswith("-") and "run_hours" in ln for ln in diff)
 
 
@@ -450,15 +512,25 @@ def test_controller_two_segment_happy_path(tmp_path):
     assert [os.path.basename(s) for s, _ in f.submitted] == ["seg_0", "seg_1"]
     assert [s["attempts"][0]["job_id"] for s in rep["segments"]] == ["1001", "1002"]
     assert rep["physics_gray"] is False
-    assert [d["decision"] for d in rep["decisions"]] == ["next", "replan", "done"]
+    assert [d["decision"] for d in rep["decisions"]] == ["next", "observed_overhead", "done"]
+    assert rep["restart_interval_min"] == 360
+    obs = rep["decisions"][1]
+    assert obs["overhead_s"] == 300.0 and obs["compute_replaced"] is True   # 600 s - 300 s d01
+    # later --time from observed: 360 steps x 300/360 s + 300 s overhead + segment-0 read
+    s1 = rep["segments"][1]
+    assert s1["predicted_wall_s"] == pytest.approx(300.0 + 300.0 + rep["overheads"]["restart_read_s"])
+    assert s1["time_limit"] == wr._hms(wr.time_limit_s(s1["predicted_wall_s"]))
     seg1 = out / "seg_1"
     for d in (1, 2, 3):
         name = "wrfrst_d%02d_2020-06-01_06:00:00" % d
         assert os.readlink(seg1 / name) == str(out / "seg_0" / name)
     tc1 = wp.parse_namelist(str(seg1 / "namelist.input"))["time_control"]
-    assert tc1["restart"] == [True] and tc1["override_restart_timers"] == [True]
-    assert tc1["restart_interval"] == [wr.RESTART_OFF_MIN]
-    assert "wrfrst_d01_2020-06-01_06:00:00" in (out / "seg_1" / "adios2.xml").read_text()
+    assert tc1["restart"] == [True] and "override_restart_timers" not in tc1
+    assert tc1["restart_interval"] == [360]
+    xml = (out / "seg_1" / "adios2.xml").read_text()
+    assert "wrfrst_d01_2020-06-01_06:00:00" in xml and "wrfrst_d01_2020-06-01_12:00:00" in xml
+    tc0 = wp.parse_namelist(str(out / "seg_0" / "namelist.input"))["time_control"]
+    assert tc0["restart_interval"] == [360] and "override_restart_timers" not in tc0
     assert (out / "seg_0" / "segment.sbatch").exists()
     assert _tree_state(case) == before
 

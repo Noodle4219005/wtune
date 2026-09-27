@@ -1326,7 +1326,8 @@ def rebuild_segment_timeout_min(case_dir, spinup_min, ranks, omp=1, safety=3.0, 
 
 
 def run_rebuild_points(ctx, points, best_config, nodes, case_dir, out_dir, run_start,
-                       spinup_min=60, grib_dir=None, date_shift_to=None, forcing=None):
+                       spinup_min=60, grib_dir=None, date_shift_to=None, forcing=None,
+                       measure_steps=None):
     """Measures every rebuild-sourced ProbePoint of `points` in ONE coldstart_sample job: plans
     (wtune_probe_plan.plan_rebuild_segments -- one build_plan(times=[...]) call covering every
     point, pinning each one's forcing-grid START T recovered from its already-resolved measured
@@ -1370,7 +1371,7 @@ def run_rebuild_points(ctx, points, best_config, nodes, case_dir, out_dir, run_s
         pdir = os.path.join(out_dir, "pt_%d" % i)
         plan = wtune_probe_plan.plan_rebuild_segments(
             case_dir, [p], config, pdir, spinup_min=spinup_min, date_shift_to=date_shift_to,
-            grib_dir=grib_dir, forcing=forcing)
+            grib_dir=grib_dir, forcing=forcing, measure_steps=measure_steps)
         # The point's own PLAN/grib: run.sbatch links "$PLAN/grib/<manifest name>", so a cache
         # shared across point dirs left every GRIB link dangling (ungrib "unable to open
         # GRIBFILE.AAA", GFS-chain zhengzhou 2026-09-27; ERA5 has no GRIB and was unaffected).

@@ -6,7 +6,7 @@ combined into one prediction (wtune_probe_plan.combine). Validated on scc (2026-
 conus25 C3 -0.98 %, zhengzhou -5.78 % / -5.67 % (phase 7), ERA5 spin-up 20 min (phase 3).
 
     wtune predict-rebuild CASE_DIR --nodes 4 --nx 16 --ny 18 [--numtiles 1] [--omp 1]
-        [--forcing era5|auto] [--spinup-min 20] [--max-points 5] [--rain-snow]
+        [--forcing era5|auto] [--spinup-min 20] [--max-points 5] [--measure-steps N|short] [--rain-snow]
         [--out DIR] [--dry-run]
 
 CASE_DIR needs namelist.input and wrfinput_d01 (the geometry and, for --forcing era5, the ERA5
@@ -27,6 +27,17 @@ for _p in (os.path.join(_HERE, "tools"), os.path.join(_HERE, "predictor"), _HERE
         sys.path.insert(0, _p)
 
 ERA5_PIN = "era5_arco"
+
+
+def _measure_steps(arg, stepra):
+    """None -> coldstart's default window; 'short' -> stepra+10 (one radiation step plus
+    margin, located by known phase in score_windows_from_rsl); else an int >= stepra+1."""
+    if arg is None:
+        return None
+    n = stepra + 10 if arg == "short" else int(arg)
+    if n < stepra + 1:
+        raise SystemExit("--measure-steps %d < stepra+1 (%d)" % (n, stepra + 1))
+    return n
 
 
 def plan(case_dir, forcing, spinup_min, max_points, sources=("rebuild",)):
@@ -85,6 +96,9 @@ def main(argv=None):
     ap.add_argument("--spinup-min", type=int, default=None,
                     help="default 20 with era5 (phase 3), 60 with auto")
     ap.add_argument("--max-points", type=int, default=None)
+    ap.add_argument("--measure-steps", default=None,
+                    help="steps measured after spin-up: an integer >= stepra+1, or 'short' for "
+                         "stepra+10 (default max(30, 2*stepra))")
     ap.add_argument("--rain-snow", action="store_true",
                     help="era5 only: add rain/snow from the 137-level store (optional; ~+1 pp on "
                          "zhengzhou, within rerun noise)")
@@ -101,8 +115,10 @@ def main(argv=None):
     t_start = time.time()
     nl, run_start, run_end, dt_s, stepra, points, notes = plan(case_dir, forcing, spinup,
                                                                a.max_points)
-    print("run %s -> %s, dt %.0f s, stepra %d, forcing %s, spin-up %d min"
-          % (run_start, run_end, dt_s, stepra, forcing, spinup))
+    measure_steps = _measure_steps(a.measure_steps, stepra)
+    print("run %s -> %s, dt %.0f s, stepra %d, forcing %s, spin-up %d min, measure %s steps"
+          % (run_start, run_end, dt_s, stepra, forcing, spinup,
+             measure_steps if measure_steps is not None else "max(30,2*stepra)"))
     for p in points:
         print("  point %s  %-10s %s" % (p.at.strftime("%Y-%m-%d_%H:%M"), p.reason, p.source))
     for n in notes:
@@ -132,14 +148,15 @@ def main(argv=None):
     ctx = _ctx(case_dir, a.nodes, out)
     meas, job_ids = wtune_tune.run_rebuild_points(
         ctx, points, best, a.nodes, case_dir, os.path.join(out, "rebuild"), run_start,
-        spinup_min=spinup, forcing=None if forcing == "auto" else forcing)
+        spinup_min=spinup, forcing=None if forcing == "auto" else forcing,
+        measure_steps=measure_steps)
     cal = wp.load_calibration(str(wp.DEFAULT_CALIBRATION))
     sample_points, _g = wp.read_wrfinput_sample_points(case_dir)
     result = pp.combine(meas, run_start, run_end, dt_s, stepra, calibration=cal,
                         sample_points=sample_points, case_dir=case_dir, nl=nl, ranks=ranks,
                         nodes=a.nodes)
     record = {"case_dir": case_dir, "hardware": best, "nodes": a.nodes, "forcing": forcing,
-              "spinup_min": spinup, "rain_snow": a.rain_snow, "job_ids": job_ids, "notes": notes,
+              "spinup_min": spinup, "measure_steps": measure_steps, "rain_snow": a.rain_snow, "job_ids": job_ids, "notes": notes,
               "points": [dict(at=p.at.isoformat(), reason=p.reason, source=p.source) for p in points],
               "result": result, "prediction_wall_s": round(time.time() - t_start, 1),
               "saved_utc": dt.datetime.utcnow().isoformat()}

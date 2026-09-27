@@ -81,3 +81,12 @@ def test_segment_timeout_scales_with_case_cost_and_has_a_floor(monkeypatch):
     assert 55 <= t <= 80
     monkeypatch.setattr(wp, "nested_equivalent_cells", lambda nl, md: 1.0e6)
     assert wtune_tune.rebuild_segment_timeout_min("/case", 20, 288) == 30
+
+
+def test_measure_steps_option():
+    from wtune_rebuild_predict import _measure_steps
+    assert _measure_steps(None, 17) is None
+    assert _measure_steps("short", 17) == 27
+    assert _measure_steps("20", 17) == 20
+    with pytest.raises(SystemExit):
+        _measure_steps("17", 17)

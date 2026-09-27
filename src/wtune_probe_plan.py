@@ -733,7 +733,8 @@ def combine(points_measurements, run_start, run_end, dt, stepra, calibration=Non
 # the pinned time(s) it wants, which is precisely "one specific time, one specific config".
 # ---------------------------------------------------------------------------
 def plan_rebuild_segments(case_dir, points, config, out_dir, spinup_min=60, date_shift_to=None,
-                           namelist=None, grib_dir=None, forcing=None, now=None):
+                           namelist=None, grib_dir=None, forcing=None, now=None,
+                           measure_steps=None):
     """Plans (writes plan.json/namelist.wps/... under out_dir, exactly as build_plan always has
     -- does not fetch/stage/run) ALL rebuild-sourced segments of ONE prediction, for ONE
     decomposition `config` ({"ranks", "omp", "nx", "ny", "nodes"} -- nx/ny/nodes/omp optional,
@@ -786,7 +787,7 @@ def plan_rebuild_segments(case_dir, points, config, out_dir, spinup_min=60, date
     plan = coldstart.build_plan(
         case_dir, out_dir, k=len(points), nodes=config.get("nodes", 1), ranks=config["ranks"],
         omp=config.get("omp", 1), nx=config.get("nx"), ny=config.get("ny"),
-        numtiles=config.get("numtiles", 1),
+        numtiles=config.get("numtiles", 1), measure_steps=measure_steps,
         spinup_min=spinup_min, namelist=namelist, grib_dir=grib_dir, forcing=forcing, now=now,
         date_shift_to=(date_shift_to.strftime(_ISO_FMT) if date_shift_to else None),
         times=pinned)

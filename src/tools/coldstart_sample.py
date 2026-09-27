@@ -738,12 +738,18 @@ def measured_window_mean_sunlit(sample_points, t_start, t_end, n_samples=5):
 # Window selection (plan)
 # ---------------------------------------------------------------------------
 
-def compute_window_seconds(spinup_min, dt_seconds, radt_minutes):
-    """W = spinup_min*60 + measure_steps*dt, measure_steps = max(30, 2*stepra), stepra =
+def compute_window_seconds(spinup_min, dt_seconds, radt_minutes, measure_steps=None):
+    """W = spinup_min*60 + measure_steps*dt, measure_steps = max(30, 2*stepra) by default, stepra =
     wtune_predict.steps_per_radiation_call(radt, dt) -- so every window contains >= 2
-    post-spin-up radiation steps. Returns (W_seconds, stepra, measure_steps)."""
+    post-spin-up radiation steps. An explicit `measure_steps` (>= stepra + 1, so at least one
+    radiation step is measured) shortens the window; scoring then locates radiation steps by
+    their known phase instead of detecting it. Returns (W_seconds, stepra, measure_steps)."""
     stepra = predict.steps_per_radiation_call(radt_minutes, dt_seconds)
-    measure_steps = max(30, 2 * stepra)
+    if measure_steps is None:
+        measure_steps = max(30, 2 * stepra)
+    elif int(measure_steps) < stepra + 1:
+        raise ColdstartError("measure_steps %d < stepra+1 (%d): no radiation step would be measured"
+                             % (measure_steps, stepra + 1))
     W = spinup_min * 60.0 + measure_steps * dt_seconds
     return W, stepra, measure_steps
 
@@ -1071,7 +1077,7 @@ def build_plan(case_dir, out_dir, k=4, nodes=1, ranks=72, omp=1, nx=None, ny=Non
                spinup_min=60, namelist=None, namelist_wps=None, geo_from_wrfinput=None,
                grib_dir=None, ncdump=None, use_state=False, now=None, geog_path=None,
                forcing=None, date_shift_to=None, analog_path=None, times=None,
-               real_only=False, ml_model=None, numtiles=1):
+               real_only=False, ml_model=None, numtiles=1, measure_steps=None):
     rows, blockers, nl = inspect_case(case_dir, namelist=namelist, namelist_wps=namelist_wps,
                                        geo_from_wrfinput=geo_from_wrfinput, grib_dir=grib_dir,
                                        ncdump=ncdump, now=now, geog_path=geog_path)
@@ -1142,7 +1148,8 @@ def build_plan(case_dir, out_dir, k=4, nodes=1, ranks=72, omp=1, nx=None, ny=Non
               % (shift_s_t0, window_anchor_start.strftime(_WRF_TIME_FMT),
                  t0_grid.strftime(_WRF_TIME_FMT)))
 
-    W, stepra, measure_steps = compute_window_seconds(spinup_min, dt, radt)
+    W, stepra, measure_steps = compute_window_seconds(spinup_min, dt, radt,
+                                                      measure_steps=measure_steps)
 
     nlw_path = namelist_wps or os.path.join(case_dir, "namelist.wps")
     wi_path = geo_from_wrfinput or os.path.join(case_dir, "wrfinput_d01")
@@ -2630,7 +2637,14 @@ def score_windows_from_rsl(plan, sample_points, calibration):
             raise ColdstartError("window %d: no post-spinup steps found in %s (spinup=%.0fs)"
                                   % (k, rsl_path, spinup_seconds))
         wall = [sec for _, sec in kept]
-        flags = predict.classify_steps_detected(wall, stepra)
+        if plan.get("measure_steps", 2 * stepra) < 2 * stepra:
+            # An explicitly shortened window (compute_window_seconds' measure_steps) has too few
+            # samples for classify_steps_detected's phase detection. Each window is a fresh run
+            # starting at T, so its radiation steps are known: local step n (n*dt after T) with
+            # n % stepra == 1.
+            flags = [int(round((sd - T).total_seconds() / dt)) % stepra == 1 for sd, _ in kept]
+        else:
+            flags = predict.classify_steps_detected(wall, stepra)
         normal = [sec for i, (_sd, sec) in enumerate(kept) if not flags[i]]
         if not normal:
             raise ColdstartError("window %d: no normal (non-radiation) steps after spin-up" % k)

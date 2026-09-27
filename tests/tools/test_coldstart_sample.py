@@ -2475,3 +2475,43 @@ def test_era5_pin_fetch_writes_intermediate_manifest(tmp_path):
     pwf = cs._per_window_forcing_from_forcing_json(str(tmp_path), plan)
     assert pwf == [{"prefix": "ERA5", "vtable": "none", "forcing_interval_h": 1}]
     assert cs.resolve_forcing_chain_for(None, forcing_pin=cs.ERA5_DATASET)[0].prefix == "ERA5"
+
+
+class TestShortMeasureWindow(unittest.TestCase):
+    """--measure-steps short (decision 0054 speed attempt): a window of stepra+10 measured steps
+    is too short for classify_steps_detected, so radiation steps are located by known phase."""
+
+    def test_explicit_measure_steps_sets_window(self):
+        W, stepra, measure_steps = cs.compute_window_seconds(10, 36.0, 10.0, measure_steps=27)
+        self.assertEqual(stepra, 17)
+        self.assertEqual(measure_steps, 27)
+        self.assertEqual(W, 600.0 + 27 * 36.0)
+
+    def test_measure_steps_below_one_radiation_period_refused(self):
+        with self.assertRaises(cs.ColdstartError):
+            cs.compute_window_seconds(10, 36.0, 10.0, measure_steps=17)
+
+    def test_short_window_flags_radiation_steps_by_known_phase(self):
+        with tempfile.TemporaryDirectory() as d:
+            T = datetime.datetime(2021, 7, 20, 0, 0, 0)
+            dt, stepra, spin_steps, measure = 36.0, 17, 17, 27
+            lines = []
+            for n in range(1, spin_steps + measure + 1):
+                sec = 5.0 if n % stepra == 1 else 1.0
+                lines.append(_rsl_line(T + datetime.timedelta(seconds=dt * n), sec))
+            os.makedirs(os.path.join(d, "win_0", "wrf"))
+            with open(os.path.join(d, "win_0", "wrf", "rsl.error.0000"), "w") as f:
+                f.write("\n".join(lines) + "\n")
+            spinup_seconds = dt * spin_steps + 1.0
+            plan = {"dt_s": dt, "radt_min": 10.0, "stepra": stepra, "measure_steps": measure,
+                    "spinup_min": spinup_seconds / 60.0,
+                    "W_seconds": spinup_seconds + measure * dt,
+                    "run_start": T.strftime(_WRF_TIME_FMT),
+                    "windows": [{"t": T.strftime(_WRF_TIME_FMT), "reason": "rebuild"}],
+                    "_plan_dir": d}
+            out, _pooled, _anchors = cs.score_windows_from_rsl(plan, None, {})
+            # post-spin-up steps n=18..44: radiation at n=18 and n=35
+            self.assertEqual(out[0]["n_rad"], 2)
+            self.assertEqual(out[0]["n_normal"], measure - 2)
+            self.assertAlmostEqual(out[0]["s_k"], 1.0)
+            self.assertAlmostEqual(out[0]["r_local"], 5.0)

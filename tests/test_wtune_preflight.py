@@ -1036,6 +1036,7 @@ def write_wrfinput(path, overrides=None):
             "TSK": ("f4", dim_sfc, data["TSK"]),
             "SST": ("f4", dim_sfc, data["SST"]),
             "LANDMASK": ("f4", dim_sfc, data["LANDMASK"]),
+            **({"XLAND": ("f4", dim_sfc, data["XLAND"])} if "XLAND" in data else {}),
         },
     )
 
@@ -1077,24 +1078,95 @@ def test_c10_tslb_out_of_range_is_fatal(tmp_path):
     assert len(fatals) == 1
 
 
-def test_c10_smois_out_of_range_is_fatal_on_land_only(tmp_path):
-    """Real tw3km-2031/case_I incident shape: SMOIS goes negative at a LAND point (must be
-    FATAL) and, separately, at a WATER point (LANDMASK==0, must NOT be flagged -- SMOIS is not
-    physically meaningful over open ocean on this LSM)."""
-    text = one_domain_namelist()
-    write_namelist(tmp_path, text)
-    sm = _c10_full(_C10_SHAPE_4D, 0.3)
-    sm[0, 0, 0, 0] = -0.02   # land point, bad -- the actual incident's SM000010 value
-    sm[0, 0, 1, 1] = -0.5    # water point, would be bad if checked, must be masked out
-    lm = _c10_full(_C10_SHAPE_SFC, 1.0)
-    lm[0, 1, 1] = 0.0        # (south_north=1, west_east=1) is water
-    write_wrfinput(tmp_path / "wrfinput_d01", overrides={"SMOIS": sm, "LANDMASK": lm})
+def _c10_run(tmp_path, overrides):
+    write_namelist(tmp_path, one_domain_namelist())
+    write_wrfinput(tmp_path / "wrfinput_d01", overrides=overrides)
     nl = wp.parse_namelist(str(tmp_path / "namelist.input"))
     findings = []
     pf.check_c10_wrfinput_sanity(nl, tmp_path, findings)
-    fatals = [f for f in findings if f.severity == "FATAL" and f.id == "C10" and "SMOIS" in f.message]
+    return [f for f in findings if f.id == "C10" and f.severity in ("FATAL", "WARN")]
+
+
+def test_c10_smois_negative_on_land_warns_water_ignored(tmp_path):
+    """Small negative SMOIS on land is WARN, not FATAL: zhengzhou (ran fine) has 1923 land values
+    in [-0.012, 0) at deeper levels. A water point (LANDMASK==0) is not checked at all."""
+    sm = _c10_full(_C10_SHAPE_4D, 0.3)
+    sm[0, 0, 0, 0] = -0.02   # land point -- the case_I SM000010 value
+    sm[0, 1, 0, 1] = -0.012  # land point, deeper level
+    sm[0, 0, 1, 1] = -0.5    # water point, must be masked out
+    lm = _c10_full(_C10_SHAPE_SFC, 1.0)
+    lm[0, 1, 1] = 0.0
+    out = _c10_run(tmp_path, {"SMOIS": sm, "LANDMASK": lm})
+    smois = [f for f in out if "SMOIS" in f.message]
+    assert [f.severity for f in smois] == ["WARN"]
+    assert "has 2 value(s)" in smois[0].message   # the water point is not counted
+
+
+def test_c10_smois_above_one_on_land_is_fatal(tmp_path):
+    sm = _c10_full(_C10_SHAPE_4D, 0.3)
+    sm[0, 0, 0, 0] = 1.5
+    out = _c10_run(tmp_path, {"SMOIS": sm})
+    assert [f.severity for f in out if "SMOIS" in f.message] == ["FATAL"]
+
+
+def test_c10_case_i_like_nonzero_garbage_tslb_is_fatal(tmp_path):
+    """tw3km-2031/case_I signature: non-zero garbage land TSLB (-12.5, 170.6 ...), none exactly
+    0 -- stays FATAL, and the message reports count and min/max of the bad values."""
+    tslb = _c10_full(_C10_SHAPE_4D, 290.0)
+    tslb[0, 0, 0, 0] = -12.5
+    tslb[0, 0, 0, 1] = 170.6
+    tslb[0, 1, 1, 0] = -10.9
+    out = _c10_run(tmp_path, {"TSLB": tslb})
+    fatals = [f for f in out if f.severity == "FATAL" and "TSLB" in f.message]
     assert len(fatals) == 1
-    assert "has 1 value(s)" in fatals[0].message  # only the land point counted, not the water one
+    assert "has 3 non-zero value(s)" in fatals[0].message
+    assert "min=-12.500" in fatals[0].message and "max=170.600" in fatals[0].message
+    assert not [f for f in out if f.severity == "WARN" and "TSLB" in f.message]
+
+
+def test_c10_zero_tslb_on_land_warns_only(tmp_path):
+    """dorian2019 d02 (ran fine): land columns with TSLB exactly 0 -> one WARN, not FATAL."""
+    tslb = _c10_full(_C10_SHAPE_4D, 290.0)
+    tslb[0, :, 0, 0] = 0.0      # one full land column
+    tslb[0, 1, 1, 1] = 0.0      # a second land point, deeper level only
+    out = _c10_run(tmp_path, {"TSLB": tslb})
+    tslb_f = [f for f in out if "TSLB" in f.message or "soil temperature" in f.message]
+    assert [f.severity for f in tslb_f] == ["WARN"]
+    assert "2 land points with undefined (0) soil temperature" in tslb_f[0].message
+
+
+def test_c10_tslb_on_water_not_checked(tmp_path):
+    tslb = _c10_full(_C10_SHAPE_4D, 290.0)
+    tslb[0, :, 1, 1] = 0.0
+    tslb[0, 0, 0, 1] = -5.0
+    lm = _c10_full(_C10_SHAPE_SFC, 1.0)
+    lm[0, 1, 1] = 0.0
+    xl = _c10_full(_C10_SHAPE_SFC, 1.0)
+    xl[0, 0, 1] = 2.0           # LANDMASK says land but XLAND says water -> not land
+    out = _c10_run(tmp_path, {"TSLB": tslb, "LANDMASK": lm, "XLAND": xl})
+    assert out == []
+
+
+def test_c10_tslb_nonzero_threshold_knob(tmp_path, monkeypatch):
+    monkeypatch.setattr(pf, "_C10_TSLB_NONZERO_FATAL_THRESHOLD", 2)
+    tslb = _c10_full(_C10_SHAPE_4D, 290.0)
+    tslb[0, 0, 0, 0] = 101.1
+    tslb[0, 0, 0, 1] = 101.1
+    out = _c10_run(tmp_path, {"TSLB": tslb})
+    assert [f.severity for f in out if "TSLB" in f.message] == ["WARN"]
+
+
+def test_c10_sst_zero_on_water_skipped_nonzero_bad_fatal(tmp_path):
+    lm = _c10_full(_C10_SHAPE_SFC, 0.0)      # all water
+    lm[0, 0, 0] = 1.0                        # one land point
+    sst = _c10_full(_C10_SHAPE_SFC, 290.0)
+    sst[0, 0, 0] = 0.0                       # land: never checked
+    sst[0, 0, 1] = 0.0                       # water (inland lake): exactly 0 -> skipped
+    assert _c10_run(tmp_path, {"SST": sst, "LANDMASK": lm}) == []
+    sst[0, 1, 1] = 50.0                      # water, non-zero garbage -> FATAL
+    out = _c10_run(tmp_path, {"SST": sst, "LANDMASK": lm})
+    fatals = [f for f in out if f.severity == "FATAL" and "SST" in f.message]
+    assert len(fatals) == 1 and "has 1 non-zero value(s)" in fatals[0].message
 
 
 def test_c10_tsk_out_of_range_is_fatal(tmp_path):

@@ -1217,14 +1217,21 @@ def check_c9_disk(nl, run_dir, findings):
 # C10 -- wrfinput physical sanity (FATAL, netCDF4 optional)
 # --------------------------------------------------------------------------
 
-# varname -> (lo, hi, land_only). land_only=True masks the check to LANDMASK==1 points (when
-# LANDMASK exists in the file; otherwise every point is checked, which is conservative).
-_C10_RANGE_VARS = {
-    "TSLB": (200.0, 350.0, False),
-    "SMOIS": (0.0, 1.0, True),
-    "TSK": (180.0, 350.0, False),
-    "SST": (180.0, 350.0, False),
-}
+# Range bounds. Masking differs per field (see check_c10_wrfinput_sanity's docstring for the
+# scc truth-dir evidence behind each rule):
+#   TSLB  land points only; exactly-0 values are real.exe's "undefined" fill -> WARN, non-zero
+#         values outside the bounds -> FATAL (the tw3km-2031/case_I garbage signature).
+#   SST   water points only; exactly-0 values skipped (inland lakes carry SST=0 in healthy runs).
+#   SMOIS land points only; negative -> WARN, > 1 -> FATAL.
+#   TSK   every point, FATAL (unchanged).
+_C10_TSLB_RANGE = (200.0, 350.0)
+_C10_SST_RANGE = (180.0, 350.0)
+_C10_SMOIS_RANGE = (0.0, 1.0)
+_C10_TSK_RANGE = (180.0, 350.0)
+# TSLB non-zero out-of-range values are FATAL when their count EXCEEDS this threshold (and WARN
+# when 1..threshold). 0 = any single such value is FATAL. Kept as a knob because dorian2019 d02
+# (ran fine) carries 2 land values of 101.1 K; case_I carried 13186.
+_C10_TSLB_NONZERO_FATAL_THRESHOLD = 0
 _C10_NAN_VARS = ("T", "U", "V", "QVAPOR", "TSLB", "SMOIS", "PSFC")
 
 
@@ -1237,6 +1244,48 @@ def _c10_filled(var):
     if np.ma.isMaskedArray(raw):
         return raw.filled(np.nan).astype("float64")
     return np.asarray(raw, dtype="float64")
+
+
+def _c10_bcast(mask, arr):
+    """Broadcast a (Time, sn, we) point mask to `arr` (inserting the level axis for 4-D soil
+    fields); None means 'no mask available' -> every point."""
+    import numpy as np
+    if mask is None:
+        return np.ones(arr.shape, dtype=bool)
+    if mask.ndim < arr.ndim:
+        mask = mask[:, np.newaxis, ...]
+    return np.broadcast_to(mask, arr.shape)
+
+
+def _c10_land_water(ds):
+    """(land, water) boolean point masks. land = LANDMASK==1 and, when present, XLAND==1;
+    water = LANDMASK==0. Either is None when LANDMASK is absent (then every point is checked,
+    which is conservative)."""
+    if "LANDMASK" not in ds.variables:
+        return None, None
+    lm = _c10_filled(ds.variables["LANDMASK"])
+    land = lm > 0.5
+    if "XLAND" in ds.variables:
+        xl = _c10_filled(ds.variables["XLAND"])
+        if xl.shape == lm.shape:
+            land = land & (abs(xl - 1.0) < 0.5)
+    return land, lm < 0.5
+
+
+def _c10_range_finding(findings, severity, d, varname, wname, arr, bad, lo, hi, kind, where):
+    import numpy as np
+    idx = tuple(int(i) for i in np.argwhere(bad)[0])
+    vals = arr[bad]
+    findings.append(Finding(
+        severity, "C10",
+        "domain %d: %s in %s has %d %svalue(s) outside [%.0f, %.0f]%s (min=%.3f max=%.3f)"
+        % (d + 1, varname, wname, int(bad.sum()), kind, lo, hi, where,
+           float(vals.min()), float(vals.max())),
+        evidence="first bad index=%s value=%.3f" % (idx, float(arr[idx])),
+        fix="regenerate wrfinput_d%02d -- a mismatched LANDSEA mask between a fill source and "
+            "the primary forcing can blend water-point soil state into land points "
+            "(tw3km-2031/case_I incident)" % (d + 1),
+    ))
 
 
 def check_c10_wrfinput_sanity(nl, run_dir, findings):
@@ -1253,10 +1302,21 @@ def check_c10_wrfinput_sanity(nl, run_dir, findings):
     WRF' at the end of the 12 h run. This check catches it at `wtune check` time, before any
     node-hour is spent.
 
-    Bounds: TSLB in [200, 350] K, SMOIS in [0, 1] fraction (LANDMASK==1 points only -- water
-    points legitimately carry a sentinel/near-saturated value outside this range on some LSMs),
-    TSK/SST in [180, 350] K. Any non-finite (NaN/Inf) value anywhere in T, U, V, QVAPOR, TSLB,
-    SMOIS, or PSFC is FATAL regardless of range, land or water.
+    Rules ("land" = LANDMASK==1 and, when present, XLAND==1; "water" = LANDMASK==0):
+      TSLB  land only. Exactly 0 -> one WARN per domain (undefined soil temperature); non-zero
+            outside [200, 350] K -> FATAL (count > _C10_TSLB_NONZERO_FATAL_THRESHOLD, default 0).
+      SST   water only, exactly-0 values skipped; non-zero outside [180, 350] K -> FATAL.
+      SMOIS land only. < 0 -> WARN; > 1 -> FATAL.
+      TSK   every point outside [180, 350] K -> FATAL.
+    Any non-finite (NaN/Inf) value anywhere in T, U, V, QVAPOR, TSLB, SMOIS, or PSFC is FATAL
+    regardless of range, land or water.
+
+    Calibration (2026-09-27, scc truth run_dirs that ran vs case_I): healthy wrfinputs carry
+    TSLB exactly 0 on water and on some land columns (dorian2019 d02: 350 land columns), SST
+    exactly 0 on land and on some water points (inland lakes: zhengzhou 4663, dorian 16498), and
+    small negative deep-level SMOIS on land (zhengzhou: 1923 values in [-0.012, 0)). case_I, which
+    went NaN, instead had 13186 NON-ZERO garbage land TSLB values (-12.5, -10.9, 170.6 ...), none
+    exactly 0 -- that non-zero signature is what stays FATAL.
     """
     if not HAVE_NETCDF4:
         findings.append(Finding(INFO, "C10", "SKIPPED (netCDF4 not available)"))
@@ -1280,10 +1340,6 @@ def check_c10_wrfinput_sanity(nl, run_dir, findings):
             findings.append(Finding(INFO, "C10", "could not open %s: %s" % (wrfinput, err)))
             continue
         try:
-            landmask = None
-            if "LANDMASK" in ds.variables:
-                landmask = _c10_filled(ds.variables["LANDMASK"])
-
             for varname in _C10_NAN_VARS:
                 if varname not in ds.variables:
                     continue
@@ -1301,33 +1357,62 @@ def check_c10_wrfinput_sanity(nl, run_dir, findings):
                             "SUCCESS COMPLETE" % (d + 1),
                     ))
 
-            for varname, (lo, hi, land_only) in _C10_RANGE_VARS.items():
-                if varname not in ds.variables:
-                    continue
-                arr = _c10_filled(ds.variables[varname])
-                mask = np.isfinite(arr)
-                if land_only and landmask is not None:
-                    lm = landmask
-                    if lm.ndim < arr.ndim:
-                        lm = np.broadcast_to(lm[:, np.newaxis, ...], arr.shape)
-                    mask = mask & (lm > 0.5)
-                bad = mask & ((arr < lo) | (arr > hi))
-                if bad.any():
-                    idx = tuple(int(i) for i in np.argwhere(bad)[0])
-                    val = float(arr[idx])
+            land, water = _c10_land_water(ds)
+            wname = wrfinput.name
+
+            if "TSLB" in ds.variables:
+                arr = _c10_filled(ds.variables["TSLB"])
+                on_land = np.isfinite(arr) & _c10_bcast(land, arr)
+                zero = on_land & (arr == 0.0)
+                if zero.any():
+                    cols = int(np.any(zero, axis=1).sum()) if arr.ndim == 4 else int(zero.sum())
                     findings.append(Finding(
-                        FATAL, "C10",
-                        "domain %d: %s in %s has %d value(s) outside [%.0f, %.0f]%s "
-                        "(min=%.3f max=%.3f)"
-                        % (d + 1, varname, wrfinput.name, int(bad.sum()), lo, hi,
-                           " (land points)" if land_only else "",
-                           float(arr[mask & ((arr < lo) | (arr > hi))].min()),
-                           float(arr[mask & ((arr < lo) | (arr > hi))].max())),
-                        evidence="first bad index=%s value=%.3f" % (idx, val),
-                        fix="regenerate wrfinput_d%02d -- a mismatched LANDSEA mask between a "
-                            "fill source and the primary forcing can blend water-point soil "
-                            "state into land points (tw3km-2031/case_I incident)" % (d + 1),
+                        WARN, "C10",
+                        "domain %d: %d land points with undefined (0) soil temperature "
+                        "(TSLB in %s)" % (d + 1, cols, wname),
+                        evidence="%d TSLB value(s) exactly 0 on land points (LANDMASK==1%s)"
+                                 % (int(zero.sum()),
+                                    " and XLAND==1" if "XLAND" in ds.variables else ""),
+                        fix="usually benign (real.exe leaves TSLB=0 where the source soil field "
+                            "is undefined, e.g. coast/lake edges); regenerate wrfinput_d%02d if "
+                            "the count is large relative to the land area" % (d + 1),
                     ))
+                lo, hi = _C10_TSLB_RANGE
+                bad = on_land & (arr != 0.0) & ((arr < lo) | (arr > hi))
+                n_bad = int(bad.sum())
+                if n_bad:
+                    sev = FATAL if n_bad > _C10_TSLB_NONZERO_FATAL_THRESHOLD else WARN
+                    _c10_range_finding(findings, sev, d, "TSLB", wname, arr, bad, lo, hi,
+                                       "non-zero ", " (land points)")
+
+            if "SST" in ds.variables:
+                arr = _c10_filled(ds.variables["SST"])
+                lo, hi = _C10_SST_RANGE
+                bad = (np.isfinite(arr) & _c10_bcast(water, arr) & (arr != 0.0)
+                       & ((arr < lo) | (arr > hi)))
+                if bad.any():
+                    _c10_range_finding(findings, FATAL, d, "SST", wname, arr, bad, lo, hi,
+                                       "non-zero ", " (water points)")
+
+            if "SMOIS" in ds.variables:
+                arr = _c10_filled(ds.variables["SMOIS"])
+                lo, hi = _C10_SMOIS_RANGE
+                on_land = np.isfinite(arr) & _c10_bcast(land, arr)
+                neg = on_land & (arr < lo)
+                if neg.any():
+                    _c10_range_finding(findings, WARN, d, "SMOIS", wname, arr, neg, lo, hi,
+                                       "", " (land points, negative)")
+                high = on_land & (arr > hi)
+                if high.any():
+                    _c10_range_finding(findings, FATAL, d, "SMOIS", wname, arr, high, lo, hi,
+                                       "", " (land points)")
+
+            if "TSK" in ds.variables:
+                arr = _c10_filled(ds.variables["TSK"])
+                lo, hi = _C10_TSK_RANGE
+                bad = np.isfinite(arr) & ((arr < lo) | (arr > hi))
+                if bad.any():
+                    _c10_range_finding(findings, FATAL, d, "TSK", wname, arr, bad, lo, hi, "", "")
         finally:
             ds.close()
     if not checked_any:

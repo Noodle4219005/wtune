@@ -1272,9 +1272,9 @@ def build_ranking_sbatch_command(case, nodes, cores_per_node, time_limit, timeou
     campaign_dir = campaign_dir or sweep.campaign_dir_for(sbatch_script)
     if campaign_dir:
         export += ",CAMPAIGN=%s" % campaign_dir
-    sbatch = ("sbatch -p compute -N %d --ntasks-per-node=%d --exclusive --exclude=head "
+    sbatch = ("sbatch -p compute -N %d --ntasks-per-node=%d --exclusive %s "
               "--time=%s --job-name=c3-traj-%s-n%d --output=%s/c3traj-%%j.out --export=%s %s"
-              % (nodes, cores_per_node, time_limit, case, nodes, out_dir, export,
+              % (nodes, cores_per_node, sweep.exclude_arg(), time_limit, case, nodes, out_dir, export,
                  sweep._expand(sbatch_script)))
     return "source %s; %s" % (sweep._expand(env_source), sbatch)
 

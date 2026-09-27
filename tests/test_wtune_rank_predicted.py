@@ -485,3 +485,16 @@ def test_strict_restart_defaults_do_not_change_t0_notes():
     # restart/foreign notes only when RANKING_ACTIVE (spinup+timing) or a foreign load fired
     assert re.search(r'if \[ "\$RANKING_ACTIVE" = "1" \]; then\n\s+NOTES="\$NOTES restart_target=',
                      text)
+
+
+def test_campaign_sbatch_commands_honour_extra_exclude(monkeypatch):
+    import scc_sweep as sweep
+    import wtune_tune as wt
+    monkeypatch.delenv("WTUNE_SBATCH_EXCLUDE", raising=False)
+    assert sweep.exclude_arg() == "--exclude=head"
+    monkeypatch.setenv("WTUNE_SBATCH_EXCLUDE", "work5, work7")
+    cmd = sweep.build_sbatch_command("conus25", 4, 72, "01:00:00", 600, 1, 30, "/x/c.json", "/x")
+    assert "--exclude=head,work5,work7 " in cmd
+    cmd = wt.build_ranking_sbatch_command("conus25", 4, 72, "01:00:00", 600, 1, 30, "/x/c.json",
+                                          "/x", "20")
+    assert "--exclude=head,work5,work7 " in cmd

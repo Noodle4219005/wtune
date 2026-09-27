@@ -366,6 +366,14 @@ def campaign_dir_for(sbatch_script):
     return d if os.path.isfile(os.path.join(d, "configs.py")) else None
 
 
+def exclude_arg():
+    """'--exclude=head[,<WTUNE_SBATCH_EXCLUDE nodes>]' -- the same opt-in extra exclusion
+    tools/coldstart_sample.render_run_sbatch honours (scc work5, 2026-09-27: non-Slurm root load
+    slowed wrf.exe 5x). head is always excluded."""
+    extra = [n.strip() for n in os.environ.get("WTUNE_SBATCH_EXCLUDE", "").split(",") if n.strip()]
+    return "--exclude=" + ",".join(["head"] + extra)
+
+
 def build_sbatch_command(case, nodes, cores_per_node, time_limit, timeout_s, reps, steps,
                           configs_path, out_dir, env_source=DEFAULT_ENV_SOURCE,
                           sbatch_script=DEFAULT_SBATCH_SCRIPT, campaign_dir=None, extra_export=None):
@@ -384,9 +392,9 @@ def build_sbatch_command(case, nodes, cores_per_node, time_limit, timeout_s, rep
                              % (key, value))
         export += ",%s=%s" % (key, value)
     export += ",CONFIG_FILE=%s" % configs_path      # kept LAST, exactly as before
-    sbatch = ("sbatch -p compute -N %d --ntasks-per-node=%d --exclusive --exclude=head "
+    sbatch = ("sbatch -p compute -N %d --ntasks-per-node=%d --exclusive %s "
               "--time=%s --job-name=sw-%s-n%d --output=%s/sweep-%%j.out --export=%s %s"
-              % (nodes, cores_per_node, time_limit, case, nodes, out_dir, export,
+              % (nodes, cores_per_node, exclude_arg(), time_limit, case, nodes, out_dir, export,
                  _expand(sbatch_script)))
     return "source %s; %s" % (_expand(env_source), sbatch)
 

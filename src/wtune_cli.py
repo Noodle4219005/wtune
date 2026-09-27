@@ -1789,6 +1789,9 @@ def main():
     p_analyze = sub.add_parser('analyze', help='TC diagnostics/tracking via wrf-python + TempestExtremes (analysis/cli.py): diag | tc-track')
     p_analyze.add_argument('analyze_args', nargs=argparse.REMAINDER, help='forwarded to analysis/cli.py')
 
+    p_prb = sub.add_parser('predict-rebuild', help='whole-run wall-time prediction from rebuilt segments measured in parallel on the target config (wtune_rebuild_predict.py)')
+    p_prb.add_argument('prb_args', nargs=argparse.REMAINDER, help='forwarded to wtune_rebuild_predict.py')
+
     p_scenario = sub.add_parser('scenario', help='pluggable scenario generators for fictional-date WRF forcing (scenario/cli.py): list | generate | inspect')
     p_scenario.add_argument('scenario_args', nargs=argparse.REMAINDER, help='forwarded to scenario/cli.py')
 
@@ -1817,6 +1820,10 @@ def main():
     if args.command == 'analyze':
         from analysis import cli as analysis_cli
         sys.exit(analysis_cli.main(args.analyze_args))
+
+    if args.command == 'predict-rebuild':
+        import wtune_rebuild_predict
+        sys.exit(wtune_rebuild_predict.main(args.prb_args))
 
     if args.command == 'scenario':
         from scenario import cli as scenario_cli

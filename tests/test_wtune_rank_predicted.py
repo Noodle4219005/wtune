@@ -202,7 +202,8 @@ def test_predicted_mode_every_chunk_has_anchor_and_anchor_end(tmp_path):
     configs = [dict(ANCHOR)] + [_cfg("G%d" % i) for i in range(1, 5)]
     wt._submit_round0_wave(ctx, configs, 2, 0.01, "round0")
     ids = _chunk_configs(paths)
-    assert ids == [["ANCHOR", "G2", "G4", "ANCHOREND"], ["ANCHOR", "G1", "G3", "ANCHOREND"]]
+    # predicted mode deals CANDIDATES only; every slot then gets its own ANCHOR/ANCHOREND
+    assert ids == [["ANCHOR", "G1", "G3", "ANCHOREND"], ["ANCHOR", "G2", "G4", "ANCHOREND"]]
     for c in calls:
         assert "CASE=matthewp1," in c and "STEPS=36," in c
         for kv in ("CASES_JSON=/r/rebuilt_cases.json", "RANKING_START=spinup",
@@ -594,10 +595,21 @@ def test_stage1_cutoff_cancels_unstarted_slot_as_not_measured(tmp_path):
 
 
 def test_estimate_stage2_waves_and_model():
-    # 3 points, 2 slots -> 2 waves; spin = 120 + 35*1*1.5; run = 120+120+36*1*1.5
+    # 3 points, 2 slots -> 2 waves; no stepra -> rad factor 1: spin = 120 + 35; run = 120+30+36
     est = wt.estimate_stage2_s(3, 5, 36, 21, 36.0, 1.0, 2, 120.0)
-    assert est == pytest.approx(2 * ((120 + 52.5) + 5 * (240 + 54)))
+    assert est == pytest.approx(2 * ((120 + 35) + 5 * (150 + 36)))
     assert wt.estimate_stage2_s(3, 5, 36, 21, 36.0, 1.0, 3, 120.0) == pytest.approx(est / 2)
+    # stepra 17: 36-step run has 3 radiation steps at r_rad 3.93
+    f = 1 + 3 * (wt.RANKING_R_RAD - 1) / 36.0
+    assert wt.rad_factor(36, 17) == pytest.approx(f)
+    est = wt.estimate_stage2_s(1, 1, 36, 21, 36.0, 1.0, 1, 120.0, 0.0, stepra=17)
+    assert est == pytest.approx((120 + 35 * wt.rad_factor(35, 17)) + (120 + 36 * f))
+
+
+def test_rad_factor_conus25_like():
+    # 82 steps, stepra 40 -> 3 radiation steps: ~1.107, not the old blanket 1.5
+    assert wt.rad_factor(82, 40) == pytest.approx(1 + 3 * 2.93 / 82)
+    assert wt.rad_factor(82, None) == 1.0
 
 
 def _reserved_ctx(tmp_path, budget_s, **kw):
@@ -660,7 +672,7 @@ def test_fit_stage2_shrinks_then_skips(tmp_path):
     s_by = {"ANCHOR": 1.0, "G1": 1.0, "G2": 1.0, "G3": 1.0}
     fit, est, why = wt.fit_stage2(ctx, top, ANCHOR, _rebuilt(), s_by)
     assert [c["id"] for c in fit] == ["G1", "G2", "G3"] and why is None
-    per_run = 120 + 120 + 36 * 1.5
+    per_run = wt.ranking_cost_model(120.0, 30.0, 36, 35, 17, 1.0)["per_run_s"]
     ctx.budget_s = est - per_run / 2                 # one run short -> drop G3
     fit, est2, why = wt.fit_stage2(ctx, top, ANCHOR, _rebuilt(), s_by)
     assert [c["id"] for c in fit] == ["G1", "G2"] and est2 == pytest.approx(est - per_run)
@@ -705,3 +717,149 @@ def test_probe_key_explicit(tmp_path):
     y.write_text("probe:\n  steps: 30\n")
     assert not wt._probe_key_explicit(str(y), "max_points")
     assert not wt._probe_key_explicit(None, "max_points")
+
+
+# ---------------------------------------------------------------------------
+# stage-1 shrink-to-fit, minimum, feasibility pre-check, 60-min conus25-like scenario
+# (conus25 e2e attempt 2: every round0 slot SKIPPED -> "stage 1 measured nothing")
+# ---------------------------------------------------------------------------
+def _shrink_ctx(tmp_path, budget_s, sb):
+    ctx = _reserved_ctx(tmp_path, budget_s=budget_s, sbatch_runner=sb)
+    ctx.reserve = dict(n_points=3, n_configs=5, steps=36, spinup_min=21, dt=36.0, slots=3)
+    return ctx
+
+
+def test_stage1_slot_is_shrunk_not_skipped(tmp_path):
+    # no stepra -> rad factor 1: per_run = 120+30+36 = 186, spin-up = 120+35 = 155,
+    # reserve = 155 + 5*186 = 1085 (3 points, 3 concurrent)
+    sb, calls, paths = make_fake_sbatch()
+    budget = 1085 + (155 + 5 * 186) + 10             # fits ANCHOR + 3 + ANCHOREND, not more
+    ctx = _shrink_ctx(tmp_path, budget, sb)
+    assert wt.stage2_reserve_s(ctx) == pytest.approx(1085)
+    cands = [_cfg("G%d" % i) for i in range(1, 7)]
+    wt._submit_round0_wave(ctx, [dict(ANCHOR)] + cands, 1, 1.0, "round0")
+    assert _chunk_configs(paths) == [["ANCHOR", "G1", "G2", "G3", "ANCHOREND"]]
+    assert [t["cid"] for t in ctx.stage1_trimmed] == ["G4", "G5", "G6"]
+
+
+def test_stage1_minimum_is_anchor_one_candidate_anchor_end(tmp_path):
+    sb, calls, paths = make_fake_sbatch()
+    ctx = _shrink_ctx(tmp_path, 1085 + (155 + 3 * 186), sb)          # exactly the minimum
+    wt._submit_round0_wave(ctx, [_cfg("G1"), _cfg("G2")], 3, 1.0, "round0")
+    # 2 candidates over min(3 slots, 2) = 2 slots; each slot is exactly the minimum
+    assert _chunk_configs(paths) == [["ANCHOR", "G1", "ANCHOREND"], ["ANCHOR", "G2", "ANCHOREND"]]
+    sb2, calls2, _p = make_fake_sbatch()
+    ctx = _shrink_ctx(tmp_path / "b", 1085 + (155 + 3 * 186) - 1, sb2)   # 1 s short
+    wt._submit_round0_wave(ctx, [_cfg("G1"), _cfg("G2")], 3, 1.0, "round0")
+    assert calls2 == []                              # only now is a slot skipped
+
+
+def _predicted_env(monkeypatch, n_points=3, dt=15.0, stepra=40, s_led=1.3):
+    pts = [types.SimpleNamespace(at=T0 + dt_.timedelta(hours=6 * i, minutes=20), reason="auto",
+                                 source="rebuild") for i in range(n_points)]
+    monkeypatch.setattr(wt.wtune_predict, "parse_namelist", lambda p: None)
+    monkeypatch.setattr(wt.wtune_predict, "get_d01_steps", lambda nl: (1440, 21600, dt, None))
+    monkeypatch.setattr(wt, "plan_predicted_points", lambda ctx, spin: (
+        None, T0, T0 + dt_.timedelta(hours=24), dt, stepra, pts, []))
+    monkeypatch.setattr(wt.wtune_predict, "read_wrfinput_sample_points", lambda d: ([], None))
+    monkeypatch.setattr(wt.sweep, "estimate_s_per_step", lambda *a, **k: (s_led, "ledger", 5))
+    return pts
+
+
+dt_ = dt
+
+
+def test_feasibility_precheck_refuses_before_submitting(monkeypatch, tmp_path):
+    _predicted_env(monkeypatch)
+    called = []
+    monkeypatch.setattr(wt, "prepare_rebuilt_points", lambda *a, **k: called.append(1))
+    sb, calls, _p = make_fake_sbatch()
+    ctx = _ctx(out_dir=str(tmp_path), budget_s=20 * 60.0, nodes=4, max_nodes=12,
+               sbatch_runner=sb, case_json=dict(e_we=1501, e_sn=1201, e_vert=50,
+                                                prep_dir=str(tmp_path)))
+    ctx.budget_mode = "running"
+    with pytest.raises(SystemExit, match=r"predicted mode needs at least \d+ min of running time "
+                                         r"for matthew at 4 node\(s\) \(have 20\)"):
+        wt.run_predicted(ctx, 4, "user", 1.3)
+    assert called == [] and calls == []
+
+
+def test_conus25_like_60min_runs_stage1_and_stage2(monkeypatch, tmp_path):
+    """Observed (attempt 1, job 1388): ~200 s per candidate run (restart read + ~87 s startup +
+    82 steps x ~1.3 s); rebuild prep 7 min. 60 min of running budget, 4 nodes, max-nodes 12."""
+    _predicted_env(monkeypatch)
+    clock = FakeClock()
+    ledger_dir = tmp_path / "ledger"
+    submitted = {}                                   # job -> (t_submit, duration, config ids)
+    counter = {"n": 2000}
+
+    def sbatch(cmd):
+        counter["n"] += 1
+        jid = str(counter["n"])
+        path = re.search(r"CONFIG_FILE=(\S+)", cmd).group(1)
+        ids = [c["id"] for c in json.load(open(path))["configs"]]
+        submitted[jid] = (clock.t, (87 + 80 * 1.3) + 200.0 * len(ids), ids)
+        return "Submitted batch job %s\n" % jid
+
+    def sacct(cmd):
+        out = []
+        for j in cmd[cmd.index("-j") + 1].split(","):
+            t_sub, dur, _ids = submitted.get(j, (0, 0, []))
+            if clock.t < t_sub + 30:
+                st = "PENDING"
+            elif clock.t < t_sub + 30 + dur:
+                st = "RUNNING"
+            else:
+                st = "COMPLETED"
+            out.append("%s|%s|%s" % (j, st, wt.sweep.campaign_experiment._format_hms(dur / 60.0)
+                                     if st == "COMPLETED" else "00:00:00"))
+        return "\n".join(out)
+
+    def reader(case, job_ids):
+        rows = []
+        for j in job_ids:
+            _t, _d, ids = submitted[j]
+            for i, cid in enumerate(ids):
+                s = 1.3 if cid in ("ANCHOR", "ANCHOREND") else 1.3 * (0.9 + 0.01 * (int(j) % 7) + 0.003 * i)
+                rows.append(dict(run_id="%s_%s_r1_%s" % (case, cid, j), s_per_step_median=str(s),
+                                 notes="config=%s node_dirty=none restart_target=20 "
+                                       "restart_used=1 foreign_load=0" % cid))
+        return rows
+
+    def prepare(ctx, points, anchor, *a, **k):
+        clock.t += 420.0                             # 7 min of controller + prep running time
+        return [dict(index=i, point=p, case_id="matthewp%d" % i, T=p.at - dt_.timedelta(minutes=20),
+                     cases_json=str(tmp_path / "rc.json"), prep_dir="", template="", steps=82,
+                     spinup_min=20, stepra=40, dt=15.0, plan_dir="", job_id="1")
+                for i, p in enumerate(points)]
+
+    stage2 = {}
+
+    def measure(ctx, configs, rebuilt, anchor, s_by_cid=None, **k):
+        stage2["cids"] = [c["id"] for c in configs]
+        stage2["left_s"] = ctx.budget_s - ctx.elapsed()
+        meas = {}
+        for c in [anchor] + list(configs):
+            meas[c["id"]] = [PM(at=rp["point"].at, reason="auto", source="rebuild",
+                                s_normal=s_by_cid.get(c["id"], 1.3), n_rad=2, r=3.5)
+                             for rp in rebuilt]
+        return meas, [], ["9001"]
+
+    monkeypatch.setattr(wt, "prepare_rebuilt_points", prepare)
+    monkeypatch.setattr(wt, "measure_candidates_at_points", measure)
+    scancel, scalls = make_fake_scancel()
+    ctx = _ctx(out_dir=str(tmp_path / "out"), ledger_dir=str(ledger_dir), budget_s=3600.0,
+               nodes=4, max_nodes=12, clock=clock, poll_interval=20.0, sbatch_runner=sbatch,
+               sacct_runner=sacct, scancel_runner=scancel, ledger_reader=reader,
+               proposer=lambda state, bs, kappa=None: (dict(stopped=True, reason="stub"), []),
+               case_json=dict(e_we=1501, e_sn=1201, e_vert=50, prep_dir=str(tmp_path)))
+    ctx.budget_mode = "running"
+    ctx.max_wall_s = 3 * 3600.0
+    report = wt.run_predicted(ctx, 4, "user", 1.3)
+    assert report["stage1_ranking"], "stage 1 measured nothing"
+    assert len(report["stage1_ranking"]) >= 3
+    assert stage2["cids"] and len(stage2["cids"]) >= 1
+    assert report["ranking"] and report["stage2_skipped_reason"] is None
+    assert scalls == []                              # nothing hit the budget or the wall cap
+    assert ctx.elapsed() <= ctx.budget_s
+    assert "concurrent" in report["stage2_reserve_note"]

@@ -642,6 +642,8 @@ class Ctx:
     # carried and which were cancelled unstarted at the stage-1 cutoff.
     reserve: dict = None
     s_prior: float = None
+    restart_read_s: float = None           # None -> RESTART_READ_S_BY_IO[restart_io_form]
+    stage1_trimmed: list = dataclasses.field(default_factory=list)
     job_cids: dict = dataclasses.field(default_factory=dict)
     not_measured: list = dataclasses.field(default_factory=list)
 
@@ -850,7 +852,10 @@ def _submit_round0_wave(ctx, configs, slots, s_est, name_prefix):
     RAW expected duration (never the safety-padded one) still fits the budget, and waits for all
     of them. Shared by round0's first wave and its top-up wave. Returns (job_ids, configs_by_cid,
     rows, job_configs, states) -- job_configs ({job_id: [config,...]}) and states (wait_for_jobs'
-    own sacct snapshot) are what measure_startup_s needs afterward."""
+    own sacct snapshot) are what measure_startup_s needs afterward. Predicted mode (ctx.ranking)
+    goes through _submit_ranking_wave instead (shrink-to-fit, ANCHOR/ANCHOREND per slot)."""
+    if ctx.ranking:
+        return _submit_ranking_wave(ctx, configs, slots, s_est, name_prefix)
     chunks = chunk_round_robin(configs, slots)
     job_ids, configs_by_cid, job_configs = [], {}, {}
     for i, chunk in enumerate(chunks):
@@ -878,6 +883,104 @@ def _submit_round0_wave(ctx, configs, slots, s_est, name_prefix):
     return job_ids, configs_by_cid, rows, job_configs, states
 
 
+def fit_stage1_job(ctx, candidates, s_est):
+    """Predicted mode: the largest PREFIX of `candidates` (ANCHOR/ANCHOREND stripped; the order
+    is sampling priority, so the later-sampled ones are dropped first) whose job -- spin-up +
+    ANCHOR + prefix + ANCHOREND -- still fits: elapsed_running + job + stage-2 reserve <= budget.
+    Minimum is ANCHOR + 1 candidate + ANCHOREND. Returns (wrapped, dropped, time_est), or
+    (None, candidates, time_est_of_the_minimum) when even the minimum does not fit."""
+    cands = [c for c in candidates if c.get("id") not in ("ANCHOR", ANCHOR_END_ID)]
+    est = None
+    for n in range(len(cands), 0, -1):
+        wrapped = wrap_with_anchors(cands[:n], ctx.ranking["anchor"])
+        est = _job_time_est(ctx, len(wrapped), 1, s_est)
+        ok, _why = _stage1_may_start(ctx, est["total_run_s"])
+        if ok:
+            return wrapped, cands[n:], est
+    return None, cands, est
+
+
+def _submit_ranking_wave(ctx, configs, slots, s_est, name_prefix):
+    """Predicted-mode stage-1 wave: candidates (ANCHOR stripped -- every slot gets its own
+    ANCHOR/ANCHOREND) are dealt round-robin over min(slots, #candidates) slots (slots =
+    floor(max_nodes/nodes), what can run at once), each slot is SHRUNK to fit (fit_stage1_job)
+    instead of skipped, the plan (slots, candidates per slot, expected minutes, cost model) is
+    logged BEFORE anything is submitted, and a slot is skipped only when even ANCHOR + 1 +
+    ANCHOREND does not fit. Trimmed candidates go to ctx.stage1_trimmed (reported)."""
+    cands = [c for c in configs if c.get("id") not in ("ANCHOR", ANCHOR_END_ID)]
+    n_slots = max(1, min(int(slots), len(cands)))
+    plan = []
+    for i, chunk in enumerate(chunk_round_robin(cands, n_slots)):
+        wrapped, dropped, est = fit_stage1_job(ctx, chunk, s_est)
+        plan.append((i, wrapped, dropped, est))
+    print("%s plan: %d slot(s) (max %d concurrent = floor(max_nodes/nodes)), candidates per slot "
+          "%s, expected %s per job; elapsed %s, %s"
+          % (name_prefix, sum(1 for p in plan if p[1]), slots,
+             [len(p[1]) - 2 if p[1] else 0 for p in plan],
+             ", ".join(_fmt_hms(p[3]["total_run_s"]) if p[1] else "skip" for p in plan),
+             _fmt_hms(ctx.elapsed()), describe_stage2_reserve(ctx)))
+    if plan and plan[0][3] and plan[0][3].get("cost_model"):
+        print("%s cost model: %s" % (name_prefix, describe_cost_model(plan[0][3]["cost_model"])))
+    job_ids, configs_by_cid, job_configs = [], {}, {}
+    for i, wrapped, dropped, est in plan:
+        for c in dropped:
+            ctx.stage1_trimmed.append(dict(cid=c["id"], stage=name_prefix,
+                                           reason="trimmed to fit the budget + stage-2 reserve"))
+        if wrapped is None:
+            print("%s slot %d: SKIP -- even ANCHOR + 1 candidate + ANCHOREND (%s) does not fit: %s"
+                  % (name_prefix, i, _fmt_hms(est["total_run_s"]) if est else "-",
+                     _stage1_may_start(ctx, est["total_run_s"])[1] if est else "no candidate"))
+            continue
+        if dropped:
+            print("%s slot %d: trimmed %d candidate(s) to fit: %s"
+                  % (name_prefix, i, len(dropped), ", ".join(c["id"] for c in dropped)))
+        job_id, _path, _te = submit_configs_job(ctx, wrapped, reps=1,
+                                                  name_suffix="%s-s%d" % (name_prefix, i),
+                                                  s_est=s_est, time_est=est)
+        job_ids.append(job_id)
+        job_configs[job_id] = wrapped
+        for c in wrapped:
+            configs_by_cid[c["id"]] = c
+        print("%s slot %d: submitted job %s (%d configs, expected %s)"
+              % (name_prefix, i, job_id, len(wrapped), _fmt_hms(est["total_run_s"])))
+    states = wait_for_jobs(ctx, job_ids, name_prefix, pending_cutoff=_stage1_cutoff(ctx))
+    rows = ctx.ledger_reader(_ledger_case(ctx), job_ids)
+    _record_stage1_gates(ctx, job_ids, rows, name_prefix)
+    return job_ids, configs_by_cid, rows, job_configs, states
+
+
+def measure_ranking_overhead(ctx, job_configs, states, wave_results):
+    """Predicted-mode analogue of measure_startup_s: a ranking job's Slurm elapsed also holds
+    the shared spin-up and every run's restart read, so per-run overhead = (elapsed - compute) /
+    (runs + 1), compute = sum(steps * median * rad_factor) + spin_steps * s_anchor *
+    rad_factor(spin). The result replaces startup_s + restart read together. (None, 0) when no
+    COMPLETED job can be used."""
+    r = ctx.ranking
+    spin_steps = r["spinup_minutes"] * 60.0 / float(r["dt"])
+    f_run, f_spin = rad_factor(r["steps"], r.get("stepra")), rad_factor(spin_steps, r.get("stepra"))
+    tot_e = tot_c = 0.0
+    n = 0
+    for jid, configs in job_configs.items():
+        state, elapsed_str = states.get(jid, ("UNKNOWN", ""))
+        el = _parse_slurm_elapsed(elapsed_str)
+        a = wave_results.get("ANCHOR")
+        if state != "COMPLETED" or el is None or not a:
+            continue
+        comp, cnt = spin_steps * a["median"] * f_spin, 0
+        for c in configs:
+            w = wave_results.get(c["id"])
+            if w:
+                comp += r["steps"] * w["median"] * f_run
+                cnt += 1
+        if cnt:
+            tot_e += el
+            tot_c += comp
+            n += cnt + 1
+    if not n:
+        return None, 0
+    return max(0.0, (tot_e - tot_c) / n), n
+
+
 def run_round0(ctx):
     s_est, s_source, n_rows = sweep.estimate_s_per_step(ctx.case, ctx.nodes, ctx.ledger_dir,
                                                           ctx.hardware_id)
@@ -891,6 +994,16 @@ def run_round0(ctx):
                           ctx.budget_s * ROUND0_BUDGET_FRACTION)
     configs_per_job = max(1, int(round0_budget_s // per_run_s))
     total_k = slots * configs_per_job
+    if ctx.ranking:
+        # predicted mode: size from the ranking cost model -- what one job can hold after its
+        # spin-up and two anchor runs, with the stage-2 reserve set aside; +1 because
+        # build_configs' ANCHOR is stripped again (every slot carries its own)
+        est1 = _job_time_est(ctx, 1, 1, s_est)
+        m = est1["cost_model"]
+        avail = ctx.budget_s - ctx.elapsed() - stage2_reserve_s(ctx) - m["spin_s"] \
+            - 2 * m["per_run_s"]
+        configs_per_job = max(1, int(avail // m["per_run_s"]))
+        total_k = slots * configs_per_job + 1
 
     built = sweep.build_configs(ctx.case, ctx.case_json, ctx.nodes, max(0, total_k - 1), ctx.seed,
                                  ctx.hardware_id, ctx.cores_per_node)
@@ -917,7 +1030,14 @@ def run_round0(ctx):
         # sizing the top-up below, so the top-up (and every later stage) sizes off what this run
         # actually measured, not the documented fallback constant -- logged either way so a run's
         # own log always says which one is in effect (2026-09-23 conus25 ask).
-        measured_startup, n_runs = measure_startup_s(job_configs, states, wave0_results, ctx.steps)
+        if ctx.ranking:
+            measured_startup, n_runs = measure_ranking_overhead(ctx, job_configs, states,
+                                                                wave0_results)
+            if measured_startup is not None:
+                ctx.restart_read_s = 0.0      # the measured overhead already includes it
+        else:
+            measured_startup, n_runs = measure_startup_s(job_configs, states, wave0_results,
+                                                         ctx.steps)
         if measured_startup is not None:
             print("startup_s: measured %.1fs/run from %d completed run(s) in round0 (was %.1fs, %s)"
                   % (measured_startup, n_runs, ctx.startup_s, ctx.startup_source))
@@ -1067,6 +1187,21 @@ def run_adaptive_rounds(ctx, all_configs_by_cid, all_results, s_est):
                                                      kappa=kappa))
 
         time_est = _job_time_est(ctx, len(_ranking_wrap(ctx, configs_out)), 1, s_est)
+        if ctx.ranking:
+            wrapped, dropped, fit_est = fit_stage1_job(ctx, configs_out, s_est)
+            if wrapped is None:
+                print("adaptive rounds: stopping before round %d -- even ANCHOR + 1 candidate + "
+                      "ANCHOREND does not fit before the stage-2 reserve" % round_idx)
+                return
+            for c in dropped:
+                ctx.stage1_trimmed.append(dict(cid=c["id"], stage="round%d" % round_idx,
+                                               reason="trimmed to fit the budget + stage-2 "
+                                                      "reserve"))
+            configs_out = wrapped[1:-1]
+            time_est = fit_est
+            print("adaptive round %d plan: %d candidate(s), expected %s%s"
+                  % (round_idx, len(configs_out), _fmt_hms(time_est["total_run_s"]),
+                     (" (trimmed %d)" % len(dropped)) if dropped else ""))
         projected_end = elapsed + time_est["total_run_s"]        # RAW/EXPECTED -- never job_hours
         ok, why = _stage1_may_start(ctx, time_est["total_run_s"])
         if not ok:
@@ -1837,20 +1972,61 @@ TOP_K_STAGE2 = 3
 
 PREDICTED_MAX_POINTS = 3               # predicted-mode default (probe.max_points / --max-points win)
 MAX_WALL_FACTOR = 3.0                  # predicted-mode hard wall-clock cap = 3x the budget
-RESTART_READ_S = 120.0                 # per-run restart read on top of startup_s (conus25 netCDF)
+REBUILD_PREP_EST_S = 480.0             # ERA5 fetch + WPS + real.exe, 1-node jobs in parallel
+                                        # (conus25 e2e attempt 2, 2026-09-27: 7 min)
+RANKING_R_RAD = 3.93                   # radiation-step cost / normal step: calibration's day
+                                        # level (r_rad_default_day) -- P* is the most daylit point
+RESTART_READ_S_BY_IO = {14: 30.0, 2: 120.0}   # per-run restart read on top of startup_s:
+                                        # ADIOS2 BP (parallel) vs serial netCDF (conus25 11.5 GB,
+                                        # job 1231: 120 s). Zeroed once the per-run overhead is
+                                        # MEASURED from a ranking job (it already includes it).
+
+
+def rad_factor(steps, stepra, r_rad=RANKING_R_RAD):
+    """Mean cost of `steps` consecutive steps relative to a normal step: ceil(steps/stepra)
+    radiation steps cost r_rad each. 1.0 without a stepra. (Replaces the earlier blanket x1.5,
+    which made a conus25 82-step run look ~1.36x its real cost.)"""
+    if not stepra or steps <= 0:
+        return 1.0
+    return 1.0 + math.ceil(float(steps) / stepra) * (r_rad - 1.0) / float(steps)
+
+
+def ranking_cost_model(startup_s, restart_read_s, steps, spin_steps, stepra, s_step):
+    """The ONE running-time model every predicted-mode estimate uses (stage-1 jobs, the stage-2
+    reserve, stage-2 timeouts, the feasibility pre-check):
+      per_run_s = startup_s + restart_read_s + steps * s_step * rad_factor(steps)
+      spin_s    = startup_s + spin_steps * s_step * rad_factor(spin_steps)   (reads wrfinput)
+    Returned with its inputs so every log line can show what was assumed."""
+    f_run, f_spin = rad_factor(steps, stepra), rad_factor(spin_steps, stepra)
+    return dict(per_run_s=startup_s + restart_read_s + steps * s_step * f_run,
+                spin_s=startup_s + spin_steps * s_step * f_spin, s_step=s_step, steps=steps,
+                spin_steps=spin_steps, stepra=stepra, rad_factor_run=f_run,
+                rad_factor_spin=f_spin, r_rad=RANKING_R_RAD, startup_s=startup_s,
+                restart_read_s=restart_read_s)
+
+
+def describe_cost_model(m):
+    return ("per-run %.0fs = startup %.0fs + restart read %.0fs + %d steps x %.3fs x rad factor "
+            "%.3f (r_rad %.2f every %s steps); spin-up %.0fs (%d steps, rad factor %.3f)"
+            % (m["per_run_s"], m["startup_s"], m["restart_read_s"], m["steps"], m["s_step"],
+               m["rad_factor_run"], m["r_rad"], m["stepra"] or "-", m["spin_s"], m["spin_steps"],
+               m["rad_factor_spin"]))
+
+
+def _restart_read_s(ctx):
+    return ctx.restart_read_s if ctx.restart_read_s is not None else \
+        RESTART_READ_S_BY_IO.get(int(ctx.restart_io_form), 120.0)
 
 
 def estimate_stage2_s(n_points, n_configs, steps, spinup_min, dt, s_step, slots, startup_s,
-                      restart_read_s=RESTART_READ_S):
-    """Expected RUNNING time of stage 2: one job per point, each = shared spin-up
-    (startup + spinup_min*60/dt steps) + n_configs runs (startup + restart read + steps), every
-    step at s_step x1.5 (radiation) -- the same model as ranking_job_timeouts' `expected`. The
-    point jobs run in parallel, but only `slots` (= floor(max_nodes/nodes)) allocations at once:
-    ceil(n_points/slots) sequential waves."""
-    spin = startup_s + (spinup_min * 60.0 / dt) * s_step * 1.5
-    per_run = startup_s + restart_read_s + steps * s_step * 1.5
+                      restart_read_s=30.0, stepra=None):
+    """Expected RUNNING time of stage 2: one job per point, each = shared spin-up + n_configs
+    runs (ranking_cost_model). The point jobs run in parallel, but only `slots`
+    (= floor(max_nodes/nodes)) allocations at once: ceil(n_points/slots) sequential waves."""
+    m = ranking_cost_model(startup_s, restart_read_s, steps, spinup_min * 60.0 / dt, stepra,
+                           s_step)
     waves = int(math.ceil(float(n_points) / max(1, int(slots))))
-    return waves * (spin + n_configs * per_run)
+    return waves * (m["spin_s"] + n_configs * m["per_run_s"])
 
 
 def _reserve_s_step(ctx):
@@ -1871,7 +2047,23 @@ def stage2_reserve_s(ctx):
     if not s_step:
         return 0.0
     return estimate_stage2_s(r["n_points"], r["n_configs"], r["steps"], r["spinup_min"], r["dt"],
-                             s_step, r["slots"], ctx.startup_s)
+                             s_step, r["slots"], ctx.startup_s, _restart_read_s(ctx),
+                             stepra=r.get("stepra"))
+
+
+def describe_stage2_reserve(ctx):
+    """One log line: how the stage-2 reserve was sized (so it can be judged against reality)."""
+    r = ctx.reserve
+    s_step = _reserve_s_step(ctx)
+    if not ctx.ranking or not r or not s_step:
+        return "stage-2 reserve: none"
+    m = ranking_cost_model(ctx.startup_s, _restart_read_s(ctx), r["steps"],
+                           r["spinup_min"] * 60.0 / r["dt"], r.get("stepra"), s_step)
+    waves = int(math.ceil(float(r["n_points"]) / max(1, r["slots"])))
+    return ("stage-2 reserve %s = %d wave(s) [%d point job(s), %d concurrent = floor(max_nodes/"
+            "nodes)] x (spin-up + %d runs); %s"
+            % (_fmt_hms(stage2_reserve_s(ctx)), waves, r["n_points"], r["slots"], r["n_configs"],
+               describe_cost_model(m)))
 
 
 def _stage1_may_start(ctx, job_run_s):
@@ -1965,12 +2157,23 @@ def _job_time_est(ctx, n_or_pairs, reps, s_est, ranking=None):
                                 startup_s=ctx.startup_s)
     if not ranking:
         return est
+    # predicted mode: ranking_cost_model (restart read + radiation factor), plus the shared
+    # anchor spin-up every ranking job runs first
     dt = float(ranking.get("dt") or 0) or None
     spin_steps = (ranking["spinup_minutes"] * 60.0 / dt) if dt else 0.0
-    spin_s = ctx.startup_s + spin_steps * s_est
-    est = dict(est, total_run_s=est["total_run_s"] + spin_s,
+    steps = ranking["steps"]
+    pairs = ([(None, s_est)] * n_or_pairs if isinstance(n_or_pairs, int)
+             else [(c, s) for c, s in n_or_pairs])
+    runs = [ranking_cost_model(ctx.startup_s, _restart_read_s(ctx), steps, spin_steps,
+                               ranking.get("stepra"), s)["per_run_s"] for _c, s in pairs]
+    m = ranking_cost_model(ctx.startup_s, _restart_read_s(ctx), steps, spin_steps,
+                           ranking.get("stepra"), s_est if s_est else (pairs[0][1] if pairs else 0))
+    total = reps * sum(runs) + m["spin_s"]
+    est = dict(est, total_run_s=total, cost_model=m,
+               timeout_s=max(sweep.TIMEOUT_MIN_S,
+                             int(math.ceil(sweep.TIMEOUT_MULTIPLIER * max(runs or [0])))),
                spinup_timeout_s=max(sweep.TIMEOUT_MIN_S,
-                                    int(math.ceil(sweep.TIMEOUT_MULTIPLIER * spin_s))))
+                                    int(math.ceil(sweep.TIMEOUT_MULTIPLIER * m["spin_s"]))))
     est["job_hours"], est["time_limit"] = _padded_limit(est["total_run_s"])
     return est
 
@@ -2113,11 +2316,11 @@ def _fallback_s_per_step(nl, ranks, omp):
 
 
 def ranking_job_timeouts(ctx, configs, steps, spinup_min, dt, s_by_cid=None, nl=None,
-                         safety=3.0, restart_read_s=120.0):
+                         safety=3.0, restart_read_s=None, stepra=None):
     """(cand_timeout_s, spinup_timeout_s, time_limit, expected_s) for one stage-2 ranking job,
     from a cost estimate instead of a blanket: per config s/step = its stage-1 measured median
     when known, else the cell-step model (_fallback_s_per_step), else ctx's fallback; per-run
-    expected = ctx.startup_s + restart_read_s + steps*s*1.5 (radiation steps). TIMEOUT_S is one
+    expected = ranking_cost_model's per_run_s (restart read, radiation factor). TIMEOUT_S is one
     value per job (strict_campaign), so the slowest config sets it: max(TIMEOUT_MIN_S,
     safety*expected). Spin-up: ANCHOR's s over spinup_min*60/dt steps, same padding. --time is
     the larger of the padded expected total and spin-up timeout + every run's expected."""
@@ -2133,10 +2336,14 @@ def ranking_job_timeouts(ctx, configs, steps, spinup_min, dt, s_by_cid=None, nl=
         except Exception:
             return sweep.CONSERVATIVE_S_PER_STEP
 
-    per_run = [ctx.startup_s + restart_read_s + steps * s_of(c) * 1.5 for c in configs]
+    rr = _restart_read_s(ctx) if restart_read_s is None else restart_read_s
+    spin_steps = spinup_min * 60.0 / dt
+    per_run = [ranking_cost_model(ctx.startup_s, rr, steps, spin_steps, stepra,
+                                  s_of(c))["per_run_s"] for c in configs]
     cand_timeout = max(sweep.TIMEOUT_MIN_S, int(math.ceil(safety * max(per_run))))
     anchor = next((c for c in configs if c.get("id") == "ANCHOR"), configs[0])
-    spin = ctx.startup_s + (spinup_min * 60.0 / dt) * s_of(anchor) * 1.5
+    spin = ranking_cost_model(ctx.startup_s, rr, steps, spin_steps, stepra,
+                              s_of(anchor))["spin_s"]
     spin_timeout = max(sweep.TIMEOUT_MIN_S, int(math.ceil(safety * spin)))
     expected = spin + sum(per_run)
     limit_s = max(expected * sweep.TIME_SAFETY_FACTOR + sweep.TIME_PAD_MIN * 60.0,
@@ -2379,7 +2586,8 @@ def measure_candidates_at_points(ctx, configs, rebuilt_points, anchor, s_by_cid=
     for rp in rebuilt_points:
         dt = float(rp["dt"])
         cand_to, spin_to, time_limit, expected = ranking_job_timeouts(
-            ctx, wrapped, rp["steps"], rp["spinup_min"], dt, s_by_cid=s_by_cid, nl=nl)
+            ctx, wrapped, rp["steps"], rp["spinup_min"], dt, s_by_cid=s_by_cid, nl=nl,
+            stepra=rp.get("stepra"))
         job_out = os.path.join(ctx.out_dir, name_prefix, "pt_%d" % rp["index"])
         os.makedirs(job_out, exist_ok=True)
         configs_path = os.path.join(job_out, "configs.json")
@@ -2484,6 +2692,23 @@ def plan_predicted_points(ctx, spinup_min=PREDICTED_SPINUP_MIN):
         ctx.probe_cfg.get("max_points"), namelist_path=ctx.namelist_path)
 
 
+def predicted_min_budget_s(ctx, n_points, steps, spinup_min, dt, stepra, s_step, slots):
+    """(seconds, detail): the least RUNNING budget predicted mode can succeed with -- rebuild
+    prep (REBUILD_PREP_EST_S) + a minimal stage 1 (one job: spin-up + ANCHOR + 1 candidate +
+    ANCHOREND) + stage 2 for that 1 candidate + anchors at every point (estimate_stage2_s,
+    ceil(points/slots) waves). Checked before anything is submitted."""
+    m = ranking_cost_model(ctx.startup_s, _restart_read_s(ctx), steps, spinup_min * 60.0 / dt,
+                           stepra, s_step)
+    stage1 = m["spin_s"] + 3 * m["per_run_s"]
+    stage2 = estimate_stage2_s(n_points, 3, steps, spinup_min, dt, s_step, slots, ctx.startup_s,
+                               _restart_read_s(ctx), stepra=stepra)
+    total = REBUILD_PREP_EST_S + stage1 + stage2
+    return total, ("minimum %s = rebuild prep %s + stage 1 %s (spin-up + 3 runs) + stage 2 %s "
+                   "(%d point(s), %d concurrent); %s"
+                   % (_fmt_hms(total), _fmt_hms(REBUILD_PREP_EST_S), _fmt_hms(stage1),
+                      _fmt_hms(stage2), n_points, slots, describe_cost_model(m)))
+
+
 def run_predicted(ctx, nodes, nodes_note, s_est):
     """D5 (decision 0055), rank_by == "predicted":
       0. plan points (ERA5 pin, spin-up predicted_spinup_min(dt)), P* = choose_primary_point, and
@@ -2518,10 +2743,6 @@ def run_predicted(ctx, nodes, nodes_note, s_est):
     if anchor is None:
         raise SystemExit("--rank-by predicted: no legal ANCHOR decomposition at %d node(s)"
                          % ctx.nodes)
-    rebuilt = prepare_rebuilt_points(
-        ctx, points, anchor, case_dir, ctx.namelist_path, ctx.case_json,
-        os.path.join(ctx.out_dir, "rebuilt"), spinup_min, stepra, dt)
-    rp_star = rebuilt[p_idx]
     s_led, _s_src, n_led = sweep.estimate_s_per_step(ctx.case, ctx.nodes, ctx.ledger_dir,
                                                       ctx.hardware_id)
     if n_led:
@@ -2531,17 +2752,32 @@ def run_predicted(ctx, nodes, nodes_note, s_est):
             ctx.s_prior = _fallback_s_per_step(nl, anchor["ranks"], anchor.get("omp", 1))
         except Exception:
             ctx.s_prior = s_led
+    steps = rebuilt_steps(stepra)
+    slots = compute_slots(ctx.max_nodes, ctx.nodes)
+    need_s, detail = predicted_min_budget_s(ctx, len(points), steps, spinup_min, dt, stepra,
+                                            ctx.s_prior, slots)
+    print("predicted mode: feasibility -- %s" % detail)
+    if ctx.budget_s < need_s:
+        raise SystemExit("predicted mode needs at least %.0f min of running time for %s at %d "
+                         "node(s) (have %.0f): %s"
+                         % (math.ceil(need_s / 60.0), ctx.case, ctx.nodes, ctx.budget_s / 60.0,
+                            detail))
+    rebuilt = prepare_rebuilt_points(
+        ctx, points, anchor, case_dir, ctx.namelist_path, ctx.case_json,
+        os.path.join(ctx.out_dir, "rebuilt"), spinup_min, stepra, dt)
+    rp_star = rebuilt[p_idx]
     ctx.reserve = dict(n_points=len(rebuilt), n_configs=TOP_K_STAGE2 + 2, steps=rp_star["steps"],
-                       spinup_min=spinup_min, dt=dt,
-                       slots=compute_slots(ctx.max_nodes, ctx.nodes))
+                       spinup_min=spinup_min, dt=dt, stepra=stepra, slots=slots)
     ctx.steps = rp_star["steps"]
     ctx.ranking = ranking_context(rp_star["case_id"], rp_star["cases_json"], spinup_min,
                                   rp_star["steps"], anchor, restart_io_form=ctx.restart_io_form)
     ctx.ranking["dt"] = dt
+    ctx.ranking["stepra"] = stepra
     print("stage 1: ranking at P* (case %s, start %s, STEPS=%d, RANKING_RESTART_IO_FORM=%d); "
-          "stage-2 reserve %s (s_prior %.4fs/step)"
+          "s_prior %.4fs/step [%s]"
           % (rp_star["case_id"], rp_star["T"].isoformat(), ctx.steps, ctx.restart_io_form,
-             _fmt_hms(stage2_reserve_s(ctx)), ctx.s_prior or 0.0))
+             ctx.s_prior or 0.0, "ledger" if n_led else "cell-step model"))
+    print(describe_stage2_reserve(ctx))
 
     job_ids0, configs_by_cid, rows0 = run_round0(ctx)
     configs_by_cid.pop(ANCHOR_END_ID, None)
@@ -2561,6 +2797,7 @@ def run_predicted(ctx, nodes, nodes_note, s_est):
     for x in ctx.not_measured:
         print("stage 1: job %s never started -- not measured: %s"
               % (x["job_id"], ", ".join(x["cids"]) or "-"))
+    reserve_note = describe_stage2_reserve(ctx)
     ctx.ranking = None                                   # stage 2 builds its own per-point contexts
     top, stage2_est, skip_reason = fit_stage2(ctx, top, anchor, rebuilt, s_by_cid, nl)
     if skip_reason:
@@ -2593,6 +2830,8 @@ def run_predicted(ctx, nodes, nodes_note, s_est):
                                        stage2=e["cid"] in {c["id"] for c in top})
                                   for e in stage1],
                   stage1_excluded=stage1_excluded, not_measured=list(ctx.not_measured),
+                  stage1_trimmed=list(ctx.stage1_trimmed),
+                  stage2_reserve_note=reserve_note,
                   stage2_estimate_s=stage2_est, stage2_skipped_reason=skip_reason)
     return report
 
@@ -2613,7 +2852,7 @@ def fit_stage2(ctx, top, anchor, rebuilt, s_by_cid, nl=None):
         wrapped = wrap_with_anchors(top[:k], anchor)
         per_job = max(ranking_job_timeouts(ctx, wrapped, rp["steps"], rp["spinup_min"],
                                            float(rp["dt"]), s_by_cid=s_by_cid, nl=nl,
-                                           restart_read_s=RESTART_READ_S)[3]
+                                           stepra=rp.get("stepra"))[3]
                       for rp in rebuilt)
         est = waves * per_job
         if est <= left:

@@ -2274,7 +2274,10 @@ def render_run_sbatch(plan, site="scc", per_window_estimate_min=15, wps_estimate
     lines.append("#!/usr/bin/env bash")
     lines.append("#SBATCH --job-name=coldstart-sample")
     lines.append("#SBATCH --partition=compute")
-    lines.append("#SBATCH --exclude=head")
+    # WTUNE_SBATCH_EXCLUDE: extra nodes to avoid (comma list), e.g. one carrying non-Slurm load
+    # (scc work5, 2026-09-27: a root VS Code server stole a core and slowed wrf.exe 5x).
+    extra = [n for n in os.environ.get("WTUNE_SBATCH_EXCLUDE", "").split(",") if n.strip()]
+    lines.append("#SBATCH --exclude=%s" % ",".join(["head"] + [n.strip() for n in extra]))
     lines.append("#SBATCH -N %d --exclusive --ntasks-per-node=%d" % (nodes, ppn))
     lines.append("#SBATCH --time=%s" % time_str)
     lines.append("#SBATCH --signal=B:USR1@90")

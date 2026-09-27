@@ -530,6 +530,13 @@ class TestRunSbatchHardConstraints(unittest.TestCase):
         self.assertIn("site_launch", text)
         self.assertIn("site_hygiene", text)
 
+    def test_extra_excluded_nodes_from_env(self):
+        plan = {"windows": [{"t": "2019-11-26_15:00:00", "reason": "t0"}], "nodes": 1,
+                "config": {"ranks": 72, "omp": 1, "nx": 9, "ny": 8, "numtiles": 1}}
+        with mock.patch.dict(os.environ, {"WTUNE_SBATCH_EXCLUDE": "work5, work7"}):
+            text = cs.render_run_sbatch(plan, site="scc")
+        self.assertIn("#SBATCH --exclude=head,work5,work7\n", text)
+
     def test_plan_dir_written_as_absolute_path(self):
         # Slurm runs a copy of the script from its spool dir: BASH_SOURCE cannot locate the plan.
         plan = {

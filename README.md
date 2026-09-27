@@ -509,7 +509,7 @@ NaN. **R3** `--dry-run` prints the plan and submits nothing. **R2** (each segmen
 its predicted range): first attempt failed — predicted 478/578/548 s vs measured 326/198/168 s,
 because the prediction had no io block and restart/history fell back to constants; fallbacks now
 scale from measured scc anchors (conus25 restart, dorian2019 history) by grid points × levels.
-The rerun with an io-block prediction is **PENDING**.
+Rerun with an io-block prediction (`r2_chain`, jobs 1409 + 1420): predicted 197.1 / 173.1 s vs measured 201 / 164 s (**+2.0% / −5.3%**; segment 1's estimate updated from segment 0's observed rate) — **R2 passes**.
 
 ### `wtune tune --rank-by predicted` — rank by predicted whole-run time (decision 0055, opt-in)
 

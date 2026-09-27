@@ -86,8 +86,9 @@ are in the git history, not listed here.
   failed on budget (queue time consumed the 60 min; then the stage-2 reserve skipped every
   stage-1 slot). G1–G4 — including whether the new winner beats the t0 winner G0014 — are not
   judged, so `t0` stays the default.
-- **PENDING:** `wtune run` R2 (segment wall inside its predicted range). The first attempt
-  overestimated 2–3× on constant I/O fallbacks, now scaled from measured anchors.
+- `wtune run` R2 (segment wall inside its predicted range) passed on the rerun with an io-block
+  prediction: +2.0% / −5.3% per segment. The first attempt overestimated 2–3× on constant I/O
+  fallbacks, now scaled from measured anchors.
 - **PENDING:** elevconv2022 out-of-sample check of `--time`, the I/O probe and `watch
   --prediction`. The scaled `--time` margin was chosen after the fixed one failed on dorian
   (1.57×), so its pass is in-sample; `watch`'s with-prediction replay is in-sample too.

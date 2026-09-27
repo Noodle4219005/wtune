@@ -145,12 +145,16 @@ def test_io_estimate_multiplies_medians_by_frames():
 
 
 def test_recommendation_arithmetic_and_rounding():
-    r = wrp.recommend_time(3600.0, 600.0)        # 3600 + 1200 + 300 = 5100 -> 5100 (x300)
+    r = wrp.recommend_time(3600.0, 600.0)        # 3600 + 1200 + min(360, 300) = 5100 (x60)
     assert r["time_s"] == 5100 and r["time"] == "01:25:00" and r["covers_io"]
-    assert wrp.recommend_time(3601.0, 600.0)["time_s"] == 5400
-    assert wrp.recommend_time(100000.0, 0.0)["time"] == "27:55:00"
-    f = wrp.recommend_time(3601.0, None)          # probe failed: range_high + 5 min, rounded up
-    assert f["time_s"] == 4200 and not f["covers_io"]
+    assert wrp.recommend_time(3601.0, 600.0)["time_s"] == 5160   # < 2 h: rounded to 1 min
+    assert wrp.recommend_time(100000.0, 0.0)["time"] == "27:55:00"  # >= 2 h: 5 min
+    f = wrp.recommend_time(3601.0, None)          # probe failed: range_high + margin, rounded up
+    assert f["time_s"] == 3960 and not f["covers_io"]
+    # dorian2019 T1 (scc): range_high 1502.5 s, io 299.1 s -> margin 150 s -> 38:00, not 45:00
+    d = wrp.recommend_time(1502.52, 299.14)
+    assert d["time_s"] == 2280 and d["margin_s"] == pytest.approx(150.252)
+    assert wrp.recommend_time(500.0, 0.0)["margin_s"] == 120.0     # floor
 
 
 def test_probe_marks_only_the_last_point(monkeypatch, capsys, tmp_path):

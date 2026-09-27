@@ -38,8 +38,14 @@ for _p in (os.path.join(_HERE, "tools"), os.path.join(_HERE, "predictor"), _HERE
 
 ERA5_PIN = "era5_arco"
 IO_FACTOR = 2.0          # recommended --time covers 2x the measured I/O (scc NFS: 2.4x spread)
-TIME_MARGIN_S = 300.0
-TIME_ROUND_S = 300
+# Margin and rounding scale with the run (T1 on scc, 2026-09-27: a fixed 5 min margin + 5 min
+# rounding gave dorian2019's 1718 s run a 45:00 --time, 1.57x; maria1km 1.29x, zhengzhou 1.09x).
+TIME_MARGIN_FRAC = 0.10  # of range_high
+TIME_MARGIN_MIN_S = 120.0
+TIME_MARGIN_MAX_S = 300.0
+TIME_ROUND_S = 300       # runs of 2 h or more
+TIME_ROUND_SHORT_S = 60  # below 2 h
+TIME_ROUND_SHORT_BELOW_S = 7200.0
 
 
 def _measure_steps(arg, stepra):
@@ -171,14 +177,17 @@ def io_estimate(frames, writes, probe_at):
 
 
 def recommend_time(range_high_s, io_s):
-    """range_high + IO_FACTOR x io_s + TIME_MARGIN_S, rounded UP to TIME_ROUND_S; io_s None
-    (no measured I/O) -> range_high + TIME_MARGIN_S, flagged as not covering writes."""
-    raw = range_high_s + (IO_FACTOR * io_s if io_s is not None else 0.0) + TIME_MARGIN_S
-    time_s = int(math.ceil(round(raw, 6) / TIME_ROUND_S)) * TIME_ROUND_S
+    """range_high + IO_FACTOR x io_s + margin, margin = TIME_MARGIN_FRAC x range_high clamped to
+    [TIME_MARGIN_MIN_S, TIME_MARGIN_MAX_S], rounded UP to 1 min below 2 h and to 5 min above;
+    io_s None (no measured I/O) -> range_high + margin, flagged as not covering writes."""
+    margin = min(max(TIME_MARGIN_FRAC * range_high_s, TIME_MARGIN_MIN_S), TIME_MARGIN_MAX_S)
+    raw = range_high_s + (IO_FACTOR * io_s if io_s is not None else 0.0) + margin
+    round_s = TIME_ROUND_SHORT_S if raw < TIME_ROUND_SHORT_BELOW_S else TIME_ROUND_S
+    time_s = int(math.ceil(round(raw, 6) / round_s)) * round_s
     return {"time_s": time_s, "time": "%02d:%02d:%02d" % (time_s // 3600, time_s % 3600 // 60,
                                                              time_s % 60),
             "range_high_s": range_high_s, "io_s": io_s, "io_factor": IO_FACTOR,
-            "margin_s": TIME_MARGIN_S, "round_s": TIME_ROUND_S, "raw_s": raw,
+            "margin_s": margin, "round_s": round_s, "raw_s": raw,
             "covers_io": io_s is not None}
 
 

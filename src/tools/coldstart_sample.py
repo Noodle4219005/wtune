@@ -38,6 +38,7 @@ import shlex
 import shutil
 import statistics
 import subprocess
+import threading
 import sys
 import tempfile
 
@@ -925,10 +926,16 @@ def _forcing_sources_by_dataset():
     return srcs
 
 
+_NETCDF_LOCK = threading.Lock()
+
+
 def _d01_bbox_from_case(case_dir):
-    """(lat_min, lat_max, lon_min, lon_max) of the case's own wrfinput_d01 grid."""
+    """(lat_min, lat_max, lon_min, lon_max) of the case's own wrfinput_d01 grid. Serialized:
+    wtune_tune.run_rebuild_points fetches points from a thread pool, and netCDF-C is not
+    thread-safe -- concurrent opens corrupted its ID table and a later close in the same process
+    failed with "NetCDF: Not a valid ID" (dorian2019 short-window run, 2026-09-27)."""
     import netCDF4
-    with netCDF4.Dataset(os.path.join(case_dir, "wrfinput_d01")) as d:
+    with _NETCDF_LOCK, netCDF4.Dataset(os.path.join(case_dir, "wrfinput_d01")) as d:
         lat, lon = d["XLAT"][0], d["XLONG"][0]
         return (float(lat.min()), float(lat.max()), float(lon.min()), float(lon.max()))
 

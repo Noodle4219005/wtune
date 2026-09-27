@@ -867,6 +867,7 @@ def test_conus25_like_runs_stage1_and_stage2(monkeypatch, tmp_path, stage2_extra
                case_json=dict(e_we=1501, e_sn=1201, e_vert=50, prep_dir=str(tmp_path)))
     ctx.budget_mode = "running"
     ctx.max_wall_s = 3 * 3600.0
+    ctx.stage1_mode = "pstar"                        # this scenario pins the P*-restart stage 1
     report = wt.run_predicted(ctx, 4, "user", 1.3)
     assert report["stage1_ranking"], "stage 1 measured nothing"
     assert len(report["stage1_ranking"]) >= 3
@@ -888,6 +889,7 @@ def test_conus25_60min_is_refused_with_conservative_concurrency(monkeypatch, tmp
     ctx = _ctx(out_dir=str(tmp_path), budget_s=3600.0, nodes=4, max_nodes=12,
                case_json=dict(e_we=1501, e_sn=1201, e_vert=50, prep_dir=str(tmp_path)))
     ctx.budget_mode = "running"
+    ctx.stage1_mode = "pstar"
     with pytest.raises(SystemExit, match=r"needs at least 7\d min .*1 concurrent"):
         wt.run_predicted(ctx, 4, "user", 1.3)
 
@@ -974,3 +976,135 @@ def test_stage2_wall_cap_cancel_still_raises(tmp_path):
     with pytest.raises(RuntimeError, match="not COMPLETED"):
         wt.measure_candidates_at_points(ctx, [_cfg("G1")], [_rp(tmp_path)], ANCHOR)
     assert scalls == [["501"]]
+
+
+# ---------------------------------------------------------------------------
+# stage1=t0 (default since conus25-pred4 G3): broad t0 search, rebuild prep beside it
+# ---------------------------------------------------------------------------
+def test_stage1_option_cli_yaml_default():
+    assert wt.build_arg_parser().parse_args(["x"]).stage1 is None
+    assert wt.build_arg_parser().parse_args(["x", "--stage1", "pstar"]).stage1 == "pstar"
+    with pytest.raises(SystemExit):
+        wt.build_arg_parser().parse_args(["x", "--stage1", "bogus"])
+    cfg, errs = wtune_config.resolve_config({})
+    assert cfg["probe"]["stage1"] == "t0" and not errs
+    _c, errs = wtune_config.resolve_config({"probe": {"stage1": "bogus"}})
+    assert any("probe.stage1" in e for e in errs)
+    assert _ctx().stage1_mode == "t0"
+
+
+def test_stage1_t0_feasibility_uses_t0_steps(monkeypatch, tmp_path):
+    _predicted_env(monkeypatch)
+    monkeypatch.setattr(wt, "submit_rebuilt_points", lambda *a, **k: pytest.fail("submitted"))
+    ctx = _ctx(out_dir=str(tmp_path / "o"), budget_s=3600.0, nodes=4, max_nodes=12, steps=20,
+               case_json=dict(e_we=1501, e_sn=1201, e_vert=50, prep_dir=str(tmp_path / "c")))
+    ctx.budget_mode = "running"
+    # t0 stage-1 minimum = 3 x (120 + 20 x 1.3) = 438 s; + prep 480 + stage 2 3105 -> 67 min
+    with pytest.raises(SystemExit, match=r"needs at least 68 min .*stage 1=t0 7:18 "
+                                         r"\(3 t0 runs x 20 steps\)"):
+        wt.run_predicted(ctx, 4, "user", 1.3)
+
+
+def test_stage1_t0_end_to_end(monkeypatch, tmp_path):
+    _predicted_env(monkeypatch)
+    clock = FakeClock()
+    events = []
+    submitted = {}
+    counter = {"n": 3000}
+    cmds = []
+
+    def sbatch(cmd):
+        counter["n"] += 1
+        jid = str(counter["n"])
+        cmds.append(cmd)
+        path = re.search(r"CONFIG_FILE=(\S+)", cmd).group(1)
+        ids = [c["id"] for c in json.load(open(path))["configs"]]
+        submitted[jid] = (clock.t, 150.0 * len(ids), ids)
+        events.append(("stage1-submit", jid))
+        return "Submitted batch job %s\n" % jid
+
+    def sacct(cmd):
+        out = []
+        for j in cmd[cmd.index("-j") + 1].split(","):
+            t_sub, dur, _ids = submitted.get(j, (0, 0, []))
+            st = ("PENDING" if clock.t < t_sub + 30 else
+                  "RUNNING" if clock.t < t_sub + 30 + dur else "COMPLETED")
+            out.append("%s|%s|%s" % (j, st, wt.sweep.campaign_experiment._format_hms(dur / 60.0)))
+        return "\n".join(out)
+
+    def num(cid):
+        return int(re.sub(r"\D", "", cid) or 0)
+
+    def reader(case, job_ids):
+        assert case == "matthew"                     # t0 stage 1: the case's own ledgers
+        rows = []
+        for j in job_ids:
+            _t, _d, ids = submitted[j]
+            scale = 1.5 if int(j) % 2 else 1.0       # alternate slow/fast allocations
+            for cid in ids:
+                base = 1.3 if cid in ("ANCHOR", "ANCHOREND") else 1.3 * (0.8 + 0.01 * num(cid))
+                rows.append(dict(run_id="%s_%s_r1_%s" % (case, cid, j),
+                                 s_per_step_median=str(scale * base),
+                                 notes="config=%s node_dirty=none" % cid))
+        return rows
+
+    def submit_prep(ctx, points, anchor, *a, **k):
+        events.append(("prep-submit",))
+        ctx.owned_jobs.extend(["p1", "p2", "p3"])
+        return dict(job_ids=["p1", "p2", "p3"], points=points)
+
+    def finish_prep(ctx, handle):
+        events.append(("prep-wait",))
+        return [dict(index=i, point=p, case_id="matthewp%d" % i, T=p.at - dt_.timedelta(minutes=20),
+                     cases_json="/r.json", steps=82, spinup_min=20, stepra=40, dt=15.0,
+                     job_id="p%d" % (i + 1))
+                for i, p in enumerate(handle["points"])]
+
+    stage2 = {}
+
+    def measure(ctx, configs, rebuilt, anchor, s_by_cid=None, **k):
+        events.append(("stage2",))
+        stage2["cids"] = [c["id"] for c in configs]
+        stage2["ranking_ctx"] = ctx.ranking
+        meas = {c["id"]: [PM(at=rp["point"].at, reason="auto", source="rebuild",
+                             s_normal=s_by_cid.get(c["id"], 1.3), n_rad=2, r=3.5)
+                          for rp in rebuilt] for c in [anchor] + list(configs)}
+        return meas, [], ["9001"]
+
+    monkeypatch.setattr(wt, "submit_rebuilt_points", submit_prep)
+    monkeypatch.setattr(wt, "finish_rebuilt_points", finish_prep)
+    monkeypatch.setattr(wt, "prepare_rebuilt_points", lambda *a, **k: pytest.fail("pstar path"))
+    monkeypatch.setattr(wt, "measure_candidates_at_points", measure)
+    scancel, scalls = make_fake_scancel()
+    ctx = _ctx(out_dir=str(tmp_path / "out"), ledger_dir=str(tmp_path / "l"), budget_s=5400.0,
+               nodes=4, max_nodes=12, steps=20, clock=clock, poll_interval=20.0,
+               sbatch_runner=sbatch, sacct_runner=sacct, scancel_runner=scancel,
+               ledger_reader=reader,
+               proposer=lambda state, bs, kappa=None: (dict(stopped=True, reason="stub"), []),
+               case_json=dict(e_we=1501, e_sn=1201, e_vert=50, prep_dir=str(tmp_path / "c")))
+    ctx.budget_mode = "running"
+    ctx.max_wall_s = 3 * 5400.0
+    report = wt.run_predicted(ctx, 4, "user", 1.3)
+
+    # order: prep submitted first, stage 1 ran beside it, prep awaited only before stage 2
+    kinds = [e[0] for e in events]
+    assert kinds[0] == "prep-submit"
+    assert kinds.index("prep-wait") > max(i for i, k in enumerate(kinds) if k == "stage1-submit")
+    assert kinds[-1] == "stage2" and kinds[-2] == "prep-wait"
+    # stage 1 = plain t0 jobs: no ranking context, t0 STEPS, anchors in every job
+    for c in cmds:
+        exp = c.split("--export=")[1].split()[0]
+        assert "RANKING_START" not in exp and "CASES_JSON" not in exp
+        assert ",CASE=matthew," in exp and ",STEPS=20," in exp
+    for jid, (_t, _d, ids) in submitted.items():
+        assert ids[0] == "ANCHOR" and ids[-1] == "ANCHOREND" and len(ids) >= 3
+    assert ctx.stage1_max_running >= 1 and report["stage1_mode"] == "t0"
+    assert not report["stage1_excluded"]             # no restart_used required at t0
+    # shortlist = the 3 smallest ANCHOR-NORMALIZED keys, not the raw medians
+    ranked = report["stage1_ranking"]
+    assert [e["norm_key"] for e in ranked] == sorted(e["norm_key"] for e in ranked)
+    by_num = sorted((e["id"] for e in ranked), key=num)
+    assert stage2["cids"] == by_num[:3]
+    raw_top = [e["id"] for e in sorted(ranked, key=lambda e: e["median_s_per_step"])[:3]]
+    assert raw_top != stage2["cids"]                 # the slow allocations would have skewed it
+    assert stage2["ranking_ctx"] is None and report["ranking"] and scalls == []

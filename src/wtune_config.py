@@ -97,7 +97,7 @@ DEFAULTS = {
               # ERA5-rebuilt points, each spun up once and shared by every candidate (wtune_tune
               # run_predicted); t0 (default) is the pre-0055 behaviour. restart_io_form is the
               # shared restart's io_form in that mode (14 ADIOS2 BP, or 2 netCDF).
-              "rank_by": "t0", "restart_io_form": 14},
+              "rank_by": "t0", "restart_io_form": 14, "stage1": "t0"},
     "prediction": {"io_target": "nfs", "drift_band_pct": None, "measure_r_rad": False},
     "exclude": [],
 }
@@ -110,10 +110,11 @@ SEARCH_IO_KEYS = {"enabled", "io_form_history", "target"}
 PHYSICS_GRAY_KEYS = {"enabled", "knobs"}
 PHYSICS_GRAY_KNOB_KEYS = {"multiply"}
 PROBE_KEYS = {"steps", "confirm_reps", "spinup_min", "ranking_start", "points", "max_points",
-              "budget_pct", "sources", "rank_by", "restart_io_form"}
+              "budget_pct", "sources", "rank_by", "restart_io_form", "stage1"}
 RANKING_START_CHOICES = ("t0", "spinup")
 RANK_BY_CHOICES = ("t0", "predicted")
 RESTART_IO_FORM_CHOICES = (14, 2)
+STAGE1_CHOICES = ("t0", "pstar")
 # "coldstart" is the pre-2026-09-26 name, still accepted (wtune_probe_plan.canonical_source
 # normalizes it to "rebuild" everywhere downstream) -- never rejected as an unknown source.
 PROBE_SOURCE_CHOICES = ("trajectory", "restart", "rebuild")
@@ -422,6 +423,8 @@ def _validate_semantics(cfg, errors):
         errors.append("probe.budget_pct: must be a number in (0, 100], got %r" % (p["budget_pct"],))
     if p["rank_by"] not in RANK_BY_CHOICES:
         errors.append("probe.rank_by: %r not in %s" % (p["rank_by"], list(RANK_BY_CHOICES)))
+    if p["stage1"] not in STAGE1_CHOICES:
+        errors.append("probe.stage1: %r not in %s" % (p["stage1"], list(STAGE1_CHOICES)))
     if isinstance(p["restart_io_form"], bool) or p["restart_io_form"] not in RESTART_IO_FORM_CHOICES:
         errors.append("probe.restart_io_form: %r not in %s"
                        % (p["restart_io_form"], list(RESTART_IO_FORM_CHOICES)))
@@ -783,6 +786,7 @@ probe:
   rank_by: t0                     # t0 | predicted (decision 0055: rank by predicted whole-run time from
                                    # ERA5-rebuilt, spun-up points; CLI --rank-by)
   restart_io_form: 14             # rank_by=predicted only: shared restart io_form, 14 (ADIOS2) or 2
+  stage1: t0                      # rank_by=predicted only: t0 (broad t0 search) | pstar (P* restart)
 
 prediction:
   io_target: nfs                  # nfs | local -- calibration target for the full-run I/O estimate

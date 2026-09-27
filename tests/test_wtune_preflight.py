@@ -1003,28 +1003,29 @@ def _c10_full(shape, fill):
     return np.full(shape, fill, dtype="f4")
 
 
-def write_wrfinput(path, overrides=None):
+def write_wrfinput(path, overrides=None, nz=2, ny=2, nx=2):
     """Synthetic wrfinput_d01 with every C10-checked field at a clean, in-range value;
     `overrides` replaces individual variables' ndarrays for one test's bad-value injection."""
     overrides = overrides or {}
+    shape4, shape_sfc = (1, nz, ny, nx), (1, ny, nx)
     data = {
-        "T": _c10_full(_C10_SHAPE_4D, 290.0),
-        "U": _c10_full(_C10_SHAPE_4D, 5.0),
-        "V": _c10_full(_C10_SHAPE_4D, -3.0),
-        "QVAPOR": _c10_full(_C10_SHAPE_4D, 0.005),
-        "TSLB": _c10_full(_C10_SHAPE_4D, 290.0),
-        "SMOIS": _c10_full(_C10_SHAPE_4D, 0.3),
-        "PSFC": _c10_full(_C10_SHAPE_SFC, 101300.0),
-        "TSK": _c10_full(_C10_SHAPE_SFC, 295.0),
-        "SST": _c10_full(_C10_SHAPE_SFC, 290.0),
-        "LANDMASK": _c10_full(_C10_SHAPE_SFC, 1.0),
+        "T": _c10_full(shape4, 290.0),
+        "U": _c10_full(shape4, 5.0),
+        "V": _c10_full(shape4, -3.0),
+        "QVAPOR": _c10_full(shape4, 0.005),
+        "TSLB": _c10_full(shape4, 290.0),
+        "SMOIS": _c10_full(shape4, 0.3),
+        "PSFC": _c10_full(shape_sfc, 101300.0),
+        "TSK": _c10_full(shape_sfc, 295.0),
+        "SST": _c10_full(shape_sfc, 290.0),
+        "LANDMASK": _c10_full(shape_sfc, 1.0),
     }
     data.update(overrides)
     dim4 = ("Time", "bottom_top", "south_north", "west_east")
     dim_sfc = ("Time", "south_north", "west_east")
     write_nc(
         path,
-        dims={"Time": None, "bottom_top": 2, "south_north": 2, "west_east": 2},
+        dims={"Time": None, "bottom_top": nz, "south_north": ny, "west_east": nx},
         vars_={
             "T": ("f4", dim4, data["T"]),
             "U": ("f4", dim4, data["U"]),
@@ -1147,13 +1148,36 @@ def test_c10_tslb_on_water_not_checked(tmp_path):
     assert out == []
 
 
-def test_c10_tslb_nonzero_threshold_knob(tmp_path, monkeypatch):
-    monkeypatch.setattr(pf, "_C10_TSLB_NONZERO_FATAL_THRESHOLD", 2)
-    tslb = _c10_full(_C10_SHAPE_4D, 290.0)
-    tslb[0, 0, 0, 0] = 101.1
-    tslb[0, 0, 0, 1] = 101.1
-    out = _c10_run(tmp_path, {"TSLB": tslb})
-    assert [f.severity for f in out if "TSLB" in f.message] == ["WARN"]
+def test_c10_tslb_small_nonzero_fraction_warns(tmp_path):
+    """dorian2019 d02 shape (ran 1 h on scc, job 1392, no NaN): 20/(14806x4) = 0.034% of land
+    TSLB values non-zero out of range -> WARN, not FATAL. Here 3 of 4x50x50 = 0.030%."""
+    nz, ny, nx = 4, 50, 50
+    tslb = np.full((1, nz, ny, nx), 290.0, dtype="f4")
+    tslb[0, 3, 0, 0] = 101.1
+    tslb[0, 3, 0, 1] = 101.1
+    tslb[0, 2, 7, 9] = 150.0
+    write_namelist(tmp_path, one_domain_namelist())
+    write_wrfinput(tmp_path / "wrfinput_d01", overrides={"TSLB": tslb}, nz=nz, ny=ny, nx=nx)
+    nl = wp.parse_namelist(str(tmp_path / "namelist.input"))
+    findings = []
+    pf.check_c10_wrfinput_sanity(nl, tmp_path, findings)
+    tslb_f = [f for f in findings if f.id == "C10" and "TSLB" in f.message]
+    assert [f.severity for f in tslb_f] == ["WARN"]
+    assert "has 3 non-zero value(s)" in tslb_f[0].message
+    assert "0.030% of 10000 land values" in tslb_f[0].message
+
+
+def test_c10_tslb_fraction_above_threshold_is_fatal(tmp_path):
+    """Just over 0.1%: 11 of 4x50x50 = 0.11% -> FATAL."""
+    nz, ny, nx = 4, 50, 50
+    tslb = np.full((1, nz, ny, nx), 290.0, dtype="f4")
+    tslb[0, 0, 0, :11] = -12.5
+    write_namelist(tmp_path, one_domain_namelist())
+    write_wrfinput(tmp_path / "wrfinput_d01", overrides={"TSLB": tslb}, nz=nz, ny=ny, nx=nx)
+    nl = wp.parse_namelist(str(tmp_path / "namelist.input"))
+    findings = []
+    pf.check_c10_wrfinput_sanity(nl, tmp_path, findings)
+    assert [f.severity for f in findings if f.id == "C10" and "TSLB" in f.message] == ["FATAL"]
 
 
 def test_c10_sst_zero_on_water_skipped_nonzero_bad_fatal(tmp_path):

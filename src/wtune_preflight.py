@@ -1228,10 +1228,11 @@ _C10_TSLB_RANGE = (200.0, 350.0)
 _C10_SST_RANGE = (180.0, 350.0)
 _C10_SMOIS_RANGE = (0.0, 1.0)
 _C10_TSK_RANGE = (180.0, 350.0)
-# TSLB non-zero out-of-range values are FATAL when their count EXCEEDS this threshold (and WARN
-# when 1..threshold). 0 = any single such value is FATAL. Kept as a knob because dorian2019 d02
-# (ran fine) carries 2 land values of 101.1 K; case_I carried 13186.
-_C10_TSLB_NONZERO_FATAL_THRESHOLD = 0
+# TSLB non-zero out-of-range values are FATAL when they EXCEED this FRACTION of the domain's land
+# TSLB values (land columns x soil levels), WARN when 0 < fraction <= it. Pre-registered 0.1%:
+# dorian2019 d02 20/(14806x4) = 0.034% ran 1 h on scc (job 1392) with no NaN -> WARN;
+# tw3km-2031/case_I 13186/(37588x4) = 8.8% went NaN by hour 1 -> FATAL.
+_C10_TSLB_NONZERO_FATAL_FRACTION = 0.001
 _C10_NAN_VARS = ("T", "U", "V", "QVAPOR", "TSLB", "SMOIS", "PSFC")
 
 
@@ -1304,7 +1305,8 @@ def check_c10_wrfinput_sanity(nl, run_dir, findings):
 
     Rules ("land" = LANDMASK==1 and, when present, XLAND==1; "water" = LANDMASK==0):
       TSLB  land only. Exactly 0 -> one WARN per domain (undefined soil temperature); non-zero
-            outside [200, 350] K -> FATAL (count > _C10_TSLB_NONZERO_FATAL_THRESHOLD, default 0).
+            outside [200, 350] K -> FATAL when they exceed _C10_TSLB_NONZERO_FATAL_FRACTION
+            (0.1%) of the domain's land TSLB values (land columns x soil levels), else WARN.
       SST   water only, exactly-0 values skipped; non-zero outside [180, 350] K -> FATAL.
       SMOIS land only. < 0 -> WARN; > 1 -> FATAL.
       TSK   every point outside [180, 350] K -> FATAL.
@@ -1316,7 +1318,9 @@ def check_c10_wrfinput_sanity(nl, run_dir, findings):
     exactly 0 on land and on some water points (inland lakes: zhengzhou 4663, dorian 16498), and
     small negative deep-level SMOIS on land (zhengzhou: 1923 values in [-0.012, 0)). case_I, which
     went NaN, instead had 13186 NON-ZERO garbage land TSLB values (-12.5, -10.9, 170.6 ...), none
-    exactly 0 -- that non-zero signature is what stays FATAL.
+    exactly 0 -- 13186/(37588x4) = 8.8% of its land values -> FATAL. dorian2019 d02 also carries
+    20 non-zero out-of-range land TSLB values (min 101.1 K), but 20/(14806x4) = 0.034%, and its
+    1 h scc run (job 1392) had no NaN at 01:00 in d02 -> WARN.
     """
     if not HAVE_NETCDF4:
         findings.append(Finding(INFO, "C10", "SKIPPED (netCDF4 not available)"))
@@ -1381,9 +1385,14 @@ def check_c10_wrfinput_sanity(nl, run_dir, findings):
                 bad = on_land & (arr != 0.0) & ((arr < lo) | (arr > hi))
                 n_bad = int(bad.sum())
                 if n_bad:
-                    sev = FATAL if n_bad > _C10_TSLB_NONZERO_FATAL_THRESHOLD else WARN
+                    n_land = int(_c10_bcast(land, arr).sum())
+                    frac = n_bad / float(n_land) if n_land else 1.0
+                    sev = FATAL if frac > _C10_TSLB_NONZERO_FATAL_FRACTION else WARN
                     _c10_range_finding(findings, sev, d, "TSLB", wname, arr, bad, lo, hi,
-                                       "non-zero ", " (land points)")
+                                       "non-zero ",
+                                       " (land points; %.3f%% of %d land values, FATAL above "
+                                       "%.1f%%)" % (100.0 * frac, n_land,
+                                                    100.0 * _C10_TSLB_NONZERO_FATAL_FRACTION))
 
             if "SST" in ds.variables:
                 arr = _c10_filled(ds.variables["SST"])

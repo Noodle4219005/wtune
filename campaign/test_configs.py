@@ -223,6 +223,15 @@ class TestNamelistEditing(unittest.TestCase):
         "/\n"
     )
 
+    def test_run_seconds_is_zeroed(self):
+        # decision 0055: a rebuilt-segment template (coldstart real/wrf-window namelist) carries
+        # run_seconds=<window>; WRF adds it to run_minutes, so it must be zeroed.
+        text = self.SYNTHETIC_WITH_EXISTING.replace("run_seconds=0", "run_seconds=4830")
+        out = configs.edit_namelist(text, 14, 16, 12, 8, history_mode="off", ranks=224)
+        self.assertIn("run_seconds=0,", out)
+        self.assertIn("run_minutes=8", out)
+        self.assertNotIn("4830", out)
+
     def test_edit_with_existing_decomp_lines(self):
         out = configs.edit_namelist(self.SYNTHETIC_WITH_EXISTING, 14, 16, 12, 8,
                                      history_mode="end_d01", ranks=224)
@@ -2780,6 +2789,21 @@ class TestRestartFrom(unittest.TestCase):
         # only overrides start_*/restart, so run_minutes=50 still comes through untouched
         # (spacing preserved from the template's own "key = value" style -- see _set_scalar).
         self.assertIn("run_minutes = 50", out)
+
+    def test_restart_from_overrides_restart_timers_stored_in_the_restart_file(self):
+        import re
+        # G0 (jobs 1371/1372): without it WRF reuses the spin-up's restart interval from the
+        # restart file and writes a restart inside the candidate's measured window.
+        import datetime
+        t = datetime.datetime(2019, 11, 26, 23, 0, 0)
+        out = configs.edit_namelist(self.SYNTHETIC_3DOM_RESTART, 16, 28, 8, 50, max_dom=3,
+                                     adios2=False, restart_from=t)
+        self.assertEqual(len(re.findall(r"(?m)^\s*override_restart_timers\s*=\s*\.true\.", out)), 1)
+        again = configs.edit_namelist(out, 16, 28, 8, 50, max_dom=3, adios2=False, restart_from=t)
+        self.assertEqual(len(re.findall(r"(?m)^\s*override_restart_timers\s*=", again)), 1)
+        plain = configs.edit_namelist(self.SYNTHETIC_3DOM_RESTART, 16, 28, 8, 50, max_dom=3,
+                                       adios2=False)
+        self.assertNotIn("override_restart_timers", plain)
 
     def test_restart_from_none_is_byte_identical_to_before(self):
         out_a = configs.edit_namelist(self.SYNTHETIC_3DOM_RESTART, 16, 28, 8, 50, max_dom=3,

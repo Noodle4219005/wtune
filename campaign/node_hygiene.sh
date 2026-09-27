@@ -18,6 +18,16 @@
 #               Prints "REAPED_ORPHANS host=<h> n=<k> pids=<p1,p2,...>" only when it found any.
 #   census      ~2s /proc/stat sample (two snapshots). Prints one
 #               "NODE_DIRTY host=<h> cpu=<c> busy=<pct>" line per CPU >20% busy; silent if none.
+#               Then a foreign-process scan (decision 0055, scc work5 incident 2026-09-27: a root
+#               VS Code server at 91% of ONE core slowed a 576-rank wrf.exe 5x, and a 2 s
+#               per-CPU sample can miss a bursty hog): one
+#               "FOREIGN_LOAD host=<h> pid=<p> user=<u> comm=<c> pcpu=<pct>" line per process NOT
+#               owned by the invoking user whose ps lifetime %CPU exceeds FOREIGN_PCPU_MIN
+#               (default 20) AND whose elapsed time is >= FOREIGN_MIN_ETIME_S (default 30 s: a
+#               freshly spawned process -- scc: root check-new-release at 100% with etimes 0 --
+#               has a meaningless lifetime %CPU); kernel threads (kthreadd, pid 2, and its
+#               children) are ignored.
+#               Silent if none. NODE_DIRTY is unchanged by this scan.
 #   reap+census reap, then census.
 # Always exits 0 -- a dirty/orphaned node is something to report, not something that should
 # abort the caller's mpirun dispatch.
@@ -47,10 +57,27 @@ census () {
     awk -v h="$HOST" '{dt=$4-$2; di=$5-$3; b=(dt>0)?100*(dt-di)/dt:0; if (b>20) printf "NODE_DIRTY host=%s cpu=%s busy=%.0f\n", h, $1, b}'
 }
 
+foreign_load () {
+  # ps lifetime pcpu (cputime/elapsed) -- a long-lived hog shows up even if it is idle during the
+  # 2 s census sample above. uid, not user name: ps truncates long names.
+  local me
+  me=$(id -u)
+  ps -eo pid=,ppid=,uid=,user=,pcpu=,etimes=,comm= 2>/dev/null | \
+    awk -v h="$HOST" -v me="$me" -v thr="${FOREIGN_PCPU_MIN:-20}" \
+        -v etmin="${FOREIGN_MIN_ETIME_S:-30}" '
+      $1 == 2 || $2 == 2 { next }            # kthreadd and kernel threads
+      $3 == me { next }                      # our own job user
+      $6 + 0 < etmin + 0 { next }            # too young for a meaningful lifetime pcpu
+      $5 + 0 > thr + 0 {
+        comm = $7; for (i = 8; i <= NF; i++) comm = comm "_" $i
+        printf "FOREIGN_LOAD host=%s pid=%s user=%s comm=%s pcpu=%s\n", h, $1, $4, comm, $5
+      }'
+}
+
 case "$MODE" in
   reap) reap ;;
-  census) census ;;
-  reap+census) reap; census ;;
+  census) census; foreign_load ;;
+  reap+census) reap; census; foreign_load ;;
   *) echo "node_hygiene.sh: bad mode '$MODE' (want reap|census|reap+census)" >&2; exit 1 ;;
 esac
 exit 0

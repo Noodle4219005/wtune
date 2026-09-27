@@ -26,6 +26,12 @@ polling Slurm) -- not a Slurm job itself. Stages:
                module is importable (owned by another agent, edited concurrently -- best-effort,
                never touched here).
 
+--rank-by predicted (decision 0055, opt-in; default t0 is everything above, unchanged): plan
+ERA5-rebuildable points, rebuild each once (coldstart real_only), rank round0/adaptive candidates
+from P*'s shared spin-up restart (ANCHOR first + ANCHOREND last in every job), then measure the
+top-3 + anchor at EVERY point in parallel and pick the minimum predicted whole-run compute+init
+(wtune_probe_plan.combine) -- see run_predicted.
+
 Budget discipline: never submits a job whose estimated (safety-padded) wall time would finish
 after the --minutes deadline; at the deadline, cancels only Slurm job ids THIS run itself
 submitted. Everything that touches the outside world (sbatch/sacct/scancel, the wall clock, the
@@ -611,6 +617,18 @@ class Ctx:
     # which one is currently in effect, for the log line.
     startup_s: float = DEFAULT_STARTUP_S
     startup_source: str = "documented constant (scc_sweep.STARTUP_S)"
+    # decision 0055 (--rank-by predicted): rank_by is "t0" (pre-0055 behaviour) or "predicted".
+    # `ranking` is the RANKING CONTEXT every ranking job is submitted with in predicted mode (see
+    # ranking_context()); None -- the default and always in t0 mode -- leaves every submission,
+    # chunk and ledger read exactly as before. ranking_gates collects each ranking job's
+    # evaluate_job_gates() record (stage 1 warns, stage 2 raises).
+    rank_by: str = "t0"
+    restart_io_form: int = 14
+    ranking: dict = None
+    ranking_gates: list = dataclasses.field(default_factory=list)
+    # stage-1 per-job record {job_id: {s_anchor_job, excluded, reason}} (_record_stage1_gates),
+    # consumed by stage1_normalized_ranking; always {} in t0 mode.
+    stage1_jobs: dict = dataclasses.field(default_factory=dict)
 
     def elapsed(self):
         return self.clock.now() - self.start_time
@@ -706,18 +724,32 @@ def wait_for_jobs(ctx, job_ids, stage, note=""):
 # ---------------------------------------------------------------------------
 # submitting one CONFIG_FILE job (thin wrapper around scc_sweep's own builders)
 # ---------------------------------------------------------------------------
-def submit_configs_job(ctx, configs, reps, name_suffix, s_est, time_est=None):
+def submit_configs_job(ctx, configs, reps, name_suffix, s_est, time_est=None, ranking=None):
+    """One strict_campaign.sbatch CONFIG_FILE job. `ranking` (default: ctx.ranking; None in t0
+    mode) is the decision-0055 ranking context (see ranking_context): the job then runs as the
+    rebuilt point's own case id with CASES_JSON/RANKING_START=spinup/SPINUP_MINUTES/
+    RANKING_STRICT_RESTART/SPINUP_TIMEOUT_S/RANKING_RESTART_IO_FORM exported, and its config list
+    is bracketed ANCHOR ... ANCHOREND (wrap_with_anchors -- idempotent, so a caller that already
+    wrapped for its own time estimate is unaffected). CAMPAIGN=<the sbatch script's own campaign/
+    dir> is exported whenever that dir is a real campaign checkout (scc_sweep.campaign_dir_for)
+    -- deliberate 2026-09-27 default change so the spooled script never pairs with a stale
+    ~/wtune/campaign's helpers."""
+    ranking = ctx.ranking if ranking is None else ranking
+    if ranking:
+        configs = wrap_with_anchors(configs, ranking["anchor"])
     if time_est is None:
-        time_est = estimate_run_time(len(configs), reps, ctx.steps, s_est=s_est,
-                                      startup_s=ctx.startup_s)
+        time_est = _job_time_est(ctx, len(configs), reps, s_est, ranking=ranking)
     job_out_dir = os.path.join(ctx.out_dir, name_suffix)
     os.makedirs(job_out_dir, exist_ok=True)
     configs_path = os.path.join(job_out_dir, "configs.json")
     sweep.write_configs_json(configs_path, configs)
     cmd_str = sweep.build_sbatch_command(
-        ctx.case, ctx.nodes, ctx.cores_per_node, time_est["time_limit"], time_est["timeout_s"],
-        reps, ctx.steps, os.path.abspath(configs_path), job_out_dir,
-        env_source=ctx.env_source, sbatch_script=ctx.sbatch_script)
+        ranking["case_id"] if ranking else ctx.case, ctx.nodes, ctx.cores_per_node,
+        time_est["time_limit"], time_est["timeout_s"],
+        reps, ranking["steps"] if ranking else ctx.steps, os.path.abspath(configs_path),
+        job_out_dir, env_source=ctx.env_source, sbatch_script=ctx.sbatch_script,
+        campaign_dir=sweep.campaign_dir_for(ctx.sbatch_script),
+        extra_export=ranking_export(ranking, time_est) if ranking else None)
     job_id = sweep.submit_job(cmd_str, sbatch_runner=ctx.sbatch_runner)
     ctx.owned_jobs.append(job_id)
     return job_id, configs_path, time_est
@@ -736,7 +768,8 @@ def _submit_round0_wave(ctx, configs, slots, s_est, name_prefix):
     chunks = chunk_round_robin(configs, slots)
     job_ids, configs_by_cid, job_configs = [], {}, {}
     for i, chunk in enumerate(chunks):
-        time_est = estimate_run_time(len(chunk), 1, ctx.steps, s_est=s_est, startup_s=ctx.startup_s)
+        chunk = _ranking_wrap(ctx, chunk)     # predicted mode: ANCHOR ... ANCHOREND in EVERY chunk
+        time_est = _job_time_est(ctx, len(chunk), 1, s_est)
         if would_exceed_budget(ctx.elapsed(), time_est["total_run_s"], ctx.budget_s):
             print("%s slot %d: SKIP -- estimated end would exceed budget" % (name_prefix, i))
             continue
@@ -750,7 +783,8 @@ def _submit_round0_wave(ctx, configs, slots, s_est, name_prefix):
         print("%s slot %d: submitted job %s (%d configs)" % (name_prefix, i, job_id, len(chunk)))
 
     states = wait_for_jobs(ctx, job_ids, name_prefix)
-    rows = ctx.ledger_reader(ctx.case, job_ids)
+    rows = ctx.ledger_reader(_ledger_case(ctx), job_ids)
+    _record_stage1_gates(ctx, job_ids, rows, name_prefix)
     return job_ids, configs_by_cid, rows, job_configs, states
 
 
@@ -844,6 +878,8 @@ def _default_proposer(ctx):
     for path in sorted(glob.glob(os.path.join(ctx.ledger_dir, "ledger_*.csv"))):
         if os.path.basename(path).startswith("ledger_%s_" % ctx.case):
             continue    # this case's own ledgers are already in `state` (case_measured_rows)
+        if ctx.ranking and os.path.basename(path).startswith("ledger_%s_" % ctx.ranking["case_id"]):
+            continue    # predicted mode: this run's own rebuilt-point ledgers, same reason
         try:
             prior_rows.extend(decomp_search.benchmark.load_ledger(path))
         except Exception:
@@ -931,8 +967,7 @@ def run_adaptive_rounds(ctx, all_configs_by_cid, all_results, s_est):
         state.setdefault("rounds", []).append(dict(round=round_idx, batch_size=batch_size,
                                                      kappa=kappa))
 
-        time_est = estimate_run_time(len(configs_out), 1, ctx.steps, s_est=s_est,
-                                      startup_s=ctx.startup_s)
+        time_est = _job_time_est(ctx, len(_ranking_wrap(ctx, configs_out)), 1, s_est)
         projected_end = elapsed + time_est["total_run_s"]        # RAW/EXPECTED -- never job_hours
         if projected_end > ADAPTIVE_STOP_FRACTION * ctx.budget_s:
             print("adaptive rounds: stopping before round %d -- projected finish %s > %.0f%% "
@@ -949,8 +984,10 @@ def run_adaptive_rounds(ctx, all_configs_by_cid, all_results, s_est):
             state["configs"][c["id"]] = c
 
         wait_for_jobs(ctx, [job_id], "round%d" % round_idx)
-        rows = ctx.ledger_reader(ctx.case, [job_id])
+        rows = ctx.ledger_reader(_ledger_case(ctx), [job_id])
+        _record_stage1_gates(ctx, [job_id], rows, "round%d" % round_idx)
         new_results = aggregate_by_cid(rows, all_configs_by_cid)
+        new_results.pop(ANCHOR_END_ID, None)       # drift check only, never a candidate
         for cid, r in new_results.items():
             all_results[cid] = r
             state["measured"][cid] = [dict(run_id="%s_%s_r%d_%s" % (ctx.case, cid, i, job_id),
@@ -1232,6 +1269,7 @@ def build_ranking_sbatch_command(case, nodes, cores_per_node, time_limit, timeou
     if "," in str(spinup_minutes):
         raise ValueError("SPINUP_MINUTES %r contains ',' which sbatch --export would split; "
                          "use ':'" % (spinup_minutes,))
+    campaign_dir = campaign_dir or sweep.campaign_dir_for(sbatch_script)
     if campaign_dir:
         export += ",CAMPAIGN=%s" % campaign_dir
     sbatch = ("sbatch -p compute -N %d --ntasks-per-node=%d --exclusive --exclude=head "
@@ -1678,8 +1716,825 @@ def render_report_text(report):
 
 
 # ---------------------------------------------------------------------------
+# decision 0055: --rank-by predicted. Candidates are ranked by PREDICTED WHOLE-RUN compute+init
+# built from measurements at several timeline points; each point is rebuilt from ERA5 once
+# (coldstart real_only: WPS + real.exe, no wrf.exe) and turned into its own strict_campaign case
+# entry, spun up ONCE inside each ranking job (strict_campaign RANKING_START=spinup), and every
+# candidate of that job starts from the same shared restart. ANCHOR is measured first and again
+# last (ANCHOREND, same decomposition) in every such job so node drift inside the allocation is
+# measured, not assumed. Nothing here runs unless ctx.rank_by == "predicted".
+# ---------------------------------------------------------------------------
+ANCHOR_END_ID = "ANCHOREND"
+RANK_BY_CHOICES = ("t0", "predicted")
+PREDICTED_FORCING = "era5_arco"         # wtune_rebuild_predict.ERA5_PIN (1 h cadence, with cloud)
+PREDICTED_SPINUP_MIN = 20              # ERA5 spin-up validated in rebuild phase 3 (2026-09-27)
+ANCHOR_DRIFT_MAX = 0.01                # |s(ANCHOREND)/s(ANCHOR) - 1| allowed inside one job
+TOP_K_STAGE2 = 3
+
+
+def _ledger_case(ctx):
+    """Case id ranking-job ledgers/RUNDIRs are named after: the rebuilt point's own id in
+    predicted mode (ledger_<id>_<job>.csv), ctx.case otherwise (unchanged)."""
+    return ctx.ranking["case_id"] if ctx.ranking else ctx.case
+
+
+def anchor_end_of(anchor):
+    """ANCHOREND: the ANCHOR decomposition re-measured as the LAST run of a ranking job
+    (config_source "anchor_end") -- a drift probe, excluded from winner selection."""
+    return dict(anchor, id=ANCHOR_END_ID, config_source="anchor_end")
+
+
+def wrap_with_anchors(configs, anchor):
+    """[ANCHOR] + configs (minus any ANCHOR/ANCHOREND already present, order kept) +
+    [ANCHOREND]. Idempotent. strict_campaign's RANKING_START=spinup needs the ANCHOR row (its
+    decomposition writes the shared restart) and, with REPS=1, build_order keeps file order, so
+    ANCHOR runs first and ANCHOREND last."""
+    if anchor is None:
+        raise ValueError("wrap_with_anchors: no ANCHOR config -- RANKING_START=spinup needs one")
+    rest = [c for c in configs if c.get("id") not in ("ANCHOR", ANCHOR_END_ID)]
+    return [dict(anchor, id="ANCHOR", config_source="anchor")] + rest + [anchor_end_of(anchor)]
+
+
+def _ranking_wrap(ctx, configs):
+    """wrap_with_anchors in predicted mode, `configs` unchanged (same list object) otherwise."""
+    return wrap_with_anchors(configs, ctx.ranking["anchor"]) if ctx.ranking else configs
+
+
+def ranking_context(case_id, cases_json, spinup_min, steps, anchor, restart_io_form=14,
+                    spinup_timeout_s=None, strict_restart=1):
+    """The ranking context dict submit_configs_job/measure_candidates_at_points consume."""
+    return dict(case_id=case_id, cases_json=cases_json, ranking_start="spinup",
+                spinup_minutes=int(spinup_min), strict_restart=int(strict_restart),
+                spinup_timeout_s=spinup_timeout_s, anchor=anchor, steps=int(steps),
+                restart_io_form=int(restart_io_form))
+
+
+def ranking_export(ranking, time_est):
+    """[(KEY, VALUE), ...] for scc_sweep.build_sbatch_command's extra_export."""
+    spin_to = ranking.get("spinup_timeout_s") or time_est.get("spinup_timeout_s") \
+        or time_est["timeout_s"]
+    return [("CASES_JSON", ranking["cases_json"]), ("RANKING_START", ranking["ranking_start"]),
+            ("SPINUP_MINUTES", ranking["spinup_minutes"]),
+            ("RANKING_STRICT_RESTART", ranking["strict_restart"]),
+            ("SPINUP_TIMEOUT_S", int(spin_to)),
+            ("RANKING_RESTART_IO_FORM", ranking["restart_io_form"])]
+
+
+def _padded_limit(total_run_s):
+    """(job_hours, time_limit) -- estimate_run_time's own padding (x1.5 + 10 min, capped)."""
+    padded = (total_run_s / 3600.0) * sweep.TIME_SAFETY_FACTOR + sweep.TIME_PAD_MIN / 60.0
+    capped = min(padded, sweep.TIME_CAP_HOURS)
+    return capped, sweep.campaign_experiment._format_hms(capped * 60.0)
+
+
+def _job_time_est(ctx, n_or_pairs, reps, s_est, ranking=None):
+    """estimate_run_time, plus -- only in predicted mode -- the shared anchor spin-up every
+    ranking job runs before its candidates (startup + spinup_steps * s_est), added to the RAW
+    total (budget decisions) and the padded --time, with its own SPINUP_TIMEOUT_S. In t0 mode
+    this IS estimate_run_time (identical dict)."""
+    ranking = ctx.ranking if ranking is None else ranking
+    if isinstance(n_or_pairs, int):
+        est = estimate_run_time(n_or_pairs, reps, ctx.steps if not ranking else ranking["steps"],
+                                s_est=s_est, startup_s=ctx.startup_s)
+    else:
+        est = estimate_run_time(n_or_pairs, reps, ctx.steps if not ranking else ranking["steps"],
+                                startup_s=ctx.startup_s)
+    if not ranking:
+        return est
+    dt = float(ranking.get("dt") or 0) or None
+    spin_steps = (ranking["spinup_minutes"] * 60.0 / dt) if dt else 0.0
+    spin_s = ctx.startup_s + spin_steps * s_est
+    est = dict(est, total_run_s=est["total_run_s"] + spin_s,
+               spinup_timeout_s=max(sweep.TIMEOUT_MIN_S,
+                                    int(math.ceil(sweep.TIMEOUT_MULTIPLIER * spin_s))))
+    est["job_hours"], est["time_limit"] = _padded_limit(est["total_run_s"])
+    return est
+
+
+def _notes_kv(notes):
+    """{key: value} of a ledger row's space-separated key=value notes tokens."""
+    out = {}
+    for tok in (notes or "").split():
+        k, sep, v = tok.partition("=")
+        if sep:
+            out[k] = v
+    return out
+
+
+def evaluate_job_gates(job_id, rows, s_by_cid, expected_cids, drift_max=ANCHOR_DRIFT_MAX):
+    """Validity gates for ONE ranking job (decision 0055). Returns {job_id, ok, failures,
+    anchor_drift, s_anchor, s_anchor_end}; never raises (the caller decides: stage 1 warns,
+    stage 2 raises). Fails when: any expected cid has no ledger row; any row's notes lack
+    restart_used=1 (strict_campaign RANKING_STRICT_RESTART skips carry status=/reason=); any row
+    carries foreign_load=1 or a node_dirty other than 'none'; ANCHOR or ANCHOREND has no s value;
+    or |s(ANCHOREND)/s(ANCHOR) - 1| > drift_max. `s_by_cid`: {cid: s} -- stage 2 passes each
+    run's steps.txt s_normal, stage 1 the ledger s_per_step_median."""
+    failures = []
+    by_cid = {}
+    for r in rows:
+        parsed = parse_run_id(r.get("run_id"))
+        if parsed and str(parsed["job"]) == str(job_id):
+            by_cid[parsed["cid"]] = r
+    for cid in expected_cids:
+        row = by_cid.get(cid)
+        if row is None:
+            failures.append("%s: no ledger row" % cid)
+            continue
+        kv = _notes_kv(row.get("notes"))
+        if kv.get("restart_used") != "1":
+            failures.append("%s: restart_used=%s (status=%s reason=%s) -- did not start from the "
+                            "shared restart" % (cid, kv.get("restart_used", "missing"),
+                                                kv.get("status", "-"), kv.get("reason", "-")))
+        if kv.get("foreign_load") == "1":
+            failures.append("%s: foreign_load=1 (%s)" % (cid, kv.get("foreign", "?")))
+        if kv.get("node_dirty", "none") != "none":
+            failures.append("%s: node_dirty=%s" % (cid, kv.get("node_dirty")))
+    a, e = s_by_cid.get("ANCHOR"), s_by_cid.get(ANCHOR_END_ID)
+    drift = None
+    if not a or not e:
+        failures.append("anchor drift: ANCHOR s=%s ANCHOREND s=%s (both required)" % (a, e))
+    else:
+        drift = e / a - 1.0
+        if abs(drift) > drift_max:
+            failures.append("anchor drift %+.2f%% exceeds +-%.1f%% (ANCHOR %.4fs, ANCHOREND %.4fs)"
+                            % (100 * drift, 100 * drift_max, a, e))
+    return dict(job_id=str(job_id), ok=not failures, failures=failures, anchor_drift=drift,
+                s_anchor=a, s_anchor_end=e)
+
+
+def _record_stage1_gates(ctx, job_ids, rows, label):
+    """Stage 1 (round0/adaptive in predicted mode): evaluate every job's gates from its ledger
+    s_per_step_median and RECORD them (report + a WARNING line) without raising; stage 2's gates
+    are the ones that raise. Also records, per job, in ctx.stage1_jobs:
+      s_anchor_job  mean(s ANCHOR, s ANCHOREND) of THAT job (ANCHOR alone if ANCHOREND has no
+                    value) -- the per-allocation normalizer stage1_normalized_ranking divides
+                    each candidate by (cross-node bias: different jobs land on different nodes).
+      excluded      True when any row has foreign_load=1 or any row's restart_used != 1: that
+                    job's candidates are dropped from the stage-1 ranking (reason recorded). Anchor
+                    drift > ANCHOR_DRIFT_MAX alone only warns (normalization absorbs most of it).
+    No-op in t0 mode."""
+    if not ctx.ranking:
+        return
+    for jid in job_ids:
+        mine = [r for r in rows if (parse_run_id(r.get("run_id")) or {}).get("job") == str(jid)]
+        cids = [parse_run_id(r["run_id"])["cid"] for r in mine]
+        s_by_cid = {}
+        for r in mine:
+            s = sweep._to_float(r.get("s_per_step_median"))
+            if s:
+                s_by_cid[parse_run_id(r["run_id"])["cid"]] = s
+        rec = evaluate_job_gates(jid, mine, s_by_cid, cids)
+        reasons = []
+        for r in mine:
+            kv = _notes_kv(r.get("notes"))
+            cid = parse_run_id(r["run_id"])["cid"]
+            if kv.get("foreign_load") == "1":
+                reasons.append("%s foreign_load=1 (%s)" % (cid, kv.get("foreign", "?")))
+            if kv.get("restart_used") != "1":
+                reasons.append("%s restart_used=%s" % (cid, kv.get("restart_used", "missing")))
+        a, e = s_by_cid.get("ANCHOR"), s_by_cid.get(ANCHOR_END_ID)
+        s_anchor_job = ((a + e) / 2.0) if (a and e) else a
+        if not s_anchor_job:
+            reasons.append("no ANCHOR measurement to normalize by")
+        rec.update(stage="stage1", label=label, s_anchor_job=s_anchor_job,
+                   excluded=bool(reasons), exclude_reason="; ".join(reasons) or None)
+        ctx.ranking_gates.append(rec)
+        ctx.stage1_jobs[str(jid)] = dict(s_anchor_job=s_anchor_job, excluded=bool(reasons),
+                                         reason=rec["exclude_reason"], label=label)
+        if reasons:
+            print("WARNING: %s job %s EXCLUDED from the stage-1 ranking: %s"
+                  % (label, jid, rec["exclude_reason"]))
+        elif not rec["ok"]:
+            print("WARNING: %s job %s failed ranking gates (kept, anchor-normalized): %s"
+                  % (label, jid, "; ".join(rec["failures"])))
+
+
+def stage1_normalized_ranking(all_results, stage1_jobs):
+    """(ranked, excluded) for stage 1 (decision 0055 gap 1, cross-node bias): every candidate's
+    run (run_ids -> job) is divided by that job's own s_anchor_job; key = median of those ratios
+    over the candidate's runs in NON-excluded jobs. ranked: [{cid, config, median, norm_key,
+    jobs}] ascending by (norm_key, cid) -- ANCHOR/ANCHOREND never ranked. excluded: [{cid,
+    reason}] for candidates with no run left after excluding jobs."""
+    ranked, excluded = [], []
+    for cid, r in sorted(all_results.items()):
+        if cid in ("ANCHOR", ANCHOR_END_ID) or r.get("config") is None:
+            continue
+        ratios, jobs, why = [], [], []
+        for s, rid in zip(r["s_values"], r.get("run_ids") or []):
+            job = str((parse_run_id(rid) or {}).get("job"))
+            info = stage1_jobs.get(job)
+            if info is None or not info.get("s_anchor_job"):
+                why.append("job %s: no anchor normalizer" % job)
+            elif info["excluded"]:
+                why.append("job %s: %s" % (job, info["reason"]))
+            else:
+                ratios.append(s / info["s_anchor_job"])
+                jobs.append(job)
+        if ratios:
+            ranked.append(dict(cid=cid, config=r["config"], median=r["median"],
+                               norm_key=statistics.median(ratios), jobs=jobs))
+        else:
+            excluded.append(dict(cid=cid, median=r.get("median"),
+                                 reason="; ".join(why) or "no run"))
+    ranked.sort(key=lambda e: (e["norm_key"], e["cid"]))
+    return ranked, excluded
+
+
+def _fallback_s_per_step(nl, ranks, omp):
+    """Uncalibrated cell-step cost model (same arithmetic as rebuild_segment_timeout_min)."""
+    max_dom = int(wtune_predict.g(nl, "domains", "max_dom", 1))
+    cal = wtune_predict.load_calibration(str(wtune_predict.DEFAULT_CALIBRATION))
+    return (cal["fallback_s_per_cell_step_ns"] * 1e-9
+            * wtune_predict.nested_equivalent_cells(nl, max_dom) / max(int(ranks) * int(omp), 1))
+
+
+def ranking_job_timeouts(ctx, configs, steps, spinup_min, dt, s_by_cid=None, nl=None,
+                         safety=3.0, restart_read_s=120.0):
+    """(cand_timeout_s, spinup_timeout_s, time_limit, expected_s) for one stage-2 ranking job,
+    from a cost estimate instead of a blanket: per config s/step = its stage-1 measured median
+    when known, else the cell-step model (_fallback_s_per_step), else ctx's fallback; per-run
+    expected = ctx.startup_s + restart_read_s + steps*s*1.5 (radiation steps). TIMEOUT_S is one
+    value per job (strict_campaign), so the slowest config sets it: max(TIMEOUT_MIN_S,
+    safety*expected). Spin-up: ANCHOR's s over spinup_min*60/dt steps, same padding. --time is
+    the larger of the padded expected total and spin-up timeout + every run's expected."""
+    s_by_cid = s_by_cid or {}
+
+    def s_of(c):
+        if s_by_cid.get(c["id"]):
+            return s_by_cid[c["id"]]
+        if s_by_cid.get("ANCHOR") and c.get("config_source") in ("anchor", "anchor_end"):
+            return s_by_cid["ANCHOR"]
+        try:
+            return _fallback_s_per_step(nl, c["ranks"], c.get("omp", 1))
+        except Exception:
+            return sweep.CONSERVATIVE_S_PER_STEP
+
+    per_run = [ctx.startup_s + restart_read_s + steps * s_of(c) * 1.5 for c in configs]
+    cand_timeout = max(sweep.TIMEOUT_MIN_S, int(math.ceil(safety * max(per_run))))
+    anchor = next((c for c in configs if c.get("id") == "ANCHOR"), configs[0])
+    spin = ctx.startup_s + (spinup_min * 60.0 / dt) * s_of(anchor) * 1.5
+    spin_timeout = max(sweep.TIMEOUT_MIN_S, int(math.ceil(safety * spin)))
+    expected = spin + sum(per_run)
+    limit_s = max(expected * sweep.TIME_SAFETY_FACTOR + sweep.TIME_PAD_MIN * 60.0,
+                  spin_timeout + sum(per_run) + sweep.TIME_PAD_MIN * 60.0)
+    limit_h = min(limit_s / 3600.0, sweep.TIME_CAP_HOURS)
+    return (cand_timeout, spin_timeout, sweep.campaign_experiment._format_hms(limit_h * 60.0),
+            expected)
+
+
+def job_timing(ctx, job_ids):
+    """{job_id: {queue_s, run_s}} from sacct Submit/Start/End (queue = Start-Submit, run =
+    End-Start); a job sacct does not report (or a fake runner) gets None values."""
+    ids = [str(j) for j in job_ids if j]
+    out = {j: dict(queue_s=None, run_s=None) for j in ids}
+    if not ids:
+        return out
+    try:
+        text = ctx.sacct_runner([ctx.sacct_cmd, "-j", ",".join(ids), "-X", "-n", "-P",
+                                 "--format=JobID,Submit,Start,End"])
+    except Exception:
+        return out
+    fmt = "%Y-%m-%dT%H:%M:%S"
+    for line in (text or "").splitlines():
+        parts = [p.strip() for p in line.split("|")]
+        if len(parts) < 4:
+            continue
+        jid = parts[0].split(".")[0]
+        if jid not in out:
+            continue
+        try:
+            sub, st = (datetime.datetime.strptime(parts[1], fmt),
+                       datetime.datetime.strptime(parts[2], fmt))
+        except ValueError:
+            continue
+        out[jid]["queue_s"] = (st - sub).total_seconds()
+        try:
+            out[jid]["run_s"] = (datetime.datetime.strptime(parts[3], fmt) - st).total_seconds()
+        except ValueError:
+            pass
+    return out
+
+
+def choose_primary_point(points, sample_points):
+    """P* (decision 0055): the planned point whose measured time M (`.at`) has the LARGEST
+    sunlit fraction over the case's sample points (wtune_predict.sunlit_fraction); ties -> the
+    earliest. Rationale: stage 1 ranks every candidate at ONE point, and the daylit state carries
+    the SW-radiation + convective load that dominates the whole-run cost differences between
+    decompositions, so a daylit point is the most discriminating single stage-1 point. None
+    sample_points (no wrfinput geometry) -> every fraction 0 -> earliest point. Returns (index,
+    point, fraction)."""
+    if not points:
+        raise ValueError("choose_primary_point: no planned points")
+    best = None
+    for i, p in enumerate(points):
+        frac = (wtune_predict.sunlit_fraction(sample_points, p.at) if sample_points else None) or 0.0
+        key = (-frac, p.at, i)
+        if best is None or key < best[0]:
+            best = (key, i, p, frac)
+    return best[1], best[2], best[3]
+
+
+def rebuilt_case_id(case, index):
+    """Underscore-free case id for a rebuilt point (strict_campaign RUN_ID/_RUN_ID_RE split the
+    case off at the first '_')."""
+    return re.sub(r"[^A-Za-z0-9]", "", case) + "p%d" % index
+
+
+def rebuilt_steps(stepra):
+    """Candidate STEPS at a rebuilt point: max(30, 2*stepra) + 2 (>= 2 radiation steps plus the
+    dropped first step and one spare)."""
+    return max(30, 2 * int(stepra)) + 2
+
+
+def rebuilt_measure_steps(steps, dt):
+    """coldstart measure_steps so the rebuilt window W covers spin-up + the candidates' whole
+    run: strict_campaign runs ceil(STEPS*dt/60) whole minutes (MIN), so W needs
+    ceil(MIN*60/dt) >= STEPS steps after the spin-up."""
+    run_min = int(math.ceil(steps * dt / 60.0))
+    return int(math.ceil(run_min * 60.0 / dt))
+
+
+def write_rebuilt_case_entry(case, case_entry, index, point, plan, plan_dir, spinup_min, stepra,
+                             anchor, steps=None):
+    """Turns one COMPLETED real_only coldstart plan into a strict_campaign case entry. Writes
+    (a) <plan_dir>/namelist.template.input -- coldstart.build_wrf_window_namelist_text (the same
+    renderer rebuild wrf windows use: start=T, decomposition, history off, restart off) over the
+    window's own real.exe namelist, then run_seconds forced to 0 (strict_campaign's --run-minutes
+    alone sets the length); and (b) symlinks of the original case's input_files into win_0/real
+    (the new prep_dir) when missing there. Returns (case_id, entry). Only ever writes under
+    plan_dir (never inside the user's case dir). Raises RuntimeError when real.exe output is
+    missing."""
+    real_dir = os.path.join(plan_dir, "win_0", "real")
+    need = ["namelist.input", "wrfbdy_d01"] + ["wrfinput_d%02d" % d for d in
+                                                range(1, int(plan.get("max_dom", 1)) + 1)]
+    missing = [f for f in need if not os.path.exists(os.path.join(real_dir, f))]
+    if missing:
+        raise RuntimeError("rebuilt point %d (%s): real.exe output missing in %s: %s"
+                           % (index, point.at.isoformat(), real_dir, ", ".join(missing)))
+    with open(os.path.join(real_dir, "namelist.input")) as f:
+        real_text = f.read()
+    T = datetime.datetime.strptime(plan["windows"][0]["t"], "%Y-%m-%d_%H:%M:%S")
+    dt = float(plan["dt_s"])
+    win_steps = int(plan["measure_steps"]) + int(round(float(plan["spinup_min"]) * 60.0 / dt))
+    txt = coldstart.build_wrf_window_namelist_text(real_text, T, win_steps, dt, anchor["nx"],
+                                                   anchor["ny"], anchor.get("numtiles", 1))
+    txt = coldstart.set_list(txt, "run_seconds", 0, 1)
+    template = os.path.join(plan_dir, "namelist.template.input")
+    with open(template, "w") as f:
+        f.write(txt)
+    orig_prep = sweep._expand(case_entry.get("prep_dir") or "")
+    for name in case_entry.get("input_files") or []:
+        dst = os.path.join(real_dir, name)
+        if not os.path.lexists(dst) and orig_prep:
+            os.symlink(os.path.join(orig_prep, name), dst)
+    case_id = rebuilt_case_id(case, index)
+    entry = copy.deepcopy(case_entry)
+    entry.update(prep_dir=os.path.abspath(real_dir), bp_dir="", namelist_template=template,
+                 steps=int(steps if steps is not None else rebuilt_steps(stepra)), enabled=True,
+                 rebuilt_from=case, rebuilt_point_at=point.at.isoformat(),
+                 rebuilt_start=T.strftime("%Y-%m-%d_%H:%M:%S"), rebuilt_spinup_min=spinup_min)
+    return case_id, entry
+
+
+def prepare_rebuilt_points(ctx, points, anchor, case_dir, namelist_path, case_entry, out_dir,
+                           spinup_min, stepra, dt, forcing=PREDICTED_FORCING, grib_dir=None,
+                           date_shift_to=None):
+    """D1 (decision 0055): rebuild EVERY planned point from ERA5 once, in parallel -- one
+    coldstart real_only plan dir + job per point (wtune_probe_plan.plan_rebuild_segments with
+    real_only=True, T = M - spinup_min; fetch/stage/submit concurrently, same structure as
+    run_rebuild_points), wait, then write_rebuilt_case_entry per point and ONE
+    <out_dir>/rebuilt_cases.json holding every entry (strict_campaign CASES_JSON). measure_steps
+    is rebuilt_measure_steps(rebuilt_steps(stepra)) so wrfbdy covers spin-up + the candidates'
+    run. Returns [dict(index, point, case_id, T, cases_json, prep_dir, template, steps,
+    spinup_min, stepra, dt, plan_dir, job_id)]. Refuses an out_dir inside case_dir; raises on
+    any job not COMPLETED or missing real.exe output -- never silently drops a point."""
+    case_dir = os.path.abspath(sweep._expand(case_dir))
+    out_dir = os.path.abspath(out_dir)
+    if os.path.commonpath([out_dir, case_dir]) == case_dir:
+        raise RuntimeError("prepare_rebuilt_points: out_dir %s is inside the case dir %s"
+                           % (out_dir, case_dir))
+    missing_env = [v for v in ("WPS_DIR", "WRF_TREE") if not os.environ.get(v)]
+    if missing_env:
+        raise RuntimeError("prepare_rebuilt_points: %s not set -- source the site env first"
+                           % ", ".join(missing_env))
+    steps = rebuilt_steps(stepra)
+    measure_steps = rebuilt_measure_steps(steps, dt)
+    config = dict(ranks=anchor["ranks"], omp=anchor["omp"], nx=anchor["nx"], ny=anchor["ny"],
+                  numtiles=anchor.get("numtiles", 1), nodes=ctx.nodes)
+    seg_timeout_min = rebuild_segment_timeout_min(case_dir, spinup_min, config["ranks"],
+                                                  config["omp"])
+    campaign_dir = sweep.campaign_dir_for(ctx.sbatch_script)
+
+    def _prepare_and_submit(i, p):
+        pdir = os.path.join(out_dir, "pt_%d" % i)
+        plan = wtune_probe_plan.plan_rebuild_segments(
+            case_dir, [p], config, pdir, spinup_min=spinup_min, date_shift_to=date_shift_to,
+            namelist=namelist_path, grib_dir=grib_dir, forcing=forcing,
+            measure_steps=measure_steps, real_only=True)
+        total_bytes, _forcing = coldstart.resolve_and_fetch_forcing(
+            plan, pdir, os.path.join(pdir, "grib"), grib_dir=grib_dir)
+        print("rebuilt point %d (%s): fetched %.1f MB forcing"
+              % (i, p.at.isoformat(), total_bytes / 1e6), flush=True)
+        sbatch_path = coldstart.stage_plan(pdir, site="scc", per_window_min=seg_timeout_min)
+        cmd = ("sbatch --export=ALL,CAMPAIGN=%s %s" % (campaign_dir, sbatch_path)
+               if campaign_dir else "sbatch %s" % sbatch_path)
+        job_id = sweep.submit_job(cmd, sbatch_runner=ctx.sbatch_runner)
+        print("rebuilt point %d: real_only job %s (%s)" % (i, job_id, sbatch_path), flush=True)
+        return plan, pdir, job_id
+
+    import concurrent.futures
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, len(points))) as pool:
+        done = list(pool.map(lambda ip: _prepare_and_submit(*ip), enumerate(points)))
+    job_ids = [d[2] for d in done]
+    ctx.owned_jobs.extend(job_ids)
+    states = wait_for_jobs(ctx, job_ids, "rebuild-prep")
+    bad = {j: states.get(j, ("UNKNOWN", ""))[0] for j in job_ids
+           if states.get(j, ("UNKNOWN", ""))[0] != "COMPLETED"}
+    if bad:
+        raise RuntimeError("rebuilt-point real_only job(s) %s not COMPLETED -- stop and diagnose "
+                           "read-only" % bad)
+    cases_json = os.path.join(out_dir, "rebuilt_cases.json")
+    entries, out = {}, []
+    for i, (p, (plan, pdir, jid)) in enumerate(zip(points, done)):
+        case_id, entry = write_rebuilt_case_entry(ctx.case, case_entry, i, p, plan, pdir,
+                                                  spinup_min, stepra, anchor, steps=steps)
+        entries[case_id] = entry
+        out.append(dict(index=i, point=p, case_id=case_id,
+                        T=datetime.datetime.strptime(entry["rebuilt_start"], "%Y-%m-%d_%H:%M:%S"),
+                        cases_json=cases_json, prep_dir=entry["prep_dir"],
+                        template=entry["namelist_template"], steps=steps, spinup_min=spinup_min,
+                        stepra=stepra, dt=dt, plan_dir=pdir, job_id=jid))
+    with open(cases_json, "w") as f:
+        json.dump({"cases": entries}, f, indent=2, sort_keys=True)
+        f.write("\n")
+    return out
+
+
+def _measure_run(ctx, rp, cid, job_id, dt):
+    """PointMeasurement for one stage-2 run (RUNDIR = ledger_dir/<case_id>_<cid>_r1_<job>):
+    first_global_step_from_rsl relative to the rebuilt start T, measurement_from_steps_file with
+    the case stepra; `.at` = the point's measured-window midpoint on the CASE timeline (M +
+    steps*dt/2). Returns (PointMeasurement, g0) or raises."""
+    rundir = os.path.join(ctx.ledger_dir, "%s_%s_r1_%s" % (rp["case_id"], cid, job_id))
+    steps_path = os.path.join(rundir, "steps.txt")
+    if not os.path.exists(steps_path) or os.path.getsize(steps_path) == 0:
+        raise RuntimeError("%s missing/empty" % steps_path)
+    g0 = wtune_probe_plan.first_global_step_from_rsl(os.path.join(rundir, "rsl.error.0000"),
+                                                     rp["T"], dt)
+    at = rp["point"].at + datetime.timedelta(seconds=rp["steps"] * dt / 2.0)
+    pm = wtune_probe_plan.measurement_from_steps_file(
+        steps_path, rp["stepra"], at, rp["point"].reason, "rebuild", first_global_step=g0)
+    return pm, g0
+
+
+def measure_candidates_at_points(ctx, configs, rebuilt_points, anchor, s_by_cid=None,
+                                 restart_io_form=None, name_prefix="stage2"):
+    """D3 (decision 0055): one strict_campaign job per rebuilt point, ALL submitted before any
+    wait. Each: CONFIG_FILE = ANCHOR + configs + ANCHOREND, REPS=1, CASE=<point id>,
+    CASES_JSON, RANKING_START=spinup, SPINUP_MINUTES=spinup_min, RANKING_STRICT_RESTART=1,
+    TIMEOUT_S/SPINUP_TIMEOUT_S/--time from ranking_job_timeouts. Each run's steps.txt +
+    rsl.error.0000 -> _measure_run. Gates per job (evaluate_job_gates on the steps.txt s_normal;
+    also every run's first global step must be exactly spinup_steps+1, i.e. it resumed at M):
+    any failure RAISES RuntimeError naming the job and every failure -- nothing is dropped.
+    Returns (meas_by_cid {cid: [PointMeasurement, ...] in point order, ANCHOREND excluded},
+    gate_records, job_ids)."""
+    restart_io_form = restart_io_form or ctx.restart_io_form
+    wrapped = wrap_with_anchors(configs, anchor)
+    nl = None
+    try:
+        nl = wtune_predict.parse_namelist(ctx.namelist_path)
+    except Exception:
+        pass
+    jobs = []
+    for rp in rebuilt_points:
+        dt = float(rp["dt"])
+        cand_to, spin_to, time_limit, expected = ranking_job_timeouts(
+            ctx, wrapped, rp["steps"], rp["spinup_min"], dt, s_by_cid=s_by_cid, nl=nl)
+        job_out = os.path.join(ctx.out_dir, name_prefix, "pt_%d" % rp["index"])
+        os.makedirs(job_out, exist_ok=True)
+        configs_path = os.path.join(job_out, "configs.json")
+        sweep.write_configs_json(configs_path, wrapped)
+        ranking = ranking_context(rp["case_id"], rp["cases_json"], rp["spinup_min"], rp["steps"],
+                                  anchor, restart_io_form=restart_io_form,
+                                  spinup_timeout_s=spin_to)
+        cmd = sweep.build_sbatch_command(
+            rp["case_id"], ctx.nodes, ctx.cores_per_node, time_limit, cand_to, 1, rp["steps"],
+            os.path.abspath(configs_path), job_out, env_source=ctx.env_source,
+            sbatch_script=ctx.sbatch_script, campaign_dir=sweep.campaign_dir_for(ctx.sbatch_script),
+            extra_export=ranking_export(ranking, {"timeout_s": cand_to}))
+        jid = sweep.submit_job(cmd, sbatch_runner=ctx.sbatch_runner)
+        ctx.owned_jobs.append(jid)
+        print("%s point %d (%s, case %s): job %s, %d runs, TIMEOUT_S=%d SPINUP_TIMEOUT_S=%d "
+              "--time=%s (expected %s)" % (name_prefix, rp["index"], rp["point"].at.isoformat(),
+                                           rp["case_id"], jid, len(wrapped), cand_to, spin_to,
+                                           time_limit, _fmt_hms(expected)))
+        jobs.append((rp, jid))
+    job_ids = [j for _rp, j in jobs]
+    states = wait_for_jobs(ctx, job_ids, name_prefix)
+    bad = {j: states.get(j, ("UNKNOWN", ""))[0] for j in job_ids
+           if states.get(j, ("UNKNOWN", ""))[0] != "COMPLETED"}
+    if bad:
+        raise RuntimeError("%s job(s) %s not COMPLETED -- stop and diagnose read-only"
+                           % (name_prefix, bad))
+    meas_by_cid, gates, errors = {}, [], []
+    for rp, jid in jobs:
+        dt = float(rp["dt"])
+        rows = ctx.ledger_reader(rp["case_id"], [jid])
+        s_by, extra = {}, []
+        # a run resumed at the shared restart (T + spinup) has its first step at global step
+        # spinup*60/dt + 1 exactly (predicted_spinup_min makes spinup*60 a multiple of dt); a t0
+        # start is at 1.
+        expect_g0 = rp["spinup_min"] * 60.0 / dt + 1.0
+        for c in wrapped:
+            try:
+                pm, g0 = _measure_run(ctx, rp, c["id"], jid, dt)
+            except Exception as e:
+                extra.append("%s: no measurement (%s: %s)" % (c["id"], type(e).__name__, e))
+                continue
+            if g0 != expect_g0:
+                extra.append("%s: first global step %d, expected %g -- run did not resume at "
+                             "the shared restart" % (c["id"], g0, expect_g0))
+            s_by[c["id"]] = pm.s_normal
+            if c["id"] != ANCHOR_END_ID:
+                meas_by_cid.setdefault(c["id"], []).append(pm)
+        rec = evaluate_job_gates(jid, rows, s_by, [c["id"] for c in wrapped])
+        rec["failures"].extend(extra)
+        rec.update(ok=not rec["failures"], stage=name_prefix, point_index=rp["index"],
+                   point_at=rp["point"].at.isoformat(), case_id=rp["case_id"])
+        gates.append(rec)
+        ctx.ranking_gates.append(rec)
+        if not rec["ok"]:
+            errors.append("job %s (point %d %s): %s" % (jid, rp["index"],
+                                                        rp["point"].at.isoformat(),
+                                                        "; ".join(rec["failures"])))
+    if errors:
+        raise RuntimeError("%s validity gates FAILED -- no ranking is reported from these "
+                           "measurements:\n  " % name_prefix + "\n  ".join(errors))
+    return meas_by_cid, gates, job_ids
+
+
+def rank_by_predicted_total(meas_by_cid, run_start, run_end, dt, stepra, calibration,
+                            sample_points, case_dir, nl, ranks_by_cid, nodes):
+    """D4: wtune_probe_plan.combine() per cid (ANCHOREND never ranked) -> [{cid, pred_total_s,
+    pred_low_s, pred_high_s, result}], ascending by pred_total_s with _cluster_rank's NOISE
+    clustering (ANCHOR wins an in-noise tie, then cid order)."""
+    entries = []
+    for cid, pms in meas_by_cid.items():
+        if cid == ANCHOR_END_ID or not pms:
+            continue
+        res = wtune_probe_plan.combine(
+            sorted(pms, key=lambda m: m.at), run_start, run_end, dt, stepra,
+            calibration=calibration, sample_points=sample_points, case_dir=case_dir, nl=nl,
+            ranks=ranks_by_cid.get(cid), nodes=nodes)
+        entries.append(dict(cid=cid, pred_total_s=res["total_s"], pred_low_s=res["range_low_s"],
+                            pred_high_s=res["range_high_s"], result=res))
+    order_index = {cid: i for i, cid in enumerate(sorted(e["cid"] for e in entries))}
+    return _cluster_rank(entries, lambda e: _log_key(e["pred_total_s"]), "ANCHOR", order_index)
+
+
+def predicted_spinup_min(dt, floor_min=PREDICTED_SPINUP_MIN, max_min=60):
+    """Smallest whole minute m >= floor_min with (m*60) % dt == 0, so the shared restart falls
+    exactly on a time step (WRF's restart alarm and configs.py restart-time agree, and a resumed
+    run's first global step is exactly m*60/dt + 1). dt 36 -> 21 (35 steps); dt 15/10/25 -> 20.
+    SystemExit when none exists up to max_min."""
+    for m in range(int(floor_min), int(max_min) + 1):
+        if abs((m * 60.0) / float(dt) - round((m * 60.0) / float(dt))) < 1e-9:
+            return m
+    raise SystemExit("--rank-by predicted: no whole-minute spin-up in [%d, %d] min is a multiple "
+                     "of time_step=%gs -- the shared restart would not fall on a time step"
+                     % (floor_min, max_min, dt))
+
+
+def plan_predicted_points(ctx, spinup_min=PREDICTED_SPINUP_MIN):
+    """Planned rebuild points for predicted mode: wtune_rebuild_predict.plan with the ERA5 pin,
+    `spinup_min`, probe.max_points, on ctx.namelist_path (the case's own template)."""
+    import wtune_rebuild_predict
+    return wtune_rebuild_predict.plan(
+        sweep._expand(ctx.case_json["prep_dir"]), PREDICTED_FORCING, spinup_min,
+        ctx.probe_cfg.get("max_points"), namelist_path=ctx.namelist_path)
+
+
+def run_predicted(ctx, nodes, nodes_note, s_est):
+    """D5 (decision 0055), rank_by == "predicted":
+      0. plan points (ERA5 pin, spin-up predicted_spinup_min(dt)), P* = choose_primary_point, and
+         rebuild EVERY point once (prepare_rebuilt_points, parallel real_only jobs).
+      1. Stage 1: round0 + adaptive rounds with P*'s ranking context -- every job spins up once
+         at P* and every candidate starts from that restart; ANCHOR/ANCHOREND in every job.
+      2. Stage 2 (replaces confirm): top-3 by stage-1 ANCHOR-NORMALIZED median (each run / its
+         own job's mean(ANCHOR, ANCHOREND); stage1_normalized_ranking) + ANCHOR/ANCHOREND measured
+         at ALL points (measure_candidates_at_points, all jobs in parallel; gates raise); winner
+         = min predicted whole-run compute+init (rank_by_predicted_total).
+    Returns the report dict."""
+    if wtune_predict is None or wtune_probe_plan is None or coldstart is None:
+        raise SystemExit("--rank-by predicted needs wtune_predict, wtune_probe_plan and "
+                         "tools/coldstart_sample importable")
+    case_dir = sweep._expand(ctx.case_json["prep_dir"])
+    _n, _run_s, dt0, _note = wtune_predict.get_d01_steps(
+        wtune_predict.parse_namelist(ctx.namelist_path))
+    spinup_min = predicted_spinup_min(dt0)
+    nl, run_start, run_end, dt, stepra, points, notes = plan_predicted_points(ctx, spinup_min)
+    print("predicted mode: spin-up %d min (%d steps of %gs)" % (spinup_min,
+                                                                 spinup_min * 60 // dt, dt))
+    if not points:
+        raise SystemExit("--rank-by predicted: no ERA5-rebuildable point planned (%s)"
+                         % "; ".join(notes))
+    sample_points, _src = wtune_predict.read_wrfinput_sample_points(case_dir)
+    p_idx, p_star, p_frac = choose_primary_point(points, sample_points)
+    print("predicted mode: %d point(s) %s; P* = point %d %s (sunlit fraction %.2f)"
+          % (len(points), ", ".join(p.at.strftime("%m-%d_%H:%M") for p in points), p_idx,
+             p_star.at.isoformat(), p_frac))
+    anchor = sweep.build_anchor(ctx.case_json, ctx.nodes * ctx.cores_per_node, ctx.nodes,
+                                ctx.hardware_id)
+    if anchor is None:
+        raise SystemExit("--rank-by predicted: no legal ANCHOR decomposition at %d node(s)"
+                         % ctx.nodes)
+    rebuilt = prepare_rebuilt_points(
+        ctx, points, anchor, case_dir, ctx.namelist_path, ctx.case_json,
+        os.path.join(ctx.out_dir, "rebuilt"), spinup_min, stepra, dt)
+    rp_star = rebuilt[p_idx]
+    ctx.steps = rp_star["steps"]
+    ctx.ranking = ranking_context(rp_star["case_id"], rp_star["cases_json"], spinup_min,
+                                  rp_star["steps"], anchor, restart_io_form=ctx.restart_io_form)
+    ctx.ranking["dt"] = dt
+    print("stage 1: ranking at P* (case %s, start %s, STEPS=%d, RANKING_RESTART_IO_FORM=%d)"
+          % (rp_star["case_id"], rp_star["T"].isoformat(), ctx.steps, ctx.restart_io_form))
+
+    job_ids0, configs_by_cid, rows0 = run_round0(ctx)
+    configs_by_cid.pop(ANCHOR_END_ID, None)
+    all_results = aggregate_by_cid(rows0, configs_by_cid)
+    all_results.pop(ANCHOR_END_ID, None)
+    s_est = update_s_est(all_results, s_est)
+    if job_ids0:
+        run_adaptive_rounds(ctx, configs_by_cid, all_results, s_est)
+    all_results.pop(ANCHOR_END_ID, None)
+    stage1, stage1_excluded = stage1_normalized_ranking(all_results, ctx.stage1_jobs)
+    for x in stage1_excluded:
+        print("WARNING: stage 1: %s excluded from ranking (%s)" % (x["cid"], x["reason"]))
+    top = [r["config"] for r in stage1[:TOP_K_STAGE2]]
+    if not top and "ANCHOR" not in all_results:
+        raise SystemExit("--rank-by predicted: stage 1 measured nothing -- see gate warnings")
+    s_by_cid = {cid: r["median"] for cid, r in all_results.items()}
+    print("stage 2: %s + ANCHOR/ANCHOREND at all %d point(s)"
+          % (", ".join("%s(%.4fs/step, %.4fx anchor)" % (r["cid"], r["median"], r["norm_key"])
+                       for r in stage1[:TOP_K_STAGE2])
+             or "(no candidate besides ANCHOR)", len(rebuilt)))
+    ctx.ranking = None                                   # stage 2 builds its own per-point contexts
+    meas_by_cid, gates, stage2_jobs = measure_candidates_at_points(
+        ctx, top, rebuilt, anchor, s_by_cid=s_by_cid)
+    calibration = wtune_predict.load_calibration(str(wtune_predict.DEFAULT_CALIBRATION))
+    if ctx.prediction_cfg.get("drift_band_pct") is not None:
+        calibration = dict(calibration, drift_band_pct=ctx.prediction_cfg["drift_band_pct"])
+    cfg_by_cid = dict({c["id"]: c for c in top}, ANCHOR=anchor)
+    ranked = rank_by_predicted_total(
+        meas_by_cid, run_start, run_end, dt, stepra, calibration, sample_points, case_dir, nl,
+        {cid: c["ranks"] for cid, c in cfg_by_cid.items()}, nodes)
+    report = build_predicted_report(ctx, nodes, nodes_note, ranked, meas_by_cid, cfg_by_cid,
+                                    all_results, rebuilt, p_idx, gates, stage2_jobs, notes)
+    norm = {e["cid"]: e["norm_key"] for e in stage1}
+    for row in report["ranking"]:
+        row["stage1_norm_key"] = norm.get(row["id"])
+    report.update(spinup_min=spinup_min,
+                  stage1_ranking=[dict(id=e["cid"], median_s_per_step=e["median"],
+                                       norm_key=e["norm_key"], jobs=e["jobs"],
+                                       stage2=e["cid"] in {c["id"] for c in top})
+                                  for e in stage1],
+                  stage1_excluded=stage1_excluded)
+    return report
+
+
+def build_predicted_report(ctx, nodes, nodes_note, ranked, meas_by_cid, cfg_by_cid, stage1,
+                           rebuilt, p_idx, gates, stage2_jobs, plan_notes):
+    """tune_report.json for predicted mode: ranking by pred_total_s (+range), per cid x point
+    s_normal/r/n_rad, stage-1 medians, every gate record (stage 1 warnings + stage 2), and per
+    job queue time vs run time (sacct Start-Submit vs End-Start, separately)."""
+    anchor_pred = next((e["pred_total_s"] for e in ranked if e["cid"] == "ANCHOR"), None)
+    table = []
+    for e in ranked:
+        cfg = cfg_by_cid.get(e["cid"]) or {}
+        table.append(dict(
+            id=e["cid"], ranks=cfg.get("ranks"), omp=cfg.get("omp"), nproc_x=cfg.get("nx"),
+            nproc_y=cfg.get("ny"), numtiles=cfg.get("numtiles"), dist=cfg.get("dist"),
+            predicted_total_s=e["pred_total_s"], predicted_total_hms=_fmt_hms(e["pred_total_s"]),
+            predicted_range_s=[e["pred_low_s"], e["pred_high_s"]],
+            speedup_vs_anchor_predicted=(anchor_pred / e["pred_total_s"]
+                                         if anchor_pred and e["pred_total_s"] else None),
+            stage1_median_s_per_step=(stage1.get(e["cid"]) or {}).get("median"),
+            points=[dict(at=pm.at.isoformat(), s_normal=pm.s_normal, r=pm.r, n_rad=pm.n_rad)
+                    for pm in sorted(meas_by_cid.get(e["cid"], []), key=lambda m: m.at)]))
+    best_cfg = cfg_by_cid.get(ranked[0]["cid"]) if ranked else None
+    timing = job_timing(ctx, ctx.owned_jobs)
+    return dict(
+        case=ctx.case, rank_by="predicted", nodes=nodes, nodes_note=nodes_note,
+        cores_per_node=ctx.cores_per_node, budget_minutes=ctx.budget_s / 60.0,
+        elapsed_minutes=ctx.elapsed() / 60.0, job_ids=list(ctx.owned_jobs),
+        cancelled_job_ids=list(ctx.cancelled_jobs), anchor_id="ANCHOR", ranking=table,
+        best=table[0] if table else None,
+        param_table=local_param_table(best_cfg, nodes) if best_cfg else None,
+        points=[dict(index=rp["index"], at=rp["point"].at.isoformat(), reason=rp["point"].reason,
+                     case_id=rp["case_id"], start=rp["T"].isoformat(),
+                     rebuild_job=rp["job_id"], primary=(rp["index"] == p_idx))
+                for rp in rebuilt],
+        plan_notes=list(plan_notes), stage2_job_ids=list(stage2_jobs),
+        gates=list(ctx.ranking_gates) if ctx.ranking_gates else list(gates),
+        job_timing=timing,
+        full_run_prediction=_predicted_winner_text(ranked[0]) if ranked else "no ranking",
+        ranking_start_note=ctx.ranking_start_note)
+
+
+def _predicted_winner_text(entry):
+    res = entry["result"]
+    lines = ["=== full-run prediction (rank_by=predicted, %s, %d rebuilt point(s)) ==="
+             % (entry["cid"], len(res["points"])),
+             "compute_total: %s   init: %.1fs   TOTAL: %s (range %s - %s, +-%.1f%% drift)"
+             % (_fmt_hms(res["compute_total_s"]), res["init_s"], _fmt_hms(res["total_s"]),
+                _fmt_hms(res["range_low_s"]), _fmt_hms(res["range_high_s"]), res["drift_pct"]),
+             "r_rad: night=%.3f day=%.3f source=%s" % (res["r_night"], res["r_day"],
+                                                        res["r_source"])]
+    if res.get("init_note"):
+        lines.append("NOTE: " + res["init_note"])
+    return "\n".join(lines)
+
+
+def render_predicted_report_text(report):
+    lines = ["=== wtune_tune (rank_by=predicted): %s ===" % report["case"],
+             "nodes=%d (%s)" % (report["nodes"], report["nodes_note"]),
+             "budget=%.1f min  elapsed=%.1f min  jobs=%s"
+             % (report["budget_minutes"], report["elapsed_minutes"],
+                ",".join(report["job_ids"]) or "-")]
+    for p in report["points"]:
+        lines.append("point %d %s %-8s case=%s start=%s rebuild_job=%s%s"
+                     % (p["index"], p["at"], p["reason"], p["case_id"], p["start"],
+                        p["rebuild_job"], "  [P*]" if p["primary"] else ""))
+    lines.append("")
+    lines.append("%-10s %12s %21s %6s %4s %5s %5s %5s %9s %10s"
+                 % ("id", "pred_total", "range", "ranks", "omp", "nx", "ny", "tiles",
+                    "pred_spd", "stage1_s"))
+    for row in report["ranking"]:
+        lo, hi = row["predicted_range_s"]
+        lines.append("%-10s %12s %21s %6s %4s %5s %5s %5s %9s %10s"
+                     % (row["id"], row["predicted_total_hms"],
+                        "%s-%s" % (_fmt_hms(lo), _fmt_hms(hi)), row["ranks"], row["omp"],
+                        row["nproc_x"], row["nproc_y"], row["numtiles"],
+                        ("%.3fx" % row["speedup_vs_anchor_predicted"])
+                        if row["speedup_vs_anchor_predicted"] else "-",
+                        ("%.4f" % row["stage1_median_s_per_step"])
+                        if row["stage1_median_s_per_step"] else "-"))
+        for pt in row["points"]:
+            lines.append("    %s s_normal=%.4f r=%s n_rad=%d"
+                         % (pt["at"], pt["s_normal"],
+                            ("%.3f" % pt["r"]) if pt["r"] is not None else "-", pt["n_rad"]))
+    if report.get("stage1_ranking") is not None:
+        lines.append("")
+        lines.append("stage 1 (spin-up %s min; key = median / own job's mean(ANCHOR, ANCHOREND)):"
+                     % report.get("spinup_min", "-"))
+        for e in report["stage1_ranking"]:
+            lines.append("  %-10s norm=%.4f raw=%.4fs/step jobs=%s%s"
+                         % (e["id"], e["norm_key"], e["median_s_per_step"], ",".join(e["jobs"]),
+                            "  -> stage 2" if e["stage2"] else ""))
+        for x in report.get("stage1_excluded") or []:
+            lines.append("  %-10s EXCLUDED: %s" % (x["cid"], x["reason"]))
+    lines.append("")
+    for g in report["gates"]:
+        if g.get("excluded"):
+            lines.append("gate stage1   job %s: EXCLUDED  %s" % (g["job_id"], g["exclude_reason"]))
+        drift = ("%+.2f%%" % (100 * g["anchor_drift"])) if g.get("anchor_drift") is not None else "-"
+        lines.append("gate %-8s job %s: %s anchor_drift=%s%s"
+                     % (g.get("stage", "-"), g["job_id"], "PASS" if g["ok"] else "FAIL", drift,
+                        ("  " + "; ".join(g["failures"])) if g["failures"] else ""))
+    lines.append("")
+    for jid, t in sorted(report["job_timing"].items()):
+        lines.append("job %s: queue=%s run=%s" % (
+            jid, _fmt_hms(t["queue_s"]) if t["queue_s"] is not None else "-",
+            _fmt_hms(t["run_s"]) if t["run_s"] is not None else "-"))
+    if report["best"]:
+        pt = report["param_table"]
+        lines += ["", "BEST: %s" % report["best"]["id"],
+                  "  namelist: " + " ".join(pt["namelist_lines"]),
+                  "  launch:   " + pt["launch_line"],
+                  "  env:      " + " ".join("%s=%s" % kv for kv in pt["env"].items())
+                  + "  " + pt.get("ulimit", "ulimit -s unlimited")]
+    lines += ["", report["full_run_prediction"]]
+    for n in report.get("plan_notes") or []:
+        lines.append("NOTE: " + n)
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
 # top-level run
 # ---------------------------------------------------------------------------
+def _final_cancel_safety_net(ctx):
+    """Nothing owned by this run should still be in flight once we report: past the budget
+    deadline, cancel whatever of ctx.owned_jobs sacct still shows PENDING/RUNNING."""
+    still_up = [j for j in ctx.owned_jobs if j not in ctx.cancelled_jobs]
+    if still_up:
+        states = sweep.sacct_states(still_up, sacct_runner=ctx.sacct_runner,
+                                     sacct_cmd=ctx.sacct_cmd)
+        in_flight = [j for j in still_up
+                     if states.get(j, ("UNKNOWN", ""))[0] in sweep.IN_FLIGHT_STATES]
+        if in_flight and ctx.elapsed() >= ctx.budget_s:
+            cancel_jobs(ctx, in_flight)
+
+
 def run(args, sbatch_runner=None, sacct_runner=None, scancel_runner=None, ledger_reader=None,
         proposer=None, clock=None):
     sbatch_runner = sbatch_runner or sweep.default_sbatch_runner
@@ -1733,6 +2588,11 @@ def run(args, sbatch_runner=None, sacct_runner=None, scancel_runner=None, ledger
     max_nodes_requested = args.max_nodes if args.max_nodes is not None else cfg["budget"]["max_nodes"]
     steps_cfg = args.steps if args.steps is not None else cfg["probe"]["steps"]
     confirm_reps = args.confirm_reps if args.confirm_reps is not None else cfg["probe"]["confirm_reps"]
+    rank_by = getattr(args, "rank_by", None) or cfg["probe"].get("rank_by") or "t0"
+    restart_io_form = getattr(args, "restart_io_form", None) or \
+        cfg["probe"].get("restart_io_form") or 14
+    if rank_by not in RANK_BY_CHOICES:
+        raise SystemExit("--rank-by %r not in %s" % (rank_by, list(RANK_BY_CHOICES)))
 
     case_json, namelist_path, profile = resolve_case(case, args.cores_per_node)
     is_fire = wtune_config.is_fire_case(case_json, namelist_path)
@@ -1785,7 +2645,8 @@ def run(args, sbatch_runner=None, sacct_runner=None, scancel_runner=None, ledger
               ledger_reader=ledger_reader, proposer=proposer, clock=clock,
               search_cfg=cfg["search"], exclude_rules=cfg["exclude"], is_fire=is_fire,
               confirm_reps=confirm_reps, prediction_cfg=cfg["prediction"],
-              probe_cfg=cfg["probe"], ranking_start_note=ranking_start_note)
+              probe_cfg=cfg["probe"], ranking_start_note=ranking_start_note,
+              rank_by=rank_by, restart_io_form=int(restart_io_form))
     ctx.start_time = clock.now()
 
     print("case=%s nodes=%d (%s) budget=%.1f min max_nodes=%d out=%s"
@@ -1793,6 +2654,19 @@ def run(args, sbatch_runner=None, sacct_runner=None, scancel_runner=None, ledger
 
     s_est, _src, _n = sweep.estimate_s_per_step(ctx.case, ctx.nodes, ctx.ledger_dir,
                                                  ctx.hardware_id)
+
+    if rank_by == "predicted":
+        # decision 0055: stage 1 at P*'s shared restart, stage 2 at every rebuilt point, winner
+        # by predicted whole-run compute+init -- see run_predicted. Replaces round0..confirm.
+        report = run_predicted(ctx, nodes, nodes_note, s_est)
+        _final_cancel_safety_net(ctx)
+        text = render_predicted_report_text(report)
+        print("")
+        print(text)
+        with open(os.path.join(out_dir, "tune_report.json"), "w") as f:
+            json.dump(report, f, indent=2, sort_keys=True, default=str)
+            f.write("\n")
+        return report
 
     job_ids0, configs_by_cid, rows0 = run_round0(ctx)
     all_results = aggregate_by_cid(rows0, configs_by_cid)
@@ -1815,15 +2689,7 @@ def run(args, sbatch_runner=None, sacct_runner=None, scancel_runner=None, ledger
         confirm_job_id, confirm_results = run_confirm(ctx, configs_by_cid, all_results, anchor_cid,
                                                         s_est)
 
-    # final safety net: nothing owned by this run should still be in flight once we report.
-    still_up = [j for j in ctx.owned_jobs if j not in ctx.cancelled_jobs]
-    if still_up:
-        states = sweep.sacct_states(still_up, sacct_runner=ctx.sacct_runner,
-                                     sacct_cmd=ctx.sacct_cmd)
-        in_flight = [j for j in still_up
-                     if states.get(j, ("UNKNOWN", ""))[0] in sweep.IN_FLIGHT_STATES]
-        if in_flight and ctx.elapsed() >= ctx.budget_s:
-            cancel_jobs(ctx, in_flight)
+    _final_cancel_safety_net(ctx)
 
     report = build_report(ctx, nodes, nodes_note, all_results, confirm_results, anchor_cid)
     text = render_report_text(report)
@@ -1864,6 +2730,16 @@ def build_arg_parser():
                     help="default: %d (or --config's probe.steps)" % DEFAULT_STEPS)
     p.add_argument("--confirm-reps", type=int, default=None, dest="confirm_reps",
                     help="default: %d (or --config's probe.confirm_reps)" % CONFIRM_REPS)
+    p.add_argument("--rank-by", choices=RANK_BY_CHOICES, default=None, dest="rank_by",
+                    help="t0 (default, or --config's probe.rank_by): rank by t0-probe s/step then "
+                         "predicted wall time. predicted (decision 0055): rebuild ERA5 points, "
+                         "spin each up once, rank every candidate from the shared restarts by "
+                         "predicted whole-run compute+init")
+    p.add_argument("--restart-io-form", type=int, choices=(14, 2), default=None,
+                    dest="restart_io_form",
+                    help="--rank-by predicted only: io_form of the shared ranking restart "
+                         "(RANKING_RESTART_IO_FORM); default 14 (ADIOS2), or --config's "
+                         "probe.restart_io_form")
     p.add_argument("--seed", type=int, default=DEFAULT_SEED)
     p.add_argument("--kappa", type=float, default=DEFAULT_KAPPA)
     p.add_argument("--cores-per-node", type=int, default=sweep.DEFAULT_CORES_PER_NODE,

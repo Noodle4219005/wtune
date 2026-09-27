@@ -92,7 +92,12 @@ DEFAULTS = {
     # documented (prints/reports a NOTE and runs every candidate from t0 until the wiring lands).
     "probe": {"steps": "auto", "confirm_reps": 2, "spinup_min": 60, "ranking_start": "t0",
               "points": "auto", "max_points": 5, "budget_pct": 10.0,
-              "sources": ["trajectory", "restart", "rebuild"]},
+              "sources": ["trajectory", "restart", "rebuild"],
+              # decision 0055: rank_by=predicted ranks candidates by predicted whole-run time from
+              # ERA5-rebuilt points, each spun up once and shared by every candidate (wtune_tune
+              # run_predicted); t0 (default) is the pre-0055 behaviour. restart_io_form is the
+              # shared restart's io_form in that mode (14 ADIOS2 BP, or 2 netCDF).
+              "rank_by": "t0", "restart_io_form": 14},
     "prediction": {"io_target": "nfs", "drift_band_pct": None, "measure_r_rad": False},
     "exclude": [],
 }
@@ -105,8 +110,10 @@ SEARCH_IO_KEYS = {"enabled", "io_form_history", "target"}
 PHYSICS_GRAY_KEYS = {"enabled", "knobs"}
 PHYSICS_GRAY_KNOB_KEYS = {"multiply"}
 PROBE_KEYS = {"steps", "confirm_reps", "spinup_min", "ranking_start", "points", "max_points",
-              "budget_pct", "sources"}
+              "budget_pct", "sources", "rank_by", "restart_io_form"}
 RANKING_START_CHOICES = ("t0", "spinup")
+RANK_BY_CHOICES = ("t0", "predicted")
+RESTART_IO_FORM_CHOICES = (14, 2)
 # "coldstart" is the pre-2026-09-26 name, still accepted (wtune_probe_plan.canonical_source
 # normalizes it to "rebuild" everywhere downstream) -- never rejected as an unknown source.
 PROBE_SOURCE_CHOICES = ("trajectory", "restart", "rebuild")
@@ -413,6 +420,11 @@ def _validate_semantics(cfg, errors):
     if isinstance(p["budget_pct"], bool) or not isinstance(p["budget_pct"], (int, float)) \
             or not (0 < p["budget_pct"] <= 100):
         errors.append("probe.budget_pct: must be a number in (0, 100], got %r" % (p["budget_pct"],))
+    if p["rank_by"] not in RANK_BY_CHOICES:
+        errors.append("probe.rank_by: %r not in %s" % (p["rank_by"], list(RANK_BY_CHOICES)))
+    if isinstance(p["restart_io_form"], bool) or p["restart_io_form"] not in RESTART_IO_FORM_CHOICES:
+        errors.append("probe.restart_io_form: %r not in %s"
+                       % (p["restart_io_form"], list(RESTART_IO_FORM_CHOICES)))
     if not isinstance(p["sources"], list) or not p["sources"]:
         errors.append("probe.sources: must be a non-empty list")
     else:
@@ -768,6 +780,9 @@ probe:
   budget_pct: 10                  # cap the points' own measurement cost to this %% of the predicted run
   sources: [trajectory, restart, rebuild]   # preference order per point ("coldstart" also accepted,
                                              # legacy name for "rebuild")
+  rank_by: t0                     # t0 | predicted (decision 0055: rank by predicted whole-run time from
+                                   # ERA5-rebuilt, spun-up points; CLI --rank-by)
+  restart_io_form: 14             # rank_by=predicted only: shared restart io_form, 14 (ADIOS2) or 2
 
 prediction:
   io_target: nfs                  # nfs | local -- calibration target for the full-run I/O estimate

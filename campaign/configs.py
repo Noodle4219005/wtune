@@ -683,7 +683,16 @@ def _apply_restart_from(text, restart_time, max_dom):
                  "start_day": restart_time.day, "start_hour": restart_time.hour,
                  "start_minute": restart_time.minute, "start_second": restart_time.second}[key]
         text = _replace_list_line(text, key, [value] * max_dom)
-    return _set_scalar(text, "restart", ".true.")
+    text = _set_scalar(text, "restart", ".true.")
+    # override_restart_timers (decision 0055 G0, jobs 1371/1372): WRF's default .false. keeps
+    # the restart/history intervals STORED IN the restart file (the spin-up's own
+    # write_restart_interval), ignoring this namelist's restart_interval=1000000 -- every
+    # candidate then wrote a restart M minutes after resuming, inside its measured window
+    # (netCDF: 299 s landing on one radiation step, r 121 instead of ~5).
+    if re.search(r"(?im)^\s*override_restart_timers\s*=", text):
+        return _set_scalar(text, "override_restart_timers", ".true.")
+    return _insert_after_section_header(text, "&time_control",
+                                        " override_restart_timers = .true.,\n")
 
 
 def _apply_adios2(text, ranks, max_dom):
@@ -1232,6 +1241,12 @@ def edit_namelist(text, nproc_x, nproc_y, numtiles, run_minutes,
     text = _set_scalar(text, "run_days", 0)
     text = _set_scalar(text, "run_hours", 0)
     text = _set_scalar(text, "run_minutes", run_minutes)
+    # run_seconds too (decision 0055): WRF ADDS all four run_* keys, so a template carrying a
+    # non-zero run_seconds (every coldstart/rebuild real/wrf-window namelist sets it -- see
+    # tools/coldstart_sample.build_real_namelist_text) would silently lengthen the run past
+    # run_minutes. _set_scalar is a no-op when the key is absent, so a template without it (or
+    # with run_seconds=0 already) is byte-identical to before.
+    text = _set_scalar(text, "run_seconds", 0)
     text = _set_history_mode(text, history_mode, run_minutes, max_dom, nest_history_on,
                               history_minutes=history_minutes)
     if not adios2:

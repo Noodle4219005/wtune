@@ -91,7 +91,11 @@ DEFAULT_ROOT = "$HOME/wtune-runs/sweep"
 DEFAULT_LEDGER_DIR = "$HOME/wtune-runs/campaign"          # campaign/sites/scc.sh's own $OUT
 DEFAULT_MAX_NODES_IN_FLIGHT = 13                           # == total compute nodes, work[1-13]
 DEFAULT_ENV_SOURCE = "$HOME/wtune-scc/env.sh"
-DEFAULT_SBATCH_SCRIPT = "$HOME/wtune/campaign/strict_campaign.sbatch"
+# The campaign/ of THIS source tree (resolved from __file__), not a fixed "$HOME/wtune/campaign":
+# on scc ~/wtune is a stale checkout (no RANKING_START, no write_adios2_restart_xml, no \037 TSV
+# fix) while the live code runs from ~/wtune-src, so the old hardcoded default silently paired
+# new Python with an old campaign script (2026-09-27). --sbatch-script still overrides it.
+DEFAULT_SBATCH_SCRIPT = os.path.join(_CAMPAIGN_DIR, "strict_campaign.sbatch")
 
 STARTUP_S = 120.0                  # per-run startup overhead assumed for the time-limit estimate
 CONSERVATIVE_S_PER_STEP = 10.0     # fallback when no ledger row exists yet for this case on scc
@@ -351,12 +355,35 @@ def default_sbatch_runner(cmd_str):
     return out.stdout
 
 
+def campaign_dir_for(sbatch_script):
+    """The campaign/ directory an sbatch script belongs to (its own dirname), or None when that
+    directory is not a campaign checkout (no configs.py next to it -- e.g. a script copied
+    elsewhere). strict_campaign.sbatch cannot find its own path once Slurm has spooled it, and
+    otherwise falls back to CAMPAIGN=$HOME/wtune/campaign -- which pairs the submitted script with
+    a possibly different tree's configs.py/sites/node_hygiene.sh. Exporting CAMPAIGN=<this> keeps
+    script and helpers from the SAME tree."""
+    d = os.path.dirname(os.path.abspath(_expand(sbatch_script)))
+    return d if os.path.isfile(os.path.join(d, "configs.py")) else None
+
+
 def build_sbatch_command(case, nodes, cores_per_node, time_limit, timeout_s, reps, steps,
                           configs_path, out_dir, env_source=DEFAULT_ENV_SOURCE,
-                          sbatch_script=DEFAULT_SBATCH_SCRIPT):
+                          sbatch_script=DEFAULT_SBATCH_SCRIPT, campaign_dir=None, extra_export=None):
+    """campaign_dir (optional): appended as CAMPAIGN=<dir> (see campaign_dir_for). extra_export
+    (optional): [(KEY, VALUE), ...] appended verbatim after it (CONFIG_FILE stays last) (decision 0055 ranking context:
+    CASES_JSON/RANKING_START/SPINUP_MINUTES/...); a VALUE containing ',' is refused -- sbatch
+    --export would split it. Both default to None, which reproduces the old command exactly."""
     total_cores = nodes * cores_per_node
     export = ("ALL,SITE=scc,WTUNE_TOTAL_CORES=%d,CASE=%s,MODE=timing,REPS=%d,STEPS=%d,"
-              "TIMEOUT_S=%d,CONFIG_FILE=%s" % (total_cores, case, reps, steps, timeout_s, configs_path))
+              "TIMEOUT_S=%d" % (total_cores, case, reps, steps, timeout_s))
+    if campaign_dir:
+        export += ",CAMPAIGN=%s" % campaign_dir
+    for key, value in (extra_export or []):
+        if "," in str(value):
+            raise ValueError("--export value %s=%r contains ',' which sbatch --export would split"
+                             % (key, value))
+        export += ",%s=%s" % (key, value)
+    export += ",CONFIG_FILE=%s" % configs_path      # kept LAST, exactly as before
     sbatch = ("sbatch -p compute -N %d --ntasks-per-node=%d --exclusive --exclude=head "
               "--time=%s --job-name=sw-%s-n%d --output=%s/sweep-%%j.out --export=%s %s"
               % (nodes, cores_per_node, time_limit, case, nodes, out_dir, export,
@@ -474,7 +501,8 @@ def cmd_submit(args):
             cmd_str = build_sbatch_command(
                 case, nodes, args.cores_per_node, p["time_limit"], p["timeout_s"], args.reps,
                 args.steps, os.path.abspath(p["configs_path"]), p["out_dir"],
-                env_source=args.env_source, sbatch_script=args.sbatch_script)
+                env_source=args.env_source, sbatch_script=args.sbatch_script,
+                campaign_dir=campaign_dir_for(args.sbatch_script))
 
             if args.dry_run:
                 print("DRY-RUN: %s" % cmd_str)

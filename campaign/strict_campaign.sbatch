@@ -134,6 +134,13 @@ LEDGER_HEADER="run_id,source_dataset,job_id,rep_index,case_raw,case_base,case_fa
 # no-op: its site_launch uses srun, not mpirun/prte, so it has no equivalent failure mode.
 # See campaign/node_hygiene.sh for the per-node reap/census logic dispatched here.
 NODE_DIRTY_NOTE="node_dirty=none"
+# FOREIGN_LOAD (decision 0055): campaign/node_hygiene.sh's census also reports any process not
+# owned by this job's user above 20% lifetime CPU (scc work5 2026-09-27: a root VS Code server at
+# 91% of one core slowed a 576-rank wrf.exe 5x, invisible to the per-CPU NODE_DIRTY sample).
+# Recorded in NOTES only for RANKING_START=spinup runs, or whenever it fires (see the ledger-row
+# block), so a clean RANKING_START=t0 run's notes are byte-identical to before.
+FOREIGN_LOAD=0
+FOREIGN_LOAD_NOTE="foreign_load=0"
 
 run_node_hygiene () {
   # run_node_hygiene <mode> <timeout_s>   mode: reap | census | reap+census
@@ -148,6 +155,10 @@ run_node_hygiene () {
   REAP_N=$(printf '%s\n' "$out" | awk '/^REAPED_ORPHANS /{for(i=1;i<=NF;i++){split($i,kv,"="); if(kv[1]=="n") s+=kv[2]}} END{print s+0}')
   if printf '%s\n' "$out" | grep -q '^NODE_DIRTY '; then
     NODE_DIRTY_NOTE="node_dirty=$(printf '%s\n' "$out" | awk '/^NODE_DIRTY /{h=c=b="";for(i=1;i<=NF;i++){split($i,kv,"="); if(kv[1]=="host")h=kv[2]; else if(kv[1]=="cpu")c=kv[2]; else if(kv[1]=="busy")b=kv[2]} printf "%s:cpu%s:%s,",h,c,b}' | sed 's/,$//')"
+  fi
+  if printf '%s\n' "$out" | grep -q '^FOREIGN_LOAD '; then
+    FOREIGN_LOAD=1
+    FOREIGN_LOAD_NOTE="foreign_load=1 foreign=$(printf '%s\n' "$out" | awk '/^FOREIGN_LOAD /{h=p=u=c=x="";for(i=1;i<=NF;i++){split($i,kv,"="); if(kv[1]=="host")h=kv[2]; else if(kv[1]=="pid")p=kv[2]; else if(kv[1]=="user")u=kv[2]; else if(kv[1]=="comm")c=kv[2]; else if(kv[1]=="pcpu")x=kv[2]} printf "%s:%s:%s:%s:%s,",h,p,u,c,x}' | sed 's/,$//')"
   fi
 }
 
@@ -704,6 +715,17 @@ PY
     grep -a "Timing for main" rsl.out.0000 2>/dev/null |   # -a: debug_level>=50 puts a Fortran NUL in mminlu, and GNU grep then prints "Binary file ... matches" and harvests ZERO steps (SC26-P1 job 1081398: rc=0 ok=1 but n=0 while all 324 timing lines were present)
     sed -nE 's/.*on domain +([0-9]+): +([0-9.]+) elapsed.*/\1 \2/p' > steps_by_domain.txt
     awk '$1 == 1 { print $2 }' steps_by_domain.txt > steps.txt
+  # restart_used=1 must mean the run REALLY started at the shared restart: the first d01 "Timing
+  # for main" line of a restart run is stamped RESTART_TIME+dt (strictly later than
+  # RESTART_TIME); a t0 start stamps T+dt < RESTART_TIME. Same-format timestamps compare
+  # lexicographically. No Timing line (failed run) leaves the configured value alone.
+  if [ "${RESTART_USED:-0}" = "1" ] && [ -f rsl.error.0000 ]; then
+    FIRST_STEP_TIME=$(grep -a -m1 "Timing for main" rsl.error.0000 | sed -nE 's/.*time +([0-9_:-]+) .*/\1/p')
+    if [ -n "$FIRST_STEP_TIME" ] && [[ ! "$FIRST_STEP_TIME" > "$RESTART_TIME" ]]; then
+      echo "RESTART_CHECK_FAILED cid=$cid first_step=$FIRST_STEP_TIME restart_time=$RESTART_TIME" >&2
+      RESTART_USED=0
+    fi
+  fi
 
     if [ "$RC" = "0" ] && [ "$OK" = "1" ]; then
       STATS=$("$PYBIN" "$CAMPAIGN/configs.py" step-stats steps.txt)
@@ -1004,6 +1026,41 @@ write_adios2_restart_xml() {  # dir restart_time max_dom
     echo '</adios-config>'; } > "$1/adios2.xml"
 }
 SPINUP_MINUTES=${SPINUP_MINUTES:-$SPINUP_MIN}
+# Decision 0055 (wtune tune --rank-by predicted), all opt-in:
+#   SPINUP_TIMEOUT_S        watchdog for the shared anchor spin-up only (default TIMEOUT_S, i.e.
+#                           unchanged); candidate runs keep TIMEOUT_S.
+#   RANKING_STRICT_RESTART  1: a candidate that cannot start from the shared restart (spin-up
+#                           failed / wrote no wrfrst, or physics_signature mismatch) is NOT run
+#                           from t0; it gets a status=SKIPPED ledger row with restart_used=0 and
+#                           the reason (write_restart_skip_row). Default 0 keeps the old t0
+#                           fallback exactly.
+# RANKING_ACTIVE marks the jobs whose candidate rows carry restart_target=/restart_used=/
+# foreign_load= notes (RANKING_START=spinup in MODE=timing -- the only combination that runs the
+# spin-up block); a RANKING_START=t0 job never sets it, so its notes are unchanged.
+SPINUP_TIMEOUT_S=${SPINUP_TIMEOUT_S:-$TIMEOUT_S}
+RANKING_STRICT_RESTART=${RANKING_STRICT_RESTART:-0}
+RANKING_ACTIVE=0
+[ "$RANKING_START" = "spinup" ] && [ "$MODE" = "timing" ] && RANKING_ACTIVE=1
+
+write_restart_skip_row () {
+  # write_restart_skip_row <run_id> <cid> <rep> <reason> <target_min>: RANKING_STRICT_RESTART=1's
+  # replacement for a silent t0 fallback -- one ledger row, empty s_per_step_median (so every
+  # aggregator drops it as a measurement) and notes that say exactly why. Same minimal-row shape
+  # as write_interrupted_row.
+  RUN_ID="$1" JOB_ID="$J" REP_INDEX="$3" CASE_RAW="$CASE" CASE_BASE="$CASE" \
+    HARDWARE_ID="$HARDWARE_ID" \
+    NOTES_SKIP="status=SKIPPED reason=$4 config=$2 restart_target=$5 restart_used=0 $NODE_DIRTY_NOTE $FOREIGN_LOAD_NOTE" \
+    python3 - "$LEDGER" <<'PY'
+import csv, os, sys
+ledger = sys.argv[1]
+e = os.environ.get
+row = [e("RUN_ID", ""), "restart_skip", e("JOB_ID", ""), e("REP_INDEX", ""), e("CASE_RAW", ""),
+       e("CASE_BASE", ""), "", e("HARDWARE_ID", ""), "", ""] + [""] * 37 + [e("NOTES_SKIP", "")]
+with open(ledger, "a", newline="") as f:
+    csv.writer(f).writerow(row)
+PY
+  echo "RANKING_STRICT_RESTART: SKIPPED run_id=$1 reason=$4 (no t0 fallback)" >&2
+}
 # ':' separated (',' also accepted): a ',' inside a value collides with sbatch --export's own
 # KEY=VAL,KEY=VAL syntax, which silently truncated 60,122 to 60 in job 1225.
 IFS=':,' read -ra TARGET_MIN_ARR <<< "$SPINUP_MINUTES"
@@ -1072,14 +1129,18 @@ if [ "$RANKING_START" = "spinup" ] && [ "$MODE" = "timing" ]; then
       configure_omp_env "$A_OMP" "$A_BLOCKTIME"
       echo "RANKING_SPINUP[m=$M]: launching anchor spin-up in $SRC_DIR"
       site_launch "$A_RANKS" "$A_NTASKS_PER_NODE" "$A_OMP" "$A_DIST"
-      timeout "$TIMEOUT_S" "${SITE_LAUNCH_CMD[@]}" > wrf.out 2>&1 &
+      timeout "$SPINUP_TIMEOUT_S" "${SITE_LAUNCH_CMD[@]}" > wrf.out 2>&1 &
       WRF_PID=$!
       wait "$WRF_PID"
       RANKING_SPINUP_RC=$?
       WRF_PID=""
       run_node_hygiene reap 60
       if [ "$RANKING_SPINUP_RC" -ne 0 ] || ! ls wrfrst_d0*_* >/dev/null 2>&1; then
-        echo "WARNING: RANKING_SPINUP[m=$M] failed (rc=$RANKING_SPINUP_RC) or wrote no wrfrst_d0* -- this target falls back to t0 for any candidate that maps to it" >&2
+        if [ "$RANKING_STRICT_RESTART" = "1" ]; then
+          echo "WARNING: RANKING_SPINUP[m=$M] failed (rc=$RANKING_SPINUP_RC) or wrote no wrfrst_d0* -- RANKING_STRICT_RESTART=1: every candidate that maps to it is SKIPPED (no t0 fallback)" >&2
+        else
+          echo "WARNING: RANKING_SPINUP[m=$M] failed (rc=$RANKING_SPINUP_RC) or wrote no wrfrst_d0* -- this target falls back to t0 for any candidate that maps to it" >&2
+        fi
       else
         echo "RANKING_SPINUP[m=$M]: OK, restart written in $SRC_DIR"
         RANKING_SPINUP_OK_BY_MIN[$M]=1
@@ -1172,9 +1233,12 @@ for cid in "${ORDER[@]}"; do
   # re-points this candidate's namelist.input at the shared anchor restart -- never changes the
   # FIRST pass above, so RANKING_START unset/"t0" leaves this candidate's rendered namelist
   # byte-identical to before this feature existed (the block below is unreachable then).
+  RESTART_USED=0
+  RESTART_SKIP_REASON="spinup_failed"
   if [ -n "$RANKING_SPINUP_OK" ]; then
     if [ -n "$(diff <(physics_signature "$ANCHOR_NAMELIST") <(physics_signature ./namelist.input))" ]; then
       echo "RESTART_COMPAT_FALLBACK cid=$cid reason=physics_mismatch -- starting from t0 instead of the shared restart"
+      RESTART_SKIP_REASON="physics_mismatch"
     else
       ln -sf "$RESTART_SRC_DIR"/wrfrst_d0*_* .
       write_adios2_restart_xml . "$RESTART_TIME" "$MAX_DOM"
@@ -1187,7 +1251,13 @@ for cid in "${ORDER[@]}"; do
         --restart-from "$RESTART_TIME" --restart-io-form "$RANKING_RESTART_IO_FORM"
       rm -f ./namelist.input.restart_orig
       echo "RANKING_START=spinup: cid=$cid starts from the shared restart at $RESTART_TIME"
+      RESTART_USED=1
     fi
+  fi
+  if [ "$RANKING_ACTIVE" = "1" ] && [ "$RESTART_USED" != "1" ] && [ "$RANKING_STRICT_RESTART" = "1" ]; then
+    write_restart_skip_row "${CASE}_${cid}_r${rep}_${J}" "$cid" "$rep" "$RESTART_SKIP_REASON" "$CUR_TARGET_MIN"
+    cd "$OUT"
+    continue
   fi
   ln -sf "$W/main/wrf.exe" ./wrf.exe
 
@@ -1304,6 +1374,11 @@ for cid in "${ORDER[@]}"; do
   [ "$RC" != "0" ] && NOTES="$NOTES rc=$RC"
   [ "$OK" != "1" ] && NOTES="$NOTES ok=$OK"
   NOTES="$NOTES $NODE_DIRTY_NOTE"
+  if [ "$RANKING_ACTIVE" = "1" ]; then
+    NOTES="$NOTES restart_target=$CUR_TARGET_MIN restart_used=${RESTART_USED:-0} $FOREIGN_LOAD_NOTE"
+  elif [ "$FOREIGN_LOAD" = "1" ]; then
+    NOTES="$NOTES $FOREIGN_LOAD_NOTE"
+  fi
   export RUN_ID="${CASE}_${cid}_r${rep}_${J}" SRC_DATASET="strict_campaign" JOB_ID="$J" \
     REP_INDEX="$rep" CASE_RAW="$CASE" CASE_BASE="$CASE" CASE_FAMILY="$CASE_FAMILY" \
     HARDWARE_ID="$HARDWARE_ID" BINARY_KIND="pristine" COMPLIANCE_CLASS="STRICT" \

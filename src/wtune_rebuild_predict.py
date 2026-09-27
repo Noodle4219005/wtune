@@ -42,12 +42,14 @@ def _measure_steps(arg, stepra):
     return n
 
 
-def plan(case_dir, forcing, spinup_min, max_points, sources=("rebuild",)):
-    """(nl, run_start, run_end, dt_s, stepra, points, notes) for CASE_DIR."""
+def plan(case_dir, forcing, spinup_min, max_points, sources=("rebuild",), namelist_path=None):
+    """(nl, run_start, run_end, dt_s, stepra, points, notes) for CASE_DIR. `namelist_path`
+    (default CASE_DIR/namelist.input) lets a caller whose case uses a different namelist
+    template (cases.json namelist_template, e.g. lafe's d01-only one) plan on that instead."""
     import wtune_config as wcfg
     import wtune_predict as wp
     import wtune_probe_plan as pp
-    nl = wp.parse_namelist(os.path.join(case_dir, "namelist.input"))
+    nl = wp.parse_namelist(namelist_path or os.path.join(case_dir, "namelist.input"))
     _n, run_s, dt_s, _note = wp.get_d01_steps(nl)
     run_start = wp.get_time_control_datetime(nl, "start")
     run_end = run_start + dt.timedelta(seconds=run_s)

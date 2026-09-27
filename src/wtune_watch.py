@@ -16,30 +16,41 @@ Progress
     rsl.error.0000 and rsl.out.0000 can each be truncated on high-print cases: both are read and
     the one with more d01 Timing lines wins (tie -> rsl.error.0000).
 
-Remaining time
-    remaining d01 steps x rate, rate = MEAN d01 elapsed over the most recent
-    W = max(2*stepra, 50, 25 % of completed) steps, W rounded up to a whole number of periods of
-    every periodic cost (d01 radiation stepra, every domain's radt and history interval, all
-    expressed in d01 steps; their LCM P) when P fits in the completed steps, else to a whole
-    number of stepra. A mean over whole periods carries the radiation and write spikes at their
-    true duty cycle; a median would drop them.
-    Excluded first: the log's first step always, plus the following leading steps costlier than
-    2x the median (init, not compute: isc21's 30-min run has 120 d01 lines whose first steps are
-    several x slower, and its 25 % replay window was mostly those -> +47.5 %), at most 25 % of
-    the steps; and inside the window any step > 5x the window median whose index is NOT on a
-    radiation/history/restart period (a one-off stall; the periodic spikes stay in).
-    Rate-only extrapolation cannot see a trend: on scc truth runs at 25 % it was within 6 % on
-    zhengzhou/dorian/conus25/lafe/marshall/c34 but -10.4 % on maria1km and -16.0 % on elevconv,
-    whose per-step cost rises as the weather develops.
+Remaining time = remaining compute + remaining writes (both reported, plus their sum)
+    Writes are separated from compute exactly: a d01 'Timing for main' line that follows one or
+    more 'Timing for Writing <file> for domain N: X elapsed seconds' lines since the previous d01
+    line (nest Timing lines in between allowed) ABSORBED those writes -- WRF's step timer starts
+    before med_before_solve_io (tools/coldstart_sample.rsl_write_absorbing_d01_times, same rule,
+    same regex). That step's compute part = its seconds - the write seconds attributed to it.
+    Why: off-period outlier removal (9f7544e) dropped exactly these steps while the compute-only
+    prediction never had them, so both estimates lost the writes -- 25 % replay on scc truth:
+    marshall (writes 48 % of wall) -6.0 % -> -53.5 %, dorian (17.5 %) -0.7 % -> -18.0 %.
 
-Prediction-scaled remaining time (--prediction PRED_JSON, primary ETA when given)
-    PRED_JSON = `wtune predict-rebuild`'s OUT/pred_rebuild.json. Its result.points s_normal
-    anchors + r_night/r_day give a per-step compute curve (tools/coldstart_sample.
-    predicted_compute_total, the arithmetic wtune_probe_plan.combine uses, reused not copied).
-    remaining = k x predicted compute over the not-yet-run steps, k = observed / predicted over
-    the steps already run (lead-in dropped, init excluded, non-period stalls replaced by the
-    median): the prediction supplies the trend's shape, the run supplies its level. Both
-    estimates are reported (remaining_pred_s, remaining_rate_s).
+    compute, rate-only: remaining d01 steps x MEAN compute part over the most recent
+    W = max(2*stepra, 50, 25 % of completed) steps, W rounded up to a whole number of radiation
+    periods (d01 stepra and every nest's radt in d01 steps; their LCM P) when P fits in the
+    completed steps, else to a whole number of stepra. A mean over whole periods carries the
+    radiation spikes at their duty cycle; a median would drop them. No outlier removal. Excluded
+    first: the log's first step always, plus the following leading steps costlier than 2x the
+    median, at most 25 % of the steps (init). A genuine multi-step cold-start regime (isc21: 30-min
+    run, 120 d01 lines, +47.5 % at 25 %) is NOT an init spike and is left alone; rate-only cannot
+    see a trend (maria1km -10.4 %, elevconv -16.0 % at 25 %: cost rises as the weather develops).
+
+    compute, prediction-scaled (--prediction PRED_JSON, primary when given): PRED_JSON =
+    `wtune predict-rebuild`'s OUT/pred_rebuild.json. Its result.points s_normal anchors +
+    r_night/r_day give a per-step compute curve (tools/coldstart_sample.predicted_compute_total,
+    the arithmetic wtune_probe_plan.combine uses, reused not copied). remaining = k x predicted
+    compute over the not-yet-run steps, k = observed / predicted compute over the steps already
+    run (lead-in dropped): the prediction supplies the trend's shape, the run supplies its level.
+
+    writes: per stream (history per domain, restart per domain, each auxhistN per domain) median
+    observed write seconds per frame x remaining frames of that stream. Frames from the namelist
+    (coldstart_sample.wrf_interval_minutes, WRF's d/h/m/s key sum): history at begin + j x interval
+    up to history_end / the domain's end / run end (a resumed run skips t=0 unless
+    write_hist_at_0h_rst), restart at j x restart_interval, auxhistN over auxhistN_begin..end. A
+    frame at sim minute T is written at the start of the step beginning at T, so it is done once
+    T < completed x dt. A stream with no write observed yet takes PRED_JSON's measured io block
+    (history median_s per domain, restart per_write_s) when given, else 0 with a note.
 
 Warnings (code, text); exit 3 on FAILED, 2 on HANG/HANG_INIT/NEST_STOPPED/NEST_END_EARLY, else 0
     HANG          live: newest mtime of the chosen rsl file older than
@@ -60,13 +71,15 @@ Warnings (code, text); exit 3 on FAILED, 2 on HANG/HANG_INIT/NEST_STOPPED/NEST_E
     DONE is a status ('SUCCESS COMPLETE WRF'), not a warning.
 
 Replay (--replay-fraction F, implies --once; hang/live checks off)
-    Pretend the run is at fraction F of its observed d01 Timing lines: only d01 lines up to that
-    point and nest lines up to the same sim time are used; reports the estimate, the actual
-    remaining = sum of the later d01 elapsed, and replay_error_pct = (est - actual) / actual for
-    the primary estimate (replay_error_pct_rate / _pred for each). est covers exactly the logged
-    later steps (rate x their count; k x predicted compute to the last logged step), so it equals
-    the remaining-time estimate on a complete log and on a partial log compares only the span the
-    log covers (flagged actual_partial). --json with a comma list prints ONE JSON list.
+    Pretend the run is at fraction F of its observed d01 Timing lines: only d01 lines (and the
+    write lines before them) up to that point and nest lines up to the same sim time are used.
+    actual remaining = sum of the later d01 elapsed + the writes logged after the last d01 line
+    (the end-of-run frame no d01 step absorbs); replay_error_pct = (est - actual) / actual for the
+    primary estimate, replay_error_pct_rate / _pred for each. est covers exactly the logged later
+    steps (compute: rate x their count or k x predicted compute to the last logged step; writes:
+    the frames those steps absorb, plus the end-of-run frames on a complete log), so on a partial
+    log it compares only the span the log covers (flagged actual_partial). --json with a comma
+    list prints ONE JSON list.
 """
 import argparse
 import datetime as dt
@@ -121,6 +134,35 @@ def parse_timing(text):
             t = None
         out.append((int(m.group(2)), t, sec))
     return out
+
+
+def parse_d01_steps(text):
+    """d01 steps with the writes each one absorbed: ([{t, sec, writes: [(name, dom, s), ...]}],
+    trailing_writes). A 'Timing for Writing' line (tools/coldstart_sample._RSL_WRITE_RE) is
+    attributed to the NEXT d01 'Timing for main' line (nest Timing lines in between allowed) --
+    rsl_write_absorbing_d01_times' rule; writes after the last d01 line (end-of-run frame) are
+    trailing. Same d01 line filter as parse_timing, so the lists align."""
+    import coldstart_sample as cs
+    steps, pending = [], []
+    for line in text.splitlines():
+        m = cs._RSL_WRITE_RE.search(line)
+        if m:
+            pending.append((m.group(1).strip(), int(m.group(2)), float(m.group(3))))
+            continue
+        m = _TIMING_RE.search(line)
+        if not m or int(m.group(2)) != 1:
+            continue
+        try:
+            sec = float(m.group(3))
+        except ValueError:
+            continue
+        try:
+            t = dt.datetime.strptime(m.group(1), WRF_FMT)
+        except ValueError:
+            t = None
+        steps.append({"t": t, "sec": sec, "writes": pending})
+        pending = []
+    return steps, pending
 
 
 def read_rsl(rundir):
@@ -198,42 +240,135 @@ def run_info(nl):
                 p = _int_period(float(r) * 60.0 / dt_s)
                 if p:
                     periods.append(p)
-        hist_min, _ = wp.get_history_interval_minutes(nl, i)
-        if hist_min and hist_min > 0:
-            p = _int_period(hist_min * 60.0 / dt_s)
-            if p:
-                periods.append(p)
         doms.append({"id": i + 1, "parent": parent, "dt": ddt, "parent_dt": pdt,
                      "start": dstart, "end": dend})
-    protect = set(periods)
-    for key, scale in (("restart_interval_s", 1.0 / 60.0), ("restart_interval_m", 1.0),
-                       ("restart_interval", 1.0), ("restart_interval_h", 60.0)):
-        v = wp.g(nl, "time_control", key, None)
-        if v:
-            p = _int_period(float(v) * scale * 60.0 / dt_s)
-            if p:
-                protect.add(p)
-            break
-    return {"start": start, "end": end, "dt": dt_s, "run_s": run_s, "total_steps": steps,
-            "stepra": stepra, "periods": sorted(set(periods)), "protect": sorted(protect),
-            "domains": doms}
+    info = {"start": start, "end": end, "dt": dt_s, "run_s": run_s, "total_steps": steps,
+            "stepra": stepra, "periods": sorted(set(periods)), "domains": doms}
+    info["streams"] = write_streams(nl, info)
+    return info
+
+
+def _frame_minutes(begin, interval, end):
+    """begin, begin+interval, ... <= end (minutes)."""
+    out, j = [], 0
+    while interval > 0 and begin + j * interval <= end + 1e-6:
+        out.append(begin + j * interval)
+        j += 1
+    return out
+
+
+def write_streams(nl, info):
+    """Every write stream the run's namelist schedules: [{stream, dom, prefix, frames: [sim minute
+    from run start, ...]}]. history per domain (io_form_history != 0, history_interval > 0, from
+    the domain's start + history_begin to min(history_end, domain end, run end); a resumed run
+    skips the t=0 frame unless write_hist_at_0h_rst -- wtune_rebuild_predict.user_io_frames'
+    semantics), restart per domain at j x restart_interval (j >= 1), auxhistN per domain
+    (io_form_auxhistN != 0) over auxhistN_begin..auxhistN_end. prefix = the file-name prefix an
+    observed 'Timing for Writing <name>' line is matched by (history_outname / auxhistN_outname
+    up to '<'; restart lines are WRF's literal name 'restart')."""
+    import coldstart_sample as cs
+    run_min = info["run_s"] / 60.0
+    resumed = bool(wp.g(nl, "time_control", "restart", False))
+    skip_t0 = resumed and not wp.g(nl, "time_control", "write_hist_at_0h_rst", False)
+    io_hist = wp.g(nl, "time_control", "io_form_history", 2)
+    hist_prefix = cs.history_file_prefix(nl)
+    aux = [n for n in range(1, 25) if wp.g(nl, "time_control", "io_form_auxhist%d" % n, 0)]
+    ri = cs.wrf_interval_minutes(nl, "restart_interval")
+    out = []
+    for i, d in enumerate(info["domains"]):
+        off = ((d["start"] - info["start"]).total_seconds() / 60.0
+               if d["start"] is not None and info["start"] is not None else 0.0)
+        dend = run_min
+        if d["end"] is not None and info["start"] is not None:
+            dend = min(run_min, (d["end"] - info["start"]).total_seconds() / 60.0)
+        iv = cs.wrf_interval_minutes(nl, "history_interval", i)
+        if io_hist and iv > 0:
+            hend = cs.wrf_interval_minutes(nl, "history_end", i)
+            fr = _frame_minutes(off + cs.wrf_interval_minutes(nl, "history_begin", i), iv,
+                                min(dend, off + hend) if hend > 0 else dend)
+            if skip_t0:
+                fr = [f for f in fr if f > 1e-6]
+            out.append({"stream": "history", "dom": d["id"], "prefix": hist_prefix, "frames": fr})
+        if ri > 0:
+            out.append({"stream": "restart", "dom": d["id"], "prefix": "restart",
+                        "frames": [f for f in _frame_minutes(ri, ri, dend) if f >= off]})
+        for n in aux:
+            iv = cs.wrf_interval_minutes(nl, "auxhist%d_interval" % n, i)
+            if iv <= 0:
+                continue
+            aend = cs.wrf_interval_minutes(nl, "auxhist%d_end" % n, i)
+            name = (wp.g(nl, "time_control", "auxhist%d_outname" % n, None)
+                    or "auxhist%d_d<domain>_<date>" % n)
+            out.append({"stream": "auxhist%d" % n, "dom": d["id"],
+                        "prefix": os.path.basename(str(name).strip()).split("<")[0],
+                        "frames": _frame_minutes(
+                            off + cs.wrf_interval_minutes(nl, "auxhist%d_begin" % n, i), iv,
+                            min(dend, off + aend) if aend > 0 else dend)})
+    return out
+
+
+def _stream_of(name, dom, streams):
+    """The stream key (stream, dom) an observed write belongs to, or ('other', dom)."""
+    base = os.path.basename(name)
+    for st in streams:
+        if st["dom"] != dom:
+            continue
+        if st["stream"] == "restart":
+            if name == "restart":
+                return st["stream"], dom
+        elif st["prefix"] and base.startswith(st["prefix"]):
+            return st["stream"], dom
+    return "other", dom
+
+
+def remaining_writes(info, observed, lo_min, hi_min=None, prediction=None):
+    """Seconds of the writes of frames at sim minute T with lo_min <= T (< hi_min when given, else
+    to the run end), per stream = median observed seconds per frame x frames. observed:
+    {(stream, dom): [s, ...]}. Falls back to prediction['io'] (history median_s per domain,
+    restart per_write_s on d01) for a stream with nothing observed, else 0 + note.
+    Returns (total_s, [per-stream rows], notes)."""
+    io = (prediction or {}).get("io") or {}
+    pred_hist = {e.get("domain"): e.get("median_s") for e in io.get("history") or []}
+    pred_rst = (io.get("restart") or {}).get("per_write_s")
+    total, rows, notes = 0.0, [], []
+    for st in info["streams"]:
+        n = sum(1 for f in st["frames"] if f >= lo_min - 1e-6
+                and (hi_min is None or f < hi_min - 1e-6))
+        samples = observed.get((st["stream"], st["dom"])) or []
+        per, src = None, "observed"
+        if samples:
+            per = statistics.median(samples)
+        elif st["stream"] == "history" and pred_hist.get(st["dom"]) is not None:
+            per, src = float(pred_hist[st["dom"]]), "prediction"
+        elif st["stream"] == "restart" and st["dom"] == 1 and pred_rst is not None:
+            per, src = float(pred_rst), "prediction"  # per_write_s already sums the domains
+        elif st["stream"] == "restart" and st["dom"] > 1 and pred_rst is not None:
+            per, src = 0.0, "prediction (in d01's per_write_s)"
+        else:
+            per, src = 0.0, "none"
+            if n:
+                notes.append("%s d%02d: no write observed yet%s, its %d remaining frame(s) "
+                             "counted as 0 s" % (st["stream"], st["dom"],
+                                                 "" if prediction is None else
+                                                 " and none in the prediction's io block", n))
+        rows.append({"stream": st["stream"], "dom": st["dom"], "per_frame_s": per,
+                     "source": src, "n_observed": len(samples), "remaining_frames": n,
+                     "seconds": per * n})
+        total += per * n
+    return total, rows, notes
 
 
 LEAD_FACTOR = 2.0     # leading steps costlier than this x the median are init, not compute
 LEAD_MAX_FRAC = 0.25  # ... but at most this fraction of the logged steps
-OUTLIER_FACTOR = 5.0  # a non-period step costlier than this x the window median is dropped
-
-
-def _on_period(i, protect):
-    return any(p and i % p == 0 for p in protect)
 
 
 def drop_lead_in(series):
     """series: [(step_index, sec), ...] in log order. Drops the log's first step ALWAYS (it
     carries the first-call setup of every scheme, not the steady compute), then every following
-    leading step costlier than LEAD_FACTOR x the median of the rest (isc21: its first steps are
-    several x slower; with 120 d01 lines a 25 % replay window was nothing but those), at most
-    LEAD_MAX_FRAC of the steps. Returns (kept_series, n_dropped)."""
+    leading step costlier than LEAD_FACTOR x the median of the rest, at most LEAD_MAX_FRAC of the
+    steps. On scc truth this drops only the first step on every case, isc21 included: its slow
+    start is a multi-step cold-start regime, not an init spike, and is deliberately not chased
+    with heuristics. Returns (kept_series, n_dropped)."""
     if len(series) < 2:
         return list(series), 0
     med = statistics.median(sec for _, sec in series[1:])
@@ -248,22 +383,17 @@ def _as_series(elapsed):
     return [e if isinstance(e, tuple) else (k + 1, e) for k, e in enumerate(elapsed)]
 
 
-def rate_window(elapsed, stepra, periods, protect=None):
-    """Rate over the most recent W of the (already lead-in-dropped) completed d01 steps.
-    elapsed: [sec, ...] or [(step_index, sec), ...]. Returns (rate, W, median, n_outliers).
-
-    W = max(2*stepra, 50, 25 % of completed), rounded up to a multiple of P = LCM(periods) when
-    that fits in the completed steps, else to a multiple of stepra that fits; capped at completed.
-    Inside the window a step costlier than OUTLIER_FACTOR x the window median is dropped unless
-    its index is on a known period (radiation stepra, history, restart: `protect`, default
-    `periods`) -- those spikes recur and belong in the rate, a one-off stall does not.
-    rate is the MEAN of the rest (radiation/write spikes kept at their duty cycle), median feeds
-    HANG."""
+def rate_window(elapsed, stepra, periods):
+    """Rate over the most recent W of the (lead-in-dropped, write-free) completed d01 compute
+    parts. elapsed: [sec, ...] or [(step_index, sec), ...]. Returns (rate, W, median).
+    W = max(2*stepra, 50, 25 % of completed), rounded up to a multiple of P = LCM(periods)
+    (radiation periods) when that fits in the completed steps, else to a multiple of stepra that
+    fits; capped at completed. rate is the MEAN (radiation spikes kept at their duty cycle; no
+    outlier removal), median feeds HANG."""
     series = _as_series(elapsed)
-    protect = periods if protect is None else protect
     n = len(series)
     if n == 0:
-        return None, 0, None, 0
+        return None, 0, None
     w = max(2 * (stepra or 0), 50, int(math.ceil(0.25 * n)))
     lcm = 1
     for p in periods:
@@ -273,10 +403,8 @@ def rate_window(elapsed, stepra, periods, protect=None):
             w = min(int(math.ceil(w / unit)) * unit, (n // unit) * unit)
             break
     w = max(1, min(w, n))
-    win = series[-w:]
-    med = statistics.median(sec for _, sec in win)
-    kept = [sec for i, sec in win if sec <= OUTLIER_FACTOR * med or _on_period(i, protect)]
-    return sum(kept) / len(kept), w, med, w - len(kept)
+    win = [sec for _, sec in series[-w:]]
+    return sum(win) / w, w, statistics.median(win)
 
 
 # --------------------------------------------------------------------------
@@ -310,7 +438,8 @@ def load_prediction(path, rundir=None):
     return {"anchors_at": anchors, "r_night": res.get("r_night"), "r_day": res.get("r_day"),
             "steps_n": res.get("steps_n"), "total_s": res.get("total_s"),
             "compute_total_s": res.get("compute_total_s"), "init_s": res.get("init_s"),
-            "sample_points": sp, "sample_source": src, "path": os.path.abspath(path), "_cum": {}}
+            "io": rec.get("io"), "sample_points": sp, "sample_source": src,
+            "path": os.path.abspath(path), "_cum": {}}
 
 
 def pred_cum(pred, info, m):
@@ -333,17 +462,14 @@ def pred_cum(pred, info, m):
 
 
 def pred_scale(pred, info, kept):
-    """k = observed / predicted compute over the steps already run, init excluded: `kept` is the
-    lead-in-dropped [(step_index, sec), ...]; a non-period step > OUTLIER_FACTOR x the median is
-    replaced by the median (the prediction has no such stall either). None when unusable."""
+    """k = observed / predicted compute over the steps already run: `kept` is the lead-in-dropped
+    [(step_index, compute seconds), ...] (writes already subtracted -- the prediction is
+    compute-only). None when unusable."""
     if not kept:
         return None
-    med = statistics.median(sec for _, sec in kept)
-    obs = sum(sec if sec <= OUTLIER_FACTOR * med or _on_period(i, info["protect"]) else med
-              for i, sec in kept)
     a, b = kept[0][0], kept[-1][0]
     den = pred_cum(pred, info, b) - pred_cum(pred, info, a - 1)
-    return obs / den if den > 0 else None
+    return sum(sec for _, sec in kept) / den if den > 0 else None
 
 
 def _tail(text, n=TAIL_LINES):
@@ -394,18 +520,21 @@ def snapshot(rundir, now=None, replay_fraction=None, hang_factor=10.0, hang_min=
     snap["rsl_file"] = chosen["name"]
     snap["rsl_d01_lines"] = {r["name"]: r["n_d01"] for r in found}
     timing = chosen["timing"]
-    d01 = [(t, s) for d, t, s in timing if d == 1]
+    steps, trailing = parse_d01_steps(chosen["text"])
     replay_cut = None
     if replay:
-        k = min(len(d01), max(1, int(round(replay_fraction * len(d01))))) if d01 else 0
-        rest = d01[k:]
-        d01 = d01[:k]
-        replay_cut = d01[-1][0] if d01 else None
+        k = min(len(steps), max(1, int(round(replay_fraction * len(steps))))) if steps else 0
+        rest_steps = steps[k:]
+        steps = steps[:k]
+        replay_cut = steps[-1]["t"] if steps else None
+        all_last = (steps + rest_steps)[-1]["t"] if steps + rest_steps else None
         snap["replay_fraction"] = replay_fraction
-        snap["actual_remaining_s"] = sum(s for _, s in rest if not math.isnan(s))
-        snap["actual_partial"] = bool(
-            info and info["end"] and (d01 + rest) and (d01 + rest)[-1][0] is not None
-            and (d01 + rest)[-1][0] < info["end"])
+        snap["actual_partial"] = bool(info and info["end"] and all_last is not None
+                                      and all_last < info["end"])
+        snap["actual_remaining_s"] = (
+            sum(st["sec"] for st in rest_steps if not math.isnan(st["sec"]))
+            + (0.0 if snap["actual_partial"] else sum(w for _, _, w in trailing)))
+    d01 = [(st["t"], st["sec"]) for st in steps]
 
     tails = {r["name"]: _tail(r["text"]) for r in found}
     tail_all = [ln for r in found for ln in tails[r["name"]]]
@@ -435,33 +564,50 @@ def snapshot(rundir, now=None, replay_fraction=None, hang_factor=10.0, hang_min=
                 warn("HANG_INIT", "no d01 Timing line after %s (limit %s)%s"
                      % (_hms(age), _hms(init_limit), hint))
 
-    def series_of(lines):
+    def step_index(j, t):
+        return (int(round((t - info["start"]).total_seconds() / info["dt"]))
+                if info and t is not None else j + 1)
+
+    def compute_series(lines):
+        """[(step_index, compute seconds = step seconds - its absorbed writes)], NaN and
+        non-positive compute parts left out."""
         out = []
-        for j, (t, sec) in enumerate(lines):
-            if math.isnan(sec):
-                continue
-            i = (int(round((t - info["start"]).total_seconds() / info["dt"]))
-                 if info and t is not None else j + 1)
-            out.append((i, sec))
+        for j, st in enumerate(lines):
+            c = st["sec"] - sum(w for _, _, w in st["writes"])
+            if not math.isnan(c) and c > 0:
+                out.append((step_index(j, st["t"]), c))
         return out
 
-    series = series_of(d01)
-    elapsed = [sec for _, sec in series]
+    series = compute_series(steps)
+    elapsed = [st["sec"] for st in steps if not math.isnan(st["sec"])]
+    observed = {}
+    for st in steps:
+        for name, dom, w in st["writes"]:
+            key = _stream_of(name, dom, info["streams"]) if info else ("other", dom)
+            observed.setdefault(key, []).append(w)
+    if not replay:
+        for name, dom, w in trailing:
+            key = _stream_of(name, dom, info["streams"]) if info else ("other", dom)
+            observed.setdefault(key, []).append(w)
     kept, n_lead = drop_lead_in(series)
-    rate, w, med, n_out = rate_window(kept, info["stepra"] if info else None,
-                                      info["periods"] if info else [],
-                                      info["protect"] if info else [])
+    rate, w, med = rate_window(kept, info["stepra"] if info else None,
+                               info["periods"] if info else [])
     last_t = d01[-1][0] if d01 else None
     completed = len(d01)
     if info and last_t is not None:
         completed = int(round((last_t - info["start"]).total_seconds() / info["dt"]))
+    writes_so_far = sum(sum(v) for v in observed.values())
     snap.update(n_d01_steps=len(d01), completed_steps=completed, d01_last_time=_fmt_t(last_t),
-                sum_d01_elapsed_s=sum(elapsed), rate_s_per_step=rate, rate_window=w,
-                median_step_s=med, rate_lead_dropped=n_lead, rate_outliers_dropped=n_out)
-    rem_rate = rem_pred = k = None
+                sum_d01_elapsed_s=sum(elapsed), writes_so_far_s=writes_so_far,
+                n_write_absorbing_steps=sum(1 for st in steps if st["writes"]),
+                rate_s_per_step=rate, rate_window=w, median_step_s=med, rate_lead_dropped=n_lead)
+    if "other" in {key[0] for key in observed}:
+        snap["unclassified_writes_s"] = sum(sum(v) for key, v in observed.items()
+                                            if key[0] == "other")
+    c_rate = c_pred = k = rem_w = None
     if info and rate is not None:
         rem_steps = max(0, info["total_steps"] - completed)
-        rem_rate = rem_steps * rate
+        c_rate = rem_steps * rate
         snap["fraction"] = min(1.0, completed / info["total_steps"]) if info["total_steps"] else None
         snap["remaining_steps"] = rem_steps
         if prediction is not None:
@@ -470,11 +616,18 @@ def snapshot(rundir, now=None, replay_fraction=None, hang_factor=10.0, hang_min=
                      "namelist's run is used)" % (prediction["steps_n"], info["total_steps"]))
             k = pred_scale(prediction, info, kept)
             if k is not None:
-                rem_pred = k * (pred_cum(prediction, info, info["total_steps"])
-                                - pred_cum(prediction, info, completed))
-    snap.update(remaining_rate_s=rem_rate, remaining_pred_s=rem_pred, pred_scale_k=k,
-                estimate="prediction" if rem_pred is not None else "rate")
-    remaining = rem_pred if rem_pred is not None else rem_rate
+                c_pred = k * (pred_cum(prediction, info, info["total_steps"])
+                              - pred_cum(prediction, info, completed))
+        rem_w, rows, notes = remaining_writes(info, observed, completed * info["dt"] / 60.0,
+                                              prediction=prediction)
+        snap.update(writes=rows, write_notes=notes)
+    snap.update(remaining_compute_rate_s=c_rate, remaining_compute_pred_s=c_pred,
+                remaining_writes_s=rem_w, pred_scale_k=k,
+                remaining_rate_s=None if c_rate is None else c_rate + rem_w,
+                remaining_pred_s=None if c_pred is None else c_pred + rem_w,
+                estimate="prediction" if c_pred is not None else "rate")
+    remaining = snap["remaining_pred_s"] if c_pred is not None else snap["remaining_rate_s"]
+    snap["remaining_compute_s"] = c_pred if c_pred is not None else c_rate
     if snap["status"] == "done":
         remaining = 0.0
         snap["fraction"] = 1.0
@@ -482,16 +635,20 @@ def snapshot(rundir, now=None, replay_fraction=None, hang_factor=10.0, hang_min=
     if not replay and remaining is not None:
         snap["eta"] = dt.datetime.fromtimestamp(now + remaining).strftime("%Y-%m-%d %H:%M:%S")
     if replay:
-        # Compare over the steps the log actually covers (a partial log's actual is not the rest
-        # of the run): rate x the number of later d01 lines, and k x predicted compute from the
-        # cut to the log's last step.
+        # Compare over exactly what the log covers: compute of the later logged d01 steps, and
+        # the frames they absorb (+ the end-of-run frames when the log is complete).
         act = snap["actual_remaining_s"]
-        rest_s = series_of(rest)
-        est_rate = len(rest) * rate if rate is not None else None
-        est_pred = None
-        if k is not None and rest_s:
-            est_pred = k * (pred_cum(prediction, info, rest_s[-1][0])
-                            - pred_cum(prediction, info, completed))
+        est_rate = est_pred = None
+        if info and rate is not None and rest_steps:
+            last_i = step_index(len(steps) + len(rest_steps) - 1, rest_steps[-1]["t"])
+            est_w, _, _ = remaining_writes(
+                info, observed, completed * info["dt"] / 60.0,
+                None if not snap["actual_partial"] else last_i * info["dt"] / 60.0,
+                prediction=prediction)
+            est_rate = len(rest_steps) * rate + est_w
+            if k is not None:
+                est_pred = k * (pred_cum(prediction, info, last_i)
+                                - pred_cum(prediction, info, completed)) + est_w
 
         def err(e):
             return 100.0 * (e - act) / act if e is not None and act > 0 else None
@@ -572,9 +729,13 @@ def format_line(snap):
             _hms(snap["sum_d01_elapsed_s"]), snap["rate_s_per_step"], snap["rate_window"]))
     if snap.get("remaining_s") is not None:
         parts.append("remaining %s" % _hms(snap["remaining_s"]))
-        if snap.get("remaining_pred_s") is not None and snap["status"] != "done":
-            parts.append("(pred x%.3f; rate-only %s)" % (snap["pred_scale_k"],
-                                                        _hms(snap["remaining_rate_s"])))
+        if snap["status"] != "done" and snap.get("remaining_compute_s") is not None:
+            parts.append("(compute %s%s + writes %s%s)" % (
+                _hms(snap["remaining_compute_s"]),
+                " pred x%.3f" % snap["pred_scale_k"] if snap["estimate"] == "prediction" else "",
+                _hms(snap["remaining_writes_s"]),
+                "; rate-only %s" % _hms(snap["remaining_rate_s"])
+                if snap["estimate"] == "prediction" else ""))
     if snap.get("eta"):
         parts.append("ETA %s" % snap["eta"])
     if snap["mode"] == "replay":

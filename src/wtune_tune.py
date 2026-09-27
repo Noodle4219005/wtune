@@ -2119,8 +2119,14 @@ def prepare_rebuilt_points(ctx, points, anchor, case_dir, namelist_path, case_en
                            % ", ".join(missing_env))
     steps = rebuilt_steps(stepra)
     measure_steps = rebuilt_measure_steps(steps, dt)
-    config = dict(ranks=anchor["ranks"], omp=anchor["omp"], nx=anchor["nx"], ny=anchor["ny"],
-                  numtiles=anchor.get("numtiles", 1), nodes=ctx.nodes)
+    # real_only jobs run only WPS + real.exe, whose output does not depend on the candidates'
+    # decomposition, so each point needs ONE node, not the tuner's allocation: on a busy cluster
+    # (conus25-pred1, 2026-09-27: 6 free nodes) 4-node prep jobs ran one at a time. Falls back to
+    # the anchor's own shape when no legal 1-node decomposition exists.
+    one = sweep.build_anchor(ctx.case_json, ctx.cores_per_node, 1, ctx.hardware_id)
+    shape = one or anchor
+    config = dict(ranks=shape["ranks"], omp=shape["omp"], nx=shape["nx"], ny=shape["ny"],
+                  numtiles=shape.get("numtiles", 1), nodes=1 if one else ctx.nodes)
     seg_timeout_min = rebuild_segment_timeout_min(case_dir, spinup_min, config["ranks"],
                                                   config["omp"])
     campaign_dir = sweep.campaign_dir_for(ctx.sbatch_script)

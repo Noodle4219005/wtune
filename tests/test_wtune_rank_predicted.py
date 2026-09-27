@@ -143,6 +143,7 @@ def test_prepare_rebuilt_points_writes_one_cases_json(monkeypatch, tmp_path):
 
     def plan_segments(cdir, pts, cfg, pdir, **k):
         seen.setdefault("real_only", []).append(k.get("real_only"))
+        seen.setdefault("cfg", []).append(dict(cfg))
         seen.setdefault("measure_steps", []).append(k.get("measure_steps"))
         _p, plan = _fake_plan_dir(Path(pdir).parent / ("tmp_" + os.path.basename(pdir)))
         # move the fake real dir to pdir
@@ -153,6 +154,9 @@ def test_prepare_rebuilt_points_writes_one_cases_json(monkeypatch, tmp_path):
     monkeypatch.setattr(wt.coldstart, "resolve_and_fetch_forcing", lambda *a, **k: (0, {}))
     monkeypatch.setattr(wt, "rebuild_segment_timeout_min", lambda *a, **k: 30)
     monkeypatch.setattr(wt.coldstart, "stage_plan", lambda pdir, **k: pdir + "/run.sbatch")
+    # real_only prep needs one node (real.exe output is decomposition-independent)
+    monkeypatch.setattr(wt.sweep, "build_anchor", lambda cj, cores, nodes, hw: dict(
+        ANCHOR, ranks=72, nx=8, ny=9) if nodes == 1 else None)
     sb, calls, _ = make_fake_sbatch()
     ctx = _ctx(out_dir=str(tmp_path / "o"), ledger_dir=str(tmp_path / "l"), sbatch_runner=sb,
                sbatch_script=str(SBATCH))
@@ -162,6 +166,7 @@ def test_prepare_rebuilt_points_writes_one_cases_json(monkeypatch, tmp_path):
                                     dict(prep_dir=str(case_dir), input_files=[]),
                                     str(tmp_path / "rebuilt"), 20, 17, 36.0)
     assert seen["real_only"] == [True, True]
+    assert [(c["nodes"], c["ranks"], c["nx"], c["ny"]) for c in seen["cfg"]] == [(1, 72, 8, 9)] * 2
     assert all(m >= wt.rebuilt_steps(17) for m in seen["measure_steps"])
     assert [o["case_id"] for o in out] == ["matthewp0", "matthewp1"]
     cases = json.load(open(tmp_path / "rebuilt" / "rebuilt_cases.json"))["cases"]

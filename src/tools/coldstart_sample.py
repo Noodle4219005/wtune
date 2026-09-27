@@ -2421,21 +2421,9 @@ def render_signal_trap_and_hygiene_preamble(nodes, extra_lines_after_alloc_nodes
     return lines
 
 
-METGRID_MIN_PATCH_POINTS = 1600   # ~40 x 40 d01 points per metgrid rank
-
-
-def metgrid_ranks(plan, ppn):
-    """metgrid.exe rank count: every node of the segment's allocation, not just the first one
-    (it was ppn = one node; metgrid took 63-122 s of a 4-9 min segment on scc, 2026-09-27), capped
-    so each rank keeps >= METGRID_MIN_PATCH_POINTS d01 points, and never below the old one-node
-    ppn. met_em output does not depend on the decomposition."""
-    nodes = max(int(plan.get("nodes") or 1), 1)
-    geo = plan.get("geo") or {}
-    try:
-        cap = int(geo["e_we"]) * int(geo["e_sn"]) // METGRID_MIN_PATCH_POINTS
-    except (KeyError, TypeError, ValueError):
-        return ppn
-    return max(ppn, min(ppn * nodes, cap))
+# metgrid.exe stays on one node (-np ppn): running it on the whole allocation was measured SLOWER
+# on scc (dorian2019, 4 nodes: 70 s at 72 ranks -> 327 s at 288 ranks, met_em bit-identical;
+# 2026-09-28) -- it is I/O/communication bound at these grid sizes, not compute bound.
 
 
 def render_run_sbatch(plan, site="scc", per_window_estimate_min=15, wps_estimate_min=20,
@@ -2636,8 +2624,7 @@ def render_run_sbatch(plan, site="scc", per_window_estimate_min=15, wps_estimate
     lines.append("  fi")
     lines.append("")
     lines.append("  echo \"=== window $k: metgrid.exe ($(date -u +%FT%TZ)) ===\"")
-    lines.append("  mpirun -np %d --map-by ppr:%d:node:PE=1 --bind-to core ./metgrid.exe"
-                 % (metgrid_ranks(plan, ppn), ppn))
+    lines.append("  mpirun -np %d --map-by ppr:%d:node:PE=1 --bind-to core ./metgrid.exe" % (ppn, ppn))
     lines.append("  rc=$?; pkill -u \"$USER\" -x metgrid.exe 2>/dev/null")
     # metgrid.exe also MPI_Abort()s with errorcode 0 on a missing METGRID.TBL -- require every
     # expected met_em.d0N.<time>.nc AND the log to say 'Successful completion' (jobs 941/942).

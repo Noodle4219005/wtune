@@ -82,10 +82,12 @@ are in the git history, not listed here.
 
 ### Known limitations and PENDING
 
-- **PENDING:** `tune --rank-by predicted` end-to-end attempt 3 (conus25-pred3). Attempts 1 and 2
-  failed on budget (queue time consumed the 60 min; then the stage-2 reserve skipped every
-  stage-1 slot). G1–G4 — including whether the new winner beats the t0 winner G0014 — are not
-  judged, so `t0` stays the default.
+- `tune --rank-by predicted` stays **opt-in** (default `t0`). End-to-end on conus25: G1 and G2
+  passed (winner's whole-run prediction +0.75% vs a same-day full run); G3 failed because the
+  predicted-mode search pool was narrow on a busy cluster (the old tuner's G0014 is 10.6% faster),
+  and within one pool the whole-run ranking chose the same config as the t0 ranking. Recommended:
+  `tune` (t0) then `predict-rebuild` on the winner. `--minutes` in stage1=t0 is the search budget
+  only; stage 2 is announced and run separately (`--stage2-minutes` caps it).
 - `wtune run` R2 (segment wall inside its predicted range) passed on the rerun with an io-block
   prediction: +2.0% / −5.3% per segment. The first attempt overestimated 2–3× on constant I/O
   fallbacks, now scaled from measured anchors.

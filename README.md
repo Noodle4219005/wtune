@@ -553,7 +553,18 @@ All estimates use one cost model: per run = startup + restart read + steps × s/
 | **G0** restart hand-off across rank counts (jobs 1371 io 14, 1372 io 2; conus25, 4 nodes, 82 steps after 20 min) | **pass.** ADIOS2 restart read at 288/144/72 ranks; candidate ÷ ANCHOR differs between io forms by ≤ 0.38% (gate 2%); in-allocation drift −0.18% / −0.11%; first global step 81 in all 10 runs. Refutes the code comment that io_form 14 restarts are decomposition-dependent. |
 | e2e 1 (conus25-pred1) | **failed on budget**: queue time consumed the 60 min (6 free nodes, five 4-node rebuild jobs ran one at a time, ~22 min); stage-2 jobs 1393–1397 cancelled while PENDING |
 | e2e 2 (conus25-pred2) | **failed**: rebuild took 7 min, then every stage-1 slot was skipped (7:04 + 22:26–26:11 per job + 37:39 reserve > 60 min) — nothing measured |
-| e2e 3 (conus25-pred3: shrink-to-fit, feasibility check, one cost model) | **PENDING.** G1 (mechanism), G2 (winner's prediction ≤ 5% vs same-day run), G3 (winner ≤ 1.01 × the t0 winner G0014), G4 (≤ 60 min) not yet judged |
+| e2e 3 (conus25-pred3) | **incomplete**: stage 1 and stage 2 ran one job at a time on a busy cluster; the stage-2 reserve had assumed 3 concurrent point jobs, and the running budget cut stage 2 midway → stage 2 now runs to completion once started, concurrency from observation |
+| e2e 4 (conus25-pred4, stage 1 at P*, 90 min) | **G1 pass** (6 ranking jobs, anchor drift ≤ 0.96%), **G2 pass**: winner G0001 predicted 1997 s vs same-day full run 1982.1 s (**+0.75%**, job 1462). **G3 fail**: G0001 is 10.6% slower than the t0 tuner's G0014 (1791.8 s, same job and nodes) — stage 1 at P* afforded only 3 candidates and G0014 was never in the pool |
+| e2e 5 | stopped during stage 1 (same narrow-pool problem; superseded by the budget split) |
+| e2e 6 (conus25-pred6, stage 1 = t0 search, `--minutes 30` for stage 1 only) | stage 1 30.0 min + stage 2 58.0 min (announced 78.6) + 2.1 min, queue 2:33. Winner **G0001** again (predicted 33:19). Within the same candidate pool the t0 ranking and the whole-run ranking picked the **same** config; G3 vs G0014 still fails on pool breadth (one 4-node job at a time → ~6 candidates in 30 min) |
+
+**Conclusion (decision 0055):** `--rank-by predicted` stays **opt-in**; `t0` is the default. Its
+measured value is an accurate whole-run prediction of the winner (+0.75%); on conus25 it did not
+change the choice — consistent with 0.1.0's finding that the best decomposition does not move
+with simulated length. Recommended pipeline: `wtune tune` (t0) → `wtune predict-rebuild` on the
+winner (1 config × 3 points, ~15 min, same prediction quality) rather than stage 2 (5 configs ×
+3 points, ~58 min). A case whose top t0 candidates are close and whose cost regime changes over
+the run is what would be needed to show a ranking benefit.
 
 Node hygiene (every command in this section): `WTUNE_SBATCH_EXCLUDE=work5[,...]` adds nodes to
 `--exclude=head`.

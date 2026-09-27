@@ -52,6 +52,12 @@ CAMtr_volume_mixing_ratio gate: ghg_input==1 and NOT idealized, for EVERY non-CA
 CAM has its own built-in fallback table and is the one scheme exempted, model=="CAM" branch).
 Two corrections to the originally assumed design came directly out of that verification; both
 are called out at the top of the C8 and C3 docstrings below.
+
+C3's per-scheme table (check_c3_physics_files docstring lists the rule families) follows
+README.physics_files except where the WRF 4.8 source's own OPEN statements are narrower (checked
+2026-09-27 against a local V4.8.0 tree): the gate for each such case (Ferrier, Thompson CCN,
+P3 table 2, GFDL co2tf, ozone/aerosol, urban LCZ, fast SBM) is cited next to its table entry, so
+a staged run_dir that WRF would accept is never reported FATAL.
 """
 from __future__ import annotations
 
@@ -360,14 +366,93 @@ _RA_LW_FILES = {
     1: ["RRTM_DATA"],                              # RRTM
     3: ["CAM_ABS_DATA", "CAM_AEROPT_DATA"],        # CAM
     4: ["RRTMG_LW_DATA"],                          # RRTMG
+    14: ["RRTMG_LW_DATA"],                         # RRTMG-KIAPS (module_ra_rrtmg_lwk.F opens it)
+    24: ["RRTMG_LW_DATA"],                         # RRTMG fast (module_ra_rrtmg_lwf.F opens it)
 }
 _RA_SW_FILES = {
     3: ["CAM_ABS_DATA", "CAM_AEROPT_DATA"],        # CAM
     4: ["RRTMG_SW_DATA"],                          # RRTMG
+    14: ["RRTMG_SW_DATA"],                         # RRTMG-KIAPS
+    24: ["RRTMG_SW_DATA"],                         # RRTMG fast
 }
+# Files needed when EITHER ra_lw_physics or ra_sw_physics selects the scheme -- checked once per
+# domain (not once per lw/sw) so lw=sw=5 does not double-report. Goddard: init_goddardrad is
+# called from both the lw and sw branches of ra_init (phys/module_physics_init.F).
+_RA_EITHER_FILES = {
+    5: ["BROADBAND_CLOUD_GODDARD.bin"],            # Goddard
+}
+# GFDL (99): gfdletainit (lw or sw) reads co2 transmission tables, but WHICH ones depends on
+# co2tf (Registry default 1): module_ra_gfdleta.F:141-145 -- co2tf==1 -> CO2O3 opens
+# tr49t85/tr49t67/tr67t85; otherwise CONRAD opens co2_trans. Requiring all four would
+# false-FATAL a run_dir that only stages the set its co2tf actually reads.
+_GFDL_SCHEME = 99
+_GFDL_CO2O3_FILES = ["tr49t67", "tr49t85", "tr67t85"]
+_GFDL_CONRAD_FILES = ["co2_trans"]
+# ozone*.formatted: read by oznini on domain 1 only (module_physics_init.F:2330, EM_CORE) when
+# o3input==2 (Registry default 2) -- and share/module_check_a_mundo.F forces o3input=0 unless
+# domain-1 ra_lw or ra_sw is an RRTMG-family scheme (4, 14, 24). CAM's own camradinit
+# (module_ra_cam.F:1019) calls oznini UNCONDITIONALLY, independent of o3input.
+_RRTMG_FAMILY = {4, 14, 24}
+_CAM_SCHEME = 3
+_OZONE_FILES = ["ozone.formatted", "ozone_lat.formatted", "ozone_plev.formatted"]
+# aerosol*.formatted: read ONLY by aerosol_in (module_physics_init.F:2340-2345, 5476-5507),
+# gated on aer_opt==1 (Tegen climatology) and domain 1, for any radiation scheme. Not read by
+# CAM (its aerosol_init opens no *.formatted file) and not read for aer_opt!=1.
+_AEROSOL_FILES = ["aerosol.formatted", "aerosol_lat.formatted", "aerosol_lon.formatted",
+                  "aerosol_plev.formatted"]
+_ECLIPSE_FILE = "eclipse_besselian_elements.dat"   # module_ra_eclipse.F:373-377 wrf_error_fatal
+
 _LSM_FILES = {
+    1: ["LANDUSE.TBL"],                                                     # slab (5-layer)
     2: ["LANDUSE.TBL", "VEGPARM.TBL", "SOILPARM.TBL", "GENPARM.TBL"],       # Noah
+    3: ["LANDUSE.TBL", "VEGPARM.TBL", "SOILPARM.TBL", "GENPARM.TBL"],       # RUC
+    5: ["LANDUSE.TBL", "CLM_ALB_ICE_DFS_DATA", "CLM_ALB_ICE_DRC_DATA",      # CLM
+        "CLM_ASM_ICE_DFS_DATA", "CLM_ASM_ICE_DRC_DATA", "CLM_DRDSDT0_DATA",
+        "CLM_EXT_ICE_DFS_DATA", "CLM_EXT_ICE_DRC_DATA", "CLM_KAPPA_DATA", "CLM_TAU_DATA"],
+    7: ["LANDUSE.TBL", "VEGPARM.TBL"],                                      # Pleim-Xiu
+    8: ["LANDUSE.TBL"],                                                     # SSiB
 }
+_LSM_NAMES = {1: "slab", 2: "Noah", 3: "RUC", 5: "CLM", 7: "Pleim-Xiu", 8: "SSiB"}
+# Noah-MP snicar_*.nc are only read by the SNICAR snow-albedo option -- deliberately NOT required.
+
+# mp_physics -> required run_dir files (exact names), verified against the WRF 4.8 source's
+# own OPEN statements where README.physics_files is broader than what is actually opened:
+#   5/95 Ferrier: fer_hires_init / etanew open ONLY ETAMPNEW_DATA.expanded_rain
+#        (module_mp_fer_hires.F:2969, module_mp_etanew.F:2266); plain ETAMPNEW_DATA and the
+#        *_DBL variants are not opened by a real*4 build.
+#   28/38 Thompson aerosol-aware: table_ccnAct (module_mp_thompson.F:1013-1016, 5145-5159,
+#        wrf_error_fatal on open failure) runs only when is_aerosol_aware, i.e. when
+#        thompson_init receives NWFA/NIFA -- mp 28 and 38, NOT plain Thompson (8).
+#   32 full SBM: module_mp_full_sbm.F:2078-2712. Fast SBM (30) is deliberately absent -- its
+#        4.8 reader opens SBM_input_33/*33.asc (module_mp_fast_sbm.F:5401-5646), a different
+#        file set that README.physics_files does not describe.
+#   55 Jensen-ISHMAEL: module_mp_jensen_ishmael.F:119-161.
+_ETAMPNEW_FILES = ["ETAMPNEW_DATA.expanded_rain"]
+_FULL_SBM_FILES = ["bulkdens.asc_s_0_03_0_9", "bulkradii.asc_s_0_03_0_9", "capacity.asc",
+                   "coeff_p.asc", "coeff_q.asc", "constants.asc", "kernels.asc_s_0_03_0_9",
+                   "kernels_z.asc", "masses.asc", "termvels.asc"]
+_MP_FILES = {
+    5: _ETAMPNEW_FILES,
+    95: _ETAMPNEW_FILES,
+    28: ["CCN_ACTIVATE.BIN"],
+    38: ["CCN_ACTIVATE.BIN"],
+    32: _FULL_SBM_FILES,
+    55: ["ishmael-gamma-tab.bin", "ishmael-qi-qc.bin", "ishmael-qi-qr.bin"],
+}
+# P3: table file names carry a version suffix that drifts between WRF releases (README names
+# ...-3momI_v5.1.7 / -5.3-2momI, scc's tree ships p3_lookupTable_1.dat-v5.4_2momI/_3momI and
+# p3_lookupTable_2.dat-v5.3), so match by PREFIX. Table 1 is read by every P3 option; table 2
+# only when nCat>1 (module_mp_p3.F:474-478), i.e. P3_2CATEGORY (52) only.
+_P3_TABLE1_MP = {50, 51, 52, 53}
+_P3_TABLE2_MP = {52}
+_P3_TABLE1_PREFIX = "p3_lookupTable_1.dat"
+_P3_TABLE2_PREFIX = "p3_lookupTable_2.dat"
+
+# sf_urban_physics 1/2/3: urban_param_init (module_sf_urban.F:2997-3022) opens URBPARM.TBL when
+# use_wudapt_lcz==0 and URBPARM_LCZ.TBL INSTEAD (not in addition) when use_wudapt_lcz==1.
+_URBAN_SCHEMES = {1, 2, 3}
+# chem_opt values whose chemistry reads HLC.TBL (README.physics_files).
+_HLC_CHEM_OPTS = {111, 112, 114, 201, 202}
 # Noah-MP (4): LANDUSE.TBL/VEGPARM.TBL/SOILPARM.TBL/GENPARM.TBL are NOT used by Noah-MP itself,
 # but its own table (MPTABLE.TBL in older WRF, renamed NoahmpTable.TBL from ~4.x on -- confirmed
 # on scc's WRF tree, which ships NoahmpTable.TBL and no MPTABLE.TBL) is required; accept either
@@ -407,11 +492,63 @@ def _require_files(run_dir, dom_index, files, findings, note=""):
             ))
 
 
+def _require_prefix(run_dir, dom_index, prefix, findings, note=""):
+    """FATAL unless at least one run_dir entry's name starts with `prefix` (for version-suffixed
+    tables such as P3's p3_lookupTable_1.dat-v5.4_2momI)."""
+    try:
+        names = os.listdir(run_dir)
+    except OSError:
+        names = []
+    if not any(n.startswith(prefix) for n in names):
+        findings.append(Finding(
+            FATAL, "C3",
+            "domain %d: required physics data file %s* does not exist%s"
+            % (dom_index + 1, prefix, (" (%s)" % note) if note else ""),
+            evidence=str(_resolve_path(run_dir, prefix + "*")),
+            fix="copy/link %s* (the version WRF's own run/ ships) from WRF's own run/ directory "
+                "into the run_dir" % prefix,
+        ))
+
+
+def _int_opt(value, default):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
 def check_c3_physics_files(nl, run_dir, findings, wrf_run_dir=None):
+    """Required run_dir data files for the chosen physics, per active domain. Rule families
+    (FATAL unless noted; see the table comments above for the WRF source anchor of each gate):
+      radiation  ra_lw/ra_sw tables (RRTM, CAM, RRTMG 4/14/24), Goddard (5, lw or sw),
+                 GFDL (99, co2tf-selected set), CAMtr_volume_mixing_ratio (ghg_input=1, non-CAM),
+                 ozone*.formatted (domain 1: o3input=2 with RRTMG-family; any CAM domain),
+                 aerosol*.formatted (domain 1: aer_opt=1), eclipse table (ra_sw_eclipse=1)
+      surface    LSM tables (slab, Noah, RUC, CLM, PX, SSiB), Noah-MP table, URBPARM[_LCZ].TBL
+                 (sf_urban_physics 1-3), wind-turbine-1.tbl (windturbine_spec=1)
+      mp         Ferrier, aerosol-aware Thompson CCN, full SBM, P3 (prefix match), Jensen;
+                 plain-Thompson prestaged .dat tables are WARN only
+      chem       HLC.TBL for chem_opt 111/112/114/201/202
+    """
     max_dom = wp.get_max_dom(nl)
     ghg_input = wp.g(nl, "physics", "ghg_input", 1)
     if ghg_input is None:
         ghg_input = 1
+    o3input = _int_opt(wp.g(nl, "physics", "o3input", 2), 2)
+    aer_opt = _int_opt(wp.g(nl, "physics", "aer_opt", 0), 0)
+    ra_sw_eclipse = _int_opt(wp.g(nl, "physics", "ra_sw_eclipse", 0), 0)
+    use_wudapt_lcz = _int_opt(wp.g(nl, "physics", "use_wudapt_lcz", 0), 0)
+    windturbine_spec = _int_opt(wp.g(nl, "physics", "windturbine_spec", 0), 0)
+    co2tf = _int_opt(wp.g(nl, "physics", "co2tf", 1), 1)
+
+    # domain-1-only reads (oznini / aerosol_in are gated on id==1; eclipse is a scalar option)
+    if aer_opt == 1:
+        _require_files(run_dir, 0, _AEROSOL_FILES, findings,
+                       note="aer_opt=1 (Tegen aerosol climatology)")
+    if ra_sw_eclipse == 1:
+        _require_files(run_dir, 0, [_ECLIPSE_FILE], findings, note="ra_sw_eclipse=1")
+    if windturbine_spec == 1:
+        _require_files(run_dir, 0, ["wind-turbine-1.tbl"], findings, note="windturbine_spec=1")
 
     for d in range(max_dom):
         phys = _resolved_physics(nl, d)
@@ -426,6 +563,25 @@ def check_c3_physics_files(nl, run_dir, findings, wrf_run_dir=None):
         if ra_sw in _RA_SW_FILES:
             _require_files(run_dir, d, _RA_SW_FILES[ra_sw], findings,
                             note="ra_sw_physics=%s" % ra_sw)
+        for scheme, files in _RA_EITHER_FILES.items():
+            if scheme in (ra_lw, ra_sw):
+                _require_files(run_dir, d, files, findings,
+                               note="ra_lw/ra_sw_physics=%s" % scheme)
+        if _GFDL_SCHEME in (ra_lw, ra_sw):
+            if co2tf == 1:
+                _require_files(run_dir, d, _GFDL_CO2O3_FILES, findings,
+                               note="GFDL radiation (99) with co2tf=1 (default)")
+            else:
+                _require_files(run_dir, d, _GFDL_CONRAD_FILES, findings,
+                               note="GFDL radiation (99) with co2tf=%s" % co2tf)
+
+        if _CAM_SCHEME in (ra_lw, ra_sw):
+            _require_files(run_dir, d, _OZONE_FILES, findings,
+                           note="CAM radiation reads CAM ozone regardless of o3input")
+        elif d == 0 and o3input == 2 and (ra_lw in _RRTMG_FAMILY or ra_sw in _RRTMG_FAMILY):
+            _require_files(run_dir, d, _OZONE_FILES, findings,
+                           note="o3input=2 (default) with RRTMG radiation; set o3input=0 "
+                                "to use the scheme's built-in ozone profile instead")
 
         if int(ghg_input) == 1 and ra_lw not in _CAMTR_EXEMPT_RA_LW:
             full = _resolve_path(run_dir, "CAMtr_volume_mixing_ratio")
@@ -441,7 +597,7 @@ def check_c3_physics_files(nl, run_dir, findings, wrf_run_dir=None):
 
         if sf in _LSM_FILES:
             _require_files(run_dir, d, _LSM_FILES[sf], findings,
-                            note="sf_surface_physics=%s (Noah)" % sf)
+                            note="sf_surface_physics=%s (%s)" % (sf, _LSM_NAMES[sf]))
         elif sf == 4:  # Noah-MP
             if not any(_resolve_path(run_dir, n).exists() for n in _NOAHMP_TABLE_NAMES):
                 findings.append(Finding(
@@ -451,6 +607,28 @@ def check_c3_physics_files(nl, run_dir, findings, wrf_run_dir=None):
                     evidence=str(_resolve_path(run_dir, _NOAHMP_TABLE_NAMES[0])),
                     fix="copy NoahmpTable.TBL from WRF's own run/ directory into the run_dir",
                 ))
+
+        sf_urban = _int_opt(wp.g_dom(nl, "physics", "sf_urban_physics", d, 0), 0)
+        if sf_urban in _URBAN_SCHEMES:
+            if use_wudapt_lcz == 1:
+                _require_files(run_dir, d, ["URBPARM_LCZ.TBL"], findings,
+                               note="sf_urban_physics=%s with use_wudapt_lcz=1" % sf_urban)
+            else:
+                _require_files(run_dir, d, ["URBPARM.TBL"], findings,
+                               note="sf_urban_physics=%s" % sf_urban)
+
+        chem_opt = _int_opt(wp.g_dom(nl, "chem", "chem_opt", d, 0), 0)
+        if chem_opt in _HLC_CHEM_OPTS:
+            _require_files(run_dir, d, ["HLC.TBL"], findings, note="chem_opt=%s" % chem_opt)
+
+        if mp in _MP_FILES:
+            _require_files(run_dir, d, _MP_FILES[mp], findings, note="mp_physics=%s" % mp)
+        if mp in _P3_TABLE1_MP:
+            _require_prefix(run_dir, d, _P3_TABLE1_PREFIX, findings,
+                            note="mp_physics=%s (P3)" % mp)
+        if mp in _P3_TABLE2_MP:
+            _require_prefix(run_dir, d, _P3_TABLE2_PREFIX, findings,
+                            note="mp_physics=%s (P3, nCat>1)" % mp)
 
         if mp in _THOMPSON_MP:
             missing = [f for f in _THOMPSON_DAT_FILES

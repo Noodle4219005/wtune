@@ -311,7 +311,8 @@ def test_c3_rrtmg_with_all_files_present_silent(tmp_path):
     text = one_domain_namelist(extra_physics=" ra_lw_physics = 4,\n ra_sw_physics = 4,\n", ghg_input=1)
     text = text.replace(" ra_lw_physics = 1,\n", "").replace(" ra_sw_physics = 1,\n", "")
     write_namelist(tmp_path, text)
-    touch(tmp_path, "RRTMG_LW_DATA", "RRTMG_SW_DATA", "CAMtr_volume_mixing_ratio")
+    touch(tmp_path, "RRTMG_LW_DATA", "RRTMG_SW_DATA", "CAMtr_volume_mixing_ratio",
+          "LANDUSE.TBL", "ozone.formatted", "ozone_lat.formatted", "ozone_plev.formatted")
     nl = wp.parse_namelist(str(tmp_path / "namelist.input"))
     findings = []
     pf.check_c3_physics_files(nl, tmp_path, findings)
@@ -324,7 +325,7 @@ def test_c3_cam_scheme_exempt_from_camtr_requirement(tmp_path):
     text = one_domain_namelist(extra_physics=" ra_lw_physics = 3,\n ra_sw_physics = 3,\n", ghg_input=1)
     text = text.replace(" ra_lw_physics = 1,\n", "").replace(" ra_sw_physics = 1,\n", "")
     write_namelist(tmp_path, text)
-    touch(tmp_path, "CAM_ABS_DATA", "CAM_AEROPT_DATA")
+    touch(tmp_path, "CAM_ABS_DATA", "CAM_AEROPT_DATA", "LANDUSE.TBL", "ozone.formatted", "ozone_lat.formatted", "ozone_plev.formatted")
     nl = wp.parse_namelist(str(tmp_path / "namelist.input"))
     findings = []
     pf.check_c3_physics_files(nl, tmp_path, findings)
@@ -361,7 +362,7 @@ def test_c3_thompson_missing_tables_warns_only(tmp_path):
     text = one_domain_namelist(extra_physics=" mp_physics = 8,\n")
     text = text.replace(" mp_physics = 6,\n", "")
     write_namelist(tmp_path, text)
-    touch(tmp_path, "RRTM_DATA", "CAMtr_volume_mixing_ratio")
+    touch(tmp_path, "RRTM_DATA", "CAMtr_volume_mixing_ratio", "LANDUSE.TBL")
     nl = wp.parse_namelist(str(tmp_path / "namelist.input"))
     findings = []
     pf.check_c3_physics_files(nl, tmp_path, findings)
@@ -373,7 +374,7 @@ def test_c3_thompson_tables_present_silent(tmp_path):
     text = one_domain_namelist(extra_physics=" mp_physics = 8,\n")
     text = text.replace(" mp_physics = 6,\n", "")
     write_namelist(tmp_path, text)
-    touch(tmp_path, "RRTM_DATA", "CAMtr_volume_mixing_ratio",
+    touch(tmp_path, "RRTM_DATA", "CAMtr_volume_mixing_ratio", "LANDUSE.TBL",
           "freezeH2O.dat", "qr_acr_qg_V4.dat", "qr_acr_qsV2.dat")
     nl = wp.parse_namelist(str(tmp_path / "namelist.input"))
     findings = []
@@ -399,6 +400,223 @@ def test_c3_wrf_run_dir_extension_less_file_flagged(tmp_path):
     warns = [f for f in findings if f.severity == "WARN" and "CAMtr_volume_mixing_ratio" in f.message
              and "present in WRF's own run/" in f.message]
     assert len(warns) == 1
+
+
+# --- C3 extended physics-table rules (README.physics_files + WRF 4.8 OPEN-site gates) ---
+
+_OZONE = ["ozone.formatted", "ozone_lat.formatted", "ozone_plev.formatted"]
+_AEROSOL = ["aerosol.formatted", "aerosol_lat.formatted", "aerosol_lon.formatted",
+            "aerosol_plev.formatted"]
+_CLM = ["CLM_ALB_ICE_DFS_DATA", "CLM_ALB_ICE_DRC_DATA", "CLM_ASM_ICE_DFS_DATA",
+        "CLM_ASM_ICE_DRC_DATA", "CLM_DRDSDT0_DATA", "CLM_EXT_ICE_DFS_DATA",
+        "CLM_EXT_ICE_DRC_DATA", "CLM_KAPPA_DATA", "CLM_TAU_DATA"]
+
+
+def _c3_fatal(tmp_path, physics, files=(), extra=""):
+    """C3 FATAL messages for a minimal one-domain namelist. ghg_input=0 so CAMtr never
+    interferes; every physics option not given defaults to 0 (no scheme)."""
+    write_namelist(tmp_path, "&domains\n max_dom = 1,\n/\n&physics\n ghg_input = 0,\n%s/\n%s"
+                   % (physics, extra))
+    touch(tmp_path, *files)
+    nl = wp.parse_namelist(str(tmp_path / "namelist.input"))
+    findings = []
+    pf.check_c3_physics_files(nl, tmp_path, findings)
+    return [f.message for f in findings if f.severity == "FATAL"]
+
+
+def _mentions(msgs, fname):
+    return [m for m in msgs if (" %s " % fname) in m]
+
+
+def test_c3_rrtmg_default_o3input_requires_ozone(tmp_path):
+    phys = " ra_lw_physics = 4,\n ra_sw_physics = 4,\n"
+    msgs = _c3_fatal(tmp_path, phys, ["RRTMG_LW_DATA", "RRTMG_SW_DATA"])
+    for f in _OZONE:
+        assert len(_mentions(msgs, f)) == 1
+    # aer_opt defaults to 0: the aerosol climatology files must NOT be required
+    assert not any("aerosol" in m for m in msgs)
+
+
+def test_c3_rrtmg_ozone_present_silent(tmp_path):
+    phys = " ra_lw_physics = 4,\n ra_sw_physics = 4,\n"
+    assert _c3_fatal(tmp_path, phys, ["RRTMG_LW_DATA", "RRTMG_SW_DATA"] + _OZONE) == []
+
+
+def test_c3_o3input_zero_disables_ozone_requirement(tmp_path):
+    phys = " ra_lw_physics = 4,\n ra_sw_physics = 4,\n o3input = 0,\n"
+    assert _c3_fatal(tmp_path, phys, ["RRTMG_LW_DATA", "RRTMG_SW_DATA"]) == []
+
+
+def test_c3_non_rrtmg_radiation_does_not_require_ozone(tmp_path):
+    # module_check_a_mundo forces o3input=0 unless domain 1 uses an RRTMG-family scheme
+    msgs = _c3_fatal(tmp_path, " ra_lw_physics = 1,\n ra_sw_physics = 1,\n", ["RRTM_DATA"])
+    assert msgs == []
+
+
+def test_c3_rrtmg_fast_and_kiaps_require_rrtmg_tables(tmp_path):
+    msgs = _c3_fatal(tmp_path, " ra_lw_physics = 24,\n ra_sw_physics = 14,\n o3input = 0,\n")
+    assert len(_mentions(msgs, "RRTMG_LW_DATA")) == 1
+    assert len(_mentions(msgs, "RRTMG_SW_DATA")) == 1
+
+
+def test_c3_aer_opt_1_requires_aerosol_climatology(tmp_path):
+    phys = " ra_lw_physics = 4,\n ra_sw_physics = 4,\n aer_opt = 1,\n"
+    base = ["RRTMG_LW_DATA", "RRTMG_SW_DATA"] + _OZONE
+    msgs = _c3_fatal(tmp_path, phys, base)
+    assert sorted(f for f in _AEROSOL if _mentions(msgs, f)) == sorted(_AEROSOL)
+    assert _c3_fatal(tmp_path, phys, base + _AEROSOL) == []
+
+
+def test_c3_cam_requires_ozone_even_with_o3input_zero_but_not_aerosol(tmp_path):
+    phys = " ra_lw_physics = 3,\n ra_sw_physics = 3,\n o3input = 0,\n"
+    msgs = _c3_fatal(tmp_path, phys, ["CAM_ABS_DATA", "CAM_AEROPT_DATA"])
+    assert all(_mentions(msgs, f) for f in _OZONE)
+    assert not any("aerosol" in m for m in msgs)
+    assert _c3_fatal(tmp_path, phys, ["CAM_ABS_DATA", "CAM_AEROPT_DATA"] + _OZONE) == []
+
+
+def test_c3_goddard_via_ra_sw_only(tmp_path):
+    msgs = _c3_fatal(tmp_path, " ra_sw_physics = 5,\n")
+    assert len(_mentions(msgs, "BROADBAND_CLOUD_GODDARD.bin")) == 1
+    assert _c3_fatal(tmp_path, " ra_sw_physics = 5,\n", ["BROADBAND_CLOUD_GODDARD.bin"]) == []
+
+
+def test_c3_goddard_lw_and_sw_reports_once(tmp_path):
+    msgs = _c3_fatal(tmp_path, " ra_lw_physics = 5,\n ra_sw_physics = 5,\n")
+    assert len(_mentions(msgs, "BROADBAND_CLOUD_GODDARD.bin")) == 1
+
+
+def test_c3_gfdl_default_co2tf_requires_tr_tables_not_co2_trans(tmp_path):
+    phys = " ra_lw_physics = 99,\n ra_sw_physics = 99,\n"
+    msgs = _c3_fatal(tmp_path, phys)
+    for f in ("tr49t67", "tr49t85", "tr67t85"):
+        assert len(_mentions(msgs, f)) == 1
+    assert not _mentions(msgs, "co2_trans")
+    assert _c3_fatal(tmp_path, phys, ["tr49t67", "tr49t85", "tr67t85"]) == []
+
+
+def test_c3_gfdl_co2tf_0_requires_co2_trans_only(tmp_path):
+    phys = " ra_lw_physics = 99,\n ra_sw_physics = 99,\n co2tf = 0,\n"
+    msgs = _c3_fatal(tmp_path, phys)
+    assert len(_mentions(msgs, "co2_trans")) == 1
+    assert not any(_mentions(msgs, f) for f in ("tr49t67", "tr49t85", "tr67t85"))
+    assert _c3_fatal(tmp_path, phys, ["co2_trans"]) == []
+
+
+def test_c3_eclipse_requires_besselian_elements(tmp_path):
+    phys = " ra_sw_physics = 1,\n ra_sw_eclipse = 1,\n"
+    assert len(_mentions(_c3_fatal(tmp_path, phys), "eclipse_besselian_elements.dat")) == 1
+    assert _c3_fatal(tmp_path, phys, ["eclipse_besselian_elements.dat"]) == []
+    assert _c3_fatal(tmp_path, " ra_sw_physics = 1,\n") == []
+
+
+def test_c3_urban_requires_urbparm(tmp_path):
+    msgs = _c3_fatal(tmp_path, " sf_urban_physics = 1,\n")
+    assert len(_mentions(msgs, "URBPARM.TBL")) == 1
+    assert not _mentions(msgs, "URBPARM_LCZ.TBL")
+    assert _c3_fatal(tmp_path, " sf_urban_physics = 1,\n", ["URBPARM.TBL"]) == []
+
+
+def test_c3_urban_lcz_requires_lcz_table_instead_of_urbparm(tmp_path):
+    phys = " sf_urban_physics = 2,\n use_wudapt_lcz = 1,\n"
+    msgs = _c3_fatal(tmp_path, phys)
+    assert len(_mentions(msgs, "URBPARM_LCZ.TBL")) == 1
+    assert not _mentions(msgs, "URBPARM.TBL")
+    assert _c3_fatal(tmp_path, phys, ["URBPARM_LCZ.TBL"]) == []
+
+
+def test_c3_clm_requires_landuse_and_clm_tables(tmp_path):
+    msgs = _c3_fatal(tmp_path, " sf_surface_physics = 5,\n")
+    for f in ["LANDUSE.TBL"] + _CLM:
+        assert len(_mentions(msgs, f)) == 1, f
+    assert _c3_fatal(tmp_path, " sf_surface_physics = 5,\n", ["LANDUSE.TBL"] + _CLM) == []
+
+
+@pytest.mark.parametrize("sf,files", [
+    (1, ["LANDUSE.TBL"]),
+    (3, ["LANDUSE.TBL", "VEGPARM.TBL", "SOILPARM.TBL", "GENPARM.TBL"]),
+    (7, ["LANDUSE.TBL", "VEGPARM.TBL"]),
+    (8, ["LANDUSE.TBL"]),
+])
+def test_c3_other_lsm_tables(tmp_path, sf, files):
+    phys = " sf_surface_physics = %d,\n" % sf
+    msgs = _c3_fatal(tmp_path, phys)
+    assert sorted(f for f in files if _mentions(msgs, f)) == sorted(files)
+    assert len(msgs) == len(files)
+    assert _c3_fatal(tmp_path, phys, files) == []
+
+
+def test_c3_noahmp_snicar_files_not_required(tmp_path):
+    assert _c3_fatal(tmp_path, " sf_surface_physics = 4,\n", ["NoahmpTable.TBL"]) == []
+
+
+def test_c3_windturbine_spec_requires_table(tmp_path):
+    assert len(_mentions(_c3_fatal(tmp_path, " windturbine_spec = 1,\n"), "wind-turbine-1.tbl")) == 1
+    assert _c3_fatal(tmp_path, " windturbine_spec = 1,\n", ["wind-turbine-1.tbl"]) == []
+
+
+def test_c3_chem_opt_requires_hlc_table(tmp_path):
+    extra = "&chem\n chem_opt = 112,\n/\n"
+    assert len(_mentions(_c3_fatal(tmp_path, "", extra=extra), "HLC.TBL")) == 1
+    assert _c3_fatal(tmp_path, "", ["HLC.TBL"], extra=extra) == []
+    assert _c3_fatal(tmp_path, "", extra="&chem\n chem_opt = 0,\n/\n") == []
+
+
+def test_c3_ferrier_requires_expanded_rain_table_only(tmp_path):
+    msgs = _c3_fatal(tmp_path, " mp_physics = 5,\n")
+    assert len(_mentions(msgs, "ETAMPNEW_DATA.expanded_rain")) == 1
+    assert not _mentions(msgs, "ETAMPNEW_DATA")   # fer_hires_init never opens plain ETAMPNEW_DATA
+    assert _c3_fatal(tmp_path, " mp_physics = 5,\n", ["ETAMPNEW_DATA.expanded_rain"]) == []
+
+
+def test_c3_thompson_aerosol_aware_requires_ccn_table(tmp_path):
+    dats = ["freezeH2O.dat", "qr_acr_qg_V4.dat", "qr_acr_qsV2.dat"]
+    assert len(_mentions(_c3_fatal(tmp_path, " mp_physics = 28,\n", dats), "CCN_ACTIVATE.BIN")) == 1
+    assert _c3_fatal(tmp_path, " mp_physics = 28,\n", dats + ["CCN_ACTIVATE.BIN"]) == []
+
+
+def test_c3_plain_thompson_does_not_require_ccn_table(tmp_path):
+    assert _c3_fatal(tmp_path, " mp_physics = 8,\n") == []
+
+
+def test_c3_full_sbm_tables(tmp_path):
+    files = ["bulkdens.asc_s_0_03_0_9", "bulkradii.asc_s_0_03_0_9", "capacity.asc",
+             "coeff_p.asc", "coeff_q.asc", "constants.asc", "kernels.asc_s_0_03_0_9",
+             "kernels_z.asc", "masses.asc", "termvels.asc"]
+    msgs = _c3_fatal(tmp_path, " mp_physics = 32,\n")
+    assert sorted(f for f in files if _mentions(msgs, f)) == sorted(files)
+    assert _c3_fatal(tmp_path, " mp_physics = 32,\n", files) == []
+
+
+def test_c3_jensen_tables(tmp_path):
+    files = ["ishmael-gamma-tab.bin", "ishmael-qi-qc.bin", "ishmael-qi-qr.bin"]
+    msgs = _c3_fatal(tmp_path, " mp_physics = 55,\n")
+    assert sorted(f for f in files if _mentions(msgs, f)) == sorted(files)
+    assert _c3_fatal(tmp_path, " mp_physics = 55,\n", files) == []
+
+
+def test_c3_p3_prefix_match_with_scc_filenames(tmp_path):
+    scc = ["p3_lookupTable_1.dat-v5.4_2momI", "p3_lookupTable_1.dat-v5.4_3momI",
+           "p3_lookupTable_2.dat-v5.3"]
+    for mp in (50, 51, 52, 53):
+        d = tmp_path / ("mp%d" % mp)
+        d.mkdir()
+        assert _c3_fatal(d, " mp_physics = %d,\n" % mp, scc) == [], mp
+
+
+def test_c3_p3_missing_tables_fatal(tmp_path):
+    msgs = _c3_fatal(tmp_path, " mp_physics = 52,\n")
+    assert any("p3_lookupTable_1.dat*" in m for m in msgs)
+    assert any("p3_lookupTable_2.dat*" in m for m in msgs)
+
+
+def test_c3_p3_single_category_does_not_need_table_2(tmp_path):
+    # table 2 (ice-ice interactions) is only opened for nCat>1, i.e. mp_physics=52
+    assert _c3_fatal(tmp_path, " mp_physics = 50,\n", ["p3_lookupTable_1.dat-v5.4_2momI"]) == []
+
+
+def test_c3_fast_sbm_not_checked_against_full_sbm_tables(tmp_path):
+    assert _c3_fatal(tmp_path, " mp_physics = 30,\n") == []
 
 
 # --------------------------------------------------------------------------
@@ -921,7 +1139,7 @@ def test_c10_netcdf4_unavailable_skips_explicitly(tmp_path, monkeypatch):
 def test_end_to_end_clean_conus_like_exits_zero(tmp_path):
     text = one_domain_namelist(ghg_input=1)
     write_namelist(tmp_path, text)
-    touch(tmp_path, "RRTM_DATA", "CAMtr_volume_mixing_ratio")
+    touch(tmp_path, "RRTM_DATA", "CAMtr_volume_mixing_ratio", "LANDUSE.TBL")
     code = pf.main([str(tmp_path)])
     assert code == 0
 
@@ -943,7 +1161,7 @@ def test_end_to_end_namelist_missing_exits_two(tmp_path):
 def test_end_to_end_json_output(tmp_path):
     text = one_domain_namelist(ghg_input=1)
     write_namelist(tmp_path, text)
-    touch(tmp_path, "RRTM_DATA", "CAMtr_volume_mixing_ratio")
+    touch(tmp_path, "RRTM_DATA", "CAMtr_volume_mixing_ratio", "LANDUSE.TBL")
     json_out = tmp_path / "findings.json"
     code = pf.main([str(tmp_path), "--json", str(json_out)])
     assert code == 0

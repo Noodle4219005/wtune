@@ -8,7 +8,9 @@ compliance`, `--compliance` on `knobs`/`physics`/`screen`), **step 2** (the phas
 fingerprinter), **steps 4-5** (the configuration predictor, the STRICT and PHYSICS-GRAY
 campaigns, the fidelity gate) and **research step D1** (the decomposition space and its
 active search). What is not yet built is the automatic end-to-end loop: the pieces below are
-run individually, and the selection at the end is always the user's.
+run individually, and the selection at the end is always the user's. The one exception is
+opt-in: `wtune run --tune-report` (section 6) applies a predicted-mode tune report's
+per-segment choice, and only when the user passes that report.
 
 `wtune` does four things to a WRF run, **none of which modifies a WRF source file**:
 
@@ -366,6 +368,223 @@ source bug, not a namelist one, and it is not patched here.
 
 `predictor/stability.py` replicates WRF's acoustic sub-step formula (`dyn_em/solve_em.F:451-464`) and reports the acoustic CFL margin before a run, which is what makes the D07 `time_step_sound` template safe to propose per case. Its documented limit: acoustic CFL does **not** explain the P03 `time_step`×1.2 crashes.
 
+## 6. Whole-run prediction, monitoring and segmented execution (0.2.0)
+
+Four subcommands of `bin/wtune` (`wtune.py <cmd>`), plus preflight rules. None edits a WRF
+source file or injects anything; none writes inside `CASE_DIR`. Every sbatch they generate
+carries `--exclude=head[,$WTUNE_SBATCH_EXCLUDE]`. All evidence below is scc (72 ranks/node),
+2026-09-27; errors are against a truth run of the same case and configuration.
+
+### `wtune predict-rebuild` — whole-run wall time from rebuilt segments (decision 0054)
+
+```bash
+wtune predict-rebuild CASE_DIR --nodes N --nx X --ny Y [--numtiles T] [--omp O]
+    [--forcing era5|auto] [--spinup-min 20] [--max-points K] [--measure-steps N|short]
+    [--rain-snow] [--no-io-probe] [--out DIR] [--dry-run]
+```
+
+Places up to K points on the run's timeline (default 5; on the forcing's hourly grid,
+`T + spin-up <= P`), rebuilds each from ERA5 with cloud water/ice (ARCO-ERA5 written straight to
+WPS intermediate, no ungrib; `--forcing auto` = GFS chain with a 60-min spin-up), runs WPS +
+real.exe + a 20-min spin-up + `max(30, 2*stepra)` measured d01 steps **on the target
+decomposition**, one Slurm job per point, all submitted at once, then combines the points into
+compute+init (`wtune_probe_plan.combine`: per-point normal-step cost, day/night radiation ratio).
+`OUT/pred_rebuild.json` is written before anything is compared with it. Needs the site env
+(`WPS_DIR`, `WRF_TREE`) and `CASE_DIR/wrfinput_d01` (geometry and ERA5 crop box).
+
+**I/O is measured, not modelled** (`--io-probe`, default on): the last point's segment also
+writes one history frame per domain (+ one restart if the case writes restarts) with the case's
+own `io_form`/`iofields`; I/O = Σ frames × timed write per domain. The printed **recommended
+`--time`** = range_high + 2 × I/O + margin (10% of range_high, clamped to 2–5 min), rounded up to
+1 min below 2 h, else 5 min. Factor 2: history writes are 21–48% of wall on scc and the same
+volume varies up to 2.4× there.
+
+| case | run, config | predicted compute+init | truth | error | same-day drift-corrected | driver wall |
+|---|---|---:|---:|---:|---:|---|
+| conus25 | 6 h, 4 nodes 12×24 nt 8 | 1800.9 s | 1783.4 s | +0.98% | not measured | 19:40 (jobs 1309–1313; 51% of the 38:40 run — just run it) |
+| maria1km | 3 h, 4 nodes 16×18 | 4268.3 s | 4270 s (job 977) | −0.04% | −2.19% (job 1321) | jobs 1325–1327 in parallel |
+| zhengzhou | 30 h, 3 domains, 4 nodes 16×18 | 15970.2 s | 16949.8 s (job 1020) | −5.78% (−5.67% rerun) | ≈ −2% (job 1320) | 2244 s (mostly queue); 804.7 s = 4.5% of wall with 3 points |
+| lafe | 24 h, 1000×1000, 8 nodes 24×24 | 13637.8 s | 13616.1 s (job 975) | +0.16% | +0.41% (job 1346) | 32:41 (jobs 1343–1345, serialised on 12 free nodes) |
+
+- The same run on scc varies ±2–4% between days, in both directions (zhengzhou 3.4–4.1% faster,
+  maria1km 2.2% slower). Validate a prediction against a same-day control on the original input.
+- One point at t0 misses the diurnal radiation: lafe −10.5%, conus25 −9.6%.
+- `--spinup-min 10 --measure-steps short` (`max(30, stepra+10)` steps, radiation flagged by
+  known phase `n % stepra == 1`) is opt-in. It was picked in-sample on zhengzhou (627 s = 3.5% of
+  wall); out-of-sample it moves the prediction −1.11% (dorian2019, one clean pair) and +0.38%
+  (lafe, driver 829 → 687 s) against the default window.
+
+`--time` check T1 (truth wall ≤ recommended ≤ 1.5 × wall):
+
+| case | measured I/O | truth Σ writes | I/O error | recommended `--time` | ÷ truth wall |
+|---|---:|---:|---:|---:|---:|
+| dorian2019 (6 h) | 299.1 s | 300.5 s | −0.5% | 38:00 | 1.33 (1718.0 s) |
+| maria1km | 389.2 s | 391 s | −0.5% | 1:37:00 | 1.25 (4661.5 s) |
+| zhengzhou | 905.2 s | 877.8 s | +3.1% | 5:25:00 | 1.09 (17827.6 s) |
+
+**Not yet validated:** the first rule (fixed 5-min margin, 5-min rounding) failed T1 on dorian
+(45:00 = 1.57×); the scaled margin was chosen after seeing that, so the passing column is
+in-sample. zhengzhou's compute range_high (17387.4 s) is *below* its real wall — only the 2× I/O
+covers it, so do not lower that factor. The out-of-sample check on elevconv2022 (15 h, 8 nodes,
+writes 21% of wall: `--time`, I/O probe within 15%, watch with prediction) is registered and
+**PENDING**. Typhoon vortex bogussing (`tools/tc_bogus.py`) failed its criteria and is opt-in.
+
+### `wtune watch` — read-only run monitor
+
+```bash
+wtune watch RUNDIR [--interval 60] [--once] [--json] [--prediction pred_rebuild.json]
+    [--init-limit 600] [--hang-factor 10] [--hang-min 300] [--replay-fraction F[,F...]]
+```
+
+Reads only `namelist.input` and `rsl.error.0000`/`rsl.out.0000`; never writes, never signals.
+Reports progress, remaining **compute and writes separately** (plus their sum), and warnings;
+exit 3 on FAILED, 2 on HANG / HANG_INIT / NEST_STOPPED / NEST_END_EARLY, else 0 (CFL is
+informational).
+
+- A d01 step that absorbed `Timing for Writing` lines has those seconds subtracted; compute rate
+  = mean compute over a window aligned to the radiation/history LCM period. Remaining writes =
+  per-stream median seconds per frame × frames still due per the namelist (history, restart,
+  auxhist, per domain); a stream not written yet uses `pred_rebuild.json`'s measured io block.
+- `--prediction`: remaining compute = k × predicted compute over the remaining steps, k =
+  observed ÷ predicted so far — the prediction supplies the trend, the run its level.
+- HANG_INIT caught the known silent hang (elevconv, missing iofields file); NEST_END_EARLY caught
+  yagi truth 1038 (nest `end_*` not updated, d01 kept advancing).
+
+Replay on scc truth logs at 25% progress, error of estimated vs actual remaining (wtune 3ee3808):
+
+| case | rate only | with `--prediction` |
+|---|---:|---:|
+| zhengzhou / dorian2019 / lafe | −0.7% / −1.1% / −3.3% | −1.8% / −1.2% / +0.6% |
+| maria1km / conus25-g0014 | −2.9% / −3.8% | −1.7% / −6.4% |
+| marshall / isc21 (30 min) / c34 (truncated log) | −6.2% / +0.4% / −0.7% | — |
+| elevconv (576 ranks) | **−15.6%** | — (PENDING) |
+
+This is the third attempt at a pre-registered ≤10% criterion (first: 3 of 9 failed; second
+dropped write-absorbing steps as outliers, marshall −53.5%). The with-prediction column is
+in-sample: those predictions were made against the same truths. Rate-only cannot see a rising
+per-step cost (elevconv, convection developing) — use `--prediction` for long runs. Zero false
+positives across healthy runs was part of the criterion and has not been reported separately.
+Limits: rank 0's rsl only, so an error printed on another rank is not seen; files are reopened
+and re-stat'ed every poll because a long-lived NFS handle can serve stale content, and HANG is
+only as fresh as the login node's view of the rsl mtime.
+
+### `wtune run` — segmented execution with restart hand-offs
+
+```bash
+wtune run CASE_DIR --nodes N --nx X --ny Y [--numtiles T] [--omp O]
+    [--wall-limit HH:MM:SS | --segment-minutes M] [--stop-at YYYY-MM-DD_HH:MM:SS]
+    [--prediction pred_rebuild.json] [--tune-report tune_report.json]
+    [--restart-io-form 14|2] [--cfl-rescue] --out OUT [--dry-run]
+```
+
+A login-node controller: segment k runs in `OUT/seg_k` as its own Slurm job (inputs symlinked;
+`--out` may not be inside `CASE_DIR`), is inspected with `watch`, and hands off to k+1 through
+its restart files. `OUT/run_report.json` is rewritten after every attempt; any failure other
+than the rescue case below stops with an error, never a silent retry.
+
+- **One restart quantum L for the whole run.** Every segment is an L block from the run start
+  (the last may be shorter) and `restart_interval = L` in every segment. `--segment-minutes M`
+  sets L = M; `--wall-limit W` picks the largest L for which every segment's predicted wall
+  (compute + init + restart read/write + history frames inside it) ≤ 0.8 W; neither = one
+  segment. Segment `--time` = 1.5 × predicted wall + 10 min (5-min steps), capped at W; after
+  each segment its observed overhead replaces the prediction in later `--time`s, never the grid.
+- **`override_restart_timers` is never set here**, so WRF restores every alarm's phase from the
+  restart file. With it (first R1 attempt), d01's 60-min history alarm re-anchored at the 00:30
+  boundary and the 01:00 frame was never written. The tuner's candidates need the opposite (next
+  section): they must *not* inherit the spin-up's restart interval.
+- Every active domain's `start_*`/`end_*` is set per segment (yagi 1038: a nest whose `end_*` was
+  left alone stopped early). Restarts default to ADIOS2 BP4 via `adios2.xml` (io_form 14).
+- `--tune-report`: each segment takes the candidate a predicted-mode tune report predicts
+  cheapest over that segment's interval (default: one config throughout). A switch that changes
+  `nproc_x` changes roundoff, so such a run is not bit-identical to a single-config run.
+  Per-segment switching has **not** been run on hardware.
+- `--cfl-rescue` (off by default, **PHYSICS-GRAY**): a segment that failed with a CFL line or NaN
+  is rerun once per run from the same restart with `time_step` = the largest integer in
+  [0.5, 0.75] × dt dividing the segment length and L; later segments return to the case's dt.
+  Unit-tested decision logic only — **not validated on hardware**.
+
+Evidence (dorian2019 first hour, 4 nodes 16×18): **R1** 30 + 30 min chain (jobs 1405 + 1410) vs
+one-shot (job 1392): 01:00 `wrfout` for d01 and d02, **202 variables each, bit-identical**, no
+NaN. **R3** `--dry-run` prints the plan and submits nothing. **R2** (each segment's wall inside
+its predicted range): first attempt failed — predicted 478/578/548 s vs measured 326/198/168 s,
+because the prediction had no io block and restart/history fell back to constants; fallbacks now
+scale from measured scc anchors (conus25 restart, dorian2019 history) by grid points × levels.
+The rerun with an io-block prediction is **PENDING**.
+
+### `wtune tune --rank-by predicted` — rank by predicted whole-run time (decision 0055, opt-in)
+
+```bash
+wtune tune CASE --site scc --minutes 60 --nodes 4 --max-nodes 12 --rank-by predicted \
+    [--max-points 3] [--max-wall-minutes M] [--restart-io-form 14|2] --out DIR
+```
+
+The default (`t0`) is unchanged. In predicted mode:
+
+1. Plan points as `predict-rebuild` does (ERA5; spin-up = smallest whole minute ≥ 20 on the
+   time-step grid, dt 36 s → 21 min) and rebuild every point once (real_only, 1 node each, in
+   parallel — real.exe output does not depend on the candidates' decomposition).
+2. Stage 1 at P* (the point with the largest sunlit fraction): each Slurm job spins up once and
+   every candidate in it starts from that shared restart; ANCHOR runs first and ANCHOREND last in
+   every job, and each run is normalised by its own job's anchors. Jobs with foreign load or a
+   run that did not start from the restart are excluded.
+3. Stage 2: top 3 + ANCHOR/ANCHOREND at every point in parallel, one `combine()` per candidate;
+   the smallest predicted compute+init wins. Gates raise on: restart not used, |ANCHOREND ÷
+   ANCHOR − 1| > 1%, foreign load, wrong first global step.
+
+Candidate runs set `override_restart_timers = .true.`: gate G0 found that with
+`restart_interval = 1000000` WRF still inherited the spin-up's 20-min restart interval and wrote
+a restart inside every measured window (netCDF 299 s on a radiation step, r ≈ 5 → 121; ADIOS2
+0.6 s). `run_seconds` is zeroed next to `run_minutes`, because WRF adds all four `run_*` keys.
+
+Budget: `--minutes` counts **running** time only (queue time is reported separately; hard wall
+cap `--max-wall-minutes`, default 3 × budget). Before anything is submitted a feasibility check
+computes the least running budget (rebuild prep + one stage-1 job of ANCHOR + 1 candidate +
+ANCHOREND + stage 2 for that one candidate) and refuses with that number. A stage-1 job starts
+only if elapsed + its own estimate + the stage-2 reserve fits; stage-1 jobs are trimmed to fit
+(floor ANCHOR + 1 + ANCHOREND); pending stage-1 jobs at the cutoff are cancelled and reported as
+not measured; stage 2 drops its lowest candidates until it fits, or is skipped with the reason.
+All estimates use one cost model: per run = startup + restart read + steps × s/step ×
+(1 + ⌈steps/stepra⌉ (r_rad − 1)/steps), r_rad 3.93 (conus25, 82 steps: 1.107; the earlier blanket
+×1.5 overstated it ~1.36×), with per-run overhead re-measured after the first wave.
+`--max-points` defaults to 3 in this mode.
+
+| gate / attempt | result |
+|---|---|
+| **G0** restart hand-off across rank counts (jobs 1371 io 14, 1372 io 2; conus25, 4 nodes, 82 steps after 20 min) | **pass.** ADIOS2 restart read at 288/144/72 ranks; candidate ÷ ANCHOR differs between io forms by ≤ 0.38% (gate 2%); in-allocation drift −0.18% / −0.11%; first global step 81 in all 10 runs. Refutes the code comment that io_form 14 restarts are decomposition-dependent. |
+| e2e 1 (conus25-pred1) | **failed on budget**: queue time consumed the 60 min (6 free nodes, five 4-node rebuild jobs ran one at a time, ~22 min); stage-2 jobs 1393–1397 cancelled while PENDING |
+| e2e 2 (conus25-pred2) | **failed**: rebuild took 7 min, then every stage-1 slot was skipped (7:04 + 22:26–26:11 per job + 37:39 reserve > 60 min) — nothing measured |
+| e2e 3 (conus25-pred3: shrink-to-fit, feasibility check, one cost model) | **PENDING.** G1 (mechanism), G2 (winner's prediction ≤ 5% vs same-day run), G3 (winner ≤ 1.01 × the t0 winner G0014), G4 (≤ 60 min) not yet judged |
+
+Node hygiene (every command in this section): `WTUNE_SBATCH_EXCLUDE=work5[,...]` adds nodes to
+`--exclude=head`.
+On 2026-09-27 scc work5 carried a root VS Code server outside Slurm (91% of one core) plus an
+`rm -rf`, which slowed a 576-rank `wrf.exe` from 1.25 to 6.3 s/step; `--exclusive` does not stop
+that. `campaign/node_hygiene.sh`'s census now prints `FOREIGN_LOAD` for any process not owned by
+the job's user with lifetime %CPU > 20 and elapsed ≥ 30 s (kernel threads ignored).
+
+### `wtune check` — physics tables and wrfinput sanity
+
+- **C3 physics tables follow WRF 4.8's own `OPEN` statements**, not `README.physics_files`,
+  which over-lists; each rule cites its source line. E.g. Ferrier (5/95) opens only
+  `ETAMPNEW_DATA.expanded_rain`; `CCN_ACTIVATE.BIN` only for aerosol-aware Thompson (28/38); P3
+  table 1 matched by prefix, table 2 only for nCat > 1 (52); full SBM (32) but not fast SBM (30,
+  a different file set); ozone on d01 for RRTMG with `o3input=2` and on any CAM domain;
+  `aerosol*.formatted` only for `aer_opt=1` on d01; `URBPARM_LCZ.TBL` *replaces* `URBPARM.TBL`
+  when `use_wudapt_lcz=1`; GFDL (co2tf-dependent), Goddard, eclipse, slab/RUC/CLM/PX/SSiB,
+  `HLC.TBL` for chem.
+- **C10 wrfinput sanity uses land/water masks.** TSLB on land only: exactly 0 is real.exe's
+  "undefined" fill → WARN; non-zero outside [200, 350] K → FATAL above 0.1% of the domain's land
+  TSLB values, WARN below. SST on water only (exact 0 skipped: inland lakes); SMOIS < 0 → WARN,
+  > 1 → FATAL; TSK everywhere; any NaN/Inf in T/U/V/QVAPOR/TSLB/SMOIS/PSFC → FATAL. The 0.1% line:
+  dorian2019 d02, 20/(14806×4) = 0.034%, ran 1 h with no NaN (job 1392) → WARN; tw3km-2031 case_I,
+  13186/(37588×4) = 8.8%, went NaN by hour 1 while printing SUCCESS → FATAL. On scc: 11 healthy
+  truth dirs zero FATAL, case_I FATAL, case_A clean. The first C10 was false-FATAL on zhengzhou
+  and dorian2019, both of which ran.
+- **No "small patch hangs" rule.** The hypothesis (sc26p2 17×13 hangs at init with 10-cell
+  patches) is refuted: 102 successful ledger runs had a minimum patch ≤ 10 cells (matthew 9×10
+  and severe2023 10×10 at 9 cells, 97 and 109 runs; sc26p2 2×12 at 10 cells, 30 runs). Only
+  sc26p2 17×13 hangs (7 of 7). The guard is per-candidate timeouts plus `watch` HANG_INIT.
+
 ## Measured results
 
 | item | result | conditions |
@@ -380,12 +599,16 @@ source bug, not a namelist one, and it is not patched here.
 | 4N->8N node scaling | -44.6%, projection error 1% | blocked by the 4-node rule |
 | total-runtime prediction | MAE 1.07 s (~5.2%) | case-level nested LOO |
 | config layer (`radt`, `non_hydrostatic`, `cudt`) [PHYSICS-GRAY] | up to -15% | 15 km case; result-affecting, behind the calibration gate; UNCONFIRMED until an official ruling |
+| `wtune predict-rebuild` compute+init | +0.98% / −0.04% / −5.78% / +0.16% | conus25 / maria1km / zhengzhou / lafe on scc; ≈ ±2% after same-day drift correction |
+| measured I/O probe | −0.5% / −0.5% / +3.1% of truth Σ writes | dorian2019 / maria1km / zhengzhou |
+| ADIOS2 BP4 restart vs netCDF | write 1.05 s vs 323.5 s, read 2.3-2.5 s vs 120 s, bit-identical 60 min later; readable across 288/144/72 ranks | conus25, jobs 1277/1288/1289, 1371/1372 |
+| `wtune run` 30 + 30 min restart chain vs one-shot | 202 + 202 variables bit-identical | dorian2019 d01+d02, jobs 1405+1410 vs 1392 |
 
 ## Measured-closed — do not re-propose
 
 | direction | why it is closed |
 |---|---|
-| restart-boundary rebalancing / migration | restart ~56 s > 7-17 s recoverable per window; PLOV does it in place |
+| restart-boundary rebalancing / migration | restart ~56 s > 7-17 s recoverable per window; PLOV does it in place. That restart cost is netCDF: an ADIOS2 BP4 restart is 1.05 s write / 2.3-2.5 s read (conus25, jobs 1277/1288/1289), so `wtune run --tune-report` switches config at restart boundaries — whether a switch recovers more than it costs is not measured |
 | rank placement (LPT, x-pair, per-window re-pin) | equalises node micro to 1%, s/step unchanged |
 | DLB/LeWI core lending | nothing beyond `KMP_BLOCKTIME=0`; static OpenMP cannot add threads mid-region |
 | per-rank hotspot prediction as an actuator input | no consumer; PLOV measures |
@@ -422,6 +645,7 @@ The repo root is user-facing only; everything else lives under one of these dire
 | `src/wtune_config_gate.py` (+ test) | live | calibration gate for result-affecting knobs |
 | `src/wtune_transition_controller.py` | live (gate branch deprecated) | zero-measurement config + node-scaling projection |
 | `src/wtune_feedback.py` (+ test), `wtune_probe.py` (+ test) | live | PLOV controller replay; ABBA probe harness |
+| `src/wtune_rebuild_predict.py`, `wtune_watch.py`, `wtune_run.py`, `wtune_tune.py`, `wtune_preflight.py`, `tools/coldstart_sample.py`, `tools/era5_intermediate.py`, `tools/rescore_rebuild.py`, `tools/tc_bogus.py` | live | `predict-rebuild`, `watch`, `run`, `tune`, `check` and their helpers (section 6) |
 | `src/wtune_oracle.py`, `wtune_oracle_train.py`, `wtune_segment_train.py`, `wrf_frame.py`, `featurize_frames.py`, `wtune_runtime_predict.py`, `wtune_runtime12.py`, `wtune_cost_model.py` | live | prediction layer |
 | `campaign/` | **live, production** (unmoved) | the measurement side: `strict_campaign.sbatch`, `configs.py`, `cases.json`, `physics_templates.json`, the decomposition-search campaign and its rankers |
 | `machine/` | **live, production** (unmoved) | hardware calibration data and probes (`machine/calibration/*.json`, `machine/bench/`) |
@@ -449,7 +673,7 @@ provenance — same caveat, see `archive/experiments/README.md`), `archive/resea
 
 Running the suite: `python3 -m pytest -q tests/` (pixi env at `envs/wtune/`, or
 `uv run --with pytest --with numpy --with netCDF4 --with scikit-learn --with catboost
-python -m pytest -q tests/`) — **1351 passed / 12 skipped / 3 known pre-existing failures**
+python -m pytest -q tests/`) — **1657 passed / 14 skipped / 3 known pre-existing failures** (2026-09-27, 0.2.0)
 (`tests/predictor/test_decomp_search.py::test_real_lafe_round2_incumbent_is_now_on_the_campaign_reference_scale`,
 `tests/predictor/test_physics.py::test_template_engine_consistency_across_real_case_namelists`,
 `tests/predictor/test_physics.py::test_physics_candidates_from_namelist_matches_text_engine_for_karina`).

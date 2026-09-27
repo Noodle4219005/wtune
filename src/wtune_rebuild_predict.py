@@ -6,7 +6,7 @@ combined into one prediction (wtune_probe_plan.combine). Validated on scc (2026-
 conus25 C3 -0.98 %, zhengzhou -5.78 % / -5.67 % (phase 7), ERA5 spin-up 20 min (phase 3).
 
     wtune predict-rebuild CASE_DIR --nodes 4 --nx 16 --ny 18 [--numtiles 1] [--omp 1]
-        [--forcing era5|auto] [--spinup-min 20] [--max-points 5] [--measure-steps N|short] [--rain-snow]
+        [--forcing era5|auto] [--spinup-min 20] [--max-points N] [--measure-steps N|short] [--no-io-probe] [--rain-snow]
         [--no-io-probe] [--out DIR] [--dry-run]
 
 CASE_DIR needs namelist.input and wrfinput_d01 (the geometry and, for --forcing era5, the ERA5
@@ -17,8 +17,9 @@ I/O is predicted separately from compute+init and MEASURED (--io-probe, default 
 point's segment also writes one history frame per domain (+ one restart when the case writes
 restarts) at its end, with the case's own output settings; each timed write is multiplied by the
 number of frames the case's own run writes. The recommended Slurm --time is range_high +
-2 x I/O + 5 min, rounded up to 5 min (history writes are 21-48 % of wall on scc and the same
-volume varies up to 2.4x there, hence the factor 2).
+2 x I/O + a margin of 10% of range_high clamped to 2-5 min, rounded up to 1 min below 2 h and to
+5 min above (history writes are 21-48 % of wall on scc and the same volume varies up to 2.4x
+there, hence the factor 2).
 """
 import argparse
 import copy
@@ -333,7 +334,7 @@ def main(argv=None):
         print("  WARNING: %s" % w)
     print("recommended --time: %s" % rec["time"])
     if not rec["covers_io"]:
-        print("WARNING: recommended --time = compute+init range high + 5 min only; history/"
+        print("WARNING: recommended --time = compute+init range high + margin only; history/"
               "restart writes are NOT covered")
     print("prediction took %s; saved %s" % (h(record["prediction_wall_s"]), path))
     return 0

@@ -7,4 +7,4 @@ Bump this and add the matching CHANGELOG.md section in the same commit; test_wtu
 fails otherwise, which is the whole point of having it in a file rather than in a git tag.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"

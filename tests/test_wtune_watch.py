@@ -2,9 +2,11 @@
 
 Synthetic run: 3 domains (ratio 1:3:3), 24 h at dt=60 s -> 1440 d01 steps, radt=10 min
 (stepra 10), history every 60 min (every 60 d01 steps). d01 step cost = 1.0 s, +3.0 s on a
-radiation step, +20.0 s on a history-write step: stationary, so a whole-period mean is exact.
+radiation step (WRF schedule: step 1 and every stepra-th), +20.0 s on a history-write step:
+stationary, so a whole-period mean is exact.
 """
 import datetime as dt
+import json
 import os
 import sys
 import time
@@ -20,47 +22,54 @@ STEPRA = 10
 HIST = 60
 
 
-def _namelist(end_hours=(24, 24, 24), run_hours=24):
+def _namelist(end_hours=(24, 24, 24), run_hours=24, run_minutes=0, dt_s=DT, radt=10):
     ends = [T0 + dt.timedelta(hours=h) for h in end_hours]
 
     def row(key, vals):
         return " %s = %s,\n" % (key, ", ".join(str(v) for v in vals))
 
-    return ("&time_control\n" + row("run_hours", [run_hours])
+    return ("&time_control\n" + row("run_hours", [run_hours]) + row("run_minutes", [run_minutes])
             + row("start_year", [T0.year] * 3) + row("start_month", [T0.month] * 3)
             + row("start_day", [T0.day] * 3) + row("start_hour", [T0.hour] * 3)
             + row("end_year", [e.year for e in ends]) + row("end_month", [e.month for e in ends])
             + row("end_day", [e.day for e in ends]) + row("end_hour", [e.hour for e in ends])
             + row("history_interval", [HIST] * 3) + "/\n"
-            + "&domains\n time_step = %d,\n max_dom = 3,\n" % DT
+            + "&domains\n time_step = %d,\n max_dom = 3,\n" % dt_s
             + row("e_we", [100, 100, 100]) + row("e_sn", [100, 100, 100])
             + row("e_vert", [40, 40, 40]) + row("parent_id", [0, 1, 2])
             + row("parent_time_step_ratio", [1, 3, 3]) + "/\n"
-            + "&physics\n" + row("radt", [10, 10, 10]) + "/\n")
+            + "&physics\n" + row("radt", [radt] * 3) + "/\n")
 
 
-def _cost(i):
-    return 1.0 + (3.0 if i % STEPRA == 1 else 0.0) + (20.0 if i % HIST == 0 else 0.0)
+def _s_normal(i, ramp=0.0, n=N):
+    return 1.0 + ramp * i / n
 
 
-def _rsl(n_d01=N, nest_stop=None, head=("starting wrf task 0",), tail=()):
+def _cost(i, ramp=0.0, write=20.0, r_rad=4.0, stepra=STEPRA, hist=HIST, n=N):
+    """d01 step i: s(t_i) x r_rad on a WRF-schedule radiation step, + a history write."""
+    s = _s_normal(i, ramp, n)
+    rad = i == 1 or i % stepra == 0
+    return s * (r_rad if rad else 1.0) + (write if i % hist == 0 else 0.0)
+
+
+def _rsl(n_d01=N, nest_stop=None, head=("starting wrf task 0",), tail=(), cost=_cost, dt_s=DT):
     """d01 steps 1..n_d01; nest lines (d02 3 per d01 step, d03 3 per d02 step) printed before the
     d01 line of the same step, and omitted after d01 step `nest_stop`."""
     out = list(head)
     for i in range(1, n_d01 + 1):
         if nest_stop is None or i <= nest_stop:
-            base = T0 + dt.timedelta(seconds=(i - 1) * DT)
+            base = T0 + dt.timedelta(seconds=(i - 1) * dt_s)
             for j in range(1, 4):
                 for k in range(1, 4):
-                    t3 = base + dt.timedelta(seconds=(j - 1) * 20 + k * 20 / 3)
+                    t3 = base + dt.timedelta(seconds=((j - 1) * 3 + k) * dt_s / 9)
                     out.append("Timing for main: time %s on domain   3:    0.01000 elapsed seconds"
                                % t3.strftime("%Y-%m-%d_%H:%M:%S"))
-                t2 = base + dt.timedelta(seconds=j * 20)
+                t2 = base + dt.timedelta(seconds=j * dt_s / 3)
                 out.append("Timing for main: time %s on domain   2:    0.05000 elapsed seconds"
                            % t2.strftime("%Y-%m-%d_%H:%M:%S"))
-        t1 = T0 + dt.timedelta(seconds=i * DT)
+        t1 = T0 + dt.timedelta(seconds=i * dt_s)
         out.append("Timing for main: time %s on domain   1: %10.5f elapsed seconds"
-                   % (t1.strftime("%Y-%m-%d_%H:%M:%S"), _cost(i)))
+                   % (t1.strftime("%Y-%m-%d_%H:%M:%S"), cost(i)))
     return "\n".join(out + list(tail)) + "\n"
 
 
@@ -85,14 +94,16 @@ def test_replay_estimate_within_2pct_and_rate_is_whole_period_mean(tmp_path, cap
     snap = ww.snapshot(d, replay_fraction=0.25)
     assert snap["stepra"] == STEPRA and snap["total_steps"] == N
     assert snap["completed_steps"] == 360 and snap["periods"] == [STEPRA, HIST]
-    assert abs(snap["error_pct"]) < 2.0
+    assert abs(snap["replay_error_pct"]) < 2.0
     w = snap["rate_window"]
     assert w % HIST == 0 and w >= max(2 * STEPRA, 50, 90)
     costs = [_cost(i) for i in range(1, 361)]
     assert snap["rate_s_per_step"] == pytest.approx(sum(costs[-w:]) / w)  # mean, not median
     assert snap["rate_s_per_step"] > ww.statistics.median(costs[-w:])
+    assert snap["rate_outliers_dropped"] == 0  # the 60-step writes are on a period
     assert snap["actual_remaining_s"] == pytest.approx(sum(_cost(i) for i in range(361, N + 1)))
     assert not snap["actual_partial"] and _codes(snap) == []
+    assert snap["replay_error_pct"] is not None and snap["replay_error_pct"] == snap["error_pct"]
     assert snap["est_for_actual_s"] == pytest.approx(snap["remaining_s"])
     assert ww.exit_code(snap) == 0
 
@@ -106,14 +117,46 @@ def test_replay_on_partial_log_compares_only_the_logged_span(tmp_path):
     assert snap["actual_partial"] and snap["completed_steps"] == 350
     assert snap["remaining_steps"] == N - 350
     assert snap["est_for_actual_s"] == pytest.approx(350 * snap["rate_s_per_step"])
-    assert abs(snap["error_pct"]) < 2.0 and "CFL" not in _codes(snap)
+    assert abs(snap["replay_error_pct"]) < 2.0 and "CFL" not in _codes(snap)
 
 
 def test_rate_window_falls_back_to_stepra_multiple_when_lcm_too_long():
-    rate, w, med = ww.rate_window([1.0] * 70, 10, [10, 600])
-    assert w == 50 and rate == 1.0 and med == 1.0  # LCM 600 > 70 done -> whole stepra: 5 x 10
-    rate, w, _ = ww.rate_window([1.0] * 200, 10, [10, 60])
+    rate, w, med, n_out = ww.rate_window([1.0] * 70, 10, [10, 600])
+    assert (w, rate, med, n_out) == (50, 1.0, 1.0, 0)  # LCM 600 > 70 -> whole stepra: 5 x 10
+    rate, w, _, _ = ww.rate_window([1.0] * 200, 10, [10, 60])
     assert w == 60  # max(20, 50, 50)=50 -> one 60-step LCM period
+
+
+def test_outlier_dropped_unless_on_a_period_step():
+    series = [(i, 1.0) for i in range(1, 121)]
+    series[119] = (120, 30.0)  # history/restart period step (60): a real recurring cost, kept
+    series[114] = (115, 30.0)  # one-off stall, off every period (10, 60): dropped
+    rate, w, med, n_out = ww.rate_window(series, 10, [10, 60])
+    assert (w, n_out, med) == (60, 1, 1.0)  # window = steps 61..120
+    assert rate == pytest.approx((58 * 1.0 + 30.0) / 59)
+
+
+def test_lead_in_dropped():
+    series = [(1, 9.0), (2, 8.0), (3, 7.5), (4, 1.0), (5, 1.1)] + [(i, 1.0) for i in range(6, 41)]
+    kept, n = ww.drop_lead_in(series)
+    assert n == 3 and kept[0] == (4, 1.0)
+    assert ww.drop_lead_in([(1, 1.0), (2, 1.0), (3, 1.0)])[1] == 1  # first step always goes
+
+
+def test_init_spike_excluded_from_short_run_replay(tmp_path):
+    # isc21 shape: 30-min run at dt=15 s -> 120 d01 steps, stepra 120 (radt 30): a 25 % replay has
+    # 30 lines, and the first 3 are 8x slower (init). The rate must not see them.
+    def cost(i):
+        return (8.0 if i <= 3 else 0.0) + _cost(i, write=0.0, stepra=120, hist=10 ** 6, n=120)
+    d = _rundir(tmp_path, rsl=_rsl(n_d01=120, cost=cost, dt_s=15, tail=SUCCESS),
+                run_hours=0, run_minutes=30, dt_s=15, radt=30)
+    snap = ww.snapshot(d, replay_fraction=0.25)
+    assert snap["total_steps"] == 120 and snap["completed_steps"] == 30
+    assert snap["rate_lead_dropped"] == 3 and snap["rate_s_per_step"] == pytest.approx(1.0)
+    # actual 90 steps: 89 x 1.0 + one radiation step (120) x 4.0 = 93 -> est 90 = -3.2 %
+    assert snap["replay_error_pct"] == pytest.approx(100 * (90 - 93) / 93)
+    assert snap["replay_error_pct_rate"] == snap["replay_error_pct"]
+    assert snap["replay_error_pct_pred"] is None and snap["estimate"] == "rate"
 
 
 def test_truncated_rsl_error_loses_to_complete_rsl_out(tmp_path):
@@ -205,7 +248,6 @@ def test_failed_and_done_exit_codes(tmp_path, capsys):
     assert _codes(snap) == [] and ww.exit_code(snap) == 0
     capsys.readouterr()
     assert ww.main([d, "--json"]) == 0  # polling loop stops by itself on DONE
-    import json
     assert json.loads(capsys.readouterr().out)["status"] == "done"
 
 
@@ -233,3 +275,57 @@ def test_cli_registration(tmp_path, monkeypatch, capsys):
     with pytest.raises(SystemExit) as e:
         wtune_cli.main()
     assert e.value.code == 0 and "RUNNING" in capsys.readouterr().out
+
+
+def _pred_json(path, scale=0.8, ramp=0.3, r_rad=4.0, hours=(0, 6, 12, 18, 24)):
+    """A pred_rebuild.json whose s_normal anchors carry the run's ramp, at `scale` x the true
+    level (the level is what k corrects)."""
+    pts = [dict(at=(T0 + dt.timedelta(hours=h)).isoformat(), reason="auto", source="rebuild",
+                s_normal=scale * _s_normal(h * 3600 / DT, ramp), n_rad=2, r=r_rad)
+           for h in hours]
+    rec = {"result": dict(compute_total_s=1.0, init_s=30.0, total_s=31.0, steps_n=N,
+                          r_night=r_rad, r_day=r_rad, points=pts)}
+    path.write_text(json.dumps(rec))
+    return str(path)
+
+
+def test_prediction_scaled_follows_a_cost_ramp_rate_only_does_not(tmp_path):
+    def cost(i):
+        return _cost(i, ramp=0.3, write=5.0)
+    d = _rundir(tmp_path, rsl=_rsl(cost=cost, tail=SUCCESS))
+    pred = ww.load_prediction(_pred_json(tmp_path / "pred_rebuild.json"), d)
+    snap = ww.snapshot(d, replay_fraction=0.25, prediction=pred)
+    assert snap["estimate"] == "prediction" and snap["remaining_s"] == snap["remaining_pred_s"]
+    assert snap["replay_error_pct_rate"] < -5.0          # recent rate misses the +30 % ramp
+    assert abs(snap["replay_error_pct_pred"]) < 3.0
+    assert snap["replay_error_pct"] == snap["replay_error_pct_pred"]
+    # k = 1/0.8 for the level, x ~1.06 for the history writes the compute-only prediction lacks
+    assert 1.25 < snap["pred_scale_k"] < 1.40
+    assert "PRED_MISMATCH" not in _codes(snap)
+
+    # live: both estimates reported, prediction is the primary ETA
+    live = ww.snapshot(d, now=time.time(), prediction=pred)
+    assert live["status"] == "done"
+    (tmp_path / "live").mkdir()
+    lv = _rundir(tmp_path / "live", rsl=_rsl(n_d01=500, cost=cost))
+    snap = ww.snapshot(lv, now=time.time(), prediction=ww.load_prediction(
+        _pred_json(tmp_path / "p2.json"), lv))
+    assert snap["remaining_pred_s"] > snap["remaining_rate_s"] > 0
+    assert snap["remaining_s"] == snap["remaining_pred_s"] and "rate-only" in ww.format_line(snap)
+
+
+def test_cli_prediction_and_multi_fraction_json_list(tmp_path, capsys):
+    d = _rundir(tmp_path, rsl=_rsl(tail=SUCCESS))
+    pj = _pred_json(tmp_path / "pred_rebuild.json", ramp=0.0)
+    assert ww.main([d, "--replay-fraction", "0.1,0.25,0.5", "--json", "--prediction", pj]) == 0
+    rows = json.loads(capsys.readouterr().out)
+    assert isinstance(rows, list) and [r["replay_fraction"] for r in rows] == [0.1, 0.25, 0.5]
+    for r in rows:
+        assert r["estimate"] == "prediction"
+        assert r["replay_error_pct"] is not None and r["replay_error_pct_rate"] is not None
+    assert ww.main([d, "--replay-fraction", "0.25", "--json"]) == 0
+    assert isinstance(json.loads(capsys.readouterr().out), dict)  # single F -> one object
+    bad = tmp_path / "bad.json"
+    bad.write_text(json.dumps({"result": {"points": []}}))
+    with pytest.raises(SystemExit):
+        ww.main([d, "--once", "--prediction", str(bad)])

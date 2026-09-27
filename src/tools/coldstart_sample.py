@@ -1572,6 +1572,11 @@ def vertical_grid_from_wrfinput(path):
     param) and never imports numpy/netCDF4 at all."""
     import numpy as np
     import netCDF4
+    with _NETCDF_LOCK:   # build_plan runs per point in run_rebuild_points' thread pool
+        return _vertical_grid_from_dataset(netCDF4, np, path)
+
+
+def _vertical_grid_from_dataset(netCDF4, np, path):
     ds = netCDF4.Dataset(path)
     try:
         if "ZNW" not in ds.variables:

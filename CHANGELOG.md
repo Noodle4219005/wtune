@@ -91,9 +91,14 @@ are in the git history, not listed here.
 - `wtune run` R2 (segment wall inside its predicted range) passed on the rerun with an io-block
   prediction: +2.0% / −5.3% per segment. The first attempt overestimated 2–3× on constant I/O
   fallbacks, now scaled from measured anchors.
-- **PENDING:** elevconv2022 out-of-sample check of `--time`, the I/O probe and `watch
-  --prediction`. The scaled `--time` margin was chosen after the fixed one failed on dorian
-  (1.57×), so its pass is in-sample; `watch`'s with-prediction replay is in-sample too.
+- elevconv2022 out-of-sample: `--time` 1.25× the wall and I/O probe −3.8% passed; `watch
+  --prediction` failed (−13.6% at 25%) because rebuild underestimates the convective peak (~15% at
+  07 h) — a known limit for strong-convection cases. Short window vs old window −1.14%.
+- `wtune run --tune-report` switching and `--cfl-rescue` are now validated on hardware (dorian2019);
+  decompositions are not bitwise on this build, and a mid-run switch adds no error beyond that.
+- predict-rebuild windows: `nwp_diagnostics`-safe history off, out-of-group namelist keys commented,
+  iofields files linked into every window, WRF stopped 30 s after FATAL or 120 s after an init
+  'Problem opening' hang. Running metgrid on the whole allocation was 4.7× slower and was reverted.
 - `watch` rate-only misses a rising per-step cost (elevconv −15.6% at 25%); it reads rank 0's rsl
   only.
 - `wtune run --cfl-rescue` and per-segment config switching are unit-tested only, never run on

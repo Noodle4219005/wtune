@@ -426,8 +426,12 @@ volume varies up to 2.4× there.
 (45:00 = 1.57×); the scaled margin was chosen after seeing that, so the passing column is
 in-sample. zhengzhou's compute range_high (17387.4 s) is *below* its real wall — only the 2× I/O
 covers it, so do not lower that factor. The out-of-sample check on elevconv2022 (15 h, 8 nodes,
-writes 21% of wall: `--time`, I/O probe within 15%, watch with prediction) is registered and
-**PENDING**. Typhoon vortex bogussing (`tools/tc_bogus.py`) failed its criteria and is opt-in.
+writes 21% of wall) passed the `--time` check (5:20:00 = **1.25×** the 15377 s wall) and the I/O
+probe (3134.9 vs 3260.2 s, −3.8%); compute+init was −6.8% (in range). The short window vs the
+old window on the same day: −1.14%. **Known limit:** elevconv's per-step cost rises 44% between
+05 and 11 h as convection develops; the rebuilt point at 07:35 measured ~15% below the truth at
+that hour (20 min of spin-up from ERA5 does not grow organised convection) and the 10 h peak lay
+between points. Typhoon vortex bogussing (`tools/tc_bogus.py`) failed its criteria and is opt-in.
 
 ### `wtune watch` — read-only run monitor
 
@@ -457,7 +461,7 @@ Replay on scc truth logs at 25% progress, error of estimated vs actual remaining
 | zhengzhou / dorian2019 / lafe | −0.7% / −1.1% / −3.3% | −1.8% / −1.2% / +0.6% |
 | maria1km / conus25-g0014 | −2.9% / −3.8% | −1.7% / −6.4% |
 | marshall / isc21 (30 min) / c34 (truncated log) | −6.2% / +0.4% / −0.7% | — |
-| elevconv (576 ranks) | **−15.6%** | — (PENDING) |
+| elevconv (576 ranks, out of sample) | **−15.6%** | **−13.6%** (fails: the prediction itself misses the convective peak) |
 
 This is the third attempt at a pre-registered ≤10% criterion (first: 3 of 9 failed; second
 dropped write-absorbing steps as outliers, marshall −53.5%). The with-prediction column is
@@ -497,11 +501,19 @@ than the rescue case below stops with an error, never a silent retry.
 - `--tune-report`: each segment takes the candidate a predicted-mode tune report predicts
   cheapest over that segment's interval (default: one config throughout). A switch that changes
   `nproc_x` changes roundoff, so such a run is not bit-identical to a single-config run.
-  Per-segment switching has **not** been run on hardware.
+  On hardware (dorian2019, 30 + 30 min, 16×18 then 12×24 nt 8 from the first config's ADIOS2
+  restart, jobs 1531 + 1534): both segments completed with the intended configs. The 01:00 output
+  differs from a 16×18 single run by T max 1.9 K / RMS 0.007 K — exactly as much as a 12×24 run
+  from t0 differs from a 16×18 run (job 1535). The switch adds no error beyond choosing a
+  decomposition: on this build decompositions are **not** bitwise (roundoff grows in convection).
 - `--cfl-rescue` (off by default, **PHYSICS-GRAY**): a segment that failed with a CFL line or NaN
   is rerun once per run from the same restart with `time_step` = the largest integer in
   [0.5, 0.75] × dt dividing the segment length and L; later segments return to the case's dt.
-  Unit-tested decision logic only — **not validated on hardware**.
+  On hardware (dorian2019 copy, dt 120 s): WRF printed `points exceeded v_cfl` from step 2, the
+  segment was rerun once at 90 s and flagged PHYSICS-GRAY, that also exceeded CFL, and the run
+  stopped with an error (jobs 1537/1538) — detection, one rescue and a clean stop all work. dt 30 s
+  and 45 s ran cleanly on dorian's first 30 min, so one 0.75× step cannot rescue a time step that
+  is far off; that conservatism is deliberate.
 
 Evidence (dorian2019 first hour, 4 nodes 16×18): **R1** 30 + 30 min chain (jobs 1405 + 1410) vs
 one-shot (job 1392): 01:00 `wrfout` for d01 and d02, **202 variables each, bit-identical**, no

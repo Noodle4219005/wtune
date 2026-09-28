@@ -101,8 +101,6 @@ are in the git history, not listed here.
   'Problem opening' hang. Running metgrid on the whole allocation was 4.7× slower and was reverted.
 - `watch` rate-only misses a rising per-step cost (elevconv −15.6% at 25%); it reads rank 0's rsl
   only.
-- `wtune run --cfl-rescue` and per-segment config switching are unit-tested only, never run on
-  hardware.
 - A "small patch hangs at init" preflight rule was not added: refuted by 102 successful runs with
   ≤ 10-cell patches; only sc26p2 17×13 hangs.
 - For a run under ~1 h, `predict-rebuild` costs a large share of just running it (conus25: 51%).

@@ -107,7 +107,10 @@ _S, _G, _R = STRICT, PHYSICS_GRAY, RESEARCH
 CATALOG = [
     # ---- STRICT: WRF native work geometry ----
     _k('nproc_x', 'namelist', _S, 'roundoff', ALL, status='gain',
-       evidence='8x56 -1~3% solver on CONUS 2.5km [[wrf-conus25-tuning-conclusion]]; bitwise across decompositions unverified',
+       evidence='8x56 -1~3% solver on CONUS 2.5km [[wrf-conus25-tuning-conclusion]]; NOT bitwise across decompositions: '
+                'dorian2019 1 h on scc, 16x18 vs 12x24 nt8 from t0 -> 52/202 wrfout vars differ at 01:00, '
+                'T max 1.9 K (d01) / 4.6 K (d02) but RMS 0.007 K -- roundoff seeded, grown in convective cells '
+                '(2026-09-28, wtune run sw1 / x1_single_B)',
        legal=_legal('int', min=-1, max=None, source='Registry.EM_COMMON:2354; module_check_a_mundo.F:3014-3029',
                     constraints=['-1 = unset/auto sentinel (Registry.EM_COMMON:2354); 0 and values <= -2 are '
                                  'illegal; explicit values must be >= 1',
@@ -123,7 +126,8 @@ CATALOG = [
                                  '(e_sn-1)/nproc_y >= 10 per rank required '
                                  '[[wrf-refuses-any-patch-thinner-than-10-cells]] (module_check_a_mundo.F:3014-3029)'])),
     _k('numtiles', 'namelist', _S, 'none', ALL, hw=('omp_threads>1',), status='gain',
-       evidence='even numtiles -1.4% on karina 224x2, diffwrf 0 [[even-numtiles-12-or-14-is-1-4-percent-faster-than-13-on-224x2-bit-identical-pristine-and-tile-size-is-not-the-reason]]',
+       evidence='even numtiles -1.4% on karina 224x2, diffwrf 0 [[even-numtiles-12-or-14-is-1-4-percent-faster-than-13-on-224x2-bit-identical-pristine-and-tile-size-is-not-the-reason]]; '
+                'dorian2019 16x18 nt1 vs 12x24 nt8 differed (see nproc_x) but numtiles was not isolated there',
        legal=_legal('int', min=1, max=64, source='Registry.EM_COMMON:2349; predictor/decomp_space.py:89',
                     constraints=['upper bound 64 is a WTune-imposed practical cap (predictor/decomp_space.py:89), '
                                  'not a WRF hard limit'])),

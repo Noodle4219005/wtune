@@ -1873,6 +1873,34 @@ def history_file_prefix(nl):
     return os.path.basename(str(name).strip()).split("<")[0]
 
 
+def case_iofields_links(plan, plan_dir):
+    """Symlink the case's existing iofields_filename files into every win_k/wrf dir of the plan;
+    returns [(k, dst), ...]. Missing files are left alone (the window then hangs at init unless
+    the watcher in render_run_sbatch stops it)."""
+    case_dir = plan.get("case_dir")
+    nl_path = plan.get("namelist_input") or (os.path.join(case_dir, "namelist.input")
+                                             if case_dir else None)
+    if not case_dir or not nl_path or not os.path.exists(nl_path):
+        return []
+    nl = predict.parse_namelist(nl_path)
+    names = set()
+    for d in range(predict.get_max_dom(nl)):
+        fname = str(predict.g_dom(nl, "time_control", "iofields_filename", d) or "").strip()
+        if fname and fname != "NONE_SPECIFIED" and not os.path.isabs(fname):
+            names.add(fname)
+    out = []
+    for k in range(len(plan.get("windows") or [])):
+        wrf_dir = os.path.join(plan_dir, "win_%d" % k, "wrf")
+        for fname in sorted(names):
+            src = os.path.join(case_dir, fname)
+            if os.path.isfile(src):
+                dst = os.path.join(wrf_dir, fname)
+                os.makedirs(os.path.dirname(dst), exist_ok=True)
+                _symlink_one(os.path.abspath(src), dst)
+                out.append((k, dst))
+    return out
+
+
 def plan_io_probe(nl, case_dir, run_s):
     """plan.json's 'io_probe' block for parsed case namelist `nl`: per-domain history on/off
     (io_form_history != 0 and a history interval > 0), whether a restart is probed
@@ -2327,6 +2355,10 @@ def stage_plan(plan_dir, site="scc", per_window_min=15):
             os.makedirs(real_dir, exist_ok=True)
             os.makedirs(wrf_dir, exist_ok=True)
 
+    # Every window reads the case's own iofields file(s) from its run directory: WRF hangs at
+    # init when one is missing ('Problem opening storm_diags_d01.txt', elevconv 2026-09-28: every
+    # non-probe window idled 34 min until the timeout).
+    case_iofields_links(plan, plan_dir)
     probe = plan.get("io_probe")
     if probe:
         # the probe window reads the case's own iofields file(s) from its run directory
@@ -2764,10 +2796,17 @@ def render_run_sbatch(plan, site="scc", per_window_estimate_min=15, wps_estimate
         # A WRF FATAL (MPI_Abort) can leave mpirun hanging until the window timeout (elevconv
         # 2026-09-28: 'namelist settings are wrong' at init, then 40 min idle). Stop the launch
         # 30 s after any rank prints FATAL CALLED.
-        lines.append("  ( while kill -0 \"$WRF_PID\" 2>/dev/null; do "
+        # Also a silent init hang: 'Problem opening <file>' (e.g. a missing iofields file) and no
+        # 'Timing for main' line within 120 s of it.
+        lines.append("  ( po=0; while kill -0 \"$WRF_PID\" 2>/dev/null; do "
                      "if grep -lqs 'FATAL CALLED' rsl.error.* 2>/dev/null; then sleep 30; "
                      "kill -TERM \"$WRF_PID\" 2>/dev/null; sleep 20; kill -KILL \"$WRF_PID\" 2>/dev/null; "
-                     "echo \"window $k: WRF FATAL CALLED -- launch stopped\" >&2; break; fi; sleep 10; done ) &")
+                     "echo \"window $k: WRF FATAL CALLED -- launch stopped\" >&2; break; fi; "
+                     "if grep -qs 'Problem opening' rsl.error.0000 && ! grep -qs 'Timing for main' rsl.error.0000; then "
+                     "po=$((po+10)); if [ $po -ge 120 ]; then kill -TERM \"$WRF_PID\" 2>/dev/null; sleep 20; "
+                     "kill -KILL \"$WRF_PID\" 2>/dev/null; "
+                     "echo \"window $k: WRF stuck at init after 'Problem opening' -- launch stopped\" >&2; break; fi; fi; "
+                     "sleep 10; done ) &")
         lines.append("  FATAL_WATCH_PID=$!")
         lines.append("  wait \"$WRF_PID\"")
         lines.append("  rc=$?; WRF_PID=\"\"")

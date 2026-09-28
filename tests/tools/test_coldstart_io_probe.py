@@ -271,3 +271,24 @@ def test_run_sbatch_stops_wrf_after_fatal():
         assert subprocess.run(["bash", "-n", f.name]).returncode == 0
     finally:
         os.unlink(f.name)
+
+
+def test_every_window_links_the_case_iofields_file(tmp_path):
+    import coldstart_sample as cs
+    case = tmp_path / "case"; case.mkdir()
+    (case / "namelist.input").write_text(_ELEV_LIKE)
+    (case / "storm_diags_d01.txt").write_text("")
+    plan = {"case_dir": str(case), "namelist_input": str(case / "namelist.input"),
+            "windows": [{"t": "a"}, {"t": "b"}]}
+    out = cs.case_iofields_links(plan, str(tmp_path / "plan"))
+    assert sorted(k for k, _ in out) == [0, 1]
+    for k in (0, 1):
+        assert (tmp_path / "plan" / ("win_%d" % k) / "wrf" / "storm_diags_d01.txt").is_symlink()
+
+
+def test_run_sbatch_stops_a_silent_init_hang():
+    import coldstart_sample as cs
+    plan = {"windows": [{"t": "2019-11-26_15:00:00", "reason": "t0"}], "nodes": 1,
+            "config": {"ranks": 72, "omp": 1, "nx": 9, "ny": 8, "numtiles": 1}}
+    text = cs.render_run_sbatch(plan, site="scc")
+    assert "grep -qs 'Problem opening' rsl.error.0000" in text and "po -ge 120" in text

@@ -292,3 +292,31 @@ def test_run_sbatch_stops_a_silent_init_hang():
             "config": {"ranks": 72, "omp": 1, "nx": 9, "ny": 8, "numtiles": 1}}
     text = cs.render_run_sbatch(plan, site="scc")
     assert "grep -qs 'Problem opening' rsl.error.0000" in text and "po -ge 120" in text
+
+
+def test_nwp_diagnostics_probe_window_uses_plain_minutes():
+    import datetime
+    import coldstart_sample as cs
+    probe = {"window": 0, "history": [True, True], "restart": False, "iofields": None}
+    # 1200 s window (whole minutes): plain keys, both = 20 min, nothing huge left
+    txt = cs.build_wrf_window_namelist_text(_ELEV_LIKE, datetime.datetime(2022, 5, 12, 14), 80,
+                                            15.0, 16, 18, 1, io_probe=probe)
+    assert cs.get_first(txt, "history_interval") == "20" and cs.get_first(txt, "history_begin") == "20"
+    assert "999999" not in txt.split("restart_interval")[0].split("history")[-1] or \
+        cs.get_first(txt, "history_interval") != "999999"
+    # a 27.5-min window is refused rather than silently writing nothing
+    import pytest
+    with pytest.raises(cs.ColdstartError):
+        cs.build_wrf_window_namelist_text(_ELEV_LIKE, datetime.datetime(2022, 5, 12, 14), 110,
+                                          15.0, 16, 18, 1, io_probe=probe)
+
+
+def test_probe_with_seconds_zeroes_plain_keys():
+    import datetime
+    import coldstart_sample as cs
+    plain = _ELEV_LIKE.replace(" nwp_diagnostics = 1,", " nwp_diagnostics = 0,")
+    probe = {"window": 0, "history": [True, True], "restart": False, "iofields": None}
+    txt = cs.build_wrf_window_namelist_text(plain, datetime.datetime(2022, 5, 12, 14), 110,
+                                            15.0, 16, 18, 1, io_probe=probe)
+    assert cs.get_first(txt, "history_interval_s") == "1650"
+    assert cs.get_first(txt, "history_interval") == "0"

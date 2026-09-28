@@ -1159,6 +1159,13 @@ def build_plan(case_dir, out_dir, k=4, nodes=1, ranks=72, omp=1, nx=None, ny=Non
 
     W, stepra, measure_steps = compute_window_seconds(spinup_min, dt, radt,
                                                       measure_steps=measure_steps)
+    if io_probe and str(predict.g(nl, "physics", "nwp_diagnostics", 0)).strip() == "1":
+        # nwp_diagnostics = 1 forbids history_interval(1) == 0, so the probe must use the plain
+        # minutes keys, which needs a whole-minute window (elevconv 2026-09-28: a 27.5 min window
+        # used history_interval_s and summed with the huge plain value -> no frame at all).
+        while abs(W % 60.0) > 1e-6 and abs(W % 60.0 - 60.0) > 1e-6:
+            measure_steps += 1
+            W += dt
 
     nlw_path = namelist_wps or os.path.join(case_dir, "namelist.wps")
     wi_path = geo_from_wrfinput or os.path.join(case_dir, "wrfinput_d01")
@@ -1947,6 +1954,10 @@ def apply_io_probe(text0, txt, ndom, win_seconds, probe):
     probe['restart'], restart_interval = W (other restart_interval_* keys zeroed). Returns
     (txt, keys that must be present exactly once)."""
     suffix, val = ("", win_seconds // 60) if win_seconds % 60 == 0 else ("_s", win_seconds)
+    nwp_diag = str(get_first(text0, "nwp_diagnostics", "0")).strip() == "1"
+    if nwp_diag and suffix:
+        raise ColdstartError("io probe: nwp_diagnostics = 1 needs a whole-minute window (have %d s)"
+                             % win_seconds)
     hist = list(probe.get("history") or [])
     hist = (hist + [hist[-1] if hist else False] * ndom)[:ndom]
     keys = []
@@ -1959,6 +1970,12 @@ def apply_io_probe(text0, txt, ndom, win_seconds, probe):
         txt = set_list_values(txt, h_int, on)
         txt = set_list_values(txt, h_beg, on)
         keys += [h_int, h_beg]
+        if suffix:
+            # WRF sums the plain (minutes) key and its _s variant: zero the plain ones the base
+            # window may have set (e.g. the huge nwp_diagnostics-safe values).
+            for plain in ("history_interval", "history_begin"):
+                if count_key(txt, plain):
+                    txt = set_list(txt, plain, 0, ndom)
         iof = probe.get("iofields")
         if iof is not None and count_key(text0, "iofields_filename"):
             iof = (list(iof) + [iof[-1] if iof else None] * ndom)[:ndom]

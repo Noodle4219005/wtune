@@ -318,13 +318,13 @@
   "syn_era5_diff": {
     "zh": {
       "question": "模式的 500 hPa 高度場相對 ERA5 分析場偏差在哪裡、多大？",
-      "how_to_read": "填色為模式減 ERA5 的 500 hPa 高度差（m），標題附 RMSE/bias（見模組說明：本輪以 numpy 直接計算，非 MET Grid-Stat，屬已揭露的偏離）。",
-      "common_misreadings": "把這個 RMSE/bias 當成通過 MET 驗證的正式分數——decision 0057 原定用 MET Grid-Stat，這裡用 numpy 近似取代，見報告的偏離說明。"
+      "how_to_read": "填色為模式減 ERA5 的 500 hPa 高度差（m，於 ERA5 0.25° 格點上、僅計模式內部區域）；黑實線為模式、黑虛線為 ERA5 的 500 hPa 高度（每 60 m），兩者錯位處即位置誤差，對應填色的正負偶極。標題的 RMSE/bias 來自 MET Grid-Stat。",
+      "common_misreadings": "把整片淡色當成「無誤差」：零附近的一格（約 ±8 m）刻意為白色；側邊界區（spec_bdy_width）不計入統計，底色同為白色。"
     },
     "en": {
       "question": "Where and how large is the model's 500 hPa height bias against the ERA5 analysis?",
-      "how_to_read": "Fill: model minus ERA5 z500 (m); title carries RMSE/bias (see the module docstring: computed directly in numpy this round, not through MET Grid-Stat -- a disclosed deviation).",
-      "common_misreadings": "Treating this RMSE/bias as a MET-verified formal score -- decision 0057 specifies MET Grid-Stat; this is a numpy approximation standing in for it, see the report's deviation note."
+      "how_to_read": "Fill: model minus ERA5 z500 (m); on the ERA5 0.25 deg grid, model interior only; black solid = model, black dashed = ERA5 z500 every 60 m, so a displaced feature shows as offset contours and a +/- dipole in the fill. RMSE/bias in the title come from MET Grid-Stat.",
+      "common_misreadings": "Reading the pale fill as 'no error': the bin around zero (about +/-8 m) is deliberately white, and the lateral boundary zone (spec_bdy_width) is excluded from the statistics and shares that white background."
     }
   },
   "pbl_cross_terrain": {

@@ -176,6 +176,7 @@ def detect_and_stitch(fields_nc, workdir, params=None):
     mis-gridding the field.
     """
     params = params or TCTrackParams()
+    workdir = os.path.abspath(str(workdir))     # _run() executes with cwd=workdir: relative paths would double
     os.makedirs(workdir, exist_ok=True)
     fields_nc = os.path.abspath(str(fields_nc))
 

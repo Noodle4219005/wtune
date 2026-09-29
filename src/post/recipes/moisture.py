@@ -60,9 +60,14 @@ def _pw_change_figure(run_dir, run_label, domain, out_dir, hours=6.0):
 def _default_moisture_point(run_dir, domain, tc_centre=None):
     """(lat, lon) for the cross-section/time-height figures: the TC centre when given
     (decision 0057 update: "剖面線預設過颶風中心或最大雨量區"), else the grid cell with the
-    largest accumulated rain."""
+    largest accumulated rain at the last frame. Rule: INTERIOR cells only -- the
+    spec_bdy_width cells at every domain edge are boundary-relaxed, not model physics
+    (post/caseinfo.py::_interior_bounds, same lesson as the terrain figures). The storm moves,
+    so a fixed point is only a sampling location, not a track: the title says which rule
+    chose it (_point_reason)."""
     import netCDF4
     import numpy as np
+    from post import caseinfo
     wrf_mod = __import__("wrf")
     if tc_centre:
         return tc_centre
@@ -73,8 +78,20 @@ def _default_moisture_point(run_dir, domain, tc_centre=None):
         rainnc = wrf_mod.getvar(ds, "RAINNC", timeidx=0)
         rain = np.asarray(rainc + rainnc)
         lats, lons = wrf_mod.latlon_coords(rainc, as_np=True)
-    j, i = np.unravel_index(np.nanargmax(rain), rain.shape)
+    bounds = caseinfo._interior_bounds(rain.shape[0], rain.shape[1], caseinfo.spec_bdy_width(run_dir))
+    if bounds is not None:
+        j0, j1, i0, i1 = bounds
+        sub = rain[j0:j1, i0:i1]
+        j, i = np.unravel_index(np.nanargmax(sub), sub.shape)
+        j, i = j + j0, i + i0
+    else:
+        j, i = np.unravel_index(np.nanargmax(rain), rain.shape)
     return float(lats[j, i]), float(lons[j, i])
+
+
+def _point_reason(tc_centre):
+    return ("TC centre (best track, last frame)" if tc_centre
+            else "max accumulated rain at last frame, interior cells only")
 
 
 def _ivt_figure(run_dir, run_label, domain, out_dir):
@@ -246,9 +263,11 @@ def _cross_section_figure(run_dir, run_label, domain, out_dir, point, line=None,
     return out_path
 
 
-def _point_time_height(run_dir, run_label, domain, out_dir, point):
+def _point_time_height(run_dir, run_label, domain, out_dir, point, reason=None, top_m=12000.0):
     import netCDF4
     import numpy as np
+    from datetime import datetime
+    from post.timeseries import WRF_TIME_FMT
     wrf_mod = __import__("wrf")
 
     frames = list_frames(run_dir, domain=domain)
@@ -262,32 +281,44 @@ def _point_time_height(run_dir, run_label, domain, out_dir, point):
         xy = wrf_mod.ll_to_xy(ds, lat, lon)
         i, j = int(xy[0]), int(xy[1])
 
-    times, q_profiles, rh_profiles, z_profiles = [], [], [], []
+    times, q_profiles, z_profiles = [], [], []
+    hgt = 0.0
     for t, path in frames:
         with netCDF4.Dataset(path) as ds:
             q = np.asarray(ds.variables["QVAPOR"][0, :, j, i]) * 1000.0  # kg/kg -> g/kg
-            rh = np.asarray(wrf_mod.getvar(ds, "rh", timeidx=0))[:, j, i]
             z = np.asarray(wrf_mod.getvar(ds, "z", timeidx=0, units="m"))[:, j, i]
-        times.append(t)
+            hgt = float(ds.variables["HGT"][0, j, i]) if "HGT" in ds.variables else 0.0
+        times.append(datetime.strptime(t, WRF_TIME_FMT))
         q_profiles.append(q)
-        rh_profiles.append(rh)
         z_profiles.append(z)
 
     n_levels = min(len(p) for p in q_profiles)
     q_arr = np.array([p[:n_levels] for p in q_profiles]).T
-    z_arr = np.mean([p[:n_levels] for p in z_profiles], axis=0)
+    # height above ground level (z is MSL), mean over time -- levels move by a few metres only
+    z_agl = (np.mean([p[:n_levels] for p in z_profiles], axis=0) - hgt) / 1000.0
 
+    import matplotlib.dates as mdates
+    from matplotlib.ticker import MaxNLocator
     plt = _plt()
-    fig, ax = plt.subplots(figsize=(9, 4))
-    cf = ax.contourf(range(len(times)), z_arr, q_arr, levels=20, cmap="BuPu")
+    fig, ax = plt.subplots(figsize=(9, 4.8), layout="constrained")
+    fig.get_layout_engine().set(h_pad=0.12, w_pad=0.08)   # room for the two-line title
+    qmax = float(np.nanmax(q_arr))
+    cf = ax.contourf(times, z_agl, q_arr, levels=MaxNLocator(nbins=16).tick_values(0.0, qmax),
+                     cmap="BuPu")
     fig.colorbar(cf, ax=ax, label="specific humidity (g/kg)")
-    ax.set_xticks(range(len(times)))
-    ax.set_xticklabels(times, rotation=45, fontsize=6)
-    ax.set_ylabel("height (m)")
-    ax.set_title("%s  d%02d  time-height (specific humidity) at (%.2f,%.2f)"
-                 % (run_label, domain, lat, lon), fontsize=9)
+    cs = ax.contour(times, z_agl, q_arr, levels=MaxNLocator(nbins=8).tick_values(0.0, qmax),
+                    colors="k", linewidths=0.5)
+    ax.clabel(cs, inline=True, fontsize=6, fmt="%g")
+    ax.set_ylim(0.0, top_m / 1000.0)
+    ax.xaxis.set_major_locator(mdates.HourLocator(byhour=[0, 6, 12, 18]))
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%d/%HZ"))
+    ax.set_xlim(times[0], times[-1])
+    ax.set_xlabel("valid time (day/hour UTC)")
+    ax.set_ylabel("height AGL (km)")
+    ax.set_title("%s  d%02d  specific humidity time-height at %.2f%s, %.2f%s\n%s"
+                 % (run_label, domain, abs(lat), "N" if lat >= 0 else "S",
+                    abs(lon), "E" if lon >= 0 else "W", reason or "user-given point"), fontsize=9, pad=8)
     out_path = os.path.join(out_dir, "moisture_timeheight_d%02d.png" % domain)
-    fig.tight_layout()
     fig.savefig(out_path)
     plt.close(fig)
     return out_path
@@ -347,7 +378,8 @@ def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6, cross_section=
     try:
         if point is None:
             point = _default_moisture_point(run_dir, domain, tc_centre=tc_centre)
-        path = _point_time_height(run_dir, run_label, domain, out_dir, point)
+        path = _point_time_height(run_dir, run_label, domain, out_dir, point,
+                                  reason=_point_reason(tc_centre))
         if path:
             out.append(fig("moisture_timeheight", path, run_label, domain="d%02d" % domain))
         else:

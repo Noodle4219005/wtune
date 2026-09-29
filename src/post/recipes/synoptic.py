@@ -56,7 +56,14 @@ def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6):
             pressure = wrf_mod.getvar(ds, "pressure", timeidx=0)
             z = wrf_mod.getvar(ds, "z", timeidx=0, units="m")
             z500 = wrf_mod.interplevel(z, pressure, 500)
-            z1000 = wrf_mod.interplevel(z, pressure, 1000)
+            # 1000 hPa is below ground wherever SLP < 1000 hPa (the whole hurricane core):
+            # plain interplevel returns missing there, so the thickness contours vanished.
+            # wrf.vinterp(extrapolate=True) is wrf-python's standard below-ground
+            # extrapolation (standard-atmosphere lapse rate) for a height field.
+            z_pl = wrf_mod.vinterp(ds, z, "pressure", [1000.0, 500.0], extrapolate=True,
+                                   field_type="z", timeidx=0, log_p=True)
+            z1000_ext = np.asarray(z_pl[0])
+            z500_ext = np.asarray(z_pl[1])
             avo = wrf_mod.getvar(ds, "avo", timeidx=0)
             avo500 = wrf_mod.interplevel(avo, pressure, 500)
             lats, lons = wrf_mod.latlon_coords(z500, as_np=True)
@@ -64,23 +71,41 @@ def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6):
             xlim = wrf_mod.cartopy_xlim(var=z500)
             ylim = wrf_mod.cartopy_ylim(var=z500)
 
+            # absolute vorticity is essentially positive: sequential map from 0 up (the
+            # standard 500 hPa chart), the few negative cells in ONE neutral grey bin
+            from matplotlib.patches import Patch
+            avo_np = np.asarray(avo500, dtype="f8")
+            # capped like standard 500 hPa vorticity charts: 0,5,...,60 (1e-5 s-1), the core
+            # saturates into the extend="max" arrow so the far field keeps its structure
+            avo_np = np.asarray(avo500, dtype="f8")
+            pos = np.arange(0.0, 65.0, 5.0)
+            avo_levels = np.concatenate([[min(float(np.nanmin(avo_np)), -1.0) - 1.0], pos])
+            from matplotlib import colormaps
+            cm = colormaps["YlOrRd"]
+            avo_colors = ["0.8"] + [cm(x) for x in np.linspace(0.08, 0.95, len(pos))]
+
             p1 = os.path.join(out_dir, "syn_z500_vort.png")
             save_map(p1, lats, lons,
                     "%s d01 500 hPa height (contour, m) + absolute vorticity (fill)  %s"
                     % (run_label, time_str),
-                    fill_field=np.asarray(avo500), fill_label="absolute vorticity (1e-5 s-1)",
-                    fill_cmap="RdBu_r", contour_field=np.asarray(z500), ds=ds, crs=crs)
+                    fill_field=avo_np, fill_label="absolute vorticity (1e-5 s-1)",
+                    fill_levels=avo_levels, fill_colors=avo_colors, fill_extend="max",
+                    contour_field=np.asarray(z500), ds=ds, crs=crs, gridline_labels=True,
+                    legend_handles=[Patch(facecolor="0.8", label="negative (< 0)")])
             out.append(fig("syn_z500_vort", p1, run_label, domain="d01", valid_time=time_str))
 
             slp = wrf_mod.getvar(ds, "slp", timeidx=0, units="hPa")
-            thickness = np.asarray(z500) - np.asarray(z1000)
+            thickness = z500_ext - z1000_ext
             p2 = os.path.join(out_dir, "syn_slp_thickness.png")
             save_map(p2, lats, lons,
-                    "%s d01 SLP (fill, hPa) + 1000-500 hPa thickness (contour, m)  %s"
+                    "%s d01 SLP (fill, hPa) + 1000-500 hPa thickness (contour, m)  %s\n"
+                    "1000 hPa height extrapolated below ground (wrf.vinterp extrapolate=True)"
                     % (run_label, time_str),
                     fill_field=np.asarray(slp), fill_label="SLP (hPa)", fill_cmap="viridis",
-                    contour_field=thickness, ds=ds, crs=crs)
-            out.append(fig("syn_slp_thickness", p2, run_label, domain="d01", valid_time=time_str))
+                    contour_field=thickness, ds=ds, crs=crs, gridline_labels=True)
+            out.append(fig("syn_slp_thickness", p2, run_label, domain="d01", valid_time=time_str,
+                           extra={"note": "1000 hPa height extrapolated below ground "
+                                          "(wrf.vinterp extrapolate=True)"}))
 
             theta_e = wrf_mod.getvar(ds, "theta_e", timeidx=0)
             theta_e850 = wrf_mod.interplevel(theta_e, pressure, 850)
@@ -88,10 +113,14 @@ def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6):
                 wrf_mod.getvar(ds, "ua", timeidx=0, units="m s-1"), pressure, 850))
             v850 = np.asarray(wrf_mod.interplevel(
                 wrf_mod.getvar(ds, "va", timeidx=0, units="m s-1"), pressure, 850))
+            # 850 hPa is below ground where the surface pressure is < 850 hPa
+            below850 = np.asarray(ds.variables["PSFC"][0]) / 100.0 < 850.0
             p3 = os.path.join(out_dir, "syn_850_thetae_wind.png")
             save_map(p3, lats, lons, "%s d01 850 hPa theta-e (K) + wind  %s" % (run_label, time_str),
                     fill_field=np.asarray(theta_e850), fill_label="theta-e (K)", fill_cmap="magma",
-                    u=u850, v=v850, ds=ds, crs=crs)
+                    u=np.ma.masked_where(below850, u850), v=np.ma.masked_where(below850, v850),
+                    ds=ds, crs=crs, gridline_labels=True, hatch_mask=below850,
+                    hatch_label="850 hPa below ground")
             out.append(fig("syn_850_thetae_wind", p3, run_label, domain="d01", valid_time=time_str))
 
             wspd250 = wrf_mod.interplevel(
@@ -99,7 +128,7 @@ def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6):
             p4 = os.path.join(out_dir, "syn_250_jet.png")
             save_map(p4, lats, lons, "%s d01 250 hPa wind speed (jet)  %s" % (run_label, time_str),
                     fill_field=np.asarray(wspd250), fill_label="wind speed (m/s)",
-                    fill_cmap="cividis", ds=ds, crs=crs)
+                    fill_cmap="cividis", ds=ds, crs=crs, gridline_labels=True)
             out.append(fig("syn_250_jet", p4, run_label, domain="d01", valid_time=time_str))
 
             t2 = np.asarray(wrf_mod.getvar(ds, "T2", timeidx=0))
@@ -108,7 +137,7 @@ def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6):
             p5 = os.path.join(out_dir, "syn_t2_wind10.png")
             save_map(p5, lats, lons, "%s d01 T2 (K) + 10 m wind  %s" % (run_label, time_str),
                     fill_field=t2, fill_label="T2 (K)", fill_cmap="coolwarm", u=u10, v=v10,
-                    ds=ds, crs=crs)
+                    ds=ds, crs=crs, gridline_labels=True)
             out.append(fig("syn_t2_wind10", p5, run_label, domain="d01", valid_time=time_str))
 
             model_bbox = (float(np.asarray(ds.variables["XLAT"][0]).min()),

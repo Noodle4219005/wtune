@@ -19,8 +19,12 @@ from post.extract import list_frames
 
 
 def _member_field(run_dir, domain, time_str, field="slp"):
+    """(values, lats, lons, crs, ds_landmask) of one member; the lateral boundary zone
+    (spec_bdy_width cells, where the solution is the driving analysis rather than the member's
+    own physics) is set to NaN so no boundary-band artefact enters the ensemble statistics."""
     import netCDF4
     import numpy as np
+    from post import caseinfo
     wrf_mod = __import__("wrf")
     path = os.path.join(run_dir, "wrfout_d%02d_%s" % (domain, time_str))
     with netCDF4.Dataset(path) as ds:
@@ -31,44 +35,98 @@ def _member_field(run_dir, domain, time_str, field="slp"):
         else:
             raise ValueError(field)
         lats, lons = wrf_mod.latlon_coords(var, as_np=True)
-        return np.asarray(var), lats, lons
+        crs = wrf_mod.get_cartopy(var=var)
+        arr = np.array(var, dtype=float)
+        w = caseinfo.spec_bdy_width(run_dir)
+        arr[:w, :] = np.nan
+        arr[-w:, :] = np.nan
+        arr[:, :w] = np.nan
+        arr[:, -w:] = np.nan
+        landmask = np.asarray(ds.variables["LANDMASK"][0]) if "LANDMASK" in ds.variables else None
+        return arr, lats, lons, crs, landmask
 
 
-def plot_spaghetti(run_dirs, labels, domain, time_str, out_path, contour_level=1000.0):
+def _draw_coast(ax, ccrs, lats, lons, landmask):
+    """Coastline through post.plotting's own Natural-Earth-or-LANDMASK fallback."""
+    from post.plotting import _natural_earth_ready, _set_cartopy_data_dir
+    _set_cartopy_data_dir()
+    if _natural_earth_ready():
+        import cartopy.feature as cfeature
+        ax.add_feature(cfeature.COASTLINE, linewidth=0.7)
+        ax.add_feature(cfeature.BORDERS, linewidth=0.4)
+    elif landmask is not None:
+        ax.contour(lons, lats, landmask, levels=[0.5], colors="k", linewidths=0.7,
+                   transform=ccrs.PlateCarree())
+
+
+def plot_spaghetti(run_dirs, labels, domain, time_str, out_path, contour_level=None):
+    """One SLP contour per member plus a marker at each member's SLP minimum. contour_level
+    None = 10 hPa above the HIGHEST member minimum (every member then has a closed contour; a level tied to the deepest low drops the weaker members): a fixed 1000 hPa contour is the whole outer
+    circulation of a hurricane (5-degree-wide rings that hide the member differences), while a
+    level tied to the deepest low outlines the core the members actually disagree on."""
+    import numpy as np
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
+    import cartopy.crs as ccrs
 
-    fig, ax = plt.subplots(figsize=(7, 6))
-    for idx, (run_dir, label) in enumerate(zip(run_dirs, labels)):
-        arr, lats, lons = _member_field(run_dir, domain, time_str, field="slp")
+    members = [_member_field(rd, domain, time_str, field="slp") for rd in run_dirs]
+    mins = [np.nanmin(m[0]) for m in members]
+    level = contour_level if contour_level is not None else float(np.floor(max(mins) + 10.0))
+    crs, lats0, lons0, lm0 = members[0][3], members[0][1], members[0][2], members[0][4]
+    fig, ax = plt.subplots(figsize=(8, 6.5), subplot_kw={"projection": crs})
+    for idx, ((arr, lats, lons, _, _), label) in enumerate(zip(members, labels)):
         color = plt.get_cmap("tab10")(idx % 10)
-        ax.contour(lons, lats, arr, levels=[contour_level], colors=[color], linewidths=1.0)
-        ax.plot([], [], color=color, label=label)   # proxy artist -- contour() has no legend label
-    ax.set_xlabel("lon")
-    ax.set_ylabel("lat")
-    ax.set_title("ensemble spaghetti: SLP=%g hPa contour  %s" % (contour_level, time_str))
-    ax.legend(fontsize=6, ncol=2)
+        ax.contour(lons, lats, arr, levels=[level], colors=[color], linewidths=1.4,
+                   transform=ccrs.PlateCarree())
+        j, i = np.unravel_index(np.nanargmin(arr), arr.shape)
+        ax.plot(lons[j, i], lats[j, i], "*", color=color, ms=13, mec="k",
+                transform=ccrs.PlateCarree(), label="%s (min %.0f hPa)" % (label, arr[j, i]))
+    _draw_coast(ax, ccrs, lats0, lons0, lm0)
+    ax.gridlines(draw_labels=True, linewidth=0.3, x_inline=False, y_inline=False)
+    ax.set_title("ensemble spaghetti: SLP=%g hPa contour, stars = member SLP minimum\n%s (%d members)"
+                 % (level, time_str, len(run_dirs)), fontsize=9)
+    ax.legend(fontsize=7, loc="lower left")
     fig.tight_layout()
-    fig.savefig(out_path)
+    fig.savefig(out_path, dpi=110)
     plt.close(fig)
     return out_path
 
 
 def plot_probability(run_dirs, domain, time_str, out_path, threshold_mm=25.0):
+    """Fraction of members with accumulated rain >= threshold. With N members only the values
+    k/N exist, so the fill uses N+1 discrete bins centred on k/N (colour bar ticks at those
+    values) instead of a continuous 0-100 scale that would suggest precision that is not there."""
     import numpy as np
-    from post.recipes.mapfig import save_map
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import matplotlib.colors as mcolors
+    import cartopy.crs as ccrs
 
-    stack, lats = None, None
-    lons = None
+    stack, lats, lons, crs, lm = [], None, None, None, None
     for run_dir in run_dirs:
-        arr, lats, lons = _member_field(run_dir, domain, time_str, field="rain_acc")
-        stack = arr[None, ...] if stack is None else np.concatenate([stack, arr[None, ...]], axis=0)
-    prob = (stack >= threshold_mm).mean(axis=0) * 100.0
-    save_map(out_path, lats, lons,
-             "ensemble probability of accumulated rain >= %g mm  %s (%d members)"
-             % (threshold_mm, time_str, stack.shape[0]),
-             fill_field=prob, fill_label="probability (%)", fill_cmap="Blues")
+        arr, lats, lons, crs, lm = _member_field(run_dir, domain, time_str, field="rain_acc")
+        stack.append(arr)
+    stack = np.array(stack)
+    n = stack.shape[0]
+    valid = np.isfinite(stack).all(axis=0)
+    prob = np.where(valid, (stack >= threshold_mm).mean(axis=0) * 100.0, np.nan)
+    edges = (np.arange(n + 2) - 0.5) / n * 100.0            # bin k covers k/N +- half a step
+    cmap = mcolors.ListedColormap(plt.get_cmap("Blues")(np.linspace(0.05, 0.95, n + 1)))
+    norm = mcolors.BoundaryNorm(edges, n + 1)
+    fig, ax = plt.subplots(figsize=(8.5, 6.5), subplot_kw={"projection": crs})
+    pm = ax.pcolormesh(lons, lats, np.ma.masked_invalid(prob), cmap=cmap, norm=norm,
+                       transform=ccrs.PlateCarree(), shading="auto")
+    cb = fig.colorbar(pm, ax=ax, ticks=np.arange(n + 1) / n * 100.0, shrink=0.85,
+                      label="members exceeding (%%), N = %d" % n)
+    cb.ax.set_yticklabels(["%g" % (k / n * 100.0) for k in range(n + 1)])
+    _draw_coast(ax, ccrs, lats, lons, lm)
+    ax.set_title("fraction of %d members with rain accumulated since t0 >= %g mm, valid %s\n"
+                 "(lateral boundary zone blanked)" % (n, threshold_mm, time_str), fontsize=9)
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=110)
+    plt.close(fig)
     return out_path
 
 

@@ -644,6 +644,8 @@ def plan(args):
         print("ERROR reading namelist: {}".format(exc), file=sys.stderr)
         sys.exit(1)
 
+    if not args.json:
+        _print_extension_notes(nl, args.namelist)
     case = extract_case(nl)
     case, _enrich_err = enrich_case(case, getattr(args, 'wrfinput', None))
     resolved, filled = phys.resolve_suite(case)
@@ -819,6 +821,7 @@ def physics_cmd(args):
 
     print("=== WRF physics diagnosis + numerics advice ===")
     print("Namelist: {}".format(args.namelist))
+    _print_extension_notes(nl, args.namelist)
     if resolved.get('physics_suite'):
         print("physics_suite = '{}'".format(resolved['physics_suite']))
         if filled:
@@ -1658,6 +1661,24 @@ def feedback_cmd(args):
     print('created: {}'.format(args.csv_out))
     print('manifest-only: actionable=false')
     return 0
+
+
+def _print_extension_notes(nl, namelist_path):
+    """One support line per detected extension (plan/physics/knobs): grid/rank-only policy."""
+    import wtune_extensions
+    try:
+        import wtune_predict
+        pnl = wtune_predict.parse_namelist(namelist_path)
+    except Exception:
+        return
+    run_dir = os.path.dirname(os.path.abspath(namelist_path))
+    dets = [d for d in wtune_extensions.detect(pnl, run_dir) if d['active']]
+    for d in dets:
+        print('EXTENSION: ' + wtune_extensions.support_line(d))
+    if any(d['id'] == 'wrfda' for d in dets):
+        print('EXTENSION: ' + wtune_extensions.DA_ADVISORY_BANNER)
+    for _uid, label, msg, hits in wtune_extensions.detect_unsupported(run_dir):
+        print('EXTENSION: ' + wtune_extensions.unsupported_line(label, msg, hits))
 
 
 def main():

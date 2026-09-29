@@ -1711,3 +1711,49 @@ def test_exclude_frozen_key_templates_also_catches_a_generic_per_case_pairing():
     assert out[0]["applicable"] is False
     assert out[0]["frozen_key_conflict"] == ["aer_opt"]
     assert any("aer_opt" in n for n in notes)
+
+
+# ---------------------------------------------------------------------------
+# WRF extensions (chem/hydro/WRFDA/moving nest): grid/rank-only notes on every recommend path
+# ---------------------------------------------------------------------------
+_CHEM_NOTE = "EXTENSION: WRF-Chem detected"
+
+
+@pytest.fixture
+def chem_namelist(tmp_path):
+    path = tmp_path / "chem" / "namelist.input"
+    path.parent.mkdir()
+    path.write_text(MAIN_NAMELIST + "\n &chem\n chem_opt = 301,\n chemdt = 3,\n photdt = 30,\n /\n")
+    return str(path)
+
+
+def test_recommend_default_path_carries_extension_note(ledger_csv, chem_namelist):
+    result = recommend.recommend(ledger_path=ledger_csv, namelist_path=chem_namelist,
+                                 case_name="synthtest", hardware_id=HARDWARE_ID_TRAIN)
+    assert any(w.startswith(_CHEM_NOTE) for w in result["warnings"])
+
+
+def test_recommend_physics_gray_carries_extension_note(ledger_csv, chem_namelist, probe_screen_file):
+    result = recommend.recommend_physics_gray(
+        ledger_path=ledger_csv, namelist_path=chem_namelist, case_name="synthtest",
+        hardware_id=HARDWARE_ID_TRAIN, probe_screen=probe_screen_file)
+    assert any(w.startswith(_CHEM_NOTE) for w in result["warnings"])
+
+
+def test_recommend_full_space_carries_extension_note(full_space_ledger_csv, chem_namelist):
+    result = recommend.recommend_full_space(
+        ledger_path=full_space_ledger_csv, namelist_path=chem_namelist, case_name="synthtest",
+        hardware_id=FULL_SPACE_HARDWARE, nodes=4, top_k=3,
+        omp_options=FULL_SPACE_OMP_OPTIONS, tile_options=FULL_SPACE_TILE_OPTIONS)
+    assert any(w.startswith(_CHEM_NOTE) for w in result["warnings"])
+
+
+def test_extension_dmpar_only_never_proposes_openmp(ledger_csv, full_space_ledger_csv, chem_namelist):
+    r = recommend.recommend(ledger_path=ledger_csv, namelist_path=chem_namelist,
+                            case_name="synthtest", hardware_id=HARDWARE_ID_TRAIN, top_k=50)
+    assert r["all_ranked"] and all(e["omp_threads"] == 1 for e in r["all_ranked"])
+    f = recommend.recommend_full_space(
+        ledger_path=full_space_ledger_csv, namelist_path=chem_namelist, case_name="synthtest",
+        hardware_id=FULL_SPACE_HARDWARE, nodes=4, top_k=100000,
+        omp_options=FULL_SPACE_OMP_OPTIONS, tile_options=FULL_SPACE_TILE_OPTIONS)
+    assert f["shortlist"] and all(e["omp_threads"] == 1 for e in f["shortlist"])

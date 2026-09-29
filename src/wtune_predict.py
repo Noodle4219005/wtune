@@ -1846,6 +1846,11 @@ def build_prediction(namelist_path, case_dir, nodes, config, ledger_paths,
                               probe_result, calibration, rsl_paths=rsl_paths, dt_seconds=dt,
                               sample_points=sample_points, run_start_dt=run_start_dt,
                               geometry_source=geometry_source)
+    # WRF extensions (chem/hydro/moving nest/WRFDA): explicit cost factors with measured/placeholder
+    # status and widened uncertainty (wtune_extensions.py); no-op for plain ARW.
+    import wtune_extensions
+    compute = wtune_extensions.apply_cost_factors(compute, nl, dt, run_dir=case_dir,
+                                                  calibration=calibration)
     segments = segment_compute(compute, run_hours, dt)
 
     io_target = io_target or "nfs"
@@ -1885,6 +1890,10 @@ def build_prediction(namelist_path, case_dir, nodes, config, ledger_paths,
 
     if io_range is not None:
         compute_drift_abs_s = compute["compute_total_s"] * (drift_pct / 100.0)
+        ext_unc = compute.get("extension_uncertainty_pct") or 0.0
+        if ext_unc:  # widen the compute band by the extension factors' uncertainty (quadrature)
+            compute_drift_abs_s = math.hypot(compute_drift_abs_s,
+                                             compute["compute_total_s"] * ext_unc / 100.0)
         drift_abs_s = compute_drift_abs_s
         low = (max(0.0, compute["compute_total_s"] - compute_drift_abs_s)
                + io_w * io_range["fast_total_s"] + init["total_s"])
@@ -1894,6 +1903,8 @@ def build_prediction(namelist_path, case_dir, nodes, config, ledger_paths,
                          % (io_low_mbps, io_high_mbps) if io_w else
                          "I/O excluded (--include-io adds it); ")
                         + "compute: +-%.0f%% drift band (NOT VALIDATED)" % drift_pct)
+        if ext_unc:
+            range_source += "; widened by WRF-extension factor uncertainty +-%.0f%%" % ext_unc
     else:
         drift_abs_s = total_s * (drift_pct / 100.0)
         range_abs_s = math.sqrt(compute["noise_abs_s"] ** 2 + (io_w * io["noise_abs_s"]) ** 2
@@ -1969,6 +1980,8 @@ def render_text(pred):
                            sa["day_sim_time"], sa["day_sunlit_fraction"]))
     out.append("  compute total: %s  (+-%.1f%% = +-%s, source=%s)"
                 % (_fmt_hms(c["compute_total_s"]), c["noise_pct"], _fmt_hms(c["noise_abs_s"]), c["source"]))
+    import wtune_extensions
+    out.extend(wtune_extensions.render_factor_lines(c))
     if pred["segments"]:
         out.append("  segmented (>%.0fh simulated, %.0fh chunks, NOT VALIDATED drift):"
                     % (LONG_RUN_HOURS, SEGMENT_HOURS))

@@ -1,5 +1,5 @@
 """post/cli.py -- `wtune post <sub>` subcommands (decision 0056): inventory, extract, plot,
-sounding, tc, compare, report. Only stdlib (argparse, json) at import time; every
+sounding, tc, compare, report, recipe, custom, fetch (+ fetch-era5). Only stdlib (argparse, json) at import time; every
 subcommand's own module does its own heavy (netCDF4/wrf-python/matplotlib/metpy/cartopy)
 imports lazily, so `wtune post --help` and `wtune --help` never need them installed.
 """
@@ -135,11 +135,16 @@ def cmd_tc(args):
         out = wtune_project.default_out_dir(project_dir, "post", tag="tc")
 
     summary = tc.run_tc_report(run_dirs, labels, hurdat2, storm, out,
-                               ebtrk_path=args.ebtrk, bdeck_path=args.bdeck)
+                               ebtrk_path=args.ebtrk, bdeck_path=args.bdeck,
+                               smooth_km=args.track_smooth_km)
     print("wrote %d a-deck(s), %d figure(s) to %s" % (len(summary["adecks"]),
                                                        len(summary["figures"]), out))
     for w in summary["warnings"]:
         print("warning: %s" % w)
+    for n in summary.get("notes", []):
+        print("warning: tracking grid: %s" % n)
+    for label, st in summary.get("track_steps", {}).items():
+        print(tc.format_track_steps(label, st))
     if project_dir:
         import wtune_project
         wtune_project.manifest_append(project_dir, ["wtune", "post", "tc"] + run_dirs,
@@ -207,6 +212,12 @@ def cmd_recipe(args):
         xsec_cfg = wtune_project.project_xsec_config(project_doc)
         xsec_top_km, xsec_halfwidth_km = xsec_cfg.get("top_km"), xsec_cfg.get("halfwidth_km")
 
+    if project_dir:
+        from post import fetch
+        line = fetch.offline_summary(project_dir, run_dirs[0])
+        if line:
+            print("note: %s" % line)
+
     types_override = None if args.types in (None, "auto") else args.types
     result = recipe.run_recipe(
         run_dirs, out, types_override=types_override, ensemble=args.ensemble,
@@ -215,12 +226,15 @@ def cmd_recipe(args):
         paraview=not args.no_paraview, decomposition_only=args.repro_pairs, title=args.title,
         every=args.every, times=_parse_vars(args.times) if args.times else None,
         cross_sections=cross_sections, animate=args.animate,
-        xsec_top_km=xsec_top_km, xsec_halfwidth_km=xsec_halfwidth_km)
+        xsec_top_km=xsec_top_km, xsec_halfwidth_km=xsec_halfwidth_km, project_dir=project_dir,
+        spinup_days=args.climate_spinup_days, track_smooth_km=args.track_smooth_km)
     n_fig = sum(1 for f in result["figures"] if not f["missing"])
     n_missing = sum(1 for f in result["figures"] if f["missing"])
     print("detected types: %s" % ", ".join(result["case_info"]["types"]))
     print("wrote %d figure(s), %d missing-observation entr(y/ies), report: %s"
          % (n_fig, n_missing, result["report_path"]))
+    for n in result.get("notes", []):
+        print("%s: %s: %s" % (n["level"], n["source"], n["text"]))
     if project_dir:
         import wtune_project
         wtune_project.manifest_append(project_dir, ["wtune", "post", "recipe"] + run_dirs,
@@ -248,6 +262,31 @@ def cmd_custom(args):
     wtune_project.manifest_append(project_dir, ["wtune", "post", "custom"], out_dir=out,
                                   exit_code=0)
     return 0
+
+
+def cmd_fetch(args):
+    from post import fetch
+    if getattr(args, "list", False):
+        print(fetch.list_text())
+        return 0
+    name = getattr(args, "fetch_name", None)
+    if not name:
+        raise SystemExit("wtune post fetch <name> --project P [--run-dir R] ... (or --list); "
+                         "available: %s" % ", ".join(sorted(fetch.discover()[0])))
+    paths = fetch.run_module(name, args)
+    print("%s: %d file(s)%s" % (name, len(paths), "" if paths else " -- nothing fetched (reason above)"))
+    return 0
+
+
+def _add_fetch_module_parser(subparsers, name, mod, **kw):
+    sp = subparsers.add_parser(name, help=mod.HELP, description=mod.HELP, **kw)
+    sp.add_argument("--project", required=True, help="project dir; data goes to its %s"
+                    % ("input/era5/" if name == "era5" else "input/obs/%s/" % name))
+    sp.add_argument("--run-dir", default=None, dest="run_dir", help="run whose wrfout gives the "
+                    "time window and region")
+    mod.add_arguments(sp)
+    sp.set_defaults(fetch_name=name)
+    return sp
 
 
 def build_parser():
@@ -302,6 +341,11 @@ def build_parser():
                       "download from the NHC archive, else fall back to HURDAT2)")
     p_tc.add_argument("--ebtrk", default=None, help="Extended Best Track file (RMW only, "
                       "recorded in obs.json)")
+    p_tc.add_argument("--track-smooth-km", type=float, default=30.0, dest="track_smooth_km",
+                    metavar="KM", help="TC track position is searched on SLP smoothed by CDO "
+                    "(cdo smooth, this radius, the same on every domain; intensity is read from "
+                    "the unsmoothed fields). Default 30; 0 = raw SLP minimum (hops between "
+                    "mesovortices in a large eye)")
     p_tc.add_argument("--labels", default=None, help="comma-separated, one per RUN_DIR "
                       "(also the ATCF a-deck TECH id, truncated to 4 chars)")
     p_tc.add_argument("--out", default=None, help="output directory (default: a project's "
@@ -355,6 +399,14 @@ def build_parser():
                        "alternative to --every")
     p_rec.add_argument("--animate", action="store_true", help="also build an MP4 per "
                        "time-series field (needs 2+ selected times; requires ffmpeg)")
+    p_rec.add_argument("--track-smooth-km", type=float, default=30.0, dest="track_smooth_km",
+                    metavar="KM", help="TC track position is searched on SLP smoothed by CDO "
+                    "(cdo smooth, this radius, the same on every domain; intensity is read from "
+                    "the unsmoothed fields). Default 30; 0 = raw SLP minimum (hops between "
+                    "mesovortices in a large eye)")
+    p_rec.add_argument("--climate-spinup-days", type=float, default=None,
+                       dest="climate_spinup_days", metavar="N", help="days of spin-up the climate "
+                       "recipe excludes (default: that recipe's own, 30)")
     p_rec.add_argument("--title", default=None)
 
     p_cus = sub.add_parser("custom", help="run every analysis/*.py script in a project "
@@ -365,6 +417,25 @@ def build_parser():
     p_cus.add_argument("--out", default=None, help="output directory (default: a project's "
                        "post/<id>/)")
 
+    from post import fetch
+    mods, _errors = fetch.discover()
+    p_fet = sub.add_parser("fetch", help="download observation/reanalysis data into a project's "
+                           "input/ (login node: compute nodes have no internet)")
+    p_fet.add_argument("--list", action="store_true", help="list fetch modules: NAME, HELP, "
+                       "coverage_time")
+    fsub = p_fet.add_subparsers(dest="fetch_name")
+    for name in sorted(mods):
+        try:
+            _add_fetch_module_parser(fsub, name, mods[name])
+        except argparse.ArgumentError as e:     # a module's own option clashes with --project/...
+            print("post fetch: module %s disabled: %s" % (name, e), file=sys.stderr)
+    if "era5" in mods:
+        p_e5 = sub.add_parser("fetch-era5", help="alias of `fetch era5`")
+        p_e5.add_argument("--project", required=True)
+        p_e5.add_argument("--run-dir", default=None, dest="run_dir")
+        mods["era5"].add_arguments(p_e5)
+        p_e5.set_defaults(fetch_name="era5")
+
     return parser
 
 
@@ -373,7 +444,8 @@ def main(argv=None):
     args = parser.parse_args(argv)
     dispatch = dict(inventory=cmd_inventory, extract=cmd_extract, plot=cmd_plot,
                     sounding=cmd_sounding, tc=cmd_tc, compare=cmd_compare, report=cmd_report,
-                    recipe=cmd_recipe, custom=cmd_custom)
+                    recipe=cmd_recipe, custom=cmd_custom, fetch=cmd_fetch)
+    dispatch["fetch-era5"] = cmd_fetch
     fn = dispatch.get(args.post_command)
     if fn is None:
         parser.print_help()

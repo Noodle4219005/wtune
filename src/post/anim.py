@@ -16,7 +16,10 @@ def build_animation(png_paths, out_path, fps=2, gif=False):
     """png_paths: ordered list of PNG files (already time-sorted by the caller -- this
     function does not sort). Writes out_path (.mp4). When gif=True also writes a .gif next
     to it. Uses ffmpeg's concat demuxer via a temp file list, so frames need not share one
-    naming pattern or directory (post/timeseries.py's per-time subdirectories don't)."""
+    naming pattern or directory (post/timeseries.py's per-time subdirectories don't). The
+    frames must already share ONE colour scale per field (post/timeseries.fixed_scale) --
+    otherwise the animation flickers; the even-dimension scale filter is only there because
+    yuv420p needs even width/height (constrained-layout figures can have odd pixel sizes)."""
     if not png_paths:
         raise ValueError("build_animation: no frames given")
     ffmpeg = tools.find_on_path("ffmpeg", install_hint="add 'ffmpeg' to "
@@ -33,7 +36,8 @@ def build_animation(png_paths, out_path, fps=2, gif=False):
             fh.write("file '%s'\n" % os.path.abspath(png_paths[-1]))
 
         tools.run([ffmpeg, "-y", "-f", "concat", "-safe", "0", "-i", listfile,
-                  "-vf", "fps=%g,format=yuv420p" % fps, out_path])
+                  "-vf", "fps=%g,scale=trunc(iw/2)*2:trunc(ih/2)*2,format=yuv420p" % fps,
+                  out_path])
         outputs = [out_path]
         if gif:
             gif_path = os.path.splitext(out_path)[0] + ".gif"

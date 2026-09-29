@@ -26,7 +26,7 @@ _INTERVAL_RE = re.compile(r"^(\d+)\s*([hHdD])$")
 # the "full figure set" this module draws at each selected valid time -- decision 0058
 # section 2's own examples (SLP, T2, rain, wind); mcape is added only when convection was
 # detected (post/recipe.py passes include_mcape accordingly).
-TIME_SERIES_FIELDS = ("slp", "t2", "wspd10", "rain_acc")
+TIME_SERIES_FIELDS = ("slp", "t2", "wspd10", "rain_acc", "pw")
 
 
 def parse_every(text):
@@ -83,6 +83,46 @@ def forecast_dir_name(t0, valid_time):
     return "f%03d_%sZ" % (fhour, dt.strftime(VALID_TIME_FMT))
 
 
+# fixed-scale spec per field: (cmap, lower clamp, extend, rule). Rule "minmax" = the TRUE
+# min/max over all times (a percentile clip saturated the hurricane core: slp reaches ~944 hPa
+# and the eyewall is <2% of the area, so wind maxima were clipped); "pct" = pooled 2nd-98th
+# percentile, used only where extremes are grid-point noise (mcape). rain_acc is 0 .. max.
+_SCALE = dict(slp=("viridis", None, "neither", "minmax"), t2=("coolwarm", None, "neither", "minmax"),
+              wspd10=("viridis", 0.0, "neither", "minmax"), pw=("viridis", 0.0, "neither", "minmax"),
+              mcape=("magma", 0.0, "max", "pct"))
+SCALE_RULE = dict(rain_acc="0 .. max over all times", **{k: ("true min/max over all times"
+                  if v[3] == "minmax" else "pooled 2nd-98th percentile over all times")
+                  for k, v in _SCALE.items()})
+
+
+def fixed_scale(run_dir, field, domain, times):
+    """ONE colour scale (levels, cmap, extend) for `field` shared by every frame in `times`,
+    so the frames of a run are comparable and the ffmpeg animation does not flicker.
+    Levels: rounded 2nd-98th percentile pooled over all times; rain_acc: 0 .. the maximum over
+    the selected times (WRF's rain_acc is a running total, so the last time bounds it), on a
+    0-based sequential map -- an all-zero first frame then shows an empty map, not a -1..1
+    colour bar."""
+    import netCDF4
+    import numpy as np
+    from post.plotting import _field_2d
+    from post.recipes.mapfig import nice_levels, pooled_levels
+    wrf_mod = __import__("wrf")
+    paths = dict(list_frames(run_dir, domain=domain))
+    arrays = []
+    for t in times:
+        with netCDF4.Dataset(paths[t]) as ds:
+            arrays.append(np.asarray(_field_2d(ds, wrf_mod, field, None), dtype="f8"))
+    if field == "rain_acc":
+        hi = max(float(np.nanmax(a)) for a in arrays)
+        return nice_levels(0.0, max(hi, 1.0), nbins=12), "YlGnBu", "max"
+    cmap, floor, extend, rule = _SCALE.get(field, ("viridis", None, "both", "pct"))
+    if rule == "minmax":
+        levels = pooled_levels(arrays, lo_pct=0.0, hi_pct=100.0, nbins=18, floor=floor)
+    else:
+        levels = pooled_levels(arrays, floor=floor)
+    return levels, cmap, extend
+
+
 def figures_for_time_series(run_dir, run_label, domain, out_dir, every=None, times=None,
                             include_mcape=False):
     """Writes one sub-directory per selected valid time, each a full figure set (decision
@@ -104,6 +144,13 @@ def figures_for_time_series(run_dir, run_label, domain, out_dir, every=None, tim
     if include_mcape:
         fields.append("mcape")
 
+    scales = {}
+    for field in fields:
+        try:
+            scales[field] = fixed_scale(run_dir, field, domain, selected)
+        except (tools.ToolNotFoundError, ImportError):
+            scales[field] = None   # plot_field below reports the missing tool per figure
+
     out = []
     for valid_time in selected:
         tag = forecast_dir_name(t0, valid_time)
@@ -112,8 +159,10 @@ def figures_for_time_series(run_dir, run_label, domain, out_dir, every=None, tim
         for field in fields:
             fig_id = "timeseries_%s" % field
             try:
+                lev, cmap, extend = scales[field] or (None, None, "neither")
                 written = plot_field(run_dir, field, time_dir, domain=domain,
-                                     times=[valid_time], basemap="cartopy")
+                                     times=[valid_time], basemap="cartopy", levels=lev,
+                                     cmap=cmap, extend=extend, gridline_labels=True)
             except (tools.ToolNotFoundError, ImportError) as e:
                 out.append(missing(fig_id, "wrf-python/cartopy", str(e), run=run_label))
                 continue
@@ -125,5 +174,6 @@ def figures_for_time_series(run_dir, run_label, domain, out_dir, every=None, tim
             if os.path.abspath(written[0]) != os.path.abspath(final_path):
                 os.replace(written[0], final_path)
             out.append(fig(fig_id, final_path, run_label, domain="d%02d" % domain,
-                          valid_time=valid_time, extra={"forecast_tag": tag}))
+                          valid_time=valid_time, extra={"forecast_tag": tag,
+                                 "scale_rule": SCALE_RULE.get(field, "auto")}))
     return out

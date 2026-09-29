@@ -1,0 +1,63 @@
+// verif_point_stat.conf.tmpl -- MET Point-Stat config for model-vs-surface-station verification
+// (post/met_pointstat.py). One valid time per call: the model fields (T2, TD2, WSPD10, MSLP on a
+// regular lat/lon grid) are interpolated bilinearly to the station positions, paired with the
+// observation within +-30 min (obs heights are written by ascii2nc: 2 m T/Td, 10 m wind, 0 m MSLP), restricted to the model domain's interior polygon.
+// Only entries that differ from MET 12.1's PointStatConfig_default are set.
+
+model = "WRF";
+
+fcst = {
+  field = [
+    { name = "T2";     level = [ "(0,*,*)" ]; },
+    { name = "TD2";    level = [ "(0,*,*)" ]; },
+    { name = "WSPD10"; level = [ "(0,*,*)" ]; },
+    { name = "MSLP";   level = [ "(0,*,*)" ]; }
+  ];
+}
+obs = {
+  field = [
+    { name = "TMP";   level = [ "Z2" ]; },
+    { name = "DPT";   level = [ "Z2" ]; },
+    { name = "WIND";  level = [ "Z10" ]; },
+    { name = "PRMSL"; level = [ "Z0" ]; }
+  ];
+}
+
+message_type = [ "ADPSFC" ];
+obs_window   = { beg = -1800; end = 1800; }
+
+mask = {
+  grid = [];
+  poly = [ "${POLY_FILE}" ];
+  sid  = [];
+}
+
+interp = {
+  vld_thresh = 1.0;
+  type = { method = BILIN; width = 2; }
+}
+
+output_flag = {
+  fho    = NONE;
+  ctc    = NONE;
+  cts    = NONE;
+  mctc   = NONE;
+  mcts   = NONE;
+  cnt    = BOTH;
+  sl1l2  = NONE;
+  sal1l2 = NONE;
+  vl1l2  = NONE;
+  val1l2 = NONE;
+  vcnt   = NONE;
+  pct    = NONE;
+  pstd   = NONE;
+  pjc    = NONE;
+  prc    = NONE;
+  ecnt   = NONE;
+  orank  = NONE;
+  rps    = NONE;
+  eclv   = NONE;
+  mpr    = BOTH;
+}
+
+version = "V12.1.1";

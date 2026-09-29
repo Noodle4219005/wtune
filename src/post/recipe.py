@@ -30,6 +30,20 @@ def fig(id, path, run, domain=None, valid_time=None, extra=None):
     return d
 
 
+def note(source, text, level="warning"):
+    """A user-facing hint that is neither a figure nor a missing observation (e.g. "the track is
+    on a 12 km grid"). Any recipe module may include these in the list its figures()/handler
+    returns; run_recipe() pulls them out (they never reach the figure list, so they are not
+    counted as missing observations) into the top-level result["notes"] list of
+    {"source", "level", "text"}, which the report renders as a warning box. A figure's own
+    extra["note"] stays on the figure."""
+    return dict(kind="note", source=source, level=level, text=text)
+
+
+def is_note(entry):
+    return entry.get("kind") == "note"
+
+
 def missing(id, dataset, reason, run=None):
     return dict(id=id, missing=True, dataset=dataset, reason=reason, run=run)
 
@@ -59,18 +73,27 @@ def _classify_tc_path(path):
 
 
 def _tc_figures(run_dirs, labels, out_dir, case_info, hurdat2_path, storm_id, bdeck_path,
-                ebtrk_path, paraview, spinup_hours):
+                ebtrk_path, paraview, spinup_hours, track_smooth_km=None):
     from post import tc as tc_mod
     from post.recipes import tc_extra, paraview3d
 
     tc_out = os.path.join(out_dir, "tc")
     summary = tc_mod.run_tc_report(run_dirs, labels, hurdat2_path, storm_id, tc_out,
-                                   ebtrk_path=ebtrk_path, bdeck_path=bdeck_path)
+                                   ebtrk_path=ebtrk_path, bdeck_path=bdeck_path,
+                                   **({} if track_smooth_km is None else {"smooth_km": track_smooth_km}))
     out = []
+    tracking_note = " ".join(summary.get("notes", []))
     for path in summary["figures"]:
-        out.append(fig(_classify_tc_path(path), path, ",".join(labels)))
+        kind = _classify_tc_path(path)
+        out.append(fig(kind, path, ",".join(labels),
+                       extra={"note": tracking_note} if tracking_note and kind == "tc_track_map"
+                       else None))
     for w in summary["warnings"]:
         out.append(missing("tc_figure", "MET tc_pairs/tc_stat/tc_rmw or a b-deck", w))
+    for n in summary.get("notes", []):
+        out.append(note("tc", n))
+    for label, st in summary.get("track_steps", {}).items():
+        out.append(note("tc", tc_mod.format_track_steps(label, st), level="info"))
 
     for run_dir, label in zip(run_dirs, labels):
         adeck_path = summary["adecks"].get(label)
@@ -116,7 +139,8 @@ TYPE_DISPATCH = {
 
 def _simple_dispatch(module_name, out_subdir):
     def run(run_dirs, labels, out_dir, case_info, spinup_hours=6, cross_section=None,
-           tc_centre=None, xsec_top_km=None, xsec_halfwidth_km=None, **_ignored):
+           tc_centre=None, xsec_top_km=None, xsec_halfwidth_km=None, project_dir=None,
+           spinup_days=None, **_ignored):
         import inspect
         mod = __import__("post.recipes.%s" % module_name, fromlist=["figures"])
         sub_out = os.path.join(out_dir, out_subdir)
@@ -133,6 +157,10 @@ def _simple_dispatch(module_name, out_subdir):
             kwargs["xsec_top_km"] = xsec_top_km
         if "xsec_halfwidth_km" in params:
             kwargs["xsec_halfwidth_km"] = xsec_halfwidth_km
+        if "project_dir" in params:     # --project must reach the module from any cwd
+            kwargs["project_dir"] = project_dir
+        if "spinup_days" in params and spinup_days is not None:
+            kwargs["spinup_days"] = spinup_days
         return mod.figures(run_dirs, labels, sub_out, case_info, **kwargs)
     return run
 
@@ -166,9 +194,11 @@ def run_recipe(run_dirs, out_dir, types_override=None, ensemble=False, spinup_ho
               hurdat2_path=None, storm_id=None, bdeck_path=None, ebtrk_path=None,
               labels=None, paraview=True, decomposition_only=False, title=None,
               every=None, times=None, cross_sections=None, animate=False,
-              xsec_top_km=None, xsec_halfwidth_km=None):
+              xsec_top_km=None, xsec_halfwidth_km=None, project_dir=None, spinup_days=None,
+              track_smooth_km=None):
     """Full `wtune post recipe` pipeline. Returns {"out_dir", "case_info", "figures",
-    "report_path"}.
+    "notes", "report_path"}. notes = [{"source", "level", "text"}] hints collected from any recipe
+    module (note()); they are not figures and not missing observations.
 
     every/times (decision 0058 P3): when either is given, an additional per-valid-time full
     figure set (post/timeseries.py) plus consecutive/vs-t0 change maps (post/changemap.py) are
@@ -178,7 +208,10 @@ def run_recipe(run_dirs, out_dir, types_override=None, ensemble=False, spinup_ho
     overrides (project.yaml's cross_sections.*, decision 0057 update). xsec_top_km/
     xsec_halfwidth_km: project.yaml's own xsec_top_km/xsec_halfwidth_km (2026-09-29 second
     lead review) -- the terrain/moisture cross-section figures' height window and
-    centred-line half-width; None lets each recipe module use its own default."""
+    centred-line half-width; None lets each recipe module use its own default. project_dir: the
+    --project directory, handed to every recipe module whose figures() takes `project_dir`. spinup_days: likewise handed to modules whose figures() takes
+    `spinup_days` (climate); None keeps that module's own default. track_smooth_km: the TC
+    tracker's SLP smoothing radius (post/tc.py; None = its default 30, 0 = raw)."""
     from post.recipes import common as common_mod
 
     os.makedirs(out_dir, exist_ok=True)
@@ -216,31 +249,41 @@ def run_recipe(run_dirs, out_dir, types_override=None, ensemble=False, spinup_ho
                                            "to build the a-deck/b-deck comparison"))
                 continue
             all_figures += handler(run_dirs, labels, out_dir, case_info, hurdat2_path, storm_id,
-                                   bdeck_path, ebtrk_path, paraview, spinup_hours)
+                                   bdeck_path, ebtrk_path, paraview, spinup_hours,
+                                   track_smooth_km=track_smooth_km)
         elif t == "convection":
             all_figures += handler(run_dirs, labels, out_dir, case_info, paraview, spinup_hours)
         elif t == "terrain":
             all_figures += handler(run_dirs, labels, out_dir, case_info,
                                    spinup_hours=spinup_hours,
                                    cross_section=cross_sections.get("terrain"),
-                                   xsec_top_km=xsec_top_km, xsec_halfwidth_km=xsec_halfwidth_km)
+                                   xsec_top_km=xsec_top_km, xsec_halfwidth_km=xsec_halfwidth_km,
+                                   project_dir=project_dir)
         elif t == "moisture":
             all_figures += handler(run_dirs, labels, out_dir, case_info,
                                    spinup_hours=spinup_hours,
                                    cross_section=cross_sections.get("moisture"),
                                    tc_centre=tc_centre,
-                                   xsec_top_km=xsec_top_km, xsec_halfwidth_km=xsec_halfwidth_km)
+                                   xsec_top_km=xsec_top_km, xsec_halfwidth_km=xsec_halfwidth_km,
+                                   project_dir=project_dir)
         else:
-            all_figures += handler(run_dirs, labels, out_dir, case_info, spinup_hours=spinup_hours)
+            all_figures += handler(run_dirs, labels, out_dir, case_info, spinup_hours=spinup_hours,
+                                   project_dir=project_dir, spinup_days=spinup_days)
 
     if every or times:
         all_figures += _time_series_figures(run_dirs, labels, out_dir, case_info, every, times,
                                             animate=animate)
 
+    notes = [{k: e[k] for k in ("source", "level", "text")} for e in all_figures if is_note(e)]
+    all_figures = [e for e in all_figures if not is_note(e)]
+
+    import inspect
     from post.report import build_recipe_report
+    kwargs = {"notes": notes} if "notes" in inspect.signature(build_recipe_report).parameters else {}
     report_path = build_recipe_report(out_dir, case_info, all_figures, run_dirs, labels,
-                                      spinup_hours, load_catalog(), title=title)
-    return dict(out_dir=out_dir, case_info=case_info, figures=all_figures, report_path=report_path)
+                                      spinup_hours, load_catalog(), title=title, **kwargs)
+    return dict(out_dir=out_dir, case_info=case_info, figures=all_figures, notes=notes,
+                report_path=report_path)
 
 
 def _time_series_figures(run_dirs, labels, out_dir, case_info, every, times, animate=False):

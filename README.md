@@ -626,6 +626,29 @@ the job's user with lifetime %CPU > 20 and elapsed ≥ 30 s (kernel threads igno
   and severe2023 10×10 at 9 cells, 97 and 109 runs; sc26p2 2×12 at 10 cells, 30 runs). Only
   sc26p2 17×13 hangs (7 of 7). The guard is per-candidate timeouts plus `watch` HANG_INIT.
 
+### WRF extensions (0.6.0)
+
+`wtune check` prints one support line per detected extension: WRF-Chem, WRF-Hydro, WRFDA and
+moving nest. For these WTune tunes **grid and rank layout only** (ranks, decomposition, tiles,
+OpenMP threads, I/O) and leaves every extension parameter exactly as given (the compliance
+catalog marks them do-not-touch).
+
+- **OpenMP is capped at 1** for Chem, Hydro and WRFDA (build them dm+sm and run with
+  `OMP_NUM_THREADS=1`; a dmpar-only Chem/Hydro build crashes nvfortran 26.5).
+- **Cost factors are uncalibrated except moving nest.** Moving nest +6.0 % is measured; Chem
+  and Hydro are placeholders with a +/-100 % band until calibrated
+  (`src/wtune_extension_coefficients.json`, override with `$WTUNE_EXTENSION_COEFFS`). A factor is
+  applied only when no probe measurement exists for the case.
+- **Refusals:** `predict-rebuild` on any of the four; `wtune run` on WRFDA cycling
+  (`--wrfda-forecast-only` runs forecast segments); `--cfl-rescue` on Chem, Hydro or moving nest;
+  ndown, NMM, MPAS and standalone Hydro are unsupported. A build that lacks the extension the
+  namelist asks for is caught (moving nest via the `med_nest_move` symbol).
+- CFL advice prints coupling warnings for `chemdt`/`photdt`, `DTRT_TER`/`DTRT_CH`,
+  `vortex_interval`.
+- `bin/build-wrf-extensions.sh submit movenest|chem|hydro|wrfda` builds them through
+  `sbatch --exclude=head` (`SKIP_CONFIGURE=1`, `TIME=`, `BUILD_MODE`, `USE_ADIOS2`,
+  `CHEM_KPP`); the WRFDA build is still pending.
+
 ## 7. Post-processing and analysis (`wtune post`, decision 0056)
 
 Advisory only — no autotuning, and never writes a namelist or submits anything. Every
@@ -641,7 +664,7 @@ installed.
 | `inventory` | `ncdump -h` (grid/variables), `cdo sinfon` (lon/lat extent cross-check); the missing-frame cadence check is the only self-written piece (WRF/WTune-specific, no tool audits it) |
 | `extract` | wrf-python (the NCAR tool for WRF diagnostics — slp/mcape/level interpolation etc.) |
 | `plot` | wrf-python (`wrf.get_cartopy`/`wrf.latlon_coords`) + cartopy Natural Earth coastlines/borders; falls back to a LANDMASK contour (and prints that it did) only when the Natural Earth cache is missing, never on a cartopy import failure |
-| `sounding` | MetPy (`SkewT`, `surface_based_cape_cin`) |
+| `sounding` | MetPy (`SkewT`, `surface_based_cape_cin`, `parcel_profile`, `shade_cape`/`shade_cin`) |
 | `compare` | `diffwrf` (WRF's own netCDF differ, `$WRF_TREE/external/io_netcdf/diffwrf`) |
 | `tc` | TempestExtremes (tracking, unchanged), MET `tc_pairs`/`tc_stat` (track/intensity/wind-radii error vs. an ATCF b-deck), MET `tc_rmw` (azimuthal-mean radius-height structure, on a `cdo remapbil`-regridded frame) |
 | `report` | stdlib only (glue: collects the other subcommands' PNGs/CSVs into one HTML) |
@@ -745,6 +768,61 @@ only). `IVT = (1/g) * integral of q*V dp`, via `numpy.trapezoid` — exact for a
 profile, so exact (not merely close) for the constant synthetic profile
 `tests/test_post_ivt.py` checks against the closed form.
 
+### `wtune post fetch` — observation and reanalysis data, and comparisons against it (0.6.0)
+
+```bash
+wtune post fetch --list                                   # modules, help, and what each needs
+wtune post fetch stage4 --project P                       # one module into <project>/input/obs/<name>/
+wtune post fetch nexrad --project P --run-dir R           # window/domain taken from R's wrfout
+wtune post fetch-era5 --project P                         # alias of `fetch era5`
+```
+
+| module | source | limits |
+|---|---|---|
+| `stage4` | IEM archive of NCEP Stage IV | 2001 onward, CONUS only |
+| `nexrad` | `unidata-nexrad-level2` (AWS) | 2005 volumes carry no radar position; taken from NCEI HOMR |
+| `mrms` | `noaa-mrms-pds` (AWS) | from 2020-10-14 only |
+| `stations` | ISD-Lite | point observations, converted with MET `ascii2nc` |
+| `igra` | IGRA2 radiosondes | used by the `pbl` recipe |
+| `era5`, `era5_monthly` | ARCO ERA5 (monthly is aggregated from the hourly store) | `synoptic` z500 diff, `climate` |
+| `gpcp_monthly` | GPCP v2.3 | `climate` precipitation bias |
+
+Every module writes `<project>/input/obs/<name>/provenance.json` (provider, URL, license, fetch
+time, citation). `wtune post recipe` prints the fetchable datasets it found missing, with the
+exact `wtune post fetch` command, when the machine is offline. Credentials, if a source ever
+needs one, come only from environment variables. Compute nodes on scc do have internet.
+
+Observation comparisons in the recipes, all restricted to the model interior (`spec_bdy_width`
+excluded): `precip` is scored against Stage IV, `convection` against a NEXRAD (Py-ART) or MRMS
+composite, both with MET Grid-Stat (CTC/CTS, FSS); station T2/wind through `ascii2nc` +
+Point-Stat; `pbl` compares WRF with IGRA2 radiosondes (Skew-T overlay with the surface-based
+parcel and CAPE/CIN shading, bulk-Richardson PBL height after Seibert et al. 2000 / Vogelezang
+& Holtslag 1996, T/Td/wind-speed RMSE). Precip is also limited to within 230 km of a NEXRAD
+site, because Stage IV is 0, not missing, offshore. The report's "資料來源與授權" section and each
+figure's caption give source, provider, URL, license, fetch time and citation.
+
+`ensemble` draws spaghetti contours at the highest member minimum + 10 hPa and probabilities in
+discrete k/N bins with the boundary zone blanked. `climate` draws the annual cycle for four boxes
+and seasonal bias maps against ERA5 monthly and GPCP (day-weighted seasons); the spin-up is
+excluded with `--climate-spinup-days N`.
+
+**Notes and warnings.** Anything the recipe had to work around (a tracking fallback, an
+uncovered obs window, an offline fetch, a missing tool) is collected as a note, printed as
+`warning: ...` and shown in a notes box at the top of `report.html`; a figure that could not be
+made is listed as missing with its reason.
+
+**Track quality.** TC tracking runs per output time on the finest domain whose interior contains
+the storm, seeded from d01 and falling back to the parent with a recorded reason (per-time
+domain in `track_domains_<label>.csv`). The position comes from CDO-smoothed SLP
+(`--track-smooth-km`, default 30; 0 = raw minimum); MSLP and Vmax come from the raw fields.
+Warnings cover fallback times, a grid coarser than about 5 km with no nest, and a storm leaving
+the nest. A built-in line reports `track steps <run> (after 6 h spin-up)`: median step against
+best-track speed, tortuosity, max/median step.
+
+Time-series maps use one fixed scale per field across all times (true min/max for
+slp/t2/wspd10/pw, pooled 2-98 % for mcape, rain from 0); change maps use symmetric levels with a
+white zero bin.
+
 ### `wtune project` — one folder for a case's inputs, config, runs and figures (decision 0058)
 
 ```bash
@@ -842,13 +920,20 @@ Three layers; install only the ones you use.
 
 **1. Core — every `wtune` command (pixi).** One environment for the predictor, tuner,
 rebuild, analysis and the Python half of post-processing: wrf-python, xWRF, MetPy, cartopy,
-matplotlib, CDO, NCO, TempestExtremes, netCDF4/xarray, CatBoost.
+matplotlib, CDO, NCO, TempestExtremes, netCDF4/xarray, CatBoost, and Py-ART (`arm_pyart`,
+`<2`, with `xradar>=0.9` and `dask` pinned beside it: an older xradar drags xarray down to
+2024.9, and conda-forge's arm_pyart omits the `dask` it imports) for the NEXRAD composite reflectivity of the
+convection observation comparison.
 
 ```bash
 curl -fsSL https://pixi.sh/install.sh | bash          # once per user; installs ~/.pixi/bin/pixi
 pixi install --manifest-path envs/wtune/pixi.toml     # linux-64 and linux-aarch64
 bin/wtune --version                                   # always launch through bin/wtune
 ```
+
+`radar_composite.py` imports `pyart` from the environment; if it is missing it falls back to a
+directory named by `WTUNE_PYART_PATH` (`uv pip install --no-deps --target DIR 'arm_pyart<2'
+lazy_loader`).
 
 **2. WRF and WPS — built separately.** WTune never builds WRF. Point it at an existing tree:
 `WRF_TREE` (its `run/`, `main/wrf.exe`, `main/real.exe`, and

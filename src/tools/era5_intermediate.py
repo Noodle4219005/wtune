@@ -172,9 +172,11 @@ def records_for_time(ds, t, bbox, margin=5.0, min_level_hpa=10, ml_ds=None, ab=N
     for name, (field, units, desc, xlvl, scale) in SURFACE.items():
         if name in ds:
             sfc[field] = (grid(name) * scale, units, desc, xlvl)
-    if "sea_surface_temperature" in ds and "SKINTEMP" in sfc:
+    if "sea_surface_temperature" in ds:
+        # NaN over land -> WPS missing value (-1e30, METGRID.TBL missing_value): metgrid then
+        # never blends land values into coastal ocean SST, which a SKINTEMP fill would do.
         sst = grid("sea_surface_temperature")
-        sfc["SST"] = (np.where(np.isfinite(sst), sst, sfc["SKINTEMP"][0]), "K",
+        sfc["SST"] = (np.where(np.isfinite(sst), sst, np.float32(-1.0e30)), "K",
                       "Sea surface temperature", wi.SURFACE_PA)
     if "SEAICE" in sfc:
         a, u, d, x = sfc["SEAICE"]

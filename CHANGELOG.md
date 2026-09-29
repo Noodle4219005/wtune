@@ -3,6 +3,42 @@
 Versions are declared in `wtune_version.py`; `test_wtune_version.py` fails if the top section
 here does not match it. Development before 0.1.0 is in the git history, not in releases.
 
+## 0.6.0 — 2026-09-30
+
+**Observation comparison and data fetch.** `wtune post fetch NAME --project P [--run-dir R]`,
+`fetch --list` and `fetch-era5` download into `<project>/input/obs/<name>/` with a
+`provenance.json` each: `stage4` (IEM, 2001+, CONUS), `nexrad` (level-2; 2005 volumes take the
+radar position from NCEI HOMR), `mrms` (from 2020-10-14), `stations` (ISD-Lite), `igra`,
+`era5`, `era5_monthly`, `gpcp_monthly`. `post recipe` scores precip against Stage IV and
+convection against a NEXRAD (Py-ART, `radar_composite.py`) or MRMS composite with MET Grid-Stat
+(CTC/CTS, FSS), stations with `ascii2nc` + Point-Stat, all inside the model interior (precip also
+within 230 km of a NEXRAD site). The report gains a source/license section and a notes box that
+collects every warning; offline runs print the exact fetch command for what is missing.
+`arm_pyart<2` (1.19.5), `xradar>=0.9` and `dask` join `envs/wtune/pixi.toml` (xarray stays at
+2026.7); `WTUNE_PYART_PATH` stays as a fallback.
+
+**Recipes.** `pbl`: WRF against IGRA2 radiosondes (Skew-T overlay, bulk-Richardson PBL height,
+T/Td/wind RMSE). `ensemble`: spaghetti at the highest member minimum + 10 hPa, k/N probability
+bins, boundary zone blanked. `climate`: annual cycle for four boxes and seasonal bias against
+ERA5 monthly and GPCP v2.3, `--climate-spinup-days`. `post sounding` and the pbl overlay draw the
+surface-based parcel profile with CAPE/CIN shaded (`post/sounding.py add_parcel`).
+
+**TC tracking.** Per-time finest-nest selection with a recorded fallback
+(`track_domains_<label>.csv`), position from CDO-smoothed SLP (`--track-smooth-km`, default 30,
+0 = raw), MSLP/Vmax from raw fields, `warning: tracking grid: ...` notes and a track-step
+quality line.
+
+**Figures.** Fixed per-field scales across time-series frames, symmetric change maps with a white
+zero bin on the domain projection, moisture time-height 0-12 km AGL, 500 hPa vorticity on a
+sequential scale, below-ground 850 hPa hatched, 1000 hPa height extrapolated for thickness.
+
+**WRF extensions.** `wtune check` reports support for WRF-Chem, WRF-Hydro, WRFDA and moving nest:
+grid/rank-only tuning, extension parameters untouched, OpenMP capped at 1 for Chem/Hydro/WRFDA,
+moving-nest cost factor +6.0 % measured, Chem/Hydro factors placeholders
+(`src/wtune_extension_coefficients.json`, `$WTUNE_EXTENSION_COEFFS`). Refused: `predict-rebuild`
+on any of them, WRFDA cycling in `wtune run` (`--wrfda-forecast-only`), `--cfl-rescue` on
+Chem/Hydro/moving nest. `bin/build-wrf-extensions.sh` builds them on scc.
+
 ## 0.5.0 — 2026-09-29
 
 `wtune project init|info PATH` (decision 0058): a user-named project folder that collects one

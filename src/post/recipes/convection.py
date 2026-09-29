@@ -4,11 +4,17 @@ time-maximum (wrf-python `uhel`, bottom=2000/top=5000 m -- the standard Kain et 
 layer, and wrf-python's own default for this diagnostic, so no bespoke formula is needed here),
 a representative-point Skew-T/hodograph (MetPy, via `wtune post sounding`'s own
 post/sounding.py -- reused, not re-implemented), and (when radar obs are available) a
-side-by-side reflectivity comparison plus MET Grid-Stat FSS. Radar obs (MRMS/NEXRAD composite)
-are not fetched by this module (no downloader implemented this round -- decision 0057 section 3
-lists only ERA5/HURDAT2/Stage IV as anonymously fetchable; MRMS needs a dated archive pull this
-round does not implement), so that comparison and its FSS score are always reported missing with
-that reason, never silently skipped.
+side-by-side reflectivity comparison plus MET Grid-Stat categorical scores and FSS against radar:
+MRMS composite reflectivity when fetched (2020-10-14 onward), else a composite built from NEXRAD
+Level II volumes (`wtune post fetch nexrad`; post/radar_composite.py, Py-ART gridding). Model
+`mdbz` and the radar composite are put on one lat/lon grid (cdo remapnn) and scored by Grid-Stat at
+20/35/45 dBZ (FHO/CTC/CTS + NBRCNT FSS) inside the model interior; cells beyond every radar's
+range are missing, not "no echo". Scores of the sampled times are pooled by summing contingency
+counts (CTC) / FBS terms. MODE object verification is not run. A missing comparison says whether
+the data does not exist (coverage) or which fetch command to run.
+
+MCAPE/MCIN maps draw cells where wrf-python has no value (no LFC, failed parcel) as a labelled
+hatched "undefined" mask, not as white holes.
 
 The finest domain with cu_physics=0 (the convection-permitting domain, per detect_convection())
 is used for every field here.
@@ -38,12 +44,25 @@ def _post_spinup_frames(run_dir, domain, spinup_hours):
         or frames
 
 
+UNDEF_LABEL = "undefined (no LFC / parcel fails)"
+MCAPE_LEVELS = list(range(0, 4001, 250))
+MCIN_LEVELS = list(range(0, 101, 10))       # almost the whole domain is < 40 J/kg
+
+
+def _undefined(arr):
+    """Cells wrf-python could not evaluate: NaN or the 9.97e36 fill value."""
+    import numpy as np
+    return ~np.isfinite(arr) | (np.abs(arr) > 1e10)
+
+
 def _map_field(run_dir, domain, field, time_str, out_path, title, cmap="viridis",
                fill_label=""):
     import netCDF4
+    import numpy as np
     wrf_mod = __import__("wrf")
     from post.recipes.mapfig import save_map
     path = os.path.join(run_dir, "wrfout_d%02d_%s" % (domain, time_str))
+    kw = {}
     with netCDF4.Dataset(path) as ds:
         if field == "mdbz":
             var = wrf_mod.getvar(ds, "mdbz", timeidx=0)
@@ -57,9 +76,14 @@ def _map_field(run_dir, domain, field, time_str, out_path, title, cmap="viridis"
             raise ValueError(field)
         lats, lons = wrf_mod.latlon_coords(var, as_np=True)
         crs = wrf_mod.get_cartopy(var=var)
-        import numpy as np
-        save_map(out_path, lats, lons, title, fill_field=np.asarray(var), fill_label=fill_label,
-                fill_cmap=cmap, ds=ds, crs=crs)
+        arr = np.asarray(np.ma.filled(np.ma.masked_invalid(np.asarray(var, "f8")), np.nan), "f8")
+        if field in ("mcape", "mcin"):
+            undef = _undefined(arr)
+            arr = np.where(undef, np.nan, arr)
+            kw = dict(fill_levels=MCAPE_LEVELS if field == "mcape" else MCIN_LEVELS,
+                      fill_extend="max", hatch_mask=undef, hatch_label=UNDEF_LABEL)
+        save_map(out_path, lats, lons, title, fill_field=arr, fill_label=fill_label,
+                 fill_cmap=cmap, ds=ds, crs=crs, **kw)
     return out_path
 
 
@@ -158,9 +182,269 @@ def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6):
     except (tools.ToolNotFoundError, ImportError) as e:
         out.append(missing("conv_skewt", "MetPy", str(e)))
 
-    out.append(missing("conv_radar_compare", "MRMS/NEXRAD composite reflectivity",
-                       "not fetched this round -- no dated-archive downloader implemented "
-                       "(decision 0057 section 3 only anonymously fetches ERA5/HURDAT2/Stage IV)"))
-    out.append(missing("conv_fss", "MET Grid-Stat FSS vs. radar obs",
-                       "needs the radar obs comparison above, which is missing"))
+    out += _radar_figures(run_dir, run_label, domain, case_info, out_dir, spinup_hours)
+    return out
+
+
+# --------------------------------------------------------------------------------------
+# model vs radar composite reflectivity (MET Grid-Stat)
+# --------------------------------------------------------------------------------------
+
+DBZ_THRESHOLDS = (20, 35, 45)
+WIDTHS = (1, 3, 5, 9)
+MAX_RADAR_TIMES = 12
+RADAR_IDS = ("conv_radar_compare", "conv_radar_scores", "conv_fss")
+
+
+def _project_of(out_dir):
+    try:
+        from wtune_project import find_project
+        return find_project(out_dir)
+    except Exception:
+        return None
+
+
+def _nexrad_volumes(project_dir):
+    """{radar: [(datetime, path)]} of the Level II volumes present under the project."""
+    from post import sources
+    from post.fetch.nexrad import key_time
+    base = sources.dataset_dir(project_dir, "nexrad")
+    out = {}
+    if not os.path.isdir(base):
+        return out
+    for radar in sorted(os.listdir(base)):
+        d = os.path.join(base, radar)
+        if os.path.isdir(d):
+            vols = [(key_time(f), os.path.join(d, f)) for f in os.listdir(d)]
+            out[radar] = sorted((t, p) for t, p in vols if t is not None and not p.endswith("_MDM"))
+    return out
+
+
+def _mrms_files(project_dir):
+    """{datetime: path} of MRMS reflectivity composites present under the project."""
+    from post import sources
+    from post.fetch.mrms import key_time, PRODUCTS
+    base = sources.dataset_dir(project_dir, "mrms")
+    out = {}
+    for root, _dirs, files in os.walk(base):
+        if PRODUCTS["refl"] in root:
+            for f in files:
+                t = key_time(f + ".gz")
+                if t is not None and f.endswith(".grib2"):
+                    out[t] = os.path.join(root, f)
+    return out
+
+
+def _nearest(vols, t, tol_min=8):
+    from datetime import timedelta
+    best = min(vols, key=lambda v: abs((v[0] - t).total_seconds()), default=None)
+    return best[1] if best and abs((best[0] - t).total_seconds()) <= tol_min * 60 else None
+
+
+def radar_missing_reason(project_dir, run_dir, frame_times, bbox):
+    """The missing() reason: coverage (data does not exist) or the fetch command."""
+    from datetime import datetime
+    from post.fetch import mrms
+    t0 = frame_times[0] if frame_times else None
+    cmd = "wtune post fetch nexrad --project %s --run-dir %s" % (project_dir or "<project>", run_dir)
+    if t0 is not None and t0 >= mrms.FIRST_DAY:
+        cmd += "   (or: wtune post fetch mrms --project %s --run-dir %s)" % (project_dir or "<project>", run_dir)
+    elif t0 is not None:
+        cmd += "   (MRMS does not exist before %s, so NEXRAD Level II is the only radar source)" % mrms.FIRST_DAY.date()
+    return ("radar reflectivity not available locally for this run -- run on a login node: " + cmd)
+
+
+def _pool_counts(per_time):
+    """[{thresh, pod, far, csi, fbias, total}] from summed contingency counts of every time."""
+    import math
+    agg = {}
+    for ctc in per_time:
+        for r in ctc:
+            a = agg.setdefault(r["thresh"], dict(fy_oy=0, fy_on=0, fn_oy=0, fn_on=0))
+            for k in a:
+                a[k] += r[k]
+    out = []
+    for th, a in sorted(agg.items()):
+        hits, fa, miss = a["fy_oy"], a["fy_on"], a["fn_oy"]
+        tot = hits + fa + miss + a["fn_on"]
+        def ratio(n, d):
+            return n / d if d else float("nan")
+        out.append(dict(thresh=th, pod=ratio(hits, hits + miss), far=ratio(fa, hits + fa),
+                        csi=ratio(hits, hits + fa + miss), fbias=ratio(hits + fa, hits + miss),
+                        total=tot))
+    return out
+
+
+def _pool_fss(per_time):
+    """Pooled FSS per (threshold, width): 1 - sum(FBS) / sum(FBS_ref), FBS_ref = FBS / (1 - FSS)
+    recovered from MET's own FBS and FSS columns of every time (MET's NBRCNT aggregation rule);
+    o_rate/f_rate are plain means."""
+    import math
+    agg = {}
+    for rows in per_time:
+        for r in rows:
+            if not (r["fss"] == r["fss"] and r["fbs"] == r["fbs"]) or r["fss"] >= 1.0:
+                continue
+            a = agg.setdefault((r["thresh"], r["width"]), dict(fbs=0.0, ref=0.0, o=[], f=[]))
+            a["fbs"] += r["fbs"]
+            a["ref"] += r["fbs"] / (1.0 - r["fss"]) if r["fss"] < 1.0 else 0.0
+            a["o"].append(r["o_rate"])
+            a["f"].append(r["f_rate"])
+    out = []
+    for (th, w), a in sorted(agg.items()):
+        out.append(dict(thresh=th, width=w, fss=(1.0 - a["fbs"] / a["ref"]) if a["ref"] > 0 else float("nan"),
+                        fbs=a["fbs"], o_rate=sum(a["o"]) / len(a["o"]), f_rate=sum(a["f"]) / len(a["f"])))
+    return out
+
+
+def _radar_figures(run_dir, run_label, domain, case_info, out_dir, spinup_hours):
+    from datetime import datetime, timedelta
+    import csv
+    import netCDF4
+    import numpy as np
+    from post.recipe import fig, missing
+    from post import met_gridstat, obs_figs, radar_composite, sources
+    from post.caseinfo import WRF_TIME_FMT, spec_bdy_width
+
+    frames = _post_spinup_frames(run_dir, domain, spinup_hours)
+    times = [(datetime.strptime(t, WRF_TIME_FMT), p) for t, p in frames]
+    project_dir = _project_of(out_dir)
+    if not times:
+        return [missing(i, "radar composite reflectivity", "no frames") for i in RADAR_IDS]
+    bbox = None
+    try:
+        with netCDF4.Dataset(times[0][1]) as ds:
+            la, lo = ds.variables["XLAT"][0], ds.variables["XLONG"][0]
+            bbox = (float(la.min()), float(la.max()), float(lo.min()), float(lo.max()))
+    except Exception:
+        pass
+
+    mrms = _mrms_files(project_dir) if project_dir else {}
+    nex = _nexrad_volumes(project_dir) if project_dir else {}
+    use = None
+    picks = []
+    if mrms:
+        for t, p in times:
+            f = _nearest([(k, v) for k, v in mrms.items()], t, tol_min=6)
+            if f:
+                picks.append((t, p, [f]))
+        use = "mrms"
+    if not picks and nex:
+        for t, p in times:
+            fl = [f for f in (_nearest(v, t) for v in nex.values()) if f]
+            if fl:
+                picks.append((t, p, fl))
+        use = "nexrad"
+    if not picks:
+        reason = radar_missing_reason(project_dir, run_dir, [t for t, _ in times], bbox)
+        if nex or mrms:
+            reason = ("radar files are present but none lies within +-8 min of a post-spin-up model "
+                      "frame; fetch more: " + reason.split("run on a login node: ")[-1])
+        return [missing(i, "MRMS / NEXRAD composite reflectivity", reason) for i in RADAR_IDS]
+    step = max(1, -(-len(picks) // MAX_RADAR_TIMES))
+    picks = picks[::step]
+
+    work = os.path.join(out_dir, "gridstat_radar")
+    os.makedirs(work, exist_ok=True)
+    per_ctc, per_nbr, rows_csv, best = [], [], [], None
+    try:
+        import wrf as wrf_mod
+        sites = radar_composite.load_sites(project_dir) if use == "nexrad" else None
+        poly = None
+        for t, path, files in picks:
+            tag = t.strftime("%Y%m%d%H%M")
+            with netCDF4.Dataset(path) as ds:
+                var = wrf_mod.getvar(ds, "mdbz", timeidx=0)
+                mlat, mlon = wrf_mod.latlon_coords(var, as_np=True)
+                mdbz = np.asarray(np.ma.filled(np.ma.masked_invalid(np.asarray(var, "f8")), np.nan), "f8")
+            if poly is None:
+                poly = met_gridstat.write_interior_polygon(path, spec_bdy_width(run_dir),
+                                                           os.path.join(work, "interior.poly"))
+            fnc = met_gridstat.curvilinear_to_latlon(
+                np.asarray(mlat, "f8"), np.asarray(mlon, "f8"),
+                {"REFC_MODEL": (mdbz, "dBZ", "model max column reflectivity")}, t,
+                os.path.join(work, "model_%s.nc" % tag), method="remapnn")
+            griddes = fnc[:-3] + ".griddes"
+            onc = os.path.join(work, "obs_%s.nc" % tag)
+            if use == "nexrad":
+                onc, n_rad = radar_composite.write_composite_latlon(
+                    files, np.asarray(mlat, "f8"), np.asarray(mlon, "f8"), griddes, t, onc,
+                    sites=sites)
+            else:
+                onc, n_rad = radar_composite.mrms_on_latlon(files[0], griddes, t, onc), 1
+            if onc is None:
+                continue
+            res = met_gridstat.run_verification(
+                fnc, onc, poly, os.path.join(work, "gs_%s" % tag), "REFC_MODEL", "REFC_OBS",
+                [">=%g" % x for x in DBZ_THRESHOLDS], widths=WIDTHS, to_grid="FCST",
+                regrid_method="NEAREST", model="WRF", obtype="RADAR")
+            ctc = met_gridstat.parse_ctc_counts(res["ctc"])
+            nbr = met_gridstat.parse_nbrcnt_table(res["nbrcnt"])
+            cts = met_gridstat.parse_cts_table(res["cts"])
+            per_ctc.append(ctc)
+            per_nbr.append(nbr)
+            for r in cts:
+                rows_csv.append([t.strftime("%Y-%m-%d %H:%M"), r["thresh"], r["pod"], r["far"], r["csi"],
+                                 r["fbias"], r["total"], n_rad])
+            glat, glon, gf, go, _a, _b = met_gridstat.read_pairs_fields(res["pairs_nc"])
+            if not np.any(np.isfinite(gf) & np.isfinite(go)):
+                continue                                  # no matched cells (obs entirely missing)
+            score = int(np.sum(go >= 35))
+            if best is None or score > best[0]:
+                best = (score, t, glat, glon, gf, go, n_rad)
+    except radar_composite.PyartUnavailable as e:
+        return [missing(i, "NEXRAD composite reflectivity", str(e)) for i in RADAR_IDS]
+    except (tools.ToolNotFoundError, tools.ToolError, met_gridstat.METError, ImportError, OSError,
+            StopIteration) as e:
+        return [missing(i, "MET Grid-Stat vs radar", "verification failed: %s" % e) for i in RADAR_IDS]
+    if not per_ctc or best is None:
+        return [missing(i, "radar composite reflectivity",
+                        "no radar composite with cells inside the model interior could be built "
+                        "(radar volumes unreadable, or the domain lies beyond every radar's range)")
+                for i in RADAR_IDS]
+
+    pooled_cts = _pool_counts(per_ctc)
+    pooled_fss = _pool_fss(per_nbr)
+    dx = [d["dx_km"] for d in case_info["domains"] if d["domain"] == domain]
+    cell_km = dx[0] if dx and dx[0] else 3.0
+    csv_ts = os.path.join(out_dir, "conv_radar_scores_by_time.csv")
+    with open(csv_ts, "w", newline="") as fh:
+        w = csv.writer(fh)
+        w.writerow(["valid_time_utc", "threshold_dBZ", "POD", "FAR", "CSI", "frequency_bias", "n_points", "n_radars"])
+        w.writerows(rows_csv)
+    csv_pool = os.path.join(out_dir, "conv_radar_scores_pooled.csv")
+    with open(csv_pool, "w", newline="") as fh:
+        w = csv.writer(fh)
+        w.writerow(["threshold_dBZ", "POD", "FAR", "CSI", "frequency_bias", "n_points_all_times"])
+        for r in pooled_cts:
+            w.writerow([r["thresh"], r["pod"], r["far"], r["csi"], r["fbias"], r["total"]])
+        w.writerow([])
+        w.writerow(["threshold_dBZ", "width_points", "width_km", "FSS_pooled"])
+        for r in pooled_fss:
+            w.writerow([r["thresh"], r["width"], round(r["width"] * cell_km, 2), r["fss"]])
+
+    obs_name = "MRMS MergedReflectivityQCComposite" if use == "mrms" else "NEXRAD Level II composite (Py-ART)"
+    src = sources.source_tags(project_dir, [use])
+    nt = len(per_ctc)
+    common = dict(obs_sources=src, csv=[csv_ts, csv_pool], n_times=nt,
+                  tool="MET grid_stat (both fields on one lat/lon grid, interior mask), pooled over %d time(s)" % nt)
+    _s, tb, glat, glon, gf, go, n_rad = best
+    out = []
+    p = obs_figs.side_by_side(
+        glat, glon, gf, go, ("%s d%02d model max column reflectivity" % (run_label, domain), obs_name + " (obs)"),
+        "composite reflectivity %s UTC, matched points (%d radar(s))" % (tb.strftime("%Y-%m-%d %H:%M"), n_rad),
+        os.path.join(out_dir, "conv_radar_compare.png"), obs_figs.DBZ_LEVELS, cmap="gist_ncar",
+        cbar_label="dBZ", extend="max")
+    out.append(fig("conv_radar_compare", p, run_label, domain="d%02d" % domain,
+                   valid_time=tb.strftime(WRF_TIME_FMT), extra=dict(common, tool=common["tool"])))
+    p = obs_figs.scores_vs_threshold(pooled_cts, "Grid-Stat categorical scores vs %s, %d time(s) pooled" % (obs_name, nt),
+                                     os.path.join(out_dir, "conv_radar_scores.png"), "reflectivity threshold (dBZ)")
+    out.append(fig("conv_radar_scores", p, run_label, domain="d%02d" % domain,
+                   valid_time="%s..%s" % (picks[0][0].strftime(WRF_TIME_FMT), picks[-1][0].strftime(WRF_TIME_FMT)),
+                   extra=common))
+    p = obs_figs.fss_vs_scale(pooled_fss, cell_km, "Grid-Stat FSS vs %s, %d time(s) pooled" % (obs_name, nt),
+                              os.path.join(out_dir, "conv_fss.png"), " dBZ")
+    out.append(fig("conv_fss", p, run_label, domain="d%02d" % domain,
+                   valid_time="%s..%s" % (picks[0][0].strftime(WRF_TIME_FMT), picks[-1][0].strftime(WRF_TIME_FMT)),
+                   extra=common))
     return out

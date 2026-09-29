@@ -28,6 +28,9 @@ xwrf = "*"
 ffmpeg = "*"
 gcsfs = "*"
 zarr = "*"
+arm_pyart = ">=1.19,<2"   # radar_composite.py (NEXRAD level-2 -> composite reflectivity); <2 = pre-xradar-only API
+dask = "*"                # imported by pyart.correct but missing from the conda-forge arm_pyart run deps
+xradar = ">=0.9"          # native xarray.DataTree; xradar<0.9 pulls xarray-datatree and downgrades xarray to 2024.9
 
 [tasks]
 test = "python -m pytest -q tests/test_wtune_predict.py tests/tools/"

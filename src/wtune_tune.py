@@ -281,8 +281,14 @@ def _apply_search_filter(ctx, configs):
     the STRICT search restrictions (omp/numtiles/rank_distribution/aspect_max) but still must obey
     `exclude` rules -- an anchor dropped by `exclude` is simply omitted, not replaced."""
     out = []
+    omp_cap = getattr(ctx, "omp_cap", None)
     for c in configs:
         exempt = c.get("config_source") == "anchor" or c.get("id") == "ANCHOR"
+        if omp_cap and int(c.get("omp", 1) or 1) > omp_cap:   # dmpar-only extension build
+            if exempt:
+                print("config: ANCHOR omp=%s dropped: OpenMP not supported by this extension build"
+                      % c.get("omp"))
+            continue
         if wtune_config.candidate_allowed(c, ctx.search_cfg, ctx.exclude_rules, ctx.is_fire,
                                            exempt_search=exempt):
             out.append(c)
@@ -601,6 +607,7 @@ class Ctx:
         default_factory=lambda: copy.deepcopy(wtune_config.DEFAULTS["search"]))
     exclude_rules: list = dataclasses.field(default_factory=list)
     is_fire: bool = False
+    omp_cap: object = None      # 1 for WRF-Chem/Hydro/WRFDA (dmpar-only builds), else None
     confirm_reps: int = CONFIRM_REPS
     prediction_cfg: dict = dataclasses.field(
         default_factory=lambda: copy.deepcopy(wtune_config.DEFAULTS["prediction"]))
@@ -1928,6 +1935,19 @@ def _assert_report_is_strict_only(ctx, param_table):
         if val and [str(v).strip() for v in orig_flat.get(key.strip()) or []] != new:
             final_flat[key.strip()] = new
     wc.assert_strict_only(orig_flat, final_flat)
+    # WRF extensions (chem/hydro/WRFDA/moving nest): group-level byte-for-byte guard on top of the
+    # per-key classification (extension-owned groups such as &chem or &wrfvar* may not change at all)
+    import wtune_extensions
+    final_nested = {g: dict(v) for g, v in orig_nested.items()}
+    for g, grp in final_nested.items():
+        for k in grp:
+            if k in final_flat and final_flat[k] != orig_flat.get(k):
+                grp[k] = final_flat[k]
+    bad = wtune_extensions.extension_keys_changed(orig_nested, final_nested)
+    if bad:
+        raise wc.ComplianceError(
+            "extension parameter(s) changed in the final recommended configuration: "
+            + ", ".join("&%s %s" % gk for gk in bad))
 
 
 def build_report(ctx, nodes, nodes_note, all_results, confirm_results, anchor_cid):
@@ -3384,6 +3404,12 @@ def run(args, sbatch_runner=None, sacct_runner=None, scancel_runner=None, ledger
 
     case_json, namelist_path, profile = resolve_case(case, args.cores_per_node)
     is_fire = wtune_config.is_fire_case(case_json, namelist_path)
+    import wtune_extensions
+    _ext_notes, _ext_refusal = wtune_extensions.tune_gate(namelist_path)
+    if _ext_refusal:
+        raise SystemExit(_ext_refusal)
+    for _n in _ext_notes:
+        print("EXTENSION: %s" % _n)
 
     if steps_cfg == "auto":
         steps, steps_note = resolve_auto_probe_steps(namelist_path)
@@ -3437,6 +3463,7 @@ def run(args, sbatch_runner=None, sacct_runner=None, scancel_runner=None, ledger
               sacct_runner=sacct_runner, scancel_runner=scancel_runner,
               ledger_reader=ledger_reader, proposer=proposer, clock=clock,
               search_cfg=cfg["search"], exclude_rules=cfg["exclude"], is_fire=is_fire,
+              omp_cap=wtune_extensions.omp_cap_for_namelist(namelist_path),
               confirm_reps=confirm_reps, prediction_cfg=cfg["prediction"],
               probe_cfg=cfg["probe"], ranking_start_note=ranking_start_note,
               rank_by=rank_by, restart_io_form=int(restart_io_form), stage1_mode=stage1_mode)

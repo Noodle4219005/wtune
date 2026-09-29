@@ -32,6 +32,7 @@ import argparse
 import datetime
 import json
 import math
+import glob
 import os
 import re
 import shlex
@@ -589,10 +590,36 @@ def inspect_case(case_dir, namelist=None, namelist_wps=None, geo_from_wrfinput=N
                         % sf_urban_physics)
 
     if chem_opt > 0:
-        blockers.append("chem_opt=%d (WRF-Chem needs emissions input; unsupported)" % chem_opt)
+        # WRF-Chem is "grid/rank only" for WTune (user decision 2026-09-29): chem_opt/chemdt/photdt/
+        # emissions are left exactly as given, so chem_opt>0 alone no longer blocks. What still
+        # blocks is a real crash risk: wrf.exe aborts opening emission/chem-input files that the
+        # case does not carry (real.exe + GFS cannot produce them).
+        emiss_opt = int(predict.g_dom(nl, "chem", "emiss_inpt_opt", 0, 1) or 0)   # Registry default 1
+        io_emiss = int(predict.g_dom(nl, "chem", "io_style_emissions", 0, 0) or 0)
+        chem_in_opt = int(predict.g_dom(nl, "chem", "chem_in_opt", 0, 0) or 0)
+        have = lambda pat: bool(glob.glob(os.path.join(case_dir, pat)))
+        missing = []
+        if (emiss_opt > 0 or io_emiss > 0) and not have("wrfchemi_d*"):
+            missing.append("emission files wrfchemi_d* (emiss_inpt_opt=%d, io_style_emissions=%d)"
+                           % (emiss_opt, io_emiss))
+        if chem_in_opt == 1 and not have("wrf_chem_input*") and not have("wrfchem_input*"):
+            missing.append("chemistry initial-condition file (chem_in_opt=1)")
+        if missing:
+            blockers.append("chem_opt=%d (WRF-Chem) needs input files this case does not carry: %s "
+                            "-- wrf.exe would abort at start-up (real crash risk); WTune cannot "
+                            "generate them" % (chem_opt, "; ".join(missing)))
+        else:
+            rows.append(("WRF-Chem", True, "chem_opt=%d" % chem_opt,
+                         "grid/rank tuning only: chem settings untouched, time prediction UNCALIBRATED"))
 
     if obs_nudge_opt > 0:
         blockers.append("obs_nudge_opt=%d needs observation files (unsupported)" % obs_nudge_opt)
+
+    import wtune_extensions
+    for _d in wtune_extensions.detect(nl, case_dir):
+        if _d["id"] in ("hydro", "movenest", "wrfda") and _d["active"]:
+            rows.append((_d["label"], True, "; ".join(_d["evidence"]),
+                         "grid/rank tuning only: extension settings untouched"))
 
     capability_warnings = [
         "filled differently: hydrometeors and number concentrations start at zero (GFS via "

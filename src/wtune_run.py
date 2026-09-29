@@ -97,6 +97,7 @@ for _p in (os.path.join(_HERE, "tools"), os.path.join(_HERE, "predictor"), _HERE
 import coldstart_sample as coldstart   # noqa: E402  tools/: namelist editing, predicted compute,
                                         # the shared sbatch signal-trap/hygiene preamble
 import scc_sweep as sweep              # noqa: E402  tools/: sacct_states/submit_job/exclude_arg
+import wtune_extensions
 import wtune_predict as wp             # noqa: E402  namelist parsing, calibration, sample points
 import wtune_probe_plan as pp          # noqa: E402  _resolve_r_rad_from_points (combine's r rule)
 import wtune_watch                     # noqa: E402  snapshot(rundir): done/failed/CFL/NaN
@@ -894,6 +895,8 @@ def run_controller(ctx):
                        geo["dt"]))
                 if advice_path:
                     log("  advice namelist written: %s" % advice_path)
+                for _w in wtune_extensions.cfl_coupling_warnings(ctx["case_dir"], geo["dt"], advice_dt):
+                    log(_w)
                 report["decisions"].append({"segment": k, "decision": "cfl_advice",
                                             "recommended_time_step": advice_dt,
                                             "advice_namelist": advice_path})
@@ -967,6 +970,10 @@ def build_arg_parser():
                          "advisory-only rule for solution-changing knobs -- without it, a CFL/NaN "
                          "failure stops and writes advice (recommended time_step + a "
                          "segment.advice.namelist.input) instead of resubmitting anything.")
+    ap.add_argument("--wrfda-forecast-only", action="store_true",
+                    help="acknowledge that this WRFDA case is run as wrf.exe forecast segments "
+                         "only: WTune does NOT run DA cycles (obsproc/da_wrfvar/da_update_bc). "
+                         "Without it, a WRFDA case is refused.")
     ap.add_argument("--out", default=None, help="required unless --project (or $WTUNE_PROJECT "
                     "/ a project.yaml above cwd) resolves, in which case it defaults to "
                     "<project>/runs/<id>/ (decision 0058)")
@@ -985,6 +992,14 @@ def main(argv=None, sbatch_runner=None, sacct_runner=None, snapshot_fn=None, sle
          log=print):
     a = build_arg_parser().parse_args(argv)
     case_dir = os.path.abspath(a.case_dir)
+    import wtune_extensions
+    refusal = wtune_extensions.refusal_run(case_dir, cfl_rescue=a.cfl_rescue,
+                                           wrfda_forecast_only=a.wrfda_forecast_only)
+    if refusal:
+        print("error: %s" % refusal, file=sys.stderr)
+        return 2
+    for _n in wtune_extensions.run_notes(case_dir):
+        log("EXTENSION: %s" % _n)
     if a.out:
         out = os.path.abspath(a.out)
     else:

@@ -168,7 +168,9 @@ def regrid_for_tc_rmw(wrfout_paths, out_grb):
     return out_grb
 
 
-PRESSURE_LEVELS_HPA = (1000, 925, 850, 700, 500, 300, 200)
+# every 50 hPa, 1000-100 (19 levels): the 7 standard levels this used to carry drew the RMW
+# radius-height figure as wide horizontal bands
+PRESSURE_LEVELS_HPA = tuple(range(1000, 99, -50))
 
 
 def _wrf_fields_on_pressure_levels(wrfout_path, out_nc, levels=PRESSURE_LEVELS_HPA):

@@ -255,6 +255,11 @@ def main(argv=None):
     a = ap.parse_args(argv)
 
     case_dir = os.path.abspath(a.case_dir)
+    import wtune_extensions
+    refusal = wtune_extensions.refusal_predict_rebuild(case_dir)
+    if refusal:
+        print("error: %s" % refusal, file=sys.stderr)
+        return 2
     forcing = ERA5_PIN if a.forcing == "era5" else "auto"
     # ERA5 default = the short window (spin-up 10 min, max(30, stepra+10) steps): same-day paired
     # checks moved the prediction -1.11% (dorian2019) and +0.38% (lafe) vs 20 min + 2*stepra, and

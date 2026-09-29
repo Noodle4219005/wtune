@@ -94,7 +94,9 @@ def _surface_field(ds, wrf_mod, name, timeidx):
     if name == "rain_acc":
         rainc = wrf_mod.getvar(ds, "RAINC", timeidx=timeidx)
         rainnc = wrf_mod.getvar(ds, "RAINNC", timeidx=timeidx)
-        return rainc + rainnc
+        total = rainc + rainnc
+        total.attrs = dict(rainc.attrs)    # xarray < 2025.11 drops attrs in arithmetic; get_cartopy needs 'projection'
+        return total
     if name == "mdbz":
         return wrf_mod.getvar(ds, "mdbz", timeidx=timeidx)
     if name in ("mcape", "mcin"):

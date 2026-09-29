@@ -103,11 +103,30 @@ def radius_time_plot(run_dir, adeck_path, out_path, domain=1, radius_bins_km=RAD
     return out_path
 
 
+def tracking_notes_for(run_label, out_dir):
+    """The tracking-grid hints post/tc.py's run_tc_report() wrote for this run (tracking_notes.json
+    in out_dir): coarser-domain fallback, grid-limited track, storm left the nest. [] if none."""
+    import json
+    path = os.path.join(out_dir, "tracking_notes.json")
+    try:
+        with open(path) as fh:
+            return list(json.load(fh).get(run_label, []))
+    except (OSError, ValueError):
+        return []
+
+
 def figures(run_dir, run_label, adeck_path, domain, out_dir):
     from post.recipe import fig, missing
+    # The hints themselves reach the report as recipe notes (post/recipe.py note(), emitted by
+    # _tc_figures from run_tc_report's summary["notes"]); here they only annotate this figure.
+    notes = tracking_notes_for(run_label, out_dir)
     path = os.path.join(out_dir, "tc_radius_time_wind_%s.png" % run_label)
     written = radius_time_plot(run_dir, adeck_path, path, domain=domain)
+    out = []
     if written:
-        return [fig("tc_radius_time_wind", written, run_label, domain="d%02d" % domain)]
-    return [missing("tc_radius_time_wind", "wrfout U10/V10 at the a-deck's own times",
-                    "no wrfout frame matched any a-deck time for %s" % run_label)]
+        out.append(fig("tc_radius_time_wind", written, run_label, domain="d%02d" % domain,
+                       extra={"note": " ".join(notes)} if notes else None))
+    else:
+        out.append(missing("tc_radius_time_wind", "wrfout U10/V10 at the a-deck's own times",
+                           "no wrfout frame matched any a-deck time for %s" % run_label))
+    return out

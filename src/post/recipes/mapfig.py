@@ -13,9 +13,34 @@ from post.plotting import (WIND_SUBSAMPLE, _coastline, _matplotlib, _natural_ear
                            _set_cartopy_data_dir)
 
 
+def nice_levels(lo, hi, nbins=14):
+    """Round contour levels spanning [lo, hi] (MaxNLocator: steps 1/2/2.5/5/10 x 10^n)."""
+    from matplotlib.ticker import MaxNLocator
+    return MaxNLocator(nbins=nbins, steps=[1, 2, 2.5, 5, 10]).tick_values(lo, hi)
+
+
+def pooled_levels(arrays, lo_pct=2.0, hi_pct=98.0, nbins=14, floor=None):
+    """ONE fixed scale for a whole time series: nice levels spanning the lo_pct..hi_pct
+    percentiles of every frame pooled together (so frames are comparable and an animation
+    does not flicker). floor: clamp the lower bound (e.g. 0 for non-negative fields)."""
+    import numpy as np
+    vals = np.concatenate([np.asarray(a, dtype="f8").ravel() for a in arrays])
+    vals = vals[np.isfinite(vals)]
+    if vals.size == 0:
+        return None
+    lo, hi = np.percentile(vals, [lo_pct, hi_pct])
+    if floor is not None:
+        lo = max(lo, floor)
+    if hi <= lo:
+        hi = lo + 1.0
+    return nice_levels(lo, hi, nbins)
+
+
 def save_map(out_path, lats, lons, title, fill_field=None, fill_label="", fill_cmap="viridis",
             contour_field=None, contour_levels=None, contour_color="k", contour_label_fmt="%g",
-            u=None, v=None, ds=None, crs=None, basemap="cartopy"):
+            u=None, v=None, ds=None, crs=None, basemap="cartopy", fill_levels=None,
+            fill_extend="neither", fill_colors=None, gridline_labels=False, hatch_mask=None,
+            hatch_label="below ground", legend_handles=None):
     """Writes one PNG. lats/lons: plain 2-D ndarrays. fill_field: optional filled contourf.
     contour_field/contour_levels: optional overlaid contour lines (e.g. geopotential height on
     a vorticity fill). u/v: optional wind barbs, subsampled by WIND_SUBSAMPLE. ds: netCDF4
@@ -23,7 +48,14 @@ def save_map(out_path, lats, lons, title, fill_field=None, fill_label="", fill_c
     wrf.get_cartopy(var=...)) for the WRF-native map projection; default PlateCarree when
     basemap=='cartopy' and none is given. basemap: 'cartopy' (default) or 'landmask', matching
     `wtune post plot`'s own --basemap contract.
+    fill_levels/fill_extend: explicit filled-contour levels (default: 20 auto levels) -- pass
+    one fixed scale for every frame of a time series. fill_colors: one colour per level bin
+    (overrides fill_cmap; needed for unevenly spaced levels). gridline_labels: label lat/lon
+    gridlines. hatch_mask: bool array, True cells are drawn light-grey hatched (e.g. pressure
+    level below ground) and a `hatch_label` legend entry is added; legend_handles: extra
+    legend entries. Legends go below the axes, outside the data area.
     """
+    import numpy as np
     plt = _matplotlib()
     ccrs = None
     natural_earth_ok = False
@@ -39,11 +71,33 @@ def save_map(out_path, lats, lons, title, fill_field=None, fill_label="", fill_c
     elif basemap != "landmask":
         raise ValueError("basemap must be 'cartopy' or 'landmask', got %r" % basemap)
 
-    fig, ax = plt.subplots(figsize=(8, 6), subplot_kw=subplot_kw)
+    # constrained layout: title/colour bar/gridline labels/legend all get room (tight_layout
+    # clipped long titles)
+    fig, ax = plt.subplots(figsize=(8, 6.4), subplot_kw=subplot_kw, layout="constrained")
 
     if fill_field is not None:
-        cf = ax.contourf(lons, lats, fill_field, levels=20, cmap=fill_cmap, **transform_kw)
-        fig.colorbar(cf, ax=ax, label=fill_label)
+        kw = dict(transform_kw)
+        if fill_colors is not None:
+            # one colour per bin (+ optionally one more for the extend="max" overflow arrow);
+            # BoundaryNorm keeps colours per bin even when the levels are unevenly spaced
+            from matplotlib.colors import BoundaryNorm, ListedColormap
+            nb = len(fill_levels) - 1
+            cm_ = ListedColormap(list(fill_colors[:nb]))
+            if fill_extend in ("max", "both"):
+                cm_.set_over(fill_colors[nb] if len(fill_colors) > nb else fill_colors[nb - 1])
+            kw["cmap"] = cm_
+            kw["norm"] = BoundaryNorm(fill_levels, cm_.N)
+        else:
+            kw["cmap"] = fill_cmap
+        cf = ax.contourf(lons, lats, fill_field, levels=20 if fill_levels is None else fill_levels,
+                         extend=fill_extend, **kw)
+        fig.colorbar(cf, ax=ax, label=fill_label, shrink=0.9)
+    handles = list(legend_handles or [])
+    if hatch_mask is not None and np.any(hatch_mask):
+        from matplotlib.patches import Patch
+        ax.contourf(lons, lats, np.asarray(hatch_mask, dtype="f8"), levels=[0.5, 1.5],
+                    colors=["0.85"], hatches=["////"], **transform_kw)
+        handles.append(Patch(facecolor="0.85", edgecolor="0.4", hatch="////", label=hatch_label))
     if contour_field is not None:
         cs = ax.contour(lons, lats, contour_field, levels=contour_levels, colors=contour_color,
                         linewidths=0.8, **transform_kw)
@@ -51,14 +105,16 @@ def save_map(out_path, lats, lons, title, fill_field=None, fill_label="", fill_c
     if u is not None and v is not None:
         s = slice(None, None, WIND_SUBSAMPLE)
         ax.barbs(lons[s, s], lats[s, s], u[s, s], v[s, s], length=5, **transform_kw)
-    if ds is not None:
-        _coastline(ax, ds, ccrs, natural_earth_ok)
+    if ds is not None or gridline_labels:
+        _coastline(ax, ds, ccrs, natural_earth_ok, draw_labels=gridline_labels and ccrs is not None)
+    if handles:
+        fig.legend(handles=handles, loc="outside lower center", ncol=len(handles), fontsize=8,
+                   frameon=False)
 
-    ax.set_title(title, fontsize=10)
+    ax.set_title(title, fontsize=9)
     if basemap != "cartopy":
         ax.set_xlabel("lon")
         ax.set_ylabel("lat")
-    fig.tight_layout()
     fig.savefig(out_path)
     plt.close(fig)
     return out_path

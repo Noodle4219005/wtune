@@ -63,16 +63,31 @@ def _set_cartopy_data_dir():
     return data_dir
 
 
-def _coastline(ax, ds, ccrs_mod, natural_earth_ok):
-    """ccrs_mod=None means plain lon/lat axes (--basemap landmask): no transform kwarg."""
+def _gridlines(ax, draw_labels):
+    """Lat/lon gridlines; with draw_labels the degree labels go on the left/bottom edges only
+    (cartopy's own gridliner labels, works on the WRF Lambert/Mercator projections)."""
+    gl = ax.gridlines(draw_labels=draw_labels, linewidth=0.3, alpha=0.5)
+    if draw_labels:
+        gl.top_labels = False
+        gl.right_labels = False
+        gl.xlabel_style = {"size": 7}
+        gl.ylabel_style = {"size": 7}
+    return gl
+
+
+def _coastline(ax, ds, ccrs_mod, natural_earth_ok, draw_labels=False):
+    """ccrs_mod=None means plain lon/lat axes (--basemap landmask): no transform kwarg.
+    draw_labels: also label the lat/lon gridlines (cartopy axes only)."""
     import numpy as np
     if natural_earth_ok:
         import cartopy.feature as cfeature
         ax.add_feature(cfeature.COASTLINE, linewidth=0.6)
         ax.add_feature(cfeature.BORDERS, linewidth=0.4)
-        ax.gridlines(draw_labels=False, linewidth=0.3, alpha=0.5)
+        _gridlines(ax, draw_labels)
         return
-    if "LANDMASK" not in ds.variables:
+    if ccrs_mod is not None and draw_labels:
+        _gridlines(ax, True)
+    if ds is None or "LANDMASK" not in ds.variables:
         return
     lat2d = np.asarray(ds.variables["XLAT"][0])
     lon2d = np.asarray(ds.variables["XLONG"][0])
@@ -82,8 +97,12 @@ def _coastline(ax, ds, ccrs_mod, natural_earth_ok):
 
 
 def plot_field(run_dir, field, out_dir, domain=1, times=None, level_hpa=None,
-               overlay_wind=False, basemap="cartopy", fmt="png"):
-    """Writes one figure per requested time to out_dir. Returns the list of written paths."""
+               overlay_wind=False, basemap="cartopy", fmt="png", levels=None, cmap=None,
+               extend="neither", gridline_labels=False):
+    """Writes one figure per requested time to out_dir. Returns the list of written paths.
+    levels/cmap/extend: a FIXED colour scale (explicit contour levels) so frames of one time
+    series share one colour bar; default is per-frame auto levels, viridis. gridline_labels:
+    label the lat/lon gridlines (cartopy basemap only)."""
     import numpy as np
     wrf_mod = __import__("wrf")
     netcdf4 = __import__("netCDF4")
@@ -126,17 +145,19 @@ def plot_field(run_dir, field, out_dir, domain=1, times=None, level_hpa=None,
                 crs = wrf_mod.get_cartopy(var=var)
                 lats, lons = wrf_mod.latlon_coords(var, as_np=True)
                 fig, ax = plt.subplots(figsize=(8, 6), subplot_kw={"projection": crs})
-                cf = ax.contourf(lons, lats, data, levels=20, cmap="viridis",
+                cf = ax.contourf(lons, lats, data, levels=20 if levels is None else levels,
+                                 cmap=cmap or "viridis", extend=extend,
                                  transform=ccrs.PlateCarree())
             else:
                 lat2d = np.asarray(ds.variables["XLAT"][0])
                 lon2d = np.asarray(ds.variables["XLONG"][0])
                 fig, ax = plt.subplots(figsize=(8, 6))
-                cf = ax.contourf(lon2d, lat2d, data, levels=20, cmap="viridis")
+                cf = ax.contourf(lon2d, lat2d, data, levels=20 if levels is None else levels,
+                                 cmap=cmap or "viridis", extend=extend)
 
             cbar = fig.colorbar(cf, ax=ax)
             cbar.set_label(UNITS.get(field, ""))
-            _coastline(ax, ds, ccrs, natural_earth_ok)
+            _coastline(ax, ds, ccrs, natural_earth_ok, draw_labels=gridline_labels)
 
             if overlay_wind:
                 lat2d = np.asarray(ds.variables["XLAT"][0])

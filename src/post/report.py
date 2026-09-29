@@ -118,6 +118,69 @@ def _caption_block(catalog, fig_id):
     return "\n".join(parts)
 
 
+def _source_lines(f):
+    """HTML for a figure's data sources (`obs_sources` from post/sources.py source_tags) and the
+    MET tool/window/mask/note that produced its numbers."""
+    parts = []
+    for src in f.get("obs_sources") or []:
+        parts.append("<p class='stamp'>資料來源 / data: <strong>%s</strong> -- %s; <a href='%s'>%s</a>; "
+                     "license: %s; fetched: %s<br>citation: %s</p>" % (
+                         html.escape(src.get("dataset", "")), html.escape(src.get("provider", "")),
+                         html.escape(_first_url(src.get("url", ""))), html.escape(src.get("url", "")),
+                         html.escape(src.get("license", "")), html.escape(src.get("fetched_utc", "")),
+                         html.escape(src.get("citation", ""))))
+    extra = [("tool", "MET tool"), ("window", "window"), ("mask", "mask")]
+    bits = ["%s: %s" % (label, f[k]) for k, label in extra if f.get(k)]
+    if bits:
+        parts.append("<p class='stamp'>%s</p>" % html.escape("; ".join(bits)))
+    if f.get("note"):
+        parts.append("<p class='note'>%s</p>" % html.escape(str(f["note"])))
+    return "\n".join(parts)
+
+
+def _first_url(text):
+    import re
+    m = re.search(r"https?://[^\s;,)]+", text or "")
+    return m.group(0) if m else "#"
+
+
+def _notes_box(notes):
+    """Warning box for summary["notes"] = [{"source", "level", "text"}]. Notes are caveats about
+    how to read the report, not missing observations."""
+    if not notes:
+        return ""
+    items = []
+    for n in notes:
+        items.append("<li><strong>[%s]</strong> %s <span class='stamp'>(%s)</span></li>" % (
+            html.escape(str(n.get("level", "note"))), html.escape(str(n.get("text", ""))),
+            html.escape(str(n.get("source", "")))))
+    return "<div class='warnbox'><strong>Notes</strong><ul>%s</ul></div>" % "".join(items)
+
+
+def _sources_section(figures, out_dir):
+    """"資料來源與授權": every observation/reanalysis dataset the report's figures used, with
+    link, license, citation and (when fetched by wtune) the UTC fetch time."""
+    from post import sources
+    names = sources.used_sources(figures)
+    if not names:
+        return ""
+    try:
+        from wtune_project import find_project
+        project_dir = find_project(out_dir)
+    except Exception:
+        project_dir = None
+    rows = ["<h2>資料來源與授權 (Data sources and licenses)</h2>",
+            "<table><tr><th>dataset</th><th>provider</th><th>link</th><th>license</th>"
+            "<th>citation</th><th>fetched (UTC)</th></tr>"]
+    for r in sources.dataset_records(project_dir, names):
+        rows.append("<tr><td>%s</td><td>%s</td><td><a href='%s'>%s</a></td><td>%s</td><td>%s</td>"
+                    "<td>%s</td></tr>" % tuple(html.escape(x) if i != 2 else x for i, x in enumerate((
+                        r["dataset"], r["provider"], html.escape(_first_url(r["url"])), r["url"],
+                        r["license"], r["citation"], r["fetched_utc"]))))
+    rows.append("</table>")
+    return "\n".join(rows)
+
+
 def _stamp(f, spinup_hours):
     bits = []
     if f.get("run"):
@@ -193,7 +256,7 @@ def _build_time_series_section(out_dir, figures, catalog, spinup_hours):
 
 
 def build_recipe_report(out_dir, case_info, figures, run_dirs, labels, spinup_hours, catalog,
-                        title=None):
+                        title=None, notes=None):
     """Writes out_dir/report.html for `wtune post recipe`. figures: post/recipe.py's fig()/
     missing() records. Returns the report path."""
     title = title or ("wtune post recipe: %s" % ", ".join(labels))
@@ -206,8 +269,11 @@ def build_recipe_report(out_dir, case_info, figures, run_dirs, labels, spinup_ho
              ".missing{background:#fff3f3;border:1px solid #e0a0a0;padding:0.75em;margin:0.5em 0}"
              ".stamp{color:#555;font-size:0.85em}"
              ".caption-en{color:#333}.caption-zh{color:#333}"
+             ".warnbox{background:#fff8e1;border:1px solid #e0b040;padding:0.75em;margin:0.75em 0}"
+             ".note{color:#7a4b00;font-size:0.9em}"
              "h2{border-bottom:2px solid #333;padding-bottom:0.2em}</style>",
              "</head><body>", "<h1>%s</h1>" % html.escape(title)]
+    parts.append(_notes_box(notes if notes is not None else case_info.get("notes")))
 
     parts.append("<h2>Run(s)</h2><ul>")
     for run_dir, label in zip(run_dirs, labels):
@@ -247,9 +313,11 @@ def build_recipe_report(out_dir, case_info, figures, run_dirs, labels, spinup_ho
                 parts.append("<p><em>%s (not an image -- open at %s)</em></p>"
                              % (html.escape(os.path.basename(f["path"])), html.escape(f["path"])))
             parts.append("<p class='stamp'>%s</p>" % html.escape(_stamp(f, spinup_hours)))
+            parts.append(_source_lines(f))
             parts.append(_caption_block(catalog, f["id"]))
 
     parts.append(_build_time_series_section(out_dir, figures, catalog, spinup_hours))
+    parts.append(_sources_section(figures, out_dir))
 
     parts.append("</body></html>")
     out_path = os.path.join(out_dir, "report.html")

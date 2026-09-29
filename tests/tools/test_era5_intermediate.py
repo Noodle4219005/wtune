@@ -35,7 +35,7 @@ def _ds():
                  ("soil_temperature_level_1", 285.0), ("volumetric_soil_water_layer_1", 0.3)):
         data[n] = (("time", "latitude", "longitude"), np.full(shp2, v, np.float32))
     sst = np.full(shp2, np.nan, np.float32)
-    sst[:, :, :720] = 295.0                        # land (NaN) elsewhere
+    sst[:, :, :1100] = 295.0                       # ocean lon<275E; NaN (land) east of it
     data["sea_surface_temperature"] = (("time", "latitude", "longitude"), sst)
     data["sea_ice_cover"] = (("time", "latitude", "longitude"), np.full(shp2, np.nan, np.float32))
     return xr.Dataset(data, coords={"time": t, "level": lev, "latitude": lat, "longitude": lon})
@@ -56,7 +56,9 @@ def test_records_cover_hydrometeors_units_and_grid(tmp_path):
     assert abs(by["SNOW"][0].slab.mean() - 10.0) < 1e-4             # m -> kg m-2
     assert by["SEAICE"][0].slab.max() == 0.0                         # NaN -> 0
     sst = by["SST"][0].slab
-    assert np.isfinite(sst).all() and sst.min() == pytest.approx(290.0)   # NaN -> skin temp
+    assert np.isfinite(sst).all() and sst.min() == -1.0e30           # land NaN -> WPS missing
+    assert sst.max() == pytest.approx(295.0)                         # ocean value untouched
+    assert (sst[sst > -1e29] == 295.0).all()
     q2 = [r for r in by["SPECHUMD"] if r.xlvl == wi.SURFACE_PA][0].slab.mean()
     assert 0.0055 < q2 < 0.0065                                      # Td 280 K, 1000 hPa
     r0 = by["TT"][0]

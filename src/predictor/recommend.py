@@ -187,6 +187,7 @@ def parse_case_from_namelist(namelist_path):
         e_vert=(e_vert_list[0] if e_vert_list else None),
         e_we_list=e_we_list, e_sn_list=e_sn_list, e_vert_list=e_vert_list,
         ifire_list=ifire_list,
+        ext_max_omp=_ext_omp_cap(namelist_path),
         dx=_scalar(nl, "domains", "dx"), dy=_scalar(nl, "domains", "dy"),
         time_step=_scalar(nl, "domains", "time_step"),
         mp_physics=_int_scalar(nl, "physics", "mp_physics"),
@@ -258,6 +259,8 @@ def build_candidates(case_fields, nodes, max_dom, case_name=None):
     # cap; case_dict.get("max_omp", 1) treats "no cap yet" as unbounded-but-about-to-become-1).
     if any(v is not None and v > 0 for v in (case_fields.get("ifire_list") or ())):
         case_dict["max_omp"] = min(1, case_dict.get("max_omp", 1))
+    if case_fields.get("ext_max_omp"):   # WRF-Chem/Hydro/WRFDA: dmpar-only build, no OpenMP
+        case_dict["max_omp"] = min(case_fields["ext_max_omp"], case_dict.get("max_omp", 1))
     domain_note = None
     we_list, sn_list = case_fields["e_we_list"], case_fields["e_sn_list"]
     if we_list and sn_list:
@@ -578,6 +581,22 @@ def _in_sample_check(scope_rows, case_name, case_fields):
 # ---------------------------------------------------------------------------
 # Top-level entry point
 # ---------------------------------------------------------------------------
+def _ext_omp_cap(namelist_path):
+    """1 for WRF-Chem/Hydro/WRFDA cases (dmpar-only builds: never propose OpenMP > 1), else None."""
+    import wtune_extensions
+    return wtune_extensions.omp_cap_for_namelist(namelist_path)
+
+
+def _extension_warnings(namelist_path):
+    """"EXTENSION: ..." lines for WRF-Chem/Hydro/WRFDA/moving-nest cases (grid/rank-only policy);
+    ValueError for unsupported families. [] for plain ARW."""
+    import wtune_extensions
+    notes, refusal = wtune_extensions.tune_gate(namelist_path)
+    if refusal:
+        raise ValueError(refusal)
+    return ["EXTENSION: " + n for n in notes]
+
+
 def recommend(ledger_path, namelist_path, case_name, hardware_id, nodes=4,
               compliance="STRICT", model="catboost_pairwise", top_k=5, no_intervals=False,
               max_dom=None, holdout_case=None):
@@ -601,6 +620,9 @@ def recommend(ledger_path, namelist_path, case_name, hardware_id, nodes=4,
         case_fields, nodes, effective_max_dom, case_name=case_name)
 
     warnings = []
+    # WRF extensions (chem/hydro/WRFDA/moving nest): the shortlist is grid/rank/tile/OpenMP/I-O
+    # only; the ledger model has no extension terms, so say so instead of implying calibration.
+    warnings.extend(_extension_warnings(namelist_path))
     if domain_note:
         warnings.append(domain_note)
     if node_note:
@@ -959,6 +981,8 @@ def recommend_full_space(ledger_path, namelist_path, case_name, hardware_id, nod
             "here, unlike the STRICT-templates path, because decomp_space.py's tile-geometry "
             "cells_per_tile fields multiply by it directly)")
     case_dict = _decomp_space_case_dict(case_fields, effective_max_dom)
+    if case_fields.get("ext_max_omp"):   # dmpar-only extension build: never enumerate omp > 1
+        omp_options = [o for o in (omp_options or [1]) if o <= case_fields["ext_max_omp"]] or [1]
     total_cores = nodes * ledgermod.CORES_PER_NODE
     candidates, axis = decompspace.enumerate_space(
         case_dict, total_cores=total_cores, nodes=nodes, hardware_id=hardware_id,
@@ -973,6 +997,7 @@ def recommend_full_space(ledger_path, namelist_path, case_name, hardware_id, nod
         "not a reliable ordering -- do not read a rank gap below this as a real effect"
         % (100 * (math.exp(targets.NOISE) - 1)),
     ]
+    warnings.extend(_extension_warnings(namelist_path))
     if not candidates:
         return dict(case_name=case_name, hardware_id=hardware_id, nodes=nodes, space="full",
                     max_dom=effective_max_dom, total_candidates=0, shortlist=[], warnings=warnings,
@@ -1879,7 +1904,7 @@ def recommend_physics_gray(ledger_path, namelist_path, case_name, hardware_id, n
 
     case_fields = parse_case_from_namelist(namelist_path)
     effective_max_dom = resolve_max_dom(max_dom, case_fields)
-    warnings = []
+    warnings = list(_extension_warnings(namelist_path))
 
     probe_text, probe_source = _resolve_probe_text(namelist_path, probe_screen, latlon, wps, wrfinput)
     raw_verdicts = campaign_configs.parse_probe_verdicts(probe_text)

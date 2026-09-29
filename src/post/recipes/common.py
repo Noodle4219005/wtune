@@ -53,11 +53,12 @@ def plot_domain_map(run_dir, max_dom, out_dir, run_label):
 
         _set_cartopy_data_dir()
         natural_earth_ok = _natural_earth_ready()
-        fig, ax = plt.subplots(figsize=(8, 6), subplot_kw={"projection": crs})
+        fig, ax = plt.subplots(figsize=(8, 6.4), subplot_kw={"projection": crs},
+                               layout="constrained")
         cf = ax.contourf(lons, lats, terrain_np, levels=20, cmap="terrain",
                          transform=ccrs.PlateCarree())
         fig.colorbar(cf, ax=ax, label="terrain height (m)")
-        _coastline(ax, ds, ccrs, natural_earth_ok)
+        _coastline(ax, ds, ccrs, natural_earth_ok, draw_labels=True)
 
         for dom in range(1, max_dom + 1):
             frames = list_frames(run_dir, domain=dom)
@@ -67,10 +68,11 @@ def plot_domain_map(run_dir, max_dom, out_dir, run_label):
                 edge_lon, edge_lat = _domain_edge_latlon(dds)
             ax.plot(edge_lon, edge_lat, "-", linewidth=1.5, color="red" if dom > 1 else "black",
                     transform=ccrs.PlateCarree(), label="d%02d" % dom)
-        ax.legend(fontsize=7, loc="lower left")
+        # legend below the axes, outside the data area (it used to sit on the terrain corner)
+        fig.legend(*ax.get_legend_handles_labels(), loc="outside lower center", ncol=max_dom,
+                   fontsize=8, frameon=False)
         ax.set_title("%s domain/nest configuration (%d domain(s))  valid %s"
                      % (run_label, max_dom, time0), fontsize=10)
-        fig.tight_layout()
         fig.savefig(out_path)
         plt.close(fig)
     return out_path

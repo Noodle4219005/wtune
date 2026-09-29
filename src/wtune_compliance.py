@@ -443,6 +443,33 @@ CATALOG = [
 ]
 
 
+# ---- extension-specific parameters (WRF-Chem, WRF-Hydro, WRFDA, moving nest): PHYSICS-GRAY, do-not-touch.
+# User decision 2026-09-29: for these extensions WTune tunes only grid/rank-level STRICT knobs and never
+# changes or suggests these; listing them here makes assert_strict_only reject any change (they were
+# UNCLASSIFIED before). Names/wildcards come from wtune_extensions.py (single source).
+def _extension_entries():
+    import wtune_extensions as we
+    have = {e['name'] for e in CATALOG}
+    what = {'chem': 'WRF-Chem', 'hydro': 'WRF-Hydro', 'wrfda': 'WRFDA', 'movenest': 'moving nest'}
+    out = []
+    for ext in we.EXT_IDS:
+        for name in we.EXT_KEYS[ext]:
+            if name in have:
+                continue
+            have.add(name)
+            out.append(_k(name, 'namelist', _G, 'solution', ('extension:' + ext,),
+                          evidence='unmeasured: %s extension parameter, do-not-touch (WTune tunes '
+                                   'grid/rank-level STRICT knobs only for this extension; decision 0056)'
+                                   % what[ext],
+                          legal=_unverified('string', source='%s documentation (not read locally)' % what[ext],
+                                            constraints=['extension parameter: WTune leaves it byte-for-byte '
+                                                         'as given and does not suggest values'])))
+    return out
+
+
+CATALOG.extend(_extension_entries())
+
+
 def validate(catalog=None):
     """Return a list of human-readable consistency errors (empty = valid)."""
     catalog = CATALOG if catalog is None else catalog

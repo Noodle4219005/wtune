@@ -1513,7 +1513,14 @@ def main(argv=None):
     if args.json:
         Path(args.json).write_text(json.dumps([f.to_dict() for f in findings], indent=2))
 
-    return exit_code_for(findings)
+    # WRF extensions (chem/hydro/WRFDA/moving nest): support lines, unsupported families, build
+    # mismatch (wtune_extensions.py); no-op for plain ARW.
+    import wtune_extensions
+    ext_lines, ext_code = wtune_extensions.check_report(str(namelist_path), str(run_dir))
+    for line in ext_lines:
+        print(line)
+
+    return max(exit_code_for(findings), ext_code)
 
 
 if __name__ == "__main__":

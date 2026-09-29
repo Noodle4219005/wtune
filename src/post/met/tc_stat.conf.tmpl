@@ -1,0 +1,15 @@
+// tc_stat.conf.tmpl -- template for MET tc_stat (decision 0056, 2026-09-29 update).
+// String-substituted by post/met_tc.py ($$VAR-style placeholders); based on the documented
+// structure of MET 12.1.1's TCStatConfig_default. NOT YET VERIFIED against a real
+// tc_stat binary -- see tc_pairs.conf.tmpl's header for why. Before trusting output from
+// this template, diff it against
+// $$WTUNE_POSTPROC_VIEW/share/met/config/TCStatConfig_default and fix any mismatch.
+
+amodel   = [];
+bmodel   = [];
+storm_id = [];
+
+jobs = [
+  "-job summary -line_type TCMPR -column TK_ERR -column AMAX_WIND -column BMAX_WIND -column AMSLP -column BMSLP -by LEAD -out_stat ${OUT_STAT}",
+  "-job summary -line_type TCMPR -column AL_WIND_34 -column BL_WIND_34 -column AL_WIND_50 -column BL_WIND_50 -column AL_WIND_64 -column BL_WIND_64 -by LEAD -out_stat ${OUT_STAT_WIND}"
+];

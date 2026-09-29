@@ -70,6 +70,7 @@ for _p in (_TOOLS_DIR, _PREDICTOR_DIR, _HERE):
 
 import scc_sweep as sweep      # tools/scc_sweep.py -- see module docstring for what is reused
 import wtune_case              # wtune_case.py: build_profile (PRIOR, pre-measurement)
+import wtune_compliance as wc  # decision 0056: assert_strict_only guard on the final report
 import wtune_config            # wtune_config.py: --config YAML (search restrictions, budget/probe/
                                 # prediction overrides) -- stdlib only (PyYAML is imported lazily,
                                 # only when --config is actually given), safe to import unconditionally
@@ -1904,6 +1905,31 @@ def build_full_run_prediction(ctx, best_config, nodes, all_results, confirm_resu
                  % (type(e).__name__, e))
 
 
+def _assert_report_is_strict_only(ctx, param_table):
+    """decision 0056 guard: param_table's namelist_lines are the final recommended
+    configuration `wtune tune` hands to the user (build_report's `best`) -- verify every
+    namelist key it changes from the case's own namelist classifies as STRICT
+    (wtune_compliance.assert_strict_only). Best-effort like every other wtune_predict use
+    in this module (see the top-of-file try/except import): skipped, not raised, when
+    wtune_predict is not importable or this ctx's namelist_path cannot be read (e.g. a
+    synthetic test Ctx with no real namelist on disk) -- there is nothing to diff then."""
+    if wtune_predict is None:
+        return
+    try:
+        orig_nested = wtune_predict.parse_namelist(ctx.namelist_path)
+    except OSError:
+        return
+    orig_flat = {k: v for grp in orig_nested.values() for k, v in grp.items()}
+    final_flat = dict(orig_flat)
+    # every "key=value," line the report hands out, not just the keys we expect today
+    for line in param_table.get('namelist_lines', []):
+        key, _, val = line.partition('=')
+        new = [v.strip() for v in val.strip().rstrip(',').split(',')]
+        if val and [str(v).strip() for v in orig_flat.get(key.strip()) or []] != new:
+            final_flat[key.strip()] = new
+    wc.assert_strict_only(orig_flat, final_flat)
+
+
 def build_report(ctx, nodes, nodes_note, all_results, confirm_results, anchor_cid):
     ranked_source = confirm_results if confirm_results else all_results
     predicted = predict_candidates(ctx, nodes, ranked_source)
@@ -1939,6 +1965,8 @@ def build_report(ctx, nodes, nodes_note, all_results, confirm_results, anchor_ci
     # a wrong launch line for a dist=block winner. wtune_predict is used only for the full-run
     # timeline hook below, where the exact launch line does not matter.
     param_table = local_param_table(best_config, nodes) if best_config is not None else None
+    if param_table is not None:
+        _assert_report_is_strict_only(ctx, param_table)
 
     return dict(
         case=ctx.case, nodes=nodes, nodes_note=nodes_note, cores_per_node=ctx.cores_per_node,
@@ -3391,8 +3419,13 @@ def run(args, sbatch_runner=None, sacct_runner=None, scancel_runner=None, ledger
         if nodes > max_nodes:
             raise SystemExit("--nodes %d exceeds --max-nodes %d" % (nodes, max_nodes))
 
-    out_dir = sweep._expand(args.out) if args.out else sweep._expand(
-        "$HOME/wtune-runs/tune/%s" % case)
+    if args.out:
+        out_dir = sweep._expand(args.out)
+    else:
+        import wtune_project
+        _project_dir = wtune_project.find_project(explicit=getattr(args, "project", None))
+        out_dir = (wtune_project.default_out_dir(_project_dir, "tune") if _project_dir
+                  else sweep._expand("$HOME/wtune-runs/tune/%s" % case))
     os.makedirs(out_dir, exist_ok=True)
 
     ctx = Ctx(case=case, case_json=case_json, namelist_path=namelist_path, nodes=nodes,
@@ -3495,6 +3528,10 @@ def build_arg_parser():
     p.add_argument("--max-nodes", type=int, default=None, dest="max_nodes",
                     help="default: %d (or --config's budget.max_nodes)" % DEFAULT_MAX_NODES)
     p.add_argument("--out", default=None)
+    p.add_argument("--project", default=None, help="project dir (decision 0058): when given "
+                   "(or via $WTUNE_PROJECT / a project.yaml above cwd) and --out is not, "
+                   "defaults --out to <project>/tune/<id>/ instead of $HOME/wtune-runs/tune/"
+                   "<case>. Does not otherwise change this command's behaviour.")
     p.add_argument("--steps", type=int, default=None,
                     help="default: %d (or --config's probe.steps)" % DEFAULT_STEPS)
     p.add_argument("--confirm-reps", type=int, default=None, dest="confirm_reps",

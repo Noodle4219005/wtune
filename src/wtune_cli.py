@@ -70,6 +70,10 @@ def parse_namelist(path):
 
     groups = {}
     current = None
+    # A group ends at a slash standing alone at the end of a line (after the line start, a
+    # comma or blank), not at any slash: namelist.output writes string defaults unquoted,
+    # e.g. `PATH_TO_FILES = ~/WRFV3/,` inside &physics, which used to end the group early.
+    end_re = re.compile(r'(^|[\s,])/\s*$')
 
     for raw_line in text.splitlines():
         line = raw_line.strip()
@@ -81,16 +85,18 @@ def parse_namelist(path):
             current = m.group(1).lower()
             groups.setdefault(current, [])
             rest = line[m.end():].strip()
-            if '/' in rest:
-                rest = rest.split('/', 1)[0]
+            ends = end_re.search(rest)
+            if ends:
+                rest = rest[:ends.start()].strip()
             if rest:
                 groups[current].append(rest)
-            if '/' in line:
+            if ends:
                 current = None
             continue
 
-        if '/' in line:
-            before = line.split('/', 1)[0].strip()
+        ends = end_re.search(line)
+        if ends:
+            before = line[:ends.start()].strip()
             if current is not None and before:
                 groups[current].append(before)
             current = None
@@ -1786,6 +1792,14 @@ def main():
     p_cal = sub.add_parser('calibrate', help='machine calibration for a new cluster (wtune_calibrate.py plan | fit)')
     p_cal.add_argument('calibrate_args', nargs=argparse.REMAINDER, help='forwarded to wtune_calibrate.py')
 
+    p_post = sub.add_parser('post', help='post-processing/analysis, advisory only (decision 0056; post/cli.py): '
+                                         'inventory | extract | plot | sounding | tc | compare | report | recipe | custom')
+    p_post.add_argument('post_args', nargs=argparse.REMAINDER, help='forwarded to post/cli.py')
+
+    p_project = sub.add_parser('project', help='project folder holding case/input/config/runs/post '
+                                               '(decision 0058; wtune_project.py): init | info')
+    p_project.add_argument('project_args', nargs=argparse.REMAINDER, help='forwarded to wtune_project.py')
+
     p_analyze = sub.add_parser('analyze', help='TC diagnostics/tracking via wrf-python + TempestExtremes (analysis/cli.py): diag | tc-track')
     p_analyze.add_argument('analyze_args', nargs=argparse.REMAINDER, help='forwarded to analysis/cli.py')
 
@@ -1825,6 +1839,14 @@ def main():
     if args.command == 'analyze':
         from analysis import cli as analysis_cli
         sys.exit(analysis_cli.main(args.analyze_args))
+
+    if args.command == 'post':
+        from post import cli as post_cli
+        sys.exit(post_cli.main(args.post_args))
+
+    if args.command == 'project':
+        import wtune_project
+        sys.exit(wtune_project.main(args.project_args))
 
     if args.command == 'predict-rebuild':
         import wtune_rebuild_predict

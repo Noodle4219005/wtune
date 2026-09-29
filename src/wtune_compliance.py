@@ -556,6 +556,48 @@ def entries(level='research'):
     return [e for e in CATALOG if admits(level, e['classification'])]
 
 
+class ComplianceError(RuntimeError):
+    """Raised by assert_strict_only when a non-STRICT namelist key changed."""
+
+
+# time_control keys that bound a MEASUREMENT-ONLY probe window (segment/probe start, end,
+# run length) rather than a physics/numerics knob -- moving or shortening these to fit a
+# probe window does not change the solution the full run produces, so assert_strict_only
+# exempts them (decision 0056).
+PROBE_WINDOW_EXEMPT_KEYS = frozenset([
+    'run_days', 'run_hours', 'run_minutes', 'run_seconds',
+    'start_year', 'start_month', 'start_day', 'start_hour', 'start_minute', 'start_second',
+    'end_year', 'end_month', 'end_day', 'end_hour', 'end_minute', 'end_second',
+])
+
+
+def assert_strict_only(orig, final, exempt=PROBE_WINDOW_EXEMPT_KEYS):
+    """Raise ComplianceError if any namelist key that changed between `orig` and `final`
+    classifies (via classify()) as anything other than STRICT.
+
+    Decision 0056: the final recommended configuration `wtune tune` hands to the user may
+    only differ from the case's own namelist in STRICT ways (auto-appliable); anything
+    that changes the solution (PHYSICS-GRAY) or the binary's execution flow (RESEARCH) is
+    advisory-only and must never reach this point already applied.
+
+    orig, final: flat {key: value} namelist dicts (group is irrelevant to classify(), so
+    callers flatten their {group: {key: [...]}} parse first). `exempt`: keys skipped
+    regardless of classification -- measurement-only probe windows, not knobs.
+    """
+    offending = []
+    for key in sorted(set(orig) | set(final)):
+        if key in exempt or orig.get(key) == final.get(key):
+            continue
+        cls = classify(key)
+        if cls != STRICT:
+            offending.append((key, cls, orig.get(key), final.get(key)))
+    if offending:
+        detail = '; '.join('%s (%s): %r -> %r' % (k, c, o, f) for k, c, o, f in offending)
+        raise ComplianceError(
+            'assert_strict_only: non-STRICT namelist key(s) in the final recommended '
+            'configuration (decision 0056 allows only STRICT auto-apply): ' + detail)
+
+
 def _main(argv=None):
     ap = argparse.ArgumentParser(description='WTune compliance model and knob catalog (decision 0050)')
     sub = ap.add_subparsers(dest='cmd')

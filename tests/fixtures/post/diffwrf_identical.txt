@@ -1,0 +1,4 @@
+ Just plot   F
+Diffing /tmp/dwtest_a.nc /tmp/dwtest_a.nc
+ Next Time 2005-08-29_00:00:00
+     Field   Ndifs    Dims       RMS (1)            RMS (2)     DIGITS    RMSE     pntwise max

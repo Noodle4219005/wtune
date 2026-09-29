@@ -10,3 +10,6 @@ catboost_info/
 # ... except the canonical processed data behind a reported number, which must be in the repo
 !results/derived-data/*.csv
 !tests/tools/testdata/*.csv
+envs/postproc/.spack-env/
+envs/postproc/spack.lock
+envs/cartopy-data/

@@ -868,6 +868,35 @@ def run_controller(ctx):
                                             "time_step": new_dt})
                 log("PHYSICS-GRAY: " + report["physics_gray_reason"])
                 continue
+            if cfl and not ctx["cfl_rescue"]:
+                # decision 0056: --cfl-rescue is the only user-pre-authorized exception to
+                # "advisory only for anything that changes the solution" -- without it, stop
+                # and print the advice instead of silently proposing a different time_step,
+                # write the would-be namelist for inspection, and submit nothing further.
+                seg_len = int(round((t_b - t_a).total_seconds()))
+                if ctx["restart_min"] != RESTART_OFF_MIN:
+                    seg_len = math.gcd(seg_len, ctx["restart_min"] * 60)
+                hist = geo["hist"][0]["iv_s"] if geo["hist"][0] else None
+                advice_dt = rescue_time_step(geo["dt"], seg_len, (hist, geo["radt_s"]))
+                advice_path = None
+                if advice_dt is not None:
+                    advice_txt = render_segment_namelist(
+                        ctx["text"], t_a, t_b, k, seg["config"], ctx["restart_min"],
+                        ctx["restart_io_form"], time_step=advice_dt)
+                    advice_path = os.path.join(seg_dir, "segment.advice.namelist.input")
+                    with open(advice_path, "w") as f:
+                        f.write(advice_txt)
+                log("PHYSICS-GRAY ADVICE: segment %d failed with CFL/NaN; recommended "
+                    "time_step=%s s (case %g s) -- this CHANGES THE SOLUTION (PHYSICS-GRAY), "
+                    "so it is advisory only and was NOT applied. Re-run with --cfl-rescue "
+                    "(the only user-pre-authorized exception) to apply it automatically."
+                    % (k, advice_dt if advice_dt is not None else "none found in range",
+                       geo["dt"]))
+                if advice_path:
+                    log("  advice namelist written: %s" % advice_path)
+                report["decisions"].append({"segment": k, "decision": "cfl_advice",
+                                            "recommended_time_step": advice_dt,
+                                            "advice_namelist": advice_path})
             reason = ("watch status %s, sacct %s, restart %s, warnings %s%s"
                       % (snap.get("status"), state, "ok" if rst_ok else "MISSING",
                          ",".join(codes) or "none", ", CFL/NaN seen" if cfl else ""))
@@ -933,8 +962,15 @@ def build_arg_parser():
                          "candidate is run")
     ap.add_argument("--restart-io-form", type=int, choices=(14, 2), default=14)
     ap.add_argument("--cfl-rescue", action="store_true",
-                    help="re-run a CFL/NaN-failed segment once with 0.75 dt (marks PHYSICS-GRAY)")
-    ap.add_argument("--out", required=True)
+                    help="re-run a CFL/NaN-failed segment once with 0.75 dt (marks PHYSICS-GRAY). "
+                         "This is the ONLY user-pre-authorized exception to decision 0056's "
+                         "advisory-only rule for solution-changing knobs -- without it, a CFL/NaN "
+                         "failure stops and writes advice (recommended time_step + a "
+                         "segment.advice.namelist.input) instead of resubmitting anything.")
+    ap.add_argument("--out", default=None, help="required unless --project (or $WTUNE_PROJECT "
+                    "/ a project.yaml above cwd) resolves, in which case it defaults to "
+                    "<project>/runs/<id>/ (decision 0058)")
+    ap.add_argument("--project", default=None, help="project dir (decision 0058) -- see --out")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--wrf-tree", default=None, help="default $WRF_TREE (run/ files are linked "
                                                      "by the job too)")
@@ -949,7 +985,15 @@ def main(argv=None, sbatch_runner=None, sacct_runner=None, snapshot_fn=None, sle
          log=print):
     a = build_arg_parser().parse_args(argv)
     case_dir = os.path.abspath(a.case_dir)
-    out = os.path.abspath(a.out)
+    if a.out:
+        out = os.path.abspath(a.out)
+    else:
+        import wtune_project
+        _project_dir = wtune_project.find_project(explicit=getattr(a, "project", None))
+        if not _project_dir:
+            raise RunError("--out is required (or --project DIR / $WTUNE_PROJECT for a "
+                           "default runs/<id>/ -- decision 0058)")
+        out = wtune_project.default_out_dir(_project_dir, "runs")
     try:
         if os.path.commonpath([out, case_dir]) == case_dir:
             raise RunError("--out must be outside CASE_DIR (the case is never modified)")

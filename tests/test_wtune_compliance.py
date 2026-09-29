@@ -8,7 +8,7 @@ import unittest
 
 from wtune_compliance import (
     CATALOG, GATE_FOR_NUMERICS, LEVELS, PHYSICS_GRAY, REQUIRED_FIELDS, RESEARCH,
-    STRICT, UNCLASSIFIED, admits, classify, validate,
+    STRICT, UNCLASSIFIED, ComplianceError, admits, assert_strict_only, classify, validate,
 )
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # tests/ -> repo root
@@ -215,6 +215,45 @@ class AdmitsTests(unittest.TestCase):
     def test_unknown_level_raises(self):
         with self.assertRaises(ValueError):
             admits('bogus-level', STRICT)
+
+
+class AssertStrictOnlyTests(unittest.TestCase):
+    """decision 0056: the tuner's final recommended configuration may only auto-apply
+    STRICT-classified namelist changes."""
+
+    def test_strict_only_change_passes(self):
+        orig = {'nproc_x': [-1], 'nproc_y': [-1], 'numtiles': [1], 'time_step': [60]}
+        final = dict(orig, nproc_x=[8], nproc_y=[9], numtiles=[4])
+        assert_strict_only(orig, final)      # must not raise
+
+    def test_changing_mp_physics_raises(self):
+        orig = {'nproc_x': [-1], 'mp_physics': [1]}
+        final = dict(orig, mp_physics=[6])
+        with self.assertRaises(ComplianceError) as cm:
+            assert_strict_only(orig, final)
+        self.assertIn('mp_physics', str(cm.exception))
+
+    def test_changing_time_step_raises(self):
+        orig = {'nproc_x': [-1], 'time_step': [60]}
+        final = dict(orig, time_step=[45])
+        with self.assertRaises(ComplianceError) as cm:
+            assert_strict_only(orig, final)
+        self.assertIn('time_step', str(cm.exception))
+
+    def test_no_changes_never_raises_even_for_a_non_strict_key(self):
+        orig = {'mp_physics': [6]}
+        assert_strict_only(orig, dict(orig))   # identical -> nothing changed, no raise
+
+    def test_probe_window_keys_are_exempt(self):
+        orig = {'run_hours': [12], 'start_hour': [0], 'end_hour': [12]}
+        final = {'run_hours': [6], 'start_hour': [0], 'end_hour': [6]}
+        assert_strict_only(orig, final)        # must not raise despite the changed window
+
+    def test_unclassified_changed_key_also_raises(self):
+        orig = {'not_a_real_knob': [1]}
+        final = {'not_a_real_knob': [2]}
+        with self.assertRaises(ComplianceError):
+            assert_strict_only(orig, final)
 
 
 class AdvisorCoverageTests(unittest.TestCase):

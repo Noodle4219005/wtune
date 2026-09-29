@@ -1,0 +1,74 @@
+// grid_stat.conf.tmpl -- MET Grid-Stat config for the synoptic ERA5 500 hPa height comparison
+// (post/met_gridstat.py). Only the entries that differ from MET 12.1's
+// share/met/config/GridStatConfig_default are set: continuous statistics (CNT: RMSE, ME = bias)
+// of model (FCST) against ERA5 (OBS), verified on the OBS (ERA5 0.25 deg) grid, restricted to
+// the polygon of the model domain's interior (spec_bdy_width cells excluded). Both inputs are
+// CF NetCDF on a regular lat/lon grid, so the level is the plain 2-D selection "(0,*,*)".
+
+model   = "WRF";
+obtype  = "ERA5";
+
+fcst = {
+  field = [ { name = "${FCST_NAME}"; level = [ "(0,*,*)" ]; } ];
+}
+obs = {
+  field = [ { name = "${OBS_NAME}"; level = [ "(0,*,*)" ]; } ];
+}
+
+regrid = {
+  to_grid = OBS;
+  method  = BILIN;
+  width   = 2;
+}
+
+mask = {
+  grid = [];
+  poly = [ "${POLY_FILE}" ];
+}
+
+ci_alpha = [ 0.05 ];
+
+output_flag = {
+  fho    = NONE;
+  ctc    = NONE;
+  cts    = NONE;
+  mctc   = NONE;
+  mcts   = NONE;
+  cnt    = BOTH;   // .stat plus the _cnt.txt table with a full named header (RMSE, ME, TOTAL)
+  sl1l2  = NONE;
+  sal1l2 = NONE;
+  vl1l2  = NONE;
+  val1l2 = NONE;
+  vcnt   = NONE;
+  pct    = NONE;
+  pstd   = NONE;
+  pjc    = NONE;
+  prc    = NONE;
+  eclv   = NONE;
+  nbrctc = NONE;
+  nbrcts = NONE;
+  nbrcnt = NONE;
+  grad   = NONE;
+  dmap   = NONE;
+  mpr    = NONE;
+  orank  = NONE;
+}
+
+// matched-pair NetCDF: the DIFF field (FCST - OBS on the verification grid, masked to the
+// polygon) is what the figure fills.
+nc_pairs_flag = {
+  latlon       = TRUE;
+  raw          = FALSE;
+  diff         = TRUE;
+  climo        = FALSE;
+  climo_cdp    = FALSE;
+  seeps        = FALSE;
+  weight       = FALSE;
+  nbrhd        = FALSE;
+  fourier      = FALSE;
+  gradient     = FALSE;
+  distance_map = FALSE;
+  apply_mask   = TRUE;
+}
+
+version = "V12.1.1";

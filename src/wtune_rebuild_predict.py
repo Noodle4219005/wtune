@@ -244,8 +244,10 @@ def main(argv=None):
                          "the end of the last point's segment (default on)")
     ap.add_argument("--no-io-probe", dest="io_probe", action="store_false")
     ap.add_argument("--out", default=None,
-                    help="default ./wtune-rebuild-<case>-<utc> (never inside CASE_DIR: the user's case "
-                         "directory is not modified)")
+                    help="default ./wtune-rebuild-<case>-<utc>, or <project>/predict/<id>/ when "
+                         "--project (or $WTUNE_PROJECT / a project.yaml above cwd) resolves "
+                         "and --out is not given (decision 0058; never inside CASE_DIR)")
+    ap.add_argument("--project", default=None, help="project dir (decision 0058) -- see --out")
     ap.add_argument("--max-wait-hours", type=float, default=24.0,
                     help="wall-clock cap including queueing (default 24); the 4 h budget counts "
                          "only time with a segment running")
@@ -290,8 +292,15 @@ def main(argv=None):
     import wtune_predict as wp
     import wtune_probe_plan as pp
     import wtune_tune
-    out = os.path.abspath(a.out or "wtune-rebuild-%s-%s" % (
-        os.path.basename(case_dir), dt.datetime.utcnow().strftime("%Y%m%dT%H%M%S")))
+    if a.out:
+        out = os.path.abspath(a.out)
+    else:
+        import wtune_project
+        _project_dir = wtune_project.find_project(explicit=getattr(a, "project", None))
+        out = os.path.abspath(
+            wtune_project.default_out_dir(_project_dir, "predict") if _project_dir
+            else "wtune-rebuild-%s-%s" % (os.path.basename(case_dir),
+                                          dt.datetime.utcnow().strftime("%Y%m%dT%H%M%S")))
     if os.path.commonpath([out, case_dir]) == case_dir:
         print("error: --out must be outside CASE_DIR", file=sys.stderr)
         return 2

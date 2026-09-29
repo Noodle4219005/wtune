@@ -1,0 +1,292 @@
+"""post/recipe.py -- `wtune post recipe RUN_DIR [RUN_DIR ...] --out DIR` (decision 0057):
+detects which case type(s) this run matches (post/caseinfo.py, multi-label -- when types
+overlap, every matching type's figures are produced, never just one), dispatches to each
+detected type's figure set (post/recipes/*.py), deduplicates figures that only need drawing
+once (the domain map), and builds one self-contained HTML report (post/report.py) whose header
+lists the detected types and the exact evidence for each.
+
+Every figure record this module's fig()/missing() helpers produce is one of:
+  fig(id, path, run, domain=None, valid_time=None, extra=None)      -- a real figure
+  missing(id, dataset, reason, run=None)                            -- an explicit gap, never
+                                                                        a silently-dropped one
+`post.recipes.*`'s own figures() functions import fig/missing from THIS module lazily (inside
+their own functions), not at their top level, to avoid a circular import with this module's own
+top-level `from post.recipes import ...` dispatch imports.
+"""
+from __future__ import annotations
+
+import json
+import os
+
+from post import caseinfo, tools
+
+CATALOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "recipes", "catalog.json")
+
+
+def fig(id, path, run, domain=None, valid_time=None, extra=None):
+    d = dict(id=id, missing=False, path=path, run=run, domain=domain, valid_time=valid_time)
+    if extra:
+        d.update(extra)
+    return d
+
+
+def missing(id, dataset, reason, run=None):
+    return dict(id=id, missing=True, dataset=dataset, reason=reason, run=run)
+
+
+def load_catalog():
+    with open(CATALOG_PATH) as fh:
+        return json.load(fh)
+
+
+def _classify_tc_path(path):
+    """post/tc.py's own figure filenames (its module, not this one) -> a catalog.json id.
+    Matched by substring, not an exact list, since post/tc.py is a concurrently-developed
+    module this one only calls, never edits -- keeping this permissive means a filename tweak
+    on that side degrades to the generic "tc_figure" caption instead of raising here."""
+    name = os.path.basename(path).lower()
+    if "track_map" in name:
+        return "tc_track_map"
+    if "track_error" in name or "tk_err" in name:
+        return "tc_track_error"
+    if any(s in name for s in ("amax_wind", "amslp", "vmax", "mslp", "intensity")):
+        return "tc_intensity_error"
+    if any(s in name for s in ("r34", "r50", "r64", "wind_radii", "radii_error")):
+        return "tc_wind_radii_error"
+    if "rmw" in name:
+        return "tc_rmw_structure"
+    return "tc_figure"
+
+
+def _tc_figures(run_dirs, labels, out_dir, case_info, hurdat2_path, storm_id, bdeck_path,
+                ebtrk_path, paraview, spinup_hours):
+    from post import tc as tc_mod
+    from post.recipes import tc_extra, paraview3d
+
+    tc_out = os.path.join(out_dir, "tc")
+    summary = tc_mod.run_tc_report(run_dirs, labels, hurdat2_path, storm_id, tc_out,
+                                   ebtrk_path=ebtrk_path, bdeck_path=bdeck_path)
+    out = []
+    for path in summary["figures"]:
+        out.append(fig(_classify_tc_path(path), path, ",".join(labels)))
+    for w in summary["warnings"]:
+        out.append(missing("tc_figure", "MET tc_pairs/tc_stat/tc_rmw or a b-deck", w))
+
+    for run_dir, label in zip(run_dirs, labels):
+        adeck_path = summary["adecks"].get(label)
+        if not adeck_path:
+            continue
+        domain = case_info["domains"][0]["domain"]
+        out += tc_extra.figures(run_dir, label, adeck_path, domain, tc_out)
+
+    if paraview:
+        run_dir, label = run_dirs[0], labels[0]
+        domain = case_info["domains"][0]["domain"]
+        from post.extract import list_frames
+        frames = list_frames(run_dir, domain=domain)
+        if frames:
+            out += paraview3d.figures("tc_cloud_3d", frames[-1][1], tc_out,
+                                      os.path.join(tc_out, "_paraview"), label, domain,
+                                      frames[-1][0])
+    return out
+
+
+def _convection_figures(run_dirs, labels, out_dir, case_info, paraview, spinup_hours):
+    from post.recipes import convection, paraview3d
+    conv_out = os.path.join(out_dir, "convection")
+    os.makedirs(conv_out, exist_ok=True)
+    out = convection.figures(run_dirs, labels, conv_out, case_info, spinup_hours=spinup_hours)
+    if paraview:
+        run_dir, label = run_dirs[0], labels[0]
+        domain = convection._finest_convective_domain(case_info["domains"])
+        from post.extract import list_frames
+        frames = list_frames(run_dir, domain=domain)
+        if frames:
+            out += paraview3d.figures("conv_cloud_3d", frames[-1][1], conv_out,
+                                      os.path.join(conv_out, "_paraview"), label, domain,
+                                      frames[-1][0])
+    return out
+
+
+TYPE_DISPATCH = {
+    "tc": _tc_figures,
+    "convection": _convection_figures,
+}
+
+
+def _simple_dispatch(module_name, out_subdir):
+    def run(run_dirs, labels, out_dir, case_info, spinup_hours=6, cross_section=None,
+           tc_centre=None, xsec_top_km=None, xsec_halfwidth_km=None, **_ignored):
+        import inspect
+        mod = __import__("post.recipes.%s" % module_name, fromlist=["figures"])
+        sub_out = os.path.join(out_dir, out_subdir)
+        os.makedirs(sub_out, exist_ok=True)
+        params = inspect.signature(mod.figures).parameters
+        kwargs = {}
+        if "spinup_hours" in params:
+            kwargs["spinup_hours"] = spinup_hours
+        if "cross_section" in params:
+            kwargs["cross_section"] = cross_section
+        if "tc_centre" in params:
+            kwargs["tc_centre"] = tc_centre
+        if "xsec_top_km" in params:
+            kwargs["xsec_top_km"] = xsec_top_km
+        if "xsec_halfwidth_km" in params:
+            kwargs["xsec_halfwidth_km"] = xsec_halfwidth_km
+        return mod.figures(run_dirs, labels, sub_out, case_info, **kwargs)
+    return run
+
+
+for _name in ("precip", "synoptic", "pbl", "chem", "climate", "ensemble", "terrain", "moisture"):
+    TYPE_DISPATCH[_name] = _simple_dispatch(_name, _name)
+del _name
+
+
+def _tc_centre_from_track(hurdat2_path, storm_id, bdeck_path, run_dir):
+    """Best-track fix nearest the run's last available time, for moisture's default
+    cross-section point (decision 0057 update: "剖面線預設過颶風中心 ... 或由 project.yaml
+    指定"). None when no --hurdat2/--bdeck was given at all -- the moisture recipe then falls
+    back to its own max-rain-point default."""
+    from post import caseinfo as _caseinfo
+    points = _caseinfo._best_track_points(hurdat2_path, storm_id, bdeck_path)
+    if not points:
+        return None
+    from post.extract import list_frames
+    frames = list_frames(run_dir, domain=1)
+    if not frames:
+        return None
+    last_time = frames[-1][0]
+    from datetime import datetime
+    target = datetime.strptime(last_time, _caseinfo.WRF_TIME_FMT)
+    nearest = min(points, key=lambda p: abs((p[0] - target).total_seconds()))
+    return nearest[1], nearest[2]
+
+
+def run_recipe(run_dirs, out_dir, types_override=None, ensemble=False, spinup_hours=6,
+              hurdat2_path=None, storm_id=None, bdeck_path=None, ebtrk_path=None,
+              labels=None, paraview=True, decomposition_only=False, title=None,
+              every=None, times=None, cross_sections=None, animate=False,
+              xsec_top_km=None, xsec_halfwidth_km=None):
+    """Full `wtune post recipe` pipeline. Returns {"out_dir", "case_info", "figures",
+    "report_path"}.
+
+    every/times (decision 0058 P3): when either is given, an additional per-valid-time full
+    figure set (post/timeseries.py) plus consecutive/vs-t0 change maps (post/changemap.py) are
+    produced on the finest domain of run_dirs[0], on top of the type-driven recipe figures
+    above. animate: also builds one MP4 (post/anim.py) per time-series field when 2+ times
+    were selected. cross_sections: optional {"terrain": {...}, "moisture": {...}} line
+    overrides (project.yaml's cross_sections.*, decision 0057 update). xsec_top_km/
+    xsec_halfwidth_km: project.yaml's own xsec_top_km/xsec_halfwidth_km (2026-09-29 second
+    lead review) -- the terrain/moisture cross-section figures' height window and
+    centred-line half-width; None lets each recipe module use its own default."""
+    from post.recipes import common as common_mod
+
+    os.makedirs(out_dir, exist_ok=True)
+    labels = labels or [("run%d" % i) for i in range(len(run_dirs))]
+    if len(labels) != len(run_dirs):
+        raise ValueError("labels must have one entry per RUN_DIR")
+
+    case_info = caseinfo.detect_types(run_dirs, types_override=types_override, ensemble=ensemble,
+                                      hurdat2_path=hurdat2_path, storm_id=storm_id,
+                                      bdeck_path=bdeck_path)
+    types = case_info["types"]
+    cross_sections = cross_sections or {}
+
+    all_figures = []
+    all_figures += common_mod.figures(run_dirs, labels, out_dir, case_info,
+                                      decomposition_only=decomposition_only)
+
+    tc_centre = None
+    if "moisture" in types and (hurdat2_path or bdeck_path):
+        try:
+            tc_centre = _tc_centre_from_track(hurdat2_path, storm_id, bdeck_path, run_dirs[0])
+        except Exception:
+            tc_centre = None
+
+    for t in types:
+        if t in ("common",):
+            continue
+        handler = TYPE_DISPATCH.get(t)
+        if handler is None:
+            continue
+        if t == "tc":
+            if not (hurdat2_path and storm_id):
+                all_figures.append(missing("tc_figure", "HURDAT2/--storm",
+                                           "tc was detected but --hurdat2/--storm is required "
+                                           "to build the a-deck/b-deck comparison"))
+                continue
+            all_figures += handler(run_dirs, labels, out_dir, case_info, hurdat2_path, storm_id,
+                                   bdeck_path, ebtrk_path, paraview, spinup_hours)
+        elif t == "convection":
+            all_figures += handler(run_dirs, labels, out_dir, case_info, paraview, spinup_hours)
+        elif t == "terrain":
+            all_figures += handler(run_dirs, labels, out_dir, case_info,
+                                   spinup_hours=spinup_hours,
+                                   cross_section=cross_sections.get("terrain"),
+                                   xsec_top_km=xsec_top_km, xsec_halfwidth_km=xsec_halfwidth_km)
+        elif t == "moisture":
+            all_figures += handler(run_dirs, labels, out_dir, case_info,
+                                   spinup_hours=spinup_hours,
+                                   cross_section=cross_sections.get("moisture"),
+                                   tc_centre=tc_centre,
+                                   xsec_top_km=xsec_top_km, xsec_halfwidth_km=xsec_halfwidth_km)
+        else:
+            all_figures += handler(run_dirs, labels, out_dir, case_info, spinup_hours=spinup_hours)
+
+    if every or times:
+        all_figures += _time_series_figures(run_dirs, labels, out_dir, case_info, every, times,
+                                            animate=animate)
+
+    from post.report import build_recipe_report
+    report_path = build_recipe_report(out_dir, case_info, all_figures, run_dirs, labels,
+                                      spinup_hours, load_catalog(), title=title)
+    return dict(out_dir=out_dir, case_info=case_info, figures=all_figures, report_path=report_path)
+
+
+def _time_series_figures(run_dirs, labels, out_dir, case_info, every, times, animate=False):
+    from post import timeseries
+    from post.changemap import figures_for_change_maps
+
+    run_dir, run_label = run_dirs[0], labels[0]
+    domain = case_info["domains"][-1]["domain"]
+    ts_out = os.path.join(out_dir, "timeseries")
+    os.makedirs(ts_out, exist_ok=True)
+
+    include_mcape = "convection" in case_info["types"]
+    out = timeseries.figures_for_time_series(run_dir, run_label, domain, ts_out, every=every,
+                                             times=times, include_mcape=include_mcape)
+
+    ok_figs = [f for f in out if not f.get("missing")]
+    selected_times = sorted({f["valid_time"] for f in ok_figs})
+    if selected_times:
+        out += figures_for_change_maps(run_dir, run_label, domain, ts_out, selected_times)
+
+    if animate and len(selected_times) >= 2:
+        out += _time_series_animations(run_dir, run_label, domain, ts_out, ok_figs)
+    return out
+
+
+def _time_series_animations(run_dir, run_label, domain, ts_out, ok_figs):
+    from post import anim
+    from post import tools as _tools
+
+    by_field = {}
+    for f in ok_figs:
+        if not f["id"].startswith("timeseries_"):
+            continue
+        field = f["id"][len("timeseries_"):]
+        by_field.setdefault(field, []).append(f)
+
+    out = []
+    anim_dir = os.path.join(ts_out, "anim")
+    os.makedirs(anim_dir, exist_ok=True)
+    for field, entries in by_field.items():
+        entries.sort(key=lambda f: f["valid_time"])
+        pngs = [e["path"] for e in entries]
+        out_path = os.path.join(anim_dir, "%s_d%02d.mp4" % (field, domain))
+        try:
+            written = anim.build_animation(pngs, out_path, fps=2)
+            out.append(fig("anim_%s" % field, written[0], run_label, domain="d%02d" % domain))
+        except (_tools.ToolNotFoundError, _tools.ToolError, ValueError) as e:
+            out.append(missing("anim_%s" % field, "ffmpeg", str(e), run=run_label))
+    return out

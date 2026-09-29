@@ -1,0 +1,28 @@
+// tc_pairs.conf.tmpl -- template for MET tc_pairs (decision 0056, 2026-09-29 update).
+// String-substituted by post/met_tc.py ($$VAR-style placeholders); based on the documented
+// structure of MET 12.1.1's TCPairsConfig_default. NOT YET VERIFIED against a real
+// tc_pairs binary -- MET is not installed on scc yet (bin/install-postproc.sh, spack job
+// 1575 was building envs/postproc at the time this was written). Before trusting output
+// from this template, diff it against
+// $$WTUNE_POSTPROC_VIEW/share/met/config/TCPairsConfig_default and fix any mismatch.
+
+model          = "${MODEL}";
+storm_id       = [];
+basin          = [];
+cyclone        = [];
+storm_name     = [];
+
+init_beg       = "";
+init_end       = "";
+valid_beg      = "";
+valid_end      = "";
+
+check_dup      = FALSE;
+interp12       = REPLACE;
+match_points   = TRUE;
+
+consensus      = [];
+
+dland_file     = "${DLAND_FILE}";
+
+version        = "V12.1.1";

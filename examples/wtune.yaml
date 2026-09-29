@@ -61,6 +61,11 @@ probe:
   budget_pct: 10                  # cap the points' own measurement cost to this % of the predicted run
   sources: [trajectory, restart, rebuild]   # preference order per point ("coldstart" also accepted,
                                              # legacy name for "rebuild")
+  rank_by: t0                     # t0 | predicted (decision 0055: rank by predicted whole-run time from
+                                   # ERA5-rebuilt, spun-up points; CLI --rank-by)
+  restart_io_form: 14             # rank_by=predicted only: shared restart io_form, 14 (ADIOS2) or 2
+  stage1: t0                      # rank_by=predicted only: t0 (broad t0 search) | pstar (P* restart)
+  stage2_minutes: null            # stage1=t0 only: optional cap on stage 2 (else it always runs)
 
 prediction:
   io_target: nfs                  # nfs | local -- calibration target for the full-run I/O estimate

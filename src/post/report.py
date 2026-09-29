@@ -1,0 +1,258 @@
+"""post/report.py -- `wtune post report OUT_DIR [--title]`: collect the PNG/SVG figures
+and CSV tables OUT_DIR's other `wtune post` subcommands wrote into one self-contained HTML
+report (images base64-embedded, no external resources -- opens offline, from a mail
+attachment, anywhere). Stdlib only (base64, csv, glob, html).
+
+build_recipe_report() (decision 0057) is the richer sibling `wtune post recipe` uses: it groups
+post/recipe.py's figure records by detected case type, embeds each figure's zh/en caption from
+post/recipes/catalog.json, stamps run/domain/valid time/spin-up, and lists every missing-
+observation entry explicitly instead of just scanning a directory for images.
+"""
+from __future__ import annotations
+
+import base64
+import csv
+import glob
+import html
+import os
+
+IMAGE_EXTS = (".png", ".svg", ".jpg", ".jpeg")
+_MIME = {".png": "image/png", ".svg": "image/svg+xml", ".jpg": "image/jpeg", ".jpeg": "image/jpeg"}
+
+
+def _embed_image(path):
+    ext = os.path.splitext(path)[1].lower()
+    mime = _MIME.get(ext, "application/octet-stream")
+    with open(path, "rb") as fh:
+        data = base64.b64encode(fh.read()).decode("ascii")
+    return "data:%s;base64,%s" % (mime, data)
+
+
+def _render_csv_table(path, max_rows=200):
+    with open(path, newline="") as fh:
+        rows = list(csv.reader(fh))
+    if not rows:
+        return "<p><em>(empty)</em></p>"
+    truncated = len(rows) - 1 > max_rows
+    body_rows = rows[1:1 + max_rows]
+    out = ["<table border='1' cellspacing='0' cellpadding='4'>", "<tr>"]
+    out += ["<th>%s</th>" % html.escape(c) for c in rows[0]]
+    out.append("</tr>")
+    for row in body_rows:
+        out.append("<tr>" + "".join("<td>%s</td>" % html.escape(c) for c in row) + "</tr>")
+    out.append("</table>")
+    if truncated:
+        out.append("<p><em>... %d more row(s) not shown</em></p>" % (len(rows) - 1 - max_rows))
+    return "\n".join(out)
+
+
+def build_report(out_dir, title=None):
+    """Writes out_dir/report.html (embedding every image/csv found directly in out_dir,
+    sorted by name) and returns its path."""
+    title = title or ("wtune post report: %s" % os.path.basename(os.path.normpath(out_dir)))
+
+    images = sorted(p for p in glob.glob(os.path.join(out_dir, "*"))
+                    if os.path.splitext(p)[1].lower() in IMAGE_EXTS)
+    csvs = sorted(glob.glob(os.path.join(out_dir, "*.csv")))
+
+    parts = ["<!DOCTYPE html>", "<html><head><meta charset='utf-8'>",
+             "<title>%s</title>" % html.escape(title),
+             "<style>body{font-family:sans-serif;margin:2em} "
+             "img{max-width:100%;border:1px solid #ccc;margin-bottom:1em} "
+             "table{border-collapse:collapse;margin-bottom:2em;font-size:0.9em} "
+             "th,td{border:1px solid #ccc;padding:4px 8px}</style>",
+             "</head><body>", "<h1>%s</h1>" % html.escape(title)]
+
+    if images:
+        parts.append("<h2>Figures</h2>")
+        for path in images:
+            parts.append("<h3>%s</h3>" % html.escape(os.path.basename(path)))
+            parts.append("<img src='%s' alt='%s'>" % (_embed_image(path),
+                                                       html.escape(os.path.basename(path))))
+    if csvs:
+        parts.append("<h2>Tables</h2>")
+        for path in csvs:
+            parts.append("<h3>%s</h3>" % html.escape(os.path.basename(path)))
+            parts.append(_render_csv_table(path))
+    if not images and not csvs:
+        parts.append("<p><em>no PNG/SVG figures or CSV tables found in %s</em></p>"
+                     % html.escape(out_dir))
+
+    parts.append("</body></html>")
+    out_path = os.path.join(out_dir, "report.html")
+    with open(out_path, "w") as fh:
+        fh.write("\n".join(parts))
+    return out_path
+
+
+# --------------------------------------------------------------------------------------
+# `wtune post recipe` report (decision 0057): case-type header + evidence, per-type figure
+# groups with zh/en captions, explicit missing-observation entries.
+# --------------------------------------------------------------------------------------
+
+_TYPE_ID_PREFIX = dict(common="common_", tc="tc_", convection="conv_", precip="precip_",
+                       synoptic="syn_", terrain="terrain_", moisture="moisture_", pbl="pbl_",
+                       chem="chem_", climate="climate_", ensemble="ens_")
+
+
+def _figures_for_type(figures, type_name):
+    prefix = _TYPE_ID_PREFIX.get(type_name, type_name + "_")
+    return [f for f in figures if f["id"].startswith(prefix)]
+
+
+def _caption_block(catalog, fig_id):
+    entry = catalog.get(fig_id)
+    if not entry:
+        return "<p><em>(no caption catalog entry for %s)</em></p>" % html.escape(fig_id)
+    parts = []
+    for lang in ("zh", "en"):
+        c = entry.get(lang, {})
+        parts.append(
+            "<p class='caption-%s'><strong>%s</strong> %s<br>"
+            "<strong>%s</strong> %s<br><strong>%s</strong> %s</p>" % (
+                lang,
+                "問題:" if lang == "zh" else "Question:", html.escape(c.get("question", "")),
+                "判讀:" if lang == "zh" else "How to read:", html.escape(c.get("how_to_read", "")),
+                "常見誤讀:" if lang == "zh" else "Common misreadings:",
+                html.escape(c.get("common_misreadings", ""))))
+    return "\n".join(parts)
+
+
+def _stamp(f, spinup_hours):
+    bits = []
+    if f.get("run"):
+        bits.append("run=%s" % f["run"])
+    if f.get("domain"):
+        bits.append("domain=%s" % f["domain"])
+    if f.get("valid_time"):
+        bits.append("valid=%s" % f["valid_time"])
+    bits.append("spin-up excluded: %g h" % spinup_hours)
+    return "; ".join(bits)
+
+
+def _build_time_series_section(out_dir, figures, catalog, spinup_hours):
+    """`wtune post recipe --every/--times` section (decision 0058 P3): groups
+    post/timeseries.py's and post/changemap.py's figure records by forecast tag
+    (fNNN_<validZ>Z), with prev/next navigation between times, plus an Animations
+    sub-section (post/anim.py's MP4/GIF records, referenced by relative path next to
+    report.html -- never base64-embedded, decision 0058 update: "報告裡可以直接播放")."""
+    ts_and_chg = [f for f in figures if f.get("id", "").startswith(("timeseries_", "chg_"))]
+    anim_figs = [f for f in figures if f.get("id", "").startswith("anim_")]
+    if not ts_and_chg and not anim_figs:
+        return ""
+
+    groups = {}
+    for f in ts_and_chg:
+        tag = f.get("forecast_tag") or f.get("valid_time") or "unknown"
+        groups.setdefault(tag, []).append(f)
+    tags = sorted(groups)
+
+    parts = ["<h2>Time series</h2>"]
+    if tags:
+        parts.append("<p class='stamp'>navigate: " +
+                     " | ".join("<a href='#ts-%s'>%s</a>" % (html.escape(t), html.escape(t))
+                               for t in tags) + "</p>")
+    for idx, tag in enumerate(tags):
+        parts.append("<h3 id='ts-%s'>%s</h3>" % (html.escape(tag), html.escape(tag)))
+        nav = []
+        if idx > 0:
+            nav.append("<a href='#ts-%s'>&laquo; prev</a>" % html.escape(tags[idx - 1]))
+        if idx < len(tags) - 1:
+            nav.append("<a href='#ts-%s'>next &raquo;</a>" % html.escape(tags[idx + 1]))
+        if nav:
+            parts.append("<p class='stamp'>" + " | ".join(nav) + "</p>")
+        for f in groups[tag]:
+            if f.get("missing"):
+                parts.append(
+                    "<div class='missing'><strong>missing: %s</strong> (dataset: %s)<br>"
+                    "reason: %s</div>" % (html.escape(f["id"]), html.escape(f.get("dataset", "")),
+                                          html.escape(f.get("reason", ""))))
+                continue
+            parts.append("<h4>%s</h4>" % html.escape(f["id"]))
+            parts.append("<img src='%s' alt='%s'>" % (_embed_image(f["path"]),
+                                                       html.escape(f["id"])))
+            parts.append("<p class='stamp'>%s</p>" % html.escape(_stamp(f, spinup_hours)))
+            parts.append(_caption_block(catalog, f["id"]))
+
+    if anim_figs:
+        parts.append("<h3>Animations</h3>")
+        for f in anim_figs:
+            if f.get("missing"):
+                parts.append("<div class='missing'><strong>missing: %s</strong><br>"
+                             "reason: %s</div>" % (html.escape(f["id"]), html.escape(f.get("reason", ""))))
+                continue
+            rel = os.path.relpath(f["path"], out_dir)
+            parts.append("<h4>%s</h4>" % html.escape(f["id"]))
+            ext = os.path.splitext(f["path"])[1].lower()
+            if ext == ".gif":
+                parts.append("<img src='%s' alt='%s'>" % (html.escape(rel), html.escape(f["id"])))
+            else:
+                parts.append("<video controls style='max-width:100%%' src='%s'></video>"
+                             % html.escape(rel))
+    return "\n".join(parts)
+
+
+def build_recipe_report(out_dir, case_info, figures, run_dirs, labels, spinup_hours, catalog,
+                        title=None):
+    """Writes out_dir/report.html for `wtune post recipe`. figures: post/recipe.py's fig()/
+    missing() records. Returns the report path."""
+    title = title or ("wtune post recipe: %s" % ", ".join(labels))
+    parts = ["<!DOCTYPE html>", "<html><head><meta charset='utf-8'>",
+             "<title>%s</title>" % html.escape(title),
+             "<style>body{font-family:sans-serif;margin:2em;max-width:1100px}"
+             "img{max-width:100%;border:1px solid #ccc;margin:0.5em 0}"
+             "table{border-collapse:collapse;margin-bottom:1em;font-size:0.9em}"
+             "th,td{border:1px solid #ccc;padding:4px 8px}"
+             ".missing{background:#fff3f3;border:1px solid #e0a0a0;padding:0.75em;margin:0.5em 0}"
+             ".stamp{color:#555;font-size:0.85em}"
+             ".caption-en{color:#333}.caption-zh{color:#333}"
+             "h2{border-bottom:2px solid #333;padding-bottom:0.2em}</style>",
+             "</head><body>", "<h1>%s</h1>" % html.escape(title)]
+
+    parts.append("<h2>Run(s)</h2><ul>")
+    for run_dir, label in zip(run_dirs, labels):
+        parts.append("<li>%s: %s</li>" % (html.escape(label), html.escape(os.path.abspath(run_dir))))
+    parts.append("</ul>")
+
+    parts.append("<h2>Detected case types</h2>")
+    parts.append("<p><strong>%s</strong></p>" % html.escape(", ".join(case_info["types"])))
+    parts.append("<table><tr><th>type</th><th>detected</th><th>evidence</th></tr>")
+    for t in sorted(case_info["evidence"]):
+        detected = t in case_info["types"]
+        parts.append("<tr><td>%s</td><td>%s</td><td>%s</td></tr>" % (
+            html.escape(t), "yes" if detected else "no", html.escape(case_info["evidence"][t])))
+    parts.append("</table>")
+    parts.append("<p class='stamp'>spin-up excluded: %g h; run length: %.1f h; d01 extent: "
+                 "%.0f x %.0f km</p>" % (spinup_hours, case_info["run_length_h"],
+                                        case_info["d01_extent_km"][0], case_info["d01_extent_km"][1]))
+
+    for t in case_info["types"]:
+        type_figs = _figures_for_type(figures, t)
+        if not type_figs:
+            continue
+        parts.append("<h2>%s</h2>" % html.escape(t))
+        for f in type_figs:
+            if f.get("missing"):
+                parts.append(
+                    "<div class='missing'><strong>missing: %s</strong> (dataset: %s)<br>"
+                    "reason: %s</div>" % (html.escape(f["id"]), html.escape(f.get("dataset", "")),
+                                          html.escape(f.get("reason", ""))))
+                continue
+            parts.append("<h3>%s</h3>" % html.escape(f["id"]))
+            ext = os.path.splitext(f["path"])[1].lower()
+            if ext in IMAGE_EXTS:
+                parts.append("<img src='%s' alt='%s'>" % (_embed_image(f["path"]),
+                                                           html.escape(f["id"])))
+            else:
+                parts.append("<p><em>%s (not an image -- open at %s)</em></p>"
+                             % (html.escape(os.path.basename(f["path"])), html.escape(f["path"])))
+            parts.append("<p class='stamp'>%s</p>" % html.escape(_stamp(f, spinup_hours)))
+            parts.append(_caption_block(catalog, f["id"]))
+
+    parts.append(_build_time_series_section(out_dir, figures, catalog, spinup_hours))
+
+    parts.append("</body></html>")
+    out_path = os.path.join(out_dir, "report.html")
+    with open(out_path, "w") as fh:
+        fh.write("\n".join(parts))
+    return out_path

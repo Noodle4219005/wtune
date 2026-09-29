@@ -1,0 +1,21 @@
+// tc_rmw.conf.tmpl -- MET tc_rmw config for `wtune post tc` (decision 0056). Only the entries
+// that differ from MET 12.1's share/met/config/TCRMWConfig_default are set here; the input is
+// met_tc.regrid_for_tc_rmw()'s CF NetCDF (lat/lon), so levels are NetCDF index/value
+// selections "(@<hPa>,*,*)" rather than the default's GRIB "L0".
+
+data = {
+  field = [ ${FIELDS} ];
+};
+
+// only the valid times the regridded data covers (the a-deck is hourly)
+valid_hour = [ ${VALID_HOURS} ];
+
+n_range        = ${N_RANGE};
+n_azimuth      = ${N_AZIMUTH};
+delta_range_km = ${DELTA_RANGE_KM};
+
+compute_tangential_and_radial_winds = TRUE;
+u_wind_field_name = "UGRD";
+v_wind_field_name = "VGRD";
+
+version = "V12.1.1";

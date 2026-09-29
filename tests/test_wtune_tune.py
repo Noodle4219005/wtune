@@ -679,6 +679,70 @@ def test_build_report_fields():
     assert isinstance(report["full_run_prediction"], str) and report["full_run_prediction"]
 
 
+def test_build_report_strict_guard_runs_against_the_real_namelist(tmp_path, monkeypatch):
+    # decision 0056: build_report's final param_table (nproc_x/nproc_y/numtiles only, see
+    # local_param_table) must pass wtune_compliance.assert_strict_only against the case's
+    # own namelist -- confirm the guard actually runs (not skipped as "no real namelist")
+    # and that the normal decomposition-only report passes it cleanly.
+    namelist_path = tmp_path / "namelist.input"
+    namelist_path.write_text("&domains\n time_step = 60,\n nproc_x = -1,\n nproc_y = -1,\n"
+                             " numtiles = 1,\n/\n")
+    calls = []
+    real_assert = wtune_tune.wc.assert_strict_only
+
+    def spy(orig, final, **kw):
+        calls.append((dict(orig), dict(final)))
+        return real_assert(orig, final, **kw)
+
+    monkeypatch.setattr(wtune_tune.wc, "assert_strict_only", spy)
+
+    ctx = _ctx(namelist_path=str(namelist_path))
+    all_results = {"G0001": _result("G0001", 0.5, {"id": "G0001", "ranks": 8, "omp": 1, "nx": 2,
+                                                     "ny": 4, "numtiles": 1, "dist": "block"})}
+    wtune_tune.build_report(ctx, nodes=1, nodes_note="test", all_results=all_results,
+                            confirm_results=None, anchor_cid=None)
+
+    assert len(calls) == 1
+    orig, final = calls[0]
+    assert orig["nproc_x"] == [-1]
+    assert final["nproc_x"] == ["2"] and final["nproc_y"] == ["4"] and "numtiles" not in {
+        k for k in final if final[k] != orig.get(k)}
+
+
+def test_strict_guard_reads_every_namelist_line_the_report_hands_out(tmp_path):
+    # a solution-changing key slipped into namelist_lines must be caught, not just the
+    # three decomposition keys the guard happens to expect today
+    namelist_path = tmp_path / "namelist.input"
+    namelist_path.write_text("&domains\n time_step = 60,\n nproc_x = -1,\n/\n"
+                             "&physics\n mp_physics = 8,\n/\n")
+    ctx = _ctx(namelist_path=str(namelist_path))
+    ok = {"namelist_lines": ["nproc_x=2,", "nproc_y=4,", "numtiles=1,", "mp_physics=8,"]}
+    wtune_tune._assert_report_is_strict_only(ctx, ok)          # unchanged physics: passes
+    bad = {"namelist_lines": ["nproc_x=2,", "mp_physics=6,"]}
+    with pytest.raises(wtune_tune.wc.ComplianceError, match="mp_physics"):
+        wtune_tune._assert_report_is_strict_only(ctx, bad)
+    with pytest.raises(wtune_tune.wc.ComplianceError, match="time_step"):
+        wtune_tune._assert_report_is_strict_only(ctx, {"namelist_lines": ["time_step=45,"]})
+
+
+def test_build_report_propagates_a_strict_guard_violation(tmp_path, monkeypatch):
+    # wiring test: a ComplianceError from the guard must not be swallowed by build_report.
+    namelist_path = tmp_path / "namelist.input"
+    namelist_path.write_text("&domains\n nproc_x = -1,\n nproc_y = -1,\n numtiles = 1,\n/\n")
+
+    def always_raise(orig, final, **kw):
+        raise wtune_tune.wc.ComplianceError("simulated non-STRICT change")
+
+    monkeypatch.setattr(wtune_tune.wc, "assert_strict_only", always_raise)
+
+    ctx = _ctx(namelist_path=str(namelist_path))
+    all_results = {"G0001": _result("G0001", 0.5, {"id": "G0001", "ranks": 8, "omp": 1, "nx": 2,
+                                                     "ny": 4, "numtiles": 1, "dist": "block"})}
+    with pytest.raises(wtune_tune.wc.ComplianceError):
+        wtune_tune.build_report(ctx, nodes=1, nodes_note="test", all_results=all_results,
+                                confirm_results=None, anchor_cid=None)
+
+
 def test_build_report_marks_confirmed_configs():
     ctx = _ctx()
     all_results = {"G0001": _result("G0001", 0.5, {"id": "G0001", "ranks": 8, "omp": 1, "nx": 2,

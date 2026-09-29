@@ -1,0 +1,218 @@
+"""post/recipes/synoptic.py -- the "synoptic" figure set (decision 0057 section 2): 500 hPa
+geopotential height + absolute vorticity, SLP + 1000-500 hPa thickness, 850 hPa equivalent
+potential temperature + wind, 250 hPa jet (wind speed), T2 + 10 m wind -- all wrf-python
+getvar/interplevel (z, avo, theta_e, wspd_wdir, slp, T2, uvmet10) through
+post/recipes/mapfig.py. The ERA5 500 hPa difference map and its MET Grid-Stat RMSE/bias are
+produced only when post/recipes/era5.py can open the ARCO store (gcsfs/zarr); otherwise both are
+reported as one missing-observation entry with that exact reason, per decision 0057 section 3.
+
+1000-500 hPa thickness has no wrf-python getvar name of its own -- it is z(500hPa) - z(1000hPa),
+two ordinary wrf.interplevel calls differenced in numpy; that arithmetic is the only
+self-written piece in the model-only maps.
+
+The ERA5 diff map's RMSE/bias come from MET Grid-Stat (post/met_gridstat.py: CNT line, ERA5 as
+OBS on its 0.25 deg grid, bilinear regrid done by MET, masked to the model domain's interior).
+ERA5 is read from <project>/input/era5/ when present (compute nodes have no internet; fetch it
+on a login node with `python -m post.recipes.era5`), else from ARCO via gcsfs.
+"""
+from __future__ import annotations
+
+import os
+
+from post import met_gridstat, tools
+from post.extract import list_frames
+
+
+def _post_spinup_time(run_dir, domain, spinup_hours):
+    from datetime import datetime
+    from post.caseinfo import WRF_TIME_FMT
+    frames = list_frames(run_dir, domain=domain)
+    if not frames:
+        return None, []
+    t0 = datetime.strptime(frames[0][0], WRF_TIME_FMT)
+    post = [(t, p) for t, p in frames
+           if (datetime.strptime(t, WRF_TIME_FMT) - t0).total_seconds() / 3600.0 >= spinup_hours]
+    chosen = post[-1] if post else frames[-1]
+    return chosen, frames
+
+
+def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6):
+    from post.recipe import fig, missing
+    from post.recipes.mapfig import save_map
+
+    run_dir, run_label = run_dirs[0], labels[0]
+    domain = 1   # synoptic diagnostics are read on d01, the domain the extent test itself used
+    chosen, frames = _post_spinup_time(run_dir, domain, spinup_hours)
+    out = []
+    if chosen is None:
+        return [missing("syn_maps", "wrfout_d01_*", "no frames found")]
+    time_str, path = chosen
+
+    try:
+        import netCDF4
+        import numpy as np
+        wrf_mod = __import__("wrf")
+        with netCDF4.Dataset(path) as ds:
+            pressure = wrf_mod.getvar(ds, "pressure", timeidx=0)
+            z = wrf_mod.getvar(ds, "z", timeidx=0, units="m")
+            z500 = wrf_mod.interplevel(z, pressure, 500)
+            z1000 = wrf_mod.interplevel(z, pressure, 1000)
+            avo = wrf_mod.getvar(ds, "avo", timeidx=0)
+            avo500 = wrf_mod.interplevel(avo, pressure, 500)
+            lats, lons = wrf_mod.latlon_coords(z500, as_np=True)
+            crs = wrf_mod.get_cartopy(var=z500)
+            xlim = wrf_mod.cartopy_xlim(var=z500)
+            ylim = wrf_mod.cartopy_ylim(var=z500)
+
+            p1 = os.path.join(out_dir, "syn_z500_vort.png")
+            save_map(p1, lats, lons,
+                    "%s d01 500 hPa height (contour, m) + absolute vorticity (fill)  %s"
+                    % (run_label, time_str),
+                    fill_field=np.asarray(avo500), fill_label="absolute vorticity (1e-5 s-1)",
+                    fill_cmap="RdBu_r", contour_field=np.asarray(z500), ds=ds, crs=crs)
+            out.append(fig("syn_z500_vort", p1, run_label, domain="d01", valid_time=time_str))
+
+            slp = wrf_mod.getvar(ds, "slp", timeidx=0, units="hPa")
+            thickness = np.asarray(z500) - np.asarray(z1000)
+            p2 = os.path.join(out_dir, "syn_slp_thickness.png")
+            save_map(p2, lats, lons,
+                    "%s d01 SLP (fill, hPa) + 1000-500 hPa thickness (contour, m)  %s"
+                    % (run_label, time_str),
+                    fill_field=np.asarray(slp), fill_label="SLP (hPa)", fill_cmap="viridis",
+                    contour_field=thickness, ds=ds, crs=crs)
+            out.append(fig("syn_slp_thickness", p2, run_label, domain="d01", valid_time=time_str))
+
+            theta_e = wrf_mod.getvar(ds, "theta_e", timeidx=0)
+            theta_e850 = wrf_mod.interplevel(theta_e, pressure, 850)
+            u850 = np.asarray(wrf_mod.interplevel(
+                wrf_mod.getvar(ds, "ua", timeidx=0, units="m s-1"), pressure, 850))
+            v850 = np.asarray(wrf_mod.interplevel(
+                wrf_mod.getvar(ds, "va", timeidx=0, units="m s-1"), pressure, 850))
+            p3 = os.path.join(out_dir, "syn_850_thetae_wind.png")
+            save_map(p3, lats, lons, "%s d01 850 hPa theta-e (K) + wind  %s" % (run_label, time_str),
+                    fill_field=np.asarray(theta_e850), fill_label="theta-e (K)", fill_cmap="magma",
+                    u=u850, v=v850, ds=ds, crs=crs)
+            out.append(fig("syn_850_thetae_wind", p3, run_label, domain="d01", valid_time=time_str))
+
+            wspd250 = wrf_mod.interplevel(
+                wrf_mod.getvar(ds, "wspd_wdir", timeidx=0, units="m s-1")[0], pressure, 250)
+            p4 = os.path.join(out_dir, "syn_250_jet.png")
+            save_map(p4, lats, lons, "%s d01 250 hPa wind speed (jet)  %s" % (run_label, time_str),
+                    fill_field=np.asarray(wspd250), fill_label="wind speed (m/s)",
+                    fill_cmap="cividis", ds=ds, crs=crs)
+            out.append(fig("syn_250_jet", p4, run_label, domain="d01", valid_time=time_str))
+
+            t2 = np.asarray(wrf_mod.getvar(ds, "T2", timeidx=0))
+            u10 = np.asarray(wrf_mod.getvar(ds, "uvmet10", timeidx=0, units="m s-1")[0])
+            v10 = np.asarray(wrf_mod.getvar(ds, "uvmet10", timeidx=0, units="m s-1")[1])
+            p5 = os.path.join(out_dir, "syn_t2_wind10.png")
+            save_map(p5, lats, lons, "%s d01 T2 (K) + 10 m wind  %s" % (run_label, time_str),
+                    fill_field=t2, fill_label="T2 (K)", fill_cmap="coolwarm", u=u10, v=v10,
+                    ds=ds, crs=crs)
+            out.append(fig("syn_t2_wind10", p5, run_label, domain="d01", valid_time=time_str))
+
+            model_bbox = (float(np.asarray(ds.variables["XLAT"][0]).min()),
+                         float(np.asarray(ds.variables["XLAT"][0]).max()),
+                         float(np.asarray(ds.variables["XLONG"][0]).min()),
+                         float(np.asarray(ds.variables["XLONG"][0]).max()))
+    except (tools.ToolNotFoundError, ImportError) as e:
+        out.append(missing("syn_maps", "wrf-python/cartopy", str(e)))
+        return out
+
+    try:
+        from post.recipes.era5 import Era5UnavailableError, z500_for
+        from post.caseinfo import WRF_TIME_FMT, spec_bdy_width
+        from datetime import datetime
+        try:
+            from wtune_project import find_project
+            project_dir = find_project(out_dir)
+        except Exception:
+            project_dir = None
+        e_lat, e_lon, e_z, e_valid, e_src = z500_for(
+            datetime.strptime(time_str, WRF_TIME_FMT), model_bbox, project_dir)
+        gs = met_gridstat.grid_stat_z500(
+            path, e_lat, e_lon, e_z, e_valid, os.path.join(out_dir, "gridstat"),
+            spec_bdy_width(run_dir))
+        p6 = os.path.join(out_dir, "syn_era5_diff.png")
+        _era5_diff_map(p6, run_label, time_str, lats, lons, np.asarray(z500), e_lat, e_lon, e_z,
+                       gs, crs, xlim, ylim)
+        out.append(fig("syn_era5_diff", p6, run_label, domain="d01", valid_time=time_str,
+                       extra={"rmse_m": gs["rmse_m"], "bias_m": gs["bias_m"], "n": gs["n"],
+                              "stat_file": gs["stat_file"], "era5_source": e_src}))
+    except Era5UnavailableError as e:
+        out.append(missing("syn_era5_diff", "ERA5 (ARCO)", str(e)))
+    except (tools.ToolNotFoundError, tools.ToolError, met_gridstat.METError) as e:
+        out.append(missing("syn_era5_diff", "MET grid_stat", str(e)))
+    return out
+
+
+def symmetric_levels(vmax, nbins=12):
+    """Contour levels symmetric about 0 with NO boundary at 0, so the bin straddling 0 is one
+    band (white in RdBu_r; same construction as terrain.py's w shading)."""
+    import numpy as np
+    from matplotlib.ticker import MaxNLocator
+    levels = MaxNLocator(nbins=nbins, symmetric=True).tick_values(-vmax, vmax)
+    return levels[np.abs(levels) > 1e-12]
+
+
+def _era5_diff_map(out_path, run_label, time_str, lats, lons, z500, e_lat, e_lon, e_z, gs, crs,
+                   xlim, ylim):
+    """Grid-Stat DIFF (model - ERA5, matched-pair NetCDF) filled on the model domain's own
+    projection, extent = the model domain; model z500 solid black / ERA5 z500 dashed every
+    60 m so a displaced trough shows as a dipole in the fill AND as offset contour lines."""
+    import netCDF4
+    import numpy as np
+    import cartopy.crs as ccrs
+    import cartopy.feature as cfeature
+    from post.plotting import (_coastline, _matplotlib, _natural_earth_ready,
+                               _set_cartopy_data_dir)
+    plt = _matplotlib()
+    with netCDF4.Dataset(gs["pairs_nc"]) as ds:
+        name = next(v for v in ds.variables if v.startswith("DIFF_"))
+        d_lat = np.asarray(ds.variables["lat"][:])
+        d_lon = np.asarray(ds.variables["lon"][:])
+        diff = np.ma.filled(ds.variables[name][:], np.nan).astype("f8")
+    _set_cartopy_data_dir()
+    pc = ccrs.PlateCarree()
+    fig_, ax = plt.subplots(figsize=(8.5, 6.5), subplot_kw={"projection": crs})
+    ax.set_extent([xlim[0], xlim[1], ylim[0], ylim[1]], crs=crs)
+    finite = diff[np.isfinite(diff)]
+    vmax = max(float(np.percentile(np.abs(finite), 99)), 1e-3) if finite.size else 1.0
+    levels = symmetric_levels(vmax)
+    cmap = plt.get_cmap("RdBu_r")
+    ax.set_facecolor(cmap(0.5))
+    cf = ax.contourf(d_lon, d_lat, np.ma.masked_invalid(diff), levels=levels, cmap=cmap,
+                     extend="both", transform=pc)
+    fig_.colorbar(cf, ax=ax, ticks=levels, label="model - ERA5 z500 (m)", shrink=0.85)
+    lo = 60.0 * np.floor(min(np.nanmin(z500), np.nanmin(e_z)) / 60.0)
+    hi = 60.0 * np.ceil(max(np.nanmax(z500), np.nanmax(e_z)) / 60.0)
+    clev = np.arange(lo, hi + 60.0, 60.0)
+    cm = ax.contour(lons, lats, z500, levels=clev, colors="k", linewidths=0.9,
+                    linestyles="solid", transform=pc)
+    ce = ax.contour(e_lon, e_lat, e_z, levels=clev, colors="k", linewidths=0.9,
+                    linestyles="dashed", transform=pc)
+    ax.clabel(cm, inline=True, fontsize=7, fmt="%d")
+    ax.clabel(ce, inline=True, fontsize=7, fmt="%d")
+    if _natural_earth_ready("50m"):
+        ax.add_feature(cfeature.NaturalEarthFeature("physical", "coastline", "50m"),
+                       facecolor="none", edgecolor="0.15", linewidth=0.7)
+        ax.add_feature(cfeature.NaturalEarthFeature("cultural", "admin_0_boundary_lines_land",
+                                                    "50m"),
+                       facecolor="none", edgecolor="0.3", linewidth=0.4)
+        ax.gridlines(draw_labels=False, linewidth=0.3, alpha=0.5)
+    elif _natural_earth_ready():
+        _coastline(ax, None, ccrs, True)
+    else:
+        print("syn_era5_diff: Natural Earth data not found (WTUNE_CARTOPY_DATA=%s): no coastline"
+              % (os.environ.get("WTUNE_CARTOPY_DATA") or "<unset>"))
+    from matplotlib.lines import Line2D
+    ax.legend(handles=[Line2D([], [], color="k", lw=0.9, label="model z500 (60 m)"),
+                       Line2D([], [], color="k", lw=0.9, ls="--", label="ERA5 z500 (60 m)")],
+              loc="lower left", fontsize=7, framealpha=0.85)
+    ax.set_title("%s d01 500 hPa height, model - ERA5 (m)  %s\nRMSE=%.1f m  bias=%.1f m  "
+                 "(MET Grid-Stat, ERA5 0.25\u00b0, interior)"
+                 % (run_label, time_str, gs["rmse_m"], gs["bias_m"]), fontsize=9)
+    fig_.tight_layout()
+    fig_.savefig(out_path, dpi=130)
+    plt.close(fig_)
+    return out_path

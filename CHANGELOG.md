@@ -3,6 +3,137 @@
 Versions are declared in `wtune_version.py`; `test_wtune_version.py` fails if the top section
 here does not match it. Development before 0.1.0 is in the git history, not in releases.
 
+## 0.5.0 — 2026-09-29
+
+`wtune project init|info PATH` (decision 0058): a user-named project folder that collects one
+WRF case's `case/` (namelists copied, everything else -- wrfinput/wrfbdy/met_em/... --
+symlinked; the source case dir is never opened for writing), `input/`, `tune/`, `predict/`,
+`runs/<id>/`, `post/<id>/`, `analysis/` and a `project.yaml` (case/site/storm/obs/time +
+optional `cross_sections.terrain`/`cross_sections.moisture` line overrides) under one directory,
+with a `manifest.jsonl` line (time, `wtune` version, argv, key input paths + sha256 for files
+<50 MB, output dir, exit code) appended by every project-aware command
+(`src/wtune_project.py`). `wtune post recipe/tc/plot/custom` resolve their project via
+`--project DIR` / `$WTUNE_PROJECT` / walking up from cwd for `project.yaml`, default their
+`--out` to `post/<id>/`, and auto-discover RUN_DIRs from `runs/*/` (else `case/`) and
+storm/HURDAT2 from `project.yaml` when not given on the command line; `tune`/`run`/
+`predict-rebuild` are unchanged (decision 0058 explicitly scopes them to output-directory
+defaults only, not attempted this round beyond that). Outside a project, every subcommand's
+pre-existing behaviour is unchanged (decision 0058 P6).
+
+`wtune post recipe --every 6h|--times T1,T2,...` (decision 0058 P3): a full per-valid-time
+figure set (SLP/T2/10 m wind/rain, +MCAPE when convection was detected) written to
+`post/<id>/timeseries/fNNN_<YYYYmmddHH>Z/`, named `<field>_d<domain>_fNNN_<YYYYmmddHH>Z.png`
+(forecast-hour tag + valid time, no colon -- ParaView's reader fails on one, confirmed on scc
+2026-09-29) — `post/timeseries.py`. Consecutive and vs-t0 **change maps** for SLP/T2/PW/MCAPE
+plus a 6 h rain accumulation, every difference computed with `cdo sub` on NetCDF extracted via
+the existing `wtune post extract` engine, never re-derived in Python — `post/changemap.py`,
+named `<field>-chg<N>h_d<domain>_fNNN_<validZ>.png`. `--animate` builds one ffmpeg MP4 per
+time-series field (`post/anim.py`, `ffmpeg` added to `envs/wtune/pixi.toml`), referenced from
+the report by relative path (not base64-embedded). The report's new "Time series" section
+groups these by forecast tag with prev/next navigation links.
+
+`wtune post custom` (decision 0058 section 2): runs every `analysis/*.py` script in a project,
+each handed a `post/custom_api.Context` (run list, `open_wrfout`, `list_frames`,
+`find_run_track_csv`, `save_figure`/`save_table`), folding whatever it registers into one HTML
+report; a script that raises gets one error entry instead of aborting the batch.
+`wtune project init` writes an example script (`analysis/example_tc_track.py`): storm-following
+central pressure & max wind, from an existing track csv if `wtune post tc`/`recipe` has already
+run, else a per-frame SLP-minimum fallback via wrf-python.
+
+Two new case types (decision 0057 update, 2026-09-29): **terrain** (any domain's HGT relief
+>=1000 m or peak >=1500 m — terrain+10 m/700 hPa wind map, a theta/w cross-section through the
+peak along the mean 700 hPa wind, rain-over-terrain-contours, and a time-height diagram at the
+domain's lowest point; `post/recipes/terrain.py`) and **moisture** (triggers whenever
+precip/convection/tc is detected, i.e. effectively always alongside precip — PW + its 6 h
+`cdo sub` change, IVT + 850 hPa wind, an RH/theta_e cross-section through the TC centre or
+max-rain point, and a specific-humidity time-height diagram; `post/recipes/moisture.py`).
+IVT (`post/ivt.py`) is this package's one self-written integral (neither wrf-python nor MetPy
+exposes a moisture-flux integral) — `IVT = (1/g) integral q*V dp` via `numpy.trapezoid`, exact
+for a piecewise-linear profile and therefore exact for a constant synthetic profile
+(`tests/test_post_ivt.py`, decision 0057 update T3). Station-observation-dependent terrain/
+moisture figures (lee-side foehn timeseries, MET Point-Stat) are reported as explicit missing
+entries, matching the house convention already used for precip's Stage IV/IMERG gap.
+
+`gcsfs`/`zarr` added to `envs/wtune/pixi.toml` alongside `ffmpeg` (previously only in
+`envs/ai/pixi.toml`) so `post/recipes/era5.py`'s anonymous ARCO-ERA5 access works from this
+env too — confirmed opening the public `gs://gcp-public-data-arco-era5` zarr store and cropping
+a real z500 field, both locally and on scc's login node, with no credentials.
+
+## 0.4.0 — 2026-09-29
+
+`wtune post recipe RUN_DIR [RUN_DIR ...] --out DIR` (decision 0057): case-type-driven standard
+figure sets, replacing "pick a figure by hand" with "detect what kind of case this is and produce
+its whole standard set, all matching types when they overlap". `post/caseinfo.py` reads
+namelist.input/namelist.output + a HURDAT2/b-deck best-track check to detect, multi-label, any of
+common (always) / tc / convection / precip / synoptic / pbl / chem / climate / ensemble, each with
+its own stated evidence. `post/recipes/` holds one module per type (mapfig.py is the shared
+cartopy map-figure writer every type reuses), each producing figures from established tools —
+wrf-python getvar/interplevel (including `uhel` for 2-5 km updraft helicity, exactly the layer
+decision 0057 asks for, with no bespoke formula needed), MetPy (`wtune post sounding`, reused),
+`wtune post tc`'s own MET-backed pipeline (reused, plus one new self-written figure this repo has
+no tool for: a 10 m tangential-wind radius-time plot, `post/recipes/tc_extra.py`), CDO
+(`ymonmean`/`yseasmean`), and ERA5 via ARCO (`post/recipes/era5.py`, reusing
+`tools/era5_intermediate.py`'s own zarr reader). A ParaView cloud-isosurface-over-terrain render
+for tc/convection (`post/xwrf_convert.py` + `post/paraview/render_cloud.py`, run under
+`pvbatch --force-offscreen-rendering`) is included but not exercised against a real binary this
+round (ParaView not installed locally) — same disclosed-unverified status MET's own config
+templates already carry. Every observation-dependent figure with no obs wired up this round
+(radar, Stage IV/MRMS/IMERG, chem stations, ensemble verification, the ERA5 side of the climate
+seasonal bias) is reported as an explicit "missing: dataset, reason" entry in the HTML report,
+never silently dropped. Every figure is captioned from `src/post/recipes/catalog.json` (zh+en:
+question/how-to-read/common-misreadings) and stamped with run/domain/valid time and the excluded
+spin-up length.
+
+**Disclosed deviation:** the synoptic ERA5 z500 diff figure's RMSE/bias is computed directly in
+numpy after a scipy regrid, not through MET Grid-Stat as decision 0057 names — MET is not
+installed locally this round; see `post/recipes/synoptic.py`'s module docstring and the README.
+
+## 0.3.0 — 2026-09-29
+
+`wtune post` (decision 0056): a post-processing/analysis package, advisory-only, no autotuning.
+`inventory` (domains/times/grid/variables/missing-frame check, netCDF4 only), `extract`
+(wrf-python getvar diagnostics -> points CSV or a zlib-compressed box NetCDF, parallelized over
+frames with ProcessPoolExecutor), `plot` (filled-contour maps, LANDMASK or cartopy coastline),
+`sounding` (MetPy Skew-T with surface-parcel CAPE/CIN), `tc` (wind-structure and finest-domain
+intensity metrics ported from the p2-nest reference scripts, against HURDAT2 + optional EBTRK),
+`compare` (bitwise/max|delta|/RMS between two runs, to verify a STRICT change did not move the
+answer), `report` (self-contained HTML, images base64-embedded). All heavy imports
+(wrf-python/matplotlib/metpy/cartopy) are lazy, so `wtune --help` and `wtune post inventory`/
+`compare` never need them. `envs/wtune/pixi.toml` gained matplotlib, metpy, nco, cdo, cartopy.
+
+**2026-09-29 update (same-day, decision 0056):** every `wtune post` subcommand now wraps an
+established tool instead of re-implementing it, on user instruction ("post-processing must be
+built on established tools such as ParaView or other common WRF visualization/analysis tools; do
+not write our own unless necessary") -- the self-written substitute each one replaced is deleted,
+not kept alongside it. `compare` now runs `diffwrf` (WRF's own netCDF differ) per common frame
+instead of a self-written numpy diff. `inventory` reads grid/variables from `ncdump -h`, cross-
+checked against `cdo sinfon`; only the missing-frame cadence check stays self-written (WRF/WTune-
+specific, no tool audits it). `plot` now defaults to `--basemap cartopy` (`wrf.get_cartopy`/
+`wrf.latlon_coords`, Natural Earth coastlines/borders via `WTUNE_CARTOPY_DATA`), falling back to a
+LANDMASK contour -- and printing that it did -- only when the Natural Earth cache is unavailable,
+never on a cartopy import failure. `tc` keeps TempestExtremes for tracking (Vmax/MSLP now read
+straight from its own track) and `post/tc_metrics.py`'s quadrant-radii math (the one metric no
+tool derives from a WRF wind field), writes the result as a new ATCF a-deck (`post/atcf.py`, the
+one justified new module -- no tool converts a TempestExtremes track to ATCF; format verified
+against a real NHC archive file), resolves a b-deck (`--bdeck FILE`, NHC archive download, or
+HURDAT2 as a last resort, converted through the same ATCF writer), and compares them with new MET
+`tc_pairs`/`tc_stat` (track/intensity/wind-radii error) and `tc_rmw` (azimuthal-mean radius-height
+structure on a `cdo remapbil`-regridded frame) wrappers (`post/met_tc.py`) -- replacing the
+self-written track-error/intensity/azimuthal-profile/RMW code (most of the old `tc_metrics.py`)
+outright. `post/tools.py` centralizes tool location (`WRF_TREE`/`PATH`/`WTUNE_POSTPROC_VIEW`) and
+raises a clear error naming the missing tool + `bin/install-postproc.sh` instead of a silent
+fallback. MET is not installed yet (spack job 1575 was still building `envs/postproc` at the time
+of this update), so `post/met/*.conf.tmpl`'s exact config syntax is unverified against a real
+binary -- see README section 7 and each template's header comment.
+
+Policy enforcement for decision 0056 ("STRICT auto-applies, anything that changes the solution is
+advisory only"): `wtune run` without `--cfl-rescue` now stops on a CFL/NaN failure and writes the
+recommended `time_step` as `segment.advice.namelist.input` next to the failed segment instead of
+silently doing nothing more than failing; `--cfl-rescue` remains the one user-pre-authorized
+exception. `wtune_compliance.assert_strict_only` guards `wtune tune`'s final recommended
+configuration (`wtune_tune.build_report`), raising `ComplianceError` if any changed namelist key
+classifies as anything other than STRICT (measurement-only probe windows are exempt).
+
 ## 0.2.0 — 2026-09-27
 
 Whole-run prediction from rebuilt segments, a run monitor, segmented execution with restart

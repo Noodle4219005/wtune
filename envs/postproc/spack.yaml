@@ -1,0 +1,53 @@
+# Post-processing tools that are not Python and not on conda-forge for linux-aarch64
+# (decision 0056 update 2026-09-29: wrap established tools, do not re-implement).
+# Installed by bin/install-postproc.sh. The Python half (wrf-python, MetPy, xWRF, cartopy, CDO,
+# NCO, TempestExtremes) lives in envs/wtune/pixi.toml; ParaView in envs/paraview/pixi.toml.
+#
+#   met    MET TC-Pairs / TC-Stat / TC-RMW / Grid-Stat / Point-Stat / Ensemble-Stat
+#   nccmp  generic NetCDF differ (diffwrf, shipped with WRF, stays the WRF-specific one)
+#
+# Not here, with the reason found on scc (2026-09-29):
+#   paraview  spack's +python needs a spack-built python; python@3.14.5 does not compile with
+#             GCC 15 (job 1578) -> conda-forge build in envs/paraview instead
+#   vapor     depends directly on curl, which the site config pins to a /usr external whose
+#             headers exist on the login node only; the `curl::` override below did not reach it
+spack:
+  # local recipe fixes (see each package.py for why)
+  repos:
+  - repo/spack_repo/wtune_postproc
+  specs:
+  - met@12.1.1 ~python ~graphics
+  - nccmp
+  view:
+    default:
+      root: .spack-env/view
+      link: roots
+  concretizer:
+    unify: when_possible
+    reuse: false   # reuse pulled the site /usr python/curl externals back in from the database
+  packages:
+    # The site packages.yaml registers /usr externals detected on the login node, which has
+    # the -dev headers; scc compute nodes do not (no openssl/ssl.h, curl/curl.h,
+    # python3.14/Python.h), so packages building against them failed on work1 (job 1577).
+    # Build these here instead (`::` drops the site external entry).
+    openssl::
+      buildable: true
+    curl::
+      buildable: true
+    python::
+      buildable: true
+    # GCC 15 defaults C to C23, where `bool` is a keyword: c-blosc 1.21.6 (`typedef _Bool bool;`)
+    # fails to compile (job 1575). Nothing here reads blosc-compressed NetCDF, so drop it.
+    netcdf-c:
+      require:
+      - '~blosc ~mpi ~parallel-netcdf'
+    # MET is serial: without MPI, openmpi -> pmix (could not find /usr zlib on work1, job 1578)
+    # and libunwind (link error in its aarch64 test program) leave the tree
+    hdf5:
+      require:
+      - '~mpi'
+    # proj could still not find CURL (job 1578; the `curl::` override above does not reach it);
+    # MET does not need proj's network grid download
+    proj:
+      require:
+      - '~curl'

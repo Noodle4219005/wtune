@@ -544,6 +544,29 @@ def test_controller_failure_without_rescue_stops(tmp_path):
     assert not (out / "seg_1").exists()
 
 
+def test_controller_cfl_advice_without_rescue_writes_namelist_and_stops(tmp_path):
+    # decision 0056: without --cfl-rescue, a CFL/NaN failure stops (same as before) but also
+    # prints the recommended time_step and writes it as a namelist next to the segment --
+    # never resubmits anything itself.
+    f = Fakes(outcomes=["cfl"])
+    rc, out, rep, lines = _run(tmp_path, f)
+    assert rc == 1 and rep["status"] == "failed"
+    assert len(f.submitted) == 1                       # nothing resubmitted
+    assert not (out / "seg_1").exists()
+    advice_path = out / "seg_0" / "segment.advice.namelist.input"
+    assert advice_path.exists()
+    advice_nl = wp.parse_namelist(str(advice_path))["domains"]["time_step"]
+    assert advice_nl == [45]                            # same 0.75x dt rescue_time_step gives
+    assert (out / "seg_0" / "namelist.input").exists()  # the real (failed) namelist, dt=60,
+    real_nl = wp.parse_namelist(str(out / "seg_0" / "namelist.input"))["domains"]["time_step"]
+    assert real_nl == [60]                              # is untouched by the advice
+    assert any("PHYSICS-GRAY ADVICE" in ln for ln in lines)
+    assert any("segment.advice.namelist.input" in ln for ln in lines)
+    decision = next(d for d in rep["decisions"] if d["decision"] == "cfl_advice")
+    assert decision["recommended_time_step"] == 45
+    assert decision["advice_namelist"].endswith("segment.advice.namelist.input")
+
+
 def test_controller_cfl_rescue_once_then_original_dt(tmp_path):
     f = Fakes(outcomes=["cfl", "done", "done"])
     rc, out, rep, lines = _run(tmp_path, f, ["--cfl-rescue"])

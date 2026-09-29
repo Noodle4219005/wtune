@@ -1,0 +1,846 @@
+{
+  "_meta": {
+    "description": "Figure captions for `wtune post recipe` (decision 0057 section 4): each id maps to zh/en question/how_to_read/common_misreadings. Every figure the report renders is additionally stamped with run/domain/valid time/units and spin-up-excluded hours by post/report.py, not repeated here.",
+    "reference": "wording informed by the third-party WRF figure catalog the user supplied (claude.ai/artifact/AxjqdUBS6PPh6oCC4upEra), rewritten in this repo's own words, not copied"
+  },
+  "common_domain_map": {
+    "zh": {
+      "question": "模擬用了幾層巢狀網格？各層涵蓋的地形與範圍是什麼？",
+      "how_to_read": "底圖是最外層（d01）的地形高度；彩色線框是每一層巢狀網格的實際邊界（沿著該層自己的投影網格畫出，不是矩形經緯度框）。",
+      "common_misreadings": "把巢狀邊界誤讀成矩形經緯度框——在 Lambert/Mercator 投影下邊界會是彎曲的；地形色階不代表任何模擬變數。"
+    },
+    "en": {
+      "question": "How many nested domains does this run have, and what terrain/extent does each cover?",
+      "how_to_read": "The basemap is d01's own terrain height; the coloured outlines are each nest's real boundary, traced along that domain's own projected grid edge (not a lon/lat rectangle).",
+      "common_misreadings": "Reading the nest outline as a straight lon/lat box -- it is curved under WRF's Lambert/Mercator projection; the terrain colour scale carries no simulated variable."
+    }
+  },
+  "common_repro_envelope": {
+    "zh": {
+      "question": "只改變 decomposition（切法）而不改變物理，答案漂移了多少？",
+      "how_to_read": "每條線是一組（參考 run vs. 另一 run）逐格點最大 RMSE（diffwrf）隨時間的變化；縱軸對數尺度。",
+      "common_misreadings": "把這條線當成模式誤差——它衡量的是純數值再現性雜訊，不是模式對觀測的誤差。"
+    },
+    "en": {
+      "question": "How much does the answer drift when only the decomposition changes, physics held fixed?",
+      "how_to_read": "Each line is one (reference run vs. another run) pair's max per-field RMSE (diffwrf) over time; log y-axis.",
+      "common_misreadings": "Reading this as model error against observations -- it measures pure numerical reproducibility noise, not skill."
+    }
+  },
+  "tc_track_map": {
+    "zh": {
+      "question": "模式路徑跟最佳路徑（best track）差多遠？",
+      "how_to_read": "黑線是 best track；彩色線是各 run 的模式路徑，直接畫自 a-deck/b-deck 檔案。",
+      "common_misreadings": "把路徑接近誤讀成強度也準確——路徑與強度誤差是分開的分數，見下一張圖。"
+    },
+    "en": {
+      "question": "How far does the model track diverge from the best track?",
+      "how_to_read": "Black is the best track; coloured lines are each run's model track, drawn straight from the a-deck/b-deck files.",
+      "common_misreadings": "Assuming a close track means accurate intensity too -- track and intensity error are separate scores, see the next figure."
+    }
+  },
+  "tc_track_error": {
+    "zh": {
+      "question": "路徑誤差如何隨預報時間增長？",
+      "how_to_read": "MET tc_stat 逐 lead time 的 TK_ERR（km）。",
+      "common_misreadings": "把單一 lead 的誤差當成整體技術分數——應看整條曲線的成長速率。"
+    },
+    "en": {
+      "question": "How does track error grow with forecast lead time?",
+      "how_to_read": "MET tc_stat's TK_ERR (km) per lead time.",
+      "common_misreadings": "Judging skill from one lead's error alone -- look at the growth rate across the whole curve."
+    }
+  },
+  "tc_intensity_error": {
+    "zh": {
+      "question": "最大風速／最低氣壓的誤差如何隨預報時間變化？",
+      "how_to_read": "MET tc_stat 的 AMAX_WIND／AMSLP 誤差對 lead time。",
+      "common_misreadings": "把強度誤差跟路徑誤差混為一談——路徑準不代表強度準，反之亦然。"
+    },
+    "en": {
+      "question": "How does Vmax/MSLP error evolve with lead time?",
+      "how_to_read": "MET tc_stat's AMAX_WIND/AMSLP error vs. lead time.",
+      "common_misreadings": "Conflating intensity error with track error -- a good track does not imply good intensity, or vice versa."
+    }
+  },
+  "tc_wind_radii_error": {
+    "zh": {
+      "question": "34/50/64 kt 風圈半徑，模式跟最佳路徑比較起來準不準？",
+      "how_to_read": "MET tc_pairs 逐 lead time 的風圈半徑（km），模式對最佳路徑。",
+      "common_misreadings": "把風圈半徑的差異當成強度誤差——風圈大小和中心強度（Vmax/MSLP）是不同的量，見另一張強度誤差圖。"
+    },
+    "en": {
+      "question": "How accurate are the model's 34/50/64 kt wind radii against the best track?",
+      "how_to_read": "MET tc_pairs' wind-radius (km) vs. lead time, model vs. best track.",
+      "common_misreadings": "Conflating a wind-radius difference with intensity error -- radius and central intensity (Vmax/MSLP) are different quantities; see the intensity-error figure."
+    }
+  },
+  "tc_rmw_structure": {
+    "zh": {
+      "question": "颱風的軸對稱結構（切向風／徑向風隨半徑與高度）長什麼樣？",
+      "how_to_read": "MET tc_rmw 輸出的方位角平均剖面，單一時刻快照，橫軸為方位角索引、縱軸為半徑索引。",
+      "common_misreadings": "把這張圖當成時間序列——tc_rmw 每次只處理一個檔案，這是單一時刻的結構，不是演變。"
+    },
+    "en": {
+      "question": "What does the storm's axisymmetric structure (tangential/radial wind by radius and height) look like?",
+      "how_to_read": "MET tc_rmw's azimuthal-mean profile, a single-time snapshot; x-axis is azimuth index, y-axis is range index.",
+      "common_misreadings": "Reading this as a time series -- tc_rmw processes one file at a time; this is one snapshot's structure, not its evolution."
+    }
+  },
+  "tc_radius_time_wind": {
+    "zh": {
+      "question": "10 m 切向風的結構隨半徑與預報時間如何演變（例如風圈是否隨時間擴張）？",
+      "how_to_read": "橫軸為預報時間、縱軸為距中心半徑，色階為方位角平均切向風（氣旋式為正）。",
+      "common_misreadings": "把顏色深淺直接讀成陣風速度——這是方位角平均值，會平滑掉不對稱結構（見象限風圈誤差圖）。"
+    },
+    "en": {
+      "question": "How does the 10 m tangential-wind structure evolve with both radius and lead time (e.g. is the wind field expanding)?",
+      "how_to_read": "x-axis is lead time, y-axis is radius from the tracked centre, colour is the azimuthal-mean tangential wind (cyclonic positive).",
+      "common_misreadings": "Reading the colour as a gust speed -- this is an azimuthal average, which smooths out asymmetric structure (see the quadrant wind-radii error figure)."
+    }
+  },
+  "tc_cloud_3d": {
+    "zh": {
+      "question": "颱風的雲場立體結構（雲牆、外圍螺旋雨帶）長什麼樣？",
+      "how_to_read": "ParaView 等值面：QCLOUD+QICE+QSNOW 的雲水混合比等值面，疊在地形之上，單一時刻快照。",
+      "common_misreadings": "把等值面的大小/形狀當成量化的雲量——等值面只顯示超過門檻值的邊界，換一個門檻值形狀會完全不同。"
+    },
+    "en": {
+      "question": "What does the storm's 3-D cloud field (eyewall, outer spiral rainbands) look like?",
+      "how_to_read": "A ParaView isosurface of total cloud water mixing ratio (QCLOUD+QICE+QSNOW) over terrain, one snapshot.",
+      "common_misreadings": "Reading the isosurface's size/shape as a quantitative cloud amount -- it only shows the boundary above one threshold value; a different threshold gives a different shape."
+    }
+  },
+  "conv_max_reflectivity": {
+    "zh": {
+      "question": "對流系統目前的最大強度與空間分佈在哪裡？",
+      "how_to_read": "wrf-python 的 column-max 模擬回波（dBZ），近似雷達組合回波。",
+      "common_misreadings": "把模擬回波直接跟真實雷達觀測比強度——沒有觀測比對時，這只是模式自身的診斷，不是驗證。"
+    },
+    "en": {
+      "question": "Where is the convective system currently strongest, and how is it distributed?",
+      "how_to_read": "wrf-python's column-max simulated reflectivity (dBZ), analogous to a radar composite.",
+      "common_misreadings": "Comparing this simulated reflectivity's absolute strength to real radar without an actual obs comparison -- without one, this is only a model-side diagnostic, not a verification."
+    }
+  },
+  "conv_mcape": {
+    "zh": {
+      "question": "哪裡有足夠的不穩定度支持對流發展？",
+      "how_to_read": "2-D 最大 CAPE（J/kg），wrf-python cape_2d。",
+      "common_misreadings": "把高 CAPE 誤讀成一定會有對流——CAPE 只是必要條件，還需要觸發機制（見 CIN 與 Skew-T）。"
+    },
+    "en": {
+      "question": "Where is there enough instability to support convection?",
+      "how_to_read": "2-D max CAPE (J/kg), wrf-python's cape_2d.",
+      "common_misreadings": "Treating high CAPE as guaranteeing convection -- it is a necessary, not sufficient, condition; a trigger is also needed (see CIN and the Skew-T)."
+    }
+  },
+  "conv_mcin": {
+    "zh": {
+      "question": "對流是否被抑制（capping）？",
+      "how_to_read": "對應 MCAPE 層的 CIN（J/kg，wrf-python cape_2d）。",
+      "common_misreadings": "把 CIN 數值的正負號搞反——CIN 是抑制能量，數值越負（絕對值越大）代表抑制越強。"
+    },
+    "en": {
+      "question": "Is convection being capped/inhibited?",
+      "how_to_read": "CIN (J/kg, wrf-python's cape_2d) at the MCAPE-defining level.",
+      "common_misreadings": "Getting the sign backwards -- more negative CIN (larger magnitude) means stronger inhibition, not less."
+    }
+  },
+  "conv_uh25_max": {
+    "zh": {
+      "question": "整段模擬期間哪裡出現過最強的中氣旋（mesocyclone）訊號？",
+      "how_to_read": "2-5 km 上升螺旋度（wrf-python uhel）逐時刻取最大值後疊合，排除 spin-up。",
+      "common_misreadings": "把時間最大值當成某一時刻的即時狀態——這是整段期間的峰值疊合圖，不代表任何單一時間點的真實分佈。"
+    },
+    "en": {
+      "question": "Where did the strongest mesocyclone signal occur anywhere during the run?",
+      "how_to_read": "2-5 km updraft helicity (wrf-python's uhel), taken as a pointwise time-maximum across post-spin-up frames.",
+      "common_misreadings": "Reading the time-max field as a snapshot at any one instant -- it is the peak over the whole period, not the real state at any single time."
+    }
+  },
+  "conv_skewt": {
+    "zh": {
+      "question": "代表性測站的垂直溫濕層結與風切如何支持（或抑制）對流？",
+      "how_to_read": "MetPy Skew-T/hodograph，取樣於最大回波格點；圖上標有地面起始 CAPE/CIN。",
+      "common_misreadings": "把單一格點的探空當成整個 domain 的代表——這只是一個代表點，鄰近格點可能差異很大，尤其在對流尺度。"
+    },
+    "en": {
+      "question": "How does the vertical thermodynamic/wind profile at a representative point support (or suppress) convection?",
+      "how_to_read": "A MetPy Skew-T/hodograph at the max-reflectivity grid column, with surface-based CAPE/CIN annotated.",
+      "common_misreadings": "Treating one column's sounding as representative of the whole domain -- convective-scale variability between neighbouring columns can be large."
+    }
+  },
+  "conv_radar_compare": {
+    "zh": {
+      "question": "模擬回波跟真實雷達組合回波比較起來如何？",
+      "how_to_read": "（缺觀測，見報告中的缺失原因）",
+      "common_misreadings": "—"
+    },
+    "en": {
+      "question": "How does simulated reflectivity compare to the real radar composite?",
+      "how_to_read": "(observation missing -- see the reason recorded in the report)",
+      "common_misreadings": "-"
+    }
+  },
+  "conv_fss": {
+    "zh": {
+      "question": "降水/回波的空間型態在不同鄰域尺度下跟觀測吻合到什麼程度？",
+      "how_to_read": "（缺觀測，見報告中的缺失原因）",
+      "common_misreadings": "—"
+    },
+    "en": {
+      "question": "How well does the spatial pattern match observations across neighbourhood scales?",
+      "how_to_read": "(observation missing -- see the reason recorded in the report)",
+      "common_misreadings": "-"
+    }
+  },
+  "precip_accum": {
+    "zh": {
+      "question": "從模擬開始累積到目前，降水總量與空間分佈如何？",
+      "how_to_read": "RAINC+RAINNC（mm），wrf-python，自運轉起始累積（包含 spin-up 期間的降水）。",
+      "common_misreadings": "把這張圖當成某一時段的降水率——這是累積量，不是速率；也不要把 spin-up 期間的累積量誤讀成已被排除。"
+    },
+    "en": {
+      "question": "How much has accumulated, and where, from the run's start to now?",
+      "how_to_read": "RAINC+RAINNC (mm), accumulated since the run's own start (spin-up-period rain IS included in this total, per WRF's own convention).",
+      "common_misreadings": "Reading this as a rain RATE for some interval -- it is a cumulative total, and the spin-up exclusion elsewhere in this report does not remove spin-up rain from this particular total."
+    }
+  },
+  "precip_obs_compare": {
+    "zh": {
+      "question": "模式降水跟觀測（Stage IV/MRMS/IMERG）比較起來如何？",
+      "how_to_read": "（缺觀測，見報告中的缺失原因）",
+      "common_misreadings": "—"
+    },
+    "en": {
+      "question": "How does model precipitation compare to Stage IV/MRMS/IMERG?",
+      "how_to_read": "(observation missing -- see the reason recorded in the report)",
+      "common_misreadings": "-"
+    }
+  },
+  "precip_diff": {
+    "zh": {
+      "question": "模式與觀測降水的空間差異分佈在哪裡？",
+      "how_to_read": "（缺觀測，見報告中的缺失原因）",
+      "common_misreadings": "—"
+    },
+    "en": {
+      "question": "Where does model precipitation differ spatially from the observed field?",
+      "how_to_read": "(observation missing -- see the reason recorded in the report)",
+      "common_misreadings": "-"
+    }
+  },
+  "precip_ets_fbias": {
+    "zh": {
+      "question": "在不同降水門檻下，模式的命中能力與頻率偏差如何？",
+      "how_to_read": "（缺觀測，見報告中的缺失原因）",
+      "common_misreadings": "—"
+    },
+    "en": {
+      "question": "How does hit skill and frequency bias vary across precipitation thresholds?",
+      "how_to_read": "(observation missing -- see the reason recorded in the report)",
+      "common_misreadings": "-"
+    }
+  },
+  "precip_fss": {
+    "zh": {
+      "question": "降水型態在不同空間尺度下與觀測吻合到什麼程度？",
+      "how_to_read": "（缺觀測，見報告中的缺失原因）",
+      "common_misreadings": "—"
+    },
+    "en": {
+      "question": "How well does the precipitation pattern match observations across spatial scales?",
+      "how_to_read": "(observation missing -- see the reason recorded in the report)",
+      "common_misreadings": "-"
+    }
+  },
+  "syn_z500_vort": {
+    "zh": {
+      "question": "500 hPa 的槽脊與渦度分佈如何，大尺度環流是否合理？",
+      "how_to_read": "等值線為 500 hPa 高度場（m），填色為絕對渦度（1e-5 /s，wrf-python avo）。",
+      "common_misreadings": "把渦度的正負號跟氣旋/反氣旋方向搞反——北半球正渦度對應氣旋式環流。"
+    },
+    "en": {
+      "question": "Is the large-scale 500 hPa trough/ridge and vorticity pattern physically reasonable?",
+      "how_to_read": "Contours: 500 hPa height (m). Fill: absolute vorticity (1e-5 s-1, wrf-python's avo).",
+      "common_misreadings": "Getting vorticity's sign backwards relative to rotation sense -- positive vorticity is cyclonic in the NH."
+    }
+  },
+  "syn_slp_thickness": {
+    "zh": {
+      "question": "地面氣壓系統的位置，以及對應的冷暖空氣層厚（間接顯示鋒面）在哪裡？",
+      "how_to_read": "填色為 SLP（hPa），等值線為 1000-500 hPa 厚度（m，z500-z1000）。",
+      "common_misreadings": "把厚度值直接讀成溫度——厚度是氣層平均虛溫的代表量，不是單一高度的溫度。"
+    },
+    "en": {
+      "question": "Where are the surface pressure systems, and where does the 1000-500 hPa thickness (a proxy for fronts) place the cold/warm air?",
+      "how_to_read": "Fill: SLP (hPa). Contours: 1000-500 hPa thickness (m, z500-z1000).",
+      "common_misreadings": "Reading thickness as a direct temperature value -- it represents the mean virtual temperature of the layer, not a single-level temperature."
+    }
+  },
+  "syn_850_thetae_wind": {
+    "zh": {
+      "question": "850 hPa 的暖濕舌與低層噴流在哪裡？",
+      "how_to_read": "填色為相當位溫 theta-e（K），風標為 850 hPa 風。",
+      "common_misreadings": "把 theta-e 高值區直接等同降水區——它顯示的是位置與潛在不穩定,還需配合垂直運動場判斷。"
+    },
+    "en": {
+      "question": "Where is the 850 hPa warm/moist tongue and low-level jet?",
+      "how_to_read": "Fill: equivalent potential temperature theta-e (K). Barbs: 850 hPa wind.",
+      "common_misreadings": "Equating high theta-e directly with a rain area -- it marks moisture/potential instability, which still needs a lifting mechanism to realize."
+    }
+  },
+  "syn_250_jet": {
+    "zh": {
+      "question": "高空噴流的軸線與強度在哪裡（影響地面系統發展的動力支持）？",
+      "how_to_read": "填色為 250 hPa 風速（m/s）。",
+      "common_misreadings": "把風速極大值誤讀成噴流入口/出口區——需搭配風向與曲率才能判斷入出口象限。"
+    },
+    "en": {
+      "question": "Where is the upper-level jet axis and how strong is it (the dynamical support for surface development)?",
+      "how_to_read": "Fill: 250 hPa wind speed (m/s).",
+      "common_misreadings": "Reading the speed maximum alone as an entrance/exit region -- that judgement also needs wind direction and curvature."
+    }
+  },
+  "syn_t2_wind10": {
+    "zh": {
+      "question": "地面溫度與風場的空間分佈是否合理（例如海陸風、鋒面通過）？",
+      "how_to_read": "填色為 T2（K），風標為 10 m 風。",
+      "common_misreadings": "把 T2 單位當成攝氏度——wrf-python 的 T2 預設輸出為 K。"
+    },
+    "en": {
+      "question": "Is the surface temperature/wind pattern reasonable (e.g. sea breeze, a frontal passage)?",
+      "how_to_read": "Fill: T2 (K). Barbs: 10 m wind.",
+      "common_misreadings": "Assuming T2 is in Celsius -- wrf-python's T2 defaults to K."
+    }
+  },
+  "syn_era5_diff": {
+    "zh": {
+      "question": "模式的 500 hPa 高度場相對 ERA5 分析場偏差在哪裡、多大？",
+      "how_to_read": "填色為模式減 ERA5 的 500 hPa 高度差（m），標題附 RMSE/bias（見模組說明：本輪以 numpy 直接計算，非 MET Grid-Stat，屬已揭露的偏離）。",
+      "common_misreadings": "把這個 RMSE/bias 當成通過 MET 驗證的正式分數——decision 0057 原定用 MET Grid-Stat，這裡用 numpy 近似取代，見報告的偏離說明。"
+    },
+    "en": {
+      "question": "Where and how large is the model's 500 hPa height bias against the ERA5 analysis?",
+      "how_to_read": "Fill: model minus ERA5 z500 (m); title carries RMSE/bias (see the module docstring: computed directly in numpy this round, not through MET Grid-Stat -- a disclosed deviation).",
+      "common_misreadings": "Treating this RMSE/bias as a MET-verified formal score -- decision 0057 specifies MET Grid-Stat; this is a numpy approximation standing in for it, see the report's deviation note."
+    }
+  },
+  "pbl_cross_terrain": {
+    "zh": {
+      "question": "邊界層結構如何隨地形起伏變化（例如背風波、邊界層深度隨地形變化）？",
+      "how_to_read": "填色為位溫 theta（K）沿一條跨地形剖線；灰色填滿區為地形。",
+      "common_misreadings": "把剖線當成任意方向的代表——目前預設為通過 domain 中心列的東西向直線，不是針對特定地形特徵挑選的。"
+    },
+    "en": {
+      "question": "How does the boundary-layer structure vary with terrain (e.g. lee waves, PBL depth over terrain)?",
+      "how_to_read": "Fill: potential temperature theta (K) along a cross-terrain line; the grey fill is terrain.",
+      "common_misreadings": "Assuming the cross-section line was chosen for a specific terrain feature -- the default is simply the domain's own centre-row west-east line."
+    }
+  },
+  "pbl_time_height": {
+    "zh": {
+      "question": "邊界層深度與熱力結構如何隨時間演變（例如日變化）？",
+      "how_to_read": "填色為位溫 theta（K）時間-高度剖面，紅線為 PBLH（邊界層高度），取樣於 domain 中心格點。",
+      "common_misreadings": "把單一格點的時間-高度圖當成整個 domain 的代表——邊界層深度在地形複雜區域空間變異可能很大。"
+    },
+    "en": {
+      "question": "How does boundary-layer depth and thermal structure evolve over time (e.g. diurnal cycle)?",
+      "how_to_read": "Fill: potential temperature theta (K) time-height section; red line: PBLH, sampled at the domain's centre column.",
+      "common_misreadings": "Treating one column's time-height plot as representative of the whole domain -- PBL depth can vary a lot spatially over complex terrain."
+    }
+  },
+  "chem_conc_flow": {
+    "zh": {
+      "question": "污染物濃度的空間分佈與盛行風場的關係如何？",
+      "how_to_read": "填色為偵測到的物種（見圖說標註的 species，例如 PM2_5_DRY），風標為 10 m 風，取自最低模式層。",
+      "common_misreadings": "把最低層濃度當成地面實測濃度——模式最低層並非精確對應觀測站的量測高度。"
+    },
+    "en": {
+      "question": "How does pollutant concentration relate to the prevailing wind field?",
+      "how_to_read": "Fill: whichever species was detected (see the figure's own 'species' note, e.g. PM2_5_DRY) at the lowest model level. Barbs: 10 m wind.",
+      "common_misreadings": "Treating the lowest-model-level concentration as an in-situ station reading -- the model's lowest level is not exactly at station measurement height."
+    }
+  },
+  "chem_station": {
+    "zh": {
+      "question": "測站觀測的濃度時序跟模式比較起來如何？",
+      "how_to_read": "（缺觀測，見報告中的缺失原因）",
+      "common_misreadings": "—"
+    },
+    "en": {
+      "question": "How does the modelled concentration time series compare to a station's?",
+      "how_to_read": "(observation missing -- see the reason recorded in the report)",
+      "common_misreadings": "-"
+    }
+  },
+  "climate_annual_cycle": {
+    "zh": {
+      "question": "模式氣候的年循環（逐月平均）長什麼樣？",
+      "how_to_read": "cdo ymonmean 輸出的 NetCDF（本輪未附繪圖步驟，需自行以 ncdump/panoply 開啟）。",
+      "common_misreadings": "把逐月平均當成任一年真實的月份值——這是整個模擬期間的氣候平均，不是特定年份。"
+    },
+    "en": {
+      "question": "What does the model climate's annual cycle (monthly means) look like?",
+      "how_to_read": "cdo ymonmean output as NetCDF (no plotting step was written this round -- open with ncdump/panoply).",
+      "common_misreadings": "Reading a monthly mean as any single year's actual value -- this is a climatological mean over the whole run, not one year."
+    }
+  },
+  "climate_seasonal_bias": {
+    "zh": {
+      "question": "模式氣候相對 ERA5 的季節平均偏差在哪裡？",
+      "how_to_read": "（本輪未完成 ERA5 側的 regrid/差值步驟，見報告中的缺失原因）",
+      "common_misreadings": "—"
+    },
+    "en": {
+      "question": "Where does the model climate's seasonal mean differ from ERA5?",
+      "how_to_read": "(the ERA5-side regrid/difference step is not implemented this round -- see the reason recorded in the report)",
+      "common_misreadings": "-"
+    }
+  },
+  "ens_spaghetti": {
+    "zh": {
+      "question": "各系集成員對同一等值線（預設 SLP=1000 hPa）的路徑/位置分歧有多大？",
+      "how_to_read": "每條線是一個成員在同一等值線下的輪廓。",
+      "common_misreadings": "把線的密集程度直接當成機率——義大利麵圖只顯示分歧範圍，機率請見機率圖。"
+    },
+    "en": {
+      "question": "How much do ensemble members disagree on the same contour (default SLP=1000 hPa)?",
+      "how_to_read": "Each line is one member's contour at that level.",
+      "common_misreadings": "Reading line density as probability directly -- a spaghetti plot shows spread, not probability; see the probability map for that."
+    }
+  },
+  "ens_probability": {
+    "zh": {
+      "question": "超過某降水門檻（預設 25 mm）的機率分佈在哪裡？",
+      "how_to_read": "填色為超過門檻的成員比例（%）。",
+      "common_misreadings": "把百分比誤讀成降水量——這是達到門檻的成員比例，不是降水強度。"
+    },
+    "en": {
+      "question": "Where is the probability of exceeding a rain threshold (default 25 mm)?",
+      "how_to_read": "Fill: the fraction of members exceeding the threshold (%).",
+      "common_misreadings": "Reading the percentage as a rain amount -- it is the fraction of members reaching the threshold, not an intensity."
+    }
+  },
+  "ens_rank_spread_skill": {
+    "zh": {
+      "question": "系集的離散度（spread）是否與其技術（skill）相稱？rank histogram 是否平坦？",
+      "how_to_read": "（本輪未接上觀測/驗證分析，見報告中的缺失原因）",
+      "common_misreadings": "—"
+    },
+    "en": {
+      "question": "Is ensemble spread consistent with skill? Is the rank histogram flat?",
+      "how_to_read": "(the obs/verifying-analysis side is not wired up this round -- see the reason recorded in the report)",
+      "common_misreadings": "-"
+    }
+  },
+  "conv_mcape_mcin": {
+    "zh": {
+      "question": "MCAPE／MCIN 圖為何缺失？",
+      "how_to_read": "（wrf-python 相關工具未就緒，見報告中記載的原因）",
+      "common_misreadings": "—"
+    },
+    "en": {
+      "question": "Why are the MCAPE/MCIN figures missing?",
+      "how_to_read": "(a required tool was not available -- see the reason recorded in the report)",
+      "common_misreadings": "-"
+    }
+  },
+  "syn_maps": {
+    "zh": {
+      "question": "整組綜觀圖為何缺失？",
+      "how_to_read": "（wrf-python 相關工具未就緒，見報告中記載的原因）",
+      "common_misreadings": "—"
+    },
+    "en": {
+      "question": "Why is the whole synoptic figure set missing?",
+      "how_to_read": "(a required tool was not available -- see the reason recorded in the report)",
+      "common_misreadings": "-"
+    }
+  },
+  "tc_figure": {
+    "zh": {
+      "question": "（來自 `wtune post tc` 既有輸出的圖，見檔名判斷用途）",
+      "how_to_read": "見 `wtune post tc` 的說明（README 第 7 節）。",
+      "common_misreadings": "—"
+    },
+    "en": {
+      "question": "(a figure from `wtune post tc`'s existing output -- see the filename for what it shows)",
+      "how_to_read": "See `wtune post tc`'s own documentation (README section 7).",
+      "common_misreadings": "-"
+    }
+  },
+  "terrain_wind_map": {
+    "zh": {
+      "question": "地形起伏如何影響近地面與 700 hPa 的風場？",
+      "how_to_read": "底圖為地形高度；黑色風羽是 10 m 風，紅色風羽是 700 hPa 風——比較兩者可看出地形對低層風的阻擋/加速/轉向。",
+      "common_misreadings": "把 700 hPa 風誤讀為近地表風；地形色階本身不是任何動力變數。"
+    },
+    "en": {
+      "question": "How does complex terrain shape the near-surface vs. 700 hPa flow?",
+      "how_to_read": "Terrain height fills the map; black barbs are 10 m wind, red barbs are 700 hPa wind -- comparing them shows blocking/acceleration/channelling by terrain.",
+      "common_misreadings": "Reading the 700 hPa wind as the surface wind; the terrain colour scale is not a dynamical field."
+    }
+  },
+  "terrain_crosssection": {
+    "zh": {
+      "question": "跨越主山脊的垂直環流長什麼樣子？",
+      "how_to_read": "填色為 theta（位溫），等值線為垂直風 w；剖面線預設過最高點、沿 700 hPa 平均風向。x 軸是沿剖面的格點索引，不是實際距離。",
+      "common_misreadings": "把 x 軸當成等距的地理距離；剖面線方向是格點空間近似，非精確地理方位角。"
+    },
+    "en": {
+      "question": "What does the cross-ridge vertical circulation look like?",
+      "how_to_read": "Fill is potential temperature (theta), contours are vertical velocity w; the line defaults through the peak, along the mean 700 hPa wind. The x-axis is a grid-index position along the line, not physical distance.",
+      "common_misreadings": "Treating the x-axis as evenly-spaced physical distance; the line direction is a grid-index approximation, not an exact geographic bearing."
+    }
+  },
+  "terrain_rain": {
+    "zh": {
+      "question": "降水集中在地形的哪一側（迎風/背風）？",
+      "how_to_read": "填色為累積雨量，棕色等值線為地形高度——雨量極大值常沿等高線密集處（迎風坡）出現，即地形性降水。",
+      "common_misreadings": "把等高線本身當成雨量；忽略雨量已包含 spin-up 期間的累積（見下方標註排除時數）。"
+    },
+    "en": {
+      "question": "Which side of the terrain (windward/leeward) does rain concentrate on?",
+      "how_to_read": "Fill is accumulated rain, brown contours are terrain height -- rain maxima often sit where contours bunch on the windward slope (orographic precipitation).",
+      "common_misreadings": "Reading the terrain contours themselves as rain; the accumulation already spans the spin-up period (see the stamped excluded hours below)."
+    }
+  },
+  "terrain_valley_timeheight": {
+    "zh": {
+      "question": "山谷是否有冷池或逆溫層形成？",
+      "how_to_read": "在地形最低點取一格點，畫 theta 隨時間、高度的變化；下層 theta 隨高度陡升代表逆溫，長時間低 theta 滯留代表冷池。",
+      "common_misreadings": "把「最低點」誤認為使用者指定的特定測站；此處是自動抓取的地形極小值格點，未必是有人居住的谷地。"
+    },
+    "en": {
+      "question": "Does a cold pool or temperature inversion form in the valley?",
+      "how_to_read": "Theta vs. time/height at the domain's lowest-terrain grid point -- a steep low-level theta increase with height marks an inversion; low theta lingering at the surface marks a cold pool.",
+      "common_misreadings": "Assuming the \"lowest point\" is a named station; it is the automatically-detected terrain minimum, not necessarily an inhabited valley."
+    }
+  },
+  "terrain_leeward_station": {
+    "zh": {
+      "question": "背風測站有沒有焚風（T2 上升、RH 下降、陣風增強）？",
+      "how_to_read": "本次未抓取測站觀測，因此此圖為缺項——需要在 project.yaml 指定一個背風測站點才能產生。",
+      "common_misreadings": "把「缺項」誤讀成焚風不存在；只是這一輪沒有設定測站，不代表模式沒有模擬出焚風訊號。"
+    },
+    "en": {
+      "question": "Does a lee-side station show a foehn signal (T2 up, RH down, gustier wind)?",
+      "how_to_read": "No station observations were fetched this round, so this entry is an explicit gap -- a lee-side point must be named in project.yaml to produce it.",
+      "common_misreadings": "Reading the missing entry as \"no foehn occurred\"; it only means no station was configured this round."
+    }
+  },
+  "terrain_point_stat": {
+    "zh": {
+      "question": "模式的地形性天氣是否通過測站觀測驗證？",
+      "how_to_read": "本次未抓取測站觀測，MET Point-Stat 比對為缺項。",
+      "common_misreadings": "把缺項當成驗證失敗；只是沒有取得觀測資料，模式本身未被判定為錯誤。"
+    },
+    "en": {
+      "question": "Is the model's terrain-driven weather verified against station observations?",
+      "how_to_read": "No station observations were fetched this round, so the MET Point-Stat comparison is an explicit gap.",
+      "common_misreadings": "Reading the missing entry as a failed verification; it only reflects the absence of fetched observations."
+    }
+  },
+  "moisture_pw": {
+    "zh": {
+      "question": "大氣柱總水氣含量（可降水量）的空間分布？",
+      "how_to_read": "填色為可降水量 PW（wrf-python getvar('pw')），單位 kg/m2（等於 mm 液態水柱高）。",
+      "common_misreadings": "把 PW 高值誤讀為正在下雨的區域；PW 只反映柱狀水氣總量，不代表降水正在發生。"
+    },
+    "en": {
+      "question": "What is the spatial distribution of total column water vapour (precipitable water)?",
+      "how_to_read": "Fill is precipitable water PW (wrf-python's own 'pw' diagnostic), kg/m2 (equivalently mm of liquid water column).",
+      "common_misreadings": "Reading high PW as an actively-raining area; PW is only the column total, not an indicator that precipitation is occurring."
+    }
+  },
+  "moisture_pw_chg6h": {
+    "zh": {
+      "question": "過去幾小時水氣是否明顯增加或減少？",
+      "how_to_read": "填色為 PW 的時段變化（cdo sub 計算），正值代表水氣增加，常領先對流發展數小時。",
+      "common_misreadings": "把變化圖的顏色尺度誤讀成絕對 PW 值；這是差值，不是瞬時量。"
+    },
+    "en": {
+      "question": "Has column water vapour increased or decreased noticeably over the last several hours?",
+      "how_to_read": "Fill is the period change in PW (computed with cdo sub); positive values (moisture increase) often lead convective development by several hours.",
+      "common_misreadings": "Reading the change map's colour scale as an absolute PW value; it is a difference, not an instantaneous field."
+    }
+  },
+  "moisture_ivt": {
+    "zh": {
+      "question": "低層噴流帶來多強的水氣通量（atmospheric river 強度）？",
+      "how_to_read": "填色為積分水氣通量 IVT（本套件唯一自行寫的積分，見 post/ivt.py），風羽為 850 hPa 風；IVT 高值帶常與 atmospheric river / TC 外圍雨帶對應。",
+      "common_misreadings": "把 IVT 誤讀成降水量；IVT 是水氣輸送的通量，不是已經落下的雨量，兩者可能不同步。"
+    },
+    "en": {
+      "question": "How strong is the low-level moisture flux (atmospheric-river-strength transport)?",
+      "how_to_read": "Fill is integrated vapor transport IVT (this package's one self-written integral, see post/ivt.py), barbs are 850 hPa wind; high-IVT bands often track atmospheric rivers / a TC's outer rainbands.",
+      "common_misreadings": "Reading IVT as precipitation itself; it is a transport flux, not rain that has already fallen -- the two can be out of phase."
+    }
+  },
+  "moisture_crosssection": {
+    "zh": {
+      "question": "水氣的垂直結構（哪個高度層最濕、是否有乾層侵入）？",
+      "how_to_read": "填色為相對濕度 RH，黑色等值線為相當位溫 theta_e；剖面線預設過颶風中心或最大雨量區。",
+      "common_misreadings": "把乾層（低 RH）誤讀為模式錯誤；中層乾侵入是常見的真實天氣訊號。"
+    },
+    "en": {
+      "question": "What is the vertical structure of moisture (which layer is wettest, is a dry layer intruding)?",
+      "how_to_read": "Fill is relative humidity RH, black contours are equivalent potential temperature theta_e; the line defaults through the TC centre or the max-rain point.",
+      "common_misreadings": "Reading a dry layer (low RH) as a model error; mid-level dry-air intrusion is a common, real weather signal."
+    }
+  },
+  "moisture_timeheight": {
+    "zh": {
+      "question": "選定點的水氣垂直廓線如何隨時間演變？",
+      "how_to_read": "填色為比濕，x 軸為時間，y 軸為高度；可看出濕層增厚/變薄的時序。",
+      "common_misreadings": "把 y 軸的模式層當成等距的實際高度間隔；模式垂直層並非等距。"
+    },
+    "en": {
+      "question": "How does the moisture profile at a chosen point evolve over time?",
+      "how_to_read": "Fill is specific humidity, x-axis time, y-axis height -- shows the moist layer thickening/thinning over the run.",
+      "common_misreadings": "Treating the y-axis model levels as evenly-spaced physical heights; WRF's vertical levels are not evenly spaced."
+    }
+  },
+  "timeseries_slp": {
+    "zh": {
+      "question": "海平面氣壓隨時間如何演變？",
+      "how_to_read": "每個時刻一張圖，檔名含預報時效 fNNN 與有效時間，可依報告中的導覽逐時刻翻看。",
+      "common_misreadings": "把不同時刻的圖獨立解讀而忽略前後變化趨勢；請搭配下方的變化圖（chg）一起看。"
+    },
+    "en": {
+      "question": "Sea-level pressure evolution over time.",
+      "how_to_read": "One figure per valid time, filenames carry the forecast-hour tag (fNNN) and valid time; use the report's navigation to page through times.",
+      "common_misreadings": "Reading each time's figure in isolation without the trend across times; pair with the change-map (chg) figures below."
+    }
+  },
+  "timeseries_t2": {
+    "zh": {
+      "question": "2 m 氣溫隨時間如何演變？",
+      "how_to_read": "每個時刻一張圖，檔名含預報時效 fNNN 與有效時間，可依報告中的導覽逐時刻翻看。",
+      "common_misreadings": "把不同時刻的圖獨立解讀而忽略前後變化趨勢；請搭配下方的變化圖（chg）一起看。"
+    },
+    "en": {
+      "question": "2 m temperature evolution over time.",
+      "how_to_read": "One figure per valid time, filenames carry the forecast-hour tag (fNNN) and valid time; use the report's navigation to page through times.",
+      "common_misreadings": "Reading each time's figure in isolation without the trend across times; pair with the change-map (chg) figures below."
+    }
+  },
+  "timeseries_wspd10": {
+    "zh": {
+      "question": "10 m 風速隨時間如何演變？",
+      "how_to_read": "每個時刻一張圖，檔名含預報時效 fNNN 與有效時間，可依報告中的導覽逐時刻翻看。",
+      "common_misreadings": "把不同時刻的圖獨立解讀而忽略前後變化趨勢；請搭配下方的變化圖（chg）一起看。"
+    },
+    "en": {
+      "question": "10 m wind speed evolution over time.",
+      "how_to_read": "One figure per valid time, filenames carry the forecast-hour tag (fNNN) and valid time; use the report's navigation to page through times.",
+      "common_misreadings": "Reading each time's figure in isolation without the trend across times; pair with the change-map (chg) figures below."
+    }
+  },
+  "timeseries_rain_acc": {
+    "zh": {
+      "question": "累積雨量隨時間如何增長？",
+      "how_to_read": "每個時刻一張圖，檔名含預報時效 fNNN 與有效時間，可依報告中的導覽逐時刻翻看。",
+      "common_misreadings": "把不同時刻的圖獨立解讀而忽略前後變化趨勢；請搭配下方的變化圖（chg）一起看。"
+    },
+    "en": {
+      "question": "Accumulated rain growth over time.",
+      "how_to_read": "One figure per valid time, filenames carry the forecast-hour tag (fNNN) and valid time; use the report's navigation to page through times.",
+      "common_misreadings": "Reading each time's figure in isolation without the trend across times; pair with the change-map (chg) figures below."
+    }
+  },
+  "timeseries_mcape": {
+    "zh": {
+      "question": "最大 CAPE 隨時間如何演變（對流潛勢）？",
+      "how_to_read": "每個時刻一張圖，檔名含預報時效 fNNN 與有效時間，可依報告中的導覽逐時刻翻看。",
+      "common_misreadings": "把不同時刻的圖獨立解讀而忽略前後變化趨勢；請搭配下方的變化圖（chg）一起看。"
+    },
+    "en": {
+      "question": "Max CAPE evolution over time (convective potential).",
+      "how_to_read": "One figure per valid time, filenames carry the forecast-hour tag (fNNN) and valid time; use the report's navigation to page through times.",
+      "common_misreadings": "Reading each time's figure in isolation without the trend across times; pair with the change-map (chg) figures below."
+    }
+  },
+  "chg_slp": {
+    "zh": {
+      "question": "氣壓在這段時間內如何變化？",
+      "how_to_read": "填色為相鄰兩個時刻的差值，用 cdo sub 計算；紅/藍分別代表增加/減少（或依欄位色階而定）。",
+      "common_misreadings": "把差值圖誤讀為某一時刻的絕對值；圖名裡的 chgNh 是間隔小時數。"
+    },
+    "en": {
+      "question": "How did pressure change over this period?",
+      "how_to_read": "Fill is the difference between two consecutive selected times, computed with cdo sub; colour sign follows the field's own scale.",
+      "common_misreadings": "Reading a change map as an absolute value at one instant; chgNh in the filename is the interval in hours."
+    }
+  },
+  "chg_slp_vs_t0": {
+    "zh": {
+      "question": "氣壓在這段時間內如何變化？（相對起始時刻）",
+      "how_to_read": "填色為目前時刻相對模擬起始時刻的差值，用 cdo sub 計算。",
+      "common_misreadings": "把「相對起始」的變化圖跟相鄰時刻的變化圖搞混——兩者間隔小時數通常不同。"
+    },
+    "en": {
+      "question": "How did pressure change over this period? (relative to the run's start)",
+      "how_to_read": "Fill is the difference between the current time and the run's first selected time, computed with cdo sub.",
+      "common_misreadings": "Confusing this vs-t0 change map with the consecutive-time one above -- their interval hours usually differ."
+    }
+  },
+  "chg_t2": {
+    "zh": {
+      "question": "氣溫在這段時間內如何變化？",
+      "how_to_read": "填色為相鄰兩個時刻的差值，用 cdo sub 計算；紅/藍分別代表增加/減少（或依欄位色階而定）。",
+      "common_misreadings": "把差值圖誤讀為某一時刻的絕對值；圖名裡的 chgNh 是間隔小時數。"
+    },
+    "en": {
+      "question": "How did 2 m temperature change over this period?",
+      "how_to_read": "Fill is the difference between two consecutive selected times, computed with cdo sub; colour sign follows the field's own scale.",
+      "common_misreadings": "Reading a change map as an absolute value at one instant; chgNh in the filename is the interval in hours."
+    }
+  },
+  "chg_t2_vs_t0": {
+    "zh": {
+      "question": "氣溫在這段時間內如何變化？（相對起始時刻）",
+      "how_to_read": "填色為目前時刻相對模擬起始時刻的差值，用 cdo sub 計算。",
+      "common_misreadings": "把「相對起始」的變化圖跟相鄰時刻的變化圖搞混——兩者間隔小時數通常不同。"
+    },
+    "en": {
+      "question": "How did 2 m temperature change over this period? (relative to the run's start)",
+      "how_to_read": "Fill is the difference between the current time and the run's first selected time, computed with cdo sub.",
+      "common_misreadings": "Confusing this vs-t0 change map with the consecutive-time one above -- their interval hours usually differ."
+    }
+  },
+  "chg_pw": {
+    "zh": {
+      "question": "柱狀水氣在這段時間內如何變化？",
+      "how_to_read": "填色為相鄰兩個時刻的差值，用 cdo sub 計算；紅/藍分別代表增加/減少（或依欄位色階而定）。",
+      "common_misreadings": "把差值圖誤讀為某一時刻的絕對值；圖名裡的 chgNh 是間隔小時數。"
+    },
+    "en": {
+      "question": "How did column water vapour change over this period?",
+      "how_to_read": "Fill is the difference between two consecutive selected times, computed with cdo sub; colour sign follows the field's own scale.",
+      "common_misreadings": "Reading a change map as an absolute value at one instant; chgNh in the filename is the interval in hours."
+    }
+  },
+  "chg_pw_vs_t0": {
+    "zh": {
+      "question": "柱狀水氣在這段時間內如何變化？（相對起始時刻）",
+      "how_to_read": "填色為目前時刻相對模擬起始時刻的差值，用 cdo sub 計算。",
+      "common_misreadings": "把「相對起始」的變化圖跟相鄰時刻的變化圖搞混——兩者間隔小時數通常不同。"
+    },
+    "en": {
+      "question": "How did column water vapour change over this period? (relative to the run's start)",
+      "how_to_read": "Fill is the difference between the current time and the run's first selected time, computed with cdo sub.",
+      "common_misreadings": "Confusing this vs-t0 change map with the consecutive-time one above -- their interval hours usually differ."
+    }
+  },
+  "chg_mcape": {
+    "zh": {
+      "question": "對流潛勢在這段時間內如何變化？",
+      "how_to_read": "填色為相鄰兩個時刻的差值，用 cdo sub 計算；紅/藍分別代表增加/減少（或依欄位色階而定）。",
+      "common_misreadings": "把差值圖誤讀為某一時刻的絕對值；圖名裡的 chgNh 是間隔小時數。"
+    },
+    "en": {
+      "question": "How did convective potential (MCAPE) change over this period?",
+      "how_to_read": "Fill is the difference between two consecutive selected times, computed with cdo sub; colour sign follows the field's own scale.",
+      "common_misreadings": "Reading a change map as an absolute value at one instant; chgNh in the filename is the interval in hours."
+    }
+  },
+  "chg_mcape_vs_t0": {
+    "zh": {
+      "question": "對流潛勢在這段時間內如何變化？（相對起始時刻）",
+      "how_to_read": "填色為目前時刻相對模擬起始時刻的差值，用 cdo sub 計算。",
+      "common_misreadings": "把「相對起始」的變化圖跟相鄰時刻的變化圖搞混——兩者間隔小時數通常不同。"
+    },
+    "en": {
+      "question": "How did convective potential (MCAPE) change over this period? (relative to the run's start)",
+      "how_to_read": "Fill is the difference between the current time and the run's first selected time, computed with cdo sub.",
+      "common_misreadings": "Confusing this vs-t0 change map with the consecutive-time one above -- their interval hours usually differ."
+    }
+  },
+  "chg_rain_acc": {
+    "zh": {
+      "question": "這段時間內累積了多少雨量？",
+      "how_to_read": "填色為相鄰兩個時刻的差值，用 cdo sub 計算；紅/藍分別代表增加/減少（或依欄位色階而定）。",
+      "common_misreadings": "把差值圖誤讀為某一時刻的絕對值；圖名裡的 chgNh 是間隔小時數。"
+    },
+    "en": {
+      "question": "How much rain accumulated over this period?",
+      "how_to_read": "Fill is the difference between two consecutive selected times, computed with cdo sub; colour sign follows the field's own scale.",
+      "common_misreadings": "Reading a change map as an absolute value at one instant; chgNh in the filename is the interval in hours."
+    }
+  },
+  "chg_rain_acc_vs_t0": {
+    "zh": {
+      "question": "這段時間內累積了多少雨量？（相對起始時刻）",
+      "how_to_read": "填色為目前時刻相對模擬起始時刻的差值，用 cdo sub 計算。",
+      "common_misreadings": "把「相對起始」的變化圖跟相鄰時刻的變化圖搞混——兩者間隔小時數通常不同。"
+    },
+    "en": {
+      "question": "How much rain accumulated over this period? (relative to the run's start)",
+      "how_to_read": "Fill is the difference between the current time and the run's first selected time, computed with cdo sub.",
+      "common_misreadings": "Confusing this vs-t0 change map with the consecutive-time one above -- their interval hours usually differ."
+    }
+  },
+  "anim_slp": {
+    "zh": {
+      "question": "slp 的時間演變動畫",
+      "how_to_read": "MP4 動畫，由每個時刻的圖以 ffmpeg 串接而成，可直接在報告中播放。",
+      "common_misreadings": "把動畫誤當成離散時刻圖的替代品；建議搭配上方逐時刻的靜態圖，以便精確判讀某一刻的數值。"
+    },
+    "en": {
+      "question": "Animated time evolution of slp",
+      "how_to_read": "An MP4 built by ffmpeg from the per-time figures above, playable directly in the report.",
+      "common_misreadings": "Treating the animation as a replacement for the per-time static figures; use those above for precise per-time values."
+    }
+  },
+  "anim_t2": {
+    "zh": {
+      "question": "t2 的時間演變動畫",
+      "how_to_read": "MP4 動畫，由每個時刻的圖以 ffmpeg 串接而成，可直接在報告中播放。",
+      "common_misreadings": "把動畫誤當成離散時刻圖的替代品；建議搭配上方逐時刻的靜態圖，以便精確判讀某一刻的數值。"
+    },
+    "en": {
+      "question": "Animated time evolution of t2",
+      "how_to_read": "An MP4 built by ffmpeg from the per-time figures above, playable directly in the report.",
+      "common_misreadings": "Treating the animation as a replacement for the per-time static figures; use those above for precise per-time values."
+    }
+  },
+  "anim_wspd10": {
+    "zh": {
+      "question": "wspd10 的時間演變動畫",
+      "how_to_read": "MP4 動畫，由每個時刻的圖以 ffmpeg 串接而成，可直接在報告中播放。",
+      "common_misreadings": "把動畫誤當成離散時刻圖的替代品；建議搭配上方逐時刻的靜態圖，以便精確判讀某一刻的數值。"
+    },
+    "en": {
+      "question": "Animated time evolution of wspd10",
+      "how_to_read": "An MP4 built by ffmpeg from the per-time figures above, playable directly in the report.",
+      "common_misreadings": "Treating the animation as a replacement for the per-time static figures; use those above for precise per-time values."
+    }
+  },
+  "anim_rain_acc": {
+    "zh": {
+      "question": "rain_acc 的時間演變動畫",
+      "how_to_read": "MP4 動畫，由每個時刻的圖以 ffmpeg 串接而成，可直接在報告中播放。",
+      "common_misreadings": "把動畫誤當成離散時刻圖的替代品；建議搭配上方逐時刻的靜態圖，以便精確判讀某一刻的數值。"
+    },
+    "en": {
+      "question": "Animated time evolution of rain_acc",
+      "how_to_read": "An MP4 built by ffmpeg from the per-time figures above, playable directly in the report.",
+      "common_misreadings": "Treating the animation as a replacement for the per-time static figures; use those above for precise per-time values."
+    }
+  },
+  "anim_mcape": {
+    "zh": {
+      "question": "mcape 的時間演變動畫",
+      "how_to_read": "MP4 動畫，由每個時刻的圖以 ffmpeg 串接而成，可直接在報告中播放。",
+      "common_misreadings": "把動畫誤當成離散時刻圖的替代品；建議搭配上方逐時刻的靜態圖，以便精確判讀某一刻的數值。"
+    },
+    "en": {
+      "question": "Animated time evolution of mcape",
+      "how_to_read": "An MP4 built by ffmpeg from the per-time figures above, playable directly in the report.",
+      "common_misreadings": "Treating the animation as a replacement for the per-time static figures; use those above for precise per-time values."
+    }
+  }
+}

@@ -28,6 +28,11 @@
 #
 # Other env: BUILD_CORES (make -j, default 16), WALL (sbatch --time, default 01:30:00; not TIME: GNU `time` reads $TIME as its output format),
 #            CPUS (default 32), CHEM_KPP (default 1), CRTM (wrfda; default unset = WRFDA default)
+# COMPILER=gnu (wrfda only): nvfortran 26.5 rejects the GNU `isnan` in da_read_obs_ncgoesabi.inc, so WRFDA
+#   may be built with gcc/gfortran (user-approved exception; every other ext stays nvhpc). Its MPI/netCDF/HDF5
+#   must be built by the same gcc (Fortran .mod files are compiler-specific): a separate spack env
+#   $WRFDA_GNU_ENV (default ~/spack-envs/wrfda-gnu) is created and installed inside the build job.
+#   Tree: $WRF_STACK_ROOT/wrf/gcc-wrfda-dmpar/WRF. Use WALL=03:00:00 (spack deps + WRFDA).
 set -eu   # no pipefail: head-terminated pipelines SIGPIPE upstream (see wiki wps-460 note)
 
 EXT=${2:-}
@@ -39,6 +44,15 @@ PROD=${PROD:-$WRF_STACK_ROOT/wrf/nvhpc-fast-adios2-dmsm/WRF}
 TCSH=/nfs/software/tcsh/6.24.16/bin/tcsh
 BUILD_CORES=${BUILD_CORES:-16}
 FCOPTIM_FLAGS='-O3 -fast -Mvect=noaltcode -Mprefetch=distance:8 -tp=neoverse-v2 -Mstack_arrays'
+COMPILER=${COMPILER:-nvhpc}
+WRFDA_GNU_ENV=${WRFDA_GNU_ENV:-$HOME/spack-envs/wrfda-gnu}
+if [ "$COMPILER" = gnu ]; then
+  # the configure stanza's -mcpu=native fails in the armv9 assembler on scc
+  FCOPTIM_FLAGS='-O2 -mtune=neoverse-v2 -funroll-loops'
+  MENU_LABEL='GCC (gfortran/gcc): Aarch64'; TREE_PREFIX=gcc
+elif [ "$COMPILER" = nvhpc ]; then
+  MENU_LABEL='NVHPC (nvfortran/nvc)'; TREE_PREFIX=nvhpc
+else echo "COMPILER must be nvhpc or gnu"; exit 2; fi
 
 usage() { sed -n '2,12p' "$SELF"; exit 2; }
 
@@ -50,7 +64,8 @@ ext_settings() {   # sets MODE NEST TARGET CONFIG_ARG
     wrfda)    MODE=${BUILD_MODE:-dmpar}; NEST=1; TARGET=all_wrfvar;   CONFIG_ARG="wrfda" ;;
     *) usage ;;
   esac
-  WRFDIR=$WRF_STACK_ROOT/wrf/nvhpc-$1-$MODE/WRF
+  if [ "$COMPILER" = gnu ] && [ "$1" != wrfda ]; then echo "COMPILER=gnu is allowed for wrfda only"; exit 2; fi
+  WRFDIR=$WRF_STACK_ROOT/wrf/$TREE_PREFIX-$1-$MODE/WRF
 }
 
 case "$PHASE" in
@@ -83,11 +98,41 @@ esac
 
 # ---------------- build phase (compute node) ----------------
 ext_settings "$EXT"
+if [ "$COMPILER" = gnu ]; then
+  # gcc-built MPI + netCDF-C/Fortran + HDF5 in a separate spack env; its view merges C and Fortran netCDF
+  # into one prefix, as WRF's configure expects. Only this new env is added to the spack tree.
+  # shellcheck disable=SC1091
+  set +u; source "$HOME/load_spack.sh" >/dev/null 2>&1; set -u
+  # flags must precede %gcc: written after it they attach to the compiler node and concretization fails
+  # ("Only external, or concrete, compilers are allowed"). Rewritten every run so the spec list is exact.
+  # ^zlib-ng: the external zlib is registered at prefix /usr but lives in /usr/lib/aarch64-linux-gnu,
+  # which pmix's configure does not search ("zlib library (z) in /usr... not found").
+  # ^libevent~openssl: libevent's configure cannot find openssl.pc; MPI only needs its event loop.
+  mkdir -p "$WRFDA_GNU_ENV"
+  cat > "$WRFDA_GNU_ENV/spack.yaml" <<'YAML'
+spack:
+  specs:
+  - openmpi@5.0.10 +fortran cflags=-std=gnu17 %gcc@15.2.0 ^zlib-ng ^libevent~openssl
+  - hdf5@1.14.6 ~mpi +fortran cflags=-std=gnu17 %gcc@15.2.0
+  - netcdf-c@4.9.2 ~mpi ~blosc cflags=-std=gnu17 %gcc@15.2.0
+  - netcdf-fortran@4.6.2 %gcc@15.2.0
+  view: true
+  concretizer:
+    unify: true
+YAML
+  spack -e "$WRFDA_GNU_ENV" concretize -f
+  spack -e "$WRFDA_GNU_ENV" install -j "${CPUS:-32}"
+  VIEW=$WRFDA_GNU_ENV/.spack-env/view
+  export NETCDF=$VIEW HDF5=$VIEW PATH=$VIEW/bin:$PATH LD_LIBRARY_PATH=$VIEW/lib:$VIEW/lib64:${LD_LIBRARY_PATH:-}
+  unset PNETCDF ADIOS2 ADIOS2_DIR
+  command -v mpif90 >/dev/null || { echo "mpif90 missing in $VIEW"; exit 1; }
+else
 # shellcheck disable=SC1091
 source "$HOME/wtune-scc/env.sh"       # nvhpc 26.5 + HPC-X MPI + netcdf/hdf5/pnetcdf/adios2 paths
 export NETCDF PNETCDF HDF5
 if [ "${USE_ADIOS2:-1}" = 0 ]; then unset ADIOS2 ADIOS2_DIR; else export ADIOS2=$ADIOS2_DIR; fi
-for p in "$NETCDF" "$PNETCDF" "$HDF5" "${ADIOS2:-}"; do
+fi
+for p in "${NETCDF:-}" "${PNETCDF:-}" "${HDF5:-}" "${ADIOS2:-}"; do
   [ -n "$p" ] || continue
   export LIBRARY_PATH=$p/lib:$p/lib64:${LIBRARY_PATH:-}   # link-time lib64 fallback
   export PATH=$p/bin:$PATH
@@ -140,19 +185,25 @@ SHIM
     rm -f var/build/links ;;
 esac
 # `spack` may prepend its own dirs; keep nvhpc first
-export PATH=$N/compilers/bin:$N/comm_libs/mpi/bin:$PATH
+[ "$COMPILER" = nvhpc ] && export PATH=$N/compilers/bin:$N/comm_libs/mpi/bin:$PATH
 
 if [ "${SKIP_CONFIGURE:-0}" != 1 ]; then   # SKIP_CONFIGURE=1 = resume compile in an existing tree
 # ---- configure (menu option picked by label, like SC26-WRF/scripts/build-wrf.sbatch) ----
 MENU_TAG=dmpar; [ "$MODE" = dmsm ] && MENU_TAG='dm\+sm'
-LINE=$(timeout 10 ./configure $CONFIG_ARG < /dev/null 2>&1 | grep -m 1 -F 'NVHPC (nvfortran/nvc)' || true)
+LINE=$(timeout 10 ./configure $CONFIG_ARG < /dev/null 2>&1 | grep -m 1 -F "$MENU_LABEL" || true)
 OPT=$(printf '%s\n' "$LINE" | grep -oE "[0-9]+\.[[:space:]]*\($MENU_TAG\)" | grep -oE '^[0-9]+' || true)
-[ -n "$OPT" ] || { echo "NVHPC $MODE option not found in ./configure $CONFIG_ARG menu"; exit 1; }
-echo "NVHPC $MODE = option $OPT, nesting answer $NEST"
+[ -n "$OPT" ] || { echo "$MENU_LABEL $MODE option not found in ./configure $CONFIG_ARG menu"; exit 1; }
+echo "$MENU_LABEL $MODE = option $OPT, nesting answer $NEST"
 # extra newlines: some configures (wrfda) ask more than one follow-up question
 timeout 300 bash -c "printf '%s\n%s\n1\n1\n1\n' '$OPT' '$NEST' | ./configure $CONFIG_ARG" > configure.log 2>&1 || true
 [ -s configure.wrf ] || { echo "configure.wrf missing; see $WRFDIR/configure.log"; exit 1; }
 sed -i "s/^FCOPTIM[[:space:]]*=.*/FCOPTIM        = $FCOPTIM_FLAGS/" configure.wrf
+# gcc 15 defaults to C23, which breaks WRF's K&R-style C; pin gnu17 for C only
+[ "$COMPILER" = gnu ] && sed -i 's/^\(CFLAGS_LOCAL[[:space:]]*=.*\)$/\1 -std=gnu17/' configure.wrf
+# WRFDA needs 8-byte default reals (RWORDSIZE=8). The aarch64 GCC stanza leaves PROMOTION empty, while the
+# x86 gfortran stanzas carry -fdefault-real-8 (enabled for WRFDA) and NVHPC uses -r8: without it
+# da_etkf.f fails "passed REAL(4) to REAL(8)" on the LAPACK calls. Mirror the x86 gfortran setting.
+[ "$COMPILER" = gnu ] && sed -i 's/^PROMOTION[[:space:]]*=.*/PROMOTION       = -fdefault-real-8/' configure.wrf
 # record the delta against the production configure.wrf (the only edit above is FCOPTIM)
 diff <(grep -v '^#' "$PROD/configure.wrf") <(grep -v '^#' configure.wrf) > configure.wrf.delta || true
 case "$EXT" in

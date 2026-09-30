@@ -1516,7 +1516,8 @@ def main(argv=None):
     # WRF extensions (chem/hydro/WRFDA/moving nest): support lines, unsupported families, build
     # mismatch (wtune_extensions.py); no-op for plain ARW.
     import wtune_extensions
-    ext_lines, ext_code = wtune_extensions.check_report(str(namelist_path), str(run_dir))
+    ext_lines, ext_code = wtune_extensions.check_report(
+        str(namelist_path), str(run_dir), ranks=args.ranks, nproc_x=args.nproc_x, nproc_y=args.nproc_y)
     for line in ext_lines:
         print(line)
 

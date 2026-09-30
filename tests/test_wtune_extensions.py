@@ -217,7 +217,8 @@ def test_check_prints_exact_support_line_for_chem(tmp_path):
         "INFO EXT-CHEM WRF-Chem detected (&chem group present; chem_opt=301): OpenMP not supported "
         "by WRF-Chem; tuning ranks/decomposition/tiles/I-O only; chem_opt/chemdt/photdt/emissions are left "
         "exactly as given; time prediction for this extension is UNCALIBRATED until calibration "
-        "runs exist.")
+        "runs exist. Decomposition constraint (PROVISIONAL, one case): splits with a j-patch < 21 "
+        "rows are never proposed (WRF-Chem hung at narrow j-patches).")
 
 
 def test_check_wrfda_marks_advisory_only(tmp_path):
@@ -581,3 +582,66 @@ def test_vortex_center_alarm_string_is_not_a_move_nests_build(tmp_path):
     assert we.scan_binary(str(exe))["movenest"] is False
     exe.write_bytes(exe.read_bytes() + b"med_nest_move_\0")
     assert we.scan_binary(str(exe))["movenest"] is True
+
+
+# ---------------------------------------------------------------- WRF-Chem narrow j-patch guard (PROVISIONAL)
+KATRINA_E_SN = [129]          # 169 x 129 d01 (failed-idea note 2026-09-30)
+
+
+def test_chem_min_j_patch_constant_and_note():
+    assert we.CHEM_MIN_J_PATCH == 21
+    assert "wrf-chem-gocart-hangs-at-small-j-patch" in we.CHEM_J_PATCH_NOTE
+
+
+@pytest.mark.parametrize("nx,ny", [(8, 9), (6, 12)])
+def test_chem_hanging_splits_rejected_with_reason(nx, ny):
+    why = we.chem_j_patch_reason(KATRINA_E_SN, ny, nx)
+    assert why and "PROVISIONAL" in why and "wrf-chem-gocart-hangs" in why and "< 21" in why
+
+
+@pytest.mark.parametrize("nx,ny", [(12, 6), (6, 6), (4, 4), (2, 4)])
+def test_chem_passing_splits_accepted(nx, ny):
+    assert we.chem_j_patch_reason(KATRINA_E_SN, ny, nx) is None
+
+
+def test_wrf_auto_mesh_matches_mpaspect():
+    assert we.wrf_auto_mesh(72) == (8, 9)      # the automatic split that hung
+    assert we.wrf_auto_mesh(36) == (6, 6)
+    assert we.wrf_auto_mesh(7) == (1, 7)
+
+
+def chem_katrina(tmp_path, chem_opt=300):
+    d = tmp_path / "kat"
+    d.mkdir()
+    txt = (BASE % dict(groups=" &chem\n chem_opt = %d,\n /\n" % chem_opt, domains_extra="")
+           ).replace("e_we                                = 200,  301,", "e_we = 169,").replace(
+               "e_sn                                = 200,  301,", "e_sn = 129,").replace(
+               "max_dom                             = 2,", "max_dom = 1,")
+    (d / "namelist.input").write_text(txt)
+    return d
+
+
+def test_check_flags_automatic_split_that_hangs_and_passes_wide_j(tmp_path):
+    d = chem_katrina(tmp_path)
+    lines, code = we.check_report(str(d / "namelist.input"), str(d), ranks=72)
+    assert code == 1 and any("EXT-CHEM-JPATCH" in l and "rejected 8x9" in l and "MPASPECT" in l for l in lines)
+    lines, code = we.check_report(str(d / "namelist.input"), str(d), ranks=36)
+    assert code == 0 and not any("JPATCH" in l for l in lines)
+    lines, code = we.check_report(str(d / "namelist.input"), str(d), nproc_x=6, nproc_y=12)
+    assert any("rejected 6x12" in l for l in lines)
+
+
+def test_chem_off_never_constrained(tmp_path):
+    d = chem_katrina(tmp_path, chem_opt=0)
+    assert we.chem_e_sn_for_namelist(str(d / "namelist.input")) is None
+    assert not any("JPATCH" in l for l in we.check_report(str(d / "namelist.input"), str(d), ranks=72)[0])
+
+
+def test_tune_filter_rejects_hanging_chem_splits(tmp_path, capsys):
+    d = chem_katrina(tmp_path)
+    ctx = types.SimpleNamespace(omp_cap=1, chem_e_sn=we.chem_e_sn_for_namelist(str(d / "namelist.input")),
+                                search_cfg={}, exclude_rules=[], is_fire=False)
+    cfgs = [{"id": "a", "nx": 8, "ny": 9, "omp": 1}, {"id": "b", "nx": 6, "ny": 12, "omp": 1},
+            {"id": "c", "nx": 12, "ny": 6, "omp": 1}, {"id": "d", "nx": 6, "ny": 6, "omp": 1}]
+    assert [c["id"] for c in wtune_tune._apply_search_filter(ctx, cfgs)] == ["c", "d"]
+    assert "CHEM_MIN_J_PATCH" in capsys.readouterr().out

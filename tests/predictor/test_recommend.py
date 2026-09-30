@@ -1748,7 +1748,10 @@ def test_recommend_full_space_carries_extension_note(full_space_ledger_csv, chem
     assert any(w.startswith(_CHEM_NOTE) for w in result["warnings"])
 
 
-def test_extension_dmpar_only_never_proposes_openmp(ledger_csv, full_space_ledger_csv, chem_namelist):
+def test_extension_dmpar_only_never_proposes_openmp(ledger_csv, full_space_ledger_csv, chem_namelist,
+                                                    monkeypatch):
+    import wtune_extensions
+    monkeypatch.setattr(wtune_extensions, "CHEM_MIN_J_PATCH", 1)   # isolate the omp cap from the j guard
     r = recommend.recommend(ledger_path=ledger_csv, namelist_path=chem_namelist,
                             case_name="synthtest", hardware_id=HARDWARE_ID_TRAIN, top_k=50)
     assert r["all_ranked"] and all(e["omp_threads"] == 1 for e in r["all_ranked"])
@@ -1757,3 +1760,17 @@ def test_extension_dmpar_only_never_proposes_openmp(ledger_csv, full_space_ledge
         hardware_id=FULL_SPACE_HARDWARE, nodes=4, top_k=100000,
         omp_options=FULL_SPACE_OMP_OPTIONS, tile_options=FULL_SPACE_TILE_OPTIONS)
     assert f["shortlist"] and all(e["omp_threads"] == 1 for e in f["shortlist"])
+
+
+def test_chem_j_patch_guard_in_recommend_paths(ledger_csv, full_space_ledger_csv, chem_namelist):
+    import wtune_extensions as we
+    r = recommend.recommend(ledger_path=ledger_csv, namelist_path=chem_namelist,
+                            case_name="synthtest", hardware_id=HARDWARE_ID_TRAIN, top_k=50)
+    e_sn = we.chem_e_sn_for_namelist(chem_namelist)
+    assert e_sn
+    f = recommend.recommend_full_space(
+        ledger_path=full_space_ledger_csv, namelist_path=chem_namelist, case_name="synthtest",
+        hardware_id=FULL_SPACE_HARDWARE, nodes=4, top_k=100000,
+        omp_options=FULL_SPACE_OMP_OPTIONS, tile_options=FULL_SPACE_TILE_OPTIONS)
+    assert any("CHEM_MIN_J_PATCH" in w for w in f["warnings"])
+    assert all(we.chem_min_j_patch(e_sn, e["nproc_y"]) >= we.CHEM_MIN_J_PATCH for e in f["shortlist"])

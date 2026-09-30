@@ -135,6 +135,14 @@ BUILD_SIGNATURES = {
 }
 BUILD_CONTROL = (b'solve_em', b'start_domain')
 
+# PROVISIONAL (one case, exploratory; every cell one execution): WRF-Chem GOCART (chem_opt=300, nvhpc
+# dm+sm) on Katrina d01 169x129 HANGS at the first post-t=0 history write when the smallest j-patch is
+# narrow (8x9: j 14-15, 6x12: j 11), passes at j >= 21 (6x6, 12x6); nproc_y 7 and 8 untested and other
+# domain sizes unconfirmed. Narrow i-patches are fine. chem_opt=0 at 72 ranks is fine.
+CHEM_MIN_J_PATCH = 21
+CHEM_J_PATCH_NOTE = ('knowledge/failed-ideas/2026-09-30-wrf-chem-gocart-hangs-at-small-j-patch-'
+                     'decomposition.md')
+
 _COEFF_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                            'wtune_extension_coefficients.json')
 
@@ -360,6 +368,73 @@ def scan_binary(path):
     return caps
 
 
+def wrf_auto_mesh(ranks):
+    """(nproc_x, nproc_y) WRF picks when neither is set: MPASPECT (external/RSL_LITE/module_dm.F:98-
+    133) -- the factor pair closest to square, ties to the smaller M, with M <= N."""
+    best, mini = (1, ranks), 2 * ranks
+    for m in range(1, ranks + 1):
+        if ranks % m == 0 and abs(m - ranks // m) < mini:
+            mini, best = abs(m - ranks // m), (m, ranks // m)
+    return best
+
+
+def chem_min_j_patch(e_sn_list, nproc_y):
+    """Smallest j-patch (rows) over the domains: floor((e_sn-1)/nproc_y)."""
+    return min((int(e) - 1) // int(nproc_y) for e in e_sn_list)
+
+
+def chem_j_patch_reason(e_sn_list, nproc_y, nproc_x=None):
+    """None when the split is acceptable for an active WRF-Chem case, else the printed reason."""
+    if not e_sn_list or not nproc_y or nproc_y < 1:
+        return None
+    j = chem_min_j_patch(e_sn_list, nproc_y)
+    if j >= CHEM_MIN_J_PATCH:
+        return None
+    return ('rejected %sx%s: WRF-Chem smallest j-patch %d rows < %d (CHEM_MIN_J_PATCH, PROVISIONAL: '
+            'one case, exploratory) -- chem on with a narrow j-patch hung at the first post-t=0 '
+            'history write (%s)'
+            % (nproc_x if nproc_x else '?', nproc_y, j, CHEM_MIN_J_PATCH, CHEM_J_PATCH_NOTE))
+
+
+def chem_e_sn_list(nl, max_dom=None):
+    """e_sn of every active domain when WRF-Chem is active, else None."""
+    if not any(d['id'] == 'chem' and d['active'] for d in detect(nl, None)):
+        return None
+    vals = [int(v) for v in _num_list(_vals(nl, 'e_sn', ('domains',)))]
+    md = max_dom or (int(_num_list(_vals(nl, 'max_dom', ('domains',)))[0]) if _vals(nl, 'max_dom', ('domains',)) else 1)
+    return vals[:md] or None
+
+
+def chem_e_sn_for_namelist(namelist_path):
+    try:
+        return chem_e_sn_list(load_namelist(namelist_path))
+    except Exception:
+        return None
+
+
+def chem_auto_split_finding(nl, ranks=None, nproc_x=None, nproc_y=None):
+    """`wtune check` line when the (possibly automatic) split of an active WRF-Chem case has a
+    too-narrow j-patch; None otherwise."""
+    e_sn = chem_e_sn_list(nl)
+    if not e_sn:
+        return None
+    nx = nproc_x if nproc_x else (_num_list(_vals(nl, 'nproc_x', ('domains',))) or [-1])[0]
+    ny = nproc_y if nproc_y else (_num_list(_vals(nl, 'nproc_y', ('domains',))) or [-1])[0]
+    nx, ny = int(nx), int(ny)
+    how = 'namelist/--nproc'
+    if ny < 1 and nx >= 1 and ranks:
+        ny = ranks // nx
+    elif nx < 1 and ny >= 1 and ranks:
+        nx = ranks // ny
+    elif nx < 1 and ny < 1:
+        if not ranks:
+            return None
+        nx, ny = wrf_auto_mesh(int(ranks))
+        how = 'WRF automatic split (MPASPECT) for %d ranks' % ranks
+    r = chem_j_patch_reason(e_sn, ny, nx)
+    return ('%s -- split from %s' % (r, how)) if r else None
+
+
 def build_mismatches(dets, caps, exe):
     """FATAL messages for ACTIVE extensions the binary provably lacks."""
     msgs = []
@@ -386,9 +461,12 @@ def support_line(det):
                  % det['label'])
     else:
         scope = 'WTune will tune ranks/decomposition/tiles/OpenMP/I-O only'
-    return ('%s detected (%s): %s; %s are left exactly as given; %s.'
+    extra = (' Decomposition constraint (PROVISIONAL, one case): splits with a j-patch < %d rows '
+             'are never proposed (WRF-Chem hung at narrow j-patches).' % CHEM_MIN_J_PATCH
+             if det['id'] == 'chem' else '')
+    return ('%s detected (%s): %s; %s are left exactly as given; %s.%s'
             % (det['label'], '; '.join(det['evidence']), scope, UNTOUCHED[det['id']],
-               CALIBRATION_TEXT[det['id']]))
+               CALIBRATION_TEXT[det['id']], extra))
 
 
 def omp_cap(nl, run_dir=None):
@@ -414,7 +492,7 @@ DA_ADVISORY_BANNER = ('ADVISORY ONLY (WRFDA): da_wrfvar.exe rank/decomposition r
                       'check does not hold for DA minimisation.')
 
 
-def check_report(namelist_path, run_dir, wrf_exe=None):
+def check_report(namelist_path, run_dir, wrf_exe=None, ranks=None, nproc_x=None, nproc_y=None):
     """(lines, exit_code) for `wtune check`. Never raises. exit 2 on build mismatch, 1 on
     unsupported families, else 0."""
     lines, code = [], 0
@@ -431,6 +509,10 @@ def check_report(namelist_path, run_dir, wrf_exe=None):
         code = max(code, 1)
     if any(d['id'] == 'wrfda' for d in dets):
         lines.append('INFO EXT-WRFDA ' + DA_ADVISORY_BANNER)
+    f = chem_auto_split_finding(nl, ranks, nproc_x, nproc_y)
+    if f:
+        lines.append('WARN EXT-CHEM-JPATCH ' + f)
+        code = max(code, 1)
     exe = find_wrf_exe(run_dir, wrf_exe)
     if dets and exe:
         caps = scan_binary(exe)

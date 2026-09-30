@@ -188,6 +188,7 @@ def parse_case_from_namelist(namelist_path):
         e_we_list=e_we_list, e_sn_list=e_sn_list, e_vert_list=e_vert_list,
         ifire_list=ifire_list,
         ext_max_omp=_ext_omp_cap(namelist_path),
+        chem_e_sn=_chem_e_sn(namelist_path),
         dx=_scalar(nl, "domains", "dx"), dy=_scalar(nl, "domains", "dy"),
         time_step=_scalar(nl, "domains", "time_step"),
         mp_physics=_int_scalar(nl, "physics", "mp_physics"),
@@ -278,6 +279,18 @@ def build_candidates(case_fields, nodes, max_dom, case_name=None):
             "the verify-plan's edit-namelist command" % (max_dom, case_fields["max_dom"]))
 
     kept, skipped, aliases = campaign_configs.resolve_case(case_dict)
+    if case_fields.get("chem_e_sn"):     # PROVISIONAL WRF-Chem narrow-j-patch hang guard
+        import wtune_extensions
+        skipped = list(skipped)
+        ok = []
+        for c in kept:
+            why = wtune_extensions.chem_j_patch_reason(case_fields["chem_e_sn"], c["ny"], c["nx"])
+            if why:
+                skipped.append((c["id"], why))
+                print("recommend: %s: %s" % (c["id"], why), file=sys.stderr)
+            else:
+                ok.append(c)
+        kept = ok
 
     node_note = None
     if nodes != 4:
@@ -581,6 +594,12 @@ def _in_sample_check(scope_rows, case_name, case_fields):
 # ---------------------------------------------------------------------------
 # Top-level entry point
 # ---------------------------------------------------------------------------
+def _chem_e_sn(namelist_path):
+    """e_sn of the active domains for a WRF-Chem case (j-patch safety constraint), else None."""
+    import wtune_extensions
+    return wtune_extensions.chem_e_sn_for_namelist(namelist_path)
+
+
 def _ext_omp_cap(namelist_path):
     """1 for WRF-Chem/Hydro/WRFDA cases (dmpar-only builds: never propose OpenMP > 1), else None."""
     import wtune_extensions
@@ -987,6 +1006,17 @@ def recommend_full_space(ledger_path, namelist_path, case_name, hardware_id, nod
     candidates, axis = decompspace.enumerate_space(
         case_dict, total_cores=total_cores, nodes=nodes, hardware_id=hardware_id,
         omp_options=omp_options, tile_options=tile_options)
+    chem_notes = []
+    if case_fields.get("chem_e_sn"):     # PROVISIONAL WRF-Chem narrow-j-patch hang guard
+        import wtune_extensions
+        n0 = len(candidates)
+        candidates = [c for c in candidates
+                      if not wtune_extensions.chem_j_patch_reason(case_fields["chem_e_sn"], c["ny"], c["nx"])]
+        chem_notes.append(
+            "WRF-Chem: %d of %d candidate(s) rejected for a j-patch < %d rows (CHEM_MIN_J_PATCH, "
+            "PROVISIONAL, one case; %s)" % (n0 - len(candidates), n0, wtune_extensions.CHEM_MIN_J_PATCH,
+                                            wtune_extensions.CHEM_J_PATCH_NOTE))
+        print("recommend: " + chem_notes[0], file=sys.stderr)
 
     warnings = [
         "--space full: enumerated %d legal candidate(s) (omp options=%s; total_cores=%d, "
@@ -998,6 +1028,7 @@ def recommend_full_space(ledger_path, namelist_path, case_name, hardware_id, nod
         % (100 * (math.exp(targets.NOISE) - 1)),
     ]
     warnings.extend(_extension_warnings(namelist_path))
+    warnings.extend(chem_notes)
     if not candidates:
         return dict(case_name=case_name, hardware_id=hardware_id, nodes=nodes, space="full",
                     max_dom=effective_max_dom, total_candidates=0, shortlist=[], warnings=warnings,

@@ -71,6 +71,7 @@ for _p in (_TOOLS_DIR, _PREDICTOR_DIR, _HERE):
 import scc_sweep as sweep      # tools/scc_sweep.py -- see module docstring for what is reused
 import wtune_case              # wtune_case.py: build_profile (PRIOR, pre-measurement)
 import wtune_compliance as wc  # decision 0056: assert_strict_only guard on the final report
+import wtune_extensions
 import wtune_config            # wtune_config.py: --config YAML (search restrictions, budget/probe/
                                 # prediction overrides) -- stdlib only (PyYAML is imported lazily,
                                 # only when --config is actually given), safe to import unconditionally
@@ -284,6 +285,12 @@ def _apply_search_filter(ctx, configs):
     omp_cap = getattr(ctx, "omp_cap", None)
     for c in configs:
         exempt = c.get("config_source") == "anchor" or c.get("id") == "ANCHOR"
+        chem_e_sn = getattr(ctx, "chem_e_sn", None)
+        if chem_e_sn and c.get("ny"):     # PROVISIONAL WRF-Chem narrow-j-patch hang guard
+            why = wtune_extensions.chem_j_patch_reason(chem_e_sn, int(c["ny"]), c.get("nx"))
+            if why:
+                print("config: %s %s" % (c.get("id"), why))
+                continue
         if omp_cap and int(c.get("omp", 1) or 1) > omp_cap:   # dmpar-only extension build
             if exempt:
                 print("config: ANCHOR omp=%s dropped: OpenMP not supported by this extension build"
@@ -607,6 +614,7 @@ class Ctx:
         default_factory=lambda: copy.deepcopy(wtune_config.DEFAULTS["search"]))
     exclude_rules: list = dataclasses.field(default_factory=list)
     is_fire: bool = False
+    chem_e_sn: object = None    # e_sn list of an active WRF-Chem case (j-patch guard), else None
     omp_cap: object = None      # 1 for WRF-Chem/Hydro/WRFDA (dmpar-only builds), else None
     confirm_reps: int = CONFIRM_REPS
     prediction_cfg: dict = dataclasses.field(
@@ -3464,6 +3472,7 @@ def run(args, sbatch_runner=None, sacct_runner=None, scancel_runner=None, ledger
               ledger_reader=ledger_reader, proposer=proposer, clock=clock,
               search_cfg=cfg["search"], exclude_rules=cfg["exclude"], is_fire=is_fire,
               omp_cap=wtune_extensions.omp_cap_for_namelist(namelist_path),
+              chem_e_sn=wtune_extensions.chem_e_sn_for_namelist(namelist_path),
               confirm_reps=confirm_reps, prediction_cfg=cfg["prediction"],
               probe_cfg=cfg["probe"], ranking_start_note=ranking_start_note,
               rank_by=rank_by, restart_io_form=int(restart_io_form), stage1_mode=stage1_mode)

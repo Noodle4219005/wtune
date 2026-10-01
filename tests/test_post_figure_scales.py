@@ -30,9 +30,12 @@ def test_change_scale_symmetric_with_no_zero_boundary():
     assert len(levels) % 2 == 0          # odd number of bins -> the central bin is the white one
 
 
-def test_change_scale_rain_is_sequential_from_zero():
+def test_change_scale_rain_is_sequential_on_wpc_thresholds():
+    # decision 0064: interval rainfall on the WPC isohyets; below 0.01 in stays unshaded
+    from post.obs_figs import PRECIP_LEVELS
     levels, cmap, extend = changemap._change_scale("rain_acc", [np.array([0.0, 5.0, 80.0])])
-    assert levels[0] == 0.0 and cmap != "RdBu_r" and extend == "max"
+    assert list(levels) == PRECIP_LEVELS[:len(levels)] and levels[0] == 0.25
+    assert cmap != "RdBu_r" and extend == "max"
 
 
 def test_change_maps_share_one_scale_per_field_and_mode(tmp_path, monkeypatch):

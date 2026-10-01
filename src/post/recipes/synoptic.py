@@ -53,6 +53,8 @@ def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6):
         import numpy as np
         wrf_mod = __import__("wrf")
         with netCDF4.Dataset(path) as ds:
+            from post.conventions import ds_time_label
+            tlabel = ds_time_label(ds, time_str)     # init / valid / lead (decision 0064)
             pressure = wrf_mod.getvar(ds, "pressure", timeidx=0)
             z = wrf_mod.getvar(ds, "z", timeidx=0, units="m")
             z500 = wrf_mod.interplevel(z, pressure, 500)
@@ -85,7 +87,7 @@ def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6):
             p1 = os.path.join(out_dir, "syn_z500_vort.png")
             save_map(p1, lats, lons,
                     "%s d01 500 hPa height (every 60 m) + absolute vorticity (shaded)  %s"
-                    % (run_label, time_str),
+                    % (run_label, tlabel),
                     fill_field=avo_np, fill_label="absolute vorticity (10$^{-5}$ s$^{-1}$)",
                     fill_levels=avo_levels, fill_colors=avo_colors, fill_extend="max",
                     contour_field=z500_np, contour_levels=z_levels, contour_label_fmt="%d",
@@ -115,9 +117,12 @@ def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6):
             save_map(p2, lats, lons,
                     "%s d01 SLP (isobars every 4 hPa) + 1000-500 hPa thickness (dashed, dam)  %s\n"
                     "1000 hPa height extrapolated below ground (wrf.vinterp extrapolate=True)"
-                    % (run_label, time_str),
+                    % (run_label, tlabel),
                     contour_field=slp, contour_levels=slp_levels, contour_label_fmt="%d",
-                    contours=th_sets, hl_field=slp, ds=ds, crs=crs, gridline_labels=True,
+                    contours=th_sets, hl_field=slp,
+                    # SLP over high terrain is a reduction to sea level, not an analysed centre
+                    hl_exclude=np.asarray(ds.variables["HGT"][0]) > 500.0,
+                    ds=ds, crs=crs, gridline_labels=True,
                     terrain=False)
             out.append(fig("syn_slp_thickness", p2, run_label, domain="d01", valid_time=time_str,
                            extra={"note": "1000 hPa height extrapolated below ground "
@@ -135,7 +140,7 @@ def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6):
             te = np.asarray(theta_e850, dtype="f8")
             te_levels = np.arange(4.0 * np.floor(np.nanmin(te) / 4.0), np.nanmax(te) + 4.0, 4.0)
             save_map(p3, lats, lons,
-                    "%s d01 850 hPa theta-e (K, every 4 K) + wind (kt)  %s" % (run_label, time_str),
+                    "%s d01 850 hPa theta-e (K, every 4 K) + wind (kt)  %s" % (run_label, tlabel),
                     fill_field=te, fill_label="theta-e (K)", fill_cmap="magma",
                     fill_levels=te_levels, fill_extend="both",
                     u=np.ma.masked_where(below850, u850), v=np.ma.masked_where(below850, v850),
@@ -157,7 +162,7 @@ def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6):
             p4 = os.path.join(out_dir, "syn_250_jet.png")
             save_map(p4, lats, lons,
                     "%s d01 250 hPa isotachs (kt, from %d kt) + height (every 120 m)  %s"
-                    % (run_label, jet_lo, time_str),
+                    % (run_label, jet_lo, tlabel),
                     fill_field=wspd250, fill_label="wind speed (kt)", fill_cmap="PuBu",
                     fill_levels=jet_levels, fill_extend="max",
                     contour_field=z250, contour_levels=z250_levels, contour_label_fmt="%d",
@@ -172,7 +177,7 @@ def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6):
             t2_levels = celsius_levels(t2c)
             p5 = os.path.join(out_dir, "syn_t2_wind10.png")
             save_map(p5, lats, lons,
-                    "%s d01 T2 (degC, 0 degC bold) + 10 m wind (kt)  %s" % (run_label, time_str),
+                    "%s d01 T2 (degC, 0 degC bold) + 10 m wind (kt)  %s" % (run_label, tlabel),
                     fill_field=t2c, fill_label="T2 (degC)", fill_cmap="RdBu_r",
                     fill_levels=t2_levels, fill_extend="both",
                     contours=[dict(field=t2c, levels=[0.0], colors="k", linewidths=1.6,
@@ -204,7 +209,8 @@ def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6):
             path, e_lat, e_lon, e_z, e_valid, os.path.join(out_dir, "gridstat"),
             spec_bdy_width(run_dir))
         p6 = os.path.join(out_dir, "syn_era5_diff.png")
-        _era5_diff_map(p6, run_label, time_str, lats, lons, np.asarray(z500), e_lat, e_lon, e_z,
+        from post.conventions import path_time_label
+        _era5_diff_map(p6, run_label, path_time_label(path, time_str), lats, lons, np.asarray(z500), e_lat, e_lon, e_z,
                        gs, crs, xlim, ylim)
         out.append(fig("syn_era5_diff", p6, run_label, domain="d01", valid_time=time_str,
                        extra={"rmse_m": gs["rmse_m"], "bias_m": gs["bias_m"], "n": gs["n"],

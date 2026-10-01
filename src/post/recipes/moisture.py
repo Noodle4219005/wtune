@@ -143,20 +143,30 @@ def _ivt_figure(run_dir, run_label, domain, out_dir):
         ax.set_extent([float(lons.min()) - margin, float(lons.max()) + margin,
                       float(lats.min()) - margin, float(lats.max()) + margin],
                      crs=ccrs.PlateCarree())
-        cf = ax.contourf(lons, lats, ivt_mag, levels=20, cmap="YlGnBu",
+        # CW3E AR-scale levels (decision 0064); weaker IVT unshaded. A cold/dry case never
+        # reaches 100 kg m-1 s-1 -- then fall back to round levels and say so in the title.
+        from post.conventions import IVT_LEVELS
+        from post.recipes.mapfig import nice_levels
+        ivt_max = float(np.nanmax(ivt_mag)) if np.isfinite(ivt_mag).any() else 0.0
+        ar_scale = ivt_max >= IVT_LEVELS[0]
+        ivt_levels = IVT_LEVELS if ar_scale else nice_levels(0.0, max(ivt_max, 1.0), nbins=10)
+        cf = ax.contourf(lons, lats, ivt_mag, levels=ivt_levels, cmap="YlGnBu", extend="max",
                          transform=ccrs.PlateCarree())
-        fig.colorbar(cf, ax=ax, label="IVT (kg m^-1 s^-1)")
+        fig.colorbar(cf, ax=ax, label="IVT (kg m$^{-1}$ s$^{-1}$)")
         _coastline(ax, ds, ccrs, natural_earth_ok)
         # see post/recipes/terrain.py's _terrain_wind_map: a fine nest has far more grid
         # points than WIND_SUBSAMPLE was tuned for, so scale the stride to this domain.
         stride = max(WIND_SUBSAMPLE, min(lons.shape) // 25)
         # barbs only inside the plotted interior: finite IVT fill, spec_bdy_width edge cells out
         from post.basemap import bdy_width_of, interior_mask, masked_barbs
-        masked_barbs(ax, lons, lats, u850, v850, stride,
-                     mask=interior_mask(lons.shape, bdy_width_of(ds), fill=ivt_mag), length=5,
-                     transform=ccrs.PlateCarree())
-        ax.set_title("%s  d%02d  IVT (fill) + 850 hPa wind (barbs)  %s"
-                     % (run_label, domain, time0), fontsize=9)
+        from post.conventions import KT_PER_MS, ds_time_label
+        masked_barbs(ax, lons, lats, np.asarray(u850) * KT_PER_MS, np.asarray(v850) * KT_PER_MS,
+                     stride, mask=interior_mask(lons.shape, bdy_width_of(ds), fill=ivt_mag),
+                     length=5, transform=ccrs.PlateCarree())
+        scale_note = ("AR scale, 250 = AR threshold" if ar_scale else
+                      "max %.0f, below the AR scale (100+)" % ivt_max)
+        ax.set_title("%s  d%02d  IVT (shaded; %s) + 850 hPa wind (kt)\n%s"
+                     % (run_label, domain, scale_note, ds_time_label(ds, time0)), fontsize=9)
         out_path = os.path.join(out_dir, "moisture_ivt_d%02d.png" % domain)
         fig.tight_layout()
         fig.savefig(out_path)
@@ -238,6 +248,10 @@ def _cross_section_figure(run_dir, run_label, domain, out_dir, point, line=None,
                                      latlon=True, missing=np.nan)
         thetae_cross = wrf_mod.vertcross(theta_e, z, wrfin=ds, start_point=start, end_point=end,
                                          missing=np.nan)
+        ter_line = np.asarray(wrf_mod.interpline(wrf_mod.getvar(ds, "ter", timeidx=0), wrfin=ds,
+                                                 start_point=start, end_point=end)) / 1000.0
+        from post.conventions import ds_time_label
+        tlabel = ds_time_label(ds, time0)
 
     rh_np = np.asarray(rh_cross)
     thetae_np = np.asarray(thetae_cross)
@@ -255,18 +269,23 @@ def _cross_section_figure(run_dir, run_label, domain, out_dir, point, line=None,
     fig = plt.figure(figsize=(12, 5.5))
     ax = fig.add_axes([0.07, 0.15, 0.60, 0.72])
     cax = fig.add_axes([0.685, 0.15, 0.015, 0.72])
-    cf = ax.contourf(x_km, y_km, rh_np, levels=20, cmap="BuGn")
+    # RH every 10 % and theta-e every 5 K (stated, decision 0064); terrain as a grey silhouette
+    cf = ax.contourf(x_km, y_km, rh_np, levels=np.arange(0, 110, 10), cmap="BuGn")
     cbar = fig.colorbar(cf, cax=cax)
     cbar.set_label("RH (%)")
     if np.isfinite(thetae_np).any():
-        cs = ax.contour(x_km, y_km, thetae_np, levels=10, colors="k", linewidths=0.6)
-        ax.clabel(cs, inline=True, fontsize=6, fmt="%g")
+        te_lv = np.arange(5.0 * np.floor(np.nanmin(thetae_np) / 5.0), np.nanmax(thetae_np) + 5.0, 5.0)
+        cs = ax.contour(x_km, y_km, thetae_np, levels=te_lv, colors="k", linewidths=0.6)
+        ax.clabel(cs, inline=True, fontsize=6, fmt="%d")
+    if len(ter_line) == len(x_km):
+        ax.fill_between(x_km, 0, ter_line, color="0.45", zorder=5)
 
     ax.set_xlim(x_km.min(), x_km.max())
     ax.set_ylim(0, top_km)
     ax.set_xlabel("distance from centre (km, negative = west)")
     ax.set_ylabel("height (km)")
-    ax.set_title("%s  d%02d  cross-section, %s" % (run_label, domain, time0), fontsize=10)
+    ax.set_title("%s  d%02d  cross-section: RH (shaded, %%) + theta-e (K, every 5 K), terrain grey\n%s"
+                 % (run_label, domain, tlabel), fontsize=10)
     fig.text(0.5, 0.02, "(%.2f, %.2f) -> (%.2f, %.2f)"
              % (start_ll[0], start_ll[1], end_ll[0], end_ll[1]), ha="center", fontsize=7)
 

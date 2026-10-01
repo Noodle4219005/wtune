@@ -280,13 +280,15 @@ def plot_annual_cycle(months, series, out_path, run_label, notes):
             if mod is None or not np.isfinite(mod).any():
                 ax.text(0.5, 0.5, s["why"], ha="center", va="center", transform=ax.transAxes, fontsize=10)
             else:
-                ax.plot(x, mod, "r-o", ms=4, lw=1.8, label="WRF")
+                # temperatures in degC (decision 0064); the CSV keeps K
+                off = 273.15 if key == "T" else 0.0
+                ax.plot(x, np.asarray(mod) - off, "r-o", ms=4, lw=1.8, label="WRF")
                 ref = (s["ref"] or {}).get(name)
                 if ref is not None:
-                    ax.plot(x, ref, "k--s", ms=4, lw=1.4, label=s["ref_label"])
+                    ax.plot(x, np.asarray(ref) - off, "k--s", ms=4, lw=1.4, label=s["ref_label"])
                 if r == 0:
                     ax.legend(fontsize=8, loc="best")
-            what = "precipitation (mm/day)" if key == "P" else ("SST (K)" if kind == "sea" else "T2 (K)")
+            what = "precipitation (mm/day)" if key == "P" else ("SST (°C)" if kind == "sea" else "T2 (°C)")
             ax.set_ylabel(what, fontsize=9)
             ax.set_title("%s  %g-%gN %g-%gE  %s" % (name, box[0], box[1], box[2], box[3],
                                                     "land" if kind == "land" else "ocean"), fontsize=9)
@@ -315,7 +317,8 @@ def plot_seasonal_bias(diffs, lat, lon, crs, landmask, out_path, run_label, var_
     finite = np.concatenate([d[np.isfinite(d)] for d in diffs.values()]) if diffs else np.array([])
     vmax = max(float(np.percentile(np.abs(finite), 98)), 1e-3) if finite.size else 1.0
     levels = symmetric_levels(vmax)
-    cmap = plt.get_cmap("RdBu_r")
+    # wet = green/blue, dry = brown for precipitation; warm = red for temperature (decision 0064)
+    cmap = plt.get_cmap("BrBG" if "precip" in var_label.lower() else "RdBu_r")
     _set_cartopy_data_dir()
     fig, axes = plt.subplots(2, 2, figsize=(13, 10), subplot_kw={"projection": crs})
     cf = None
@@ -484,7 +487,7 @@ def figures(run_dirs, labels, out_dir, case_info, project_dir=None, spinup_days=
         out.append(missing("climate_bias_t2", "ERA5 monthly t2m", hint % "era5_monthly"))
     else:
         path = plot_seasonal_bias(bias(t2, era_t2), lat, lon, crs, lm, os.path.join(out_dir, "climate_bias_t2.png"),
-                                  run_label, "T2", "ERA5", "K", tag)
+                                  run_label, "T2", "ERA5", "°C", tag)
         out.append(fig("climate_bias_t2", path, run_label, domain=dom, valid_time=",".join(sorted(seasons))))
     if gp is None:
         out.append(missing("climate_bias_precip", "GPCP monthly precipitation", hint % "gpcp_monthly"))

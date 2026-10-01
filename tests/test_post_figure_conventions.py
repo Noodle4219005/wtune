@@ -72,3 +72,11 @@ def test_station_temperature_units_are_celsius():
     from post import met_pointstat
     assert met_pointstat.VARS["TMP"]["unit"] == "°C"
     assert met_pointstat.VARS["DPT"]["unit"] == "°C"
+
+
+def test_highs_lows_skips_excluded_cells():
+    y, x = np.mgrid[0:60, 0:80]
+    slp = 1012 - 15 * np.exp(-((x - 20) ** 2 + (y - 30) ** 2) / 120.0)
+    mask = np.zeros(slp.shape, bool)
+    mask[20:40, 10:30] = True                      # "mountains" over the low
+    assert [k for _, _, k in mapfig.highs_lows(slp, window=21, exclude=mask)].count("L") == 0

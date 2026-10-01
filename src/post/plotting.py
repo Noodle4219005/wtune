@@ -51,6 +51,10 @@ def _field_2d(ds, wrf_mod, field, level_hpa, timeidx=0):
 
 # map colour-bar units (extract.UNITS stays the data-file contract)
 MAP_UNITS = dict(UNITS, t2="degC")
+FIELD_TITLES = dict(slp="sea-level pressure (isobars every 4 hPa)", t2="2 m temperature", td2="2 m dew point",
+                    rh2="2 m relative humidity", wspd10="10 m wind speed",
+                    rain_acc="accumulated precipitation since init", pw="precipitable water",
+                    mcape="MCAPE")
 
 
 def _natural_earth_ready(resolution="110m"):
@@ -141,22 +145,32 @@ def plot_field(run_dir, field, out_dir, domain=1, times=None, level_hpa=None,
             var = _field_2d(ds, wrf_mod, field, level_hpa)
             data = np.asarray(var)
 
+            tkw = {}
             if basemap == "cartopy":
                 crs = wrf_mod.get_cartopy(var=var)
                 lats, lons = wrf_mod.latlon_coords(var, as_np=True)
                 fig, ax = plt.subplots(figsize=(8, 6), subplot_kw={"projection": crs})
-                cf = ax.contourf(lons, lats, data, levels=20 if levels is None else levels,
-                                 cmap=cmap or "viridis", extend=extend,
-                                 transform=ccrs.PlateCarree())
+                tkw = {"transform": ccrs.PlateCarree()}
             else:
-                lat2d = np.asarray(ds.variables["XLAT"][0])
-                lon2d = np.asarray(ds.variables["XLONG"][0])
+                lats = np.asarray(ds.variables["XLAT"][0])
+                lons = np.asarray(ds.variables["XLONG"][0])
                 fig, ax = plt.subplots(figsize=(8, 6))
-                cf = ax.contourf(lon2d, lat2d, data, levels=20 if levels is None else levels,
-                                 cmap=cmap or "viridis", extend=extend)
-
-            cbar = fig.colorbar(cf, ax=ax)
-            cbar.set_label(MAP_UNITS.get(field, ""))
+            if field == "slp" and level_hpa is None:
+                # surface chart convention (decision 0064): black isobars every 4 hPa with H/L
+                # (none over terrain > 500 m, where SLP is a reduction), not a colour fill
+                from post.recipes.mapfig import highs_lows
+                iso = np.arange(4.0 * np.floor(np.nanmin(data) / 4.0), np.nanmax(data) + 4.0, 4.0)
+                cs = ax.contour(lons, lats, data, levels=iso, colors="k", linewidths=0.8, **tkw)
+                ax.clabel(cs, inline=True, fontsize=7, fmt="%d")
+                hgt = np.asarray(ds.variables["HGT"][0]) if "HGT" in ds.variables else None
+                for j, i, kind in highs_lows(data, exclude=None if hgt is None else hgt > 500.0):
+                    ax.text(lons[j, i], lats[j, i], kind, color="b" if kind == "H" else "r",
+                            fontsize=13, fontweight="bold", ha="center", va="center", **tkw)
+            else:
+                cf = ax.contourf(lons, lats, data, levels=20 if levels is None else levels,
+                                 cmap=cmap or "viridis", extend=extend, **tkw)
+                cbar = fig.colorbar(cf, ax=ax)
+                cbar.set_label(MAP_UNITS.get(field, ""))
             _coastline(ax, ds, ccrs)
 
             if overlay_wind:
@@ -166,12 +180,17 @@ def plot_field(run_dir, field, out_dir, domain=1, times=None, level_hpa=None,
                 u = np.asarray(wrf_mod.getvar(ds, "uvmet10", timeidx=0, units="m s-1")[0])
                 v = np.asarray(wrf_mod.getvar(ds, "uvmet10", timeidx=0, units="m s-1")[1])
                 barb_kwargs = {"transform": ccrs.PlateCarree()} if basemap == "cartopy" else {}
-                masked_barbs(ax, lon2d, lat2d, u, v, WIND_SUBSAMPLE,
+                from post.conventions import KT_PER_MS
+                masked_barbs(ax, lon2d, lat2d, u * KT_PER_MS, v * KT_PER_MS, WIND_SUBSAMPLE,
                              mask=interior_mask(data.shape, bdy_width_of(ds), fill=data),
                              length=5, **barb_kwargs)
 
+            from post.conventions import ds_time_label
             level_note = (" @ %g hPa" % level_hpa) if level_hpa is not None else ""
-            ax.set_title("%s  d%02d  %s  %s%s" % (run_name, domain, time_str, field, level_note))
+            wind_note = " + 10 m wind (kt)" if overlay_wind else ""
+            ax.set_title("%s  d%02d  %s%s%s\n%s" % (run_name, domain, FIELD_TITLES.get(field, field),
+                                                    level_note, wind_note,
+                                                    ds_time_label(ds, time_str)), fontsize=10)
             if basemap != "cartopy":
                 ax.set_xlabel("lon")
                 ax.set_ylabel("lat")

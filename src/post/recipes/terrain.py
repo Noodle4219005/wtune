@@ -129,12 +129,15 @@ def _terrain_wind_map(run_dir, run_label, domain, out_dir):
         stride = max(WIND_SUBSAMPLE, min(lons.shape) // 25)
         from post.basemap import bdy_width_of, interior_mask, masked_barbs
         interior = interior_mask(lons.shape, bdy_width_of(ds), fill=np.asarray(ter))
-        masked_barbs(ax, lons, lats, np.asarray(u10), np.asarray(v10), stride, mask=interior,
-                     length=5, color="black", transform=ccrs.PlateCarree(), label="10 m wind")
-        masked_barbs(ax, lons, lats, np.asarray(u700), np.asarray(v700), stride, mask=interior,
-                     length=5, color="red", transform=ccrs.PlateCarree(), label="700 hPa wind")
-        ax.set_title("%s  d%02d  terrain + 10 m (black) / 700 hPa (red) wind  %s"
-                     % (run_label, domain, time0), fontsize=9)
+        from post.conventions import KT_PER_MS, ds_time_label
+        masked_barbs(ax, lons, lats, np.asarray(u10) * KT_PER_MS, np.asarray(v10) * KT_PER_MS,
+                     stride, mask=interior, length=5, color="black",
+                     transform=ccrs.PlateCarree(), label="10 m wind")
+        masked_barbs(ax, lons, lats, np.asarray(u700) * KT_PER_MS, np.asarray(v700) * KT_PER_MS,
+                     stride, mask=interior, length=5, color="red",
+                     transform=ccrs.PlateCarree(), label="700 hPa wind")
+        ax.set_title("%s  d%02d  terrain + 10 m (black) / 700 hPa (red) wind, barbs in kt\n%s"
+                     % (run_label, domain, ds_time_label(ds, time0)), fontsize=9)
         out_path = os.path.join(out_dir, "terrain_wind_d%02d.png" % domain)
         fig.tight_layout()
         fig.savefig(out_path)
@@ -409,12 +412,22 @@ def _rain_over_terrain(run_dir, run_label, domain, out_dir):
         lats, lons = wrf_mod.latlon_coords(wrf_mod.getvar(ds, "ter", timeidx=0), as_np=True)
         crs = wrf_mod.get_cartopy(var=wrf_mod.getvar(ds, "ter", timeidx=0))
         out_path = os.path.join(out_dir, "terrain_rain_d%02d.png" % domain)
+        # WPC isohyet thresholds in mm, same scale as precip_accum (decision 0064)
+        from post.conventions import ds_time_label
+        from post.obs_figs import PRECIP_LEVELS, precip_cmap
+        hi = float(np.nanmax(rain)) if np.isfinite(rain).any() else 0.0
+        lev = [lv for lv in PRECIP_LEVELS if lv <= hi]
+        lev = PRECIP_LEVELS[:max(2, len(lev) + 1)]
+        cm = precip_cmap()
+        colors = [cm(x) for x in np.linspace(0, 1, len(lev))]
         save_map(out_path, lats, lons,
-                "%s  d%02d  accumulated rain (fill) + terrain (contour)  %s"
-                % (run_label, domain, time0), fill_field=rain, fill_label="rain (mm)",
-                fill_cmap="Blues", contour_field=ter,
+                "%s  d%02d  accumulated precipitation since init (shaded) + terrain (brown, 500 m)\n%s"
+                % (run_label, domain, ds_time_label(ds, time0)),
+                fill_field=np.where(rain < lev[0], np.nan, rain),
+                fill_label="accumulated precipitation (mm)", fill_levels=lev,
+                fill_colors=colors, fill_extend="max", contour_field=ter,
                 contour_levels=[500, 1000, 1500, 2000, 2500, 3000], contour_color="brown",
-                ds=ds, crs=crs, basemap="cartopy")
+                ds=ds, crs=crs, basemap="cartopy", terrain=False)
     return out_path
 
 

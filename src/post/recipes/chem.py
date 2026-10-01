@@ -42,11 +42,48 @@ def plot_concentration(run_dir, domain, time_str, species, out_path, run_label):
         lat = np.asarray(ds.variables["XLAT"][0])
         lon = np.asarray(ds.variables["XLONG"][0])
         units = getattr(ds.variables[species], "units", "")
+        conc, units = concentration_units(ds, conc, units)
+        from post.conventions import KT_PER_MS, ds_time_label
         save_map(out_path, lat, lon,
-                "%s d%02d %s (%s) + 10 m wind  %s" % (run_label, domain, species, units, time_str),
-                fill_field=conc, fill_label="%s (%s)" % (species, units), fill_cmap="YlOrRd",
-                u=u10, v=v10, ds=ds)
+                "%s d%02d %s, lowest model level (%s, log scale) + 10 m wind (kt)\n%s"
+                % (run_label, domain, species, units, ds_time_label(ds, time_str)),
+                fill_field=np.where(conc > 0, conc, np.nan),
+                fill_label="%s (%s)" % (species, units), fill_cmap="YlOrRd",
+                fill_levels=log_levels(conc), fill_extend="both",
+                u=u10, v=v10, barb_factor=KT_PER_MS, barb_label="wind barbs in kt", ds=ds)
     return out_path
+
+
+def concentration_units(ds, conc, units):
+    """Air-quality reporting units (decision 0064): gases ppmv -> ppb; aerosol mixing ratios
+    ug/kg-dryair -> ug m-3 using the dry-air density 1/ALT of the lowest level."""
+    import numpy as np
+    u = (units or "").lower().replace(" ", "")
+    if u.startswith("ppmv") or u == "ppm":
+        return np.asarray(conc) * 1000.0, "ppb"
+    if u.startswith("ug/kg") and "ALT" in ds.variables:
+        alt = np.asarray(ds.variables["ALT"][0])
+        alt = alt[0] if alt.ndim == 3 else alt
+        return np.asarray(conc) / alt, "µg m$^{-3}$"
+    return np.asarray(conc), units
+
+
+def log_levels(field):
+    """1-2-5 levels per decade spanning the field's 5th..max positive values (concentrations
+    span orders of magnitude)."""
+    import numpy as np
+    a = np.asarray(field, dtype="f8")
+    a = a[np.isfinite(a) & (a > 0)]
+    if a.size == 0:
+        return [0.1, 0.2, 0.5, 1.0]
+    lo, hi = np.percentile(a, 5), a.max()
+    out = []
+    for e in range(int(np.floor(np.log10(lo))), int(np.ceil(np.log10(hi))) + 1):
+        for m in (1, 2, 5):
+            v = m * 10.0 ** e
+            if lo <= v * 2.5 and v <= hi * 2.5:
+                out.append(v)
+    return out if len(out) >= 2 else [lo, hi]
 
 
 def figures(run_dirs, labels, out_dir, case_info):

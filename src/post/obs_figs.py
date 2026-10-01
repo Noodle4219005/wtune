@@ -24,7 +24,7 @@ def precip_cmap():
     from matplotlib.colors import ListedColormap
     base = colormaps[PRECIP_CMAP]
     return ListedColormap(base(np.linspace(0.18, 1.0, 256)), name="precip_wpc")
-DBZ_LEVELS = list(range(5, 75, 5))
+from post.conventions import DBZ_LEVELS  # NWS table, 5..75 dBZ (decision 0064)
 
 
 def _cartopy_axes(fig, spec, extent):
@@ -90,7 +90,10 @@ def diff_map(lat, lon, fcst, obs, title, out_path, cbar_label, vmax):
     fig = plt.figure(figsize=(7.5, 5.8), layout="constrained")
     ax, ccrs = _cartopy_axes(fig, fig.add_gridspec(1, 1)[0, 0],
                              _extent(np.where(both, lat, np.nan), np.where(both, lon, np.nan)))
-    mesh = ax.pcolormesh(lon, lat, np.ma.masked_invalid(d), cmap="RdBu", vmin=-vmax, vmax=vmax,
+    # wet = green/blue, dry = brown (decision 0064); round symmetric limit
+    from matplotlib.ticker import MaxNLocator
+    vmax = float(MaxNLocator(nbins=5).tick_values(0, vmax)[-1]) or vmax
+    mesh = ax.pcolormesh(lon, lat, np.ma.masked_invalid(d), cmap="BrBG", vmin=-vmax, vmax=vmax,
                          transform=ccrs.PlateCarree(), shading="auto")
     fig.colorbar(mesh, ax=ax, shrink=0.85, label=cbar_label, extend="both")
     ax.set_title(title, fontsize=9)
@@ -192,10 +195,13 @@ def station_bias_maps(panels, suptitle, out_path):
     ext = _extent(ally, allx, pad=2.0)
     for i, p in enumerate(panels):
         ax, ccrs = _cartopy_axes(fig, gs[0, i], ext)
-        sc = ax.scatter(p["lon"], p["lat"], c=p["bias"], s=42, cmap="RdBu_r", vmin=-p["vmax"],
-                        vmax=p["vmax"], edgecolor="k", linewidth=0.4,
+        from matplotlib.ticker import MaxNLocator
+        vm = float(MaxNLocator(nbins=5).tick_values(0, p["vmax"])[-1]) or p["vmax"]
+        sc = ax.scatter(p["lon"], p["lat"], c=p["bias"], s=42, cmap="RdBu_r", vmin=-vm,
+                        vmax=vm, edgecolor="k", linewidth=0.4,
                         transform=ccrs.PlateCarree(), zorder=5)
-        fig.colorbar(sc, ax=ax, shrink=0.8, extend="both")
+        cb = fig.colorbar(sc, ax=ax, shrink=0.8, extend="both")
+        cb.set_label(p.get("cbar_label", "model - observation"))
         ax.set_title(p["title"], fontsize=9)
     fig.suptitle(suptitle, fontsize=10)
     fig.savefig(out_path, dpi=110)

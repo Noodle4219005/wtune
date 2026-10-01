@@ -96,14 +96,27 @@ def make_sounding(run_dir, lat, lon, time_str, out_path, domain=1):
     cape, cin = mpcalc.surface_based_cape_cin(p_q, tc_q, td_q)
 
     fig = plt.figure(figsize=(7, 8))
-    skew = SkewT(fig)
+    # standard Skew-T log-p (decision 0064): isotherms skewed 45 deg, dry/moist adiabats and
+    # mixing-ratio lines as background, T red / Td green, barbs in kt
+    skew = SkewT(fig, rotation=45)
+    skew.ax.set_ylim(1050, 100)
+    skew.ax.set_xlim(-40, 50)
+    skew.plot_dry_adiabats(alpha=0.25, lw=0.6)
+    skew.plot_moist_adiabats(alpha=0.25, lw=0.6)
+    skew.plot_mixing_lines(alpha=0.3, lw=0.6)
     skew.plot(p_q, tc_q, "r")
     skew.plot(p_q, td_q, "g")
     add_parcel(skew, p_q, tc_q, td_q)
-    skew.plot_barbs(p_q[::3], u_q[::3], v_q[::3], xloc=0.94)   # default 1.0 clips half the barb
-    skew.ax.set_title("%s  d%02d  %s  (%.3f,%.3f)\nCAPE=%.0f J/kg  CIN=%.0f J/kg"
-                      % (os.path.basename(os.path.normpath(run_dir)), domain, time_str,
-                         lat, lon, cape.magnitude, cin.magnitude), fontsize=10)
+    skew.plot_barbs(p_q[::3], u_q[::3], v_q[::3], xloc=0.94,   # default 1.0 clips half the barb
+                    plot_units=mpunits.knots)
+    skew.ax.set_xlabel("temperature (°C)")
+    skew.ax.set_ylabel("pressure (hPa)")
+    from post.conventions import path_time_label
+    skew.ax.set_title("%s  d%02d  (%.3f, %.3f)  %s\nCAPE=%.0f J/kg  CIN=%.0f J/kg  "
+                      "(surface-based parcel; barbs in kt)"
+                      % (os.path.basename(os.path.normpath(run_dir)), domain, lat, lon,
+                         path_time_label(path, time_str),
+                         cape.magnitude, cin.magnitude), fontsize=10)
     fig.tight_layout()
     fig.savefig(out_path)
     plt.close(fig)
@@ -248,7 +261,8 @@ def skewt_overlay(fig, rect, model, obs, title, p_top=200.0, text=None):
         ok = np.isfinite(col["u"]) & np.isfinite(col["v"]) & (col["p"] >= p_top)
         idx = np.flatnonzero(ok)[::2 if col is model else 1]
         skew.plot_barbs(col["p"][idx] * mpunits.hPa, col["u"][idx] * mpunits("m/s"),
-                        col["v"][idx] * mpunits("m/s"), xloc=xloc, length=5, linewidth=0.6)
+                        col["v"][idx] * mpunits("m/s"), xloc=xloc, length=5, linewidth=0.6,
+                        plot_units=mpunits.knots)   # barbs in kt (decision 0064)
     if model is not None:
         add_parcel(skew, model["p"] * mpunits.hPa, model["t"] * mpunits.degC,
                    model["td"] * mpunits.degC, lw=0.9)
@@ -256,8 +270,9 @@ def skewt_overlay(fig, rect, model, obs, title, p_top=200.0, text=None):
     skew.ax.set_xlim(-30, 40)
     skew.plot_dry_adiabats(alpha=0.25, lw=0.6)
     skew.plot_moist_adiabats(alpha=0.25, lw=0.6)
+    skew.plot_mixing_lines(alpha=0.3, lw=0.6)
     skew.ax.set_title(title, fontsize=11)
-    skew.ax.set_xlabel("T (degC)", fontsize=9)
+    skew.ax.set_xlabel("T (°C); barbs in kt", fontsize=9)
     skew.ax.set_ylabel("p (hPa)", fontsize=9)
     skew.ax.tick_params(labelsize=9)
     if text:

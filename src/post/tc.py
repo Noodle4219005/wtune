@@ -859,8 +859,16 @@ def _track_map_figure(out_dir, model_tracks, bdeck, storm_id, dom_dx=None):
         kw = {}
     handles = []
     if best:
-        ax.plot([ll[1] for _, ll in best], [ll[0] for _, ll in best], "k-o", markersize=3, zorder=1, **kw)
-        handles.append(Line2D([], [], color="k", marker="o", markersize=3, label="best track"))
+        # best track black with 6-hourly markers and a date label at 00 UTC (NHC style)
+        ax.plot([ll[1] for _, ll in best], [ll[0] for _, ll in best], "k-", lw=1.4, zorder=1, **kw)
+        six = [(t, ll) for t, ll in best if t.hour % 6 == 0 and t.minute == 0]
+        ax.plot([ll[1] for _, ll in six], [ll[0] for _, ll in six], "ko", markersize=3.5,
+                zorder=1, **kw)
+        for t, ll in six:
+            if t.hour == 0:
+                ax.text(ll[1] + 0.15, ll[0], t.strftime("%d/00Z"), fontsize=7, zorder=4, **kw)
+        handles.append(Line2D([], [], color="k", marker="o", markersize=3,
+                              label="best track (6-hourly)"))
     cmap = plt.get_cmap("tab10")
     doms_seen = sorted({p[2] for pts in tracks.values() for p in pts})
     color = {d: cmap(k % 10) for k, d in enumerate(doms_seen)}
@@ -872,7 +880,8 @@ def _track_map_figure(out_dir, model_tracks, bdeck, storm_id, dom_dx=None):
             ax.plot([a[1][1], b[1][1]], [a[1][0], b[1][0]], ls, color=color[d], linewidth=1.6,
                     zorder=2, **kw)
         for d in doms_seen:
-            sel = [p for p in pts if p[2] == d]
+            # markers at the 6-hourly synoptic times only (the line carries the full track)
+            sel = [p for p in pts if p[2] == d and p[0].hour % 6 == 0 and p[0].minute == 0]
             if sel:
                 ax.plot([p[1][1] for p in sel], [p[1][0] for p in sel], "o", color=color[d],
                         markersize=3.5, zorder=3, **kw)
@@ -887,7 +896,9 @@ def _track_map_figure(out_dir, model_tracks, bdeck, storm_id, dom_dx=None):
         from post.basemap import add_base_map
         ax.autoscale_view()
         add_base_map(ax, ccrs, terrain=False, nest_rings=[], caption=False, labels=False)
-    ax.set_title("%s track (segments coloured by tracking domain)" % storm_id, fontsize=10)
+    t0 = min(valid) if valid else None
+    ax.set_title("%s track, model init %s (segments coloured by tracking domain; markers 6-hourly)"
+                 % (storm_id, t0.strftime("%Y-%m-%d %HZ") if t0 else "?"), fontsize=10)
     ax.legend(handles=handles, fontsize=8)
     path = os.path.join(out_dir, "track_map.png")
     fig.tight_layout()
@@ -1001,14 +1012,19 @@ def _rmw_figure(run_dir, adeck_path, met_dir, out_dir, label, every_h=6):
             ps = None
 
     fig, ax = plt.subplots(figsize=(7.5, 4.8))
-    levels = MaxNLocator(nbins=14).tick_values(float(np.nanmin(vt_f)), float(np.nanmax(vt_f)))
-    cf = ax.contourf(rng, plev, vt_f, levels=levels, cmap="viridis", extend="both")
-    fig.colorbar(cf, ax=ax, label="azimuthal-mean tangential wind (m/s)")
+    # Vt shaded every 5 m/s on a sequential map, Vr lines every 2 m/s (blue dashed inflow,
+    # red solid outflow), height on a second axis (decision 0064)
+    vt_hi = float(np.nanmax(vt_f))
+    levels = np.arange(5.0 * np.floor(min(float(np.nanmin(vt_f)), 0.0) / 5.0), vt_hi + 5.0, 5.0)
+    cf = ax.contourf(rng, plev, vt_f, levels=levels, cmap="YlOrRd", extend="both")
+    fig.colorbar(cf, ax=ax, label="azimuthal-mean tangential wind (m/s, every 5)")
     # radial-wind lines from the masked (unfilled) array: the downward-filled copy would draw
     # contours running vertically through the constant-filled below-surface cells
-    cs = ax.contour(rng, plev, np.ma.masked_invalid(vr_mean), levels=[-15, -10, -5, 0, 5, 10],
-                    colors="w", linewidths=0.8)
-    ax.clabel(cs, fontsize=7, fmt="%d")
+    vr_m = np.ma.masked_invalid(vr_mean)
+    for lv, col, ls in ((np.arange(-30.0, 0.0, 2.0), "tab:blue", "dashed"),
+                        (np.arange(2.0, 32.0, 2.0), "tab:red", "solid")):
+        cs = ax.contour(rng, plev, vr_m, levels=lv, colors=col, linestyles=ls, linewidths=0.8)
+        ax.clabel(cs, fontsize=7, fmt="%d")
     ymax = float(np.max(plev))
     handles = []
     if ps is not None and np.isfinite(ps).any():
@@ -1025,8 +1041,14 @@ def _rmw_figure(run_dir, adeck_path, met_dir, out_dir, label, every_h=6):
                            fontsize=8, frameon=False)
     ax.set_xlabel("radius from storm centre (km)")
     ax.set_ylabel("pressure (hPa)")
-    ax.set_title("%s, lead %g h: azimuthal-mean tangential wind\n(contours: radial wind, <0 inflow)"
-                 % (label, lead_h[k]), fontsize=10)
+    # approximate height (ICAO standard atmosphere) for readers used to radius-height plots
+    sec = ax.secondary_yaxis("right", functions=(
+        lambda pp: 44.3308 * (1.0 - (np.clip(pp, 1e-3, None) / 1013.25) ** 0.190263),
+        lambda zz: 1013.25 * (1.0 - np.asarray(zz) / 44.3308) ** (1.0 / 0.190263)))
+    sec.set_ylabel("approx. height (km, standard atmosphere)")
+    ax.set_title("%s, F%03d: azimuthal-mean tangential wind (shaded)\n"
+                 "radial wind every 2 m/s: blue dashed = inflow, red = outflow"
+                 % (label, int(round(lead_h[k]))), fontsize=10)
     path = os.path.join(out_dir, "%s_rmw_radius_height.png" % label)
     fig.tight_layout()
     fig.savefig(path, bbox_inches="tight")
@@ -1082,9 +1104,20 @@ def _error_figures(out_dir, tcsts):
         if not drawn:
             plt.close(fig)
             continue
-        ax.set_xlabel("lead (h)")
+        ax.set_xlabel("forecast lead (h)")
         ax.set_ylabel(ylabel)
-        ax.set_title("MET tc_pairs: %s" % ylabel)
+        # NHC verification units on a second axis (nmi for distances, kt for wind)
+        if "(km)" in ylabel:
+            sec = ax.secondary_yaxis("right", functions=(lambda v: v / 1.852, lambda v: v * 1.852))
+            sec.set_ylabel(ylabel.replace("(km)", "(nmi)"))
+        elif "(m/s)" in ylabel:
+            sec = ax.secondary_yaxis("right", functions=(lambda v: v / KT_TO_MS,
+                                                         lambda v: v * KT_TO_MS))
+            sec.set_ylabel(ylabel.replace("(m/s)", "(kt)"))
+        first = next((rows[0][1] for rows in series.values() if rows), {})
+        ax.set_title("%s  %s, init %s  (MET TC-Pairs)" % (
+            first.get("STORM_ID", ""), ylabel,
+            str(first.get("INIT", "?")).replace("_", " ")), fontsize=10)
         ax.legend()
         path = os.path.join(out_dir, "tc_pairs_%s.png" % stem)
         fig.tight_layout()

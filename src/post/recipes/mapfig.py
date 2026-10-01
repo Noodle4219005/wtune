@@ -36,10 +36,11 @@ def pooled_levels(arrays, lo_pct=2.0, hi_pct=98.0, nbins=14, floor=None):
     return nice_levels(lo, hi, nbins)
 
 
-def highs_lows(field, window=None, edge=5):
+def highs_lows(field, window=None, edge=5, exclude=None):
     """[(j, i, 'H'|'L')] local maxima/minima of a 2-D field in a window x window neighbourhood
     (default ~1/6 of the shorter side), skipping `edge` boundary cells and flat plateaus -- the
-    H/L letters of a classic surface-pressure chart."""
+    H/L letters of a classic surface-pressure chart. exclude: bool array, True cells never get
+    a letter (e.g. terrain above ~500 m, where sea-level pressure is an extrapolation)."""
     import numpy as np
     from scipy.ndimage import maximum_filter, minimum_filter
     a = np.asarray(field, dtype="f8")
@@ -54,6 +55,8 @@ def highs_lows(field, window=None, edge=5):
     spread = np.nanmax(a) - np.nanmin(a)
     for mask, kind in ((hi, "H"), (lo, "L")):
         for j, i in zip(*np.nonzero(mask)):
+            if exclude is not None and bool(np.asarray(exclude)[j, i]):
+                continue
             if edge <= j < ny - edge and edge <= i < nx - edge:
                 win = filled[max(0, j - w // 2):j + w // 2 + 1, max(0, i - w // 2):i + w // 2 + 1]
                 if spread > 0 and (win.max() - win.min()) > 0.02 * spread:   # not a plateau
@@ -66,7 +69,8 @@ def save_map(out_path, lats, lons, title, fill_field=None, fill_label="", fill_c
             u=None, v=None, ds=None, crs=None, basemap="cartopy", fill_levels=None,
             fill_extend="neither", fill_colors=None, gridline_labels=False, hatch_mask=None,
             hatch_label="below ground", legend_handles=None, hgt=None, bdy_width=None,
-            contours=None, hl_field=None, hl_window=None, barb_factor=1.0, barb_label=None,
+            contours=None, hl_field=None, hl_window=None, hl_exclude=None, barb_factor=1.0,
+            barb_label=None,
             terrain=True):
     """Writes one PNG. lats/lons: plain 2-D ndarrays. fill_field: optional filled contourf.
     contour_field/contour_levels: optional overlaid contour lines (e.g. geopotential height on
@@ -152,7 +156,7 @@ def save_map(out_path, lats, lons, title, fill_field=None, fill_label="", fill_c
                                       spec.get("linestyles", "solid"), str) else "solid",
                                   lw=1.0, label=spec["label"]))
     if hl_field is not None:
-        for (j, i, kind) in highs_lows(hl_field, hl_window):
+        for (j, i, kind) in highs_lows(hl_field, hl_window, exclude=hl_exclude):
             ax.text(lons[j, i], lats[j, i], kind, color="b" if kind == "H" else "r",
                     fontsize=14, fontweight="bold", ha="center", va="center", zorder=6,
                     **transform_kw)

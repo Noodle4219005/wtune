@@ -281,6 +281,7 @@ def summarize(work, times, out_dir, project_dir):
         if pts:
             b = np.array([p[2] for p in pts])
             panels.append(dict(lat=[p[0] for p in pts], lon=[p[1] for p in pts], bias=b,
+                               cbar_label="mean bias, model - obs (%s)" % by_model[mv]["unit"],
                                title="%s mean bias (%s), n=%d stations" % (by_model[mv]["label"],
                                                                           by_model[mv]["unit"], len(pts)),
                                vmax=float(np.nanpercentile(np.abs(b), 95)) or 1.0))

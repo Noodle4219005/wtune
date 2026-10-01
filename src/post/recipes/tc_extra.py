@@ -92,7 +92,10 @@ def radius_time_plot(run_dir, adeck_path, out_path, domain=1, radius_bins_km=RAD
         return None
     radius_centers = [(radius_bins_km[b] + radius_bins_km[b + 1]) / 2.0 for b in range(n_bins)]
     fig, ax = plt.subplots(figsize=(7, 4))
-    pc = ax.pcolormesh(leads, radius_centers, grid, cmap="RdBu_r", shading="nearest")
+    # diverging map symmetric about 0 (cyclonic red, anticyclonic blue; decision 0064)
+    vm = float(np.nanmax(np.abs(grid))) if np.isfinite(grid).any() else 1.0
+    pc = ax.pcolormesh(leads, radius_centers, grid, cmap="RdBu_r", shading="nearest",
+                       vmin=-vm, vmax=vm)
     fig.colorbar(pc, ax=ax, label="tangential wind (m/s, cyclonic +)")
     ax.set_xlabel("lead (h)")
     ax.set_ylabel("radius (km)")

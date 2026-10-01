@@ -24,6 +24,7 @@ from __future__ import annotations
 import os
 
 from post import tools
+from post.conventions import reflectivity_cmap
 from post.extract import list_frames
 
 
@@ -57,6 +58,7 @@ def _undefined(arr):
 
 def _map_field(run_dir, domain, field, time_str, out_path, title, cmap="viridis",
                fill_label=""):
+    """title may contain '{time}', replaced by the init/valid/lead label (decision 0064)."""
     import netCDF4
     import numpy as np
     wrf_mod = __import__("wrf")
@@ -77,6 +79,13 @@ def _map_field(run_dir, domain, field, time_str, out_path, title, cmap="viridis"
         lats, lons = wrf_mod.latlon_coords(var, as_np=True)
         crs = wrf_mod.get_cartopy(var=var)
         arr = np.asarray(np.ma.filled(np.ma.masked_invalid(np.asarray(var, "f8")), np.nan), "f8")
+        from post.conventions import ds_time_label, reflectivity_colors
+        title = title.replace("{time}", ds_time_label(ds, time_str))
+        if field == "mdbz":
+            # NWS WSR-88D table, 5 dBZ steps (decision 0064)
+            levels, colors = reflectivity_colors()
+            arr = np.where(arr < levels[0], np.nan, arr)
+            kw = dict(fill_levels=levels, fill_colors=colors, fill_extend="max")
         if field in ("mcape", "mcin"):
             undef = _undefined(arr)
             arr = np.where(undef, np.nan, arr)
@@ -140,8 +149,8 @@ def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6):
     try:
         path = _map_field(run_dir, domain, "mdbz", last_time,
                           os.path.join(out_dir, "conv_max_reflectivity.png"),
-                          "%s d%02d max column reflectivity  %s" % (run_label, domain, last_time),
-                          cmap="gist_ncar", fill_label="dBZ")
+                          "%s d%02d max column reflectivity (NWS table)  {time}" % (run_label, domain),
+                          fill_label="reflectivity (dBZ)")
         out.append(fig("conv_max_reflectivity", path, run_label, domain="d%02d" % domain,
                        valid_time=last_time))
     except (tools.ToolNotFoundError, ImportError) as e:
@@ -151,7 +160,7 @@ def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6):
         for field, label in (("mcape", "MCAPE (J/kg)"), ("mcin", "MCIN (J/kg)")):
             path = _map_field(run_dir, domain, field, last_time,
                               os.path.join(out_dir, "conv_%s.png" % field),
-                              "%s d%02d %s  %s" % (run_label, domain, label, last_time),
+                              "%s d%02d %s  {time}" % (run_label, domain, label),
                               cmap="plasma", fill_label=label)
             out.append(fig("conv_%s" % field, path, run_label, domain="d%02d" % domain,
                            valid_time=last_time))
@@ -162,10 +171,17 @@ def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6):
         uh_max, lats, lons, crs = _uh_time_max(run_dir, domain, post_spinup)
         from post.recipes.mapfig import save_map
         path = os.path.join(out_dir, "conv_uh25_max.png")
+        from post.conventions import UH_LEVELS, path_time_label
+        import numpy as np
+        uh_plot = np.where(np.asarray(uh_max, dtype="f8") < UH_LEVELS[0], np.nan, uh_max)
         save_map(path, lats, lons,
-                "%s d%02d 2-5 km updraft helicity, time-max (spin-up excluded: %g h)"
-                % (run_label, domain, spinup_hours),
-                fill_field=uh_max, fill_label="UH 2-5km (m2/s2)", fill_cmap="Reds", crs=crs)
+                "%s d%02d 2-5 km AGL updraft helicity, time max over %s .. %s\n"
+                "(spin-up %g h excluded; >= 75 m$^2$ s$^{-2}$ marks rotating storms)"
+                % (run_label, domain,
+                   path_time_label(post_spinup[0][1], post_spinup[0][0]),
+                   post_spinup[-1][0][:13] + "Z", spinup_hours),
+                fill_field=uh_plot, fill_label="2-5 km UH (m$^2$ s$^{-2}$)", fill_cmap="Reds",
+                fill_levels=UH_LEVELS, fill_extend="max", crs=crs)
         out.append(fig("conv_uh25_max", path, run_label, domain="d%02d" % domain,
                        valid_time="%s..%s" % (post_spinup[0][0], post_spinup[-1][0])))
     except (tools.ToolNotFoundError, ImportError) as e:
@@ -433,7 +449,7 @@ def _radar_figures(run_dir, run_label, domain, case_info, out_dir, spinup_hours)
     p = obs_figs.side_by_side(
         glat, glon, gf, go, ("%s d%02d model max column reflectivity" % (run_label, domain), obs_name + " (obs)"),
         "composite reflectivity %s UTC, matched points (%d radar(s))" % (tb.strftime("%Y-%m-%d %H:%M"), n_rad),
-        os.path.join(out_dir, "conv_radar_compare.png"), obs_figs.DBZ_LEVELS, cmap="gist_ncar",
+        os.path.join(out_dir, "conv_radar_compare.png"), obs_figs.DBZ_LEVELS, cmap=reflectivity_cmap(),
         cbar_label="dBZ", extend="max")
     out.append(fig("conv_radar_compare", p, run_label, domain="d%02d" % domain,
                    valid_time=tb.strftime(WRF_TIME_FMT), extra=dict(common, tool=common["tool"])))

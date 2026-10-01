@@ -67,7 +67,9 @@ def _change_scale(field, diffs):
         return levels, precip_cmap(), "max"
     from post.recipes.synoptic import symmetric_levels
     vmax = float(np.percentile(np.abs(vals), 98)) if vals.size else 1.0
-    return symmetric_levels(max(vmax, 1e-6)), "RdBu_r", "both"
+    # moisture changes: wet = green/blue (BrBG); temperature/pressure keep RdBu_r (decision 0064)
+    cmap = "BrBG" if field in ("pw",) else "RdBu_r"
+    return symmetric_levels(max(vmax, 1e-6)), cmap, "both"
 
 
 def _compute_diff(run_dir, field, domain, out_dir, t_prev, t_curr):

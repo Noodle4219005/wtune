@@ -3,6 +3,27 @@
 Versions are declared in `wtune_version.py`; `test_wtune_version.py` fails if the top section
 here does not match it. Development before 0.1.0 is in the git history, not in releases.
 
+## 0.7.0 — 2026-10-01
+
+**Measured node-count search.** `wtune tune --nodes search` is the new default: the ANCHOR
+configuration is measured at every legal node count (one job per N, REPS=2, waves within
+`--max-nodes`, extension guards applied, early stop once more nodes stop helping, sweep capped
+at `--sweep-budget-frac` of `--minutes`, default 0.4), and the node count is chosen by
+`--node-objective time|cost|knee` (`--deadline-minutes`, `--min-efficiency`,
+`--node-finalists`). The full search then runs at the finalist node counts. `tune_report.json`
+gets `node_selection` with all three objectives. `--nodes N` and `--nodes auto` are unchanged;
+`budget.nodes: search` and the new keys are accepted in YAML. **Not yet verified on the
+cluster** (pre-registered checks: matthew picks N <= 4 and stops early; conus25 picks N >= 8).
+
+**WRF extensions.** `bin/build-wrf-extensions.sh` gains `COMPILER=gnu` for WRFDA (nvfortran 26.5
+rejects the GNU `isnan` in the GOES-ABI reader); WRFDA con200 3DVAR converges with the gcc build.
+WRF-Chem gets a provisional decomposition guard (`CHEM_MIN_J_PATCH=21`) after GOCART hung at
+narrow j-patches; wider splits still hang intermittently (about 2 in 11 runs). Extension cost
+calibration (72 jobs on scc) left all coefficients as placeholders under its pre-registered
+rules; measured ratios are in `results/derived-data/2026-10-01-extension-calibration-results.csv`.
+
+**Docs.** README gains a hands-on tutorial in Traditional Chinese (`## 教學：從零開始用 WTune`).
+
 ## 0.6.0 — 2026-09-30
 
 **Observation comparison and data fetch.** `wtune post fetch NAME --project P [--run-dir R]`,

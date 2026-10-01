@@ -119,13 +119,21 @@ def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6):
             if len(warm):
                 th_sets.append(dict(field=thickness_dam, levels=warm, colors="tab:red",
                                     linestyles="dashed", linewidths=0.8, fmt="%d"))
-            if th_levels.min() <= 540.0 <= th_levels.max():
+            th_min, th_max = np.nanmin(thickness_dam), np.nanmax(thickness_dam)
+            has_540 = th_min <= 540.0 <= th_max
+            if has_540:
                 th_sets.append(dict(field=thickness_dam, levels=[540.0], colors="tab:blue",
                                     linestyles="dashed", linewidths=2.0, fmt="%d"))
-            # one legend entry describing what is actually drawn
-            th_sets[-1]["label"] = ("1000-500 hPa thickness every 6 dam (dashed; blue <= 540, "
-                                    "red > 540%s)" % (", 540 bold" if th_levels.min() <= 540.0
-                                                      <= th_levels.max() else ""))
+            # one legend entry describing only the lines the data range actually draws
+            parts = []
+            if th_min < 540.0:
+                parts.append("blue <= 540")
+            if th_max > 540.0:
+                parts.append("red > 540")
+            if has_540:
+                parts.append("540 bold")
+            th_sets[-1]["label"] = ("1000-500 hPa thickness every 6 dam (dashed; %s)"
+                                    % ", ".join(parts))
             p2 = os.path.join(out_dir, "syn_slp_thickness.png")
             save_map(p2, lats, lons,
                     "%s d01 SLP (isobars every 4 hPa) + 1000-500 hPa thickness (dashed, dam)  %s\n"

@@ -897,7 +897,7 @@ def _track_map_figure(out_dir, model_tracks, bdeck, storm_id, dom_dx=None):
         ax.autoscale_view()
         add_base_map(ax, ccrs, terrain=False, nest_rings=[], caption=False, labels=False)
     t0 = min(valid) if valid else None
-    ax.set_title("%s track, model init %s (segments coloured by tracking domain; markers 6-hourly)"
+    ax.set_title("%s track, model init %s\n(segments coloured by tracking domain; markers 6-hourly)"
                  % (storm_id, t0.strftime("%Y-%m-%d %HZ") if t0 else "?"), fontsize=10)
     ax.legend(handles=handles, fontsize=8)
     path = os.path.join(out_dir, "track_map.png")
@@ -1017,7 +1017,7 @@ def _rmw_figure(run_dir, adeck_path, met_dir, out_dir, label, every_h=6):
     vt_hi = float(np.nanmax(vt_f))
     levels = np.arange(5.0 * np.floor(min(float(np.nanmin(vt_f)), 0.0) / 5.0), vt_hi + 5.0, 5.0)
     cf = ax.contourf(rng, plev, vt_f, levels=levels, cmap="YlOrRd", extend="both")
-    fig.colorbar(cf, ax=ax, label="azimuthal-mean tangential wind (m/s, every 5)")
+    fig.colorbar(cf, ax=ax, label="azimuthal-mean tangential wind (m/s, every 5)", pad=0.14)
     # radial-wind lines from the masked (unfilled) array: the downward-filled copy would draw
     # contours running vertically through the constant-filled below-surface cells
     vr_m = np.ma.masked_invalid(vr_mean)
@@ -1115,9 +1115,14 @@ def _error_figures(out_dir, tcsts):
                                                          lambda v: v * KT_TO_MS))
             sec.set_ylabel(ylabel.replace("(m/s)", "(kt)"))
         first = next((rows[0][1] for rows in series.values() if rows), {})
-        ax.set_title("%s  %s, init %s  (MET TC-Pairs)" % (
-            first.get("STORM_ID", ""), ylabel,
-            str(first.get("INIT", "?")).replace("_", " ")), fontsize=10)
+        init_txt = str(first.get("INIT", "?"))
+        try:
+            from datetime import datetime as _dt
+            init_txt = _dt.strptime(init_txt, "%Y%m%d_%H%M%S").strftime("%Y-%m-%d %HZ")
+        except ValueError:
+            pass
+        ax.set_title("%s  %s, init %s  (MET TC-Pairs)" % (first.get("STORM_ID", ""), ylabel,
+                                                         init_txt), fontsize=10)
         ax.legend()
         path = os.path.join(out_dir, "tc_pairs_%s.png" % stem)
         fig.tight_layout()

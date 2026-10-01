@@ -156,8 +156,18 @@ def _check_winner_is_final(report, out_dir):
     return w
 
 
+def _healthy_preflight(monkeypatch):
+    """A fake all-healthy node pre-flight. Without it run() calls the REAL sinfo/srun: on scc,
+    inside an allocation, only the test's own node can read tmp_path, so the probe leaves 1
+    healthy node -> max_nodes 1 -> one finalist and no phase-2 overturn. node_preflight also
+    writes WTUNE_PREFLIGHT_EXCLUDE into os.environ: let monkeypatch restore it."""
+    monkeypatch.setenv("WTUNE_PREFLIGHT_EXCLUDE", "")
+    return tt.make_health_runner({"work%d" % i: "idle" for i in range(1, 14)})[0]
+
+
 def test_pipeline_without_phase_2_writes_the_final_winner(monkeypatch, tmp_path):
-    report, env = tt._pipe_run(monkeypatch, tmp_path, planner=lambda planned, T, call: ([], 0.15))
+    report, env = tt._pipe_run(monkeypatch, tmp_path, planner=lambda planned, T, call: ([], 0.15),
+                               preflight_runner=_healthy_preflight(monkeypatch))
     assert "rebuild_submit" not in env.events
     w = _check_winner_is_final(report, str(tmp_path / "out"))
     assert w["median"] is not None
@@ -181,7 +191,8 @@ def test_pipeline_phase_2_overturn_updates_the_winner(monkeypatch, tmp_path):
             mp.setattr(wtune_tune, "rank_by_predicted_total", rank)
 
     monkeypatch.setattr(tt, "_PipeEnv", Overturn)
-    report, _env = tt._pipe_run(monkeypatch, tmp_path)
+    report, _env = tt._pipe_run(monkeypatch, tmp_path,
+                                preflight_runner=_healthy_preflight(monkeypatch))
     assert report["nodes_note"] == "phase 2 predicted-whole-run winner"
     phase1_n = report["node_selection"]["final"]
     w = _check_winner_is_final(report, str(tmp_path / "out"))

@@ -210,8 +210,11 @@ def run_recipe(run_dirs, out_dir, types_override=None, ensemble=False, spinup_ho
     every/times (decision 0058 P3): when either is given, an additional per-valid-time full
     figure set (post/timeseries.py) plus consecutive/vs-t0 change maps (post/changemap.py) are
     produced on the finest domain of run_dirs[0], on top of the type-driven recipe figures
-    above. animate: also builds one MP4 (post/anim.py) per time-series field when 2+ times
-    were selected. cross_sections: optional {"terrain": {...}, "moisture": {...}} line
+    above; they also set the cadence of the always-on CF pressure-level NetCDF data product
+    (post/recipes/cf3d.py) and of the VAPOR bundle (post/recipes/vapor_bundle.py); last frame
+    only when neither is given. animate: also builds one MP4 (post/anim.py) per time-series
+    field when 2+ times were selected. cross_sections: optional {"terrain": {...},
+    "moisture": {...}} line
     overrides (project.yaml's cross_sections.*, decision 0057 update). xsec_top_km/
     xsec_halfwidth_km: project.yaml's own xsec_top_km/xsec_halfwidth_km (2026-09-29 second
     lead review) -- the terrain/moisture cross-section figures' height window and
@@ -220,6 +223,7 @@ def run_recipe(run_dirs, out_dir, types_override=None, ensemble=False, spinup_ho
     `spinup_days` (climate); None keeps that module's own default. track_smooth_km: the TC
     tracker's SLP smoothing radius (post/tc.py; None = its default 30, 0 = raw)."""
     from post.recipes import common as common_mod
+    from post.recipes import vapor_bundle as vapor_bundle_mod
 
     os.makedirs(out_dir, exist_ok=True)
     labels = labels or [("run%d" % i) for i in range(len(run_dirs))]
@@ -235,6 +239,9 @@ def run_recipe(run_dirs, out_dir, types_override=None, ensemble=False, spinup_ho
     all_figures = []
     all_figures += common_mod.figures(run_dirs, labels, out_dir, case_info,
                                       decomposition_only=decomposition_only)
+    all_figures += _cf3d_data(run_dirs[0], labels[0], out_dir, case_info, every, times)
+    all_figures += vapor_bundle_mod.figures(run_dirs[0], labels[0], out_dir, case_info,
+                                            every=every, times=times)
 
     tc_centre = None
     if "moisture" in types and (hurdat2_path or bdeck_path):
@@ -313,6 +320,19 @@ def _verification_advice(run_dir, out_dir, hurdat2_path, storm_id, bdeck_path, n
         notes.append(note("advice", "advice skipped: %s: %s" % (type(e).__name__, e),
                           level="info"))
         return None
+
+
+def _cf3d_data(run_dir, run_label, out_dir, case_info, every, times):
+    """Always-on CF pressure-level NetCDF data product (post/recipes/cf3d.py) for run_dirs[0],
+    at the --every/--times cadence (last frame only without either). Data-file records, not
+    figures; any failure becomes a missing entry, never a failed report."""
+    from post.recipes import cf3d
+    try:
+        bdy_width = caseinfo.spec_bdy_width(run_dir)
+    except caseinfo.CaseInfoError:
+        bdy_width = caseinfo.DEFAULT_SPEC_BDY_WIDTH
+    return cf3d.figures(run_dir, run_label, out_dir, case_info, bdy_width, every=every,
+                        times=times)
 
 
 def _time_series_figures(run_dirs, labels, out_dir, case_info, every, times, animate=False):

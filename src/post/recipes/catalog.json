@@ -27,6 +27,30 @@
       "common_misreadings": "Reading this as model error against observations -- it measures pure numerical reproducibility noise, not skill."
     }
   },
+  "common_cf3d": {
+    "zh": {
+      "question": "要在 Met.3D 或 ParaView 裡做 3-D 互動分析，需要哪個檔？",
+      "how_to_read": "這不是圖，是資料檔：每個 domain、每個選定時間一個 CF-1.8 NetCDF（wrf_d0N_pl_YYYYMMDD_HHMM.nc），維度 (time, isobaric, lat, lon)，等壓面 1000–100 hPa（高於模式頂 P_TOP 的層已移除），規則經緯度網格（間距約 dx/111.2 km 取到 0.01°），已排除側邊界鬆弛區。變數：溫度、地球座標 u/v、w、位勢高度、RH、QCLOUD/QICE/CLOUD_TOTAL（混合比）與地形高度。Met.3D 直接開；ParaView 用 NetCDF CF reader，並勾選 Replace Fill Value With Nan。",
+      "common_misreadings": "把 _FillValue（9.96921e36）當成真實數值——它代表地面以下（低於最低模式層，不外插）、網格外或邊界區；把 QCLOUD/QICE 當成 CF 的質量分數——它們是對乾空氣的混合比；以為只有最後時刻——加 --every 才會依間隔輸出多個時刻。"
+    },
+    "en": {
+      "question": "Which file do I open in Met.3D or ParaView for interactive 3-D analysis?",
+      "how_to_read": "This is a data file, not a figure: one CF-1.8 NetCDF per domain and selected time (wrf_d0N_pl_YYYYMMDD_HHMM.nc), dims (time, isobaric, lat, lon), pressure levels 1000-100 hPa (levels above the model top P_TOP removed), on a regular lon-lat grid (spacing ~dx/111.2 km rounded to 0.01 deg) with the lateral boundary relaxation zone excluded. Variables: temperature, earth-relative u/v, w, geopotential height, RH, QCLOUD/QICE/CLOUD_TOTAL (mixing ratios) and terrain height. Met.3D opens it directly; in ParaView use the NetCDF CF reader and tick Replace Fill Value With Nan.",
+      "common_misreadings": "Taking the _FillValue (9.96921e36) as data -- it marks below ground (below the lowest model level; nothing is extrapolated), outside the native grid, or the boundary zone; reading QCLOUD/QICE as CF mass fractions -- they are mixing ratios per kg of dry air; assuming only the last time exists -- add --every to write one file per interval."
+    }
+  },
+  "common_vapor_bundle": {
+    "zh": {
+      "question": "要在自己的工作站用 NCAR VAPOR 看 3-D 雲與地形，需要複製哪個資料夾？",
+      "how_to_read": "這不是圖，是可直接複製的 bundle 資料夾（vapor/d0N/）：選定時間的 wrfout（每個時間一個檔，檔名的 ':' 換成 '_'，從 run hard link 而來，不佔額外空間；recipe 輸出與 run 不在同一檔案系統時不會複製，該 domain 記為 missing 並附上 `wtune post vapor-bundle ... --allow-copy` 指令與將複製的檔數、大小）、vapor_render.py（VAPOR Python API 算圖：地形 + QCLOUD/QICE isosurface，也可只存 .vs3 session）、README.md（rsync、conda 安裝、GUI 開法）與 bundle.json manifest。VAPOR 沒有 linux-aarch64 build，只能在 x86_64 Linux / macOS 工作站上跑，不能在 scc 上跑。",
+      "common_misreadings": "以為 scc 上能直接跑 VAPOR——不行；以為 PNG 一定是不同時間——SetTimestep 是未驗證的呼叫，若被忽略每張 PNG 會是同一時間，README 有說明；以為垂直放大可以用腳本設定——只能在 GUI 調。"
+    },
+    "en": {
+      "question": "Which folder do I copy to my workstation to view 3-D clouds and terrain in NCAR VAPOR?",
+      "how_to_read": "This is a ready-to-copy bundle folder (vapor/d0N/), not a figure: the selected wrfout frames (one time per file, ':' in the name replaced by '_', hard-linked from the run, so they cost no extra space; when the recipe output is on another filesystem nothing is copied -- that domain is a missing entry carrying the `wtune post vapor-bundle ... --allow-copy` command and the file count and size it would copy), vapor_render.py (VAPOR Python API: terrain plus QCLOUD/QICE isosurfaces, or a .vs3 session only), README.md (rsync, conda install, opening in the GUI) and a bundle.json manifest. VAPOR has no linux-aarch64 build: it runs on an x86_64 Linux / macOS workstation, not on scc.",
+      "common_misreadings": "Expecting VAPOR to run on scc -- it cannot; assuming every PNG shows a different time -- SetTimestep is an unverified call, and if VAPOR ignores it every PNG shows the same time (see README); expecting the script to set vertical exaggeration -- that is GUI-only."
+    }
+  },
   "tc_track_map": {
     "zh": {
       "question": "模式路徑跟最佳路徑（best track）差多遠？",

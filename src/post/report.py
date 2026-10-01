@@ -181,6 +181,15 @@ def _sources_section(figures, out_dir):
     return "\n".join(rows)
 
 
+def _human_size(n):
+    if n is None:
+        return "size unknown"
+    for unit in ("B", "KB", "MB", "GB"):
+        if n < 1024 or unit == "GB":
+            return ("%d %s" if unit == "B" else "%.1f %s") % (n, unit)
+        n /= 1024.0
+
+
 def _stamp(f, spinup_hours):
     bits = []
     if f.get("run"):
@@ -294,6 +303,7 @@ def build_recipe_report(out_dir, case_info, figures, run_dirs, labels, spinup_ho
                  "%.0f x %.0f km</p>" % (spinup_hours, case_info["run_length_h"],
                                         case_info["d01_extent_km"][0], case_info["d01_extent_km"][1]))
 
+    data_ids_shown = set()
     for t in case_info["types"]:
         type_figs = _figures_for_type(figures, t)
         if not type_figs:
@@ -305,6 +315,24 @@ def build_recipe_report(out_dir, case_info, figures, run_dirs, labels, spinup_ho
                     "<div class='missing'><strong>missing: %s</strong> (dataset: %s)<br>"
                     "reason: %s</div>" % (html.escape(f["id"]), html.escape(f.get("dataset", "")),
                                           html.escape(f.get("reason", ""))))
+                continue
+            if f.get("data_file"):
+                # a data product (e.g. post/recipes/cf3d.py's NetCDF), one per domain x time:
+                # one heading + caption per id, then a compact line per file
+                if f["id"] not in data_ids_shown:
+                    data_ids_shown.add(f["id"])
+                    parts.append("<h3>%s</h3>" % html.escape(f["id"]))
+                    parts.append(_caption_block(catalog, f["id"]))
+                rel = os.path.relpath(f["path"], out_dir)
+                links = "".join(" | <a href='%s'>%s</a>" % (
+                    html.escape(os.path.relpath(p, out_dir)), html.escape(os.path.basename(p)))
+                    for p in f.get("links") or [])
+                parts.append("<p class='datafile'>data file: <a href='%s'>%s</a> (%s)%s<br>"
+                             "<span class='stamp'>%s</span></p>" % (
+                                 html.escape(rel), html.escape(rel),
+                                 _human_size(f.get("size_bytes")), links,
+                                 html.escape(_stamp(f, spinup_hours))))
+                parts.append(_source_lines(f))
                 continue
             parts.append("<h3>%s</h3>" % html.escape(f["id"]))
             ext = os.path.splitext(f["path"])[1].lower()

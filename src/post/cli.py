@@ -1,5 +1,6 @@
 """post/cli.py -- `wtune post <sub>` subcommands (decision 0056): inventory, extract, plot,
-sounding, tc, compare, report, recipe, custom, fetch (+ fetch-era5). Only stdlib (argparse, json) at import time; every
+sounding, tc, compare, report, recipe, custom, fetch (+ fetch-era5), cf3d,
+vapor-bundle. Only stdlib (argparse, json) at import time; every
 subcommand's own module does its own heavy (netCDF4/wrf-python/matplotlib/metpy/cartopy)
 imports lazily, so `wtune post --help` and `wtune --help` never need them installed.
 """
@@ -242,6 +243,85 @@ def cmd_recipe(args):
     return 0
 
 
+def _cf3d_command(args, out):
+    """The resolved command line, for the NetCDF `history` attribute (sys.argv differs between
+    `wtune post ...` and a direct post/cli.py main(argv) call)."""
+    cmd = ["wtune", "post", "cf3d", args.run_dir]
+    for flag in ("domain", "every", "times"):
+        if getattr(args, flag):
+            cmd += ["--%s" % flag, str(getattr(args, flag))]
+    return " ".join(cmd + ["--out", out])
+
+
+def _domains_and_out(args, tag):
+    """(out_dir, domains, bdy_width) for `post cf3d` / `post vapor-bundle`: --domain, else the
+    recipe's own rule (d01 + the finest nest, post/recipes/cf3d.cf_domains); without a namelist
+    next to the wrfout, d01 and WRF's default boundary width."""
+    from post import caseinfo
+    from post.recipes import cf3d
+    project_dir, _doc = _project_context(args)
+    out = args.out
+    if not out:
+        if not project_dir:
+            raise SystemExit("--out required (or --project DIR for a default post/<id>/)")
+        import wtune_project
+        out = wtune_project.default_out_dir(project_dir, "post", tag=tag)
+    try:
+        bdy_width = caseinfo.spec_bdy_width(args.run_dir)
+        domains = [args.domain] if args.domain else \
+            cf3d.cf_domains(dict(domains=caseinfo.domain_physics(args.run_dir)[1]))
+    except caseinfo.CaseInfoError:
+        bdy_width, domains = caseinfo.DEFAULT_SPEC_BDY_WIDTH, [args.domain or 1]
+    return project_dir, out, domains, bdy_width
+
+
+def cmd_cf3d(args):
+    from post import cf_pressure
+    project_dir, out, domains, bdy_width = _domains_and_out(args, "cf3d")
+    results = cf_pressure.export(args.run_dir, out, domains, bdy_width, every=args.every,
+                                 times=_parse_vars(args.times) if args.times else None,
+                                 command=_cf3d_command(args, out))
+    n_err = 0
+    for r in results:
+        if r.get("error"):
+            n_err += 1
+            print("error: d%02d %s: %s" % (r["domain"], r["valid_time"], r["error"]))
+        else:
+            print("wrote %s (%d levels, %dx%d lat-lon, %.1f MB)" % (
+                r["path"], len(r["levels"]), r["nlat"], r["nlon"], r["size_bytes"] / 2.0 ** 20))
+    if project_dir:
+        import wtune_project
+        wtune_project.manifest_append(project_dir, ["wtune", "post", "cf3d", args.run_dir],
+                                      out_dir=out, exit_code=1 if n_err else 0,
+                                      key_paths=[args.run_dir])
+    return 1 if n_err or not results else 0
+
+
+def cmd_vapor_bundle(args):
+    from post import vapor_bundle
+    project_dir, out, domains, _bdy = _domains_and_out(args, "vapor")
+    results = vapor_bundle.export(args.run_dir, out, domains, every=args.every,
+                                  times=_parse_vars(args.times) if args.times else None,
+                                  allow_copy=args.allow_copy)
+    n_err = 0
+    for r in results:
+        if r.get("error"):
+            n_err += 1
+            print("error: d%02d: %s" % (r["domain"], r["error"]))
+        else:
+            print("bundle %s: %d wrfout file(s), %.1f MB, %s" % (
+                r["dir"], r["n_files"], r["total_bytes"] / 2.0 ** 20, r["link_note"]))
+            print("  copy with: rsync -av <host>:%s/ ./  (see %s)"
+                  % (os.path.abspath(r["dir"]), os.path.basename(r["readme"])))
+    if project_dir:
+        import wtune_project
+        wtune_project.manifest_append(project_dir, ["wtune", "post", "vapor-bundle",
+                                                    args.run_dir],
+                                      out_dir=out, exit_code=1 if n_err else 0,
+                                      key_paths=[args.run_dir])
+    return 1 if n_err or not results else 0
+
+
 def cmd_custom(args):
     import post.custom as custom
     import wtune_project
@@ -409,6 +489,39 @@ def build_parser():
                        "recipe excludes (default: that recipe's own, 30)")
     p_rec.add_argument("--title", default=None)
 
+    p_cf = sub.add_parser("cf3d", help="CF-1.8 NetCDF on pressure levels and a regular "
+                          "lon-lat grid (Met.3D/ParaView), wrf_d0N_pl_YYYYMMDD_HHMM.nc under "
+                          "OUT/cf3d/d0N/")
+    p_cf.add_argument("run_dir")
+    p_cf.add_argument("--domain", type=int, default=None, help="default: the finest domain, "
+                      "plus d01 when there is a nest (same as `post recipe`)")
+    p_cf.add_argument("--every", default=None, metavar="6h|1d", help="one file per valid time "
+                      "at this interval (default: the last frame only)")
+    p_cf.add_argument("--times", default=None, help="comma-separated WRF times or YYYYmmddHH, "
+                      "snapped to the nearest available frame")
+    p_cf.add_argument("--out", default=None, help="output directory (default: a project's "
+                      "post/<id>/ -- decision 0058)")
+    p_cf.add_argument("--project", default=None, help="project dir (decision 0058); default: "
+                      "$WTUNE_PROJECT or a project.yaml above the current directory")
+
+    p_vb = sub.add_parser("vapor-bundle", help="ready-to-copy NCAR VAPOR bundle (wrfout "
+                          "frames hard-linked, vapor_render.py, README.md, bundle.json) under "
+                          "OUT/vapor/d0N/ -- VAPOR itself runs on an x86_64/macOS workstation")
+    p_vb.add_argument("run_dir")
+    p_vb.add_argument("--domain", type=int, default=None, help="default: the finest domain, "
+                      "plus d01 when there is a nest (same as `post recipe`)")
+    p_vb.add_argument("--every", default=None, metavar="6h|1d", help="frames at this interval "
+                      "(default: the last frame only)")
+    p_vb.add_argument("--times", default=None, help="comma-separated WRF times or YYYYmmddHH, "
+                      "snapped to the nearest available frame")
+    p_vb.add_argument("--allow-copy", action="store_true", dest="allow_copy",
+                      help="copy the frames when they cannot be hard-linked (OUT on another "
+                      "filesystem); without it that domain fails with the size it would copy")
+    p_vb.add_argument("--out", default=None, help="output directory (default: a project's "
+                      "post/<id>/ -- decision 0058)")
+    p_vb.add_argument("--project", default=None, help="project dir (decision 0058); default: "
+                      "$WTUNE_PROJECT or a project.yaml above the current directory")
+
     p_cus = sub.add_parser("custom", help="run every analysis/*.py script in a project "
                            "(decision 0058 section 2), collect their figures/tables into one "
                            "HTML report")
@@ -444,8 +557,9 @@ def main(argv=None):
     args = parser.parse_args(argv)
     dispatch = dict(inventory=cmd_inventory, extract=cmd_extract, plot=cmd_plot,
                     sounding=cmd_sounding, tc=cmd_tc, compare=cmd_compare, report=cmd_report,
-                    recipe=cmd_recipe, custom=cmd_custom, fetch=cmd_fetch)
+                    recipe=cmd_recipe, custom=cmd_custom, fetch=cmd_fetch, cf3d=cmd_cf3d)
     dispatch["fetch-era5"] = cmd_fetch
+    dispatch["vapor-bundle"] = cmd_vapor_bundle
     fn = dispatch.get(args.post_command)
     if fn is None:
         parser.print_help()

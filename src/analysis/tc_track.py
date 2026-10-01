@@ -118,7 +118,8 @@ class TCTrackParams:
     closedcontour_dist_deg: float = 5.5      # search radius (deg) for the closed-contour test
     mergedist_deg: float = 6.0               # merge candidates within this distance (deg)
     wind_radius_deg: float = 2.0             # radius (deg, ~220 km) for near-core max wind
-    stitch_range_deg: float = 8.0            # max deg a track may move between detections
+    stitch_range_deg: float = 8.0            # max deg a track may move between 6-hourly detections
+    stitch_range_min_deg: float = 2.0        # floor after scaling to the output interval
     mintime_hours: float = 24.0              # minimum track lifetime to keep
     maxgap_hours: float = 24.0               # maximum allowed gap in a track
     regional: bool = True                    # WRF output is always a limited-area domain
@@ -160,6 +161,31 @@ def _hours_spec(hours):
     return f"{int(round(hours * 60))}m"
 
 
+def _output_interval_hours(ds):
+    """Median spacing of the fields file's time axis in hours, or None (one frame / no units)."""
+    if "time" not in ds.variables or len(ds.variables["time"]) < 2:
+        return None
+    tvar = ds.variables["time"]
+    unit = getattr(tvar, "units", "").split(" since ")[0].strip().lower()
+    per_hour = {"seconds": 3600.0, "minutes": 60.0, "hours": 1.0, "days": 1.0 / 24.0}.get(unit)
+    if per_hour is None:
+        return None
+    import numpy as np
+    return float(np.median(np.diff(np.asarray(tvar[:], dtype=float)))) / per_hour
+
+
+def stitch_range_for_interval(params, interval_h):
+    """StitchNodes --range for this output interval. stitch_range_deg is the 6-hourly
+    convention; at hourly output a fixed 8 deg lets a second low up to 8 deg away claim the
+    first detection (SC26-P2: a 1007 hPa low 653 km from Katrina took t0, the real centre was
+    orphaned). Scale linearly with the interval, floored at stitch_range_min_deg, never above
+    stitch_range_deg."""
+    if not interval_h or interval_h <= 0:
+        return params.stitch_range_deg
+    scaled = params.stitch_range_deg * interval_h / 6.0
+    return min(params.stitch_range_deg, max(params.stitch_range_min_deg, scaled))
+
+
 def detect_and_stitch(fields_nc, workdir, params=None):
     """Run TempestExtremes DetectNodes + StitchNodes on a fields_nc written by
     analysis.diagnostics.wrfout_to_tc_fields.
@@ -184,6 +210,8 @@ def detect_and_stitch(fields_nc, workdir, params=None):
     with netcdf4.Dataset(fields_nc) as ds:
         grid_type = getattr(ds, "grid_type", "separable")
         map_proj_name = getattr(ds, "map_proj_name", "unknown")
+        interval_h = _output_interval_hours(ds)
+    stitch_range = stitch_range_for_interval(params, interval_h)
 
     detectnodes = _find_binary("DetectNodes")
     stitchnodes = _find_binary("StitchNodes")
@@ -222,7 +250,7 @@ def detect_and_stitch(fields_nc, workdir, params=None):
     track_path = os.path.join(workdir, "track.csv")
     stitch_cmd = [stitchnodes, "--in", nodes_path, "--out", track_path,
                  "--in_fmt", "lon,lat,slp,wind",
-                 "--range", str(params.stitch_range_deg),
+                 "--range", "%g" % stitch_range,
                  "--mintime", _hours_spec(params.mintime_hours),
                  "--maxgap", _hours_spec(params.maxgap_hours),
                  "--out_file_format", "csv", "--caltype", "standard"] + in_connect_args
@@ -243,6 +271,8 @@ def detect_and_stitch(fields_nc, workdir, params=None):
         "grid_type": grid_type,
         "map_proj_name": map_proj_name,
         "params": asdict(params),
+        "output_interval_hours": interval_h,
+        "stitch_range_effective_deg": stitch_range,
     }
     return tracks, provenance
 

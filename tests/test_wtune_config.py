@@ -404,6 +404,18 @@ def test_budget_nodes_accepts_auto_int_and_list():
         assert errs == [], (nodes_val, errs)
 
 
+def test_budget_nodes_search_and_search_knobs_validate():
+    cfg, errs = wcfg.resolve_config(_valid_raw(budget=dict(
+        minutes=10, max_nodes=13, nodes="search", node_objective="cost", deadline_minutes=90,
+        min_efficiency=0.8, node_finalists=3, sweep_budget_frac=0.4)))
+    assert errs == []
+    assert cfg["budget"]["nodes"] == "search" and cfg["budget"]["node_objective"] == "cost"
+    for bad in (dict(node_objective="fastest"), dict(deadline_minutes=-1),
+                dict(node_finalists=0), dict(sweep_budget_frac=1.5), dict(min_efficiency="x")):
+        _cfg, errs = wcfg.resolve_config(_valid_raw(budget=dict(minutes=10, nodes="search", **bad)))
+        assert any("budget." in e for e in errs), bad
+
+
 def test_budget_nodes_exceeding_max_nodes_is_reported():
     cfg, errs = wcfg.resolve_config(_valid_raw(budget=dict(minutes=10, max_nodes=4, nodes=99,
                                                               nodes_policy="knee")))

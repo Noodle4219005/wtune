@@ -21,7 +21,10 @@ compliance: strict               # strict       = only the STRICT knobs below ma
 budget:
   minutes: 30                    # wall-clock budget for the whole `wtune tune` run (required: here or --minutes)
   max_nodes: 13                  # hard cap -- scc's compute pool is 13 nodes (work[1-13])
-  nodes: auto                    # auto | <int> | [<int>, ...] -- auto picks ONE node count via
+  nodes: auto                    # auto | search | <int> | [<int>, ...] -- search measures the ANCHOR at
+                                  # each legal node count (wtune_tune --nodes search; node_objective/
+                                  # deadline_minutes/min_efficiency/node_finalists/sweep_budget_frac
+                                  # keys mirror its CLI flags); auto picks ONE node count via
                                   # `nodes_policy` from wtune_case's (uncalibrated) core-count profile;
                                   # a list is previewed by `wtune config show` but not yet run by `wtune tune`
   nodes_policy: knee              # min | cap | knee (see `wtune_tune.py --nodes-policy` for the exact rule)

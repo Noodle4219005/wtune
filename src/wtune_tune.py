@@ -47,11 +47,13 @@ wtune_predict.py (full-run prediction + parameter-table shape, best-effort impor
 from __future__ import annotations
 
 import argparse
+import contextlib
 import copy
 import csv
 import dataclasses
 import datetime
 import glob
+import io
 import json
 import math
 import os
@@ -72,6 +74,7 @@ import scc_sweep as sweep      # tools/scc_sweep.py -- see module docstring for 
 import wtune_case              # wtune_case.py: build_profile (PRIOR, pre-measurement)
 import wtune_compliance as wc  # decision 0056: assert_strict_only guard on the final report
 import wtune_extensions
+import wtune_nodes         # wtune_nodes.py: pure node-count choice from measured s/step
 import wtune_config            # wtune_config.py: --config YAML (search restrictions, budget/probe/
                                 # prediction overrides) -- stdlib only (PyYAML is imported lazily,
                                 # only when --config is actually given), safe to import unconditionally
@@ -2055,6 +2058,8 @@ def render_report_text(report):
     if report.get("ranking_start_note"):
         lines.append("")
         lines.append("NOTE: " + report["ranking_start_note"])
+    if report.get("node_selection"):
+        lines.append(render_node_selection_text(report["node_selection"]))
     return "\n".join(lines)
 
 
@@ -3315,17 +3320,22 @@ def render_predicted_report_text(report):
 # ---------------------------------------------------------------------------
 # top-level run
 # ---------------------------------------------------------------------------
-def _probe_key_explicit(config_path, key):
-    """True when the --config YAML itself sets probe.<key> (not just the built-in default)."""
+def _cfg_key_explicit(config_path, section, key):
+    """True when the --config YAML itself sets <section>.<key> (not just the built-in default)."""
     if not config_path:
         return False
     try:
         yaml = wtune_config._load_yaml_module()
         with open(config_path) as f:
             raw = yaml.safe_load(f) or {}
-        return key in (raw.get("probe") or {})
+        return key in (raw.get(section) or {})
     except Exception:
         return False
+
+
+def _probe_key_explicit(config_path, key):
+    """True when the --config YAML itself sets probe.<key> (not just the built-in default)."""
+    return _cfg_key_explicit(config_path, "probe", key)
 
 
 def _final_cancel_safety_net(ctx):
@@ -3339,6 +3349,249 @@ def _final_cancel_safety_net(ctx):
                      if states.get(j, ("UNKNOWN", ""))[0] in sweep.IN_FLIGHT_STATES]
         if in_flight and ctx.elapsed() >= ctx.budget_s:
             cancel_jobs(ctx, in_flight)
+
+
+# ---------------------------------------------------------------------------
+# node search (--nodes search, default): MEASURE s/step at several node counts, choose N by an
+# objective (wtune_nodes.py), then run the usual round0/adaptive/confirm search at each finalist N
+# ---------------------------------------------------------------------------
+NODE_SWEEP_REPS = 2
+DEFAULT_SWEEP_BUDGET_FRAC = 0.4       # share of --minutes the node sweep may use
+
+
+def _total_steps(namelist_path):
+    """Total d01 steps of the full run (run length / time_step, wtune_predict.get_d01_steps), or
+    None when unavailable (no wtune_predict, unreadable namelist)."""
+    if wtune_predict is None:
+        return None
+    try:
+        steps_n, _run_s, _dt, _note = wtune_predict.get_d01_steps(
+            wtune_predict.parse_namelist(namelist_path))
+        return int(steps_n) if steps_n and steps_n > 0 else None
+    except Exception:
+        return None
+
+
+def _sweep_anchor(ctx, nodes):
+    """(anchor config | None, reason) -- the same ANCHOR round 0 builds at `nodes`
+    (sweep.build_configs), passed through the shared legality filter (_apply_search_filter: OMP
+    cap, WRF-Chem j-patch guard, --config exclude rules)."""
+    cn = dataclasses.replace(ctx, nodes=nodes)
+    built = sweep.build_configs(ctx.case, ctx.case_json, nodes, 0, ctx.seed, ctx.hardware_id,
+                                 ctx.cores_per_node)
+    anchors = [c for c in built["configs"] if c.get("id") == "ANCHOR"]
+    if not anchors:
+        return None, built["skip_reason"] or "no legal ANCHOR decomposition"
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        kept = _apply_search_filter(cn, anchors)
+    if not kept:
+        why = "; ".join(l.strip() for l in buf.getvalue().splitlines() if l.strip())
+        return None, "ANCHOR rejected by the legality filter (%s)" % (why or "excluded")
+    return kept[0], None
+
+
+def run_node_sweep(ctx, legal_nodes, budget_frac=DEFAULT_SWEEP_BUDGET_FRAC):
+    """Stage 'node sweep': one Slurm job per candidate N measuring the ANCHOR at REPS=2, submitted
+    in ascending waves (wtune_nodes.sweep_waves); after each wave stop_early() decides whether
+    larger N are still worth measuring. Returns dict(measurements={N: [s/step]}, anchors={N:
+    config}, results={N: aggregate entry}, skipped=[{nodes, reason}], jobs={N: job_id}). The jobs
+    are ordinary strict_campaign jobs, so their rows land in the same ledger_<case>_<job>.csv
+    files (n_nodes column) round-0 rows do."""
+    cands = wtune_nodes.candidate_node_counts(legal_nodes, ctx.max_nodes)
+    skipped, anchors, meas, results, jobs = [], {}, {}, {}, {}
+    todo = []
+    for n in cands:
+        anchor, why = _sweep_anchor(ctx, n)
+        if anchor is None:
+            skipped.append(dict(nodes=n, reason=why))
+            print("node sweep: N=%d skipped -- %s" % (n, why))
+        else:
+            anchors[n] = anchor
+            todo.append(n)
+    s_prev = None
+    stopped = None
+    cap_s = budget_frac * ctx.budget_s
+    sweep_t0 = ctx.elapsed()
+    for wave in wtune_nodes.sweep_waves(todo, ctx.max_nodes):
+        if not stopped and ctx.elapsed() - sweep_t0 >= cap_s:
+            stopped = ("sweep budget cap: sweep used %s >= %.0f%% of the budget (%s)"
+                       % (_fmt_hms(ctx.elapsed() - sweep_t0), budget_frac * 100,
+                          _fmt_hms(cap_s)))
+            print("node sweep: %s; larger N not submitted" % stopped)
+        if stopped:
+            for n in wave:
+                skipped.append(dict(nodes=n, reason=stopped))
+            continue
+        wave_jobs = {}
+        for n in wave:
+            cn = dataclasses.replace(ctx, nodes=n)
+            if s_prev is not None:
+                s_est, src = s_prev, "last measured median"
+            else:
+                s_est, src, _k = sweep.estimate_s_per_step(ctx.case, n, ctx.ledger_dir,
+                                                            ctx.hardware_id)
+            est = _job_time_est(cn, 1, NODE_SWEEP_REPS, s_est)
+            if would_exceed_budget(ctx.elapsed(), est["total_run_s"], ctx.budget_s):
+                why = ("estimated end would exceed the budget (job ~%s at %.3fs/step[%s], "
+                       "elapsed %s / budget %s)" % (_fmt_hms(est["total_run_s"]), s_est, src,
+                                                    _fmt_hms(ctx.elapsed()),
+                                                    _fmt_hms(ctx.budget_s)))
+                skipped.append(dict(nodes=n, reason=why))
+                print("node sweep: N=%d skipped -- %s" % (n, why))
+                continue
+            job_id, _p, _te = submit_configs_job(cn, [anchors[n]], reps=NODE_SWEEP_REPS,
+                                                   name_suffix="nodes-n%d" % n, s_est=s_est,
+                                                   time_est=est)
+            wave_jobs[n] = job_id
+            jobs[n] = job_id
+            print("node sweep: N=%d submitted job %s (ANCHOR, REPS=%d, ~%s)"
+                  % (n, job_id, NODE_SWEEP_REPS, _fmt_hms(est["total_run_s"])))
+        if not wave_jobs:
+            continue
+        states = wait_for_jobs(ctx, list(wave_jobs.values()), "node-sweep")
+        rows = ctx.ledger_reader(ctx.case, list(wave_jobs.values()))
+        for n, j in wave_jobs.items():
+            mine = [r for r in rows if (parse_run_id(r.get("run_id")) or {}).get("job") == j]
+            agg = aggregate_by_cid(mine, {"ANCHOR": anchors[n]}).get("ANCHOR")
+            if agg:
+                meas[n] = agg["s_values"]
+                results[n] = agg
+            else:
+                skipped.append(dict(nodes=n, reason="no successful measurement (job %s, state %s)"
+                                    % (j, states.get(j, ("UNKNOWN", ""))[0])))
+        srows = wtune_nodes.summarize(meas)
+        if srows:
+            s_prev = srows[-1]["median"]
+        if wtune_nodes.stop_early(srows):
+            a, b = srows[-2], srows[-1]
+            stopped = ("early stop: N=%d (%.4f s/step) did not beat N=%d (%.4f s/step) by >%.0f%%"
+                       % (b["nodes"], b["median"], a["nodes"], a["median"],
+                          wtune_nodes.NOISE_FRAC * 100))
+            print("node sweep: %s; larger N not submitted" % stopped)
+    return dict(measurements=meas, anchors=anchors, results=results, skipped=skipped, jobs=jobs)
+
+
+def node_choices(rows, *, deadline_s, total_steps, overhead_s, min_efficiency):
+    """{objective: {nodes, note}} for all three objectives (cost needs total_steps)."""
+    out = {}
+    for obj in wtune_nodes.OBJECTIVES:
+        try:
+            n, note = wtune_nodes.choose(rows, obj, deadline_s=deadline_s, total_steps=total_steps,
+                                         overhead_s=overhead_s, min_efficiency=min_efficiency)
+            out[obj] = dict(nodes=n, note=note)
+        except ValueError as e:
+            out[obj] = dict(nodes=None, note="unavailable: %s" % e)
+    return out
+
+
+def run_node_search(ctx, profile, objective, deadline_s, min_efficiency, k_finalists,
+                    total_steps, nodes_policy="knee", sweep_budget_frac=DEFAULT_SWEEP_BUDGET_FRAC):
+    """Node sweep -> choose N -> round0/adaptive/confirm at each finalist N (remaining budget
+    split evenly over the finalists still to run) -> final (N, config) by the same objective over
+    the finalists' best tuned medians. Falls back to the proxy path when nothing was measured."""
+    legal = [r["nodes"] for r in _legal_rows(profile, ctx.max_nodes)]
+    if not legal:
+        print("node sweep: profile lists no legal node count; sweeping N=1 only")
+        legal = [1]
+    sw = run_node_sweep(ctx, legal, budget_frac=sweep_budget_frac)
+    overhead_s = ctx.startup_s
+    rows = wtune_nodes.summarize(sw["measurements"])
+    if not rows:
+        nodes, nodes_note, warning = choose_nodes(profile, ctx.max_nodes, nodes_policy)
+        print("WARNING: node sweep produced no measurement; falling back to the proxy. " + warning)
+        fctx = dataclasses.replace(ctx, nodes=nodes)
+        res = run_tuning_at(fctx)
+        report = build_report(ctx, nodes, "node sweep failed; " + nodes_note, *res)
+        report["node_selection"] = dict(mode="search", objective=objective, chosen=nodes,
+                                        table=[], choices={}, skipped=sw["skipped"], sweep_jobs=[],
+                                        finalists=[nodes], note=nodes_note)
+        return report
+
+    kw = dict(deadline_s=deadline_s, total_steps=total_steps, overhead_s=overhead_s,
+              min_efficiency=min_efficiency)
+    choices = node_choices(rows, **kw)
+    chosen, note = wtune_nodes.choose(rows, objective, **kw)
+    finals = wtune_nodes.finalists(rows, objective, k=k_finalists, **kw)
+    tab = wtune_nodes.table(rows, total_steps=total_steps, overhead_s=overhead_s)
+    print("node sweep: chose N=%d -- %s; finalists %s" % (chosen, note, finals))
+    for r in tab:
+        print("node sweep: N=%-2d median=%.4f s/step n=%d spread=%.1f%% speedup=%.2f eff=%.2f"
+              % (r["nodes"], r["median"], r["n"], r["spread"] * 100, r["speedup"],
+                 r["efficiency"]))
+
+    outcomes = {}                  # N -> dict(report, best_median)
+    for i, n in enumerate(finals):
+        remaining = ctx.budget_s - ctx.elapsed()
+        if remaining <= 0:
+            print("node search: no budget left for finalist N=%d" % n)
+            continue
+        share = remaining / (len(finals) - i)
+        fctx = dataclasses.replace(ctx, nodes=n, budget_s=ctx.elapsed() + share,
+                                    out_dir=os.path.join(ctx.out_dir, "n%d" % n))
+        os.makedirs(fctx.out_dir, exist_ok=True)
+        print("node search: finalist N=%d, budget share %s" % (n, _fmt_hms(share)))
+        all_results, confirm_results, anchor_cid = run_tuning_at(fctx)
+        if not all_results and n in sw["results"]:
+            print("node search: nothing measured at N=%d beyond the sweep; reporting the sweep "
+                  "ANCHOR" % n)
+            all_results, anchor_cid = {"ANCHOR": sw["results"][n]}, "ANCHOR"
+        if not all_results:
+            continue
+        rep = build_report(fctx, n, "node search finalist", all_results, confirm_results,
+                           anchor_cid)
+        if rep["best"]:
+            outcomes[n] = dict(report=rep, best_median=rep["best"]["median_s_per_step"])
+    if not outcomes:
+        # budget gone before any finalist produced a result: report the sweep ANCHOR at `chosen`
+        fctx = dataclasses.replace(ctx, nodes=chosen)
+        res = sw["results"].get(chosen)
+        rep = build_report(fctx, chosen, note, {"ANCHOR": res} if res else {}, None,
+                           "ANCHOR" if res else None)
+        outcomes[chosen] = dict(report=rep, best_median=res["median"] if res else None)
+        final_n, final_note = chosen, note + "; budget exhausted after the sweep -- ANCHOR config"
+    else:
+        by_sweep = {r["nodes"]: r for r in rows}
+        frows = wtune_nodes.summarize({n: [o["best_median"]] for n, o in outcomes.items()})
+        for r in frows:                     # scaling figures stay the sweep's (anchor-based)
+            r["speedup"], r["efficiency"] = (by_sweep[r["nodes"]]["speedup"],
+                                              by_sweep[r["nodes"]]["efficiency"])
+        final_n, final_note = wtune_nodes.choose(frows, objective, **kw)
+        final_note = "final over tuned finalists %s: %s" % (sorted(outcomes), final_note)
+    report = outcomes[final_n]["report"]
+    report["nodes"], report["nodes_note"] = final_n, final_note
+    report["budget_minutes"] = ctx.budget_s / 60.0
+    report["elapsed_minutes"] = ctx.elapsed() / 60.0
+    report["job_ids"] = list(ctx.owned_jobs)
+    report["cancelled_job_ids"] = list(ctx.cancelled_jobs)
+    report["node_selection"] = dict(
+        mode="search", objective=objective, chosen=chosen, chosen_note=note, final=final_n,
+        final_note=final_note, table=tab, choices=choices, skipped=sw["skipped"],
+        finalists=finals,
+        finalist_best={str(n): o["best_median"] for n, o in outcomes.items()},
+        total_steps=total_steps, deadline_s=deadline_s, min_efficiency=min_efficiency,
+        overhead_s=overhead_s, sweep_jobs=list(sw["jobs"].values()))
+    return report
+
+
+def render_node_selection_text(ns):
+    lines = ["", "--- node selection (measured, ANCHOR config per node count) ---",
+             "%5s %12s %5s %8s %8s %6s %10s %10s"
+             % ("nodes", "median_s", "reps", "spread", "speedup", "eff", "wall_s", "node_hours")]
+    for r in ns.get("table", []):
+        lines.append("%5d %12.4f %5d %7.1f%% %7.2fx %6.2f %10s %10s"
+                     % (r["nodes"], r["median"], r["n"], r["spread"] * 100, r["speedup"],
+                        r["efficiency"],
+                        "%.0f" % r["wall_s"] if r.get("wall_s") is not None else "-",
+                        "%.2f" % r["node_hours"] if r.get("node_hours") is not None else "-"))
+    for obj, c in (ns.get("choices") or {}).items():
+        lines.append("choice %-5s%s N=%s  %s" % (obj, "*" if obj == ns.get("objective") else " ",
+                                                 c["nodes"], c["note"]))
+    lines.append("(* = objective used; finalists searched: %s; final N=%s)"
+                 % (ns.get("finalists"), ns.get("final", ns.get("chosen"))))
+    for s in ns.get("skipped", []):
+        lines.append("skipped N=%d: %s" % (s["nodes"], s["reason"]))
+    return "\n".join(lines)
 
 
 def run(args, sbatch_runner=None, sacct_runner=None, scancel_runner=None, ledger_reader=None,
@@ -3381,6 +3634,10 @@ def run(args, sbatch_runner=None, sacct_runner=None, scancel_runner=None, ledger
                           "budget.minutes in --config")
 
     nodes_raw = args.nodes if args.nodes is not None else cfg["budget"]["nodes"]
+    if (args.nodes is None and nodes_raw == "auto"
+            and not _cfg_key_explicit(config_path, "budget", "nodes")
+            and (getattr(args, "rank_by", None) or cfg["probe"].get("rank_by") or "t0") == "t0"):
+        nodes_raw = "search"      # default: MEASURE s/step across node counts (node sweep)
     if isinstance(nodes_raw, list):
         if len(nodes_raw) != 1:
             raise SystemExit(
@@ -3444,7 +3701,27 @@ def run(args, sbatch_runner=None, sacct_runner=None, scancel_runner=None, ledger
         print("NOTE: %s" % ranking_start_note)
 
     max_nodes = min(int(max_nodes_requested), DEFAULT_MAX_NODES)
-    if nodes_raw in ("auto", None):
+    node_search = (nodes_raw == "search")
+    if node_search and rank_by == "predicted":
+        raise SystemExit("--nodes search is not supported with --rank-by predicted; pass --nodes "
+                          "N or --nodes auto")
+    def _nopt(name, default):          # CLI flag > --config budget.<name> > built-in default
+        v = getattr(args, name, None)
+        if v is None:
+            v = cfg["budget"].get(name)
+        return default if v is None else v
+    node_objective = _nopt("node_objective", "time")
+    deadline_minutes = _nopt("deadline_minutes", None)
+    min_efficiency = _nopt("min_efficiency", wtune_nodes.DEFAULT_MIN_EFFICIENCY)
+    node_finalists = max(1, int(_nopt("node_finalists", 2)))
+    sweep_budget_frac = float(_nopt("sweep_budget_frac", DEFAULT_SWEEP_BUDGET_FRAC))
+    total_steps = _total_steps(namelist_path) if node_search else None
+    if node_search and node_objective == "cost" and total_steps is None:
+        raise SystemExit("--node-objective cost needs the case's total step count (run length / "
+                          "time_step from the namelist), which could not be determined")
+    if node_search:
+        nodes, nodes_note = 1, "node search (measured)"
+    elif nodes_raw in ("auto", None):
         nodes, nodes_note, nodes_warning = choose_nodes(profile, max_nodes, nodes_policy)
         print("WARNING: %s" % nodes_warning)
     else:
@@ -3478,8 +3755,8 @@ def run(args, sbatch_runner=None, sacct_runner=None, scancel_runner=None, ledger
               rank_by=rank_by, restart_io_form=int(restart_io_form), stage1_mode=stage1_mode)
     ctx.start_time = clock.now()
 
-    print("case=%s nodes=%d (%s) budget=%.1f min max_nodes=%d out=%s"
-          % (case, nodes, nodes_note, minutes, max_nodes, out_dir))
+    print("case=%s nodes=%s (%s) budget=%.1f min max_nodes=%d out=%s"
+          % (case, "search" if node_search else nodes, nodes_note, minutes, max_nodes, out_dir))
 
     s_est, _src, _n = sweep.estimate_s_per_step(ctx.case, ctx.nodes, ctx.ledger_dir,
                                                  ctx.hardware_id)
@@ -3506,6 +3783,32 @@ def run(args, sbatch_runner=None, sacct_runner=None, scancel_runner=None, ledger
             f.write("\n")
         return report
 
+    if node_search:
+        report = run_node_search(ctx, profile, objective=node_objective,
+                                  deadline_s=(deadline_minutes * 60.0
+                                              if deadline_minutes is not None else None),
+                                  min_efficiency=min_efficiency, k_finalists=node_finalists,
+                                  total_steps=total_steps, nodes_policy=nodes_policy,
+                                  sweep_budget_frac=sweep_budget_frac)
+        _final_cancel_safety_net(ctx)
+        _emit_report(report, out_dir)
+        return report
+
+    all_results, confirm_results, anchor_cid = run_tuning_at(ctx, s_est)
+
+    _final_cancel_safety_net(ctx)
+
+    report = build_report(ctx, nodes, nodes_note, all_results, confirm_results, anchor_cid)
+    _emit_report(report, out_dir)
+    return report
+
+
+def run_tuning_at(ctx, s_est=None):
+    """round0 -> adaptive rounds -> confirm at ctx.nodes. Returns (all_results, confirm_results,
+    anchor_cid). Extracted unchanged from run() so a node-search finalist can reuse it."""
+    if s_est is None:
+        s_est, _src, _n = sweep.estimate_s_per_step(ctx.case, ctx.nodes, ctx.ledger_dir,
+                                                     ctx.hardware_id)
     job_ids0, configs_by_cid, rows0 = run_round0(ctx)
     all_results = aggregate_by_cid(rows0, configs_by_cid)
     anchor_cid = "ANCHOR" if "ANCHOR" in configs_by_cid else None
@@ -3527,16 +3830,15 @@ def run(args, sbatch_runner=None, sacct_runner=None, scancel_runner=None, ledger
         confirm_job_id, confirm_results = run_confirm(ctx, configs_by_cid, all_results, anchor_cid,
                                                         s_est)
 
-    _final_cancel_safety_net(ctx)
+    return all_results, confirm_results, anchor_cid
 
-    report = build_report(ctx, nodes, nodes_note, all_results, confirm_results, anchor_cid)
-    text = render_report_text(report)
+
+def _emit_report(report, out_dir):
     print("")
-    print(text)
+    print(render_report_text(report))
     with open(os.path.join(out_dir, "tune_report.json"), "w") as f:
         json.dump(report, f, indent=2, sort_keys=True, default=str)
         f.write("\n")
-    return report
 
 
 # ---------------------------------------------------------------------------
@@ -3554,7 +3856,30 @@ def build_arg_parser():
     p.add_argument("--site", default="scc")
     p.add_argument("--minutes", type=float, default=None,
                     help="required here or via --config's budget.minutes")
-    p.add_argument("--nodes", default=None, help="default: 'auto' (or --config's budget.nodes)")
+    p.add_argument("--nodes", default=None,
+                    help="N = fixed node count; 'search' (DEFAULT) = measure the ANCHOR at each "
+                         "legal node count, choose N by --node-objective, then tune at the "
+                         "finalist N; 'auto' = uncalibrated efficiency proxy (--nodes-policy), "
+                         "no measurement. (--rank-by predicted defaults to 'auto'; a --config "
+                         "budget.nodes also overrides the default)")
+    p.add_argument("--node-objective", choices=wtune_nodes.OBJECTIVES, default=None,
+                    dest="node_objective",
+                    help="--nodes search: time = fastest (smallest N within noise), cost = fewest "
+                         "node-hours (within --deadline-minutes), knee = largest N with "
+                         "efficiency >= --min-efficiency (default: time)")
+    p.add_argument("--deadline-minutes", type=float, default=None, dest="deadline_minutes",
+                    help="--node-objective cost: whole-run wall-time limit (minutes)")
+    p.add_argument("--min-efficiency", type=float, default=None, dest="min_efficiency",
+                    help="--node-objective knee: efficiency threshold (default %.2f)"
+                         % wtune_nodes.DEFAULT_MIN_EFFICIENCY)
+    p.add_argument("--sweep-budget-frac", type=float, default=None, dest="sweep_budget_frac",
+                    help="--nodes search: share of --minutes the node sweep may use; once spent, "
+                         "larger N are skipped ('sweep budget cap') so the finalists keep budget "
+                         "(default %.1f, or --config's budget.sweep_budget_frac)"
+                         % DEFAULT_SWEEP_BUDGET_FRAC)
+    p.add_argument("--node-finalists", type=int, default=None, dest="node_finalists",
+                    help="--nodes search: how many node counts get the full round0/adaptive/"
+                         "confirm search (default 2)")
     p.add_argument("--nodes-policy", choices=sorted(NODES_POLICIES), default=None,
                     dest="nodes_policy",
                     help="how --nodes auto picks a node count from the (uncalibrated) profile: "

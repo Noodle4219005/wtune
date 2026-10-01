@@ -70,6 +70,12 @@ DEFAULTS = {
         "max_nodes": DEFAULT_MAX_NODES,
         "nodes": "auto",
         "nodes_policy": "knee",
+        # --nodes search knobs (wtune_tune.py: None = the CLI default applies)
+        "node_objective": None,        # time | cost | knee
+        "deadline_minutes": None,
+        "min_efficiency": None,
+        "node_finalists": None,
+        "sweep_budget_frac": None,
     },
     "search": {
         "omp": None,                   # None = unrestricted (decomp_space's own omp_options)
@@ -105,7 +111,9 @@ DEFAULTS = {
 
 TOP_KEYS = {"site", "case", "case_dir", "compliance", "budget", "search", "physics_gray",
             "probe", "prediction", "exclude"}
-BUDGET_KEYS = {"minutes", "max_nodes", "nodes", "nodes_policy"}
+BUDGET_KEYS = {"minutes", "max_nodes", "nodes", "nodes_policy", "node_objective",
+               "deadline_minutes", "min_efficiency", "node_finalists", "sweep_budget_frac"}
+NODE_OBJECTIVE_CHOICES = ("time", "cost", "knee")
 SEARCH_KEYS = {"omp", "numtiles", "rank_distribution", "aspect_max", "io"}
 SEARCH_IO_KEYS = {"enabled", "io_form_history", "target"}
 PHYSICS_GRAY_KEYS = {"enabled", "knobs"}
@@ -319,8 +327,21 @@ def _validate_semantics(cfg, errors):
         max_nodes = b["max_nodes"]
     if b["nodes_policy"] not in NODES_POLICY_CHOICES:
         errors.append("budget.nodes_policy: %r not in %s" % (b["nodes_policy"], list(NODES_POLICY_CHOICES)))
+    if b["node_objective"] is not None and b["node_objective"] not in NODE_OBJECTIVE_CHOICES:
+        errors.append("budget.node_objective: %r not in %s"
+                      % (b["node_objective"], list(NODE_OBJECTIVE_CHOICES)))
+    for key in ("deadline_minutes", "min_efficiency", "sweep_budget_frac"):
+        v = b[key]
+        if v is not None and (isinstance(v, bool) or not isinstance(v, (int, float)) or v <= 0):
+            errors.append("budget.%s: must be a positive number, got %r" % (key, v))
+    if b["sweep_budget_frac"] is not None and not isinstance(b["sweep_budget_frac"], bool) \
+            and isinstance(b["sweep_budget_frac"], (int, float)) and b["sweep_budget_frac"] > 1:
+        errors.append("budget.sweep_budget_frac: must be <= 1, got %r" % (b["sweep_budget_frac"],))
+    v = b["node_finalists"]
+    if v is not None and (isinstance(v, bool) or not isinstance(v, int) or v < 1):
+        errors.append("budget.node_finalists: must be a positive integer, got %r" % (v,))
     nodes = b["nodes"]
-    if nodes == "auto":
+    if nodes in ("auto", "search"):
         pass
     elif isinstance(nodes, list):
         for n in _check_int_list("budget.nodes", nodes, errors):
@@ -329,7 +350,7 @@ def _validate_semantics(cfg, errors):
             elif max_nodes is not None and n > max_nodes:
                 errors.append("budget.nodes: %d exceeds budget.max_nodes=%d" % (n, max_nodes))
     elif isinstance(nodes, bool) or not isinstance(nodes, int):
-        errors.append("budget.nodes: must be 'auto', an integer, or a list of integers, got %r" % (nodes,))
+        errors.append("budget.nodes: must be 'auto', 'search', an integer, or a list of integers, got %r" % (nodes,))
     else:
         if nodes <= 0:
             errors.append("budget.nodes: %d must be positive" % nodes)
@@ -750,7 +771,10 @@ compliance: strict               # strict       = only the STRICT knobs below ma
 budget:
   minutes: 30                    # wall-clock budget for the whole `wtune tune` run (required: here or --minutes)
   max_nodes: 13                  # hard cap -- scc's compute pool is 13 nodes (work[1-13])
-  nodes: auto                    # auto | <int> | [<int>, ...] -- auto picks ONE node count via
+  nodes: auto                    # auto | search | <int> | [<int>, ...] -- search measures the ANCHOR at
+                                  # each legal node count (wtune_tune --nodes search; node_objective/
+                                  # deadline_minutes/min_efficiency/node_finalists/sweep_budget_frac
+                                  # keys mirror its CLI flags); auto picks ONE node count via
                                   # `nodes_policy` from wtune_case's (uncalibrated) core-count profile;
                                   # a list is previewed by `wtune config show` but not yet run by `wtune tune`
   nodes_policy: knee              # min | cap | knee (see `wtune_tune.py --nodes-policy` for the exact rule)

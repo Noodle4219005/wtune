@@ -1298,3 +1298,239 @@ def test_run_rejects_a_multi_value_budget_nodes_list(tmp_path, monkeypatch):
         ["--minutes", "30", "--config", str(tmp_path / "wtune.yaml")])
     with pytest.raises(SystemExit, match="not yet run"):
         wtune_tune.run(args)
+
+
+# ---------------------------------------------------------------------------
+# --nodes search: measured node sweep, objective choice, finalist search
+# ---------------------------------------------------------------------------
+NONMONO_CURVE = {1: 1.0, 2: 0.52, 4: 0.30, 8: 0.32, 13: 0.40}   # 8 is slower than 4 (non-monotone)
+ALL_NODES_PROFILE = _profile([{"nodes": n, "legal": True, "efficiency_E": 0.9}
+                              for n in (1, 2, 4, 8, 13)])
+
+
+def make_scaling_fakes(curve, start=7000):
+    """(sbatch_runner, ledger_reader, job_nodes): every job's configs get s = curve[N] / (1 +
+    0.05*i), so ANCHOR (i=0) measures exactly curve[N]; job_nodes[job] = N parsed from `-N`."""
+    counter = {"n": start}
+    job_nodes, job_paths = {}, {}
+
+    def sbatch(cmd_str):
+        counter["n"] += 1
+        j = str(counter["n"])
+        job_nodes[j] = int(re.search(r"-N (\d+)", cmd_str).group(1))
+        job_paths[j] = re.search(r"CONFIG_FILE=(\S+)", cmd_str).group(1)
+        return "Submitted batch job %s\n" % j
+
+    def reader(case, job_ids):
+        rows = []
+        for j in job_ids:
+            with open(job_paths[j]) as f:
+                cfgs = json.load(f)["configs"]
+            for i, c in enumerate(cfgs):
+                for rep in (1, 2):
+                    rows.append(dict(run_id="%s_%s_r%d_%s" % (case, c["id"], rep, j),
+                                     s_per_step_median=str(curve[job_nodes[j]] / (1 + 0.05 * i))))
+        return rows
+
+    return sbatch, reader, job_nodes
+
+
+def _run_cli(monkeypatch, tmp_path, argv, curve=NONMONO_CURVE, profile=ALL_NODES_PROFILE,
+             total_steps=1000):
+    case_json = dict(MATTHEW_LIKE, prep_dir=str(tmp_path / "matthew"))
+    monkeypatch.setattr(wtune_tune, "resolve_case",
+                        lambda case, cpn: (case_json, str(tmp_path / "namelist.input"), profile))
+    monkeypatch.setattr(wtune_tune, "_total_steps", lambda nl: total_steps)
+    sbatch, reader, job_nodes = make_scaling_fakes(curve)
+    scancel, scancel_calls = make_fake_scancel()
+
+    def stop_proposer(state, batch_size, kappa=None):
+        return dict(stopped=True, reason="test stub"), []
+
+    args = wtune_tune.build_arg_parser().parse_args(
+        ["matthew", "--site", "scc", "--out", str(tmp_path / "out"), "--steps", "5",
+         "--ledger-dir", str(tmp_path / "ledger")] + argv)
+    report = wtune_tune.run(args, sbatch_runner=sbatch, sacct_runner=make_fake_sacct({}),
+                             scancel_runner=scancel, ledger_reader=reader,
+                             proposer=stop_proposer, clock=FakeClock())
+    return report, job_nodes, scancel_calls
+
+
+def _sweep_nodes(job_nodes, report):
+    """node counts of the sweep jobs only (their out dir is .../nodes-n<N>)."""
+    return sorted(n for j, n in job_nodes.items() if j in report["node_selection"]["sweep_jobs"])
+
+
+def test_nodes_search_is_default_and_picks_n_on_nonmonotone_curve(monkeypatch, tmp_path, capsys):
+    report, job_nodes, _sc = _run_cli(monkeypatch, tmp_path, ["--minutes", "600"])
+    ns = report["node_selection"]
+    assert ns["mode"] == "search" and ns["objective"] == "time"
+    assert ns["chosen"] == 4                       # min median at 4; 8 is slower
+    assert report["nodes"] == 4
+    assert "UNCALIBRATED" not in capsys.readouterr().out
+    assert [r["nodes"] for r in ns["table"]] == [1, 2, 4, 8]
+
+
+def test_nodes_search_early_stop_does_not_submit_larger_n(monkeypatch, tmp_path):
+    report, job_nodes, _sc = _run_cli(monkeypatch, tmp_path, ["--minutes", "600"])
+    ns = report["node_selection"]
+    assert 13 not in job_nodes.values()
+    assert any(s["nodes"] == 13 and "early stop" in s["reason"] for s in ns["skipped"])
+
+
+def test_nodes_search_finalists_are_searched_at_two_node_counts(monkeypatch, tmp_path):
+    report, job_nodes, _sc = _run_cli(monkeypatch, tmp_path, ["--minutes", "600"])
+    ns = report["node_selection"]
+    assert ns["finalists"] == [4, 8]               # 8 is within 10% of 4's median (0.32 vs 0.30)
+    # a round0 job (not the sweep's own) was submitted at each finalist N
+    sweep_jobs = set(ns["sweep_jobs"])
+    search_nodes = {n for j, n in job_nodes.items() if j not in sweep_jobs}
+    assert search_nodes == {4, 8}
+    assert set(ns["finalist_best"]) == {"4", "8"}
+    assert report["nodes"] in (4, 8)
+
+
+def test_nodes_search_report_lists_all_three_objectives(monkeypatch, tmp_path, capsys):
+    report, _jn, _sc = _run_cli(monkeypatch, tmp_path,
+                                ["--minutes", "600", "--node-objective", "cost"])
+    ns = report["node_selection"]
+    assert set(ns["choices"]) == {"time", "cost", "knee"}
+    assert ns["choices"]["time"]["nodes"] == 4
+    assert ns["choices"]["cost"]["nodes"] == 1     # fewest node-hours without a deadline
+    assert ns["choices"]["knee"]["nodes"] == 4     # eff(4)=0.83 >= 0.7, eff(8)=0.39 is not
+    row = ns["table"][0]
+    for k in ("nodes", "median", "n", "spread", "speedup", "efficiency", "wall_s", "node_hours"):
+        assert k in row
+    assert row["n"] == 2 and row["wall_s"] is not None
+    out = capsys.readouterr().out
+    assert "node selection" in out and "choice cost *" in out
+    with open(tmp_path / "out" / "tune_report.json") as f:
+        assert json.load(f)["node_selection"]["objective"] == "cost"
+
+
+def test_nodes_search_budget_skips_n_that_would_overrun(monkeypatch, tmp_path, capsys):
+    # 3-minute budget: the 10 s/step no-ledger fallback makes even N=1 (120 s startup + 5 steps
+    # x 10 s, x REPS=2 = 340 s) overrun -> every N skipped, nothing submitted, proxy fallback.
+    report, job_nodes, _sc = _run_cli(monkeypatch, tmp_path, ["--minutes", "3"])
+    ns = report["node_selection"]
+    assert ns["sweep_jobs"] == [] and ns["table"] == []     # no sweep job was submitted
+    assert ns["skipped"] and all("exceed the budget" in s["reason"] for s in ns["skipped"])
+    assert "falling back to the proxy" in capsys.readouterr().out
+
+
+def test_node_sweep_budget_skip_is_per_n(tmp_path):
+    sbatch, reader, job_nodes = make_scaling_fakes({1: 0.01, 2: 0.01, 4: 0.01})
+    # per-job estimate ~ 2 x (120 + 20*10) = 640 s at the fallback -> budget 700 s fits one job
+    # per wave only while elapsed is 0; elapsed does not advance (fake clock), so all fit...
+    ctx = _ctx(sbatch_runner=sbatch, ledger_reader=reader, budget_s=700.0, max_nodes=13,
+               out_dir=str(tmp_path / "o"), ledger_dir=str(tmp_path / "l"))
+    ctx.clock.t = 100.0                # ...so advance the clock: 100 + 640 > 700 -> all skipped
+    ctx.start_time = 0.0
+    sw = wtune_tune.run_node_sweep(ctx, [1, 2, 4])
+    assert job_nodes == {} and len(sw["skipped"]) == 3
+    assert "exceed the budget" in sw["skipped"][0]["reason"]
+
+
+def test_node_sweep_skips_n_without_legal_decomposition(monkeypatch, tmp_path, capsys):
+    sbatch, reader, job_nodes = make_scaling_fakes({1: 1.0, 2: 0.6})
+    real = wtune_tune.sweep.build_configs
+
+    def fake_build(case, case_json, nodes, *a, **k):
+        if nodes == 2:
+            return dict(configs=[], skip_reason="no legal WRF decomposition (test)")
+        return real(case, case_json, nodes, *a, **k)
+
+    monkeypatch.setattr(wtune_tune.sweep, "build_configs", fake_build)
+    ctx = _ctx(sbatch_runner=sbatch, ledger_reader=reader, budget_s=36000.0,
+               out_dir=str(tmp_path / "o"), ledger_dir=str(tmp_path / "l"))
+    sw = wtune_tune.run_node_sweep(ctx, [1, 2])
+    assert sorted(sw["measurements"]) == [1]
+    assert sw["skipped"] == [dict(nodes=2, reason="no legal WRF decomposition (test)")]
+    assert "N=2 skipped" in capsys.readouterr().out
+
+
+def test_node_sweep_applies_chem_j_patch_guard(monkeypatch, tmp_path):
+    sbatch, reader, job_nodes = make_scaling_fakes({1: 1.0})
+    monkeypatch.setattr(wtune_tune.wtune_extensions, "chem_j_patch_reason",
+                        lambda e_sn, ny, nx=None: "j-patch too narrow (test)")
+    ctx = _ctx(sbatch_runner=sbatch, ledger_reader=reader, budget_s=36000.0, chem_e_sn=[100],
+               out_dir=str(tmp_path / "o"), ledger_dir=str(tmp_path / "l"))
+    sw = wtune_tune.run_node_sweep(ctx, [1])
+    assert job_nodes == {} and "j-patch too narrow" in sw["skipped"][0]["reason"]
+
+
+def test_nodes_search_stops_after_sweep_when_budget_exhausted(monkeypatch, tmp_path):
+    # budget just covers the sweep jobs (elapsed jumps past it once they finish): finalists get
+    # no budget, so the report is the chosen N with the sweep's ANCHOR config.
+    case_json = dict(MATTHEW_LIKE, prep_dir=str(tmp_path / "matthew"))
+    sbatch, reader, job_nodes = make_scaling_fakes({1: 1.0, 2: 0.5})
+    clock = FakeClock()
+
+    def reader_then_exhaust(case, job_ids):
+        rows = reader(case, job_ids)
+        clock.t = 10 ** 6
+        return rows
+
+    ctx = _ctx(sbatch_runner=sbatch, ledger_reader=reader_then_exhaust, clock=clock,
+               case_json=case_json, budget_s=36000.0, out_dir=str(tmp_path / "o"),
+               ledger_dir=str(tmp_path / "l"))
+    report = wtune_tune.run_node_search(
+        ctx, _profile([{"nodes": 1, "legal": True}, {"nodes": 2, "legal": True}]),
+        objective="time", deadline_s=None, min_efficiency=0.7, k_finalists=2, total_steps=100)
+    assert report["nodes"] == 2 and "budget exhausted after the sweep" in report["nodes_note"]
+    assert report["best"]["id"] == "ANCHOR"
+    assert set(job_nodes.values()) == {1, 2}      # nothing but sweep jobs
+
+
+def test_nodes_fixed_is_unchanged(monkeypatch, tmp_path, capsys):
+    report, job_nodes, _sc = _run_cli(monkeypatch, tmp_path, ["--minutes", "30", "--nodes", "4"])
+    assert report["nodes"] == 4 and "node_selection" not in report
+    assert set(job_nodes.values()) == {4}
+    assert "node sweep" not in capsys.readouterr().out
+
+
+def test_nodes_auto_is_unchanged_and_keeps_the_warning(monkeypatch, tmp_path, capsys):
+    profile = _profile([{"nodes": 1, "legal": True, "efficiency_E": 0.95}])
+    report, job_nodes, _sc = _run_cli(monkeypatch, tmp_path,
+                                      ["--minutes", "30", "--nodes", "auto"], profile=profile)
+    assert report["nodes"] == 1 and "node_selection" not in report
+    assert "UNCALIBRATED" in capsys.readouterr().out
+    assert set(job_nodes.values()) == {1}
+
+
+def test_nodes_search_with_rank_by_predicted_is_refused(monkeypatch, tmp_path):
+    with pytest.raises(SystemExit, match="not supported with --rank-by predicted"):
+        _run_cli(monkeypatch, tmp_path,
+                 ["--minutes", "30", "--nodes", "search", "--rank-by", "predicted"])
+
+
+def test_node_sweep_budget_cap_skips_larger_n(tmp_path):
+    sbatch, reader, job_nodes = make_scaling_fakes(NONMONO_CURVE)
+    clock = FakeClock()
+
+    def slow_reader(case, job_ids):
+        rows = reader(case, job_ids)
+        clock.t += 15000.0                   # first wave "takes" 15000 s of a 36000 s budget
+        return rows
+
+    ctx = _ctx(sbatch_runner=sbatch, ledger_reader=slow_reader, clock=clock, budget_s=36000.0,
+               out_dir=str(tmp_path / "o"), ledger_dir=str(tmp_path / "l"))
+    sw = wtune_tune.run_node_sweep(ctx, [1, 2, 4, 8, 13], budget_frac=0.4)
+    assert sorted(set(job_nodes.values())) == [1, 2, 4]      # wave [1,2,4] ran, 8 and 13 did not
+    capped = {s["nodes"] for s in sw["skipped"] if "sweep budget cap" in s["reason"]}
+    assert capped == {8, 13}
+    # a roomier cap lets the next wave run
+    ctx2 = _ctx(sbatch_runner=sbatch, ledger_reader=slow_reader, clock=FakeClock(),
+                budget_s=36000.0, out_dir=str(tmp_path / "o2"), ledger_dir=str(tmp_path / "l"))
+    clock.t = 0.0
+    ctx2.clock = clock
+    ctx2.start_time = 0.0
+    sw2 = wtune_tune.run_node_sweep(ctx2, [1, 2, 4, 8], budget_frac=0.9)
+    assert 8 in sw2["measurements"]
+
+
+def test_sweep_budget_frac_cli_and_config_default(monkeypatch, tmp_path):
+    args = wtune_tune.build_arg_parser().parse_args(["matthew", "--sweep-budget-frac", "0.25"])
+    assert args.sweep_budget_frac == 0.25
+    assert wtune_tune.DEFAULT_SWEEP_BUDGET_FRAC == 0.4
+    assert wtune_tune.build_arg_parser().parse_args(["matthew"]).sweep_budget_frac is None

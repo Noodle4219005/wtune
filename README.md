@@ -1,5 +1,7 @@
 # wtune — profile-guided, compliance-aware WRF performance and physics configuration autotuner (decision 0050)
 
+> 第一次使用？直接跳到 [教學：從零開始用 WTune](#教學從零開始用-wtune)。
+
 WTune = profile-guided, compliance-aware WRF performance and physics configuration autotuner
 (decision 0050). The full autotuner pipeline — profile → diagnosis → ceiling → candidates →
 experiments → correctness gate → compliance classification → selection — is being built in
@@ -33,6 +35,250 @@ per-segment choice, and only when the user passes that report.
 
 Everything that was measured and found null lives in `deprecated/` (kept runnable, not
 extended) and every one-off study in `research/`. See the layout at the end.
+
+---
+
+## 教學：從零開始用 WTune
+
+這一節是動手教學：從建立 project 資料夾，到跑完後出報告。各指令的完整旗標與實測數字在後面的第 1–7 節；本節只給最短可用路徑。以下指令都寫成 `wtune ...`，實際一律透過 `bin/wtune` 啟動（見「Installation」）。
+
+### 1. WTune 是什麼、分成哪幾段
+
+WTune 不改 WRF 原始碼，只做三件事：跑之前挑好啟動設定與預測時間、跑的時候分段執行並監看、跑完用既有工具出圖並和觀測比較。
+
+```
+ ┌──────────── 跑之前 ────────────┐   ┌─── 跑的時候 ───┐   ┌─────────── 跑完 ───────────┐
+ check / plan → predict → tune   →   run / watch      →   post recipe / fetch / 報告
+ 檢查設定        預測時間   找最快設定    分段執行、監看         出圖、和觀測比、整理資料
+       ↑                                                          │
+       └────────── project 資料夾：輸入、設定、run、圖全部放在一起 ──────┘
+```
+
+**核心規則：** WTune 只會自動調整不改變結果的設定（result-neutral）：MPI decomposition、tiles、OpenMP 執行緒數、I/O。物理方案、time step、垂直層數、nesting 一律只給建議（ADVICE ONLY），不會替你改。唯一事先授權的例外是 `wtune run --cfl-rescue`（CFL/NaN 失敗時用 0.75 倍 dt 重跑一次，並標記為 PHYSICS-GRAY）。細節見下方「Compliance model (decision 0050)」。
+
+### 2. 安裝
+
+照下方「Installation」做即可（pixi 環境 + 視需要的 WRF/WPS 路徑 + 後處理工具）。只想預測與調校，裝第 1、2 層就夠；要用 `wtune post` 的完整功能，另外需要 MET（TC 誤差、Grid-Stat、Point-Stat）、ParaView（3-D 雲渲染）與 Py-ART（NEXRAD 組合反射率，已在 pixi 環境內）。缺工具時指令會明確指出缺哪個並指向 `bin/install-postproc.sh`，不會靜默跳過。
+
+```bash
+bin/wtune --version
+```
+看到版本號代表 pixi 環境可用。
+
+### 3. 建立 project 資料夾
+
+一個 project 資料夾收納同一個個案的輸入、設定、每次 run 與所有圖。之後的子指令會自動找到它（`--project DIR`，否則 `$WTUNE_PROJECT`，否則從目前目錄往上找 `project.yaml`）。
+
+```bash
+wtune project init ~/projects/katrina-20260928 \
+    --case /path/to/katrina_case --name katrina-20260928 \
+    --storm AL122005 --hurdat2 hurdat2-1851-2024.txt --site scc
+cd ~/projects/katrina-20260928
+wtune project info
+```
+`project info` 會列出各子目錄內容與 `manifest.jsonl` 的筆數。`--case` 的來源目錄永遠只讀：namelist 會被複製（可自由編輯），wrfinput／wrfbdy／met_em 等以 symlink 連過來。
+
+```
+katrina-20260928/
+  project.yaml      # 個案、站點、風暴、觀測、時間窗描述
+  wtune.yaml        # tune 的搜尋空間設定（wtune config init 產生）
+  case/             # namelist 副本 + 其餘檔案的 symlink
+  input/            # 驅動資料與觀測（ERA5、HURDAT2、obs/<name>/ ...）
+  tune/             # wtune tune 輸出
+  predict/          # wtune predict-rebuild 輸出
+  runs/<id>/        # wtune run 輸出
+  post/<id>/        # wtune post 輸出（圖、表、report.html）
+  analysis/         # 自己的 Python 分析腳本（wtune post custom）
+  manifest.jsonl    # 每個 wtune 指令一行：時間、版本、argv、輸入 sha256、輸出目錄、exit code
+```
+
+在 project 內，`--out` 預設為各子目錄下的 `<id>/`，RUN_DIR 預設為 `runs/*/`（沒有則用 `case/`）。以下各指令都假設你在 project 內。
+
+### 4. 跑之前
+
+**4.1 `wtune check`：提交前檢查。** 在 WRF 啟動目錄上檢查時間窗、iofields、物理方案所需資料檔、decomposition、磁碟，以及 wrfinput 的土壤溫度／濕度／NaN。
+
+```bash
+wtune check case/ --ranks 448 --json check.json
+```
+看輸出的 FATAL／WARN 行：FATAL 代表這個 wrfinput 或設定會讓 run 失敗，先修再往下走。若偵測到 WRF 擴展，還會多印一行支援說明（moving nest、WRF-Chem、WRF-Hydro、WRFDA 各一行，內容見第 7 節）。
+
+**4.2 `wtune plan`：decomposition 候選。** 由 namelist 與機器拓樸排出 MPI decomposition 短名單。
+
+```bash
+wtune plan --namelist case/namelist.input --nodes 4 --json
+```
+看排名最前的 `nproc_x × nproc_y`；它只是候選，要不要採用由 tune 實測決定。
+
+**4.3 `wtune predict-rebuild`：整段 run 的牆鐘時間預測。** 在目標設定上，用 ERA5 重建數個時間點，各跑 WPS + real.exe + 短 spin-up + 若干量測步，再合成整段時間。這會對叢集送 Slurm job，先用 `--dry-run` 看計畫。
+
+```bash
+wtune predict-rebuild case/ --nodes 4 --nx 16 --ny 28 --numtiles 4 --omp 2 --dry-run
+wtune predict-rebuild case/ --nodes 4 --nx 16 --ny 28 --numtiles 4 --omp 2
+```
+輸出在 `predict/<id>/pred_rebuild.json`，並印出建議的 `--time`（含 I/O 與餘裕）。限制：對對流尖峰時段會低估（短 spin-up 長不出組織化對流，見 elevconv 的實測）；不支援 adaptive time step；WRF-Chem／Hydro／WRFDA／moving nest 一律拒絕。
+
+**4.4 `wtune tune`：在時間預算內找最快設定。** 在叢集上做 probe → screen → confirm，只搜尋 STRICT（不改結果）的旋鈕。`case` 是 `campaign/cases.json` 註冊的 case id。
+
+```bash
+wtune tune conus25 --minutes 60 --project .
+```
+`--minutes` 是整個 tune 的牆鐘預算（沒給時必須由 `--config` 的 `budget.minutes` 提供）。
+
+*節點數搜尋（0.7.0-dev 新增，尚未在叢集上驗證）：* `--nodes` 的預設值現在是 `search`：在每個合法節點數上量測 ANCHOR 設定，依目標選出節點數，再在 finalist 節點數上做完整搜尋。
+
+```bash
+wtune tune conus25 --minutes 90 --nodes search --node-objective time
+wtune tune conus25 --minutes 90 --nodes search --node-objective cost --deadline-minutes 240
+wtune tune conus25 --minutes 90 --nodes search --node-objective knee --min-efficiency 0.7 \
+    --node-finalists 2 --sweep-budget-frac 0.4
+```
+- `--node-objective time|cost|knee`：`time` = 最快（雜訊內取最小 N，預設）；`cost` = node-hours 最少，需搭配 `--deadline-minutes`（整段 run 的牆鐘上限）；`knee` = 效率仍 ≥ `--min-efficiency`（預設 0.70）的最大 N。
+- `--node-finalists`（預設 2）：幾個節點數進入完整搜尋；`--sweep-budget-frac`（預設 0.4）：節點掃描最多用掉預算的比例，用完後較大的 N 被跳過。
+
+固定節點數用 `--nodes N`；不量測、以未校準的效率代理挑一個節點數用 `--nodes auto`（搭配 `--nodes-policy min|cap|knee`）。
+
+*依預測整段時間排名：*
+
+```bash
+wtune tune conus25 --minutes 120 --rank-by predicted --project .
+```
+`--rank-by predicted` 以 ERA5 重建、spin-up 後的共享 restart，依預測整段 compute+init 排名，而不是只看 t0 的 s/step；此模式的 `--nodes` 預設為 `auto`。
+
+*讀 `tune_report.json`*（在 `tune/<id>/`，同樣內容也會印在 stdout）：
+1. 找最佳設定：decomposition、numtiles、OMP、`--distribution`，以及它對 ANCHOR 的相對時間。
+2. 看 `node_selection`：`--nodes search` 時會記錄採用的目標、選中的節點數與理由；節點表列出每個 N 的 median s/step、重複次數、spread、speedup、efficiency 與 node-hours，被跳過的 N 附原因。
+3. 對照三個目標（time／cost／knee）各自會選的 N；若 time 與 knee 相差很大，代表加節點的邊際效益已經很低。
+
+**4.5 `wtune physics`：物理與數值建議（僅建議）。**
+
+```bash
+wtune physics --namelist case/namelist.input --menu --compliance strict --no-probe
+```
+輸出是診斷與 scheme 選單，每條帶 STRICT／PHYSICS-GRAY 標籤；WTune 不會替你改 namelist。`--no-probe` 略過 SpeedyWeather 對流 probe（較快，但少了對流負載地圖）。
+
+**4.6 用 YAML 設定 tune。** `wtune config` 管理 tune 的搜尋空間；優先序為 CLI 旗標 > YAML > 內建預設，未知 key 是錯誤（打錯字不會被默默忽略）。
+
+```bash
+wtune config init conus25 --out wtune.yaml
+wtune config validate wtune.yaml
+wtune config show wtune.yaml
+wtune tune --config wtune.yaml
+```
+```yaml
+site: scc
+case: conus25
+compliance: strict          # strict | physics-gray
+budget:
+  minutes: 60
+  max_nodes: 13
+  nodes: search             # auto | search | <int>
+  node_objective: time      # time | cost | knee
+search:
+  omp: [1, 2, 4, 8]
+  numtiles: [1, 4, 8, 16]
+  rank_distribution: [block, cyclic]
+probe:
+  rank_by: t0               # t0 | predicted
+```
+`validate` 通過、`show` 印出展開後的搜尋空間即可。完整的 key 與註解見 `examples/wtune.yaml`；`node_objective` 等節點搜尋 key 的名稱以該檔與 `wtune config validate` 為準。
+
+### 5. 跑的時候
+
+**`wtune run`：分段執行。** 把整段 run 切成數個 segment，以 restart 交接，每段各送一個 Slurm job，避免單一長 job 撞時間上限。
+
+```bash
+wtune run case/ --nodes 4 --nx 16 --ny 28 --numtiles 4 --omp 2 \
+    --wall-limit 04:00:00 --segment-minutes 180 --prediction predict/<id>/pred_rebuild.json --dry-run
+wtune run case/ --nodes 4 --nx 16 --ny 28 --numtiles 4 --omp 2 \
+    --wall-limit 04:00:00 --segment-minutes 180
+```
+先用 `--dry-run` 確認 segment 切法；輸出在 `runs/<id>/`。若有預測模式的 tune 報告，可用 `--tune-report tune/<id>/tune_report.json` 讓每段採用預測最快的候選（需明確傳入才會套用）。
+
+CFL/NaN 失敗時預設**停下來**，並寫出建議的 `time_step` 與 `segment.advice.namelist.input`，不會自動重送。加上 `--cfl-rescue` 才會以 0.75 倍 dt 重跑該 segment 一次（標記 PHYSICS-GRAY）；這是唯一被預先授權的例外，且不適用於 Chem、Hydro、moving nest。
+
+**`wtune watch`：唯讀監看。**
+
+```bash
+wtune watch runs/<id>/ --prediction predict/<id>/pred_rebuild.json --interval 60
+wtune watch runs/<id>/ --once
+```
+看進度、剩餘時間，以及 HANG_INIT（初始化後長時間沒有 d01 Timing 行）、巢狀域停止與失敗警告。`--once` 只印一次快照後離開。
+
+### 6. 跑完：後處理
+
+`wtune post` 全部是唯讀建議：只出圖與表，不改 namelist、不送 job。
+
+**6.1 一鍵出報告：`wtune post recipe`。**
+
+```bash
+wtune post recipe --project . --types auto
+wtune post recipe --project . --types auto --every 6h --animate
+wtune post recipe --project . --types tc,convection --no-paraview
+```
+`--types auto` 依個案內容自動判斷類型；個案類型是**多標籤**（例如同時是 `tc` 與 `convection`），`common` 一律會包含。`--every 6h` 每 6 小時一組完整圖，放在 `post/<id>/timeseries/`；`--animate` 另做每個欄位的 MP4（至少兩個時間，需要 ffmpeg）；`--no-paraview` 略過 3-D 雲渲染。結果在 `post/<id>/report.html`，頂端的 notes 框會列出繞過的問題（追蹤 fallback、缺觀測、離線抓取、缺工具）。
+
+**6.2 抓觀測與再分析資料：`wtune post fetch`。** 要在能連外網的節點上執行（scc 的計算節點可連外；離線時 `recipe` 會印出缺哪些資料與對應的 fetch 指令）。
+
+```bash
+wtune post fetch --list
+wtune post fetch stage4 --project .
+wtune post fetch nexrad --project . --run-dir runs/<id>/
+wtune post fetch-era5 --project .
+```
+`--list` 列出模組（`era5`、`era5_monthly`、`gpcp_monthly`、`igra`、`mrms`、`nexrad`、`stage4`、`stations`）與涵蓋時間。每個模組寫入 `input/obs/<name>/` 並附 `provenance.json`（提供者、URL、授權、抓取時間、引用格式）；`fetch-era5` 等同 `fetch era5`。
+
+**6.3 和觀測比較。** `recipe` 抓到資料後會自動比：降水對 Stage IV、對流對 NEXRAD（Py-ART）或 MRMS 組合反射率（MET Grid-Stat）、測站 T2／風（Point-Stat）、探空對 IGRA2、氣候類個案對 ERA5 月平均與 GPCP。比較範圍排除邊界 spec_bdy_width。報告內有「資料來源與授權」一節，每張圖的圖說也註明來源與授權。
+
+**6.4 颱風：`wtune post tc`。**
+
+```bash
+wtune post tc runs/a/ runs/b/ --labels ctrl,strict \
+    --hurdat2 hurdat2-1851-2024.txt --storm AL122005 --track-smooth-km 30
+wtune post report post/<id>/ --title "Katrina: ctrl vs strict"
+```
+用 TempestExtremes 追蹤，b-deck 優先序為 `--bdeck`、NHC 下載、HURDAT2。位置取自經 CDO 平滑的 SLP（`--track-smooth-km`，預設 30；0 = 原始最低點，大眼時會在 mesovortex 間跳動），MSLP 與 Vmax 取自未平滑的場。注意追蹤警告：退回父域的時間點、網格粗於約 5 km 且無巢狀域、風暴離開 nest；另有 `track steps` 行報告步長中位數與曲折度。沒有 MET 時只會產生 a-deck、`quadrant_<label>.csv`、`obs.json`、`track_map.png`，誤差圖會被跳過並警告。
+
+**6.5 其他工具。**
+
+```bash
+wtune post inventory runs/<id>/ --json
+wtune post extract runs/<id>/ --vars slp,t2,wspd10 --points "25.4,-74.6,eye" --out points.csv
+wtune post plot runs/<id>/ --field slp --overlay wind --out figs/
+wtune post sounding runs/<id>/ --point 25.4,-74.6 --time 2005-08-27_00:00:00 --out skewt.png
+wtune post compare runs/a/ runs/b/ --vars T2,slp
+wtune post custom --project .
+```
+- `inventory`：網格、變數、缺格檢查。
+- `extract`：用 wrf-python 抽點位時序或區域 netCDF。
+- `plot`：單一欄位地圖，預設 cartopy 底圖。
+- `sounding`：MetPy Skew-T 與 CAPE/CIN。
+- `compare`：呼叫 `diffwrf` 比對共同的 frame；用來驗證 STRICT 變更沒有動到答案（要看 `diffwrf` 的位元一致結果）。
+- `custom`：執行 `analysis/*.py`，輸出進 `post/<id>/`；`project init` 會放一個範例腳本。
+
+### 7. WRF 擴展
+
+`wtune check` 會偵測 moving nest、WRF-Chem、WRF-Hydro、WRFDA。對這些個案 WTune 只調整網格與 rank 配置（ranks、decomposition、tiles、OpenMP、I/O），擴展自身的參數一律照原樣不動。
+
+| 擴展 | WTune 做什麼 | WTune 拒絕什麼 |
+|---|---|---|
+| moving nest | 網格／rank 調校；時間預測係數 +6.0%（唯一實測過的） | `predict-rebuild`、`--cfl-rescue` |
+| WRF-Chem | 網格／rank；OMP 上限 1；decomposition guard：最小 j-patch 須 ≥ 21 | `predict-rebuild`、`--cfl-rescue` |
+| WRF-Hydro | 網格／rank；OMP 上限 1 | `predict-rebuild`、`--cfl-rescue`；standalone Hydro 不支援 |
+| WRFDA | forecast 段照一般 WRF 調校；`da_wrfvar.exe` 的 rank／decomposition 只給建議、不自動套用（最小化的歸約順序隨切法改變，結果不會逐位元相同）；OMP 上限 1 | `predict-rebuild`；`wtune run` 需 `--wrfda-forecast-only`（不跑 obsproc／da_wrfvar／da_update_bc，DA cycling 被拒） |
+
+- Chem 與 Hydro 的時間預測係數只是暫定值（±100% 區間），未校準；僅在該個案沒有 probe 量測時才套用，可用 `$WTUNE_EXTENSION_COEFFS` 覆蓋。
+- Chem 的 j-patch 門檻 21 來自單一個案、每格只跑一次的探索性結果（GOCART 在 j-patch 過窄時於第一次歷史寫出 hang），屬暫定。
+- ndown、NMM、MPAS 不支援。
+- 在 scc 上建置：`bin/build-wrf-extensions.sh submit movenest|chem|hydro|wrfda`（經 `sbatch --exclude=head`）。WRFDA 是唯一用 gcc 建置的（`COMPILER=gnu`），其餘用 nvhpc；Chem／Hydro 要建 dm+sm 並以 `OMP_NUM_THREADS=1` 執行。WRF-Chem 目前只有不含 KPP 的 build（`CHEM_KPP=0`，可跑 GOCART 等非 KPP 機制）：nvfortran 26.5 在 `-O3 -fast` 下編不完 `module_kpp_mozart_mosaic_4bin_Integr.f90`。
+
+### 8. 常見問題與已知限制
+
+- **adaptive time step：** `predict-rebuild` 不支援（`time_step` 為 0 或 `use_adaptive_time_step`）；`wtune physics` 只給建議。
+- **對流尖峰低估：** 預測用短 spin-up 的 ERA5 重建，長不出組織化對流，尖峰時段的成本會低估；整段預測誤差因此在對流個案偏樂觀，不要把它當成上限。
+- **WRF-Chem 間歇 hang：** 會偶發卡住。每個 job 都設時間上限（`--wall-limit`），逾時後重新提交，不要空等。
+- **scc 計算節點可連外網：** `post fetch` 與 ERA5 下載可以直接在計算節點上跑。
+- **逾時後殘留 wrf.exe：** job 被砍後可能留下空轉的 `wrf.exe` 孤兒程序，量測前先檢查並清理該節點（見 `campaign/node_hygiene.sh`），否則會污染計時。
 
 ---
 

@@ -393,7 +393,7 @@ def test_c3_wrf_run_dir_extension_less_file_flagged(tmp_path):
     run_dir.mkdir()
     text = one_domain_namelist()
     write_namelist(run_dir, text)
-    touch(run_dir, "CAMtr_volume_mixing_ratio.SSP245", "RRTM_DATA")
+    touch(run_dir, "wrf.exe", "CAMtr_volume_mixing_ratio.SSP245", "RRTM_DATA")  # staged run dir
     nl = wp.parse_namelist(str(run_dir / "namelist.input"))
     findings = []
     pf.check_c3_physics_files(nl, run_dir, findings, wrf_run_dir=wrf_run_dir)

@@ -199,7 +199,7 @@ def test_wrfda_detected_by_groups_and_by_exe(tmp_path):
     assert det2["id"] == "wrfda" and det2["detail"]["da_wrfvar_exe"]
 
 
-@pytest.mark.parametrize("fname,uid", [("ndown.exe", "ndown"), ("real_nmm.exe", "nmm"),
+@pytest.mark.parametrize("fname,uid", [("wrfndi_d02", "ndown"), ("real_nmm.exe", "nmm"),
                                          ("atmosphere_model", "mpas"),
                                          ("wrf_hydro_NoahMP.exe", "hydro-standalone")])
 def test_unsupported_families(tmp_path, fname, uid):
@@ -253,7 +253,7 @@ def test_inactive_chem_group_never_a_build_error(tmp_path):
 
 def test_unsupported_family_flagged_in_check(tmp_path):
     d = make(tmp_path)
-    (d / "ndown.exe").write_text("x")
+    (d / "wrfndi_d02").write_text("x")
     lines, code = we.check_report(str(d / "namelist.input"), str(d))
     assert code == 1 and "UNSUPPORTED ndown" in lines[0]
 
@@ -305,7 +305,7 @@ def test_run_refuses_wrfda_cycling_unless_forecast_only_acknowledged(tmp_path, c
 
 def test_run_refuses_ndown(tmp_path, capsys):
     d = make(tmp_path)
-    (d / "ndown.exe").write_text("x")
+    (d / "wrfndi_d02").write_text("x")
     assert wr.main(run_args(d, "--dry-run")) == 2
     assert "UNSUPPORTED ndown" in capsys.readouterr().err
 

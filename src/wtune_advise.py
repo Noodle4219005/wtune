@@ -143,8 +143,24 @@ def _find_namelist(d):
     return None
 
 
-def build_case(arg, site="scc", needs=(), hurdat2=None, storm=None, bdeck=None, post_tc_dir=None):
-    """`arg` = a directory (case prep dir, run dir, or a wtune project) or a registry case id."""
+def _project_storm_defaults(storm, hurdat2, project=None):
+    """Fill an absent --storm/--hurdat2 from the project in effect (--project, $WTUNE_PROJECT,
+    or a project.yaml at/above cwd; wtune_project.find_project) -- per field, as the
+    project-dir branch of build_case does. Explicit flags win; no project -> unchanged."""
+    if storm and hurdat2:
+        return storm, hurdat2
+    import wtune_project
+    pdir = wtune_project.find_project(explicit=project)
+    if not pdir:
+        return storm, hurdat2
+    p_storm, p_hurdat = wtune_project.project_storm(wtune_project.load_project(pdir))
+    return storm or p_storm, hurdat2 or _expand(p_hurdat)
+
+
+def build_case(arg, site="scc", needs=(), hurdat2=None, storm=None, bdeck=None, post_tc_dir=None,
+               project=None):
+    """`arg` = a directory (case prep dir, run dir, or a wtune project) or a registry case id.
+    `project` = --project DIR (storm/hurdat2 defaults, see _project_storm_defaults)."""
     registry = None
     case_dir = run_dir = namelist = None
     if os.path.isdir(_expand(arg)):
@@ -162,6 +178,7 @@ def build_case(arg, site="scc", needs=(), hurdat2=None, storm=None, bdeck=None, 
             case_dir = d
             run_dir = d if glob.glob(os.path.join(d, "wrfout_d*")) else None
             namelist = _find_namelist(d)
+            storm, hurdat2 = _project_storm_defaults(storm, hurdat2, project)
         name = os.path.basename(d.rstrip("/"))
     else:
         registry = load_registry_case(arg, site)
@@ -170,6 +187,7 @@ def build_case(arg, site="scc", needs=(), hurdat2=None, storm=None, bdeck=None, 
                            os.path.join(registry["prep_dir"], "namelist.input"))
         name = arg
         obs = registry.get("observations") or {}
+        storm, hurdat2 = _project_storm_defaults(storm, hurdat2, project)
         if obs.get("kind") == "track":
             storm = storm or obs.get("storm_id")
             hurdat2 = hurdat2 or _expand(obs.get("path"))
@@ -342,9 +360,16 @@ def best_track(case):
                         "pmin_hpa": float(r["mslp_hpa"]) if r["mslp_hpa"] else None}
                        for r in atcf.parse_file(case.bdeck)), key=lambda r: r["time"])
     elif case.hurdat2 and os.path.exists(case.hurdat2):
-        from post.tc import parse_hurdat2_full
+        from post.tc import parse_hurdat2_full, resolve_storm
         storm = case.storm
-        if not storm:
+        if storm:
+            # NAME / NAME+YEAR -> ATCF id, restricted to storms overlapping the case window
+            try:
+                window = _window(case)
+            except AdviseError:
+                window = None
+            storm = case.storm = resolve_storm(case.hurdat2, storm, window=window)
+        else:
             t0, t1 = _window(case)
             storm = _scan_hurdat2_for_storm(case.hurdat2, _domain_bbox(case), t0, t1)
             case.cache["storm_found"] = storm
@@ -871,11 +896,16 @@ def build_parser():
     p.add_argument("--site", default="scc", help="registry site overlay (default scc)")
     p.add_argument("--hurdat2", default=None, help="HURDAT2 file (best track; storm auto-found "
                    "when --storm is omitted); also $WTUNE_HURDAT2")
-    p.add_argument("--storm", default=None, help="storm id, e.g. AL122005")
+    p.add_argument("--storm", default=None, help="storm id, e.g. AL122005, or NAME / NAME+YEAR "
+                   "(KATRINA, KATRINA2005; matched in --hurdat2 within the case window)")
     p.add_argument("--bdeck", default=None, help="ATCF b-deck file (preferred over HURDAT2)")
     p.add_argument("--post-dir", default=None,
                    help="a `wtune post tc` output dir holding met_*/*.tcst (verification rules)")
     p.add_argument("--rules", default=None, help="alternate rules JSON")
+    p.add_argument("--project", default=None,
+                   help="wtune project dir whose project.yaml storm.id/storm.hurdat2 are used when "
+                        "--storm/--hurdat2 are absent (default: $WTUNE_PROJECT, else a "
+                        "project.yaml at/above cwd)")
     return p
 
 
@@ -889,7 +919,8 @@ def main(argv=None):
         return 2
     try:
         case = build_case(args.case, site=args.site, needs=needs, hurdat2=args.hurdat2,
-                          storm=args.storm, bdeck=args.bdeck, post_tc_dir=args.post_dir)
+                          storm=args.storm, bdeck=args.bdeck, post_tc_dir=args.post_dir,
+                          project=args.project)
         result = advise(case, "advise", load_rules(args.rules))
     except Exception as e:                                  # noqa: BLE001  stdout stays valid
         msg = e.args[0] if isinstance(e, AdviseError) and e.args else "%s: %s" % (type(e).__name__, e)

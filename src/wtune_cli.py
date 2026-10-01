@@ -1822,7 +1822,7 @@ def main():
     p_prep.add_argument('prep_args', nargs=argparse.REMAINDER, help='forwarded to wtune_geog.py')
 
     p_project = sub.add_parser('project', help='project folder holding case/input/config/runs/post '
-                                               '(decision 0058; wtune_project.py): init | info')
+                                               '(decision 0058; wtune_project.py): init | info | set')
     p_project.add_argument('project_args', nargs=argparse.REMAINDER, help='forwarded to wtune_project.py')
 
     p_analyze = sub.add_parser('analyze', help='TC diagnostics/tracking via wrf-python + TempestExtremes (analysis/cli.py): diag | tc-track')

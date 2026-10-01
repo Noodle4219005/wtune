@@ -479,10 +479,34 @@ _THOMPSON_DAT_FILES = ["freezeH2O.dat", "qr_acr_qg_V4.dat", "qr_acr_qsV2.dat"]
 # CAMtr_volume_mixing_ratio -> FATAL 'CLWRF: CAMtr_volume_mixing_ratio does not exist'.
 
 
-def _require_files(run_dir, dom_index, files, findings, note=""):
+def _linked_at_run_time(alt_dir, dom_index, name, findings, note=""):
+    """True (and an INFO recorded) when `name` is absent from a case dir but present in
+    --wrf-run-dir, which `wtune run` links into the run dir. alt_dir is None for a run dir."""
+    if alt_dir is None:
+        return False
+    if name.endswith("*"):
+        prefix = name[:-1]
+        try:
+            hit = any(n.startswith(prefix) for n in os.listdir(alt_dir))
+        except OSError:
+            hit = False
+    else:
+        hit = (Path(alt_dir) / name).exists()
+    if hit:
+        findings.append(Finding(
+            INFO, "C3",
+            "domain %d: required physics data file %s not in case dir; present in %s, linked "
+            "at run time%s" % (dom_index + 1, name, alt_dir, (" (%s)" % note) if note else ""),
+        ))
+    return hit
+
+
+def _require_files(run_dir, dom_index, files, findings, note="", alt_dir=None):
     for fname in files:
         full = _resolve_path(run_dir, fname)
         if not full.exists():
+            if _linked_at_run_time(alt_dir, dom_index, fname, findings, note):
+                continue
             findings.append(Finding(
                 FATAL, "C3",
                 "domain %d: required physics data file %s does not exist%s"
@@ -492,14 +516,15 @@ def _require_files(run_dir, dom_index, files, findings, note=""):
             ))
 
 
-def _require_prefix(run_dir, dom_index, prefix, findings, note=""):
+def _require_prefix(run_dir, dom_index, prefix, findings, note="", alt_dir=None):
     """FATAL unless at least one run_dir entry's name starts with `prefix` (for version-suffixed
     tables such as P3's p3_lookupTable_1.dat-v5.4_2momI)."""
     try:
         names = os.listdir(run_dir)
     except OSError:
         names = []
-    if not any(n.startswith(prefix) for n in names):
+    if not any(n.startswith(prefix) for n in names) and \
+            not _linked_at_run_time(alt_dir, dom_index, prefix + "*", findings, note):
         findings.append(Finding(
             FATAL, "C3",
             "domain %d: required physics data file %s* does not exist%s"
@@ -540,15 +565,23 @@ def check_c3_physics_files(nl, run_dir, findings, wrf_run_dir=None):
     use_wudapt_lcz = _int_opt(wp.g(nl, "physics", "use_wudapt_lcz", 0), 0)
     windturbine_spec = _int_opt(wp.g(nl, "physics", "windturbine_spec", 0), 0)
     co2tf = _int_opt(wp.g(nl, "physics", "co2tf", 1), 1)
+    # a dir without wrf.exe is a case/source dir: `wtune run` links WRF's run/ files into the real
+    # run dir, so a table missing here but present in --wrf-run-dir is INFO, not FATAL. A dir
+    # holding wrf.exe is what WRF runs from and keeps FATAL.
+    case_dir = not os.path.lexists(os.path.join(str(run_dir), "wrf.exe"))
+    alt = None
+    if case_dir and wrf_run_dir and Path(wrf_run_dir).is_dir():
+        alt = str(wrf_run_dir)
 
     # domain-1-only reads (oznini / aerosol_in are gated on id==1; eclipse is a scalar option)
     if aer_opt == 1:
-        _require_files(run_dir, 0, _AEROSOL_FILES, findings,
+        _require_files(run_dir, 0, _AEROSOL_FILES, findings, alt_dir=alt,
                        note="aer_opt=1 (Tegen aerosol climatology)")
     if ra_sw_eclipse == 1:
-        _require_files(run_dir, 0, [_ECLIPSE_FILE], findings, note="ra_sw_eclipse=1")
+        _require_files(run_dir, 0, [_ECLIPSE_FILE], findings, alt_dir=alt, note="ra_sw_eclipse=1")
     if windturbine_spec == 1:
-        _require_files(run_dir, 0, ["wind-turbine-1.tbl"], findings, note="windturbine_spec=1")
+        _require_files(run_dir, 0, ["wind-turbine-1.tbl"], findings, alt_dir=alt,
+                       note="windturbine_spec=1")
 
     for d in range(max_dom):
         phys = _resolved_physics(nl, d)
@@ -558,34 +591,36 @@ def check_c3_physics_files(nl, run_dir, findings, wrf_run_dir=None):
         sf = phys.get("sf_surface_physics")
 
         if ra_lw in _RA_LW_FILES:
-            _require_files(run_dir, d, _RA_LW_FILES[ra_lw], findings,
+            _require_files(run_dir, d, _RA_LW_FILES[ra_lw], findings, alt_dir=alt,
                             note="ra_lw_physics=%s" % ra_lw)
         if ra_sw in _RA_SW_FILES:
-            _require_files(run_dir, d, _RA_SW_FILES[ra_sw], findings,
+            _require_files(run_dir, d, _RA_SW_FILES[ra_sw], findings, alt_dir=alt,
                             note="ra_sw_physics=%s" % ra_sw)
         for scheme, files in _RA_EITHER_FILES.items():
             if scheme in (ra_lw, ra_sw):
-                _require_files(run_dir, d, files, findings,
+                _require_files(run_dir, d, files, findings, alt_dir=alt,
                                note="ra_lw/ra_sw_physics=%s" % scheme)
         if _GFDL_SCHEME in (ra_lw, ra_sw):
             if co2tf == 1:
-                _require_files(run_dir, d, _GFDL_CO2O3_FILES, findings,
+                _require_files(run_dir, d, _GFDL_CO2O3_FILES, findings, alt_dir=alt,
                                note="GFDL radiation (99) with co2tf=1 (default)")
             else:
-                _require_files(run_dir, d, _GFDL_CONRAD_FILES, findings,
+                _require_files(run_dir, d, _GFDL_CONRAD_FILES, findings, alt_dir=alt,
                                note="GFDL radiation (99) with co2tf=%s" % co2tf)
 
         if _CAM_SCHEME in (ra_lw, ra_sw):
-            _require_files(run_dir, d, _OZONE_FILES, findings,
+            _require_files(run_dir, d, _OZONE_FILES, findings, alt_dir=alt,
                            note="CAM radiation reads CAM ozone regardless of o3input")
         elif d == 0 and o3input == 2 and (ra_lw in _RRTMG_FAMILY or ra_sw in _RRTMG_FAMILY):
-            _require_files(run_dir, d, _OZONE_FILES, findings,
+            _require_files(run_dir, d, _OZONE_FILES, findings, alt_dir=alt,
                            note="o3input=2 (default) with RRTMG radiation; set o3input=0 "
                                 "to use the scheme's built-in ozone profile instead")
 
         if int(ghg_input) == 1 and ra_lw not in _CAMTR_EXEMPT_RA_LW:
             full = _resolve_path(run_dir, "CAMtr_volume_mixing_ratio")
-            if not full.exists():
+            if not full.exists() and not _linked_at_run_time(
+                    alt, d, "CAMtr_volume_mixing_ratio", findings,
+                    "ghg_input=%s with ra_lw_physics=%s" % (ghg_input, ra_lw)):
                 findings.append(Finding(
                     FATAL, "C3",
                     "domain %d: ghg_input=1 (default) with ra_lw_physics=%s (not CAM) requires "
@@ -596,10 +631,12 @@ def check_c3_physics_files(nl, run_dir, findings, wrf_run_dir=None):
                 ))
 
         if sf in _LSM_FILES:
-            _require_files(run_dir, d, _LSM_FILES[sf], findings,
+            _require_files(run_dir, d, _LSM_FILES[sf], findings, alt_dir=alt,
                             note="sf_surface_physics=%s (%s)" % (sf, _LSM_NAMES[sf]))
         elif sf == 4:  # Noah-MP
-            if not any(_resolve_path(run_dir, n).exists() for n in _NOAHMP_TABLE_NAMES):
+            if not any(_resolve_path(run_dir, n).exists() for n in _NOAHMP_TABLE_NAMES) and \
+                    not any(_linked_at_run_time(alt, d, n, findings, "sf_surface_physics=4")
+                            for n in _NOAHMP_TABLE_NAMES):
                 findings.append(Finding(
                     FATAL, "C3",
                     "domain %d: sf_surface_physics=4 (Noah-MP) requires NoahmpTable.TBL "
@@ -611,28 +648,31 @@ def check_c3_physics_files(nl, run_dir, findings, wrf_run_dir=None):
         sf_urban = _int_opt(wp.g_dom(nl, "physics", "sf_urban_physics", d, 0), 0)
         if sf_urban in _URBAN_SCHEMES:
             if use_wudapt_lcz == 1:
-                _require_files(run_dir, d, ["URBPARM_LCZ.TBL"], findings,
+                _require_files(run_dir, d, ["URBPARM_LCZ.TBL"], findings, alt_dir=alt,
                                note="sf_urban_physics=%s with use_wudapt_lcz=1" % sf_urban)
             else:
-                _require_files(run_dir, d, ["URBPARM.TBL"], findings,
+                _require_files(run_dir, d, ["URBPARM.TBL"], findings, alt_dir=alt,
                                note="sf_urban_physics=%s" % sf_urban)
 
         chem_opt = _int_opt(wp.g_dom(nl, "chem", "chem_opt", d, 0), 0)
         if chem_opt in _HLC_CHEM_OPTS:
-            _require_files(run_dir, d, ["HLC.TBL"], findings, note="chem_opt=%s" % chem_opt)
+            _require_files(run_dir, d, ["HLC.TBL"], findings, alt_dir=alt,
+                           note="chem_opt=%s" % chem_opt)
 
         if mp in _MP_FILES:
-            _require_files(run_dir, d, _MP_FILES[mp], findings, note="mp_physics=%s" % mp)
+            _require_files(run_dir, d, _MP_FILES[mp], findings, alt_dir=alt,
+                           note="mp_physics=%s" % mp)
         if mp in _P3_TABLE1_MP:
-            _require_prefix(run_dir, d, _P3_TABLE1_PREFIX, findings,
+            _require_prefix(run_dir, d, _P3_TABLE1_PREFIX, findings, alt_dir=alt,
                             note="mp_physics=%s (P3)" % mp)
         if mp in _P3_TABLE2_MP:
-            _require_prefix(run_dir, d, _P3_TABLE2_PREFIX, findings,
+            _require_prefix(run_dir, d, _P3_TABLE2_PREFIX, findings, alt_dir=alt,
                             note="mp_physics=%s (P3, nCat>1)" % mp)
 
         if mp in _THOMPSON_MP:
             missing = [f for f in _THOMPSON_DAT_FILES
-                       if not _resolve_path(run_dir, f).exists()]
+                       if not _resolve_path(run_dir, f).exists()
+                       and not (alt and (Path(alt) / f).exists())]
             if missing:
                 findings.append(Finding(
                     WARN, "C3",
@@ -647,19 +687,27 @@ def check_c3_physics_files(nl, run_dir, findings, wrf_run_dir=None):
     if wrf_run_dir:
         wrf_run_dir = Path(wrf_run_dir)
         if wrf_run_dir.is_dir():
-            for entry in sorted(wrf_run_dir.iterdir()):
-                if not entry.is_file():
-                    continue
-                if not (Path(run_dir) / entry.name).exists():
-                    findings.append(Finding(
-                        WARN, "C3",
-                        "%s is present in WRF's own run/ (%s) but absent from run_dir"
-                        % (entry.name, wrf_run_dir),
-                        evidence=str(entry),
-                        fix="stage %s into run_dir if the active physics options need it "
-                            "(real incident: sc26p2-n4 staging used an extension whitelist and "
-                            "missed the extension-less CAMtr_volume_mixing_ratio)" % entry.name,
-                    ))
+            absent = [entry for entry in sorted(wrf_run_dir.iterdir())
+                      if entry.is_file() and not (Path(run_dir) / entry.name).exists()]
+            if case_dir and absent:
+                names = [e.name for e in absent]
+                findings.append(Finding(
+                    INFO, "C3",
+                    "%d file(s) of WRF's own run/ (%s) are not in the case dir (%s%s); "
+                    "wtune run links them at run time"
+                    % (len(names), wrf_run_dir, ", ".join(names[:5]),
+                       ", ..." if len(names) > 5 else ""),
+                ))
+            for entry in ([] if case_dir else absent):
+                findings.append(Finding(
+                    WARN, "C3",
+                    "%s is present in WRF's own run/ (%s) but absent from run_dir"
+                    % (entry.name, wrf_run_dir),
+                    evidence=str(entry),
+                    fix="stage %s into run_dir if the active physics options need it "
+                        "(real incident: sc26p2-n4 staging used an extension whitelist and "
+                        "missed the extension-less CAMtr_volume_mixing_ratio)" % entry.name,
+                ))
         else:
             findings.append(Finding(
                 INFO, "C3", "--wrf-run-dir %s is not a directory; skipped" % wrf_run_dir,

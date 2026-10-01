@@ -107,8 +107,13 @@ CFL_COUPLED = {
 # ---------------------------------------------------------------------------
 # unsupported families (file evidence in the run dir)
 # ---------------------------------------------------------------------------
+# An executable alone is evidence only when no ARW build ships it. ndown.exe is built and linked
+# into run/ by every em_real compile, and `wtune run` links all of run/ into the run dir, so
+# ndown is reported only on its data (wrfndi_d0*). NMM / MPAS executables never appear in an ARW
+# run/ and stay evidence on their own. WRF-Hydro standalone exes are ignored next to wrf.exe
+# (a WRF atmosphere means the coupled setup, not standalone).
 UNSUPPORTED_FILES = (
-    ('ndown', 'ndown', ('ndown.exe',), ('wrfndi_d02', 'wrfndi_d01'),
+    ('ndown', 'ndown', (), ('wrfndi_d02', 'wrfndi_d01'),
      'one-way ndown.exe nesting is not modelled: rank/decomposition advice and the time model '
      'assume a wrf.exe run driven by real.exe output'),
     ('hydro-standalone', 'WRF-Hydro standalone',
@@ -303,11 +308,12 @@ def detect_unsupported(run_dir):
         hits = [n for n in exes + files if os.path.lexists(os.path.join(run_dir, n))]
         if uid == 'hydro-standalone':
             # namelist.hrldas alongside a WRF namelist.input is the COUPLED setup's leftover; only
-            # flag stand-alone when there is no wrf.exe atmosphere (no namelist.input)
-            if not os.path.exists(os.path.join(run_dir, 'namelist.input')) or \
-                    any(os.path.lexists(os.path.join(run_dir, n)) for n in exes):
-                pass
-            else:
+            # flag stand-alone when there is no wrf.exe atmosphere (no wrf.exe, and no
+            # namelist.input unless a stand-alone exe is present)
+            if os.path.lexists(os.path.join(run_dir, 'wrf.exe')):
+                hits = []
+            elif os.path.exists(os.path.join(run_dir, 'namelist.input')) and \
+                    not any(n in exes for n in hits):
                 hits = []
         if hits:
             out.append((uid, label, msg, hits))

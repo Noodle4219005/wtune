@@ -26,7 +26,8 @@ from datetime import datetime, timedelta
 from post import sources, tools
 from post.extract import list_frames
 
-THRESHOLDS_MM = (1, 10, 25, 50, 100)
+# WPC-style event thresholds in mm (0.01, 0.1, 0.25, 0.5, 1 in, then 50 mm; decision 0064)
+THRESHOLDS_MM = (0.254, 2.54, 6.35, 12.7, 25.4, 50)
 WIDTHS = (1, 3, 5, 9)
 STAGE4_CELL_KM = 4.763
 RADAR_RANGE_KM = 230

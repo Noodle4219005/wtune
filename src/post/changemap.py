@@ -60,11 +60,11 @@ def _change_scale(field, diffs):
     vals = vals[np.isfinite(vals)]
     if field == "rain_acc":
         # interval rainfall on the WPC isohyet thresholds in mm (decision 0064)
-        from post.obs_figs import PRECIP_CMAP, PRECIP_LEVELS
+        from post.obs_figs import PRECIP_LEVELS, precip_cmap
         hi = float(np.percentile(vals, 99.5)) if vals.size else 1.0
         upto = [lv for lv in PRECIP_LEVELS if lv <= hi]
         levels = PRECIP_LEVELS[:max(2, len(upto) + 1)]
-        return levels, PRECIP_CMAP, "max"
+        return levels, precip_cmap(), "max"
     from post.recipes.synoptic import symmetric_levels
     vmax = float(np.percentile(np.abs(vals), 98)) if vals.size else 1.0
     return symmetric_levels(max(vmax, 1e-6)), "RdBu_r", "both"

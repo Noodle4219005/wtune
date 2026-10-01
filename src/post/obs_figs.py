@@ -14,6 +14,16 @@ from post.plotting import _matplotlib, _set_cartopy_data_dir
 PRECIP_LEVELS_IN = [0.01, 0.1, 0.25, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0, 8.0]
 PRECIP_LEVELS = [round(x * 25.4, 2) for x in PRECIP_LEVELS_IN]
 PRECIP_CMAP = "YlGnBu"
+
+
+def precip_cmap():
+    """YlGnBu without its near-white low end, so the lightest WPC bin (0.01-0.1 in) is still
+    visible against the white 'no precipitation' background."""
+    import numpy as np
+    from matplotlib import colormaps
+    from matplotlib.colors import ListedColormap
+    base = colormaps[PRECIP_CMAP]
+    return ListedColormap(base(np.linspace(0.18, 1.0, 256)), name="precip_wpc")
 DBZ_LEVELS = list(range(5, 75, 5))
 
 
@@ -36,7 +46,7 @@ def _extent(lat, lon, pad=0.3):
             float(lat[ok].min()) - pad, float(lat[ok].max()) + pad]
 
 
-def side_by_side(lat, lon, left, right, titles, suptitle, out_path, levels, cmap=PRECIP_CMAP,
+def side_by_side(lat, lon, left, right, titles, suptitle, out_path, levels, cmap=None,
                  cbar_label="", extend="max", under_color="white"):
     """Two maps of two fields on the same grid with ONE fixed discrete colour scale (`levels`) and
     one shared colour bar. Cells where either field is NaN are blanked in both, so the panels show
@@ -46,7 +56,7 @@ def side_by_side(lat, lon, left, right, titles, suptitle, out_path, levels, cmap
     plt = _matplotlib()
     both = np.isfinite(left) & np.isfinite(right)
     a, b = np.where(both, left, np.nan), np.where(both, right, np.nan)
-    cm = plt.get_cmap(cmap).copy()
+    cm = (precip_cmap() if cmap is None else plt.get_cmap(cmap)).copy()
     cm.set_under(under_color)
     cm.set_over(cm(1.0))
     norm = BoundaryNorm(levels, cm.N, extend=extend)
@@ -123,18 +133,21 @@ def scores_vs_threshold(rows, title, out_path, thresh_label="threshold"):
                 ha="left" if b <= 1.0 else "center", va="center" if b <= 1.0 else "bottom")
     pts = performance_diagram_points(rows)
     cmap = plt.get_cmap("viridis")
+    unit = thresh_label[thresh_label.find("(") + 1:thresh_label.rfind(")")] \
+        if "(" in thresh_label else thresh_label
     for k, (th, s, p, c, fb) in enumerate(pts):
         n = next((r.get("total") for r in rows if r["thresh"] == th), None)
         ax.plot(s, p, "o", ms=9, color=cmap(k / max(1, len(pts) - 1)), mec="k",
-                label="%g%s%s" % (th, " " + thresh_label if thresh_label else "",
-                                  ("  (n=%d)" % n) if n else ""))
+                label="≥ %g %s%s" % (th, unit, ("  (n=%d)" % n) if n else ""))
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1)
     ax.set_xlabel("success ratio (1 - FAR)")
     ax.set_ylabel("probability of detection (POD)")
     ax.set_aspect("equal")
     ax.legend(title="event threshold", fontsize=7, loc="lower right")
-    ax.set_title(title + "\ngrey curves: CSI; dashed rays: frequency bias", fontsize=9)
+    import textwrap
+    ax.set_title("\n".join(textwrap.wrap(title, 70))
+                 + "\ngrey curves: CSI; dashed rays: frequency bias", fontsize=9)
     fig.savefig(out_path, dpi=110)
     plt.close(fig)
     return out_path

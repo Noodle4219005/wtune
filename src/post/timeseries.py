@@ -114,11 +114,11 @@ def fixed_scale(run_dir, field, domain, times):
             arrays.append(np.asarray(_field_2d(ds, wrf_mod, field, None), dtype="f8"))
     if field == "rain_acc":
         # WPC isohyet thresholds in mm (decision 0064), up to one level above the run maximum
-        from post.obs_figs import PRECIP_CMAP, PRECIP_LEVELS
+        from post.obs_figs import PRECIP_LEVELS, precip_cmap
         hi = max(float(np.nanmax(a)) for a in arrays)
         upto = [lv for lv in PRECIP_LEVELS if lv <= hi]
         levels = PRECIP_LEVELS[:len(upto) + 1] if len(upto) < len(PRECIP_LEVELS) else PRECIP_LEVELS
-        return [0.0] + list(levels) if len(levels) < 2 else list(levels), PRECIP_CMAP, "max"
+        return [0.0] + list(levels) if len(levels) < 2 else list(levels), precip_cmap(), "max"
     if field == "t2":
         # degC on a diverging scale centred on 0 degC (decision 0064)
         from post.recipes.synoptic import celsius_levels

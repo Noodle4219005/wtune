@@ -32,9 +32,11 @@ def reflectivity_cmap():
     """ListedColormap of the NWS table with white below 5 dBZ (for pcolormesh/BoundaryNorm)."""
     from matplotlib.colors import ListedColormap
     _, colors = reflectivity_colors()
-    cm = ListedColormap(colors[:len(DBZ_LEVELS) - 1], name="nws_reflectivity")
+    # one colour per bin plus the >= 75 dBZ overflow colour, so BoundaryNorm(extend="max")
+    # has len(levels) colours available
+    cm = ListedColormap(colors[:len(DBZ_LEVELS)], name="nws_reflectivity")
     cm.set_under("white")
-    cm.set_over(colors[-1])
+    cm.set_over(colors[len(DBZ_LEVELS) - 1])
     return cm
 
 

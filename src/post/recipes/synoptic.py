@@ -66,8 +66,12 @@ def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6):
                                    field_type="z", timeidx=0, log_p=True)
             z1000_ext = np.asarray(z_pl[0])
             z500_ext = np.asarray(z_pl[1])
-            avo = wrf_mod.getvar(ds, "avo", timeidx=0)
-            avo500 = wrf_mod.interplevel(avo, pressure, 500)
+            # avo needs MAPFAC_U/V/M and F; long climate runs often drop them via iofields
+            try:
+                avo500 = wrf_mod.interplevel(wrf_mod.getvar(ds, "avo", timeidx=0), pressure, 500)
+            except KeyError as e:
+                avo500 = None
+                avo_missing = str(e)
             lats, lons = wrf_mod.latlon_coords(z500, as_np=True)
             crs = wrf_mod.get_cartopy(var=z500)
             xlim = wrf_mod.cartopy_xlim(var=z500)
@@ -84,15 +88,20 @@ def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6):
             z_levels = np.arange(60.0 * np.floor(np.nanmin(z500_np) / 60.0),
                                  np.nanmax(z500_np) + 60.0, 60.0)
 
-            p1 = os.path.join(out_dir, "syn_z500_vort.png")
-            save_map(p1, lats, lons,
-                    "%s d01 500 hPa height (every 60 m) + absolute vorticity (shaded)  %s"
-                    % (run_label, tlabel),
-                    fill_field=avo_np, fill_label="absolute vorticity (10$^{-5}$ s$^{-1}$)",
-                    fill_levels=avo_levels, fill_colors=avo_colors, fill_extend="max",
-                    contour_field=z500_np, contour_levels=z_levels, contour_label_fmt="%d",
-                    ds=ds, crs=crs, gridline_labels=True, terrain=False)
-            out.append(fig("syn_z500_vort", p1, run_label, domain="d01", valid_time=time_str))
+            if avo500 is None:
+                out.append(missing("syn_z500_vort", "wrfout MAPFAC_U/V/M, F",
+                                   "absolute vorticity needs map-factor fields not in this wrfout "
+                                   "(%s) -- re-run with them in the history stream" % avo_missing))
+            else:
+                p1 = os.path.join(out_dir, "syn_z500_vort.png")
+                save_map(p1, lats, lons,
+                        "%s d01 500 hPa height (every 60 m) + absolute vorticity (shaded)  %s"
+                        % (run_label, tlabel),
+                        fill_field=avo_np, fill_label="absolute vorticity (10$^{-5}$ s$^{-1}$)",
+                        fill_levels=avo_levels, fill_colors=avo_colors, fill_extend="max",
+                        contour_field=z500_np, contour_levels=z_levels, contour_label_fmt="%d",
+                        ds=ds, crs=crs, gridline_labels=True, terrain=False)
+                out.append(fig("syn_z500_vort", p1, run_label, domain="d01", valid_time=time_str))
 
             slp = np.asarray(wrf_mod.getvar(ds, "slp", timeidx=0, units="hPa"), dtype="f8")
             thickness_dam = (z500_ext - z1000_ext) / 10.0

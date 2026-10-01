@@ -80,3 +80,12 @@ def test_highs_lows_skips_excluded_cells():
     mask = np.zeros(slp.shape, bool)
     mask[20:40, 10:30] = True                      # "mountains" over the low
     assert [k for _, _, k in mapfig.highs_lows(slp, window=21, exclude=mask)].count("L") == 0
+
+
+def test_reflectivity_table_fits_boundarynorm_with_overflow():
+    pytest.importorskip("metpy")
+    from matplotlib.colors import BoundaryNorm
+    from post.conventions import DBZ_LEVELS, reflectivity_cmap
+    cm = reflectivity_cmap()
+    BoundaryNorm(DBZ_LEVELS, cm.N, extend="max")      # raises if the table is one colour short
+    assert DBZ_LEVELS[0] == 5 and DBZ_LEVELS[-1] == 75 and DBZ_LEVELS[1] - DBZ_LEVELS[0] == 5

@@ -96,7 +96,8 @@ def diff_map(lat, lon, fcst, obs, title, out_path, cbar_label, vmax):
     mesh = ax.pcolormesh(lon, lat, np.ma.masked_invalid(d), cmap="BrBG", vmin=-vmax, vmax=vmax,
                          transform=ccrs.PlateCarree(), shading="auto")
     fig.colorbar(mesh, ax=ax, shrink=0.85, label=cbar_label, extend="both")
-    ax.set_title(title, fontsize=9)
+    import textwrap
+    ax.set_title("\n".join(textwrap.wrap(title, 75)), fontsize=9)
     fig.savefig(out_path, dpi=110)
     plt.close(fig)
     return out_path

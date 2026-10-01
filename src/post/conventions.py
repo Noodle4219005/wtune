@@ -74,6 +74,22 @@ def time_label(init, valid):
     return "init %s  valid %s (F%03d)" % (i.strftime("%Y-%m-%d %HZ"), vs, lead_h)
 
 
+def lead_range_label(path, t_first, t_last):
+    """'init 2017-09-20 09Z, F006-F072' for a time-max/accumulation window."""
+    try:
+        import netCDF4
+        with netCDF4.Dataset(path) as ds:
+            i = init_time(ds)
+    except Exception:
+        i = None
+    a, b = _parse(t_first), _parse(t_last)
+    if i is None or a is None or b is None:
+        return "%s .. %s" % (t_first, t_last)
+    fa = int(round((a - i).total_seconds() / 3600.0))
+    fb = int(round((b - i).total_seconds() / 3600.0))
+    return "init %s, F%03d-F%03d" % (i.strftime("%Y-%m-%d %HZ"), fa, fb)
+
+
 def ds_time_label(ds, valid):
     return time_label(init_time(ds), valid)
 

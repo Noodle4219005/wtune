@@ -93,9 +93,10 @@ def layer_segments(category, name, resolution, bbox):
 
 def terrain_interval(hgt_max, hgt_min=0.0):
     """Contour interval (m) from the relief: the smallest step in TERRAIN_STEPS_M that gives at
-    most TERRAIN_MAX_LINES lines; None when the domain is flat (< 100 m)."""
+    most TERRAIN_MAX_LINES lines; None when the domain is flat (top < 100 m, or relief < 300 m:
+    contours of a few tens of metres over a plain are clutter, not orientation)."""
     rng = float(hgt_max) - max(float(hgt_min), 0.0)
-    if hgt_max < 100.0 or rng <= 0:
+    if hgt_max < 100.0 or rng < 300.0:
         return None
     for step in TERRAIN_STEPS_M:
         if rng / step <= TERRAIN_MAX_LINES:

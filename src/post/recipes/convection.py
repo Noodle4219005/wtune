@@ -171,15 +171,15 @@ def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6):
         uh_max, lats, lons, crs = _uh_time_max(run_dir, domain, post_spinup)
         from post.recipes.mapfig import save_map
         path = os.path.join(out_dir, "conv_uh25_max.png")
-        from post.conventions import UH_LEVELS, path_time_label
+        from post.conventions import UH_LEVELS, lead_range_label
         import numpy as np
         uh_plot = np.where(np.asarray(uh_max, dtype="f8") < UH_LEVELS[0], np.nan, uh_max)
         save_map(path, lats, lons,
-                "%s d%02d 2-5 km AGL updraft helicity, time max over %s .. %s\n"
+                "%s d%02d 2-5 km AGL updraft helicity, time max over %s\n"
                 "(spin-up %g h excluded; >= 75 m$^2$ s$^{-2}$ marks rotating storms)"
                 % (run_label, domain,
-                   path_time_label(post_spinup[0][1], post_spinup[0][0]),
-                   post_spinup[-1][0][:13] + "Z", spinup_hours),
+                   lead_range_label(post_spinup[0][1], post_spinup[0][0], post_spinup[-1][0]),
+                   spinup_hours),
                 fill_field=uh_plot, fill_label="2-5 km UH (m$^2$ s$^{-2}$)", fill_cmap="Reds",
                 fill_levels=UH_LEVELS, fill_extend="max", crs=crs)
         out.append(fig("conv_uh25_max", path, run_label, domain="d%02d" % domain,

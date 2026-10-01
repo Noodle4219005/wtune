@@ -161,7 +161,14 @@ def _simple_dispatch(module_name, out_subdir):
             kwargs["project_dir"] = project_dir
         if "spinup_days" in params and spinup_days is not None:
             kwargs["spinup_days"] = spinup_days
-        return mod.figures(run_dirs, labels, sub_out, case_info, **kwargs)
+        try:
+            return mod.figures(run_dirs, labels, sub_out, case_info, **kwargs)
+        except KeyError as e:
+            # a wrfout written with a reduced history stream (iofields) lacks a variable this
+            # figure set needs: report it as missing, never abort the whole report
+            return [missing("%s_figures" % module_name, "wrfout variable %s" % e,
+                            "this run's history stream does not contain %s (reduced iofields?) "
+                            "-- the %s figure set needs it" % (e, module_name))]
     return run
 
 

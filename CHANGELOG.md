@@ -3,6 +3,53 @@
 Versions are declared in `wtune_version.py`; `test_wtune_version.py` fails if the top section
 here does not match it. Development before 0.1.0 is in the git history, not in releases.
 
+## 0.8.0 — 2026-10-02
+
+**One-pass tuning levels.** `wtune tune -O0..-O3` (decision 0059): plan, layout search,
+whole-run prediction and opt-in physics advice in one call. -O3 (default) searches every legal
+(N, cores per node, ranks x threads, nx x ny, numtiles) with no time cap; queue and controller
+time are reported, not charged. The node sweep uses hybrid MPI+OpenMP layouts at any node count
+(coarse to fine), measures cores per node, and checks node health before each phase. Prediction
+points are chosen by case type and weather-cost indicators (decision 0060). `tune_report.json`
+carries a top-level `winner` that follows a phase-2 overturn.
+
+**Advice and calculators.** `wtune advise` prints WRF-mode advice (WRFDA, nudging, moving nest,
+early start, tc.exe vortex insertion) with measured evidence and side effects, never applied
+(decision 0061); it reads the project's storm and accepts `--storm NAME` or `NAME+YEAR`
+(e.g. KATRINA -> AL122005, narrowed by the case window). `wtune calc` holds rules of thumb and
+conversions incl. nudging wavenumbers (decision 0062). `wtune prep geog` optionally imports
+higher-resolution DEMs (decision 0063). `wtune project set --storm --hurdat2`.
+
+**Run and watch.** `wtune run --tune-report` takes the layout from the report's winner (flags
+override) and uses the winner's measured s/step when the report has no ranking points.
+`wtune watch` follows `OUT/seg_<k>` of a run root (`seg k/K`, whole-run percentage) and uses
+the newest wrfout frame as a progress floor when the rsl lags on NFS (`RSL_LAGGING`).
+
+**Figures (decisions 0064, 0065).** Every plan view gets a shared base map (coast, lakes,
+borders, terrain contours, nest box). Units, contour intervals and colour tables follow WRF/NWP
+verification practice (WPC precipitation thresholds, Roebber performance diagram, FSS useful-skill
+line, SLP every 4 hPa with H/L, kt barbs, NWS reflectivity, CW3E IVT, init/valid/Fhhh titles).
+New tropical-cyclone structure set: 2 km reflectivity with 34/50/64 kt and RMW, azimuthal-mean
+radius-height tangential/radial wind, warm-core anomaly and total condensate, centre-passing
+sections, warm-core Hovmöller. New cloud set for every case with hydrometeors: liquid/ice/snow
+water paths, cloud-top height, along/across-wind condensate sections, OLR-derived brightness
+temperature. "Total condensate" now sums every hydrometeor (QCLOUD+QICE alone was 10% of the
+condensate mass in SC26-P2). The 3-D figure is a ParaView volume rendering of total condensate
+(storm-centred cutaway coloured by tangential wind; height ruler; adaptive vertical extent).
+
+**3-D data products.** `wtune post cf3d`: CF-1.8 NetCDF on 21 isobaric levels and a regular
+lon-lat grid for Met.3D and ParaView. `wtune post vapor-bundle`: hard-linked wrfout frames with
+`vapor_render.py` and a README for official VAPOR on a workstation (no linux-aarch64 build
+exists); the recipe never copies, the CLI copies only with `--allow-copy`. Both are recipe data
+products.
+
+**Fixes.** TC tracking scales the StitchNodes range to the output interval (a fixed 8 deg let a
+1007 hPa low 653 km away take Katrina's t0 fix). Post tools (cdo, MET, TempestExtremes) are found
+without `bin/wtune` or `WTUNE_POSTPROC_VIEW`; post and fetch read segmented runs as one run.
+`wtune check` no longer reports ndown for a linked `ndown.exe`, and a case directory's missing
+WRF tables that `--wrf-run-dir` has are INFO, not FATAL. Tune tests use a per-session temp dir
+(a fixed /tmp path owned by another user failed them on a shared node).
+
 ## 0.7.0 — 2026-10-01
 
 **Measured node-count search.** `wtune tune --nodes search` is the new default: the ANCHOR

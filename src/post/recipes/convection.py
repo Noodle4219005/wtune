@@ -25,7 +25,7 @@ import os
 
 from post import tools
 from post.conventions import reflectivity_cmap
-from post.extract import list_frames
+from post.extract import frame_path, list_frames
 
 
 def _finest_convective_domain(domains):
@@ -63,7 +63,7 @@ def _map_field(run_dir, domain, field, time_str, out_path, title, cmap="viridis"
     import numpy as np
     wrf_mod = __import__("wrf")
     from post.recipes.mapfig import save_map
-    path = os.path.join(run_dir, "wrfout_d%02d_%s" % (domain, time_str))
+    path = frame_path(run_dir, domain, time_str)
     kw = {}
     with netCDF4.Dataset(path) as ds:
         if field == "mdbz":
@@ -123,7 +123,7 @@ def _max_reflectivity_point(run_dir, domain, time_str):
     import netCDF4
     import numpy as np
     wrf_mod = __import__("wrf")
-    path = os.path.join(run_dir, "wrfout_d%02d_%s" % (domain, time_str))
+    path = frame_path(run_dir, domain, time_str)
     with netCDF4.Dataset(path) as ds:
         mdbz = np.asarray(wrf_mod.getvar(ds, "mdbz", timeidx=0))
         lat = np.asarray(ds.variables["XLAT"][0])

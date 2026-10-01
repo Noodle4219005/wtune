@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import os
 
+from post.extract import frame_path
+
 
 class SoundingError(RuntimeError):
     pass
@@ -75,7 +77,7 @@ def make_sounding(run_dir, lat, lon, time_str, out_path, domain=1):
     netcdf4 = _netcdf4()
     plt = _matplotlib()
 
-    path = os.path.join(run_dir, "wrfout_d%02d_%s" % (domain, time_str))
+    path = frame_path(run_dir, domain, time_str)
     if not os.path.exists(path):
         raise SoundingError("no such frame: %s" % path)
 

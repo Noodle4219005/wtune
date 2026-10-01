@@ -24,7 +24,7 @@ import os
 from datetime import datetime, timezone
 
 from post import tools
-from post.extract import list_frames
+from post.extract import frame_path, list_frames
 
 WRF_FMT = "%Y-%m-%d_%H:%M:%S"
 TOP_AGL_M = 4000.0
@@ -198,7 +198,7 @@ def plot_cross_section(run_dir, domain, time_str, j, i, out_path, run_label, lab
     import numpy as np
     wrf_mod = _wrf()
     plt = _plt()
-    path = os.path.join(run_dir, "wrfout_d%02d_%s" % (domain, time_str))
+    path = frame_path(run_dir, domain, time_str)
     with netCDF4.Dataset(path) as ds:
         j0, j1, i0, i1 = _interior(ds, run_dir)
         dx_km = float(ds.getncattr("DX")) / 1000.0

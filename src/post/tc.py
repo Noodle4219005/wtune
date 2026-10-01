@@ -27,9 +27,11 @@ from __future__ import annotations
 import csv
 import json
 import os
+import re
+import sys
 from datetime import datetime
 
-from post import atcf, met_tc, tc_metrics as tm, tools
+from post import atcf, extract, met_tc, tc_metrics as tm, tools
 
 WRF_TIME_FMT = "%Y-%m-%d_%H:%M:%S"
 KT_TO_MS = 0.514444
@@ -61,6 +63,77 @@ def _hurdat2_coord(token):
     return -value if hemi in ("S", "W") else value
 
 
+ATCF_ID_RE = re.compile(r"^[A-Za-z]{2}\d{6}$")
+_NAME_YEAR_RE = re.compile(r"^\s*([A-Za-z][A-Za-z_\- ]*?)[\s_-]*((?:18|19|20)\d\d)?\s*$")
+
+
+def _is_hurdat2_header(fields):
+    return len(fields) >= 3 and fields[0][:2].isalpha() and fields[0][2:6].isdigit()
+
+
+def hurdat2_storms(path):
+    """[(id, name, first_fix, last_fix)] for every storm in a HURDAT2 file, in file order."""
+    if not os.path.exists(path):
+        raise TCError("HURDAT2 file not found: %s" % path)
+    out, cur = [], None
+    with open(path, errors="replace") as fh:
+        for raw in fh:
+            fields = [f.strip() for f in raw.split(",")]
+            if _is_hurdat2_header(fields):
+                cur = [fields[0].upper(), fields[1].upper(), None, None]
+                out.append(cur)
+                continue
+            if cur is None or len(fields) < 2:
+                continue
+            try:
+                when = datetime.strptime(fields[0] + fields[1], "%Y%m%d%H%M")
+            except ValueError:
+                continue
+            cur[2] = when if cur[2] is None or when < cur[2] else cur[2]
+            cur[3] = when if cur[3] is None or when > cur[3] else cur[3]
+    return [tuple(s) for s in out]
+
+
+def resolve_storm(path, storm, window=None):
+    """ATCF id for --storm. An id ([A-Za-z]{2}NNNNNN) is returned upper-cased without reading
+    the file (unchanged behaviour). Otherwise `storm` is a NAME or NAME+YEAR ("KATRINA",
+    "KATRINA2005", "katrina 2005") matched case-insensitively against the HURDAT2 header names;
+    `window` = (t_start, t_end) keeps only storms whose track overlaps the case window. Exactly
+    one match -> its id (printed to stderr); none or several -> TCError."""
+    storm = (storm or "").strip()
+    if ATCF_ID_RE.match(storm):
+        return storm.upper()
+    m = _NAME_YEAR_RE.match(storm)
+    if not m:
+        raise TCError("--storm %r is neither an ATCF id (e.g. AL122005) nor NAME[YEAR]" % storm)
+    name = re.sub(r"[\s_-]+", " ", m.group(1)).strip().upper()
+    year = m.group(2)
+    storms = [s for s in hurdat2_storms(path) if re.sub(r"[\s_-]+", " ", s[1]) == name]
+    if year:
+        storms = [s for s in storms if s[0][4:8] == year]
+    if not storms:
+        raise TCError("HURDAT2: no storm named %r%s in %s"
+                      % (name, (" in %s" % year) if year else "", path))
+    if window is not None:
+        t0, t1 = window
+        inside = [s for s in storms if s[2] is not None and s[2] <= t1 and s[3] >= t0]
+        if not inside:
+            raise TCError("HURDAT2: no storm named %r overlaps the case window %s - %s "
+                          "(candidates: %s)" % (name, t0, t1, _storm_list(storms)))
+        storms = inside
+    if len(storms) > 1:
+        raise TCError("HURDAT2: storm name %r matches %d storms in %s: %s -- give the ATCF id "
+                      "or NAME+YEAR (e.g. %s%s)" % (name, len(storms), path, _storm_list(storms),
+                                                    name.replace(" ", ""), storms[-1][0][4:8]))
+    sid = storms[0][0]
+    print("storm %s -> %s" % (storm, sid), file=sys.stderr)
+    return sid
+
+
+def _storm_list(storms):
+    return ", ".join("%s (%s)" % (s[0], s[0][4:8]) for s in storms)
+
+
 def parse_hurdat2_full(path, storm_id):
     """HURDAT2 best track including the 34/50/64 kt quadrant radii and RMW (2021+ column
     layout: ..., pmin, 34ktNE,SE,SW,NW, 50kt..., 64kt..., RMW). -999 -> None per field.
@@ -69,7 +142,7 @@ def parse_hurdat2_full(path, storm_id):
     r34_ne_km..r64_nw_km, rmw_km (None if this HURDAT2 file predates the RMW column)}."""
     if not os.path.exists(path):
         raise TCError("HURDAT2 file not found: %s" % path)
-    storm_id = storm_id.strip().upper()
+    storm_id = resolve_storm(path, storm_id)
     points, want = [], 0
     with open(path, errors="replace") as fh:
         for raw in fh:
@@ -77,8 +150,7 @@ def parse_hurdat2_full(path, storm_id):
             if not line.strip():
                 continue
             fields = [f.strip() for f in line.split(",")]
-            is_header = len(fields) >= 3 and fields[0][:2].isalpha() and fields[0][2:6].isdigit()
-            if is_header:
+            if _is_hurdat2_header(fields):
                 if want > 0:
                     break
                 if fields[0].upper() == storm_id:
@@ -213,8 +285,7 @@ MSLP_RADIUS_KM = 50.0          # unsmoothed MSLP = min within this radius of the
 
 
 def _domain_dx_km(run_dir, domain):
-    import glob
-    hits = sorted(glob.glob(os.path.join(run_dir, "wrfout_d%02d_*" % domain)))
+    hits = [p for _t, p in extract.list_frames(run_dir, domain)]  # segment-aware
     if not hits:
         raise TCError("no wrfout_d%02d_* files in %s" % (domain, run_dir))
     with _netcdf4().Dataset(hits[0]) as ds:
@@ -280,7 +351,11 @@ def _tracks_for_domain(run_dir, domain, work_dir, params=None, smooth_km=SMOOTH_
 
     os.makedirs(work_dir, exist_ok=True)
     fields_nc = os.path.join(work_dir, "fields.nc")
-    diag_mod.wrfout_to_tc_fields(os.path.join(run_dir, "wrfout_d%02d_*" % domain), fields_nc)
+    # segment-aware, one file per valid time; no frames -> the old glob, so diagnostics' own
+    # "no wrfout files matched" error still names the pattern
+    frames = [p for _t, p in extract.list_frames(run_dir, domain)]
+    diag_mod.wrfout_to_tc_fields(frames or os.path.join(run_dir, "wrfout_d%02d_*" % domain),
+                                 fields_nc)
     track_nc = fields_nc
     if smooth_km:
         try:
@@ -322,14 +397,11 @@ def run_domains(run_dir, max_dom=None):
     """{domain: {"frames": {time_str: path}, "dx_km", "ny", "nx", "moving"}} for every
     wrfout_dNN_* domain in run_dir (<= max_dom when given). A nest whose XLAT[0,0] differs
     between its first and last frame is flagged moving (a static-grid tracker cannot follow it)."""
-    import glob
-    import re
     netcdf4 = _netcdf4()
     doms = {}
-    for p in sorted(glob.glob(os.path.join(run_dir, "wrfout_d*_*"))):
-        m = re.match(r"wrfout_d(\d+)_(.+)$", os.path.basename(p))
-        if m and (max_dom is None or int(m.group(1)) <= max_dom):
-            doms.setdefault(int(m.group(1)), {"frames": {}})["frames"][m.group(2)] = p
+    for (d, time_str), p in sorted(extract.frame_index(run_dir).items()):  # segment-aware
+        if max_dom is None or d <= max_dom:
+            doms.setdefault(d, {"frames": {}})["frames"][time_str] = p
     for d, info in doms.items():
         times = sorted(info["frames"])
         first, last = info["frames"][times[0]], info["frames"][times[-1]]
@@ -623,7 +695,7 @@ def model_quadrant_radii(run_dir, track, domain=1):
     t0 = min(datetime.strptime(t, WRF_TIME_FMT) for t in track)
     rows = []
     for time_str, pt in sorted(track.items()):
-        path = os.path.join(run_dir, "wrfout_d%02d_%s" % (domain, time_str))
+        path = extract.frame_path(run_dir, domain, time_str)
         if not os.path.exists(path):
             continue
         with netcdf4.Dataset(path) as ds:
@@ -697,6 +769,7 @@ def run_tc_report(run_dirs, labels, hurdat2_path, storm_id, out_dir, ebtrk_path=
     (tracking_notes(): coarser-domain fallback, grid-limited, storm left the nest).
     """
     os.makedirs(out_dir, exist_ok=True)
+    storm_id = resolve_storm(hurdat2_path, storm_id)  # NAME[YEAR] -> ATCF id; ids unchanged
     basin, cy, year = storm_id_parts(storm_id)
     hurdat2_points = parse_hurdat2_full(hurdat2_path, storm_id)
     obs = build_obs(hurdat2_path, storm_id, ebtrk_path)
@@ -781,22 +854,15 @@ def run_tc_report(run_dirs, labels, hurdat2_path, storm_id, out_dir, ebtrk_path=
 
 
 def _run_start(run_dir, domain=1):
-    import glob
     prefix = "wrfout_d%02d_" % domain
-    hits = sorted(glob.glob(os.path.join(run_dir, prefix + "*")))
-    if not hits:
+    frames = extract.list_frames(run_dir, domain)  # segment-aware, sorted by time
+    if not frames:
         raise TCError("no %s* files found in %s" % (prefix, run_dir))
-    return datetime.strptime(os.path.basename(hits[0])[len(prefix):], WRF_TIME_FMT)
+    return datetime.strptime(frames[0][0], WRF_TIME_FMT)
 
 
 def _detect_max_dom(run_dir):
-    import glob
-    import re
-    doms = set()
-    for p in glob.glob(os.path.join(run_dir, "wrfout_d*_*")):
-        m = re.search(r"wrfout_d(\d+)_", os.path.basename(p))
-        if m:
-            doms.add(int(m.group(1)))
+    doms = {d for d, _t in extract.frame_index(run_dir)}  # segment-aware
     if not doms:
         raise TCError("no wrfout_dNN_* files found in %s" % run_dir)
     return max(doms)
@@ -954,7 +1020,6 @@ def _rmw_figure(run_dir, adeck_path, met_dir, out_dir, label, every_h=6):
     met_tc.PRESSURE_LEVELS_HPA (every 50 hPa, 1000-100). Pressure levels below the surface are
     filled downward with the lowest valid value and covered by a grey hatched region bounded by
     the azimuthal-mean surface pressure of that frame."""
-    import glob
     import netCDF4
     import numpy as np
     import matplotlib
@@ -964,8 +1029,8 @@ def _rmw_figure(run_dir, adeck_path, met_dir, out_dir, label, every_h=6):
     from matplotlib.ticker import MaxNLocator
 
     frames = []
-    for f in sorted(glob.glob(os.path.join(run_dir, "wrfout_d01_*"))):
-        when = datetime.strptime(os.path.basename(f)[len("wrfout_d01_"):], WRF_TIME_FMT)
+    for time_str, f in extract.list_frames(run_dir, 1):  # segment-aware
+        when = datetime.strptime(time_str, WRF_TIME_FMT)
         if when.minute == 0 and when.hour % every_h == 0:
             frames.append((when, f))
     if not frames:

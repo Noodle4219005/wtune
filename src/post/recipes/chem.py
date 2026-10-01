@@ -12,7 +12,7 @@ from __future__ import annotations
 import os
 
 from post import tools
-from post.extract import list_frames
+from post.extract import frame_path, list_frames
 
 # checked in this order -- common WRF-Chem history species across mechanisms/aerosol schemes.
 CANDIDATE_SPECIES = ("PM2_5_DRY", "o3", "co", "PM10", "so2", "no2")
@@ -32,7 +32,7 @@ def plot_concentration(run_dir, domain, time_str, species, out_path, run_label):
     wrf_mod = __import__("wrf")
     from post.recipes.mapfig import save_map
 
-    path = os.path.join(run_dir, "wrfout_d%02d_%s" % (domain, time_str))
+    path = frame_path(run_dir, domain, time_str)
     with netCDF4.Dataset(path) as ds:
         conc = np.asarray(ds.variables[species][0])
         if conc.ndim == 3:

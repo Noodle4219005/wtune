@@ -15,7 +15,7 @@ from __future__ import annotations
 import os
 
 from post import tools
-from post.extract import list_frames
+from post.extract import frame_path, list_frames
 
 
 def _member_field(run_dir, domain, time_str, field="slp"):
@@ -26,7 +26,7 @@ def _member_field(run_dir, domain, time_str, field="slp"):
     import numpy as np
     from post import caseinfo
     wrf_mod = __import__("wrf")
-    path = os.path.join(run_dir, "wrfout_d%02d_%s" % (domain, time_str))
+    path = frame_path(run_dir, domain, time_str)
     with netCDF4.Dataset(path) as ds:
         if field == "slp":
             var = wrf_mod.getvar(ds, "slp", timeidx=0, units="hPa")

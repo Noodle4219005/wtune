@@ -83,7 +83,6 @@ import csv
 import glob as globmod
 import json
 import os
-import shutil
 import subprocess
 import sys
 from dataclasses import dataclass, asdict
@@ -126,13 +125,16 @@ class TCTrackParams:
 
 
 def _find_binary(name):
-    path = shutil.which(name)
-    if not path:
+    """PATH, then the repo's pixi env bin and postproc view bin (post.tools.find_on_path), so
+    TempestExtremes is found without bin/wtune putting the pixi env on PATH."""
+    from post import tools
+    try:
+        return tools.find_on_path(name)
+    except tools.ToolNotFoundError as e:
         raise TCTrackError(
-            f"{name} not found on PATH. Install tempest-extremes (envs/wtune/pixi.toml) "
+            f"{e} Install tempest-extremes (envs/wtune/pixi.toml) "
             f"and run inside its environment, e.g. "
-            f"`pixi run --manifest-path envs/wtune/pixi.toml {name}`.")
-    return path
+            f"`pixi run --manifest-path envs/wtune/pixi.toml {name}`.") from None
 
 
 def _tempest_extremes_version(binary_path):

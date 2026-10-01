@@ -1,4 +1,4 @@
-"""wtune_project.py -- `wtune project init|info` (decision 0058): a project folder that
+"""wtune_project.py -- `wtune project init|info|set` (decision 0058): a project folder that
 collects one WRF case's definition/inputs/config, every wtune tune/predict-rebuild/run
 output, and every post-processing figure/report under one user-named directory, so nothing
 has to be tracked by hand across separate --out flags.
@@ -124,14 +124,20 @@ def project_xsec_config(project_doc):
 
 def discover_runs(project_dir):
     """[(run_id, path), ...] wrfout-bearing directories: every runs/<id>/ subdirectory that
-    has at least one wrfout_* frame, else (when runs/ is empty) the case/ directory itself,
-    labeled "case" -- decision 0058 item 2: "runs discovered from runs/*/ or case/"."""
+    has at least one wrfout_* frame -- at top level, or in its seg_<k> segment dirs (a segmented
+    `wtune run`; the run is listed once, its segments are not separate runs) -- else (when
+    runs/ is empty) the case/ directory itself, labeled "case" -- decision 0058 item 2: "runs
+    discovered from runs/*/ or case/"."""
+    from post import extract
     runs_root = os.path.join(project_dir, "runs")
     out = []
     if os.path.isdir(runs_root):
         for name in sorted(os.listdir(runs_root)):
             d = os.path.join(runs_root, name)
-            if os.path.isdir(d) and glob.glob(os.path.join(d, "wrfout_d*")):
+            if not os.path.isdir(d):
+                continue
+            if glob.glob(os.path.join(d, "wrfout_d*")) or any(
+                    glob.glob(os.path.join(seg, "wrfout_d*")) for seg in extract.segment_dirs(d)):
                 out.append((name, d))
     if not out:
         case_dir = os.path.join(project_dir, "case")
@@ -321,6 +327,33 @@ def init_project(path, case_dir=None, name=None, storm=None, hurdat2=None, site=
     return path
 
 
+def set_project(project_dir, storm=None, hurdat2=None, argv=None):
+    """`wtune project set [--project DIR] [--storm ID] [--hurdat2 F]`: updates project.yaml's
+    storm block in place (every other key and the key order are kept) and records the command
+    in manifest.jsonl. Returns the updated storm dict."""
+    if not (storm or hurdat2):
+        raise ProjectError("nothing to set (give --storm and/or --hurdat2)")
+    if hurdat2 and not os.path.isfile(hurdat2):
+        raise ProjectError("--hurdat2 %s not found" % hurdat2)
+    doc = load_project(project_dir)
+    block = dict(doc.get("storm") or {})
+    block.setdefault("id", None)
+    block.setdefault("hurdat2", None)
+    if storm:
+        block["id"] = storm
+    if hurdat2:
+        block["hurdat2"] = os.path.abspath(hurdat2)
+    doc["storm"] = block  # an existing key keeps its position; a missing one is appended
+    path = os.path.join(project_dir, PROJECT_YAML)
+    tmp = path + ".tmp"
+    with open(tmp, "w") as fh:
+        yaml.safe_dump(doc, fh, sort_keys=False, allow_unicode=True)
+    os.replace(tmp, path)
+    manifest_append(project_dir, argv or ["wtune", "project", "set"], out_dir=project_dir,
+                    exit_code=0, key_paths=[block["hurdat2"]] if hurdat2 else [])
+    return block
+
+
 def info_project(project_dir):
     doc = load_project(project_dir)
     lines = ["project: %s" % project_dir, "name: %s" % doc.get("name"),
@@ -364,6 +397,11 @@ def build_parser():
     p_info = sub.add_parser("info", help="print the resolved project's layout/config")
     p_info.add_argument("--project", default=None)
 
+    p_set = sub.add_parser("set", help="update the resolved project's project.yaml storm block")
+    p_set.add_argument("--project", default=None)
+    p_set.add_argument("--storm", default=None, help="e.g. AL122005")
+    p_set.add_argument("--hurdat2", default=None, help="HURDAT2 file")
+
     return parser
 
 
@@ -379,6 +417,22 @@ def main(argv=None):
             print("error: %s" % e, file=sys.stderr)
             return 1
         print("created project: %s" % path)
+        return 0
+
+    if args.project_command == "set":
+        try:
+            project_dir = find_project(explicit=args.project)
+            if not project_dir:
+                raise ProjectError("no project found (--project, $WTUNE_PROJECT, or a "
+                                   "project.yaml above the current directory)")
+            block = set_project(project_dir, storm=args.storm, hurdat2=args.hurdat2,
+                                argv=["wtune", "project"] + list(argv if argv is not None
+                                                                 else sys.argv[1:]))
+        except ProjectError as e:
+            print("error: %s" % e, file=sys.stderr)
+            return 1
+        print("%s: storm id=%s hurdat2=%s" % (os.path.join(project_dir, PROJECT_YAML),
+                                              block.get("id"), block.get("hurdat2")))
         return 0
 
     if args.project_command == "info":

@@ -17,7 +17,7 @@ from datetime import datetime
 
 import wtune_cli as _core
 from post import atcf
-from post.extract import list_frames
+from post.extract import list_frames, segment_dirs
 
 WRF_TIME_FMT = "%Y-%m-%d_%H:%M:%S"
 
@@ -54,10 +54,15 @@ def find_namelist(run_dir):
     cu_physics/bl_pbl_physics/ra_lw_physics were ever read. Fixed upstream in wtune_cli.py (a
     group now ends only at a slash standing alone at end of line); see
     tests/test_post_caseinfo.py::test_parse_namelist_keeps_group_past_unquoted_path_value."""
-    for name in ("namelist.output", "namelist.input"):
-        path = os.path.join(run_dir, name)
-        if os.path.exists(path):
-            return path
+    # a segmented `wtune run --out` dir has no namelist of its own: its first segment's
+    # (OUT/seg_0) carries the case's grid/physics/bdy_control unchanged (wtune_run.py
+    # render_segment_namelist only rewrites times, decomposition and restart settings).
+    segs = segment_dirs(run_dir)
+    for d in [run_dir] + segs[:1]:
+        for name in ("namelist.output", "namelist.input"):
+            path = os.path.join(d, name)
+            if os.path.exists(path):
+                return path
     raise CaseInfoError("no namelist.input or namelist.output found in %s" % run_dir)
 
 
@@ -127,7 +132,10 @@ def run_length_hours(run_dir):
     """run_days/run_hours/run_minutes from &time_control; falls back to the actual wrfout
     frame span on disk when the namelist's run_* fields are all zero (some configurations
     drive the run length from end_* instead -- decision 0057 doesn't distinguish, and the
-    frame span is the ground truth either way)."""
+    frame span is the ground truth either way). A segmented run dir always uses the frame
+    span: its namelist is seg_0's, whose run_* is that one segment's length."""
+    if segment_dirs(run_dir):
+        return _frame_span_hours(run_dir)
     nl = _core.parse_namelist(find_namelist(run_dir))
     tc = nl.get("time_control", {})
     days = _core.first_value(tc.get("run_days")) or 0

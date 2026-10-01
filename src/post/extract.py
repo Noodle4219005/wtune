@@ -67,16 +67,57 @@ def _netcdf4():
     return netCDF4
 
 
-def list_frames(run_dir, domain=1):
-    """Sorted [(time_str, path), ...] for wrfout_d0<domain>_* in run_dir."""
-    pattern = os.path.join(run_dir, "wrfout_d%02d_*" % domain)
-    out = []
-    rx = re.compile(r"wrfout_d\d+_(\d{4}-\d\d-\d\d_\d\d:\d\d:\d\d)$")
-    for path in sorted(glob.glob(pattern)):
-        m = rx.search(os.path.basename(path))
-        if m:
-            out.append((m.group(1), path))
+_FRAME_RE = re.compile(r"wrfout_d(\d+)_(\d{4}-\d\d-\d\d_\d\d:\d\d:\d\d)$")
+_SEGMENT_RE = re.compile(r"seg_(\d+)(_rescue)?$")
+
+
+def segment_dirs(run_dir):
+    """The segment run dirs of a segmented `wtune run --out` dir (OUT/seg_<k>, plus a CFL-rescue
+    re-run OUT/seg_<k>_rescue right after its seg_<k>), in segment order -- [] when run_dir holds
+    wrfout_d* itself (a flat run dir) or has no seg_<int> subdirs."""
+    if glob.glob(os.path.join(run_dir, "wrfout_d*")):
+        return []
+    try:
+        names = os.listdir(run_dir)
+    except OSError:
+        return []
+    segs = []
+    for name in names:
+        m = _SEGMENT_RE.match(name)
+        path = os.path.join(run_dir, name)
+        if m and os.path.isdir(path):
+            segs.append(((int(m.group(1)), bool(m.group(2))), path))
+    return [path for _key, path in sorted(segs)]
+
+
+def frame_index(run_dir):
+    """{(domain, time_str): path} for every wrfout_dNN_TIME in run_dir -- or, for a segmented
+    run dir (segment_dirs), in all its segments: a valid time present in two segments (the
+    shared boundary frame, or a rescued segment's re-run) maps to the LATER segment's file."""
+    out = {}
+    for d in segment_dirs(run_dir) or [run_dir]:
+        for path in sorted(glob.glob(os.path.join(d, "wrfout_d*_*"))):
+            m = _FRAME_RE.search(os.path.basename(path))
+            if m:
+                out[(int(m.group(1)), m.group(2))] = path
     return out
+
+
+def list_frames(run_dir, domain=1):
+    """Sorted [(time_str, path), ...] for wrfout_d0<domain>_* in run_dir (merged across
+    segments for a segmented run dir, see frame_index)."""
+    return sorted((t, path) for (d, t), path in frame_index(run_dir).items() if d == domain)
+
+
+def frame_path(run_dir, domain, time_str):
+    """Path of the wrfout_d<domain>_<time_str> frame of run_dir (segment-aware, see
+    frame_index); the flat run_dir/<name> path when there is no such frame, so a caller's own
+    exists()/open error still names the expected file."""
+    name = "wrfout_d%02d_%s" % (domain, time_str)
+    flat = os.path.join(run_dir, name)
+    if os.path.exists(flat):
+        return flat
+    return frame_index(run_dir).get((int(domain), time_str), flat)
 
 
 def _surface_field(ds, wrf_mod, name, timeidx):

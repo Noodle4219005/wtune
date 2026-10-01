@@ -53,12 +53,8 @@ class Context:
         return list(self._run_dirs)
 
     def finest_domain(self, run_dir):
-        doms = set()
-        if os.path.isdir(run_dir):
-            for name in os.listdir(run_dir):
-                m = WRF_FRAME_RE.match(name)
-                if m:
-                    doms.add(int(m.group(1)))
+        from post.extract import frame_index
+        doms = set(d for d, _t in frame_index(run_dir)) if os.path.isdir(run_dir) else set()
         return max(doms) if doms else 1
 
     def list_frames(self, run_dir, domain=1):

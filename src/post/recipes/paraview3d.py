@@ -23,22 +23,15 @@ class ParaViewError(RuntimeError):
 
 def find_pvbatch():
     env_bin = os.environ.get("WTUNE_PARAVIEW_BIN")
-    candidates = []
-    if env_bin:
-        candidates.append(os.path.join(env_bin, "pvbatch"))
-    repo_root = os.path.dirname(os.path.dirname(os.path.dirname(
-        os.path.dirname(os.path.abspath(__file__)))))
-    candidates.append(os.path.join(repo_root, "envs", "paraview", ".pixi", "envs", "default",
-                                   "bin", "pvbatch"))
-    for c in candidates:
-        if os.path.exists(c):
-            return c
-    path = shutil.which("pvbatch")
+    bin_dirs = [env_bin] if env_bin else []
+    bin_dirs.append(os.path.join(tools.REPO_ROOT, "envs", "paraview", ".pixi", "envs", "default", "bin"))
+    path, searched = tools.locate("pvbatch", bin_dirs + [None, tools.postproc_view_bin()])
     if path:
         return path
     raise tools.ToolNotFoundError(
-        "pvbatch not found: install ParaView (bin/install-postproc.sh) and export "
-        "WTUNE_PARAVIEW_BIN=<repo>/envs/paraview/.pixi/envs/default/bin, or put pvbatch on PATH.")
+        "pvbatch not found (searched: %s): install ParaView (bin/install-postproc.sh) and export "
+        "WTUNE_PARAVIEW_BIN=<repo>/envs/paraview/.pixi/envs/default/bin, or put pvbatch on PATH."
+        % ", ".join(searched))
 
 
 VERTICAL_EXAGGERATION = 30.0

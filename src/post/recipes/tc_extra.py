@@ -21,6 +21,7 @@ from datetime import timedelta
 
 from post import atcf
 from post import tc_metrics as tm
+from post.extract import frame_path
 
 WRF_TIME_FMT = "%Y-%m-%d_%H:%M:%S"
 RADIUS_BINS_KM = list(range(0, 401, 25))
@@ -72,7 +73,7 @@ def radius_time_plot(run_dir, adeck_path, out_path, domain=1, radius_bins_km=RAD
         valid_time = r["time"] + timedelta(hours=r["tau_h"])
         time_str = valid_time.strftime(WRF_TIME_FMT)
         leads.append(float(r["tau_h"]))
-        path = os.path.join(run_dir, "wrfout_d%02d_%s" % (domain, time_str))
+        path = frame_path(run_dir, domain, time_str)
         if not os.path.exists(path):
             continue
         any_frame = True

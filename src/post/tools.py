@@ -20,45 +20,81 @@ class ToolError(RuntimeError):
     pass
 
 
+# <repo> = the parent of src/ (this file is src/post/tools.py). Module-level so tests can point
+# it at a synthetic tree. `bin/wtune` puts the pixi env on PATH and exports
+# WTUNE_POSTPROC_VIEW; `python src/wtune.py post ...` does neither, so every locator below also
+# looks in these repo-local install locations before giving up.
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+
+def postproc_view_bin():
+    """$WTUNE_POSTPROC_VIEW/bin when the variable is set (it always wins), else
+    <repo>/envs/postproc/.spack-env/view/bin (bin/install-postproc.sh's spack view; it may not
+    exist -- callers check each binary)."""
+    view = os.environ.get("WTUNE_POSTPROC_VIEW") or os.path.join(
+        REPO_ROOT, "envs", "postproc", ".spack-env", "view")
+    return os.path.join(view, "bin")
+
+
+def pixi_env_bin():
+    """<repo>/envs/wtune/.pixi/envs/default/bin -- where envs/wtune/pixi.toml installs cdo,
+    ncdump, ffmpeg, ... (on PATH only under `pixi run`, i.e. bin/wtune)."""
+    return os.path.join(REPO_ROOT, "envs", "wtune", ".pixi", "envs", "default", "bin")
+
+
+def locate(name, locations):
+    """locations: bin dirs, or None for PATH (shutil.which), searched in order. Returns
+    (path or None, [every location searched, as a printable string])."""
+    searched = []
+    for loc in locations:
+        if loc is None:
+            path = shutil.which(name)
+            searched.append("PATH")
+        else:
+            cand = os.path.join(loc, name)
+            path = cand if os.path.exists(cand) else None
+            searched.append(cand)
+        if path:
+            return path, searched
+    return None, searched
+
+
 def find_diffwrf():
     """WRF's own netCDF differ, shipped with the WRF source tree, not conda/spack-packaged."""
     wrf_tree = os.environ.get("WRF_TREE")
+    locations = []
     if wrf_tree:
-        path = os.path.join(wrf_tree, "external", "io_netcdf", "diffwrf")
-        if os.path.exists(path):
-            return path
-    path = shutil.which("diffwrf")
+        locations.append(os.path.join(wrf_tree, "external", "io_netcdf"))
+    path, searched = locate("diffwrf", locations + [None, pixi_env_bin(), postproc_view_bin()])
     if path:
         return path
     raise ToolNotFoundError(
-        "diffwrf not found: set WRF_TREE to a built WRF source tree (needs "
+        "diffwrf not found (searched: %s): set WRF_TREE to a built WRF source tree (needs "
         "$WRF_TREE/external/io_netcdf/diffwrf) or put diffwrf on PATH -- see README.md "
-        "'Installation', layer 2 (WRF and WPS).")
+        "'Installation', layer 2 (WRF and WPS)." % ", ".join(searched))
 
 
 def find_on_path(name, install_hint=None):
-    path = shutil.which(name)
+    """PATH first, then the repo's pixi env bin and the postproc view bin."""
+    path, searched = locate(name, [None, pixi_env_bin(), postproc_view_bin()])
     if path:
         return path
     raise ToolNotFoundError(
-        "%s not found on PATH.%s" % (name, (" " + install_hint) if install_hint else ""))
+        "%s not found (searched: %s).%s" % (name, ", ".join(searched),
+                                            (" " + install_hint) if install_hint else ""))
 
 
 def find_postproc_tool(name):
-    """MET binaries (tc_pairs, tc_stat, tc_rmw) and nccmp/pvbatch: WTUNE_POSTPROC_VIEW/bin
-    (the spack view bin/install-postproc.sh builds) first, else PATH."""
-    view = os.environ.get("WTUNE_POSTPROC_VIEW")
-    if view:
-        path = os.path.join(view, "bin", name)
-        if os.path.exists(path):
-            return path
-    path = shutil.which(name)
+    """MET binaries (tc_pairs, tc_stat, tc_rmw, ...) and nccmp/pvbatch: the postproc view bin
+    ($WTUNE_POSTPROC_VIEW/bin, else <repo>/envs/postproc/.spack-env/view/bin -- the spack view
+    bin/install-postproc.sh builds) first, then PATH, then the repo's pixi env bin."""
+    path, searched = locate(name, [postproc_view_bin(), None, pixi_env_bin()])
     if path:
         return path
     raise ToolNotFoundError(
-        "%s not found: install it with bin/install-postproc.sh (README.md 'Installation', "
-        "layer 3) and export WTUNE_POSTPROC_VIEW=<repo>/envs/postproc/.spack-env/view, or "
-        "put %s on PATH." % (name, name))
+        "%s not found (searched: %s): install it with bin/install-postproc.sh (README.md "
+        "'Installation', layer 3) and export WTUNE_POSTPROC_VIEW=<repo>/envs/postproc/"
+        ".spack-env/view, or put %s on PATH." % (name, ", ".join(searched), name))
 
 
 def run(cmd, cwd=None, check=True):

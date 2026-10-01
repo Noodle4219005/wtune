@@ -12,8 +12,7 @@ import os
 import re
 
 from post import tools
-
-_TIME_RE = re.compile(r"wrfout_d(\d+)_(\d{4}-\d\d-\d\d_\d\d:\d\d:\d\d)$")
+from post.extract import frame_index
 
 # diffwrf table row, e.g.:
 #          U    832103    3   0.8162436562E+01   0.8159945696E+01   3   0.5795E+00   0.4923E+00
@@ -27,14 +26,9 @@ class CompareError(RuntimeError):
 
 
 def _frames(run_dir):
-    """{(domain_int, time_str): path} for every wrfout_dNN_TIME file directly under run_dir."""
-    out = {}
-    for path in sorted(glob.glob(os.path.join(run_dir, "wrfout_d*_*"))):
-        m = _TIME_RE.search(os.path.basename(path))
-        if not m:
-            continue
-        out[(int(m.group(1)), m.group(2))] = path
-    return out
+    """{(domain_int, time_str): path} for every wrfout_dNN_TIME file directly under run_dir, or
+    across the segments of a segmented run dir (post.extract.frame_index)."""
+    return frame_index(run_dir)
 
 
 def _adios2_bp_dirs(run_dir):

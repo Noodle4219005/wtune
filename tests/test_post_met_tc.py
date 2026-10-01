@@ -34,6 +34,7 @@ def test_parse_met_table_empty():
 def test_run_tc_pairs_missing_tool_raises_clear_error(tmp_path, monkeypatch):
     monkeypatch.delenv("WTUNE_POSTPROC_VIEW", raising=False)
     monkeypatch.setattr(tools.shutil, "which", lambda name: None)
+    monkeypatch.setattr(tools, "REPO_ROOT", str(tmp_path))  # no real repo postproc view / pixi env
     with pytest.raises(tools.ToolNotFoundError, match="tc_pairs"):
         met_tc.run_tc_pairs("a.dat", "b.dat", str(tmp_path), "WTUN")
 

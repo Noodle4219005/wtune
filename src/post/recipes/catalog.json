@@ -495,6 +495,102 @@
       "common_misreadings": "-"
     }
   },
+  "tc_struct_reflectivity_2km": {
+    "zh": {
+      "question": "颱風的眼、眼牆與螺旋雨帶在哪裡、多強？",
+      "how_to_read": "以颱風中心為準的 600 km × 600 km 範圍（超出 domain 時截斷）；填色為 2 km AGL（離地高度）的雷達回波 dBZ（NWS 色表，5 dBZ 一級，wrf-python dbz 經 interplevel 內插）；黑色等值線為 10 m 風速 34/50/64 kt（NHC 風圈門檻），洋紅虛線圓為 RMW（10 m 方位角平均切向風最大處的半徑），+ 為中心（最低海平面氣壓路徑 minimum-SLP track；無路徑時為平滑後 SLP 最小值 minimum SLP (smoothed)）。dx > 4 km 時標題註明眼／眼牆解析不足。",
+      "common_misreadings": "把 12 km 網格上的寬大眼牆當成真實尺寸——眼與眼牆只有數個網格寬時會被抹寬；把 34 kt 等值線當成 NHC 風圈半徑——這裡畫的是整個風速場的等值線，不是四象限最大半徑；把模式回波當成雷達觀測——它是由微物理混合比推算的反射率。"
+    },
+    "en": {
+      "question": "Where are the eye, eyewall and spiral rainbands, and how strong are they?",
+      "how_to_read": "Storm-centred 600 km x 600 km box (clipped to the domain); fill is reflectivity (dBZ, NWS table, 5 dBZ steps) at 2 km AGL (wrf-python dbz interpolated with interplevel); black contours are 10 m wind 34/50/64 kt (NHC wind-radii thresholds), the magenta dashed ring is the RMW (radius of the max 10 m azimuthal-mean tangential wind), + is the centre (minimum-SLP track, else minimum SLP (smoothed)). With dx > 4 km the title says the eye/eyewall are under-resolved.",
+      "common_misreadings": "Taking a broad eyewall on a 12 km grid as its real size -- an eye only a few cells wide is smeared out; reading the 34 kt contour as the NHC wind radius -- this is the contour of the whole field, not the per-quadrant maximum extent; treating model reflectivity as radar data -- it is derived from the microphysics mixing ratios."
+    }
+  },
+  "tc_struct_ir_proxy": {
+    "zh": {
+      "question": "颱風的雲頂多冷、中央密集雲區與外圍雲帶的範圍？",
+      "how_to_read": "OLR 換算的等效黑體溫度 (OLR/σ)^0.25，全 domain；240 K 以上為反向灰階（暖=深、冷=白），240 K 以下加上彩色強化（仿 NOAA enhanced IR），色條同時標 K 與 °C。cloud 圖組已畫同一 domain 時這張不重複畫。",
+      "common_misreadings": "把它當成衛星紅外頻道亮溫——這是寬頻 OLR 的代理量，不是衛星頻道輻射傳輸模擬，在高雲上比窗區頻道亮溫偏暖，不能與 GOES 亮溫逐 K 比較。"
+    },
+    "en": {
+      "question": "How cold are the cloud tops, and how large are the central dense overcast and the outer cloud bands?",
+      "how_to_read": "Equivalent blackbody temperature (OLR/sigma)^0.25 over the whole domain; reverse greyscale above 240 K (warm = dark, cold = white) and a colour enhancement below it (NOAA-style enhanced IR); the colour bar is in K and degC. Not drawn when the cloud set already draws it for this domain.",
+      "common_misreadings": "Reading it as a satellite IR channel brightness temperature -- it is a broadband OLR proxy, not a radiative-transfer simulation of a satellite channel, and is warmer than a window-channel Tb over high cloud, so it cannot be compared K-for-K with GOES."
+    }
+  },
+  "tc_struct_rz_wind": {
+    "zh": {
+      "question": "颱風的主環流與次環流（入流、眼牆上升、高層外流）在半徑-高度上怎麼分布？RMW 隨高度如何外傾？",
+      "how_to_read": "以中心為準的方位角平均剖面，半徑 0–300 km（每格 dx 一個 bin）、高度 0–18 km MSL（每 0.5 km）；填色為切向風 Vt（5 m/s 一級，負值為黑色虛線），向量為（徑向風 Vr，w×10）——w 放大 10 倍才看得見，圖例有標；藍線為 RMW(z)。ua/va 在模式原生投影網格上對中心旋轉成徑向／切向分量（網格相對風，與網格座標一致）。斜線區為地面以下。",
+      "common_misreadings": "把向量的傾角當成真實的氣流斜率——w 已放大 10 倍；把粗網格上的平滑 RMW 外傾當成真實眼牆傾斜——dx > 4 km 時眼牆解析不足；忽略中心定位誤差（±dx/2）對小半徑方位角平均的影響。"
+    },
+    "en": {
+      "question": "How are the primary and secondary circulations (inflow, eyewall ascent, upper outflow) distributed in radius and height, and how does the RMW slope outward with height?",
+      "how_to_read": "Azimuthal means about the centre, radius 0-300 km (one bin per dx), height 0-18 km MSL (0.5 km); fill is tangential wind Vt (5 m/s steps, negative values dashed black), vectors are (radial wind Vr, w x10) -- w is magnified 10 times to be visible, as the key states; the blue line is RMW(z). ua/va are rotated about the centre in the native projected grid (grid-relative winds, consistent with the grid axes). Hatched = below ground.",
+      "common_misreadings": "Reading the vector tilt as the true streamline slope -- w is magnified x10; taking the smooth RMW slope on a coarse grid as the real eyewall tilt -- the eyewall is under-resolved at dx > 4 km; ignoring that a +-dx/2 centre error blurs the small-radius azimuthal mean."
+    }
+  },
+  "tc_struct_rz_warmcore": {
+    "zh": {
+      "question": "颱風的暖心在哪個高度、有多強？",
+      "how_to_read": "T' = 方位角平均溫度 T(r,z) 減去同高度 500–1000 km 環狀區（環境）的平均；domain 容不下 1000 km 時改用 domain 內最大的完整環狀區（內外半徑比相同），標題會說明。紅藍發散色表、對稱、1 K 一級；黑線為位溫 theta，每 10 K。",
+      "common_misreadings": "把環境環狀區縮小後的 T' 與用 500–1000 km 算的值直接比較——參考環境不同，數值不同；把近地面的負 T' 當成冷心——那多半是降水蒸發冷卻或地形，不是颱風結構。"
+    },
+    "en": {
+      "question": "At what height is the warm core and how strong is it?",
+      "how_to_read": "T' = azimuthal-mean temperature T(r,z) minus the mean over the 500-1000 km annulus (the environment) at the same height; when the domain cannot hold 1000 km the largest full annulus in the domain (same inner/outer ratio) is used and the title says so. Diverging RdBu_r, symmetric, 1 K steps; black lines are potential temperature theta every 10 K.",
+      "common_misreadings": "Comparing T' from a reduced annulus directly with a 500-1000 km value -- the reference environment differs, so the numbers differ; reading negative T' near the surface as a cold core -- it is usually rain-evaporation cooling or terrain, not the vortex structure."
+    }
+  },
+  "tc_struct_rz_condensate": {
+    "zh": {
+      "question": "眼牆與雨帶的雲和降水粒子在半徑-高度上怎麼分布？哪裡在上升？",
+      "how_to_read": "方位角平均的總凝結物（所有水凝物種類加總，對數色階 0.01–1 g/kg）；紅色實線為上升 w（0.25/0.5/1 m/s），藍色虛線為下沉；粗黑線為 0 °C 等溫線（融化層）。",
+      "common_misreadings": "把只用 QCLOUD+QICE 的舊圖跟這張比——舊圖只畫了約一成的凝結物質量；把 0.01 g/kg 的淡色區當成厚雲——那是雲邊緣與砧狀雲；方位角平均會把不對稱的雨帶抹成環。"
+    },
+    "en": {
+      "question": "How are cloud and precipitation particles of the eyewall and rainbands distributed in radius and height, and where is the ascent?",
+      "how_to_read": "Azimuthal-mean total condensate (sum of all hydrometeor species, log scale 0.01-1 g/kg); red solid = updraft w (0.25/0.5/1 m/s), blue dashed = downdraft; the bold black line is the 0 degC isotherm (melting level).",
+      "common_misreadings": "Comparing with the old QCLOUD+QICE figures -- those drew about a tenth of the condensate mass; reading the faint 0.01 g/kg shade as thick cloud -- it is cloud edge and anvil; the azimuthal mean smears asymmetric rainbands into rings."
+    }
+  },
+  "tc_struct_xsec": {
+    "zh": {
+      "question": "通過颱風中心的垂直剖面上，眼、眼牆與雨帶的回波和上升氣流長什麼樣？",
+      "how_to_read": "兩個剖面通過中心：沿模式網格 x 軸（約西-東）與 y 軸（約南-北），各 ±300 km（超出 domain 時截斷）、0–18 km；填色為回波 dBZ（NWS 色表），紅/藍線為上升/下沉 w，實線 0 °C、虛線 −20 °C；灰色為地形。",
+      "common_misreadings": "把網格軸當成正東西／南北——Lambert 投影上網格軸與經線有夾角，離標準經線越遠越大；把單一剖面當成整個颱風的代表——眼牆與雨帶是不對稱的，請配合方位角平均圖看。"
+    },
+    "en": {
+      "question": "What do the eye, eyewall and rainbands look like in reflectivity and updraft on vertical sections through the centre?",
+      "how_to_read": "Two sections through the centre: along the model grid x axis (about west-east) and y axis (about south-north), +-300 km each (clipped to the domain), 0-18 km; fill is reflectivity (dBZ, NWS table), red/blue lines are up/down w, solid 0 degC and dashed -20 degC isotherms; grey is terrain.",
+      "common_misreadings": "Taking the grid axes as exactly east-west/south-north -- on a Lambert grid they are rotated from the meridians, more so away from the standard longitude; taking one section as representative of the whole storm -- the eyewall and rainbands are asymmetric; read it with the azimuthal-mean figures."
+    }
+  },
+  "tc_struct_warmcore_hovmoller": {
+    "zh": {
+      "question": "颱風暖心的強度與高度隨時間怎麼變（增強、衰減）？",
+      "how_to_read": "橫軸為時間（--every 間隔；未指定時全部 frame，超過 60 個時均勻取 60 個），縱軸為高度 0–18 km；填色為眼區 T'＝中心 r ≤ dx 範圍的平均溫度減去環境環狀區平均（同 rz 暖心圖的定義），紅藍對稱 1 K 一級。每個時間都重新定位中心。",
+      "common_misreadings": "把中心定位跳動造成的條紋當成暖心振盪——粗網格或眼區很小時，中心差一格就會改變眼區平均；環狀區在 domain 邊界附近會隨中心位置縮放，前後時間的參考環境可能不同。"
+    },
+    "en": {
+      "question": "How do the strength and height of the warm core change with time (intensification, decay)?",
+      "how_to_read": "x is time (the --every cadence; without it every frame, or 60 evenly spaced frames when there are more), y is height 0-18 km; fill is the eye T' = mean temperature within r <= dx of the centre minus the environment annulus mean (same definition as the r-z warm-core figure), RdBu_r symmetric, 1 K steps. The centre is re-located in every frame.",
+      "common_misreadings": "Reading stripes caused by centre jumps as warm-core oscillations -- on a coarse grid or a small eye a one-cell centre shift changes the eye mean; near the domain edge the annulus scales with the centre position, so the reference environment can differ between times."
+    }
+  },
+  "tc_struct_condensate_3d": {
+    "zh": {
+      "question": "颱風的總凝結物立體結構（眼牆、雨帶、外流雲砧）長什麼樣？",
+      "how_to_read": "ParaView 體積繪圖，以颱風中心為準的 600 km 方框，靠近相機的一半切開以看見眼與眼牆內部；單一時刻快照。",
+      "common_misreadings": "把體積的不透明度當成定量雲量——轉換函數的選擇會改變外觀；垂直方向有誇張倍率。"
+    },
+    "en": {
+      "question": "What does the storm's 3-D total-condensate structure (eyewall, rainbands, outflow anvil) look like?",
+      "how_to_read": "A ParaView volume rendering of a storm-centred 600 km box, with the camera-side half cut away to show the eye and eyewall interior; one snapshot.",
+      "common_misreadings": "Reading volume opacity as a quantitative cloud amount -- the transfer function shapes the look; the vertical axis is exaggerated."
+    }
+  },
   "terrain_wind_map": {
     "zh": {
       "question": "地形起伏如何影響近地面與 700 hPa 的風場？",
@@ -594,12 +690,12 @@
   "moisture_ivt": {
     "zh": {
       "question": "低層噴流帶來多強的水氣通量（atmospheric river 強度）？",
-      "how_to_read": "填色為積分水氣通量 IVT（本套件唯一自行寫的積分，見 post/ivt.py），風羽為 850 hPa 風；IVT 高值帶常與 atmospheric river / TC 外圍雨帶對應。",
+      "how_to_read": "填色為積分水氣通量 IVT，風羽為 850 hPa 風；IVT 高值帶常與 atmospheric river / TC 外圍雨帶對應。",
       "common_misreadings": "把 IVT 誤讀成降水量；IVT 是水氣輸送的通量，不是已經落下的雨量，兩者可能不同步。"
     },
     "en": {
       "question": "How strong is the low-level moisture flux (atmospheric-river-strength transport)?",
-      "how_to_read": "Fill is integrated vapor transport IVT (this package's one self-written integral, see post/ivt.py), barbs are 850 hPa wind; high-IVT bands often track atmospheric rivers / a TC's outer rainbands.",
+      "how_to_read": "Fill is integrated vapor transport IVT, barbs are 850 hPa wind; high-IVT bands often track atmospheric rivers / a TC's outer rainbands.",
       "common_misreadings": "Reading IVT as precipitation itself; it is a transport flux, not rain that has already fallen -- the two can be out of phase."
     }
   },
@@ -625,6 +721,66 @@
       "question": "How does the moisture profile at a chosen point evolve over time?",
       "how_to_read": "Fill is specific humidity, x-axis time, y-axis height -- shows the moist layer thickening/thinning over the run.",
       "common_misreadings": "Treating the y-axis model levels as evenly-spaced physical heights; WRF's vertical levels are not evenly spaced."
+    }
+  },
+  "cloud_water_path": {
+    "zh": {
+      "question": "雲水、雨水、冰與雪各有多少？分布在哪裡？",
+      "how_to_read": "每個面板是一個水凝物組的柱積分路徑（g m⁻²，對乾空氣層質量積分）：LWP（QCLOUD）、RWP（QRAIN）、IWP（QICE）、SWP（QSNOW+QGRAUP+QHAIL）、TWP（全部），只畫這個 wrfout 有的種類；對數色階 1–2000 g m⁻²（小於 1 不著色）；風標為 10 m 風（kt，地球座標）。有 --every 時每個時間各一張。",
+      "common_misreadings": "只看 LWP+IWP 判斷雲量——在 Thompson 或 WSM5 下，雪常是凝結物質量的大宗（湖效應雪幾乎全在 SWP）；把 IWP 小當成沒有冰雲——雪與霰被算在 SWP。"
+    },
+    "en": {
+      "question": "How much cloud water, rain, ice and snow is there, and where?",
+      "how_to_read": "Each panel is one hydrometeor group's column path (g m-2, integrated over the dry-air layer mass): LWP (QCLOUD), RWP (QRAIN), IWP (QICE), SWP (QSNOW+QGRAUP+QHAIL), TWP (all), only the species this wrfout holds; log scale 1-2000 g m-2 (below 1 unshaded); barbs are 10 m wind in kt (earth-relative). With --every, one figure per selected time.",
+      "common_misreadings": "Judging cloud amount from LWP+IWP alone -- with Thompson or WSM5 snow is often most of the condensate mass (lake-effect snow is almost all SWP); reading small IWP as no ice cloud -- snow and graupel are counted in SWP."
+    }
+  },
+  "cloud_top_height": {
+    "zh": {
+      "question": "雲頂有多高？哪些雲有降水回波？",
+      "how_to_read": "填色為雲頂高度（km MSL）：該柱中總凝結物 ≥ 0.01 g/kg 的最高模式層；白色為無雲柱；洋紅與紅線為組合回波 15 與 25 dBZ（OWLeS 湖效應研究 Gaudet et al. 2021 所用的回波門檻）。",
+      "common_misreadings": "把雲頂高度當成衛星雲頂——門檻 0.01 g/kg 會包含很薄的雲，衛星看到的光學雲頂通常較低；把沒有 15 dBZ 的雲當成不下雪——弱的小雪回波可能低於 15 dBZ。"
+    },
+    "en": {
+      "question": "How high are the cloud tops, and which clouds carry precipitation echoes?",
+      "how_to_read": "Fill is cloud-top height (km MSL): the highest model level whose total condensate is >= 0.01 g/kg; white = cloudless column; magenta/red lines are composite reflectivity 15 and 25 dBZ (the echo thresholds used for lake-effect bands in the OWLeS study, Gaudet et al. 2021).",
+      "common_misreadings": "Equating it with a satellite cloud top -- the 0.01 g/kg threshold includes very thin cloud, so the optical top seen by a satellite is usually lower; reading a cloud without 15 dBZ as not snowing -- light snow can stay below 15 dBZ."
+    }
+  },
+  "cloud_xsec": {
+    "zh": {
+      "question": "最濃雲柱的雲垂直結構：雲多深、在邊界層內還是穿出、是否位於樹枝狀冰晶成長溫度帶？",
+      "how_to_read": "兩個剖面通過內部區域總水路徑 TWP 最大的柱：上圖沿該點 PBLH 以下的平均（網格相對）風向（即湖效應的 fetch 方向），下圖與之垂直；各 ±150 km（超出 domain 時截斷）。填色為總凝結物（對數 0.01–1 g/kg），粗實線 0 °C、虛線 −15 °C（樹枝狀冰晶成長帶），橘線為 PBLH 高度，紅/藍為上升/下沉 w，灰色為地形。高度上限依剖面上的雲頂自動取 4–18 km。",
+      "common_misreadings": "把剖面方向當成正東西——它是沿邊界層平均風；邊界層風很弱（< 0.5 m/s）時改用網格 x/y 軸，標題會說明；把單一時刻的剖面當成雲帶的長期結構。"
+    },
+    "en": {
+      "question": "Vertical structure of the densest cloud column: how deep is the cloud, does it stay in or break out of the boundary layer, does it reach the dendritic-growth temperature zone?",
+      "how_to_read": "Two sections through the interior column of maximum total water path TWP: the upper one along the mean (grid-relative) wind below PBLH at that point -- the lake-effect fetch -- and the lower one perpendicular to it, +-150 km each (clipped to the domain). Fill is total condensate (log 0.01-1 g/kg); bold solid 0 degC, dashed -15 degC (dendritic growth zone); orange line = PBLH; red/blue = up/down w; grey = terrain. The height window adapts to the cloud top on the sections (4-18 km).",
+      "common_misreadings": "Taking the section as east-west -- it follows the mean boundary-layer wind; with a calm BL wind (< 0.5 m/s) the grid x/y axes are used and the title says so; reading one snapshot as the band's long-term structure."
+    }
+  },
+  "cloud_ir_proxy": {
+    "zh": {
+      "question": "從「衛星視角」看，雲頂溫度分布如何？哪裡是深對流、哪裡是低雲？",
+      "how_to_read": "OLR 換算的等效黑體溫度 (OLR/σ)^0.25，全 domain；240 K 以上為反向灰階（暖=深、冷=白），240 K 以下彩色強化（仿 NOAA enhanced IR）；色條同時標 K 與 °C。",
+      "common_misreadings": "把它當成衛星紅外頻道亮溫——這是寬頻 OLR 代理量（不是衛星頻道模擬），高雲上偏暖；低雲與地表溫度接近時（例如冷空氣爆發的淺層雲）在這張圖上幾乎看不出來，請看水路徑與雲頂高度圖。"
+    },
+    "en": {
+      "question": "Seen 'from the satellite', how are cloud-top temperatures distributed -- where is deep convection, where is low cloud?",
+      "how_to_read": "Equivalent blackbody temperature (OLR/sigma)^0.25 over the whole domain; reverse greyscale above 240 K (warm = dark, cold = white), colour enhancement below 240 K (NOAA-style enhanced IR); colour bar in K and degC.",
+      "common_misreadings": "Reading it as a satellite IR channel brightness temperature -- it is a broadband OLR proxy (not a satellite-channel simulation) and runs warm over high cloud; low cloud close to the surface temperature (e.g. the shallow cloud of a cold-air outbreak) barely shows here -- use the water-path and cloud-top figures."
+    }
+  },
+  "cloud_condensate_3d": {
+    "zh": {
+      "question": "整個 domain 的總凝結物立體分布長什麼樣？",
+      "how_to_read": "ParaView 體積繪圖，domain 內部區域（排除側邊界鬆弛區），所有水凝物加總；單一時刻快照，垂直方向有誇張倍率。",
+      "common_misreadings": "把體積的不透明度當成定量雲量——轉換函數的選擇會改變外觀；垂直誇張會讓淺雲看起來很厚。"
+    },
+    "en": {
+      "question": "What does the 3-D distribution of total condensate over the domain look like?",
+      "how_to_read": "A ParaView volume rendering of the domain interior (lateral boundary zone excluded), all hydrometeors summed; one snapshot, vertically exaggerated.",
+      "common_misreadings": "Reading volume opacity as a quantitative cloud amount -- the transfer function shapes the look; the vertical exaggeration makes shallow cloud look thick."
     }
   },
   "timeseries_slp": {

@@ -26,7 +26,7 @@ WRF_TIME_FMT = "%Y-%m-%d_%H:%M:%S"
 # added by the 2026-09-29 update, placed next to synoptic/pbl since they are also domain-scale
 # 2-D/cross-section diagnostics).
 ALL_TYPES_ORDER = ("common", "tc", "convection", "precip", "synoptic", "terrain", "moisture",
-                    "pbl", "chem", "climate", "ensemble")
+                    "cloud", "pbl", "chem", "climate", "ensemble")
 
 SYNOPTIC_EXTENT_KM = 1500.0
 SYNOPTIC_RUN_HOURS = 24.0
@@ -277,6 +277,24 @@ def detect_terrain(run_dir, max_dom, bdy_width=None):
                    % (bdy_width, TERRAIN_RELIEF_M, TERRAIN_PEAK_M)), []
 
 
+def detect_cloud(run_dir):
+    """(bool, evidence): "cloud" whenever the last wrfout_d01 frame holds any hydrometeor
+    mixing ratio (post/condensate.SPECIES) -- the cloud figure set is generic."""
+    frames = list_frames(run_dir, domain=1)
+    if not frames:
+        return False, "no wrfout_d01_* frame to inspect"
+    try:
+        import netCDF4
+        from post import condensate
+        with netCDF4.Dataset(frames[-1][1]) as ds:
+            present = condensate.species_present(ds)
+    except (ImportError, OSError) as e:
+        return False, "wrfout_d01 not readable: %s" % e
+    if present:
+        return True, "hydrometeors in wrfout_d01: %s" % ", ".join(present)
+    return False, "no hydrometeor mixing ratio in wrfout_d01"
+
+
 def detect_types(run_dirs, types_override=None, ensemble=False, hurdat2_path=None,
                  storm_id=None, bdeck_path=None):
     """Multi-label case-type detection against run_dirs[0]'s namelist (ensemble members
@@ -339,6 +357,10 @@ def detect_types(run_dirs, types_override=None, ensemble=False, hurdat2_path=Non
         evidence["moisture"] = "triggered by: %s" % ", ".join(sorted(moisture_triggers))
     else:
         evidence["moisture"] = "none of precip/convection/tc detected"
+
+    cloud_ok, evidence["cloud"] = detect_cloud(primary)
+    if cloud_ok:
+        detected.add("cloud")
 
     pbl_hits = [d for d in domains
                if (d["bl_pbl_physics"] or 0) == 0 or d["dx_km"] <= PBL_LES_DX_KM]

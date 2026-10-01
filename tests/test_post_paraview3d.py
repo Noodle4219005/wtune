@@ -1,5 +1,6 @@
-"""Pure-logic tests for the 3-D cloud figure: title text, camera direction, coastline clipping
-and VTK polyline output. pvbatch itself is exercised on scc."""
+"""Pure-logic tests for the 3-D cloud figure: title text, the legacy render_cloud.py camera,
+coastline clipping, VTK polyline output and figures() around a fake pvbatch. The volume
+renderer itself is tested in test_post_volume3d.py; pvbatch is exercised on scc."""
 import importlib.util
 import os
 
@@ -19,11 +20,12 @@ def _render_cloud_module():
     return m
 
 
-def test_title_has_run_domain_time_quantity_threshold_and_exaggeration():
+def test_title_has_run_domain_time_quantity_and_exaggeration():
     t = paraview3d.build_title("katrina-base", 2, "2005-08-28_12:00:00")
-    assert "katrina-base" in t and "d02" in t and "2005-08-28_12:00:00" in t
-    assert "QCLOUD+QICE ≥ 0.1 g/kg" in t
-    assert "×30" in t
+    assert t == "katrina-base  d02  valid 2005-08-28 12Z"
+    q = paraview3d.volume_title_line(30)
+    assert "Total condensate (all hydrometeors)" in q and "0.01 g/kg" in q
+    assert "×30" in q
 
 
 def test_camera_is_south_south_east_and_above_the_horizon():
@@ -63,12 +65,15 @@ def _fake_env(monkeypatch, tmp_path, write_state):
     fake.chmod(0o755)
     monkeypatch.setattr(paraview3d, "find_pvbatch", lambda: str(fake))
 
-    def conv(wrfout, prefix):
-        out = [prefix + "_cloud.nc", prefix + "_terrain.nc", prefix + "_coast.vtk"]
-        for o in out:
+    def build(wrfout, prefix, **kw):
+        out = dict(vti=prefix + "_condensate.vti", terrain=prefix + "_terrain.vtk",
+                   coast=prefix + "_coast.vtk")
+        for o in out.values():
             open(o, "w").write("x")
-        return tuple(out)
-    monkeypatch.setattr(xwrf_convert, "convert_frame", conv)
+        return dict(out, center_km=(0.0, 0.0), extent_km=(0, 1, 0, 1), width_km=3000.0,
+                    dx_km=12.0, stride=1, vexag=28.0, vt_max=None, shape=(73, 2, 2),
+                    ztop_km=18.0)
+    monkeypatch.setattr(xwrf_convert, "build_volume", build)
 
 
 def test_figures_pass_save_state_and_write_folder_and_readme(monkeypatch, tmp_path):
@@ -80,13 +85,14 @@ def test_figures_pass_save_state_and_write_folder_and_readme(monkeypatch, tmp_pa
     pv = out / "cloud3d_paraview"
     assert "--save-state " + str(pv / "cloud3d.pvsm") in (tmp_path / "argv.txt").read_text()
     assert sorted(os.listdir(pv)) == ["README.txt", "cloud3d.pvsm",
-                                      "wrfout_d01_2005-08-29_000000_cloud.nc",
                                       "wrfout_d01_2005-08-29_000000_coast.vtk",
-                                      "wrfout_d01_2005-08-29_000000_terrain.nc"]
+                                      "wrfout_d01_2005-08-29_000000_condensate.vti",
+                                      "wrfout_d01_2005-08-29_000000_terrain.vtk",
+                                      "wrfout_d01_2005-08-29_000000_volume.json"]
     assert (out / "cloud3d.pvsm").exists()
     readme = (pv / "README.txt").read_text(encoding="utf-8")
     assert "Search files under specified directory" in readme
-    assert "x30" in readme and "0.0001 kg/kg" in readme
+    assert "x28" in readme and "0.01 g/kg" in readme
     assert res and not res[0].get("missing")
 
 

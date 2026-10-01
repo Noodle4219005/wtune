@@ -75,7 +75,7 @@ def _classify_tc_path(path):
 def _tc_figures(run_dirs, labels, out_dir, case_info, hurdat2_path, storm_id, bdeck_path,
                 ebtrk_path, paraview, spinup_hours, track_smooth_km=None):
     from post import tc as tc_mod
-    from post.recipes import tc_extra, paraview3d
+    from post.recipes import tc_extra
 
     tc_out = os.path.join(out_dir, "tc")
     summary = tc_mod.run_tc_report(run_dirs, labels, hurdat2_path, storm_id, tc_out,
@@ -102,38 +102,42 @@ def _tc_figures(run_dirs, labels, out_dir, case_info, hurdat2_path, storm_id, bd
         domain = case_info["domains"][0]["domain"]
         out += tc_extra.figures(run_dir, label, adeck_path, domain, tc_out)
 
-    if paraview:
-        run_dir, label = run_dirs[0], labels[0]
-        domain = case_info["domains"][0]["domain"]
-        from post.extract import list_frames
-        frames = list_frames(run_dir, domain=domain)
-        if frames:
-            out += paraview3d.figures("tc_cloud_3d", frames[-1][1], tc_out,
-                                      os.path.join(tc_out, "_paraview"), label, domain,
-                                      frames[-1][0])
+    # the 3-D render moved to the cloud set (whole domain) and tc_structure (storm-centred
+    # cutaway); a tc_cloud_3d here would draw the cloud set's d01 view a second time
     return out
 
 
 def _convection_figures(run_dirs, labels, out_dir, case_info, paraview, spinup_hours):
-    from post.recipes import convection, paraview3d
+    from post.recipes import convection
     conv_out = os.path.join(out_dir, "convection")
     os.makedirs(conv_out, exist_ok=True)
     out = convection.figures(run_dirs, labels, conv_out, case_info, spinup_hours=spinup_hours)
-    if paraview:
-        run_dir, label = run_dirs[0], labels[0]
-        domain = convection._finest_convective_domain(case_info["domains"])
-        from post.extract import list_frames
-        frames = list_frames(run_dir, domain=domain)
-        if frames:
-            out += paraview3d.figures("conv_cloud_3d", frames[-1][1], conv_out,
-                                      os.path.join(conv_out, "_paraview"), label, domain,
-                                      frames[-1][0])
+    # the 3-D render is the cloud set's (d01 + finest nest), not repeated here
     return out
+
+
+def _tc_structure_figures(run_dirs, labels, out_dir, case_info, paraview=True, every=None,
+                          times=None, use_track=True):
+    """post/recipes/tc_structure.py on run_dirs[0]: centres from the track post/tc.py just
+    wrote (tc/track_domains_<label>.csv) when use_track, else its own smoothed-SLP minimum."""
+    from post.recipes import tc_structure
+    track_csv = os.path.join(out_dir, "tc", "track_domains_%s.csv" % labels[0])
+    return tc_structure.figures(run_dirs[0], labels[0], os.path.join(out_dir, "tc_structure"),
+                                case_info,
+                                track_csv=track_csv if use_track and os.path.exists(track_csv)
+                                else None, every=every, times=times, paraview=paraview)
+
+
+def _cloud_figures(run_dirs, labels, out_dir, case_info, paraview=True, every=None, times=None):
+    from post.recipes import cloud
+    return cloud.figures(run_dirs, labels, os.path.join(out_dir, "cloud"), case_info,
+                         every=every, times=times, paraview=paraview)
 
 
 TYPE_DISPATCH = {
     "tc": _tc_figures,
     "convection": _convection_figures,
+    "cloud": _cloud_figures,
 }
 
 
@@ -257,14 +261,21 @@ def run_recipe(run_dirs, out_dir, types_override=None, ensemble=False, spinup_ho
         if handler is None:
             continue
         if t == "tc":
-            if not (hurdat2_path and storm_id):
+            has_track = bool(hurdat2_path and storm_id)
+            if not has_track:
                 all_figures.append(missing("tc_figure", "HURDAT2/--storm",
                                            "tc was detected but --hurdat2/--storm is required "
                                            "to build the a-deck/b-deck comparison"))
-                continue
-            all_figures += handler(run_dirs, labels, out_dir, case_info, hurdat2_path, storm_id,
-                                   bdeck_path, ebtrk_path, paraview, spinup_hours,
-                                   track_smooth_km=track_smooth_km)
+            else:
+                all_figures += handler(run_dirs, labels, out_dir, case_info, hurdat2_path,
+                                       storm_id, bdeck_path, ebtrk_path, paraview, spinup_hours,
+                                       track_smooth_km=track_smooth_km)
+            all_figures += _tc_structure_figures(run_dirs, labels, out_dir, case_info,
+                                                 paraview=paraview, every=every, times=times,
+                                                 use_track=has_track)
+        elif t == "cloud":
+            all_figures += handler(run_dirs, labels, out_dir, case_info, paraview=paraview,
+                                   every=every, times=times)
         elif t == "convection":
             all_figures += handler(run_dirs, labels, out_dir, case_info, paraview, spinup_hours)
         elif t == "terrain":

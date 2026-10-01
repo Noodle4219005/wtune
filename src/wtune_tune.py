@@ -171,6 +171,8 @@ def default_ledger_reader(ledger_dir, case, job_ids):
 # small pure helpers (each independently unit-testable)
 # ---------------------------------------------------------------------------
 def _fmt_hms(seconds):
+    if seconds is None or seconds == float("inf"):
+        return "none"
     seconds = max(0.0, seconds)
     h, rem = divmod(int(seconds), 3600)
     m, s = divmod(rem, 60)
@@ -699,6 +701,10 @@ class Ctx:
     anchor_override: dict = None
     # node search: cores per node the decomposition search may use (None = all of cores_per_node)
     core_budget: int = None
+    # full layout search (default level): enumerate every legal (ranks x omp, nx x ny, numtiles)
+    # layout at the finalist instead of sampling; layout_notes is shared across ctx copies
+    full_space: bool = False
+    layout_notes: dict = None
     # node health pre-flight result (None when --no-node-preflight): see node_preflight
     node_health: dict = None
 
@@ -1091,9 +1097,100 @@ def measure_ranking_overhead(ctx, job_configs, states, wave_results):
     return max(0.0, (tot_e - tot_c) / n), n
 
 
+def _configs_for_budget(budget_s, per_run_s, slots):
+    """How many configs fit `budget_s` at `per_run_s` each; with NO time cap (budget infinite) a
+    fixed effort instead: EST_ROUND0_CONFIGS spread over the slots."""
+    if not math.isfinite(budget_s):
+        return max(1, int(math.ceil(EST_ROUND0_CONFIGS / float(max(1, slots)))))
+    return max(1, int(budget_s // per_run_s))
+
+
+FULL_SPACE_CONFIGS_PER_JOB = 24      # configs in one full-space job (~1 h at 20 steps)
+
+
+def enumerate_full_space(ctx):
+    """EVERY legal layout at ctx.nodes x cores_used(ctx): ranks x omp pairs, their nx x ny shapes,
+    numtiles (decomp_space.enumerate_space, every active domain legal). The axes the user ranks
+    highest; dist=block and 1-D tiles only (scc has no KMP_BLOCKTIME, so blocktime variants are the
+    same run -- cyclic dist and 2-D tile shapes are left to the adaptive proposer / sampled
+    levels). Returns (configs, info): configs = [campaign configs, ANCHOR override first],
+    info = counts and the reasons candidates were dropped (extension OMP cap, WRF-Chem j-patch
+    guard, --config excludes)."""
+    total = ctx.nodes * cores_used(ctx)
+    cands, _axis = decomp_space.enumerate_space(ctx.case_json, total, ctx.nodes, ctx.hardware_id)
+    seen, uniq = set(), []
+    for c in cands:
+        if c["dist"] != "block" or c["blocktime"] != "0" or c["tile_shape"] != "1d_y":
+            continue
+        ident = sweep._identity(c)
+        if ident not in seen:
+            seen.add(ident)
+            uniq.append(c)
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        kept = _apply_search_filter(ctx, uniq)
+    reasons = sorted({l.strip() for l in buf.getvalue().splitlines() if l.strip()})
+    info = dict(nodes=ctx.nodes, cores_per_node=cores_used(ctx), raw=len(cands), unique=len(uniq),
+                legal=len(kept), excluded=len(uniq) - len(kept), excluded_reasons=reasons[:8])
+    configs = decomp_space.to_campaign_configs(kept, prefix="D")
+    ov = ctx.anchor_override
+    if ov:
+        configs = [ov] + [c for c in configs if sweep._identity(c) != sweep._identity(ov)]
+    return configs, info
+
+
+def _run_full_space_round0(ctx, s_est, slots):
+    """round0 for the full layout search: every enumerated layout measured once (REPS=1), in
+    waves of `slots` concurrent jobs of FULL_SPACE_CONFIGS_PER_JOB configs, nothing sampled.
+    Anything that could not be measured is recorded in ctx.layout_notes["untried"] with its
+    reason. Returns (job_ids, configs_by_cid, rows) like run_round0."""
+    configs, info = enumerate_full_space(ctx)
+    notes = ctx.layout_notes if ctx.layout_notes is not None else dict(untried=[], enumerated={})
+    notes["enumerated"]["N=%d c=%d" % (ctx.nodes, cores_used(ctx))] = info
+    print("round0 (full layout search): N=%d cores/node=%d: %d enumerated, %d unique, %d legal "
+          "(%d excluded) -> %d waves of %d job(s)"
+          % (ctx.nodes, cores_used(ctx), info["raw"], info["unique"], info["legal"],
+             info["excluded"], math.ceil(len(configs) / float(slots * FULL_SPACE_CONFIGS_PER_JOB)),
+             slots))
+    if not configs:
+        return [], {}, []
+    job_ids, configs_by_cid, rows = [], {}, []
+    wave_size = slots * FULL_SPACE_CONFIGS_PER_JOB
+    for w, start in enumerate(range(0, len(configs), wave_size)):
+        chunk = configs[start:start + wave_size]
+        ids, by_cid, wrows, job_configs, states = _submit_round0_wave(
+            ctx, chunk, slots, s_est, "round0-w%d" % w)
+        job_ids += ids
+        configs_by_cid.update(by_cid)
+        rows += wrows
+        if w == 0 and ids:               # the first wave measures this allocation's startup
+            res = aggregate_by_cid(wrows, by_cid)
+            measured, n_runs = measure_startup_s(job_configs, states, res, ctx.steps)
+            if measured is not None:
+                print("startup_s: measured %.1fs/run from %d run(s) (was %.1fs, %s)"
+                      % (measured, n_runs, ctx.startup_s, ctx.startup_source))
+                ctx.startup_s = measured
+                ctx.startup_source = "measured from round0 (n=%d completed runs)" % n_runs
+            s_est = update_s_est(res, s_est)
+    measured_cids = {r["cid"] for r in aggregate_by_cid(rows, configs_by_cid).values()}
+    for c in configs:
+        if c["id"] not in configs_by_cid:
+            reason = "not submitted: the job would exceed the time cap"
+        elif c["id"] not in measured_cids:
+            reason = "no measurement (the run failed or its job was cancelled)"
+        else:
+            continue
+        notes["untried"].append(dict(nodes=ctx.nodes, cores_per_node=cores_used(ctx), id=c["id"],
+                                     ranks=c["ranks"], omp=c["omp"], nx=c["nx"], ny=c["ny"],
+                                     numtiles=c["numtiles"], reason=reason))
+    return job_ids, configs_by_cid, rows
+
+
 def run_round0(ctx):
     s_est, s_source, n_rows = sweep.estimate_s_per_step(ctx.case, ctx.nodes, ctx.ledger_dir,
                                                           ctx.hardware_id)
+    if ctx.full_space:
+        return _run_full_space_round0(ctx, s_est, compute_slots(ctx.max_nodes, ctx.nodes))
     if _stage1_active(ctx) and ctx.s_prior and n_rows == 0:
         # predicted mode, no ledger history: the cell-step model beats the 10 s/step fallback,
         # which would also inflate the stage-2 reserve until nothing in stage 1 fits
@@ -1102,7 +1199,7 @@ def run_round0(ctx):
     slots = compute_slots(ctx.max_nodes, ctx.nodes)
     round0_budget_s = min(ctx.budget_s - ctx.elapsed() - stage1_reserve_s(ctx),
                           ctx.budget_s * ROUND0_BUDGET_FRACTION)
-    configs_per_job = max(1, int(round0_budget_s // per_run_s))
+    configs_per_job = _configs_for_budget(round0_budget_s, per_run_s, slots)
     total_k = slots * configs_per_job
     if _stage1_active(ctx) and not ctx.ranking:
         # stage1=t0: the t0 tuner's own round0 sizing (above) exactly; +1 because
@@ -1183,7 +1280,7 @@ def run_round0(ctx):
         if refreshed_s_est < s_est and ctx.elapsed() < ctx.budget_s:
             topup_per_run_s = ctx.startup_s + ctx.steps * refreshed_s_est
             topup_budget_s = min(ctx.budget_s - ctx.elapsed(), ctx.budget_s * ROUND0_BUDGET_FRACTION)
-            topup_configs_per_job = max(1, int(topup_budget_s // topup_per_run_s))
+            topup_configs_per_job = _configs_for_budget(topup_budget_s, topup_per_run_s, slots)
             topup_k = slots * topup_configs_per_job
             fresh = sample_more_diverse_configs(ctx, list(configs_by_cid.values()), topup_k,
                                                  ctx.seed + 1)
@@ -1264,7 +1361,7 @@ def run_adaptive_rounds(ctx, all_configs_by_cid, all_results, s_est):
                      _fmt_hms(ctx.budget_s)))
             return
         per_run_s = ctx.startup_s + ctx.steps * s_est
-        batch_size = max(1, int(min(remaining_s, ctx.budget_s * ROUND0_BUDGET_FRACTION) // per_run_s))
+        batch_size = _configs_for_budget(min(remaining_s, ctx.budget_s * ROUND0_BUDGET_FRACTION), per_run_s, 1)
 
         # `state["rounds"]` (propose_core's own round counter) must grow exactly once per LOGICAL
         # round_idx, so a kappa retry below re-reads the SAME internal round_idx from
@@ -2094,7 +2191,8 @@ def build_report(ctx, nodes, nodes_note, all_results, confirm_results, anchor_ci
 
     return dict(
         case=ctx.case, nodes=nodes, nodes_note=nodes_note, cores_per_node=ctx.cores_per_node,
-        budget_minutes=ctx.budget_s / 60.0, elapsed_minutes=ctx.elapsed() / 60.0,
+        budget_minutes=(ctx.budget_s / 60.0 if math.isfinite(ctx.budget_s) else None),
+        elapsed_minutes=ctx.elapsed() / 60.0,
         job_ids=list(ctx.owned_jobs), cancelled_job_ids=list(ctx.cancelled_jobs),
         anchor_id=anchor_cid, ranking=table, best=best, param_table=param_table,
         full_run_prediction=(build_full_run_prediction(ctx, best_config, nodes, all_results,
@@ -2108,8 +2206,9 @@ def render_report_text(report):
     lines = []
     lines.append("=== wtune_tune: %s ===" % report["case"])
     lines.append("nodes=%d (%s)" % (report["nodes"], report["nodes_note"]))
-    lines.append("budget=%.1f min  elapsed=%.1f min  jobs=%s"
-                  % (report["budget_minutes"], report["elapsed_minutes"],
+    lines.append("budget=%s  elapsed=%.1f min  jobs=%s"
+                  % (("%.1f min" % report["budget_minutes"]) if report["budget_minutes"] is not None
+                     else "no cap", report["elapsed_minutes"],
                      ",".join(report["job_ids"]) or "-"))
     if report["cancelled_job_ids"]:
         lines.append("cancelled (budget deadline): %s" % ",".join(report["cancelled_job_ids"]))
@@ -2457,7 +2556,7 @@ def _notes_kv(notes):
 
 
 def evaluate_job_gates(job_id, rows, s_by_cid, expected_cids, drift_max=ANCHOR_DRIFT_MAX,
-                       require_restart=True):
+                       require_restart=True, check_drift=True):
     """Validity gates for ONE ranking job (decision 0055). Returns {job_id, ok, failures,
     anchor_drift, s_anchor, s_anchor_end}; never raises (the caller decides: stage 1 warns,
     stage 2 raises). Fails when: any expected cid has no ledger row; any row's notes lack
@@ -2488,7 +2587,9 @@ def evaluate_job_gates(job_id, rows, s_by_cid, expected_cids, drift_max=ANCHOR_D
             failures.append("%s: node_dirty=%s" % (cid, kv.get("node_dirty")))
     a, e = s_by_cid.get("ANCHOR"), s_by_cid.get(ANCHOR_END_ID)
     drift = None
-    if not a or not e:
+    if not check_drift:                       # ANCHOR_END=0 / fused: no ANCHOREND, gate off
+        pass
+    elif not a or not e:
         failures.append("anchor drift: ANCHOR s=%s ANCHOREND s=%s (both required)" % (a, e))
     else:
         drift = e / a - 1.0
@@ -2844,7 +2945,48 @@ def finish_rebuilt_points(ctx, handle):
     return out
 
 
-def _measure_run(ctx, rp, cid, job_id, dt):
+POINT_MODES = ("default", "no_end", "fused")
+
+
+def point_runs(wrapped, mode):
+    """The configs of a point job that actually run. default: ANCHOR + candidates + ANCHOREND
+    (drift gate on). no_end (ANCHOR_END=0): ANCHOREND is dropped, drift gate off. fused
+    (POINT_FUSED=1, winner-only): ONE wrf.exe runs spin-up + window for the single candidate; the
+    ANCHOR placeholder is not run and there is no ANCHOREND (strict_campaign.sbatch point-job run
+    list, decisions 0055/0059)."""
+    if mode == "fused":
+        return [c for c in wrapped if c["id"] not in ("ANCHOR", ANCHOR_END_ID)]
+    if mode == "no_end":
+        return [c for c in wrapped if c["id"] != ANCHOR_END_ID]
+    return list(wrapped)
+
+
+def point_export(mode):
+    """Extra sbatch --export entries for a point-job mode. A fused run additionally needs
+    RANKING_START=spinup, MODE=timing, one SPINUP_MINUTES target and REPS=1 (all set by the point
+    job already) and NO window frame; WINDOW_EXACT=1 makes the window exactly STEPS*dt."""
+    if mode == "fused":
+        return [("POINT_FUSED", 1), ("ANCHOR_END", 0), ("WINDOW_EXACT", 1)]
+    if mode == "no_end":
+        return [("ANCHOR_END", 0)]
+    return []
+
+
+def choose_point_mode(configs, anchor):
+    """The default point-job mode for `configs` (candidates besides the ANCHOR placeholder):
+    fused for exactly ONE candidate without a window frame (winner-only plan); no_end (drift gate
+    off) when the whole job has <= 2 configs (ANCHOR + one more); default otherwise (phase-1
+    multi-config waves never come through here and keep ANCHOREND)."""
+    cands = [c for c in configs if c.get("id") not in ("ANCHOR", ANCHOR_END_ID)]
+    framed = any(c.get("window_frame") for c in cands) or bool((anchor or {}).get("window_frame"))
+    if len(cands) == 1 and not framed:
+        return "fused"
+    if len(cands) + 1 <= 2:
+        return "no_end"
+    return "default"
+
+
+def _measure_run(ctx, rp, cid, job_id, dt, first_global_step=None):
     """PointMeasurement for one stage-2 run (RUNDIR = ledger_dir/<case_id>_<cid>_r1_<job>):
     first_global_step_from_rsl relative to the rebuilt start T, measurement_from_steps_file with
     the case stepra; `.at` = the point's measured-window midpoint on the CASE timeline (M +
@@ -2853,8 +2995,11 @@ def _measure_run(ctx, rp, cid, job_id, dt):
     steps_path = os.path.join(rundir, "steps.txt")
     if not os.path.exists(steps_path) or os.path.getsize(steps_path) == 0:
         raise RuntimeError("%s missing/empty" % steps_path)
-    g0 = wtune_probe_plan.first_global_step_from_rsl(os.path.join(rundir, "rsl.error.0000"),
-                                                     rp["T"], dt)
+    # fused rows keep only the post-spin-up steps (steps_all.txt has the raw list): the first one is
+    # known (spin-up steps + 1), the rsl log would say 1
+    g0 = (first_global_step if first_global_step is not None else
+          wtune_probe_plan.first_global_step_from_rsl(os.path.join(rundir, "rsl.error.0000"),
+                                                      rp["T"], dt))
     at = rp["point"].at + datetime.timedelta(seconds=rp["steps"] * dt / 2.0)
     pm = wtune_probe_plan.measurement_from_steps_file(
         steps_path, rp["stepra"], at, rp["point"].reason, "rebuild", first_global_step=g0)
@@ -2862,7 +3007,7 @@ def _measure_run(ctx, rp, cid, job_id, dt):
 
 
 def measure_candidates_at_points(ctx, configs, rebuilt_points, anchor, s_by_cid=None,
-                                 restart_io_form=None, name_prefix="stage2"):
+                                 restart_io_form=None, name_prefix="stage2", mode=None):
     """D3 (decision 0055): one strict_campaign job per rebuilt point, ALL submitted before any
     wait. Each: CONFIG_FILE = ANCHOR + configs + ANCHOREND, REPS=1, CASE=<point id>,
     CASES_JSON, RANKING_START=spinup, SPINUP_MINUTES=spinup_min, RANKING_STRICT_RESTART=1,
@@ -2873,7 +3018,11 @@ def measure_candidates_at_points(ctx, configs, rebuilt_points, anchor, s_by_cid=
     Returns (meas_by_cid {cid: [PointMeasurement, ...] in point order, ANCHOREND excluded},
     gate_records, job_ids)."""
     restart_io_form = restart_io_form or ctx.restart_io_form
+    mode = mode or "default"
+    if mode not in POINT_MODES:
+        raise ValueError("unknown point-job mode %r" % (mode,))
     wrapped = wrap_with_anchors(configs, anchor)
+    runs = point_runs(wrapped, mode)              # what the runner actually executes
     nl = None
     try:
         nl = wtune_predict.parse_namelist(ctx.namelist_path)
@@ -2883,12 +3032,15 @@ def measure_candidates_at_points(ctx, configs, rebuilt_points, anchor, s_by_cid=
     for rp in rebuilt_points:
         dt = float(rp["dt"])
         cand_to, spin_to, time_limit, expected = ranking_job_timeouts(
-            ctx, wrapped, rp["steps"], rp["spinup_min"], dt, s_by_cid=s_by_cid, nl=nl,
+            ctx, runs, rp["steps"], rp["spinup_min"], dt, s_by_cid=s_by_cid, nl=nl,
             stepra=rp.get("stepra"))
         job_out = os.path.join(ctx.out_dir, name_prefix, "pt_%d" % rp["index"])
         os.makedirs(job_out, exist_ok=True)
         configs_path = os.path.join(job_out, "configs.json")
-        sweep.write_configs_json(configs_path, wrapped)
+        # the file keeps the ANCHOR placeholder (it names the spin-up decomposition) and drops
+        # ANCHOREND whenever ANCHOR_END=0 (the runner would drop it anyway)
+        sweep.write_configs_json(configs_path, [c for c in wrapped if mode == "default"
+                                                or c["id"] != ANCHOR_END_ID])
         ranking = ranking_context(rp["case_id"], rp["cases_json"], rp["spinup_min"], rp["steps"],
                                   anchor, restart_io_form=restart_io_form,
                                   spinup_timeout_s=spin_to)
@@ -2896,13 +3048,14 @@ def measure_candidates_at_points(ctx, configs, rebuilt_points, anchor, s_by_cid=
             rp["case_id"], ctx.nodes, ctx.cores_per_node, time_limit, cand_to, 1, rp["steps"],
             os.path.abspath(configs_path), job_out, env_source=ctx.env_source,
             sbatch_script=ctx.sbatch_script, campaign_dir=sweep.campaign_dir_for(ctx.sbatch_script),
-            extra_export=ranking_export(ranking, {"timeout_s": cand_to}))
+            extra_export=ranking_export(ranking, {"timeout_s": cand_to}) + point_export(mode))
         jid = sweep.submit_job(cmd, sbatch_runner=ctx.sbatch_runner)
         ctx.owned_jobs.append(jid)
         print("%s point %d (%s, case %s): job %s, %d runs, TIMEOUT_S=%d SPINUP_TIMEOUT_S=%d "
               "--time=%s (expected %s)" % (name_prefix, rp["index"], rp["point"].at.isoformat(),
-                                           rp["case_id"], jid, len(wrapped), cand_to, spin_to,
-                                           time_limit, _fmt_hms(expected)))
+                                           rp["case_id"], jid, len(runs), cand_to, spin_to,
+                                           time_limit, _fmt_hms(expected)) + (
+            " [%s]" % mode if mode != "default" else ""))
         jobs.append((rp, jid))
     job_ids = [j for _rp, j in jobs]
     # once started, stage 2 runs to completion: exempt from the running budget (overrun is
@@ -2922,9 +3075,10 @@ def measure_candidates_at_points(ctx, configs, rebuilt_points, anchor, s_by_cid=
         # spinup*60/dt + 1 exactly (predicted_spinup_min makes spinup*60 a multiple of dt); a t0
         # start is at 1.
         expect_g0 = rp["spinup_min"] * 60.0 / dt + 1.0
-        for c in wrapped:
+        for c in runs:
             try:
-                pm, g0 = _measure_run(ctx, rp, c["id"], jid, dt)
+                pm, g0 = _measure_run(ctx, rp, c["id"], jid, dt,
+                                      first_global_step=expect_g0 if mode == "fused" else None)
             except Exception as e:
                 extra.append("%s: no measurement (%s: %s)" % (c["id"], type(e).__name__, e))
                 continue
@@ -2934,7 +3088,11 @@ def measure_candidates_at_points(ctx, configs, rebuilt_points, anchor, s_by_cid=
             s_by[c["id"]] = pm.s_normal
             if c["id"] != ANCHOR_END_ID:
                 meas_by_cid.setdefault(c["id"], []).append(pm)
-        rec = evaluate_job_gates(jid, rows, s_by, [c["id"] for c in wrapped])
+        # drift gate only when ANCHOREND ran; a fused/no_end row carries drift_gate=off and a
+        # fused row's restart_used=1 is NOT evidence that a restart file was read
+        rec = evaluate_job_gates(jid, rows, s_by, [c["id"] for c in runs],
+                                 check_drift=(mode == "default"))
+        rec["point_mode"] = mode
         rec["failures"].extend(extra)
         rec.update(ok=not rec["failures"], stage=name_prefix, point_index=rp["index"],
                    point_at=rp["point"].at.isoformat(), case_id=rp["case_id"])
@@ -3231,7 +3389,7 @@ def run_predicted(ctx, nodes, nodes_note, s_est):
 _BUDGET_LEFT = object()
 
 
-def fit_stage2(ctx, top, anchor, rebuilt, s_by_cid, nl=None, left_s=_BUDGET_LEFT):
+def fit_stage2(ctx, top, anchor, rebuilt, s_by_cid, nl=None, left_s=_BUDGET_LEFT, mode=None):
     """(top_fit, expected_running_s, skip_reason): stage 2 never starts with less running budget
     left than its own estimate. Expected = ceil(points/stage2_concurrency) waves x the slowest point job's
     ranking_job_timeouts `expected` (spin-up + ANCHOR + candidates + ANCHOREND, measured stage-1
@@ -3245,7 +3403,7 @@ def fit_stage2(ctx, top, anchor, rebuilt, s_by_cid, nl=None, left_s=_BUDGET_LEFT
     left = ctx.budget_s - ctx.elapsed() if left_s is _BUDGET_LEFT else left_s
     est = None
     for k in range(len(top), min(1, len(top)) - 1, -1):
-        wrapped = wrap_with_anchors(top[:k], anchor)
+        wrapped = point_runs(wrap_with_anchors(top[:k], anchor), mode or "default")
         per_job = max(ranking_job_timeouts(ctx, wrapped, rp["steps"], rp["spinup_min"],
                                            float(rp["dt"]), s_by_cid=s_by_cid, nl=nl,
                                            stepra=rp.get("stepra"))[3]
@@ -3637,7 +3795,7 @@ def _measure_anchor_wave(ctx, items, s_est_for, skipped):
 
 
 def run_node_sweep(ctx, legal_nodes, budget_frac=DEFAULT_SWEEP_BUDGET_FRAC, chooser=None,
-                   on_wave=None):
+                   on_wave=None, refine=lambda: True):
     """Stage 'node sweep', coarse to fine. Candidates: every N in `legal_nodes` (<= max_nodes)
     that has a legal ANCHOR layout (_sweep_anchor). Seeds {1,2,4,8,max_nodes} (wtune_nodes.
     seed_nodes) are measured first, one REPS=2 ANCHOR job per N, in ascending waves with early
@@ -3715,7 +3873,7 @@ def run_node_sweep(ctx, legal_nodes, budget_frac=DEFAULT_SWEEP_BUDGET_FRAC, choo
 
     # phase 2: refine around the best N
     cap_hit = state.get("halt")
-    while meas and not state.get("halt"):
+    while meas and not state.get("halt") and refine():
         best = chooser(wtune_nodes.summarize(meas))
         todo = wtune_nodes.refine_targets(best, set(seeds) | set(meas), legal, attempted)
         if not todo:
@@ -3738,6 +3896,8 @@ def run_node_sweep(ctx, legal_nodes, budget_frac=DEFAULT_SWEEP_BUDGET_FRAC, choo
             continue
         if cap_hit:
             why = cap_hit
+        elif not refine():
+            why = "not measured: refinement is off at this level (O1 measures only {1,2,4,8,max})"
         elif best is None:
             why = "not measured: no seed measurement succeeded"
         elif lo < n and (hi is None or n < hi):
@@ -3822,18 +3982,19 @@ def node_choices(rows, *, deadline_s, total_steps, overhead_s, min_efficiency):
 
 def run_node_search(ctx, profile, objective, deadline_s, min_efficiency, k_finalists,
                     total_steps, nodes_policy="knee", sweep_budget_frac=DEFAULT_SWEEP_BUDGET_FRAC,
-                    core_options=None, on_sweep=None, collect=None, on_wave=None):
+                    core_options=None, on_sweep=None, collect=None, on_wave=None, plan=None):
     """Node sweep (coarse to fine over every legal N in 1..max_nodes) -> choose N -> cores-per-node
     sweep at the finalists -> round0/adaptive/confirm at each finalist (N, c) (remaining budget
     split evenly over the finalists still to run) -> final (N, c, config) by the same objective
     over the finalists' best tuned medians. Falls back to the proxy path when nothing was
     measured. `profile` is only used by that fallback."""
+    lvl = (lambda: plan["level"]) if plan else (lambda: 3)    # effort level, read live
     overhead_s = ctx.startup_s
     kw = dict(deadline_s=deadline_s, total_steps=total_steps, overhead_s=overhead_s,
               min_efficiency=min_efficiency)
     sw = run_node_sweep(ctx, list(range(1, ctx.max_nodes + 1)), budget_frac=sweep_budget_frac,
                         chooser=lambda rows: wtune_nodes.choose(rows, objective, **kw)[0],
-                        on_wave=on_wave)
+                        on_wave=on_wave, refine=lambda: lvl() >= 2)
     rows = wtune_nodes.summarize(sw["measurements"])
     if not rows:
         nodes, nodes_note, warning = choose_nodes(profile, ctx.max_nodes, nodes_policy)
@@ -3848,7 +4009,7 @@ def run_node_search(ctx, profile, objective, deadline_s, min_efficiency, k_final
 
     choices = node_choices(rows, **kw)
     chosen, note = wtune_nodes.choose(rows, objective, **kw)
-    finals = wtune_nodes.finalists(rows, objective, k=k_finalists, **kw)
+    finals = wtune_nodes.finalists(rows, objective, k=(1 if lvl() == 2 else k_finalists), **kw)
     tab = wtune_nodes.table(rows, total_steps=total_steps, overhead_s=overhead_s)
     for r in tab:
         r["maxrss_mb"] = sw["maxrss_mb"].get(r["nodes"])
@@ -3863,9 +4024,12 @@ def run_node_search(ctx, profile, objective, deadline_s, min_efficiency, k_final
     if core_options is None:
         core_options = wtune_nodes.default_core_options(ctx.cores_per_node)
     cores_info, skipped_cores = {}, []
-    if any(c < ctx.cores_per_node for c in core_options):
+    if lvl() <= 1:                       # O1: the t0 wave only -- no cores sweep, no finalists
+        finals = []
+    if lvl() >= 2 and any(c < ctx.cores_per_node for c in core_options):
         cores_info, skipped_cores = run_core_sweep(ctx, finals, sw, core_options)
 
+    layout_notes = dict(untried=[], enumerated={})
     outcomes = {}                  # N -> dict(report, best_median, ...)
     for i, n in enumerate(finals):
         remaining = ctx.budget_s - ctx.elapsed()
@@ -3877,11 +4041,13 @@ def run_node_search(ctx, profile, objective, deadline_s, min_efficiency, k_final
         anchor = cores_info[n]["anchors"][c] if n in cores_info else sw["anchors"].get(n)
         fctx = dataclasses.replace(ctx, nodes=n, budget_s=ctx.elapsed() + share,
                                     out_dir=os.path.join(ctx.out_dir, "n%d" % n),
-                                    anchor_override=anchor, core_budget=c)
+                                    anchor_override=anchor, core_budget=c,
+                                    full_space=(plan is not None and lvl() >= 3), layout_notes=layout_notes)
         os.makedirs(fctx.out_dir, exist_ok=True)
         print("node search: finalist N=%d cores/node=%d, budget share %s"
               % (n, c, _fmt_hms(share)))
-        all_results, confirm_results, anchor_cid = run_tuning_at(fctx)
+        all_results, confirm_results, anchor_cid = run_tuning_at(
+            fctx, adaptive=(lvl() >= 3), confirm=(lvl() >= 3))      # O3: full space + confirm reps
         if not all_results:
             res = (cores_info[n]["results"][c] if n in cores_info else sw["results"].get(n))
             if res:
@@ -3907,7 +4073,9 @@ def run_node_search(ctx, profile, objective, deadline_s, min_efficiency, k_final
         outcomes[chosen] = dict(report=rep, best_median=res["median"], cores=c, anchor=anchor,
                                 ctx=fctx, all_results={"ANCHOR": dict(res, config=anchor)},
                                 confirm_results=None)
-        final_n, final_note = chosen, note + "; budget exhausted after the sweep -- ANCHOR config"
+        final_n, final_note = chosen, note + (
+            "; level O1: t0 sweep only -- ANCHOR config" if lvl() <= 1 else
+            "; budget exhausted after the sweep -- ANCHOR config")
     else:
         by_sweep = {r["nodes"]: r for r in rows}
         frows = wtune_nodes.summarize({n: [o["best_median"]] for n, o in outcomes.items()})
@@ -3929,10 +4097,12 @@ def run_node_search(ctx, profile, objective, deadline_s, min_efficiency, k_final
             o["confirm_results"])
     report["nodes"], report["nodes_note"] = final_n, final_note
     report["cores_used_per_node"] = final_c
-    report["budget_minutes"] = ctx.budget_s / 60.0
+    report["budget_minutes"] = ctx.budget_s / 60.0 if math.isfinite(ctx.budget_s) else None
     report["elapsed_minutes"] = ctx.elapsed() / 60.0
     report["job_ids"] = list(ctx.owned_jobs)
     report["cancelled_job_ids"] = list(ctx.cancelled_jobs)
+    layouts_tab = build_layout_table(sw, cores_info, outcomes, ctx)
+    report["layout_table"] = layouts_tab
     report["node_selection"] = dict(
         mode="search", objective=objective, chosen=chosen, chosen_note=note, final=final_n,
         final_note=final_note, final_cores_per_node=final_c, table=tab, choices=choices,
@@ -3943,8 +4113,68 @@ def run_node_search(ctx, profile, objective, deadline_s, min_efficiency, k_final
                      for n, ci in cores_info.items()},
         skipped_cores=skipped_cores, core_options=list(core_options),
         total_steps=total_steps, deadline_s=deadline_s, min_efficiency=min_efficiency,
-        overhead_s=overhead_s, sweep_jobs=list(sw["jobs"].values()), maxrss_note=MAXRSS_NOTE)
+        overhead_s=overhead_s, sweep_jobs=list(sw["jobs"].values()), maxrss_note=MAXRSS_NOTE,
+        layouts=layouts_tab["rows"], winner=layouts_tab["winner"],
+        runner_up=layouts_tab["runner_up"], winner_vs_runner_up=layouts_tab["comparison"],
+        untried=(sw["skipped"] + skipped_cores + layout_notes["untried"]),
+        enumerated=layout_notes["enumerated"])
     return report
+
+
+def _layout_row(source, nodes, cores, cfg, vals):
+    med = statistics.median(vals)
+    return dict(source=source, nodes=nodes, cores_per_node=cores, ranks=cfg.get("ranks"),
+                omp=cfg.get("omp"), nx=cfg.get("nx"), ny=cfg.get("ny"),
+                numtiles=cfg.get("numtiles"), median=med, reps=len(vals),
+                spread=((max(vals) - min(vals)) / med if len(vals) >= 2 and med else 0.0),
+                cid=cfg.get("id"))
+
+
+def build_layout_table(sw, cores_info, outcomes, ctx):
+    """Every MEASURED layout, best first: the t0 ANCHOR at each N, the anchor at each cores/node
+    option, every enumerated layout measured at a finalist (confirm reps replace the single rep
+    where they exist). Plus the winner (lowest median over the finalists' layouts), the runner-up
+    (next best DIFFERENT layout) and whether they differ beyond the noise floor."""
+    rows, seen = [], {}
+
+    def add(row, key):
+        old = seen.get(key)
+        if old is None or row["reps"] > old["reps"] or (row["reps"] == old["reps"]
+                                                       and row["median"] < old["median"]):
+            seen[key] = row
+
+    C = ctx.cores_per_node
+    for n, agg in sw["results"].items():
+        a = sw["anchors"][n]
+        add(_layout_row("t0 sweep ANCHOR", n, C, a, agg["s_values"]),
+            (n, C, sweep._identity(a)))
+    for n, ci in cores_info.items():
+        for c, agg in ci["results"].items():
+            a = ci["anchors"][c]
+            add(_layout_row("cores/node sweep ANCHOR", n, c, a, agg["s_values"]),
+                (n, c, sweep._identity(a)))
+    tuned = []
+    for n, o in outcomes.items():
+        merged = dict(o.get("all_results") or {})
+        merged.update(o.get("confirm_results") or {})
+        for cid, r in merged.items():
+            cfg = r.get("config")
+            if not cfg or not r.get("s_values"):
+                continue
+            row = _layout_row("finalist search", n, o["cores"], cfg, r["s_values"])
+            add(row, (n, o["cores"], sweep._identity(cfg)))
+            tuned.append((n, o["cores"], sweep._identity(cfg)))
+    rows = sorted(seen.values(), key=lambda r: r["median"])
+    pool = [seen[k] for k in dict.fromkeys(tuned)] or rows
+    pool = sorted(pool, key=lambda r: r["median"])
+    winner = pool[0] if pool else None
+    runner = pool[1] if len(pool) > 1 else None
+    comparison = None
+    if winner and runner:
+        gap = (runner["median"] - winner["median"]) / winner["median"]
+        comparison = dict(gap=gap, noise=wtune_nodes.NOISE_FRAC,
+                          beyond_noise=gap > wtune_nodes.NOISE_FRAC)
+    return dict(rows=rows, winner=winner, runner_up=runner, comparison=comparison)
 
 
 def render_node_selection_text(ns):
@@ -3978,6 +4208,49 @@ def render_node_selection_text(ns):
                          % (r["cores"], r["ranks_per_node"], r["omp"], r["median"], r["n"],
                             r["spread"] * 100, mb(r.get("maxrss_mb")),
                             "<- chosen" if r.get("chosen") else ""))
+    if ns.get("layouts"):
+        rows = ns["layouts"]
+        lines.append("")
+        lines.append("--- measured layouts (%d; best first; the full table is in tune_report.json "
+                     "node_selection.layouts) ---" % len(rows))
+        lines.append("%4s %5s %6s %4s %9s %5s %11s %7s %5s  %s"
+                     % ("N", "c/n", "ranks", "omp", "nx x ny", "tiles", "median_s", "spread",
+                        "reps", "source"))
+        for r in rows[:40]:
+            lines.append("%4d %5d %6s %4s %9s %5s %11.4f %6.1f%% %5d  %s"
+                         % (r["nodes"], r["cores_per_node"], r["ranks"], r["omp"],
+                            "%sx%s" % (r["nx"], r["ny"]), r["numtiles"], r["median"],
+                            r["spread"] * 100, r["reps"], r["source"]))
+        if len(rows) > 40:
+            lines.append("  ... %d more" % (len(rows) - 40))
+        w, ru, cmp_ = ns.get("winner"), ns.get("runner_up"), ns.get("winner_vs_runner_up")
+        fmt = lambda r: ("N=%d c/n=%d ranks=%s omp=%s %sx%s tiles=%s %.4f s/step"   # noqa: E731
+                         % (r["nodes"], r["cores_per_node"], r["ranks"], r["omp"], r["nx"], r["ny"],
+                            r["numtiles"], r["median"]))
+        if w:
+            lines.append("WINNER:    " + fmt(w))
+        if ru:
+            lines.append("RUNNER-UP: " + fmt(ru))
+        if cmp_:
+            lines.append("winner vs runner-up: %.1f%% apart -> %s (noise floor %.0f%%)"
+                         % (cmp_["gap"] * 100,
+                            "differ BEYOND noise" if cmp_["beyond_noise"]
+                            else "NOT distinguishable from noise: either is fine",
+                            cmp_["noise"] * 100))
+    for k, v in sorted((ns.get("enumerated") or {}).items()):
+        lines.append("enumerated %s: %d raw, %d unique (block, 1-D tiles), %d legal, %d excluded%s"
+                     % (k, v["raw"], v["unique"], v["legal"], v["excluded"],
+                        " (%s)" % "; ".join(v["excluded_reasons"][:2]) if v["excluded_reasons"]
+                        else ""))
+    untried = ns.get("untried") or []
+    if untried:
+        reasons = {}
+        for u in untried:
+            reasons.setdefault(u["reason"], []).append(u)
+        lines.append("NOT TRIED: %d (reasons below; full list in node_selection.untried)"
+                     % len(untried))
+        for why, us in sorted(reasons.items(), key=lambda kv: -len(kv[1])):
+            lines.append("  %4d x %s" % (len(us), why))
     if ns.get("table") and any(r.get("maxrss_mb") is not None for r in ns["table"]):
         lines.append("NOTE: " + ns.get("maxrss_note", MAXRSS_NOTE))
     for s in ns.get("skipped", []) + ns.get("skipped_cores", []):
@@ -4199,6 +4472,263 @@ def _merge_verdicts(verdicts):
     return max(vs, key=lambda v: (v["worst"][0]["rel_rms"] if v.get("worst") else 0.0))
 
 
+# Effort levels (like compiler -O levels). They control ONLY the layout search effort (number of
+# waves, refinement, decomposition/adaptive search) and whether physics advice runs. Which
+# prediction points are run and the whole-run error band come from the case type
+# (wtune_cost_drivers.plan_points_for_case), never from the level -- except O0, which runs no job
+# and so carries the cold-start band.
+LEVELS = {
+    0: dict(name="O0", method="no jobs: cold-start predict + proxy layout"),
+    1: dict(name="O1", method="one t0 wave over N in {1,2,4,8,max healthy}"),
+    2: dict(name="O2", method="O1 + refinement, cores/node, sampled round0 at the winner"),
+    3: dict(name="O3", method="DEFAULT, full layout search: every legal N (coarse-to-fine), "
+                              "cores/node, ranks x omp, nx x ny, numtiles at the finalists + "
+                              "confirm reps"),
+}
+DEFAULT_LEVEL = 3
+PRECISION_DEFAULT_MIN = 15.0         # --precision: whole-run time needed to +-MIN minutes
+# Whole-run wall-time error bands by prediction method -- the FALLBACK table used when
+# wtune_cost_drivers is not importable. Conservative figures from this wiki's measurements:
+# cold-start `wtune predict` held-out median error 5.8%, padded to +-25% for weather it cannot
+# see; a t0-only probe underestimates ~9.6% on conus25 (spin-up makes hour 1 cheap) -> +-15%;
+# missing the costliest point cost -13.6% on elevconv (+44% convective peak) -> t0 + costliest
+# point +-10%; 3+ points through combine() <= ~7%.
+COLD_START_BAND = 0.25
+FALLBACK_BANDS = (                   # (rebuilt points, method, band)
+    (0, "t0 anchor (phase-1 data)", 0.15),
+    (1, "t0 + costliest point", 0.10),
+    (3, "3+ points", 0.07),
+)
+TIME_STEP_S = 15 * 60.0              # --time is rounded UP to this granularity
+# Pre-run effort model constants (documented guesses, replaced by measurements when they exist):
+EST_REBUILD_S = 180.0                # ERA5 rebuild per point: 1:21-3:00 measured (sc26p1)
+EST_REFINE_ROUNDS = 2                # coarse-to-fine refinement rounds around the best N
+EST_ADAPTIVE_ROUNDS = 3              # round0 -> adaptive proposer rounds (O3 only)
+EST_ROUND0_CONFIGS = 6               # decomposition candidates measured at the winner N
+EST_SPINUP_STEPS = 8
+EST_PHYSICS_RUNS = 5                 # baseline + 3 candidates + ANCHOREND, per point job
+EST_PHYSICS_POINTS = 2
+
+try:
+    import wtune_cost_drivers       # plan_points_for_case(case, precision_min, ...): the points a
+except ImportError:                  # case type needs for the requested precision + their band
+    wtune_cost_drivers = None
+
+
+def _band_for_points(points, measured):
+    if points <= 0:
+        return ("t0 anchor (phase-1 data)", 0.15) if measured else ("cold-start predict",
+                                                                    COLD_START_BAND)
+    return (FALLBACK_BANDS[1][1], FALLBACK_BANDS[1][2]) if points < 3 else (
+        FALLBACK_BANDS[2][1], FALLBACK_BANDS[2][2])
+
+
+def _fallback_point_plan(T_s, precision_s, measured, n_available):
+    options = [(0,) + _band_for_points(0, measured), (1,) + _band_for_points(1, measured),
+               (3,) + _band_for_points(3, measured)]
+    for pts, method, band in options:
+        if pts <= n_available and band * T_s <= precision_s:
+            return pts, method, band
+    pts = n_available
+    method, band = _band_for_points(pts, measured)
+    return pts, method, band
+
+
+def _match_points(res_points, wrapped):
+    """Map what plan_points_for_case returned (indices, points with .at, datetimes, or dicts) onto
+    the planned points `wrapped` [{index, point}]."""
+    out = []
+    for item in res_points or []:
+        at = item if isinstance(item, datetime.datetime) else None
+        idx = item if isinstance(item, int) and not isinstance(item, bool) else None
+        if isinstance(item, dict):
+            idx, at = item.get("index"), item.get("at")
+        elif hasattr(item, "at"):
+            at = item.at
+        for w in wrapped:
+            if (idx is not None and w["index"] == idx) or (at is not None and w["point"].at == at):
+                out.append(w)
+                break
+    return out
+
+
+def _case_types_and_track(ctx):
+    """(case type labels, best track or None) of ctx.case: wtune_advise.build_case ->
+    wtune_cost_drivers.case_types_for (decision-0057 classifier, reused) and, for a TC,
+    wtune_advise.best_track."""
+    import wtune_advise
+    case = wtune_advise.build_case(ctx.case)
+    types = list(wtune_cost_drivers.case_types_for(case))
+    track = wtune_advise.best_track(case) if "tc" in types else None
+    return types, track
+
+
+def _nearest_wrapped(wrapped, times):
+    """The planned point nearest in time to each of `times` (each planned point used once)."""
+    out, free = [], list(wrapped)
+    for t in times:
+        if not free:
+            break
+        best = min(free, key=lambda w: abs((w["point"].at - t).total_seconds()))
+        free.remove(best)
+        out.append(best)
+    return sorted(out, key=lambda w: w["index"])
+
+
+def plan_prediction_points(ctx, wrapped, precision_min, T_est_s, measured, sample_points=None,
+                           run_start=None, run_end=None, window_s=0.0):
+    """The prediction points + expected whole-run band for this case at `precision_min` minutes.
+    wtune_cost_drivers.plan_points_for_case(case_types, run_start, run_end, precision_min,
+    T_est_s, indicators=<CostSeries when --points-by cost-indicators built one>, best_track=<TC
+    best track>, window_s=<measurement window>) -> {points: [(time, reason)], band_pct,
+    needs_rebuild: [time], ...}; every time in `needs_rebuild` is mapped onto the nearest planned
+    point (t0 is phase-1 data: no rebuild). On a real exception the fallback band table is used
+    and the error is printed. Returns dict(selected=[wrapped...], band, method, source, ...)."""
+    api = wtune_cost_drivers
+    if api is not None and getattr(api, "plan_points_for_case", None) and run_start is not None:
+        try:
+            types, track = _case_types_and_track(ctx)
+            indicators = _cost_series_for_ctx(ctx, run_start, run_end,
+                                              sweep._expand(ctx.case_json["prep_dir"]))
+            res = api.plan_points_for_case(
+                types, run_start, run_end, precision_min, T_est_s, indicators=indicators,
+                best_track=track, window_s=window_s)
+            sel = _nearest_wrapped(wrapped, res.get("needs_rebuild") or [])
+            why = (res.get("rationale") or [""])
+            return dict(selected=sel, band=float(res["band_pct"]) / 100.0,
+                        method="%s: %s" % ("/".join(res.get("types") or types), why[0]),
+                        source="wtune_cost_drivers", types=list(res.get("types") or types),
+                        meets_precision=res.get("meets_precision"),
+                        confidence=res.get("confidence"), rationale=list(why),
+                        points=[(t.isoformat(), r) for t, r in res.get("points", [])])
+        except Exception as e:                              # noqa: BLE001
+            print("pipeline: wtune_cost_drivers.plan_points_for_case FAILED (%s: %s) -- using the "
+                  "fallback band table instead" % (type(e).__name__, e))
+    pts, method, band = _fallback_point_plan(T_est_s or 0.0, precision_min * 60.0, measured,
+                                             len(wrapped))
+    return dict(selected=pick_precision_points(wrapped, pts, sample_points), band=band,
+                method=method, source="fallback band table")
+
+
+def time_suggestion_s(T_s, band, step_s=TIME_STEP_S):
+    """sbatch --time for the real run: T rounded UP to the 15-minute step, plus one band
+    (band x T), never below 1.2 x T (25:27 at +-15% -> 30 + 3.8 = 33.8 min)."""
+    return max(math.ceil(T_s / step_s) * step_s + band * T_s, 1.2 * T_s)
+
+
+def _fmt_sbatch_time(seconds):
+    m = int(math.ceil(seconds / 60.0))
+    return "%02d:%02d:00" % (m // 60, m % 60)
+
+
+def cold_start_prediction(ctx, nodes, config, total_steps):
+    """(whole-run seconds, s/step at `nodes`, source): wtune_predict's cold-start prediction (no
+    probe) when it works, else this case's ledger estimate (10 s/step fallback). Crude by design:
+    the +-25% O0 band says so."""
+    if wtune_predict is not None and config:
+        try:
+            pred = wtune_predict.build_prediction(
+                namelist_path=ctx.namelist_path, case_dir=ctx.case_json["prep_dir"], nodes=nodes,
+                config=dict(ranks=config["ranks"], omp=config["omp"], nx=config["nx"],
+                            ny=config["ny"], numtiles=config["numtiles"]),
+                ledger_paths=None, calibration_path=str(wtune_predict.DEFAULT_CALIBRATION),
+                io_form_override=None, io_target=ctx.prediction_cfg.get("io_target") or "nfs",
+                case_name=ctx.case, rsl_paths=None, include_io=False)
+            T = float(pred["total_s"])
+            return T, max(1e-6, (T - ctx.startup_s) / max(1, total_steps)), "wtune_predict cold start"
+        except Exception:                                   # noqa: BLE001
+            pass
+    s_est, src, _k = sweep.estimate_s_per_step(ctx.case, nodes, ctx.ledger_dir, ctx.hardware_id)
+    return total_steps * s_est + ctx.startup_s, s_est, "ledger estimate (%s)" % src
+
+
+def layout_estimates(*, s1, steps_probe, startup_s, max_nodes, n_full=0, finalists=2):
+    """{level: expected RUNNING seconds of the LAYOUT search} for O0..O3, from the seconds/step at
+    ONE node `s1` (ideal scaling s(N) = s1/N, optimistic at large N) and the startup per run.
+    Counts jobs per wave given `max_nodes` healthy nodes: O1 = the t0 wave N in {1,2,4,8,max}
+    packed into waves (wtune_nodes.sweep_waves) of 2-rep jobs; O2 adds refinement rounds, a
+    cores/node wave and one sampled round0 wave at the winner N; O3 (the default) replaces the
+    sample by the FULL layout space (`n_full` enumerated layouts, one 1-rep run each, spread over
+    the concurrent slots) at each of `finalists` node counts, plus a confirm job."""
+    S = float(startup_s)
+    job = lambda n, reps=2: reps * (S + steps_probe * s1 / n)            # noqa: E731
+    seeds = sorted({n for n in (1, 2, 4, 8, max_nodes) if 1 <= n <= max_nodes})
+    t1 = sum(max(job(n) for n in wave) for wave in wtune_nodes.sweep_waves(seeds, max_nodes))
+    nstar = max(1, min(4, max_nodes))
+    wave_n = job(nstar)
+    slots = max(1, max_nodes // nstar)
+    t_round0 = math.ceil(EST_ROUND0_CONFIGS / slots) * (S + steps_probe * s1 / nstar)
+    t2 = t1 + EST_REFINE_ROUNDS * wave_n + wave_n + t_round0
+    full = finalists * math.ceil(max(n_full, EST_ROUND0_CONFIGS) / float(slots)) * (
+        S + steps_probe * s1 / nstar)
+    t3 = t2 - t_round0 + full + wave_n
+    return {0: 0.0, 1: t1, 2: t2, 3: t3}
+
+
+def points_estimate(*, s1, startup_s, max_nodes, n_points, layouts, layout_s, physics,
+                    nstar=None, window_steps=32, restart_read_s=30.0):
+    """Expected RUNNING seconds of the prediction part (case type decides n_points): the rebuild
+    (ERA5 + WPS/real, one 1-node job per point, 1:21-3:00 measured) runs beside the layout
+    search so only what sticks out counts; then one point job per point = spin-up + `layouts` x
+    (ANCHOR) + ANCHOREND runs, ceil(points x N / max_nodes) waves; physics advice (O3) adds two
+    point jobs of EST_PHYSICS_RUNS runs."""
+    if n_points <= 0:
+        return 0.0
+    S = float(startup_s)
+    nstar = nstar or max(1, min(4, max_nodes))
+    spin = S + EST_SPINUP_STEPS * s1 / nstar
+    per_run = S + restart_read_s + window_steps * s1 / nstar
+
+    def point_jobs(points, runs):
+        waves = math.ceil(max(1, points) * nstar / float(max_nodes))
+        return waves * (spin + runs * per_run)
+
+    exposed = max(0.0, EST_REBUILD_S - layout_s)
+    total = exposed + point_jobs(n_points, layouts + 1)
+    if physics:
+        total += point_jobs(EST_PHYSICS_POINTS, EST_PHYSICS_RUNS)
+    return total
+
+
+def level_estimates(*, s1, steps_probe, startup_s, max_nodes, n_points, n_full=0, **_ignored):
+    """{level: total expected RUNNING seconds}: layout_estimates(level) + points_estimate(case
+    type's n_points): O1/O2 run the winner layout at the points, O3 the top-2 layouts plus the
+    physics advice."""
+    lay = layout_estimates(s1=s1, steps_probe=steps_probe, startup_s=startup_s,
+                           max_nodes=max_nodes, n_full=n_full)
+    out = {0: 0.0}
+    for lv in (1, 2, 3):
+        out[lv] = lay[lv] + points_estimate(
+            s1=s1, startup_s=startup_s, max_nodes=max_nodes, n_points=n_points,
+            layouts=1, layout_s=lay[lv], physics=False)
+    return out
+
+
+def highest_level_within(estimates, real_run_s, requested):
+    """The highest level <= `requested` whose estimated tuning time is <= the real run (never
+    below O1: a measurement wave is the floor)."""
+    for lv in range(min(3, requested), 0, -1):
+        if estimates[lv] <= real_run_s:
+            return lv
+    return 1
+
+
+def format_level_estimates(estimates, chosen):
+    return ("  ".join("O%d ≈ %.0f min%s" % (lv, max(estimates[lv], 0) / 60.0,
+                                           " <-" if lv == chosen else "")
+                       for lv in (1, 2, 3)) + "  (running time; queue wait extra)")
+
+
+def pick_precision_points(wrapped, k, sample_points=None):
+    """k prediction points: 1 -> the costliest alone (t0 is the free phase-1 data), 2 -> the t0
+    nearest + the costliest, 3+ -> those plus the next costliest."""
+    if k <= 0:
+        return []
+    if k == 1 and len(wrapped) > 1:
+        return [wrapped[_costliest_point_index(wrapped, sample_points)]]
+    return pick_points(wrapped, k, sample_points)
+
+
 def _costliest_point_index(rebuilt, sample_points):
     """Index of the point expected to cost most per step (the radiation-heaviest = most sunlit,
     choose_primary_point) when nothing was measured yet; the last point if that fails."""
@@ -4249,13 +4779,17 @@ def phase2_plans(layouts, rebuilt, sample_points, winner_only=False):
     return plans
 
 
-def run_pipeline_full(ctx, profile, *, minutes, total_steps=None, objective="time", deadline_s=None,
+def run_pipeline_full(ctx, profile, *, minutes=None, level=3, total_steps=None, objective="time",
+                      deadline_s=None,
                       min_efficiency=None, k_finalists=2, nodes_policy="knee",
-                      sweep_budget_frac=None, core_options=None, extension=False, physics=True,
+                      sweep_budget_frac=None, core_options=None, extension=False, physics=False,
                       physics_max_candidates=PIPELINE_PHYSICS_MAX_CANDIDATES,
                       max_queue_hours=PIPELINE_MAX_QUEUE_HOURS, keep_frames=False, recheck=None,
-                      force_full=False):
-    """Decision 0059. B = `minutes` of RUNNING time: the budget clock runs only while one of our
+                      stop_if_short=False, precision_min=PRECISION_DEFAULT_MIN):
+    """Decision 0059 at effort level `level` (1..3; 0 is run_level0): O1 = one t0 wave over
+    N in {1,2,4,8,max healthy}; O2 = + refinement, cores/node, round0 at the winner and 2
+    prediction points; O3 = + adaptive search, top-2 layouts at all points, physics advice.
+    `minutes` is an OPTIONAL hard cap (None: no cap). When given, B = `minutes` of RUNNING time: the budget clock runs only while one of our
     jobs is RUNNING. Queue wait (every job PENDING) and controller-side work (submission, report
     building, predictions, fidelity gate, conversions) are reported per phase but never charged
     (--max-queue-hours caps the queue wait: past it the run stops). Phases take cumulative limits of 5/55/80/100% of B (plan 5, layout 50, prediction 25,
@@ -4280,6 +4814,11 @@ def run_pipeline_full(ctx, profile, *, minutes, total_steps=None, objective="tim
     ctx.max_queue_s = float(max_queue_hours) * 3600.0 if max_queue_hours else None
     ctx.background_jobs = []
     t_start = ctx.elapsed()
+    level_req = int(level)
+    plan = dict(level=level_req)                  # the EFFECTIVE level; the guard may lower it
+    physics = bool(physics and level_req >= 3)       # physics advice is opt-in (--physics-advice)
+    # the step-down guard is OFF unless asked for (--stop-if-short) or a time cap (--minutes) is set
+    guard = bool(stop_if_short or minutes is not None)
     fracs = dict(PIPELINE_FRACS)
     if not physics:                     # phase 3's share rolls back to layout/prediction (2:1)
         extra = fracs.pop("physics")
@@ -4291,10 +4830,10 @@ def run_pipeline_full(ctx, profile, *, minutes, total_steps=None, objective="tim
     for name, _f in PIPELINE_FRACS:
         acc += fracs[name]
         cum[name] = acc
-    B = float(minutes) * 60.0
-    pipe = dict(total_steps=total_steps, B_s=B,
-                budget_source="--minutes (job running time; queue wait and controller work "
-                              "excluded)",
+    B = float(minutes) * 60.0 if minutes is not None else float("inf")
+    pipe = dict(total_steps=total_steps, B_s=(B if B != float("inf") else None),
+                budget_source=("--minutes hard cap (job running time; queue wait and controller "
+                               "work excluded)" if minutes is not None else "no time cap"),
                 T_updated_s=None, phases=[], rebuild=None, extension=bool(extension),
                 max_queue_s=ctx.max_queue_s, queue_cap_hit=False,
                 shares={n: fracs[n] for n, _f in PIPELINE_FRACS})
@@ -4310,17 +4849,78 @@ def run_pipeline_full(ctx, profile, *, minutes, total_steps=None, objective="tim
     def cap_hit():
         return bool(ctx.shared_queue["cap_hit"])
 
-    print("pipeline full: B=%s of RUNNING time (queue wait not charged; queue cap %s); phase "
-          "limits (cumulative): %s"
-          % (_fmt_hms(B), _fmt_hms(ctx.max_queue_s or 0),
-             ", ".join("%s %s" % (n, _fmt_hms(cum[n] * B)) for n, _f in PIPELINE_FRACS)))
+    print("pipeline O%d: hard cap %s of RUNNING time (queue wait not charged; queue cap %s)%s"
+          % (level_req, _fmt_hms(B), _fmt_hms(ctx.max_queue_s or 0),
+             "; phase limits (cumulative): " + ", ".join(
+                 "%s %s" % (n, _fmt_hms(cum[n] * B)) for n, _f in PIPELINE_FRACS)
+             if minutes is not None else ""))
+
+    # ---- pre-run estimate of the tuning time per level (printed BEFORE any job) ----
+    # layout(level) + prediction points(case type): the points come from
+    # wtune_cost_drivers.plan_points_for_case (or the fallback band table), never from the level
+    est, T_cold, est_info, pre = None, None, {}, dict(ok=False)
+    pipe_n_full = 0
+    pplan0 = None
+    try:                                  # planning only reads the namelist: no job is submitted
+        spinup0 = predicted_spinup_min(_namelist_dt(ctx))
+        _n, _rs, _re, dt_p, stepra_p, points_p, notes_p = plan_predicted_points(ctx, spinup0)
+        pre = dict(ok=True, spinup_min=spinup0, dt=dt_p, stepra=stepra_p, points=points_p,
+                   pkw=dict(run_start=_rs, run_end=_re, window_s=rebuilt_steps(stepra_p) * dt_p),
+                   notes=list(notes_p),
+                   wrapped=[dict(index=i, point=p) for i, p in enumerate(points_p)])
+    except Exception as e:                                  # noqa: BLE001
+        pre = dict(ok=False, error="%s: %s" % (type(e).__name__, e), points=[], wrapped=[])
+    if total_steps:
+        try:
+            n0 = choose_nodes(profile, ctx.max_nodes, nodes_policy)[0]
+            cfg0, _why = _sweep_anchor(ctx, n0)
+            T_cold, s_n0, src = cold_start_prediction(ctx, n0, cfg0, total_steps)
+            pplan0 = plan_prediction_points(ctx, pre["wrapped"], precision_min, T_cold, False,
+                                            **pre.get("pkw", {}))
+            try:
+                n_full = len(enumerate_full_space(dataclasses.replace(
+                    ctx, nodes=n0, anchor_override=None, core_budget=None))[0])
+            except Exception:                               # noqa: BLE001
+                n_full = 0
+            pipe_n_full = n_full
+            est = level_estimates(s1=s_n0 * n0, steps_probe=ctx.steps, startup_s=ctx.startup_s,
+                                  max_nodes=ctx.max_nodes,
+                                  n_points=len(pplan0["selected"]), n_full=n_full)
+            est_info = dict(nodes=n0, s_per_step_n=s_n0, source=src, startup_s=ctx.startup_s,
+                            prediction_points=len(pplan0["selected"]),
+                            points_source=pplan0["source"], precision_min=precision_min)
+        except Exception as e:                              # noqa: BLE001
+            print("pipeline: pre-run estimate unavailable (%s: %s)" % (type(e).__name__, e))
+    if est is not None and guard and plan["level"] >= 2:
+        lv = highest_level_within(est, T_cold, plan["level"])
+        if lv < plan["level"]:
+            print("pipeline: 模擬本身只要約 %.0f 分鐘（冷啟動估計），比 O%d 的調校時間短；"
+                  "自動降為 O%d（--stop-if-short / --minutes 啟用）" % (T_cold / 60.0, plan["level"], lv))
+            plan["level"] = lv
+    pipe["level"] = dict(requested=level_req, effective=plan["level"],
+                         estimate_s={("O%d" % k): v for k, v in (est or {}).items()},
+                         estimate_info=est_info, T_cold_s=T_cold, stepped_down=[])
+    pipe["n_points_est"] = len(pplan0["selected"]) if pplan0 else 0
+    pipe["n_full_est"] = pipe_n_full
+    if plan["level"] < level_req:
+        pipe["level"]["stepped_down"].append(dict(when="pre-run", to=plan["level"],
+                                                  T_real_s=T_cold))
+    if est is not None:
+        print("pipeline: 預估調校時間 " + format_level_estimates(est, plan["level"])
+              + "; whole run ~%s (cold start); prediction points for this case at ±%g min: %d "
+                "(%s)" % (_fmt_hms(T_cold), precision_min, len(pplan0["selected"]),
+                          pplan0["source"]))
+    pipe["T_cold_s"] = T_cold
 
     # ---------------- phase 0: plan + submit the rebuild jobs ----------------
     m0 = _mark(ctx)
     prep_handle, plan_info = None, {}
+    sub = {}                                     # what phase 0 needs again for a late submission
     try:
-        spinup_min = predicted_spinup_min(_namelist_dt(ctx))
-        _nl0, _rs, _re, dt0, stepra0, points, notes = plan_predicted_points(ctx, spinup_min)
+        if not pre["ok"]:
+            raise RuntimeError("point planning failed: %s" % pre["error"])
+        spinup_min, dt0, stepra0, points, notes = (pre["spinup_min"], pre["dt"], pre["stepra"],
+                                                   pre["points"], pre["notes"])
         plan_info = dict(points=[p.at.isoformat() for p in points], spinup_min=spinup_min,
                          notes=list(notes))
         if not points:
@@ -4332,12 +4932,29 @@ def run_pipeline_full(ctx, profile, *, minutes, total_steps=None, objective="tim
                 if anchor0:
                     break
         case_dir = sweep._expand(ctx.case_json["prep_dir"])
-        prep_handle = submit_rebuilt_points(
-            ctx, points, anchor0, case_dir, ctx.namelist_path, ctx.case_json,
-            os.path.join(ctx.out_dir, "rebuilt"), spinup_min, stepra0, dt0)
-        ctx.background_jobs[:] = list(prep_handle["job_ids"])   # run beside phase 1: they count
-        plan_info.update(rebuild_jobs=list(prep_handle["job_ids"]))   # as "ours RUNNING"
-        p0_status = "ok"
+        try:
+            sample_pts0, _src = wtune_predict.read_wrfinput_sample_points(case_dir)
+        except Exception:                                   # noqa: BLE001
+            sample_pts0 = None
+        wrapped0 = [dict(index=i, point=p) for i, p in enumerate(points)]
+        sub = dict(wrapped=wrapped0, anchor=anchor0, case_dir=case_dir, spinup_min=spinup_min,
+                   stepra=stepra0, dt=dt0, sample_points=sample_pts0)
+        # rebuild + spin-up ONLY for the points this CASE needs at the requested precision
+        # (plan_prediction_points; the cold-start T is the worst case: nothing measured yet);
+        # phase 1's measurement may need fewer -> the surplus jobs are cancelled below
+        pp0 = pplan0 if pplan0 is not None else plan_prediction_points(
+            ctx, wrapped0, precision_min, T_cold, False, sample_pts0, **pre.get("pkw", {}))
+        chosen0 = pp0["selected"]
+        plan_info.update(prediction_points=len(chosen0), points_source=pp0["source"])
+        if chosen0:
+            prep_handle = submit_rebuilt_points(
+                ctx, [w["point"] for w in chosen0], anchor0, case_dir, ctx.namelist_path,
+                ctx.case_json, os.path.join(ctx.out_dir, "rebuilt"), spinup_min, stepra0, dt0)
+            ctx.background_jobs[:] = list(prep_handle["job_ids"])   # run beside phase 1: they
+            plan_info.update(rebuild_jobs=list(prep_handle["job_ids"]))   # count as "ours RUNNING"
+            p0_status = "ok"
+        else:
+            p0_status = "ok (no rebuild submitted: the case needs no prediction point)"
     except Exception as e:                                  # noqa: BLE001 -- reported, not hidden
         p0_status = "failed: %s: %s" % (type(e).__name__, e)
         print("pipeline: phase 0 rebuild submission FAILED -- %s" % p0_status)
@@ -4357,27 +4974,36 @@ def run_pipeline_full(ctx, profile, *, minutes, total_steps=None, objective="tim
             return
         s_best = min(r["median"] for r in rows)
         pipe["T_updated_s"] = total_steps * s_best + ctx.startup_s
-        print("pipeline: best measured %.4f s/step -> whole run ~%s (info only; B=%s unchanged)"
-              % (s_best, _fmt_hms(pipe["T_updated_s"]), _fmt_hms(B)))
+        print("pipeline: best measured %.4f s/step -> whole run ~%s" % (s_best,
+                                                                       _fmt_hms(pipe["T_updated_s"])))
 
     def on_wave(meas):
-        """Short-run guard (default; --force-full overrides): after a measurement wave, when the
-        whole run (steps x best measured s/step + startup) fits the remaining budget or is at most
-        B/3, searching longer than the run itself is pointless: stop the sweep, give the core sweep
-        and the finalists no budget, report the best layout so far."""
-        if force_full or not total_steps or pipe.get("short_run") or not meas:
+        """Short-run guard (default; --force-full disables): after a measurement wave, when the
+        whole run (steps x best measured s/step + startup) is shorter than the estimated tuning
+        time of the level still planned, step down to the highest level whose estimate fits the
+        real run (never below O1). The run flags are read live: lowering to O1 stops refinement,
+        the core sweep and the finalists."""
+        if not guard or not total_steps or not meas or plan["level"] < 2:
             return None
-        s_best = min(statistics.median(v) for v in meas.values() if v)
-        T = total_steps * s_best + ctx.startup_s
-        remaining = B - ctx1.elapsed()
-        if T <= remaining or T <= B / 3.0:
-            msg = ("模擬本身只要約 %.0f 分鐘，比調校預算短；建議直接以目前最佳設定執行"
-                   % (T / 60.0))
-            pipe["short_run"] = dict(message=msg, real_run_s=T, remaining_s=remaining, B_s=B)
-            ctx1.budget_s = ctx1.elapsed()
-            print("pipeline: %s" % msg)
-            return msg
-        return None
+        n_best, vals = min(((n, statistics.median(v)) for n, v in meas.items() if v),
+                           key=lambda kv: kv[1])
+        T = total_steps * vals + ctx.startup_s
+        est2 = level_estimates(s1=vals * n_best, steps_probe=ctx.steps, startup_s=ctx.startup_s,
+                               max_nodes=ctx.max_nodes, n_points=pipe.get("n_points_est", 0),
+                               n_full=pipe.get("n_full_est", 0))
+        lv = highest_level_within(est2, T, plan["level"])
+        if lv >= plan["level"]:
+            return None
+        msg = ("模擬本身只要約 %.0f 分鐘，比 O%d 的調校時間（約 %.0f 分鐘）短；已自動降為 O%d，"
+               "建議直接以目前最佳設定執行" % (T / 60.0, plan["level"],
+                                          est2[plan["level"]] / 60.0, lv))
+        pipe["level"]["stepped_down"].append(dict(when="after first wave", frm=plan["level"],
+                                                  to=lv, T_real_s=T, message=msg))
+        plan["level"] = lv
+        pipe["level"]["effective"] = lv
+        pipe["short_run"] = dict(message=msg, real_run_s=T)
+        print("pipeline: %s" % msg)
+        return None                      # the sweep itself goes on; later stages read plan
 
     collect, report = {}, None
     try:
@@ -4387,8 +5013,9 @@ def run_pipeline_full(ctx, profile, *, minutes, total_steps=None, objective="tim
             k_finalists, total_steps, nodes_policy=nodes_policy,
             sweep_budget_frac=(sweep_budget_frac if sweep_budget_frac is not None
                                else DEFAULT_SWEEP_BUDGET_FRAC),
-            core_options=core_options, on_sweep=on_sweep, collect=collect, on_wave=on_wave)
-        ph1 = "ok" if not pipe.get("short_run") else "ok (stopped early: short run)"
+            core_options=core_options, on_sweep=on_sweep, collect=collect, on_wave=on_wave,
+            plan=plan)
+        ph1 = "ok" if not pipe.get("short_run") else "ok (stepped down: short run)"
     except QueueCapExceeded as e:
         ph1 = "stopped: %s" % e
         print("pipeline: phase 1 STOPPED -- %s" % e)
@@ -4421,6 +5048,43 @@ def run_pipeline_full(ctx, profile, *, minutes, total_steps=None, objective="tim
         except Exception as e:                              # noqa: BLE001
             print("pipeline: node re-check failed (%s: %s); keeping the earlier exclusions"
                   % (type(e).__name__, e))
+    # re-plan the prediction points with phase 1's measurement (the t0 anchor gives the real
+    # whole-run time): fewer points than submitted -> cancel the surplus rebuild jobs
+    T_dec = pipe["T_updated_s"] or pipe.get("T_cold_s")
+    lvl = plan["level"]
+    pipe["level"]["effective"] = lvl
+    pplan = (plan_prediction_points(ctx, sub["wrapped"], precision_min, T_dec,
+                                    pipe["T_updated_s"] is not None, sub.get("sample_points"),
+                                    **pre.get("pkw", {}))
+             if (sub and T_dec) else pplan0)
+    if pplan is not None:
+        pipe["prediction_plan"] = dict(points=[w["index"] for w in pplan["selected"]],
+                                       band=pplan["band"], method=pplan["method"],
+                                       source=pplan["source"], T_est_s=T_dec,
+                                       precision_min=precision_min,
+                                       measured=pipe["T_updated_s"] is not None)
+    have = len(prep_handle["points"]) if prep_handle else 0
+    if prep_handle and pplan is not None:
+        sel_at = {w["point"].at for w in pplan["selected"]}
+        keep = [i for i, p in enumerate(prep_handle["points"]) if p.at in sel_at]
+        if not keep and pplan["selected"]:           # the plan wants other points than submitted
+            keep = list(range(have))
+        if len(keep) < have:
+            drop = [j for i, j in enumerate(prep_handle["job_ids"]) if i not in keep]
+            print("pipeline: the case needs %d prediction point(s) at ±%g min: cancelling %d "
+                  "surplus rebuild job(s) %s" % (len(keep), precision_min, len(drop),
+                                                 ",".join(drop)))
+            ctx.scancel_runner(drop)
+            ctx.cancelled_jobs.extend(drop)
+            pipe["prediction_plan"]["rebuild_cancelled"] = drop
+            if keep:
+                prep_handle = dict(prep_handle, points=[prep_handle["points"][i] for i in keep],
+                                   done=[prep_handle["done"][i] for i in keep],
+                                   job_ids=[prep_handle["job_ids"][i] for i in keep])
+                ctx.background_jobs[:] = list(prep_handle["job_ids"])
+            else:
+                prep_handle = None
+                ctx.background_jobs[:] = []
     m2 = _mark(ctx)
     rebuilt, winner, ranked_all, frame_runs = None, None, [], []
     nl = run_start = run_end = dt = stepra = calibration = sample_points = case_dir = None
@@ -4428,6 +5092,9 @@ def run_pipeline_full(ctx, profile, *, minutes, total_steps=None, objective="tim
     pc_ok = False
     if cap_hit():
         ph2 = "not run (max queue wait exceeded)"
+    elif pplan is not None and not pplan["selected"] and layouts:
+        ph2 = ("not run (the t0 anchor suffices for this case at ±%g min: %s, band ±%.0f%%)"
+               % (precision_min, pplan["method"], pplan["band"] * 100))
     elif prep_handle is None or not layouts:
         ph2 = "not run (no rebuilt points)" if prep_handle is None else "not run (no layout)"
     else:
@@ -4457,7 +5124,7 @@ def run_pipeline_full(ctx, profile, *, minutes, total_steps=None, objective="tim
         frames_wanted = bool(physics and not extension and wtune_physics_advice is not None
                              and physics_runner_supported(ctx.sbatch_script))
         left2 = limit("predict") - ctx.elapsed()
-        short = pipe.get("short_run")
+        short = None
 
         def build_groups(lays_sel):
             """[(n, c, anchor, others, s_by, lays)] for the layouts selected, one per (N, c)."""
@@ -4472,7 +5139,13 @@ def run_pipeline_full(ctx, profile, *, minutes, total_steps=None, objective="tim
                     lay["pid"] = "L%d" % i
                     others.append(dict(lay["cfg"], id=lay["pid"], config_source="generated", **wf))
                 first["pid"] = "ANCHOR"
-                s_by = {"ANCHOR": first["median"], **{l["pid"]: l["median"] for l in lays[1:]}}
+                if len(lays) == 1 and not frames_wanted:
+                    # winner-only: ONE fused wrf.exe (spin-up + window) for the single layout; the
+                    # ANCHOR placeholder only names the spin-up decomposition
+                    first["pid"] = "W0"
+                    others = [dict(first["cfg"], id="W0", config_source="generated")]
+                s_by = {"ANCHOR": first["median"], first["pid"]: first["median"],
+                        **{l["pid"]: l["median"] for l in lays[1:]}}
                 out.append((n, c, anchor, others, s_by, lays))
             return out
 
@@ -4485,10 +5158,11 @@ def run_pipeline_full(ctx, profile, *, minutes, total_steps=None, objective="tim
         # than simply running the simulation
         tried, chosen_plan = [], None
         for label, lays_sel, pts in phase2_plans(layouts, rebuilt, sample_points,
-                                                 winner_only=bool(short)):
+                                                 winner_only=(lvl <= 2 or not physics)):
             est = 0.0
             for n, c, anchor, others, s_by, _l in build_groups(lays_sel):
-                est += fit_stage2(gctx_for(n, c), others, anchor, pts, s_by, nl, left_s=None)[1]
+                est += fit_stage2(gctx_for(n, c), others, anchor, pts, s_by, nl, left_s=None,
+                                  mode=choose_point_mode(others, anchor))[1]
             tried.append(dict(plan=label, estimate_s=est))
             if est <= left2 and not (short and est >= short["real_run_s"]):
                 chosen_plan = (label, lays_sel, pts, est)
@@ -4518,14 +5192,15 @@ def run_pipeline_full(ctx, profile, *, minutes, total_steps=None, objective="tim
             # concurrent waits (the point jobs WITHIN a group do run in parallel).
             for n, c, anchor, others, s_by, lays in build_groups(lays_sel):
                 gctx = gctx_for(n, c)
+                pmode = choose_point_mode(others, anchor)
                 top, _est, skip = fit_stage2(gctx, others, anchor, pts, s_by, nl,
-                                             left_s=limit("predict") - ctx.elapsed())
+                                             left_s=limit("predict") - ctx.elapsed(), mode=pmode)
                 if skip:
                     skipped2.append("N=%d c=%d: %s" % (n, c, skip))
                     continue
                 try:
                     meas, _gates, jobs = measure_candidates_at_points(gctx, top, pts, anchor,
-                                                                      s_by_cid=s_by)
+                                                                      s_by_cid=s_by, mode=pmode)
                     cfgs = dict({o["id"]: o for o in top}, ANCHOR=anchor)
                     ranked = rank_by_predicted_total(
                         meas, run_start, run_end, dt, stepra, calibration, sample_points,
@@ -4570,7 +5245,8 @@ def run_pipeline_full(ctx, profile, *, minutes, total_steps=None, objective="tim
                                                     "dist")},
                     predicted_total_s=pred_s, predicted_total_hms=_fmt_hms(pred_s),
                     predicted_range_s=[winner["pred_low_s"], winner["pred_high_s"]],
-                    time_suggestion=_padded_limit(pred_s)[1],
+                    time_suggestion=_fmt_sbatch_time(
+                        time_suggestion_s(pred_s, pplan["band"] if pplan else COLD_START_BAND)),
                     points_used=len(winner.get("points") or []),
                     degraded=bool(pipe.get("predict_plan", {}).get("degraded")),
                     candidates=[dict(nodes=e["nodes"], cores=e["cores"], pid=e["cid"],
@@ -4594,13 +5270,31 @@ def run_pipeline_full(ctx, profile, *, minutes, total_steps=None, objective="tim
                                   dist=cfg.get("dist"), predicted_total_s=pred_s)
         report["full_run_prediction"] = _predicted_winner_text(
             dict(cid=pred["layout_id"], result=winner["result"]))
+    band_eff = pplan["band"] if pplan else COLD_START_BAND
+    if pred is not None:
+        pred["band"] = band_eff
+        pred["error_min"] = band_eff * pred["predicted_total_s"] / 60.0
+    elif pplan is not None and not pplan["selected"] and layouts and T_dec:
+        lay0 = layouts[0]
+        T = T_dec
+        pred = dict(layout_id=lay0.get("cid"), nodes=lay0["nodes"], cores_per_node=lay0["cores"],
+                    config={k: lay0["cfg"].get(k) for k in ("ranks", "omp", "nx", "ny", "numtiles",
+                                                            "dist")},
+                    predicted_total_s=T, predicted_total_hms=_fmt_hms(T),
+                    predicted_range_s=[T * (1 - band_eff), T * (1 + band_eff)],
+                    time_suggestion=_fmt_sbatch_time(time_suggestion_s(T, band_eff)),
+                    points_used=0, degraded=False, band=band_eff, error_min=band_eff * T / 60.0,
+                    source="phase-1 t0 anchor s/step x steps + startup (no rebuilt point)")
     pipe["prediction"] = pred
 
     # ---------------- phase 3: physics advice ----------------
     m3 = _mark(ctx)
     advice, ph3, cands = None, None, []
     if not physics:
-        ph3 = "not run (--no-physics-advice)"
+        ph3 = ("not run (physics advice is opt-in: pass --physics-advice with -O3)"
+               if plan["level"] >= 3 or level_req >= 3 and plan["level"] >= 3
+               else "not run (physics advice needs -O3)" if level_req < 3
+               else "not run (stepped down to O%d)" % plan["level"])
     elif extension:
         ph3 = "not run (extension case: physics parameters are not tunable)"
     elif cap_hit():
@@ -4730,18 +5424,23 @@ def run_pipeline_full(ctx, profile, *, minutes, total_steps=None, objective="tim
     # ---------------- totals ----------------
     running = ctx.elapsed() - t_start
     predicted_real = (pred["predicted_total_s"] if pred else pipe["T_updated_s"])
+    pipe["time_suggestion"] = (_fmt_sbatch_time(time_suggestion_s(predicted_real,
+                                                                  band_eff))
+                               if predicted_real else None)
+    pipe["prediction_band"] = dict(method=(pplan or {}).get("method", "cold-start predict"),
+                                   band=band_eff,
+                                   error_min=(band_eff * predicted_real / 60.0
+                                              if predicted_real else None))
+    pipe["level"]["actual_running_s"] = ctx.elapsed() - t_start
+    pipe["level"]["effective"] = plan["level"]
     pipe.update(
         total_running_s=running, total_wall_s=ctx.wall_elapsed(),
         total_queue_wait_s=ctx.queue_wait_s, queue_cap_hit=cap_hit(),
         total_controller_s=max(0.0, ctx.wall_elapsed() - running - ctx.queue_wait_s),
         predicted_real_s=predicted_real,
         predicted_real_source=("phase 2 combine()" if pred else "phase-1 anchor s/step x steps"),
-        p1=dict(criterion="tune running time (queue wait excluded) < predicted real run "
-                          "(information only)", total_running_s=running,
-                total_wall_s=ctx.wall_elapsed(), predicted_real_s=predicted_real,
-                ratio=(running / predicted_real if predicted_real else None),
-                passed=(running < predicted_real if predicted_real else None)),
-        hard_deadline_s=B, over_deadline_s=max(0.0, running - B))
+        hard_deadline_s=(B if B != float("inf") else None),
+        over_deadline_s=(max(0.0, running - B) if B != float("inf") else 0.0))
     report["pipeline"] = pipe
     if ctx.node_health:
         report["node_health"] = dict(ctx.node_health, checks=[
@@ -4749,16 +5448,31 @@ def run_pipeline_full(ctx, profile, *, minutes, total_steps=None, objective="tim
     report["job_ids"] = list(ctx.owned_jobs)
     report["cancelled_job_ids"] = list(ctx.cancelled_jobs)
     report["elapsed_minutes"] = running / 60.0
-    report["budget_minutes"] = B / 60.0
+    report["budget_minutes"] = (B / 60.0 if B != float("inf") else None)
     return report
 
 
 def render_pipeline_text(pipe):
-    lines = ["", "=== pipeline full (decision 0059) ===",
-             "B=%s of RUNNING time (%s, hard deadline; queue wait is not charged)  whole run "
-             "implied by the phase-1 anchor (info): %s"
-             % (_fmt_hms(pipe["B_s"]), pipe["budget_source"],
+    lv = pipe.get("level") or {}
+    lines = ["", "=== wtune tune -O%s (decision 0059) ===" % lv.get("effective", "?"),
+             "level O%s%s; time cap: %s (%s)  whole run implied by the t0 anchor (info): %s"
+             % (lv.get("effective", "?"),
+                " (requested O%s)" % lv["requested"]
+                if lv.get("requested") != lv.get("effective") else "",
+                _fmt_hms(pipe["B_s"]), pipe["budget_source"],
                 _fmt_hms(pipe["T_updated_s"]) if pipe["T_updated_s"] else "-")]
+    if lv.get("estimate_s") and "O1" in lv["estimate_s"]:
+        est = {int(k[1:]): v for k, v in lv["estimate_s"].items()}
+        act = lv.get("actual_running_s")
+        lines.append("tuning time, estimated at start: %s%s"
+                     % (format_level_estimates(est, lv["effective"]),
+                        "; ACTUAL running time %.1f min vs estimated O%d ≈ %.1f min"
+                        % (act / 60.0, lv["effective"], est[lv["effective"]] / 60.0)
+                        if act is not None and lv["effective"] in est else ""))
+    for sd in lv.get("stepped_down") or []:
+        lines.append("STEPPED DOWN (%s) -> O%s%s" % (sd.get("when"), sd.get("to"),
+                                                     ": " + sd["message"] if sd.get("message")
+                                                     else ""))
     for ph in pipe["phases"]:
         lines.append("phase %-8s running %-8s (limit %-8s) wall %-8s queue wait %-8s controller "
                      "%-8s  %s"
@@ -4772,6 +5486,13 @@ def render_pipeline_text(pipe):
                             else "-",
                             _fmt_hms(ph["job_run_s_max"]) if ph.get("job_run_s_max") is not None
                             else "-"))
+    pb = pipe.get("prediction_band")
+    if pb and pb.get("error_min") is not None:
+        lines.append("whole-run time ±%.0f%% = ±%.1f min (%s)"
+                     % (pb["band"] * 100, pb["error_min"], pb.get("method")))
+    if pipe.get("time_suggestion"):
+        lines.append("suggested --time=%s (T rounded up to 15 min plus one band, >= 1.2x T)"
+                     % pipe["time_suggestion"])
     if pipe.get("short_run"):
         lines.append("SHORT RUN: " + pipe["short_run"]["message"])
     pl = pipe.get("predict_plan")
@@ -4800,18 +5521,13 @@ def render_pipeline_text(pipe):
                          % (row.get("id"), ("%.1f%%" % sv) if sv is not None else "-",
                             row.get("fidelity", "-"), row.get("recommendation", "-"),
                             row.get("label", "")))
-    p1 = pipe.get("p1")
-    if p1:
-        lines.append("tune running time %s (wall %s = running + queue wait %s + controller %s) vs "
-                     "predicted real run %s (%s) -> %s; hard deadline B %s, over by %s%s"
-                     % (_fmt_hms(p1["total_running_s"]), _fmt_hms(p1["total_wall_s"]),
-                        _fmt_hms(pipe["total_queue_wait_s"]),
-                        _fmt_hms(pipe["total_controller_s"]), _fmt_hms(p1["predicted_real_s"] or 0),
-                        pipe.get("predicted_real_source"),
-                        {True: "P1 PASS", False: "P1 FAIL", None: "P1 n/a"}[p1["passed"]],
-                        _fmt_hms(pipe["hard_deadline_s"]), _fmt_hms(pipe["over_deadline_s"]),
-                        "  [STOPPED: max queue wait exceeded]" if pipe.get("queue_cap_hit")
-                        else ""))
+    lines.append("tune running time %s (wall %s = running + queue wait %s + controller %s); "
+                 "predicted real run %s (%s)%s"
+                 % (_fmt_hms(pipe.get("total_running_s", 0.0)), _fmt_hms(pipe.get("total_wall_s", 0.0)),
+                    _fmt_hms(pipe.get("total_queue_wait_s", 0.0)),
+                    _fmt_hms(pipe.get("total_controller_s", 0.0)),
+                    _fmt_hms(pipe.get("predicted_real_s") or 0), pipe.get("predicted_real_source"),
+                    "  [STOPPED: max queue wait exceeded]" if pipe.get("queue_cap_hit") else ""))
     return "\n".join(lines)
 
 
@@ -4943,6 +5659,53 @@ def render_node_health_text(h):
     return "\n".join(lines)
 
 
+def run_level0(ctx, profile, total_steps, nodes_policy="knee"):
+    """-O0: NO jobs. The proxy's node count (choose_nodes), the all-cores hybrid anchor layout at
+    it (no measurement) and wtune_predict's cold-start whole-run time (+-25%)."""
+    n0, note, _warn = choose_nodes(profile, ctx.max_nodes, nodes_policy)
+    cfg, why = None, None
+    for n in [n0] + [m for m in range(1, ctx.max_nodes + 1) if m != n0]:
+        cfg, why = _sweep_anchor(ctx, n)
+        if cfg:
+            n0 = n
+            break
+    if cfg is None:
+        raise SystemExit("O0: no legal layout at any node count (%s)" % why)
+    band = COLD_START_BAND
+    T, s_n, src = (cold_start_prediction(ctx, n0, cfg, total_steps) if total_steps
+                   else (None, None, "run length unknown"))
+    pt = local_param_table(cfg, n0)
+    _assert_report_is_strict_only(ctx, pt)
+    pipe = dict(
+        total_steps=total_steps, B_s=None, budget_source="no jobs", T_updated_s=None, phases=[],
+        rebuild=None, extension=False, queue_cap_hit=False,
+        level=dict(requested=0, effective=0, estimate_s={"O0": 0.0}, stepped_down=[],
+                   actual_running_s=0.0),
+        prediction=dict(layout_id="ANCHOR", nodes=n0, cores_per_node=ctx.cores_per_node,
+                        config={k: cfg.get(k) for k in ("ranks", "omp", "nx", "ny", "numtiles",
+                                                        "dist")},
+                        predicted_total_s=T, predicted_total_hms=_fmt_hms(T) if T else None,
+                        predicted_range_s=[T * (1 - band), T * (1 + band)] if T else None,
+                        time_suggestion=(_fmt_sbatch_time(time_suggestion_s(T, band)) if T else None),
+                        band=band, error_min=(band * T / 60.0 if T else None), points_used=0,
+                        degraded=False, source=src),
+        time_suggestion=(_fmt_sbatch_time(time_suggestion_s(T, band)) if T else None),
+        prediction_band=dict(method="cold-start predict", band=band,
+                             error_min=(band * T / 60.0 if T else None)),
+        total_running_s=0.0, total_wall_s=ctx.wall_elapsed(), total_queue_wait_s=0.0,
+        total_controller_s=ctx.wall_elapsed(), predicted_real_s=T, hard_deadline_s=None,
+        over_deadline_s=0.0, physics_advice=None)
+    print("O0: no jobs -- nodes=%d (%s), layout %s, cold-start whole run %s ±%.0f%% (%s)"
+          % (n0, note, {k: cfg.get(k) for k in ("ranks", "omp", "nx", "ny")},
+             _fmt_hms(T) if T else "unknown", band * 100, src))
+    return dict(case=ctx.case, pipeline_only=True, nodes=n0,
+                nodes_note="O0: proxy node count, no measurement", param_table=pt, pipeline=pipe,
+                cores_per_node=ctx.cores_per_node, job_ids=[], cancelled_job_ids=[],
+                best=dict(id="ANCHOR", **{k: cfg.get(k) for k in ("ranks", "omp", "numtiles",
+                                                                   "dist")},
+                          nproc_x=cfg.get("nx"), nproc_y=cfg.get("ny")))
+
+
 def run(args, sbatch_runner=None, sacct_runner=None, scancel_runner=None, ledger_reader=None,
         proposer=None, clock=None, preflight_runner=None):
     sbatch_runner = sbatch_runner or sweep.default_sbatch_runner
@@ -4978,9 +5741,12 @@ def run(args, sbatch_runner=None, sacct_runner=None, scancel_runner=None, ledger
         raise SystemExit("case is required: pass it positionally or set 'case' in --config")
 
     minutes = args.minutes if args.minutes is not None else cfg["budget"]["minutes"]
-    if minutes is None and getattr(args, "pipeline", None) == "full":
-        minutes = PIPELINE_DEFAULT_MINUTES
-    if minutes is None:
+    # effort level (-O0..-O3 / --level; --pipeline full = O3): selects the pipeline, where
+    # --minutes is only an OPTIONAL hard cap
+    level = getattr(args, "level", None)
+    if level is None and getattr(args, "pipeline", None) == "full":
+        level = 3
+    if minutes is None and level is None:
         raise SystemExit("--minutes is required: pass it on the command line or set "
                           "budget.minutes in --config")
 
@@ -5056,7 +5822,7 @@ def run(args, sbatch_runner=None, sacct_runner=None, scancel_runner=None, ledger
     max_nodes = min(int(max_nodes_requested), DEFAULT_MAX_NODES)
     # node health pre-flight (before ctx.start_time: controller time, never budget)
     node_health, preflight = None, None
-    if not getattr(args, "no_node_preflight", False):
+    if not getattr(args, "no_node_preflight", False) and level != 0:      # O0 runs no jobs
         _src_dir = os.path.dirname(sweep.campaign_dir_for(args.sbatch_script) or _HERE)
         _wrf = os.path.join(sweep._expand(os.environ.get("WRF_TREE") or DEFAULT_WRF_TREE),
                             "main", "wrf.exe")
@@ -5068,10 +5834,10 @@ def run(args, sbatch_runner=None, sacct_runner=None, scancel_runner=None, ledger
                                   wrf_exe=_wrf, requested=_requested, when=when)
         node_health = preflight("start")
         max_nodes = node_health["max_nodes_effective"]
-    pipeline = getattr(args, "pipeline", None)
+    pipeline = "full" if level is not None else None
     if pipeline == "full":
         if args.nodes not in (None, "search") or rank_by == "predicted":
-            raise SystemExit("--pipeline full runs its own node search: do not combine it with "
+            raise SystemExit("-O/--pipeline runs its own node search: do not combine it with "
                               "--nodes N/auto or --rank-by predicted")
         nodes_raw = "search"
     node_search = (nodes_raw == "search")
@@ -5126,7 +5892,8 @@ def run(args, sbatch_runner=None, sacct_runner=None, scancel_runner=None, ledger
 
     ctx = Ctx(case=case, case_json=case_json, namelist_path=namelist_path, nodes=nodes,
               cores_per_node=args.cores_per_node, hardware_id=args.hardware_id, steps=steps,
-              seed=args.seed, kappa=args.kappa, budget_s=minutes * 60.0, max_nodes=max_nodes,
+              seed=args.seed, kappa=args.kappa, budget_s=(minutes * 60.0 if minutes is not None else float("inf")),
+              max_nodes=max_nodes,
               out_dir=out_dir, ledger_dir=ledger_dir, env_source=args.env_source,
               sbatch_script=args.sbatch_script, sacct_cmd=args.sacct_cmd,
               poll_interval=args.poll_interval, sbatch_runner=sbatch_runner,
@@ -5141,8 +5908,9 @@ def run(args, sbatch_runner=None, sacct_runner=None, scancel_runner=None, ledger
     ctx.node_health = node_health
     ctx.start_time = clock.now()
 
-    print("case=%s nodes=%s (%s) budget=%.1f min max_nodes=%d out=%s"
-          % (case, "search" if node_search else nodes, nodes_note, minutes, max_nodes, out_dir))
+    print("case=%s nodes=%s (%s) budget=%s max_nodes=%d out=%s"
+          % (case, "search" if node_search else nodes, nodes_note,
+             ("%.1f min" % minutes) if minutes is not None else "none", max_nodes, out_dir))
 
     s_est, _src, _n = sweep.estimate_s_per_step(ctx.case, ctx.nodes, ctx.ledger_dir,
                                                  ctx.hardware_id)
@@ -5171,17 +5939,24 @@ def run(args, sbatch_runner=None, sacct_runner=None, scancel_runner=None, ledger
             f.write("\n")
         return report
 
+    if level == 0:
+        report = run_level0(ctx, profile, total_steps, nodes_policy)
+        _emit_report(report, out_dir, node_health)
+        return report
     if pipeline == "full":
         report = run_pipeline_full(
-            ctx, profile, minutes=minutes, total_steps=total_steps, objective=node_objective,
+            ctx, profile, minutes=minutes, level=level, total_steps=total_steps,
+            objective=node_objective,
             deadline_s=(deadline_minutes * 60.0 if deadline_minutes is not None else None),
             min_efficiency=min_efficiency, k_finalists=node_finalists, nodes_policy=nodes_policy,
             sweep_budget_frac=sweep_budget_frac, core_options=core_options,
             extension=bool(_ext_notes or ctx.omp_cap or ctx.chem_e_sn),
-            physics=not getattr(args, "no_physics_advice", False),
+            physics=bool(getattr(args, "physics_advice", False)),
             physics_max_candidates=int(getattr(args, "physics_max_candidates", None)
                                        or PIPELINE_PHYSICS_MAX_CANDIDATES),
-            recheck=preflight, force_full=bool(getattr(args, "force_full", False)),
+            recheck=preflight, stop_if_short=bool(getattr(args, "stop_if_short", False)),
+            precision_min=float(args.precision if getattr(args, "precision", None) is not None
+                                else PRECISION_DEFAULT_MIN),
             max_queue_hours=(getattr(args, "max_queue_hours", None)
                              if getattr(args, "max_queue_hours", None) is not None
                              else PIPELINE_MAX_QUEUE_HOURS),
@@ -5210,7 +5985,7 @@ def run(args, sbatch_runner=None, sacct_runner=None, scancel_runner=None, ledger
     return report
 
 
-def run_tuning_at(ctx, s_est=None):
+def run_tuning_at(ctx, s_est=None, adaptive=True, confirm=True):
     """round0 -> adaptive rounds -> confirm at ctx.nodes. Returns (all_results, confirm_results,
     anchor_cid). Extracted unchanged from run() so a node-search finalist can reuse it."""
     if s_est is None:
@@ -5229,11 +6004,11 @@ def run_tuning_at(ctx, s_est=None):
     # confirm ever submitted, leaving 13.6 of 30 minutes unused).
     s_est = update_s_est(all_results, s_est)
 
-    if job_ids0:
+    if job_ids0 and adaptive and not ctx.full_space:       # the full space leaves nothing to propose
         run_adaptive_rounds(ctx, configs_by_cid, all_results, s_est)
 
     confirm_job_id, confirm_results = (None, None)
-    if all_results:
+    if all_results and confirm:
         confirm_job_id, confirm_results = run_confirm(ctx, configs_by_cid, all_results, anchor_cid,
                                                         s_est)
 
@@ -5258,9 +6033,10 @@ def _attach_advice(report):
 def _emit_report(report, out_dir, node_health=None):
     if node_health and "node_health" not in report:
         report["node_health"] = node_health
-    advice_text = _attach_advice(report)
+    only = report.get("pipeline_aborted") or report.get("pipeline_only")
+    advice_text = "" if only else _attach_advice(report)
     print("")
-    print(render_pipeline_text(report["pipeline"]) if report.get("pipeline_aborted")
+    print(render_pipeline_text(report["pipeline"]) if only
           else render_report_text(report) + advice_text)
     with open(os.path.join(out_dir, "tune_report.json"), "w") as f:
         json.dump(report, f, indent=2, sort_keys=True, default=str)
@@ -5310,15 +6086,9 @@ def build_arg_parser():
                          "(72 -> 72,70,64,48,36); layouts that are not legal are skipped. "
                          "'--cores-per-node-options 72' disables the dimension")
     p.add_argument("--pipeline", choices=("full",), default=None,
-                    help="full (decision 0059): one pass -- layout search (node, cores/node, "
-                         "ranks, threads, decomposition, tiles), whole-run prediction from "
-                         "rebuilt points, physics advice -- inside the --minutes budget of "
-                         "RUNNING time (default %d; queue wait is not charged; hard deadline; "
-                         "phase shares 5/50/25/20 percent, unused share rolls forward; what does not "
-                         "fit is reported 'not run (budget)')" % PIPELINE_DEFAULT_MINUTES)
-    p.add_argument("--no-physics-advice", action="store_true", dest="no_physics_advice",
-                    help="--pipeline full: skip phase 3 (physics advice); its budget share goes "
-                         "back to layout and prediction")
+                    help="full = -O3 (kept for compatibility): one pass -- layout search (node, "
+                         "cores/node, ranks, threads, decomposition, tiles), whole-run "
+                         "prediction from rebuilt points, physics advice (decision 0059)")
     p.add_argument("--max-queue-hours", type=float, default=None, dest="max_queue_hours",
                     help="--pipeline full: safety cap on the accumulated queue-only wait (hours, "
                          "default %g); queue wait is not charged to --minutes, but past this the "
@@ -5328,10 +6098,27 @@ def build_arg_parser():
                          "per node checking $HOME, the case dir, wtune-src and wrf.exe); by "
                          "default failing nodes are excluded from every sbatch and max_nodes is "
                          "capped at the healthy node count")
-    p.add_argument("--force-full", action="store_true", dest="force_full",
-                    help="--pipeline full: do not stop the search early when the whole run is "
-                         "shorter than the tuning budget (default: stop, report the best layout "
-                         "so far and suggest running it directly)")
+    for lv in (0, 1, 2, 3):
+        p.add_argument("-O%d" % lv, action="store_const", const=lv, dest="level",
+                        help="effort level %d: %s (layout search effort + physics advice; the "
+                             "prediction points come from the case type)" % (lv,
+                                                                            LEVELS[lv]["method"]))
+    p.add_argument("--precision", type=float, default=None, dest="precision",
+                    help="whole-run wall time needed to +-MIN minutes (default %g): the case type "
+                         "decides how many prediction points that takes "
+                         "(wtune_cost_drivers.plan_points_for_case)" % PRECISION_DEFAULT_MIN)
+    p.add_argument("--level", type=int, choices=(0, 1, 2, 3), default=None, dest="level",
+                    help="same as -O<level>; selects the one-pass pipeline (default level when "
+                         "only --pipeline full is given: 3). The estimated tuning time of every "
+                         "level is printed before anything runs; --minutes is an optional hard cap")
+    p.add_argument("--stop-if-short", action="store_true", dest="stop_if_short",
+                    help="-O levels: when the whole run is shorter than the estimated tuning time, "
+                         "step down to the highest level whose estimate fits (never below O1). "
+                         "OFF by default: the layout search is not cut short; also active when "
+                         "--minutes is given")
+    p.add_argument("--physics-advice", action="store_true", dest="physics_advice",
+                    help="-O3: also run phase 3, the physics advice (opt-in, not part of the "
+                         "default run)")
     p.add_argument("--keep-frames", action="store_true", dest="keep_frames",
                     help="--pipeline full: keep the phase-2/3 window-frame .nc files after the "
                          "fidelity gate (default: delete them, keeping the gate json/csv)")
@@ -5417,6 +6204,9 @@ def main(argv=None):
     if args.site != "scc":
         print("ERROR: only --site scc is supported", file=sys.stderr)
         return 2
+    if (getattr(args, "level", None) is None and getattr(args, "pipeline", None) is None
+            and args.nodes is None and getattr(args, "rank_by", None) is None):
+        args.level = DEFAULT_LEVEL            # the default run: the O3 full layout search
     os.environ.setdefault("SITE", "scc")
     try:
         run(args)

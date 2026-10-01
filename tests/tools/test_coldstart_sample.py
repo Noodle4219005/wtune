@@ -2457,7 +2457,8 @@ def test_wrf_window_namelist_inserts_decomposition_when_case_omits_it():
     assert cs.count_key(auto, "nproc_x") == 0 and cs.count_key(auto, "numtiles") == 0
 
 
-def test_era5_pin_fetch_writes_intermediate_manifest(tmp_path):
+def test_era5_pin_fetch_writes_intermediate_manifest(tmp_path, monkeypatch):
+    monkeypatch.setenv("WTUNE_ERA5_CACHE", str(tmp_path / "era5cache"))
     netCDF4 = __import__("pytest").importorskip("netCDF4")
     import numpy as _np
     case = tmp_path / "case"; case.mkdir()
@@ -2547,3 +2548,87 @@ class TestSelectWindowsCostMode(unittest.TestCase):
         self.assertEqual(cs.select_windows(self.cands, 0.0, 3600.0, 5, cost_lookup={}), base)
         other = {datetime.datetime(1999, 1, 1): 1.0}
         self.assertEqual(cs.select_windows(self.cands, 0.0, 3600.0, 5, cost_lookup=other), base)
+
+
+def _era5_plan(tmp_path, windows):
+    netCDF4 = __import__("pytest").importorskip("netCDF4")
+    import numpy as _np
+    case = tmp_path / "case"; case.mkdir(exist_ok=True)
+    with netCDF4.Dataset(case / "wrfinput_d01", "w") as d:
+        d.createDimension("Time", 1); d.createDimension("south_north", 2); d.createDimension("west_east", 2)
+        for name, val in (("XLAT", [[20.0, 20.0], [50.0, 50.0]]), ("XLONG", [[-120.0, -70.0], [-120.0, -70.0]])):
+            v = d.createVariable(name, "f4", ("Time", "south_north", "west_east")); v[0] = _np.array(val)
+    return {"case_dir": str(case), "forcing_pin": cs.ERA5_DATASET, "windows": windows}
+
+
+def test_era5_fetch_runs_hours_in_parallel_slices_and_shares_a_cache(tmp_path, monkeypatch):
+    monkeypatch.setenv("WTUNE_ERA5_CACHE", str(tmp_path / "era5cache"))
+    monkeypatch.setenv("WTUNE_ERA5_WORKERS", "3")
+    import threading
+    calls, lock = [], threading.Lock()
+
+    def runner(cmd):
+        out = cmd[cmd.index("--out") + 1]
+        ts = cmd[cmd.index("--times") + 1].split(",")
+        with lock:
+            calls.append(ts)
+        for t in ts:
+            open(os.path.join(out, "ERA5:" + t), "wb").write(b"x")
+    win = lambda a, b: {"t": a, "t_end": b}   # noqa: E731
+    p1 = tmp_path / "pt1"; p1.mkdir()
+    plan = _era5_plan(tmp_path, [win("2019-11-26_18:00:00", "2019-11-26_23:00:00")])   # 6 hours
+    cs._fetch_era5_intermediate(plan, str(p1), runner=runner)
+    assert len(calls) == 3 and sorted(sum(calls, [])) == sorted(set(sum(calls, [])))   # 3 slices
+    assert sum(len(c) for c in calls) == 6
+    # a second point overlapping 2 hours: only the 3 NEW hours are fetched, the rest is linked
+    calls.clear()
+    p2 = tmp_path / "pt2"; p2.mkdir()
+    plan2 = _era5_plan(tmp_path, [win("2019-11-26_22:00:00", "2019-11-27_02:00:00")])  # 22..02 = 5 h
+    total, forcing = cs._fetch_era5_intermediate(plan2, str(p2), runner=runner)
+    assert sorted(sum(calls, [])) == ["2019-11-27_00", "2019-11-27_01", "2019-11-27_02"]
+    assert len(forcing["files"]) == 5 and all(os.path.getsize(p2 / "wps" / f) == 1 for f in forcing["files"])
+    # everything cached: the runner is not called at all
+    calls.clear()
+    p3 = tmp_path / "pt3"; p3.mkdir()
+    cs._fetch_era5_intermediate(plan2, str(p3), runner=runner)
+    assert calls == []
+
+
+def test_era5_fetch_failure_in_one_slice_raises(tmp_path, monkeypatch):
+    monkeypatch.setenv("WTUNE_ERA5_CACHE", "")
+    monkeypatch.setenv("WTUNE_ERA5_WORKERS", "2")
+
+    def runner(cmd):
+        raise RuntimeError("gcs down")
+    plan = _era5_plan(tmp_path, [{"t": "2019-11-26_18:00:00", "t_end": "2019-11-26_21:00:00"}])
+    with __import__("pytest").raises(RuntimeError):
+        cs._fetch_era5_intermediate(plan, str(tmp_path), runner=runner)
+
+
+def _rendered_run_sbatch(n_windows=5):
+    plan = {"windows": [{"t": "2019-11-26_%02d:00:00" % (6 + 2 * k), "t_end": "2019-11-26_%02d:00:00" % (7 + 2 * k),
+                         "reason": "p%d" % k} for k in range(n_windows)],
+            "nodes": 1, "config": {"ranks": 72, "omp": 1, "nx": 9, "ny": 8, "numtiles": 1}, "max_dom": 2}
+    return cs.render_run_sbatch(plan, site="scc")
+
+
+def test_run_sbatch_runs_geogrid_once_under_a_single_flight_lock():
+    text = _rendered_run_sbatch(5)
+    assert text.count("./geogrid.exe") == 1                    # not once per window
+    assert "flock -w 900 9" in text and 'GEO_CACHE.lock' in text
+    # order: lock -> cache check -> geogrid -> fill cache -> unlock
+    order = [text.index(x) for x in ("flock -w 900 9", "GEO_CACHED=1;", "./geogrid.exe",
+                                     'cp -f geo_em.d01.nc', "flock -u 9")]
+    assert order == sorted(order)
+    assert 'ln -sf "$GEO_CACHE/$f" .' in text                  # later jobs link the shared geo_em
+    import subprocess
+    r = subprocess.run(["bash", "-n"], input=text, text=True, capture_output=True)
+    assert r.returncode == 0, r.stderr
+
+
+def test_run_sbatch_each_window_still_gets_its_own_metgrid_covering_its_dates():
+    # Windows are not contiguous in time and metgrid takes ONE start/end/interval, so a single
+    # metgrid over all points would have to walk every hour between them (and ERA5 would have to
+    # be staged for all of them); each window's namelist.wps keeps exactly its own dates.
+    text = _rendered_run_sbatch(3)
+    assert text.count("metgrid.exe") >= 3 and "fix-wps-namelist" in text

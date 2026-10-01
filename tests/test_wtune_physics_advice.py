@@ -381,3 +381,22 @@ def test_gate_judges_prognostic_fields_and_reports_radiation_snapshots(monkeypat
                         lambda *a, **k: _payload("WITHIN-FLOOR", {"OLR": _row(1.0, 0.1)}))
     assert adv.fidelity_verdict("r", "c", twin="t",
                                 judged_fields=adv.PROGNOSTIC_FIELDS)["label"] == "INVALID"
+
+
+def test_fallback_gate_gets_a_single_path_not_a_stringified_list(monkeypatch):
+    # live SC26-P1: phase 3 had no twin, so the config-gate fallback received the LISTS of window
+    # frames and opened "['/home/.../wrfout_d01_...nc', ...]" -> FileNotFoundError
+    seen = {}
+
+    def fake_compare(ref, cand, **kw):
+        seen.update(ref=ref, cand=cand)
+        return [_res("T2", 0.001)]
+
+    monkeypatch.setattr(adv.gate, "compare", fake_compare)
+    run = "/home/nkli/wtune-runs/campaign/sc26p1p0_%s_r1_2327/wrfout_d01_2019-01-28_00:%d:00.nc"
+    base = [run % ("ANCHOR", 29), run % ("ANCHOR", 39)]
+    cand = [run % ("PH1", 29), run % ("PH1", 39)]
+    r = adv.fidelity_verdict(base, cand)
+    assert seen == {"ref": base[-1], "cand": cand[-1]}           # strings: the END frames
+    assert all(isinstance(v, str) and not v.startswith("[") for v in seen.values())
+    assert r["gate"] == "config-gate" and r["passed"] is True

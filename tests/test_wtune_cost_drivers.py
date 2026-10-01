@@ -451,3 +451,103 @@ def test_case_forcing_falls_back_to_wrfinput_and_wrfbdy(tmp_path):
     _write_intermediate(tmp_path / "ERA5:2022-05-12_00", "2022-05-12_00:00:00")
     s3, prov3 = p.fetch((30.0, 31.0, -100.0, -98.0), T0, T0 + datetime.timedelta(hours=24), 1)
     assert "FALLBACK" not in prov3["source"]
+
+
+# ---- plan_points_for_case (point plan by case type) -------------------------------------------
+def _ppc(types, precision=15.0, T=2 * 3600.0, **kw):
+    return cd.plan_points_for_case(types, RUN_START, RUN_END, precision, T, **kw)
+
+
+def _hrs(res):
+    return [int((t - RUN_START).total_seconds() // 3600) for t, _r in res["points"]]
+
+
+def test_sc26_p1_like_common_case_is_t0_only_no_rebuild():
+    r = _ppc(["common", "precip", "synoptic", "moisture"], precision=15.0, T=25 * 60.0)
+    assert r["points"] == [(RUN_START, "t0")] and r["needs_rebuild"] == []
+    assert r["band_pct"] == 15.0 and r["meets_precision"] and r["confidence"] == "normal"
+    assert any("radiation" in s for s in r["rationale"])
+
+
+def test_common_short_precision_unreachable_reports_it_but_stays_t0_only_when_no_extras():
+    r = _ppc(["common"], precision=1.0, T=25 * 60.0)         # 15% x 25 min = 3.75 > 1 min
+    assert r["meets_precision"] is False and r["band_pct"] <= 15.0
+    assert r["points"][0] == (RUN_START, "t0") and len(r["points"]) > 1   # escalated with strata
+
+
+def test_convection_adds_peak_hour_from_indicators():
+    cs = _cs([FakeProvider("fake", convective_series(10))])
+    r = _ppc(["common", "convection"], precision=15.0, T=2 * 3600.0, indicators=cs)
+    assert _hrs(r) == [0, 10] and r["band_pct"] == 10.0 and r["meets_precision"]
+    assert r["needs_rebuild"] == [RUN_START + datetime.timedelta(hours=10)]
+    assert r["points"][1][1] == "convective_peak"
+
+
+def test_convection_short_run_loose_precision_stays_t0_only():
+    cs = _cs([FakeProvider("fake", convective_series(10))])
+    r = _ppc(["convection"], precision=15.0, T=25 * 60.0, indicators=cs)   # 25% x 25 = 6.25 <= 15
+    assert _hrs(r) == [0] and r["needs_rebuild"] == []
+
+
+def test_convection_without_indicators_is_low_confidence_with_wide_band():
+    r = _ppc(["convection"], precision=15.0, T=2 * 3600.0)
+    assert r["confidence"] == "low"
+    assert len(r["points"]) > 1 and all(rr in ("t0", "farthest") for _t, rr in r["points"])
+    shortrun = _ppc(["convection"], precision=15.0, T=25 * 60.0)   # 25% x 25 min fits: t0 only
+    assert shortrun["band_pct"] == 25.0 and shortrun["confidence"] == "low"
+    assert any("LOW CONFIDENCE" in s for s in r["rationale"])
+    assert not any(rr == "convective_peak" for _t, rr in r["points"])
+
+
+def test_tc_uses_best_track_min_pressure_and_landfall_flag():
+    tr = [dict(time=RUN_START + datetime.timedelta(hours=h), lat=25.0, lon=-80.0, pmin_hpa=p)
+          for h, p in ((0, 990.0), (6, 975.0), (12, 960.0), (18, 968.0))]
+    tr[3]["landfall"] = True
+    r = _ppc(["common", "tc"], precision=15.0, T=2 * 3600.0, best_track=tr)
+    assert _hrs(r) == [0, 12, 18]
+    assert [x[1] for x in r["points"]] == ["t0", "tc_max_intensity", "tc_landfall"]
+    assert r["band_pct"] == 10.0
+
+
+def test_tc_falls_back_to_indicators_then_to_low_confidence():
+    cs = _cs([FakeProvider("fake", convective_series(7))])
+    r = _ppc(["tc"], T=2 * 3600.0, indicators=cs)
+    assert 7 in _hrs(r) and any("no best-track pressure" in s for s in r["rationale"])
+    r2 = _ppc(["tc"], T=2 * 3600.0)
+    assert r2["confidence"] == "low"
+
+
+def test_terrain_adds_precip_peak():
+    cs = _cs([FakeProvider("fake", convective_series(14))])
+    r = _ppc(["terrain", "moisture"], T=2 * 3600.0, indicators=cs)
+    assert _hrs(r) == [0, 14] and r["points"][1][1] == "orographic_peak"
+
+
+def test_climate_run_is_stratified_4_to_6_points():
+    end = RUN_START + datetime.timedelta(days=90)
+    r = cd.plan_points_for_case(["common", "climate"], RUN_START, end, 60.0, 20 * 3600.0)
+    assert 4 <= len(r["points"]) <= 6 and r["points"][0] == (RUN_START, "t0")
+    ts = [t for t, _r in r["points"]]
+    assert ts == sorted(ts) and all(b - a >= datetime.timedelta(days=10) for a, b in zip(ts, ts[1:]))
+    r2 = cd.plan_points_for_case(["common"], RUN_START, end, 60.0, 20 * 3600.0)   # >=30 d implies climate
+    assert len(r2["points"]) >= 4
+
+
+def test_multiple_labels_union_merged_by_min_gap():
+    cs = _cs([FakeProvider("fake", convective_series(10))])
+    tr = [dict(time=RUN_START + datetime.timedelta(hours=10, minutes=10), lat=1.0, lon=1.0,
+               pmin_hpa=950.0)]
+    r = _ppc(["common", "convection", "tc"], T=2 * 3600.0, indicators=cs, best_track=tr)
+    assert _hrs(r) == [0, 10]                              # peaks 10 min apart merge into one
+    assert "convective_peak" in r["points"][1][1] and "tc_max_intensity" in r["points"][1][1]
+
+
+def test_precision_escalation_adds_strata_only_when_base_is_not_enough():
+    cs = _cs([FakeProvider("fake", convective_series(10))])
+    loose = _ppc(["convection"], precision=15.0, T=2 * 3600.0, indicators=cs)
+    tight = _ppc(["convection"], precision=5.0, T=2 * 3600.0, indicators=cs)   # 10% x 120 = 12 > 5
+    assert len(tight["points"]) > len(loose["points"]) == 2
+    assert tight["band_pct"] < 10.0 and tight["meets_precision"]
+    assert 10 in _hrs(tight) and 0 in _hrs(tight)
+    capped = _ppc(["convection"], precision=0.01, T=2 * 3600.0, indicators=cs)
+    assert capped["meets_precision"] is False and len(capped["points"]) <= 6

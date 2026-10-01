@@ -1183,7 +1183,7 @@ def edit_namelist(text, nproc_x, nproc_y, numtiles, run_minutes,
                    history_minutes=None, physics_template=None, physics_case=None,
                    numtiles_x=None, numtiles_y=None, tile_sz_x=None, tile_sz_y=None,
                    tile_strategy=None, restart_from=None, restart_io_form=None,
-                   write_restart_interval=None):
+                   write_restart_interval=None, run_seconds=None):
     """Apply all campaign namelist edits and return the new text. Physics and
     everything else not listed below is left untouched, UNLESS physics_template
     names a physics_templates.json template id (see below).
@@ -1264,6 +1264,12 @@ def edit_namelist(text, nproc_x, nproc_y, numtiles, run_minutes,
     # run_minutes. _set_scalar is a no-op when the key is absent, so a template without it (or
     # with run_seconds=0 already) is byte-identical to before.
     text = _set_scalar(text, "run_seconds", 0)
+    # run_seconds (opt-in, default None = unchanged): an exact sub-minute tail added to run_minutes
+    # (WRF ADDS the run_* keys). Used by POINT_FUSED / WINDOW_EXACT so the window is STEPS*dt
+    # exactly instead of rounded UP to a whole minute. Only sound with history_mode 'off' (the
+    # history interval keys follow run_minutes, not the seconds tail).
+    if run_seconds:
+        text = _set_or_insert_time_control_scalar(text, "run_seconds", int(run_seconds))
     text = _set_history_mode(text, history_mode, run_minutes, max_dom, nest_history_on,
                               history_minutes=history_minutes)
     if not adios2:
@@ -1335,6 +1341,97 @@ def step_stats(values):
     median = statistics.median(kept) if kept else None
     return dict(median=median, mean_all=mean_all, n_measured=len(kept),
                 n_excluded=n_excluded, n_all=n_all)
+
+
+_TIMING_D01_RE = re.compile(
+    r"Timing for main: time (\d{4}-\d\d-\d\d_\d\d:\d\d:\d\d)\s+on domain\s+1:\s+([0-9.]+) elapsed")
+
+
+def post_spinup_steps(rsl_text, spin_seconds, dt):
+    """POINT_FUSED: the d01 "Timing for main" values of the steps AFTER the first `spin_seconds` of
+    model time, in order. One wrf.exe runs spin-up + measurement window from t0; its rsl.out
+    stamps each line with the model time reached (step k of a t0 start prints t0 + k*dt), so
+    elapsed model time of line j is (stamp_j - stamp_1) + dt and a step belongs to the window iff
+    that exceeds spin_seconds. Feed the result to step_stats() unchanged: it drops values[0] and
+    excludes >3x-median (radiation/history) steps exactly as for a restart run. Returns [] when
+    no line is past the spin-up."""
+    fmt = "%Y-%m-%d_%H:%M:%S"
+    first = None
+    out = []
+    for m in _TIMING_D01_RE.finditer(rsl_text):
+        ts = datetime.datetime.strptime(m.group(1), fmt)
+        if first is None:
+            first = ts
+        elapsed = (ts - first).total_seconds() + float(dt)
+        if elapsed > float(spin_seconds):
+            out.append(float(m.group(2)))
+    return out
+
+
+def resolve_point_plan(order, point_fused=False, anchor_end=None, window_frame=False):
+    """Decide a prediction-point job's run list from its ORDER (config ids, ANCHOR first and
+    ANCHOREND last when the orchestrator wrapped it).
+      anchor_end None -> default: ON, except OFF in fused mode; True/False explicit.
+      ANCHOREND entries are removed when anchor_end is off ("drift gate off").
+      Fused (POINT_FUSED=1) applies only when, after removing ANCHOR/ANCHOREND, exactly ONE run
+      remains (a winner-only plan; with several configs or REPS>1 the shared-restart comparison is
+      the point, so fusing would silently change what is measured) and no window frame is wanted.
+    Returns dict(order, fused, cid, anchor_end, note). In fused mode ANCHOR is dropped too (its only
+    job, writing the restart, is what fusing removes) and an explicit anchor_end=True is refused
+    (the drift gate needs the restart hand-off): anchor_end comes back False with a note."""
+    order = list(order)
+    note = ""
+    cands = [c for c in order if c not in ("ANCHOR", "ANCHOREND")]
+    if not cands and order:
+        cands = [c for c in order if c == "ANCHOR"]
+    fused = bool(point_fused) and len(cands) == 1 and not window_frame
+    if point_fused and not fused:
+        note = "POINT_FUSED ignored: %s" % (
+            "window_frame requested" if window_frame and len(cands) == 1
+            else "%d runs after dropping anchors (need exactly 1)" % len(cands))
+    if fused:
+        if anchor_end is True:
+            note = "ANCHOR_END=1 ignored in fused mode (no restart to bracket)"
+        return dict(order=cands, fused=True, cid=cands[0], anchor_end=False, note=note)
+    if anchor_end is None:
+        anchor_end = True
+    if not anchor_end:
+        order = [c for c in order if c != "ANCHOREND"]
+    return dict(order=order, fused=False, cid="", anchor_end=bool(anchor_end), note=note)
+
+
+def _cmd_fused_steps(argv):
+    ap = argparse.ArgumentParser(prog="configs.py fused-steps")
+    ap.add_argument("rsl_file")
+    ap.add_argument("--spin-seconds", type=float, required=True)
+    ap.add_argument("--dt", type=float, required=True)
+    a = ap.parse_args(argv)
+    try:
+        with open(a.rsl_file, "rb") as f:
+            text = f.read().decode("ascii", "ignore")
+    except IOError:
+        text = ""
+    for v in post_spinup_steps(text, a.spin_seconds, a.dt):
+        print("%s" % v)
+    return 0
+
+
+def _cmd_point_plan(argv):
+    """configs.py point-plan --fused 0|1 --anchor-end ''|0|1 [--window-frame 0|1] ID...
+    prints shell assignments POINT_ORDER=(...) POINT_FUSED_ON=0|1 POINT_ANCHOR_END=0|1 POINT_NOTE='..'"""
+    ap = argparse.ArgumentParser(prog="configs.py point-plan")
+    ap.add_argument("--fused", default="0")
+    ap.add_argument("--anchor-end", default="")
+    ap.add_argument("--window-frame", default="0")
+    ap.add_argument("ids", nargs="*")
+    a = ap.parse_args(argv)
+    ae = None if a.anchor_end == "" else (a.anchor_end != "0")
+    r = resolve_point_plan(a.ids, a.fused == "1", ae, a.window_frame == "1")
+    print("POINT_ORDER=(%s)" % " ".join("'%s'" % c for c in r["order"]))
+    print("POINT_FUSED_ON=%d" % (1 if r["fused"] else 0))
+    print("POINT_ANCHOR_END=%d" % (1 if r["anchor_end"] else 0))
+    print("POINT_NOTE='%s'" % r["note"].replace("'", ""))
+    return 0
 
 
 # ---------------------------------------------------------------------------
@@ -1834,7 +1931,13 @@ def _cmd_edit_namelist(argv):
                           "restart_interval to exactly this value (restart itself is left "
                           "'.false.' -- this run still starts at t0). Not written at all when "
                           "omitted.")
+    ap.add_argument("--run-seconds", type=int, default=0, metavar="S",
+                     help="exact sub-minute tail added to --run-minutes (POINT_FUSED / "
+                          "WINDOW_EXACT: window = STEPS*dt, not rounded up to whole minutes). "
+                          "Only with --history-mode off. Not written when 0 (default).")
     a = ap.parse_args(argv)
+    if a.run_seconds and a.history_mode != "off":
+        ap.error("--run-seconds requires --history-mode off")
     if a.adios2 and a.ranks is None:
         ap.error("--ranks is required unless --no-adios2 is given")
     if a.history_mode == "interval" and a.history_minutes is None:
@@ -1864,7 +1967,8 @@ def _cmd_edit_namelist(argv):
                               tile_sz_x=a.tile_sz_x, tile_sz_y=a.tile_sz_y,
                               tile_strategy=a.tile_strategy, restart_from=restart_from_dt,
                               restart_io_form=a.restart_io_form,
-                              write_restart_interval=a.write_restart_interval)
+                              write_restart_interval=a.write_restart_interval,
+                              run_seconds=a.run_seconds)
     with open(a.outfile, "w") as f:
         f.write(new_text)
     return 0
@@ -2147,6 +2251,10 @@ def main(argv=None):
         return _cmd_edit_namelist(argv[1:])
     if argv[0] == "step-stats":
         return _cmd_step_stats(argv[1:])
+    if argv[0] == "fused-steps":
+        return _cmd_fused_steps(argv[1:])
+    if argv[0] == "point-plan":
+        return _cmd_point_plan(argv[1:])
     if argv[0] == "quota-free-gib":
         return _cmd_quota_free_gib(argv[1:])
     if argv[0] == "physics-list":

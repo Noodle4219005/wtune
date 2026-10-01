@@ -2242,6 +2242,132 @@ class TestConfigExtras(unittest.TestCase):
         self.assertRegex(out, r"nproc_x\s*=\s*8")
 
 
+class TestPointFused(unittest.TestCase):
+    """POINT_FUSED / ANCHOR_END / WINDOW_EXACT (decisions 0055/0059): resolve_point_plan,
+    post_spinup_steps, edit_namelist run_seconds, and the sbatch wiring (bash -n + static guards)."""
+
+    LINE = " Timing for main: time 2019-11-26_%s on domain   %d:    %.5f elapsed seconds\n"
+
+    def _rsl(self, n, dt=10, rad=None, nested=True):
+        out = []
+        for k in range(1, n + 1):
+            t = k * dt
+            stamp = "%02d:%02d:%02d" % (t // 3600, (t % 3600) // 60, t % 60)
+            v = 5.0 if rad and k in rad else 0.05
+            out.append(self.LINE % (stamp, 1, v))
+            if nested:
+                out.append(self.LINE % (stamp, 2, 0.01))
+        return "".join(out)
+
+    def test_default_order_unchanged(self):
+        o = ["ANCHOR", "C1", "C2", "ANCHOREND"]
+        r = configs.resolve_point_plan(o)
+        self.assertEqual(r["order"], o)
+        self.assertFalse(r["fused"])
+        self.assertTrue(r["anchor_end"])
+
+    def test_anchor_end_off_omits_run(self):
+        r = configs.resolve_point_plan(["ANCHOR", "C1", "C2", "ANCHOREND"], anchor_end=False)
+        self.assertEqual(r["order"], ["ANCHOR", "C1", "C2"])
+        self.assertFalse(r["anchor_end"])
+        r = configs.resolve_point_plan(["ANCHOR", "C1", "ANCHOREND"], anchor_end=True)
+        self.assertIn("ANCHOREND", r["order"])
+
+    def test_fused_single_config_drops_anchors_and_defaults_drift_gate_off(self):
+        r = configs.resolve_point_plan(["ANCHOR", "W", "ANCHOREND"], point_fused=True)
+        self.assertTrue(r["fused"])
+        self.assertEqual(r["order"], ["W"])
+        self.assertEqual(r["cid"], "W")
+        self.assertFalse(r["anchor_end"])
+
+    def test_fused_explicit_anchor_end_is_ignored_with_note(self):
+        r = configs.resolve_point_plan(["ANCHOR", "W", "ANCHOREND"], True, anchor_end=True)
+        self.assertTrue(r["fused"])
+        self.assertFalse(r["anchor_end"])
+        self.assertIn("ANCHOR_END=1", r["note"])
+
+    def test_fused_refused_for_multi_config_or_reps_or_window_frame(self):
+        for order in (["ANCHOR", "A", "B", "ANCHOREND"], ["W", "W"]):
+            r = configs.resolve_point_plan(order, point_fused=True)
+            self.assertFalse(r["fused"], order)
+            self.assertEqual(r["order"], order)
+            self.assertIn("POINT_FUSED ignored", r["note"])
+        r = configs.resolve_point_plan(["ANCHOR", "W"], point_fused=True, window_frame=True)
+        self.assertFalse(r["fused"])
+
+    def test_fused_with_only_anchor_uses_it(self):
+        r = configs.resolve_point_plan(["ANCHOR"], point_fused=True)
+        self.assertTrue(r["fused"])
+        self.assertEqual(r["order"], ["ANCHOR"])
+
+    def test_fused_selects_post_spinup_steps_only(self):
+        # dt=10, 60 s spin-up => steps 7.. count; 20 steps total -> 14 selected, d01 only
+        text = self._rsl(20)
+        vals = configs.post_spinup_steps(text, 60, 10)
+        self.assertEqual(len(vals), 14)
+        self.assertTrue(all(v == 0.05 for v in vals))   # nested 0.01 lines never leak in
+
+    def test_fused_excludes_spinup_radiation_and_step_stats_excludes_window_radiation(self):
+        text = self._rsl(20, rad={1, 7, 13})   # step 1 (spin-up), 7 (first window), 13 (in window)
+        vals = configs.post_spinup_steps(text, 60, 10)
+        self.assertEqual(vals[0], 5.0)           # step 7 is the first post-spin-up step
+        st = configs.step_stats(vals)
+        self.assertEqual(st["n_all"], len(vals) - 1)
+        self.assertAlmostEqual(st["median"], 0.05)
+        self.assertEqual(st["n_excluded"], 2)    # dropped first + radiation step 13
+
+    def test_fused_spinup_covering_everything_gives_no_steps(self):
+        self.assertEqual(configs.post_spinup_steps(self._rsl(6), 60, 10), [])
+
+    def test_fused_steps_cli(self):
+        import io
+        import tempfile
+        from contextlib import redirect_stdout
+        with tempfile.NamedTemporaryFile("w", suffix=".out", delete=False) as f:
+            f.write(self._rsl(10))
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            rc = configs.main(["fused-steps", f.name, "--spin-seconds", "60", "--dt", "10"])
+        os.unlink(f.name)
+        self.assertEqual(rc, 0)
+        self.assertEqual(len(buf.getvalue().split()), 4)
+
+    def test_point_plan_cli_emits_shell_assignments(self):
+        import io
+        from contextlib import redirect_stdout
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            configs.main(["point-plan", "--fused", "1", "--anchor-end", "", "ANCHOR", "W", "ANCHOREND"])
+        out = buf.getvalue()
+        self.assertIn("POINT_ORDER=('W')", out)
+        self.assertIn("POINT_FUSED_ON=1", out)
+        self.assertIn("POINT_ANCHOR_END=0", out)
+
+    NL = ("&time_control\n run_days = 0,\n run_hours = 0,\n run_minutes = 5,\n"
+          " run_seconds = 0,\n/\n&domains\n max_dom = 1,\n/\n")
+
+    def test_run_seconds_default_unchanged_and_exact_tail(self):
+        base = configs.edit_namelist(self.NL, 4, 4, 1, 11, max_dom=1, adios2=False)
+        same = configs.edit_namelist(self.NL, 4, 4, 1, 11, max_dom=1, adios2=False, run_seconds=None)
+        self.assertEqual(base, same)
+        self.assertRegex(base, r"run_seconds\s*=\s*0")
+        t = configs.edit_namelist(self.NL, 4, 4, 1, 11, max_dom=1, adios2=False, run_seconds=40)
+        self.assertRegex(t, r"run_seconds\s*=\s*40")
+        self.assertRegex(t, r"run_minutes\s*=\s*11")
+
+    def test_sbatch_syntax_and_defaults_wiring(self):
+        import subprocess
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "strict_campaign.sbatch")
+        p = subprocess.run(["bash", "-n", path], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        text = open(path).read()
+        # fused path skips the spin-up block; default (FUSED_ON=0) keeps it
+        self.assertIn('[ "$FUSED_ON" != "1" ]', text)
+        self.assertIn("FUSED_ON=0\n", text)
+        self.assertIn('POINT_FUSED:-0', text)
+        self.assertIn('--anchor-end "${ANCHOR_END:-}"', text)
+
+
 if __name__ == "__main__":
     unittest.main()
 

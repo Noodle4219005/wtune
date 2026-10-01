@@ -1129,7 +1129,46 @@ physics_signature () {
   done
 }
 
-if [ "$RANKING_START" = "spinup" ] && [ "$MODE" = "timing" ]; then
+# ---------------------------------------------------------------------------
+# Point-job run list (decisions 0055/0059), all opt-in; defaults leave ORDER untouched.
+#   ANCHOR_END   unset/1: the orchestrator's trailing ANCHOREND run is kept (drift gate on, as
+#                before). 0: ANCHOREND is dropped from ORDER -- "drift gate off" (saves one full
+#                launch + WRF init + restart read, ~87 s on scc job 2325); the ledger notes then
+#                carry drift_gate=off.
+#   POINT_FUSED  1 (set by the orchestrator, winner-only plans only): when ORDER holds exactly ONE
+#                run once ANCHOR/ANCHOREND are removed, skip the restart hand-off -- ONE wrf.exe
+#                from the rebuilt wrfinput runs SPINUP_MINUTES of spin-up plus the STEPS window, and
+#                s/step comes only from steps after the spin-up model time (configs.py
+#                post_spinup_steps; radiation/history steps excluded by step_stats as always). No
+#                restart is written or read, ANCHOR is not run, and ANCHOREND defaults to OFF (an
+#                explicit ANCHOR_END=1 is ignored: there is no restart to bracket). Ignored with a
+#                warning when RANKING_START!=spinup, MODE!=timing, SPINUP_MINUTES has several targets,
+#                a window frame is requested, or more than one run remains.
+#   WINDOW_EXACT 1: the measured window is exactly STEPS*dt via run_seconds instead of being rounded
+#                UP to whole minutes (MIN=ceil(STEPS*dt/60): 110 steps at dt=10 ran 114). Default 0.
+FUSED_ON=0
+POINT_NOTE=""
+POINT_ANCHOR_END=1
+if [ "$MODE" = "timing" ]; then
+  PF_REQ=${POINT_FUSED:-0}
+  PF_MSG=""
+  if [ "$PF_REQ" = "1" ]; then
+    if [ "$RANKING_ACTIVE" != "1" ]; then PF_MSG="RANKING_START!=spinup"; PF_REQ=0
+    elif [ "${#TARGET_MIN_ARR[@]}" -ne 1 ]; then PF_MSG="SPINUP_MINUTES has ${#TARGET_MIN_ARR[@]} targets"; PF_REQ=0; fi
+  fi
+  eval "$("$PYBIN" "$CAMPAIGN/configs.py" point-plan --fused "$PF_REQ" --anchor-end "${ANCHOR_END:-}" \
+            --window-frame "$WINDOW_FRAME_ANY" "${ORDER[@]}")"
+  ORDER=("${POINT_ORDER[@]}")
+  FUSED_ON=$POINT_FUSED_ON
+  POINT_ANCHOR_END=$POINT_ANCHOR_END
+  [ -n "$PF_MSG" ] && POINT_NOTE="POINT_FUSED ignored: $PF_MSG"
+  [ -n "$POINT_NOTE" ] && echo "WARNING: $POINT_NOTE" >&2
+  [ "$FUSED_ON" = "1" ] && echo "POINT_FUSED: single-config fast path for cid=${ORDER[0]} (one wrf.exe: ${TARGET_MIN_ARR[0]} min spin-up + ${STEPS} step window, no restart hand-off, drift gate off)"
+  [ "$POINT_ANCHOR_END" = "0" ] && [ "$FUSED_ON" != "1" ] && echo "ANCHOR_END=0: ANCHOREND dropped (drift gate off)"
+  echo "point order (${#ORDER[@]} runs): ${ORDER[*]}"
+fi
+
+if [ "$RANKING_START" = "spinup" ] && [ "$MODE" = "timing" ] && [ "$FUSED_ON" != "1" ]; then
   if [ -z "${CFG_RANKS[ANCHOR]:-}" ]; then
     echo "ERROR: RANKING_START=spinup requires an ANCHOR config (CONFIG_FILE-driven run only)" >&2
     exit 1
@@ -1291,9 +1330,20 @@ for cid in "${ORDER[@]}"; do
       --tile-strategy "${CFG_TSTRAT[$cid]:-0}"
     )
   fi
+  # Window length. Default: MIN = ceil(STEPS*dt/60) whole minutes (unchanged). FUSED_ON: spin-up +
+  # STEPS*dt, exact via run_seconds. WINDOW_EXACT=1 (timing, no window frame): STEPS*dt exact.
+  RUN_MIN_EFF=$MIN; RUN_SEC_ARGS=(); TIMEOUT_EFF=$TIMEOUT_S
+  if [ "$FUSED_ON" = "1" ]; then
+    TOTAL_S=$(( CUR_TARGET_MIN * 60 + STEPS * DT ))
+    RUN_MIN_EFF=$(( TOTAL_S / 60 )); RUN_SEC_ARGS=(--run-seconds $(( TOTAL_S % 60 )))
+    TIMEOUT_EFF=$(( TIMEOUT_S + SPINUP_TIMEOUT_S ))
+  elif [ "${WINDOW_EXACT:-0}" = "1" ] && [ "$MODE" = "timing" ] && [ "$RUN_HISTORY_ARG" = "off" ]; then
+    TOTAL_S=$(( STEPS * DT ))
+    RUN_MIN_EFF=$(( TOTAL_S / 60 )); RUN_SEC_ARGS=(--run-seconds $(( TOTAL_S % 60 )))
+  fi
   python3 "$CAMPAIGN/configs.py" edit-namelist ./namelist.input.orig ./namelist.input \
     --nproc-x "$nx" --nproc-y "$ny" --numtiles "$numtiles" \
-    --run-minutes "$MIN" --max-dom "$MAX_DOM" \
+    --run-minutes "$RUN_MIN_EFF" "${RUN_SEC_ARGS[@]}" --max-dom "$MAX_DOM" \
     --history-mode "$RUN_HISTORY_ARG" --ranks "$ranks" \
     "${SET_ARGS[@]}" "${DELETE_ARGS[@]}" "${NEST_ARGS[@]}" "${TILE_ARGS[@]}"
   rm -f ./namelist.input.orig
@@ -1303,7 +1353,12 @@ for cid in "${ORDER[@]}"; do
   # byte-identical to before this feature existed (the block below is unreachable then).
   RESTART_USED=0
   RESTART_SKIP_REASON="spinup_failed"
-  if [ -n "$RANKING_SPINUP_OK" ]; then
+  if [ "$FUSED_ON" = "1" ]; then
+    # POINT_FUSED: no restart file exists or is read; the measured state is the same post-spin-up
+    # state, reached inside this one run. Recorded as restart_used=1 + fused=1 in the notes.
+    echo "POINT_FUSED: cid=$cid runs spin-up ${CUR_TARGET_MIN} min + measurement in one wrf.exe"
+    RESTART_USED=1
+  elif [ -n "$RANKING_SPINUP_OK" ]; then
     if [ -n "$(diff <(physics_signature "$ANCHOR_NAMELIST") <(physics_signature ./namelist.input))" ]; then
       echo "RESTART_COMPAT_FALLBACK cid=$cid reason=physics_mismatch -- starting from t0 instead of the shared restart"
       RESTART_SKIP_REASON="physics_mismatch"
@@ -1336,7 +1391,7 @@ for cid in "${ORDER[@]}"; do
   # background + explicit wait -- see the physics loop's own copy above (and the node-hygiene
   # block's job-740 comment) for why.
   CUR_RUN_ID="${CASE}_${cid}_r${rep}_${J}"
-  timeout "$TIMEOUT_S" "${SITE_LAUNCH_CMD[@]}" > wrf.out 2>&1 &
+  timeout "$TIMEOUT_EFF" "${SITE_LAUNCH_CMD[@]}" > wrf.out 2>&1 &
   WRF_PID=$!
   wait "$WRF_PID"
   RC=$?
@@ -1374,6 +1429,11 @@ for cid in "${ORDER[@]}"; do
   # reported success; a failed/truncated run's partial steps.txt is not a real
   # sample.
   if [ "$RC" = "0" ] && [ "$OK" = "1" ]; then
+    # POINT_FUSED: keep only the steps after the spin-up model time (steps_all.txt keeps the raw list)
+    if [ "$FUSED_ON" = "1" ]; then
+      mv steps.txt steps_all.txt
+      "$PYBIN" "$CAMPAIGN/configs.py" fused-steps rsl.out.0000 --spin-seconds $(( CUR_TARGET_MIN * 60 )) --dt "$DT" > steps.txt
+    fi
     STATS=$("$PYBIN" "$CAMPAIGN/configs.py" step-stats steps.txt)
   else
     NALL_RAW=$(wc -l < steps.txt 2>/dev/null || echo 0)
@@ -1478,6 +1538,8 @@ for cid in "${ORDER[@]}"; do
   NOTES="$NOTES $NODE_DIRTY_NOTE"
   if [ "$RANKING_ACTIVE" = "1" ]; then
     NOTES="$NOTES restart_target=$CUR_TARGET_MIN restart_used=${RESTART_USED:-0} $FOREIGN_LOAD_NOTE"
+    [ "$FUSED_ON" = "1" ] && NOTES="$NOTES fused=1 spinup_s=$(( CUR_TARGET_MIN * 60 ))"
+    [ "$POINT_ANCHOR_END" = "0" ] && NOTES="$NOTES drift_gate=off"
   elif [ "$FOREIGN_LOAD" = "1" ]; then
     NOTES="$NOTES $FOREIGN_LOAD_NOTE"
   fi

@@ -894,6 +894,243 @@ def cost_series_for_case(case_dir, run_start, run_end, sources=None, grib_dir=No
         return None
 
 
+# ---------------------------------------------------------------------------------------
+# point plan by CASE TYPE (user requirement: the points follow the kind of case, not the tuning
+# level). Labels come from the decision-0057 classifier -- post/caseinfo.detect_types, or its
+# namelist fallback wtune_advise.det_case_types -- never re-derived here (case_types_for below).
+# ---------------------------------------------------------------------------------------
+# (band of a t0-only plan, band of the type's base set), percent of the predicted run time.
+# Rule-of-thumb numbers; the sources are:
+#   common/synoptic/frontal  t0 only, 15 %, plus combine()'s day/night radiation r(t) formula
+#   convection  10 % with the peak point; t0-only 25 % -- elevconv: truth step cost +44 % at 10 UTC
+#               (knowledge/experiments/2026-09-28-rebuild-underestimates-convective-peak-spinup-
+#               length-test-elevconv.md); a t0-only plan never sees it
+#   tc          10 % with the max-intensity point; t0-only 25 % (assumed, no TC measurement yet)
+#   terrain     10 % with the max moisture/precip point; t0-only 20 % (ASSUMED, no evidence)
+#   climate     10 % with 4-6 month-stratified points; t0-only 25 % (ASSUMED, no evidence)
+# conus25: a t0-only probe under-predicted the run by 9.6 % (wtune_probe_plan module docstring).
+CASE_BANDS = {"common": (15.0, 15.0), "synoptic": (15.0, 15.0), "frontal": (15.0, 15.0),
+              "convection": (25.0, 10.0), "tc": (25.0, 10.0), "terrain": (20.0, 10.0),
+              "climate": (25.0, 10.0)}
+SPECIFIC_TYPES = ("tc", "convection", "terrain", "climate")
+STRATUM_BAND_FACTOR = 0.8        # each extra stratum point multiplies the band (unvalidated)
+CLIMATE_RUN_HOURS = 30 * 24
+
+
+def case_types_for(case):
+    """Labels from the existing classifier for a wtune_advise Case object (reuse, not a second
+    implementation): post.caseinfo.detect_types when wrfout frames exist, else its namelist
+    fallback. Returns a list of type labels."""
+    import wtune_advise
+    return list(wtune_advise.det_case_types(case)["types"])
+
+
+def _grid_time(cs, t):
+    """Snap t onto the hourly grid of cs (when given)."""
+    if cs is None:
+        return t
+    h = round((t - cs.t0).total_seconds() / 3600.0)
+    return cs.t0 + datetime.timedelta(hours=max(0, min(len(cs.times) - 1, h)))
+
+
+def _peak_time(cs, names):
+    """Hour with max sum of z-scored `names` indicators (constants dropped), or None."""
+    if cs is None:
+        return None
+    zs = [z for z in (_zscore(cs.indicators[n]) for n in names if n in cs.indicators) if z]
+    if not zs:
+        return None
+    tot = [sum(z[i] for z in zs) for i in range(len(cs.times))]
+    return cs.times[max(range(len(tot)), key=lambda i: (tot[i], -i))]
+
+
+def _type_points(t, run_start, run_end, cs, best_track, window_s):
+    """([(time, reason)], [rationale], low_confidence) for ONE specific type's base set
+    (beyond t0)."""
+    pts, why, low = [], [], False
+    last = run_end - datetime.timedelta(seconds=window_s)
+    if t == "convection":
+        pk = _peak_time(cs, ("precip_area", "cape_area"))
+        if pk:
+            pts.append((pk, "convective_peak"))
+            why.append("convection: max precip_area+cape_area hour %s" % pk.isoformat())
+        else:
+            low = True
+            why.append("convection: LOW CONFIDENCE -- no precip/CAPE indicator, peak hour unknown")
+    elif t == "terrain":
+        pk = _peak_time(cs, ("precip_area",)) or _peak_time(cs, ("cloud_col",))
+        if pk:
+            pts.append((pk, "orographic_peak"))
+            why.append("terrain: max precip_area (else cloud_col) hour %s" % pk.isoformat())
+        else:
+            low = True
+            why.append("terrain: LOW CONFIDENCE -- no precip/cloud indicator for the moisture peak")
+    elif t == "tc":
+        rows = [r for r in (best_track or []) if run_start <= r["time"] <= run_end]
+        with_p = [r for r in rows if r.get("pmin_hpa")]
+        if with_p:
+            r = min(with_p, key=lambda r: (r["pmin_hpa"], r["time"]))
+            pts.append((r["time"], "tc_max_intensity"))
+            why.append("tc: best-track min pressure %.0f hPa at %s" % (r["pmin_hpa"], r["time"].isoformat()))
+        else:
+            pk = _peak_time(cs, ("cloud_col", "wind_max"))
+            if pk:
+                pts.append((pk, "tc_max_intensity"))
+                why.append("tc: no best-track pressure; max cloud_col+wind_max hour %s" % pk.isoformat())
+            else:
+                low = True
+                why.append("tc: LOW CONFIDENCE -- no best track and no indicators, intensity peak unknown")
+        land = [r for r in rows if r.get("landfall") or r.get("record_id") == "L"]
+        if land:
+            pts.append((land[0]["time"], "tc_landfall"))
+            why.append("tc: landfall flag in the track at %s" % land[0]["time"].isoformat())
+        elif rows:
+            why.append("tc: landfall not determinable (track rows carry no land flag / record id L)")
+    return [(min(max(tt, run_start), last), r) for tt, r in pts], why, low
+
+
+def _climate_points(run_start, run_end, cs, window_s):
+    days = (run_end - run_start).total_seconds() / 86400.0
+    n = max(4, min(6, int(round(days / 30.0))))
+    span = (run_end - run_start) / n
+    last = run_end - datetime.timedelta(seconds=window_s)
+    out = []
+    for k in range(n):
+        lo, hi = run_start + span * k, run_start + span * (k + 1)
+        if k == 0:
+            out.append((run_start, "t0"))
+            continue
+        mid = lo + span / 2
+        if cs is not None and cs.usable:
+            cand = [t for t in cs.times if lo <= t < hi]
+            if cand:
+                vals = sorted(cs.value_at(t) for t in cand)
+                med = vals[len(vals) // 2]
+                mid = min(cand, key=lambda t: (abs(cs.value_at(t) - med), t))
+        out.append((min(_grid_time(cs, mid), last), "stratum %d/%d" % (k + 1, n)))
+    return out
+
+
+def plan_points_for_case(case_types, run_start, run_end, precision_min, T_est_s, indicators=None,
+                         best_track=None, window_s=0.0, min_gap_s=1800.0, max_points=6):
+    """Probe points by case type. Returns {points: [(time, reason)], band_pct, rationale: [str],
+    needs_rebuild: [time], confidence: "normal"|"low", meets_precision: bool, types: [...]}.
+
+    case_types: labels from the decision-0057 classifier (case_types_for). 'precip'/'moisture'/
+    'pbl'/... are ignored (always detected, no point rule); 'common'/'synoptic'/'frontal' alone
+    mean t0 only. Per specific type (CASE_BANDS; sources in the comment above it):
+      convection  t0 + max precip_area/CAPE hour (indicators; none -> low confidence, no point)
+      tc          t0 + best-track min-pressure time (else max cloud_col/wind_max hour), + landfall
+                  time when the track rows carry `landfall` / record_id 'L'
+      terrain     t0 + max precip_area (else cloud_col) hour
+      climate or run >= 30 days   4-6 equal time strata (month-sized), one hour per stratum nearest
+                  the stratum's median c (midpoint without indicators); t0 is stratum 1
+    Several labels: union of the base sets, merged with wtune_probe_plan's min-gap rule; the band
+    is the WORST band among the present specific types (common's 15 % is ignored when a specific
+    type is present).
+
+    Precision rule: ladder [t0 only] -> [base set] -> [base + k strata points, band x 0.8**k, up to
+    max_points]; the first rung with band_pct/100 * T_est_s/60 <= precision_min wins, i.e. the
+    smallest set that is precise enough; if none is, the last rung with meets_precision False. A
+    t0-only rung carries the worst t0-only band of the present types (convection 25 %, ...), so a
+    short run with a loose precision stays at t0 even for a convective case. The extra strata
+    points are cost-quantile strata of `indicators` (coldstart_sample._select_by_cost), else
+    farthest-in-time. t0 uses phase-1 data (no rebuild); every other point needs a rebuild."""
+    types = set(case_types or ["common"])
+    duration_h = (run_end - run_start).total_seconds() / 3600.0
+    if duration_h >= CLIMATE_RUN_HOURS:
+        types.add("climate")
+    specific = [t for t in SPECIFIC_TYPES if t in types]
+    cs = indicators if (indicators is not None and indicators.usable) else None
+    if indicators is not None and cs is None and hasattr(indicators, "indicators"):
+        cs = indicators if any(n in indicators.indicators for n in INDICATORS) else None
+    rationale, low = [], False
+    t0pt = [(run_start, "t0")]
+
+    if not specific:
+        label = "/".join(sorted(types & {"common", "synoptic", "frontal"})) or "common"
+        rationale.append("%s: t0 only (phase-1 data, no rebuild) + the day/night radiation r(t) "
+                         "formula of combine(); band %.0f%%" % (label, CASE_BANDS["common"][1]))
+        ladder_base = t0pt
+        band_t0 = band_base = CASE_BANDS["common"][1]
+    else:
+        base = list(t0pt)
+        for t in specific:
+            if t == "climate":
+                base = _climate_points(run_start, run_end, cs, window_s)
+                rationale.append("climate: %d time strata (month-sized), one hour per stratum%s; "
+                                 "no evidence slug, rule of thumb" % (
+                                     len(base), " by median c" if cs else " at the midpoint"))
+                continue
+            pts, why, lw = _type_points(t, run_start, run_end, cs, best_track, window_s)
+            base += pts
+            rationale += why
+            low = low or lw
+        band_t0 = max(CASE_BANDS[t][0] for t in specific)
+        # a type whose peak could not be located has not earned its base-set band
+        band_base = max(CASE_BANDS[t][1] if not (low and t in ("convection", "tc", "terrain"))
+                        else CASE_BANDS[t][0] for t in specific)
+        ladder_base = base
+    # merge by the existing min-gap rule
+    import wtune_probe_plan as _pp
+
+    def merged(pts):
+        m = _pp._merge_close_points(sorted((t, r, None) for t, r in pts), min_gap_s)
+        return [(t, r) for t, r, _s in m]
+    ladder_base = merged(ladder_base)
+    rungs = []
+    if len(ladder_base) > 1 or "climate" not in specific:
+        rungs.append((t0pt, band_t0, "t0 only"))
+    if len(ladder_base) > 1 or specific:
+        rungs.append((ladder_base, band_base, "base set"))
+    if "climate" in specific:
+        rungs = [r for r in rungs if r[2] != "t0 only"] or [(ladder_base, band_base, "base set")]
+    # escalation: extra strata points on top of the base set
+    chosen = {t for t, _r in ladder_base}
+    cand = [t for t in (cs.times if cs else [run_start + datetime.timedelta(hours=h)
+                                              for h in range(int(duration_h) + 1)])
+            if t <= run_end - datetime.timedelta(seconds=window_s) and t not in chosen]
+    extra = []
+    for k in range(1, max(0, max_points - len(ladder_base)) + 1):
+        if not cand:
+            break
+        if cs is not None:
+            import coldstart_sample as _cs_mod
+            lk = {t: cs.value_at(t) for t in cand + list(chosen) + [e[0] for e in extra]}
+            pool = sorted(set(cand + [x for x in chosen] + [e[0] for e in extra]))
+            sel = _cs_mod._select_by_cost(pool, lk, len(chosen) + len(extra) + 1) or []
+            new = [(t, r) for t, r in sel if t not in chosen and t not in {e[0] for e in extra}]
+            if not new:
+                break
+            pick = (new[0][0], "stratum+")
+        else:
+            allp = sorted(chosen | {e[0] for e in extra})
+            far = max(cand, key=lambda c: (min(abs((c - p).total_seconds()) for p in allp), c))
+            pick = (far, "farthest")
+        extra.append(pick)
+        cand = [c for c in cand if abs((c - pick[0]).total_seconds()) >= min_gap_s]
+        rungs.append((merged(ladder_base + extra), band_base * STRATUM_BAND_FACTOR ** k,
+                      "base + %d strata" % k))
+    win = None
+    for pts, band, name in rungs:
+        if band / 100.0 * T_est_s / 60.0 <= precision_min:
+            win = (pts, band, name, True)
+            break
+    if win is None:
+        pts, band, name = rungs[-1]
+        win = (pts, band, name, False)
+    pts, band, name, ok = win
+    rationale.append("precision: %s -> band %.1f%% x T_est %.1f min = %.1f min %s precision %.1f min"
+                     % (name, band, T_est_s / 60.0, band / 100.0 * T_est_s / 60.0,
+                        "<=" if ok else ">", precision_min))
+    if low:
+        rationale.append("LOW CONFIDENCE: band reverted to the t0-only value for the type(s) whose "
+                         "peak could not be placed")
+    return dict(points=pts, band_pct=band, rationale=rationale,
+                needs_rebuild=[t for t, _r in pts if t != run_start],
+                confidence="low" if low else "normal", meets_precision=ok, types=sorted(types))
+
+
 def main(argv=None):
     """Dry run, no WRF: `python -m wtune_cost_drivers CASE_DIR [--sources a,b] [--spinup-min 20]
     [--max-points 5]` prints the indicator provenance, c(t) per hour and the points

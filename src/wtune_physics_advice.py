@@ -395,6 +395,11 @@ def calibrate_tolerance(ref_wrfout, accepted_wrfout, *, fields=None, safety=3.0,
     return max(finite) * safety
 
 
+def _last_path(x):
+    """The single wrfout path of `x` (the last/end frame of a list of window frames)."""
+    return str(x if isinstance(x, (str, os.PathLike)) else list(x)[-1])
+
+
 def _paths(x):
     return [x] if isinstance(x, (str, os.PathLike)) else list(x)
 
@@ -460,7 +465,10 @@ def fidelity_verdict(baseline_wrfout, cand_wrfout, *, twin=None, fields=None, to
                                     thresholds, judged_fields)
     source = "caller" if tol_rel is not None else "provisional-default"
     tol = DEFAULT_TOL_REL if tol_rel is None else float(tol_rel)
-    results = gate.compare(baseline_wrfout, cand_wrfout,
+    # wtune_config_gate.compare takes ONE wrfout file (last record): a window gives a list of frames
+    # (mid + end), so compare the END frames. (Passing the list through str() made the open fail:
+    # "['/home/.../wrfout_d01_..._00:29:00.nc', ...]" -- live SC26-P1 run.)
+    results = gate.compare(_last_path(baseline_wrfout), _last_path(cand_wrfout),
                            fields=list(fields) if fields is not None else list(GATE_DEFAULT_FIELDS),
                            time_index=time_index)
     failed = gate._check_results(results, tol, tol_abs)

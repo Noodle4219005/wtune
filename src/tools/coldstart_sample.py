@@ -33,6 +33,7 @@ import datetime
 import json
 import math
 import glob
+import hashlib
 import os
 import re
 import shlex
@@ -1028,13 +1029,65 @@ def _fetch_era5_intermediate(plan, plan_dir, runner=None):
     repo = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     ai_python = os.environ.get("WTUNE_AI_PYTHON",
                                os.path.join(repo, "envs", "ai", ".pixi", "envs", "default", "bin", "python"))
-    cmd = [ai_python, os.path.join(repo, "src", "tools", "era5_intermediate.py"),
-           "--bbox", ",".join("%.3f" % v for v in bbox),
-           "--times", ",".join(t.strftime("%Y-%m-%d_%H") for t in times),
-           "--out", wps_dir, "--prefix", src.prefix]
-    if os.environ.get("WTUNE_ERA5_RAIN_SNOW") == "1":
-        cmd.append("--rain-snow")
-    (runner or (lambda c: subprocess.run(c, check=True)))(cmd)
+    rain_snow = os.environ.get("WTUNE_ERA5_RAIN_SNOW") == "1"
+    bbox_s = ",".join("%.3f" % v for v in bbox)
+    run = runner or (lambda c: subprocess.run(c, check=True))
+
+    def cmd_for(chunk):
+        c = [ai_python, os.path.join(repo, "src", "tools", "era5_intermediate.py"),
+             "--bbox", bbox_s, "--times", ",".join(t.strftime("%Y-%m-%d_%H") for t in chunk),
+             "--out", wps_dir, "--prefix", src.prefix]
+        return c + ["--rain-snow"] if rain_snow else c
+
+    # Shared per-(bbox, rain-snow) cache: an hour fetched for one point (or one earlier prediction
+    # of the same case) is linked into every other point's wps dir instead of re-read from ARCO.
+    # The rest is fetched by up to WTUNE_ERA5_WORKERS (default 4) parallel era5_intermediate.py
+    # processes, one slice of hours each -- before, one process did every hour in sequence
+    # (controller staging 2:32 for 5 points on sc26p1). WTUNE_ERA5_CACHE="" disables the cache.
+    cache_root = os.environ.get("WTUNE_ERA5_CACHE", os.path.expanduser("~/wtune-runs/era5_cache"))
+    cache_dir = None
+    if cache_root:
+        key = hashlib.sha1(("%s|%d" % (bbox_s, rain_snow)).encode()).hexdigest()[:12]
+        cache_dir = os.path.join(cache_root, key)
+        try:
+            os.makedirs(cache_dir, exist_ok=True)
+        except OSError:
+            cache_dir = None
+
+    def fname(t):
+        return "%s:%s" % (src.prefix, t.strftime("%Y-%m-%d_%H"))
+    todo = []
+    for t in times:
+        dst = os.path.join(wps_dir, fname(t))
+        cached = os.path.join(cache_dir, fname(t)) if cache_dir else None
+        if cached and os.path.isfile(cached) and os.path.getsize(cached) > 0:
+            if os.path.lexists(dst):
+                os.remove(dst)
+            try:
+                os.link(cached, dst)
+            except OSError:
+                shutil.copyfile(cached, dst)
+        else:
+            todo.append(t)
+    if todo:
+        n_workers = max(1, min(len(todo), int(os.environ.get("WTUNE_ERA5_WORKERS", "4") or 4)))
+        chunks = [todo[i::n_workers] for i in range(n_workers)]
+        if n_workers == 1:
+            run(cmd_for(todo))
+        else:
+            from concurrent.futures import ThreadPoolExecutor
+            with ThreadPoolExecutor(max_workers=n_workers) as ex:
+                list(ex.map(lambda ch: run(cmd_for(ch)), chunks))      # re-raises the first failure
+        if cache_dir:
+            for t in todo:
+                src_f = os.path.join(wps_dir, fname(t))
+                if os.path.isfile(src_f):
+                    tmp = os.path.join(cache_dir, ".%s.%d.tmp" % (fname(t), os.getpid()))
+                    try:
+                        shutil.copyfile(src_f, tmp)
+                        os.replace(tmp, os.path.join(cache_dir, fname(t)))
+                    except OSError:
+                        pass
     names = ["%s:%s" % (src.prefix, t.strftime("%Y-%m-%d_%H")) for t in times]
     missing = [n for n in names if not os.path.exists(os.path.join(wps_dir, n))]
     if missing:
@@ -2697,6 +2750,17 @@ def render_run_sbatch(plan, site="scc", per_window_estimate_min=15, wps_estimate
     # geo_em depends only on the &geogrid/&share domain definition and the static data, never on
     # the date: cache it per domain (rebuild job 1238: geogrid was 62 of 845 s, repeated per point).
     lines.append("GEO_CACHE=\"${WTUNE_GEO_CACHE:-$HOME/wtune-runs/geo_cache}/$(sed -n '/&share/,/^\\//p;/&geogrid/,/^\\//p' namelist.wps | grep -vE 'start_date|end_date|interval_seconds' | sha1sum | cut -c1-16)\"")
+    # Single-flight: the rebuild points of one prediction are separate jobs started together
+    # (wtune_tune.run_rebuild_points), so without a lock all of them miss the cache at once and each
+    # runs geogrid (sc26p1: 42 s x every point). Exactly one job per domain takes the lock and runs
+    # geogrid; the others wait here, then find the cache filled and just link it. -w bounds the
+    # wait; on a lock that cannot be created/taken the job simply runs geogrid itself, as before.
+    lines.append("GEO_LOCKED=0")
+    lines.append("if command -v flock >/dev/null 2>&1 && mkdir -p \"$(dirname \"$GEO_CACHE\")\" 2>/dev/null "
+                 "&& ( : >> \"$GEO_CACHE.lock\" ) 2>/dev/null; then")
+    lines.append("  exec 9>>\"$GEO_CACHE.lock\" && flock -w 900 9 && GEO_LOCKED=1 "
+                 "&& echo \"=== geogrid: lock $GEO_CACHE.lock held ($(date -u +%FT%TZ)) ===\"")
+    lines.append("fi")
     lines.append("GEO_CACHED=1; for f in %s; do [ -s \"$GEO_CACHE/$f\" ] || GEO_CACHED=0; done"
                  % " ".join(geo_em_expected))
     lines.append("if [ $GEO_CACHED = 1 ]; then")
@@ -2720,6 +2784,7 @@ def render_run_sbatch(plan, site="scc", per_window_estimate_min=15, wps_estimate
     lines.append("fi")
     lines.append("if [ $GEO_CACHED = 0 ]; then mkdir -p \"$GEO_CACHE\" && cp -f %s \"$GEO_CACHE/\" 2>/dev/null; fi"
                  % " ".join(geo_em_expected))
+    lines.append("if [ $GEO_LOCKED = 1 ]; then flock -u 9 2>/dev/null; exec 9>&-; fi")
     lines.append("")
     all_intermediate = bool(per_window_forcing) and all(
         f.get("vtable") == "none" for f in per_window_forcing)

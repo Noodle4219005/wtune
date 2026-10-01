@@ -105,7 +105,7 @@ def fixed_scale(run_dir, field, domain, times):
     import netCDF4
     import numpy as np
     from post.plotting import _field_2d
-    from post.recipes.mapfig import nice_levels, pooled_levels
+    from post.recipes.mapfig import pooled_levels
     wrf_mod = __import__("wrf")
     paths = dict(list_frames(run_dir, domain=domain))
     arrays = []
@@ -113,8 +113,16 @@ def fixed_scale(run_dir, field, domain, times):
         with netCDF4.Dataset(paths[t]) as ds:
             arrays.append(np.asarray(_field_2d(ds, wrf_mod, field, None), dtype="f8"))
     if field == "rain_acc":
+        # WPC isohyet thresholds in mm (decision 0064), up to one level above the run maximum
+        from post.obs_figs import PRECIP_CMAP, PRECIP_LEVELS
         hi = max(float(np.nanmax(a)) for a in arrays)
-        return nice_levels(0.0, max(hi, 1.0), nbins=12), "YlGnBu", "max"
+        upto = [lv for lv in PRECIP_LEVELS if lv <= hi]
+        levels = PRECIP_LEVELS[:len(upto) + 1] if len(upto) < len(PRECIP_LEVELS) else PRECIP_LEVELS
+        return [0.0] + list(levels) if len(levels) < 2 else list(levels), PRECIP_CMAP, "max"
+    if field == "t2":
+        # degC on a diverging scale centred on 0 degC (decision 0064)
+        from post.recipes.synoptic import celsius_levels
+        return celsius_levels(np.concatenate([a.ravel() for a in arrays])), "RdBu_r", "both"
     cmap, floor, extend, rule = _SCALE.get(field, ("viridis", None, "both", "pct"))
     if rule == "minmax":
         levels = pooled_levels(arrays, lo_pct=0.0, hi_pct=100.0, nbins=18, floor=floor)

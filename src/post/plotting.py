@@ -39,7 +39,18 @@ def _field_2d(ds, wrf_mod, field, level_hpa, timeidx=0):
         base = _level_base_field(ds, wrf_mod, field, timeidx)
         pressure = wrf_mod.getvar(ds, "pressure", timeidx=timeidx)
         return wrf_mod.interplevel(base, pressure, level_hpa)
-    return _surface_field(ds, wrf_mod, field, timeidx)
+    out = _surface_field(ds, wrf_mod, field, timeidx)
+    if field == "t2":
+        # maps show T2 in degC (decision 0064); `wtune post extract` keeps K via _surface_field
+        attrs = dict(out.attrs)
+        out = out - 273.15
+        out.attrs = attrs
+        out.attrs["units"] = "degC"
+    return out
+
+
+# map colour-bar units (extract.UNITS stays the data-file contract)
+MAP_UNITS = dict(UNITS, t2="degC")
 
 
 def _natural_earth_ready(resolution="110m"):
@@ -145,7 +156,7 @@ def plot_field(run_dir, field, out_dir, domain=1, times=None, level_hpa=None,
                                  cmap=cmap or "viridis", extend=extend)
 
             cbar = fig.colorbar(cf, ax=ax)
-            cbar.set_label(UNITS.get(field, ""))
+            cbar.set_label(MAP_UNITS.get(field, ""))
             _coastline(ax, ds, ccrs)
 
             if overlay_wind:

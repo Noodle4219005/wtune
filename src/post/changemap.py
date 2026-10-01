@@ -55,12 +55,16 @@ def _change_scale(field, diffs):
     band in RdBu_r) from the pooled 98th percentile of |diff|. rain_acc 'change' is never
     negative (it is the rainfall in the interval), so it gets a sequential 0-based map."""
     import numpy as np
-    from post.recipes.mapfig import nice_levels
+
     vals = np.concatenate([np.asarray(d, dtype="f8").ravel() for d in diffs])
     vals = vals[np.isfinite(vals)]
     if field == "rain_acc":
+        # interval rainfall on the WPC isohyet thresholds in mm (decision 0064)
+        from post.obs_figs import PRECIP_CMAP, PRECIP_LEVELS
         hi = float(np.percentile(vals, 99.5)) if vals.size else 1.0
-        return nice_levels(0.0, max(hi, 1.0), nbins=12), "YlGnBu", "max"
+        upto = [lv for lv in PRECIP_LEVELS if lv <= hi]
+        levels = PRECIP_LEVELS[:max(2, len(upto) + 1)]
+        return levels, PRECIP_CMAP, "max"
     from post.recipes.synoptic import symmetric_levels
     vmax = float(np.percentile(np.abs(vals), 98)) if vals.size else 1.0
     return symmetric_levels(max(vmax, 1e-6)), "RdBu_r", "both"

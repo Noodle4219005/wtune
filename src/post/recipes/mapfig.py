@@ -36,11 +36,38 @@ def pooled_levels(arrays, lo_pct=2.0, hi_pct=98.0, nbins=14, floor=None):
     return nice_levels(lo, hi, nbins)
 
 
+def highs_lows(field, window=None, edge=5):
+    """[(j, i, 'H'|'L')] local maxima/minima of a 2-D field in a window x window neighbourhood
+    (default ~1/6 of the shorter side), skipping `edge` boundary cells and flat plateaus -- the
+    H/L letters of a classic surface-pressure chart."""
+    import numpy as np
+    from scipy.ndimage import maximum_filter, minimum_filter
+    a = np.asarray(field, dtype="f8")
+    if a.ndim != 2 or not np.isfinite(a).any():
+        return []
+    w = window or max(5, min(a.shape) // 6)
+    filled = np.where(np.isfinite(a), a, np.nanmean(a))
+    hi = (filled == maximum_filter(filled, size=w, mode="nearest"))
+    lo = (filled == minimum_filter(filled, size=w, mode="nearest"))
+    out = []
+    ny, nx = a.shape
+    spread = np.nanmax(a) - np.nanmin(a)
+    for mask, kind in ((hi, "H"), (lo, "L")):
+        for j, i in zip(*np.nonzero(mask)):
+            if edge <= j < ny - edge and edge <= i < nx - edge:
+                win = filled[max(0, j - w // 2):j + w // 2 + 1, max(0, i - w // 2):i + w // 2 + 1]
+                if spread > 0 and (win.max() - win.min()) > 0.02 * spread:   # not a plateau
+                    out.append((int(j), int(i), kind))
+    return out
+
+
 def save_map(out_path, lats, lons, title, fill_field=None, fill_label="", fill_cmap="viridis",
             contour_field=None, contour_levels=None, contour_color="k", contour_label_fmt="%g",
             u=None, v=None, ds=None, crs=None, basemap="cartopy", fill_levels=None,
             fill_extend="neither", fill_colors=None, gridline_labels=False, hatch_mask=None,
-            hatch_label="below ground", legend_handles=None, hgt=None, bdy_width=None):
+            hatch_label="below ground", legend_handles=None, hgt=None, bdy_width=None,
+            contours=None, hl_field=None, hl_window=None, barb_factor=1.0, barb_label=None,
+            terrain=True):
     """Writes one PNG. lats/lons: plain 2-D ndarrays. fill_field: optional filled contourf.
     contour_field/contour_levels: optional overlaid contour lines (e.g. geopotential height on
     a vorticity fill). u/v: optional wind barbs, subsampled by WIND_SUBSAMPLE. ds: netCDF4
@@ -57,6 +84,12 @@ def save_map(out_path, lats, lons, title, fill_field=None, fill_label="", fill_c
     Every map gets the shared base map (post/basemap.add_base_map: coastline, lakes, borders,
     states, terrain contours from `hgt` or ds HGT, labelled gridlines, nest outline). Barbs are
     drawn only inside the plotted interior (bdy_width edge cells excluded, default from ds).
+    contours: extra line sets drawn after contour_field, each a dict(field, levels, colors,
+    linestyles, linewidths, fmt) -- e.g. dashed thickness with the 540 dam line bold (decision
+    0064). hl_field: mark local maxima "H" / minima "L" (classic SLP chart) found in a
+    hl_window-cell neighbourhood. barb_factor/barb_label: scale u/v for the barbs (1.94384 =
+    m/s -> kt) and name the unit in the legend. terrain=False: no terrain contours (synoptic
+    charts that already carry two line sets).
     """
     import numpy as np
     plt = _matplotlib()
@@ -105,13 +138,35 @@ def save_map(out_path, lats, lons, title, fill_field=None, fill_label="", fill_c
         cs = ax.contour(lons, lats, contour_field, levels=contour_levels, colors=contour_color,
                         linewidths=0.8, **transform_kw)
         ax.clabel(cs, inline=True, fontsize=7, fmt=contour_label_fmt)
+    for spec in contours or ():
+        cs = ax.contour(lons, lats, spec["field"], levels=spec.get("levels"),
+                        colors=spec.get("colors", "k"), linestyles=spec.get("linestyles", "solid"),
+                        linewidths=spec.get("linewidths", 0.8), **transform_kw)
+        if spec.get("fmt"):
+            ax.clabel(cs, inline=True, fontsize=7, fmt=spec["fmt"])
+        if spec.get("label"):
+            from matplotlib.lines import Line2D
+            c = spec.get("colors", "k")
+            handles.append(Line2D([], [], color=c if isinstance(c, str) else c[0],
+                                  ls=spec.get("linestyles", "solid") if isinstance(
+                                      spec.get("linestyles", "solid"), str) else "solid",
+                                  lw=1.0, label=spec["label"]))
+    if hl_field is not None:
+        for (j, i, kind) in highs_lows(hl_field, hl_window):
+            ax.text(lons[j, i], lats[j, i], kind, color="b" if kind == "H" else "r",
+                    fontsize=14, fontweight="bold", ha="center", va="center", zorder=6,
+                    **transform_kw)
     if u is not None and v is not None:
         from post.basemap import bdy_width_of, interior_mask, masked_barbs
         bw = bdy_width if bdy_width is not None else (bdy_width_of(ds) if ds is not None else 0)
-        masked_barbs(ax, lons, lats, u, v, WIND_SUBSAMPLE,
-                     mask=interior_mask(np.shape(lats), bw, fill=fill_field), length=5,
-                     **transform_kw)
-    _coastline(ax, ds, ccrs, natural_earth_ok, lats=lats, lons=lons, hgt=hgt)
+        masked_barbs(ax, lons, lats, np.asarray(u) * barb_factor, np.asarray(v) * barb_factor,
+                     WIND_SUBSAMPLE, mask=interior_mask(np.shape(lats), bw, fill=fill_field),
+                     length=5, **transform_kw)
+        if barb_label:
+            from matplotlib.lines import Line2D
+            handles.append(Line2D([], [], color="k", marker=r"$\rightarrow$", ls="none",
+                                  label=barb_label))
+    _coastline(ax, ds, ccrs, natural_earth_ok, lats=lats, lons=lons, hgt=hgt, terrain=terrain)
     if handles:
         fig.legend(handles=handles, loc="outside lower center", ncol=len(handles), fontsize=8,
                    frameon=False)

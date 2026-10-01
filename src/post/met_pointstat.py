@@ -22,12 +22,15 @@ from post.met_tc import METError, _write_config, parse_met_table
 
 # MET var name -> (ISD-Lite column, scale to MET units, offset, model var, label, unit)
 VARS = {
-    "TMP": dict(col=4, hgt=2, scale=0.1, offset=273.15, model="T2", label="T2", unit="K"),
-    "DPT": dict(col=5, hgt=2, scale=0.1, offset=273.15, model="TD2", label="Td2", unit="K"),
+    # bias/RMSE are temperature DIFFERENCES: degC and K are the same number; surface
+    # verification reports them in degC (decision 0064)
+    "TMP": dict(col=4, hgt=2, scale=0.1, offset=273.15, model="T2", label="T2", unit="°C"),
+    "DPT": dict(col=5, hgt=2, scale=0.1, offset=273.15, model="TD2", label="Td2", unit="°C"),
     "WIND": dict(col=8, hgt=10, scale=0.1, offset=0.0, model="WSPD10", label="10 m wind speed", unit="m/s"),
     "PRMSL": dict(col=6, hgt=0, scale=0.1, offset=0.0, model="MSLP", label="MSLP", unit="hPa"),
 }
 MAX_TIMES = 48
+BOOT_REPS = 1000
 
 
 class NoStations(Exception):
@@ -190,6 +193,7 @@ def summarize(work, times, out_dir, project_dir):
     by_model = {v["model"]: v for v in VARS.values()}
     xs = []
     stn = {}
+    pairs_by_time = {}
     for t, _p in times:
         d = os.path.join(work, "ps_%s" % t.strftime("%Y%m%d%H"))
         if not os.path.isdir(d):
@@ -219,6 +223,7 @@ def summarize(work, times, out_dir, project_dir):
                 key = (r["OBS_SID"], r["FCST_VAR"])
                 s = stn.setdefault(key, dict(lat=float(r["OBS_LAT"]), lon=float(r["OBS_LON"]), d=[]))
                 s["d"].append(f - o)
+                pairs_by_time.setdefault((t, r["FCST_VAR"]), []).append(f - o)
             except (KeyError, ValueError):
                 continue
     if not xs:
@@ -243,8 +248,31 @@ def summarize(work, times, out_dir, project_dir):
         w.writerow(["station_id", "variable", "lat", "lon", "mean_bias", "n_times"])
         for (sid, mv), s in sorted(stn.items()):
             w.writerow([sid, mv, s["lat"], s["lon"], float(np.mean(s["d"])), len(s["d"])])
+    # 95 % bootstrap CI per valid time, stations resampled (decision 0064; same idea as MET's
+    # BOOT_INTERVAL percentile CIs on matched pairs)
+    rng = np.random.default_rng(0)
+    label_to_model = {v["label"]: m for m, v in by_model.items()}
+    with_ci = {}
+    for label, (unit, b, rm, ns) in series.items():
+        if not b:
+            continue
+        ci = dict(bias_lo=[], bias_hi=[], rmse_lo=[], rmse_hi=[])
+        for t in per_var_x.get(label, []):
+            d = np.asarray(pairs_by_time.get((t, label_to_model[label]), []), dtype="f8")
+            if d.size >= 5:
+                idx = rng.integers(0, d.size, size=(BOOT_REPS, d.size))
+                bs = d[idx]
+                bm, br = bs.mean(axis=1), np.sqrt((bs ** 2).mean(axis=1))
+                ci["bias_lo"].append(float(np.percentile(bm, 2.5)))
+                ci["bias_hi"].append(float(np.percentile(bm, 97.5)))
+                ci["rmse_lo"].append(float(np.percentile(br, 2.5)))
+                ci["rmse_hi"].append(float(np.percentile(br, 97.5)))
+            else:
+                for k in ci:
+                    ci[k].append(float("nan"))
+        with_ci[label] = (unit, b, rm, ns, ci)
     series_png = os.path.join(out_dir, "precip_stn_series.png")
-    obs_figs.bias_rmse_series(per_var_x, {k: v for k, v in series.items() if v[1]},
+    obs_figs.bias_rmse_series(per_var_x, with_ci,
                               "model vs ISD-Lite stations, MET Point-Stat (bilinear, interior stations)",
                               series_png)
     panels = []

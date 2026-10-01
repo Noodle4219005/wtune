@@ -247,8 +247,11 @@ def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6, project_dir=No
     last_time = frames[-1][0]
     try:
         from post.plotting import plot_field
+        from post.timeseries import fixed_scale
+        lev, cmap, extend = fixed_scale(run_dir, "rain_acc", domain, [last_time])
         written = plot_field(run_dir, "rain_acc", out_dir, domain=domain,
-                             times=[last_time], basemap="cartopy")
+                             times=[last_time], basemap="cartopy", levels=lev, cmap=cmap,
+                             extend=extend, gridline_labels=True)
         out.append(fig("precip_accum", written[0], run_label, domain="d%02d" % domain,
                        valid_time=last_time,
                        extra={"note": "accumulated since run start (spin-up period "

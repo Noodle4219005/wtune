@@ -9,7 +9,11 @@ import os
 
 from post.plotting import _matplotlib, _set_cartopy_data_dir
 
-PRECIP_LEVELS = [1, 2.5, 5, 10, 15, 25, 35, 50, 75, 100, 150, 200, 300]
+# WPC QPF isohyet thresholds (0.01, 0.10, 0.25, 0.50, 1, 1.5, 2, 3, 4, 6, 8 in) in mm
+# (https://www.wpc.ncep.noaa.gov/html/fam2.shtml; decision 0064)
+PRECIP_LEVELS_IN = [0.01, 0.1, 0.25, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0, 8.0]
+PRECIP_LEVELS = [round(x * 25.4, 2) for x in PRECIP_LEVELS_IN]
+PRECIP_CMAP = "YlGnBu"
 DBZ_LEVELS = list(range(5, 75, 5))
 
 
@@ -32,7 +36,7 @@ def _extent(lat, lon, pad=0.3):
             float(lat[ok].min()) - pad, float(lat[ok].max()) + pad]
 
 
-def side_by_side(lat, lon, left, right, titles, suptitle, out_path, levels, cmap="turbo",
+def side_by_side(lat, lon, left, right, titles, suptitle, out_path, levels, cmap=PRECIP_CMAP,
                  cbar_label="", extend="max", under_color="white"):
     """Two maps of two fields on the same grid with ONE fixed discrete colour scale (`levels`) and
     one shared colour bar. Cells where either field is NaN are blanked in both, so the panels show
@@ -55,7 +59,12 @@ def side_by_side(lat, lon, left, right, titles, suptitle, out_path, levels, cmap
         mesh = ax.pcolormesh(lon, lat, np.ma.masked_invalid(arr), cmap=cm, norm=norm,
                              transform=ccrs.PlateCarree(), shading="auto")
         ax.set_title(title, fontsize=10)
-    fig.colorbar(mesh, ax=fig.axes, shrink=0.85, label=cbar_label, extend=extend)
+    cb = fig.colorbar(mesh, ax=fig.axes, shrink=0.85, label=cbar_label, extend=extend)
+    if list(levels) == PRECIP_LEVELS:
+        # WPC thresholds: label the bar in both mm and inches
+        cb.set_ticks(PRECIP_LEVELS)
+        cb.set_ticklabels(["%g mm (%g in)" % (mm, inch)
+                           for mm, inch in zip(PRECIP_LEVELS, PRECIP_LEVELS_IN)], fontsize=7)
     fig.suptitle(suptitle, fontsize=10)
     fig.savefig(out_path, dpi=110)
     plt.close(fig)
@@ -80,25 +89,52 @@ def diff_map(lat, lon, fcst, obs, title, out_path, cbar_label, vmax):
     return out_path
 
 
+def performance_diagram_points(rows):
+    """[(thresh, success_ratio, pod, csi, fbias)] for the rows with finite POD and FAR;
+    success ratio SR = 1 - FAR (Roebber 2009)."""
+    out = []
+    for r in rows:
+        pod, far = r.get("pod"), r.get("far")
+        if pod is None or far is None or pod != pod or far != far:
+            continue
+        out.append((r["thresh"], 1.0 - far, pod, r.get("csi"), r.get("fbias")))
+    return out
+
+
 def scores_vs_threshold(rows, title, out_path, thresh_label="threshold"):
-    """rows: [{thresh, pod, far, csi, fbias, ets?}] -> 4 small panels (POD, FAR, CSI, frequency
-    bias) against the event threshold; the FBIAS panel has the perfect-score line at 1."""
+    """rows: [{thresh, pod, far, csi, fbias, total?}] -> one Roebber (2009, WAF 24:601)
+    performance diagram: x = success ratio (1-FAR), y = POD, curved CSI isolines (grey), straight
+    frequency-bias rays (dashed, labelled); one marker per event threshold (decision 0064). The
+    perfect forecast is the top-right corner."""
+    import numpy as np
     plt = _matplotlib()
-    fig, axs = plt.subplots(1, 4, figsize=(13, 3.6), layout="constrained")
-    x = [r["thresh"] for r in rows]
-    for ax, key, name in zip(axs, ("pod", "far", "csi", "fbias"),
-                             ("POD (PODY)", "FAR", "CSI", "frequency bias (FBIAS)")):
-        ax.plot(x, [r[key] for r in rows], "-o")
-        ax.set_title(name, fontsize=9)
-        ax.set_xlabel(thresh_label)
-        if min(x) > 0 and max(x) / min(x) > 20:
-            ax.set_xscale("log")
-        ax.grid(alpha=0.3)
-        if key == "fbias":
-            ax.axhline(1.0, color="k", lw=0.7, ls="--")
-        else:
-            ax.set_ylim(0, 1)
-    fig.suptitle(title, fontsize=10)
+    fig, ax = plt.subplots(figsize=(6.4, 6.0), layout="constrained")
+    sr = np.linspace(0.001, 1.0, 400)
+    pod = np.linspace(0.001, 1.0, 400)
+    SR, POD = np.meshgrid(sr, pod)
+    CSI = 1.0 / (1.0 / SR + 1.0 / POD - 1.0)
+    cs = ax.contour(SR, POD, CSI, levels=np.arange(0.1, 1.0, 0.1), colors="0.6", linewidths=0.7)
+    ax.clabel(cs, fmt="%.1f", fontsize=7)
+    for b in (0.3, 0.5, 0.8, 1.0, 1.3, 1.5, 2.0, 3.0, 5.0):
+        x = np.linspace(0.0, 1.0, 50)
+        ax.plot(x, b * x, ls="--", color="0.45" if b != 1.0 else "k", lw=0.7 if b != 1.0 else 1.0)
+        tx, ty = (1.0, b) if b <= 1.0 else (1.0 / b, 1.0)
+        ax.text(min(tx, 0.99), min(ty, 0.99), "%g" % b, fontsize=7, color="0.3",
+                ha="left" if b <= 1.0 else "center", va="center" if b <= 1.0 else "bottom")
+    pts = performance_diagram_points(rows)
+    cmap = plt.get_cmap("viridis")
+    for k, (th, s, p, c, fb) in enumerate(pts):
+        n = next((r.get("total") for r in rows if r["thresh"] == th), None)
+        ax.plot(s, p, "o", ms=9, color=cmap(k / max(1, len(pts) - 1)), mec="k",
+                label="%g%s%s" % (th, " " + thresh_label if thresh_label else "",
+                                  ("  (n=%d)" % n) if n else ""))
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+    ax.set_xlabel("success ratio (1 - FAR)")
+    ax.set_ylabel("probability of detection (POD)")
+    ax.set_aspect("equal")
+    ax.legend(title="event threshold", fontsize=7, loc="lower right")
+    ax.set_title(title + "\ngrey curves: CSI; dashed rays: frequency bias", fontsize=9)
     fig.savefig(out_path, dpi=110)
     plt.close(fig)
     return out_path
@@ -161,13 +197,30 @@ def bias_rmse_series(times_by_label, series, title, out_path):
     n = len(series)
     fig, axs = plt.subplots(n, 1, figsize=(9, 2.6 * n), sharex=True, layout="constrained",
                             squeeze=False)
-    for ax, (label, (unit, bias, rmse, cnt)) in zip(axs[:, 0], series.items()):
+    for ax, (label, spec) in zip(axs[:, 0], series.items()):
+        unit, bias, rmse, cnt = spec[:4]
+        ci = spec[4] if len(spec) > 4 else None
         t = times_by_label[label]
-        ax.plot(t, bias, "-o", ms=3, label="bias (model - obs)")
-        ax.plot(t, rmse, "-s", ms=3, label="RMSE")
+        ax.plot(t, bias, "-o", ms=3, color="C0", label="bias (model - obs)")
+        ax.plot(t, rmse, "-s", ms=3, color="C1", label="RMSE")
+        if ci:
+            # 95 % bootstrap interval, stations resampled at each valid time (decision 0064)
+            for key, color in (("bias", "C0"), ("rmse", "C1")):
+                lo, hi = ci.get(key + "_lo"), ci.get(key + "_hi")
+                if lo and hi and len(lo) == len(t):
+                    ax.fill_between(t, lo, hi, color=color, alpha=0.18, lw=0,
+                                    label="95% bootstrap CI" if key == "bias" else None)
         ax.axhline(0, color="k", lw=0.6)
         ax.set_ylabel("%s (%s)" % (label, unit), fontsize=9)
         ax.grid(alpha=0.3)
+        if cnt and len(cnt) == len(t):
+            ax2 = ax.twinx()
+            ax2.bar(t, cnt, width=0.03, color="0.75", alpha=0.6, zorder=0)
+            ax2.set_ylabel("n stations", fontsize=7, color="0.45")
+            ax2.tick_params(axis="y", labelsize=6, colors="0.45")
+            ax2.set_ylim(0, max(cnt) * 4)          # keep the count bars in the bottom quarter
+            ax.set_zorder(ax2.get_zorder() + 1)
+            ax.patch.set_visible(False)
         ax.legend(fontsize=7, loc="upper right")
     axs[-1, 0].set_xlabel("valid time (UTC)")
     for lab in axs[-1, 0].get_xticklabels():

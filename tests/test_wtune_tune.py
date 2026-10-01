@@ -82,7 +82,7 @@ def make_fake_scancel():
     return runner, calls
 
 
-def make_ledger_reader_from_configs(job_to_configs_path, base_s=1.0):
+def make_ledger_reader_from_configs(job_to_configs_path, base_s=1.0, reps=1):
     """Fabricates one successful measurement per config id actually written to disk for that job
     (distinct, deterministic medians so ranking is unambiguous)."""
 
@@ -96,8 +96,9 @@ def make_ledger_reader_from_configs(job_to_configs_path, base_s=1.0):
                 data = json.load(f)
             for i, cfg in enumerate(data["configs"]):
                 s = base_s / (1.0 + 0.1 * i)
-                rows.append(dict(run_id="%s_%s_r1_%s" % (case, cfg["id"], j), job_id=j,
-                                  s_per_step_median=str(s)))
+                for rep in range(1, reps + 1):
+                    rows.append(dict(run_id="%s_%s_r%d_%s" % (case, cfg["id"], rep, j), job_id=j,
+                                      s_per_step_median=str(s)))
         return rows
 
     return reader
@@ -747,11 +748,26 @@ def test_build_report_marks_confirmed_configs():
     ctx = _ctx()
     all_results = {"G0001": _result("G0001", 0.5, {"id": "G0001", "ranks": 8, "omp": 1, "nx": 2,
                                                      "ny": 4, "numtiles": 1, "dist": "block"})}
-    confirm_results = {"G0001": _result("G0001", 0.55, all_results["G0001"]["config"])}
+    confirm_results = {"G0001": dict(_result("G0001", 0.55, all_results["G0001"]["config"]),
+                                     s_values=[0.55, 0.55], n=2)}     # both confirm reps ran
     report = wtune_tune.build_report(ctx, nodes=1, nodes_note="test", all_results=all_results,
                                       confirm_results=confirm_results, anchor_cid=None)
     assert report["ranking"][0]["confirmed"] is True
     assert report["ranking"][0]["median_s_per_step"] == pytest.approx(0.55)   # confirm wins
+
+
+def test_build_report_partial_confirm_is_not_marked_confirmed():
+    # confirm job CANCELLED at the budget deadline after 1 of confirm_reps=2 replicates (conus25
+    # scc run: best.confirmed was True with n_measurements=1)
+    ctx = _ctx()
+    cfg = {"id": "G0001", "ranks": 8, "omp": 1, "nx": 2, "ny": 4, "numtiles": 1, "dist": "block"}
+    all_results = {"G0001": _result("G0001", 0.5, cfg)}
+    confirm_results = {"G0001": _result("G0001", 0.55, cfg)}          # n=1 < confirm_reps=2
+    report = wtune_tune.build_report(ctx, nodes=1, nodes_note="test", all_results=all_results,
+                                      confirm_results=confirm_results, anchor_cid=None)
+    assert report["ranking"][0]["confirmed"] is False
+    assert report["best"]["confirmed"] is False
+    assert report["best"]["n_measurements"] == 1
 
 
 # ---------------------------------------------------------------------------
@@ -822,7 +838,7 @@ def test_round0_measuring_0_3s_per_step_lets_adaptive_and_confirm_both_run_withi
     # round0 measures 0.30/0.27/0.25 s/step here -- matching the real conus12 run's 0.30-0.93
     # s/step -- instead of the no-ledger fallback (CONSERVATIVE_S_PER_STEP=10s/step) every later
     # stage used to stay pinned to.
-    ledger_reader = make_ledger_reader_from_configs(job_to_configs_path, base_s=0.3)
+    ledger_reader = make_ledger_reader_from_configs(job_to_configs_path, base_s=0.3, reps=2)
 
     proposer_calls = {"n": 0}
 
@@ -1336,8 +1352,8 @@ def make_scaling_fakes(curve, start=7000):
 
 
 def _run_cli(monkeypatch, tmp_path, argv, curve=NONMONO_CURVE, profile=ALL_NODES_PROFILE,
-             total_steps=1000):
-    case_json = dict(MATTHEW_LIKE, prep_dir=str(tmp_path / "matthew"))
+             total_steps=1000, grid=MATTHEW_LIKE):
+    case_json = dict(grid, prep_dir=str(tmp_path / "matthew"))
     monkeypatch.setattr(wtune_tune, "resolve_case",
                         lambda case, cpn: (case_json, str(tmp_path / "namelist.input"), profile))
     monkeypatch.setattr(wtune_tune, "_total_steps", lambda nl: total_steps)
@@ -1372,7 +1388,9 @@ def test_nodes_search_is_default_and_picks_n_on_nonmonotone_curve(monkeypatch, t
 
 
 def test_nodes_search_early_stop_does_not_submit_larger_n(monkeypatch, tmp_path):
-    report, job_nodes, _sc = _run_cli(monkeypatch, tmp_path, ["--minutes", "600"])
+    # big grid: every N (13 included) has a legal pure-MPI layout, so 13 is skipped by early stop
+    report, job_nodes, _sc = _run_cli(monkeypatch, tmp_path, ["--minutes", "600"],
+                                      grid=dict(e_we=400, e_sn=400, e_vert=45))
     ns = report["node_selection"]
     assert 13 not in job_nodes.values()
     assert any(s["nodes"] == 13 and "early stop" in s["reason"] for s in ns["skipped"])
@@ -1414,7 +1432,9 @@ def test_nodes_search_budget_skips_n_that_would_overrun(monkeypatch, tmp_path, c
     report, job_nodes, _sc = _run_cli(monkeypatch, tmp_path, ["--minutes", "3"])
     ns = report["node_selection"]
     assert ns["sweep_jobs"] == [] and ns["table"] == []     # no sweep job was submitted
-    assert ns["skipped"] and all("exceed the budget" in s["reason"] for s in ns["skipped"])
+    assert ns["skipped"] and all("exceed the budget" in s["reason"] or "no legal" in s["reason"]
+                                 for s in ns["skipped"])
+    assert any(s["nodes"] == 1 and "exceed the budget" in s["reason"] for s in ns["skipped"])
     assert "falling back to the proxy" in capsys.readouterr().out
 
 
@@ -1431,22 +1451,44 @@ def test_node_sweep_budget_skip_is_per_n(tmp_path):
     assert "exceed the budget" in sw["skipped"][0]["reason"]
 
 
-def test_node_sweep_skips_n_without_legal_decomposition(monkeypatch, tmp_path, capsys):
-    sbatch, reader, job_nodes = make_scaling_fakes({1: 1.0, 2: 0.6})
-    real = wtune_tune.sweep.build_configs
-
-    def fake_build(case, case_json, nodes, *a, **k):
-        if nodes == 2:
-            return dict(configs=[], skip_reason="no legal WRF decomposition (test)")
-        return real(case, case_json, nodes, *a, **k)
-
-    monkeypatch.setattr(wtune_tune.sweep, "build_configs", fake_build)
-    ctx = _ctx(sbatch_runner=sbatch, ledger_reader=reader, budget_s=36000.0,
+def test_node_sweep_candidates_on_matthew_like_grid_use_omp(tmp_path):
+    # 91x100 grid (r_max 90), 72 cores/node: pure MPI at N>=2 is illegal, but ranks = N*72/omp is
+    # legal for omp=2 (N=2), 4 (N=4), 8 (N=8) -> all are sweep candidates with a hybrid ANCHOR.
+    sbatch, reader, job_nodes = make_scaling_fakes({1: 1.0, 2: 0.5, 4: 0.3, 8: 0.2, 13: 0.1})
+    ctx = _ctx(sbatch_runner=sbatch, ledger_reader=reader, budget_s=360000.0,
                out_dir=str(tmp_path / "o"), ledger_dir=str(tmp_path / "l"))
-    sw = wtune_tune.run_node_sweep(ctx, [1, 2])
-    assert sorted(sw["measurements"]) == [1]
-    assert sw["skipped"] == [dict(nodes=2, reason="no legal WRF decomposition (test)")]
-    assert "N=2 skipped" in capsys.readouterr().out
+    sw = wtune_tune.run_node_sweep(ctx, [1, 2, 4, 8, 13], budget_frac=1.0)
+    for n, omp in ((1, 1), (2, 2), (4, 4), (8, 8)):
+        a = sw["anchors"][n]
+        assert a["omp"] == omp and a["ranks"] * a["omp"] == n * 72     # all cores used
+        assert a["numtiles"] == omp and a["nx"] * a["ny"] == a["ranks"]
+        assert a["ranks"] <= 90
+    assert {s["nodes"] for s in sw["skipped"]} == {13}
+    assert "no legal decomposition at any omp in {" in sw["skipped"][0]["reason"]
+    assert {1, 2, 4} <= set(sw["measurements"])
+
+
+def test_node_sweep_skips_n_without_legal_decomposition(tmp_path):
+    # 20x20 grid: r_max 4. N=1 (omp 18 -> 4 ranks), N=2 (omp 36), N=4 (omp 72) work; N=8 would
+    # need 8 ranks at omp<=72 -> none legal.
+    sbatch, reader, job_nodes = make_scaling_fakes({1: 1.0, 2: 0.6, 4: 0.5, 8: 0.4})
+    ctx = _ctx(sbatch_runner=sbatch, ledger_reader=reader, budget_s=360000.0,
+               case_json=dict(e_we=20, e_sn=20, e_vert=45, prep_dir="/fake"),
+               out_dir=str(tmp_path / "o"), ledger_dir=str(tmp_path / "l"))
+    sw = wtune_tune.run_node_sweep(ctx, [1, 2, 4, 8], budget_frac=1.0)
+    assert sorted(sw["measurements"]) == [1, 2, 4]
+    assert [s["nodes"] for s in sw["skipped"]] == [8]
+    assert sw["skipped"][0]["reason"].startswith("no legal decomposition at any omp in {1, 2, 3")
+    assert sw["anchors"][1]["omp"] == 18
+
+
+def test_node_sweep_omp_cap_limits_candidates(tmp_path):
+    sbatch, reader, job_nodes = make_scaling_fakes({1: 1.0, 2: 0.6})
+    ctx = _ctx(sbatch_runner=sbatch, ledger_reader=reader, budget_s=360000.0, omp_cap=1,
+               out_dir=str(tmp_path / "o"), ledger_dir=str(tmp_path / "l"))
+    sw = wtune_tune.run_node_sweep(ctx, [1, 2], budget_frac=1.0)
+    assert sorted(sw["measurements"]) == [1]            # N=2 needs omp=2 > cap
+    assert sw["skipped"][0]["reason"] == "no legal decomposition at any omp in {1}"
 
 
 def test_node_sweep_applies_chem_j_patch_guard(monkeypatch, tmp_path):
@@ -1515,10 +1557,10 @@ def test_node_sweep_budget_cap_skips_larger_n(tmp_path):
 
     ctx = _ctx(sbatch_runner=sbatch, ledger_reader=slow_reader, clock=clock, budget_s=36000.0,
                out_dir=str(tmp_path / "o"), ledger_dir=str(tmp_path / "l"))
-    sw = wtune_tune.run_node_sweep(ctx, [1, 2, 4, 8, 13], budget_frac=0.4)
-    assert sorted(set(job_nodes.values())) == [1, 2, 4]      # wave [1,2,4] ran, 8 and 13 did not
+    sw = wtune_tune.run_node_sweep(ctx, [1, 2, 4, 8], budget_frac=0.4)
+    assert sorted(set(job_nodes.values())) == [1, 2, 4]      # wave [1,2,4] ran, 8 did not
     capped = {s["nodes"] for s in sw["skipped"] if "sweep budget cap" in s["reason"]}
-    assert capped == {8, 13}
+    assert capped == {8}
     # a roomier cap lets the next wave run
     ctx2 = _ctx(sbatch_runner=sbatch, ledger_reader=slow_reader, clock=FakeClock(),
                 budget_s=36000.0, out_dir=str(tmp_path / "o2"), ledger_dir=str(tmp_path / "l"))
@@ -1534,3 +1576,45 @@ def test_sweep_budget_frac_cli_and_config_default(monkeypatch, tmp_path):
     assert args.sweep_budget_frac == 0.25
     assert wtune_tune.DEFAULT_SWEEP_BUDGET_FRAC == 0.4
     assert wtune_tune.build_arg_parser().parse_args(["matthew"]).sweep_budget_frac is None
+
+
+def test_finalist_round0_uses_the_sweep_hybrid_anchor(monkeypatch, tmp_path):
+    report, job_nodes, _sc = _run_cli(monkeypatch, tmp_path, ["--minutes", "600"])
+    assert report["node_selection"]["finalists"] == [4, 8]
+    # round0 job configs at each finalist N: ANCHOR is the hybrid layout using all cores
+    for n, omp in ((4, 4), (8, 8)):
+        cfg_path = tmp_path / "out" / ("n%d" % n) / "round0-s0" / "configs.json"
+        with open(cfg_path) as f:
+            cfgs = {c["id"]: c for c in json.load(f)["configs"]}
+        a = cfgs["ANCHOR"]
+        assert a["omp"] == omp and a["ranks"] * a["omp"] == n * 72
+        assert a["numtiles"] == omp
+
+
+def test_round0_anchor_override_replaces_only_the_anchor(tmp_path):
+    sbatch, calls, paths = make_fake_sbatch()
+    ctx = _ctx(sbatch_runner=sbatch, budget_s=36000.0, max_nodes=13, nodes=2,
+               out_dir=str(tmp_path / "o"), ledger_dir=str(tmp_path / "l"))
+    ov = dict(id="ANCHOR", ranks=72, omp=2, nx=8, ny=9, numtiles=2, dist="block", blocktime="0",
+              config_source="anchor")
+    ctx.anchor_override = ov
+    _jobs, by_cid, _rows = wtune_tune.run_round0(ctx)
+    assert by_cid["ANCHOR"] == ov
+    others = [c for cid, c in by_cid.items() if cid != "ANCHOR"]
+    assert others and all(wtune_tune.sweep._identity(c) != wtune_tune.sweep._identity(ov)
+                          for c in others)
+
+
+def test_node_search_builds_full_run_prediction_once_for_the_winner(monkeypatch, tmp_path):
+    calls = []
+
+    def fake_pred(ctx, best_config, nodes, all_results, confirm_results, probe_measurements=None):
+        calls.append((nodes, best_config and best_config.get("id")))
+        return "PREDICTION-FOR-%d" % nodes
+
+    monkeypatch.setattr(wtune_tune, "build_full_run_prediction", fake_pred)
+    report, _jn, _sc = _run_cli(monkeypatch, tmp_path, ["--minutes", "600"])
+    assert len(report["node_selection"]["finalists"]) == 2     # two finalists were searched
+    assert len(calls) == 1                                      # ...but one prediction build
+    assert calls[0][0] == report["nodes"]
+    assert report["full_run_prediction"] == "PREDICTION-FOR-%d" % report["nodes"]

@@ -689,6 +689,8 @@ class Ctx:
     stage1_trimmed: list = dataclasses.field(default_factory=list)
     job_cids: dict = dataclasses.field(default_factory=dict)
     not_measured: list = dataclasses.field(default_factory=list)
+    # node search: the sweep's hybrid ANCHOR at ctx.nodes, used as round0's ANCHOR (else None)
+    anchor_override: dict = None
 
     def wall_elapsed(self):
         return self.clock.now() - self.start_time
@@ -1073,6 +1075,13 @@ def run_round0(ctx):
 
     built = sweep.build_configs(ctx.case, ctx.case_json, ctx.nodes, max(0, total_k - 1), ctx.seed,
                                  ctx.hardware_id, ctx.cores_per_node)
+    if ctx.anchor_override:
+        # node-search finalist: the sweep's hybrid ANCHOR (all cores used) replaces build_configs'
+        # omp=1 downward-scanned one; the other candidates stay as sampled
+        ov = ctx.anchor_override
+        rest = [c for c in built["configs"]
+                if c.get("id") != "ANCHOR" and sweep._identity(c) != sweep._identity(ov)]
+        built = dict(built, configs=[ov] + rest, skip_reason=None)
     print("round0: s_est=%.3fs/step[%s,n=%d] startup_s=%.1fs[%s] slots=%d configs_per_job=%d "
           "total=%d (%s)"
           % (s_est, s_source, n_rows, ctx.startup_s, ctx.startup_source, slots, configs_per_job,
@@ -1961,7 +1970,8 @@ def _assert_report_is_strict_only(ctx, param_table):
             + ", ".join("&%s %s" % gk for gk in bad))
 
 
-def build_report(ctx, nodes, nodes_note, all_results, confirm_results, anchor_cid):
+def build_report(ctx, nodes, nodes_note, all_results, confirm_results, anchor_cid,
+                 full_prediction=True):
     ranked_source = confirm_results if confirm_results else all_results
     predicted = predict_candidates(ctx, nodes, ranked_source)
     ranked = rank_predicted_entries(predicted, anchor_cid)
@@ -1980,7 +1990,10 @@ def build_report(ctx, nodes, nodes_note, all_results, confirm_results, anchor_ci
             nproc_x=cfg.get("nx"), nproc_y=cfg.get("ny"), numtiles=cfg.get("numtiles"),
             dist=cfg.get("dist"), median_s_per_step=r["median"], range_s_per_step=[r["lo"], r["hi"]],
             n_measurements=r["n"], speedup_vs_anchor=speedup,
-            confirmed=bool(confirm_results and r["cid"] in confirm_results),
+            # confirmed only when ALL ctx.confirm_reps replicates of THIS config were measured: a
+            # confirm job cancelled at the budget deadline can leave 1 rep (or none) per config
+            confirmed=bool(confirm_results and r["cid"] in confirm_results
+                           and confirm_results[r["cid"]].get("n", 0) >= ctx.confirm_reps),
             predicted_total_s=pred_total_s,
             predicted_total_hms=_fmt_hms(pred_total_s) if pred_total_s is not None else None,
             predicted_range_s=([r["pred_low_s"], r["pred_high_s"]]
@@ -2004,8 +2017,9 @@ def build_report(ctx, nodes, nodes_note, all_results, confirm_results, anchor_ci
         budget_minutes=ctx.budget_s / 60.0, elapsed_minutes=ctx.elapsed() / 60.0,
         job_ids=list(ctx.owned_jobs), cancelled_job_ids=list(ctx.cancelled_jobs),
         anchor_id=anchor_cid, ranking=table, best=best, param_table=param_table,
-        full_run_prediction=build_full_run_prediction(ctx, best_config, nodes, all_results,
-                                                        confirm_results),
+        full_run_prediction=(build_full_run_prediction(ctx, best_config, nodes, all_results,
+                                                         confirm_results)
+                             if full_prediction else None),
         ranking_start_note=ctx.ranking_start_note,
     )
 
@@ -3372,23 +3386,68 @@ def _total_steps(namelist_path):
         return None
 
 
+def _sweep_omp_options(ctx, nodes):
+    """The allowed OpenMP settings at `nodes`: decomp_space's own omp set (divisors of the NUMA
+    width whose rank count total/omp packs a whole number of ranks per node), minus anything above
+    the extension OMP cap (dmpar-only builds)."""
+    opts = decomp_space.default_omp_options(nodes * ctx.cores_per_node, nodes, ctx.hardware_id)
+    cap = getattr(ctx, "omp_cap", None)
+    return [o for o in opts if not cap or o <= cap]
+
+
+def _hybrid_anchor(ctx, nodes, omp):
+    """ANCHOR at `nodes` using ALL cores: ranks = nodes*cores_per_node/omp, numtiles = omp, the
+    least-aspect legal (nx, ny), dist=block (same conventions as scc_sweep.build_anchor). None when
+    no (nx, ny) is legal for that rank count (decomp_space.legal_shapes_exact, every active
+    domain)."""
+    total = nodes * ctx.cores_per_node
+    cands, _axis = decomp_space.enumerate_space(
+        ctx.case_json, total_cores=total, nodes=nodes, hardware_id=ctx.hardware_id,
+        omp_options=[omp],
+        tile_options=dict(numtiles_multiples=(1,), max_numtiles=omp, include_2d=False))
+    cands = [c for c in cands if c["numtiles"] == omp and c["dist"] == "cyclic"
+             and c["blocktime"] == "0"]
+    if not cands:
+        return None
+    we_list, sn_list = campaign_configs._active_domain_extents(ctx.case_json)
+
+    def aspect(c):
+        px, _ = decomp_space.rsl_patch_extents(we_list[0], c["nx"])
+        py, _ = decomp_space.rsl_patch_extents(sn_list[0], c["ny"])
+        return (max(px, py) / float(min(px, py)), c["nx"], c["ny"])
+
+    base = min(cands, key=aspect)
+    return dict(
+        id="ANCHOR", ranks=base["ranks"], omp=omp, nx=base["nx"], ny=base["ny"],
+        numtiles=base["numtiles"], dist="block", blocktime=base["blocktime"],
+        patch_x=base.get("patch_x"), patch_y=base.get("patch_y"),
+        numtiles_x=base.get("numtiles_x", 0), numtiles_y=base.get("numtiles_y", 0),
+        tile_sz_x=base.get("tile_sz_x", 0), tile_sz_y=base.get("tile_sz_y", 0),
+        tile_strategy=base.get("tile_strategy", 0), tile_shape="1d_y", config_source="anchor")
+
+
 def _sweep_anchor(ctx, nodes):
-    """(anchor config | None, reason) -- the same ANCHOR round 0 builds at `nodes`
-    (sweep.build_configs), passed through the shared legality filter (_apply_search_filter: OMP
-    cap, WRF-Chem j-patch guard, --config exclude rules)."""
+    """(anchor config | None, reason). `nodes` is a sweep candidate when SOME allowed omp (see
+    _sweep_omp_options) makes ranks = nodes*cores_per_node/omp a legal decomposition -- pure MPI
+    (omp=1) is not required, so small grids still scale out hybrid. The ANCHOR uses the SMALLEST
+    such omp (that also passes the shared legality filter: WRF-Chem j-patch guard, --config
+    exclude rules)."""
     cn = dataclasses.replace(ctx, nodes=nodes)
-    built = sweep.build_configs(ctx.case, ctx.case_json, nodes, 0, ctx.seed, ctx.hardware_id,
-                                 ctx.cores_per_node)
-    anchors = [c for c in built["configs"] if c.get("id") == "ANCHOR"]
-    if not anchors:
-        return None, built["skip_reason"] or "no legal ANCHOR decomposition"
-    buf = io.StringIO()
-    with contextlib.redirect_stdout(buf):
-        kept = _apply_search_filter(cn, anchors)
-    if not kept:
-        why = "; ".join(l.strip() for l in buf.getvalue().splitlines() if l.strip())
-        return None, "ANCHOR rejected by the legality filter (%s)" % (why or "excluded")
-    return kept[0], None
+    omps = _sweep_omp_options(ctx, nodes)
+    msgs = []
+    for omp in sorted(omps):
+        anchor = _hybrid_anchor(ctx, nodes, omp)
+        if anchor is None:
+            continue
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            kept = _apply_search_filter(cn, [anchor])
+        if kept:
+            return kept[0], None
+        msgs.extend(l.strip() for l in buf.getvalue().splitlines() if l.strip())
+    if msgs:
+        return None, "ANCHOR rejected by the legality filter (%s)" % "; ".join(msgs)
+    return None, "no legal decomposition at any omp in {%s}" % ", ".join(str(o) for o in omps)
 
 
 def run_node_sweep(ctx, legal_nodes, budget_frac=DEFAULT_SWEEP_BUDGET_FRAC):
@@ -3490,9 +3549,12 @@ def run_node_search(ctx, profile, objective, deadline_s, min_efficiency, k_final
     """Node sweep -> choose N -> round0/adaptive/confirm at each finalist N (remaining budget
     split evenly over the finalists still to run) -> final (N, config) by the same objective over
     the finalists' best tuned medians. Falls back to the proxy path when nothing was measured."""
-    legal = [r["nodes"] for r in _legal_rows(profile, ctx.max_nodes)]
+    # candidates: every node count the profile checks (pure-MPI legality there is NOT required --
+    # _sweep_anchor accepts any N with a legal hybrid layout and reports the rest as skipped)
+    legal = [r["nodes"] for r in profile.get("core_count_priors", {}).get("efficiency_table", [])
+             if r["nodes"] <= ctx.max_nodes]
     if not legal:
-        print("node sweep: profile lists no legal node count; sweeping N=1 only")
+        print("node sweep: profile lists no node counts; sweeping N=1 only")
         legal = [1]
     sw = run_node_sweep(ctx, legal, budget_frac=sweep_budget_frac)
     overhead_s = ctx.startup_s
@@ -3528,7 +3590,8 @@ def run_node_search(ctx, profile, objective, deadline_s, min_efficiency, k_final
             continue
         share = remaining / (len(finals) - i)
         fctx = dataclasses.replace(ctx, nodes=n, budget_s=ctx.elapsed() + share,
-                                    out_dir=os.path.join(ctx.out_dir, "n%d" % n))
+                                    out_dir=os.path.join(ctx.out_dir, "n%d" % n),
+                                    anchor_override=sw["anchors"].get(n))
         os.makedirs(fctx.out_dir, exist_ok=True)
         print("node search: finalist N=%d, budget share %s" % (n, _fmt_hms(share)))
         all_results, confirm_results, anchor_cid = run_tuning_at(fctx)
@@ -3539,9 +3602,11 @@ def run_node_search(ctx, profile, objective, deadline_s, min_efficiency, k_final
         if not all_results:
             continue
         rep = build_report(fctx, n, "node search finalist", all_results, confirm_results,
-                           anchor_cid)
+                           anchor_cid, full_prediction=False)   # built once, for the winner
         if rep["best"]:
-            outcomes[n] = dict(report=rep, best_median=rep["best"]["median_s_per_step"])
+            outcomes[n] = dict(report=rep, best_median=rep["best"]["median_s_per_step"],
+                               ctx=fctx, all_results=all_results,
+                               confirm_results=confirm_results)
     if not outcomes:
         # budget gone before any finalist produced a result: report the sweep ANCHOR at `chosen`
         fctx = dataclasses.replace(ctx, nodes=chosen)
@@ -3559,6 +3624,13 @@ def run_node_search(ctx, profile, objective, deadline_s, min_efficiency, k_final
         final_n, final_note = wtune_nodes.choose(frows, objective, **kw)
         final_note = "final over tuned finalists %s: %s" % (sorted(outcomes), final_note)
     report = outcomes[final_n]["report"]
+    if report.get("full_run_prediction") is None:       # winner of a finalist search
+        o = outcomes[final_n]
+        best_id = report["best"]["id"]
+        entry = (o["confirm_results"] or {}).get(best_id) or o["all_results"].get(best_id)
+        report["full_run_prediction"] = build_full_run_prediction(
+            o["ctx"], entry["config"] if entry else None, final_n, o["all_results"],
+            o["confirm_results"])
     report["nodes"], report["nodes_note"] = final_n, final_note
     report["budget_minutes"] = ctx.budget_s / 60.0
     report["elapsed_minutes"] = ctx.elapsed() / 60.0

@@ -4,9 +4,10 @@
     wtune watch RUNDIR [--interval SEC=60] [--once] [--json] [--replay-fraction F[,F...]]
         [--init-limit SEC=600] [--hang-factor K=10] [--hang-min SEC=300] [--prediction PRED_JSON]
 
-Reads ONLY RUNDIR/namelist.input and RUNDIR/rsl.error.0000 + rsl.out.0000 (reopened and
-re-stat'ed on every poll: on NFS a long-lived handle can serve stale content). Never writes,
-never signals the job.
+Reads ONLY RUNDIR/namelist.input, RUNDIR/rsl.error.0000 + rsl.out.0000 (reopened and
+re-stat'ed on every poll: on NFS a long-lived handle can serve stale content) and the names/mtimes
+of RUNDIR/wrfout_d01_* (plus run_report.json for a run root, below). Never writes, never signals
+the job.
 
 Progress
     d01 'Timing for main: time <T> on domain   1: <s> elapsed seconds' lines; T is the END of
@@ -53,8 +54,9 @@ Remaining time = remaining compute + remaining writes (both reported, plus their
     (history median_s per domain, restart per_write_s) when given, else 0 with a note.
 
 Warnings (code, text); exit 3 on FAILED, 2 on HANG/HANG_INIT/NEST_STOPPED/NEST_END_EARLY, else 0
-    HANG          live: newest mtime of the chosen rsl file older than
-                  max(hang_min, hang_factor x median d01 step of the rate window).
+    HANG          live: newest mtime of the chosen rsl file and of the wrfout_d01_* frames older
+                  than max(hang_min, hang_factor x median d01 step of the rate window) (frames
+                  but no Timing line yet: max(hang_min, init_limit)).
     HANG_INIT     no d01 Timing line yet and the rsl file older than init_limit (birth time when
                   the platform reports it, else ctime). The known silent hang (elevconv, scc:
                   missing iofields file) ends with 'Problem opening storm_diags_d01.txt' after
@@ -68,7 +70,20 @@ Warnings (code, text); exit 3 on FAILED, 2 on HANG/HANG_INIT/NEST_STOPPED/NEST_E
     FAILED        'FATAL CALLED' or 'forrtl' in the tail of either 0000 file, or a NaN Timing.
     CFL           informational: 'cfl' lines in the chosen file grew since the previous poll
                   (--once / first poll: any present).
+    RSL_LAGGING   live: the latest wrfout_d01_<valid time> in RUNDIR is later than the rsl's
+                  last d01 Timing line (or there is none yet). On NFS the compute node's
+                  rsl.error.0000 can reach the login node minutes late (scc: 0 bytes for most of a
+                  2-min run while wrfout frames kept appearing). sim time = that frame's time,
+                  status running (never init; HANG_INIT off), rate/ETA still from the rsl.
+                  FAILED/done detection and NEST_STOPPED (rsl vs rsl) unchanged.
     DONE is a status ('SUCCESS COMPLETE WRF'), not a warning.
+
+Run root (RUNDIR without namelist.input but with seg_<k>/ dirs: `wtune run --out`)
+    Each poll follows the highest-numbered seg_<k> (seg_<k>_rescue when present) and prefixes the
+    line 'seg k/K' (K = segments in run_report.json, else '?'). The percentage is whole-run: sim
+    time since the first segment's start / (first segment start .. last segment end) from
+    run_report.json, else the segment's own namelist window; remaining/ETA are the segment's.
+    Polling stops on a failed segment, a final report status, or the last segment done.
 
 Replay (--replay-fraction F, implies --once; hang/live checks off)
     Pretend the run is at fraction F of its observed d01 Timing lines: only d01 lines (and the
@@ -481,6 +496,33 @@ def _file_age_origin(st):
     return getattr(st, "st_birthtime", None) or st.st_ctime
 
 
+_WRFOUT_D01_RE = re.compile(r"^wrfout_d01_(\d{4}-\d\d-\d\d_\d\d:\d\d:\d\d)")
+
+
+def latest_wrfout(rundir):
+    """(latest wrfout_d01_<valid time> datetime, newest wrfout_d01 mtime) in rundir, (None, None)
+    without one. On NFS the compute node's rsl.error.0000 can reach the login node minutes late
+    (client write-back) while new wrfout files show up promptly: a frame's valid time is a floor
+    on d01's sim time."""
+    t_max = m_max = None
+    try:
+        names = os.listdir(rundir)
+    except OSError:
+        return None, None
+    for name in names:
+        m = _WRFOUT_D01_RE.match(name)
+        if not m:
+            continue
+        try:
+            t = dt.datetime.strptime(m.group(1), WRF_FMT)
+            mt = os.stat(os.path.join(rundir, name)).st_mtime
+        except (ValueError, OSError):
+            continue
+        t_max = t if t_max is None or t > t_max else t_max
+        m_max = mt if m_max is None or mt > m_max else m_max
+    return t_max, m_max
+
+
 def snapshot(rundir, now=None, replay_fraction=None, hang_factor=10.0, hang_min=300.0,
              init_limit=600.0, prev_cfl=None, prediction=None):
     """One read-only observation of RUNDIR -> JSON-serializable dict. Pure function of the files'
@@ -535,6 +577,11 @@ def snapshot(rundir, now=None, replay_fraction=None, hang_factor=10.0, hang_min=
             sum(st["sec"] for st in rest_steps if not math.isnan(st["sec"]))
             + (0.0 if snap["actual_partial"] else sum(w for _, _, w in trailing)))
     d01 = [(st["t"], st["sec"]) for st in steps]
+    rsl_last_t = d01[-1][0] if d01 else None
+    # wrfout floor (live only): a d01 frame valid later than the rsl's last d01 Timing line (or
+    # any frame before the first one) means the rsl is lagging, not that the model is behind.
+    wrf_t, wrf_mtime = (None, None) if replay else latest_wrfout(rundir)
+    lagging = wrf_t is not None and (rsl_last_t is None or wrf_t > rsl_last_t)
 
     tails = {r["name"]: _tail(r["text"]) for r in found}
     tail_all = [ln for r in found for ln in tails[r["name"]]]
@@ -547,12 +594,12 @@ def snapshot(rundir, now=None, replay_fraction=None, hang_factor=10.0, hang_min=
         if fatal or nan:
             warn("FAILED", fatal[-1].strip() if fatal else "NaN in a d01 Timing line")
         snap["status"] = ("failed" if fatal or nan else "done" if success
-                          else "running" if d01 else "init")
+                          else "running" if d01 or lagging else "init")
     else:
         snap["status"] = "replay"
 
-    # HANG_INIT
-    if not d01 and not (not replay and (success or fatal)):
+    # HANG_INIT (not while a wrfout frame shows the model is past init)
+    if not d01 and not lagging and not (not replay and (success or fatal)):
         hint = (" hint: %r (missing file, e.g. an iofields_filename target)" % problem[-1]
                 if problem else "")
         if replay:
@@ -592,7 +639,12 @@ def snapshot(rundir, now=None, replay_fraction=None, hang_factor=10.0, hang_min=
     kept, n_lead = drop_lead_in(series)
     rate, w, med = rate_window(kept, info["stepra"] if info else None,
                                info["periods"] if info else [])
-    last_t = d01[-1][0] if d01 else None
+    last_t = rsl_last_t
+    if lagging and snap["status"] == "running":
+        last_t = wrf_t
+        snap.update(wrfout_last_time=_fmt_t(wrf_t), rsl_d01_last_time=_fmt_t(rsl_last_t))
+        warn("RSL_LAGGING", "rsl behind wrfout (latest wrfout %s); rate/ETA from rsl may be stale"
+             % _fmt_t(wrf_t))
     completed = len(d01)
     if info and last_t is not None:
         completed = int(round((last_t - info["start"]).total_seconds() / info["dt"]))
@@ -621,6 +673,9 @@ def snapshot(rundir, now=None, replay_fraction=None, hang_factor=10.0, hang_min=
         rem_w, rows, notes = remaining_writes(info, observed, completed * info["dt"] / 60.0,
                                               prediction=prediction)
         snap.update(writes=rows, write_notes=notes)
+    elif info and lagging and last_t is not None and info["total_steps"]:  # floor, no rsl rate
+        snap["fraction"] = min(1.0, completed / info["total_steps"])
+        snap["remaining_steps"] = max(0, info["total_steps"] - completed)
     snap.update(remaining_compute_rate_s=c_rate, remaining_compute_pred_s=c_pred,
                 remaining_writes_s=rem_w, pred_scale_k=k,
                 remaining_rate_s=None if c_rate is None else c_rate + rem_w,
@@ -659,14 +714,19 @@ def snapshot(rundir, now=None, replay_fraction=None, hang_factor=10.0, hang_min=
         snap["error_pct"] = snap["replay_error_pct"]  # pre-e5aebb5-follow-up name, kept as alias
 
     # HANG (live, progressing)
-    if not replay and snap["status"] == "running" and med is not None:
-        limit = max(hang_min, hang_factor * med)
-        age = now - chosen["stat"].st_mtime
+    # A new wrfout_d01 frame counts as output too (the rsl can lag on NFS); with only frames and
+    # no Timing line yet the limit is max(hang_min, init_limit).
+    if not replay and snap["status"] == "running" and (med is not None or lagging):
+        limit = (max(hang_min, hang_factor * med) if med is not None
+                 else max(hang_min, init_limit))
+        age = now - max(chosen["stat"].st_mtime, wrf_mtime or 0.0)
         snap["log_age_s"] = age
         if age > limit:
-            warn("HANG", "no rsl output for %s (limit %s = max(%gs, %g x median step %.2fs)); "
-                 "last d01 time %s" % (_hms(age), _hms(limit), hang_min, hang_factor, med,
-                                       _fmt_t(last_t)))
+            warn("HANG", "no rsl/wrfout output for %s (limit %s = %s); last d01 time %s"
+                 % (_hms(age), _hms(limit),
+                    "max(%gs, %g x median step %.2fs)" % (hang_min, hang_factor, med)
+                    if med is not None else "max(%gs, init limit %gs)" % (hang_min, init_limit),
+                    _fmt_t(last_t)))
 
     # Per-domain progress and NEST_STOPPED
     doms = []
@@ -679,18 +739,18 @@ def snapshot(rundir, now=None, replay_fraction=None, hang_factor=10.0, hang_min=
             dlast = max(ts) if ts else None
             doms.append({"id": d["id"], "last_time": _fmt_t(dlast), "n_lines": len(ts),
                          "start": _fmt_t(d["start"]), "end": _fmt_t(d["end"] or info["end"])})
-            if d["id"] == 1 or last_t is None or snap["status"] == "failed":
+            if d["id"] == 1 or rsl_last_t is None or snap["status"] == "failed":
                 continue
             ref = dlast
             if ref is None:
-                if d["start"] is None or last_t <= d["start"]:
+                if d["start"] is None or rsl_last_t <= d["start"]:
                     continue
                 ref = d["start"]
             dend = d["end"] or info["end"]
-            if ((last_t - ref).total_seconds() > 2 * d["parent_dt"]
-                    and (dend is None or dend > ref)):
+            if ((rsl_last_t - ref).total_seconds() > 2 * d["parent_dt"]       # rsl vs rsl, not
+                    and (dend is None or dend > ref)):                       # the wrfout floor
                 warn("NEST_STOPPED", "d%02d last time %s is behind d01 %s while its end is %s"
-                     % (d["id"], _fmt_t(ref), _fmt_t(last_t), _fmt_t(dend)))
+                     % (d["id"], _fmt_t(ref), _fmt_t(rsl_last_t), _fmt_t(dend)))
     snap["domains"] = doms
 
     # CFL (informational; live only -- the whole file would leak post-cut lines into a replay)
@@ -703,6 +763,81 @@ def snapshot(rundir, now=None, replay_fraction=None, hang_factor=10.0, hang_min=
             cfl, chosen["name"], "" if prev_cfl is None else " (+%d since last poll)"
             % (cfl - prev_cfl)))
     return snap
+
+
+# --------------------------------------------------------------------------
+# `wtune run --out` root: OUT/run_report.json + OUT/seg_<k>/ (wtune_run.run_controller)
+# --------------------------------------------------------------------------
+_SEG_DIR_RE = re.compile(r"^seg_(\d+)(_rescue)?$")
+
+
+def _parse_wrf_t(s):
+    try:
+        return dt.datetime.strptime(s, WRF_FMT) if s else None
+    except (TypeError, ValueError):
+        return None
+
+
+def follow_run_root(root):
+    """None for a run dir (namelist.input present) or a dir without seg_<k>/; else the segment to
+    watch: {dir, segment: k, n_segments: K or None, run_start, run_end, run_status} -- the
+    highest-numbered seg_<k> (its seg_<k>_rescue when the CFL rescue made one), K and the whole
+    window (first segment start .. last segment end) from run_report.json when it lists the
+    segments. Re-read on every poll (the controller rewrites the report after each attempt)."""
+    if os.path.exists(os.path.join(root, "namelist.input")):
+        return None
+    try:
+        names = os.listdir(root)
+    except OSError:
+        return None
+    segs = sorted((int(m.group(1)), bool(m.group(2)), n) for n, m in
+                  ((n, _SEG_DIR_RE.match(n)) for n in names)
+                  if m and os.path.isdir(os.path.join(root, n)))
+    if not segs:
+        return None
+    k, _, name = segs[-1]
+    try:
+        with open(os.path.join(root, "run_report.json")) as f:
+            rep = json.load(f)
+    except (OSError, ValueError):
+        rep = None
+    rep = rep if isinstance(rep, dict) else {}
+    rsegs = rep.get("segments") if isinstance(rep.get("segments"), list) else []
+    return {"dir": os.path.join(root, name), "segment": k, "n_segments": len(rsegs) or None,
+            "run_start": _parse_wrf_t(rsegs[0].get("start")) if rsegs else None,
+            "run_end": _parse_wrf_t(rsegs[-1].get("end")) if rsegs else None,
+            "run_status": rep.get("status")}
+
+
+def annotate_run_root(snap, root, fol):
+    """Turn a segment snapshot into a whole-run one: fraction = sim time since the first
+    segment's start / whole window (run_report.json; else the segment's own namelist window);
+    the segment's own fraction moves to segment_fraction. Remaining/ETA stay per segment."""
+    start = fol["run_start"] or _parse_wrf_t(snap.get("run_start"))
+    end = fol["run_end"] or _parse_wrf_t(snap.get("run_end"))
+    sim = _parse_wrf_t(snap.get("d01_last_time"))
+    if snap["status"] == "done":
+        sim = _parse_wrf_t(snap.get("run_end")) or sim
+    if sim is None:                      # init / no rsl: the segment's start is reached
+        sim = _parse_wrf_t(snap.get("run_start"))
+    frac = None
+    if start is not None and end is not None and sim is not None and end > start:
+        frac = min(1.0, max(0.0, (sim - start).total_seconds() / (end - start).total_seconds()))
+    snap.update(run_root=os.path.abspath(root), segment=fol["segment"],
+                n_segments=fol["n_segments"], run_status=fol["run_status"],
+                whole_run_start=_fmt_t(start), whole_run_end=_fmt_t(end),
+                segment_fraction=snap.get("fraction"), fraction=frac)
+    return snap
+
+
+def root_finished(snap, fol):
+    """Stop polling a run root: a failed segment, the controller's report final, or the last
+    segment done (with no report to say how many there are: any segment done)."""
+    if snap["status"] == "failed" or fol["run_status"] in ("completed", "failed"):
+        return True
+    if snap["status"] != "done":
+        return False
+    return fol["n_segments"] is None or fol["segment"] >= fol["n_segments"] - 1
 
 
 def exit_code(snap):
@@ -720,6 +855,8 @@ def format_line(snap):
     parts = [snap["status"].upper()]
     if snap["mode"] == "replay":
         parts = ["replay F=%g" % snap["replay_fraction"]]
+    if "segment" in snap:
+        parts.insert(0, "seg %d/%s" % (snap["segment"], snap["n_segments"] or "?"))
     parts.append("%5.1f%%" % (100 * frac) if frac is not None else "  ?%")
     if snap.get("d01_last_time"):
         parts.append("sim %s (%s/%s)" % (snap["d01_last_time"], snap.get("completed_steps"),
@@ -778,7 +915,8 @@ def main(argv=None):
     kw = dict(hang_factor=a.hang_factor, hang_min=a.hang_min, init_limit=a.init_limit)
     if a.prediction:
         try:
-            kw["prediction"] = load_prediction(a.prediction, a.rundir)
+            fol = follow_run_root(a.rundir)
+            kw["prediction"] = load_prediction(a.prediction, fol["dir"] if fol else a.rundir)
         except (OSError, ValueError) as e:
             ap.error("--prediction: %s" % e)
 
@@ -797,13 +935,20 @@ def main(argv=None):
                 _emit(snap, a.json)
         return max(exit_code(snap) for snap in snaps)
 
-    prev_cfl, snap = None, None
+    prev_cfl, prev_dir, snap = None, None, None
     try:
         while True:
-            snap = snapshot(a.rundir, prev_cfl=prev_cfl, **kw)
+            fol = follow_run_root(a.rundir)      # a `wtune run --out` root: its newest seg_<k>
+            target = fol["dir"] if fol else a.rundir
+            if target != prev_dir:
+                prev_cfl, prev_dir = None, target
+            snap = snapshot(target, prev_cfl=prev_cfl, **kw)
             prev_cfl = snap.get("cfl_count", prev_cfl)
+            if fol:
+                annotate_run_root(snap, a.rundir, fol)
             _emit(snap, a.json)
-            if a.once or snap["status"] in ("done", "failed"):
+            if a.once or (root_finished(snap, fol) if fol
+                          else snap["status"] in ("done", "failed")):
                 return exit_code(snap)
             time.sleep(a.interval)
     except KeyboardInterrupt:

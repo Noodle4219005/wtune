@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """wtune_run.py -- segmented WRF executor with restart hand-offs (`wtune run`).
 
-    wtune run CASE_DIR --nodes N --nx X --ny Y [--numtiles T] [--omp O]
+    wtune run CASE_DIR [--nodes N --nx X --ny Y] [--numtiles T] [--omp O]
         [--wall-limit HH:MM:SS | --segment-minutes M] [--stop-at YYYY-MM-DD_HH:MM:SS]
         [--prediction pred_rebuild.json] [--tune-report tune_report.json]
         [--restart-io-form 14|2] [--cfl-rescue] --out OUT [--dry-run]
 
+The layout (nodes, nproc_x/y, numtiles, omp) is the CLI's; flags not given come from
+--tune-report's winner (tune_report_layout), and the node/nx/ny triple must come from one of them.
 CASE_DIR is never modified and --out may not be inside it. The run [start, end] is the case's own
 (run_* wins for d01, wtune_predict.get_d01_steps), cut at --stop-at when that is earlier (it must
 fall on a whole d01 time step). The run is split into segments; segment k runs in OUT/seg_<k> as
@@ -31,7 +33,9 @@ Segment planning (plan_run; boundaries are d01 step indices)
     inputs come from --prediction's pred_rebuild.json (result.points at/s_normal, result.r_night/
     r_day, result.init_s, io.restart.per_write_s, io.history[].median_s) or from each
     --tune-report ranking row (points at/s_normal/r/n_rad; r_night/r_day pooled exactly like
-    combine via wtune_probe_plan._resolve_r_rad_from_points). With neither: the uncalibrated
+    combine via wtune_probe_plan._resolve_r_rad_from_points). A -O report with no ranking points
+    (0 prediction points) but a measured winner: its median s/step as a constant rate, replanned
+    from observed steps like the no-prediction case. With neither: the uncalibrated
     cell-step model (wtune_tune._fallback_s_per_step) x FALLBACK_RADIATION_FACTOR. Without a
     measured `io` block, restart and history I/O scale from measured scc anchors by grid points x
     levels (fallback_overheads; conus25 restart per io_form, dorian2019 history). After each
@@ -473,8 +477,71 @@ def tune_candidates(report, geo, sample_points, calibration, nodes):
                           dist=row.get("dist") or "block")
         out.append({"config": cfg, "compute": comp})
     if not out:
-        raise RunError("--tune-report has no ranking row with measured points")
+        raise RunError("--tune-report has no ranking row with measured points and no winner "
+                       "with a measured median s/step")
     return out
+
+
+def tune_report_layout(report):
+    """The measured winner layout of a tune_report.json: top-level 'winner', else
+    node_selection.winner, else the fastest node_selection.layouts row at the chosen node count
+    (node_selection.final, else .chosen). None when the report names none. -> {nodes, nx, ny,
+    numtiles, omp, cores_per_node, median (s/step or None), cid}."""
+    ns = report.get("node_selection") or {}
+    w = next((x for x in (report.get("winner"), ns.get("winner")) if isinstance(x, dict)), None)
+    if w is None:
+        n = ns.get("final", ns.get("chosen"))
+        rows = [r for r in ns.get("layouts") or []
+                if n is not None and r.get("nodes") == n and r.get("median") is not None]
+        w = min(rows, key=lambda r: r["median"]) if rows else None
+    if w is None or any(w.get(k) is None for k in ("nodes", "nx", "ny")):
+        return None
+    return {"nodes": int(w["nodes"]), "nx": int(w["nx"]), "ny": int(w["ny"]),
+            "numtiles": int(w.get("numtiles") or 1), "omp": int(w.get("omp") or 1),
+            "cores_per_node": w.get("cores_per_node"),
+            "median": float(w["median"]) if w.get("median") is not None else None,
+            "cid": w.get("cid")}
+
+
+def resolve_layout(a, layout):
+    """(nodes, nx, ny, numtiles, omp, overridden flags) from the CLI over the tune report's
+    winner `layout` (explicit flags win); RunError when neither gives nodes/nx/ny."""
+    out, cli = {}, []
+    for k, default in (("nodes", None), ("nx", None), ("ny", None), ("numtiles", 1), ("omp", 1)):
+        v = getattr(a, k)
+        if v is not None:
+            out[k] = v
+            if layout is not None and v != layout[k]:
+                cli.append("--" + k)
+        elif layout is not None:
+            out[k] = layout[k]
+        else:
+            out[k] = default
+    missing = ["--" + k for k in ("nodes", "nx", "ny") if out[k] is None]
+    if missing:
+        raise RunError("%s required: give them, or a --tune-report whose winner layout names them"
+                       % ", ".join(missing))
+    return out, cli
+
+
+def rank_mapping_notes(config, cores_per_node=None):
+    """Checks of the launch's per-node placement (mpirun --map-by ppr:<ceil(ranks/nodes)>:node:
+    PE=<omp>, render_segment_sbatch; wtune tune launches ranks//nodes): uneven ranks/node, more
+    cores per node than the node has, a placement other than the tune report's cores/node."""
+    nodes, ranks, omp = config["nodes"], config["ranks"], config["omp"]
+    ppn = -(-ranks // nodes)
+    notes = []
+    if ranks % nodes:
+        notes.append("WARNING: %d ranks do not divide over %d nodes: ppr %d/node places %d "
+                     "(wtune tune measured ranks//nodes = %d/node)"
+                     % (ranks, nodes, ppn, ppn * nodes, ranks // nodes))
+    if ppn * omp > CORES_PER_NODE:
+        notes.append("WARNING: %d ranks/node x %d threads = %d cores > %d per node"
+                     % (ppn, omp, ppn * omp, CORES_PER_NODE))
+    if cores_per_node is not None and ppn * omp != int(cores_per_node):
+        notes.append("WARNING: %d ranks/node x %d threads = %d cores/node, the tune report "
+                     "measured %s" % (ppn, omp, ppn * omp, cores_per_node))
+    return notes
 
 
 def make_config(nx, ny, numtiles, omp, nodes, cid="cli", dist="block"):
@@ -951,11 +1018,12 @@ def _update_from_observed(ctx, k, snap, elapsed):
 def build_arg_parser():
     ap = argparse.ArgumentParser(prog="wtune run", description=__doc__.split("\n\n")[0])
     ap.add_argument("case_dir")
-    ap.add_argument("--nodes", type=int, required=True)
-    ap.add_argument("--nx", type=int, required=True)
-    ap.add_argument("--ny", type=int, required=True)
-    ap.add_argument("--numtiles", type=int, default=1)
-    ap.add_argument("--omp", type=int, default=1)
+    ap.add_argument("--nodes", type=int, default=None,
+                    help="required unless --tune-report names a winner layout (flags override it)")
+    ap.add_argument("--nx", type=int, default=None)
+    ap.add_argument("--ny", type=int, default=None)
+    ap.add_argument("--numtiles", type=int, default=None, help="default: tune report, else 1")
+    ap.add_argument("--omp", type=int, default=None, help="default: tune report, else 1")
     ap.add_argument("--wall-limit", default=None, help="HH:MM:SS per segment job")
     ap.add_argument("--segment-minutes", type=int, default=None)
     ap.add_argument("--stop-at", default=None, help="YYYY-MM-DD_HH:MM:SS (on a whole time step)")
@@ -1030,6 +1098,22 @@ def main(argv=None, sbatch_runner=None, sacct_runner=None, snapshot_fn=None, sle
                                "not supported" % (d + 1, _fmt(ds), _fmt(geo["start"])))
         n_end = resolve_end_step(geo, a.stop_at)
         wall_limit_s = parse_hms(a.wall_limit) if a.wall_limit else None
+        rep, layout = None, None
+        if a.tune_report:
+            with open(a.tune_report) as f:
+                rep = json.load(f)
+            layout = tune_report_layout(rep)
+        lay, overridden = resolve_layout(a, layout)
+        a.nodes, a.nx, a.ny, a.numtiles, a.omp = (lay["nodes"], lay["nx"], lay["ny"],
+                                                   lay["numtiles"], lay["omp"])
+        if layout is not None:
+            log("layout from tune report: N=%d %dx%d tiles %d omp %d (cores/node %s, %s s/step)%s"
+                % (layout["nodes"], layout["nx"], layout["ny"], layout["numtiles"], layout["omp"],
+                   layout["cores_per_node"] if layout["cores_per_node"] is not None else "?",
+                   "%.4f" % layout["median"] if layout["median"] is not None else "?",
+                   "; CLI overrides %s -> N=%d %dx%d tiles %d omp %d"
+                   % (" ".join(overridden), a.nodes, a.nx, a.ny, a.numtiles, a.omp)
+                   if overridden else ""))
         config = make_config(a.nx, a.ny, a.numtiles, a.omp, a.nodes)
 
         sample_points = None
@@ -1047,13 +1131,31 @@ def main(argv=None, sbatch_runner=None, sacct_runner=None, snapshot_fn=None, sle
                 notes.append("prediction was made for %s nodes %sx%s omp %s, not this config"
                              % (pred.get("nodes"), hw.get("nx"), hw.get("ny"), hw.get("omp")))
             candidates.append({"config": config, "compute": comp})
+        rate_only = False
         if a.tune_report:
-            with open(a.tune_report) as f:
-                rep = json.load(f)
-            cal = wp.load_calibration(str(wp.DEFAULT_CALIBRATION))
-            candidates += tune_candidates(rep, geo, sample_points, cal, a.nodes)
-        replan = not candidates
-        if replan:
+            if any(r.get("points") for r in rep.get("ranking") or []) \
+                    or not (layout and layout["median"]):
+                cal = wp.load_calibration(str(wp.DEFAULT_CALIBRATION))
+                candidates += tune_candidates(rep, geo, sample_points, cal, a.nodes)
+            elif not candidates:
+                # -O report without measured ranking points (0 prediction points): the winner's
+                # measured median s/step is the rate; later segments replan from observed steps
+                candidates.append({"config": config,
+                                   "compute": constant_compute_fn(layout["median"])})
+                rate_only = True
+                notes.append("tune report has no ranking points: winner %s median %.4f s/step "
+                             "as the rate; later segments' --time from each finished segment's "
+                             "observed rate" % (layout["cid"], layout["median"]))
+                if overridden:
+                    notes.append("that median was measured for N=%d %dx%d tiles %d omp %d, not "
+                                 "this config" % (layout["nodes"], layout["nx"], layout["ny"],
+                                                  layout["numtiles"], layout["omp"]))
+            else:
+                notes.append("tune report has no ranking points: ignored (--prediction is used)")
+        notes += rank_mapping_notes(config, layout["cores_per_node"]
+                                    if layout is not None and not overridden else None)
+        replan = not candidates or rate_only
+        if not candidates:
             s = fallback_s_per_step(nl, config["ranks"], config["omp"])
             candidates = [{"config": config, "compute": constant_compute_fn(s)}]
             notes.append("no prediction: %.3f s/step fallback (cell-step model x %.1f); later "

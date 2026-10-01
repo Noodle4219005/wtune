@@ -5934,6 +5934,7 @@ def run(args, sbatch_runner=None, sacct_runner=None, scancel_runner=None, ledger
         text = render_predicted_report_text(report) + _attach_advice(report)
         print("")
         print(text)
+        report["winner"] = final_winner(report)
         with open(os.path.join(out_dir, "tune_report.json"), "w") as f:
             json.dump(report, f, indent=2, sort_keys=True, default=str)
             f.write("\n")
@@ -6030,9 +6031,38 @@ def _attach_advice(report):
         return ""
 
 
+def final_winner(report):
+    """Top-level report["winner"]: the FINAL pick (report["nodes"] + report["best"], i.e. after a
+    phase-2 overturn too) as a node_selection.layouts-style row (cid, nodes, cores_per_node, ranks,
+    omp, nx, ny, numtiles, median s/step, ...). The matching measured layouts row when there is
+    one, else built from the best ranking row (cores/node: cores_used_per_node, else the core
+    choice for that N, else cores_per_node). None for an unmeasured pick (O0, aborted)."""
+    best, n = report.get("best"), report.get("nodes")
+    if not best or n is None or report.get("pipeline_only") or report.get("pipeline_aborted"):
+        return None
+    ns = report.get("node_selection") or {}
+    c = report.get("cores_used_per_node")
+    if c is None:
+        c = ((ns.get("core_choice") or {}).get(str(n)) or {}).get("cores")
+    if c is None:
+        c = report.get("cores_per_node")
+    key = (best.get("ranks"), best.get("omp"), best.get("nproc_x"), best.get("nproc_y"),
+           best.get("numtiles"))
+    for row in ns.get("layouts") or []:
+        if (row.get("nodes") == n and (c is None or row.get("cores_per_node") == c)
+                and (row.get("ranks"), row.get("omp"), row.get("nx"), row.get("ny"),
+                     row.get("numtiles")) == key):
+            return dict(row)
+    return dict(source="ranking", nodes=n, cores_per_node=c, ranks=best.get("ranks"),
+                omp=best.get("omp"), nx=best.get("nproc_x"), ny=best.get("nproc_y"),
+                numtiles=best.get("numtiles"), median=best.get("median_s_per_step"),
+                reps=best.get("n_measurements"), cid=best.get("id"))
+
+
 def _emit_report(report, out_dir, node_health=None):
     if node_health and "node_health" not in report:
         report["node_health"] = node_health
+    report["winner"] = final_winner(report)
     only = report.get("pipeline_aborted") or report.get("pipeline_only")
     advice_text = "" if only else _attach_advice(report)
     print("")

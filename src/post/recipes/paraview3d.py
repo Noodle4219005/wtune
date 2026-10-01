@@ -54,7 +54,7 @@ def build_title(run_label, domain, time_str, isovalue=ISOVALUE, vexag=VERTICAL_E
 
 
 def render_cloud(wrfout_path, out_png, work_dir, isovalue=ISOVALUE, title="",
-                 vexag=VERTICAL_EXAGGERATION):
+                 vexag=VERTICAL_EXAGGERATION, save_state=None):
     """Converts wrfout_path (one frame) via post/xwrf_convert.py, then runs pvbatch against
     render_cloud.py. Returns out_png. Raises tools.ToolNotFoundError if pvbatch/xwrf/wrf-python
     is unavailable, ParaViewError if pvbatch ran but truly produced no output.
@@ -79,6 +79,8 @@ def render_cloud(wrfout_path, out_png, work_dir, isovalue=ISOVALUE, title="",
            "--isovalue", str(isovalue), "--vexag", str(vexag), "--title", title]
     if coast_vtk:
         cmd += ["--coast", coast_vtk]
+    if save_state:
+        cmd += ["--save-state", save_state]
     rc, out, err = tools.run(cmd, check=False)
     if not os.path.exists(out_png):
         raise ParaViewError("pvbatch (exit %d) did not produce %s:\n%s" % (
@@ -86,12 +88,57 @@ def render_cloud(wrfout_path, out_png, work_dir, isovalue=ISOVALUE, title="",
     return out_png
 
 
+_README = """\
+WTune 3-D 雲場 ParaView 場景（%(catalog_id)s）
+
+開啟方式（ParaView >= 5.11）：
+  File -> Load State -> 選 %(catalog_id)s.pvsm
+  -> 在 "Load State Options" 選 "Search files under specified directory"，指向本資料夾。
+  （.pvsm 內的資料路徑是產生當下的絕對路徑；資料夾搬移或複製後必須用此選項重新對應。）
+
+檔案：
+%(files)s
+垂直放大倍率：x%(vexag)g（地形與雲場 z 軸皆乘此倍率，僅為視覺用）
+等值面：QCLOUD+QICE = %(iso)g kg/kg（%(iso_g)g g/kg）
+"""
+
+
+def write_readme(pv_dir, catalog_id, isovalue=ISOVALUE, vexag=VERTICAL_EXAGGERATION):
+    names = sorted(os.listdir(pv_dir))
+    desc = {".pvsm": "ParaView 狀態檔（場景、相機、著色）", ".vtk": "海岸線折線（legacy VTK）"}
+    lines = []
+    for n in names:
+        if n == "README.txt":
+            continue
+        ext = os.path.splitext(n)[1]
+        if n.endswith("_cloud.nc"):
+            d = "雲場 QCLOUD+QICE（CF NetCDF，等值面來源）"
+        elif n.endswith("_terrain.nc"):
+            d = "地形高度（CF NetCDF）"
+        else:
+            d = desc.get(ext, "")
+        lines.append("  %s  %s" % (n, d))
+    with open(os.path.join(pv_dir, "README.txt"), "w", encoding="utf-8") as f:
+        f.write(_README % dict(catalog_id=catalog_id, files="\n".join(lines) + "\n",
+                               vexag=vexag, iso=isovalue, iso_g=isovalue * 1000.0))
+
+
 def figures(catalog_id, wrfout_path, out_dir, work_dir, run_label, domain, time_str):
+    """work_dir is kept for call-site compatibility but unused: the converted files are written
+    straight into <out_dir>/<catalog_id>_paraview/ (no copy), next to the .pvsm and README.txt,
+    and the .pvsm is also written to <out_dir>/<catalog_id>.pvsm."""
     from post.recipe import fig, missing
     out_png = os.path.join(out_dir, "%s.png" % catalog_id)
+    pv_dir = os.path.join(out_dir, "%s_paraview" % catalog_id)
+    pvsm = os.path.join(pv_dir, "%s.pvsm" % catalog_id)
     try:
-        render_cloud(wrfout_path, out_png, work_dir,
-                     title=build_title(run_label, domain, time_str))
+        render_cloud(wrfout_path, out_png, pv_dir,
+                     title=build_title(run_label, domain, time_str), save_state=pvsm)
+        if os.path.exists(pvsm):
+            shutil.copy(pvsm, os.path.join(out_dir, "%s.pvsm" % catalog_id))
+        else:
+            print("WARNING: no ParaView state saved for %s" % catalog_id)
+        write_readme(pv_dir, catalog_id)
         return [fig(catalog_id, out_png, run_label, domain="d%02d" % domain, valid_time=time_str)]
     except (tools.ToolNotFoundError, ImportError) as e:
         return [missing(catalog_id, "ParaView pvbatch", str(e))]

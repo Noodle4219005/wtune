@@ -88,6 +88,8 @@ def main(argv):
     ap.add_argument("--isovalue", type=float, default=ISOVALUE)
     ap.add_argument("--vexag", type=float, default=VERTICAL_EXAGGERATION)
     ap.add_argument("--title", default="")
+    ap.add_argument("--save-state", default=None, metavar="PATH",
+                    help="write a ParaView .pvsm state file before the screenshot")
     a = ap.parse_args(argv[1:])
     vexag = a.vexag
 
@@ -197,6 +199,16 @@ def main(argv):
     cam.SetViewUp(0.0, 0.0, 1.0)
     view.ResetCamera(False)   # refit along the same direction so the whole storm is in frame
     cam.Zoom(1.1)            # the fit is to the exaggerated bounding sphere; tighten it a little
+
+    if a.save_state:
+        # SaveState has no relative-path option: the .pvsm holds the absolute data paths given
+        # on the command line. After copying the folder, Load State -> "Search files under
+        # specified directory" repoints them. A failure here must never fail the render.
+        try:
+            from paraview.simple import SaveState
+            SaveState(a.save_state)
+        except Exception as e:   # noqa: BLE001
+            print("WARNING: SaveState(%s) failed: %s" % (a.save_state, e), file=sys.stderr)
 
     SaveScreenshot(a.out_png, view, ImageResolution=[1600, 1100],
                    FontScaling="Do not scale fonts")

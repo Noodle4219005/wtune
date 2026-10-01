@@ -1817,6 +1817,10 @@ def main():
                                          'inventory | extract | plot | sounding | tc | compare | report | recipe | custom')
     p_post.add_argument('post_args', nargs=argparse.REMAINDER, help='forwarded to post/cli.py')
 
+    p_prep = sub.add_parser('prep', help='optional input-data preparation, user-invoked only (decision 0063; wtune_geog.py): '
+                                         'geog list | fetch | import-dem | verify | bounds | srtm-fetch')
+    p_prep.add_argument('prep_args', nargs=argparse.REMAINDER, help='forwarded to wtune_geog.py')
+
     p_project = sub.add_parser('project', help='project folder holding case/input/config/runs/post '
                                                '(decision 0058; wtune_project.py): init | info')
     p_project.add_argument('project_args', nargs=argparse.REMAINDER, help='forwarded to wtune_project.py')
@@ -1832,10 +1836,24 @@ def main():
     p_run = sub.add_parser('run', help='segmented WRF execution with restart hand-offs, per-segment config and opt-in CFL rescue (wtune_run.py)')
     p_run.add_argument('run_args', nargs=argparse.REMAINDER, help='forwarded to wtune_run.py')
 
+    p_advise = sub.add_parser('advise', help='advice-only: detect case conditions and suggest WRF modes/workflows with cost, evidence and side effects (decision 0061; wtune_advise.py)')
+    p_advise.add_argument('advise_args', nargs=argparse.REMAINDER, help='forwarded to wtune_advise.py')
+
+    p_calc = sub.add_parser('calc', help='rules of thumb and unit conversions for namelist parameters, plus `calc check <namelist.input>` (decision 0062; wtune_calc.py)')
+    p_calc.add_argument('calc_args', nargs=argparse.REMAINDER, help='forwarded to wtune_calc.py')
+
     p_scenario = sub.add_parser('scenario', help='pluggable scenario generators for fictional-date WRF forcing (scenario/cli.py): list | generate | inspect')
     p_scenario.add_argument('scenario_args', nargs=argparse.REMAINDER, help='forwarded to scenario/cli.py')
 
     args = parser.parse_args()
+    if args.command == 'calc':
+        import wtune_calc
+        sys.exit(wtune_calc.main(args.calc_args))
+
+    if args.command == 'advise':
+        import wtune_advise
+        sys.exit(wtune_advise.main(args.advise_args))
+
     if args.command == 'tune':
         import wtune_tune
         sys.exit(wtune_tune.main(args.tune_args))
@@ -1864,6 +1882,10 @@ def main():
     if args.command == 'post':
         from post import cli as post_cli
         sys.exit(post_cli.main(args.post_args))
+
+    if args.command == 'prep':
+        import wtune_geog
+        sys.exit(wtune_geog.main(args.prep_args))
 
     if args.command == 'project':
         import wtune_project

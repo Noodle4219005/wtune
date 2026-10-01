@@ -277,13 +277,35 @@ def run_recipe(run_dirs, out_dir, types_override=None, ensemble=False, spinup_ho
     notes = [{k: e[k] for k in ("source", "level", "text")} for e in all_figures if is_note(e)]
     all_figures = [e for e in all_figures if not is_note(e)]
 
+    advice = _verification_advice(run_dirs[0], out_dir, hurdat2_path, storm_id, bdeck_path, notes)
+
     import inspect
     from post.report import build_recipe_report
     kwargs = {"notes": notes} if "notes" in inspect.signature(build_recipe_report).parameters else {}
+    if advice and advice["advice"]:
+        import wtune_advise
+        kwargs["advice_html"] = wtune_advise.render_html(advice)
     report_path = build_recipe_report(out_dir, case_info, all_figures, run_dirs, labels,
                                       spinup_hours, load_catalog(), title=title, **kwargs)
     return dict(out_dir=out_dir, case_info=case_info, figures=all_figures, notes=notes,
-                report_path=report_path)
+                report_path=report_path, advice=advice)
+
+
+def _verification_advice(run_dir, out_dir, hurdat2_path, storm_id, bdeck_path, notes):
+    """Decision 0061: verification-triggered advice (rules with a post_* clause) for the report.
+    Advice-only; a failure here becomes a report note, never a failed recipe."""
+    try:
+        import wtune_advise
+        case = wtune_advise.build_case(run_dir, hurdat2=hurdat2_path, storm=storm_id,
+                                       bdeck=bdeck_path, post_tc_dir=os.path.join(out_dir, "tc"))
+        advice = wtune_advise.advise(case, surface="post")
+        with open(os.path.join(out_dir, "advice.json"), "w") as fh:
+            json.dump(advice, fh, indent=2, ensure_ascii=False, default=str)
+        return advice
+    except Exception as e:                                  # noqa: BLE001
+        notes.append(note("advice", "advice skipped: %s: %s" % (type(e).__name__, e),
+                          level="info"))
+        return None
 
 
 def _time_series_figures(run_dirs, labels, out_dir, case_info, every, times, animate=False):

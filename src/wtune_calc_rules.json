@@ -1,0 +1,1082 @@
+{
+  "_meta": {
+    "decision": "0062 (my-llm-wiki knowledge/decisions/0062-wtune-calc-rules-of-thumb-and-unit-conversions.md)",
+    "wrf_tree_verified": "/home/nk/wrf-local/WRF (inc/version_decl: release_version = 'V4.8.0'). README.namelist = run/README.namelist; Registry = Registry/Registry.EM_COMMON. Line numbers are against that tree.",
+    "source_levels": {
+      "wrf-doc": "WRF 4.8 source tree text (README.namelist, Registry defaults, or the Fortran source that enforces it); file:line given in source_ref",
+      "wtune-measured": "measured in this project; source_ref names the wiki note",
+      "rule-of-thumb": "community convention or textbook value; NOT an official WRF requirement; never reported as ERROR"
+    },
+    "severity_policy": "Only rules with hard=true can yield ERROR in `check`; those are wrf-doc rules enforced by WRF code (wrf_error_fatal)."
+  },
+  "rules": [
+    {
+      "id": "dt.six_dx",
+      "topic": "dt",
+      "formula": "time_step [s] ~= 6 * dx[km]  (divide dx by the max map factor for the effective dx)",
+      "function": "dt",
+      "parameters": [
+        "dx_km",
+        "max_map_factor"
+      ],
+      "source_level": "wrf-doc",
+      "source_ref": "run/README.namelist:155-156 (time_step: 'recommend 6*dx (in km) for typical real-data cases')",
+      "applicability": "typical real-data cases, fixed time step",
+      "exceptions": "steep terrain / high latitude / strong winds need a smaller factor (see dt.steep_terrain)",
+      "message": {
+        "ok": "time_step/dx = {ratio:.2f} s/km，未超過建議的 6",
+        "deviates": "time_step/dx = {ratio:.2f} s/km，高於建議的 6 s/km（建議 <= {rec:.1f} s）"
+      },
+      "hard": false
+    },
+    {
+      "id": "dt.reasonable_ratio",
+      "topic": "dt",
+      "formula": "d01 real-data: time_step / dx[km] must be <= reasonable_time_step_ratio (default 6) or WRF stops",
+      "function": "dt",
+      "parameters": [
+        "dx_km",
+        "reasonable_time_step_ratio"
+      ],
+      "source_level": "wrf-doc",
+      "source_ref": "run/README.namelist:163; Registry.EM_COMMON:2267 (default 6.); dyn_em/start_em.F:305-311 (wrf_error_fatal 'Time step too large')",
+      "applicability": "d01 only; not evaluated when use_adaptive_time_step=.true. (dt comes from starting_time_step)",
+      "exceptions": "set reasonable_time_step_ratio larger in &domains only if you are sure (e.g. IEVA); the gate does not apply to nests",
+      "message": {
+        "ok": "d01 dt/dx = {ratio:.2f} <= reasonable_time_step_ratio {limit:g}",
+        "deviates": "d01 dt/dx = {ratio:.2f} > reasonable_time_step_ratio {limit:g}：WRF 會以 'Time step too large' 中止"
+      },
+      "hard": true
+    },
+    {
+      "id": "dt.steep_terrain",
+      "topic": "dt",
+      "formula": "time_step [s] ~= (4..5) * dx[km] for steep terrain / high latitude / strong jets",
+      "function": "dt",
+      "parameters": [
+        "dx_km",
+        "terrain"
+      ],
+      "source_level": "rule-of-thumb",
+      "source_ref": "community convention (not in the WRF 4.8 tree; needs verification on scc against measured CFL-rescue logs)",
+      "applicability": "complex terrain, high latitude, or when the run has hit CFL violations at 6*dx",
+      "exceptions": "flat/oceanic domains often run fine at 6*dx",
+      "message": {
+        "ok": "",
+        "deviates": ""
+      },
+      "hard": false
+    },
+    {
+      "id": "dt.map_factor",
+      "topic": "dt",
+      "formula": "effective dx = dx / max_map_factor; effective ratio = time_step / (dx_km / max_mf)",
+      "function": "dt",
+      "parameters": [
+        "dx_km",
+        "max_map_factor"
+      ],
+      "source_level": "rule-of-thumb",
+      "source_ref": "dyn_em/start_em.F:301-302 only PRINTS the ratio 'including maximum map factor'; the abort gate at :305 uses dt/dx_km without it. Using it to shrink dt is a convention.",
+      "applicability": "Lambert/Mercator domains where the map factor deviates noticeably from 1 (low latitudes on Mercator, far from the true latitudes on Lambert)",
+      "exceptions": "none",
+      "message": {
+        "ok": "",
+        "deviates": ""
+      },
+      "hard": false
+    },
+    {
+      "id": "dt.adaptive_defaults",
+      "topic": "dt",
+      "formula": "use_adaptive_time_step: starting_time_step=-1 -> 4*dx, max_time_step=-1 -> 8*dx, min_time_step=-1 -> 3*dx (units of the factor not stated in README; interpreted as seconds per km); target_cfl=1.2, target_hcfl=0.84, max_step_increase_pct=5",
+      "function": "dt",
+      "parameters": [
+        "dx_km"
+      ],
+      "source_level": "wrf-doc",
+      "source_ref": "run/README.namelist:405-426 (README text: starting -1 = 4*dx, max -1 = 8*dx, min -1 = 3*dx; target_cfl 1.2; target_hcfl .84; example max_step_increase_pct 5,51 with '51% suggested' for nests); Registry.EM_COMMON:2273-2276 (defaults: target_cfl 1.2, target_hcfl 0.84, max_step_increase_pct 5, starting/max/min -1)",
+      "applicability": "use_adaptive_time_step=.true.",
+      "exceptions": "README example uses 5,51 for max_step_increase_pct but the Registry default is 5 for every domain; units of '4*dx' are not stated in README (assumed s with dx in km)",
+      "message": {
+        "ok": "",
+        "deviates": ""
+      },
+      "hard": false
+    },
+    {
+      "id": "nest.time_step_ratio",
+      "topic": "nest",
+      "formula": "parent_time_step_ratio = parent_grid_ratio (nest dt = parent dt / ratio)",
+      "function": "nest",
+      "parameters": [
+        "parent_grid_ratio"
+      ],
+      "source_level": "rule-of-thumb",
+      "source_ref": "run/README.namelist:184-185 only says it 'can be different from the parent_grid_ratio'; setting them equal is the convention",
+      "applicability": "all nests, fixed time step",
+      "exceptions": "a larger parent_time_step_ratio gives a smaller nest dt (more CFL margin, more cost); a smaller one raises nest CFL",
+      "message": {
+        "ok": "parent_time_step_ratio = parent_grid_ratio = {ratio}",
+        "deviates": "parent_time_step_ratio = {ptsr} 與 parent_grid_ratio = {ratio} 不同（README 允許；巢狀 dt = {nest_dt:g} s）"
+      },
+      "hard": false
+    },
+    {
+      "id": "cfl.limit",
+      "topic": "cfl",
+      "formula": "C = u*dt/dx (horizontal), C = w*dt/dz (vertical); keep C below the stability limit with margin",
+      "function": "cfl",
+      "parameters": [
+        "u",
+        "dx_m",
+        "dt_s",
+        "w",
+        "dz_m"
+      ],
+      "source_level": "rule-of-thumb",
+      "source_ref": "RK3 + 5th-order advection linear-stability limit ~1.4 (Wicker & Skamarock 2002) -- not in the WRF tree, needs verification on scc; practical targets below are wrf-doc (cfl.adaptive_targets)",
+      "applicability": "RK3 (rk_ord=3) with 5th/3rd-order horizontal and vertical advection",
+      "exceptions": "limits differ for other advection orders; the vertical limit is softened by w_damping / zadvect_implicit (IEVA)",
+      "message": {
+        "ok": "",
+        "deviates": ""
+      },
+      "hard": false
+    },
+    {
+      "id": "cfl.adaptive_targets",
+      "topic": "cfl",
+      "formula": "target_hcfl = 0.84 (horizontal), target_cfl = 1.2 (vertical), w_crit_cfl = 1.2 (vertical velocity damping starts); w_damping=1 turns damping on; epssm = 0.1 (vertical sound-wave off-centering)",
+      "function": "cfl",
+      "parameters": [],
+      "source_level": "wrf-doc",
+      "source_ref": "run/README.namelist:408-413 (target_cfl 1.2, target_hcfl .84); :1614 (w_crit_cfl example 1.2; Registry.EM_COMMON:2888 default is 1.0 -- README example and Registry default differ); :1617 (w_damping, Registry:2887 default 0); :1683 (epssm .1, Registry:2918 default .1)",
+      "applicability": "reference values for judging a computed Courant number",
+      "exceptions": "w_crit_cfl can be ~2.0 when zadvect_implicit=1 (README:1614)",
+      "message": {
+        "ok": "",
+        "deviates": ""
+      },
+      "hard": false
+    },
+    {
+      "id": "radt.one_min_per_km",
+      "topic": "radt",
+      "formula": "radt [min] ~= dx[km]",
+      "function": "radt",
+      "parameters": [
+        "dx_km"
+      ],
+      "source_level": "wrf-doc",
+      "source_ref": "run/README.namelist:617-619 (radt: 'recommend 1 min per km of dx (e.g. 10 for 10 km); use the same value for all nests')",
+      "applicability": "all domains; check tolerates 0.5x..1.5x of the recommendation",
+      "exceptions": "sub-km grids: radt below ~1 min is rarely used; cost/accuracy trade-off, not a requirement",
+      "message": {
+        "ok": "radt = {radt:g} 分鐘，建議約 {rec:.3g} 分鐘（dx {dx_km:.3g} km）",
+        "deviates": "radt = {radt:g} 分鐘偏離建議的約 {rec:.3g} 分鐘（每 km 一分鐘，dx {dx_km:.3g} km）"
+      },
+      "hard": false
+    },
+    {
+      "id": "radt.nest_same",
+      "topic": "radt",
+      "formula": "radt identical on all domains",
+      "function": "radt",
+      "parameters": [],
+      "source_level": "wrf-doc",
+      "source_ref": "run/README.namelist:617-619 ('use the same value for all nests')",
+      "applicability": "max_dom > 1",
+      "exceptions": "none stated",
+      "message": {
+        "ok": "各網格 radt 相同（{vals}）",
+        "deviates": "各網格 radt 不同（{vals}）；README 建議所有巢狀用同一值"
+      },
+      "hard": false
+    },
+    {
+      "id": "nest.parent_ratio_odd",
+      "topic": "nest",
+      "formula": "parent_grid_ratio odd (3 or 5) for real-data cases",
+      "function": "nest",
+      "parameters": [
+        "parent_grid_ratio"
+      ],
+      "source_level": "wrf-doc",
+      "source_ref": "run/README.namelist:181-183 ('for real-data cases the ratio has to be odd! for idealized cases the ratio can be even if feedback is set to 0'). No enforcing check found in the 4.8 tree (grep), so `check` reports DEVIATES, not ERROR.",
+      "applicability": "real-data nests",
+      "exceptions": "idealized cases with feedback=0",
+      "message": {
+        "ok": "parent_grid_ratio = {ratio}（奇數）",
+        "deviates": "parent_grid_ratio = {ratio} 為偶數；README 說 real-data 需奇數（4.8 原始碼未強制）"
+      },
+      "hard": false
+    },
+    {
+      "id": "nest.dim_legal",
+      "topic": "nest",
+      "formula": "MOD(e_we - s_we, parent_grid_ratio) = 0 and MOD(e_sn - s_sn, ratio) = 0, i.e. e_we = n*ratio + 1",
+      "function": "nest",
+      "parameters": [
+        "e_we",
+        "e_sn",
+        "parent_grid_ratio"
+      ],
+      "source_level": "wrf-doc",
+      "source_ref": "dyn_em/start_em.F:172-179 (wrf_error_fatal 'Nested dimensions are illegal'); s_we=s_sn=1 per run/README.namelist:165",
+      "applicability": "every domain (trivially true when ratio = 1)",
+      "exceptions": "none",
+      "message": {
+        "ok": "e_we={e_we}, e_sn={e_sn}：(e-1) 可被 ratio {ratio} 整除",
+        "deviates": "e_we={e_we}, e_sn={e_sn} 不是 n*{ratio}+1：WRF 會以 'Nested dimensions are illegal' 中止（最近的合法值 e_we={ok_we}, e_sn={ok_sn}）"
+      },
+      "hard": true
+    },
+    {
+      "id": "nest.inside_parent",
+      "topic": "nest",
+      "formula": "nest covers parent cells i_parent_start .. i_parent_start + (e_we-1)/ratio - 1; keep >= spec_bdy_width parent cells from the parent boundary",
+      "function": "nest",
+      "parameters": [
+        "i_parent_start",
+        "j_parent_start",
+        "parent_e_we",
+        "parent_e_sn",
+        "parent_grid_ratio"
+      ],
+      "source_level": "rule-of-thumb",
+      "source_ref": "geometry + convention (keep the nest out of the parent's lateral-boundary relaxation zone, width = spec_bdy_width, run/README.namelist:1758); not a quoted WRF requirement, needs verification on scc",
+      "applicability": "nests",
+      "exceptions": "a nest that extends past the parent grid is a geometry error and will fail in real.exe/wrf.exe",
+      "message": {
+        "ok": "巢狀完全在母網格內，四邊餘裕 >= {margin} 個母網格",
+        "deviates": "巢狀覆蓋母網格 i {i0}..{i1}（母 e_we {pwe}）、j {j0}..{j1}（母 e_sn {psn}）；{why}"
+      },
+      "hard": false
+    },
+    {
+      "id": "bdy.spec_width",
+      "topic": "bdy",
+      "formula": "spec_bdy_width = spec_zone + relax_zone (spec_zone = 1, relax_zone = spec_bdy_width - 1 for specified d01)",
+      "function": "nest",
+      "parameters": [
+        "spec_bdy_width",
+        "spec_zone",
+        "relax_zone"
+      ],
+      "source_level": "wrf-doc",
+      "source_ref": "run/README.namelist:1758-1760 (5 = 1 + 4); share/module_check_a_mundo.F:246-251 (overwrites spec_zone=1 and relax_zone=spec_bdy_width-1 when specified(1))",
+      "applicability": "d01 with specified boundaries",
+      "exceptions": "WRF overwrites spec_zone/relax_zone silently, so a mismatch is not fatal, only ignored",
+      "message": {
+        "ok": "spec_bdy_width {w} = spec_zone {sz} + relax_zone {rz}",
+        "deviates": "spec_zone/relax_zone（{sz}/{rz}）與 spec_bdy_width {w} 不一致；WRF 會改寫成 1/{rz_eff}"
+      },
+      "hard": false
+    },
+    {
+      "id": "domain.dims",
+      "topic": "domain",
+      "formula": "e_we = round(width_km / dx_km) + 1 (staggered end index); nests: e_we = n*ratio + 1",
+      "function": "domain",
+      "parameters": [
+        "width_km",
+        "height_km",
+        "dx_km"
+      ],
+      "source_level": "wrf-doc",
+      "source_ref": "run/README.namelist:166-167 (e_we is the end index of the staggered dimension, s_we = 1); nest rule dyn_em/start_em.F:172",
+      "applicability": "d01 sizing from a physical extent",
+      "exceptions": "extent measured on the projection plane; map-factor distortion is ignored",
+      "message": {
+        "ok": "",
+        "deviates": ""
+      },
+      "hard": false
+    },
+    {
+      "id": "domain.projection",
+      "topic": "domain",
+      "formula": "|lat| <~ 20: mercator; 20..60 (to ~65): lambert; > ~65: polar stereographic",
+      "function": "domain",
+      "parameters": [
+        "center_lat"
+      ],
+      "source_level": "rule-of-thumb",
+      "source_ref": "WPS/WRF user convention (not in the WRF tree); needs verification on scc",
+      "applicability": "choice of map_proj in WPS &geogrid",
+      "exceptions": "domains straddling the equator or very wide domains may prefer other choices",
+      "message": {
+        "ok": "",
+        "deviates": ""
+      },
+      "hard": false
+    },
+    {
+      "id": "domain.truelat",
+      "topic": "domain",
+      "formula": "Lambert standard parallels at 1/6 and 5/6 of the domain's latitude extent",
+      "function": "domain",
+      "parameters": [
+        "center_lat",
+        "height_km"
+      ],
+      "source_level": "rule-of-thumb",
+      "source_ref": "Snyder, Map Projections - A Working Manual (1987), standard-parallel rule of thumb; not in the WRF tree",
+      "applicability": "map_proj='lambert'",
+      "exceptions": "common 30/60 pair is fine for CONUS-scale domains",
+      "message": {
+        "ok": "",
+        "deviates": ""
+      },
+      "hard": false
+    },
+    {
+      "id": "vert.damp",
+      "topic": "vert",
+      "formula": "real-data: damp_opt = 3 (w-Rayleigh), dampcoef ~0.2 [1/s], zdamp = 5000 m (damping layer below model top; must be < model height)",
+      "function": "vert",
+      "parameters": [
+        "e_vert",
+        "p_top_pa"
+      ],
+      "source_level": "wrf-doc",
+      "source_ref": "run/README.namelist:1642-1652 (damp_opt=3 'for real-data cases', dampcoef e.g. .2), :1616 (zdamp 5000.); Registry.EM_COMMON:2898 (damp_opt default 3), :2904 (zdamp 5000.), :2905 (dampcoef default 0.2). NOTE: README example lines show damp_opt=0 / dampcoef=0. while the Registry default is 3 / 0.2",
+      "applicability": "real-data runs",
+      "exceptions": "damp_opt=2 is idealized only (README:1648); damp_opt=1 diffusive, dampcoef 0.01-0.1",
+      "message": {
+        "ok": "damp_opt = {damp_opt}（w-Rayleigh，real-data 建議）；zdamp {zdamp:g} m < 模式頂 {ztop:.0f} m",
+        "deviates": "{why}"
+      },
+      "hard": false
+    },
+    {
+      "id": "vert.ptop",
+      "topic": "vert",
+      "formula": "p_top = 5000 Pa (50 hPa) is the usual real-data model top; mean dz = z_top / (e_vert - 1) with z_top from the standard atmosphere",
+      "function": "vert",
+      "parameters": [
+        "e_vert",
+        "p_top_pa"
+      ],
+      "source_level": "wrf-doc",
+      "source_ref": "run/README.namelist:262 (p_top_requested = 5000 Pa in the example); the mean-dz estimate is an arithmetic consequence of the ICAO atmosphere (units.icao) and an assumed even eta spacing, i.e. rule-of-thumb for stretched eta levels",
+      "applicability": "estimating layer thickness before running real.exe",
+      "exceptions": "real eta levels are stretched; top-layer dz is larger than the mean, near-surface dz smaller",
+      "message": {
+        "ok": "",
+        "deviates": ""
+      },
+      "hard": false
+    },
+    {
+      "id": "physics.cumulus",
+      "topic": "physics",
+      "formula": "dx <= 4 km: cu_physics = 0; 4..10 km: gray zone, scale-aware scheme (3 Grell-Freitas, 11 MSKF); > 10 km: a cumulus scheme is normally needed (1 KF, 6 Tiedtke)",
+      "function": "physics",
+      "parameters": [
+        "dx_km",
+        "cu_physics"
+      ],
+      "source_level": "rule-of-thumb",
+      "source_ref": "community convention; same thresholds as src/wtune_case.py:_dx_regime (needs verification on scc for specific cases)",
+      "applicability": "physics suites without cu_physics = -1 (a suite default is not resolved here)",
+      "exceptions": "deliberate explicit-convection runs at 12 km, or cumulus kept at 3-4 km for specific events, are legitimate",
+      "message": {
+        "ok": "dx {dx_km:.3g} km，cu_physics = {cu}，與慣例一致（{regime}）",
+        "deviates": "dx {dx_km:.3g} km 搭配 cu_physics = {cu}：{regime}"
+      },
+      "hard": false
+    },
+    {
+      "id": "geog.res_vs_dx",
+      "topic": "geog",
+      "formula": "static-data resolution should be finer than the grid (ideally >= 2x finer): res_m <= dx_m / 2",
+      "function": "geog",
+      "parameters": [
+        "dx_km",
+        "res_arcsec",
+        "lat"
+      ],
+      "source_level": "rule-of-thumb",
+      "source_ref": "WPS geogrid convention; 30 arcsec = 30/3600 deg * (pi/180 * 6370 km) = 0.9264 km with WRF's earth radius (share/module_model_constants.F:43 reradius = 1/6370.0e03 m^-1)",
+      "applicability": "choice of geog_data_res in WPS &geogrid",
+      "exceptions": "within dx/2 < res <= dx the data is finer than the grid but not 2x: reported OK with a note, not a deviation",
+      "message": {
+        "ok": "地理資料 {res_arcsec:g}\" = {res_m:.0f} m，dx {dx_m:.0f} m：{note}",
+        "deviates": "地理資料 {res_arcsec:g}\" = {res_m:.0f} m 比 dx {dx_m:.0f} m 還粗：地形／土地利用被內插放大，細尺度起伏遺失"
+      },
+      "hard": false
+    },
+    {
+      "id": "decomp.min_patch",
+      "topic": "decomp",
+      "formula": "for every domain: floor(e_we / nproc_x) >= 10 and floor(e_sn / nproc_y) >= 10; R_max = floor(min e_we/10) * floor(min e_sn/10)",
+      "function": "decomp",
+      "parameters": [
+        "e_we_list",
+        "e_sn_list",
+        "ranks"
+      ],
+      "source_level": "wrf-doc",
+      "source_ref": "share/module_check_a_mundo.F:3014-3029 (Fortran integer division, 'Minimum decomposed computational patch size, either x-dir or y-dir, is 10 grid cells'); reuses src/wtune_case.py:compute_r_max and src/predictor/decomp_space.py:legal_shapes_exact",
+      "applicability": "explicit nproc_x/nproc_y > 0 (automatic decomposition picks a legal shape itself or aborts)",
+      "exceptions": "none",
+      "message": {
+        "ok": "nproc {nx}x{ny}：所有網格最小 patch {pw}x{ph} >= 10（R_max = {r_max}）",
+        "deviates": "nproc {nx}x{ny} 不合法：某網格 floor(e/nproc) < 10（R_max = {r_max}）；WRF 啟動即中止"
+      },
+      "hard": true
+    },
+    {
+      "id": "decomp.min_patch_measured",
+      "topic": "decomp",
+      "formula": "WRF-Hydro Front Range (d01 42x42, d02 52x31): max feasible ranks 4x3 = 12; 8 ranks only as 4x2 (2x4 fatal); 16 ranks infeasible",
+      "function": "decomp",
+      "parameters": [
+        "e_we_list",
+        "e_sn_list"
+      ],
+      "source_level": "wtune-measured",
+      "source_ref": "my-llm-wiki inbox/2026-10-01-002530-wrf-hydro-front-range-case-d01-42x42-d02-52x31-wrf-requires-min-decomposed-patch.md",
+      "applicability": "small nested domains where the smallest nest limits the rank count",
+      "exceptions": "none",
+      "message": {
+        "ok": "",
+        "deviates": ""
+      },
+      "hard": false
+    },
+    {
+      "id": "decomp.chem_j_patch",
+      "topic": "decomp",
+      "formula": "WRF-Chem GOCART (chem_opt=300): j-direction patch >= 21 rows is known safe, <= 15 rows hung at the 2nd history write; 16..20 untested",
+      "function": "decomp",
+      "parameters": [
+        "e_sn_list",
+        "nproc_y",
+        "chem_opt"
+      ],
+      "source_level": "wtune-measured",
+      "source_ref": "my-llm-wiki knowledge/failed-ideas/2026-09-30-wrf-chem-gocart-hangs-at-small-j-patch-decomposition.md (exploratory: Katrina d01 169x129, 12 km, one execution per cell, nvhpc 26.5 dm+sm)",
+      "applicability": "chem_opt > 0 with explicit nproc_y",
+      "exceptions": "single case/compiler; threshold between 15 and 21 rows is not located; i-direction patch width did not matter",
+      "message": {
+        "ok": "chem_opt={chem_opt}：j patch {pj} 列 >= 21（實測安全）",
+        "deviates": "chem_opt={chem_opt}：j patch {pj} 列 < 21；實測中 14-15 列會卡死（16-20 未測）"
+      },
+      "hard": false
+    },
+    {
+      "id": "io.frame_first_principles",
+      "topic": "io",
+      "formula": "frame bytes ~= 4 * (e_we*e_sn*(e_vert-1) * n3d + e_we*e_sn * n2d)  (float32, uncompressed)",
+      "function": "io",
+      "parameters": [
+        "e_we",
+        "e_sn",
+        "e_vert",
+        "n3d",
+        "n2d"
+      ],
+      "source_level": "rule-of-thumb",
+      "source_ref": "ESTIMATE. Defaults n3d=22 (19 mass-level + 3 staggered-level 3-D fields) and n2d=76 (70 + 6 2-D fields with an extra categorical dimension) are the variable counts of a real matthew wrfinput_d01 (/home/nk/wrf-local/matthew, 91x100x45): the formula gives 38 MB vs 40.3 MB uncompressed on that file (-6%). That is wrfinput, NOT wrfout (no local wrfout exists); a wrfout carries more diagnostics, so treat the default as a floor. Pass --n3d/--n2d (or an iofields subset) for a real case; src/wtune_predict.py:iofields_frame_bytes sizes an exact subset.",
+      "applicability": "history/restart size planning before the first run",
+      "exceptions": "iofields_filename subsets, chem/hydro/aux streams, compressed io_form 14 or netCDF4 compression change the size",
+      "message": {
+        "ok": "",
+        "deviates": ""
+      },
+      "hard": false
+    },
+    {
+      "id": "io.frame_calibrated",
+      "topic": "io",
+      "formula": "frame bytes ~= bytes_per_cell_level * e_we * e_sn * e_vert, bytes_per_cell_level = 30.91 B (conus25 history frame)",
+      "function": "io",
+      "parameters": [
+        "e_we",
+        "e_sn",
+        "e_vert"
+      ],
+      "source_level": "wtune-measured",
+      "source_ref": "machine/calibration/scc.json derived.bytes_per_cell_level (conus25: 2786477540 B / (1501*1201*50)); the same constant src/wtune_predict.py applies",
+      "applicability": "a history frame with the conus25 output variable set",
+      "exceptions": "other output sets scale differently",
+      "message": {
+        "ok": "",
+        "deviates": ""
+      },
+      "hard": false
+    },
+    {
+      "id": "run.steps",
+      "topic": "run",
+      "formula": "d01 steps = run_seconds / time_step; nest steps = d01 steps * cumulative parent_time_step_ratio",
+      "function": "run",
+      "parameters": [
+        "run_seconds",
+        "time_step"
+      ],
+      "source_level": "wrf-doc",
+      "source_ref": "run/README.namelist:9-13 (run_days/run_hours/...), :155 (time_step); implemented by src/wtune_predict.py:get_d01_steps",
+      "applicability": "fixed time step",
+      "exceptions": "adaptive time stepping changes the count",
+      "message": {
+        "ok": "d01：{steps} 步（dt {dt:g} s，共 {run_h:.2f} h）",
+        "deviates": ""
+      },
+      "hard": false
+    },
+    {
+      "id": "run.predict",
+      "topic": "run",
+      "formula": "whole-run wall-time prediction from the calibrated per-stage model (delegates to wtune_predict.build_prediction; nothing is re-implemented here)",
+      "function": "run",
+      "parameters": [
+        "namelist",
+        "nodes",
+        "nx",
+        "ny"
+      ],
+      "source_level": "wtune-measured",
+      "source_ref": "src/wtune_predict.py build_prediction; machine/calibration/scc.json; accuracy statements live with that module",
+      "applicability": "scc f1 nodes with a matching calibration",
+      "exceptions": "see wtune_predict for out-of-sample caveats",
+      "message": {
+        "ok": "",
+        "deviates": ""
+      },
+      "hard": false
+    },
+    {
+      "id": "units.earth_radius",
+      "topic": "units",
+      "formula": "1 deg latitude = pi/180 * 6370 km = 111.177 km; 1 deg longitude = 111.177 km * cos(lat)",
+      "function": "units",
+      "parameters": [
+        "deg",
+        "lat"
+      ],
+      "source_level": "wrf-doc",
+      "source_ref": "share/module_model_constants.F:43 (reradius = 1./6370.0e03; WRF earth radius 6370 km)",
+      "applicability": "deg <-> km and arcsec <-> m",
+      "exceptions": "ellipsoidal geodesy (WGS84, 111.32 km at the equator) differs by ~0.1%",
+      "message": {
+        "ok": "",
+        "deviates": ""
+      },
+      "hard": false
+    },
+    {
+      "id": "units.icao",
+      "topic": "units",
+      "formula": "ICAO standard atmosphere: troposphere (<= 11 km) h = 44330.77*(1-(p/1013.25)^0.190263); above 226.32 hPa isothermal 216.65 K: h = 11000 + 6341.62*ln(226.32/p)",
+      "function": "units",
+      "parameters": [
+        "p_hpa"
+      ],
+      "source_level": "rule-of-thumb",
+      "source_ref": "ICAO Doc 7488 / ISO 2533 standard atmosphere (external standard, not in the WRF tree); real heights deviate with the actual temperature profile",
+      "applicability": "hPa <-> height for sizing p_top / eta levels",
+      "exceptions": "valid to ~20 km (>= ~55 hPa); real soundings differ by tens to hundreds of meters",
+      "message": {
+        "ok": "",
+        "deviates": ""
+      },
+      "hard": false
+    },
+    {
+      "id": "units.knot",
+      "topic": "units",
+      "formula": "1 kt = 1852 m / 3600 s = 0.514444 m/s",
+      "function": "units",
+      "parameters": [
+        "kt"
+      ],
+      "source_level": "rule-of-thumb",
+      "source_ref": "definition of the international nautical mile (1852 m); exact, not a rule of thumb, but not WRF text either",
+      "applicability": "TC intensity / wind conversion",
+      "exceptions": "none",
+      "message": {
+        "ok": "",
+        "deviates": ""
+      },
+      "hard": false
+    },
+    {
+      "id": "nudge.wavenumber",
+      "topic": "nudge",
+      "formula": "xwavenum = round(Lx / lambda), ywavenum = round(Ly / lambda), Lx = (e_we-1)*dx, Ly = (e_sn-1)*dx; lambda default 1000 km (typical 1000-1500 km)",
+      "function": "nudge",
+      "parameters": [
+        "e_we",
+        "e_sn",
+        "dx_m",
+        "wavelength_km"
+      ],
+      "source_level": "rule-of-thumb",
+      "source_ref": "formula/lambda: spectral-nudging convention (needs verification on scc). Namelist facts verified: run/README.namelist:1511-1512 (xwavenum/ywavenum 'top wave number to nudge', example 3); Registry/Registry.EM_COMMON:2791-2792 (names exist; Registry default 0)",
+      "applicability": "grid_fdda=2 on the outer domain",
+      "exceptions": "lambda 1000-1500 km keeps synoptic scales and frees the mesoscale; the README example value 3 is not a recommendation",
+      "message": {
+        "ok": "xwavenum/ywavenum = {xw}/{yw}，L = {Lx:.0f} x {Ly:.0f} km、lambda 1000-1500 km 對應範圍 {rx}/{ry}",
+        "deviates": "xwavenum/ywavenum = {xw}/{yw}，但 L = {Lx:.0f} x {Ly:.0f} km、lambda 1000-1500 km 對應 {rx}/{ry}（目前相當於推到波長 ~{lam_eff_x:.0f} x {lam_eff_y:.0f} km）"
+      },
+      "hard": false
+    },
+    {
+      "id": "nudge.coefficients",
+      "topic": "nudge",
+      "formula": "guv = gt = gph = 3e-4 s^-1; relaxation time tau = 1/g = 3333 s ~= 55.6 min",
+      "function": "nudge",
+      "parameters": [
+        "g"
+      ],
+      "source_level": "wrf-doc",
+      "source_ref": "run/README.namelist:1465-1466 (guv, gt = 0.0003), :1508 (gph = 0.0003) -- README example values; Registry/Registry.EM_COMMON:2781-2787 Registry default is 0 for all of guv/gt/gq/gph, so they must be set explicitly. tau = 1/g is arithmetic",
+      "applicability": "grid_fdda = 1 or 2",
+      "exceptions": "none",
+      "message": {
+        "ok": "guv/gt/gph = {vals} s^-1（tau = {tau:.1f} 分鐘）",
+        "deviates": "guv/gt/gph = {vals} s^-1 與 README 範例 3e-4 不同（tau = {tau:.1f} 分鐘）"
+      },
+      "hard": false
+    },
+    {
+      "id": "nudge.moisture",
+      "topic": "nudge",
+      "formula": "gq: README example 1e-5 s^-1 (wrf-doc), Registry default 0; common recommendation gq = 0 (do not nudge moisture)",
+      "function": "nudge",
+      "parameters": [
+        "gq"
+      ],
+      "source_level": "rule-of-thumb",
+      "source_ref": "recommendation gq=0 is convention (needs verification on scc). Verified names/values: run/README.namelist:1467 (gq = 0.00001, example), run/README.namelist:1458 (if_no_pbl_nudging_q), Registry/Registry.EM_COMMON:2785 (gq exists, Registry default 0). Spectral nudging of q exists in 4.8 via gq. The README example (1e-5) and the common recommendation (0) DIFFER",
+      "applicability": "grid_fdda = 2",
+      "exceptions": "moisture nudging suppresses model-generated convection/precipitation variability; some studies nudge q deliberately",
+      "message": {
+        "ok": "gq = {gq:g}（不 nudge 水氣）",
+        "deviates": "gq = {gq:g} > 0 會 nudge 水氣；README 範例是 1e-5，但常見建議是 gq = 0"
+      },
+      "hard": false
+    },
+    {
+      "id": "nudge.pbl",
+      "topic": "nudge",
+      "formula": "if_no_pbl_nudging_uv = if_no_pbl_nudging_t = if_no_pbl_nudging_ph = if_no_pbl_nudging_q = 1 (no nudging inside the PBL)",
+      "function": "nudge",
+      "parameters": [
+        "if_no_pbl_nudging_uv",
+        "if_no_pbl_nudging_t",
+        "if_no_pbl_nudging_ph",
+        "if_no_pbl_nudging_q"
+      ],
+      "source_level": "rule-of-thumb",
+      "source_ref": "recommendation is convention (needs verification on scc). Names verified: run/README.namelist:1456-1458 and :1489-1492 (_uv/_t/_ph/_q, 1 = no nudging in the PBL, default 0); Registry/Registry.EM_COMMON:2764-2767",
+      "applicability": "grid_fdda = 2",
+      "exceptions": "nudging within the PBL can fight the PBL scheme; with if_zfac_* the lower levels are excluded by level instead",
+      "message": {
+        "ok": "PBL 內不 nudge（uv/t/ph 皆設為 1，或改用 if_zfac_*）",
+        "deviates": "PBL 內仍有 nudging（{flags}）；建議 if_no_pbl_nudging_uv/t/ph = 1"
+      },
+      "hard": false
+    },
+    {
+      "id": "nudge.zfac",
+      "topic": "nudge",
+      "formula": "alternative to the PBL switch: if_zfac_X = 1 with k_zfac_X = model level below which nudging is off, dk_zfac_X = ramp depth (X = uv, t, ph, q)",
+      "function": "nudge",
+      "parameters": [
+        "k_zfac_uv",
+        "k_zfac_t",
+        "k_zfac_ph"
+      ],
+      "source_level": "wrf-doc",
+      "source_ref": "run/README.namelist:1459-1464 and :1489-1507 (if_zfac_*, k_zfac_*, dk_zfac_*); Registry/Registry.EM_COMMON:2768-2778",
+      "applicability": "grid_fdda = 2 (spectral)",
+      "exceptions": "README k_zfac example differs between the grid-nudging block (10) and the spectral block (0)",
+      "message": {
+        "ok": "",
+        "deviates": ""
+      },
+      "hard": false
+    },
+    {
+      "id": "nudge.outer_only",
+      "topic": "nudge",
+      "formula": "nudge the outermost domain only (grid_fdda = 0 on nests)",
+      "function": "nudge",
+      "parameters": [
+        "grid_fdda"
+      ],
+      "source_level": "rule-of-thumb",
+      "source_ref": "community convention (needs verification on scc); the namelist variable is per-domain: run/README.namelist:1449 (grid_fdda (max_dom))",
+      "applicability": "nested runs",
+      "exceptions": "nesting the nudging down is used when the nest also spans synoptic scales",
+      "message": {
+        "ok": "只在 d01 做 nudging",
+        "deviates": "巢狀網格 {doms} 也開了 grid_fdda：巢狀內 nudging 少見（它們已經從被 nudge 的母網格取邊界）"
+      },
+      "hard": false
+    },
+    {
+      "id": "nudge.timing",
+      "topic": "nudge",
+      "formula": "gfdda_interval_m = analysis interval in minutes (= interval_seconds/60); gfdda_end_h >= run length in hours; fgdt = 0 (every step)",
+      "function": "nudge",
+      "parameters": [
+        "gfdda_interval_m",
+        "gfdda_end_h",
+        "fgdt"
+      ],
+      "source_level": "wrf-doc",
+      "source_ref": "run/README.namelist:1452 (gfdda_interval_m 'time interval (in min) between analysis times'), :1453 (gfdda_end_h 'time (in hours) to stop nudging after start of forecast', example 6), :1455 (fgdt, 0 = every step)",
+      "applicability": "grid_fdda = 1 or 2",
+      "exceptions": "gfdda_end_h shorter than the run is a legitimate nudge-then-free-run design",
+      "message": {
+        "ok": "gfdda_interval_m {gi} 分鐘與 interval_seconds 一致；gfdda_end_h {ge} h >= 預報長度 {rh:g} h",
+        "deviates": "{why}"
+      },
+      "hard": false
+    },
+    {
+      "id": "nudge.no_search",
+      "topic": "nudge",
+      "formula": "WTune never searches nudging strengths (guv/gt/gq/gph, wavenumbers) automatically: minimising error against the driving analysis drives the model toward a copy of that analysis",
+      "function": "nudge",
+      "parameters": [],
+      "source_level": "rule-of-thumb",
+      "source_ref": "WTune policy (decision 0062 scope extension 2026-10-01; advisory-only physics policy 0056); not a WRF statement",
+      "applicability": "any tuning workflow",
+      "exceptions": "explicit user-driven sensitivity studies are fine; automatic objective-driven search is not",
+      "message": {
+        "ok": "",
+        "deviates": ""
+      },
+      "hard": false
+    },
+    {
+      "id": "scales.coriolis",
+      "topic": "scales",
+      "formula": "f = 2*Omega*sin(phi), Omega = 7.2921e-5 rad/s",
+      "function": "scales",
+      "parameters": [
+        "lat"
+      ],
+      "source_level": "wrf-doc",
+      "source_ref": "share/module_model_constants.F:83 (EOMEG=7.2921E-5 rad/s); f at 25N = 6.17e-5 s^-1",
+      "applicability": "any latitude",
+      "exceptions": "f -> 0 at the equator; L_R diverges",
+      "message": {
+        "ok": "",
+        "deviates": ""
+      },
+      "hard": false
+    },
+    {
+      "id": "scales.rossby",
+      "topic": "scales",
+      "formula": "L_R = N*H/f (internal Rossby radius of deformation)",
+      "function": "scales",
+      "parameters": [
+        "N",
+        "H",
+        "lat"
+      ],
+      "source_level": "rule-of-thumb",
+      "source_ref": "textbook (e.g. Holton, Intro. to Dynamic Meteorology; not in the WRF tree)",
+      "applicability": "mid-latitudes",
+      "exceptions": "ill-defined within ~5 deg of the equator",
+      "message": {
+        "ok": "",
+        "deviates": ""
+      },
+      "hard": false
+    },
+    {
+      "id": "scales.effective_resolution",
+      "topic": "scales",
+      "formula": "effective resolution ~= 7*dx",
+      "function": "scales",
+      "parameters": [
+        "dx_km"
+      ],
+      "source_level": "rule-of-thumb",
+      "source_ref": "Skamarock (2004), Mon. Wea. Rev. 132, 3019-3032 (not in the WRF tree; needs verification on scc)",
+      "applicability": "WRF ARW dynamical core with default advection",
+      "exceptions": "features smaller than ~7 dx are damped; a 1 km grid does not resolve 5 km features",
+      "message": {
+        "ok": "",
+        "deviates": ""
+      },
+      "hard": false
+    },
+    {
+      "id": "scales.brunt_vaisala",
+      "topic": "scales",
+      "formula": "N^2 = (g/T) * (Gamma_d - Gamma), Gamma_d = 9.8 K/km, Gamma = environmental lapse rate (positive = temperature decreases with height)",
+      "function": "scales",
+      "parameters": [
+        "T",
+        "lapse_rate_k_per_km"
+      ],
+      "source_level": "rule-of-thumb",
+      "source_ref": "textbook, dry atmosphere (needs verification on scc); g = 9.81 m/s^2 (WRF g = 9.81, share/module_model_constants.F)",
+      "applicability": "dry/unsaturated stable layers",
+      "exceptions": "moist-saturated layers need N_m^2; N^2 < 0 means unstable",
+      "message": {
+        "ok": "",
+        "deviates": ""
+      },
+      "hard": false
+    },
+    {
+      "id": "scales.froude",
+      "topic": "scales",
+      "formula": "Fr = U/(N*h); Fr < 1: blocked / flow goes around the obstacle; Fr > 1: flow goes over",
+      "function": "scales",
+      "parameters": [
+        "U",
+        "N",
+        "h"
+      ],
+      "source_level": "rule-of-thumb",
+      "source_ref": "textbook (e.g. Smith 1989; not in the WRF tree)",
+      "applicability": "isolated mountains with h = obstacle height",
+      "exceptions": "Fr ~ 1 is a transition, not a sharp threshold",
+      "message": {
+        "ok": "",
+        "deviates": ""
+      },
+      "hard": false
+    },
+    {
+      "id": "scales.min_domain",
+      "topic": "scales",
+      "formula": "suggested minimum domain width >= max(10 * feature size, 1 * L_R)",
+      "function": "scales",
+      "parameters": [
+        "feature_km",
+        "L_R_km"
+      ],
+      "source_level": "rule-of-thumb",
+      "source_ref": "convention (needs verification on scc); not a WRF requirement",
+      "applicability": "feature-driven domain design",
+      "exceptions": "depends on the forcing: a synoptic-forced flow tolerates a smaller domain than a free-running one",
+      "message": {
+        "ok": "",
+        "deviates": ""
+      },
+      "hard": false
+    },
+    {
+      "id": "les.regime",
+      "topic": "les",
+      "formula": "dx <= ~200 m: LES (diff_opt=2, km_opt=2 or 3, bl_pbl_physics=0); 200 m..1 km: gray zone (PBL scheme and 3-D mixing both partially active; scale-aware options such as km_opt=5 SMS-3DTKE); > 1-2 km: PBL scheme with km_opt=4, diff_opt=1",
+      "function": "les",
+      "parameters": [
+        "dx_m",
+        "diff_opt",
+        "km_opt",
+        "bl_pbl_physics"
+      ],
+      "source_level": "rule-of-thumb",
+      "source_ref": "thresholds: convention (Wyngaard 2004 'terra incognita'; needs verification on scc). Option meanings VERIFIED: run/README.namelist:1620-1631 (diff_opt 2 = stress form, km_opt chooses turbulence), :1632-1640 (km_opt 2 = 1.5-order TKE 3D, 3 = 3-D Smagorinsky, 'option 2 and 3 are not recommended for DX > 2 km', 4 = horizontal Smagorinsky 'recommended for real-data cases', 5 = SMS-3DTKE must use diff_opt=2 with PBL off); run/README.namelist:1678 (khdif typical 0.1*DX in m); Registry Registry/Registry.EM_COMMON:2891-2895 (diff_opt, km_opt default -1)",
+      "applicability": "idealized or real-data runs at sub-km spacing",
+      "exceptions": "real-data sub-km runs often keep a PBL scheme down to ~500 m",
+      "message": {
+        "ok": "dx {dx_m:.0f} m：{regime}",
+        "deviates": "dx {dx_m:.0f} m（{regime}），但 {why}"
+      },
+      "hard": false
+    },
+    {
+      "id": "acoustic.sound_steps",
+      "topic": "acoustic",
+      "formula": "time_step_sound = 0 (auto): n = max(2*(INT(300*dt/dx_m - 0.01)+1), 4) (even, >= 4); dts = dt/n; acoustic Courant number = c_s*dts/dx",
+      "function": "acoustic",
+      "parameters": [
+        "dt_s",
+        "dx_m",
+        "c_s"
+      ],
+      "source_level": "wrf-doc",
+      "source_ref": "dyn_em/solve_em.F:451-466 (automatic count, assumes 300 m/s; comment 'gives 4 for 6*dx and 6 for 10*dx'); run/README.namelist:1722-1725 (time_step_sound example 4, 0 = automatic; scale up when time_step >> 6*dx); Registry/Registry.EM_COMMON:2921 (default 0). c_s = 340 m/s here is the caller's choice; the code uses 300",
+      "applicability": "fixed or adaptive time step",
+      "exceptions": "a manual value should be even and scale with dt/(6*dx)",
+      "message": {
+        "ok": "time_step_sound = {n} -> dts {dts:.2f} s，聲波 Courant 數 {cac:.2f}",
+        "deviates": "time_step_sound = {n} 的聲波 Courant 數 {cac:.2f} 高於自動值 {cac_auto:.2f}（自動 = {n_auto} 步）"
+      },
+      "hard": false
+    },
+    {
+      "id": "acoustic.epssm",
+      "topic": "acoustic",
+      "formula": "epssm = 0.1 default (vertical sound-wave off-centering); raise toward 0.3-0.5 for steep terrain / vertical-acoustic instability",
+      "function": "acoustic",
+      "parameters": [
+        "epssm"
+      ],
+      "source_level": "wrf-doc",
+      "source_ref": "default: run/README.namelist:1683 (epssm = .1), Registry/Registry.EM_COMMON:2918 (.1). The 0.3-0.5 steep-terrain suggestion is convention (rule-of-thumb, needs verification on scc)",
+      "applicability": "any dynamics step",
+      "exceptions": "larger epssm damps vertically propagating sound waves more",
+      "message": {
+        "ok": "",
+        "deviates": ""
+      },
+      "hard": false
+    },
+    {
+      "id": "acoustic.w_damping",
+      "topic": "acoustic",
+      "formula": "w_damping = 1 when vertical CFL is high (damps w above w_crit_cfl)",
+      "function": "acoustic",
+      "parameters": [
+        "w_damping",
+        "w_crit_cfl"
+      ],
+      "source_level": "wrf-doc",
+      "source_ref": "run/README.namelist:1617-1619 (w_damping 0/1, 'for operational use'), run/README.namelist:1614 (w_crit_cfl example 1.2; ~2.0 with zadvect_implicit); Registry Registry/Registry.EM_COMMON:2887-2888 (w_damping default 0, w_crit_cfl default 1.0 -- README and Registry differ)",
+      "applicability": "cases that hit vertical-CFL violations",
+      "exceptions": "damping hides, rather than fixes, a too-large time step",
+      "message": {
+        "ok": "",
+        "deviates": ""
+      },
+      "hard": false
+    },
+    {
+      "id": "bdy.nest_distance",
+      "topic": "bdy",
+      "formula": "keep a nest >= ~10 parent cells (or ~1/3 of the nest width, whichever you prefer) away from the parent boundary",
+      "function": "bdy",
+      "parameters": [
+        "margin_cells"
+      ],
+      "source_level": "rule-of-thumb",
+      "source_ref": "convention (needs verification on scc); the hard geometry is nest.inside_parent. spec_bdy_width = 5 is the parent's own boundary zone (run/README.namelist:1758-1760)",
+      "applicability": "nested domains",
+      "exceptions": "tight placements (< 10 cells) work but put the nest in the parent's boundary-affected region",
+      "message": {
+        "ok": "",
+        "deviates": ""
+      },
+      "hard": false
+    },
+    {
+      "id": "movenest.vortex",
+      "topic": "movenest",
+      "formula": "search radius = 60*vortex_interval[min]*max_vortex_speed[m/s]/dx cells (nest grid) around the last vortex position; defaults vortex_interval = 15, max_vortex_speed = 40, corral_dist = 8 (coarse cells), track_level = 50000 Pa",
+      "function": "movenest",
+      "parameters": [
+        "vortex_interval",
+        "max_vortex_speed",
+        "dx_m",
+        "storm_speed"
+      ],
+      "source_level": "wrf-doc",
+      "source_ref": "run/README.namelist:388-392 (names/defaults; 'experimental', needs -DMOVE_NESTS and -DVORTEX_CENTER); Registry/Registry.EM_COMMON:2372-2375 (defaults 15/40/8/50000); search-radius formula and units (minutes, m/s): share/mediation_nest_move.F:340 and :482-485; corral_dist test: share/mediation_nest_move.F:844-847, :898-901. Suggestions below (vortex_interval from storm speed, max_vortex_speed >= 1.5-2 x storm speed) are rule-of-thumb",
+      "applicability": "automatic vortex-following moving nests",
+      "exceptions": "compile-time feature; experimental in README",
+      "message": {
+        "ok": "",
+        "deviates": ""
+      },
+      "hard": false
+    },
+    {
+      "id": "longrun.sst",
+      "topic": "longrun",
+      "formula": "runs longer than ~5 days: sst_update = 1 with auxinput4_interval (min) = interval_seconds/60, auxinput4_inname = 'wrflowinp_d<domain>', io_form_auxinput4 = 2; usemonalb = .true. recommended with sst_update = 1; tmn_update = 1 (lagday = 150) and sst_skin = 1 optional",
+      "function": "longrun",
+      "parameters": [
+        "run_days",
+        "sst_update",
+        "auxinput4_interval"
+      ],
+      "source_level": "wrf-doc",
+      "source_ref": "run/README.namelist:97-101 (auxinput4_interval 'generally matches time given by interval_seconds'), :1007-1016 (sst_update needs auxinput4_interval/_end_h/_inname/io_form_auxinput4; usemonalb recommended), :1021-1023 (tmn_update, lagday 150, sst_skin); Registry Registry/Registry.EM_COMMON:2589-2593 (defaults 0). The '> ~5 days' threshold is rule-of-thumb (needs verification on scc)",
+      "applicability": "runs where the SST/skin temperature drift matters (long, over ocean)",
+      "exceptions": "for short runs the initial SST is fine",
+      "message": {
+        "ok": "",
+        "deviates": ""
+      },
+      "hard": false
+    },
+    {
+      "id": "spinup.mesoscale",
+      "topic": "spinup",
+      "formula": "discard the first 6-12 h of a mesoscale simulation (cold start from coarse analyses) before analysing precipitation/convection",
+      "function": "spinup",
+      "parameters": [
+        "dx_km"
+      ],
+      "source_level": "rule-of-thumb",
+      "source_ref": "convention (needs verification on scc); not in the WRF tree",
+      "applicability": "cold starts without hydrometeors or with coarse initial data",
+      "exceptions": "hot starts or analyses with cloud water spin up faster; large domains take longer",
+      "message": {
+        "ok": "",
+        "deviates": ""
+      },
+      "hard": false
+    },
+    {
+      "id": "spinup.cost_measured",
+      "topic": "spinup",
+      "formula": "COST spin-up (per-step cost after a cold-start rebuild, NOT meteorological spin-up): conus25 ERA5-with-cloud start reaches |cost error| <= 3% by T+20..40 min; elevconv: longer spin-up is closer to truth at the convective peak",
+      "function": "spinup",
+      "parameters": [],
+      "source_level": "wtune-measured",
+      "source_ref": "my-llm-wiki knowledge/experiments/2026-09-27-era5-with-cloud-water-cuts-rebuild-spinup-to-20-minutes.md; knowledge/experiments/2026-09-28-rebuild-underestimates-convective-peak-spinup-length-test-elevconv.md",
+      "applicability": "wtune predict-rebuild cold-start segments",
+      "exceptions": "measures wall-time per step, not meteorological fields",
+      "message": {
+        "ok": "",
+        "deviates": ""
+      },
+      "hard": false
+    },
+    {
+      "id": "longrun.threshold",
+      "topic": "longrun",
+      "formula": "sst_update = 1 recommended for runs longer than ~5 days",
+      "function": "longrun",
+      "parameters": [
+        "run_days"
+      ],
+      "source_level": "rule-of-thumb",
+      "source_ref": "convention (needs verification on scc); not in the WRF tree",
+      "applicability": "runs over ocean where SST drift matters",
+      "exceptions": "short runs keep the initial SST",
+      "message": {
+        "ok": "",
+        "deviates": ""
+      },
+      "hard": false
+    },
+    {
+      "id": "les.km_opt_dx",
+      "topic": "les",
+      "formula": "km_opt = 2 (1.5-order TKE) and 3 (3-D Smagorinsky) are not recommended for dx > 2 km",
+      "function": "les",
+      "parameters": [
+        "km_opt",
+        "dx_m"
+      ],
+      "source_level": "wrf-doc",
+      "source_ref": "run/README.namelist:1632-1640 ('Note: option 2 and 3 are not recommended for DX > 2 km'); Registry/Registry.EM_COMMON:2895 (km_opt default -1)",
+      "applicability": "any domain with km_opt 2 or 3",
+      "exceptions": "a recommendation, not enforced by WRF code",
+      "message": {
+        "ok": "",
+        "deviates": "km_opt = {km} 用在 dx {dx_m:.0f} m：README 說 km_opt 2/3 不建議用於 dx > 2 km（建議 km_opt=4）"
+      },
+      "hard": false
+    }
+  ]
+}

@@ -256,7 +256,7 @@ def _build_time_series_section(out_dir, figures, catalog, spinup_hours):
 
 
 def build_recipe_report(out_dir, case_info, figures, run_dirs, labels, spinup_hours, catalog,
-                        title=None, notes=None):
+                        title=None, notes=None, advice_html=None):
     """Writes out_dir/report.html for `wtune post recipe`. figures: post/recipe.py's fig()/
     missing() records. Returns the report path."""
     title = title or ("wtune post recipe: %s" % ", ".join(labels))
@@ -274,6 +274,8 @@ def build_recipe_report(out_dir, case_info, figures, run_dirs, labels, spinup_ho
              "h2{border-bottom:2px solid #333;padding-bottom:0.2em}</style>",
              "</head><body>", "<h1>%s</h1>" % html.escape(title)]
     parts.append(_notes_box(notes if notes is not None else case_info.get("notes")))
+    if advice_html:      # decision 0061: verification-triggered, advice only (wtune_advise.render_html)
+        parts.append(advice_html)
 
     parts.append("<h2>Run(s)</h2><ul>")
     for run_dir, label in zip(run_dirs, labels):

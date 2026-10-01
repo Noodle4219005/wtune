@@ -175,7 +175,10 @@ def save_map(out_path, lats, lons, title, fill_field=None, fill_label="", fill_c
         fig.legend(handles=handles, loc="outside lower center", ncol=len(handles), fontsize=8,
                    frameon=False)
 
-    ax.set_title(title, fontsize=9)
+    import textwrap
+    # long titles (run, field, init/valid/lead) wrap instead of running off the figure
+    ax.set_title("\n".join(w for line in str(title).split("\n")
+                           for w in (textwrap.wrap(line, 90) or [""])), fontsize=9)
     if basemap != "cartopy":
         ax.set_xlabel("lon")
         ax.set_ylabel("lat")

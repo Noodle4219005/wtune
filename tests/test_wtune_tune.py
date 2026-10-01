@@ -11,13 +11,22 @@ import csv
 import json
 import math
 import os
+import atexit
 import re
+import shutil
 import subprocess
+import tempfile
 
 import pytest
 
 import wtune_config
 import wtune_tune
+
+# per-session scratch for _ctx's out/ledger dirs: a fixed /tmp path is owned by whichever user
+# ran the tests first on a shared node (scc work3: another user's /tmp/wtune-tune-test-out
+# made 16 tests fail with PermissionError)
+_SCRATCH = tempfile.mkdtemp(prefix="wtune-tune-test-")
+atexit.register(shutil.rmtree, _SCRATCH, True)
 
 MATTHEW_LIKE = dict(e_we=91, e_sn=100, e_vert=45)
 
@@ -127,7 +136,7 @@ def _ctx(**overrides):
         case="matthew", case_json=dict(MATTHEW_LIKE, prep_dir="/fake/matthew"),
         namelist_path="/fake/matthew/namelist.input", nodes=1, cores_per_node=72,
         hardware_id="scc-gh200", steps=20, seed=1, kappa=0.5, budget_s=1800.0, max_nodes=13,
-        out_dir="/tmp/wtune-tune-test-out", ledger_dir="/tmp/wtune-tune-test-ledger",
+        out_dir=os.path.join(_SCRATCH, "out"), ledger_dir=os.path.join(_SCRATCH, "ledger"),
         env_source="$HOME/wtune-scc/env.sh",
         sbatch_script="$HOME/wtune/campaign/strict_campaign.sbatch", sacct_cmd="sacct",
         poll_interval=0.0, sbatch_runner=sbatch_runner, sacct_runner=sacct_runner,

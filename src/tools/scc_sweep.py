@@ -366,12 +366,29 @@ def campaign_dir_for(sbatch_script):
     return d if os.path.isfile(os.path.join(d, "configs.py")) else None
 
 
+PREFLIGHT_EXCLUDE_ENV = "WTUNE_PREFLIGHT_EXCLUDE"   # set by the controller itself (wtune tune's
+                                                      # node health pre-flight): nodes that failed it
+
+
+def excluded_nodes():
+    """Ordered, de-duplicated node names every sbatch of this tool chain must avoid: head (always),
+    the user's opt-in WTUNE_SBATCH_EXCLUDE, and the controller's own WTUNE_PREFLIGHT_EXCLUDE (nodes
+    the health pre-flight found unusable). ONE helper -- exclude_arg() and
+    tools/coldstart_sample.render_run_sbatch both read it."""
+    out = ["head"]
+    for var in ("WTUNE_SBATCH_EXCLUDE", PREFLIGHT_EXCLUDE_ENV):
+        for n in os.environ.get(var, "").split(","):
+            n = n.strip()
+            if n and n not in out:
+                out.append(n)
+    return out
+
+
 def exclude_arg():
-    """'--exclude=head[,<WTUNE_SBATCH_EXCLUDE nodes>]' -- the same opt-in extra exclusion
-    tools/coldstart_sample.render_run_sbatch honours (scc work5, 2026-09-27: non-Slurm root load
-    slowed wrf.exe 5x). head is always excluded."""
-    extra = [n.strip() for n in os.environ.get("WTUNE_SBATCH_EXCLUDE", "").split(",") if n.strip()]
-    return "--exclude=" + ",".join(["head"] + extra)
+    """'--exclude=head[,<WTUNE_SBATCH_EXCLUDE nodes>][,<pre-flight failures>]' -- the same opt-in
+    extra exclusion tools/coldstart_sample.render_run_sbatch honours (scc work5, 2026-09-27:
+    non-Slurm root load slowed wrf.exe 5x). head is always excluded."""
+    return "--exclude=" + ",".join(excluded_nodes())
 
 
 def build_sbatch_command(case, nodes, cores_per_node, time_limit, timeout_s, reps, steps,

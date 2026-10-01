@@ -56,6 +56,31 @@
 #            campaign/strict_campaign.sbatch
 #        Both ids must exist in the file and must be DIFFERENT decompositions (the twin is the
 #        chaos floor, not a replicate); configs.py decomp-pair enforces both, see below.
+#        Two OPTIONAL per-config CONFIG_FILE fields for the default (non-MODE=physics) loop
+#        (decision 0059, `wtune tune --pipeline full`; read by `configs.py config-extras`):
+#          "physics_namelists": {"<point case id>": "/abs/namelist.input", ...}
+#              this config's run for CASE=<point case id> uses that file as its namelist template
+#              instead of the case's own (physics edits pre-rendered by wtune_physics_advice.
+#              render_candidate_namelist + wtune_run.render_segment_namelist). nproc/numtiles/
+#              ranks/adios2/history/restart are still applied per config on top, so ANY decomposition
+#              (a twin = same physics file, different nx/ny/omp/ranks) overrides what the file
+#              carries. Combine with RANKING_START=spinup: the run resumes from the point's shared
+#              restart (physics_signature must match the anchor's -- a candidate that edits
+#              mp/cu/pbl/sfclay/sfc/ra_lw/ra_sw is SKIPPED under RANKING_STRICT_RESTART=1).
+#              A listed file that does not exist gives a SKIPPED ledger row, never a silent fallback.
+#          "window_frame": true | "end" | "mid_end"   (or env WINDOW_FRAME=1|2 for every config)
+#              level 1 (true/"end"): d01 writes exactly ONE history frame at the window end
+#              (history_begin == history_interval == run minutes, --history-mode end_d01; the
+#              window-start frame is skipped). level 2 ("mid_end"): frames at the window midpoint
+#              (run_minutes//2) AND end (--history-mode mid_end_d01). A restarted WRF run never
+#              writes a frame at its own start time (scc job 2194), and fidelity_gate.run_gate
+#              labels INVALID unless a matched time exists after the reference's first valid time,
+#              so a one-time frame cannot be gated: gate input = the run's two sorted frames. Every frame is converted to NetCDF AFTER wrf.exe returned,
+#              outside the timed region. Only honoured in MODE=timing. Frames are kept as
+#              <OUT>/<CASE>_<cid>_r<rep>_<job>/wrfout_d01_<Times>.nc; the ledger row's notes carry
+#              window_frame=<abs path of the END frame> window_frame_time=<its Times> and, at
+#              level 2, window_frame_mid=<abs path of the mid frame>; on failure
+#              window_frame=none:<reason> and no frame is kept.
 set -uo pipefail
 
 SITE=${SITE:-f1}
@@ -463,6 +488,25 @@ else
     CFG_RANKS[$cid]=$ranks; CFG_OMP[$cid]=$omp; CFG_NX[$cid]=$nx; CFG_NY[$cid]=$ny
     CFG_NUMTILES[$cid]=$numtiles; CFG_DIST[$cid]=$dist; CFG_BLOCKTIME[$cid]=$blocktime
   done < <("$PYBIN" "$CAMPAIGN/configs.py" "$CASE" 2>/dev/null)
+fi
+
+# Per-config physics_namelists / window_frame (see the header). Parsed with the same \037
+# separator trick as above: an EMPTY physics_namelist field must not shift the columns.
+# WINDOW_FRAME=1 (job-wide env) turns the window-end frame on for every config.
+declare -A CFG_PHYS_NL CFG_WINDOW_FRAME
+WINDOW_FRAME=${WINDOW_FRAME:-0}
+if [ -n "${CONFIG_FILE:-}" ]; then
+  while IFS=$'\037' read -r cid pnl wf; do
+    [ -z "$cid" ] && continue
+    CFG_PHYS_NL[$cid]=$pnl; CFG_WINDOW_FRAME[$cid]=$wf
+  done < <("$PYBIN" "$CAMPAIGN/configs.py" config-extras "$CASE" 2>/dev/null | tr '\t' '\037')
+fi
+WINDOW_FRAME_ANY=0
+[ "$WINDOW_FRAME" = "1" ] && WINDOW_FRAME_ANY=1
+for cid in "${!CFG_WINDOW_FRAME[@]}"; do [ "${CFG_WINDOW_FRAME[$cid]}" = "1" ] && WINDOW_FRAME_ANY=1; done
+if [ "$MODE" = "timing" ] && [ "$WINDOW_FRAME_ANY" = "1" ] && [ ! -f "$CONV" ]; then
+  echo "FATAL: ADIOS2->netCDF converter not found at $CONV (needed by window_frame) -- refusing to run" >&2
+  exit 1
 fi
 
 
@@ -1196,7 +1240,31 @@ for cid in "${ORDER[@]}"; do
     case "$b" in namelist.input|wrfout*|wrfinput*|wrfbdy*|wrfrst*|rsl.*) ;;
       *) [ -e "$b" ] || ln -sf "$f" "$b" ;; esac
   done
-  cp "$NAMELIST_TEMPLATE" ./namelist.input.orig
+  # physics_namelists (header): this config's own pre-rendered namelist for this CASE replaces the
+  # case template; every edit below (decomposition, history, restart) still applies on top of it.
+  RUN_TEMPLATE="$NAMELIST_TEMPLATE"
+  PHYS_NL="${CFG_PHYS_NL[$cid]:-}"
+  if [ -n "$PHYS_NL" ]; then
+    if [ -f "$PHYS_NL" ]; then
+      RUN_TEMPLATE="$PHYS_NL"
+    else
+      echo "ERROR: cid=$cid physics_namelists[$CASE]=$PHYS_NL does not exist -- run SKIPPED" >&2
+      write_restart_skip_row "${CASE}_${cid}_r${rep}_${J}" "$cid" "$rep" "physics_namelist_missing" "$CUR_TARGET_MIN"
+      cd "$OUT"
+      continue
+    fi
+  fi
+  # window_frame (header): one end-of-window d01 history frame, MODE=timing only
+  WF=0; WF_KEEP=(); WF_NOTE=""
+  if [ "$MODE" = "timing" ]; then
+    WF=${CFG_WINDOW_FRAME[$cid]:-0}
+    [ "$WF" = "0" ] && WF=$WINDOW_FRAME
+    case "$WF" in 0|1|2) ;; *) WF=1 ;; esac
+  fi
+  RUN_HISTORY_ARG="$HISTORY_MODE_ARG"
+  [ "$WF" = "1" ] && RUN_HISTORY_ARG=end_d01
+  [ "$WF" = "2" ] && RUN_HISTORY_ARG=mid_end_d01
+  cp "$RUN_TEMPLATE" ./namelist.input.orig
   SET_ARGS=()
   if [ -n "${NAMELIST_OVERRIDES:-}" ]; then
     for kv in $NAMELIST_OVERRIDES; do
@@ -1226,7 +1294,7 @@ for cid in "${ORDER[@]}"; do
   python3 "$CAMPAIGN/configs.py" edit-namelist ./namelist.input.orig ./namelist.input \
     --nproc-x "$nx" --nproc-y "$ny" --numtiles "$numtiles" \
     --run-minutes "$MIN" --max-dom "$MAX_DOM" \
-    --history-mode "$HISTORY_MODE_ARG" --ranks "$ranks" \
+    --history-mode "$RUN_HISTORY_ARG" --ranks "$ranks" \
     "${SET_ARGS[@]}" "${DELETE_ARGS[@]}" "${NEST_ARGS[@]}" "${TILE_ARGS[@]}"
   rm -f ./namelist.input.orig
   # RANKING_START=spinup (see the setup block above): a SECOND, additive edit-namelist pass that
@@ -1246,7 +1314,7 @@ for cid in "${ORDER[@]}"; do
       python3 "$CAMPAIGN/configs.py" edit-namelist ./namelist.input.restart_orig ./namelist.input \
         --nproc-x "$nx" --nproc-y "$ny" --numtiles "$numtiles" \
         --run-minutes "$MIN" --max-dom "$MAX_DOM" \
-        --history-mode "$HISTORY_MODE_ARG" --ranks "$ranks" \
+        --history-mode "$RUN_HISTORY_ARG" --ranks "$ranks" \
         "${SET_ARGS[@]}" "${DELETE_ARGS[@]}" "${NEST_ARGS[@]}" "${TILE_ARGS[@]}" \
         --restart-from "$RESTART_TIME" --restart-io-form "$RANKING_RESTART_IO_FORM"
       rm -f ./namelist.input.restart_orig
@@ -1352,6 +1420,37 @@ for cid in "${ORDER[@]}"; do
     [ -n "${BP_FRAME:-}" ] && rm -rf "$BP_FRAME"
   fi
 
+  # ---- window_frame: convert the end-of-window (and, level 2, window-mid) BP frames to NetCDF,
+  # AFTER the timed region.
+  # The s/step above comes only from "Timing for main" lines, which do not contain the history
+  # write (WRF prints that as its own "Timing for Writing wrfout..." line), and the write lands at
+  # the very last step anyway, so the measurement above never sees it; the conversion below runs
+  # after wrf.exe returned. Direct python on the batch node: no srun (broken for MPI on scc).
+  if [ "$WF" != "0" ]; then
+    WF_BPS=$(ls -d wrfout_d01_* 2>/dev/null | grep -v '\.nc$' | sort)
+    WF_NOTE=""
+    if [ "$RC" = "0" ] && [ "$OK" = "1" ] && [ -n "$WF_BPS" ]; then
+      for WF_BP in $WF_BPS; do
+        "$PYBIN" "$CONV" --input "$RUNDIR/$WF_BP" --output "$RUNDIR/${WF_BP}.nc" > "convert_${WF_BP}.log" 2>&1
+        if [ "$?" = "0" ] && [ -s "${WF_BP}.nc" ]; then
+          WF_KEEP+=("${WF_BP}.nc"); rm -rf "$WF_BP"
+        else
+          rm -f "${WF_BP}.nc"; WF_NOTE="window_frame=none:convert_failed"; break
+        fi
+      done
+      if [ -z "$WF_NOTE" ]; then
+        WF_LAST=${WF_KEEP[${#WF_KEEP[@]}-1]}
+        WF_TIME=${WF_LAST#wrfout_d01_}; WF_TIME=${WF_TIME%.nc}
+        WF_NOTE="window_frame=$RUNDIR/$WF_LAST window_frame_time=$WF_TIME"
+        [ "$WF" = "2" ] && [ "${#WF_KEEP[@]}" -ge 2 ] && WF_NOTE="$WF_NOTE window_frame_mid=$RUNDIR/${WF_KEEP[0]}"
+      fi
+    else
+      WF_NOTE="window_frame=none:$([ "$RC" = "0" ] && [ "$OK" = "1" ] && echo no_frame || echo run_failed)"
+    fi
+    [ "${WF_NOTE#window_frame=none}" != "$WF_NOTE" ] && WF_KEEP=()
+    echo "WINDOW_FRAME cid=$cid level=$WF $WF_NOTE"
+  fi
+
   echo "RESULT case=$CASE config=$cid rep=$rep rc=$RC ok=$OK med=$MED mean=$MEAN n=$NMEAS excl=$NEXCL wall=$WALL diff_fields=$DIFF_FIELDS"
 
   # ---- ledger row ----
@@ -1361,9 +1460,12 @@ for cid in "${ORDER[@]}"; do
   NOTES="config=$cid n_excluded_steps=$NEXCL ref_config=$REF_CONFIG mode=$MODE io=adios2"
   if [ "$MODE" = "correctness" ]; then
     NOTES="$NOTES history=end_d01 diff_status=$DIFF_STATUS diff_domain=d01 max_dom=$MAX_DOM convert_rc=$CONVERT_RC"
+  elif [ "$WF" != "0" ]; then
+    NOTES="$NOTES history=$RUN_HISTORY_ARG $WF_NOTE"
   else
     NOTES="$NOTES history=off"
   fi
+  [ -n "$PHYS_NL" ] && NOTES="$NOTES physics_namelist=$PHYS_NL"
   # WTune D1 decomposition-space work: a CONFIG_FILE-generated run's tile geometry has no ledger
   # column of its own (schema unchanged), so it goes into notes instead. Absent for a plain
   # STRICT-template run (CONFIG_FILE unset).
@@ -1387,7 +1489,7 @@ for cid in "${ORDER[@]}"; do
     SF_SFCLAY_PHYSICS="$PHYS_SF_SFCLAY_PHYSICS" SF_SURFACE_PHYSICS="$PHYS_SF_SURFACE_PHYSICS" \
     RA_LW_PHYSICS="$PHYS_RA_LW_PHYSICS" RA_SW_PHYSICS="$PHYS_RA_SW_PHYSICS" \
     RADT="$PHYS_RADT" CUDT="$PHYS_CUDT" \
-    HISTORY_INTERVAL="$([ "$MODE" = correctness ] && echo "$MIN" || echo 0)" IO_FORM_HISTORY="14" \
+    HISTORY_INTERVAL="$(if [ "$MODE" = correctness ] || [ "$WF" = "1" ]; then echo "$MIN"; elif [ "$WF" = "2" ]; then echo $(( MIN - MIN / 2 )); else echo 0; fi)" IO_FORM_HISTORY="14" \
     N_NODES="$ALLOC_NODES" N_RANKS="$ranks" OMP_THREADS="$omp" NPROC_X="$nx" NPROC_Y="$ny" \
     NUMTILES="$numtiles" DISTRIBUTION="$dist" KMP_BLOCKTIME_COL="$BLOCKTIME_RECORD" \
     S_PER_STEP_MEDIAN="$MED" S_PER_STEP_MEAN="$MEAN" N_STEPS_MEASURED="$NMEAS" \
@@ -1425,7 +1527,10 @@ PY
   # only that (a plain generic safety net in timing mode, which writes nothing
   # matching wrfout_d0* in the first place).
   find . -maxdepth 1 -name 'rsl.*' ! -name 'rsl.out.0000' ! -name 'rsl.error.0000' -delete
-  find . -maxdepth 1 -name 'wrfout_d0*' ! -name "$(basename "${REF_NC:-}")" -exec rm -rf {} +
+  # (window_frame keeps its converted wrfout_d01_<Times>.nc: the orchestrator reads it afterwards)
+  WF_FIND_ARGS=()
+  for k in "${WF_KEEP[@]}"; do WF_FIND_ARGS+=(! -name "$k"); done
+  find . -maxdepth 1 -name 'wrfout_d0*' ! -name "$(basename "${REF_NC:-}")" "${WF_FIND_ARGS[@]}" -exec rm -rf {} +
   # keep the launcher/stdout log of failed runs: smoke job 1074658 (maria1km) timed out with no rsl.* files
   # at all, and deleting wrf.out removed the only evidence of where it stalled
   if [ "$RC" = "0" ] && [ "$OK" = "1" ]; then rm -f wrf.out; fi
@@ -1441,7 +1546,7 @@ done
 # never a caller-supplied RESTART_SRC_DIR (the legacy reuse path).
 if [ "${WTUNE_KEEP_SPINUP_RESTART:-0}" != "1" ]; then
   for d in "$OUT/${CASE}"_rankspinup_m*_"${J}"; do
-    [ -d "$d" ] && rm -f "$d"/wrfrst_d0*_*
+    [ -d "$d" ] && rm -rf "$d"/wrfrst_d0*_*     # io_form 14 restarts are directories (rm -f left them)
   done
 fi
 

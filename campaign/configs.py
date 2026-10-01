@@ -612,7 +612,24 @@ def _set_history_mode(text, history_mode, run_minutes, max_dom, nest_history_on=
         else:
             begin_values = [value]
         return _replace_list_line(text, begin_key, begin_values)
-    raise ValueError("history_mode must be 'off', 'interval' or 'end_d01', got %r" % (history_mode,))
+    if history_mode == "mid_end_d01":
+        # two d01 frames: at run_minutes//2 and at run_minutes (begin=first, interval=run-first).
+        # A RESTARTED run never writes a frame at its own start time (measured, scc job 2194:
+        # history_begin=0 gave only the end frame), and fidelity_gate.run_gate needs a matched
+        # time after the reference's first valid time, so the pair mid+end is the smallest set
+        # of frames that gate can label.
+        first = int(run_minutes) // 2
+        if first < 1 or int(run_minutes) - first < 1:
+            raise ValueError("mid_end_d01 needs run_minutes >= 2, got %r" % (run_minutes,))
+        text = _set_history_interval(text, int(run_minutes) - first, max_dom, nest_history_on)
+        _interval_key, begin_key, value = _history_key_and_value(text, first)
+        if max_dom > 1:
+            begin_values = [value] * max_dom if nest_history_on else [value] + [0] * (max_dom - 1)
+        else:
+            begin_values = [value]
+        return _replace_list_line(text, begin_key, begin_values)
+    raise ValueError("history_mode must be 'off', 'interval', 'end_d01' or 'mid_end_d01', got %r"
+                     % (history_mode,))
 
 
 def _set_or_insert_time_control_scalar(text, key, value):
@@ -1484,6 +1501,49 @@ def cmd_case_generated(case_id, config_file):
     return 0
 
 
+def config_extras_rows(configs_list, case_id):
+    """(config_id, physics_namelist, window_frame) per config, for strict_campaign.sbatch's
+    CONFIG_FILE loop. Two optional per-config JSON fields the decomposition-only TSV above cannot
+    carry (decision 0059, `wtune tune --pipeline full`):
+      physics_namelists  {point case id: namelist path}. When it names `case_id`, that run uses
+                         the file as its namelist template (physics edits already rendered by
+                         wtune_physics_advice.render_candidate_namelist /
+                         wtune_run.render_segment_namelist) instead of the case's own template;
+                         decomposition/history/restart are still applied on top per config.
+                         Empty string = no override for this case.
+      window_frame       true / "end": this config's run writes exactly one d01 history frame at
+                         the window end; "mid_end": two frames, window midpoint and window end
+                         (fidelity_gate.run_gate returns INVALID on files holding only ONE valid
+                         time -- it needs a matched time after the reference's first -- so a gate
+                         input is the sorted list of the run's mid+end frames; a restarted run never writes a
+                         frame at its own start time). Frames are
+                         converted to NetCDF and kept in the run directory.
+    Returns window_frame as the level '0' (off) / '1' (end) / '2' (mid+end)."""
+    rows = []
+    for cfg in configs_list:
+        nls = cfg.get("physics_namelists") or {}
+        rows.append((cfg.get("id"), str(nls.get(case_id) or ""),
+                     str(window_frame_level(cfg.get("window_frame")))))
+    return rows
+
+
+def window_frame_level(value):
+    """0 off, 1 end frame only, 2 mid+end frames. Accepts bools, 0/1/2, 'end', 'mid_end'."""
+    if value in (None, False, 0, "0", "", "off", "false", "False"):
+        return 0
+    if value in (2, "2", "mid_end"):
+        return 2
+    return 1
+
+
+def cmd_config_extras(case_id, config_file):
+    """`configs.py config-extras CASE_ID`: TSV config_id, physics_namelist, window_frame for every
+    config in CONFIG_FILE, in file order (see config_extras_rows)."""
+    for row in config_extras_rows(load_generated_configs(config_file), case_id):
+        print("\t".join("" if v is None else str(v) for v in row))
+    return 0
+
+
 # ---------------------------------------------------------------------------
 # MODE=physics decomposition pair (2026-09-17): the reference decomposition and
 # the chaos-floor twin, resolved from ONE rule set whatever they are named in.
@@ -1711,12 +1771,14 @@ def _cmd_edit_namelist(argv):
     ap.add_argument("--max-dom", type=int, default=1,
                      help="number of active domains; controls how many per-domain "
                           "values are written for numtiles and history_interval*")
-    ap.add_argument("--history-mode", choices=["off", "interval", "end_d01"], default="off",
+    ap.add_argument("--history-mode", choices=["off", "interval", "end_d01", "mid_end_d01"], default="off",
                      help="'off' (default, timing runs): no domain writes history. "
                           "'interval' (PHYSICS-GRAY fidelity replicates): d01 writes a "
                           "frame every --history-minutes, starting at t=0; requires "
                           "--history-minutes. 'end_d01': d01 writes only its final "
-                          "frame (correctness runs); nested domains always get 0.")
+                          "frame (correctness runs); nested domains always get 0. "
+                          "'mid_end_d01': d01 writes two frames, at run_minutes//2 and at the "
+                          "end (window-frame fidelity-gate input).")
     ap.add_argument("--history-minutes", type=int, default=None,
                      help="required when --history-mode interval is given")
     ap.add_argument("--physics-template", default=None, metavar="Pxx",
@@ -2100,6 +2162,12 @@ def main(argv=None):
             sys.stderr.write("usage: configs.py restart-time CASE_ID SPINUP_MINUTES\n")
             return 2
         return cmd_restart_time(argv[1], argv[2])
+    if argv[0] == "config-extras":
+        config_file = os.environ.get("CONFIG_FILE")
+        if len(argv) != 2 or not config_file:
+            sys.stderr.write("usage: CONFIG_FILE=path.json configs.py config-extras CASE_ID\n")
+            return 2
+        return cmd_config_extras(argv[1], config_file)
     assert_strict_compliance()
     if argv[0] == "decomp-pair":
         return cmd_decomp_pair(argv[1:])

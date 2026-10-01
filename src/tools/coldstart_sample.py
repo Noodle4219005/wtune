@@ -806,8 +806,48 @@ def _farthest_from(candidates, picked):
     return best
 
 
+def _select_by_cost(candidates, cost_lookup, K):
+    """Cost-indicator mode of select_windows (decision 0060). t0 always; the argmax-c candidate
+    ("peak") always; then the candidates are ranked by c and cut into min(K, n) equal-count quantile
+    strata, and every stratum not already holding a pick (t0 / peak count for their own stratum)
+    contributes the member whose c is nearest the stratum's median c, highest-c stratum first. Left-
+    over slots go to the farthest-in-time candidate, as in the time mode. Reasons:
+    "t0", "peak", "stratum j/K (c=...)". Returns None when no candidate has a c value."""
+    scored = [c for c in candidates if cost_lookup.get(c) is not None]
+    if not scored:
+        return None
+    picks, picked = [], set()
+
+    def add(t, reason):
+        if t not in picked and len(picks) < K:
+            picks.append((t, reason))
+            picked.add(t)
+
+    peak = max(scored, key=lambda c: (cost_lookup[c], -candidates.index(c)))
+    add(candidates[0], "t0+peak" if peak == candidates[0] else "t0")
+    add(peak, "peak")
+    ordered = sorted(scored, key=lambda c: (cost_lookup[c], c))
+    n, Ks = len(ordered), min(K, len(ordered))
+    groups = [ordered[j * n // Ks:(j + 1) * n // Ks] for j in range(Ks)]
+    for j in range(Ks - 1, -1, -1):
+        g = groups[j]
+        if any(p in g for p in picked):
+            continue
+        vals = sorted(cost_lookup[c] for c in g)
+        h = len(vals) // 2
+        med = vals[h] if len(vals) % 2 else 0.5 * (vals[h - 1] + vals[h])
+        best = min(g, key=lambda c: (abs(cost_lookup[c] - med), c))
+        add(best, "stratum %d/%d (c=%.2f)" % (j + 1, Ks, cost_lookup[best]))
+    while len(picks) < K:
+        nxt = _farthest_from(candidates, picked)
+        if nxt is None:
+            break
+        add(nxt, "farthest")
+    return picks
+
+
 def select_windows(candidates, spinup_seconds, W_seconds, K, sample_points=None,
-                    precip_lookup=None, sunlit_shift_s=0.0):
+                    precip_lookup=None, sunlit_shift_s=0.0, cost_lookup=None):
     """Picks (deduplicated to distinct candidates, capped at K), each with a reason:
       1. t0 -- always.
       2. night -- lowest mean sunlit fraction over the measured part.
@@ -822,9 +862,16 @@ def select_windows(candidates, spinup_seconds, W_seconds, K, sample_points=None,
     evaluation subtracts this shift (candidate - shift_s) before scoring, while every OTHER use
     of `candidates` (t0/late/precip_peak/farthest, and the returned pick times themselves) stays
     on the analog timeline unchanged. 0.0 (default) reproduces the pre-R6-D behaviour exactly.
+    `cost_lookup` ({candidate_dt: c}, decision 0060; None = the behaviour above, unchanged): pick by
+    weather cost proxy instead -- see _select_by_cost; falls through to the time mode when no
+    candidate has a c value.
     Returns [(dt, reason), ...] in pick order (analog-timeline datetimes)."""
     if not candidates:
         return []
+    if cost_lookup:
+        by_cost = _select_by_cost(candidates, cost_lookup, K)
+        if by_cost is not None:
+            return by_cost
     picks = []
     picked_set = set()
     sunlit_shift = datetime.timedelta(seconds=sunlit_shift_s)
@@ -2593,8 +2640,14 @@ def render_run_sbatch(plan, site="scc", per_window_estimate_min=15, wps_estimate
     lines.append("#SBATCH --partition=compute")
     # WTUNE_SBATCH_EXCLUDE: extra nodes to avoid (comma list), e.g. one carrying non-Slurm load
     # (scc work5, 2026-09-27: a root VS Code server stole a core and slowed wrf.exe 5x).
-    extra = [n for n in os.environ.get("WTUNE_SBATCH_EXCLUDE", "").split(",") if n.strip()]
-    lines.append("#SBATCH --exclude=%s" % ",".join(["head"] + [n.strip() for n in extra]))
+    # merged with the controller's own node-health pre-flight failures (scc_sweep.excluded_nodes)
+    try:
+        import scc_sweep
+        excluded = scc_sweep.excluded_nodes()
+    except ImportError:
+        excluded = ["head"] + [n.strip() for n in os.environ.get("WTUNE_SBATCH_EXCLUDE", "").split(",")
+                               if n.strip()]
+    lines.append("#SBATCH --exclude=%s" % ",".join(excluded))
     lines.append("#SBATCH -N %d --exclusive --ntasks-per-node=%d" % (nodes, ppn))
     lines.append("#SBATCH --time=%s" % time_str)
     lines.append("#SBATCH --signal=B:USR1@90")

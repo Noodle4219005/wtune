@@ -375,7 +375,7 @@ def _merge_resolved_points(points, min_gap_s):
 def plan_points(case_nl, run_start, run_end, dt, stepra, spinup_s, cfg,
                  sample_points=None, precip_lookup=None, s_est=None,
                  predicted_run_s=None, case_dir=None, forcing_interval_h=None,
-                 grib_dir=None):
+                 grib_dir=None, points_by=None, indicators=None):
     """Places one or more probe measurement points on [run_start, run_end]. Returns
     (points: [ProbePoint, ...], notes: [str, ...]) -- notes covers short-run fallback, budget
     capping, and any point dropped for lack of a usable source; never raises for THOSE
@@ -386,6 +386,15 @@ def plan_points(case_nl, run_start, run_end, dt, stepra, spinup_s, cfg,
     wtune_config.py's schema). case_nl is unused by this function directly today (kept in the
     signature for callers/future placement rules that need namelist facts beyond
     dt/stepra/run_start/run_end -- e.g. per-domain geometry); accepted and ignored otherwise.
+
+    points_by / indicators (decision 0060): points_by "time" (default; cfg["points_by"] when None)
+    keeps the placement below byte-identical. "cost-indicators" places the auto points by the
+    weather cost proxy of `indicators` (a wtune_cost_drivers.CostSeries, built by the CALLER --
+    this function never touches the network): t0, the c peak, and one point per c quantile stratum
+    (tools/coldstart_sample.select_windows(cost_lookup=...)). indicators None/unusable falls back
+    to the time placement with a note, still handing precip_lookup (precip_area) to select_windows
+    when the indicators carry it -- the previously unwired precip_peak pick. Explicit probe.points
+    are never re-placed.
 
     Pipeline (2026-09-26, cadence-aware rebuild placement -- a bug fix to auto placement, not a
     post-hoc change: resolve the forcing chain/cadence for rebuild candidates FIRST, then place,
@@ -483,9 +492,22 @@ def plan_points(case_nl, run_start, run_end, dt, stepra, spinup_s, cfg,
             notes.append("probe: no auto-placement candidates fit [t0+spinup, run_end - "
                          "measure_window] -- falling back to a single t0 point")
             return _fallback_point("t0_fallback"), notes
+        sel_kw = {}
+        if (points_by or cfg.get("points_by") or "time") == "cost-indicators":
+            if indicators is not None and indicators.usable:
+                sel_kw["cost_lookup"] = indicators.cost_lookup(candidates, measure_window_s)
+                notes.append("probe: points_by=cost-indicators, c(t) from %s"
+                             % (sorted(set(indicators.used.values())),))
+            else:
+                why = (indicators.why_unusable() if indicators is not None
+                       else "no indicators supplied")
+                notes.append("probe: WARNING points_by=cost-indicators unavailable (%s) -- using "
+                             "the time-based selection" % why)
+            if precip_lookup is None and indicators is not None:
+                precip_lookup = indicators.precip_lookup(candidates, measure_window_s) or None
         picks = coldstart.select_windows(candidates, 0.0, measure_window_s, max_points,
                                          sample_points=sample_points,
-                                         precip_lookup=precip_lookup)
+                                         precip_lookup=precip_lookup, **sel_kw)
         raw_points = [(at, reason, None) for at, reason in picks]
 
     resolved = []
@@ -675,7 +697,8 @@ def _resolve_r_rad_from_points(pooled_radiation_samples, calibration):
 
 
 def combine(points_measurements, run_start, run_end, dt, stepra, calibration=None,
-            sample_points=None, case_dir=None, nl=None, ranks=None, nodes=None):
+            sample_points=None, case_dir=None, nl=None, ranks=None, nodes=None,
+            cost_series=None):
     """points_measurements: [PointMeasurement, ...] (>=1). Returns a dict:
       compute_total_s, init_s, init_note, total_s, range_low_s, range_high_s, drift_pct,
       r_night, r_day, r_source, steps_n, points (per-point table: at/reason/source/s_normal/
@@ -686,7 +709,12 @@ def combine(points_measurements, run_start, run_end, dt, stepra, calibration=Non
     fallback -- see its docstring); init_s reuses wtune_predict.predict_init. The +-drift-band
     range reproduces wtune_predict.build_prediction's own (compute-only) drift band --
     calibration.drift_band_pct percent of total_s, both directions -- but not its separate I/O
-    noise term (this module never estimates I/O)."""
+    noise term (this module never estimates I/O).
+
+    cost_series (decision 0060; a usable wtune_cost_drivers.CostSeries, None = off, result dict
+    unchanged): adds stratified_total_s, regression_total_s (>=3 points, beta>=0), regression_r2
+    and cost_indicators (sources, strata, spread_pct) -- see wtune_cost_drivers.weighted_totals.
+    total_s stays the interpolated value."""
     if not points_measurements:
         raise ProbePlanError("combine: no point measurements given")
     calibration = calibration or {}
@@ -722,9 +750,14 @@ def combine(points_measurements, run_start, run_end, dt, stepra, calibration=Non
     table = [dict(at=pm.at, reason=pm.reason, source=pm.source, s_normal=pm.s_normal,
                   n_rad=pm.n_rad, r=pm.r) for pm in points_measurements]
 
-    return dict(compute_total_s=compute_total_s, init_s=init_s, init_note=init_note,
-                total_s=total_s, range_low_s=low, range_high_s=high, drift_pct=drift_pct,
-                r_night=r_night, r_day=r_day, r_source=r_source, steps_n=steps_n, points=table)
+    result = dict(compute_total_s=compute_total_s, init_s=init_s, init_note=init_note,
+                  total_s=total_s, range_low_s=low, range_high_s=high, drift_pct=drift_pct,
+                  r_night=r_night, r_day=r_day, r_source=r_source, steps_n=steps_n, points=table)
+    if cost_series is not None and cost_series.usable:
+        import wtune_cost_drivers
+        wtune_cost_drivers.attach_weighted_totals(result, cost_series, points_measurements,
+                                                  run_start, run_end, dt, stepra, sample_points)
+    return result
 
 
 # ---------------------------------------------------------------------------

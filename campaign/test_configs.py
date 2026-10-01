@@ -2159,6 +2159,89 @@ class TestSbatchNodeCount(unittest.TestCase):
             self.assertEqual(out, [want, str(56 // int(want))])
 
 
+class TestConfigExtras(unittest.TestCase):
+    """physics_namelists / window_frame per-config fields (decision 0059): the
+    `configs.py config-extras CASE` TSV strict_campaign.sbatch reads, plus the runner wiring
+    markers `wtune tune --pipeline full` greps for (physics_runner_supported)."""
+
+    CFGS = [
+        {"id": "ANCHOR", "ranks": 72, "window_frame": True,
+         "physics_namelists": {"pt1": "/x/a1.input", "pt2": "/x/a2.input"}},
+        {"id": "TWIN", "ranks": 72},
+        {"id": "P1", "physics_namelists": {"pt1": "/x/p1.input"}, "window_frame": False},
+    ]
+
+    def test_rows_select_this_case_and_default_empty(self):
+        rows = configs.config_extras_rows(self.CFGS, "pt1")
+        self.assertEqual(rows, [("ANCHOR", "/x/a1.input", "1"), ("TWIN", "", "0"),
+                                ("P1", "/x/p1.input", "0")])
+        rows2 = configs.config_extras_rows(self.CFGS, "pt2")
+        self.assertEqual([r[1] for r in rows2], ["/x/a2.input", "", ""])
+
+    def test_window_frame_levels(self):
+        lv = configs.window_frame_level
+        self.assertEqual([lv(v) for v in (None, False, 0, "0", "")], [0] * 5)
+        self.assertEqual([lv(v) for v in (True, 1, "end", "1")], [1] * 4)
+        self.assertEqual([lv(v) for v in (2, "2", "mid_end")], [2] * 3)
+
+    def test_cli_prints_tsv_and_needs_config_file(self):
+        import contextlib
+        import io
+        import tempfile
+        path = os.path.join(tempfile.mkdtemp(), "c.json")
+        with open(path, "w") as f:
+            json.dump({"configs": self.CFGS}, f)
+        old = os.environ.get("CONFIG_FILE")
+        os.environ["CONFIG_FILE"] = path
+        try:
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                rc = configs.main(["config-extras", "pt1"])
+            self.assertEqual(rc, 0)
+            self.assertEqual(buf.getvalue().splitlines(),
+                             ["ANCHOR\t/x/a1.input\t1", "TWIN\t\t0", "P1\t/x/p1.input\t0"])
+            del os.environ["CONFIG_FILE"]
+            self.assertEqual(configs.main(["config-extras", "pt1"]), 2)
+        finally:
+            if old is None:
+                os.environ.pop("CONFIG_FILE", None)
+            else:
+                os.environ["CONFIG_FILE"] = old
+
+    def test_sbatch_wires_the_fields(self):
+        here = os.path.dirname(os.path.abspath(__file__))
+        with open(os.path.join(here, "strict_campaign.sbatch")) as f:
+            text = f.read()
+        self.assertIn("physics_namelists", text)       # wtune_tune.PHYSICS_RUNNER_MARKER
+        self.assertIn("config-extras", text)
+        self.assertIn('--history-mode "$RUN_HISTORY_ARG"', text)
+        self.assertNotIn('--history-mode "$HISTORY_MODE_ARG" --ranks "$ranks"', text)
+        self.assertIn("window_frame=", text)
+        self.assertIn("window_frame_mid=", text)
+        self.assertIn('rm -rf "$d"/wrfrst_d0*_*', text)
+
+    def test_mid_end_mode_writes_mid_and_end_frames(self):
+        text = ("&time_control\n run_minutes = 0,\n history_interval = 180,\n"
+                " history_begin = 7,\n/\n&domains\n max_dom = 1,\n/\n")
+        out = configs.edit_namelist(text, 8, 9, 1, 31, max_dom=1, history_mode="mid_end_d01",
+                                    ranks=72)
+        self.assertRegex(out, r"history_begin\s*=\s*15")      # frames at 15 and 15+16 = 31
+        self.assertRegex(out, r"history_interval\s*=\s*16")
+        with self.assertRaises(ValueError):
+            configs.edit_namelist(text, 8, 9, 1, 1, max_dom=1, history_mode="mid_end_d01",
+                                  ranks=72)
+
+    def test_end_d01_writes_one_frame_at_window_end_for_a_restart_window(self):
+        text = ("&time_control\n run_minutes = 0,\n history_interval = 180,\n"
+                " history_begin = 0,\n start_year = 2016,\n start_month = 10,\n"
+                " start_day = 6,\n start_hour = 0,\n/\n&domains\n max_dom = 1,\n/\n")
+        out = configs.edit_namelist(text, 8, 9, 1, 30, max_dom=1, history_mode="end_d01",
+                                    ranks=72)
+        self.assertRegex(out, r"history_interval\s*=\s*30")
+        self.assertRegex(out, r"history_begin\s*=\s*30")
+        self.assertRegex(out, r"nproc_x\s*=\s*8")
+
+
 if __name__ == "__main__":
     unittest.main()
 

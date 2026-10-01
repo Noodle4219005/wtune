@@ -62,10 +62,12 @@ def _measure_steps(arg, stepra):
     return n
 
 
-def plan(case_dir, forcing, spinup_min, max_points, sources=("rebuild",), namelist_path=None):
+def plan(case_dir, forcing, spinup_min, max_points, sources=("rebuild",), namelist_path=None,
+         points_by=None, indicators=None):
     """(nl, run_start, run_end, dt_s, stepra, points, notes) for CASE_DIR. `namelist_path`
     (default CASE_DIR/namelist.input) lets a caller whose case uses a different namelist
-    template (cases.json namelist_template, e.g. lafe's d01-only one) plan on that instead."""
+    template (cases.json namelist_template, e.g. lafe's d01-only one) plan on that instead.
+    points_by/indicators: decision 0060, see wtune_probe_plan.plan_points (None = time-based)."""
     import wtune_config as wcfg
     import wtune_predict as wp
     import wtune_probe_plan as pp
@@ -79,9 +81,12 @@ def plan(case_dir, forcing, spinup_min, max_points, sources=("rebuild",), nameli
     cfg["spinup_min"] = spinup_min
     if max_points:
         cfg["max_points"] = max_points
+    if points_by:
+        cfg["points_by"] = points_by
     interval_h = 1 if forcing == ERA5_PIN else None
     points, notes = pp.plan_points(nl, run_start, run_end, dt_s, stepra, spinup_min * 60.0, cfg,
-                                   case_dir=case_dir, forcing_interval_h=interval_h)
+                                   case_dir=case_dir, forcing_interval_h=interval_h,
+                                   indicators=indicators)
     return nl, run_start, run_end, dt_s, stepra, points, notes
 
 
@@ -232,6 +237,11 @@ def main(argv=None):
     ap.add_argument("--spinup-min", type=int, default=None,
                     help="default 10 with era5 (short window, 2026-09-28), 60 with auto")
     ap.add_argument("--max-points", type=int, default=None)
+    ap.add_argument("--points-by", choices=("time", "cost-indicators"), default="time",
+                    help="decision 0060: place points by sun/time (default) or by a weather cost "
+                         "proxy from --indicator-sources; also reports stratified/regression totals")
+    ap.add_argument("--indicator-sources", default=None,
+                    help="comma list, ordered fallback (default case_forcing,era5,gfs,stage4,mrms)")
     ap.add_argument("--measure-steps", default=None,
                     help="steps measured after spin-up: an integer >= stepra+1, 'short' for "
                          "max(30, stepra+10) (default with era5), or 'long' for max(30, 2*stepra) "
@@ -267,8 +277,19 @@ def main(argv=None):
     spinup = a.spinup_min if a.spinup_min is not None else (10 if forcing == ERA5_PIN else 60)
     ranks = a.ranks or a.nx * a.ny
     t_start = time.time()
-    nl, run_start, run_end, dt_s, stepra, points, notes = plan(case_dir, forcing, spinup,
-                                                               a.max_points)
+    cost_series = None
+    if a.points_by == "cost-indicators":
+        import wtune_cost_drivers
+        import wtune_predict as wp
+        _nl0 = wp.parse_namelist(os.path.join(case_dir, "namelist.input"))
+        _s0 = wp.get_time_control_datetime(_nl0, "start")
+        cost_series = wtune_cost_drivers.cost_series_for_case(
+            case_dir, _s0, _s0 + dt.timedelta(seconds=wp.get_d01_steps(_nl0)[1]),
+            [x for x in (a.indicator_sources or "").split(",") if x] or None)
+    plan_kw = dict(points_by=a.points_by, indicators=cost_series) \
+        if a.points_by != "time" else {}
+    nl, run_start, run_end, dt_s, stepra, points, notes = plan(
+        case_dir, forcing, spinup, a.max_points, **plan_kw)
     measure_arg = a.measure_steps if a.measure_steps is not None else (
         "short" if forcing == ERA5_PIN else None)
     measure_steps = _measure_steps(None if measure_arg == "long" else measure_arg, stepra)
@@ -321,7 +342,7 @@ def main(argv=None):
     sample_points, _g = wp.read_wrfinput_sample_points(case_dir)
     result = pp.combine(meas, run_start, run_end, dt_s, stepra, calibration=cal,
                         sample_points=sample_points, case_dir=case_dir, nl=nl, ranks=ranks,
-                        nodes=a.nodes)
+                        nodes=a.nodes, cost_series=cost_series)
     io = None
     if probe_idx is not None:
         pdir = os.path.join(out, "rebuild", "pt_%d" % probe_idx)
@@ -343,6 +364,16 @@ def main(argv=None):
     h = lambda s: "%d:%02d:%02d" % (s // 3600, s % 3600 // 60, s % 60)  # noqa: E731
     print("predicted compute+init: %s (range %s .. %s; I/O separate)"
           % (h(result["total_s"]), h(result["range_low_s"]), h(result["range_high_s"])))
+    if result.get("stratified_total_s") is not None or result.get("regression_total_s") is not None:
+        ci = result.get("cost_indicators") or {}
+        print("cost-indicator totals (compute+init): interpolated %s, stratified %s, regression %s "
+              "(R2 %s), spread %s%%; sources %s"
+              % (h(result["total_s"]),
+                 h(result["stratified_total_s"]) if result.get("stratified_total_s") else "-",
+                 h(result["regression_total_s"]) if result.get("regression_total_s") else "-",
+                 ("%.3f" % result["regression_r2"]) if result.get("regression_r2") is not None else "-",
+                 ("%.1f" % ci["spread_pct"]) if ci.get("spread_pct") is not None else "-",
+                 ci.get("sources")))
     if io is None:
         print("I/O: not measured (--no-io-probe)")
     elif io["ok"]:

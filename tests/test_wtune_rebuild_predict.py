@@ -185,3 +185,17 @@ def test_ctx_charges_running_time_only(tmp_path):
     ctx = wrp._ctx(str(tmp_path), 8, str(tmp_path / "o"), max_wait_hours=12)
     assert ctx.budget_mode == "running" and ctx.max_wall_s == 12 * 3600.0
     assert ctx.budget_s == 4 * 3600.0
+
+
+def test_points_by_flag_defaults_to_time_and_plan_stays_time_based(monkeypatch, tmp_path, capsys):
+    import wtune_rebuild_predict as rp
+    seen = {}
+
+    def fake_plan(case_dir, forcing, spinup, max_points, **kw):
+        seen.update(kw)
+        raise SystemExit(0)
+    monkeypatch.setattr(rp, "plan", fake_plan)
+    monkeypatch.setattr("wtune_extensions.refusal_predict_rebuild", lambda d: None)
+    with pytest.raises(SystemExit):
+        rp.main([str(tmp_path), "--nodes", "1", "--nx", "1", "--ny", "1", "--dry-run"])
+    assert seen == {}          # option off: plan() is called exactly as before

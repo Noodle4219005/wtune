@@ -104,7 +104,12 @@ DEFAULTS = {
               # run_predicted); t0 (default) is the pre-0055 behaviour. restart_io_form is the
               # shared restart's io_form in that mode (14 ADIOS2 BP, or 2 netCDF).
               "rank_by": "t0", "restart_io_form": 14, "stage1": "t0",
-              "stage2_minutes": None},
+              "stage2_minutes": None,
+              # decision 0060: points_by "cost-indicators" places the prediction points by a
+              # weather cost proxy (wtune_cost_drivers) instead of sun position/time; indicator_
+              # sources = ordered providers (each indicator comes from the first that supplies it).
+              "points_by": "time",
+              "indicator_sources": ["case_forcing", "era5", "gfs", "stage4", "mrms"]},
     "prediction": {"io_target": "nfs", "drift_band_pct": None, "measure_r_rad": False},
     "exclude": [],
 }
@@ -120,7 +125,9 @@ PHYSICS_GRAY_KEYS = {"enabled", "knobs"}
 PHYSICS_GRAY_KNOB_KEYS = {"multiply"}
 PROBE_KEYS = {"steps", "confirm_reps", "spinup_min", "ranking_start", "points", "max_points",
               "budget_pct", "sources", "rank_by", "restart_io_form", "stage1",
-              "stage2_minutes"}
+              "stage2_minutes", "points_by", "indicator_sources"}
+POINTS_BY_CHOICES = ("time", "cost-indicators")
+INDICATOR_SOURCE_CHOICES = ("case_forcing", "era5", "gfs", "stage4", "mrms")
 RANKING_START_CHOICES = ("t0", "spinup")
 RANK_BY_CHOICES = ("t0", "predicted")
 RESTART_IO_FORM_CHOICES = (14, 2)
@@ -456,6 +463,18 @@ def _validate_semantics(cfg, errors):
     if isinstance(p["restart_io_form"], bool) or p["restart_io_form"] not in RESTART_IO_FORM_CHOICES:
         errors.append("probe.restart_io_form: %r not in %s"
                        % (p["restart_io_form"], list(RESTART_IO_FORM_CHOICES)))
+    if p["points_by"] not in POINTS_BY_CHOICES:
+        errors.append("probe.points_by: %r not in %s" % (p["points_by"], list(POINTS_BY_CHOICES)))
+    isrc = p["indicator_sources"]
+    if not isinstance(isrc, list) or not isrc:
+        errors.append("probe.indicator_sources: must be a non-empty list")
+    else:
+        for s_ in isrc:
+            if s_ not in INDICATOR_SOURCE_CHOICES:
+                errors.append("probe.indicator_sources: %r not in %s (IMERG needs NASA Earthdata "
+                              "credentials and is not supported)" % (s_, list(INDICATOR_SOURCE_CHOICES)))
+        if len(set(isrc)) != len(isrc):
+            errors.append("probe.indicator_sources: duplicate entry")
     if not isinstance(p["sources"], list) or not p["sources"]:
         errors.append("probe.sources: must be a non-empty list")
     else:

@@ -446,3 +446,22 @@ def test_measurement_locates_radiation_by_global_step_for_unaligned_restart(tmp_
     legacy = plan.measurement_from_steps_file(str(steps), 40, run_start, "r",
                                                           "trajectory")
     assert abs(legacy.r - 1.0) < 1e-6    # the bug: local #41 is a normal step
+
+
+def test_plan_points_cost_indicators_without_indicators_is_time_based_with_note():
+    run_start = _dt("2020-06-01_00:00:00")
+    run_end = run_start + datetime.timedelta(hours=24)
+    cfg = dict(_DEFAULT_CFG, sources=["rebuild"])
+    kw = dict(dt=60.0, stepra=15, spinup_s=0.0, forcing_interval_h=1.0)
+    base, _n = plan.plan_points({}, run_start, run_end, cfg=cfg, **kw)
+    pts, notes = plan.plan_points({}, run_start, run_end, cfg=dict(cfg, points_by="cost-indicators"),
+                                  **kw)
+    assert [(p.at, p.reason) for p in pts] == [(p.at, p.reason) for p in base]
+    assert any("cost-indicators unavailable" in n for n in notes)
+
+
+def test_combine_cost_series_none_adds_no_keys():
+    ms = [plan.PointMeasurement(at=_dt("2020-06-01_00:00:00"), reason="t", source="rebuild",
+                                s_normal=1.0, n_rad=1, r=1.0)]
+    res = plan.combine(ms, _dt("2020-06-01_00:00:00"), _dt("2020-06-01_06:00:00"), 60.0, 15)
+    assert "stratified_total_s" not in res and "cost_indicators" not in res

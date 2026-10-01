@@ -688,3 +688,16 @@ def test_cmd_show_reports_when_case_cannot_be_resolved(tmp_path, capsys):
     assert rc == 0   # still prints the resolved config; just can't preview counts
     out = capsys.readouterr().out
     assert "cannot preview candidate counts" in out
+
+
+def test_probe_points_by_and_indicator_sources_schema():
+    cfg, errs = wcfg.resolve_config({})
+    assert not errs and cfg["probe"]["points_by"] == "time"
+    assert cfg["probe"]["indicator_sources"][:2] == ["case_forcing", "era5"]
+    cfg, errs = wcfg.resolve_config({"probe": {"points_by": "cost-indicators",
+                                               "indicator_sources": ["era5", "gfs"]}})
+    assert not errs and cfg["probe"]["points_by"] == "cost-indicators"
+    _cfg, errs = wcfg.resolve_config({"probe": {"points_by": "weather"}})
+    assert any("probe.points_by" in e for e in errs)
+    _cfg, errs = wcfg.resolve_config({"probe": {"indicator_sources": ["era5", "imerg"]}})
+    assert any("imerg" in e for e in errs)

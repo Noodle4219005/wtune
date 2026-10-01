@@ -11,6 +11,7 @@ import csv
 import json
 import os
 import re
+import subprocess
 
 import pytest
 
@@ -1372,7 +1373,8 @@ def make_scaling_fakes(curve, start=7000, core_mult=None):
 
 
 def _run_cli(monkeypatch, tmp_path, argv, curve=NONMONO_CURVE, profile=ALL_NODES_PROFILE,
-             total_steps=1000, grid=MATTHEW_LIKE, core_mult=None, sbatch_calls=None):
+             total_steps=1000, grid=MATTHEW_LIKE, core_mult=None, sbatch_calls=None,
+             preflight_runner=None):
     case_json = dict(grid, prep_dir=str(tmp_path / "matthew"))
     monkeypatch.setattr(wtune_tune, "resolve_case",
                         lambda case, cpn: (case_json, str(tmp_path / "namelist.input"), profile))
@@ -1394,7 +1396,8 @@ def _run_cli(monkeypatch, tmp_path, argv, curve=NONMONO_CURVE, profile=ALL_NODES
          "--ledger-dir", str(tmp_path / "ledger")] + argv)
     report = wtune_tune.run(args, sbatch_runner=sbatch, sacct_runner=make_fake_sacct({}),
                              scancel_runner=scancel, ledger_reader=reader,
-                             proposer=stop_proposer, clock=FakeClock())
+                             proposer=stop_proposer, clock=FakeClock(),
+                             preflight_runner=preflight_runner)
     return report, job_nodes, scancel_calls
 
 
@@ -1770,3 +1773,777 @@ def test_maxrss_is_read_from_step_rows_and_never_invented():
     ctx.sacct_runner = lambda cmd: seen.append(cmd) or ""
     assert wtune_tune._maxrss_mb_by_job(ctx, ["7"]) == {"7": None}     # empty sacct -> None
     assert "--format=JobID,MaxRSS" in seen[0] and "-X" not in seen[0]
+
+
+# ---------------------------------------------------------------------------
+# --pipeline full (decision 0059): fakes for the rebuild/0055 measurement path + physics advice
+# ---------------------------------------------------------------------------
+import datetime as _dt
+import types as _types
+
+_PT_S = {0: 0.30, 1: 0.40, 2: 0.33}          # s_normal of the winner per rebuilt point (1 = costliest)
+
+
+class _Cands(list):
+    note = "fake"
+    skipped = []
+
+
+class _PipeEnv:
+    """Fake rebuild/prediction/physics layer with an event log shared with the fake sbatch."""
+
+    def __init__(self, monkeypatch, tmp_path, clock, minutes, *, extension=False, physics=True,
+                 runner_ok=True, phase2_cost_s=0.0, bump_after_first_read=0.0, steps=32,
+                 n_points=3):
+        self.events = []
+        self.measure_cfgs = []
+        self.tmp_path = tmp_path
+        self.clock = clock
+        self.phase2_cost_s = phase2_cost_s
+        self.bump = bump_after_first_read
+        self.physics_calls = []
+        t0 = _dt.datetime(2026, 1, 1, 0, 0)
+        self.pts = [_types.SimpleNamespace(at=t0 + _dt.timedelta(hours=h), reason="sunlit")
+                    for h in (1, 3, 5, 7, 9)[:n_points]]
+        ev, mp = self.events, monkeypatch
+        mp.setattr(wtune_tune, "_namelist_dt", lambda ctx: 60.0)
+        mp.setattr(wtune_tune, "plan_predicted_points",
+                   lambda ctx, spinup: (None, t0, t0 + _dt.timedelta(hours=6), 60.0, 10,
+                                        list(self.pts), []))
+
+        def submit(ctx, points, anchor, *a, **k):
+            ev.append("rebuild_submit")
+            ctx.owned_jobs.append("9001")
+            return dict(job_ids=["9001"], points=points)
+
+        def finish(ctx, handle):
+            ev.append("rebuild_finish")
+            return [dict(index=i, point=p, case_id="matthewp%d" % i, T=t0, cases_json="x",
+                         prep_dir="x", template="x", steps=steps, spinup_min=20, stepra=10, dt=60.0,
+                         plan_dir="x", job_id="9001") for i, p in enumerate(handle["points"])]
+
+        def measure(ctx, configs, rebuilt, anchor, s_by_cid=None, **k):
+            ev.append(("measure", ctx.nodes, [c["id"] for c in configs],
+                       [rp["index"] for rp in rebuilt]))
+            self.measure_cfgs.append((anchor, list(configs)))
+            ctx.owned_jobs.append("8%03d" % len(ev))
+            jobs = ["8%03d" % (len(ev) + i) for i in range(len(rebuilt))]
+            # the runner keeps the window frames of configs asking for them (mid + end)
+            for cfg in [anchor, dict(anchor, id="ANCHOREND")] + list(configs):
+                if cfg.get("window_frame") == "mid_end":
+                    for rp, jid in zip(rebuilt, jobs):
+                        d = os.path.join(ctx.ledger_dir, "%s_%s_r1_%s"
+                                         % (rp["case_id"], "ANCHOR" if cfg is anchor else cfg["id"], jid))
+                        os.makedirs(d, exist_ok=True)
+                        for t in ("mid", "end"):
+                            open(os.path.join(d, "wrfout_d01_%s.nc" % t), "w").write("x")
+            clock.t += self.phase2_cost_s
+            ctx.add_running(self.phase2_cost_s)          # the budget counts only RUNNING time
+            phys = any(c["id"].startswith("PH") for c in configs)
+            meas = {}
+            for cid in ["ANCHOR"] + [c["id"] for c in configs]:
+                f = 0.9 if cid.startswith("PH") else 1.0
+                meas[cid] = [_types.SimpleNamespace(at=rp["point"].at,
+                                                    s_normal=_PT_S.get(rp["index"], 0.31) * f)
+                             for rp in rebuilt]
+            return meas, [], jobs
+
+        def rank(meas, run_start, run_end, dt, stepra, cal, sp, case_dir, nl, ranks, nodes):
+            out = []
+            for cid, pms in meas.items():
+                tot = sum(pm.s_normal for pm in pms) * 1000.0
+                out.append(dict(cid=cid, pred_total_s=tot, pred_low_s=tot * 0.95,
+                                pred_high_s=tot * 1.05,
+                                result=dict(points=[1], compute_total_s=tot, init_s=10.0,
+                                            total_s=tot + 10, range_low_s=tot, range_high_s=tot,
+                                            drift_pct=1.0, r_night=1.0, r_day=3.9, r_source="fake")))
+            return sorted(out, key=lambda e: e["pred_total_s"])
+
+        mp.setattr(wtune_tune, "submit_rebuilt_points", submit)
+        mp.setattr(wtune_tune, "finish_rebuilt_points", finish)
+        mp.setattr(wtune_tune, "measure_candidates_at_points", measure)
+        mp.setattr(wtune_tune, "rank_by_predicted_total", rank)
+        mp.setattr(wtune_tune, "_prediction_context",
+                   lambda ctx: (None, t0, t0 + _dt.timedelta(hours=6), 60.0, 10, {}, [], "/x"))
+        mp.setattr(wtune_tune, "physics_runner_supported", lambda script: runner_ok)
+        mp.setattr(wtune_tune, "build_physics_window_namelists",
+                   lambda ctx, cands, rsub, anchor: (
+                       dict(anchor, physics_namelists={}),
+                       [dict(anchor, id=cd["id"], physics_namelists={}) for cd in cands]))
+        calls = self.physics_calls
+
+        def plan(path, *, max_candidates=6, case_name=None):
+            calls.append(("plan", max_candidates, case_name))
+            comp = [dict(id=i, label=i, rationale="r", restart_compatible=True,
+                         prior_gain_pct=5.0) for i in ("PH1", "PH2", "PH3", "PH4")][:max_candidates]
+            est = [dict(id=i, label=i, rationale="r", restart_compatible=False,
+                        prior_gain_pct=12.0) for i in ("EO1", "EO2")]
+            return _Cands(comp + est)
+
+        def fidelity(b, c, **kw):
+            assert isinstance(b, list) and isinstance(c, list) and len(b) == len(c) == 2
+            calls.append(("fidelity", kw))
+            return dict(passed=True, worst=[dict(name="T2", rel_rms=0.01)])
+
+        def table(cands, speed, fid):
+            return [dict(id=c["id"], label=c["label"], measured=c["id"] in speed,
+                         predicted_saving_pct=(speed[c["id"]]["saving_pct"] if c["id"] in speed
+                                               else None),
+                         prior_saving_pct=c.get("prior_gain_pct"),
+                         fidelity="pass" if fid.get(c["id"]) else "not run",
+                         recommendation=("consider" if c["id"] in speed else
+                                         "estimate only — needs a cold start to measure"))
+                    for c in cands]
+
+        api = _types.SimpleNamespace(
+            plan_candidates=plan,
+            weights_from_combine=lambda pms, *a, **k: {pm.at.isoformat(): 1.0 for pm in pms},
+            predicted_speedup=lambda b, c, w: dict(saving_pct=100.0 * (1 - sum(
+                w.get(k, 0) * c[k] for k in c) / sum(w.get(k, 0) * b[k] for k in c)),
+                ratio_min=0.9, ratio_max=0.9),
+            fidelity_verdict=fidelity, advice_table=table)
+        api.PROGNOSTIC_FIELDS = ("T", "U", "V", "QVAPOR", "PSFC", "T2", "Q2", "U10", "V10")
+        mp.setattr(wtune_tune, "wtune_physics_advice", api if physics else None)
+        if extension:
+            mp.setattr(wtune_tune.wtune_extensions, "omp_cap_for_namelist", lambda p: 1)
+
+
+def make_pending_sacct(pending_polls):
+    """sacct fake: every job reports PENDING for its first `pending_polls` state polls, then
+    COMPLETED (None = never completes). Other sacct formats (MaxRSS, Submit/Start/End) are empty."""
+    seen = {}
+
+    def runner(cmd):
+        fmt = [c for c in cmd if c.startswith("--format=")]
+        if not fmt or fmt[0] != "--format=JobID,State,Elapsed":
+            return ""
+        lines = []
+        for jid in cmd[cmd.index("-j") + 1].split(","):
+            seen[jid] = seen.get(jid, 0) + 1
+            pend = pending_polls is None or seen[jid] <= pending_polls
+            lines.append("%s|%s|%s" % (jid, "PENDING" if pend else "COMPLETED", "00:00:00"))
+        return "\n".join(lines)
+
+    return runner
+
+
+def _pipe_run(monkeypatch, tmp_path, minutes=6000, extra_args=(), sacct=None, scancel=None,
+              preflight_runner=None, short_run_guard=False, total_steps=1000, **kw):
+    clock = FakeClock()
+    env = _PipeEnv(monkeypatch, tmp_path, clock, minutes, **kw)
+    case_json = dict(BIG_GRID, prep_dir=str(tmp_path / "matthew"))
+    monkeypatch.setattr(wtune_tune, "resolve_case",
+                        lambda case, cpn: (case_json, str(tmp_path / "namelist.input"),
+                                           ALL_NODES_PROFILE))
+    monkeypatch.setattr(wtune_tune, "_total_steps", lambda nl: total_steps)
+    sbatch, reader, _jn = make_scaling_fakes(NONMONO_CURVE)
+    calls = {"n": 0}
+
+    def logging_sbatch(cmd):
+        env.events.append("sbatch")
+        return sbatch(cmd)
+
+    def logging_reader(case, job_ids):
+        return reader(case, job_ids)
+
+    if env.bump:        # the first phase-1 wait "runs" for bump x B of job running time
+        real_wait = wtune_tune.wait_for_jobs
+        waited = {"n": 0}
+
+        def bumping_wait(ctx, job_ids, stage, *a, **k):
+            out = real_wait(ctx, job_ids, stage, *a, **k)
+            waited["n"] += 1
+            if waited["n"] == 1 and stage == "node-sweep":
+                ctx.add_running(env.bump * minutes * 60.0)
+            return out
+
+        monkeypatch.setattr(wtune_tune, "wait_for_jobs", bumping_wait)
+
+    def stop_proposer(state, batch_size, kappa=None):
+        return dict(stopped=True, reason="test stub"), []
+
+    argv = ["matthew", "--site", "scc", "--out", str(tmp_path / "out"), "--steps", "5",
+            "--ledger-dir", str(tmp_path / "ledger"), "--pipeline", "full"]
+    if not short_run_guard:          # the fake case is a short run: keep the full flow by default
+        argv.append("--force-full")
+    if minutes is not None:
+        argv += ["--minutes", str(minutes)]
+    args = wtune_tune.build_arg_parser().parse_args(argv + list(extra_args))
+    scancel = scancel or make_fake_scancel()[0]
+    report = wtune_tune.run(args, sbatch_runner=logging_sbatch,
+                            sacct_runner=sacct or make_fake_sacct({}), scancel_runner=scancel,
+                            ledger_reader=logging_reader, proposer=stop_proposer, clock=clock,
+                            preflight_runner=preflight_runner)
+    return report, env
+
+
+def _status(report):
+    return {p["name"]: p["status"] for p in report["pipeline"]["phases"]}
+
+
+def test_pipeline_full_phase_order_and_rebuild_overlaps_layout_search(monkeypatch, tmp_path):
+    report, env = _pipe_run(monkeypatch, tmp_path)
+    ev = env.events
+    sb = [i for i, e in enumerate(ev) if e == "sbatch"]
+    assert ev.index("rebuild_submit") < sb[0]             # rebuild submitted BEFORE phase 1 runs
+    assert ev.index("rebuild_finish") > sb[-1]            # ...and awaited only after phase 1
+    measures = [e for e in ev if isinstance(e, tuple)]
+    assert measures and ev.index("rebuild_finish") < ev.index(measures[0])
+    assert [p["name"] for p in report["pipeline"]["phases"]] == ["plan", "layout", "predict",
+                                                                 "physics"]
+    assert set(_status(report).values()) == {"ok"}, _status(report)
+    # phase 2: one measurement per distinct (N, c) group (finalists 4 and 5), all 3 points each;
+    # phase 3 last: PH candidates at exactly two points
+    assert sorted(m[1] for m in measures[:2]) == [4, 5] and measures[0][3] == [0, 1, 2]
+    assert measures[-1][2] == ["PH1", "PH2", "PH3"] and len(measures[-1][3]) == 2   # no EO1/EO2
+
+
+def test_pipeline_full_physics_uses_three_candidates_at_t0_and_the_costliest_point(
+        monkeypatch, tmp_path):
+    report, env = _pipe_run(monkeypatch, tmp_path)
+    plan = [c for c in env.physics_calls if c[0] == "plan"][0]
+    assert plan[1] == 3 and plan[2] == "matthew"          # max_candidates=3, case_name
+    last = [e for e in env.events if isinstance(e, tuple)][-1]
+    assert last[3] == [0, 1]                               # earliest (0) + costliest (1: 0.40)
+    pipe = report["pipeline"]
+    assert pipe["physics_points"] == [env.pts[0].at.isoformat(), env.pts[1].at.isoformat()]
+    rows = {r["id"]: r for r in pipe["physics_advice"]}
+    assert list(rows) == ["PH1", "PH2", "PH3", "EO1", "EO2"]
+    assert all(rows[i]["measured"] for i in ("PH1", "PH2", "PH3"))
+    assert all(not rows[i]["measured"] and rows[i]["recommendation"].startswith("estimate only")
+               and rows[i]["fidelity"] == "not run" and rows[i]["prior_saving_pct"] == 12.0
+               for i in ("EO1", "EO2"))
+    assert pipe["physics_advice"][0]["predicted_saving_pct"] == pytest.approx(10.0)
+    assert [c for c in env.physics_calls if c[0] == "fidelity"]       # the gate ran
+
+
+def test_pipeline_full_report_fields_budget_and_queue_columns(monkeypatch, tmp_path, capsys):
+    report, env = _pipe_run(monkeypatch, tmp_path, minutes=6000)
+    pipe = report["pipeline"]
+    B = 6000 * 60.0
+    assert pipe["B_s"] == B and pipe["budget_source"].startswith("--minutes")
+    assert "alpha" not in pipe and report["budget_minutes"] == 6000
+    assert pipe["T_updated_s"] == pytest.approx(1000 * 0.30 + 120.0, rel=0.05)   # info only
+    for ph in pipe["phases"]:
+        for k in ("start_s", "end_s", "running_s", "wall_s", "queue_wait_s", "limit_s", "status",
+                  "controller_s", "queue_s_max", "job_run_s_max"):
+            assert k in ph, k
+    assert [p["limit_s"] for p in pipe["phases"]] == pytest.approx(
+        [0.05 * B, 0.55 * B, 0.80 * B, B])                 # 5 / 50 / 25 / 20 %
+    pr = pipe["prediction"]
+    assert pr["predicted_total_s"] == pytest.approx(1030.0) and pr["time_suggestion"]
+    assert pr["nodes"] == report["nodes"]
+    p1 = pipe["p1"]
+    assert set(p1) >= {"total_running_s", "total_wall_s", "predicted_real_s", "ratio", "passed"}
+    assert pipe["hard_deadline_s"] == B and pipe["queue_cap_hit"] is False
+    out = capsys.readouterr().out
+    assert "pipeline full" in out and "queue wait" in out and "physics advice" in out
+    with open(tmp_path / "out" / "tune_report.json") as f:
+        assert json.load(f)["pipeline"]["B_s"] == B
+
+
+def test_pipeline_full_default_minutes_is_30_and_max_nodes_is_the_cluster(monkeypatch, tmp_path):
+    report, env = _pipe_run(monkeypatch, tmp_path, minutes=None, physics=False)
+    assert report["pipeline"]["B_s"] == 30 * 60.0
+    assert report["node_selection"]["table"][-1]["nodes"] >= 8     # waves use up to 13 nodes
+
+
+def test_pipeline_full_no_physics_advice_rolls_its_share_back(monkeypatch, tmp_path):
+    report, env = _pipe_run(monkeypatch, tmp_path, extra_args=["--no-physics-advice"])
+    pipe = report["pipeline"]
+    assert _status(report)["physics"] == "not run (--no-physics-advice)"
+    assert pipe["physics_advice"] is None
+    sh = pipe["shares"]
+    assert sh["physics"] == 0.0 and sh["layout"] == pytest.approx(0.5 + 0.2 * 2 / 3)
+    assert sh["predict"] == pytest.approx(0.25 + 0.2 / 3) and sum(sh.values()) == pytest.approx(1.0)
+    lims = [p["limit_s"] for p in pipe["phases"]]
+    assert lims[2] == lims[3] == pytest.approx(6000 * 60.0)       # prediction runs to B
+    assert not any(isinstance(e, tuple) and any(c.startswith("PH") for c in e[2])
+                   for e in env.events)
+
+
+def test_pipeline_full_budget_truncates_phases_2_and_3(monkeypatch, tmp_path):
+    # the first sweep wave 'runs' for 85% of B of job time: every later
+    # phase-1 job is skipped for budget, and phases 2 and 3 are past their limits
+    report, env = _pipe_run(monkeypatch, tmp_path, bump_after_first_read=0.85)
+    ph = _status(report)
+    assert ph["predict"].startswith("not run (budget)")
+    assert report["pipeline"]["prediction"] is None
+    assert report["nodes"]                                          # layout result still reported
+    # phase 3 is NOT skipped because phase 2 was: unused time rolls forward. It runs on phase 1's
+    # best layout, without a phase-2 twin, so the gate is the provisional config-gate
+    assert ph["physics"] == "ok"
+    pipe = report["pipeline"]
+    assert pipe["physics_fidelity_gate"].startswith("config-gate, PROVISIONAL")
+    assert pipe["physics_baseline"].startswith("phase-1 best layout")
+    assert [r["id"] for r in pipe["physics_advice"] if r["measured"]] == ["PH1", "PH2", "PH3"]
+
+
+def test_pipeline_full_phase3_truncated_when_phase2_uses_the_budget(monkeypatch, tmp_path):
+    minutes = 6000
+    report, env = _pipe_run(monkeypatch, tmp_path, minutes=minutes)
+    base = report["pipeline"]["phases"][2]["end_s"]
+    # phase 2's measurement runs until 60 s before B: phase 3 cannot fit its estimate
+    report, env = _pipe_run(monkeypatch, tmp_path, minutes=minutes,
+                            phase2_cost_s=minutes * 60.0 - 60.0 - base)
+    ph = _status(report)
+    assert ph["predict"].startswith(("ok", "partial"))
+    assert ph["physics"].startswith("not run (budget)")
+    assert report["pipeline"]["physics_advice"] is None
+    assert report["pipeline"]["prediction"] is not None
+
+
+def test_pipeline_full_skips_physics_for_extension_cases(monkeypatch, tmp_path):
+    report, env = _pipe_run(monkeypatch, tmp_path, extension=True)
+    ph = _status(report)
+    assert ph["physics"].startswith("not run (extension case")
+    assert report["pipeline"]["extension"] is True and ph["predict"] == "ok"
+    assert not any(isinstance(e, tuple) and any(c.startswith("PH") for c in e[2])
+                   for e in env.events)
+
+
+def test_pipeline_full_physics_not_run_without_runner_or_module(monkeypatch, tmp_path):
+    report, _e = _pipe_run(monkeypatch, tmp_path, runner_ok=False)
+    assert _status(report)["physics"].startswith(
+        "not run (campaign runner has no per-config physics namelists")
+    report, _e = _pipe_run(monkeypatch, tmp_path, physics=False)
+    assert _status(report)["physics"] == "not run (wtune_physics_advice not importable)"
+
+
+def test_pipeline_full_queue_wait_is_not_charged_to_the_budget(monkeypatch, tmp_path):
+    # every job is PENDING for 6 polls (20 s each, the clock advances by them) before it
+    # completes: far more queue wait than the 30-minute budget over the whole run, yet nothing is
+    # cancelled or skipped for budget -- only RUNNING time counts
+    scancel, scancel_calls = make_fake_scancel()
+    report, env = _pipe_run(monkeypatch, tmp_path, minutes=30, sacct=make_pending_sacct(6),
+                            scancel=scancel)
+    pipe = report["pipeline"]
+    assert pipe["total_queue_wait_s"] > 30 * 60                     # more queue than budget
+    assert pipe["total_running_s"] == pytest.approx(0.0)           # nothing was RUNNING
+    assert pipe["total_wall_s"] >= pipe["total_queue_wait_s"]
+    assert set(_status(report).values()) == {"ok"}, _status(report)
+    assert scancel_calls == [] and not pipe["queue_cap_hit"]
+    layout = next(p for p in pipe["phases"] if p["name"] == "layout")
+    assert layout["queue_wait_s"] > 0 and layout["running_s"] < layout["wall_s"]
+
+
+def test_pipeline_full_controller_work_is_not_charged_and_is_reported(monkeypatch, tmp_path):
+    # report building is slow (900 s of controller time per finalist) but the
+    # budget clock only counts running jobs: running time stays 0, controller time shows them
+    real_build = wtune_tune.build_report
+
+    def slow_build(ctx, *a, **k):
+        ctx.clock.t += 900.0
+        return real_build(ctx, *a, **k)
+
+    monkeypatch.setattr(wtune_tune, "build_report", slow_build)
+    report, env = _pipe_run(monkeypatch, tmp_path, minutes=30)
+    pipe = report["pipeline"]
+    assert pipe["total_running_s"] == pytest.approx(0.0)
+    assert pipe["total_controller_s"] >= 900.0 * 2                  # >= 2 finalist report builds
+    assert pipe["total_wall_s"] == pytest.approx(
+        pipe["total_running_s"] + pipe["total_queue_wait_s"] + pipe["total_controller_s"])
+    assert set(_status(report).values()) == {"ok"}                  # nothing skipped for budget
+    assert sum(p["controller_s"] for p in pipe["phases"]) == pytest.approx(
+        pipe["total_controller_s"])
+    assert pipe["over_deadline_s"] == 0.0
+
+
+def test_pipeline_full_max_queue_hours_stops_the_run(monkeypatch, tmp_path, capsys):
+    scancel, scancel_calls = make_fake_scancel()
+    report, env = _pipe_run(monkeypatch, tmp_path, minutes=30, sacct=make_pending_sacct(None),
+                            extra_args=["--max-queue-hours", "1"], scancel=scancel)
+    pipe = report["pipeline"]
+    assert report["pipeline_aborted"] and pipe["queue_cap_hit"]
+    ph = _status(report)
+    assert ph["layout"].startswith("stopped: queue-only wait")
+    assert ph["predict"] == "not run (max queue wait exceeded)"
+    assert ph["physics"] == "not run (max queue wait exceeded)"
+    assert pipe["total_queue_wait_s"] >= 3600 and scancel_calls          # in-flight jobs cancelled
+    assert "STOPPED: max queue wait exceeded" in capsys.readouterr().out
+
+
+def test_wait_for_jobs_running_budget_ignores_pending_and_raises_at_the_queue_cap():
+    clock = FakeClock()
+    ctx = _ctx(clock=clock, sacct_runner=make_pending_sacct(5), budget_s=100.0, poll_interval=60.0)
+    ctx.budget_mode = "running"
+    ctx.shared_queue = {"s": 0.0, "cap_hit": False}
+    states = wtune_tune.wait_for_jobs(ctx, ["1", "2"], "t")        # 5 PENDING polls = 300 s of queue
+    assert states["1"][0] == "COMPLETED"
+    assert ctx.queue_wait_s == pytest.approx(300.0) and ctx.elapsed() == pytest.approx(0.0)
+    ctx2 = _ctx(clock=FakeClock(), sacct_runner=make_pending_sacct(None), budget_s=100.0,
+                poll_interval=60.0)
+    ctx2.budget_mode, ctx2.shared_queue, ctx2.max_queue_s = "running", {"s": 0.0, "cap_hit": False}, 600.0
+    with pytest.raises(wtune_tune.QueueCapExceeded, match="max-queue-hours"):
+        wtune_tune.wait_for_jobs(ctx2, ["3"], "t")
+    assert ctx2.shared_queue["cap_hit"] and ctx2.cancelled_jobs == ["3"]
+
+
+def test_wait_for_jobs_charges_only_the_intervals_a_job_is_running():
+    seen = {"n": 0}
+
+    def sacct(cmd):
+        if "--format=JobID,State,Elapsed" not in cmd:
+            return ""
+        seen["n"] += 1
+        state = "PENDING" if seen["n"] <= 3 else ("RUNNING" if seen["n"] <= 6 else "COMPLETED")
+        return "1|%s|00:00:00" % state
+
+    ctx = _ctx(clock=FakeClock(), sacct_runner=sacct, budget_s=10000.0, poll_interval=60.0)
+    ctx.budget_mode = "running"
+    ctx.shared_queue = {"s": 0.0, "cap_hit": False, "run_s": 0.0}
+    ctx.clock.t = 0.0
+    wtune_tune.wait_for_jobs(ctx, ["1"], "t")
+    assert ctx.queue_wait_s == pytest.approx(180.0)                 # 3 polls PENDING
+    assert ctx.elapsed() == pytest.approx(180.0)                    # 3 polls RUNNING: the budget
+    ctx.clock.t += 5000.0                                           # controller work: not charged
+    assert ctx.elapsed() == pytest.approx(180.0)
+    assert ctx.wall_elapsed() == pytest.approx(180.0 + 180.0 + 5000.0)
+
+
+def test_pipeline_full_rejects_fixed_nodes(monkeypatch, tmp_path):
+    args = wtune_tune.build_arg_parser().parse_args(
+        ["matthew", "--pipeline", "full", "--minutes", "30", "--nodes", "4"])
+    monkeypatch.setattr(wtune_tune, "resolve_case",
+                        lambda case, cpn: (dict(BIG_GRID, prep_dir="/x"), "/x/n", ALL_NODES_PROFILE))
+    with pytest.raises(SystemExit, match="runs its own node search"):
+        wtune_tune.run(args)
+
+
+def test_physics_runner_supported_reads_the_campaign_files(tmp_path):
+    (tmp_path / "strict_campaign.sbatch").write_text("echo nothing\n")
+    (tmp_path / "configs.py").write_text("# no marker\n")
+    script = str(tmp_path / "strict_campaign.sbatch")
+    assert wtune_tune.physics_runner_supported(script) is False
+    (tmp_path / "configs.py").write_text("cfg.get('physics_namelists')\n")
+    assert wtune_tune.physics_runner_supported(script) is True
+
+
+def test_pipeline_full_window_frames_only_where_phase3_needs_them(monkeypatch, tmp_path):
+    report, env = _pipe_run(monkeypatch, tmp_path)
+    p2 = [(a, c) for a, c in env.measure_cfgs if not any(x["id"].startswith("PH") for x in c)]
+    p3 = [(a, c) for a, c in env.measure_cfgs if any(x["id"].startswith("PH") for x in c)]
+    assert p2 and p3
+    for anchor, cfgs in p2:                    # phase 2: twin runs write mid + end frames
+        assert anchor["window_frame"] == "mid_end"
+        assert all(c["window_frame"] == "mid_end" for c in cfgs)
+    anchor, cfgs = p3[0]                       # phase 3: baseline and every candidate
+    assert anchor["window_frame"] == "mid_end" and all(c["window_frame"] == "mid_end" for c in cfgs)
+    # elsewhere frames cost I/O: not requested without phase 3
+    report, env = _pipe_run(monkeypatch, tmp_path, extra_args=["--no-physics-advice"])
+    assert all("window_frame" not in a and all("window_frame" not in c for c in cs)
+               for a, cs in env.measure_cfgs)
+    report, env = _pipe_run(monkeypatch, tmp_path, extension=True)
+    assert all("window_frame" not in a for a, cs in env.measure_cfgs)
+
+
+def test_pipeline_full_gate_gets_frame_lists_prognostic_fields_and_frames_are_deleted(
+        monkeypatch, tmp_path):
+    report, env = _pipe_run(monkeypatch, tmp_path)
+    fid = [c for c in env.physics_calls if c[0] == "fidelity"]
+    assert fid and all(c[1]["judged_fields"][0] == "T" for c in fid)
+    assert all(c[1]["out_prefix"].endswith(tuple("_pt%d" % i for i in range(3))) for c in fid)
+    assert report["pipeline"]["frames_deleted"] > 0 and report["pipeline"]["frames_kept"] is False
+    left = [f for _r, _d, fs in os.walk(tmp_path / "ledger") for f in fs if f.endswith(".nc")]
+    assert left == []                                       # window frames removed after the gate
+
+
+def test_pipeline_full_keep_frames_keeps_them(monkeypatch, tmp_path):
+    report, env = _pipe_run(monkeypatch, tmp_path, extra_args=["--keep-frames"])
+    assert report["pipeline"]["frames_kept"] is True and report["pipeline"]["frames_deleted"] == 0
+    left = [f for _r, _d, fs in os.walk(tmp_path / "ledger") for f in fs if f.endswith(".nc")]
+    assert left
+
+
+def test_pipeline_full_physics_needs_a_window_of_two_model_minutes(monkeypatch, tmp_path):
+    report, env = _pipe_run(monkeypatch, tmp_path, steps=1)          # 1 step x 60 s window
+    assert _status(report)["physics"].startswith("not run (window < 2 min")
+
+
+def test_cli_help_renders():
+    # argparse %-formats every help string: an unescaped % crashed `--help` on scc
+    text = wtune_tune.build_arg_parser().format_help()
+    assert "--pipeline" in text and "--keep-frames" in text and "--max-queue-hours" in text
+
+
+def test_points_by_cli_flag_parses_and_defaults_to_none():
+    p = wtune_tune.build_arg_parser()
+    assert p.parse_args(["matthew", "--site", "scc"]).points_by is None
+    assert p.parse_args(["matthew", "--site", "scc", "--points-by", "cost-indicators"]).points_by \
+        == "cost-indicators"
+    assert "--points-by" in p.format_help()
+
+
+# ---------------------------------------------------------------------------
+# node health pre-flight
+# ---------------------------------------------------------------------------
+@pytest.fixture(autouse=True)
+def _clean_exclude_env(monkeypatch):
+    # the pre-flight publishes its failures in a process-wide env var: keep tests independent
+    monkeypatch.delenv("WTUNE_PREFLIGHT_EXCLUDE", raising=False)
+    monkeypatch.delenv("WTUNE_SBATCH_EXCLUDE", raising=False)
+    yield
+    os.environ.pop("WTUNE_PREFLIGHT_EXCLUDE", None)
+
+
+def make_health_runner(states, bad=None, log=None):
+    """sinfo + srun fake. states {node: state}; bad {node: 'timeout' | stderr text (rc 3)}."""
+    bad = bad or {}
+    log = log if log is not None else []
+
+    def runner(argv, timeout):
+        log.append(argv)
+        if argv[0] == "sinfo":
+            return 0, "\n".join("%s %s" % kv for kv in list(states.items()) + [("head", "idle")])
+        n = argv[argv.index("-w") + 1]
+        b = bad.get(n)
+        if b == "timeout":
+            raise subprocess.TimeoutExpired(argv, timeout)
+        return (3, b) if b else (0, "ok")
+
+    return runner, log
+
+
+def _preflight(runner, requested=13, **kw):
+    return wtune_tune.node_preflight(runner, case_dir="/case", src_dir="/src",
+                                     wrf_exe="/wrf/main/wrf.exe", requested=requested, **kw)
+
+
+def test_preflight_down_node_is_not_probed_and_excluded():
+    states = {"work1": "down*", "work2": "idle", "work3": "drained", "work4": "idle"}
+    runner, log = make_health_runner(states)
+    h = _preflight(runner, requested=4)
+    probed = [a[a.index("-w") + 1] for a in log if a[0] == "srun"]
+    assert sorted(probed) == ["work2", "work4"]                 # down/drained: no probe
+    assert h["failed"] == ["work1", "work3"]
+    assert h["nodes"]["work1"]["reason"] == "sinfo state down*" and not h["nodes"]["work1"]["ok"]
+    assert h["healthy"] == 2 and h["max_nodes_effective"] == 2 and h["max_nodes_requested"] == 4
+    assert os.environ["WTUNE_PREFLIGHT_EXCLUDE"] == "work1,work3"
+    assert "head" not in h["nodes"]
+    assert h["exclusions"] == ["head", "work1", "work3"]
+
+
+def test_preflight_no_home_node_and_probe_command_shape():
+    states = {"work2": "idle", "work5": "idle"}
+    runner, log = make_health_runner(states, bad={"work2": "no $HOME"})
+    h = _preflight(runner, requested=13)
+    assert h["nodes"]["work2"] == dict(state="idle", ok=False, probed=True,
+                                       reason="probe failed rc=3: no $HOME")
+    assert h["nodes"]["work5"]["ok"] and h["failed"] == ["work2"]
+    srun = next(a for a in log if a[0] == "srun" and "work5" in a)
+    assert srun[:9] == ["srun", "-w", "work5", "-N1", "-n1", "-t", "1", "--exclude=head", "bash"]
+    script = srun[-1]
+    for needle in ("$HOME", "/case", "/src", "/wrf/main/wrf.exe"):
+        assert needle in script
+    assert h["max_nodes_effective"] == 1
+
+
+def test_preflight_timeout_fails_an_idle_node_but_not_a_busy_one():
+    states = {"work2": "idle", "work3": "allocated", "work4": "mixed"}
+    runner, _log = make_health_runner(states, bad={n: "timeout" for n in states})
+    h = _preflight(runner, requested=13, timeout_s=7)
+    assert h["nodes"]["work2"]["reason"] == "probe timed out after 7s" and not h["nodes"]["work2"]["ok"]
+    assert not h["nodes"]["work4"]["ok"]                         # mixed node must answer
+    assert h["nodes"]["work3"]["ok"] and h["nodes"]["work3"]["probed"] is False   # busy: unprobed
+    assert h["failed"] == ["work2", "work4"] and h["healthy"] == 1
+
+
+def test_preflight_merges_with_the_user_exclude_in_every_sbatch(monkeypatch):
+    monkeypatch.setenv("WTUNE_SBATCH_EXCLUDE", "work9,work2")
+    runner, _log = make_health_runner({"work2": "idle", "work3": "idle", "work4": "idle",
+                                       "work9": "idle"}, bad={"work3": "no $HOME"})
+    h = _preflight(runner, requested=13)
+    assert h["user_exclude"] == ["work9", "work2"]
+    assert h["nodes"]["work9"]["reason"] == "excluded by WTUNE_SBATCH_EXCLUDE"
+    assert h["healthy"] == 1 and h["max_nodes_effective"] == 1   # only work4
+    assert h["exclusions"] == ["head", "work9", "work2", "work3"]  # merged, de-duplicated, ordered
+    assert wtune_tune.sweep.exclude_arg() == "--exclude=head,work9,work2,work3"
+    cmd = wtune_tune.sweep.build_sbatch_command("c", 1, 72, "00:10:00", 600, 1, 5, "/x.json", "/o")
+    assert "--exclude=head,work9,work2,work3" in cmd
+    # the coldstart sbatch renderer reads the same merged set
+    import coldstart_sample
+    plan = {"windows": [{"t": "2019-11-26_15:00:00", "reason": "t0"}], "nodes": 1,
+            "config": {"ranks": 72, "omp": 1, "nx": 9, "ny": 8, "numtiles": 1}}
+    assert "#SBATCH --exclude=head,work9,work2,work3\n" in coldstart_sample.render_run_sbatch(
+        plan, site="scc")
+
+
+def test_preflight_sinfo_unavailable_is_skipped_and_says_so():
+    def runner(argv, timeout):
+        raise FileNotFoundError("sinfo")
+
+    h = _preflight(runner, requested=13)
+    assert h["skipped"].startswith("sinfo unavailable") and h["max_nodes_effective"] == 13
+    assert h["failed"] == [] and "WTUNE_PREFLIGHT_EXCLUDE" not in os.environ
+
+
+def test_run_caps_max_nodes_lists_skipped_sweep_sizes_and_reports_node_health(
+        monkeypatch, tmp_path, capsys):
+    states = {"work%d" % i: "idle" for i in range(1, 14)}
+    states["work1"] = "down*"
+    runner, _log = make_health_runner(states, bad={"work2": "no $HOME", "work10": "timeout"})
+    report, job_nodes, _sc = _run_cli(monkeypatch, tmp_path, ["--minutes", "6000"],
+                                      grid=BIG_GRID, preflight_runner=runner)
+    nh = report["node_health"]
+    assert nh["healthy"] == 10 and nh["max_nodes_requested"] == 13 and nh["max_nodes_effective"] == 10
+    assert nh["exclusions"] == ["head", "work1", "work10", "work2"]
+    assert nh["nodes"]["work2"]["reason"].startswith("probe failed rc=3")
+    skipped = {s["nodes"]: s["reason"] for s in report["node_selection"]["skipped"]}
+    for n in (11, 12, 13):
+        assert skipped[n] == "skipped (only 10 healthy nodes)"
+    assert max(job_nodes.values()) <= 10                          # nothing above the healthy count
+    out = capsys.readouterr().out
+    assert "node health pre-flight" in out and "work2" in out
+    with open(tmp_path / "out" / "tune_report.json") as f:
+        assert json.load(f)["node_health"]["max_nodes_effective"] == 10
+
+
+def test_no_node_preflight_flag_skips_it(monkeypatch, tmp_path):
+    runner, log = make_health_runner({"work1": "down*"})
+    report, _jn, _sc = _run_cli(monkeypatch, tmp_path, ["--minutes", "30", "--nodes", "2",
+                                                       "--no-node-preflight"],
+                                preflight_runner=runner)
+    assert log == [] and "node_health" not in report
+
+
+def test_pipeline_runs_the_preflight_first_and_again_before_phase_2(monkeypatch, tmp_path):
+    runner, log = make_health_runner({"work%d" % i: "idle" for i in range(1, 14)})
+    events = []
+
+    def logging_runner(argv, timeout):
+        if argv[0] == "sinfo":
+            events.append("preflight")
+        return runner(argv, timeout)
+
+    report, env = _pipe_run(monkeypatch, tmp_path, preflight_runner=logging_runner)
+    ev = env.events
+    assert events == ["preflight", "preflight"]
+    nh = report["node_health"]
+    assert [c["when"] for c in nh["checks"]] == ["start", "before phase 2"]
+    assert set(_status(report).values()) == {"ok"}
+
+
+# ---------------------------------------------------------------------------
+# phase-2 fit (matthew-pipe3: 9:20 left, phase 2 "not run (budget)"), short-run guard, ordering
+# ---------------------------------------------------------------------------
+def _matthew_rebuilt(n=5):
+    t0 = _dt.datetime(2016, 10, 6)
+    return [dict(index=i, point=_types.SimpleNamespace(at=t0 + _dt.timedelta(hours=3 * i),
+                                                        reason="r"),
+                 case_id="mp%d" % i, T=t0, steps=32, spinup_min=20, stepra=6, dt=150.0)
+            for i in range(n)]
+
+
+def test_phase2_estimate_formula_reproduces_the_9m20_skip():
+    # matthew-pipe3: 5 points, N=4 -> concurrency floor(10/4)=2, 0.0164 s/step, 32 window steps
+    # (rebuilt_steps(stepra=6)), spin-up 20 min = 8 steps at dt=150, restart read 30 s, startup 120 s
+    # (the DEFAULT: the measured value lived on the finalist ctx copies and was never adopted)
+    # est = ceil(points/concurrency) waves x (spin_s + sum(per_run_s)),
+    #   per_run_s = startup + restart_read + steps*s*rad_factor ; spin_s = startup + spin_steps*s*rf
+    ctx = _ctx(nodes=4, max_nodes=10, startup_s=120.0)
+    ctx.stage1_max_running = 2
+    anchor = dict(id="ANCHOR", ranks=288, omp=1, nx=16, ny=18, numtiles=1, dist="block")
+    other = dict(id="L1", ranks=216, omp=1, nx=12, ny=18, numtiles=1, dist="block")
+    s_by = {"ANCHOR": 0.0164, "L1": 0.0164}
+    rebuilt = _matthew_rebuilt(5)
+    top, est, skip = wtune_tune.fit_stage2(ctx, [other], anchor, rebuilt, s_by, None,
+                                           left_s=9 * 60 + 20)
+    m = wtune_tune.ranking_cost_model(120.0, 30.0, 32, 8, 6, 0.0164)
+    assert est == pytest.approx(3 * (m["spin_s"] + 3 * m["per_run_s"]))   # 3 waves x (spin + 3 runs)
+    assert est == pytest.approx(1718, abs=3) and top == [] and skip     # 28.6 min vs 9:20 left
+    # even the measured ~50 s startup does not make "2 layouts x 5 points" fit 9:20 ...
+    ctx.startup_s = 50.0
+    assert wtune_tune.fit_stage2(ctx, [other], anchor, rebuilt, s_by, None, left_s=560.0)[2]
+    # ... so phase 2 must degrade (fewer points / winner only) instead of being skipped
+    lays = [dict(nodes=4, cores=72, cfg=anchor, median=0.0164),
+            dict(nodes=3, cores=72, cfg=other, median=0.0166)]
+    plans = wtune_tune.phase2_plans(lays, rebuilt, None)
+    assert [p[0] for p in plans] == [
+        "2 layout(s) x all 5 points", "2 layout(s) x 2 points (t0 + costliest)",
+        "winner only x all 5 points", "winner only x 2 points (t0 + costliest)",
+        "winner only x 1 point (t0)"]
+    assert [len(p[2]) for p in plans] == [5, 2, 5, 2, 1]
+
+
+def test_pick_points_keeps_t0_and_the_costliest():
+    rb = _matthew_rebuilt(5)
+    got = wtune_tune.pick_points(rb, 2, s_normal=[0.3, 0.31, 0.5, 0.32, 0.33])
+    assert [rp["index"] for rp in got] == [0, 2]                   # earliest + costliest measured
+    assert [rp["index"] for rp in wtune_tune.pick_points(rb, 1)] == [0]
+    assert len(wtune_tune.pick_points(rb, 9)) == 5
+
+
+def test_pipeline_phase2_degrades_instead_of_skipping_when_it_does_not_fit(monkeypatch, tmp_path):
+    # B = 700 s -> the phase-2 limit is 560 s (9:20) and phase 1 used no running time
+    report, env = _pipe_run(monkeypatch, tmp_path, minutes=700 / 60.0, n_points=5)
+    pipe = report["pipeline"]
+    plan = pipe["predict_plan"]
+    assert plan["tried"][0]["plan"].startswith("2 layout(s) x all 5 points")
+    assert plan["tried"][0]["estimate_s"] > plan["left_s"]            # would have been skipped
+    assert plan["degraded"] and plan["chosen"] != plan["tried"][0]["plan"]
+    ph = _status(report)
+    assert ph["predict"].startswith("partial: degraded to"), ph
+    assert pipe["prediction"] is not None and pipe["prediction"]["degraded"] is True
+    assert pipe["prediction"]["points_used"] < 5
+    assert ph["physics"] == "ok"
+    # phase 1's measured startup was adopted (not the 120 s default)
+    assert plan["startup_s"] != 120.0
+
+
+def test_pipeline_phase2_not_run_only_when_even_the_smallest_plan_does_not_fit(
+        monkeypatch, tmp_path):
+    # the first sweep wave "runs" for 79% of B: 7 s of the phase-2 share are left
+    report, env = _pipe_run(monkeypatch, tmp_path, minutes=700 / 60.0, n_points=5,
+                            bump_after_first_read=0.79)
+    ph = _status(report)
+    assert ph["predict"].startswith("not run (budget): the smallest plan")
+    assert report["pipeline"]["prediction"] is None
+    assert not [e for e in env.events if isinstance(e, tuple) and "PH1" not in e[2]]
+
+
+def test_short_run_guard_stops_the_search_and_runs_phase2_on_the_winner_only(
+        monkeypatch, tmp_path, capsys):
+    # whole run = 3000 steps x 0.3 s + startup ~ 17 min <= the 30 min budget: stop searching
+    # after the first wave
+    report, env = _pipe_run(monkeypatch, tmp_path, minutes=30, short_run_guard=True,
+                            total_steps=3000, extra_args=["--no-physics-advice"])
+    pipe = report["pipeline"]
+    sr = pipe["short_run"]
+    assert sr["message"].startswith("模擬本身只要約 17 分鐘") and "建議直接以目前最佳設定執行" in sr["message"]
+    assert sr["real_run_s"] <= sr["remaining_s"] and "stopped early: short run" in _status(report)["layout"]
+    table = [r["nodes"] for r in report["node_selection"]["table"]]
+    assert table == [1, 2, 4]                                     # first wave only: no refinement
+    assert "budget exhausted after the sweep" in report["node_selection"]["final_note"]
+    assert all(len(rows) == 1 for rows in report["node_selection"]["core_tables"].values())
+    assert all(sc["reason"].startswith("core sweep budget cap")
+               for sc in report["node_selection"]["skipped_cores"])     # no core sweep, no finalists
+    assert "SHORT RUN" in capsys.readouterr().out
+    # phase 2: winner only (one group), and only because it costs less than the real run
+    meas = [e for e in env.events if isinstance(e, tuple)]
+    assert len(meas) == 1 and pipe["predict_plan"]["chosen"].startswith("winner only")
+    assert pipe["predict_plan"]["tried"][-1]["estimate_s"] < sr["real_run_s"]
+
+
+def test_short_run_guard_refuses_a_prediction_dearer_than_the_real_run(monkeypatch, tmp_path):
+    report, env = _pipe_run(monkeypatch, tmp_path, minutes=30, short_run_guard=True,
+                            total_steps=100, extra_args=["--no-physics-advice"])
+    pipe = report["pipeline"]
+    assert pipe["short_run"]["real_run_s"] < 300
+    assert _status(report)["predict"].startswith("not run (budget): short run: even the winner alone")
+    assert not [e for e in env.events if isinstance(e, tuple)]
+
+
+def test_force_full_and_long_runs_keep_the_full_search(monkeypatch, tmp_path):
+    report, env = _pipe_run(monkeypatch, tmp_path, minutes=30, extra_args=[])   # --force-full
+    assert "short_run" not in report["pipeline"]
+    report, env = _pipe_run(monkeypatch, tmp_path, minutes=30, short_run_guard=True,
+                            total_steps=10 ** 7)                 # whole run >> budget: no guard
+    assert "short_run" not in report["pipeline"]
+
+
+def test_report_prints_node_health_before_the_pipeline_summary(monkeypatch, tmp_path, capsys):
+    runner, _log = make_health_runner({"work%d" % i: "idle" for i in range(1, 14)})
+    report, env = _pipe_run(monkeypatch, tmp_path, preflight_runner=runner)
+    out = capsys.readouterr().out
+    assert out.index("--- node health pre-flight") < out.index("=== pipeline full")
+    assert "check before phase 2" in out and "check start" in out

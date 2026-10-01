@@ -2522,3 +2522,28 @@ class TestShortMeasureWindow(unittest.TestCase):
             self.assertEqual(out[0]["n_normal"], measure - 2)
             self.assertAlmostEqual(out[0]["s_k"], 1.0)
             self.assertAlmostEqual(out[0]["r_local"], 5.0)
+
+
+class TestSelectWindowsCostMode(unittest.TestCase):
+    """decision 0060: select_windows(cost_lookup=...); cost_lookup=None must not change anything."""
+
+    def setUp(self):
+        self.t0 = datetime.datetime(2022, 6, 24)
+        self.cands = cs.candidate_times(self.t0, self.t0 + datetime.timedelta(hours=24), 3600.0, 3600.0)
+        # convective peak at 10 UTC
+        self.cost = {c: 3.0 * max(0.0, 1.0 - abs(c.hour - 10) / 4.0) for c in self.cands}
+
+    def test_t0_and_peak_always_and_strata_reasons(self):
+        picks = cs.select_windows(self.cands, 0.0, 3600.0, 5, cost_lookup=self.cost)
+        by_reason = {r.split(" ")[0]: t for t, r in picks}
+        self.assertEqual(picks[0], (self.cands[0], "t0"))
+        self.assertEqual(by_reason["peak"].hour, 10)
+        self.assertTrue(any(r.startswith("stratum ") for _t, r in picks))
+        self.assertLessEqual(len(picks), 5)
+        self.assertEqual(len({t for t, _r in picks}), len(picks))
+
+    def test_empty_or_unmatched_lookup_falls_back_to_time_mode(self):
+        base = cs.select_windows(self.cands, 0.0, 3600.0, 5)
+        self.assertEqual(cs.select_windows(self.cands, 0.0, 3600.0, 5, cost_lookup={}), base)
+        other = {datetime.datetime(1999, 1, 1): 1.0}
+        self.assertEqual(cs.select_windows(self.cands, 0.0, 3600.0, 5, cost_lookup=other), base)

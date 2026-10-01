@@ -41,7 +41,20 @@ def find_pvbatch():
         "WTUNE_PARAVIEW_BIN=<repo>/envs/paraview/.pixi/envs/default/bin, or put pvbatch on PATH.")
 
 
-def render_cloud(wrfout_path, out_png, work_dir, isovalue=1e-5):
+VERTICAL_EXAGGERATION = 30.0
+ISOVALUE = 1e-4   # kg/kg, QCLOUD+QICE = 0.1 g/kg
+
+
+def build_title(run_label, domain, time_str, isovalue=ISOVALUE, vexag=VERTICAL_EXAGGERATION):
+    """Two-line figure title: run, domain, valid time / isosurface quantity, threshold, and the
+    vertical exaggeration."""
+    return ("%s  d%02d  valid %s\nCloud isosurface QCLOUD+QICE \u2265 %g g/kg  "
+            "(vertical exaggeration \u00d7%g)" % (run_label, domain, time_str,
+                                                  isovalue * 1000.0, vexag))
+
+
+def render_cloud(wrfout_path, out_png, work_dir, isovalue=ISOVALUE, title="",
+                 vexag=VERTICAL_EXAGGERATION):
     """Converts wrfout_path (one frame) via post/xwrf_convert.py, then runs pvbatch against
     render_cloud.py. Returns out_png. Raises tools.ToolNotFoundError if pvbatch/xwrf/wrf-python
     is unavailable, ParaViewError if pvbatch ran but truly produced no output.
@@ -59,9 +72,14 @@ def render_cloud(wrfout_path, out_png, work_dir, isovalue=1e-5):
     # wrfout_d01_2005-08-29_00:00:00_cloud.nc and reads the same file renamed (scc, work1)
     stem = os.path.splitext(os.path.basename(wrfout_path))[0].replace(":", "")
     prefix = os.path.join(work_dir, stem)
-    cloud_nc, terrain_nc = convert_frame(wrfout_path, prefix)
-    rc, out, err = tools.run([pvbatch, "--force-offscreen-rendering", _SCRIPT, cloud_nc,
-                              terrain_nc, out_png, str(isovalue)], check=False)
+    cloud_nc, terrain_nc, coast_vtk = convert_frame(wrfout_path, prefix)
+    if os.path.exists(out_png):
+        os.remove(out_png)   # a stale PNG must not pass the exists() check below
+    cmd = [pvbatch, "--force-offscreen-rendering", _SCRIPT, cloud_nc, terrain_nc, out_png,
+           "--isovalue", str(isovalue), "--vexag", str(vexag), "--title", title]
+    if coast_vtk:
+        cmd += ["--coast", coast_vtk]
+    rc, out, err = tools.run(cmd, check=False)
     if not os.path.exists(out_png):
         raise ParaViewError("pvbatch (exit %d) did not produce %s:\n%s" % (
             rc, out_png, (err or out).strip()[-2000:]))
@@ -72,7 +90,8 @@ def figures(catalog_id, wrfout_path, out_dir, work_dir, run_label, domain, time_
     from post.recipe import fig, missing
     out_png = os.path.join(out_dir, "%s.png" % catalog_id)
     try:
-        render_cloud(wrfout_path, out_png, work_dir)
+        render_cloud(wrfout_path, out_png, work_dir,
+                     title=build_title(run_label, domain, time_str))
         return [fig(catalog_id, out_png, run_label, domain="d%02d" % domain, valid_time=time_str)]
     except (tools.ToolNotFoundError, ImportError) as e:
         return [missing(catalog_id, "ParaView pvbatch", str(e))]

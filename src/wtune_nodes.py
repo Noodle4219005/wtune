@@ -121,3 +121,58 @@ def finalists(rows, objective, k=2, within=0.10, **choose_kwargs):
     others = sorted((r for r in rows if r["nodes"] != n and abs(r["median"] - m) <= within * m),
                     key=lambda r: (abs(r["median"] - m), r["nodes"]))
     return [n] + [r["nodes"] for r in others[:max(0, k - 1)]]
+
+
+# ---------------------------------------------------------------------------
+# coarse-to-fine node search
+# ---------------------------------------------------------------------------
+def seed_nodes(legal, max_nodes):
+    """Geometric seeds {1, 2, 4, 8, max_nodes} intersected with the legal node counts (the
+    smallest legal N when none of them is legal)."""
+    legal = sorted(set(int(n) for n in legal))
+    seeds = sorted({1, 2, 4, 8, int(max_nodes)} & set(legal))
+    return seeds or legal[:1]
+
+
+def refine_targets(best, known, legal, attempted=()):
+    """Next N to measure around `best`: the nearest legal N on each side inside the bracket
+    (lo, hi) = the closest `known` (measured or seeded) N below/above `best`, unless already
+    attempted. Walks outwards only because the best moves (re-evaluated every round)."""
+    lo = max([n for n in known if n < best], default=0)
+    hi = min([n for n in known if n > best], default=None)
+    below = [n for n in legal if lo < n < best]
+    above = [n for n in legal if n > best and (hi is None or n < hi)]
+    out = []
+    for n in (below[-1:] + above[:1]):
+        if n not in attempted:
+            out.append(n)
+    return out
+
+
+def bracket(best, known):
+    """(lo, hi) around `best` from the known N (hi None when nothing larger is known)."""
+    return (max([n for n in known if n < best], default=0),
+            min([n for n in known if n > best], default=None))
+
+
+# ---------------------------------------------------------------------------
+# cores-per-node dimension
+# ---------------------------------------------------------------------------
+def default_core_options(cores_per_node):
+    """{C, C-2 (OS reserve), round(C*8/9), round(C*2/3), C/2}, descending; 72 -> 72,70,64,48,36."""
+    c = int(cores_per_node)
+    vals = {c, c - 2, int(round(c * 8 / 9.0)), int(round(c * 2 / 3.0)), c // 2}
+    return sorted((v for v in vals if 1 <= v <= c), reverse=True)
+
+
+def choose_cores(rows, noise=NOISE_FRAC):
+    """(cores, note) over rows with 'cores' and 'median' at ONE fixed node count: the fastest
+    median; every c within `noise` of it ties, and the tie goes to the fuller c. (At fixed N whole
+    exclusive nodes are billed, so node-hours are proportional to wall time: the cost objective
+    picks the same c as the time objective; knee has no efficiency across c.)"""
+    if not rows:
+        raise ValueError("no measurements to choose from")
+    best = min(r["median"] for r in rows)
+    r = max((r for r in rows if r["median"] <= best * (1.0 + noise)), key=lambda x: x["cores"])
+    return r["cores"], ("cores/node=%d median=%.4f s/step; fastest is %.4f, fullest c within "
+                        "%.0f%% noise of it" % (r["cores"], r["median"], best, noise * 100))

@@ -1319,12 +1319,28 @@ def test_run_rejects_a_multi_value_budget_nodes_list(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 # --nodes search: measured node sweep, objective choice, finalist search
 # ---------------------------------------------------------------------------
-NONMONO_CURVE = {1: 1.0, 2: 0.52, 4: 0.30, 8: 0.32, 13: 0.40}   # 8 is slower than 4 (non-monotone)
+def _interp(points, max_n=13):
+    """{N: s/step} for N=1..max_n, linear between the given points, flat after the last."""
+    ks = sorted(points)
+    out = {}
+    for n in range(1, max_n + 1):
+        if n in points:
+            out[n] = points[n]
+        elif n > ks[-1]:
+            out[n] = points[ks[-1]]
+        else:
+            lo = max(k for k in ks if k < n)
+            hi = min(k for k in ks if k > n)
+            out[n] = points[lo] + (points[hi] - points[lo]) * (n - lo) / float(hi - lo)
+    return out
+
+
+NONMONO_CURVE = _interp({1: 1.0, 2: 0.52, 4: 0.30, 8: 0.32, 13: 0.40})   # 8 slower than 4
 ALL_NODES_PROFILE = _profile([{"nodes": n, "legal": True, "efficiency_E": 0.9}
                               for n in (1, 2, 4, 8, 13)])
 
 
-def make_scaling_fakes(curve, start=7000):
+def make_scaling_fakes(curve, start=7000, core_mult=None):
     """(sbatch_runner, ledger_reader, job_nodes): every job's configs get s = curve[N] / (1 +
     0.05*i), so ANCHOR (i=0) measures exactly curve[N]; job_nodes[job] = N parsed from `-N`."""
     counter = {"n": start}
@@ -1343,21 +1359,31 @@ def make_scaling_fakes(curve, start=7000):
             with open(job_paths[j]) as f:
                 cfgs = json.load(f)["configs"]
             for i, c in enumerate(cfgs):
+                mult = 1.0
+                if core_mult:       # cores used per node = ranks * omp / nodes
+                    mult = core_mult(c["ranks"] * c["omp"] // job_nodes[j])
                 for rep in (1, 2):
                     rows.append(dict(run_id="%s_%s_r%d_%s" % (case, c["id"], rep, j),
-                                     s_per_step_median=str(curve[job_nodes[j]] / (1 + 0.05 * i))))
+                                     s_per_step_median=str(mult * curve[job_nodes[j]]
+                                                           / (1 + 0.05 * i))))
         return rows
 
     return sbatch, reader, job_nodes
 
 
 def _run_cli(monkeypatch, tmp_path, argv, curve=NONMONO_CURVE, profile=ALL_NODES_PROFILE,
-             total_steps=1000, grid=MATTHEW_LIKE):
+             total_steps=1000, grid=MATTHEW_LIKE, core_mult=None, sbatch_calls=None):
     case_json = dict(grid, prep_dir=str(tmp_path / "matthew"))
     monkeypatch.setattr(wtune_tune, "resolve_case",
                         lambda case, cpn: (case_json, str(tmp_path / "namelist.input"), profile))
     monkeypatch.setattr(wtune_tune, "_total_steps", lambda nl: total_steps)
-    sbatch, reader, job_nodes = make_scaling_fakes(curve)
+    sbatch, reader, job_nodes = make_scaling_fakes(curve, core_mult=core_mult)
+    if sbatch_calls is not None:
+        inner = sbatch
+
+        def sbatch(cmd_str, _inner=inner):
+            sbatch_calls.append(cmd_str)
+            return _inner(cmd_str)
     scancel, scancel_calls = make_fake_scancel()
 
     def stop_proposer(state, batch_size, kappa=None):
@@ -1384,7 +1410,7 @@ def test_nodes_search_is_default_and_picks_n_on_nonmonotone_curve(monkeypatch, t
     assert ns["chosen"] == 4                       # min median at 4; 8 is slower
     assert report["nodes"] == 4
     assert "UNCALIBRATED" not in capsys.readouterr().out
-    assert [r["nodes"] for r in ns["table"]] == [1, 2, 4, 8]
+    assert [r["nodes"] for r in ns["table"]] == [1, 2, 3, 4, 5, 8]   # seeds + refinement of 4
 
 
 def test_nodes_search_early_stop_does_not_submit_larger_n(monkeypatch, tmp_path):
@@ -1399,12 +1425,12 @@ def test_nodes_search_early_stop_does_not_submit_larger_n(monkeypatch, tmp_path)
 def test_nodes_search_finalists_are_searched_at_two_node_counts(monkeypatch, tmp_path):
     report, job_nodes, _sc = _run_cli(monkeypatch, tmp_path, ["--minutes", "600"])
     ns = report["node_selection"]
-    assert ns["finalists"] == [4, 8]               # 8 is within 10% of 4's median (0.32 vs 0.30)
+    assert ns["finalists"] == [4, 5]               # 5 (0.305) is the closest to 4 (0.30)
     # a round0 job (not the sweep's own) was submitted at each finalist N
     sweep_jobs = set(ns["sweep_jobs"])
     search_nodes = {n for j, n in job_nodes.items() if j not in sweep_jobs}
-    assert search_nodes == {4, 8}
-    assert set(ns["finalist_best"]) == {"4", "8"}
+    assert search_nodes == {4, 5}
+    assert set(ns["finalist_best"]) == {"4", "5"}
     assert report["nodes"] in (4, 8)
 
 
@@ -1432,8 +1458,8 @@ def test_nodes_search_budget_skips_n_that_would_overrun(monkeypatch, tmp_path, c
     report, job_nodes, _sc = _run_cli(monkeypatch, tmp_path, ["--minutes", "3"])
     ns = report["node_selection"]
     assert ns["sweep_jobs"] == [] and ns["table"] == []     # no sweep job was submitted
-    assert ns["skipped"] and all("exceed the budget" in s["reason"] or "no legal" in s["reason"]
-                                 for s in ns["skipped"])
+    assert ns["skipped"] and all(("exceed the budget" in s["reason"] or "no legal" in s["reason"]
+                                  or "not measured" in s["reason"]) for s in ns["skipped"])
     assert any(s["nodes"] == 1 and "exceed the budget" in s["reason"] for s in ns["skipped"])
     assert "falling back to the proxy" in capsys.readouterr().out
 
@@ -1505,7 +1531,7 @@ def test_nodes_search_stops_after_sweep_when_budget_exhausted(monkeypatch, tmp_p
     # budget just covers the sweep jobs (elapsed jumps past it once they finish): finalists get
     # no budget, so the report is the chosen N with the sweep's ANCHOR config.
     case_json = dict(MATTHEW_LIKE, prep_dir=str(tmp_path / "matthew"))
-    sbatch, reader, job_nodes = make_scaling_fakes({1: 1.0, 2: 0.5})
+    sbatch, reader, job_nodes = make_scaling_fakes(_interp({1: 1.0, 2: 0.5}))
     clock = FakeClock()
 
     def reader_then_exhaust(case, job_ids):
@@ -1521,7 +1547,7 @@ def test_nodes_search_stops_after_sweep_when_budget_exhausted(monkeypatch, tmp_p
         objective="time", deadline_s=None, min_efficiency=0.7, k_finalists=2, total_steps=100)
     assert report["nodes"] == 2 and "budget exhausted after the sweep" in report["nodes_note"]
     assert report["best"]["id"] == "ANCHOR"
-    assert set(job_nodes.values()) == {1, 2}      # nothing but sweep jobs
+    assert set(job_nodes.values()) == {1, 2, 4}   # nothing but the seed sweep (4 stopped early)
 
 
 def test_nodes_fixed_is_unchanged(monkeypatch, tmp_path, capsys):
@@ -1580,9 +1606,9 @@ def test_sweep_budget_frac_cli_and_config_default(monkeypatch, tmp_path):
 
 def test_finalist_round0_uses_the_sweep_hybrid_anchor(monkeypatch, tmp_path):
     report, job_nodes, _sc = _run_cli(monkeypatch, tmp_path, ["--minutes", "600"])
-    assert report["node_selection"]["finalists"] == [4, 8]
+    assert report["node_selection"]["finalists"] == [4, 5]
     # round0 job configs at each finalist N: ANCHOR is the hybrid layout using all cores
-    for n, omp in ((4, 4), (8, 8)):
+    for n, omp in ((4, 4), (5, 4)):
         cfg_path = tmp_path / "out" / ("n%d" % n) / "round0-s0" / "configs.json"
         with open(cfg_path) as f:
             cfgs = {c["id"]: c for c in json.load(f)["configs"]}
@@ -1618,3 +1644,129 @@ def test_node_search_builds_full_run_prediction_once_for_the_winner(monkeypatch,
     assert len(calls) == 1                                      # ...but one prediction build
     assert calls[0][0] == report["nodes"]
     assert report["full_run_prediction"] == "PREDICTION-FOR-%d" % report["nodes"]
+
+
+# ---------------------------------------------------------------------------
+# coarse-to-fine node search, cores-per-node dimension, MaxRSS
+# ---------------------------------------------------------------------------
+BIG_GRID = dict(e_we=400, e_sn=400, e_vert=45)       # every N in 1..13 has a legal layout
+OPT6_CURVE = _interp({1: 1.0, 2: 0.55, 4: 0.33, 5: 0.29, 6: 0.27, 7: 0.28, 8: 0.30, 13: 0.50})
+
+
+def test_node_sweep_coarse_to_fine_finds_optimum_at_6(tmp_path):
+    sbatch, reader, job_nodes = make_scaling_fakes(OPT6_CURVE)
+    ctx = _ctx(sbatch_runner=sbatch, ledger_reader=reader, budget_s=3600000.0,
+               case_json=dict(BIG_GRID, prep_dir="/fake"),
+               out_dir=str(tmp_path / "o"), ledger_dir=str(tmp_path / "l"))
+    sw = wtune_tune.run_node_sweep(ctx, list(range(1, 14)), budget_frac=1.0)
+    measured = set(sw["measurements"])
+    assert {1, 2, 4, 8, 13} <= measured                 # seeds
+    assert {5, 6, 7} <= measured                        # refinement around 8 -> 7 -> 6 -> 5
+    assert wtune_nodes_choose(sw) == 6
+    assert 3 not in measured and 10 not in measured and 11 not in measured
+    why = {s["nodes"]: s["reason"] for s in sw["skipped"]}
+    assert "outside refinement bracket" in why[3] and "outside refinement bracket" in why[11]
+    assert set(why) == set(range(1, 14)) - measured     # every untested N is reported
+
+
+def wtune_nodes_choose(sw):
+    import wtune_nodes
+    return wtune_nodes.choose(wtune_nodes.summarize(sw["measurements"]), "time")[0]
+
+
+def test_node_sweep_refinement_stops_once_the_best_neighbours_are_measured(tmp_path):
+    # optimum at seed 4: neighbours 3 and 5 are measured and worse -> 6, 7 (inside the seed
+    # bracket 2..8 but beyond 5) are NOT measured and reported against the final bracket 3..5
+    sbatch, reader, job_nodes = make_scaling_fakes(
+        _interp({1: 1.0, 2: 0.55, 4: 0.30, 5: 0.34, 8: 0.45, 13: 0.60}))
+    ctx = _ctx(sbatch_runner=sbatch, ledger_reader=reader, budget_s=3600000.0,
+               case_json=dict(BIG_GRID, prep_dir="/fake"),
+               out_dir=str(tmp_path / "o"), ledger_dir=str(tmp_path / "l"))
+    sw = wtune_tune.run_node_sweep(ctx, list(range(1, 14)), budget_frac=1.0)
+    assert {3, 5} <= set(sw["measurements"]) and 6 not in sw["measurements"]
+    why = {s["nodes"]: s["reason"] for s in sw["skipped"]}
+    assert "outside refinement bracket (3..5" in why[6] and "outside refinement bracket" in why[10]
+
+
+def _cores_cli(monkeypatch, tmp_path, mult):
+    calls = []
+    report, job_nodes, _sc = _run_cli(
+        monkeypatch, tmp_path, ["--minutes", "6000", "--node-finalists", "1"], grid=BIG_GRID,
+        core_mult=mult, sbatch_calls=calls)
+    return report, job_nodes, calls
+
+
+def test_cores_per_node_dimension_picks_64_when_clearly_faster(monkeypatch, tmp_path):
+    mult = lambda c: {72: 1.0, 70: 1.0, 64: 0.90, 48: 1.2, 36: 1.5}.get(c, 9.0)
+    report, job_nodes, calls = _cores_cli(monkeypatch, tmp_path, mult)
+    ns = report["node_selection"]
+    n = ns["final"]
+    assert n == 4 and ns["core_choice"][str(n)]["cores"] == 64
+    assert report["cores_used_per_node"] == 64 and ns["final_cores_per_node"] == 64
+    table = ns["core_tables"][str(n)]
+    assert [r["cores"] for r in table] == [72, 70, 64, 48, 36]
+    row64 = next(r for r in table if r["cores"] == 64)
+    assert row64["chosen"] and row64["ranks_per_node"] * row64["omp"] == 64
+    # the finalist's round0 ANCHOR uses 64 cores per node: ranks * omp == N * 64
+    with open(tmp_path / "out" / ("n%d" % n) / "round0-s0" / "configs.json") as f:
+        a = {c["id"]: c for c in json.load(f)["configs"]}["ANCHOR"]
+    assert a["ranks"] * a["omp"] == n * 64
+    # report text carries the core-use table and the chosen marker
+    assert "cores per node at N=%d" % n in wtune_tune.render_report_text(report)
+
+
+def test_cores_per_node_tie_within_noise_prefers_the_fuller_c(monkeypatch, tmp_path):
+    mult = lambda c: {72: 1.0, 70: 0.995, 64: 0.99, 48: 1.2, 36: 1.5}.get(c, 9.0)
+    report, _jn, _calls = _cores_cli(monkeypatch, tmp_path, mult)
+    ns = report["node_selection"]
+    assert ns["core_choice"][str(ns["final"])]["cores"] == 72
+    assert report["cores_used_per_node"] == 72
+
+
+def test_cores_option_disables_dimension_and_validates(monkeypatch, tmp_path):
+    report, job_nodes, _sc = _run_cli(
+        monkeypatch, tmp_path, ["--minutes", "6000", "--cores-per-node-options", "72"],
+        grid=BIG_GRID)
+    assert report["node_selection"]["core_tables"] == {}
+    assert not (tmp_path / "out" / "cores-n4-c64").exists()     # no cores job directories
+    with pytest.raises(SystemExit, match="cores-per-node-options"):
+        _run_cli(monkeypatch, tmp_path, ["--minutes", "30", "--cores-per-node-options", "99"])
+
+
+def test_undersubscription_sbatch_keeps_the_full_node_and_config_carries_the_ranks(
+        monkeypatch, tmp_path):
+    mult = lambda c: {64: 0.90}.get(c, 1.0)
+    _report, _jn, calls = _cores_cli(monkeypatch, tmp_path, mult)
+    c64 = [c for c in calls if "cores-n4-c64" in c]
+    assert len(c64) == 1
+    line = c64[0]
+    # whole nodes are still allocated exclusively with the hardware task count; WTUNE_TOTAL_CORES
+    # stays nodes*cores_per_node; the 64-core layout lives in the config (ranks*omp = 64*N)
+    assert "-N 4 --ntasks-per-node=72 --exclusive" in line
+    assert "WTUNE_TOTAL_CORES=288" in line
+    with open(re.search(r"CONFIG_FILE=(\S+)", line).group(1)) as f:
+        a = json.load(f)["configs"][0]
+    assert a["id"] == "ANCHOR" and a["ranks"] * a["omp"] == 4 * 64
+
+
+def test_scc_site_launch_places_ranks_per_node_for_an_undersubscribed_run():
+    import subprocess
+    here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    site = os.path.join(here, "campaign", "sites", "scc.sh")
+    # N=2, c=64, omp=1 -> 128 ranks, 64 per node, one core each; cores 64-71 stay idle
+    out = subprocess.run(
+        ["bash", "-c", 'source "%s"; SLURM_JOB_NUM_NODES=2 site_launch 128 64 1 block; '
+                       'echo "${SITE_LAUNCH_CMD[@]}"' % site],
+        capture_output=True, text=True, check=True).stdout.strip()
+    assert out == "mpirun -np 128 --map-by ppr:64:node:PE=1 --bind-to core ./wrf.exe"
+
+
+def test_maxrss_is_read_from_step_rows_and_never_invented():
+    ctx = _ctx(sacct_runner=lambda cmd: "1001|\n1001.batch|6044K\n1001.0|2048M\n1002|\n1002.batch|")
+    got = wtune_tune._maxrss_mb_by_job(ctx, ["1001", "1002"])
+    assert got["1001"] == pytest.approx(2048.0)
+    assert got["1002"] is None
+    seen = []
+    ctx.sacct_runner = lambda cmd: seen.append(cmd) or ""
+    assert wtune_tune._maxrss_mb_by_job(ctx, ["7"]) == {"7": None}     # empty sacct -> None
+    assert "--format=JobID,MaxRSS" in seen[0] and "-X" not in seen[0]

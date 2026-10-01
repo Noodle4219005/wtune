@@ -95,3 +95,26 @@ def test_value_errors():
         wn.choose([], "time")
     with pytest.raises(ValueError):
         wn.choose(rows, "cost")                       # total_steps missing
+
+
+def test_seed_nodes_and_refine_targets():
+    legal = list(range(1, 14))
+    assert wn.seed_nodes(legal, 13) == [1, 2, 4, 8, 13]
+    assert wn.seed_nodes([3, 5, 6], 13) == [3]                    # no seed legal -> smallest legal
+    known = {1, 2, 4, 8, 13}
+    assert wn.refine_targets(4, known, legal) == [3, 5]           # nearest legal each side
+    assert wn.refine_targets(4, known | {3, 5}, legal, attempted={3, 5}) == []
+    assert wn.refine_targets(13, known, legal) == [12]            # open upper side: nothing above
+    assert wn.refine_targets(2, known, [1, 2, 4], attempted=()) == []   # 3 illegal
+    assert wn.bracket(4, known) == (2, 8) and wn.bracket(13, known) == (8, None)
+
+
+def test_default_core_options_and_choose_cores():
+    assert wn.default_core_options(72) == [72, 70, 64, 48, 36]
+    assert wn.default_core_options(112) == [112, 110, 100, 75, 56]
+    rows = [dict(cores=72, median=0.300), dict(cores=64, median=0.270), dict(cores=48, median=0.40)]
+    assert wn.choose_cores(rows)[0] == 64                         # 64 faster beyond noise
+    tie = [dict(cores=72, median=0.300), dict(cores=64, median=0.296), dict(cores=48, median=0.40)]
+    assert wn.choose_cores(tie)[0] == 72                          # within noise -> fuller c
+    with pytest.raises(ValueError):
+        wn.choose_cores([])

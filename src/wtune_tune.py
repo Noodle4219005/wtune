@@ -319,7 +319,7 @@ def sample_more_diverse_configs(ctx, exclude_configs, k, seed):
     Filtered through `_apply_search_filter` BEFORE `sample_design` draws from it, so a --config
     search restriction actually shrinks the pool sample_design samples from, not just what
     survives afterward."""
-    total_cores = ctx.nodes * ctx.cores_per_node
+    total_cores = ctx.nodes * cores_used(ctx)
     candidates, _axis = decomp_space.enumerate_space(ctx.case_json, total_cores, ctx.nodes,
                                                        ctx.hardware_id)
     candidates = _apply_search_filter(ctx, candidates)
@@ -691,6 +691,8 @@ class Ctx:
     not_measured: list = dataclasses.field(default_factory=list)
     # node search: the sweep's hybrid ANCHOR at ctx.nodes, used as round0's ANCHOR (else None)
     anchor_override: dict = None
+    # node search: cores per node the decomposition search may use (None = all of cores_per_node)
+    core_budget: int = None
 
     def wall_elapsed(self):
         return self.clock.now() - self.start_time
@@ -1074,7 +1076,7 @@ def run_round0(ctx):
         total_k = slots * configs_per_job + 1
 
     built = sweep.build_configs(ctx.case, ctx.case_json, ctx.nodes, max(0, total_k - 1), ctx.seed,
-                                 ctx.hardware_id, ctx.cores_per_node)
+                                 ctx.hardware_id, cores_used(ctx))
     if ctx.anchor_override:
         # node-search finalist: the sweep's hybrid ANCHOR (all cores used) replaces build_configs'
         # omp=1 downward-scanned one; the other candidates stay as sampled
@@ -1178,7 +1180,7 @@ def _default_proposer(ctx):
     def proposer(state, batch_size, kappa=None):
         return decomp_search.propose_for_case(
             ctx.case, ctx.case_json, case_fields, prior_rows, state, batch_size,
-            total_cores=ctx.nodes * ctx.cores_per_node, nodes=ctx.nodes,
+            total_cores=ctx.nodes * cores_used(ctx), nodes=ctx.nodes,
             hardware_id=ctx.hardware_id, kappa=ctx.kappa if kappa is None else kappa)
 
     return proposer
@@ -3386,21 +3388,28 @@ def _total_steps(namelist_path):
         return None
 
 
-def _sweep_omp_options(ctx, nodes):
-    """The allowed OpenMP settings at `nodes`: decomp_space's own omp set (divisors of the NUMA
-    width whose rank count total/omp packs a whole number of ranks per node), minus anything above
-    the extension OMP cap (dmpar-only builds)."""
-    opts = decomp_space.default_omp_options(nodes * ctx.cores_per_node, nodes, ctx.hardware_id)
+def cores_used(ctx):
+    """Cores per node the decomposition search may use: ctx.core_budget when a node-search
+    finalist runs undersubscribed, else the hardware's cores_per_node."""
+    return ctx.core_budget or ctx.cores_per_node
+
+
+def _sweep_omp_options(ctx, nodes, cores=None):
+    """The allowed OpenMP settings at `nodes` x `cores` cores/node: decomp_space's own omp set
+    (divisors of the NUMA width whose rank count total/omp packs a whole number of ranks per
+    node), minus anything above the extension OMP cap (dmpar-only builds)."""
+    opts = decomp_space.default_omp_options(nodes * (cores or ctx.cores_per_node), nodes,
+                                            ctx.hardware_id)
     cap = getattr(ctx, "omp_cap", None)
     return [o for o in opts if not cap or o <= cap]
 
 
-def _hybrid_anchor(ctx, nodes, omp):
-    """ANCHOR at `nodes` using ALL cores: ranks = nodes*cores_per_node/omp, numtiles = omp, the
-    least-aspect legal (nx, ny), dist=block (same conventions as scc_sweep.build_anchor). None when
-    no (nx, ny) is legal for that rank count (decomp_space.legal_shapes_exact, every active
-    domain)."""
-    total = nodes * ctx.cores_per_node
+def _hybrid_anchor(ctx, nodes, omp, cores=None):
+    """ANCHOR at `nodes` using `cores` (default: all) cores per node: ranks = nodes*cores/omp,
+    numtiles = omp, the least-aspect legal (nx, ny), dist=block (same conventions as
+    scc_sweep.build_anchor). None when no (nx, ny) is legal for that rank count
+    (decomp_space.legal_shapes_exact, every active domain)."""
+    total = nodes * (cores or ctx.cores_per_node)
     cands, _axis = decomp_space.enumerate_space(
         ctx.case_json, total_cores=total, nodes=nodes, hardware_id=ctx.hardware_id,
         omp_options=[omp],
@@ -3426,17 +3435,18 @@ def _hybrid_anchor(ctx, nodes, omp):
         tile_strategy=base.get("tile_strategy", 0), tile_shape="1d_y", config_source="anchor")
 
 
-def _sweep_anchor(ctx, nodes):
-    """(anchor config | None, reason). `nodes` is a sweep candidate when SOME allowed omp (see
-    _sweep_omp_options) makes ranks = nodes*cores_per_node/omp a legal decomposition -- pure MPI
-    (omp=1) is not required, so small grids still scale out hybrid. The ANCHOR uses the SMALLEST
-    such omp (that also passes the shared legality filter: WRF-Chem j-patch guard, --config
-    exclude rules)."""
+def _sweep_anchor(ctx, nodes, cores=None):
+    """(anchor config | None, reason). `nodes` x `cores` is a candidate when SOME allowed omp (see
+    _sweep_omp_options) makes ranks = nodes*cores/omp a legal decomposition -- pure MPI (omp=1)
+    is not required, so small grids still scale out hybrid. The ANCHOR uses the SMALLEST such omp
+    (that also passes the shared legality filter: WRF-Chem j-patch guard, --config exclude
+    rules). The ranks-per-node x omp = cores product is what the launcher places
+    (mpirun --map-by ppr:<ranks/node>:node:PE=<omp>); the other cores of the node stay idle."""
     cn = dataclasses.replace(ctx, nodes=nodes)
-    omps = _sweep_omp_options(ctx, nodes)
+    omps = _sweep_omp_options(ctx, nodes, cores)
     msgs = []
     for omp in sorted(omps):
-        anchor = _hybrid_anchor(ctx, nodes, omp)
+        anchor = _hybrid_anchor(ctx, nodes, omp, cores)
         if anchor is None:
             continue
         buf = io.StringIO()
@@ -3450,85 +3460,257 @@ def _sweep_anchor(ctx, nodes):
     return None, "no legal decomposition at any omp in {%s}" % ", ".join(str(o) for o in omps)
 
 
-def run_node_sweep(ctx, legal_nodes, budget_frac=DEFAULT_SWEEP_BUDGET_FRAC):
-    """Stage 'node sweep': one Slurm job per candidate N measuring the ANCHOR at REPS=2, submitted
-    in ascending waves (wtune_nodes.sweep_waves); after each wave stop_early() decides whether
-    larger N are still worth measuring. Returns dict(measurements={N: [s/step]}, anchors={N:
-    config}, results={N: aggregate entry}, skipped=[{nodes, reason}], jobs={N: job_id}). The jobs
-    are ordinary strict_campaign jobs, so their rows land in the same ledger_<case>_<job>.csv
-    files (n_nodes column) round-0 rows do."""
-    cands = wtune_nodes.candidate_node_counts(legal_nodes, ctx.max_nodes)
-    skipped, anchors, meas, results, jobs = [], {}, {}, {}, {}
-    todo = []
-    for n in cands:
+_RSS_RE = re.compile(r"^(\d+(?:\.\d+)?)([KMGT]?)$")
+_RSS_TO_KB = {"": 1.0, "K": 1.0, "M": 1024.0, "G": 1024.0 ** 2, "T": 1024.0 ** 3}
+MAXRSS_NOTE = ("MaxRSS is whatever Slurm accounting reports for the job's steps; mpirun-launched "
+               "ranks can bypass step accounting (f1: knowledge/hpc/2026-08-20-f1-reports-no-"
+               "rapl-energy-and-no-useful-maxrss.md -- it reported the batch script's 6 MB), so "
+               "a small value means 'not accounted', not 'small footprint'")
+
+
+def _maxrss_mb_by_job(ctx, job_ids):
+    """{job_id: MaxRSS in MB | None} from ONE sacct call over the job's steps (no -X). None when
+    sacct returns no usable MaxRSS for that job (nothing is invented)."""
+    job_ids = [str(j) for j in job_ids]
+    best = {}
+    try:
+        out = ctx.sacct_runner([ctx.sacct_cmd, "-j", ",".join(job_ids), "-n", "-P",
+                                "--format=JobID,MaxRSS"])
+    except Exception:
+        out = ""
+    for line in (out or "").splitlines():
+        parts = line.split("|")
+        if len(parts) < 2:
+            continue
+        m = _RSS_RE.match(parts[1].strip())
+        if not m:
+            continue
+        kb = float(m.group(1)) * _RSS_TO_KB[m.group(2)]
+        jid = parts[0].strip().split(".")[0]
+        if kb > 0:
+            best[jid] = max(best.get(jid, 0.0), kb)
+    return {j: (best[j] / 1024.0 if j in best else None) for j in job_ids}
+
+
+def _pack_items(items, max_nodes):
+    """Greedy first-fit ascending packing of jobs (items with ['nodes']) into concurrent waves
+    whose node sums are <= max_nodes (same rule as wtune_nodes.sweep_waves)."""
+    waves = []
+    for it in sorted(items, key=lambda x: (x["nodes"], -x.get("cores", 0))):
+        for w in waves:
+            if sum(i["nodes"] for i in w) + it["nodes"] <= max_nodes:
+                w.append(it)
+                break
+        else:
+            waves.append([it])
+    return waves
+
+
+def _measure_anchor_wave(ctx, items, s_est_for, skipped):
+    """Submit one REPS=2 job per item (dict: key, nodes, anchor, suffix, tag), skipping any whose
+    estimated end would exceed the budget, wait for all, read the ledger. Returns {key: dict(agg,
+    job, maxrss_mb)} for the items that were submitted AND produced a measurement."""
+    jobs = {}
+    for it in items:
+        n = it["nodes"]
+        cn = dataclasses.replace(ctx, nodes=n)
+        s_est, src = s_est_for(n)
+        est = _job_time_est(cn, 1, NODE_SWEEP_REPS, s_est)
+        if would_exceed_budget(ctx.elapsed(), est["total_run_s"], ctx.budget_s):
+            why = ("estimated end would exceed the budget (job ~%s at %.3fs/step[%s], elapsed %s "
+                   "/ budget %s)" % (_fmt_hms(est["total_run_s"]), s_est, src,
+                                     _fmt_hms(ctx.elapsed()), _fmt_hms(ctx.budget_s)))
+            skipped.append(dict(it["tag"], reason=why))
+            print("node sweep: %s skipped -- %s" % (it["suffix"], why))
+            continue
+        job_id, _p, _te = submit_configs_job(cn, [it["anchor"]], reps=NODE_SWEEP_REPS,
+                                               name_suffix=it["suffix"], s_est=s_est, time_est=est)
+        jobs[it["key"]] = job_id
+        a = it["anchor"]
+        print("node sweep: %s submitted job %s (ANCHOR ranks=%d omp=%d %dx%d, REPS=%d, ~%s)"
+              % (it["suffix"], job_id, a["ranks"], a["omp"], a["nx"], a["ny"], NODE_SWEEP_REPS,
+                 _fmt_hms(est["total_run_s"])))
+    out = {}
+    if not jobs:
+        return out
+    ids = list(jobs.values())
+    states = wait_for_jobs(ctx, ids, "node-sweep")
+    rows = ctx.ledger_reader(ctx.case, ids)
+    rss = _maxrss_mb_by_job(ctx, ids)
+    for it in items:
+        j = jobs.get(it["key"])
+        if j is None:
+            continue
+        mine = [r for r in rows if (parse_run_id(r.get("run_id")) or {}).get("job") == j]
+        agg = aggregate_by_cid(mine, {"ANCHOR": it["anchor"]}).get("ANCHOR")
+        if agg:
+            out[it["key"]] = dict(agg=agg, job=j, maxrss_mb=rss.get(j))
+        else:
+            skipped.append(dict(it["tag"], reason="no successful measurement (job %s, state %s)"
+                                % (j, states.get(j, ("UNKNOWN", ""))[0])))
+    return out
+
+
+def run_node_sweep(ctx, legal_nodes, budget_frac=DEFAULT_SWEEP_BUDGET_FRAC, chooser=None):
+    """Stage 'node sweep', coarse to fine. Candidates: every N in `legal_nodes` (<= max_nodes)
+    that has a legal ANCHOR layout (_sweep_anchor). Seeds {1,2,4,8,max_nodes} (wtune_nodes.
+    seed_nodes) are measured first, one REPS=2 ANCHOR job per N, in ascending waves with early
+    stop on the upward side; then, around the current best N* (`chooser(rows)`, default fastest),
+    the nearest legal untested N on each side inside the bracket of known N is measured, round
+    after round, until the best's legal neighbours are measured. Everything not measured is
+    reported in `skipped` with its reason. The `budget_frac` cap stops further submissions. Jobs
+    are ordinary strict_campaign jobs: their rows land in the same ledger_<case>_<job>.csv files
+    (n_nodes column) round-0 rows do. Returns dict(measurements, anchors, results, skipped, jobs,
+    legal, maxrss_mb)."""
+    chooser = chooser or (lambda rows: wtune_nodes.choose(rows, "time")[0])
+    skipped, anchors = [], {}
+    for n in wtune_nodes.candidate_node_counts(legal_nodes, ctx.max_nodes):
         anchor, why = _sweep_anchor(ctx, n)
         if anchor is None:
             skipped.append(dict(nodes=n, reason=why))
             print("node sweep: N=%d skipped -- %s" % (n, why))
         else:
             anchors[n] = anchor
-            todo.append(n)
-    s_prev = None
-    stopped = None
+    legal = sorted(anchors)
+    meas, results, jobs, rss = {}, {}, {}, {}
+    attempted = set()
+    seeds = wtune_nodes.seed_nodes(legal, ctx.max_nodes) if legal else []
     cap_s = budget_frac * ctx.budget_s
     sweep_t0 = ctx.elapsed()
-    for wave in wtune_nodes.sweep_waves(todo, ctx.max_nodes):
-        if not stopped and ctx.elapsed() - sweep_t0 >= cap_s:
-            stopped = ("sweep budget cap: sweep used %s >= %.0f%% of the budget (%s)"
-                       % (_fmt_hms(ctx.elapsed() - sweep_t0), budget_frac * 100,
-                          _fmt_hms(cap_s)))
-            print("node sweep: %s; larger N not submitted" % stopped)
-        if stopped:
-            for n in wave:
-                skipped.append(dict(nodes=n, reason=stopped))
+    state = dict(stopped=None)
+
+    def s_est_for(n):
+        if meas:
+            near = min(meas, key=lambda m: (abs(m - n), m))
+            return statistics.median(meas[near]), "median at N=%d" % near
+        s_est, src, _k = sweep.estimate_s_per_step(ctx.case, n, ctx.ledger_dir, ctx.hardware_id)
+        return s_est, src
+
+    def cap_reason():
+        if ctx.elapsed() - sweep_t0 >= cap_s:
+            return ("sweep budget cap: sweep used %s >= %.0f%% of the budget (%s)"
+                    % (_fmt_hms(ctx.elapsed() - sweep_t0), budget_frac * 100, _fmt_hms(cap_s)))
+        return None
+
+    def run_wave(ns):
+        items = [dict(key=n, nodes=n, anchor=anchors[n], suffix="nodes-n%d" % n, tag=dict(nodes=n))
+                 for n in ns]
+        attempted.update(ns)
+        for n, r in _measure_anchor_wave(ctx, items, s_est_for, skipped).items():
+            meas[n], results[n], jobs[n], rss[n] = (r["agg"]["s_values"], r["agg"], r["job"],
+                                                    r["maxrss_mb"])
+
+    # phase 1: geometric seeds, early stop on the upward side
+    for wave in wtune_nodes.sweep_waves(seeds, ctx.max_nodes):
+        if not state["stopped"]:
+            state["stopped"] = cap_reason()
+            if state["stopped"]:
+                print("node sweep: %s; larger N not submitted" % state["stopped"])
+        if state["stopped"]:
+            attempted.update(wave)
+            skipped.extend(dict(nodes=n, reason=state["stopped"]) for n in wave)
             continue
-        wave_jobs = {}
-        for n in wave:
-            cn = dataclasses.replace(ctx, nodes=n)
-            if s_prev is not None:
-                s_est, src = s_prev, "last measured median"
-            else:
-                s_est, src, _k = sweep.estimate_s_per_step(ctx.case, n, ctx.ledger_dir,
-                                                            ctx.hardware_id)
-            est = _job_time_est(cn, 1, NODE_SWEEP_REPS, s_est)
-            if would_exceed_budget(ctx.elapsed(), est["total_run_s"], ctx.budget_s):
-                why = ("estimated end would exceed the budget (job ~%s at %.3fs/step[%s], "
-                       "elapsed %s / budget %s)" % (_fmt_hms(est["total_run_s"]), s_est, src,
-                                                    _fmt_hms(ctx.elapsed()),
-                                                    _fmt_hms(ctx.budget_s)))
-                skipped.append(dict(nodes=n, reason=why))
-                print("node sweep: N=%d skipped -- %s" % (n, why))
-                continue
-            job_id, _p, _te = submit_configs_job(cn, [anchors[n]], reps=NODE_SWEEP_REPS,
-                                                   name_suffix="nodes-n%d" % n, s_est=s_est,
-                                                   time_est=est)
-            wave_jobs[n] = job_id
-            jobs[n] = job_id
-            print("node sweep: N=%d submitted job %s (ANCHOR, REPS=%d, ~%s)"
-                  % (n, job_id, NODE_SWEEP_REPS, _fmt_hms(est["total_run_s"])))
-        if not wave_jobs:
-            continue
-        states = wait_for_jobs(ctx, list(wave_jobs.values()), "node-sweep")
-        rows = ctx.ledger_reader(ctx.case, list(wave_jobs.values()))
-        for n, j in wave_jobs.items():
-            mine = [r for r in rows if (parse_run_id(r.get("run_id")) or {}).get("job") == j]
-            agg = aggregate_by_cid(mine, {"ANCHOR": anchors[n]}).get("ANCHOR")
-            if agg:
-                meas[n] = agg["s_values"]
-                results[n] = agg
-            else:
-                skipped.append(dict(nodes=n, reason="no successful measurement (job %s, state %s)"
-                                    % (j, states.get(j, ("UNKNOWN", ""))[0])))
+        run_wave(wave)
         srows = wtune_nodes.summarize(meas)
-        if srows:
-            s_prev = srows[-1]["median"]
         if wtune_nodes.stop_early(srows):
             a, b = srows[-2], srows[-1]
-            stopped = ("early stop: N=%d (%.4f s/step) did not beat N=%d (%.4f s/step) by >%.0f%%"
-                       % (b["nodes"], b["median"], a["nodes"], a["median"],
-                          wtune_nodes.NOISE_FRAC * 100))
-            print("node sweep: %s; larger N not submitted" % stopped)
-    return dict(measurements=meas, anchors=anchors, results=results, skipped=skipped, jobs=jobs)
+            state["stopped"] = ("early stop: N=%d (%.4f s/step) did not beat N=%d (%.4f s/step) "
+                                "by >%.0f%%" % (b["nodes"], b["median"], a["nodes"], a["median"],
+                                                wtune_nodes.NOISE_FRAC * 100))
+            print("node sweep: %s; larger N not submitted" % state["stopped"])
+
+    # phase 2: refine around the best N
+    cap_hit = None
+    while meas:
+        best = chooser(wtune_nodes.summarize(meas))
+        todo = wtune_nodes.refine_targets(best, set(seeds) | set(meas), legal, attempted)
+        if not todo:
+            break
+        cap_hit = cap_reason()
+        if cap_hit:
+            print("node sweep: %s; refinement stopped" % cap_hit)
+            break
+        print("node sweep: refining around best N=%d: measuring N=%s" % (best, todo))
+        for wave in wtune_nodes.sweep_waves(todo, ctx.max_nodes):
+            run_wave(wave)
+
+    # everything legal that was never measured gets an explicit reason
+    rows = wtune_nodes.summarize(meas)
+    best = chooser(rows) if rows else None
+    lo, hi = wtune_nodes.bracket(best, set(seeds) | set(meas)) if best else (0, None)
+    already = {s["nodes"] for s in skipped}
+    for n in legal:
+        if n in meas or n in already:
+            continue
+        if cap_hit:
+            why = cap_hit
+        elif best is None:
+            why = "not measured: no seed measurement succeeded"
+        elif lo < n and (hi is None or n < hi):
+            why = ("not measured: not adjacent to the best N=%d (inside the refinement bracket "
+                   "%d..%s)" % (best, lo, hi))
+        else:
+            why = ("not measured: outside refinement bracket (%d..%s around the best N=%d)"
+                   % (lo, hi, best))
+        skipped.append(dict(nodes=n, reason=why))
+    skipped.sort(key=lambda s: (s["nodes"], s.get("cores", 0)))
+    return dict(measurements=meas, anchors=anchors, results=results, skipped=skipped, jobs=jobs,
+                legal=legal, maxrss_mb=rss)
+
+
+def _core_row(cores, nodes, anchor, agg, maxrss_mb, chosen=False):
+    return dict(cores=cores, ranks_per_node=anchor["ranks"] // nodes, omp=anchor["omp"],
+                ranks=anchor["ranks"], nx=anchor["nx"], ny=anchor["ny"], median=agg["median"],
+                n=agg["n"], spread=((agg["hi"] - agg["lo"]) / agg["median"]
+                                    if agg["n"] >= 2 and agg["median"] else 0.0),
+                maxrss_mb=maxrss_mb, chosen=chosen)
+
+
+def run_core_sweep(ctx, finals, sw, core_options, budget_frac=DEFAULT_SWEEP_BUDGET_FRAC / 2):
+    """Cores-per-node dimension at each finalist N: the hybrid ANCHOR using c < C cores per node
+    (ranks/node x omp = c; the rest idle) is measured as one REPS=2 job per (N, c), for every c in
+    `core_options` with a legal layout; c=C reuses the node sweep's own measurement. c is chosen
+    per N by wtune_nodes.choose_cores (fastest, ties within noise -> fuller c). Returns
+    ({N: dict(anchors={c: anchor}, rows=[...], chosen=c, note=...)}, skipped_cores)."""
+    C = ctx.cores_per_node
+    info, skipped, items = {}, [], []
+    for n in finals:
+        info[n] = dict(anchors={C: sw["anchors"][n]}, results={C: sw["results"][n]},
+                       rss={C: sw["maxrss_mb"].get(n)})
+        for c in sorted((c for c in core_options if c < C), reverse=True):
+            a, why = _sweep_anchor(ctx, n, cores=c)
+            if a is None:
+                skipped.append(dict(nodes=n, cores=c, reason=why))
+                print("core sweep: N=%d c=%d skipped -- %s" % (n, c, why))
+                continue
+            info[n]["anchors"][c] = a
+            items.append(dict(key=(n, c), nodes=n, cores=c, anchor=a,
+                              suffix="cores-n%d-c%d" % (n, c), tag=dict(nodes=n, cores=c)))
+    cap_s = budget_frac * ctx.budget_s
+    t0 = ctx.elapsed()
+
+    def s_est_for(n):
+        return statistics.median(sw["measurements"][n]), "node-sweep median at N=%d" % n
+
+    for wave in _pack_items(items, ctx.max_nodes):
+        if ctx.elapsed() - t0 >= cap_s:
+            why = "core sweep budget cap: used %s >= %.0f%% of the budget" % (
+                _fmt_hms(ctx.elapsed() - t0), budget_frac * 100)
+            skipped.extend(dict(it["tag"], reason=why) for it in wave)
+            continue
+        for key, r in _measure_anchor_wave(ctx, wave, s_est_for, skipped).items():
+            info[key[0]]["results"][key[1]] = r["agg"]
+            info[key[0]]["rss"][key[1]] = r["maxrss_mb"]
+    for n in finals:
+        rows = [_core_row(c, n, info[n]["anchors"][c], info[n]["results"][c], info[n]["rss"][c])
+                for c in sorted(info[n]["results"], reverse=True)]
+        chosen, note = wtune_nodes.choose_cores(rows)
+        for r in rows:
+            r["chosen"] = (r["cores"] == chosen)
+        info[n].update(rows=rows, chosen=chosen, note=note)
+        print("core sweep: N=%d chose cores/node=%d -- %s" % (n, chosen, note))
+    skipped.sort(key=lambda s: (s["nodes"], -s["cores"]))
+    return info, skipped
 
 
 def node_choices(rows, *, deadline_s, total_steps, overhead_s, min_efficiency):
@@ -3545,19 +3727,18 @@ def node_choices(rows, *, deadline_s, total_steps, overhead_s, min_efficiency):
 
 
 def run_node_search(ctx, profile, objective, deadline_s, min_efficiency, k_finalists,
-                    total_steps, nodes_policy="knee", sweep_budget_frac=DEFAULT_SWEEP_BUDGET_FRAC):
-    """Node sweep -> choose N -> round0/adaptive/confirm at each finalist N (remaining budget
-    split evenly over the finalists still to run) -> final (N, config) by the same objective over
-    the finalists' best tuned medians. Falls back to the proxy path when nothing was measured."""
-    # candidates: every node count the profile checks (pure-MPI legality there is NOT required --
-    # _sweep_anchor accepts any N with a legal hybrid layout and reports the rest as skipped)
-    legal = [r["nodes"] for r in profile.get("core_count_priors", {}).get("efficiency_table", [])
-             if r["nodes"] <= ctx.max_nodes]
-    if not legal:
-        print("node sweep: profile lists no node counts; sweeping N=1 only")
-        legal = [1]
-    sw = run_node_sweep(ctx, legal, budget_frac=sweep_budget_frac)
+                    total_steps, nodes_policy="knee", sweep_budget_frac=DEFAULT_SWEEP_BUDGET_FRAC,
+                    core_options=None):
+    """Node sweep (coarse to fine over every legal N in 1..max_nodes) -> choose N -> cores-per-node
+    sweep at the finalists -> round0/adaptive/confirm at each finalist (N, c) (remaining budget
+    split evenly over the finalists still to run) -> final (N, c, config) by the same objective
+    over the finalists' best tuned medians. Falls back to the proxy path when nothing was
+    measured. `profile` is only used by that fallback."""
     overhead_s = ctx.startup_s
+    kw = dict(deadline_s=deadline_s, total_steps=total_steps, overhead_s=overhead_s,
+              min_efficiency=min_efficiency)
+    sw = run_node_sweep(ctx, list(range(1, ctx.max_nodes + 1)), budget_frac=sweep_budget_frac,
+                        chooser=lambda rows: wtune_nodes.choose(rows, objective, **kw)[0])
     rows = wtune_nodes.summarize(sw["measurements"])
     if not rows:
         nodes, nodes_note, warning = choose_nodes(profile, ctx.max_nodes, nodes_policy)
@@ -3570,35 +3751,46 @@ def run_node_search(ctx, profile, objective, deadline_s, min_efficiency, k_final
                                         finalists=[nodes], note=nodes_note)
         return report
 
-    kw = dict(deadline_s=deadline_s, total_steps=total_steps, overhead_s=overhead_s,
-              min_efficiency=min_efficiency)
     choices = node_choices(rows, **kw)
     chosen, note = wtune_nodes.choose(rows, objective, **kw)
     finals = wtune_nodes.finalists(rows, objective, k=k_finalists, **kw)
     tab = wtune_nodes.table(rows, total_steps=total_steps, overhead_s=overhead_s)
+    for r in tab:
+        r["maxrss_mb"] = sw["maxrss_mb"].get(r["nodes"])
     print("node sweep: chose N=%d -- %s; finalists %s" % (chosen, note, finals))
     for r in tab:
         print("node sweep: N=%-2d median=%.4f s/step n=%d spread=%.1f%% speedup=%.2f eff=%.2f"
               % (r["nodes"], r["median"], r["n"], r["spread"] * 100, r["speedup"],
                  r["efficiency"]))
 
-    outcomes = {}                  # N -> dict(report, best_median)
+    if core_options is None:
+        core_options = wtune_nodes.default_core_options(ctx.cores_per_node)
+    cores_info, skipped_cores = {}, []
+    if any(c < ctx.cores_per_node for c in core_options):
+        cores_info, skipped_cores = run_core_sweep(ctx, finals, sw, core_options)
+
+    outcomes = {}                  # N -> dict(report, best_median, ...)
     for i, n in enumerate(finals):
         remaining = ctx.budget_s - ctx.elapsed()
         if remaining <= 0:
             print("node search: no budget left for finalist N=%d" % n)
             continue
         share = remaining / (len(finals) - i)
+        c = cores_info[n]["chosen"] if n in cores_info else ctx.cores_per_node
+        anchor = cores_info[n]["anchors"][c] if n in cores_info else sw["anchors"].get(n)
         fctx = dataclasses.replace(ctx, nodes=n, budget_s=ctx.elapsed() + share,
                                     out_dir=os.path.join(ctx.out_dir, "n%d" % n),
-                                    anchor_override=sw["anchors"].get(n))
+                                    anchor_override=anchor, core_budget=c)
         os.makedirs(fctx.out_dir, exist_ok=True)
-        print("node search: finalist N=%d, budget share %s" % (n, _fmt_hms(share)))
+        print("node search: finalist N=%d cores/node=%d, budget share %s"
+              % (n, c, _fmt_hms(share)))
         all_results, confirm_results, anchor_cid = run_tuning_at(fctx)
-        if not all_results and n in sw["results"]:
-            print("node search: nothing measured at N=%d beyond the sweep; reporting the sweep "
-                  "ANCHOR" % n)
-            all_results, anchor_cid = {"ANCHOR": sw["results"][n]}, "ANCHOR"
+        if not all_results:
+            res = (cores_info[n]["results"][c] if n in cores_info else sw["results"].get(n))
+            if res:
+                print("node search: nothing measured at N=%d beyond the sweep; reporting the "
+                      "sweep ANCHOR" % n)
+                all_results, anchor_cid = {"ANCHOR": dict(res, config=anchor)}, "ANCHOR"
         if not all_results:
             continue
         rep = build_report(fctx, n, "node search finalist", all_results, confirm_results,
@@ -3606,14 +3798,16 @@ def run_node_search(ctx, profile, objective, deadline_s, min_efficiency, k_final
         if rep["best"]:
             outcomes[n] = dict(report=rep, best_median=rep["best"]["median_s_per_step"],
                                ctx=fctx, all_results=all_results,
-                               confirm_results=confirm_results)
+                               confirm_results=confirm_results, cores=c)
     if not outcomes:
         # budget gone before any finalist produced a result: report the sweep ANCHOR at `chosen`
-        fctx = dataclasses.replace(ctx, nodes=chosen)
-        res = sw["results"].get(chosen)
-        rep = build_report(fctx, chosen, note, {"ANCHOR": res} if res else {}, None,
-                           "ANCHOR" if res else None)
-        outcomes[chosen] = dict(report=rep, best_median=res["median"] if res else None)
+        c = cores_info[chosen]["chosen"] if chosen in cores_info else ctx.cores_per_node
+        anchor = cores_info[chosen]["anchors"][c] if chosen in cores_info else sw["anchors"][chosen]
+        res = cores_info[chosen]["results"][c] if chosen in cores_info else sw["results"][chosen]
+        fctx = dataclasses.replace(ctx, nodes=chosen, core_budget=c)
+        rep = build_report(fctx, chosen, note, {"ANCHOR": dict(res, config=anchor)}, None,
+                           "ANCHOR")
+        outcomes[chosen] = dict(report=rep, best_median=res["median"], cores=c)
         final_n, final_note = chosen, note + "; budget exhausted after the sweep -- ANCHOR config"
     else:
         by_sweep = {r["nodes"]: r for r in rows}
@@ -3624,6 +3818,7 @@ def run_node_search(ctx, profile, objective, deadline_s, min_efficiency, k_final
         final_n, final_note = wtune_nodes.choose(frows, objective, **kw)
         final_note = "final over tuned finalists %s: %s" % (sorted(outcomes), final_note)
     report = outcomes[final_n]["report"]
+    final_c = outcomes[final_n]["cores"]
     if report.get("full_run_prediction") is None:       # winner of a finalist search
         o = outcomes[final_n]
         best_id = report["best"]["id"]
@@ -3632,37 +3827,62 @@ def run_node_search(ctx, profile, objective, deadline_s, min_efficiency, k_final
             o["ctx"], entry["config"] if entry else None, final_n, o["all_results"],
             o["confirm_results"])
     report["nodes"], report["nodes_note"] = final_n, final_note
+    report["cores_used_per_node"] = final_c
     report["budget_minutes"] = ctx.budget_s / 60.0
     report["elapsed_minutes"] = ctx.elapsed() / 60.0
     report["job_ids"] = list(ctx.owned_jobs)
     report["cancelled_job_ids"] = list(ctx.cancelled_jobs)
     report["node_selection"] = dict(
         mode="search", objective=objective, chosen=chosen, chosen_note=note, final=final_n,
-        final_note=final_note, table=tab, choices=choices, skipped=sw["skipped"],
-        finalists=finals,
+        final_note=final_note, final_cores_per_node=final_c, table=tab, choices=choices,
+        skipped=sw["skipped"], finalists=finals,
         finalist_best={str(n): o["best_median"] for n, o in outcomes.items()},
+        core_tables={str(n): ci["rows"] for n, ci in cores_info.items()},
+        core_choice={str(n): dict(cores=ci["chosen"], note=ci["note"])
+                     for n, ci in cores_info.items()},
+        skipped_cores=skipped_cores, core_options=list(core_options),
         total_steps=total_steps, deadline_s=deadline_s, min_efficiency=min_efficiency,
-        overhead_s=overhead_s, sweep_jobs=list(sw["jobs"].values()))
+        overhead_s=overhead_s, sweep_jobs=list(sw["jobs"].values()), maxrss_note=MAXRSS_NOTE)
     return report
 
 
 def render_node_selection_text(ns):
+    def mb(v):
+        return "%.0f" % v if v is not None else "-"
+
     lines = ["", "--- node selection (measured, ANCHOR config per node count) ---",
-             "%5s %12s %5s %8s %8s %6s %10s %10s"
-             % ("nodes", "median_s", "reps", "spread", "speedup", "eff", "wall_s", "node_hours")]
+             "%5s %12s %5s %8s %8s %6s %10s %10s %9s"
+             % ("nodes", "median_s", "reps", "spread", "speedup", "eff", "wall_s", "node_hours",
+                "maxrss_MB")]
     for r in ns.get("table", []):
-        lines.append("%5d %12.4f %5d %7.1f%% %7.2fx %6.2f %10s %10s"
+        lines.append("%5d %12.4f %5d %7.1f%% %7.2fx %6.2f %10s %10s %9s"
                      % (r["nodes"], r["median"], r["n"], r["spread"] * 100, r["speedup"],
                         r["efficiency"],
                         "%.0f" % r["wall_s"] if r.get("wall_s") is not None else "-",
-                        "%.2f" % r["node_hours"] if r.get("node_hours") is not None else "-"))
+                        "%.2f" % r["node_hours"] if r.get("node_hours") is not None else "-",
+                        mb(r.get("maxrss_mb"))))
     for obj, c in (ns.get("choices") or {}).items():
         lines.append("choice %-5s%s N=%s  %s" % (obj, "*" if obj == ns.get("objective") else " ",
                                                  c["nodes"], c["note"]))
-    lines.append("(* = objective used; finalists searched: %s; final N=%s)"
-                 % (ns.get("finalists"), ns.get("final", ns.get("chosen"))))
-    for s in ns.get("skipped", []):
-        lines.append("skipped N=%d: %s" % (s["nodes"], s["reason"]))
+    lines.append("(* = objective used; finalists searched: %s; final N=%s cores/node=%s)"
+                 % (ns.get("finalists"), ns.get("final", ns.get("chosen")),
+                    ns.get("final_cores_per_node", "-")))
+    for n, rows in sorted((ns.get("core_tables") or {}).items(), key=lambda kv: int(kv[0])):
+        lines.append("")
+        lines.append("--- cores per node at N=%s (ANCHOR; idle cores = hardware - c) ---" % n)
+        lines.append("%7s %10s %4s %11s %6s %8s %9s"
+                     % ("cores", "ranks/node", "omp", "median_s", "reps", "spread", "maxrss_MB"))
+        for r in rows:
+            lines.append("%7d %10d %4d %11.4f %6d %7.1f%% %9s %s"
+                         % (r["cores"], r["ranks_per_node"], r["omp"], r["median"], r["n"],
+                            r["spread"] * 100, mb(r.get("maxrss_mb")),
+                            "<- chosen" if r.get("chosen") else ""))
+    if ns.get("table") and any(r.get("maxrss_mb") is not None for r in ns["table"]):
+        lines.append("NOTE: " + ns.get("maxrss_note", MAXRSS_NOTE))
+    for s in ns.get("skipped", []) + ns.get("skipped_cores", []):
+        lines.append("not run N=%d%s: %s" % (s["nodes"],
+                                              " c=%d" % s["cores"] if "cores" in s else "",
+                                              s["reason"]))
     return "\n".join(lines)
 
 
@@ -3787,6 +4007,18 @@ def run(args, sbatch_runner=None, sacct_runner=None, scancel_runner=None, ledger
     min_efficiency = _nopt("min_efficiency", wtune_nodes.DEFAULT_MIN_EFFICIENCY)
     node_finalists = max(1, int(_nopt("node_finalists", 2)))
     sweep_budget_frac = float(_nopt("sweep_budget_frac", DEFAULT_SWEEP_BUDGET_FRAC))
+    core_options_raw = getattr(args, "cores_per_node_options", None)
+    core_options = None                    # None -> wtune_nodes.default_core_options(C)
+    if core_options_raw:
+        try:
+            core_options = sorted({int(v) for v in core_options_raw.split(",") if v.strip()},
+                                  reverse=True)
+        except ValueError:
+            raise SystemExit("--cores-per-node-options must be a comma list of integers, got %r"
+                              % core_options_raw)
+        if not core_options or any(v < 1 or v > args.cores_per_node for v in core_options):
+            raise SystemExit("--cores-per-node-options values must be in 1..%d (--cores-per-node), "
+                              "got %r" % (args.cores_per_node, core_options_raw))
     total_steps = _total_steps(namelist_path) if node_search else None
     if node_search and node_objective == "cost" and total_steps is None:
         raise SystemExit("--node-objective cost needs the case's total step count (run length / "
@@ -3861,7 +4093,8 @@ def run(args, sbatch_runner=None, sacct_runner=None, scancel_runner=None, ledger
                                               if deadline_minutes is not None else None),
                                   min_efficiency=min_efficiency, k_finalists=node_finalists,
                                   total_steps=total_steps, nodes_policy=nodes_policy,
-                                  sweep_budget_frac=sweep_budget_frac)
+                                  sweep_budget_frac=sweep_budget_frac,
+                                  core_options=core_options)
         _final_cancel_safety_net(ctx)
         _emit_report(report, out_dir)
         return report
@@ -3949,6 +4182,12 @@ def build_arg_parser():
                          "larger N are skipped ('sweep budget cap') so the finalists keep budget "
                          "(default %.1f, or --config's budget.sweep_budget_frac)"
                          % DEFAULT_SWEEP_BUDGET_FRAC)
+    p.add_argument("--cores-per-node-options", default=None, dest="cores_per_node_options",
+                    help="--nodes search: comma list of cores per node to measure at the finalist "
+                         "node counts (the rest of the node idles). Default derived from the "
+                         "hardware core count C: C, C-2, round(C*8/9), round(C*2/3), C/2 "
+                         "(72 -> 72,70,64,48,36); layouts that are not legal are skipped. "
+                         "'--cores-per-node-options 72' disables the dimension")
     p.add_argument("--node-finalists", type=int, default=None, dest="node_finalists",
                     help="--nodes search: how many node counts get the full round0/adaptive/"
                          "confirm search (default 2)")

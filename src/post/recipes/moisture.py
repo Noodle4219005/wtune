@@ -150,9 +150,11 @@ def _ivt_figure(run_dir, run_label, domain, out_dir):
         # see post/recipes/terrain.py's _terrain_wind_map: a fine nest has far more grid
         # points than WIND_SUBSAMPLE was tuned for, so scale the stride to this domain.
         stride = max(WIND_SUBSAMPLE, min(lons.shape) // 25)
-        s = slice(None, None, stride)
-        ax.barbs(lons[s, s], lats[s, s], u850[s, s], v850[s, s], length=5,
-                 transform=ccrs.PlateCarree())
+        # barbs only inside the plotted interior: finite IVT fill, spec_bdy_width edge cells out
+        from post.basemap import bdy_width_of, interior_mask, masked_barbs
+        masked_barbs(ax, lons, lats, u850, v850, stride,
+                     mask=interior_mask(lons.shape, bdy_width_of(ds), fill=ivt_mag), length=5,
+                     transform=ccrs.PlateCarree())
         ax.set_title("%s  d%02d  IVT (fill) + 850 hPa wind (barbs)  %s"
                      % (run_label, domain, time0), fontsize=9)
         out_path = os.path.join(out_dir, "moisture_ivt_d%02d.png" % domain)
@@ -163,6 +165,17 @@ def _ivt_figure(run_dir, run_label, domain, out_dir):
 
 
 DEFAULT_XSEC_TOP_KM = 16.0   # a TC's eyewall updraft is deep -- decision per 2026-09-29 review
+
+
+def grid_inside_predicate(xy_fn, ny, nx):
+    """inside_fn(lat, lon) for clip_halfwidth_to_domain: True iff the nearest mass-grid index
+    xy_fn(lat, lon) -> (i, j) lies in [0, nx-1] x [0, ny-1]. wrf.vertcross rejects an
+    endpoint whose index is >= the grid shape, and a lat/lon bbox of a Lambert grid admits
+    such points (d02 99x99: end_point (99, 70) was 'outside of domain')."""
+    def inside(lat, lon):
+        i, j = (int(v) for v in xy_fn(lat, lon))
+        return 0 <= i <= nx - 1 and 0 <= j <= ny - 1
+    return inside
 
 
 def _cross_section_figure(run_dir, run_label, domain, out_dir, point, line=None, top_km=None,
@@ -176,7 +189,7 @@ def _cross_section_figure(run_dir, run_label, domain, out_dir, point, line=None,
     import netCDF4
     import numpy as np
     wrf_mod = __import__("wrf")
-    from post.recipes.xsection import (DEFAULT_HALFWIDTH_KM, bbox_predicate,
+    from post.recipes.xsection import (DEFAULT_HALFWIDTH_KM,
                                        centred_distance_km, clip_halfwidth_to_domain,
                                        draw_locator_inset, line_from_point_bearing)
 
@@ -204,10 +217,13 @@ def _cross_section_figure(run_dir, run_label, domain, out_dir, point, line=None,
         # the full domain width. Clipped to this domain's own bbox (2026-09-29 third lead
         # review, same fix as terrain.py's default line) so a point near the edge never
         # produces a line that runs outside the domain it is drawn on.
-        bbox = (float(np.nanmin(lats2d)), float(np.nanmax(lats2d)),
-               float(np.nanmin(lons2d)), float(np.nanmax(lons2d)))
-        clipped_halfwidth_km = clip_halfwidth_to_domain(lat, lon, 90.0, halfwidth_km,
-                                                        bbox_predicate(bbox))
+        # Containment is tested in GRID-INDEX space (grid_inside_predicate), not against the
+        # lat/lon bbox: a Lambert grid's bbox admits endpoints whose index is == nx/ny, which
+        # wrf.vertcross rejects ("end_point (99, 70) is outside of domain with shape (99, 99)").
+        with netCDF4.Dataset(path0) as ds_g:
+            inside = grid_inside_predicate(lambda la, lo: wrf_mod.ll_to_xy(ds_g, la, lo),
+                                           hgt.shape[0], hgt.shape[1])
+            clipped_halfwidth_km = clip_halfwidth_to_domain(lat, lon, 90.0, halfwidth_km, inside)
         start_ll, end_ll = line_from_point_bearing(lat, lon, 90.0, clipped_halfwidth_km)
         point_marker = (lat, lon)
 

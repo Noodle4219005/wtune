@@ -33,9 +33,10 @@ RADAR_RANGE_KM = 230
 
 
 def _project_of(out_dir):
+    """Walk-up fallback (absolute path) for callers that were not handed --project."""
     try:
         from wtune_project import find_project
-        return find_project(out_dir)
+        return find_project(os.path.abspath(out_dir))
     except Exception:
         return None
 
@@ -43,7 +44,7 @@ def _project_of(out_dir):
 def stage4_index(project_dir):
     """{(accum_h, valid datetime): path} of the Stage IV files present under the project."""
     out = {}
-    base = sources.dataset_dir(project_dir, "stage4") if project_dir else None
+    base = sources.dataset_dir(os.path.abspath(project_dir), "stage4") if project_dir else None
     if not base or not os.path.isdir(base):
         return out
     for name in os.listdir(base):
@@ -81,10 +82,12 @@ def stage4_missing_reason(project_dir, run_dir, frame_times, bbox, has_files):
     if frame_times and frame_times[-1] < datetime(2001, 1, 1):
         return "Stage IV does not exist before 2001 (coverage)"
     cmd = "wtune post fetch stage4 --project %s --run-dir %s" % (project_dir or "<project>", run_dir)
+    where = (sources.dataset_dir(project_dir, "stage4") if project_dir
+             else "<no wtune project found -- pass --project>")
     if has_files:
         return ("Stage IV files are present but none is a complete window after spin-up inside "
                 "the run (24 h products end 12 UTC, 6 h at 00/06/12/18); fetch more with: " + cmd)
-    return "Stage IV not fetched yet -- run on a login node: " + cmd
+    return ("Stage IV not fetched yet (no ST4.*.grib in %s) -- run on a login node: " % where) + cmd
 
 
 def _model_accum(path0, path1):
@@ -200,19 +203,28 @@ def _stage4_figures(run_dir, run_label, domain, frames, out_dir, spinup_hours, p
     return out
 
 
+def station_verification(run_dir, domain, frames, out_dir, spinup_hours, project_dir):
+    """The one station Point-Stat path (precip and terrain both use it): (result dict, None, None)
+    on success, else (None, dataset label, reason). `domain`/`frames` select the model grid."""
+    from post import met_pointstat
+    try:
+        return met_pointstat.verify_run(run_dir, domain, frames, project_dir, out_dir,
+                                        spinup_hours), None, None
+    except met_pointstat.NoStations as e:
+        return None, "NOAA ISD-Lite stations", str(e)
+    except (tools.ToolNotFoundError, tools.ToolError, ImportError, OSError) as e:
+        return None, "MET Point-Stat vs ISD-Lite", "verification failed: %s" % e
+    except Exception as e:  # noqa: BLE001 -- MET/cdo/wrf-python failures must not drop the recipe
+        return None, "MET Point-Stat vs ISD-Lite", "verification failed: %s: %s" % (type(e).__name__, e)
+
+
 def _station_figures(run_dir, run_label, domain, frames, out_dir, spinup_hours, project_dir):
     from post.recipe import fig, missing
     ids = ("precip_stn_series", "precip_stn_map")
-    from post import met_pointstat
-    try:
-        res = met_pointstat.verify_run(run_dir, domain, frames, project_dir, out_dir, spinup_hours)
-    except met_pointstat.NoStations as e:
-        return [missing(i, "NOAA ISD-Lite stations", str(e)) for i in ids]
-    except (tools.ToolNotFoundError, tools.ToolError, ImportError, OSError) as e:
-        return [missing(i, "MET Point-Stat vs ISD-Lite", "verification failed: %s" % e) for i in ids]
-    except Exception as e:  # noqa: BLE001 -- MET/cdo/wrf-python failures must not drop the recipe
-        return [missing(i, "MET Point-Stat vs ISD-Lite", "verification failed: %s: %s"
-                        % (type(e).__name__, e)) for i in ids]
+    res, dataset, reason = station_verification(run_dir, domain, frames, out_dir, spinup_hours,
+                                                project_dir)
+    if res is None:
+        return [missing(i, dataset, reason) for i in ids]
     src = sources.source_tags(project_dir, ["stations"])
     extra = dict(obs_sources=src, tool="MET ascii2nc + point_stat (BILIN, interior mask)",
                  csv=res["csv"], summary=res["summary"])
@@ -222,7 +234,7 @@ def _station_figures(run_dir, run_label, domain, frames, out_dir, spinup_hours, 
                 valid_time="%s..%s" % (res["t_first"], res["t_last"]), extra=extra)]
 
 
-def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6):
+def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6, project_dir=None):
     from post.recipe import fig, missing
 
     run_dir, run_label = run_dirs[0], labels[0]
@@ -247,7 +259,7 @@ def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6):
     except (tools.ToolNotFoundError, ImportError) as e:
         out.append(missing("precip_accum", "wrf-python", str(e)))
 
-    project_dir = _project_of(out_dir)
+    project_dir = os.path.abspath(project_dir) if project_dir else _project_of(out_dir)
     out += _stage4_figures(run_dir, run_label, domain, frames, out_dir, spinup_hours, project_dir)
     out += _station_figures(run_dir, run_label, domain, frames, out_dir, spinup_hours, project_dir)
     return out

@@ -75,25 +75,14 @@ def _gridlines(ax, draw_labels):
     return gl
 
 
-def _coastline(ax, ds, ccrs_mod, natural_earth_ok, draw_labels=False):
-    """ccrs_mod=None means plain lon/lat axes (--basemap landmask): no transform kwarg.
-    draw_labels: also label the lat/lon gridlines (cartopy axes only)."""
-    import numpy as np
-    if natural_earth_ok:
-        import cartopy.feature as cfeature
-        ax.add_feature(cfeature.COASTLINE, linewidth=0.6)
-        ax.add_feature(cfeature.BORDERS, linewidth=0.4)
-        _gridlines(ax, draw_labels)
-        return
-    if ccrs_mod is not None and draw_labels:
-        _gridlines(ax, True)
-    if ds is None or "LANDMASK" not in ds.variables:
-        return
-    lat2d = np.asarray(ds.variables["XLAT"][0])
-    lon2d = np.asarray(ds.variables["XLONG"][0])
-    landmask = np.asarray(ds.variables["LANDMASK"][0])
-    kwargs = {"transform": ccrs_mod.PlateCarree()} if ccrs_mod is not None else {}
-    ax.contour(lon2d, lat2d, landmask, levels=[0.5], colors="k", linewidths=0.6, **kwargs)
+def _coastline(ax, ds, ccrs_mod, natural_earth_ok=None, draw_labels=False, **kw):
+    """The shared base map (post/basemap.py: Natural Earth coastline/lakes/borders/states,
+    terrain contours, labelled lat/lon gridlines, nest outline, caption), kept under its old
+    name because every map builder calls it. ccrs_mod=None means plain lon/lat axes
+    (--basemap landmask). natural_earth_ok/draw_labels are ignored: layers are detected from
+    the local cache and cartopy axes always get gridline labels."""
+    from post.basemap import add_base_map
+    return add_base_map(ax, ccrs_mod, ds=ds, labels=True, **kw)
 
 
 def plot_field(run_dir, field, out_dir, domain=1, times=None, level_hpa=None,
@@ -157,16 +146,18 @@ def plot_field(run_dir, field, out_dir, domain=1, times=None, level_hpa=None,
 
             cbar = fig.colorbar(cf, ax=ax)
             cbar.set_label(UNITS.get(field, ""))
-            _coastline(ax, ds, ccrs, natural_earth_ok, draw_labels=gridline_labels)
+            _coastline(ax, ds, ccrs)
 
             if overlay_wind:
+                from post.basemap import bdy_width_of, interior_mask, masked_barbs
                 lat2d = np.asarray(ds.variables["XLAT"][0])
                 lon2d = np.asarray(ds.variables["XLONG"][0])
                 u = np.asarray(wrf_mod.getvar(ds, "uvmet10", timeidx=0, units="m s-1")[0])
                 v = np.asarray(wrf_mod.getvar(ds, "uvmet10", timeidx=0, units="m s-1")[1])
-                s = slice(None, None, WIND_SUBSAMPLE)
                 barb_kwargs = {"transform": ccrs.PlateCarree()} if basemap == "cartopy" else {}
-                ax.barbs(lon2d[s, s], lat2d[s, s], u[s, s], v[s, s], length=5, **barb_kwargs)
+                masked_barbs(ax, lon2d, lat2d, u, v, WIND_SUBSAMPLE,
+                             mask=interior_mask(data.shape, bdy_width_of(ds), fill=data),
+                             length=5, **barb_kwargs)
 
             level_note = (" @ %g hPa" % level_hpa) if level_hpa is not None else ""
             ax.set_title("%s  d%02d  %s  %s%s" % (run_name, domain, time_str, field, level_note))

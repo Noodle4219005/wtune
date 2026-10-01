@@ -40,7 +40,7 @@ def save_map(out_path, lats, lons, title, fill_field=None, fill_label="", fill_c
             contour_field=None, contour_levels=None, contour_color="k", contour_label_fmt="%g",
             u=None, v=None, ds=None, crs=None, basemap="cartopy", fill_levels=None,
             fill_extend="neither", fill_colors=None, gridline_labels=False, hatch_mask=None,
-            hatch_label="below ground", legend_handles=None):
+            hatch_label="below ground", legend_handles=None, hgt=None, bdy_width=None):
     """Writes one PNG. lats/lons: plain 2-D ndarrays. fill_field: optional filled contourf.
     contour_field/contour_levels: optional overlaid contour lines (e.g. geopotential height on
     a vorticity fill). u/v: optional wind barbs, subsampled by WIND_SUBSAMPLE. ds: netCDF4
@@ -54,6 +54,9 @@ def save_map(out_path, lats, lons, title, fill_field=None, fill_label="", fill_c
     gridlines. hatch_mask: bool array, True cells are drawn light-grey hatched (e.g. pressure
     level below ground) and a `hatch_label` legend entry is added; legend_handles: extra
     legend entries. Legends go below the axes, outside the data area.
+    Every map gets the shared base map (post/basemap.add_base_map: coastline, lakes, borders,
+    states, terrain contours from `hgt` or ds HGT, labelled gridlines, nest outline). Barbs are
+    drawn only inside the plotted interior (bdy_width edge cells excluded, default from ds).
     """
     import numpy as np
     plt = _matplotlib()
@@ -103,10 +106,12 @@ def save_map(out_path, lats, lons, title, fill_field=None, fill_label="", fill_c
                         linewidths=0.8, **transform_kw)
         ax.clabel(cs, inline=True, fontsize=7, fmt=contour_label_fmt)
     if u is not None and v is not None:
-        s = slice(None, None, WIND_SUBSAMPLE)
-        ax.barbs(lons[s, s], lats[s, s], u[s, s], v[s, s], length=5, **transform_kw)
-    if ds is not None or gridline_labels:
-        _coastline(ax, ds, ccrs, natural_earth_ok, draw_labels=gridline_labels and ccrs is not None)
+        from post.basemap import bdy_width_of, interior_mask, masked_barbs
+        bw = bdy_width if bdy_width is not None else (bdy_width_of(ds) if ds is not None else 0)
+        masked_barbs(ax, lons, lats, u, v, WIND_SUBSAMPLE,
+                     mask=interior_mask(np.shape(lats), bw, fill=fill_field), length=5,
+                     **transform_kw)
+    _coastline(ax, ds, ccrs, natural_earth_ok, lats=lats, lons=lons, hgt=hgt)
     if handles:
         fig.legend(handles=handles, loc="outside lower center", ncol=len(handles), fontsize=8,
                    frameon=False)

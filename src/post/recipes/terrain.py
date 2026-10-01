@@ -14,19 +14,32 @@ exists as a full override for a line the mean-700-hPa-wind default doesn't fit. 
 itself follows the standard mountain-wave cross-section convention (w shading, theta
 isentrope lines, a muted along-line-wind contour, a filled terrain silhouette, a locator
 inset -- 2026-09-29 second lead review), height window project.yaml's xsec_top_km (default
-10 km). Station-observation figures (lee-side T2/RH/wind, MET Point-Stat) are reported as
-explicit missing entries: no station list is fetched or configured in this round, matching
-the house convention in post/recipes/precip.py.
+10 km).
+
+Station figures use the ISD-Lite stations fetched into <project>/input/obs/stations/ (the
+same lookup precip uses, met_pointstat.read_stations): terrain_point_stat is
+precip.station_verification() run on the terrain domain (MET Point-Stat, one code path);
+terrain_leeward_station is the foehn diagnostic -- the fetched station nearest the crest in the
+lee window (LEE_MIN_KM..LEE_MAX_KM downstream of the ridge crest along the 700 hPa wind
+bearing, within LEE_MAX_OFF_KM of the section line, with observations and inside the model
+interior), model-vs-observed T2 / RH2 / 10 m wind speed time series at the nearest grid cell.
+Either figure is an explicit missing() with the exact reason when it cannot be drawn.
 """
 from __future__ import annotations
 
+import csv
+import gzip
+import math
 import os
+from datetime import datetime, timedelta
 
-from post import tools
+from post import met_pointstat, sources, tools
 from post.extract import list_frames
 
 
 DEFAULT_XSEC_TOP_KM = 10.0
+LEE_MIN_KM, LEE_MAX_KM, LEE_MAX_OFF_KM = 30.0, 100.0, 25.0
+LEE_MIN_OBS = 6
 
 
 def _plt():
@@ -106,7 +119,7 @@ def _terrain_wind_map(run_dir, run_label, domain, out_dir):
         cf = ax.contourf(lons, lats, np.asarray(ter), levels=20, cmap="terrain",
                          transform=ccrs.PlateCarree())
         fig.colorbar(cf, ax=ax, label="terrain height (m)")
-        _coastline(ax, ds, ccrs, natural_earth_ok)
+        _coastline(ax, ds, ccrs, natural_earth_ok, terrain=False)   # the fill already is terrain
 
         # WIND_SUBSAMPLE (post/plotting.py) is tuned for the coarser regional domains that
         # module usually plots; a 1 km nest has far more grid points across the same
@@ -114,11 +127,12 @@ def _terrain_wind_map(run_dir, run_label, domain, out_dir):
         # colour fill (maria1km d02, 2026-09-29 scc T1 run). Scale the stride to the domain's
         # own grid size instead, aiming for roughly 25 barbs across the shorter axis.
         stride = max(WIND_SUBSAMPLE, min(lons.shape) // 25)
-        s = slice(None, None, stride)
-        ax.barbs(lons[s, s], lats[s, s], np.asarray(u10)[s, s], np.asarray(v10)[s, s],
-                 length=5, color="black", transform=ccrs.PlateCarree(), label="10 m wind")
-        ax.barbs(lons[s, s], lats[s, s], np.asarray(u700)[s, s], np.asarray(v700)[s, s],
-                 length=5, color="red", transform=ccrs.PlateCarree(), label="700 hPa wind")
+        from post.basemap import bdy_width_of, interior_mask, masked_barbs
+        interior = interior_mask(lons.shape, bdy_width_of(ds), fill=np.asarray(ter))
+        masked_barbs(ax, lons, lats, np.asarray(u10), np.asarray(v10), stride, mask=interior,
+                     length=5, color="black", transform=ccrs.PlateCarree(), label="10 m wind")
+        masked_barbs(ax, lons, lats, np.asarray(u700), np.asarray(v700), stride, mask=interior,
+                     length=5, color="red", transform=ccrs.PlateCarree(), label="700 hPa wind")
         ax.set_title("%s  d%02d  terrain + 10 m (black) / 700 hPa (red) wind  %s"
                      % (run_label, domain, time0), fontsize=9)
         out_path = os.path.join(out_dir, "terrain_wind_d%02d.png" % domain)
@@ -586,6 +600,205 @@ def _valley_time_height(run_dir, run_label, domain, out_dir, bdy_width=None):
     return out_path, None
 
 
+def along_off_km(crest_ll, bearing_deg, lat, lon):
+    """(along_km, off_km) of (lat, lon) relative to the crest: along = distance component
+    in the direction `bearing_deg` (compass bearing the wind blows TOWARD, so positive =
+    downstream/lee), off = signed cross-line distance (positive = right of the bearing).
+    Great-circle distance and initial bearing from the crest (R = 6371.0088 km)."""
+    r = 6371.0088
+    p1, p2 = math.radians(crest_ll[0]), math.radians(lat)
+    dl = math.radians(lon - crest_ll[1])
+    a = math.sin((p2 - p1) / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+    dist = 2 * r * math.asin(min(1.0, math.sqrt(a)))
+    theta = math.atan2(math.sin(dl) * math.cos(p2),
+                       math.cos(p1) * math.sin(p2) - math.sin(p1) * math.cos(p2) * math.cos(dl))
+    delta = theta - math.radians(bearing_deg)
+    return dist * math.cos(delta), dist * math.sin(delta)
+
+
+def lee_station_candidates(stations, crest_ll, bearing_deg, min_km=LEE_MIN_KM,
+                           max_km=LEE_MAX_KM, max_off_km=LEE_MAX_OFF_KM):
+    """([candidate dicts nearest-the-crest first], reason). Candidate = dict(station, along_km,
+    off_km) for stations with min_km <= along <= max_km and |off| <= max_off_km. `reason`
+    (only when the list is empty) names the window and the closest miss."""
+    cands, nearest = [], None
+    for st in stations:
+        try:
+            lat, lon = float(st["lat"]), float(st["lon"])
+        except (KeyError, ValueError, TypeError):
+            continue
+        along, off = along_off_km(crest_ll, bearing_deg, lat, lon)
+        if min_km <= along <= max_km and abs(off) <= max_off_km:
+            cands.append(dict(station=st, along_km=along, off_km=off))
+        miss = max(min_km - along, along - max_km, 0.0) + max(abs(off) - max_off_km, 0.0)
+        if nearest is None or miss < nearest[0]:
+            nearest = (miss, st, along, off)
+    cands.sort(key=lambda c: c["along_km"])
+    if cands:
+        return cands, None
+    reason = ("no fetched station within %g km of the section line, %g-%g km downstream of the "
+              "crest (crest %.2fN %.2fE, 700 hPa flow toward %.0f deg; %d station(s) fetched"
+              % (max_off_km, min_km, max_km, crest_ll[0], crest_ll[1], bearing_deg, len(stations)))
+    if nearest is not None:
+        reason += "; closest: %s at %+.0f km along / %+.0f km across" % (
+            nearest[1].get("id", "?"), nearest[2], nearest[3])
+    return [], reason + ")"
+
+
+def _read_station_obs(project_dir, station, t_lo, t_hi):
+    """[(valid datetime, T degC, RH %, wind speed m/s)] hourly ISD-Lite records in
+    [t_lo, t_hi] (-9999 -> NaN; RH from T and Td, Magnus)."""
+    base = sources.dataset_dir(project_dir, "stations")
+    usaf, wban = station["id"].split("-")
+    out = []
+    nan = float("nan")
+    for year in range(t_lo.year, t_hi.year + 1):
+        path = os.path.join(base, "%s-%s-%d.gz" % (usaf, wban, year))
+        if not os.path.isfile(path):
+            continue
+        with gzip.open(path, "rt", errors="replace") as fh:
+            recs = met_pointstat.parse_isd_lite(fh.read())
+        for t, v in recs:
+            if not (t_lo <= t <= t_hi):
+                continue
+            temp = v[4] / 10.0 if v[4] != -9999 else nan
+            dew = v[5] / 10.0 if v[5] != -9999 else nan
+            wspd = v[8] / 10.0 if v[8] != -9999 else nan
+            rh = nan
+            if temp == temp and dew == dew:
+                rh = 100.0 * math.exp(17.625 * dew / (243.04 + dew)) \
+                    / math.exp(17.625 * temp / (243.04 + temp))
+                rh = min(rh, 100.0)
+            out.append((t, temp, rh, wspd))
+    return out
+
+
+def _model_series_at(frames, lat, lon, interior_bounds):
+    """dict(times, t2_c, rh2, wspd10, hgt_m, i, j) at the grid cell nearest (lat, lon), or None
+    when that cell is outside interior_bounds (j0, j1, i0, i1)."""
+    import netCDF4
+    import numpy as np
+    wrf_mod = __import__("wrf")
+    from post.caseinfo import WRF_TIME_FMT
+    j0, j1, i0, i1 = interior_bounds
+    res = dict(times=[], t2_c=[], rh2=[], wspd10=[])
+    i = j = None
+    for t, path in frames:
+        with netCDF4.Dataset(path) as ds:
+            if i is None:
+                xy = wrf_mod.ll_to_xy(ds, lat, lon)
+                i, j = int(xy[0]), int(xy[1])
+                if not (i0 <= i < i1 and j0 <= j < j1):
+                    return None
+                res["hgt_m"] = float(ds.variables["HGT"][0, j, i])
+            res["times"].append(datetime.strptime(t, WRF_TIME_FMT))
+            res["t2_c"].append(float(ds.variables["T2"][0, j, i]) - 273.15)
+            u, v = float(ds.variables["U10"][0, j, i]), float(ds.variables["V10"][0, j, i])
+            res["wspd10"].append(math.hypot(u, v))
+            res["rh2"].append(float(np.asarray(wrf_mod.getvar(ds, "rh2", timeidx=0))[j, i]))
+    res["i"], res["j"] = i, j
+    return res
+
+
+def _plot_leeward(model, obs, title, path):
+    plt = _plt()
+    fig, axes = plt.subplots(3, 1, figsize=(10, 8), sharex=True)
+    ot = [o[0] for o in obs]
+    panels = [("T2 (degC)", "t2_c", 1), ("RH2 (%)", "rh2", 2), ("10 m wind speed (m/s)", "wspd10", 3)]
+    for ax, (label, key, col) in zip(axes, panels):
+        ax.plot(model["times"], model[key], color="tab:red", lw=1.4, label="model (nearest cell)")
+        ax.plot(ot, [o[col] for o in obs], "k.", ms=4, label="ISD-Lite obs")
+        ax.set_ylabel(label)
+        ax.grid(alpha=0.3)
+    axes[0].legend(loc="best", fontsize=8)
+    axes[0].set_title(title, fontsize=9)
+    axes[-1].set_xlabel("valid time (UTC)")
+    fig.autofmt_xdate()
+    fig.tight_layout()
+    fig.savefig(path)
+    plt.close(fig)
+    return path
+
+
+def _leeward_station(run_dir, run_label, domain, out_dir, project_dir, spinup_hours, frames,
+                     line_info=None):
+    """(png path, extra dict) on success, else (None, reason)."""
+    from post.caseinfo import WRF_TIME_FMT
+    if not project_dir:
+        return None, ("no wtune project found for %s -- station data lives under "
+                      "<project>/input/obs/stations (wtune post fetch stations --project P)" % out_dir)
+    stations = met_pointstat.read_stations(project_dir)
+    if not stations:
+        return None, ("station observations not fetched yet -- run on a login node: wtune post "
+                      "fetch stations --project %s --run-dir %s" % (project_dir, run_dir))
+    info = line_info or default_cross_section_line(run_dir, domain)
+    cands, reason = lee_station_candidates(stations, info["peak_ll"], info["bearing_deg"])
+    if not cands:
+        return None, reason
+    times = [datetime.strptime(t, WRF_TIME_FMT) for t, _ in frames]
+    t0 = times[0] + timedelta(hours=spinup_hours)
+    sel = [f for f, t in zip(frames, times) if t >= t0] or list(frames)
+    t_lo = datetime.strptime(sel[0][0], WRF_TIME_FMT)
+    t_hi = datetime.strptime(sel[-1][0], WRF_TIME_FMT)
+    skipped = []
+    for c in cands:
+        st = c["station"]
+        obs = [o for o in _read_station_obs(project_dir, st, t_lo, t_hi)
+               if any(x == x for x in o[1:])]
+        if len(obs) < LEE_MIN_OBS:
+            skipped.append("%s (%d obs)" % (st["id"], len(obs)))
+            continue
+        model = _model_series_at(sel, float(st["lat"]), float(st["lon"]), info["interior_bounds"])
+        if model is None:
+            skipped.append("%s (outside model interior)" % st["id"])
+            continue
+        title = ("%s  d%02d  %s (%s)  %.0f km downstream of crest, %.0f km off line; station "
+                 "%s m, model terrain %.0f m" % (run_label, domain, st.get("name", ""), st["id"],
+                                                 c["along_km"], abs(c["off_km"]),
+                                                 st.get("elev_m", "?"), model["hgt_m"]))
+        path = _plot_leeward(model, obs, title,
+                             os.path.join(out_dir, "terrain_leeward_station_d%02d.png" % domain))
+        csv_path = os.path.join(out_dir, "terrain_leeward_station_d%02d.csv" % domain)
+        om = {o[0]: o for o in obs}
+        with open(csv_path, "w", newline="") as fh:
+            w = csv.writer(fh)
+            w.writerow(["valid_time_utc", "model_t2_c", "obs_t_c", "model_rh2_pct", "obs_rh_pct",
+                        "model_wspd10_ms", "obs_wspd_ms"])
+            for k, t in enumerate(model["times"]):
+                o = om.get(t, (t, "", "", ""))
+                w.writerow([t.strftime("%Y-%m-%d %H:%M"), model["t2_c"][k], o[1], model["rh2"][k],
+                            o[2], model["wspd10"][k], o[3]])
+        return path, dict(station=st["id"], along_km=round(c["along_km"], 1),
+                          off_km=round(c["off_km"], 1), n_obs=len(obs), csv=[csv_path],
+                          obs_sources=sources.source_tags(project_dir, ["stations"]))
+    return None, ("%d fetched station(s) are in the lee window (%g-%g km downstream, within %g km "
+                  "of the section line) but none is usable: %s"
+                  % (len(cands), LEE_MIN_KM, LEE_MAX_KM, LEE_MAX_OFF_KM, "; ".join(skipped)))
+
+
+def _point_stat(run_dir, run_label, domain, out_dir, project_dir, spinup_hours):
+    """(fig entry or missing entry) -- precip's station Point-Stat path on the terrain domain."""
+    from post.recipe import fig, missing
+    from post.recipes import precip
+    frames = list_frames(run_dir, domain=domain)
+    if not frames:
+        return missing("terrain_point_stat", "wrfout_d%02d_*" % domain, "no frames found")
+    res, dataset, reason = precip.station_verification(run_dir, domain, frames, out_dir,
+                                                       spinup_hours, project_dir)
+    if res is None:
+        return missing("terrain_point_stat", "MET Point-Stat vs. station obs"
+                       if dataset != "NOAA ISD-Lite stations" else dataset, reason)
+    series = os.path.join(out_dir, "terrain_point_stat_d%02d.png" % domain)
+    smap = os.path.join(out_dir, "terrain_point_stat_map_d%02d.png" % domain)
+    os.replace(res["series_png"], series)
+    os.replace(res["map_png"], smap)
+    return fig("terrain_point_stat", series, run_label, domain="d%02d" % domain,
+               valid_time="%s..%s" % (res["t_first"], res["t_last"]),
+               extra=dict(obs_sources=sources.source_tags(project_dir, ["stations"]),
+                          tool="MET ascii2nc + point_stat (BILIN, interior mask)",
+                          csv=res["csv"], summary=res["summary"], map=smap))
+
+
 def _finest_domain(domains):
     return domains[-1]["domain"]
 
@@ -606,11 +819,13 @@ def _terrain_domain(case_info):
 
 
 def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6, cross_section=None,
-           xsec_top_km=None, xsec_halfwidth_km=None):
+           xsec_top_km=None, xsec_halfwidth_km=None, project_dir=None):
     from post.recipe import fig, missing
+    from post.recipes import precip
 
     run_dir, run_label = run_dirs[0], labels[0]
     domain = _terrain_domain(case_info)
+    project_dir = os.path.abspath(project_dir) if project_dir else precip._project_of(out_dir)
     out = []
 
     try:
@@ -650,10 +865,24 @@ def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6, cross_section=
     except (tools.ToolNotFoundError, ImportError) as e:
         out.append(missing("terrain_valley_timeheight", "wrf-python", str(e)))
 
-    out.append(missing("terrain_leeward_station", "station T2/RH/wind observations",
-                       "no station list fetched or configured this round -- foehn diagnostic "
-                       "needs a named lee-side point (not implemented, matching the "
-                       "precip/synoptic obs-gap convention)"))
-    out.append(missing("terrain_point_stat", "MET Point-Stat vs. station obs",
-                       "no station observations fetched this round"))
+    try:
+        frames = list_frames(run_dir, domain=domain)
+        if not frames:
+            out.append(missing("terrain_leeward_station", "wrfout_d%02d_*" % domain, "no frames found"))
+        else:
+            path, extra = _leeward_station(run_dir, run_label, domain, out_dir, project_dir,
+                                           spinup_hours, frames)
+            if path:
+                out.append(fig("terrain_leeward_station", path, run_label,
+                               domain="d%02d" % domain, extra=extra))
+            else:
+                out.append(missing("terrain_leeward_station", "station T2/RH/wind observations",
+                                   extra))
+    except (tools.ToolNotFoundError, ImportError, CrossSectionError, OSError) as e:
+        out.append(missing("terrain_leeward_station", "wrf-python", str(e)))
+
+    try:
+        out.append(_point_stat(run_dir, run_label, domain, out_dir, project_dir, spinup_hours))
+    except (tools.ToolNotFoundError, ImportError, OSError) as e:
+        out.append(missing("terrain_point_stat", "MET Point-Stat vs. station obs", str(e)))
     return out

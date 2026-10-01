@@ -23,6 +23,7 @@ bottom (index 0) -- never above the lowest valid sample, but no longer stopping 
 terrain height. The terrain silhouette polygon (drawn at a higher zorder in
 _cross_section_figure) is what hides the underground portion now, not a data mask.
 """
+import os
 import sys
 import types
 
@@ -190,3 +191,108 @@ def test_fill_below_valid_leaves_an_all_nan_column_untouched():
     arr = np.full((3, 1), np.nan)
     out = terrain._fill_below_valid(arr)
     assert np.all(np.isnan(out))
+
+
+# --- lee-side station diagnostic -------------------------------------------------------
+
+def _stn(sid, lat, lon):
+    return dict(id=sid, name=sid, icao="", lat=str(lat), lon=str(lon), elev_m="100")
+
+
+def test_along_off_km_flow_toward_east():
+    along, off = terrain.along_off_km((40.0, -110.0), 90.0, 40.0, -109.4)   # ~51 km east
+    assert 50 < along < 52 and abs(off) < 0.5
+    along, off = terrain.along_off_km((40.0, -110.0), 90.0, 40.0, -110.6)   # upstream
+    assert along < -50
+
+
+def test_lee_candidates_window_and_ordering():
+    crest = (40.0, -110.0)
+    st = [_stn("UP", 40.0, -110.5),          # upstream
+          _stn("NEAR", 40.0, -109.8),        # ~17 km: too close
+          _stn("LEE1", 40.0, -109.4),        # ~51 km
+          _stn("LEE2", 40.0, -109.0),        # ~85 km
+          _stn("OFF", 40.4, -109.4),         # 44 km across
+          _stn("FAR", 40.0, -108.5)]         # ~128 km
+    cands, reason = terrain.lee_station_candidates(st, crest, 90.0)
+    assert [c["station"]["id"] for c in cands] == ["LEE1", "LEE2"] and reason is None
+
+
+def test_lee_candidates_none_reason_is_explicit():
+    cands, reason = terrain.lee_station_candidates([_stn("UP", 40.0, -110.5)], (40.0, -110.0), 90.0)
+    assert cands == []
+    assert "no fetched station within 25 km of the section line, 30-100 km downstream of the crest" in reason
+    assert "UP" in reason and "not implemented" not in reason
+
+
+def test_leeward_station_missing_reasons(tmp_path):
+    assert "no wtune project" in terrain._leeward_station("r", "l", 2, str(tmp_path), None, 6, [])[1]
+    proj = tmp_path / "p"
+    (proj / "input" / "obs" / "stations").mkdir(parents=True)
+    path, reason = terrain._leeward_station("r", "l", 2, str(tmp_path), str(proj), 6, [])
+    assert path is None and "not fetched yet" in reason
+
+
+def _write_isd(proj, sid, t0, n, temp=100, dew=0, wspd=50):
+    import gzip
+    usaf, wban = sid.split("-")
+    d = proj / "input" / "obs" / "stations"
+    d.mkdir(parents=True, exist_ok=True)
+    from datetime import timedelta
+    lines = []
+    for k in range(n):
+        t = t0 + timedelta(hours=k)
+        lines.append("%d %02d %02d %02d %d %d -9999 180 %d -9999 -9999 -9999" %
+                     (t.year, t.month, t.day, t.hour, temp, dew, wspd))
+    with gzip.open(d / ("%s-%s-%d.gz" % (usaf, wban, t0.year)), "wt") as fh:
+        fh.write("\n".join(lines) + "\n")
+
+
+def test_leeward_station_end_to_end_synthetic(tmp_path, monkeypatch):
+    from datetime import datetime, timedelta
+    proj = tmp_path / "p"
+    (proj / "project.yaml").parent.mkdir(parents=True, exist_ok=True)
+    stations = [_stn("111111-22222", 40.0, -109.4), _stn("333333-44444", 40.0, -109.0)]
+    sd = proj / "input" / "obs" / "stations"
+    sd.mkdir(parents=True)
+    with open(sd / "stations.csv", "w") as fh:
+        fh.write("id,name,icao,lat,lon,elev_m\n")
+        for s in stations:
+            fh.write("%s,%s,,%s,%s,100\n" % (s["id"], s["name"], s["lat"], s["lon"]))
+    t0 = datetime(2019, 1, 28)
+    _write_isd(proj, "333333-44444", t0, 24)            # only the second station has obs
+    frames = [((t0 + timedelta(hours=h)).strftime("%Y-%m-%d_%H:%M:%S"), "/f%d" % h) for h in range(24)]
+    info = dict(peak_ll=(40.0, -110.0), bearing_deg=90.0, interior_bounds=(5, 95, 5, 95))
+
+    def fake_model(sel, lat, lon, bounds):
+        return dict(times=[datetime.strptime(t, "%Y-%m-%d_%H:%M:%S") for t, _ in sel],
+                    t2_c=[5.0] * len(sel), rh2=[50.0] * len(sel), wspd10=[3.0] * len(sel),
+                    hgt_m=120.0, i=10, j=10)
+    monkeypatch.setattr(terrain, "_model_series_at", fake_model)
+    path, extra = terrain._leeward_station("run", "lab", 2, str(tmp_path), str(proj), 6, frames,
+                                           line_info=info)
+    assert path and path.endswith("terrain_leeward_station_d02.png") and os.path.getsize(path) > 0
+    assert extra["station"] == "333333-44444"          # first candidate skipped: no observations
+    assert extra["n_obs"] == 18 and 80 < extra["along_km"] < 90
+
+
+def test_leeward_station_skipped_when_outside_interior(tmp_path, monkeypatch):
+    from datetime import datetime, timedelta
+    proj = tmp_path / "p"
+    sd = proj / "input" / "obs" / "stations"
+    sd.mkdir(parents=True)
+    (sd / "stations.csv").write_text("id,name,icao,lat,lon,elev_m\n111111-22222,A,,40.0,-109.4,100\n")
+    t0 = datetime(2019, 1, 28)
+    _write_isd(proj, "111111-22222", t0, 24)
+    frames = [((t0 + timedelta(hours=h)).strftime("%Y-%m-%d_%H:%M:%S"), "/f") for h in range(24)]
+    info = dict(peak_ll=(40.0, -110.0), bearing_deg=90.0, interior_bounds=(5, 95, 5, 95))
+    monkeypatch.setattr(terrain, "_model_series_at", lambda *a: None)
+    path, reason = terrain._leeward_station("r", "l", 2, str(tmp_path), str(proj), 6, frames, line_info=info)
+    assert path is None and "outside model interior" in reason
+
+
+def test_terrain_figures_takes_project_dir_and_no_longer_hardcodes_missing():
+    import inspect
+    assert "project_dir" in inspect.signature(terrain.figures).parameters
+    src = inspect.getsource(terrain.figures)
+    assert "not implemented" not in src and "no station observations fetched this round" not in src

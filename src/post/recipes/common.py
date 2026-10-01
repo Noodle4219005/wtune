@@ -58,7 +58,7 @@ def plot_domain_map(run_dir, max_dom, out_dir, run_label):
         cf = ax.contourf(lons, lats, terrain_np, levels=20, cmap="terrain",
                          transform=ccrs.PlateCarree())
         fig.colorbar(cf, ax=ax, label="terrain height (m)")
-        _coastline(ax, ds, ccrs, natural_earth_ok, draw_labels=True)
+        _coastline(ax, ds, ccrs, natural_earth_ok, terrain=False, nest_rings=[])  # fill = terrain; rings drawn below
 
         for dom in range(1, max_dom + 1):
             frames = list_frames(run_dir, domain=dom)

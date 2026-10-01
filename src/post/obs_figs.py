@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import os
 
-from post.plotting import _matplotlib, _natural_earth_ready, _set_cartopy_data_dir
+from post.plotting import _matplotlib, _set_cartopy_data_dir
 
 PRECIP_LEVELS = [1, 2.5, 5, 10, 15, 25, 35, 50, 75, 100, 150, 200, 300]
 DBZ_LEVELS = list(range(5, 75, 5))
@@ -18,13 +18,10 @@ def _cartopy_axes(fig, spec, extent):
     _set_cartopy_data_dir()
     ax = fig.add_subplot(spec, projection=ccrs.PlateCarree())
     ax.set_extent(extent, crs=ccrs.PlateCarree())
-    if _natural_earth_ready():
-        import cartopy.feature as cfeature
-        ax.add_feature(cfeature.COASTLINE, linewidth=0.6)
-        ax.add_feature(cfeature.BORDERS, linewidth=0.4)
-    gl = ax.gridlines(draw_labels=True, linewidth=0.3, alpha=0.5)
-    gl.top_labels = gl.right_labels = False
-    gl.xlabel_style = gl.ylabel_style = {"size": 7}
+    # shared base map (coastline, lakes, borders, states, labelled gridlines); these maps carry
+    # no model grid, so no terrain contours
+    from post.basemap import add_base_map
+    add_base_map(ax, ccrs, terrain=False, nest_rings=[], caption=False)
     return ax, ccrs
 
 

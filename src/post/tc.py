@@ -847,7 +847,8 @@ def _track_map_figure(out_dir, model_tracks, bdeck, storm_id, dom_dx=None):
     if coast:
         fig = plt.figure(figsize=(7, 6))
         ax = fig.add_subplot(1, 1, 1, projection=ccrs.PlateCarree())
-        ax.coastlines("50m", linewidth=0.6, color="0.4")
+        # coastline/lakes/borders/states come from the shared base map after the tracks set
+        # the extent (below)
         gl = ax.gridlines(draw_labels=True, linewidth=0.3, color="0.8")
         gl.top_labels = gl.right_labels = False
         kw = dict(transform=ccrs.PlateCarree())
@@ -881,6 +882,11 @@ def _track_map_figure(out_dir, model_tracks, bdeck, storm_id, dom_dx=None):
         dx = dom_dx.get(d)
         handles.append(Line2D([], [], color=color[d], linewidth=2,
                               label="tracked on d%02d%s" % (d, " (%.0f km)" % dx if dx else "")))
+    if coast:
+        # shared base map over the plotted track extent: coastline, lakes, borders, states
+        from post.basemap import add_base_map
+        ax.autoscale_view()
+        add_base_map(ax, ccrs, terrain=False, nest_rings=[], caption=False, labels=False)
     ax.set_title("%s track (segments coloured by tracking domain)" % storm_id, fontsize=10)
     ax.legend(handles=handles, fontsize=8)
     path = os.path.join(out_dir, "track_map.png")

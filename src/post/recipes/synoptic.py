@@ -192,7 +192,6 @@ def _era5_diff_map(out_path, run_label, time_str, lats, lons, z500, e_lat, e_lon
     import netCDF4
     import numpy as np
     import cartopy.crs as ccrs
-    import cartopy.feature as cfeature
     from post.plotting import (_coastline, _matplotlib, _natural_earth_ready,
                                _set_cartopy_data_dir)
     plt = _matplotlib()
@@ -222,15 +221,9 @@ def _era5_diff_map(out_path, run_label, time_str, lats, lons, z500, e_lat, e_lon
                     linestyles="dashed", transform=pc)
     ax.clabel(cm, inline=True, fontsize=7, fmt="%d")
     ax.clabel(ce, inline=True, fontsize=7, fmt="%d")
-    if _natural_earth_ready("50m"):
-        ax.add_feature(cfeature.NaturalEarthFeature("physical", "coastline", "50m"),
-                       facecolor="none", edgecolor="0.15", linewidth=0.7)
-        ax.add_feature(cfeature.NaturalEarthFeature("cultural", "admin_0_boundary_lines_land",
-                                                    "50m"),
-                       facecolor="none", edgecolor="0.3", linewidth=0.4)
-        ax.gridlines(draw_labels=False, linewidth=0.3, alpha=0.5)
-    elif _natural_earth_ready():
-        _coastline(ax, None, ccrs, True)
+    if _natural_earth_ready():
+        # shared base map; no terrain contours on top of two sets of z500 contours
+        _coastline(ax, None, ccrs, True, lats=lats, lons=lons, terrain=False, nest_rings=[])
     else:
         print("syn_era5_diff: Natural Earth data not found (WTUNE_CARTOPY_DATA=%s): no coastline"
               % (os.environ.get("WTUNE_CARTOPY_DATA") or "<unset>"))

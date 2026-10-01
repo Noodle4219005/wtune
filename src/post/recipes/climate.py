@@ -310,14 +310,13 @@ def plot_seasonal_bias(diffs, lat, lon, crs, landmask, out_path, run_label, var_
     import numpy as np
     import cartopy.crs as ccrs
     from post.recipes.synoptic import symmetric_levels
-    from post.plotting import _natural_earth_ready, _set_cartopy_data_dir
+    from post.plotting import _set_cartopy_data_dir
     plt = _plt()
     finite = np.concatenate([d[np.isfinite(d)] for d in diffs.values()]) if diffs else np.array([])
     vmax = max(float(np.percentile(np.abs(finite), 98)), 1e-3) if finite.size else 1.0
     levels = symmetric_levels(vmax)
     cmap = plt.get_cmap("RdBu_r")
     _set_cartopy_data_dir()
-    ne = _natural_earth_ready()
     fig, axes = plt.subplots(2, 2, figsize=(13, 10), subplot_kw={"projection": crs})
     cf = None
     for ax, name in zip(axes.ravel(), SEASONS):
@@ -329,11 +328,10 @@ def plot_seasonal_bias(diffs, lat, lon, crs, landmask, out_path, run_label, var_
         d = diffs[name]
         cf = ax.contourf(lon, lat, np.ma.masked_invalid(d), levels=levels, cmap=cmap, extend="both",
                          transform=ccrs.PlateCarree())
-        if ne:
-            import cartopy.feature as cfeature
-            ax.add_feature(cfeature.COASTLINE, linewidth=0.6)
-            ax.add_feature(cfeature.BORDERS, linewidth=0.3)
-        elif landmask is not None:
+        from post.basemap import add_base_map
+        drawn = add_base_map(ax, ccrs, lats=lat, lons=lon, terrain=False, nest_rings=[],
+                             caption=False)
+        if not drawn["layers"] and landmask is not None:
             ax.contour(lon, lat, landmask, levels=[0.5], colors="k", linewidths=0.6,
                        transform=ccrs.PlateCarree())
         ok = np.isfinite(d)

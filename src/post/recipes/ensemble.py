@@ -47,14 +47,13 @@ def _member_field(run_dir, domain, time_str, field="slp"):
 
 
 def _draw_coast(ax, ccrs, lats, lons, landmask):
-    """Coastline through post.plotting's own Natural-Earth-or-LANDMASK fallback."""
-    from post.plotting import _natural_earth_ready, _set_cartopy_data_dir
+    """Shared base map (post/basemap.py), LANDMASK contour when Natural Earth is not cached."""
+    from post.basemap import add_base_map
+    from post.plotting import _set_cartopy_data_dir
     _set_cartopy_data_dir()
-    if _natural_earth_ready():
-        import cartopy.feature as cfeature
-        ax.add_feature(cfeature.COASTLINE, linewidth=0.7)
-        ax.add_feature(cfeature.BORDERS, linewidth=0.4)
-    elif landmask is not None:
+    drawn = add_base_map(ax, ccrs, lats=lats, lons=lons, terrain=False, nest_rings=[],
+                         caption=False)
+    if not drawn["layers"] and landmask is not None:
         ax.contour(lons, lats, landmask, levels=[0.5], colors="k", linewidths=0.7,
                    transform=ccrs.PlateCarree())
 

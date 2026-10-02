@@ -3,6 +3,26 @@
 Versions are declared in `wtune_version.py`; `test_wtune_version.py` fails if the top section
 here does not match it. Development before 0.1.0 is in the git history, not in releases.
 
+## 0.8.2 — 2026-10-03
+
+Found on a long real case (climate-ea50: 13-month East-Asia 50 km run, 14 restart segments).
+
+**Post-processing of multi-frame wrfout.** The frame index is built from each file's `Times`
+(`frames_per_outfile > 1`; a restarted segment's first file starts one history interval after
+the restart): every recipe reads the right time index, climate monthly means use every time
+once, and the run length / last time are right (was 395.25 d and 11 months). A history stream
+reduced by an iofields file gives "history stream lacks ..." missing entries, not exceptions.
+
+**Prediction.** The whole-run prediction adds history writes, boundary updates, `sst_update`
+reads and restart writes, and uses round0's measured startup as init (climate-ea50 46:14 ->
+75:45 against 78:09 single-segment equivalent; SC26-P2 2:36 -> 2:12 against 2:21).
+
+**Staging and checks.** Run and probe directories get the files the namelist names (iofields,
+wrflowinp, fdda, obs nudging, tslist): WRF 4.8 hangs at input without the iofields file even with
+`ignore_iofields_warning`, and `wtune check` makes that FATAL. `wtune project init` no longer
+links a former run's outputs. `wtune run` keeps the case's `restart_interval` for a
+one-segment run.
+
 ## 0.8.1 — 2026-10-02
 
 **Figures.** Gridline labels sit outside every map (cartopy 0.26 drew longitude labels inline

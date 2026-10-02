@@ -3111,5 +3111,146 @@ class TestRestartTime(unittest.TestCase):
         self.assertEqual(rc, 2)
 
 
+
+class TestNamelistFileStaging(unittest.TestCase):
+    """Files the namelist names are staged into run dirs (climate-ea50, scc probe jobs 2541-2545:
+    iofields_d01.txt never staged -> WRF 4.8 hung at input_input until the 1260 s timeout)."""
+
+    NML = """&time_control
+ run_hours = 6,
+ iofields_filename = "iofields_d01.txt", 'io/fields_d02.txt',  ignore_iofields_warning = .true.,
+ auxinput4_inname = "wrflowinp_d<domain>", auxinput4_interval = 360, 360,
+ auxinput1_inname = "met_em.d<domain>.<date>",
+ auxinput11_inname = 'obs_d<domain>.txt',
+ auxinput5_inname = 'wrfchemi_d<domain>_<date>',
+ ! iofields_filename = 'commented.txt',
+/
+&domains
+ max_dom = 2,
+/
+&physics
+ sst_update = 1,
+/
+&fdda
+ grid_fdda = 1, 0,
+ obs_nudge_opt = 0, 1,
+/
+"""
+
+    def setUp(self):
+        import tempfile
+        self.tmp = tempfile.mkdtemp()
+        self.src = os.path.join(self.tmp, "prep")
+        self.run_dir = os.path.join(self.tmp, "run")
+        os.makedirs(os.path.join(self.src, "io"))
+        os.makedirs(self.run_dir)
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmp)
+
+    def _touch(self, *names, **kw):
+        base = kw.get("base", self.src)
+        for n in names:
+            with open(os.path.join(base, n), "w") as f:
+                f.write("x")
+
+    def test_refs_resolve_domain_placeholder_and_requiredness(self):
+        refs = configs.namelist_file_refs(self.NML)
+        req = sorted(n for k, n, r in refs if r)
+        self.assertEqual(req, ["io/fields_d02.txt", "iofields_d01.txt", "wrffdda_d01",
+                               "wrflowinp_d01", "wrflowinp_d02"])
+        opt = sorted(n for k, n, r in refs if not r)
+        self.assertEqual(opt, ["OBS_DOMAIN2*", "obs_d01.txt", "obs_d02.txt", "tslist",
+                               "wrfchemi_d01_<date>", "wrfchemi_d02_<date>"])
+        self.assertFalse(any(k == "auxinput1_inname" for k, _n, _r in refs))   # real.exe only
+
+    def test_refs_none_specified_and_sst_off(self):
+        refs = configs.namelist_file_refs(
+            "&time_control\n iofields_filename = 'NONE_SPECIFIED',\n/\n&domains\n max_dom=1,\n/\n")
+        self.assertEqual(refs, [("tslist", "tslist", False)])
+
+    def test_stage_links_present_files_and_reports_missing(self):
+        self._touch("iofields_d01.txt", "io/fields_d02.txt", "wrflowinp_d01", "wrflowinp_d02",
+                    "OBS_DOMAIN201", "OBS_DOMAIN202", "tslist",
+                    "wrfchemi_d01_2020-01-01_00:00:00")
+        self._touch("wrflowinp_d02", base=self.run_dir)           # already staged: kept as is
+        res = configs.stage_namelist_files(self.NML, self.run_dir, [self.src])
+        for name in ("iofields_d01.txt", "io/fields_d02.txt", "wrflowinp_d01", "OBS_DOMAIN201",
+                     "OBS_DOMAIN202", "tslist", "wrfchemi_d01_2020-01-01_00:00:00"):
+            p = os.path.join(self.run_dir, name)
+            self.assertTrue(os.path.islink(p), name)
+            self.assertEqual(os.readlink(p), os.path.join(self.src, name))
+        self.assertFalse(os.path.islink(os.path.join(self.run_dir, "wrflowinp_d02")))
+        self.assertIn(("auxinput4_inname", "wrflowinp_d02"), res["present"])
+        self.assertEqual(res["missing"], [("gfdda_inname", "wrffdda_d01")])
+        lines = configs.format_namelist_stage(res, [self.src])
+        self.assertTrue(any(ln.startswith("WARNING") and "wrffdda_d01" in ln for ln in lines))
+
+    def test_stage_second_search_dir_and_iofields_warning(self):
+        other = os.path.join(self.tmp, "orig")
+        os.makedirs(other)
+        self._touch("iofields_d01.txt", base=other)
+        nml = '&time_control\n iofields_filename = "iofields_d01.txt", "gone_d02.txt",\n/\n' \
+              "&domains\n max_dom = 2,\n/\n"
+        res = configs.stage_namelist_files(nml, self.run_dir, [self.src, other, "", "/nonexistent"])
+        self.assertEqual(os.readlink(os.path.join(self.run_dir, "iofields_d01.txt")),
+                         os.path.join(other, "iofields_d01.txt"))
+        self.assertEqual(res["missing"], [("iofields_filename", "gone_d02.txt")])
+        warn = configs.format_namelist_stage(res, [self.src, other])[-1]
+        self.assertIn("hangs at input_input", warn)
+        self.assertFalse(os.path.lexists(os.path.join(self.run_dir, "gone_d02.txt")))
+
+    def test_cli_links_and_exits_zero_with_missing(self):
+        import subprocess
+        self._touch("iofields_d01.txt")
+        nml = os.path.join(self.run_dir, "namelist.input")
+        with open(nml, "w") as f:
+            f.write('&time_control\n iofields_filename = "iofields_d01.txt", "x_d02.txt",\n/\n'
+                    "&domains\n max_dom = 2,\n/\n")
+        p = subprocess.run([sys.executable, os.path.join(configs.CAMPAIGN_DIR, "configs.py"),
+                            "link-namelist-files", nml, self.run_dir, self.src],
+                           stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                           universal_newlines=True)
+        self.assertEqual(p.returncode, 0)
+        self.assertIn("linked iofields_d01.txt", p.stdout)
+        self.assertIn("WARNING", p.stderr)
+        self.assertTrue(os.path.islink(os.path.join(self.run_dir, "iofields_d01.txt")))
+
+
+class TestStrictCampaignStagesNamelistFiles(unittest.TestCase):
+    SBATCH = os.path.join(configs.CAMPAIGN_DIR, "strict_campaign.sbatch")
+
+    def test_every_wrf_exe_link_is_preceded_by_link_namelist_files(self):
+        with open(self.SBATCH) as f:
+            lines = f.read().splitlines()
+        idx = [i for i, ln in enumerate(lines) if 'ln -sf "$W/main/wrf.exe" ./wrf.exe' in ln]
+        self.assertEqual(len(idx), 3)
+        for i in idx:
+            self.assertEqual(lines[i - 1].strip(), "link_namelist_files", lines[i])
+
+    def test_case_loader_emits_namelist_ref_dirs_incl_rebuilt_origin(self):
+        import re as _re
+        import subprocess
+        import tempfile
+        with open(self.SBATCH) as f:
+            text = f.read()
+        m = _re.search(r"eval \"\$\(python3 - \"\$CASE\" <<'PY'\n(.*?)\nPY\n", text, _re.S)
+        self.assertIsNotNone(m)
+        tmp = tempfile.mkdtemp()
+        base = dict(prep_dir="/p/orig", bp_dir="", dt=60, steps=10, case_family="x", e_we=10,
+                    e_sn=10, e_vert=10, dx=1, dy=1, input_files=[], physics={})
+        rebuilt = dict(base, prep_dir="/p/win_0/real", namelist_template="/p/plan/nml.input",
+                       rebuilt_from="orig")
+        cases = os.path.join(tmp, "cases.json")
+        with open(cases, "w") as f:
+            json.dump({"cases": {"orig": base, "orig__rb0": rebuilt}}, f)
+        env = dict(os.environ, CASES_JSON=cases, CAMPAIGN=configs.CAMPAIGN_DIR, SITE="f1")
+        out = subprocess.run([sys.executable, "-", "orig__rb0"], input=m.group(1), env=env,
+                             stdout=subprocess.PIPE, universal_newlines=True).stdout
+        line = [ln for ln in out.splitlines() if ln.startswith("NAMELIST_REF_DIRS=")]
+        self.assertEqual(line, ["NAMELIST_REF_DIRS='/p/win_0/real /p/plan /p/orig'"])
+
+
 if __name__ == "__main__":
     unittest.main()

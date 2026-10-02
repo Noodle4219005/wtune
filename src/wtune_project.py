@@ -9,7 +9,9 @@ Layout (decision 0058 section 1):
   case/          namelist.input/namelist.output/namelist.wps copied (user edits these);
                  everything else found directly in the source case dir (wrfinput, wrfbdy,
                  met_em, ...) is symlinked, never copied -- the source case dir is read-only
-                 to this tool (never opened for writing).
+                 to this tool (never opened for writing). Outputs of a previous run there
+                 (wrfout_*, wrfrst_*, rsl.out.*, rsl.error.*, *.log, namelist.output) are not
+                 linked.
   input/         driving data / observations (GRIB, met_em, HURDAT2, b-deck, ERA5, ...)
   tune/          wtune tune output
   predict/       wtune predict-rebuild output
@@ -46,6 +48,13 @@ MANIFEST_HASH_LIMIT = 50 * 1024 * 1024  # 50 MB -- task spec: "sha256 for files 
 # namelists are copied (the user edits these); everything else in a --case source dir is
 # symlinked -- decision 0058 section 1.
 NAMELIST_NAMES = ("namelist.input", "namelist.output", "namelist.wps")
+# Outputs of a previous WRF run in the --case dir (climate-ea50 was initialised from a former run
+# dir: 397 old wrfout files got linked into case/, plus rsl.*/wrfrst*/namelist.output). They are
+# not case inputs -- never linked. namelist.output only when namelist.input is there (else it is
+# the one namelist the case has).
+_PREV_RUN_OUTPUT_PREFIXES = ("wrfout_", "wrfrst_", "rsl.out.", "rsl.error.")
+_PREV_RUN_OUTPUT_NAMES = ("namelist.output",)
+_PREV_RUN_OUTPUT_SUFFIXES = (".log",)
 
 
 class ProjectError(RuntimeError):
@@ -127,7 +136,8 @@ def discover_runs(project_dir):
     has at least one wrfout_* frame -- at top level, or in its seg_<k> segment dirs (a segmented
     `wtune run`; the run is listed once, its segments are not separate runs) -- else (when
     runs/ is empty) the case/ directory itself, labeled "case" -- decision 0058 item 2: "runs
-    discovered from runs/*/ or case/"."""
+    discovered from runs/*/ or case/". init no longer links a previous run's wrfout into case/,
+    so "case" falls back to project.yaml's case.source_dir when that holds wrfout_d* frames."""
     from post import extract
     runs_root = os.path.join(project_dir, "runs")
     out = []
@@ -143,6 +153,15 @@ def discover_runs(project_dir):
         case_dir = os.path.join(project_dir, "case")
         if glob.glob(os.path.join(case_dir, "wrfout_d*")):
             out.append(("case", case_dir))
+        else:
+            try:
+                doc = load_project(project_dir)
+            except (OSError, ValueError, yaml.YAMLError):
+                doc = None
+            case = doc.get("case") if isinstance(doc, dict) else None
+            src = case.get("source_dir") if isinstance(case, dict) else None
+            if src and glob.glob(os.path.join(src, "wrfout_d*")):
+                out.append(("case", src))
     return out
 
 
@@ -238,11 +257,11 @@ def run(ctx):
                 vmax.append(float(v) if v not in (None, "") else float("nan"))
             continue
         domain = ctx.finest_domain(run_dir)
-        for time_str, path in ctx.list_frames(run_dir, domain=domain):
+        for time_str, path, timeidx in ctx.list_frame_refs(run_dir, domain=domain):
             ds = ctx.open_wrfout(path)
             try:
-                slp = np.asarray(api.wrf.getvar(ds, "slp", units="hPa"))
-                wspd = np.asarray(api.wrf.getvar(ds, "uvmet10_wspd_wdir", units="m s-1")[0])
+                slp = np.asarray(api.wrf.getvar(ds, "slp", timeidx=timeidx, units="hPa"))
+                wspd = np.asarray(api.wrf.getvar(ds, "uvmet10_wspd_wdir", timeidx=timeidx, units="m s-1")[0])
             finally:
                 ds.close()
             j, i = np.unravel_index(np.argmin(slp), slp.shape)
@@ -269,18 +288,32 @@ def run(ctx):
 '''
 
 
+def is_previous_run_output(name, entries=()):
+    """True for a file a previous WRF run wrote into its run dir (wrfout_*, wrfrst_*,
+    rsl.out.*, rsl.error.*, *.log, and namelist.output when namelist.input is in `entries`)."""
+    if name in _PREV_RUN_OUTPUT_NAMES:
+        return "namelist.input" in entries
+    return name.startswith(_PREV_RUN_OUTPUT_PREFIXES) or name.endswith(_PREV_RUN_OUTPUT_SUFFIXES)
+
+
 def _populate_case_dir(case_dir, dest_dir):
-    """Copies only namelists; symlinks everything else found directly in case_dir. Never
-    opens a file under case_dir for writing -- os.symlink and shutil.copy2 (read + fresh
-    write at dest) both leave the source untouched, so the original case dir's mtime/sha256
-    are unchanged (decision 0058 P1)."""
-    for entry in sorted(os.listdir(case_dir)):
+    """Copies only namelists; symlinks everything else found directly in case_dir except the
+    outputs of a previous run (is_previous_run_output). Never opens a file under case_dir for
+    writing -- os.symlink and shutil.copy2 (read + fresh write at dest) both leave the source
+    untouched, so the original case dir's mtime/sha256 are unchanged (decision 0058 P1).
+    Returns the number of skipped previous-run outputs."""
+    entries = sorted(os.listdir(case_dir))
+    skipped = 0
+    for entry in entries:
         src = os.path.join(case_dir, entry)
         dst = os.path.join(dest_dir, entry)
-        if entry in NAMELIST_NAMES and os.path.isfile(src):
+        if is_previous_run_output(entry, entries):
+            skipped += 1
+        elif entry in NAMELIST_NAMES and os.path.isfile(src):
             shutil.copy2(src, dst)
         else:
             os.symlink(src, dst)
+    return skipped
 
 
 def init_project(path, case_dir=None, name=None, storm=None, hurdat2=None, site=None):
@@ -297,7 +330,9 @@ def init_project(path, case_dir=None, name=None, storm=None, hurdat2=None, site=
         case_dir = os.path.abspath(case_dir)
         if not os.path.isdir(case_dir):
             raise ProjectError("--case %s is not a directory" % case_dir)
-        _populate_case_dir(case_dir, os.path.join(path, "case"))
+        skipped = _populate_case_dir(case_dir, os.path.join(path, "case"))
+        if skipped:
+            print("skipped %d output file(s) of a previous run in %s" % (skipped, case_dir))
     if hurdat2 and not os.path.isfile(hurdat2):
         raise ProjectError("--hurdat2 %s not found" % hurdat2)
 

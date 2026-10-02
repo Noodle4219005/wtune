@@ -342,6 +342,16 @@ link_thompson_tables () {
   done
 }
 
+# Files the final ./namelist.input names (iofields_filename, sst_update's wrflowinp, wrffdda,
+# auxinput*, tslist, ...) were never staged: input_files + wrfinput/wrfbdy only. climate-ea50
+# (scc probe jobs 2541-2545): iofields_d01.txt absent -> WRF 4.8 hung after "calling input_input"
+# until the 1260 s timeout, 0 steps. Call from within RUNDIR once namelist.input is final;
+# never overrides an existing entry; a file found nowhere is reported (stderr), not fabricated.
+link_namelist_files () {
+  # shellcheck disable=SC2086
+  python3 "$CAMPAIGN/configs.py" link-namelist-files ./namelist.input . ${NAMELIST_REF_DIRS:-} || true
+}
+
 harvest_thompson_tables () {
   # call from within RUNDIR, right after the run finishes and before any cleanup that
   # might delete a freshly generated table before it is cached. A cached or case-shipped
@@ -438,6 +448,14 @@ print("DY=%s" % q(c["dy"]))
 print("INPUT_FILES=%s" % q(" ".join(c["input_files"])))
 print("MAX_DOM=%s" % q(c.get("max_dom", 1)))
 print("NAMELIST_TEMPLATE=%s" % q(c.get("namelist_template") or (c["prep_dir"] + "/namelist.input")))
+# NAMELIST_REF_DIRS: where link_namelist_files looks for files the namelist names (iofields,
+# wrflowinp, wrffdda, ...) -- prep_dir, the template's dir, and for a rebuilt case
+# (wtune_tune.write_rebuilt_case_entry) the original case's prep_dir.
+_ref = [c["prep_dir"], os.path.dirname(c.get("namelist_template") or c["prep_dir"] + "/x")]
+_orig = d.get(c.get("rebuilt_from") or "") or {}
+if _orig.get("prep_dir"):
+    _ref.append(os.path.expanduser(os.path.expandvars(_orig["prep_dir"])))
+print("NAMELIST_REF_DIRS=%s" % q(" ".join(dict.fromkeys(x for x in _ref if x))))
 overrides = c.get("namelist_overrides") or {}
 print("NAMELIST_OVERRIDES=%s" % q(" ".join("%s=%s" % (k, v) for k, v in overrides.items())))
 delete_keys = c.get("namelist_delete_keys") or []
@@ -717,6 +735,7 @@ PY
       "${SET_ARGS[@]}" "${DELETE_ARGS[@]}" "${NEST_ARGS[@]}" "${HIST_ARGS[@]}" "${TILE_ARGS[@]}" \
       --physics-template "$TEMPLATE_ID" --physics-case "$CASE"
     rm -f ./namelist.input.orig
+    link_namelist_files
     ln -sf "$W/main/wrf.exe" ./wrf.exe
 
     configure_omp_env "$omp" "$blocktime"
@@ -1208,6 +1227,7 @@ if [ "$RANKING_START" = "spinup" ] && [ "$MODE" = "timing" ] && [ "$FUSED_ON" !=
         --write-restart-interval "$M" --restart-io-form "$RANKING_RESTART_IO_FORM"
       rm -f ./namelist.input.orig
       write_adios2_restart_xml "$SRC_DIR" "$(python3 "$CAMPAIGN/configs.py" restart-time "$CASE" "$M")" "$MAX_DOM"
+      link_namelist_files
       ln -sf "$W/main/wrf.exe" ./wrf.exe
       configure_omp_env "$A_OMP" "$A_BLOCKTIME"
       echo "RANKING_SPINUP[m=$M]: launching anchor spin-up in $SRC_DIR"
@@ -1382,6 +1402,7 @@ for cid in "${ORDER[@]}"; do
     cd "$OUT"
     continue
   fi
+  link_namelist_files
   ln -sf "$W/main/wrf.exe" ./wrf.exe
 
   configure_omp_env "$omp" "$blocktime"

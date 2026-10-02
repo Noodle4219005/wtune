@@ -49,7 +49,8 @@ def test_init_namelists_are_copied_big_files_are_symlinked(tmp_path, case_dir):
     dest = os.path.join(project_dir, "case")
 
     assert not os.path.islink(os.path.join(dest, "namelist.input"))
-    assert not os.path.islink(os.path.join(dest, "namelist.output"))
+    # namelist.output next to a namelist.input is a previous run's output: not taken over
+    assert not os.path.lexists(os.path.join(dest, "namelist.output"))
     assert open(os.path.join(dest, "namelist.input")).read() == \
         open(os.path.join(case_dir, "namelist.input")).read()
 
@@ -57,6 +58,50 @@ def test_init_namelists_are_copied_big_files_are_symlinked(tmp_path, case_dir):
     assert os.readlink(os.path.join(dest, "wrfinput_d01")) == \
         os.path.join(case_dir, "wrfinput_d01")
     assert os.path.islink(os.path.join(dest, "met_em"))
+
+
+def test_init_skips_outputs_of_a_previous_run(tmp_path, capsys):
+    """climate-ea50: --case was a former run dir; 397 old wrfout files got linked into case/."""
+    src = tmp_path / "former-run"
+    src.mkdir()
+    (src / "namelist.input").write_text("&time_control\n/\n")
+    (src / "namelist.output").write_text("&time_control\n/\n")
+    inputs = ["wrfinput_d01", "wrfbdy_d01", "wrflowinp_d01", "wrffdda_d01", "iofields_d01.txt",
+              "met_em.d01.2020-01-01_00:00:00.nc", "LANDUSE.TBL", "namelist.wps", "tslist"]
+    outputs = ["wrfout_d01_2020-01-01_00:00:00", "wrfout_d01_2020-01-02_00:00:00",
+               "wrfrst_d01_2020-01-02_00:00:00", "rsl.out.0000", "rsl.error.0000",
+               "rsl.error.0001", "wrf.log", "real.log"]
+    for n in inputs + outputs:
+        (src / n).write_text("x")
+    project_dir = str(tmp_path / "proj")
+    proj.init_project(project_dir, case_dir=str(src))
+    dest = os.path.join(project_dir, "case")
+    assert sorted(os.listdir(dest)) == sorted(inputs + ["namelist.input"])
+    out = capsys.readouterr().out
+    assert "skipped %d output file(s) of a previous run in %s" % (len(outputs) + 1, src) in out
+
+
+def test_init_keeps_namelist_output_when_it_is_the_only_namelist(tmp_path, capsys):
+    src = tmp_path / "nml-out-only"
+    src.mkdir()
+    (src / "namelist.output").write_text("&time_control\n/\n")
+    (src / "wrfinput_d01").write_text("x")
+    project_dir = str(tmp_path / "proj")
+    proj.init_project(project_dir, case_dir=str(src))
+    assert sorted(os.listdir(os.path.join(project_dir, "case"))) == ["namelist.output",
+                                                                      "wrfinput_d01"]
+    assert "skipped" not in capsys.readouterr().out
+
+
+def test_discover_runs_falls_back_to_case_source_dir_wrfout(tmp_path):
+    """init no longer links a former run's wrfout into case/: 'case' then points at the source."""
+    src = tmp_path / "former-run"
+    src.mkdir()
+    (src / "namelist.input").write_text("&time_control\n/\n")
+    (src / "wrfout_d01_2020-01-01_00:00:00").write_text("x")
+    project_dir = str(tmp_path / "proj")
+    proj.init_project(project_dir, case_dir=str(src))
+    assert proj.discover_runs(project_dir) == [("case", str(src))]
 
 
 def test_init_never_modifies_the_source_case_dir(tmp_path, case_dir):

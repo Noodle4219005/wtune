@@ -26,7 +26,14 @@ Segment planning (plan_run; boundaries are d01 step indices)
                           predicted wall <= 0.8 W (choose_restart_quantum), where predicted wall =
                           compute over the interval + init + restart read (k > 0) + restart write
                           (end on the grid) + history frames written inside the interval.
-    neither               one segment, no restart (restart_interval = RESTART_OFF_MIN).
+    neither               one segment.
+    Restart cadence (restart_setting): the case's own restart_interval (WRF's _d/_h/_m/_s sum) is
+    never switched off when the case asked for restart output inside the run: one segment keeps
+    the case's restart keys untouched when that interval is < the run length (a 13-month case
+    still writes its checkpoints), else restart_interval = RESTART_OFF_MIN; several segments keep
+    it when it divides L (every boundary is then a restart time anyway), else restart_interval =
+    L. The restart writes at that cadence are counted in every predicted wall and listed in the
+    io_form 14 adios2.xml; the plan line prints the effective cadence.
     Compute over [a, b] = C(b) - C(a), C a prefix sum of tools/coldstart_sample.
     predicted_compute_total's per-step terms (the same arithmetic wtune_probe_plan.combine uses
     for the whole run; C(N) is asserted equal to its total). Its
@@ -45,21 +52,24 @@ Segment planning (plan_run; boundaries are d01 step indices)
 Segment namelist (render_segment_namelist; tools/coldstart_sample set_list & co. do the editing)
     start_* / end_* of EVERY active domain = the segment's start / end (yagi truth 1038: a nest
     whose end_* was not updated stopped early); run_days/hours/minutes = 0, run_seconds = segment
-    length; nproc_x/nproc_y/numtiles of the segment's config; restart_interval = L minutes in every
-    segment (restart_interval_d/_h/_s zeroed, _m set equal when present); io_form_restart per
-    --restart-io-form; k > 0: restart=.true.; override_restart_timers is never set (a case value
-    .true. is set .false.: the tuner's restart-start probes want the override, a chain must not
-    have it). write_hist_at_0h_rst is never set (its default .false. avoids a duplicate history
-    frame at the boundary); every other
-    history setting is untouched. adios2_numaggregators, when the case sets it, follows the
-    segment's rank count (configs._apply_adios2: it must equal the rank count).
+    length; nproc_x/nproc_y/numtiles of the segment's config; restart_interval = L minutes in
+    every segment (restart_interval_d/_h/_s zeroed, _m set equal when present) unless
+    restart_setting keeps the case's own (then every restart_interval* key is left as the case
+    has it); io_form_restart per --restart-io-form; k > 0: restart=.true.;
+    override_restart_timers is never set (a case value .true. is set .false.: the tuner's
+    restart-start probes want the override, a chain must not have it). write_hist_at_0h_rst is
+    never set (its default .false. avoids a duplicate history frame at the boundary); every
+    other history setting is untouched. adios2_numaggregators, when the case sets it, follows
+    the segment's rank count (configs._apply_adios2: it must equal the rank count).
 
 Segment run dir (setup_segment_dir): symlinks to every regular file of CASE_DIR except namelist.*,
-rsl.*, wrfout*, wrfrst*, wrf.out (plus ADIOS2 *.bp input directories), WRF_TREE/run/* not already
-present, the previous segment's wrfrst_d<NN>_<start> for k > 0, a fresh namelist.input, and for
-io_form 14 an adios2.xml selecting the BP4 engine for every restart file the segment reads or
-writes (campaign/strict_campaign.sbatch write_adios2_restart_xml, same content; a case adios2.xml
-is copied with these entries appended instead of being linked). History output stays in each
+rsl.*, wrfout*, wrfrst*, wrf.out (plus ADIOS2 *.bp input directories), every file the namelist
+names (iofields_filename, sst_update's auxinput4 wrflowinp, fdda, auxinput*, tslist -- configs.
+stage_namelist_files; also from a subdirectory of CASE_DIR), WRF_TREE/run/* not already present,
+the previous segment's wrfrst_d<NN>_<start> for k > 0, a fresh namelist.input, and for io_form 14
+an adios2.xml selecting the BP4 engine for every restart file the segment reads or writes
+(campaign/strict_campaign.sbatch write_adios2_restart_xml, same content; a case adios2.xml is
+copied with these entries appended instead of being linked). History output stays in each
 OUT/seg_<k>.
 
 Segment job (render_segment_sbatch): exclusive nodes, --exclude=head[,WTUNE_SBATCH_EXCLUDE],
@@ -385,13 +395,35 @@ def writes_restart(b, L):
     return bool(L) and b > 0 and b % L == 0
 
 
-def segment_wall(geo, compute, over, a, b, L):
+def restart_write_steps(geo, a, b, cadence_s):
+    """d01 step indices in (a, b] at which a restart alarm of `cadence_s` seconds (phase: the run
+    start) rings; [] when cadence_s is None/0. WRF rings an alarm at the first step at or past
+    its time, so a cadence off the step grid rounds up to the next step."""
+    if not cadence_s:
+        return []
+    dt_f, c = _frac(geo["dt"]), _frac(cadence_s)
+    first = int(math.floor(_frac(a) * dt_f / c)) + 1
+    out = []
+    j = first
+    while True:
+        n = int(math.ceil(j * c / dt_f))
+        if n > b:
+            return out
+        if n > a:
+            out.append(n)
+        j += 1
+
+
+def segment_wall(geo, compute, over, a, b, L, cadence_s=None):
     """Predicted wall of one segment (a, b]: compute + init + restart read (a > 0) + restart
-    write (b on the L grid) + history frames written inside it."""
+    writes (b on the L grid; with cadence_s every restart alarm inside (a, b] instead) + history
+    frames written inside it."""
     w = compute(a, b) + over["init_s"]
     if a > 0:
         w += over["restart_read_s"]
-    if writes_restart(b, L):
+    if cadence_s:
+        w += over["restart_write_s"] * len(restart_write_steps(geo, a, b, cadence_s))
+    elif writes_restart(b, L):
         w += over["restart_write_s"]
     return w + history_wall(geo, over, a, b)
 
@@ -554,13 +586,13 @@ def make_config(nx, ny, numtiles, omp, nodes, cid="cli", dist="block"):
             "nodes": nodes, "dist": dist}
 
 
-def assign_segments(geo, bounds, candidates, over, L, wall_limit_s=None):
+def assign_segments(geo, bounds, candidates, over, L, wall_limit_s=None, cadence_s=None):
     """Segment dicts for step intervals `bounds`: the candidate with the lowest predicted compute
     over each interval (ties -> first listed), its predicted wall and --time."""
     segs = []
     for i, (a, b) in enumerate(bounds):
         best = min(candidates, key=lambda c: c["compute"](a, b))
-        wall = segment_wall(geo, best["compute"], over, a, b, L)
+        wall = segment_wall(geo, best["compute"], over, a, b, L, cadence_s)
         segs.append({"index": i, "start_step": a, "end_step": b,
                      "start": _fmt(step_time(geo, a)), "end": _fmt(step_time(geo, b)),
                      "config": dict(best["config"]), "writes_restart": writes_restart(b, L),
@@ -569,9 +601,11 @@ def assign_segments(geo, bounds, candidates, over, L, wall_limit_s=None):
     return segs
 
 
-def plan_run(geo, n_end, candidates, over, segment_minutes=None, wall_limit_s=None):
-    """(L, segments): L = the restart quantum in d01 steps (None: one segment, no restart), each
-    segment one L block [jL, (j+1)L], the last possibly shorter (see module docstring)."""
+def plan_run(geo, n_end, candidates, over, segment_minutes=None, wall_limit_s=None,
+             case_restart_s=None):
+    """(L, segments): L = the restart quantum in d01 steps (None: one segment), each segment one
+    L block [jL, (j+1)L], the last possibly shorter (see module docstring). case_restart_s: the
+    case's own restart interval (s), whose writes restart_setting keeps -- counted in the walls."""
     if segment_minutes:
         L = segment_steps_for_minutes(geo, segment_minutes)
         if (L * geo["dt"]) % 60:
@@ -580,12 +614,52 @@ def plan_run(geo, n_end, candidates, over, segment_minutes=None, wall_limit_s=No
             L = None
     elif wall_limit_s:
         def wall_fn(a, b, L):
-            return min(segment_wall(geo, c["compute"], over, a, b, L) for c in candidates)
+            cad = restart_setting(geo, L, n_end, case_restart_s)["cadence_s"]
+            return min(segment_wall(geo, c["compute"], over, a, b, L, cad) for c in candidates)
         L = choose_restart_quantum(n_end, geo["quantum"], wall_fn, WALL_FRACTION * wall_limit_s)
     else:
         L = None
     bounds = plan_segments_fixed(n_end, L) if L else [(0, n_end)]
-    return L, assign_segments(geo, bounds, candidates, over, L, wall_limit_s)
+    cad = restart_setting(geo, L, n_end, case_restart_s)["cadence_s"]
+    return L, assign_segments(geo, bounds, candidates, over, L, wall_limit_s, cad)
+
+
+def case_restart_interval_s(nl):
+    """The case's own restart interval in seconds (WRF's restart_interval[_d|_h|_m|_s] sum,
+    coldstart.wrf_interval_minutes); 0 when the case sets none."""
+    return float(coldstart.wrf_interval_minutes(nl, "restart_interval")) * 60.0
+
+
+def restart_setting(geo, L, n_end, case_restart_s=None):
+    """What every segment namelist does with restart_interval: {"set_min": minutes to write, or
+    None = leave the case's restart_interval* keys untouched, "cadence_s": restart alarm period
+    (None: no restart write), "label": plan-line text}. Never switches off restart output the
+    case asked for inside the run (climate-ea50: a 13-month single-segment run with
+    restart_interval set used to get RESTART_OFF_MIN and no checkpoint at all)."""
+    run_s = float(_frac(geo["dt"]) * n_end)
+    case_s = float(case_restart_s or 0)
+    if not L:
+        if 0 < case_s < run_s:
+            return {"set_min": None, "cadence_s": case_s,
+                    "label": "every %s (case's restart_interval kept; one segment)" % _hms(case_s)}
+        return {"set_min": RESTART_OFF_MIN, "cadence_s": None,
+                "label": "off (one segment%s)" % (
+                    "; case restart_interval %s >= run length" % _hms(case_s) if case_s else "")}
+    L_s = _frac(geo["dt"]) * L
+    if case_s > 0 and L_s % _frac(case_s) == 0:
+        return {"set_min": None, "cadence_s": case_s,
+                "label": "every %s (case's restart_interval kept; it divides the %s segment "
+                         "quantum)" % (_hms(case_s), _hms(float(L_s)))}
+    m = restart_interval_minutes(geo, L)
+    return {"set_min": m, "cadence_s": float(L_s),
+            "label": "%d min (every segment%s)" % (
+                m, "; case restart_interval %s does not divide it" % _hms(case_s)
+                if case_s else "")}
+
+
+def restart_times(geo, a, b, cadence_s):
+    """WRF_FMT times of the restart writes in (a, b] (restart_write_steps)."""
+    return [_fmt(step_time(geo, n)) for n in restart_write_steps(geo, a, b, cadence_s)]
 
 
 def restart_interval_minutes(geo, L):
@@ -619,7 +693,8 @@ def _set_one(txt, key, value, group="time_control"):
 def render_segment_namelist(text, seg_start, seg_end, k, config, restart_interval_min,
                             restart_io_form=14, time_step=None):
     """The case's namelist.input text -> segment k's (see module docstring). seg_start/seg_end
-    are datetimes; time_step (int s) overrides the d01 time step (CFL rescue)."""
+    are datetimes; restart_interval_min None leaves the case's restart_interval* keys as they are;
+    time_step (int s) overrides the d01 time step (CFL rescue)."""
     cs = coldstart
     ndom = int(cs.get_first(text, "max_dom", "1"))
     length_s = (seg_end - seg_start).total_seconds()
@@ -636,11 +711,12 @@ def render_segment_namelist(text, seg_start, seg_end, k, config, restart_interva
     for key, v in (("nproc_x", config["nx"]), ("nproc_y", config["ny"]),
                    ("numtiles", config["numtiles"])):
         txt = _set_one(txt, key, v, "domains")
-    rst_min = int(restart_interval_min)
-    txt = _set_one(txt, "restart_interval", rst_min)
-    for suffix, v in (("_d", 0), ("_h", 0), ("_s", 0), ("_m", rst_min)):
-        if cs.count_key(text, "restart_interval" + suffix):
-            txt = _set_one(txt, "restart_interval" + suffix, v)
+    if restart_interval_min is not None:          # None: the case's own restart keys stay
+        rst_min = int(restart_interval_min)
+        txt = _set_one(txt, "restart_interval", rst_min)
+        for suffix, v in (("_d", 0), ("_h", 0), ("_s", 0), ("_m", rst_min)):
+            if cs.count_key(text, "restart_interval" + suffix):
+                txt = _set_one(txt, "restart_interval" + suffix, v)
     txt = _set_one(txt, "io_form_restart", int(restart_io_form))
     if k > 0:
         txt = _set_one(txt, "restart", ".true.")
@@ -700,9 +776,21 @@ def _case_link_ok(name, path, skip_adios2_xml):
     return os.path.isdir(path) and name.endswith(".bp")   # ADIOS2 wrfinput/wrfbdy inputs
 
 
+def _missing_namelist_files(text, case_dir):
+    """[(key, name)] files the namelist requires (configs.namelist_file_refs) that neither
+    CASE_DIR (relative name) nor the filesystem (absolute name) has."""
+    out = []
+    for key, name, required in sweep.campaign_configs.namelist_file_refs(text):
+        pat = re.sub(r"<[^>]*>", "*", name)
+        if required and not glob.glob(pat if os.path.isabs(pat) else os.path.join(case_dir, pat)):
+            out.append((key, name))
+    return out
+
+
 def setup_segment_dir(case_dir, seg_dir, namelist_text, restart_links=(), adios2_xml=None,
                       wrf_tree=None):
-    """Create seg_dir (must not exist) and populate it; writes only inside seg_dir."""
+    """Create seg_dir (must not exist) and populate it; writes only inside seg_dir. Returns
+    configs.stage_namelist_files' result (missing = required files found nowhere)."""
     case_dir = os.path.abspath(case_dir)
     seg_dir = os.path.abspath(seg_dir)
     if os.path.commonpath([seg_dir, case_dir]) == case_dir:
@@ -730,6 +818,9 @@ def setup_segment_dir(case_dir, seg_dir, namelist_text, restart_links=(), adios2
     if adios2_xml is not None:
         with open(os.path.join(seg_dir, "adios2.xml"), "w") as f:
             f.write(adios2_xml)
+    # files the namelist names (iofields_filename, wrflowinp, fdda, ...) -- also ones the
+    # regular-file loop above skips (a subdirectory path, a namelist.* name)
+    return sweep.campaign_configs.stage_namelist_files(namelist_text, seg_dir, [case_dir])
 
 
 # ---------------------------------------------------------------------------
@@ -841,8 +932,9 @@ def _write_report(path, report):
 
 def run_controller(ctx):
     """Execute ctx['segments'] in order (see module docstring). Returns 0 on success, 1 on a
-    stop. ctx keys: case_dir, out, text, geo, n_end, segments, restart_min (restart_interval of
-    every segment), over, restart_io_form, cfl_rescue, replan (bool: no prediction), wall_limit_s,
+    stop. ctx keys: case_dir, out, text, geo, n_end, segments, restart_set_min (restart_interval
+    written into every segment, None = the case's own kept), restart_cadence_s, over,
+    restart_io_form, cfl_rescue, replan (bool: no prediction), wall_limit_s,
     wrf_tree, env_source, campaign_dir, sbatch_runner, sacct_runner, sacct_cmd, snapshot_fn,
     poll_s, sleep, log, report."""
     geo, log, report = ctx["geo"], ctx["log"], ctx["report"]
@@ -864,7 +956,7 @@ def run_controller(ctx):
             t_a = dt.datetime.strptime(seg["start"], WRF_FMT)
             t_b = dt.datetime.strptime(seg["end"], WRF_FMT)
             txt = render_segment_namelist(ctx["text"], t_a, t_b, k, seg["config"],
-                                          ctx["restart_min"], ctx["restart_io_form"],
+                                          ctx["restart_set_min"], ctx["restart_io_form"],
                                           time_step=time_step)
             links = []
             if k > 0:
@@ -878,9 +970,14 @@ def run_controller(ctx):
             xml = None
             if int(ctx["restart_io_form"]) == 14:
                 times = (([seg["start"]] if k > 0 else [])
-                         + ([seg["end"]] if seg["writes_restart"] else []))
+                         + restart_times(geo, seg["start_step"], seg["end_step"],
+                                         ctx["restart_cadence_s"]))
                 xml = render_adios2_restart_xml(times, geo["max_dom"], ctx.get("case_adios2_xml"))
-            setup_segment_dir(ctx["case_dir"], seg_dir, txt, links, xml, ctx.get("wrf_tree"))
+            staged = setup_segment_dir(ctx["case_dir"], seg_dir, txt, links, xml,
+                                       ctx.get("wrf_tree"))
+            if k == 0 and attempt == 0:
+                for ln in sweep.campaign_configs.format_namelist_stage(staged, [ctx["case_dir"]]):
+                    log(ln)
             script = render_segment_sbatch(
                 seg_dir, k, seg["config"], seg["time_limit"],
                 "wtrun-%s-s%d" % (os.path.basename(ctx["case_dir"]), k),
@@ -916,8 +1013,8 @@ def run_controller(ctx):
             cfl = "CFL" in codes or nan or rsl_has_cfl(seg_dir)
             if ctx["cfl_rescue"] and cfl and not rescue_used:
                 seg_len = int(round((t_b - t_a).total_seconds()))
-                if ctx["restart_min"] != RESTART_OFF_MIN:      # keep the restart alarm whole too
-                    seg_len = math.gcd(seg_len, ctx["restart_min"] * 60)
+                if ctx["restart_cadence_s"]:                   # keep the restart alarm whole too
+                    seg_len = math.gcd(seg_len, int(ctx["restart_cadence_s"]))
                 hist = geo["hist"][0]["iv_s"] if geo["hist"][0] else None
                 new_dt = rescue_time_step(geo["dt"], seg_len, (hist, geo["radt_s"]))
                 if new_dt is None:
@@ -942,14 +1039,14 @@ def run_controller(ctx):
                 # and print the advice instead of silently proposing a different time_step,
                 # write the would-be namelist for inspection, and submit nothing further.
                 seg_len = int(round((t_b - t_a).total_seconds()))
-                if ctx["restart_min"] != RESTART_OFF_MIN:
-                    seg_len = math.gcd(seg_len, ctx["restart_min"] * 60)
+                if ctx["restart_cadence_s"]:
+                    seg_len = math.gcd(seg_len, int(ctx["restart_cadence_s"]))
                 hist = geo["hist"][0]["iv_s"] if geo["hist"][0] else None
                 advice_dt = rescue_time_step(geo["dt"], seg_len, (hist, geo["radt_s"]))
                 advice_path = None
                 if advice_dt is not None:
                     advice_txt = render_segment_namelist(
-                        ctx["text"], t_a, t_b, k, seg["config"], ctx["restart_min"],
+                        ctx["text"], t_a, t_b, k, seg["config"], ctx["restart_set_min"],
                         ctx["restart_io_form"], time_step=advice_dt)
                     advice_path = os.path.join(seg_dir, "segment.advice.namelist.input")
                     with open(advice_path, "w") as f:
@@ -1161,8 +1258,16 @@ def main(argv=None, sbatch_runner=None, sacct_runner=None, snapshot_fn=None, sle
             notes.append("no prediction: %.3f s/step fallback (cell-step model x %.1f); later "
                          "segments' --time from each finished segment's observed rate"
                          % (s, FALLBACK_RADIATION_FACTOR))
-        L, segs = plan_run(geo, n_end, candidates, over, a.segment_minutes, wall_limit_s)
-        restart_min = restart_interval_minutes(geo, L)
+        case_rst_s = case_restart_interval_s(nl)
+        L, segs = plan_run(geo, n_end, candidates, over, a.segment_minutes, wall_limit_s,
+                           case_restart_s=case_rst_s)
+        rst = restart_setting(geo, L, n_end, case_rst_s)
+        for key, name in _missing_namelist_files(text, case_dir):
+            notes.append("WARNING: the namelist's %s names %s, which is not in CASE_DIR -- every "
+                         "segment will lack it%s" % (
+                             key, name, " (WRF 4.8 hangs at input_input when the iofields file "
+                             "is missing, even with ignore_iofields_warning=.true.)"
+                             if key == "iofields_filename" else ""))
         if coldstart.get_first(text, "override_restart_timers", ".false.").lower().startswith(".t"):
             notes.append("case sets override_restart_timers=.true.: set .false. in every segment "
                          "(it would re-anchor the history alarms at each segment start)")
@@ -1175,10 +1280,9 @@ def main(argv=None, sbatch_runner=None, sacct_runner=None, snapshot_fn=None, sle
         print("error: %s" % e, file=sys.stderr)
         return 2
 
-    log("run %s -> %s (%d d01 steps of %gs)%s; %d segment(s), restart_interval %s, overheads: %s"
+    log("run %s -> %s (%d d01 steps of %gs)%s; %d segment(s), restart %s, overheads: %s"
         % (_fmt(geo["start"]), _fmt(step_time(geo, n_end)), n_end, geo["dt"],
-           " stop-at" if n_end < geo["steps"] else "", len(segs),
-           "%d min (every segment)" % restart_min if L else "off (one segment)", over["source"]))
+           " stop-at" if n_end < geo["steps"] else "", len(segs), rst["label"], over["source"]))
     for s in segs:
         c = s["config"]
         log("  seg %d  %s -> %s  %-8s %dx%d t%d omp%d  predicted %s  --time=%s"
@@ -1190,8 +1294,8 @@ def main(argv=None, sbatch_runner=None, sacct_runner=None, snapshot_fn=None, sle
         for s in segs[:2]:
             t_a = dt.datetime.strptime(s["start"], WRF_FMT)
             t_b = dt.datetime.strptime(s["end"], WRF_FMT)
-            new = render_segment_namelist(text, t_a, t_b, s["index"], s["config"], restart_min,
-                                          a.restart_io_form)
+            new = render_segment_namelist(text, t_a, t_b, s["index"], s["config"],
+                                          rst["set_min"], a.restart_io_form)
             log("namelist diff, segment %d:" % s["index"])
             for ln in namelist_diff_summary(text, new):
                 log("  " + ln)
@@ -1202,11 +1306,16 @@ def main(argv=None, sbatch_runner=None, sacct_runner=None, snapshot_fn=None, sle
               "run_end": _fmt(step_time(geo, n_end)), "stop_at": a.stop_at, "dt": geo["dt"],
               "restart_io_form": a.restart_io_form, "cfl_rescue": a.cfl_rescue,
               "prediction": a.prediction, "tune_report": a.tune_report, "overheads": over,
-              "restart_quantum_steps": L, "restart_interval_min": restart_min,
+              "restart_quantum_steps": L,
+              "restart_interval_min": (rst["set_min"] if rst["set_min"] is not None
+                                       else rst["cadence_s"] / 60.0),
+              "restart_interval_source": "case" if rst["set_min"] is None else "wtune",
+              "restart_cadence_s": rst["cadence_s"],
               "notes": notes, "physics_gray": False, "decisions": [], "status": "running",
               "started_utc": dt.datetime.utcnow().isoformat()}
     ctx = dict(case_dir=case_dir, out=out, text=text, geo=geo, n_end=n_end, segments=segs,
-               restart_min=restart_min, over=over, restart_io_form=a.restart_io_form,
+               restart_set_min=rst["set_min"], restart_cadence_s=rst["cadence_s"], over=over,
+               restart_io_form=a.restart_io_form,
                cfl_rescue=a.cfl_rescue, replan=replan, wall_limit_s=wall_limit_s, wrf_tree=a.wrf_tree or os.environ.get("WRF_TREE"),
                env_source=a.env_source, campaign_dir=a.campaign_dir,
                sbatch_runner=sbatch_runner or sweep.default_sbatch_runner,

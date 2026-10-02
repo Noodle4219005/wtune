@@ -230,13 +230,62 @@ def test_c1_clean_matching_nest_windows_silent(tmp_path):
 # C2 -- iofields_filename + out-of-block lines
 # --------------------------------------------------------------------------
 
-def test_c2_missing_iofields_file_is_hang(tmp_path):
+def test_c2_missing_iofields_file_is_fatal_in_case_dir_when_nowhere(tmp_path):
     text = one_domain_namelist(extra_time_control=" iofields_filename = 'storm_diags_d01.txt',\n")
     write_namelist(tmp_path, text)
+    wrf_run = tmp_path / "wrfrun"
+    wrf_run.mkdir()
+    findings = run(tmp_path, wrf_run_dir=str(wrf_run))
+    fatals = [f for f in findings if f.severity == "FATAL" and f.id == "C2"]
+    assert len(fatals) == 1
+    assert "storm_diags_d01.txt" in fatals[0].message
+    assert "hangs at input_input" in fatals[0].message
+    assert "ignore_iofields_warning=.true." in fatals[0].message
+    assert "2541-2545" in fatals[0].evidence
+
+
+def test_c2_missing_iofields_in_run_dir_is_fatal(tmp_path):
+    """climate-ea50 probe dirs: wrf.exe linked, iofields_d01.txt never staged."""
+    text = one_domain_namelist(extra_time_control=' iofields_filename = "iofields_d01.txt",\n'
+                                                  " ignore_iofields_warning = .true.,\n")
+    write_namelist(tmp_path, text)
+    touch(tmp_path, "wrf.exe", "RRTM_DATA")
+    wrf_run = tmp_path / "wrfrun"
+    wrf_run.mkdir()
+    touch(wrf_run, "iofields_d01.txt")        # WRF's run/ having it does not help a run dir
+    findings = run(tmp_path, wrf_run_dir=str(wrf_run))
+    fatals = [f for f in findings if f.severity == "FATAL" and f.id == "C2"]
+    assert len(fatals) == 1 and "the run dir" in fatals[0].message
+    assert pf.IOFIELDS_HANG in fatals[0].message
+    assert pf.exit_code_for(findings) == 2
+
+
+def test_c2_iofields_in_case_dir_is_info(tmp_path):
+    text = one_domain_namelist(extra_time_control=" iofields_filename = 'iofields_d01.txt',\n")
+    write_namelist(tmp_path, text)
+    touch(tmp_path, "iofields_d01.txt")
     findings = run(tmp_path)
-    hangs = [f for f in findings if f.severity == "HANG" and f.id == "C2"]
-    assert len(hangs) == 1
-    assert "storm_diags_d01.txt" in hangs[0].message
+    c2 = [f for f in findings if f.id == "C2"]
+    assert [f.severity for f in c2] == ["INFO"] and "stages it" in c2[0].message
+
+
+def test_c2_iofields_only_in_wrf_run_dir_is_info_for_case_dir(tmp_path):
+    text = one_domain_namelist(extra_time_control=" iofields_filename = 'iofields_d01.txt',\n")
+    write_namelist(tmp_path, text)
+    wrf_run = tmp_path / "wrfrun"
+    wrf_run.mkdir()
+    touch(wrf_run, "iofields_d01.txt")
+    findings = run(tmp_path, wrf_run_dir=str(wrf_run))
+    c2 = [f for f in findings if f.id == "C2"]
+    assert [f.severity for f in c2] == ["INFO"] and "--wrf-run-dir" in c2[0].message
+
+
+def test_c2_iofields_domain_placeholder_and_run_dir_present_silent(tmp_path):
+    text = one_domain_namelist(extra_time_control=" iofields_filename = 'io_d<domain>.txt',\n")
+    write_namelist(tmp_path, text)
+    touch(tmp_path, "wrf.exe", "io_d01.txt")
+    findings = run(tmp_path)
+    assert [f for f in findings if f.id == "C2"] == []
 
 
 def test_c2_present_iofields_file_silent(tmp_path):
@@ -784,24 +833,47 @@ def test_c6_wrfbdy_covers_full_window_silent(tmp_path):
     assert clean_findings(findings) == []
 
 
-def test_c6_sst_update_missing_wrflowinp_is_fatal(tmp_path):
-    text = one_domain_namelist(extra_physics=" sst_update = 1,\n")
-    write_namelist(tmp_path, text)
+def _c2(tmp_path, wrf_run_dir=None):
     nl = wp.parse_namelist(str(tmp_path / "namelist.input"))
     findings = []
-    pf.check_c6_input_consistency(nl, tmp_path, findings)
-    fatals = [f for f in findings if f.severity == "FATAL" and "wrflowinp" in f.message]
-    assert len(fatals) == 1
+    pf.check_c2_iofields(nl, tmp_path, tmp_path / "namelist.input", findings,
+                         wrf_run_dir=wrf_run_dir)
+    return findings
 
 
-def test_c6_sst_update_with_wrflowinp_silent(tmp_path):
+def test_c2_sst_update_missing_wrflowinp_is_fatal(tmp_path):
+    """(was C6; now C2 with the other namelist-named files, no netCDF4 needed)"""
+    text = one_domain_namelist(extra_physics=" sst_update = 1,\n")
+    write_namelist(tmp_path, text)
+    fatals = [f for f in _c2(tmp_path) if f.severity == "FATAL" and "wrflowinp" in f.message]
+    assert len(fatals) == 1 and "auxinput4_inname" in fatals[0].message
+
+
+def test_c2_sst_update_with_wrflowinp_not_fatal(tmp_path):
     text = one_domain_namelist(extra_physics=" sst_update = 1,\n")
     write_namelist(tmp_path, text)
     touch(tmp_path, "wrflowinp_d01")
-    nl = wp.parse_namelist(str(tmp_path / "namelist.input"))
-    findings = []
-    pf.check_c6_input_consistency(nl, tmp_path, findings)
-    assert clean_findings(findings) == []
+    assert clean_findings(_c2(tmp_path)) == []
+    touch(tmp_path, "wrf.exe")
+    assert _c2(tmp_path) == []
+
+
+def test_c2_sst_update_custom_auxinput4_inname(tmp_path):
+    text = one_domain_namelist(
+        extra_time_control=" auxinput4_inname = 'sst_d<domain>.nc',\n",
+        extra_physics=" sst_update = 1,\n")
+    write_namelist(tmp_path, text)
+    touch(tmp_path, "wrf.exe", "wrflowinp_d01")          # the default name does not count
+    fatals = [f for f in _c2(tmp_path) if f.severity == "FATAL"]
+    assert len(fatals) == 1 and "sst_d01.nc" in fatals[0].message
+    touch(tmp_path, "sst_d01.nc")
+    assert _c2(tmp_path) == []
+
+
+def test_c2_sst_update_off_ignores_wrflowinp(tmp_path):
+    write_namelist(tmp_path, one_domain_namelist())
+    touch(tmp_path, "wrf.exe")
+    assert _c2(tmp_path) == []
 
 
 def test_c6_start_date_mismatch_warns(tmp_path):

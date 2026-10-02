@@ -310,18 +310,74 @@ def check_c1_time_windows(nl, findings):
 
 
 # --------------------------------------------------------------------------
-# C2 -- iofields_filename (HANG) + out-of-block assignments (WARN)
+# C2 -- namelist-named files (iofields, sst_update wrflowinp: FATAL) + out-of-block lines (WARN)
 # --------------------------------------------------------------------------
 
-def check_c2_iofields(nl, run_dir, namelist_path, findings):
-    """Each domain's iofields_filename (when not 'NONE_SPECIFIED') must exist in run_dir, or
-    WRF 4.8 hangs FOREVER at init with no further output -- NOT a clean abort -- even with
-    ignore_iofields_warning=.true..
+IOFIELDS_HANG = ("WRF 4.8 hangs at input_input when the iofields file is missing, even with "
+                 "ignore_iofields_warning=.true.")
+IOFIELDS_EVIDENCE = ("climate-ea50 probe jobs 2541-2545 (scc, 2026-10-02: no step after "
+                     "'med_initialdata_input: calling input_input', 1260 s timeout); "
+                     "elevconv2022 (72 and 576 ranks)")
 
-    Real incident: /nfs/data/atlas-b/elevconv2022, 72 AND 576 ranks: log shows only 'Problem
-    opening storm_diags_d01.txt' (frame/module_domain.F) and then nothing ever again; the job
-    sat at full node occupancy until walltime. An empty file at that path is a legal iofields
-    file (zero extra fields) and avoids the hang entirely.
+
+def _namelist_file_names(nl, key, default, dom_index):
+    """Domain dom_index's (0-based) file name for namelist key `key` with WRF's '<domain>'
+    placeholder resolved; None for unset/'NONE_SPECIFIED'."""
+    fname = wp.g_dom(nl, "time_control", key, dom_index, default)
+    if not fname or not isinstance(fname, str):
+        return None
+    fname = fname.strip()
+    if fname.upper() in ("NONE_SPECIFIED", ""):
+        return None
+    return fname.replace("<domain>", "%02d" % (dom_index + 1))
+
+
+def _check_referenced_file(run_dir, wrf_run_dir, key, fname, domains, findings, fatal_msg,
+                           fix, evidence=""):
+    """A file the namelist names. In a RUN dir (one holding wrf.exe) it must exist there:
+    FATAL otherwise. In a case dir (no wrf.exe; wtune stages namelist-named files into every run
+    dir it builds -- campaign/configs.stage_namelist_files): INFO when the case dir or
+    --wrf-run-dir has it, FATAL when neither does."""
+    doms = ",".join("%d" % (d + 1) for d in domains)
+    full = _resolve_path(run_dir, fname)
+    is_run_dir = os.path.lexists(os.path.join(str(run_dir), "wrf.exe"))
+    if full.exists():
+        if not is_run_dir:
+            findings.append(Finding(
+                INFO, "C2", "%s=%r (domain %s) is in the case dir; wtune stages it into every "
+                "run dir it builds" % (key, fname, doms), evidence=str(full)))
+        return
+    if not is_run_dir and wrf_run_dir and not Path(fname).is_absolute() \
+            and (Path(wrf_run_dir) / fname).exists():
+        findings.append(Finding(
+            INFO, "C2", "%s=%r (domain %s) is not in the case dir but in --wrf-run-dir, which "
+            "every run dir links" % (key, fname, doms), evidence=str(Path(wrf_run_dir) / fname)))
+        return
+    where = ("the run dir" if is_run_dir else
+             "the case dir" + (" nor --wrf-run-dir" if wrf_run_dir else ""))
+    findings.append(Finding(
+        FATAL, "C2",
+        "%s=%r (domain %s) does not exist in %s: %s" % (key, fname, doms, where, fatal_msg),
+        evidence=str(full) + ("; " + evidence if evidence else ""),
+        fix=fix % full,
+    ))
+
+
+def check_c2_iofields(nl, run_dir, namelist_path, findings, wrf_run_dir=None):
+    """Files the namelist names that wrf.exe opens at init (_check_referenced_file decides
+    FATAL vs INFO by run dir vs case dir):
+
+    iofields_filename (each domain, when not 'NONE_SPECIFIED'): when missing WRF 4.8 hangs
+    FOREVER at init with no further output -- NOT a clean abort -- even with
+    ignore_iofields_warning=.true.. climate-ea50 (scc probe jobs 2541-2545): the case's
+    iofields_d01.txt was never staged into the probe dirs; every probe printed
+    'med_initialdata_input: calling input_input' and nothing else until its 1260 s timeout.
+    /nfs/data/atlas-b/elevconv2022, 72 AND 576 ranks: 'Problem opening storm_diags_d01.txt'
+    (frame/module_domain.F) and then nothing ever again. An empty file at that path is a legal
+    iofields file (zero extra fields) and avoids the hang entirely.
+
+    auxinput4_inname (default 'wrflowinp_d<domain>', every domain) when sst_update=1: wrf.exe
+    aborts when the lower-boundary file is missing.
 
     Also flags any out-of-block 'key = value' assignment (find_out_of_block_assignments) --
     elevconv2022's OWN namelist has a second iofields_filename line sitting between
@@ -329,22 +385,29 @@ def check_c2_iofields(nl, run_dir, namelist_path, findings):
     (in-block) iofields_filename line is the one that actually takes effect.
     """
     max_dom = wp.get_max_dom(nl)
+    refs = {}
     for d in range(max_dom):
-        fname = wp.g_dom(nl, "time_control", "iofields_filename", d, None)
-        if not fname or not isinstance(fname, str):
-            continue
-        if fname.strip().upper() in ("NONE_SPECIFIED", ""):
-            continue
-        full = _resolve_path(run_dir, fname)
-        if not full.exists():
-            findings.append(Finding(
-                HANG, "C2",
-                "iofields_filename=%r for domain %d does not exist" % (fname, d + 1),
-                evidence=str(full),
-                fix="create an empty file at %s (WRF 4.8 hangs at init instead of erroring "
-                    "when this is missing, even with ignore_iofields_warning=.true. -- "
-                    "elevconv2022 incident) or set iofields_filename='NONE_SPECIFIED'" % full,
-            ))
+        fname = _namelist_file_names(nl, "iofields_filename", None, d)
+        if fname:
+            refs.setdefault(("iofields_filename", fname), []).append(d)
+    sst_update = wp.g(nl, "physics", "sst_update", 0) or 0
+    if int(sst_update) == 1:
+        for d in range(max_dom):
+            fname = _namelist_file_names(nl, "auxinput4_inname", "wrflowinp_d<domain>", d)
+            if fname:
+                refs.setdefault(("auxinput4_inname", fname), []).append(d)
+    for (key, fname), doms in refs.items():
+        if key == "iofields_filename":
+            _check_referenced_file(
+                run_dir, wrf_run_dir, key, fname, doms, findings, IOFIELDS_HANG,
+                "stage the case's iofields file at %s, create an empty file there (zero extra "
+                "fields), or set iofields_filename='NONE_SPECIFIED'", IOFIELDS_EVIDENCE)
+        else:
+            _check_referenced_file(
+                run_dir, wrf_run_dir, key, fname, doms, findings,
+                "sst_update=1 requires this wrflowinp (lower-boundary SST) file",
+                "stage the wrflowinp file at %s (real.exe with sst_update=1 writes it), or set "
+                "sst_update=0")
 
     for lineno, key, raw_line in find_out_of_block_assignments(namelist_path):
         findings.append(Finding(
@@ -996,18 +1059,8 @@ def check_c6_input_consistency(nl, run_dir, findings):
             finally:
                 ds.close()
 
-    sst_update = wp.g(nl, "physics", "sst_update", 0) or 0
-    if int(sst_update) == 1:
-        for d in range(max_dom):
-            wrflowinp = run_dir / ("wrflowinp_d%02d" % (d + 1))
-            if not wrflowinp.exists():
-                findings.append(Finding(
-                    FATAL, "C6",
-                    "sst_update=1 requires wrflowinp_d%02d, which does not exist" % (d + 1),
-                    evidence=str(wrflowinp),
-                    fix="generate wrflowinp_d%02d (real.exe with sst_update=1 inputs), or set "
-                        "sst_update=0" % (d + 1),
-                ))
+    # sst_update=1's wrflowinp (auxinput4_inname) is checked in C2 with the other files the
+    # namelist names -- without needing netCDF4.
 
 
 # --------------------------------------------------------------------------
@@ -1485,7 +1538,8 @@ def run_checks(nl, run_dir, namelist_path, ranks=None, nproc_x=None, nproc_y=Non
     findings = []
     checks = [
         ("C1", lambda: check_c1_time_windows(nl, findings)),
-        ("C2", lambda: check_c2_iofields(nl, run_dir, namelist_path, findings)),
+        ("C2", lambda: check_c2_iofields(nl, run_dir, namelist_path, findings,
+                                          wrf_run_dir=wrf_run_dir)),
         ("C3", lambda: check_c3_physics_files(nl, run_dir, findings, wrf_run_dir=wrf_run_dir)),
         ("C4", lambda: check_c4_aerosol_climatology(nl, run_dir, findings)),
         ("C5", lambda: check_c5_met_em_naming(nl, run_dir, findings)),

@@ -2209,6 +2209,197 @@ def _cmd_step_stats(argv):
     return 0
 
 
+# ---------------------------------------------------------------------------
+# files the namelist names (staging into a run dir)
+# ---------------------------------------------------------------------------
+# A run dir used to be staged from the case's input_files plus wrfinput/wrfbdy only; files the
+# NAMELIST references were never staged. climate-ea50 (2026-10-02, scc probe jobs 2541-2545): the
+# case sets iofields_filename = "iofields_d01.txt", the probe dirs lacked it, and WRF 4.8 hung
+# forever after "med_initialdata_input: calling input_input" (ignore_iofields_warning=.true. does
+# not help) -- every probe ran into its 1260 s timeout with 0 steps. WRF expands "<domain>" to the
+# 2-digit domain id; a name still carrying "<date>" (or any other <...>) is globbed.
+_NML_REF_SKIP_AUXINPUT = (1, 4)   # 1 = met_em (real.exe only); 4 = wrflowinp, via sst_update
+
+
+def _namelist_string_values(text, key):
+    """Value tokens of the LAST non-comment assignment of `key` (case-insensitive), quotes
+    stripped; None when the key is not assigned. Stops at an unquoted '!' or at a token that
+    holds '=' (the next key on a packed line)."""
+    pat = re.compile(r"(?<![A-Za-z0-9_])%s[ \t]*=[ \t]*" % re.escape(key), re.I)
+    found = None
+    for line in text.splitlines():
+        if line.lstrip().startswith("!"):
+            continue
+        m = None
+        for m in pat.finditer(line):
+            pass
+        if m is None:
+            continue
+        rest = line[m.end():]
+        vals, i, n = [], 0, len(rest)
+        while i < n:
+            c = rest[i]
+            if c in " \t,":
+                i += 1
+            elif c in "'\"":
+                j = rest.find(c, i + 1)
+                j = n if j == -1 else j
+                vals.append(rest[i + 1:j])
+                i = j + 1
+            elif c == "!":
+                break
+            else:
+                j = i
+                while j < n and rest[j] not in " \t,!":
+                    j += 1
+                tok = rest[i:j]
+                if "=" in tok:
+                    break
+                vals.append(tok)
+                i = j
+        found = vals
+    return found
+
+
+def _namelist_ints(text, key):
+    out = []
+    for v in _namelist_string_values(text, key) or []:
+        try:
+            out.append(int(v.split("*")[-1]))
+        except ValueError:
+            out.append(0)
+    return out
+
+
+def namelist_file_refs(text):
+    """[(key, name, required), ...] files wrf.exe opens because the namelist names them
+    ('<domain>' resolved per active domain; '<date>' left in -- a glob pattern):
+      iofields_filename (per domain; not NONE_SPECIFIED)              required
+      auxinput4_inname (default wrflowinp_d<domain>) when sst_update=1 required
+      gfdda_inname (wrffdda_d<domain>) for domains with grid_fdda>0    required
+      sgfdda_inname (wrfsfdda_d<domain>) for domains with grid_sfdda>0 required
+      auxinput<N>_inname set in the namelist (N != 1, 4)               staged when present
+      OBS_DOMAIN<d>* for domains with obs_nudge_opt=1                  staged when present
+      tslist (wrf.exe reads it when present)                           staged when present"""
+    max_dom = (_namelist_ints(text, "max_dom") or [1])[0] or 1
+    doms = range(1, max_dom + 1)
+
+    def per_dom(values, d):          # WRF's per-domain arrays: an absent entry keeps the default
+        return values[d - 1] if values and d - 1 < len(values) else None
+
+    def expand(name):
+        name = name.strip()
+        return ([name.replace("<domain>", "%02d" % d) for d in doms] if "<domain>" in name
+                else [name])
+
+    refs = []
+
+    def add(key, names, required):
+        for nm in names:
+            if nm and (key, nm, required) not in refs:
+                refs.append((key, nm, required))
+
+    io = _namelist_string_values(text, "iofields_filename") or []
+    for d in doms:
+        v = per_dom(io, d)
+        if v and v.strip().upper() != "NONE_SPECIFIED":
+            add("iofields_filename", [v.strip().replace("<domain>", "%02d" % d)], True)
+    if (_namelist_ints(text, "sst_update") or [0])[0] == 1:
+        nm = (_namelist_string_values(text, "auxinput4_inname") or ["wrflowinp_d<domain>"])[0]
+        add("auxinput4_inname", expand(nm), True)
+    for flag, key, default in (("grid_fdda", "gfdda_inname", "wrffdda_d<domain>"),
+                               ("grid_sfdda", "sgfdda_inname", "wrfsfdda_d<domain>")):
+        on = _namelist_ints(text, flag)
+        nm = (_namelist_string_values(text, key) or [default])[0].strip()
+        for d in doms:
+            if (per_dom(on, d) or 0) > 0:
+                add(key, [nm.replace("<domain>", "%02d" % d)], True)
+    streams = re.findall(r"(?i)(?<![A-Za-z0-9_])auxinput(\d+)_inname", text)
+    for m in sorted(set(int(x) for x in streams)):
+        if m in _NML_REF_SKIP_AUXINPUT:
+            continue
+        v = _namelist_string_values(text, "auxinput%d_inname" % m)
+        if v:
+            add("auxinput%d_inname" % m, expand(v[0]), False)
+    obs = _namelist_ints(text, "obs_nudge_opt")
+    for d in doms:
+        if per_dom(obs, d) == 1:
+            add("obs_nudge_opt", ["OBS_DOMAIN%d*" % d], False)
+    add("tslist", ["tslist"], False)
+    return refs
+
+
+def stage_namelist_files(text, run_dir, search_dirs):
+    """Symlink every relative file namelist_file_refs(text) names that is absent from run_dir,
+    from the first of search_dirs holding it ('sub/name' gets its parent dir created; an existing
+    entry is never replaced; a '..' or absolute name is only checked, never staged). Returns
+    {"linked": [(key, name, src)], "present": [(key, name)], "missing": [(key, name)]} --
+    missing = required and found nowhere, left absent for the caller to report."""
+    import glob as _glob
+    out = {"linked": [], "present": [], "missing": []}
+    dirs = []
+    for s in search_dirs:
+        if s and os.path.isdir(s) and os.path.abspath(s) not in dirs:
+            dirs.append(os.path.abspath(s))
+    for key, name, required in namelist_file_refs(text):
+        pattern = re.sub(r"<[^>]*>", "*", name)
+        rel = os.path.normpath(pattern)
+        if os.path.isabs(rel) or rel.split(os.sep)[0] == "..":
+            if _glob.glob(rel if os.path.isabs(rel) else os.path.join(run_dir, rel)):
+                out["present"].append((key, name))
+            elif required:
+                out["missing"].append((key, name))
+            continue
+        if _glob.glob(os.path.join(run_dir, rel)):
+            out["present"].append((key, name))
+            continue
+        srcs = []
+        for d in dirs:
+            srcs = sorted(_glob.glob(os.path.join(d, rel)))
+            if srcs:
+                break
+        if not srcs:
+            if required:
+                out["missing"].append((key, name))
+            continue
+        for src in srcs:
+            dst = os.path.join(run_dir, os.path.relpath(src, d))
+            if os.path.lexists(dst):
+                continue
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            os.symlink(src, dst)
+            out["linked"].append((key, os.path.relpath(src, d), src))
+    return out
+
+
+def format_namelist_stage(result, search_dirs):
+    """Log lines for stage_namelist_files' result (missing ones as WARNING lines)."""
+    lines = ["namelist file: linked %s (%s) from %s" % (n, k, s) for k, n, s in result["linked"]]
+    where = " / ".join(d for d in search_dirs if d) or "(no search dir)"
+    for k, n in result["missing"]:
+        lines.append("WARNING: the namelist's %s names %s, which exists neither in the run dir "
+                     "nor in %s -- left absent%s"
+                     % (k, n, where, " (WRF 4.8 hangs at input_input when the iofields file is "
+                                     "missing, even with ignore_iofields_warning=.true.)"
+                        if k == "iofields_filename" else ""))
+    return lines
+
+
+def _cmd_link_namelist_files(argv):
+    """configs.py link-namelist-files NAMELIST RUN_DIR SEARCH_DIR... (from a staged run dir, once
+    namelist.input is final): stage_namelist_files + its log lines; exits 0 (a missing file is
+    reported, not fatal -- `wtune check` is the gate)."""
+    if len(argv) < 2:
+        sys.stderr.write("usage: configs.py link-namelist-files NAMELIST RUN_DIR SEARCH_DIR...\n")
+        return 2
+    with open(argv[0]) as f:
+        text = f.read()
+    res = stage_namelist_files(text, argv[1], argv[2:])
+    for line in format_namelist_stage(res, argv[2:]):
+        (sys.stderr if line.startswith("WARNING") else sys.stdout).write(line + "\n")
+    return 0
+
+
 def _cmd_quota_free_gib(argv):
     ap = argparse.ArgumentParser(prog="configs.py quota-free-gib")
     ap.add_argument("--filesystem", default="home1")
@@ -2239,7 +2430,8 @@ def main(argv=None):
             "physics-order CASE_ID [--pconfigs P01+P02+...] [--reps N] | "
             "physics-describe CASE_ID TEMPLATE_ID | "
             "fidelity-tokens FIDELITY_JSON | "
-            "quota-free-gib [--filesystem home1] (reads mmlsquota text on stdin)\n"
+            "quota-free-gib [--filesystem home1] (reads mmlsquota text on stdin) | "
+            "link-namelist-files NAMELIST RUN_DIR SEARCH_DIR...\n"
             "CONFIG_FILE=path.json env (predictor/decomp_space.py to_campaign_configs/sample "
             "output): CASE_ID and order CASE_ID measure that generated config set instead of "
             "the fixed C01-C16 STRICT templates, and decomp-pair resolves DECOMP/TWIN_DECOMP "
@@ -2257,6 +2449,8 @@ def main(argv=None):
         return _cmd_point_plan(argv[1:])
     if argv[0] == "quota-free-gib":
         return _cmd_quota_free_gib(argv[1:])
+    if argv[0] == "link-namelist-files":
+        return _cmd_link_namelist_files(argv[1:])
     if argv[0] == "physics-list":
         return cmd_physics_list(argv[1:])
     if argv[0] == "physics-order":

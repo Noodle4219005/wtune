@@ -627,3 +627,127 @@ def test_out_inside_case_refused(tmp_path):
     case = _make_case(tmp_path)
     assert wr.main([str(case), "--nodes", "1", "--nx", "8", "--ny", "9",
                     "--out", str(case / "out"), "--dry-run"], log=lambda s: None) == 2
+
+
+# ---------------------------------------------------------------------------
+# 0.8.2 (climate-ea50): the case's restart cadence is kept; namelist-named files are staged
+# ---------------------------------------------------------------------------
+_RST_LINE = " restart_interval                    = 7200,"
+
+
+def _with_restart(minutes, text=NAMELIST_3DOM):
+    return text.replace(_RST_LINE, " restart_interval                    = %d," % minutes)
+
+
+def test_restart_setting_one_segment_keeps_case_interval_below_run_length(tmp_path):
+    g = _geo(tmp_path)                                      # 12 h of 60 s steps
+    keep = wr.restart_setting(g, None, 720, 180 * 60.0)
+    assert keep["set_min"] is None and keep["cadence_s"] == 10800.0
+    assert "kept" in keep["label"] and "03:00:00" in keep["label"]
+    assert wr.restart_write_steps(g, 0, 720, 10800.0) == [180, 360, 540, 720]
+    off = wr.restart_setting(g, None, 720, 7200 * 60.0)    # >= run length: nothing to keep
+    assert off["set_min"] == wr.RESTART_OFF_MIN and off["cadence_s"] is None
+    assert "off (one segment" in off["label"]
+    assert wr.restart_setting(g, None, 720, 0.0)["set_min"] == wr.RESTART_OFF_MIN
+
+
+def test_restart_setting_segments_keep_a_dividing_case_interval_else_set_L(tmp_path):
+    g = _geo(tmp_path)
+    keep = wr.restart_setting(g, 360, 720, 120 * 60.0)     # 2 h divides the 6 h quantum
+    assert keep["set_min"] is None and keep["cadence_s"] == 7200.0
+    odd = wr.restart_setting(g, 360, 720, 250 * 60.0)
+    assert odd["set_min"] == 360 and odd["cadence_s"] == 21600.0
+    assert "does not divide" in odd["label"]
+    assert wr.restart_setting(g, 360, 720, 0.0)["set_min"] == 360
+
+
+def test_restart_write_steps_off_grid_cadence_rounds_up(tmp_path):
+    g = _geo(tmp_path)
+    assert wr.restart_write_steps(g, 0, 10, 90.0) == [2, 3, 5, 6, 8, 9]
+    assert wr.restart_write_steps(g, 3, 9, 90.0) == [5, 6, 8, 9]
+    assert wr.restart_write_steps(g, 0, 10, None) == []
+
+
+def test_kept_restart_writes_are_in_the_predicted_wall(tmp_path):
+    g = _geo(tmp_path)
+    over = wr.overheads(restart_write_s=50.0)
+    comp = wr.constant_compute_fn(1.0)
+    _L, one_off = wr.plan_run(g, 720, [{"config": _cfg(), "compute": comp}], over)
+    _L, one_kept = wr.plan_run(g, 720, [{"config": _cfg(), "compute": comp}], over,
+                               case_restart_s=180 * 60.0)
+    assert one_kept[0]["predicted_wall_s"] - one_off[0]["predicted_wall_s"] == pytest.approx(200.0)
+    L, segs = wr.plan_run(g, 720, [{"config": _cfg(), "compute": comp}], over,
+                          segment_minutes=360, case_restart_s=120 * 60.0)
+    base = wr.segment_wall(g, comp, over, 0, 360, None)
+    assert segs[0]["predicted_wall_s"] == pytest.approx(base + 3 * 50.0)      # 2, 4, 6 h
+
+
+def test_namelist_none_leaves_case_restart_keys(tmp_path):
+    base = NAMELIST_3DOM.replace(_RST_LINE, _RST_LINE + "\n restart_interval_h = 5,")
+    txt = wr.render_segment_namelist(base, _dt("2020-06-01_00:00:00"), _dt("2020-06-01_06:00:00"),
+                                     1, _cfg(), None)
+    tc = _nl_from_text(tmp_path, txt)["time_control"]
+    assert tc["restart_interval"] == [7200] and tc["restart_interval_h"] == [5]
+    assert tc["restart"] == [True]
+
+
+def test_single_segment_run_keeps_case_restart_interval(tmp_path):
+    """climate-ea50: one segment used to get restart_interval = 1000000 -> no checkpoint."""
+    case = _make_case(tmp_path, _with_restart(180))
+    out = tmp_path / "out"
+    f = Fakes()
+    lines = []
+    rc = wr.main([str(case), "--nodes", "1", "--nx", "8", "--ny", "9", "--out", str(out),
+                  "--poll-interval", "0"], sbatch_runner=f.sbatch, sacct_runner=f.sacct,
+                 snapshot_fn=f.snapshot, sleep=lambda s: None, log=lines.append)
+    assert rc == 0 and len(f.submitted) == 1
+    assert "1 segment(s), restart every 03:00:00 (case's restart_interval kept; one segment)" \
+        in lines[0]
+    tc = wp.parse_namelist(str(out / "seg_0" / "namelist.input"))["time_control"]
+    assert tc["restart_interval"] == [180]
+    rep = json.loads((out / "run_report.json").read_text())
+    assert rep["restart_interval_source"] == "case" and rep["restart_cadence_s"] == 10800.0
+    xml = (out / "seg_0" / "adios2.xml").read_text()
+    for t in ("03", "06", "09", "12"):
+        assert "wrfrst_d01_2020-06-01_%s:00:00" % t in xml
+
+
+def test_single_segment_run_without_case_restart_stays_off(tmp_path):
+    _make_case(tmp_path)                                     # restart_interval 7200 > 12 h
+    lines = []
+    rc = wr.main([str(tmp_path / "case"), "--nodes", "1", "--nx", "8", "--ny", "9",
+                  "--out", str(tmp_path / "o"), "--dry-run"], log=lines.append)
+    assert rc == 0 and "restart off (one segment; case restart_interval" in lines[0]
+
+
+def test_setup_segment_dir_stages_namelist_named_files(tmp_path):
+    case = _make_case(tmp_path)
+    (case / "io").mkdir()
+    (case / "io" / "fields_d02.txt").write_text("x")
+    (case / "namelist.iofields").write_text("x")             # skipped by the namelist.* rule
+    (case / "wrflowinp_d01").write_text("x")
+    nml = _with_restart(180).replace(
+        " io_form_history                     = 2",
+        " iofields_filename = 'namelist.iofields', 'io/fields_d02.txt', 'gone_d03.txt',\n"
+        " io_form_history                     = 2")
+    before = _tree_state(case)
+    seg = tmp_path / "out" / "seg_0"
+    res = wr.setup_segment_dir(str(case), str(seg), nml)
+    assert os.readlink(seg / "io" / "fields_d02.txt") == str(case / "io" / "fields_d02.txt")
+    assert os.readlink(seg / "namelist.iofields") == str(case / "namelist.iofields")
+    assert res["missing"] == [("iofields_filename", "gone_d03.txt")]
+    assert _tree_state(case) == before
+
+
+def test_missing_iofields_is_a_plan_warning(tmp_path):
+    nml = NAMELIST_3DOM.replace(" io_form_history                     = 2",
+                                ' iofields_filename = "iofields_d01.txt",\n'
+                                " io_form_history                     = 2")
+    _make_case(tmp_path, nml)
+    lines = []
+    rc = wr.main([str(tmp_path / "case"), "--nodes", "1", "--nx", "8", "--ny", "9",
+                  "--out", str(tmp_path / "o"), "--dry-run"], log=lines.append)
+    assert rc == 0
+    warn = [ln for ln in lines if "WARNING" in ln]
+    assert len(warn) == 1 and "iofields_d01.txt" in warn[0]
+    assert "hangs at input_input" in warn[0]

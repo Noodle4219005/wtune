@@ -320,11 +320,14 @@ def reflectivity_2km_figure(path, time_str, centre, out_path, run_label, domain)
         fig.colorbar(cf, ax=ax, shrink=0.9, ticks=DBZ_LEVELS,
                      label="reflectivity at 2 km AGL (dBZ, NWS table)")
         handles = []
+        box_kt = spd_kt[sl]
+        top_kt = float(np.nanmax(box_kt)) if np.isfinite(box_kt).any() else -np.inf
         for kt, lw in zip(WIND_RADII_KT, (0.8, 1.3, 1.9)):
-            if np.nanmax(spd_kt[sl]) >= kt:
-                ax.contour(X_, Y_, spd_kt[sl], levels=[kt], colors="k",
+            if top_kt >= kt:            # legend lists only the wind-radius contours drawn
+                ax.contour(X_, Y_, box_kt, levels=[kt], colors="k",
                            linewidths=lw, transform=crs)
-            handles.append(Line2D([], [], color="k", lw=lw, label="10 m wind %d kt" % kt))
+                handles.append(Line2D([], [], color="k", lw=lw, label="10 m wind %d kt" % kt))
+        no_kt = "" if top_kt >= WIND_RADII_KT[0] else "; no 10 m wind >= %d kt" % WIND_RADII_KT[0]
         if np.isfinite(rmw):
             th = np.linspace(0, 2 * np.pi, 121)
             rx = ic + rmw / dx * np.cos(th)
@@ -343,8 +346,8 @@ def reflectivity_2km_figure(path, time_str, centre, out_path, run_label, domain)
         note = cl.grid_limit_note(dx)
         ax.set_title(cl.wrap_title(
             "%s  d%02d  reflectivity at 2 km AGL, storm-centred %.0f x %.0f km (clipped to "
-            "domain) + 10 m wind 34/50/64 kt + RMW; centre: %s%s\n%s"
-            % (run_label, domain, 2 * BOX_HALF_KM, 2 * BOX_HALF_KM, source,
+            "domain) + 10 m wind 34/50/64 kt + RMW; centre: %s%s%s\n%s"
+            % (run_label, domain, 2 * BOX_HALF_KM, 2 * BOX_HALF_KM, source, no_kt,
                ("\n" + note) if note else "", ds_time_label(ds, time_str))), fontsize=9)
         fig.savefig(out_path)
         cl._plt().close(fig)
@@ -397,18 +400,19 @@ def _rz_axes():
 def _rz_finish(fig, ax, rz, title, out_path, handles=()):
     import numpy as np
     ter = np.nan_to_num(rz["ter_km"], nan=0.0)
+    handles = list(handles)
     if np.nanmax(ter) > 0:
         ax.fill_between(rz["r"], 0, ter, facecolor="0.85", edgecolor="0.4", hatch="////",
                         zorder=6)
-    from matplotlib.patches import Patch
-    handles = list(handles) + [Patch(facecolor="0.85", edgecolor="0.4", hatch="////",
-                                     label="below ground (azimuthal-mean terrain)")]
+        from matplotlib.patches import Patch
+        handles.append(Patch(facecolor="0.85", edgecolor="0.4", hatch="////",
+                             label="below ground (azimuthal-mean terrain)"))
     ax.set_xlim(0, R_MAX_KM)
     ax.set_ylim(0, Z_TOP_KM)
     ax.set_xlabel("radius from centre (km)")
     ax.set_ylabel("height MSL (km)")
-    fig.legend(handles=handles, loc="outside lower center", ncol=min(len(handles), 4),
-               fontsize=7, frameon=False)
+    cl.figure_legend(fig, handles, loc="outside lower center", ncol=max(min(len(handles), 4), 1),
+                     fontsize=7, frameon=False)
     ax.set_title(cl.wrap_title(title), fontsize=9)
     fig.savefig(out_path)
     cl._plt().close(fig)
@@ -432,10 +436,11 @@ def rz_wind_figure(rz, out_path, run_label, domain, tlabel):
     if np.isfinite(vt).any():
         cf = ax.contourf(rz["r"], rz["z_km"], vt, levels=levels, cmap="YlOrRd", extend="both")
         fig.colorbar(cf, ax=ax, label="tangential wind V$_t$ (m s$^{-1}$, 5 m s$^{-1}$ steps)")
-        if np.nanmin(vt) <= -5.0:
-            neg = np.arange(-5.0 * math.ceil(-np.nanmin(vt) / 5.0), -4.9, 5.0)
-            ax.contour(rz["r"], rz["z_km"], vt, levels=neg, colors="k", linewidths=0.6,
-                       linestyles="dashed")
+    has_neg = bool(np.isfinite(vt).any() and np.nanmin(vt) <= -5.0)
+    if has_neg:
+        neg = np.arange(-5.0 * math.ceil(-np.nanmin(vt) / 5.0), -4.9, 5.0)
+        ax.contour(rz["r"], rz["z_km"], vt, levels=neg, colors="k", linewidths=0.6,
+                   linestyles="dashed")
     sr = max(1, len(rz["r"]) // 25)
     sz = 2
     q = ax.quiver(rz["r"][::sr], rz["z_km"][::sz], rz["vr"][::sz, ::sr],
@@ -444,11 +449,15 @@ def rz_wind_figure(rz, out_path, run_label, domain, tlabel):
     ax.quiverkey(q, 0.95, 0.95, 10.0, "10 m s$^{-1}$ (V$_r$); w drawn x%g" % W_VECTOR_SCALE,
                  labelpos="W", coordinates="axes", fontproperties={"size": 7},
                  labelcolor="k", zorder=8)
-    ax.plot(rz["rmw"], rz["z_km"], "b-", lw=1.6)
-    handles = [Line2D([], [], color="b", lw=1.6, label="RMW(z)"),
-               Line2D([], [], color="0.15", marker=r"$\rightarrow$", ls="none",
-                      label="(V$_r$, %g x w) vectors" % W_VECTOR_SCALE),
-               Line2D([], [], color="k", ls="--", lw=0.6, label="V$_t$ < 0 (every 5 m s$^{-1}$)")]
+    handles = []
+    if np.isfinite(np.asarray(rz["rmw"], "f8")).any():
+        ax.plot(rz["rmw"], rz["z_km"], "b-", lw=1.6)
+        handles.append(Line2D([], [], color="b", lw=1.6, label="RMW(z)"))
+    handles.append(Line2D([], [], color="0.15", marker=r"$\rightarrow$", ls="none",
+                          label="(V$_r$, %g x w) vectors" % W_VECTOR_SCALE))
+    if has_neg:
+        handles.append(Line2D([], [], color="k", ls="--", lw=0.6,
+                              label="V$_t$ < 0 (every 5 m s$^{-1}$)"))
     return _rz_finish(fig, ax, rz, _rz_head(run_label, domain, "tangential wind (fill), "
                                             "secondary circulation (V$_r$, w) vectors, RMW(z)",
                                             rz, tlabel), out_path, handles)
@@ -467,7 +476,8 @@ def rz_warmcore_figure(rz, out_path, run_label, domain, tlabel):
         tl = np.arange(10.0 * math.floor(np.nanmin(th) / 10.0), np.nanmax(th) + 10.0, 10.0)
         cs = ax.contour(rz["r"], rz["z_km"], th, levels=tl, colors="k", linewidths=0.6)
         ax.clabel(cs, inline=True, fontsize=6, fmt="%d")
-    handles = [Line2D([], [], color="k", lw=0.6, label="theta (K, every 10 K)")]
+    handles = ([Line2D([], [], color="k", lw=0.6, label="theta (K, every 10 K)")]
+               if np.isfinite(th).any() else [])
     return _rz_finish(fig, ax, rz, _rz_head(
         run_label, domain, "temperature anomaly T' = <T>(r,z) minus the %s at the same height"
         % annulus_label(rz["annulus"]), rz, tlabel), out_path, handles)
@@ -507,8 +517,9 @@ def xsec_figure(path, time_str, centre, out_path, run_label, domain):
     norm = BoundaryNorm(DBZ_LEVELS, cm.N, extend="max")
     plt = cl._plt()
     fig, axes = plt.subplots(2, 1, figsize=(9.5, 8.6), layout="constrained")
-    handles = []
     cf = None
+    w_all, t_all = [], []
+    iso = [(0.0, "solid", 1.6, "0 °C"), (-20.0, "dashed", 1.0, "-20 °C")]
     for ax, (name, ux, uy, sign) in zip(axes, (("W-E (grid x)", 1.0, 0.0, "east"),
                                                ("S-N (grid y)", 0.0, 1.0, "north"))):
         start, end, _ = cl.line_endpoints(ic, jc, ux, uy, BOX_HALF_KM / dx, nx, ny)
@@ -520,9 +531,10 @@ def xsec_figure(path, time_str, centre, out_path, run_label, domain):
         f = np.where(ds_ < DBZ_LEVELS[0], np.nan, ds_)
         if np.isfinite(f).any():
             cf = ax.contourf(x, y, f, levels=DBZ_LEVELS, cmap=cm, norm=norm, extend="max")
-        handles = cl.draw_w_contours(ax, x, y, ws)
-        handles += cl.draw_isotherms(ax, x, y, ts, [(0.0, "solid", 1.6, "0 °C"),
-                                                    (-20.0, "dashed", 1.0, "-20 °C")])
+        cl.draw_w_contours(ax, x, y, ws)
+        cl.draw_isotherms(ax, x, y, ts, iso)
+        w_all.append(ws)
+        t_all.append(ts)
         cl.draw_terrain(ax, x, cl.line_values(hgt, xy) / 1000.0)
         ax.set_xlim(-BOX_HALF_KM, BOX_HALF_KM)
         ax.set_ylim(0, Z_TOP_KM)
@@ -533,8 +545,11 @@ def xsec_figure(path, time_str, centre, out_path, run_label, domain):
         from matplotlib.cm import ScalarMappable
         cf = ScalarMappable(norm=norm, cmap=cm)
     fig.colorbar(cf, ax=list(axes), ticks=DBZ_LEVELS, label="reflectivity (dBZ, NWS table)")
-    fig.legend(handles=handles, loc="outside lower center", ncol=len(handles), fontsize=7,
-               frameon=False)
+    # legend from BOTH panels, listing only the contour levels actually drawn
+    handles = (cl.w_contour_handles(cl.flat_all(w_all))
+               + cl.isotherm_handles(cl.flat_all(t_all), iso))
+    cl.figure_legend(fig, handles, loc="outside lower center", ncol=max(len(handles), 1),
+                     fontsize=7, frameon=False)
     note = cl.grid_limit_note(dx)
     fig.suptitle(cl.wrap_title(
         "%s  d%02d  sections through the storm centre (%s), +-%.0f km (clipped to domain): "

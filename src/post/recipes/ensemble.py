@@ -83,8 +83,8 @@ def plot_spaghetti(run_dirs, labels, domain, time_str, out_path, contour_level=N
         ax.plot(lons[j, i], lats[j, i], "*", color=color, ms=13, mec="k",
                 transform=ccrs.PlateCarree(), label="%s (min %.0f hPa)" % (label, arr[j, i]))
     _draw_coast(ax, ccrs, lats0, lons0, lm0)
-    gl = ax.gridlines(draw_labels=True, linewidth=0.3, x_inline=False, y_inline=False)
-    gl.top_labels = gl.right_labels = False
+    from post.basemap import outer_gridlines
+    outer_gridlines(ax)
     ax.set_title("ensemble spaghetti: SLP=%g hPa contour, stars = member SLP minimum\n%s (%d members)"
                  % (level, time_str, len(run_dirs)), fontsize=9)
     ax.legend(fontsize=7, loc="lower left")
@@ -123,8 +123,8 @@ def plot_probability(run_dirs, domain, time_str, out_path, threshold_mm=25.0):
                       label="members exceeding (%%), N = %d" % n)
     cb.ax.set_yticklabels(["%g" % (k / n * 100.0) for k in range(n + 1)])
     _draw_coast(ax, ccrs, lats, lons, lm)
-    gl = ax.gridlines(draw_labels=True, linewidth=0.3, x_inline=False, y_inline=False)
-    gl.top_labels = gl.right_labels = False
+    from post.basemap import outer_gridlines
+    outer_gridlines(ax)
     ax.set_title("fraction of %d members with rain accumulated since t0 >= %g mm, valid %s\n"
                  "(lateral boundary zone blanked)" % (n, threshold_mm, time_str), fontsize=9)
     fig.tight_layout()

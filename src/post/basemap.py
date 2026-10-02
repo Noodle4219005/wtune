@@ -10,7 +10,7 @@ add_base_map(ax, ...) draws, above the filled field:
     on any projection and never triggers a download;
   * terrain contours (HGT of the same domain), light grey, interval adapted to the relief, a few
     labelled;
-  * lat/lon gridlines with tick labels (cartopy axes);
+  * lat/lon gridlines with tick labels outside the frame only (cartopy axes; outer_gridlines);
   * the outline of every nested child domain as a dashed box (derived from the open wrfout);
   * a one-line caption (figure bottom) naming the layers, source and licence.
 Without any Natural Earth coastline file it falls back to the LANDMASK=0.5 contour and says so in
@@ -147,13 +147,41 @@ def _bbox(lats, lons, pad=1.0):
             float(lats[ok].min()) - pad, float(lats[ok].max()) + pad)
 
 
-def _gridlines(ax, ccrs_mod):
-    gl = ax.gridlines(draw_labels=True, linewidth=0.3, alpha=0.5, color="0.4")
-    gl.top_labels = False
-    gl.right_labels = False
-    gl.xlabel_style = {"size": 7}
-    gl.ylabel_style = {"size": 7}
+def outer_gridlines(ax, left=True, bottom=True, **line_kw):
+    """Lat/lon gridlines whose labels sit OUTSIDE the map frame only: longitude along the bottom
+    edge, latitude along the left edge, never inline (x/y_inline=False: on a Lambert-conformal
+    WRF map cartopy otherwise writes a row of longitude labels across the interior), never
+    top/right, never rotated. left/bottom=False drop that edge (inner panels of a multi-panel
+    figure)."""
+    sides = {}
+    if bottom:
+        sides["bottom"] = "x"
+    if left:
+        sides["left"] = "y"
+    kw = dict(linewidth=0.3, alpha=0.5, color="0.4")
+    kw.update(line_kw)
+    gl = ax.gridlines(draw_labels=sides or False, x_inline=False, y_inline=False,
+                      rotate_labels=False, **kw)
+    gl.top_labels = gl.right_labels = False
+    gl.left_labels = "y" if left else False
+    gl.bottom_labels = "x" if bottom else False
+    gl.xlabel_style = {"size": 7, "rotation": 0}
+    gl.ylabel_style = {"size": 7, "rotation": 0}
     return gl
+
+
+def _gridlines(ax, ccrs_mod):
+    return outer_gridlines(ax)
+
+
+CAPTION_FONTSIZE = 5.5
+
+
+def caption_rect(fig):
+    """Layout rect (left, bottom, right, top) keeping a strip at the figure bottom free for the
+    base-map caption, so it never overprints the bottom-edge longitude labels. Pass it to
+    fig.tight_layout(rect=...); constrained-layout figures get it from add_base_map itself."""
+    return (0.0, 2.2 * CAPTION_FONTSIZE / 72.0 / fig.get_figheight(), 1.0, 1.0)
 
 
 def add_base_map(ax, ccrs_mod=None, ds=None, lats=None, lons=None, hgt=None, labels=True,
@@ -250,7 +278,14 @@ def add_base_map(ax, ccrs_mod=None, ds=None, lats=None, lons=None, hgt=None, lab
         parts.append("dashed: %s outline" % "/".join("d%02d" % d for d, _, _ in rings))
     text = "Base map -- " + "; ".join(parts)
     if caption:
-        ax.figure.text(0.005, 0.003, text, fontsize=5.5, color="0.3", ha="left", va="bottom")
+        fig = ax.figure
+        fig.text(0.005, 0.003, text, fontsize=CAPTION_FONTSIZE, color="0.3", ha="left",
+                 va="bottom")
+        from matplotlib.layout_engine import ConstrainedLayoutEngine
+        if isinstance(fig.get_layout_engine(), ConstrainedLayoutEngine):
+            # constrained-layout rect is (left, bottom, WIDTH, HEIGHT), unlike tight_layout's
+            bottom = caption_rect(fig)[1]
+            fig.get_layout_engine().set(rect=(0.0, bottom, 1.0, 1.0 - bottom))
     return dict(layers=drawn, resolution=used_res, terrain_interval_m=interval, gridliner=gl,
                 caption=text, landmask_fallback=landmask_fallback, nest=[d for d, _, _ in rings])
 

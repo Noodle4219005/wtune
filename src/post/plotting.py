@@ -198,7 +198,8 @@ def plot_field(run_dir, field, out_dir, domain=1, times=None, level_hpa=None,
             lev_tag = ("_%dhPa" % int(level_hpa)) if level_hpa is not None else ""
             out_path = os.path.join(out_dir, "%s_d%02d_%s%s.%s"
                                     % (field, domain, time_str.replace(":", ""), lev_tag, fmt))
-            fig.tight_layout()
+            from post.basemap import caption_rect
+            fig.tight_layout(rect=caption_rect(fig))
             fig.savefig(out_path)
             plt.close(fig)
             written.append(out_path)

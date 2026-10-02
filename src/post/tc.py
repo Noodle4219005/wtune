@@ -915,8 +915,8 @@ def _track_map_figure(out_dir, model_tracks, bdeck, storm_id, dom_dx=None):
         ax = fig.add_subplot(1, 1, 1, projection=ccrs.PlateCarree())
         # coastline/lakes/borders/states come from the shared base map after the tracks set
         # the extent (below)
-        gl = ax.gridlines(draw_labels=True, linewidth=0.3, color="0.8")
-        gl.top_labels = gl.right_labels = False
+        from post.basemap import outer_gridlines
+        outer_gridlines(ax, color="0.8", alpha=1.0)
         kw = dict(transform=ccrs.PlateCarree())
     else:
         fig, ax = plt.subplots(figsize=(7, 6))

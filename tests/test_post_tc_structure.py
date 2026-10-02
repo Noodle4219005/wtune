@@ -400,3 +400,63 @@ def test_no_code_paths_in_captions():
             for lang in ("zh", "en"):
                 for text in entry[lang].values():
                     assert not re.search(r"post/|\.py\b", text), (fid, lang, text)
+
+
+# ---------------------------------------------------------------- legends list only what is drawn
+
+def _capture_legends_and_titles(monkeypatch):
+    import matplotlib.axes
+    import matplotlib.figure
+    legends, titles = [], []
+    real_legend = matplotlib.figure.Figure.legend
+    real_title = matplotlib.axes.Axes.set_title
+
+    def legend(self, *a, **kw):
+        legends.append([h.get_label() for h in kw.get("handles", [])])
+        return real_legend(self, *a, **kw)
+
+    def set_title(self, label, *a, **kw):
+        titles.append(" ".join(label.split()))
+        return real_title(self, label, *a, **kw)
+    monkeypatch.setattr(matplotlib.figure.Figure, "legend", legend)
+    monkeypatch.setattr(matplotlib.axes.Axes, "set_title", set_title)
+    return legends, titles
+
+
+def test_reflectivity_legend_lists_only_reached_wind_radii(tmp_path, monkeypatch):
+    legends, titles = _capture_legends_and_titles(monkeypatch)
+    calm = str(tmp_path / "calm")
+    write_wrfout(calm, TIMES[0], vortex=False)                  # no wind at all
+    ts.reflectivity_2km_figure(calm, TIMES[0], (25, 25, "test"), str(tmp_path / "c.png"),
+                               "run0", 1)
+    assert not any(l.endswith(" kt") for l in legends[-1])
+    assert "no 10 m wind >= 34 kt" in titles[-1]
+    storm = str(tmp_path / "storm")
+    write_wrfout(storm, TIMES[0])
+    ts.reflectivity_2km_figure(storm, TIMES[0], (25, 25, "test"), str(tmp_path / "s.png"),
+                               "run0", 1)
+    assert "10 m wind 34 kt" in legends[-1]
+    assert "no 10 m wind" not in titles[-1]
+
+
+def test_xsec_legend_merges_both_panels_and_lists_only_drawn(tmp_path, monkeypatch):
+    legends, _ = _capture_legends_and_titles(monkeypatch)
+    path = str(tmp_path / "storm")
+    write_wrfout(path, TIMES[0])                                # w -0.3..1.5 m/s
+    ts.xsec_figure(path, TIMES[0], (25, 25, "test"), str(tmp_path / "x.png"), "run0", 1)
+    labels = legends[-1]
+    assert len(labels) == len(set(labels))
+    assert [l for l in labels if l.startswith("w down")] == ["w down -0.25 m s$^{-1}$"]
+    assert "0 °C" in labels and "-20 °C" in labels
+
+
+def test_rz_legend_omits_absent_terrain_and_negative_vt(tmp_path, monkeypatch):
+    legends, _ = _capture_legends_and_titles(monkeypatch)
+    path = str(tmp_path / "flat")
+    write_wrfout(path, TIMES[0], hill=False)
+    rz = ts.rz_analysis(path, (25, 25, "test"), 5)
+    assert np.nanmin(rz["vt"]) > -5.0
+    ts.rz_wind_figure(rz, str(tmp_path / "w.png"), "run0", 1, "t")
+    labels = legends[-1]
+    assert "RMW(z)" in labels
+    assert not any("below ground" in l or "< 0" in l for l in labels)

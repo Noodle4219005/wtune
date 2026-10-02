@@ -320,7 +320,8 @@ def _era5_diff_map(out_path, run_label, time_str, lats, lons, z500, e_lat, e_lon
     ax.set_title("%s d01 500 hPa height, model - ERA5 (m)  %s\nRMSE=%.1f m  bias=%.1f m  "
                  "(MET Grid-Stat, ERA5 0.25\u00b0, interior)"
                  % (run_label, time_str, gs["rmse_m"], gs["bias_m"]), fontsize=9)
-    fig_.tight_layout()
+    from post.basemap import caption_rect
+    fig_.tight_layout(rect=caption_rect(fig_))
     fig_.savefig(out_path, dpi=130)
     plt.close(fig_)
     return out_path

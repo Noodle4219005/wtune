@@ -224,7 +224,8 @@ def test_multi_panel_gridline_labels_outer_only(tmp_path):
             gl = info["gridliner"]
             assert gl.x_inline is False and gl.y_inline is False
             assert not gl.top_labels and not gl.right_labels
-            flags.append((gl.left_labels, gl.bottom_labels))
+            assert gl.left_labels in ("y", False) and gl.bottom_labels in ("x", False)
+            flags.append((bool(gl.left_labels), bool(gl.bottom_labels)))
         cl._plt().close(fig)
     # 3 panels on 2x2: left column = 0, 2; bottom row = 2 and panel 1 (nothing below it)
     assert flags == [(True, False), (False, True), (True, True)]
@@ -240,3 +241,75 @@ def test_water_path_suptitle_names_omitted_panel(tmp_path, monkeypatch):
     cl.water_path_figure(os.path.join(run, "wrfout_d01_" + TIMES[0]), TIMES[0],
                          str(tmp_path / "wp.png"), "run0", 1)
     assert "RWP < 1 g m$^{-2}$ everywhere (omitted" in titles[0]
+
+
+# ---------------------------------------------------------------- legends list only what is drawn
+
+def _capture_legends_and_titles(monkeypatch):
+    import matplotlib.axes
+    import matplotlib.figure
+    legends, titles = [], []
+    real_legend = matplotlib.figure.Figure.legend
+    real_title = matplotlib.axes.Axes.set_title
+
+    def legend(self, *a, **kw):
+        legends.append([h.get_label() for h in kw.get("handles", [])])
+        return real_legend(self, *a, **kw)
+
+    def set_title(self, label, *a, **kw):
+        titles.append(label)
+        return real_title(self, label, *a, **kw)
+    monkeypatch.setattr(matplotlib.figure.Figure, "legend", legend)
+    monkeypatch.setattr(matplotlib.axes.Axes, "set_title", set_title)
+    return legends, titles
+
+
+def _shift_mdbz(monkeypatch, offset):
+    """cl._wrf() whose composite reflectivity is shifted by `offset` dBZ (the lake fixture
+    peaks at ~28 dBZ)."""
+    import types
+    wrf_mod = cl._wrf()
+
+    def getvar(ds, name, *a, **kw):
+        out = wrf_mod.getvar(ds, name, *a, **kw)
+        return np.asarray(out, "f8") + offset if name == "mdbz" else out
+    fake = types.SimpleNamespace(getvar=getvar, get_cartopy=wrf_mod.get_cartopy)
+    monkeypatch.setattr(cl, "_wrf", lambda: fake)
+
+
+@pytest.mark.parametrize("offset, want", [(0.0, [15.0, 25.0]), (-10.0, [15.0]), (-20.0, [])])
+def test_cloud_top_legend_lists_only_reached_echo_thresholds(tmp_path, monkeypatch, offset, want):
+    run = _lake_run(tmp_path, n=1)
+    _shift_mdbz(monkeypatch, offset)
+    legends, titles = _capture_legends_and_titles(monkeypatch)
+    cl.cloud_top_figure(os.path.join(run, "wrfout_d01_" + TIMES[0]), TIMES[0],
+                        str(tmp_path / "ct.png"), "run0", 1)
+    labels = legends[0] if legends else []
+    assert labels == ["composite reflectivity %g dBZ" % v for v in want]
+    assert ("no composite reflectivity >= 15 dBZ" in " ".join(titles[-1].split())) == (not want)
+
+
+def test_contour_handles_only_for_levels_reached():
+    labels = lambda hs: [h.get_label() for h in hs]               # noqa: E731
+    assert labels(cl.w_contour_handles([0.0, 0.3])) == ["w up 0.25 m s$^{-1}$"]
+    assert labels(cl.w_contour_handles([-0.6, 1.2])) == ["w up 0.25/0.5/1 m s$^{-1}$",
+                                                          "w down -0.25/-0.5 m s$^{-1}$"]
+    assert cl.w_contour_handles([0.0, 0.1]) == [] and cl.w_contour_handles([np.nan]) == []
+    iso = [(0.0, "solid", 1.8, "0 °C"), (-15.0, "dashed", 1.0, "-15 °C")]
+    assert labels(cl.isotherm_handles([-10.0, 5.0], iso)) == ["0 °C"]
+    assert labels(cl.isotherm_handles([-20.0, 5.0], iso)) == ["0 °C", "-15 °C"]
+    assert cl.isotherm_handles([5.0, 9.0], iso) == []
+    assert cl.echo_thresholds_reached([10.0, 18.0]) == [15.0]
+    assert cl.echo_thresholds_reached([np.nan]) == []
+
+
+def test_cloud_xsec_legend_lists_only_drawn_contours(tmp_path, monkeypatch):
+    """Lake fixture: w is 0..0.38 m/s (only the +0.25 contour exists, no downdraft)."""
+    run = _lake_run(tmp_path, n=1)
+    legends, _ = _capture_legends_and_titles(monkeypatch)
+    cl.cloud_xsec_figure(os.path.join(run, "wrfout_d01_" + TIMES[0]), TIMES[0],
+                         str(tmp_path / "x.png"), "run0", 1, 5)
+    labels = legends[0]
+    assert "w up 0.25 m s$^{-1}$" in labels
+    assert not any(l.startswith("w down") for l in labels)
+    assert "PBLH" in labels

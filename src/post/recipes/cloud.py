@@ -127,15 +127,9 @@ def finish_plan(ax, ds, lats, lons, crs, caption=True, extent=None, outer_labels
 
 
 def outer_gridlines(ax, left, bottom):
-    """Lat/lon gridlines whose labels sit outside the map frame only (x/y_inline=False)."""
-    gl = ax.gridlines(draw_labels=True, x_inline=False, y_inline=False, linewidth=0.3,
-                      alpha=0.5, color="0.4")
-    gl.top_labels = gl.right_labels = False
-    gl.left_labels = bool(left)
-    gl.bottom_labels = bool(bottom)
-    gl.xlabel_style = {"size": 7, "rotation": 0}
-    gl.ylabel_style = {"size": 7, "rotation": 0}
-    return gl
+    """Outer-only lat/lon gridline labels; see post/basemap.outer_gridlines."""
+    from post.basemap import outer_gridlines as _outer
+    return _outer(ax, left=left, bottom=bottom)
 
 
 def projected_extent(crs, lats, lons):
@@ -284,11 +278,34 @@ def signed_distance_km(xy, ic, jc, ux, uy, dx_km):
     return ((np.asarray(xy)[:, 0] - ic) * ux + (np.asarray(xy)[:, 1] - jc) * uy) * dx_km
 
 
-def draw_w_contours(ax, x, y, w):
-    """w contours: solid red up / dashed blue down at +-0.25, 0.5, 1 m/s. Returns legend
-    handles."""
+def _levels_label(levels):
+    return "/".join("%g" % v for v in levels)
+
+
+def w_contour_handles(w):
+    """Legend handles for the w contours draw_w_contours draws on `w` (any shape; pass all
+    panels of a multi-panel figure together): only the levels the field actually reaches."""
     import numpy as np
     from matplotlib.lines import Line2D
+    w = np.asarray(w, "f8")
+    if not np.isfinite(w).any():
+        return []
+    up = [v for v in W_UP_LEVELS if np.nanmax(w) >= v]
+    down = [v for v in W_DOWN_LEVELS if np.nanmin(w) <= v]
+    handles = []
+    if up:
+        handles.append(Line2D([], [], color="red", lw=0.8,
+                              label="w up %s m s$^{-1}$" % _levels_label(up)))
+    if down:
+        handles.append(Line2D([], [], color="blue", lw=0.8, ls="--",
+                              label="w down %s m s$^{-1}$" % _levels_label(sorted(down)[::-1])))
+    return handles
+
+
+def draw_w_contours(ax, x, y, w):
+    """w contours: solid red up / dashed blue down at +-0.25, 0.5, 1 m/s. Returns legend
+    handles for the levels reached only (w_contour_handles)."""
+    import numpy as np
     w = np.asarray(w, "f8")
     if np.isfinite(w).any():
         if np.nanmax(w) >= W_UP_LEVELS[0]:
@@ -297,21 +314,52 @@ def draw_w_contours(ax, x, y, w):
         if np.nanmin(w) <= W_DOWN_LEVELS[-1]:
             ax.contour(x, y, w, levels=W_DOWN_LEVELS, colors="blue", linewidths=0.8,
                        linestyles="dashed")
-    return [Line2D([], [], color="red", lw=0.8, label="w up 0.25/0.5/1 m s$^{-1}$"),
-            Line2D([], [], color="blue", lw=0.8, ls="--", label="w down")]
+    return w_contour_handles(w)
 
 
-def draw_isotherms(ax, x, y, temp_c, specs):
-    """specs: [(degC, linestyle, linewidth, label)]. Returns legend handles."""
+def isotherm_handles(temp_c, specs):
+    """Legend handles for the isotherms of `specs` that `temp_c` (any shape) actually spans."""
     import numpy as np
     from matplotlib.lines import Line2D
     t = np.asarray(temp_c, "f8")
-    handles = []
+    if not np.isfinite(t).any():
+        return []
+    return [Line2D([], [], color="k", lw=lw, ls=ls, label=label)
+            for val, ls, lw, label in specs if np.nanmin(t) <= val <= np.nanmax(t)]
+
+
+def draw_isotherms(ax, x, y, temp_c, specs):
+    """specs: [(degC, linestyle, linewidth, label)]. Returns legend handles of the isotherms
+    actually drawn (isotherm_handles)."""
+    import numpy as np
+    t = np.asarray(temp_c, "f8")
     for val, ls, lw, label in specs:
         if np.isfinite(t).any() and np.nanmin(t) <= val <= np.nanmax(t):
             ax.contour(x, y, t, levels=[val], colors="k", linewidths=lw, linestyles=ls)
-        handles.append(Line2D([], [], color="k", lw=lw, ls=ls, label=label))
-    return handles
+    return isotherm_handles(t, specs)
+
+
+def flat_all(arrays):
+    """All panels' section arrays as one flat array (legend handles for a multi-panel figure)."""
+    import numpy as np
+    return np.concatenate([np.asarray(a, "f8").ravel() for a in arrays]) if arrays else \
+        np.array([np.nan])
+
+
+def echo_thresholds_reached(mdbz):
+    """ECHO_DBZ thresholds the composite reflectivity actually reaches (contours drawn)."""
+    import numpy as np
+    m = np.asarray(mdbz, "f8")
+    if not np.isfinite(m).any():
+        return []
+    return [v for v in ECHO_DBZ if np.nanmax(m) >= v]
+
+
+def figure_legend(fig, handles, **kw):
+    """fig.legend only when there is something to list (no empty legend box)."""
+    if handles:
+        return fig.legend(handles=handles, **kw)
+    return None
 
 
 def draw_terrain(ax, x, ter_km):
@@ -448,20 +496,22 @@ def cloud_top_figure(path, time_str, out_path, run_label, domain):
                              transform=crs)
             fig.colorbar(cf, ax=ax, shrink=0.9, label="cloud-top height (km MSL)")
         handles = []
+        reached = echo_thresholds_reached(mdbz)
         for val, color, lw in ((ECHO_DBZ[0], "magenta", 0.8), (ECHO_DBZ[1], "red", 1.3)):
-            if np.nanmax(mdbz) >= val:
+            if val in reached:
                 ax.contour(X, Y, mdbz, levels=[val], colors=color, linewidths=lw,
                            transform=crs)
-            handles.append(Line2D([], [], color=color, lw=lw,
-                                  label="composite reflectivity %g dBZ" % val))
+                handles.append(Line2D([], [], color=color, lw=lw,
+                                      label="composite reflectivity %g dBZ" % val))
         finish_plan(ax, ds, lats, lons, crs=crs)
-        fig.legend(handles=handles, loc="outside lower center", ncol=2, fontsize=8,
-                   frameon=False)
+        figure_legend(fig, handles, loc="outside lower center", ncol=2, fontsize=8,
+                      frameon=False)
+        absent = "" if reached else "; no composite reflectivity >= %g dBZ" % ECHO_DBZ[0]
         ax.set_title(wrap_title(
             "%s  d%02d  cloud-top height (highest level with total condensate >= %g g/kg; "
             "white = no cloud) + composite reflectivity 15/25 dBZ (lake-effect echo thresholds, "
-            "Gaudet et al. 2021)\n%s" % (run_label, domain, condensate.CLOUD_EDGE_KGKG * 1000.0,
-                                         ds_time_label(ds, time_str))), fontsize=9)
+            "Gaudet et al. 2021)%s\n%s" % (run_label, domain, condensate.CLOUD_EDGE_KGKG * 1000.0,
+                                           absent, ds_time_label(ds, time_str))), fontsize=9)
         fig.savefig(out_path)
         _plt().close(fig)
     return out_path
@@ -545,7 +595,8 @@ def cloud_xsec_figure(path, time_str, out_path, run_label, domain, bdy_width):
     plt = _plt()
     fig, axes = plt.subplots(2, 1, figsize=(9.5, 8.6), layout="constrained")
     cf = None
-    handles = []
+    w_all, t_all = [], []
+    iso = [(0.0, "solid", 1.8, "0 °C"), (-15.0, "dashed", 1.0, "-15 °C (dendritic growth)")]
     for ax, (name, ux, uy, start, end) in zip(axes, lines):
         qs, xy = section(q, z, start, end, levels)
         ws, _ = section(wa, z, start, end, levels)
@@ -553,14 +604,13 @@ def cloud_xsec_figure(path, time_str, out_path, run_label, domain, bdy_width):
         x = signed_distance_km(xy, ic, jc, ux, uy, dx)
         y = levels / 1000.0
         cf = condensate_fill(ax, x, y, qs)
-        handles = draw_w_contours(ax, x, y, ws)
-        handles += draw_isotherms(ax, x, y, ts, [(0.0, "solid", 1.8, "0 °C"),
-                                                 (-15.0, "dashed", 1.0,
-                                                  "-15 °C (dendritic growth)")])
+        draw_w_contours(ax, x, y, ws)
+        draw_isotherms(ax, x, y, ts, iso)
+        w_all.append(ws)
+        t_all.append(ts)
         ter = line_values(hgt, xy) / 1000.0
         if pblh is not None:
             ax.plot(x, ter + line_values(pblh, xy) / 1000.0, color="darkorange", lw=1.4)
-        handles.append(Line2D([], [], color="darkorange", lw=1.4, label="PBLH"))
         draw_terrain(ax, x, ter)
         ax.set_xlim(x.min(), x.max())
         ax.set_ylim(0, top_km)
@@ -573,8 +623,12 @@ def cloud_xsec_figure(path, time_str, out_path, run_label, domain, bdy_width):
         ax.set_title("%s  (%.2f, %.2f) -> (%.2f, %.2f)" % (name, a0[0], a0[1], a1[0], a1[1]),
                      fontsize=8)
     condensate_colorbar(fig, cf, list(axes))
-    fig.legend(handles=handles, loc="outside lower center", ncol=len(handles), fontsize=7,
-               frameon=False)
+    # legend from BOTH panels, listing only the contour levels actually drawn
+    handles = w_contour_handles(flat_all(w_all)) + isotherm_handles(flat_all(t_all), iso)
+    if pblh is not None:
+        handles.append(Line2D([], [], color="darkorange", lw=1.4, label="PBLH"))
+    figure_legend(fig, handles, loc="outside lower center", ncol=max(len(handles), 1),
+                  fontsize=7, frameon=False)
     wind_txt = ("calm BL wind: grid W-E / S-N" if calm else
                 "mean BL wind (below PBLH %.0f m) %.1f m s$^{-1}$ grid-relative" % (pb, math.hypot(u, v)))
     fig.suptitle(wrap_title(

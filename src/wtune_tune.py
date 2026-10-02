@@ -100,6 +100,11 @@ except ImportError:
     wtune_probe_plan = None
 
 try:
+    import wtune_io_model       # run-length I/O terms of the pipeline's whole-run prediction
+except ImportError:             # (depends on wtune_predict + coldstart_sample, same convention)
+    wtune_io_model = None
+
+try:
     import coldstart_sample as coldstart   # tools/coldstart_sample.py -- REBUILD-source
                                             # execution (fetch/stage/score_windows_from_rsl);
                                             # same best-effort convention as the two imports above.
@@ -644,6 +649,7 @@ class Ctx:
     # which one is currently in effect, for the log line.
     startup_s: float = DEFAULT_STARTUP_S
     startup_source: str = "documented constant (scc_sweep.STARTUP_S)"
+    startup_runs: int = None         # completed round0 runs behind a measured startup_s
     # decision 0055 (--rank-by predicted): rank_by is "t0" (pre-0055 behaviour) or "predicted".
     # `ranking` is the RANKING CONTEXT every ranking job is submitted with in predicted mode (see
     # ranking_context()); None -- the default and always in t0 mode -- leaves every submission,
@@ -1171,6 +1177,7 @@ def _run_full_space_round0(ctx, s_est, slots):
                       % (measured, n_runs, ctx.startup_s, ctx.startup_source))
                 ctx.startup_s = measured
                 ctx.startup_source = "measured from round0 (n=%d completed runs)" % n_runs
+                ctx.startup_runs = n_runs
             s_est = update_s_est(res, s_est)
     measured_cids = {r["cid"] for r in aggregate_by_cid(rows, configs_by_cid).values()}
     for c in configs:
@@ -1262,6 +1269,7 @@ def run_round0(ctx):
                   % (measured_startup, n_runs, ctx.startup_s, ctx.startup_source))
             ctx.startup_s = measured_startup
             ctx.startup_source = "measured from round0 (n=%d completed runs)" % n_runs
+            ctx.startup_runs = n_runs
         else:
             print("startup_s: no COMPLETED round0 run to measure from; keeping %.1fs (%s)"
                   % (ctx.startup_s, ctx.startup_source))
@@ -4621,6 +4629,66 @@ def _fmt_sbatch_time(seconds):
     return "%02d:%02d:00" % (m // 60, m % 60)
 
 
+def pipeline_run_length_io(namelist_path):
+    """wtune_io_model.run_length_io of the case namelist (history frames, lateral boundary
+    updates, sst_update auxinput4 reads, restart writes over one unsegmented run); None, with the
+    reason printed, when the model or the namelist is unavailable -- the prediction is then
+    compute + init only, as before 0.8.2."""
+    if wtune_io_model is None or wtune_predict is None or not namelist_path:
+        return None
+    try:
+        return wtune_io_model.run_length_io(wtune_predict.parse_namelist(namelist_path))
+    except Exception as e:                                  # noqa: BLE001
+        print("pipeline: run-length I/O model unavailable (%s: %s) -- whole-run prediction is "
+              "compute + init only" % (type(e).__name__, e))
+        return None
+
+
+def prediction_init(ctx, fallback_s, fallback_source):
+    """(init_s, init_source) of a whole-run prediction: the startup round0 MEASURED on this
+    allocation when there is one (scc: predict_init's 125.6 s for climate-ea50 vs ~50 s measured,
+    it charges the whole 13-month wrfbdy as an init read), else `fallback_s` (predict_init, or
+    the startup constant in effect)."""
+    if str(getattr(ctx, "startup_source", "") or "").startswith("measured"):
+        n = getattr(ctx, "startup_runs", None)
+        return float(ctx.startup_s), ("measured round0 startup (%d runs)" % n if n
+                                      else "measured round0 startup (%s)" % ctx.startup_source)
+    return float(fallback_s), fallback_source
+
+
+def add_run_length_io(pred, io, compute_s, init_s, band, init_source=None):
+    """Whole-run prediction dict `pred` (predicted_total_s = compute_s + init_s) -> + run-length
+    I/O, with init_s (possibly a measured startup) in place of the init `pred` was built with, in
+    place: predicted_total_s/_hms; predicted_range_s and every candidates[] total shift by the
+    same amount (new total - old total; I/O is layout-independent and the init swap is applied
+    uniformly, so the candidate order is unchanged); time_suggestion and error_min are recomputed
+    at `band`. Records compute_s, init_s + init_source (the startup `wtune run` pays once per
+    segment), io, breakdown (the 'compute X +
+    history Y + boundary Z + aux W + restart R + init I = TOTAL' line) and segment_note. io None:
+    totals unchanged, breakdown says I/O is not included."""
+    io_s = io["total_s"] if io else 0.0
+    T = compute_s + init_s + io_s
+    shift = T - (pred.get("predicted_total_s") or 0.0)
+    pred["compute_s"], pred["init_s"], pred["io"] = compute_s, init_s, io
+    pred["init_source"], pred["io_s"] = init_source, io_s
+    pred["predicted_total_s"], pred["predicted_total_hms"] = T, _fmt_hms(T)
+    if pred.get("predicted_range_s"):
+        pred["predicted_range_s"] = [x + shift for x in pred["predicted_range_s"]]
+    for c in pred.get("candidates") or []:
+        if c.get("predicted_total_s") is not None:
+            c["predicted_total_s"] += shift
+    pred["time_suggestion"] = _fmt_sbatch_time(time_suggestion_s(T, band))
+    pred["error_min"] = band * T / 60.0
+    if io:
+        pred["breakdown"] = wtune_io_model.breakdown_line(compute_s, io, init_s)
+        pred["segment_note"] = wtune_io_model.segment_note(init_s)
+    else:
+        pred["breakdown"] = ("compute %.0fs + init %.0fs = %.0fs (run-length I/O NOT included)"
+                             % (compute_s, init_s, T))
+        pred["segment_note"] = None
+    return pred
+
+
 def cold_start_prediction(ctx, nodes, config, total_steps):
     """(whole-run seconds, s/step at `nodes`, source): wtune_predict's cold-start prediction (no
     probe) when it works, else this case's ledger estimate (10 s/step fallback). Crude by design:
@@ -4911,6 +4979,7 @@ def run_pipeline_full(ctx, profile, *, minutes=None, level=3, total_steps=None, 
                 "(%s)" % (_fmt_hms(T_cold), precision_min, len(pplan0["selected"]),
                           pplan0["source"]))
     pipe["T_cold_s"] = T_cold
+    pipe["T_cold_compute_s"] = (T_cold - ctx.startup_s) if T_cold else None
 
     # ---------------- phase 0: plan + submit the rebuild jobs ----------------
     m0 = _mark(ctx)
@@ -4974,6 +5043,7 @@ def run_pipeline_full(ctx, profile, *, minutes=None, level=3, total_steps=None, 
             return
         s_best = min(r["median"] for r in rows)
         pipe["T_updated_s"] = total_steps * s_best + ctx.startup_s
+        pipe["T_updated_compute_s"] = total_steps * s_best
         print("pipeline: best measured %.4f s/step -> whole run ~%s" % (s_best,
                                                                        _fmt_hms(pipe["T_updated_s"])))
 
@@ -5030,12 +5100,14 @@ def run_pipeline_full(ctx, profile, *, minutes=None, level=3, total_steps=None, 
     layouts = pipeline_layouts(collect, 2) if collect.get("outcomes") else []
     # the startup overhead measured by phase 1's round0 lives on the finalist ctx copies: adopt it
     # (the default 120 s/run made phase 2 look 2-4x too expensive)
-    meas_su = [o["ctx"].startup_s for o in collect.get("outcomes", {}).values()
-               if o.get("ctx") is not None
-               and str(getattr(o["ctx"], "startup_source", "")).startswith("measured")]
+    meas_ctx = [o["ctx"] for o in collect.get("outcomes", {}).values()
+                if o.get("ctx") is not None
+                and str(getattr(o["ctx"], "startup_source", "")).startswith("measured")]
+    meas_su = [c.startup_s for c in meas_ctx]
     if meas_su:
         ctx.startup_s = statistics.median(meas_su)
         ctx.startup_source = "measured in phase 1 (median of %d finalist(s))" % len(meas_su)
+        ctx.startup_runs = sum(getattr(c, "startup_runs", None) or 0 for c in meas_ctx) or None
 
     # ---------------- phase 2: prediction from the shared restarts ----------------
     health_checks = [ctx.node_health] if ctx.node_health else []
@@ -5236,6 +5308,11 @@ def run_pipeline_full(ctx, profile, *, minutes=None, level=3, total_steps=None, 
     cut("predict")
 
     pred = None
+    band_eff = pplan["band"] if pplan else COLD_START_BAND
+    # run-length I/O (history, lateral boundary, auxinput4, restart) is added to every whole-run
+    # prediction below; combine()'s total is compute + init only
+    io_run = (pipeline_run_length_io(getattr(ctx, "namelist_path", None))
+              if (winner is not None or T_dec or pipe["T_updated_s"]) else None)
     if winner is not None:
         cfg = winner["layout"]["cfg"]
         pred_s = winner["pred_total_s"]
@@ -5254,6 +5331,10 @@ def run_pipeline_full(ctx, profile, *, minutes=None, level=3, total_steps=None, 
                                      config={k: e["layout"]["cfg"].get(k)
                                              for k in ("ranks", "omp", "nx", "ny", "numtiles")})
                                 for e in ranked_all])
+        init_w = float((winner.get("result") or {}).get("init_s") or 0.0)
+        init_s, init_src = prediction_init(ctx, init_w, "wtune_predict.predict_init")
+        add_run_length_io(pred, io_run, pred_s - init_w, init_s, band_eff, init_src)
+        pred_s = pred["predicted_total_s"]
         if (winner["nodes"], winner["cores"], sweep._identity(cfg)) != (
                 report["nodes"], report.get("cores_used_per_node"),
                 sweep._identity(layouts[0]["cfg"])):
@@ -5268,9 +5349,11 @@ def run_pipeline_full(ctx, profile, *, minutes=None, level=3, total_steps=None, 
                                   omp=cfg.get("omp"), nproc_x=cfg.get("nx"),
                                   nproc_y=cfg.get("ny"), numtiles=cfg.get("numtiles"),
                                   dist=cfg.get("dist"), predicted_total_s=pred_s)
-        report["full_run_prediction"] = _predicted_winner_text(
-            dict(cid=pred["layout_id"], result=winner["result"]))
-    band_eff = pplan["band"] if pplan else COLD_START_BAND
+        report["full_run_prediction"] = "\n".join(
+            [_predicted_winner_text(dict(cid=pred["layout_id"], result=winner["result"])),
+             "whole run: " + pred["breakdown"]
+             + ("  [init: %s]" % pred["init_source"] if pred.get("init_source") else "")]
+            + (["NOTE: " + pred["segment_note"]] if pred.get("segment_note") else []))
     if pred is not None:
         pred["band"] = band_eff
         pred["error_min"] = band_eff * pred["predicted_total_s"] / 60.0
@@ -5285,6 +5368,14 @@ def run_pipeline_full(ctx, profile, *, minutes=None, level=3, total_steps=None, 
                     time_suggestion=_fmt_sbatch_time(time_suggestion_s(T, band_eff)),
                     points_used=0, degraded=False, band=band_eff, error_min=band_eff * T / 60.0,
                     source="phase-1 t0 anchor s/step x steps + startup (no rebuilt point)")
+        comp = (pipe.get("T_updated_compute_s") if pipe["T_updated_s"]
+                else pipe.get("T_cold_compute_s"))
+        if comp is None:
+            comp = T - ctx.startup_s
+        init_s, init_src = prediction_init(ctx, ctx.startup_s, ctx.startup_source)
+        add_run_length_io(pred, io_run, comp, init_s, band_eff, init_src)
+        T = pred["predicted_total_s"]                     # this path's range is the band around T
+        pred["predicted_range_s"] = [T * (1 - band_eff), T * (1 + band_eff)]
     pipe["prediction"] = pred
 
     # ---------------- phase 3: physics advice ----------------
@@ -5423,7 +5514,10 @@ def run_pipeline_full(ctx, profile, *, minutes=None, level=3, total_steps=None, 
 
     # ---------------- totals ----------------
     running = ctx.elapsed() - t_start
-    predicted_real = (pred["predicted_total_s"] if pred else pipe["T_updated_s"])
+    predicted_real = (pred["predicted_total_s"] if pred else
+                      (pipe.get("T_updated_compute_s", pipe["T_updated_s"] - ctx.startup_s)
+                       + ctx.startup_s + (io_run["total_s"] if io_run else 0.0))
+                      if pipe["T_updated_s"] else None)
     pipe["time_suggestion"] = (_fmt_sbatch_time(time_suggestion_s(predicted_real,
                                                                   band_eff))
                                if predicted_real else None)
@@ -5438,7 +5532,8 @@ def run_pipeline_full(ctx, profile, *, minutes=None, level=3, total_steps=None, 
         total_queue_wait_s=ctx.queue_wait_s, queue_cap_hit=cap_hit(),
         total_controller_s=max(0.0, ctx.wall_elapsed() - running - ctx.queue_wait_s),
         predicted_real_s=predicted_real,
-        predicted_real_source=("phase 2 combine()" if pred else "phase-1 anchor s/step x steps"),
+        predicted_real_source=("phase 2 combine()" if pred else "phase-1 anchor s/step x steps")
+        + (" + run-length I/O" if io_run else ""),
         hard_deadline_s=(B if B != float("inf") else None),
         over_deadline_s=(max(0.0, running - B) if B != float("inf") else 0.0))
     report["pipeline"] = pipe
@@ -5511,6 +5606,11 @@ def render_pipeline_text(pipe):
                      % (pr["predicted_total_hms"], _fmt_hms(pr["predicted_range_s"][0]),
                         _fmt_hms(pr["predicted_range_s"][1]), pr["nodes"], pr["cores_per_node"],
                         pr["config"], pr["time_suggestion"]))
+        if pr.get("breakdown"):
+            lines.append("  " + pr["breakdown"] + ("  [init: %s]" % pr["init_source"]
+                                                   if pr.get("init_source") else ""))
+        if pr.get("segment_note"):
+            lines.append("  NOTE: " + pr["segment_note"])
     adv = pipe.get("physics_advice")
     if adv:
         lines.append("physics advice (ADVISORY ONLY, not applied; points %s):"
@@ -5674,6 +5774,9 @@ def run_level0(ctx, profile, total_steps, nodes_policy="knee"):
     band = COLD_START_BAND
     T, s_n, src = (cold_start_prediction(ctx, n0, cfg, total_steps) if total_steps
                    else (None, None, "run length unknown"))
+    io_run = pipeline_run_length_io(ctx.namelist_path) if T else None
+    if T:
+        T += io_run["total_s"] if io_run else 0.0
     pt = local_param_table(cfg, n0)
     _assert_report_is_strict_only(ctx, pt)
     pipe = dict(
@@ -5688,13 +5791,20 @@ def run_level0(ctx, profile, total_steps, nodes_policy="knee"):
                         predicted_range_s=[T * (1 - band), T * (1 + band)] if T else None,
                         time_suggestion=(_fmt_sbatch_time(time_suggestion_s(T, band)) if T else None),
                         band=band, error_min=(band * T / 60.0 if T else None), points_used=0,
-                        degraded=False, source=src),
+                        degraded=False, source=src + (" + run-length I/O" if io_run else "")),
         time_suggestion=(_fmt_sbatch_time(time_suggestion_s(T, band)) if T else None),
         prediction_band=dict(method="cold-start predict", band=band,
                              error_min=(band * T / 60.0 if T else None)),
         total_running_s=0.0, total_wall_s=ctx.wall_elapsed(), total_queue_wait_s=0.0,
         total_controller_s=ctx.wall_elapsed(), predicted_real_s=T, hard_deadline_s=None,
         over_deadline_s=0.0, physics_advice=None)
+    if T:
+        # same fields as the -O1..3 predictions; T already holds the I/O, ranges stay symmetric
+        p0 = pipe["prediction"]
+        io_s = io_run["total_s"] if io_run else 0.0
+        add_run_length_io(p0, io_run, T - io_s - ctx.startup_s, ctx.startup_s, band,
+                          ctx.startup_source)
+        p0["predicted_range_s"] = [T * (1 - band), T * (1 + band)]
     print("O0: no jobs -- nodes=%d (%s), layout %s, cold-start whole run %s ±%.0f%% (%s)"
           % (n0, note, {k: cfg.get(k) for k in ("ranks", "omp", "nx", "ny")},
              _fmt_hms(T) if T else "unknown", band * 100, src))

@@ -2087,7 +2087,10 @@ def test_pipeline_full_report_fields_budget_and_queue_columns(monkeypatch, tmp_p
     assert [p["limit_s"] for p in pipe["phases"]] == pytest.approx(
         [0.05 * B, 0.55 * B, 0.80 * B, B])                 # 5 / 50 / 25 / 20 %
     pr = pipe["prediction"]
-    assert pr["predicted_total_s"] == pytest.approx(1030.0) and pr["time_suggestion"]
+    # 0.8.2: combine()'s 1030 = compute 1020 + predict_init 10; round0's measured startup
+    # replaces the init (no namelist here -> no run-length I/O)
+    assert pr["init_source"].startswith("measured round0 startup")
+    assert pr["predicted_total_s"] == pytest.approx(1020.0 + pr["init_s"]) and pr["time_suggestion"]
     assert pr["nodes"] == report["nodes"]
     assert "p1" not in pipe                           # no tune-time/run-time verdict
     assert pipe["hard_deadline_s"] == B and pipe["queue_cap_hit"] is False
@@ -2796,7 +2799,11 @@ def test_case_type_planner_needing_no_point_means_no_rebuild_and_no_phase_2(monk
     assert ph["physics"].startswith("not run (no rebuilt points)")
     pred = report["pipeline"]["prediction"]
     assert pred["points_used"] == 0 and pred["band"] == 0.15
-    assert pred["predicted_total_s"] == pytest.approx(report["pipeline"]["T_updated_s"])
+    # 0.8.2: T_updated_s's startup term is the one in effect at the sweep (the default); the
+    # prediction uses round0's measured startup instead
+    assert pred["predicted_total_s"] == pytest.approx(
+        report["pipeline"]["T_updated_compute_s"] + pred["init_s"])
+    assert pred["init_source"].startswith("measured round0 startup")
     lo, hi = pred["predicted_range_s"]
     assert lo == pytest.approx(0.85 * pred["predicted_total_s"]) and hi > pred["predicted_total_s"]
     assert report["pipeline"]["time_suggestion"] == wtune_tune._fmt_sbatch_time(
@@ -2838,6 +2845,123 @@ def test_o0_runs_no_job_and_reports_the_cold_start_band(monkeypatch, tmp_path, c
     assert "O0: no jobs" in out and "±25%" in out and "whole-run time ±25%" in out
     with open(tmp_path / "out" / "tune_report.json") as f:
         assert json.load(f)["pipeline"]["prediction_band"]["band"] == 0.25
+
+
+# --- 0.8.2: run-length I/O in the pipeline's whole-run prediction ---------------------------
+FAKE_IO = dict(total_s=600.0, history_s=400.0, boundary_s=100.0, aux_s=60.0, restart_s=40.0)
+
+
+def _with_fake_io(monkeypatch, io=FAKE_IO):
+    calls = []
+
+    def fake(path):
+        calls.append(path)
+        return dict(io)
+    monkeypatch.setattr(wtune_tune, "pipeline_run_length_io", fake)
+    return calls
+
+
+def test_pipeline_winner_prediction_adds_run_length_io(monkeypatch, tmp_path, capsys):
+    calls = _with_fake_io(monkeypatch)
+    report, env = _pipe_run(monkeypatch, tmp_path, minutes=6000)
+    pipe = report["pipeline"]
+    pr = pipe["prediction"]
+    assert calls == [str(tmp_path / "namelist.input")]
+    # combine(): 1030 = compute 1020 + predict_init 10 -> init := round0's measured startup
+    init = pr["init_s"]
+    assert pr["init_source"].startswith("measured round0 startup (") and init != 10.0
+    T = 1020.0 + init + 600.0
+    assert pr["compute_s"] == pytest.approx(1020.0) and pr["io_s"] == 600.0
+    assert pr["predicted_total_s"] == pytest.approx(T)
+    assert pr["predicted_total_hms"] == wtune_tune._fmt_hms(T)
+    assert pr["time_suggestion"] == pipe["time_suggestion"] == wtune_tune._fmt_sbatch_time(
+        wtune_tune.time_suggestion_s(T, pr["band"]))
+    assert pr["error_min"] == pytest.approx(pr["band"] * T / 60.0)
+    assert pipe["predicted_real_s"] == pytest.approx(T)
+    assert pipe["predicted_real_source"].endswith("+ run-length I/O")
+    lo, hi = pr["predicted_range_s"]
+    shift = T - 1030.0
+    assert (lo, hi) == pytest.approx((1030.0 * 0.95 + shift, 1030.0 * 1.05 + shift))
+    assert all(c["predicted_total_s"] > 600.0 for c in pr["candidates"])
+    assert pr["breakdown"].startswith("compute 1020s + history 400s + boundary 100s + aux 60s "
+                                      "+ restart 40s + init ")
+    assert pr["breakdown"].endswith("= %.0fs" % T)
+    assert "each extra run segment adds ~%.0f s" % init in pr["segment_note"]
+    out = capsys.readouterr().out
+    assert "  " + pr["breakdown"] + "  [init: measured round0 startup (" in out
+    assert "NOTE: each extra run segment adds" in out
+    assert "whole run: " + pr["breakdown"] in report["full_run_prediction"]
+    with open(tmp_path / "out" / "tune_report.json") as f:
+        saved = json.load(f)["pipeline"]["prediction"]
+    assert saved["predicted_total_s"] == pytest.approx(T) and saved["io"]["total_s"] == 600
+    assert saved["init_s"] == pytest.approx(init) and saved["init_source"] == pr["init_source"]
+
+
+def test_pipeline_t0_anchor_prediction_adds_run_length_io(monkeypatch, tmp_path):
+    _with_fake_io(monkeypatch)
+    report, env = _pipe_run(monkeypatch, tmp_path, planner=lambda planned, T, call: ([], 0.15))
+    pred = report["pipeline"]["prediction"]
+    T = report["pipeline"]["T_updated_compute_s"] + pred["init_s"] + 600.0
+    assert pred["points_used"] == 0 and pred["init_source"].startswith("measured round0")
+    assert pred["predicted_total_s"] == pytest.approx(T)
+    assert pred["predicted_range_s"] == pytest.approx([0.85 * T, 1.15 * T])
+    assert report["pipeline"]["time_suggestion"] == wtune_tune._fmt_sbatch_time(
+        wtune_tune.time_suggestion_s(T, 0.15))
+
+
+def test_o0_prediction_adds_run_length_io(monkeypatch, tmp_path, capsys):
+    _with_fake_io(monkeypatch)
+    case_json = dict(BIG_GRID, prep_dir=str(tmp_path / "matthew"))
+    monkeypatch.setattr(wtune_tune, "resolve_case",
+                        lambda case, cpn: (case_json, str(tmp_path / "namelist.input"),
+                                           ALL_NODES_PROFILE))
+    monkeypatch.setattr(wtune_tune, "_total_steps", lambda nl: 1000)
+    monkeypatch.setattr(wtune_tune, "cold_start_prediction",
+                        lambda ctx, nodes, cfg, steps: (1687.0, 0.05, "fake cold start"))
+    args = wtune_tune.build_arg_parser().parse_args(
+        ["matthew", "--site", "scc", "--out", str(tmp_path / "out"), "-O0",
+         "--ledger-dir", str(tmp_path / "ledger")])
+    report = wtune_tune.run(args, sbatch_runner=lambda cmd: None, clock=FakeClock(),
+                            preflight_runner=lambda argv, timeout: None)
+    pred = report["pipeline"]["prediction"]
+    assert pred["predicted_total_s"] == pytest.approx(2287.0)
+    assert pred["predicted_range_s"] == pytest.approx([2287 * 0.75, 2287 * 1.25])
+    assert report["pipeline"]["time_suggestion"] == pred["time_suggestion"] == \
+        wtune_tune._fmt_sbatch_time(wtune_tune.time_suggestion_s(2287.0, 0.25))
+    assert pred["breakdown"].endswith("= 2287s") and "fake cold start + run-length I/O" == \
+        pred["source"]
+
+
+def test_add_run_length_io_without_a_model_keeps_the_total():
+    pred = dict(predicted_total_s=1000.0, predicted_range_s=[900.0, 1100.0],
+                candidates=[dict(predicted_total_s=1000.0)])
+    wtune_tune.add_run_length_io(pred, None, 880.0, 120.0, 0.10)
+    assert pred["predicted_total_s"] == 1000.0 and pred["predicted_range_s"] == [900.0, 1100.0]
+    assert pred["candidates"][0]["predicted_total_s"] == 1000.0
+    assert "NOT included" in pred["breakdown"] and pred["segment_note"] is None
+
+
+def test_prediction_init_prefers_the_measured_round0_startup():
+    ctx = _types.SimpleNamespace(startup_s=120.0, startup_runs=None,
+                                 startup_source="documented constant (scc_sweep.STARTUP_S)")
+    assert wtune_tune.prediction_init(ctx, 125.6, "wtune_predict.predict_init") == (
+        125.6, "wtune_predict.predict_init")
+    ctx.startup_s, ctx.startup_runs = 49.9, 5
+    ctx.startup_source = "measured in phase 1 (median of 2 finalist(s))"
+    assert wtune_tune.prediction_init(ctx, 125.6, "wtune_predict.predict_init") == (
+        49.9, "measured round0 startup (5 runs)")
+
+
+def test_pipeline_run_length_io_reads_the_case_namelist(tmp_path, capsys):
+    p = tmp_path / "namelist.input"
+    p.write_text(" &time_control\n run_hours = 48,\n start_year = 2005, start_month = 08,"
+                 " start_day = 27,\n interval_seconds = 21600\n history_interval = 60,\n"
+                 " restart_interval = 100000,\n /\n &domains\n time_step = 72, max_dom = 1,"
+                 " e_we = 170, e_sn = 130, e_vert = 40,\n /\n &physics\n radt = 12,\n /\n")
+    io = wtune_tune.pipeline_run_length_io(str(p))
+    assert io["total_s"] == pytest.approx(41.6, abs=0.1)        # SC26-P2: 49 frames + 8 bdy
+    assert wtune_tune.pipeline_run_length_io(str(tmp_path / "missing")) is None
+    assert "run-length I/O model unavailable" in capsys.readouterr().out
 
 
 def test_report_prints_node_health_before_the_pipeline_summary(monkeypatch, tmp_path, capsys):

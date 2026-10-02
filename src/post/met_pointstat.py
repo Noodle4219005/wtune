@@ -101,19 +101,21 @@ def build_obs_text(project_dir, t_lo, t_hi):
     return "\n".join(lines) + "\n", used
 
 
-def model_fields(frame_path):
-    """(lat, lon, {name: (arr, unit, long_name)}, valid datetime) from one wrfout frame."""
+def model_fields(frame_path, timeidx=0):
+    """(lat, lon, {name: (arr, unit, long_name)}, valid datetime) from time index `timeidx` of
+    one wrfout file (0 for a single-frame file)."""
     import netCDF4
     import numpy as np
     import wrf
     with netCDF4.Dataset(frame_path) as ds:
-        lat = np.asarray(wrf.getvar(ds, "lat"), "f8")
-        lon = np.asarray(wrf.getvar(ds, "lon"), "f8")
-        t2 = np.asarray(wrf.getvar(ds, "T2"), "f8")
-        td2 = np.asarray(wrf.getvar(ds, "td2", units="K"), "f8")
-        wspd = np.asarray(wrf.getvar(ds, "uvmet10_wspd_wdir", units="m s-1")[0], "f8")
-        slp = np.asarray(wrf.getvar(ds, "slp", units="hPa"), "f8")
-        valid = wrf.extract_times(ds, 0)
+        lat = np.asarray(wrf.getvar(ds, "lat", timeidx=timeidx), "f8")
+        lon = np.asarray(wrf.getvar(ds, "lon", timeidx=timeidx), "f8")
+        t2 = np.asarray(wrf.getvar(ds, "T2", timeidx=timeidx), "f8")
+        td2 = np.asarray(wrf.getvar(ds, "td2", timeidx=timeidx, units="K"), "f8")
+        wspd = np.asarray(wrf.getvar(ds, "uvmet10_wspd_wdir", timeidx=timeidx,
+                                     units="m s-1")[0], "f8")
+        slp = np.asarray(wrf.getvar(ds, "slp", timeidx=timeidx, units="hPa"), "f8")
+        valid = wrf.extract_times(ds, timeidx)
     valid = valid.astype("datetime64[s]").astype(object)
     return lat, lon, {"T2": (t2, "K", "2 m temperature"), "TD2": (td2, "K", "2 m dew point"),
                       "WSPD10": (wspd, "m s-1", "10 m wind speed"),
@@ -158,7 +160,9 @@ def verify_run(run_dir, domain, frames, project_dir, out_dir, spinup_hours):
     if not stations:
         raise NoStations("station observations not fetched yet -- run on a login node: "
                          "wtune post fetch stations --project %s --run-dir %s" % (project_dir, run_dir))
-    times = [(datetime.strptime(t, WRF_TIME_FMT), p) for t, p in frames]
+    # frames: [(time, path[, timeidx])] -- post.extract.list_frame_refs (timeidx 0 if absent)
+    times = [(datetime.strptime(f[0], WRF_TIME_FMT), f[1]) for f in frames]
+    tidx = {datetime.strptime(f[0], WRF_TIME_FMT): (f[2] if len(f) > 2 else 0) for f in frames}
     t0 = times[0][0] + timedelta(hours=spinup_hours)
     times = [(t, p) for t, p in times if t >= t0] or times
     stride = max(1, -(-len(times) // MAX_TIMES))
@@ -175,7 +179,7 @@ def verify_run(run_dir, domain, frames, project_dir, out_dir, spinup_hours):
                                                os.path.join(work, "interior.poly"))
     for t, path in times:
         tag = t.strftime("%Y%m%d%H")
-        lat, lon, fields, valid = model_fields(path)
+        lat, lon, fields, valid = model_fields(path, timeidx=tidx[t])
         fnc = met_gridstat.curvilinear_to_latlon(lat, lon, fields, valid,
                                                  os.path.join(work, "fcst_%s.nc" % tag), method="remapbil")
         run_point_stat(fnc, obs_nc, poly, os.path.join(work, "ps_%s" % tag), tag)

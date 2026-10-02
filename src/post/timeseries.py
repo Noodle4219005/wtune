@@ -16,7 +16,7 @@ import os
 import re
 from datetime import datetime, timedelta
 
-from post.extract import list_frames
+from post.extract import list_frame_refs, list_frames
 
 WRF_TIME_FMT = "%Y-%m-%d_%H:%M:%S"
 VALID_TIME_FMT = "%Y%m%d%H"
@@ -107,11 +107,13 @@ def fixed_scale(run_dir, field, domain, times):
     from post.plotting import _field_2d
     from post.recipes.mapfig import pooled_levels
     wrf_mod = __import__("wrf")
-    paths = dict(list_frames(run_dir, domain=domain))
+    refs = {t: (path, ti) for t, path, ti in list_frame_refs(run_dir, domain=domain)}
     arrays = []
     for t in times:
-        with netCDF4.Dataset(paths[t]) as ds:
-            arrays.append(np.asarray(_field_2d(ds, wrf_mod, field, None), dtype="f8"))
+        path, ti = refs[t]
+        with netCDF4.Dataset(path) as ds:
+            arrays.append(np.asarray(_field_2d(ds, wrf_mod, field, None, timeidx=ti),
+                                     dtype="f8"))
     if field == "rain_acc":
         # WPC isohyet thresholds in mm (decision 0064), up to one level above the run maximum
         from post.obs_figs import PRECIP_LEVELS, precip_cmap

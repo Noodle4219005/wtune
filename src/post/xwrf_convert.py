@@ -113,8 +113,9 @@ def _write_coast(ds, out_path, resolution="50m"):
     return out_path
 
 
-def convert_frame(wrfout_path, out_prefix):
-    """Writes out_prefix + '_cloud.nc' (QCLOUD_QICE, Z_HEIGHT, Z_KM on Time,z,y,x),
+def convert_frame(wrfout_path, out_prefix, timeidx=0):
+    """Time index `timeidx` of wrfout_path (a frames_per_outfile > 1 file holds several) ->
+    writes out_prefix + '_cloud.nc' (QCLOUD_QICE, Z_HEIGHT, Z_KM on Time,z,y,x),
     out_prefix + '_terrain.nc' (HGT, LANDMASK, TERRAIN_H on Time,y,x: TERRAIN_H is HGT over land
     and -500 over sea, for one land/sea colour map) and, when Natural Earth 50m coastline is
     cached, out_prefix + '_coast.vtk' (polylines in the grid's projected metres).
@@ -126,7 +127,7 @@ def convert_frame(wrfout_path, out_prefix):
     wrf_mod = __import__("wrf")
 
     raw = xr.open_dataset(wrfout_path)
-    ds = raw.xwrf.postprocess()
+    ds = raw.xwrf.postprocess().isel(Time=[timeidx])
 
     # drop_vars(..., errors="ignore"): QCLOUD/QICE/QSNOW/HGT inherit xwrf's full non-dimension
     # coordinate set (XLAT/XLONG/CLAT/XTIME) from ds itself -- passing coords= to xr.Dataset()
@@ -139,7 +140,7 @@ def convert_frame(wrfout_path, out_prefix):
     cloud_total.attrs = dict(units="kg kg-1", description="QCLOUD+QICE")
 
     with netCDF4.Dataset(wrfout_path) as nc_ds:
-        z_height = np.asarray(wrf_mod.getvar(nc_ds, "z", timeidx=0, units="m"), dtype="float32")
+        z_height = np.asarray(wrf_mod.getvar(nc_ds, "z", timeidx=timeidx, units="m"), dtype="float32")
     z_da = xr.DataArray(z_height[None, ...], dims=("Time", "z", "y", "x"),
                         coords={"Time": ds["Time"], "z": ds["z"], "y": ds["y"], "x": ds["x"]},
                         attrs=dict(units="m", description="geopotential height (wrf-python 'z')"))

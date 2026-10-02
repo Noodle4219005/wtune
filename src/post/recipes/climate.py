@@ -42,7 +42,7 @@ import os
 from datetime import datetime, timedelta
 
 from post import tools
-from post.extract import list_frames
+from post.extract import file_times, list_frame_refs
 
 SPINUP_DAYS = 30.0
 SEASONS = {"DJF": (12, 1, 2), "MAM": (3, 4, 5), "JJA": (6, 7, 8), "SON": (9, 10, 11)}
@@ -77,6 +77,17 @@ def analysis_months(t_first, t_last, spinup_days=SPINUP_DAYS):
             out.append((y, m))
         y, m = ny, nm
     return out
+
+
+def run_months(frames, spinup_days=SPINUP_DAYS):
+    """(valid datetimes, history step in s, analysis_months) of a run's frames -- [(time, path[,
+    timeidx]), ...] from post.extract.list_frame_refs, i.e. EVERY valid time (each wrfout's own
+    Times; with frames_per_outfile > 1 the file-name times would miss all but the first time of
+    each file: the last month looked incomplete and the step was the file spacing)."""
+    from post.caseinfo import WRF_TIME_FMT
+    times = [datetime.strptime(f[0], WRF_TIME_FMT) for f in frames]
+    step_s = int(round((times[1] - times[0]).total_seconds())) if len(times) > 1 else 0
+    return times, step_s, analysis_months(times[0], times[-1], spinup_days)
 
 
 def complete_seasons(months):
@@ -184,14 +195,48 @@ def _read_cdo_monthly(path, varname, ny, nx):
     return {(t.year, t.month): arr[i] for i, t in enumerate(times)}
 
 
+def _cdo_inputs(frames, work_dir, cdo):
+    """(input files for `cdo select`, temporary files to delete) covering exactly the frames'
+    valid times, in time order. frames: [(time, path[, timeidx])] -- post.extract.
+    list_frame_refs. A multi-frame wrfout (frames_per_outfile > 1) is passed ONCE, whole, when
+    every time it holds is one of the frames; when a later segment's file won some of its times
+    (a duplicated boundary time), only the winning time indices are cut out with `cdo
+    seltimestep` so no valid time enters the monthly means twice. 2-tuples (no timeidx) pass
+    each distinct file whole (the pre-Times behaviour)."""
+    order, used = [], {}
+    for f in frames:
+        path = f[1]
+        if path not in used:
+            order.append(path)
+            used[path] = set()
+        if len(f) > 2:
+            used[path].add(int(f[2]))
+    inputs, temps = [], []
+    for k, path in enumerate(order):
+        idxs = sorted(used[path])
+        if not idxs or idxs == list(range(len(file_times(path) or [None]))):
+            inputs.append(path)
+            continue
+        sub = os.path.join(work_dir, "sel_%05d.nc" % k)
+        tools.run([cdo, "-s", "-O", "seltimestep,%s" % ",".join(str(i + 1) for i in idxs),
+                   path, sub])
+        inputs.append(sub)
+        temps.append(sub)
+    return inputs, temps
+
+
 def model_monthly(frames, work_dir, ny, nx, step_s):
-    """CDO reductions of the run's frames: {"T2": {(y,m): arr}, "SST": ..., "PR_acc": ...} where
-    PR_acc is the RAINC+RAINNC accumulation valid at the end of each month (after the
-    one-interval shift, see the module docstring). The large concatenated file is deleted."""
+    """CDO reductions of the run's frames (every valid time, also inside multi-frame files --
+    see _cdo_inputs): {"T2": {(y,m): arr}, "SST": ..., "PR_acc": ...} where PR_acc is the
+    RAINC+RAINNC accumulation valid at the end of each month (after the one-interval shift, see
+    the module docstring). The large concatenated file is deleted."""
     cdo = _cdo()
     os.makedirs(work_dir, exist_ok=True)
     merged = os.path.join(work_dir, "merged.nc")
-    tools.run([cdo, "-s", "-O", "select,name=T2,SST,RAINC,RAINNC"] + [p for _, p in frames] + [merged])
+    inputs, temps = _cdo_inputs(frames, work_dir, cdo)
+    tools.run([cdo, "-s", "-O", "select,name=T2,SST,RAINC,RAINNC"] + inputs + [merged])
+    for path in temps:
+        os.remove(path)
     mmean = os.path.join(work_dir, "monmean.nc")
     tools.run([cdo, "-s", "-O", "monmean", "-selname,T2,SST", merged, mmean])
     rain = os.path.join(work_dir, "rain_monmax.nc")
@@ -367,13 +412,11 @@ def figures(run_dirs, labels, out_dir, case_info, project_dir=None, spinup_days=
     dom = "d%02d" % domain
     spinup_days = SPINUP_DAYS if spinup_days is None else float(spinup_days)
     ids = ("climate_annual_cycle", "climate_bias_t2", "climate_bias_precip")
-    frames = list_frames(run_dir, domain=domain)
+    frames = list_frame_refs(run_dir, domain=domain)       # every valid time (Times-based)
     if len(frames) < 2:
         return [missing(i, "wrfout_%s_* time series" % dom, "%d frame(s) found" % len(frames)) for i in ids]
-    from post.caseinfo import WRF_TIME_FMT, spec_bdy_width
-    times = [datetime.strptime(t, WRF_TIME_FMT) for t, _ in frames]
-    step_s = int(round((times[1] - times[0]).total_seconds()))
-    months = analysis_months(times[0], times[-1], spinup_days)
+    from post.caseinfo import spec_bdy_width
+    times, step_s, months = run_months(frames, spinup_days)
     seasons = complete_seasons(months)
     span = "%.1f d run, %d complete month(s) after the %g d spin-up" % (
         (times[-1] - times[0]).total_seconds() / 86400.0, len(months), spinup_days)
@@ -385,7 +428,12 @@ def figures(run_dirs, labels, out_dir, case_info, project_dir=None, spinup_days=
         import netCDF4
         import numpy as np
         wrf_mod = __import__("wrf")
+        from post.extract import MissingFields, require_fields
         with netCDF4.Dataset(frames[0][1]) as ds:
+            try:
+                require_fields(ds, ("XLAT", "XLONG", "LANDMASK", "T2", "SST", "RAINC", "RAINNC"))
+            except MissingFields as e:
+                return [missing(i, "wrfout_%s history stream" % dom, str(e)) for i in ids]
             lat = np.asarray(ds.variables["XLAT"][0], dtype="f8")
             lon = np.asarray(ds.variables["XLONG"][0], dtype="f8")
             land = np.asarray(ds.variables["LANDMASK"][0]) == 1

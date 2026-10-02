@@ -12,7 +12,7 @@ from __future__ import annotations
 import os
 
 from post import tools
-from post.extract import list_frames
+from post.extract import list_frame_refs, list_frames
 
 
 def _plt():
@@ -71,11 +71,11 @@ def _default_moisture_point(run_dir, domain, tc_centre=None):
     wrf_mod = __import__("wrf")
     if tc_centre:
         return tc_centre
-    frames = list_frames(run_dir, domain=domain)
-    time0, path0 = frames[-1]
+    frames = list_frame_refs(run_dir, domain=domain)
+    time0, path0, ti = frames[-1]
     with netCDF4.Dataset(path0) as ds:
-        rainc = wrf_mod.getvar(ds, "RAINC", timeidx=0)
-        rainnc = wrf_mod.getvar(ds, "RAINNC", timeidx=0)
+        rainc = wrf_mod.getvar(ds, "RAINC", timeidx=ti)
+        rainnc = wrf_mod.getvar(ds, "RAINNC", timeidx=ti)
         rain = np.asarray(rainc + rainnc)
         lats, lons = wrf_mod.latlon_coords(rainc, as_np=True)
     bounds = caseinfo._interior_bounds(rain.shape[0], rain.shape[1], caseinfo.spec_bdy_width(run_dir))
@@ -102,14 +102,14 @@ def _ivt_figure(run_dir, run_label, domain, out_dir):
     from post.ivt import IVT_LEVELS_HPA, ivt_field
     from post.plotting import WIND_SUBSAMPLE, _coastline, _natural_earth_ready, _set_cartopy_data_dir
 
-    frames = list_frames(run_dir, domain=domain)
+    frames = list_frame_refs(run_dir, domain=domain)
     if not frames:
         return None
-    time0, path0 = frames[-1]
+    time0, path0, ti = frames[-1]
     with netCDF4.Dataset(path0) as ds:
-        pressure = wrf_mod.getvar(ds, "pressure", timeidx=0)
-        qvapor = wrf_mod.getvar(ds, "QVAPOR", timeidx=0)
-        u_full, v_full = wrf_mod.getvar(ds, "uvmet", timeidx=0, units="m s-1")
+        pressure = wrf_mod.getvar(ds, "pressure", timeidx=ti)
+        qvapor = wrf_mod.getvar(ds, "QVAPOR", timeidx=ti)
+        u_full, v_full = wrf_mod.getvar(ds, "uvmet", timeidx=ti, units="m s-1")
 
         # missing=np.nan: wrf.interplevel()'s own default ("missing", a huge finite sentinel
         # ~9.97e36, not NaN) below the local surface pressure is what made this figure blank
@@ -128,7 +128,7 @@ def _ivt_figure(run_dir, run_label, domain, out_dir):
 
         u850 = np.asarray(wrf_mod.interplevel(u_full, pressure, 850.0, missing=np.nan))
         v850 = np.asarray(wrf_mod.interplevel(v_full, pressure, 850.0, missing=np.nan))
-        ter = wrf_mod.getvar(ds, "ter", timeidx=0)
+        ter = wrf_mod.getvar(ds, "ter", timeidx=ti)
         lats, lons = wrf_mod.latlon_coords(ter, as_np=True)
         crs = wrf_mod.get_cartopy(var=ter)
 
@@ -206,12 +206,12 @@ def _cross_section_figure(run_dir, run_label, domain, out_dir, point, line=None,
     top_km = top_km if top_km is not None else DEFAULT_XSEC_TOP_KM
     halfwidth_km = halfwidth_km if halfwidth_km is not None else DEFAULT_HALFWIDTH_KM
 
-    frames = list_frames(run_dir, domain=domain)
+    frames = list_frame_refs(run_dir, domain=domain)
     if not frames:
         return None
-    time0, path0 = frames[-1]
+    time0, path0, ti = frames[-1]
     with netCDF4.Dataset(path0) as ds:
-        ter = wrf_mod.getvar(ds, "ter", timeidx=0)
+        ter = wrf_mod.getvar(ds, "ter", timeidx=ti)
         hgt = np.asarray(ter)
         lats2d, lons2d = wrf_mod.latlon_coords(ter, as_np=True)
 
@@ -241,14 +241,14 @@ def _cross_section_figure(run_dir, run_label, domain, out_dir, point, line=None,
     end = wrf_mod.CoordPair(lat=end_ll[0], lon=end_ll[1])
 
     with netCDF4.Dataset(path0) as ds:
-        z = wrf_mod.getvar(ds, "z", timeidx=0, units="m")
-        rh = wrf_mod.getvar(ds, "rh", timeidx=0)
-        theta_e = wrf_mod.getvar(ds, "theta_e", timeidx=0, units="K")
+        z = wrf_mod.getvar(ds, "z", timeidx=ti, units="m")
+        rh = wrf_mod.getvar(ds, "rh", timeidx=ti)
+        theta_e = wrf_mod.getvar(ds, "theta_e", timeidx=ti, units="K")
         rh_cross = wrf_mod.vertcross(rh, z, wrfin=ds, start_point=start, end_point=end,
                                      latlon=True, missing=np.nan)
         thetae_cross = wrf_mod.vertcross(theta_e, z, wrfin=ds, start_point=start, end_point=end,
                                          missing=np.nan)
-        ter_line = np.asarray(wrf_mod.interpline(wrf_mod.getvar(ds, "ter", timeidx=0), wrfin=ds,
+        ter_line = np.asarray(wrf_mod.interpline(wrf_mod.getvar(ds, "ter", timeidx=ti), wrfin=ds,
                                                  start_point=start, end_point=end)) / 1000.0
         from post.conventions import ds_time_label
         tlabel = ds_time_label(ds, time0)
@@ -305,7 +305,7 @@ def _point_time_height(run_dir, run_label, domain, out_dir, point, reason=None, 
     from post.timeseries import WRF_TIME_FMT
     wrf_mod = __import__("wrf")
 
-    frames = list_frames(run_dir, domain=domain)
+    frames = list_frame_refs(run_dir, domain=domain)
     if len(frames) < 2:
         # a time-height diagram needs >=2 times; matplotlib's contourf refuses a
         # (n_levels, 1) array outright -- same fix as terrain.py's _valley_time_height
@@ -318,11 +318,11 @@ def _point_time_height(run_dir, run_label, domain, out_dir, point, reason=None, 
 
     times, q_profiles, z_profiles = [], [], []
     hgt = 0.0
-    for t, path in frames:
+    for t, path, ti in frames:
         with netCDF4.Dataset(path) as ds:
-            q = np.asarray(ds.variables["QVAPOR"][0, :, j, i]) * 1000.0  # kg/kg -> g/kg
-            z = np.asarray(wrf_mod.getvar(ds, "z", timeidx=0, units="m"))[:, j, i]
-            hgt = float(ds.variables["HGT"][0, j, i]) if "HGT" in ds.variables else 0.0
+            q = np.asarray(ds.variables["QVAPOR"][ti, :, j, i]) * 1000.0  # kg/kg -> g/kg
+            z = np.asarray(wrf_mod.getvar(ds, "z", timeidx=ti, units="m"))[:, j, i]
+            hgt = float(ds.variables["HGT"][ti, j, i]) if "HGT" in ds.variables else 0.0
         times.append(datetime.strptime(t, WRF_TIME_FMT))
         q_profiles.append(q)
         z_profiles.append(z)
@@ -383,7 +383,8 @@ def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6, cross_section=
     try:
         record = _pw_change_figure(run_dir, run_label, domain, out_dir)
         out.append(record if record else missing("moisture_pw_chg6h", "wrfout_d%02d_*" % domain,
-                                                 "fewer than 2 frames available"))
+                                                 "fewer than 2 frames available (or no "
+                                                 "earlier frame nearer 6 h than the last one)"))
     except (tools.ToolNotFoundError, ImportError) as e:
         out.append(missing("moisture_pw_chg6h", "cdo/wrf-python", str(e)))
 

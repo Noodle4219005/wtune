@@ -34,7 +34,7 @@ import os
 from datetime import datetime, timedelta
 
 from post import met_pointstat, sources, tools
-from post.extract import list_frames
+from post.extract import list_frame_refs
 
 
 DEFAULT_XSEC_TOP_KM = 10.0
@@ -88,18 +88,18 @@ def _terrain_wind_map(run_dir, run_label, domain, out_dir):
     wrf_mod = __import__("wrf")
     from post.plotting import WIND_SUBSAMPLE, _coastline, _natural_earth_ready, _set_cartopy_data_dir
 
-    frames = list_frames(run_dir, domain=domain)
+    frames = list_frame_refs(run_dir, domain=domain)
     if not frames:
         return None
-    time0, path0 = frames[-1]
+    time0, path0, ti = frames[-1]
     plt = _plt()
     with netCDF4.Dataset(path0) as ds:
-        ter = wrf_mod.getvar(ds, "ter", timeidx=0)
+        ter = wrf_mod.getvar(ds, "ter", timeidx=ti)
         lats, lons = wrf_mod.latlon_coords(ter, as_np=True)
         crs = wrf_mod.get_cartopy(var=ter)
-        u10, v10 = wrf_mod.getvar(ds, "uvmet10", timeidx=0, units="m s-1")
-        pressure = wrf_mod.getvar(ds, "pressure", timeidx=0)
-        u_full, v_full = wrf_mod.getvar(ds, "uvmet", timeidx=0, units="m s-1")
+        u10, v10 = wrf_mod.getvar(ds, "uvmet10", timeidx=ti, units="m s-1")
+        pressure = wrf_mod.getvar(ds, "pressure", timeidx=ti)
+        u_full, v_full = wrf_mod.getvar(ds, "uvmet", timeidx=ti, units="m s-1")
         u700 = wrf_mod.interplevel(u_full, pressure, 700.0)
         v700 = wrf_mod.interplevel(v_full, pressure, 700.0)
 
@@ -178,16 +178,16 @@ def default_cross_section_line(run_dir, domain, halfwidth_km=None, bdy_width=Non
                                        line_from_point_bearing)
 
     halfwidth_km = halfwidth_km if halfwidth_km is not None else DEFAULT_HALFWIDTH_KM
-    frames = list_frames(run_dir, domain=domain)
-    time0, path0 = frames[-1]
+    frames = list_frame_refs(run_dir, domain=domain)
+    time0, path0, ti = frames[-1]
     bdy_width = bdy_width if bdy_width is not None else spec_bdy_width(run_dir)
 
     with netCDF4.Dataset(path0) as ds:
-        ter = wrf_mod.getvar(ds, "ter", timeidx=0)
+        ter = wrf_mod.getvar(ds, "ter", timeidx=ti)
         hgt = np.asarray(ter)
         lats2d, lons2d = wrf_mod.latlon_coords(ter, as_np=True)
-        pressure = wrf_mod.getvar(ds, "pressure", timeidx=0)
-        u_full, v_full = wrf_mod.getvar(ds, "uvmet", timeidx=0, units="m s-1")
+        pressure = wrf_mod.getvar(ds, "pressure", timeidx=ti)
+        u_full, v_full = wrf_mod.getvar(ds, "uvmet", timeidx=ti, units="m s-1")
         u700 = np.asarray(wrf_mod.interplevel(u_full, pressure, 700.0, missing=np.nan))
         v700 = np.asarray(wrf_mod.interplevel(v_full, pressure, 700.0, missing=np.nan))
 
@@ -223,7 +223,7 @@ def default_cross_section_line(run_dir, domain, halfwidth_km=None, bdy_width=Non
 
     return dict(start_ll=start_ll, end_ll=end_ll, peak_ll=peak_ll, bearing_deg=bearing_deg,
                halfwidth_km=clipped_halfwidth_km, bdy_width=bdy_width, time0=time0,
-               path0=path0, hgt=hgt, lats2d=lats2d, lons2d=lons2d,
+               path0=path0, timeidx=ti, hgt=hgt, lats2d=lats2d, lons2d=lons2d,
                interior_bounds=(j0, j1, i0, i1))
 
 
@@ -249,6 +249,7 @@ def _cross_section_figure(run_dir, run_label, domain, out_dir, line=None, top_km
     top_km = top_km if top_km is not None else DEFAULT_XSEC_TOP_KM
     line_info = default_cross_section_line(run_dir, domain, halfwidth_km=halfwidth_km)
     time0, path0 = line_info["time0"], line_info["path0"]
+    ti = line_info.get("timeidx", 0)
     hgt, lats2d, lons2d = line_info["hgt"], line_info["lats2d"], line_info["lons2d"]
 
     if line:
@@ -275,11 +276,11 @@ def _cross_section_figure(run_dir, run_label, domain, out_dir, line=None, top_km
 
     plt = _plt()
     with netCDF4.Dataset(path0) as ds:
-        z = wrf_mod.getvar(ds, "z", timeidx=0, units="m")
-        theta = wrf_mod.getvar(ds, "theta", timeidx=0, units="K")
-        wa = wrf_mod.getvar(ds, "wa", timeidx=0, units="m s-1")
-        ter = wrf_mod.getvar(ds, "ter", timeidx=0)
-        u_full, v_full = wrf_mod.getvar(ds, "uvmet", timeidx=0, units="m s-1")
+        z = wrf_mod.getvar(ds, "z", timeidx=ti, units="m")
+        theta = wrf_mod.getvar(ds, "theta", timeidx=ti, units="K")
+        wa = wrf_mod.getvar(ds, "wa", timeidx=ti, units="m s-1")
+        ter = wrf_mod.getvar(ds, "ter", timeidx=ti)
+        u_full, v_full = wrf_mod.getvar(ds, "uvmet", timeidx=ti, units="m s-1")
 
         theta_cross = wrf_mod.vertcross(theta, z, levels=level_m, wrfin=ds, start_point=start,
                                         end_point=end, latlon=True, missing=np.nan)
@@ -400,17 +401,17 @@ def _rain_over_terrain(run_dir, run_label, domain, out_dir):
     wrf_mod = __import__("wrf")
     from post.recipes.mapfig import save_map
 
-    frames = list_frames(run_dir, domain=domain)
+    frames = list_frame_refs(run_dir, domain=domain)
     if not frames:
         return None
-    time0, path0 = frames[-1]
+    time0, path0, ti = frames[-1]
     with netCDF4.Dataset(path0) as ds:
-        rainc = wrf_mod.getvar(ds, "RAINC", timeidx=0)
-        rainnc = wrf_mod.getvar(ds, "RAINNC", timeidx=0)
+        rainc = wrf_mod.getvar(ds, "RAINC", timeidx=ti)
+        rainnc = wrf_mod.getvar(ds, "RAINNC", timeidx=ti)
         rain = np.asarray(rainc + rainnc)
-        ter = np.asarray(wrf_mod.getvar(ds, "ter", timeidx=0))
-        lats, lons = wrf_mod.latlon_coords(wrf_mod.getvar(ds, "ter", timeidx=0), as_np=True)
-        crs = wrf_mod.get_cartopy(var=wrf_mod.getvar(ds, "ter", timeidx=0))
+        ter = np.asarray(wrf_mod.getvar(ds, "ter", timeidx=ti))
+        lats, lons = wrf_mod.latlon_coords(wrf_mod.getvar(ds, "ter", timeidx=ti), as_np=True)
+        crs = wrf_mod.get_cartopy(var=wrf_mod.getvar(ds, "ter", timeidx=ti))
         out_path = os.path.join(out_dir, "terrain_rain_d%02d.png" % domain)
         # WPC isohyet thresholds in mm, same scale as precip_accum (decision 0064)
         from post.conventions import ds_time_label
@@ -495,7 +496,7 @@ def _valley_time_height(run_dir, run_label, domain, out_dir, bdy_width=None):
     wrf_mod = __import__("wrf")
     from post.caseinfo import _interior_bounds, spec_bdy_width
 
-    frames = list_frames(run_dir, domain=domain)
+    frames = list_frame_refs(run_dir, domain=domain)
     if len(frames) < 2:
         # a time-height diagram needs >=2 times; matplotlib's contourf refuses a
         # (n_levels, 1) array outright (a real crash caught on the scc T1 validation run,
@@ -504,7 +505,7 @@ def _valley_time_height(run_dir, run_label, domain, out_dir, bdy_width=None):
 
     bdy_width = bdy_width if bdy_width is not None else spec_bdy_width(run_dir)
     with netCDF4.Dataset(frames[0][1]) as ds:
-        ter_var = wrf_mod.getvar(ds, "ter", timeidx=0)
+        ter_var = wrf_mod.getvar(ds, "ter", timeidx=frames[0][2])
         hgt = np.asarray(ter_var)
         lats2d, lons2d = wrf_mod.latlon_coords(ter_var, as_np=True)
         landmask = np.asarray(ds.variables["LANDMASK"][0]) if "LANDMASK" in ds.variables else None
@@ -525,13 +526,13 @@ def _valley_time_height(run_dir, run_label, domain, out_dir, bdy_width=None):
 
     times, theta_profiles, z_agl_profiles, u_profiles, v_profiles = [], [], [], [], []
     have_wind = True
-    for t, path in frames:
+    for t, path, ti in frames:
         with netCDF4.Dataset(path) as ds:
-            theta = np.asarray(wrf_mod.getvar(ds, "theta", timeidx=0, units="K"))[:, j, i]
-            z = np.asarray(wrf_mod.getvar(ds, "z", timeidx=0, units="m"))[:, j, i]
+            theta = np.asarray(wrf_mod.getvar(ds, "theta", timeidx=ti, units="K"))[:, j, i]
+            z = np.asarray(wrf_mod.getvar(ds, "z", timeidx=ti, units="m"))[:, j, i]
             if have_wind:
                 try:
-                    u_full, v_full = wrf_mod.getvar(ds, "uvmet", timeidx=0, units="m s-1")
+                    u_full, v_full = wrf_mod.getvar(ds, "uvmet", timeidx=ti, units="m s-1")
                     u_profiles.append(np.asarray(u_full)[:, j, i])
                     v_profiles.append(np.asarray(v_full)[:, j, i])
                 except Exception:
@@ -696,19 +697,19 @@ def _model_series_at(frames, lat, lon, interior_bounds):
     j0, j1, i0, i1 = interior_bounds
     res = dict(times=[], t2_c=[], rh2=[], wspd10=[])
     i = j = None
-    for t, path in frames:
+    for t, path, ti in frames:
         with netCDF4.Dataset(path) as ds:
             if i is None:
                 xy = wrf_mod.ll_to_xy(ds, lat, lon)
                 i, j = int(xy[0]), int(xy[1])
                 if not (i0 <= i < i1 and j0 <= j < j1):
                     return None
-                res["hgt_m"] = float(ds.variables["HGT"][0, j, i])
+                res["hgt_m"] = float(ds.variables["HGT"][ti, j, i])
             res["times"].append(datetime.strptime(t, WRF_TIME_FMT))
-            res["t2_c"].append(float(ds.variables["T2"][0, j, i]) - 273.15)
-            u, v = float(ds.variables["U10"][0, j, i]), float(ds.variables["V10"][0, j, i])
+            res["t2_c"].append(float(ds.variables["T2"][ti, j, i]) - 273.15)
+            u, v = float(ds.variables["U10"][ti, j, i]), float(ds.variables["V10"][ti, j, i])
             res["wspd10"].append(math.hypot(u, v))
-            res["rh2"].append(float(np.asarray(wrf_mod.getvar(ds, "rh2", timeidx=0))[j, i]))
+            res["rh2"].append(float(np.asarray(wrf_mod.getvar(ds, "rh2", timeidx=ti))[j, i]))
     res["i"], res["j"] = i, j
     return res
 
@@ -748,7 +749,7 @@ def _leeward_station(run_dir, run_label, domain, out_dir, project_dir, spinup_ho
     cands, reason = lee_station_candidates(stations, info["peak_ll"], info["bearing_deg"])
     if not cands:
         return None, reason
-    times = [datetime.strptime(t, WRF_TIME_FMT) for t, _ in frames]
+    times = [datetime.strptime(f[0], WRF_TIME_FMT) for f in frames]
     t0 = times[0] + timedelta(hours=spinup_hours)
     sel = [f for f, t in zip(frames, times) if t >= t0] or list(frames)
     t_lo = datetime.strptime(sel[0][0], WRF_TIME_FMT)
@@ -793,7 +794,7 @@ def _point_stat(run_dir, run_label, domain, out_dir, project_dir, spinup_hours):
     """(fig entry or missing entry) -- precip's station Point-Stat path on the terrain domain."""
     from post.recipe import fig, missing
     from post.recipes import precip
-    frames = list_frames(run_dir, domain=domain)
+    frames = list_frame_refs(run_dir, domain=domain)
     if not frames:
         return missing("terrain_point_stat", "wrfout_d%02d_*" % domain, "no frames found")
     res, dataset, reason = precip.station_verification(run_dir, domain, frames, out_dir,
@@ -879,7 +880,7 @@ def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6, cross_section=
         out.append(missing("terrain_valley_timeheight", "wrf-python", str(e)))
 
     try:
-        frames = list_frames(run_dir, domain=domain)
+        frames = list_frame_refs(run_dir, domain=domain)
         if not frames:
             out.append(missing("terrain_leeward_station", "wrfout_d%02d_*" % domain, "no frames found"))
         else:

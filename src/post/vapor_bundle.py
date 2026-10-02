@@ -22,6 +22,17 @@ command plus the file count and size it would copy. Names drop WRF's colons
 (wrfout_d01_2005-08-28_06_00_00) so the bundle survives macOS/Windows filesystems and tools;
 VAPOR is ASSUMED to take the time from each file's Times variable, not from its name (stated in
 the README, since nothing here could be run against VAPOR).
+
+Multi-frame wrfout (namelist frames_per_outfile > 1, e.g. the climate runs: 4 history times per
+file): a selected valid time inside such a file is NOT hard-linked -- linking the whole file
+would hand VAPOR four times under one time's name, and a stale --every selection would then
+double-count. Decision (0.8.2): that time is written as a single-time wrfout (every variable's
+Time index `timeidx` only, global and variable attributes, dimensions and compression kept;
+netCDF4 copy, mode "extract" in the manifest -- netCDF4 is already the post env's reader, NCO's
+ncks is not guaranteed there). Extracting is new disk, so it obeys the same rule as copying: only
+with allow_copy. Without it the domain is refused BEFORE anything is written (NotHardLinkable,
+message naming the multi-frame files and the exact --allow-copy command with an estimated size),
+so the always-on recipe path reports the bundle as missing instead of linking wrong files.
 """
 from __future__ import annotations
 
@@ -174,8 +185,66 @@ def _write_readme(path, bundle_dir, run_dir, run_label, domain, frames, cadence,
                                 bundle_dir=os.path.abspath(bundle_dir)))
 
 
+def _ntimes(path):
+    """Number of valid times in a wrfout file (post.extract.file_times; 1 when unreadable)."""
+    from post.extract import file_times
+    return len(file_times(path) or [None])
+
+
+def write_single_time(src, timeidx, dst):
+    """Writes dst as a copy of wrfout src restricted to its Time index `timeidx`: same global
+    attributes, dimensions (Time of length 1, still unlimited), variables with their attributes
+    and compression; non-Time variables copied whole. Written to a temporary name, then
+    os.replace. Returns "extract"."""
+    import netCDF4
+    tmp = dst + ".wtune-tmp"
+    if os.path.lexists(tmp):
+        os.remove(tmp)
+    try:
+        with netCDF4.Dataset(src) as si, netCDF4.Dataset(tmp, "w", format=si.data_model) as so:
+            so.setncatts({k: si.getncattr(k) for k in si.ncattrs()})
+            for name, dim in si.dimensions.items():
+                so.createDimension(name, None if dim.isunlimited() else
+                                   (1 if name == "Time" else len(dim)))
+            for name, var in si.variables.items():
+                var.set_auto_maskandscale(False)
+                attrs = {k: var.getncattr(k) for k in var.ncattrs()}
+                fill = attrs.pop("_FillValue", None)
+                filt = var.filters() or {}
+                kw = {}
+                if filt.get("zlib"):
+                    kw = dict(zlib=True, complevel=filt.get("complevel", 4),
+                              shuffle=filt.get("shuffle", False))
+                out = so.createVariable(name, var.dtype, var.dimensions, fill_value=fill, **kw)
+                out.set_auto_maskandscale(False)
+                out.setncatts(attrs)
+                if var.dimensions and var.dimensions[0] == "Time":
+                    out[0:1] = var[timeidx:timeidx + 1]
+                else:
+                    out[...] = var[...]
+    except Exception as e:                      # noqa: BLE001 -- netCDF4 raises RuntimeError
+        if os.path.lexists(tmp):
+            os.remove(tmp)
+        raise OSError("cannot extract time index %d of %s: %s" % (timeidx, src, e)) from e
+    os.replace(tmp, dst)
+    return "extract"
+
+
+def _multi_frame_hint(run_dir, out_root, domain, every, times, multi):
+    size = sum(os.path.getsize(p) / float(_ntimes(p)) for _t, p, _i in multi)
+    files = sorted(set(os.path.basename(p) for _t, p, _i in multi))
+    sel = (" --times %s" % ",".join(times) if times else " --every %s" % every if every else "")
+    return ("vapor bundle needs one time per file, but %d selected time(s) sit inside "
+            "multi-frame wrfout files (frames_per_outfile > 1: %s%s); run `wtune post "
+            "vapor-bundle %s --domain %d%s --out %s --allow-copy` to extract %d single-time "
+            "files (~%s)"
+            % (len(multi), ", ".join(files[:3]), ", ..." if len(files) > 3 else "",
+               os.path.abspath(run_dir), domain, sel, os.path.abspath(out_root), len(multi),
+               _human(size)))
+
+
 def _allow_copy_hint(run_dir, out_root, domain, every, times, selected, err):
-    size = sum(os.path.getsize(p) for _t, p in selected)
+    size = sum(os.path.getsize(p) for _t, p, _i in selected)
     sel = (" --times %s" % ",".join(times) if times else " --every %s" % every if every else "")
     return ("vapor bundle not hard-linkable here (%s); run `wtune post vapor-bundle %s "
             "--domain %d%s --out %s --allow-copy` to copy %d files (~%s)"
@@ -196,6 +265,9 @@ def build_bundle(run_dir, out_root, domain, every=None, times=None, run_label=No
     selected = select_frames(run_dir, domain, every=every, times=times)
     if not selected:
         raise ValueError("no wrfout_d%02d_* frames in %s" % (domain, run_dir))
+    multi = [f for f in selected if _ntimes(f[1]) > 1]
+    if multi and not allow_copy:                # refused before anything is written
+        raise NotHardLinkable(_multi_frame_hint(run_dir, out_root, domain, every, times, multi))
     bundle_dir = os.path.join(out_root, "vapor", "d%02d" % domain)
     new_dirs = [d for d in (out_root, os.path.dirname(bundle_dir), bundle_dir)
                 if not os.path.isdir(d)]
@@ -203,11 +275,13 @@ def build_bundle(run_dir, out_root, domain, every=None, times=None, run_label=No
 
     # frames first, before anything else in the bundle is touched, so a refusal can be undone
     frames, written = [], []
-    for t, src in selected:
+    for t, src, timeidx in selected:
         name = bundle_name(domain, t)
         dst = os.path.join(bundle_dir, name)
+        single = _ntimes(src) <= 1
         try:
-            mode = link_or_copy(src, dst, allow_copy=allow_copy)
+            mode = (link_or_copy(src, dst, allow_copy=allow_copy) if single
+                    else write_single_time(src, timeidx, dst))
         except OSError as e:
             for path in written:
                 os.remove(path)
@@ -223,7 +297,7 @@ def build_bundle(run_dir, out_root, domain, every=None, times=None, run_label=No
         if mode != "kept":
             written.append(dst)
         frames.append(dict(original=os.path.abspath(src), name=name, valid_time=t,
-                           size_bytes=os.path.getsize(src),
+                           timeidx=timeidx, size_bytes=os.path.getsize(dst),
                            mode="hardlink" if mode == "kept" else mode))
 
     # a frame left over from an earlier, different --every selection would silently join the
@@ -235,7 +309,7 @@ def build_bundle(run_dir, out_root, domain, every=None, times=None, run_label=No
         if name.startswith(prefix) and name not in wanted:
             os.remove(os.path.join(bundle_dir, name))
     total = sum(f["size_bytes"] for f in frames)
-    copied = sum(f["size_bytes"] for f in frames if f["mode"] == "copy")
+    copied = sum(f["size_bytes"] for f in frames if f["mode"] in ("copy", "extract"))
     link_note = ("hard-linked (no extra space)" if not copied else
                  "copied (%s)" % _human(copied) if copied == total else
                  "partly copied (%s copied, the rest hard-linked)" % _human(copied))

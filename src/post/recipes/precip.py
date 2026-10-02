@@ -24,7 +24,7 @@ import os
 from datetime import datetime, timedelta
 
 from post import sources, tools
-from post.extract import list_frames
+from post.extract import list_frame_refs
 
 # WPC-style event thresholds in mm (0.01, 0.1, 0.25, 0.5, 1 in, then 50 mm; decision 0064)
 THRESHOLDS_MM = (0.254, 2.54, 6.35, 12.7, 25.4, 50)
@@ -91,16 +91,20 @@ def stage4_missing_reason(project_dir, run_dir, frame_times, bbox, has_files):
     return ("Stage IV not fetched yet (no ST4.*.grib in %s) -- run on a login node: " % where) + cmd
 
 
-def _model_accum(path0, path1):
+def _model_accum(ref0, ref1):
     """(lat, lon, mm) model precipitation between two wrfout frames: RAINC+RAINNC(t1) -
-    RAINC+RAINNC(t0) -- WRF's cumulative rain, difference of two frames is plain arithmetic."""
+    RAINC+RAINNC(t0) -- WRF's cumulative rain, difference of two frames is plain arithmetic.
+    ref0/ref1: (path, timeidx) (post.extract.frame_ref; a frames_per_outfile > 1 file holds
+    several valid times, the accumulation AT a valid time is the value at its timeidx), or a
+    bare path for timeidx 0."""
     import netCDF4
     import numpy as np
+    (path0, i0), (path1, i1) = [(r, 0) if isinstance(r, str) else r for r in (ref0, ref1)]
     with netCDF4.Dataset(path0) as d0, netCDF4.Dataset(path1) as d1:
-        r0 = np.asarray(d0.variables["RAINC"][0], "f8") + np.asarray(d0.variables["RAINNC"][0], "f8")
-        r1 = np.asarray(d1.variables["RAINC"][0], "f8") + np.asarray(d1.variables["RAINNC"][0], "f8")
-        lat = np.asarray(d1.variables["XLAT"][0], "f8")
-        lon = np.asarray(d1.variables["XLONG"][0], "f8")
+        r0 = np.asarray(d0.variables["RAINC"][i0], "f8") + np.asarray(d0.variables["RAINNC"][i0], "f8")
+        r1 = np.asarray(d1.variables["RAINC"][i1], "f8") + np.asarray(d1.variables["RAINNC"][i1], "f8")
+        lat = np.asarray(d1.variables["XLAT"][i1], "f8")
+        lon = np.asarray(d1.variables["XLONG"][i1], "f8")
     return lat, lon, np.maximum(r1 - r0, 0.0)
 
 
@@ -127,8 +131,9 @@ def _stage4_figures(run_dir, run_label, domain, frames, out_dir, spinup_hours, p
     from post import met_gridstat, obs_figs
     from post.caseinfo import WRF_TIME_FMT, spec_bdy_width
 
-    times = [datetime.strptime(t, WRF_TIME_FMT) for t, _ in frames]
-    paths = {datetime.strptime(t, WRF_TIME_FMT): p for t, p in frames}
+    times = [datetime.strptime(f[0], WRF_TIME_FMT) for f in frames]
+    refs = {datetime.strptime(f[0], WRF_TIME_FMT): (f[1], f[2] if len(f) > 2 else 0)
+            for f in frames}
     ids = ("precip_obs_compare", "precip_diff", "precip_ets_fbias", "precip_fss")
     index = stage4_index(project_dir)
     win = pick_window(times, spinup_hours, index)
@@ -150,11 +155,11 @@ def _stage4_figures(run_dir, run_label, domain, frames, out_dir, spinup_hours, p
     work = os.path.join(out_dir, "gridstat_stage4_%s" % tag)
     os.makedirs(work, exist_ok=True)
     try:
-        lat, lon, mm = _model_accum(paths[t_start], paths[valid])
+        lat, lon, mm = _model_accum(refs[t_start], refs[valid])
         fcst_nc = met_gridstat.curvilinear_to_latlon(
             lat, lon, {"APCP_MODEL": (mm, "mm", "WRF accumulated precipitation")}, valid,
             os.path.join(work, "model_apcp.nc"), method="remapcon")
-        poly = met_gridstat.write_interior_polygon(paths[valid], spec_bdy_width(run_dir),
+        poly = met_gridstat.write_interior_polygon(refs[valid][0], spec_bdy_width(run_dir),
                                                    os.path.join(work, "interior.poly"))
         mask_note = "model interior"
         sites_file = os.path.join(sources.dataset_dir(project_dir, "stage4"), "nexrad_sites.txt")
@@ -240,7 +245,7 @@ def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6, project_dir=No
 
     run_dir, run_label = run_dirs[0], labels[0]
     domain = case_info["domains"][-1]["domain"]   # finest domain, most informative rain field
-    frames = list_frames(run_dir, domain=domain)
+    frames = list_frame_refs(run_dir, domain=domain)     # [(time, path, timeidx)]
     out = []
     if not frames:
         out.append(missing("precip_accum", "wrfout_d%02d_*" % domain, "no frames found"))

@@ -353,7 +353,8 @@ def _tracks_for_domain(run_dir, domain, work_dir, params=None, smooth_km=SMOOTH_
     fields_nc = os.path.join(work_dir, "fields.nc")
     # segment-aware, one file per valid time; no frames -> the old glob, so diagnostics' own
     # "no wrfout files matched" error still names the pattern
-    frames = [p for _t, p in extract.list_frames(run_dir, domain)]
+    # each FILE once: wrfout_to_tc_fields reads every time a (multi-frame) file holds
+    frames = list(dict.fromkeys(p for _t, p in extract.list_frames(run_dir, domain)))
     diag_mod.wrfout_to_tc_fields(frames or os.path.join(run_dir, "wrfout_d%02d_*" % domain),
                                  fields_nc)
     track_nc = fields_nc
@@ -399,23 +400,26 @@ def run_domains(run_dir, max_dom=None):
     between its first and last frame is flagged moving (a static-grid tracker cannot follow it)."""
     netcdf4 = _netcdf4()
     doms = {}
-    for (d, time_str), p in sorted(extract.frame_index(run_dir).items()):  # segment-aware
+    # segment-aware, Times-based: a multi-frame wrfout gives one entry per valid time
+    for (d, time_str), (p, ti) in sorted(extract.frame_refs(run_dir).items()):
         if max_dom is None or d <= max_dom:
-            doms.setdefault(d, {"frames": {}})["frames"][time_str] = p
+            info = doms.setdefault(d, {"frames": {}, "refs": {}})
+            info["frames"][time_str] = p
+            info["refs"][time_str] = (p, ti)
     for d, info in doms.items():
         times = sorted(info["frames"])
-        first, last = info["frames"][times[0]], info["frames"][times[-1]]
+        (first, i0), (last, i1) = info["refs"][times[0]], info["refs"][times[-1]]
         with netcdf4.Dataset(first) as ds:
             info["dx_km"] = float(ds.getncattr("DX")) / 1000.0
             info["ny"] = len(ds.dimensions["south_north"])
             info["nx"] = len(ds.dimensions["west_east"])
-            lat00 = float(ds.variables["XLAT"][0, 0, 0])
-            lon00 = float(ds.variables["XLONG"][0, 0, 0])
+            lat00 = float(ds.variables["XLAT"][i0, 0, 0])
+            lon00 = float(ds.variables["XLONG"][i0, 0, 0])
         moving = False
-        if last != first:
+        if (last, i1) != (first, i0):
             with netcdf4.Dataset(last) as ds:
-                moving = (abs(float(ds.variables["XLAT"][0, 0, 0]) - lat00) > 1e-3
-                          or abs(float(ds.variables["XLONG"][0, 0, 0]) - lon00) > 1e-3)
+                moving = (abs(float(ds.variables["XLAT"][i1, 0, 0]) - lat00) > 1e-3
+                          or abs(float(ds.variables["XLONG"][i1, 0, 0]) - lon00) > 1e-3)
         info["moving"] = moving
     return doms
 
@@ -695,13 +699,13 @@ def model_quadrant_radii(run_dir, track, domain=1):
     t0 = min(datetime.strptime(t, WRF_TIME_FMT) for t in track)
     rows = []
     for time_str, pt in sorted(track.items()):
-        path = extract.frame_path(run_dir, domain, time_str)
+        path, ti = extract.frame_ref(run_dir, domain, time_str)
         if not os.path.exists(path):
             continue
         with netcdf4.Dataset(path) as ds:
-            lat = np.asarray(ds.variables["XLAT"][0])
-            lon = np.asarray(ds.variables["XLONG"][0])
-            speed = np.hypot(ds.variables["U10"][0][...], ds.variables["V10"][0][...])
+            lat = np.asarray(ds.variables["XLAT"][ti])
+            lon = np.asarray(ds.variables["XLONG"][ti])
+            speed = np.hypot(ds.variables["U10"][ti][...], ds.variables["V10"][ti][...])
         rr = tm.dist_km(pt["lat"], pt["lon"], lat, lon)
         lead_h = (datetime.strptime(time_str, WRF_TIME_FMT) - t0).total_seconds() / 3600.0
         row = dict(time=time_str, lead_h=lead_h)
@@ -973,15 +977,15 @@ def _track_map_figure(out_dir, model_tracks, bdeck, storm_id, dom_dx=None):
     return path
 
 
-def _surface_pressure_profile(frame_path, lat0, lon0, rng_km):
+def _surface_pressure_profile(frame_path, lat0, lon0, rng_km, timeidx=0):
     """Azimuthal-mean surface pressure (hPa) at each storm-centred range in rng_km, from one wrfout
     frame's PSFC. Self-computed because tc_rmw writes no surface field: it is only used to draw
     where the pressure-level data ends (below ground / sea surface) in the RMW figure."""
     import numpy as np
     with _netcdf4().Dataset(frame_path) as ds:
-        lat = np.asarray(ds.variables["XLAT"][0])
-        lon = np.asarray(ds.variables["XLONG"][0])
-        psfc = np.asarray(ds.variables["PSFC"][0]) / 100.0
+        lat = np.asarray(ds.variables["XLAT"][timeidx])
+        lon = np.asarray(ds.variables["XLONG"][timeidx])
+        psfc = np.asarray(ds.variables["PSFC"][timeidx]) / 100.0
     rr = tm.dist_km(lat0, lon0, lat, lon)
     rng = np.asarray(rng_km, dtype=float)
     half = np.gradient(rng) / 2.0 if len(rng) > 1 else np.array([5.0])
@@ -1029,10 +1033,10 @@ def _rmw_figure(run_dir, adeck_path, met_dir, out_dir, label, every_h=6):
     from matplotlib.ticker import MaxNLocator
 
     frames = []
-    for time_str, f in extract.list_frames(run_dir, 1):  # segment-aware
+    for time_str, f, ti in extract.list_frame_refs(run_dir, 1):  # segment-aware, Times-based
         when = datetime.strptime(time_str, WRF_TIME_FMT)
         if when.minute == 0 and when.hour % every_h == 0:
-            frames.append((when, f))
+            frames.append((when, (f, ti)))
     if not frames:
         return None
     data = met_tc.regrid_for_tc_rmw([f for _, f in frames], os.path.join(met_dir, "rmw_input.grb"))
@@ -1069,10 +1073,10 @@ def _rmw_figure(run_dir, adeck_path, met_dir, out_dir, label, every_h=6):
     if rows:
         init = rows[0]["time"]
         valid = init + __import__("datetime").timedelta(hours=float(lead_h[k]))
-        when, fpath = min(frames, key=lambda wf: abs((wf[0] - valid).total_seconds()))
+        when, (fpath, fti) = min(frames, key=lambda wf: abs((wf[0] - valid).total_seconds()))
         row = min(rows, key=lambda r: abs(r["tau_h"] - lead_h[k]))
         try:
-            ps = _surface_pressure_profile(fpath, row["lat"], row["lon"], rng)
+            ps = _surface_pressure_profile(fpath, row["lat"], row["lon"], rng, timeidx=fti)
         except (KeyError, OSError):
             ps = None
 

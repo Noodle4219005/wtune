@@ -84,7 +84,10 @@ def _wrf():
 
 
 def expand_wrfout(patterns):
-    """Globs/paths -> sorted unique file list. Raises when nothing matches.
+    """Globs/paths -> unique file list: each glob's hits sorted, the caller's pattern order kept
+    (an explicit segment-ordered list from post.extract must not be re-sorted as strings, or
+    seg_10 lands before seg_2 and the wrong file wins a valid time two segments share).
+    Raises when nothing matches.
 
     Mirrors predictor/verify_obs.py's expand_wrfout (not imported: that module is owned
     by a different part of the codebase and this package must not depend on its private
@@ -100,7 +103,7 @@ def expand_wrfout(patterns):
         if not hits and os.path.exists(pattern):
             hits = [pattern]
         files.extend(hits)
-    files = sorted(set(files))
+    files = list(dict.fromkeys(files))
     if not files:
         raise DiagnosticsError(f"no wrfout files matched: {list(patterns)}")
     return files

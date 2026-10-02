@@ -308,7 +308,7 @@ def test_rz_analysis_recovers_vortex_and_warm_core(tmp_path):
 
 def _fake_volume(calls, raise_exc=None):
     def render(wrfout_path, out_png, work_dir, *, center_latlon=None, box_km=None,
-               cutaway=False, title=""):
+               cutaway=False, title="", timeidx=0):
         calls.append(dict(path=wrfout_path, center=center_latlon, box=box_km, cutaway=cutaway))
         if raise_exc:
             raise raise_exc

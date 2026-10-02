@@ -90,34 +90,171 @@ def segment_dirs(run_dir):
     return [path for _key, path in sorted(segs)]
 
 
-def frame_index(run_dir):
-    """{(domain, time_str): path} for every wrfout_dNN_TIME in run_dir -- or, for a segmented
-    run dir (segment_dirs), in all its segments: a valid time present in two segments (the
-    shared boundary frame, or a rescued segment's re-run) maps to the LATER segment's file."""
-    out = {}
+_TIMES_CACHE = {}       # {(path, mtime_ns, size): [valid_time_str, ...] or None}
+
+
+def _decode_times(var):
+    """WRF's Times(Time, DateStrLen) char variable -> [time_str, ...]; also accepts a 1-D
+    string variable (a converted file, or netCDF4 auto-chartostring via _Encoding)."""
+    import numpy as np
+    raw = np.ma.getdata(var[:])
+    if raw.ndim == 2 and raw.dtype.kind == "S":
+        rows = [b"".join(r.tolist()) for r in raw]
+    else:
+        rows = list(np.atleast_1d(raw).tolist())
+    return [(r.decode("ascii", "replace") if isinstance(r, bytes) else str(r)).strip("\x00 ")
+            for r in rows]
+
+
+def file_times(path):
+    """The valid times a wrfout file holds, from its own Times variable (WRF writes
+    frames_per_outfile > 1 history times into one file) -- [time_str, ...] in file order, the
+    list index being the file's own timeidx. None when the file is not readable netCDF or has
+    no usable Times (the caller then falls back to the one file-name time). Reads only the
+    Times variable; cached in-process per (path, mtime, size), so re-listing a run dir after a
+    segment rewrote a file re-reads it, and an unchanged 400-file climate run is opened once."""
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    key = (path, st.st_mtime_ns, st.st_size)
+    if key in _TIMES_CACHE:
+        return _TIMES_CACHE[key]
+    times = None
+    if st.st_size > 0:
+        try:
+            netcdf4 = _netcdf4()
+            with netcdf4.Dataset(path) as ds:
+                if "Times" in ds.variables:
+                    times = [t for t in _decode_times(ds.variables["Times"]) if t] or None
+        except Exception:       # not netCDF / truncated / netCDF4 missing -> file-name time
+            times = None
+    _TIMES_CACHE[key] = times
+    return times
+
+
+def _file_entries(run_dir):
+    """[(domain, file_name_time, path), ...] for every wrfout_dNN_TIME file, segment order
+    (segment_dirs) then file-name order -- the order "later wins" is decided in."""
+    out = []
     for d in segment_dirs(run_dir) or [run_dir]:
         for path in sorted(glob.glob(os.path.join(d, "wrfout_d*_*"))):
             m = _FRAME_RE.search(os.path.basename(path))
             if m:
-                out[(int(m.group(1)), m.group(2))] = path
+                out.append((int(m.group(1)), m.group(2), path))
     return out
 
 
+def file_index(run_dir):
+    """{(domain, file_name_time): path} -- one entry per wrfout FILE, keyed by the time in its
+    name (a later segment's file of the same name wins). For whole-file tools (diffwrf in
+    post/compare.py) that compare files rather than individual valid times."""
+    return {(dom, t): path for dom, t, path in _file_entries(run_dir)}
+
+
+def frame_refs(run_dir):
+    """{(domain, valid_time): (path, timeidx)} for every history time in run_dir -- or, for a
+    segmented run dir (segment_dirs), in all its segments. Valid times come from each file's
+    own Times variable (file_times), so a file holding frames_per_outfile > 1 times yields one
+    entry per time; an unreadable file (or one without Times) contributes its file-name time
+    at timeidx 0, exactly the pre-Times behaviour. A valid time present in two files (the shared
+    boundary frame of two segments, a rescued segment's re-run) maps to the LATER file in
+    segment-then-name order."""
+    out = {}
+    for dom, name_time, path in _file_entries(run_dir):
+        times = file_times(path) or [name_time]
+        for idx, t in enumerate(times):
+            out[(dom, t)] = (path, idx)
+    return out
+
+
+def frame_index(run_dir):
+    """{(domain, valid_time): path} -- frame_refs without the timeidx (the containing file of
+    each valid time). Identical to the old file-name index for single-frame files."""
+    return {k: path for k, (path, _idx) in frame_refs(run_dir).items()}
+
+
+def list_frame_refs(run_dir, domain=1):
+    """Sorted [(valid_time, path, timeidx), ...] for domain <domain> (see frame_refs)."""
+    return sorted((t, path, idx) for (d, t), (path, idx) in frame_refs(run_dir).items()
+                  if d == domain)
+
+
 def list_frames(run_dir, domain=1):
-    """Sorted [(time_str, path), ...] for wrfout_d0<domain>_* in run_dir (merged across
-    segments for a segmented run dir, see frame_index)."""
-    return sorted((t, path) for (d, t), path in frame_index(run_dir).items() if d == domain)
+    """Sorted [(valid_time, path), ...] for domain <domain> (merged across segments for a
+    segmented run dir, see frame_refs). With multi-frame files several valid times share one
+    path -- a caller that reads a time-varying field must use list_frame_refs/frame_ref for
+    the timeidx instead of reading index 0."""
+    return [(t, path) for t, path, _idx in list_frame_refs(run_dir, domain)]
+
+
+def frame_ref(run_dir, domain, time_str):
+    """(path, timeidx) of valid time time_str on domain <domain> (segment-aware, Times-based,
+    see frame_refs); (the flat run_dir/wrfout_dNN_<time_str> path, 0) when no file holds that
+    time, so a caller's own exists()/open error still names the expected file."""
+    flat = os.path.join(run_dir, "wrfout_d%02d_%s" % (int(domain), time_str))
+    ref = frame_refs(run_dir).get((int(domain), time_str))
+    if ref is not None:
+        return ref
+    return flat, 0
 
 
 def frame_path(run_dir, domain, time_str):
-    """Path of the wrfout_d<domain>_<time_str> frame of run_dir (segment-aware, see
-    frame_index); the flat run_dir/<name> path when there is no such frame, so a caller's own
-    exists()/open error still names the expected file."""
-    name = "wrfout_d%02d_%s" % (domain, time_str)
-    flat = os.path.join(run_dir, name)
-    if os.path.exists(flat):
-        return flat
-    return frame_index(run_dir).get((int(domain), time_str), flat)
+    """Path of the file holding valid time time_str (frame_ref without the timeidx)."""
+    return frame_ref(run_dir, domain, time_str)[0]
+
+
+class MissingFields(ExtractError):
+    """A wrfout history stream lacks variables/global attributes a diagnostic needs -- the
+    usual cause is an iofields file that reduced the history stream (climate runs)."""
+
+    def __init__(self, names, what=None):
+        self.names = list(names)
+        super().__init__("history stream lacks %s%s (iofields-reduced output?)"
+                         % (", ".join(self.names), (" for " + what) if what else ""))
+
+
+def require_fields(ds, variables=(), attributes=(), what=None):
+    """Raise MissingFields naming every one of `variables` (netCDF variables) and `attributes`
+    (global attributes) that ds lacks -- checked up front, so a recipe reports what the
+    reduced history stream is missing instead of a bare AttributeError/KeyError."""
+    missing = [v for v in variables if v not in ds.variables]
+    attrs = set(ds.ncattrs()) if hasattr(ds, "ncattrs") else set()
+    missing += [a for a in attributes if a not in attrs]
+    if missing:
+        raise MissingFields(missing, what)
+
+
+def is_missing_field_error(exc):
+    """True for the exceptions a reduced (iofields) history stream produces when a diagnostic
+    reads a variable/attribute that is not there: MissingFields, a netCDF4/wrf-python KeyError,
+    wrf.getvar's ValueError "'X' is not a valid variable name", netCDF's AttributeError
+    "NetCDF: Attribute not found", wrf-python's RuntimeError "'X' not found in NetCDF file"."""
+    if isinstance(exc, (MissingFields, KeyError)):
+        return True
+    text = str(exc)
+    return ("is not a valid variable name" in text or "Attribute not found" in text
+            or "not found in NetCDF" in text)
+
+
+def missing_reason(exc):
+    """A human missing-entry reason for an exception raised while reading a wrfout frame:
+    MissingFields keeps its own text; a netCDF/wrf-python KeyError/AttributeError/ValueError
+    that names a variable or attribute becomes "history stream lacks <name> ..." rather than
+    a raw exception repr."""
+    if isinstance(exc, MissingFields):
+        return str(exc)
+    text = str(exc)
+    m = (re.search(r"'([A-Za-z0-9_]+)' is not a valid variable name", text)   # wrf.getvar
+         or re.search(r"'([A-Za-z0-9_]+)' not found", text))
+    if m is None and isinstance(exc, KeyError) and exc.args:                # ds.variables[...]
+        m = re.match(r"([A-Za-z0-9_]+)$", str(exc.args[0]))
+    if m:
+        return "history stream lacks %s (iofields-reduced output?)" % m.group(1)
+    if "Attribute not found" in text:
+        return ("history stream lacks a global attribute this diagnostic needs "
+                "(iofields-reduced output?)")
+    return "%s: %s" % (type(exc).__name__, text)
 
 
 def _surface_field(ds, wrf_mod, name, timeidx):
@@ -164,9 +301,11 @@ def _level_base_field(ds, wrf_mod, name, timeidx):
 
 def extract_frame(task):
     """Runs in a worker process (module-level for picklability). task = (path, time_str,
-    surface_vars, level_vars, levels_hpa). Returns {"time": ..., fields...} with each
+    surface_vars, level_vars, levels_hpa[, timeidx]) -- timeidx (default 0) is the valid
+    time's index inside a multi-frame file (frame_ref). Returns {"time": ..., fields...} with each
     surface field a 2-D ndarray and each level field a dict {level_hpa: 2-D ndarray}."""
-    path, time_str, surface_vars, level_vars, levels_hpa = task
+    path, time_str, surface_vars, level_vars, levels_hpa = task[:5]
+    timeidx = task[5] if len(task) > 5 else 0
     import numpy as np
     wrf_mod = _wrf()
     netcdf4 = _netcdf4()
@@ -175,11 +314,11 @@ def extract_frame(task):
         for name in surface_vars:
             if name == "rain_rate":
                 continue           # derived after all frames are gathered
-            out[name] = np.asarray(_surface_field(ds, wrf_mod, name, 0))
+            out[name] = np.asarray(_surface_field(ds, wrf_mod, name, timeidx))
         if level_vars and levels_hpa:
-            pressure = wrf_mod.getvar(ds, "pressure", timeidx=0)
+            pressure = wrf_mod.getvar(ds, "pressure", timeidx=timeidx)
             for name in level_vars:
-                base = _level_base_field(ds, wrf_mod, name, 0)
+                base = _level_base_field(ds, wrf_mod, name, timeidx)
                 out[name] = {lev: np.asarray(wrf_mod.interplevel(base, pressure, lev))
                             for lev in levels_hpa}
     return out
@@ -220,14 +359,15 @@ def extract(run_dir, variables, out_path, domain=1, times=None, levels_hpa=None,
     if "rain_rate" in surface_vars and "rain_acc" not in needed_surface:
         needed_surface.append("rain_acc")
 
-    all_frames = list_frames(run_dir, domain=domain)
+    all_frames = list_frame_refs(run_dir, domain=domain)
     if times:
         wanted = set(times)
-        all_frames = [(t, p) for t, p in all_frames if t in wanted]
+        all_frames = [f for f in all_frames if f[0] in wanted]
     if not all_frames:
         raise ExtractError("no wrfout_d%02d_* frames found in %s" % (domain, run_dir))
 
-    tasks = [(path, t, needed_surface, level_vars, levels_hpa or []) for t, path in all_frames]
+    tasks = [(path, t, needed_surface, level_vars, levels_hpa or [], idx)
+             for t, path, idx in all_frames]
     if workers and workers > 1:
         with ProcessPoolExecutor(max_workers=workers) as ex:
             frames = list(ex.map(extract_frame, tasks))

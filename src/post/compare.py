@@ -12,7 +12,7 @@ import os
 import re
 
 from post import tools
-from post.extract import frame_index
+from post.extract import file_index
 
 # diffwrf table row, e.g.:
 #          U    832103    3   0.8162436562E+01   0.8159945696E+01   3   0.5795E+00   0.4923E+00
@@ -26,9 +26,11 @@ class CompareError(RuntimeError):
 
 
 def _frames(run_dir):
-    """{(domain_int, time_str): path} for every wrfout_dNN_TIME file directly under run_dir, or
-    across the segments of a segmented run dir (post.extract.frame_index)."""
-    return frame_index(run_dir)
+    """{(domain_int, file_name_time): path} for every wrfout_dNN_TIME file directly under run_dir,
+    or across the segments of a segmented run dir (post.extract.file_index). Keyed per FILE, not
+    per valid time: diffwrf compares whole files, so a frames_per_outfile > 1 file is diffed
+    once (all its times), not once per valid time it holds."""
+    return file_index(run_dir)
 
 
 def _adios2_bp_dirs(run_dir):

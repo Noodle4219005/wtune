@@ -207,8 +207,26 @@ def _wrf_version(title):
     return (title or "unknown").strip()
 
 
-def read_frame(wrfout_path, levels_hpa=PRESSURE_LEVELS_HPA):
-    """wrf-python diagnostics of frame 0 of wrfout_path, interpolated to levels_hpa (minus the
+# what read_frame needs from the history stream: an iofields-reduced stream (climate runs)
+# often drops QCLOUD/W and the P_TOP variable -- checked up front so the frame is reported as
+# "history stream lacks ..." instead of netCDF's bare AttributeError on P_TOP
+REQUIRED_VARIABLES = ("Times", "P", "PB", "T", "PH", "PHB", "QVAPOR", "U", "V", "W", "QCLOUD",
+                      "HGT", "XLAT", "XLONG")
+
+
+def check_history_fields(nc):
+    """Raise post.extract.MissingFields naming every REQUIRED_VARIABLES entry and P_TOP
+    (variable or global attribute) that nc lacks."""
+    from post.extract import MissingFields
+    missing = [] if ("P_TOP" in nc.variables or "P_TOP" in nc.ncattrs()) else ["P_TOP"]
+    missing += [v for v in REQUIRED_VARIABLES if v not in nc.variables]
+    if missing:
+        raise MissingFields(missing)
+
+
+def read_frame(wrfout_path, levels_hpa=PRESSURE_LEVELS_HPA, timeidx=0):
+    """wrf-python diagnostics of time index `timeidx` of wrfout_path (0 for a single-frame file;
+    a frames_per_outfile > 1 file holds several, see post.extract.frame_ref), interpolated to levels_hpa (minus the
     levels at or above the model top). Returns dict(levels, dropped_levels, fields{name:
     (nlev, ny, nx) float32, NaN = missing}, hgt, lat2d, lon2d, crs, dx, p_top, sim_start,
     valid_time, wrf_version, has_qice)."""
@@ -217,7 +235,8 @@ def read_frame(wrfout_path, levels_hpa=PRESSURE_LEVELS_HPA):
     import wrf
 
     with netCDF4.Dataset(wrfout_path) as nc:
-        p_top = (float(nc.variables["P_TOP"][0]) if "P_TOP" in nc.variables
+        check_history_fields(nc)
+        p_top = (float(nc.variables["P_TOP"][timeidx]) if "P_TOP" in nc.variables
                  else float(nc.getncattr("P_TOP")))
         # a level at or above P_TOP has no model data in any column -- drop it rather than
         # write an all-missing level
@@ -227,7 +246,7 @@ def read_frame(wrfout_path, levels_hpa=PRESSURE_LEVELS_HPA):
             raise CFPressureError("every requested level is above the model top (P_TOP=%g hPa)"
                                   % (p_top / 100.0))
 
-        pressure = wrf.getvar(nc, "pressure", timeidx=0, meta=False)
+        pressure = wrf.getvar(nc, "pressure", timeidx=timeidx, meta=False)
 
         def on_levels(base):
             # interplevel never extrapolates: a level outside the column's mass-level pressure
@@ -237,20 +256,20 @@ def read_frame(wrfout_path, levels_hpa=PRESSURE_LEVELS_HPA):
             out = np.ma.filled(np.ma.asarray(out, dtype=float), np.nan)
             return out.reshape((len(levels),) + out.shape[-2:]).astype(np.float32)
 
-        uvmet = wrf.getvar(nc, "uvmet", timeidx=0, units="m s-1", meta=False)
+        uvmet = wrf.getvar(nc, "uvmet", timeidx=timeidx, units="m s-1", meta=False)
         fields = {
-            "air_temperature": on_levels(wrf.getvar(nc, "tk", timeidx=0, meta=False)),
+            "air_temperature": on_levels(wrf.getvar(nc, "tk", timeidx=timeidx, meta=False)),
             "eastward_wind": on_levels(uvmet[0]),
             "northward_wind": on_levels(uvmet[1]),
-            "upward_air_velocity": on_levels(wrf.getvar(nc, "wa", timeidx=0, meta=False)),
-            "geopotential_height": on_levels(wrf.getvar(nc, "z", timeidx=0, units="m",
+            "upward_air_velocity": on_levels(wrf.getvar(nc, "wa", timeidx=timeidx, meta=False)),
+            "geopotential_height": on_levels(wrf.getvar(nc, "z", timeidx=timeidx, units="m",
                                                         meta=False)),
-            "relative_humidity": on_levels(wrf.getvar(nc, "rh", timeidx=0, meta=False)),
-            "QCLOUD": on_levels(wrf.getvar(nc, "QCLOUD", timeidx=0, meta=False)),
+            "relative_humidity": on_levels(wrf.getvar(nc, "rh", timeidx=timeidx, meta=False)),
+            "QCLOUD": on_levels(wrf.getvar(nc, "QCLOUD", timeidx=timeidx, meta=False)),
         }
         has_qice = "QICE" in nc.variables
         if has_qice:
-            fields["QICE"] = on_levels(wrf.getvar(nc, "QICE", timeidx=0, meta=False))
+            fields["QICE"] = on_levels(wrf.getvar(nc, "QICE", timeidx=timeidx, meta=False))
             fields["CLOUD_TOTAL"] = fields["QCLOUD"] + fields["QICE"]
         else:
             # warm-rain microphysics (e.g. Kessler) carries no ice: the total is QCLOUD alone
@@ -259,12 +278,12 @@ def read_frame(wrfout_path, levels_hpa=PRESSURE_LEVELS_HPA):
         times = netCDF4.chartostring(nc.variables["Times"][:])
         frame = dict(
             levels=levels, dropped_levels=dropped, fields=fields,
-            hgt=np.asarray(nc.variables["HGT"][0], dtype=float),
-            lat2d=np.asarray(nc.variables["XLAT"][0], dtype=float),
-            lon2d=np.asarray(nc.variables["XLONG"][0], dtype=float),
+            hgt=np.asarray(nc.variables["HGT"][timeidx], dtype=float),
+            lat2d=np.asarray(nc.variables["XLAT"][timeidx], dtype=float),
+            lon2d=np.asarray(nc.variables["XLONG"][timeidx], dtype=float),
             crs=wrf_crs(nc), dx=float(nc.getncattr("DX")), p_top=p_top,
             sim_start=str(nc.getncattr("SIMULATION_START_DATE")),
-            valid_time=str(np.atleast_1d(times)[0]),
+            valid_time=str(np.atleast_1d(times)[timeidx]),
             wrf_version=_wrf_version(getattr(nc, "TITLE", "")), has_qice=has_qice)
     return frame
 
@@ -368,10 +387,10 @@ def write_cf(out_path, frame, lat1d, lon1d, regridded, hgt_ll, bdy_width, dlon, 
 
 
 def convert_frame(wrfout_path, out_path, domain, bdy_width, levels_hpa=PRESSURE_LEVELS_HPA,
-                  command=None):
-    """One wrfout frame -> out_path. Returns dict(path, valid_time, levels, dropped_levels,
-    nlat, nlon, dlon, has_qice, size_bytes)."""
-    frame = read_frame(wrfout_path, levels_hpa=levels_hpa)
+                  command=None, timeidx=0):
+    """Time index `timeidx` of wrfout_path -> out_path. Returns dict(path, valid_time, levels,
+    dropped_levels, nlat, nlon, dlon, has_qice, size_bytes)."""
+    frame = read_frame(wrfout_path, levels_hpa=levels_hpa, timeidx=timeidx)
     affine = native_affine(frame["lat2d"], frame["lon2d"], frame["crs"])
     dlon = grid_spacing_deg(frame["dx"])
     lat1d, lon1d = target_grid(frame["lat2d"], frame["lon2d"], bdy_width, dlon)
@@ -388,19 +407,20 @@ def convert_frame(wrfout_path, out_path, domain, bdy_width, levels_hpa=PRESSURE_
 
 
 def select_frames(run_dir, domain, every=None, times=None):
-    """[(time_str, path), ...] of one domain at the --every/--times selection (post/timeseries
+    """[(time_str, path, timeidx), ...] of one domain at the --every/--times selection (post/timeseries
     .select_times, on that domain's own frames), or the LAST frame only when neither is given.
     Shared with post/vapor_bundle.py so both data products pick the same times. [] when the
     domain has no frames."""
-    from post.extract import list_frames
+    from post.extract import list_frame_refs
     from post.timeseries import select_times
-    frames = dict(list_frames(run_dir, domain=domain))       # segment-aware, never glob
+    # segment-aware and Times-based (a multi-frame wrfout gives one entry per valid time)
+    frames = {t: (path, idx) for t, path, idx in list_frame_refs(run_dir, domain=domain)}
     all_times = sorted(frames)
     if not all_times:
         return []
     selected = (select_times(all_times, every=every, times=times) if (every or times)
                 else all_times[-1:])
-    return [(t, frames[t]) for t in selected]
+    return [(t,) + frames[t] for t in selected]
 
 
 def export(run_dir, out_root, domains, bdy_width, every=None, times=None, command=None):
@@ -416,15 +436,16 @@ def export(run_dir, out_root, domains, bdy_width, every=None, times=None, comman
             results.append(dict(domain=domain, valid_time=None,
                                 error="no wrfout_d%02d_* frames in %s" % (domain, run_dir)))
             continue
-        for t, path in selected:
+        for t, path, timeidx in selected:
             out_path = os.path.join(out_root, "cf3d", "d%02d" % domain, output_name(domain, t))
             try:
-                r = convert_frame(path, out_path, domain, bdy_width, command=command)
+                r = convert_frame(path, out_path, domain, bdy_width, command=command,
+                                  timeidx=timeidx)
                 r["domain"] = domain
                 results.append(r)
             except Exception as e:                      # noqa: BLE001 -- wrf-python's own
                 # DiagnosticError, a truncated file, a variable missing from a reduced history
                 # stream: one frame's failure is recorded, never a failed recipe report
-                results.append(dict(domain=domain, valid_time=t,
-                                    error="%s: %s" % (type(e).__name__, e)))
+                from post.extract import missing_reason
+                results.append(dict(domain=domain, valid_time=t, error=missing_reason(e)))
     return results

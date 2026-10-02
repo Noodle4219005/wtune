@@ -128,8 +128,8 @@ def test_valley_time_height_reports_missing_when_no_point_found(monkeypatch, tmp
     """_find_valley_point() returning None must surface as (None, a "missing" reason), not a
     crash or a figure drawn at a meaningless point -- the actual selection logic is covered
     by the _find_valley_point tests above; this only checks the propagation contract."""
-    monkeypatch.setattr(terrain, "list_frames",
-                        lambda run_dir, domain=1: [("t0", "/fake/t0"), ("t1", "/fake/t1")])
+    monkeypatch.setattr(terrain, "list_frame_refs",
+                        lambda run_dir, domain=1: [("t0", "/fake/t0", 0), ("t1", "/fake/t1", 0)])
     monkeypatch.setattr("netCDF4.Dataset", _FakeDataset)
     fake_wrf = types.SimpleNamespace(
         getvar=lambda ds, name, timeidx=0: np.zeros((15, 15)),
@@ -144,7 +144,7 @@ def test_valley_time_height_reports_missing_when_no_point_found(monkeypatch, tmp
 
 
 def test_valley_time_height_reports_missing_with_fewer_than_two_frames(monkeypatch, tmp_path):
-    monkeypatch.setattr(terrain, "list_frames", lambda run_dir, domain=1: [("t0", "/fake/t0")])
+    monkeypatch.setattr(terrain, "list_frame_refs", lambda run_dir, domain=1: [("t0", "/fake/t0", 0)])
     path, reason = terrain._valley_time_height("/fake/run", "run0", 1, str(tmp_path))
     assert path is None
     assert "fewer than 2 frames" in reason

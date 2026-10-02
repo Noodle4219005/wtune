@@ -58,8 +58,16 @@ class Context:
         return max(doms) if doms else 1
 
     def list_frames(self, run_dir, domain=1):
+        """[(valid_time, path), ...] -- with frames_per_outfile > 1 several valid times share one
+        path; use list_frame_refs() for the time index inside the file."""
         from post.extract import list_frames
         return list_frames(run_dir, domain=domain)
+
+    def list_frame_refs(self, run_dir, domain=1):
+        """[(valid_time, path, timeidx), ...] (post.extract.list_frame_refs): read a field at a
+        valid time as ds.variables[name][timeidx] / wrf.getvar(ds, name, timeidx=timeidx)."""
+        from post.extract import list_frame_refs
+        return list_frame_refs(run_dir, domain=domain)
 
     def open_wrfout(self, path):
         """A netCDF4.Dataset the caller must close (or use as a context manager)."""

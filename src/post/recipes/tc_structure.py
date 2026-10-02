@@ -36,7 +36,7 @@ import os
 from datetime import datetime
 
 from post import tools
-from post.extract import list_frames
+from post.extract import list_frame_refs, list_frames
 from post.recipes import cloud as cl
 
 BOX_HALF_KM = 300.0                 # A1: 600 km x 600 km
@@ -234,17 +234,17 @@ def symmetric_levels(a, step=1.0, cap=20.0):
 
 # ---------------------------------------------------------------- centre / domain
 
-def frame_centre(ds, time_str, track, bdy_width):
+def frame_centre(ds, time_str, track, bdy_width, timeidx=0):
     """(j, i, source) of the storm centre in this frame."""
     import numpy as np
     wrf_mod = cl._wrf()
-    ny, nx = np.shape(ds.variables["XLAT"][0])
+    ny, nx = np.shape(ds.variables["XLAT"][timeidx])
     if time_str in track:
         lat, lon = track[time_str][:2]
-        x, y = (int(v) for v in np.asarray(wrf_mod.ll_to_xy(ds, lat, lon, meta=False)).ravel()[:2])
+        x, y = (int(v) for v in np.asarray(wrf_mod.ll_to_xy(ds, lat, lon, timeidx=timeidx, meta=False)).ravel()[:2])
         if 0 <= x < nx and 0 <= y < ny:
             return y, x, "minimum-SLP track"
-    slp = np.asarray(wrf_mod.getvar(ds, "slp", timeidx=0, meta=False), "f8")
+    slp = np.asarray(wrf_mod.getvar(ds, "slp", timeidx=timeidx, meta=False), "f8")
     j, i = centre_from_slp(slp, bdy_width)
     return j, i, "minimum SLP (smoothed)"
 
@@ -258,13 +258,13 @@ def structure_domain(run_dir, case_info, track, bdy_width):
             return last[2]
     doms = sorted({int(d["domain"]) for d in case_info.get("domains", [])} | {1})
     for dom in reversed(doms):
-        frames = list_frames(run_dir, domain=dom)
+        frames = list_frame_refs(run_dir, domain=dom)
         if not frames:
             continue
         if dom == 1:
             return 1
         with netCDF4.Dataset(frames[-1][1]) as ds:
-            j, i, _ = frame_centre(ds, frames[-1][0], {}, bdy_width)
+            j, i, _ = frame_centre(ds, frames[-1][0], {}, bdy_width, frames[-1][2])
             ny, nx = ds.variables["XLAT"][0].shape
         if full_annulus_radius_km((ny, nx), j, i, 1.0, bdy_width) >= CENTRE_MARGIN_CELLS:
             return dom
@@ -273,7 +273,8 @@ def structure_domain(run_dir, case_info, track, bdy_width):
 
 # ---------------------------------------------------------------- A1
 
-def reflectivity_2km_figure(path, time_str, centre, out_path, run_label, domain):
+def reflectivity_2km_figure(path, time_str, centre, out_path, run_label, domain,
+                            timeidx=0):
     import numpy as np
     import cartopy.crs as ccrs
     import netCDF4
@@ -284,13 +285,13 @@ def reflectivity_2km_figure(path, time_str, centre, out_path, run_label, domain)
     jc, ic, source = centre
     with netCDF4.Dataset(path) as ds:
         dx = cl.dx_km_of(ds)
-        dbz = np.asarray(wrf_mod.getvar(ds, "dbz", timeidx=0, meta=False), "f8")
-        hagl = np.asarray(wrf_mod.getvar(ds, "height_agl", timeidx=0, units="m", meta=False), "f8")
+        dbz = np.asarray(wrf_mod.getvar(ds, "dbz", timeidx=timeidx, meta=False), "f8")
+        hagl = np.asarray(wrf_mod.getvar(ds, "height_agl", timeidx=timeidx, units="m", meta=False), "f8")
         dbz2 = cl.interp_heights(dbz, hagl, [2000.0])[0]
-        u10 = np.asarray(ds.variables["U10"][0], "f8")
-        v10 = np.asarray(ds.variables["V10"][0], "f8")
-        lats = np.asarray(ds.variables["XLAT"][0], "f8")
-        lons = np.asarray(ds.variables["XLONG"][0], "f8")
+        u10 = np.asarray(ds.variables["U10"][timeidx], "f8")
+        v10 = np.asarray(ds.variables["V10"][timeidx], "f8")
+        lats = np.asarray(ds.variables["XLAT"][timeidx], "f8")
+        lons = np.asarray(ds.variables["XLONG"][timeidx], "f8")
         crs = wrf_mod.get_cartopy(wrfin=ds)
         ny, nx = lats.shape
         X, Y = grid_offsets_km((ny, nx), jc, ic, dx)
@@ -356,7 +357,7 @@ def reflectivity_2km_figure(path, time_str, centre, out_path, run_label, domain)
 
 # ---------------------------------------------------------------- A3
 
-def rz_analysis(path, centre, bdy_width):
+def rz_analysis(path, centre, bdy_width, timeidx=0):
     """Azimuthal means on (z, r) about the centre for the A3 figures."""
     import numpy as np
     import netCDF4
@@ -366,15 +367,15 @@ def rz_analysis(path, centre, bdy_width):
     levels = np.arange(0.0, Z_TOP_KM * 1000.0 + 1.0, DZ_KM * 1000.0)
     with netCDF4.Dataset(path) as ds:
         dx = cl.dx_km_of(ds)
-        z = np.asarray(wrf_mod.getvar(ds, "z", timeidx=0, units="m", meta=False), "f8")
-        hgt = np.asarray(ds.variables["HGT"][0], "f8")
+        z = np.asarray(wrf_mod.getvar(ds, "z", timeidx=timeidx, units="m", meta=False), "f8")
+        hgt = np.asarray(ds.variables["HGT"][timeidx], "f8")
 
         def lev(name, **kw):
-            return cl.interp_heights(np.asarray(wrf_mod.getvar(ds, name, timeidx=0, meta=False,
+            return cl.interp_heights(np.asarray(wrf_mod.getvar(ds, name, timeidx=timeidx, meta=False,
                                                                **kw), "f8"), z, levels, hgt)
         ua, va, wa = lev("ua"), lev("va"), lev("wa")
         tk, th = lev("tk"), lev("th")
-        q = cl.interp_heights(condensate.total_condensate(ds, 0), z, levels, hgt)
+        q = cl.interp_heights(condensate.total_condensate(ds, timeidx), z, levels, hgt)
     ny, nx = hgt.shape
     X, Y = grid_offsets_km((ny, nx), jc, ic, dx)
     r = np.hypot(X, Y)
@@ -496,7 +497,7 @@ def rz_condensate_figure(rz, out_path, run_label, domain, tlabel):
 
 # ---------------------------------------------------------------- A4
 
-def xsec_figure(path, time_str, centre, out_path, run_label, domain):
+def xsec_figure(path, time_str, centre, out_path, run_label, domain, timeidx=0):
     import numpy as np
     import netCDF4
     from matplotlib.colors import BoundaryNorm
@@ -506,11 +507,11 @@ def xsec_figure(path, time_str, centre, out_path, run_label, domain):
     levels = np.arange(0.0, Z_TOP_KM * 1000.0 + 1.0, XSEC_DZ_KM * 1000.0)
     with netCDF4.Dataset(path) as ds:
         dx = cl.dx_km_of(ds)
-        z = np.asarray(wrf_mod.getvar(ds, "z", timeidx=0, units="m", meta=False), "f8")
-        dbz = np.asarray(wrf_mod.getvar(ds, "dbz", timeidx=0, meta=False), "f8")
-        wa = np.asarray(wrf_mod.getvar(ds, "wa", timeidx=0, meta=False), "f8")
-        tc = np.asarray(wrf_mod.getvar(ds, "tc", timeidx=0, meta=False), "f8")
-        hgt = np.asarray(ds.variables["HGT"][0], "f8")
+        z = np.asarray(wrf_mod.getvar(ds, "z", timeidx=timeidx, units="m", meta=False), "f8")
+        dbz = np.asarray(wrf_mod.getvar(ds, "dbz", timeidx=timeidx, meta=False), "f8")
+        wa = np.asarray(wrf_mod.getvar(ds, "wa", timeidx=timeidx, meta=False), "f8")
+        tc = np.asarray(wrf_mod.getvar(ds, "tc", timeidx=timeidx, meta=False), "f8")
+        hgt = np.asarray(ds.variables["HGT"][timeidx], "f8")
         tlabel = ds_time_label(ds, time_str)
     ny, nx = hgt.shape
     cm = reflectivity_cmap()
@@ -563,17 +564,17 @@ def xsec_figure(path, time_str, centre, out_path, run_label, domain):
 
 # ---------------------------------------------------------------- A5
 
-def eye_profile(path, time_str, track, bdy_width, levels):
+def eye_profile(path, time_str, track, bdy_width, levels, timeidx=0):
     """(T'(z) at the eye, annulus) for one frame, or (None, None) without a usable centre."""
     import numpy as np
     import netCDF4
     wrf_mod = cl._wrf()
     with netCDF4.Dataset(path) as ds:
         dx = cl.dx_km_of(ds)
-        jc, ic, _src = frame_centre(ds, time_str, track, bdy_width)
-        z = np.asarray(wrf_mod.getvar(ds, "z", timeidx=0, units="m", meta=False), "f8")
-        hgt = np.asarray(ds.variables["HGT"][0], "f8")
-        tk = cl.interp_heights(np.asarray(wrf_mod.getvar(ds, "tk", timeidx=0, meta=False), "f8"),
+        jc, ic, _src = frame_centre(ds, time_str, track, bdy_width, timeidx)
+        z = np.asarray(wrf_mod.getvar(ds, "z", timeidx=timeidx, units="m", meta=False), "f8")
+        hgt = np.asarray(ds.variables["HGT"][timeidx], "f8")
+        tk = cl.interp_heights(np.asarray(wrf_mod.getvar(ds, "tk", timeidx=timeidx, meta=False), "f8"),
                                z, levels, hgt)
     shape = hgt.shape
     try:
@@ -588,11 +589,12 @@ def hovmoller_figure(run_dir, domain, frame_times, track, bdy_width, out_path, r
     import numpy as np
     import matplotlib.dates as mdates
     from post.conventions import path_time_label
-    from post.extract import frame_path
+    from post.extract import frame_path, frame_ref
     levels = np.arange(0.0, Z_TOP_KM * 1000.0 + 1.0, DZ_KM * 1000.0)
     cols, reduced = [], []
     for t in frame_times:
-        prof, ann = eye_profile(frame_path(run_dir, domain, t), t, track, bdy_width, levels)
+        fpath, ti = frame_ref(run_dir, domain, t)
+        prof, ann = eye_profile(fpath, t, track, bdy_width, levels, timeidx=ti)
         cols.append((t, prof))
         if ann is not None:
             reduced.append(ann)
@@ -628,7 +630,8 @@ _ERRORS = (tools.ToolNotFoundError, ImportError, KeyError, ValueError, IndexErro
 
 
 def _reason(e):
-    return "%s: %s" % (type(e).__name__, e)
+    from post.extract import is_missing_field_error, missing_reason
+    return missing_reason(e) if is_missing_field_error(e) else "%s: %s" % (type(e).__name__, e)
 
 
 def figures(run_dir, run_label, out_dir, case_info, track_csv=None, every=None, times=None,
@@ -647,17 +650,17 @@ def figures(run_dir, run_label, out_dir, case_info, track_csv=None, every=None, 
         return [missing("tc_struct_reflectivity_2km", "wrfout / storm centre", _reason(e),
                         run=run_label)]
     dom = "d%02d" % domain
-    frames = list_frames(run_dir, domain=domain)
+    frames = list_frame_refs(run_dir, domain=domain)      # [(time, path, timeidx)]
     if not frames:
         return [missing("tc_struct_reflectivity_2km", "wrfout_%s_*" % dom, "no frames found",
                         run=run_label)]
-    last_time, last_path = frames[-1]
+    last_time, last_path, last_ti = frames[-1]
     try:
         with netCDF4.Dataset(last_path) as ds:
-            centre = frame_centre(ds, last_time, track, bdy_width)
+            centre = frame_centre(ds, last_time, track, bdy_width, last_ti)
             dx = cl.dx_km_of(ds)
-            clat = float(ds.variables["XLAT"][0][centre[0], centre[1]])
-            clon = float(ds.variables["XLONG"][0][centre[0], centre[1]])
+            clat = float(ds.variables["XLAT"][last_ti][centre[0], centre[1]])
+            clon = float(ds.variables["XLONG"][last_ti][centre[0], centre[1]])
     except _ERRORS + (OSError,) as e:
         return [missing("tc_struct_reflectivity_2km", "wrfout_%s SLP (storm centre)" % dom,
                         _reason(e), run=run_label)]
@@ -667,7 +670,8 @@ def figures(run_dir, run_label, out_dir, case_info, track_csv=None, every=None, 
 
     p = os.path.join(out_dir, "tc_struct_reflectivity_2km_%s.png" % dom)
     try:
-        reflectivity_2km_figure(last_path, last_time, centre, p, run_label, domain)
+        reflectivity_2km_figure(last_path, last_time, centre, p, run_label, domain,
+                                timeidx=last_ti)
         out.append(fig("tc_struct_reflectivity_2km", p, run_label, domain=dom,
                        valid_time=last_time, extra=extra))
     except _ERRORS as e:
@@ -679,7 +683,7 @@ def figures(run_dir, run_label, out_dir, case_info, track_csv=None, every=None, 
         p = os.path.join(out_dir, "tc_struct_ir_proxy_%s.png" % dom)
         try:
             with netCDF4.Dataset(last_path) as ds:
-                cl.plot_ir_proxy(ds, last_time, p, run_label, domain)
+                cl.plot_ir_proxy(ds, last_time, p, run_label, domain, timeidx=last_ti)
             out.append(fig("tc_struct_ir_proxy", p, run_label, domain=dom, valid_time=last_time,
                            extra={"note": cl.IR_TITLE}))
         except _ERRORS as e:
@@ -687,7 +691,7 @@ def figures(run_dir, run_label, out_dir, case_info, track_csv=None, every=None, 
                                run=run_label))
 
     try:
-        rz = rz_analysis(last_path, centre, bdy_width)
+        rz = rz_analysis(last_path, centre, bdy_width, timeidx=last_ti)
     except _ERRORS as e:
         rz = None
         for fid in ("tc_struct_rz_wind", "tc_struct_rz_warmcore", "tc_struct_rz_condensate"):
@@ -710,13 +714,13 @@ def figures(run_dir, run_label, out_dir, case_info, track_csv=None, every=None, 
 
     p = os.path.join(out_dir, "tc_struct_xsec_%s.png" % dom)
     try:
-        xsec_figure(last_path, last_time, centre, p, run_label, domain)
+        xsec_figure(last_path, last_time, centre, p, run_label, domain, timeidx=last_ti)
         out.append(fig("tc_struct_xsec", p, run_label, domain=dom, valid_time=last_time))
     except _ERRORS as e:
         out.append(missing("tc_struct_xsec", "wrfout_%s dbz/wa/tc" % dom, _reason(e),
                            run=run_label))
 
-    hov_times = hovmoller_frames([t for t, _ in frames], every=every, times=times)
+    hov_times = hovmoller_frames([f[0] for f in frames], every=every, times=times)
     if len(hov_times) < 2:
         out.append(missing("tc_struct_warmcore_hovmoller", "wrfout_%s_*" % dom,
                            "a Hovmoller needs 2+ frames (%d selected)" % len(hov_times),
@@ -738,7 +742,8 @@ def figures(run_dir, run_label, out_dir, case_info, track_csv=None, every=None, 
                 last_path, p, os.path.join(out_dir, "_paraview_%s" % dom),
                 "%s  %s  total condensate volume, storm-centred %.0f km cutaway  %s"
                 % (run_label, dom, 2 * BOX_HALF_KM, last_time),
-                center_latlon=(clat, clon), box_km=2 * BOX_HALF_KM, cutaway=True)
+                center_latlon=(clat, clon), box_km=2 * BOX_HALF_KM, cutaway=True,
+                timeidx=last_ti)
             out.append(fig("tc_struct_condensate_3d", written or p, run_label, domain=dom,
                            valid_time=last_time))
         except Exception as e:    # noqa: BLE001 -- pvbatch absent/failed, not implemented: a gap, never a failed report

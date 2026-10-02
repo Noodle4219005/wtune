@@ -25,7 +25,7 @@ import os
 
 from post import tools
 from post.conventions import reflectivity_cmap
-from post.extract import frame_path, list_frames
+from post.extract import frame_ref, list_frame_refs, list_frames
 
 
 def _finest_convective_domain(domains):
@@ -36,12 +36,12 @@ def _finest_convective_domain(domains):
 def _post_spinup_frames(run_dir, domain, spinup_hours):
     from datetime import datetime
     from post.caseinfo import WRF_TIME_FMT
-    frames = list_frames(run_dir, domain=domain)
+    frames = list_frame_refs(run_dir, domain=domain)      # [(time, path, timeidx)]
     if not frames:
         return frames
     t0 = datetime.strptime(frames[0][0], WRF_TIME_FMT)
-    return [(t, p) for t, p in frames
-           if (datetime.strptime(t, WRF_TIME_FMT) - t0).total_seconds() / 3600.0 >= spinup_hours] \
+    return [f for f in frames
+           if (datetime.strptime(f[0], WRF_TIME_FMT) - t0).total_seconds() / 3600.0 >= spinup_hours] \
         or frames
 
 
@@ -63,17 +63,17 @@ def _map_field(run_dir, domain, field, time_str, out_path, title, cmap="viridis"
     import numpy as np
     wrf_mod = __import__("wrf")
     from post.recipes.mapfig import save_map
-    path = frame_path(run_dir, domain, time_str)
+    path, ti = frame_ref(run_dir, domain, time_str)
     kw = {}
     with netCDF4.Dataset(path) as ds:
         if field == "mdbz":
-            var = wrf_mod.getvar(ds, "mdbz", timeidx=0)
+            var = wrf_mod.getvar(ds, "mdbz", timeidx=ti)
         elif field == "mcape":
-            var = wrf_mod.getvar(ds, "cape_2d", timeidx=0)[0]
+            var = wrf_mod.getvar(ds, "cape_2d", timeidx=ti)[0]
         elif field == "mcin":
-            var = wrf_mod.getvar(ds, "cape_2d", timeidx=0)[1]
+            var = wrf_mod.getvar(ds, "cape_2d", timeidx=ti)[1]
         elif field == "uhel":
-            var = wrf_mod.getvar(ds, "uhel", timeidx=0, bottom=2000.0, top=5000.0)
+            var = wrf_mod.getvar(ds, "uhel", timeidx=ti, bottom=2000.0, top=5000.0)
         else:
             raise ValueError(field)
         lats, lons = wrf_mod.latlon_coords(var, as_np=True)
@@ -106,9 +106,10 @@ def _uh_time_max(run_dir, domain, frames):
     wrf_mod = __import__("wrf")
     best = None
     lats = lons = crs = ds_for_coast = None
-    for _t, path in frames:
+    for f in frames:                    # (time, path[, timeidx])
+        path, ti = f[1], (f[2] if len(f) > 2 else 0)
         with netCDF4.Dataset(path) as ds:
-            var = wrf_mod.getvar(ds, "uhel", timeidx=0, bottom=2000.0, top=5000.0)
+            var = wrf_mod.getvar(ds, "uhel", timeidx=ti, bottom=2000.0, top=5000.0)
             arr = np.asarray(var)
             if best is None:
                 best = arr.copy()
@@ -123,11 +124,11 @@ def _max_reflectivity_point(run_dir, domain, time_str):
     import netCDF4
     import numpy as np
     wrf_mod = __import__("wrf")
-    path = frame_path(run_dir, domain, time_str)
+    path, ti = frame_ref(run_dir, domain, time_str)
     with netCDF4.Dataset(path) as ds:
-        mdbz = np.asarray(wrf_mod.getvar(ds, "mdbz", timeidx=0))
-        lat = np.asarray(ds.variables["XLAT"][0])
-        lon = np.asarray(ds.variables["XLONG"][0])
+        mdbz = np.asarray(wrf_mod.getvar(ds, "mdbz", timeidx=ti))
+        lat = np.asarray(ds.variables["XLAT"][ti])
+        lon = np.asarray(ds.variables["XLONG"][ti])
         j, i = np.unravel_index(np.argmax(mdbz), mdbz.shape)
         return float(lat[j, i]), float(lon[j, i])
 
@@ -323,13 +324,13 @@ def _radar_figures(run_dir, run_label, domain, case_info, out_dir, spinup_hours)
     from post.caseinfo import WRF_TIME_FMT, spec_bdy_width
 
     frames = _post_spinup_frames(run_dir, domain, spinup_hours)
-    times = [(datetime.strptime(t, WRF_TIME_FMT), p) for t, p in frames]
+    times = [(datetime.strptime(t, WRF_TIME_FMT), (p, ti)) for t, p, ti in frames]
     project_dir = _project_of(out_dir)
     if not times:
         return [missing(i, "radar composite reflectivity", "no frames") for i in RADAR_IDS]
     bbox = None
     try:
-        with netCDF4.Dataset(times[0][1]) as ds:
+        with netCDF4.Dataset(times[0][1][0]) as ds:
             la, lo = ds.variables["XLAT"][0], ds.variables["XLONG"][0]
             bbox = (float(la.min()), float(la.max()), float(lo.min()), float(lo.max()))
     except Exception:
@@ -367,10 +368,10 @@ def _radar_figures(run_dir, run_label, domain, case_info, out_dir, spinup_hours)
         import wrf as wrf_mod
         sites = radar_composite.load_sites(project_dir) if use == "nexrad" else None
         poly = None
-        for t, path, files in picks:
+        for t, (path, ti), files in picks:
             tag = t.strftime("%Y%m%d%H%M")
             with netCDF4.Dataset(path) as ds:
-                var = wrf_mod.getvar(ds, "mdbz", timeidx=0)
+                var = wrf_mod.getvar(ds, "mdbz", timeidx=ti)
                 mlat, mlon = wrf_mod.latlon_coords(var, as_np=True)
                 mdbz = np.asarray(np.ma.filled(np.ma.masked_invalid(np.asarray(var, "f8")), np.nan), "f8")
             if poly is None:

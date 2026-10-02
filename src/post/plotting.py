@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import os
 
-from post.extract import _level_base_field, _surface_field, list_frames, UNITS
+from post.extract import _level_base_field, _surface_field, list_frame_refs, list_frames, UNITS
 
 WIND_SUBSAMPLE = 8      # every Nth grid point in each direction for the wind overlay
 
@@ -131,18 +131,18 @@ def plot_field(run_dir, field, out_dir, domain=1, times=None, level_hpa=None,
                  "export WTUNE_CARTOPY_DATA to fix this." % (data_dir or "<unset>"))
 
     os.makedirs(out_dir, exist_ok=True)
-    frames = list_frames(run_dir, domain=domain)
+    frames = list_frame_refs(run_dir, domain=domain)
     if times:
         wanted = set(times)
-        frames = [(t, p) for t, p in frames if t in wanted]
+        frames = [f for f in frames if f[0] in wanted]
     if not frames:
         raise PlotError("no wrfout_d%02d_* frames found in %s" % (domain, run_dir))
 
     written = []
     run_name = os.path.basename(os.path.normpath(run_dir))
-    for time_str, path in frames:
+    for time_str, path, ti in frames:
         with netcdf4.Dataset(path) as ds:
-            var = _field_2d(ds, wrf_mod, field, level_hpa)
+            var = _field_2d(ds, wrf_mod, field, level_hpa, timeidx=ti)
             data = np.asarray(var)
 
             tkw = {}
@@ -177,8 +177,8 @@ def plot_field(run_dir, field, out_dir, domain=1, times=None, level_hpa=None,
                 from post.basemap import bdy_width_of, interior_mask, masked_barbs
                 lat2d = np.asarray(ds.variables["XLAT"][0])
                 lon2d = np.asarray(ds.variables["XLONG"][0])
-                u = np.asarray(wrf_mod.getvar(ds, "uvmet10", timeidx=0, units="m s-1")[0])
-                v = np.asarray(wrf_mod.getvar(ds, "uvmet10", timeidx=0, units="m s-1")[1])
+                u = np.asarray(wrf_mod.getvar(ds, "uvmet10", timeidx=ti, units="m s-1")[0])
+                v = np.asarray(wrf_mod.getvar(ds, "uvmet10", timeidx=ti, units="m s-1")[1])
                 barb_kwargs = {"transform": ccrs.PlateCarree()} if basemap == "cartopy" else {}
                 from post.conventions import KT_PER_MS
                 masked_barbs(ax, lon2d, lat2d, u * KT_PER_MS, v * KT_PER_MS, WIND_SUBSAMPLE,

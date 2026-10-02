@@ -363,7 +363,7 @@ def download(url, dest, known_sha=None, timeout=120, retries=3):
 
 def run_window(run_dir):
     """{"start", "end" (datetime, naive UTC), "bbox": (lat0, lat1, lon0, lon1)} from the run's
-    wrfout_d01 frame names and its XLAT/XLONG. Raises ValueError when there are no frames."""
+    wrfout_d01 valid times (each file's Times, post.extract.list_frames) and its XLAT/XLONG. Raises ValueError when there are no frames."""
     from post.caseinfo import WRF_TIME_FMT
     from post.extract import list_frames
     frames = list_frames(run_dir, domain=1)

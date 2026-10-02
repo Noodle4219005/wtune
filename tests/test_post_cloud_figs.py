@@ -113,7 +113,7 @@ def test_cloud_case_type_detected_from_hydrometeors(tmp_path):
 
 def _fake_volume(calls, exc=None):
     def render(wrfout_path, out_png, work_dir, *, center_latlon=None, box_km=None,
-               cutaway=False, title=""):
+               cutaway=False, title="", timeidx=0):
         calls.append(dict(center=center_latlon, box=box_km, cutaway=cutaway))
         if exc:
             raise exc

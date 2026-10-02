@@ -20,18 +20,18 @@ from __future__ import annotations
 import os
 
 from post import met_gridstat, tools
-from post.extract import list_frames
+from post.extract import list_frame_refs
 
 
 def _post_spinup_time(run_dir, domain, spinup_hours):
     from datetime import datetime
     from post.caseinfo import WRF_TIME_FMT
-    frames = list_frames(run_dir, domain=domain)
+    frames = list_frame_refs(run_dir, domain=domain)      # [(time, path, timeidx)]
     if not frames:
         return None, []
     t0 = datetime.strptime(frames[0][0], WRF_TIME_FMT)
-    post = [(t, p) for t, p in frames
-           if (datetime.strptime(t, WRF_TIME_FMT) - t0).total_seconds() / 3600.0 >= spinup_hours]
+    post = [f for f in frames
+           if (datetime.strptime(f[0], WRF_TIME_FMT) - t0).total_seconds() / 3600.0 >= spinup_hours]
     chosen = post[-1] if post else frames[-1]
     return chosen, frames
 
@@ -46,7 +46,7 @@ def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6):
     out = []
     if chosen is None:
         return [missing("syn_maps", "wrfout_d01_*", "no frames found")]
-    time_str, path = chosen
+    time_str, path, ti = chosen
 
     try:
         import netCDF4
@@ -55,20 +55,20 @@ def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6):
         with netCDF4.Dataset(path) as ds:
             from post.conventions import ds_time_label
             tlabel = ds_time_label(ds, time_str)     # init / valid / lead (decision 0064)
-            pressure = wrf_mod.getvar(ds, "pressure", timeidx=0)
-            z = wrf_mod.getvar(ds, "z", timeidx=0, units="m")
+            pressure = wrf_mod.getvar(ds, "pressure", timeidx=ti)
+            z = wrf_mod.getvar(ds, "z", timeidx=ti, units="m")
             z500 = wrf_mod.interplevel(z, pressure, 500)
             # 1000 hPa is below ground wherever SLP < 1000 hPa (the whole hurricane core):
             # plain interplevel returns missing there, so the thickness contours vanished.
             # wrf.vinterp(extrapolate=True) is wrf-python's standard below-ground
             # extrapolation (standard-atmosphere lapse rate) for a height field.
             z_pl = wrf_mod.vinterp(ds, z, "pressure", [1000.0, 500.0], extrapolate=True,
-                                   field_type="z", timeidx=0, log_p=True)
+                                   field_type="z", timeidx=ti, log_p=True)
             z1000_ext = np.asarray(z_pl[0])
             z500_ext = np.asarray(z_pl[1])
             # avo needs MAPFAC_U/V/M and F; long climate runs often drop them via iofields
             try:
-                avo500 = wrf_mod.interplevel(wrf_mod.getvar(ds, "avo", timeidx=0), pressure, 500)
+                avo500 = wrf_mod.interplevel(wrf_mod.getvar(ds, "avo", timeidx=ti), pressure, 500)
             except KeyError as e:
                 avo500 = None
                 avo_missing = str(e)
@@ -103,7 +103,7 @@ def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6):
                         ds=ds, crs=crs, gridline_labels=True, terrain=False)
                 out.append(fig("syn_z500_vort", p1, run_label, domain="d01", valid_time=time_str))
 
-            slp = np.asarray(wrf_mod.getvar(ds, "slp", timeidx=0, units="hPa"), dtype="f8")
+            slp = np.asarray(wrf_mod.getvar(ds, "slp", timeidx=ti, units="hPa"), dtype="f8")
             thickness_dam = (z500_ext - z1000_ext) / 10.0
             # classic surface chart (decision 0064): isobars every 4 hPa with H/L, 1000-500 hPa
             # thickness dashed every 6 dam, blue <= 540 dam, red above, 540 bold
@@ -149,12 +149,12 @@ def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6):
                            extra={"note": "1000 hPa height extrapolated below ground "
                                           "(wrf.vinterp extrapolate=True)"}))
 
-            theta_e = wrf_mod.getvar(ds, "theta_e", timeidx=0)
+            theta_e = wrf_mod.getvar(ds, "theta_e", timeidx=ti)
             theta_e850 = wrf_mod.interplevel(theta_e, pressure, 850)
             u850 = np.asarray(wrf_mod.interplevel(
-                wrf_mod.getvar(ds, "ua", timeidx=0, units="m s-1"), pressure, 850))
+                wrf_mod.getvar(ds, "ua", timeidx=ti, units="m s-1"), pressure, 850))
             v850 = np.asarray(wrf_mod.interplevel(
-                wrf_mod.getvar(ds, "va", timeidx=0, units="m s-1"), pressure, 850))
+                wrf_mod.getvar(ds, "va", timeidx=ti, units="m s-1"), pressure, 850))
             # 850 hPa is below ground where the surface pressure is < 850 hPa
             below850 = np.asarray(ds.variables["PSFC"][0]) / 100.0 < 850.0
             p3 = os.path.join(out_dir, "syn_850_thetae_wind.png")
@@ -171,7 +171,7 @@ def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6):
             out.append(fig("syn_850_thetae_wind", p3, run_label, domain="d01", valid_time=time_str))
 
             wspd250 = np.asarray(wrf_mod.interplevel(
-                wrf_mod.getvar(ds, "wspd_wdir", timeidx=0, units="kt")[0], pressure, 250),
+                wrf_mod.getvar(ds, "wspd_wdir", timeidx=ti, units="kt")[0], pressure, 250),
                 dtype="f8")
             z250 = np.asarray(wrf_mod.interplevel(z, pressure, 250), dtype="f8")
             # jet chart (decision 0064): isotachs shaded in kt from 70 kt (40 kt when the jet
@@ -190,9 +190,9 @@ def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6):
                     ds=ds, crs=crs, gridline_labels=True, terrain=False)
             out.append(fig("syn_250_jet", p4, run_label, domain="d01", valid_time=time_str))
 
-            t2c = np.asarray(wrf_mod.getvar(ds, "T2", timeidx=0), dtype="f8") - 273.15
-            u10 = np.asarray(wrf_mod.getvar(ds, "uvmet10", timeidx=0, units="m s-1")[0])
-            v10 = np.asarray(wrf_mod.getvar(ds, "uvmet10", timeidx=0, units="m s-1")[1])
+            t2c = np.asarray(wrf_mod.getvar(ds, "T2", timeidx=ti), dtype="f8") - 273.15
+            u10 = np.asarray(wrf_mod.getvar(ds, "uvmet10", timeidx=ti, units="m s-1")[0])
+            v10 = np.asarray(wrf_mod.getvar(ds, "uvmet10", timeidx=ti, units="m s-1")[1])
             # surface chart (decision 0064): T2 in degC on a diverging scale centred on 0 degC
             # with the 0 degC isotherm bold, barbs in kt
             t2_levels = celsius_levels(t2c)
@@ -228,7 +228,7 @@ def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6):
             datetime.strptime(time_str, WRF_TIME_FMT), model_bbox, project_dir)
         gs = met_gridstat.grid_stat_z500(
             path, e_lat, e_lon, e_z, e_valid, os.path.join(out_dir, "gridstat"),
-            spec_bdy_width(run_dir))
+            spec_bdy_width(run_dir), timeidx=ti)
         p6 = os.path.join(out_dir, "syn_era5_diff.png")
         from post.conventions import path_time_label
         _era5_diff_map(p6, run_label, path_time_label(path, time_str), lats, lons, np.asarray(z500), e_lat, e_lon, e_z,

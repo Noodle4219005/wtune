@@ -30,7 +30,7 @@ import math
 import os
 
 from post import tools
-from post.extract import list_frames
+from post.extract import list_frame_refs
 
 CONDENSATE_LEVELS_GKG = [0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1.0]   # = 1e-5 .. 1e-3 kg/kg
 CONDENSATE_CMAP = "bone_r"
@@ -177,16 +177,16 @@ def ir_colormap():
     return cmap, BoundaryNorm(levels, cmap.N), levels
 
 
-def plot_ir_proxy(ds, time_str, out_path, run_label, domain):
+def plot_ir_proxy(ds, time_str, out_path, run_label, domain, timeidx=0):
     """B4 / A2: whole-domain OLR-derived equivalent blackbody temperature (condensate.
     olr_brightness_temperature), enhanced-IR palette, colour bar in K with a degC axis."""
     import numpy as np
     from post import condensate
     from post.conventions import ds_time_label
     wrf_mod = _wrf()
-    tb = condensate.olr_brightness_temperature(ds, 0)
-    lats = np.asarray(ds.variables["XLAT"][0], "f8")
-    lons = np.asarray(ds.variables["XLONG"][0], "f8")
+    tb = condensate.olr_brightness_temperature(ds, timeidx)
+    lats = np.asarray(ds.variables["XLAT"][timeidx], "f8")
+    lons = np.asarray(ds.variables["XLONG"][timeidx], "f8")
     crs = wrf_mod.get_cartopy(wrfin=ds)
     cmap, norm, levels = ir_colormap()
     fig, (ax,) = plan_figure(crs)
@@ -409,7 +409,7 @@ def water_path_panels(wp):
     return panels, omitted
 
 
-def water_path_figure(path, time_str, out_path, run_label, domain):
+def water_path_figure(path, time_str, out_path, run_label, domain, timeidx=0):
     import numpy as np
     import cartopy.crs as ccrs
     from matplotlib.colors import BoundaryNorm
@@ -421,15 +421,15 @@ def water_path_figure(path, time_str, out_path, run_label, domain):
     import netCDF4
     wrf_mod = _wrf()
     with netCDF4.Dataset(path) as ds:
-        wp = condensate.water_paths(ds, 0)
+        wp = condensate.water_paths(ds, timeidx)
         if not wp:
             raise KeyError("no hydrometeor mixing ratio in %s" % os.path.basename(path))
         panels, omitted = water_path_panels(wp)
-        lats = np.asarray(ds.variables["XLAT"][0], "f8")
-        lons = np.asarray(ds.variables["XLONG"][0], "f8")
+        lats = np.asarray(ds.variables["XLAT"][timeidx], "f8")
+        lons = np.asarray(ds.variables["XLONG"][timeidx], "f8")
         crs = wrf_mod.get_cartopy(wrfin=ds)
         u10, v10 = (np.asarray(a, "f8") for a in
-                    wrf_mod.getvar(ds, "uvmet10", timeidx=0, units="m s-1", meta=False))
+                    wrf_mod.getvar(ds, "uvmet10", timeidx=timeidx, units="m s-1", meta=False))
         ncols = min(3, len(panels))
         nrows = int(math.ceil(len(panels) / float(ncols)))
         fig, axes = plan_figure(crs, nrows, ncols, figsize=(4.6 * ncols, 4.0 * nrows + 0.8))
@@ -473,7 +473,7 @@ def water_path_figure(path, time_str, out_path, run_label, domain):
 
 # ---------------------------------------------------------------- B2 cloud-top height
 
-def cloud_top_figure(path, time_str, out_path, run_label, domain):
+def cloud_top_figure(path, time_str, out_path, run_label, domain, timeidx=0):
     import numpy as np
     import netCDF4
     from matplotlib.lines import Line2D
@@ -482,10 +482,10 @@ def cloud_top_figure(path, time_str, out_path, run_label, domain):
     from post.recipes.mapfig import nice_levels
     wrf_mod = _wrf()
     with netCDF4.Dataset(path) as ds:
-        cth = condensate.cloud_top_height(ds, 0) / 1000.0
-        mdbz = np.asarray(wrf_mod.getvar(ds, "mdbz", timeidx=0, meta=False), "f8")
-        lats = np.asarray(ds.variables["XLAT"][0], "f8")
-        lons = np.asarray(ds.variables["XLONG"][0], "f8")
+        cth = condensate.cloud_top_height(ds, timeidx) / 1000.0
+        mdbz = np.asarray(wrf_mod.getvar(ds, "mdbz", timeidx=timeidx, meta=False), "f8")
+        lats = np.asarray(ds.variables["XLAT"][timeidx], "f8")
+        lons = np.asarray(ds.variables["XLONG"][timeidx], "f8")
         crs = wrf_mod.get_cartopy(wrfin=ds)
         fig, (ax,) = plan_figure(crs)
         top = float(np.nanmax(cth)) if np.isfinite(cth).any() else 1.0
@@ -550,7 +550,8 @@ def section_directions(u, v):
     return (ux, uy), (-uy, ux), False
 
 
-def cloud_xsec_figure(path, time_str, out_path, run_label, domain, bdy_width):
+def cloud_xsec_figure(path, time_str, out_path, run_label, domain, bdy_width,
+                      timeidx=0):
     import numpy as np
     import netCDF4
     from matplotlib.lines import Line2D
@@ -559,20 +560,20 @@ def cloud_xsec_figure(path, time_str, out_path, run_label, domain, bdy_width):
     wrf_mod = _wrf()
     with netCDF4.Dataset(path) as ds:
         dx = dx_km_of(ds)
-        twp = condensate.water_paths(ds, 0)["TWP"]
+        twp = condensate.water_paths(ds, timeidx)["TWP"]
         jc, ic = max_column(twp, bdy_width)
-        q = condensate.total_condensate(ds, 0) * 1000.0
-        z = np.asarray(wrf_mod.getvar(ds, "z", timeidx=0, units="m", meta=False), "f8")
-        zagl = np.asarray(wrf_mod.getvar(ds, "height_agl", timeidx=0, units="m", meta=False), "f8")
-        ua = np.asarray(wrf_mod.getvar(ds, "ua", timeidx=0, meta=False), "f8")
-        va = np.asarray(wrf_mod.getvar(ds, "va", timeidx=0, meta=False), "f8")
-        wa = np.asarray(wrf_mod.getvar(ds, "wa", timeidx=0, meta=False), "f8")
-        tc = np.asarray(wrf_mod.getvar(ds, "tc", timeidx=0, meta=False), "f8")
-        hgt = np.asarray(ds.variables["HGT"][0], "f8")
-        pblh = np.asarray(ds.variables["PBLH"][0], "f8") if "PBLH" in ds.variables else None
-        cth = condensate.cloud_top_height(ds, 0)
-        lat = np.asarray(ds.variables["XLAT"][0], "f8")
-        lon = np.asarray(ds.variables["XLONG"][0], "f8")
+        q = condensate.total_condensate(ds, timeidx) * 1000.0
+        z = np.asarray(wrf_mod.getvar(ds, "z", timeidx=timeidx, units="m", meta=False), "f8")
+        zagl = np.asarray(wrf_mod.getvar(ds, "height_agl", timeidx=timeidx, units="m", meta=False), "f8")
+        ua = np.asarray(wrf_mod.getvar(ds, "ua", timeidx=timeidx, meta=False), "f8")
+        va = np.asarray(wrf_mod.getvar(ds, "va", timeidx=timeidx, meta=False), "f8")
+        wa = np.asarray(wrf_mod.getvar(ds, "wa", timeidx=timeidx, meta=False), "f8")
+        tc = np.asarray(wrf_mod.getvar(ds, "tc", timeidx=timeidx, meta=False), "f8")
+        hgt = np.asarray(ds.variables["HGT"][timeidx], "f8")
+        pblh = np.asarray(ds.variables["PBLH"][timeidx], "f8") if "PBLH" in ds.variables else None
+        cth = condensate.cloud_top_height(ds, timeidx)
+        lat = np.asarray(ds.variables["XLAT"][timeidx], "f8")
+        lon = np.asarray(ds.variables["XLONG"][timeidx], "f8")
         tlabel = ds_time_label(ds, time_str)
     ny, nx = hgt.shape
     pb = float(pblh[jc, ic]) if pblh is not None else 1000.0
@@ -644,13 +645,13 @@ def cloud_xsec_figure(path, time_str, out_path, run_label, domain, bdy_width):
 # ---------------------------------------------------------------- B5 3-D (other module)
 
 def condensate_volume(path, out_png, work_dir, title, center_latlon=None, box_km=None,
-                      cutaway=False):
+                      cutaway=False, timeidx=0):
     """Calls post.recipes.paraview3d.render_condensate_volume (owned by another module).
     Raises ImportError/NotImplementedError/tools.ToolNotFoundError when unavailable (and that
     module's own ParaViewError/ValueError); callers turn any exception into a missing entry."""
     from post.recipes.paraview3d import render_condensate_volume
     return render_condensate_volume(path, out_png, work_dir, center_latlon=center_latlon,
-                                    box_km=box_km, cutaway=cutaway, title=title)
+                                    box_km=box_km, cutaway=cutaway, title=title, timeidx=timeidx)
 
 
 # ---------------------------------------------------------------- figure set
@@ -672,7 +673,8 @@ _ERRORS = (tools.ToolNotFoundError, ImportError, KeyError, ValueError, IndexErro
 
 
 def _reason(e):
-    return "%s: %s" % (type(e).__name__, e)
+    from post.extract import is_missing_field_error, missing_reason
+    return missing_reason(e) if is_missing_field_error(e) else "%s: %s" % (type(e).__name__, e)
 
 
 def figures(run_dirs, labels, out_dir, case_info, every=None, times=None, paraview=True):
@@ -685,12 +687,12 @@ def figures(run_dirs, labels, out_dir, case_info, every=None, times=None, paravi
     out = []
     for domain in _cloud_domains(case_info):
         dom = "d%02d" % domain
-        frames = list_frames(run_dir, domain=domain)
+        frames = list_frame_refs(run_dir, domain=domain)      # [(time, path, timeidx)]
         if not frames:
             out.append(missing("cloud_water_path", "wrfout_%s_*" % dom, "no frames found",
                                run=run_label))
             continue
-        last_time, last_path = frames[-1]
+        last_time, last_path, last_ti = frames[-1]
         try:
             ok, _sp = has_hydrometeors(last_path)
         except (OSError, ImportError) as e:
@@ -701,12 +703,12 @@ def figures(run_dirs, labels, out_dir, case_info, every=None, times=None, paravi
                                "no QCLOUD/QRAIN/QICE/QSNOW/QGRAUP/QHAIL in this domain's "
                                "history stream", run=run_label))
             continue
-        by_time = dict(frames)
+        by_time = {t: (path, ti) for t, path, ti in frames}
 
-        for t in _select_times([t for t, _ in frames], every, times):
+        for t in _select_times([f[0] for f in frames], every, times):
             p = os.path.join(out_dir, "cloud_water_path_%s_%s.png" % (dom, t.replace(":", "")))
             try:
-                water_path_figure(by_time[t], t, p, run_label, domain)
+                water_path_figure(by_time[t][0], t, p, run_label, domain, timeidx=by_time[t][1])
                 out.append(fig("cloud_water_path", p, run_label, domain=dom, valid_time=t))
             except _ERRORS as e:
                 out.append(missing("cloud_water_path", "wrfout_%s %s" % (dom, t), _reason(e),
@@ -714,7 +716,7 @@ def figures(run_dirs, labels, out_dir, case_info, every=None, times=None, paravi
 
         p = os.path.join(out_dir, "cloud_top_height_%s.png" % dom)
         try:
-            cloud_top_figure(last_path, last_time, p, run_label, domain)
+            cloud_top_figure(last_path, last_time, p, run_label, domain, timeidx=last_ti)
             out.append(fig("cloud_top_height", p, run_label, domain=dom, valid_time=last_time))
         except _ERRORS as e:
             out.append(missing("cloud_top_height", "wrfout_%s (wrf-python mdbz)" % dom,
@@ -722,7 +724,8 @@ def figures(run_dirs, labels, out_dir, case_info, every=None, times=None, paravi
 
         p = os.path.join(out_dir, "cloud_xsec_%s.png" % dom)
         try:
-            cloud_xsec_figure(last_path, last_time, p, run_label, domain, bdy_width)
+            cloud_xsec_figure(last_path, last_time, p, run_label, domain, bdy_width,
+                              timeidx=last_ti)
             out.append(fig("cloud_xsec", p, run_label, domain=dom, valid_time=last_time))
         except _ERRORS as e:
             out.append(missing("cloud_xsec", "wrfout_%s (wrf-python z/ua/va/wa/tc, PBLH)" % dom,
@@ -731,7 +734,7 @@ def figures(run_dirs, labels, out_dir, case_info, every=None, times=None, paravi
         p = os.path.join(out_dir, "cloud_ir_proxy_%s.png" % dom)
         try:
             with netCDF4.Dataset(last_path) as ds:
-                plot_ir_proxy(ds, last_time, p, run_label, domain)
+                plot_ir_proxy(ds, last_time, p, run_label, domain, timeidx=last_ti)
             out.append(fig("cloud_ir_proxy", p, run_label, domain=dom, valid_time=last_time,
                            extra={"note": IR_TITLE}))
         except _ERRORS as e:
@@ -743,7 +746,8 @@ def figures(run_dirs, labels, out_dir, case_info, every=None, times=None, paravi
             try:
                 written = condensate_volume(
                     last_path, p, os.path.join(out_dir, "_paraview_%s" % dom),
-                    "%s  %s  total condensate volume  %s" % (run_label, dom, last_time))
+                    "%s  %s  total condensate volume  %s" % (run_label, dom, last_time),
+                    timeidx=last_ti)
                 out.append(fig("cloud_condensate_3d", written or p, run_label, domain=dom,
                                valid_time=last_time))
             except Exception as e:    # noqa: BLE001 -- pvbatch absent/failed, not implemented: a gap, never a failed report

@@ -15,7 +15,7 @@ from __future__ import annotations
 import os
 
 from post import tools
-from post.extract import frame_path, list_frames
+from post.extract import frame_ref, list_frames
 
 
 def _member_field(run_dir, domain, time_str, field="slp"):
@@ -26,12 +26,12 @@ def _member_field(run_dir, domain, time_str, field="slp"):
     import numpy as np
     from post import caseinfo
     wrf_mod = __import__("wrf")
-    path = frame_path(run_dir, domain, time_str)
+    path, ti = frame_ref(run_dir, domain, time_str)
     with netCDF4.Dataset(path) as ds:
         if field == "slp":
-            var = wrf_mod.getvar(ds, "slp", timeidx=0, units="hPa")
+            var = wrf_mod.getvar(ds, "slp", timeidx=ti, units="hPa")
         elif field == "rain_acc":
-            var = (wrf_mod.getvar(ds, "RAINC", timeidx=0) + wrf_mod.getvar(ds, "RAINNC", timeidx=0))
+            var = (wrf_mod.getvar(ds, "RAINC", timeidx=ti) + wrf_mod.getvar(ds, "RAINNC", timeidx=ti))
         else:
             raise ValueError(field)
         lats, lons = wrf_mod.latlon_coords(var, as_np=True)

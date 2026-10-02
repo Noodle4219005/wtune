@@ -21,7 +21,7 @@ from datetime import timedelta
 
 from post import atcf
 from post import tc_metrics as tm
-from post.extract import frame_path
+from post.extract import frame_ref
 
 WRF_TIME_FMT = "%Y-%m-%d_%H:%M:%S"
 RADIUS_BINS_KM = list(range(0, 401, 25))
@@ -73,15 +73,15 @@ def radius_time_plot(run_dir, adeck_path, out_path, domain=1, radius_bins_km=RAD
         valid_time = r["time"] + timedelta(hours=r["tau_h"])
         time_str = valid_time.strftime(WRF_TIME_FMT)
         leads.append(float(r["tau_h"]))
-        path = frame_path(run_dir, domain, time_str)
+        path, ti = frame_ref(run_dir, domain, time_str)
         if not os.path.exists(path):
             continue
         any_frame = True
         with netCDF4.Dataset(path) as ds:
-            lat = np.asarray(ds.variables["XLAT"][0])
-            lon = np.asarray(ds.variables["XLONG"][0])
-            u10 = np.asarray(ds.variables["U10"][0])
-            v10 = np.asarray(ds.variables["V10"][0])
+            lat = np.asarray(ds.variables["XLAT"][ti])
+            lon = np.asarray(ds.variables["XLONG"][ti])
+            u10 = np.asarray(ds.variables["U10"][ti])
+            v10 = np.asarray(ds.variables["V10"][ti])
         rr = tm.dist_km(r["lat"], r["lon"], lat, lon)
         vt = tangential_wind(r["lat"], r["lon"], lat, lon, u10, v10)
         for b in range(n_bins):

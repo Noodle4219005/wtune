@@ -69,17 +69,17 @@ def build_title(run_label, domain, time_str, wrfout_path=None):
 _WRF_TIME_RE = r"\d{4}-\d{2}-\d{2}[_ T]\d{2}:\d{2}(?::\d{2})?"
 
 
-def _frame_valid_time(wrfout_path):
-    """The frame's own valid time (first Times record), or None."""
+def _frame_valid_time(wrfout_path, timeidx=0):
+    """The frame's own valid time (Times record `timeidx`), or None."""
     try:
         import netCDF4
         with netCDF4.Dataset(wrfout_path) as ds:
-            return b"".join(ds.variables["Times"][0].tolist()).decode().strip() or None
+            return b"".join(ds.variables["Times"][timeidx].tolist()).decode().strip() or None
     except Exception:   # noqa: BLE001
         return None
 
 
-def title_with_time_label(title, wrfout_path):
+def title_with_time_label(title, wrfout_path, timeidx=0):
     """Make the caller's first title line carry the 2-D figures' 'init ... valid ... (Fhhh)'
     label (post.conventions.path_time_label): a raw WRF time in it ('2019-01-31_00:00:00') is
     replaced; a title without any time gets the frame's label appended; a title that already
@@ -92,7 +92,7 @@ def title_with_time_label(title, wrfout_path):
     if m:
         return title[:m.start()] + conventions.path_time_label(wrfout_path, m.group()) \
             + title[m.end():]
-    valid = _frame_valid_time(wrfout_path)
+    valid = _frame_valid_time(wrfout_path, timeidx)
     if not valid:
         return title
     label = conventions.path_time_label(wrfout_path, valid)
@@ -188,8 +188,9 @@ def _bdy_width(wrfout_path):
 
 
 def render_condensate_volume(wrfout_path, out_png, work_dir, *, center_latlon=None, box_km=None,
-                             cutaway=False, title="", vexag=None, save_state=None):
+                             cutaway=False, title="", vexag=None, save_state=None, timeidx=0):
     """Volume rendering of total condensate (all hydrometeors) from one wrfout frame -> out_png.
+    timeidx: the valid time's index inside a multi-frame wrfout (post.extract.frame_ref).
 
     center_latlon=(lat, lon): storm-centred box (box_km, default 600 km) seen from the SSW at
     25 deg; otherwise the whole domain interior (spec_bdy_width zone excluded) seen from the
@@ -212,14 +213,16 @@ def render_condensate_volume(wrfout_path, out_png, work_dir, *, center_latlon=No
     os.makedirs(work_dir, exist_ok=True)
     # no ':' in the converted file names: ParaView's file-series readers trip on them
     stem = os.path.splitext(os.path.basename(wrfout_path))[0].replace(":", "")
+    if timeidx:
+        stem += "_t%d" % timeidx           # several valid times of one multi-frame file
     prefix = os.path.join(work_dir, stem)
     storm = center_latlon is not None
     info = xwrf_convert.build_volume(
         wrfout_path, prefix, center_latlon=center_latlon, box_km=box_km, cutaway=cutaway,
         bearing_deg=STORM_BEARING_DEG if storm else DOMAIN_BEARING_DEG, vexag=vexag,
-        bdy_width=_bdy_width(wrfout_path))
+        bdy_width=_bdy_width(wrfout_path), timeidx=timeidx)
     params = view_params(info, storm, cutaway)
-    title = title_with_time_label(title, wrfout_path)
+    title = title_with_time_label(title, wrfout_path, timeidx)
     full_title = (((title + "\n") if title else "")
                   + volume_title_line(info["vexag"], info.get("ztop_km")))
     with open(prefix + "_volume.json", "w") as f:
@@ -236,12 +239,12 @@ def render_condensate_volume(wrfout_path, out_png, work_dir, *, center_latlon=No
 
 
 def render_cloud(wrfout_path, out_png, work_dir, isovalue=ISOVALUE, title="", vexag=None,
-                 save_state=None):
+                 save_state=None, timeidx=0):
     """Whole-domain 3-D cloud figure. Since 2026-10-02 this is render_condensate_volume() with
     the whole-domain view: total condensate volume, not a QCLOUD+QICE isosurface. isovalue is
     accepted for old callers and ignored; vexag=None picks the volume's own default."""
     return render_condensate_volume(wrfout_path, out_png, work_dir, title=title, vexag=vexag,
-                                    save_state=save_state)
+                                    save_state=save_state, timeidx=timeidx)
 
 
 _README = """\
@@ -288,7 +291,7 @@ def write_readme(pv_dir, catalog_id):
                                vexag=vexag))
 
 
-def figures(catalog_id, wrfout_path, out_dir, work_dir, run_label, domain, time_str):
+def figures(catalog_id, wrfout_path, out_dir, work_dir, run_label, domain, time_str, timeidx=0):
     """work_dir is kept for call-site compatibility but unused: the converted files are written
     straight into <out_dir>/<catalog_id>_paraview/ (no copy), next to the .pvsm and README.txt,
     and the .pvsm is also written to <out_dir>/<catalog_id>.pvsm."""
@@ -299,7 +302,7 @@ def figures(catalog_id, wrfout_path, out_dir, work_dir, run_label, domain, time_
     try:
         render_cloud(wrfout_path, out_png, pv_dir,
                      title=build_title(run_label, domain, time_str, wrfout_path),
-                     save_state=pvsm)
+                     save_state=pvsm, timeidx=timeidx)
         if os.path.exists(pvsm):
             shutil.copy(pvsm, os.path.join(out_dir, "%s.pvsm" % catalog_id))
         else:

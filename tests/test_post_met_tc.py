@@ -72,7 +72,7 @@ def test_regrid_for_tc_rmw_remaps_each_frame_then_merges_to_grib1(tmp_path, monk
         nx=10, ny=8, lon_range=(-90.0, -80.0), lat_range=(20.0, 28.0)))
     fields = []
     monkeypatch.setattr(met_tc, "_wrf_fields_on_pressure_levels",
-                        lambda src, dst: fields.append((src, dst)))
+                        lambda src, dst, timeidx=0: fields.append((src, dst)))
     calls = []
     monkeypatch.setattr(tools, "run", lambda cmd, cwd=None, check=True: calls.append(cmd))
 

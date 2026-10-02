@@ -24,7 +24,7 @@ import os
 from datetime import datetime, timezone
 
 from post import tools
-from post.extract import frame_path, list_frames
+from post.extract import frame_ref, list_frame_refs
 
 WRF_FMT = "%Y-%m-%d_%H:%M:%S"
 TOP_AGL_M = 4000.0
@@ -111,24 +111,24 @@ def pick_column(run_dir, frames, stations=None):
     if not cands:
         return None
     t2 = np.zeros((len(frames), len(cands)))
-    for k, (_, path) in enumerate(frames):
+    for k, (_, path, ti) in enumerate(frames):
         with netCDF4.Dataset(path) as ds:
-            arr = np.asarray(ds.variables["T2"][0])
+            arr = np.asarray(ds.variables["T2"][ti])
         t2[k] = [arr[c[0], c[1]] for c in cands]
     return cands[int(np.argmax(t2.max(axis=0) - t2.min(axis=0)))]
 
 
 def column_series(frames, j, i):
-    """Per frame: (datetime, model column dict) at (j, i)."""
+    """Per frame (time, path, timeidx): (datetime, model column dict) at (j, i)."""
     import netCDF4
     from post import sounding
     wrf_mod = _wrf()
     out = []
-    for time_str, path in frames:
+    for time_str, path, ti in frames:
         with netCDF4.Dataset(path) as ds:
-            col = sounding.model_column(ds, wrf_mod, j, i)
-            col["t2"] = float(ds.variables["T2"][0, j, i])
-            col["wspd10"] = float((ds.variables["U10"][0, j, i] ** 2 + ds.variables["V10"][0, j, i] ** 2) ** 0.5)
+            col = sounding.model_column(ds, wrf_mod, j, i, ti)
+            col["t2"] = float(ds.variables["T2"][ti, j, i])
+            col["wspd10"] = float((ds.variables["U10"][ti, j, i] ** 2 + ds.variables["V10"][ti, j, i] ** 2) ** 0.5)
         out.append((datetime.strptime(time_str, WRF_FMT).replace(tzinfo=timezone.utc), col))
     return out
 
@@ -198,17 +198,17 @@ def plot_cross_section(run_dir, domain, time_str, j, i, out_path, run_label, lab
     import numpy as np
     wrf_mod = _wrf()
     plt = _plt()
-    path = frame_path(run_dir, domain, time_str)
+    path, ti = frame_ref(run_dir, domain, time_str)
     with netCDF4.Dataset(path) as ds:
         j0, j1, i0, i1 = _interior(ds, run_dir)
         dx_km = float(ds.getncattr("DX")) / 1000.0
         half = int(round(halfwidth_km / dx_km))
         i0, i1 = max(i0, i - half), min(i1, i + half + 1)      # +-halfwidth around the column
-        lat = np.asarray(ds.variables["XLAT"][0])
-        lon = np.asarray(ds.variables["XLONG"][0])
-        z = wrf_mod.getvar(ds, "z", timeidx=0, units="m")
-        theta = wrf_mod.getvar(ds, "theta", timeidx=0)
-        ter = wrf_mod.getvar(ds, "ter", timeidx=0)
+        lat = np.asarray(ds.variables["XLAT"][ti])
+        lon = np.asarray(ds.variables["XLONG"][ti])
+        z = wrf_mod.getvar(ds, "z", timeidx=ti, units="m")
+        theta = wrf_mod.getvar(ds, "theta", timeidx=ti)
+        ter = wrf_mod.getvar(ds, "ter", timeidx=ti)
         top = (top_km * 1000.0 if top_km else
                float(np.ceil((np.nanmax(np.asarray(ter)[j, i0:i1]) + 3500.0) / 500.0) * 500.0))
         levels = np.arange(0.0, top + 1, 100.0)
@@ -217,9 +217,9 @@ def plot_cross_section(run_dir, domain, time_str, j, i, out_path, run_label, lab
         cross = wrf_mod.vertcross(theta, z, levels=levels, wrfin=ds, start_point=sp, end_point=ep,
                                   latlon=True)
         ter_line = np.asarray(wrf_mod.interpline(ter, wrfin=ds, start_point=sp, end_point=ep, latlon=True))
-        pbl_line = np.asarray(wrf_mod.interpline(wrf_mod.getvar(ds, "PBLH", timeidx=0), wrfin=ds,
+        pbl_line = np.asarray(wrf_mod.interpline(wrf_mod.getvar(ds, "PBLH", timeidx=ti), wrfin=ds,
                                                  start_point=sp, end_point=ep, latlon=True))
-        lm_line = np.asarray(wrf_mod.interpline(wrf_mod.getvar(ds, "LANDMASK", timeidx=0), wrfin=ds,
+        lm_line = np.asarray(wrf_mod.interpline(wrf_mod.getvar(ds, "LANDMASK", timeidx=ti), wrfin=ds,
                                                 start_point=sp, end_point=ep, latlon=True))
     arr = _fill_below_valid(np.asarray(cross))
     xs = np.linspace(0.0, dx_km * (i1 - 1 - i0), arr.shape[1])
@@ -257,13 +257,14 @@ def _station_comparisons(stations, frames_by_time, run_dir):
             ts = t.strftime(WRF_FMT)
             if ts not in frames_by_time:
                 continue
-            with netCDF4.Dataset(frames_by_time[ts]) as ds:
+            fpath, ti = frames_by_time[ts]
+            with netCDF4.Dataset(fpath) as ds:
                 j0, j1, i0, i1 = _interior(ds, run_dir)
-                xy = wrf_mod.ll_to_xy(ds, lat, lon)
+                xy = wrf_mod.ll_to_xy(ds, lat, lon, timeidx=ti)
                 i, j = int(xy[0]), int(xy[1])
                 if not (j0 <= j < j1 and i0 <= i < i1):
                     continue
-                model = sounding.model_column(ds, wrf_mod, j, i)
+                model = sounding.model_column(ds, wrf_mod, j, i, ti)
             obs = sounding.obs_column(sounds[t], elev)
             if obs is None:
                 continue
@@ -364,11 +365,11 @@ def figures(run_dirs, labels, out_dir, case_info, project_dir=None, xsec_top_km=
                    if (d["bl_pbl_physics"] or 0) == 0 or d["dx_km"] <= 1.0]
     domain = (max(pbl_domains, key=lambda d: d["domain"])["domain"] if pbl_domains
               else case_info["domains"][-1]["domain"])
-    frames = list_frames(run_dir, domain=domain)
+    frames = list_frame_refs(run_dir, domain=domain)      # [(time, path, timeidx)]
     if len(frames) < 2:
         return [missing("pbl_time_height", "wrfout_d%02d_*" % domain,
                         "%d frame(s) found, need at least 2" % len(frames))]
-    frames_by_time = dict(frames)
+    frames_by_time = {t: (path, ti) for t, path, ti in frames}
     dom = "d%02d" % domain
     span = "%s..%s" % (frames[0][0], frames[-1][0])
 

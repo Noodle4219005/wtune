@@ -165,15 +165,23 @@ def _simple_dispatch(module_name, out_subdir):
             kwargs["project_dir"] = project_dir
         if "spinup_days" in params and spinup_days is not None:
             kwargs["spinup_days"] = spinup_days
-        try:
-            return mod.figures(run_dirs, labels, sub_out, case_info, **kwargs)
-        except KeyError as e:
-            # a wrfout written with a reduced history stream (iofields) lacks a variable this
-            # figure set needs: report it as missing, never abort the whole report
-            return [missing("%s_figures" % module_name, "wrfout variable %s" % e,
-                            "this run's history stream does not contain %s (reduced iofields?) "
-                            "-- the %s figure set needs it" % (e, module_name))]
+        return guarded(module_name, mod.figures, run_dirs, labels, sub_out, case_info, **kwargs)
     return run
+
+
+def guarded(name, fn, *args, **kwargs):
+    """fn(*args, **kwargs); a wrfout written with a reduced history stream (iofields) that
+    lacks a variable/attribute the figure set needs (post.extract.is_missing_field_error)
+    becomes ONE missing entry naming it -- never an aborted report, never a raw
+    AttributeError/KeyError text."""
+    from post.extract import is_missing_field_error, missing_reason
+    try:
+        return fn(*args, **kwargs)
+    except Exception as e:                                  # noqa: BLE001 -- filtered below
+        if not is_missing_field_error(e):
+            raise
+        return [missing("%s_figures" % name, "wrfout history stream",
+                        "%s -- the %s figure set needs it" % (missing_reason(e), name))]
 
 
 for _name in ("precip", "synoptic", "pbl", "chem", "climate", "ensemble", "terrain", "moisture"):
@@ -267,17 +275,18 @@ def run_recipe(run_dirs, out_dir, types_override=None, ensemble=False, spinup_ho
                                            "tc was detected but --hurdat2/--storm is required "
                                            "to build the a-deck/b-deck comparison"))
             else:
-                all_figures += handler(run_dirs, labels, out_dir, case_info, hurdat2_path,
-                                       storm_id, bdeck_path, ebtrk_path, paraview, spinup_hours,
-                                       track_smooth_km=track_smooth_km)
-            all_figures += _tc_structure_figures(run_dirs, labels, out_dir, case_info,
-                                                 paraview=paraview, every=every, times=times,
-                                                 use_track=has_track)
+                all_figures += guarded("tc", handler, run_dirs, labels, out_dir, case_info,
+                                       hurdat2_path, storm_id, bdeck_path, ebtrk_path, paraview,
+                                       spinup_hours, track_smooth_km=track_smooth_km)
+            all_figures += guarded("tc_structure", _tc_structure_figures, run_dirs, labels,
+                                   out_dir, case_info, paraview=paraview, every=every,
+                                   times=times, use_track=has_track)
         elif t == "cloud":
-            all_figures += handler(run_dirs, labels, out_dir, case_info, paraview=paraview,
-                                   every=every, times=times)
+            all_figures += guarded("cloud", handler, run_dirs, labels, out_dir, case_info,
+                                   paraview=paraview, every=every, times=times)
         elif t == "convection":
-            all_figures += handler(run_dirs, labels, out_dir, case_info, paraview, spinup_hours)
+            all_figures += guarded("convection", handler, run_dirs, labels, out_dir, case_info,
+                                   paraview, spinup_hours)
         elif t == "terrain":
             all_figures += handler(run_dirs, labels, out_dir, case_info,
                                    spinup_hours=spinup_hours,
@@ -296,8 +305,8 @@ def run_recipe(run_dirs, out_dir, types_override=None, ensemble=False, spinup_ho
                                    project_dir=project_dir, spinup_days=spinup_days)
 
     if every or times:
-        all_figures += _time_series_figures(run_dirs, labels, out_dir, case_info, every, times,
-                                            animate=animate)
+        all_figures += guarded("timeseries", _time_series_figures, run_dirs, labels, out_dir,
+                               case_info, every, times, animate=animate)
 
     notes = [{k: e[k] for k in ("source", "level", "text")} for e in all_figures if is_note(e)]
     all_figures = [e for e in all_figures if not is_note(e)]

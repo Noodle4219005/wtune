@@ -48,7 +48,7 @@ def _write_regular_nc(lat, lon, z, valid, out_nc):
     return out_nc
 
 
-def model_z500_on_latlon(wrfout_path, out_nc):
+def model_z500_on_latlon(wrfout_path, out_nc, timeidx=0):
     """wrfout frame -> regular lat/lon CF NetCDF of z500 (m): wrf-python z on 500 hPa, then
     `cdo remapbil` onto a lat/lon grid with the native point count over the native extent
     (cdo cannot remap a raw wrfout: it aborts on the eta coordinate ZNU)."""
@@ -58,11 +58,11 @@ def model_z500_on_latlon(wrfout_path, out_nc):
     cdo = tools.find_on_path("cdo", install_hint="conda-forge 'cdo' or "
                              "envs/wtune/pixi.toml provides it.")
     with netCDF4.Dataset(wrfout_path) as src:
-        lat = np.asarray(wrf.getvar(src, "lat"))
-        lon = np.asarray(wrf.getvar(src, "lon"))
-        z500 = np.asarray(wrf.interplevel(wrf.getvar(src, "z", units="m"),
-                                          wrf.getvar(src, "pressure"), 500))
-        valid = wrf.extract_times(src, 0)
+        lat = np.asarray(wrf.getvar(src, "lat", timeidx=timeidx))
+        lon = np.asarray(wrf.getvar(src, "lon", timeidx=timeidx))
+        z500 = np.asarray(wrf.interplevel(wrf.getvar(src, "z", timeidx=timeidx, units="m"),
+                                          wrf.getvar(src, "pressure", timeidx=timeidx), 500))
+        valid = wrf.extract_times(src, timeidx)
     ny, nx = lat.shape
     stem = out_nc[:-3] if out_nc.endswith(".nc") else out_nc
     curv = stem + ".curv.nc"
@@ -145,12 +145,14 @@ def parse_cnt(cnt_text):
     raise METError("no CNT line in the Grid-Stat output")
 
 
-def grid_stat_z500(wrfout_path, era5_lat, era5_lon, era5_z500, valid, out_dir, bdy_width):
-    """Whole chain for one frame. Returns dict(rmse_m, bias_m, n, stat_file, pairs_nc)."""
+def grid_stat_z500(wrfout_path, era5_lat, era5_lon, era5_z500, valid, out_dir, bdy_width,
+                   timeidx=0):
+    """Whole chain for one frame (time index `timeidx` of wrfout_path). Returns dict(rmse_m, bias_m, n, stat_file, pairs_nc)."""
     os.makedirs(out_dir, exist_ok=True)
     obs_nc = write_era5_z500_nc(era5_lat, era5_lon, era5_z500, valid,
                                 os.path.join(out_dir, "era5_z500.nc"))
-    fcst_nc = model_z500_on_latlon(wrfout_path, os.path.join(out_dir, "model_z500.nc"))
+    fcst_nc = model_z500_on_latlon(wrfout_path, os.path.join(out_dir, "model_z500.nc"),
+                                   timeidx=timeidx)
     poly = write_interior_polygon(wrfout_path, bdy_width,
                                   os.path.join(out_dir, "interior.poly"))
     stat, cnt, pairs = run_grid_stat(fcst_nc, obs_nc, poly, out_dir)

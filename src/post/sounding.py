@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import os
 
-from post.extract import frame_path
+from post.extract import frame_ref
 
 
 class SoundingError(RuntimeError):
@@ -77,14 +77,14 @@ def make_sounding(run_dir, lat, lon, time_str, out_path, domain=1):
     netcdf4 = _netcdf4()
     plt = _matplotlib()
 
-    path = frame_path(run_dir, domain, time_str)
+    path, ti = frame_ref(run_dir, domain, time_str)
     if not os.path.exists(path):
         raise SoundingError("no such frame: %s" % path)
 
     with netcdf4.Dataset(path) as ds:
-        xy = wrf_mod.ll_to_xy(ds, lat, lon)
+        xy = wrf_mod.ll_to_xy(ds, lat, lon, timeidx=ti)
         i, j = int(xy[0]), int(xy[1])
-        p, tc, td, u, v = _profile(ds, wrf_mod, j, i)
+        p, tc, td, u, v = _profile(ds, wrf_mod, j, i, ti)
 
     order = np.argsort(p)[::-1]        # SkewT wants pressure decreasing (surface first)
     p, tc, td, u, v = p[order], tc[order], td[order], u[order], v[order]

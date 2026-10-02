@@ -147,8 +147,9 @@ def run_length_hours(run_dir):
 
 def _d01_bbox_and_window(run_dir):
     """(lat_min, lat_max, lon_min, lon_max, t_start, t_end) for d01, from its wrfout frames'
-    own XLAT/XLONG and file-name times (netCDF4, lazily imported -- this module is otherwise
-    stdlib-only)."""
+    own XLAT/XLONG and valid times (each file's Times variable via post.extract, so a
+    frames_per_outfile > 1 file contributes all its times; netCDF4, lazily imported -- this
+    module is otherwise stdlib-only)."""
     import netCDF4
     frames = list_frames(run_dir, domain=1)
     if not frames:

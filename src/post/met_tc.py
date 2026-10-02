@@ -131,7 +131,8 @@ _GRIB1_PARAMS = (("u", "33.2"), ("v", "34.2"))
 
 
 def regrid_for_tc_rmw(wrfout_paths, out_grb):
-    """wrfout frames -> one multi-time GRIB1 file on a regular lat/lon grid for tc_rmw:
+    """wrfout frames (each a path, or (path, timeidx) for a valid time inside a multi-frame
+    wrfout -- post.extract.frame_ref) -> one multi-time GRIB1 file on a regular lat/lon grid for tc_rmw:
     per frame, wrf-python fields on pressure levels (cdo cannot remap a raw wrfout: it
     aborts on the eta coordinate ZNU) -> `cdo remapbil`; then `cdo mergetime` and
     `cdo -f grb setparam` to NCEP GRIB1 codes. The target grid keeps the native point count
@@ -139,7 +140,8 @@ def regrid_for_tc_rmw(wrfout_paths, out_grb):
     resolution."""
     cdo = tools.find_on_path("cdo", install_hint="conda-forge 'cdo' or "
                              "envs/wtune/pixi.toml provides it.")
-    wrfout_paths = list(wrfout_paths)
+    refs = [(p, 0) if isinstance(p, (str, os.PathLike)) else tuple(p) for p in wrfout_paths]
+    wrfout_paths = [p for p, _ti in refs]
     grid = tools.parse_cdo_sinfon_grid(tools.cdo_sinfon(wrfout_paths[0]))
     if grid is None or grid["lon_range"] is None or grid["lat_range"] is None:
         raise METError("could not read a lon/lat extent from `cdo sinfon %s` to build the "
@@ -154,9 +156,9 @@ def regrid_for_tc_rmw(wrfout_paths, out_grb):
                  % (nlon, nlat, lon0, (lon1 - lon0) / (nlon - 1), lat0,
                     (lat1 - lat0) / (nlat - 1)))
     frames = []
-    for i, path in enumerate(wrfout_paths):
+    for i, (path, ti) in enumerate(refs):
         fields_nc, remapped = "%s.f%03d.nc" % (out_grb, i), "%s.r%03d.nc" % (out_grb, i)
-        _wrf_fields_on_pressure_levels(path, fields_nc)
+        _wrf_fields_on_pressure_levels(path, fields_nc, timeidx=ti)
         tools.run([cdo, "-s", "remapbil,%s" % griddes_path, fields_nc, remapped])
         frames.append(remapped)
     merged = out_grb + ".merged.nc"
@@ -173,7 +175,7 @@ def regrid_for_tc_rmw(wrfout_paths, out_grb):
 PRESSURE_LEVELS_HPA = tuple(range(1000, 99, -50))
 
 
-def _wrf_fields_on_pressure_levels(wrfout_path, out_nc, levels=PRESSURE_LEVELS_HPA):
+def _wrf_fields_on_pressure_levels(wrfout_path, out_nc, levels=PRESSURE_LEVELS_HPA, timeidx=0):
     """wrf-python diagnostics tc_rmw needs, written as a small NetCDF CDO can remap: 10 m wind
     speed and u/v (earth-relative) on `levels` hPa, each with `coordinates = "lon lat"`
     pointing at 2-D lat/lon, so CDO treats the grid as curvilinear."""
@@ -181,13 +183,13 @@ def _wrf_fields_on_pressure_levels(wrfout_path, out_nc, levels=PRESSURE_LEVELS_H
     import numpy as np
     import wrf
     with netCDF4.Dataset(wrfout_path) as src:
-        lat = np.asarray(wrf.getvar(src, "lat"))
-        lon = np.asarray(wrf.getvar(src, "lon"))
-        wspd10 = np.asarray(wrf.getvar(src, "wspd_wdir10")[0])
-        p = wrf.getvar(src, "pressure")
-        u = np.asarray(wrf.interplevel(wrf.getvar(src, "ua"), p, list(levels)))
-        v = np.asarray(wrf.interplevel(wrf.getvar(src, "va"), p, list(levels)))
-        valid = wrf.extract_times(src, 0)
+        lat = np.asarray(wrf.getvar(src, "lat", timeidx=timeidx))
+        lon = np.asarray(wrf.getvar(src, "lon", timeidx=timeidx))
+        wspd10 = np.asarray(wrf.getvar(src, "wspd_wdir10", timeidx=timeidx)[0])
+        p = wrf.getvar(src, "pressure", timeidx=timeidx)
+        u = np.asarray(wrf.interplevel(wrf.getvar(src, "ua", timeidx=timeidx), p, list(levels)))
+        v = np.asarray(wrf.interplevel(wrf.getvar(src, "va", timeidx=timeidx), p, list(levels)))
+        valid = wrf.extract_times(src, timeidx)
     ny, nx = lat.shape
     with netCDF4.Dataset(out_nc, "w") as dst:
         dst.createDimension("time", None)

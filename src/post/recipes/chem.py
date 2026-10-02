@@ -12,7 +12,7 @@ from __future__ import annotations
 import os
 
 from post import tools
-from post.extract import frame_path, list_frames
+from post.extract import frame_ref, list_frames
 
 # checked in this order -- common WRF-Chem history species across mechanisms/aerosol schemes.
 CANDIDATE_SPECIES = ("PM2_5_DRY", "o3", "co", "PM10", "so2", "no2")
@@ -32,17 +32,17 @@ def plot_concentration(run_dir, domain, time_str, species, out_path, run_label):
     wrf_mod = __import__("wrf")
     from post.recipes.mapfig import save_map
 
-    path = frame_path(run_dir, domain, time_str)
+    path, ti = frame_ref(run_dir, domain, time_str)
     with netCDF4.Dataset(path) as ds:
-        conc = np.asarray(ds.variables[species][0])
+        conc = np.asarray(ds.variables[species][ti])
         if conc.ndim == 3:
             conc = conc[0]     # lowest model level
-        u10 = np.asarray(wrf_mod.getvar(ds, "uvmet10", timeidx=0, units="m s-1")[0])
-        v10 = np.asarray(wrf_mod.getvar(ds, "uvmet10", timeidx=0, units="m s-1")[1])
-        lat = np.asarray(ds.variables["XLAT"][0])
-        lon = np.asarray(ds.variables["XLONG"][0])
+        u10 = np.asarray(wrf_mod.getvar(ds, "uvmet10", timeidx=ti, units="m s-1")[0])
+        v10 = np.asarray(wrf_mod.getvar(ds, "uvmet10", timeidx=ti, units="m s-1")[1])
+        lat = np.asarray(ds.variables["XLAT"][ti])
+        lon = np.asarray(ds.variables["XLONG"][ti])
         units = getattr(ds.variables[species], "units", "")
-        conc, units = concentration_units(ds, conc, units)
+        conc, units = concentration_units(ds, conc, units, timeidx=ti)
         from post.conventions import KT_PER_MS, ds_time_label
         save_map(out_path, lat, lon,
                 "%s d%02d %s, lowest model level (%s, log scale) + 10 m wind (kt)\n%s"
@@ -54,7 +54,7 @@ def plot_concentration(run_dir, domain, time_str, species, out_path, run_label):
     return out_path
 
 
-def concentration_units(ds, conc, units):
+def concentration_units(ds, conc, units, timeidx=0):
     """Air-quality reporting units (decision 0064): gases ppmv -> ppb; aerosol mixing ratios
     ug/kg-dryair -> ug m-3 using the dry-air density 1/ALT of the lowest level."""
     import numpy as np
@@ -62,7 +62,7 @@ def concentration_units(ds, conc, units):
     if u.startswith("ppmv") or u == "ppm":
         return np.asarray(conc) * 1000.0, "ppb"
     if u.startswith("ug/kg") and "ALT" in ds.variables:
-        alt = np.asarray(ds.variables["ALT"][0])
+        alt = np.asarray(ds.variables["ALT"][timeidx])
         alt = alt[0] if alt.ndim == 3 else alt
         return np.asarray(conc) / alt, "µg m$^{-3}$"
     return np.asarray(conc), units

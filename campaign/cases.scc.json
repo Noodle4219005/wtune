@@ -66,6 +66,48 @@
     "sc26p2narr": {
       "prep_dir": "$HOME/wrf-cases/sc26p2narr",
       "bp_dir": ""
+    },
+    "climate-ea50": {
+      "prep_dir": "$HOME/wtune-runs/climate-ea50-2023/run",
+      "bp_dir": "",
+      "restart": false,
+      "input_files": [
+        "wrflowinp_d01"
+      ],
+      "history_key": "history_interval",
+      "dt": 240,
+      "e_we": 151,
+      "e_sn": 111,
+      "e_vert": 45,
+      "dx": 50000,
+      "dy": 50000,
+      "max_dom": 1,
+      "e_we_list": [
+        151
+      ],
+      "e_sn_list": [
+        111
+      ],
+      "e_vert_list": [
+        45
+      ],
+      "namelist_overrides": {},
+      "case_family": "regional_climate",
+      "physics": {
+        "mp_physics": 6,
+        "cu_physics": 1,
+        "bl_pbl_physics": 1,
+        "sf_sfclay_physics": 1,
+        "sf_surface_physics": 2,
+        "ra_lw_physics": 4,
+        "ra_sw_physics": 4,
+        "radt": 30,
+        "cudt": 0
+      },
+      "steps": 50,
+      "physics_sim_minutes": 60,
+      "enabled": true,
+      "notes": "scc-only (not in cases.json): 13-month East-Asia 50 km regional climate run 2022-12-01 -> 2024-01-01, ERA5 via ARCO, sst_update=1 so wrflowinp_d01 is an input file. Registered 2026-10-02 for the long-case end-to-end WTune test; first run was job 2016 (1 node, 64 ranks, 0.0688 s/step, 2:48:37)."
     }
   }
 }

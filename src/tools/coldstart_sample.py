@@ -1035,7 +1035,8 @@ def _fetch_era5_intermediate(plan, plan_dir, runner=None):
 
     def cmd_for(chunk):
         c = [ai_python, os.path.join(repo, "src", "tools", "era5_intermediate.py"),
-             "--bbox", bbox_s, "--times", ",".join(t.strftime("%Y-%m-%d_%H") for t in chunk),
+             # "--bbox=" keeps a southern-hemisphere bbox ("-5.3,...") from reading as an option
+             "--bbox=" + bbox_s, "--times", ",".join(t.strftime("%Y-%m-%d_%H") for t in chunk),
              "--out", wps_dir, "--prefix", src.prefix]
         return c + ["--rain-snow"] if rain_snow else c
 

@@ -2477,7 +2477,9 @@ def test_era5_pin_fetch_writes_intermediate_manifest(tmp_path, monkeypatch):
             open(os.path.join(out, "ERA5:" + t), "wb").write(b"x")
 
     total, forcing = cs._fetch_era5_intermediate(plan, str(tmp_path), runner=runner)
-    assert seen["cmd"][seen["cmd"].index("--bbox") + 1] == "20.000,50.000,-120.000,-70.000"
+    # one "--bbox=" token: a bbox starting with "-" (southern hemisphere) would otherwise parse
+    # as an option in era5_intermediate.py (climate-ea50 phase-0 rebuild, 2026-10-02)
+    assert "--bbox=20.000,50.000,-120.000,-70.000" in seen["cmd"]
     assert forcing["files"] == ["ERA5:2019-11-26_21", "ERA5:2019-11-26_22", "ERA5:2019-11-26_23"]
     assert forcing["windows"][0]["chosen"]["vtable"] == "none" and total == 3
     pwf = cs._per_window_forcing_from_forcing_json(str(tmp_path), plan)

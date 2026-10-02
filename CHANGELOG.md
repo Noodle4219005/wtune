@@ -3,6 +3,17 @@
 Versions are declared in `wtune_version.py`; `test_wtune_version.py` fails if the top section
 here does not match it. Development before 0.1.0 is in the git history, not in releases.
 
+## 0.8.1 — 2026-10-02
+
+**Figures.** Gridline labels sit outside every map (cartopy 0.26 drew longitude labels inline
+across Lambert maps), and the base-map caption no longer overlaps them. Cloud and TC-structure
+legends list only the contour levels that are drawn; the cloud-top map says when no echo
+reaches 15 dBZ; two-panel section legends cover both panels.
+
+**Fixes.** The cold-start rebuild passes `--bbox=` as one token: a bbox south of the equator
+read as an option and failed the tune's phase-0 rebuild. `climate-ea50` (13-month East-Asia
+50 km run) is registered in the scc case overlay.
+
 ## 0.8.0 — 2026-10-02
 
 **One-pass tuning levels.** `wtune tune -O0..-O3` (decision 0059): plan, layout search,

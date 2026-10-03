@@ -1,0 +1,5 @@
+{
+ "result": 0,
+ "stdout": "item                         ok     how                note\nnamelist.input               yes    <TMP>/case/namelist.input \nrun length                   yes    86400s             \nprojection                   yes    namelist.wps       map_proj=lambert\nifire                        yes    0                  \ncapability                   yes    warning            filled differently: hydrometeors and number concentrations start at zero (GFS via Vtable.GFS carries no hydrometeor/number-concentration fields) -- this is why cold-start windows discard the first ~1 simulated hour as spin-up\nforcing chain (run start)    yes    d084001 -> d083002 not probed (date rules only): d084001 0.25deg grib2 interval=3h forecast\nforcing chain (run end)      yes    d084001 -> d083002 not probed (date rules only): d084001 0.25deg grib2 interval=3h forecast\n",
+ "stderr": ""
+}

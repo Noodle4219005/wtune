@@ -1,0 +1,5 @@
+{
+ "error": "SystemExit: 2",
+ "stdout": "",
+ "stderr": "usage: coldstart_sample.py [-h]\n                           {inspect,plan,fetch,stage,score,fix-wps-namelist,fix-real-namelist,fix-wrf-namelist}\n                           ...\ncoldstart_sample.py: error: the following arguments are required: cmd\n"
+}

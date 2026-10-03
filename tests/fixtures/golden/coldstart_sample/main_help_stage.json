@@ -1,0 +1,5 @@
+{
+ "error": "SystemExit: 0",
+ "stdout": "usage: coldstart_sample.py stage [-h] --plan PLAN [--site SITE] [--per-window-min PER_WINDOW_MIN]\n\noptions:\n  -h, --help            show this help message and exit\n  --plan PLAN\n  --site SITE\n  --per-window-min PER_WINDOW_MIN\n",
+ "stderr": ""
+}

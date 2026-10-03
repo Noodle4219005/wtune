@@ -1,0 +1,5 @@
+{
+ "error": "ColdstartError: plan: case is blocked:\n  - ifire=1 in &physics (WRF-SFIRE needs fire geog data; unsupported)",
+ "stdout": "",
+ "stderr": ""
+}

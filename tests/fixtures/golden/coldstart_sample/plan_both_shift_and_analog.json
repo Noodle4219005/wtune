@@ -1,0 +1,5 @@
+{
+ "error": "ColdstartError: plan: --date-shift-to and --analog are mutually exclusive",
+ "stdout": "",
+ "stderr": ""
+}

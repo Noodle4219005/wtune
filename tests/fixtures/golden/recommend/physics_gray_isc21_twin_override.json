@@ -1,0 +1,657 @@
+{
+ "case_name": "isc21",
+ "hardware_id": "hw-train-synthetic",
+ "compliance": "PHYSICS-GRAY",
+ "nodes": 4,
+ "max_dom": 1,
+ "auto_apply_disclaimer": "This tool only narrows the search to a shortlist. A human decides and applies the final physics template -- nothing here is auto-applied.",
+ "probe_source": "--probe-screen <TMP>/screen_synthtest.txt",
+ "probe_valid": true,
+ "probe_verdicts": {
+  "swint_opt": "CONFIRM",
+  "mp_physics": "REJECT"
+ },
+ "allowed_labels": [
+  "WITHIN-FLOOR",
+  "SMALL-DRIFT"
+ ],
+ "candidates": [
+  {
+   "template": "A01",
+   "family": "dynamics",
+   "applicable": true,
+   "skip_reason": null,
+   "changes": {
+    "time_step": {
+     "from": 15,
+     "to": 12
+    }
+   },
+   "generic_rule_used": false
+  },
+  {
+   "template": "A02",
+   "family": "dynamics",
+   "applicable": false,
+   "skip_reason": "no &dynamics section found in namelist",
+   "changes": {},
+   "generic_rule_used": false
+  },
+  {
+   "template": "A03",
+   "family": "dynamics",
+   "applicable": false,
+   "skip_reason": "isc21's own namelist already sets moist_adv_opt=2,2,2 and scalar_adv_opt=2,2,2, so monotonic transport is a no-op there, not an accuracy change",
+   "changes": {},
+   "generic_rule_used": false
+  },
+  {
+   "template": "A04",
+   "family": "dynamics",
+   "applicable": false,
+   "skip_reason": "isc21 natively runs moist_adv_opt=2,2,2 / scalar_adv_opt=2,2,2 (monotonic), and advect_scalar_mono implements h_sca_adv_order 5 only (dyn_em/module_advect_em.F:9643) -- h_sca_adv_order=6 would abort at module_advect_em.F:10016-10017 mid-integration, with no namelist-time check to catch it",
+   "changes": {},
+   "generic_rule_used": false
+  },
+  {
+   "template": "A05",
+   "family": "radiation",
+   "applicable": true,
+   "skip_reason": null,
+   "changes": {
+    "radt": {
+     "from": 15,
+     "to": 7.5
+    }
+   },
+   "generic_rule_used": false
+  },
+  {
+   "template": "D01",
+   "family": "dynamics",
+   "applicable": false,
+   "skip_reason": "no &dynamics section found in namelist",
+   "changes": {},
+   "generic_rule_used": false
+  },
+  {
+   "template": "D02",
+   "family": "dynamics",
+   "applicable": false,
+   "skip_reason": "no &dynamics section found in namelist",
+   "changes": {},
+   "generic_rule_used": false
+  },
+  {
+   "template": "D03",
+   "family": "dynamics",
+   "applicable": false,
+   "skip_reason": "no &dynamics section found in namelist",
+   "changes": {},
+   "generic_rule_used": false
+  },
+  {
+   "template": "D04",
+   "family": "diagnostics",
+   "applicable": false,
+   "skip_reason": "not in applies_to ['bigchill', 'elevconv']",
+   "changes": {},
+   "generic_rule_used": false
+  },
+  {
+   "template": "D05",
+   "family": "pbl_surface",
+   "applicable": true,
+   "skip_reason": null,
+   "changes": {
+    "bldt": {
+     "from": null,
+     "to": 10
+    }
+   },
+   "generic_rule_used": false
+  },
+  {
+   "template": "D06",
+   "family": "nesting",
+   "applicable": false,
+   "skip_reason": "no &bdy_control section found in namelist",
+   "changes": {},
+   "generic_rule_used": false
+  },
+  {
+   "template": "D07",
+   "family": "dynamics",
+   "applicable": false,
+   "skip_reason": "not in applies_to ['sc26p1']",
+   "changes": {},
+   "generic_rule_used": false
+  },
+  {
+   "template": "P01",
+   "family": "radiation",
+   "applicable": true,
+   "skip_reason": null,
+   "changes": {
+    "swint_opt": {
+     "from": null,
+     "to": 1
+    }
+   },
+   "generic_rule_used": false
+  },
+  {
+   "template": "P02",
+   "family": "radiation",
+   "applicable": true,
+   "skip_reason": null,
+   "changes": {
+    "radt": {
+     "from": 15,
+     "to": 30
+    },
+    "swint_opt": {
+     "from": null,
+     "to": 1
+    }
+   },
+   "generic_rule_used": false
+  },
+  {
+   "template": "P03",
+   "family": "dynamics",
+   "applicable": true,
+   "skip_reason": null,
+   "changes": {
+    "time_step": {
+     "from": 15,
+     "to": 18
+    }
+   },
+   "generic_rule_used": false
+  },
+  {
+   "template": "P04",
+   "family": "microphysics",
+   "applicable": true,
+   "skip_reason": null,
+   "changes": {
+    "mp_physics": {
+     "from": 8,
+     "to": 6
+    }
+   },
+   "generic_rule_used": false
+  },
+  {
+   "template": "P05",
+   "family": "pbl_surface",
+   "applicable": true,
+   "skip_reason": null,
+   "changes": {
+    "bl_pbl_physics": {
+     "from": 1,
+     "to": 1
+    },
+    "sf_sfclay_physics": {
+     "from": 1,
+     "to": 1
+    }
+   },
+   "generic_rule_used": false
+  },
+  {
+   "template": "P06",
+   "family": "radiation",
+   "applicable": true,
+   "skip_reason": null,
+   "changes": {
+    "ra_lw_physics": {
+     "from": 4,
+     "to": 1
+    },
+    "ra_sw_physics": {
+     "from": 4,
+     "to": 1
+    }
+   },
+   "generic_rule_used": false
+  }
+ ],
+ "shortlist": [
+  {
+   "template": "P01",
+   "family": "radiation",
+   "status": "RECOMMENDABLE",
+   "reasons": [],
+   "predicted_time_to_solution_pct": -5.000021401,
+   "time_to_solution_interval_pct": [
+    -5.000051363,
+    -5.0
+   ],
+   "time_to_solution_interval_note": null,
+   "predicted_y": -0.05129351967,
+   "predicted_fidelity_label": "WITHIN-FLOOR",
+   "predicted_fidelity_nd": 0.010000326,
+   "probe_verdict": "CONFIRM",
+   "same_hardware_data": true,
+   "infeasibility": {
+    "n_cases_tried": 6,
+    "n_cases_failed": 0,
+    "failed_cases": [],
+    "rate": 0.0
+   },
+   "dangerous_miss": {
+    "n": 6,
+    "dangerous_miss_n": 0,
+    "dangerous_miss_rate": 0.0,
+    "insufficient": false
+   },
+   "template_track_record": {
+    "n_cases_labeled": 6,
+    "n_cases_large": 0,
+    "large_cases": [],
+    "rate": 0.0
+   }
+  },
+  {
+   "template": "P02",
+   "family": "radiation",
+   "status": "UNCONFIRMED",
+   "reasons": [
+    "predicted fidelity label LARGE-DRIFT not in allowed set",
+    "LARGE-DRIFT in 6/6 training cases: phystrain0, phystrain1, phystrain2, phystrain3, phystrain4, phystrain5"
+   ],
+   "predicted_time_to_solution_pct": -9.021496826,
+   "time_to_solution_interval_pct": [
+    -9.021518961,
+    -9.021469772
+   ],
+   "time_to_solution_interval_note": null,
+   "predicted_y": -0.09454693624,
+   "predicted_fidelity_label": "LARGE-DRIFT",
+   "predicted_fidelity_nd": 0.2286480536,
+   "probe_verdict": "CONFIRM",
+   "same_hardware_data": true,
+   "infeasibility": {
+    "n_cases_tried": 6,
+    "n_cases_failed": 0,
+    "failed_cases": [],
+    "rate": 0.0
+   },
+   "dangerous_miss": {
+    "n": 6,
+    "dangerous_miss_n": 0,
+    "dangerous_miss_rate": 0.0,
+    "insufficient": false
+   },
+   "template_track_record": {
+    "n_cases_labeled": 6,
+    "n_cases_large": 6,
+    "large_cases": [
+     "phystrain0",
+     "phystrain1",
+     "phystrain2",
+     "phystrain3",
+     "phystrain4",
+     "phystrain5"
+    ],
+    "rate": 1.0
+   }
+  },
+  {
+   "template": "P04",
+   "family": "microphysics",
+   "status": "UNCONFIRMED",
+   "reasons": [
+    "probe REJECT on an edited knob",
+    "insufficient out-of-fold fidelity evidence for this template (n=0, need >=5)"
+   ],
+   "predicted_time_to_solution_pct": -6.021755671,
+   "time_to_solution_interval_pct": [
+    -6.021783616,
+    -6.021732806
+   ],
+   "time_to_solution_interval_note": null,
+   "predicted_y": -0.06210687381,
+   "predicted_fidelity_label": "WITHIN-FLOOR",
+   "predicted_fidelity_nd": 0.0218676692,
+   "probe_verdict": "REJECT",
+   "same_hardware_data": true,
+   "infeasibility": null,
+   "dangerous_miss": null,
+   "template_track_record": null
+  },
+  {
+   "template": "A01",
+   "family": "dynamics",
+   "status": "UNCONFIRMED",
+   "reasons": [
+    "insufficient out-of-fold fidelity evidence for this template (n=0, need >=5)"
+   ],
+   "predicted_time_to_solution_pct": -5.000021401,
+   "time_to_solution_interval_pct": [
+    -5.000051363,
+    -5.0
+   ],
+   "time_to_solution_interval_note": null,
+   "predicted_y": -0.05129351967,
+   "predicted_fidelity_label": "WITHIN-FLOOR",
+   "predicted_fidelity_nd": 0.010000326,
+   "probe_verdict": null,
+   "same_hardware_data": true,
+   "infeasibility": null,
+   "dangerous_miss": null,
+   "template_track_record": null
+  },
+  {
+   "template": "D05",
+   "family": "pbl_surface",
+   "status": "UNCONFIRMED",
+   "reasons": [
+    "insufficient out-of-fold fidelity evidence for this template (n=0, need >=5)"
+   ],
+   "predicted_time_to_solution_pct": -5.000021401,
+   "time_to_solution_interval_pct": [
+    -5.000051363,
+    -5.0
+   ],
+   "time_to_solution_interval_note": null,
+   "predicted_y": -0.05129351967,
+   "predicted_fidelity_label": "WITHIN-FLOOR",
+   "predicted_fidelity_nd": 0.010000326,
+   "probe_verdict": null,
+   "same_hardware_data": true,
+   "infeasibility": null,
+   "dangerous_miss": null,
+   "template_track_record": null
+  },
+  {
+   "template": "P03",
+   "family": "dynamics",
+   "status": "UNCONFIRMED",
+   "reasons": [
+    "insufficient out-of-fold fidelity evidence for this template (n=0, need >=5)"
+   ],
+   "predicted_time_to_solution_pct": -5.000021401,
+   "time_to_solution_interval_pct": [
+    -5.000051363,
+    -5.0
+   ],
+   "time_to_solution_interval_note": null,
+   "predicted_y": -0.05129351967,
+   "predicted_fidelity_label": "WITHIN-FLOOR",
+   "predicted_fidelity_nd": 0.010000326,
+   "probe_verdict": null,
+   "same_hardware_data": true,
+   "infeasibility": null,
+   "dangerous_miss": null,
+   "template_track_record": null
+  },
+  {
+   "template": "P05",
+   "family": "pbl_surface",
+   "status": "UNCONFIRMED",
+   "reasons": [
+    "insufficient out-of-fold fidelity evidence for this template (n=0, need >=5)"
+   ],
+   "predicted_time_to_solution_pct": -5.000021401,
+   "time_to_solution_interval_pct": [
+    -5.000051363,
+    -5.0
+   ],
+   "time_to_solution_interval_note": null,
+   "predicted_y": -0.05129351967,
+   "predicted_fidelity_label": "WITHIN-FLOOR",
+   "predicted_fidelity_nd": 0.010000326,
+   "probe_verdict": null,
+   "same_hardware_data": true,
+   "infeasibility": null,
+   "dangerous_miss": null,
+   "template_track_record": null
+  },
+  {
+   "template": "P06",
+   "family": "radiation",
+   "status": "UNCONFIRMED",
+   "reasons": [
+    "insufficient out-of-fold fidelity evidence for this template (n=0, need >=5)"
+   ],
+   "predicted_time_to_solution_pct": -5.000021401,
+   "time_to_solution_interval_pct": [
+    -5.000051363,
+    -5.0
+   ],
+   "time_to_solution_interval_note": null,
+   "predicted_y": -0.05129351967,
+   "predicted_fidelity_label": "WITHIN-FLOOR",
+   "predicted_fidelity_nd": 0.010000326,
+   "probe_verdict": null,
+   "same_hardware_data": true,
+   "infeasibility": null,
+   "dangerous_miss": null,
+   "template_track_record": null
+  },
+  {
+   "template": "A05",
+   "family": "radiation",
+   "status": "UNCONFIRMED",
+   "reasons": [
+    "insufficient out-of-fold fidelity evidence for this template (n=0, need >=5)"
+   ],
+   "predicted_time_to_solution_pct": -3.967178807,
+   "time_to_solution_interval_pct": [
+    -3.967210825,
+    -3.967158904
+   ],
+   "time_to_solution_interval_note": null,
+   "predicted_y": -0.04048016552,
+   "predicted_fidelity_label": "WITHIN-FLOOR",
+   "predicted_fidelity_nd": 0.004573259236,
+   "probe_verdict": null,
+   "same_hardware_data": true,
+   "infeasibility": null,
+   "dangerous_miss": null,
+   "template_track_record": null
+  },
+  {
+   "template": "A02",
+   "family": "dynamics",
+   "status": "UNCONFIRMED",
+   "reasons": [
+    "not applicable to this case: no &dynamics section found in namelist"
+   ],
+   "predicted_time_to_solution_pct": null,
+   "time_to_solution_interval_pct": null,
+   "time_to_solution_interval_note": null,
+   "predicted_y": null,
+   "predicted_fidelity_label": null,
+   "predicted_fidelity_nd": null,
+   "probe_verdict": null,
+   "same_hardware_data": null,
+   "infeasibility": null,
+   "dangerous_miss": null,
+   "template_track_record": null
+  },
+  {
+   "template": "A03",
+   "family": "dynamics",
+   "status": "UNCONFIRMED",
+   "reasons": [
+    "not applicable to this case: isc21's own namelist already sets moist_adv_opt=2,2,2 and scalar_adv_opt=2,2,2, so monotonic transport is a no-op there, not an accuracy change"
+   ],
+   "predicted_time_to_solution_pct": null,
+   "time_to_solution_interval_pct": null,
+   "time_to_solution_interval_note": null,
+   "predicted_y": null,
+   "predicted_fidelity_label": null,
+   "predicted_fidelity_nd": null,
+   "probe_verdict": null,
+   "same_hardware_data": null,
+   "infeasibility": null,
+   "dangerous_miss": null,
+   "template_track_record": null
+  },
+  {
+   "template": "A04",
+   "family": "dynamics",
+   "status": "UNCONFIRMED",
+   "reasons": [
+    "not applicable to this case: isc21 natively runs moist_adv_opt=2,2,2 / scalar_adv_opt=2,2,2 (monotonic), and advect_scalar_mono implements h_sca_adv_order 5 only (dyn_em/module_advect_em.F:9643) -- h_sca_adv_order=6 would abort at module_advect_em.F:10016-10017 mid-integration, with no namelist-time check to catch it"
+   ],
+   "predicted_time_to_solution_pct": null,
+   "time_to_solution_interval_pct": null,
+   "time_to_solution_interval_note": null,
+   "predicted_y": null,
+   "predicted_fidelity_label": null,
+   "predicted_fidelity_nd": null,
+   "probe_verdict": null,
+   "same_hardware_data": null,
+   "infeasibility": null,
+   "dangerous_miss": null,
+   "template_track_record": null
+  },
+  {
+   "template": "D01",
+   "family": "dynamics",
+   "status": "UNCONFIRMED",
+   "reasons": [
+    "not applicable to this case: no &dynamics section found in namelist"
+   ],
+   "predicted_time_to_solution_pct": null,
+   "time_to_solution_interval_pct": null,
+   "time_to_solution_interval_note": null,
+   "predicted_y": null,
+   "predicted_fidelity_label": null,
+   "predicted_fidelity_nd": null,
+   "probe_verdict": null,
+   "same_hardware_data": null,
+   "infeasibility": null,
+   "dangerous_miss": null,
+   "template_track_record": null
+  },
+  {
+   "template": "D02",
+   "family": "dynamics",
+   "status": "UNCONFIRMED",
+   "reasons": [
+    "not applicable to this case: no &dynamics section found in namelist"
+   ],
+   "predicted_time_to_solution_pct": null,
+   "time_to_solution_interval_pct": null,
+   "time_to_solution_interval_note": null,
+   "predicted_y": null,
+   "predicted_fidelity_label": null,
+   "predicted_fidelity_nd": null,
+   "probe_verdict": null,
+   "same_hardware_data": null,
+   "infeasibility": null,
+   "dangerous_miss": null,
+   "template_track_record": null
+  },
+  {
+   "template": "D03",
+   "family": "dynamics",
+   "status": "UNCONFIRMED",
+   "reasons": [
+    "not applicable to this case: no &dynamics section found in namelist"
+   ],
+   "predicted_time_to_solution_pct": null,
+   "time_to_solution_interval_pct": null,
+   "time_to_solution_interval_note": null,
+   "predicted_y": null,
+   "predicted_fidelity_label": null,
+   "predicted_fidelity_nd": null,
+   "probe_verdict": null,
+   "same_hardware_data": null,
+   "infeasibility": null,
+   "dangerous_miss": null,
+   "template_track_record": null
+  },
+  {
+   "template": "D04",
+   "family": "diagnostics",
+   "status": "UNCONFIRMED",
+   "reasons": [
+    "not applicable to this case: not in applies_to ['bigchill', 'elevconv']"
+   ],
+   "predicted_time_to_solution_pct": null,
+   "time_to_solution_interval_pct": null,
+   "time_to_solution_interval_note": null,
+   "predicted_y": null,
+   "predicted_fidelity_label": null,
+   "predicted_fidelity_nd": null,
+   "probe_verdict": null,
+   "same_hardware_data": null,
+   "infeasibility": null,
+   "dangerous_miss": null,
+   "template_track_record": null
+  },
+  {
+   "template": "D06",
+   "family": "nesting",
+   "status": "UNCONFIRMED",
+   "reasons": [
+    "not applicable to this case: no &bdy_control section found in namelist"
+   ],
+   "predicted_time_to_solution_pct": null,
+   "time_to_solution_interval_pct": null,
+   "time_to_solution_interval_note": null,
+   "predicted_y": null,
+   "predicted_fidelity_label": null,
+   "predicted_fidelity_nd": null,
+   "probe_verdict": null,
+   "same_hardware_data": null,
+   "infeasibility": null,
+   "dangerous_miss": null,
+   "template_track_record": null
+  },
+  {
+   "template": "D07",
+   "family": "dynamics",
+   "status": "UNCONFIRMED",
+   "reasons": [
+    "not applicable to this case: not in applies_to ['sc26p1']"
+   ],
+   "predicted_time_to_solution_pct": null,
+   "time_to_solution_interval_pct": null,
+   "time_to_solution_interval_note": null,
+   "predicted_y": null,
+   "predicted_fidelity_label": null,
+   "predicted_fidelity_nd": null,
+   "probe_verdict": null,
+   "same_hardware_data": null,
+   "infeasibility": null,
+   "dangerous_miss": null,
+   "template_track_record": null
+  }
+ ],
+ "warnings": [
+  "probe: --probe-screen <TMP>/screen_synthtest.txt; dx=3000; 2 knob verdict(s) parsed",
+  "allowed fidelity labels: WITHIN-FLOOR, SMALL-DRIFT",
+  "fidelity labels describe the MODEL's OWN drift vs a same-physics twin at a different STRICT decomposition (the chaos floor), not observed forecast skill against any observation/reanalysis -- see decision 0051",
+  "PHYSICS-GRAY training evidence on hardware_id='hw-train-synthetic': 36 row(s), 6 case(s) (phystrain0, phystrain1, phystrain2, phystrain3, phystrain4, phystrain5)",
+  "cost-share filter: this case has no profile row in the ledger (profile_{radiation,micro,dynamics,mpi,io}_share all absent) -- no candidate was annotated or demoted. Profile one run of this case to enable it.",
+  "floor_zero hint: if DECOMP=C13 and TWIN_DECOMP=C06 happen to produce BIT-IDENTICAL output (rms diff 0 on every compared field), the twin's chaos floor is floor_zero -- a real degenerate case fidelity_gate.py handles explicitly, but a candidate's drift cannot be judged against a zero floor. If fidelity_gate.py reports floor_zero for this pair, rerun the twin at a different TWIN_DECOMP (known example: isc21's C02/C06 pair was bit-identical; C13 was used instead)."
+ ],
+ "verify_plan": {
+  "decomp": "C13",
+  "decomp_source": "this run's own STRICT top-1 shortlist entry",
+  "twin_decomp": "C06",
+  "pconfigs": [
+   "P01",
+   "P02",
+   "P04"
+  ],
+  "sbatch_command": "sbatch --export=ALL,CASE=isc21,MODE=physics,PCONFIGS=P01+P02+P04,DECOMP=C13,TWIN_DECOMP=C06 campaign/strict_campaign.sbatch",
+  "fidelity_gate_commands": [
+   "python3 fidelity_gate.py --reference <REFERENCE wrfout_d01_*> --twin <TWIN wrfout_d01_*> --candidate <P01 CANDIDATE wrfout_d01_*> --family radiation --out-prefix <out_dir>/fidelity_isc21_P01",
+   "python3 fidelity_gate.py --reference <REFERENCE wrfout_d01_*> --twin <TWIN wrfout_d01_*> --candidate <P02 CANDIDATE wrfout_d01_*> --family radiation --out-prefix <out_dir>/fidelity_isc21_P02",
+   "python3 fidelity_gate.py --reference <REFERENCE wrfout_d01_*> --twin <TWIN wrfout_d01_*> --candidate <P04 CANDIDATE wrfout_d01_*> --family microphysics --out-prefix <out_dir>/fidelity_isc21_P04"
+  ],
+  "note": "run P00 (reference at DECOMP + twin at TWIN_DECOMP -- same physics, different STRICT decomposition -- for the chaos floor) plus the top-3 physics candidate(s) above, all at DECOMP, via strict_campaign.sbatch MODE=physics; then run fidelity_gate.py per candidate. The user makes the final accept/reject decision from the measured labels -- this tool only narrows the search"
+ },
+ "profile_shares": {},
+ "min_bucket_share": 0.05,
+ "frozen_keys": []
+}

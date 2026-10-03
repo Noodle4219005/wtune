@@ -616,6 +616,219 @@ def _extension_warnings(namelist_path):
     return ["EXTENSION: " + n for n in notes]
 
 
+def _apply_holdout(rows, holdout_case, row_kind=""):
+    """(rows without holdout_case's case_base, the warning that says what was dropped). Shared by
+    recommend() (--ledger rows) and recommend_physics_gray() (--physics-ledger rows, row_kind
+    "PHYSICS-GRAY "); row_kind only names the rows in the warning text."""
+    n_before = len(rows)
+    rows = [r for r in rows if r.get("case_base") != holdout_case]
+    n_dropped = n_before - len(rows)
+    if n_dropped:
+        return rows, (
+            "--holdout-case=%r: dropped %d %straining row(s) with that case_base before "
+            "fitting (honest out-of-sample evaluation)" % (holdout_case, n_dropped, row_kind))
+    return rows, (
+        "--holdout-case=%r matched ZERO %straining rows -- check the spelling against the "
+        "ledger's case_base values; nothing was actually held out" % (holdout_case, row_kind))
+
+
+def _in_sample_warning(scope_rows, case_name, case_fields, holdout_case):
+    """The loud IN-SAMPLE warning when this case (by name, or by an identical grid under another
+    name) is in the rows the model is fitted on, else None -- see _in_sample_check."""
+    by_name, grid_match_cases = _in_sample_check(scope_rows, case_name, case_fields)
+    if not (by_name or grid_match_cases):
+        return None
+    reasons = []
+    if by_name:
+        reasons.append("case_base=%r appears in the training rows used to fit this model"
+                        % case_name)
+    other_grid_matches = sorted(grid_match_cases - ({case_name} if by_name else set()))
+    if other_grid_matches:
+        reasons.append("an identical grid (e_we*e_sn*e_vert) also matches training case(s) %s"
+                        % other_grid_matches)
+    return (
+        "IN-SAMPLE: this case is in the training data; the shortlist is not an out-of-sample "
+        "prediction (%s)%s"
+        % ("; ".join(reasons),
+           "" if holdout_case == case_name else
+           " -- pass --holdout-case %r to see an honest out-of-sample shortlist" % case_name))
+
+
+def _hardware_evidence_warnings(hw_match, hardware_id, compliance):
+    """The always-present same-hardware evidence count, plus the forced-EXPERIMENTAL notice when
+    no training row shares this hardware_id."""
+    warnings = [
+        "training evidence on hardware_id=%r (scope=%s): %d row(s), %d decision group(s), %d "
+        "case(s)" % (hardware_id, compliance, hw_match["n_rows"], hw_match["n_decision_groups"],
+                      hw_match["n_cases"])]
+    if hw_match["n_rows"] == 0:
+        warnings.append(
+            "zero training rows share hardware_id=%r: cross-hardware prediction was measured at "
+            "leave-one-hardware-out and found near-chance (pairwise accuracy ~0.37-0.54, i.e. "
+            "~0.5 -- see predictor/README.md); every candidate label below is forced EXPERIMENTAL "
+            "regardless of what its own interval would otherwise say" % hardware_id)
+    return warnings
+
+
+def _grid_neighbor_evidence(scope_rows, case_fields, hardware_id, compliance):
+    """(neighbors, out_of_range, warnings): the nearest training cases by e_we*e_sn*e_vert
+    (_grid_neighbors) and what to say about them -- unknown e_vert, nothing comparable, or the
+    neighbour list plus an out-of-range extrapolation warning."""
+    query_grid_size = None
+    if (case_fields["e_we"] is not None and case_fields["e_sn"] is not None
+            and case_fields["e_vert"] is not None):
+        query_grid_size = (float(case_fields["e_we"]) * float(case_fields["e_sn"])
+                            * float(case_fields["e_vert"]))
+    neighbors, out_of_range = _grid_neighbors(scope_rows, query_grid_size, hardware_id)
+    warnings = []
+    if query_grid_size is None:
+        warnings.append("e_vert unknown: cannot compare this case's grid size to training cases")
+    elif not neighbors:
+        warnings.append(
+            "no training case in scope=%s has a known e_we*e_sn*e_vert to compare against"
+            % compliance)
+    else:
+        warnings.append(
+            "nearest training case(s) by grid size (e_we*e_sn*e_vert; this case=%.4g on "
+            "hardware_id=%r; same-hardware neighbours listed first): %s"
+            % (query_grid_size, hardware_id,
+               ", ".join("%s [%s]%s (%.4g)" % (cb, hw, "" if hw == hardware_id else " CROSS-HW", gs)
+                         for cb, gs, hw in neighbors)))
+        if out_of_range:
+            warnings.append(
+                "this case's grid (e_we*e_sn*e_vert=%.4g) is outside the range spanned by every "
+                "scope=%s training case (any hardware) -- out-of-range extrapolation. Known "
+                "failure mode: %s" % (query_grid_size, compliance, _KNOWN_FAILURE_MODE))
+    return neighbors, out_of_range, warnings
+
+
+def _shifted_intervals(intervals, i, ref_pred):
+    """Candidate i's conformal intervals shifted by the reference's own prediction, so they
+    bracket "value vs reference" rather than an undefined absolute baseline -- a documented
+    simplification that does not propagate the reference's own uncertainty."""
+    return {alpha: (lo - ref_pred, hi - ref_pred) for alpha, (lo, hi) in intervals[i].items()}
+
+
+def _ranked_entry(rank, i, candidate_rows, primary, companion, is_pairwise, force_experimental):
+    """One all_ranked row. `primary`/`companion` are dicts with name/preds/ref_idx/scored/
+    intervals for the requested ranking model and the catboost_point magnitude companion."""
+    cfg = candidate_rows[i]["_cfg"]
+
+    # Primary ranking model's own scale -- informational only (opaque for catboost_pairwise;
+    # a genuine pct_change + interval for a y-scale primary). SAFE/EXPERIMENTAL never comes
+    # from this any more; see the magnitude companion below.
+    iv = None
+    if not is_pairwise and primary["intervals"] is not None and i in primary["intervals"]:
+        iv = _shifted_intervals(primary["intervals"], i, primary["preds"][primary["ref_idx"]])
+
+    # Magnitude companion: the one source of the percent-change estimate and the
+    # SAFE/EXPERIMENTAL label, regardless of what the primary ranking model is. Same
+    # interval-shift design as the primary: shifted by the companion's OWN reference prediction.
+    iv_c, label, rec = None, "EXPERIMENTAL", None
+    if not force_experimental and companion["intervals"] is not None and i in companion["intervals"]:
+        ref_pred_c = companion["preds"][companion["ref_idx"]]
+        iv_c = _shifted_intervals(companion["intervals"], i, ref_pred_c)
+        label, rec = _label_for(companion["preds"][i] - ref_pred_c, iv_c)
+
+    return dict(
+        rank=rank, config_id=cfg["id"], n_ranks=cfg["ranks"], omp_threads=cfg["omp"],
+        nproc_x=cfg["nx"], nproc_y=cfg["ny"], numtiles=cfg["numtiles"],
+        distribution=cfg["dist"], kmp_blocktime=candidate_rows[i]["kmp_blocktime"],
+        score_kind=primary["scored"][i]["kind"], value=primary["scored"][i]["value"],
+        predicted_y=float(primary["preds"][i]),
+        interval_95=(list(iv[0.05]) if iv and 0.05 in iv else None),
+        interval_90=(list(iv[0.10]) if iv and 0.10 in iv else None),
+        magnitude_model=companion["name"],
+        magnitude_value=companion["scored"][i]["value"],
+        magnitude_predicted_y=float(companion["preds"][i]),
+        magnitude_interval_95=(list(iv_c[0.05]) if iv_c and 0.05 in iv_c else None),
+        magnitude_interval_90=(list(iv_c[0.10]) if iv_c and 0.10 in iv_c else None),
+        predicted_gain=(rec["predicted_gain"] if rec else None),
+        gain_lower_95=(rec["gain_lower_95"] if rec else None),
+        label=label,
+        is_reference=(i == primary["ref_idx"]),
+        compliance_class=candidate_rows[i]["compliance_class"],
+        fidelity_status=_fidelity_status(candidate_rows[i]),
+    )
+
+
+def _noise_floor_pair_warning(ranked, shortlist, reference_entry):
+    """The warning naming adjacent shown candidates (shortlist + reference) whose predicted change
+    differs by less than targets.NOISE, else None. Always on the magnitude companion's y (always
+    the y=log(s/baseline) scale, regardless of what the primary ranking model is)."""
+    y_by_id = {e["config_id"]: e["magnitude_predicted_y"] for e in ranked}
+    show_ids = [e["config_id"] for e in shortlist]
+    if reference_entry["config_id"] not in show_ids:
+        show_ids = show_ids + [reference_entry["config_id"]]
+    noise_pairs = [(a, b) for a, b in zip(show_ids, show_ids[1:])
+                   if abs(y_by_id[a] - y_by_id[b]) < targets.NOISE]
+    if not noise_pairs:
+        return None
+    return (
+        "predicted change (magnitude companion) is within the run-to-run noise floor "
+        "(targets.NOISE, ~%.1f%%) between: %s -- not a reliable ordering, do not read the "
+        "rank gap as real"
+        % (100 * (math.exp(targets.NOISE) - 1), ", ".join("%s~%s" % p for p in noise_pairs)))
+
+
+def _fit_and_score_models(model, scope_rows, training_rows, candidate_rows, compliance,
+                          no_intervals):
+    """Fit the requested ranking model and the catboost_point magnitude companion (each with
+    _fit_with_fallback's tier fallback), score every candidate with both, and compute their
+    conformal intervals. Returns (primary, companion, is_pairwise, warnings); primary/companion
+    are dicts with name/attempts/preds/ref_idx/scored/intervals."""
+    warnings = []
+    model_name, fitted_model, attempts = _fit_with_fallback(model, scope_rows)
+    if model_name != model:
+        warnings.append(
+            "requested model %r unavailable or had insufficient training data; fell back to "
+            "%r (see model_fallback_attempts for why each tier was skipped)" % (model, model_name))
+
+    preds, ref_idx, scored = _score_candidates(model_name, fitted_model, candidate_rows)
+    is_pairwise = (model_name == "catboost_pairwise")
+    if is_pairwise:
+        warnings.append(
+            "catboost_pairwise's score() (predictor/models.py PairwiseModel.score) returns "
+            "-CatBoostRanker/-LGBMRanker.predict(): a PairLogit/lambdarank RELATIVE ranking "
+            "score, not a value on the y=log(s/baseline) scale the other four models share. "
+            "Candidates below are ranked by that opaque score (lower=faster, same convention as "
+            "the other models); it is used for RANKING/ORDER only. The percent-change estimate, "
+            "interval and SAFE/EXPERIMENTAL label instead come from a separate magnitude "
+            "companion model fit on the same data (see 'magnitude' below), not from this score.")
+
+    intervals, interval_note = _compute_intervals(
+        training_rows, model_name, candidate_rows, compliance, no_intervals)
+    if interval_note:
+        warnings.append(interval_note)
+
+    # Magnitude companion (coordinator review item 4): always fit catboost_point (fallback ridge)
+    # regardless of the requested/primary ranking model, so every recommendation carries an
+    # honest, calibrated percent-change estimate + SAFE/EXPERIMENTAL label even when --model is
+    # catboost_pairwise (which cannot produce either on its own -- see the warning above).
+    companion_name, companion_model, companion_attempts = _fit_with_fallback(
+        "catboost_point", scope_rows)
+    if companion_name != "catboost_point":
+        warnings.append(
+            "magnitude companion requested catboost_point; unavailable or had insufficient "
+            "training data, fell back to %r (see magnitude_model_fallback_attempts)"
+            % companion_name)
+
+    preds_c, ref_idx_c, scored_c = _score_candidates(companion_name, companion_model, candidate_rows)
+    # ref_idx is the reference candidate's identity (targets._reference_order), which depends only
+    # on candidate config knobs, never on which model scored it -- both calls must agree.
+    assert ref_idx_c == ref_idx, "reference candidate must be model-independent"
+    intervals_c, interval_note_c = _compute_intervals(
+        training_rows, companion_name, candidate_rows, compliance, no_intervals)
+    if interval_note_c:
+        warnings.append("magnitude companion: %s" % interval_note_c)
+
+    primary = dict(name=model_name, attempts=attempts, preds=preds, ref_idx=ref_idx,
+                   scored=scored, intervals=intervals)
+    companion = dict(name=companion_name, attempts=companion_attempts, preds=preds_c,
+                     ref_idx=ref_idx_c, scored=scored_c, intervals=intervals_c)
+    return primary, companion, is_pairwise, warnings
+
+
 def recommend(ledger_path, namelist_path, case_name, hardware_id, nodes=4,
               compliance="STRICT", model="catboost_pairwise", top_k=5, no_intervals=False,
               max_dom=None, holdout_case=None):
@@ -660,73 +873,21 @@ def recommend(ledger_path, namelist_path, case_name, hardware_id, nodes=4,
 
     training_rows = load_training_rows(ledger_path)
     if holdout_case:
-        n_before = len(training_rows)
-        training_rows = [r for r in training_rows if r.get("case_base") != holdout_case]
-        n_dropped = n_before - len(training_rows)
-        if n_dropped:
-            warnings.append(
-                "--holdout-case=%r: dropped %d training row(s) with that case_base before "
-                "fitting (honest out-of-sample evaluation)" % (holdout_case, n_dropped))
-        else:
-            warnings.append(
-                "--holdout-case=%r matched ZERO training rows -- check the spelling against the "
-                "ledger's case_base values; nothing was actually held out" % holdout_case)
+        training_rows, holdout_note = _apply_holdout(training_rows, holdout_case)
+        warnings.append(holdout_note)
 
     scope_rows = [r for r in training_rows if r.get("compliance_class") == compliance]
 
-    by_name, grid_match_cases = _in_sample_check(scope_rows, case_name, case_fields)
-    if by_name or grid_match_cases:
-        reasons = []
-        if by_name:
-            reasons.append("case_base=%r appears in the training rows used to fit this model"
-                            % case_name)
-        other_grid_matches = sorted(grid_match_cases - ({case_name} if by_name else set()))
-        if other_grid_matches:
-            reasons.append("an identical grid (e_we*e_sn*e_vert) also matches training case(s) %s"
-                            % other_grid_matches)
-        warnings.append(
-            "IN-SAMPLE: this case is in the training data; the shortlist is not an out-of-sample "
-            "prediction (%s)%s"
-            % ("; ".join(reasons),
-               "" if holdout_case == case_name else
-               " -- pass --holdout-case %r to see an honest out-of-sample shortlist" % case_name))
+    in_sample_note = _in_sample_warning(scope_rows, case_name, case_fields, holdout_case)
+    if in_sample_note:
+        warnings.append(in_sample_note)
 
     hw_match = _hardware_match(scope_rows, hardware_id)
-    warnings.append(
-        "training evidence on hardware_id=%r (scope=%s): %d row(s), %d decision group(s), %d "
-        "case(s)" % (hardware_id, compliance, hw_match["n_rows"], hw_match["n_decision_groups"],
-                      hw_match["n_cases"]))
-    if hw_match["n_rows"] == 0:
-        warnings.append(
-            "zero training rows share hardware_id=%r: cross-hardware prediction was measured at "
-            "leave-one-hardware-out and found near-chance (pairwise accuracy ~0.37-0.54, i.e. "
-            "~0.5 -- see predictor/README.md); every candidate label below is forced EXPERIMENTAL "
-            "regardless of what its own interval would otherwise say" % hardware_id)
+    warnings.extend(_hardware_evidence_warnings(hw_match, hardware_id, compliance))
 
-    query_grid_size = None
-    if (case_fields["e_we"] is not None and case_fields["e_sn"] is not None
-            and case_fields["e_vert"] is not None):
-        query_grid_size = (float(case_fields["e_we"]) * float(case_fields["e_sn"])
-                            * float(case_fields["e_vert"]))
-    neighbors, out_of_range = _grid_neighbors(scope_rows, query_grid_size, hardware_id)
-    if query_grid_size is None:
-        warnings.append("e_vert unknown: cannot compare this case's grid size to training cases")
-    elif not neighbors:
-        warnings.append(
-            "no training case in scope=%s has a known e_we*e_sn*e_vert to compare against"
-            % compliance)
-    else:
-        warnings.append(
-            "nearest training case(s) by grid size (e_we*e_sn*e_vert; this case=%.4g on "
-            "hardware_id=%r; same-hardware neighbours listed first): %s"
-            % (query_grid_size, hardware_id,
-               ", ".join("%s [%s]%s (%.4g)" % (cb, hw, "" if hw == hardware_id else " CROSS-HW", gs)
-                         for cb, gs, hw in neighbors)))
-        if out_of_range:
-            warnings.append(
-                "this case's grid (e_we*e_sn*e_vert=%.4g) is outside the range spanned by every "
-                "scope=%s training case (any hardware) -- out-of-range extrapolation. Known "
-                "failure mode: %s" % (query_grid_size, compliance, _KNOWN_FAILURE_MODE))
+    neighbors, out_of_range, grid_notes = _grid_neighbor_evidence(
+        scope_rows, case_fields, hardware_id, compliance)
+    warnings.extend(grid_notes)
 
     result = dict(
         case_name=case_name, hardware_id=hardware_id, nodes=nodes, compliance=compliance,
@@ -750,121 +911,27 @@ def recommend(ledger_path, namelist_path, case_name, hardware_id, nodes=4,
             "every one of the 16 STRICT templates was rejected")
         return result
 
-    model_name, fitted_model, attempts = _fit_with_fallback(model, scope_rows)
-    result["model_used"] = model_name
-    result["model_fallback_attempts"] = attempts
-    if model_name != model:
-        warnings.append(
-            "requested model %r unavailable or had insufficient training data; fell back to "
-            "%r (see model_fallback_attempts for why each tier was skipped)" % (model, model_name))
+    primary, companion, is_pairwise, model_notes = _fit_and_score_models(
+        model, scope_rows, training_rows, candidate_rows, compliance, no_intervals)
+    result["model_used"] = primary["name"]
+    result["model_fallback_attempts"] = primary["attempts"]
+    result["magnitude_model_used"] = companion["name"]
+    result["magnitude_model_fallback_attempts"] = companion["attempts"]
+    warnings.extend(model_notes)
 
-    preds, ref_idx, scored = _score_candidates(model_name, fitted_model, candidate_rows)
-    is_pairwise = (model_name == "catboost_pairwise")
-    if is_pairwise:
-        warnings.append(
-            "catboost_pairwise's score() (predictor/models.py PairwiseModel.score) returns "
-            "-CatBoostRanker/-LGBMRanker.predict(): a PairLogit/lambdarank RELATIVE ranking "
-            "score, not a value on the y=log(s/baseline) scale the other four models share. "
-            "Candidates below are ranked by that opaque score (lower=faster, same convention as "
-            "the other models); it is used for RANKING/ORDER only. The percent-change estimate, "
-            "interval and SAFE/EXPERIMENTAL label instead come from a separate magnitude "
-            "companion model fit on the same data (see 'magnitude' below), not from this score.")
-
-    intervals, interval_note = _compute_intervals(
-        training_rows, model_name, candidate_rows, compliance, no_intervals)
-    if interval_note:
-        warnings.append(interval_note)
-
-    # Magnitude companion (coordinator review item 4): always fit catboost_point (fallback ridge)
-    # regardless of the requested/primary ranking model, so every recommendation carries an
-    # honest, calibrated percent-change estimate + SAFE/EXPERIMENTAL label even when --model is
-    # catboost_pairwise (which cannot produce either on its own -- see the warning above).
-    companion_name, companion_model, companion_attempts = _fit_with_fallback(
-        "catboost_point", scope_rows)
-    result["magnitude_model_used"] = companion_name
-    result["magnitude_model_fallback_attempts"] = companion_attempts
-    if companion_name != "catboost_point":
-        warnings.append(
-            "magnitude companion requested catboost_point; unavailable or had insufficient "
-            "training data, fell back to %r (see magnitude_model_fallback_attempts)"
-            % companion_name)
-
-    preds_c, ref_idx_c, scored_c = _score_candidates(companion_name, companion_model, candidate_rows)
-    # ref_idx is the reference candidate's identity (targets._reference_order), which depends only
-    # on candidate config knobs, never on which model scored it -- both calls must agree.
-    assert ref_idx_c == ref_idx, "reference candidate must be model-independent"
-    intervals_c, interval_note_c = _compute_intervals(
-        training_rows, companion_name, candidate_rows, compliance, no_intervals)
-    if interval_note_c:
-        warnings.append("magnitude companion: %s" % interval_note_c)
-
-    order = sorted(range(len(candidate_rows)), key=lambda i: preds[i])
+    order = sorted(range(len(candidate_rows)), key=lambda i: primary["preds"][i])
     force_experimental = (hw_match["n_rows"] == 0)
-    ref_pred = preds[ref_idx]
-    ref_pred_c = preds_c[ref_idx_c]
-
-    ranked = []
-    for rank, i in enumerate(order, start=1):
-        cfg = candidate_rows[i]["_cfg"]
-
-        # Primary ranking model's own scale -- informational only (opaque for catboost_pairwise;
-        # a genuine pct_change + interval for a y-scale primary). SAFE/EXPERIMENTAL never comes
-        # from this any more; see the magnitude companion below.
-        iv = None
-        if not is_pairwise and intervals is not None and i in intervals:
-            iv = {alpha: (lo - ref_pred, hi - ref_pred) for alpha, (lo, hi) in intervals[i].items()}
-
-        # Magnitude companion: the one source of the percent-change estimate and the
-        # SAFE/EXPERIMENTAL label, regardless of what the primary ranking model is. Same
-        # interval-shift design as before: shift by the companion's OWN reference prediction so
-        # the interval brackets "value vs reference", not an undefined absolute baseline -- a
-        # documented simplification that does not propagate the reference's own uncertainty.
-        iv_c, label, rec = None, "EXPERIMENTAL", None
-        if not force_experimental and intervals_c is not None and i in intervals_c:
-            iv_c = {alpha: (lo - ref_pred_c, hi - ref_pred_c)
-                    for alpha, (lo, hi) in intervals_c[i].items()}
-            label, rec = _label_for(preds_c[i] - ref_pred_c, iv_c)
-
-        ranked.append(dict(
-            rank=rank, config_id=cfg["id"], n_ranks=cfg["ranks"], omp_threads=cfg["omp"],
-            nproc_x=cfg["nx"], nproc_y=cfg["ny"], numtiles=cfg["numtiles"],
-            distribution=cfg["dist"], kmp_blocktime=candidate_rows[i]["kmp_blocktime"],
-            score_kind=scored[i]["kind"], value=scored[i]["value"],
-            predicted_y=float(preds[i]),
-            interval_95=(list(iv[0.05]) if iv and 0.05 in iv else None),
-            interval_90=(list(iv[0.10]) if iv and 0.10 in iv else None),
-            magnitude_model=companion_name,
-            magnitude_value=scored_c[i]["value"],
-            magnitude_predicted_y=float(preds_c[i]),
-            magnitude_interval_95=(list(iv_c[0.05]) if iv_c and 0.05 in iv_c else None),
-            magnitude_interval_90=(list(iv_c[0.10]) if iv_c and 0.10 in iv_c else None),
-            predicted_gain=(rec["predicted_gain"] if rec else None),
-            gain_lower_95=(rec["gain_lower_95"] if rec else None),
-            label=label,
-            is_reference=(i == ref_idx),
-            compliance_class=candidate_rows[i]["compliance_class"],
-            fidelity_status=_fidelity_status(candidate_rows[i]),
-        ))
+    ranked = [_ranked_entry(rank, i, candidate_rows, primary, companion, is_pairwise,
+                            force_experimental)
+              for rank, i in enumerate(order, start=1)]
 
     shortlist = ranked[:top_k]
     reference_entry = dict(next(e for e in ranked if e["is_reference"]))
     reference_entry["in_shortlist"] = reference_entry["rank"] <= top_k
 
-    # Noise-floor check now always uses the magnitude companion's y (always on the
-    # y=log(s/baseline) scale, regardless of what the primary ranking model is).
-    y_by_id = {e["config_id"]: e["magnitude_predicted_y"] for e in ranked}
-    show_ids = [e["config_id"] for e in shortlist]
-    if reference_entry["config_id"] not in show_ids:
-        show_ids = show_ids + [reference_entry["config_id"]]
-    noise_pairs = [(a, b) for a, b in zip(show_ids, show_ids[1:])
-                   if abs(y_by_id[a] - y_by_id[b]) < targets.NOISE]
-    if noise_pairs:
-        warnings.append(
-            "predicted change (magnitude companion) is within the run-to-run noise floor "
-            "(targets.NOISE, ~%.1f%%) between: %s -- not a reliable ordering, do not read the "
-            "rank gap as real"
-            % (100 * (math.exp(targets.NOISE) - 1), ", ".join("%s~%s" % p for p in noise_pairs))
-        )
+    noise_note = _noise_floor_pair_warning(ranked, shortlist, reference_entry)
+    if noise_note:
+        warnings.append(noise_note)
 
     result.update(
         shortlist=shortlist, reference=reference_entry, all_ranked=ranked,
@@ -1900,6 +1967,201 @@ def _accuracy_verify_plan(case_name, accuracy_view, candidates, decomp, twin_dec
               "search." % CHAOS_FLOOR_RATIO))
 
 
+def _physics_probe_evidence(namelist_path, probe_screen, latlon, wps, wrfinput, dx):
+    """(probe_source, raw_verdicts, probe_valid, probe_verdicts_used, warnings): the
+    SpeedyWeather probe text (given or run), its parsed per-knob verdicts, and whether they may be
+    used at all at this dx (below 1 km they are disregarded, not just down-weighted)."""
+    warnings = []
+    probe_text, probe_source = _resolve_probe_text(namelist_path, probe_screen, latlon, wps, wrfinput)
+    raw_verdicts = campaign_configs.parse_probe_verdicts(probe_text)
+    probe_valid, probe_note = _probe_validity(dx)
+    if probe_note:
+        warnings.append(probe_note)
+    probe_verdicts_used = {} if probe_valid is False else raw_verdicts
+    warnings.append(
+        "probe: %s; dx=%s; %d knob verdict(s) parsed%s"
+        % (probe_source, dx, len(raw_verdicts),
+           " (DISREGARDED below: dx < 1000 m)" if probe_valid is False else ""))
+    return probe_source, raw_verdicts, probe_valid, probe_verdicts_used, warnings
+
+
+def _physics_candidate_templates(namelist_path, case_fields, case_name, max_dom, frozen_keys):
+    """(candidates, native_resolved, frozen_keys, warnings): every physics template applicable
+    to this namelist except the P00 reference, with task-mandated frozen-key templates marked
+    inapplicable (frozen_keys defaults to the case's cases.json entry)."""
+    warnings = []
+    with open(namelist_path) as fh:
+        namelist_text = fh.read()
+    native_physics = _native_physics_from_case_fields(case_fields)
+    native_resolved = physicsmod.resolve_physics_suite(native_physics, native_physics.get("physics_suite"))
+    candidates = physicsmod.physics_candidates_from_namelist(
+        namelist_text, case_name, max_dom, campaign_configs.PHYSICS_TEMPLATES_JSON_PATH,
+        native_physics_resolved=native_resolved)
+    # P00 is the reference (no edits) -- never a "candidate to recommend switching to"; the same
+    # skip-P00 convention configs.py's own cmd_physics_list/cmd_physics_order already use at their
+    # call sites (physics_candidates_from_namelist itself stays general-purpose and still reports
+    # P00, same as physics_candidates_for_case always has).
+    candidates = [c for c in candidates if c["template"] != "P00"]
+    # Task-mandated frozen keys come BEFORE anything is ranked: a template that would violate the
+    # problem statement is not a low-ranked option, it is not an option.
+    if frozen_keys is None:
+        frozen_keys = campaign_configs.case_frozen_keys(campaign_configs.CASES.get(case_name))
+    candidates, frozen_notes = exclude_frozen_key_templates(candidates, frozen_keys, case_name)
+    warnings.extend(frozen_notes)
+    # A per-candidate "generic_rule_used" flag fires for MOST templates on MOST cases (P01/P02/P03
+    # never have a physics_templates.json per-case entry at all, and P04/P06 usually don't need
+    # one either) -- that alone does not mean this case is unknown to the campaign, so the
+    # case-level warning checks cases.json membership directly instead of inferring it from any
+    # one candidate's flag (which would wrongly flag lafe/isc21 just because, say, P01 or P04
+    # happened to take the generic no-op path for them).
+    if case_name not in campaign_configs.CASES:
+        warnings.append(
+            "this case is not one of the six PHYSICS-GRAY campaign cases physics_templates.json "
+            "already knows about -- any template needing per-case pairing (P04/P05/P06) used the "
+            "generic rule (physics.generic_extra_edits) instead of a hand-written entry")
+    return candidates, native_resolved, frozen_keys, warnings
+
+
+def _physics_fidelity_label_warnings(case_name, allowed_labels):
+    """What the fidelity labels mean (model-vs-model drift against the chaos floor), and -- for a
+    case that has real observations -- where observed skill shows up instead."""
+    warnings = []
+    warnings.append("allowed fidelity labels: %s" % (", ".join(allowed_labels),))
+    warnings.append(
+        "fidelity labels describe the MODEL's OWN drift vs a same-physics twin at a different "
+        "STRICT decomposition (the chaos floor), not observed forecast skill against any "
+        "observation/reanalysis -- see decision 0051")
+    # ... unless this case has REAL observations, in which case saying "not observed forecast
+    # skill" next to numbers that ARE observed forecast skill would flatly contradict them.
+    _obs_spec = case_observations(case_name)
+    if _obs_spec is not None:
+        warnings.append(
+            "this case DOES have observation ground truth (%s, %s): with --objective accuracy "
+            "and wrfout for a candidate, predictor/verify_obs.py scores it against that file and "
+            "the score appears in accuracy_view['ranked_observed'], where lower is better and the "
+            "chaos floor does not apply. The fidelity-label caveat above still governs every "
+            "candidate that has NOT been scored that way. A FASTER config can legitimately be "
+            "MORE accurate here -- the problem statement's own settings were never optimised."
+            % (_obs_spec["kind"], _obs_spec["path"]))
+    return warnings
+
+
+def _physics_training_rows(physics_ledgers, holdout_case):
+    """(train_rows, warnings): every --physics-ledger row minus --holdout-case's, with the change
+    context and perf/fidelity targets attached."""
+    warnings = []
+    train_rows = []
+    for p in (physics_ledgers or []):
+        train_rows.extend(benchmark.load_ledger(p))
+
+    # Defect 1 (real physics-campaign smoke, job 1077893): --holdout-case was accepted but never
+    # actually applied to --physics-ledger rows -- a holdout run for a case already IN the given
+    # ledger(s) (e.g. lafe, isc21) silently trained on that case's own rows and reported an
+    # in-sample shortlist as if it were honest out-of-sample evidence. Apply it here, the same way
+    # recommend()'s STRICT path already does for --ledger.
+    if holdout_case:
+        train_rows, holdout_note = _apply_holdout(train_rows, holdout_case, "PHYSICS-GRAY ")
+        warnings.append(holdout_note)
+
+    physicsmod.attach_change_context(train_rows)
+    physicsmod.add_perf_targets(train_rows)
+    physicsmod.add_fidelity_targets(train_rows)
+    return train_rows, warnings
+
+
+def _physics_training_evidence_warnings(train_rows, case_name, hardware_id, holdout_case,
+                                        physics_ledgers):
+    """IN-SAMPLE, no-data, and same-hardware evidence warnings for the PHYSICS-GRAY rows."""
+    warnings = []
+    all_cases_present = sorted({r.get("case_base") for r in physicsmod.physics_rows(train_rows)
+                                 if r.get("case_base") is not None})
+    if case_name in all_cases_present:
+        warnings.append(
+            "IN-SAMPLE: case_base=%r is still present in the PHYSICS-GRAY training rows used to "
+            "fit this model; the shortlist is not an out-of-sample prediction%s"
+            % (case_name, "" if holdout_case == case_name else
+               " -- pass --holdout-case %r to see an honest out-of-sample shortlist" % case_name))
+
+    if not physicsmod.physics_rows(train_rows):
+        warnings.append(
+            "no PHYSICS-GRAY campaign data (%s): every candidate below is UNCONFIRMED"
+            % ("--physics-ledger not given" if not physics_ledgers
+               else "the given --physics-ledger file(s) have zero mode=physics rows (after "
+                    "--holdout-case, if any)"))
+    else:
+        same_hw = [r for r in physicsmod.physics_rows(train_rows) if r.get("hardware_id") == hardware_id]
+        cases_hw = sorted({r.get("case_base") for r in same_hw if r.get("case_base") is not None})
+        warnings.append(
+            "PHYSICS-GRAY training evidence on hardware_id=%r: %d row(s), %d case(s) (%s)"
+            % (hardware_id, len(same_hw), len(cases_hw), ", ".join(cases_hw) or "none"))
+        if not same_hw:
+            warnings.append(
+                "zero PHYSICS-GRAY training rows share hardware_id=%r: every candidate below is "
+                "UNCONFIRMED regardless of predicted performance/fidelity" % hardware_id)
+    return warnings
+
+
+def _physics_case_features_row(case_fields, native_resolved, hardware_id):
+    """The feature row predict_physics_shortlist scores this case's candidates against: the
+    case's grid/time step plus its native physics suite as resolved (physics_suite expanded)."""
+    return dict(
+        hardware_id=hardware_id, case_base=None,
+        e_we=case_fields["e_we"], e_sn=case_fields["e_sn"], e_vert=case_fields["e_vert"],
+        dx=case_fields["dx"], dy=case_fields["dy"], time_step=case_fields["time_step"],
+        mp_physics=native_resolved.get("mp_physics"), cu_physics=case_fields.get("cu_physics"),
+        bl_pbl_physics=native_resolved.get("bl_pbl_physics"),
+        sf_sfclay_physics=native_resolved.get("sf_sfclay_physics"),
+        sf_surface_physics=native_resolved.get("sf_surface_physics"),
+        ra_lw_physics=native_resolved.get("ra_lw_physics"), ra_sw_physics=native_resolved.get("ra_sw_physics"),
+        radt=case_fields.get("radt"), cudt=case_fields.get("cudt"),
+    )
+
+
+def _physics_verify_plan(case_name, top3, candidates, decomp, decomp_source, twin_decomp):
+    """The strict_campaign.sbatch MODE=physics command + one fidelity_gate.py command per
+    top-3 template (top3 must be non-empty)."""
+    sbatch_line = (
+        "sbatch --export=ALL,CASE=%s,MODE=physics,PCONFIGS=%s,DECOMP=%s,TWIN_DECOMP=%s "
+        "campaign/strict_campaign.sbatch" % (case_name, "+".join(top3), decomp, twin_decomp))
+    fidelity_cmds = []
+    families_by_template = {c["template"]: (c.get("family") or "all") for c in candidates}
+    for tid in top3:
+        fidelity_cmds.append(
+            "python3 fidelity_gate.py --reference <REFERENCE wrfout_d01_*> --twin <TWIN "
+            "wrfout_d01_*> --candidate <%s CANDIDATE wrfout_d01_*> --family %s --out-prefix "
+            "<out_dir>/fidelity_%s_%s" % (tid, families_by_template.get(tid, "all"), case_name, tid))
+    return dict(
+        decomp=decomp, decomp_source=decomp_source, twin_decomp=twin_decomp, pconfigs=top3,
+        sbatch_command=sbatch_line, fidelity_gate_commands=fidelity_cmds,
+        note=("run P00 (reference at DECOMP + twin at TWIN_DECOMP -- same physics, different "
+              "STRICT decomposition -- for the chaos floor) plus the top-%d physics "
+              "candidate(s) above, all at DECOMP, via strict_campaign.sbatch MODE=physics; "
+              "then run fidelity_gate.py per candidate. The user makes the final "
+              "accept/reject decision from the measured labels -- this tool only narrows "
+              "the search" % len(top3)))
+
+
+def _physics_accuracy_view(case_name, shortlist, train_rows, obs_wrfout, candidates, decomp,
+                           decomp_source, twin_decomp, verify_plan):
+    """objective="accuracy"'s additive view (build_accuracy_view + its two-stage verify plan +
+    the note on why the decomposition is a free axis)."""
+    obs_scores = observation_scores_for_case(case_name, obs_wrfout)
+    accuracy_view = build_accuracy_view(
+        shortlist, train_rows, obs_scores=obs_scores,
+        observations=case_observations(case_name))
+    accuracy_view["verify_plan"] = _accuracy_verify_plan(
+        case_name, accuracy_view, candidates, decomp, twin_decomp, verify_plan)
+    accuracy_view["decomposition_note"] = (
+        "DECOMP=%s (%s) is unchanged from perf mode: STRICT decomposition knobs "
+        "(nproc_x/nproc_y/numtiles/OMP/distribution) redistribute the same arithmetic and "
+        "never change the physics, so they are a FREE AXIS in accuracy mode -- the fastest "
+        "legal decomposition is also the most accurate one. They do set the chaos floor every "
+        "fidelity number below is judged against, which is the opposite of being a fidelity "
+        "lever: a decomposition change is the NOISE, not the signal."
+        % (decomp, decomp_source))
+    return accuracy_view
+
+
 def recommend_physics_gray(ledger_path, namelist_path, case_name, hardware_id, nodes=4, top_k=5,
                             max_dom=None, holdout_case=None, decomp=None, physics_ledgers=(),
                             allowed_labels=DEFAULT_PHYSICS_ALLOWED_LABELS, probe_screen=None,
@@ -1937,132 +2199,24 @@ def recommend_physics_gray(ledger_path, namelist_path, case_name, hardware_id, n
     effective_max_dom = resolve_max_dom(max_dom, case_fields)
     warnings = list(_extension_warnings(namelist_path))
 
-    probe_text, probe_source = _resolve_probe_text(namelist_path, probe_screen, latlon, wps, wrfinput)
-    raw_verdicts = campaign_configs.parse_probe_verdicts(probe_text)
-    dx = case_fields.get("dx")
-    probe_valid, probe_note = _probe_validity(dx)
-    if probe_note:
-        warnings.append(probe_note)
-    probe_verdicts_used = {} if probe_valid is False else raw_verdicts
-    warnings.append(
-        "probe: %s; dx=%s; %d knob verdict(s) parsed%s"
-        % (probe_source, dx, len(raw_verdicts),
-           " (DISREGARDED below: dx < 1000 m)" if probe_valid is False else ""))
+    probe_source, raw_verdicts, probe_valid, probe_verdicts_used, probe_notes = \
+        _physics_probe_evidence(namelist_path, probe_screen, latlon, wps, wrfinput,
+                                case_fields.get("dx"))
+    warnings.extend(probe_notes)
 
-    with open(namelist_path) as fh:
-        namelist_text = fh.read()
-    native_physics = _native_physics_from_case_fields(case_fields)
-    native_resolved = physicsmod.resolve_physics_suite(native_physics, native_physics.get("physics_suite"))
-    candidates = physicsmod.physics_candidates_from_namelist(
-        namelist_text, case_name, effective_max_dom, campaign_configs.PHYSICS_TEMPLATES_JSON_PATH,
-        native_physics_resolved=native_resolved)
-    # P00 is the reference (no edits) -- never a "candidate to recommend switching to"; the same
-    # skip-P00 convention configs.py's own cmd_physics_list/cmd_physics_order already use at their
-    # call sites (physics_candidates_from_namelist itself stays general-purpose and still reports
-    # P00, same as physics_candidates_for_case always has).
-    candidates = [c for c in candidates if c["template"] != "P00"]
-    # Task-mandated frozen keys come BEFORE anything is ranked: a template that would violate the
-    # problem statement is not a low-ranked option, it is not an option.
-    if frozen_keys is None:
-        frozen_keys = campaign_configs.case_frozen_keys(campaign_configs.CASES.get(case_name))
-    candidates, frozen_notes = exclude_frozen_key_templates(candidates, frozen_keys, case_name)
-    warnings.extend(frozen_notes)
-    # A per-candidate "generic_rule_used" flag fires for MOST templates on MOST cases (P01/P02/P03
-    # never have a physics_templates.json per-case entry at all, and P04/P06 usually don't need
-    # one either) -- that alone does not mean this case is unknown to the campaign, so the
-    # case-level warning checks cases.json membership directly instead of inferring it from any
-    # one candidate's flag (which would wrongly flag lafe/isc21 just because, say, P01 or P04
-    # happened to take the generic no-op path for them).
-    if case_name not in campaign_configs.CASES:
-        warnings.append(
-            "this case is not one of the six PHYSICS-GRAY campaign cases physics_templates.json "
-            "already knows about -- any template needing per-case pairing (P04/P05/P06) used the "
-            "generic rule (physics.generic_extra_edits) instead of a hand-written entry")
+    candidates, native_resolved, frozen_keys, candidate_notes = _physics_candidate_templates(
+        namelist_path, case_fields, case_name, effective_max_dom, frozen_keys)
+    warnings.extend(candidate_notes)
+    warnings.extend(_physics_fidelity_label_warnings(case_name, allowed_labels))
 
-    warnings.append("allowed fidelity labels: %s" % (", ".join(allowed_labels),))
-    warnings.append(
-        "fidelity labels describe the MODEL's OWN drift vs a same-physics twin at a different "
-        "STRICT decomposition (the chaos floor), not observed forecast skill against any "
-        "observation/reanalysis -- see decision 0051")
-    # ... unless this case has REAL observations, in which case saying "not observed forecast
-    # skill" next to numbers that ARE observed forecast skill would flatly contradict them.
-    _obs_spec = case_observations(case_name)
-    if _obs_spec is not None:
-        warnings.append(
-            "this case DOES have observation ground truth (%s, %s): with --objective accuracy "
-            "and wrfout for a candidate, predictor/verify_obs.py scores it against that file and "
-            "the score appears in accuracy_view['ranked_observed'], where lower is better and the "
-            "chaos floor does not apply. The fidelity-label caveat above still governs every "
-            "candidate that has NOT been scored that way. A FASTER config can legitimately be "
-            "MORE accurate here -- the problem statement's own settings were never optimised."
-            % (_obs_spec["kind"], _obs_spec["path"]))
+    train_rows, holdout_notes = _physics_training_rows(physics_ledgers, holdout_case)
+    warnings.extend(holdout_notes)
+    warnings.extend(_physics_training_evidence_warnings(
+        train_rows, case_name, hardware_id, holdout_case, physics_ledgers))
 
-    train_rows = []
-    for p in (physics_ledgers or []):
-        train_rows.extend(benchmark.load_ledger(p))
-
-    # Defect 1 (real physics-campaign smoke, job 1077893): --holdout-case was accepted but never
-    # actually applied to --physics-ledger rows -- a holdout run for a case already IN the given
-    # ledger(s) (e.g. lafe, isc21) silently trained on that case's own rows and reported an
-    # in-sample shortlist as if it were honest out-of-sample evidence. Apply it here, the same way
-    # recommend()'s STRICT path already does for --ledger.
-    if holdout_case:
-        n_before = len(train_rows)
-        train_rows = [r for r in train_rows if r.get("case_base") != holdout_case]
-        n_dropped = n_before - len(train_rows)
-        if n_dropped:
-            warnings.append(
-                "--holdout-case=%r: dropped %d PHYSICS-GRAY training row(s) with that case_base "
-                "before fitting (honest out-of-sample evaluation)" % (holdout_case, n_dropped))
-        else:
-            warnings.append(
-                "--holdout-case=%r matched ZERO PHYSICS-GRAY training rows -- check the spelling "
-                "against the ledger's case_base values; nothing was actually held out"
-                % holdout_case)
-
-    physicsmod.attach_change_context(train_rows)
-    physicsmod.add_perf_targets(train_rows)
-    physicsmod.add_fidelity_targets(train_rows)
-
-    all_cases_present = sorted({r.get("case_base") for r in physicsmod.physics_rows(train_rows)
-                                 if r.get("case_base") is not None})
-    if case_name in all_cases_present:
-        warnings.append(
-            "IN-SAMPLE: case_base=%r is still present in the PHYSICS-GRAY training rows used to "
-            "fit this model; the shortlist is not an out-of-sample prediction%s"
-            % (case_name, "" if holdout_case == case_name else
-               " -- pass --holdout-case %r to see an honest out-of-sample shortlist" % case_name))
-
-    if not physicsmod.physics_rows(train_rows):
-        warnings.append(
-            "no PHYSICS-GRAY campaign data (%s): every candidate below is UNCONFIRMED"
-            % ("--physics-ledger not given" if not physics_ledgers
-               else "the given --physics-ledger file(s) have zero mode=physics rows (after "
-                    "--holdout-case, if any)"))
-    else:
-        same_hw = [r for r in physicsmod.physics_rows(train_rows) if r.get("hardware_id") == hardware_id]
-        cases_hw = sorted({r.get("case_base") for r in same_hw if r.get("case_base") is not None})
-        warnings.append(
-            "PHYSICS-GRAY training evidence on hardware_id=%r: %d row(s), %d case(s) (%s)"
-            % (hardware_id, len(same_hw), len(cases_hw), ", ".join(cases_hw) or "none"))
-        if not same_hw:
-            warnings.append(
-                "zero PHYSICS-GRAY training rows share hardware_id=%r: every candidate below is "
-                "UNCONFIRMED regardless of predicted performance/fidelity" % hardware_id)
-
-    case_features_row = dict(
-        hardware_id=hardware_id, case_base=None,
-        e_we=case_fields["e_we"], e_sn=case_fields["e_sn"], e_vert=case_fields["e_vert"],
-        dx=case_fields["dx"], dy=case_fields["dy"], time_step=case_fields["time_step"],
-        mp_physics=native_resolved.get("mp_physics"), cu_physics=case_fields.get("cu_physics"),
-        bl_pbl_physics=native_resolved.get("bl_pbl_physics"),
-        sf_sfclay_physics=native_resolved.get("sf_sfclay_physics"),
-        sf_surface_physics=native_resolved.get("sf_surface_physics"),
-        ra_lw_physics=native_resolved.get("ra_lw_physics"), ra_sw_physics=native_resolved.get("ra_sw_physics"),
-        radt=case_fields.get("radt"), cudt=case_fields.get("cudt"),
-    )
     shortlist = physicsmod.predict_physics_shortlist(
-        train_rows, case_features_row, candidates, allowed_labels=allowed_labels,
+        train_rows, _physics_case_features_row(case_fields, native_resolved, hardware_id),
+        candidates, allowed_labels=allowed_labels,
         probe_verdicts=probe_verdicts_used, max_infeasible_rate=max_infeasible_rate,
         max_dangerous_miss=max_dangerous_miss, max_template_large_rate=max_template_large_rate,
         min_speedup_pct=min_speedup_pct)
@@ -2107,44 +2261,16 @@ def recommend_physics_gray(ledger_path, namelist_path, case_name, hardware_id, n
     top3 = [c["template"] for c in shortlist[:3]]
     verify_plan = None
     if top3:
-        sbatch_line = (
-            "sbatch --export=ALL,CASE=%s,MODE=physics,PCONFIGS=%s,DECOMP=%s,TWIN_DECOMP=%s "
-            "campaign/strict_campaign.sbatch" % (case_name, "+".join(top3), decomp, twin_decomp))
-        fidelity_cmds = []
-        families_by_template = {c["template"]: (c.get("family") or "all") for c in candidates}
-        for tid in top3:
-            fidelity_cmds.append(
-                "python3 fidelity_gate.py --reference <REFERENCE wrfout_d01_*> --twin <TWIN "
-                "wrfout_d01_*> --candidate <%s CANDIDATE wrfout_d01_*> --family %s --out-prefix "
-                "<out_dir>/fidelity_%s_%s" % (tid, families_by_template.get(tid, "all"), case_name, tid))
-        verify_plan = dict(
-            decomp=decomp, decomp_source=decomp_source, twin_decomp=twin_decomp, pconfigs=top3,
-            sbatch_command=sbatch_line, fidelity_gate_commands=fidelity_cmds,
-            note=("run P00 (reference at DECOMP + twin at TWIN_DECOMP -- same physics, different "
-                  "STRICT decomposition -- for the chaos floor) plus the top-%d physics "
-                  "candidate(s) above, all at DECOMP, via strict_campaign.sbatch MODE=physics; "
-                  "then run fidelity_gate.py per candidate. The user makes the final "
-                  "accept/reject decision from the measured labels -- this tool only narrows "
-                  "the search" % len(top3)))
+        verify_plan = _physics_verify_plan(
+            case_name, top3, candidates, decomp, decomp_source, twin_decomp)
     else:
         warnings.append("no applicable candidate template for this case -- no verify plan")
 
     accuracy_extra = {}
     if objective == ACCURACY_DIRECTION:
-        obs_scores = observation_scores_for_case(case_name, obs_wrfout)
-        accuracy_view = build_accuracy_view(
-            shortlist, train_rows, obs_scores=obs_scores,
-            observations=case_observations(case_name))
-        accuracy_view["verify_plan"] = _accuracy_verify_plan(
-            case_name, accuracy_view, candidates, decomp, twin_decomp, verify_plan)
-        accuracy_view["decomposition_note"] = (
-            "DECOMP=%s (%s) is unchanged from perf mode: STRICT decomposition knobs "
-            "(nproc_x/nproc_y/numtiles/OMP/distribution) redistribute the same arithmetic and "
-            "never change the physics, so they are a FREE AXIS in accuracy mode -- the fastest "
-            "legal decomposition is also the most accurate one. They do set the chaos floor every "
-            "fidelity number below is judged against, which is the opposite of being a fidelity "
-            "lever: a decomposition change is the NOISE, not the signal."
-            % (decomp, decomp_source))
+        accuracy_view = _physics_accuracy_view(
+            case_name, shortlist, train_rows, obs_wrfout, candidates, decomp, decomp_source,
+            twin_decomp, verify_plan)
         accuracy_extra = dict(objective=objective, accuracy_view=accuracy_view)
 
     return dict(

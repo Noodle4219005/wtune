@@ -1,0 +1,5 @@
+{
+ "error": "SystemExit: 0",
+ "stdout": "usage: coldstart_sample.py inspect [-h] --case-dir CASE_DIR [--namelist NAMELIST]\n                                   [--namelist-wps NAMELIST_WPS]\n                                   [--geo-from-wrfinput GEO_FROM_WRFINPUT] [--grib-dir GRIB_DIR]\n                                   [--ncdump NCDUMP] [--geog-path GEOG_PATH]\n\noptions:\n  -h, --help            show this help message and exit\n  --case-dir CASE_DIR\n  --namelist NAMELIST\n  --namelist-wps NAMELIST_WPS\n  --geo-from-wrfinput GEO_FROM_WRFINPUT\n  --grib-dir GRIB_DIR\n  --ncdump NCDUMP\n  --geog-path GEOG_PATH\n                        default: $WPS_GEOG or /nfs/data/wrf/WPS_GEOG/\n",
+ "stderr": ""
+}

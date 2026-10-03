@@ -1,0 +1,5 @@
+{
+ "error": "ColdstartError: plan: --analog <TMP>/analog.json has no 'chosen' analog date",
+ "stdout": "",
+ "stderr": ""
+}

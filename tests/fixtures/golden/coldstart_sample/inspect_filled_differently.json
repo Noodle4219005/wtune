@@ -1,0 +1,72 @@
+{
+ "rows": [
+  [
+   "namelist.input",
+   true,
+   "<TMP>/case/namelist.input",
+   ""
+  ],
+  [
+   "run length",
+   true,
+   "10800s",
+   ""
+  ],
+  [
+   "projection",
+   true,
+   "namelist.wps",
+   "map_proj=lambert"
+  ],
+  [
+   "ifire",
+   true,
+   "0",
+   ""
+  ],
+  [
+   "capability",
+   true,
+   "warning",
+   "filled differently: hydrometeors and number concentrations start at zero (GFS via Vtable.GFS carries no hydrometeor/number-concentration fields) -- this is why cold-start windows discard the first ~1 simulated hour as spin-up"
+  ],
+  [
+   "capability",
+   true,
+   "warning",
+   "filled differently: mp_physics=28 (aerosol-aware Thompson) but GFS has no aerosol fields and no climatology file is wired in"
+  ],
+  [
+   "capability",
+   true,
+   "warning",
+   "filled differently: case specifies num_land_cat=24 but the only landuse dataset present (modis_landuse_20class_30s_with_lakes) has 21 categories -- real.exe will run with 21"
+  ],
+  [
+   "capability",
+   true,
+   "warning",
+   "filled differently: sf_surface_physics=3 (RUC) with num_soil_layers=6 -- real.exe vertically interpolates GFS's 4 soil layers"
+  ],
+  [
+   "capability",
+   true,
+   "warning",
+   "filled differently: grid_fdda=1 -- analysis nudging files are only generated for the sampled windows' own span, not the whole run"
+  ],
+  [
+   "forcing chain (run start)",
+   true,
+   "d084001 -> d083002",
+   "not probed (date rules only): d084001 0.25deg grib2 interval=3h forecast"
+  ],
+  [
+   "forcing chain (run end)",
+   true,
+   "d084001 -> d083002",
+   "not probed (date rules only): d084001 0.25deg grib2 interval=3h forecast"
+  ]
+ ],
+ "blockers": [],
+ "nl_is_none": false
+}

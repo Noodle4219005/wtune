@@ -1,0 +1,7 @@
+{
+ "rows": [],
+ "blockers": [
+  "no namelist.input at <TMP>/namelist.input"
+ ],
+ "nl_is_none": true
+}

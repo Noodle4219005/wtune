@@ -1,0 +1,5 @@
+{
+ "error": "ColdstartError: --forcing 'nosuchdataset' is not a known dataset (know: ['d083002', 'd084001', 'd093000', 'era5_arco', 'gfs_aws', 'gfs_nomads', 'ncei_g3', 'ncei_g4'])",
+ "stdout": "",
+ "stderr": ""
+}

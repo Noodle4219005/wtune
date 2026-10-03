@@ -1,0 +1,50 @@
+{
+ "rows": [
+  [
+   "namelist.input",
+   true,
+   "<TMP>/case/namelist.input",
+   ""
+  ],
+  [
+   "run length",
+   true,
+   "10800s",
+   ""
+  ],
+  [
+   "projection",
+   true,
+   "namelist.wps",
+   "map_proj=lambert"
+  ],
+  [
+   "ifire",
+   true,
+   "0",
+   ""
+  ],
+  [
+   "capability",
+   true,
+   "warning",
+   "filled differently: hydrometeors and number concentrations start at zero (GFS via Vtable.GFS carries no hydrometeor/number-concentration fields) -- this is why cold-start windows discard the first ~1 simulated hour as spin-up"
+  ],
+  [
+   "forcing chain (run start)",
+   true,
+   "d084001 -> d083002",
+   "not probed (date rules only): d084001 0.25deg grib2 interval=3h forecast"
+  ],
+  [
+   "forcing chain (run end)",
+   true,
+   "d084001 -> d083002",
+   "not probed (date rules only): d084001 0.25deg grib2 interval=3h forecast"
+  ]
+ ],
+ "blockers": [
+  "sf_urban_physics=2 (BEP/BEM) needs urban parameter data not in geog"
+ ],
+ "nl_is_none": false
+}

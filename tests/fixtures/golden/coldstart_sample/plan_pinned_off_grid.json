@@ -1,0 +1,5 @@
+{
+ "error": "ColdstartError: plan: --times 2020-01-01_01:00:00 is not on the forcing grid (d084001, 3h cadence -- the next grid time is 2020-01-01_03:00:00)",
+ "stdout": "--times given: --k is ignored (using exactly the 1 pinned time(s))\n",
+ "stderr": ""
+}

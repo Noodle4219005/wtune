@@ -1,0 +1,5 @@
+{
+ "error": "SystemExit: 0",
+ "stdout": "usage: coldstart_sample.py fix-wps-namelist [-h] --plan PLAN --win WIN\n\noptions:\n  -h, --help   show this help message and exit\n  --plan PLAN\n  --win WIN\n",
+ "stderr": ""
+}

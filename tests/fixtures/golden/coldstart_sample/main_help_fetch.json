@@ -1,0 +1,5 @@
+{
+ "error": "SystemExit: 0",
+ "stdout": "usage: coldstart_sample.py fetch [-h] --plan PLAN [--cache-dir CACHE_DIR] [--grib-dir GRIB_DIR]\n                                 [--keep-archives]\n\noptions:\n  -h, --help            show this help message and exit\n  --plan PLAN\n  --cache-dir CACHE_DIR\n  --grib-dir GRIB_DIR   local GRIB directory fallback (no online source covers the date at all)\n  --keep-archives       keep CFSR tar files after extracting instead of deleting them\n",
+ "stderr": ""
+}

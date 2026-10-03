@@ -84,7 +84,7 @@ def _metdata():
             import metdata as _md_mod
         except ImportError as exc:
             raise ColdstartError(
-                "tools/metdata.py could not be imported (needs numpy): %s" % exc)
+                "tools/metdata.py could not be imported (needs numpy): %s" % exc) from exc
         _md = _md_mod
     return _md
 
@@ -100,7 +100,7 @@ def _grib_state():
             import grib_state as _gs_mod
         except ImportError as exc:
             raise ColdstartError(
-                "tools/grib_state.py could not be imported (needs numpy): %s" % exc)
+                "tools/grib_state.py could not be imported (needs numpy): %s" % exc) from exc
         _gs = _gs_mod
     return _gs
 
@@ -514,10 +514,199 @@ def render_namelist_wps(fields):
 # inspect
 # ---------------------------------------------------------------------------
 
+def _inspect_ifire(nl, max_dom, rows, blockers):
+    """ifire (WRF-SFIRE) on any domain is a blocker: no fire geog data."""
+    ifire = 0
+    for d in range(max_dom):
+        v = predict.g_dom(nl, "physics", "ifire", d, 0) or 0
+        ifire = max(ifire, int(v))
+    if ifire > 0:
+        blockers.append("ifire=%d in &physics (WRF-SFIRE needs fire geog data; unsupported)" % ifire)
+    rows.append(("ifire", ifire == 0, str(ifire), "" if ifire == 0 else "WRF-SFIRE unsupported"))
+
+
+def _inspect_chem(nl, case_dir, chem_opt, rows, blockers):
+    """WRF-Chem is "grid/rank only" for WTune (user decision 2026-09-29): chem_opt/chemdt/photdt/
+    emissions are left exactly as given, so chem_opt>0 alone no longer blocks. What still blocks
+    is a real crash risk: wrf.exe aborts opening emission/chem-input files that the case does not
+    carry (real.exe + GFS cannot produce them)."""
+    emiss_opt = int(predict.g_dom(nl, "chem", "emiss_inpt_opt", 0, 1) or 0)   # Registry default 1
+    io_emiss = int(predict.g_dom(nl, "chem", "io_style_emissions", 0, 0) or 0)
+    chem_in_opt = int(predict.g_dom(nl, "chem", "chem_in_opt", 0, 0) or 0)
+    have = lambda pat: bool(glob.glob(os.path.join(case_dir, pat)))
+    missing = []
+    if (emiss_opt > 0 or io_emiss > 0) and not have("wrfchemi_d*"):
+        missing.append("emission files wrfchemi_d* (emiss_inpt_opt=%d, io_style_emissions=%d)"
+                       % (emiss_opt, io_emiss))
+    if chem_in_opt == 1 and not have("wrf_chem_input*") and not have("wrfchem_input*"):
+        missing.append("chemistry initial-condition file (chem_in_opt=1)")
+    if missing:
+        blockers.append("chem_opt=%d (WRF-Chem) needs input files this case does not carry: %s "
+                        "-- wrf.exe would abort at start-up (real crash risk); WTune cannot "
+                        "generate them" % (chem_opt, "; ".join(missing)))
+    else:
+        rows.append(("WRF-Chem", True, "chem_opt=%d" % chem_opt,
+                     "grid/rank tuning only: chem settings untouched, time prediction UNCALIBRATED"))
+
+
+def _inspect_lake_depth(sf_lake_physics, geog_names, geog_dir, rows, blockers):
+    """sf_lake_physics needs a lake_depth geog dataset: a blocker when the listing has none, a
+    'skipped' row when the geog directory could not be listed at all."""
+    has_lake = geog_has_dataset(geog_names, "lake_depth")
+    if has_lake is False:
+        blockers.append("sf_lake_physics=%d but no lake_depth dataset under %s"
+                        % (sf_lake_physics, geog_dir))
+    elif has_lake is None:
+        rows.append(("geog: lake_depth", False, "skipped",
+                    "could not list %s to check for a lake_depth dataset" % geog_dir))
+    else:
+        rows.append(("geog: lake_depth", True, "present", ""))
+
+
+def _filled_differently_warnings(mp_physics, geog_names, num_land_cat_nl, sf_surface_physics,
+                                 num_soil_layers, grid_fdda):
+    """The "filled differently: ..." notes: completable, but real.exe/wrf.exe will not do quite
+    what the case's own namelist implies. The hydrometeor one always applies to GFS forcing."""
+    capability_warnings = [
+        "filled differently: hydrometeors and number concentrations start at zero (GFS via "
+        "Vtable.GFS carries no hydrometeor/number-concentration fields) -- this is why "
+        "cold-start windows discard the first ~1 simulated hour as spin-up",
+    ]
+    if mp_physics == 28:
+        capability_warnings.append(
+            "filled differently: mp_physics=28 (aerosol-aware Thompson) but GFS has no aerosol "
+            "fields and no climatology file is wired in")
+    landuse_name, landuse_cat = detect_geog_landuse(geog_names)
+    if (landuse_cat is not None and num_land_cat_nl is not None
+            and int(num_land_cat_nl) != landuse_cat):
+        capability_warnings.append(
+            "filled differently: case specifies num_land_cat=%s but the only landuse dataset "
+            "present (%s) has %d categories -- real.exe will run with %d"
+            % (num_land_cat_nl, landuse_name, landuse_cat, landuse_cat))
+    if sf_surface_physics == 3 and num_soil_layers is not None and int(num_soil_layers) != 4:
+        capability_warnings.append(
+            "filled differently: sf_surface_physics=3 (RUC) with num_soil_layers=%s -- real.exe "
+            "vertically interpolates GFS's 4 soil layers" % num_soil_layers)
+    if grid_fdda > 0:
+        capability_warnings.append(
+            "filled differently: grid_fdda=%d -- analysis nudging files are only generated for "
+            "the sampled windows' own span, not the whole run" % grid_fdda)
+    return capability_warnings
+
+
+def _inspect_capabilities(nl, case_dir, geog_path, rows, blockers):
+    """Capability gaps: what GFS (Vtable.GFS) + geog_data_path can actually supply (see
+    geog_directory_listing / _LANDUSE_NUM_CAT_HINTS docstrings for the verified facts this is
+    built on). Blockers: sf_lake_physics with no lake_depth dataset; sf_urban_physics in
+    (2, 3) (BEP/BEM need urban parameter data no geog mirror carries); chem_opt>0 (WRF-Chem
+    emissions); obs_nudge_opt>0 (observation files). Warnings ("filled differently: ..."):
+    completable, but real.exe/wrf.exe will not do quite what the case's own namelist implies."""
+    geog_dir = geog_path or geog_data_path_default()
+    geog_names = geog_directory_listing(geog_dir)
+
+    sf_lake_physics = int(predict.g_dom(nl, "physics", "sf_lake_physics", 0, 0) or 0)
+    sf_urban_physics = int(predict.g_dom(nl, "physics", "sf_urban_physics", 0, 0) or 0)
+    chem_opt = int(predict.g_dom(nl, "chem", "chem_opt", 0, 0) or 0)
+    obs_nudge_opt = int(predict.g_dom(nl, "fdda", "obs_nudge_opt", 0, 0) or 0)
+    mp_physics = int(predict.g_dom(nl, "physics", "mp_physics", 0, 0) or 0)
+    sf_surface_physics = int(predict.g_dom(nl, "physics", "sf_surface_physics", 0, 0) or 0)
+    num_soil_layers = predict.g_dom(nl, "physics", "num_soil_layers", 0, None)
+    grid_fdda = int(predict.g_dom(nl, "fdda", "grid_fdda", 0, 0) or 0)
+    num_land_cat_nl = predict.g(nl, "domains", "num_land_cat", None)
+
+    if sf_lake_physics > 0:
+        _inspect_lake_depth(sf_lake_physics, geog_names, geog_dir, rows, blockers)
+
+    if sf_urban_physics in (2, 3):
+        blockers.append("sf_urban_physics=%d (BEP/BEM) needs urban parameter data not in geog"
+                        % sf_urban_physics)
+
+    if chem_opt > 0:
+        _inspect_chem(nl, case_dir, chem_opt, rows, blockers)
+
+    if obs_nudge_opt > 0:
+        blockers.append("obs_nudge_opt=%d needs observation files (unsupported)" % obs_nudge_opt)
+
+    import wtune_extensions
+    for _d in wtune_extensions.detect(nl, case_dir):
+        if _d["id"] in ("hydro", "movenest", "wrfda") and _d["active"]:
+            rows.append((_d["label"], True, "; ".join(_d["evidence"]),
+                         "grid/rank tuning only: extension settings untouched"))
+
+    capability_warnings = _filled_differently_warnings(
+        mp_physics, geog_names, num_land_cat_nl, sf_surface_physics, num_soil_layers, grid_fdda)
+    for w in capability_warnings:
+        rows.append(("capability", True, "warning", w))
+
+
+def _inspect_nest_start_times(nl, max_dom, rows, blockers):
+    """Every nest must start at d01's start time (no delayed nest starts)."""
+    if max_dom > 1:
+        d01_start = tuple(predict.g_dom(nl, "time_control", "start_" + k, 0)
+                           for k in ("year", "month", "day", "hour", "minute", "second"))
+        for d in range(1, max_dom):
+            dn_start = tuple(predict.g_dom(nl, "time_control", "start_" + k, d)
+                              for k in ("year", "month", "day", "hour", "minute", "second"))
+            if dn_start != d01_start:
+                blockers.append(
+                    "domain %d start time %s differs from d01's %s (unsupported)"
+                    % (d + 1, dn_start, d01_start))
+        rows.append(("nest start times", not any("differs from d01" in b for b in blockers),
+                     "max_dom=%d" % max_dom, ""))
+
+
+def _inspect_forcing_chain(start_dt, end_dt, now, grib_dir, rows, blockers):
+    """Forcing chain (metdata.resolve_forcing_chain -- date rules only, no network access; rows
+    say 'not probed', matching SPEC item F). Lazily imports metdata (needs numpy) -- degrade
+    with a clear row/message rather than crash when numpy isn't installed on whatever python3
+    is running `inspect` (see _metdata()'s docstring). 2026-09-24 FIX: a run before
+    2015-01-15 is NO LONGER a blocker by itself -- the OLD single-source rule
+    (select_source: GFS 0.25deg or nothing) wrongly reported every such case as missing
+    weather data, even though NCEI's GFS analysis archive (0.5/1deg, from 2004), NCEP's FNL
+    (1deg, from 1999-07-30), and CFSR reanalysis (0.5deg, 1979-2010) all cover it. The ONLY
+    remaining blocker is a genuinely empty chain (older than 1979, or a date gap none of the
+    bands cover) with no --grib-dir. A coarser-than-0.25deg forcing, or a reanalysis fallback,
+    is a WARNING (extra prediction uncertainty), never a blocker -- and WRF's own dx being much
+    finer than the forcing resolution is never checked here at all (that's normal downscaling,
+    not a capability gap)."""
+    try:
+        md_mod = _metdata()
+    except ColdstartError as exc:
+        rows.append(("forcing chain", False, "skipped", str(exc)))
+        return
+    for label, t in (("run start", start_dt), ("run end", end_dt)):
+        chain = md_mod.resolve_forcing_chain(t, now=now, grib_dir=grib_dir)
+        if not chain:
+            blockers.append(
+                "%s %s: no forcing source covers this date (no --grib-dir given)"
+                % (label, t.strftime(_WRF_TIME_FMT)))
+            rows.append(("forcing chain (%s)" % label, False, "NONE",
+                        "no candidate source and no --grib-dir"))
+            continue
+        primary = chain[0]
+        how = " -> ".join(s.dataset for s in chain)
+        rows.append((
+            "forcing chain (%s)" % label, True, how,
+            "not probed (date rules only): %s %sdeg %s interval=%sh %s"
+            % (primary.dataset, primary.resolution_deg, primary.format,
+               primary.forcing_interval_h, primary.source_kind)))
+        if primary.resolution_deg is not None and primary.resolution_deg > 0.25:
+            rows.append(("capability", True, "warning",
+                        "filled differently: forcing resolution %sdeg (coarser than "
+                        "0.25) at %s -- extra prediction uncertainty"
+                        % (primary.resolution_deg, t.strftime(_WRF_TIME_FMT))))
+        if primary.source_kind == "reanalysis":
+            rows.append(("capability", True, "warning",
+                        "filled differently: reanalysis_fallback at %s (%s) -- CFSR is "
+                        "a reanalysis, not an operational analysis/forecast"
+                        % (t.strftime(_WRF_TIME_FMT), primary.dataset)))
+
+
 def inspect_case(case_dir, namelist=None, namelist_wps=None, geo_from_wrfinput=None,
                   grib_dir=None, ncdump=None, now=None, geog_path=None):
     """Returns (rows, blockers, nl) -- rows: [(item, present, how, note)], blockers: [str].
-    Exit-code contract (blocked -> 3, else 0) lives in main()."""
+    Exit-code contract (blocked -> 3, else 0) lives in main(). Each _inspect_* helper appends
+    its own rows/blockers in place, in the order the report prints them."""
     namelist_path = namelist or os.path.join(case_dir, "namelist.input")
     rows = []
     blockers = []
@@ -547,167 +736,11 @@ def inspect_case(case_dir, namelist=None, namelist_wps=None, geo_from_wrfinput=N
         blockers.append(str(exc))
         geo = None
 
-    # ifire (WRF-SFIRE)
-    ifire = 0
-    for d in range(max_dom):
-        v = predict.g_dom(nl, "physics", "ifire", d, 0) or 0
-        ifire = max(ifire, int(v))
-    if ifire > 0:
-        blockers.append("ifire=%d in &physics (WRF-SFIRE needs fire geog data; unsupported)" % ifire)
-    rows.append(("ifire", ifire == 0, str(ifire), "" if ifire == 0 else "WRF-SFIRE unsupported"))
-
-    # Capability gaps: what GFS (Vtable.GFS) + geog_data_path can actually supply (see
-    # geog_directory_listing / _LANDUSE_NUM_CAT_HINTS docstrings for the verified facts this is
-    # built on). Blockers: sf_lake_physics with no lake_depth dataset; sf_urban_physics in
-    # (2, 3) (BEP/BEM need urban parameter data no geog mirror carries); chem_opt>0 (WRF-Chem
-    # emissions); obs_nudge_opt>0 (observation files). Warnings ("filled differently: ..."):
-    # completable, but real.exe/wrf.exe will not do quite what the case's own namelist implies.
-    geog_dir = geog_path or geog_data_path_default()
-    geog_names = geog_directory_listing(geog_dir)
-
-    sf_lake_physics = int(predict.g_dom(nl, "physics", "sf_lake_physics", 0, 0) or 0)
-    sf_urban_physics = int(predict.g_dom(nl, "physics", "sf_urban_physics", 0, 0) or 0)
-    chem_opt = int(predict.g_dom(nl, "chem", "chem_opt", 0, 0) or 0)
-    obs_nudge_opt = int(predict.g_dom(nl, "fdda", "obs_nudge_opt", 0, 0) or 0)
-    mp_physics = int(predict.g_dom(nl, "physics", "mp_physics", 0, 0) or 0)
-    sf_surface_physics = int(predict.g_dom(nl, "physics", "sf_surface_physics", 0, 0) or 0)
-    num_soil_layers = predict.g_dom(nl, "physics", "num_soil_layers", 0, None)
-    grid_fdda = int(predict.g_dom(nl, "fdda", "grid_fdda", 0, 0) or 0)
-    num_land_cat_nl = predict.g(nl, "domains", "num_land_cat", None)
-
-    if sf_lake_physics > 0:
-        has_lake = geog_has_dataset(geog_names, "lake_depth")
-        if has_lake is False:
-            blockers.append("sf_lake_physics=%d but no lake_depth dataset under %s"
-                            % (sf_lake_physics, geog_dir))
-        elif has_lake is None:
-            rows.append(("geog: lake_depth", False, "skipped",
-                        "could not list %s to check for a lake_depth dataset" % geog_dir))
-        else:
-            rows.append(("geog: lake_depth", True, "present", ""))
-
-    if sf_urban_physics in (2, 3):
-        blockers.append("sf_urban_physics=%d (BEP/BEM) needs urban parameter data not in geog"
-                        % sf_urban_physics)
-
-    if chem_opt > 0:
-        # WRF-Chem is "grid/rank only" for WTune (user decision 2026-09-29): chem_opt/chemdt/photdt/
-        # emissions are left exactly as given, so chem_opt>0 alone no longer blocks. What still
-        # blocks is a real crash risk: wrf.exe aborts opening emission/chem-input files that the
-        # case does not carry (real.exe + GFS cannot produce them).
-        emiss_opt = int(predict.g_dom(nl, "chem", "emiss_inpt_opt", 0, 1) or 0)   # Registry default 1
-        io_emiss = int(predict.g_dom(nl, "chem", "io_style_emissions", 0, 0) or 0)
-        chem_in_opt = int(predict.g_dom(nl, "chem", "chem_in_opt", 0, 0) or 0)
-        have = lambda pat: bool(glob.glob(os.path.join(case_dir, pat)))
-        missing = []
-        if (emiss_opt > 0 or io_emiss > 0) and not have("wrfchemi_d*"):
-            missing.append("emission files wrfchemi_d* (emiss_inpt_opt=%d, io_style_emissions=%d)"
-                           % (emiss_opt, io_emiss))
-        if chem_in_opt == 1 and not have("wrf_chem_input*") and not have("wrfchem_input*"):
-            missing.append("chemistry initial-condition file (chem_in_opt=1)")
-        if missing:
-            blockers.append("chem_opt=%d (WRF-Chem) needs input files this case does not carry: %s "
-                            "-- wrf.exe would abort at start-up (real crash risk); WTune cannot "
-                            "generate them" % (chem_opt, "; ".join(missing)))
-        else:
-            rows.append(("WRF-Chem", True, "chem_opt=%d" % chem_opt,
-                         "grid/rank tuning only: chem settings untouched, time prediction UNCALIBRATED"))
-
-    if obs_nudge_opt > 0:
-        blockers.append("obs_nudge_opt=%d needs observation files (unsupported)" % obs_nudge_opt)
-
-    import wtune_extensions
-    for _d in wtune_extensions.detect(nl, case_dir):
-        if _d["id"] in ("hydro", "movenest", "wrfda") and _d["active"]:
-            rows.append((_d["label"], True, "; ".join(_d["evidence"]),
-                         "grid/rank tuning only: extension settings untouched"))
-
-    capability_warnings = [
-        "filled differently: hydrometeors and number concentrations start at zero (GFS via "
-        "Vtable.GFS carries no hydrometeor/number-concentration fields) -- this is why "
-        "cold-start windows discard the first ~1 simulated hour as spin-up",
-    ]
-    if mp_physics == 28:
-        capability_warnings.append(
-            "filled differently: mp_physics=28 (aerosol-aware Thompson) but GFS has no aerosol "
-            "fields and no climatology file is wired in")
-    landuse_name, landuse_cat = detect_geog_landuse(geog_names)
-    if (landuse_cat is not None and num_land_cat_nl is not None
-            and int(num_land_cat_nl) != landuse_cat):
-        capability_warnings.append(
-            "filled differently: case specifies num_land_cat=%s but the only landuse dataset "
-            "present (%s) has %d categories -- real.exe will run with %d"
-            % (num_land_cat_nl, landuse_name, landuse_cat, landuse_cat))
-    if sf_surface_physics == 3 and num_soil_layers is not None and int(num_soil_layers) != 4:
-        capability_warnings.append(
-            "filled differently: sf_surface_physics=3 (RUC) with num_soil_layers=%s -- real.exe "
-            "vertically interpolates GFS's 4 soil layers" % num_soil_layers)
-    if grid_fdda > 0:
-        capability_warnings.append(
-            "filled differently: grid_fdda=%d -- analysis nudging files are only generated for "
-            "the sampled windows' own span, not the whole run" % grid_fdda)
-    for w in capability_warnings:
-        rows.append(("capability", True, "warning", w))
-
-    # Nest start-time consistency
-    if max_dom > 1:
-        d01_start = tuple(predict.g_dom(nl, "time_control", "start_" + k, 0)
-                           for k in ("year", "month", "day", "hour", "minute", "second"))
-        for d in range(1, max_dom):
-            dn_start = tuple(predict.g_dom(nl, "time_control", "start_" + k, d)
-                              for k in ("year", "month", "day", "hour", "minute", "second"))
-            if dn_start != d01_start:
-                blockers.append(
-                    "domain %d start time %s differs from d01's %s (unsupported)"
-                    % (d + 1, dn_start, d01_start))
-        rows.append(("nest start times", not any("differs from d01" in b for b in blockers),
-                     "max_dom=%d" % max_dom, ""))
-
-    # Forcing chain (metdata.resolve_forcing_chain -- date rules only, no network access; rows
-    # say 'not probed', matching SPEC item F). Lazily imports metdata (needs numpy) -- degrade
-    # with a clear row/message rather than crash when numpy isn't installed on whatever python3
-    # is running `inspect` (see _metdata()'s docstring). 2026-09-24 FIX: a run before
-    # 2015-01-15 is NO LONGER a blocker by itself -- the OLD single-source rule
-    # (select_source: GFS 0.25deg or nothing) wrongly reported every such case as missing
-    # weather data, even though NCEI's GFS analysis archive (0.5/1deg, from 2004), NCEP's FNL
-    # (1deg, from 1999-07-30), and CFSR reanalysis (0.5deg, 1979-2010) all cover it. The ONLY
-    # remaining blocker is a genuinely empty chain (older than 1979, or a date gap none of the
-    # bands cover) with no --grib-dir. A coarser-than-0.25deg forcing, or a reanalysis fallback,
-    # is a WARNING (extra prediction uncertainty), never a blocker -- and WRF's own dx being much
-    # finer than the forcing resolution is never checked here at all (that's normal downscaling,
-    # not a capability gap).
+    _inspect_ifire(nl, max_dom, rows, blockers)
+    _inspect_capabilities(nl, case_dir, geog_path, rows, blockers)
+    _inspect_nest_start_times(nl, max_dom, rows, blockers)
     if start_dt is not None:
-        try:
-            md_mod = _metdata()
-        except ColdstartError as exc:
-            rows.append(("forcing chain", False, "skipped", str(exc)))
-        else:
-            for label, t in (("run start", start_dt), ("run end", end_dt)):
-                chain = md_mod.resolve_forcing_chain(t, now=now, grib_dir=grib_dir)
-                if not chain:
-                    blockers.append(
-                        "%s %s: no forcing source covers this date (no --grib-dir given)"
-                        % (label, t.strftime(_WRF_TIME_FMT)))
-                    rows.append(("forcing chain (%s)" % label, False, "NONE",
-                                "no candidate source and no --grib-dir"))
-                    continue
-                primary = chain[0]
-                how = " -> ".join(s.dataset for s in chain)
-                rows.append((
-                    "forcing chain (%s)" % label, True, how,
-                    "not probed (date rules only): %s %sdeg %s interval=%sh %s"
-                    % (primary.dataset, primary.resolution_deg, primary.format,
-                       primary.forcing_interval_h, primary.source_kind)))
-                if primary.resolution_deg is not None and primary.resolution_deg > 0.25:
-                    rows.append(("capability", True, "warning",
-                                "filled differently: forcing resolution %sdeg (coarser than "
-                                "0.25) at %s -- extra prediction uncertainty"
-                                % (primary.resolution_deg, t.strftime(_WRF_TIME_FMT))))
-                if primary.source_kind == "reanalysis":
-                    rows.append(("capability", True, "warning",
-                                "filled differently: reanalysis_fallback at %s (%s) -- CFSR is "
-                                "a reanalysis, not an operational analysis/forecast"
-                                % (t.strftime(_WRF_TIME_FMT), primary.dataset)))
+        _inspect_forcing_chain(start_dt, end_dt, now, grib_dir, rows, blockers)
 
     return rows, blockers, nl
 
@@ -1208,6 +1241,109 @@ def try_precip_lookup(case_dir, nl, candidates, W_seconds, grib_dir=None, source
 # plan
 # ---------------------------------------------------------------------------
 
+def _resolve_analog_start(date_shift_to, analog_path):
+    """(analog_start or None, analog_quality) for R6-D date-shifted sampling: pinned directly
+    (--date-shift-to, quality "manual") or read from a prior `analog` search's OUT/analog.json."""
+    if date_shift_to and analog_path:
+        raise ColdstartError("plan: --date-shift-to and --analog are mutually exclusive")
+    analog_start = None
+    analog_quality = None
+    if date_shift_to:
+        analog_start = datetime.datetime.strptime(date_shift_to, _WRF_TIME_FMT)
+        analog_quality = "manual"   # a direct pin carries no analog-search quality score
+    elif analog_path:
+        with open(analog_path) as f:
+            analog_data = json.load(f)
+        chosen = analog_data.get("chosen") or {}
+        if not chosen.get("date"):
+            raise ColdstartError("plan: --analog %s has no 'chosen' analog date" % analog_path)
+        analog_start = datetime.datetime.strptime(chosen["date"], _WRF_TIME_FMT)
+        analog_quality = analog_data.get("quality")
+    return analog_start, analog_quality
+
+
+def _whole_minute_window(W, dt, measure_steps):
+    """(W, measure_steps) grown one dt step at a time until W is a whole number of minutes."""
+    while abs(W % 60.0) > 1e-6 and abs(W % 60.0 - 60.0) > 1e-6:
+        measure_steps += 1
+        W += dt
+    return W, measure_steps
+
+
+def _pinned_window_picks(times, k, primary_source, W, window_anchor_end):
+    """[(t, "pinned"), ...] for explicit --times, each checked to be on the primary forcing
+    source's grid and to fit a whole window W before the run ends (a plan-time error naming the
+    offending time otherwise). --k does not apply and says so."""
+    forcing_interval_h = primary_source.forcing_interval_h
+    if k != 4:
+        print("--times given: --k=%d is ignored (using exactly the %d pinned time(s))"
+              % (k, len(times)))
+    else:
+        print("--times given: --k is ignored (using exactly the %d pinned time(s))" % len(times))
+    picks = []
+    for t in times:
+        aligned = align_to_interval(t, forcing_interval_h)
+        if aligned != t:
+            raise ColdstartError(
+                "plan: --times %s is not on the forcing grid (%s, %dh cadence -- the next "
+                "grid time is %s)" % (t.strftime(_WRF_TIME_FMT), primary_source.dataset,
+                                      forcing_interval_h, aligned.strftime(_WRF_TIME_FMT)))
+        if t + datetime.timedelta(seconds=W) > window_anchor_end:
+            raise ColdstartError(
+                "plan: --times %s + W(%.0fs) does not fit in the run (run ends %s)"
+                % (t.strftime(_WRF_TIME_FMT), W, window_anchor_end.strftime(_WRF_TIME_FMT)))
+        picks.append((t, "pinned"))
+    return picks
+
+
+def _windows_from_picks(picks, t0_grid, window_interval_seconds, W, shift_s_t0):
+    """(plan windows [{'t', 't_end', 'reason', 'shift_s'}], sorted GRIB valid times they need):
+    each window ends at the first forcing-grid time at or after t + W."""
+    windows = []
+    grib_times = set()
+    for t, reason in picks:
+        t_end = next_grib_time_ge(t0_grid, window_interval_seconds, t + datetime.timedelta(seconds=W))
+        # shift_s: only t0 has a case-defined "intended" time to shift away from (the case's own
+        # literal start_dt); every other pick was chosen directly ON the forcing grid to begin
+        # with, so it has no unaligned counterpart to report a shift against.
+        shift_s = shift_s_t0 if reason == "t0" else 0.0
+        windows.append({"t": t.strftime(_WRF_TIME_FMT), "t_end": t_end.strftime(_WRF_TIME_FMT),
+                        "reason": reason, "shift_s": shift_s})
+        if shift_s:
+            print("  %s (%s): shift_s=%+.0f" % (t.strftime(_WRF_TIME_FMT), reason, shift_s))
+        grib_times.add(t)
+        grib_times.add(t_end)
+    grib_times = sorted(grib_times)
+    return windows, grib_times
+
+
+def _forcing_grid(window_anchor_start, case_interval_seconds, grib_dir, forcing, now):
+    """(primary_source, t0_grid, shift_s_t0): the first source of the resolved (or --forcing
+    pinned) chain, the window anchor aligned onto that source's own valid-time grid, and how far
+    that alignment moved it. Reports a case/forcing cadence mismatch and any t0 shift."""
+    chain = resolve_forcing_chain_for(window_anchor_start, grib_dir=grib_dir, forcing_pin=forcing,
+                                      now=now)
+    if not chain:
+        raise ColdstartError(
+            "plan: no forcing source covers %s (and no --grib-dir given)"
+            % window_anchor_start.strftime(_WRF_TIME_FMT))
+    primary_source = chain[0]
+    forcing_interval_h = primary_source.forcing_interval_h
+    window_interval_seconds = forcing_interval_h * 3600
+
+    t0_grid = align_to_interval(window_anchor_start, forcing_interval_h)
+    shift_s_t0 = (t0_grid - window_anchor_start).total_seconds()
+    if case_interval_seconds and case_interval_seconds != window_interval_seconds:
+        print("interval_seconds: case=%ds window=%ds (forcing=%s, %dh cadence)"
+              % (case_interval_seconds, window_interval_seconds, primary_source.dataset,
+                 forcing_interval_h))
+    if shift_s_t0:
+        print("t0 shifted %+ds to the forcing's own grid (%s -> %s)"
+              % (shift_s_t0, window_anchor_start.strftime(_WRF_TIME_FMT),
+                 t0_grid.strftime(_WRF_TIME_FMT)))
+    return primary_source, t0_grid, shift_s_t0
+
+
 def build_plan(case_dir, out_dir, k=4, nodes=1, ranks=72, omp=1, nx=None, ny=None,
                spinup_min=60, namelist=None, namelist_wps=None, geo_from_wrfinput=None,
                grib_dir=None, ncdump=None, use_state=False, now=None, geog_path=None,
@@ -1237,21 +1373,7 @@ def build_plan(case_dir, out_dir, k=4, nodes=1, ranks=72, omp=1, nx=None, ny=Non
     # resolution, cadence alignment) runs on the analog timeline below -- that is the weather
     # actually being sampled. run_start/run_end (what `score`'s WHOLE-RUN prediction targets --
     # the STATED/future run) stay on the stated timeline, unshifted.
-    if date_shift_to and analog_path:
-        raise ColdstartError("plan: --date-shift-to and --analog are mutually exclusive")
-    analog_start = None
-    analog_quality = None
-    if date_shift_to:
-        analog_start = datetime.datetime.strptime(date_shift_to, _WRF_TIME_FMT)
-        analog_quality = "manual"   # a direct pin carries no analog-search quality score
-    elif analog_path:
-        with open(analog_path) as f:
-            analog_data = json.load(f)
-        chosen = analog_data.get("chosen") or {}
-        if not chosen.get("date"):
-            raise ColdstartError("plan: --analog %s has no 'chosen' analog date" % analog_path)
-        analog_start = datetime.datetime.strptime(chosen["date"], _WRF_TIME_FMT)
-        analog_quality = analog_data.get("quality")
+    analog_start, analog_quality = _resolve_analog_start(date_shift_to, analog_path)
     date_shift_s = (analog_start - stated_start).total_seconds() if analog_start else 0.0
     window_anchor_start = analog_start or stated_start
     window_anchor_end = window_anchor_start + datetime.timedelta(seconds=run_s)
@@ -1264,26 +1386,10 @@ def build_plan(case_dir, out_dir, k=4, nodes=1, ranks=72, omp=1, nx=None, ny=Non
     # the FIRST candidate of the resolved chain (--forcing pins it explicitly) -- NOT the case's
     # own interval_seconds, which may not even match what's actually fetchable (see `fetch`'s own
     # cadence-mismatch check when a coarser fallback source gets chosen at download time).
-    chain = resolve_forcing_chain_for(window_anchor_start, grib_dir=grib_dir, forcing_pin=forcing,
-                                      now=now)
-    if not chain:
-        raise ColdstartError(
-            "plan: no forcing source covers %s (and no --grib-dir given)"
-            % window_anchor_start.strftime(_WRF_TIME_FMT))
-    primary_source = chain[0]
+    primary_source, t0_grid, shift_s_t0 = _forcing_grid(
+        window_anchor_start, case_interval_seconds, grib_dir, forcing, now)
     forcing_interval_h = primary_source.forcing_interval_h
     window_interval_seconds = forcing_interval_h * 3600
-
-    t0_grid = align_to_interval(window_anchor_start, forcing_interval_h)
-    shift_s_t0 = (t0_grid - window_anchor_start).total_seconds()
-    if case_interval_seconds and case_interval_seconds != window_interval_seconds:
-        print("interval_seconds: case=%ds window=%ds (forcing=%s, %dh cadence)"
-              % (case_interval_seconds, window_interval_seconds, primary_source.dataset,
-                 forcing_interval_h))
-    if shift_s_t0:
-        print("t0 shifted %+ds to the forcing's own grid (%s -> %s)"
-              % (shift_s_t0, window_anchor_start.strftime(_WRF_TIME_FMT),
-                 t0_grid.strftime(_WRF_TIME_FMT)))
 
     W, stepra, measure_steps = compute_window_seconds(spinup_min, dt, radt,
                                                       measure_steps=measure_steps)
@@ -1291,9 +1397,7 @@ def build_plan(case_dir, out_dir, k=4, nodes=1, ranks=72, omp=1, nx=None, ny=Non
         # nwp_diagnostics = 1 forbids history_interval(1) == 0, so the probe must use the plain
         # minutes keys, which needs a whole-minute window (elevconv 2026-09-28: a 27.5 min window
         # used history_interval_s and summed with the huge plain value -> no frame at all).
-        while abs(W % 60.0) > 1e-6 and abs(W % 60.0 - 60.0) > 1e-6:
-            measure_steps += 1
-            W += dt
+        W, measure_steps = _whole_minute_window(W, dt, measure_steps)
 
     nlw_path = namelist_wps or os.path.join(case_dir, "namelist.wps")
     wi_path = geo_from_wrfinput or os.path.join(case_dir, "wrfinput_d01")
@@ -1307,24 +1411,7 @@ def build_plan(case_dir, out_dir, k=4, nodes=1, ranks=72, omp=1, nx=None, ny=Non
         # forcing grid (same grid candidate_times would have walked) and its window must fit in
         # the run, or this is a plan-time error naming the exact offending time -- a bad pin
         # should never silently produce a window ungrib/metgrid can't satisfy.
-        if k != 4:
-            print("--times given: --k=%d is ignored (using exactly the %d pinned time(s))"
-                  % (k, len(times)))
-        else:
-            print("--times given: --k is ignored (using exactly the %d pinned time(s))" % len(times))
-        picks = []
-        for t in times:
-            aligned = align_to_interval(t, forcing_interval_h)
-            if aligned != t:
-                raise ColdstartError(
-                    "plan: --times %s is not on the forcing grid (%s, %dh cadence -- the next "
-                    "grid time is %s)" % (t.strftime(_WRF_TIME_FMT), primary_source.dataset,
-                                          forcing_interval_h, aligned.strftime(_WRF_TIME_FMT)))
-            if t + datetime.timedelta(seconds=W) > window_anchor_end:
-                raise ColdstartError(
-                    "plan: --times %s + W(%.0fs) does not fit in the run (run ends %s)"
-                    % (t.strftime(_WRF_TIME_FMT), W, window_anchor_end.strftime(_WRF_TIME_FMT)))
-            picks.append((t, "pinned"))
+        picks = _pinned_window_picks(times, k, primary_source, W, window_anchor_end)
     else:
         candidates = candidate_times(t0_grid, window_anchor_end, window_interval_seconds, W)
         if not candidates:
@@ -1347,21 +1434,8 @@ def build_plan(case_dir, out_dir, k=4, nodes=1, ranks=72, omp=1, nx=None, ny=Non
         picks = select_windows(candidates, spinup_min * 60.0, W, k, sample_points=sample_points,
                                 precip_lookup=precip_lookup, sunlit_shift_s=date_shift_s)
 
-    windows = []
-    grib_times = set()
-    for t, reason in picks:
-        t_end = next_grib_time_ge(t0_grid, window_interval_seconds, t + datetime.timedelta(seconds=W))
-        # shift_s: only t0 has a case-defined "intended" time to shift away from (the case's own
-        # literal start_dt); every other pick was chosen directly ON the forcing grid to begin
-        # with, so it has no unaligned counterpart to report a shift against.
-        shift_s = shift_s_t0 if reason == "t0" else 0.0
-        windows.append({"t": t.strftime(_WRF_TIME_FMT), "t_end": t_end.strftime(_WRF_TIME_FMT),
-                        "reason": reason, "shift_s": shift_s})
-        if shift_s:
-            print("  %s (%s): shift_s=%+.0f" % (t.strftime(_WRF_TIME_FMT), reason, shift_s))
-        grib_times.add(t)
-        grib_times.add(t_end)
-    grib_times = sorted(grib_times)
+    windows, grib_times = _windows_from_picks(picks, t0_grid, window_interval_seconds, W,
+                                              shift_s_t0)
 
     wps_fields = build_namelist_wps_fields(
         nl, geo, min(grib_times), max(grib_times), window_interval_seconds,
@@ -2644,49 +2718,16 @@ def render_signal_trap_and_hygiene_preamble(nodes, extra_lines_after_alloc_nodes
 # 2026-09-28) -- it is I/O/communication bound at these grid sizes, not compute bound.
 
 
-def render_run_sbatch(plan, site="scc", per_window_estimate_min=15, wps_estimate_min=20,
-                      per_window_forcing=None):
-    """SPEC.md 'run.sbatch (site scc)': #SBATCH --exclude=head, -N nodes --exclusive,
-    --signal=B:USR1@90, generous --time computed from a stated per-window estimate; site_env /
-    site_hygiene / site_launch reused from campaign/sites/scc.sh (NOT reimplemented); geogrid
-    (once) -> link_grib.csh (once) -> PER WINDOW: fix-wps-namelist (namelist.wps start/end =
-    that window's own [t, t_end], prefix/interval = that window's ACTUALLY chosen forcing source
-    -- ungrib/metgrid must NOT span the whole run, or metgrid walks every interval in
-    [run start, run end] and dies on the first GRIB time that was never fetched, since `fetch`
-    only downloads the windows' own times), relink Vtable to that source's own, ungrib, verify
-    EVERY expected '<prefix>:YYYY-MM-DD_HH' intermediate file exists (not just >=1 -- a partial
-    ungrib used to pass silently), metgrid, fix-real-namelist, real.exe, check
-    wrfinput_d0*/wrfbdy_d01, fix-wrf-namelist, wrf.exe (background + wait so the USR1 trap fires
-    -- job 740 postmortem in campaign/strict_campaign.sbatch). A window that fails at any step is
-    recorded ok=0 in windows_status.txt and does NOT abort the remaining windows (only the
-    one-time geogrid/link_grib preamble aborts the whole job). No LD_PRELOAD, no wrapper around
-    wrf.exe -- hard user constraint. `per_window_forcing` (stage_plan reads it from
-    PLAN/forcing.json when `fetch` already ran; else _default_per_window_forcing keeps the old
-    single-source 'GFS'/Vtable.GFS behaviour)."""
-    n_windows = len(plan["windows"])
-    per_window_forcing = per_window_forcing or _default_per_window_forcing(plan, n_windows)
-    nodes = plan["nodes"]
-    ranks = plan["config"]["ranks"]
-    omp = plan["config"]["omp"]
-    nx = plan["config"]["nx"]
-    ny = plan["config"]["ny"]
-    numtiles = int(plan["config"].get("numtiles", 1) or 1)
-    # T7 (2026-09-24, jobs on scc): ranks-per-node = ceil(ranks/nodes), not floor -- floor
-    # under-requests Slurm slots (90 ranks/4 nodes: floor=22 -> --ntasks-per-node=22 -> only 88
-    # slots allocated, but real.exe's own mpirun -np 90 --map-by ppr:23:node (and site_launch's
-    # self-correcting ppr for wrf.exe) both need 23/node -> mpirun rc=213 'not enough slots').
-    # CORES_PER_NODE is scc's (campaign/sites/scc.sh); assert instead of silently over-packing.
-    ppn = -(-ranks // max(nodes, 1))
-    assert ppn <= 72, ("ppn=%d exceeds CORES_PER_NODE=72 (ranks=%d nodes=%d)"
-                       % (ppn, ranks, nodes))
-    real_tpn = ppn
+def _sbatch_directive_lines(plan, nodes, ppn, n_windows, per_window_estimate_min,
+                            wps_estimate_min):
+    """Shebang + #SBATCH header + the estimate comment. --time is generous: 2x the stated
+    estimate (wps + n_windows x per-window), minimum 60 minutes."""
     total_min = wps_estimate_min + n_windows * per_window_estimate_min
     # generous: 2x the stated estimate, minimum 60 minutes
     time_min = max(60, total_min * 2)
     hh = time_min // 60
     mm = time_min % 60
     time_str = "%02d:%02d:00" % (hh, mm)
-    wrf_timeout_s = per_window_estimate_min * 60
 
     lines = []
     lines.append("#!/usr/bin/env bash")
@@ -2713,6 +2754,14 @@ def render_run_sbatch(plan, site="scc", per_window_estimate_min=15, wps_estimate
     lines.append("# estimated %d min (wps ~%dmin + %d windows x ~%dmin/window); --time is 2x that"
                   % (total_min, wps_estimate_min, n_windows, per_window_estimate_min))
     lines.append("")
+    return lines
+
+
+def _sbatch_environment_lines(plan, site, nodes):
+    """PLAN/TOOL (+ the ML-hook variables when the plan has --ml-model), the site file, site_env,
+    then the shared signal-trap/hygiene preamble with windows_status.txt as $STATUS."""
+    plan_dir_abs = plan.get("_plan_dir")
+    lines = []
     # Slurm runs a COPY of the batch script from its spool directory, so BASH_SOURCE's dirname is
     # not the plan directory: the path has to be written in at stage time.
     if plan_dir_abs:
@@ -2745,8 +2794,13 @@ def render_run_sbatch(plan, site="scc", per_window_estimate_min=15, wps_estimate
         extra_lines_after_alloc_nodes=["STATUS=\"$PLAN/windows_status.txt\"",
                                       ": > \"$STATUS\""],
         record_label="WINDOW"))
-    max_dom = plan.get("max_dom", 1)
-    geo_em_expected = ["geo_em.d%02d.nc" % d for d in range(1, max_dom + 1)]
+    return lines
+
+
+def _sbatch_geogrid_lines(geo_em_expected, ppn):
+    """The one-time geogrid step: per-domain-definition cache, single-flight lock, and the
+    success check (every geo_em.d0N.nc + 'Successful completion') that aborts the whole job."""
+    lines = []
     lines.append("cd \"$PLAN/wps\"")
     # geo_em depends only on the &geogrid/&share domain definition and the static data, never on
     # the date: cache it per domain (rebuild job 1238: geogrid was 62 of 845 s, repeated per point).
@@ -2787,6 +2841,13 @@ def render_run_sbatch(plan, site="scc", per_window_estimate_min=15, wps_estimate
                  % " ".join(geo_em_expected))
     lines.append("if [ $GEO_LOCKED = 1 ]; then flock -u 9 2>/dev/null; exec 9>&-; fi")
     lines.append("")
+    return lines
+
+
+def _sbatch_link_grib_lines(per_window_forcing):
+    """The one-time link_grib.csh step, skipped at run time when every window's forcing is
+    already WPS intermediate files (vtable "none", e.g. the ERA5 pin)."""
+    lines = []
     all_intermediate = bool(per_window_forcing) and all(
         f.get("vtable") == "none" for f in per_window_forcing)
     if all_intermediate:
@@ -2814,7 +2875,13 @@ def render_run_sbatch(plan, site="scc", per_window_estimate_min=15, wps_estimate
     lines.append("[ $? -ne 0 ] && { echo \"FATAL link_grib.csh failed\"; exit 1; }")
     lines.append("fi")
     lines.append("")
+    return lines
 
+
+def _run_window_wps_lines(ppn):
+    """run_window()'s opening: argument unpacking, the per-window status globals, then ungrib and
+    metgrid with their every-expected-file checks."""
+    lines = []
     lines.append("run_window() {")
     lines.append("  local k=\"$1\" prefix=\"$2\" vtable=\"$3\"; shift 3")
     lines.append("  local n_ungrib=\"$1\"; shift")
@@ -2870,6 +2937,13 @@ def render_run_sbatch(plan, site="scc", per_window_estimate_min=15, wps_estimate
     lines.append("    echo \"window $k: metgrid rc=$rc missing=${missing_met[*]:-none}\" >&2; return 1")
     lines.append("  fi")
     lines.append("")
+    return lines
+
+
+def _run_window_real_lines(ranks, real_tpn):
+    """run_window()'s real.exe step: link met_em (both colon spellings), try the predicted
+    decomposition under a timeout, fall back to serial on a hang or missing output."""
+    lines = []
     lines.append("  echo \"=== window $k: real.exe ($(date -u +%FT%TZ)) ===\"")
     lines.append("  cd \"$PLAN/win_${k}/real\" || return 1")
     lines.append("  rm -f met_em.d0*.*.nc")
@@ -2903,109 +2977,189 @@ def render_run_sbatch(plan, site="scc", per_window_estimate_min=15, wps_estimate
     lines.append("  [ $rc -ne 0 ] && return 1")
     lines.append("  [ -f wrfinput_d01 ] && [ -f wrfbdy_d01 ] || return 1")
     lines.append("")
-    if ml_model:
-        # K5 (2026-09-24): ML state completion on the fresh wrfinput_d01, BEFORE wrf.exe sees it
-        # -- emitted ONLY when the plan was built with --ml-model (Default: OFF means no trace
-        # of this step in the rendered script at all, not just a runtime no-op guard). Never
-        # /usr/bin/python3 here: this needs numpy+netCDF4 (GRIB_PY, from the PLAN-time
-        # preamble). Swap in wrfinput_d01.ml ONLY on a genuine apply (rc=0 AND the file exists --
-        # --targets-from-report legitimately writes nothing when no target improved, which is
-        # NOT a failure); otherwise keep the original untouched.
-        lines.append("  ML_OUT=$(\"$GRIB_PY\" \"$TOOL_SCM\" apply --model \"$ML_MODEL\" "
-                      "--targets-from-report --wrfinput wrfinput_d01 --out wrfinput_d01.ml 2>&1)")
-        lines.append("  ml_rc=$?")
-        lines.append("  LAST_ML_TARGETS=$(printf '%s\\n' \"$ML_OUT\" | "
-                      "grep '^APPLIED_TARGETS=' | tail -1 | sed 's/^APPLIED_TARGETS=//')")
-        lines.append("  if [ $ml_rc -eq 0 ] && [ -f wrfinput_d01.ml ]; then")
-        lines.append("    mv wrfinput_d01 wrfinput_d01.noml && mv wrfinput_d01.ml wrfinput_d01")
-        lines.append("    LAST_ML_STATUS=\"applied\"")
-        lines.append("  else")
-        lines.append("    rm -f wrfinput_d01.ml")
-        lines.append("    LAST_ML_STATUS=\"skipped\"")
-        lines.append("    printf '%s\\n' \"$ML_OUT\" >&2")
-        lines.append("  fi")
-        lines.append("")
-    real_only = bool(plan.get("real_only"))
-    if real_only:
+    return lines
+
+
+def _run_window_ml_lines():
+    """K5 (2026-09-24): ML state completion on the fresh wrfinput_d01, BEFORE wrf.exe sees it --
+    emitted ONLY when the plan was built with --ml-model (Default: OFF means no trace of this
+    step in the rendered script at all, not just a runtime no-op guard). Never /usr/bin/python3
+    here: this needs numpy+netCDF4 (GRIB_PY, from the PLAN-time preamble). Swap in
+    wrfinput_d01.ml ONLY on a genuine apply (rc=0 AND the file exists -- --targets-from-report
+    legitimately writes nothing when no target improved, which is NOT a failure); otherwise keep
+    the original untouched."""
+    lines = []
+    lines.append("  ML_OUT=$(\"$GRIB_PY\" \"$TOOL_SCM\" apply --model \"$ML_MODEL\" "
+                  "--targets-from-report --wrfinput wrfinput_d01 --out wrfinput_d01.ml 2>&1)")
+    lines.append("  ml_rc=$?")
+    lines.append("  LAST_ML_TARGETS=$(printf '%s\\n' \"$ML_OUT\" | "
+                  "grep '^APPLIED_TARGETS=' | tail -1 | sed 's/^APPLIED_TARGETS=//')")
+    lines.append("  if [ $ml_rc -eq 0 ] && [ -f wrfinput_d01.ml ]; then")
+    lines.append("    mv wrfinput_d01 wrfinput_d01.noml && mv wrfinput_d01.ml wrfinput_d01")
+    lines.append("    LAST_ML_STATUS=\"applied\"")
+    lines.append("  else")
+    lines.append("    rm -f wrfinput_d01.ml")
+    lines.append("    LAST_ML_STATUS=\"skipped\"")
+    lines.append("    printf '%s\\n' \"$ML_OUT\" >&2")
+    lines.append("  fi")
+    lines.append("")
+    return lines
+
+
+def _run_window_wrf_lines(ranks, ppn, omp, nx, ny, numtiles, wrf_timeout_s):
+    """run_window()'s wrf.exe step: link real's outputs + the cached Thompson tables, fix the wrf
+    namelist, launch under site_launch in the background (so the USR1 trap can fire) with a
+    FATAL/init-hang watcher, then refill the table cache."""
+    lines = []
+    lines.append("  echo \"=== window $k: wrf.exe ($(date -u +%FT%TZ)) ===\"")
+    lines.append("  cd \"$PLAN/win_${k}/wrf\" || return 1")
+    # nests: every wrfinput_d0N (d01..dN) + wrfbdy_d01 (only d01 has a time-varying lateral
+    # boundary); wrflowinp_d0N only exists when the case uses SST/lake update input -- link
+    # it only if present, never a hard requirement.
+    lines.append("  ln -sf ../real/wrfinput_d0* .")
+    lines.append("  ln -sf ../real/wrfbdy_d01 .")
+    lines.append("  shopt -s nullglob; WRFLOWINP=(../real/wrflowinp_d0*); shopt -u nullglob")
+    lines.append("  [ ${#WRFLOWINP[@]} -gt 0 ] && ln -sf ../real/wrflowinp_d0* .")
+    # Thompson computes qr_acr_q*/freezeH2O tables at init when absent (job 1238: ~70 s of
+    # the first step). They depend only on the WRF build: cache per build.
+    lines.append("  TBL_CACHE=\"${WTUNE_TABLE_CACHE:-$HOME/wtune-runs/thompson_tables}/$(readlink -f \"$WRF_TREE/main/wrf.exe\" | sha1sum | cut -c1-16)\"")
+    lines.append("  shopt -s nullglob; for f in \"$TBL_CACHE\"/qr_acr_q*.dat \"$TBL_CACHE\"/freezeH2O.dat; do "
+                 "[ -e \"$(basename \"$f\")\" ] || ln -s \"$f\" .; done; shopt -u nullglob")
+    lines.append("  python3 \"$TOOL\" fix-wrf-namelist --plan \"$PLAN\" --win \"$k\" "
+                  "--nproc-x %d --nproc-y %d --numtiles %d || return 1" % (nx, ny, numtiles))
+    # OMP_NUM_THREADS/OMP_PLACES/OMP_PROC_BIND for the ACTUAL timed run must match the
+    # ground-truth runner (predict_validate/truth_n.sbatch) exactly, or the window isn't
+    # measuring the same conditions the prediction will be compared against.
+    lines.append("  export OMP_NUM_THREADS=%d" % omp)
+    lines.append("  unset OMP_PLACES OMP_PROC_BIND")
+    lines.append("  site_launch %d %d %d block" % (ranks, ppn, omp))
+    lines.append("  timeout %d \"${SITE_LAUNCH_CMD[@]}\" > wrf.out 2>&1 &" % wrf_timeout_s)
+    lines.append("  WRF_PID=$!")
+    # A WRF FATAL (MPI_Abort) can leave mpirun hanging until the window timeout (elevconv
+    # 2026-09-28: 'namelist settings are wrong' at init, then 40 min idle). Stop the launch
+    # 30 s after any rank prints FATAL CALLED.
+    # Also a silent init hang: 'Problem opening <file>' (e.g. a missing iofields file) and no
+    # 'Timing for main' line within 120 s of it.
+    lines.append("  ( po=0; while kill -0 \"$WRF_PID\" 2>/dev/null; do "
+                 "if grep -lqs 'FATAL CALLED' rsl.error.* 2>/dev/null; then sleep 30; "
+                 "kill -TERM \"$WRF_PID\" 2>/dev/null; sleep 20; kill -KILL \"$WRF_PID\" 2>/dev/null; "
+                 "echo \"window $k: WRF FATAL CALLED -- launch stopped\" >&2; break; fi; "
+                 "if grep -qs 'Problem opening' rsl.error.0000 && ! grep -qs 'Timing for main' rsl.error.0000; then "
+                 "po=$((po+10)); if [ $po -ge 120 ]; then kill -TERM \"$WRF_PID\" 2>/dev/null; sleep 20; "
+                 "kill -KILL \"$WRF_PID\" 2>/dev/null; "
+                 "echo \"window $k: WRF stuck at init after 'Problem opening' -- launch stopped\" >&2; break; fi; fi; "
+                 "sleep 10; done ) &")
+    lines.append("  FATAL_WATCH_PID=$!")
+    lines.append("  wait \"$WRF_PID\"")
+    lines.append("  rc=$?; WRF_PID=\"\"")
+    lines.append("  kill \"$FATAL_WATCH_PID\" 2>/dev/null; wait \"$FATAL_WATCH_PID\" 2>/dev/null")
+    lines.append("  pkill -u \"$USER\" -x wrf.exe 2>/dev/null")
+    lines.append("  [ $rc -ne 0 ] && return 1")
+    lines.append("  shopt -s nullglob; TBLS=(qr_acr_q*.dat freezeH2O.dat); shopt -u nullglob")
+    lines.append("  for f in \"${TBLS[@]}\"; do [ -L \"$f\" ] || { mkdir -p \"$TBL_CACHE\" && "
+                 "[ -e \"$TBL_CACHE/$f\" ] || cp -f \"$f\" \"$TBL_CACHE/\"; }; done")
+    lines.append("  LAST_WRF_STATUS=\"ok\"")
+    lines.append("  return 0")
+    return lines
+
+
+def _run_window_function_lines(plan, ranks, ppn, omp, nx, ny, numtiles, wrf_timeout_s):
+    """The whole bash run_window() definition: WPS -> real.exe -> [ML apply] -> wrf.exe, or stop
+    after real.exe for --real-only."""
+    lines = _run_window_wps_lines(ppn)
+    # real.exe runs at the same ranks-per-node as everything else (ppn = ceil(ranks/nodes)).
+    lines.extend(_run_window_real_lines(ranks, ppn))
+    if plan.get("ml_model"):
+        lines.extend(_run_window_ml_lines())
+    if plan.get("real_only"):
         # T2 (2026-09-24): --real-only stops each window here -- no fix-wrf-namelist, no
         # wrf.exe. LAST_WRF_STATUS stays "skipped" (set at the top of run_window()) so
         # windows_status.txt records it explicitly rather than just omitting the field.
         lines.append("  return 0")
     else:
-        lines.append("  echo \"=== window $k: wrf.exe ($(date -u +%FT%TZ)) ===\"")
-        lines.append("  cd \"$PLAN/win_${k}/wrf\" || return 1")
-        # nests: every wrfinput_d0N (d01..dN) + wrfbdy_d01 (only d01 has a time-varying lateral
-        # boundary); wrflowinp_d0N only exists when the case uses SST/lake update input -- link
-        # it only if present, never a hard requirement.
-        lines.append("  ln -sf ../real/wrfinput_d0* .")
-        lines.append("  ln -sf ../real/wrfbdy_d01 .")
-        lines.append("  shopt -s nullglob; WRFLOWINP=(../real/wrflowinp_d0*); shopt -u nullglob")
-        lines.append("  [ ${#WRFLOWINP[@]} -gt 0 ] && ln -sf ../real/wrflowinp_d0* .")
-        # Thompson computes qr_acr_q*/freezeH2O tables at init when absent (job 1238: ~70 s of
-        # the first step). They depend only on the WRF build: cache per build.
-        lines.append("  TBL_CACHE=\"${WTUNE_TABLE_CACHE:-$HOME/wtune-runs/thompson_tables}/$(readlink -f \"$WRF_TREE/main/wrf.exe\" | sha1sum | cut -c1-16)\"")
-        lines.append("  shopt -s nullglob; for f in \"$TBL_CACHE\"/qr_acr_q*.dat \"$TBL_CACHE\"/freezeH2O.dat; do "
-                     "[ -e \"$(basename \"$f\")\" ] || ln -s \"$f\" .; done; shopt -u nullglob")
-        lines.append("  python3 \"$TOOL\" fix-wrf-namelist --plan \"$PLAN\" --win \"$k\" "
-                      "--nproc-x %d --nproc-y %d --numtiles %d || return 1" % (nx, ny, numtiles))
-        # OMP_NUM_THREADS/OMP_PLACES/OMP_PROC_BIND for the ACTUAL timed run must match the
-        # ground-truth runner (predict_validate/truth_n.sbatch) exactly, or the window isn't
-        # measuring the same conditions the prediction will be compared against.
-        lines.append("  export OMP_NUM_THREADS=%d" % omp)
-        lines.append("  unset OMP_PLACES OMP_PROC_BIND")
-        lines.append("  site_launch %d %d %d block" % (ranks, ppn, omp))
-        lines.append("  timeout %d \"${SITE_LAUNCH_CMD[@]}\" > wrf.out 2>&1 &" % wrf_timeout_s)
-        lines.append("  WRF_PID=$!")
-        # A WRF FATAL (MPI_Abort) can leave mpirun hanging until the window timeout (elevconv
-        # 2026-09-28: 'namelist settings are wrong' at init, then 40 min idle). Stop the launch
-        # 30 s after any rank prints FATAL CALLED.
-        # Also a silent init hang: 'Problem opening <file>' (e.g. a missing iofields file) and no
-        # 'Timing for main' line within 120 s of it.
-        lines.append("  ( po=0; while kill -0 \"$WRF_PID\" 2>/dev/null; do "
-                     "if grep -lqs 'FATAL CALLED' rsl.error.* 2>/dev/null; then sleep 30; "
-                     "kill -TERM \"$WRF_PID\" 2>/dev/null; sleep 20; kill -KILL \"$WRF_PID\" 2>/dev/null; "
-                     "echo \"window $k: WRF FATAL CALLED -- launch stopped\" >&2; break; fi; "
-                     "if grep -qs 'Problem opening' rsl.error.0000 && ! grep -qs 'Timing for main' rsl.error.0000; then "
-                     "po=$((po+10)); if [ $po -ge 120 ]; then kill -TERM \"$WRF_PID\" 2>/dev/null; sleep 20; "
-                     "kill -KILL \"$WRF_PID\" 2>/dev/null; "
-                     "echo \"window $k: WRF stuck at init after 'Problem opening' -- launch stopped\" >&2; break; fi; fi; "
-                     "sleep 10; done ) &")
-        lines.append("  FATAL_WATCH_PID=$!")
-        lines.append("  wait \"$WRF_PID\"")
-        lines.append("  rc=$?; WRF_PID=\"\"")
-        lines.append("  kill \"$FATAL_WATCH_PID\" 2>/dev/null; wait \"$FATAL_WATCH_PID\" 2>/dev/null")
-        lines.append("  pkill -u \"$USER\" -x wrf.exe 2>/dev/null")
-        lines.append("  [ $rc -ne 0 ] && return 1")
-        lines.append("  shopt -s nullglob; TBLS=(qr_acr_q*.dat freezeH2O.dat); shopt -u nullglob")
-        lines.append("  for f in \"${TBLS[@]}\"; do [ -L \"$f\" ] || { mkdir -p \"$TBL_CACHE\" && "
-                     "[ -e \"$TBL_CACHE/$f\" ] || cp -f \"$f\" \"$TBL_CACHE/\"; }; done")
-        lines.append("  LAST_WRF_STATUS=\"ok\"")
-        lines.append("  return 0")
+        lines.extend(_run_window_wrf_lines(ranks, ppn, omp, nx, ny, numtiles, wrf_timeout_s))
     lines.append("}")
     lines.append("")
+    return lines
 
+
+def _window_call_lines(k, window, forcing, max_dom):
+    """One `run_window <args>` call + its windows_status.txt record. The argv carries the exact
+    ungrib intermediate and met_em names this window must produce at its own forcing cadence."""
+    prefix = forcing["prefix"]
+    vtable = forcing["vtable"]
+    interval_s = forcing["forcing_interval_h"] * 3600
+    T = datetime.datetime.strptime(window["t"], _WRF_TIME_FMT)
+    T_end = datetime.datetime.strptime(window.get("t_end", window["t"]), _WRF_TIME_FMT)
+    expected = expected_wps_intermediate_files(prefix, T, T_end, interval_s)
+    expected_met = expected_met_em_files(max_dom, T, T_end, interval_s)
+    argv = ([str(k), prefix, vtable, str(len(expected))] + expected
+            + [str(len(expected_met))] + expected_met)
+    args = " ".join(shlex.quote(x) for x in argv)
+    lines = []
+    lines.append("if run_window %s; then" % args)
+    lines.append("  echo \"WINDOW %d rc=0 ok=1 real=$LAST_REAL_PATH wrf=$LAST_WRF_STATUS "
+                  "ml=$LAST_ML_STATUS ml_targets=$LAST_ML_TARGETS\" >> \"$STATUS\"" % k)
+    lines.append("else")
+    lines.append("  echo \"WINDOW %d rc=1 ok=0 real=$LAST_REAL_PATH wrf=$LAST_WRF_STATUS "
+                  "ml=$LAST_ML_STATUS ml_targets=$LAST_ML_TARGETS\" >> \"$STATUS\"" % k)
+    lines.append("fi")
+    lines.append("CUR_WINDOW=\"\"")
+    lines.append("")
+    return lines
+
+
+def render_run_sbatch(plan, site="scc", per_window_estimate_min=15, wps_estimate_min=20,
+                      per_window_forcing=None):
+    """SPEC.md 'run.sbatch (site scc)': #SBATCH --exclude=head, -N nodes --exclusive,
+    --signal=B:USR1@90, generous --time computed from a stated per-window estimate; site_env /
+    site_hygiene / site_launch reused from campaign/sites/scc.sh (NOT reimplemented); geogrid
+    (once) -> link_grib.csh (once) -> PER WINDOW: fix-wps-namelist (namelist.wps start/end =
+    that window's own [t, t_end], prefix/interval = that window's ACTUALLY chosen forcing source
+    -- ungrib/metgrid must NOT span the whole run, or metgrid walks every interval in
+    [run start, run end] and dies on the first GRIB time that was never fetched, since `fetch`
+    only downloads the windows' own times), relink Vtable to that source's own, ungrib, verify
+    EVERY expected '<prefix>:YYYY-MM-DD_HH' intermediate file exists (not just >=1 -- a partial
+    ungrib used to pass silently), metgrid, fix-real-namelist, real.exe, check
+    wrfinput_d0*/wrfbdy_d01, fix-wrf-namelist, wrf.exe (background + wait so the USR1 trap fires
+    -- job 740 postmortem in campaign/strict_campaign.sbatch). A window that fails at any step is
+    recorded ok=0 in windows_status.txt and does NOT abort the remaining windows (only the
+    one-time geogrid/link_grib preamble aborts the whole job). No LD_PRELOAD, no wrapper around
+    wrf.exe -- hard user constraint. `per_window_forcing` (stage_plan reads it from
+    PLAN/forcing.json when `fetch` already ran; else _default_per_window_forcing keeps the old
+    single-source 'GFS'/Vtable.GFS behaviour).
+
+    The script is assembled section by section: _sbatch_directive_lines, _sbatch_environment_lines,
+    _sbatch_geogrid_lines, _sbatch_link_grib_lines, _run_window_function_lines, then one
+    _window_call_lines block per window."""
+    n_windows = len(plan["windows"])
+    per_window_forcing = per_window_forcing or _default_per_window_forcing(plan, n_windows)
+    nodes = plan["nodes"]
+    ranks = plan["config"]["ranks"]
+    omp = plan["config"]["omp"]
+    nx = plan["config"]["nx"]
+    ny = plan["config"]["ny"]
+    numtiles = int(plan["config"].get("numtiles", 1) or 1)
+    # T7 (2026-09-24, jobs on scc): ranks-per-node = ceil(ranks/nodes), not floor -- floor
+    # under-requests Slurm slots (90 ranks/4 nodes: floor=22 -> --ntasks-per-node=22 -> only 88
+    # slots allocated, but real.exe's own mpirun -np 90 --map-by ppr:23:node (and site_launch's
+    # self-correcting ppr for wrf.exe) both need 23/node -> mpirun rc=213 'not enough slots').
+    # CORES_PER_NODE is scc's (campaign/sites/scc.sh); assert instead of silently over-packing.
+    ppn = -(-ranks // max(nodes, 1))
+    assert ppn <= 72, ("ppn=%d exceeds CORES_PER_NODE=72 (ranks=%d nodes=%d)"
+                       % (ppn, ranks, nodes))
+    max_dom = plan.get("max_dom", 1)
+    geo_em_expected = ["geo_em.d%02d.nc" % d for d in range(1, max_dom + 1)]
+
+    lines = _sbatch_directive_lines(plan, nodes, ppn, n_windows, per_window_estimate_min,
+                                    wps_estimate_min)
+    lines.extend(_sbatch_environment_lines(plan, site, nodes))
+    lines.extend(_sbatch_geogrid_lines(geo_em_expected, ppn))
+    lines.extend(_sbatch_link_grib_lines(per_window_forcing))
+    lines.extend(_run_window_function_lines(plan, ranks, ppn, omp, nx, ny, numtiles,
+                                            per_window_estimate_min * 60))
     for k in range(n_windows):
-        w = plan["windows"][k]
-        pwf = per_window_forcing[k]
-        prefix = pwf["prefix"]
-        vtable = pwf["vtable"]
-        interval_s = pwf["forcing_interval_h"] * 3600
-        T = datetime.datetime.strptime(w["t"], _WRF_TIME_FMT)
-        T_end = datetime.datetime.strptime(w.get("t_end", w["t"]), _WRF_TIME_FMT)
-        expected = expected_wps_intermediate_files(prefix, T, T_end, interval_s)
-        expected_met = expected_met_em_files(max_dom, T, T_end, interval_s)
-        argv = ([str(k), prefix, vtable, str(len(expected))] + expected
-                + [str(len(expected_met))] + expected_met)
-        args = " ".join(shlex.quote(x) for x in argv)
-        lines.append("if run_window %s; then" % args)
-        lines.append("  echo \"WINDOW %d rc=0 ok=1 real=$LAST_REAL_PATH wrf=$LAST_WRF_STATUS "
-                      "ml=$LAST_ML_STATUS ml_targets=$LAST_ML_TARGETS\" >> \"$STATUS\"" % k)
-        lines.append("else")
-        lines.append("  echo \"WINDOW %d rc=1 ok=0 real=$LAST_REAL_PATH wrf=$LAST_WRF_STATUS "
-                      "ml=$LAST_ML_STATUS ml_targets=$LAST_ML_TARGETS\" >> \"$STATUS\"" % k)
-        lines.append("fi")
-        lines.append("CUR_WINDOW=\"\"")
-        lines.append("")
+        lines.extend(_window_call_lines(k, plan["windows"][k], per_window_forcing[k], max_dom))
 
     lines.append("run_hygiene reap+census")
     lines.append("echo \"=== DONE ($(date -u +%FT%TZ)) ===\"")
@@ -3075,7 +3229,9 @@ def score_windows_from_rsl(plan, sample_points, calibration):
     when EVERY window is unusable. Returns (windows_out, pooled_radiation_samples,
     run_start_dt_seconds_anchors)."""
     dt = plan["dt_s"]
-    radt = plan["radt_min"]
+    # radt itself is not needed here (stepra is), but a plan without radt_min was always refused
+    # with KeyError at this point -- keep that, rather than silently scoring a malformed plan.
+    plan["radt_min"]
     stepra = plan["stepra"]
     spinup_seconds = plan["spinup_min"] * 60.0
     run_start_dt = datetime.datetime.strptime(plan["run_start"], _WRF_TIME_FMT)
@@ -3306,7 +3462,9 @@ def print_score(result):
 # CLI
 # ---------------------------------------------------------------------------
 
-def main(argv=None):
+def _build_arg_parser():
+    """The coldstart_sample.py CLI: one subcommand per pipeline step (inspect -> plan -> fetch ->
+    stage -> score) plus the fix-*-namelist steps run.sbatch calls inside the batch job."""
     ap = argparse.ArgumentParser(prog="coldstart_sample.py", description=__doc__,
                                   formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -3402,6 +3560,11 @@ def main(argv=None):
     sp.add_argument("--numtiles", type=int, default=1)
     sp.add_argument("--ncdump")
 
+    return ap
+
+
+def main(argv=None):
+    ap = _build_arg_parser()
     args = ap.parse_args(argv)
 
     try:

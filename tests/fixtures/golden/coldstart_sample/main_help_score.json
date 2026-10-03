@@ -1,0 +1,5 @@
+{
+ "error": "SystemExit: 0",
+ "stdout": "usage: coldstart_sample.py score [-h] --plan PLAN [--json JSON] [--calibration CALIBRATION]\n                                 [--include-io]\n\noptions:\n  -h, --help            show this help message and exit\n  --plan PLAN\n  --json JSON\n  --calibration CALIBRATION\n  --include-io          add the history I/O estimate to TOTAL (off by default)\n",
+ "stderr": ""
+}

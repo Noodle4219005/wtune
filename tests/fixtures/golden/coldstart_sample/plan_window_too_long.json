@@ -1,0 +1,5 @@
+{
+ "error": "ColdstartError: no candidate window fits: run is 3600s but one window needs W=20160s (spinup_min=300, measure_steps=30, dt=72.0)",
+ "stdout": "",
+ "stderr": ""
+}

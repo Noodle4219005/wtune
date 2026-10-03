@@ -489,8 +489,9 @@ def fresh_input_copy(src_dirs, dest_dir, runner=subprocess.run, stats=None):
     Run on the submitting host: a fresh inode per run avoids the NFS open stall (wiki
     2026-10-03 adios2 gate); reflink works only on the NFS server (scc head)."""
     if os.environ.get("SLURM_JOB_ID"):
-        print("WARNING: fresh_input_copy inside Slurm job %s (a compute node): an NFS-client "
-              "copy does not avoid the open stall" % os.environ["SLURM_JOB_ID"], file=sys.stderr)
+        print("WARNING: fresh_input_copy inside Slurm job %s (a compute node): this node keeps "
+              "NFS open state on the copy and may still stall here" % os.environ["SLURM_JOB_ID"],
+              file=sys.stderr)
     items = (src_dirs.items() if isinstance(src_dirs, dict)
              else [(os.path.basename(os.path.normpath(d)), d) for d in src_dirs])
     os.makedirs(dest_dir, exist_ok=True)

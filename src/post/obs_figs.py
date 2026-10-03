@@ -5,8 +5,6 @@ number plotted comes from MET output (post/met_gridstat.py, post/met_pointstat.p
 """
 from __future__ import annotations
 
-import os
-
 from post.plotting import _matplotlib, _set_cartopy_data_dir
 
 # WPC QPF isohyet thresholds (0.01, 0.10, 0.25, 0.50, 1, 1.5, 2, 3, 4, 6, 8 in) in mm
@@ -24,7 +22,7 @@ def precip_cmap():
     from matplotlib.colors import ListedColormap
     base = colormaps[PRECIP_CMAP]
     return ListedColormap(base(np.linspace(0.18, 1.0, 256)), name="precip_wpc")
-from post.conventions import DBZ_LEVELS  # NWS table, 5..75 dBZ (decision 0064)
+from post.conventions import DBZ_LEVELS  # noqa: F401  re-export: recipes/convection.py reads obs_figs.DBZ_LEVELS; NWS table, 5..75 dBZ (decision 0064)
 
 
 def _cartopy_axes(fig, spec, extent):

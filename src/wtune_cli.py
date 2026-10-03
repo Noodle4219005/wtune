@@ -3,6 +3,7 @@
 
 import argparse
 import hashlib
+import importlib
 import json
 import math
 import os
@@ -37,7 +38,6 @@ DEFAULT_NUMA_DOMAINS = 8
 DEFAULT_CORES_PER_NUMA = 14
 DEFAULT_NODES = 4
 
-import os
 CACHE_TMP = os.environ.get('TMPDIR') or '/tmp'
 
 
@@ -1305,7 +1305,7 @@ def _restart_rank_counts(value, case):
         try:
             counts = [int(part.strip()) for part in value.split(',')]
         except ValueError:
-            raise ValueError("rank counts must be comma-separated positive integers")
+            raise ValueError("rank counts must be comma-separated positive integers") from None
         if not counts or any(count < 1 for count in counts):
             raise ValueError("rank counts must be comma-separated positive integers")
         return list(dict.fromkeys(counts))
@@ -1681,272 +1681,285 @@ def _print_extension_notes(nl, namelist_path):
         print('EXTENSION: ' + wtune_extensions.unsupported_line(label, msg, hits))
 
 
-def main():
+# ---------------------------------------------------------------- command-line front end
+#
+# main() = _build_parser() + dispatch. Subcommands come in two kinds:
+#   * in-process: implemented in this module (plan, physics, ...), parsed here, dispatched
+#     through _IN_PROCESS_COMMANDS;
+#   * forwarded: the subcommand takes its whole argv as one REMAINDER positional and hands it
+#     to another module's main(argv) (_FORWARDED_COMMANDS), which owns its own parser.
+# Subparsers are registered in the order `wtune.py --help` lists them.
+
+_COMPLIANCE_HELP = ('keep only %s admitted at this compliance level (decision 0050); '
+                    'default: show all, labelled')
+_PROBE_WRFINPUT_HELP = 'wrfinput/wrfout for lat/lon/date (via ncdump -h); also sets the probe bbox'
+_PROBE_JSON_HELP = 'use THIS speedy_probe.jl JSON instead of auto-running the probe'
+
+
+def _add_compliance_arg(p, what):
+    p.add_argument('--compliance', choices=sorted(wc.LEVELS), default=None,
+                   help=_COMPLIANCE_HELP % what)
+
+
+def _add_probe_window_args(p):
+    """Domain-centre + SpeedyWeather probe settings shared by `physics` and `screen`."""
+    p.add_argument('--wps', default=None, help='namelist.wps for the domain centre (default: sibling of --namelist)')
+    p.add_argument('--latlon', default=None, help='override domain-centre "LAT,LON" for the probe bbox')
+    p.add_argument('--probe-hours', type=int, default=6, help='SpeedyWeather probe forecast length (default 6)')
+    p.add_argument('--probe-trunc', type=int, default=31, help='SpeedyWeather spectral truncation (default 31); part of the probe cache key')
+    p.add_argument('--probe-nlayers', type=int, default=8, help='SpeedyWeather vertical layers (default 8); part of the probe cache key')
+
+
+def _add_plan_parser(sub):
+    p = sub.add_parser('plan', help='generate ranked decomposition shortlist')
+    p.add_argument('--namelist', required=True, help='path to namelist.input')
+    p.add_argument('--ranks', type=int, default=None, help='total MPI ranks')
+    p.add_argument('--nodes', type=int, default=None, help='number of nodes')
+    p.add_argument('--cores-per-node', type=int, default=None, help='default 112')
+    p.add_argument('--numa-domains', type=int, default=None, help='default 8')
+    p.add_argument('--cores-per-numa', type=int, default=None, help='default derived or 14')
+    p.add_argument('--smt', choices=['on', 'off'], default='off', help='default off')
+    p.add_argument('--json', action='store_true', help='emit JSON')
+    p.add_argument('--allow-hybrid', action='store_true', help='report hybrid alternative')
+    p.add_argument('--wrfinput', default=None, help='wrfinput/wrfout for lat/lon/date (via ncdump -h)')
+    p.add_argument('--surrogate-json', default=None, help='precomputed SpeedyWeather hotspot JSON to include')
+
+
+def _add_hotspot_parser(sub):
+    p = sub.add_parser('hotspot', help='physics load map: analytic terminator + convective surrogate')
+    p.add_argument('--namelist', required=True, help='path to namelist.input')
+    p.add_argument('--wrfinput', default=None, help='wrfinput/wrfout for lat/lon/date')
+    p.add_argument('--surrogate-json', default=None, help='use a precomputed SpeedyWeather hotspot JSON')
+    p.add_argument('--run-surrogate', action='store_true', help='run SpeedyWeather now (slow: JIT + model)')
+    p.add_argument('--trunc', type=int, default=31, help='SpeedyWeather spectral truncation (default 31)')
+    p.add_argument('--nlayers', type=int, default=8, help='SpeedyWeather vertical layers (default 8)')
+    p.add_argument('--srun', default=None, help='srun prefix to run the surrogate on a compute node')
+
+
+def _add_physics_parser(sub):
+    p = sub.add_parser('physics', help='physics diagnosis + numerics advice + scheme menu')
+    p.add_argument('--namelist', required=True, help='path to namelist.input')
+    p.add_argument('--menu', action='store_true', help='also print the advisory scheme menu')
+    p.add_argument('--wrfinput', default=None, help=_PROBE_WRFINPUT_HELP)
+    p.add_argument('--probe-json', default=None, help=_PROBE_JSON_HELP)
+    _add_probe_window_args(p)
+    p.add_argument('--no-probe', action='store_true', help='skip the built-in SpeedyWeather probe')
+    _add_compliance_arg(p, 'findings')
+
+
+def _add_knobs_parser(sub):
+    p = sub.add_parser('knobs', help='full knob advisor: input-derived param recommendations + mismatch flags')
+    p.add_argument('--namelist', required=True, help='path to namelist.input')
+    p.add_argument('--wrfinput', default=None, help='wrfinput/wrfout for lat/lon/date (via ncdump -h)')
+    p.add_argument('--all', action='store_true', help='show OK findings too, not just actionable')
+    _add_compliance_arg(p, 'findings')
+
+
+def _add_catalog_parser(sub):
+    p = sub.add_parser('catalog', help='list the complete Registry-derived parameter catalog')
+    p.add_argument('--group', default=None, help='filter to one namelist group (e.g. physics)')
+    p.add_argument('--grep', default=None, help='filter by substring in param name')
+    p.add_argument('--include-io', action='store_true', help='include per-stream I/O plumbing params')
+
+
+def _add_audit_parser(sub):
+    p = sub.add_parser('audit', help='Registry-driven scan of EVERY (2062) catalog param (coverage guarantee, any WRF case)')
+    p.add_argument('--namelist', required=True, help='path to namelist.input')
+
+
+def _add_screen_parser(sub):
+    p = sub.add_parser('screen', help='autotuner funnel: analytic screen (all params) -> SpeedyWeather vet -> effective few')
+    p.add_argument('--namelist', required=True, help='path to namelist.input')
+    p.add_argument('--probe-json', default=None, help=_PROBE_JSON_HELP)
+    p.add_argument('--wrfinput', default=None, help=_PROBE_WRFINPUT_HELP)
+    _add_probe_window_args(p)
+    p.add_argument('--no-probe', action='store_true', help='skip the built-in SpeedyWeather probe (physics candidates stay NEED-PROBE)')
+    p.add_argument('--json', action='store_true', help='emit a candidate-level JSON evidence manifest (classification/evidence_level/objective) after the vet')
+    _add_compliance_arg(p, 'candidates')
+
+
+def _add_profile_parser(sub):
+    p = sub.add_parser('profile', help='case-understanding profile (PRIOR, pre-measurement): identity/physics/cost-structure/imbalance/core-count priors')
+    p.add_argument('case_dir', help='directory with namelist.input (+ optional wrfinput_d0N)')
+    p.add_argument('--namelist', default=None, help='explicit namelist.input path (default: <case_dir>/namelist.input)')
+    p.add_argument('--wrfinput', default=None, help='explicit wrfinput/wrfout path (default: first wrfinput_d0N in case_dir)')
+    p.add_argument('--cores-per-node', type=int, default=None, help='default 72 (GH200 Grace)')
+    p.add_argument('--json', default=None, help='also write the full profile as JSON to this path')
+
+
+def _add_machine_profile_parser(sub):
+    p = sub.add_parser('machine-profile', help='print a human summary of a machine/run_machine_profile.sh JSON (MEASURED machine speed, not the case profile)')
+    p.add_argument('json_path', help='machine_profile_<host>_<date>.json produced by machine/run_machine_profile.sh')
+
+
+def _add_oracle_map_parser(sub):
+    p = sub.add_parser('oracle-map', help='DIAGNOSTIC spatial physics-load map (per-cell phase cost + hotspots); NOT a partition selector')
+    p.add_argument('--namelist', required=True, help='path to namelist.input (for date + cu_physics + run length)')
+    p.add_argument('--snapshot', default=None, help='wrfout/wrfinput NetCDF with model-state fields (defaults to --wrfinput)')
+    p.add_argument('--wrfinput', default=None, help='wrfinput/wrfout for lat/lon/date (via ncdump -h); also the snapshot fallback')
+    p.add_argument('--stride', type=int, default=4, help='spatial subsample stride for the model-state read (default 4)')
+    p.add_argument('--top-k', dest='top_k', type=int, default=12, help='number of hottest cells to list (default 12)')
+    p.add_argument('--grid', type=int, default=24, help='max side of the per-phase JSON grid (block-mean downsample, default 24)')
+    p.add_argument('--json-out', dest='json_out', default=None, help='write the artifact JSON here (compact grids + top-k)')
+    p.add_argument('--npz-out', dest='npz_out', default=None, help='write the full-resolution per-phase fields here as .npz')
+
+
+def _add_restart_window_parser(sub):
+    p = sub.add_parser('restart-window', help='UNVERIFIED restart-boundary decomposition/team hypotheses')
+    p.add_argument('--namelist', required=True, help='path to namelist.input (never modified)')
+    p.add_argument('--snapshot', required=True, help='readable wrfout/wrfrst snapshot for oracle fields')
+    p.add_argument('--topology-json', required=True, help='topology JSON with node-local CPU lists')
+    p.add_argument('--rank-counts', '--ranks', dest='rank_counts', default=None,
+                   help='comma-separated MPI rank counts (default nproc_x*nproc_y)')
+    p.add_argument('--window-hours', type=float, default=None, help='restart advisor window size in hours')
+    p.add_argument('--run-hours', type=float, default=None, help='override namelist run duration in hours')
+    p.add_argument('--stride', type=int, default=4, help='snapshot spatial subsample stride (default 4)')
+    p.add_argument('--top-k', dest='top_k', type=int, default=1, help='candidates per rank count/window')
+    p.add_argument('--output-dir', default='restart-window-artifacts', help='directory for rank maps and wrappers')
+    p.add_argument('--manifest-out', default=None, help='overall canonical JSON manifest path')
+
+
+def _add_feedback_parser(sub):
+    p = sub.add_parser('feedback', help='manifest-only advisory feedback decisions')
+    p.add_argument('--input', required=True, help='JSON samples and controller limits')
+    p.add_argument('--json-out', required=True, help='decision JSON output')
+    p.add_argument('--csv-out', required=True, help='canonical telemetry/decision CSV output')
+
+
+def _add_selftest_parser(sub):
+    sub.add_parser('selftest', help='run CONUS calibration self-test')
+
+
+def _add_compliance_parser(sub):
+    p = sub.add_parser('compliance', help='compliance model + knob catalog (decision 0050): validate/list/classify')
+    p.add_argument('compliance_args', nargs=argparse.REMAINDER,
+                   help='forwarded to wtune_compliance.py (validate | list [--compliance LEVEL] [--json] | classify NAME...)')
+
+
+def _add_predict_parser(sub):
+    import wtune_predict
+    wtune_predict.add_subparser(sub)
+
+
+# In-process subcommand builders, in --help order (`predict` is defined by wtune_predict).
+_IN_PROCESS_PARSERS = (
+    _add_plan_parser, _add_hotspot_parser, _add_physics_parser, _add_knobs_parser,
+    _add_catalog_parser, _add_audit_parser, _add_screen_parser, _add_profile_parser,
+    _add_machine_profile_parser, _add_oracle_map_parser, _add_restart_window_parser,
+    _add_feedback_parser, _add_selftest_parser, _add_compliance_parser, _add_predict_parser,
+)
+
+# Forwarded subcommands, in --help order: (name, REMAINDER dest, help, script the help says the
+# argv goes to, module imported to run it). The dest is visible: it names the positional in the
+# subcommand's usage line. `prep` has no module entry: see _forwarded_module.
+_FORWARDED_COMMANDS = (
+    ('tune', 'tune_args', 'budgeted on-cluster tuner (scc): probe, screen, confirm, report',
+     'wtune_tune.py', 'wtune_tune'),
+    ('config', 'config_args', 'wtune tune search-space YAML config (wtune_config.py): init | show | validate',
+     'wtune_config.py', 'wtune_config'),
+    ('metdata', 'metdata_args', 'GRIB source selection/availability/download (tools/metdata.py): find | check | fetch',
+     'tools/metdata.py', 'metdata'),
+    ('check', 'check_args', 'pre-submission WRF run_dir sanity checker (wtune_preflight.py): time windows, iofields, physics data files, decomposition, disk',
+     'wtune_preflight.py', 'wtune_preflight'),
+    ('calibrate', 'calibrate_args', 'machine calibration for a new cluster (wtune_calibrate.py plan | fit)',
+     'wtune_calibrate.py', 'wtune_calibrate'),
+    ('post', 'post_args', 'post-processing/analysis, advisory only (decision 0056; post/cli.py): '
+                          'inventory | extract | plot | sounding | tc | compare | report | recipe | custom',
+     'post/cli.py', 'post.cli'),
+    ('prep', 'prep_args', 'optional input-data preparation, user-invoked only (decision 0063; wtune_geog.py): '
+                          'geog list | fetch | import-dem | verify | bounds | srtm-fetch',
+     'wtune_geog.py', None),
+    ('project', 'project_args', 'project folder holding case/input/config/runs/post '
+                                '(decision 0058; wtune_project.py): init | info | set',
+     'wtune_project.py', 'wtune_project'),
+    ('analyze', 'analyze_args', 'TC diagnostics/tracking via wrf-python + TempestExtremes (analysis/cli.py): diag | tc-track',
+     'analysis/cli.py', 'analysis.cli'),
+    ('predict-rebuild', 'prb_args', 'whole-run wall-time prediction from rebuilt segments measured in parallel on the target config (wtune_rebuild_predict.py)',
+     'wtune_rebuild_predict.py', 'wtune_rebuild_predict'),
+    ('watch', 'watch_args', 'read-only monitor of a WRF run dir: progress, remaining time, hang/nest-stop/failure warnings (wtune_watch.py)',
+     'wtune_watch.py', 'wtune_watch'),
+    ('run', 'run_args', 'segmented WRF execution with restart hand-offs, per-segment config and opt-in CFL rescue (wtune_run.py)',
+     'wtune_run.py', 'wtune_run'),
+    ('advise', 'advise_args', 'advice-only: detect case conditions and suggest WRF modes/workflows with cost, evidence and side effects (decision 0061; wtune_advise.py)',
+     'wtune_advise.py', 'wtune_advise'),
+    ('calc', 'calc_args', 'rules of thumb and unit conversions for namelist parameters, plus `calc check <namelist.input>` (decision 0062; wtune_calc.py)',
+     'wtune_calc.py', 'wtune_calc'),
+    ('scenario', 'scenario_args', 'pluggable scenario generators for fictional-date WRF forcing (scenario/cli.py): list | generate | inspect',
+     'scenario/cli.py', 'scenario.cli'),
+)
+_FORWARDED_DEST = {name: dest for name, dest, _help, _target, _module in _FORWARDED_COMMANDS}
+_FORWARDED_MODULE = {name: module for name, _dest, _help, _target, module in _FORWARDED_COMMANDS}
+
+
+def _build_parser():
     parser = argparse.ArgumentParser(prog='wtune.py', description='WRF config autotuner analytical core')
     parser.add_argument('--version', action='version',
                         version='wtune %s' % wtune_version.__version__)
     sub = parser.add_subparsers(dest='command')
+    for add_parser in _IN_PROCESS_PARSERS:
+        add_parser(sub)
+    for name, dest, help_text, target, _module in _FORWARDED_COMMANDS:
+        p = sub.add_parser(name, help=help_text)
+        p.add_argument(dest, nargs=argparse.REMAINDER, help='forwarded to ' + target)
+    return parser
 
-    p_plan = sub.add_parser('plan', help='generate ranked decomposition shortlist')
-    p_plan.add_argument('--namelist', required=True, help='path to namelist.input')
-    p_plan.add_argument('--ranks', type=int, default=None, help='total MPI ranks')
-    p_plan.add_argument('--nodes', type=int, default=None, help='number of nodes')
-    p_plan.add_argument('--cores-per-node', type=int, default=None, help='default 112')
-    p_plan.add_argument('--numa-domains', type=int, default=None, help='default 8')
-    p_plan.add_argument('--cores-per-numa', type=int, default=None, help='default derived or 14')
-    p_plan.add_argument('--smt', choices=['on', 'off'], default='off', help='default off')
-    p_plan.add_argument('--json', action='store_true', help='emit JSON')
-    p_plan.add_argument('--allow-hybrid', action='store_true', help='report hybrid alternative')
-    p_plan.add_argument('--wrfinput', default=None, help='wrfinput/wrfout for lat/lon/date (via ncdump -h)')
-    p_plan.add_argument('--surrogate-json', default=None, help='precomputed SpeedyWeather hotspot JSON to include')
 
-    p_hot = sub.add_parser('hotspot', help='physics load map: analytic terminator + convective surrogate')
-    p_hot.add_argument('--namelist', required=True, help='path to namelist.input')
-    p_hot.add_argument('--wrfinput', default=None, help='wrfinput/wrfout for lat/lon/date')
-    p_hot.add_argument('--surrogate-json', default=None, help='use a precomputed SpeedyWeather hotspot JSON')
-    p_hot.add_argument('--run-surrogate', action='store_true', help='run SpeedyWeather now (slow: JIT + model)')
-    p_hot.add_argument('--trunc', type=int, default=31, help='SpeedyWeather spectral truncation (default 31)')
-    p_hot.add_argument('--nlayers', type=int, default=8, help='SpeedyWeather vertical layers (default 8)')
-    p_hot.add_argument('--srun', default=None, help='srun prefix to run the surrogate on a compute node')
+def _forwarded_module(args):
+    """Import the module a forwarded subcommand hands its argv to -- lazily, so only the running
+    subcommand's module (and its dependencies) loads.
 
-    p_phys = sub.add_parser('physics', help='physics diagnosis + numerics advice + scheme menu')
-    p_phys.add_argument('--namelist', required=True, help='path to namelist.input')
-    p_phys.add_argument('--menu', action='store_true', help='also print the advisory scheme menu')
-    p_phys.add_argument('--wrfinput', default=None, help='wrfinput/wrfout for lat/lon/date (via ncdump -h); also sets the probe bbox')
-    p_phys.add_argument('--probe-json', default=None, help='use THIS speedy_probe.jl JSON instead of auto-running the probe')
-    p_phys.add_argument('--wps', default=None, help='namelist.wps for the domain centre (default: sibling of --namelist)')
-    p_phys.add_argument('--latlon', default=None, help='override domain-centre "LAT,LON" for the probe bbox')
-    p_phys.add_argument('--probe-hours', type=int, default=6, help='SpeedyWeather probe forecast length (default 6)')
-    p_phys.add_argument('--probe-trunc', type=int, default=31, help='SpeedyWeather spectral truncation (default 31); part of the probe cache key')
-    p_phys.add_argument('--probe-nlayers', type=int, default=8, help='SpeedyWeather vertical layers (default 8); part of the probe cache key')
-    p_phys.add_argument('--no-probe', action='store_true', help='skip the built-in SpeedyWeather probe')
-    p_phys.add_argument('--compliance', choices=sorted(wc.LEVELS), default=None,
-                        help='keep only findings admitted at this compliance level (decision 0050); default: show all, labelled')
-
-    p_knobs = sub.add_parser('knobs', help='full knob advisor: input-derived param recommendations + mismatch flags')
-    p_knobs.add_argument('--namelist', required=True, help='path to namelist.input')
-    p_knobs.add_argument('--wrfinput', default=None, help='wrfinput/wrfout for lat/lon/date (via ncdump -h)')
-    p_knobs.add_argument('--all', action='store_true', help='show OK findings too, not just actionable')
-    p_knobs.add_argument('--compliance', choices=sorted(wc.LEVELS), default=None,
-                         help='keep only findings admitted at this compliance level (decision 0050); default: show all, labelled')
-
-    p_cat = sub.add_parser('catalog', help='list the complete Registry-derived parameter catalog')
-    p_cat.add_argument('--group', default=None, help='filter to one namelist group (e.g. physics)')
-    p_cat.add_argument('--grep', default=None, help='filter by substring in param name')
-    p_cat.add_argument('--include-io', action='store_true', help='include per-stream I/O plumbing params')
-
-    p_audit = sub.add_parser('audit', help='Registry-driven scan of EVERY (2062) catalog param (coverage guarantee, any WRF case)')
-    p_audit.add_argument('--namelist', required=True, help='path to namelist.input')
-
-    p_screen = sub.add_parser('screen', help='autotuner funnel: analytic screen (all params) -> SpeedyWeather vet -> effective few')
-    p_screen.add_argument('--namelist', required=True, help='path to namelist.input')
-    p_screen.add_argument('--probe-json', default=None, help='use THIS speedy_probe.jl JSON instead of auto-running the probe')
-    p_screen.add_argument('--wrfinput', default=None, help='wrfinput/wrfout for lat/lon/date (via ncdump -h); also sets the probe bbox')
-    p_screen.add_argument('--wps', default=None, help='namelist.wps for the domain centre (default: sibling of --namelist)')
-    p_screen.add_argument('--latlon', default=None, help='override domain-centre "LAT,LON" for the probe bbox')
-    p_screen.add_argument('--probe-hours', type=int, default=6, help='SpeedyWeather probe forecast length (default 6)')
-    p_screen.add_argument('--probe-trunc', type=int, default=31, help='SpeedyWeather spectral truncation (default 31); part of the probe cache key')
-    p_screen.add_argument('--probe-nlayers', type=int, default=8, help='SpeedyWeather vertical layers (default 8); part of the probe cache key')
-    p_screen.add_argument('--no-probe', action='store_true', help='skip the built-in SpeedyWeather probe (physics candidates stay NEED-PROBE)')
-    p_screen.add_argument('--json', action='store_true', help='emit a candidate-level JSON evidence manifest (classification/evidence_level/objective) after the vet')
-    p_screen.add_argument('--compliance', choices=sorted(wc.LEVELS), default=None,
-                          help='keep only candidates admitted at this compliance level (decision 0050); default: show all, labelled')
-
-    p_profile = sub.add_parser('profile', help='case-understanding profile (PRIOR, pre-measurement): identity/physics/cost-structure/imbalance/core-count priors')
-    p_profile.add_argument('case_dir', help='directory with namelist.input (+ optional wrfinput_d0N)')
-    p_profile.add_argument('--namelist', default=None, help='explicit namelist.input path (default: <case_dir>/namelist.input)')
-    p_profile.add_argument('--wrfinput', default=None, help='explicit wrfinput/wrfout path (default: first wrfinput_d0N in case_dir)')
-    p_profile.add_argument('--cores-per-node', type=int, default=None, help='default 72 (GH200 Grace)')
-    p_profile.add_argument('--json', default=None, help='also write the full profile as JSON to this path')
-
-    p_mprofile = sub.add_parser('machine-profile', help='print a human summary of a machine/run_machine_profile.sh JSON (MEASURED machine speed, not the case profile)')
-    p_mprofile.add_argument('json_path', help='machine_profile_<host>_<date>.json produced by machine/run_machine_profile.sh')
-
-    p_omap = sub.add_parser('oracle-map', help='DIAGNOSTIC spatial physics-load map (per-cell phase cost + hotspots); NOT a partition selector')
-    p_omap.add_argument('--namelist', required=True, help='path to namelist.input (for date + cu_physics + run length)')
-    p_omap.add_argument('--snapshot', default=None, help='wrfout/wrfinput NetCDF with model-state fields (defaults to --wrfinput)')
-    p_omap.add_argument('--wrfinput', default=None, help='wrfinput/wrfout for lat/lon/date (via ncdump -h); also the snapshot fallback')
-    p_omap.add_argument('--stride', type=int, default=4, help='spatial subsample stride for the model-state read (default 4)')
-    p_omap.add_argument('--top-k', dest='top_k', type=int, default=12, help='number of hottest cells to list (default 12)')
-    p_omap.add_argument('--grid', type=int, default=24, help='max side of the per-phase JSON grid (block-mean downsample, default 24)')
-    p_omap.add_argument('--json-out', dest='json_out', default=None, help='write the artifact JSON here (compact grids + top-k)')
-    p_omap.add_argument('--npz-out', dest='npz_out', default=None, help='write the full-resolution per-phase fields here as .npz')
-
-    p_restart = sub.add_parser('restart-window', help='UNVERIFIED restart-boundary decomposition/team hypotheses')
-    p_restart.add_argument('--namelist', required=True, help='path to namelist.input (never modified)')
-    p_restart.add_argument('--snapshot', required=True, help='readable wrfout/wrfrst snapshot for oracle fields')
-    p_restart.add_argument('--topology-json', required=True, help='topology JSON with node-local CPU lists')
-    p_restart.add_argument('--rank-counts', '--ranks', dest='rank_counts', default=None,
-                           help='comma-separated MPI rank counts (default nproc_x*nproc_y)')
-    p_restart.add_argument('--window-hours', type=float, default=None, help='restart advisor window size in hours')
-    p_restart.add_argument('--run-hours', type=float, default=None, help='override namelist run duration in hours')
-    p_restart.add_argument('--stride', type=int, default=4, help='snapshot spatial subsample stride (default 4)')
-    p_restart.add_argument('--top-k', dest='top_k', type=int, default=1, help='candidates per rank count/window')
-    p_restart.add_argument('--output-dir', default='restart-window-artifacts', help='directory for rank maps and wrappers')
-    p_restart.add_argument('--manifest-out', default=None, help='overall canonical JSON manifest path')
-
-    p_feedback = sub.add_parser('feedback', help='manifest-only advisory feedback decisions')
-    p_feedback.add_argument('--input', required=True, help='JSON samples and controller limits')
-    p_feedback.add_argument('--json-out', required=True, help='decision JSON output')
-    p_feedback.add_argument('--csv-out', required=True, help='canonical telemetry/decision CSV output')
-
-    sub.add_parser('selftest', help='run CONUS calibration self-test')
-
-    p_compliance = sub.add_parser('compliance', help='compliance model + knob catalog (decision 0050): validate/list/classify')
-    p_compliance.add_argument('compliance_args', nargs=argparse.REMAINDER,
-                              help='forwarded to wtune_compliance.py (validate | list [--compliance LEVEL] [--json] | classify NAME...)')
-
-    import wtune_predict
-    wtune_predict.add_subparser(sub)
-
-    p_tune = sub.add_parser('tune', help='budgeted on-cluster tuner (scc): probe, screen, confirm, report')
-    p_tune.add_argument('tune_args', nargs=argparse.REMAINDER, help='forwarded to wtune_tune.py')
-
-    p_config = sub.add_parser('config', help='wtune tune search-space YAML config (wtune_config.py): init | show | validate')
-    p_config.add_argument('config_args', nargs=argparse.REMAINDER, help='forwarded to wtune_config.py')
-
-    p_metdata = sub.add_parser('metdata', help='GRIB source selection/availability/download (tools/metdata.py): find | check | fetch')
-    p_metdata.add_argument('metdata_args', nargs=argparse.REMAINDER, help='forwarded to tools/metdata.py')
-
-    p_check = sub.add_parser('check', help='pre-submission WRF run_dir sanity checker (wtune_preflight.py): time windows, iofields, physics data files, decomposition, disk')
-    p_check.add_argument('check_args', nargs=argparse.REMAINDER, help='forwarded to wtune_preflight.py')
-    p_cal = sub.add_parser('calibrate', help='machine calibration for a new cluster (wtune_calibrate.py plan | fit)')
-    p_cal.add_argument('calibrate_args', nargs=argparse.REMAINDER, help='forwarded to wtune_calibrate.py')
-
-    p_post = sub.add_parser('post', help='post-processing/analysis, advisory only (decision 0056; post/cli.py): '
-                                         'inventory | extract | plot | sounding | tc | compare | report | recipe | custom')
-    p_post.add_argument('post_args', nargs=argparse.REMAINDER, help='forwarded to post/cli.py')
-
-    p_prep = sub.add_parser('prep', help='optional input-data preparation, user-invoked only (decision 0063; wtune_geog.py): '
-                                         'geog list | fetch | import-dem | verify | bounds | srtm-fetch')
-    p_prep.add_argument('prep_args', nargs=argparse.REMAINDER, help='forwarded to wtune_geog.py')
-
-    p_project = sub.add_parser('project', help='project folder holding case/input/config/runs/post '
-                                               '(decision 0058; wtune_project.py): init | info | set')
-    p_project.add_argument('project_args', nargs=argparse.REMAINDER, help='forwarded to wtune_project.py')
-
-    p_analyze = sub.add_parser('analyze', help='TC diagnostics/tracking via wrf-python + TempestExtremes (analysis/cli.py): diag | tc-track')
-    p_analyze.add_argument('analyze_args', nargs=argparse.REMAINDER, help='forwarded to analysis/cli.py')
-
-    p_prb = sub.add_parser('predict-rebuild', help='whole-run wall-time prediction from rebuilt segments measured in parallel on the target config (wtune_rebuild_predict.py)')
-    p_prb.add_argument('prb_args', nargs=argparse.REMAINDER, help='forwarded to wtune_rebuild_predict.py')
-
-    p_watch = sub.add_parser('watch', help='read-only monitor of a WRF run dir: progress, remaining time, hang/nest-stop/failure warnings (wtune_watch.py)')
-    p_watch.add_argument('watch_args', nargs=argparse.REMAINDER, help='forwarded to wtune_watch.py')
-    p_run = sub.add_parser('run', help='segmented WRF execution with restart hand-offs, per-segment config and opt-in CFL rescue (wtune_run.py)')
-    p_run.add_argument('run_args', nargs=argparse.REMAINDER, help='forwarded to wtune_run.py')
-
-    p_advise = sub.add_parser('advise', help='advice-only: detect case conditions and suggest WRF modes/workflows with cost, evidence and side effects (decision 0061; wtune_advise.py)')
-    p_advise.add_argument('advise_args', nargs=argparse.REMAINDER, help='forwarded to wtune_advise.py')
-
-    p_calc = sub.add_parser('calc', help='rules of thumb and unit conversions for namelist parameters, plus `calc check <namelist.input>` (decision 0062; wtune_calc.py)')
-    p_calc.add_argument('calc_args', nargs=argparse.REMAINDER, help='forwarded to wtune_calc.py')
-
-    p_scenario = sub.add_parser('scenario', help='pluggable scenario generators for fictional-date WRF forcing (scenario/cli.py): list | generate | inspect')
-    p_scenario.add_argument('scenario_args', nargs=argparse.REMAINDER, help='forwarded to scenario/cli.py')
-
-    args = parser.parse_args()
-    if args.command == 'calc':
-        import wtune_calc
-        sys.exit(wtune_calc.main(args.calc_args))
-
-    if args.command == 'advise':
-        import wtune_advise
-        sys.exit(wtune_advise.main(args.advise_args))
-
-    if args.command == 'tune':
-        import wtune_tune
-        sys.exit(wtune_tune.main(args.tune_args))
-
-    if args.command == 'config':
-        import wtune_config
-        sys.exit(wtune_config.main(args.config_args))
-
-    if args.command == 'metdata':
-        sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'tools'))
-        import metdata
-        sys.exit(metdata.main(args.metdata_args))
-
-    if args.command == 'check':
-        import wtune_preflight
-        sys.exit(wtune_preflight.main(args.check_args))
-
-    if args.command == 'calibrate':
-        import wtune_calibrate
-        sys.exit(wtune_calibrate.main(args.calibrate_args))
-
-    if args.command == 'analyze':
-        from analysis import cli as analysis_cli
-        sys.exit(analysis_cli.main(args.analyze_args))
-
-    if args.command == 'post':
-        from post import cli as post_cli
-        sys.exit(post_cli.main(args.post_args))
-
+    `prep` keeps a literal import statement: decision 0063 keeps wtune_geog out of every other
+    code path, and test_wtune_geog pins that it is imported only inside the 'prep' branch.
+    tools/metdata.py is not in a package, so its directory goes on sys.path first."""
     if args.command == 'prep':
         import wtune_geog
-        sys.exit(wtune_geog.main(args.prep_args))
+        return wtune_geog
+    if args.command == 'metdata':
+        sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'tools'))
+    return importlib.import_module(_FORWARDED_MODULE[args.command])
 
-    if args.command == 'project':
-        import wtune_project
-        sys.exit(wtune_project.main(args.project_args))
 
-    if args.command == 'predict-rebuild':
-        import wtune_rebuild_predict
-        sys.exit(wtune_rebuild_predict.main(args.prb_args))
+def _predict_cmd(args):
+    import wtune_predict
+    return wtune_predict.predict_cmd(args)
 
-    if args.command == 'watch':
-        import wtune_watch
-        sys.exit(wtune_watch.main(args.watch_args))
-    if args.command == 'run':
-        import wtune_run
-        sys.exit(wtune_run.main(args.run_args))
 
-    if args.command == 'scenario':
-        from scenario import cli as scenario_cli
-        sys.exit(scenario_cli.main(args.scenario_args))
+# In-process subcommand -> (handler(args), always_exit). The handler's return value is the exit
+# status: with always_exit the process exits with it even when it is 0/None; otherwise it exits
+# only on a nonzero status and main() returns normally (the plan/physics/... handlers return
+# None and report failure by calling sys.exit themselves). Handlers call the module-level
+# function by name at call time, so monkeypatching wtune_cli.<function> still takes effect.
+_IN_PROCESS_COMMANDS = {
+    'plan': (lambda args: plan(args), False),
+    'physics': (lambda args: physics_cmd(args), False),
+    'profile': (lambda args: profile_cmd(args), False),
+    'machine-profile': (lambda args: machine_profile_cmd(args), False),
+    'hotspot': (lambda args: hotspot_cmd(args), False),
+    'oracle-map': (lambda args: oracle_map_cmd(args), False),
+    'restart-window': (lambda args: restart_window_cmd(args), False),
+    'feedback': (lambda args: feedback_cmd(args), False),
+    'knobs': (lambda args: knobs_cmd(args), False),
+    'catalog': (lambda args: catalog_cmd(args), False),
+    'audit': (lambda args: audit_cmd(args), False),
+    'screen': (lambda args: screen_cmd(args), False),
+    'selftest': (lambda args: selftest(), True),
+    'compliance': (lambda args: wc._main(args.compliance_args), True),
+    'predict': (lambda args: _predict_cmd(args), True),
+}
 
-    if args.command == 'plan':
-        plan(args)
-    elif args.command == 'physics':
-        physics_cmd(args)
-    elif args.command == 'profile':
-        status = profile_cmd(args)
-        if status:
-            sys.exit(status)
-    elif args.command == 'machine-profile':
-        status = machine_profile_cmd(args)
-        if status:
-            sys.exit(status)
-    elif args.command == 'hotspot':
-        hotspot_cmd(args)
-    elif args.command == 'oracle-map':
-        oracle_map_cmd(args)
-    elif args.command == 'restart-window':
-        status = restart_window_cmd(args)
-        if status:
-            sys.exit(status)
-    elif args.command == 'feedback':
-        status = feedback_cmd(args)
-        if status:
-            sys.exit(status)
-    elif args.command == 'knobs':
-        knobs_cmd(args)
-    elif args.command == 'catalog':
-        catalog_cmd(args)
-    elif args.command == 'audit':
-        audit_cmd(args)
-    elif args.command == 'screen':
-        screen_cmd(args)
-    elif args.command == 'selftest':
-        sys.exit(selftest())
-    elif args.command == 'compliance':
-        sys.exit(wc._main(args.compliance_args))
-    elif args.command == 'predict':
-        sys.exit(wtune_predict.predict_cmd(args))
-    else:
+
+def main():
+    parser = _build_parser()
+    args = parser.parse_args()
+    if args.command in _FORWARDED_DEST:
+        sys.exit(_forwarded_module(args).main(getattr(args, _FORWARDED_DEST[args.command])))
+    if args.command not in _IN_PROCESS_COMMANDS:
         parser.print_help()
         sys.exit(1)
+    handler, always_exit = _IN_PROCESS_COMMANDS[args.command]
+    status = handler(args)
+    if always_exit or status:
+        sys.exit(status)
 
 
 if __name__ == '__main__':

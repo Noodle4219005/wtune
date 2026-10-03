@@ -151,7 +151,6 @@ def _tables(out_dir, suffix):
 
 def verify_run(run_dir, domain, frames, project_dir, out_dir, spinup_hours):
     """Whole chain for a run. Raises NoStations when no observations are available."""
-    from post import obs_figs
     from post.caseinfo import WRF_TIME_FMT, spec_bdy_width
     if not project_dir:
         raise NoStations("no wtune project found for %s -- station data lives under "

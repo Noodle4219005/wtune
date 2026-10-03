@@ -1030,7 +1030,6 @@ def _rmw_figure(run_dir, adeck_path, met_dir, out_dir, label, every_h=6):
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     from matplotlib.patches import Patch
-    from matplotlib.ticker import MaxNLocator
 
     frames = []
     for time_str, f, ti in extract.list_frame_refs(run_dir, 1):  # segment-aware, Times-based
@@ -1106,8 +1105,8 @@ def _rmw_figure(run_dir, adeck_path, met_dir, out_dir, label, every_h=6):
     ax.set_ylim(ymax, float(np.min(plev)))
     ax.set_xlim(float(rng.min()), float(rng.max()))
     if handles:
-        legend = ax.legend(handles=handles, loc="upper left", bbox_to_anchor=(0.0, -0.16),
-                           fontsize=8, frameon=False)
+        ax.legend(handles=handles, loc="upper left", bbox_to_anchor=(0.0, -0.16),
+                  fontsize=8, frameon=False)
     ax.set_xlabel("radius from storm centre (km)")
     ax.set_ylabel("pressure (hPa)")
     # approximate height (ICAO standard atmosphere) for readers used to radius-height plots

@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import os
 import re
-from datetime import datetime
 
 from post import sources
 from post.fetch.era5_monthly import month_starts

@@ -105,7 +105,7 @@ def _uh_time_max(run_dir, domain, frames):
     import numpy as np
     wrf_mod = __import__("wrf")
     best = None
-    lats = lons = crs = ds_for_coast = None
+    lats = lons = crs = None
     for f in frames:                    # (time, path[, timeidx])
         path, ti = f[1], (f[2] if len(f) > 2 else 0)
         with netCDF4.Dataset(path) as ds:
@@ -253,14 +253,12 @@ def _mrms_files(project_dir):
 
 
 def _nearest(vols, t, tol_min=8):
-    from datetime import timedelta
     best = min(vols, key=lambda v: abs((v[0] - t).total_seconds()), default=None)
     return best[1] if best and abs((best[0] - t).total_seconds()) <= tol_min * 60 else None
 
 
 def radar_missing_reason(project_dir, run_dir, frame_times, bbox):
     """The missing() reason: coverage (data does not exist) or the fetch command."""
-    from datetime import datetime
     from post.fetch import mrms
     t0 = frame_times[0] if frame_times else None
     cmd = "wtune post fetch nexrad --project %s --run-dir %s" % (project_dir or "<project>", run_dir)
@@ -273,7 +271,6 @@ def radar_missing_reason(project_dir, run_dir, frame_times, bbox):
 
 def _pool_counts(per_time):
     """[{thresh, pod, far, csi, fbias, total}] from summed contingency counts of every time."""
-    import math
     agg = {}
     for ctc in per_time:
         for r in ctc:
@@ -296,7 +293,6 @@ def _pool_fss(per_time):
     """Pooled FSS per (threshold, width): 1 - sum(FBS) / sum(FBS_ref), FBS_ref = FBS / (1 - FSS)
     recovered from MET's own FBS and FSS columns of every time (MET's NBRCNT aggregation rule);
     o_rate/f_rate are plain means."""
-    import math
     agg = {}
     for rows in per_time:
         for r in rows:
@@ -315,7 +311,7 @@ def _pool_fss(per_time):
 
 
 def _radar_figures(run_dir, run_label, domain, case_info, out_dir, spinup_hours):
-    from datetime import datetime, timedelta
+    from datetime import datetime
     import csv
     import netCDF4
     import numpy as np

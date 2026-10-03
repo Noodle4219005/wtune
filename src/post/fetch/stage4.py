@@ -13,9 +13,8 @@ contains a full 12 UTC-to-12 UTC day). The grid is CONUS: a window/region entire
 from __future__ import annotations
 
 import os
-import sys
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from post import sources
 

@@ -211,7 +211,6 @@ def analyze_probe(probe, case=None):
             regime = "MIXED convective+stratiform"
         L.append("  convective fraction {} -> {}".format(cf, regime))
     ct = probe.get('cloud_top') or {}
-    sw = probe.get('sw_down_surface') or {}
     if ct.get('mean') is not None:
         L.append("  cloud_top mean {} -> {}".format(
             ct.get('mean'),

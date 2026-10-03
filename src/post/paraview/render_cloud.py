@@ -95,7 +95,7 @@ def main(argv):
 
     from paraview.simple import (NetCDFReader, LegacyVTKReader, Transform, Contour, Show, Text,
                                  ColorBy, GetActiveViewOrCreate, GetColorTransferFunction,
-                                 GetScalarBar, SaveScreenshot, UpdatePipeline)
+                                 GetScalarBar, SaveScreenshot)
 
     cloud_reader = NetCDFReader(FileName=[a.cloud_nc])
     cloud_reader.SphericalCoordinates = 0

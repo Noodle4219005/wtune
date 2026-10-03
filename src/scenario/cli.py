@@ -12,7 +12,6 @@ from pathlib import Path
 
 from . import wps_intermediate as wi
 from .base import ScenarioError, ScenarioRequest, get_generator, list_generators, valid_times
-from .config import parse_scenario
 from .fill import compute_missing
 from .generators.analog import select_analog_date
 

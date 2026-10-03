@@ -80,8 +80,6 @@ provenance returned by detect_and_stitch, per the task's provenance requirement.
 from __future__ import annotations
 
 import csv
-import glob as globmod
-import json
 import os
 import subprocess
 import sys

@@ -49,13 +49,12 @@ disclosed-limitation pattern case_rebuild.py itself uses for its own network orc
 
 from __future__ import annotations
 
-import dataclasses
 import datetime
 import os
 import subprocess
 import sys
 from pathlib import Path
-from typing import Optional, Sequence, Tuple
+from typing import Tuple
 
 from .. import wps_intermediate as wi
 from ..base import Caps, ForcingSet, ScenarioError, ScenarioGenerator, register, request_to_dict

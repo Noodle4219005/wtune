@@ -256,7 +256,6 @@ def per_domain_variant(template, case, max_dom=None, cfl_limit=CFL_SAFE, key="ti
 
 def _cli(argv=None):
     import argparse
-    import json
     import os
     import sys
     sys.path.insert(0, os.path.join(

@@ -11,7 +11,6 @@ single-feature) and report honestly. GBRT/many-feature would just memorise 8 poi
 import sys, glob, os, re, datetime, csv
 sys.path.insert(0, '/home/u5727520/wrf-stack/wtune')
 import numpy as np
-import wtune_oracle as oc
 import wtune_oracle_train as tr
 tr.PX, tr.PY = 6, 6
 CASES = "tropical_conv cont_diurnal marine_sc midlat_cyclone orographic sh_winter subtropical_dry tropical_cyclone".split()

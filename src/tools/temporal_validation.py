@@ -809,7 +809,7 @@ def cmd_submit_long(args):
 
 
 def cmd_submit_samples(args):
-    cj = case_json(args.case)
+    case_json(args.case)  # result unused; kept so an unknown case still fails here, before any submission
     configs_list, configs_path = ensure_samples_configs(
         args.root, args.case, args.nodes, args.cores_per_node, args.hardware_id, args.k, args.seed)
     restart_hours_list = (args.restart_times if args.restart_times is not None

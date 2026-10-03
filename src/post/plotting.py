@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import os
 
-from post.extract import _level_base_field, _surface_field, list_frame_refs, list_frames, UNITS
+from post.extract import _level_base_field, _surface_field, list_frame_refs, UNITS
 
 WIND_SUBSAMPLE = 8      # every Nth grid point in each direction for the wind overlay
 

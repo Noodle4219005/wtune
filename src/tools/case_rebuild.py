@@ -1067,8 +1067,7 @@ def cmd_complete(in_dir, out_dir, center=None, size_km=None, dx_km=None, start=N
     if ml_model:
         rows.append({"item": "post-real.exe state completion", "method": "ml_state_correction"})
 
-    plan = cmd_rebuild_plan(case_dir_for_plan, out_dir, namelist=namelist_for_plan,
-                            ml_model=ml_model)
+    cmd_rebuild_plan(case_dir_for_plan, out_dir, namelist=namelist_for_plan, ml_model=ml_model)
 
     completion_report = {"inventory": inventory, "decision": decision, "rows": rows,
                          "plan_dir": os.path.abspath(out_dir)}

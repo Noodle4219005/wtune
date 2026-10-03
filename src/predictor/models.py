@@ -32,7 +32,7 @@ except ImportError:
     wtune_decomp = None
 
 try:
-    from catboost import CatBoostClassifier, CatBoostRegressor, CatBoostRanker, Pool
+    from catboost import CatBoostClassifier, CatBoostRegressor, CatBoostRanker, Pool  # noqa: F401  availability probe: HAVE_CATBOOST requires all four
     HAVE_CATBOOST = True
 except ImportError:
     HAVE_CATBOOST = False

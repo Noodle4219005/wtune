@@ -18,7 +18,6 @@ the caption. masked_barbs() draws wind barbs only inside a validity mask (plotte
 """
 from __future__ import annotations
 
-import glob
 import os
 
 # (category, NE name, label, edge colour, linewidth)

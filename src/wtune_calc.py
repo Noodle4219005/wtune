@@ -1032,8 +1032,8 @@ def _build_parser():
         ("--parent-dx-km", f(default=None)), ("--vortex-interval", f(default=15)), ("--max-vortex-speed", f(default=40)))
     add("longrun", "SST update for long runs", ("--run-days", f(default=None)), ("--interval-seconds", f(default=21600)))
     add("spinup", "spin-up guidance", ("--run-hours", f(default=None)))
-    c = add("check", "apply every applicable rule to a namelist.input", ("namelist", dict()),
-            ("--geog-res-arcsec", f(default=30.0)))
+    add("check", "apply every applicable rule to a namelist.input", ("namelist", dict()),
+        ("--geog-res-arcsec", f(default=30.0)))
     return p
 
 

@@ -75,7 +75,6 @@ if _HERE not in sys.path:
 
 import wtune_predict as wp  # parse_namelist / g / g_dom / get_max_dom / get_domain_geom / ...
 import wtune_physics as wphys  # resolve_suite (physics_suite sentinel resolution)
-import wtune_runlength as runlen  # resolve_run_seconds
 
 try:
     from predictor.decomp_space import rsl_patch_extents, MIN_PATCH
@@ -1101,9 +1100,8 @@ def check_c7_decomposition(nl, findings, ranks=None, nproc_x=None, nproc_y=None)
                 % (eff_x, eff_y, implied_ranks, ranks),
                 fix="make --ranks match nproc_x*nproc_y, or change nproc_x/nproc_y",
             ))
-        eff_ranks = implied_ranks
     elif ranks is not None:
-        eff_ranks = int(ranks)
+        int(ranks)  # value unused; kept so a non-integer ranks still raises here as before
     else:
         findings.append(Finding(
             INFO, "C7",

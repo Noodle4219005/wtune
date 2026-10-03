@@ -36,7 +36,6 @@ So halo volume is not the driver; the length of the contiguous i-dimension inner
 from __future__ import annotations
 
 import argparse
-import math
 
 MIN_PATCH = 10          # WRF refuses a patch thinner than this in either dimension;
                         # measured: 4x112 -> patch 225x8 -> FATAL on both cases in the sweep.

@@ -15,7 +15,6 @@ submits.
 
 stdlib only. Python 3.6.
 """
-import json
 import re
 import subprocess
 from pathlib import Path

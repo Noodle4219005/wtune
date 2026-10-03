@@ -6,7 +6,7 @@
 # docs/io-adios2-zstd.md. The MPI-parallel path is NOT converted (upstream's
 # own README already recommends the serial path; see open_files()) and will
 # raise NotImplementedError if selected.
-import os, sys
+import sys
 import argparse
 from collections import defaultdict
 
@@ -193,7 +193,6 @@ def r_w_data_serial(adios2f, netcdff, var_names, steps, vars):
 
 
 def r_w_data_parallel(adios2f, netcdff, var_names, num_steps, vars):
-    comm = MPI.COMM_WORLD
     for i, var in enumerate(var_names):
         progress(i, len(var_names), status=var)
         if vars[var]["Type"] != "string":

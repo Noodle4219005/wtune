@@ -693,7 +693,7 @@ def write_timeline_header_json(path, header):
 # 7. netCDF glue -- LAZY import, never exercised by tests
 # ===========================================================================
 def _lazy_netcdf4():
-    import netCDF4  # noqa: local import -- only available inside the pixi campaign env on the
+    import netCDF4  # noqa: PLC0415 -- local import, only available inside the pixi campaign env on the
                      # cluster ($HOME/wtune-envs/campaign); never imported at module load time.
     return netCDF4
 

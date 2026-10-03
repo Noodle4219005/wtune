@@ -35,10 +35,13 @@ import test_wtune_tune as T
 GOLDEN = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures", "golden",
                       "wtune_tune")
 REGEN = os.environ.get("WTUNE_GOLDEN_REGEN") == "1"
+# the checkout location differs per machine (scc runs the suite from an exported tree)
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 def _norm(text, tmp_path):
     text = text.replace(str(tmp_path), "<TMP>")
+    text = text.replace(os.path.realpath(REPO), "<REPO>").replace(REPO, "<REPO>")
     text = re.sub(r'"probe_s": [0-9.e-]+', '"probe_s": "<PROBE_S>"', text)
     text = re.sub(r"\(\d+\.\ds, controller time\)", "(<PROBE_S>, controller time)", text)
     text = re.sub(r"probe \d+\.\ds", "probe <PROBE_S>", text)

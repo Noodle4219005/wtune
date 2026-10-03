@@ -135,7 +135,7 @@
       "restart_read_s": null,
       "s_prior": null,
       "sacct_cmd": "sacct",
-      "sbatch_script": "/home/nk/devel/wtune-refactor/campaign/strict_campaign.sbatch",
+      "sbatch_script": "<REPO>/campaign/strict_campaign.sbatch",
       "search_cfg": {
        "aspect_max": null,
        "io": {
@@ -305,7 +305,7 @@
       "restart_read_s": null,
       "s_prior": null,
       "sacct_cmd": "sacct",
-      "sbatch_script": "/home/nk/devel/wtune-refactor/campaign/strict_campaign.sbatch",
+      "sbatch_script": "<REPO>/campaign/strict_campaign.sbatch",
       "search_cfg": {
        "aspect_max": null,
        "io": {
@@ -460,7 +460,7 @@
       "restart_read_s": null,
       "s_prior": null,
       "sacct_cmd": "sacct",
-      "sbatch_script": "/home/nk/devel/wtune-refactor/campaign/strict_campaign.sbatch",
+      "sbatch_script": "<REPO>/campaign/strict_campaign.sbatch",
       "search_cfg": {
        "aspect_max": null,
        "io": {
@@ -623,7 +623,7 @@
       "restart_read_s": null,
       "s_prior": null,
       "sacct_cmd": "sacct",
-      "sbatch_script": "/home/nk/devel/wtune-refactor/campaign/strict_campaign.sbatch",
+      "sbatch_script": "<REPO>/campaign/strict_campaign.sbatch",
       "search_cfg": {
        "aspect_max": null,
        "io": {
@@ -777,7 +777,7 @@
       "restart_read_s": null,
       "s_prior": null,
       "sacct_cmd": "sacct",
-      "sbatch_script": "/home/nk/devel/wtune-refactor/campaign/strict_campaign.sbatch",
+      "sbatch_script": "<REPO>/campaign/strict_campaign.sbatch",
       "search_cfg": {
        "aspect_max": null,
        "io": {
@@ -964,7 +964,7 @@
       "restart_read_s": null,
       "s_prior": null,
       "sacct_cmd": "sacct",
-      "sbatch_script": "/home/nk/devel/wtune-refactor/campaign/strict_campaign.sbatch",
+      "sbatch_script": "<REPO>/campaign/strict_campaign.sbatch",
       "search_cfg": {
        "aspect_max": null,
        "io": {
@@ -1151,7 +1151,7 @@
       "restart_read_s": null,
       "s_prior": null,
       "sacct_cmd": "sacct",
-      "sbatch_script": "/home/nk/devel/wtune-refactor/campaign/strict_campaign.sbatch",
+      "sbatch_script": "<REPO>/campaign/strict_campaign.sbatch",
       "search_cfg": {
        "aspect_max": null,
        "io": {
@@ -1342,7 +1342,7 @@
       "restart_read_s": null,
       "s_prior": null,
       "sacct_cmd": "sacct",
-      "sbatch_script": "/home/nk/devel/wtune-refactor/campaign/strict_campaign.sbatch",
+      "sbatch_script": "<REPO>/campaign/strict_campaign.sbatch",
       "search_cfg": {
        "aspect_max": null,
        "io": {
@@ -1521,7 +1521,7 @@
       "restart_read_s": null,
       "s_prior": null,
       "sacct_cmd": "sacct",
-      "sbatch_script": "/home/nk/devel/wtune-refactor/campaign/strict_campaign.sbatch",
+      "sbatch_script": "<REPO>/campaign/strict_campaign.sbatch",
       "search_cfg": {
        "aspect_max": null,
        "io": {
@@ -1696,7 +1696,7 @@
       "restart_read_s": null,
       "s_prior": null,
       "sacct_cmd": "sacct",
-      "sbatch_script": "/home/nk/devel/wtune-refactor/campaign/strict_campaign.sbatch",
+      "sbatch_script": "<REPO>/campaign/strict_campaign.sbatch",
       "search_cfg": {
        "aspect_max": null,
        "io": {
@@ -1873,7 +1873,7 @@
       "restart_read_s": null,
       "s_prior": null,
       "sacct_cmd": "sacct",
-      "sbatch_script": "/home/nk/devel/wtune-refactor/campaign/strict_campaign.sbatch",
+      "sbatch_script": "<REPO>/campaign/strict_campaign.sbatch",
       "search_cfg": {
        "aspect_max": null,
        "io": {

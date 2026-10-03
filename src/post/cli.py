@@ -365,8 +365,39 @@ def _add_fetch_module_parser(subparsers, name, mod, **kw):
     sp.add_argument("--run-dir", default=None, dest="run_dir", help="run whose wrfout gives the "
                     "time window and region")
     mod.add_arguments(sp)
+    _add_nc_cache_arg(sp)
     sp.set_defaults(fetch_name=name)
     return sp
+
+
+def _add_nc_cache_arg(p):
+    p.add_argument("--nc-cache", default=None, dest="nc_cache", metavar="DIR",
+                   help="where ADIOS2 BP history (io_form_history=14) is converted to netCDF "
+                   "once and reused (default: $WTUNE_NC_CACHE, else <project or output "
+                   "dir>/_nc_cache, else <run dir>/_nc_cache)")
+
+
+_DIR_OUT_COMMANDS = ("plot", "tc", "recipe", "cf3d", "vapor-bundle", "custom")
+_FILE_OUT_COMMANDS = ("extract", "sounding")
+
+
+def _nc_cache_base(args):
+    """Default base of the BP -> netCDF cache (<base>/_nc_cache): the project dir, else the
+    command's output dir (a file output's directory); None leaves <run dir>/_nc_cache."""
+    try:
+        project_dir, _doc = _project_context(args)
+    except Exception:                                       # noqa: BLE001 -- the command's own
+        project_dir = None                                  # project lookup reports it
+    if project_dir:
+        return project_dir
+    out = getattr(args, "out", None)
+    if not out:
+        return None
+    if args.post_command in _DIR_OUT_COMMANDS:
+        return out
+    if args.post_command in _FILE_OUT_COMMANDS:
+        return os.path.dirname(os.path.abspath(out))
+    return None
 
 
 def build_parser():
@@ -548,7 +579,10 @@ def build_parser():
         p_e5.add_argument("--run-dir", default=None, dest="run_dir")
         mods["era5"].add_arguments(p_e5)
         p_e5.set_defaults(fetch_name="era5")
+        _add_nc_cache_arg(p_e5)
 
+    for p in (p_inv, p_ex, p_pl, p_sd, p_tc, p_cmp, p_rec, p_cf, p_vb, p_cus):
+        _add_nc_cache_arg(p)
     return parser
 
 
@@ -564,7 +598,14 @@ def main(argv=None):
     if fn is None:
         parser.print_help()
         return 1
-    return fn(args)
+    from post import extract
+    try:
+        with extract.nc_cache(directory=getattr(args, "nc_cache", None),
+                              base=_nc_cache_base(args)):
+            return fn(args)
+    except extract.BPConversionError as e:  # ADIOS2 BP history, converter unavailable
+        print("error: %s" % e, file=sys.stderr)
+        return 2
 
 
 if __name__ == "__main__":

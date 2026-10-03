@@ -1880,6 +1880,9 @@ _FORWARDED_COMMANDS = (
      'wtune_watch.py', 'wtune_watch'),
     ('run', 'run_args', 'segmented WRF execution with restart hand-offs, per-segment config and opt-in CFL rescue (wtune_run.py)',
      'wtune_run.py', 'wtune_run'),
+    ('convert', 'convert_args', 'WRF netCDF <-> ADIOS2 BP (io_form 14) conversion (wtune_bp.py): '
+     'nc2bp | bp2nc | inputs (cached, manifest) [--check round trip]',
+     'wtune_bp.py', 'wtune_bp'),
     ('advise', 'advise_args', 'advice-only: detect case conditions and suggest WRF modes/workflows with cost, evidence and side effects (decision 0061; wtune_advise.py)',
      'wtune_advise.py', 'wtune_advise'),
     ('calc', 'calc_args', 'rules of thumb and unit conversions for namelist parameters, plus `calc check <namelist.input>` (decision 0062; wtune_calc.py)',

@@ -4,7 +4,7 @@
     wtune run CASE_DIR [--nodes N --nx X --ny Y] [--numtiles T] [--omp O]
         [--wall-limit HH:MM:SS | --segment-minutes M] [--stop-at YYYY-MM-DD_HH:MM:SS]
         [--prediction pred_rebuild.json] [--tune-report tune_report.json]
-        [--restart-io-form 14|2] [--cfl-rescue] --out OUT [--dry-run]
+        [--restart-io-form 14|2] [--io adios2|netcdf] [--cfl-rescue] --out OUT [--dry-run]
 
 The layout (nodes, nproc_x/y, numtiles, omp) is the CLI's; flags not given come from
 --tune-report's winner (tune_report_layout), and the node/nx/ny triple must come from one of them.
@@ -61,6 +61,33 @@ Segment namelist (render_segment_namelist; tools/coldstart_sample set_list & co.
     never set (its default .false. avoids a duplicate history frame at the boundary); every
     other history setting is untouched. adios2_numaggregators, when the case sets it, follows
     the segment's rank count (configs._apply_adios2: it must equal the rank count).
+
+I/O (--io, default adios2; 2026-10-03 user decision: netCDF is no longer used for WRF I/O)
+    Every segment namelist gets io_form_history/restart/input/boundary = 14 and io_form = 14 for
+    every aux input stream the case reads (configs.adios2_input_streams: auxinput4 when
+    sst_update=1, gfdda/sgfdda when grid_fdda/grid_sfdda > 0, any auxinputN the namelist names
+    with io_form_auxinputN > 0), adios2_numaggregators = the segment's rank count. WRF's
+    io_adios2 opens the inname exactly (no suffix added), so each stream's inname becomes
+    "<template>.bp" (input_inname="wrfinput_d<domain>.bp", bdy_inname="wrfbdy_d<domain>.bp",
+    auxinput4_inname="wrflowinp_d<domain>.bp", ... -- campaign/configs._apply_adios2's
+    convention) and each segment dir links wrfinput_d01.bp, wrfbdy_d01.bp, wrflowinp_d01.bp, ...
+    to: CASE_DIR/<name>.bp if the case already has it, else the netCDF CASE_DIR/<name> converted
+    once by wtune_bp.convert_inputs into <project>/input/bp/ (no project: OUT/_bp_inputs/),
+    before segment 0 is submitted. adios2.xml = the case's own + wtune_bp.adios2_xml() + the BP4
+    restart entries below. An aux stream whose file is missing keeps the case's io_form (a
+    note). --io netcdf is the LEGACY escape hatch (WARNING): the case's io_form_* stay as they
+    are, restart per --restart-io-form, as before 2026-10-03.
+    Per-record inputs: WRF 4.8's ADIOS2 reader never selects a BP step, so a multi-record
+    wrfbdy/wrflowinp/wrffdda BP yields record 1 for every read; convert_inputs writes those one BP
+    per record (<cache>/<name>/<name>_<date>.bp). Each segment dir links every record file
+    under its own name (wtune_bp.bp_input_links) and the namelist gets
+    wtune_bp.per_record_namelist_edits (multi_bdy_files=.true. in &bdy_control, dated
+    bdy_inname/auxinput4_inname/gfdda_inname, frames_per_auxinput4/10 = 1). WRF names each file
+    by the clock time of the read, so a resumed segment must start on a record time: every cut
+    is a multiple of lcm(whole-minute step quantum, interval_seconds, auxinput4_interval,
+    gfdda_interval_m) from the run start (input_record_alignment; --segment-minutes is rounded
+    DOWN to one with a note, shorter than one is an error; --wall-limit searches only those).
+    Every segment start's record file is checked before segment 0 is submitted.
 
 Segment run dir (setup_segment_dir): symlinks to every regular file of CASE_DIR except namelist.*,
 rsl.*, wrfout*, wrfrst*, wrf.out (plus ADIOS2 *.bp input directories), every file the namelist
@@ -132,6 +159,7 @@ FALLBACK_RADIATION_FACTOR = 1.5        # cell-step model x this (same padding as
 FALLBACK_RESTART_IO_S = 300.0          # one restart write/read, scc marshall measured ~300 s
 FALLBACK_HISTORY_FRAME_S = 30.0        # per domain frame when no I/O probe measured it
 RESTART_OFF_MIN = 1000000              # last segment: no restart write (configs._apply_adios2 value)
+ADIOS2_IO_FORM = 14                    # WRF io_form for ADIOS2 (the default for every stream)
 CFL_RESCUE_FACTOR = 0.75
 CFL_RESCUE_MIN_FACTOR = 0.5            # never search below half the case's dt
 UNKNOWN_POLLS_MAX = 10                 # sacct not listing a fresh job id yet: poll this many times
@@ -601,22 +629,114 @@ def assign_segments(geo, bounds, candidates, over, L, wall_limit_s=None, cadence
     return segs
 
 
+_PER_RECORD_KIND_RE = re.compile(r"^(wrfbdy|wrflowinp|wrffdda)_d(\d\d)$")
+
+
+def input_record_alignment(nl, geo, per_record_names):
+    """Segment-cut unit for per-record ADIOS2 inputs (wtune_bp: one BP per record, named by WRF's
+    clock time <name>_<date>.bp). WRF opens the file of the CURRENT time when a segment starts
+    (cold or restart) and at every interval after that, so a resumed segment must start on a
+    record time of every per-record input: wrfbdy every interval_seconds, wrflowinp every
+    auxinput4_interval (each domain reading it), wrffdda every gfdda_interval_m -- all counted
+    from the run start, where the records begin. -> None (no per-record input) or {"steps": the
+    unit in d01 steps = lcm(whole-minute step quantum, those intervals) / dt, "seconds",
+    "label"}. A zero/absent aux interval adds no constraint (missing_record_files still checks
+    the files)."""
+    kinds = {}
+    for n in per_record_names or ():
+        m = _PER_RECORD_KIND_RE.match(n)
+        if m:
+            kinds.setdefault(m.group(1), []).append(int(m.group(2)))
+    parts = []
+    if "wrfbdy" in kinds:
+        iv = float(wp.g(nl, "time_control", "interval_seconds", 0) or 0)
+        if iv <= 0:
+            raise RunError("per-record ADIOS2 wrfbdy needs the case's interval_seconds "
+                           "(&time_control) to place segment cuts on boundary records")
+        parts.append(("interval_seconds %s" % _hms(iv), iv))
+    for kind, label, iv_of in (
+            ("wrflowinp", "auxinput4_interval",
+             lambda d: coldstart.wrf_interval_minutes(nl, "auxinput4_interval", d - 1) * 60.0),
+            ("wrffdda", "gfdda_interval_m",
+             lambda d: float(wp.g_dom(nl, "fdda", "gfdda_interval_m", d - 1, 0) or 0) * 60.0)):
+        ivs = sorted(set(iv_of(d) for d in kinds.get(kind, ())))
+        ivs = [x for x in ivs if x > 0]
+        if ivs:
+            lcm = ivs[0]
+            for x in ivs[1:]:
+                lcm = float(_frac_lcm(lcm, x))
+            parts.append(("%s %s" % (label, "/".join(_hms(x) for x in ivs)), lcm))
+    if not parts:
+        return None
+    unit = _frac_lcm(geo["dt"], 60)
+    for _label, s in parts:
+        unit = _frac_lcm(unit, s)
+    steps = unit / _frac(geo["dt"])
+    if steps.denominator != 1:          # unit is a multiple of dt by construction
+        raise RunError("internal: input record unit %s s is not whole d01 steps" % unit)
+    return {"steps": int(steps), "seconds": float(unit),
+            "label": " + ".join(lab for lab, _s in parts)}
+
+
+def missing_record_files(links, per_record_names, segments):
+    """[(segment index, record file)] a segment start lacks among the run-dir links, for every
+    per-record input whose record files are known (dry run: one still to be converted is not
+    checked). WRF opens <name>_<segment start>.bp first, so each must exist."""
+    known = [n for n in per_record_names or ()
+             if any(l.startswith(n + "_") for l in links or ())]
+    out = []
+    for s in segments:
+        for n in known:
+            rec = "%s_%s.bp" % (n, s["start"])
+            if rec not in links:
+                out.append((s["index"], rec))
+    return out
+
+
 def plan_run(geo, n_end, candidates, over, segment_minutes=None, wall_limit_s=None,
-             case_restart_s=None):
+             case_restart_s=None, align=None, notes=None):
     """(L, segments): L = the restart quantum in d01 steps (None: one segment), each segment one
     L block [jL, (j+1)L], the last possibly shorter (see module docstring). case_restart_s: the
-    case's own restart interval (s), whose writes restart_setting keeps -- counted in the walls."""
+    case's own restart interval (s), whose writes restart_setting keeps -- counted in the walls.
+    align (input_record_alignment, per-record ADIOS2 inputs): L must be a multiple of
+    align["steps"] so every cut is an input record time -- --segment-minutes is rounded DOWN to
+    one (a note in `notes`), never up; shorter than one unit is a RunError; --wall-limit
+    searches only multiples of it."""
+    unit = align["steps"] if align else geo["quantum"]
     if segment_minutes:
         L = segment_steps_for_minutes(geo, segment_minutes)
         if (L * geo["dt"]) % 60:
             raise RunError("--segment-minutes must give whole minutes")
         if L >= n_end:
             L = None
+        elif align and L % unit:
+            cut = L // unit * unit
+            if cut == 0:
+                raise RunError(
+                    "--segment-minutes %d is shorter than one input record interval: per-record "
+                    "ADIOS2 inputs (%s) exist only every %s from the run start, and WRF opens the "
+                    "file of a resumed segment's start time -- use --segment-minutes %d (or a "
+                    "multiple), or --io netcdf" % (segment_minutes, align["label"],
+                                                   _hms(align["seconds"]),
+                                                   int(align["seconds"] // 60)))
+            if notes is not None:
+                notes.append("--segment-minutes %d rounded down to %d: segment cuts must fall on "
+                             "input record times (%s, every %s from the run start)"
+                             % (segment_minutes, int(float(_frac(geo["dt"]) * cut) // 60),
+                                align["label"], _hms(align["seconds"])))
+            L = cut
     elif wall_limit_s:
         def wall_fn(a, b, L):
             cad = restart_setting(geo, L, n_end, case_restart_s)["cadence_s"]
             return min(segment_wall(geo, c["compute"], over, a, b, L, cad) for c in candidates)
-        L = choose_restart_quantum(n_end, geo["quantum"], wall_fn, WALL_FRACTION * wall_limit_s)
+        try:
+            L = choose_restart_quantum(n_end, unit, wall_fn, WALL_FRACTION * wall_limit_s)
+        except RunError as e:
+            if not align:
+                raise
+            raise RunError("%s; segment cuts must fall on input record times (%s, every %s): "
+                           "raise --wall-limit, or use --io netcdf" % (e, align["label"],
+                                                                      _hms(align["seconds"])))
     else:
         L = None
     bounds = plan_segments_fixed(n_end, L) if L else [(0, n_end)]
@@ -691,10 +811,17 @@ def _set_one(txt, key, value, group="time_control"):
 
 
 def render_segment_namelist(text, seg_start, seg_end, k, config, restart_interval_min,
-                            restart_io_form=14, time_step=None):
+                            restart_io_form=14, time_step=None, io_streams=None,
+                            per_record_edits=None):
     """The case's namelist.input text -> segment k's (see module docstring). seg_start/seg_end
     are datetimes; restart_interval_min None leaves the case's restart_interval* keys as they are;
-    time_step (int s) overrides the d01 time step (CFL rescue)."""
+    time_step (int s) overrides the d01 time step (CFL rescue). io_streams (ADIOS2 I/O, the
+    default; None = --io netcdf, the case's own io_form_* kept): io_form_history = 14,
+    adios2_numaggregators = the segment's rank count, and per input stream in the list
+    (configs.adios2_input_streams entries) io_form = 14 + its inname with the .bp suffix.
+    per_record_edits (wtune_bp.per_record_namelist_edits: {group: {key: literal}}) are written
+    last, over those innames (multi_bdy_files, dated innames, frames_per_auxinputN; a missing
+    group such as &bdy_control is created)."""
     cs = coldstart
     ndom = int(cs.get_first(text, "max_dom", "1"))
     length_s = (seg_end - seg_start).total_seconds()
@@ -724,11 +851,25 @@ def render_segment_namelist(text, seg_start, seg_end, k, config, restart_interva
         txt = _set_one(txt, "restart", ".false.")
     if cs.count_key(text, "override_restart_timers"):       # never .true.: see planning notes
         txt = _set_one(txt, "override_restart_timers", ".false.")
-    if cs.count_key(text, "adios2_numaggregators"):
+    io_keys = []
+    if io_streams is not None:
+        io_keys = ["io_form_history", "adios2_numaggregators"]
+        txt = _set_one(txt, "io_form_history", ADIOS2_IO_FORM)
+        for st in io_streams:
+            for key, v, group in sweep.campaign_configs.adios2_stream_edits(st):
+                txt = _set_one(txt, key, v, group)
+                io_keys.append(key)
+    for group, kv in sorted((per_record_edits or {}).items()):
+        for key, v in sorted(kv.items()):
+            # whole value list replaced (frames_per_auxinput4 = 1, 1, 1: _set_one would keep a
+            # stale per-domain tail), group created when absent
+            txt = sweep.campaign_configs._set_namelist_value(txt, key, v, group)
+            io_keys.append(key)
+    if io_streams is not None or cs.count_key(text, "adios2_numaggregators"):
         txt = _set_one(txt, "adios2_numaggregators", config["ranks"], "namelist_adios2")
     required = (["%s_%s" % (p, q) for p in ("start", "end") for q in _TIME_PARTS]
                 + ["run_days", "run_hours", "run_minutes", "run_seconds", "nproc_x", "nproc_y",
-                   "numtiles", "restart_interval", "io_form_restart"]
+                   "numtiles", "restart_interval", "io_form_restart"] + io_keys
                 + (["restart"] if k > 0 else []))
     if time_step is not None:
         txt = _set_one(txt, "time_step", int(time_step), "domains")
@@ -737,6 +878,65 @@ def render_segment_namelist(text, seg_start, seg_end, k, config, restart_interva
         required.append("time_step")
     cs.assert_no_key_drift(text, txt, "segment %d namelist" % k, required)
     return txt
+
+
+def bp_cache_dir(out, project=None):
+    """BP input cache: <project>/input/bp/ when a project resolves (--project, $WTUNE_PROJECT or
+    a project.yaml above cwd -- decision 0058), else OUT/_bp_inputs/."""
+    import wtune_project
+    try:
+        project_dir = wtune_project.find_project(explicit=project)
+    except wtune_project.ProjectError as e:
+        raise RunError(str(e))
+    if project_dir:
+        return os.path.join(os.path.abspath(project_dir), "input", "bp")
+    return os.path.join(out, "_bp_inputs")
+
+
+def adios2_streams_or_raise(bp_plan, case_dir, notes):
+    """Streams a run switches to ADIOS2 (configs.resolve_bp_inputs' plan): every ready one;
+    wrfinput/wrfbdy must be ready (RunError otherwise); an aux stream with a missing file keeps
+    the case's own settings, with a note."""
+    missing = {}
+    for stream, name in bp_plan["missing"]:
+        missing.setdefault(stream, []).append(name)
+    for stream in ("input", "boundary"):
+        if stream in missing:
+            raise RunError("ADIOS2 I/O: %s not found in %s (neither netCDF nor .bp) -- the "
+                           "legacy --io netcdf path does not need it either"
+                           % (", ".join(missing[stream]), case_dir))
+    for stream, names in missing.items():
+        notes.append("WARNING: aux input stream %s keeps the case's own (netCDF) io_form: %s "
+                     "not found in CASE_DIR" % (stream, ", ".join(names)))
+    return [st for st in bp_plan["streams"] if st["stream"] in bp_plan["ready"]]
+
+
+def _per_record_of(bp_plan, io_streams):
+    """Sorted per-record input names (resolve_bp_inputs' "per_record") of the streams this run
+    switches to ADIOS2 -- a stream left on netCDF (an aux file missing) has none."""
+    cc = sweep.campaign_configs
+    kind_stream = {v[0]: s for s, v in cc.PER_RECORD_STREAMS.items()}
+    ready = set(st["stream"] for st in io_streams or ())
+    return sorted(n for n in (bp_plan.get("per_record") or {})
+                  if _PER_RECORD_KIND_RE.match(n)
+                  and kind_stream[_PER_RECORD_KIND_RE.match(n).group(1)] in ready)
+
+
+def io_plan_line(io, io_streams, restart_io_form, bp_plan, bp_cache, case_dir):
+    """The one-line I/O plan, e.g. 'I/O: ADIOS2 (history/restart/input/boundary/aux4), inputs
+    from <cache> (3 netCDF -> BP4, 1 existing BP)'."""
+    if io_streams is None:
+        return "I/O: LEGACY netCDF (--io netcdf): case io_form_* kept, restart io_form %d" % (
+            restart_io_form)
+    parts = ["history"] + (["restart"] if int(restart_io_form) == ADIOS2_IO_FORM else []) + [
+        st["label"] for st in io_streams]
+    n_conv, n_bp = len(bp_plan["convert"]), len(bp_plan["existing"])
+    src = bp_cache if n_conv else case_dir
+    pr = _per_record_of(bp_plan, io_streams)
+    return "I/O: ADIOS2 (%s)%s, inputs from %s (%d netCDF -> BP4, %d existing BP)%s" % (
+        "/".join(parts), "" if int(restart_io_form) == ADIOS2_IO_FORM
+        else "; restart netCDF (--restart-io-form 2)", src, n_conv, n_bp,
+        "; one BP per record: %s" % " ".join(pr) if pr else "")
 
 
 def namelist_diff_summary(old, new):
@@ -748,13 +948,34 @@ def namelist_diff_summary(old, new):
 # ---------------------------------------------------------------------------
 # segment run directory
 # ---------------------------------------------------------------------------
+_XML_IO_RE = re.compile(r'(?s)[ \t]*<io\s+name="([^"]*)".*?</io>[ \t]*\n?')
+
+
+def merge_adios2_xml(base, extra):
+    """`base` (the case's own adios2.xml, or None) plus every <io> block of `extra` (wtune_bp.
+    adios2_xml()'s text) whose name `base` does not already define -- ADIOS2 refuses a config
+    declaring one io name twice. No base: `extra` as is."""
+    if not base or "</adios-config>" not in base:
+        return extra
+    if not extra:
+        return base
+    have = set(m.group(1) for m in _XML_IO_RE.finditer(base))
+    add = "".join(m.group(0) if m.group(0).endswith("\n") else m.group(0) + "\n"
+                  for m in _XML_IO_RE.finditer(extra) if m.group(1) not in have)
+    return base.replace("</adios-config>", add + "</adios-config>", 1)
+
+
 def render_adios2_restart_xml(restart_times, max_dom, base=None):
     """BP4 engine per restart file name (strict_campaign.sbatch write_adios2_restart_xml). `base`
-    (the case's own adios2.xml text, if any) keeps its entries: ours go before </adios-config>."""
+    (the case's own adios2.xml text and/or wtune_bp.adios2_xml(), if any) keeps its entries: ours
+    go before </adios-config>, skipping a name `base` already defines."""
+    have = set(m.group(1) for m in _XML_IO_RE.finditer(base or ""))
     ios = ""
     for t in restart_times:
         for d in range(1, max_dom + 1):
-            ios += '  <io name="wrfrst_d%02d_%s">\n    <engine type="BP4"/>\n  </io>\n' % (d, t)
+            if "wrfrst_d%02d_%s" % (d, t) not in have:
+                ios += ('  <io name="wrfrst_d%02d_%s">\n    <engine type="BP4"/>\n  </io>\n'
+                        % (d, t))
     if base and "</adios-config>" in base:
         return base.replace("</adios-config>", ios + "</adios-config>", 1)
     return '<?xml version="1.0"?>\n<adios-config>\n' + ios + "</adios-config>\n"
@@ -788,9 +1009,12 @@ def _missing_namelist_files(text, case_dir):
 
 
 def setup_segment_dir(case_dir, seg_dir, namelist_text, restart_links=(), adios2_xml=None,
-                      wrf_tree=None):
-    """Create seg_dir (must not exist) and populate it; writes only inside seg_dir. Returns
-    configs.stage_namelist_files' result (missing = required files found nowhere)."""
+                      wrf_tree=None, bp_links=None):
+    """Create seg_dir (must not exist) and populate it; writes only inside seg_dir. bp_links
+    ({name: BP dir}, configs.resolve_bp_inputs' links: wrfinput_d01.bp, wrfbdy_d01.bp,
+    wrflowinp_d01.bp, ...) are linked under exactly those names (replacing a same-named case
+    link). Returns configs.stage_namelist_files' result (missing = required files found
+    nowhere)."""
     case_dir = os.path.abspath(case_dir)
     seg_dir = os.path.abspath(seg_dir)
     if os.path.commonpath([seg_dir, case_dir]) == case_dir:
@@ -818,6 +1042,11 @@ def setup_segment_dir(case_dir, seg_dir, namelist_text, restart_links=(), adios2
     if adios2_xml is not None:
         with open(os.path.join(seg_dir, "adios2.xml"), "w") as f:
             f.write(adios2_xml)
+    for name, target in sorted((bp_links or {}).items()):
+        dst = os.path.join(seg_dir, name)
+        if os.path.islink(dst):
+            os.remove(dst)        # a case *.bp link of the same name: the resolved one wins
+        os.symlink(target, dst)
     # files the namelist names (iofields_filename, wrflowinp, fdda, ...) -- also ones the
     # regular-file loop above skips (a subdirectory path, a namelist.* name)
     return sweep.campaign_configs.stage_namelist_files(namelist_text, seg_dir, [case_dir])
@@ -957,7 +1186,8 @@ def run_controller(ctx):
             t_b = dt.datetime.strptime(seg["end"], WRF_FMT)
             txt = render_segment_namelist(ctx["text"], t_a, t_b, k, seg["config"],
                                           ctx["restart_set_min"], ctx["restart_io_form"],
-                                          time_step=time_step)
+                                          time_step=time_step, io_streams=ctx.get("io_streams"),
+                                          per_record_edits=ctx.get("per_record_edits"))
             links = []
             if k > 0:
                 found = restart_files(prev_dir, seg["start"], geo["max_dom"])
@@ -968,13 +1198,18 @@ def run_controller(ctx):
                                       prev_dir))
                 links = [p for d in sorted(found) for p in found[d]]
             xml = None
+            adios2_io = ctx.get("io_streams") is not None
+            base = (merge_adios2_xml(ctx.get("case_adios2_xml"), ctx.get("bp_adios2_xml"))
+                    if adios2_io else ctx.get("case_adios2_xml"))
             if int(ctx["restart_io_form"]) == 14:
                 times = (([seg["start"]] if k > 0 else [])
                          + restart_times(geo, seg["start_step"], seg["end_step"],
                                          ctx["restart_cadence_s"]))
-                xml = render_adios2_restart_xml(times, geo["max_dom"], ctx.get("case_adios2_xml"))
+                xml = render_adios2_restart_xml(times, geo["max_dom"], base)
+            elif adios2_io and base:
+                xml = base
             staged = setup_segment_dir(ctx["case_dir"], seg_dir, txt, links, xml,
-                                       ctx.get("wrf_tree"))
+                                       ctx.get("wrf_tree"), bp_links=ctx.get("bp_links"))
             if k == 0 and attempt == 0:
                 for ln in sweep.campaign_configs.format_namelist_stage(staged, [ctx["case_dir"]]):
                     log(ln)
@@ -1047,7 +1282,9 @@ def run_controller(ctx):
                 if advice_dt is not None:
                     advice_txt = render_segment_namelist(
                         ctx["text"], t_a, t_b, k, seg["config"], ctx["restart_set_min"],
-                        ctx["restart_io_form"], time_step=advice_dt)
+                        ctx["restart_io_form"], time_step=advice_dt,
+                        io_streams=ctx.get("io_streams"),
+                        per_record_edits=ctx.get("per_record_edits"))
                     advice_path = os.path.join(seg_dir, "segment.advice.namelist.input")
                     with open(advice_path, "w") as f:
                         f.write(advice_txt)
@@ -1129,6 +1366,13 @@ def build_arg_parser():
                     help="predicted-mode tune_report.json: per segment the lowest-predicted "
                          "candidate is run")
     ap.add_argument("--restart-io-form", type=int, choices=(14, 2), default=14)
+    ap.add_argument("--io", choices=("adios2", "netcdf"), default="adios2",
+                    help="adios2 (default, 2026-10-03 decision): every stream -- history, "
+                         "restart, input, boundary, aux inputs -- is ADIOS2 (io_form 14); "
+                         "netCDF inputs are converted once into <project>/input/bp/ (no "
+                         "project: OUT/_bp_inputs/) and linked as <name>.bp. netcdf: LEGACY "
+                         "escape hatch -- the case's own io_form_* are kept (restart still per "
+                         "--restart-io-form)")
     ap.add_argument("--cfl-rescue", action="store_true",
                     help="re-run a CFL/NaN-failed segment once with 0.75 dt (marks PHYSICS-GRAY). "
                          "This is the ONLY user-pre-authorized exception to decision 0056's "
@@ -1258,9 +1502,31 @@ def main(argv=None, sbatch_runner=None, sacct_runner=None, snapshot_fn=None, sle
             notes.append("no prediction: %.3f s/step fallback (cell-step model x %.1f); later "
                          "segments' --time from each finished segment's observed rate"
                          % (s, FALLBACK_RADIATION_FACTOR))
+        io_streams, bp_plan, bp_cache = None, None, None
+        per_record, per_record_edits, align = [], None, None
+        if a.io == "adios2":
+            bp_cache = bp_cache_dir(out, getattr(a, "project", None))
+            bp_plan = sweep.campaign_configs.resolve_bp_inputs(text, case_dir, bp_cache,
+                                                               convert=False)
+            io_streams = adios2_streams_or_raise(bp_plan, case_dir, notes)
+            per_record = _per_record_of(bp_plan, io_streams)
+            if per_record:
+                per_record_edits = sweep.campaign_configs._import_wtune_bp(
+                    ).per_record_namelist_edits(per_record, geo["max_dom"])
+                align = input_record_alignment(nl, geo, per_record)
+            for t in bp_plan["single_multirecord"]:
+                notes.append("WARNING: %s is a single multi-record BP: WRF 4.8's ADIOS2 reader "
+                             "returns its FIRST record for every read -- remove it so the "
+                             "netCDF is converted per record" % t)
         case_rst_s = case_restart_interval_s(nl)
         L, segs = plan_run(geo, n_end, candidates, over, a.segment_minutes, wall_limit_s,
-                           case_restart_s=case_rst_s)
+                           case_restart_s=case_rst_s, align=align, notes=notes)
+        if bp_plan is not None:
+            miss = missing_record_files(bp_plan["links"], per_record, segs)
+            if miss:
+                raise RunError("per-record ADIOS2 input missing at a segment start: %s (WRF "
+                               "opens <name>_<segment start>.bp)"
+                               % ", ".join("seg %d %s" % m for m in miss[:6]))
         rst = restart_setting(geo, L, n_end, case_rst_s)
         for key, name in _missing_namelist_files(text, case_dir):
             notes.append("WARNING: the namelist's %s names %s, which is not in CASE_DIR -- every "
@@ -1280,9 +1546,12 @@ def main(argv=None, sbatch_runner=None, sacct_runner=None, snapshot_fn=None, sle
         print("error: %s" % e, file=sys.stderr)
         return 2
 
-    log("run %s -> %s (%d d01 steps of %gs)%s; %d segment(s), restart %s, overheads: %s"
+    log("run %s -> %s (%d d01 steps of %gs)%s; %d segment(s)%s, restart %s, overheads: %s"
         % (_fmt(geo["start"]), _fmt(step_time(geo, n_end)), n_end, geo["dt"],
-           " stop-at" if n_end < geo["steps"] else "", len(segs), rst["label"], over["source"]))
+           " stop-at" if n_end < geo["steps"] else "", len(segs),
+           " cut on input record times (multiples of %s: %s)" % (
+               _hms(align["seconds"]), align["label"]) if align and L else "",
+           rst["label"], over["source"]))
     for s in segs:
         c = s["config"]
         log("  seg %d  %s -> %s  %-8s %dx%d t%d omp%d  predicted %s  --time=%s"
@@ -1290,21 +1559,52 @@ def main(argv=None, sbatch_runner=None, sacct_runner=None, snapshot_fn=None, sle
                c["omp"], _hms(s["predicted_wall_s"]), s["time_limit"]))
     for n in notes:
         log("  note: %s" % n)
+    if a.io == "netcdf":
+        log("WARNING: --io netcdf is the LEGACY netCDF I/O path (ADIOS2 is the default for every "
+            "WRF stream since 2026-10-03): the case's own io_form_history/input/boundary/aux are "
+            "kept, restart io_form %d" % a.restart_io_form)
+    log(io_plan_line(a.io, io_streams, a.restart_io_form, bp_plan, bp_cache, case_dir))
     if a.dry_run:
         for s in segs[:2]:
             t_a = dt.datetime.strptime(s["start"], WRF_FMT)
             t_b = dt.datetime.strptime(s["end"], WRF_FMT)
             new = render_segment_namelist(text, t_a, t_b, s["index"], s["config"],
-                                          rst["set_min"], a.restart_io_form)
+                                          rst["set_min"], a.restart_io_form,
+                                          io_streams=io_streams,
+                                          per_record_edits=per_record_edits)
             log("namelist diff, segment %d:" % s["index"])
             for ln in namelist_diff_summary(text, new):
                 log("  " + ln)
         return 0
 
     os.makedirs(out, exist_ok=True)
+    bp_xml, io_report = None, {"mode": a.io}
+    if io_streams is not None:
+        try:
+            bp_plan = sweep.campaign_configs.resolve_bp_inputs(text, case_dir, bp_cache,
+                                                               convert=True, log=log)
+            bp_xml = sweep.campaign_configs._import_wtune_bp().adios2_xml()
+        except Exception as e:           # converter / adios2 bindings: any failure stops here
+            print("error: ADIOS2 input staging failed (%s: %s) -- fix the converter env, or "
+                  "rerun with the legacy --io netcdf" % (type(e).__name__, e), file=sys.stderr)
+            return 2
+        # the plan (namelist edits, segment cuts) assumed this per-record set; every segment
+        # start must have its record file before anything is submitted
+        got = _per_record_of(bp_plan, io_streams)
+        miss = missing_record_files(bp_plan["links"], got, segs)
+        if got != per_record or miss:
+            print("error: per-record ADIOS2 inputs %s (planned %s)%s -- nothing submitted"
+                  % (" ".join(got) or "none", " ".join(per_record) or "none",
+                     "; missing at segment starts: " + ", ".join(
+                         "seg %d %s" % m for m in miss[:6]) if miss else ""), file=sys.stderr)
+            return 2
+        io_report.update(streams=[st["stream"] for st in io_streams], bp_cache=bp_cache,
+                         bp_inputs=bp_plan["links"], converted=bp_plan["convert"],
+                         per_record=per_record,
+                         segment_unit_s=align["seconds"] if align else None)
     report = {"case_dir": case_dir, "out": out, "run_start": _fmt(geo["start"]),
               "run_end": _fmt(step_time(geo, n_end)), "stop_at": a.stop_at, "dt": geo["dt"],
-              "restart_io_form": a.restart_io_form, "cfl_rescue": a.cfl_rescue,
+              "restart_io_form": a.restart_io_form, "io": io_report, "cfl_rescue": a.cfl_rescue,
               "prediction": a.prediction, "tune_report": a.tune_report, "overheads": over,
               "restart_quantum_steps": L,
               "restart_interval_min": (rst["set_min"] if rst["set_min"] is not None
@@ -1315,7 +1615,9 @@ def main(argv=None, sbatch_runner=None, sacct_runner=None, snapshot_fn=None, sle
               "started_utc": dt.datetime.utcnow().isoformat()}
     ctx = dict(case_dir=case_dir, out=out, text=text, geo=geo, n_end=n_end, segments=segs,
                restart_set_min=rst["set_min"], restart_cadence_s=rst["cadence_s"], over=over,
-               restart_io_form=a.restart_io_form,
+               restart_io_form=a.restart_io_form, io_streams=io_streams,
+               per_record_edits=per_record_edits,
+               bp_links=bp_plan["links"] if bp_plan else None, bp_adios2_xml=bp_xml,
                cfl_rescue=a.cfl_rescue, replan=replan, wall_limit_s=wall_limit_s, wrf_tree=a.wrf_tree or os.environ.get("WRF_TREE"),
                env_source=a.env_source, campaign_dir=a.campaign_dir,
                sbatch_runner=sbatch_runner or sweep.default_sbatch_runner,

@@ -10,7 +10,7 @@ if _TESTS not in sys.path:
     sys.path.insert(0, _TESTS)
 
 import wtune_run as wr  # noqa: E402
-from test_wtune_run import Fakes, _make_case  # noqa: E402
+from test_wtune_run import Fakes, _make_case, fake_bp  # noqa: E402,F401  (autouse: a fake src/wtune_bp for the default ADIOS2 input conversion)
 
 WINNER = {"cid": "ANCHOR", "cores_per_node": 72, "median": 0.5, "nodes": 1, "numtiles": 2,
           "nx": 8, "ny": 9, "omp": 1, "ranks": 72, "reps": 3, "source": "t0 sweep ANCHOR"}

@@ -18,7 +18,8 @@
 # STRICT-configuration data campaign runner (predictor phase B). Measures every
 # STRICT config campaign/configs.py generates for one WRF case, with replicates in
 # palindromic order, and appends one row per run to the predictor run-ledger CSV.
-# All-ADIOS2 (2026-09-14 user decision): every run's namelist is edited with ADIOS2
+# All-ADIOS2 (2026-09-14 user decision; 2026-10-03: inputs too -- an empty bp_dir is converted
+# into a BP cache, see "ADIOS2 inputs"): every run's namelist is edited with ADIOS2
 # I/O (io_form 14 everywhere, adios2_numaggregators=ranks -- see configs.py's
 # _apply_adios2 and regress_bp.sbatch/job 1072441). MODE picks the history policy:
 #   timing      (default) -- no run writes history at all (--history-mode off);
@@ -277,17 +278,38 @@ run_node_hygiene reap+census 90
 # check_disk_guard is called right before every WRF srun (both loops below) so a job
 # stops itself with a clear message and a ledger row instead of running blind into that.
 MIN_FREE_GIB=${MIN_FREE_GIB:-60}
-# Inputs: ADIOS2 .bp from bp_dir (f1 default), or -- when a site's case overlay leaves bp_dir
-# empty (scc has only the official netCDF files) -- netCDF wrfinput/wrfbdy from prep_dir, with
-# WTUNE_INPUT_FORMAT=netcdf telling configs.py to write io_form_input/boundary=2.
+# Inputs: ADIOS2 .bp from BP_DIR -- the case's bp_dir (f1), or the BP cache an empty bp_dir is
+# converted into (see "ADIOS2 inputs" below). Only the LEGACY escape WTUNE_INPUT_FORMAT=netcdf
+# (BP_DIR emptied there) links prep_dir's netCDF wrfinput/wrfbdy, with io_form_input/boundary=2.
+# Per-record inputs (WTUNE_PER_RECORD_BP, from stage-bp-inputs): WRF 4.8's ADIOS2 reader returns
+# record 1 for every read of a multi-record BP, so wrfbdy/wrflowinp/wrffdda are held as
+# $BP_DIR/<name>/<name>_<date>.bp, one BP per record, and every record file is linked here under
+# its own name (configs.py _apply_adios2 sets multi_bdy_files / the dated innames). The netCDF
+# original is linked too when prep_dir has it: a run starting off a record time (a shared restart,
+# see _apply_adios2) reads that stream from netCDF instead.
+link_per_record() {  # name
+  local c r
+  for c in "$BP_DIR/$1" "$BP_DIR/$1.bp"; do
+    [ -d "$c" ] || continue
+    for r in "$c/$1_"*.bp; do [ -d "$r" ] && ln -sfn "$r" "$(basename "$r")"; done
+    break
+  done
+  [ -f "$PREP_DIR/$1" ] && ln -sf "$PREP_DIR/$1" "$1"
+  return 0
+}
 link_wrf_inputs() {
-  local d df
+  local d df n bdy_pr=0
   for ((d = 1; d <= MAX_DOM; d++)); do
     df=$(printf "d%02d" "$d")
     if [ -n "$BP_DIR" ]; then ln -sf "$BP_DIR/wrfinput_${df}.bp" "wrfinput_${df}.bp"
     else ln -sf "$PREP_DIR/wrfinput_${df}" "wrfinput_${df}"; fi
   done
-  if [ -n "$BP_DIR" ]; then ln -sf "$BP_DIR/wrfbdy_d01.bp" "wrfbdy_d01.bp"
+  if [ -n "$BP_DIR" ]; then
+    for n in ${WTUNE_PER_RECORD_BP:-}; do
+      link_per_record "$n"
+      [ "$n" = "wrfbdy_d01" ] && bdy_pr=1
+    done
+    [ "$bdy_pr" = 1 ] || ln -sf "$BP_DIR/wrfbdy_d01.bp" "wrfbdy_d01.bp"
   else ln -sf "$PREP_DIR/wrfbdy_d01" "wrfbdy_d01"; fi
 }
 
@@ -469,8 +491,53 @@ print("PHYSICS_SIM_MINUTES_DEFAULT=%s" % q(c.get("physics_sim_minutes", 60)))
 PY
 )"
 
-# empty bp_dir (site overlay, e.g. scc) => netCDF inputs; see link_wrf_inputs
-if [ -z "$BP_DIR" ]; then export WTUNE_INPUT_FORMAT=netcdf; else export WTUNE_INPUT_FORMAT=adios2; fi
+# ---- ADIOS2 inputs (2026-10-03 user decision: netCDF is no longer used for WRF I/O) ----------
+# An empty bp_dir (site overlay, e.g. scc; every rebuilt point, wtune_tune.write_rebuilt_case_entry)
+# no longer means netCDF inputs: prep_dir's netCDF wrfinput_d0N/wrfbdy_d01 and the aux inputs the
+# case namelist reads (wrflowinp_d0N when sst_update=1, wrffdda_d0N when grid_fdda>0, ...; see
+# configs.py adios2_input_streams) are converted ONCE into a BP cache, here on the compute node and
+# before any timed region: configs.py stage-bp-inputs -> src/wtune_bp.convert_inputs (BP4, manifest
+# cached: reconverted only when a source changed; the adios2 bindings run in envs/adios2's python,
+# $WTUNE_ADIOS2_PYTHON overrides) and <cache>/<name>.bp links. Cache:
+# ${WTUNE_BP_CACHE:-$HOME/wtune-runs/bp-cache}/<case>/<sha1(prep_dir)[:12]>. Race-safe: the stage
+# holds a lockf lock on <cache>/.stage.lock (NFS/GPFS-safe across nodes), so several jobs of one case
+# starting together convert once; the others block, then find the manifest current. A non-empty
+# bp_dir (f1) is only checked (--check: nothing converted or written). Either way BP_DIR then holds
+# wrfinput_d0N.bp/wrfbdy_d01.bp (link_wrf_inputs) and WTUNE_INPUT_FORMAT=adios2.
+# WTUNE_AUX_BP_STREAMS (read by configs.py _apply_adios2): the aux streams available as .bp -- only
+# those get io_form 14 + "<name>.bp" innames; an aux file missing as BP keeps the case's io_form.
+# WTUNE_INPUT_FORMAT=netcdf exported at submission is the LEGACY escape hatch (warned below).
+# wrfbdy/wrflowinp/wrffdda are converted one BP per record (WTUNE_PER_RECORD_BP, link_per_record):
+# WRF 4.8's ADIOS2 reader never selects a step, so a multi-record BP yields record 1 for every read.
+# WRF opens <name>_<clock time>.bp, so a RANKING candidate restarting at a time with no record
+# (SPINUP_MINUTES not a multiple of interval_seconds / auxinput4_interval) reads that stream from
+# its netCDF file for that run (configs.py _apply_adios2, a NOTE on stderr) -- correct, unlike any
+# BP layout there.
+WTUNE_AUX_BP_STREAMS=""
+WTUNE_PER_RECORD_BP=""
+if [ "${WTUNE_INPUT_FORMAT:-}" = "netcdf" ]; then
+  echo "WARNING: WTUNE_INPUT_FORMAT=netcdf -- LEGACY netCDF wrfinput/wrfbdy from prep_dir (ADIOS2 is the default for every WRF stream since 2026-10-03)" >&2
+  BP_DIR=""
+else
+  if [ -z "$BP_DIR" ]; then
+    BP_STAGE_ARGS=("$PREP_DIR")
+  else
+    BP_STAGE_ARGS=("$BP_DIR" --cache-dir "$BP_DIR" --check)
+  fi
+  if ! BP_STAGE_OUT=$("$PYBIN" "$CAMPAIGN/configs.py" stage-bp-inputs "$CASE" "$NAMELIST_TEMPLATE" "${BP_STAGE_ARGS[@]}"); then
+    echo "FATAL: ADIOS2 input staging failed for case $CASE (see above) -- refusing to run (legacy escape: --export=...,WTUNE_INPUT_FORMAT=netcdf)" >&2
+    exit 1
+  fi
+  eval "$BP_STAGE_OUT"
+  export WTUNE_INPUT_FORMAT=adios2
+  # BP_DIR first, so link_namelist_files finds the aux <name>.bp before prep_dir's netCDF
+  NAMELIST_REF_DIRS="$BP_DIR $NAMELIST_REF_DIRS"
+  echo "ADIOS2 inputs: BP_DIR=$BP_DIR aux streams as BP: ${WTUNE_AUX_BP_STREAMS:-none} per record: ${WTUNE_PER_RECORD_BP:-none}"
+fi
+# WTUNE_PER_RECORD_BP/WTUNE_BP_DIR (configs.py _apply_adios2): per-record streams and where their
+# record files live -- a run whose start has no <name>_<start>.bp reads that stream from netCDF.
+export WTUNE_PER_RECORD_BP WTUNE_BP_DIR="$BP_DIR"
+export WTUNE_AUX_BP_STREAMS
 
 STEPS=${STEPS:-$STEPS_DEFAULT}
 MIN=$(( (STEPS * DT + 59) / 60 ))

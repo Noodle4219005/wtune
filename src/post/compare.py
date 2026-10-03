@@ -29,8 +29,13 @@ def _frames(run_dir):
     """{(domain_int, file_name_time): path} for every wrfout_dNN_TIME file directly under run_dir,
     or across the segments of a segmented run dir (post.extract.file_index). Keyed per FILE, not
     per valid time: diffwrf compares whole files, so a frames_per_outfile > 1 file is diffed
-    once (all its times), not once per valid time it holds."""
-    return file_index(run_dir)
+    once (all its times), not once per valid time it holds. ADIOS2 BP history is diffed on its
+    netCDF cache copies (post.extract); BPConversionError (no converter) -> CompareError."""
+    from post.extract import BPConversionError
+    try:
+        return file_index(run_dir)
+    except BPConversionError as e:
+        raise CompareError(str(e)) from e
 
 
 def _adios2_bp_dirs(run_dir):
@@ -41,8 +46,8 @@ def _check_not_adios2(run_dir, frames):
     if frames or not _adios2_bp_dirs(run_dir):
         return
     raise CompareError(
-        "%s has ADIOS2 BP output, no plain netCDF wrfout files -- convert first with "
-        "src/tools/wrf_adios2_to_netcdf4/ before `wtune post compare`." % run_dir)
+        "%s has ADIOS2 BP directories but no wrfout history (netCDF or BP wrfout_dNN_TIME[.bp]) "
+        "-- nothing for `wtune post compare` to diff." % run_dir)
 
 
 def parse_diffwrf(text):

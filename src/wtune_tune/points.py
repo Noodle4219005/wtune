@@ -128,6 +128,8 @@ def write_rebuilt_case_entry(case: str, case_entry: dict, index: int, point: Any
             os.symlink(os.path.join(orig_prep, name), dst)
     case_id = rebuilt_case_id(case, index)
     entry = copy.deepcopy(case_entry)
+    # bp_dir="": real.exe still writes netCDF (read here and by the state tools); probe staging
+    # converts this prep_dir once into its BP cache (configs.py stage-bp-inputs)
     entry.update(prep_dir=os.path.abspath(real_dir), bp_dir="", namelist_template=template,
                  steps=int(steps if steps is not None else rebuilt_steps(stepra)), enabled=True,
                  rebuilt_from=case, rebuilt_point_at=point.at.isoformat(),

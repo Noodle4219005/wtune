@@ -53,12 +53,27 @@ def test_inventory_reports_missing_frame(tmp_path, monkeypatch):
     assert "MISSING" in summary
 
 
-def test_inventory_detects_adios2_bp_dirs(tmp_path):
+def _no_bp_converter(monkeypatch):
+    """A wtune_bp whose adios2 interpreter is missing (as on a machine without envs/adios2)."""
+    import sys
+    import types
+    from post import extract
+
+    def unavailable():
+        raise RuntimeError("no Python that can `import adios2` was found: run `pixi install` "
+                           "in envs/adios2")
+    monkeypatch.setitem(sys.modules, "wtune_bp", types.SimpleNamespace(
+        require_adios2_python=unavailable, bp2nc=None))
+    monkeypatch.setattr(extract, "_BP_MEMO", {})
+
+
+def test_inventory_detects_adios2_bp_dirs(tmp_path, monkeypatch):
+    _no_bp_converter(monkeypatch)
     (tmp_path / "wrfout_d01_2005-08-27_00:00:00.bp").mkdir()
     inv = inventory.inventory(str(tmp_path))
     assert inv["format"] == "adios2_bp"
     assert inv["bp_dirs"]
-    assert "wrf_adios2_to_netcdf4" in inv["note"]
+    assert "wrf_adios2_to_netcdf4" in inv["note"] and "pixi install" in inv["note"]
 
 
 def test_missing_frames_pure():

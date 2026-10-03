@@ -12,7 +12,7 @@ import os
 from datetime import datetime
 
 from post import tools
-from post.compare import _frames        # {(domain, time_str): path}
+
 
 WRF_TIME_FMT = "%Y-%m-%d_%H:%M:%S"
 
@@ -73,17 +73,32 @@ def _missing_frames(times):
 def inventory(run_dir):
     """Returns a dict: format, bp_dirs (ADIOS2 note), domains -> {times, n_times, grid,
     variables, expected_interval_s, missing}."""
+    from post import extract
     bp_dirs = _adios2_bp_dirs(run_dir)
-    frames = _frames(run_dir)
+    try:
+        frames = extract.file_index(run_dir)    # = compare._frames, minus its CompareError
+        error = None
+    except extract.BPConversionError as e:  # BP history, converter unavailable
+        frames, error = {}, str(e)
     domains = sorted(set(d for d, _ in frames))
+    converted = sorted(p for p in frames.values() if extract.bp_origin(p))
 
     result = dict(run_dir=os.path.abspath(run_dir), format="netcdf" if frames else "unknown",
                   bp_dirs=bp_dirs, domains={})
-    if bp_dirs and not frames:
+    if error:
         result["format"] = "adios2_bp"
-        result["note"] = ("ADIOS2 BP directories present, no plain netCDF wrfout files -- "
-                          "convert first with src/tools/wrf_adios2_to_netcdf4/ before running "
-                          "`wtune post inventory/extract/plot`.")
+        result["note"] = error
+    elif converted:
+        # ADIOS2 BP history (dirs named like the netCDF file, or *.bp), read through the
+        # netCDF cache post.extract keeps -- the grid/variables below come from those copies
+        result["format"] = "adios2_bp" if len(converted) == len(frames) else "netcdf+adios2_bp"
+        result["nc_cache"] = sorted(set(os.path.dirname(p) for p in converted))
+        result["note"] = ("ADIOS2 BP history: %d file(s) read through netCDF copies in %s"
+                          % (len(converted), ", ".join(result["nc_cache"])))
+    elif bp_dirs and not frames:
+        result["format"] = "adios2_bp"
+        result["note"] = ("ADIOS2 BP directories present, no wrfout history among them -- "
+                          "nothing for `wtune post` to read.")
 
     for dom in domains:
         times = sorted(t for d, t in frames if d == dom)

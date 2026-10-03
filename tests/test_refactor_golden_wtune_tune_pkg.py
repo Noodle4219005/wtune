@@ -74,12 +74,17 @@ def test_golden_entry_points(entry):
     G._check("pkg_entry_%s.txt" % entry, "rc=%d\n%s" % (r.returncode, r.stdout))
 
 
+def _sinfo_missing(argv, timeout):
+    raise FileNotFoundError(2, "No such file or directory", "sinfo")
+
+
 def test_golden_node_search_fallback(monkeypatch, tmp_path, capsys):
     """--nodes search where no sweep job produces a measurement: the proxy fallback report."""
     sbatch, _reader, job_nodes = T.make_scaling_fakes(T.NONMONO_CURVE)
     monkeypatch.setattr(T, "make_scaling_fakes",
                         lambda curve, core_mult=None: (sbatch, lambda case, ids: [], job_nodes))
-    T._run_cli(monkeypatch, tmp_path, ["--minutes", "600"])
+    T._run_cli(monkeypatch, tmp_path, ["--minutes", "600"],
+               preflight_runner=_sinfo_missing)  # fixture recorded without sinfo; never call the real one
     out = capsys.readouterr().out
     with open(tmp_path / "out" / "tune_report.json") as f:
         js = f.read()

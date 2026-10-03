@@ -1,29 +1,11 @@
 #!/usr/bin/env python3
 """wtune_config.py -- YAML search-space configuration for `wtune tune`.
 
-Loads a YAML file that controls what `wtune_tune.py` is allowed to search and how, instead of
-relying on wtune_tune.py's own hardcoded CLI defaults for everything. See `examples/wtune.yaml`
-for the full commented schema (also emitted by `wtune.py config init <case>`).
-
-Precedence when wired into `wtune_tune.py --config FILE`: CLI flag > this file > built-in
-defaults (`DEFAULTS` below, which mirror wtune_tune.py's own previous hardcoded argparse
-defaults exactly, so a run with no --config behaves identically to before this module existed).
-
-Two knob families are declared in the schema but NOT YET SEARCHED by wtune_tune.py
-(`search.io.enabled` / `physics_gray.enabled`): turning either on is a hard validation error
-(exit 2), never a silent no-op -- see `_validate_semantics`.
-
-Stdlib only except for the YAML parser itself (PyYAML), which is imported lazily so importing
-this module (e.g. for the dict-level API in tests) never requires it -- only `load_config`/
-`main()`'s file-reading paths do.
-
-CLI (forwarded from `wtune.py config ...`, same REMAINDER pattern as `tune`/`metdata`):
-    wtune_config.py init  <case> [--out wtune.yaml]     write a fully commented template
-    wtune_config.py show  <file> [--case NAME|--case-dir DIR] [--nodes N,N,...]
-                                                          print the resolved config + candidate
-                                                          counts per allowed node count
-    wtune_config.py validate <file>                      load + validate only; exit 2 on error
-"""
+Precedence: CLI flag > this file > DEFAULTS (= wtune_tune.py's former argparse defaults). Every
+violation is reported (ConfigError); a declared-but-unsearched knob (search.io, physics_gray)
+enabled is an error, never a silent no-op. Schema: examples/wtune.yaml. PyYAML is imported lazily.
+CLI: wtune_config.py init <case> [--out F] | show <file> [--case N|--case-dir D] [--nodes N,..]
+| validate <file> (exit 2 on error)."""
 from __future__ import annotations
 
 import argparse
@@ -32,6 +14,7 @@ import json
 import os
 import re
 import sys
+from typing import Any, Callable
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _PREDICTOR_DIR = os.path.join(_HERE, "predictor")
@@ -43,19 +26,14 @@ for _p in (_HERE, _PREDICTOR_DIR, _CAMPAIGN_DIR):
 import wtune_compliance as wc
 
 # ---------------------------------------------------------------------------
-# built-in defaults -- mirror wtune_tune.py's previous hardcoded argparse defaults / module
-# constants exactly (DEFAULT_MAX_NODES=13, "auto", "knee", DEFAULT_STEPS=20, CONFIRM_REPS=2).
-# Duplicated rather than imported: wtune_tune.py imports THIS module, so the reverse import would
-# be circular; small stable constants are duplicated elsewhere in this codebase for the same
-# reason (see wtune_tune.py's own _RUN_ID_RE docstring).
+# built-in defaults -- duplicated from wtune_tune.py (it imports this module; the reverse would
+# be circular).
 # ---------------------------------------------------------------------------
 DEFAULT_SITE = "scc"
 DEFAULT_MAX_NODES = 13                 # scc compute pool: work[1-13]
 DEFAULT_HARDWARE_ID = "scc-gh200"
-DEFAULT_CORES_PER_NODE = 72
-AUTO_NODE_COUNTS = (1, 2, 4, 8, 13)     # scc_sweep.py's own DEFAULT_NODES; used for `nodes: auto`
-                                         # previews only (`config show`) -- wtune_tune.py's own
-                                         # --nodes auto path always picks exactly ONE node count.
+DEFAULT_CORES_PER_NODE = 72            # scc GH200
+AUTO_NODE_COUNTS = (1, 2, 4, 8, 13)     # scc_sweep DEFAULT_NODES; `config show` preview only
 NODES_POLICY_CHOICES = ("min", "cap", "knee")
 IO_TARGETS = ("nfs", "local")           # wtune_predict's own calibration targets (machine/calibration/*.json)
 EXCLUDE_WHEN_VALUES = ("fire",)
@@ -85,29 +63,19 @@ DEFAULTS = {
         "io": {"enabled": False, "io_form_history": [2, 11, 14], "target": ["nfs", "local"]},
     },
     "physics_gray": {"enabled": False, "knobs": {}},
-    # 2026-09-26 probe multi-point redesign (see wtune_probe_plan.py's module docstring): steps
-    # default changes from a fixed 20 to "auto" (max(30, stepra+10), >=1 radiation step always
-    # inside -- the whole reason this redesign exists). spinup_min/ranking_start are the RANKING
-    # layer (every round0/adaptive/confirm candidate); points/max_points/budget_pct/sources are
-    # the PREDICTION layer (the winner's own full-run estimate, wtune_probe_plan.plan_points).
-    # ranking_start defaults to "t0", NOT "spinup": restart-based ranking-probe start is not yet
-    # wired into campaign/strict_campaign.sbatch's run loop (campaign/configs.py's edit_namelist
-    # restart_from/write_restart_interval/restart_io_form params are ready; nothing submits the
-    # anchor spin-up job or stages its wrfrst yet -- see this task's report). A default must not
-    # name behaviour that isn't wired -- selecting "spinup" explicitly still works exactly as
-    # documented (prints/reports a NOTE and runs every candidate from t0 until the wiring lands).
+    # steps "auto" = max(30, stepra+10): >= 1 radiation step per probe. spinup_min/ranking_start
+    # rank every candidate; points..sources place the winner's full-run prediction points
+    # (wtune_probe_plan.plan_points). ranking_start defaults to t0: spinup start is not wired
+    # into strict_campaign.sbatch yet (selecting it prints a NOTE and runs from t0).
     "probe": {"steps": "auto", "confirm_reps": 2, "spinup_min": 60, "ranking_start": "t0",
               "points": "auto", "max_points": 5, "budget_pct": 10.0,
               "sources": ["trajectory", "restart", "rebuild"],
-              # decision 0055: rank_by=predicted ranks candidates by predicted whole-run time from
-              # ERA5-rebuilt points, each spun up once and shared by every candidate (wtune_tune
-              # run_predicted); t0 (default) is the pre-0055 behaviour. restart_io_form is the
-              # shared restart's io_form in that mode (14 ADIOS2 BP, or 2 netCDF).
+              # rank_by=predicted: rank by predicted whole-run time from shared spun-up ERA5
+              # points (decision 0055); restart_io_form is that restart's io_form (14 or 2).
               "rank_by": "t0", "restart_io_form": 14, "stage1": "t0",
               "stage2_minutes": None,
-              # decision 0060: points_by "cost-indicators" places the prediction points by a
-              # weather cost proxy (wtune_cost_drivers) instead of sun position/time; indicator_
-              # sources = ordered providers (each indicator comes from the first that supplies it).
+              # points_by cost-indicators: place points by a weather cost proxy (decision 0060);
+              # indicator_sources in priority order.
               "points_by": "time",
               "indicator_sources": ["case_forcing", "era5", "gfs", "stage4", "mrms"]},
     "prediction": {"io_target": "nfs", "drift_band_pct": None, "measure_r_rad": False},
@@ -169,7 +137,7 @@ def _load_yaml_module():
     return yaml
 
 
-def load_config(path):
+def load_config(path: str) -> dict:
     """Read + validate a YAML config file. Returns the resolved, typed config dict, or raises
     ConfigError (all violations) / SystemExit (PyYAML missing)."""
     yaml = _load_yaml_module()
@@ -189,8 +157,7 @@ def load_config(path):
 
 
 # ---------------------------------------------------------------------------
-# merge (defaults <- raw dict) + validate, at the plain-dict level (no YAML dependency --
-# exercised directly by tests when PyYAML is not installed in the test env)
+# merge (defaults <- raw dict) + validate on plain dicts (no YAML dependency)
 # ---------------------------------------------------------------------------
 def _merge_section(name, raw_section, defaults_section, allowed_keys, errors):
     if raw_section is None:
@@ -315,57 +282,102 @@ def _check_catalog_range(name, values, catalog_name, errors, expect_class=wc.STR
                 errors.append("%s: %r is above the catalog maximum %r (%s)" % (name, v, hi, catalog_name))
 
 
-def _validate_semantics(cfg, errors):
-    if cfg.get("case") and cfg.get("case_dir"):
-        errors.append("case and case_dir are mutually exclusive; set only one")
+def _is_number(v: Any) -> bool:
+    return not isinstance(v, bool) and isinstance(v, (int, float))
 
-    if cfg["compliance"] not in ("strict", "physics-gray"):
-        errors.append("compliance: %r not in ['strict', 'physics-gray']" % (cfg["compliance"],))
 
-    # -- budget --
-    b = cfg["budget"]
-    if b["minutes"] is not None and (isinstance(b["minutes"], bool) or not isinstance(b["minutes"], (int, float))
-                                      or b["minutes"] <= 0):
-        errors.append("budget.minutes: must be a positive number, got %r" % (b["minutes"],))
-    if isinstance(b["max_nodes"], bool) or not isinstance(b["max_nodes"], int) or b["max_nodes"] <= 0:
-        errors.append("budget.max_nodes: must be a positive integer, got %r" % (b["max_nodes"],))
-        max_nodes = None
-    else:
-        max_nodes = b["max_nodes"]
-    if b["nodes_policy"] not in NODES_POLICY_CHOICES:
-        errors.append("budget.nodes_policy: %r not in %s" % (b["nodes_policy"], list(NODES_POLICY_CHOICES)))
-    if b["node_objective"] is not None and b["node_objective"] not in NODE_OBJECTIVE_CHOICES:
-        errors.append("budget.node_objective: %r not in %s"
-                      % (b["node_objective"], list(NODE_OBJECTIVE_CHOICES)))
-    for key in ("deadline_minutes", "min_efficiency", "sweep_budget_frac"):
-        v = b[key]
-        if v is not None and (isinstance(v, bool) or not isinstance(v, (int, float)) or v <= 0):
-            errors.append("budget.%s: must be a positive number, got %r" % (key, v))
-    if b["sweep_budget_frac"] is not None and not isinstance(b["sweep_budget_frac"], bool) \
-            and isinstance(b["sweep_budget_frac"], (int, float)) and b["sweep_budget_frac"] > 1:
-        errors.append("budget.sweep_budget_frac: must be <= 1, got %r" % (b["sweep_budget_frac"],))
-    v = b["node_finalists"]
-    if v is not None and (isinstance(v, bool) or not isinstance(v, int) or v < 1):
-        errors.append("budget.node_finalists: must be a positive integer, got %r" % (v,))
+def _is_int(v: Any) -> bool:
+    return not isinstance(v, bool) and isinstance(v, int)
+
+
+def _choice(choices: tuple, optional: bool = False) -> tuple[Callable[[Any], bool], str]:
+    """(is_valid, message) for a value that must be one of `choices` (or None if optional)."""
+    return (lambda v: (optional and v is None) or v in choices), "%%r not in %s" % (list(choices),)
+
+
+def _positive_number(v: Any) -> bool:
+    return _is_number(v) and v > 0
+
+
+def _optional(check: Callable[[Any], bool]) -> Callable[[Any], bool]:
+    return lambda v: v is None or check(v)
+
+
+_POS_NUMBER = "must be a positive number, got %r"
+_POS_INT = "must be a positive integer, got %r"
+_BOOL = "must be a bool, got %r"
+
+# (key, is_valid, message % value) per section, checked in this order.
+_BUDGET_RULES = [
+    ("minutes", _optional(_positive_number), _POS_NUMBER),
+    ("max_nodes", lambda v: _is_int(v) and v > 0, _POS_INT),
+    ("nodes_policy", *_choice(NODES_POLICY_CHOICES)),
+    ("node_objective", *_choice(NODE_OBJECTIVE_CHOICES, optional=True)),
+    ("deadline_minutes", _optional(_positive_number), _POS_NUMBER),
+    ("min_efficiency", _optional(_positive_number), _POS_NUMBER),
+    ("sweep_budget_frac", _optional(_positive_number), _POS_NUMBER),
+    ("sweep_budget_frac", lambda v: not (_is_number(v) and v > 1), "must be <= 1, got %r"),
+    ("node_finalists", _optional(lambda v: _is_int(v) and v >= 1), _POS_INT),
+]
+_SEARCH_RULES = [
+    ("aspect_max", _optional(_positive_number), _POS_NUMBER),
+]
+_PROBE_RULES = [
+    ("steps", lambda v: v == "auto" or (_is_int(v) and v > 0),
+     "must be a positive integer or 'auto', got %r"),
+    ("confirm_reps", lambda v: _is_int(v) and v > 0, _POS_INT),
+    ("spinup_min", lambda v: _is_number(v) and v >= 0, "must be a non-negative number, got %r"),
+    ("ranking_start", *_choice(RANKING_START_CHOICES)),
+    ("max_points", lambda v: _is_int(v) and v >= 1, _POS_INT),
+    ("budget_pct", lambda v: _is_number(v) and 0 < v <= 100,
+     "must be a number in (0, 100], got %r"),
+    ("rank_by", *_choice(RANK_BY_CHOICES)),
+    ("stage2_minutes", _optional(_positive_number), "must be a positive number or null, got %r"),
+    ("stage1", *_choice(STAGE1_CHOICES)),
+    ("restart_io_form", lambda v: not isinstance(v, bool) and v in RESTART_IO_FORM_CHOICES,
+     "%%r not in %s" % (list(RESTART_IO_FORM_CHOICES),)),
+    ("points_by", *_choice(POINTS_BY_CHOICES)),
+]
+_PREDICTION_RULES = [
+    ("io_target", *_choice(IO_TARGETS)),
+    ("drift_band_pct", _optional(lambda v: _is_number(v) and 0 <= v <= 100),
+     "must be a number in [0, 100], got %r"),
+    ("measure_r_rad", lambda v: isinstance(v, bool), _BOOL),
+]
+
+
+def _apply_rules(section: str, values: dict, rules: list, errors: list[str]) -> None:
+    for key, is_valid, message in rules:
+        v = values[key]
+        if not is_valid(v):
+            errors.append("%s.%s: %s" % (section, key, message % (v,)))
+
+
+def _check_node_count(n: int, max_nodes: int | None, errors: list[str]) -> None:
+    if n <= 0:
+        errors.append("budget.nodes: %d must be positive" % n)
+    elif max_nodes is not None and n > max_nodes:
+        errors.append("budget.nodes: %d exceeds budget.max_nodes=%d" % (n, max_nodes))
+
+
+def _validate_budget(b: dict, errors: list[str]) -> None:
+    _apply_rules("budget", b, _BUDGET_RULES, errors)
+    max_nodes = b["max_nodes"] if _is_int(b["max_nodes"]) and b["max_nodes"] > 0 else None
     nodes = b["nodes"]
     if nodes in ("auto", "search"):
-        pass
-    elif isinstance(nodes, list):
+        return
+    if isinstance(nodes, list):
         for n in _check_int_list("budget.nodes", nodes, errors):
-            if n <= 0:
-                errors.append("budget.nodes: %d must be positive" % n)
-            elif max_nodes is not None and n > max_nodes:
-                errors.append("budget.nodes: %d exceeds budget.max_nodes=%d" % (n, max_nodes))
-    elif isinstance(nodes, bool) or not isinstance(nodes, int):
-        errors.append("budget.nodes: must be 'auto', 'search', an integer, or a list of integers, got %r" % (nodes,))
+            _check_node_count(n, max_nodes, errors)
+    elif not _is_int(nodes):
+        errors.append("budget.nodes: must be 'auto', 'search', an integer, or a list of integers, "
+                      "got %r" % (nodes,))
     else:
-        if nodes <= 0:
-            errors.append("budget.nodes: %d must be positive" % nodes)
-        elif max_nodes is not None and nodes > max_nodes:
-            errors.append("budget.nodes: %d exceeds budget.max_nodes=%d" % (nodes, max_nodes))
+        _check_node_count(nodes, max_nodes, errors)
 
-    # -- search (STRICT knobs only) --
-    s = cfg["search"]
+
+def _validate_search(s: dict, errors: list[str]) -> None:
+    """STRICT knobs only: each listed value must be inside the compliance catalog's legal set."""
     if s["omp"] is not None:
         vals = _check_int_list("search.omp", s["omp"], errors)
         _check_catalog_range("search.omp", vals, "per_rank_omp_threads", errors)
@@ -377,15 +389,11 @@ def _validate_semantics(cfg, errors):
             errors.append("search.rank_distribution: must be a non-empty list")
         else:
             _check_catalog_range("search.rank_distribution", s["rank_distribution"],
-                                  "srun_distribution", errors)
-    if s["aspect_max"] is not None:
-        if isinstance(s["aspect_max"], bool) or not isinstance(s["aspect_max"], (int, float)) \
-                or s["aspect_max"] <= 0:
-            errors.append("search.aspect_max: must be a positive number, got %r" % (s["aspect_max"],))
+                                 "srun_distribution", errors)
+    _apply_rules("search", s, _SEARCH_RULES, errors)
 
     io = s["io"]
-    if not isinstance(io["enabled"], bool):
-        errors.append("search.io.enabled: must be a bool, got %r" % (io["enabled"],))
+    _apply_rules("search.io", io, [("enabled", lambda v: isinstance(v, bool), _BOOL)], errors)
     if not isinstance(io["io_form_history"], list) or not io["io_form_history"]:
         errors.append("search.io.io_form_history: must be a non-empty list")
     else:
@@ -400,25 +408,21 @@ def _validate_semantics(cfg, errors):
     if io["enabled"]:
         errors.append("declared but not yet supported by wtune tune: search.io")
 
-    # -- physics_gray --
-    pg = cfg["physics_gray"]
-    if not isinstance(pg["enabled"], bool):
-        errors.append("physics_gray.enabled: must be a bool, got %r" % (pg["enabled"],))
+
+def _validate_physics_gray(pg: dict, compliance: str, errors: list[str]) -> None:
+    """Knobs listed while disabled are inert documentation; enabling needs compliance:
+    physics-gray and is then still rejected as not yet supported (both reported)."""
+    _apply_rules("physics_gray", pg, [("enabled", lambda v: isinstance(v, bool), _BOOL)], errors)
     for knob_name, knob_cfg in pg["knobs"].items():
-        # A knob listed here while physics_gray.enabled is false is inert documentation (e.g. the
-        # shipped template: compliance stays "strict" and every knob stays disabled) -- only
-        # actually REQUESTING physics-gray search (enabled: true) must also declare
-        # compliance: physics-gray; that combination additionally fails the unconditional
-        # not-yet-supported check below, so both violations are reported together.
-        if pg["enabled"] and cfg["compliance"] != "physics-gray":
+        if pg["enabled"] and compliance != "physics-gray":
             errors.append("physics_gray.knobs.%s: requires compliance: physics-gray (got %r)"
-                           % (knob_name, cfg["compliance"]))
+                          % (knob_name, compliance))
         entry = wc.lookup(knob_name)
         if entry is None:
             errors.append("physics_gray.knobs.%s: not found in the compliance catalog" % knob_name)
         elif entry["classification"] != wc.PHYSICS_GRAY:
             errors.append("physics_gray.knobs.%s: catalog classification is %s, not PHYSICS-GRAY"
-                           % (knob_name, entry["classification"]))
+                          % (knob_name, entry["classification"]))
         multiply = knob_cfg.get("multiply")
         if multiply is None:
             errors.append("physics_gray.knobs.%s: missing 'multiply'" % knob_name)
@@ -426,45 +430,14 @@ def _validate_semantics(cfg, errors):
             errors.append("physics_gray.knobs.%s.multiply: must be a non-empty list" % knob_name)
         else:
             for m in multiply:
-                if isinstance(m, bool) or not isinstance(m, (int, float)) or m <= 0:
+                if not _positive_number(m):
                     errors.append("physics_gray.knobs.%s.multiply: %r must be a positive number"
-                                   % (knob_name, m))
+                                  % (knob_name, m))
     if pg["enabled"]:
         errors.append("declared but not yet supported by wtune tune: physics_gray")
 
-    # -- probe --
-    p = cfg["probe"]
-    if p["steps"] != "auto" and (isinstance(p["steps"], bool) or not isinstance(p["steps"], int)
-                                  or p["steps"] <= 0):
-        errors.append("probe.steps: must be a positive integer or 'auto', got %r" % (p["steps"],))
-    if isinstance(p["confirm_reps"], bool) or not isinstance(p["confirm_reps"], int) \
-            or p["confirm_reps"] <= 0:
-        errors.append("probe.confirm_reps: must be a positive integer, got %r" % (p["confirm_reps"],))
-    if isinstance(p["spinup_min"], bool) or not isinstance(p["spinup_min"], (int, float)) \
-            or p["spinup_min"] < 0:
-        errors.append("probe.spinup_min: must be a non-negative number, got %r" % (p["spinup_min"],))
-    if p["ranking_start"] not in RANKING_START_CHOICES:
-        errors.append("probe.ranking_start: %r not in %s"
-                       % (p["ranking_start"], list(RANKING_START_CHOICES)))
-    if isinstance(p["max_points"], bool) or not isinstance(p["max_points"], int) or p["max_points"] < 1:
-        errors.append("probe.max_points: must be a positive integer, got %r" % (p["max_points"],))
-    if isinstance(p["budget_pct"], bool) or not isinstance(p["budget_pct"], (int, float)) \
-            or not (0 < p["budget_pct"] <= 100):
-        errors.append("probe.budget_pct: must be a number in (0, 100], got %r" % (p["budget_pct"],))
-    if p["rank_by"] not in RANK_BY_CHOICES:
-        errors.append("probe.rank_by: %r not in %s" % (p["rank_by"], list(RANK_BY_CHOICES)))
-    if p["stage2_minutes"] is not None and (isinstance(p["stage2_minutes"], bool) or not
-                                            isinstance(p["stage2_minutes"], (int, float))
-                                            or p["stage2_minutes"] <= 0):
-        errors.append("probe.stage2_minutes: must be a positive number or null, got %r"
-                       % (p["stage2_minutes"],))
-    if p["stage1"] not in STAGE1_CHOICES:
-        errors.append("probe.stage1: %r not in %s" % (p["stage1"], list(STAGE1_CHOICES)))
-    if isinstance(p["restart_io_form"], bool) or p["restart_io_form"] not in RESTART_IO_FORM_CHOICES:
-        errors.append("probe.restart_io_form: %r not in %s"
-                       % (p["restart_io_form"], list(RESTART_IO_FORM_CHOICES)))
-    if p["points_by"] not in POINTS_BY_CHOICES:
-        errors.append("probe.points_by: %r not in %s" % (p["points_by"], list(POINTS_BY_CHOICES)))
+
+def _validate_probe_sources(p: dict, errors: list[str]) -> None:
     isrc = p["indicator_sources"]
     if not isinstance(isrc, list) or not isrc:
         errors.append("probe.indicator_sources: must be a non-empty list")
@@ -477,64 +450,76 @@ def _validate_semantics(cfg, errors):
             errors.append("probe.indicator_sources: duplicate entry")
     if not isinstance(p["sources"], list) or not p["sources"]:
         errors.append("probe.sources: must be a non-empty list")
-    else:
-        seen_src = set()
-        for s in p["sources"]:
-            canon = PROBE_SOURCE_ALIASES.get(s, s)
-            if canon not in PROBE_SOURCE_CHOICES:
-                errors.append("probe.sources: %r not in %s (or legacy alias %s)"
-                               % (s, list(PROBE_SOURCE_CHOICES), list(PROBE_SOURCE_ALIASES)))
-            elif canon in seen_src:
-                errors.append("probe.sources: duplicate entry %r" % (s,))
-            seen_src.add(canon)
+        return
+    seen_src = set()
+    for s in p["sources"]:
+        canon = PROBE_SOURCE_ALIASES.get(s, s)
+        if canon not in PROBE_SOURCE_CHOICES:
+            errors.append("probe.sources: %r not in %s (or legacy alias %s)"
+                          % (s, list(PROBE_SOURCE_CHOICES), list(PROBE_SOURCE_ALIASES)))
+        elif canon in seen_src:
+            errors.append("probe.sources: duplicate entry %r" % (s,))
+        seen_src.add(canon)
+
+
+def _validate_probe_point(i: int, item: Any, errors: list[str]) -> None:
+    """One probe.points entry: '+<N>m', '+<N>h', '<N>%', an ISO time, or {at, reason, source}."""
+    at = item
+    if isinstance(item, dict):
+        if "at" not in item:
+            errors.append("probe.points[%d]: mapping form requires 'at'" % i)
+            return
+        at = item["at"]
+        extra = set(item) - {"at", "reason", "source"}
+        if extra:
+            errors.append("probe.points[%d]: unknown key(s) %s" % (i, sorted(extra)))
+        src = item.get("source")
+        if src is not None and PROBE_SOURCE_ALIASES.get(src, src) not in PROBE_SOURCE_CHOICES:
+            errors.append("probe.points[%d].source: %r not in %s (or legacy alias %s)"
+                          % (i, src, list(PROBE_SOURCE_CHOICES), list(PROBE_SOURCE_ALIASES)))
+    if not isinstance(at, str) or not (
+            _PROBE_POINT_OFFSET_RE.match(at) or _PROBE_POINT_PCT_RE.match(at)
+            or _PROBE_POINT_ISO_RE.match(at)):
+        errors.append(
+            "probe.points[%d]: %r is not a recognized form "
+            "('+<N>m', '+<N>h', '<N>%%', or 'YYYY-MM-DD_HH:MM:SS')" % (i, at))
+
+
+def _validate_probe(p: dict, errors: list[str]) -> None:
+    _apply_rules("probe", p, _PROBE_RULES, errors)
+    _validate_probe_sources(p, errors)
     points = p["points"]
-    if points != "auto":
-        if not isinstance(points, list) or not points:
-            errors.append("probe.points: must be 'auto' or a non-empty list")
-        else:
-            for i, item in enumerate(points):
-                at = item
-                if isinstance(item, dict):
-                    if "at" not in item:
-                        errors.append("probe.points[%d]: mapping form requires 'at'" % i)
-                        continue
-                    at = item["at"]
-                    extra = set(item) - {"at", "reason", "source"}
-                    if extra:
-                        errors.append("probe.points[%d]: unknown key(s) %s" % (i, sorted(extra)))
-                    src = item.get("source")
-                    if src is not None and PROBE_SOURCE_ALIASES.get(src, src) not in PROBE_SOURCE_CHOICES:
-                        errors.append("probe.points[%d].source: %r not in %s (or legacy alias %s)"
-                                       % (i, src, list(PROBE_SOURCE_CHOICES),
-                                          list(PROBE_SOURCE_ALIASES)))
-                if not isinstance(at, str) or not (
-                        _PROBE_POINT_OFFSET_RE.match(at) or _PROBE_POINT_PCT_RE.match(at)
-                        or _PROBE_POINT_ISO_RE.match(at)):
-                    errors.append(
-                        "probe.points[%d]: %r is not a recognized form "
-                        "('+<N>m', '+<N>h', '<N>%%', or 'YYYY-MM-DD_HH:MM:SS')" % (i, at))
+    if points == "auto":
+        return
+    if not isinstance(points, list) or not points:
+        errors.append("probe.points: must be 'auto' or a non-empty list")
+        return
+    for i, item in enumerate(points):
+        _validate_probe_point(i, item, errors)
 
-    # -- prediction --
-    pr = cfg["prediction"]
-    if pr["io_target"] not in IO_TARGETS:
-        errors.append("prediction.io_target: %r not in %s" % (pr["io_target"], list(IO_TARGETS)))
-    if pr["drift_band_pct"] is not None:
-        v = pr["drift_band_pct"]
-        if isinstance(v, bool) or not isinstance(v, (int, float)) or not (0 <= v <= 100):
-            errors.append("prediction.drift_band_pct: must be a number in [0, 100], got %r" % (v,))
-    if not isinstance(pr["measure_r_rad"], bool):
-        errors.append("prediction.measure_r_rad: must be a bool, got %r" % (pr["measure_r_rad"],))
 
-    # -- exclude (key-shape already checked by _merge_exclude; check value types here) --
-    for i, rule in enumerate(cfg["exclude"]):
+def _validate_exclude(rules: list[dict], errors: list[str]) -> None:
+    """Value types only; key shape was checked by _merge_exclude."""
+    for i, rule in enumerate(rules):
         for k, v in rule.items():
-            if k == "when":
-                continue
-            if isinstance(v, bool) or not isinstance(v, (int, float)):
+            if k != "when" and not _is_number(v):
                 errors.append("exclude[%d].%s: must be a number, got %r" % (i, k, v))
 
 
-def resolve_config(raw):
+def _validate_semantics(cfg: dict, errors: list[str]) -> None:
+    if cfg.get("case") and cfg.get("case_dir"):
+        errors.append("case and case_dir are mutually exclusive; set only one")
+    if cfg["compliance"] not in ("strict", "physics-gray"):
+        errors.append("compliance: %r not in ['strict', 'physics-gray']" % (cfg["compliance"],))
+    _validate_budget(cfg["budget"], errors)
+    _validate_search(cfg["search"], errors)
+    _validate_physics_gray(cfg["physics_gray"], cfg["compliance"], errors)
+    _validate_probe(cfg["probe"], errors)
+    _apply_rules("prediction", cfg["prediction"], _PREDICTION_RULES, errors)
+    _validate_exclude(cfg["exclude"], errors)
+
+
+def resolve_config(raw: Any) -> tuple[dict | None, list[str]]:
     """(config_dict, errors). `config_dict` is None iff `errors` is non-empty. Pure dict-in,
     dict-out -- no YAML/file IO, so it is the entry point for tests that want to exercise
     validation without PyYAML."""
@@ -566,10 +551,8 @@ def resolve_config(raw):
 
 
 # ---------------------------------------------------------------------------
-# fire-case detection: "when: fire" in an exclude rule -- cases.json's own "max_omp": 1 field
-# (campaign/configs.py / predictor/experiment.py's established convention), OR the namelist's own
-# &fire ifire>0 on any active domain (predictor/recommend.py's PART E convention, replicated
-# read-only here so a case not yet registered in cases.json is still protected).
+# fire-case detection for "when: fire": cases.json "max_omp": 1, or &fire ifire > 0 on any
+# domain (also catches a case not registered in cases.json).
 # ---------------------------------------------------------------------------
 _NUM_RE = re.compile(r'[-+]?(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?')
 
@@ -584,7 +567,7 @@ def _all_numbers(raw):
     return out
 
 
-def is_fire_case(case_json=None, namelist_path=None):
+def is_fire_case(case_json: dict | None = None, namelist_path: str | None = None) -> bool:
     if case_json and case_json.get("max_omp") == 1:
         return True
     if namelist_path and os.path.exists(namelist_path):
@@ -600,9 +583,8 @@ def is_fire_case(case_json=None, namelist_path=None):
 
 
 # ---------------------------------------------------------------------------
-# shared candidate filter -- the ONE function every candidate-generation site in wtune_tune.py
-# calls (round0/top-up/adaptive/diverse-sampling); the anchor is exempt from the STRICT search
-# restrictions (exempt_search=True) but still must obey `exclude` rules.
+# shared candidate filter for every wtune_tune generation site; the anchor is exempt from the
+# search restrictions (exempt_search) but not from `exclude`.
 # ---------------------------------------------------------------------------
 def _aspect(nx, ny):
     if not nx or not ny:
@@ -638,11 +620,12 @@ def _exclude_rule_matches(rule, candidate, is_fire):
     return True
 
 
-def excluded_by_rules(candidate, exclude_rules, is_fire):
+def excluded_by_rules(candidate: dict, exclude_rules: list[dict] | None, is_fire: bool) -> bool:
     return any(_exclude_rule_matches(r, candidate, is_fire) for r in (exclude_rules or ()))
 
 
-def candidate_allowed(candidate, search_cfg, exclude_rules, is_fire, exempt_search=False):
+def candidate_allowed(candidate: dict, search_cfg: dict | None, exclude_rules: list[dict] | None,
+                      is_fire: bool, exempt_search: bool = False) -> bool:
     """True iff `candidate` (a decomp_space/scc_sweep-shaped dict: omp/numtiles/dist/nx/ny/...)
     survives `exclude` and (unless `exempt_search`, for the anchor) the STRICT `search`
     restrictions: omp, numtiles, rank_distribution, aspect_max."""
@@ -668,16 +651,17 @@ def candidate_allowed(candidate, search_cfg, exclude_rules, is_fire, exempt_sear
     return True
 
 
-def filter_candidates(candidates, search_cfg, exclude_rules, is_fire, exempt_search=False):
+def filter_candidates(candidates: list[dict], search_cfg: dict | None,
+                      exclude_rules: list[dict] | None, is_fire: bool,
+                      exempt_search: bool = False) -> list[dict]:
     return [c for c in candidates
             if candidate_allowed(c, search_cfg, exclude_rules, is_fire, exempt_search)]
 
 
 # ---------------------------------------------------------------------------
-# candidate-count preview (`config show`) -- predictor/decomp_space.enumerate_space + the filter
-# above, so the user sees the search-space size before spending cluster time.
+# candidate-count preview (`config show`): search-space size before spending cluster time
 # ---------------------------------------------------------------------------
-def resolve_node_counts(budget_cfg):
+def resolve_node_counts(budget_cfg: dict) -> list[int]:
     nodes = budget_cfg.get("nodes")
     max_nodes = budget_cfg.get("max_nodes") or DEFAULT_MAX_NODES
     if nodes in (None, "auto"):
@@ -688,13 +672,12 @@ def resolve_node_counts(budget_cfg):
     return [int(nodes)]
 
 
-def count_legal_candidates(case_json, nodes, cfg, is_fire, hardware_id=None,
-                            cores_per_node=DEFAULT_CORES_PER_NODE):
-    """(total, filtered) legal decomp_space candidates for `case_json` at `nodes` nodes, before
-    and after this config's `search`/`exclude` restrictions (the anchor is exempt from the search
-    restrictions, but a preview count has no single "anchor" of its own -- it reports the fully
-    unrestricted sampled-candidate count, matching what round0/top-up/adaptive actually draw
-    from)."""
+def count_legal_candidates(case_json: dict, nodes: int, cfg: dict, is_fire: bool,
+                           hardware_id: str | None = None,
+                           cores_per_node: int = DEFAULT_CORES_PER_NODE) -> tuple[int, int]:
+    """(total, filtered) legal decomp_space candidates at `nodes` nodes, before and after
+    this config's search/exclude restrictions (no anchor exemption: the preview counts what
+    round0/top-up/adaptive draw from). Sets $SITE if unset (side effect of the lazy import)."""
     os.environ.setdefault("SITE", cfg.get("site") or DEFAULT_SITE)
     import decomp_space  # predictor/decomp_space.py -- stdlib only, imported lazily
     hardware_id = hardware_id or DEFAULT_HARDWARE_ID
@@ -710,12 +693,10 @@ def _first_int(vals):
     return int(vals[0]) if vals else None
 
 
-def case_json_from_dir(case_dir):
-    """(case_json, namelist_path, error). Minimal decomp_space.enumerate_space-shaped case dict
-    (e_we/e_sn/e_vert[/e_we_list/e_sn_list]/max_dom) read directly from case_dir/namelist.input --
-    for `case_dir:` configs (a case not registered in campaign/cases.json). Mirrors
-    predictor/recommend.py's parse_case_from_namelist field-by-field, but only the fields
-    decomp_space.enumerate_space actually needs."""
+def case_json_from_dir(case_dir: str) -> tuple[dict | None, str | None, str | None]:
+    """(case_json, namelist_path, error): the decomp_space.enumerate_space fields
+    (e_we/e_sn/e_vert[/e_we_list/e_sn_list]/max_dom) from case_dir/namelist.input, for a case not
+    in campaign/cases.json (mirrors recommend.parse_case_from_namelist)."""
     case_dir = os.path.expanduser(os.path.expandvars(case_dir))
     namelist_path = os.path.join(case_dir, "namelist.input")
     if not os.path.isfile(namelist_path):
@@ -740,7 +721,7 @@ def case_json_from_dir(case_dir):
     return case_json, namelist_path, None
 
 
-def resolve_case_for_preview(cfg):
+def resolve_case_for_preview(cfg: dict) -> tuple[dict | None, str | None, str]:
     """(case_json, namelist_path, label_or_error). label_or_error is the case name/dir on
     success, or a human-readable reason case_json is None."""
     if cfg.get("case"):
@@ -855,7 +836,7 @@ exclude:                          # hard exclusion rules, checked even against t
 """
 
 
-def render_template(case):
+def render_template(case: str) -> str:
     return _TEMPLATE % {"case": case}
 
 
@@ -867,7 +848,7 @@ def _print_errors(errors):
         print("ERROR: %s" % m, file=sys.stderr)
 
 
-def cmd_init(argv):
+def cmd_init(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(prog="wtune_config.py init")
     ap.add_argument("case")
     ap.add_argument("--out", default="wtune.yaml")
@@ -878,7 +859,7 @@ def cmd_init(argv):
     return 0
 
 
-def cmd_validate(argv):
+def cmd_validate(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(prog="wtune_config.py validate")
     ap.add_argument("file")
     a = ap.parse_args(argv)
@@ -891,7 +872,7 @@ def cmd_validate(argv):
     return 0
 
 
-def cmd_show(argv):
+def cmd_show(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(prog="wtune_config.py show")
     ap.add_argument("file")
     ap.add_argument("--case", default=None, help="override the case in the file")
@@ -926,7 +907,7 @@ def cmd_show(argv):
     return 0
 
 
-def main(argv=None):
+def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     if not argv or argv[0] not in ("init", "show", "validate"):
         sys.stderr.write(

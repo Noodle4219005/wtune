@@ -1,0 +1,60 @@
+{
+ "rundir": "<TMP>/run",
+ "now": 1700000030.0,
+ "mode": "live",
+ "status": "running",
+ "warnings": [
+  {
+   "code": "RSL_LAGGING",
+   "text": "rsl behind wrfout (latest wrfout 2021-07-19_01:00:00); rate/ETA from rsl may be stale"
+  }
+ ],
+ "run_start": "2021-07-19_00:00:00",
+ "run_end": "2021-07-20_00:00:00",
+ "dt": 60.0,
+ "stepra": 10,
+ "total_steps": 1440,
+ "periods": [
+  10
+ ],
+ "rsl_file": "rsl.error.0000",
+ "rsl_d01_lines": {
+  "rsl.error.0000": 0
+ },
+ "wrfout_last_time": "2021-07-19_01:00:00",
+ "rsl_d01_last_time": null,
+ "n_d01_steps": 0,
+ "completed_steps": 60,
+ "d01_last_time": "2021-07-19_01:00:00",
+ "sum_d01_elapsed_s": 0,
+ "writes_so_far_s": 0,
+ "n_write_absorbing_steps": 0,
+ "rate_s_per_step": null,
+ "rate_window": 0,
+ "median_step_s": null,
+ "rate_lead_dropped": 0,
+ "fraction": 0.041666666666666664,
+ "remaining_steps": 1380,
+ "remaining_compute_rate_s": null,
+ "remaining_compute_pred_s": null,
+ "remaining_writes_s": null,
+ "pred_scale_k": null,
+ "remaining_rate_s": null,
+ "remaining_pred_s": null,
+ "estimate": "rate",
+ "remaining_compute_s": null,
+ "remaining_s": null,
+ "log_age_s": 30.0,
+ "domains": [
+  {
+   "id": 1,
+   "last_time": null,
+   "n_lines": 0,
+   "start": "2021-07-19_00:00:00",
+   "end": "2021-07-20_00:00:00"
+  }
+ ],
+ "cfl_count": 0
+}
+RUNNING   4.2% sim 2021-07-19_01:00:00 (60/1440) | RSL_LAGGING: rsl behind wrfout (latest wrfout 2021-07-19_01:00:00); rate/ETA from rsl may be stale
+exit=0

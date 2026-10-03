@@ -1,30 +1,12 @@
 #!/usr/bin/env python3
 """predictor/recommend.py -- narrow a new/lightly-run WRF case to a STRICT config shortlist.
 
-This is a "manager narrows the search, human decides" tool. It NEVER auto-applies a config: it
-prints (and can dump as JSON) a ranked shortlist, an explicit uncertainty label per candidate, and
-the exact commands a human would run to verify the top candidates -- nothing more.
-
-CLI:
-    python3 predictor/recommend.py --ledger predictor/ledger/runs.csv \\
+"The manager narrows the search, a human decides": never auto-applies a config; prints (or dumps
+as JSON) a ranked shortlist with an uncertainty label per candidate and the exact verify commands.
+    python3 predictor/recommend.py --ledger predictor/ledger/runs.csv \
         --namelist /path/to/namelist.input --case-name mycase --hardware-id f1-spr-icpnq
-
-Reuses (does not reimplement):
-  - campaign/configs.py     TEMPLATES / resolve_case / dedupe / build_order -- the 16 STRICT
-                             configs and their legality/decomposition-resolution logic.
-  - wtune.py (repo root)    parse_namelist()/first_value() -- the namelist reader. NOT
-                             wtune.extract_case(), which fills every unread field with an
-                             analytical-model sentinel default (e.g. e_vert=50, mp_physics=-1) --
-                             exactly the silent-guessing this tool's brief forbids.
-  - predictor/targets.py    _reference_order (the same outcome-independent baseline tie-break
-                             compute_case_baselines uses) and NOISE (the measured run-to-run
-                             reproducibility floor).
-  - predictor/validate.py   conformal_intervals_for_new_rows (added alongside this file) and
-                             recommendation_label for the SAFE/EXPERIMENTAL uncertainty label.
-  - predictor/models.py     the five model classes as-is; see the catboost_pairwise design note
-                             below and in the final report for why its score() is handled
-                             differently from the other four.
-"""
+Reuses campaign/configs.py (templates, legality), wtune.py's namelist reader (not extract_case,
+which guesses defaults), targets.py, validate.py (conformal intervals, labels) and models.py."""
 from __future__ import annotations
 
 import argparse
@@ -35,6 +17,7 @@ import re
 import statistics
 import subprocess
 import sys
+from typing import Any
 from collections import defaultdict
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -78,11 +61,8 @@ _KNOWN_FAILURE_MODE = (
 
 
 # ---------------------------------------------------------------------------
-# Namelist parsing. Reuses wtune.py's parse_namelist()/first_value() (the group->raw-string
-# Fortran namelist reader already in this repo) rather than writing a second one. Deliberately
-# does NOT reuse wtune.extract_case(), which fills every field it cannot read with an
-# analytical-model default (e_we=101, e_vert=50, mp_physics=-1, io_form_history=2, ...) -- the
-# opposite of this tool's "never invent/guess a default value silently" requirement.
+# Namelist parsing via wtune.py's parse_namelist()/first_value(); not extract_case(), which
+# fills unread fields with model defaults -- this tool never guesses a value silently.
 # ---------------------------------------------------------------------------
 _NUM_RE = re.compile(r"[-+]?(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?")
 
@@ -166,7 +146,7 @@ def _run_minutes(nl):
     return int(days or 0) * 1440 + int(hours or 0) * 60 + int(minutes or 0)
 
 
-def parse_case_from_namelist(namelist_path):
+def parse_case_from_namelist(namelist_path: str) -> dict:
     """Parse the case fields recommend.py needs from a namelist.input. Any field this namelist
     does not carry stays None -- never guessed/defaulted."""
     nl = wtune_core.parse_namelist(namelist_path)
@@ -174,11 +154,8 @@ def parse_case_from_namelist(namelist_path):
     e_we_list = _domain_list(nl, "domains", "e_we", max_dom)
     e_sn_list = _domain_list(nl, "domains", "e_sn", max_dom)
     e_vert_list = _domain_list(nl, "domains", "e_vert", max_dom)
-    # WRF-Fire &fire ifire (PART E, per-domain like e_we/e_sn -- c34/marshall's known omp>1
-    # crash is ifire=2 on d02 while d01 stays ifire=0, see campaign/cases.json notes): read
-    # straight off the namelist so the omp=1 cap below (build_candidates) also protects a case
-    # not yet registered in cases.json (or registered without max_omp) -- never guessed/defaulted,
-    # same as every other field here.
+    # &fire ifire per domain (c34/marshall crash with omp > 1 from ifire=2 on d02), so the omp=1
+    # cap also protects a case not in cases.json
     ifire_list = _domain_list(nl, "fire", "ifire", max_dom)
     return dict(
         max_dom=max_dom,
@@ -208,15 +185,10 @@ def parse_case_from_namelist(namelist_path):
 
 
 # ---------------------------------------------------------------------------
-# max_dom resolution (coordinator review item 2): the namelist's own max_dom is what
-# parse_case_from_namelist read off disk, but a human may deliberately want to run/verify with
-# FEWER active domains than the raw template has (e.g. lafe's real template is max_dom=3, but
-# this build cannot run its d02 LES nest -- see campaign/cases.json's lafe notes -- so the
-# STRICT campaign itself only ever ran it at max_dom=1). --max-dom lets the caller say which
-# domain count the legality check and the verify-plan's edit-namelist command should actually
-# target; it can only ever narrow, never invent domains the namelist does not have.
+# max_dom resolution: --max-dom may only narrow the namelist's own count (lafe's template has
+# 3 domains, but this build only runs it at max_dom=1).
 # ---------------------------------------------------------------------------
-def resolve_max_dom(requested_max_dom, case_fields):
+def resolve_max_dom(requested_max_dom: int | None, case_fields: dict) -> int:
     namelist_max_dom = case_fields.get("max_dom")
     if requested_max_dom is None:
         return namelist_max_dom
@@ -229,20 +201,12 @@ def resolve_max_dom(requested_max_dom, case_fields):
 
 
 # ---------------------------------------------------------------------------
-# Candidate generation: campaign/configs.py's 16 STRICT templates, resolved against this case's
-# grid. resolve_case() (not reimplemented here) already (a) rejects a template with no legal
-# shape at the requested rank count and (b) checks legality against EVERY active nested domain,
-# not just d01, and (c) rejects a template whose omp exceeds case_dict["max_omp"] (e.g. c34/
-# marshall: WRF-Fire crashes rc=137/139 at the first d01 step with any omp>1). `max_dom` is the
-# EFFECTIVE domain count (see resolve_max_dom above), not necessarily case_fields["max_dom"]
-# (the namelist's own raw value). case_dict is otherwise built ENTIRELY from case_fields (this
-# namelist's own parsed values) -- max_omp is the one exception: it is not derivable from a
-# namelist, so it is looked up from campaign/cases.json by case_name instead (same
-# CASES.get(case_name) pattern verify_run_minutes and case_frozen_keys already use elsewhere in
-# this file); a case_name recommend() does not recognise (not in cases.json, or None) leaves
-# case_dict without "max_omp", i.e. unchanged pre-existing behaviour (no cap).
+# Candidate generation: the 16 STRICT templates through configs.resolve_case (legal shape on
+# every active domain, omp <= max_omp). case_dict comes from the namelist, except max_omp from
+# cases.json by case_name (no cap for an unknown case); max_dom is the effective count.
 # ---------------------------------------------------------------------------
-def build_candidates(case_fields, nodes, max_dom, case_name=None):
+def build_candidates(case_fields: dict, nodes: int, max_dom: int, case_name: str | None = None
+                     ) -> tuple:
     if case_fields["e_we"] is None or case_fields["e_sn"] is None:
         raise ValueError(
             "cannot generate candidates: e_we/e_sn not found in the namelist's &domains section "
@@ -253,11 +217,7 @@ def build_candidates(case_fields, nodes, max_dom, case_name=None):
     known_case = campaign_configs.CASES.get(case_name)
     if known_case is not None and known_case.get("max_omp") is not None:
         case_dict["max_omp"] = known_case["max_omp"]
-    # PART E: ifire>0 on ANY active domain (WRF-Fire, c34/marshall's known omp>1 crash -- see
-    # cases.json notes and wtune_compliance.py's per_rank_omp_threads constraint) caps omp=1
-    # regardless of whether case_name is registered in cases.json at all -- min() with whatever
-    # cases.json's own max_omp already set above (never widens an existing, possibly stricter,
-    # cap; case_dict.get("max_omp", 1) treats "no cap yet" as unbounded-but-about-to-become-1).
+    # ifire > 0 on any domain caps omp at 1 (never widening a stricter cases.json cap)
     if any(v is not None and v > 0 for v in (case_fields.get("ifire_list") or ())):
         case_dict["max_omp"] = min(1, case_dict.get("max_omp", 1))
     if case_fields.get("ext_max_omp"):   # WRF-Chem/Hydro/WRFDA: dmpar-only build, no OpenMP
@@ -336,7 +296,7 @@ def _candidate_row(cfg, case_fields, hardware_id):
 # ---------------------------------------------------------------------------
 # Training data + model fitting (with fallback chain)
 # ---------------------------------------------------------------------------
-def load_training_rows(ledger_path):
+def load_training_rows(ledger_path: str) -> list[dict]:
     """Same load-then-baseline-then-y pipeline benchmark.py's main() uses, reused verbatim:
     RESEARCH rows are dropped before baselines are even computed (they are never a candidate
     baseline or evaluated), then y=log(s/s_baseline) is attached per decision group."""
@@ -372,9 +332,8 @@ def _fit_with_fallback(requested_model, train_rows):
 
 
 # ---------------------------------------------------------------------------
-# Scoring: convert each model's score() output to a percent-change-vs-reference for the four
-# y-scale models, or leave catboost_pairwise's output as an opaque ranking score. See the module
-# docstring and the final report's printed explanation for why these are NOT interchangeable.
+# Scoring: percent change vs reference for the four y-scale models; catboost_pairwise's output
+# stays an opaque ranking score (not interchangeable).
 # ---------------------------------------------------------------------------
 def _score_candidates(model_name, model, candidate_rows):
     preds = model.score(candidate_rows)
@@ -420,15 +379,9 @@ def _label_for(y_pred, intervals_for_row):
 
 
 # ---------------------------------------------------------------------------
-# Design hook for the next phase (PHYSICS-GRAY + a real fidelity-risk model, predictor/validate.py
-# fidelity_model_status/constrained_recommend). Every candidate already carries its own
-# compliance_class (see _candidate_row); this is the one pluggable function that decides what to
-# say about FIDELITY risk for a candidate, so a future phase only needs to change this one
-# function -- never scattered through recommend()/format_report(). STRICT candidates have no
-# physics deviation from the case's own physics, so there is nothing to assess: "N/A (STRICT)" is
-# not a placeholder for a low-confidence answer, it means the question does not apply yet.
-# --compliance=PHYSICS-GRAY is refused earlier in recommend() (UnsupportedComplianceError), so
-# the branch below is unreachable today but documents the intended hook for when it lands.
+# The one hook deciding what to say about a candidate's fidelity risk. STRICT changes no
+# physics, so "N/A (STRICT)" means the question does not apply; the PHYSICS-GRAY branch is
+# unreachable here (recommend() refuses it) and documents the hook.
 # ---------------------------------------------------------------------------
 def _fidelity_status(candidate_row):
     if candidate_row.get("compliance_class") == "STRICT":
@@ -437,8 +390,7 @@ def _fidelity_status(candidate_row):
 
 
 # ---------------------------------------------------------------------------
-# Evidence warnings (point 5 of the brief): computed against the SAME scope_rows the model was
-# actually trained on, so what is reported here is exactly the evidence behind the shown model.
+# Evidence warnings, from the same scope_rows the model was trained on.
 # ---------------------------------------------------------------------------
 def _hardware_match(scope_rows, hardware_id):
     same = [r for r in scope_rows if r.get("hardware_id") == hardware_id]
@@ -475,21 +427,13 @@ def _grid_neighbors(scope_rows, query_grid_size, hardware_id, top_n=3):
 
 
 # ---------------------------------------------------------------------------
-# Verify-run measurement length (coordinator review item 1): a namelist's own run_minutes is
-# frequently a campaign-time placeholder (e.g. lafe's real template carries run_days/hours/
-# minutes=0/0/0 -- the STRICT campaign's own runner always overwrites it via edit-namelist before
-# ever launching WRF), so using it verbatim produced a useless "run 0 minutes" verify command.
-# This derives an actual measurement length instead, and always states how, in that order:
-#   1. campaign/cases.json's own steps x dt for a case this tool recognises by name -- the exact
-#      length the STRICT campaign itself measures that case with.
-#   2. a documented default of 30 d01 steps x this namelist's own time_step, rounded up to whole
-#      minutes, for a case not in cases.json.
-#   3. (None, reason) when neither is computable (time_step unknown and case not in cases.json).
+# Verify-run length (a namelist's run_* is often a placeholder, lafe 0/0/0): cases.json steps x
+# dt for a known case, else 30 d01 steps x time_step rounded up to minutes, else (None, reason).
 # ---------------------------------------------------------------------------
-_DEFAULT_VERIFY_STEPS = 30
+_DEFAULT_VERIFY_STEPS = 30   # d01 steps
 
 
-def verify_run_minutes(case_name, case_fields):
+def verify_run_minutes(case_name: str | None, case_fields: dict) -> tuple[int | None, str]:
     case = campaign_configs.CASES.get(case_name)
     if case is not None and case.get("steps") and case.get("dt"):
         seconds = case["steps"] * case["dt"]
@@ -512,12 +456,8 @@ def verify_run_minutes(case_name, case_fields):
 
 
 # ---------------------------------------------------------------------------
-# "What to run to verify" -- reuses campaign/configs.py's own CLI (edit-namelist) and
-# build_order(), and the exact srun invocation shape from campaign/strict_campaign.sbatch
-# (ntasks_per_node = ranks / 4, OMP_NUM_THREADS/KMP_BLOCKTIME export, --distribution=), instead
-# of hand-inventing a new one. `max_dom` is the EFFECTIVE domain count (resolve_max_dom), so the
-# verify command targets the domains the user will actually run, not necessarily every domain
-# the raw namelist happens to carry (coordinator review item 2).
+# "What to run to verify": configs.py's edit-namelist CLI and build_order(), and
+# strict_campaign.sbatch's srun shape, for the effective max_dom.
 # ---------------------------------------------------------------------------
 def _build_verify_plan(reference_entry, shortlist, case_fields, nodes, max_dom, case_name):
     run_minutes, run_minutes_source = verify_run_minutes(case_name, case_fields)
@@ -564,13 +504,8 @@ def _build_verify_plan(reference_entry, shortlist, case_fields, nodes, max_dom, 
 
 
 # ---------------------------------------------------------------------------
-# In-sample check (coordinator review item 3): a case already present in the training ledger
-# (by case_base name, or by an identical grid under a different name) makes its own shortlist
-# in-sample, not an honest out-of-sample prediction -- this must be loud and unmissable, not
-# buried. Checked against whatever rows actually end up in the fitted model's training set (i.e.
-# AFTER --holdout-case has already been applied by the caller), so passing the matching
-# --holdout-case correctly makes this warning go away for that case_base (while still catching a
-# DIFFERENT case_base that happens to share the exact same grid).
+# In-sample check, loud: the case (by name or identical grid) is in the training rows left after
+# --holdout-case, so its shortlist is not out-of-sample.
 # ---------------------------------------------------------------------------
 def _in_sample_check(scope_rows, case_name, case_fields):
     case_bases = {r.get("case_base") for r in scope_rows}
@@ -801,10 +736,8 @@ def _fit_and_score_models(model, scope_rows, training_rows, candidate_rows, comp
     if interval_note:
         warnings.append(interval_note)
 
-    # Magnitude companion (coordinator review item 4): always fit catboost_point (fallback ridge)
-    # regardless of the requested/primary ranking model, so every recommendation carries an
-    # honest, calibrated percent-change estimate + SAFE/EXPERIMENTAL label even when --model is
-    # catboost_pairwise (which cannot produce either on its own -- see the warning above).
+    # catboost_point (fallback ridge) always gives the percent change + SAFE/EXPERIMENTAL label,
+    # which catboost_pairwise cannot
     companion_name, companion_model, companion_attempts = _fit_with_fallback(
         "catboost_point", scope_rows)
     if companion_name != "catboost_point":
@@ -829,16 +762,14 @@ def _fit_and_score_models(model, scope_rows, training_rows, candidate_rows, comp
     return primary, companion, is_pairwise, warnings
 
 
-def recommend(ledger_path, namelist_path, case_name, hardware_id, nodes=4,
-              compliance="STRICT", model="catboost_pairwise", top_k=5, no_intervals=False,
-              max_dom=None, holdout_case=None):
-    """Build a STRICT config shortlist for one case. Returns a JSON-serializable dict. Never
-    auto-applies anything -- see result["auto_apply_disclaimer"].
-
-    max_dom: override the number of active domains checked for legality and used in the
-        verify-plan (default: this namelist's own max_dom; see resolve_max_dom).
-    holdout_case: drop this case_base's rows from training before fitting anything, for an
-        honest out-of-sample shortlist when `case_name` (or its grid) is itself in the ledger."""
+def recommend(ledger_path: str, namelist_path: str, case_name: str | None, hardware_id: str,
+              nodes: int = 4, compliance: str = "STRICT", model: str = "catboost_pairwise",
+              top_k: int = 5, no_intervals: bool = False, max_dom: int | None = None,
+              holdout_case: str | None = None) -> dict:
+    """STRICT config shortlist for one case -> JSON-serializable dict; never auto-applies
+    (result["auto_apply_disclaimer"]). max_dom narrows the domains checked and verified
+    (resolve_max_dom); holdout_case drops that case_base from training for an honest
+    out-of-sample shortlist."""
     if compliance not in _SUPPORTED_COMPLIANCE:
         raise UnsupportedComplianceError(
             "--compliance=%s recommendation needs the fidelity-risk model (predictor/validate.py "
@@ -942,11 +873,7 @@ def recommend(ledger_path, namelist_path, case_name, hardware_id, nodes=4,
 
 
 # ---------------------------------------------------------------------------
-# --space full (WTune D4): score the WHOLE legal decomp_space.enumerate_space pool for this case
-# instead of just the 16 fixed STRICT templates. Still STRICT-only (decomp_space's pool is plain
-# WRF decomposition/tiling knobs, no physics deviation) and still "narrows the search, human
-# decides" -- see recommend()'s own module docstring, unchanged for --space templates (the
-# default).
+# --space full (D4): the whole legal decomp_space pool instead of the 16 templates (still STRICT).
 # ---------------------------------------------------------------------------
 def _decomp_space_case_dict(case_fields, max_dom):
     """The subset of decomp_space.enumerate_space's case-shaped input this tool can read off a
@@ -962,10 +889,8 @@ def _decomp_space_case_dict(case_fields, max_dom):
     return case_dict
 
 
-# campaign/strict_campaign.sbatch's own notes convention for a CONFIG_FILE-generated run (see
-# ledger.py's adapt_campaign_ledger docstring): "config_source=generated numtiles_x=.. ...". Not
-# parsed into a ledger column by ledger.py/benchmark.py (LEDGER_FIELDS has no such columns), so
-# it must be read back out of `notes` here to know a training row's ACTUAL tile geometry.
+# A generated run's tile geometry lives only in its notes ("config_source=generated
+# numtiles_x=.."), not in a ledger column.
 _NOTES_KV_RE = re.compile(r"(\w+)=(\S*)")
 
 
@@ -1046,18 +971,15 @@ def _candidate_extrapolation_reasons(cfg, cfg_row, seen):
 DEFAULT_FULL_SPACE_TOP_K = 10
 
 
-def recommend_full_space(ledger_path, namelist_path, case_name, hardware_id, nodes=4,
-                          model="catboost_pairwise", top_k=DEFAULT_FULL_SPACE_TOP_K,
-                          no_intervals=False, max_dom=None, holdout_case=None,
-                          tile_options=None, omp_options=None):
-    """Like recommend() (STRICT only, same "narrows the search, human decides" contract), but
-    scores decomp_space.enumerate_space's WHOLE legal pool for this case/resource allocation
-    instead of just the 16 fixed STRICT templates -- the pool can run into the thousands (see
-    decomp_space.py's own module docstring), so conformal intervals (validate.py scores ONE
-    candidate row at a time per fold -- see conformal_intervals_for_new_rows) are computed only
-    for the already-ranked top_k, not the whole pool; this is the one deliberate accuracy/cost
-    tradeoff vs recommend()'s STRICT-templates path, where 16 candidates make scoring everything
-    cheap enough not to matter."""
+def recommend_full_space(ledger_path: str, namelist_path: str, case_name: str | None,
+                         hardware_id: str, nodes: int = 4, model: str = "catboost_pairwise",
+                         top_k: int = DEFAULT_FULL_SPACE_TOP_K, no_intervals: bool = False,
+                         max_dom: int | None = None, holdout_case: str | None = None,
+                         tile_options: dict | None = None, omp_options: list[int] | None = None
+                         ) -> dict:
+    """recommend() over decomp_space.enumerate_space's whole legal pool (thousands of candidates)
+    instead of the 16 STRICT templates; same contract. Conformal intervals only for the ranked
+    top_k (validate.py scores one row per fold) -- the deliberate cost tradeoff vs recommend()."""
     case_fields = parse_case_from_namelist(namelist_path)
     effective_max_dom = resolve_max_dom(max_dom, case_fields)
     if case_fields["e_we"] is None or case_fields["e_sn"] is None or case_fields["e_vert"] is None:
@@ -1228,7 +1150,7 @@ def _full_space_run_command(cfg, nodes):
     ])
 
 
-def format_full_space_report(result):
+def format_full_space_report(result: dict) -> str:
     lines = []
     lines.append("=" * 78)
     lines.append("WTune STRICT full-space shortlist -- case=%s hardware=%s nodes=%s max_dom=%s"
@@ -1276,14 +1198,11 @@ def format_full_space_report(result):
 
 
 # ---------------------------------------------------------------------------
-# --propose-batch (WTune D4 hook into D3): a stateless, always-round-1 call into
-# decomp_search.propose_for_case, so --case-name need not be registered in campaign/cases.json at
-# all (unlike decomp_search.py's own CLI `propose`, which looks the case up there). For a real
-# multi-round search, seed decomp_search.py's own state file with this call's output and continue
-# with its `propose`/`ingest` CLI directly -- recommend.py itself keeps no persistent state.
+# --propose-batch: stateless round 1 of decomp_search.propose_for_case (no cases.json entry
+# needed); continue a multi-round search with decomp_search.py's own CLI.
 # ---------------------------------------------------------------------------
-def run_propose_batch(ledger_path, namelist_path, case_name, hardware_id, nodes, max_dom,
-                       batch_size):
+def run_propose_batch(ledger_path: str, namelist_path: str, case_name: str, hardware_id: str,
+                      nodes: int, max_dom: int | None, batch_size: int) -> Any:
     """Returns (result_dict_from_propose_core, configs_out) -- see decomp_search.propose_core."""
     case_fields = parse_case_from_namelist(namelist_path)
     effective_max_dom = resolve_max_dom(max_dom, case_fields)
@@ -1301,7 +1220,8 @@ def run_propose_batch(ledger_path, namelist_path, case_name, hardware_id, nodes,
         total_cores=total_cores, nodes=nodes, hardware_id=hardware_id)
 
 
-def format_propose_batch_report(case_name, result, configs_out, out_path):
+def format_propose_batch_report(case_name: str, result: Any, configs_out: Any, out_path: str | None
+                                ) -> str:
     lines = ["\n-- WTune D3 propose-batch (round %d) --" % result["round"]]
     if result["stopped"]:
         lines.append("  STOP: %s" % result["reason"])
@@ -1315,10 +1235,7 @@ def format_propose_batch_report(case_name, result, configs_out, out_path):
 
 
 # ---------------------------------------------------------------------------
-# PHYSICS-GRAY (decision 0051): a separate top-level function, not a branch inside recommend()
-# above -- recommend() stays STRICT-only (its own docstring, and every existing STRICT test,
-# already say so), and calling recommend(compliance="PHYSICS-GRAY") directly still raises
-# UnsupportedComplianceError exactly as before. main() dispatches PHYSICS-GRAY here instead.
+# PHYSICS-GRAY (decision 0051): its own entry point; recommend() stays STRICT-only.
 # ---------------------------------------------------------------------------
 DEFAULT_PHYSICS_ALLOWED_LABELS = ("WITHIN-FLOOR", "SMALL-DRIFT")
 _PROBE_MIN_DX_M = 1000.0  # decision 0051: the SpeedyWeather probe is not valid below dx=1 km
@@ -1341,8 +1258,9 @@ def _probe_validity(dx):
     return True, None
 
 
-def run_probe_screen(namelist_path, latlon=None, wps=None, wrfinput=None, python_exe=None,
-                      wtune_path=None, timeout=None):
+def run_probe_screen(namelist_path: str, latlon: str | None = None, wps: str | None = None,
+                     wrfinput: str | None = None, python_exe: str | None = None,
+                     wtune_path: str | None = None, timeout: float | None = None) -> str:
     """Run `wtune.py screen --namelist NAMELIST --json [--latlon|--wps|--wrfinput]` as a
     subprocess, using the SAME python interpreter this process runs under unless overridden, and
     return its captured stdout (the probe verdict lines plus the JSON evidence manifest -- the
@@ -1402,15 +1320,8 @@ def _default_decomp(ledger_path, namelist_path, case_name, hardware_id, nodes, m
     return _DEFAULT_PHYSICS_DECOMP, "fallback default (STRICT shortlist was empty)"
 
 
-# Defect 5 (real physics-campaign data, ledger jobs 1077042/1077171 and their predecessors):
-# isc21's DECOMP=C02/TWIN_DECOMP=C06 pair was found BIT-IDENTICAL (rms diff 0 on every compared
-# field -- fidelity_gate.py's explicit "floor_zero" case) the one time it was tried; every real
-# isc21 physics-campaign run since has used TWIN_DECOMP=C13 instead. There is no cheap way to
-# predict a bit-identical twin ahead of a real measurement (it depends on WRF's own reduction
-# order, not on anything resolve_case()'s dedupe key -- ranks/omp/nx/ny/numtiles/dist/blocktime --
-# can see, since DECOMP and TWIN_DECOMP always differ in ranks*omp by construction), so this table
-# only records CASES ALREADY OBSERVED to hit it; see the general floor_zero hint printed
-# unconditionally below for any case not in this table.
+# Twin pairs OBSERVED bit-identical (floor_zero; isc21 C02/C06, jobs 1077042/1077171). This is
+# not predictable ahead of a run, so other cases get the general floor_zero hint.
 _KNOWN_FLOOR_ZERO_TWIN = {
     ("isc21", _DEFAULT_PHYSICS_DECOMP): _TWIN_DECOMP_FALLBACK,
 }
@@ -1443,19 +1354,9 @@ def _native_physics_from_case_fields(case_fields):
 
 
 # ---------------------------------------------------------------------------
-# Cost-share-aware template filtering (2026-09-17)
-#
-# The ledger has carried profile_{radiation,micro,dynamics,mpi,io}_share since phase B and nothing
-# in this file ever read them. A template can only ever save a fraction of the bucket it acts on,
-# so the bucket share is a hard UPPER BOUND on its benefit -- and the buckets differ by more than
-# an order of magnitude across cases: SC26-P1's radiation is 1.9% of step cost while SC26-P2's is
-# 47% (~/SC26-WRF docs/testcase-atlas/cases/sc26-p{1,2}-*.md). Proposing a radt template on P1
-# cannot pay, and radt x2 (P02) already bought nothing on six low-radiation-share cases.
-#
-# What this is NOT: a benefit predictor. The same atlas records radiation share failing to predict
-# a compiler-flag gain (P2 at 47% share gained 5.3%, LAFE at 40% gained 11.2%). An upper bound is
-# the only honest thing a share supports, so a low share DEMOTES a candidate -- it is still listed,
-# with the number and the reason -- and a high share promotes nothing.
+# Cost-share-aware filtering: a template saves at most the profile bucket it acts on (radiation
+# 1.9 % of SC26-P1 vs 47 % of P2), so a low share demotes it, listed with the reason. A share is
+# only an upper bound, never a benefit predictor (P2 47 % gained 5.3 %, LAFE 40 % 11.2 %).
 # ---------------------------------------------------------------------------
 FAMILY_PROFILE_BUCKET = {
     "radiation": "profile_radiation_share",
@@ -1473,7 +1374,7 @@ FAMILY_PROFILE_BUCKET = {
 }
 PROFILE_BUCKET_FIELDS = ("profile_radiation_share", "profile_micro_share",
                          "profile_dynamics_share", "profile_mpi_share", "profile_io_share")
-DEFAULT_MIN_BUCKET_SHARE = 0.05
+DEFAULT_MIN_BUCKET_SHARE = 0.05   # fraction of step cost
 
 
 def _as_share_fraction(value):
@@ -1498,7 +1399,7 @@ def _median(values):
     return vals[mid] if n % 2 else 0.5 * (vals[mid - 1] + vals[mid])
 
 
-def case_profile_shares(rows, case_name):
+def case_profile_shares(rows: list[dict], case_name: str) -> dict:
     """{profile field: fraction of step cost} measured for `case_name`, the median over every
     ledger row of that case_base carrying the field. {} when this case has no profile row at all --
     which is the current state of the whole production ledger, and the reason the filter below is a
@@ -1512,20 +1413,18 @@ def case_profile_shares(rows, case_name):
     return out
 
 
-def template_bucket(family):
+def template_bucket(family: str | None) -> str | None:
     """The profile bucket a template family acts on, or None when no bucket bounds it."""
     return FAMILY_PROFILE_BUCKET.get(family)
 
 
-def annotate_bucket_shares(shortlist, shares, min_bucket_share=DEFAULT_MIN_BUCKET_SHARE):
-    """(shortlist, notes). With measured `shares`, annotate every shortlist entry with
-    `bucket` / `bucket_share` / `upper_bound_saving` (= bucket_share: a template cannot save more
-    than the bucket it acts on) / `bucket_demoted`, force a below-threshold candidate to
-    UNCONFIRMED with an explicit reason, and re-sort demoted candidates last so the verify plan
-    does not spend runs on them. Candidates are never hidden.
-
-    With no measured share for this case (`shares` empty) NOTHING changes: the same list object
-    comes back, unannotated, plus a note saying so."""
+def annotate_bucket_shares(shortlist: list[dict], shares: dict,
+                           min_bucket_share: float = DEFAULT_MIN_BUCKET_SHARE
+                           ) -> tuple[list[dict], list[str]]:
+    """(shortlist, notes). With measured `shares`: annotate bucket / bucket_share /
+    upper_bound_saving (= the share) / bucket_demoted, force a below-threshold candidate to
+    UNCONFIRMED with a reason and sort demoted ones last; nothing is hidden. Without shares the same
+    list object comes back unannotated, with a note."""
     threshold = _as_share_fraction(min_bucket_share) or 0.0
     if not shares:
         return shortlist, [
@@ -1572,7 +1471,9 @@ def annotate_bucket_shares(shortlist, shares, min_bucket_share=DEFAULT_MIN_BUCKE
     return shortlist, notes
 
 
-def exclude_frozen_key_templates(candidates, frozen_keys, case_name, templates=None):
+def exclude_frozen_key_templates(candidates: list[dict], frozen_keys: list[str] | None,
+                                 case_name: str | None, templates: dict | None = None
+                                 ) -> tuple[list[dict], list[str]]:
     """(candidates, notes): mark every candidate whose template would write a task-mandated frozen
     key inapplicable, with the reason naming the key and the case. A competition problem statement
     can FIX a parameter (SC26-P1 mandates time_step=10 and debug_level=50); a recommendation that
@@ -1610,44 +1511,17 @@ def exclude_frozen_key_templates(candidates, frozen_keys, case_name, templates=N
 
 
 # ---------------------------------------------------------------------------
-# Accuracy-first mode (--objective accuracy, 2026-09-17)
-#
-# The PHYSICS-GRAY shortlist above answers "which physics template is FASTEST while staying within
-# an allowed fidelity label". Accuracy-first answers the opposite question -- "which is CLOSEST to
-# the reference solution, and what does that cost" -- over the same candidate set plus the
-# physics_templates.json A-series, whose direction is "accuracy" (more work, less discretization
-# error) rather than the P/D series' "cost".
-#
-# Three facts shape this code, and all three are easy to get wrong:
-#
-# 1. THE CHAOS FLOOR IS THE RESOLUTION LIMIT. fidelity_gate.py measures a candidate's drift from
-#    the reference against the drift the SAME physics shows when merely re-decomposed (the twin).
-#    floor_ratio <= 1 means the candidate moved the solution no more than changing nproc_x/nproc_y
-#    does. Reporting such a candidate as an accuracy improvement is meaningless -- there is
-#    nothing there to improve. Measured example from this campaign: pure RK2 (D02) on conus12 at
-#    12 h had floor_ratio 1.593, i.e. dropping a whole RK stage was already within 2x of simply
-#    re-decomposing the run. CHAOS_FLOOR_RATIO below is that hard rule, and it applies in BOTH
-#    directions: a cost lever below the floor is a free speedup, an accuracy lever below the floor
-#    is pure wasted work because the reference was already converged in that knob.
-#
-# 2. THE DECOMPOSITION IS A FREE AXIS. STRICT knobs (nproc_x/nproc_y/numtiles/OMP/distribution)
-#    change only how the same arithmetic is distributed, never the physics. They set the chaos
-#    floor but they are not a fidelity lever, so accuracy mode keeps recommending the FASTEST
-#    legal decomposition exactly as perf mode does -- there is no accuracy to buy by slowing it
-#    down.
-#
-# 3. nd IS SIGNED BY DIRECTION, NOT BY MAGNITUDE. nd is the distance from the campaign REFERENCE
-#    (P00, the case as it actually runs). For a cost lever that distance IS the error it
-#    introduced, so lower is better. For an A-series lever the same number is the CORRECTION the
-#    extra work applies, and small means "the reference was already converged here", i.e. the
-#    template is not worth its cost. Ranking A-templates by ascending nd alongside the cost levers
-#    would perversely reward exactly the ones that do nothing, so they are split into their own
-#    block. See _accuracy_verify_plan: the way out is to re-run fidelity_gate.py with the surviving
-#    A-template's own wrfout as --reference, which turns every other candidate's nd into a genuine
-#    error against a better-converged solution. That two-stage plan is what accuracy mode emits.
+# Accuracy-first mode (--objective accuracy): which template is CLOSEST to the reference and at
+# what cost, including the "accuracy"-direction A-series. Rules:
+# 1. Chaos floor: floor_ratio <= 1 (drift no larger than re-decomposing; conus12 RK2 D02 was
+#    1.593) is noise in both directions -- a free speedup or wasted work (CHAOS_FLOOR_RATIO).
+# 2. The decomposition is a free axis (STRICT knobs change no physics): keep the fastest.
+# 3. nd is signed by direction: error for a cost lever, correction for an A-lever (small = not
+#    worth it), so A-templates get their own block and a second gate run against the surviving
+#    A-template's wrfout (_accuracy_verify_plan).
 # ---------------------------------------------------------------------------
 OBJECTIVES = ("perf", "accuracy")
-CHAOS_FLOOR_RATIO = 1.0
+CHAOS_FLOOR_RATIO = 1.0   # floor_ratio at or below = within the chaos floor
 ACCURACY_DIRECTION = "accuracy"
 COST_DIRECTION = "cost"
 # Which judge produced an entry's fidelity_error. OBSERVED comes from predictor/verify_obs.py
@@ -1660,7 +1534,7 @@ BELOW_FLOOR_NOTE = ("indistinguishable from changing the decomposition (floor_ra
                     "improvement")
 
 
-def template_direction(template_id, templates=None):
+def template_direction(template_id: str, templates: dict | None = None) -> str:
     """'accuracy' for a physics_templates.json template that buys fidelity with extra work
     (the A-series), else 'cost'. An unknown template id is 'cost': the P/D series predate the
     'direction' field entirely and every one of them is a cost lever."""
@@ -1687,7 +1561,7 @@ def _row_fidelity_value(row, key):
         return None
 
 
-def measured_fidelity_by_template(train_rows):
+def measured_fidelity_by_template(train_rows: list[dict]) -> dict:
     """{template: {"nd": entry, "floor_ratio": entry}} where entry is
     {"median", "n", "cases"} over the MEASURED physics rows for that template -- a model-free
     track record in the same spirit as physics.template_large_drift_rate, not a prediction.
@@ -1730,7 +1604,7 @@ def _parse_obs_wrfout(specs):
     return out
 
 
-def case_observations(case_name, cases=None):
+def case_observations(case_name: str | None, cases: dict | None = None) -> dict | None:
     """The case's declared `observations` block from cases.json, or None when it declares none.
 
     None is the normal state: only the two SC26 practice problems have real observation ground
@@ -1742,16 +1616,11 @@ def case_observations(case_name, cases=None):
     return None if not entry else verify_obs.observations_spec(entry)
 
 
-def observation_scores_for_case(case_name, wrfout_by_template, cases=None):
-    """{template_id: (error, source)} scored against the case's REAL observations.
-
-    `wrfout_by_template` is {template_id: wrfout path or glob(s)} for the candidates that have
-    ACTUALLY BEEN RUN. It is an input, not something this function goes and produces: there is
-    no observation error for a template whose run does not exist, and inventing one from a
-    model would defeat the point of scoring against observations at all.
-
-    Returns {} when the case declares no observations or nothing has been run, so the caller
-    falls back to model-vs-model fidelity with no extra branching."""
+def observation_scores_for_case(case_name: str | None, wrfout_by_template: dict | None,
+                                cases: dict | None = None) -> dict[str, tuple]:
+    """{template_id: (error, source)} against the case's REAL observations, for the templates in
+    wrfout_by_template (wrfout path or glob(s) of runs that exist -- never invented). {} when the
+    case declares no observations or nothing has run (caller falls back to model-vs-model)."""
     spec = case_observations(case_name, cases)
     if spec is None or not wrfout_by_template:
         return {}
@@ -1764,27 +1633,10 @@ def observation_scores_for_case(case_name, wrfout_by_template, cases=None):
 
 
 def _accuracy_entry(cand, measured, templates=None, obs_scores=None):
-    """One accuracy-mode row for one shortlist candidate. fidelity_error prefers, in order:
-
-      1. a MEASURED ERROR AGAINST REAL OBSERVATIONS for this template on this case
-         (obs_scores, from predictor/verify_obs.py) -- only the SC26 practice cases have
-         observation ground truth, but where it exists it outranks everything below,
-         because it answers the question the other two only stand in for;
-      2. the per-case REGRESSION prediction (predicted_fidelity_nd) -- model vs model, but
-         at least about THIS case;
-      3. the template's measured median nd across training cases;
-      4. None when none of those exists.
-
-    `fidelity_error_kind` records which, because 1 and 2/3 are not commensurable: nd is a
-    drift away from a REFERENCE RUN (lower = more like the reference), an observation error
-    is a distance from REALITY (lower = more correct). Ranking them in one list would be a
-    category error, so build_accuracy_view keeps them apart.
-
-    The chaos floor is NOT applied to an observation-scored entry: floor_ratio is a
-    model-vs-model concept (how far a same-physics twin drifts by decomposition alone), and
-    a real skill improvement that happens to be small has nothing to do with it. Marking
-    such an entry below_floor would silently drop a genuine accuracy gain off the Pareto
-    front (see pareto_front's exclusion rule)."""
+    """One accuracy-mode row. fidelity_error, first available: error vs real observations
+    (obs_scores, verify_obs.py), the per-case predicted_fidelity_nd, the template's training median
+    nd, None; fidelity_error_kind records which (observation error and nd are not commensurable).
+    The chaos floor is not applied to an observation-scored entry (floor_ratio is model-vs-model)."""
     template = cand["template"]
     record = measured.get(template) or {}
     nd_rec, floor_rec = record.get("nd") or {}, record.get("floor_ratio") or {}
@@ -1824,18 +1676,10 @@ def _accuracy_entry(cand, measured, templates=None, obs_scores=None):
         on_pareto=False, pareto_excluded_reason=None)
 
 
-def pareto_front(entries):
-    """Mark the (predicted cost, fidelity error) Pareto front in place and return it. Both
-    coordinates are minimised: cost is predicted_time_to_solution_pct (negative = faster), error
-    is fidelity_error (lower = closer to the reference). perf-first and acc-first are the two ends
-    of this front, so a user can pick any operating point between them instead of being handed one
-    answer. An entry is on the front when no OTHER entry is at least as good on both coordinates
-    and strictly better on one.
-
-    Excluded, each with a recorded reason rather than silently: an entry missing either
-    coordinate (nothing to place it with) and a below-the-chaos-floor entry (rule 1 above -- its
-    "error" is numerical noise, so letting it anchor the accuracy end of the front would hand the
-    user an operating point that does not exist)."""
+def pareto_front(entries: list[dict]) -> list[dict]:
+    """Mark and return the (predicted_time_to_solution_pct, fidelity_error) Pareto front, both
+    minimised: on the front when no other entry is at least as good on both and better on one.
+    Entries missing a coordinate or below the chaos floor are excluded with a recorded reason."""
     eligible = []
     for e in entries:
         if e["below_floor"]:
@@ -1860,28 +1704,16 @@ def pareto_front(entries):
     return front
 
 
-def build_accuracy_view(shortlist, train_rows, templates=None, obs_scores=None,
-                        observations=None):
-    """Accuracy-first view over an existing perf-mode shortlist: the same candidates, re-ranked by
-    fidelity error instead of predicted speed, split by template direction, with the chaos-floor
-    rule applied and the (cost, error) Pareto front marked. Never mutates `shortlist`.
-
-    `obs_scores` is {template_id: (error, source)} measured against REAL OBSERVATIONS by
-    predictor/verify_obs.py -- see observation_scores_for_case(). Entries scored that way are
-    ranked in their own block, ALWAYS ascending (a smaller distance from reality is better,
-    whatever the template's direction), because a template that trades work for fidelity is
-    judged by whether the forecast got closer to the observations, not by how far it moved the
-    solution. `observations` is the case's declared observations block, carried into the view so
-    a report can say which file the numbers were scored against. Both default to None, which is
-    exactly the pre-existing model-vs-model behaviour -- a case that declares no observations
-    falls back to it untouched."""
+def build_accuracy_view(shortlist: list[dict], train_rows: list[dict], templates: dict | None = None,
+                        obs_scores: dict | None = None, observations: dict | None = None) -> dict:
+    """Accuracy-first view of a perf shortlist (never mutated): re-ranked by fidelity error, split
+    by template direction, chaos-floor rule applied, Pareto front marked. obs_scores entries form
+    their own block, always ascending (closer to reality is better whatever the direction);
+    observations names the scored file. Both None = the model-vs-model behaviour."""
     measured = measured_fidelity_by_template(train_rows)
     entries = [_accuracy_entry(c, measured, templates, obs_scores) for c in shortlist]
 
-    # An UNKNOWN error sorts last in BOTH directions -- never first. A plain reverse=True on a
-    # float("inf") sentinel would put every un-measured template at the top of the accuracy-lever
-    # block, i.e. rank the candidates we know nothing about above the ones with a measured
-    # correction. The leading `is None` term keeps "no evidence" at the bottom either way.
+    # unknown error sorts last in both directions (reverse=True on inf would put it first)
     def _error_key_asc(e):
         v = e["fidelity_error"]
         return (v is None, v if v is not None else 0.0)
@@ -1997,10 +1829,7 @@ def _physics_candidate_templates(namelist_path, case_fields, case_name, max_dom,
     candidates = physicsmod.physics_candidates_from_namelist(
         namelist_text, case_name, max_dom, campaign_configs.PHYSICS_TEMPLATES_JSON_PATH,
         native_physics_resolved=native_resolved)
-    # P00 is the reference (no edits) -- never a "candidate to recommend switching to"; the same
-    # skip-P00 convention configs.py's own cmd_physics_list/cmd_physics_order already use at their
-    # call sites (physics_candidates_from_namelist itself stays general-purpose and still reports
-    # P00, same as physics_candidates_for_case always has).
+    # P00 is the reference, never a candidate (as in configs.cmd_physics_list)
     candidates = [c for c in candidates if c["template"] != "P00"]
     # Task-mandated frozen keys come BEFORE anything is ranked: a template that would violate the
     # problem statement is not a low-ranked option, it is not an option.
@@ -2008,12 +1837,8 @@ def _physics_candidate_templates(namelist_path, case_fields, case_name, max_dom,
         frozen_keys = campaign_configs.case_frozen_keys(campaign_configs.CASES.get(case_name))
     candidates, frozen_notes = exclude_frozen_key_templates(candidates, frozen_keys, case_name)
     warnings.extend(frozen_notes)
-    # A per-candidate "generic_rule_used" flag fires for MOST templates on MOST cases (P01/P02/P03
-    # never have a physics_templates.json per-case entry at all, and P04/P06 usually don't need
-    # one either) -- that alone does not mean this case is unknown to the campaign, so the
-    # case-level warning checks cases.json membership directly instead of inferring it from any
-    # one candidate's flag (which would wrongly flag lafe/isc21 just because, say, P01 or P04
-    # happened to take the generic no-op path for them).
+    # case-level "unknown case" warning from cases.json membership, not from any candidate's
+    # generic_rule_used flag (which fires for most templates on known cases too)
     if case_name not in campaign_configs.CASES:
         warnings.append(
             "this case is not one of the six PHYSICS-GRAY campaign cases physics_templates.json "
@@ -2054,11 +1879,8 @@ def _physics_training_rows(physics_ledgers, holdout_case):
     for p in (physics_ledgers or []):
         train_rows.extend(benchmark.load_ledger(p))
 
-    # Defect 1 (real physics-campaign smoke, job 1077893): --holdout-case was accepted but never
-    # actually applied to --physics-ledger rows -- a holdout run for a case already IN the given
-    # ledger(s) (e.g. lafe, isc21) silently trained on that case's own rows and reported an
-    # in-sample shortlist as if it were honest out-of-sample evidence. Apply it here, the same way
-    # recommend()'s STRICT path already does for --ledger.
+    # --holdout-case applies to --physics-ledger rows too (defect 1, job 1077893: in-sample
+    # shortlists were reported as out-of-sample)
     if holdout_case:
         train_rows, holdout_note = _apply_holdout(train_rows, holdout_case, "PHYSICS-GRAY ")
         warnings.append(holdout_note)
@@ -2162,33 +1984,26 @@ def _physics_accuracy_view(case_name, shortlist, train_rows, obs_wrfout, candida
     return accuracy_view
 
 
-def recommend_physics_gray(ledger_path, namelist_path, case_name, hardware_id, nodes=4, top_k=5,
-                            max_dom=None, holdout_case=None, decomp=None, physics_ledgers=(),
-                            allowed_labels=DEFAULT_PHYSICS_ALLOWED_LABELS, probe_screen=None,
-                            run_probe=True, latlon=None, wps=None, wrfinput=None,
-                            max_infeasible_rate=0.0, max_dangerous_miss=0.0,
-                            max_template_large_rate=physicsmod.DEFAULT_MAX_TEMPLATE_LARGE_RATE,
-                            min_speedup_pct=physicsmod.DEFAULT_MIN_SPEEDUP_PCT,
-                            objective="perf", min_bucket_share=DEFAULT_MIN_BUCKET_SHARE,
-                            profile_shares=None, frozen_keys=None, obs_wrfout=None):
-    """Build a PHYSICS-GRAY physics-template shortlist for one case (decision 0051). Same
-    "narrows the search, human decides" contract as recommend(): NEVER auto-applies anything.
-    Every applicable candidate template is always listed with its changes and SpeedyWeather probe
-    verdict (decision 0051: never leave a physics candidate un-vetted); it is only ranked/labelled
-    RECOMMENDABLE by physics.predict_physics_shortlist when --physics-ledger training data
-    actually supports that -- none exists in production yet, so every candidate is UNCONFIRMED
-    with reason "no PHYSICS-GRAY campaign data" until the physics campaign lands.
-
-    objective="perf" (the default) is exactly the behaviour above and returns EXACTLY the keys it
-    always has -- no accuracy key is added, so an existing --json consumer sees an unchanged
-    document. objective="accuracy" ADDS "objective" and "accuracy_view" (build_accuracy_view) and
-    leaves every perf key untouched, so the two modes are strictly additive, not alternative.
-
-    min_bucket_share / profile_shares: the cost-share filter (annotate_bucket_shares). Shares are
-    read from this case's own ledger rows unless `profile_shares` is passed explicitly; with no
-    profile row for the case nothing is annotated and nothing is demoted.
-    frozen_keys: task-mandated namelist keys no template may edit; defaults to this case's
-    cases.json 'frozen_keys' entry (empty for every registered case today)."""
+def recommend_physics_gray(ledger_path: str, namelist_path: str, case_name: str | None,
+                           hardware_id: str, nodes: int = 4, top_k: int = 5,
+                           max_dom: int | None = None, holdout_case: str | None = None,
+                           decomp: str | None = None, physics_ledgers: tuple | list = (),
+                           allowed_labels: tuple = DEFAULT_PHYSICS_ALLOWED_LABELS,
+                           probe_screen: Any = None, run_probe: bool = True,
+                           latlon: str | None = None, wps: str | None = None,
+                           wrfinput: str | None = None, max_infeasible_rate: float = 0.0,
+                           max_dangerous_miss: float = 0.0,
+                           max_template_large_rate: float = physicsmod.DEFAULT_MAX_TEMPLATE_LARGE_RATE,
+                           min_speedup_pct: float = physicsmod.DEFAULT_MIN_SPEEDUP_PCT,
+                           objective: str = "perf", min_bucket_share: float = DEFAULT_MIN_BUCKET_SHARE,
+                           profile_shares: dict | None = None, frozen_keys: list[str] | None = None,
+                           obs_wrfout: dict | None = None) -> dict:
+    """PHYSICS-GRAY template shortlist for one case (decision 0051); never auto-applies. Every
+    applicable template is listed with its changes and probe verdict; RECOMMENDABLE only when
+    --physics-ledger data supports it (physics.predict_physics_shortlist), else UNCONFIRMED.
+    objective="accuracy" only ADDS objective/accuracy_view; perf keys are unchanged. profile_shares
+    (default: this case's ledger rows) drive annotate_bucket_shares; frozen_keys default to
+    cases.json's entry."""
     if objective not in OBJECTIVES:
         raise ValueError("unknown objective %r (choose from %s)"
                          % (objective, ", ".join(OBJECTIVES)))
@@ -2287,7 +2102,7 @@ def recommend_physics_gray(ledger_path, namelist_path, case_name, hardware_id, n
     )
 
 
-def format_physics_report(result):
+def format_physics_report(result: dict) -> str:
     lines = []
     lines.append("=" * 78)
     lines.append("WTune PHYSICS-GRAY template shortlist -- case=%s hardware=%s max_dom=%s"
@@ -2538,7 +2353,7 @@ def _fmt_magnitude_interval(entry):
     return "[%+.2f%%, %+.2f%%]" % ((math.exp(lo) - 1) * 100.0, (math.exp(hi) - 1) * 100.0)
 
 
-def format_report(result):
+def format_report(result: dict) -> str:
     lines = []
     lines.append("=" * 78)
     lines.append("WTune STRICT config shortlist -- case=%s hardware=%s nodes=%s compliance=%s "
@@ -2748,7 +2563,7 @@ def _build_arg_parser():
     return ap
 
 
-def main(argv=None):
+def main(argv: list[str] | None = None) -> int:
     args = _build_arg_parser().parse_args(argv)
     try:
         if args.compliance == "PHYSICS-GRAY":

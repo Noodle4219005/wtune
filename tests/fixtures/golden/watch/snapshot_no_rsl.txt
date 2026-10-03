@@ -1,0 +1,17 @@
+{
+ "rundir": "<TMP>",
+ "now": 1700000001.0,
+ "mode": "live",
+ "status": "no_rsl",
+ "warnings": [],
+ "run_start": "2021-07-19_00:00:00",
+ "run_end": "2021-07-20_00:00:00",
+ "dt": 60.0,
+ "stepra": 10,
+ "total_steps": 1440,
+ "periods": [
+  10
+ ]
+}
+NO_RSL   ?%
+exit=0

@@ -1,0 +1,18 @@
+{
+ "out": [
+  {
+   "id": "syn_maps",
+   "missing": true,
+   "dataset": "wrfout_d01_*",
+   "reason": "no frames found",
+   "run": null
+  }
+ ],
+ "calls": [
+  [
+   "frames",
+   "/run",
+   1
+  ]
+ ]
+}

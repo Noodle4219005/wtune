@@ -1,0 +1,491 @@
+{
+ "out": [
+  {
+   "id": "syn_z500_vort",
+   "missing": true,
+   "dataset": "wrfout MAPFAC_U/V/M, F",
+   "reason": "absolute vorticity needs map-factor fields not in this wrfout ('MAPFAC_U') -- re-run with them in the history stream",
+   "run": null
+  },
+  {
+   "id": "syn_slp_thickness",
+   "missing": false,
+   "path": "<OUT>/syn_slp_thickness.png",
+   "run": "m1",
+   "domain": "d01",
+   "valid_time": "2005-08-28_12:00:00",
+   "note": "1000 hPa height extrapolated below ground (wrf.vinterp extrapolate=True)"
+  },
+  {
+   "id": "syn_850_thetae_wind",
+   "missing": false,
+   "path": "<OUT>/syn_850_thetae_wind.png",
+   "run": "m1",
+   "domain": "d01",
+   "valid_time": "2005-08-28_12:00:00"
+  },
+  {
+   "id": "syn_250_jet",
+   "missing": false,
+   "path": "<OUT>/syn_250_jet.png",
+   "run": "m1",
+   "domain": "d01",
+   "valid_time": "2005-08-28_12:00:00"
+  },
+  {
+   "id": "syn_t2_wind10",
+   "missing": false,
+   "path": "<OUT>/syn_t2_wind10.png",
+   "run": "m1",
+   "domain": "d01",
+   "valid_time": "2005-08-28_12:00:00"
+  },
+  {
+   "id": "syn_era5_diff",
+   "missing": true,
+   "dataset": "ERA5 (ARCO)",
+   "reason": "no network",
+   "run": null
+  }
+ ],
+ "calls": [
+  [
+   "frames",
+   "/run",
+   1
+  ],
+  [
+   "open",
+   "/run/wrfout_b"
+  ],
+  [
+   "getvar",
+   "pressure",
+   1,
+   null
+  ],
+  [
+   "getvar",
+   "z",
+   1,
+   "m"
+  ],
+  [
+   "interplevel",
+   500
+  ],
+  [
+   "vinterp",
+   "pressure",
+   [
+    1000.0,
+    500.0
+   ],
+   true,
+   "z",
+   true
+  ],
+  [
+   "getvar",
+   "avo",
+   1,
+   null
+  ],
+  [
+   "getvar",
+   "slp",
+   1,
+   "hPa"
+  ],
+  [
+   "save_map",
+   "syn_slp_thickness.png",
+   "m1 d01 SLP (isobars every 4 hPa) + 1000-500 hPa thickness (dashed, dam)  LABEL(2005-08-28_12:00:00)\n1000 hPa height extrapolated below ground (wrf.vinterp extrapolate=True)",
+   {
+    "shape": [
+     4,
+     5
+    ],
+    "sum": 500.0,
+    "min": 20.0,
+    "max": 30.0
+   },
+   {
+    "shape": [
+     4,
+     5
+    ],
+    "sum": -1900.0,
+    "min": -100.0,
+    "max": -90.0
+   },
+   {
+    "contour_field": {
+     "shape": [
+      4,
+      5
+     ],
+     "sum": 20092.0,
+     "min": 987.3,
+     "max": 1021.9
+    },
+    "contour_levels": [
+     984.0,
+     988.0,
+     992.0,
+     996.0,
+     1000.0,
+     1004.0,
+     1008.0,
+     1012.0,
+     1016.0,
+     1020.0,
+     1024.0
+    ],
+    "contour_label_fmt": "%d",
+    "contours": [
+     {
+      "field": {
+       "shape": [
+        4,
+        5
+       ],
+       "sum": 10980.0,
+       "min": 545.0,
+       "max": 553.0
+      },
+      "levels": [
+       546.0,
+       552.0,
+       558.0
+      ],
+      "colors": "tab:red",
+      "linestyles": "dashed",
+      "linewidths": 0.8,
+      "fmt": "%d",
+      "label": "1000-500 hPa thickness every 6 dam (dashed; red > 540)"
+     }
+    ],
+    "hl_field": {
+     "shape": [
+      4,
+      5
+     ],
+     "sum": 20092.0,
+     "min": 987.3,
+     "max": 1021.9
+    },
+    "hl_exclude": {
+     "bool_shape": [
+      4,
+      5
+     ],
+     "n_true": 9
+    },
+    "ds": "<DS>",
+    "crs": "<CRS>",
+    "gridline_labels": true,
+    "terrain": false
+   }
+  ],
+  [
+   "getvar",
+   "theta_e",
+   1,
+   null
+  ],
+  [
+   "interplevel",
+   850
+  ],
+  [
+   "getvar",
+   "ua",
+   1,
+   "m s-1"
+  ],
+  [
+   "interplevel",
+   850
+  ],
+  [
+   "getvar",
+   "va",
+   1,
+   "m s-1"
+  ],
+  [
+   "interplevel",
+   850
+  ],
+  [
+   "save_map",
+   "syn_850_thetae_wind.png",
+   "m1 d01 850 hPa theta-e (K, every 4 K) + wind (kt)  LABEL(2005-08-28_12:00:00)",
+   {
+    "shape": [
+     4,
+     5
+    ],
+    "sum": 500.0,
+    "min": 20.0,
+    "max": 30.0
+   },
+   {
+    "shape": [
+     4,
+     5
+    ],
+    "sum": -1900.0,
+    "min": -100.0,
+    "max": -90.0
+   },
+   {
+    "fill_field": {
+     "shape": [
+      4,
+      5
+     ],
+     "sum": 6627.0,
+     "min": 330.85,
+     "max": 331.85
+    },
+    "fill_label": "theta-e (K)",
+    "fill_cmap": "magma",
+    "fill_levels": [
+     328.0,
+     332.0
+    ],
+    "fill_extend": "both",
+    "u": {
+     "masked_shape": [
+      4,
+      5
+     ],
+     "n_masked": 5,
+     "sum": 11.171053
+    },
+    "v": {
+     "masked_shape": [
+      4,
+      5
+     ],
+     "n_masked": 5,
+     "sum": 46.697368
+    },
+    "barb_factor": 1.943844,
+    "barb_label": "wind barbs in kt",
+    "ds": "<DS>",
+    "crs": "<CRS>",
+    "gridline_labels": true,
+    "hatch_mask": {
+     "bool_shape": [
+      4,
+      5
+     ],
+     "n_true": 5
+    },
+    "hatch_label": "850 hPa below ground"
+   }
+  ],
+  [
+   "getvar",
+   "wspd_wdir",
+   1,
+   "kt"
+  ],
+  [
+   "interplevel",
+   250
+  ],
+  [
+   "interplevel",
+   250
+  ],
+  [
+   "save_map",
+   "syn_250_jet.png",
+   "m1 d01 250 hPa isotachs (kt, from 70 kt) + height (every 120 m)  LABEL(2005-08-28_12:00:00)",
+   {
+    "shape": [
+     4,
+     5
+    ],
+    "sum": 500.0,
+    "min": 20.0,
+    "max": 30.0
+   },
+   {
+    "shape": [
+     4,
+     5
+    ],
+    "sum": -1900.0,
+    "min": -100.0,
+    "max": -90.0
+   },
+   {
+    "fill_field": {
+     "shape": [
+      4,
+      5
+     ],
+     "sum": 1605.0,
+     "min": 75.25,
+     "max": 85.25
+    },
+    "fill_label": "wind speed (kt)",
+    "fill_cmap": "PuBu",
+    "fill_levels": [
+     70.0,
+     80.0,
+     90.0
+    ],
+    "fill_extend": "max",
+    "contour_field": {
+     "shape": [
+      4,
+      5
+     ],
+     "sum": 122005.0,
+     "min": 5600.25,
+     "max": 6600.25
+    },
+    "contour_levels": [
+     5520.0,
+     5640.0,
+     5760.0,
+     5880.0,
+     6000.0,
+     6120.0,
+     6240.0,
+     6360.0,
+     6480.0,
+     6600.0,
+     6720.0
+    ],
+    "contour_label_fmt": "%d",
+    "ds": "<DS>",
+    "crs": "<CRS>",
+    "gridline_labels": true,
+    "terrain": false
+   }
+  ],
+  [
+   "getvar",
+   "T2",
+   1,
+   null
+  ],
+  [
+   "getvar",
+   "uvmet10",
+   1,
+   "m s-1"
+  ],
+  [
+   "getvar",
+   "uvmet10",
+   1,
+   "m s-1"
+  ],
+  [
+   "save_map",
+   "syn_t2_wind10.png",
+   "m1 d01 T2 (degC, 0 degC bold) + 10 m wind (kt)  LABEL(2005-08-28_12:00:00)",
+   {
+    "shape": [
+     4,
+     5
+    ],
+    "sum": 500.0,
+    "min": 20.0,
+    "max": 30.0
+   },
+   {
+    "shape": [
+     4,
+     5
+    ],
+    "sum": -1900.0,
+    "min": -100.0,
+    "max": -90.0
+   },
+   {
+    "fill_field": {
+     "shape": [
+      4,
+      5
+     ],
+     "sum": 187.0,
+     "min": -13.15,
+     "max": 31.85
+    },
+    "fill_label": "T2 (degC)",
+    "fill_cmap": "RdBu_r",
+    "fill_levels": {
+     "shape": [
+      23
+     ],
+     "sum": 0.0,
+     "min": -33.0,
+     "max": 33.0
+    },
+    "fill_extend": "both",
+    "contours": [
+     {
+      "field": {
+       "shape": [
+        4,
+        5
+       ],
+       "sum": 187.0,
+       "min": -13.15,
+       "max": 31.85
+      },
+      "levels": [
+       0.0
+      ],
+      "colors": "k",
+      "linewidths": 1.6,
+      "label": "0 degC isotherm"
+     }
+    ],
+    "u": {
+     "shape": [
+      4,
+      5
+     ],
+     "sum": -0.0,
+     "min": -5.0,
+     "max": 5.0
+    },
+    "v": {
+     "shape": [
+      4,
+      5
+     ],
+     "sum": 80.0,
+     "min": 0.0,
+     "max": 8.0
+    },
+    "barb_factor": 1.943844,
+    "barb_label": "wind barbs in kt",
+    "ds": "<DS>",
+    "crs": "<CRS>",
+    "gridline_labels": true
+   }
+  ],
+  [
+   "z500_for",
+   "2005-08-28T12:00:00",
+   [
+    20.0,
+    30.0,
+    -100.0,
+    -90.0
+   ],
+   "/proj"
+  ]
+ ]
+}

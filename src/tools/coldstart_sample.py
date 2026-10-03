@@ -43,6 +43,7 @@ import subprocess
 import threading
 import sys
 import tempfile
+from typing import Any, Callable
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _REPO_ROOT = os.path.dirname(_HERE)
@@ -58,8 +59,7 @@ DEFAULT_CALIBRATION = os.path.join(
     os.path.dirname(_REPO_ROOT), "machine", "calibration", "scc.json")  # machine/ stays at repo root
 _WRF_TIME_FMT = "%Y-%m-%d_%H:%M:%S"
 _SELF_PATH = os.path.abspath(__file__)
-# K5 (2026-09-24): state_correction_model.py lives next to this file -- the ML-apply sbatch step
-# invokes it with the grib-env python (never /usr/bin/python3: it needs numpy+netCDF4).
+# K5 ML apply: run with the grib-env python (needs numpy/netCDF4), never /usr/bin/python3.
 _SCM_PATH = os.path.join(os.path.dirname(_SELF_PATH), "state_correction_model.py")
 
 
@@ -67,12 +67,8 @@ class ColdstartError(Exception):
     """A user-facing input/modeling error (bad namelist, missing projection, etc.)."""
 
 
-# tools/metdata.py and tools/grib_state.py both `import numpy as np` unconditionally at module
-# level, and scc's compute-node /usr/bin/python3 has no numpy (2026-09 finding). Every path that
-# runs on a compute node -- fix-real-namelist, fix-wrf-namelist, fix-wps-namelist, stage, score
-# -- must not trigger these imports at all (wtune_predict.py is stdlib-only and stays a normal
-# eager import above). Only `inspect`, `plan --state`, and `fetch` (all login-node/offline-doc
-# operations) ever need metdata/grib_state, and they get them lazily through these two helpers.
+# metdata/grib_state import numpy, which scc's compute-node /usr/bin/python3 lacks: only the
+# login-node commands (inspect, plan --state, fetch) load them, lazily, through these helpers.
 _md = None
 _gs = None
 
@@ -109,13 +105,13 @@ def _grib_state():
 # namelist.input helpers (thin wrappers over wtune_predict -- do not re-parse)
 # ---------------------------------------------------------------------------
 
-def load_namelist(path):
+def load_namelist(path: str) -> dict:
     if not os.path.exists(path):
         raise ColdstartError("no namelist.input at %s" % path)
     return predict.parse_namelist(path)
 
 
-def run_span(nl):
+def run_span(nl: dict) -> tuple[datetime.datetime, datetime.datetime, int]:
     """(start_dt, end_dt, run_seconds) for the case's own d01 run length."""
     start_dt = predict.get_time_control_datetime(nl, "start")
     if start_dt is None:
@@ -132,7 +128,7 @@ def run_span(nl):
 MAP_PROJ_NAMES = {1: "lambert", 2: "polar", 3: "mercator", 6: "lat-lon"}
 
 
-def find_ncdump(explicit=None):
+def find_ncdump(explicit: str | None = None) -> str | None:
     if explicit:
         return explicit
     exe = shutil.which("ncdump")
@@ -146,7 +142,7 @@ def find_ncdump(explicit=None):
     return None
 
 
-def read_wrfinput_global_attrs(wrfinput_path, ncdump_exe):
+def read_wrfinput_global_attrs(wrfinput_path: str, ncdump_exe: str) -> dict:
     """ncdump -h TEXT parse of the '// global attributes:' block -> {ATTR: float|str}. Same
     approach as .route1-ref/make_namelist_wps.py's read_global_attrs (kept here rather than
     imported: that script lives in the untracked, do-not-import .route1-ref/ reference dir)."""
@@ -174,7 +170,7 @@ def read_wrfinput_global_attrs(wrfinput_path, ncdump_exe):
     return attrs
 
 
-def geo_from_wrfinput_attrs(attrs, nl):
+def geo_from_wrfinput_attrs(attrs: dict, nl: dict) -> dict:
     """d01 projection fields from a wrfinput_d01 global-attribute dict (see
     read_wrfinput_global_attrs / make_namelist_wps.py). Cross-checks e_we/e_sn/dx against
     namelist.input; mismatch is an error. Deliberately DROPS make_namelist_wps.py's
@@ -218,7 +214,7 @@ def geo_from_wrfinput_attrs(attrs, nl):
     }
 
 
-def geo_from_namelist_wps(nlw, nl):
+def geo_from_namelist_wps(nlw: dict, nl: dict) -> dict:
     """d01 projection fields from an existing namelist.wps &geogrid group (already parsed via
     wtune_predict.parse_namelist)."""
     if "geogrid" not in nlw or "share" not in nlw:
@@ -257,7 +253,8 @@ def geo_from_namelist_wps(nlw, nl):
     }
 
 
-def resolve_projection(nl, namelist_wps_path=None, geo_from_wrfinput_path=None, ncdump=None):
+def resolve_projection(nl: dict, namelist_wps_path: str | None = None,
+                       geo_from_wrfinput_path: str | None = None, ncdump: str | None = None) -> dict:
     """Projection source, in the order SPEC.md's Inputs section gives:
       1. --namelist-wps / D/namelist.wps
       2. --geo-from-wrfinput / D/wrfinput_d01
@@ -279,16 +276,10 @@ def resolve_projection(nl, namelist_wps_path=None, geo_from_wrfinput_path=None, 
         "--geo-from-wrfinput/D/wrfinput_d01 (namelist.input alone has no map projection info)")
 
 
-def domain_list_fields(nl, max_dom):
-    """Per-domain &geogrid lists (parent_id, parent_grid_ratio, i_parent_start, j_parent_start,
-    e_we, e_sn) for namelist.wps. Domain 1 always uses geogrid's own self-parent convention
-    (1,1,1,1) regardless of what namelist.input's WRF-side &domains says for d01 (WRF and WPS
-    disagree on this by convention: WRF's own d01 parent_id/i_parent_start/j_parent_start are
-    often 0, geogrid always wants 1 -- see .route1-ref/make_namelist_wps.py). Domain 2+ (a real
-    nest) copies parent_id/parent_grid_ratio/i_parent_start/j_parent_start verbatim from
-    namelist.input, since those WRF-side numbers for a nest ARE the same numbers WPS/geogrid
-    originally placed it with. e_we/e_sn are always copied from namelist.input for every domain.
-    """
+def domain_list_fields(nl: dict, max_dom: int) -> dict[str, list]:
+    """Per-domain &geogrid lists (parent_id, parent_grid_ratio, i/j_parent_start, e_we, e_sn)
+    for namelist.wps. d01 always uses geogrid's self-parent 1,1,1,1 (WRF's own d01 values are often
+    0); nests and every e_we/e_sn are copied from namelist.input."""
     parent_id, parent_grid_ratio = [], []
     i_parent_start, j_parent_start = [], []
     e_we, e_sn = [], []
@@ -314,27 +305,18 @@ def domain_list_fields(nl, max_dom):
             "e_we": e_we, "e_sn": e_sn}
 
 
-def geog_data_path_default():
+def geog_data_path_default() -> str:
     return os.environ.get("WPS_GEOG") or "/nfs/data/wrf/WPS_GEOG/"
 
 
 # ---------------------------------------------------------------------------
 # Capability gaps: what GFS (Vtable.GFS) and geog_data_path can actually supply.
 #
-# Verified on scc, 2026-09-24: Vtable.GFS extracts TT UU VV RH HGT PSFC PMSL SKINTEMP SEAICE
-# LANDSEA SNOW SNOWH SOILHGT, 4 soil layers ST/SM (000010/010040/040100/100200), and
-# tropopause/max-wind fields -- NO hydrometeors, NO number concentrations, NO aerosols.
-# /nfs/data/wrf/WPS_GEOG on scc has only: albedo_modis, greenfrac_fpar_modis, lai_modis_10m,
-# lai_modis_30s, maxsnowalb_modis, modis_landuse_20class_30s_with_lakes, orogwd_{10m,1deg,20m,
-# 2deg,30m}, soiltemp_1deg, soiltype_{bot,top}_30s, topo_gmted2010_30s, varsso{,_10m,_2m,_5m,30m}
-# -- e.g. no lake_depth, no urban parameter tables. These two lists are NOT hardcoded into the
-# check below (geog_directory_listing reads the real directory so this also works at a site
-# whose geog mirror carries a different, possibly richer, dataset set); only the Vtable.GFS
-# field list (WRF's GFS Vtable is effectively fixed across sites) is a fact used to justify
-# which physics options this function treats as fundamentally unsupported by cold-start-from-GFS.
+# Vtable.GFS carries no hydrometeors, number concentrations or aerosols (verified on scc); the
+# geog side is read from the real directory (geog_directory_listing), not hardcoded.
 # ---------------------------------------------------------------------------
 
-def geog_directory_listing(geog_dir):
+def geog_directory_listing(geog_dir: str) -> list[str] | None:
     """Lower-cased entry names directly under geog_dir, or None if the directory can't be
     listed (wrong site, no filesystem access, ...) -- callers MUST treat None as 'unknown',
     never as 'nothing present'."""
@@ -344,7 +326,7 @@ def geog_directory_listing(geog_dir):
         return None
 
 
-def geog_has_dataset(names, *substrings):
+def geog_has_dataset(names: list[str] | None, *substrings: str) -> bool | None:
     """True/False iff `names` (geog_directory_listing's result) does/doesn't contain an entry
     with every one of `substrings`; None (unknown) when names itself is None."""
     if names is None:
@@ -363,7 +345,7 @@ _LANDUSE_NUM_CAT_HINTS = (
 )
 
 
-def detect_geog_landuse(names):
+def detect_geog_landuse(names: list[str] | None) -> tuple[str | None, int | None]:
     """(dataset_name, num_land_cat) for the landuse dataset actually present in `names`
     (geog_directory_listing's result), or (None, None) when none is found / names is None /
     the dataset's category count isn't in the recognised-name table above."""
@@ -391,14 +373,11 @@ def _fmt_num(x):
 WPS_STATIC_DIR_ENV = "WTUNE_WPS_STATIC_DIR"
 
 
-def wps_constants_for(nl, static_dir=None):
-    """Absolute paths for &metgrid constants_name that the case's physics needs but no GFS-family
-    analysis carries. Thompson aerosol-aware input (use_aero_icbc / wif_input_opt, per
-    https://www2.mmm.ucar.edu/wrf/users/physics/mp28_updated.html): wif_input_opt=2 (WRF 4.4+,
-    with black carbon) needs QNWFA_QNIFA_QNBCA_SIGMA_MONTHLY.dat, otherwise
-    QNWFA_QNIFA_SIGMA_MONTHLY.dat. lafe (scc job 1009) died in real.exe with 'mp_physics=28 and
-    use_aero_icbc=.true. but aerosol climatology field(s) missing'. Raises when a needed file is
-    not in static_dir ($WTUNE_WPS_STATIC_DIR) -- at plan time, not an hour later in real.exe."""
+def wps_constants_for(nl: dict, static_dir: str | None = None) -> list[str]:
+    """Absolute &metgrid constants_name paths the physics needs but no GFS-family analysis carries:
+    Thompson aerosol-aware input (use_aero_icbc / wif_input_opt; wif_input_opt=2 needs the
+    black-carbon QNWFA_QNIFA_QNBCA file). Raises at plan time when a file is missing from
+    static_dir ($WTUNE_WPS_STATIC_DIR) -- lafe job 1009 died in real.exe on it."""
     icbc = str(predict.g(nl, "physics", "use_aero_icbc", "") or "").strip(".").lower() in ("true", "t")
     wif = int(predict.g(nl, "domains", "wif_input_opt", 0) or 0)
     if not icbc and wif == 0:
@@ -414,8 +393,9 @@ def wps_constants_for(nl, static_dir=None):
     return [os.path.abspath(path)]
 
 
-def build_namelist_wps_fields(nl, geo_d01, start_dt, end_dt, interval_seconds, geog_data_path=None,
-                              prefix="GFS"):
+def build_namelist_wps_fields(nl: dict, geo_d01: dict, start_dt: datetime.datetime,
+                              end_dt: datetime.datetime, interval_seconds: int,
+                              geog_data_path: str | None = None, prefix: str = "GFS") -> dict:
     """Pure builder: the exact set of values namelist.wps will carry, for both rendering and
     direct test assertion (avoids re-parsing rendered text in tests). See SPEC.md Inputs:
     'namelist.wps: max_dom and per-domain lists from namelist.input; start/end = min/max of the
@@ -455,7 +435,7 @@ def _wps_list(values, quote=False):
     return ", ".join(one(v) for v in values) + ","
 
 
-def render_namelist_wps(fields):
+def render_namelist_wps(fields: dict) -> str:
     """WPS namelist.wps text from build_namelist_wps_fields's dict."""
     max_dom = fields["max_dom"]
     lines = []
@@ -656,19 +636,10 @@ def _inspect_nest_start_times(nl, max_dom, rows, blockers):
 
 
 def _inspect_forcing_chain(start_dt, end_dt, now, grib_dir, rows, blockers):
-    """Forcing chain (metdata.resolve_forcing_chain -- date rules only, no network access; rows
-    say 'not probed', matching SPEC item F). Lazily imports metdata (needs numpy) -- degrade
-    with a clear row/message rather than crash when numpy isn't installed on whatever python3
-    is running `inspect` (see _metdata()'s docstring). 2026-09-24 FIX: a run before
-    2015-01-15 is NO LONGER a blocker by itself -- the OLD single-source rule
-    (select_source: GFS 0.25deg or nothing) wrongly reported every such case as missing
-    weather data, even though NCEI's GFS analysis archive (0.5/1deg, from 2004), NCEP's FNL
-    (1deg, from 1999-07-30), and CFSR reanalysis (0.5deg, 1979-2010) all cover it. The ONLY
-    remaining blocker is a genuinely empty chain (older than 1979, or a date gap none of the
-    bands cover) with no --grib-dir. A coarser-than-0.25deg forcing, or a reanalysis fallback,
-    is a WARNING (extra prediction uncertainty), never a blocker -- and WRF's own dx being much
-    finer than the forcing resolution is never checked here at all (that's normal downscaling,
-    not a capability gap)."""
+    """Forcing-chain rows (date rules only, 'not probed'); a clear row instead of a crash when
+    metdata's numpy is missing. Only an EMPTY chain without --grib-dir blocks (before 1979 or a
+    band gap); a coarser or reanalysis source is a warning (pre-2015 dates are covered by NCEI GFS,
+    FNL and CFSR)."""
     try:
         md_mod = _metdata()
     except ColdstartError as exc:
@@ -702,8 +673,10 @@ def _inspect_forcing_chain(start_dt, end_dt, now, grib_dir, rows, blockers):
                         % (t.strftime(_WRF_TIME_FMT), primary.dataset)))
 
 
-def inspect_case(case_dir, namelist=None, namelist_wps=None, geo_from_wrfinput=None,
-                  grib_dir=None, ncdump=None, now=None, geog_path=None):
+def inspect_case(case_dir: str, namelist: str | None = None, namelist_wps: str | None = None,
+                 geo_from_wrfinput: str | None = None, grib_dir: str | None = None,
+                 ncdump: str | None = None, now: datetime.datetime | None = None,
+                 geog_path: str | None = None) -> tuple[list, list[str], dict | None]:
     """Returns (rows, blockers, nl) -- rows: [(item, present, how, note)], blockers: [str].
     Exit-code contract (blocked -> 3, else 0) lives in main(). Each _inspect_* helper appends
     its own rows/blockers in place, in the order the report prints them."""
@@ -745,7 +718,7 @@ def inspect_case(case_dir, namelist=None, namelist_wps=None, geo_from_wrfinput=N
     return rows, blockers, nl
 
 
-def print_inspect(rows, blockers):
+def print_inspect(rows: list, blockers: list[str]) -> None:
     print("%-28s %-6s %-18s %s" % ("item", "ok", "how", "note"))
     for item, present, how, note in rows:
         print("%-28s %-6s %-18s %s" % (item, "yes" if present else "no", how, note))
@@ -761,7 +734,8 @@ def print_inspect(rows, blockers):
 # selection point 3: "approximated from ref_lat/ref_lon and the d01 extent")
 # ---------------------------------------------------------------------------
 
-def domain_lattice_from_geom(ref_lat, ref_lon, dx_m, e_we, dy_m=None, e_sn=None):
+def domain_lattice_from_geom(ref_lat: float, ref_lon: float, dx_m: float, e_we: int,
+                             dy_m: float | None = None, e_sn: int | None = None) -> list:
     """5x5 sample lattice (wtune_predict.sample_lattice_5x5) approximated from the d01 center
     and extent: half-width = dx*(e_we-1)/2 converted from meters to km to degrees (1 deg lat ~=
     111 km; lon degrees scaled by 1/cos(lat) for the same km extent)."""
@@ -780,7 +754,8 @@ def domain_lattice_from_geom(ref_lat, ref_lon, dx_m, e_we, dy_m=None, e_sn=None)
     return predict.sample_lattice_5x5(sw, nw, ne, se, center)
 
 
-def measured_window_mean_sunlit(sample_points, t_start, t_end, n_samples=5):
+def measured_window_mean_sunlit(sample_points: list, t_start: datetime.datetime,
+                                t_end: datetime.datetime, n_samples: int = 5) -> float | None:
     """Mean of wtune_predict.sunlit_fraction over n_samples evenly spaced times in
     [t_start, t_end] -- "approximate is fine for ranking candidates" (SPEC.md). None when
     sample_points is empty/None."""
@@ -800,7 +775,8 @@ def measured_window_mean_sunlit(sample_points, t_start, t_end, n_samples=5):
 # Window selection (plan)
 # ---------------------------------------------------------------------------
 
-def compute_window_seconds(spinup_min, dt_seconds, radt_minutes, measure_steps=None):
+def compute_window_seconds(spinup_min: float, dt_seconds: float, radt_minutes: float,
+                           measure_steps: int | None = None) -> tuple[float, int, int | None]:
     """W = spinup_min*60 + measure_steps*dt, measure_steps = max(30, 2*stepra) by default, stepra =
     wtune_predict.steps_per_radiation_call(radt, dt) -- so every window contains >= 2
     post-spin-up radiation steps. An explicit `measure_steps` (>= stepra + 1, so at least one
@@ -816,7 +792,8 @@ def compute_window_seconds(spinup_min, dt_seconds, radt_minutes, measure_steps=N
     return W, stepra, measure_steps
 
 
-def candidate_times(t0, run_end_dt, interval_seconds, W_seconds):
+def candidate_times(t0: datetime.datetime, run_end_dt: datetime.datetime, interval_seconds: int,
+                    W_seconds: float) -> list[datetime.datetime]:
     """GRIB-aligned candidates t0 + j*interval_seconds with t + W <= run_end_dt."""
     out = []
     j = 0
@@ -880,26 +857,15 @@ def _select_by_cost(candidates, cost_lookup, K):
     return picks
 
 
-def select_windows(candidates, spinup_seconds, W_seconds, K, sample_points=None,
-                    precip_lookup=None, sunlit_shift_s=0.0, cost_lookup=None):
-    """Picks (deduplicated to distinct candidates, capped at K), each with a reason:
-      1. t0 -- always.
-      2. night -- lowest mean sunlit fraction over the measured part.
-      3. day -- highest mean sunlit fraction.
-      4. late -- the last candidate.
-      5. precip_peak (only when precip_lookup is given) -- candidate with max domain precip
-         fraction, precip_lookup: {candidate_dt: precip_fraction}.
-    Remaining slots up to K filled by the candidate farthest in time from all picked ones.
-    `sunlit_shift_s` (R6-D, date-shifted sampling): candidates are on the ANALOG timeline (the
-    weather actually being sampled/run), but night/day ranking must use the STATED timeline's
-    own sun position (the sun the PREDICTED run will actually see) -- so the sunlit-fraction
-    evaluation subtracts this shift (candidate - shift_s) before scoring, while every OTHER use
-    of `candidates` (t0/late/precip_peak/farthest, and the returned pick times themselves) stays
-    on the analog timeline unchanged. 0.0 (default) reproduces the pre-R6-D behaviour exactly.
-    `cost_lookup` ({candidate_dt: c}, decision 0060; None = the behaviour above, unchanged): pick by
-    weather cost proxy instead -- see _select_by_cost; falls through to the time mode when no
-    candidate has a c value.
-    Returns [(dt, reason), ...] in pick order (analog-timeline datetimes)."""
+def select_windows(candidates: list[datetime.datetime], spinup_seconds: float, W_seconds: float,
+                   K: int, sample_points: list | None = None, precip_lookup: dict | None = None,
+                   sunlit_shift_s: float = 0.0, cost_lookup: dict | None = None
+                   ) -> list[tuple[datetime.datetime, str]]:
+    """Characteristic windows -> [(dt, reason)] in pick order, at most K: t0, night (lowest mean
+    sunlit fraction), day (highest), late (last), precip_peak (precip_lookup {dt: fraction}), then
+    the candidate farthest from all picks. sunlit_shift_s (R6-D): rank day/night on the STATED
+    timeline (candidate - shift) while returning analog-timeline times. cost_lookup (decision 0060)
+    picks by weather cost proxy instead (_select_by_cost), falling back when no candidate has one."""
     if not candidates:
         return []
     if cost_lookup:
@@ -948,7 +914,8 @@ def select_windows(candidates, spinup_seconds, W_seconds, K, sample_points=None,
     return picks
 
 
-def next_grib_time_ge(t0, interval_seconds, target):
+def next_grib_time_ge(t0: datetime.datetime, interval_seconds: int, target: datetime.datetime
+                      ) -> datetime.datetime:
     """Smallest t0 + j*interval_seconds (j>=0) that is >= target -- used for a window's
     real.exe boundary end time (SPEC.md: 'end = T_k_end (next GRIB time >= T_k + window
     length)')."""
@@ -958,7 +925,7 @@ def next_grib_time_ge(t0, interval_seconds, target):
     return t0 + datetime.timedelta(seconds=interval_seconds * j)
 
 
-def align_to_interval(t, interval_h):
+def align_to_interval(t: datetime.datetime, interval_h: int) -> datetime.datetime:
     """Smallest UTC time >= t that is an integer multiple of interval_h hours since the UNIX
     epoch (equivalently, since midnight -- every forcing_interval_h this tool uses, 3 or 6,
     divides 24 evenly, so epoch-alignment and midnight-alignment agree). 2026-09-24: window
@@ -972,7 +939,8 @@ def align_to_interval(t, interval_h):
     return epoch + datetime.timedelta(seconds=aligned)
 
 
-def window_valid_times(T, T_end, interval_seconds):
+def window_valid_times(T: datetime.datetime, T_end: datetime.datetime, interval_seconds: int
+                       ) -> list[datetime.datetime]:
     """[T, T+interval, ..., T_end] inclusive -- the WPS/ungrib valid times a window of
     [T, T_end] at `interval_seconds` cadence needs."""
     out = []
@@ -983,7 +951,8 @@ def window_valid_times(T, T_end, interval_seconds):
     return out
 
 
-def expected_wps_intermediate_files(prefix, T, T_end, interval_seconds):
+def expected_wps_intermediate_files(prefix: str, T: datetime.datetime, T_end: datetime.datetime,
+                                    interval_seconds: int) -> list[str]:
     """['<prefix>:YYYY-MM-DD_HH', ...] -- the exact ungrib intermediate-file names a window
     [T, T_end] must produce at `interval_seconds` cadence. 2026-09-24: run.sbatch used to only
     check 'ungrib produced >=1 GFS:* file'; that passes even when ungrib silently skipped a
@@ -992,7 +961,8 @@ def expected_wps_intermediate_files(prefix, T, T_end, interval_seconds):
     return ["%s:%s" % (prefix, t.strftime("%Y-%m-%d_%H")) for t in window_valid_times(T, T_end, interval_seconds)]
 
 
-def expected_met_em_files(max_dom, T, T_end, interval_seconds):
+def expected_met_em_files(max_dom: int, T: datetime.datetime, T_end: datetime.datetime,
+                          interval_seconds: int) -> list[str]:
     """['met_em.d01.<time>.nc', ...] a window [T, T_end] must produce from metgrid: d01 at
     EVERY valid time in the window (it has the time-varying lateral boundary); a nest d02..dN
     only at the window's own start T (nests are initialized once, not boundary-forced -- see
@@ -1005,10 +975,8 @@ def expected_met_em_files(max_dom, T, T_end, interval_seconds):
 
 
 # ---------------------------------------------------------------------------
-# Forcing source fallback chain orchestration (thin wrapper over metdata.ForcingSource /
-# resolve_forcing_chain / probe_forcing_entries -- see that module for the verified URL patterns
-# and date bands). coldstart_sample.py owns WHICH window uses WHICH source and cadence
-# realignment; metdata.py owns URL construction and the HTTP probe.
+# Forcing source fallback chain: this module decides which window uses which source and the
+# cadence; metdata.py owns URL patterns, date bands and the HTTP probe.
 # ---------------------------------------------------------------------------
 
 ERA5_DATASET = "era5_arco"
@@ -1073,11 +1041,9 @@ def _fetch_era5_intermediate(plan, plan_dir, runner=None):
              "--out", wps_dir, "--prefix", src.prefix]
         return c + ["--rain-snow"] if rain_snow else c
 
-    # Shared per-(bbox, rain-snow) cache: an hour fetched for one point (or one earlier prediction
-    # of the same case) is linked into every other point's wps dir instead of re-read from ARCO.
-    # The rest is fetched by up to WTUNE_ERA5_WORKERS (default 4) parallel era5_intermediate.py
-    # processes, one slice of hours each -- before, one process did every hour in sequence
-    # (controller staging 2:32 for 5 points on sc26p1). WTUNE_ERA5_CACHE="" disables the cache.
+    # Hours already in the shared per-(bbox, rain-snow) cache are linked, the rest fetched by up to
+    # WTUNE_ERA5_WORKERS (default 4) parallel processes (one serial process: 2:32 for 5 points,
+    # sc26p1). WTUNE_ERA5_CACHE="" disables the cache.
     cache_root = os.environ.get("WTUNE_ERA5_CACHE", os.path.expanduser("~/wtune-runs/era5_cache"))
     cache_dir = None
     if cache_root:
@@ -1138,7 +1104,9 @@ def _fetch_era5_intermediate(plan, plan_dir, runner=None):
     return total_bytes, forcing
 
 
-def resolve_forcing_chain_for(valid_dt, grib_dir=None, forcing_pin=None, now=None):
+def resolve_forcing_chain_for(valid_dt: datetime.datetime, grib_dir: str | None = None,
+                              forcing_pin: str | None = None, now: datetime.datetime | None = None
+                              ) -> list:
     """metdata.resolve_forcing_chain(valid_dt), or a single-source chain pinned to
     `forcing_pin` (SPEC 2026-09-24 item D's `--forcing <dataset>` override, used to re-run `plan`
     against a specific dataset after `fetch` reports a cadence-mismatched fallback)."""
@@ -1153,16 +1121,12 @@ def resolve_forcing_chain_for(valid_dt, grib_dir=None, forcing_pin=None, now=Non
     return md_mod.resolve_forcing_chain(valid_dt, now=now, grib_dir=grib_dir)
 
 
-def choose_forcing_for_window(T, T_end, chain, probe_fn=None):
-    """Walk `chain` (resolve_forcing_chain_for's result) in order; the first candidate whose
-    probe finds every needed file for EVERY valid time in [T, T_end] (at that candidate's OWN
-    forcing_interval_h) wins -- SPEC item B: 'a window uses ONE source that covers ALL its valid
-    times.' probe_fn(entries) -> (all_found, results); defaults to metdata.probe_forcing_entries
-    (real HTTP, via check_url) -- offline tests inject a mock here, never touch the network.
-    Returns (chosen_source_or_None, candidates_tried: [{'dataset', 'ok', 'n_files', 'missing',
-    'first_missing': {'url', 'final_status'} or None}]) -- `first_missing` (T4b, 2026-09-24) is
-    the FIRST url that was still missing after every retry, for a clear failure message ('fetch:
-    ... first missing: <url> (final status <n>)') rather than just a filename list."""
+def choose_forcing_for_window(T: datetime.datetime, T_end: datetime.datetime, chain: list,
+                              probe_fn: Callable | None = None) -> tuple[Any, list[dict]]:
+    """First source in `chain` whose probe finds every file for EVERY valid time in [T, T_end]
+    at its own cadence (one source per window, SPEC item B) -> (source or None, candidates_tried
+    [{dataset, ok, n_files, missing, first_missing {url, final_status} or None}]). probe_fn
+    defaults to metdata.probe_forcing_entries (real HTTP); tests inject a mock."""
     md_mod = _metdata()
     probe_fn = probe_fn or md_mod.probe_forcing_entries
     tried = []
@@ -1188,8 +1152,9 @@ def choose_forcing_for_window(T, T_end, chain, probe_fn=None):
     return None, tried
 
 
-def try_precip_lookup(case_dir, nl, candidates, W_seconds, grib_dir=None, source="auto",
-                      cache_dir=None):
+def try_precip_lookup(case_dir: str, nl: dict, candidates: list, W_seconds: float,
+                      grib_dir: str | None = None, source: str = "auto",
+                      cache_dir: str | None = None) -> tuple[dict | None, str | None]:
     """--state precip_peak candidate lookup via tools/grib_state.py's trajectory (import, not a
     subprocess). Returns (lookup_dict_or_None, skip_reason_or_None). Best-effort: any failure
     (missing wrfinput for the target grid, no network, missing deps) is caught and reported as a
@@ -1344,11 +1309,16 @@ def _forcing_grid(window_anchor_start, case_interval_seconds, grib_dir, forcing,
     return primary_source, t0_grid, shift_s_t0
 
 
-def build_plan(case_dir, out_dir, k=4, nodes=1, ranks=72, omp=1, nx=None, ny=None,
-               spinup_min=60, namelist=None, namelist_wps=None, geo_from_wrfinput=None,
-               grib_dir=None, ncdump=None, use_state=False, now=None, geog_path=None,
-               forcing=None, date_shift_to=None, analog_path=None, times=None,
-               real_only=False, ml_model=None, numtiles=1, measure_steps=None, io_probe=False):
+def build_plan(case_dir: str, out_dir: str, k: int = 4, nodes: int = 1, ranks: int = 72, omp: int = 1,
+               nx: int | None = None, ny: int | None = None, spinup_min: float = 60,
+               namelist: str | None = None, namelist_wps: str | None = None,
+               geo_from_wrfinput: str | None = None, grib_dir: str | None = None,
+               ncdump: str | None = None, use_state: bool = False,
+               now: datetime.datetime | None = None, geog_path: str | None = None,
+               forcing: str | None = None, date_shift_to: str | None = None,
+               analog_path: str | None = None, times: list | None = None, real_only: bool = False,
+               ml_model: str | None = None, numtiles: int = 1, measure_steps: int | None = None,
+               io_probe: bool = False) -> dict:
     """Writes OUT_DIR/plan.json + namelist.wps. `io_probe` (default False: plan.json unchanged)
     adds plan['io_probe'] (plan_io_probe), applied to the LAST window -- see apply_io_probe."""
     rows, blockers, nl = inspect_case(case_dir, namelist=namelist, namelist_wps=namelist_wps,
@@ -1367,12 +1337,8 @@ def build_plan(case_dir, out_dir, k=4, nodes=1, ranks=72, omp=1, nx=None, ny=Non
     case_interval_seconds = predict.g(nl, "time_control", "interval_seconds", None)
     case_interval_seconds = int(case_interval_seconds) if case_interval_seconds else None
 
-    # R6-D date-shifted sampling (analog): resolve an ANALOG start, either pinned directly
-    # (--date-shift-to) or from a prior `analog` search's own output (--analog OUT/analog.json).
-    # Everything that decides WHICH weather to fetch/run (candidate generation, forcing chain
-    # resolution, cadence alignment) runs on the analog timeline below -- that is the weather
-    # actually being sampled. run_start/run_end (what `score`'s WHOLE-RUN prediction targets --
-    # the STATED/future run) stay on the stated timeline, unshifted.
+    # R6-D: an analog start (--date-shift-to, or --analog analog.json). Which weather is fetched
+    # and run follows the analog timeline; run_start/run_end (the predicted run) stay stated.
     analog_start, analog_quality = _resolve_analog_start(date_shift_to, analog_path)
     date_shift_s = (analog_start - stated_start).total_seconds() if analog_start else 0.0
     window_anchor_start = analog_start or stated_start
@@ -1382,10 +1348,8 @@ def build_plan(case_dir, out_dir, k=4, nodes=1, ranks=72, omp=1, nx=None, ny=Non
               % (stated_start.strftime(_WRF_TIME_FMT), analog_start.strftime(_WRF_TIME_FMT),
                  date_shift_s, analog_quality))
 
-    # Forcing cadence: window starts must be VALID TIMES OF THE FORCING (2026-09-24), driven by
-    # the FIRST candidate of the resolved chain (--forcing pins it explicitly) -- NOT the case's
-    # own interval_seconds, which may not even match what's actually fetchable (see `fetch`'s own
-    # cadence-mismatch check when a coarser fallback source gets chosen at download time).
+    # Window starts must be valid times of the forcing (first chain source or --forcing), not of
+    # the case's interval_seconds; `fetch` re-checks the cadence of the source it actually gets.
     primary_source, t0_grid, shift_s_t0 = _forcing_grid(
         window_anchor_start, case_interval_seconds, grib_dir, forcing, now)
     forcing_interval_h = primary_source.forcing_interval_h
@@ -1405,12 +1369,8 @@ def build_plan(case_dir, out_dir, k=4, nodes=1, ranks=72, omp=1, nx=None, ny=Non
                               wi_path if os.path.exists(wi_path) else None, ncdump=ncdump)
 
     if times:
-        # T1 (2026-09-24): explicit pinned window starts REPLACE characteristic-point selection
-        # entirely -- --k is meaningless here (there is no "cap the picks" step) so it's ignored,
-        # loudly, rather than silently. Every pinned time must already be a valid time of the
-        # forcing grid (same grid candidate_times would have walked) and its window must fit in
-        # the run, or this is a plan-time error naming the exact offending time -- a bad pin
-        # should never silently produce a window ungrib/metgrid can't satisfy.
+        # Pinned starts replace window selection (--k ignored, loudly); each must be a forcing
+        # valid time whose window fits the run, else a plan-time error naming it (T1).
         picks = _pinned_window_picks(times, k, primary_source, W, window_anchor_end)
     else:
         candidates = candidate_times(t0_grid, window_anchor_end, window_interval_seconds, W)
@@ -1444,11 +1404,8 @@ def build_plan(case_dir, out_dir, k=4, nodes=1, ranks=72, omp=1, nx=None, ny=Non
     config = {"ranks": ranks, "omp": omp, "nx": nx or 1, "ny": ny or ranks // max(omp, 1),
               "numtiles": int(numtiles or 1)}
 
-    # T12 (2026-09-24, job 965): read ZNW/P_TOP HERE (login node, netCDF4/numpy available) --
-    # fix-real-namelist runs inside the batch job under /usr/bin/python3 (stdlib only) and can no
-    # longer do this itself. A failed read is recorded loudly (vertical_grid: null + a warning IN
-    # plan.json), not silently skipped at batch time. matthew-style dzbot/dzstretch FATALs hit
-    # coldstart's own real.exe windows the same way case_rebuild's rebuild does.
+    # ZNW/P_TOP are read here (login node); a failure is recorded in plan.json, never skipped
+    # silently in the batch job (T12, job 965).
     vertical_grid, vertical_grid_warning = read_vertical_grid_or_warn(
         wi_path if os.path.exists(wi_path) else None)
     if vertical_grid_warning:
@@ -1472,7 +1429,7 @@ def build_plan(case_dir, out_dir, k=4, nodes=1, ranks=72, omp=1, nx=None, ny=Non
         "namelist_wps_fields": wps_fields,
         "nodes": nodes, "config": config, "real_only": bool(real_only),
         "vertical_grid": vertical_grid, "vertical_grid_warning": vertical_grid_warning,
-        # K5 (2026-09-24): ML state completion, default OFF -- None unless --ml-model was given.
+        # K5: ML state completion, off unless --ml-model
         "ml_model": os.path.abspath(ml_model) if ml_model else None,
     }
     if io_probe:
@@ -1489,7 +1446,7 @@ def build_plan(case_dir, out_dir, k=4, nodes=1, ranks=72, omp=1, nx=None, ny=Non
     return plan
 
 
-def print_plan(plan):
+def print_plan(plan: dict) -> None:
     print("W=%.0fs (spinup_min=%d measure_steps=%d stepra=%d dt=%.2fs)"
           % (plan["W_seconds"], plan["spinup_min"], plan["measure_steps"], plan["stepra"],
              plan["dt_s"]))
@@ -1499,10 +1456,8 @@ def print_plan(plan):
 
 
 # ---------------------------------------------------------------------------
-# fetch -- probe -> choose -> download, per window, walking each window's own forcing chain
-# (do NOT use metdata.resolve_wps_times, which reads interval_seconds only from
-# case_dir/namelist.wps; SPEC.md is explicit about this -- windows already carry their own
-# explicit [t, t_end]). Writes PLAN/forcing.json recording the choice (SPEC item C).
+# fetch -- probe -> choose -> download per window over its own [t, t_end] (not
+# metdata.resolve_wps_times, which reads namelist.wps); records PLAN/forcing.json (SPEC item C).
 # ---------------------------------------------------------------------------
 
 def _extract_cfsr_members(tar_path, valid_times, out_dir):
@@ -1524,15 +1479,10 @@ def _extract_cfsr_members(tar_path, valid_times, out_dir):
 
 def _download_forcing_for_window(source, T, T_end, cache_dir, keep_archives=False,
                                  download_fn=None, attempts=3, sleep_fn=None):
-    """Downloads whatever `source` needs to cover [T, T_end] into cache_dir. Whole-file per
-    valid time for every source except CFSR (d093000), which downloads the covering 5-day
-    tar(s) once and extracts only the needed members (tarfile, stdlib), deleting the tar
-    afterwards unless keep_archives. Returns the SET of absolute file paths this window ended up
-    needing present on disk (not a byte count -- 2026-09-24: an RDA whole-file source answers
-    EVERY one of its ~150 WPS_FIELD_SPECS-style needs with the SAME physical path, and two
-    windows can independently need the same valid time's same file; summing bytes per-call, or
-    even per-window, double- (or 150x-) counts it. The caller sums sizes once over the UNION of
-    every window's returned set)."""
+    """Download what `source` needs for [T, T_end] into cache_dir -> the SET of absolute paths
+    needed on disk (CFSR: covering 5-day tars, only needed members extracted, tar deleted unless
+    keep_archives). A set, not bytes: one RDA file answers many needs and windows share times, so
+    the caller sums sizes once over the union."""
     md_mod = _metdata()
     download_fn = download_fn or md_mod.download_full
     valid_times = window_valid_times(T, T_end, source.forcing_interval_h * 3600)
@@ -1556,9 +1506,8 @@ def _download_forcing_for_window(source, T, T_end, cache_dir, keep_archives=Fals
                 else:
                     os.remove(tar_path)
         return paths
-    # yagi2024 rebuild (scc job 1002): one transient RDA failure on fnl_2024090312 was swallowed
-    # here, fetch still "succeeded" with 20 of 21 files, and ungrib died later on the missing
-    # span start. Retry each URL with backoff, and fail fetch itself when any file is absent.
+    # Retry each URL with backoff and fail fetch on any absent file (job 1002: a swallowed RDA
+    # failure left 20 of 21 files and ungrib died later).
     import time
     sleep_fn = sleep_fn or time.sleep
     missing = []
@@ -1587,15 +1536,13 @@ def _download_forcing_for_window(source, T, T_end, cache_dir, keep_archives=Fals
     return paths
 
 
-def resolve_and_fetch_forcing(plan, plan_dir, cache_dir, grib_dir=None, keep_archives=False,
-                              probe_fn=None, download_fn=None):
-    """Per window: walk resolve_forcing_chain_for(T) (or the plan's --forcing pin), pick the
-    first candidate whose probe finds every needed file (choose_forcing_for_window -- SPEC item
-    B), download it, and record the choice. Raises ColdstartError naming the actually-available
-    dataset when a window's chosen source's cadence doesn't match the plan's own cadence (SPEC
-    item D: 'fetch must re-align: fail clearly ... re-run plan with --forcing <dataset>') --
-    silently proceeding would stage a namelist.wps/real.exe interval that doesn't match what was
-    actually fetched. Writes PLAN_DIR/forcing.json. Returns (total_bytes, forcing_dict)."""
+def resolve_and_fetch_forcing(plan: dict, plan_dir: str, cache_dir: str, grib_dir: str | None = None,
+                              keep_archives: bool = False, probe_fn: Callable | None = None,
+                              download_fn: Callable | None = None) -> tuple[int, dict]:
+    """Per window: choose the first fully available source (or the --forcing pin), download it,
+    record it -> (total_bytes, forcing_dict); writes PLAN_DIR/forcing.json and grib_manifest.txt.
+    ColdstartError when the chosen source's cadence differs from the plan's (re-run plan with
+    --forcing <dataset>; SPEC item D)."""
     os.makedirs(cache_dir, exist_ok=True)
     forcing_pin = plan.get("forcing_pin")
     if forcing_pin == ERA5_DATASET:
@@ -1609,8 +1556,7 @@ def resolve_and_fetch_forcing(plan, plan_dir, cache_dir, grib_dir=None, keep_arc
         chain = resolve_forcing_chain_for(T, grib_dir=grib_dir, forcing_pin=forcing_pin)
         chosen, tried = choose_forcing_for_window(T, T_end, chain, probe_fn=probe_fn)
         if chosen is None:
-            # T4b (2026-09-24): always write the probe record, even on failure -- otherwise a
-            # failed `fetch` leaves no trace of which URLs were actually probed.
+            # the probe record is written even on failure (T4b)
             windows_out.append({"win": k, "chosen": None, "candidates_tried": tried})
             forcing = {"status": "failed", "windows": windows_out}
             with open(os.path.join(plan_dir, "forcing.json"), "w") as f:
@@ -1647,19 +1593,12 @@ def resolve_and_fetch_forcing(plan, plan_dir, cache_dir, grib_dir=None, keep_arc
         print("window %d: %s (%s, %dh cadence)" % (k, chosen.dataset, chosen.source_kind,
                                                     chosen.forcing_interval_h))
 
-    # Sum each distinct path's size exactly ONCE, over the union of every window's needs --
-    # never per-window, never per-message (see _download_forcing_for_window's docstring: an RDA
-    # whole-file source answering multiple message-shaped needs, or two windows sharing a valid
-    # time, must not multiply the reported total).
+    # each distinct path once, over the union of all windows' needs
     total_bytes = sum(os.path.getsize(p) for p in all_paths if os.path.exists(p))
     forcing = {"windows": windows_out, "files": sorted(os.path.basename(p) for p in all_paths)}
     with open(os.path.join(plan_dir, "forcing.json"), "w") as f:
         json.dump(forcing, f, indent=2)
-    # T9 (2026-09-24): run.sbatch's link_grib.csh step must link exactly what fetch wrote -- FNL
-    # (d083002) is cached as .grib and ncei_g3/g4 as .grb, but the step used to glob only
-    # *.grib2 and FATAL'd 'no *.grib2 files' even though the grib/ dir was fully populated. Write
-    # the exact basenames fetch wrote as a plain-text manifest (one per line) so the script can
-    # link that list instead of assuming an extension.
+    # exact basenames for link_grib.csh: FNL is .grib, NCEI g3/g4 .grb, not .grib2 (T9)
     with open(os.path.join(plan_dir, "grib_manifest.txt"), "w") as f:
         for name in forcing["files"]:
             f.write(name + "\n")
@@ -1674,23 +1613,17 @@ def resolve_and_fetch_forcing(plan, plan_dir, cache_dir, grib_dir=None, keep_arc
 # ---------------------------------------------------------------------------
 
 def _set_list_rhs(text, key, rhs, new_key_group="time_control"):
-    """Shared core of set_list/set_list_values: replace `key`'s existing value list with the
-    literal `rhs` text (already comma-joined, trailing comma included), packed-line-safe
-    (gate2_stage_window.py's approach). When the key doesn't exist at all, appends it to the
-    FIRST `&new_key_group` group found (default &time_control, matching the original
-    set_list's own fallback) -- case_rebuild.py's complete_namelist passes a different group for
-    keys that don't belong in &time_control (e.g. physics_suite -> &physics); if that group
-    doesn't exist at all either, a new one is appended holding just this key."""
+    """Replace `key`'s value list with the literal `rhs` (comma-joined, trailing comma), safe on
+    packed lines. A missing key is appended to the first &new_key_group (default time_control),
+    creating that group when absent."""
     keyre = r"(?<![A-Za-z0-9_])(%s\s*=\s*)" % re.escape(key)
     pat = re.compile(keyre + r"((?:[^,=\n/!]*,)+)(?=\s*(?:[A-Za-z_][A-Za-z0-9_%]*\s*=|$|/|!))",
                       re.I | re.M)
     new, n = pat.subn(lambda m: m.group(1) + rhs, text, count=1)
     if n:
         return new
-    # a value list whose LAST entry has no trailing comma ("2024, 2024,2024" -- yagi2024's own
-    # namelist); the first pattern needs a comma after every entry, and falling through to the
-    # insert below used to add a SECOND start_year line (fix-span-wrf-namelist: 'keys not present
-    # exactly once')
+    # a list whose last entry has no trailing comma (yagi2024 "2024, 2024,2024"); else the insert
+    # below added a second line ('keys not present exactly once')
     pat2 = re.compile(keyre + r"([^=\n/!]*?)\s*(?=[A-Za-z_][A-Za-z0-9_%]*\s*=|$|/|!)", re.I | re.M)
     new, n = pat2.subn(lambda m: m.group(1) + rhs, text, count=1)
     if n:
@@ -1704,16 +1637,13 @@ def _set_list_rhs(text, key, rhs, new_key_group="time_control"):
     return text.rstrip("\n") + "\n\n&%s\n %s = %s\n/\n" % (new_key_group, key, rhs)
 
 
-def set_list(text, key, value, ndom, new_key_group="time_control"):
-    # T11 (2026-09-24): new_key_group now threaded through (was silently dropped -- every caller
-    # of set_list that needed a NEWLY-inserted key to land outside &time_control had no way to
-    # say so, e.g. case_rebuild.complete_namelist's p_top_requested fill landed in &time_control
-    # and made real.exe FATAL 'Maybe here?: p_top_requested =').
+def set_list(text: str, key: str, value: Any, ndom: int, new_key_group: str = "time_control") -> str:
+    # new_key_group: an inserted key outside &time_control made real.exe FATAL (T11)
     return _set_list_rhs(text, key, ", ".join([str(value)] * ndom) + ",",
                          new_key_group=new_key_group)
 
 
-def set_list_values(text, key, values, new_key_group="time_control"):
+def set_list_values(text: str, key: str, values: list, new_key_group: str = "time_control") -> str:
     """Like set_list, but for explicit PER-DOMAIN values that differ (e.g.
     parent_time_step_ratio = parent_grid_ratio per nest) rather than one value broadcast to
     every domain."""
@@ -1721,26 +1651,20 @@ def set_list_values(text, key, values, new_key_group="time_control"):
                          new_key_group=new_key_group)
 
 
-def count_key(text, key):
+def count_key(text: str, key: str) -> int:
     body = "\n".join(l.split("!")[0] for l in text.splitlines())
     return len(re.findall(r"(?<![A-Za-z0-9_])%s\s*=" % re.escape(key), body, re.I))
 
 
-def get_first(text, key, default=None):
+def get_first(text: str, key: str, default: str | None = None) -> str | None:
     m = re.search(r"(?<![A-Za-z0-9_])%s\s*=\s*([^,\n/]+)" % re.escape(key), text, re.I)
     return m.group(1).strip() if m else default
 
 
-def remove_namelist_key(text, key):
-    """Deletes every line whose (comment-stripped) body assigns `key` -- used to strip a
-    namelist key that CONFLICTS with a value being written explicitly (T8, 2026-09-24:
-    dzbot/dzstretch_s/dzstretch_u/auto_levels_opt all conflict with an explicit eta_levels
-    list). Line-based, matching count_key's own comment-stripping convention -- these are scalar
-    keys that are one-per-line in every real WRF namelist this tool has been run against; a key
-    packed onto the same line as a neighbor is not handled (disclosed limitation, same as the
-    rest of this module's line-oriented namelist editing). Returns (new_text, n_removed). Shared
-    by BOTH coldstart_sample (T12) and case_rebuild.complete_namelist (T8) -- moved here
-    (2026-09-24) since case_rebuild imports coldstart_sample, not the reverse."""
+def remove_namelist_key(text: str, key: str) -> tuple[str, int]:
+    """Delete every line whose comment-stripped body assigns `key` -> (new_text, n_removed). For
+    keys that conflict with an explicit value (dz* vs eta_levels, T8); line-based, so a key packed
+    onto a neighbour's line is not handled. Shared with case_rebuild."""
     keyre = re.compile(r"(?<![A-Za-z0-9_])%s\s*=" % re.escape(key), re.I)
     kept = []
     n = 0
@@ -1752,7 +1676,7 @@ def remove_namelist_key(text, key):
     return "\n".join(kept), n
 
 
-def namelist_values_equal(old, new):
+def namelist_values_equal(old: str, new: str) -> bool:
     """True if two namelist scalar strings represent the same value -- numeric comparison when
     both sides parse as a number ('01' vs '1', '5000' vs '5000.0'), exact string equality
     otherwise (needed for .true./.false./quoted strings, where '1'=='1.0' would be wrong). T11
@@ -1766,27 +1690,11 @@ def namelist_values_equal(old, new):
         return False
 
 
-def vertical_grid_from_wrfinput(path):
-    """{'eta_levels': [floats, top-down: 1.0 (surface) -> 0.0 (model top)], 'p_top_requested':
-    float (Pa)} read directly from the case's own wrfinput_d01's ZNW/P_TOP. T8 (2026-09-24,
-    matthew): matthew's OWN namelist (dzbot=30, dzstretch_s=1.11, dzstretch_u=1.10, e_vert=45,
-    p_top_requested=5000) makes real.exe FATAL ('You need one of four things: more eta levels /
-    lower p_top / dzbot / dzstretch') even though the ORIGINAL wrfinput has exactly 45 ZNW
-    levels -- the namelist's own dzbot/dzstretch recipe does not reproduce the vertical grid the
-    file was actually built with. Writing eta_levels/p_top_requested straight from ZNW/P_TOP
-    reproduces it exactly instead of re-deriving it. ZNW already stores levels in the SAME
-    top-down order WRF's own eta_levels namelist list expects (1.0 -> 0.0) -- no reversal.
-    Rounded to 6 decimals (ZNW is float32 in the file; full float64 repr of a float32 value is
-    binary noise, not a meaningful digit).
-
-    T12 (2026-09-24, job 965): this needs numpy/netCDF4, so it may ONLY be called from a
-    login-node/PLAN-time code path (build_plan / case_rebuild.cmd_rebuild_plan) -- the batch job
-    runs fix-*-namelist under /usr/bin/python3 (stdlib only, no numpy), where calling this
-    directly silently no-ops the whole vertical-grid-fidelity feature (that WAS the job 965 bug:
-    'WARNING: vertical grid fidelity (T8) skipped -- No module named numpy'). PLAN time reads
-    this ONCE and stores the plain-JSON result in plan.json['vertical_grid']; batch time reads
-    THAT (see apply_vertical_grid_override / case_rebuild.complete_namelist's vertical_grid
-    param) and never imports numpy/netCDF4 at all."""
+def vertical_grid_from_wrfinput(path: str) -> dict:
+    """{'eta_levels' (top-down 1.0 -> 0.0, as WRF expects), 'p_top_requested' (Pa)} from the case's
+    wrfinput_d01 ZNW/P_TOP, rounded to 6 decimals (float32 noise). The namelist's dzbot/dzstretch
+    recipe need not reproduce the file's grid (matthew FATAL, T8). Needs numpy/netCDF4: plan time
+    only (login node), never in the batch job's /usr/bin/python3 (job 965, T12)."""
     import numpy as np
     import netCDF4
     with _NETCDF_LOCK:   # build_plan runs per point in run_rebuild_points' thread pool
@@ -1808,16 +1716,10 @@ def _vertical_grid_from_dataset(netCDF4, np, path):
         ds.close()
 
 
-def read_vertical_grid_or_warn(wi_path):
-    """(vertical_grid_dict_or_None, warning_string_or_None) -- the PLAN-time (login node) wrapper
-    around vertical_grid_from_wrfinput that both build_plan and case_rebuild.cmd_rebuild_plan
-    call. wi_path falsy/nonexistent -> (None, None): no wrfinput at all is not a failure, just
-    nothing to reproduce. wi_path exists but the read fails (no netCDF4, corrupt file, no
-    ZNW/P_TOP) -> (None, '<message>') -- T12 (2026-09-24): the caller MUST store this warning
-    loudly in plan.json (not just print it), since a plan-time failure that only shows up as a
-    buried WARNING in a batch job's run log (job 965) is exactly the failure mode this exists to
-    prevent. The returned dict uses plan.json's own field names (p_top_pa, not
-    p_top_requested) -- see apply_vertical_grid_override's docstring for the rename."""
+def read_vertical_grid_or_warn(wi_path: str | None) -> tuple[dict | None, str | None]:
+    """Plan-time wrapper of vertical_grid_from_wrfinput -> (vertical_grid or None, warning or
+    None). No wrfinput -> (None, None); a failed read -> (None, message), which the caller must
+    store in plan.json (job 965). Uses plan.json's key 'p_top_pa'."""
     if not wi_path or not os.path.exists(wi_path):
         return None, None
     try:
@@ -1828,23 +1730,12 @@ def read_vertical_grid_or_warn(wi_path):
                       % (wi_path, exc))
 
 
-def apply_vertical_grid_override(txt, vertical_grid, max_dom):
-    """Applies vertical-grid-fidelity (T8/T12, 2026-09-24) to a coldstart real-namelist text,
-    using a vertical_grid dict already read at PLAN time (plan.json's 'vertical_grid' --
-    {'eta_levels': [...], 'p_top_pa': ...}, see read_vertical_grid_or_warn) -- stdlib only, no
-    numpy/netCDF4 import at batch time. eta_levels/p_top_requested/e_vert are set EXACTLY from
-    the case's own wrfinput ZNW/P_TOP (ALWAYS overridden, not fill-if-missing); dzbot/
-    dzstretch_s/dzstretch_u/auto_levels_opt are removed (they conflict with an explicit
-    eta_levels list). Applied AFTER build_real_namelist_text/assert_no_key_drift, as a separate
-    step -- build_real_namelist_text's 'only touch present keys, a key present in the input must
-    still be present in the output' invariant is not asked to also tolerate the dz-key removal
-    this specifically requires. All three keys land in &domains (verified against
-    wtune_catalog_registry.json in T11 -- e_vert/eta_levels/p_top_requested all resolve to
-    'domains'; hardcoded here rather than via case_rebuild's registry_group_for_key/
-    wtune_catalog_registry.json lookup, since coldstart_sample must not depend on
-    case_rebuild.py, and this key set's group never varies). Returns (new_text, changes) -- the
-    same {key,old,new,reason} shape case_rebuild.complete_namelist uses. vertical_grid=None (no
-    wrfinput, or the PLAN-time read failed) -> (txt, []) unchanged, same as before T12."""
+def apply_vertical_grid_override(txt: str, vertical_grid: dict | None, max_dom: int
+                                 ) -> tuple[str, list[dict]]:
+    """Set e_vert/eta_levels/p_top_requested in &domains exactly from plan.json's vertical_grid and
+    remove the conflicting dz*/auto_levels_opt keys -> (new_text, changes {key, old, new, reason}).
+    Stdlib only (batch time); applied after build_real_namelist_text, whose key-drift invariant
+    does not allow removals. vertical_grid None -> (txt, [])."""
     if vertical_grid is None:
         return txt, []
     changes = []
@@ -1873,7 +1764,8 @@ def apply_vertical_grid_override(txt, vertical_grid, max_dom):
     return txt, changes
 
 
-def assert_no_key_drift(text0, txt, out_label, required_present_once):
+def assert_no_key_drift(text0: str, txt: str, out_label: str, required_present_once: list[str]
+                        ) -> None:
     bad = {k: count_key(txt, k) for k in required_present_once if count_key(txt, k) != 1}
     if bad:
         raise ColdstartError("%s: keys not present exactly once: %s" % (out_label, bad))
@@ -1883,21 +1775,15 @@ def assert_no_key_drift(text0, txt, out_label, required_present_once):
         raise ColdstartError("%s: edit dropped keys %s" % (out_label, sorted(set(lost))))
 
 
-def build_real_namelist_text(case_namelist_text, T, T_end, num_metgrid_levels,
-                              num_metgrid_soil_levels, num_land_cat, interval_seconds=None,
-                              nproc_x=-1, nproc_y=-1):
-    """SPEC.md Inputs: 'real.exe namelist per window: the case's namelist.input with (all
-    domains) start = T_k, end = T_k_end, run_* = 0 except run_seconds/run_hours matching;
-    num_metgrid_levels/num_metgrid_soil_levels/num_land_cat from met_em.' `interval_seconds`,
-    when given, OVERRIDES the case's own (2026-09-24: it must equal the window's ACTUAL forcing
-    cadence -- forcing_interval_h*3600 -- not the case's, since a fallback source (FNL/CFSR, 6h)
-    can be coarser than what the case's own namelist.input assumed; only touched when the key
-    exists, same 'only touch present keys' rule as history_interval*). `nproc_x`/`nproc_y`
-    default to -1 (real.exe auto-decomposes) but 2026-09-24 cluster findings (sc26p1/severe2023:
-    real.exe HANGS at some decompositions -- 3x3, 5x5 -- with no odd/square pattern identified,
-    mechanism unknown) mean run.sbatch now always passes the PREDICTED config's own nx/ny (the
-    decomposition wrf.exe will use anyway) -- or 1/1 (see cmd_fix_real_namelist's --serial) on
-    the decomposed attempt's timeout/failure fallback."""
+def build_real_namelist_text(case_namelist_text: str, T: datetime.datetime, T_end: datetime.datetime,
+                             num_metgrid_levels: int, num_metgrid_soil_levels: int | None,
+                             num_land_cat: int | None, interval_seconds: int | None = None,
+                             nproc_x: int = -1, nproc_y: int = -1) -> str:
+    """real.exe namelist for one window (SPEC.md Inputs): start/end = [T, T_end] on all domains, run_*
+    matching, met_em level/soil/landuse counts. interval_seconds overrides the case's (must equal
+    the window's forcing cadence; a 6 h fallback can be coarser); only present keys are touched.
+    nproc_x/nproc_y: the predicted decomposition (real.exe hangs at some auto ones, sc26p1), or 1/1
+    for the serial fallback."""
     text0 = case_namelist_text
     ndom = int(get_first(text0, "max_dom", "1"))
     txt = text0
@@ -1940,10 +1826,10 @@ def build_real_namelist_text(case_namelist_text, T, T_end, num_metgrid_levels,
 _HISTORY_KEY_RE = re.compile(r"(?<![A-Za-z0-9_])(history_interval\w*)\s*=", re.I | re.M)
 
 
-HUGE_HISTORY_MIN = 999999
+HUGE_HISTORY_MIN = 999999   # min; an interval no window reaches
 
 
-def comment_out_of_group_assignments(text):
+def comment_out_of_group_assignments(text: str) -> str:
     """Comment out `key = value` lines that sit OUTSIDE every &group ... / block. Fortran's
     namelist read ignores them, but they break key-count checks (elevconv: a second
     iofields_filename between two groups -> 'keys not present exactly once', 2026-09-28).
@@ -1966,16 +1852,13 @@ def comment_out_of_group_assignments(text):
     return "".join(out)
 
 
-def build_wrf_window_namelist_text(real_namelist_text, T, win_steps, dt_seconds,
-                                    nproc_x, nproc_y, numtiles, io_probe=None):
-    """SPEC.md Inputs: 'wrf.exe namelist per window: the real namelist plus: restart=.false.;
-    history and restart output disabled (restart_interval and every history_interval* key that
-    EXISTS set to a huge value -- only touch keys already present); run length = window steps x
-    time_step exactly; nproc_x/nproc_y/numtiles from the config being predicted. Use key-count
-    assertions exactly like gate2_stage_window.py.' `io_probe` (plan.json's 'io_probe' block,
-    only for the probe window; None = the above, unchanged) re-enables ONE history frame per
-    history-writing domain and, when the case writes restarts, one restart, both at the window
-    end -- see apply_io_probe."""
+def build_wrf_window_namelist_text(real_namelist_text: str, T: datetime.datetime, win_steps: int,
+                                   dt_seconds: float, nproc_x: int, nproc_y: int, numtiles: int,
+                                   io_probe: dict | None = None) -> str:
+    """wrf.exe namelist for one window (SPEC.md Inputs): restart off, history/restart output disabled
+    on present keys, run length = window steps x time_step, nproc_x/nproc_y/numtiles of the config,
+    key-count assertions. io_probe (plan.json's block, probe window only) re-enables one history
+    frame per domain (+ one restart) at the window end (apply_io_probe)."""
     text0 = comment_out_of_group_assignments(real_namelist_text)
     ndom = int(get_first(text0, "max_dom", "1"))
     win_seconds = int(round(win_steps * dt_seconds))
@@ -1998,10 +1881,8 @@ def build_wrf_window_namelist_text(real_namelist_text, T, win_steps, dt_seconds,
     if count_key(text0, "restart_interval"):
         txt = set_list(txt, "restart_interval", 999999, 1)
     history_keys = sorted(set(m.group(1).lower() for m in _HISTORY_KEY_RE.finditer(text0)))
-    # 0 = history off. A huge interval still writes the t0 frame (job 1238: 68 s for 2.3 GB).
-    # nwp_diagnostics = 1 makes check_a_mundo FATAL on history_interval(1) == 0 ('nwp_diagnostics
-    # requires the use of "history_interval"', elevconv 2026-09-28): there, keep a huge plain
-    # history_interval and push history_begin past the window instead (no frame at all).
+    # 0 = history off (a huge interval still writes t0: job 1238, 68 s for 2.3 GB). With
+    # nwp_diagnostics=1 an interval of 0 is FATAL (elevconv): huge interval + late history_begin.
     nwp_diag = str(get_first(text0, "nwp_diagnostics", "0")).strip() == "1"
     for hk in history_keys:
         txt = set_list(txt, hk, HUGE_HISTORY_MIN if (nwp_diag and hk == "history_interval") else 0,
@@ -2039,17 +1920,10 @@ def build_wrf_window_namelist_text(real_namelist_text, T, win_steps, dt_seconds,
 
 
 # ---------------------------------------------------------------------------
-# I/O probe (opt-in: build_plan(io_probe=True)). The LAST window writes exactly one history frame
-# per history-writing domain (+ one restart when the case's own run writes restarts) at its END,
-# with the case's own io_form_history/io_form_restart/history_outname/frames_per_outfile/
-# iofields_filename; WRF times each write itself ('Timing for Writing <file> for domain N: <s>
-# elapsed seconds'). WRF semantics (Registry/registry.io_boilerplate, inc/set_timekeeping_
-# alarms.inc, share/set_timekeeping.F, frame/module_integrate.F): history_interval[_d|_h|_m|_s]
-# and history_begin[_d|_h|_m|_s] are SUMMED per domain (the _m key falls back to the plain one
-# when 0); with begin > 0 the history ringer is not switched on at t=0, so history_begin = W
-# writes only the end frame. The end-of-run history and restart writes happen in
-# med_last_solve_io, AFTER the last 'Timing for main' line, so no measured step absorbs them.
-# restart_interval[_d|_h|_m|_s] is an interval-only alarm (no t=0 write).
+# I/O probe (opt-in, build_plan(io_probe=True)): the last window writes one history frame per
+# domain (+ one restart) at its end with the case's own io settings; WRF times each write.
+# history_interval/begin _d/_h/_m/_s are summed per domain; begin > 0 skips the t=0 frame; end-
+# of-run writes come after the last 'Timing for main' line (set_timekeeping.F, module_integrate.F).
 # ---------------------------------------------------------------------------
 
 IO_PROBE_TIMEOUT_EXTRA_MIN = 15   # stage_plan: allowance for the end-of-window writes (restart
@@ -2059,7 +1933,7 @@ _HISTORY_BEGIN_END_KEY_RE = re.compile(r"(?<![A-Za-z0-9_])(history_(?:begin|end)
 _RESTART_INTERVAL_KEY_RE = re.compile(r"(?<![A-Za-z0-9_])(restart_interval\w*)\s*=", re.I | re.M)
 
 
-def wrf_interval_minutes(nl, base, dom_index=0):
+def wrf_interval_minutes(nl: dict, base: str, dom_index: int = 0) -> float:
     """WRF's own sum for `base`[_d|_h|_m|_s] of parsed namelist `nl`, in minutes: d*1440 + h*60 +
     (m, or the plain `base` key when m is 0) + s/60. 0 = off/absent."""
     def v(key):
@@ -2068,13 +1942,13 @@ def wrf_interval_minutes(nl, base, dom_index=0):
             + v(base + "_s") / 60.0)
 
 
-def case_writes_restart(nl, run_s):
+def case_writes_restart(nl: dict, run_s: float) -> bool:
     """True when the case's own run writes at least one restart (restart_interval <= run length)."""
     ri = wrf_interval_minutes(nl, "restart_interval")
     return ri > 0 and math.floor(run_s / 60.0 / ri + 1e-9) >= 1
 
 
-def history_file_prefix(nl):
+def history_file_prefix(nl: dict) -> str:
     """Basename prefix of the case's history files (history_outname up to its first '<'; WRF's
     default 'wrfout_d<domain>_<date>' -> 'wrfout_d') -- what parse_rsl_write_seconds uses to tell
     history writes from auxhist ones."""
@@ -2082,7 +1956,7 @@ def history_file_prefix(nl):
     return os.path.basename(str(name).strip()).split("<")[0]
 
 
-def case_iofields_links(plan, plan_dir):
+def case_iofields_links(plan: dict, plan_dir: str) -> list:
     """Symlink the case's existing iofields_filename files into every win_k/wrf dir of the plan;
     returns [(k, dst), ...]. Missing files are left alone (the window then hangs at init unless
     the watcher in render_run_sbatch stops it)."""
@@ -2110,7 +1984,7 @@ def case_iofields_links(plan, plan_dir):
     return out
 
 
-def plan_io_probe(nl, case_dir, run_s):
+def plan_io_probe(nl: dict, case_dir: str, run_s: float) -> dict:
     """plan.json's 'io_probe' block for parsed case namelist `nl`: per-domain history on/off
     (io_form_history != 0 and a history interval > 0), whether a restart is probed
     (case_writes_restart), per-domain iofields files (None where the case sets none or the file is
@@ -2148,7 +2022,8 @@ def plan_io_probe(nl, case_dir, run_s):
             "warnings": warnings, "notes": notes}
 
 
-def apply_io_probe(text0, txt, ndom, win_seconds, probe):
+def apply_io_probe(text0: str, txt: str, ndom: int, win_seconds: float, probe: dict
+                   ) -> tuple[str, list[str]]:
     """The probe edits on top of build_wrf_window_namelist_text's output `txt` (history/restart
     already off): history_interval = history_begin = W per history-writing domain (0 elsewhere),
     in minutes, or the _s keys when W is not whole minutes; every other history_begin*/end* key
@@ -2198,7 +2073,7 @@ _RSL_WRITE_RE = re.compile(r"Timing for Writing (.+?) for domain\s+(\d+):\s+([\d
 _RSL_MAIN_RE = re.compile(r"Timing for main: time (\S+) on domain\s+(\d+):\s+([\d.]+)\s+elapsed seconds")
 
 
-def parse_rsl_write_seconds(path, history_prefix="wrfout_d"):
+def parse_rsl_write_seconds(path: str, history_prefix: str = "wrfout_d") -> dict:
     """{'history': {dom: [s, ...]}, 'restart': {dom: [s, ...]}, 'other': [(name, dom, s), ...]}
     from WRF's 'Timing for Writing <name> for domain N: <s> elapsed seconds' lines, in file order.
     A history write is one whose file basename starts with `history_prefix` (history_file_
@@ -2221,7 +2096,7 @@ def parse_rsl_write_seconds(path, history_prefix="wrfout_d"):
     return out
 
 
-def rsl_write_absorbing_d01_times(path):
+def rsl_write_absorbing_d01_times(path: str) -> set[str]:
     """Set of d01 step sim-time strings whose 'Timing for main' line FOLLOWS a 'Timing for
     Writing' line (any stream, any domain) since the previous d01 step line: WRF's step timer
     starts before med_before_solve_io, so that step's elapsed seconds include the write."""
@@ -2241,16 +2116,9 @@ def rsl_write_absorbing_d01_times(path):
 
 
 # ---------------------------------------------------------------------------
-# fix-wps-namelist -- invoked from run.sbatch, once per window, BEFORE ungrib/metgrid.
-#
-# plan.json's own PLAN_DIR/namelist.wps spans the WHOLE run's min/max grib_times (needed for the
-# one-time geogrid.exe step, and as a template). But `fetch` only downloads the windows' own
-# GRIB times, not every interval-aligned time across the full run -- so running ungrib/metgrid
-# ONCE against that whole-run-spanning namelist.wps makes metgrid walk every interval in
-# [run_start, run_end] and die on the first time nobody fetched (sc26p1: 72h run, 6h interval, 4
-# windows fetched only 8 of the 13 times metgrid would have wanted). Fix: ungrib+metgrid run
-# once PER WINDOW, each time with namelist.wps &share start_date/end_date narrowed to exactly
-# that window's own [t, t_end] -- the only times `fetch` guaranteed exist on disk.
+# fix-wps-namelist -- run.sbatch, once per window, before ungrib/metgrid: narrows namelist.wps
+# to the window's own [t, t_end], the only times `fetch` downloaded (a whole-run span made
+# metgrid die on the first unfetched time, sc26p1).
 # ---------------------------------------------------------------------------
 
 def _load_window_forcing(plan_dir, win):
@@ -2270,14 +2138,10 @@ def _load_window_forcing(plan_dir, win):
     return None
 
 
-def wps_fields_for_window(base_fields, T, T_end, prefix=None, interval_seconds=None):
-    """base_fields (build_namelist_wps_fields's dict, or plan['namelist_wps_fields']) with
-    start_date/end_date replaced by this window's own [T, T_end] (all max_dom entries --
-    render_namelist_wps already broadcasts a single start_date/end_date string to every domain).
-    `prefix`/`interval_seconds`, when given, override base_fields' own (the window's ACTUALLY
-    chosen forcing source, from forcing.json, can differ from the plan-time expected one -- see
-    cmd_fix_wps_namelist). Pure function; everything else (projection, per-domain geometry) is
-    unchanged."""
+def wps_fields_for_window(base_fields: dict, T: datetime.datetime, T_end: datetime.datetime,
+                          prefix: str | None = None, interval_seconds: int | None = None) -> dict:
+    """Pure: base_fields with start_date/end_date set to [T, T_end]; prefix/interval_seconds, when
+    given, override the plan-time values with the window's actually chosen forcing."""
     fields = dict(base_fields)
     fields["start_date"] = T.strftime(_WRF_TIME_FMT)
     fields["end_date"] = T_end.strftime(_WRF_TIME_FMT)
@@ -2288,7 +2152,7 @@ def wps_fields_for_window(base_fields, T, T_end, prefix=None, interval_seconds=N
     return fields
 
 
-def cmd_fix_wps_namelist(plan_dir, win):
+def cmd_fix_wps_namelist(plan_dir: str, win: int) -> dict:
     with open(os.path.join(plan_dir, "plan.json")) as f:
         plan = json.load(f)
     w = plan["windows"][win]
@@ -2311,9 +2175,7 @@ def cmd_fix_wps_namelist(plan_dir, win):
 
 
 # ---------------------------------------------------------------------------
-# fix-real-namelist / fix-wrf-namelist -- invoked from run.sbatch, after met_em / real.exe exist
-# (SPEC.md Inputs: 'these are written by a small helper subcommand ... because the values only
-# exist once met_em exists').
+# fix-real-namelist / fix-wrf-namelist -- run.sbatch, once met_em / real.exe output exists.
 # ---------------------------------------------------------------------------
 
 def _read_met_em_dims(met_em_path, ncdump_exe):
@@ -2337,7 +2199,8 @@ def _read_met_em_dims(met_em_path, ncdump_exe):
     return nlev, soil, land
 
 
-def cmd_fix_real_namelist(plan_dir, win, ncdump=None, serial=False):
+def cmd_fix_real_namelist(plan_dir: str, win: int, ncdump: str | None = None,
+                          serial: bool = False) -> None:
     with open(os.path.join(plan_dir, "plan.json")) as f:
         plan = json.load(f)
     real_dir = os.path.join(plan_dir, "win_%d" % win, "real")
@@ -2352,10 +2215,7 @@ def cmd_fix_real_namelist(plan_dir, win, ncdump=None, serial=False):
     T = datetime.datetime.strptime(w["t"], _WRF_TIME_FMT)
     T_end = datetime.datetime.strptime(w["t_end"], _WRF_TIME_FMT)
     case_text = open(plan["namelist_input"]).read()
-    # num_land_cat: real.exe REQUIRES this to match the geog/met_em landuse dataset's own
-    # category count, so the overwrite below is correct and stays -- but it silently changes
-    # what the case's own namelist.input specified (see inspect's matching "filled differently"
-    # warning), so print the old->new value rather than overwriting mutely.
+    # num_land_cat must match met_em, so it is overwritten -- printed, since it changes the case.
     old_land_cat = get_first(case_text, "num_land_cat")
     if land is not None and old_land_cat is not None and str(land) != old_land_cat.strip():
         print("num_land_cat: %s -> %d (from met_em NUM_LAND_CAT)" % (old_land_cat.strip(), land))
@@ -2366,9 +2226,7 @@ def cmd_fix_real_namelist(plan_dir, win, ncdump=None, serial=False):
     if interval_s is not None and old_interval is not None and str(int(interval_s)) != old_interval.strip():
         print("interval_seconds: %s -> %d (case interval vs. window forcing cadence)"
               % (old_interval.strip(), interval_s))
-    # 2026-09-24 cluster findings: real.exe HANGS at some decompositions (3x3, 5x5 -- no
-    # odd/square rule identified) but completes fine at np=1. `--serial` is the fallback
-    # run.sbatch retries with after a `timeout 600` decomposed attempt fails/hangs.
+    # --serial: run.sbatch's retry after the decomposed real.exe hangs (3x3, 5x5 seen)
     if serial:
         nproc_x, nproc_y = 1, 1
     else:
@@ -2377,11 +2235,7 @@ def cmd_fix_real_namelist(plan_dir, win, ncdump=None, serial=False):
         nproc_y = int(config.get("ny", -1) or -1)
     txt = build_real_namelist_text(case_text, T, T_end, nlev, soil, land, interval_seconds=interval_s,
                                     nproc_x=nproc_x, nproc_y=nproc_y)
-    # T12 (2026-09-24, job 965): vertical_grid was already read at PLAN time (login node,
-    # netCDF4) and stored verbatim in plan.json -- this subcommand runs inside the batch job
-    # under /usr/bin/python3 (stdlib only) and must never import numpy/netCDF4 itself. Applied
-    # AFTER build_real_namelist_text/assert_no_key_drift, as its own step (see
-    # apply_vertical_grid_override's docstring for why).
+    # batch job (/usr/bin/python3): vertical_grid comes from plan.json (T12, job 965)
     vertical_grid = plan.get("vertical_grid")
     if vertical_grid is None and plan.get("vertical_grid_warning"):
         print("WARNING: %s (recorded at plan time)" % plan["vertical_grid_warning"])
@@ -2397,7 +2251,8 @@ def cmd_fix_real_namelist(plan_dir, win, ncdump=None, serial=False):
           % (out_path, nlev, nproc_x, nproc_y, " serial" if serial else ""))
 
 
-def cmd_fix_wrf_namelist(plan_dir, win, nproc_x, nproc_y, numtiles, ncdump=None):
+def cmd_fix_wrf_namelist(plan_dir: str, win: int, nproc_x: int, nproc_y: int, numtiles: int,
+                         ncdump: str | None = None) -> None:
     with open(os.path.join(plan_dir, "plan.json")) as f:
         plan = json.load(f)
     real_dir = os.path.join(plan_dir, "win_%d" % win, "real")
@@ -2464,26 +2319,16 @@ def _symlink_dir(src_dir, dst):
     os.symlink(os.path.realpath(src_dir), dst, target_is_directory=True)
 
 
-# T13 (2026-09-24, V5 sc26p2, job real.exe FATAL 'ERROR in psfc: flag_psfc=1, flag_soilhgt=1,
-# flag_slp=0'): the literal replacement line, taken verbatim from WPS 4.6 Vtable.GFS's own
-# commented-out PRMSL alternative (its comment: older GFS files carry only PRMSL, not MSLET --
-# use this line instead of the active MSLET one). GRIB1 param 2 / GRIB2 0-3-1 (discipline 0,
-# category 3, parameter 1) vs the active line's MSLET (GRIB1 param 130 / GRIB2 0-3-192).
+# WPS 4.6 Vtable.GFS's own commented-out PRMSL line (GRIB1 2 / GRIB2 0-3-1), replacing the active
+# MSLET line (GRIB1 130 / GRIB2 0-3-192) for old GFS files (T13, sc26p2 'flag_slp=0').
 VTABLE_GFS_PRMSL_LINE = ("  2 | 102  |   0  |      | PMSL     | Pa      | "
                          "Sea-level Pressure                      |  0  |  3  |  1  | 101 |")
 
 
-def generate_vtable_gfs_prmsl(vtable_gfs_text):
-    """PLAN/wps/Vtable.GFS_PRMSL's content (T13, 2026-09-24), generated from a REAL Vtable.GFS
-    (never hand-written): replaces the one ACTIVE (non-comment) PMSL line -- which maps from
-    MSLET (GRIB1 param 130 / GRIB2 0-3-192) -- with VTABLE_GFS_PRMSL_LINE (GRIB1 param 2 / GRIB2
-    0-3-1, PRMSL), leaving every other line untouched (same table, same formatting, same
-    comments -- just this one line swapped). This is needed because an older-era GRIB1 analysis
-    file (NCEI g3, verified on a real 2005 file) carries only PRMSL, not MSLET, and Vtable.GFS's
-    active MSLET-only mapping made real.exe FATAL 'ERROR in psfc: flag_psfc=1, flag_soilhgt=1,
-    flag_slp=0' (PMSL never got filled at all). Raises ColdstartError if the input text doesn't
-    have exactly one active PMSL line (the transform doesn't know what to do with 0 or >1 --
-    that means the source table isn't shaped the way this transform assumes)."""
+def generate_vtable_gfs_prmsl(vtable_gfs_text: str) -> str:
+    """Vtable.GFS_PRMSL text from a real Vtable.GFS: the one active PMSL line (MSLET) swapped for
+    VTABLE_GFS_PRMSL_LINE (PRMSL), everything else untouched. Old GRIB1 analyses (NCEI g3) carry only
+    PRMSL (real.exe FATAL 'flag_slp=0', T13). ColdstartError unless exactly one active PMSL line."""
     lines = vtable_gfs_text.split("\n")
     out = []
     replaced = 0
@@ -2503,7 +2348,7 @@ def generate_vtable_gfs_prmsl(vtable_gfs_text):
     return "\n".join(out)
 
 
-def stage_plan(plan_dir, site="scc", per_window_min=15):
+def stage_plan(plan_dir: str, site: str = "scc", per_window_min: int = 15) -> str:
     with open(os.path.join(plan_dir, "plan.json")) as f:
         plan = json.load(f)
 
@@ -2531,10 +2376,8 @@ def stage_plan(plan_dir, site="scc", per_window_min=15):
             vt_src = os.path.join(wps_dir_env, "ungrib", "Variable_Tables", vt)
             if os.path.exists(vt_src):
                 _symlink_one(vt_src, os.path.join(wps_out, vt))
-        # T13 (2026-09-24): Vtable.GFS_PRMSL (NCEI g3/g4 + FNL -- see metdata.SRC_NCEI_G3/G4/
-        # SRC_FNL) is GENERATED, not symlinked -- it does not exist in $WPS_DIR at all, it is a
-        # one-line edit of the real Vtable.GFS (see generate_vtable_gfs_prmsl). Never write
-        # through a stale symlink from a prior stage: remove whatever's there first.
+        # Vtable.GFS_PRMSL (NCEI g3/g4, FNL) is generated, not in $WPS_DIR (T13); remove a stale
+        # link first so the write never goes through it.
         gfs_vt_src = os.path.join(wps_dir_env, "ungrib", "Variable_Tables", "Vtable.GFS")
         if os.path.exists(gfs_vt_src):
             prmsl_path = os.path.join(wps_out, "Vtable.GFS_PRMSL")
@@ -2640,26 +2483,14 @@ def _per_window_forcing_from_forcing_json(plan_dir, plan):
     return out
 
 
-def render_signal_trap_and_hygiene_preamble(nodes, extra_lines_after_alloc_nodes=None,
-                                            record_label="WINDOW"):
-    """ALLOC_NODES + run_hygiene() + the USR1/TERM/INT signal-trap machinery (kill any in-flight
-    exe, reap orphans, record an INTERRUPTED line for the caller's current unit if it tracks one,
-    exit 3), ending with 'run_hygiene reap+census'. Shared verbatim by BOTH render_run_sbatch and
-    case_rebuild.render_rebuild_sbatch (T5, 2026-09-24) so the two renderers cannot drift out of
-    sync on this again -- case_rebuild's own hand-copy of this block omitted ALLOC_NODES
-    entirely, so site_hygiene's `mpirun -np "$ALLOC_NODES"` failed 'ALLOC_NODES: unbound
-    variable' under `set -u` on scc (jobs 954/955).
-
-    Call this AFTER `site_env` (site_hygiene/ALLOC_NODES need the sourced site file) and after
-    the caller's own $STATUS assignment is ready to be included via
-    extra_lines_after_alloc_nodes (on_signal only dereferences $STATUS when the caller has set
-    CUR_WINDOW to a non-empty id around its own exe launches -- the guard `[ -n "$CUR_WINDOW" ]`
-    means $STATUS is never touched at all for a caller that never sets CUR_WINDOW, so it is safe
-    to omit extra_lines_after_alloc_nodes/never set CUR_WINDOW). WRF_PID is the caller's own
-    responsibility: set it (via `... &`; `WRF_PID=$!`; `wait "$WRF_PID"`) around any exe launch
-    that should be killable by PID rather than only by `pkill -x <name>` (kill_and_reap always
-    pkills real.exe/wrf.exe by name too, so a foreground/non-backgrounded launch -- e.g.
-    `timeout 600 mpirun ... ./real.exe` -- is still interruptible even without WRF_PID)."""
+def render_signal_trap_and_hygiene_preamble(nodes: int,
+                                            extra_lines_after_alloc_nodes: list[str] | None = None,
+                                            record_label: str = "WINDOW") -> list[str]:
+    """Shared bash preamble: ALLOC_NODES, run_hygiene, the USR1/TERM/INT trap (kill exes, reap, record
+    INTERRUPTED for $CUR_WINDOW, exit 3), then 'run_hygiene reap+census'. Used by render_run_sbatch
+    and case_rebuild.render_rebuild_sbatch so they cannot drift (T5, jobs 954/955). Call after
+    site_env; $STATUS is touched only when the caller sets CUR_WINDOW; set WRF_PID around a
+    backgrounded launch to make it killable by PID."""
     lines = []
     lines.append("ALLOC_NODES=${SLURM_JOB_NUM_NODES:-%d}" % nodes)
     for extra in (extra_lines_after_alloc_nodes or []):
@@ -2774,10 +2605,8 @@ def _sbatch_environment_lines(plan, site, nodes):
     lines.append("TOOL=%s" % _sh_quote(_SELF_PATH))
     ml_model = plan.get("ml_model")
     if ml_model:
-        # K5 (2026-09-24): ML state completion, default OFF -- only emitted when the plan was
-        # built with --ml-model. TOOL_SCM/GRIB_PY are ONLY used inside run_window()'s ML-apply
-        # step below; every other fix-*-namelist call keeps using plain "python3 $TOOL" (stdlib
-        # only, /usr/bin/python3 is fine for those).
+        # K5 (--ml-model only): GRIB_PY is used for the ML apply step alone; fix-*-namelist stays
+        # on plain python3.
         lines.append("TOOL_SCM=%s" % _sh_quote(_SCM_PATH))
         lines.append("ML_MODEL=%s" % _sh_quote(os.path.abspath(ml_model)))
         lines.append("GRIB_PY=${GRIB_PYTHON:-$HOME/wtune/envs/grib/.pixi/envs/default/bin/python}")
@@ -2805,11 +2634,9 @@ def _sbatch_geogrid_lines(geo_em_expected, ppn):
     # geo_em depends only on the &geogrid/&share domain definition and the static data, never on
     # the date: cache it per domain (rebuild job 1238: geogrid was 62 of 845 s, repeated per point).
     lines.append("GEO_CACHE=\"${WTUNE_GEO_CACHE:-$HOME/wtune-runs/geo_cache}/$(sed -n '/&share/,/^\\//p;/&geogrid/,/^\\//p' namelist.wps | grep -vE 'start_date|end_date|interval_seconds' | sha1sum | cut -c1-16)\"")
-    # Single-flight: the rebuild points of one prediction are separate jobs started together
-    # (wtune_tune.run_rebuild_points), so without a lock all of them miss the cache at once and each
-    # runs geogrid (sc26p1: 42 s x every point). Exactly one job per domain takes the lock and runs
-    # geogrid; the others wait here, then find the cache filled and just link it. -w bounds the
-    # wait; on a lock that cannot be created/taken the job simply runs geogrid itself, as before.
+    # Single-flight geogrid cache: the rebuild points of one prediction start together, so one job
+    # per domain takes the lock and the rest wait and link (else 42 s x every point, sc26p1). -w
+    # bounds the wait; without the lock a job runs geogrid itself.
     lines.append("GEO_LOCKED=0")
     lines.append("if command -v flock >/dev/null 2>&1 && mkdir -p \"$(dirname \"$GEO_CACHE\")\" 2>/dev/null "
                  "&& ( : >> \"$GEO_CACHE.lock\" ) 2>/dev/null; then")
@@ -2855,11 +2682,8 @@ def _sbatch_link_grib_lines(per_window_forcing):
     lines.append("if [ %d = 0 ]; then" % int(all_intermediate))
     lines.append("echo \"=== link_grib.csh ($(date -u +%FT%TZ)) ===\"")
     lines.append("rm -f GRIBFILE.*")
-    # T9 (2026-09-24): link exactly what `fetch` wrote (grib_manifest.txt, written by
-    # resolve_and_fetch_forcing) rather than assuming an extension -- FNL (d083002) is cached as
-    # .grib and ncei_g3/g4 as .grb, not .grib2, and a *.grib2-only glob FATAL'd 'no *.grib2
-    # files' even with $PLAN/grib fully populated. Fall back to a widened glob only if the
-    # manifest is missing (e.g. grib/ was staged by hand, not via `fetch`).
+    # link exactly grib_manifest.txt (extensions differ per source, T9); a widened glob only when
+    # grib/ was staged by hand
     lines.append("if [ -s \"$PLAN/grib_manifest.txt\" ]; then")
     lines.append("  mapfile -t GRIB_FILES < <(sed \"s#^#$PLAN/grib/#\" \"$PLAN/grib_manifest.txt\")")
     lines.append("else")
@@ -2891,19 +2715,13 @@ def _run_window_wps_lines(ppn):
     lines.append("  local rc missing=() missing_met=() real_path")
     lines.append("  CUR_WINDOW=\"$k\"")
     lines.append("  LAST_REAL_PATH=\"\"")
-    # T2 (2026-09-24): --real-only never runs this far into a "wrf" branch at all, so
-    # LAST_WRF_STATUS's default of "skipped" is what ends up in windows_status.txt for that
-    # case; the non-real-only wrf.exe branch below overwrites it to "ok" on success.
+    # "skipped" stays for --real-only (T2); the wrf.exe branch sets "ok" on success
     lines.append("  LAST_WRF_STATUS=\"skipped\"")
-    # K5 (2026-09-24): "off" unless --ml-model was given (ML_MODEL unset -> the block below
-    # never runs at all); "skipped" if it ran but nothing was improved/it failed; "applied" only
-    # on a genuine swap-in.
+    # K5: "off" without --ml-model, "skipped" when nothing improved or it failed, "applied" on a swap
     lines.append("  LAST_ML_STATUS=\"off\"")
     lines.append("  LAST_ML_TARGETS=\"\"")
-    # OMP_NUM_THREADS=1 for WPS + real.exe (unset for the rest of the window until the wrf.exe
-    # launch below sets it back to the predicted config's own omp) -- otherwise these steps are
-    # not timed/run under the same threading conditions as the ground-truth runner
-    # (predict_validate/truth_n.sbatch), which is the whole point of a cold-start measurement.
+    # OMP_NUM_THREADS=1 for WPS + real.exe, as in the ground-truth runner (truth_n.sbatch); wrf.exe
+    # gets the config's omp below.
     lines.append("  export OMP_NUM_THREADS=1")
     lines.append("  cd \"$PLAN/wps\" || return 1")
     lines.append("  echo \"=== window $k: wps namelist + ungrib (prefix=$prefix vtable=$vtable) "
@@ -2955,12 +2773,8 @@ def _run_window_real_lines(ranks, real_tpn):
     # 'error opening met_em.d01.2017-08-23_06_00_00.nc'); link both spellings, namelist untouched
     lines.append("  for f in met_em.d0*.*.nc; do [ \"$f\" = \"${f//:/_}\" ] || ln -sf \"$f\" \"${f//:/_}\"; done")
     lines.append("  python3 \"$TOOL\" fix-real-namelist --plan \"$PLAN\" --win \"$k\" || return 1")
-    # 2026-09-24 cluster findings (sc26p1/severe2023): real.exe HANGS (100% CPU, no rsl
-    # progress) at SOME decompositions (3x3, 5x5 observed) with no odd/square pattern -- do not
-    # trust nx/ny alone. Try the predicted config's own decomposition under `timeout 600`
-    # first (this is the decomposition wrf.exe will use anyway, so it's the useful measurement
-    # when it doesn't hang); on rc=124 or missing wrfinput_d01/wrfbdy_d01, kill any survivors,
-    # rewrite the namelist nproc_x=nproc_y=1 (--serial), and retry under `timeout 1800`.
+    # real.exe hangs at some decompositions (3x3, 5x5; sc26p1/severe2023): the config's own under
+    # timeout 600, then serial (nproc 1x1) under timeout 1800 on rc=124 or no output.
     lines.append("  timeout 600 mpirun -np %d --map-by ppr:%d:node:PE=1 --bind-to core ./real.exe"
                   % (ranks, real_tpn))
     lines.append("  rc=$?; pkill -u \"$USER\" -x real.exe 2>/dev/null")
@@ -2981,13 +2795,9 @@ def _run_window_real_lines(ranks, real_tpn):
 
 
 def _run_window_ml_lines():
-    """K5 (2026-09-24): ML state completion on the fresh wrfinput_d01, BEFORE wrf.exe sees it --
-    emitted ONLY when the plan was built with --ml-model (Default: OFF means no trace of this
-    step in the rendered script at all, not just a runtime no-op guard). Never /usr/bin/python3
-    here: this needs numpy+netCDF4 (GRIB_PY, from the PLAN-time preamble). Swap in
-    wrfinput_d01.ml ONLY on a genuine apply (rc=0 AND the file exists -- --targets-from-report
-    legitimately writes nothing when no target improved, which is NOT a failure); otherwise keep
-    the original untouched."""
+    """K5: ML state correction of the fresh wrfinput_d01 before wrf.exe, emitted only with
+    --ml-model. Runs under GRIB_PY (numpy/netCDF4), never /usr/bin/python3; the .ml file replaces
+    wrfinput_d01 only when rc=0 and it exists (no improved target writes nothing)."""
     lines = []
     lines.append("  ML_OUT=$(\"$GRIB_PY\" \"$TOOL_SCM\" apply --model \"$ML_MODEL\" "
                   "--targets-from-report --wrfinput wrfinput_d01 --out wrfinput_d01.ml 2>&1)")
@@ -3035,11 +2845,8 @@ def _run_window_wrf_lines(ranks, ppn, omp, nx, ny, numtiles, wrf_timeout_s):
     lines.append("  site_launch %d %d %d block" % (ranks, ppn, omp))
     lines.append("  timeout %d \"${SITE_LAUNCH_CMD[@]}\" > wrf.out 2>&1 &" % wrf_timeout_s)
     lines.append("  WRF_PID=$!")
-    # A WRF FATAL (MPI_Abort) can leave mpirun hanging until the window timeout (elevconv
-    # 2026-09-28: 'namelist settings are wrong' at init, then 40 min idle). Stop the launch
-    # 30 s after any rank prints FATAL CALLED.
-    # Also a silent init hang: 'Problem opening <file>' (e.g. a missing iofields file) and no
-    # 'Timing for main' line within 120 s of it.
+    # Stop the launch 30 s after any FATAL CALLED (mpirun can idle to the timeout, elevconv), or
+    # 120 s after 'Problem opening <file>' with no 'Timing for main' line (silent init hang).
     lines.append("  ( po=0; while kill -0 \"$WRF_PID\" 2>/dev/null; do "
                  "if grep -lqs 'FATAL CALLED' rsl.error.* 2>/dev/null; then sleep 30; "
                  "kill -TERM \"$WRF_PID\" 2>/dev/null; sleep 20; kill -KILL \"$WRF_PID\" 2>/dev/null; "
@@ -3072,9 +2879,7 @@ def _run_window_function_lines(plan, ranks, ppn, omp, nx, ny, numtiles, wrf_time
     if plan.get("ml_model"):
         lines.extend(_run_window_ml_lines())
     if plan.get("real_only"):
-        # T2 (2026-09-24): --real-only stops each window here -- no fix-wrf-namelist, no
-        # wrf.exe. LAST_WRF_STATUS stays "skipped" (set at the top of run_window()) so
-        # windows_status.txt records it explicitly rather than just omitting the field.
+        # --real-only stops here; LAST_WRF_STATUS stays "skipped" (T2)
         lines.append("  return 0")
     else:
         lines.extend(_run_window_wrf_lines(ranks, ppn, omp, nx, ny, numtiles, wrf_timeout_s))
@@ -3109,29 +2914,15 @@ def _window_call_lines(k, window, forcing, max_dom):
     return lines
 
 
-def render_run_sbatch(plan, site="scc", per_window_estimate_min=15, wps_estimate_min=20,
-                      per_window_forcing=None):
-    """SPEC.md 'run.sbatch (site scc)': #SBATCH --exclude=head, -N nodes --exclusive,
-    --signal=B:USR1@90, generous --time computed from a stated per-window estimate; site_env /
-    site_hygiene / site_launch reused from campaign/sites/scc.sh (NOT reimplemented); geogrid
-    (once) -> link_grib.csh (once) -> PER WINDOW: fix-wps-namelist (namelist.wps start/end =
-    that window's own [t, t_end], prefix/interval = that window's ACTUALLY chosen forcing source
-    -- ungrib/metgrid must NOT span the whole run, or metgrid walks every interval in
-    [run start, run end] and dies on the first GRIB time that was never fetched, since `fetch`
-    only downloads the windows' own times), relink Vtable to that source's own, ungrib, verify
-    EVERY expected '<prefix>:YYYY-MM-DD_HH' intermediate file exists (not just >=1 -- a partial
-    ungrib used to pass silently), metgrid, fix-real-namelist, real.exe, check
-    wrfinput_d0*/wrfbdy_d01, fix-wrf-namelist, wrf.exe (background + wait so the USR1 trap fires
-    -- job 740 postmortem in campaign/strict_campaign.sbatch). A window that fails at any step is
-    recorded ok=0 in windows_status.txt and does NOT abort the remaining windows (only the
-    one-time geogrid/link_grib preamble aborts the whole job). No LD_PRELOAD, no wrapper around
-    wrf.exe -- hard user constraint. `per_window_forcing` (stage_plan reads it from
-    PLAN/forcing.json when `fetch` already ran; else _default_per_window_forcing keeps the old
-    single-source 'GFS'/Vtable.GFS behaviour).
-
-    The script is assembled section by section: _sbatch_directive_lines, _sbatch_environment_lines,
-    _sbatch_geogrid_lines, _sbatch_link_grib_lines, _run_window_function_lines, then one
-    _window_call_lines block per window."""
+def render_run_sbatch(plan: dict, site: str = "scc", per_window_estimate_min: int = 15,
+                      wps_estimate_min: int = 20, per_window_forcing: list[dict] | None = None
+                      ) -> str:
+    """run.sbatch for a plan (SPEC.md 'run.sbatch (site scc)'): geogrid and link_grib once, then per
+    window fix-wps-namelist (that window's own span and chosen forcing), ungrib (every expected
+    intermediate file checked), metgrid, fix-real-namelist, real.exe, fix-wrf-namelist, wrf.exe in
+    the background for the USR1 trap. A failed window is recorded ok=0 in windows_status.txt and the
+    rest still run. No LD_PRELOAD, no wrapper around wrf.exe. Sections: _sbatch_*_lines,
+    _run_window_function_lines, _window_call_lines."""
     n_windows = len(plan["windows"])
     per_window_forcing = per_window_forcing or _default_per_window_forcing(plan, n_windows)
     nodes = plan["nodes"]
@@ -3140,11 +2931,8 @@ def render_run_sbatch(plan, site="scc", per_window_estimate_min=15, wps_estimate
     nx = plan["config"]["nx"]
     ny = plan["config"]["ny"]
     numtiles = int(plan["config"].get("numtiles", 1) or 1)
-    # T7 (2026-09-24, jobs on scc): ranks-per-node = ceil(ranks/nodes), not floor -- floor
-    # under-requests Slurm slots (90 ranks/4 nodes: floor=22 -> --ntasks-per-node=22 -> only 88
-    # slots allocated, but real.exe's own mpirun -np 90 --map-by ppr:23:node (and site_launch's
-    # self-correcting ppr for wrf.exe) both need 23/node -> mpirun rc=213 'not enough slots').
-    # CORES_PER_NODE is scc's (campaign/sites/scc.sh); assert instead of silently over-packing.
+    # ceil(ranks/nodes), not floor: 90 ranks on 4 nodes need 23/node (rc=213 'not enough slots',
+    # T7); assert rather than over-pack scc's CORES_PER_NODE.
     ppn = -(-ranks // max(nodes, 1))
     assert ppn <= 72, ("ppn=%d exceeds CORES_PER_NODE=72 (ranks=%d nodes=%d)"
                        % (ppn, ranks, nodes))
@@ -3174,7 +2962,7 @@ def render_run_sbatch(plan, site="scc", per_window_estimate_min=15, wps_estimate
 # score
 # ---------------------------------------------------------------------------
 
-def interpolate_step_costs(step_times_s, anchors):
+def interpolate_step_costs(step_times_s: list[float], anchors: list[tuple]) -> list[float]:
     """anchors: [(t_seconds, s), ...] (window measured-part midpoints). step_times_s: seconds
     from the same origin, one per predicted d01 step. Returns [s(t), ...] -- piecewise-linear
     interpolation between anchors, held flat outside [min(anchor t), max(anchor t)]."""
@@ -3204,7 +2992,7 @@ def interpolate_step_costs(step_times_s, anchors):
 _WINDOW_STATUS_RE = re.compile(r"^WINDOW\s+(\d+)\s+rc=(-?\d+)\s+ok=([01])")
 
 
-def read_windows_status(plan_dir):
+def read_windows_status(plan_dir: str) -> dict:
     """{window_index: ok_bool} from PLAN_DIR/windows_status.txt (written by run.sbatch's
     run_window(), one 'WINDOW k rc=.. ok=0|1[ ...]' line per window -- a trailing
     'INTERRUPTED sig=...' from the USR1/TERM/INT trap is tolerated, only the leading fields are
@@ -3222,7 +3010,8 @@ def read_windows_status(plan_dir):
     return status
 
 
-def score_windows_from_rsl(plan, sample_points, calibration):
+def score_windows_from_rsl(plan: dict, sample_points: list | None, calibration: dict
+                           ) -> tuple[list[dict], list, list]:
     """Per-window s_k + pooled radiation samples (SPEC.md Scoring, first paragraph). Windows
     marked ok=0 in windows_status.txt (a failed real.exe/wrf.exe, or one interrupted by the USR1
     trap -- see render_run_sbatch) are skipped, not treated as a hard error; it's an error only
@@ -3254,10 +3043,8 @@ def score_windows_from_rsl(plan, sample_points, calibration):
         if not kept:
             raise ColdstartError("window %d: no post-spinup steps found in %s (spinup=%.0fs)"
                                   % (k, rsl_path, spinup_seconds))
-        # A step whose timer absorbed a history/restart/auxhist write is not a compute sample
-        # (rsl_write_absorbing_d01_times). It keeps its index for radiation-phase detection, with
-        # its wall replaced by the median of the other kept steps, and is then left out of both
-        # the normal and the radiation samples.
+        # A write-absorbing step is no compute sample: it keeps its index for radiation-phase
+        # detection (wall = median of the others) and is left out of both sample sets.
         absorbed_times = rsl_write_absorbing_d01_times(rsl_path) if os.path.exists(rsl_path) else set()
         absorbed = [sd.strftime(_WRF_TIME_FMT) in absorbed_times for sd, _ in kept]
         wall = [sec for _, sec in kept]
@@ -3289,17 +3076,11 @@ def score_windows_from_rsl(plan, sample_points, calibration):
                 frac = predict.sunlit_fraction(sample_points, sd) if sample_points else None
                 if frac is not None:
                     pooled_radiation_samples.append((frac, sec / s_k))
-        # r_local (2026-09-26, wtune probe multi-point "rebuild" source wiring, additive): this
-        # window's OWN radiation-step ratio, median of rad_ratios (None if n_rad==0) -- unlike
-        # pooled_radiation_samples (flat across every window, used for the whole-plan day/night
-        # fit), this is per-window, for a caller that wants ONE (s_k, r) pair per window/point
-        # (e.g. wtune_probe_plan.PointMeasurement) instead of the pooled fit.
+        # r_local: this window's own radiation ratio (median, None without radiation steps), for a
+        # per-point (s_k, r) pair (wtune_probe_plan.PointMeasurement) instead of the pooled fit.
         r_local = statistics.median(rad_ratios) if rad_ratios else None
         mid_dt = T + datetime.timedelta(seconds=spinup_seconds + (plan["W_seconds"] - spinup_seconds) / 2.0)
-        # R6-D date-shifted sampling: T (and so mid_dt) is on the ANALOG timeline the window
-        # actually ran at; map it back to the STATED timeline (what the whole-run prediction's
-        # own step grid, anchored at run_start_dt=stated_start, is indexed on) before placing
-        # the anchor. plan.get("shift_s") is 0.0 for an unshifted plan, so this is a no-op then.
+        # R6-D: map the analog-timeline window back to the stated timeline (shift_s 0 = no-op).
         mid_dt_stated = mid_dt - datetime.timedelta(seconds=plan.get("shift_s", 0.0) or 0.0)
         anchors.append(((mid_dt_stated - run_start_dt).total_seconds(), s_k))
         forcing = _load_window_forcing(plan["_plan_dir"], k) or plan.get("forcing_chain_primary")
@@ -3315,7 +3096,7 @@ def score_windows_from_rsl(plan, sample_points, calibration):
     return windows_out, pooled_radiation_samples, anchors
 
 
-def resolve_r_rad(pooled_radiation_samples, calibration):
+def resolve_r_rad(pooled_radiation_samples: list, calibration: dict) -> tuple[float, float, str]:
     default_r_rad = calibration.get("radiation", {}).get("r_rad_default", 5.0)
     day_night_ratio = calibration.get("radiation", {}).get(
         "r_rad_day_night_ratio", predict.DEFAULT_R_RAD_DAY_NIGHT_RATIO)
@@ -3332,8 +3113,9 @@ def resolve_r_rad(pooled_radiation_samples, calibration):
     return r_night, r_day, source
 
 
-def predicted_compute_total(steps_n, dt, stepra, run_start_dt, anchors, sample_points,
-                            r_night, r_day):
+def predicted_compute_total(steps_n: int, dt: float, stepra: int, run_start_dt: datetime.datetime,
+                            anchors: list[tuple], sample_points: list | None, r_night: float,
+                            r_day: float) -> tuple[float, list[float]]:
     """SPEC.md Scoring, 'Whole run': s(t_i) = piecewise-linear interpolation of s_k at each
     window's measured-part midpoint; compute = sum_i s(t_i) + sum over schedule radiation steps
     (classify_steps) of (r(t_i)-1)*s(t_i), r(t)=r_night+(r_day-r_night)*sunlit_fraction(t)."""
@@ -3351,7 +3133,8 @@ def predicted_compute_total(steps_n, dt, stepra, run_start_dt, anchors, sample_p
     return sum(s_values) + rad_extra, s_values
 
 
-def score_plan(plan_dir, calibration_path=DEFAULT_CALIBRATION, json_out=None, include_io=False):
+def score_plan(plan_dir: str, calibration_path: str = DEFAULT_CALIBRATION,
+               json_out: str | None = None, include_io: bool = False) -> dict:
     with open(os.path.join(plan_dir, "plan.json")) as f:
         plan = json.load(f)
     if plan.get("real_only"):
@@ -3385,11 +3168,8 @@ def score_plan(plan_dir, calibration_path=DEFAULT_CALIBRATION, json_out=None, in
     flat_total = median_s * steps_n
 
     config = plan["config"]
-    # case_dir = PLAN/win_0/real, NOT plan["case_dir"]: in an unknown case the original case_dir
-    # has no wrfinput_d01 at all (that's the whole premise), and in the held-out validation test
-    # (a case that DOES happen to have one) reading it back here would be leakage -- build_prediction
-    # only uses case_dir for read_wrfinput_sample_points/predict_init, and win_0/real's own
-    # real.exe-generated wrfinput_d01 is the right (and only legitimately available) substitute.
+    # PLAN/win_0/real, not plan["case_dir"]: an unknown case has no wrfinput there, and reading a
+    # held-out case's own would leak; real.exe's wrfinput_d01 is the legitimate substitute.
     win0_real_dir = os.path.join(plan_dir, "win_0", "real")
     pred = predict.build_prediction(plan["namelist_input"], win0_real_dir, plan["nodes"],
                                     config, ledger_paths=[], calibration_path=calibration_path,
@@ -3401,10 +3181,7 @@ def score_plan(plan_dir, calibration_path=DEFAULT_CALIBRATION, json_out=None, in
     drift_pct = calibration.get("drift_band_pct", 5.0)
     spread_frac = (max(s_ks) - min(s_ks)) / median_s / 2.0 if median_s else 0.0
     drift_frac = max(drift_pct / 100.0, spread_frac)
-    # R6-D: date-shifted sampling measures the ANALOG date's weather, not the stated date's --
-    # widen the compute band by how much the analog might diverge from what the stated date will
-    # actually do (good/fair/poor/no-target/manual -- see build_plan's analog_quality). These
-    # bounds are the drift MEASURED on scc (-9%..+6.5%), rounded to +-5/10/15%, not a guess.
+    # R6-D: widen the band by analog quality -- measured analog drift on scc -9 %..+6.5 %, rounded.
     analog_quality = plan.get("analog_quality")
     range_note = None
     if analog_quality:
@@ -3441,7 +3218,7 @@ def score_plan(plan_dir, calibration_path=DEFAULT_CALIBRATION, json_out=None, in
     return result
 
 
-def print_score(result):
+def print_score(result: dict) -> None:
     print("windows:")
     for w in result["windows"]:
         forcing_dataset = (w.get("forcing") or {}).get("dataset", "?")
@@ -3563,7 +3340,7 @@ def _build_arg_parser():
     return ap
 
 
-def main(argv=None):
+def main(argv: list[str] | None = None) -> int:
     ap = _build_arg_parser()
     args = ap.parse_args(argv)
 

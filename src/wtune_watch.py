@@ -4,98 +4,12 @@
     wtune watch RUNDIR [--interval SEC=60] [--once] [--json] [--replay-fraction F[,F...]]
         [--init-limit SEC=600] [--hang-factor K=10] [--hang-min SEC=300] [--prediction PRED_JSON]
 
-Reads ONLY RUNDIR/namelist.input, RUNDIR/rsl.error.0000 + rsl.out.0000 (reopened and
-re-stat'ed on every poll: on NFS a long-lived handle can serve stale content) and the names/mtimes
-of RUNDIR/wrfout_d01_* (plus run_report.json for a run root, below). Never writes, never signals
-the job.
+Reads only namelist.input, rsl.error/out.0000 (reopened every poll: NFS handles go stale), the
+wrfout_d01_* names/mtimes and a run root's run_report.json; never writes or signals the job.
+Exit 3 on FAILED, 2 on HANG/HANG_INIT/NEST_STOPPED/NEST_END_EARLY, else 0. Estimator, warnings
+and replay accuracy: README.md `wtune watch`."""
+from __future__ import annotations
 
-Progress
-    d01 'Timing for main: time <T> on domain   1: <s> elapsed seconds' lines; T is the END of
-    that step. d01 elapsed INCLUDES the nested-domain integration and history/restart writes of
-    that d01 step (zhengzhou, 3 domains: sum d01 = 17789.5 s vs job wall 17827.6 s; summing all
-    domains double counts to 47794 s), so wall elapsed so far ~= init + sum(d01 elapsed).
-    rsl.error.0000 and rsl.out.0000 can each be truncated on high-print cases: both are read and
-    the one with more d01 Timing lines wins (tie -> rsl.error.0000).
-
-Remaining time = remaining compute + remaining writes (both reported, plus their sum)
-    Writes are separated from compute exactly: a d01 'Timing for main' line that follows one or
-    more 'Timing for Writing <file> for domain N: X elapsed seconds' lines since the previous d01
-    line (nest Timing lines in between allowed) ABSORBED those writes -- WRF's step timer starts
-    before med_before_solve_io (tools/coldstart_sample.rsl_write_absorbing_d01_times, same rule,
-    same regex). That step's compute part = its seconds - the write seconds attributed to it.
-    Why: off-period outlier removal (9f7544e) dropped exactly these steps while the compute-only
-    prediction never had them, so both estimates lost the writes -- 25 % replay on scc truth:
-    marshall (writes 48 % of wall) -6.0 % -> -53.5 %, dorian (17.5 %) -0.7 % -> -18.0 %.
-
-    compute, rate-only: remaining d01 steps x MEAN compute part over the most recent
-    W = max(2*stepra, 50, 25 % of completed) steps, W rounded up to a whole number of radiation
-    periods (d01 stepra and every nest's radt in d01 steps; their LCM P) when P fits in the
-    completed steps, else to a whole number of stepra. A mean over whole periods carries the
-    radiation spikes at their duty cycle; a median would drop them. No outlier removal. Excluded
-    first: the log's first step always, plus the following leading steps costlier than 2x the
-    median, at most 25 % of the steps (init). A genuine multi-step cold-start regime (isc21: 30-min
-    run, 120 d01 lines, +47.5 % at 25 %) is NOT an init spike and is left alone; rate-only cannot
-    see a trend (maria1km -10.4 %, elevconv -16.0 % at 25 %: cost rises as the weather develops).
-
-    compute, prediction-scaled (--prediction PRED_JSON, primary when given): PRED_JSON =
-    `wtune predict-rebuild`'s OUT/pred_rebuild.json. Its result.points s_normal anchors +
-    r_night/r_day give a per-step compute curve (tools/coldstart_sample.predicted_compute_total,
-    the arithmetic wtune_probe_plan.combine uses, reused not copied). remaining = k x predicted
-    compute over the not-yet-run steps, k = observed / predicted compute over the steps already
-    run (lead-in dropped): the prediction supplies the trend's shape, the run supplies its level.
-
-    writes: per stream (history per domain, restart per domain, each auxhistN per domain) median
-    observed write seconds per frame x remaining frames of that stream. Frames from the namelist
-    (coldstart_sample.wrf_interval_minutes, WRF's d/h/m/s key sum): history at begin + j x interval
-    up to history_end / the domain's end / run end (a resumed run skips t=0 unless
-    write_hist_at_0h_rst), restart at j x restart_interval, auxhistN over auxhistN_begin..end. A
-    frame at sim minute T is written at the start of the step beginning at T, so it is done once
-    T < completed x dt. A stream with no write observed yet takes PRED_JSON's measured io block
-    (history median_s per domain, restart per_write_s) when given, else 0 with a note.
-
-Warnings (code, text); exit 3 on FAILED, 2 on HANG/HANG_INIT/NEST_STOPPED/NEST_END_EARLY, else 0
-    HANG          live: newest mtime of the chosen rsl file and of the wrfout_d01_* frames older
-                  than max(hang_min, hang_factor x median d01 step of the rate window) (frames
-                  but no Timing line yet: max(hang_min, init_limit)).
-    HANG_INIT     no d01 Timing line yet and the rsl file older than init_limit (birth time when
-                  the platform reports it, else ctime). The known silent hang (elevconv, scc:
-                  missing iofields file) ends with 'Problem opening storm_diags_d01.txt' after
-                  'med_initialdata_input: calling input_input' and never prints a Timing line;
-                  a 'Problem opening' tail line is quoted as the hint.
-    NEST_END_EARLY  from namelist.input alone: an active nest whose own end_* datetime is before
-                  d01's run end (run_* wins for d01 only; yagi truth 1038 edited only run_*, so
-                  d02/d03 stopped while d01 kept advancing and the job looked healthy).
-    NEST_STOPPED  a nest's last sim time is behind d01's by > 2 parent steps while its own
-                  namelist end is still ahead of it.
-    FAILED        'FATAL CALLED' or 'forrtl' in the tail of either 0000 file, or a NaN Timing.
-    CFL           informational: 'cfl' lines in the chosen file grew since the previous poll
-                  (--once / first poll: any present).
-    RSL_LAGGING   live: the latest wrfout_d01_<valid time> in RUNDIR is later than the rsl's
-                  last d01 Timing line (or there is none yet). On NFS the compute node's
-                  rsl.error.0000 can reach the login node minutes late (scc: 0 bytes for most of a
-                  2-min run while wrfout frames kept appearing). sim time = that frame's time,
-                  status running (never init; HANG_INIT off), rate/ETA still from the rsl.
-                  FAILED/done detection and NEST_STOPPED (rsl vs rsl) unchanged.
-    DONE is a status ('SUCCESS COMPLETE WRF'), not a warning.
-
-Run root (RUNDIR without namelist.input but with seg_<k>/ dirs: `wtune run --out`)
-    Each poll follows the highest-numbered seg_<k> (seg_<k>_rescue when present) and prefixes the
-    line 'seg k/K' (K = segments in run_report.json, else '?'). The percentage is whole-run: sim
-    time since the first segment's start / (first segment start .. last segment end) from
-    run_report.json, else the segment's own namelist window; remaining/ETA are the segment's.
-    Polling stops on a failed segment, a final report status, or the last segment done.
-
-Replay (--replay-fraction F, implies --once; hang/live checks off)
-    Pretend the run is at fraction F of its observed d01 Timing lines: only d01 lines (and the
-    write lines before them) up to that point and nest lines up to the same sim time are used.
-    actual remaining = sum of the later d01 elapsed + the writes logged after the last d01 line
-    (the end-of-run frame no d01 step absorbs); replay_error_pct = (est - actual) / actual for the
-    primary estimate, replay_error_pct_rate / _pred for each. est covers exactly the logged later
-    steps (compute: rate x their count or k x predicted compute to the last logged step; writes:
-    the frames those steps absorb, plus the end-of-run frames on a complete log), so on a partial
-    log it compares only the span the log covers (flagged actual_partial). --json with a comma
-    list prints ONE JSON list.
-"""
 import argparse
 import datetime as dt
 import json
@@ -105,6 +19,7 @@ import re
 import statistics
 import sys
 import time
+from typing import Callable
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 for _p in (os.path.join(_HERE, "tools"), _HERE):
@@ -114,9 +29,11 @@ for _p in (os.path.join(_HERE, "tools"), _HERE):
 import wtune_predict as wp  # noqa: E402  (namelist helpers, stepra, run length)
 
 RSL_FILES = ("rsl.error.0000", "rsl.out.0000")  # tie -> the first
-TAIL_LINES = 200
+TAIL_LINES = 200   # lines of each rsl file scanned for FATAL / SUCCESS
 WRF_FMT = "%Y-%m-%d_%H:%M:%S"
 # Elapsed token is \S+ (not [\d.]+ as in wtune_predict._RSL_TIMING_RE) so NaN lines are seen.
+# d01 elapsed includes nest integration and that step's writes: wall ~= init + sum(d01 elapsed)
+# (zhengzhou, 3 domains: 17789.5 s vs job wall 17827.6 s).
 _TIMING_RE = re.compile(
     r"Timing for main: time (\S+) on domain\s+(\d+):\s+(\S+)\s+elapsed seconds")
 BLOCKING = ("HANG", "HANG_INIT", "NEST_STOPPED", "NEST_END_EARLY")
@@ -133,7 +50,7 @@ def _hms(s):
     return "%d:%02d:%02d" % (s // 3600, s % 3600 // 60, s % 60)
 
 
-def parse_timing(text):
+def parse_timing(text: str) -> list[tuple[int, dt.datetime | None, float]]:
     """All 'Timing for main' lines -> [(domain, sim_datetime_or_None, elapsed), ...] in file order.
     elapsed is float('nan') for a NaN token; lines whose token is neither a number nor NaN
     (Fortran '*****' overflow) are dropped."""
@@ -151,7 +68,7 @@ def parse_timing(text):
     return out
 
 
-def parse_d01_steps(text):
+def parse_d01_steps(text: str) -> tuple[list[dict], list[tuple[str, int, float]]]:
     """d01 steps with the writes each one absorbed: ([{t, sec, writes: [(name, dom, s), ...]}],
     trailing_writes). A 'Timing for Writing' line (tools/coldstart_sample._RSL_WRITE_RE) is
     attributed to the NEXT d01 'Timing for main' line (nest Timing lines in between allowed) --
@@ -180,7 +97,7 @@ def parse_d01_steps(text):
     return steps, pending
 
 
-def read_rsl(rundir):
+def read_rsl(rundir: str) -> tuple[dict | None, list[dict]]:
     """Read both rank-0 rsl files fresh. Returns (chosen, all) where each entry is
     {name, path, text, stat, timing, n_d01}; chosen is None when neither exists. Chosen = more d01
     Timing lines, tie -> rsl.error.0000 (either one can be truncated on high-print cases)."""
@@ -225,7 +142,7 @@ def _int_period(x):
     return r if abs(x - r) < 1e-6 else None
 
 
-def run_info(nl):
+def run_info(nl: dict) -> dict:
     """Run geometry from a parsed namelist: d01 start/end (run_* wins, wtune_runlength rule), dt,
     total d01 steps, stepra, the periodic-cost periods in d01 steps, and per active domain
     {id, parent, dt, parent_dt, start, end} where a nest's end is its OWN end_* datetime (None when
@@ -272,15 +189,11 @@ def _frame_minutes(begin, interval, end):
     return out
 
 
-def write_streams(nl, info):
-    """Every write stream the run's namelist schedules: [{stream, dom, prefix, frames: [sim minute
-    from run start, ...]}]. history per domain (io_form_history != 0, history_interval > 0, from
-    the domain's start + history_begin to min(history_end, domain end, run end); a resumed run
-    skips the t=0 frame unless write_hist_at_0h_rst -- wtune_rebuild_predict.user_io_frames'
-    semantics), restart per domain at j x restart_interval (j >= 1), auxhistN per domain
-    (io_form_auxhistN != 0) over auxhistN_begin..auxhistN_end. prefix = the file-name prefix an
-    observed 'Timing for Writing <name>' line is matched by (history_outname / auxhistN_outname
-    up to '<'; restart lines are WRF's literal name 'restart')."""
+def write_streams(nl: dict, info: dict) -> list[dict]:
+    """Every write stream the namelist schedules: [{stream, dom, prefix, frames}], frames in
+    sim minutes from the run start. history/auxhistN per domain over begin..end (a resumed run skips
+    t=0 unless write_hist_at_0h_rst), restart at j x restart_interval. prefix matches an observed
+    'Timing for Writing <name>' line ('restart' is WRF's literal name)."""
     import coldstart_sample as cs
     run_min = info["run_s"] / 60.0
     resumed = bool(wp.g(nl, "time_control", "restart", False))
@@ -336,7 +249,8 @@ def _stream_of(name, dom, streams):
     return "other", dom
 
 
-def remaining_writes(info, observed, lo_min, hi_min=None, prediction=None):
+def remaining_writes(info: dict, observed: dict, lo_min: float, hi_min: float | None = None,
+                     prediction: dict | None = None) -> tuple[float, list[dict], list[str]]:
     """Seconds of the writes of frames at sim minute T with lo_min <= T (< hi_min when given, else
     to the run end), per stream = median observed seconds per frame x frames. observed:
     {(stream, dom): [s, ...]}. Falls back to prediction['io'] (history median_s per domain,
@@ -373,11 +287,13 @@ def remaining_writes(info, observed, lo_min, hi_min=None, prediction=None):
     return total, rows, notes
 
 
+# Mean over whole radiation periods, no outlier removal: dropping write-absorbing steps lost
+# the writes (marshall -53.5 % at 25 % replay, 9f7544e).
 LEAD_FACTOR = 2.0     # leading steps costlier than this x the median are init, not compute
 LEAD_MAX_FRAC = 0.25  # ... but at most this fraction of the logged steps
 
 
-def drop_lead_in(series):
+def drop_lead_in(series: list[tuple[int, float]]) -> tuple[list[tuple[int, float]], int]:
     """series: [(step_index, sec), ...] in log order. Drops the log's first step ALWAYS (it
     carries the first-call setup of every scheme, not the steady compute), then every following
     leading step costlier than LEAD_FACTOR x the median of the rest, at most LEAD_MAX_FRAC of the
@@ -398,7 +314,8 @@ def _as_series(elapsed):
     return [e if isinstance(e, tuple) else (k + 1, e) for k, e in enumerate(elapsed)]
 
 
-def rate_window(elapsed, stepra, periods):
+def rate_window(elapsed: list, stepra: int | None, periods: list[int]
+                ) -> tuple[float | None, int, float | None]:
     """Rate over the most recent W of the (lead-in-dropped, write-free) completed d01 compute
     parts. elapsed: [sec, ...] or [(step_index, sec), ...]. Returns (rate, W, median).
     W = max(2*stepra, 50, 25 % of completed), rounded up to a multiple of P = LCM(periods)
@@ -426,7 +343,7 @@ def rate_window(elapsed, stepra, periods):
 # --prediction: wtune predict-rebuild's OUT/pred_rebuild.json as the cost-curve shape
 # --------------------------------------------------------------------------
 
-def load_prediction(path, rundir=None):
+def load_prediction(path: str, rundir: str | None = None) -> dict:
     """pred_rebuild.json -> {anchors_at: [(datetime, s_normal)], r_night, r_day, steps_n, total_s,
     compute_total_s, init_s, sample_points, sample_source, path}. sample_points come from
     RUNDIR/wrfinput_d01 when present (read-only; wtune_predict.read_wrfinput_sample_points), for
@@ -457,7 +374,7 @@ def load_prediction(path, rundir=None):
             "path": os.path.abspath(path), "_cum": {}}
 
 
-def pred_cum(pred, info, m):
+def pred_cum(pred: dict, info: dict, m: int) -> float:
     """Predicted compute seconds of d01 steps 1..m -- tools/coldstart_sample.
     predicted_compute_total over the first m steps (the exact arithmetic wtune_probe_plan.combine
     uses: piecewise-linear s_normal anchors + WRF-schedule radiation steps x r(t); both are
@@ -476,7 +393,7 @@ def pred_cum(pred, info, m):
     return pred["_cum"][m]
 
 
-def pred_scale(pred, info, kept):
+def pred_scale(pred: dict, info: dict, kept: list[tuple[int, float]]) -> float | None:
     """k = observed / predicted compute over the steps already run: `kept` is the lead-in-dropped
     [(step_index, compute seconds), ...] (writes already subtracted -- the prediction is
     compute-only). None when unusable."""
@@ -499,7 +416,7 @@ def _file_age_origin(st):
 _WRFOUT_D01_RE = re.compile(r"^wrfout_d01_(\d{4}-\d\d-\d\d_\d\d:\d\d:\d\d)")
 
 
-def latest_wrfout(rundir):
+def latest_wrfout(rundir: str) -> tuple[dt.datetime | None, float | None]:
     """(latest wrfout_d01_<valid time> datetime, newest wrfout_d01 mtime) in rundir, (None, None)
     without one. On NFS the compute node's rsl.error.0000 can reach the login node minutes late
     (client write-back) while new wrfout files show up promptly: a frame's valid time is a floor
@@ -523,26 +440,11 @@ def latest_wrfout(rundir):
     return t_max, m_max
 
 
-def snapshot(rundir, now=None, replay_fraction=None, hang_factor=10.0, hang_min=300.0,
-             init_limit=600.0, prev_cfl=None, prediction=None):
-    """One read-only observation of RUNDIR -> JSON-serializable dict. Pure function of the files'
-    contents/stat and `now` (epoch seconds; default time.time()). replay_fraction switches to
-    replay (no live checks). prev_cfl: the previous poll's cfl count (None -> warn on any).
-    prediction: load_prediction()'s dict -> prediction-scaled estimate, primary when usable."""
-    now = time.time() if now is None else now
-    replay = replay_fraction is not None
-    warnings = []
-
-    def warn(code, text):
-        warnings.append({"code": code, "text": text})
-
-    snap = {"rundir": os.path.abspath(rundir), "now": now, "mode": "replay" if replay else "live",
-            "status": None, "warnings": warnings}
-
+def _load_run_info(rundir: str, snap: dict, warn: Callable[[str, str], None]) -> dict | None:
+    """run_info of RUNDIR/namelist.input into snap (NO_NAMELIST when unusable) + NEST_END_EARLY."""
     info = None
-    nml = os.path.join(rundir, "namelist.input")
     try:
-        info = run_info(wp.parse_namelist(nml))
+        info = run_info(wp.parse_namelist(os.path.join(rundir, "namelist.input")))
     except (OSError, wp.PredictError, ValueError) as e:
         warn("NO_NAMELIST", "namelist.input unusable: %s" % e)
     if info:
@@ -554,42 +456,36 @@ def snapshot(rundir, now=None, replay_fraction=None, hang_factor=10.0, hang_min=
                 warn("NEST_END_EARLY",
                      "d%02d end_* %s is before d01 run end %s (run_* applies to d01 only; "
                      "set the nest end_* too)" % (d["id"], _fmt_t(d["end"]), _fmt_t(info["end"])))
+    return info
 
-    chosen, found = read_rsl(rundir)
-    if chosen is None:
-        snap["status"] = "no_rsl"
-        return snap
-    snap["rsl_file"] = chosen["name"]
-    snap["rsl_d01_lines"] = {r["name"]: r["n_d01"] for r in found}
-    timing = chosen["timing"]
-    steps, trailing = parse_d01_steps(chosen["text"])
-    replay_cut = None
-    if replay:
-        k = min(len(steps), max(1, int(round(replay_fraction * len(steps))))) if steps else 0
-        rest_steps = steps[k:]
-        steps = steps[:k]
-        replay_cut = steps[-1]["t"] if steps else None
-        all_last = (steps + rest_steps)[-1]["t"] if steps + rest_steps else None
-        snap["replay_fraction"] = replay_fraction
-        snap["actual_partial"] = bool(info and info["end"] and all_last is not None
-                                      and all_last < info["end"])
-        snap["actual_remaining_s"] = (
-            sum(st["sec"] for st in rest_steps if not math.isnan(st["sec"]))
-            + (0.0 if snap["actual_partial"] else sum(w for _, _, w in trailing)))
-    d01 = [(st["t"], st["sec"]) for st in steps]
-    rsl_last_t = d01[-1][0] if d01 else None
-    # wrfout floor (live only): a d01 frame valid later than the rsl's last d01 Timing line (or
-    # any frame before the first one) means the rsl is lagging, not that the model is behind.
-    wrf_t, wrf_mtime = (None, None) if replay else latest_wrfout(rundir)
-    lagging = wrf_t is not None and (rsl_last_t is None or wrf_t > rsl_last_t)
 
+def _cut_for_replay(snap: dict, steps: list, trailing: list, info: dict | None,
+                    fraction: float) -> tuple[list, list, dt.datetime | None]:
+    """Keep the first `fraction` of the d01 steps -> (steps, rest_steps, replay_cut); records
+    the actual remaining seconds (+ end-of-run writes on a complete log) in snap."""
+    k = min(len(steps), max(1, int(round(fraction * len(steps))))) if steps else 0
+    rest_steps = steps[k:]
+    steps = steps[:k]
+    replay_cut = steps[-1]["t"] if steps else None
+    all_last = (steps + rest_steps)[-1]["t"] if steps + rest_steps else None
+    snap["replay_fraction"] = fraction
+    snap["actual_partial"] = bool(info and info["end"] and all_last is not None
+                                  and all_last < info["end"])
+    snap["actual_remaining_s"] = (
+        sum(st["sec"] for st in rest_steps if not math.isnan(st["sec"]))
+        + (0.0 if snap["actual_partial"] else sum(w for _, _, w in trailing)))
+    return steps, rest_steps, replay_cut
+
+
+def _set_status(snap: dict, found: list, chosen: dict, d01: list, lagging: bool, replay: bool,
+                warn: Callable[[str, str], None]) -> tuple[bool, list[str], list[str]]:
+    """status from the 0000 file tails (FAILED warning) -> (success, fatal_lines, problem_lines)."""
     tails = {r["name"]: _tail(r["text"]) for r in found}
     tail_all = [ln for r in found for ln in tails[r["name"]]]
     success = any("SUCCESS COMPLETE WRF" in ln for ln in tail_all)
     fatal = [ln for ln in tail_all if "FATAL CALLED" in ln or "forrtl" in ln]
     nan = any(math.isnan(s) for _, s in d01)
     problem = [ln.strip() for ln in tails[chosen["name"]] if "Problem opening" in ln]
-
     if not replay:
         if fatal or nan:
             warn("FAILED", fatal[-1].strip() if fatal else "NaN in a d01 Timing line")
@@ -597,65 +493,57 @@ def snapshot(rundir, now=None, replay_fraction=None, hang_factor=10.0, hang_min=
                           else "running" if d01 or lagging else "init")
     else:
         snap["status"] = "replay"
+    return success, fatal, problem
 
-    # HANG_INIT (not while a wrfout frame shows the model is past init)
-    if not d01 and not lagging and not (not replay and (success or fatal)):
-        hint = (" hint: %r (missing file, e.g. an iofields_filename target)" % problem[-1]
-                if problem else "")
-        if replay:
-            if not success:
-                warn("HANG_INIT", "no d01 Timing line in the log" + hint)
-        else:
-            age = now - _file_age_origin(chosen["stat"])
-            if age > init_limit:
-                warn("HANG_INIT", "no d01 Timing line after %s (limit %s)%s"
-                     % (_hms(age), _hms(init_limit), hint))
 
-    def step_index(j, t):
-        return (int(round((t - info["start"]).total_seconds() / info["dt"]))
-                if info and t is not None else j + 1)
+def _check_hang_init(chosen: dict, problem: list[str], success: bool, replay: bool, now: float,
+                     init_limit: float, warn: Callable[[str, str], None]) -> None:
+    """HANG_INIT: no d01 Timing line yet (callers skip it once a wrfout frame or a final status
+    shows the model is past init)."""
+    hint = (" hint: %r (missing file, e.g. an iofields_filename target)" % problem[-1]
+            if problem else "")
+    if replay:
+        if not success:
+            warn("HANG_INIT", "no d01 Timing line in the log" + hint)
+        return
+    age = now - _file_age_origin(chosen["stat"])
+    if age > init_limit:
+        warn("HANG_INIT", "no d01 Timing line after %s (limit %s)%s"
+             % (_hms(age), _hms(init_limit), hint))
 
-    def compute_series(lines):
-        """[(step_index, compute seconds = step seconds - its absorbed writes)], NaN and
-        non-positive compute parts left out."""
-        out = []
-        for j, st in enumerate(lines):
-            c = st["sec"] - sum(w for _, _, w in st["writes"])
-            if not math.isnan(c) and c > 0:
-                out.append((step_index(j, st["t"]), c))
-        return out
 
-    series = compute_series(steps)
-    elapsed = [st["sec"] for st in steps if not math.isnan(st["sec"])]
-    observed = {}
-    for st in steps:
-        for name, dom, w in st["writes"]:
-            key = _stream_of(name, dom, info["streams"]) if info else ("other", dom)
-            observed.setdefault(key, []).append(w)
-    if not replay:
-        for name, dom, w in trailing:
-            key = _stream_of(name, dom, info["streams"]) if info else ("other", dom)
-            observed.setdefault(key, []).append(w)
-    kept, n_lead = drop_lead_in(series)
-    rate, w, med = rate_window(kept, info["stepra"] if info else None,
-                               info["periods"] if info else [])
-    last_t = rsl_last_t
-    if lagging and snap["status"] == "running":
-        last_t = wrf_t
-        snap.update(wrfout_last_time=_fmt_t(wrf_t), rsl_d01_last_time=_fmt_t(rsl_last_t))
-        warn("RSL_LAGGING", "rsl behind wrfout (latest wrfout %s); rate/ETA from rsl may be stale"
-             % _fmt_t(wrf_t))
-    completed = len(d01)
-    if info and last_t is not None:
-        completed = int(round((last_t - info["start"]).total_seconds() / info["dt"]))
-    writes_so_far = sum(sum(v) for v in observed.values())
-    snap.update(n_d01_steps=len(d01), completed_steps=completed, d01_last_time=_fmt_t(last_t),
-                sum_d01_elapsed_s=sum(elapsed), writes_so_far_s=writes_so_far,
-                n_write_absorbing_steps=sum(1 for st in steps if st["writes"]),
-                rate_s_per_step=rate, rate_window=w, median_step_s=med, rate_lead_dropped=n_lead)
-    if "other" in {key[0] for key in observed}:
-        snap["unclassified_writes_s"] = sum(sum(v) for key, v in observed.items()
-                                            if key[0] == "other")
+def _step_index(info: dict | None, j: int, t: dt.datetime | None) -> int:
+    """d01 step number of the step ending at t (j + 1 without a usable namelist or time)."""
+    return (int(round((t - info["start"]).total_seconds() / info["dt"]))
+            if info and t is not None else j + 1)
+
+
+def _compute_series(info: dict | None, steps: list) -> list[tuple[int, float]]:
+    """[(step_index, step seconds - its absorbed writes)], NaN/non-positive parts left out."""
+    out = []
+    for j, st in enumerate(steps):
+        c = st["sec"] - sum(w for _, _, w in st["writes"])
+        if not math.isnan(c) and c > 0:
+            out.append((_step_index(info, j, st["t"]), c))
+    return out
+
+
+def _observed_writes(info: dict | None, steps: list, trailing: list,
+                     replay: bool) -> dict[tuple, list[float]]:
+    """{(stream, dom): [write s, ...]} from the absorbed writes (+ trailing ones when live)."""
+    observed: dict[tuple, list[float]] = {}
+    writes = [w for st in steps for w in st["writes"]] + ([] if replay else list(trailing))
+    for name, dom, w in writes:
+        key = _stream_of(name, dom, info["streams"]) if info else ("other", dom)
+        observed.setdefault(key, []).append(w)
+    return observed
+
+
+def _estimate_remaining(snap: dict, info: dict | None, rate: float | None, completed: int,
+                        lagging: bool, last_t: dt.datetime | None, kept: list, observed: dict,
+                        prediction: dict | None, warn: Callable[[str, str], None]) -> tuple:
+    """Remaining compute (rate-only and prediction-scaled) + writes -> (c_rate, c_pred, k, rem_w);
+    fraction/remaining_steps/writes rows go into snap."""
     c_rate = c_pred = k = rem_w = None
     if info and rate is not None:
         rem_steps = max(0, info["total_steps"] - completed)
@@ -676,6 +564,156 @@ def snapshot(rundir, now=None, replay_fraction=None, hang_factor=10.0, hang_min=
     elif info and lagging and last_t is not None and info["total_steps"]:  # floor, no rsl rate
         snap["fraction"] = min(1.0, completed / info["total_steps"])
         snap["remaining_steps"] = max(0, info["total_steps"] - completed)
+    return c_rate, c_pred, k, rem_w
+
+
+def _replay_errors(snap: dict, info: dict | None, rate: float | None, steps: list,
+                   rest_steps: list, completed: int, observed: dict, prediction: dict | None,
+                   k: float | None) -> None:
+    """Replay estimate vs the actual remaining over exactly what the log covers: compute of the
+    later logged d01 steps and the frames they absorb (+ end-of-run frames on a complete log)."""
+    act = snap["actual_remaining_s"]
+    est_rate = est_pred = None
+    if info and rate is not None and rest_steps:
+        last_i = _step_index(info, len(steps) + len(rest_steps) - 1, rest_steps[-1]["t"])
+        est_w, _, _ = remaining_writes(
+            info, observed, completed * info["dt"] / 60.0,
+            None if not snap["actual_partial"] else last_i * info["dt"] / 60.0,
+            prediction=prediction)
+        est_rate = len(rest_steps) * rate + est_w
+        if k is not None:
+            est_pred = k * (pred_cum(prediction, info, last_i)
+                            - pred_cum(prediction, info, completed)) + est_w
+
+    def err(e):
+        return 100.0 * (e - act) / act if e is not None and act > 0 else None
+    est = est_pred if est_pred is not None else est_rate
+    snap.update(est_for_actual_rate_s=est_rate, est_for_actual_pred_s=est_pred,
+                est_for_actual_s=est, replay_error_pct=err(est),
+                replay_error_pct_rate=err(est_rate), replay_error_pct_pred=err(est_pred))
+    snap["error_pct"] = snap["replay_error_pct"]  # pre-e5aebb5-follow-up name, kept as alias
+
+
+def _check_hang(snap: dict, chosen: dict, wrf_mtime: float | None, med: float | None,
+                last_t: dt.datetime | None, now: float, hang_factor: float, hang_min: float,
+                init_limit: float, warn: Callable[[str, str], None]) -> None:
+    """HANG: no rsl or wrfout_d01 output for max(hang_min, hang_factor x median step), or
+    max(hang_min, init_limit) with frames but no Timing line yet (the rsl can lag on NFS)."""
+    limit = (max(hang_min, hang_factor * med) if med is not None
+             else max(hang_min, init_limit))
+    age = now - max(chosen["stat"].st_mtime, wrf_mtime or 0.0)
+    snap["log_age_s"] = age
+    if age > limit:
+        warn("HANG", "no rsl/wrfout output for %s (limit %s = %s); last d01 time %s"
+             % (_hms(age), _hms(limit),
+                "max(%gs, %g x median step %.2fs)" % (hang_min, hang_factor, med)
+                if med is not None else "max(%gs, init limit %gs)" % (hang_min, init_limit),
+                _fmt_t(last_t)))
+
+
+def _domain_progress(snap: dict, info: dict, timing: list, replay: bool,
+                     replay_cut: dt.datetime | None, rsl_last_t: dt.datetime | None,
+                     warn: Callable[[str, str], None]) -> list[dict]:
+    """Per-domain last time; NEST_STOPPED when a nest trails d01 by > 2 parent steps while its
+    own end is still ahead (rsl vs rsl, never the wrfout floor)."""
+    doms = []
+    for d in info["domains"]:
+        ts = [t for dd, t, _ in timing if dd == d["id"] and t is not None
+              and (replay_cut is None or t <= replay_cut)]
+        if replay and replay_cut is None:
+            ts = []
+        dlast = max(ts) if ts else None
+        doms.append({"id": d["id"], "last_time": _fmt_t(dlast), "n_lines": len(ts),
+                     "start": _fmt_t(d["start"]), "end": _fmt_t(d["end"] or info["end"])})
+        if d["id"] == 1 or rsl_last_t is None or snap["status"] == "failed":
+            continue
+        ref = dlast
+        if ref is None:
+            if d["start"] is None or rsl_last_t <= d["start"]:
+                continue
+            ref = d["start"]
+        dend = d["end"] or info["end"]
+        if (rsl_last_t - ref).total_seconds() > 2 * d["parent_dt"] and (dend is None or dend > ref):
+            warn("NEST_STOPPED", "d%02d last time %s is behind d01 %s while its end is %s"
+                 % (d["id"], _fmt_t(ref), _fmt_t(rsl_last_t), _fmt_t(dend)))
+    return doms
+
+
+def _check_cfl(snap: dict, chosen: dict, prev_cfl: int | None,
+               warn: Callable[[str, str], None]) -> None:
+    """CFL (informational): cfl lines in the chosen file grew since the previous poll."""
+    cfl = sum(1 for ln in chosen["text"].splitlines() if "cfl" in ln.lower())
+    snap["cfl_count"] = cfl
+    if cfl > (0 if prev_cfl is None else prev_cfl):
+        warn("CFL", "%d cfl line(s) in %s%s" % (
+            cfl, chosen["name"], "" if prev_cfl is None else " (+%d since last poll)"
+            % (cfl - prev_cfl)))
+
+
+def snapshot(rundir: str, now: float | None = None, replay_fraction: float | None = None,
+             hang_factor: float = 10.0, hang_min: float = 300.0, init_limit: float = 600.0,
+             prev_cfl: int | None = None, prediction: dict | None = None) -> dict:
+    """One read-only observation of RUNDIR -> JSON-serializable dict; pure in the files and `now`
+    (epoch s, default time.time()). replay_fraction: replay mode, no live checks. prev_cfl: the
+    previous poll's cfl count (None -> warn on any). prediction: load_prediction()'s dict, the
+    primary estimate when usable."""
+    now = time.time() if now is None else now
+    replay = replay_fraction is not None
+    warnings: list[dict] = []
+
+    def warn(code, text):
+        warnings.append({"code": code, "text": text})
+
+    snap = {"rundir": os.path.abspath(rundir), "now": now, "mode": "replay" if replay else "live",
+            "status": None, "warnings": warnings}
+    info = _load_run_info(rundir, snap, warn)
+
+    chosen, found = read_rsl(rundir)
+    if chosen is None:
+        snap["status"] = "no_rsl"
+        return snap
+    snap["rsl_file"] = chosen["name"]
+    snap["rsl_d01_lines"] = {r["name"]: r["n_d01"] for r in found}
+    timing = chosen["timing"]
+    steps, trailing = parse_d01_steps(chosen["text"])
+    rest_steps, replay_cut = [], None
+    if replay:
+        steps, rest_steps, replay_cut = _cut_for_replay(snap, steps, trailing, info,
+                                                        replay_fraction)
+    d01 = [(st["t"], st["sec"]) for st in steps]
+    rsl_last_t = d01[-1][0] if d01 else None
+    # wrfout floor (live only): a d01 frame later than the rsl's last d01 line means the rsl lags
+    wrf_t, wrf_mtime = (None, None) if replay else latest_wrfout(rundir)
+    lagging = wrf_t is not None and (rsl_last_t is None or wrf_t > rsl_last_t)
+
+    success, fatal, problem = _set_status(snap, found, chosen, d01, lagging, replay, warn)
+    if not d01 and not lagging and not (not replay and (success or fatal)):
+        _check_hang_init(chosen, problem, success, replay, now, init_limit, warn)
+
+    elapsed = [st["sec"] for st in steps if not math.isnan(st["sec"])]
+    observed = _observed_writes(info, steps, trailing, replay)
+    kept, n_lead = drop_lead_in(_compute_series(info, steps))
+    rate, w, med = rate_window(kept, info["stepra"] if info else None,
+                               info["periods"] if info else [])
+    last_t = rsl_last_t
+    if lagging and snap["status"] == "running":
+        last_t = wrf_t
+        snap.update(wrfout_last_time=_fmt_t(wrf_t), rsl_d01_last_time=_fmt_t(rsl_last_t))
+        warn("RSL_LAGGING", "rsl behind wrfout (latest wrfout %s); rate/ETA from rsl may be stale"
+             % _fmt_t(wrf_t))
+    completed = len(d01)
+    if info and last_t is not None:
+        completed = int(round((last_t - info["start"]).total_seconds() / info["dt"]))
+    snap.update(n_d01_steps=len(d01), completed_steps=completed, d01_last_time=_fmt_t(last_t),
+                sum_d01_elapsed_s=sum(elapsed),
+                writes_so_far_s=sum(sum(v) for v in observed.values()),
+                n_write_absorbing_steps=sum(1 for st in steps if st["writes"]),
+                rate_s_per_step=rate, rate_window=w, median_step_s=med, rate_lead_dropped=n_lead)
+    if "other" in {key[0] for key in observed}:
+        snap["unclassified_writes_s"] = sum(sum(v) for key, v in observed.items()
+                                            if key[0] == "other")
+    c_rate, c_pred, k, rem_w = _estimate_remaining(snap, info, rate, completed, lagging, last_t,
+                                                   kept, observed, prediction, warn)
     snap.update(remaining_compute_rate_s=c_rate, remaining_compute_pred_s=c_pred,
                 remaining_writes_s=rem_w, pred_scale_k=k,
                 remaining_rate_s=None if c_rate is None else c_rate + rem_w,
@@ -690,78 +728,14 @@ def snapshot(rundir, now=None, replay_fraction=None, hang_factor=10.0, hang_min=
     if not replay and remaining is not None:
         snap["eta"] = dt.datetime.fromtimestamp(now + remaining).strftime("%Y-%m-%d %H:%M:%S")
     if replay:
-        # Compare over exactly what the log covers: compute of the later logged d01 steps, and
-        # the frames they absorb (+ the end-of-run frames when the log is complete).
-        act = snap["actual_remaining_s"]
-        est_rate = est_pred = None
-        if info and rate is not None and rest_steps:
-            last_i = step_index(len(steps) + len(rest_steps) - 1, rest_steps[-1]["t"])
-            est_w, _, _ = remaining_writes(
-                info, observed, completed * info["dt"] / 60.0,
-                None if not snap["actual_partial"] else last_i * info["dt"] / 60.0,
-                prediction=prediction)
-            est_rate = len(rest_steps) * rate + est_w
-            if k is not None:
-                est_pred = k * (pred_cum(prediction, info, last_i)
-                                - pred_cum(prediction, info, completed)) + est_w
-
-        def err(e):
-            return 100.0 * (e - act) / act if e is not None and act > 0 else None
-        est = est_pred if est_pred is not None else est_rate
-        snap.update(est_for_actual_rate_s=est_rate, est_for_actual_pred_s=est_pred,
-                    est_for_actual_s=est, replay_error_pct=err(est),
-                    replay_error_pct_rate=err(est_rate), replay_error_pct_pred=err(est_pred))
-        snap["error_pct"] = snap["replay_error_pct"]  # pre-e5aebb5-follow-up name, kept as alias
-
-    # HANG (live, progressing)
-    # A new wrfout_d01 frame counts as output too (the rsl can lag on NFS); with only frames and
-    # no Timing line yet the limit is max(hang_min, init_limit).
+        _replay_errors(snap, info, rate, steps, rest_steps, completed, observed, prediction, k)
     if not replay and snap["status"] == "running" and (med is not None or lagging):
-        limit = (max(hang_min, hang_factor * med) if med is not None
-                 else max(hang_min, init_limit))
-        age = now - max(chosen["stat"].st_mtime, wrf_mtime or 0.0)
-        snap["log_age_s"] = age
-        if age > limit:
-            warn("HANG", "no rsl/wrfout output for %s (limit %s = %s); last d01 time %s"
-                 % (_hms(age), _hms(limit),
-                    "max(%gs, %g x median step %.2fs)" % (hang_min, hang_factor, med)
-                    if med is not None else "max(%gs, init limit %gs)" % (hang_min, init_limit),
-                    _fmt_t(last_t)))
-
-    # Per-domain progress and NEST_STOPPED
-    doms = []
-    if info:
-        for d in info["domains"]:
-            ts = [t for dd, t, _ in timing if dd == d["id"] and t is not None
-                  and (replay_cut is None or t <= replay_cut)]
-            if replay and replay_cut is None:
-                ts = []
-            dlast = max(ts) if ts else None
-            doms.append({"id": d["id"], "last_time": _fmt_t(dlast), "n_lines": len(ts),
-                         "start": _fmt_t(d["start"]), "end": _fmt_t(d["end"] or info["end"])})
-            if d["id"] == 1 or rsl_last_t is None or snap["status"] == "failed":
-                continue
-            ref = dlast
-            if ref is None:
-                if d["start"] is None or rsl_last_t <= d["start"]:
-                    continue
-                ref = d["start"]
-            dend = d["end"] or info["end"]
-            if ((rsl_last_t - ref).total_seconds() > 2 * d["parent_dt"]       # rsl vs rsl, not
-                    and (dend is None or dend > ref)):                       # the wrfout floor
-                warn("NEST_STOPPED", "d%02d last time %s is behind d01 %s while its end is %s"
-                     % (d["id"], _fmt_t(ref), _fmt_t(rsl_last_t), _fmt_t(dend)))
-    snap["domains"] = doms
-
-    # CFL (informational; live only -- the whole file would leak post-cut lines into a replay)
-    if replay:
-        return snap
-    cfl = sum(1 for ln in chosen["text"].splitlines() if "cfl" in ln.lower())
-    snap["cfl_count"] = cfl
-    if cfl > (0 if prev_cfl is None else prev_cfl):
-        warn("CFL", "%d cfl line(s) in %s%s" % (
-            cfl, chosen["name"], "" if prev_cfl is None else " (+%d since last poll)"
-            % (cfl - prev_cfl)))
+        _check_hang(snap, chosen, wrf_mtime, med, last_t, now, hang_factor, hang_min, init_limit,
+                    warn)
+    snap["domains"] = (_domain_progress(snap, info, timing, replay, replay_cut, rsl_last_t, warn)
+                       if info else [])
+    if not replay:   # live only: the whole file would leak post-cut lines into a replay
+        _check_cfl(snap, chosen, prev_cfl, warn)
     return snap
 
 
@@ -778,7 +752,7 @@ def _parse_wrf_t(s):
         return None
 
 
-def follow_run_root(root):
+def follow_run_root(root: str) -> dict | None:
     """None for a run dir (namelist.input present) or a dir without seg_<k>/; else the segment to
     watch: {dir, segment: k, n_segments: K or None, run_start, run_end, run_status} -- the
     highest-numbered seg_<k> (its seg_<k>_rescue when the CFL rescue made one), K and the whole
@@ -809,7 +783,7 @@ def follow_run_root(root):
             "run_status": rep.get("status")}
 
 
-def annotate_run_root(snap, root, fol):
+def annotate_run_root(snap: dict, root: str, fol: dict) -> dict:
     """Turn a segment snapshot into a whole-run one: fraction = sim time since the first
     segment's start / whole window (run_report.json; else the segment's own namelist window);
     the segment's own fraction moves to segment_fraction. Remaining/ETA stay per segment."""
@@ -830,7 +804,7 @@ def annotate_run_root(snap, root, fol):
     return snap
 
 
-def root_finished(snap, fol):
+def root_finished(snap: dict, fol: dict) -> bool:
     """Stop polling a run root: a failed segment, the controller's report final, or the last
     segment done (with no report to say how many there are: any segment done)."""
     if snap["status"] == "failed" or fol["run_status"] in ("completed", "failed"):
@@ -840,7 +814,7 @@ def root_finished(snap, fol):
     return fol["n_segments"] is None or fol["segment"] >= fol["n_segments"] - 1
 
 
-def exit_code(snap):
+def exit_code(snap: dict) -> int:
     codes = {w["code"] for w in snap["warnings"]}
     if "FAILED" in codes:
         return 3
@@ -849,7 +823,7 @@ def exit_code(snap):
     return 0
 
 
-def format_line(snap):
+def format_line(snap: dict) -> str:
     """One compact text line per snapshot."""
     frac = snap.get("fraction")
     parts = [snap["status"].upper()]
@@ -894,7 +868,7 @@ def _emit(snap, as_json):
     print(json.dumps(snap, sort_keys=True) if as_json else format_line(snap), flush=True)
 
 
-def main(argv=None):
+def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="wtune watch", description=__doc__.split("\n\n")[0])
     ap.add_argument("rundir")
     ap.add_argument("--interval", type=float, default=60.0, help="poll period, s (default 60)")

@@ -1,0 +1,124 @@
+[
+ {
+  "template": "P06",
+  "family": "radiation",
+  "status": "UNCONFIRMED",
+  "reasons": [
+   "this template has no physics_templates.json per-case entry for this case -- the generic per-case pairing rule (physics.generic_extra_edits) supplied its extra edit(s)/skip decision instead",
+   "no same-hardware training data"
+  ],
+  "predicted_time_to_solution_pct": -9.365221529,
+  "time_to_solution_interval_pct": [
+   -10.75578786,
+   -7.821401526
+  ],
+  "time_to_solution_interval_note": null,
+  "predicted_y": -0.09833217826,
+  "predicted_fidelity_label": "WITHIN-FLOOR",
+  "predicted_fidelity_nd": 0.02519468014,
+  "probe_verdict": null,
+  "same_hardware_data": false,
+  "infeasibility": {
+   "n_cases_tried": 6,
+   "n_cases_failed": 0,
+   "failed_cases": [],
+   "rate": 0.0
+  },
+  "dangerous_miss": {
+   "n": 6,
+   "dangerous_miss_n": 0,
+   "dangerous_miss_rate": 0.0,
+   "insufficient": false
+  },
+  "template_track_record": {
+   "n_cases_labeled": 6,
+   "n_cases_large": 0,
+   "large_cases": [],
+   "rate": 0.0
+  }
+ },
+ {
+  "template": "P04",
+  "family": "microphysics",
+  "status": "UNCONFIRMED",
+  "reasons": [
+   "predicted fidelity label LARGE-DRIFT not in allowed set",
+   "no same-hardware training data",
+   "out-of-fold dangerous-miss rate 0.20 > --max-dangerous-miss=0.00 (1/5 out-of-fold prediction(s) predicted allowed but measured LARGE-DRIFT)",
+   "LARGE-DRIFT in 5/5 training cases: conus12, conus25, isc21, karina, lafe"
+  ],
+  "predicted_time_to_solution_pct": -7.331944233,
+  "time_to_solution_interval_pct": [
+   -8.747159814,
+   -5.746728964
+  ],
+  "time_to_solution_interval_note": null,
+  "predicted_y": -0.07614637079,
+  "predicted_fidelity_label": "LARGE-DRIFT",
+  "predicted_fidelity_nd": 0.1557391628,
+  "probe_verdict": null,
+  "same_hardware_data": false,
+  "infeasibility": {
+   "n_cases_tried": 5,
+   "n_cases_failed": 0,
+   "failed_cases": [],
+   "rate": 0.0
+  },
+  "dangerous_miss": {
+   "n": 5,
+   "dangerous_miss_n": 1,
+   "dangerous_miss_rate": 0.2,
+   "insufficient": false
+  },
+  "template_track_record": {
+   "n_cases_labeled": 5,
+   "n_cases_large": 5,
+   "large_cases": [
+    "conus12",
+    "conus25",
+    "isc21",
+    "karina",
+    "lafe"
+   ],
+   "rate": 1.0
+  }
+ },
+ {
+  "template": "P01",
+  "family": "radiation",
+  "status": "UNCONFIRMED",
+  "reasons": [
+   "no same-hardware training data",
+   "no predicted speed benefit: interval upper bound +0.38% is not < 0 (point estimate -1.26%)"
+  ],
+  "predicted_time_to_solution_pct": -1.264982537,
+  "time_to_solution_interval_pct": [
+   -2.812116193,
+   0.3834613275
+  ],
+  "time_to_solution_interval_note": null,
+  "predicted_y": -0.01273051561,
+  "predicted_fidelity_label": "WITHIN-FLOOR",
+  "predicted_fidelity_nd": 0.01786187518,
+  "probe_verdict": null,
+  "same_hardware_data": false,
+  "infeasibility": {
+   "n_cases_tried": 6,
+   "n_cases_failed": 0,
+   "failed_cases": [],
+   "rate": 0.0
+  },
+  "dangerous_miss": {
+   "n": 6,
+   "dangerous_miss_n": 0,
+   "dangerous_miss_rate": 0.0,
+   "insufficient": false
+  },
+  "template_track_record": {
+   "n_cases_labeled": 6,
+   "n_cases_large": 0,
+   "large_cases": [],
+   "rate": 0.0
+  }
+ }
+]

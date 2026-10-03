@@ -1,156 +1,36 @@
 #!/usr/bin/env python3
-"""wtune_predict.py -- offline wall-time predictor for a WRF run of ANY length,
-WITHOUT running WRF.
+"""wtune_predict.py -- offline wall-time predictor for a WRF run of any length, without running WRF.
 
-Standalone module (no import of wtune.py or any of its physics/knobs/surrogate
-dependencies), so it can be imported and unit-tested cheaply on its own. wtune.py
-hooks it in lazily from its `predict` subcommand (see the `predict` parser in
-wtune.py's main()).
+Standalone (stdlib only, never imports wtune.py); `wtune predict` loads it lazily. Model below,
+constants in machine/calibration/scc.json:
 
-MODEL (every number below carries its source; see machine/calibration/scc.json
-for the calibration constants themselves)
-------------------------------------------------------------------------------
-steps
-    d01 steps = run length (run_days/hours/minutes/seconds from &time_control)
-    / d01 time_step (+ time_step_fract_num/den). Nested domains are NOT counted
-    separately: WRF prints nested-domain timings on their own, but the d01 step
-    wall-clock already includes every nested substep inside it (ASSUMPTION,
-    given; see maria1km's 432 d01 steps containing 2160 d02 substeps at
-    parent_time_step_ratio=5).
-
-compute (normal, non-radiation, non-I/O step cost)
-    1. exact probe match (same case_base + same ranks/omp/nproc_x/nproc_y/
-       numtiles) in a --probe ledger CSV -> 'measured'.
-    2. else nearest measured config of the SAME case at a DIFFERENT rank
-       count, scaled by ideal strong scaling (s_per_step *= ranks_old/ranks_new)
-       -> 'extrapolated'.
-    3. else, when --probe-rsl gives one or more rsl.error.0000 probe logs and
-       the ledger produced no probe_result at all (no --probe row matched this
-       case), s_normal is the median SCHEDULE-identified (not cost-threshold)
-       non-radiation d01 step time from those logs (see measure_rad_from_rsl
-       and the 'radiation' section below) -> 'probe_rsl'.
-    4. else calibration.fallback_s_per_cell_step_ns (documented UNCALIBRATED
-       GUESS from the one conus25 reference run) -> 'no_probe_fallback'.
-
-radiation (DAY/NIGHT model, 2026-09-23 5-run validation)
-    Radiation steps are identified by WRF's own CALL SCHEDULE, not by cost:
-    stepra = steps_per_radiation_call(radt, dt) = NINT(radt*60/dt) (Fortran
-    NINT; ported from tools/state_timeline.py, see that function's docstring
-    for why this is a port and not an import), and step i (1-indexed) is a
-    radiation step iff i==1 or i%stepra==0 (classify_steps, the DOCUMENTED
-    schedule -- used for the run being PREDICTED, which has no real timing
-    data to detect a phase from) or the data-detected phase variant
-    (classify_steps_detected, used against a --probe-rsl log's OWN step
-    numbering, since real rsl line numbering does not always land on phase 0
-    -- see detect_radiation_phase). This REPLACES the previous "step time >
-    1.8x the median" cost heuristic, which silently misclassified severe2023's
-    night radiation steps (measured cost only ~1.05x a normal step, well under
-    1.8x) as normal steps.
-
-    Radiation cost is NOT a single multiplier: RRTMG shortwave only runs for
-    sunlit columns, so the per-call cost is a two-level day/night switch
-    measured 2026-09-23 across 5 full runs: matthew 1.92-1.97 (night) vs
-    3.42-3.64 (day), sc26p2 2.47-2.52 vs 4.57-4.70, sc26p2narr 2.45-2.48 vs
-    4.61-4.71 (day/night ratio 1.85-1.90x, mean 1.87). Model:
-        r(t) = r_night + (r_day - r_night) * sunlit_fraction(t)
-    sunlit_fraction(t): fraction of a 25-point (5x5) lat/lon sample lattice
-    over the domain (bilinearly filled from d01's 4 corners, centre sample
-    overridden by the real projected CEN_LAT/CEN_LON -- see
-    sample_lattice_5x5) with cos(solar zenith) > 0 at simulated time t (see
-    solar_cos_zenith: declination + hour-angle formula, equation of time and
-    refraction OMITTED -- see that function's own docstring). Domain geometry
-    is read from case_dir/wrfinput_d01's global attributes via `ncdump -h`
-    TEXT output (read_wrfinput_sample_points) -- no netCDF4 dependency, per
-    this module's own standalone rule; when wrfinput_d01/ncdump aren't
-    available the day/night model degrades to a single uniform level (see
-    below), not a hard error.
-
-    r_night/r_day are obtained, in order:
-      1. --probe-rsl log(s) with >= 2 schedule-identified radiation steps AND
-         a resolvable simulated time + domain geometry for each: least-
-         squares fit of (radiation step seconds / s_normal) against that
-         step's own sunlit_fraction(t) (fit_day_night_r_rad) when the
-         observed sunlit fractions span >= 0.5 (both regimes seen) ->
-         'fit_day_night'.
-      2. same data but ALL observed radiation steps fall in one regime (a
-         probe's t0 fixes its time of day, so a single probe window usually
-         sees only one -- e.g. matthew's t0 is 00Z/night): the observed
-         level's mean is r_night or r_day directly, and the OTHER level is
-         derived via calibration.radiation.r_rad_day_night_ratio (1.87,
-         MEASURED from the 3 cases above) -> 'ratio_from_night' /
-         'ratio_from_day'.
-      3. no usable radiation-step/sunlit-fraction data at all (no
-         --probe-rsl, or geometry/sim-time unavailable): r_night = r_day =
-         calibration.radiation.r_rad_default (5.0, UNCALIBRATED default) ->
-         'default_unmeasured'.
-    Predicted radiation extra: for each of the PREDICTED run's own schedule-
-    identified radiation steps k at simulated time t_k (from &time_control's
-    start_date + (k-1)*dt, when start_date is present), extra_s = sum_k
-    (r(t_k) - 1) * s_normal. When start_date or domain geometry is
-    unavailable, r(t_k) falls back to the uniform mean (r_night+r_day)/2 for
-    every radiation step (documented "day/night phase unknown for this run"
-    fallback), rather than refusing to predict at all.
-
-I/O
-    history: frames = floor(run_minutes / history_interval) + 1 (t0 frame),
-    per domain with io_form_history != 0. bytes/frame = e_we*e_sn*e_vert *
-    calibration.derived.bytes_per_cell_level. seconds = bytes /
-    calibration effective_rate[io_form][io_target].
-    auxhist<N>: per domain, keyed off io_form_auxhistN + auxhistN_interval[_s|_m],
-    honoring auxhistN_begin/end[_s|_m|_h] as the write window (default: the
-    whole run) -- frames = floor((end-begin)/interval) + 1. Sizing, no
-    calibration constant involved: when iofields_filename is set, reads that
-    per-domain field-list file (case_dir, or --iofields-dir) and sizes the
-    frame as sum over its '+'-listed fields of (points x 4 bytes), points =
-    e_we*e_sn*e_vert for a 3-D field or e_we*e_sn for 2-D (U/V get +1 point in
-    their staggered horizontal dimension), classified via a small built-in
-    name table (unknown names default to 3-D and are flagged as guessed). If
-    the file can't be found/read/matched for that stream number, the stream
-    is flagged 'size unknown' (no seconds estimated) rather than guessed at.
-    With no iofields_filename at all, the stream is assumed to carry a full
-    same-domain frame (bytes_per_cell_level model, same as history).
-    restart: floor(run_minutes / restart_interval) writes, for EVERY active
-    domain, each write costing calibration.restart.restart_to_history_time_ratio
-    (MEASURED, job 427: 431.2s restart write / 100.7s mean history-frame write
-    = 4.28x) times that domain's own history-frame write time (io_form_restart,
-    default = io_form_history). Modeled as a normal, separate line item even
-    for the conus25 calibration fixture itself, since history and restart
-    write rates are calibrated independently (see scc.json conus25_calibration_run).
-
-init
-    read_s = (on-disk wrfinput_d*/wrfbdy_d* bytes in case_dir, else an ESTIMATE
-    = bytes_per_cell_level * d01 cells) / calibration.derived.read_rate_bytes_per_s,
-    plus calibration.fixed_startup_s (default 0.0, not independently measured;
-    dead/legacy -- no calibration file sets it) plus calibration.startup_s
-    (optional, a single measured seconds constant for MPI launch + wrfinput
-    read + first step + finalise; a 2026-09-23 scc validation found wall -
-    sum(per-step times) was 17-22s on every 1-node run, i.e. materially
-    nonzero). When startup_s is null/absent, the text output prints
-    "startup: UNCALIBRATED" rather than silently treating the gap as 0.
-
-drift
-    +-calibration.drift_band_pct: on the whole total when no I/O rate range is
-    calibrated (see 'range' below), or scoped to the compute total ONLY when
-    calibration.history_write_rate_MBps_low/_high are set, in which case I/O's
-    own uncertainty is expressed as the fast/slow bracket instead. Labelled
-    NOT VALIDATED either way.
-
-range
-    Without calibration.history_write_rate_MBps_low/_high: combines
-    (root-sum-square, in absolute seconds) probe noise on the compute total,
-    the drift band on the grand total, and the I/O calibration uncertainty on
-    the I/O total.
-    With calibration.history_write_rate_MBps_low/_high set: the printed range
-    is instead [compute_total - compute_drift .. compute_total + compute_drift]
-    + [I/O total computed at the HIGH (fast) rate .. I/O total computed at the
-    LOW (slow) rate] + init_total, i.e. an explicit measured I/O bracket
-    (NFS write time was observed to vary 2.4x for identical writes under
-    concurrent load on 2026-09-23) plus a compute-only drift band, reported
-    separately (compute.noise_abs_s is still computed and reported but not
-    folded into this bracket) so the printed range's two sources -- I/O rate
-    variance vs compute drift -- stay distinguishable rather than blended by
-    root-sum-square.
-"""
+steps      d01 steps = run length / d01 time_step (+ fract). Nested substeps are inside the d01
+           step's wall time (maria1km: 432 d01 steps hold 2160 d02 substeps).
+compute    s_normal, first available: exact --probe ledger match ('measured'); same case at
+           another rank count, ideal strong scaling ('extrapolated'); median schedule-identified
+           non-radiation step of --probe-rsl logs ('probe_rsl'); calibration
+           fallback_s_per_cell_step_ns ('no_probe_fallback', uncalibrated).
+radiation  Steps by WRF's call schedule, not by cost: stepra = NINT(radt*60/dt), step i is
+           radiation iff i == 1 or i % stepra == 0 (data-detected phase for a real rsl log).
+           r(t) = r_night + (r_day - r_night) * sunlit_fraction(t), sunlit over a 5x5 domain
+           lattice (solar_cos_zenith). r_night/r_day: least-squares fit when the probe's sunlit
+           spread >= 0.5 ('fit_day_night'); one regime + day/night ratio 1.87
+           ('ratio_from_night'/'_day'); else r_rad_default 5.0 ('default_unmeasured').
+           extra = sum_k (r(t_k) - 1) * s_normal over the predicted radiation steps; uniform
+           (r_night + r_day)/2 without start time or geometry. Validation 2026-09-23 (5 runs):
+           night 1.92-2.52, day 3.42-4.71.
+I/O        history: floor(run_min / history_interval) + 1 frames per domain with io_form != 0,
+           cells x bytes_per_cell_level / rate[io_form][io_target]. auxhistN over begin..end,
+           sized from iofields_filename '+' fields (4 bytes/point), 'size unknown' when that
+           file cannot be matched, a full frame without one. restart: floor(run_min /
+           restart_interval) writes per domain, each restart_to_history_time_ratio (4.28, job
+           427) x that domain's history-frame time.
+init       (wrfinput/wrfbdy bytes, else an estimate) / read rate + fixed_startup_s + startup_s
+           (measured launch..finalise; printed UNCALIBRATED when absent).
+drift      +-drift_band_pct (NOT VALIDATED) on the total, or on compute only when the
+           history_write_rate_MBps_low/_high I/O bracket is calibrated.
+range      root-sum-square of probe noise, drift and I/O uncertainty; with the I/O bracket:
+           compute +- drift, I/O at the fast..slow rate, + init (NFS writes varied 2.4x)."""
 
 from __future__ import annotations
 
@@ -166,12 +46,10 @@ import statistics
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 import wtune_runlength as runlen  # repo root: resolve_run_seconds, the single-sourced run_*
-                                   # keys vs. start/end date-span resolver -- dependency-free
-                                   # (stdlib only), so importing it does not pull in wtune.py or
-                                   # any of its physics/knobs/surrogate dependencies (this
-                                   # module's own "standalone" property, see module docstring)
+                                   # keys vs. start/end span resolver (stdlib only)
 
 HERE = Path(__file__).resolve().parent
 DEFAULT_CALIBRATION = HERE.parent / "machine" / "calibration" / "scc.json"  # HERE is src/; machine/ stays at repo root
@@ -180,22 +58,16 @@ CORES_PER_NODE = 112  # scc site convention (see predictor/ledger.py CORES_PER_N
 SEGMENT_HOURS = 6.0   # long-run compute display chunking
 LONG_RUN_HOURS = 12.0  # threshold above which the compute row is segmented
 
-PROBE_NOISE_MEASURED_PCT = 3.0
-PROBE_NOISE_EXTRAPOLATED_PCT = 15.0
-PROBE_NOISE_FALLBACK_PCT = 50.0
-# A probe_rsl s_normal is a single run's own step-timing sample (not
-# cross-validated against a separate ledger measurement the way a --probe
-# 'measured' row often is), so it gets a slightly wider band than
-# PROBE_NOISE_MEASURED_PCT -- an explicit, disclosed judgment call, not a
-# measured uncertainty.
-PROBE_NOISE_RSL_PCT = 5.0
+PROBE_NOISE_MEASURED_PCT = 3.0       # % of compute, per s_normal source
+PROBE_NOISE_EXTRAPOLATED_PCT = 15.0   # %
+PROBE_NOISE_FALLBACK_PCT = 50.0       # %
+# A probe_rsl s_normal is one run's own sample, so its band is a little wider than a
+# measured row's (a judgment call, not a measured uncertainty).
+PROBE_NOISE_RSL_PCT = 5.0             # %
 
-# fit_day_night_r_rad: a --probe-rsl's observed sunlit fractions must span at
-# least this much (max - min) to trust a least-squares day/night fit; below
-# it, the probe effectively saw one regime (see module docstring's
-# 'radiation' section, level 2: derive the other level via the calibrated
-# day/night ratio instead of extrapolating a near-degenerate regression).
-RADIATION_FIT_MIN_SUNLIT_SPREAD = 0.5
+# Minimum sunlit-fraction spread (max - min) for a day/night least-squares fit; below it the
+# probe saw one regime and the other level comes from the calibrated day/night ratio.
+RADIATION_FIT_MIN_SUNLIT_SPREAD = 0.5  # sunlit fraction, max - min
 
 DEFAULT_R_RAD_DAY_NIGHT_RATIO = 1.87  # see module docstring; MEASURED mean of
                                        # matthew/sc26p2/sc26p2narr (1.85, 1.87, 1.90)
@@ -287,17 +159,10 @@ def _append_values(bucket, raw_value_text):
         bucket.append(_parse_scalar(tok))
 
 
-def parse_namelist(path):
-    """Minimal Fortran namelist reader, list/per-domain aware.
-
-    Returns {group: {key: [scalar, ...]}}, group/key lowercased. A line may
-    carry any number of 'key = value[, value...]' assignments (values may
-    themselves be comma lists); the next key starts at the next identifier
-    followed by '=', outside quotes. A line with no top-level 'key=' at all
-    that isn't a group header or '/' is treated as a continuation of the
-    previous key's value list (WRF namelists sometimes wrap long per-domain
-    lists across lines).
-    """
+def parse_namelist(path: str | Path) -> dict[str, dict[str, list]]:
+    """Minimal Fortran namelist reader -> {group: {key: [scalar, ...]}}, names lowercased.
+    Several 'key = v[, v...]' assignments may share a line; a line without a top-level 'key=' that
+    is not a group header or '/' continues the previous key's list (wrapped per-domain lists)."""
     text = Path(path).read_text()
     text = re.sub(r"!.*$", "", text, flags=re.M)
 
@@ -339,7 +204,7 @@ def parse_namelist(path):
     return groups
 
 
-def g(nl, group, key, default=None):
+def g(nl: dict, group: str, key: str, default: Any = None) -> Any:
     """Namelist-global scalar (first value only)."""
     vals = nl.get(group, {}).get(key)
     if not vals:
@@ -347,7 +212,7 @@ def g(nl, group, key, default=None):
     return vals[0]
 
 
-def g_dom(nl, group, key, dom_index, default=None):
+def g_dom(nl: dict, group: str, key: str, dom_index: int, default: Any = None) -> Any:
     """Per-domain value with WRF's broadcast-last-value convention: if fewer
     values are given than max_dom, every remaining domain reuses the last one.
     """
@@ -359,11 +224,11 @@ def g_dom(nl, group, key, dom_index, default=None):
     return vals[-1]
 
 
-def get_max_dom(nl):
+def get_max_dom(nl: dict) -> int:
     return int(g(nl, "domains", "max_dom", 1) or 1)
 
 
-def get_domain_geom(nl, dom_index):
+def get_domain_geom(nl: dict, dom_index: int) -> tuple[float, float, float]:
     e_we = g_dom(nl, "domains", "e_we", dom_index)
     e_sn = g_dom(nl, "domains", "e_sn", dom_index)
     e_vert = g_dom(nl, "domains", "e_vert", dom_index)
@@ -373,11 +238,11 @@ def get_domain_geom(nl, dom_index):
     return float(e_we), float(e_sn), float(e_vert)
 
 
-def cells_levels(e_we, e_sn, e_vert):
+def cells_levels(e_we: float, e_sn: float, e_vert: float) -> float:
     return e_we * e_sn * e_vert
 
 
-def get_time_control_datetime(nl, prefix):
+def get_time_control_datetime(nl: dict, prefix: str) -> datetime.datetime | None:
     """d01 <prefix>_year/month/day/hour/minute/second (first value only, same
     broadcast-last-value indifference as g() -- every active domain of a
     run-length-defining start/end pair is aligned to the same wall time) -> datetime, or None
@@ -397,14 +262,10 @@ def get_time_control_datetime(nl, prefix):
             + datetime.timedelta(hours=int(h), minutes=int(mi), seconds=int(s)))
 
 
-def get_run_seconds(nl):
-    """days*86400 + hours*3600 + minutes*60 + seconds from &time_control's run_days/run_hours/
-    run_minutes/run_seconds when that sum is > 0; otherwise the first domain's start_date ->
-    end_date span (WRF's own fallback once every run_* key is 0/absent -- see
-    wtune_runlength.py's module docstring for the lafe/isc21 evidence). Delegates to
-    wtune_runlength.resolve_run_seconds (single-sourced with wtune.py:extract_case and
-    tools/temporal_validation.py:read_run_length_hours) and translates its ValueError into this
-    module's own PredictError so callers' existing except PredictError contract is unchanged."""
+def get_run_seconds(nl: dict) -> float:
+    """Run length (s): run_days/hours/minutes/seconds when their sum > 0, else the d01
+    start -> end span (WRF's own fallback). Delegates to wtune_runlength.resolve_run_seconds;
+    raises PredictError instead of its ValueError."""
     days = g(nl, "time_control", "run_days", 0) or 0
     hours = g(nl, "time_control", "run_hours", 0) or 0
     minutes = g(nl, "time_control", "run_minutes", 0) or 0
@@ -419,7 +280,7 @@ def get_run_seconds(nl):
             "&time_control, and start_date/end_date do not establish a positive span either")
 
 
-def get_timestep_seconds(nl):
+def get_timestep_seconds(nl: dict) -> float:
     ts = g(nl, "domains", "time_step", None)
     if ts is None:
         raise PredictError("time_step not found in &domains")
@@ -432,7 +293,7 @@ def get_timestep_seconds(nl):
     return dt
 
 
-def get_d01_steps(nl):
+def get_d01_steps(nl: dict) -> tuple[int, float, float, str | None]:
     run_s = get_run_seconds(nl)
     dt = get_timestep_seconds(nl)
     exact = run_s / dt
@@ -444,12 +305,12 @@ def get_d01_steps(nl):
     return steps, run_s, dt, note
 
 
-def parent_time_step_ratio(nl, dom_index, default=1):
+def parent_time_step_ratio(nl: dict, dom_index: int, default: int = 1) -> int:
     v = g_dom(nl, "domains", "parent_time_step_ratio", dom_index, default)
     return int(v) if v is not None else default
 
 
-def nested_equivalent_cells(nl, max_dom):
+def nested_equivalent_cells(nl: dict, max_dom: int) -> float:
     """Sum of each domain's cells*levels weighted by its cumulative substep
     count relative to d01 (d1 weight 1; d2 weight = its parent_time_step_ratio;
     d3 weight = d2's ratio * d3's ratio; ...). Used only by the no-probe
@@ -466,7 +327,7 @@ def nested_equivalent_cells(nl, max_dom):
     return total
 
 
-def get_history_interval_minutes(nl, dom_index):
+def get_history_interval_minutes(nl: dict, dom_index: int) -> tuple[float | None, str | None]:
     for key, scale in (("history_interval_s", 1.0 / 60.0),
                        ("history_interval_m", 1.0),
                        ("history_interval", 1.0),
@@ -479,7 +340,7 @@ def get_history_interval_minutes(nl, dom_index):
     return None, None
 
 
-def get_aux_interval_minutes(nl, n, dom_index):
+def get_aux_interval_minutes(nl: dict, n: int, dom_index: int) -> tuple[float | None, str | None]:
     for suffix, scale in (("_s", 1.0 / 60.0), ("_m", 1.0), ("", 1.0)):
         key = "auxhist%d_interval%s" % (n, suffix)
         vals = nl.get("time_control", {}).get(key)
@@ -490,7 +351,8 @@ def get_aux_interval_minutes(nl, n, dom_index):
     return None, None
 
 
-def get_aux_window_minutes(nl, n, dom_index, run_minutes):
+def get_aux_window_minutes(nl: dict, n: int, dom_index: int, run_minutes: float
+                           ) -> tuple[float, float]:
     """auxhistN_begin[_s|_m|_h] / auxhistN_end[_s|_m|_h]: the sub-window of the
     run this stream actually writes in (WRF default: the whole run, i.e.
     begin=0, end=run length). Returns (begin_min, end_min), end clipped to
@@ -537,7 +399,7 @@ FIELD_2D_NAMES = {
 FIELD_STAGGER = {"U": "x", "V": "y"}
 
 
-def field_points(name, e_we, e_sn, e_vert):
+def field_points(name: str, e_we: int, e_sn: int, e_vert: int) -> tuple[int, bool]:
     """Returns (points, is_guessed). points = e_we*e_sn*e_vert for a 3-D
     field or e_we*e_sn for 2-D, per the given sizing rule; U/V get +1 in
     their staggered horizontal dimension. Unknown names default to 3-D.
@@ -556,19 +418,10 @@ def field_points(name, e_we, e_sn, e_vert):
     return we * sn * e_vert, True  # unknown -> default to 3-D, flagged
 
 
-def parse_iofields_file(path):
-    """Parse a WRF iofields_filename file. Returns {stream_num: set(names)}.
-
-    WRF convention, one entry per (usually one) line: '<+|-> : <h|i> :
-    <comma/space-separated stream numbers> : <comma-separated field names>'.
-    '+' adds the named fields to the given stream(s) (this is how an
-    auxhist stream, which otherwise defaults to empty, gets populated);
-    '-' removes fields (used to trim the primary history stream, which
-    otherwise defaults to everything). A line that doesn't match the
-    '<+|-> : ...' pattern is treated as a continuation of the previous
-    entry's field list (long lists sometimes wrap). '#'/'!' lines are
-    comments.
-    """
+def parse_iofields_file(path: str | Path) -> dict[int, set[str]]:
+    """Parse a WRF iofields_filename file -> {stream_num: set(names)}. Entries are
+    '<+|-> : <h|i> : <streams> : <fields>' ('+' adds fields to a stream, '-' removes them); a
+    non-matching line continues the previous entry's field list; '#'/'!' lines are comments."""
     streams = {}
     pending_nums = None
     pending_add = True
@@ -598,7 +451,8 @@ def parse_iofields_file(path):
     return streams
 
 
-def iofields_frame_bytes(path, stream_num, e_we, e_sn, e_vert):
+def iofields_frame_bytes(path: str | Path, stream_num: int, e_we: int, e_sn: int, e_vert: int
+                         ) -> dict | None:
     """Returns {'bytes': float, 'names': [...], 'guessed': [...]} sized from
     an iofields_filename file's entries for this stream number, or None if
     the file has no '+' entries naming this stream (nothing to size from).
@@ -623,14 +477,14 @@ def iofields_frame_bytes(path, stream_num, e_we, e_sn, e_vert):
 # Calibration
 # --------------------------------------------------------------------------
 
-def load_calibration(path):
+def load_calibration(path: str | Path) -> dict:
     try:
         return json.loads(Path(path).read_text())
     except (OSError, ValueError) as exc:
         raise PredictError("cannot read calibration file %s: %s" % (path, exc))
 
 
-def get_effective_rate(calibration, io_form, io_target):
+def get_effective_rate(calibration: dict, io_form: int, io_target: str) -> dict:
     table = calibration.get("derived", {}).get("io_form_rate_table", {})
     entry = table.get(str(int(io_form)))
     if entry is None:
@@ -653,7 +507,7 @@ def get_effective_rate(calibration, io_form, io_target):
 # Probe ledger
 # --------------------------------------------------------------------------
 
-def load_ledger_rows(paths):
+def load_ledger_rows(paths: list[str]) -> list[dict]:
     rows = []
     for path in paths or []:
         with open(path, newline="") as fh:
@@ -683,7 +537,7 @@ def _row_float(row, key, default=None):
         return default
 
 
-def resolve_probe(ledger_rows, case_name, config):
+def resolve_probe(ledger_rows: list[dict], case_name: str, config: dict) -> dict | None:
     """config: dict with ranks, omp, nx (nproc_x), ny (nproc_y), numtiles.
 
     Returns None (no probe data for this case at all) or a dict:
@@ -731,24 +585,14 @@ def resolve_probe(ledger_rows, case_name, config):
 
 
 # --------------------------------------------------------------------------
-# WRF radiation call schedule (ported from tools/state_timeline.py -- NOT
-# imported: that module pulls in campaign/configs.py, predictor/decomp_space.py,
-# tools/scc_sweep.py and tools/temporal_validation.py via sys.path
-# manipulation, none of which this module may depend on, per its own
-# "standalone" rule -- see module docstring's opening paragraph)
+# WRF radiation call schedule (ported, not imported, from tools/state_timeline.py, whose
+# imports this standalone module may not pull in)
 # --------------------------------------------------------------------------
 
-def steps_per_radiation_call(radt_minutes, dt_seconds):
-    """STEPRA = NINT(radt_minutes*60/dt_seconds), WRF's own radiation-call
-    cadence (phys/module_radiation_driver.F via
-    share/module_first_rk_step_part1.F). Same function/semantics as
-    tools/state_timeline.py's steps_per_radiation_call. Fortran NINT rounds
-    halves away from zero; Python's round() rounds halves to even and gets
-    conus12 wrong (radt=15min, dt=72s -> 12.5; round()=12, floor(x+0.5)=13,
-    the correct cadence -- campaign/cases.json's sc26p1 note: "radt=9 at
-    dt=10 => STEPRA=54" is floor(9*60/10+0.5)==54). Floored at 1 (a radt so
-    small relative to dt it would fire every step).
-    """
+def steps_per_radiation_call(radt_minutes: float, dt_seconds: float) -> int:
+    """STEPRA = NINT(radt_minutes*60/dt_seconds), WRF's radiation-call cadence (Fortran NINT:
+    halves away from zero; Python round() gets conus12's 12.5 wrong). Floored at 1. Same as
+    tools/state_timeline.steps_per_radiation_call."""
     if dt_seconds <= 0:
         raise ValueError("dt_seconds must be > 0")
     if radt_minutes <= 0:
@@ -756,21 +600,11 @@ def steps_per_radiation_call(radt_minutes, dt_seconds):
     return max(1, int(math.floor(radt_minutes * 60.0 / dt_seconds + 0.5)))
 
 
-def detect_radiation_phase(step_wall_times, stepra):
-    """Offset p in [0, stepra) such that step i (1-indexed, i>1) is a
-    radiation step when i % stepra == p, chosen as the phase whose steps
-    have the highest MEDIAN wall time (median ignores rare I/O-write
-    spikes) -- ported from tools/state_timeline.py. The documented
-    mod(itimestep,STEPRA)==0 rule does not always match a real rsl log's
-    own line numbering (state_timeline's matthew citation: dt 150s, radt
-    15min, STEPRA 6, spikes land on phase 1, not phase 0). Comparing every
-    candidate phase's median against every OTHER phase's median is also
-    what makes severe2023's ~1.05x night-radiation bump detectable at all:
-    it is a RELATIVE comparison across schedule phases, not a fixed
-    absolute cost threshold (the bug this whole redesign fixes -- see
-    module docstring). Falls back to phase 0 when there are fewer than
-    2*stepra steps or the phases are statistically indistinguishable.
-    """
+def detect_radiation_phase(step_wall_times: list[float], stepra: int) -> int:
+    """Phase p in [0, stepra): step i > 1 is radiation when i % stepra == p, the phase with
+    the highest MEDIAN wall time (robust to write spikes). The documented phase 0 does not always
+    match a real log (matthew: phase 1); a relative comparison also catches severe2023's ~1.05x
+    night radiation. Phase 0 with fewer than 2*stepra steps or indistinguishable phases."""
     n = len(step_wall_times)
     if stepra <= 1 or n < 2 * stepra:
         return 0
@@ -785,7 +619,7 @@ def detect_radiation_phase(step_wall_times, stepra):
     return best
 
 
-def classify_steps_detected(step_wall_times, stepra):
+def classify_steps_detected(step_wall_times: list[float], stepra: int) -> list[bool]:
     """[is_radiation, ...] (1-indexed, same length as step_wall_times) using
     the DATA-DETECTED phase (detect_radiation_phase) -- for a real
     --probe-rsl log. Ported from tools/state_timeline.py."""
@@ -793,7 +627,7 @@ def classify_steps_detected(step_wall_times, stepra):
     return [(i == 1) or (stepra > 0 and i % stepra == p) for i in range(1, len(step_wall_times) + 1)]
 
 
-def classify_steps(n_steps, stepra):
+def classify_steps(n_steps: int, stepra: int) -> list[bool]:
     """[is_radiation, ...] for 1-indexed itimestep in 1..n_steps, using WRF's
     DOCUMENTED schedule (itimestep==1 or itimestep%stepra==0) rather than a
     data-detected phase -- used for the run being PREDICTED, which has no
@@ -808,21 +642,10 @@ def classify_steps(n_steps, stepra):
 # Solar position / domain geometry (day/night radiation sunlit fraction)
 # --------------------------------------------------------------------------
 
-def solar_cos_zenith(lat_deg, lon_deg, dt_utc):
-    """cos(solar zenith angle) at (lat_deg, lon_deg), dt_utc (a naive UTC
-    datetime -- WRF simulated times are UTC). Declination + hour-angle
-    formula:
-      declination (Cooper 1969 approximation):
-        dec_deg = 23.45 * sin(360/365 * (284 + day_of_year))
-      hour angle (solar time approximated as UTC + lon_deg/15h, i.e. every
-      15 degrees of longitude = 1 hour of solar time):
-        H_deg = 15 * (solar_hour - 12)
-      cos(zenith) = sin(lat)*sin(dec) + cos(lat)*cos(dec)*cos(H)
-    EQUATION OF TIME (a seasonal +-16-minute correction to solar time) and
-    atmospheric refraction are OMITTED -- explicitly out of scope per this
-    feature's spec. > 0 means sunlit (sun above the local horizon, ignoring
-    refraction's small horizon-dip correction).
-    """
+def solar_cos_zenith(lat_deg: float, lon_deg: float, dt_utc: datetime.datetime) -> float:
+    """cos(solar zenith) at (lat, lon) and naive-UTC dt: Cooper declination 23.45 *
+    sin(360/365 * (284 + doy)), hour angle 15 * (UTC + lon/15 - 12). Equation of time and
+    refraction omitted. > 0 means sunlit."""
     day_of_year = dt_utc.timetuple().tm_yday
     dec = math.radians(23.45 * math.sin(math.radians(360.0 / 365.0 * (284 + day_of_year))))
     lat = math.radians(lat_deg)
@@ -841,7 +664,8 @@ def _bilinear_latlon(sw, nw, ne, se, u, v):
     return bot_lat * (1 - v) + top_lat * v, bot_lon * (1 - v) + top_lon * v
 
 
-def sample_lattice_5x5(corner_sw, corner_nw, corner_ne, corner_se, center):
+def sample_lattice_5x5(corner_sw: tuple, corner_nw: tuple, corner_ne: tuple, corner_se: tuple,
+                       center: tuple) -> list[tuple[float, float]]:
     """25 (lat, lon) sample points on a 5x5 grid, bilinearly interpolated
     from the domain's 4 corners (_bilinear_latlon), EXCEPT the exact centre
     sample (u=v=0.5), which is replaced by the wrfinput-reported
@@ -859,7 +683,7 @@ def sample_lattice_5x5(corner_sw, corner_nw, corner_ne, corner_se, center):
     return pts
 
 
-def sunlit_fraction(sample_points, dt_utc):
+def sunlit_fraction(sample_points: list | None, dt_utc: datetime.datetime) -> float | None:
     """Fraction of sample_points ([(lat, lon), ...]) with cos(solar zenith)
     > 0 at dt_utc (solar_cos_zenith). None if sample_points is empty."""
     if not sample_points:
@@ -900,24 +724,11 @@ def _parse_ncdump_array(text, name):
     return out
 
 
-def parse_wrfinput_corners(ncdump_text):
-    """Parse CEN_LAT/CEN_LON/CORNER_LATS/CORNER_LONS global attributes out
-    of `ncdump -h` TEXT output for a wrfinput_d01 (or wrfout) file -- no
-    netCDF4 dependency, per this module's standalone rule. WRF's
-    corner_lats/corner_lons global attributes hold 16 values: 4 corners
-    (SW, NW, NE, SE) x 4 stagger variants (mass, u, v, unstaggered); the
-    mass-point (unstaggered T-grid) corner for corner index c is array
-    index c*4 (WRF Registry / share/module_bc.F corner ordering) --
-    ASSUMED, not independently verified against a real wrfinput file in
-    this repo (no netCDF tooling on this dev machine -- see
-    read_wrfinput_sample_points). Falls back to treating a 4-element array
-    as the four corners directly (SW, NW, NE, SE in file order) when the
-    array isn't the expected 16-element form.
-    Returns None when CEN_LAT/CEN_LON are missing (nothing usable at all);
-    else {"cen": (lat, lon), "corners": (sw, nw, ne, se) or None (when
-    CORNER_LATS/CORNER_LONS are absent, malformed, or an unrecognized
-    length -- caller degrades to a centre-only sample)}.
-    """
+def parse_wrfinput_corners(ncdump_text: str) -> dict | None:
+    """CEN_LAT/CEN_LON/CORNER_LATS/CORNER_LONS from `ncdump -h` text -> None without the
+    centre, else {'cen': (lat, lon), 'corners': (sw, nw, ne, se) or None}. 16-value corner arrays:
+    mass-point corner c at index c*4 (assumed from WRF's ordering, not verified on a file); a
+    4-value array is taken as the corners directly."""
     cen_lat = _parse_ncdump_scalar(ncdump_text, "CEN_LAT")
     cen_lon = _parse_ncdump_scalar(ncdump_text, "CEN_LON")
     if cen_lat is None or cen_lon is None:
@@ -937,7 +748,7 @@ def parse_wrfinput_corners(ncdump_text):
     return {"cen": (cen_lat, cen_lon), "corners": corners}
 
 
-def domain_sample_points_from_ncdump(ncdump_text):
+def domain_sample_points_from_ncdump(ncdump_text: str) -> list[tuple[float, float]] | None:
     """sample_lattice_5x5 built from parse_wrfinput_corners(ncdump_text), or
     a single-point [center] sample when corners aren't available (degrades
     the day/night model to a coarser but still non-trivial estimate), or
@@ -952,16 +763,9 @@ def domain_sample_points_from_ncdump(ncdump_text):
 
 
 # --------------------------------------------------------------------------
-# Real XLAT/XLONG grid sampling (2026-09-23 scc finding: a real real.exe
-# wrfinput_d01 has NO CORNER_LATS/CORNER_LONS global attributes at all --
-# only CEN_LAT/CEN_LON -- so parse_wrfinput_corners/domain_sample_points_
-# from_ncdump above NEVER fire on a real wrfinput and read_wrfinput_
-# sample_points ALWAYS fell back to sample_points=None, i.e. the day/night
-# model silently used the uniform (r_night+r_day)/2 level on every real scc
-# run. Fixed by reading the actual XLAT/XLONG mass-point arrays -- exact
-# grid values, no bilinear guess needed -- via netCDF4 when available, else
-# `ncdump -v XLAT,XLONG` array text; CORNER_LATS/CORNER_LONS remains a
-# fallback of last resort for a met_em/wrfout file that DOES carry them.
+# Real XLAT/XLONG grid sampling: a real real.exe wrfinput_d01 has no CORNER_LATS/LONS (scc,
+# 2026-09-23), so corner sampling silently disabled the day/night model; corners stay a last
+# resort for met_em/wrfout files.
 # --------------------------------------------------------------------------
 
 def _lattice_indices(n, count=5):
@@ -974,14 +778,10 @@ def _lattice_indices(n, count=5):
     return [round(t * (n - 1) / (count - 1)) for t in range(count)]
 
 
-def sample_lattice_5x5_from_grid(lat2d, lon2d):
-    """25 (lat, lon) sample points read DIRECTLY from a real 2-D XLAT/XLONG
-    grid (lat2d/lon2d, indexed [south_north][west_east], row 0 = the
-    southernmost row -- WRF's south_north index increases northward), at 5
-    evenly spaced south_north indices x 5 evenly spaced west_east indices
-    (_lattice_indices), both including their domain edges. No bilinear
-    interpolation, unlike sample_lattice_5x5 -- every sampled point is a
-    real grid value, since we have the whole array."""
+def sample_lattice_5x5_from_grid(lat2d: Any, lon2d: Any) -> list[tuple[float, float]]:
+    """25 (lat, lon) points read from real 2-D XLAT/XLONG ([south_north][west_east], row 0
+    southernmost) at 5 x 5 evenly spaced indices including the edges -- real grid values, no
+    interpolation (unlike sample_lattice_5x5)."""
     n_rows = len(lat2d)
     n_cols = len(lat2d[0]) if n_rows else 0
     j_idx = _lattice_indices(n_rows)
@@ -990,16 +790,8 @@ def sample_lattice_5x5_from_grid(lat2d, lon2d):
 
 
 def _sample_points_via_netcdf4(path):
-    """netCDF4 is an OPTIONAL import, done here (not at module level) so
-    this module stays importable/standalone without it (see module
-    docstring) -- most wtune_predict.py callers, including scc itself as of
-    2026-09-23, don't have netCDF4 installed, so this path routinely
-    returns None and the ncdump-array path below does the real work.
-    Reads XLAT[0]/XLONG[0] (dropping the length-1 Time axis) and takes a
-    5x5 lattice directly (sample_lattice_5x5_from_grid). Returns None on
-    ANY failure (no netCDF4, file won't open, vars missing) -- this is a
-    best-effort fast path, not a required one.
-    """
+    """5x5 lattice from XLAT[0]/XLONG[0] via netCDF4, imported lazily (the module stays
+    standalone; scc lacks netCDF4, so the ncdump path usually does the work). None on any failure."""
     try:
         import netCDF4
     except ImportError:
@@ -1022,7 +814,7 @@ def _sample_points_via_netcdf4(path):
         ds.close()
 
 
-def parse_ncdump_dims(ncdump_text):
+def parse_ncdump_dims(ncdump_text: str) -> dict[str, int]:
     """Parse the 'dimensions:' block of `ncdump` TEXT output into
     {name: size} (int). Only scans between the 'dimensions:' and
     'variables:' section headers, so a same-named global attribute or data
@@ -1038,18 +830,11 @@ def parse_ncdump_dims(ncdump_text):
     return dims
 
 
-def parse_ncdump_2d_var(ncdump_text, var_name, n_rows, n_cols):
-    """Parse a flattened (Time, south_north, west_east) variable's data
-    block (Time size 1 assumed, per this module's wrfinput_d01 use) out of
-    `ncdump -v <var_name>[,...]` TEXT output into a 2-D list [row][col].
-    ncdump prints a variable's values flattened in row-major (C) order,
-    outermost dimension first -- for (Time=1, south_north, west_east) that
-    is exactly south_north-major, west_east-minor, i.e. row 0 is the
-    southernmost south_north index. \\b anchors the variable name so e.g.
-    'XLAT' doesn't match inside 'XLAT_U'. Returns None if the variable's
-    data block isn't found, a value fails to parse, or the value count
-    isn't exactly n_rows*n_cols.
-    """
+def parse_ncdump_2d_var(ncdump_text: str, var_name: str, n_rows: int, n_cols: int
+                        ) -> list[list[float]] | None:
+    """A (Time=1, south_north, west_east) variable from `ncdump -v` text -> 2-D list
+    [row][col], row 0 southernmost (ncdump prints row-major). None when the block is missing, a
+    value does not parse, or the count is not n_rows*n_cols."""
     m = re.search(r"\b%s\s*=\s*([^;]+);" % re.escape(var_name), ncdump_text)
     if not m:
         return None
@@ -1109,27 +894,11 @@ def _sample_points_via_ncdump_arrays(path):
     return sample_lattice_5x5_from_grid(lat2d, lon2d)
 
 
-def read_wrfinput_sample_points(case_dir):
-    """Locates case_dir/wrfinput_d01 and returns (sample_points, source),
-    source in {'netcdf4', 'ncdump_arrays', 'corner_attrs', 'none'}, trying
-    in order:
-      1. netCDF4 (optional import), reading XLAT[0]/XLONG[0] directly
-         (_sample_points_via_netcdf4) -> 'netcdf4'.
-      2. `ncdump -v XLAT,XLONG` array text parsing
-         (_sample_points_via_ncdump_arrays) -> 'ncdump_arrays'. This is the
-         path that actually fires on scc (netCDF4 isn't installed there
-         either, as of 2026-09-23).
-      3. `ncdump -h` CORNER_LATS/CORNER_LONS global attributes
-         (domain_sample_points_from_ncdump) -> 'corner_attrs'. Fallback of
-         LAST resort: a real real.exe wrfinput_d01, checked 2026-09-23 on
-         scc (conus12), has NO CORNER_LATS/CORNER_LONS at all (only
-         CEN_LAT/CEN_LON), so this path never fires for a real wrfinput --
-         it exists for met_em/wrfout files, which may carry these attrs.
-      4. (None, 'none') when nothing above works -- case_dir/wrfinput_d01
-         is missing, or every method above failed. Callers MUST surface
-         this visibly (a WARNING that sunlit weighting is disabled), not
-         degrade silently -- see render_text/predict_compute.
-    """
+def read_wrfinput_sample_points(case_dir: str | Path) -> tuple[list | None, str]:
+    """(sample_points, source) for case_dir/wrfinput_d01, trying netCDF4 XLAT/XLONG
+    ('netcdf4'), `ncdump -v XLAT,XLONG` ('ncdump_arrays', what fires on scc), `ncdump -h` corner
+    attrs ('corner_attrs'; real real.exe wrfinput has none, met_em/wrfout may), else (None,
+    'none'). Callers must warn visibly that sunlit weighting is disabled on 'none'."""
     if not case_dir:
         return None, "none"
     path = Path(case_dir) / "wrfinput_d01"
@@ -1164,17 +933,10 @@ _RSL_TIMING_RE = re.compile(
 _WRF_TIME_FMT = "%Y-%m-%d_%H:%M:%S"  # WRF's own Times-variable timestamp format
 
 
-def parse_rsl_d01_step_seconds(path):
-    """Parse a WRF rsl.error.0000-style log's 'Timing for main: time <t> on
-    domain   1:   <sec> elapsed seconds' lines for domain 1 (d01) only,
-    returning [(sim_datetime_or_None, elapsed_seconds), ...] in file (i.e.
-    step) order. Nested-domain lines (domain 2, 3, ...) are ignored -- same
-    d01-step-cost-already-includes-nested-substeps convention as the rest of
-    this module (see get_d01_steps/nested_equivalent_cells). sim_datetime is
-    None when <t> isn't WRF's usual '%Y-%m-%d_%H:%M:%S' Times format (the
-    step's elapsed_seconds is still returned; only the day/night model needs
-    the timestamp).
-    """
+def parse_rsl_d01_step_seconds(path: str | Path) -> list[tuple[datetime.datetime | None, float]]:
+    """d01 'Timing for main' lines of an rsl log -> [(sim_datetime or None, seconds)] in step
+    order; nest lines ignored (the d01 step includes them). sim_datetime None for an unparseable
+    time stamp."""
     text = Path(path).read_text()
     out = []
     for m in _RSL_TIMING_RE.finditer(text):
@@ -1188,19 +950,12 @@ def parse_rsl_d01_step_seconds(path):
     return out
 
 
-def fit_day_night_r_rad(radiation_samples, day_night_ratio):
-    """radiation_samples: [(sunlit_fraction, ratio), ...], ratio = one
-    radiation step's own elapsed seconds / s_normal. Simple linear
-    least-squares fit ratio = a + b*sunlit_fraction (a=r_night,
-    b=r_day-r_night) when the observed sunlit fractions span >=
-    RADIATION_FIT_MIN_SUNLIT_SPREAD (both regimes seen) -> 'fit_day_night'.
-    Otherwise the single observed level's mean is taken directly and the
-    OTHER level is derived via day_night_ratio (day = night*ratio) ->
-    'ratio_from_night' / 'ratio_from_day' (the source name records which
-    level was actually observed).
-    Returns (r_night, r_day, source), or (None, None, None) for an empty
-    radiation_samples.
-    """
+def fit_day_night_r_rad(radiation_samples: list[tuple[float, float]], day_night_ratio: float
+                        ) -> tuple[float | None, float | None, str | None]:
+    """radiation_samples [(sunlit_fraction, step s / s_normal)] -> (r_night, r_day, source).
+    Least squares ratio = a + b*f when the sunlit spread >= RADIATION_FIT_MIN_SUNLIT_SPREAD
+    ('fit_day_night'); else the one observed level, the other via day_night_ratio
+    ('ratio_from_night'/'ratio_from_day'). (None, None, None) without samples."""
     if not radiation_samples:
         return None, None, None
     xs = [s for s, _ in radiation_samples]
@@ -1216,10 +971,8 @@ def fit_day_night_r_rad(radiation_samples, day_night_ratio):
             b = cov / var
             a = mean_y - b * mean_x
             return a, a + b, "fit_day_night"
-    # Single regime: the observed mean was taken at mean sunlit fraction mean_x, not at 0 or 1.
-    # Invert the model r(f) = r_night * (1 + (k - 1) * f), k = day_night_ratio, at f = mean_x.
-    # Treating the observation as a pure level double-counted the sun for large domains: conus12's
-    # 12Z probe (east of the domain already in daylight) gave r_day 6.8 against ~3.9 measured.
+    # Single regime: invert r(f) = r_night * (1 + (k - 1) * f) at the observed mean f, not at 0/1
+    # (as a pure level, conus12's 12Z probe gave r_day 6.8 vs ~3.9 measured).
     mean_x = sum(xs) / len(xs)
     mean_y = sum(ys) / len(ys)
     r_night = mean_y / (1.0 + (day_night_ratio - 1.0) * mean_x)
@@ -1227,38 +980,14 @@ def fit_day_night_r_rad(radiation_samples, day_night_ratio):
     return r_night, r_night * day_night_ratio, source
 
 
-def measure_rad_from_rsl(rsl_paths, radt_minutes, dt_seconds, sample_points,
-                         default_r_rad, day_night_ratio):
-    """Measure s_normal and the day/night radiation model (r_night, r_day)
-    from one or more rsl.error.0000 probe logs, using the SCHEDULE (not
-    cost) to identify radiation steps -- see classify_steps_detected /
-    steps_per_radiation_call above and the module docstring's 'radiation'
-    section. This is the fix for the bug the previous ("step time > 1.8x
-    the pooled median") heuristic had: severe2023's NIGHT radiation steps
-    cost only ~1.05x a normal step (well under 1.8x), so that heuristic
-    silently filed them as normal steps and a night-time probe fell all the
-    way back to r_rad=5 -- the schedule now identifies them correctly
-    regardless of their absolute cost.
-
-    Each file's own step 1 is dropped from both categories (startup/
-    first-step outlier, not representative of steady-state cost -- WRF does
-    call radiation at itimestep 1, but that step's wall time is dominated by
-    MPI/exchange setup, not physics cost, so it isn't a trustworthy
-    radiation-cost sample either).
-
-    sample_points (sample_lattice_5x5 / read_wrfinput_sample_points) and
-    each step's own parsed simulated time are both required to place a
-    radiation step's cost against its sunlit_fraction; a step with no
-    parseable simulated time, or no sample_points at all, is excluded from
-    the day/night fit (its wall time still counts toward s_normal if it's a
-    normal/non-radiation step).
-
-    Returns a dict: s_normal, r_night, r_day, source (in {'fit_day_night',
-    'ratio_from_night', 'ratio_from_day', 'default_unmeasured'}),
-    mean_sunlit_fraction (over the samples actually used in the fit, or
-    None), n_steps_pooled, n_radiation_steps (the count usable for the
-    day/night fit, not just schedule-identified).
-    """
+def measure_rad_from_rsl(rsl_paths: list[str], radt_minutes: float, dt_seconds: float,
+                         sample_points: list | None, default_r_rad: float,
+                         day_night_ratio: float) -> dict:
+    """s_normal and the day/night radiation model from rsl probe logs, radiation steps found
+    by SCHEDULE (a cost threshold missed severe2023's ~1.05x night steps). Each log's step 1 is
+    dropped (setup dominated). Steps without a sim time or without sample_points are left out of
+    the day/night fit only. -> {s_normal, r_night, r_day, source, mean_sunlit_fraction,
+    n_steps_pooled, n_radiation_steps}."""
     stepra = steps_per_radiation_call(radt_minutes, dt_seconds)
     pooled_normal = []
     per_file = []
@@ -1311,26 +1040,14 @@ def measure_rad_from_rsl(rsl_paths, radt_minutes, dt_seconds, sample_points,
 # Compute model
 # --------------------------------------------------------------------------
 
-def predict_radiation_extra(steps, radt, dt_seconds, s_normal, r_night, r_day,
-                            run_start_dt, sample_points, default_r_rad):
-    """Identify the PREDICTED run's own radiation steps by SCHEDULE
-    (classify_steps -- the DOCUMENTED phase, since a not-yet-run prediction
-    has no real rsl data to detect a phase from) and price each one
-    individually against its own simulated time's sunlit fraction:
-        r(t_k) = r_night + (r_day - r_night) * sunlit_fraction(t_k)
-        rad_extra_s = sum_k (r(t_k) - 1) * s_normal
-    when both run_start_dt (from &time_control's start_date) and
-    sample_points (domain geometry) are available. Otherwise every
-    radiation step uses the single uniform level (r_night+r_day)/2 instead
-    (falling back further to default_r_rad if r_night/r_day are themselves
-    None) -- "day/night phase unknown for this run", not a refusal to
-    predict.
-    Returns (rad_steps, rad_extra_s, run_mean_sunlit_fraction,
-    sampling_advice): sampling_advice is {night_sim_time,
-    night_sunlit_fraction, day_sim_time, day_sunlit_fraction} (the run's own
-    lowest/highest-sunlit-fraction radiation steps -- the recommended probe
-    windows) when the per-step model ran, else None.
-    """
+def predict_radiation_extra(steps: int, radt: float, dt_seconds: float, s_normal: float,
+                            r_night: float | None, r_day: float | None,
+                            run_start_dt: datetime.datetime | None, sample_points: list | None,
+                            default_r_rad: float) -> tuple[int, float, float | None, dict | None]:
+    """Price the predicted run's schedule radiation steps: r(t_k) = r_night + (r_day - r_night)
+    * sunlit(t_k), extra = sum (r - 1) * s_normal; uniform (r_night + r_day)/2 (or default_r_rad)
+    without run_start_dt or sample_points. -> (rad_steps, rad_extra_s, run_mean_sunlit_fraction,
+    sampling_advice {night/day sim time and sunlit fraction} or None)."""
     if not radt or not dt_seconds:
         return 0, 0.0, None, None
     stepra = steps_per_radiation_call(radt, dt_seconds)
@@ -1366,9 +1083,11 @@ def predict_radiation_extra(steps, radt, dt_seconds, s_normal, r_night, r_day,
     return rad_steps, rad_steps * (r_uniform - 1.0) * s_normal, None, None
 
 
-def predict_compute(nl, max_dom, steps, run_min, ranks, omp, probe_result, calibration,
-                    rsl_paths=None, dt_seconds=None, sample_points=None, run_start_dt=None,
-                    geometry_source="none"):
+def predict_compute(nl: dict, max_dom: int, steps: int, run_min: float, ranks: int, omp: int,
+                    probe_result: dict | None, calibration: dict, rsl_paths: list[str] | None = None,
+                    dt_seconds: float | None = None, sample_points: list | None = None,
+                    run_start_dt: datetime.datetime | None = None,
+                    geometry_source: str = "none") -> dict:
     radt = g_dom(nl, "physics", "radt", 0, default=None)
     default_r_rad = calibration.get("radiation", {}).get("r_rad_default", 5.0)
     day_night_ratio = calibration.get("radiation", {}).get(
@@ -1455,7 +1174,7 @@ def predict_compute(nl, max_dom, steps, run_min, ranks, omp, probe_result, calib
     }
 
 
-def segment_compute(compute, run_hours, dt):
+def segment_compute(compute: dict, run_hours: float, dt: float) -> list[dict] | None:
     """Split the compute total into SEGMENT_HOURS chunks for display when the
     run is long. Same s_per_step in every segment -- drift is NOT VALIDATED.
     """
@@ -1483,16 +1202,8 @@ def segment_compute(compute, run_hours, dt):
 
 
 def _rate_override_calibration(calibration, io_form, io_target, rate_bytes_per_s):
-    """Return a deep-copied calibration dict with ONLY
-    derived.io_form_rate_table[io_form][io_target].rate_bytes_per_s replaced
-    by rate_bytes_per_s. Every other stream's rate (a different io_form --
-    e.g. an auxhist stream on a different io_form, or the restart write when
-    io_form_restart != io_form_history -- or a different io_target) is left
-    exactly as calibrated, since only the (io_form, io_target) pair actually
-    named by the override should move. Used to price the SAME set of writes
-    at a measured-low/measured-high NFS write rate instead of the point
-    estimate, for the --io-range calibration bracket (see build_prediction).
-    """
+    """Deep copy of `calibration` with only rate_table[io_form][io_target] replaced, for pricing
+    the same writes at the measured low/high NFS rate (--io-range); other streams keep theirs."""
     patched = copy.deepcopy(calibration)
     table = patched.setdefault("derived", {}).setdefault("io_form_rate_table", {})
     entry = table.setdefault(str(int(io_form)), {})
@@ -1505,8 +1216,9 @@ def _rate_override_calibration(calibration, io_form, io_target, rate_bytes_per_s
 # I/O model
 # --------------------------------------------------------------------------
 
-def predict_io(nl, max_dom, run_min, calibration, io_form_override, io_target,
-               case_dir=None, iofields_dir=None):
+def predict_io(nl: dict, max_dom: int, run_min: float, calibration: dict,
+               io_form_override: int | None, io_target: str, case_dir: str | None = None,
+               iofields_dir: str | None = None) -> dict:
     bpcl = calibration.get("derived", {}).get("bytes_per_cell_level")
     if bpcl is None:
         raise PredictError("calibration.derived.bytes_per_cell_level missing")
@@ -1572,13 +1284,8 @@ def predict_io(nl, max_dom, run_min, calibration, io_form_override, io_target,
                      "interval_key": ikey, "n_frames": n_frames,
                      "begin_min": begin_min, "end_min": end_min}
 
-            # Sizing, in priority order: (1) first-principles from the per-domain
-            # iofields_filename file, when it can be found and read and has '+'
-            # entries for this stream number; (2) a clear 'size unknown' note
-            # (no seconds estimated) when iofields_filename is referenced but
-            # the file can't be resolved/read/matched; (3) a full same-domain
-            # frame (bytes_per_cell_level model) when no iofields_filename is
-            # given at all -- this stream is presumed to carry everything.
+            # Sizing: the iofields file's '+' fields for this stream; 'size unknown' when the
+            # referenced file cannot be read/matched; a full frame without iofields_filename.
             sized = None
             size_note = None
             if iofields_vals:
@@ -1638,10 +1345,8 @@ def predict_io(nl, max_dom, run_min, calibration, io_form_override, io_target,
         if n_restart > 0:
             io_form_restart = g(nl, "time_control", "io_form_restart", io_form_history)
             ratio = calibration.get("restart", {}).get("restart_to_history_time_ratio", 1.0)
-            # restart write seconds for a domain = ratio * (that domain's history-frame
-            # bytes / the history write rate) -- MEASURED ratio (see calibration.restart),
-            # not a byte-size guess. Folding the ratio into an equivalent "bytes" term
-            # keeps the same bytes/rate formula as every other stream.
+            # restart s = measured ratio x history-frame bytes / history rate, folded into
+            # "bytes" so the stream uses the same bytes/rate formula
             restart_bytes = 0.0
             for d in range(max_dom):
                 e_we, e_sn, e_vert = get_domain_geom(nl, d)
@@ -1668,7 +1373,8 @@ def predict_io(nl, max_dom, run_min, calibration, io_form_override, io_target,
 # Init (read) model
 # --------------------------------------------------------------------------
 
-def predict_init(case_dir, nl, calibration, ranks=None, nodes=None):
+def predict_init(case_dir: str | None, nl: dict, calibration: dict, ranks: int | None = None,
+                 nodes: int | None = None) -> dict:
     read_rate = calibration.get("derived", {}).get("read_rate_bytes_per_s")
     if not read_rate:
         raise PredictError("calibration.derived.read_rate_bytes_per_s missing")
@@ -1721,7 +1427,7 @@ def predict_init(case_dir, nl, calibration, ranks=None, nodes=None):
 # Parameter table / launch line
 # --------------------------------------------------------------------------
 
-def build_param_table(config, nodes, io_form, io_target):
+def build_param_table(config: dict, nodes: int, io_form: int, io_target: str) -> dict:
     # ranks/omp/nx/ny are load-bearing INSIDE the launch line itself (-np R
     # ... PE=OMP); a half-"UNKNOWN" mpirun command is worse than no command,
     # so these are REQUIRED -- refuse loudly rather than guess or print junk.
@@ -1732,15 +1438,8 @@ def build_param_table(config, nodes, io_form, io_target):
             "the launch line cannot be built without them" % (missing, config))
     ranks, omp, nx, ny = config["ranks"], config["omp"], config["nx"], config["ny"]
 
-    # numtiles/dist/io_form are NOT load-bearing for the mpirun skeleton itself
-    # (dist only ever adds/omits one optional trailing flag; numtiles/io_form
-    # are reported separately, not embedded in launch_line's positional
-    # values), so an absent value is marked UNKNOWN rather than silently
-    # defaulted to a plausible-looking but possibly WRONG value -- see the
-    # 2026-09-23 scc blind-test bug: this used to default dist to "cyclic"
-    # and print a --rank-by node line for a config whose real (measured)
-    # dist was "block", i.e. a launch line for a DIFFERENT run than the one
-    # actually being recommended.
+    # An absent numtiles/dist/io_form is UNKNOWN, never a plausible default (a defaulted
+    # "cyclic" printed a launch line for a different run, scc blind test 2026-09-23).
     dist = config.get("dist")
     numtiles = config.get("numtiles")
     io_form_display = io_form if io_form is not None else "UNKNOWN"
@@ -1782,7 +1481,7 @@ def build_param_table(config, nodes, io_form, io_target):
 # Top-level assembly
 # --------------------------------------------------------------------------
 
-def resolve_config(args):
+def resolve_config(args: argparse.Namespace) -> dict:
     if args.config:
         try:
             raw = json.loads(args.config)
@@ -1809,9 +1508,11 @@ def resolve_config(args):
     return {"ranks": ranks, "omp": omp, "nx": nx, "ny": ny, "numtiles": numtiles, "dist": dist}
 
 
-def build_prediction(namelist_path, case_dir, nodes, config, ledger_paths,
-                      calibration_path, io_form_override, io_target, case_name=None,
-                      iofields_dir=None, rsl_paths=None, include_io=False):
+def build_prediction(namelist_path: str, case_dir: str | None, nodes: int, config: dict,
+                     ledger_paths: list[str], calibration_path: str | Path,
+                     io_form_override: int | None, io_target: str, case_name: str | None = None,
+                     iofields_dir: str | None = None, rsl_paths: list[str] | None = None,
+                     include_io: bool = False) -> dict:
     nl = parse_namelist(namelist_path)
     max_dom = get_max_dom(nl)
     steps, run_s, dt, steps_note = get_d01_steps(nl)
@@ -1821,24 +1522,13 @@ def build_prediction(namelist_path, case_dir, nodes, config, ledger_paths,
     calibration = load_calibration(calibration_path)
 
     ledger_rows = load_ledger_rows(ledger_paths)
-    # case_name lets the caller give the case's LEDGER identity explicitly
-    # (case_base in the --probe CSV) when it differs from case_dir's own
-    # basename -- e.g. a case whose prep directory is named after its data
-    # source (doi4-lafe2017) rather than its short campaign name (lafe).
-    # Falling back silently to the directory basename here is exactly the
-    # bug this parameter exists to let the caller avoid: with no override,
-    # resolve_probe's case_base match fails, probe_result is None end to
-    # end, and the model drops to no_probe_fallback despite the ledger
-    # holding an exact, measured row for this case/config.
+    # case_name: the ledger case_base when it differs from the directory name
+    # (doi4-lafe2017 vs lafe); else the probe match fails and no_probe_fallback is used.
     name = case_name or (Path(case_dir).name if case_dir else "unknown")
     probe_result = resolve_probe(ledger_rows, name, config)
 
-    # Domain geometry (for the day/night sunlit-fraction radiation model) and
-    # the run's own absolute start time (to place each PREDICTED radiation
-    # step at a real simulated time) -- both optional; predict_compute
-    # degrades gracefully (uniform r_night/r_day level, no sampling advice)
-    # when either is unavailable (see that function's docstring and
-    # read_wrfinput_sample_points' geometry_source values).
+    # Domain geometry and start time place the predicted radiation steps; without either
+    # predict_compute uses the uniform level.
     sample_points, geometry_source = read_wrfinput_sample_points(case_dir)
     run_start_dt = get_time_control_datetime(nl, "start")
 
@@ -1869,10 +1559,7 @@ def build_prediction(namelist_path, case_dir, nodes, config, ledger_paths,
     io_w = 1.0 if include_io else 0.0
     total_s = compute["compute_total_s"] + io_w * io["total_s"] + init["total_s"]
 
-    # I/O rate range (calibration.history_write_rate_MBps_low/_high): when
-    # calibrated, replace the generic drift-on-everything range with an
-    # explicit [fast I/O .. slow I/O] bracket for the I/O component, and
-    # scope the drift band to compute only (see module docstring's 'range').
+    # With a calibrated I/O rate bracket: I/O at fast..slow rate, drift on compute only.
     io_low_mbps = calibration.get("history_write_rate_MBps_low")
     io_high_mbps = calibration.get("history_write_rate_MBps_high")
     io_range = None
@@ -1940,7 +1627,7 @@ def _fmt_hms(seconds):
     return "%dh%02dm%05.2fs" % (h, m, s)
 
 
-def render_text(pred):
+def render_text(pred: dict) -> str:
     out = []
     out.append("=== wtune predict: %s ===" % pred["case_name"])
     out.append("namelist: %s | max_dom=%d | d01 dt=%.3fs | run=%.1f min (%.2f h) | d01 steps=%d"
@@ -2049,7 +1736,7 @@ def render_text(pred):
     return "\n".join(out)
 
 
-def to_json(pred):
+def to_json(pred: dict) -> str:
     return json.dumps(pred, indent=2, sort_keys=True, default=str)
 
 
@@ -2057,7 +1744,7 @@ def to_json(pred):
 # CLI
 # --------------------------------------------------------------------------
 
-def add_subparser(sub):
+def add_subparser(sub: Any) -> argparse.ArgumentParser:
     p = sub.add_parser("predict", help="predict per-stage + total wall time for a WRF run, without running it")
     p.add_argument("case_dir", help="directory with namelist.input (+ optional wrfinput_d0N/wrfbdy_d0N)")
     p.add_argument("--namelist", default=None, help="explicit namelist.input path (default: <case_dir>/namelist.input)")
@@ -2102,7 +1789,7 @@ def add_subparser(sub):
     return p
 
 
-def predict_cmd(args):
+def predict_cmd(args: argparse.Namespace) -> int:
     namelist_path = args.namelist or str(Path(args.case_dir) / "namelist.input")
     if not Path(namelist_path).exists():
         print("ERROR: namelist not found: %s" % namelist_path, file=sys.stderr)
@@ -2126,7 +1813,7 @@ def predict_cmd(args):
     return 0
 
 
-def main(argv=None):
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="wtune_predict.py")
     sub = parser.add_subparsers(dest="command")
     add_subparser(sub)

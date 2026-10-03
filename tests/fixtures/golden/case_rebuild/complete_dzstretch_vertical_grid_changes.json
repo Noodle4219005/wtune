@@ -1,0 +1,266 @@
+[
+ {
+  "key": "num_metgrid_levels",
+  "old": null,
+  "new": "32",
+  "reason": "met_em NUM_METGRID_LEVELS"
+ },
+ {
+  "key": "num_metgrid_soil_levels",
+  "old": null,
+  "new": "4",
+  "reason": "met_em NUM_METGRID_SOIL_LEVELS"
+ },
+ {
+  "key": "num_land_cat",
+  "old": null,
+  "new": "21",
+  "reason": "met_em/geo_em NUM_LAND_CAT"
+ },
+ {
+  "key": "interval_seconds",
+  "old": "10800",
+  "new": "21600",
+  "reason": "forcing cadence"
+ },
+ {
+  "key": "start_year",
+  "old": null,
+  "new": "2020",
+  "reason": "rebuild span start"
+ },
+ {
+  "key": "start_month",
+  "old": null,
+  "new": "1",
+  "reason": "rebuild span start"
+ },
+ {
+  "key": "start_day",
+  "old": null,
+  "new": "1",
+  "reason": "rebuild span start"
+ },
+ {
+  "key": "start_hour",
+  "old": null,
+  "new": "0",
+  "reason": "rebuild span start"
+ },
+ {
+  "key": "start_minute",
+  "old": null,
+  "new": "0",
+  "reason": "rebuild span start"
+ },
+ {
+  "key": "start_second",
+  "old": null,
+  "new": "0",
+  "reason": "rebuild span start"
+ },
+ {
+  "key": "end_year",
+  "old": null,
+  "new": "2020",
+  "reason": "rebuild span end"
+ },
+ {
+  "key": "end_month",
+  "old": null,
+  "new": "1",
+  "reason": "rebuild span end"
+ },
+ {
+  "key": "end_day",
+  "old": null,
+  "new": "1",
+  "reason": "rebuild span end"
+ },
+ {
+  "key": "end_hour",
+  "old": null,
+  "new": "6",
+  "reason": "rebuild span end"
+ },
+ {
+  "key": "end_minute",
+  "old": null,
+  "new": "0",
+  "reason": "rebuild span end"
+ },
+ {
+  "key": "end_second",
+  "old": null,
+  "new": "0",
+  "reason": "rebuild span end"
+ },
+ {
+  "key": "run_hours",
+  "old": "3",
+  "new": "0",
+  "reason": "rebuild span"
+ },
+ {
+  "key": "run_seconds",
+  "old": "0",
+  "new": "21600",
+  "reason": "rebuild span"
+ },
+ {
+  "key": "dzbot",
+  "old": "present",
+  "new": null,
+  "reason": "conflicts with explicit eta_levels from wrfinput ZNW"
+ },
+ {
+  "key": "dzstretch_s",
+  "old": "present",
+  "new": null,
+  "reason": "conflicts with explicit eta_levels from wrfinput ZNW"
+ },
+ {
+  "key": "dzstretch_u",
+  "old": "present",
+  "new": null,
+  "reason": "conflicts with explicit eta_levels from wrfinput ZNW"
+ },
+ {
+  "key": "auto_levels_opt",
+  "old": "present",
+  "new": null,
+  "reason": "conflicts with explicit eta_levels from wrfinput ZNW"
+ },
+ {
+  "key": "e_vert",
+  "old": "45",
+  "new": "3",
+  "reason": "= len(wrfinput ZNW)"
+ },
+ {
+  "key": "eta_levels",
+  "old": null,
+  "new": "[1.0, 0.5, 0.0]",
+  "reason": "= wrfinput ZNW (exact vertical grid reproduction)"
+ },
+ {
+  "key": "time_step",
+  "old": null,
+  "new": "72",
+  "reason": "largest int <= 6*dx_km(d01), >=1"
+ },
+ {
+  "key": "history_interval",
+  "old": null,
+  "new": "60",
+  "reason": "default history cadence (minutes)"
+ },
+ {
+  "key": "frames_per_outfile",
+  "old": null,
+  "new": "1",
+  "reason": "default"
+ },
+ {
+  "key": "restart",
+  "old": null,
+  "new": ".false.",
+  "reason": "default"
+ },
+ {
+  "key": "restart_interval",
+  "old": null,
+  "new": "360",
+  "reason": "one restart at the end of the run"
+ },
+ {
+  "key": "io_form_history",
+  "old": null,
+  "new": "2",
+  "reason": "default netCDF io_form"
+ },
+ {
+  "key": "io_form_restart",
+  "old": null,
+  "new": "2",
+  "reason": "default netCDF io_form"
+ },
+ {
+  "key": "io_form_input",
+  "old": null,
+  "new": "2",
+  "reason": "default netCDF io_form"
+ },
+ {
+  "key": "io_form_boundary",
+  "old": null,
+  "new": "2",
+  "reason": "default netCDF io_form"
+ },
+ {
+  "key": "physics_suite",
+  "old": null,
+  "new": "'CONUS'",
+  "reason": "no &physics scheme key present at all"
+ },
+ {
+  "key": "spec_bdy_width",
+  "old": null,
+  "new": "5",
+  "reason": "default lateral boundary width"
+ },
+ {
+  "key": "spec_zone",
+  "old": null,
+  "new": "1",
+  "reason": "default"
+ },
+ {
+  "key": "relax_zone",
+  "old": null,
+  "new": "4",
+  "reason": "default"
+ },
+ {
+  "key": "specified",
+  "old": null,
+  "new": "['.true.']",
+  "reason": "d01 is specified by the lateral boundary file; nests are not"
+ },
+ {
+  "key": "nested",
+  "old": null,
+  "new": "['.false.']",
+  "reason": "every domain but d01 is nested"
+ },
+ {
+  "key": "nio_tasks_per_group",
+  "old": null,
+  "new": "0",
+  "reason": "default"
+ },
+ {
+  "key": "nio_groups",
+  "old": null,
+  "new": "1",
+  "reason": "default"
+ },
+ {
+  "key": "&fdda",
+  "old": null,
+  "new": "(empty group)",
+  "reason": "WRF's namelist reader requires this group to exist even when empty"
+ },
+ {
+  "key": "&dynamics",
+  "old": null,
+  "new": "(empty group)",
+  "reason": "WRF's namelist reader requires this group to exist even when empty"
+ },
+ {
+  "key": "&grib2",
+  "old": null,
+  "new": "(empty group)",
+  "reason": "WRF's namelist reader requires this group to exist even when empty"
+ }
+]

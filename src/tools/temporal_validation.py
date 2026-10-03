@@ -1,42 +1,14 @@
 #!/usr/bin/env python3
-"""tools/temporal_validation.py -- offline temporal validation (decision 0053 step 2).
+"""tools/temporal_validation.py -- offline temporal validation (decision 0053 step 2): does a config
+ranking measured in a forecast's first minutes still hold 3-12 simulated hours later?
 
-Question this answers: is a config ranking measured in the first minutes of a forecast still
-right 3-12 simulated hours later, and how does s/step drift over simulated time?
-
-Two kinds of WRF run, both netCDF restart (io_form_restart=2) -- NEVER ADIOS2: ADIOS2 restart
-corrupts the heap when rank placement changes across the sampled decompositions below, so the
-LONG run and every SAMPLES run must agree on plain netCDF restart I/O.
-
-  A. LONG RUN (one per case): a single WRF run of the case's full length (or up to --hours,
-     default 12) at a fixed ANCHOR decomposition, restart files written every --every hours
-     (default 3), history off. The full per-step timing series from this run IS the s/step
-     drift curve (see drift_curve()).
-  B. SAMPLES (several per case): for each restart time T in {t0, +every, +2*every, ..., +hours}
-     the SAME set of N configs (anchor + K diverse, predictor/decomp_space.py sample_design,
-     fixed seed) run a short window (--steps, default 30) starting from T (t0 is a normal cold
-     start; every other T reads the LONG run's wrfrst_d0?_<T> files).
-
-Analysis (see build_rankings/summarize/drift_curve): per T, the ranking of configs by median
-s/step; Kendall tau between t0 and T; whether t0's best config is still within 2% of T's own
-best at T (pre-registered: tau >= 0.7 and within-2% at the final T, e.g. +12h); the drift curve
-normalised to t0. Writes <root>/<case>/{rankings,drift,summary}.csv and prints a table.
-
-CLI: {plan, submit-long, submit-samples, analyze} are the operator-facing subcommands.
-{case-metadata, restart-timestamp, edit-namelist-long, edit-namelist-sample, parse-timing} are
-internal plumbing, invoked by tools/temporal_run.sbatch (the sbatch wrapper this tool submits --
-see that file's own header for why it is a separate script rather than a new
-campaign/strict_campaign.sbatch mode).
-
-Reuses, by import (never re-derived): campaign/configs.py's namelist-editing primitives
-(_replace_list_line, _set_or_insert_time_control_scalar, _find_namelist_key, edit_namelist,
-_case_namelist_path, _case_effective_max_dom, HISTORY_NEVER_MINUTES, CASES/CASE_ORDER) and
-tools/scc_sweep.py's decomposition-sweep config generator (build_anchor/build_configs,
-write_configs_json) and its sbatch-command helpers (_expand, default_sbatch_runner, submit_job,
-estimate_s_per_step, estimate_time). Like scc_sweep.py (which this module mirrors), this file
-targets the pixi-provided Python (>=3.7, `from __future__ import annotations` used below), not
-the bare python3 (3.6) campaign/configs.py itself is constrained to.
-"""
+LONG run (per case): full length or --hours (12) at the anchor decomposition, restart every
+--every hours (3), history off; its step series is the drift curve. SAMPLES: at each restart
+time T the same N configs (anchor + K diverse, fixed seed) run --steps (30) from T. Pass
+(pre-registered): Kendall tau >= 0.7 and t0's best within 2 % of T's best at the final T.
+Restart I/O is netCDF only: ADIOS2 restart corrupts the heap when rank placement changes.
+CLI: plan, submit-long, submit-samples, analyze (others are plumbing for temporal_run.sbatch).
+Reuses campaign/configs.py namelist edits and tools/scc_sweep.py; needs Python >= 3.7."""
 from __future__ import annotations
 
 import argparse
@@ -49,6 +21,7 @@ import os
 import re
 import statistics
 import sys
+from typing import Any
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _REPO_ROOT = os.path.dirname(_HERE)  # == src/ (tools/ moved one level deeper under src/)
@@ -70,18 +43,18 @@ import scc_sweep                            # tools/scc_sweep.py: config generat
 import wtune_runlength                      # repo root: resolve_run_seconds, the single-sourced
                                              # run_*-keys-vs-date-span resolver (dependency-free)
 
-DEFAULT_HOURS = 12
-DEFAULT_EVERY = 3
-DEFAULT_STEPS = 30
+DEFAULT_HOURS = 12           # simulated h
+DEFAULT_EVERY = 3            # h between restart samples
+DEFAULT_STEPS = 30           # d01 steps per sample window
 DEFAULT_K = 7                       # + anchor = 8 configs, matching the task's "default 8"
 DEFAULT_SEED = 1
 DEFAULT_NODES = 4
-DEFAULT_CORES_PER_NODE = 72
+DEFAULT_CORES_PER_NODE = 72  # scc GH200
 DEFAULT_HARDWARE_ID = "scc-gh200"
-DEFAULT_TAU_THRESHOLD = 0.7
-DEFAULT_PCT_THRESHOLD = 0.02
+DEFAULT_TAU_THRESHOLD = 0.7  # Kendall tau, pre-registered
+DEFAULT_PCT_THRESHOLD = 0.02  # fraction: t0's pick within 2 % of T's best
 DEFAULT_ROOT = "$HOME/wtune-runs/temporal"
-DEFAULT_TIMEOUT_S = 1200
+DEFAULT_TIMEOUT_S = 1200     # s per sample window
 DEFAULT_TIMELINE_K = 2               # anchor + up to 2 alternatives = up to 3 configs (task spec)
 DEFAULT_LONG_S_PER_STEP_FALLBACK = 5.0     # task spec: "steps x s_est ... else 5 s/step"
 DEFAULT_ENV_SOURCE = "$HOME/wtune-scc/env.sh"
@@ -93,7 +66,7 @@ WRF_TIME_FMT = "%Y-%m-%d_%H:%M:%S"
 # ---------------------------------------------------------------------------
 # restart time offsets
 # ---------------------------------------------------------------------------
-def restart_offsets_hours(hours, every):
+def restart_offsets_hours(hours: float, every: float) -> list[float]:
     """[0, every, 2*every, ...] up to and including `hours` -- default hours=12, every=3 gives
     [0, 3, 6, 9, 12] (the task's own {t0, +3h, +6h, +9h, +12h} example). If `hours` is not an
     exact multiple of `every`, `hours` itself is still appended as the final point: the
@@ -107,15 +80,15 @@ def restart_offsets_hours(hours, every):
     return offs
 
 
-def offset_datetime(start_dt, hours_offset):
+def offset_datetime(start_dt: datetime.datetime, hours_offset: float) -> datetime.datetime:
     return start_dt + datetime.timedelta(hours=hours_offset)
 
 
-def fmt_wrf_time(dt):
+def fmt_wrf_time(dt: datetime.datetime) -> str:
     return dt.strftime(WRF_TIME_FMT)
 
 
-def steps_to_minutes(steps, dt_seconds):
+def steps_to_minutes(steps: int, dt_seconds: float) -> int:
     """Ceil(steps*dt_seconds / 60) -- same rounding convention campaign/strict_campaign.sbatch's
     own MIN=$(( (STEPS*DT+59)/60 )) uses, so a SAMPLES run's namelist run length is computed the
     same way the rest of the campaign already computes it."""
@@ -123,34 +96,10 @@ def steps_to_minutes(steps, dt_seconds):
     return (total_s + 59) // 60
 
 
-def resolve_run_minutes(full_hours, hours_cap):
-    """Effective LONG/TIMELINE run length in whole MINUTES -- min(full_hours, hours_cap) when the
-    template's own length is known, else hours_cap alone, rounded to the nearest minute (never
-    floored to whole hours first).
-
-    Jobs 587 (lafe) and 588 (isc21) were killed at their 20-minute SLURM wall limit from TWO
-    separate, compounding defects, neither of which is "HOURS=0 correctly means the full case" --
-    that claim was checked against the real cluster namelists and was FALSE for both cases, for
-    two different reasons (see read_run_length_hours's own docstring for the full mechanism):
-
-    isc21 (run_minutes=30, every other run_* key 0, start/end date span 15h): a genuine 30-minute
-    case. The OLD `hours = min(int(full_hours), args.hours)` computed int(0.5) == 0, and that 0
-    used to be exported as HOURS and fed straight into the namelist edit -- which does NOT mean
-    "run 30 minutes"; because campaign/configs.py's edit_namelist always writes literal
-    run_days/run_hours/run_minutes values (never skips the write), HOURS=0 there means
-    run_minutes=0, which is WRF's OWN trigger for "derive the run length from start_date ->
-    end_date instead" -- i.e. it silently turned a 30-minute run into a 15-HOUR one. This function
-    fixes that: resolve_run_minutes(0.5, 12) == 30, and cmd_submit_timeline now plumbs this exact
-    minute count to the namelist edit via RUN_MINUTES (see build_timeline_sbatch_command), never
-    through HOURS*60.
-
-    lafe (all four run_* keys 0, start/end date span 24h): read_run_length_hours(text) used to
-    return 0.0 here NOT because the case is short, but because its length is expressed only via
-    start_date/end_date, which the old implementation never read at all. That 0.0 is what this
-    function used to receive as `full_hours` and floor to 1 minute (max(1, ...)) -- sizing a
-    24-hour job for 1 minute. read_run_length_hours now resolves this case itself (computing the
-    real 24h span when every run_* key is 0), so `full_hours` reaching this function is already
-    correct; this function's own min(full_hours, hours_cap)*60 logic did not need to change."""
+def resolve_run_minutes(full_hours: float | None, hours_cap: float) -> int:
+    """Effective LONG/TIMELINE run length in whole minutes: min(full_hours, hours_cap), or
+    hours_cap when the length is unknown, rounded (never floored to hours). int(0.5 h) == 0 once
+    turned isc21's 30-minute run into a 15-hour one via run_minutes=0 (jobs 587/588)."""
     if full_hours is not None:
         hours = min(full_hours, hours_cap) if hours_cap else full_hours
     else:
@@ -161,18 +110,18 @@ def resolve_run_minutes(full_hours, hours_cap):
 # ---------------------------------------------------------------------------
 # case metadata
 # ---------------------------------------------------------------------------
-def case_json(case_id):
+def case_json(case_id: str) -> dict:
     c = campaign_configs.CASES.get(case_id)
     if c is None:
         raise SystemExit("unknown case %r (not in campaign/cases.json)" % (case_id,))
     return c
 
 
-def case_namelist_path(case):
+def case_namelist_path(case: dict) -> str:
     return campaign_configs._case_namelist_path(case)
 
 
-def read_case_template(case):
+def read_case_template(case: dict) -> tuple[str | None, str]:
     """(text, path) of the case's real namelist template. text is None when the file is not
     reachable from this machine (e.g. prep_dir lives only on the cluster) -- callers fall back to
     an explicit --hours/--cases from the operator in that case, per this tool's own CLI help."""
@@ -191,7 +140,7 @@ def _first_namelist_int(text, key, default=None):
     return int(float(found["values"][0]))
 
 
-def read_case_start_datetime(text):
+def read_case_start_datetime(text: str) -> datetime.datetime | None:
     """d01's start_year/month/day/hour/minute/second (its first value -- every active domain of
     a temporal-validation restart is aligned to the same wall time). minute/second default to 0
     since many templates omit start_second (and occasionally start_minute) when it is 0. Returns
@@ -207,7 +156,7 @@ def read_case_start_datetime(text):
     return datetime.datetime(y, mo, d, h, mi, s)
 
 
-def read_case_end_datetime(text):
+def read_case_end_datetime(text: str) -> datetime.datetime | None:
     """d01's end_year/month/day/hour/minute/second (its first value) -- same convention as
     read_case_start_datetime (minute/second default to 0, only y/mo/d are mandatory). Returns
     None when end_year/month/day cannot all be found."""
@@ -222,37 +171,11 @@ def read_case_end_datetime(text):
     return datetime.datetime(y, mo, d, h, mi, s)
 
 
-def read_run_length_hours(text, path=None):
-    """The run length WRF will ACTUALLY use, in hours -- not merely what the run_days/run_hours/
-    run_minutes/run_seconds &time_control keys literally sum to.
-
-    When at least one of those four keys is nonzero, they mean exactly what they say:
-    days*24 + hours + minutes/60 + seconds/3600 (0 for any key that is absent, matching WRF's own
-    default) -- this is the isc21 shape (run_minutes=30, every other run_* key 0): a genuine
-    30-minute run, returned as 0.5.
-
-    When ALL FOUR are zero (or absent), WRF does NOT run a zero-length case -- it falls back to
-    computing the run length from &time_control's start_date -> end_date instead (WRF's own
-    documented behaviour once every run_days/run_hours/run_minutes/run_seconds is 0; verified
-    against campaign/configs.py's _set_scalar/edit_namelist, which writes exactly these four keys
-    verbatim and nothing else). This is the lafe shape (all four run_* keys 0, start=2017-08-23
-    06:00 -> end=2017-08-24 06:00): a genuine 24-hour run, NOT a 0-hour one. Returning 0 here for
-    that case previously made every downstream consumer (auto_select_cases, cmd_plan,
-    cmd_submit_long, cmd_submit_timeline) treat a real 24-hour case as if it had no run length at
-    all -- job 587/588's second, independent DEFECT, distinct from isc21's sub-hour truncation.
-
-    Raises ValueError (citing `path` when given) if NEITHER source yields a positive length: 0 is
-    never returned for what claims to be a runnable case, since every caller here already treats
-    0 as "unset", not as a genuine zero-length run (WRF has no such thing).
-
-    Thin adapter over wtune_runlength.resolve_run_seconds (the single-sourced resolver every
-    other "how long does this case run" call site now also goes through) -- this function still
-    owns its OWN raw-text field reads (_first_namelist_int / read_case_start_datetime /
-    read_case_end_datetime; a different in-memory representation from wtune.py's/
-    wtune_predict.py's own namelist parsers, see wtune_runlength.py's module docstring) and just
-    hands the six already-extracted scalars to the shared resolver, converting its result to
-    HOURS and re-wrapping its generic ValueError with this module's own path-citing message so
-    this function's behaviour (and this module's own tests) are unchanged."""
+def read_run_length_hours(text: str, path: str | None = None) -> float:
+    """Run length WRF will actually use (h): the run_days/hours/minutes/seconds sum when any is
+    nonzero (isc21: 0.5), else the start_date -> end_date span (lafe: 24). ValueError (citing
+    path) when neither is positive -- 0 is never returned. Adapter over
+    wtune_runlength.resolve_run_seconds with this module's own raw-text field reads."""
     days = _first_namelist_int(text, "run_days", 0)
     hrs = _first_namelist_int(text, "run_hours", 0)
     mins = _first_namelist_int(text, "run_minutes", 0)
@@ -270,7 +193,7 @@ def read_run_length_hours(text, path=None):
     return run_s / 3600.0
 
 
-def auto_select_cases(min_hours=DEFAULT_HOURS):
+def auto_select_cases(min_hours: float = DEFAULT_HOURS) -> list:
     """Every enabled campaign/cases.json (SITE-overlaid) case, in CASE_ORDER, whose namelist
     template is readable from THIS machine and whose own run length is >= min_hours. Cases whose
     template cannot be read here (the normal case on a dev checkout -- prep_dir lives on the
@@ -294,14 +217,9 @@ def auto_select_cases(min_hours=DEFAULT_HOURS):
 # reader, starting at T)
 # ---------------------------------------------------------------------------
 def _force_netcdf_restart_io(text, restart_flag, restart_interval_minutes, max_dom):
-    """io_form_input/boundary/restart -> 2 (netCDF, NEVER ADIOS2 -- see module docstring),
-    restart on/off, restart_interval (minutes), and quilting off.
-
-    Quilting-off is the same 2-line recipe campaign/configs.py's _apply_adios2 uses (duplicated
-    here, not imported, since that helper is inseparable from ADIOS2/&namelist_adios2, which this
-    tool must never write) -- an active I/O quilt group can hang WRF outright (that function's own
-    comment, job history cited there), and this tool has no ADIOS2 writer path to replace it the
-    way _apply_adios2 does."""
+    """io_form_input/boundary/restart = 2 (netCDF, never ADIOS2), restart on/off,
+    restart_interval (min), quilting off (an active quilt group can hang WRF; same recipe as
+    configs._apply_adios2, duplicated because that helper also writes ADIOS2 settings)."""
     for key in ("io_form_input", "io_form_boundary", "io_form_restart"):
         text = campaign_configs._set_or_insert_time_control_scalar(text, key, 2)
     text = campaign_configs._set_or_insert_time_control_scalar(
@@ -328,8 +246,9 @@ def _set_start_datetime(text, dt, max_dom):
     return text
 
 
-def edit_namelist_long(text, nproc_x, nproc_y, numtiles, ranks, max_dom, run_minutes,
-                        restart_every_minutes, dist="block", blocktime="0"):
+def edit_namelist_long(text: str, nproc_x: int, nproc_y: int, numtiles: int, ranks: int,
+                       max_dom: int, run_minutes: int, restart_every_minutes: int,
+                       dist: str = "block", blocktime: str = "0") -> str:
     """LONG RUN namelist: cold start (restart=.false., template's own native start_* untouched),
     history off, netCDF restart written every restart_every_minutes minutes, run_minutes total.
     `dist`/`blocktime` are not namelist keys (the runner env-exports them for site_launch /
@@ -343,15 +262,12 @@ def edit_namelist_long(text, nproc_x, nproc_y, numtiles, ranks, max_dom, run_min
     return text
 
 
-def edit_namelist_sample(text, nproc_x, nproc_y, numtiles, ranks, max_dom, run_minutes,
-                          restart_dt=None, dist="cyclic", blocktime="0"):
-    """SAMPLES namelist, short run_minutes window. restart_dt=None means T=0: "t0 uses the
-    normal cold start" (task spec) -- restart=.false., the template's own native start_* left
-    untouched. Any other restart_dt means restart=.true. from that wall time (every active
-    domain set to it). Either way: history off, netCDF restart IO (matching the long run's
-    io_form_restart=2 so its wrfrst_* files are readable), and no restart write during this short
-    window (HISTORY_NEVER_MINUTES, reused from campaign/configs.py: this run is far too short to
-    ever reach it, same trick that module already uses to mean "never")."""
+def edit_namelist_sample(text: str, nproc_x: int, nproc_y: int, numtiles: int, ranks: int,
+                         max_dom: int, run_minutes: int, restart_dt: datetime.datetime | None = None,
+                         dist: str = "cyclic", blocktime: str = "0") -> str:
+    """SAMPLES namelist for a short window: restart_dt None = t0 cold start (start_* untouched),
+    else restart=.true. from restart_dt on every domain. History off, netCDF restart reads, no
+    restart write in the window (HISTORY_NEVER_MINUTES)."""
     text = campaign_configs.edit_namelist(
         text, nproc_x, nproc_y, numtiles, run_minutes, max_dom=max_dom,
         history_mode="off", adios2=False, ranks=ranks)
@@ -363,7 +279,7 @@ def edit_namelist_sample(text, nproc_x, nproc_y, numtiles, ranks, max_dom, run_m
     return text
 
 
-def wrfrst_filenames(max_dom, restart_dt):
+def wrfrst_filenames(max_dom: int, restart_dt: datetime.datetime) -> list[str]:
     """wrfrst_d01_<ts>, wrfrst_d02_<ts>, ... for every active domain -- WRF's own restart
     filename convention (share/module_io_wrf.F writes wrfrst_d<NN>_<valid time>), NN zero-padded
     to 2 digits, matching campaign/strict_campaign.sbatch's own `printf "d%02d"` convention."""
@@ -377,7 +293,7 @@ def wrfrst_filenames(max_dom, restart_dt):
 _TIMING_RE = re.compile(r"on domain +(\d+): +([0-9.]+) elapsed")
 
 
-def parse_domain1_step_series(rsl_text):
+def parse_domain1_step_series(rsl_text: str) -> list:
     """Full per-step s/step series for domain 1 (the drift curve's raw data), in order, from
     'Timing for main: time ... on domain N: X elapsed' rsl lines -- same source
     campaign/configs.py's step_stats() consumes for its median, but here the WHOLE series is
@@ -395,14 +311,14 @@ def parse_domain1_step_series(rsl_text):
     return out
 
 
-def median_s_per_step(step_values):
+def median_s_per_step(step_values: list[float]) -> float | None:
     """Median over step_values[1:] -- step 1 (init + first radiation call) excluded, same
     convention as campaign/configs.py's step_stats(). None when there are <1 remaining values."""
     rest = step_values[1:]
     return statistics.median(rest) if rest else None
 
 
-def drift_curve(step_series, dt_seconds):
+def drift_curve(step_series: list, dt_seconds: float) -> list[dict]:
     """Median s/step per simulated hour (bucket = floor(cumulative simulated seconds at the
     START of the step / 3600)), normalised to hour 0's median. Step 1 (index 0) is excluded from
     every bucket, same convention as median_s_per_step/configs.step_stats. Returns a list of
@@ -429,7 +345,7 @@ def drift_curve(step_series, dt_seconds):
 # ---------------------------------------------------------------------------
 # Kendall tau, rankings, within-2%
 # ---------------------------------------------------------------------------
-def kendall_tau(a, b):
+def kendall_tau(a: list[float], b: list[float]) -> float:
     """Kendall's tau-b for two same-length, index-paired sequences -- pairwise concordant/
     discordant count, O(n^2) (fine here: n <= ~10 configs). Returns float('nan') when either
     sequence is constant (denominator 0, no defined correlation)."""
@@ -458,7 +374,7 @@ def kendall_tau(a, b):
     return (conc - disc) / denom
 
 
-def build_rankings(samples_rows):
+def build_rankings(samples_rows: list[dict]) -> list[dict]:
     """samples_rows: iterable of dicts with restart_hours(int), config_id(str), ok(0/1 or
     truthy), steps(list[float]). Returns a list of {"restart_hours", "config_id",
     "median_s_per_step", "rank"} rows, one per (restart_hours, config_id), sorted by
@@ -483,22 +399,12 @@ def build_rankings(samples_rows):
     return out
 
 
-def summarize(rankings, tau_threshold=DEFAULT_TAU_THRESHOLD, pct_threshold=DEFAULT_PCT_THRESHOLD):
-    """rankings: build_rankings() output. Returns (summary_rows, final_hours):
-
-    summary_rows: one dict per restart_hours T, sorted by T:
-      restart_hours, kendall_tau_vs_t0 (None at T==0, or when <2 configs are measured at both
-        t0 and T), best_config (T's own argmin), best_config_t0 (t0's argmin),
-      pct_over_using_t0_choice: (s of best_config_t0 measured AT T - s of best_config at T) /
-        s of best_config at T -- i.e. the cost, in fraction, of having stuck with t0's pick
-        instead of switching to T's actual best. None if either config has no usable measurement.
-      within_pct_threshold: pct_over_using_t0_choice <= pct_threshold (None if not computable).
-      pass_tau: kendall_tau_vs_t0 is not None and >= tau_threshold (always None at T==0).
-      is_final: True for the row at the largest T (the pre-registered tau/within-2% criteria are
-        evaluated there, e.g. +12h for the default hours=12/every=3 sweep).
-
-    final_hours: the T value marked is_final, for convenience.
-    Raises ValueError if rankings has no restart_hours==0 (t0) rows at all."""
+def summarize(rankings: list[dict], tau_threshold: float = DEFAULT_TAU_THRESHOLD,
+              pct_threshold: float = DEFAULT_PCT_THRESHOLD) -> tuple[list[dict], float]:
+    """build_rankings() rows -> (summary_rows sorted by T, final_hours). Per T: restart_hours,
+    kendall_tau_vs_t0, best_config, best_config_t0, pct_over_using_t0_choice (cost of keeping t0's
+    pick at T), within_pct_threshold, pass_tau, is_final (largest T, where the pre-registered
+    criteria apply). None where not computable. ValueError without t0 rows."""
     by_t = {}
     for row in rankings:
         by_t.setdefault(row["restart_hours"], {})[row["config_id"]] = row["median_s_per_step"]
@@ -542,7 +448,7 @@ def summarize(rankings, tau_threshold=DEFAULT_TAU_THRESHOLD, pct_threshold=DEFAU
 # ---------------------------------------------------------------------------
 # CSV I/O
 # ---------------------------------------------------------------------------
-def write_rankings_csv(path, rankings):
+def write_rankings_csv(path: str, rankings: list[dict]) -> None:
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", newline="") as f:
         w = csv.writer(f)
@@ -551,7 +457,7 @@ def write_rankings_csv(path, rankings):
             w.writerow([r["restart_hours"], r["config_id"], r["median_s_per_step"], r["rank"]])
 
 
-def write_summary_csv(path, summary_rows):
+def write_summary_csv(path: str, summary_rows: list[dict]) -> None:
     os.makedirs(os.path.dirname(path), exist_ok=True)
     fields = ["restart_hours", "kendall_tau_vs_t0", "best_config", "best_config_t0",
               "pct_over_using_t0_choice", "within_pct_threshold", "pass_tau", "is_final"]
@@ -562,7 +468,7 @@ def write_summary_csv(path, summary_rows):
             w.writerow([r[k] for k in fields])
 
 
-def write_drift_csv(path, drift_rows):
+def write_drift_csv(path: str, drift_rows: list[dict]) -> None:
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", newline="") as f:
         w = csv.writer(f)
@@ -571,7 +477,7 @@ def write_drift_csv(path, drift_rows):
             w.writerow([r["sim_hour"], r["median_s_per_step"], r["n_steps"], r["normalized"]])
 
 
-def read_samples_ledger(path):
+def read_samples_ledger(path: str) -> list[dict]:
     """One row per (restart_hours, config) run, as written by tools/temporal_run.sbatch's
     SAMPLES loop: restart_hours,config_id,ranks,omp,nx,ny,numtiles,dist,rc,ok,steps (steps is
     ';'-joined floats, one per measured step of that short run)."""
@@ -589,7 +495,7 @@ def read_samples_ledger(path):
     return out
 
 
-def read_long_timing_csv(path):
+def read_long_timing_csv(path: str) -> list:
     """The 'step_index,s_per_step' CSV `parse-timing` (no --flatten) writes -- returns just the
     ordered s_per_step column."""
     out = []
@@ -599,7 +505,7 @@ def read_long_timing_csv(path):
     return out
 
 
-def print_summary_table(case_id, summary_rows):
+def print_summary_table(case_id: str, summary_rows: list[dict]) -> None:
     print("=== temporal validation: %s ===" % case_id)
     header = "%-6s %8s %-10s %-10s %10s %8s %8s" % (
         "T(h)", "tau_t0", "best@T", "best@t0", "pct_over", "<=2%%?", "final")
@@ -623,23 +529,25 @@ def print_summary_table(case_id, summary_rows):
 # ---------------------------------------------------------------------------
 # config generation (anchor + K sampled) -- delegates entirely to tools/scc_sweep.py
 # ---------------------------------------------------------------------------
-def build_sample_configs(case, case_json_, nodes, cores_per_node, hardware_id, k, seed):
+def build_sample_configs(case: str, case_json_: dict, nodes: int, cores_per_node: int,
+                         hardware_id: str, k: int, seed: int) -> Any:
     """anchor + up to k sampled, deduped, anchor wins ties -- exactly
     tools/scc_sweep.py's own build_configs(), reused verbatim (not re-derived) so the SAMPLES set
     always includes the same decomposition the LONG run itself was anchored at."""
     return scc_sweep.build_configs(case, case_json_, nodes, k, seed, hardware_id, cores_per_node)
 
 
-def anchor_config(case_json_, nodes, cores_per_node, hardware_id):
+def anchor_config(case_json_: dict, nodes: int, cores_per_node: int, hardware_id: str) -> Any:
     total_cores = nodes * cores_per_node
     return scc_sweep.build_anchor(case_json_, total_cores, nodes, hardware_id)
 
 
-def sample_configs_path(root, case):
+def sample_configs_path(root: str, case: str) -> str:
     return os.path.join(scc_sweep._expand(root), case, "samples_configs.json")
 
 
-def ensure_samples_configs(root, case, nodes, cores_per_node, hardware_id, k, seed):
+def ensure_samples_configs(root: str, case: str, nodes: int, cores_per_node: int,
+                           hardware_id: str, k: int, seed: int) -> tuple[list[dict], str]:
     """Loads <root>/<case>/samples_configs.json if it already exists (so every submit-samples
     call across all T's reuses the IDENTICAL set written once, by plan or by the first
     submit-samples call), else generates + writes it via build_sample_configs. Returns
@@ -656,11 +564,12 @@ def ensure_samples_configs(root, case, nodes, cores_per_node, hardware_id, k, se
     return built["configs"], path
 
 
-def timeline_configs_path(root, case):
+def timeline_configs_path(root: str, case: str) -> str:
     return os.path.join(scc_sweep._expand(root), case, "timeline_configs.json")
 
 
-def ensure_timeline_configs(root, case, nodes, cores_per_node, hardware_id, k, seed):
+def ensure_timeline_configs(root: str, case: str, nodes: int, cores_per_node: int,
+                            hardware_id: str, k: int, seed: int) -> tuple[list[dict], str]:
     """Same load-or-build-once convention as ensure_samples_configs, but capped at
     DEFAULT_TIMELINE_K alternatives (anchor + up to 2 = up to 3 configs total, this task's own
     "config x state interaction" spec) and written to its own timeline_configs.json path so a
@@ -682,9 +591,9 @@ def ensure_timeline_configs(root, case, nodes, cores_per_node, hardware_id, k, s
 # ---------------------------------------------------------------------------
 # sbatch command builders (reusing scc_sweep._expand / default_sbatch_runner / submit_job)
 # ---------------------------------------------------------------------------
-def build_long_sbatch_command(case, nodes, cores_per_node, hours, every, time_limit, out_dir,
-                               env_source=DEFAULT_ENV_SOURCE, sbatch_script=DEFAULT_SBATCH_SCRIPT,
-                               site="scc"):
+def build_long_sbatch_command(case: str, nodes: int, cores_per_node: int, hours: int, every: float,
+                              time_limit: str, out_dir: str, env_source: str = DEFAULT_ENV_SOURCE,
+                              sbatch_script: str = DEFAULT_SBATCH_SCRIPT, site: str = "scc") -> str:
     export = "ALL,SITE=%s,CASE=%s,TV_MODE=long,HOURS=%d,EVERY=%d" % (site, case, hours, every)
     sbatch = ("sbatch -p compute -N %d --ntasks-per-node=%d --exclusive --exclude=head "
               "--time=%s --job-name=tv-long-%s --output=%s/temporal-long-%%j.out --export=%s %s"
@@ -693,10 +602,11 @@ def build_long_sbatch_command(case, nodes, cores_per_node, hours, every, time_li
     return "source %s; %s" % (scc_sweep._expand(env_source), sbatch)
 
 
-def build_samples_sbatch_command(case, restart_hours, long_run_dir, configs_path, steps,
-                                  nodes, cores_per_node, time_limit, timeout_s, out_dir,
-                                  env_source=DEFAULT_ENV_SOURCE, sbatch_script=DEFAULT_SBATCH_SCRIPT,
-                                  site="scc"):
+def build_samples_sbatch_command(case: str, restart_hours: float, long_run_dir: str,
+                                 configs_path: str, steps: int, nodes: int, cores_per_node: int,
+                                 time_limit: str, timeout_s: int, out_dir: str,
+                                 env_source: str = DEFAULT_ENV_SOURCE,
+                                 sbatch_script: str = DEFAULT_SBATCH_SCRIPT, site: str = "scc") -> str:
     export = ("ALL,SITE=%s,CASE=%s,TV_MODE=samples,RESTART_HOURS=%d,LONG_RUN_DIR=%s,"
               "CONFIG_FILE=%s,STEPS=%d,TIMEOUT_S=%d"
               % (site, case, restart_hours, long_run_dir, configs_path, steps, timeout_s))
@@ -707,26 +617,16 @@ def build_samples_sbatch_command(case, restart_hours, long_run_dir, configs_path
     return "source %s; %s" % (scc_sweep._expand(env_source), sbatch)
 
 
-def build_timeline_sbatch_command(case, nodes, cores_per_node, hours, every, run_minutes,
-                                   configs_path, time_limit, out_dir, aux_interval_minutes,
-                                   aux_stream=None, frames_per_auxhist=2000, fields=None,
-                                   env_source=DEFAULT_ENV_SOURCE, sbatch_script=DEFAULT_SBATCH_SCRIPT,
-                                   site="scc"):
-    """TV_MODE=timeline: same LONG-run shape (full length or --hours, cold start, netCDF restart
-    every `every` hours) as build_long_sbatch_command, but looped over `configs_path` (anchor +
-    up to DEFAULT_TIMELINE_K alternatives, see ensure_timeline_configs) inside ONE sbatch job --
-    same CONFIG_FILE-driven loop tools/temporal_run.sbatch's own SAMPLES branch already uses (see
-    that file's header). aux_stream=None lets the sbatch script auto-detect a free stream against
-    the case's own namelist template (tools/state_timeline.py pick-aux-stream) rather than fixing
-    one here at plan time, since only the runner has the exact template text at hand.
-
-    RUN_MINUTES (job 587/588 postmortem, correction 5) is exported ALONGSIDE HOURS, not instead of
-    it: HOURS is still whatever cmd_submit_timeline's own `hours` (int, possibly 0) is, kept for
-    any other consumer of that var, but the sbatch script's TV_MODE=timeline branch now passes
-    RUN_MINUTES -- not HOURS -- to tools/state_timeline.py's edit-namelist-timeline --run-minutes,
-    so the namelist's actual run length is whatever resolve_run_minutes() computed (e.g. isc21's
-    genuine 30 minutes), never HOURS*60 (which would silently re-truncate a sub-hour length to 0,
-    or an already-capped length to a coarser multiple of 60 minutes)."""
+def build_timeline_sbatch_command(case: str, nodes: int, cores_per_node: int, hours: int,
+                                  every: float, run_minutes: int, configs_path: str,
+                                  time_limit: str, out_dir: str, aux_interval_minutes: float,
+                                  aux_stream: int | None = None, frames_per_auxhist: int = 2000,
+                                  fields: str | None = None, env_source: str = DEFAULT_ENV_SOURCE,
+                                  sbatch_script: str = DEFAULT_SBATCH_SCRIPT,
+                                  site: str = "scc") -> str:
+    """TV_MODE=timeline sbatch command: the LONG-run shape looped over configs_path (anchor + up to
+    DEFAULT_TIMELINE_K) in one job. aux_stream None = the runner picks a free stream. RUN_MINUTES
+    (resolve_run_minutes) drives the namelist run length, not HOURS*60 (jobs 587/588)."""
     export = ("ALL,SITE=%s,CASE=%s,TV_MODE=timeline,HOURS=%d,EVERY=%d,RUN_MINUTES=%d,CONFIG_FILE=%s,"
               "AUX_INTERVAL_MIN=%d,FRAMES_PER_AUXHIST=%d"
               % (site, case, hours, every, run_minutes, configs_path, aux_interval_minutes,
@@ -745,7 +645,7 @@ def build_timeline_sbatch_command(case, nodes, cores_per_node, hours, every, run
 # ---------------------------------------------------------------------------
 # CLI: plan
 # ---------------------------------------------------------------------------
-def cmd_plan(args):
+def cmd_plan(args: argparse.Namespace) -> int:
     cases = args.cases if args.cases else auto_select_cases(args.hours)
     if not cases:
         raise SystemExit(
@@ -778,7 +678,7 @@ def cmd_plan(args):
 # ---------------------------------------------------------------------------
 # CLI: submit-long / submit-samples
 # ---------------------------------------------------------------------------
-def cmd_submit_long(args):
+def cmd_submit_long(args: argparse.Namespace) -> int:
     cj = case_json(args.case)
     text, path = read_case_template(cj)
     full_hours = read_run_length_hours(text) if text is not None else None
@@ -808,7 +708,7 @@ def cmd_submit_long(args):
     return 0
 
 
-def cmd_submit_samples(args):
+def cmd_submit_samples(args: argparse.Namespace) -> int:
     case_json(args.case)  # result unused; kept so an unknown case still fails here, before any submission
     configs_list, configs_path = ensure_samples_configs(
         args.root, args.case, args.nodes, args.cores_per_node, args.hardware_id, args.k, args.seed)
@@ -832,36 +732,13 @@ def cmd_submit_samples(args):
     return 0
 
 
-def cmd_submit_timeline(args):
-    """TIMELINE mode (decision 0053 step 2's own training-data extension, tools/state_timeline.py):
-    one sbatch job runs the case's full length (or --hours) at anchor + up to
-    DEFAULT_TIMELINE_K alternative decompositions, each writing the auxiliary state stream
-    tools/temporal_run.sbatch's TV_MODE=timeline branch configures. Config set generation and
-    sbatch-command shape otherwise mirror cmd_submit_long/cmd_submit_samples exactly (same
-    hours-resolution, same s/step-ledger time estimate, same --dry-run contract).
-
-    Two DEFECT fixes from the job 587 (lafe)/588 (isc21) postmortem, both pre-registered
-    invariants, not negotiable:
-
-    DEFECT A (both the wall limit AND the actual namelist run length were wrong for a run length
-    below one hour, or one expressed only via start_date/end_date): steps_est is now derived from
-    resolve_run_minutes()'s MINUTE-precision effective run length (fed by read_run_length_hours,
-    itself now correct for both the isc21 shape -- genuine sub-hour run_minutes -- and the lafe
-    shape -- all run_* keys 0, length defined by the date span; see both functions' own
-    docstrings), never from int(hours). The SAME run_minutes value is now also exported as
-    RUN_MINUTES and plumbed all the way to tools/state_timeline.py's edit-namelist-timeline
-    --run-minutes (see build_timeline_sbatch_command), so the namelist's actual run length always
-    matches what steps_est assumed -- HOURS/HOURS*60 no longer drives the TIMELINE namelist edit
-    at all.
-
-    DEFECT B (wall limit sized off the unmeasured 5s/step constant): when
-    scc_sweep.estimate_s_per_step falls back to DEFAULT_LONG_S_PER_STEP_FALLBACK (source
-    'fallback_10s', meaning: no ledger row for this case/node-count/hardware combination), that
-    estimate is routinely off by close to an order of magnitude (isc21 measured 4.94s/step at 8
-    nodes vs. the 5.0s/step *1-node* fallback used for job 588 -- roughly 8x low once node-count
-    scaling is accounted for) and WILL undersize --time. Refuse to submit in that case (still
-    printing the full plan first, even under --dry-run, so an operator sees exactly what would be
-    refused) unless --s-per-step overrides it with a measured value (source 'override')."""
+def cmd_submit_timeline(args: argparse.Namespace) -> int:
+    """TIMELINE mode: one job runs the full length (or --hours) at anchor + up to
+    DEFAULT_TIMELINE_K alternatives, writing the auxiliary state stream; otherwise as
+    cmd_submit_long/samples (--dry-run contract included). steps_est and RUN_MINUTES both come from
+    resolve_run_minutes (jobs 587/588). Refuses to submit when s/step is the unmeasured fallback
+    ('fallback_10s', ~8x low for isc21) unless --s-per-step gives a measured value; the plan is
+    printed either way."""
     cj = case_json(args.case)
     text, path = read_case_template(cj)
     full_hours = read_run_length_hours(text, path) if text is not None else None
@@ -914,7 +791,7 @@ def cmd_submit_timeline(args):
 # ---------------------------------------------------------------------------
 # CLI: analyze
 # ---------------------------------------------------------------------------
-def cmd_analyze(args):
+def cmd_analyze(args: argparse.Namespace) -> int:
     samples_paths = args.samples_csv or sorted(glob.glob(
         os.path.join(scc_sweep._expand(args.raw_dir), "temporal_%s_samples_*.csv" % args.case)))
     if not samples_paths:
@@ -957,7 +834,7 @@ def _shq(v):
     return "'%s'" % str(v).replace("'", "'\\''")
 
 
-def cmd_case_metadata(args):
+def cmd_case_metadata(args: argparse.Namespace) -> int:
     cj = case_json(args.case)
     max_dom = campaign_configs._case_effective_max_dom(cj)
     print("PREP_DIR=%s" % _shq(cj["prep_dir"]))
@@ -969,7 +846,7 @@ def cmd_case_metadata(args):
     return 0
 
 
-def cmd_anchor_config(args):
+def cmd_anchor_config(args: argparse.Namespace) -> int:
     cj = case_json(args.case)
     a = anchor_config(cj, args.nodes, args.cores_per_node, args.hardware_id)
     if a is None:
@@ -985,7 +862,7 @@ def cmd_anchor_config(args):
     return 0
 
 
-def cmd_restart_timestamp(args):
+def cmd_restart_timestamp(args: argparse.Namespace) -> int:
     cj = case_json(args.case)
     text, path = read_case_template(cj)
     if text is None:
@@ -997,7 +874,7 @@ def cmd_restart_timestamp(args):
     return 0
 
 
-def cmd_edit_namelist_long(args):
+def cmd_edit_namelist_long(args: argparse.Namespace) -> int:
     with open(args.infile) as f:
         text = f.read()
     every_minutes = args.every * 60
@@ -1009,7 +886,7 @@ def cmd_edit_namelist_long(args):
     return 0
 
 
-def cmd_edit_namelist_sample(args):
+def cmd_edit_namelist_sample(args: argparse.Namespace) -> int:
     with open(args.infile) as f:
         text = f.read()
     cj = case_json(args.case)
@@ -1030,7 +907,7 @@ def cmd_edit_namelist_sample(args):
     return 0
 
 
-def cmd_parse_timing(args):
+def cmd_parse_timing(args: argparse.Namespace) -> int:
     with open(args.rsl_file, errors="replace") as f:
         text = f.read()
     series = parse_domain1_step_series(text)
@@ -1065,7 +942,7 @@ def _add_submit_args(sp):
     sp.add_argument("--dry-run", action="store_true", dest="dry_run")
 
 
-def build_arg_parser():
+def build_arg_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="temporal_validation.py")
     sub = p.add_subparsers(dest="command", required=True)
 
@@ -1165,7 +1042,7 @@ def build_arg_parser():
     return p
 
 
-def main(argv=None):
+def main(argv: list[str] | None = None) -> int:
     args = build_arg_parser().parse_args(argv)
     handlers = {
         "plan": cmd_plan,

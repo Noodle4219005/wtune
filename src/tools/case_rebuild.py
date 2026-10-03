@@ -36,6 +36,7 @@ CLI:
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import datetime
 import json
 import math
@@ -44,6 +45,7 @@ import numbers
 import re
 import shutil
 import sys
+from typing import TYPE_CHECKING, Callable
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _REPO_ROOT = os.path.dirname(_HERE)
@@ -54,6 +56,10 @@ for _p in (_REPO_ROOT, _HERE):
 import wtune_predict as predict     # repo root -- stdlib only
 import coldstart_sample as cs       # tools/ -- stdlib only at module level (lazy md/gs)
 
+if TYPE_CHECKING:
+    import numpy as np
+    from numpy.typing import ArrayLike
+
 _WRF_TIME_FMT = cs._WRF_TIME_FMT
 DEFAULT_REGISTRY = os.path.join(_REPO_ROOT, "wtune_catalog_registry.json")
 
@@ -62,20 +68,40 @@ class RebuildError(Exception):
     """A user-facing input/modeling error, same role as coldstart_sample.ColdstartError."""
 
 
+# The groups WRF's namelist reader requires to exist, even empty (a MISSING group is FATAL;
+# job 986). The Registry catalog does not record this list.
+_ALWAYS_GROUPS = ("time_control", "domains", "physics", "fdda", "dynamics", "bdy_control",
+                  "grib2", "namelist_quilt")
+_DT_PARTS = ("year", "month", "day", "hour", "minute", "second")
+_IO_FORM_KEYS = ("io_form_history", "io_form_restart", "io_form_input", "io_form_boundary")
+_SCHEME_KEYS = ("mp_physics", "ra_lw_physics", "ra_sw_physics", "bl_pbl_physics", "cu_physics",
+                "sf_sfclay_physics", "sf_surface_physics", "physics_suite")
+_DEFAULT_E_VERT = 45              # vertical levels
+_DEFAULT_P_TOP_PA = 5000          # Pa
+_DEFAULT_HISTORY_MIN = 60         # min
+_DEFAULT_INTERVAL_S = 10800       # s (3 h forcing cadence)
+_DEFAULT_RUN_S = 6 * 3600         # s
+_DEFAULT_SPEC_BDY_WIDTH = 5       # WRF Registry default
+_NETCDF_IO_FORM = 2               # io_form 2 = netCDF
+
+
+def _dt_parts(t: datetime.datetime) -> list[tuple[str, int]]:
+    """[('year', y), ..., ('second', s)] for WRF's start_*/end_* keys."""
+    return [(p, getattr(t, p)) for p in _DT_PARTS]
+
+
 # ===========================================================================
 # R6-A: rebuild -- namelist completion + registry validation
 # ===========================================================================
 
-def load_registry(path=DEFAULT_REGISTRY):
+def load_registry(path: str = DEFAULT_REGISTRY) -> dict:
     with open(path) as f:
         return json.load(f)
 
 
-def registry_valid_keys(registry):
-    """Set of every valid namelist key name (lowercased), across every group in the Registry
-    catalog (wtune_catalog_registry.json: {'groups': {group_name: [{'name': 'GMT', ...}, ...]}})
-    -- flat/global, not scoped per &group, since a namelist's own group names don't always align
-    1:1 with the Registry's internal group keys."""
+def registry_valid_keys(registry: dict) -> set[str]:
+    """Every valid namelist key (lowercased) across all Registry catalog groups -- flat, since a
+    namelist's &group names do not always match the catalog's group keys 1:1."""
     keys = set()
     for _group, entries in registry.get("groups", {}).items():
         for e in entries:
@@ -85,17 +111,10 @@ def registry_valid_keys(registry):
     return keys
 
 
-def validate_namelist_against_registry(nl, registry):
-    """nl: wtune_predict.parse_namelist's result ({group: {key: [values]}}). Returns a sorted
-    list of warning strings for keys not found in the Registry catalog (case-insensitive) --
-    NEVER raises, NEVER deletes anything; unknown keys are reported, not touched.
-
-    T11 (2026-09-24): a namelist group the catalog does not cover AT ALL (e.g. &namelist_quilt --
-    wtune_catalog_registry.json has no 'namelist_quilt' group, even though nio_groups/
-    nio_tasks_per_group are real WRF keys) must not make every one of its keys look 'unknown':
-    that conflates 'this key does not exist in WRF' with 'the catalog just never covered this
-    group'. Such a group gets ONE 'group not in catalog' warning instead, and its keys are not
-    individually flagged."""
+def validate_namelist_against_registry(nl: dict, registry: dict) -> list[str]:
+    """Sorted warnings for parse_namelist keys missing from the Registry catalog; never raises or
+    edits. A group the catalog lacks entirely (e.g. &namelist_quilt) gets one 'group not in
+    catalog' warning instead of one per key (T11)."""
     valid = registry_valid_keys(registry)
     catalog_groups = set(g.lower() for g in registry.get("groups", {}))
     warnings = []
@@ -110,267 +129,210 @@ def validate_namelist_against_registry(nl, registry):
     return sorted(warnings)
 
 
-def registry_group_for_key(key, registry):
-    """The Registry group (lowercase) that owns `key`, or None if the catalog has no group
-    entry for it at all. Used by complete_namelist so a newly-inserted fill-if-missing/sync key
-    lands in its OWN group (e_vert/p_top_requested/... -> &domains, history_interval/... ->
-    &time_control, physics_suite/num_land_cat -> &physics) instead of always &time_control --
-    every key complete_namelist calls this for has exactly one owning group in the catalog
-    (verified against wtune_catalog_registry.json, 2026-09-24)."""
+def _registry_entry(key: str, registry: dict) -> tuple[str | None, dict | None]:
+    """(group, entry) of the first catalog entry named `key` (case-insensitive), or (None, None)."""
     for group, entries in registry.get("groups", {}).items():
         for e in entries:
             if e.get("name", "").lower() == key.lower():
-                return group
-    return None
+                return group, e
+    return None, None
 
 
-def registry_per_domain(key, registry, default=True):
-    """True if wtune_catalog_registry.json's own entry for `key` says it is max_domains-valued
-    (one value per domain, e.g. mp_physics), False if it says single-valued (dimension 1, e.g.
-    damp_opt), or `default` if the catalog has no entry for it at all. T14 (2026-09-24, cluster
-    check against real namelists -- zhengzhou/conus12/sc26p1): damp_opt was written
-    'damp_opt = 3, 3, 3,' (broadcast per domain) but WRF's Registry declares it dimension 1 --
-    a strict namelist reader can reject the extra values. The catalog's own entries already
-    carry a 'per_domain' bool per key (verified 2026-09-24: e.g. {'name': 'damp_opt',
-    'per_domain': false}, {'name': 'mp_physics', 'per_domain': true}) -- read it from there
-    rather than guessing or hand-listing which keys are which. `default=True` preserves the
-    pre-T14 broadcast-by-default behavior for any key the catalog does not cover at all, rather
-    than silently narrowing an unknown key to one value."""
-    for group, entries in registry.get("groups", {}).items():
-        for e in entries:
-            if e.get("name", "").lower() == key.lower():
-                pd = e.get("per_domain")
-                return bool(pd) if pd is not None else default
-    return default
+def registry_group_for_key(key: str, registry: dict) -> str | None:
+    """The catalog group that owns `key`, or None -- so an inserted key lands in its own &group
+    (T11: p_top_requested appended to &time_control made real.exe FATAL)."""
+    return _registry_entry(key, registry)[0]
 
 
-# T12 (2026-09-24): moved to coldstart_sample.py (case_rebuild imports coldstart_sample, not the
-# reverse, and coldstart_sample.apply_vertical_grid_override needs this too) -- aliased here so
-# every existing `cr._namelist_values_equal` call site keeps working unchanged.
+def registry_per_domain(key: str, registry: dict, default: bool = True) -> bool:
+    """Whether the catalog marks `key` max_domains-valued ('per_domain'); `default` when the
+    catalog has no entry or no flag. T14: damp_opt is dimension 1 -- a broadcast list can be
+    rejected by a strict namelist reader."""
+    _group, e = _registry_entry(key, registry)
+    if e is None:
+        return default
+    pd = e.get("per_domain")
+    return bool(pd) if pd is not None else default
+
+
+# Lives in coldstart_sample (it needs it too; case_rebuild imports coldstart_sample, not the
+# reverse); aliased so `cr._namelist_values_equal` keeps working.
 _namelist_values_equal = cs.namelist_values_equal
 
 
-def complete_namelist(nl_text, facts, registry=None, vertical_grid=None):
-    """(new_text, changes). Every change is {key, old, new, reason}. `facts`: max_dom,
-    num_metgrid_levels, num_metgrid_soil_levels (optional), num_land_cat (optional),
-    interval_seconds, start_dt, end_dt (the SPAN -- already date-shifted if applicable),
-    dx_km (d01), parent_grid_ratio (list, index d = domain d+1's own ratio; index 0 unused).
-    `registry`: the loaded wtune_catalog_registry.json dict (default: load_registry()) -- every
-    key this function inserts is placed into ITS OWN Registry group via
-    registry_group_for_key, not hardcoded to &time_control (T11, 2026-09-24: real.exe FATAL'd
-    'Maybe here?: p_top_requested =' because the old code appended every missing key to
-    &time_control regardless of where WRF actually expects it -- p_top_requested is &domains).
+class _NamelistEditor:
+    """complete_namelist's working text plus its change log ({key, old, new, reason} rows)."""
 
-    ALWAYS SYNC (overwritten even if present, added if missing -- met_em/geo_em/span facts the
-    case's own namelist.input cannot know without them): num_metgrid_levels,
-    num_metgrid_soil_levels, num_land_cat, interval_seconds, start_*/end_* per domain, run_*.
-    `vertical_grid` (optional, {'eta_levels': [...], 'p_top_pa': ...} -- plan.json's own schema,
-    see coldstart_sample.read_vertical_grid_or_warn/T12): when given, e_vert/eta_levels/
-    p_top_requested are instead ALWAYS overridden from the case's own wrfinput ZNW/P_TOP (T8,
-    2026-09-24 -- see coldstart_sample.vertical_grid_from_wrfinput's docstring), and dzbot/
-    dzstretch_s/dzstretch_u/auto_levels_opt are removed outright (they conflict with an explicit
-    eta_levels). T12: this dict must come from plan.json (read at PLAN time, login node) --
-    complete_namelist itself never imports numpy/netCDF4, so it stays safe to call from a batch
-    job under /usr/bin/python3.
+    def __init__(self, txt: str, registry: dict, max_dom: int):
+        self.txt = txt
+        self.changes: list[dict] = []
+        self.registry = registry
+        self.max_dom = max_dom
 
-    FILL ONLY IF MISSING (never overrides a user value; skipped for e_vert/p_top_requested when
-    `vertical_grid` is given): e_vert=45, p_top_requested=5000,
-    time_step = largest int <= 6*dx_km(d01) that is >=1, parent_time_step_ratio =
-    parent_grid_ratio per nest, history_interval=60 (min, only if NEITHER history_interval NOR
-    history_interval_m exists at all), frames_per_outfile=1, restart=.false.,
-    restart_interval=run minutes (one restart at the end), io_form_{history,restart,input,
-    boundary}=2, and physics_suite='CONUS' (only if NO &physics scheme key is present at all)."""
-    txt = nl_text
-    text0 = nl_text
-    changes = []
-    max_dom = int(facts["max_dom"])
-    registry = registry if registry is not None else load_registry()
+    def group_for(self, key: str, default: str = "time_control") -> str:
+        return registry_group_for_key(key, self.registry) or default
 
-    def group_for(key, default="time_control"):
-        return registry_group_for_key(key, registry) or default
+    def ndom_for(self, key: str) -> int:
+        """Values to write: max_dom for a catalog per-domain key, else 1 (T14)."""
+        return self.max_dom if (self.max_dom > 1 and registry_per_domain(key, self.registry)) else 1
 
-    def ndom_for(key):
-        # T14 (2026-09-24): dimension comes from the catalog, not from what the caller asks
-        # for -- every sync()/fill_if_missing() call site used to pass its own ndom guess (some
-        # right, some wrong: damp_opt/hypsometric_opt/use_theta_m were broadcast per domain when
-        # the Registry says dimension 1; frames_per_outfile was written single when the Registry
-        # says per-domain). One value when max_dom==1 either way (nothing to get wrong).
-        return max_dom if (max_dom > 1 and registry_per_domain(key, registry)) else 1
+    def log(self, key: str, old, new, reason: str) -> None:
+        self.changes.append({"key": key, "old": old, "new": new, "reason": reason})
 
-    def sync(key, value, reason="", group_default="time_control"):
-        nonlocal txt
-        old = cs.get_first(txt, key)
+    def sync(self, key: str, value, reason: str = "", group_default: str = "time_control") -> None:
+        """Set `key` (insert if missing); a numerically equal spelling ('01' vs '1') is no change."""
+        old = cs.get_first(self.txt, key)
         new_str = str(value)
-        # T11: numeric-equal values ('01' vs '1') are not a change, only a different string
-        # spelling of the same one -- do not log it.
         if old is not None and _namelist_values_equal(old.strip(), new_str):
             return
-        txt = cs.set_list(txt, key, value, ndom_for(key),
-                          new_key_group=group_for(key, default=group_default))
-        changes.append({"key": key, "old": old, "new": new_str, "reason": reason})
+        self.txt = cs.set_list(self.txt, key, value, self.ndom_for(key),
+                               new_key_group=self.group_for(key, default=group_default))
+        self.log(key, old, new_str, reason)
 
-    def fill_if_missing(key, value, reason="", group_default="time_control"):
-        nonlocal txt
-        if cs.count_key(txt, key) > 0:
+    def fill_if_missing(self, key: str, value, reason: str = "",
+                        group_default: str = "time_control") -> None:
+        if cs.count_key(self.txt, key) > 0:
             return
-        txt = cs.set_list(txt, key, value, ndom_for(key),
-                          new_key_group=group_for(key, default=group_default))
-        changes.append({"key": key, "old": None, "new": str(value), "reason": reason})
+        self.txt = cs.set_list(self.txt, key, value, self.ndom_for(key),
+                               new_key_group=self.group_for(key, default=group_default))
+        self.log(key, None, str(value), reason)
 
-    # -- always sync --
-    sync("num_metgrid_levels", int(facts["num_metgrid_levels"]), "met_em NUM_METGRID_LEVELS")
+    def fill_values_if_missing(self, key: str, values: list, reason: str,
+                               group_default: str = "time_control") -> None:
+        """Like fill_if_missing, for an explicit per-domain value list."""
+        if cs.count_key(self.txt, key) != 0:
+            return
+        self.txt = cs.set_list_values(self.txt, key, values,
+                                      new_key_group=self.group_for(key, default=group_default))
+        self.log(key, None, str(values), reason)
+
+
+def _sync_met_and_span(ed: _NamelistEditor, facts: dict) -> int:
+    """Always-sync keys from met_em/geo_em and the rebuild span; returns the run length (s)."""
+    ed.sync("num_metgrid_levels", int(facts["num_metgrid_levels"]), "met_em NUM_METGRID_LEVELS")
     if facts.get("num_metgrid_soil_levels") is not None:
-        sync("num_metgrid_soil_levels", int(facts["num_metgrid_soil_levels"]),
-            "met_em NUM_METGRID_SOIL_LEVELS")
+        ed.sync("num_metgrid_soil_levels", int(facts["num_metgrid_soil_levels"]),
+                "met_em NUM_METGRID_SOIL_LEVELS")
     if facts.get("num_land_cat") is not None:
-        sync("num_land_cat", int(facts["num_land_cat"]), "met_em/geo_em NUM_LAND_CAT")
-    sync("interval_seconds", int(facts["interval_seconds"]), "forcing cadence")
+        ed.sync("num_land_cat", int(facts["num_land_cat"]), "met_em/geo_em NUM_LAND_CAT")
+    ed.sync("interval_seconds", int(facts["interval_seconds"]), "forcing cadence")
 
     start_dt, end_dt = facts["start_dt"], facts["end_dt"]
-    for k, v in (("year", start_dt.year), ("month", start_dt.month), ("day", start_dt.day),
-                 ("hour", start_dt.hour), ("minute", start_dt.minute), ("second", start_dt.second)):
-        sync("start_" + k, v, "rebuild span start")
-    for k, v in (("year", end_dt.year), ("month", end_dt.month), ("day", end_dt.day),
-                 ("hour", end_dt.hour), ("minute", end_dt.minute), ("second", end_dt.second)):
-        sync("end_" + k, v, "rebuild span end")
+    for k, v in _dt_parts(start_dt):
+        ed.sync("start_" + k, v, "rebuild span start")
+    for k, v in _dt_parts(end_dt):
+        ed.sync("end_" + k, v, "rebuild span end")
     run_s = int(round((end_dt - start_dt).total_seconds()))
-    sync("run_days", 0, "rebuild span")
-    sync("run_hours", 0, "rebuild span")
-    sync("run_minutes", 0, "rebuild span")
-    sync("run_seconds", run_s, "rebuild span")
+    ed.sync("run_days", 0, "rebuild span")
+    ed.sync("run_hours", 0, "rebuild span")
+    ed.sync("run_minutes", 0, "rebuild span")
+    ed.sync("run_seconds", run_s, "rebuild span")
+    return run_s
 
-    # -- fill only if missing --
-    if vertical_grid is not None:
-        # T8 (2026-09-24): reproduce the case's own vertical grid EXACTLY -- see
-        # vertical_grid_from_wrfinput's docstring for why dzbot/dzstretch can silently diverge
-        # from what the wrfinput was actually built with. These three ALWAYS override (they are
-        # not fill_if_missing), and the conflicting dz*/auto_levels_opt keys are removed.
-        for key in ("dzbot", "dzstretch_s", "dzstretch_u", "auto_levels_opt"):
-            txt, n_removed = remove_namelist_key(txt, key)
-            if n_removed:
-                changes.append({"key": key, "old": "present", "new": None,
-                                "reason": "conflicts with explicit eta_levels from wrfinput ZNW"})
-        eta_levels = list(vertical_grid["eta_levels"])
-        old_e_vert = cs.get_first(txt, "e_vert")
-        new_e_vert = str(len(eta_levels))
-        if old_e_vert is None or not _namelist_values_equal(old_e_vert.strip(), new_e_vert):
-            txt = cs.set_list(txt, "e_vert", len(eta_levels), ndom_for("e_vert"),
-                              new_key_group=group_for("e_vert"))
-            changes.append({"key": "e_vert", "old": old_e_vert, "new": new_e_vert,
-                            "reason": "= len(wrfinput ZNW)"})
-        txt = cs.set_list_values(txt, "eta_levels", eta_levels,
-                                 new_key_group=group_for("eta_levels"))
-        changes.append({"key": "eta_levels", "old": None, "new": str(eta_levels),
-                        "reason": "= wrfinput ZNW (exact vertical grid reproduction)"})
-        old_ptop = cs.get_first(txt, "p_top_requested")
-        # T12 (2026-09-24): 'p_top_pa', matching plan.json's own vertical_grid schema (the same
-        # dict apply_vertical_grid_override/read_vertical_grid_or_warn use in coldstart_sample).
-        new_ptop = str(vertical_grid["p_top_pa"])
-        if old_ptop is None or not _namelist_values_equal(old_ptop.strip(), new_ptop):
-            txt = cs.set_list(txt, "p_top_requested", vertical_grid["p_top_pa"],
-                              ndom_for("p_top_requested"),
-                              new_key_group=group_for("p_top_requested"))
-            changes.append({"key": "p_top_requested", "old": old_ptop, "new": new_ptop,
-                            "reason": "= wrfinput P_TOP"})
-    else:
-        fill_if_missing("e_vert", 45, "default vertical levels")
-        fill_if_missing("p_top_requested", 5000, "default model top (Pa)")
+
+def _apply_vertical_grid(ed: _NamelistEditor, vertical_grid: dict) -> None:
+    """Reproduce the wrfinput's own ZNW/P_TOP exactly (T8): dz* keys conflict with an explicit
+    eta_levels and are removed; e_vert/eta_levels/p_top_requested always overridden."""
+    for key in ("dzbot", "dzstretch_s", "dzstretch_u", "auto_levels_opt"):
+        ed.txt, n_removed = remove_namelist_key(ed.txt, key)
+        if n_removed:
+            ed.log(key, "present", None, "conflicts with explicit eta_levels from wrfinput ZNW")
+    eta_levels = list(vertical_grid["eta_levels"])
+    ed.sync("e_vert", len(eta_levels), "= len(wrfinput ZNW)")
+    ed.txt = cs.set_list_values(ed.txt, "eta_levels", eta_levels,
+                                new_key_group=ed.group_for("eta_levels"))
+    ed.log("eta_levels", None, str(eta_levels), "= wrfinput ZNW (exact vertical grid reproduction)")
+    ed.sync("p_top_requested", vertical_grid["p_top_pa"], "= wrfinput P_TOP")  # plan.json key
+
+
+def _fill_run_defaults(ed: _NamelistEditor, facts: dict, run_s: int) -> None:
+    """Time step, nest step ratios, history/restart/io_form defaults -- never overriding."""
     dx_km = float(facts["dx_km"])
-    time_step = max(1, int(6.0 * dx_km))
-    fill_if_missing("time_step", time_step, "largest int <= 6*dx_km(d01), >=1")
-    if max_dom > 1 and cs.count_key(txt, "parent_time_step_ratio") == 0:
-        ratios = [1] + [int(facts["parent_grid_ratio"][d]) for d in range(1, max_dom)]
-        txt = cs.set_list_values(txt, "parent_time_step_ratio", ratios,
-                                 new_key_group=group_for("parent_time_step_ratio"))
-        changes.append({"key": "parent_time_step_ratio", "old": None, "new": str(ratios),
-                        "reason": "= parent_grid_ratio per nest"})
-    if cs.count_key(txt, "history_interval") == 0 and cs.count_key(txt, "history_interval_m") == 0:
-        fill_if_missing("history_interval", 60, "default history cadence (minutes)")
-    # T14 (2026-09-24): frames_per_outfile IS per-domain per the Registry catalog (was
-    # hardcoded to a single value before -- ndom_for now corrects it).
-    fill_if_missing("frames_per_outfile", 1, "default")
-    fill_if_missing("restart", ".false.", "default")
+    time_step = max(1, int(6.0 * dx_km))   # s; WRF rule of thumb dt <= 6 x dx(km)
+    ed.fill_if_missing("time_step", time_step, "largest int <= 6*dx_km(d01), >=1")
+    if ed.max_dom > 1 and cs.count_key(ed.txt, "parent_time_step_ratio") == 0:
+        ratios = [1] + [int(facts["parent_grid_ratio"][d]) for d in range(1, ed.max_dom)]
+        ed.fill_values_if_missing("parent_time_step_ratio", ratios, "= parent_grid_ratio per nest")
+    if cs.count_key(ed.txt, "history_interval") == 0 and \
+            cs.count_key(ed.txt, "history_interval_m") == 0:
+        ed.fill_if_missing("history_interval", _DEFAULT_HISTORY_MIN,
+                           "default history cadence (minutes)")
+    ed.fill_if_missing("frames_per_outfile", 1, "default")
+    ed.fill_if_missing("restart", ".false.", "default")
     run_minutes = int(round(run_s / 60.0))
-    fill_if_missing("restart_interval", run_minutes, "one restart at the end of the run")
-    for key in ("io_form_history", "io_form_restart", "io_form_input", "io_form_boundary"):
-        fill_if_missing(key, 2, "default netCDF io_form")
+    ed.fill_if_missing("restart_interval", run_minutes, "one restart at the end of the run")
+    for key in _IO_FORM_KEYS:
+        ed.fill_if_missing(key, _NETCDF_IO_FORM, "default netCDF io_form")
 
-    scheme_keys = ("mp_physics", "ra_lw_physics", "ra_sw_physics", "bl_pbl_physics", "cu_physics",
-                  "sf_sfclay_physics", "sf_surface_physics", "physics_suite")
-    if not any(cs.count_key(text0, k) > 0 for k in scheme_keys):
-        txt = cs.set_list_values(txt, "physics_suite", ["'CONUS'"], new_key_group="physics")
-        changes.append({"key": "physics_suite", "old": None, "new": "'CONUS'",
-                        "reason": "no &physics scheme key present at all"})
 
-    # T14 (2026-09-24, cluster check against conus12's real namelist): a namelist using
-    # physics_suite carries -1 placeholders for the individual scheme keys (mp_physics=-1,
-    # ra_lw_physics=-1, ...) -- NOT unset/missing, it means "use the suite's own default for
-    # this key". A comparison tool diffing this namelist against one that names the scheme
-    # explicitly (e.g. mp_physics=8) must treat -1-vs-explicit as EQUIVALENT, not a real
-    # difference. Nothing is modified here -- this only records the fact as a note (old==new)
-    # so it's visible in namelist_changes.json for whatever reads it next.
-    suite_val = cs.get_first(txt, "physics_suite")
-    if suite_val:
-        placeholder_keys = [k for k in scheme_keys if k != "physics_suite"
-                            and (cs.get_first(txt, k) or "").strip().rstrip(",") == "-1"]
-        if placeholder_keys:
-            changes.append({
-                "key": "physics_suite_placeholders", "old": suite_val, "new": suite_val,
-                "reason": ("physics_suite=%s with -1 placeholders for %s -- these mean 'use "
-                          "the suite's own default', not unset; treat an explicit scheme "
-                          "value in a comparison as EQUIVALENT to -1 here, not a mismatch"
-                          % (suite_val, ", ".join(placeholder_keys))),
-            })
+def _fill_physics_suite(ed: _NamelistEditor, original_text: str) -> None:
+    """physics_suite='CONUS' when the ORIGINAL text names no &physics scheme at all; a suite with
+    -1 scheme placeholders is only noted (old==new): -1 means 'suite default', not unset (T14)."""
+    if not any(cs.count_key(original_text, k) > 0 for k in _SCHEME_KEYS):
+        ed.txt = cs.set_list_values(ed.txt, "physics_suite", ["'CONUS'"], new_key_group="physics")
+        ed.log("physics_suite", None, "'CONUS'", "no &physics scheme key present at all")
+    suite_val = cs.get_first(ed.txt, "physics_suite")
+    if not suite_val:
+        return
+    placeholder_keys = [k for k in _SCHEME_KEYS if k != "physics_suite"
+                        and (cs.get_first(ed.txt, k) or "").strip().rstrip(",") == "-1"]
+    if placeholder_keys:
+        ed.log("physics_suite_placeholders", suite_val, suite_val,
+               "physics_suite=%s with -1 placeholders for %s -- these mean 'use "
+               "the suite's own default', not unset; treat an explicit scheme "
+               "value in a comparison as EQUIVALENT to -1 here, not a mismatch"
+               % (suite_val, ", ".join(placeholder_keys)))
 
-    # T16 (2026-09-24, job 986 follow-up): complete_namelist must guarantee the SAME 8 groups
-    # K1 now guarantees (time_control/domains/physics/fdda/dynamics/bdy_control/grib2/
-    # namelist_quilt) -- a real user namelist.input, or K2's own from-scratch output, can be
-    # missing any of these entirely, and WRF's namelist reader FATALs on a MISSING GROUP, not
-    # just a missing key (same root cause T15 fixed for K1). &bdy_control gets K1's identical
-    # defaults for whichever of its 5 keys are missing (never overriding one already present);
-    # &namelist_quilt gets its 2 keys only if absent; every OTHER group that's still missing
-    # after that is created EMPTY.
-    fill_if_missing("spec_bdy_width", 5, "default lateral boundary width",
-                    group_default="bdy_control")
-    fill_if_missing("spec_zone", 1, "default", group_default="bdy_control")
-    fill_if_missing("relax_zone", 4, "default", group_default="bdy_control")
-    if cs.count_key(txt, "specified") == 0:
-        specified_vals = [".true."] + [".false."] * (max_dom - 1)
-        txt = cs.set_list_values(txt, "specified", specified_vals,
-                                 new_key_group=group_for("specified", default="bdy_control"))
-        changes.append({"key": "specified", "old": None, "new": str(specified_vals),
-                        "reason": "d01 is specified by the lateral boundary file; nests are not"})
-    if cs.count_key(txt, "nested") == 0:
-        nested_vals = [".false."] + [".true."] * (max_dom - 1)
-        txt = cs.set_list_values(txt, "nested", nested_vals,
-                                 new_key_group=group_for("nested", default="bdy_control"))
-        changes.append({"key": "nested", "old": None, "new": str(nested_vals),
-                        "reason": "every domain but d01 is nested"})
 
-    fill_if_missing("nio_tasks_per_group", 0, "default", group_default="namelist_quilt")
-    fill_if_missing("nio_groups", 1, "default", group_default="namelist_quilt")
+def _fill_bdy_quilt_and_groups(ed: _NamelistEditor) -> None:
+    """&bdy_control/&namelist_quilt defaults (same as namelist_fields_from_wrfinput_facts), then
+    every still-missing required group created empty (T16, job 986)."""
+    ed.fill_if_missing("spec_bdy_width", _DEFAULT_SPEC_BDY_WIDTH,
+                       "default lateral boundary width", group_default="bdy_control")
+    ed.fill_if_missing("spec_zone", 1, "default", group_default="bdy_control")
+    ed.fill_if_missing("relax_zone", 4, "default", group_default="bdy_control")
+    ed.fill_values_if_missing("specified", [".true."] + [".false."] * (ed.max_dom - 1),
+                              "d01 is specified by the lateral boundary file; nests are not",
+                              group_default="bdy_control")
+    ed.fill_values_if_missing("nested", [".false."] + [".true."] * (ed.max_dom - 1),
+                              "every domain but d01 is nested", group_default="bdy_control")
+    ed.fill_if_missing("nio_tasks_per_group", 0, "default", group_default="namelist_quilt")
+    ed.fill_if_missing("nio_groups", 1, "default", group_default="namelist_quilt")
+    for group in _ALWAYS_GROUPS:
+        if re.search(r"&%s\b" % re.escape(group), ed.txt, re.I) is None:
+            ed.txt = ed.txt.rstrip("\n") + "\n\n&%s\n/\n" % group
+            ed.log("&%s" % group, None, "(empty group)",
+                   "WRF's namelist reader requires this group to exist even when empty")
 
-    for group in ("time_control", "domains", "physics", "fdda", "dynamics", "bdy_control",
-                 "grib2", "namelist_quilt"):
-        if re.search(r"&%s\b" % re.escape(group), txt, re.I) is None:
-            txt = txt.rstrip("\n") + "\n\n&%s\n/\n" % group
-            changes.append({"key": "&%s" % group, "old": None, "new": "(empty group)",
-                            "reason": "WRF's namelist reader requires this group to exist "
-                                      "even when empty"})
 
-    return txt, changes
+def complete_namelist(nl_text: str, facts: dict, registry: dict | None = None,
+                      vertical_grid: dict | None = None) -> tuple[str, list[dict]]:
+    """Make a case namelist.input runnable for the rebuild span -> (new_text, changes).
+    facts: max_dom, num_metgrid_levels, [num_metgrid_soil_levels, num_land_cat], interval_seconds,
+    start_dt/end_dt (the span), dx_km (d01), parent_grid_ratio. Met/span keys are always synced,
+    defaults only filled; inserted keys go to their catalog group. vertical_grid (plan.json's
+    {'eta_levels', 'p_top_pa'}) overrides the vertical grid. Stdlib only: runs in the batch job."""
+    max_dom = int(facts["max_dom"])
+    registry = registry if registry is not None else load_registry()
+    ed = _NamelistEditor(nl_text, registry, max_dom)
+    run_s = _sync_met_and_span(ed, facts)
+    if vertical_grid is not None:
+        _apply_vertical_grid(ed, vertical_grid)
+    else:
+        ed.fill_if_missing("e_vert", _DEFAULT_E_VERT, "default vertical levels")
+        ed.fill_if_missing("p_top_requested", _DEFAULT_P_TOP_PA, "default model top (Pa)")
+    _fill_run_defaults(ed, facts, run_s)
+    _fill_physics_suite(ed, nl_text)
+    _fill_bdy_quilt_and_groups(ed)
+    return ed.txt, ed.changes
 
 
 # ===========================================================================
-# K1 (2026-09-24): namelist-from-wrfinput -- build a complete namelist.input from wrfinput_d0N
-# (+ wrfbdy_d01 if present) alone, for a user who supplies wrfinput but no namelist. Split into
-# a PURE mapping function (namelist_fields_from_wrfinput_facts -- no netCDF4, independently
-# testable) and a netCDF4-reading wrapper (cmd_namelist_from_wrfinput), same separation this
-# module already uses for grid_identity_check/target_fields_from_wrfinput.
+# K1: namelist-from-wrfinput -- a complete namelist.input from wrfinput_d0N (+ wrfbdy_d01) alone.
+# namelist_fields_from_wrfinput_facts is pure; cmd_namelist_from_wrfinput does the netCDF4 reads.
 # ===========================================================================
 
-# Per-domain grid attrs, direct copy (verified on scc 2026-09-24: wrfinput_d01's own e_we/e_sn
-# match *_GRID_DIMENSION exactly -- same mapping coldstart_sample.geo_from_wrfinput_attrs uses).
+# Per-domain grid attrs, copied as is (wrfinput's e_we/e_sn == *_GRID_DIMENSION; verified on scc).
 _GRID_ATTRS = [
     ("e_we", "WEST-EAST_GRID_DIMENSION"), ("e_sn", "SOUTH-NORTH_GRID_DIMENSION"),
     ("e_vert", "BOTTOM-TOP_GRID_DIMENSION"),
@@ -380,8 +342,7 @@ _GRID_ATTRS = [
 ]
 _GRID_FLOAT_ATTRS = [("dx", "DX"), ("dy", "DY")]
 
-# Physics options, per domain, direct copy -- verified present as wrfinput_d01 global attrs on
-# scc 2026-09-24 (radt is NOT among them -- computed separately, rule_default, below).
+# Physics options present as wrfinput global attrs (radt is not -- it is a rule default).
 _PHYSICS_ATTRS = [
     ("mp_physics", "MP_PHYSICS"), ("ra_lw_physics", "RA_LW_PHYSICS"),
     ("ra_sw_physics", "RA_SW_PHYSICS"), ("sf_sfclay_physics", "SF_SFCLAY_PHYSICS"),
@@ -391,11 +352,11 @@ _PHYSICS_ATTRS = [
     ("use_theta_m", "USE_THETA_M"), ("gwd_opt", "GWD_OPT"),
     ("sf_urban_physics", "SF_URBAN_PHYSICS"),
 ]
+_DT_FRACT_DEN = 100   # time_step_fract_den: DT exact to 2 decimals
 
 
-def render_namelist_input(groups):
-    """groups: [(group_name, [(key, [v1, ..., vN]), ...]), ...] -> WRF namelist.input text, one
-    '&group' / '/' block per group, one 'key = v1, v2, ..., vN,' line per key."""
+def render_namelist_input(groups: list) -> str:
+    """[(group, [(key, [v1..vN]), ...]), ...] -> namelist.input text ('key = v1, ..., vN,')."""
     lines = []
     for group, items in groups:
         lines.append("&%s" % group)
@@ -406,115 +367,75 @@ def render_namelist_input(groups):
     return "\n".join(lines)
 
 
-def namelist_fields_from_wrfinput_facts(domain_facts, wrfbdy_times=None, hours=None,
-                                        registry=None, wrfbdy_bdy_width=None):
-    """PURE (no netCDF4 -- independently testable; DOES read wtune_catalog_registry.json, which
-    is plain JSON, not netCDF4). domain_facts: [{'attrs': {...global attrs of THIS domain's own
-    wrfinput_d0N...}}, ...], d01 first; d01's dict may also carry 'znw'/'p_top'/'dzs'
-    (lists/float, already netCDF4-read) and 'times' ([datetime,...], from wrfinput_d01's own
-    Times -- used only to cross-check SIMULATION_START_DATE). wrfbdy_times: [datetime,...] from
-    wrfbdy_d01's Times, or None. hours: --hours override. `registry` (default: load_registry()):
-    used to decide, per key, whether it is single-valued or max_domains-valued (T14, 2026-09-24
-    -- see registry_per_domain's docstring: a physics option like damp_opt is single-valued even
-    though it is read from EVERY domain's own wrfinput file, so only d01's copy of it is used),
-    and which &group each key belongs in (T15(a), 2026-09-24 -- registry_group_for_key).
-    `wrfbdy_bdy_width` (T15(c)): the wrfbdy_d01 file's own 'bdy_width' dimension size, when
-    known -- used for spec_bdy_width (provenance 'wrfbdy') instead of the Registry default (5,
-    provenance 'rule_default').
+class _FieldSet:
+    """namelist_fields_from_wrfinput_facts' accumulator: key values, provenance tags, notes."""
 
-    Returns (groups, provenance, notes): groups ready for render_namelist_input, with ALL 8
-    groups WRF's namelist reader reads present even when empty (T15(b), 2026-09-24, job 986:
-    wrf.exe FATAL'd 'ERROR reading namelist namelist_quilt' because K1's output had no
-    &namelist_quilt/&bdy_control/&dynamics/&fdda/&grib2 groups at all -- WRF's reader errors on
-    a MISSING group, not just a missing key); provenance = {namelist_key: 'wrfinput_attr'|
-    'wrfbdy'|'given'|'rule_default'}; notes = [str, ...] (things worth printing -- a
-    SIMULATION_START_DATE/Times[0] mismatch, a rule_default fallback, the run-length source, the
-    group-list/per-key-group-fallback disclosures T15(a)/(b) call for)."""
-    if not domain_facts:
-        raise RebuildError("namelist-from-wrfinput: no domain facts given")
-    registry = registry if registry is not None else load_registry()
-    max_dom = len(domain_facts)
-    notes = []
-    provenance = {}
-    items = {}   # key -> [v1, ..., vN], insertion order preserved -- T15(a): which &group each
-                # key ends up in is decided LATER, from the catalog, not by which python list
-                # this loop happened to append to (that was T15's own bug: damp_opt/diff_opt/
-                # km_opt landed in &physics because they were read alongside mp_physics etc.,
-                # but the catalog says they are &dynamics).
+    def __init__(self, domain_facts: list[dict], registry: dict):
+        self.domain_facts = domain_facts
+        self.registry = registry
+        self.max_dom = len(domain_facts)
+        self.items: dict[str, list] = {}   # key -> values; its &group is decided at the end
+        self.provenance: dict[str, str] = {}
+        self.notes: list[str] = []
 
-    def prov(key, tag):
-        provenance[key] = tag
+    def put(self, key: str, values: list, tag: str) -> None:
+        self.items[key] = values
+        self.provenance[key] = tag
 
-    def put(key, values):
-        items[key] = values
+    def ndom_vals(self, key: str, value) -> list:
+        """[value] x max_dom for a catalog per-domain key, else [value] (T14)."""
+        return [value] * self.max_dom if registry_per_domain(key, self.registry) else [value]
 
-    def attr_per_domain(attr):
+    def attr_per_domain(self, attr: str) -> list:
         vals = []
-        for d in domain_facts:
+        for d in self.domain_facts:
             if attr not in d["attrs"]:
                 raise RebuildError("namelist-from-wrfinput: a domain's wrfinput is missing "
                                    "global attr %s" % attr)
             vals.append(d["attrs"][attr])
         return vals
 
+
+def _grid_and_physics_fields(fs: _FieldSet) -> None:
     for key, attr in _GRID_ATTRS:
-        put(key, [int(round(float(v))) for v in attr_per_domain(attr)])
-        prov(key, "wrfinput_attr")
+        fs.put(key, [int(round(float(v))) for v in fs.attr_per_domain(attr)], "wrfinput_attr")
     for key, attr in _GRID_FLOAT_ATTRS:
-        put(key, [float(v) for v in attr_per_domain(attr)])
-        prov(key, "wrfinput_attr")
-
-    # parent_time_step_ratio = parent_grid_ratio, per the spec's explicit instruction.
-    put("parent_time_step_ratio", list(items["parent_grid_ratio"]))
-    prov("parent_time_step_ratio", "wrfinput_attr")
-    put("max_dom", [max_dom])
-    prov("max_dom", "wrfinput_attr")
-
+        fs.put(key, [float(v) for v in fs.attr_per_domain(attr)], "wrfinput_attr")
+    fs.put("parent_time_step_ratio", list(fs.items["parent_grid_ratio"]), "wrfinput_attr")
+    fs.put("max_dom", [fs.max_dom], "wrfinput_attr")
     for key, attr in _PHYSICS_ATTRS:
-        if any(attr not in d["attrs"] for d in domain_facts):
-            continue   # not every physics option is present on every WRF build's wrfinput
-        if registry_per_domain(key, registry):
-            vals = [int(round(float(d["attrs"][attr]))) for d in domain_facts]
-        else:
-            # T14 (2026-09-24): single-valued per the Registry catalog (e.g. damp_opt) -- use
-            # d01's own copy of it, even though every domain's wrfinput carries the same attr.
-            vals = [int(round(float(domain_facts[0]["attrs"][attr])))]
-        put(key, vals)
-        prov(key, "wrfinput_attr")
+        if any(attr not in d["attrs"] for d in fs.domain_facts):
+            continue   # not every WRF build writes every option
+        if registry_per_domain(key, fs.registry):
+            vals = [int(round(float(d["attrs"][attr]))) for d in fs.domain_facts]
+        else:   # single-valued per the catalog (e.g. damp_opt): d01's copy (T14)
+            vals = [int(round(float(fs.domain_facts[0]["attrs"][attr])))]
+        fs.put(key, vals, "wrfinput_attr")
 
-    d01 = domain_facts[0]
-    dx_km = float(d01["attrs"]["DX"]) / 1000.0
 
-    # time_step (+ time_step_fract_num/den if d01's own DT is not integral)
+def _d01_fields(fs: _FieldSet, d01: dict) -> None:
+    """time_step (+ fract num/den for a non-integral DT), vertical grid, soil layers, land cats."""
     dt = float(d01["attrs"]["DT"])
     if abs(dt - round(dt)) < 1e-6:
-        put("time_step", [int(round(dt))])
-        prov("time_step", "wrfinput_attr")
+        fs.put("time_step", [int(round(dt))], "wrfinput_attr")
     else:
         whole = int(math.floor(dt))
-        den = 100   # rule_default granularity -- exact to 2 decimal places of DT
-        num = int(round((dt - whole) * den))
-        put("time_step", [whole])
-        put("time_step_fract_num", [num])
-        put("time_step_fract_den", [den])
-        prov("time_step", "wrfinput_attr")
-        prov("time_step_fract_num", "wrfinput_attr")
-        prov("time_step_fract_den", "wrfinput_attr")
-
+        num = int(round((dt - whole) * _DT_FRACT_DEN))
+        fs.put("time_step", [whole], "wrfinput_attr")
+        fs.put("time_step_fract_num", [num], "wrfinput_attr")
+        fs.put("time_step_fract_den", [_DT_FRACT_DEN], "wrfinput_attr")
     if d01.get("znw") is not None:
-        put("eta_levels", list(d01["znw"]))
-        prov("eta_levels", "wrfinput_attr")
+        fs.put("eta_levels", list(d01["znw"]), "wrfinput_attr")
     if d01.get("p_top") is not None:
-        put("p_top_requested", [d01["p_top"]])
-        prov("p_top_requested", "wrfinput_attr")
+        fs.put("p_top_requested", [d01["p_top"]], "wrfinput_attr")
     if d01.get("dzs") is not None:
-        put("num_soil_layers", [len(d01["dzs"])])
-        prov("num_soil_layers", "wrfinput_attr")
+        fs.put("num_soil_layers", [len(d01["dzs"])], "wrfinput_attr")
     if "NUM_LAND_CAT" in d01["attrs"]:
-        put("num_land_cat", [int(d01["attrs"]["NUM_LAND_CAT"])])
-        prov("num_land_cat", "wrfinput_attr")
+        fs.put("num_land_cat", [int(d01["attrs"]["NUM_LAND_CAT"])], "wrfinput_attr")
 
-    # start date: SIMULATION_START_DATE, cross-checked against d01's own Times[0].
+
+def _start_fields(fs: _FieldSet, d01: dict) -> datetime.datetime:
+    """start_* from SIMULATION_START_DATE (noting a mismatch with Times[0]); returns it."""
     sim_start_raw = d01["attrs"].get("SIMULATION_START_DATE")
     if not sim_start_raw:
         raise RebuildError("namelist-from-wrfinput: wrfinput_d01 has no SIMULATION_START_DATE")
@@ -522,136 +443,125 @@ def namelist_fields_from_wrfinput_facts(domain_facts, wrfbdy_times=None, hours=N
     if d01.get("times"):
         t0 = d01["times"][0]
         if t0 != start_dt:
-            notes.append("wrfinput_d01 SIMULATION_START_DATE=%s != Times[0]=%s -- using "
-                        "SIMULATION_START_DATE"
-                        % (start_dt.strftime(_WRF_TIME_FMT), t0.strftime(_WRF_TIME_FMT)))
-    for k, v in (("year", start_dt.year), ("month", start_dt.month), ("day", start_dt.day),
-                ("hour", start_dt.hour), ("minute", start_dt.minute),
-                ("second", start_dt.second)):
-        put("start_" + k, [v] * max_dom)
-        prov("start_" + k, "wrfinput_attr")
+            fs.notes.append("wrfinput_d01 SIMULATION_START_DATE=%s != Times[0]=%s -- using "
+                            "SIMULATION_START_DATE"
+                            % (start_dt.strftime(_WRF_TIME_FMT), t0.strftime(_WRF_TIME_FMT)))
+    for k, v in _dt_parts(start_dt):
+        fs.put("start_" + k, [v] * fs.max_dom, "wrfinput_attr")
+    return start_dt
 
-    # interval_seconds: wrfbdy Times spacing.
+
+def _span_fields(fs: _FieldSet, start_dt: datetime.datetime, wrfbdy_times: list | None,
+                 hours: float | None) -> int:
+    """interval_seconds (wrfbdy Times spacing) and end_*/run_* (--hours, else the wrfbdy span +
+    one interval, else 6 h); returns the run length (s)."""
     if wrfbdy_times and len(wrfbdy_times) >= 2:
         interval_s = int(round((wrfbdy_times[1] - wrfbdy_times[0]).total_seconds()))
-        put("interval_seconds", [interval_s])
-        prov("interval_seconds", "wrfbdy")
+        fs.put("interval_seconds", [interval_s], "wrfbdy")
     else:
-        interval_s = 10800
-        put("interval_seconds", [interval_s])
-        prov("interval_seconds", "rule_default")
-        notes.append("no wrfbdy_d01 Times to derive interval_seconds from -- rule_default 3h "
-                    "(10800s)")
-
-    # run length: --hours, else the wrfbdy span (last Times + one interval), else rule_default.
+        interval_s = _DEFAULT_INTERVAL_S
+        fs.put("interval_seconds", [interval_s], "rule_default")
+        fs.notes.append("no wrfbdy_d01 Times to derive interval_seconds from -- rule_default 3h "
+                        "(10800s)")
     if hours is not None:
         run_s = int(round(hours * 3600))
         run_prov = "given"
     elif wrfbdy_times:
         run_s = int(round((wrfbdy_times[-1] - start_dt).total_seconds())) + interval_s
         run_prov = "wrfbdy"
-        notes.append("--hours not given -- run length taken from wrfbdy span (last Times + one "
-                    "interval) = %.2fh" % (run_s / 3600.0))
+        fs.notes.append("--hours not given -- run length taken from wrfbdy span (last Times + one "
+                        "interval) = %.2fh" % (run_s / 3600.0))
     else:
-        run_s = 6 * 3600
+        run_s = _DEFAULT_RUN_S
         run_prov = "rule_default"
-        notes.append("neither --hours nor wrfbdy_d01 Times available -- run length defaulted "
-                    "to rule_default 6h")
+        fs.notes.append("neither --hours nor wrfbdy_d01 Times available -- run length defaulted "
+                        "to rule_default 6h")
     end_dt = start_dt + datetime.timedelta(seconds=run_s)
-    for k, v in (("year", end_dt.year), ("month", end_dt.month), ("day", end_dt.day),
-                ("hour", end_dt.hour), ("minute", end_dt.minute), ("second", end_dt.second)):
-        put("end_" + k, [v] * max_dom)
-        prov("end_" + k, run_prov)
-    put("run_days", [0])
-    put("run_hours", [run_s // 3600])
-    put("run_minutes", [(run_s % 3600) // 60])
-    put("run_seconds", [run_s % 60])
-    for k in ("run_days", "run_hours", "run_minutes", "run_seconds"):
-        prov(k, run_prov)
+    for k, v in _dt_parts(end_dt):
+        fs.put("end_" + k, [v] * fs.max_dom, run_prov)
+    fs.put("run_days", [0], run_prov)
+    fs.put("run_hours", [run_s // 3600], run_prov)
+    fs.put("run_minutes", [(run_s % 3600) // 60], run_prov)
+    fs.put("run_seconds", [run_s % 60], run_prov)
+    return run_s
 
-    # rule defaults
-    radt = max(1, int(round(dx_km)))
-    put("radt", [radt] * max_dom)
-    prov("radt", "rule_default")
-    notes.append("radt = round(dx_km) = %d min (WRF guideline: 1 min per km of d01 dx) -- "
-                "rule_default" % radt)
 
-    def _ndom_vals(key, value):
-        # T14 (2026-09-24): dimension from the catalog, not a hardcoded [v] or [v]*max_dom.
-        return [value] * max_dom if registry_per_domain(key, registry) else [value]
+def _rule_default_fields(fs: _FieldSet, dx_km: float, run_s: int,
+                         wrfbdy_bdy_width: int | None) -> None:
+    """radt, output/restart/io_form defaults, &bdy_control (T15(c)) and &namelist_quilt."""
+    radt = max(1, int(round(dx_km)))   # min; WRF guideline 1 min per km of d01 dx
+    fs.put("radt", [radt] * fs.max_dom, "rule_default")
+    fs.notes.append("radt = round(dx_km) = %d min (WRF guideline: 1 min per km of d01 dx) -- "
+                    "rule_default" % radt)
+    fs.put("history_interval", fs.ndom_vals("history_interval", _DEFAULT_HISTORY_MIN),
+           "rule_default")
+    fs.put("frames_per_outfile", fs.ndom_vals("frames_per_outfile", 1), "rule_default")
+    fs.put("restart", fs.ndom_vals("restart", ".false."), "rule_default")
+    fs.put("restart_interval", fs.ndom_vals("restart_interval", run_s // 60), "rule_default")
+    for k in _IO_FORM_KEYS:
+        fs.put(k, fs.ndom_vals(k, _NETCDF_IO_FORM), "rule_default")
 
-    put("history_interval", _ndom_vals("history_interval", 60))
-    prov("history_interval", "rule_default")
-    put("frames_per_outfile", _ndom_vals("frames_per_outfile", 1))
-    prov("frames_per_outfile", "rule_default")
-    put("restart", _ndom_vals("restart", ".false."))
-    prov("restart", "rule_default")
-    put("restart_interval", _ndom_vals("restart_interval", run_s // 60))
-    prov("restart_interval", "rule_default")
-    for k in ("io_form_history", "io_form_restart", "io_form_input", "io_form_boundary"):
-        put(k, _ndom_vals(k, 2))
-        prov(k, "rule_default")
-
-    # T15(c) (2026-09-24, job 986: wrf.exe FATAL 'ERROR reading namelist namelist_quilt' --
-    # K1's output had no &bdy_control/&namelist_quilt/&dynamics/&fdda/&grib2 groups at all):
-    # &bdy_control. spec_bdy_width comes from the wrfbdy file's own bdy_width dimension when
-    # known (provenance 'wrfbdy'); WRF's Registry default (5) otherwise. specified is .true.
-    # for d01 only (d01 IS specified by the lateral boundary file); every nest is .false. and
-    # instead nested=.true. (d01 nested=.false. -- it has no parent to nest inside).
     if wrfbdy_bdy_width is not None:
-        put("spec_bdy_width", [int(wrfbdy_bdy_width)])
-        prov("spec_bdy_width", "wrfbdy")
+        fs.put("spec_bdy_width", [int(wrfbdy_bdy_width)], "wrfbdy")
     else:
-        put("spec_bdy_width", [5])
-        prov("spec_bdy_width", "rule_default")
-        notes.append("no wrfbdy_d01 bdy_width dimension available -- spec_bdy_width "
-                    "rule_default 5")
-    put("spec_zone", [1])
-    prov("spec_zone", "rule_default")
-    put("relax_zone", [4])
-    prov("relax_zone", "rule_default")
-    # specified/nested ARE per-domain per the catalog (verified 2026-09-24) -- d01 is specified
-    # by the lateral boundary file and is not itself nested; every other domain is the reverse.
-    put("specified", [".true."] + [".false."] * (max_dom - 1))
-    prov("specified", "rule_default")
-    put("nested", [".false."] + [".true."] * (max_dom - 1))
-    prov("nested", "rule_default")
+        fs.put("spec_bdy_width", [_DEFAULT_SPEC_BDY_WIDTH], "rule_default")
+        fs.notes.append("no wrfbdy_d01 bdy_width dimension available -- spec_bdy_width "
+                        "rule_default 5")
+    fs.put("spec_zone", [1], "rule_default")
+    fs.put("relax_zone", [4], "rule_default")
+    # d01 is specified by the lateral boundary file and not nested; every nest the reverse.
+    fs.put("specified", [".true."] + [".false."] * (fs.max_dom - 1), "rule_default")
+    fs.put("nested", [".false."] + [".true."] * (fs.max_dom - 1), "rule_default")
+    # &namelist_quilt: real WRF keys the catalog does not cover (same gap as T11).
+    fs.put("nio_tasks_per_group", [0], "rule_default")
+    fs.put("nio_groups", [1], "rule_default")
 
-    # T15(d): &namelist_quilt -- no catalog entry at all for this group (same gap T11 already
-    # found: nio_groups/nio_tasks_per_group are real WRF keys the catalog doesn't cover).
-    put("nio_tasks_per_group", [0])
-    prov("nio_tasks_per_group", "rule_default")
-    put("nio_groups", [1])
-    prov("nio_groups", "rule_default")
 
-    # T15(a)+(b): bucket every key into its CATALOG group (registry_group_for_key), and always
-    # emit all 8 groups WRF's namelist reader reads, even empty (job 986's FATAL was exactly a
-    # missing &namelist_quilt group -- WRF's namelist reader errors on a MISSING group, not
-    # just a missing key). wtune_catalog_registry.json's own top-level keys ('meta'/'counts'/
-    # 'groups') carry no list of which groups the reader itself consumes -- only per-key group
-    # membership -- so this uses the given list and says so.
-    always_groups = ["time_control", "domains", "physics", "fdda", "dynamics", "bdy_control",
-                     "grib2", "namelist_quilt"]
-    notes.append("emitted groups: wtune_catalog_registry.json does not record which groups "
-                "WRF's namelist reader itself reads (only per-key group membership) -- using "
-                "the given list: %s" % ", ".join(always_groups))
+def _bucket_by_group(fs: _FieldSet) -> list:
+    """Each key into its catalog &group (T15(a)); all _ALWAYS_GROUPS emitted, even empty (T15(b))."""
+    always_groups = list(_ALWAYS_GROUPS)
+    fs.notes.append("emitted groups: wtune_catalog_registry.json does not record which groups "
+                    "WRF's namelist reader itself reads (only per-key group membership) -- using "
+                    "the given list: %s" % ", ".join(always_groups))
     quilt_fallback_keys = ("nio_tasks_per_group", "nio_groups")
     buckets = {g: [] for g in always_groups}
-    for key, values in items.items():
-        group = registry_group_for_key(key, registry)
+    for key, values in fs.items.items():
+        group = registry_group_for_key(key, fs.registry)
         if group is None:
             group = "namelist_quilt" if key in quilt_fallback_keys else "time_control"
-            notes.append("key %r has no Registry catalog entry -- placed in &%s by fallback"
-                        % (key, group))
+            fs.notes.append("key %r has no Registry catalog entry -- placed in &%s by fallback"
+                            % (key, group))
         if group not in buckets:
             buckets[group] = []
-            notes.append("key %r's catalog group &%s is not in the always-emitted group list "
-                        "-- emitting &%s anyway" % (key, group, group))
+            fs.notes.append("key %r's catalog group &%s is not in the always-emitted group list "
+                            "-- emitting &%s anyway" % (key, group, group))
         buckets[group].append((key, values))
-
     groups = [(g, buckets[g]) for g in always_groups]
     groups += [(g, buckets[g]) for g in sorted(buckets) if g not in always_groups]
-    return groups, provenance, notes
+    return groups
+
+
+def namelist_fields_from_wrfinput_facts(domain_facts: list[dict], wrfbdy_times: list | None = None,
+                                        hours: float | None = None, registry: dict | None = None,
+                                        wrfbdy_bdy_width: int | None = None
+                                        ) -> tuple[list, dict, list[str]]:
+    """Pure (no netCDF4): namelist groups from per-domain wrfinput facts -> (groups, provenance,
+    notes). domain_facts: [{'attrs', ['znw', 'p_top', 'dzs', 'times'] on d01}, ...], d01 first.
+    provenance: {key: 'wrfinput_attr'|'wrfbdy'|'given'|'rule_default'}. Raises RebuildError on
+    no facts, a missing grid attr, or no SIMULATION_START_DATE."""
+    if not domain_facts:
+        raise RebuildError("namelist-from-wrfinput: no domain facts given")
+    registry = registry if registry is not None else load_registry()
+    fs = _FieldSet(domain_facts, registry)
+    d01 = domain_facts[0]
+    _grid_and_physics_fields(fs)
+    dx_km = float(d01["attrs"]["DX"]) / 1000.0
+    _d01_fields(fs, d01)
+    start_dt = _start_fields(fs, d01)
+    run_s = _span_fields(fs, start_dt, wrfbdy_times, hours)
+    _rule_default_fields(fs, dx_km, run_s, wrfbdy_bdy_width)
+    groups = _bucket_by_group(fs)
+    return groups, fs.provenance, fs.notes
 
 
 def _read_wrf_times(ds):
@@ -693,7 +603,8 @@ def _read_wrfinput_domain_facts(path, with_vertical=False):
         ds.close()
 
 
-def cmd_namelist_from_wrfinput(case_dir, out_path, hours=None):
+def cmd_namelist_from_wrfinput(case_dir: str, out_path: str, hours: float | None = None
+                               ) -> tuple[str, dict, list[str]]:
     wrfinput_names = sorted(p for p in os.listdir(case_dir) if re.match(r"^wrfinput_d\d\d$", p))
     if not wrfinput_names:
         raise RebuildError("namelist-from-wrfinput: no wrfinput_d0N in %s" % case_dir)
@@ -708,8 +619,7 @@ def cmd_namelist_from_wrfinput(case_dir, out_path, hours=None):
         ds = netCDF4.Dataset(wrfbdy_path)
         try:
             wrfbdy_times = _read_wrf_times(ds)
-            # T15(c) (2026-09-24): the boundary width WRF actually wrote (bdy_width dimension)
-            # -- verify against this rather than assuming the Registry default (5).
+            # the boundary width WRF actually wrote, not the Registry default 5 (T15(c))
             if "bdy_width" in ds.dimensions:
                 wrfbdy_bdy_width = len(ds.dimensions["bdy_width"])
         finally:
@@ -732,32 +642,17 @@ def cmd_namelist_from_wrfinput(case_dir, out_path, hours=None):
 
 
 # ===========================================================================
-# K2 (2026-09-24): new-domain -- for a user who only knows where and when. Single-domain,
-# d01-only (no nests: a user who only gives center/size/dx has no basis to place a nest).
+# K2: new-domain -- d01 only, for a user who knows only where and when (no basis for a nest).
 # ===========================================================================
 
-def new_domain_fields(center_lat, center_lon, size_km, dx_km, start_dt, hours, e_vert=45):
-    """PURE (no netCDF4/I/O). center_lat/center_lon: floats (deg). size_km: (W, H) in km.
-    dx_km: float. start_dt: datetime. hours: float run length. e_vert: int (default 45).
-
-    Projection by |center_lat| (WRF Registry MAP_PROJ 1=lambert, 2=polar stereographic,
-    3=mercator):
-      |lat| < 25          -> mercator,  truelat1 = lat
-      25 <= |lat| <= 65    -> lambert,   truelat1 = truelat2 = lat, stand_lon = lon
-      |lat| > 65           -> polar,     truelat1 = lat
-    e_we/e_sn = round(size_km / dx_km) + 1 (one more grid POINT than the number of DX cells
-    spanning the requested size). time_step = floor(6*dx_km) (same 6x-dx rule of thumb
-    coldstart_sample/case_rebuild.complete_namelist already use). physics_suite='TROPICAL' when
-    |lat|<25 else 'CONUS'; cu_physics=0 (convection-permitting) when dx_km<4. radt=round(dx_km)
-    minutes.
-
-    Returns (namelist_groups, wps_fields, provenance, notes): namelist_groups ready for
-    render_namelist_input; wps_fields ready for coldstart_sample.render_namelist_wps;
-    provenance = {key: 'given'|'rule_default'} (every key the user's four inputs --center/
-    --size-km/--dx-km/--start-- determine DIRECTLY, with no rule/formula applied, is 'given';
-    everything derived through a rule -- e_we/e_sn/time_step/map_proj/truelat*/physics_suite/
-    cu_physics/radt/interval_seconds/history_interval/... -- is 'rule_default', even where the
-    rule's OUTPUT happens to equal a raw input, e.g. truelat1==center_lat)."""
+def new_domain_fields(center_lat: float, center_lon: float, size_km: tuple[float, float],
+                      dx_km: float, start_dt: datetime.datetime, hours: float, e_vert: int = 45
+                      ) -> tuple[list, dict, dict, list[str]]:
+    """Pure: a d01-only domain from center/size/dx/start (K2) ->
+    (namelist_groups, wps_fields, provenance, notes). size_km: (W, H) km; hours: run length.
+    Projection by |lat|: < 25 mercator, <= 65 lambert, else polar; e_we/e_sn = round(size/dx) + 1;
+    CONUS suite (TROPICAL below 25 deg), cu_physics=0 below 4 km. provenance: 'given' only for keys
+    the four inputs set directly, every rule-derived key 'rule_default'."""
     w_km, h_km = size_km
     e_we = int(round(w_km / dx_km)) + 1
     e_sn = int(round(h_km / dx_km)) + 1
@@ -861,8 +756,10 @@ def new_domain_fields(center_lat, center_lon, size_km, dx_km, start_dt, hours, e
     return groups, wps_fields, provenance, notes
 
 
-def cmd_new_domain(center=None, size_km=None, dx_km=None, start=None, hours=None, e_vert=45,
-                   out_dir=None):
+def cmd_new_domain(center: str | None = None, size_km: str | None = None,
+                   dx_km: float | str | None = None, start: str | None = None,
+                   hours: float | None = None, e_vert: int = 45, out_dir: str | None = None
+                   ) -> tuple[str, str, dict, list[str]]:
     """center: 'LAT,LON'. size_km: 'W,H'. start: 'YYYY-MM-DD_HH:MM:SS'. Refuses with a clear
     message if only SOME of center/size_km/dx_km/start is given (K4's front door may call this
     with any of them missing -- e.g. inventory case (e): nothing located the domain at all, or
@@ -908,16 +805,12 @@ def cmd_new_domain(center=None, size_km=None, dx_km=None, start=None, hours=None
 
 
 # ===========================================================================
-# K4 (2026-09-24): `complete` -- the front door. Inventories --in DIR (filesystem presence only,
-# no netCDF4 needed for the DECISION itself -- inventory_case_dir/choose_completion_path are
-# PURE) and dispatches to K1 (namelist-from-wrfinput), K2 (new-domain), K3 (--keep-wrfinput) or
-# the existing rebuild flow, in the priority order the spec gives: (a) everything present -> as
-# is; (b) wrfinput(+wrfbdy) but no namelist -> K1; (c) wrfinput but no wrfbdy -> K1 if needed +
-# K3; (d) namelist(+projection) only -> existing rebuild; (e) nothing but
-# center/size/dx/start -> K2 then rebuild; (f) refuse, naming exactly what's missing.
+# K4: `complete` -- the front door. Inventories --in DIR (file presence only) and dispatches to
+# K1 (namelist-from-wrfinput), K2 (new-domain), K3 (--keep-wrfinput) or the rebuild flow, in
+# choose_completion_path's (a)..(f) priority order.
 # ===========================================================================
 
-def inventory_case_dir(in_dir):
+def inventory_case_dir(in_dir: str) -> dict:
     """PURE filesystem check (no netCDF4): {'namelist_input': bool, 'namelist_wps': bool,
     'wrfinput_domains': [wrfinput_d01, ...] sorted, or [] if none, 'wrfbdy_d01': bool}."""
     wrfinput_domains = []
@@ -932,7 +825,7 @@ def inventory_case_dir(in_dir):
     }
 
 
-def choose_completion_path(inventory, have_center_size_dx_start=False):
+def choose_completion_path(inventory: dict, have_center_size_dx_start: bool = False) -> dict:
     """PURE decision logic (K4). `inventory`: inventory_case_dir's result.
     `have_center_size_dx_start`: True iff --center/--size-km/--dx-km/--start were ALL given
     (the caller validates all-or-nothing before this point -- see cmd_new_domain's own check,
@@ -1002,8 +895,9 @@ def _print_completion_table(rows):
         print("%-42s %s" % (r["item"], r["method"]))
 
 
-def cmd_complete(in_dir, out_dir, center=None, size_km=None, dx_km=None, start=None, hours=None,
-                 ml_model=None):
+def cmd_complete(in_dir: str, out_dir: str, center: str | None = None, size_km: str | None = None,
+                 dx_km: float | None = None, start: str | None = None, hours: float | None = None,
+                 ml_model: str | None = None) -> dict:
     """The front door (K4). Inventories --in DIR, chooses a completion path (see
     choose_completion_path), dispatches to K1/K2/K3/the existing rebuild plan step, and writes
     OUT/completion_report.json (one row per WRF input item, method in {given, wrfinput_attr,
@@ -1083,7 +977,7 @@ def cmd_complete(in_dir, out_dir, center=None, size_km=None, dx_km=None, start=N
 # R6-A: rebuild -- span computation, plan/fetch/stage/finalize lifecycle
 # ===========================================================================
 
-def rebuild_span(nl, date_shift_to=None):
+def rebuild_span(nl: dict, date_shift_to: str | None = None) -> tuple:
     """(stated_start, stated_end, analog_start_or_None, span_start, span_end, run_s).
     span_start/span_end = the (possibly date-shifted) window rebuild actually fetches/runs;
     stated_start/stated_end are the case's own literal namelist.input dates."""
@@ -1096,10 +990,13 @@ def rebuild_span(nl, date_shift_to=None):
     return stated_start, stated_end, analog_start, span_start, span_end, run_s
 
 
-def cmd_rebuild_plan(case_dir, out_dir, namelist=None, namelist_wps=None, geo_from_wrfinput=None,
-                     date_shift_to=None, forcing=None, verify_steps=0, nodes=1, ranks=72, omp=1,
-                     nx=None, ny=None, ncdump=None, now=None, geog_path=None, grib_dir=None,
-                     ml_model=None):
+def cmd_rebuild_plan(case_dir: str, out_dir: str, namelist: str | None = None,
+                     namelist_wps: str | None = None, geo_from_wrfinput: str | None = None,
+                     date_shift_to: str | None = None, forcing: str | None = None,
+                     verify_steps: int = 0, nodes: int = 1, ranks: int = 72, omp: int = 1,
+                     nx: int | None = None, ny: int | None = None, ncdump: str | None = None,
+                     now: datetime.datetime | None = None, geog_path: str | None = None,
+                     grib_dir: str | None = None, ml_model: str | None = None) -> dict:
     rows, blockers, nl = cs.inspect_case(case_dir, namelist=namelist, namelist_wps=namelist_wps,
                                          geo_from_wrfinput=geo_from_wrfinput, grib_dir=grib_dir,
                                          ncdump=ncdump, now=now, geog_path=geog_path)
@@ -1130,11 +1027,8 @@ def cmd_rebuild_plan(case_dir, out_dir, namelist=None, namelist_wps=None, geo_fr
     dom = cs.domain_list_fields(nl, max_dom)
     dx_km = geo["dx"] / 1000.0
 
-    # T12 (2026-09-24, job 965): read ZNW/P_TOP HERE (login node, netCDF4/numpy available) --
-    # fix-span-real-namelist runs inside the batch job under /usr/bin/python3 and can no longer
-    # do this itself. A failed read must be recorded loudly (vertical_grid: null + a warning IN
-    # plan.json), not silently skipped at batch time -- that silent skip was exactly the job 965
-    # bug.
+    # ZNW/P_TOP are read here (login node has netCDF4); a failure is recorded in plan.json, never
+    # skipped silently in the batch job (T12, job 965).
     vertical_grid, vertical_grid_warning = cs.read_vertical_grid_or_warn(
         wi_path if os.path.exists(wi_path) else None)
     if vertical_grid_warning:
@@ -1158,12 +1052,10 @@ def cmd_rebuild_plan(case_dir, out_dir, namelist=None, namelist_wps=None, geo_fr
         "verify_steps": int(verify_steps or 0),
         "nodes": nodes, "config": config,
         "geo": {k: v for k, v in geo.items()}, "namelist_wps_fields": wps_fields,
-        # T8/T12 (2026-09-24): only when the case's own wrfinput_d01 actually exists.
-        # wrfinput_path is provenance only now (fix-span-real-namelist no longer re-reads it --
-        # vertical_grid below is what it actually applies).
+        # provenance only; fix-span-real-namelist applies vertical_grid (T8/T12)
         "wrfinput_path": os.path.abspath(wi_path) if os.path.exists(wi_path) else None,
         "vertical_grid": vertical_grid, "vertical_grid_warning": vertical_grid_warning,
-        # K5 (2026-09-24): ML state completion, default OFF -- None unless --ml-model was given.
+        # K5: ML state completion, off unless --ml-model
         "ml_model": os.path.abspath(ml_model) if ml_model else None,
     }
     os.makedirs(out_dir, exist_ok=True)
@@ -1176,8 +1068,9 @@ def cmd_rebuild_plan(case_dir, out_dir, namelist=None, namelist_wps=None, geo_fr
     return plan
 
 
-def cmd_rebuild_fetch(out_dir, cache_dir=None, grib_dir=None, keep_archives=False, probe_fn=None,
-                      download_fn=None):
+def cmd_rebuild_fetch(out_dir: str, cache_dir: str | None = None, grib_dir: str | None = None,
+                      keep_archives: bool = False, probe_fn: Callable | None = None,
+                      download_fn: Callable | None = None) -> tuple[int, dict]:
     with open(os.path.join(out_dir, "plan.json")) as f:
         plan = json.load(f)
     cache_dir = cache_dir or os.path.join(out_dir, "grib")
@@ -1187,7 +1080,7 @@ def cmd_rebuild_fetch(out_dir, cache_dir=None, grib_dir=None, keep_archives=Fals
     chain = cs.resolve_forcing_chain_for(T, grib_dir=grib_dir, forcing_pin=plan.get("forcing_pin"))
     chosen, tried = cs.choose_forcing_for_window(T, T_end, chain, probe_fn=probe_fn)
     if chosen is None:
-        # T4b (2026-09-24): always write the probe record, even on failure.
+        # the probe record is written even on failure (T4b)
         forcing = {"status": "failed", "chosen": None, "candidates_tried": tried}
         with open(os.path.join(out_dir, "forcing.json"), "w") as f:
             json.dump(forcing, f, indent=2)
@@ -1209,9 +1102,7 @@ def cmd_rebuild_fetch(out_dir, cache_dir=None, grib_dir=None, keep_archives=Fals
     forcing = {"chosen": chosen.to_dict(), "candidates_tried": tried, "files": file_names}
     with open(os.path.join(out_dir, "forcing.json"), "w") as f:
         json.dump(forcing, f, indent=2)
-    # T9 (2026-09-24): see coldstart_sample.resolve_and_fetch_forcing's identical fix -- record
-    # the exact basenames fetch wrote (FNL/.grib, ncei_g3-g4/.grb, GFS/.grib2 all differ) so
-    # render_rebuild_sbatch's link_grib.csh step links exactly this list, not a *.grib2 glob.
+    # exact basenames for link_grib.csh: extensions differ per source (.grib/.grb/.grib2; T9)
     with open(os.path.join(out_dir, "grib_manifest.txt"), "w") as f:
         for name in file_names:
             f.write(name + "\n")
@@ -1236,7 +1127,7 @@ def _rebuild_forcing_choice(out_dir):
     return primary, plan
 
 
-def cmd_rebuild_stage(out_dir, site="scc"):
+def cmd_rebuild_stage(out_dir: str, site: str = "scc") -> str:
     chosen, plan = _rebuild_forcing_choice(out_dir)
     wps_dir_env = os.environ.get("WPS_DIR")
     wrf_tree = os.environ.get("WRF_TREE")
@@ -1256,8 +1147,7 @@ def cmd_rebuild_stage(out_dir, site="scc"):
             vt_src = os.path.join(wps_dir_env, "ungrib", "Variable_Tables", vt)
             if os.path.exists(vt_src):
                 cs._symlink_one(vt_src, os.path.join(wps_out, vt))
-        # T13 (2026-09-24): see coldstart_sample.stage_plan's identical fix -- Vtable.GFS_PRMSL
-        # (NCEI g3/g4 + FNL) is GENERATED from the real Vtable.GFS, not symlinked.
+        # Vtable.GFS_PRMSL (NCEI g3/g4, FNL) is generated from Vtable.GFS, not linked (T13)
         gfs_vt_src = os.path.join(wps_dir_env, "ungrib", "Variable_Tables", "Vtable.GFS")
         if os.path.exists(gfs_vt_src):
             prmsl_path = os.path.join(wps_out, "Vtable.GFS_PRMSL")
@@ -1311,21 +1201,11 @@ def cmd_rebuild_stage(out_dir, site="scc"):
     return sbatch_path
 
 
-def cmd_rebuild_finalize(out_dir, keep_wrfinput=False):
-    """Login-node, after the job: collect OUT/case/ (copies, not symlinks) of namelist.wps,
-    namelist.input, wrfinput_d0N, wrfbdy_d01, wrflowinp_d0N if produced, plus rebuild_report.json
-    (changes from complete_namelist, forcing source + probe record, span, shift, and inspect's
-    own capability/geog warnings).
-
-    K3 (2026-09-24, zhengzhou -- a case with wrfinput_d0N but no wrfbdy_d01): keep_wrfinput=True
-    keeps real.exe's OWN wrfbdy_d01 (and wrflowinp -- boundaries come from the fetched analysis,
-    which is the only source that CAN produce a time-varying boundary) but puts the case's
-    ORIGINAL wrfinput_d0N into case/ instead of real.exe's freshly-built one (the interior state
-    comes from the user's own file, not a diagnostic cold start). Grid identity between the
-    original and real's own t0 wrfinput is checked (compare()'s own grid_identity_check --
-    refuses with RebuildError on a mismatch, same as compare() always does), and compare()'s
-    full metric report between them is included in rebuild_report.json so the report shows
-    exactly how consistent the kept interior and the analysis's own t0 state are."""
+def cmd_rebuild_finalize(out_dir: str, keep_wrfinput: bool = False) -> dict:
+    """Collect OUT/case/ (copies) and write rebuild_report.json after the job.
+    keep_wrfinput (K3, a case with wrfinput but no wrfbdy): keep real.exe's boundaries but the case's
+    ORIGINAL wrfinput_d0N; compare() checks grid identity (RebuildError on mismatch) and its d01
+    report goes into the report. RebuildError when the case lacks a wrfinput to keep."""
     with open(os.path.join(out_dir, "plan.json")) as f:
         plan = json.load(f)
     case_out = os.path.join(out_dir, "case")
@@ -1396,7 +1276,7 @@ def cmd_rebuild_finalize(out_dir, keep_wrfinput=False):
     return report
 
 
-def cmd_rebuild_fix_span_wps_namelist(out_dir):
+def cmd_rebuild_fix_span_wps_namelist(out_dir: str) -> None:
     chosen, plan = _rebuild_forcing_choice(out_dir)
     T = datetime.datetime.strptime(plan["span_start"], _WRF_TIME_FMT)
     T_end = datetime.datetime.strptime(plan["span_end"], _WRF_TIME_FMT)
@@ -1413,7 +1293,8 @@ def cmd_rebuild_fix_span_wps_namelist(out_dir):
     print("wrote %s (span %s .. %s)" % (out_path, plan["span_start"], plan["span_end"]))
 
 
-def cmd_rebuild_fix_span_real_namelist(out_dir, ncdump=None, serial=False):
+def cmd_rebuild_fix_span_real_namelist(out_dir: str, ncdump: str | None = None,
+                                       serial: bool = False) -> None:
     chosen, plan = _rebuild_forcing_choice(out_dir)
     real_dir = os.path.join(out_dir, "real")
     met_ems = sorted(p for p in os.listdir(real_dir) if p.startswith("met_em.d01."))
@@ -1434,11 +1315,8 @@ def cmd_rebuild_fix_span_real_namelist(out_dir, ncdump=None, serial=False):
         "start_dt": T, "end_dt": T_end, "dx_km": plan["dx_km"],
         "parent_grid_ratio": plan["parent_grid_ratio"],
     }
-    # T12 (2026-09-24, job 965): this subcommand runs INSIDE the batch job under /usr/bin/python3
-    # (stdlib only -- no numpy), so it can no longer call vertical_grid_from_wrfinput itself (that
-    # WAS the job 965 bug: 'WARNING: vertical grid fidelity (T8) skipped -- No module named
-    # numpy', silently). The read happens ONCE at PLAN time (login node, netCDF4 env -- see
-    # cmd_rebuild_plan) and is stored verbatim in plan.json; this just reads it back.
+    # Runs in the batch job under /usr/bin/python3 (no numpy): the vertical grid comes from
+    # plan.json, read at plan time (T12, job 965).
     vertical_grid = plan.get("vertical_grid")
     if vertical_grid is None and plan.get("vertical_grid_warning"):
         print("WARNING: %s (recorded at plan time)" % plan["vertical_grid_warning"])
@@ -1469,7 +1347,8 @@ def cmd_rebuild_fix_span_real_namelist(out_dir, ncdump=None, serial=False):
     print("wrote %s (%d changes%s)" % (out_path, len(changes), " serial" if serial else ""))
 
 
-def cmd_rebuild_fix_span_wrf_namelist(out_dir, nproc_x, nproc_y, numtiles=1):
+def cmd_rebuild_fix_span_wrf_namelist(out_dir: str, nproc_x: int, nproc_y: int,
+                                      numtiles: int = 1) -> None:
     real_nl_path = os.path.join(out_dir, "real", "namelist.input")
     if not os.path.exists(real_nl_path):
         raise RebuildError("fix-span-wrf-namelist: %s does not exist yet" % real_nl_path)
@@ -1489,203 +1368,257 @@ def cmd_rebuild_fix_span_wrf_namelist(out_dir, nproc_x, nproc_y, numtiles=1):
     print("wrote %s (verify_steps=%d)" % (out_path, win_steps))
 
 
-def render_rebuild_sbatch(plan, chosen, site="scc", estimate_min=30):
-    """One sbatch: geogrid -> ungrib+metgrid for the SPAN (exact expected-file checks, reusing
-    coldstart_sample.expected_wps_intermediate_files/expected_met_em_files) -> real.exe for the
-    span (same timeout 600 + serial-under-timeout-1800 fallback as coldstart_sample's own
-    per-window real.exe launch) -> optional wrf.exe smoke run of verify_steps (history/restart
-    off). No LD_PRELOAD, no wrapper around wrf.exe; --exclude=head; geogrid/metgrid TBL dirs;
-    OMP_NUM_THREADS=1 for WPS/real, =config omp for the smoke wrf.exe -- all reused conventions
-    from coldstart_sample.render_run_sbatch, not reimplemented."""
+_CORES_PER_NODE = 72               # scc GH200 node
+_REAL_TIMEOUT_S = 600              # s; decomposed real.exe, then serial fallback
+_REAL_SERIAL_TIMEOUT_S = 1800      # s
+_SMOKE_EXTRA_MIN = 30              # added to the job time limit when the wrf.exe smoke run is on
+
+
+@dataclasses.dataclass(frozen=True)
+class _RebuildJob:
+    """Everything render_rebuild_sbatch's sections need, derived once from plan + chosen forcing."""
+    out_dir_abs: str | None
+    nodes: int
+    ranks: int
+    omp: int
+    nx: int
+    ny: int
+    ppn: int
+    verify_steps: int
+    prefix: str
+    vtable: str
+    expected_ungrib: list
+    expected_met: list
+    geo_em_expected: list
+    time_min: int
+    ml_model: str | None
+    site: str
+    estimate_min: int
+
+
+def _rebuild_job(plan: dict, chosen: dict, site: str, estimate_min: int) -> _RebuildJob:
     out_dir_abs = plan.get("_out_dir")
     nodes = plan["nodes"]
     ranks = plan["config"]["ranks"]
     omp = plan["config"]["omp"]
     nx, ny = plan["config"]["nx"], plan["config"]["ny"]
-    # T7 (2026-09-24): ceil(ranks/nodes), not floor -- see coldstart_sample.render_run_sbatch's
-    # identical fix for the observed rc=213 'not enough slots' failure mode.
-    ppn = -(-ranks // max(nodes, 1))
-    assert ppn <= 72, ("ppn=%d exceeds CORES_PER_NODE=72 (ranks=%d nodes=%d)"
-                       % (ppn, ranks, nodes))
-    real_tpn = ppn
+    ppn = -(-ranks // max(nodes, 1))   # ceil, not floor: floor gave rc=213 'not enough slots' (T7)
+    assert ppn <= _CORES_PER_NODE, ("ppn=%d exceeds CORES_PER_NODE=%d (ranks=%d nodes=%d)"
+                                    % (ppn, _CORES_PER_NODE, ranks, nodes))
     max_dom = plan["max_dom"]
     verify_steps = int(plan.get("verify_steps") or 0)
     T = datetime.datetime.strptime(plan["span_start"], _WRF_TIME_FMT)
     T_end = datetime.datetime.strptime(plan["span_end"], _WRF_TIME_FMT)
     prefix = chosen.get("prefix", "GFS")
-    vtable = chosen.get("vtable", "Vtable.GFS")
     interval_s = chosen.get("forcing_interval_h", plan["interval_seconds"] // 3600) * 3600
-    expected_ungrib = cs.expected_wps_intermediate_files(prefix, T, T_end, interval_s)
-    expected_met = cs.expected_met_em_files(max_dom, T, T_end, interval_s)
-    geo_em_expected = ["geo_em.d%02d.nc" % d for d in range(1, max_dom + 1)]
+    return _RebuildJob(
+        out_dir_abs=out_dir_abs, nodes=nodes, ranks=ranks, omp=omp, nx=nx, ny=ny, ppn=ppn,
+        verify_steps=verify_steps,
+        prefix=prefix, vtable=chosen.get("vtable", "Vtable.GFS"),
+        expected_ungrib=cs.expected_wps_intermediate_files(prefix, T, T_end, interval_s),
+        expected_met=cs.expected_met_em_files(max_dom, T, T_end, interval_s),
+        geo_em_expected=["geo_em.d%02d.nc" % d for d in range(1, max_dom + 1)],
+        time_min=max(60, estimate_min * 2 + (_SMOKE_EXTRA_MIN if verify_steps else 0)),
+        ml_model=plan.get("ml_model"), site=site, estimate_min=estimate_min)
 
-    time_min = max(60, estimate_min * 2 + (30 if verify_steps else 0))
-    hh, mm = time_min // 60, time_min % 60
 
-    lines = []
-    lines.append("#!/usr/bin/env bash")
-    lines.append("#SBATCH --job-name=case-rebuild")
-    lines.append("#SBATCH --partition=compute")
-    lines.append("#SBATCH --exclude=head")
-    lines.append("#SBATCH -N %d --exclusive --ntasks-per-node=%d" % (nodes, ppn))
-    lines.append("#SBATCH --time=%02d:%02d:00" % (hh, mm))
-    lines.append("#SBATCH --signal=B:USR1@90")
-    if out_dir_abs:
-        lines.append("#SBATCH --output=%s/run-%%j.out" % out_dir_abs)
-    lines.append("set -uo pipefail")
-    lines.append("")
-    lines.append("TOOL=%s" % cs._sh_quote(os.path.abspath(__file__)))
-    ml_model = plan.get("ml_model")
-    if ml_model:
-        # K5 (2026-09-24): see coldstart_sample.render_run_sbatch's identical fix -- ML state
-        # completion, default OFF, never /usr/bin/python3 for it.
-        lines.append("TOOL_SCM=%s" % cs._sh_quote(cs._SCM_PATH))
-        lines.append("ML_MODEL=%s" % cs._sh_quote(os.path.abspath(ml_model)))
-        lines.append("GRIB_PY=${GRIB_PYTHON:-$HOME/wtune/envs/grib/.pixi/envs/default/bin/python}")
-    lines.append("SITE=%s" % site)
-    lines.append("CAMPAIGN=${CAMPAIGN:-$HOME/wtune/campaign}")
-    lines.append("source \"$CAMPAIGN/sites/$SITE.sh\"   # site_env / site_launch / site_hygiene -- "
-                  "reused, not reimplemented")
-    lines.append("source ~/wtune-scc/env.sh")
-    lines.append("export PATH=$NETCDF/bin:$PATH")
-    lines.append("ulimit -s unlimited")
-    lines.append("site_env")
-    # T6 (2026-09-24, jobs 957/958): REBUILD_DIR, not OUT -- campaign/sites/scc.sh (sourced just
-    # above, via site_env's own env.sh too) assigns its OWN global OUT=$HOME/wtune-runs/campaign,
-    # so a rebuild-output OUT= set BEFORE the source line was silently clobbered, and every
-    # downstream `cd "$OUT/wps"` landed in the wrong tree ('No such file or directory'). Grepped
-    # every campaign/sites/*.sh: none of them assign REBUILD_DIR, TOOL, SITE, CAMPAIGN, or
-    # ALLOC_NODES -- only OUT, CORES_PER_NODE, W, HARDWARE_ID, PIXI_ENV, CONV,
-    # CASES_JSON_DEFAULT. Assigned AFTER sourcing (belt-and-suspenders: even if some future site
-    # file's env.sh also touched it, this assignment already runs last).
-    if out_dir_abs:
-        lines.append("REBUILD_DIR=%s" % cs._sh_quote(out_dir_abs))
+def _sbatch_header(job: _RebuildJob) -> list[str]:
+    lines = ["#!/usr/bin/env bash",
+             "#SBATCH --job-name=case-rebuild",
+             "#SBATCH --partition=compute",
+             "#SBATCH --exclude=head",
+             "#SBATCH -N %d --exclusive --ntasks-per-node=%d" % (job.nodes, job.ppn),
+             "#SBATCH --time=%02d:%02d:00" % (job.time_min // 60, job.time_min % 60),
+             "#SBATCH --signal=B:USR1@90"]
+    if job.out_dir_abs:
+        lines.append("#SBATCH --output=%s/run-%%j.out" % job.out_dir_abs)
+    lines += ["set -uo pipefail", "", "TOOL=%s" % cs._sh_quote(os.path.abspath(__file__))]
+    if job.ml_model:   # K5: ML state completion, default off; never /usr/bin/python3 for it
+        lines += ["TOOL_SCM=%s" % cs._sh_quote(cs._SCM_PATH),
+                  "ML_MODEL=%s" % cs._sh_quote(os.path.abspath(job.ml_model)),
+                  "GRIB_PY=${GRIB_PYTHON:-$HOME/wtune/envs/grib/.pixi/envs/default/bin/python}"]
+    lines += ["SITE=%s" % job.site,
+              "CAMPAIGN=${CAMPAIGN:-$HOME/wtune/campaign}",
+              "source \"$CAMPAIGN/sites/$SITE.sh\"   # site_env / site_launch / site_hygiene -- "
+              "reused, not reimplemented",
+              "source ~/wtune-scc/env.sh",
+              "export PATH=$NETCDF/bin:$PATH",
+              "ulimit -s unlimited",
+              "site_env"]
+    # REBUILD_DIR, not OUT, and set AFTER sourcing: campaign/sites/scc.sh assigns its own OUT
+    # (T6, jobs 957/958).
+    if job.out_dir_abs:
+        lines.append("REBUILD_DIR=%s" % cs._sh_quote(job.out_dir_abs))
     else:
         lines.append("REBUILD_DIR=$(cd \"$(dirname \"${BASH_SOURCE[0]}\")\" && pwd)")
     lines.extend(cs.render_signal_trap_and_hygiene_preamble(
-        nodes,
+        job.nodes,
         extra_lines_after_alloc_nodes=["STATUS=\"$REBUILD_DIR/rebuild_status.txt\"",
-                                      ": > \"$STATUS\""],
+                                       ": > \"$STATUS\""],
         record_label="STAGE"))
-    lines.append("cd \"$REBUILD_DIR/wps\"")
-    lines.append("export OMP_NUM_THREADS=1")
-    lines.append("CUR_WINDOW=geogrid")
-    lines.append("echo \"=== geogrid.exe ($(date -u +%FT%TZ)) ===\"")
-    lines.append("mpirun -np %d --map-by ppr:%d:node:PE=1 --bind-to core ./geogrid.exe" % (ppn, ppn))
-    lines.append("rc=$?; pkill -u \"$USER\" -x geogrid.exe 2>/dev/null")
-    lines.append("GEO_EM_MISSING=()")
-    lines.append("for f in %s; do [ -f \"$f\" ] || GEO_EM_MISSING+=(\"$f\"); done"
-                  % " ".join(geo_em_expected))
-    lines.append("if [ $rc -ne 0 ] || [ ${#GEO_EM_MISSING[@]} -gt 0 ] "
-                  "|| ! grep -q 'Successful completion' geogrid.log* 2>/dev/null; then")
-    lines.append("  echo \"FATAL geogrid rc=$rc missing=${GEO_EM_MISSING[*]:-none}\"; exit 1")
-    lines.append("fi")
-    lines.append("")
-    # T9 (2026-09-24): see coldstart_sample.render_run_sbatch's identical fix -- link exactly
-    # what `rebuild fetch` wrote (grib_manifest.txt) rather than assuming a *.grib2 extension
-    # (FNL/.grib, ncei_g3-g4/.grb). Fall back to a widened glob only if the manifest is missing.
-    lines.append("CUR_WINDOW=link_grib")
-    lines.append("if [ -s \"$REBUILD_DIR/grib_manifest.txt\" ]; then")
-    lines.append("  mapfile -t GRIB_FILES < <(sed \"s#^#$REBUILD_DIR/grib/#\" "
-                  "\"$REBUILD_DIR/grib_manifest.txt\")")
-    lines.append("else")
-    lines.append("  shopt -s nullglob")
-    lines.append("  GRIB_FILES=(\"$REBUILD_DIR\"/grib/*.grib2 \"$REBUILD_DIR\"/grib/*.grib "
-                  "\"$REBUILD_DIR\"/grib/*.grb)")
-    lines.append("  shopt -u nullglob")
-    lines.append("fi")
-    lines.append("if [ ${#GRIB_FILES[@]} -eq 0 ]; then")
-    lines.append("  echo \"FATAL: no forcing files in $REBUILD_DIR/grib -- run 'case_rebuild.py "
-                  "rebuild fetch --out $REBUILD_DIR' first\"; exit 1")
-    lines.append("fi")
-    lines.append("rm -f GRIBFILE.*")
-    lines.append("./link_grib.csh \"${GRIB_FILES[@]}\"")
-    lines.append("[ $? -ne 0 ] && { echo \"FATAL link_grib.csh failed\"; exit 1; }")
-    lines.append("python3 \"$TOOL\" rebuild fix-span-wps-namelist --out \"$REBUILD_DIR\" || exit 1")
-    lines.append("if [ -e %s ]; then ln -sf %s Vtable; else echo \"FATAL: %s not staged\"; exit 1; fi"
-                  % (cs._sh_quote(vtable), cs._sh_quote(vtable), vtable))
-    lines.append("rm -f \"%s:\"*" % prefix)
-    lines.append("CUR_WINDOW=ungrib")
-    lines.append("./ungrib.exe")
-    lines.append("rc=$?; pkill -u \"$USER\" -x ungrib.exe 2>/dev/null")
-    lines.append("UNGRIB_MISSING=()")
-    lines.append("for f in %s; do [ -f \"$f\" ] || UNGRIB_MISSING+=(\"$f\"); done"
-                  % " ".join(cs._sh_quote(x) for x in expected_ungrib))
-    lines.append("[ $rc -ne 0 ] || [ ${#UNGRIB_MISSING[@]} -gt 0 ] && "
-                  "{ echo \"FATAL ungrib rc=$rc missing=${UNGRIB_MISSING[*]:-none}\"; exit 1; }")
-    lines.append("")
-    lines.append("CUR_WINDOW=metgrid")
-    lines.append("echo \"=== metgrid.exe ($(date -u +%FT%TZ)) ===\"")
-    lines.append("mpirun -np %d --map-by ppr:%d:node:PE=1 --bind-to core ./metgrid.exe" % (ppn, ppn))
-    lines.append("rc=$?; pkill -u \"$USER\" -x metgrid.exe 2>/dev/null")
-    lines.append("MET_MISSING=()")
-    lines.append("for f in %s; do [ -f \"$f\" ] || MET_MISSING+=(\"$f\"); done"
-                  % " ".join(cs._sh_quote(x) for x in expected_met))
-    lines.append("if [ $rc -ne 0 ] || [ ${#MET_MISSING[@]} -gt 0 ] "
-                  "|| ! grep -q 'Successful completion' metgrid.log* 2>/dev/null; then")
-    lines.append("  echo \"FATAL metgrid rc=$rc missing=${MET_MISSING[*]:-none}\"; exit 1")
-    lines.append("fi")
-    lines.append("")
-    lines.append("CUR_WINDOW=real")
-    lines.append("echo \"=== real.exe ($(date -u +%FT%TZ)) ===\"")
-    lines.append("cd \"$REBUILD_DIR/real\"")
-    lines.append("rm -f met_em.d0*.*.nc; ln -sf \"$REBUILD_DIR\"/wps/met_em.d0*.*.nc .")
-    # nocolons=.true. cases (lafe): real.exe opens 'YYYY-MM-DD_HH_MM_SS' names -- same fix as
-    # coldstart_sample's run.sbatch (V6 lafe-real/-fict FATAL 'bad date in namelist or file not in directory')
-    lines.append("for f in met_em.d0*.*.nc; do [ \"$f\" = \"${f//:/_}\" ] || ln -sf \"$f\" \"${f//:/_}\"; done")
-    lines.append("python3 \"$TOOL\" rebuild fix-span-real-namelist --out \"$REBUILD_DIR\" || exit 1")
-    lines.append("timeout 600 mpirun -np %d --map-by ppr:%d:node:PE=1 --bind-to core ./real.exe"
-                  % (ranks, real_tpn))
-    lines.append("rc=$?; pkill -u \"$USER\" -x real.exe 2>/dev/null")
-    lines.append("if [ $rc -eq 124 ] || [ ! -f wrfinput_d01 ] || [ ! -f wrfbdy_d01 ]; then")
-    lines.append("  echo \"real.exe decomposed attempt rc=$rc -- retrying serial\" >&2")
-    lines.append("  python3 \"$TOOL\" rebuild fix-span-real-namelist --out \"$REBUILD_DIR\" "
-                  "--serial || exit 1")
-    lines.append("  timeout 1800 mpirun -np 1 --map-by ppr:1:node:PE=1 --bind-to core ./real.exe")
-    lines.append("  rc=$?; pkill -u \"$USER\" -x real.exe 2>/dev/null")
-    lines.append("fi")
-    lines.append("[ $rc -ne 0 ] && { echo \"FATAL real.exe rc=$rc\"; exit 1; }")
-    lines.append("[ -f wrfinput_d01 ] && [ -f wrfbdy_d01 ] || { echo \"FATAL: no wrfinput/wrfbdy\"; exit 1; }")
-    if ml_model:
-        # K5 (2026-09-24): see coldstart_sample.render_run_sbatch's identical ML-apply step --
-        # emitted ONLY when the plan was built with --ml-model (Default: OFF). Recorded in
-        # REBUILD_DIR/ml_status.txt since rebuild has no per-window windows_status.txt
-        # equivalent to append to.
-        lines.append("ML_OUT=$(\"$GRIB_PY\" \"$TOOL_SCM\" apply --model \"$ML_MODEL\" "
-                      "--targets-from-report --wrfinput wrfinput_d01 --out wrfinput_d01.ml 2>&1)")
-        lines.append("ml_rc=$?")
-        lines.append("ML_TARGETS=$(printf '%s\\n' \"$ML_OUT\" | "
-                      "grep '^APPLIED_TARGETS=' | tail -1 | sed 's/^APPLIED_TARGETS=//')")
-        lines.append("if [ $ml_rc -eq 0 ] && [ -f wrfinput_d01.ml ]; then")
-        lines.append("  mv wrfinput_d01 wrfinput_d01.noml && mv wrfinput_d01.ml wrfinput_d01")
-        lines.append("  echo \"ml=applied ml_targets=$ML_TARGETS\" > \"$REBUILD_DIR/ml_status.txt\"")
-        lines.append("else")
-        lines.append("  rm -f wrfinput_d01.ml")
-        lines.append("  echo \"ml=skipped ml_targets=$ML_TARGETS\" > \"$REBUILD_DIR/ml_status.txt\"")
-        lines.append("  printf '%s\\n' \"$ML_OUT\" >&2")
-        lines.append("fi")
+    return lines
+
+
+def _sbatch_geogrid(job: _RebuildJob) -> list[str]:
+    return [
+        "cd \"$REBUILD_DIR/wps\"",
+        "export OMP_NUM_THREADS=1",
+        "CUR_WINDOW=geogrid",
+        "echo \"=== geogrid.exe ($(date -u +%FT%TZ)) ===\"",
+        "mpirun -np %d --map-by ppr:%d:node:PE=1 --bind-to core ./geogrid.exe" % (job.ppn, job.ppn),
+        "rc=$?; pkill -u \"$USER\" -x geogrid.exe 2>/dev/null",
+        "GEO_EM_MISSING=()",
+        "for f in %s; do [ -f \"$f\" ] || GEO_EM_MISSING+=(\"$f\"); done"
+        % " ".join(job.geo_em_expected),
+        "if [ $rc -ne 0 ] || [ ${#GEO_EM_MISSING[@]} -gt 0 ] "
+        "|| ! grep -q 'Successful completion' geogrid.log* 2>/dev/null; then",
+        "  echo \"FATAL geogrid rc=$rc missing=${GEO_EM_MISSING[*]:-none}\"; exit 1",
+        "fi",
+        "",
+    ]
+
+
+def _sbatch_ungrib(job: _RebuildJob) -> list[str]:
+    """link_grib.csh over exactly what `rebuild fetch` wrote (grib_manifest.txt; T9 -- FNL .grib
+    and NCEI .grb are not *.grib2), then ungrib with an expected-file check."""
+    vt = cs._sh_quote(job.vtable)
+    return [
+        "CUR_WINDOW=link_grib",
+        "if [ -s \"$REBUILD_DIR/grib_manifest.txt\" ]; then",
+        "  mapfile -t GRIB_FILES < <(sed \"s#^#$REBUILD_DIR/grib/#\" "
+        "\"$REBUILD_DIR/grib_manifest.txt\")",
+        "else",
+        "  shopt -s nullglob",
+        "  GRIB_FILES=(\"$REBUILD_DIR\"/grib/*.grib2 \"$REBUILD_DIR\"/grib/*.grib "
+        "\"$REBUILD_DIR\"/grib/*.grb)",
+        "  shopt -u nullglob",
+        "fi",
+        "if [ ${#GRIB_FILES[@]} -eq 0 ]; then",
+        "  echo \"FATAL: no forcing files in $REBUILD_DIR/grib -- run 'case_rebuild.py "
+        "rebuild fetch --out $REBUILD_DIR' first\"; exit 1",
+        "fi",
+        "rm -f GRIBFILE.*",
+        "./link_grib.csh \"${GRIB_FILES[@]}\"",
+        "[ $? -ne 0 ] && { echo \"FATAL link_grib.csh failed\"; exit 1; }",
+        "python3 \"$TOOL\" rebuild fix-span-wps-namelist --out \"$REBUILD_DIR\" || exit 1",
+        "if [ -e %s ]; then ln -sf %s Vtable; else echo \"FATAL: %s not staged\"; exit 1; fi"
+        % (vt, vt, job.vtable),
+        "rm -f \"%s:\"*" % job.prefix,
+        "CUR_WINDOW=ungrib",
+        "./ungrib.exe",
+        "rc=$?; pkill -u \"$USER\" -x ungrib.exe 2>/dev/null",
+        "UNGRIB_MISSING=()",
+        "for f in %s; do [ -f \"$f\" ] || UNGRIB_MISSING+=(\"$f\"); done"
+        % " ".join(cs._sh_quote(x) for x in job.expected_ungrib),
+        "[ $rc -ne 0 ] || [ ${#UNGRIB_MISSING[@]} -gt 0 ] && "
+        "{ echo \"FATAL ungrib rc=$rc missing=${UNGRIB_MISSING[*]:-none}\"; exit 1; }",
+        "",
+    ]
+
+
+def _sbatch_metgrid(job: _RebuildJob) -> list[str]:
+    return [
+        "CUR_WINDOW=metgrid",
+        "echo \"=== metgrid.exe ($(date -u +%FT%TZ)) ===\"",
+        "mpirun -np %d --map-by ppr:%d:node:PE=1 --bind-to core ./metgrid.exe" % (job.ppn, job.ppn),
+        "rc=$?; pkill -u \"$USER\" -x metgrid.exe 2>/dev/null",
+        "MET_MISSING=()",
+        "for f in %s; do [ -f \"$f\" ] || MET_MISSING+=(\"$f\"); done"
+        % " ".join(cs._sh_quote(x) for x in job.expected_met),
+        "if [ $rc -ne 0 ] || [ ${#MET_MISSING[@]} -gt 0 ] "
+        "|| ! grep -q 'Successful completion' metgrid.log* 2>/dev/null; then",
+        "  echo \"FATAL metgrid rc=$rc missing=${MET_MISSING[*]:-none}\"; exit 1",
+        "fi",
+        "",
+    ]
+
+
+def _sbatch_real(job: _RebuildJob) -> list[str]:
+    """real.exe over the span: decomposed with a timeout, serial retry on timeout/no output.
+    nocolons=.true. cases want '_' met_em names (V6 lafe)."""
+    return [
+        "CUR_WINDOW=real",
+        "echo \"=== real.exe ($(date -u +%FT%TZ)) ===\"",
+        "cd \"$REBUILD_DIR/real\"",
+        "rm -f met_em.d0*.*.nc; ln -sf \"$REBUILD_DIR\"/wps/met_em.d0*.*.nc .",
+        "for f in met_em.d0*.*.nc; do [ \"$f\" = \"${f//:/_}\" ] || ln -sf \"$f\" \"${f//:/_}\"; done",
+        "python3 \"$TOOL\" rebuild fix-span-real-namelist --out \"$REBUILD_DIR\" || exit 1",
+        "timeout %d mpirun -np %d --map-by ppr:%d:node:PE=1 --bind-to core ./real.exe"
+        % (_REAL_TIMEOUT_S, job.ranks, job.ppn),
+        "rc=$?; pkill -u \"$USER\" -x real.exe 2>/dev/null",
+        "if [ $rc -eq 124 ] || [ ! -f wrfinput_d01 ] || [ ! -f wrfbdy_d01 ]; then",
+        "  echo \"real.exe decomposed attempt rc=$rc -- retrying serial\" >&2",
+        "  python3 \"$TOOL\" rebuild fix-span-real-namelist --out \"$REBUILD_DIR\" "
+        "--serial || exit 1",
+        "  timeout %d mpirun -np 1 --map-by ppr:1:node:PE=1 --bind-to core ./real.exe"
+        % _REAL_SERIAL_TIMEOUT_S,
+        "  rc=$?; pkill -u \"$USER\" -x real.exe 2>/dev/null",
+        "fi",
+        "[ $rc -ne 0 ] && { echo \"FATAL real.exe rc=$rc\"; exit 1; }",
+        "[ -f wrfinput_d01 ] && [ -f wrfbdy_d01 ] || { echo \"FATAL: no wrfinput/wrfbdy\"; exit 1; }",
+    ]
+
+
+def _sbatch_ml_apply() -> list[str]:
+    """K5: apply the ML state correction to real.exe's wrfinput_d01; outcome to ml_status.txt."""
+    return [
+        "ML_OUT=$(\"$GRIB_PY\" \"$TOOL_SCM\" apply --model \"$ML_MODEL\" "
+        "--targets-from-report --wrfinput wrfinput_d01 --out wrfinput_d01.ml 2>&1)",
+        "ml_rc=$?",
+        "ML_TARGETS=$(printf '%s\\n' \"$ML_OUT\" | "
+        "grep '^APPLIED_TARGETS=' | tail -1 | sed 's/^APPLIED_TARGETS=//')",
+        "if [ $ml_rc -eq 0 ] && [ -f wrfinput_d01.ml ]; then",
+        "  mv wrfinput_d01 wrfinput_d01.noml && mv wrfinput_d01.ml wrfinput_d01",
+        "  echo \"ml=applied ml_targets=$ML_TARGETS\" > \"$REBUILD_DIR/ml_status.txt\"",
+        "else",
+        "  rm -f wrfinput_d01.ml",
+        "  echo \"ml=skipped ml_targets=$ML_TARGETS\" > \"$REBUILD_DIR/ml_status.txt\"",
+        "  printf '%s\\n' \"$ML_OUT\" >&2",
+        "fi",
+    ]
+
+
+def _sbatch_wrf_smoke(job: _RebuildJob) -> list[str]:
+    """wrf.exe for verify_steps through site_launch (no wrapper around wrf.exe)."""
+    return [
+        "",
+        "echo \"=== wrf.exe smoke run: %d steps ($(date -u +%%FT%%TZ)) ===\"" % job.verify_steps,
+        "CUR_WINDOW=wrf",
+        "cd \"$REBUILD_DIR/wrf\"",
+        "ln -sf ../real/wrfinput_d0* .; ln -sf ../real/wrfbdy_d01 .",
+        "shopt -s nullglob; WRFLOWINP=(../real/wrflowinp_d0*); shopt -u nullglob",
+        "[ ${#WRFLOWINP[@]} -gt 0 ] && ln -sf ../real/wrflowinp_d0* .",
+        "python3 \"$TOOL\" rebuild fix-span-wrf-namelist --out \"$REBUILD_DIR\" "
+        "--nproc-x %d --nproc-y %d --numtiles 1 || exit 1" % (job.nx, job.ny),
+        "export OMP_NUM_THREADS=%d" % job.omp,
+        "unset OMP_PLACES OMP_PROC_BIND",
+        "site_launch %d %d %d block" % (job.ranks, job.ppn, job.omp),
+        "timeout %d \"${SITE_LAUNCH_CMD[@]}\" > wrf.out 2>&1 &" % (job.estimate_min * 60),
+        "WRF_PID=$!; wait \"$WRF_PID\"; rc=$?",
+        "pkill -u \"$USER\" -x wrf.exe 2>/dev/null",
+        "CUR_WINDOW=\"\"",
+        "[ $rc -ne 0 ] && { echo \"FATAL wrf.exe smoke run rc=$rc\"; exit 1; }",
+    ]
+
+
+def render_rebuild_sbatch(plan: dict, chosen: dict, site: str = "scc",
+                          estimate_min: int = 30) -> str:
+    """One sbatch for the span: geogrid -> ungrib+metgrid (expected-file checks) -> real.exe
+    (timeout + serial fallback) -> optional ML apply -> optional wrf.exe smoke run of
+    verify_steps. Conventions reused from coldstart_sample.render_run_sbatch; no LD_PRELOAD.
+    AssertionError when ranks do not fit 72 cores per node."""
+    job = _rebuild_job(plan, chosen, site, estimate_min)
+    lines = _sbatch_header(job)
+    lines += _sbatch_geogrid(job)
+    lines += _sbatch_ungrib(job)
+    lines += _sbatch_metgrid(job)
+    lines += _sbatch_real(job)
+    if job.ml_model:
+        lines += _sbatch_ml_apply()
     lines.append("CUR_WINDOW=\"\"")
-    if verify_steps > 0:
-        lines.append("")
-        lines.append("echo \"=== wrf.exe smoke run: %d steps ($(date -u +%%FT%%TZ)) ===\"" % verify_steps)
-        lines.append("CUR_WINDOW=wrf")
-        lines.append("cd \"$REBUILD_DIR/wrf\"")
-        lines.append("ln -sf ../real/wrfinput_d0* .; ln -sf ../real/wrfbdy_d01 .")
-        lines.append("shopt -s nullglob; WRFLOWINP=(../real/wrflowinp_d0*); shopt -u nullglob")
-        lines.append("[ ${#WRFLOWINP[@]} -gt 0 ] && ln -sf ../real/wrflowinp_d0* .")
-        lines.append("python3 \"$TOOL\" rebuild fix-span-wrf-namelist --out \"$REBUILD_DIR\" "
-                      "--nproc-x %d --nproc-y %d --numtiles 1 || exit 1" % (nx, ny))
-        lines.append("export OMP_NUM_THREADS=%d" % omp)
-        lines.append("unset OMP_PLACES OMP_PROC_BIND")
-        lines.append("site_launch %d %d %d block" % (ranks, ppn, omp))
-        lines.append("timeout %d \"${SITE_LAUNCH_CMD[@]}\" > wrf.out 2>&1 &" % (estimate_min * 60))
-        lines.append("WRF_PID=$!; wait \"$WRF_PID\"; rc=$?")
-        lines.append("pkill -u \"$USER\" -x wrf.exe 2>/dev/null")
-        lines.append("CUR_WINDOW=\"\"")
-        lines.append("[ $rc -ne 0 ] && { echo \"FATAL wrf.exe smoke run rc=$rc\"; exit 1; }")
-    lines.append("")
-    lines.append("run_hygiene reap+census")
-    lines.append("echo \"=== DONE ($(date -u +%FT%TZ)) ===\"")
+    if job.verify_steps > 0:
+        lines += _sbatch_wrf_smoke(job)
+    lines += ["", "run_hygiene reap+census", "echo \"=== DONE ($(date -u +%FT%TZ)) ===\""]
     text = "\n".join(lines) + "\n"
     assert "LD_PRELOAD" not in text
     assert "--wrap" not in text
@@ -1693,34 +1626,18 @@ def render_rebuild_sbatch(plan, chosen, site="scc", estimate_min=30):
 
 
 # ===========================================================================
-# R6-B: compare -- similarity report (needs numpy + netCDF4, lazy-imported; grib pixi env only).
-#
-# Every metric below is a PURE function over plain arrays -- testable without ever opening a
-# netCDF file. The netCDF-reading layer (read_wrfinput_fields) is a thin, separately-lazy
-# wrapper that hands those arrays to the metric functions; it is NOT independently exercised by
-# the offline test suite (no netCDF4 in this dev environment -- see tools/test_case_rebuild.py's
-# own skip-if-missing guard), consistent with tools/test_grib_state.py's existing convention.
-#
-# PW (precipitable water) deviation from the literal spec: 'sum_k QVAPOR_k * dp_k / g ... dp from
-# MU/C1H..C4H if present, else from P+PB differences -- document which'. Implemented here: ALWAYS
-# the P+PB (full pressure) level-difference method, dp_k = p_full[k] - p_full[k+1] for
-# k=0..nz-2 (i.e. nz-1 of the nz mass levels' own spacing; the top half-layer's contribution is
-# dropped, a standard and small approximation since QVAPOR near the model top is close to zero).
-# The MU/C1H..C4H hybrid-sigma path was NOT implemented: that formula needs the model's own eta
-# level spacing (DNW or equivalent), which is not a plain per-column array in the same sense as
-# P/PB/QVAPOR, and I have no real wrfout file locally to verify the Registry's exact variable
-# relationship against -- guessing it risked a silently wrong physics constant. Alternatives, in
-# case the P+PB method is insufficient: (1) as implemented; (2) implement the full MU/C1H..C4H
-# path once a real wrfout is available to verify DNW/C1H/C4H's exact roles against; (3) drop PW
-# from the scored metric set entirely. I chose (1).
+# R6-B: compare -- similarity report (numpy + netCDF4, lazy-imported; grib pixi env only).
+# Metrics are pure functions over arrays; read_wrfinput_fields_netcdf4 is the only file reader.
+# PW always uses P+PB level differences (top half-layer dropped); the MU/C1H..C4H hybrid path is
+# not implemented (unverified without a real wrfout).
 # ===========================================================================
 
-G_ACCEL = 9.81
+G_ACCEL = 9.81                    # m s-2
 RD_CP = 287.0 / 1004.5   # WRF's own R_d/c_p (dry gas constant / specific heat at const. pressure)
 P0_PA = 100000.0         # WRF's reference pressure for the Poisson (theta -> T) relation
 
 
-def rmse(a, b, mask=None):
+def rmse(a: ArrayLike, b: ArrayLike, mask: ArrayLike | None = None) -> float:
     import numpy as np
     a = np.asarray(a, dtype=float)
     b = np.asarray(b, dtype=float)
@@ -1730,7 +1647,7 @@ def rmse(a, b, mask=None):
     return float(np.sqrt(np.nanmean(d ** 2)))
 
 
-def max_abs_diff(a, b, mask=None):
+def max_abs_diff(a: ArrayLike, b: ArrayLike, mask: ArrayLike | None = None) -> float:
     import numpy as np
     a = np.asarray(a, dtype=float)
     b = np.asarray(b, dtype=float)
@@ -1740,7 +1657,7 @@ def max_abs_diff(a, b, mask=None):
     return float(np.nanmax(d))
 
 
-def agreement_pct(a, b, mask=None):
+def agreement_pct(a: ArrayLike, b: ArrayLike, mask: ArrayLike | None = None) -> float:
     import numpy as np
     a = np.asarray(a)
     b = np.asarray(b)
@@ -1750,7 +1667,7 @@ def agreement_pct(a, b, mask=None):
     return float(100.0 * np.count_nonzero(eq) / eq.size) if eq.size else float("nan")
 
 
-def bias(a, b, mask=None):
+def bias(a: ArrayLike, b: ArrayLike, mask: ArrayLike | None = None) -> float:
     import numpy as np
     a = np.asarray(a, dtype=float)
     b = np.asarray(b, dtype=float)
@@ -1760,7 +1677,7 @@ def bias(a, b, mask=None):
     return float(np.nanmean(d))
 
 
-def pattern_correlation(a, b, mask=None):
+def pattern_correlation(a: ArrayLike, b: ArrayLike, mask: ArrayLike | None = None) -> float:
     import numpy as np
     a = np.asarray(a, dtype=float).ravel()
     b = np.asarray(b, dtype=float).ravel()
@@ -1773,7 +1690,7 @@ def pattern_correlation(a, b, mask=None):
     return float(np.corrcoef(a, b)[0, 1])
 
 
-def compute_pw(qvapor, p, pb):
+def compute_pw(qvapor: ArrayLike, p: ArrayLike, pb: ArrayLike) -> np.ndarray:
     """qvapor, p, pb: 3D arrays [bottom_top, south_north, west_east] (mass/half levels, index 0
     = lowest model level). Returns 2D PW [south_north, west_east] in kg/m^2 -- see module
     section docstring for the dp convention (P+PB level differences; MU/C1H..C4H not
@@ -1787,7 +1704,8 @@ def compute_pw(qvapor, p, pb):
     return pw
 
 
-def theta_to_temp(theta_perturbation, p, pb, theta_base=300.0):
+def theta_to_temp(theta_perturbation: ArrayLike, p: ArrayLike, pb: ArrayLike,
+                  theta_base: float = 300.0) -> np.ndarray:
     """WRF's T variable is PERTURBATION potential temperature (theta = T_var + 300). Actual
     temperature via the Poisson relation: Temp = theta_full * (p_full/P0)^(Rd/cp)."""
     import numpy as np
@@ -1796,7 +1714,7 @@ def theta_to_temp(theta_perturbation, p, pb, theta_base=300.0):
     return theta_full * (p_full / P0_PA) ** RD_CP
 
 
-def geopotential_height_mass_levels(ph, phb):
+def geopotential_height_mass_levels(ph: ArrayLike, phb: ArrayLike) -> np.ndarray:
     """PH/PHB (perturbation + base-state geopotential) are on STAGGERED w-levels
     (bottom_top_stag, nz+1 interfaces). Z = (PH+PHB)/g at each interface; averaged to the nz
     MASS-level layer centers (same convention wrf-python/NCL use) so it lines up with P/PB for
@@ -1806,14 +1724,14 @@ def geopotential_height_mass_levels(ph, phb):
     return (z_stag[:-1] + z_stag[1:]) / 2.0
 
 
-def destagger_u(u):
+def destagger_u(u: ArrayLike) -> np.ndarray:
     """west_east_stag (nx+1) -> mass points (nx): average adjacent pairs on the LAST axis."""
     import numpy as np
     u = np.asarray(u, dtype=float)
     return 0.5 * (u[..., :-1] + u[..., 1:])
 
 
-def destagger_v(v):
+def destagger_v(v: ArrayLike) -> np.ndarray:
     """south_north_stag (ny+1) -> mass points (ny): average adjacent pairs on AXIS 1 (the
     south_north axis of a [bottom_top, south_north, west_east] array)."""
     import numpy as np
@@ -1821,23 +1739,12 @@ def destagger_v(v):
     return 0.5 * (v[:, :-1, :] + v[:, 1:, :])
 
 
-def rotate_grid_to_earth(u, v, cosalpha, sinalpha):
-    """Grid-relative (u, v) -> earth-relative (u_e, v_e): u_e = u*cosalpha - v*sinalpha,
-    v_e = v*cosalpha + u*sinalpha (T3, 2026-09-24). wrfinput's own U/V are GRID-relative (on the
-    model's Lambert/polar/etc. projection); GFS/GRIB u/v -- what analog candidates are fetched
-    and scored against -- are EARTH-relative, so this rotation is required before comparing them
-    at all. cosalpha/sinalpha: WRF's own COSALPHA/SINALPHA state variables ('Local cosine/sine
-    of map rotation', Registry.EM_COMMON:1420-1421) -- 2D [south_north, west_east], broadcasts
-    against a 3D [bottom_top, south_north, west_east] u/v.
-
-    VERIFICATION STATUS: this is the standard NCL/wrf-python `uvmet` diagnostic's own formula.
-    I could NOT independently re-derive the sign convention from this checkout's own WRF Fortran
-    source: COSALPHA/SINALPHA are only DECLARED there (Registry.EM_COMMON, and read/written by
-    dyn_em/module_wps_io_arw.F's WPS I/O) -- no rotation formula appears in the dyn_em/share/
-    frame source actually present in this environment (grep found no use site). Per the 'stop
-    and report' rule: reporting this rather than guessing further; test_rotate_grid_to_earth_90_
-    degrees is the independent sanity check this implementation leans on instead of a source
-    citation."""
+def rotate_grid_to_earth(u: ArrayLike, v: ArrayLike, cosalpha: ArrayLike, sinalpha: ArrayLike
+                         ) -> tuple[np.ndarray, np.ndarray]:
+    """Grid-relative (u, v) -> earth-relative: u_e = u*cos - v*sin, v_e = v*cos + u*sin.
+    wrfinput U/V are grid-relative, GRIB u/v earth-relative (T3). cosalpha/sinalpha: WRF COSALPHA/
+    SINALPHA, 2D, broadcast over levels. Formula is wrf-python's uvmet; the sign convention is pinned
+    by test_rotate_grid_to_earth_90_degrees, not by WRF source (not present here)."""
     import numpy as np
     u = np.asarray(u, dtype=float)
     v = np.asarray(v, dtype=float)
@@ -1848,29 +1755,16 @@ def rotate_grid_to_earth(u, v, cosalpha, sinalpha):
     return u_e, v_e
 
 
-# T12 (2026-09-24): both moved to coldstart_sample.py -- vertical_grid_from_wrfinput may now
-# ONLY be called from a login-node/PLAN-time path (see its new docstring there: the batch job
-# runs under /usr/bin/python3 with no numpy, which is exactly why job 965's rebuild silently
-# skipped T8). coldstart_sample.build_plan needs both these too (coldstart's own real.exe
-# windows hit the same matthew-style FATAL), and case_rebuild imports coldstart_sample, not the
-# reverse -- aliased here so `cr.vertical_grid_from_wrfinput`/`cr.remove_namelist_key` keep
-# working unchanged for every existing call site and test.
+# Live in coldstart_sample (it needs them too; plan-time only, T12); aliased for `cr.` callers.
 vertical_grid_from_wrfinput = cs.vertical_grid_from_wrfinput
 remove_namelist_key = cs.remove_namelist_key
 
 
-def target_fields_from_wrfinput(path):
-    """R6-C target state (T3, 2026-09-24 fix): built DIRECTLY from the case's own wrfinput_d01,
-    NEVER by fetching GRIB at the case's stated start date -- for a fictional/relabelled case
-    (exactly the case `analog` exists to handle) the stated date's real weather is precisely NOT
-    this case's own weather, so using it as the target would make every candidate score against
-    the wrong answer. Uses the SAME functions compare() uses: hgt500 = geopotential height (PH+
-    PHB, mass-level-averaged) at 500 hPa; tmp850 = theta_to_temp at 850 hPa; ugrd850/vgrd850 = U/V
-    destaggered to mass points and ROTATED grid-relative -> earth-relative (rotate_grid_to_earth
-    -- GRIB u/v, what candidates are scored against, are earth-relative; wrfinput's own U/V are
-    not); pwat = compute_pw; tmp2m = T2 directly. All on the wrfinput's own (case) grid -- no
-    regridding needed for the target itself. Points where 850/500 hPa is below ground are NaN
-    (interp_pressure_level_field's own convention)."""
+def target_fields_from_wrfinput(path: str) -> dict[str, np.ndarray]:
+    """The analog target state from the case's OWN wrfinput_d01 (never GRIB
+    at the stated date, which is the wrong weather for a relabelled case; T3) -> {hgt500, tmp850,
+    ugrd850, vgrd850 (earth-relative), pwat, tmp2m} on the case grid, NaN where the level is below
+    ground. RebuildError when P/PB are missing."""
     import numpy as np
     import netCDF4
     ds = netCDF4.Dataset(path)
@@ -1920,7 +1814,7 @@ def target_fields_from_wrfinput(path):
         ds.close()
 
 
-def interp_pressure_level_column(field_k, p_k, target_pa):
+def interp_pressure_level_column(field_k: ArrayLike, p_k: ArrayLike, target_pa: float) -> float:
     """Linear-in-ln(p) interpolation of a SINGLE COLUMN profile `field_k` (indexed by model
     level, k=0 = lowest/highest-pressure level) at `p_k` (same units as target_pa, Pa) to
     `target_pa`. Returns NaN when target_pa is outside [min(p_k), max(p_k)] -- 'below ground'
@@ -1942,7 +1836,8 @@ def interp_pressure_level_column(field_k, p_k, target_pa):
     return float(field_k[idx] + frac * (field_k[idx + 1] - field_k[idx]))
 
 
-def interp_pressure_level_field(field_3d, p_3d, target_pa):
+def interp_pressure_level_field(field_3d: ArrayLike, p_3d: ArrayLike, target_pa: float
+                                ) -> np.ndarray:
     """interp_pressure_level_column applied to every (j, i) column of a 3D field
     [k, south_north, west_east]. Returns a 2D array, NaN where 850 hPa-style target is below
     ground or above the model top."""
@@ -1957,24 +1852,16 @@ def interp_pressure_level_field(field_3d, p_3d, target_pa):
     return out
 
 
-def grid_identity_check(a, b, tol_deg=0.01):
+def grid_identity_check(a: dict, b: dict, tol_deg: float = 0.01) -> tuple[bool, list[str]]:
     """Ports .route1-ref/grid_identity_gate.py's own gate exactly (attrs dict with tolerance
     0.01 deg for floats/exact for others, dims exact, corner+center lat/lon within tol_deg).
     a, b: {'attrs': {...}, 'dims': {'west_east':.., 'south_north':.., 'bottom_top':..},
     'corners': {'SW':(lat,lon), 'SE':.., 'NW':.., 'NE':.., 'center':..}}.
     Returns (ok, reasons)."""
     reasons = []
-    # T10 (2026-09-24, matthew MAP_PROJ=3 Mercator): projection-aware attribute comparison --
-    # WRF only fills in the attributes a given projection actually USES; an unused one is left
-    # at whatever value happened to be in the file (matthew's original wrfinput carries a
-    # leftover TRUELAT2=60 from some earlier edit, the freshly rebuilt one has WRF's own "unset"
-    # sentinel 1e20 -- both are meaningless for Mercator, but comparing TRUELAT2 unconditionally
-    # refused an otherwise-identical grid on 'TRUELAT2 differs'). Group membership (WRF's own
-    # set_ps/set_lc/set_merc/set_cyl projection setup): TRUELAT1 -> Lambert(1)/polar
-    # stereo(2)/Mercator(3); TRUELAT2 -> Lambert(1) only; STAND_LON -> Lambert(1)/polar
-    # stereo(2)/lat-lon-rotated(6); POLE_LAT/POLE_LON -> lat-lon-rotated(6) only. MAP_PROJ
-    # itself, DX/DY, dims, CEN_LAT/CEN_LON and the corner check are unconditional -- those apply
-    # to every projection.
+    # Compare only the attributes the projection uses: an unused one holds junk (matthew,
+    # Mercator: TRUELAT2 60 vs 1e20; T10). TRUELAT1: proj 1/2/3; TRUELAT2: 1; STAND_LON: 1/2/6;
+    # POLE_LAT/LON: 6.
     map_proj_a, map_proj_b = a["attrs"].get("MAP_PROJ"), b["attrs"].get("MAP_PROJ")
     attr_keys = ["MAP_PROJ", "DX", "DY", "CEN_LAT", "CEN_LON", "WEST-EAST_GRID_DIMENSION",
                 "SOUTH-NORTH_GRID_DIMENSION", "BOTTOM-TOP_GRID_DIMENSION"]
@@ -2010,24 +1897,26 @@ def grid_identity_check(a, b, tol_deg=0.01):
     return (len(reasons) == 0), reasons
 
 
-DEFAULT_STATIC_RMSE_THRESH_M = 50.0
-DEFAULT_LU_AGREE_THRESH_PCT = 90.0
-DEFAULT_CORR_Z500_THRESH = 0.9
+DEFAULT_STATIC_RMSE_THRESH_M = 50.0   # m, terrain RMSE
+DEFAULT_LU_AGREE_THRESH_PCT = 90.0    # % of points with equal LU_INDEX
+DEFAULT_CORR_Z500_THRESH = 0.9        # pattern correlations, dimensionless
 DEFAULT_CORR_T850_THRESH = 0.8
 DEFAULT_CORR_PW_THRESH = 0.7
-# 850 hPa wind (V3, 2026-09-24): real dates 0.955-0.994, the relabelled conus12 0.13/0.15, even
-# the best real analog day 0.44 -- the field that actually separates them; Z500/T850/PW share
-# the same seasonal gradients and passed or nearly passed on the fictional case
+# 850 hPa wind separates real from relabelled dates (real 0.955-0.994, conus12 relabelled
+# 0.13/0.15; Z500/T850/PW nearly pass on it; V3)
 DEFAULT_CORR_WIND850_THRESH = 0.8
 
 
-def compare_verdict(terrain_rmse_m, lu_agreement_pct, corr_z500, corr_t850, corr_pw,
-                    static_rmse_thresh=DEFAULT_STATIC_RMSE_THRESH_M,
-                    lu_agree_thresh=DEFAULT_LU_AGREE_THRESH_PCT,
-                    corr_z500_thresh=DEFAULT_CORR_Z500_THRESH,
-                    corr_t850_thresh=DEFAULT_CORR_T850_THRESH,
-                    corr_pw_thresh=DEFAULT_CORR_PW_THRESH, corr_u850=None, corr_v850=None,
-                    corr_wind850_thresh=DEFAULT_CORR_WIND850_THRESH):
+def compare_verdict(terrain_rmse_m: float, lu_agreement_pct: float, corr_z500: float,
+                    corr_t850: float, corr_pw: float,
+                    static_rmse_thresh: float = DEFAULT_STATIC_RMSE_THRESH_M,
+                    lu_agree_thresh: float = DEFAULT_LU_AGREE_THRESH_PCT,
+                    corr_z500_thresh: float = DEFAULT_CORR_Z500_THRESH,
+                    corr_t850_thresh: float = DEFAULT_CORR_T850_THRESH,
+                    corr_pw_thresh: float = DEFAULT_CORR_PW_THRESH, corr_u850: float | None = None,
+                    corr_v850: float | None = None,
+                    corr_wind850_thresh: float = DEFAULT_CORR_WIND850_THRESH
+                    ) -> tuple[str, bool, bool]:
     """(verdict, static_ok, state_ok). verdict in {'consistent', 'different-static-data',
     'state-mismatch'}: consistent = static_ok & state_ok; different-static-data =
     (not static_ok) & state_ok; state-mismatch = not state_ok (the stated date's real weather is
@@ -2049,7 +1938,7 @@ def compare_verdict(terrain_rmse_m, lu_agreement_pct, corr_z500, corr_t850, corr
     return verdict, static_ok, state_ok
 
 
-def read_wrfinput_fields_netcdf4(path):
+def read_wrfinput_fields_netcdf4(path: str) -> dict:
     """Thin netCDF4 reader (lazy import) for compare()'s own use -- d01 only. Returns a dict of
     plain numpy arrays/scalars: the static fields (HGT, LANDMASK, LU_INDEX, ISLTYP, MMINLU,
     NUM_LAND_CAT, DZS), the state fields (T2, TSK, PSFC, SMOIS, QVAPOR, P, PB, T, U, V, XLAT,
@@ -2094,10 +1983,13 @@ def read_wrfinput_fields_netcdf4(path):
         ds.close()
 
 
-def compare(original_path, rebuilt_path, static_rmse_thresh=DEFAULT_STATIC_RMSE_THRESH_M,
-           lu_agree_thresh=DEFAULT_LU_AGREE_THRESH_PCT, corr_z500_thresh=DEFAULT_CORR_Z500_THRESH,
-           corr_t850_thresh=DEFAULT_CORR_T850_THRESH, corr_pw_thresh=DEFAULT_CORR_PW_THRESH,
-           corr_wind850_thresh=DEFAULT_CORR_WIND850_THRESH):
+def compare(original_path: str, rebuilt_path: str,
+            static_rmse_thresh: float = DEFAULT_STATIC_RMSE_THRESH_M,
+            lu_agree_thresh: float = DEFAULT_LU_AGREE_THRESH_PCT,
+            corr_z500_thresh: float = DEFAULT_CORR_Z500_THRESH,
+            corr_t850_thresh: float = DEFAULT_CORR_T850_THRESH,
+            corr_pw_thresh: float = DEFAULT_CORR_PW_THRESH,
+            corr_wind850_thresh: float = DEFAULT_CORR_WIND850_THRESH) -> dict:
     """R6-B orchestration: read both files (lazy netCDF4), refuse unless grid identity holds,
     compute every metric, return the full report dict."""
     import numpy as np
@@ -2194,24 +2086,19 @@ def compare(original_path, rebuilt_path, static_rmse_thresh=DEFAULT_STATIC_RMSE_
 
 
 # ===========================================================================
-# R6-C: analog -- find a real date whose weather matches the case
-#
-# The scoring/candidate-date math below is PURE (numpy arrays / stdlib datetime only) and fully
-# offline-testable. The actual per-candidate GRIB fetch (metdata's state-purpose byte-range +
-# bbox crop, via coldstart_sample's lazy _metdata()/_grib_state() accessors, threaded with
-# --workers) is a thin orchestration layer -- best-effort, NOT independently exercised by the
-# offline test suite (would need real network), same disclosed-limitation pattern every prior
-# round's fetch/download orchestration has used.
+# R6-C: analog -- find a real date whose weather matches the case. Scoring math is pure; the
+# per-candidate GRIB fetch is best-effort network code, not exercised offline.
 # ===========================================================================
 
 ANALOG_FIELD_KEYS = ("hgt500", "tmp850", "ugrd850", "vgrd850", "pwat", "tmp2m")
 
 
-def doy_of(dt):
+def doy_of(dt: datetime.datetime) -> int:
     return dt.timetuple().tm_yday
 
 
-def candidate_dates(stated_start, years, doy_window, hour="same"):
+def candidate_dates(stated_start: datetime.datetime, years: tuple[int, int], doy_window: int,
+                    hour: str | int = "same") -> list[datetime.datetime]:
     """Every date in `years` (inclusive (start_year, end_year) tuple) within +-doy_window days
     of stated_start's day-of-year, at the same UTC hour as stated_start (or an explicit int
     `hour`) -- WRAPS across Dec/Jan (e.g. stated Jan 10, window 45 -> Nov 26 .. Feb 24 of each
@@ -2230,22 +2117,11 @@ def candidate_dates(stated_start, years, doy_window, hour="same"):
     return sorted(out)
 
 
-def climatological_analog(stated_start, years, hour="same"):
-    """The no-target climatological analog: SAME day-of-year, same UTC hour, in the MOST RECENT
-    year of `years` (y1) -- this is the one function that rule lives in; cmd_analog's own
-    no-wrfinput branch and scenario.generators.analog.select_analog_date() both call this rather
-    than re-deriving it.
-
-    BUG FIX (T14, 2026-09-26): this used to be computed as max(candidate_dates(...)), which is
-    NOT "same DOY, most recent year" despite the docstring/note saying so -- max() of the
-    +-doy_window candidate set returns the LAST day of that window in the most recent year (e.g.
-    stated 2026-09-26 with the default doy_window=45 -> 2025-11-10, not 2025-09-26). Fixed to
-    construct the same-DOY date in y1 directly.
-
-    Edge case: when stated_start's day-of-year is 366 and y1 is not a leap year, y1 has no such
-    day -- naive `datetime(y1,1,1) + timedelta(days=365)` rolls over into Jan 1 of y1+1, which
-    this function detects (the result's year != y1) and corrects by falling back to the nearest
-    real day in y1 itself: Dec 31 (one day short of 366)."""
+def climatological_analog(stated_start: datetime.datetime, years: tuple[int, int],
+                          hour: str | int = "same") -> datetime.datetime:
+    """No-target analog: same day-of-year and hour in the most recent year (y1).
+    Single source of this rule (cmd_analog, scenario.generators.analog). DOY 366 in a non-leap y1
+    falls back to Dec 31 (T14 fixed max(candidate_dates), which returned the window's last day)."""
     y0, y1 = years
     stated_doy = doy_of(stated_start)
     hh = stated_start.hour if hour == "same" else int(hour)
@@ -2256,14 +2132,9 @@ def climatological_analog(stated_start, years, hour="same"):
     return datetime.datetime(candidate.year, candidate.month, candidate.day, hh)
 
 
-def block_average(field2d, block=8, min_blocks=10):
-    """Block-average `field2d` down to a coarse grid (~block x block cells per block), but never
-    below `min_blocks` x `min_blocks` blocks -- shrinks the block size (never below 1) when the
-    nominal block size would produce fewer blocks than that floor in either dimension.
-    NaN-aware (T3, 2026-09-24): 850/500 hPa points below ground are NaN (see
-    target_fields_from_wrfinput/interp_pressure_level_field) and must not poison an entire
-    block's average -- uses nanmean per block; a block that is ALL NaN stays NaN (there is
-    nothing to average), not silently dropped or zeroed."""
+def block_average(field2d: ArrayLike, block: int = 8, min_blocks: int = 10) -> np.ndarray:
+    """Block-average to ~block x block cells, keeping at least min_blocks blocks per axis.
+    NaN-aware (below-ground points are NaN; T3): nanmean per block, an all-NaN block stays NaN."""
     import numpy as np
     import warnings
     field2d = np.asarray(field2d, dtype=float)
@@ -2280,7 +2151,8 @@ def block_average(field2d, block=8, min_blocks=10):
         return np.nanmean(reshaped, axis=(1, 3))
 
 
-def anomaly_pattern_corr_nrmse(candidate_field, target_field):
+def anomaly_pattern_corr_nrmse(candidate_field: ArrayLike, target_field: ArrayLike
+                               ) -> tuple[float, float]:
     """(corr, nrmse) for one field: corr = pattern correlation of (field - domain mean)
     anomalies; nrmse = RMSE(candidate, target) / std(target)."""
     import numpy as np
@@ -2295,14 +2167,14 @@ def anomaly_pattern_corr_nrmse(candidate_field, target_field):
     return corr, nrmse
 
 
-def field_score(corr, nrmse):
+def field_score(corr: float, nrmse: float) -> float:
     """field score = 0.5*(1-corr) + 0.5*min(nrmse,2)/2 -- 0 is a perfect match, larger is worse."""
     if corr != corr:   # NaN
         return float("inf")
     return 0.5 * (1.0 - corr) + 0.5 * min(nrmse, 2.0) / 2.0
 
 
-def score_candidate(candidate_fields, target_fields):
+def score_candidate(candidate_fields: dict, target_fields: dict) -> dict:
     """candidate_fields/target_fields: {field_key: 2D array} (already regridded + block
     averaged to the same coarse grid). Returns {'total', 'per_field': {key: {'corr','nrmse',
     'score'}}}."""
@@ -2319,24 +2191,24 @@ def score_candidate(candidate_fields, target_fields):
     return {"total": total, "per_field": per_field}
 
 
-def rank_candidates(candidates_scored):
+def rank_candidates(candidates_scored: list[tuple]) -> list[tuple]:
     """candidates_scored: [(date, score_dict), ...]. Returns the SAME list sorted by ascending
     total score (lower = better match) -- ties broken by date for determinism."""
     return sorted(candidates_scored, key=lambda ds: (ds[1]["total"], ds[0]))
 
 
-def two_stage_select(ranked, top_n=10):
+def two_stage_select(ranked: list, top_n: int = 10) -> list:
     """The best `top_n` candidates (by t0 score) that go on to the trajectory (boundary) scoring
     stage -- SPEC item R6-C: 'only for the best 10 by the t0 score -- two-stage'."""
     return ranked[:top_n]
 
 
-def combine_t0_and_trajectory(t0_total, trajectory_total):
+def combine_t0_and_trajectory(t0_total: float, trajectory_total: float) -> float:
     """total = 0.5*t0 + 0.5*trajectory when a boundary trajectory was scored."""
     return 0.5 * t0_total + 0.5 * trajectory_total
 
 
-def quality_flag(t0_field_corrs):
+def quality_flag(t0_field_corrs: list[float]) -> str:
     """good if EVERY t0 field corr >= 0.8, fair if >= 0.6, poor otherwise (including no data or
     any NaN -- min() with a NaN present is order-dependent in plain Python since NaN comparisons
     are always False, so NaN is filtered out explicitly rather than relying on min() to surface
@@ -2353,14 +2225,10 @@ def quality_flag(t0_field_corrs):
     return "poor"
 
 
-def bdy_strip_means(u, v, t, side):
-    """Mean of U, V, T on one of wrfbdy_d01's 4 boundary strips. wrfbdy_d01 stores each side's
-    strip SEPARATELY, named <VAR>_B<SIDE><S|E> (S=start i.e. the initial-time slab, E=end i.e.
-    the tendency slab) for side in {XS (west), XE (east), YS (south), YE (north)} -- e.g.
-    U_BXS/U_BXE/U_BYS/U_BYE (VERIFIED convention from the WRF Registry's boundary variable
-    naming; see module docstring's stop-and-report rule if a real wrfbdy_d01 contradicts this).
-    `u`/`v`/`t` here are already the SLICED strip arrays for one side/one bdy time (caller reads
-    them from the file) -- this function only takes the mean."""
+def bdy_strip_means(u: ArrayLike | None, v: ArrayLike | None, t: ArrayLike | None, side: str
+                    ) -> dict[str, float]:
+    """Mean U, V, T over one wrfbdy_d01 boundary strip (<VAR>_B{XS,XE,YS,YE}; the
+    caller passes the already-sliced arrays for one side and time). None inputs are skipped."""
     import numpy as np
     out = {}
     for name, arr in (("U", u), ("V", v), ("T", t)):
@@ -2369,7 +2237,8 @@ def bdy_strip_means(u, v, t, side):
     return out
 
 
-def cmd_analog_offline_rank(target_fields, candidates, top_n_trajectory=10):
+def cmd_analog_offline_rank(target_fields: dict, candidates: list[tuple],
+                            top_n_trajectory: int = 10) -> tuple[list, list]:
     """Pure orchestration over already-fetched/regridded arrays (no network): scores every
     candidate's t0 fields, ranks them, and returns (ranked, kept_for_trajectory) -- the top
     `top_n_trajectory` by t0 score. `candidates`: [(date, {field_key: 2D array}), ...]."""
@@ -2379,7 +2248,8 @@ def cmd_analog_offline_rank(target_fields, candidates, top_n_trajectory=10):
     return ranked, kept
 
 
-def build_analog_output(ranked, quality, trajectory_scores=None):
+def build_analog_output(ranked: list, quality: str, trajectory_scores: dict | None = None
+                        ) -> dict:
     """OUT/analog.json's own shape: ranked list, the chosen analog (rank 1), and a quality
     flag. `trajectory_scores`: optional {date: trajectory_total} for the two-stage candidates --
     when given, the FINAL total for those dates is combine_t0_and_trajectory(t0, trajectory) and
@@ -2399,8 +2269,9 @@ def build_analog_output(ranked, quality, trajectory_scores=None):
     return {"ranked": entries, "chosen": chosen, "quality": quality}
 
 
-def cmd_analog(case_dir, out_dir, wrfinput=None, wrfbdy=None, years="2021-2025", doy_window=45,
-               hour="same", top=5, workers=8, namelist=None):
+def cmd_analog(case_dir: str, out_dir: str, wrfinput: str | None = None, wrfbdy: str | None = None,
+               years: str = "2021-2025", doy_window: int = 45, hour: str = "same", top: int = 5,
+               workers: int = 8, namelist: str | None = None) -> dict:
     """R6-A/C orchestration for the CLI: resolves the case's own start date (namelist.input),
     builds the target state (needs wrfinput; falls back to climatological analog with
     quality='no-target' when none is given -- SPEC: 'No wrfinput at all (namelist only): no
@@ -2415,9 +2286,7 @@ def cmd_analog(case_dir, out_dir, wrfinput=None, wrfbdy=None, years="2021-2025",
     wi_path = wrfinput or os.path.join(case_dir, "wrfinput_d01")
     os.makedirs(out_dir, exist_ok=True)
     if not os.path.exists(wi_path):
-        # No target: climatological analog -- same DOY/hour, most recent year with data (T14,
-        # 2026-09-26: was max(candidates_dt), which is the WINDOW'S LAST DAY, not same-DOY --
-        # see climatological_analog()'s docstring for the fix and why).
+        # No target: climatological analog (same DOY/hour, most recent year).
         chosen_dt = climatological_analog(stated_start, (y0, y1), hour=hour)
         out = {"ranked": [], "chosen":
                {"date": chosen_dt.strftime(_WRF_TIME_FMT)} if chosen_dt else None,
@@ -2431,12 +2300,7 @@ def cmd_analog(case_dir, out_dir, wrfinput=None, wrfbdy=None, years="2021-2025",
               % (out["chosen"]["date"] if out["chosen"] else "none"))
         return out
 
-    # Target-based scoring: needs a live GRIB fetch per candidate date (grib pixi env only --
-    # numpy+netCDF4+xarray+cfgrib+requests). This orchestration is BEST-EFFORT: real network,
-    # not exercised by the offline test suite (same disclosed-limitation pattern every prior
-    # round's fetch/download orchestration used) -- the SCORING math it feeds
-    # (score_candidate/rank_candidates/two_stage_select/quality_flag/candidate_dates/
-    # block_average) is separately unit-tested against synthetic arrays.
+    # Target-based scoring: one live GRIB fetch per candidate (grib pixi env; not tested offline).
     import concurrent.futures
     gs_mod = cs._grib_state()
     case = {"start_year": stated_start.year, "start_month": stated_start.month,
@@ -2465,10 +2329,7 @@ def cmd_analog(case_dir, out_dir, wrfinput=None, wrfbdy=None, years="2021-2025",
             return dt, None, str(exc)
         return dt, fields, None
 
-    # T3 (2026-09-24): the target comes from the case's OWN wrfinput_d01, NEVER from fetching
-    # GRIB at the case's stated start date -- for a fictional/relabelled case that IS the wrong
-    # weather by definition (that mismatch is exactly what `analog`/`compare` are for). See
-    # target_fields_from_wrfinput's own docstring.
+    # Target from the case's own wrfinput, never GRIB at the stated date (T3).
     try:
         target_fields = target_fields_from_wrfinput(wi_path)
     except Exception as exc:
@@ -2488,13 +2349,7 @@ def cmd_analog(case_dir, out_dir, wrfinput=None, wrfbdy=None, years="2021-2025",
     t0_corrs = [pf["corr"] for pf in (ranked[0][1]["per_field"].values() if ranked else [])]
     quality = quality_flag(t0_corrs)
 
-    # Boundary-trajectory stage: deliberately DISABLED, not merely unverified -- the wrfbdy
-    # *_BXS/*_BXE/*_BYS/*_BYE/*_BTXS variable naming (bdy_strip_means) IS now verified against a
-    # real conus12 wrfbdy_d01, but the trajectory scoring pass itself (fetching each of the top
-    # `top` t0 candidates' own weather at every bdy interval over the run, scoring strip means,
-    # combine_t0_and_trajectory) is not wired up. Leaving it off rather than shipping a
-    # half-implemented stage; analog.json says so explicitly (T3, 2026-09-24) so nobody reads a
-    # t0-only ranking as having used the trajectory.
+    # Boundary-trajectory scoring is not wired up; analog.json says so (T3).
     trajectory_scores = None
     trajectory_note = "not implemented -- t0-only match"
     wb_path = wrfbdy or os.path.join(case_dir, "wrfbdy_d01")
@@ -2536,7 +2391,7 @@ def _fetch_and_regrid_candidate(dt, lat2d, lon2d, cache_dir, grib_dir=None, sour
 # CLI
 # ===========================================================================
 
-def main(argv=None):
+def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="case_rebuild.py", description=__doc__,
                                   formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)

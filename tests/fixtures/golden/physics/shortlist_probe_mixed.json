@@ -1,0 +1,272 @@
+[
+ {
+  "template": "P02",
+  "family": null,
+  "status": "RECOMMENDABLE",
+  "reasons": [],
+  "predicted_time_to_solution_pct": -15.88662926,
+  "time_to_solution_interval_pct": [
+   -17.07881835,
+   -14.36120743
+  ],
+  "time_to_solution_interval_note": null,
+  "predicted_y": -0.1730046454,
+  "predicted_fidelity_label": "SMALL-DRIFT",
+  "predicted_fidelity_nd": 0.04792058994,
+  "probe_verdict": "PASS->WRF",
+  "same_hardware_data": true,
+  "infeasibility": {
+   "n_cases_tried": 6,
+   "n_cases_failed": 0,
+   "failed_cases": [],
+   "rate": 0.0
+  },
+  "dangerous_miss": {
+   "n": 5,
+   "dangerous_miss_n": 0,
+   "dangerous_miss_rate": 0.0,
+   "insufficient": false
+  },
+  "template_track_record": {
+   "n_cases_labeled": 5,
+   "n_cases_large": 0,
+   "large_cases": [],
+   "rate": 0.0
+  }
+ },
+ {
+  "template": "P06",
+  "family": "radiation",
+  "status": "RECOMMENDABLE",
+  "reasons": [
+   "this template has no physics_templates.json per-case entry for this case -- the generic per-case pairing rule (physics.generic_extra_edits) supplied its extra edit(s)/skip decision instead"
+  ],
+  "predicted_time_to_solution_pct": -8.197763984,
+  "time_to_solution_interval_pct": [
+   -9.636023528,
+   -6.664818882
+  ],
+  "time_to_solution_interval_note": null,
+  "predicted_y": -0.08553353118,
+  "predicted_fidelity_label": "WITHIN-FLOOR",
+  "predicted_fidelity_nd": 0.02826830751,
+  "probe_verdict": "CONFIRM",
+  "same_hardware_data": true,
+  "infeasibility": {
+   "n_cases_tried": 6,
+   "n_cases_failed": 0,
+   "failed_cases": [],
+   "rate": 0.0
+  },
+  "dangerous_miss": {
+   "n": 6,
+   "dangerous_miss_n": 0,
+   "dangerous_miss_rate": 0.0,
+   "insufficient": false
+  },
+  "template_track_record": {
+   "n_cases_labeled": 6,
+   "n_cases_large": 0,
+   "large_cases": [],
+   "rate": 0.0
+  }
+ },
+ {
+  "template": "P05",
+  "family": "pbl",
+  "status": "RECOMMENDABLE",
+  "reasons": [],
+  "predicted_time_to_solution_pct": -6.057304613,
+  "time_to_solution_interval_pct": [
+   -7.474311312,
+   -4.454728406
+  ],
+  "time_to_solution_interval_note": null,
+  "predicted_y": -0.06248521316,
+  "predicted_fidelity_label": "SMALL-DRIFT",
+  "predicted_fidelity_nd": 0.04623146751,
+  "probe_verdict": null,
+  "same_hardware_data": true,
+  "infeasibility": {
+   "n_cases_tried": 6,
+   "n_cases_failed": 0,
+   "failed_cases": [],
+   "rate": 0.0
+  },
+  "dangerous_miss": {
+   "n": 6,
+   "dangerous_miss_n": 0,
+   "dangerous_miss_rate": 0.0,
+   "insufficient": false
+  },
+  "template_track_record": {
+   "n_cases_labeled": 6,
+   "n_cases_large": 0,
+   "large_cases": [],
+   "rate": 0.0
+  }
+ },
+ {
+  "template": "P03",
+  "family": "dynamics",
+  "status": "UNCONFIRMED",
+  "reasons": [
+   "infeasible in 1/6 training case(s): isc21"
+  ],
+  "predicted_time_to_solution_pct": -23.10725483,
+  "time_to_solution_interval_pct": [
+   -24.4490949,
+   -22.00105025
+  ],
+  "time_to_solution_interval_note": null,
+  "predicted_y": -0.2627586551,
+  "predicted_fidelity_label": "WITHIN-FLOOR",
+  "predicted_fidelity_nd": 0.02991299075,
+  "probe_verdict": "CONFIRM",
+  "same_hardware_data": true,
+  "infeasibility": {
+   "n_cases_tried": 6,
+   "n_cases_failed": 1,
+   "failed_cases": [
+    "isc21"
+   ],
+   "rate": 0.1666666667
+  },
+  "dangerous_miss": {
+   "n": 5,
+   "dangerous_miss_n": 0,
+   "dangerous_miss_rate": 0.0,
+   "insufficient": false
+  },
+  "template_track_record": {
+   "n_cases_labeled": 5,
+   "n_cases_large": 0,
+   "large_cases": [],
+   "rate": 0.0
+  }
+ },
+ {
+  "template": "PXX",
+  "family": "unknown",
+  "status": "UNCONFIRMED",
+  "reasons": [
+   "insufficient out-of-fold fidelity evidence for this template (n=0, need >=5)"
+  ],
+  "predicted_time_to_solution_pct": -8.938410716,
+  "time_to_solution_interval_pct": [
+   -10.33093426,
+   -7.313525469
+  ],
+  "time_to_solution_interval_note": null,
+  "predicted_y": -0.09363410309,
+  "predicted_fidelity_label": "SMALL-DRIFT",
+  "predicted_fidelity_nd": 0.0265430224,
+  "probe_verdict": null,
+  "same_hardware_data": true,
+  "infeasibility": null,
+  "dangerous_miss": null,
+  "template_track_record": null
+ },
+ {
+  "template": "P04",
+  "family": "microphysics",
+  "status": "UNCONFIRMED",
+  "reasons": [
+   "probe REJECT on an edited knob",
+   "predicted fidelity label LARGE-DRIFT not in allowed set",
+   "out-of-fold dangerous-miss rate 0.20 > --max-dangerous-miss=0.00 (1/5 out-of-fold prediction(s) predicted allowed but measured LARGE-DRIFT)",
+   "LARGE-DRIFT in 5/5 training cases: conus12, conus25, isc21, karina, lafe"
+  ],
+  "predicted_time_to_solution_pct": -8.041137791,
+  "time_to_solution_interval_pct": [
+   -9.503424204,
+   -6.527859638
+  ],
+  "time_to_solution_interval_note": null,
+  "predicted_y": -0.08382885885,
+  "predicted_fidelity_label": "LARGE-DRIFT",
+  "predicted_fidelity_nd": 0.2472374273,
+  "probe_verdict": "REJECT",
+  "same_hardware_data": true,
+  "infeasibility": {
+   "n_cases_tried": 5,
+   "n_cases_failed": 0,
+   "failed_cases": [],
+   "rate": 0.0
+  },
+  "dangerous_miss": {
+   "n": 5,
+   "dangerous_miss_n": 1,
+   "dangerous_miss_rate": 0.2,
+   "insufficient": false
+  },
+  "template_track_record": {
+   "n_cases_labeled": 5,
+   "n_cases_large": 5,
+   "large_cases": [
+    "conus12",
+    "conus25",
+    "isc21",
+    "karina",
+    "lafe"
+   ],
+   "rate": 1.0
+  }
+ },
+ {
+  "template": "P01",
+  "family": "radiation",
+  "status": "UNCONFIRMED",
+  "reasons": [
+   "no predicted speed benefit: interval upper bound +0.38% is not < 0 (point estimate -1.26%)"
+  ],
+  "predicted_time_to_solution_pct": -1.264982537,
+  "time_to_solution_interval_pct": [
+   -2.812116193,
+   0.3834613275
+  ],
+  "time_to_solution_interval_note": null,
+  "predicted_y": -0.01273051561,
+  "predicted_fidelity_label": "WITHIN-FLOOR",
+  "predicted_fidelity_nd": 0.01786187518,
+  "probe_verdict": null,
+  "same_hardware_data": true,
+  "infeasibility": {
+   "n_cases_tried": 6,
+   "n_cases_failed": 0,
+   "failed_cases": [],
+   "rate": 0.0
+  },
+  "dangerous_miss": {
+   "n": 6,
+   "dangerous_miss_n": 0,
+   "dangerous_miss_rate": 0.0,
+   "insufficient": false
+  },
+  "template_track_record": {
+   "n_cases_labeled": 6,
+   "n_cases_large": 0,
+   "large_cases": [],
+   "rate": 0.0
+  }
+ },
+ {
+  "template": "P99",
+  "family": "dynamics",
+  "status": "UNCONFIRMED",
+  "reasons": [
+   "not applicable to this case: not on this grid"
+  ],
+  "predicted_time_to_solution_pct": null,
+  "time_to_solution_interval_pct": null,
+  "time_to_solution_interval_note": null,
+  "predicted_y": null,
+  "predicted_fidelity_label": null,
+  "predicted_fidelity_nd": null,
+  "probe_verdict": null,
+  "same_hardware_data": null,
+  "infeasibility": null,
+  "dangerous_miss": null,
+  "template_track_record": null
+ }
+]

@@ -1,61 +1,13 @@
 #!/usr/bin/env python3
 """wtune_probe_plan.py -- multi-point probe planning + whole-run combine (2026-09-26 redesign).
 
-Motivation (see this task's report for the full evidence): the tuner used to probe every
-candidate for a fixed 20 steps from t0 and predict the whole run from that ONE point. On a real
-conus25 run the confirmed winner's t0-only probe missed every radiation step entirely (radt=10min,
-dt=15s -> a radiation step fires every 40 steps; 20 steps never reaches one) AND missed the
-cold-start spin-up cost ramp (no clouds/precip at t0 -> microphysics is artificially cheap for
-~1h), so the predictor fell back to default radiation ratios and under-predicted the run by 9.6%.
-This module fixes BOTH failure modes with two independent pieces:
-
-  plan_points()  -- WHERE to place one or more probe measurement points along a case's own
-                    timeline (the winner's full-run PREDICTION; see wtune_tune.build_full_run_
-                    prediction). Placement borrows tools/coldstart_sample.py's own window-
-                    selection policy (t0/night/day/late/precip_peak/farthest-fill,
-                    select_windows) and its own radiation-window sizing rule (compute_window_
-                    seconds), applied to the run's OWN timeline instead of a fixed grid.
-  combine()      -- turns measured (time, s_normal, n_rad, r) points into a whole-run compute
-                    prediction: piecewise-linear interpolation of s_normal between points
-                    (constant extrapolation outside the measured span) plus a radiation-step
-                    correction using a ratio r resolved from the points' OWN pooled radiation
-                    samples (day/night split when >=2 points give both regimes) -- both pieces of
-                    arithmetic are tools/coldstart_sample.py's own predicted_compute_total/
-                    resolve_r_rad/interpolate_step_costs, not reimplemented here.
-
-Point SOURCES (probe.sources, preference order -- see wtune_config.py's schema):
-  trajectory -- the point is within reach of the RANKING layer's own anchor spin-up restart
-                chain (see build_restart_start_namelist_text / campaign/configs.py's
-                edit_namelist restart_from/write_restart_interval params, 2026-09-26): extending
-                that chain one more measure-window is cheap, so points inside
-                trajectory_horizon_s prefer it.
-  restart     -- a user-supplied wrfrst file for exactly this time already exists under the
-                case's directory (WRF's own wrfrst_d01_<time> naming).
-  rebuild     -- (alias: "coldstart", accepted for backward compatibility with pre-2026-09-26
-                configs) re-derive the point from real historical forcing: fetch -> WPS/real.exe
-                regenerates wrfinput/wrfbdy AT that exact time -> the cold-start spin-up is run
-                and thrown away -> the candidate is measured on the freshly rebuilt segment.
-                This is tools/coldstart_sample.py's plan/fetch/stage/run.sbatch machinery,
-                elevated here to a first-class, multi-point-addressable operation via
-                plan_rebuild_segments() below (build_plan's own `times=` pin, added
-                independently of this feature) plus run_rebuild_points() in wtune_tune.py, which
-                fetches/stages/submits/scores it -- not a fallback, the DEFAULT choice once a
-                point is outside the trajectory horizon, for any case
-                whose date resolves to real, fetchable forcing. Only usable for a case whose
-                start date is a real calendar date; resolve_rebuild_target_date() below detects a
-                FICTIONAL case date (no forcing source covers it) and substitutes an analog real
-                date via tools/case_rebuild.py's cmd_analog, disclosing the substitution -- never
-                silently measuring the wrong date's weather.
-If no source in probe.sources can serve a point, the point is DROPPED and the drop is reported
-(plan_points' `notes` return value) -- never silent.
-
-This module never submits a job or touches the network; every function here is a pure
-computation over already-known inputs (namelist text/dict, datetimes, already-measured numbers)
-or a read of files already on disk (case_dir globbing for an existing wrfrst). Actual measurement
-execution (running WPS/real.exe/wrf.exe) is unchanged and lives where it always has: campaign/
-strict_campaign.sbatch (RANKING layer) and tools/coldstart_sample.py's stage_plan/render_run_sbatch
-(rebuild layer) -- see this task's report for the exact wiring status of each.
-"""
+A fixed 20-step t0 probe missed every radiation step and the spin-up cost ramp (conus25: -9.6 %).
+plan_points() places probe points on the run's own timeline (coldstart_sample's window policy
+and window sizing); combine() turns measured (time, s_normal, n_rad, r) points into a whole-run
+compute prediction with coldstart_sample's own arithmetic. Point sources, in probe.sources
+order: trajectory (the anchor's restart chain), restart (an existing wrfrst), rebuild (alias
+coldstart: WPS/real.exe at that time from real forcing, spun up; a fictional date gets an
+analog). An unservable point is dropped and reported. Pure: no job submission, no network."""
 from __future__ import annotations
 
 import dataclasses
@@ -64,6 +16,7 @@ import math
 import os
 import re
 import statistics
+from typing import Any, Callable
 
 import coldstart_sample as coldstart   # tools/coldstart_sample.py -- READ-ONLY dependency: this
                                         # module calls its functions, never edits them.
@@ -85,11 +38,8 @@ class ProbePoint:
     reason: str
     source: str            # "trajectory" | "restart" | "rebuild", or None if unresolved
     steps: int
-    # requested_at (2026-09-26, cadence-aware rebuild placement): the ORIGINALLY targeted time
-    # (P) that resolution actually served at `at` (M). Equal to `at` for every source except
-    # 'rebuild', where a rebuild segment starts at a forcing-grid time T and is only measured
-    # after its own spin-up (M = T + spinup_s) -- see resolve_rebuild_point -- so the measured
-    # point can differ from what was originally targeted; both are always reported.
+    # requested_at: the targeted time P; `at` is what is measured (M = T + spinup for rebuild,
+    # else equal)
     requested_at: "datetime.datetime | None" = None
     # io_probe: this point's rebuild segment also times one history frame (+ one restart when the
     # case writes restarts) at its end -- plan_rebuild_segments -> coldstart build_plan(io_probe=).
@@ -109,18 +59,16 @@ class PointMeasurement:
 
 
 # ---------------------------------------------------------------------------
-# step-count sizing (shared by the RANKING layer's probe.steps='auto' and this module's own
-# per-point measurement window -- SAME formula, deliberately: both need >=1 radiation step
-# inside a short probe)
+# step-count sizing for probe.steps='auto' and the per-point window: >= 1 radiation step
 # ---------------------------------------------------------------------------
-def steps_for_stepra(stepra):
+def steps_for_stepra(stepra: int) -> int:
     """max(30, stepra + 10) -- a probe window this long always contains >= 1 radiation step
     (WRF calls radiation at itimestep 1 and every stepra-th step after), with 10 steps of slack
     so the window isn't cut exactly at the boundary."""
     return max(30, int(stepra) + 10)
 
 
-def resolve_ranking_steps(radt_minutes, dt_seconds):
+def resolve_ranking_steps(radt_minutes: float, dt_seconds: float) -> int:
     """steps_for_stepra(), computing stepra from radt/dt itself (wtune_predict.
     steps_per_radiation_call) -- the convenience form callers use when they don't already have
     stepra (e.g. wtune_tune.py resolving probe.steps='auto')."""
@@ -135,7 +83,7 @@ PROBE_SOURCES = ("trajectory", "restart", "rebuild")
 _SOURCE_ALIASES = {"coldstart": "rebuild"}   # pre-2026-09-26 name, still accepted
 
 
-def canonical_source(name):
+def canonical_source(name: str) -> str:
     """Normalizes a source name -- 'coldstart' (legacy) -> 'rebuild'; anything else passes
     through unchanged (validation of whether it's actually a KNOWN name is the caller's job --
     see wtune_config.py, which validates against PROBE_SOURCES | _SOURCE_ALIASES)."""
@@ -152,7 +100,8 @@ _ISO_RE = re.compile(r"^\d{4}-\d{2}-\d{2}_\d{2}:\d{2}:\d{2}$")
 _ISO_FMT = "%Y-%m-%d_%H:%M:%S"
 
 
-def parse_explicit_point(spec, run_start, run_end):
+def parse_explicit_point(spec: Any, run_start: datetime.datetime, run_end: datetime.datetime
+                         ) -> tuple[datetime.datetime, str, str | None]:
     """spec: a string ("+90m"/"+2h"/"70%"/"YYYY-MM-DD_HH:MM:SS") or a mapping {"at": <string>,
     "reason": <str, optional>, "source": <str, optional>}. Returns (datetime, reason_or_None,
     source_or_None). Raises ProbePlanError on a spec this function cannot parse -- the caller
@@ -219,24 +168,15 @@ def _restart_file_glob(at):
         at.year, at.month, at.day, at.hour, at.minute, at.second)
 
 
-def resolve_rebuild_point(p_at, run_start, run_end, spinup_s, rebuild_measure_window_s,
-                           forcing_interval_h):
-    """(M, T) for a rebuild candidate targeting P=p_at (2026-09-26 cadence-aware placement rule):
-    a rebuild segment starts AT a forcing-grid time T and is only usable after its own spin-up --
-    the point actually MEASURED is M = T + spinup_s, never P snapped onto the grid. T is the
-    LATEST forcing-grid time (multiples of forcing_interval_h hours since the UNIX epoch -- the
-    same grid tools/coldstart_sample.align_to_interval uses, but FLOORED here instead of
-    ceiling'd: 'P between grid times picks the earlier T') with T + spinup_s <= P.
-
-    `rebuild_measure_window_s` MUST be the window length the rebuild job will ACTUALLY measure
-    with (tools/coldstart_sample.compute_window_seconds's own max(30, 2*stepra)*dt sizing, NOT
-    plan_points' own steps_for_stepra(stepra) window) -- using the wrong, smaller window here
-    would pass planning-time validation and then fail for real inside build_plan's own 'time +
-    window does not fit in the run' check (this task's report: exactly the bug this rule fixes).
-
-    Returns (None, T) -- dropped -- when M + rebuild_measure_window_s > run_end (M's own
-    measurement would overrun the run). T is always returned, even when M is None, so the
-    caller/report can show what was tried. Never raises."""
+def resolve_rebuild_point(p_at: datetime.datetime, run_start: datetime.datetime,
+                          run_end: datetime.datetime, spinup_s: float,
+                          rebuild_measure_window_s: float, forcing_interval_h: float
+                          ) -> tuple[datetime.datetime | None, datetime.datetime]:
+    """(M, T) for a rebuild point targeting P=p_at: T = the latest forcing-grid time (epoch
+    multiples of forcing_interval_h, floored) with T + spinup_s <= P, M = T + spinup_s -- never P
+    snapped to the grid. rebuild_measure_window_s must be the window the rebuild job really
+    measures (compute_window_seconds), or build_plan rejects the point later. (None, T) when M's
+    window overruns run_end. Never raises."""
     interval_s = forcing_interval_h * 3600.0
     limit = p_at - datetime.timedelta(seconds=spinup_s)
     epoch = datetime.datetime(1970, 1, 1)
@@ -249,30 +189,17 @@ def resolve_rebuild_point(p_at, run_start, run_end, spinup_s, rebuild_measure_wi
     return M, T
 
 
-def resolve_point_source(at, run_start, run_end, sources_pref, spinup_s=0.0,
-                          measure_window_s=0.0, rebuild_measure_window_s=None, case_dir=None,
-                          trajectory_horizon_s=None, is_real_calendar=None,
-                          forcing_interval_h=None):
-    """First entry of `sources_pref` (already alias-normalized) that can serve a probe point
-    requested at `at` (=P). Returns (source, effective_at, requested_at): effective_at == at for
-    'trajectory'/'restart' (those measure exactly the requested time); for 'rebuild',
-    effective_at is M from resolve_rebuild_point (may differ from `at` -- see that function's
-    docstring) and requested_at is always the original `at`. Returns (None, None, at) when
-    nothing in sources_pref can serve it (caller drops the point).
-
-      'trajectory' -- available when trajectory_horizon_s is given and
-                      (at - run_start) <= trajectory_horizon_s (the anchor's own spin-up restart
-                      chain, extended one more measure-window at a time, still reaches this
-                      point within the probe budget -- see plan_points).
-      'restart'    -- available when case_dir is given and a wrfrst_d01_<at> file already
-                      exists there (a user-supplied restart, not one this tuner wrote).
-      'rebuild'    -- available when the point's calendar date is real (is_real_calendar, or a
-                      >= 1900 heuristic when the caller does not resolve it more precisely --
-                      see resolve_rebuild_target_date for the real check, which also handles a
-                      FICTIONAL case date via an analog substitution before this function is
-                      ever asked to place the point) AND forcing_interval_h is known AND
-                      resolve_rebuild_point finds a usable M for `at` (never overruns run_end).
-    """
+def resolve_point_source(at: datetime.datetime, run_start: datetime.datetime,
+                         run_end: datetime.datetime, sources_pref: list[str], spinup_s: float = 0.0,
+                         measure_window_s: float = 0.0,
+                         rebuild_measure_window_s: float | None = None, case_dir: str | None = None,
+                         trajectory_horizon_s: float | None = None,
+                         is_real_calendar: bool | None = None,
+                         forcing_interval_h: float | None = None) -> tuple:
+    """First source in sources_pref that can serve a point at `at` -> (source, effective_at,
+    requested_at); (None, None, at) when none can. trajectory: within trajectory_horizon_s of
+    run_start; restart: an existing case_dir/wrfrst_d01_<at>; rebuild: a real calendar date, known
+    forcing_interval_h and a usable M from resolve_rebuild_point (effective_at = M)."""
     real = is_real_calendar if is_real_calendar is not None else (at.year >= 1900)
     rebuild_window = rebuild_measure_window_s if rebuild_measure_window_s is not None \
         else measure_window_s
@@ -293,18 +220,13 @@ def resolve_point_source(at, run_start, run_end, sources_pref, spinup_s=0.0,
     return None, None, at
 
 
-def resolve_rebuild_target_date(case_dir, at, namelist=None, forcing_probe_fn=None,
-                                 analog_fn=None, grib_dir=None):
-    """(effective_date, substituted, note). Checks whether ANY forcing source covers `at`
-    (tools/coldstart_sample.resolve_forcing_chain_for) -- an empty chain means the case's own
-    date is FICTIONAL (an idealized case, or a real-looking date with no matching forcing
-    archive), and `at` cannot honestly be rebuilt. In that case this calls
-    tools/case_rebuild.cmd_analog (best-effort: any failure -- no wrfinput, no network, missing
-    deps -- is caught, never raised, and reported as 'no analog available') to pick a real
-    analog date instead, and returns substituted=True with a note identifying the swap -- the
-    report MUST surface this note; a 'rebuild' point must never silently measure the wrong
-    date's weather. `analog_fn` overrides the analog lookup (offline tests inject a fake here,
-    never touching the network); default is case_rebuild.cmd_analog."""
+def resolve_rebuild_target_date(case_dir: str, at: datetime.datetime, namelist: str | None = None,
+                                forcing_probe_fn: Callable | None = None,
+                                analog_fn: Callable | None = None, grib_dir: str | None = None
+                                ) -> tuple[datetime.datetime, bool, str | None]:
+    """(effective_date, substituted, note): when no forcing source covers `at` (a fictional date),
+    an analog real date from case_rebuild.cmd_analog (or analog_fn) with substituted=True and a note
+    the report must show. Analog failures are caught and noted, never raised."""
     try:
         chain = coldstart.resolve_forcing_chain_for(at, grib_dir=grib_dir)
     except Exception as e:
@@ -347,14 +269,9 @@ def resolve_rebuild_target_date(case_dir, at, namelist=None, forcing_probe_fn=No
 # plan_points
 # ---------------------------------------------------------------------------
 def _merge_resolved_points(points, min_gap_s):
-    """points: sorted [[effective_at, reason, source, requested_at, priority_idx], ...] (lists,
-    mutated in place -- same convention as _merge_close_points). Consecutive points within
-    min_gap_s of the last KEPT point's effective_at are merged into it: reason gains the
-    merged-in one (tagged with its own source, and its own requested time when that differs from
-    its effective time -- e.g. a rebuild point whose M coincides with an existing trajectory
-    point's own time); priority_idx becomes the MIN of the two, so a lower-priority auto pick
-    that happens to collapse onto an earlier, higher-priority one is never treated as lower-
-    priority than it now effectively is for budget trimming."""
+    """Merge sorted [effective_at, reason, source, requested_at, priority_idx] lists in place:
+    a point within min_gap_s of the last kept one folds into it (reason tagged with its source and
+    requested time); priority_idx becomes the min of the two for budget trimming."""
     if not points:
         return []
     out = [list(points[0])]
@@ -372,55 +289,24 @@ def _merge_resolved_points(points, min_gap_s):
     return out
 
 
-def plan_points(case_nl, run_start, run_end, dt, stepra, spinup_s, cfg,
-                 sample_points=None, precip_lookup=None, s_est=None,
-                 predicted_run_s=None, case_dir=None, forcing_interval_h=None,
-                 grib_dir=None, points_by=None, indicators=None):
-    """Places one or more probe measurement points on [run_start, run_end]. Returns
-    (points: [ProbePoint, ...], notes: [str, ...]) -- notes covers short-run fallback, budget
-    capping, and any point dropped for lack of a usable source; never raises for THOSE
-    conditions. Raises ProbePlanError only for a malformed/out-of-range EXPLICIT probe.points
-    entry (a config error, not a placement judgement call).
-
-    cfg: the resolved probe.* dict (steps, points, max_points, budget_pct, sources, ...; see
-    wtune_config.py's schema). case_nl is unused by this function directly today (kept in the
-    signature for callers/future placement rules that need namelist facts beyond
-    dt/stepra/run_start/run_end -- e.g. per-domain geometry); accepted and ignored otherwise.
-
-    points_by / indicators (decision 0060): points_by "time" (default; cfg["points_by"] when None)
-    keeps the placement below byte-identical. "cost-indicators" places the auto points by the
-    weather cost proxy of `indicators` (a wtune_cost_drivers.CostSeries, built by the CALLER --
-    this function never touches the network): t0, the c peak, and one point per c quantile stratum
-    (tools/coldstart_sample.select_windows(cost_lookup=...)). indicators None/unusable falls back
-    to the time placement with a note, still handing precip_lookup (precip_area) to select_windows
-    when the indicators carry it -- the previously unwired precip_peak pick. Explicit probe.points
-    are never re-placed.
-
-    Pipeline (2026-09-26, cadence-aware rebuild placement -- a bug fix to auto placement, not a
-    post-hoc change: resolve the forcing chain/cadence for rebuild candidates FIRST, then place,
-    then trim by budget, so the returned plan is always executable):
-      1. resolve forcing_interval_h (if 'rebuild' is a possible source and not given explicitly --
-         tests inject it directly; a real caller lets this resolve from case_dir/grib_dir).
-      2. generate raw candidates (auto via tools/coldstart_sample.select_windows, or parsed from
-         an explicit probe.points list) -- UNCHANGED, source-agnostic.
-      3. resolve EACH candidate's source; for 'rebuild' this ALSO resolves its actual measured
-         time M (resolve_rebuild_point) -- may differ from the candidate's own requested time P.
-      4. merge points whose EFFECTIVE (post-resolution) times collapse within one measure window
-         of each other -- this can merge a rebuild point's M onto an unrelated trajectory/restart
-         point's own time, which could only be detected after step 3.
-      5. trim to budget_pct (by ORIGINAL selection priority, not by time -- the merge in step 4
-         tracks each merged point's best/lowest priority index for exactly this).
-    The trajectory/restart sources are unaffected by any of this (their effective time always
-    equals what was requested)."""
+def plan_points(case_nl: dict | None, run_start: datetime.datetime, run_end: datetime.datetime,
+                dt: float, stepra: int, spinup_s: float, cfg: dict, sample_points: list | None = None,
+                precip_lookup: dict | None = None, s_est: float | None = None,
+                predicted_run_s: float | None = None, case_dir: str | None = None,
+                forcing_interval_h: float | None = None, grib_dir: str | None = None,
+                points_by: str | None = None, indicators: Any = None
+                ) -> tuple[list[ProbePoint], list[str]]:
+    """Place probe points on [run_start, run_end] -> ([ProbePoint], notes). Notes cover short-run
+    fallback, budget capping and dropped points; ProbePlanError only for a malformed explicit
+    probe.points entry. Order: resolve the rebuild cadence, generate candidates (select_windows or
+    explicit), resolve each source (rebuild -> M), merge collapsed points, trim to budget_pct by
+    selection priority. points_by "cost-indicators" (decision 0060) places auto points by the
+    caller-built cost series; unusable indicators fall back to time placement with a note."""
     notes = []
     steps_cfg = cfg.get("steps", "auto")
     steps = steps_for_stepra(stepra) if steps_cfg in (None, "auto") else int(steps_cfg)
     measure_window_s = steps * dt
-    # coldstart_sample's OWN window sizing (compute_window_seconds: max(30, 2*stepra) steps) --
-    # NOT plan_points' own steps_for_stepra(stepra) -- is what a rebuild job will ACTUALLY
-    # measure with (tools/coldstart_sample.build_plan/render_run_sbatch), so the drop-if-overrun
-    # check in resolve_rebuild_point must use THIS window, or planning can approve a point that
-    # then fails for real inside build_plan's own bounds check (this task's report).
+    # the window a rebuild job really measures (compute_window_seconds), not steps_for_stepra
     rebuild_measure_window_s = max(30, 2 * stepra) * dt
     duration_s = (run_end - run_start).total_seconds()
     sources_pref = [canonical_source(s) for s in (cfg.get("sources") or list(PROBE_SOURCES))]
@@ -547,22 +433,13 @@ def plan_points(case_nl, run_start, run_end, dt, stepra, spinup_s, cfg,
 _HISTORY_KEY_RE = re.compile(r"(?<![A-Za-z0-9_])(history_interval\w*)\s*=", re.I | re.M)
 
 
-def build_restart_start_namelist_text(namelist_text, restart_time, steps, dt_seconds,
-                                       nproc_x=None, nproc_y=None, numtiles=None):
-    """The tuner's own PREDICTION-time model of a RANKING-probe candidate namelist that starts
-    from an existing WRF restart at `restart_time` instead of the case's own t0 -- the mirror
-    image of tools/coldstart_sample.build_wrf_window_namelist_text (which sets restart=.false.
-    and re-derives the window from forcing instead). Reuses that module's own set_list/count_key
-    primitives -- no new namelist text-editing rule is introduced here (the campaign's OWN copy
-    of this rule, used by the real submission pipeline, is campaign/configs.py's
-    edit_namelist(restart_from=..., write_restart_interval=..., restart_io_form=...), added
-    alongside this module 2026-09-26 -- see that function's docstring; the two are independent
-    implementations of the same rule, each tested in its own file).
-
-    Sets, for EVERY active domain: start_* = restart_time, run length = steps*dt_seconds
-    (run_days/run_hours/run_minutes=0, run_seconds=steps*dt), restart=.true., restart_interval
-    (if present) forced huge (this short probe run must never itself write a restart), and every
-    present history_interval* key forced huge (probe measures compute only)."""
+def build_restart_start_namelist_text(namelist_text: str, restart_time: datetime.datetime,
+                                      steps: int, dt_seconds: float, nproc_x: int | None = None,
+                                      nproc_y: int | None = None, numtiles: int | None = None) -> str:
+    """A ranking-probe namelist started from the restart at restart_time: every domain's start_* =
+    restart_time, run_seconds = steps*dt, restart=.true., restart_interval and history_interval*
+    (if present) forced huge. Mirror of coldstart_sample.build_wrf_window_namelist_text; the
+    campaign's own copy of the rule is configs.edit_namelist(restart_from=...)."""
     text0 = namelist_text
     ndom = int(coldstart.get_first(text0, "max_dom", "1"))
     for k, v in (("year", restart_time.year), ("month", "%02d" % restart_time.month),
@@ -586,7 +463,8 @@ def build_restart_start_namelist_text(namelist_text, restart_time, steps, dt_sec
     return text0
 
 
-def build_spinup_writer_namelist_text(namelist_text, spinup_minutes, restart_io_form=None):
+def build_spinup_writer_namelist_text(namelist_text: str, spinup_minutes: float,
+                                      restart_io_form: int | None = None) -> str:
     """The anchor's ONE spin-up run: starts at the case's own t0 (restart untouched -- stays
     whatever the template already has, normally '.false.'), writes exactly one restart at
     t0+spinup_minutes (restart_interval = spinup_minutes; io_form_restart set to
@@ -611,7 +489,7 @@ def build_spinup_writer_namelist_text(namelist_text, spinup_minutes, restart_io_
 # ---------------------------------------------------------------------------
 # trajectory/restart measurement extraction (steps.txt -> PointMeasurement)
 # ---------------------------------------------------------------------------
-def first_global_step_from_rsl(rsl_path, run_start, dt):
+def first_global_step_from_rsl(rsl_path: str, run_start: datetime.datetime, dt: float) -> int:
     """Global d01 step number of the FIRST 'Timing for main' line of a (restart-started) run:
     the printed time is the END of that step, so g = (time - run_start) / dt. Needed because a
     window that does not start on the radiation cycle (e.g. a restart at 20:02 with radt=10 min)
@@ -626,29 +504,13 @@ def first_global_step_from_rsl(rsl_path, run_start, dt):
     raise ProbePlanError("first_global_step_from_rsl: no 'Timing for main' line in %s" % rsl_path)
 
 
-def measurement_from_steps_file(path, stepra, at, reason, source, first_global_step=None):
-    """Reads a strict_campaign.sbatch-produced steps.txt (one d01 'Timing for main' wall-clock
-    seconds per line, in step order -- the SAME file configs.py step-stats/the RESULT line's
-    med=/mean= are computed from) and returns a PointMeasurement.
-
-    Does NOT use wtune_predict.classify_steps_detected here: that function's phase detector
-    needs n >= 2*stepra samples to trust its own result (see its docstring) and otherwise falls
-    back to an assumed schedule phase 0 -- a RANKING-probe window (probe.steps='auto' ==
-    max(30, stepra+10), typically far short of 2*stepra) never has enough data for that detector
-    to be reliable. This task's diagnosis (2026-09-26, conus25/G0014 C2/C3 validation) instead
-    directly VERIFIED the schedule empirically against both a 52-step restart-started probe and
-    the full 1440-step truth run's own rsl: radiation fires at LOCAL integration step i=1 and
-    every i with (i mod stepra) == 1 thereafter (i=41,81,... for stepra=40) -- schedule PHASE 1,
-    not phase 0 (wtune_predict.classify_steps's own documented i==1-or-i%stepra==0 formula, i.e.
-    phase 0, does NOT match this WRF build's actual behaviour). Step 1 (i==1) is dropped from
-    BOTH buckets entirely -- startup/restart-read overhead dominates it regardless of whether the
-    schedule also computes radiation there -- matching wtune_predict.measure_rad_from_rsl's own
-    convention. s_normal/r use the MEDIAN (robust to an occasional history-write step landing on
-    the same index), matching step_stats()'s and this task's diagnosis's own methodology.
-
-    first_global_step: when given (see first_global_step_from_rsl), radiation steps are located
-    by GLOBAL step number (g % stepra == 1) instead of the local index, which is only correct
-    for windows that start on the radiation cycle (t0, or a restart at a multiple of radt)."""
+def measurement_from_steps_file(path: str, stepra: int, at: datetime.datetime, reason: str,
+                                source: str, first_global_step: int | None = None
+                                ) -> PointMeasurement:
+    """PointMeasurement from a strict_campaign steps.txt (d01 step seconds, step order). Radiation
+    steps are local i with i % stepra == 1 (schedule phase 1, verified on conus25/G0014 truth --
+    not wtune_predict's phase 0; the phase detector needs 2*stepra steps); step 1 is dropped;
+    medians. first_global_step (first_global_step_from_rsl) switches to global step numbers."""
     with open(path) as f:
         wall = [float(x) for x in f if x.strip()]
     g0 = 1 if first_global_step is None else int(first_global_step)
@@ -669,14 +531,9 @@ def measurement_from_steps_file(path, stepra, at, reason, source, first_global_s
 # combine
 # ---------------------------------------------------------------------------
 def _resolve_r_rad_from_points(pooled_radiation_samples, calibration):
-    """(r_night, r_day, source). >=2 points: delegate to wtune_predict.fit_day_night_r_rad
-    (real day/night least-squares fit when the pooled samples' sunlit fractions actually span
-    both regimes; a single-regime projection via calibration's day_night_ratio otherwise) --
-    this is 'radiation ratio pooled from points'. Exactly 1 point: use ITS OWN measured ratio
-    flat (r_night == r_day == that ratio) -- deliberately NOT fit_day_night_r_rad's single-
-    sample day/night projection, so a single-point combine() reproduces today's constant-ratio
-    model exactly (see this module's test suite). 0 points (no radiation step observed at any
-    measured point): the calibration file's default, same fallback resolve_r_rad already uses."""
+    """(r_night, r_day, source): >= 2 radiation samples -> wtune_predict.fit_day_night_r_rad;
+    one -> that ratio flat (reproduces the constant-ratio model); none -> the calibration
+    default."""
     calibration = calibration or {}
     cal_rad = calibration.get("radiation", {})
     default_r_rad = cal_rad.get("r_rad_default", 5.0)
@@ -696,25 +553,15 @@ def _resolve_r_rad_from_points(pooled_radiation_samples, calibration):
     return default_r_rad, default_r_rad, "default_unmeasured"
 
 
-def combine(points_measurements, run_start, run_end, dt, stepra, calibration=None,
-            sample_points=None, case_dir=None, nl=None, ranks=None, nodes=None,
-            cost_series=None):
-    """points_measurements: [PointMeasurement, ...] (>=1). Returns a dict:
-      compute_total_s, init_s, init_note, total_s, range_low_s, range_high_s, drift_pct,
-      r_night, r_day, r_source, steps_n, points (per-point table: at/reason/source/s_normal/
-      n_rad/r).
-
-    compute_total_s/r_* reuse tools/coldstart_sample.predicted_compute_total/resolve_r_rad's own
-    arithmetic verbatim (via _resolve_r_rad_from_points, which only changes the <2-sample
-    fallback -- see its docstring); init_s reuses wtune_predict.predict_init. The +-drift-band
-    range reproduces wtune_predict.build_prediction's own (compute-only) drift band --
-    calibration.drift_band_pct percent of total_s, both directions -- but not its separate I/O
-    noise term (this module never estimates I/O).
-
-    cost_series (decision 0060; a usable wtune_cost_drivers.CostSeries, None = off, result dict
-    unchanged): adds stratified_total_s, regression_total_s (>=3 points, beta>=0), regression_r2
-    and cost_indicators (sources, strata, spread_pct) -- see wtune_cost_drivers.weighted_totals.
-    total_s stays the interpolated value."""
+def combine(points_measurements: list[PointMeasurement], run_start: datetime.datetime,
+            run_end: datetime.datetime, dt: float, stepra: int, calibration: dict | None = None,
+            sample_points: list | None = None, case_dir: str | None = None, nl: dict | None = None,
+            ranks: int | None = None, nodes: int | None = None, cost_series: Any = None) -> dict:
+    """Whole-run prediction from >= 1 PointMeasurement -> {compute_total_s, init_s, init_note,
+    total_s, range_low_s, range_high_s, drift_pct, r_night, r_day, r_source, steps_n, points}.
+    Arithmetic of coldstart_sample.predicted_compute_total/resolve_r_rad and
+    wtune_predict.predict_init; range = +-drift_band_pct of total_s (no I/O term). cost_series
+    (decision 0060) adds stratified/regression totals; total_s stays interpolated."""
     if not points_measurements:
         raise ProbePlanError("combine: no point measurements given")
     calibration = calibration or {}
@@ -761,49 +608,21 @@ def combine(points_measurements, run_start, run_end, dt, stepra, calibration=Non
 
 
 # ---------------------------------------------------------------------------
-# rebuild segments -- first-class per-point real-data reconstruction (2026-09-26 coordinator
-# direction: "rebuild" is a first-class point source, not a fallback). Rather than adding a new
-# entry point to tools/coldstart_sample.py, this composes its ALREADY-PUBLIC, already-tested
-# `build_plan(..., times=[...])` pin (added independently of this feature -- see build_plan's own
-# T1 comment) -- `times` already lets a caller replace the K-auto-window selection with exactly
-# the pinned time(s) it wants, which is precisely "one specific time, one specific config".
+# rebuild segments -- per-point real-data reconstruction through coldstart_sample's
+# build_plan(times=[...]) pin
 # ---------------------------------------------------------------------------
-def plan_rebuild_segments(case_dir, points, config, out_dir, spinup_min=60, date_shift_to=None,
-                           namelist=None, grib_dir=None, forcing=None, now=None,
-                           measure_steps=None, real_only=False, io_probe=False):
-    """Plans (writes plan.json/namelist.wps/... under out_dir, exactly as build_plan always has
-    -- does not fetch/stage/run) ALL rebuild-sourced segments of ONE prediction, for ONE
-    decomposition `config` ({"ranks", "omp", "nx", "ny", "nodes"} -- nx/ny/nodes/omp optional,
-    same defaults as build_plan), in a SINGLE build_plan(times=[...]) call -- decision 0054 "one
-    allocation where feasible": every rebuild point of one prediction shares ONE plan/fetch/stage/
-    run.sbatch, so it runs as one job (build_plan's own T1 `times=` pin already replaces its
-    K-auto-window selection with exactly the pinned times given, in file order -- render_run_
-    sbatch then runs them as sequential windows inside that one allocation).
-
-    `points`: [ProbePoint, ...], all source='rebuild', as produced by plan_points -- each `.at`
-    is ALREADY the resolved measured point M = T + spinup_min*60 (resolve_rebuild_point's own
-    floor-to-grid rule; `.requested_at` is P, what was originally targeted). `spinup_min` here
-    MUST equal the spinup_s (in minutes) plan_points was called with -- it is used to recover
-    each point's own forcing-grid start T = M - spinup_min*60s, which is what is actually pinned
-    via build_plan's `times=` (a rebuild segment starts AT T and is only usable after ITS OWN
-    spin-up; the measured point is T+spinup_min, never M or P re-snapped onto the grid -- see
-    resolve_rebuild_point's docstring). T is NOT re-derived via tools/coldstart_sample.
-    align_to_interval here (that rounds UP/ceiling and would silently move the point plan_points
-    already correctly floor-resolved -- this task's report: exactly the bug this fixes); it is
-    recovered algebraically from the already-resolved M instead, and build_plan's own internal
-    grid-alignment check (which raises if a pinned time is not exactly on the grid) is the proof
-    that stays correct. `date_shift_to` (a datetime): use this ANALOG date's weather for EVERY
-    point instead of each point's own calendar date (see resolve_rebuild_target_date) --
-    forwarded to build_plan's own date_shift_to, which keeps the PREDICTED run's own timeline
-    (run_start/run_end) on the case's stated dates while the fetched/measured weather comes from
-    the analog. The returned plan dict records both P and M, in point order, under
-    'rebuild_requested_at'/'rebuild_snapped_to'. Raises ProbePlanError when no forcing source
-    covers the (shifted) target date at all. Actual fetch/stage/run of the segments this plans
-    still goes through coldstart_sample's own resolve_and_fetch_forcing/stage_plan/
-    render_run_sbatch, unchanged. `real_only` (decision 0055, default False = unchanged) is
-    forwarded to build_plan: the job then stops after real.exe, leaving win_<k>/real/
-    {wrfinput_d0*,wrfbdy_d01,namelist.input} for wtune_tune.prepare_rebuilt_points. `io_probe`
-    (default False), or any point with .io_probe set, is forwarded to build_plan(io_probe=)."""
+def plan_rebuild_segments(case_dir: str, points: list[ProbePoint], config: dict, out_dir: str,
+                          spinup_min: float = 60, date_shift_to: datetime.datetime | None = None,
+                          namelist: str | None = None, grib_dir: str | None = None,
+                          forcing: str | None = None, now: datetime.datetime | None = None,
+                          measure_steps: int | None = None, real_only: bool = False,
+                          io_probe: bool = False) -> dict:
+    """Plan (build_plan(times=...), no fetch/stage/run) every rebuild point of one prediction for
+    one config as ONE job (decision 0054). Each point's grid start T = M - spinup_min*60 is
+    recovered algebraically (spinup_min must match plan_points'), not re-aligned (that would
+    round up). date_shift_to: the analog's weather on the stated timeline. Records
+    rebuild_requested_at/rebuild_snapped_to. ProbePlanError when no forcing covers the target date.
+    real_only/io_probe are forwarded to build_plan."""
     if not points:
         raise ProbePlanError("plan_rebuild_segments: no points given")
     spinup_s = spinup_min * 60.0

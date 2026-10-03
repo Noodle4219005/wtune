@@ -1,37 +1,23 @@
 #!/usr/bin/env python3
-"""predictor/physics.py -- PHYSICS-GRAY performance + fidelity models (decision 0051:
-knowledge/decisions/0051-wtune-physics-gray-recommendation-fidelity-gate-and-campaign-plan.md).
+"""predictor/physics.py -- PHYSICS-GRAY performance + fidelity models (decision 0051).
 
-Consumes the physics-campaign ledger contract (same 48-column LEDGER_FIELDS schema as
-predictor/ledger.py, `source_dataset=strict_campaign`, `notes` carrying `mode=physics
-template=Pxx family=<...> edits=<k=v;k=v> decomp=<Cxx> sim_minutes=<int> hist_minutes=<int>
-fidelity_nd_max=<float> fidelity_floor_ratio_max=<float> fidelity_deciding=<field:criterion>
-probe=<knob>:<verdict>,... |none`, and `status=FAILED reason=<...>` for a failed run). Written
-BEFORE the physics campaign has actually run -- see predictor/tests/test_physics.py's synthetic
-ledger for the only data this module has been exercised against so far. Every metric this module
-reports is exploratory until then.
-
-Two independent models, deliberately kept separate (they answer different questions and can be
-wrong independently): a PERFORMANCE model (how much faster/slower is this physics template than
-the case's own P00 reference) and a FIDELITY model (how far does the candidate's solution drift
-from the reference, judged against the twin's own chaos floor -- see top-level fidelity_gate.py).
-Both reuse models.py's estimator choices (Ridge/RidgeCV, CatBoostRegressor, same hyperparameters
-and grouped-CV strategy) over a physics-change-aware feature set that plain
-features.case_features()/config_features() cannot express (a namelist-only edit like swint_opt is
-not a LEDGER_FIELDS column at all).
-
-CLI:
-    python3 physics.py --ledger predictor/ledger/runs.csv --out <dir>
-"""
+Reads physics-campaign ledger rows (ledger.LEDGER_FIELDS, notes 'mode=physics template=Pxx
+family= edits=k=v;.. decomp= fidelity_nd_max= probe=knob:verdict,..|none'). Two separate models:
+performance (cost vs the case's P00) and fidelity (drift vs the twin's chaos floor,
+fidelity_gate.py), both models.py's estimators over physics-change features. Exploratory until
+the campaign lands (only test_physics.py's synthetic ledger so far).
+CLI: python3 physics.py --ledger predictor/ledger/runs.csv --out <dir>"""
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import json
 import math
 import os
 import statistics
 import sys
 from collections import Counter, defaultdict
+from typing import Any, Callable
 
 import numpy as np
 from sklearn.feature_extraction import DictVectorizer
@@ -46,10 +32,7 @@ import features as feat
 import models as modelmod
 import targets
 
-# campaign/configs.py is the single source of truth for how a physics_templates.json edit op
-# (set/mul/delete, rounding, min/max clamps, the -1 physics_suite 'mul' restriction) actually
-# changes a namelist -- see _apply_edit_via_configs and physics_candidates_from_namelist below,
-# which delegate to it instead of physics.py maintaining its own second copy of that arithmetic.
+# campaign/configs.py is the single source of truth for how a template edit op changes a namelist.
 _CAMPAIGN_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "campaign")
 if _CAMPAIGN_DIR not in sys.path:
@@ -76,11 +59,9 @@ class NotEnoughGroups(Exception):
 
 
 # ---------------------------------------------------------------------------
-# Notes parsing (the physics-campaign contract; see module docstring). Deliberately independent
-# of ledger.py's own KNOB_CATALOG_NAME machinery -- these tokens (swint_opt, edits, probe, ...)
-# are not ledger columns.
+# Notes parsing (the physics-campaign contract; these tokens are not ledger columns).
 # ---------------------------------------------------------------------------
-def parse_notes(notes):
+def parse_notes(notes: str | None) -> dict[str, str | None]:
     """Space-separated key=value tokens (no spaces inside a value; partition on the FIRST '=' so
     a value that itself contains '=' -- e.g. edits=swint_opt=1 -- survives intact). Missing/empty
     notes -> {}."""
@@ -109,21 +90,21 @@ def _parse_pairs(s, pair_sep, kv_sep):
     return out
 
 
-def parse_edits(s):
+def parse_edits(s: str | None) -> dict[str, str]:
     """notes' edits=<k=v;k=v> value -> {k: v}."""
     return _parse_pairs(s, ";", "=")
 
 
-def parse_probe(s):
+def parse_probe(s: str | None) -> dict[str, str]:
     """notes' probe=<knob>:<verdict>,<knob>:<verdict>|none value -> {knob: verdict}."""
     return _parse_pairs(s, ",", ":")
 
 
-def is_physics_row(row):
+def is_physics_row(row: dict) -> bool:
     return parse_notes(row.get("notes")).get("mode") == "physics"
 
 
-def physics_rows(rows):
+def physics_rows(rows: list[dict]) -> list[dict]:
     """Every mode=physics row (P00 reference, twin, and Pxx candidates alike -- callers that need
     only candidates filter on `_template_of(r) not in (None, "P00")` themselves)."""
     return [r for r in rows if is_physics_row(r)]
@@ -150,11 +131,10 @@ def _log_s(row):
 
 
 # ---------------------------------------------------------------------------
-# Grouping: baseline = P00 row(s) AT THE SAME DECOMP -- NOT features.decision_group_key, which
-# includes compliance_class and would put P00 (STRICT) and its Pxx candidates (PHYSICS-GRAY) in
-# different groups, leaving every candidate with no baseline to compare against.
+# Grouping: baseline = P00 at the SAME decomp (not features.decision_group_key, whose
+# compliance_class would separate STRICT P00 from its PHYSICS-GRAY candidates).
 # ---------------------------------------------------------------------------
-def physics_group_key(row):
+def physics_group_key(row: dict) -> tuple | None:
     notes = parse_notes(row.get("notes"))
     decomp = notes.get("decomp")
     if row.get("case_base") is None or row.get("hardware_id") is None or decomp is None:
@@ -166,7 +146,7 @@ def physics_group_key(row):
     return (row["case_base"], row["hardware_id"], n_nodes, cores, decomp)
 
 
-def physics_groups(rows):
+def physics_groups(rows: list[dict]) -> dict[tuple, dict]:
     """{group_key: {"baseline": [row,...] (template P00), "candidates": [row,...] (template!=P00,
     at the SAME decomp as the baseline)}}. The twin row (P00 at TWIN_DECOMP) lands in its own
     group, with no candidates ever sharing its decomp -- harmless, just never used as a
@@ -186,11 +166,8 @@ def physics_groups(rows):
 
 
 # ---------------------------------------------------------------------------
-# physics_suite resolution (module_check_a_mundo.F:3078-3283, this build; see
-# knowledge/2026-09-14-wrf-4-8-physics-namelist-compatibility-rules-for-physics-gray-templates.md
-# and campaign/cases.json, which literally carries physics_suite + -1 sentinels for
-# conus25/conus12 ("conus") and maria1km ("tropical")). Only fills a -1 sentinel; an explicit
-# non-(-1) value always wins, since setup_physics_suite itself only touches options left at -1.
+# physics_suite resolution (module_check_a_mundo.F:3078-3283; wiki 2026-09-14-wrf-4-8-physics-
+# namelist-compatibility-rules...): only a -1 sentinel is filled, as setup_physics_suite does.
 # ---------------------------------------------------------------------------
 PHYSICS_SUITE_TABLE = {
     "conus": dict(cu_physics=6, mp_physics=8, ra_lw_physics=4, ra_sw_physics=4,
@@ -199,16 +176,12 @@ PHYSICS_SUITE_TABLE = {
                      bl_pbl_physics=1, sf_sfclay_physics=1, sf_surface_physics=2),
 }
 
-# Static fact read from campaign/cases.json's own 'physics_suite' key (2026-09-14), cross-checked
-# against the compatibility note's suite tables. Not a LEDGER_FIELDS column, so a real P00
-# baseline ROW's own field value can still be a raw "-1" sentinel even though cases.json's
-# native_physics dict (used directly by physics_candidates_for_case) already carries the
-# physics_suite key needed to resolve it -- this lets attach_change_context() resolve a ledger
-# row's -1 the same way, for the 3 cases that actually use a suite.
+# From campaign/cases.json: a ledger row has no physics_suite column, so attach_change_context
+# resolves a P00 row's -1 sentinels through this.
 CASE_PHYSICS_SUITE = {"conus25": "conus", "conus12": "conus", "maria1km": "tropical"}
 
 
-def resolve_physics_suite(native_physics, physics_suite=None):
+def resolve_physics_suite(native_physics: dict, physics_suite: str | None = None) -> dict:
     """`native_physics` with every -1 sentinel replaced by `physics_suite`'s resolved value.
     physics_suite=None or unrecognised leaves -1 as-is -- there is nothing to resolve it against,
     and this never guesses."""
@@ -221,12 +194,10 @@ def resolve_physics_suite(native_physics, physics_suite=None):
 
 
 # ---------------------------------------------------------------------------
-# Performance target: y = log(s_candidate / s_P00), replicates averaged in log space (geometric
-# mean of s_per_step_median across a template's reps), per physics group. A template with zero
-# usable (non-FAILED) replicates gets y=None and is reported as INFEASIBLE rather than dropped
-# silently.
+# Performance target: y = log(s_candidate / s_P00), replicates averaged in log space. A template
+# with no usable replicate gets y=None and is reported INFEASIBLE, not dropped.
 # ---------------------------------------------------------------------------
-def performance_targets(rows):
+def performance_targets(rows: list[dict]) -> dict[tuple, dict]:
     """{group_key: {"baseline_log_s": float|None,
                      "templates": {template: {"y": float|None, "n_ok": int, "n_failed": int,
                                                "rows": [row,...]}}}}"""
@@ -250,7 +221,7 @@ def performance_targets(rows):
     return out
 
 
-def add_perf_targets(rows):
+def add_perf_targets(rows: list[dict]) -> dict[tuple, dict]:
     """Attaches row["y"] (this module's performance target, same key models.py's estimators read)
     to every physics candidate row in place. Baseline/twin (template=="P00") rows and candidates
     whose group has no usable P00 baseline get y=None. Returns performance_targets()'s summary."""
@@ -262,7 +233,7 @@ def add_perf_targets(rows):
     return summary
 
 
-def infeasible_candidates(rows):
+def infeasible_candidates(rows: list[dict]) -> list[tuple]:
     """[(group_key, template, n_failed)] for every candidate template where every replicate in
     its physics group FAILED (n_ok == 0) -- these are the mp_physics=6-style "does the probe's
     REJECT actually hold" candidates that might not even finish."""
@@ -275,22 +246,21 @@ def infeasible_candidates(rows):
 
 
 # ---------------------------------------------------------------------------
-# Fidelity targets: log10(fidelity_nd_max) regression, and the WITHIN-FLOOR < SMALL-DRIFT <
-# LARGE-DRIFT ordinal label. INVALID and unlabeled (FAILED / rep-2 timing-only, never had history)
-# rows are excluded from training and counted, never silently dropped.
+# Fidelity targets: log10(fidelity_nd_max) and the WITHIN-FLOOR < SMALL-DRIFT < LARGE-DRIFT
+# ordinal label. INVALID/unlabeled rows are excluded from training and counted.
 # ---------------------------------------------------------------------------
 FIDELITY_ORDER = {"WITHIN-FLOOR": 0, "SMALL-DRIFT": 1, "LARGE-DRIFT": 2}
 FIDELITY_LABELS = ("WITHIN-FLOOR", "SMALL-DRIFT", "LARGE-DRIFT")  # ordinal order
 DEFAULT_ALLOWED_LABELS = ("WITHIN-FLOOR", "SMALL-DRIFT")
 
 
-def fidelity_nd(row):
+def fidelity_nd(row: dict) -> float | None:
     notes = row.get("_phys_notes") or parse_notes(row.get("notes"))
     v = _num(notes.get("fidelity_nd_max"))
     return v if v and v > 0 else None
 
 
-def fidelity_dataset(rows):
+def fidelity_dataset(rows: list[dict]) -> dict[str, list[dict]]:
     """{"trainable": [rows with label in FIDELITY_ORDER], "invalid": [label==INVALID rows],
     "unlabeled": [mode=physics rows with no fidelity_label at all -- FAILED runs, or rep-2
     timing-only replicates that never had history enabled]}."""
@@ -306,7 +276,7 @@ def fidelity_dataset(rows):
     return dict(trainable=trainable, invalid=invalid, unlabeled=unlabeled)
 
 
-def add_fidelity_targets(rows):
+def add_fidelity_targets(rows: list[dict]) -> dict[str, list[dict]]:
     """Attaches row["y_fidelity_label"] (0/1/2, ordinal) and row["y_fidelity_nd"]
     (log10(fidelity_nd_max)) in place for trainable rows; None for invalid/unlabeled. Returns
     fidelity_dataset()'s split."""
@@ -324,30 +294,20 @@ def add_fidelity_targets(rows):
 # ---------------------------------------------------------------------------
 # Data sufficiency.
 # ---------------------------------------------------------------------------
-UNDERPOWERED_MIN_CASES = 5
-MIN_CANDIDATES_PER_CASE = 3
+UNDERPOWERED_MIN_CASES = 5      # qualifying cases
+MIN_CANDIDATES_PER_CASE = 3     # distinct templates with a target
 
-# A per-template leave-one-case-out out-of-fold fidelity-label estimate (see
-# per_template_dangerous_miss below) with fewer than this many out-of-fold predictions is not
-# trusted -- "insufficient evidence" forces UNCONFIRMED regardless of the observed rate (decision
-# 0051 real-campaign defect: lafe's in-sample P05 prediction was SMALL-DRIFT/RECOMMENDABLE while
-# measured LARGE-DRIFT; an honest out-of-fold estimate of how often that happens per template is
-# required before a template can ever be RECOMMENDABLE).
+# Fewer out-of-fold label predictions than this per template = insufficient evidence ->
+# UNCONFIRMED (decision 0051: lafe P05 predicted SMALL-DRIFT in-sample, measured LARGE-DRIFT).
 MIN_OOF_DANGEROUS_MISS = 5
 
-# Lead-review gates (2026-09-15). Gate A: a template's own measured-label track record (see
-# template_large_drift_rate) at or above this LARGE-DRIFT fraction forces UNCONFIRMED, regardless
-# of what the regression predicts for the new case -- catches a case the regression's fitted
-# features fool it on (the real karina/P05 holdout miss). Gate B: a candidate must have a genuine
-# predicted speed benefit -- at least this many percent faster (min_speedup_pct is NEGATIVE,
-# time-to-solution convention: negative=faster) -- to ever be RECOMMENDABLE; a "safe but not
-# actually faster" candidate (e.g. isc21/P02, measured ~0% per step) is not a useful
-# recommendation just because its fidelity is clean.
-DEFAULT_MAX_TEMPLATE_LARGE_RATE = 0.5
-DEFAULT_MIN_SPEEDUP_PCT = -1.0
+# Lead-review gates (2026-09-15): A blocks a template measured LARGE-DRIFT in at least this
+# fraction of training cases (karina/P05 holdout miss); B requires a real predicted speedup.
+DEFAULT_MAX_TEMPLATE_LARGE_RATE = 0.5   # fraction of labeled training cases
+DEFAULT_MIN_SPEEDUP_PCT = -1.0     # % time-to-solution vs P00, negative = faster
 
 
-def data_sufficiency(rows):
+def data_sufficiency(rows: list[dict]) -> dict:
     """Cases (case_base) with >=3 distinct candidate templates that received a performance target
     (call after add_perf_targets). UNDERPOWERED when fewer than 5 such cases exist."""
     by_case = defaultdict(set)
@@ -361,15 +321,14 @@ def data_sufficiency(rows):
 
 
 # ---------------------------------------------------------------------------
-# Physics-change features: generic across cases, computed from a row's own edited ledger columns
-# plus the P00 baseline's pre-edit values (attach_change_context stashes the latter as
-# row["_phys_from"], so physics_change_features() is a pure function of the row afterward).
+# Physics-change features: the row's edited columns vs the P00 values attach_change_context
+# stashes in row["_phys_from"] (physics_change_features is then pure in the row).
 # ---------------------------------------------------------------------------
 CHANGE_FIELDS = ("mp_physics", "bl_pbl_physics", "sf_sfclay_physics",
                   "ra_lw_physics", "ra_sw_physics", "radt", "time_step")
 
 
-def attach_change_context(rows):
+def attach_change_context(rows: list[dict]) -> list[dict]:
     """For every physics candidate row, attach `_phys_from` (dict of the P00 baseline's own
     CHANGE_FIELDS values in the same physics group, physics_suite-resolved for
     conus25/conus12/maria1km) and `_phys_notes` (parsed notes, cached). Idempotent. `rows` must be
@@ -388,7 +347,7 @@ def attach_change_context(rows):
     return rows
 
 
-def physics_change_features(row):
+def physics_change_features(row: dict) -> dict[str, float | None]:
     notes = row.get("_phys_notes") or parse_notes(row.get("notes"))
     frm = row.get("_phys_from") or {}
     template, family = notes.get("template"), notes.get("family")
@@ -418,7 +377,7 @@ def physics_change_features(row):
     return out
 
 
-def probe_features(row):
+def probe_features(row: dict) -> dict[str, float]:
     notes = row.get("_phys_notes") or parse_notes(row.get("notes"))
     verdicts = list(parse_probe(notes.get("probe")).values())
     return {
@@ -429,7 +388,7 @@ def probe_features(row):
     }
 
 
-def row_features(row):
+def row_features(row: dict) -> dict[str, Any]:
     """The one feature dict shared by every model in this module (performance, fidelity_nd,
     fidelity_label): case description (grid/native-physics-as-edited/hardware, via
     feat.case_features) + the physics change itself + the probe verdict on the edited knob(s)."""
@@ -441,12 +400,8 @@ def row_features(row):
 
 
 # ---------------------------------------------------------------------------
-# Models: mirrors models.LinearModel / models.CatBoostPointModel (same estimators, same
-# hyperparameters, same grouped-CV alpha search) but over row_features() instead of
-# case_features()+config_features() -- a physics candidate's decomposition is fixed within its
-# group, so config_features would only add noise dimensions here, and neither function knows
-# about a template's own knob deltas. `target` selects which attached row[...] key is the label,
-# so the same two classes serve the performance and both fidelity targets.
+# Models: models.LinearModel / CatBoostPointModel's estimators over row_features() (decomp is
+# fixed within a group, so config_features would be noise). `target` picks the label key.
 # ---------------------------------------------------------------------------
 class PhysicsLinearModel:
     name = "ridge"
@@ -455,7 +410,7 @@ class PhysicsLinearModel:
         self.target = target
         self.feature_fn = feature_fn
 
-    def fit(self, train_rows):
+    def fit(self, train_rows: list[dict]) -> PhysicsLinearModel:
         dicts = [self.feature_fn(r) for r in train_rows]
         y = np.array([r.get(self.target) for r in train_rows], dtype=float)
         mask = ~np.isnan(y)
@@ -484,7 +439,7 @@ class PhysicsLinearModel:
         self._vec, self._imputer, self._scaler, self._est = vec, imputer, scaler, est
         return self
 
-    def score(self, rows):
+    def score(self, rows: list[dict]) -> list[float]:
         dicts = [self.feature_fn(r) for r in rows]
         X = self._vec.transform(dicts)
         X = self._imputer.transform(X)
@@ -499,7 +454,7 @@ class PhysicsCatBoostModel:
         self.target = target
         self.feature_fn = feature_fn
 
-    def fit(self, train_rows):
+    def fit(self, train_rows: list[dict]) -> PhysicsCatBoostModel:
         if not modelmod.HAVE_CATBOOST:
             raise modelmod.NotEnoughData("catboost not available")
         dicts = [self.feature_fn(r) for r in train_rows]
@@ -518,7 +473,7 @@ class PhysicsCatBoostModel:
         self._vec, self._model = vec, model
         return self
 
-    def score(self, rows):
+    def score(self, rows: list[dict]) -> list[float]:
         dicts = [self.feature_fn(r) for r in rows]
         X = self._vec.transform(dicts)
         return list(self._model.predict(X))
@@ -530,18 +485,14 @@ def _label_from_ordinal_score(score):
 
 
 # ---------------------------------------------------------------------------
-# Evaluation: leave-one-case-out (primary) and leave-one-template-out (second scheme). Mirrors
-# validate.cross_validate's contract (a fold too thin to fit is recorded unavailable, never
-# crashes).
+# Evaluation: leave-one-case-out (primary) and leave-one-template-out.
 # ---------------------------------------------------------------------------
-def cross_validate_physics(rows, group_field, model_factory, target, return_models=False):
-    """`group_field` is "case_base" or "template" (leave-one-template-out; P00 is never a
-    left-out group there since it is not a candidate template). Returns ({run_id: prediction},
-    unavailable_groups); with return_models=True, also returns (fold_models: {group: fitted
-    model}, fold_test_rows: {group: rows}) -- the same shape validate.cross_validate uses, so a
-    caller (see per_template_dangerous_miss and the performance-interval helpers below) can reuse
-    this exact set of leave-one-`group`-out folds to build a jackknife+ residual pool for a
-    brand-new row that has no group of its own, instead of re-fitting a second set of folds."""
+def cross_validate_physics(rows: list[dict], group_field: str, model_factory: Callable,
+                           target: str, return_models: bool = False) -> tuple:
+    """Leave-one-group-out CV over group_field ('case_base', or 'template' with P00 never
+    held out) -> (predictions {run_id: y}, unavailable_groups); a fold too thin to fit is
+    unavailable, never raised. return_models=True adds (fold_models, fold_test_rows) for the
+    jackknife+ helpers. NotEnoughGroups with fewer than 2 groups."""
     usable = [r for r in rows if r.get(target) is not None]
     if group_field == "template":
         groups = sorted({_template_of(r) for r in usable} - {None, "P00"})
@@ -580,20 +531,12 @@ def cross_validate_physics(rows, group_field, model_factory, target, return_mode
 
 
 # ---------------------------------------------------------------------------
-# Defect 2 (real physics-campaign smoke, job 1077893): feasibility risk was ignored -- P03
-# crashed/timed out in 3 of 6 training cases yet was still ranked #1 RECOMMENDABLE. This aggregates
-# infeasible_candidates()'s per-GROUP "every replicate FAILED" fact ACROSS a template's groups
-# (cases), so predict_physics_shortlist can refuse to recommend a template with observed failures.
+# Defect 2 (job 1077893: P03 failed in 3 of 6 cases yet ranked #1): per-template failure record.
 # ---------------------------------------------------------------------------
-def template_infeasibility(rows):
-    """Per-template infeasibility evidence aggregated across physics groups (cases): for each
-    candidate template, which case_base(s) it was actually attempted in (>=1 replicate with an
-    attempt, failed or not) and which of those cases it FAILED IN COMPLETELY (every replicate in
-    that case's physics group had no usable s_per_step_median -- the same n_ok==0 definition
-    infeasible_candidates() already uses per group, aggregated here across a template's cases).
-    Returns {template: {"n_cases_tried": n, "n_cases_failed": k, "failed_cases": [case_base,...]
-    sorted, "rate": k/n}}; a template never attempted anywhere is simply absent (nothing to
-    report)."""
+def template_infeasibility(rows: list[dict]) -> dict[str, dict]:
+    """{template: {n_cases_tried, n_cases_failed, failed_cases (sorted), rate}} across
+    cases: a case FAILED when every replicate in its physics group had no usable cost (n_ok == 0,
+    as infeasible_candidates). Templates never attempted are absent."""
     tried, failed = defaultdict(set), defaultdict(set)
     for key, g in performance_targets(rows).items():
         case_base = key[0]
@@ -613,22 +556,12 @@ def template_infeasibility(rows):
 
 
 # ---------------------------------------------------------------------------
-# Lead-review gate A (2026-09-15, on top of decision 0051's defects 2/3): the real karina/P05
-# holdout result showed the REGRESSION's out-of-fold prediction can still miss a template that is
-# LARGE-DRIFT in essentially every training case it has ever run in, when the held-out case's own
-# grid/physics differ enough from training to fool the fitted model. A simple, model-FREE track
-# record (measured labels only, no regression) is a cheap second opinion the regression cannot
-# talk itself out of.
+# Gate A: a model-free track record the regression cannot talk itself out of (karina/P05).
 # ---------------------------------------------------------------------------
-def template_large_drift_rate(rows):
-    """Per-template measured-label track record from TRAINING rows only (never a prediction): for
-    each candidate template, the distinct case_base(s) that have a trainable MEASURED fidelity
-    label (WITHIN-FLOOR/SMALL-DRIFT/LARGE-DRIFT -- same trainable set fidelity_dataset() uses) for
-    that template, and how many of those cases were LARGE-DRIFT. One vote per (case, template) --
-    the rep-1 row (the only replicate that ever carries a label, see the module docstring's ledger
-    contract), not per replicate. Returns {template: {"n_cases_labeled": n, "n_cases_large": k,
-    "large_cases": [case_base,...] sorted, "rate": k/n or None}}; a template with zero labeled
-    cases is simply absent (nothing to report)."""
+def template_large_drift_rate(rows: list[dict]) -> dict[str, dict]:
+    """Model-free track record from MEASURED labels only: {template:
+    {n_cases_labeled, n_cases_large, large_cases (sorted), rate}}, one vote per (case, template).
+    Templates with no labeled case are absent."""
     labeled, large = defaultdict(set), defaultdict(set)
     for r in physics_rows(rows):
         tmpl = _template_of(r)
@@ -653,24 +586,14 @@ def template_large_drift_rate(rows):
 
 
 # ---------------------------------------------------------------------------
-# Defect 3 (same smoke): fidelity uncertainty was ignored -- an IN-SAMPLE prediction (lafe P05
-# predicted SMALL-DRIFT, measured LARGE-DRIFT) was still RECOMMENDABLE. This estimates, per
-# template, how often the fidelity-label model's OWN leave-one-case-out OUT-OF-FOLD prediction
-# would have called a truly-LARGE-DRIFT case "allowed" -- an honest, pre-registered measure of
-# exactly the failure mode that slipped through, independent of whichever new case is currently
-# being recommended for.
+# Defect 3 (lafe P05 in-sample SMALL-DRIFT, measured LARGE-DRIFT): out-of-fold dangerous misses.
 # ---------------------------------------------------------------------------
-def per_template_dangerous_miss(rows, allowed_labels=DEFAULT_ALLOWED_LABELS):
-    """Leave-one-case-out OUT-OF-FOLD fidelity-label predictions (PhysicsLinearModel/ridge on
-    y_fidelity_label -- the same estimator predict_physics_shortlist's own in-sample label_model
-    uses), aggregated per template: how often the out-of-fold PREDICTED label was allowed
-    (WITHIN-FLOOR/SMALL-DRIFT) while the MEASURED label was LARGE-DRIFT (a "dangerous miss" -- same
-    definition fidelity_confusion() uses, broken out per template here instead of pooled). A
-    template with fewer than MIN_OOF_DANGEROUS_MISS out-of-fold predictions is marked
-    insufficient=True rather than given a possibly-noisy rate. Returns {template: {"n": n,
-    "dangerous_miss_n": d, "dangerous_miss_rate": d/n or None, "insufficient": bool}}; a template
-    with ZERO out-of-fold predictions is simply absent (treat a missing key the same as
-    insufficient=True, n=0)."""
+def per_template_dangerous_miss(rows: list[dict], allowed_labels: tuple = DEFAULT_ALLOWED_LABELS
+                                ) -> dict[str, dict]:
+    """Per template, how often the leave-one-case-out OUT-OF-FOLD label prediction (ridge on
+    y_fidelity_label) was allowed while the measured label was LARGE-DRIFT -> {template: {n,
+    dangerous_miss_n, dangerous_miss_rate, insufficient (n < MIN_OOF_DANGEROUS_MISS)}}. A template
+    with no out-of-fold prediction is absent (treat as insufficient, n=0)."""
     label_rows = [r for r in physics_rows(rows) if r.get("y_fidelity_label") is not None]
     try:
         predictions, _unavailable = cross_validate_physics(
@@ -701,14 +624,8 @@ def per_template_dangerous_miss(rows, allowed_labels=DEFAULT_ALLOWED_LABELS):
 
 
 # ---------------------------------------------------------------------------
-# Defect 4: the shortlist's performance column ("+11.36%" for a candidate that is actually FASTER)
-# was ambiguous, and its "interval" was a literal hardcoded "[n/a]" string, never a real computed
-# interval. This reuses validate.py's own grouped jackknife+ idea (conformal_intervals_for_new_rows
-# -- every OTHER leave-one-case-out fold's model contributes to a brand-new row's interval, since
-# the row is not part of any training case_base's own held-out fold) over
-# cross_validate_physics/PhysicsLinearModel/row_features instead of validate.cross_validate's
-# STRICT ledger models/features. Computed ONCE per predict_physics_shortlist call (not once per
-# candidate row), so the "not feasible" reason is reported a single time, not repeated per row.
+# Defect 4: a real time-to-solution interval -- validate.py's grouped jackknife+ over the
+# leave-one-case-out folds, set up once per shortlist call.
 # ---------------------------------------------------------------------------
 def _perf_fold_residuals(predictions, fold_test_rows):
     fold_residuals = {}
@@ -718,7 +635,8 @@ def _perf_fold_residuals(predictions, fold_test_rows):
     return fold_residuals
 
 
-def performance_conformal_setup(perf_rows, model_cls=PhysicsLinearModel):
+def performance_conformal_setup(perf_rows: list[dict], model_cls: type = PhysicsLinearModel
+                                ) -> tuple[dict | None, dict | None, str | None]:
     """(fold_models, fold_residuals, reason). `reason` is None iff the first two are usable;
     otherwise both are None and `reason` explains why (too few case_base groups, or every fold's
     residual pool came up empty) -- never raises."""
@@ -734,7 +652,8 @@ def performance_conformal_setup(perf_rows, model_cls=PhysicsLinearModel):
     return fold_models, fold_residuals, None
 
 
-def performance_conformal_interval_pct(fold_models, fold_residuals, row, alpha=0.05):
+def performance_conformal_interval_pct(fold_models: dict, fold_residuals: dict, row: dict,
+                                       alpha: float = 0.05) -> tuple[float, float] | None:
     """Jackknife+ interval for one NEW row's time-to-solution PERCENT CHANGE vs P00 (negative =
     faster), pooling every fold's residuals against that fold's own prediction at `row`. Returns
     (lo_pct, hi_pct) or None if no fold produced a residual (should not happen once
@@ -757,13 +676,11 @@ def performance_conformal_interval_pct(fold_models, fold_residuals, row, alpha=0
 
 
 # ---------------------------------------------------------------------------
-# Per-case performance metrics: regret of the predicted-fastest candidate among candidates whose
-# MEASURED fidelity_label is allowed (default: WITHIN-FLOOR/SMALL-DRIFT) -- a fast but
-# LARGE-DRIFT config is not a "good pick" just because it is fast. naive = always P00 (y=0 by
-# construction); naive_is_best records the (expected, common) case where no allowed candidate
-# actually beats P00, so naive's 0 regret is not mistaken for model skill.
+# Per-case performance metrics: regret of the predicted-fastest candidate among those with an
+# allowed MEASURED label; naive = always P00 (naive_is_best: no allowed candidate beats P00).
 # ---------------------------------------------------------------------------
-def per_case_perf_metrics(case_rows, predictions, allowed_labels=DEFAULT_ALLOWED_LABELS):
+def per_case_perf_metrics(case_rows: list[dict], predictions: dict,
+                          allowed_labels: tuple = DEFAULT_ALLOWED_LABELS) -> dict | None:
     by_template = defaultdict(list)  # template -> [(measured_y, predicted_y)]
     for r in case_rows:
         if r.get("fidelity_label") not in allowed_labels:
@@ -807,7 +724,8 @@ def per_case_perf_metrics(case_rows, predictions, allowed_labels=DEFAULT_ALLOWED
                 top3=top3, top3_eligible=top3_eligible, pairwise_acc=pairwise_acc, pairwise_n=total)
 
 
-def aggregate_perf_metrics(candidates, predictions, allowed_labels=DEFAULT_ALLOWED_LABELS):
+def aggregate_perf_metrics(candidates: list[dict], predictions: dict,
+                           allowed_labels: tuple = DEFAULT_ALLOWED_LABELS) -> dict:
     by_case = defaultdict(list)
     for r in candidates:
         by_case[r.get("case_base")].append(r)
@@ -839,11 +757,10 @@ def aggregate_perf_metrics(candidates, predictions, allowed_labels=DEFAULT_ALLOW
 
 
 # ---------------------------------------------------------------------------
-# Fidelity evaluation: label confusion (+ "dangerous miss" = predicted allowed but measured
-# LARGE-DRIFT), and Spearman rank correlation of predicted vs measured log10(nd). No scipy
-# dependency: a plain average-rank Spearman, adequate at this corpus's size.
+# Fidelity evaluation: label confusion (dangerous miss = predicted allowed, measured LARGE-DRIFT)
+# and an average-rank Spearman of predicted vs measured log10(nd) (no scipy).
 # ---------------------------------------------------------------------------
-def spearman_correlation(a, b):
+def spearman_correlation(a: list[float], b: list[float]) -> float | None:
     if len(a) < 2:
         return None
 
@@ -872,7 +789,7 @@ def spearman_correlation(a, b):
     return cov / math.sqrt(var_a * var_b)
 
 
-def fidelity_confusion(rows, predicted_label_by_run_id):
+def fidelity_confusion(rows: list[dict], predicted_label_by_run_id: dict[str, str]) -> dict:
     """Confusion matrix (measured_label, predicted_label) over the 3 trainable labels, plus
     dangerous-miss stats: predicted allowed (WITHIN-FLOOR/SMALL-DRIFT) but measured LARGE-DRIFT."""
     confusion = Counter()
@@ -896,12 +813,10 @@ def fidelity_confusion(rows, predicted_label_by_run_id):
 
 
 # ---------------------------------------------------------------------------
-# Probe confusion: SpeedyWeather-probe verdict (CONFIRM/PASS->WRF pooled as PROBE-OK vs REJECT)
-# against (a) measured fidelity_label (allowed vs LARGE-DRIFT) and (b) measured speedup (>1%
-# faster than P00). The mp_physics REJECT verdict is heuristic and identical across every 2026-09-14
-# probed case (decision 0051 update) -- this is exactly what would catch it being wrong.
+# Probe confusion: probe verdict (PROBE-OK vs REJECT) against measured label and speedup -- the
+# check on the heuristic mp_physics REJECT (decision 0051 update).
 # ---------------------------------------------------------------------------
-def probe_confusion(rows):
+def probe_confusion(rows: list[dict]) -> dict:
     fidelity_table, speed_table = Counter(), Counter()
     n_fidelity, n_speed = 0, 0
     for r in physics_rows(rows):
@@ -927,13 +842,11 @@ def probe_confusion(rows):
 
 
 # ---------------------------------------------------------------------------
-# Candidate generation for a NEW case, from campaign/physics_templates.json (schema: {"templates":
-# {"Pxx": {"family":..., "description":..., "edits":[{"op":"set|mul|delete","key":...,
-# "value"/"factor":...}], "skip_cases": {case: reason}, "extra_edits": {case: [ops]}}},
-# "excluded": {...}}). Read-only: never edits namelist text -- campaign/configs.py's own template
-# applier does that; this only reports what WOULD change and by how much.
+# Candidate generation for a NEW case from campaign/physics_templates.json ({"templates": {"Pxx":
+# {family, edits [{op, key, value|factor}], skip_cases, extra_edits, applies_to}}}). Reports what
+# WOULD change; never edits namelist text.
 # ---------------------------------------------------------------------------
-def load_templates(templates_json_path):
+def load_templates(templates_json_path: str) -> dict:
     with open(templates_json_path) as fh:
         doc = json.load(fh)
     return doc.get("templates", {})
@@ -955,13 +868,9 @@ def _cast_numeric(s):
 
 
 def _apply_edit_via_configs(edited_physics, op, max_dom=1):
-    """Apply one physics_templates.json edit op ('set'/'mul'/'delete') to the single scalar
-    edited_physics[op['key']], delegating the actual arithmetic (rounding, min/max clamps, the -1
-    physics_suite 'mul' restriction) to campaign/configs.py's apply_physics_edit -- the SAME
-    engine that edits real namelist TEXT -- via a synthetic one-line namelist wrapping the
-    current scalar value, instead of physics.py maintaining a second copy of that arithmetic.
-    Mutates `edited_physics` in place (mirrors the old, now-removed, physics.py-only _apply_edit's
-    contract)."""
+    """Apply one template edit op (set/mul/delete) to edited_physics[op['key']] in place,
+    through campaign/configs.apply_physics_edit on a one-line synthetic namelist -- the same
+    engine that edits real namelist text (rounding, clamps, the -1 suite 'mul' rule)."""
     key = op.get("key")
     section = op.get("section", "&physics")
     current = edited_physics.get(key)
@@ -975,14 +884,11 @@ def _apply_edit_via_configs(edited_physics, op, max_dom=1):
 
 
 # ---------------------------------------------------------------------------
-# Generic per-case pairing (decision 0051 update, WRF 4.8 compatibility survey): the SAME
-# case-specific pairing rules physics_templates.json hand-writes in 'extra_edits'/'skip_cases' for
-# the six known campaign cases, generalised to a case physics_templates.json has never seen.
-# Never resolves a physics_suite -1 sentinel itself -- callers must pass an already-resolved
-# native_physics dict (see resolve_physics_suite).
+# Generic per-case pairing (decision 0051 update): physics_templates.json's per-case rules,
+# generalised to an unseen case. Expects suite-resolved native physics.
 # ---------------------------------------------------------------------------
 _P05_GENERIC_SWAP = {1: 5, 5: 1, 2: 1}  # YSU(1)->MYNN(5); MYNN(5)->YSU(1); MYJ(2)->YSU(1)
-_AEROSOL_AWARE_MP = (28, 29)
+_AEROSOL_AWARE_MP = (28, 29)   # Thompson aerosol-aware mp_physics ids
 
 
 def _as_int(v):
@@ -992,26 +898,13 @@ def _as_int(v):
         return None
 
 
-def generic_extra_edits(template_id, native_physics_resolved):
-    """(edits, skip_reason) for a template on a case NOT already covered by
-    physics_templates.json's own per-case 'extra_edits'/'skip_cases' -- e.g. a brand-new case
-    passed to recommend.py --compliance PHYSICS-GRAY. `edits` is a list of edit ops in the same
-    shape as physics_templates.json's own ({'op':'set','key':...,'value':...,'section':...}), to
-    apply IN ADDITION to the template's base 'edits'; `skip_reason` is None normally, or a string
-    meaning the whole template does not apply to this native physics at all (same role as a
-    physics_templates.json skip_cases entry).
-
-    Rules (test_physics.py's test_generic_extra_edits_matches_json_for_six_cases proves these
-    reproduce the JSON's own six hand-written per-case decisions exactly):
-      P05 (pbl_surface): bl_pbl_physics/sf_sfclay_physics swap together --
-        YSU(1)->MYNN(5)/5, MYNN(5)->YSU(1)/1, MYJ(2)->YSU(1)/1; any other native PBL scheme has no
-        defined swap -- skip.
-      P04 (microphysics, mp_physics=6): skip when native mp_physics is already 6 (no-op, not a
-        physics change); when native mp is 28/29 (Thompson aerosol-aware), also add aer_opt=0 and
-        use_aero_icbc=.false. (those knobs go inert once mp is not 28/29).
-      P06 (radiation, ra_lw/sw=1): when native mp is 28/29, also add aer_opt=0 (the aerosol-SW
-        coupling needs RRTMG SW, which P06 replaces).
-      Every other template: no generic per-case pairing needed -- ([], None)."""
+def generic_extra_edits(template_id: str, native_physics_resolved: dict
+                        ) -> tuple[list[dict], str | None]:
+    """(extra edit ops, skip_reason) for a template on a case physics_templates.json has no
+    per-case entry for. P05: swap PBL + surface layer together (YSU 1 -> MYNN 5, MYNN -> YSU,
+    MYJ 2 -> YSU; others skip). P04: skip when native mp is already WSM6; with Thompson
+    aerosol-aware mp (28/29) also aer_opt=0, use_aero_icbc=.false. P06 with mp 28/29: aer_opt=0.
+    Others: ([], None). Reproduces the JSON's six hand-written cases (test_physics.py)."""
     if template_id == "P05":
         native_pbl = _as_int(native_physics_resolved.get("bl_pbl_physics"))
         target = _P05_GENERIC_SWAP.get(native_pbl)
@@ -1046,27 +939,19 @@ def _template_case_entry(spec, case_name):
     extra_edits_map = spec.get("extra_edits") or {}
     applies_to = spec.get("applies_to")
     if applies_to is not None and case_name not in applies_to:
-        # an allowlist is a per-case entry too: campaign/configs.py's
-        # physics_template_applicability treats it as a skip, and the two engines must agree
-        # (predictor/tests/test_physics.py::test_template_engine_consistency_across_real_case_namelists;
-        # D04/D06, 2026-09-16 -- before this the dict engine offered bigchill-only templates for karina)
+        # an allowlist is a per-case entry too, as in configs.physics_template_applicability
+        # (D04/D06: the dict engine offered bigchill-only templates for karina)
         return True, [], "not in applies_to %s" % (applies_to,)
     has_case_entry = case_name in skip_cases or case_name in extra_edits_map
     return has_case_entry, extra_edits_map.get(case_name, []), skip_cases.get(case_name)
 
 
-def physics_candidates_for_case(native_physics, case_name, max_dom, templates_json_path):
-    """Applicable physics templates for one case, resolved against its own native physics
-    (physics_suite -1 sentinels resolved first). max_dom is accepted for interface compatibility
-    (a future per-domain edit op would need it) and unused for the edit arithmetic itself (that is
-    always scalar/d01-only here) -- campaign/configs.py's own applier is what writes namelist text
-    and needs the real max_dom for that (see physics_candidates_from_namelist below).
-
-    A case_name physics_templates.json has never seen (no entry in a template's own 'skip_cases'/
-    'extra_edits') falls back to generic_extra_edits() -- JSON always wins when it has an entry.
-
-    Returns one dict per template: {template, family, applicable, skip_reason,
-    changes: {key: {"from":..., "to":...}}, generic_rule_used}."""
+def physics_candidates_for_case(native_physics: dict, case_name: str, max_dom: int,
+                                templates_json_path: str) -> list[dict]:
+    """One entry per template for a case, from its suite-resolved native physics dict:
+    {template, family, applicable, skip_reason, changes {key: {from, to}}, generic_rule_used}.
+    JSON per-case entries win; an unseen case falls back to generic_extra_edits. max_dom is
+    unused here (scalar d01 arithmetic); physics_candidates_from_namelist edits real text."""
     templates = load_templates(templates_json_path)
     resolved_native = resolve_physics_suite(native_physics, native_physics.get("physics_suite"))
     out = []
@@ -1077,10 +962,7 @@ def physics_candidates_for_case(native_physics, case_name, max_dom, templates_js
             skip_reason, extra_edits, generic_used = json_skip, json_extra, False
         else:
             extra_edits, skip_reason = generic_extra_edits(tmpl_id, resolved_native)
-            # Only worth flagging when the generic rule actually DECIDED something (a non-empty
-            # pairing or a skip) -- P01/P02/P03 (and P04/P06 on a case needing no aerosol/WSM6
-            # pairing) fall through here for every case, known or new, with nothing generic to
-            # report; that must not read as "this case is unknown to the campaign".
+            # flag only a real generic decision (an edit or a skip), not every fall-through
             generic_used = bool(extra_edits) or skip_reason is not None
         entry = dict(template=tmpl_id, family=family, applicable=skip_reason is None,
                      skip_reason=skip_reason, changes={}, generic_rule_used=generic_used)
@@ -1100,23 +982,13 @@ def physics_candidates_for_case(native_physics, case_name, max_dom, templates_js
     return out
 
 
-def physics_candidates_from_namelist(namelist_text, case_name, max_dom, templates_json_path,
-                                      native_physics_resolved=None):
-    """Applicable physics templates for a NEW case, resolved against its REAL namelist TEXT via
-    campaign/configs.py's own apply_physics_template -- the single source of truth for what a
-    template edit actually changes (this is what recommend.py --compliance PHYSICS-GRAY uses,
-    since it always has the case's actual namelist.input on disk; see
-    predictor/tests/test_physics.py's test_template_engine_consistency_across_real_case_namelists
-    for the proof that physics_candidates_for_case's dict path agrees with this text engine on the
-    six real campaign cases).
-
-    A case_name physics_templates.json has never seen falls back to generic_extra_edits() using
-    `native_physics_resolved` (an already physics_suite-resolved dict -- see
-    resolve_physics_suite; required only when a template's generic rule needs it, e.g. P05/P04/
-    P06) -- same JSON-wins-over-generic rule as physics_candidates_for_case.
-
-    Returns one dict per template, same shape as physics_candidates_for_case: {template, family,
-    applicable, skip_reason, changes: {key: {"from":..., "to":...}}, generic_rule_used}."""
+def physics_candidates_from_namelist(namelist_text: str, case_name: str, max_dom: int,
+                                     templates_json_path: str,
+                                     native_physics_resolved: dict | None = None) -> list[dict]:
+    """Same result as physics_candidates_for_case, but applied to the case's REAL namelist text
+    through campaign/configs.apply_physics_template (what recommend.py uses). An unseen case needs
+    native_physics_resolved for the generic rule; a template configs.py rejects (ValueError) is
+    reported not applicable with that message."""
     templates = campaign_configs.load_physics_templates(templates_json_path)
     native_physics_resolved = native_physics_resolved or {}
     out = []
@@ -1163,243 +1035,237 @@ def physics_candidates_from_namelist(namelist_text, case_name, max_dom, template
 
 # ---------------------------------------------------------------------------
 # Shortlist for a case with candidates but (possibly) no runs of its own yet -- what recommend.py
-# --compliance PHYSICS-GRAY will call. Never auto-applies; only ranks and labels.
+# --compliance PHYSICS-GRAY calls. Never auto-applies; only ranks and labels.
 # ---------------------------------------------------------------------------
-def predict_physics_shortlist(train_rows, case_features, candidates,
-                               allowed_labels=DEFAULT_ALLOWED_LABELS, probe_verdicts=None,
-                               max_infeasible_rate=0.0, max_dangerous_miss=0.0,
-                               max_template_large_rate=DEFAULT_MAX_TEMPLATE_LARGE_RATE,
-                               min_speedup_pct=DEFAULT_MIN_SPEEDUP_PCT):
-    """train_rows: the full (already add_perf_targets/add_fidelity_targets'd) ledger.
-    case_features: a ledger-row-shaped dict describing THIS case's own grid/native-physics(as the
-    case actually runs it, i.e. resolved, not -1)/hardware -- typically its own P00 reference row
-    once one exists.
-    candidates: physics_candidates_for_case() output.
-    probe_verdicts: {knob: verdict} for this case (from the probe-verdicts CSV).
-    max_infeasible_rate: a template with more than this fraction of training cases FAILED-ALL-
-        REPLICATES (see template_infeasibility) is forced UNCONFIRMED, however good its
-        performance/fidelity prediction looks (default 0.0: any observed training failure at all).
-    max_dangerous_miss: a template whose leave-one-case-out OUT-OF-FOLD fidelity-label dangerous-
-        miss rate (see per_template_dangerous_miss) exceeds this is forced UNCONFIRMED; fewer than
-        MIN_OOF_DANGEROUS_MISS out-of-fold predictions for a template is ALWAYS "insufficient
-        evidence" -> UNCONFIRMED, regardless of this flag's value.
-    max_template_large_rate: a template that was MEASURED LARGE-DRIFT in at least this fraction of
-        the training cases it has a label in (see template_large_drift_rate -- a model-free track
-        record, not the regression) is forced UNCONFIRMED, regardless of what the fidelity
-        regression predicts for the new case (lead-review gate A, catches the karina/P05 holdout
-        miss: the regression predicted SMALL-DRIFT for a template that was LARGE-DRIFT in every
-        other training case).
-    min_speedup_pct: a candidate is only RECOMMENDABLE if its predicted time-to-solution change is
-        at most this (negative = faster) AND, when a conformal interval is available, the
-        interval's own upper bound is also < 0 (lead-review gate B: a fidelity-clean candidate
-        with no real speed benefit, e.g. isc21/P02 at ~0% per step, is not a useful
-        recommendation).
+@dataclasses.dataclass(frozen=True)
+class ShortlistGates:
+    """Thresholds that force a candidate UNCONFIRMED (see predict_physics_shortlist)."""
+    allowed_labels: tuple = DEFAULT_ALLOWED_LABELS
+    max_infeasible_rate: float = 0.0
+    max_dangerous_miss: float = 0.0
+    max_template_large_rate: float = DEFAULT_MAX_TEMPLATE_LARGE_RATE
+    min_speedup_pct: float = DEFAULT_MIN_SPEEDUP_PCT
 
-    One dict per candidate: template, family, status (RECOMMENDABLE|UNCONFIRMED), reasons,
-    predicted_time_to_solution_pct (negative=faster), time_to_solution_interval_pct
-    ((lo_pct, hi_pct) or None), time_to_solution_interval_note (why None, or None when available),
-    predicted_y, predicted_fidelity_label, predicted_fidelity_nd, probe_verdict,
-    same_hardware_data, infeasibility (template_infeasibility()'s entry for this template, or
-    None), dangerous_miss (per_template_dangerous_miss()'s entry for this template, or None),
-    template_track_record (template_large_drift_rate()'s entry for this template, or None).
-    Sorted RECOMMENDABLE-first, then by predicted_y ascending (faster first)."""
-    probe_verdicts = probe_verdicts or {}
-    no_campaign_data = not physics_rows(train_rows)
-    perf_rows = [r for r in physics_rows(train_rows)
-                 if _template_of(r) not in (None, "P00") and r.get("y") is not None]
-    nd_rows = [r for r in physics_rows(train_rows) if r.get("y_fidelity_nd") is not None]
-    label_rows = [r for r in physics_rows(train_rows) if r.get("y_fidelity_label") is not None]
 
-    def _try_fit(model_cls, target, rows_in):
+@dataclasses.dataclass
+class _ShortlistEvidence:
+    """Models and per-template evidence fitted ONCE per shortlist call, shared by every candidate."""
+    perf_model: Any
+    perf_err: str | None
+    fidelity_model: Any
+    fidelity_err: str | None
+    label_model: Any
+    label_err: str | None
+    infeasibility: dict
+    dangerous_miss: dict
+    fold_models: Any
+    fold_residuals: Any
+    tts_interval_note: str | None
+    track_record: dict
+    same_hw: bool
+
+
+def _fit_shortlist_evidence(train_rows: list[dict], case_features: dict,
+                            allowed_labels: tuple) -> _ShortlistEvidence:
+    rows = physics_rows(train_rows)
+    no_campaign_data = not rows
+    perf_rows = [r for r in rows if _template_of(r) not in (None, "P00") and r.get("y") is not None]
+    nd_rows = [r for r in rows if r.get("y_fidelity_nd") is not None]
+    label_rows = [r for r in rows if r.get("y_fidelity_label") is not None]
+
+    def try_fit(target, rows_in):
         if len(rows_in) < 2:
             if no_campaign_data:
                 return None, "no PHYSICS-GRAY campaign data"
             return None, "not enough %s training rows (%d)" % (target, len(rows_in))
         try:
-            return model_cls(target=target).fit(rows_in), None
+            return PhysicsLinearModel(target=target).fit(rows_in), None
         except modelmod.NotEnoughData as e:
             return None, str(e)
 
-    perf_model, perf_err = _try_fit(PhysicsLinearModel, "y", perf_rows)
-    fidelity_model, fidelity_err = _try_fit(PhysicsLinearModel, "y_fidelity_nd", nd_rows)
-    label_model, label_err = _try_fit(PhysicsLinearModel, "y_fidelity_label", label_rows)
-
-    # Defects 2/3 (real physics-campaign smoke job 1077893): feasibility and fidelity-uncertainty
-    # evidence, computed ONCE against the full training set (not per candidate/case), reused for
-    # every candidate template below.
-    infeasibility_by_template = template_infeasibility(train_rows)
-    dangerous_miss_by_template = per_template_dangerous_miss(train_rows, allowed_labels=allowed_labels)
+    perf_model, perf_err = try_fit("y", perf_rows)
+    fidelity_model, fidelity_err = try_fit("y_fidelity_nd", nd_rows)
+    label_model, label_err = try_fit("y_fidelity_label", label_rows)
+    infeasibility = template_infeasibility(train_rows)
+    dangerous_miss = per_template_dangerous_miss(train_rows, allowed_labels=allowed_labels)
     fold_models, fold_residuals, tts_interval_note = performance_conformal_setup(perf_rows)
-    # Lead-review gate A: a model-free measured-label track record, computed once from training
-    # rows only (never a prediction) -- see template_large_drift_rate's own docstring.
-    track_record_by_template = template_large_drift_rate(train_rows)
-
+    track_record = template_large_drift_rate(train_rows)
     hardware_id = case_features.get("hardware_id")
-    same_hw = any(r.get("hardware_id") == hardware_id for r in perf_rows)
+    return _ShortlistEvidence(
+        perf_model=perf_model, perf_err=perf_err, fidelity_model=fidelity_model,
+        fidelity_err=fidelity_err, label_model=label_model, label_err=label_err,
+        infeasibility=infeasibility, dangerous_miss=dangerous_miss, fold_models=fold_models,
+        fold_residuals=fold_residuals, tts_interval_note=tts_interval_note,
+        track_record=track_record,
+        same_hw=any(r.get("hardware_id") == hardware_id for r in perf_rows))
 
-    out = []
-    for cand in candidates:
-        if not cand.get("applicable", True):
-            out.append(dict(template=cand["template"], family=cand.get("family"),
-                             status="UNCONFIRMED",
-                             reasons=["not applicable to this case: %s" % cand.get("skip_reason")],
-                             predicted_time_to_solution_pct=None, time_to_solution_interval_pct=None,
-                             time_to_solution_interval_note=None, predicted_y=None,
-                             predicted_fidelity_label=None, predicted_fidelity_nd=None,
-                             probe_verdict=None, same_hardware_data=None,
-                             infeasibility=None, dangerous_miss=None, template_track_record=None))
-            continue
 
-        row = dict(case_features)
-        row["_phys_from"] = {k: case_features.get(k) for k in CHANGE_FIELDS}
-        for key, ch in cand["changes"].items():
-            if key in row or key in CHANGE_FIELDS:
-                row[key] = ch["to"]
-        edited_verdicts = {k: probe_verdicts[k] for k in cand["changes"] if k in probe_verdicts}
-        # A non-ledger namelist-only key (swint_opt, aer_opt, ...) never lands on `row` itself (no
-        # such ledger column), so it must still reach physics_change_features()/swint_on via a
-        # synthetic edits= string -- exactly the shape a real candidate row's own notes carry.
-        edits_str = ";".join("%s=%s" % (k, ch["to"]) for k, ch in cand["changes"].items())
-        row["_phys_notes"] = dict(
-            template=cand["template"], family=cand.get("family") or "", edits=edits_str,
-            probe=",".join("%s:%s" % kv for kv in edited_verdicts.items()) or "none")
+def _not_applicable_entry(cand: dict) -> dict:
+    return dict(template=cand["template"], family=cand.get("family"), status="UNCONFIRMED",
+                reasons=["not applicable to this case: %s" % cand.get("skip_reason")],
+                predicted_time_to_solution_pct=None, time_to_solution_interval_pct=None,
+                time_to_solution_interval_note=None, predicted_y=None,
+                predicted_fidelity_label=None, predicted_fidelity_nd=None,
+                probe_verdict=None, same_hardware_data=None,
+                infeasibility=None, dangerous_miss=None, template_track_record=None)
 
-        reasons = []
-        if cand.get("generic_rule_used"):
-            reasons.append(
-                "this template has no physics_templates.json per-case entry for this case -- the "
-                "generic per-case pairing rule (physics.generic_extra_edits) supplied its extra "
-                "edit(s)/skip decision instead")
-        verdicts = list(edited_verdicts.values())
-        probe_verdict = ("REJECT" if any(v == "REJECT" for v in verdicts) else
-                          "CONFIRM" if any(v == "CONFIRM" for v in verdicts) else
-                          "PASS->WRF" if any(v == "PASS->WRF" for v in verdicts) else None)
-        if probe_verdict == "REJECT":
-            reasons.append("probe REJECT on an edited knob")
 
-        predicted_y = perf_model.score([row])[0] if perf_model else None
-        if predicted_y is None:
-            reasons.append(perf_err)
-        # Defect 4: "time-to-solution vs P00", negative=faster (this module's y is already
-        # log(cost-per-simulated-second_candidate / cost-per-simulated-second_P00) -- see the
-        # module docstring -- so exp(y)-1 IS the time-to-solution fractional change directly; the
-        # old predicted_gain_pct = (1-exp(y))*100 was the same magnitude with the OPPOSITE sign
-        # convention (positive=faster), which read as ambiguous in the shortlist report).
-        predicted_tts_pct = ((math.exp(predicted_y) - 1) * 100.0) if predicted_y is not None else None
-        tts_interval_pct = None
-        if predicted_y is not None and fold_models is not None:
-            tts_interval_pct = performance_conformal_interval_pct(fold_models, fold_residuals, row)
+def _candidate_row(case_features: dict, cand: dict, probe_verdicts: dict) -> tuple[dict, dict]:
+    """The case's feature row with the candidate's edits applied -> (row, edited probe verdicts).
+    A namelist-only key (swint_opt, aer_opt, ...) is no ledger column, so it reaches
+    physics_change_features through a synthetic edits= notes string."""
+    row = dict(case_features)
+    row["_phys_from"] = {k: case_features.get(k) for k in CHANGE_FIELDS}
+    for key, ch in cand["changes"].items():
+        if key in row or key in CHANGE_FIELDS:
+            row[key] = ch["to"]
+    edited_verdicts = {k: probe_verdicts[k] for k in cand["changes"] if k in probe_verdicts}
+    edits_str = ";".join("%s=%s" % (k, ch["to"]) for k, ch in cand["changes"].items())
+    row["_phys_notes"] = dict(
+        template=cand["template"], family=cand.get("family") or "", edits=edits_str,
+        probe=",".join("%s:%s" % kv for kv in edited_verdicts.items()) or "none")
+    return row, edited_verdicts
 
-        predicted_nd = None
-        if fidelity_model:
-            predicted_nd = 10 ** fidelity_model.score([row])[0]
-        else:
-            reasons.append(fidelity_err)
 
-        predicted_label = _label_from_ordinal_score(label_model.score([row])[0]) if label_model else None
-        if label_model is None:
-            reasons.append(label_err)
-        predicted_allowed = predicted_label in allowed_labels if predicted_label else False
-        if predicted_label and not predicted_allowed:
-            reasons.append("predicted fidelity label %s not in allowed set" % predicted_label)
+def _combined_probe_verdict(verdicts: list[str]) -> str | None:
+    """REJECT > CONFIRM > PASS->WRF over the edited knobs' verdicts; None without any."""
+    return ("REJECT" if any(v == "REJECT" for v in verdicts) else
+            "CONFIRM" if any(v == "CONFIRM" for v in verdicts) else
+            "PASS->WRF" if any(v == "PASS->WRF" for v in verdicts) else None)
 
-        if not same_hw:
-            reasons.append("no same-hardware training data")
 
-        # Defect 2: per-template infeasibility evidence from training, attached to EVERY row
-        # (infeasibility=None only when the template was never attempted in any training case);
-        # a rate above the threshold forces UNCONFIRMED but the candidate is still listed.
-        infeas_info = infeasibility_by_template.get(cand["template"])
-        infeasible_over_threshold = (
-            infeas_info is not None and infeas_info["rate"] is not None
-            and infeas_info["rate"] > max_infeasible_rate)
-        if infeasible_over_threshold:
-            reasons.append(
-                "infeasible in %d/%d training case(s): %s"
-                % (infeas_info["n_cases_failed"], infeas_info["n_cases_tried"],
-                   ", ".join(infeas_info["failed_cases"])))
+def _infeasibility_gate(info: dict | None, gates: ShortlistGates) -> str | None:
+    """Defect 2 (job 1077893): any training-case failure rate above the limit blocks."""
+    if info is not None and info["rate"] is not None and info["rate"] > gates.max_infeasible_rate:
+        return ("infeasible in %d/%d training case(s): %s"
+                % (info["n_cases_failed"], info["n_cases_tried"], ", ".join(info["failed_cases"])))
+    return None
 
-        # Defect 3: leave-one-case-out out-of-fold dangerous-miss evidence, attached to EVERY row
-        # (dangerous_miss=None only when there is zero out-of-fold evidence at all for this
-        # template -- treated the same as insufficient=True below). Insufficient evidence (fewer
-        # than MIN_OOF_DANGEROUS_MISS out-of-fold predictions) always forces UNCONFIRMED,
-        # independent of --max-dangerous-miss, which only gates the RATE once there is enough
-        # evidence to trust it.
-        dang_info = dangerous_miss_by_template.get(cand["template"])
-        if dang_info is None or dang_info["insufficient"]:
-            dangerous_over_threshold = True
-            reasons.append(
-                "insufficient out-of-fold fidelity evidence for this template (n=%d, need >=%d)"
-                % (dang_info["n"] if dang_info else 0, MIN_OOF_DANGEROUS_MISS))
-        else:
-            dangerous_over_threshold = dang_info["dangerous_miss_rate"] > max_dangerous_miss
-            if dangerous_over_threshold:
-                reasons.append(
-                    "out-of-fold dangerous-miss rate %.2f > --max-dangerous-miss=%.2f (%d/%d "
-                    "out-of-fold prediction(s) predicted allowed but measured LARGE-DRIFT)"
-                    % (dang_info["dangerous_miss_rate"], max_dangerous_miss,
-                       dang_info["dangerous_miss_n"], dang_info["n"]))
 
-        # Lead-review gate A: model-free measured-label track record, attached to EVERY row
-        # (template_track_record=None only when the template has zero labeled training cases at
-        # all). A rate at/above the threshold forces UNCONFIRMED regardless of the regression's
-        # own predicted_label -- this is exactly what the karina/P05 holdout miss needed: P05 was
-        # LARGE-DRIFT in every OTHER training case, but the regression still predicted SMALL-DRIFT
-        # for karina's own (differently-shaped) case.
-        track_info = track_record_by_template.get(cand["template"])
-        track_over_threshold = (
-            track_info is not None and track_info["rate"] is not None
-            and track_info["rate"] >= max_template_large_rate)
-        if track_over_threshold:
-            reasons.append(
-                "LARGE-DRIFT in %d/%d training cases: %s"
-                % (track_info["n_cases_large"], track_info["n_cases_labeled"],
-                   ", ".join(track_info["large_cases"])))
+def _dangerous_miss_gate(info: dict | None, gates: ShortlistGates) -> str | None:
+    """Defect 3: too few out-of-fold label predictions always blocks; enough evidence blocks only
+    above --max-dangerous-miss."""
+    if info is None or info["insufficient"]:
+        return ("insufficient out-of-fold fidelity evidence for this template (n=%d, need >=%d)"
+                % (info["n"] if info else 0, MIN_OOF_DANGEROUS_MISS))
+    if info["dangerous_miss_rate"] > gates.max_dangerous_miss:
+        return ("out-of-fold dangerous-miss rate %.2f > --max-dangerous-miss=%.2f (%d/%d "
+                "out-of-fold prediction(s) predicted allowed but measured LARGE-DRIFT)"
+                % (info["dangerous_miss_rate"], gates.max_dangerous_miss,
+                   info["dangerous_miss_n"], info["n"]))
+    return None
 
-        # Lead-review gate B: a candidate must have a genuine predicted speed benefit to ever be
-        # RECOMMENDABLE -- a fidelity-clean candidate with no real speedup (e.g. isc21/P02 at ~0%
-        # per step) is not a useful recommendation. When a conformal interval exists, its own
-        # upper (slowest) bound must also stay < 0, not just the point estimate.
-        if predicted_tts_pct is None:
-            speed_reason = "no predicted speed benefit (no performance prediction)"
-        elif predicted_tts_pct > min_speedup_pct:
-            speed_reason = (
-                "no predicted speed benefit: predicted %+.2f%% (time-to-solution vs P00), need "
-                "<= %+.2f%% (--min-speedup-pct)" % (predicted_tts_pct, min_speedup_pct))
-        elif tts_interval_pct is not None and tts_interval_pct[1] >= 0:
-            speed_reason = (
-                "no predicted speed benefit: interval upper bound %+.2f%% is not < 0 (point "
-                "estimate %+.2f%%)" % (tts_interval_pct[1], predicted_tts_pct))
-        else:
-            speed_reason = None
-        if speed_reason:
-            reasons.append(speed_reason)
 
-        status = "RECOMMENDABLE" if (
-            predicted_allowed and probe_verdict != "REJECT" and same_hw and predicted_y is not None
-            and not infeasible_over_threshold and not dangerous_over_threshold
-            and not track_over_threshold and speed_reason is None
-        ) else "UNCONFIRMED"
+def _track_record_gate(info: dict | None, gates: ShortlistGates) -> str | None:
+    """Gate A: a template measured LARGE-DRIFT in too many training cases blocks, whatever the
+    regression predicts (karina/P05 holdout miss)."""
+    if info is not None and info["rate"] is not None and info["rate"] >= gates.max_template_large_rate:
+        return ("LARGE-DRIFT in %d/%d training cases: %s"
+                % (info["n_cases_large"], info["n_cases_labeled"], ", ".join(info["large_cases"])))
+    return None
 
-        out.append(dict(template=cand["template"], family=cand.get("family"), status=status,
-                         reasons=reasons, predicted_time_to_solution_pct=predicted_tts_pct,
-                         time_to_solution_interval_pct=tts_interval_pct,
-                         time_to_solution_interval_note=tts_interval_note,
-                         predicted_y=predicted_y, predicted_fidelity_label=predicted_label,
-                         predicted_fidelity_nd=predicted_nd, probe_verdict=probe_verdict,
-                         same_hardware_data=same_hw, infeasibility=infeas_info,
-                         dangerous_miss=dang_info, template_track_record=track_info))
 
+def _speed_gate(tts_pct: float | None, interval: tuple | None, gates: ShortlistGates) -> str | None:
+    """Gate B: RECOMMENDABLE needs a real predicted speedup (point <= min_speedup_pct and, when an
+    interval exists, its upper bound < 0); isc21/P02 at ~0 % is not a useful recommendation."""
+    if tts_pct is None:
+        return "no predicted speed benefit (no performance prediction)"
+    if tts_pct > gates.min_speedup_pct:
+        return ("no predicted speed benefit: predicted %+.2f%% (time-to-solution vs P00), need "
+                "<= %+.2f%% (--min-speedup-pct)" % (tts_pct, gates.min_speedup_pct))
+    if interval is not None and interval[1] >= 0:
+        return ("no predicted speed benefit: interval upper bound %+.2f%% is not < 0 (point "
+                "estimate %+.2f%%)" % (interval[1], tts_pct))
+    return None
+
+
+def _shortlist_entry(cand: dict, ev: _ShortlistEvidence, gates: ShortlistGates,
+                     case_features: dict, probe_verdicts: dict) -> dict:
+    row, edited_verdicts = _candidate_row(case_features, cand, probe_verdicts)
+    reasons = []
+    if cand.get("generic_rule_used"):
+        reasons.append(
+            "this template has no physics_templates.json per-case entry for this case -- the "
+            "generic per-case pairing rule (physics.generic_extra_edits) supplied its extra "
+            "edit(s)/skip decision instead")
+    probe_verdict = _combined_probe_verdict(list(edited_verdicts.values()))
+    if probe_verdict == "REJECT":
+        reasons.append("probe REJECT on an edited knob")
+
+    predicted_y = ev.perf_model.score([row])[0] if ev.perf_model else None
+    if predicted_y is None:
+        reasons.append(ev.perf_err)
+    # y = log(cost per simulated second vs P00), so exp(y) - 1 is the time-to-solution change
+    # (negative = faster; defect 4).
+    predicted_tts_pct = ((math.exp(predicted_y) - 1) * 100.0) if predicted_y is not None else None
+    tts_interval_pct = None
+    if predicted_y is not None and ev.fold_models is not None:
+        tts_interval_pct = performance_conformal_interval_pct(ev.fold_models, ev.fold_residuals, row)
+
+    predicted_nd = None
+    if ev.fidelity_model:
+        predicted_nd = 10 ** ev.fidelity_model.score([row])[0]
+    else:
+        reasons.append(ev.fidelity_err)
+    predicted_label = (_label_from_ordinal_score(ev.label_model.score([row])[0])
+                       if ev.label_model else None)
+    if ev.label_model is None:
+        reasons.append(ev.label_err)
+    predicted_allowed = predicted_label in gates.allowed_labels if predicted_label else False
+    if predicted_label and not predicted_allowed:
+        reasons.append("predicted fidelity label %s not in allowed set" % predicted_label)
+    if not ev.same_hw:
+        reasons.append("no same-hardware training data")
+
+    infeas_info = ev.infeasibility.get(cand["template"])
+    dang_info = ev.dangerous_miss.get(cand["template"])
+    track_info = ev.track_record.get(cand["template"])
+    blockers = [_infeasibility_gate(infeas_info, gates), _dangerous_miss_gate(dang_info, gates),
+                _track_record_gate(track_info, gates),
+                _speed_gate(predicted_tts_pct, tts_interval_pct, gates)]
+    reasons += [b for b in blockers if b]
+    status = "RECOMMENDABLE" if (
+        predicted_allowed and probe_verdict != "REJECT" and ev.same_hw and predicted_y is not None
+        and not any(blockers)) else "UNCONFIRMED"
+    return dict(template=cand["template"], family=cand.get("family"), status=status,
+                reasons=reasons, predicted_time_to_solution_pct=predicted_tts_pct,
+                time_to_solution_interval_pct=tts_interval_pct,
+                time_to_solution_interval_note=ev.tts_interval_note,
+                predicted_y=predicted_y, predicted_fidelity_label=predicted_label,
+                predicted_fidelity_nd=predicted_nd, probe_verdict=probe_verdict,
+                same_hardware_data=ev.same_hw, infeasibility=infeas_info,
+                dangerous_miss=dang_info, template_track_record=track_info)
+
+
+def predict_physics_shortlist(train_rows: list[dict], case_features: dict, candidates: list[dict],
+                              allowed_labels: tuple = DEFAULT_ALLOWED_LABELS,
+                              probe_verdicts: dict | None = None,
+                              max_infeasible_rate: float = 0.0, max_dangerous_miss: float = 0.0,
+                              max_template_large_rate: float = DEFAULT_MAX_TEMPLATE_LARGE_RATE,
+                              min_speedup_pct: float = DEFAULT_MIN_SPEEDUP_PCT) -> list[dict]:
+    """Rank and label this case's physics candidates (never applies them). train_rows: the full
+    ledger with perf/fidelity targets attached; case_features: the case's (suite-resolved) P00 row.
+    A candidate is RECOMMENDABLE only with an allowed predicted label, no probe REJECT, same-
+    hardware data and no gate blocking (ShortlistGates); every other one is UNCONFIRMED with its
+    reasons. Sorted RECOMMENDABLE first, then by predicted_y (faster first)."""
+    probe_verdicts = probe_verdicts or {}
+    gates = ShortlistGates(allowed_labels=allowed_labels, max_infeasible_rate=max_infeasible_rate,
+                           max_dangerous_miss=max_dangerous_miss,
+                           max_template_large_rate=max_template_large_rate,
+                           min_speedup_pct=min_speedup_pct)
+    ev = _fit_shortlist_evidence(train_rows, case_features, allowed_labels)
+    out = [_shortlist_entry(cand, ev, gates, case_features, probe_verdicts)
+           if cand.get("applicable", True) else _not_applicable_entry(cand)
+           for cand in candidates]
     out.sort(key=lambda d: (0 if d["status"] == "RECOMMENDABLE" else 1,
-                             d["predicted_y"] if d["predicted_y"] is not None else float("inf")))
+                            d["predicted_y"] if d["predicted_y"] is not None else float("inf")))
     return out
 
 
 # ---------------------------------------------------------------------------
-# CLI: fit nothing interactively, run the whole LOCO/LOTO evaluation and write metrics.csv +
-# summary.md (exploratory: every n is small by construction until the campaign lands).
+# CLI: the LOCO/LOTO evaluation -> metrics.csv + summary.md (exploratory, small n).
 # ---------------------------------------------------------------------------
-def physics_benchmark(ledger_path, out_dir):
+def physics_benchmark(ledger_path: str, out_dir: str) -> dict:
     os.makedirs(out_dir, exist_ok=True)
     rows = benchmark.load_ledger(ledger_path)
     if not physics_rows(rows):
@@ -1519,7 +1385,7 @@ def physics_benchmark(ledger_path, out_dir):
                 probe_confusion=pconf, data_sufficiency=suff, infeasible=infeasible)
 
 
-def main(argv=None):
+def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--ledger", required=True)
     ap.add_argument("--out", required=True)

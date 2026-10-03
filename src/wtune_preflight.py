@@ -1,64 +1,13 @@
 #!/usr/bin/env python3
 """wtune_preflight.py -- pre-submission WRF run_dir sanity checker (`wtune.py check`).
 
-A real WRF user runs this BEFORE `sbatch`. Every check here is motivated by a real incident
-that silently wasted a job in this project (see each check's docstring for the specific job/
-directory). The unifying failure mode this file exists to catch: WRF either aborts with a
-message that does not point at the actual mistake, or -- worse -- hangs forever with NO
-message at all, burning the full walltime allocation for nothing.
-
-Severities (see SEVERITY_ORDER below for the exit-code mapping):
-    FATAL  WRF will abort at/near startup with an error message.
-    HANG   WRF will hang with NO error message -- the worst outcome: the job sits at 100%
-           node occupancy producing nothing until the walltime kills it.
-    WARN   WRF will run to completion, but the result or the wall time is not what the user
-           thinks (wrong window, silently ignored setting, slow first step, tight disk).
-    INFO   Informational / SKIPPED (a check could not run, e.g. netCDF4 unavailable).
-
-Exit code: 0 if no FATAL/HANG/WARN finding, 1 if the worst finding is WARN, 2 if there is any
-FATAL or HANG finding.
-
-Dependency policy: the core of this module is stdlib-only (re, os, datetime, json, argparse,
-pathlib) because scc's system `/usr/bin/python3` (3.14) has neither numpy nor netCDF4 --
-confirmed 2026-09-24 via `ssh scc '/usr/bin/python3 -c "import numpy"'` (ModuleNotFoundError)
-and the same for netCDF4. Every netCDF-backed check (C4 aerosol fields, C6 grid-dim/time
-consistency) imports netCDF4 lazily and, when it is not importable, emits an explicit
-"SKIPPED (netCDF4 not available)" finding for that check -- never silence.
-
-Reuses, rather than re-implements, this repo's existing single-sourced parsers:
-    wtune_predict.parse_namelist / g / g_dom / get_max_dom / get_domain_geom / get_run_seconds
-        -- the list/per-domain-aware namelist reader and WRF's own broadcast-last-value rule.
-    wtune_predict._split_assignments -- reused (not re-implemented) so "which lines does the
-        real parser treat as assignments" and "which lines does C2 flag as out-of-block" are
-        answered by the exact same regex, not two regexes that can silently drift apart.
-    wtune_runlength.resolve_run_seconds -- WRF's run_days/hours/minutes/seconds-vs-start/end
-        fallback rule (see that module's docstring for the lafe/isc21 evidence).
-    wtune_physics.resolve_suite -- physics_suite sentinel resolution (-1 -> the suite's actual
-        scheme numbers), needed because real templates like atlas-validate/conus25 set
-        physics_suite='conus' with mp_physics=ra_lw_physics=...=-1 and the *_physics IDs C3
-        needs to look up a scheme's required data files are only visible after this resolves.
-    predictor.decomp_space.rsl_patch_extents -- WRF's own RSL-lite remainder-at-both-ends patch
-        split (external/RSL_LITE/task_for_point.c), the same rule WRF's own startup legality
-        gate (share/module_check_a_mundo.F:3014-3029, floor(extent/nproc) >= 10) divides.
-
-Ground-truth verification performed 2026-09-24 against the real WRF 4.x tree on scc
-(/nfs/home/nkli/wrf-stack/wrf/nvhpc-fast-adios2-dmsm/WRF): run/README.physics_files (per-scheme
-data-file table), Registry/Registry.EM_COMMON (ghg_input default=1, reasonable_time_step_ratio,
-use_adaptive_time_step, nocolons, sst_update, use_aero_icbc, all namelist,physics/domains/
-time_control scalar-vs-per-domain-array shape), dyn_em/start_em.F:288-311 (the REAL time-step
-FATAL gate: domain 1 ONLY, first trip, real-data cases only, non-adaptive-timestep only) and
-phys/module_physics_init.F:1010-1021 + phys/module_ra_clWRF_support.F:100-204 (the REAL
-CAMtr_volume_mixing_ratio gate: ghg_input==1 and NOT idealized, for EVERY non-CAM lw scheme --
-CAM has its own built-in fallback table and is the one scheme exempted, model=="CAM" branch).
-Two corrections to the originally assumed design came directly out of that verification; both
-are called out at the top of the C8 and C3 docstrings below.
-
-C3's per-scheme table (check_c3_physics_files docstring lists the rule families) follows
-README.physics_files except where the WRF 4.8 source's own OPEN statements are narrower (checked
-2026-09-27 against a local V4.8.0 tree): the gate for each such case (Ferrier, Thompson CCN,
-P3 table 2, GFDL co2tf, ozone/aerosol, urban LCZ, fast SBM) is cited next to its table entry, so
-a staged run_dir that WRF would accept is never reported FATAL.
-"""
+Each check stems from an incident where WRF aborted with a misleading message or hung silently
+until walltime (cited in its docstring). Severities: FATAL (aborts at startup), HANG (hangs with
+no message), WARN (runs, but not as the user thinks), INFO (informational or SKIPPED). Exit 0 /
+1 (worst is WARN) / 2 (any FATAL or HANG). Stdlib core (scc's /usr/bin/python3 has no numpy or
+netCDF4): netCDF checks import lazily and report SKIPPED, never silence. Parsers reused from
+wtune_predict, wtune_runlength, wtune_physics and decomp_space; gates verified against the WRF
+4.x tree on scc (2026-09-24) and WRF 4.8 sources (2026-09-27)."""
 from __future__ import annotations
 
 import argparse
@@ -112,7 +61,7 @@ class Finding:
         self.evidence = evidence
         self.fix = fix
 
-    def format(self):
+    def format(self) -> str:
         line = "%s %s %s" % (self.severity, self.id, self.message)
         if self.evidence:
             line += "\n    evidence: %s" % self.evidence
@@ -120,7 +69,7 @@ class Finding:
             line += "\n    fix: %s" % self.fix
         return line
 
-    def to_dict(self):
+    def to_dict(self) -> dict[str, str]:
         return {
             "severity": self.severity,
             "id": self.id,
@@ -156,20 +105,11 @@ def _domain_datetime(nl, prefix, dom_index):
         return None
 
 
-def find_out_of_block_assignments(namelist_path):
-    """Every 'key = value' assignment that sits OUTSIDE every &group.../ block, i.e. the exact
-    complement of what wtune_predict.parse_namelist actually captures (its own comment: "else:
-    stray line with no assignment and no prior key -- ignore."). Uses the SAME group-tracking
-    regexes as parse_namelist and the SAME wp._split_assignments() key-detection the real parser
-    uses inside a block, so "assignment" means the same thing in both places.
-
-    Real incident: /nfs/data/atlas-b/elevconv2022/namelist.input line 39,
-    ' iofields_filename = \\'prates_out.txt\\'' sits between &time_control's closing '/' and the
-    next '&domains' -- Fortran's namelist read silently ignores it; the FIRST iofields_filename
-    (line 31, storm_diags_d01.txt) is the one WRF actually uses.
-
-    Returns [(lineno, key_lower, raw_line_text), ...].
-    """
+def find_out_of_block_assignments(namelist_path: str | Path) -> list[tuple[int, str, str]]:
+    """'key = value' assignments outside every &group / block -> [(lineno, key_lower, raw_line)],
+    the complement of what wtune_predict.parse_namelist captures (same regexes and
+    _split_assignments). Fortran's namelist read ignores them (elevconv2022 line 39: a second
+    iofields_filename between &time_control and &domains)."""
     text = Path(namelist_path).read_text()
     text = re.sub(r"!.*$", "", text, flags=re.M)
     out = []
@@ -227,20 +167,10 @@ def _fmt_bytes(n):
 # C1 -- per-domain time window (HANG/WARN/FATAL)
 # --------------------------------------------------------------------------
 
-def check_c1_time_windows(nl, findings):
-    """d01's own run window comes from run_days/hours/minutes/seconds when their sum is > 0,
-    else from d01's own start_date -> end_date span (wtune_runlength.resolve_run_seconds, WRF's
-    own documented fallback). Every NESTED domain (2..max_dom) uses its OWN end_date regardless
-    of what governs d01 -- run_days/hours/minutes/seconds NEVER extends a nest.
-
-    Real incidents:
-      - atlas-b/yagi2024 job 1038 (rebuild/wrf/namelist.input): run_days=5 sets d01's window to
-        2024-09-03T12:00 -> 2024-09-08T12:00, but d02's own end_* (end_minute=30, all other end_*
-        unset/0) is 2024-09-03T12:30 -- a smoke-test value that survived into the "truth" run.
-        d02 silently freezes 30 minutes in while d01 keeps integrating for 5 days.
-      - atlas-validate/maria1km: d02 has no end_minute at all (defaults to 0), so it stops on
-        the hour while d01's window (from run_*) extends further.
-    """
+def check_c1_time_windows(nl: dict, findings: list[Finding]) -> None:
+    """d01's window comes from run_* (sum > 0) else its start -> end span; every nest uses its
+    OWN end_* -- run_* never extends a nest. A nest ending before d01 freezes silently (yagi2024 job
+    1038: d02 end 12:30 under run_days=5; maria1km: d02 without end_minute)."""
     max_dom = wp.get_max_dom(nl)
     d01_start = _domain_datetime(nl, "start", 0)
     if d01_start is None:
@@ -362,27 +292,12 @@ def _check_referenced_file(run_dir, wrf_run_dir, key, fname, domains, findings, 
     ))
 
 
-def check_c2_iofields(nl, run_dir, namelist_path, findings, wrf_run_dir=None):
-    """Files the namelist names that wrf.exe opens at init (_check_referenced_file decides
-    FATAL vs INFO by run dir vs case dir):
-
-    iofields_filename (each domain, when not 'NONE_SPECIFIED'): when missing WRF 4.8 hangs
-    FOREVER at init with no further output -- NOT a clean abort -- even with
-    ignore_iofields_warning=.true.. climate-ea50 (scc probe jobs 2541-2545): the case's
-    iofields_d01.txt was never staged into the probe dirs; every probe printed
-    'med_initialdata_input: calling input_input' and nothing else until its 1260 s timeout.
-    /nfs/data/atlas-b/elevconv2022, 72 AND 576 ranks: 'Problem opening storm_diags_d01.txt'
-    (frame/module_domain.F) and then nothing ever again. An empty file at that path is a legal
-    iofields file (zero extra fields) and avoids the hang entirely.
-
-    auxinput4_inname (default 'wrflowinp_d<domain>', every domain) when sst_update=1: wrf.exe
-    aborts when the lower-boundary file is missing.
-
-    Also flags any out-of-block 'key = value' assignment (find_out_of_block_assignments) --
-    elevconv2022's OWN namelist has a second iofields_filename line sitting between
-    &time_control's '/' and '&domains' that Fortran's namelist read silently ignores; the first
-    (in-block) iofields_filename line is the one that actually takes effect.
-    """
+def check_c2_iofields(nl: dict, run_dir: str | Path, namelist_path: str | Path,
+                      findings: list[Finding], wrf_run_dir: str | Path | None = None) -> None:
+    """Files wrf.exe opens at init (_check_referenced_file: FATAL in a run dir, INFO in a case dir):
+    iofields_filename per domain -- missing, WRF 4.8 HANGS at init with no output (climate-ea50
+    jobs 2541-2545, elevconv2022); an empty file is legal -- and auxinput4_inname
+    (wrflowinp_d<domain>) when sst_update=1. Also reports out-of-block assignments."""
     max_dom = wp.get_max_dom(nl)
     refs = {}
     for d in range(max_dom):
@@ -447,7 +362,7 @@ _RA_EITHER_FILES = {
 # co2tf (Registry default 1): module_ra_gfdleta.F:141-145 -- co2tf==1 -> CO2O3 opens
 # tr49t85/tr49t67/tr67t85; otherwise CONRAD opens co2_trans. Requiring all four would
 # false-FATAL a run_dir that only stages the set its co2tf actually reads.
-_GFDL_SCHEME = 99
+_GFDL_SCHEME = 99   # ra_lw/sw_physics id
 _GFDL_CO2O3_FILES = ["tr49t67", "tr49t85", "tr67t85"]
 _GFDL_CONRAD_FILES = ["co2_trans"]
 # ozone*.formatted: read by oznini on domain 1 only (module_physics_init.F:2330, EM_CORE) when
@@ -455,7 +370,7 @@ _GFDL_CONRAD_FILES = ["co2_trans"]
 # domain-1 ra_lw or ra_sw is an RRTMG-family scheme (4, 14, 24). CAM's own camradinit
 # (module_ra_cam.F:1019) calls oznini UNCONDITIONALLY, independent of o3input.
 _RRTMG_FAMILY = {4, 14, 24}
-_CAM_SCHEME = 3
+_CAM_SCHEME = 3     # ra_lw_physics id
 _OZONE_FILES = ["ozone.formatted", "ozone_lat.formatted", "ozone_plev.formatted"]
 # aerosol*.formatted: read ONLY by aerosol_in (module_physics_init.F:2340-2345, 5476-5507),
 # gated on aer_opt==1 (Tegen climatology) and domain 1, for any radiation scheme. Not read by
@@ -477,18 +392,10 @@ _LSM_FILES = {
 _LSM_NAMES = {1: "slab", 2: "Noah", 3: "RUC", 5: "CLM", 7: "Pleim-Xiu", 8: "SSiB"}
 # Noah-MP snicar_*.nc are only read by the SNICAR snow-albedo option -- deliberately NOT required.
 
-# mp_physics -> required run_dir files (exact names), verified against the WRF 4.8 source's
-# own OPEN statements where README.physics_files is broader than what is actually opened:
-#   5/95 Ferrier: fer_hires_init / etanew open ONLY ETAMPNEW_DATA.expanded_rain
-#        (module_mp_fer_hires.F:2969, module_mp_etanew.F:2266); plain ETAMPNEW_DATA and the
-#        *_DBL variants are not opened by a real*4 build.
-#   28/38 Thompson aerosol-aware: table_ccnAct (module_mp_thompson.F:1013-1016, 5145-5159,
-#        wrf_error_fatal on open failure) runs only when is_aerosol_aware, i.e. when
-#        thompson_init receives NWFA/NIFA -- mp 28 and 38, NOT plain Thompson (8).
-#   32 full SBM: module_mp_full_sbm.F:2078-2712. Fast SBM (30) is deliberately absent -- its
-#        4.8 reader opens SBM_input_33/*33.asc (module_mp_fast_sbm.F:5401-5646), a different
-#        file set that README.physics_files does not describe.
-#   55 Jensen-ISHMAEL: module_mp_jensen_ishmael.F:119-161.
+# mp_physics -> files the WRF 4.8 OPEN statements actually read: Ferrier 5/95 only
+# ETAMPNEW_DATA.expanded_rain (module_mp_fer_hires.F:2969); Thompson CCN only for aerosol-aware
+# 28/38 (module_mp_thompson.F:1013); full SBM 32 (fast SBM 30 reads other files, omitted);
+# Jensen 55 (module_mp_jensen_ishmael.F:119).
 _ETAMPNEW_FILES = ["ETAMPNEW_DATA.expanded_rain"]
 _FULL_SBM_FILES = ["bulkdens.asc_s_0_03_0_9", "bulkradii.asc_s_0_03_0_9", "capacity.asc",
                    "coeff_p.asc", "coeff_q.asc", "constants.asc", "kernels.asc_s_0_03_0_9",
@@ -521,24 +428,16 @@ _HLC_CHEM_OPTS = {111, 112, 114, 201, 202}
 # name so this doesn't false-FATAL across WRF versions.
 _NOAHMP_TABLE_NAMES = ("NoahmpTable.TBL", "MPTABLE.TBL")
 
-# ghg_input==1 (the WRF default -- Registry.EM_COMMON: 'rconfig integer ghg_input
-# namelist,physics 1 1 rh') makes phys/module_physics_init.F:1010-1021 call
-# read_CAMgases(...,.true.,name,...) once per domain at init for EVERY non-idealized run,
-# independent of which lw scheme is active -- 'name' is only set to "CAM" when ra_lw_physics==3
-# (CAMLWSCHEME); read_CAMgases's own fallback (module_ra_clWRF_support.F:187-201) uses a
-# built-in table when model=="CAM" but calls wrf_error_fatal("CLWRF: 'CAMtr_volume_mixing_ratio'
-# does not exist") for every OTHER model name if the file is missing. So: required for every
-# ra_lw_physics != 3 when ghg_input resolves to 1 -- not just the RRTMG/RRTM subset this check
-# was originally scoped to; CAM is the one scheme exempted via its own fallback table.
+# ghg_input=1 (default) reads CAMtr_volume_mixing_ratio at init for every non-idealized run and
+# FATALs without it for every lw scheme except CAM (3), which has a built-in table
+# (module_physics_init.F:1010-1021, module_ra_clWRF_support.F:187-201).
 _CAMTR_EXEMPT_RA_LW = {3}
 
 _THOMPSON_MP = {8, 28, 38}
 _THOMPSON_DAT_FILES = ["freezeH2O.dat", "qr_acr_qg_V4.dat", "qr_acr_qsV2.dat"]
 
-# extension whitelist used by an earlier (buggy) staging tool -- kept here only as the
-# incident's own evidence trail, not used by this checker (see --wrf-run-dir below).
-# real incident: sc26p2-n4 staging used an extension whitelist and missed the extension-less
-# CAMtr_volume_mixing_ratio -> FATAL 'CLWRF: CAMtr_volume_mixing_ratio does not exist'.
+# The buggy staging tool's extension whitelist (missed the extension-less CAMtr file, sc26p2-n4);
+# evidence only, unused by this checker.
 
 
 def _linked_at_run_time(alt_dir, dom_index, name, findings, note=""):
@@ -604,19 +503,15 @@ def _int_opt(value, default):
         return default
 
 
-def check_c3_physics_files(nl, run_dir, findings, wrf_run_dir=None):
-    """Required run_dir data files for the chosen physics, per active domain. Rule families
-    (FATAL unless noted; see the table comments above for the WRF source anchor of each gate):
-      radiation  ra_lw/ra_sw tables (RRTM, CAM, RRTMG 4/14/24), Goddard (5, lw or sw),
-                 GFDL (99, co2tf-selected set), CAMtr_volume_mixing_ratio (ghg_input=1, non-CAM),
-                 ozone*.formatted (domain 1: o3input=2 with RRTMG-family; any CAM domain),
-                 aerosol*.formatted (domain 1: aer_opt=1), eclipse table (ra_sw_eclipse=1)
-      surface    LSM tables (slab, Noah, RUC, CLM, PX, SSiB), Noah-MP table, URBPARM[_LCZ].TBL
-                 (sf_urban_physics 1-3), wind-turbine-1.tbl (windturbine_spec=1)
-      mp         Ferrier, aerosol-aware Thompson CCN, full SBM, P3 (prefix match), Jensen;
-                 plain-Thompson prestaged .dat tables are WARN only
-      chem       HLC.TBL for chem_opt 111/112/114/201/202
-    """
+def check_c3_physics_files(nl: dict, run_dir: str | Path, findings: list[Finding],
+                           wrf_run_dir: str | Path | None = None) -> None:
+    """Required run_dir data files for the chosen physics, per active domain (FATAL unless noted;
+    WRF source anchors in the table comments above):
+      radiation  RRTM/CAM/RRTMG tables, Goddard, GFDL (co2tf set), CAMtr_volume_mixing_ratio
+                 (ghg_input=1, non-CAM), ozone (o3input=2 + RRTMG on d01; CAM), aerosol, eclipse
+      surface    LSM tables, Noah-MP table, URBPARM[_LCZ].TBL, wind-turbine-1.tbl
+      mp         Ferrier, aerosol-aware Thompson CCN, full SBM, P3 (prefix), Jensen; plain-Thompson
+                 .dat tables WARN only.   chem  HLC.TBL for chem_opt 111/112/114/201/202"""
     max_dom = wp.get_max_dom(nl)
     ghg_input = wp.g(nl, "physics", "ghg_input", 1)
     if ghg_input is None:
@@ -780,7 +675,7 @@ def check_c3_physics_files(nl, run_dir, findings, wrf_run_dir=None):
 # C4 -- aerosol climatology fields (FATAL, netCDF4 optional)
 # --------------------------------------------------------------------------
 
-def check_c4_aerosol_climatology(nl, run_dir, findings):
+def check_c4_aerosol_climatology(nl: dict, run_dir: str | Path, findings: list[Finding]) -> None:
     """mp_physics=28 (Thompson aerosol-aware) with use_aero_icbc=.true. (or wif_input_opt>=1)
     requires QNWFA/QNIFA fields in wrfinput_d01 (wrf.exe stage) or in the met_em files
     (real.exe stage, when met_em.* are present and wrfinput does not exist yet).
@@ -876,15 +771,9 @@ _MET_EM_RE = re.compile(
     r"^(met_em\.d\d\d\.\d{4}-\d\d-\d\d)_(\d\d)([_:])(\d\d)\3(\d\d)(\.nc)?$")
 
 
-def check_c5_met_em_naming(nl, run_dir, findings):
-    """real.exe's own filename convention follows nocolons: nocolons=.true. -> it opens
-    'met_em.dNN.YYYY-MM-DD_HH_MM_SS[.nc]' (underscores); nocolons=.false./absent (WRF default)
-    -> it opens the colon form 'met_em.dNN.YYYY-MM-DD_HH:MM:SS[.nc]'. Only the OTHER form
-    existing is a real.exe-stage FATAL (file not found).
-
-    Real incident: atlas-validate/cs-lafe cold start, nocolons=.true. in the namelist but only
-    colon-named met_em files existed at first.
-    """
+def check_c5_met_em_naming(nl: dict, run_dir: str | Path, findings: list[Finding]) -> None:
+    """real.exe opens met_em names per nocolons: .true. -> 'YYYY-MM-DD_HH_MM_SS', else the colon
+    form. Only the other form on disk is FATAL (cs-lafe: nocolons=.true. with colon files)."""
     run_dir = Path(run_dir)
     met_em = sorted(p for p in run_dir.glob("met_em.*") if p.is_file())
     if not met_em:
@@ -935,7 +824,7 @@ def _open_nc(path):
         return None, str(exc)
 
 
-def check_c6_input_consistency(nl, run_dir, findings):
+def check_c6_input_consistency(nl: dict, run_dir: str | Path, findings: list[Finding]) -> None:
     if not HAVE_NETCDF4:
         findings.append(Finding(INFO, "C6", "SKIPPED (netCDF4 not available)"))
         return
@@ -1066,17 +955,11 @@ def check_c6_input_consistency(nl, run_dir, findings):
 # C7 -- decomposition (FATAL)
 # --------------------------------------------------------------------------
 
-def check_c7_decomposition(nl, findings, ranks=None, nproc_x=None, nproc_y=None):
-    """nproc_x*nproc_y must equal the rank count, and every domain's patch (WRF's own RSL-lite
-    remainder-at-both-ends split, predictor.decomp_space.rsl_patch_extents) must be >= 10 mass
-    points wide in BOTH directions on EVERY active domain (share/module_check_a_mundo.F:
-    3014-3029, floor(e_we(i)/nproc_x) >= 10 using Fortran integer division).
-
-    nproc_x/nproc_y default to the namelist's OWN &domains nproc_x/nproc_y (real templates here
-    -- conus25, c34, marshall, isc21, lafe -- all set these directly); --nproc-x/--nproc-y/
-    --ranks override the namelist when given (the actual sbatch resource request may differ
-    from a stale namelist value).
-    """
+def check_c7_decomposition(nl: dict, findings: list[Finding], ranks: int | None = None,
+                           nproc_x: int | None = None, nproc_y: int | None = None) -> None:
+    """nproc_x*nproc_y must equal the ranks, and every active domain's RSL-lite patch must be >= 10
+    mass points both ways (module_check_a_mundo.F:3014-3029). nproc_x/nproc_y/ranks default to the
+    namelist's &domains values; --nproc-x/--nproc-y/--ranks override them."""
     nl_nproc_x = wp.g(nl, "domains", "nproc_x", None)
     nl_nproc_y = wp.g(nl, "domains", "nproc_y", None)
     eff_x = nproc_x if nproc_x is not None else nl_nproc_x
@@ -1144,23 +1027,11 @@ def check_c7_decomposition(nl, findings, ranks=None, nproc_x=None, nproc_y=None)
 # C8 -- time step vs grid spacing (FATAL for d01, WARN for nests)
 # --------------------------------------------------------------------------
 
-def check_c8_time_step(nl, findings):
-    """CORRECTED from the originally assumed design after reading dyn_em/start_em.F:280-311:
-    WRF's OWN fatal gate (`IF (dt_s/dx_km > config_flags%reasonable_time_step_ratio)
-    wrf_error_fatal('--- ERROR: Time step too large')`) checks ONLY domain 1 -- gated on
-    `grid%id==1`, `first_trip_for_this_domain`, `config_flags%map_proj /= 0` (real-data grids
-    only, never idealized) and `.NOT. use_adaptive_time_step`. It is NOT re-checked per nest
-    with parent_time_step_ratio the way the request assumed. This checker reports the REAL
-    FATAL for d01, and separately reports nests exceeding the same ratio (via their own
-    effective dt/dx, derived through the parent_id/parent_time_step_ratio/parent_grid_ratio
-    chain) as WARN, since WRF will not catch those at startup -- they can go numerically
-    unstable mid-run instead of failing cleanly at init.
-
-    reasonable_time_step_ratio itself is a real namelist,domains knob (default 6.0, confirmed
-    via Registry.EM_COMMON) -- read from the namelist rather than hardcoded, because real
-    templates override it (/nfs/data/atlas-b/elevconv2022/namelist.input sets it to 6.5).
-    Equality is allowed (the check is strictly '>').
-    """
+def check_c8_time_step(nl: dict, findings: list[Finding]) -> None:
+    """dt_s/dx_km > reasonable_time_step_ratio (namelist, default 6.0; equality allowed) is
+    FATAL for d01 only -- WRF's own gate (start_em.F:280-311) checks domain 1 once, real-data and
+    non-adaptive runs only. Nests over the ratio (effective dt/dx through the parent chain) are
+    WARN: WRF does not stop them, they can go unstable mid-run."""
     max_dom = wp.get_max_dom(nl)
     use_adaptive = bool(wp.g(nl, "domains", "use_adaptive_time_step", False))
     if use_adaptive:
@@ -1262,7 +1133,7 @@ def _history_interval_minutes(nl, dom_index):
     return None
 
 
-def check_c9_disk(nl, run_dir, findings):
+def check_c9_disk(nl: dict, run_dir: str | Path, findings: list[Finding]) -> None:
     """Conservative estimate: bytes_per_frame = e_we*e_sn*e_vert*4 bytes*~40 3-D fields, summed
     over every active domain's history frames (floor(run_minutes/history_interval)+1, the same
     frame-count rule wtune_predict.py uses), compared against os.statvfs(run_dir) free space."""
@@ -1316,22 +1187,14 @@ def check_c9_disk(nl, run_dir, findings):
 # C10 -- wrfinput physical sanity (FATAL, netCDF4 optional)
 # --------------------------------------------------------------------------
 
-# Range bounds. Masking differs per field (see check_c10_wrfinput_sanity's docstring for the
-# scc truth-dir evidence behind each rule):
-#   TSLB  land points only; exactly-0 values are real.exe's "undefined" fill -> WARN, non-zero
-#         values outside the bounds -> FATAL (the tw3km-2031/case_I garbage signature).
-#   SST   water points only; exactly-0 values skipped (inland lakes carry SST=0 in healthy runs).
-#   SMOIS land points only; negative -> WARN, > 1 -> FATAL.
-#   TSK   every point, FATAL (unchanged).
-_C10_TSLB_RANGE = (200.0, 350.0)
-_C10_SST_RANGE = (180.0, 350.0)
-_C10_SMOIS_RANGE = (0.0, 1.0)
-_C10_TSK_RANGE = (180.0, 350.0)
-# TSLB non-zero out-of-range values are FATAL when they EXCEED this FRACTION of the domain's land
-# TSLB values (land columns x soil levels), WARN when 0 < fraction <= it. Pre-registered 0.1%:
-# dorian2019 d02 20/(14806x4) = 0.034% ran 1 h on scc (job 1392) with no NaN -> WARN;
-# tw3km-2031/case_I 13186/(37588x4) = 8.8% went NaN by hour 1 -> FATAL.
-_C10_TSLB_NONZERO_FATAL_FRACTION = 0.001
+# Range bounds (K; SMOIS m3/m3) -- masking per field in check_c10_wrfinput_sanity. Healthy scc
+# runs carry TSLB/SST exactly 0 (undefined fill, inland lakes) and small negative deep SMOIS.
+_C10_TSLB_RANGE = (200.0, 350.0)    # K
+_C10_SST_RANGE = (180.0, 350.0)     # K
+_C10_SMOIS_RANGE = (0.0, 1.0)       # m3 m-3
+_C10_TSK_RANGE = (180.0, 350.0)     # K
+# Pre-registered: dorian2019 d02 0.034 % ran fine (job 1392), tw3km-2031 case_I 8.8 % went NaN.
+_C10_TSLB_NONZERO_FATAL_FRACTION = 0.001   # 0.1 % of land TSLB values
 _C10_NAN_VARS = ("T", "U", "V", "QVAPOR", "TSLB", "SMOIS", "PSFC")
 
 
@@ -1388,39 +1251,13 @@ def _c10_range_finding(findings, severity, d, varname, wname, arr, bad, lo, hi, 
     ))
 
 
-def check_c10_wrfinput_sanity(nl, run_dir, findings):
-    """wrfinput_d0N physical-plausibility gate, run BEFORE real.exe/wrf.exe ever start.
-
-    Real incident: scc tw3km-2031 case_I (AIFS generator, analog-soil fill path). AIFS's
-    regridded LANDSEA is fractional (~33% of points land/sea-mixed after interpolation) while
-    the analog GFS's soil fields are binary land(=1)/water(=0)-masked; metgrid's LANDSEA-masked
-    horizontal interpolation of the filled soil field then blended water-point state (TSLB/SMOIS
-    effectively undefined over open ocean) into land points, producing ST000010 (TSLB level 1)
-    around -23 C and SM000010 (SMOIS level 1) around -0.02 in wrfinput_d01. Neither real.exe nor
-    wrf.exe checks this: wrf.exe went entirely NaN by simulation hour 1 (wrfout_d01 valid at
-    2031-08-20_01:00:00 all-NaN in U/V/T/PSFC) while its own log still printed 'SUCCESS COMPLETE
-    WRF' at the end of the 12 h run. This check catches it at `wtune check` time, before any
-    node-hour is spent.
-
-    Rules ("land" = LANDMASK==1 and, when present, XLAND==1; "water" = LANDMASK==0):
-      TSLB  land only. Exactly 0 -> one WARN per domain (undefined soil temperature); non-zero
-            outside [200, 350] K -> FATAL when they exceed _C10_TSLB_NONZERO_FATAL_FRACTION
-            (0.1%) of the domain's land TSLB values (land columns x soil levels), else WARN.
-      SST   water only, exactly-0 values skipped; non-zero outside [180, 350] K -> FATAL.
-      SMOIS land only. < 0 -> WARN; > 1 -> FATAL.
-      TSK   every point outside [180, 350] K -> FATAL.
-    Any non-finite (NaN/Inf) value anywhere in T, U, V, QVAPOR, TSLB, SMOIS, or PSFC is FATAL
-    regardless of range, land or water.
-
-    Calibration (2026-09-27, scc truth run_dirs that ran vs case_I): healthy wrfinputs carry
-    TSLB exactly 0 on water and on some land columns (dorian2019 d02: 350 land columns), SST
-    exactly 0 on land and on some water points (inland lakes: zhengzhou 4663, dorian 16498), and
-    small negative deep-level SMOIS on land (zhengzhou: 1923 values in [-0.012, 0)). case_I, which
-    went NaN, instead had 13186 NON-ZERO garbage land TSLB values (-12.5, -10.9, 170.6 ...), none
-    exactly 0 -- 13186/(37588x4) = 8.8% of its land values -> FATAL. dorian2019 d02 also carries
-    20 non-zero out-of-range land TSLB values (min 101.1 K), but 20/(14806x4) = 0.034%, and its
-    1 h scc run (job 1392) had no NaN at 01:00 in d02 -> WARN.
-    """
+def check_c10_wrfinput_sanity(nl: dict, run_dir: str | Path, findings: list[Finding]) -> None:
+    """wrfinput_d0N plausibility before real.exe/wrf.exe (tw3km-2031 case_I: AIFS soil fill gave
+    TSLB ~-23 C, wrf.exe all-NaN by hour 1 yet 'SUCCESS COMPLETE'). Land = LANDMASK==1 (and XLAND
+    ==1). TSLB land only: exactly 0 -> WARN; non-zero outside [200, 350] K -> FATAL above
+    _C10_TSLB_NONZERO_FATAL_FRACTION of land values, else WARN. SST water only, 0 skipped, outside
+    [180, 350] K FATAL. SMOIS land: < 0 WARN, > 1 FATAL. TSK outside [180, 350] K FATAL. Any NaN/Inf
+    in T/U/V/QVAPOR/TSLB/SMOIS/PSFC FATAL."""
     if not HAVE_NETCDF4:
         findings.append(Finding(INFO, "C10", "SKIPPED (netCDF4 not available)"))
         return
@@ -1531,8 +1368,9 @@ def check_c10_wrfinput_sanity(nl, run_dir, findings):
 # orchestration
 # --------------------------------------------------------------------------
 
-def run_checks(nl, run_dir, namelist_path, ranks=None, nproc_x=None, nproc_y=None,
-                wrf_run_dir=None):
+def run_checks(nl: dict, run_dir: str | Path, namelist_path: str | Path, ranks: int | None = None,
+               nproc_x: int | None = None, nproc_y: int | None = None,
+               wrf_run_dir: str | Path | None = None) -> list[Finding]:
     findings = []
     checks = [
         ("C1", lambda: check_c1_time_windows(nl, findings)),
@@ -1558,7 +1396,7 @@ def run_checks(nl, run_dir, namelist_path, ranks=None, nproc_x=None, nproc_y=Non
     return findings
 
 
-def exit_code_for(findings):
+def exit_code_for(findings: list[Finding]) -> int:
     worst = max((_SEVERITY_RANK.get(f.severity, 0) for f in findings), default=0)
     if worst >= 3:
         return 2
@@ -1567,7 +1405,7 @@ def exit_code_for(findings):
     return 0
 
 
-def main(argv=None):
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="wtune.py check",
         description="pre-submission WRF run_dir sanity checker",

@@ -1,52 +1,13 @@
 #!/usr/bin/env python3
-"""predictor/decomp_space.py -- the full legal stock-WRF decomposition/tiling space (WTune
-"detailed decomposition recommendation" research direction, step D1).
+"""predictor/decomp_space.py -- the full legal stock-WRF 4.8 decomposition/tiling space (step D1).
 
-campaign/configs.py ships 16 FIXED STRICT templates (C01-C16): a hand-picked handful of
-(ranks, omp, shape, numtiles, dist, blocktime) points. This module enumerates the space those
-templates are drawn from -- every legal (ranks, omp) x (nproc_x, nproc_y) x tile-geometry x
-(distribution, KMP_BLOCKTIME) combination -- with EXACT stock-WRF 4.8 semantics (not
-wtune_decomp.py's fitted shape/score model, not campaign/configs.py's own ceil-based legality
-approximation), so a ground-truth measurement sample can cover the space the 16 templates only
-sparsely sample. The genuinely unmeasured axis this unlocks is TILE GEOMETRY
-(numtiles_x/numtiles_y, tile_sz, the 1D-Y -> 2D auto-switch) -- see
-knowledge/ "901^2 shape sweep" / "load-balancing re-decomposition failed" / "LPT at its ceiling"
-for the axes already closed off.
-
-Two DIFFERENT WRF remainder-distribution algorithms are replicated here, exactly, because they
-are NOT the same algorithm:
-
-  MPI patch decomposition (ranks over a domain): external/RSL_LITE/task_for_point.c:6-15,87-116.
-  Distributes the remainder at literal BOTH ENDS of the dimension (front group + back group of
-  size-(q+1) patches, middle group of size-q patches) -- see `rsl_patch_extents`. WRF's own
-  legality gate (share/module_check_a_mundo.F:3014-3029) checks `e_we(i)/nproc_x < 10` using
-  Fortran INTEGER division (== floor for positive operands), which is exactly the SMALLEST
-  patch's width under this remainder rule -- NOT campaign/configs.py's own ceil(extent/nproc)
-  check (that module's docstring already flags the discrepancy; ceil is the MAX/worst-case patch,
-  a strictly weaker gate that can accept shapes the real WRF binary rejects at startup). This
-  module uses the real (floor-based) gate: `legal_shapes_exact`.
-
-  Tile decomposition (splitting one rank's patch into numtiles): frame/module_tiles.F's
-  set_tiles2 (numtiles/numtiles_x/numtiles_y/tile_sz_x/y/tile_strategy resolution at
-  module_tiles.F:269-391, tile extents via region_bounds at module_tiles.F:409-451) calls
-  frame/module_machine.F's `region_bounds`/`locproc`/`rlocproc` (module_machine.F:15-106) and
-  `least_aspect` (module_machine.F:108-132) -- a RECURSIVE peel-from-both-ends algorithm, not the
-  RSL-lite one. Hand-verified (see predictor/tests/test_decomp_space.py): splitting 10 points into
-  3 groups gives sizes (4, 3, 3) -- the lone remainder point goes ENTIRELY to the front group, not
-  split across both ends -- while 11 points into 3 groups gives (4, 3, 4) (both ends), because the
-  Fortran condition governing the width bump (`rem>0 .and. (mod(rem,2)==0 .or. rem>2 .or.
-  p<=mid)`) treats an odd remainder <= 2 differently from every other remainder. Replicated
-  faithfully in `_rlocproc`/`_region_bounds`/`tile_extents` below, NOT approximated.
-
-Both `_rlocproc` and `_region_bounds` are memoized (functools.lru_cache) at module scope: within
-one process, a given (patch size, tile count) pair's split is computed once no matter how many
-candidates in the enumerated space happen to share it, which is what keeps `enumerate_space`
-tractable for its several-thousand-candidate default space on a 900-ish-cell-wide case.
-
-Requires Python >= 3.7 (`from __future__ import annotations`, f-strings freely) -- run this and
-its tests via the predictor pixi env, never the login node's system python3 (3.6.8; see
-campaign/configs.py's own module docstring for why that matters for THAT file, not this one).
-"""
+Enumerates every legal (ranks, omp) x (nproc_x, nproc_y) x tile geometry x (dist, blocktime)
+candidate that campaign/configs.py's 16 fixed templates only sample, with exact WRF semantics
+for two DIFFERENT remainder rules: MPI patches split the remainder at both ends
+(RSL_LITE/task_for_point.c; legality gate floor(extent/nproc) >= 10, module_check_a_mundo.F
+3014-3029 -- not configs.py's weaker ceil check), tiles use module_machine.F's recursive
+region_bounds (10 into 3 -> 4,3,3; 11 into 3 -> 4,3,4). _rlocproc/_region_bounds are memoized
+to keep the several-thousand-candidate space tractable. Python >= 3.7 (predictor pixi env)."""
 from __future__ import annotations
 
 import argparse
@@ -73,15 +34,12 @@ TILE_NONE, TILE_X, TILE_Y, TILE_XY = 0, 1, 2, 3
 # frame/module_tiles.F:17 (#define MIN_TILE_SIZE 1)
 MIN_TILE_SIZE = 1
 # share/module_check_a_mundo.F:3017-3018 (Fortran integer division, i.e. floor for positive ints)
-MIN_PATCH = 10
+MIN_PATCH = 10   # mass points per patch, each direction
 
 DEFAULT_HARDWARE = "f1-spr-icpnp"
 
-# Every numtiles value the 16 fixed STRICT templates actually use (campaign/configs.py TEMPLATES),
-# unioned into the default numtiles candidate set below so `sample_design`'s must_include (via
-# `campaign_template_predicates`) always has a real chance of matching something in `enumerate_space`'s
-# output -- the templates' own numtiles values (8, 12, 13, 14, 16) are not small multiples of every
-# omp value and would otherwise never appear in the generated space at all.
+# numtiles of the 16 STRICT templates, unioned into the default candidates so sample_design's
+# must_include can match them (8, 12, 13, 14, 16 are not small multiples of every omp).
 _TEMPLATE_NUMTILES = sorted(set(t["numtiles"] for t in campaign_configs.TEMPLATES))
 
 DEFAULT_TILE_OPTIONS = dict(
@@ -99,12 +57,12 @@ BLOCKTIME_OPTIONS = ("0", "default")
 # WRF semantics, replicated exactly
 # ---------------------------------------------------------------------------
 
-def factor_pairs(n):
+def factor_pairs(n: int) -> list[tuple[int, int]]:
     """Every (a, b) with a*b == n, a ascending."""
     return [(i, n // i) for i in range(1, n + 1) if n % i == 0]
 
 
-def rsl_patch_extents(extent, nproc):
+def rsl_patch_extents(extent: int, nproc: int) -> tuple[int, int]:
     """(min_patch, max_patch) for one dimension of one domain split `nproc` ways, per RSL-lite's
     remainder-at-both-ends rule (external/RSL_LITE/task_for_point.c:6-15,87-100): `rem =
     extent % nproc` ranks get `extent//nproc + 1` points (split as `rem//2` at the front, the rest
@@ -115,23 +73,11 @@ def rsl_patch_extents(extent, nproc):
     return q, (q + 1 if rem else q)
 
 
-def rsl_patch_width_for_rank(extent, nproc, rank_index):
-    """Width of ONE specific 0-indexed rank's patch along one dimension, under RSL-lite's
-    remainder-at-both-ends rule (external/RSL_LITE/task_for_point.c:6-15,87-116 -- the same rule
-    `rsl_patch_extents` computes the (min,max) ENVELOPE of): of `nproc` ranks, `rem = extent %
-    nproc` get `extent//nproc + 1` points, split as `rem//2` FRONT ranks (index 0..front-1) and
-    `rem-front` BACK ranks (index nproc-back..nproc-1); the remaining `nproc-rem` MIDDLE ranks get
-    exactly `extent//nproc`.
-
-    Added 2026-09-15 (WTune D3/D4 tile-geometry ground-truth check, smoke job 1078036): answers
-    "what is rank `rank_index`'s OWN patch", which `enumerate_space`'s `patch_x`/`patch_y`
-    (deliberately the SMALLEST-patch envelope bound, for 1D->2D-switch risk assessment -- see that
-    function's docstring) does NOT in general equal. Confirmed against real WRF rank-0 tile
-    printouts: for karina's 8x56 shape (e_sn=901, nproc_y=56, rem=5, front=2) rank 0 lands in the
-    front group and gets the LARGEST y-patch (17, not the smallest 16); for its 4x56 shape
-    (e_we=901, nproc_x=4, rem=1, front=0) rank 0 lands in the MIDDLE group and gets the smallest
-    x-patch (225) instead -- which extreme rank 0 falls on is independent per dimension, so no
-    fixed choice of min/max stands in for it in general; this function computes it directly."""
+def rsl_patch_width_for_rank(extent: int, nproc: int, rank_index: int) -> int:
+    """Width of 0-indexed rank `rank_index`'s own patch under RSL-lite's remainder-at-both-ends
+    rule: rem = extent % nproc ranks get one extra point, rem//2 at the front, the rest at the back.
+    Rank 0 can be in either group per dimension (karina 8x56: largest y-patch; 4x56: smallest
+    x-patch), so neither envelope bound stands in for it (smoke job 1078036)."""
     q, rem = divmod(extent, nproc)
     front = rem // 2
     back = rem - front
@@ -140,7 +86,8 @@ def rsl_patch_width_for_rank(extent, nproc, rank_index):
     return q
 
 
-def legal_shapes_exact(we_list, sn_list, ranks, min_patch=MIN_PATCH):
+def legal_shapes_exact(we_list: list[int], sn_list: list[int], ranks: int,
+                       min_patch: int = MIN_PATCH) -> list[tuple[int, int]]:
     """All (nx, ny) with nx*ny == ranks that pass WRF's REAL startup gate
     (share/module_check_a_mundo.F:3014-3029): floor(e_we(i)/nproc_x) >= 10 and
     floor(e_sn(i)/nproc_y) >= 10 for EVERY active domain i (paired by index). This is stricter
@@ -209,7 +156,7 @@ def _region_bounds(region_start, region_end, num_p, p):
     return ts + region_start, te + region_start
 
 
-def least_aspect(nparts, minparts_y=1, minparts_x=1):
+def least_aspect(nparts: int, minparts_y: int = 1, minparts_x: int = 1) -> tuple[int, int]:
     """frame/module_machine.F:108-132 `least_aspect`. Returns (nparts_y, nparts_x) -- the same
     output order as the Fortran subroutine's argument list."""
     mini = 2 * nparts
@@ -223,18 +170,12 @@ def least_aspect(nparts, minparts_y=1, minparts_x=1):
     return nparts_y, nparts_x
 
 
-def resolve_tile_geometry(patch_x, patch_y, numtiles=1, numtiles_x=0, numtiles_y=0,
-                           tile_sz_x=0, tile_sz_y=0, tile_strategy=TILE_NONE):
-    """Transliteration of frame/module_tiles.F:269-391's numtiles/numtiles_x/numtiles_y
-    resolution (the namelist-value branch only -- WRF's own omp_get_max_threads()/WRF_NUM_TILES*
-    env-var fallbacks, used only when the namelist omits numtiles entirely, are not replicated:
-    this campaign always writes an explicit numtiles, so `numtiles` here IS that already-resolved
-    value, same convention as campaign/configs.py's TEMPLATES). WRF_NUM_TILES_INC is assumed at
-    its default (1) since this campaign never sets it.
-
-    Returns a dict: num_tiles (possibly changed by tile_sz/numtiles_x/y overrides), numtiles_x,
-    numtiles_y (both >= 1), tile_strategy_used, went_2d (True iff the 1D-Y -> 2D auto-switch at
-    module_tiles.F:333-348 fired)."""
+def resolve_tile_geometry(patch_x: int, patch_y: int, numtiles: int = 1, numtiles_x: int = 0,
+                          numtiles_y: int = 0, tile_sz_x: int = 0, tile_sz_y: int = 0,
+                          tile_strategy: int = TILE_NONE) -> dict:
+    """module_tiles.F:269-391's numtiles/numtiles_x/numtiles_y resolution, namelist branch only
+    (this campaign always writes numtiles; WRF_NUM_TILES_INC assumed 1) -> {num_tiles, numtiles_x,
+    numtiles_y, tile_strategy_used, went_2d (the 1D-Y -> 2D auto-switch, module_tiles.F:333-348)}."""
     num_tiles = numtiles
     ntx, nty = numtiles_x, numtiles_y
     went_2d = False
@@ -276,7 +217,7 @@ def resolve_tile_geometry(patch_x, patch_y, numtiles=1, numtiles_x=0, numtiles_y
                 tile_strategy_used=strategy_used, went_2d=went_2d)
 
 
-def tile_extents(patch_x, patch_y, numtiles_x, numtiles_y):
+def tile_extents(patch_x: int, patch_y: int, numtiles_x: int, numtiles_y: int) -> list[tuple[int, int, int, int]]:
     """[(i_start, i_end, j_start, j_end), ...] 1-indexed within the patch (1..patch_x, 1..patch_y)
     for each REALIZED tile, in module_tiles.F set_tiles2's own t=0..numtiles_x*numtiles_y-1 order
     (module_tiles.F:409-451: y is the outer/major loop, x inner). A (row, col) whose group is
@@ -296,8 +237,9 @@ def tile_extents(patch_x, patch_y, numtiles_x, numtiles_y):
     return tiles
 
 
-def tile_geometry_for_patch(patch_x, patch_y, e_vert, numtiles=1, numtiles_x=0, numtiles_y=0,
-                             tile_sz_x=0, tile_sz_y=0, tile_strategy=TILE_NONE):
+def tile_geometry_for_patch(patch_x: int, patch_y: int, e_vert: int, numtiles: int = 1,
+                            numtiles_x: int = 0, numtiles_y: int = 0, tile_sz_x: int = 0,
+                            tile_sz_y: int = 0, tile_strategy: int = TILE_NONE) -> dict:
     """resolve_tile_geometry + tile_extents + summary stats (cells/aspect min/max across the
     realized tiles) for one patch. `e_vert` turns 2D tile area into a 3D cell count, matching
     predictor/features.py's `cells_per_tile` convention (patch_cells * e_vert / numtiles)."""
@@ -324,7 +266,7 @@ def tile_geometry_for_patch(patch_x, patch_y, e_vert, numtiles=1, numtiles_x=0, 
     return out
 
 
-def domain_patch_geometry(we_list, sn_list, nx, ny):
+def domain_patch_geometry(we_list: list[int], sn_list: list[int], nx: int, ny: int) -> dict:
     """[{...}] one dict per active domain: RSL-lite min/max patch extents (`rsl_patch_extents`)
     and the halo/interior ratio (HALO_WIDTH=3, predictor/features.py's own convention) at each
     extreme."""
@@ -363,7 +305,7 @@ def _divisors(n):
     return [d for d in range(1, n + 1) if n % d == 0]
 
 
-def default_omp_options(total_cores, nodes, hardware_id):
+def default_omp_options(total_cores: int, nodes: int, hardware_id: str) -> list[int]:
     """Every divisor of the hardware's cores-per-NUMA that gives an integer rank count divisible
     by `nodes` -- i.e. every omp value whose ranks pack a whole number of NUMA domains per node
     with no thread crossing a NUMA boundary (ranks_per_numa = cores_per_numa // omp is then
@@ -374,7 +316,7 @@ def default_omp_options(total_cores, nodes, hardware_id):
             if total_cores % d == 0 and (total_cores // d) % nodes == 0]
 
 
-def numtiles_candidates(omp, tile_options):
+def numtiles_candidates(omp: int, tile_options: dict | None) -> list[int]:
     """{1} u {omp*k : k in tile_options['numtiles_multiples']} u the 16 STRICT templates' own
     numtiles values (see _TEMPLATE_NUMTILES), capped at tile_options['max_numtiles']."""
     multiples = tile_options.get("numtiles_multiples", DEFAULT_TILE_OPTIONS["numtiles_multiples"])
@@ -390,34 +332,14 @@ def numtiles_candidates(omp, tile_options):
     return sorted(cands)
 
 
-def enumerate_space(case, total_cores=448, nodes=4, hardware_id=DEFAULT_HARDWARE,
-                     omp_options=None, tile_options=None):
-    """Every legal stock-WRF decomposition/tiling candidate for `case` (a cases.json-shaped dict:
-    e_we/e_sn/e_vert, optionally max_dom/e_we_list/e_sn_list for a nested case, exactly like
-    campaign/configs.py's CASES entries -- a synthetic dict with just those keys works for tests).
-
-    Axes (each finite, each overridable):
-      omp        -- `omp_options` or `default_omp_options(total_cores, nodes, hardware_id)`
-      ranks      -- total_cores // omp (one value per omp)
-      (nx, ny)   -- `legal_shapes_exact` for that rank count, against EVERY active domain
-      numtiles   -- `numtiles_candidates(omp, tile_options)`
-      tile_shape -- '1d_y' (WRF's own default resolution, numtiles_x=numtiles_y=0,
-                    tile_strategy=TILE_NONE -- includes the auto 1D->2D switch when numtiles
-                    exceeds the patch height) and, when tile_options['include_2d'] (default True)
-                    and numtiles>1, '2d' (an explicit least_aspect(numtiles) split forced via
-                    tile_strategy=TILE_XY) -- plus one 'tile_sz' variant per
-                    tile_options['tile_sz_variants'] entry (default: none)
-      dist       -- 'block', 'cyclic'
-      blocktime  -- '0', 'default'
-
-    Geometry (see domain_patch_geometry/tile_geometry_for_patch) is computed against d01's
-    SMALLEST realized patch (the one at risk of the 1D->2D auto-switch and of the fewest cells
-    per tile) for the tile-shape fields, and additionally against d01's LARGEST realized patch for
-    the cells_per_tile upper bound -- both are always reported since RSL-lite patches are not
-    uniform in size (see rsl_patch_extents).
-
-    Returns (candidates: list[dict], axis_summary: dict) -- axis_summary breaks candidate count
-    down per axis so a case's space size is auditable without counting `candidates` by hand."""
+def enumerate_space(case: dict, total_cores: int = 448, nodes: int = 4,
+                    hardware_id: str = DEFAULT_HARDWARE, omp_options: list[int] | None = None,
+                    tile_options: dict | None = None) -> tuple[list[dict], dict]:
+    """Every legal stock-WRF candidate for a cases.json-shaped `case` (e_we/e_sn/e_vert[, max_dom,
+    e_we_list, e_sn_list]) -> (candidates, axis_summary with per-axis counts). Axes: omp, ranks =
+    total_cores // omp, (nx, ny) legal on every active domain, numtiles, tile_shape ('1d_y' WRF
+    default, '2d' least-aspect TILE_XY, optional 'tile_sz' variants), dist, blocktime. Tile geometry
+    is reported for d01's smallest patch (1D->2D risk) and largest patch (cells_per_tile bound)."""
     hw = feat.HARDWARE_TABLE[hardware_id]
     if omp_options is None:
         omp_options = default_omp_options(total_cores, nodes, hardware_id)
@@ -468,12 +390,8 @@ def enumerate_space(case, total_cores=448, nodes=4, hardware_id=DEFAULT_HARDWARE
                                                        ntx, nty, tsx, tsy, tstrat)
                     geo_max = tile_geometry_for_patch(max_px, max_py, e_vert, numtiles,
                                                        ntx, nty, tsx, tsy, tstrat)
-                    # rank 0's ACTUAL realized tile geometry (added 2026-09-15, smoke job
-                    # 1078036 ground-truth check) -- geo_min/geo_max above are the worst/best-case
-                    # ENVELOPE across every rank (kept unchanged for that purpose); this is what a
-                    # real WRF run's rank-0 "WRF TILE .../WRF NUMBER OF TILES" printout actually
-                    # shows, and neither geo_min nor geo_max reliably matches it (see
-                    # rsl_patch_width_for_rank's docstring).
+                    # rank 0's own tile geometry, what WRF's rank-0 tile printout shows (the
+                    # min/max envelopes need not match it; smoke job 1078036)
                     geo_rank0 = tile_geometry_for_patch(rank0_px, rank0_py, e_vert, numtiles,
                                                          ntx, nty, tsx, tsy, tstrat)
                     for dist in DIST_OPTIONS:
@@ -524,7 +442,7 @@ def enumerate_space(case, total_cores=448, nodes=4, hardware_id=DEFAULT_HARDWARE
     return candidates, axis_summary
 
 
-def campaign_template_predicates(case):
+def campaign_template_predicates(case: dict) -> list[dict]:
     """[{'ranks','omp','nx','ny','numtiles','dist','blocktime'}, ...] for every STRICT template
     (C01-C16, deduped) that resolves for `case`, via campaign/configs.py's OWN resolve_case (the
     same scorer/shape resolution the real campaign used) -- for use as `sample_design`'s
@@ -550,23 +468,12 @@ def _candidate_key(c):
 _STRATIFY_AXES = ("omp", "nx", "ny", "numtiles", "tile_shape", "dist", "blocktime")
 
 
-def sample_design(space, n, seed, must_include=None):
-    """Deterministic, stratified subset of `space` (a list of candidate dicts from
-    `enumerate_space`) of size `n`, for a ground-truth measurement sweep.
-
-    Phase 1: every candidate matching at least one `must_include` predicate dict (see
-    `campaign_template_predicates`) is included first, deduped -- even if that alone exceeds `n`
-    (a must_include list is a floor, not a suggestion).
-    Phase 2: for each axis in _STRATIFY_AXES, every distinct value still missing from the sample
-    gets one representative (chosen deterministically via `random.Random(seed)` among the
-    candidates carrying that value), until the budget `n` is reached.
-    Phase 3: any remaining budget is filled with a deterministic random sample of what's left.
-
-    Same (space, n, seed, must_include) always returns the same list (`space` is first sorted by
-    `_candidate_key` before any randomness is applied, so caller-supplied order never leaks in).
-
-    Returns (chosen: list[dict], coverage: dict) -- coverage reports, per axis, how many distinct
-    values `space` has vs. how many made it into `chosen`, plus must_include match counts."""
+def sample_design(space: list[dict], n: int, seed: int, must_include: list[dict] | None = None
+                  ) -> tuple[list[dict], dict]:
+    """Deterministic stratified subset of `space` of size n -> (chosen, coverage). Phase 1: every
+    must_include match (a floor, may exceed n); phase 2: one representative per missing value of
+    each _STRATIFY_AXES axis; phase 3: random fill. `space` is sorted by _candidate_key first, so
+    the same (space, n, seed, must_include) always gives the same list."""
     rng = random.Random(seed)
     space_sorted = sorted(space, key=_candidate_key)
     chosen = []
@@ -626,7 +533,8 @@ def sample_design(space, n, seed, must_include=None):
     return chosen, coverage
 
 
-def seed_design(space, numtiles_targets=(None, 12), max_omp=14):
+def seed_design(space: list[dict], numtiles_targets: tuple = (None, 12), max_omp: int = 14
+                ) -> list[dict]:
     """Cold-start screen for a case/allocation with no measurements (e.g. 1-node cases where the
     448-core templates do not exist): for every ranks x omp group, the most balanced legal patch
     shape (min patch aspect), default 1-D tiles, dist=block, KMP_BLOCKTIME=0, at numtiles nearest
@@ -644,11 +552,8 @@ def seed_design(space, numtiles_targets=(None, 12), max_omp=14):
         group = [c for c in base if c["omp"] == omp]
         if not group:
             continue
-        # TWO shapes per thread count, because "most balanced patch" turned out to be the wrong
-        # heuristic on its own: zhengzhou's 112x4 at the min-aspect shape (14x8, patch 42x46) ran
-        # 3.477 s/step while the search's own 4x28 (patch 150x13, aspect 11.5) ran 2.780 -- 25%
-        # faster (jobs 1080108 vs 1078389). x is the contiguous direction, so a patch that is wide
-        # in x vectorises better; lafe (8x56) and karina (8x28) show the same preference.
+        # Two shapes per thread count: an x-wide patch vectorises better than the most balanced
+        # one (zhengzhou 4x28 2.780 vs 14x8 3.477 s/step, jobs 1080108/1078389; lafe, karina too).
         shapes = []
         for key in (lambda c: (aspect(c), _candidate_key(c)),          # most balanced patch
                     lambda c: (c["nx"], -c["ny"], _candidate_key(c))):  # widest patch in x
@@ -666,7 +571,7 @@ def seed_design(space, numtiles_targets=(None, 12), max_omp=14):
     return chosen
 
 
-def to_campaign_configs(candidates, prefix="G"):
+def to_campaign_configs(candidates: list[dict], prefix: str = "G") -> list[dict]:
     """Config dicts campaign/configs.py's generated-config runner (CONFIG_FILE=... env,
     campaign/strict_campaign.sbatch) can execute directly: zero-padded ids (G0001, G0002, ...,
     width sized to len(candidates), minimum 4 digits) in the given order, and exactly the fields
@@ -775,7 +680,7 @@ def _cmd_seed(argv):
     return 0
 
 
-def main(argv=None):
+def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     if not argv:
         sys.stderr.write(

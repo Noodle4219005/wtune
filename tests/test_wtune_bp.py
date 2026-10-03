@@ -493,3 +493,35 @@ def test_cached_inputs_only_when_current(tmp_path, fake_conv):
         "wrfbdy_d01": str(cache / "wrfbdy_d01")}
     (case / "wrfbdy_d01").write_bytes(NC + b"changed")
     assert wtune_bp.cached_inputs(str(case), str(cache), ["wrfbdy_d01"]) is None
+
+
+# ---------------------------------------------------------------- cross-node cache dir race
+def test_ensure_dir_retries_the_nfs_enoent_race(tmp_path, monkeypatch):
+    real, seen = os.makedirs, []
+
+    def flaky(path, exist_ok=False):
+        seen.append(path)
+        if len(seen) == 1:                 # parent created by another node, child ENOENT
+            raise FileNotFoundError(2, "No such file or directory", path)
+        return real(path, exist_ok=exist_ok)
+    monkeypatch.setattr(os, "makedirs", flaky)
+    target = str(tmp_path / "bp-cache" / "sc26p1" / "6b2981d4f855")
+    assert wtune_bp.ensure_dir(target, sleep=lambda s: None) == target
+    assert os.path.isdir(target) and seen.count(target) == 2       # retried once
+    monkeypatch.setattr(os, "makedirs", lambda p, exist_ok=False: (_ for _ in ()).throw(
+        FileNotFoundError(2, "gone", p)))
+    with pytest.raises(FileNotFoundError):
+        wtune_bp.ensure_dir(str(tmp_path / "x" / "y"), attempts=3, sleep=lambda s: None)
+
+
+def test_concurrent_cache_dir_and_lock_creation_does_not_raise(tmp_path):
+    """Several processes create the same (absent) cache dir and lock at once."""
+    target = tmp_path / "bp-cache" / "sc26p1" / "6b2981d4f855"
+    code = ("import sys, fcntl; sys.path.insert(0, %r); import wtune_bp\n"
+            "f = wtune_bp.open_lock(%r); fcntl.lockf(f, fcntl.LOCK_EX); f.write('x'); f.close()\n"
+            % (os.path.join(REPO, "src"), str(target / ".stage.lock")))
+    procs = [subprocess.Popen([sys.executable, "-c", code], stderr=subprocess.PIPE)
+             for _ in range(8)]
+    errs = [p.communicate()[1] for p in procs]
+    assert [p.returncode for p in procs] == [0] * 8, errs
+    assert (target / ".stage.lock").read_text() == "x" * 8       # appended, never truncated

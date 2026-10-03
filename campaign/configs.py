@@ -2779,26 +2779,48 @@ def resolve_bp_inputs(text, src_dir, cache_dir, convert=True, bp=None, log=None)
 FRESH_COPY_PREFIX = "copy_"            # <WTUNE_BP_FRESH_DIR>/copy_<i>/<name>/: run i's inputs
 
 
-def per_record_sources(case_id, cases_json=None, site="scc", bp=None):
-    """({name: per-record dir} a probe of case_id reads, None) or ({}, reason). Read-only: a
-    netCDF input still to convert must already be current in the BP cache (no conversion)."""
-    cases = load_cases(cases_json or CASES_JSON_PATH, site)
-    c = cases.get(case_id)
-    if c is None:
-        return {}, "unknown case %s" % case_id
+def _case_bp_plan(case_id, cases_json=None, site="scc", bp=None):
+    """(resolve_bp_inputs plan, cache dir, stale names) of a campaign case's inputs, read-only:
+    stale = netCDF names whose cached conversion is missing or out of date. KeyError: no case."""
+    c = load_cases(cases_json or CASES_JSON_PATH, site)[case_id]
     src = os.path.expanduser(os.path.expandvars(c.get("bp_dir") or c["prep_dir"]))
     cache = src if c.get("bp_dir") else bp_cache_dir(case_id, src)
     with open(os.path.expanduser(os.path.expandvars(_case_namelist_path(c)))) as f:
         res = resolve_bp_inputs(f.read(), src, cache, convert=False, bp=bp)
     bp = bp or _import_wtune_bp()
-    pending = {}
+    by_dir = {}
     for p in res["convert"]:
-        if os.path.basename(p) in res["per_record"]:
-            pending.setdefault(os.path.dirname(p), []).append(os.path.basename(p))
-    for d, names in pending.items():
-        if bp.cached_inputs(d, cache, names) is None:
-            return {}, "BP cache %s not current for %s (run campaign/nc2bp.sbatch first)" % (
-                cache, " ".join(names))
+        by_dir.setdefault(os.path.dirname(p), []).append(os.path.basename(p))
+    stale = [n for d, names in sorted(by_dir.items())
+             if bp.cached_inputs(d, cache, names) is None for n in names]
+    return res, cache, stale
+
+
+def bp_cache_status(case_id, cases_json=None, site="scc", bp=None):
+    """("current" | "stale" | "none", detail) of a case's BP input cache: "none" = nothing a
+    probe converts (legacy netCDF, unknown case, unreadable namelist)."""
+    if os.environ.get("WTUNE_INPUT_FORMAT") == "netcdf":
+        return "none", "WTUNE_INPUT_FORMAT=netcdf"
+    try:
+        res, cache, stale = _case_bp_plan(case_id, cases_json, site, bp)
+    except (KeyError, OSError) as e:
+        return "none", "%s: %s" % (type(e).__name__, e)
+    if stale:
+        return "stale", "%s: %s" % (cache, " ".join(stale))
+    return "current", cache
+
+
+def per_record_sources(case_id, cases_json=None, site="scc", bp=None):
+    """({name: per-record dir} a probe of case_id reads, None) or ({}, reason). Read-only: a
+    netCDF input still to convert must already be current in the BP cache (no conversion)."""
+    try:
+        res, cache, stale = _case_bp_plan(case_id, cases_json, site, bp)
+    except KeyError:
+        return {}, "unknown case %s" % case_id
+    stale = [n for n in stale if n in res["per_record"]]
+    if stale:
+        return {}, "BP cache %s not current for %s (run campaign/nc2bp.sbatch first)" % (
+            cache, " ".join(stale))
     return dict(res["per_record"]), None
 
 
@@ -2849,8 +2871,8 @@ def _cmd_stage_bp_inputs(argv):
             # several probe jobs of one case start together: one converts and links, the others
             # block here (lockf: NFS/GPFS-safe across nodes), then find the manifest current
             import fcntl
-            os.makedirs(cache, exist_ok=True)
-            lockf = open(os.path.join(cache, ".stage.lock"), "a")
+            # cross-node mkdir race (FileNotFoundError, scc jobs 2884/2885): wtune_bp.open_lock
+            lockf = _import_wtune_bp().open_lock(os.path.join(cache, ".stage.lock"))
             fcntl.lockf(lockf, fcntl.LOCK_EX)
         return _stage_bp_inputs_locked(a, text, cache, err)
     except Exception as e:                     # ImportError/RuntimeError/OSError from the converter

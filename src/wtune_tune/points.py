@@ -296,6 +296,9 @@ def measure_candidates_at_points(ctx: Ctx, configs: list[dict], rebuilt_points: 
         raise ValueError("unknown point-job mode %r" % (mode,))
     wrapped = wrap_with_anchors(configs, anchor)
     runs = point_runs(wrapped, mode)              # what the runner actually executes
+    # rebuilt prep_dirs are new: convert once before the point jobs (scc jobs 2884/2885)
+    _jobs.ensure_bp_inputs(ctx, [(rp["case_id"], rp["cases_json"]) for rp in rebuilt_points],
+                           os.path.join(ctx.out_dir, name_prefix, "bp_convert"))
     jobs = _submit_point_jobs(ctx, wrapped, runs, rebuilt_points, anchor, s_by_cid,
                               restart_io_form, name_prefix, mode)
     job_ids = [j for _rp, j in jobs]

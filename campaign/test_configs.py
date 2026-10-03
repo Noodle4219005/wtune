@@ -3276,6 +3276,7 @@ class TestAdios2InputStaging(unittest.TestCase):
         "is_per_record_dir, record_files = _real.is_per_record_dir, _real.record_files\n"
         "bp_input_links = _real.bp_input_links\n"
         "per_record_namelist_edits = _real.per_record_namelist_edits\n"
+        "ensure_dir, open_lock = _real.ensure_dir, _real.open_lock\n"
         "def _mk_bp(p):\n"
         "    os.makedirs(p)\n"
         "    for f in ('md.idx', 'data.0'):\n"
@@ -3849,6 +3850,13 @@ class TestFreshProbeInputs(unittest.TestCase):
         self.assertEqual(self.copies, [])
         self.assertIn("not current for wrfbdy_d01 (run campaign/nc2bp.sbatch first)",
                       err.getvalue())
+
+    def test_bp_cache_status(self):
+        self.assertEqual(configs.bp_cache_status("pt", self.cases, bp=self._bp())[0], "current")
+        st, detail = configs.bp_cache_status("pt", self.cases, bp=self._bp(current=False))
+        self.assertEqual(st, "stale")
+        self.assertIn("wrfbdy_d01", detail)
+        self.assertEqual(configs.bp_cache_status("nope", self.cases, bp=self._bp())[0], "none")
 
     def _link_script(self, fresh_dir, runs):
         with open(os.path.join(self.HERE, "strict_campaign.sbatch")) as f:

@@ -198,6 +198,38 @@ def is_netcdf(path):
 # ---------------------------------------------------------------------------
 # single-file converters (atomic: write a sibling temp, then rename)
 # ---------------------------------------------------------------------------
+def ensure_dir(path, attempts=6, sleep=time.sleep):
+    """os.makedirs(exist_ok=True) that survives another node creating a parent at the same time:
+    the NFS client gets EEXIST for the parent, then ENOENT for the child from its stale negative
+    dentry (scc jobs 2884/2885). Re-lists the parent to revalidate and retries."""
+    for i in range(attempts):
+        try:
+            os.makedirs(path, exist_ok=True)
+            return path
+        except FileNotFoundError:
+            if i == attempts - 1:
+                raise
+            for d in (os.path.dirname(path), os.path.dirname(os.path.dirname(path))):
+                try:
+                    os.listdir(d)
+                except OSError:
+                    pass
+            sleep(0.2 * (i + 1))
+
+
+def open_lock(path, attempts=6, sleep=time.sleep):
+    """Open (create if needed, never truncate) a lockf lock file in a possibly just-created dir;
+    concurrent creators are fine (O_CREAT without O_EXCL)."""
+    for i in range(attempts):
+        ensure_dir(os.path.dirname(path), sleep=sleep)
+        try:
+            return open(path, "a")
+        except FileNotFoundError:
+            if i == attempts - 1:
+                raise
+            sleep(0.2 * (i + 1))
+
+
 def _tmp_sibling(dst):
     d, b = os.path.split(os.path.abspath(dst))
     return os.path.join(d, ".%s.tmp-%d-%d" % (b, os.getpid(), time.monotonic_ns()))
@@ -403,10 +435,9 @@ def convert_inputs(case_dir, cache_dir, names=None, engine=DEFAULT_ENGINE):
                 raise FileNotFoundError("no input file %s" % p)
             if not is_netcdf(p):
                 raise ValueError("%s is not a netCDF file" % p)
-    os.makedirs(cache_dir, exist_ok=True)
     mpath = os.path.join(cache_dir, MANIFEST_NAME)
     result = {}
-    with open(os.path.join(cache_dir, ".bp_manifest.lock"), "w") as lockf:
+    with open_lock(os.path.join(cache_dir, ".bp_manifest.lock")) as lockf:
         fcntl.lockf(lockf, fcntl.LOCK_EX)
         manifest = _read_manifest(mpath)
         entries = manifest["entries"]

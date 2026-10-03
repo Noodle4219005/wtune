@@ -149,12 +149,62 @@ def cancel_unstarted(ctx: Ctx, job_ids: list, stage: str) -> None:
                                      reason="job still PENDING at the stage-1 cutoff"))
 
 
+def _submits_for_real(ctx: Ctx) -> bool:
+    """Only real sbatch submission converts or copies BP inputs; fake runners (tests) never do."""
+    return ctx.sbatch_runner is sweep.default_sbatch_runner
+
+
+def nc2bp_command(ctx: Ctx, cases: list[str], cases_json: str | None, out_dir: str) -> str:
+    """sbatch command of ONE campaign/nc2bp.sbatch job converting `cases` (CHECK=0; the
+    probe exclusions apply: never head)."""
+    campaign = (sweep.campaign_dir_for(ctx.sbatch_script)
+                or os.path.dirname(os.path.abspath(sweep._expand(ctx.sbatch_script))))
+    export = "ALL,SITE=scc,CHECK=0,CAMPAIGN=%s,CASES=%s" % (campaign, ":".join(cases))
+    if cases_json:
+        export += ",CASES_JSON=%s" % cases_json
+    return ("source %s; sbatch %s --job-name=nc2bp-%s --output=%s/nc2bp-%%j.out --export=%s %s"
+            % (sweep._expand(ctx.env_source), sweep.exclude_arg(), cases[0], out_dir, export,
+               os.path.join(campaign, "nc2bp.sbatch")))
+
+
+def ensure_bp_inputs(ctx: Ctx, cases: list[tuple], out_dir: str) -> None:
+    """Make the BP cache of every (case_id, cases_json) current before its probes: ONE nc2bp job
+    for the stale ones, waited for and re-checked; RuntimeError otherwise. Probes converting
+    in-job raced and stalled (scc jobs 2845-2855, 2884-2895)."""
+    if not _submits_for_real(ctx):
+        return
+    cc = sweep.campaign_configs
+    status = {c: cc.bp_cache_status(c, j) for c, j in cases}
+    for c, (st, detail) in sorted(status.items()):
+        if st == "none":
+            print("bp inputs: %s not converted (%s)" % (c, detail))
+    stale = [(c, j) for c, j in cases if status[c][0] == "stale"]
+    if not stale:
+        print("bp inputs: cache current")
+        return
+    names, cases_json = [c for c, _j in stale], stale[0][1]   # one case file per call
+    os.makedirs(out_dir, exist_ok=True)
+    t0 = ctx.clock.now()
+    job_id = sweep.submit_job(nc2bp_command(ctx, names, cases_json, out_dir),
+                              sbatch_runner=ctx.sbatch_runner)
+    ctx.owned_jobs.append(job_id)
+    state = wait_for_jobs(ctx, [job_id], "bp-convert", exempt_budget=True).get(
+        job_id, ("UNKNOWN", ""))[0]
+    still = [c for c, j in stale if cc.bp_cache_status(c, j)[0] != "current"]
+    if state != "COMPLETED" or still:
+        raise RuntimeError("ERROR: BP input conversion job %s ended %s; cache not current for %s "
+                           "-- no probes submitted (log: %s/nc2bp-%s.out)"
+                           % (job_id, state, " ".join(still) or "-", out_dir, job_id))
+    print("bp inputs: converted %s in %.0f s (job %s)" % (" ".join(names), ctx.clock.now() - t0,
+                                                          job_id))
+
+
 def fresh_input_export(ctx: Ctx, case_id: str, job_out_dir: str, runs: int,
                        cases_json: str | None = None) -> list[tuple]:
     """[("WTUNE_BP_FRESH_DIR", dir)] after making `runs` per-record input copies here, on the
     submitting host, or []. NFS open stall, wiki 2026-10-03 adios2 gate. Only for real sbatch
     submission: a fake runner (tests) never copies."""
-    if ctx.sbatch_runner is not sweep.default_sbatch_runner:
+    if not _submits_for_real(ctx):
         return []
     try:
         d = sweep.campaign_configs.fresh_probe_inputs(

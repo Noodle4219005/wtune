@@ -87,7 +87,10 @@ I/O (--io, default adios2; 2026-10-03 user decision: netCDF is no longer used fo
     is a multiple of lcm(whole-minute step quantum, interval_seconds, auxinput4_interval,
     gfdda_interval_m) from the run start (input_record_alignment; --segment-minutes is rounded
     DOWN to one with a note, shorter than one is an error; --wall-limit searches only those).
-    Every segment start's record file is checked before segment 0 is submitted.
+    Every segment start's record file is checked before segment 0 is submitted. Each attempt
+    links a fresh copy made here, on the submitting host (seg dir/_bp_inputs, reflink; removed
+    after success): NFS open stall, wiki 2026-10-03 adios2 gate. wrfinput is not copied (read
+    once at init, outside the timed steps).
 
 Segment run dir (setup_segment_dir): symlinks to every regular file of CASE_DIR except namelist.*,
 rsl.*, wrfout*, wrfrst*, wrf.out (plus ADIOS2 *.bp input directories), every file the namelist
@@ -125,6 +128,7 @@ import math
 import os
 import re
 import shlex
+import shutil
 import sys
 import time
 
@@ -1008,13 +1012,26 @@ def _missing_namelist_files(text, case_dir):
     return out
 
 
+FRESH_BP_SUBDIR = "_bp_inputs"         # per-attempt copy of the per-record inputs
+
+
+def fresh_bp_links(bp_links, sources, copied):
+    """bp_links with every record link into a source container (sources {name: dir}) redirected
+    to the same file in its fresh copy (copied {name: dir})."""
+    by_src = {os.path.abspath(d): copied[n] for n, d in sources.items() if n in copied}
+    out = {}
+    for name, target in bp_links.items():
+        new = by_src.get(os.path.dirname(os.path.abspath(target)))
+        out[name] = os.path.join(new, os.path.basename(target)) if new else target
+    return out
+
+
 def setup_segment_dir(case_dir, seg_dir, namelist_text, restart_links=(), adios2_xml=None,
-                      wrf_tree=None, bp_links=None):
+                      wrf_tree=None, bp_links=None, fresh_sources=None, copier=None):
     """Create seg_dir (must not exist) and populate it; writes only inside seg_dir. bp_links
-    ({name: BP dir}, configs.resolve_bp_inputs' links: wrfinput_d01.bp, wrfbdy_d01.bp,
-    wrflowinp_d01.bp, ...) are linked under exactly those names (replacing a same-named case
-    link). Returns configs.stage_namelist_files' result (missing = required files found
-    nowhere)."""
+    {name: BP} (configs.resolve_bp_inputs' links) win over same-named case links. fresh_sources
+    {name: per-record dir} are copied by `copier` into seg_dir/_bp_inputs and linked there (NFS
+    open stall, wiki 2026-10-03 adios2 gate). Returns configs.stage_namelist_files' result."""
     case_dir = os.path.abspath(case_dir)
     seg_dir = os.path.abspath(seg_dir)
     if os.path.commonpath([seg_dir, case_dir]) == case_dir:
@@ -1042,6 +1059,9 @@ def setup_segment_dir(case_dir, seg_dir, namelist_text, restart_links=(), adios2
     if adios2_xml is not None:
         with open(os.path.join(seg_dir, "adios2.xml"), "w") as f:
             f.write(adios2_xml)
+    if fresh_sources:
+        copied = copier(fresh_sources, os.path.join(seg_dir, FRESH_BP_SUBDIR))
+        bp_links = fresh_bp_links(bp_links or {}, fresh_sources, copied)
     for name, target in sorted((bp_links or {}).items()):
         dst = os.path.join(seg_dir, name)
         if os.path.islink(dst):
@@ -1159,6 +1179,19 @@ def _write_report(path, report):
     os.replace(tmp, path)
 
 
+def _logging_copier(log):
+    """wtune_bp.fresh_input_copy that logs reflink vs full copy (one line per segment attempt)."""
+    def copy(sources, dest):
+        stats = {}
+        out = sweep.campaign_configs._import_wtune_bp().fresh_input_copy(sources, dest,
+                                                                         stats=stats)
+        log("  fresh per-record inputs -> %s (%s)" % (dest, "reflink" if stats.get("reflink")
+                                                       else "cp -a %.1f MB" % (
+                                                           stats.get("bytes", 0) / 1e6)))
+        return out
+    return copy
+
+
 def run_controller(ctx):
     """Execute ctx['segments'] in order (see module docstring). Returns 0 on success, 1 on a
     stop. ctx keys: case_dir, out, text, geo, n_end, segments, restart_set_min (restart_interval
@@ -1209,7 +1242,9 @@ def run_controller(ctx):
             elif adios2_io and base:
                 xml = base
             staged = setup_segment_dir(ctx["case_dir"], seg_dir, txt, links, xml,
-                                       ctx.get("wrf_tree"), bp_links=ctx.get("bp_links"))
+                                       ctx.get("wrf_tree"), bp_links=ctx.get("bp_links"),
+                                       fresh_sources=ctx.get("bp_fresh_sources"),
+                                       copier=ctx.get("bp_copier"))
             if k == 0 and attempt == 0:
                 for ln in sweep.campaign_configs.format_namelist_stage(staged, [ctx["case_dir"]]):
                     log(ln)
@@ -1244,6 +1279,8 @@ def run_controller(ctx):
             if ok:
                 seg["observed_wall_s"] = elapsed
                 seg["run_dir"] = seg_dir
+                # the copy is only for this job's reads; a failed attempt keeps it for diagnosis
+                shutil.rmtree(os.path.join(seg_dir, FRESH_BP_SUBDIR), ignore_errors=True)
                 break
             cfl = "CFL" in codes or nan or rsl_has_cfl(seg_dir)
             if ctx["cfl_rescue"] and cfl and not rescue_used:
@@ -1618,6 +1655,8 @@ def main(argv=None, sbatch_runner=None, sacct_runner=None, snapshot_fn=None, sle
                restart_io_form=a.restart_io_form, io_streams=io_streams,
                per_record_edits=per_record_edits,
                bp_links=bp_plan["links"] if bp_plan else None, bp_adios2_xml=bp_xml,
+               bp_fresh_sources={n: bp_plan["per_record"][n] for n in per_record} or None,
+               bp_copier=_logging_copier(log),
                cfl_rescue=a.cfl_rescue, replan=replan, wall_limit_s=wall_limit_s, wrf_tree=a.wrf_tree or os.environ.get("WRF_TREE"),
                env_source=a.env_source, campaign_dir=a.campaign_dir,
                sbatch_runner=sbatch_runner or sweep.default_sbatch_runner,

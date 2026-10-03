@@ -421,3 +421,75 @@ def test_per_record_namelist_edits():
     assert f == {"fdda": {"gfdda_inname": '"wrffdda_d<domain>_<date>.bp"'},
                  "time_control": {"frames_per_auxinput10": "1"}}
     assert wtune_bp.per_record_namelist_edits(["wrfinput_d01"]) == {}
+
+
+# ---------------------------------------------------------------- fresh copy (NFS open stall)
+class _FakeCp:
+    """Records cp commands; reflink fails when `reflink` is False; copies with shutil."""
+
+    def __init__(self, reflink=True):
+        self.reflink, self.calls = reflink, []
+
+    def __call__(self, cmd, **kw):
+        import shutil
+        self.calls.append(list(cmd))
+        if "--reflink=always" in cmd and not self.reflink:
+            os.makedirs(cmd[-1])                 # a partial target must be cleaned up
+            return subprocess.CompletedProcess(cmd, 1, b"", b"Operation not supported")
+        shutil.copytree(cmd[-2], cmd[-1], symlinks=True)
+        return subprocess.CompletedProcess(cmd, 0, b"", b"")
+
+
+def _container(path, name):
+    for d in FAKE_DATES:
+        rec = os.path.join(path, "%s_%s.bp" % (name, d))
+        _mkbp(rec, "BP4")
+        with open(os.path.join(rec, "data.0"), "wb") as f:
+            f.write(b"x" * 1000)
+    return str(path)
+
+
+def test_fresh_input_copy_reflink(tmp_path, monkeypatch):
+    monkeypatch.delenv("SLURM_JOB_ID", raising=False)
+    src = _container(tmp_path / "cache" / "wrfbdy_d01", "wrfbdy_d01")
+    cp, stats = _FakeCp(), {}
+    out = wtune_bp.fresh_input_copy({"wrfbdy_d01": src}, str(tmp_path / "fresh"), runner=cp,
+                                    stats=stats)
+    assert out == {"wrfbdy_d01": str(tmp_path / "fresh" / "wrfbdy_d01")}
+    assert cp.calls == [["cp", "-a", "--reflink=always", src, out["wrfbdy_d01"]]]
+    assert stats == {"reflink": True, "bytes": 0}
+    assert wtune_bp.record_files(out["wrfbdy_d01"]) == wtune_bp.record_files(src)
+    # a list of dirs is keyed by basename
+    out2 = wtune_bp.fresh_input_copy([src], str(tmp_path / "fresh2"), runner=cp)
+    assert list(out2) == ["wrfbdy_d01"]
+
+
+def test_fresh_input_copy_falls_back_to_cp_a_with_size_warning(tmp_path, monkeypatch, capsys):
+    monkeypatch.delenv("SLURM_JOB_ID", raising=False)
+    src = _container(tmp_path / "wrflowinp_d01", "wrflowinp_d01")
+    cp, stats = _FakeCp(reflink=False), {}
+    out = wtune_bp.fresh_input_copy([src], str(tmp_path / "fresh"), runner=cp, stats=stats)
+    assert [c[:3] for c in cp.calls] == [["cp", "-a", "--reflink=always"], ["cp", "-a", src]]
+    assert stats["reflink"] is False and stats["bytes"] == 2000
+    err = capsys.readouterr().err
+    assert err.count("WARNING") == 1 and "full cp -a of 0.0 MB" in err
+    assert wtune_bp.is_per_record_dir(out["wrflowinp_d01"])
+
+
+def test_fresh_input_copy_warns_inside_a_slurm_job(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("SLURM_JOB_ID", "1234")
+    src = _container(tmp_path / "wrfbdy_d01", "wrfbdy_d01")
+    wtune_bp.fresh_input_copy([src], str(tmp_path / "fresh"), runner=_FakeCp())
+    assert "inside Slurm job 1234 (a compute node)" in capsys.readouterr().err
+
+
+def test_cached_inputs_only_when_current(tmp_path, fake_conv):
+    case, cache = tmp_path / "case", tmp_path / "cache"
+    case.mkdir()
+    (case / "wrfbdy_d01").write_bytes(NC + b"B")
+    assert wtune_bp.cached_inputs(str(case), str(cache), ["wrfbdy_d01"]) is None
+    wtune_bp.convert_inputs(str(case), str(cache))
+    assert wtune_bp.cached_inputs(str(case), str(cache), ["wrfbdy_d01"]) == {
+        "wrfbdy_d01": str(cache / "wrfbdy_d01")}
+    (case / "wrfbdy_d01").write_bytes(NC + b"changed")
+    assert wtune_bp.cached_inputs(str(case), str(cache), ["wrfbdy_d01"]) is None

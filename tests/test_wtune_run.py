@@ -49,6 +49,8 @@ class FakeBP:
         self.calls = []
         self.fail = None
         self.records = {}
+        self.cp_calls = []
+        self.no_reflink = False
 
     def module(self):
         m = types.ModuleType("wtune_bp")
@@ -60,7 +62,18 @@ class FakeBP:
         for name in ("PER_RECORD_NAME_RE", "is_per_record_dir", "record_files",
                      "bp_input_links", "per_record_namelist_edits"):
             setattr(m, name, getattr(REAL_BP, name))
+        m.fresh_input_copy = lambda src, dest, stats=None: REAL_BP.fresh_input_copy(
+            src, dest, runner=self.cp, stats=stats)
         return m
+
+    def cp(self, cmd, **kw):
+        """Fake `cp`: reflink succeeds unless `no_reflink`; copies with shutil."""
+        import shutil
+        self.cp_calls.append(list(cmd))
+        if "--reflink=always" in cmd and self.no_reflink:
+            return subprocess.CompletedProcess(cmd, 1, b"", b"reflink not supported")
+        shutil.copytree(cmd[-2], cmd[-1], symlinks=True)
+        return subprocess.CompletedProcess(cmd, 0, b"", b"")
 
     def require_adios2_python(self):
         if self.fail:
@@ -909,7 +922,7 @@ def test_run_adios2_default_converts_once_links_bp_inputs_and_writes_xml(tmp_pat
         assert not os.path.lexists(d / "wrfbdy_d01.bp")
         for t in FakeBP.DEFAULT_RECORDS:
             rec = "wrfbdy_d01_%s.bp" % t
-            assert os.readlink(d / rec) == str(cache / "wrfbdy_d01" / rec)
+            assert os.readlink(d / rec) == str(d / "_bp_inputs" / "wrfbdy_d01" / rec)
         nl = (d / "namelist.input").read_text()
         for key in ("io_form_history", "io_form_restart", "io_form_input", "io_form_boundary"):
             assert re.search(r"(?m)^\s*%s\s*=\s*14\b" % key, nl), (seg, key)
@@ -940,7 +953,7 @@ def test_run_adios2_aux_streams_converted_and_switched(tmp_path, fake_bp):
     for seg in ("seg_0", "seg_1"):
         for n in ("wrflowinp_d02", "wrffdda_d01", "wrfbdy_d01"):
             rec = "%s_2020-06-01_06:00:00.bp" % n
-            assert os.readlink(out / seg / rec) == str(out / "_bp_inputs" / n / rec)
+            assert os.readlink(out / seg / rec) == str(out / seg / "_bp_inputs" / n / rec)
         nl = (out / seg / "namelist.input").read_text()
         assert 'auxinput4_inname = "wrflowinp_d<domain>_<date>.bp",' in nl
         assert 'gfdda_inname = "wrffdda_d<domain>_<date>.bp",' in nl
@@ -1118,7 +1131,10 @@ def test_existing_per_record_dir_in_case_is_linked_not_converted(tmp_path, fake_
     assert rc == 0
     assert "wrfbdy_d01" not in fake_bp.calls[0][2]
     rec = "wrfbdy_d01_2020-06-01_06:00:00.bp"
-    assert os.readlink(out / "seg_1" / rec) == str(case / "wrfbdy_d01.bp" / rec)
+    assert os.readlink(out / "seg_1" / rec) == str(out / "seg_1" / "_bp_inputs" / "wrfbdy_d01"
+                                                    / rec)
+    assert ["cp", "-a", "--reflink=always", str(case / "wrfbdy_d01.bp"),
+            str(out / "seg_1" / "_bp_inputs" / "wrfbdy_d01")] in fake_bp.cp_calls
     assert rep["io"]["per_record"] == ["wrfbdy_d01"]
 
 
@@ -1128,9 +1144,44 @@ def test_existing_single_multirecord_bp_is_reconverted_from_netcdf(tmp_path, fak
     rc, out, rep, lines = _run(tmp_path, Fakes())
     assert rc == 0 and "wrfbdy_d01" in fake_bp.calls[0][2]
     rec = "wrfbdy_d01_2020-06-01_06:00:00.bp"
-    assert os.readlink(out / "seg_1" / rec) == str(out / "_bp_inputs" / "wrfbdy_d01" / rec)
+    assert os.readlink(out / "seg_1" / rec) == str(out / "seg_1" / "_bp_inputs" / "wrfbdy_d01"
+                                                    / rec)
+    assert fake_bp.cp_calls[0][3] == str(out / "_bp_inputs" / "wrfbdy_d01")
     (case / "wrfbdy_d01").unlink()                 # no netCDF: used, with a warning
     lines = []
     assert wr.main([str(case), "--nodes", "1", "--nx", "8", "--ny", "9", "--out",
                     str(tmp_path / "o2"), "--dry-run"], log=lines.append) == 0
     assert any("single multi-record BP" in ln for ln in lines)
+
+
+# ---------------------------------------------------------------------------
+# fresh per-attempt input copy (NFS open stall, wiki 2026-10-03 adios2 gate)
+# ---------------------------------------------------------------------------
+def test_fresh_copy_per_segment_attempt_removed_after_success_kept_on_failure(tmp_path, fake_bp):
+    f = Fakes(outcomes=["cfl", "done", "done"])
+    rc, out, rep, lines = _run(tmp_path, f, ["--cfl-rescue"])
+    assert rc == 0
+    dests = [c[4] for c in fake_bp.cp_calls]
+    assert dests == [str(out / d / "_bp_inputs" / "wrfbdy_d01")
+                     for d in ("seg_0", "seg_0_rescue", "seg_1")]       # one copy per attempt
+    assert all(c[:3] == ["cp", "-a", "--reflink=always"] for c in fake_bp.cp_calls)
+    assert (out / "seg_0" / "_bp_inputs" / "wrfbdy_d01").is_dir()         # failed: kept
+    assert not (out / "seg_0_rescue" / "_bp_inputs").exists()             # done: removed
+    assert not (out / "seg_1" / "_bp_inputs").exists()
+    rec = "wrfbdy_d01_2020-06-01_06:00:00.bp"
+    assert os.readlink(out / "seg_1" / rec) == str(out / "seg_1" / "_bp_inputs" / "wrfbdy_d01"
+                                                    / rec)
+    assert sum("fresh per-record inputs" in ln and "(reflink)" in ln for ln in lines) == 3
+    # wrfinput (read once at init) still links the shared cache
+    assert os.readlink(out / "seg_1" / "wrfinput_d01.bp") == str(out / "_bp_inputs" /
+                                                                 "wrfinput_d01")
+
+
+def test_fresh_copy_falls_back_to_cp_a_without_reflink(tmp_path, fake_bp, capsys):
+    fake_bp.no_reflink = True
+    rc, out, rep, lines = _run(tmp_path, Fakes())
+    assert rc == 0
+    assert [c[:3] for c in fake_bp.cp_calls[:2]] == [["cp", "-a", "--reflink=always"],
+                                                      ["cp", "-a", fake_bp.cp_calls[1][2]]]
+    assert "WARNING: no reflink copy of" in capsys.readouterr().err
+    assert any("fresh per-record inputs" in ln and "cp -a" in ln for ln in lines)

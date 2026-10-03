@@ -334,11 +334,14 @@ def _submit_point_jobs(ctx: Ctx, wrapped: list[dict], runs: list[dict], rebuilt_
         ranking = ranking_context(rp["case_id"], rp["cases_json"], rp["spinup_min"], rp["steps"],
                                   anchor, restart_io_form=restart_io_form,
                                   spinup_timeout_s=spin_to)
+        fresh = _jobs.fresh_input_export(ctx, rp["case_id"], job_out, len(wrapped) + 2,
+                                         rp["cases_json"])
         cmd = sweep.build_sbatch_command(
             rp["case_id"], ctx.nodes, ctx.cores_per_node, time_limit, cand_to, 1, rp["steps"],
             os.path.abspath(configs_path), job_out, env_source=ctx.env_source,
             sbatch_script=ctx.sbatch_script, campaign_dir=sweep.campaign_dir_for(ctx.sbatch_script),
-            extra_export=ranking_export(ranking, {"timeout_s": cand_to}) + point_export(mode))
+            extra_export=ranking_export(ranking, {"timeout_s": cand_to}) + point_export(mode)
+            + fresh)
         jid = sweep.submit_job(cmd, sbatch_runner=ctx.sbatch_runner)
         ctx.owned_jobs.append(jid)
         print("%s point %d (%s, case %s): job %s, %d runs, TIMEOUT_S=%d SPINUP_TIMEOUT_S=%d "

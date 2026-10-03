@@ -3775,5 +3775,120 @@ class TestPerRecordInputs(unittest.TestCase):
             self.assertEqual(os.readlink(os.path.join(run, rec)), os.path.join(self.bp, n, rec))
         self.assertIn("wrfinput_d02.bp", names)
 
+class TestFreshProbeInputs(unittest.TestCase):
+    """Head-side fresh per-record copies for probe jobs (WTUNE_BP_FRESH_DIR/copy_<i>/<name>/):
+    every wrf.exe run opens its own inodes -- NFS open stall, wiki 2026-10-03 adios2 gate."""
+
+    HERE = os.path.dirname(os.path.abspath(__file__))
+    NL = (" &time_control\n start_year = 2020,\n start_month = 01,\n start_day = 01,\n"
+          " start_hour = 00,\n interval_seconds = 21600,\n /\n &domains\n max_dom = 1,\n /\n")
+
+    def setUp(self):
+        import tempfile
+        self.tmp = tempfile.mkdtemp(prefix="wtune-fresh-test-")
+        self.prep = os.path.join(self.tmp, "prep")
+        os.makedirs(self.prep)
+        for n in ("wrfinput_d01", "wrfbdy_d01"):
+            with open(os.path.join(self.prep, n), "wb") as f:
+                f.write(b"CDF\x01" + b"\0" * 60)
+        with open(os.path.join(self.prep, "namelist.input"), "w") as f:
+            f.write(self.NL)
+        self.cases = os.path.join(self.tmp, "cases.json")
+        with open(self.cases, "w") as f:
+            json.dump({"cases": {"pt": {"prep_dir": self.prep, "bp_dir": ""}}}, f)
+        self.cache = configs.bp_cache_dir("pt", self.prep, os.path.join(self.tmp, "cache"))
+        self._old = os.environ.get("WTUNE_BP_CACHE")
+        os.environ["WTUNE_BP_CACHE"] = os.path.join(self.tmp, "cache")
+        self.copies = []
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmp, ignore_errors=True)
+        if self._old is None:
+            os.environ.pop("WTUNE_BP_CACHE", None)
+        else:
+            os.environ["WTUNE_BP_CACHE"] = self._old
+
+    def _bp(self, current=True, reflink=True):
+        import re as _re
+        import types
+        test = self
+
+        def fresh_input_copy(sources, dest, stats=None):
+            test.copies.append((dict(sources), dest))
+            stats.update(reflink=reflink, bytes=0 if reflink else 10)
+            return {n: os.path.join(dest, n) for n in sources}
+        return types.SimpleNamespace(
+            PER_RECORD_NAME_RE=_re.compile(r"^(wrfbdy|wrflowinp|wrffdda)_d\d\d$"),
+            is_per_record_dir=lambda p: False, fresh_input_copy=fresh_input_copy,
+            cached_inputs=lambda d, c, names: ({n: os.path.join(c, n) for n in names}
+                                               if current else None))
+
+    def test_copies_per_run_from_the_current_cache(self):
+        dest = os.path.join(self.tmp, "job", "bp_fresh")
+        got = configs.fresh_probe_inputs("pt", dest, 3, cases_json=self.cases, bp=self._bp())
+        self.assertEqual(got, dest)
+        self.assertEqual([d for _s, d in self.copies],
+                         [os.path.join(dest, "copy_%d" % i) for i in range(3)])
+        self.assertEqual(self.copies[0][0], {"wrfbdy_d01": os.path.join(self.cache, "wrfbdy_d01")})
+
+    def test_without_reflink_one_copy_only(self):
+        dest = os.path.join(self.tmp, "job", "bp_fresh")
+        configs.fresh_probe_inputs("pt", dest, 5, cases_json=self.cases,
+                                   bp=self._bp(reflink=False))
+        self.assertEqual(len(self.copies), 1)
+
+    def test_cache_not_current_gives_none_with_a_warning(self):
+        import contextlib
+        import io
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            got = configs.fresh_probe_inputs("pt", os.path.join(self.tmp, "d"), 2,
+                                             cases_json=self.cases, bp=self._bp(current=False))
+        self.assertIsNone(got)
+        self.assertEqual(self.copies, [])
+        self.assertIn("not current for wrfbdy_d01 (run campaign/nc2bp.sbatch first)",
+                      err.getvalue())
+
+    def _link_script(self, fresh_dir, runs):
+        with open(os.path.join(self.HERE, "strict_campaign.sbatch")) as f:
+            s = f.read()
+        body = s[s.index("link_per_record() {"):s.index("\ncheck_disk_guard () {")]
+        # link_wrf_inputs must run in this shell (it advances FRESH_RUN_IDX): no subshell
+        cmds = "".join("mkdir run%d; cd run%d; link_wrf_inputs; cd ..\n" % (i, i)
+                       for i in range(runs))
+        return ("set -uo pipefail\nMAX_DOM=1\nPREP_DIR=%s\nBP_DIR=%s\n"
+                "WTUNE_PER_RECORD_BP='wrfbdy_d01'\nWTUNE_BP_FRESH_DIR='%s'\n%s\ncd %s\n%s"
+                % (self.prep, self.cache, fresh_dir, body, self.tmp, cmds))
+
+    def test_sbatch_links_copy_i_for_run_i_then_reuses_the_last(self):
+        import subprocess
+        rec = "wrfbdy_d01_2020-01-01_00:00:00.bp"
+        fresh = os.path.join(self.tmp, "bp_fresh")
+        for i in range(2):
+            os.makedirs(os.path.join(fresh, "copy_%d" % i, "wrfbdy_d01", rec))
+        os.makedirs(os.path.join(self.cache, "wrfbdy_d01", rec))
+        p = subprocess.run(["bash", "-c", self._link_script(fresh, 3)], stdout=subprocess.PIPE,
+                           stderr=subprocess.PIPE, universal_newlines=True)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        links = [os.readlink(os.path.join(self.tmp, "run%d" % i, rec)) for i in range(3)]
+        self.assertEqual(links, [os.path.join(fresh, "copy_0", "wrfbdy_d01", rec),
+                                 os.path.join(fresh, "copy_1", "wrfbdy_d01", rec),
+                                 os.path.join(fresh, "copy_1", "wrfbdy_d01", rec)])
+        self.assertIn("fresh BP copies exhausted at run 2", p.stderr)
+        # no fresh dir: the cache, as before
+        p = subprocess.run(["bash", "-c", self._link_script("", 1).replace(
+            "cd %s\n" % self.tmp, "cd %s\nrm -rf run0\n" % self.tmp)], stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, universal_newlines=True)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertEqual(os.readlink(os.path.join(self.tmp, "run0", rec)),
+                         os.path.join(self.cache, "wrfbdy_d01", rec))
+
+    def test_sbatch_warns_without_fresh_dir_and_cleans_up_its_copies(self):
+        with open(os.path.join(self.HERE, "strict_campaign.sbatch")) as f:
+            s = f.read()
+        self.assertIn("no WTUNE_BP_FRESH_DIR: runs share the cache's per-record inodes", s)
+        self.assertIn('rm -rf "$WTUNE_BP_FRESH_DIR"', s)
+
 if __name__ == "__main__":
     unittest.main()

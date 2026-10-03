@@ -2776,6 +2776,51 @@ def resolve_bp_inputs(text, src_dir, cache_dir, convert=True, bp=None, log=None)
     return res
 
 
+FRESH_COPY_PREFIX = "copy_"            # <WTUNE_BP_FRESH_DIR>/copy_<i>/<name>/: run i's inputs
+
+
+def per_record_sources(case_id, cases_json=None, site="scc", bp=None):
+    """({name: per-record dir} a probe of case_id reads, None) or ({}, reason). Read-only: a
+    netCDF input still to convert must already be current in the BP cache (no conversion)."""
+    cases = load_cases(cases_json or CASES_JSON_PATH, site)
+    c = cases.get(case_id)
+    if c is None:
+        return {}, "unknown case %s" % case_id
+    src = os.path.expanduser(os.path.expandvars(c.get("bp_dir") or c["prep_dir"]))
+    cache = src if c.get("bp_dir") else bp_cache_dir(case_id, src)
+    with open(os.path.expanduser(os.path.expandvars(_case_namelist_path(c)))) as f:
+        res = resolve_bp_inputs(f.read(), src, cache, convert=False, bp=bp)
+    bp = bp or _import_wtune_bp()
+    pending = {}
+    for p in res["convert"]:
+        if os.path.basename(p) in res["per_record"]:
+            pending.setdefault(os.path.dirname(p), []).append(os.path.basename(p))
+    for d, names in pending.items():
+        if bp.cached_inputs(d, cache, names) is None:
+            return {}, "BP cache %s not current for %s (run campaign/nc2bp.sbatch first)" % (
+                cache, " ".join(names))
+    return dict(res["per_record"]), None
+
+
+def fresh_probe_inputs(case_id, dest_dir, copies, cases_json=None, site="scc", bp=None):
+    """dest_dir holding `copies` fresh per-record input copies (copy_<i>/<name>/), made on the
+    submitting host, or None (stderr WARNING). NFS open stall, wiki 2026-10-03 adios2 gate:
+    every wrf.exe run of a probe job must open its own inodes. One copy only without reflink."""
+    bp = bp or _import_wtune_bp()
+    sources, why = per_record_sources(case_id, cases_json, site, bp=bp)
+    if not sources:
+        if why:
+            sys.stderr.write("WARNING: no fresh BP input copy for %s: %s\n" % (case_id, why))
+        return None
+    for i in range(max(1, int(copies))):
+        stats = {}
+        bp.fresh_input_copy(sources, os.path.join(dest_dir, "%s%d" % (FRESH_COPY_PREFIX, i)),
+                            stats=stats)
+        if not stats.get("reflink"):
+            break                               # full copies: one is enough cost
+    return dest_dir
+
+
 def _cmd_stage_bp_inputs(argv):
     """configs.py stage-bp-inputs CASE_ID NAMELIST SRC_DIR [--cache-dir DIR] [--check]
     (strict_campaign.sbatch, on the compute node, python from the wtune env): resolve_bp_inputs

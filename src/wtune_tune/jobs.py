@@ -5,6 +5,7 @@ from __future__ import annotations
 import datetime
 import os
 import re
+import sys
 from typing import Callable
 
 from ._deps import sweep
@@ -148,6 +149,23 @@ def cancel_unstarted(ctx: Ctx, job_ids: list, stage: str) -> None:
                                      reason="job still PENDING at the stage-1 cutoff"))
 
 
+def fresh_input_export(ctx: Ctx, case_id: str, job_out_dir: str, runs: int,
+                       cases_json: str | None = None) -> list[tuple]:
+    """[("WTUNE_BP_FRESH_DIR", dir)] after making `runs` per-record input copies here, on the
+    submitting host, or []. NFS open stall, wiki 2026-10-03 adios2 gate. Only for real sbatch
+    submission: a fake runner (tests) never copies."""
+    if ctx.sbatch_runner is not sweep.default_sbatch_runner:
+        return []
+    try:
+        d = sweep.campaign_configs.fresh_probe_inputs(
+            case_id, os.path.join(job_out_dir, "bp_fresh"), runs, cases_json=cases_json)
+    except Exception as e:                   # the job falls back to the shared cache (warned)
+        sys.stderr.write("WARNING: fresh BP input copy for %s failed (%s: %s)\n"
+                         % (case_id, type(e).__name__, e))
+        return []
+    return [("WTUNE_BP_FRESH_DIR", d)] if d else []
+
+
 def submit_configs_job(ctx: Ctx, configs: list[dict], reps: int, name_suffix: str,
                        s_est: float | None, time_est: dict | None = None,
                        ranking: dict | None = None) -> tuple[str, str, dict]:
@@ -166,13 +184,16 @@ def submit_configs_job(ctx: Ctx, configs: list[dict], reps: int, name_suffix: st
     os.makedirs(job_out_dir, exist_ok=True)
     configs_path = os.path.join(job_out_dir, "configs.json")
     sweep.write_configs_json(configs_path, configs)
+    fresh = fresh_input_export(ctx, ranking["case_id"] if ranking else ctx.case, job_out_dir,
+                               len(configs) * reps + 2,          # + spin-up + slack
+                               ranking.get("cases_json") if ranking else None)
     cmd_str = sweep.build_sbatch_command(
         ranking["case_id"] if ranking else ctx.case, ctx.nodes, ctx.cores_per_node,
         time_est["time_limit"], time_est["timeout_s"],
         reps, ranking["steps"] if ranking else ctx.steps, os.path.abspath(configs_path),
         job_out_dir, env_source=ctx.env_source, sbatch_script=ctx.sbatch_script,
         campaign_dir=sweep.campaign_dir_for(ctx.sbatch_script),
-        extra_export=ranking_export(ranking, time_est) if ranking else None)
+        extra_export=(ranking_export(ranking, time_est) if ranking else []) + fresh or None)
     job_id = sweep.submit_job(cmd_str, sbatch_runner=ctx.sbatch_runner)
     ctx.owned_jobs.append(job_id)
     ctx.job_cids[job_id] = [c["id"] for c in configs]

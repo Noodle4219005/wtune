@@ -196,10 +196,11 @@ def build_ranking_sbatch_command(case: str, nodes: int, cores_per_node: int, tim
                                  timeout_s: int, reps: int, steps: int, configs_path: str,
                                  out_dir: str, spinup_minutes: Any, env_source: str | None = None,
                                  sbatch_script: str | None = None,
-                                 campaign_dir: str | None = None) -> str:
+                                 campaign_dir: str | None = None,
+                                 extra_export: list | None = None) -> str:
     """sbatch command of a RANKING_START=spinup trajectory job: scc_sweep.build_sbatch_command's
-    shape + SPINUP_MINUTES (':'-separated -- a ',' would split --export; ValueError) and
-    CAMPAIGN when given."""
+    shape + SPINUP_MINUTES (':'-separated -- a ',' would split --export; ValueError), CAMPAIGN
+    when given, then extra_export [(KEY, VALUE)]."""
     env_source = env_source or sweep.DEFAULT_ENV_SOURCE
     sbatch_script = sbatch_script or sweep.DEFAULT_SBATCH_SCRIPT
     total_cores = nodes * cores_per_node
@@ -212,6 +213,7 @@ def build_ranking_sbatch_command(case: str, nodes: int, cores_per_node: int, tim
     campaign_dir = campaign_dir or sweep.campaign_dir_for(sbatch_script)
     if campaign_dir:
         export += ",CAMPAIGN=%s" % campaign_dir
+    export += "".join(",%s=%s" % kv for kv in extra_export or [])
     sbatch = ("sbatch -p compute -N %d --ntasks-per-node=%d --exclusive %s "
               "--time=%s --job-name=c3-traj-%s-n%d --output=%s/c3traj-%%j.out --export=%s %s"
               % (nodes, cores_per_node, sweep.exclude_arg(), time_limit, case, nodes, out_dir, export,
@@ -246,7 +248,9 @@ def run_trajectory_points(ctx: Ctx, points: list, best_config: dict, nodes: int,
     cmd_str = build_ranking_sbatch_command(
         ctx.case, nodes, ctx.cores_per_node, time_limit, timeout_s, reps, steps,
         os.path.abspath(configs_path), out_dir, ":".join(str(m) for m in minute_list),
-        env_source=ctx.env_source, sbatch_script=sbatch_script, campaign_dir=campaign_dir)
+        env_source=ctx.env_source, sbatch_script=sbatch_script, campaign_dir=campaign_dir,
+        extra_export=_jobs.fresh_input_export(ctx, ctx.case, out_dir,
+                                              2 * reps + 1))   # spin-up + run per point
     job_id = sweep.submit_job(cmd_str, sbatch_runner=ctx.sbatch_runner)
     ctx.owned_jobs.append(job_id)
     print("C3 trajectory job submitted: %s (targets=%s minutes)" % (job_id, minute_list))

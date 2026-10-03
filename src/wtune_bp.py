@@ -449,6 +449,72 @@ def convert_inputs(case_dir, cache_dir, names=None, engine=DEFAULT_ENGINE):
     return result
 
 
+def cached_inputs(case_dir, cache_dir, names, engine=DEFAULT_ENGINE):
+    """{name: cache_dir/<name>} when every name's cached conversion is current, else None.
+    Read-only (no lock, no conversion): for a submitting host that must not convert."""
+    try:
+        entries = _read_manifest(os.path.join(cache_dir, MANIFEST_NAME))["entries"]
+    except (OSError, ValueError):
+        return None
+    out = {}
+    for name in names:
+        src = os.path.realpath(os.path.join(case_dir, name))
+        dst = os.path.join(cache_dir, name)
+        layout = PER_RECORD_LAYOUT if PER_RECORD_NAME_RE.match(name) else SINGLE_LAYOUT
+        try:
+            current, _sha = _entry_current(entries.get(name), src, os.stat(src), engine, dst,
+                                           layout)
+        except OSError:
+            return None
+        if not current:
+            return None
+        out[name] = dst
+    return out
+
+
+def _du_bytes(path):
+    total = 0
+    for root, _dirs, files in os.walk(path):
+        for f in files:
+            try:
+                total += os.lstat(os.path.join(root, f)).st_size
+            except OSError:
+                pass
+    return total
+
+
+def fresh_input_copy(src_dirs, dest_dir, runner=subprocess.run, stats=None):
+    """Copy per-record input dirs to dest_dir/<name> (`cp -a --reflink=always`, else `cp -a`).
+    src_dirs: {name: dir} or [dir]. Returns {name: copied dir}; stats (dict) gets reflink/bytes.
+    Run on the submitting host: a fresh inode per run avoids the NFS open stall (wiki
+    2026-10-03 adios2 gate); reflink works only on the NFS server (scc head)."""
+    if os.environ.get("SLURM_JOB_ID"):
+        print("WARNING: fresh_input_copy inside Slurm job %s (a compute node): an NFS-client "
+              "copy does not avoid the open stall" % os.environ["SLURM_JOB_ID"], file=sys.stderr)
+    items = (src_dirs.items() if isinstance(src_dirs, dict)
+             else [(os.path.basename(os.path.normpath(d)), d) for d in src_dirs])
+    os.makedirs(dest_dir, exist_ok=True)
+    out, reflink, nbytes = {}, True, 0
+    for name, src in sorted(items):
+        dst = os.path.join(dest_dir, name)
+        _rm(dst)
+        r = runner(["cp", "-a", "--reflink=always", src, dst], stdout=subprocess.PIPE,
+                   stderr=subprocess.PIPE)
+        if r.returncode != 0:
+            _rm(dst)
+            size = _du_bytes(src)
+            print("WARNING: no reflink copy of %s (not on the NFS server?): full cp -a of %.1f MB"
+                  % (src, size / 1e6), file=sys.stderr)
+            r = runner(["cp", "-a", src, dst], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            if r.returncode != 0:
+                raise OSError("cp -a %s %s failed: %s" % (src, dst, (r.stderr or b"")[-500:]))
+            reflink, nbytes = False, nbytes + size
+        out[name] = dst
+    if stats is not None:
+        stats.update(reflink=reflink, bytes=nbytes)
+    return out
+
+
 # ---------------------------------------------------------------------------
 # round-trip verification
 # ---------------------------------------------------------------------------

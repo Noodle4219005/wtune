@@ -287,9 +287,9 @@ MIN_FREE_GIB=${MIN_FREE_GIB:-60}
 # its own name (configs.py _apply_adios2 sets multi_bdy_files / the dated innames). The netCDF
 # original is linked too when prep_dir has it: a run starting off a record time (a shared restart,
 # see _apply_adios2) reads that stream from netCDF instead.
-link_per_record() {  # name
+link_per_record() {  # name [fresh copy dir]
   local c r
-  for c in "$BP_DIR/$1" "$BP_DIR/$1.bp"; do
+  for c in ${2:+"$2/$1"} "$BP_DIR/$1" "$BP_DIR/$1.bp"; do
     [ -d "$c" ] || continue
     for r in "$c/$1_"*.bp; do [ -d "$r" ] && ln -sfn "$r" "$(basename "$r")"; done
     break
@@ -297,8 +297,22 @@ link_per_record() {  # name
   [ -f "$PREP_DIR/$1" ] && ln -sf "$PREP_DIR/$1" "$1"
   return 0
 }
+# WTUNE_BP_FRESH_DIR/copy_<i>/<name>/ (configs.py fresh_probe_inputs, made on the head before
+# sbatch): run i links its own copy -- NFS open stall, wiki 2026-10-03 adios2 gate.
+FRESH_RUN_IDX=0
+fresh_copy_for_run() {
+  FRESH_COPY=""
+  [ -n "${WTUNE_BP_FRESH_DIR:-}" ] && [ -n "${WTUNE_PER_RECORD_BP:-}" ] || return 0
+  FRESH_COPY="$WTUNE_BP_FRESH_DIR/copy_$FRESH_RUN_IDX"
+  if [ ! -d "$FRESH_COPY" ]; then
+    FRESH_COPY=$(ls -d "$WTUNE_BP_FRESH_DIR"/copy_* 2>/dev/null | sort -V | tail -1)
+    echo "WARNING: fresh BP copies exhausted at run $FRESH_RUN_IDX -- reusing ${FRESH_COPY:-the cache} (NFS open stalls likely)" >&2
+  fi
+  FRESH_RUN_IDX=$(( FRESH_RUN_IDX + 1 ))
+}
 link_wrf_inputs() {
   local d df n bdy_pr=0
+  fresh_copy_for_run
   for ((d = 1; d <= MAX_DOM; d++)); do
     df=$(printf "d%02d" "$d")
     if [ -n "$BP_DIR" ]; then ln -sf "$BP_DIR/wrfinput_${df}.bp" "wrfinput_${df}.bp"
@@ -306,7 +320,7 @@ link_wrf_inputs() {
   done
   if [ -n "$BP_DIR" ]; then
     for n in ${WTUNE_PER_RECORD_BP:-}; do
-      link_per_record "$n"
+      link_per_record "$n" "$FRESH_COPY"
       [ "$n" = "wrfbdy_d01" ] && bdy_pr=1
     done
     [ "$bdy_pr" = 1 ] || ln -sf "$BP_DIR/wrfbdy_d01.bp" "wrfbdy_d01.bp"
@@ -533,6 +547,9 @@ else
   # BP_DIR first, so link_namelist_files finds the aux <name>.bp before prep_dir's netCDF
   NAMELIST_REF_DIRS="$BP_DIR $NAMELIST_REF_DIRS"
   echo "ADIOS2 inputs: BP_DIR=$BP_DIR aux streams as BP: ${WTUNE_AUX_BP_STREAMS:-none} per record: ${WTUNE_PER_RECORD_BP:-none}"
+  if [ -n "$WTUNE_PER_RECORD_BP" ] && [ -z "${WTUNE_BP_FRESH_DIR:-}" ]; then
+    echo "WARNING: no WTUNE_BP_FRESH_DIR: runs share the cache's per-record inodes -- NFS open stalls may distort timings (wiki 2026-10-03 adios2 gate)" >&2
+  fi
 fi
 # WTUNE_PER_RECORD_BP/WTUNE_BP_DIR (configs.py _apply_adios2): per-record streams and where their
 # record files live -- a run whose start has no <name>_<start>.bp reads that stream from netCDF.
@@ -1698,6 +1715,11 @@ if [ "${WTUNE_KEEP_SPINUP_RESTART:-0}" != "1" ]; then
   for d in "$OUT/${CASE}"_rankspinup_m*_"${J}"; do
     [ -d "$d" ] && rm -rf "$d"/wrfrst_d0*_*     # io_form 14 restarts are directories (rm -f left them)
   done
+fi
+
+# this job's fresh input copies are not read again (reflinks: freeing them is cheap)
+if [ -n "${WTUNE_BP_FRESH_DIR:-}" ] && [ "${WTUNE_KEEP_FRESH_BP:-0}" != "1" ]; then
+  rm -rf "$WTUNE_BP_FRESH_DIR"
 fi
 
 echo "=== summary"

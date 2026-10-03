@@ -34,13 +34,36 @@ subset step for CDO/NCO to replace it with, since the field being cropped does n
 in any file until wrf-python computes it. `wtune post inventory` and `compare` do the
 analogous file-level work (headers, netCDF diffing) through ncdump/cdo/diffwrf instead;
 see their module docstrings.
+
+ADIOS2 BP history (io_form_history=14, the project default): WRF's ADIOS2 engine writes each
+wrfout_dNN_<time> as a BP DIRECTORY -- named exactly like the netCDF file, or with ".bp"
+appended; both are recognised (any wrfout_dNN_<time>[.bp] that is a directory). Every reader
+here (wrf-python, MET, cdo, xWRF, VAPOR) needs netCDF, so the frame index (_file_entries, and
+through it frame_refs/file_index/list_frames/...) converts each BP directory ONCE into a
+netCDF cache and indexes the cached file in its place -- every caller keeps working on plain
+netCDF paths, timeidx and multi-frame Times included. Cache layout:
+<root>/<run_id>/[<seg_k>/]<wrfout name without .bp>.nc, where <root> is `--nc-cache DIR` (the
+nc_cache() scope), else $WTUNE_NC_CACHE, else <base>/_nc_cache with <base> the project dir or
+the post output dir the CLI/run_recipe set (nc_cache(base=...)), else <run_dir>/_nc_cache.
+<run_id> is the run dir's basename plus 8 hex of its realpath's sha1 (every project's run is
+called "case" -- a shared $WTUNE_NC_CACHE must not let them overwrite each other). A sidecar
+<file>.nc.json records the source BP path and the (name, size, mtime_ns) of every file in the
+BP directory; the cache is reused while that signature matches, reconverted otherwise.
+Conversion runs in a process pool bounded by the CPUs this process may use, writes to a
+temporary name and os.replace()s it. A netCDF file and a BP directory for the same time in the
+same directory: the netCDF file wins. The adios2 Python module is needed only when something
+has to be (re)converted -- missing, the index raises BPConversionError naming the fix.
 """
 from __future__ import annotations
 
+import contextlib
 import csv
 import glob
+import hashlib
+import json
 import os
 import re
+import sys
 from concurrent.futures import ProcessPoolExecutor
 
 WRF_TIME_FMT = "%Y-%m-%d_%H:%M:%S"
@@ -67,7 +90,6 @@ def _netcdf4():
     return netCDF4
 
 
-_FRAME_RE = re.compile(r"wrfout_d(\d+)_(\d{4}-\d\d-\d\d_\d\d:\d\d:\d\d)$")
 _SEGMENT_RE = re.compile(r"seg_(\d+)(_rescue)?$")
 
 
@@ -133,16 +155,306 @@ def file_times(path):
     return times
 
 
-def _file_entries(run_dir):
-    """[(domain, file_name_time, path), ...] for every wrfout_dNN_TIME file, segment order
-    (segment_dirs) then file-name order -- the order "later wins" is decided in."""
+_HIST_RE = re.compile(r"wrfout_d(\d+)_(\d{4}-\d\d-\d\d_\d\d:\d\d:\d\d)(\.bp)?$")
+NC_CACHE_ENV = "WTUNE_NC_CACHE"
+_NC_CACHE = {"dir": None, "base": None}
+_BP_MEMO = {}       # {(bp, nc): (fast_key, signature, error_or_None)}
+_BP_ORIGIN = {}     # {cached nc abs path: BP dir abs path}
+
+
+class BPConversionError(ExtractError):
+    """A run's ADIOS2 BP history cannot be turned into netCDF at all (the adios2 Python
+    module or wtune_bp is unavailable); str() names the fix."""
+
+
+@contextlib.contextmanager
+def nc_cache(directory=None, base=None):
+    """Scope of the BP -> netCDF cache location. directory (`--nc-cache DIR`): the cache root
+    itself. base (a project dir, else the post output dir): the root becomes <base>/_nc_cache --
+    applied only when no base is set yet, so the CLI's choice wins over run_recipe's default."""
+    old = dict(_NC_CACHE)
+    if directory:
+        _NC_CACHE["dir"] = os.path.abspath(directory)
+    if base and not _NC_CACHE["base"]:
+        _NC_CACHE["base"] = os.path.abspath(base)
+    try:
+        yield
+    finally:
+        _NC_CACHE.clear()
+        _NC_CACHE.update(old)
+
+
+def nc_cache_root(run_dir):
+    explicit = _NC_CACHE["dir"] or os.environ.get(NC_CACHE_ENV)
+    if explicit:
+        return os.path.abspath(explicit)
+    return os.path.join(os.path.abspath(_NC_CACHE["base"] or run_dir), "_nc_cache")
+
+
+def _run_id(run_dir):
+    real = os.path.realpath(run_dir)
+    return "%s-%s" % (os.path.basename(real) or "run",
+                      hashlib.sha1(real.encode("utf-8", "surrogateescape")).hexdigest()[:8])
+
+
+def cached_nc_path(run_dir, bp_path):
+    """<root>/<run_id>/[<segment>/]<BP name without .bp>.nc for BP directory bp_path of
+    run_dir (bp_path directly in run_dir, or in one of its segment_dirs)."""
+    seg_dir = os.path.dirname(os.path.abspath(bp_path))
+    parts = [nc_cache_root(run_dir), _run_id(run_dir)]
+    if os.path.realpath(seg_dir) != os.path.realpath(run_dir):
+        parts.append(os.path.basename(seg_dir))
+    name = os.path.basename(os.path.normpath(bp_path))
+    if name.endswith(".bp"):
+        name = name[:-3]
+    return os.path.join(*(parts + [name + ".nc"]))
+
+
+def bp_signature(bp_path):
+    """Sorted [[name, size, mtime_ns], ...] of the regular files in a BP directory (data.*,
+    md.*, mmd.*, ...): changes whenever WRF (re)writes or appends to it."""
+    sig = []
+    with os.scandir(bp_path) as it:
+        for e in it:
+            if e.is_file():
+                st = e.stat()
+                sig.append([e.name, st.st_size, st.st_mtime_ns])
+    return sorted(sig)
+
+
+def _fast_key(bp_path):
+    """A few stats that change whenever a BP4/BP5 directory is written (the dir itself when a
+    file is created, md.0/md.idx on every step) -- lets a re-listing in the same process skip
+    the full signature. None without md.0 (unknown layout: always take the full signature)."""
+    key = []
+    for name in ("", "md.0", "md.idx"):
+        try:
+            st = os.stat(os.path.join(bp_path, name) if name else bp_path)
+        except OSError:
+            if name == "md.0":
+                return None
+            continue
+        key += [name, st.st_size if name else 0, st.st_mtime_ns]
+    return tuple(key)
+
+
+def _sidecar(nc):
+    return nc + ".json"
+
+
+def _cache_valid(nc, bp, sig):
+    try:
+        with open(_sidecar(nc)) as fh:
+            meta = json.load(fh)
+    except (OSError, ValueError):
+        return False
+    return (meta.get("source") == os.path.abspath(bp) and meta.get("signature") == sig
+            and os.path.isfile(nc))
+
+
+def _tmp_tag():
+    """host + pid: unique among processes sharing the cache over a cluster filesystem."""
+    return "%s-%d" % (os.uname().nodename, os.getpid())
+
+
+def _write_json_atomic(path, doc):
+    tmp = "%s.wtune-tmp-%s" % (path, _tmp_tag())
+    with open(tmp, "w") as fh:
+        json.dump(doc, fh, indent=1)
+    os.replace(tmp, path)
+
+
+def _convert_job(job):
+    """Worker (module-level for picklability): job = (bp2nc, bp, nc, signature). Converts into
+    a temporary name next to nc, os.replace()s it, then writes the sidecar manifest."""
+    convert, bp, nc, sig = job
+    os.makedirs(os.path.dirname(nc), exist_ok=True)
+    if os.path.lexists(_sidecar(nc)):
+        os.remove(_sidecar(nc))
+    tmp = "%s.wtune-tmp-%s.nc" % (nc[:-3], _tmp_tag())
+    if os.path.lexists(tmp):                # a crashed earlier conversion (bp2nc refuses dst)
+        os.remove(tmp)
+    try:
+        convert(bp, tmp)
+        os.replace(tmp, nc)
+    except BaseException:
+        if os.path.lexists(tmp):
+            os.remove(tmp)
+        raise
+    _write_json_atomic(_sidecar(nc), dict(source=os.path.abspath(bp), signature=sig,
+                                          converter="wtune_bp.bp2nc"))
+    return nc
+
+
+def _cpu_budget():
+    try:
+        return max(1, len(os.sched_getaffinity(0)))     # a Slurm cpuset, not the whole node
+    except (AttributeError, OSError):
+        return max(1, os.cpu_count() or 1)
+
+
+def _bp2nc_or_raise(run_dir, n_files, example):
+    """wtune_bp.bp2nc, after wtune_bp.require_adios2_python() -- whose Adios2Unavailable text
+    names the fix (the adios2 env); BPConversionError carrying that text otherwise."""
+    what = ("%s holds ADIOS2 BP history (%d file(s) not yet converted, e.g. %s) that the post "
+            "tools read as netCDF copies, but the BP -> netCDF converter "
+            "(src/tools/wrf_adios2_to_netcdf4/ via src/wtune_bp.py) cannot run here: "
+            % (run_dir, n_files, os.path.basename(example)))
+    try:
+        import wtune_bp
+    except Exception as e:                                  # noqa: BLE001
+        raise BPConversionError(what + "cannot import wtune_bp (%s: %s)"
+                                % (type(e).__name__, e)) from e
+    try:
+        wtune_bp.require_adios2_python()
+    except (Exception, SystemExit) as e:                    # noqa: BLE001 -- Adios2Unavailable
+        raise BPConversionError(what + str(e)) from e
+    return wtune_bp.bp2nc
+
+
+def _convert_all(run_dir, jobs):
+    """jobs: [(bp, nc, signature), ...] -> {bp: None | error text}. Raises BPConversionError
+    when the converter itself is unavailable."""
+    convert = _bp2nc_or_raise(run_dir, len(jobs), jobs[0][0])
+    work = [(convert, bp, nc, sig) for bp, nc, sig in jobs]
+    n = min(len(work), _cpu_budget())
+    sys.stderr.write("post: converting %d ADIOS2 BP history file(s) of %s to netCDF under %s "
+                     "(%d worker(s))\n" % (len(work), run_dir,
+                                           os.path.join(nc_cache_root(run_dir), _run_id(run_dir)),
+                                           n))
+    errors = {}
+    if n <= 1:
+        for job in work:
+            try:
+                _convert_job(job)
+                errors[job[1]] = None
+            except Exception as e:                          # noqa: BLE001 -- per file
+                errors[job[1]] = "%s: %s" % (type(e).__name__, e)
+        return errors
+    with ProcessPoolExecutor(max_workers=n) as ex:
+        futures = [(job[1], ex.submit(_convert_job, job)) for job in work]
+        for bp, fut in futures:
+            try:
+                fut.result()
+                errors[bp] = None
+            except Exception as e:                          # noqa: BLE001 -- per file
+                errors[bp] = "%s: %s" % (type(e).__name__, e)
+    return errors
+
+
+def _bp_to_nc(run_dir, bps):
+    """({bp: cached nc}, {bp: error}) for BP directories bps of run_dir, converting what is
+    missing or stale. A BP whose conversion failed is left out of the index and not retried
+    until the BP directory changes."""
+    mapped, failed, jobs, fast_of = {}, {}, [], {}
+    for bp in bps:
+        nc = cached_nc_path(run_dir, bp)
+        fast = fast_of[bp] = _fast_key(bp)
+        memo = _BP_MEMO.get((bp, nc))
+        if memo is not None and fast is not None and memo[0] == fast and (
+                memo[2] is not None or os.path.isfile(nc)):
+            sig = memo[1]                   # unchanged since this process last looked
+        else:
+            try:
+                sig = bp_signature(bp)
+            except OSError as e:
+                failed[bp] = "%s: %s" % (type(e).__name__, e)
+                continue
+            if memo is not None and memo[1] != sig:
+                memo = None
+        if memo is not None and memo[2] is not None:
+            failed[bp] = memo[2]
+        elif (memo is not None and os.path.isfile(nc)) or _cache_valid(nc, bp, sig):
+            mapped[bp] = nc
+            _BP_MEMO[(bp, nc)] = (fast, sig, None)
+        else:
+            jobs.append((bp, nc, sig))
+    if jobs:
+        errors = _convert_all(run_dir, jobs)
+        for bp, nc, sig in jobs:
+            err = errors.get(bp)
+            _BP_MEMO[(bp, nc)] = (fast_of[bp], sig, err)    # the PRE-conversion state
+            if err is None:
+                mapped[bp] = nc
+            else:
+                failed[bp] = err
+                sys.stderr.write("post: warning: %s not indexed, BP -> netCDF conversion "
+                                 "failed: %s\n" % (bp, err))
+    for bp, nc in mapped.items():
+        _BP_ORIGIN[os.path.abspath(nc)] = os.path.abspath(bp)
+    return mapped, failed
+
+
+def bp_origin(path):
+    """The ADIOS2 BP directory a cached netCDF history file was converted from, else None."""
+    ap = os.path.abspath(path)
+    if ap in _BP_ORIGIN:
+        return _BP_ORIGIN[ap]
+    try:
+        with open(_sidecar(ap)) as fh:
+            return json.load(fh).get("source")
+    except (OSError, ValueError, AttributeError):
+        return None
+
+
+def _dir_entries(d):
+    """[(domain, file_name_time, path, is_bp), ...] of one directory in name order; a BP
+    history is a directory (wrfout_dNN_TIME or wrfout_dNN_TIME.bp). For a (domain, time) with
+    both a netCDF file and a BP directory, only the netCDF file is kept."""
+    try:
+        with os.scandir(d) as it:
+            entries = sorted((e.name, e) for e in it)
+    except OSError:
+        return []
+    found = {}
+    for name, entry in entries:
+        m = _HIST_RE.match(name)
+        if not m:
+            continue
+        path = os.path.join(d, name)
+        try:
+            is_bp = entry.is_dir()          # d_type, no extra stat; follows a symlinked BP dir
+        except OSError:
+            continue
+        key = (int(m.group(1)), m.group(2))
+        if key not in found or (found[key][3] and not is_bp):
+            found[key] = (key[0], key[1], path, is_bp)
+    return sorted(found.values(), key=lambda e: os.path.basename(e[2]))
+
+
+def _raw_entries(run_dir):
     out = []
     for d in segment_dirs(run_dir) or [run_dir]:
-        for path in sorted(glob.glob(os.path.join(d, "wrfout_d*_*"))):
-            m = _FRAME_RE.search(os.path.basename(path))
-            if m:
-                out.append((int(m.group(1)), m.group(2), path))
+        out += _dir_entries(d)
     return out
+
+
+def _file_entries(run_dir):
+    """[(domain, file_name_time, path), ...] for every wrfout_dNN_TIME history file, segment
+    order (segment_dirs) then file-name order -- the order "later wins" is decided in. A BP
+    history directory appears as its cached netCDF copy (_bp_to_nc), or not at all when its
+    conversion failed."""
+    raw = _raw_entries(run_dir)
+    bps = [path for _d, _t, path, is_bp in raw if is_bp]
+    mapped = _bp_to_nc(run_dir, bps)[0] if bps else {}
+    out = []
+    for dom, t, path, is_bp in raw:
+        if is_bp:
+            path = mapped.get(path)
+            if path is None:
+                continue
+        out.append((dom, t, path))
+    return out
+
+
+def prepare_history(run_dir):
+    """Converts (or validates the cache of) every BP history directory of run_dir up front.
+    Returns dict(n_bp, cache, failed=[(bp, error), ...]). Raises BPConversionError when BP
+    history needs converting and the converter is unavailable."""
+    bps = [path for _d, _t, path, is_bp in _raw_entries(run_dir) if is_bp]
+    failed = _bp_to_nc(run_dir, bps)[1] if bps else {}
+    return dict(n_bp=len(bps), cache=os.path.join(nc_cache_root(run_dir), _run_id(run_dir)),
+                failed=sorted(failed.items()))
 
 
 def file_index(run_dir):

@@ -632,7 +632,7 @@ def _set_history_mode(text, history_mode, run_minutes, max_dom, nest_history_on=
                      % (history_mode,))
 
 
-def _set_or_insert_time_control_scalar(text, key, value):
+def _set_or_insert_time_control_scalar(text, key, value, group="time_control"):
     """Like _set_scalar, but INSERTS a fresh line right after &time_control's
     header when this namelist has no existing line for `key` at all, instead
     of silently no-op'ing. Needed because real WRF namelist.input templates
@@ -651,13 +651,60 @@ def _set_or_insert_time_control_scalar(text, key, value):
     occ = re.compile(r"(?m)^(?![ \t]*!)(.*?)(?<![A-Za-z0-9_])%s([ \t]*=[ \t]*)[^,\n]*" % re.escape(key))
     if occ.search(text):
         return occ.sub(lambda m: "%s%s%s%s" % (m.group(1), key, m.group(2), value), text)
-    idx = text.find("&time_control")
-    if idx == -1:
-        raise ValueError("no &time_control section found in namelist")
-    eol = text.find("\n", idx)
+    # `group` (default &time_control): the &fdda stream keys (io_form_gfdda, gfdda_inname) are
+    # inserted into &fdda instead -- see adios2_input_streams.
+    m = re.search(r"(?im)^[ \t]*&%s\b" % re.escape(group), text)
+    if m is None:
+        raise ValueError("no &%s section found in namelist" % group)
+    eol = text.find("\n", m.start())
     if eol == -1:
         eol = len(text)
     return text[: eol + 1] + " %s=%s,\n" % (key, value) + text[eol + 1 :]
+
+
+_NML_NEXT_KEY_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_%]*[ \t]*=")
+
+
+def _set_namelist_value(text, key, literal, group):
+    """`key` = `literal` (a Fortran literal, possibly a per-domain list "1, 1") -- the WHOLE
+    value list of every non-comment assignment is replaced (a packed line keeps its other keys;
+    _set_scalar would leave a stale per-domain tail behind: "1, 999999,"). When `key` is not
+    assigned anywhere it is inserted right after the &`group` header; when that group is absent
+    too (e.g. no &bdy_control), a new &`group` holding just this key is appended."""
+    rhs = literal.strip().rstrip(",").rstrip() + ","
+    key_re = re.compile(r"(?<![A-Za-z0-9_])%s[ \t]*=[ \t]*" % re.escape(key), re.I)
+    lines = text.split("\n")
+    hit = False
+    for i, ln in enumerate(lines):
+        if ln.lstrip().startswith("!"):
+            continue
+        m = key_re.search(ln)
+        if m is None:
+            continue
+        rest, end, quote, j = ln[m.end():], None, None, 0
+        while j < len(rest):                  # the value list ends at the next `key =`, '!', '/'
+            c = rest[j]
+            if quote:
+                quote = None if c == quote else quote
+            elif c in "'\"":
+                quote = c
+            elif c in "!/":
+                end = j
+                break
+            elif ((c.isalpha() or c == "_") and (j == 0 or rest[j - 1] in " \t,")
+                  and _NML_NEXT_KEY_RE.match(rest, j)):
+                end = j
+                break
+            j += 1
+        tail = rest[end:] if end is not None else ""
+        lines[i] = ln[:m.end()] + rhs + ((" " + tail.lstrip()) if tail.strip() else "")
+        hit = True
+    if hit:
+        return "\n".join(lines)
+    m = re.search(r"(?im)^[ \t]*&%s\b[^\n]*\n" % re.escape(group), text)
+    if m is not None:
+        return text[:m.end()] + " %s = %s\n" % (key, rhs) + text[m.end():]
+    return text.rstrip("\n") + "\n&%s\n %s = %s\n/\n" % (group, key, rhs)
 
 
 def _get_scalar_first(text, key, default=None):
@@ -712,7 +759,7 @@ def _apply_restart_from(text, restart_time, max_dom):
                                         " override_restart_timers = .true.,\n")
 
 
-def _apply_adios2(text, ranks, max_dom):
+def _apply_adios2(text, ranks, max_dom, start=None):
     """Force ADIOS2 I/O for input/boundary/history/restart (2026-09-14 user
     decision: all WRF I/O in this campaign uses ADIOS2, io_form 14) and
     disable restart writes (restart_interval set far beyond any campaign run
@@ -736,12 +783,27 @@ def _apply_adios2(text, ranks, max_dom):
 
     Uses _set_or_insert_time_control_scalar (not plain _set_scalar) for the
     io_form_* keys and restart_interval so a template that omits one of them
-    still gets ADIOS2 forced, rather than silently keeping WRF's default."""
+    still gets ADIOS2 forced, rather than silently keeping WRF's default.
+
+    Per-record inputs (2026-10-03): WRF 4.8's ADIOS2 reader never selects a BP step, so a
+    multi-record wrfbdy/wrflowinp/wrffdda BP always yields record 1; stage-bp-inputs therefore
+    converts them one BP per record (wtune_bp.convert_inputs) and exports their names in
+    WTUNE_PER_RECORD_BP (and the cache in WTUNE_BP_DIR). For those streams this applies
+    wtune_bp.per_record_namelist_edits (multi_bdy_files + dated innames, frames_per_auxinputN=1).
+    WRF names each file by the CLOCK TIME of the read, so a run starting at `start` (the
+    restart_from time for a restarted probe; default: the namelist's own start) needs
+    <name>_<start>.bp. A stream with any name lacking that record (a shared restart taken off a
+    boundary/SST record time) falls back to its netCDF file for this run -- io_form 2 and the
+    default inname (the netCDF wrfbdy_d01 / wrflowinp_d0N are linked from prep_dir) -- because
+    no BP layout reads correctly there: a single multi-record BP gives record 1 everywhere. The
+    fallback overwrites whatever a previous pass set (the RANKING restart pass edits the first
+    pass's output), so it is idempotent. A stderr line names each fallback."""
     if ranks is None:
         raise ValueError("ranks is required when adios2=True (for adios2_numaggregators)")
-    # WTUNE_INPUT_FORMAT=netcdf (set by strict_campaign.sbatch when the case has no bp_dir,
-    # e.g. on scc where only the official netCDF wrfinput/wrfbdy exist): inputs stay netCDF
-    # (io_form 2, default file names); history/restart are still forced to ADIOS2.
+    # WTUNE_INPUT_FORMAT=netcdf is the LEGACY escape only (an explicit export at submission;
+    # strict_campaign.sbatch warns): inputs stay netCDF (io_form 2, default file names);
+    # history/restart are still forced to ADIOS2. Since 2026-10-03 an empty bp_dir no longer
+    # means netCDF: strict_campaign converts prep_dir's inputs into a BP cache first.
     netcdf_inputs = os.environ.get("WTUNE_INPUT_FORMAT", "adios2") == "netcdf"
     for key in ("io_form_input", "io_form_boundary", "io_form_history", "io_form_restart"):
         value = 2 if netcdf_inputs and key in ("io_form_input", "io_form_boundary") else 14
@@ -756,8 +818,38 @@ def _apply_adios2(text, ranks, max_dom):
     if eol == -1:
         eol = len(text)
     if not netcdf_inputs:
-        new_line = ' input_inname="wrfinput_d<domain>.bp", bdy_inname="wrfbdy_d<domain>.bp",\n'
-        text = text[: eol + 1] + new_line + text[eol + 1 :]
+        # aux input streams (2026-10-03 user decision: ADIOS2 for every input stream):
+        # WTUNE_AUX_BP_STREAMS (set by strict_campaign.sbatch from stage-bp-inputs) lists the aux
+        # streams whose files ARE available as <name>.bp; only those are switched, so a bp_dir
+        # without e.g. wrflowinp_d01.bp keeps that stream on the case's own netCDF settings.
+        aux_ok = set(x for x in os.environ.get("WTUNE_AUX_BP_STREAMS", "").split(",") if x)
+        pr_ok, pr_fallback = per_record_streams(
+            os.environ.get("WTUNE_PER_RECORD_BP", ""), start, text,
+            os.environ.get("WTUNE_BP_DIR") or None, aux_ok=aux_ok)
+        new_line = ' input_inname="wrfinput_d<domain>.bp",'
+        if "boundary" not in pr_ok and "boundary" not in pr_fallback:
+            new_line += ' bdy_inname="wrfbdy_d<domain>.bp",'
+        text = text[: eol + 1] + new_line + "\n" + text[eol + 1 :]
+        for st in adios2_input_streams(text):
+            if st["stream"] in aux_ok and st["stream"] not in ("input", "boundary"):
+                if st["stream"] in pr_ok or st["stream"] in pr_fallback:
+                    continue                    # per-record: handled below
+                for key, value, group in adios2_stream_edits(st):
+                    text = _set_or_insert_time_control_scalar(text, key, value, group)
+        if pr_ok:
+            bp = _import_wtune_bp()
+            names = [n for s in pr_ok.values() for n in s]
+            for group, kv in bp.per_record_namelist_edits(names, max_dom).items():
+                for key, value in kv.items():
+                    text = _set_namelist_value(text, key, value, group)
+            for stream in pr_ok:
+                io_key, group = PER_RECORD_STREAMS[stream][1:3]
+                text = _set_namelist_value(text, io_key, str(ADIOS2_IO_FORM), group)
+        for stream, missing in sorted(pr_fallback.items()):
+            text = _per_record_netcdf_fallback(text, stream, max_dom)
+            sys.stderr.write("NOTE: ADIOS2 per-record %s input has no record at the run start "
+                             "(%s) -- this run reads that stream from netCDF instead\n"
+                             % (stream, ", ".join(missing)))
     text = re.sub(r"(?ms)^&namelist_adios2\b.*?^/[ \t]*\n?", "", text)
     text = text.rstrip("\n") + (
         "\n&namelist_adios2\n"
@@ -1294,7 +1386,8 @@ def edit_namelist(text, nproc_x, nproc_y, numtiles, run_minutes,
         for key, value in overrides.items():
             text = _set_scalar(text, key, value)
     if adios2:
-        text = _apply_adios2(text, ranks, max_dom)
+        # start: per-record BP inputs need a record at the time the run really starts
+        text = _apply_adios2(text, ranks, max_dom, start=restart_from)
     if restart_from is not None:
         text = _apply_restart_from(text, restart_from, max_dom)
     if write_restart_interval is not None:
@@ -2337,6 +2430,11 @@ def stage_namelist_files(text, run_dir, search_dirs):
     missing = required and found nowhere, left absent for the caller to report."""
     import glob as _glob
     out = {"linked": [], "present": [], "missing": []}
+    # a name without .bp is a netCDF/text file: a directory of that name is a BP input or a
+    # per-record container (BP cache: wrflowinp_d01/ next to the netCDF fallback's own
+    # wrflowinp_d01 in prep_dir) and must not be staged in its place
+    def usable(path, name):
+        return name.endswith(".bp") or not os.path.isdir(path)
     dirs = []
     for s in search_dirs:
         if s and os.path.isdir(s) and os.path.abspath(s) not in dirs:
@@ -2355,7 +2453,7 @@ def stage_namelist_files(text, run_dir, search_dirs):
             continue
         srcs = []
         for d in dirs:
-            srcs = sorted(_glob.glob(os.path.join(d, rel)))
+            srcs = sorted(p for p in _glob.glob(os.path.join(d, rel)) if usable(p, name))
             if srcs:
                 break
         if not srcs:
@@ -2383,6 +2481,404 @@ def format_namelist_stage(result, search_dirs):
                                      "missing, even with ignore_iofields_warning=.true.)"
                         if k == "iofields_filename" else ""))
     return lines
+
+
+# ---------------------------------------------------------------------------
+# ADIOS2 input streams (2026-10-03 user decision: netCDF is no longer used for WRF I/O; every
+# input stream -- wrfinput, wrfbdy, aux inputs -- is read as ADIOS2 BP, netCDF inputs are
+# converted first). Shared by strict_campaign.sbatch (stage-bp-inputs) and wtune_run.
+# ---------------------------------------------------------------------------
+ADIOS2_IO_FORM = 14
+# WRF's io_adios2 opens the file name exactly as the stream's *_inname template expands
+# (external/io_adios2/wrf_io.F90 ext_adios2_open_for_read_begin: adios2_declare_io/adios2_open
+# with FileName; no suffix is added), so every BP input is linked as "<netCDF name>.bp" and its
+# inname is rewritten to "<template>.bp" -- the convention _apply_adios2 has always used for
+# wrfinput/wrfbdy (input_inname="wrfinput_d<domain>.bp", bdy_inname="wrfbdy_d<domain>.bp").
+
+
+def adios2_input_streams(text):
+    """WRF input streams this namelist reads, in order:
+      input     io_form_input,  input_inname (wrfinput_d<domain>)    every active domain (d01
+                required; a nest without input_from_file has no file)
+      boundary  io_form_boundary, bdy_inname (wrfbdy_d<domain>)      d01 only
+      auxinput4 io_form_auxinput4, auxinput4_inname (wrflowinp_d<domain>)  when sst_update=1
+      gfdda     io_form_gfdda (&fdda), gfdda_inname (wrffdda_d<domain>)    domains grid_fdda>0
+      sgfdda    io_form_sgfdda (&fdda), sgfdda_inname (wrfsfdda_d<domain>) domains grid_sfdda>0
+      auxinputN io_form_auxinputN, auxinputN_inname (as set)  N != 1, 4, inname set and the
+                namelist's io_form_auxinputN > 0
+    Defaults follow namelist_file_refs. Each: {stream, label, io_key, group, inname_key,
+    template (no .bp), inname ("<basename(template)>.bp"), names ([expanded per domain; may still
+    hold <date>]), required ([names that must exist])}."""
+    max_dom = (_namelist_ints(text, "max_dom") or [1])[0] or 1
+    doms = list(range(1, max_dom + 1))
+
+    def tmpl(key, default):
+        v = _namelist_string_values(text, key)
+        t = (v[0].strip() if v and v[0].strip() else default)
+        return t[:-3] if t.endswith(".bp") else t
+
+    def expand(t, ds):
+        return [t.replace("<domain>", "%02d" % d) for d in ds] if "<domain>" in t else [t]
+
+    out = []
+
+    def add(stream, label, io_key, group, inname_key, template, ds, required):
+        names = expand(template, ds)
+        out.append({"stream": stream, "label": label, "io_key": io_key, "group": group,
+                    "inname_key": inname_key, "template": template,
+                    "inname": os.path.basename(template) + ".bp", "names": names,
+                    "required": names if required is None else required(names)})
+
+    add("input", "input", "io_form_input", "time_control", "input_inname",
+        tmpl("input_inname", "wrfinput_d<domain>"), doms, lambda n: n[:1])
+    add("boundary", "boundary", "io_form_boundary", "time_control", "bdy_inname",
+        tmpl("bdy_inname", "wrfbdy_d<domain>"), [1], None)
+    if (_namelist_ints(text, "sst_update") or [0])[0] == 1:
+        add("auxinput4", "aux4", "io_form_auxinput4", "time_control", "auxinput4_inname",
+            tmpl("auxinput4_inname", "wrflowinp_d<domain>"), doms, None)
+    for flag, stream, default in (("grid_fdda", "gfdda", "wrffdda_d<domain>"),
+                                  ("grid_sfdda", "sgfdda", "wrfsfdda_d<domain>")):
+        on = _namelist_ints(text, flag)
+        ds = [d for d in doms if d - 1 < len(on) and on[d - 1] > 0]
+        if ds:
+            add(stream, stream, "io_form_" + stream, "fdda", stream + "_inname",
+                tmpl(stream + "_inname", default), ds, None)
+    for n in sorted(set(int(x) for x in re.findall(
+            r"(?i)(?<![A-Za-z0-9_])auxinput(\d+)_inname", text))):
+        if n in _NML_REF_SKIP_AUXINPUT or not (_namelist_ints(text, "io_form_auxinput%d" % n)
+                                               or [0])[0]:
+            continue
+        t = tmpl("auxinput%d_inname" % n, "")
+        if t:
+            add("auxinput%d" % n, "aux%d" % n, "io_form_auxinput%d" % n, "time_control",
+                "auxinput%d_inname" % n, t, doms, None)
+    return out
+
+
+# Multi-record input streams converted one BP per record (wtune_bp.PER_RECORD_NAME_RE): stream ->
+# (file kind, io_form key, group, inname key, netCDF default inname, frames_per key or None).
+PER_RECORD_STREAMS = {
+    "boundary": ("wrfbdy", "io_form_boundary", "time_control", "bdy_inname",
+                 "wrfbdy_d<domain>", None),
+    "auxinput4": ("wrflowinp", "io_form_auxinput4", "time_control", "auxinput4_inname",
+                  "wrflowinp_d<domain>", "frames_per_auxinput4"),
+    "gfdda": ("wrffdda", "io_form_gfdda", "fdda", "gfdda_inname", "wrffdda_d<domain>",
+              "frames_per_auxinput10"),
+}
+_PER_RECORD_NAME_RE = re.compile(r"^(wrfbdy|wrflowinp|wrffdda)_d\d\d$")
+WRF_DATE_FMT = "%Y-%m-%d_%H:%M:%S"
+
+
+def per_record_has(bp_dir, name, when):
+    """True when bp_dir holds the record file <name>_<when>.bp WRF opens at `when` (WRF date
+    string): inside the container <bp_dir>/<name>[.bp]/ or as a flat link <bp_dir>/<rec>."""
+    rec = "%s_%s.bp" % (name, when)
+    if not bp_dir:
+        return False
+    return any(os.path.isdir(os.path.join(bp_dir, *parts))
+               for parts in ((name, rec), (name + ".bp", rec), (rec,)))
+
+
+def per_record_streams(names, start, text, bp_dir, aux_ok=None):
+    """Split the per-record input names (WTUNE_PER_RECORD_BP: 'wrfbdy_d01 wrflowinp_d01 ...')
+    by stream into ({stream: [names]} readable per record from the run start,
+    {stream: [missing record files]}) -- a stream is readable only when EVERY one of its names
+    has <name>_<start>.bp (one inname template serves all domains). start: datetime (default
+    the namelist's own start). Aux streams not in aux_ok (when given) are dropped: those keep
+    the case's own settings anyway."""
+    if isinstance(names, str):
+        names = [n for n in re.split(r"[\s,]+", names) if n]
+    kind_stream = {v[0]: k for k, v in PER_RECORD_STREAMS.items()}
+    by_stream = {}
+    for n in names or []:
+        m = _PER_RECORD_NAME_RE.match(n)
+        if m:
+            by_stream.setdefault(kind_stream[m.group(1)], []).append(n)
+    if aux_ok is not None:
+        by_stream = {s: v for s, v in by_stream.items() if s == "boundary" or s in aux_ok}
+    if not by_stream:
+        return {}, {}
+    when = (start or case_start_datetime(text)).strftime(WRF_DATE_FMT)
+    ok, fallback = {}, {}
+    for stream, ns in by_stream.items():
+        missing = ["%s_%s.bp" % (n, when) for n in ns if not per_record_has(bp_dir, n, when)]
+        if missing:
+            fallback[stream] = missing
+        else:
+            ok[stream] = ns
+    return ok, fallback
+
+
+def _has_key(text, key):
+    return any(re.search(r"(?<![A-Za-z0-9_])%s[ \t]*=" % re.escape(key), ln, re.I)
+               for ln in text.splitlines() if not ln.lstrip().startswith("!"))
+
+
+def _per_record_netcdf_fallback(text, stream, max_dom):
+    """Make `stream` read its netCDF file: io_form 2, the default inname (boundary: none, i.e.
+    WRF's wrfbdy_d<domain>), and undo a previous pass's per-record keys (multi_bdy_files
+    .false., frames_per_auxinputN back to the Registry default 999999) when present."""
+    _kind, io_key, group, inname_key, default, frames_key = PER_RECORD_STREAMS[stream]
+    text = _set_namelist_value(text, io_key, "2", group)
+    if stream == "boundary":
+        text = _delete_key_lines(text, inname_key)
+        if _has_key(text, "multi_bdy_files"):
+            text = _set_namelist_value(text, "multi_bdy_files", ".false.", "bdy_control")
+    else:
+        text = _set_namelist_value(text, inname_key, '"%s"' % default, group)
+        if _has_key(text, frames_key):
+            text = _set_namelist_value(text, frames_key, ", ".join(["999999"] * max_dom),
+                                       "time_control")
+    return text
+
+
+def adios2_stream_edits(stream):
+    """[(key, value, group)] that make WRF read `stream` as ADIOS2: io_form = 14 and the inname
+    with the .bp suffix (a quoted string)."""
+    return [(stream["io_key"], ADIOS2_IO_FORM, stream["group"]),
+            (stream["inname_key"], '"%s"' % stream["inname"], stream["group"])]
+
+
+def bp_cache_dir(case_id, src_dir, root=None):
+    """Default BP input cache of one case's netCDF source dir: ${WTUNE_BP_CACHE:-
+    $HOME/wtune-runs/bp-cache}/<case_id>/<sha1(realpath(src_dir))[:12]>. Keyed by the source dir
+    too, so two prep dirs of one case id (a rebuilt point re-made by another tune run) never
+    share -- a job reading one cache is never reconverted under by a job of the other."""
+    import hashlib
+    root = root or os.environ.get("WTUNE_BP_CACHE") or os.path.join(
+        os.path.expanduser("~"), "wtune-runs", "bp-cache")
+    key = hashlib.sha1(os.path.realpath(src_dir).encode()).hexdigest()[:12]
+    return os.path.join(root, case_id, key)
+
+
+def _import_wtune_bp():
+    """src/wtune_bp (the converter module), imported lazily: only staging needs it. It runs
+    in-process on the stdlib and calls the adios2 converters in envs/adios2's interpreter
+    ($WTUNE_ADIOS2_PYTHON overrides). Looked up in $WTUNE_SRC, then <this checkout>/src."""
+    for src in (os.environ.get("WTUNE_SRC"), os.path.join(os.path.dirname(CAMPAIGN_DIR), "src")):
+        if src and os.path.isfile(os.path.join(src, "wtune_bp.py")):
+            for p in (os.path.join(src, "tools"), src):
+                if p not in sys.path:
+                    sys.path.insert(0, p)
+            break
+    import wtune_bp
+    return wtune_bp
+
+
+def _src_path(src_dir, name):
+    return name if os.path.isabs(name) else os.path.join(src_dir, name)
+
+
+def resolve_bp_inputs(text, src_dir, cache_dir, convert=True, bp=None, log=None):
+    """Every input-stream file of `text` (adios2_input_streams) as a BP directory, in this order
+    per name: <src>/<name>.bp (a directory: the case already has BP inputs) -> <src>/<name> when
+    it is itself a directory (BP written without a suffix) -> the netCDF <src>/<name> converted
+    by wtune_bp.convert_inputs(<src dir>, cache_dir, names, engine=wtune_bp.DEFAULT_ENGINE, BP4) into cache_dir/<name>
+    (cached with a manifest, reconverted only when the source changed; convert_inputs itself
+    serializes on a lockf lock in cache_dir, so concurrent callers convert once). A '<date>'
+    name is globbed in src_dir. convert=False plans only (nothing converted, nothing written).
+    Per-record inputs (wrfbdy/wrflowinp/wrffdda_d0N, wtune_bp.PER_RECORD_NAME_RE): convert_inputs
+    writes them as a directory of one-step BPs <name>_<date>.bp, because WRF 4.8's ADIOS2 reader
+    returns record 1 for every read of a multi-record BP. Such a target's links are one per
+    record file (wtune_bp.bp_input_links: <name>_<date>.bp -> <container>/<name>_<date>.bp) and
+    it is listed in "per_record" {name: container} (planned: cache_dir/<name>). An existing
+    SINGLE BP of a per-record name is that wrong multi-record layout: it is converted from the
+    netCDF next to it instead when there is one, else used with an entry in "single_multirecord"
+    (callers warn).
+    Returns {"links": {link name: target}, "convert": [netCDF paths to convert / converted],
+    "existing": [BP targets used as-is], "missing": [(stream, name) required but found nowhere],
+    "ready": [streams whose every required name resolved], "needs_convert": [streams with at
+    least one netCDF-only file], "per_record": {name: container}, "single_multirecord":
+    [single-BP targets of per-record names], "streams": [...]}."""
+    import glob as _glob
+    streams = adios2_input_streams(text)
+    res = {"links": {}, "convert": [], "existing": [], "missing": [], "ready": [],
+           "needs_convert": [], "per_record": {}, "single_multirecord": [], "streams": streams}
+    todo = {}                                   # src dir -> [(basename, link name)]
+    status = {}
+
+    def use_existing(target, base, link):
+        nonlocal bp
+        target = os.path.abspath(target)
+        res["existing"].append(target)
+        if _PER_RECORD_NAME_RE.match(base):
+            bp = bp or _import_wtune_bp()
+            if bp.is_per_record_dir(target):
+                res["per_record"][base] = target
+                res["links"].update(bp.bp_input_links(base, target))
+                return
+            res["single_multirecord"].append(target)
+        res["links"][link] = target
+
+    for st in streams:
+        ok = True
+        for name in st["names"]:
+            if "<" in name:
+                pat = _src_path(src_dir, re.sub(r"<[^>]*>", "*", name))
+                hits = sorted(set(p[:-3] if p.endswith(".bp") else p
+                                  for p in _glob.glob(pat) + _glob.glob(pat + ".bp")))
+                concrete = [os.path.relpath(p, src_dir) if not os.path.isabs(name) else p
+                            for p in hits]
+            else:
+                concrete = [name]
+            found_any = False
+            for c in concrete:
+                path = _src_path(src_dir, c)
+                base = os.path.basename(c)
+                link = base + ".bp"
+                existing = (path + ".bp" if os.path.isdir(path + ".bp")
+                            else path if os.path.isdir(path) else None)
+                if existing is not None and _PER_RECORD_NAME_RE.match(base) \
+                        and os.path.isfile(path):
+                    bp = bp or _import_wtune_bp()
+                    if not bp.is_per_record_dir(existing):
+                        existing = None         # a single multi-record BP: convert per record
+                if existing is not None:
+                    use_existing(existing, base, link)
+                elif os.path.isfile(path):
+                    todo.setdefault(os.path.dirname(os.path.abspath(path)), []).append(
+                        (base, link))
+                    res["convert"].append(os.path.abspath(path))
+                    if st["stream"] not in res["needs_convert"]:
+                        res["needs_convert"].append(st["stream"])
+                    if _PER_RECORD_NAME_RE.match(base):
+                        res["per_record"][base] = os.path.abspath(os.path.join(cache_dir, base))
+                else:
+                    continue
+                found_any = True
+            if not found_any and name in st["required"]:
+                res["missing"].append((st["stream"], name))
+                ok = False
+        status[st["stream"]] = ok
+    res["ready"] = [st["stream"] for st in streams if status[st["stream"]]]
+    if not convert or not todo:
+        return res
+    bp = bp or _import_wtune_bp()
+    bp.require_adios2_python()
+    for d in sorted(todo):
+        names = [b for b, _ in todo[d]]
+        if log:
+            log("ADIOS2 inputs: converting %s from %s into %s (BP4, cached)"
+                % (" ".join(names), d, cache_dir))
+        got = bp.convert_inputs(d, cache_dir, names=names)   # engine: wtune_bp.DEFAULT_ENGINE (BP4)
+        for base, link in todo[d]:
+            target = (got or {}).get(base)
+            if not target or not os.path.isdir(target):
+                raise RuntimeError("convert_inputs gave no BP directory for %s (got %r)"
+                                   % (os.path.join(d, base), target))
+            target = os.path.abspath(target)
+            if bp.is_per_record_dir(target):
+                res["per_record"][base] = target
+                res["links"].update(bp.bp_input_links(base, target))
+            else:
+                res["per_record"].pop(base, None)
+                res["links"][link] = target
+    return res
+
+
+def _cmd_stage_bp_inputs(argv):
+    """configs.py stage-bp-inputs CASE_ID NAMELIST SRC_DIR [--cache-dir DIR] [--check]
+    (strict_campaign.sbatch, on the compute node, python from the wtune env): resolve_bp_inputs
+    into DIR (default bp_cache_dir(CASE_ID, SRC_DIR)) and make DIR/<name>.bp point at each BP
+    input, so link_wrf_inputs/link_namelist_files find them with BP_DIR=DIR. --check: no
+    conversion and no writes (a bp_dir that already holds the .bp inputs). stdout: shell
+    assignments BP_DIR=..., WTUNE_AUX_BP_STREAMS=<aux streams available as BP>,
+    WTUNE_PER_RECORD_BP=<input names held one BP per record in DIR/<name>/<name>_<date>.bp:
+    wrfbdy/wrflowinp/wrffdda, see resolve_bp_inputs and _apply_adios2> and
+    BP_CONVERTED=<SRC_DIR netCDF names now held as BP in DIR>; log on stderr.
+    Exit 1 when wrfinput_d01/wrfbdy_d01 resolve nowhere or conversion fails."""
+    ap = argparse.ArgumentParser(prog="configs.py stage-bp-inputs")
+    ap.add_argument("case_id")
+    ap.add_argument("namelist")
+    ap.add_argument("src_dir")
+    ap.add_argument("--cache-dir", default=None)
+    ap.add_argument("--check", action="store_true")
+    a = ap.parse_args(argv)
+    with open(a.namelist) as f:
+        text = f.read()
+    cache = os.path.abspath(a.cache_dir or bp_cache_dir(a.case_id, a.src_dir))
+    err = lambda m: sys.stderr.write(m + "\n")
+    lockf = None
+    try:
+        if not a.check:
+            # several probe jobs of one case start together: one converts and links, the others
+            # block here (lockf: NFS/GPFS-safe across nodes), then find the manifest current
+            import fcntl
+            os.makedirs(cache, exist_ok=True)
+            lockf = open(os.path.join(cache, ".stage.lock"), "a")
+            fcntl.lockf(lockf, fcntl.LOCK_EX)
+        return _stage_bp_inputs_locked(a, text, cache, err)
+    except Exception as e:                     # ImportError/RuntimeError/OSError from the converter
+        err("FATAL: ADIOS2 input staging failed for %s: %s: %s" % (a.case_id, type(e).__name__, e))
+        return 1
+    finally:
+        if lockf is not None:
+            lockf.close()                      # closing the fd releases the lockf lock
+
+
+def _link_idempotent(dst, target):
+    """dst -> target symlink; an existing identical link is kept, a stale link replaced, a real
+    file/dir is refused (never deleted). dst == target (a cache entry itself) is a no-op."""
+    if os.path.abspath(dst) == os.path.abspath(target):
+        return
+    if os.path.islink(dst):
+        if os.readlink(dst) == target:
+            return
+        os.remove(dst)
+    elif os.path.lexists(dst):
+        raise RuntimeError("%s exists and is not a link -- refusing to replace it" % dst)
+    os.symlink(target, dst)
+
+
+def _stage_bp_inputs_locked(a, text, cache, err):
+    res = resolve_bp_inputs(text, a.src_dir, cache, convert=not a.check, log=err)
+    for stream, name in res["missing"]:
+        err("WARNING: %s input %s found nowhere in %s (neither netCDF nor .bp)"
+            % (stream, name, a.src_dir))
+    if not {"input", "boundary"} <= set(res["ready"]):
+        err("FATAL: wrfinput/wrfbdy not available as ADIOS2 inputs for %s" % a.case_id)
+        return 1
+    if a.check:
+        for p in res["convert"]:
+            err("WARNING: %s is netCDF only (no .bp next to it) -- its stream stays netCDF" % p)
+        if {"input", "boundary"} & set(res["needs_convert"]):
+            err("FATAL: --check: wrfinput/wrfbdy are not all BP in %s" % a.src_dir)
+            return 1
+        aux = [s for s in res["ready"]
+               if s not in ("input", "boundary") and s not in res["needs_convert"]]
+    else:
+        containers = set(res["per_record"].values())
+        for link, target in sorted(res["links"].items()):
+            if os.path.dirname(target) in containers:
+                continue                       # a record file: reached via its container below
+            _link_idempotent(os.path.join(cache, link), target)
+            err("BP input %s -> %s" % (link, target))
+        for name, target in sorted(res["per_record"].items()):
+            # cache/<name> IS the container when converted here (no-op); an existing per-record
+            # dir elsewhere gets a cache/<name> link, so link_wrf_inputs finds every container
+            # as $BP_DIR/<name>
+            _link_idempotent(os.path.join(cache, name), target)
+            err("BP input %s -> %s (per record, %d files)"
+                % (name, target, sum(1 for t in res["links"].values()
+                                     if os.path.dirname(t) == target)))
+        aux = [s for s in res["ready"] if s not in ("input", "boundary")]
+    for target in res["single_multirecord"]:
+        err("WARNING: %s is a single multi-record BP: WRF 4.8's ADIOS2 reader returns its FIRST "
+            "record for every boundary/SST/FDDA read -- convert the netCDF per record instead "
+            "(wtune convert inputs)" % target)
+    per_record = sorted(n for n, t in res["per_record"].items() if os.path.isdir(t))
+    src = os.path.realpath(a.src_dir)
+    print("BP_DIR=%s" % _shq(cache))
+    print("WTUNE_AUX_BP_STREAMS=%s" % _shq(",".join(aux)))
+    print("WTUNE_PER_RECORD_BP=%s" % _shq(" ".join(per_record)))
+    print("BP_CONVERTED=%s" % _shq(" ".join(
+        os.path.basename(p) for p in res["convert"]
+        if os.path.realpath(os.path.dirname(p)) == src and not a.check)))
+    return 0
+
+
+def _shq(v):
+    return "'%s'" % str(v).replace("'", "'\\''")
 
 
 def _cmd_link_namelist_files(argv):
@@ -2431,7 +2927,8 @@ def main(argv=None):
             "physics-describe CASE_ID TEMPLATE_ID | "
             "fidelity-tokens FIDELITY_JSON | "
             "quota-free-gib [--filesystem home1] (reads mmlsquota text on stdin) | "
-            "link-namelist-files NAMELIST RUN_DIR SEARCH_DIR...\n"
+            "link-namelist-files NAMELIST RUN_DIR SEARCH_DIR... | "
+            "stage-bp-inputs CASE_ID NAMELIST SRC_DIR [--cache-dir DIR] [--check]\n"
             "CONFIG_FILE=path.json env (predictor/decomp_space.py to_campaign_configs/sample "
             "output): CASE_ID and order CASE_ID measure that generated config set instead of "
             "the fixed C01-C16 STRICT templates, and decomp-pair resolves DECOMP/TWIN_DECOMP "
@@ -2451,6 +2948,8 @@ def main(argv=None):
         return _cmd_quota_free_gib(argv[1:])
     if argv[0] == "link-namelist-files":
         return _cmd_link_namelist_files(argv[1:])
+    if argv[0] == "stage-bp-inputs":
+        return _cmd_stage_bp_inputs(argv[1:])
     if argv[0] == "physics-list":
         return cmd_physics_list(argv[1:])
     if argv[0] == "physics-order":

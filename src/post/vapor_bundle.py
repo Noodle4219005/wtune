@@ -33,6 +33,16 @@ ncks is not guaranteed there). Extracting is new disk, so it obeys the same rule
 with allow_copy. Without it the domain is refused BEFORE anything is written (NotHardLinkable,
 message naming the multi-frame files and the exact --allow-copy command with an estimated size),
 so the always-on recipe path reports the bundle as missing instead of linking wrong files.
+
+ADIOS2 BP history (io_form_history=14): VAPOR's WRF reader needs netCDF, and a BP directory
+cannot be linked as one. Decision: the bundle is built from post.extract's netCDF cache copies
+(the frame index already resolves BP history to them) -- hard-linked from the cache under the
+same rule as above (same filesystem: no disk beyond the cache itself; otherwise only with
+allow_copy), never re-converted here. The manifest records each frame's BP directory as
+"native", link_note says the source is the cache, and the README states that the run's native
+history was ADIOS2 and these are converted copies (a later reconversion replaces the cache file,
+so the bundle keeps the old copy until it is rebuilt; deleting the cache frees nothing while the
+bundle still links it).
 """
 from __future__ import annotations
 
@@ -128,9 +138,8 @@ _README = """\
 rsync -av scc:{bundle_dir}/ ./
 ```
 
-hard link 的檔案在 rsync 時照常傳完整內容；本機不需要 scc 上的原始 run。hard link 與 run 的原始
-wrfout 是同一份資料：之後若就地改寫原檔，bundle 內容也會跟著變。
-
+hard link 的檔案在 rsync 時照常傳完整內容；本機不需要 scc 上的原始 run。{link_detail}
+{native_section}
 ## 2. 安裝 VAPOR（x86_64 Linux / macOS）
 
 ```
@@ -173,16 +182,42 @@ python {script} --iso-cloud 2e-4 --iso-ice 1e-5 --width 1920 --height 1080
 """
 
 
+_NATIVE_BP = """
+## 原生 history 是 ADIOS2 BP，這裡是轉出的 netCDF 複本
+
+這個 run 的 history 原生格式是 ADIOS2 BP（`io_form_history=14`），VAPOR 讀不了 BP。bundle 內的
+wrfout 是 `wtune post` 以 `src/tools/wrf_adios2_to_netcdf4/` 轉出的 netCDF4 **複本**，取自 netCDF
+cache（{cache_dirs}），不是 run 目錄裡的原始檔；每個檔案對應的 BP 目錄記在 `{manifest}` 的
+`native` 欄位。
+
+- 同一檔案系統上，bundle 檔是 cache 轉檔的 hard link（不另佔空間）；此時刪掉 cache 並不會釋放
+  這些空間，要連 bundle 一起刪。跨檔案系統時與上面相同：只有 `--allow-copy` 才複製。
+- BP 之後若被改寫，cache 會以新的轉檔整個取代（不是就地改寫），bundle 內仍是舊版：重跑
+  `wtune post vapor-bundle` 才會更新。
+"""
+
+
 def _write_readme(path, bundle_dir, run_dir, run_label, domain, frames, cadence, link_note,
                   created):
-    rows = "".join("| `%s` | wrfout，valid time %s |\n" % (f["name"], f["valid_time"])
-                   for f in frames)
+    rows = "".join("| `%s` | wrfout%s，valid time %s |\n" % (
+        f["name"], "（ADIOS2 BP 轉出的 netCDF 複本）" if f.get("native") else "", f["valid_time"])
+        for f in frames)
+    native = [f for f in frames if f.get("native")]
+    if native:
+        link_detail = "bundle 內的檔案來自 netCDF cache，不是 run 的原始 history（見下節）。"
+        native_section = _NATIVE_BP.format(manifest=MANIFEST_NAME, cache_dirs="、".join(
+            "`%s`" % d for d in sorted(set(os.path.dirname(f["original"]) for f in native))))
+    else:
+        link_detail = ("hard link 與 run 的原始\nwrfout 是同一份資料：之後若就地改寫原檔，"
+                       "bundle 內容也會跟著變。")
+        native_section = ""
     with open(path, "w", encoding="utf-8") as fh:
         fh.write(_README.format(run_label=run_label, domain=domain, created=created,
                                 file_rows=rows, script=SCRIPT_NAME, manifest=MANIFEST_NAME,
                                 run_dir=os.path.abspath(run_dir), n=len(frames),
                                 cadence=cadence, link_note=link_note,
-                                bundle_dir=os.path.abspath(bundle_dir)))
+                                bundle_dir=os.path.abspath(bundle_dir),
+                                link_detail=link_detail, native_section=native_section))
 
 
 def _ntimes(path):
@@ -261,6 +296,7 @@ def build_bundle(run_dir, out_root, domain, every=None, times=None, run_label=No
     first frame (the cross-filesystem case) therefore leaves the disk exactly as it was; a
     refusal on a later frame (e.g. EMLINK) can only have replaced earlier frames' links."""
     from post.cf_pressure import select_frames
+    from post.extract import bp_origin
 
     selected = select_frames(run_dir, domain, every=every, times=times)
     if not selected:
@@ -298,7 +334,8 @@ def build_bundle(run_dir, out_root, domain, every=None, times=None, run_label=No
             written.append(dst)
         frames.append(dict(original=os.path.abspath(src), name=name, valid_time=t,
                            timeidx=timeidx, size_bytes=os.path.getsize(dst),
-                           mode="hardlink" if mode == "kept" else mode))
+                           mode="hardlink" if mode == "kept" else mode,
+                           native=bp_origin(src)))     # the BP dir of a converted copy, or None
 
     # a frame left over from an earlier, different --every selection would silently join the
     # time series VAPOR builds from the wrfout_* file list -- only this domain's frames, which
@@ -313,6 +350,8 @@ def build_bundle(run_dir, out_root, domain, every=None, times=None, run_label=No
     link_note = ("hard-linked (no extra space)" if not copied else
                  "copied (%s)" % _human(copied) if copied == total else
                  "partly copied (%s copied, the rest hard-linked)" % _human(copied))
+    if any(f["native"] for f in frames):
+        link_note += ", from the netCDF cache of the run's ADIOS2 BP history"
 
     shutil.copy2(SCRIPT_SRC, os.path.join(bundle_dir, SCRIPT_NAME))
     created = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")

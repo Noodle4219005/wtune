@@ -209,12 +209,48 @@ def _tc_centre_from_track(hurdat2_path, storm_id, bdeck_path, run_dir):
     return nearest[1], nearest[2]
 
 
-def run_recipe(run_dirs, out_dir, types_override=None, ensemble=False, spinup_hours=6,
-              hurdat2_path=None, storm_id=None, bdeck_path=None, ebtrk_path=None,
-              labels=None, paraview=True, decomposition_only=False, title=None,
-              every=None, times=None, cross_sections=None, animate=False,
-              xsec_top_km=None, xsec_halfwidth_km=None, project_dir=None, spinup_days=None,
-              track_smooth_km=None):
+def run_recipe(run_dirs, out_dir, **kwargs):
+    """ADIOS2 BP history first (post.extract.prepare_history): every run's BP directories are
+    converted to (or validated in) the netCDF cache -- <project>/_nc_cache, else
+    <out_dir>/_nc_cache, unless the CLI/--nc-cache/$WTUNE_NC_CACHE chose already -- before any
+    figure set looks at a frame. A run whose BP history cannot be converted at all (adios2
+    missing) gives a report with ONE missing entry naming the fix instead of a traceback from
+    whichever recipe touched a frame first; single files that failed to convert become notes.
+    Then _run_recipe (the pipeline below)."""
+    from post import extract
+    labels = kwargs.get("labels") or [("run%d" % i) for i in range(len(run_dirs))]
+    with extract.nc_cache(base=kwargs.get("project_dir") or out_dir):
+        gaps, bp_notes = [], []
+        for run_dir, label in zip(run_dirs, labels):
+            try:
+                prep = extract.prepare_history(run_dir)
+            except extract.BPConversionError as e:
+                gaps.append(missing("common_history_netcdf", "ADIOS2 BP history -> netCDF",
+                                    str(e), run=label))
+                continue
+            for bp, err in prep["failed"]:
+                bp_notes.append(note("history", "%s: %s not converted to netCDF, its frames "
+                                     "are left out: %s" % (label, bp, err)))
+        if gaps:
+            os.makedirs(out_dir, exist_ok=True)
+            from post.report import build_recipe_report
+            case_info = dict(types=["common"], evidence={}, run_length_h=0.0,
+                             d01_extent_km=(0.0, 0.0), domains=[])
+            report_path = build_recipe_report(
+                out_dir, case_info, gaps, run_dirs, labels, kwargs.get("spinup_hours", 6),
+                load_catalog(), title=kwargs.get("title"),
+                notes=[{k: n[k] for k in ("source", "level", "text")} for n in bp_notes])
+            return dict(out_dir=out_dir, case_info=case_info, figures=gaps,
+                        notes=bp_notes, report_path=report_path, advice=None)
+        return _run_recipe(run_dirs, out_dir, pre_notes=bp_notes, **kwargs)
+
+
+def _run_recipe(run_dirs, out_dir, types_override=None, ensemble=False, spinup_hours=6,
+                hurdat2_path=None, storm_id=None, bdeck_path=None, ebtrk_path=None,
+                labels=None, paraview=True, decomposition_only=False, title=None,
+                every=None, times=None, cross_sections=None, animate=False,
+                xsec_top_km=None, xsec_halfwidth_km=None, project_dir=None, spinup_days=None,
+                track_smooth_km=None, pre_notes=None):
     """Full `wtune post recipe` pipeline. Returns {"out_dir", "case_info", "figures",
     "notes", "report_path"}. notes = [{"source", "level", "text"}] hints collected from any recipe
     module (note()); they are not figures and not missing observations.
@@ -248,7 +284,7 @@ def run_recipe(run_dirs, out_dir, types_override=None, ensemble=False, spinup_ho
     types = case_info["types"]
     cross_sections = cross_sections or {}
 
-    all_figures = []
+    all_figures = list(pre_notes or [])     # note() entries from run_recipe's BP conversion
     all_figures += common_mod.figures(run_dirs, labels, out_dir, case_info,
                                       decomposition_only=decomposition_only)
     all_figures += _cf3d_data(run_dirs[0], labels[0], out_dir, case_info, every, times)

@@ -2841,6 +2841,13 @@ def write_rebuilt_case_entry(case, case_entry, index, point, plan, plan_dir, spi
             os.symlink(os.path.join(orig_prep, name), dst)
     case_id = rebuilt_case_id(case, index)
     entry = copy.deepcopy(case_entry)
+    # bp_dir="" (2026-10-03, ADIOS2 for every input stream): real.exe keeps writing netCDF
+    # wrfinput/wrfbdy -- this function, wtune_predict.read_wrfinput_sample_points and the state
+    # tools read them as netCDF, and a WRF-written BP5 file is not readable by WRF's own reader
+    # (restart, job 1273), so real.exe ADIOS2 output would also need a BP4 adios2.xml in the real
+    # dir. Instead strict_campaign.sbatch converts this prep_dir once into its BP cache
+    # (configs.py stage-bp-inputs, keyed by prep_dir, lock-serialized across the point's jobs) and
+    # every probe of the point runs all-ADIOS2.
     entry.update(prep_dir=os.path.abspath(real_dir), bp_dir="", namelist_template=template,
                  steps=int(steps if steps is not None else rebuilt_steps(stepra)), enabled=True,
                  rebuilt_from=case, rebuilt_point_at=point.at.isoformat(),

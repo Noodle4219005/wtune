@@ -104,6 +104,8 @@ def test_compare_no_common_frames(tmp_path, monkeypatch):
 
 
 def test_compare_adios2_bp_input_raises_clear_error(tmp_path, monkeypatch):
+    from test_post_inventory import _no_bp_converter
+    _no_bp_converter(monkeypatch)
     monkeypatch.setattr(tools, "find_diffwrf", lambda: "/fake/diffwrf")
     a, b = tmp_path / "a", tmp_path / "b"
     a.mkdir(); b.mkdir()

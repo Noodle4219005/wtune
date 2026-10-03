@@ -1845,6 +1845,10 @@ def main():
     p_scenario = sub.add_parser('scenario', help='pluggable scenario generators for fictional-date WRF forcing (scenario/cli.py): list | generate | inspect')
     p_scenario.add_argument('scenario_args', nargs=argparse.REMAINDER, help='forwarded to scenario/cli.py')
 
+    p_convert = sub.add_parser('convert', help='WRF netCDF <-> ADIOS2 BP (io_form 14) conversion (wtune_bp.py): '
+                                               'nc2bp | bp2nc | inputs (cached, manifest) [--check round trip]')
+    p_convert.add_argument('convert_args', nargs=argparse.REMAINDER, help='forwarded to wtune_bp.py')
+
     args = parser.parse_args()
     if args.command == 'calc':
         import wtune_calc
@@ -1905,6 +1909,10 @@ def main():
     if args.command == 'scenario':
         from scenario import cli as scenario_cli
         sys.exit(scenario_cli.main(args.scenario_args))
+
+    if args.command == 'convert':
+        import wtune_bp
+        sys.exit(wtune_bp.main(args.convert_args))
 
     if args.command == 'plan':
         plan(args)

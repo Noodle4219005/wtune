@@ -7,11 +7,86 @@ import os
 import re
 import subprocess
 
+import sys
+import types
+
 import pytest
 
 import wtune_predict as wp
 import wtune_run as wr
 import wtune_watch
+
+
+def _load_real_bp():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "wtune_bp_real", os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(
+            __file__))), "src", "wtune_bp.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+REAL_BP = _load_real_bp()        # its per-record helpers (stdlib only, no adios2) are used as-is
+
+
+def _mk_bp(path):
+    """A directory wtune_bp.is_bp recognizes (BP4: md.idx + data.0)."""
+    os.makedirs(path, exist_ok=True)
+    for f in ("md.idx", "data.0"):
+        open(os.path.join(path, f), "w").close()
+
+
+class FakeBP:
+    """Stand-in for src/wtune_bp (the converter module): convert_inputs makes cache_dir/<name>
+    BP directories (its real output naming; wrfbdy/wrflowinp/wrffdda as per-record containers of
+    <name>_<date>.bp, dates from `records`) and records the call; no adios2 anywhere. The
+    per-record helpers are the real module's."""
+    XML = '<?xml version="1.0"?>\n<!-- wtune -->\n<adios-config>\n</adios-config>\n'
+    DEFAULT_RECORDS = ["2020-06-01_00:00:00", "2020-06-01_06:00:00", "2020-06-01_12:00:00"]
+
+    def __init__(self):
+        self.calls = []
+        self.fail = None
+        self.records = {}
+
+    def module(self):
+        m = types.ModuleType("wtune_bp")
+        m.ADIOS2_IO_FORM = 14
+        m.require_adios2_python = self.require_adios2_python
+        m.convert_inputs = self.convert_inputs
+        m.adios2_xml = lambda engine_by_stream=None: self.XML
+        m.is_bp = os.path.isdir
+        for name in ("PER_RECORD_NAME_RE", "is_per_record_dir", "record_files",
+                     "bp_input_links", "per_record_namelist_edits"):
+            setattr(m, name, getattr(REAL_BP, name))
+        return m
+
+    def require_adios2_python(self):
+        if self.fail:
+            raise RuntimeError(self.fail)
+        return "/fake/adios2/python"
+
+    def convert_inputs(self, case_dir, cache_dir, names=None, engine="BP4"):
+        self.calls.append((case_dir, cache_dir, list(names), engine))
+        out = {}
+        for n in names:
+            p = os.path.join(cache_dir, n)
+            if REAL_BP.PER_RECORD_NAME_RE.match(n):
+                for t in self.records.get(n, self.DEFAULT_RECORDS):
+                    _mk_bp(os.path.join(p, "%s_%s.bp" % (n, t)))
+            else:
+                _mk_bp(p)
+            out[n] = p
+        return out
+
+
+@pytest.fixture(autouse=True)
+def fake_bp(monkeypatch):
+    fb = FakeBP()
+    monkeypatch.setitem(sys.modules, "wtune_bp", fb.module())
+    monkeypatch.delenv("WTUNE_PROJECT", raising=False)
+    return fb
 
 NAMELIST_3DOM = """ &time_control
  run_days                            = 0,
@@ -594,9 +669,13 @@ def test_dry_run_submits_nothing(tmp_path):
     out = tmp_path / "out"
     lines = []
     rc = wr.main([str(case), "--nodes", "1", "--nx", "8", "--ny", "9", "--wall-limit", "02:00:00",
-                  "--segment-minutes", "240", "--out", str(out), "--dry-run"], sbatch_runner=boom, sacct_runner=boom,
+                  "--segment-minutes", "480", "--out", str(out), "--dry-run"], sbatch_runner=boom, sacct_runner=boom,
                  snapshot_fn=boom, log=lines.append)
     assert rc == 0 and not out.exists()
+    # per-record wrfbdy (interval_seconds 6 h): 480 min is cut down to the 360-min record grid
+    assert "2 segment(s) cut on input record times (multiples of 06:00:00: interval_seconds " \
+           "06:00:00)" in lines[0]
+    assert any("--segment-minutes 480 rounded down to 360" in ln for ln in lines)
     assert any(ln.startswith("namelist diff, segment 0") for ln in lines)
     assert any(ln.startswith("namelist diff, segment 1") for ln in lines)
     assert any(re.search(r"seg 0 .*--time=", ln) for ln in lines)
@@ -751,3 +830,307 @@ def test_missing_iofields_is_a_plan_warning(tmp_path):
     warn = [ln for ln in lines if "WARNING" in ln]
     assert len(warn) == 1 and "iofields_d01.txt" in warn[0]
     assert "hangs at input_input" in warn[0]
+
+
+# ---------------------------------------------------------------------------
+# ADIOS2 I/O (default since 2026-10-03; --io netcdf = legacy escape)
+# ---------------------------------------------------------------------------
+NAMELIST_AUX = NAMELIST_3DOM.replace(
+    " &physics\n", " &physics\n sst_update = 1,\n").replace(
+    " io_form_boundary                    = 2\n",
+    " io_form_boundary                    = 2\n auxinput4_inname = \"wrflowinp_d<domain>\",\n"
+    " io_form_auxinput4 = 2,\n auxinput4_interval = 360, 360, 360,\n") + (
+    " &fdda\n grid_fdda = 1, 0, 0,\n gfdda_inname = \"wrffdda_d<domain>\",\n"
+    " io_form_gfdda = 2,\n /\n")
+
+
+def _streams(text):
+    return [st for st in wr.sweep.campaign_configs.adios2_input_streams(text)]
+
+
+def test_adios2_streams_of_case_with_sst_update_and_fdda():
+    sts = {st["stream"]: st for st in _streams(NAMELIST_AUX)}
+    assert list(sts) == ["input", "boundary", "auxinput4", "gfdda"]
+    assert sts["input"]["names"] == ["wrfinput_d01", "wrfinput_d02", "wrfinput_d03"]
+    assert sts["input"]["required"] == ["wrfinput_d01"]
+    assert sts["boundary"]["names"] == ["wrfbdy_d01"]
+    assert sts["auxinput4"]["inname"] == "wrflowinp_d<domain>.bp"
+    assert sts["gfdda"]["names"] == ["wrffdda_d01"] and sts["gfdda"]["group"] == "fdda"
+    assert [st["stream"] for st in _streams(NAMELIST_3DOM)] == ["input", "boundary"]
+
+
+def test_namelist_adios2_every_io_form_14_and_bp_innames():
+    cfg = _cfg()
+    txt = wr.render_segment_namelist(NAMELIST_AUX, _dt("2020-06-01_00:00:00"),
+                                     _dt("2020-06-01_06:00:00"), 0, cfg, 360,
+                                     io_streams=_streams(NAMELIST_AUX))
+    for key in ("io_form_history", "io_form_restart", "io_form_input", "io_form_boundary",
+                "io_form_auxinput4", "io_form_gfdda"):
+        assert re.search(r"(?m)^\s*%s\s*=\s*14\s*,?\s*$" % key, txt), key
+        assert not re.search(r"(?m)^\s*%s\s*=\s*2\b" % key, txt), key
+    for key, name in (("input_inname", "wrfinput_d<domain>.bp"),
+                      ("bdy_inname", "wrfbdy_d<domain>.bp"),
+                      ("auxinput4_inname", "wrflowinp_d<domain>.bp"),
+                      ("gfdda_inname", "wrffdda_d<domain>.bp")):
+        assert len(re.findall(r'(?m)^\s*%s\s*=\s*"%s"' % (key, re.escape(name)), txt)) == 1, key
+    fdda = txt[txt.index("&fdda"):]
+    assert "io_form_gfdda" in fdda.split("/")[0] and "gfdda_inname" in fdda.split("/")[0]
+    assert re.search(r"(?ms)^&namelist_adios2\s*\n\s*adios2_numaggregators = %d," % cfg["ranks"],
+                     txt)
+
+
+def test_namelist_netcdf_legacy_keeps_case_io_forms():
+    txt = wr.render_segment_namelist(NAMELIST_AUX, _dt("2020-06-01_00:00:00"),
+                                     _dt("2020-06-01_06:00:00"), 0, _cfg(), 360)
+    for key in ("io_form_history", "io_form_input", "io_form_boundary", "io_form_auxinput4",
+                "io_form_gfdda"):
+        assert re.search(r"(?m)^\s*%s\s*=\s*2\b" % key, txt), key
+    assert "input_inname" not in txt and "adios2_numaggregators" not in txt
+
+
+def test_run_adios2_default_converts_once_links_bp_inputs_and_writes_xml(tmp_path, fake_bp):
+    case = _make_case(tmp_path)                 # wrfinput_d01/d02 + wrfbdy_d01 netCDF, d03 .bp
+    before = _tree_state(case)
+    f = Fakes()
+    rc, out, rep, lines = _run(tmp_path, f)
+    assert rc == 0 and rep["status"] == "completed"
+    cache = out / "_bp_inputs"
+    assert fake_bp.calls == [(str(case), str(cache), ["wrfinput_d01", "wrfinput_d02",
+                                                      "wrfbdy_d01"], "BP4")]
+    io_line = [ln for ln in lines if ln.startswith("I/O:")]
+    assert io_line == ["I/O: ADIOS2 (history/restart/input/boundary), inputs from %s "
+                       "(3 netCDF -> BP4, 1 existing BP); one BP per record: wrfbdy_d01" % cache]
+    for seg in ("seg_0", "seg_1"):
+        d = out / seg
+        assert os.readlink(d / "wrfinput_d01.bp") == str(cache / "wrfinput_d01")
+        assert os.readlink(d / "wrfinput_d02.bp") == str(cache / "wrfinput_d02")
+        assert os.readlink(d / "wrfinput_d03.bp") == str(case / "wrfinput_d03.bp")
+        # per-record wrfbdy: one link per record file, never the container itself
+        assert not os.path.lexists(d / "wrfbdy_d01.bp")
+        for t in FakeBP.DEFAULT_RECORDS:
+            rec = "wrfbdy_d01_%s.bp" % t
+            assert os.readlink(d / rec) == str(cache / "wrfbdy_d01" / rec)
+        nl = (d / "namelist.input").read_text()
+        for key in ("io_form_history", "io_form_restart", "io_form_input", "io_form_boundary"):
+            assert re.search(r"(?m)^\s*%s\s*=\s*14\b" % key, nl), (seg, key)
+        assert 'input_inname = "wrfinput_d<domain>.bp"' in nl
+        assert re.findall(r"(?m)^\s*bdy_inname\s*=\s*(.*)$", nl) == ['"wrfbdy_d<domain>_<date>.bp",']
+        bdy = wp.parse_namelist(str(d / "namelist.input"))["bdy_control"]
+        assert bdy["multi_bdy_files"] == [True]
+        xml = (d / "adios2.xml").read_text()
+        assert xml.count("<adios-config>") == 1 and "wrfrst_d01_2020-06-01_06:00:00" in xml
+    # the case's own adios2.xml ("x") is not XML: segments get wtune_bp's + the restart entries
+    assert rep["io"]["mode"] == "adios2" and rep["io"]["bp_cache"] == str(cache)
+    assert _tree_state(case) == before
+
+
+def test_run_adios2_aux_streams_converted_and_switched(tmp_path, fake_bp):
+    case = _make_case(tmp_path, NAMELIST_AUX)
+    for n in ("wrflowinp_d01", "wrflowinp_d02", "wrflowinp_d03", "wrffdda_d01"):
+        (case / n).write_text("x")
+    rc, out, rep, lines = _run(tmp_path, Fakes())
+    assert rc == 0
+    names = fake_bp.calls[0][2]
+    assert names[-4:] == ["wrflowinp_d01", "wrflowinp_d02", "wrflowinp_d03", "wrffdda_d01"]
+    assert any(ln.startswith("I/O: ADIOS2 (history/restart/input/boundary/aux4/gfdda)")
+               for ln in lines)
+    nl = (out / "seg_0" / "namelist.input").read_text()
+    assert re.search(r"(?m)^\s*io_form_auxinput4\s*=\s*14\b", nl)
+    assert re.search(r"(?m)^\s*io_form_gfdda\s*=\s*14\b", nl)
+    for seg in ("seg_0", "seg_1"):
+        for n in ("wrflowinp_d02", "wrffdda_d01", "wrfbdy_d01"):
+            rec = "%s_2020-06-01_06:00:00.bp" % n
+            assert os.readlink(out / seg / rec) == str(out / "_bp_inputs" / n / rec)
+        nl = (out / seg / "namelist.input").read_text()
+        assert 'auxinput4_inname = "wrflowinp_d<domain>_<date>.bp",' in nl
+        assert 'gfdda_inname = "wrffdda_d<domain>_<date>.bp",' in nl
+        tc = wp.parse_namelist(str(out / seg / "namelist.input"))["time_control"]
+        assert tc["frames_per_auxinput4"] == [1, 1, 1] and tc["frames_per_auxinput10"] == [1, 1, 1]
+
+
+def test_run_adios2_missing_aux_file_keeps_that_stream_netcdf(tmp_path, fake_bp):
+    _make_case(tmp_path, NAMELIST_AUX)                       # no wrflowinp/wrffdda at all
+    lines = []
+    rc = wr.main([str(tmp_path / "case"), "--nodes", "1", "--nx", "8", "--ny", "9",
+                  "--out", str(tmp_path / "o"), "--dry-run"], log=lines.append)
+    assert rc == 0 and fake_bp.calls == []                  # dry run converts nothing
+    assert any("aux input stream auxinput4 keeps the case's own (netCDF) io_form" in ln
+               for ln in lines)
+    assert any(ln.startswith("I/O: ADIOS2 (history/restart/input/boundary),") for ln in lines)
+    assert any(re.search(r"\+\s*io_form_input\s*=\s*14", ln) for ln in lines)
+    assert not any(re.search(r"\+.*io_form_auxinput4", ln) for ln in lines)
+
+
+def test_run_io_netcdf_is_the_legacy_escape(tmp_path, fake_bp):
+    rc, out, rep, lines = _run(tmp_path, Fakes(), extra=["--io", "netcdf"])
+    assert rc == 0 and fake_bp.calls == []
+    assert any(ln.startswith("WARNING: --io netcdf is the LEGACY") for ln in lines)
+    assert any(ln.startswith("I/O: LEGACY netCDF") for ln in lines)
+    nl = (out / "seg_0" / "namelist.input").read_text()
+    assert re.search(r"(?m)^\s*io_form_input\s*=\s*2\b", nl) and "input_inname" not in nl
+    assert not os.path.lexists(out / "seg_0" / "wrfinput_d01.bp")
+    assert rep["io"] == {"mode": "netcdf"}
+
+
+def test_run_converter_failure_stops_before_any_submission(tmp_path, fake_bp, capsys):
+    fake_bp.fail = "no Python that can `import adios2`"
+    f = Fakes()
+    rc, out, rep, _ = _run(tmp_path, f)
+    assert rc == 2 and f.submitted == [] and rep is None
+    assert "ADIOS2 input staging failed" in capsys.readouterr().err
+
+
+def test_bp_cache_under_project_input_bp(tmp_path, monkeypatch):
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    (proj / "project.yaml").write_text("name: p\n")
+    monkeypatch.setenv("WTUNE_PROJECT", str(proj))
+    assert wr.bp_cache_dir(str(tmp_path / "out")) == str(proj / "input" / "bp")
+    monkeypatch.delenv("WTUNE_PROJECT")
+    monkeypatch.chdir(tmp_path)
+    assert wr.bp_cache_dir(str(tmp_path / "out")) == str(tmp_path / "out" / "_bp_inputs")
+
+
+def test_merge_adios2_xml_dedupes_io_names():
+    base = ('<?xml version="1.0"?>\n<adios-config>\n  <io name="wrfrst_d01_X">\n'
+            '    <engine type="BP5"/>\n  </io>\n</adios-config>\n')
+    extra = ('<?xml version="1.0"?>\n<adios-config>\n  <io name="wrfrst_d01_X">\n'
+             '    <engine type="BP4"/>\n  </io>\n  <io name="a">\n  </io>\n</adios-config>\n')
+    out = wr.merge_adios2_xml(base, extra)
+    assert out.count('name="wrfrst_d01_X"') == 1 and 'name="a"' in out
+    xml = wr.render_adios2_restart_xml(["X"], 1, out)
+    assert xml.count('name="wrfrst_d01_X"') == 1
+
+
+# ---------------------------------------------------------------------------
+# per-record ADIOS2 inputs (WRF 4.8's ADIOS2 reader returns record 1 of a multi-record BP): one
+# BP per record, named by WRF's clock time -> every segment cut on an input record time
+# ---------------------------------------------------------------------------
+def test_record_alignment_lcm_of_boundary_and_sst_intervals(tmp_path):
+    g = _geo(tmp_path)
+    nl = _nl_from_text(tmp_path, NAMELIST_AUX.replace("auxinput4_interval = 360, 360, 360",
+                                                      "auxinput4_interval = 240, 240, 240"))
+    a = wr.input_record_alignment(nl, g, ["wrfbdy_d01", "wrflowinp_d01", "wrflowinp_d02"])
+    assert (a["steps"], a["seconds"]) == (720, 43200.0)          # lcm(6 h, 4 h) = 12 h
+    assert a["label"] == "interval_seconds 06:00:00 + auxinput4_interval 04:00:00"
+    b = wr.input_record_alignment(nl, g, ["wrfbdy_d01"])
+    assert (b["steps"], b["seconds"]) == (360, 21600.0)
+    assert wr.input_record_alignment(nl, g, ["wrfinput_d01"]) is None
+    assert wr.input_record_alignment(nl, g, []) is None
+
+
+def test_plan_segment_minutes_rounded_down_to_record_grid(tmp_path):
+    g = _geo(tmp_path)
+    comp, over = _synthetic_model(g)
+    cand = [{"config": _cfg(), "compute": comp}]
+    align = {"steps": 360, "seconds": 21600.0, "label": "interval_seconds 06:00:00"}
+    notes = []
+    L, segs = wr.plan_run(g, 720, cand, over, segment_minutes=500, align=align, notes=notes)
+    assert L == 360 and [(s["start_step"], s["end_step"]) for s in segs] == [(0, 360), (360, 720)]
+    assert notes == ["--segment-minutes 500 rounded down to 360: segment cuts must fall on input "
+                     "record times (interval_seconds 06:00:00, every 06:00:00 from the run start)"]
+    notes = []
+    L, _ = wr.plan_run(g, 720, cand, over, segment_minutes=360, align=align, notes=notes)
+    assert L == 360 and notes == []                              # already on the grid: no note
+    L, segs = wr.plan_run(g, 720, cand, over, segment_minutes=720, align=align)
+    assert L is None and len(segs) == 1                          # one segment: no cut at all
+    with pytest.raises(wr.RunError, match=r"--segment-minutes 180 is shorter than one input "
+                                          r"record interval.*every 06:00:00.*--segment-minutes 360"):
+        wr.plan_run(g, 720, cand, over, segment_minutes=180, align=align)
+
+
+def test_plan_wall_limit_searches_only_record_multiples(tmp_path):
+    g = _geo(tmp_path)
+    comp, over = _synthetic_model(g)
+    cand = [{"config": _cfg(), "compute": comp}]
+    align = {"steps": 240, "seconds": 14400.0, "label": "interval_seconds 04:00:00"}
+    free, _ = wr.plan_run(g, 720, cand, over, wall_limit_s=1000.0)
+    L, segs = wr.plan_run(g, 720, cand, over, wall_limit_s=1000.0, align=align)
+    assert free % 240 and L == free // 240 * 240           # the largest record multiple that fits
+    assert all(s["start_step"] % 240 == 0 for s in segs)
+    with pytest.raises(wr.RunError, match="segment cuts must fall on input record times"):
+        wr.plan_run(g, 720, cand, over, wall_limit_s=10.0, align=align)
+
+
+def test_run_segment_minutes_shorter_than_boundary_interval_is_a_clear_error(tmp_path, capsys):
+    case = _make_case(tmp_path)
+    rc = wr.main([str(case), "--nodes", "1", "--nx", "8", "--ny", "9", "--segment-minutes", "180",
+                  "--out", str(tmp_path / "o"), "--dry-run"], log=lambda s: None)
+    err = capsys.readouterr().err
+    assert rc == 2 and "--segment-minutes 180 is shorter than one input record interval" in err
+    # the legacy netCDF path has no record grid
+    assert wr.main([str(case), "--nodes", "1", "--nx", "8", "--ny", "9", "--segment-minutes",
+                    "180", "--io", "netcdf", "--out", str(tmp_path / "o"), "--dry-run"],
+                   log=lambda s: None) == 0
+
+
+def test_run_sst_update_cuts_on_lcm_and_links_every_record(tmp_path, fake_bp):
+    text = NAMELIST_AUX.replace("auxinput4_interval = 360, 360, 360",
+                                "auxinput4_interval = 240, 240, 240")
+    text = text.replace(" end_day                             = 01,   01,   01,",
+                        " end_day                             = 02,   02,   02,")
+    text = text.replace(" run_hours                           = 12,",
+                        " run_hours                           = 36,")
+    case = _make_case(tmp_path, text)
+    for n in ("wrflowinp_d01", "wrflowinp_d02", "wrflowinp_d03", "wrffdda_d01"):
+        (case / n).write_text("x")
+    hours = ["2020-06-%02d_%02d:00:00" % (1 + h // 24, h % 24) for h in range(0, 37, 2)]
+    for n in ("wrfbdy_d01", "wrflowinp_d01", "wrflowinp_d02", "wrflowinp_d03", "wrffdda_d01"):
+        fake_bp.records[n] = hours
+    f = Fakes()
+    lines = []
+    rc = wr.main([str(case), "--nodes", "1", "--nx", "8", "--ny", "9", "--segment-minutes", "1000",
+                  "--out", str(tmp_path / "out"), "--poll-interval", "0"],
+                 sbatch_runner=f.sbatch, sacct_runner=f.sacct, snapshot_fn=f.snapshot,
+                 sleep=lambda s: None, log=lines.append)
+    assert rc == 0, lines
+    rep = json.loads((tmp_path / "out" / "run_report.json").read_text())
+    # lcm(6 h boundary, 4 h SST) = 12 h; 1000 min -> 720 min, never longer than asked
+    assert [s["start"] for s in rep["segments"]] == ["2020-06-01_00:00:00", "2020-06-01_12:00:00",
+                                                     "2020-06-02_00:00:00"]
+    assert rep["io"]["per_record"] == ["wrfbdy_d01", "wrffdda_d01", "wrflowinp_d01",
+                                       "wrflowinp_d02", "wrflowinp_d03"]
+    assert rep["io"]["segment_unit_s"] == 43200.0
+    assert any("--segment-minutes 1000 rounded down to 720" in ln for ln in lines)
+    seg1 = tmp_path / "out" / "seg_1"
+    for n in ("wrfbdy_d01", "wrflowinp_d03"):
+        for t in hours:
+            assert os.path.islink(seg1 / ("%s_%s.bp" % (n, t)))
+    assert wp.parse_namelist(str(seg1 / "namelist.input"))["time_control"]["restart"] == [True]
+
+
+def test_run_missing_record_at_a_segment_start_stops_before_submission(tmp_path, fake_bp, capsys):
+    case = _make_case(tmp_path)
+    fake_bp.records["wrfbdy_d01"] = ["2020-06-01_00:00:00", "2020-06-01_12:00:00"]
+    f = Fakes()
+    rc, out, rep, _ = _run(tmp_path, f)
+    assert rc == 2 and f.submitted == []
+    err = capsys.readouterr().err
+    assert "missing at segment starts: seg 1 wrfbdy_d01_2020-06-01_06:00:00.bp" in err
+
+
+def test_existing_per_record_dir_in_case_is_linked_not_converted(tmp_path, fake_bp):
+    case = _make_case(tmp_path)
+    (case / "wrfbdy_d01").unlink()
+    for t in FakeBP.DEFAULT_RECORDS:
+        _mk_bp(str(case / "wrfbdy_d01.bp" / ("wrfbdy_d01_%s.bp" % t)))
+    rc, out, rep, lines = _run(tmp_path, Fakes())
+    assert rc == 0
+    assert "wrfbdy_d01" not in fake_bp.calls[0][2]
+    rec = "wrfbdy_d01_2020-06-01_06:00:00.bp"
+    assert os.readlink(out / "seg_1" / rec) == str(case / "wrfbdy_d01.bp" / rec)
+    assert rep["io"]["per_record"] == ["wrfbdy_d01"]
+
+
+def test_existing_single_multirecord_bp_is_reconverted_from_netcdf(tmp_path, fake_bp):
+    case = _make_case(tmp_path)
+    _mk_bp(str(case / "wrfbdy_d01.bp"))           # a single (multi-record) BP next to the netCDF
+    rc, out, rep, lines = _run(tmp_path, Fakes())
+    assert rc == 0 and "wrfbdy_d01" in fake_bp.calls[0][2]
+    rec = "wrfbdy_d01_2020-06-01_06:00:00.bp"
+    assert os.readlink(out / "seg_1" / rec) == str(out / "_bp_inputs" / "wrfbdy_d01" / rec)
+    (case / "wrfbdy_d01").unlink()                 # no netCDF: used, with a warning
+    lines = []
+    assert wr.main([str(case), "--nodes", "1", "--nx", "8", "--ny", "9", "--out",
+                    str(tmp_path / "o2"), "--dry-run"], log=lines.append) == 0
+    assert any("single multi-record BP" in ln for ln in lines)

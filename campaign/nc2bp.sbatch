@@ -1,49 +1,66 @@
 #!/usr/bin/env bash
 #SBATCH --job-name=nc2bp
-#SBATCH --account=ACD110018
-#SBATCH --partition=ct112
+#SBATCH --partition=compute
+#SBATCH --exclude=head
 #SBATCH --nodes=1 --ntasks-per-node=1 --cpus-per-task=8
 #SBATCH --time=00:40:00
-#SBATCH --output=/home/u5727520/wrf-bench/wscore/campaign/nc2bp-%x-%j.out
-# Convert one campaign case's netCDF inputs (wrfinput_d0N for N <= max_dom, wrfbdy_d01) to BP5 next to them,
-# for io_form_input/boundary = 14. Serial converter (wtune/tools/wrf_nc2bp.py, validated by job 1071692 and the
-# 1072441 regression gate). Existing .bp outputs are skipped. Ends with a readback of steps/vars/Times.
-# usage: sbatch --job-name=nc2bp-<case> --export=ALL,CASE=<case> campaign/nc2bp.sbatch
+# Pre-convert one campaign case's netCDF inputs into the BP cache strict_campaign.sbatch reads
+# (2026-10-03: ADIOS2 for every WRF input stream). Optional: strict_campaign converts on first use
+# by itself; this only moves that one-off cost out of a probe allocation. SAME code path:
+# configs.py stage-bp-inputs -> src/wtune_bp.convert_inputs (src/tools/wrf_nc2bp.py under the
+# envs/adios2 python, $WTUNE_ADIOS2_PYTHON overrides; BP4; manifest-cached; lockf-serialized, so a
+# probe job starting meanwhile waits instead of converting twice). Converts wrfinput_d0N, wrfbdy_d01
+# and the aux inputs the case namelist reads (wrflowinp when sst_update=1, wrffdda, ...) from the
+# case's prep_dir (cases.json + campaign/cases.$SITE.json overlay) into
+# ${WTUNE_BP_CACHE:-$HOME/wtune-runs/bp-cache}/<case>/<sha1(prep_dir)[:12]>/ -- wrfbdy/wrflowinp/
+# wrffdda one BP per record (<cache>/<name>/<name>_<date>.bp: WRF 4.8's ADIOS2 reader returns
+# record 1 for every read of a multi-record BP). CHECK=1 (default) then
+# round-trips every converted file back to netCDF and compares (wtune_bp inputs --check, needs
+# netCDF4: the envs/wtune python, $WTUNE_PY overrides).
+# usage (scc): sbatch --job-name=nc2bp-<case> --export=ALL,CASE=<case> campaign/nc2bp.sbatch
+#   other sites: add -p/-A/--exclude on the command line and SITE=<site> in --export.
 set -uo pipefail
-ENV=/home/u5727520/wrf-stack/wtune-pixi-env-20260830
-CONV=/home/u5727520/wrf-stack/wtune/tools/wrf_nc2bp.py
-: "${CASE:?CASE required}"
-read -r SRC MAXDOM < <(python3 - "$CASE" <<'PY'
-import json, sys
-c = json.load(open("/home/u5727520/wrf-stack/wtune-autotuner/campaign/cases.json"))["cases"][sys.argv[1]]
-print(c["prep_dir"], c.get("max_dom", 1))
+SITE=${SITE:-scc}
+export SITE
+CAMPAIGN=${CAMPAIGN:-$HOME/wtune/campaign}
+export CAMPAIGN
+: "${CASE:?CASE required, e.g. --export=ALL,CASE=karina}"
+# PIXI_ENV (and PATH to pixi) from the site file, the same interpreter strict_campaign.sbatch uses
+source "$CAMPAIGN/sites/$SITE.sh"
+PYBIN=$(pixi run --manifest-path "$PIXI_ENV/pixi.toml" python -c 'import sys; print(sys.executable)' 2>/dev/null | tail -1)
+if [ -z "$PYBIN" ] || [ ! -x "$PYBIN" ]; then
+  echo "FATAL: no python from PIXI_ENV=$PIXI_ENV (got '$PYBIN')" >&2; exit 1
+fi
+eval "$("$PYBIN" - "$CASE" <<'PY'
+import os, sys
+sys.path.insert(0, os.environ["CAMPAIGN"])
+import configs
+c = configs.CASES.get(sys.argv[1])
+if c is None:
+    print('echo "unknown case %s" >&2; exit 1' % sys.argv[1])
+    sys.exit(0)
+print("PREP_DIR=%s" % configs._shq(c["prep_dir"]))
+print("NAMELIST_TEMPLATE=%s" % configs._shq(
+    c.get("namelist_template") or os.path.join(c["prep_dir"], "namelist.input")))
 PY
-)
-echo "case $CASE src $SRC max_dom $MAXDOM"
-FILES="wrfbdy_d01"; for d in $(seq 1 "$MAXDOM"); do FILES="$FILES wrfinput_d0$d"; done
-cd "$ENV" || exit 1
+)"
+echo "case $CASE site $SITE prep_dir $PREP_DIR namelist $NAMELIST_TEMPLATE"
+t0=$(date +%s)
+if ! STAGE_OUT=$("$PYBIN" "$CAMPAIGN/configs.py" stage-bp-inputs "$CASE" "$NAMELIST_TEMPLATE" "$PREP_DIR"); then
+  echo "=== FAIL: ADIOS2 input staging failed (see above)"; exit 1
+fi
+eval "$STAGE_OUT"
+echo "staged into $BP_DIR in $(( $(date +%s) - t0 )) s; converted: ${BP_CONVERTED:-none}; aux streams as BP: ${WTUNE_AUX_BP_STREAMS:-none}; per record: ${WTUNE_PER_RECORD_BP:-none}"
 fail=0
-for f in $FILES; do
-  [ -f "$SRC/$f" ] || { echo "MISSING $SRC/$f"; fail=1; continue; }
-  [ -d "$SRC/$f.bp" ] && { echo "skip $f (exists)"; continue; }
-  s=$(date +%s)
-  pixi run python "$CONV" "$SRC/$f" "$SRC/$f.bp" --engine BP5 || { echo "FAIL $f"; rm -rf "$SRC/$f.bp"; fail=1; continue; }
-  echo "$f -> $(du -sh "$SRC/$f.bp" | cut -f1) in $(( $(date +%s) - s )) s"
-done
-pixi run python - "$SRC" $FILES <<'PY'
-import sys, os, adios2
-src = sys.argv[1]
-for f in sys.argv[2:]:
-    p = os.path.join(src, f + ".bp")
-    if not os.path.isdir(p):
-        print("READBACK missing %s" % p); continue
-    # streaming ("r") mode: Stream.steps() is not allowed in ReadRandomAccess ("rra") mode
-    # (this exact bug already hit job 1071692 and again jobs 1074578-1074582)
-    t, nv = [], 0
-    with adios2.Stream(p, "r") as s:
-        for _ in s.steps():
-            nv = max(nv, len(s.available_variables()))
-            t.append(s.read("Times"))
-    print("READBACK %s: steps=%d vars=%d Times=%s..%s" % (f, len(t), nv, t[:1], t[-1:]))
-PY
+if [ "${CHECK:-1}" = 1 ] && [ -n "$BP_CONVERTED" ]; then
+  WTUNE_PY=${WTUNE_PY:-$(dirname "$CAMPAIGN")/envs/wtune/.pixi/envs/default/bin/python}
+  BP_PYMOD=${WTUNE_SRC:-$(dirname "$CAMPAIGN")/src}/wtune_bp.py
+  if [ -x "$WTUNE_PY" ] && [ -f "$BP_PYMOD" ]; then
+    # shellcheck disable=SC2086
+    "$WTUNE_PY" "$BP_PYMOD" inputs "$PREP_DIR" --cache "$BP_DIR" --names $BP_CONVERTED --check || fail=1
+  else
+    echo "WARNING: round-trip check skipped: $WTUNE_PY or $BP_PYMOD missing" >&2
+  fi
+fi
 echo "=== done fail=$fail"
+exit "$fail"

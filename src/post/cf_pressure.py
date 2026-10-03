@@ -293,6 +293,12 @@ def _masked(a):
     return np.ma.masked_invalid(np.asarray(a, dtype=np.float32))
 
 
+def _native_history(wrfout_path):
+    """The ADIOS2 BP directory a cached wrfout was converted from, else "netcdf"."""
+    from post.extract import bp_origin
+    return bp_origin(wrfout_path) or "netcdf"
+
+
 def write_cf(out_path, frame, lat1d, lon1d, regridded, hgt_ll, bdy_width, dlon, wrfout_path,
              domain, command=None):
     """Writes the CF-1.8 file: dims (time, isobaric, lat, lon), time unlimited with one record,
@@ -367,6 +373,8 @@ def write_cf(out_path, frame, lat1d, lon1d, regridded, hgt_ll, bdy_width, dlon, 
             "history": "%s: %s" % (datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
                                    command),
             "wtune_wrfout": os.path.abspath(wrfout_path),
+            # ADIOS2 BP history: wtune_wrfout is post.extract's netCDF cache copy of this BP dir
+            "wtune_wrfout_native": _native_history(wrfout_path),
             "wtune_domain": np.int32(domain),
             "wtune_pressure_levels_hpa": np.asarray(frame["levels"], dtype=np.float32),
             "wtune_dropped_levels_hpa": (np.asarray(frame["dropped_levels"], dtype=np.float32)

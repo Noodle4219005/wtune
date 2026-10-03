@@ -1,0 +1,1959 @@
+{
+ "errors": {
+  "bad_core_opts": {
+   "msg": "--cores-per-node-options must be a comma list of integers, got '72,x'",
+   "out": "NOTE: probe.steps='auto' requested but could not be resolved from <TMP>/err_bad_core_opts/namelist.input (FileNotFoundError: [Errno 2] No such file or directory: '<TMP>/err_bad_core_opts/namelist.input') -- using DEFAULT_STEPS=20 instead\n"
+  },
+  "bad_stage1": {
+   "msg": "--stage1 'bogus' not in ['t0', 'pstar']",
+   "out": ""
+  },
+  "core_opts_range": {
+   "msg": "--cores-per-node-options values must be in 1..72 (--cores-per-node), got '80'",
+   "out": "NOTE: probe.steps='auto' requested but could not be resolved from <TMP>/err_core_opts_range/namelist.input (FileNotFoundError: [Errno 2] No such file or directory: '<TMP>/err_core_opts_range/namelist.input') -- using DEFAULT_STEPS=20 instead\n"
+  },
+  "no_minutes": {
+   "msg": "--minutes is required: pass it on the command line or set budget.minutes in --config",
+   "out": ""
+  },
+  "nodes_over_max": {
+   "msg": "--nodes 9 exceeds --max-nodes 8",
+   "out": "NOTE: probe.steps='auto' requested but could not be resolved from <TMP>/err_nodes_over_max/namelist.input (FileNotFoundError: [Errno 2] No such file or directory: '<TMP>/err_nodes_over_max/namelist.input') -- using DEFAULT_STEPS=20 instead\n"
+  },
+  "pipeline_fixed_nodes": {
+   "msg": "-O/--pipeline runs its own node search: do not combine it with --nodes N/auto or --rank-by predicted",
+   "out": "NOTE: probe.steps='auto' requested but could not be resolved from <TMP>/err_pipeline_fixed_nodes/namelist.input (FileNotFoundError: [Errno 2] No such file or directory: '<TMP>/err_pipeline_fixed_nodes/namelist.input') -- using DEFAULT_STEPS=20 instead\n"
+  },
+  "pipeline_predicted": {
+   "msg": "-O/--pipeline runs its own node search: do not combine it with --nodes N/auto or --rank-by predicted",
+   "out": "NOTE: probe.steps='auto' requested but could not be resolved from <TMP>/err_pipeline_predicted/namelist.input (FileNotFoundError: [Errno 2] No such file or directory: '<TMP>/err_pipeline_predicted/namelist.input') -- using DEFAULT_STEPS=20 instead\n"
+  },
+  "search_predicted": {
+   "msg": "--nodes search is not supported with --rank-by predicted; pass --nodes N or --nodes auto",
+   "out": "NOTE: probe.steps='auto' requested but could not be resolved from <TMP>/err_search_predicted/namelist.input (FileNotFoundError: [Errno 2] No such file or directory: '<TMP>/err_search_predicted/namelist.input') -- using DEFAULT_STEPS=20 instead\n"
+  }
+ },
+ "runs": {
+  "auto": {
+   "calls": [
+    {
+     "args": [
+      10.0
+     ],
+     "ctx": {
+      "anchor_override": null,
+      "background_jobs": [],
+      "budget_mode": "wall",
+      "budget_s": 1800.0,
+      "cancelled_jobs": [],
+      "case": "matthew",
+      "case_json": {
+       "e_sn": 400,
+       "e_vert": 45,
+       "e_we": 400,
+       "prep_dir": "<TMP>/auto/m"
+      },
+      "chem_e_sn": null,
+      "confirm_reps": 2,
+      "core_budget": null,
+      "cores_per_node": 72,
+      "env_source": "$HOME/wtune-scc/env.sh",
+      "exclude_rules": [],
+      "full_space": false,
+      "hardware_id": "scc-gh200",
+      "is_fire": false,
+      "job_cids": {},
+      "kappa": 0.5,
+      "layout_notes": null,
+      "ledger_dir": "<TMP>/auto/ledger",
+      "max_nodes": 8,
+      "max_queue_s": null,
+      "max_wall_explicit": false,
+      "max_wall_s": null,
+      "namelist_path": "<TMP>/auto/namelist.input",
+      "node_health": {
+       "exclusions": [
+        "head"
+       ],
+       "failed": [],
+       "healthy": null,
+       "max_nodes_effective": 8,
+       "max_nodes_requested": 8,
+       "nodes": {},
+       "probe_s": "<PROBE_S>",
+       "skipped": "sinfo unavailable (OSError: sinfo rc=1: sinfo: not here)",
+       "user_exclude": [],
+       "when": "start"
+      },
+      "nodes": 8,
+      "not_measured": [],
+      "omp_cap": null,
+      "out_dir": "<TMP>/auto/out",
+      "owned_jobs": [],
+      "poll_interval": 20.0,
+      "prediction_cfg": {
+       "drift_band_pct": null,
+       "io_target": "nfs",
+       "measure_r_rad": false
+      },
+      "prep_submit_s": 0.0,
+      "probe_cfg": {
+       "budget_pct": 10.0,
+       "confirm_reps": 2,
+       "indicator_sources": [
+        "case_forcing",
+        "era5",
+        "gfs",
+        "stage4",
+        "mrms"
+       ],
+       "max_points": 5,
+       "points": "auto",
+       "points_by": "time",
+       "rank_by": "t0",
+       "ranking_start": "t0",
+       "restart_io_form": 14,
+       "sources": [
+        "trajectory",
+        "restart",
+        "rebuild"
+       ],
+       "spinup_min": 60,
+       "stage1": "t0",
+       "stage2_minutes": null,
+       "steps": "auto"
+      },
+      "proposer": null,
+      "queue_only_s": 0.0,
+      "rank_by": "t0",
+      "ranking": null,
+      "ranking_gates": [],
+      "ranking_start_note": null,
+      "reserve": null,
+      "reserve_in_stage1": true,
+      "restart_io_form": 14,
+      "restart_read_s": null,
+      "s_prior": null,
+      "sacct_cmd": "sacct",
+      "sbatch_script": "/home/nk/devel/wtune-refactor/campaign/strict_campaign.sbatch",
+      "search_cfg": {
+       "aspect_max": null,
+       "io": {
+        "enabled": false,
+        "io_form_history": [
+         2,
+         11,
+         14
+        ],
+        "target": [
+         "nfs",
+         "local"
+        ]
+       },
+       "numtiles": null,
+       "omp": null,
+       "rank_distribution": null
+      },
+      "seed": 1,
+      "shared_queue": null,
+      "stage1": null,
+      "stage1_extra_reserve_s": 0.0,
+      "stage1_jobs": {},
+      "stage1_max_running": 0,
+      "stage1_mode": "t0",
+      "stage1_trimmed": [],
+      "stage2_budget_s": null,
+      "stage2_estimate_start_s": null,
+      "stage2_overrun_s": null,
+      "start_time": 0.0,
+      "startup_runs": null,
+      "startup_s": 120.0,
+      "startup_source": "documented constant (scc_sweep.STARTUP_S)",
+      "steps": 20,
+      "uncharged_s": 0.0
+     },
+     "kind": "run_tuning_at",
+     "kwargs": {}
+    }
+   ],
+   "out": "NOTE: probe.steps='auto' requested but could not be resolved from <TMP>/auto/namelist.input (FileNotFoundError: [Errno 2] No such file or directory: '<TMP>/auto/namelist.input') -- using DEFAULT_STEPS=20 instead\nWARNING: scaling model is UNCALIBRATED (wtune_case.py's halo-efficiency proxy, c=1.0, never fit to a real measurement) -- nodes=8 (policy=cap) is a starting point, not a validated optimum\ncase=matthew nodes=8 (policy=cap: largest legal profiled node count within cap=8) budget=30.0 min max_nodes=8 out=<TMP>/auto/out\n\nPIPELINE {'stub': True}\n",
+   "report": {
+    "cancelled_job_ids": [],
+    "case": "matthew",
+    "job_ids": [],
+    "node_health": {
+     "exclusions": [
+      "head"
+     ],
+     "failed": [],
+     "healthy": null,
+     "max_nodes_effective": 8,
+     "max_nodes_requested": 8,
+     "nodes": {},
+     "probe_s": "<PROBE_S>",
+     "skipped": "sinfo unavailable (OSError: sinfo rc=1: sinfo: not here)",
+     "user_exclude": [],
+     "when": "start"
+    },
+    "nodes": 8,
+    "pipeline": {
+     "stub": true
+    },
+    "pipeline_only": true,
+    "winner": null
+   },
+   "report_json": "{\n  \"cancelled_job_ids\": [],\n  \"case\": \"matthew\",\n  \"job_ids\": [],\n  \"node_health\": {\n    \"exclusions\": [\n      \"head\"\n    ],\n    \"failed\": [],\n    \"healthy\": null,\n    \"max_nodes_effective\": 8,\n    \"max_nodes_requested\": 8,\n    \"nodes\": {},\n    \"probe_s\": 0.0,\n    \"skipped\": \"sinfo unavailable (OSError: sinfo rc=1: sinfo: not here)\",\n    \"user_exclude\": [],\n    \"when\": \"start\"\n  },\n  \"nodes\": 8,\n  \"pipeline\": {\n    \"stub\": true\n  },\n  \"pipeline_only\": true,\n  \"winner\": null\n}\n"
+  },
+  "fixed_n": {
+   "calls": [
+    {
+     "args": [
+      10.0
+     ],
+     "ctx": {
+      "anchor_override": null,
+      "background_jobs": [],
+      "budget_mode": "wall",
+      "budget_s": 1800.0,
+      "cancelled_jobs": [],
+      "case": "matthew",
+      "case_json": {
+       "e_sn": 400,
+       "e_vert": 45,
+       "e_we": 400,
+       "prep_dir": "<TMP>/fixed_n/m"
+      },
+      "chem_e_sn": null,
+      "confirm_reps": 2,
+      "core_budget": null,
+      "cores_per_node": 72,
+      "env_source": "$HOME/wtune-scc/env.sh",
+      "exclude_rules": [],
+      "full_space": false,
+      "hardware_id": "scc-gh200",
+      "is_fire": false,
+      "job_cids": {},
+      "kappa": 0.5,
+      "layout_notes": null,
+      "ledger_dir": "<TMP>/fixed_n/ledger",
+      "max_nodes": 13,
+      "max_queue_s": null,
+      "max_wall_explicit": false,
+      "max_wall_s": null,
+      "namelist_path": "<TMP>/fixed_n/namelist.input",
+      "node_health": {
+       "exclusions": [
+        "head"
+       ],
+       "failed": [],
+       "healthy": null,
+       "max_nodes_effective": 13,
+       "max_nodes_requested": 13,
+       "nodes": {},
+       "probe_s": "<PROBE_S>",
+       "skipped": "sinfo unavailable (OSError: sinfo rc=1: sinfo: not here)",
+       "user_exclude": [],
+       "when": "start"
+      },
+      "nodes": 2,
+      "not_measured": [],
+      "omp_cap": null,
+      "out_dir": "<TMP>/fixed_n/out",
+      "owned_jobs": [],
+      "poll_interval": 20.0,
+      "prediction_cfg": {
+       "drift_band_pct": null,
+       "io_target": "nfs",
+       "measure_r_rad": false
+      },
+      "prep_submit_s": 0.0,
+      "probe_cfg": {
+       "budget_pct": 10.0,
+       "confirm_reps": 2,
+       "indicator_sources": [
+        "case_forcing",
+        "era5",
+        "gfs",
+        "stage4",
+        "mrms"
+       ],
+       "max_points": 5,
+       "points": "auto",
+       "points_by": "time",
+       "rank_by": "t0",
+       "ranking_start": "t0",
+       "restart_io_form": 14,
+       "sources": [
+        "trajectory",
+        "restart",
+        "rebuild"
+       ],
+       "spinup_min": 60,
+       "stage1": "t0",
+       "stage2_minutes": null,
+       "steps": "auto"
+      },
+      "proposer": null,
+      "queue_only_s": 0.0,
+      "rank_by": "t0",
+      "ranking": null,
+      "ranking_gates": [],
+      "ranking_start_note": null,
+      "reserve": null,
+      "reserve_in_stage1": true,
+      "restart_io_form": 14,
+      "restart_read_s": null,
+      "s_prior": null,
+      "sacct_cmd": "sacct",
+      "sbatch_script": "/home/nk/devel/wtune-refactor/campaign/strict_campaign.sbatch",
+      "search_cfg": {
+       "aspect_max": null,
+       "io": {
+        "enabled": false,
+        "io_form_history": [
+         2,
+         11,
+         14
+        ],
+        "target": [
+         "nfs",
+         "local"
+        ]
+       },
+       "numtiles": null,
+       "omp": null,
+       "rank_distribution": null
+      },
+      "seed": 1,
+      "shared_queue": null,
+      "stage1": null,
+      "stage1_extra_reserve_s": 0.0,
+      "stage1_jobs": {},
+      "stage1_max_running": 0,
+      "stage1_mode": "t0",
+      "stage1_trimmed": [],
+      "stage2_budget_s": null,
+      "stage2_estimate_start_s": null,
+      "stage2_overrun_s": null,
+      "start_time": 0.0,
+      "startup_runs": null,
+      "startup_s": 120.0,
+      "startup_source": "documented constant (scc_sweep.STARTUP_S)",
+      "steps": 20,
+      "uncharged_s": 0.0
+     },
+     "kind": "run_tuning_at",
+     "kwargs": {}
+    }
+   ],
+   "out": "NOTE: probe.steps='auto' requested but could not be resolved from <TMP>/fixed_n/namelist.input (FileNotFoundError: [Errno 2] No such file or directory: '<TMP>/fixed_n/namelist.input') -- using DEFAULT_STEPS=20 instead\ncase=matthew nodes=2 (user-specified (cap=13)) budget=30.0 min max_nodes=13 out=<TMP>/fixed_n/out\n\nPIPELINE {'stub': True}\n",
+   "report": {
+    "cancelled_job_ids": [],
+    "case": "matthew",
+    "job_ids": [],
+    "node_health": {
+     "exclusions": [
+      "head"
+     ],
+     "failed": [],
+     "healthy": null,
+     "max_nodes_effective": 13,
+     "max_nodes_requested": 13,
+     "nodes": {},
+     "probe_s": "<PROBE_S>",
+     "skipped": "sinfo unavailable (OSError: sinfo rc=1: sinfo: not here)",
+     "user_exclude": [],
+     "when": "start"
+    },
+    "nodes": 2,
+    "pipeline": {
+     "stub": true
+    },
+    "pipeline_only": true,
+    "winner": null
+   },
+   "report_json": "{\n  \"cancelled_job_ids\": [],\n  \"case\": \"matthew\",\n  \"job_ids\": [],\n  \"node_health\": {\n    \"exclusions\": [\n      \"head\"\n    ],\n    \"failed\": [],\n    \"healthy\": null,\n    \"max_nodes_effective\": 13,\n    \"max_nodes_requested\": 13,\n    \"nodes\": {},\n    \"probe_s\": 0.0,\n    \"skipped\": \"sinfo unavailable (OSError: sinfo rc=1: sinfo: not here)\",\n    \"user_exclude\": [],\n    \"when\": \"start\"\n  },\n  \"nodes\": 2,\n  \"pipeline\": {\n    \"stub\": true\n  },\n  \"pipeline_only\": true,\n  \"winner\": null\n}\n"
+  },
+  "no_preflight_o3": {
+   "calls": [
+    {
+     "args": [],
+     "ctx": {
+      "anchor_override": null,
+      "background_jobs": [],
+      "budget_mode": "wall",
+      "budget_s": Infinity,
+      "cancelled_jobs": [],
+      "case": "matthew",
+      "case_json": {
+       "e_sn": 400,
+       "e_vert": 45,
+       "e_we": 400,
+       "prep_dir": "<TMP>/no_preflight_o3/m"
+      },
+      "chem_e_sn": null,
+      "confirm_reps": 3,
+      "core_budget": null,
+      "cores_per_node": 72,
+      "env_source": "$HOME/wtune-scc/env.sh",
+      "exclude_rules": [],
+      "full_space": false,
+      "hardware_id": "scc-gh200",
+      "is_fire": false,
+      "job_cids": {},
+      "kappa": 0.5,
+      "layout_notes": null,
+      "ledger_dir": "<TMP>/no_preflight_o3/ledger",
+      "max_nodes": 13,
+      "max_queue_s": null,
+      "max_wall_explicit": false,
+      "max_wall_s": null,
+      "namelist_path": "<TMP>/no_preflight_o3/namelist.input",
+      "node_health": null,
+      "nodes": 1,
+      "not_measured": [],
+      "omp_cap": null,
+      "out_dir": "<TMP>/no_preflight_o3/out",
+      "owned_jobs": [],
+      "poll_interval": 20.0,
+      "prediction_cfg": {
+       "drift_band_pct": null,
+       "io_target": "nfs",
+       "measure_r_rad": false
+      },
+      "prep_submit_s": 0.0,
+      "probe_cfg": {
+       "budget_pct": 10.0,
+       "confirm_reps": 2,
+       "indicator_sources": [
+        "case_forcing",
+        "era5",
+        "gfs",
+        "stage4",
+        "mrms"
+       ],
+       "max_points": 5,
+       "points": "auto",
+       "points_by": "time",
+       "rank_by": "t0",
+       "ranking_start": "t0",
+       "restart_io_form": 14,
+       "sources": [
+        "trajectory",
+        "restart",
+        "rebuild"
+       ],
+       "spinup_min": 60,
+       "stage1": "t0",
+       "stage2_minutes": null,
+       "steps": "auto"
+      },
+      "proposer": null,
+      "queue_only_s": 0.0,
+      "rank_by": "t0",
+      "ranking": null,
+      "ranking_gates": [],
+      "ranking_start_note": null,
+      "reserve": null,
+      "reserve_in_stage1": true,
+      "restart_io_form": 14,
+      "restart_read_s": null,
+      "s_prior": null,
+      "sacct_cmd": "sacct",
+      "sbatch_script": "/home/nk/devel/wtune-refactor/campaign/strict_campaign.sbatch",
+      "search_cfg": {
+       "aspect_max": null,
+       "io": {
+        "enabled": false,
+        "io_form_history": [
+         2,
+         11,
+         14
+        ],
+        "target": [
+         "nfs",
+         "local"
+        ]
+       },
+       "numtiles": null,
+       "omp": null,
+       "rank_distribution": null
+      },
+      "seed": 7,
+      "shared_queue": null,
+      "stage1": null,
+      "stage1_extra_reserve_s": 0.0,
+      "stage1_jobs": {},
+      "stage1_max_running": 0,
+      "stage1_mode": "t0",
+      "stage1_trimmed": [],
+      "stage2_budget_s": null,
+      "stage2_estimate_start_s": null,
+      "stage2_overrun_s": null,
+      "start_time": 0.0,
+      "startup_runs": null,
+      "startup_s": 120.0,
+      "startup_source": "documented constant (scc_sweep.STARTUP_S)",
+      "steps": 20,
+      "uncharged_s": 0.0
+     },
+     "kind": "run_pipeline_full",
+     "kwargs": {
+      "core_options": null,
+      "deadline_s": null,
+      "extension": false,
+      "k_finalists": 2,
+      "keep_frames": false,
+      "level": 3,
+      "max_queue_hours": 6.0,
+      "min_efficiency": 0.7,
+      "minutes": null,
+      "nodes_policy": "knee",
+      "objective": "time",
+      "physics": false,
+      "physics_max_candidates": 3,
+      "precision_min": 15.0,
+      "recheck": null,
+      "stop_if_short": false,
+      "sweep_budget_frac": 0.4,
+      "total_steps": 1000
+     }
+    }
+   ],
+   "out": "NOTE: probe.steps='auto' requested but could not be resolved from <TMP>/no_preflight_o3/namelist.input (FileNotFoundError: [Errno 2] No such file or directory: '<TMP>/no_preflight_o3/namelist.input') -- using DEFAULT_STEPS=20 instead\ncase=matthew nodes=search (node search (measured)) budget=none max_nodes=13 out=<TMP>/no_preflight_o3/out\n\nPIPELINE {'stub': True}\n",
+   "report": {
+    "cancelled_job_ids": [],
+    "case": "matthew",
+    "job_ids": [],
+    "nodes": 1,
+    "pipeline": {
+     "stub": true
+    },
+    "pipeline_only": true,
+    "winner": null
+   },
+   "report_json": "{\n  \"cancelled_job_ids\": [],\n  \"case\": \"matthew\",\n  \"job_ids\": [],\n  \"nodes\": 1,\n  \"pipeline\": {\n    \"stub\": true\n  },\n  \"pipeline_only\": true,\n  \"winner\": null\n}\n"
+  },
+  "o0": {
+   "calls": [
+    {
+     "args": [
+      1000,
+      "knee"
+     ],
+     "ctx": {
+      "anchor_override": null,
+      "background_jobs": [],
+      "budget_mode": "wall",
+      "budget_s": Infinity,
+      "cancelled_jobs": [],
+      "case": "matthew",
+      "case_json": {
+       "e_sn": 400,
+       "e_vert": 45,
+       "e_we": 400,
+       "prep_dir": "<TMP>/o0/m"
+      },
+      "chem_e_sn": null,
+      "confirm_reps": 2,
+      "core_budget": null,
+      "cores_per_node": 72,
+      "env_source": "$HOME/wtune-scc/env.sh",
+      "exclude_rules": [],
+      "full_space": false,
+      "hardware_id": "scc-gh200",
+      "is_fire": false,
+      "job_cids": {},
+      "kappa": 0.5,
+      "layout_notes": null,
+      "ledger_dir": "<TMP>/o0/ledger",
+      "max_nodes": 13,
+      "max_queue_s": null,
+      "max_wall_explicit": false,
+      "max_wall_s": null,
+      "namelist_path": "<TMP>/o0/namelist.input",
+      "node_health": null,
+      "nodes": 1,
+      "not_measured": [],
+      "omp_cap": null,
+      "out_dir": "<TMP>/o0/out",
+      "owned_jobs": [],
+      "poll_interval": 20.0,
+      "prediction_cfg": {
+       "drift_band_pct": null,
+       "io_target": "nfs",
+       "measure_r_rad": false
+      },
+      "prep_submit_s": 0.0,
+      "probe_cfg": {
+       "budget_pct": 10.0,
+       "confirm_reps": 2,
+       "indicator_sources": [
+        "case_forcing",
+        "era5",
+        "gfs",
+        "stage4",
+        "mrms"
+       ],
+       "max_points": 5,
+       "points": "auto",
+       "points_by": "time",
+       "rank_by": "t0",
+       "ranking_start": "t0",
+       "restart_io_form": 14,
+       "sources": [
+        "trajectory",
+        "restart",
+        "rebuild"
+       ],
+       "spinup_min": 60,
+       "stage1": "t0",
+       "stage2_minutes": null,
+       "steps": "auto"
+      },
+      "proposer": null,
+      "queue_only_s": 0.0,
+      "rank_by": "t0",
+      "ranking": null,
+      "ranking_gates": [],
+      "ranking_start_note": null,
+      "reserve": null,
+      "reserve_in_stage1": true,
+      "restart_io_form": 14,
+      "restart_read_s": null,
+      "s_prior": null,
+      "sacct_cmd": "sacct",
+      "sbatch_script": "/home/nk/devel/wtune-refactor/campaign/strict_campaign.sbatch",
+      "search_cfg": {
+       "aspect_max": null,
+       "io": {
+        "enabled": false,
+        "io_form_history": [
+         2,
+         11,
+         14
+        ],
+        "target": [
+         "nfs",
+         "local"
+        ]
+       },
+       "numtiles": null,
+       "omp": null,
+       "rank_distribution": null
+      },
+      "seed": 1,
+      "shared_queue": null,
+      "stage1": null,
+      "stage1_extra_reserve_s": 0.0,
+      "stage1_jobs": {},
+      "stage1_max_running": 0,
+      "stage1_mode": "t0",
+      "stage1_trimmed": [],
+      "stage2_budget_s": null,
+      "stage2_estimate_start_s": null,
+      "stage2_overrun_s": null,
+      "start_time": 0.0,
+      "startup_runs": null,
+      "startup_s": 120.0,
+      "startup_source": "documented constant (scc_sweep.STARTUP_S)",
+      "steps": 20,
+      "uncharged_s": 0.0
+     },
+     "kind": "run_level0",
+     "kwargs": {}
+    }
+   ],
+   "out": "NOTE: probe.steps='auto' requested but could not be resolved from <TMP>/o0/namelist.input (FileNotFoundError: [Errno 2] No such file or directory: '<TMP>/o0/namelist.input') -- using DEFAULT_STEPS=20 instead\ncase=matthew nodes=search (node search (measured)) budget=none max_nodes=13 out=<TMP>/o0/out\n\nPIPELINE {'stub': True}\n",
+   "report": {
+    "cancelled_job_ids": [],
+    "case": "matthew",
+    "job_ids": [],
+    "nodes": 1,
+    "pipeline": {
+     "stub": true
+    },
+    "pipeline_only": true,
+    "winner": null
+   },
+   "report_json": "{\n  \"cancelled_job_ids\": [],\n  \"case\": \"matthew\",\n  \"job_ids\": [],\n  \"nodes\": 1,\n  \"pipeline\": {\n    \"stub\": true\n  },\n  \"pipeline_only\": true,\n  \"winner\": null\n}\n"
+  },
+  "o1": {
+   "calls": [
+    {
+     "args": [],
+     "ctx": {
+      "anchor_override": null,
+      "background_jobs": [],
+      "budget_mode": "wall",
+      "budget_s": Infinity,
+      "cancelled_jobs": [],
+      "case": "matthew",
+      "case_json": {
+       "e_sn": 400,
+       "e_vert": 45,
+       "e_we": 400,
+       "prep_dir": "<TMP>/o1/m"
+      },
+      "chem_e_sn": null,
+      "confirm_reps": 2,
+      "core_budget": null,
+      "cores_per_node": 72,
+      "env_source": "$HOME/wtune-scc/env.sh",
+      "exclude_rules": [],
+      "full_space": false,
+      "hardware_id": "scc-gh200",
+      "is_fire": false,
+      "job_cids": {},
+      "kappa": 0.5,
+      "layout_notes": null,
+      "ledger_dir": "<TMP>/o1/ledger",
+      "max_nodes": 13,
+      "max_queue_s": null,
+      "max_wall_explicit": false,
+      "max_wall_s": null,
+      "namelist_path": "<TMP>/o1/namelist.input",
+      "node_health": {
+       "exclusions": [
+        "head"
+       ],
+       "failed": [],
+       "healthy": null,
+       "max_nodes_effective": 13,
+       "max_nodes_requested": 13,
+       "nodes": {},
+       "probe_s": "<PROBE_S>",
+       "skipped": "sinfo unavailable (OSError: sinfo rc=1: sinfo: not here)",
+       "user_exclude": [],
+       "when": "start"
+      },
+      "nodes": 1,
+      "not_measured": [],
+      "omp_cap": null,
+      "out_dir": "<TMP>/o1/out",
+      "owned_jobs": [],
+      "poll_interval": 20.0,
+      "prediction_cfg": {
+       "drift_band_pct": null,
+       "io_target": "nfs",
+       "measure_r_rad": false
+      },
+      "prep_submit_s": 0.0,
+      "probe_cfg": {
+       "budget_pct": 10.0,
+       "confirm_reps": 2,
+       "indicator_sources": [
+        "case_forcing",
+        "era5",
+        "gfs",
+        "stage4",
+        "mrms"
+       ],
+       "max_points": 5,
+       "points": "auto",
+       "points_by": "time",
+       "rank_by": "t0",
+       "ranking_start": "t0",
+       "restart_io_form": 14,
+       "sources": [
+        "trajectory",
+        "restart",
+        "rebuild"
+       ],
+       "spinup_min": 60,
+       "stage1": "t0",
+       "stage2_minutes": null,
+       "steps": "auto"
+      },
+      "proposer": null,
+      "queue_only_s": 0.0,
+      "rank_by": "t0",
+      "ranking": null,
+      "ranking_gates": [],
+      "ranking_start_note": null,
+      "reserve": null,
+      "reserve_in_stage1": true,
+      "restart_io_form": 14,
+      "restart_read_s": null,
+      "s_prior": null,
+      "sacct_cmd": "sacct",
+      "sbatch_script": "/home/nk/devel/wtune-refactor/campaign/strict_campaign.sbatch",
+      "search_cfg": {
+       "aspect_max": null,
+       "io": {
+        "enabled": false,
+        "io_form_history": [
+         2,
+         11,
+         14
+        ],
+        "target": [
+         "nfs",
+         "local"
+        ]
+       },
+       "numtiles": null,
+       "omp": null,
+       "rank_distribution": null
+      },
+      "seed": 1,
+      "shared_queue": null,
+      "stage1": null,
+      "stage1_extra_reserve_s": 0.0,
+      "stage1_jobs": {},
+      "stage1_max_running": 0,
+      "stage1_mode": "t0",
+      "stage1_trimmed": [],
+      "stage2_budget_s": null,
+      "stage2_estimate_start_s": null,
+      "stage2_overrun_s": null,
+      "start_time": 0.0,
+      "startup_runs": null,
+      "startup_s": 120.0,
+      "startup_source": "documented constant (scc_sweep.STARTUP_S)",
+      "steps": 20,
+      "uncharged_s": 0.0
+     },
+     "kind": "run_pipeline_full",
+     "kwargs": {
+      "core_options": null,
+      "deadline_s": null,
+      "extension": false,
+      "k_finalists": 2,
+      "keep_frames": false,
+      "level": 1,
+      "max_queue_hours": 6.0,
+      "min_efficiency": 0.7,
+      "minutes": null,
+      "nodes_policy": "knee",
+      "objective": "time",
+      "physics": false,
+      "physics_max_candidates": 3,
+      "precision_min": 15.0,
+      "recheck": "<callable>",
+      "stop_if_short": false,
+      "sweep_budget_frac": 0.4,
+      "total_steps": 1000
+     }
+    }
+   ],
+   "out": "NOTE: probe.steps='auto' requested but could not be resolved from <TMP>/o1/namelist.input (FileNotFoundError: [Errno 2] No such file or directory: '<TMP>/o1/namelist.input') -- using DEFAULT_STEPS=20 instead\ncase=matthew nodes=search (node search (measured)) budget=none max_nodes=13 out=<TMP>/o1/out\n\nPIPELINE {'stub': True}\n",
+   "report": {
+    "cancelled_job_ids": [],
+    "case": "matthew",
+    "job_ids": [],
+    "node_health": {
+     "exclusions": [
+      "head"
+     ],
+     "failed": [],
+     "healthy": null,
+     "max_nodes_effective": 13,
+     "max_nodes_requested": 13,
+     "nodes": {},
+     "probe_s": "<PROBE_S>",
+     "skipped": "sinfo unavailable (OSError: sinfo rc=1: sinfo: not here)",
+     "user_exclude": [],
+     "when": "start"
+    },
+    "nodes": 1,
+    "pipeline": {
+     "stub": true
+    },
+    "pipeline_only": true,
+    "winner": null
+   },
+   "report_json": "{\n  \"cancelled_job_ids\": [],\n  \"case\": \"matthew\",\n  \"job_ids\": [],\n  \"node_health\": {\n    \"exclusions\": [\n      \"head\"\n    ],\n    \"failed\": [],\n    \"healthy\": null,\n    \"max_nodes_effective\": 13,\n    \"max_nodes_requested\": 13,\n    \"nodes\": {},\n    \"probe_s\": 0.0,\n    \"skipped\": \"sinfo unavailable (OSError: sinfo rc=1: sinfo: not here)\",\n    \"user_exclude\": [],\n    \"when\": \"start\"\n  },\n  \"nodes\": 1,\n  \"pipeline\": {\n    \"stub\": true\n  },\n  \"pipeline_only\": true,\n  \"winner\": null\n}\n"
+  },
+  "o2_minutes": {
+   "calls": [
+    {
+     "args": [],
+     "ctx": {
+      "anchor_override": null,
+      "background_jobs": [],
+      "budget_mode": "wall",
+      "budget_s": 7200.0,
+      "cancelled_jobs": [],
+      "case": "matthew",
+      "case_json": {
+       "e_sn": 400,
+       "e_vert": 45,
+       "e_we": 400,
+       "prep_dir": "<TMP>/o2_minutes/m"
+      },
+      "chem_e_sn": null,
+      "confirm_reps": 2,
+      "core_budget": null,
+      "cores_per_node": 72,
+      "env_source": "$HOME/wtune-scc/env.sh",
+      "exclude_rules": [],
+      "full_space": false,
+      "hardware_id": "scc-gh200",
+      "is_fire": false,
+      "job_cids": {},
+      "kappa": 0.5,
+      "layout_notes": null,
+      "ledger_dir": "<TMP>/o2_minutes/ledger",
+      "max_nodes": 13,
+      "max_queue_s": null,
+      "max_wall_explicit": false,
+      "max_wall_s": null,
+      "namelist_path": "<TMP>/o2_minutes/namelist.input",
+      "node_health": {
+       "exclusions": [
+        "head"
+       ],
+       "failed": [],
+       "healthy": null,
+       "max_nodes_effective": 13,
+       "max_nodes_requested": 13,
+       "nodes": {},
+       "probe_s": "<PROBE_S>",
+       "skipped": "sinfo unavailable (OSError: sinfo rc=1: sinfo: not here)",
+       "user_exclude": [],
+       "when": "start"
+      },
+      "nodes": 1,
+      "not_measured": [],
+      "omp_cap": null,
+      "out_dir": "<TMP>/o2_minutes/out",
+      "owned_jobs": [],
+      "poll_interval": 20.0,
+      "prediction_cfg": {
+       "drift_band_pct": null,
+       "io_target": "nfs",
+       "measure_r_rad": false
+      },
+      "prep_submit_s": 0.0,
+      "probe_cfg": {
+       "budget_pct": 10.0,
+       "confirm_reps": 2,
+       "indicator_sources": [
+        "case_forcing",
+        "era5",
+        "gfs",
+        "stage4",
+        "mrms"
+       ],
+       "max_points": 5,
+       "points": "auto",
+       "points_by": "time",
+       "rank_by": "t0",
+       "ranking_start": "t0",
+       "restart_io_form": 14,
+       "sources": [
+        "trajectory",
+        "restart",
+        "rebuild"
+       ],
+       "spinup_min": 60,
+       "stage1": "t0",
+       "stage2_minutes": null,
+       "steps": "auto"
+      },
+      "proposer": null,
+      "queue_only_s": 0.0,
+      "rank_by": "t0",
+      "ranking": null,
+      "ranking_gates": [],
+      "ranking_start_note": null,
+      "reserve": null,
+      "reserve_in_stage1": true,
+      "restart_io_form": 14,
+      "restart_read_s": null,
+      "s_prior": null,
+      "sacct_cmd": "sacct",
+      "sbatch_script": "/home/nk/devel/wtune-refactor/campaign/strict_campaign.sbatch",
+      "search_cfg": {
+       "aspect_max": null,
+       "io": {
+        "enabled": false,
+        "io_form_history": [
+         2,
+         11,
+         14
+        ],
+        "target": [
+         "nfs",
+         "local"
+        ]
+       },
+       "numtiles": null,
+       "omp": null,
+       "rank_distribution": null
+      },
+      "seed": 1,
+      "shared_queue": null,
+      "stage1": null,
+      "stage1_extra_reserve_s": 0.0,
+      "stage1_jobs": {},
+      "stage1_max_running": 0,
+      "stage1_mode": "t0",
+      "stage1_trimmed": [],
+      "stage2_budget_s": null,
+      "stage2_estimate_start_s": null,
+      "stage2_overrun_s": null,
+      "start_time": 0.0,
+      "startup_runs": null,
+      "startup_s": 120.0,
+      "startup_source": "documented constant (scc_sweep.STARTUP_S)",
+      "steps": 20,
+      "uncharged_s": 0.0
+     },
+     "kind": "run_pipeline_full",
+     "kwargs": {
+      "core_options": null,
+      "deadline_s": null,
+      "extension": false,
+      "k_finalists": 2,
+      "keep_frames": false,
+      "level": 2,
+      "max_queue_hours": 6.0,
+      "min_efficiency": 0.7,
+      "minutes": 120.0,
+      "nodes_policy": "knee",
+      "objective": "time",
+      "physics": false,
+      "physics_max_candidates": 3,
+      "precision_min": 5.0,
+      "recheck": "<callable>",
+      "stop_if_short": true,
+      "sweep_budget_frac": 0.4,
+      "total_steps": 1000
+     }
+    }
+   ],
+   "out": "NOTE: probe.steps='auto' requested but could not be resolved from <TMP>/o2_minutes/namelist.input (FileNotFoundError: [Errno 2] No such file or directory: '<TMP>/o2_minutes/namelist.input') -- using DEFAULT_STEPS=20 instead\ncase=matthew nodes=search (node search (measured)) budget=120.0 min max_nodes=13 out=<TMP>/o2_minutes/out\n\nPIPELINE {'stub': True}\n",
+   "report": {
+    "cancelled_job_ids": [],
+    "case": "matthew",
+    "job_ids": [],
+    "node_health": {
+     "exclusions": [
+      "head"
+     ],
+     "failed": [],
+     "healthy": null,
+     "max_nodes_effective": 13,
+     "max_nodes_requested": 13,
+     "nodes": {},
+     "probe_s": "<PROBE_S>",
+     "skipped": "sinfo unavailable (OSError: sinfo rc=1: sinfo: not here)",
+     "user_exclude": [],
+     "when": "start"
+    },
+    "nodes": 1,
+    "pipeline": {
+     "stub": true
+    },
+    "pipeline_only": true,
+    "winner": null
+   },
+   "report_json": "{\n  \"cancelled_job_ids\": [],\n  \"case\": \"matthew\",\n  \"job_ids\": [],\n  \"node_health\": {\n    \"exclusions\": [\n      \"head\"\n    ],\n    \"failed\": [],\n    \"healthy\": null,\n    \"max_nodes_effective\": 13,\n    \"max_nodes_requested\": 13,\n    \"nodes\": {},\n    \"probe_s\": 0.0,\n    \"skipped\": \"sinfo unavailable (OSError: sinfo rc=1: sinfo: not here)\",\n    \"user_exclude\": [],\n    \"when\": \"start\"\n  },\n  \"nodes\": 1,\n  \"pipeline\": {\n    \"stub\": true\n  },\n  \"pipeline_only\": true,\n  \"winner\": null\n}\n"
+  },
+  "o3_full": {
+   "calls": [
+    {
+     "args": [],
+     "ctx": {
+      "anchor_override": null,
+      "background_jobs": [],
+      "budget_mode": "wall",
+      "budget_s": Infinity,
+      "cancelled_jobs": [],
+      "case": "matthew",
+      "case_json": {
+       "e_sn": 400,
+       "e_vert": 45,
+       "e_we": 400,
+       "prep_dir": "<TMP>/o3_full/m"
+      },
+      "chem_e_sn": null,
+      "confirm_reps": 2,
+      "core_budget": null,
+      "cores_per_node": 72,
+      "env_source": "$HOME/wtune-scc/env.sh",
+      "exclude_rules": [],
+      "full_space": false,
+      "hardware_id": "scc-gh200",
+      "is_fire": false,
+      "job_cids": {},
+      "kappa": 0.5,
+      "layout_notes": null,
+      "ledger_dir": "<TMP>/o3_full/ledger",
+      "max_nodes": 13,
+      "max_queue_s": null,
+      "max_wall_explicit": false,
+      "max_wall_s": null,
+      "namelist_path": "<TMP>/o3_full/namelist.input",
+      "node_health": {
+       "exclusions": [
+        "head"
+       ],
+       "failed": [],
+       "healthy": null,
+       "max_nodes_effective": 13,
+       "max_nodes_requested": 13,
+       "nodes": {},
+       "probe_s": "<PROBE_S>",
+       "skipped": "sinfo unavailable (OSError: sinfo rc=1: sinfo: not here)",
+       "user_exclude": [],
+       "when": "start"
+      },
+      "nodes": 1,
+      "not_measured": [],
+      "omp_cap": null,
+      "out_dir": "<TMP>/o3_full/out",
+      "owned_jobs": [],
+      "poll_interval": 20.0,
+      "prediction_cfg": {
+       "drift_band_pct": null,
+       "io_target": "nfs",
+       "measure_r_rad": false
+      },
+      "prep_submit_s": 0.0,
+      "probe_cfg": {
+       "budget_pct": 10.0,
+       "confirm_reps": 2,
+       "indicator_sources": [
+        "case_forcing",
+        "era5",
+        "gfs",
+        "stage4",
+        "mrms"
+       ],
+       "max_points": 5,
+       "points": "auto",
+       "points_by": "time",
+       "rank_by": "t0",
+       "ranking_start": "t0",
+       "restart_io_form": 14,
+       "sources": [
+        "trajectory",
+        "restart",
+        "rebuild"
+       ],
+       "spinup_min": 60,
+       "stage1": "t0",
+       "stage2_minutes": null,
+       "steps": "auto"
+      },
+      "proposer": null,
+      "queue_only_s": 0.0,
+      "rank_by": "t0",
+      "ranking": null,
+      "ranking_gates": [],
+      "ranking_start_note": null,
+      "reserve": null,
+      "reserve_in_stage1": true,
+      "restart_io_form": 14,
+      "restart_read_s": null,
+      "s_prior": null,
+      "sacct_cmd": "sacct",
+      "sbatch_script": "/home/nk/devel/wtune-refactor/campaign/strict_campaign.sbatch",
+      "search_cfg": {
+       "aspect_max": null,
+       "io": {
+        "enabled": false,
+        "io_form_history": [
+         2,
+         11,
+         14
+        ],
+        "target": [
+         "nfs",
+         "local"
+        ]
+       },
+       "numtiles": null,
+       "omp": null,
+       "rank_distribution": null
+      },
+      "seed": 1,
+      "shared_queue": null,
+      "stage1": null,
+      "stage1_extra_reserve_s": 0.0,
+      "stage1_jobs": {},
+      "stage1_max_running": 0,
+      "stage1_mode": "t0",
+      "stage1_trimmed": [],
+      "stage2_budget_s": null,
+      "stage2_estimate_start_s": null,
+      "stage2_overrun_s": null,
+      "start_time": 0.0,
+      "startup_runs": null,
+      "startup_s": 120.0,
+      "startup_source": "documented constant (scc_sweep.STARTUP_S)",
+      "steps": 9,
+      "uncharged_s": 0.0
+     },
+     "kind": "run_pipeline_full",
+     "kwargs": {
+      "core_options": null,
+      "deadline_s": null,
+      "extension": false,
+      "k_finalists": 2,
+      "keep_frames": true,
+      "level": 3,
+      "max_queue_hours": 3.0,
+      "min_efficiency": 0.7,
+      "minutes": null,
+      "nodes_policy": "knee",
+      "objective": "time",
+      "physics": true,
+      "physics_max_candidates": 2,
+      "precision_min": 15.0,
+      "recheck": "<callable>",
+      "stop_if_short": false,
+      "sweep_budget_frac": 0.4,
+      "total_steps": 1000
+     }
+    }
+   ],
+   "out": "case=matthew nodes=search (node search (measured)) budget=none max_nodes=13 out=<TMP>/o3_full/out\n\nPIPELINE {'stub': True}\n",
+   "report": {
+    "cancelled_job_ids": [],
+    "case": "matthew",
+    "job_ids": [],
+    "node_health": {
+     "exclusions": [
+      "head"
+     ],
+     "failed": [],
+     "healthy": null,
+     "max_nodes_effective": 13,
+     "max_nodes_requested": 13,
+     "nodes": {},
+     "probe_s": "<PROBE_S>",
+     "skipped": "sinfo unavailable (OSError: sinfo rc=1: sinfo: not here)",
+     "user_exclude": [],
+     "when": "start"
+    },
+    "nodes": 1,
+    "pipeline": {
+     "stub": true
+    },
+    "pipeline_only": true,
+    "winner": null
+   },
+   "report_json": "{\n  \"cancelled_job_ids\": [],\n  \"case\": \"matthew\",\n  \"job_ids\": [],\n  \"node_health\": {\n    \"exclusions\": [\n      \"head\"\n    ],\n    \"failed\": [],\n    \"healthy\": null,\n    \"max_nodes_effective\": 13,\n    \"max_nodes_requested\": 13,\n    \"nodes\": {},\n    \"probe_s\": 0.0,\n    \"skipped\": \"sinfo unavailable (OSError: sinfo rc=1: sinfo: not here)\",\n    \"user_exclude\": [],\n    \"when\": \"start\"\n  },\n  \"nodes\": 1,\n  \"pipeline\": {\n    \"stub\": true\n  },\n  \"pipeline_only\": true,\n  \"winner\": null\n}\n"
+  },
+  "predicted": {
+   "calls": [
+    {
+     "args": [
+      4,
+      "user-specified (cap=13)",
+      10.0
+     ],
+     "ctx": {
+      "anchor_override": null,
+      "background_jobs": [],
+      "budget_mode": "running",
+      "budget_s": 1800.0,
+      "cancelled_jobs": [],
+      "case": "matthew",
+      "case_json": {
+       "e_sn": 400,
+       "e_vert": 45,
+       "e_we": 400,
+       "prep_dir": "<TMP>/predicted/m"
+      },
+      "chem_e_sn": null,
+      "confirm_reps": 2,
+      "core_budget": null,
+      "cores_per_node": 72,
+      "env_source": "$HOME/wtune-scc/env.sh",
+      "exclude_rules": [],
+      "full_space": false,
+      "hardware_id": "scc-gh200",
+      "is_fire": false,
+      "job_cids": {},
+      "kappa": 0.5,
+      "layout_notes": null,
+      "ledger_dir": "<TMP>/predicted/ledger",
+      "max_nodes": 13,
+      "max_queue_s": null,
+      "max_wall_explicit": true,
+      "max_wall_s": 3000.0,
+      "namelist_path": "<TMP>/predicted/namelist.input",
+      "node_health": {
+       "exclusions": [
+        "head"
+       ],
+       "failed": [],
+       "healthy": null,
+       "max_nodes_effective": 13,
+       "max_nodes_requested": 13,
+       "nodes": {},
+       "probe_s": "<PROBE_S>",
+       "skipped": "sinfo unavailable (OSError: sinfo rc=1: sinfo: not here)",
+       "user_exclude": [],
+       "when": "start"
+      },
+      "nodes": 4,
+      "not_measured": [],
+      "omp_cap": null,
+      "out_dir": "<TMP>/predicted/out",
+      "owned_jobs": [],
+      "poll_interval": 20.0,
+      "prediction_cfg": {
+       "drift_band_pct": null,
+       "io_target": "nfs",
+       "measure_r_rad": false
+      },
+      "prep_submit_s": 0.0,
+      "probe_cfg": {
+       "budget_pct": 10.0,
+       "confirm_reps": 2,
+       "indicator_sources": [
+        "case_forcing",
+        "era5",
+        "gfs",
+        "stage4",
+        "mrms"
+       ],
+       "max_points": 3,
+       "points": "auto",
+       "points_by": "time",
+       "rank_by": "t0",
+       "ranking_start": "t0",
+       "restart_io_form": 14,
+       "sources": [
+        "trajectory",
+        "restart",
+        "rebuild"
+       ],
+       "spinup_min": 60,
+       "stage1": "t0",
+       "stage2_minutes": null,
+       "steps": "auto"
+      },
+      "proposer": null,
+      "queue_only_s": 0.0,
+      "rank_by": "predicted",
+      "ranking": null,
+      "ranking_gates": [],
+      "ranking_start_note": null,
+      "reserve": null,
+      "reserve_in_stage1": true,
+      "restart_io_form": 2,
+      "restart_read_s": null,
+      "s_prior": null,
+      "sacct_cmd": "sacct",
+      "sbatch_script": "/home/nk/devel/wtune-refactor/campaign/strict_campaign.sbatch",
+      "search_cfg": {
+       "aspect_max": null,
+       "io": {
+        "enabled": false,
+        "io_form_history": [
+         2,
+         11,
+         14
+        ],
+        "target": [
+         "nfs",
+         "local"
+        ]
+       },
+       "numtiles": null,
+       "omp": null,
+       "rank_distribution": null
+      },
+      "seed": 1,
+      "shared_queue": null,
+      "stage1": null,
+      "stage1_extra_reserve_s": 0.0,
+      "stage1_jobs": {},
+      "stage1_max_running": 0,
+      "stage1_mode": "pstar",
+      "stage1_trimmed": [],
+      "stage2_budget_s": 420.0,
+      "stage2_estimate_start_s": null,
+      "stage2_overrun_s": null,
+      "start_time": 0.0,
+      "startup_runs": null,
+      "startup_s": 120.0,
+      "startup_source": "documented constant (scc_sweep.STARTUP_S)",
+      "steps": 20,
+      "uncharged_s": 0.0
+     },
+     "kind": "run_predicted",
+     "kwargs": {}
+    }
+   ],
+   "out": "NOTE: probe.steps='auto' requested but could not be resolved from <TMP>/predicted/namelist.input (FileNotFoundError: [Errno 2] No such file or directory: '<TMP>/predicted/namelist.input') -- using DEFAULT_STEPS=20 instead\ncase=matthew nodes=4 (user-specified (cap=13)) budget=30.0 min max_nodes=13 out=<TMP>/predicted/out\npredicted mode: budget 30.0 min of RUNNING time, hard wall-clock cap 50.0 min\n\nPREDICTED ['cancelled_job_ids', 'case', 'job_ids', 'node_health', 'nodes', 'pipeline', 'pipeline_only']\n\nadvice: 1 stub item(s)\n",
+   "report": {
+    "advice": [
+     {
+      "case": "matthew",
+      "id": "stub"
+     }
+    ],
+    "advice_unavailable": [],
+    "cancelled_job_ids": [],
+    "case": "matthew",
+    "job_ids": [],
+    "node_health": {
+     "exclusions": [
+      "head"
+     ],
+     "failed": [],
+     "healthy": null,
+     "max_nodes_effective": 13,
+     "max_nodes_requested": 13,
+     "nodes": {},
+     "probe_s": "<PROBE_S>",
+     "skipped": "sinfo unavailable (OSError: sinfo rc=1: sinfo: not here)",
+     "user_exclude": [],
+     "when": "start"
+    },
+    "nodes": 4,
+    "pipeline": {
+     "stub": true
+    },
+    "pipeline_only": true,
+    "winner": null
+   },
+   "report_json": "{\n  \"advice\": [\n    {\n      \"case\": \"matthew\",\n      \"id\": \"stub\"\n    }\n  ],\n  \"advice_unavailable\": [],\n  \"cancelled_job_ids\": [],\n  \"case\": \"matthew\",\n  \"job_ids\": [],\n  \"node_health\": {\n    \"exclusions\": [\n      \"head\"\n    ],\n    \"failed\": [],\n    \"healthy\": null,\n    \"max_nodes_effective\": 13,\n    \"max_nodes_requested\": 13,\n    \"nodes\": {},\n    \"probe_s\": 0.0,\n    \"skipped\": \"sinfo unavailable (OSError: sinfo rc=1: sinfo: not here)\",\n    \"user_exclude\": [],\n    \"when\": \"start\"\n  },\n  \"nodes\": 4,\n  \"pipeline\": {\n    \"stub\": true\n  },\n  \"pipeline_only\": true,\n  \"winner\": null\n}\n"
+  },
+  "predicted_points": {
+   "calls": [
+    {
+     "args": [
+      13,
+      "policy=knee: every profiled doubling step up to --max-nodes cap=13 clears 1.5x; using nodes=13",
+      10.0
+     ],
+     "ctx": {
+      "anchor_override": null,
+      "background_jobs": [],
+      "budget_mode": "running",
+      "budget_s": 1800.0,
+      "cancelled_jobs": [],
+      "case": "matthew",
+      "case_json": {
+       "e_sn": 400,
+       "e_vert": 45,
+       "e_we": 400,
+       "prep_dir": "<TMP>/predicted_points/m"
+      },
+      "chem_e_sn": null,
+      "confirm_reps": 2,
+      "core_budget": null,
+      "cores_per_node": 72,
+      "env_source": "$HOME/wtune-scc/env.sh",
+      "exclude_rules": [],
+      "full_space": false,
+      "hardware_id": "scc-gh200",
+      "is_fire": false,
+      "job_cids": {},
+      "kappa": 0.5,
+      "layout_notes": null,
+      "ledger_dir": "<TMP>/predicted_points/ledger",
+      "max_nodes": 13,
+      "max_queue_s": null,
+      "max_wall_explicit": false,
+      "max_wall_s": 5400.0,
+      "namelist_path": "<TMP>/predicted_points/namelist.input",
+      "node_health": {
+       "exclusions": [
+        "head"
+       ],
+       "failed": [],
+       "healthy": null,
+       "max_nodes_effective": 13,
+       "max_nodes_requested": 13,
+       "nodes": {},
+       "probe_s": "<PROBE_S>",
+       "skipped": "sinfo unavailable (OSError: sinfo rc=1: sinfo: not here)",
+       "user_exclude": [],
+       "when": "start"
+      },
+      "nodes": 13,
+      "not_measured": [],
+      "omp_cap": null,
+      "out_dir": "<TMP>/predicted_points/out",
+      "owned_jobs": [],
+      "poll_interval": 20.0,
+      "prediction_cfg": {
+       "drift_band_pct": null,
+       "io_target": "nfs",
+       "measure_r_rad": false
+      },
+      "prep_submit_s": 0.0,
+      "probe_cfg": {
+       "budget_pct": 10.0,
+       "confirm_reps": 2,
+       "indicator_sources": [
+        "case_forcing",
+        "era5",
+        "gfs",
+        "stage4",
+        "mrms"
+       ],
+       "max_points": 3,
+       "points": "auto",
+       "points_by": "cost-indicators",
+       "rank_by": "t0",
+       "ranking_start": "t0",
+       "restart_io_form": 14,
+       "sources": [
+        "trajectory",
+        "restart",
+        "rebuild"
+       ],
+       "spinup_min": 60,
+       "stage1": "t0",
+       "stage2_minutes": null,
+       "steps": "auto"
+      },
+      "proposer": null,
+      "queue_only_s": 0.0,
+      "rank_by": "predicted",
+      "ranking": null,
+      "ranking_gates": [],
+      "ranking_start_note": null,
+      "reserve": null,
+      "reserve_in_stage1": true,
+      "restart_io_form": 14,
+      "restart_read_s": null,
+      "s_prior": null,
+      "sacct_cmd": "sacct",
+      "sbatch_script": "/home/nk/devel/wtune-refactor/campaign/strict_campaign.sbatch",
+      "search_cfg": {
+       "aspect_max": null,
+       "io": {
+        "enabled": false,
+        "io_form_history": [
+         2,
+         11,
+         14
+        ],
+        "target": [
+         "nfs",
+         "local"
+        ]
+       },
+       "numtiles": null,
+       "omp": null,
+       "rank_distribution": null
+      },
+      "seed": 1,
+      "shared_queue": null,
+      "stage1": null,
+      "stage1_extra_reserve_s": 0.0,
+      "stage1_jobs": {},
+      "stage1_max_running": 0,
+      "stage1_mode": "t0",
+      "stage1_trimmed": [],
+      "stage2_budget_s": null,
+      "stage2_estimate_start_s": null,
+      "stage2_overrun_s": null,
+      "start_time": 0.0,
+      "startup_runs": null,
+      "startup_s": 120.0,
+      "startup_source": "documented constant (scc_sweep.STARTUP_S)",
+      "steps": 20,
+      "uncharged_s": 0.0
+     },
+     "kind": "run_predicted",
+     "kwargs": {}
+    }
+   ],
+   "out": "NOTE: probe.steps='auto' requested but could not be resolved from <TMP>/predicted_points/namelist.input (FileNotFoundError: [Errno 2] No such file or directory: '<TMP>/predicted_points/namelist.input') -- using DEFAULT_STEPS=20 instead\nWARNING: scaling model is UNCALIBRATED (wtune_case.py's halo-efficiency proxy, c=1.0, never fit to a real measurement) -- nodes=13 (policy=knee) is a starting point, not a validated optimum\ncase=matthew nodes=13 (policy=knee: every profiled doubling step up to --max-nodes cap=13 clears 1.5x; using nodes=13) budget=30.0 min max_nodes=13 out=<TMP>/predicted_points/out\npredicted mode: budget 30.0 min of RUNNING time, hard wall-clock cap 90.0 min\n\nPREDICTED ['cancelled_job_ids', 'case', 'job_ids', 'node_health', 'nodes', 'pipeline', 'pipeline_only']\n\nadvice: 1 stub item(s)\n",
+   "report": {
+    "advice": [
+     {
+      "case": "matthew",
+      "id": "stub"
+     }
+    ],
+    "advice_unavailable": [],
+    "cancelled_job_ids": [],
+    "case": "matthew",
+    "job_ids": [],
+    "node_health": {
+     "exclusions": [
+      "head"
+     ],
+     "failed": [],
+     "healthy": null,
+     "max_nodes_effective": 13,
+     "max_nodes_requested": 13,
+     "nodes": {},
+     "probe_s": "<PROBE_S>",
+     "skipped": "sinfo unavailable (OSError: sinfo rc=1: sinfo: not here)",
+     "user_exclude": [],
+     "when": "start"
+    },
+    "nodes": 13,
+    "pipeline": {
+     "stub": true
+    },
+    "pipeline_only": true,
+    "winner": null
+   },
+   "report_json": "{\n  \"advice\": [\n    {\n      \"case\": \"matthew\",\n      \"id\": \"stub\"\n    }\n  ],\n  \"advice_unavailable\": [],\n  \"cancelled_job_ids\": [],\n  \"case\": \"matthew\",\n  \"job_ids\": [],\n  \"node_health\": {\n    \"exclusions\": [\n      \"head\"\n    ],\n    \"failed\": [],\n    \"healthy\": null,\n    \"max_nodes_effective\": 13,\n    \"max_nodes_requested\": 13,\n    \"nodes\": {},\n    \"probe_s\": 0.0,\n    \"skipped\": \"sinfo unavailable (OSError: sinfo rc=1: sinfo: not here)\",\n    \"user_exclude\": [],\n    \"when\": \"start\"\n  },\n  \"nodes\": 13,\n  \"pipeline\": {\n    \"stub\": true\n  },\n  \"pipeline_only\": true,\n  \"winner\": null\n}\n"
+  },
+  "search_cost": {
+   "calls": [
+    {
+     "args": [],
+     "ctx": {
+      "anchor_override": null,
+      "background_jobs": [],
+      "budget_mode": "wall",
+      "budget_s": 2700.0,
+      "cancelled_jobs": [],
+      "case": "matthew",
+      "case_json": {
+       "e_sn": 400,
+       "e_vert": 45,
+       "e_we": 400,
+       "prep_dir": "<TMP>/search_cost/m"
+      },
+      "chem_e_sn": null,
+      "confirm_reps": 2,
+      "core_budget": null,
+      "cores_per_node": 72,
+      "env_source": "$HOME/wtune-scc/env.sh",
+      "exclude_rules": [],
+      "full_space": false,
+      "hardware_id": "scc-gh200",
+      "is_fire": false,
+      "job_cids": {},
+      "kappa": 0.5,
+      "layout_notes": null,
+      "ledger_dir": "<TMP>/search_cost/ledger",
+      "max_nodes": 13,
+      "max_queue_s": null,
+      "max_wall_explicit": false,
+      "max_wall_s": null,
+      "namelist_path": "<TMP>/search_cost/namelist.input",
+      "node_health": {
+       "exclusions": [
+        "head"
+       ],
+       "failed": [],
+       "healthy": null,
+       "max_nodes_effective": 13,
+       "max_nodes_requested": 13,
+       "nodes": {},
+       "probe_s": "<PROBE_S>",
+       "skipped": "sinfo unavailable (OSError: sinfo rc=1: sinfo: not here)",
+       "user_exclude": [],
+       "when": "start"
+      },
+      "nodes": 1,
+      "not_measured": [],
+      "omp_cap": null,
+      "out_dir": "<TMP>/search_cost/out",
+      "owned_jobs": [],
+      "poll_interval": 20.0,
+      "prediction_cfg": {
+       "drift_band_pct": null,
+       "io_target": "nfs",
+       "measure_r_rad": false
+      },
+      "prep_submit_s": 0.0,
+      "probe_cfg": {
+       "budget_pct": 10.0,
+       "confirm_reps": 2,
+       "indicator_sources": [
+        "case_forcing",
+        "era5",
+        "gfs",
+        "stage4",
+        "mrms"
+       ],
+       "max_points": 5,
+       "points": "auto",
+       "points_by": "time",
+       "rank_by": "t0",
+       "ranking_start": "t0",
+       "restart_io_form": 14,
+       "sources": [
+        "trajectory",
+        "restart",
+        "rebuild"
+       ],
+       "spinup_min": 60,
+       "stage1": "t0",
+       "stage2_minutes": null,
+       "steps": "auto"
+      },
+      "proposer": null,
+      "queue_only_s": 0.0,
+      "rank_by": "t0",
+      "ranking": null,
+      "ranking_gates": [],
+      "ranking_start_note": null,
+      "reserve": null,
+      "reserve_in_stage1": true,
+      "restart_io_form": 14,
+      "restart_read_s": null,
+      "s_prior": null,
+      "sacct_cmd": "sacct",
+      "sbatch_script": "/home/nk/devel/wtune-refactor/campaign/strict_campaign.sbatch",
+      "search_cfg": {
+       "aspect_max": null,
+       "io": {
+        "enabled": false,
+        "io_form_history": [
+         2,
+         11,
+         14
+        ],
+        "target": [
+         "nfs",
+         "local"
+        ]
+       },
+       "numtiles": null,
+       "omp": null,
+       "rank_distribution": null
+      },
+      "seed": 1,
+      "shared_queue": null,
+      "stage1": null,
+      "stage1_extra_reserve_s": 0.0,
+      "stage1_jobs": {},
+      "stage1_max_running": 0,
+      "stage1_mode": "t0",
+      "stage1_trimmed": [],
+      "stage2_budget_s": null,
+      "stage2_estimate_start_s": null,
+      "stage2_overrun_s": null,
+      "start_time": 0.0,
+      "startup_runs": null,
+      "startup_s": 120.0,
+      "startup_source": "documented constant (scc_sweep.STARTUP_S)",
+      "steps": 20,
+      "uncharged_s": 0.0
+     },
+     "kind": "run_node_search",
+     "kwargs": {
+      "core_options": null,
+      "deadline_s": 5400.0,
+      "k_finalists": 3,
+      "min_efficiency": 0.6,
+      "nodes_policy": "knee",
+      "objective": "cost",
+      "sweep_budget_frac": 0.4,
+      "total_steps": 1000
+     }
+    }
+   ],
+   "out": "NOTE: probe.steps='auto' requested but could not be resolved from <TMP>/search_cost/namelist.input (FileNotFoundError: [Errno 2] No such file or directory: '<TMP>/search_cost/namelist.input') -- using DEFAULT_STEPS=20 instead\ncase=matthew nodes=search (node search (measured)) budget=45.0 min max_nodes=13 out=<TMP>/search_cost/out\n\nPIPELINE {'stub': True}\n",
+   "report": {
+    "cancelled_job_ids": [],
+    "case": "matthew",
+    "job_ids": [],
+    "node_health": {
+     "exclusions": [
+      "head"
+     ],
+     "failed": [],
+     "healthy": null,
+     "max_nodes_effective": 13,
+     "max_nodes_requested": 13,
+     "nodes": {},
+     "probe_s": "<PROBE_S>",
+     "skipped": "sinfo unavailable (OSError: sinfo rc=1: sinfo: not here)",
+     "user_exclude": [],
+     "when": "start"
+    },
+    "nodes": 1,
+    "pipeline": {
+     "stub": true
+    },
+    "pipeline_only": true,
+    "winner": null
+   },
+   "report_json": "{\n  \"cancelled_job_ids\": [],\n  \"case\": \"matthew\",\n  \"job_ids\": [],\n  \"node_health\": {\n    \"exclusions\": [\n      \"head\"\n    ],\n    \"failed\": [],\n    \"healthy\": null,\n    \"max_nodes_effective\": 13,\n    \"max_nodes_requested\": 13,\n    \"nodes\": {},\n    \"probe_s\": 0.0,\n    \"skipped\": \"sinfo unavailable (OSError: sinfo rc=1: sinfo: not here)\",\n    \"user_exclude\": [],\n    \"when\": \"start\"\n  },\n  \"nodes\": 1,\n  \"pipeline\": {\n    \"stub\": true\n  },\n  \"pipeline_only\": true,\n  \"winner\": null\n}\n"
+  },
+  "search_default": {
+   "calls": [
+    {
+     "args": [],
+     "ctx": {
+      "anchor_override": null,
+      "background_jobs": [],
+      "budget_mode": "wall",
+      "budget_s": 2700.0,
+      "cancelled_jobs": [],
+      "case": "matthew",
+      "case_json": {
+       "e_sn": 400,
+       "e_vert": 45,
+       "e_we": 400,
+       "prep_dir": "<TMP>/search_default/m"
+      },
+      "chem_e_sn": null,
+      "confirm_reps": 2,
+      "core_budget": null,
+      "cores_per_node": 72,
+      "env_source": "$HOME/wtune-scc/env.sh",
+      "exclude_rules": [],
+      "full_space": false,
+      "hardware_id": "scc-gh200",
+      "is_fire": false,
+      "job_cids": {},
+      "kappa": 0.5,
+      "layout_notes": null,
+      "ledger_dir": "<TMP>/search_default/ledger",
+      "max_nodes": 13,
+      "max_queue_s": null,
+      "max_wall_explicit": false,
+      "max_wall_s": null,
+      "namelist_path": "<TMP>/search_default/namelist.input",
+      "node_health": {
+       "exclusions": [
+        "head"
+       ],
+       "failed": [],
+       "healthy": null,
+       "max_nodes_effective": 13,
+       "max_nodes_requested": 13,
+       "nodes": {},
+       "probe_s": "<PROBE_S>",
+       "skipped": "sinfo unavailable (OSError: sinfo rc=1: sinfo: not here)",
+       "user_exclude": [],
+       "when": "start"
+      },
+      "nodes": 1,
+      "not_measured": [],
+      "omp_cap": null,
+      "out_dir": "<TMP>/search_default/out",
+      "owned_jobs": [],
+      "poll_interval": 20.0,
+      "prediction_cfg": {
+       "drift_band_pct": null,
+       "io_target": "nfs",
+       "measure_r_rad": false
+      },
+      "prep_submit_s": 0.0,
+      "probe_cfg": {
+       "budget_pct": 10.0,
+       "confirm_reps": 2,
+       "indicator_sources": [
+        "case_forcing",
+        "era5",
+        "gfs",
+        "stage4",
+        "mrms"
+       ],
+       "max_points": 5,
+       "points": "auto",
+       "points_by": "time",
+       "rank_by": "t0",
+       "ranking_start": "t0",
+       "restart_io_form": 14,
+       "sources": [
+        "trajectory",
+        "restart",
+        "rebuild"
+       ],
+       "spinup_min": 60,
+       "stage1": "t0",
+       "stage2_minutes": null,
+       "steps": "auto"
+      },
+      "proposer": null,
+      "queue_only_s": 0.0,
+      "rank_by": "t0",
+      "ranking": null,
+      "ranking_gates": [],
+      "ranking_start_note": null,
+      "reserve": null,
+      "reserve_in_stage1": true,
+      "restart_io_form": 14,
+      "restart_read_s": null,
+      "s_prior": null,
+      "sacct_cmd": "sacct",
+      "sbatch_script": "/home/nk/devel/wtune-refactor/campaign/strict_campaign.sbatch",
+      "search_cfg": {
+       "aspect_max": null,
+       "io": {
+        "enabled": false,
+        "io_form_history": [
+         2,
+         11,
+         14
+        ],
+        "target": [
+         "nfs",
+         "local"
+        ]
+       },
+       "numtiles": null,
+       "omp": null,
+       "rank_distribution": null
+      },
+      "seed": 1,
+      "shared_queue": null,
+      "stage1": null,
+      "stage1_extra_reserve_s": 0.0,
+      "stage1_jobs": {},
+      "stage1_max_running": 0,
+      "stage1_mode": "t0",
+      "stage1_trimmed": [],
+      "stage2_budget_s": null,
+      "stage2_estimate_start_s": null,
+      "stage2_overrun_s": null,
+      "start_time": 0.0,
+      "startup_runs": null,
+      "startup_s": 120.0,
+      "startup_source": "documented constant (scc_sweep.STARTUP_S)",
+      "steps": 20,
+      "uncharged_s": 0.0
+     },
+     "kind": "run_node_search",
+     "kwargs": {
+      "core_options": [
+       72,
+       64,
+       36
+      ],
+      "deadline_s": null,
+      "k_finalists": 2,
+      "min_efficiency": 0.7,
+      "nodes_policy": "knee",
+      "objective": "time",
+      "sweep_budget_frac": 0.4,
+      "total_steps": 1000
+     }
+    }
+   ],
+   "out": "NOTE: probe.steps='auto' requested but could not be resolved from <TMP>/search_default/namelist.input (FileNotFoundError: [Errno 2] No such file or directory: '<TMP>/search_default/namelist.input') -- using DEFAULT_STEPS=20 instead\ncase=matthew nodes=search (node search (measured)) budget=45.0 min max_nodes=13 out=<TMP>/search_default/out\n\nPIPELINE {'stub': True}\n",
+   "report": {
+    "cancelled_job_ids": [],
+    "case": "matthew",
+    "job_ids": [],
+    "node_health": {
+     "exclusions": [
+      "head"
+     ],
+     "failed": [],
+     "healthy": null,
+     "max_nodes_effective": 13,
+     "max_nodes_requested": 13,
+     "nodes": {},
+     "probe_s": "<PROBE_S>",
+     "skipped": "sinfo unavailable (OSError: sinfo rc=1: sinfo: not here)",
+     "user_exclude": [],
+     "when": "start"
+    },
+    "nodes": 1,
+    "pipeline": {
+     "stub": true
+    },
+    "pipeline_only": true,
+    "winner": null
+   },
+   "report_json": "{\n  \"cancelled_job_ids\": [],\n  \"case\": \"matthew\",\n  \"job_ids\": [],\n  \"node_health\": {\n    \"exclusions\": [\n      \"head\"\n    ],\n    \"failed\": [],\n    \"healthy\": null,\n    \"max_nodes_effective\": 13,\n    \"max_nodes_requested\": 13,\n    \"nodes\": {},\n    \"probe_s\": 0.0,\n    \"skipped\": \"sinfo unavailable (OSError: sinfo rc=1: sinfo: not here)\",\n    \"user_exclude\": [],\n    \"when\": \"start\"\n  },\n  \"nodes\": 1,\n  \"pipeline\": {\n    \"stub\": true\n  },\n  \"pipeline_only\": true,\n  \"winner\": null\n}\n"
+  }
+ }
+}

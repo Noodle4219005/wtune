@@ -1,0 +1,158 @@
+case=matthew nodes=search (node search (measured)) budget=11.7 min max_nodes=13 out=<TMP>/out
+pipeline O3: hard cap 11:40 of RUNNING time (queue wait not charged; queue cap 6:00:00); phase limits (cumulative): plan 0:35, layout 6:25, predict 9:20, physics 11:40
+pipeline: 預估調校時間 O1 ≈ 130 min  O2 ≈ 168 min  O3 ≈ 196 min <-  (running time; queue wait extra); whole run ~2777:48:40 (cold start); prediction points for this case at ±15 min: 5 (wtune_cost_drivers)
+node sweep: nodes-n1 submitted job 7001 (ANCHOR ranks=72 omp=1 8x9, REPS=2, ~5:40)
+node sweep: nodes-n2 submitted job 7002 (ANCHOR ranks=144 omp=1 12x12, REPS=2, ~5:40)
+node sweep: nodes-n4 submitted job 7003 (ANCHOR ranks=288 omp=1 16x18, REPS=2, ~5:40)
+[node-sweep] [------------------------]   0%  elapsed=0:00 / budget=6:25  (running budget; wall 0:00, queue-only 0:00)
+node sweep: nodes-n8 submitted job 7004 (ANCHOR ranks=576 omp=1 24x24, REPS=2, ~4:03)
+[node-sweep] [------------------------]   0%  elapsed=0:00 / budget=6:25  (running budget; wall 0:00, queue-only 0:00)
+node sweep: early stop: N=8 (0.3200 s/step) did not beat N=4 (0.3000 s/step) by >3%; larger N not submitted
+node sweep: refining around best N=4: measuring N=[3, 5]
+node sweep: nodes-n3 submitted job 7005 (ANCHOR ranks=216 omp=1 12x18, REPS=2, ~4:05)
+node sweep: nodes-n5 submitted job 7006 (ANCHOR ranks=360 omp=1 18x20, REPS=2, ~4:03)
+[node-sweep] [------------------------]   0%  elapsed=0:00 / budget=6:25  (running budget; wall 0:00, queue-only 0:00)
+pipeline: best measured 0.3000 s/step -> whole run ~83:22:00
+node sweep: chose N=4 -- objective=time: N=4 median=0.3000 s/step; min is 0.3000, smallest N within 3% noise of it; finalists [4, 5]
+node sweep: N=1  median=1.0000 s/step n=2 spread=0.0% speedup=1.00 eff=1.00
+node sweep: N=2  median=0.5200 s/step n=2 spread=0.0% speedup=1.92 eff=0.96
+node sweep: N=3  median=0.4100 s/step n=2 spread=0.0% speedup=2.44 eff=0.81
+node sweep: N=4  median=0.3000 s/step n=2 spread=0.0% speedup=3.33 eff=0.83
+node sweep: N=5  median=0.3050 s/step n=2 spread=0.0% speedup=3.28 eff=0.66
+node sweep: N=8  median=0.3200 s/step n=2 spread=0.0% speedup=3.12 eff=0.39
+node sweep: cores-n4-c70 submitted job 7007 (ANCHOR ranks=280 omp=1 14x20, REPS=2, ~4:03)
+node sweep: cores-n4-c64 submitted job 7008 (ANCHOR ranks=256 omp=1 16x16, REPS=2, ~4:03)
+node sweep: cores-n4-c48 submitted job 7009 (ANCHOR ranks=192 omp=1 12x16, REPS=2, ~4:03)
+[node-sweep] [------------------------]   0%  elapsed=0:00 / budget=6:25  (running budget; wall 0:00, queue-only 0:00)
+node sweep: cores-n4-c36 submitted job 7010 (ANCHOR ranks=144 omp=1 12x12, REPS=2, ~4:03)
+node sweep: cores-n5-c70 submitted job 7011 (ANCHOR ranks=350 omp=1 14x25, REPS=2, ~4:03)
+[node-sweep] [------------------------]   0%  elapsed=0:00 / budget=6:25  (running budget; wall 0:00, queue-only 0:00)
+node sweep: cores-n5-c64 submitted job 7012 (ANCHOR ranks=320 omp=1 16x20, REPS=2, ~4:03)
+node sweep: cores-n5-c48 submitted job 7013 (ANCHOR ranks=240 omp=1 15x16, REPS=2, ~4:03)
+[node-sweep] [------------------------]   0%  elapsed=0:00 / budget=6:25  (running budget; wall 0:00, queue-only 0:00)
+node sweep: cores-n5-c36 submitted job 7014 (ANCHOR ranks=180 omp=1 12x15, REPS=2, ~4:03)
+[node-sweep] [------------------------]   0%  elapsed=0:00 / budget=6:25  (running budget; wall 0:00, queue-only 0:00)
+core sweep: N=4 chose cores/node=72 -- cores/node=72 median=0.3000 s/step; fastest is 0.3000, fullest c within 3% noise of it
+core sweep: N=5 chose cores/node=72 -- cores/node=72 median=0.3050 s/step; fastest is 0.3050, fullest c within 3% noise of it
+node search: finalist N=4 cores/node=72, budget share 3:12
+round0 (full layout search): N=4 cores/node=72: 5880 enumerated, 777 unique, 777 legal (0 excluded) -> 1 waves of 3 job(s)
+round0-w0 slot 0: SKIP -- estimated end would exceed budget
+round0-w0 slot 1: SKIP -- estimated end would exceed budget
+round0-w0 slot 2: SKIP -- estimated end would exceed budget
+node search: nothing measured at N=4 beyond the sweep; reporting the sweep ANCHOR
+node search: finalist N=5 cores/node=72, budget share 6:25
+round0 (full layout search): N=5 cores/node=72: 6136 enumerated, 810 unique, 810 legal (0 excluded) -> 1 waves of 2 job(s)
+round0-w0 slot 0: SKIP -- estimated end would exceed budget
+round0-w0 slot 1: SKIP -- estimated end would exceed budget
+node search: nothing measured at N=5 beyond the sweep; reporting the sweep ANCHOR
+pipeline: phase 2 DEGRADED to winner only x 2 points (t0 + costliest) (estimate 4:50 of 9:20 left): 2 layout(s) x all 5 points ~24:15; 2 layout(s) x 2 points (t0 + costliest) ~9:42; winner only x all 5 points ~9:41
+pipeline: run-length I/O model unavailable (FileNotFoundError: [Errno 2] No such file or directory: '<TMP>/namelist.input') -- whole-run prediction is compute + init only
+stage 2: dropped PH2, PH3 to fit the budget (expected 10:17, left 11:40)
+
+=== wtune_tune: matthew ===
+nodes=4 (final over tuned finalists [4, 5]: objective=time: N=4 median=0.3000 s/step; min is 0.3000, smallest N within 3% noise of it)
+budget=11.7 min  elapsed=0.0 min  jobs=9000,9001,9002,9003,9004,7001,7002,7003,7004,7005,7006,7007,7008,7009,7010,7011,7012,7013,7014,8017,8018
+
+id           pred_total  ranks  omp    nx    ny tiles    dist   median_s        range_s speedup pred_spd    n pred_source confirmed
+ANCHOR           FAILED    288    1    16    18     1   block     0.3000  0.3000-0.3000  1.000x        -    2 -           False
+
+PREDICTION FAILED for ANCHOR: FileNotFoundError: [Errno 2] No such file or directory: '<TMP>/namelist.input' -- ranked by median s/step instead
+
+BEST: ANCHOR
+  namelist: nproc_x=16, nproc_y=18, numtiles=1,
+  launch:   mpirun -np 288 --map-by ppr:72:node:PE=1 --bind-to core ./wrf.exe
+  env:      OMP_NUM_THREADS=1 OMP_STACKSIZE=1G  ulimit -s unlimited
+  NOTE:     KMP_BLOCKTIME: n/a on scc (nvhpc OpenMP runtime has no KMP_BLOCKTIME concept)
+
+=== full-run prediction (rank_by=predicted, ANCHOR, 1 rebuilt point(s)) ===
+compute_total: 10:10   init: 10.0s   TOTAL: 10:20 (range 10:10 - 10:10, +-1.0% drift)
+r_rad: night=1.000 day=3.900 source=fake
+whole run: compute 600s + init 10s = 610s (run-length I/O NOT included)  [init: wtune_predict.predict_init]
+
+--- node selection (measured, ANCHOR config per node count) ---
+nodes     median_s  reps   spread  speedup    eff     wall_s node_hours maxrss_MB
+    1       1.0000     2     0.0%    1.00x   1.00    1000120     277.81         -
+    2       0.5200     2     0.0%    1.92x   0.96     520120     288.96         -
+    3       0.4100     2     0.0%    2.44x   0.81     410120     341.77         -
+    4       0.3000     2     0.0%    3.33x   0.83     300120     333.47         -
+    5       0.3050     2     0.0%    3.28x   0.66     305120     423.78         -
+    8       0.3200     2     0.0%    3.12x   0.39     320120     711.38         -
+choice time * N=4  objective=time: N=4 median=0.3000 s/step; min is 0.3000, smallest N within 3% noise of it
+choice cost   N=1  objective=cost: N=1 wall=1000120s node_hours=277.81 (min among 6 feasible, no deadline)
+choice knee   N=4  objective=knee: N=4 efficiency=0.83 >= 0.70 (largest such N)
+(* = objective used; finalists searched: [4, 5]; final N=4 cores/node=72)
+
+--- cores per node at N=4 (ANCHOR; idle cores = hardware - c) ---
+  cores ranks/node  omp    median_s   reps   spread maxrss_MB
+     72         72    1      0.3000      2     0.0%         - <- chosen
+     70         70    1      0.3000      2     0.0%         - 
+     64         64    1      0.3000      2     0.0%         - 
+     48         48    1      0.3000      2     0.0%         - 
+     36         36    1      0.3000      2     0.0%         - 
+
+--- cores per node at N=5 (ANCHOR; idle cores = hardware - c) ---
+  cores ranks/node  omp    median_s   reps   spread maxrss_MB
+     72         72    1      0.3050      2     0.0%         - <- chosen
+     70         70    1      0.3050      2     0.0%         - 
+     64         64    1      0.3050      2     0.0%         - 
+     48         48    1      0.3050      2     0.0%         - 
+     36         36    1      0.3050      2     0.0%         - 
+
+--- measured layouts (14; best first; the full table is in tune_report.json node_selection.layouts) ---
+   N   c/n  ranks  omp   nx x ny tiles    median_s  spread  reps  source
+   4    72    288    1     16x18     1      0.3000    0.0%     2  t0 sweep ANCHOR
+   4    70    280    1     14x20     1      0.3000    0.0%     2  cores/node sweep ANCHOR
+   4    64    256    1     16x16     1      0.3000    0.0%     2  cores/node sweep ANCHOR
+   4    48    192    1     12x16     1      0.3000    0.0%     2  cores/node sweep ANCHOR
+   4    36    144    1     12x12     1      0.3000    0.0%     2  cores/node sweep ANCHOR
+   5    72    360    1     18x20     1      0.3050    0.0%     2  t0 sweep ANCHOR
+   5    70    350    1     14x25     1      0.3050    0.0%     2  cores/node sweep ANCHOR
+   5    64    320    1     16x20     1      0.3050    0.0%     2  cores/node sweep ANCHOR
+   5    48    240    1     15x16     1      0.3050    0.0%     2  cores/node sweep ANCHOR
+   5    36    180    1     12x15     1      0.3050    0.0%     2  cores/node sweep ANCHOR
+   8    72    576    1     24x24     1      0.3200    0.0%     2  t0 sweep ANCHOR
+   3    72    216    1     12x18     1      0.4100    0.0%     2  t0 sweep ANCHOR
+   2    72    144    1     12x12     1      0.5200    0.0%     2  t0 sweep ANCHOR
+   1    72     72    1       8x9     1      1.0000    0.0%     2  t0 sweep ANCHOR
+WINNER:    N=4 c/n=72 ranks=288 omp=1 16x18 tiles=1 0.3000 s/step
+RUNNER-UP: N=5 c/n=72 ranks=360 omp=1 18x20 tiles=1 0.3050 s/step
+winner vs runner-up: 1.7% apart -> NOT distinguishable from noise: either is fine (noise floor 3%)
+enumerated N=4 c=72: 5880 raw, 777 unique (block, 1-D tiles), 777 legal, 0 excluded
+enumerated N=5 c=72: 6136 raw, 810 unique (block, 1-D tiles), 810 legal, 0 excluded
+NOT TRIED: 23 (reasons below; full list in node_selection.untried)
+    16 x not submitted: the job would exceed the time cap
+     6 x not measured: outside refinement bracket (3..5 around the best N=4)
+     1 x early stop: N=8 (0.3200 s/step) did not beat N=4 (0.3000 s/step) by >3%
+not run N=6: not measured: outside refinement bracket (3..5 around the best N=4)
+not run N=7: not measured: outside refinement bracket (3..5 around the best N=4)
+not run N=9: not measured: outside refinement bracket (3..5 around the best N=4)
+not run N=10: not measured: outside refinement bracket (3..5 around the best N=4)
+not run N=11: not measured: outside refinement bracket (3..5 around the best N=4)
+not run N=12: not measured: outside refinement bracket (3..5 around the best N=4)
+not run N=13: early stop: N=8 (0.3200 s/step) did not beat N=4 (0.3000 s/step) by >3%
+
+--- node health pre-flight (latest check: before phase 2) ---
+skipped: sinfo unavailable (OSError: sinfo rc=1: sinfo: not here)
+
+=== wtune tune -O3 (decision 0059) ===
+level O3; time cap: 11:40 (--minutes hard cap (job running time; queue wait and controller work excluded))  whole run implied by the t0 anchor (info): 83:22:00
+tuning time, estimated at start: O1 ≈ 130 min  O2 ≈ 168 min  O3 ≈ 196 min <-  (running time; queue wait extra); ACTUAL running time 0.0 min vs estimated O3 ≈ 196.0 min
+phase plan     running 0:00     (limit 0:35    ) wall 0:00     queue wait 0:00     controller 0:00      ok
+phase layout   running 0:00     (limit 6:25    ) wall 0:00     queue wait 0:00     controller 0:00      ok
+phase predict  running 0:00     (limit 9:20    ) wall 0:00     queue wait 0:00     controller 0:00      partial: degraded to winner only x 2 points (t0 + costliest)
+phase physics  running 0:00     (limit 11:40   ) wall 0:00     queue wait 0:00     controller 0:00      partial: 1 of 3 candidates fit the budget
+whole-run time ±7% = ±0.7 min (common: fake case-type plan)
+suggested --time=00:16:00 (T rounded up to 15 min plus one band, >= 1.2x T)
+phase 2 plan: winner only x 2 points (t0 + costliest) (9:20 left; startup 120s/run); tried: 2 layout(s) x all 5 points ~24:15; 2 layout(s) x 2 points (t0 + costliest) ~9:42; winner only x all 5 points ~9:41; winner only x 2 points (t0 + costliest) ~4:50
+physics fidelity gate: config-gate, PROVISIONAL (no phase-2 twin: uncalibrated tolerance); baseline: phase-2 winner
+predicted whole run: 10:10 (range 9:39 - 10:40) at N=4 cores/node=72 {'ranks': 288, 'omp': 1, 'nx': 16, 'ny': 18, 'numtiles': 1, 'dist': 'block'}; suggested --time=00:16:00
+  compute 600s + init 10s = 610s (run-length I/O NOT included)  [init: wtune_predict.predict_init]
+physics advice (ADVISORY ONLY, not applied; points 2026-01-01T01:00:00, 2026-01-01T09:00:00):
+  PH1        saving 10.0%   fidelity pass     -> consider  (PH1)
+  PH2        saving -       fidelity not run  -> estimate only — needs a cold start to measure  (PH2)
+  PH3        saving -       fidelity not run  -> estimate only — needs a cold start to measure  (PH3)
+  EO1        saving -       fidelity not run  -> estimate only — needs a cold start to measure  (EO1)
+  EO2        saving -       fidelity not run  -> estimate only — needs a cold start to measure  (EO2)
+tune running time 0:00 (wall 0:00 = running + queue wait 0:00 + controller 0:00); predicted real run 10:10 (phase 2 combine())
+
+advice: 1 stub item(s)

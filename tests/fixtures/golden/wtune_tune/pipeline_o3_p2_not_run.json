@@ -1,0 +1,721 @@
+{
+  "advice": [
+    {
+      "case": "matthew",
+      "id": "stub"
+    }
+  ],
+  "advice_unavailable": [],
+  "anchor_id": "ANCHOR",
+  "best": {
+    "confirmed": false,
+    "dist": "block",
+    "id": "ANCHOR",
+    "median_s_per_step": 0.3,
+    "n_measurements": 2,
+    "nproc_x": 16,
+    "nproc_y": 18,
+    "numtiles": 1,
+    "omp": 1,
+    "pred_error": "FileNotFoundError: [Errno 2] No such file or directory: '<TMP>/namelist.input'",
+    "pred_source": null,
+    "predicted_range_s": null,
+    "predicted_total_hms": null,
+    "predicted_total_s": null,
+    "range_s_per_step": [
+      0.3,
+      0.3
+    ],
+    "ranks": 288,
+    "speedup_vs_anchor": 1.0,
+    "speedup_vs_anchor_predicted": null
+  },
+  "budget_minutes": 11.666666666666666,
+  "cancelled_job_ids": [],
+  "case": "matthew",
+  "cores_per_node": 72,
+  "cores_used_per_node": 72,
+  "elapsed_minutes": 9.216666666666667,
+  "full_run_prediction": "full-run prediction FAILED (FileNotFoundError: [Errno 2] No such file or directory: '<TMP>/namelist.input'); run `python3 wtune.py predict ...` manually",
+  "job_ids": [
+    "9000",
+    "9001",
+    "9002",
+    "9003",
+    "9004",
+    "7001",
+    "7002",
+    "7003"
+  ],
+  "layout_table": {
+    "comparison": null,
+    "rows": [
+      {
+        "cid": "ANCHOR",
+        "cores_per_node": 72,
+        "median": 0.3,
+        "nodes": 4,
+        "numtiles": 1,
+        "nx": 16,
+        "ny": 18,
+        "omp": 1,
+        "ranks": 288,
+        "reps": 2,
+        "source": "t0 sweep ANCHOR",
+        "spread": 0.0
+      },
+      {
+        "cid": "ANCHOR",
+        "cores_per_node": 72,
+        "median": 0.52,
+        "nodes": 2,
+        "numtiles": 1,
+        "nx": 12,
+        "ny": 12,
+        "omp": 1,
+        "ranks": 144,
+        "reps": 2,
+        "source": "t0 sweep ANCHOR",
+        "spread": 0.0
+      },
+      {
+        "cid": "ANCHOR",
+        "cores_per_node": 72,
+        "median": 1.0,
+        "nodes": 1,
+        "numtiles": 1,
+        "nx": 8,
+        "ny": 9,
+        "omp": 1,
+        "ranks": 72,
+        "reps": 2,
+        "source": "t0 sweep ANCHOR",
+        "spread": 0.0
+      }
+    ],
+    "runner_up": null,
+    "winner": {
+      "cid": "ANCHOR",
+      "cores_per_node": 72,
+      "median": 0.3,
+      "nodes": 4,
+      "numtiles": 1,
+      "nx": 16,
+      "ny": 18,
+      "omp": 1,
+      "ranks": 288,
+      "reps": 2,
+      "source": "t0 sweep ANCHOR",
+      "spread": 0.0
+    }
+  },
+  "node_health": {
+    "checks": [
+      {
+        "exclusions": [
+          "head"
+        ],
+        "failed": [],
+        "healthy": null,
+        "max_nodes_effective": 13,
+        "max_nodes_requested": 13,
+        "probe_s": "<PROBE_S>",
+        "skipped": "sinfo unavailable (OSError: sinfo rc=1: sinfo: not here)",
+        "user_exclude": [],
+        "when": "start"
+      },
+      {
+        "exclusions": [
+          "head"
+        ],
+        "failed": [],
+        "healthy": null,
+        "max_nodes_effective": 13,
+        "max_nodes_requested": 13,
+        "probe_s": "<PROBE_S>",
+        "skipped": "sinfo unavailable (OSError: sinfo rc=1: sinfo: not here)",
+        "user_exclude": [],
+        "when": "before phase 2"
+      }
+    ],
+    "exclusions": [
+      "head"
+    ],
+    "failed": [],
+    "healthy": null,
+    "max_nodes_effective": 13,
+    "max_nodes_requested": 13,
+    "nodes": {},
+    "probe_s": "<PROBE_S>",
+    "skipped": "sinfo unavailable (OSError: sinfo rc=1: sinfo: not here)",
+    "user_exclude": [],
+    "when": "before phase 2"
+  },
+  "node_selection": {
+    "choices": {
+      "cost": {
+        "nodes": 1,
+        "note": "objective=cost: N=1 wall=1000120s node_hours=277.81 (min among 3 feasible, no deadline)"
+      },
+      "knee": {
+        "nodes": 4,
+        "note": "objective=knee: N=4 efficiency=0.83 >= 0.70 (largest such N)"
+      },
+      "time": {
+        "nodes": 4,
+        "note": "objective=time: N=4 median=0.3000 s/step; min is 0.3000, smallest N within 3% noise of it"
+      }
+    },
+    "chosen": 4,
+    "chosen_note": "objective=time: N=4 median=0.3000 s/step; min is 0.3000, smallest N within 3% noise of it",
+    "core_choice": {
+      "4": {
+        "cores": 72,
+        "note": "cores/node=72 median=0.3000 s/step; fastest is 0.3000, fullest c within 3% noise of it"
+      }
+    },
+    "core_options": [
+      72,
+      70,
+      64,
+      48,
+      36
+    ],
+    "core_tables": {
+      "4": [
+        {
+          "chosen": true,
+          "cores": 72,
+          "maxrss_mb": null,
+          "median": 0.3,
+          "n": 2,
+          "nx": 16,
+          "ny": 18,
+          "omp": 1,
+          "ranks": 288,
+          "ranks_per_node": 72,
+          "spread": 0.0
+        }
+      ]
+    },
+    "deadline_s": null,
+    "enumerated": {},
+    "final": 4,
+    "final_cores_per_node": 72,
+    "final_note": "objective=time: N=4 median=0.3000 s/step; min is 0.3000, smallest N within 3% noise of it; budget exhausted after the sweep -- ANCHOR config",
+    "finalist_best": {
+      "4": 0.3
+    },
+    "finalists": [
+      4
+    ],
+    "layouts": [
+      {
+        "cid": "ANCHOR",
+        "cores_per_node": 72,
+        "median": 0.3,
+        "nodes": 4,
+        "numtiles": 1,
+        "nx": 16,
+        "ny": 18,
+        "omp": 1,
+        "ranks": 288,
+        "reps": 2,
+        "source": "t0 sweep ANCHOR",
+        "spread": 0.0
+      },
+      {
+        "cid": "ANCHOR",
+        "cores_per_node": 72,
+        "median": 0.52,
+        "nodes": 2,
+        "numtiles": 1,
+        "nx": 12,
+        "ny": 12,
+        "omp": 1,
+        "ranks": 144,
+        "reps": 2,
+        "source": "t0 sweep ANCHOR",
+        "spread": 0.0
+      },
+      {
+        "cid": "ANCHOR",
+        "cores_per_node": 72,
+        "median": 1.0,
+        "nodes": 1,
+        "numtiles": 1,
+        "nx": 8,
+        "ny": 9,
+        "omp": 1,
+        "ranks": 72,
+        "reps": 2,
+        "source": "t0 sweep ANCHOR",
+        "spread": 0.0
+      }
+    ],
+    "maxrss_note": "MaxRSS is whatever Slurm accounting reports for the job's steps; mpirun-launched ranks can bypass step accounting (f1: knowledge/hpc/2026-08-20-f1-reports-no-rapl-energy-and-no-useful-maxrss.md -- it reported the batch script's 6 MB), so a small value means 'not accounted', not 'small footprint'",
+    "min_efficiency": 0.7,
+    "mode": "search",
+    "objective": "time",
+    "overhead_s": 120.0,
+    "runner_up": null,
+    "skipped": [
+      {
+        "nodes": 3,
+        "reason": "sweep budget cap: sweep used 9:13 >= 40% of the budget (2:34)"
+      },
+      {
+        "nodes": 5,
+        "reason": "sweep budget cap: sweep used 9:13 >= 40% of the budget (2:34)"
+      },
+      {
+        "nodes": 6,
+        "reason": "sweep budget cap: sweep used 9:13 >= 40% of the budget (2:34)"
+      },
+      {
+        "nodes": 7,
+        "reason": "sweep budget cap: sweep used 9:13 >= 40% of the budget (2:34)"
+      },
+      {
+        "nodes": 8,
+        "reason": "sweep budget cap: sweep used 9:13 >= 40% of the budget (2:34)"
+      },
+      {
+        "nodes": 9,
+        "reason": "sweep budget cap: sweep used 9:13 >= 40% of the budget (2:34)"
+      },
+      {
+        "nodes": 10,
+        "reason": "sweep budget cap: sweep used 9:13 >= 40% of the budget (2:34)"
+      },
+      {
+        "nodes": 11,
+        "reason": "sweep budget cap: sweep used 9:13 >= 40% of the budget (2:34)"
+      },
+      {
+        "nodes": 12,
+        "reason": "sweep budget cap: sweep used 9:13 >= 40% of the budget (2:34)"
+      },
+      {
+        "nodes": 13,
+        "reason": "sweep budget cap: sweep used 9:13 >= 40% of the budget (2:34)"
+      }
+    ],
+    "skipped_cores": [
+      {
+        "cores": 70,
+        "nodes": 4,
+        "reason": "core sweep budget cap: used 0:00 >= 20% of the budget"
+      },
+      {
+        "cores": 64,
+        "nodes": 4,
+        "reason": "core sweep budget cap: used 0:00 >= 20% of the budget"
+      },
+      {
+        "cores": 48,
+        "nodes": 4,
+        "reason": "core sweep budget cap: used 0:00 >= 20% of the budget"
+      },
+      {
+        "cores": 36,
+        "nodes": 4,
+        "reason": "core sweep budget cap: used 0:00 >= 20% of the budget"
+      }
+    ],
+    "sweep_jobs": [
+      "7001",
+      "7002",
+      "7003"
+    ],
+    "table": [
+      {
+        "efficiency": 1.0,
+        "maxrss_mb": null,
+        "median": 1.0,
+        "n": 2,
+        "node_hours": 277.81111111111113,
+        "nodes": 1,
+        "speedup": 1.0,
+        "spread": 0.0,
+        "wall_s": 1000120.0
+      },
+      {
+        "efficiency": 0.9615384615384615,
+        "maxrss_mb": null,
+        "median": 0.52,
+        "n": 2,
+        "node_hours": 288.9555555555556,
+        "nodes": 2,
+        "speedup": 1.923076923076923,
+        "spread": 0.0,
+        "wall_s": 520120.0
+      },
+      {
+        "efficiency": 0.8333333333333334,
+        "maxrss_mb": null,
+        "median": 0.3,
+        "n": 2,
+        "node_hours": 333.46666666666664,
+        "nodes": 4,
+        "speedup": 3.3333333333333335,
+        "spread": 0.0,
+        "wall_s": 300120.0
+      }
+    ],
+    "total_steps": 1000000,
+    "untried": [
+      {
+        "nodes": 3,
+        "reason": "sweep budget cap: sweep used 9:13 >= 40% of the budget (2:34)"
+      },
+      {
+        "nodes": 5,
+        "reason": "sweep budget cap: sweep used 9:13 >= 40% of the budget (2:34)"
+      },
+      {
+        "nodes": 6,
+        "reason": "sweep budget cap: sweep used 9:13 >= 40% of the budget (2:34)"
+      },
+      {
+        "nodes": 7,
+        "reason": "sweep budget cap: sweep used 9:13 >= 40% of the budget (2:34)"
+      },
+      {
+        "nodes": 8,
+        "reason": "sweep budget cap: sweep used 9:13 >= 40% of the budget (2:34)"
+      },
+      {
+        "nodes": 9,
+        "reason": "sweep budget cap: sweep used 9:13 >= 40% of the budget (2:34)"
+      },
+      {
+        "nodes": 10,
+        "reason": "sweep budget cap: sweep used 9:13 >= 40% of the budget (2:34)"
+      },
+      {
+        "nodes": 11,
+        "reason": "sweep budget cap: sweep used 9:13 >= 40% of the budget (2:34)"
+      },
+      {
+        "nodes": 12,
+        "reason": "sweep budget cap: sweep used 9:13 >= 40% of the budget (2:34)"
+      },
+      {
+        "nodes": 13,
+        "reason": "sweep budget cap: sweep used 9:13 >= 40% of the budget (2:34)"
+      },
+      {
+        "cores": 70,
+        "nodes": 4,
+        "reason": "core sweep budget cap: used 0:00 >= 20% of the budget"
+      },
+      {
+        "cores": 64,
+        "nodes": 4,
+        "reason": "core sweep budget cap: used 0:00 >= 20% of the budget"
+      },
+      {
+        "cores": 48,
+        "nodes": 4,
+        "reason": "core sweep budget cap: used 0:00 >= 20% of the budget"
+      },
+      {
+        "cores": 36,
+        "nodes": 4,
+        "reason": "core sweep budget cap: used 0:00 >= 20% of the budget"
+      }
+    ],
+    "winner": {
+      "cid": "ANCHOR",
+      "cores_per_node": 72,
+      "median": 0.3,
+      "nodes": 4,
+      "numtiles": 1,
+      "nx": 16,
+      "ny": 18,
+      "omp": 1,
+      "ranks": 288,
+      "reps": 2,
+      "source": "t0 sweep ANCHOR",
+      "spread": 0.0
+    },
+    "winner_vs_runner_up": null
+  },
+  "nodes": 4,
+  "nodes_note": "objective=time: N=4 median=0.3000 s/step; min is 0.3000, smallest N within 3% noise of it; budget exhausted after the sweep -- ANCHOR config",
+  "param_table": {
+    "dist": "block",
+    "env": {
+      "OMP_NUM_THREADS": "1",
+      "OMP_STACKSIZE": "1G"
+    },
+    "launch_line": "mpirun -np 288 --map-by ppr:72:node:PE=1 --bind-to core ./wrf.exe",
+    "namelist_lines": [
+      "nproc_x=16,",
+      "nproc_y=18,",
+      "numtiles=1,"
+    ],
+    "nodes": 4,
+    "note": "KMP_BLOCKTIME: n/a on scc (nvhpc OpenMP runtime has no KMP_BLOCKTIME concept)",
+    "nproc_x": 16,
+    "nproc_y": 18,
+    "numtiles": 1,
+    "omp": 1,
+    "ranks": 288,
+    "ranks_per_node": 72,
+    "ulimit": "ulimit -s unlimited"
+  },
+  "pipeline": {
+    "B_s": 700.0,
+    "T_cold_compute_s": 10000000.0,
+    "T_cold_s": 10000120.0,
+    "T_updated_compute_s": 300000.0,
+    "T_updated_s": 300120.0,
+    "budget_source": "--minutes hard cap (job running time; queue wait and controller work excluded)",
+    "extension": false,
+    "frames_deleted": 0,
+    "frames_kept": false,
+    "hard_deadline_s": 700.0,
+    "level": {
+      "T_cold_s": 10000120.0,
+      "actual_running_s": 553.0,
+      "effective": 3,
+      "estimate_info": {
+        "nodes": 13,
+        "points_source": "wtune_cost_drivers",
+        "precision_min": 15.0,
+        "prediction_points": 5,
+        "s_per_step_n": 10.0,
+        "source": "ledger estimate (fallback_10s)",
+        "startup_s": 120.0
+      },
+      "estimate_s": {
+        "O0": 0.0,
+        "O1": 7802.5,
+        "O2": 10062.5,
+        "O3": 11757.5
+      },
+      "requested": 3,
+      "stepped_down": []
+    },
+    "max_queue_s": 21600.0,
+    "n_full_est": 8,
+    "n_points_est": 5,
+    "over_deadline_s": 0.0,
+    "phases": [
+      {
+        "controller_s": 0.0,
+        "end_s": 0.0,
+        "job_run_s_max": null,
+        "job_run_s_sum": null,
+        "jobs": [
+          "9000",
+          "9001",
+          "9002",
+          "9003",
+          "9004"
+        ],
+        "limit_s": 35.0,
+        "name": "plan",
+        "notes": [],
+        "points": [
+          "2026-01-01T01:00:00",
+          "2026-01-01T03:00:00",
+          "2026-01-01T05:00:00",
+          "2026-01-01T07:00:00",
+          "2026-01-01T09:00:00"
+        ],
+        "points_source": "wtune_cost_drivers",
+        "prediction_points": 5,
+        "queue_s_max": null,
+        "queue_s_sum": null,
+        "queue_wait_s": 0.0,
+        "rebuild_jobs": [
+          "9000",
+          "9001",
+          "9002",
+          "9003",
+          "9004"
+        ],
+        "running_s": 0.0,
+        "spinup_min": 20,
+        "start_s": 0.0,
+        "status": "ok",
+        "wall_s": 0.0
+      },
+      {
+        "controller_s": 0.0,
+        "cores_per_node": 72,
+        "end_s": 553.0,
+        "job_run_s_max": null,
+        "job_run_s_sum": null,
+        "jobs": [
+          "7001",
+          "7002",
+          "7003"
+        ],
+        "limit_s": 385.00000000000006,
+        "name": "layout",
+        "nodes": 4,
+        "queue_s_max": null,
+        "queue_s_sum": null,
+        "queue_wait_s": 0.0,
+        "running_s": 553.0,
+        "start_s": 0.0,
+        "status": "ok",
+        "wall_s": 0.0
+      },
+      {
+        "controller_s": 0.0,
+        "end_s": 553.0,
+        "job_run_s_max": null,
+        "job_run_s_sum": null,
+        "jobs": [],
+        "limit_s": 560.0,
+        "name": "predict",
+        "queue_s_max": null,
+        "queue_s_sum": null,
+        "queue_wait_s": 0.0,
+        "running_s": 0.0,
+        "start_s": 553.0,
+        "status": "not run (budget): the smallest plan (winner only x 1 point (t0)) needs ~4:50 of running time, 0:07 left of the phase-2 share",
+        "wall_s": 0.0
+      },
+      {
+        "controller_s": 0.0,
+        "end_s": 553.0,
+        "job_run_s_max": null,
+        "job_run_s_sum": null,
+        "jobs": [],
+        "limit_s": 700.0,
+        "name": "physics",
+        "queue_s_max": null,
+        "queue_s_sum": null,
+        "queue_wait_s": 0.0,
+        "running_s": 0.0,
+        "start_s": 553.0,
+        "status": "not run (budget): even the best candidate needs an expected 10:17 of running time; only 2:27 of the budget is left (elapsed 9:13 / budget 2:27)",
+        "wall_s": 0.0
+      }
+    ],
+    "physics_advice": null,
+    "predict_plan": {
+      "chosen": null,
+      "degraded": false,
+      "left_s": 7.0,
+      "startup_s": 120.0,
+      "tried": [
+        {
+          "estimate_s": 581.7479999999999,
+          "plan": "winner only x all 5 points"
+        },
+        {
+          "estimate_s": 290.87399999999997,
+          "plan": "winner only x 2 points (t0 + costliest)"
+        },
+        {
+          "estimate_s": 290.87399999999997,
+          "plan": "winner only x 1 point (t0)"
+        }
+      ]
+    },
+    "predicted_real_s": 300120.0,
+    "predicted_real_source": "phase-1 anchor s/step x steps",
+    "prediction": null,
+    "prediction_band": {
+      "band": 0.07,
+      "error_min": 350.14000000000004,
+      "method": "common: fake case-type plan"
+    },
+    "prediction_plan": {
+      "T_est_s": 300120.0,
+      "band": 0.07,
+      "measured": true,
+      "method": "common: fake case-type plan",
+      "points": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "precision_min": 15.0,
+      "source": "wtune_cost_drivers"
+    },
+    "queue_cap_hit": false,
+    "rebuild": {
+      "notes": [],
+      "points": [
+        "2026-01-01T01:00:00",
+        "2026-01-01T03:00:00",
+        "2026-01-01T05:00:00",
+        "2026-01-01T07:00:00",
+        "2026-01-01T09:00:00"
+      ],
+      "points_source": "wtune_cost_drivers",
+      "prediction_points": 5,
+      "rebuild_jobs": [
+        "9000",
+        "9001",
+        "9002",
+        "9003",
+        "9004"
+      ],
+      "spinup_min": 20,
+      "status": "ok"
+    },
+    "shares": {
+      "layout": 0.5,
+      "physics": 0.2,
+      "plan": 0.05,
+      "predict": 0.25
+    },
+    "time_suggestion": "100:03:00",
+    "total_controller_s": 0.0,
+    "total_queue_wait_s": 0.0,
+    "total_running_s": 553.0,
+    "total_steps": 1000000,
+    "total_wall_s": 0.0
+  },
+  "ranking": [
+    {
+      "confirmed": false,
+      "dist": "block",
+      "id": "ANCHOR",
+      "median_s_per_step": 0.3,
+      "n_measurements": 2,
+      "nproc_x": 16,
+      "nproc_y": 18,
+      "numtiles": 1,
+      "omp": 1,
+      "pred_error": "FileNotFoundError: [Errno 2] No such file or directory: '<TMP>/namelist.input'",
+      "pred_source": null,
+      "predicted_range_s": null,
+      "predicted_total_hms": null,
+      "predicted_total_s": null,
+      "range_s_per_step": [
+        0.3,
+        0.3
+      ],
+      "ranks": 288,
+      "speedup_vs_anchor": 1.0,
+      "speedup_vs_anchor_predicted": null
+    }
+  ],
+  "ranking_start_note": null,
+  "winner": {
+    "cid": "ANCHOR",
+    "cores_per_node": 72,
+    "median": 0.3,
+    "nodes": 4,
+    "numtiles": 1,
+    "nx": 16,
+    "ny": 18,
+    "omp": 1,
+    "ranks": 288,
+    "reps": 2,
+    "source": "t0 sweep ANCHOR",
+    "spread": 0.0
+  }
+}

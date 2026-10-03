@@ -1,0 +1,106 @@
+{
+  "best": {
+    "dist": "block",
+    "id": "ANCHOR",
+    "nproc_x": 26,
+    "nproc_y": 36,
+    "numtiles": 1,
+    "omp": 1,
+    "ranks": 936
+  },
+  "cancelled_job_ids": [],
+  "case": "matthew",
+  "cores_per_node": 72,
+  "job_ids": [],
+  "nodes": 13,
+  "nodes_note": "O0: proxy node count, no measurement",
+  "param_table": {
+    "dist": "block",
+    "env": {
+      "OMP_NUM_THREADS": "1",
+      "OMP_STACKSIZE": "1G"
+    },
+    "launch_line": "mpirun -np 936 --map-by ppr:72:node:PE=1 --bind-to core ./wrf.exe",
+    "namelist_lines": [
+      "nproc_x=26,",
+      "nproc_y=36,",
+      "numtiles=1,"
+    ],
+    "nodes": 13,
+    "note": "KMP_BLOCKTIME: n/a on scc (nvhpc OpenMP runtime has no KMP_BLOCKTIME concept)",
+    "nproc_x": 26,
+    "nproc_y": 36,
+    "numtiles": 1,
+    "omp": 1,
+    "ranks": 936,
+    "ranks_per_node": 72,
+    "ulimit": "ulimit -s unlimited"
+  },
+  "pipeline": {
+    "B_s": null,
+    "T_updated_s": null,
+    "budget_source": "no jobs",
+    "extension": false,
+    "hard_deadline_s": null,
+    "level": {
+      "actual_running_s": 0.0,
+      "effective": 0,
+      "estimate_s": {
+        "O0": 0.0
+      },
+      "requested": 0,
+      "stepped_down": []
+    },
+    "over_deadline_s": 0.0,
+    "phases": [],
+    "physics_advice": null,
+    "predicted_real_s": 1687.0,
+    "prediction": {
+      "band": 0.25,
+      "breakdown": "compute 1567s + init 120s = 1687s (run-length I/O NOT included)",
+      "compute_s": 1567.0,
+      "config": {
+        "dist": "block",
+        "numtiles": 1,
+        "nx": 26,
+        "ny": 36,
+        "omp": 1,
+        "ranks": 936
+      },
+      "cores_per_node": 72,
+      "degraded": false,
+      "error_min": 7.029166666666667,
+      "init_s": 120.0,
+      "init_source": "documented constant (scc_sweep.STARTUP_S)",
+      "io": null,
+      "io_s": 0.0,
+      "layout_id": "ANCHOR",
+      "nodes": 13,
+      "points_used": 0,
+      "predicted_range_s": [
+        1265.25,
+        2108.75
+      ],
+      "predicted_total_hms": "28:07",
+      "predicted_total_s": 1687.0,
+      "segment_note": null,
+      "source": "fake cold start",
+      "time_suggestion": "00:38:00"
+    },
+    "prediction_band": {
+      "band": 0.25,
+      "error_min": 7.029166666666667,
+      "method": "cold-start predict"
+    },
+    "queue_cap_hit": false,
+    "rebuild": null,
+    "time_suggestion": "00:38:00",
+    "total_controller_s": 0.0,
+    "total_queue_wait_s": 0.0,
+    "total_running_s": 0.0,
+    "total_steps": 1000,
+    "total_wall_s": 0.0
+  },
+  "pipeline_only": true,
+  "winner": null
+}

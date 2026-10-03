@@ -1,0 +1,110 @@
+{
+  "advice": [
+    {
+      "case": "matthew",
+      "id": "stub"
+    }
+  ],
+  "advice_unavailable": [],
+  "anchor_id": "ANCHOR",
+  "best": null,
+  "budget_minutes": 600.0,
+  "cancelled_job_ids": [],
+  "case": "matthew",
+  "cores_per_node": 72,
+  "elapsed_minutes": 0.0,
+  "full_run_prediction": "full-run prediction: run `python3 wtune.py predict <TMP>/matthew --nodes 13 --config '...'`",
+  "job_ids": [
+    "7001",
+    "7002",
+    "7003",
+    "7004",
+    "7005"
+  ],
+  "node_health": {
+    "exclusions": [
+      "head"
+    ],
+    "failed": [],
+    "healthy": null,
+    "max_nodes_effective": 13,
+    "max_nodes_requested": 13,
+    "nodes": {},
+    "probe_s": "<PROBE_S>",
+    "skipped": "sinfo unavailable (FileNotFoundError: [Errno 2] No such file or directory: 'sinfo')",
+    "user_exclude": [],
+    "when": "start"
+  },
+  "node_selection": {
+    "choices": {},
+    "chosen": 13,
+    "finalists": [
+      13
+    ],
+    "mode": "search",
+    "note": "policy=knee: every profiled doubling step up to --max-nodes cap=13 clears 1.5x; using nodes=13",
+    "objective": "time",
+    "skipped": [
+      {
+        "nodes": 1,
+        "reason": "no successful measurement (job 7001, state COMPLETED)"
+      },
+      {
+        "nodes": 2,
+        "reason": "no successful measurement (job 7002, state COMPLETED)"
+      },
+      {
+        "nodes": 3,
+        "reason": "not measured: no seed measurement succeeded"
+      },
+      {
+        "nodes": 4,
+        "reason": "no successful measurement (job 7003, state COMPLETED)"
+      },
+      {
+        "nodes": 5,
+        "reason": "not measured: no seed measurement succeeded"
+      },
+      {
+        "nodes": 6,
+        "reason": "not measured: no seed measurement succeeded"
+      },
+      {
+        "nodes": 7,
+        "reason": "not measured: no seed measurement succeeded"
+      },
+      {
+        "nodes": 8,
+        "reason": "no successful measurement (job 7004, state COMPLETED)"
+      },
+      {
+        "nodes": 9,
+        "reason": "not measured: no seed measurement succeeded"
+      },
+      {
+        "nodes": 10,
+        "reason": "not measured: no seed measurement succeeded"
+      },
+      {
+        "nodes": 11,
+        "reason": "no legal decomposition at any omp in {1, 2, 3, 4, 6, 8, 9, 12, 18, 24, 36, 72}"
+      },
+      {
+        "nodes": 12,
+        "reason": "not measured: no seed measurement succeeded"
+      },
+      {
+        "nodes": 13,
+        "reason": "no legal decomposition at any omp in {1, 2, 3, 4, 6, 8, 9, 12, 18, 24, 36, 72}"
+      }
+    ],
+    "sweep_jobs": [],
+    "table": []
+  },
+  "nodes": 13,
+  "nodes_note": "node sweep failed; policy=knee: every profiled doubling step up to --max-nodes cap=13 clears 1.5x; using nodes=13",
+  "param_table": null,
+  "ranking": [],
+  "ranking_start_note": null,
+  "winner": null
+}

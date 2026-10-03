@@ -91,7 +91,7 @@ class _NoPredictionContext(T._PipeEnv):
 
         def boom(ctx):
             raise RuntimeError("no namelist here")
-        monkeypatch.setattr(wtune_tune, "_prediction_context", boom)
+        monkeypatch.setattr(wtune_tune.prediction, "_prediction_context", boom)
 
 
 def _healthy_runner():
@@ -141,11 +141,11 @@ def test_golden_pipeline(name, monkeypatch, tmp_path, capsys):
 
 
 def test_golden_level0(monkeypatch, tmp_path, capsys):
-    monkeypatch.setattr(wtune_tune, "resolve_case",
+    monkeypatch.setattr(wtune_tune.context, "resolve_case",
                         lambda case, cpn: (dict(T.BIG_GRID, prep_dir=str(tmp_path / "m")),
                                            str(tmp_path / "namelist.input"), T.ALL_NODES_PROFILE))
-    monkeypatch.setattr(wtune_tune, "_total_steps", lambda nl: 1000)
-    monkeypatch.setattr(wtune_tune, "cold_start_prediction",
+    monkeypatch.setattr(wtune_tune.context, "_total_steps", lambda nl: 1000)
+    monkeypatch.setattr(wtune_tune.prediction, "cold_start_prediction",
                         lambda ctx, nodes, cfg, steps: (1687.0, 0.05, "fake cold start"))
     args = wtune_tune.build_arg_parser().parse_args(
         ["matthew", "--site", "scc", "--out", str(tmp_path / "out"), "-O0",
@@ -219,10 +219,10 @@ def _ctx_snapshot(ctx):
 
 
 def _dispatch_env(monkeypatch, tmp_path, rec):
-    monkeypatch.setattr(wtune_tune, "resolve_case",
+    monkeypatch.setattr(wtune_tune.context, "resolve_case",
                         lambda case, cpn: (dict(T.BIG_GRID, prep_dir=str(tmp_path / "m")),
                                            str(tmp_path / "namelist.input"), T.ALL_NODES_PROFILE))
-    monkeypatch.setattr(wtune_tune, "_total_steps", lambda nl: 1000)
+    monkeypatch.setattr(wtune_tune.context, "_total_steps", lambda nl: 1000)
     stub_report = lambda ctx: dict(case=ctx.case, pipeline_only=True, nodes=ctx.nodes,  # noqa: E731
                                    pipeline=dict(stub=True), job_ids=[], cancelled_job_ids=[])
 
@@ -238,13 +238,14 @@ def _dispatch_env(monkeypatch, tmp_path, rec):
             return stub_report(ctx)
         return f
 
-    for kind in ("run_level0", "run_pipeline_full", "run_node_search", "run_predicted",
-                 "run_tuning_at"):
-        monkeypatch.setattr(wtune_tune, kind, recorder(kind))
-    monkeypatch.setattr(wtune_tune, "build_report",
+    for kind, mod in (("run_level0", wtune_tune.pipeline), ("run_pipeline_full", wtune_tune.pipeline),
+                      ("run_node_search", wtune_tune.node_search),
+                      ("run_predicted", wtune_tune.predicted), ("run_tuning_at", wtune_tune.rounds)):
+        monkeypatch.setattr(mod, kind, recorder(kind))
+    monkeypatch.setattr(wtune_tune.report, "build_report",
                         lambda ctx, *a, **k: stub_report(ctx))
-    monkeypatch.setattr(wtune_tune, "render_pipeline_text", lambda pipe: "PIPELINE %r" % (pipe,))
-    monkeypatch.setattr(wtune_tune, "render_predicted_report_text",
+    monkeypatch.setattr(wtune_tune.report, "render_pipeline_text", lambda pipe: "PIPELINE %r" % (pipe,))
+    monkeypatch.setattr(wtune_tune.predicted, "render_predicted_report_text",
                         lambda rep: "PREDICTED %r" % sorted(rep))
 
 

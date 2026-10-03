@@ -50,12 +50,12 @@ def test_rebuild_points_fetch_into_each_point_plan_dir(monkeypatch, tmp_path):
                         lambda case_dir, pts, cfg, pdir, **k: {"windows": [], "pdir": pdir})
     monkeypatch.setattr(wtune_tune.coldstart, "resolve_and_fetch_forcing",
                         lambda plan, pdir, cache, grib_dir=None: (seen.append((pdir, cache)) or (0, {})))
-    monkeypatch.setattr(wtune_tune, "rebuild_segment_timeout_min", lambda *a, **k: 45)
+    monkeypatch.setattr(wtune_tune.budget, "rebuild_segment_timeout_min", lambda *a, **k: 45)
     monkeypatch.setattr(wtune_tune.coldstart, "stage_plan",
                         lambda pdir, site="scc", per_window_min=None: (seen_timeout.append(per_window_min)
                                                                        or pdir + "/run.sbatch"))
     monkeypatch.setattr(wtune_tune.sweep, "submit_job", lambda cmd, sbatch_runner=None: "1")
-    monkeypatch.setattr(wtune_tune, "wait_for_jobs", lambda ctx, ids, label: {j: ("COMPLETED", "") for j in ids})
+    monkeypatch.setattr(wtune_tune.jobs, "wait_for_jobs", lambda ctx, ids, label: {j: ("COMPLETED", "") for j in ids})
     monkeypatch.setattr(wtune_tune.wtune_predict, "read_wrfinput_sample_points", lambda d: ([], None))
     monkeypatch.setattr(wtune_tune.wtune_predict, "load_calibration", lambda p: {})
     monkeypatch.setattr(wtune_tune.coldstart, "score_windows_from_rsl", lambda plan, sp, cal: ([], None, []))

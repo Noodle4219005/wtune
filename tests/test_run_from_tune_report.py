@@ -179,7 +179,7 @@ def test_pipeline_phase_2_overturn_updates_the_winner(monkeypatch, tmp_path):
 
         def __init__(self, mp, *a, **k):
             super().__init__(mp, *a, **k)
-            fake, calls = wtune_tune.rank_by_predicted_total, {"n": 0}
+            fake, calls = wtune_tune.points.rank_by_predicted_total, {"n": 0}
 
             def rank(*args):
                 out = fake(*args)
@@ -188,7 +188,7 @@ def test_pipeline_phase_2_overturn_updates_the_winner(monkeypatch, tmp_path):
                         e["pred_total_s"] += 1e6
                 calls["n"] += 1
                 return out
-            mp.setattr(wtune_tune, "rank_by_predicted_total", rank)
+            mp.setattr(wtune_tune.points, "rank_by_predicted_total", rank)
 
     monkeypatch.setattr(tt, "_PipeEnv", Overturn)
     report, _env = tt._pipe_run(monkeypatch, tmp_path,

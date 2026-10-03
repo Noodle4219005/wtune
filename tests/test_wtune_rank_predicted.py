@@ -152,7 +152,7 @@ def test_prepare_rebuilt_points_writes_one_cases_json(monkeypatch, tmp_path):
 
     monkeypatch.setattr(wt.wtune_probe_plan, "plan_rebuild_segments", plan_segments)
     monkeypatch.setattr(wt.coldstart, "resolve_and_fetch_forcing", lambda *a, **k: (0, {}))
-    monkeypatch.setattr(wt, "rebuild_segment_timeout_min", lambda *a, **k: 30)
+    monkeypatch.setattr(wt.budget, "rebuild_segment_timeout_min", lambda *a, **k: 30)
     monkeypatch.setattr(wt.coldstart, "stage_plan", lambda pdir, **k: pdir + "/run.sbatch")
     # real_only prep needs one node (real.exe output is decomposition-independent)
     monkeypatch.setattr(wt.sweep, "build_anchor", lambda cj, cores, nodes, hw: dict(
@@ -693,7 +693,7 @@ def test_fit_stage2_shrinks_then_skips(tmp_path):
 
 def test_run_predicted_branch_sets_running_budget_and_max_points(monkeypatch, tmp_path):
     seen = {}
-    monkeypatch.setattr(wt, "resolve_case", lambda case, cpn: (
+    monkeypatch.setattr(wt.context, "resolve_case", lambda case, cpn: (
         dict(e_we=91, e_sn=100, e_vert=45, prep_dir=str(tmp_path)), str(tmp_path / "nl"),
         {"core_count_priors": {"efficiency_table": []}}))
 
@@ -702,8 +702,8 @@ def test_run_predicted_branch_sets_running_budget_and_max_points(monkeypatch, tm
                     max_points=ctx.probe_cfg["max_points"])
         return {}
 
-    monkeypatch.setattr(wt, "run_predicted", fake_run_predicted)
-    monkeypatch.setattr(wt, "render_predicted_report_text", lambda r: "")
+    monkeypatch.setattr(wt.predicted, "run_predicted", fake_run_predicted)
+    monkeypatch.setattr(wt.predicted, "render_predicted_report_text", lambda r: "")
     base = ["matthew", "--minutes", "60", "--nodes", "1", "--steps", "5",
             "--out", str(tmp_path / "o"), "--ledger-dir", str(tmp_path / "l"),
             "--rank-by", "predicted"]
@@ -766,7 +766,7 @@ def _predicted_env(monkeypatch, n_points=3, dt=15.0, stepra=40, s_led=1.3):
                                  source="rebuild") for i in range(n_points)]
     monkeypatch.setattr(wt.wtune_predict, "parse_namelist", lambda p: None)
     monkeypatch.setattr(wt.wtune_predict, "get_d01_steps", lambda nl: (1440, 21600, dt, None))
-    monkeypatch.setattr(wt, "plan_predicted_points", lambda ctx, spin: (
+    monkeypatch.setattr(wt.points, "plan_predicted_points", lambda ctx, spin: (
         None, T0, T0 + dt_.timedelta(hours=24), dt, stepra, pts, []))
     monkeypatch.setattr(wt.wtune_predict, "read_wrfinput_sample_points", lambda d: ([], None))
     monkeypatch.setattr(wt.sweep, "estimate_s_per_step", lambda *a, **k: (s_led, "ledger", 5))
@@ -779,7 +779,7 @@ dt_ = dt
 def test_feasibility_precheck_refuses_before_submitting(monkeypatch, tmp_path):
     _predicted_env(monkeypatch)
     called = []
-    monkeypatch.setattr(wt, "prepare_rebuilt_points", lambda *a, **k: called.append(1))
+    monkeypatch.setattr(wt.points, "prepare_rebuilt_points", lambda *a, **k: called.append(1))
     sb, calls, _p = make_fake_sbatch()
     ctx = _ctx(out_dir=str(tmp_path), budget_s=20 * 60.0, nodes=4, max_nodes=12,
                sbatch_runner=sb, case_json=dict(e_we=1501, e_sn=1201, e_vert=50,
@@ -858,8 +858,8 @@ def test_conus25_like_runs_stage1_and_stage2(monkeypatch, tmp_path, stage2_extra
                              for rp in rebuilt]
         return meas, [], ["9001"]
 
-    monkeypatch.setattr(wt, "prepare_rebuilt_points", prepare)
-    monkeypatch.setattr(wt, "measure_candidates_at_points", measure)
+    monkeypatch.setattr(wt.points, "prepare_rebuilt_points", prepare)
+    monkeypatch.setattr(wt.points, "measure_candidates_at_points", measure)
     scancel, scalls = make_fake_scancel()
     ctx = _ctx(out_dir=str(tmp_path / "out"), ledger_dir=str(ledger_dir), budget_s=4800.0,
                nodes=4, max_nodes=12, clock=clock, poll_interval=20.0, sbatch_runner=sbatch,
@@ -886,7 +886,7 @@ def test_conus25_like_runs_stage1_and_stage2(monkeypatch, tmp_path, stage2_extra
 
 def test_conus25_60min_is_refused_with_conservative_concurrency(monkeypatch, tmp_path):
     _predicted_env(monkeypatch)
-    monkeypatch.setattr(wt, "prepare_rebuilt_points", lambda *a, **k: pytest.fail("submitted"))
+    monkeypatch.setattr(wt.points, "prepare_rebuilt_points", lambda *a, **k: pytest.fail("submitted"))
     ctx = _ctx(out_dir=str(tmp_path), budget_s=3600.0, nodes=4, max_nodes=12,
                case_json=dict(e_we=1501, e_sn=1201, e_vert=50, prep_dir=str(tmp_path)))
     ctx.budget_mode = "running"
@@ -996,7 +996,7 @@ def test_stage1_option_cli_yaml_default():
 
 def test_stage1_t0_feasibility_checks_stage1_only(monkeypatch, tmp_path, capsys):
     _predicted_env(monkeypatch)
-    monkeypatch.setattr(wt, "submit_rebuilt_points", lambda *a, **k: pytest.fail("submitted"))
+    monkeypatch.setattr(wt.points, "submit_rebuilt_points", lambda *a, **k: pytest.fail("submitted"))
     ctx = _ctx(out_dir=str(tmp_path / "o"), budget_s=5 * 60.0, nodes=4, max_nodes=12, steps=20,
                case_json=dict(e_we=1501, e_sn=1201, e_vert=50, prep_dir=str(tmp_path / "c")))
     ctx.budget_mode = "running"
@@ -1010,7 +1010,7 @@ def test_stage1_t0_feasibility_checks_stage1_only(monkeypatch, tmp_path, capsys)
     class Submitted(Exception):
         pass
 
-    monkeypatch.setattr(wt, "submit_rebuilt_points",
+    monkeypatch.setattr(wt.points, "submit_rebuilt_points",
                         lambda *a, **k: (_ for _ in ()).throw(Submitted()))
     with pytest.raises(Submitted):
         wt.run_predicted(ctx, 4, "user", 1.3)
@@ -1085,10 +1085,10 @@ def test_stage1_t0_end_to_end(monkeypatch, tmp_path):
                           for rp in rebuilt] for c in [anchor] + list(configs)}
         return meas, [], ["9001"]
 
-    monkeypatch.setattr(wt, "submit_rebuilt_points", submit_prep)
-    monkeypatch.setattr(wt, "finish_rebuilt_points", finish_prep)
-    monkeypatch.setattr(wt, "prepare_rebuilt_points", lambda *a, **k: pytest.fail("pstar path"))
-    monkeypatch.setattr(wt, "measure_candidates_at_points", measure)
+    monkeypatch.setattr(wt.points, "submit_rebuilt_points", submit_prep)
+    monkeypatch.setattr(wt.points, "finish_rebuilt_points", finish_prep)
+    monkeypatch.setattr(wt.points, "prepare_rebuilt_points", lambda *a, **k: pytest.fail("pstar path"))
+    monkeypatch.setattr(wt.points, "measure_candidates_at_points", measure)
     scancel, scalls = make_fake_scancel()
     ctx = _ctx(out_dir=str(tmp_path / "out"), ledger_dir=str(tmp_path / "l"), budget_s=5400.0,
                nodes=4, max_nodes=12, steps=20, clock=clock, poll_interval=20.0,
@@ -1219,9 +1219,9 @@ def _run_pred_t0(monkeypatch, tmp_path, budget_s, stage2_s=1200.0, stage2_cap_s=
                           for rp in rebuilt] for c in [anchor] + list(configs)}
         return meas, [], ["9001"]
 
-    monkeypatch.setattr(wt, "submit_rebuilt_points", submit_prep)
-    monkeypatch.setattr(wt, "finish_rebuilt_points", finish_prep)
-    monkeypatch.setattr(wt, "measure_candidates_at_points", measure)
+    monkeypatch.setattr(wt.points, "submit_rebuilt_points", submit_prep)
+    monkeypatch.setattr(wt.points, "finish_rebuilt_points", finish_prep)
+    monkeypatch.setattr(wt.points, "measure_candidates_at_points", measure)
     ctx, scalls = _t0_ctx(tmp_path / "pred", clock, fakes, budget_s)
     ctx.budget_mode = "running"
     ctx.max_wall_s = 3 * budget_s

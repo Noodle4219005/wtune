@@ -1,0 +1,17 @@
+{
+ "bad_site": {
+  "err": "ERROR: only --site scc is supported\n",
+  "out": "",
+  "rc": 2
+ },
+ "no_case": {
+  "err": "ERROR: case is required: pass it positionally or set 'case' in --config\n",
+  "out": "",
+  "rc": 1
+ },
+ "no_minutes": {
+  "err": "ERROR: --minutes is required: pass it on the command line or set budget.minutes in --config\n",
+  "out": "",
+  "rc": 1
+ }
+}

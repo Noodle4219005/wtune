@@ -789,7 +789,7 @@ def test_run_end_to_end(monkeypatch, tmp_path):
     case_json = dict(MATTHEW_LIKE, prep_dir=str(tmp_path / "matthew"))
     profile = _profile([{"nodes": 1, "legal": True, "efficiency_E": 0.95}])
     monkeypatch.setattr(
-        wtune_tune, "resolve_case",
+        wtune_tune.context, "resolve_case",
         lambda case, cores_per_node: (case_json, str(tmp_path / "namelist.input"), profile))
 
     sbatch_runner, sbatch_calls, job_to_configs_path = make_fake_sbatch(start=9000)
@@ -840,7 +840,7 @@ def test_round0_measuring_0_3s_per_step_lets_adaptive_and_confirm_both_run_withi
     case_json = dict(MATTHEW_LIKE, prep_dir=str(tmp_path / "matthew"))
     profile = _profile([{"nodes": 1, "legal": True, "efficiency_E": 0.95}])
     monkeypatch.setattr(
-        wtune_tune, "resolve_case",
+        wtune_tune.context, "resolve_case",
         lambda case, cores_per_node: (case_json, str(tmp_path / "namelist.input"), profile))
 
     sbatch_runner, sbatch_calls, job_to_configs_path = make_fake_sbatch(start=9700)
@@ -1221,7 +1221,7 @@ def _patched_load_config(raw):
 def _run_e2e_with_config(tmp_path, raw_config=None, extra_argv=(), monkeypatch=None):
     case_json = dict(MATTHEW_LIKE, prep_dir=str(tmp_path / "matthew"))
     profile = _profile([{"nodes": 1, "legal": True, "efficiency_E": 0.95}])
-    monkeypatch.setattr(wtune_tune, "resolve_case",
+    monkeypatch.setattr(wtune_tune.context, "resolve_case",
                          lambda case, cores_per_node: (case_json, str(tmp_path / "namelist.input"),
                                                         profile))
     if raw_config is not None:
@@ -1386,9 +1386,9 @@ def _run_cli(monkeypatch, tmp_path, argv, curve=NONMONO_CURVE, profile=ALL_NODES
              total_steps=1000, grid=MATTHEW_LIKE, core_mult=None, sbatch_calls=None,
              preflight_runner=None):
     case_json = dict(grid, prep_dir=str(tmp_path / "matthew"))
-    monkeypatch.setattr(wtune_tune, "resolve_case",
+    monkeypatch.setattr(wtune_tune.context, "resolve_case",
                         lambda case, cpn: (case_json, str(tmp_path / "namelist.input"), profile))
-    monkeypatch.setattr(wtune_tune, "_total_steps", lambda nl: total_steps)
+    monkeypatch.setattr(wtune_tune.context, "_total_steps", lambda nl: total_steps)
     sbatch, reader, job_nodes = make_scaling_fakes(curve, core_mult=core_mult)
     if sbatch_calls is not None:
         inner = sbatch
@@ -1651,7 +1651,7 @@ def test_node_search_builds_full_run_prediction_once_for_the_winner(monkeypatch,
         calls.append((nodes, best_config and best_config.get("id")))
         return "PREDICTION-FOR-%d" % nodes
 
-    monkeypatch.setattr(wtune_tune, "build_full_run_prediction", fake_pred)
+    monkeypatch.setattr(wtune_tune.prediction, "build_full_run_prediction", fake_pred)
     report, _jn, _sc = _run_cli(monkeypatch, tmp_path, ["--minutes", "600"])
     assert len(report["node_selection"]["finalists"]) == 2     # two finalists were searched
     assert len(calls) == 1                                      # ...but one prediction build
@@ -1818,8 +1818,8 @@ class _PipeEnv:
         self.pts = [_types.SimpleNamespace(at=t0 + _dt.timedelta(hours=h), reason="sunlit")
                     for h in (1, 3, 5, 7, 9)[:n_points]]
         ev, mp = self.events, monkeypatch
-        mp.setattr(wtune_tune, "_namelist_dt", lambda ctx: 60.0)
-        mp.setattr(wtune_tune, "plan_predicted_points",
+        mp.setattr(wtune_tune.context, "_namelist_dt", lambda ctx: 60.0)
+        mp.setattr(wtune_tune.points, "plan_predicted_points",
                    lambda ctx, spinup: (None, t0, t0 + _dt.timedelta(hours=6), 60.0, 10,
                                         list(self.pts), []))
 
@@ -1890,17 +1890,17 @@ class _PipeEnv:
                         needs_rebuild=[p.at for p in pts], confidence="normal",
                         meets_precision=True, types=list(case_types))
 
-        mp.setattr(wtune_tune, "wtune_cost_drivers",
+        mp.setattr(wtune_tune.prediction, "wtune_cost_drivers",
                    _types.SimpleNamespace(plan_points_for_case=plan_points))
-        mp.setattr(wtune_tune, "_case_types_and_track", lambda ctx: (["common"], None))
-        mp.setattr(wtune_tune, "submit_rebuilt_points", submit)
-        mp.setattr(wtune_tune, "finish_rebuilt_points", finish)
-        mp.setattr(wtune_tune, "measure_candidates_at_points", measure)
-        mp.setattr(wtune_tune, "rank_by_predicted_total", rank)
-        mp.setattr(wtune_tune, "_prediction_context",
+        mp.setattr(wtune_tune.prediction, "_case_types_and_track", lambda ctx: (["common"], None))
+        mp.setattr(wtune_tune.points, "submit_rebuilt_points", submit)
+        mp.setattr(wtune_tune.points, "finish_rebuilt_points", finish)
+        mp.setattr(wtune_tune.points, "measure_candidates_at_points", measure)
+        mp.setattr(wtune_tune.points, "rank_by_predicted_total", rank)
+        mp.setattr(wtune_tune.prediction, "_prediction_context",
                    lambda ctx: (None, t0, t0 + _dt.timedelta(hours=6), 60.0, 10, {}, [], "/x"))
-        mp.setattr(wtune_tune, "physics_runner_supported", lambda script: runner_ok)
-        mp.setattr(wtune_tune, "build_physics_window_namelists",
+        mp.setattr(wtune_tune.physics_phase, "physics_runner_supported", lambda script: runner_ok)
+        mp.setattr(wtune_tune.physics_phase, "build_physics_window_namelists",
                    lambda ctx, cands, rsub, anchor: (
                        dict(anchor, physics_namelists={}),
                        [dict(anchor, id=cd["id"], physics_namelists={}) for cd in cands]))
@@ -1937,7 +1937,7 @@ class _PipeEnv:
                 ratio_min=0.9, ratio_max=0.9),
             fidelity_verdict=fidelity, advice_table=table)
         api.PROGNOSTIC_FIELDS = ("T", "U", "V", "QVAPOR", "PSFC", "T2", "Q2", "U10", "V10")
-        mp.setattr(wtune_tune, "wtune_physics_advice", api if physics else None)
+        mp.setattr(wtune_tune.physics_phase, "wtune_physics_advice", api if physics else None)
         if extension:
             mp.setattr(wtune_tune.wtune_extensions, "omp_cap_for_namelist", lambda p: 1)
 
@@ -1969,12 +1969,12 @@ def _pipe_run(monkeypatch, tmp_path, minutes=None, extra_args=(), sacct=None, sc
         total_steps = 10 ** 6 if minutes is not None else 1000      # a long run keeps it quiet
     env = _PipeEnv(monkeypatch, tmp_path, clock, minutes, **kw)
     case_json = dict(grid or BIG_GRID, prep_dir=str(tmp_path / "matthew"))
-    monkeypatch.setattr(wtune_tune, "resolve_case",
+    monkeypatch.setattr(wtune_tune.context, "resolve_case",
                         lambda case, cpn: (case_json, str(tmp_path / "namelist.input"),
                                            ALL_NODES_PROFILE))
-    monkeypatch.setattr(wtune_tune, "_total_steps", lambda nl: total_steps)
+    monkeypatch.setattr(wtune_tune.context, "_total_steps", lambda nl: total_steps)
     if cold is not None:       # (whole-run seconds, s/step at the proxy node count)
-        monkeypatch.setattr(wtune_tune, "cold_start_prediction",
+        monkeypatch.setattr(wtune_tune.prediction, "cold_start_prediction",
                             lambda ctx, nodes, cfg, steps: (cold[0], cold[1], "fake cold start"))
     sbatch, reader, _jn = make_scaling_fakes(NONMONO_CURVE)
     calls = {"n": 0}
@@ -2000,7 +2000,7 @@ def _pipe_run(monkeypatch, tmp_path, minutes=None, extra_args=(), sacct=None, sc
                 ctx.add_running(env.bump * minutes * 60.0)
             return out
 
-        monkeypatch.setattr(wtune_tune, "wait_for_jobs", bumping_wait)
+        monkeypatch.setattr(wtune_tune.jobs, "wait_for_jobs", bumping_wait)
 
     def stop_proposer(state, batch_size, kappa=None):
         return dict(stopped=True, reason="test stub"), []
@@ -2017,7 +2017,7 @@ def _pipe_run(monkeypatch, tmp_path, minutes=None, extra_args=(), sacct=None, sc
         configs, info = real_full(ctx)
         return (configs if full_cap is None else configs[:full_cap]), info
 
-    monkeypatch.setattr(wtune_tune, "enumerate_full_space", capped_full_space)
+    monkeypatch.setattr(wtune_tune.candidates, "enumerate_full_space", capped_full_space)
     if minutes is not None:
         argv += ["--minutes", str(minutes)]
     args = wtune_tune.build_arg_parser().parse_args(argv + list(extra_args))
@@ -2198,7 +2198,7 @@ def test_pipeline_full_controller_work_is_not_charged_and_is_reported(monkeypatc
         ctx.clock.t += 900.0
         return real_build(ctx, *a, **k)
 
-    monkeypatch.setattr(wtune_tune, "build_report", slow_build)
+    monkeypatch.setattr(wtune_tune.report, "build_report", slow_build)
     report, env = _pipe_run(monkeypatch, tmp_path, minutes=30)
     pipe = report["pipeline"]
     assert pipe["total_running_s"] == pytest.approx(0.0)
@@ -2266,7 +2266,7 @@ def test_wait_for_jobs_charges_only_the_intervals_a_job_is_running():
 def test_pipeline_full_rejects_fixed_nodes(monkeypatch, tmp_path):
     args = wtune_tune.build_arg_parser().parse_args(
         ["matthew", "--pipeline", "full", "--minutes", "30", "--nodes", "4"])
-    monkeypatch.setattr(wtune_tune, "resolve_case",
+    monkeypatch.setattr(wtune_tune.context, "resolve_case",
                         lambda case, cpn: (dict(BIG_GRID, prep_dir="/x"), "/x/n", ALL_NODES_PROFILE))
     with pytest.raises(SystemExit, match="runs its own node search"):
         wtune_tune.run(args)
@@ -2630,8 +2630,8 @@ def _hourly_points(n=48, t0=_dt.datetime(2026, 1, 1)):
 
 def test_plan_prediction_points_calls_the_REAL_planner_common_case_needs_t0_only(monkeypatch):
     import wtune_cost_drivers as real                     # the real module, not a stub
-    monkeypatch.setattr(wtune_tune, "wtune_cost_drivers", real)
-    monkeypatch.setattr(wtune_tune, "_case_types_and_track", lambda ctx: (["common"], None))
+    monkeypatch.setattr(wtune_tune.prediction, "wtune_cost_drivers", real)
+    monkeypatch.setattr(wtune_tune.prediction, "_case_types_and_track", lambda ctx: (["common"], None))
     t0 = _dt.datetime(2026, 1, 1)
     wrapped = _hourly_points(30, t0)
     r = wtune_tune.plan_prediction_points(_planner_ctx(), wrapped, 15.0, 25 * 60.0, False,
@@ -2646,8 +2646,8 @@ def test_plan_prediction_points_calls_the_REAL_planner_common_case_needs_t0_only
 
 def test_plan_prediction_points_convection_case_gets_t0_plus_the_peak(monkeypatch):
     import wtune_cost_drivers as real
-    monkeypatch.setattr(wtune_tune, "wtune_cost_drivers", real)
-    monkeypatch.setattr(wtune_tune, "_case_types_and_track", lambda ctx: (["convection"], None))
+    monkeypatch.setattr(wtune_tune.prediction, "wtune_cost_drivers", real)
+    monkeypatch.setattr(wtune_tune.prediction, "_case_types_and_track", lambda ctx: (["convection"], None))
     t0 = _dt.datetime(2026, 1, 1)
     hours = list(range(25))
     # fake indicator series: precipitation area peaks at hour 14
@@ -2655,7 +2655,7 @@ def test_plan_prediction_points_convection_case_gets_t0_plus_the_peak(monkeypatc
     cs = real.CostSeries(t0, [t0 + _dt.timedelta(hours=h) for h in hours],
                          dict(precip_area=precip), {"precip_area": 1.0}, [], {})
     assert cs.usable
-    monkeypatch.setattr(wtune_tune, "_cost_series_for_ctx", lambda *a, **k: cs)
+    monkeypatch.setattr(wtune_tune.prediction, "_cost_series_for_ctx", lambda *a, **k: cs)
     wrapped = _hourly_points(30, t0)
     # a 90 min run at 15 min precision: t0-only convection (+-25% = 22 min) is too loose, the
     # t0 + peak base set (+-10% = 9 min) is enough
@@ -2677,12 +2677,12 @@ def test_plan_prediction_points_convection_case_gets_t0_plus_the_peak(monkeypatc
 
 def test_plan_prediction_points_falls_back_loudly_on_a_real_error(monkeypatch, capsys):
     import wtune_cost_drivers as real
-    monkeypatch.setattr(wtune_tune, "wtune_cost_drivers", real)
+    monkeypatch.setattr(wtune_tune.prediction, "wtune_cost_drivers", real)
 
     def boom(ctx):
         raise RuntimeError("no case")
 
-    monkeypatch.setattr(wtune_tune, "_case_types_and_track", boom)
+    monkeypatch.setattr(wtune_tune.prediction, "_case_types_and_track", boom)
     t0 = _dt.datetime(2026, 1, 1)
     r = wtune_tune.plan_prediction_points(_planner_ctx(), _hourly_points(5, t0), 15.0, 25 * 60.0,
                                           False, run_start=t0,
@@ -2817,11 +2817,11 @@ def test_precision_flag_reaches_the_planner(monkeypatch, tmp_path):
 
 def test_o0_runs_no_job_and_reports_the_cold_start_band(monkeypatch, tmp_path, capsys):
     case_json = dict(BIG_GRID, prep_dir=str(tmp_path / "matthew"))
-    monkeypatch.setattr(wtune_tune, "resolve_case",
+    monkeypatch.setattr(wtune_tune.context, "resolve_case",
                         lambda case, cpn: (case_json, str(tmp_path / "namelist.input"),
                                            ALL_NODES_PROFILE))
-    monkeypatch.setattr(wtune_tune, "_total_steps", lambda nl: 1000)
-    monkeypatch.setattr(wtune_tune, "cold_start_prediction",
+    monkeypatch.setattr(wtune_tune.context, "_total_steps", lambda nl: 1000)
+    monkeypatch.setattr(wtune_tune.prediction, "cold_start_prediction",
                         lambda ctx, nodes, cfg, steps: (1687.0, 0.05, "fake cold start"))
 
     def no_sbatch(cmd):
@@ -2857,7 +2857,7 @@ def _with_fake_io(monkeypatch, io=FAKE_IO):
     def fake(path):
         calls.append(path)
         return dict(io)
-    monkeypatch.setattr(wtune_tune, "pipeline_run_length_io", fake)
+    monkeypatch.setattr(wtune_tune.prediction, "pipeline_run_length_io", fake)
     return calls
 
 
@@ -2912,11 +2912,11 @@ def test_pipeline_t0_anchor_prediction_adds_run_length_io(monkeypatch, tmp_path)
 def test_o0_prediction_adds_run_length_io(monkeypatch, tmp_path, capsys):
     _with_fake_io(monkeypatch)
     case_json = dict(BIG_GRID, prep_dir=str(tmp_path / "matthew"))
-    monkeypatch.setattr(wtune_tune, "resolve_case",
+    monkeypatch.setattr(wtune_tune.context, "resolve_case",
                         lambda case, cpn: (case_json, str(tmp_path / "namelist.input"),
                                            ALL_NODES_PROFILE))
-    monkeypatch.setattr(wtune_tune, "_total_steps", lambda nl: 1000)
-    monkeypatch.setattr(wtune_tune, "cold_start_prediction",
+    monkeypatch.setattr(wtune_tune.context, "_total_steps", lambda nl: 1000)
+    monkeypatch.setattr(wtune_tune.prediction, "cold_start_prediction",
                         lambda ctx, nodes, cfg, steps: (1687.0, 0.05, "fake cold start"))
     args = wtune_tune.build_arg_parser().parse_args(
         ["matthew", "--site", "scc", "--out", str(tmp_path / "out"), "-O0",
@@ -2975,7 +2975,7 @@ def test_report_prints_node_health_before_the_pipeline_summary(monkeypatch, tmp_
 def test_phase1_measured_startup_is_adopted_by_phase_2(monkeypatch, tmp_path):
     # round0 measures the startup on the finalist ctx copies; the default 120 s made phase 2 look
     # 2-4x too expensive (matthew-pipe3)
-    monkeypatch.setattr(wtune_tune, "measure_startup_s", lambda *a, **k: (55.0, 3))
+    monkeypatch.setattr(wtune_tune.budget, "measure_startup_s", lambda *a, **k: (55.0, 3))
     report, env = _pipe_run(monkeypatch, tmp_path, n_points=5)
     assert report["pipeline"]["predict_plan"]["startup_s"] == 55.0
 
@@ -3088,7 +3088,7 @@ def test_physics_advice_is_opt_in(monkeypatch, tmp_path):
 
 def test_main_defaults_to_the_o3_layout_search_unless_a_mode_is_chosen(monkeypatch):
     seen = {}
-    monkeypatch.setattr(wtune_tune, "run", lambda args, **k: seen.update(level=args.level,
+    monkeypatch.setattr(wtune_tune.cli, "run", lambda args, **k: seen.update(level=args.level,
                                                                        nodes=args.nodes))
     wtune_tune.main(["matthew"])
     assert seen["level"] == 3 and wtune_tune.DEFAULT_LEVEL == 3
@@ -3136,7 +3136,7 @@ def _point_job(monkeypatch, tmp_path, mode, configs):
 
     ctx = _ctx(sbatch_runner=sbatch, out_dir=str(tmp_path / "o"), ledger_dir=str(tmp_path / "l"),
                nodes=4, ledger_reader=lambda case, ids: rows_for["rows"])
-    monkeypatch.setattr(wtune_tune, "_measure_run",
+    monkeypatch.setattr(wtune_tune.points, "_measure_run",
                         lambda ctx, rp, cid, jid, dt, first_global_step=None: (
                             _types.SimpleNamespace(at=rp["point"].at, s_normal=0.3), 1.0 + 8))
     rp = dict(index=0, point=_types.SimpleNamespace(at=_dt.datetime(2026, 1, 1, 6), reason="r"),

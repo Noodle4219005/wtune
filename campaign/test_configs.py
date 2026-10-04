@@ -2221,6 +2221,12 @@ class TestConfigExtras(unittest.TestCase):
         self.assertIn("window_frame_mid=", text)
         self.assertIn('rm -rf "$d"/wrfrst_d0*_*', text)
 
+    def test_restart_pass_gets_run_sec_args(self):
+        text = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "strict_campaign.sbatch")).read()
+        passes = [b for b in text.split("edit-namelist")[1:] if "--restart-from" in b.split("\n\n")[0]]
+        self.assertEqual(len(passes), 1)
+        self.assertIn('--run-minutes "$RUN_MIN_EFF" "${RUN_SEC_ARGS[@]}"', passes[0])
+
     def test_mid_end_mode_writes_mid_and_end_frames(self):
         text = ("&time_control\n run_minutes = 0,\n history_interval = 180,\n"
                 " history_begin = 7,\n/\n&domains\n max_dom = 1,\n/\n")

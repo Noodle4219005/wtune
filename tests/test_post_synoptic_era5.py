@@ -69,3 +69,14 @@ def test_missing_local_subset_falls_back_to_arco(tmp_path, monkeypatch):
     monkeypatch.setattr(era5, "open_era5", unavailable)
     with pytest.raises(era5.Era5UnavailableError):
         era5.z500_for(datetime(2005, 8, 29), (0, 1, 0, 1), str(tmp_path))
+
+
+def test_era5_diff_entry_missing_when_era5_import_fails(monkeypatch):
+    import sys
+    import types
+    from post.recipes import synoptic
+    monkeypatch.setitem(sys.modules, "post.recipes.era5", None)
+    calls = []
+    out = synoptic._era5_diff_entry(types.SimpleNamespace(np=None), "", "", None, None,
+                                    lambda *a: calls.append(a) or "missing")
+    assert out == "missing" and calls[0][:2] == ("syn_era5_diff", "ERA5 (ARCO)")

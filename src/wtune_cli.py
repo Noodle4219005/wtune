@@ -1225,8 +1225,12 @@ def screen_cmd(args):
     """3-stage autotuner funnel: analytic screen (all 2062) -> SpeedyWeather cheap
     physics vet -> the survivors go to WRF empirical test."""
     import wtune_surrogate as wsurr
-    nl_kv = _parse_nl_kv(args.namelist)
-    case = extract_case(parse_namelist(args.namelist))
+    try:
+        nl_kv = _parse_nl_kv(args.namelist)
+        case = extract_case(parse_namelist(args.namelist))
+    except Exception as exc:
+        print("ERROR reading namelist: {}".format(exc), file=sys.stderr)
+        return 1
     case, _ = enrich_case(case, getattr(args, 'wrfinput', None))
     resolved, _ = phys.resolve_suite(case)
     # The SpeedyWeather probe is PART of the tuner: run it automatically here (cached by
@@ -1491,9 +1495,9 @@ def restart_window_cmd(args):
     # costs ~56 s, the recoverable imbalance is 7-17 s; PLOV rebalances in place
     # instead, see plov/README.md). The modules live under deprecated/ and are
     # imported only when this command is actually invoked.
-    print("WARNING restart-window: deprecated path (see deprecated/README.md); "
+    print("WARNING restart-window: deprecated path (see archive/deprecated/README.md); "
           "PLOV is the live rebalancer", file=sys.stderr)
-    sys.path.insert(0, str(Path(__file__).resolve().parent / 'deprecated'))
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'archive' / 'deprecated'))
     from wtune_migration_config import (MigrationConfigError, from_environment,
                                         manifest_metadata, validate_case)
     output_dir = _restart_path_key(args.output_dir)

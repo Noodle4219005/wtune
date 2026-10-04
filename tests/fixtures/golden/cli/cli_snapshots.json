@@ -703,7 +703,7 @@
   ],
   "rc": 1,
   "script": "wtune.py",
-  "stderr": "WARNING restart-window: deprecated path (see deprecated/README.md); PLOV is the live rebalancer\nTraceback (most recent call last):\n  ...\nModuleNotFoundError: No module named 'wtune_migration_config'\n",
+  "stderr": "WARNING restart-window: deprecated path (see archive/deprecated/README.md); PLOV is the live rebalancer\nERROR restart-window: reading namelist: [Errno 2] No such file or directory: '/nonexistent/wtune-golden/namelist.input'\n",
   "stdout": ""
  },
  "restart-window-topk0": {
@@ -720,7 +720,7 @@
   ],
   "rc": 1,
   "script": "wtune.py",
-  "stderr": "WARNING restart-window: deprecated path (see deprecated/README.md); PLOV is the live rebalancer\nTraceback (most recent call last):\n  ...\nModuleNotFoundError: No module named 'wtune_migration_config'\n",
+  "stderr": "WARNING restart-window: deprecated path (see archive/deprecated/README.md); PLOV is the live rebalancer\nERROR restart-window: top-k must be positive\n",
   "stdout": ""
  },
  "run-no-args": {
@@ -750,7 +750,7 @@
   ],
   "rc": 1,
   "script": "wtune.py",
-  "stderr": "Traceback (most recent call last):\n  ...\nFileNotFoundError: [Errno 2] No such file or directory: '/nonexistent/wtune-golden/namelist.input'\n",
+  "stderr": "ERROR reading namelist: [Errno 2] No such file or directory: '/nonexistent/wtune-golden/namelist.input'\n",
   "stdout": ""
  },
  "selftest": {

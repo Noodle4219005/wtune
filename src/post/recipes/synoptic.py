@@ -244,6 +244,9 @@ def _era5_diff_entry(c: _Chart, run_dir: str, path: str, model_bbox: tuple, fig:
     np = c.np
     try:
         from post.recipes.era5 import Era5UnavailableError, z500_for
+    except ImportError as e:
+        return missing("syn_era5_diff", "ERA5 (ARCO)", str(e))
+    try:
         from post.caseinfo import WRF_TIME_FMT, spec_bdy_width
         from datetime import datetime
         try:

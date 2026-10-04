@@ -1472,7 +1472,7 @@ for cid in "${ORDER[@]}"; do
       cp ./namelist.input ./namelist.input.restart_orig
       python3 "$CAMPAIGN/configs.py" edit-namelist ./namelist.input.restart_orig ./namelist.input \
         --nproc-x "$nx" --nproc-y "$ny" --numtiles "$numtiles" \
-        --run-minutes "$MIN" --max-dom "$MAX_DOM" \
+        --run-minutes "$RUN_MIN_EFF" "${RUN_SEC_ARGS[@]}" --max-dom "$MAX_DOM" \
         --history-mode "$RUN_HISTORY_ARG" --ranks "$ranks" \
         "${SET_ARGS[@]}" "${DELETE_ARGS[@]}" "${NEST_ARGS[@]}" "${TILE_ARGS[@]}" \
         --restart-from "$RESTART_TIME" --restart-io-form "$RANKING_RESTART_IO_FORM"

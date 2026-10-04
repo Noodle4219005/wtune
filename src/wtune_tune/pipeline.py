@@ -538,6 +538,7 @@ def _phase2_choose_plan(st: PipelineRun, layouts: list[dict], frames_wanted: boo
     """The largest phase2_plans plan whose summed estimate fits `left2` (groups run one after
     another). Returns (tried [{plan, estimate_s}], (label, layouts, points, estimate) or None)."""
     tried = []
+    short = st.pipe.short_run if is_set(st.pipe.short_run) else None
     for label, lays_sel, pts in phase2_plans(layouts, st.rebuilt, st.sample_points,
                                              winner_only=winner_only):
         est = 0.0
@@ -545,7 +546,7 @@ def _phase2_choose_plan(st: PipelineRun, layouts: list[dict], frames_wanted: boo
             est += fit_stage2(_phase2_gctx(st, n, c), others, anchor, pts, s_by, st.nl,
                               left_s=None, mode=choose_point_mode(others, anchor))[1]
         tried.append(dict(plan=label, estimate_s=est))
-        if est <= left2:
+        if est <= left2 and not (short and est >= short.real_run_s):
             return tried, (label, lays_sel, pts, est)
     return tried, None
 
@@ -607,6 +608,11 @@ def _phase2_measure(st: PipelineRun, layouts: list[dict]) -> str:
         ph2 = NOT_RUN_BUDGET + ": " + (
             "the smallest plan (%s) needs ~%s of running time, %s left of the phase-2 share"
             % (tried[-1]["plan"], _fmt_hms(tried[-1]["estimate_s"]), _fmt_hms(max(0.0, left2))))
+        short = pipe.short_run if is_set(pipe.short_run) else None
+        if short and tried[-1]["estimate_s"] >= short.real_run_s:
+            ph2 = NOT_RUN_BUDGET + (": short run: even the winner alone needs ~%s, more than "
+                                    "the real run (~%s)" % (_fmt_hms(tried[-1]["estimate_s"]),
+                                                            _fmt_hms(short.real_run_s)))
         print("pipeline: phase 2 %s" % ph2)
         return ph2
     label, lays_sel, pts, est = chosen_plan

@@ -342,11 +342,14 @@ def _pipeline_prediction_lines(pipe: dict) -> list[str]:
                      % (pipe["physics_fidelity_gate"], pipe.get("physics_baseline")))
     pr = pipe.get("prediction")
     if pr:
-        lines.append("predicted whole run: %s (range %s - %s) at N=%d cores/node=%s %s; "
-                     "suggested --time=%s"
-                     % (pr["predicted_total_hms"], _fmt_hms(pr["predicted_range_s"][0]),
-                        _fmt_hms(pr["predicted_range_s"][1]), pr["nodes"], pr["cores_per_node"],
-                        pr["config"], pr["time_suggestion"]))
+        rng = pr.get("predicted_range_s")
+        where = "at N=%d cores/node=%s %s" % (pr["nodes"], pr["cores_per_node"], pr["config"])
+        if rng:
+            lines.append("predicted whole run: %s (range %s - %s) %s; suggested --time=%s"
+                         % (pr["predicted_total_hms"], _fmt_hms(rng[0]), _fmt_hms(rng[1]),
+                            where, pr["time_suggestion"]))
+        else:
+            lines.append("predicted whole run: unavailable (run length unknown) %s" % where)
         if pr.get("breakdown"):
             lines.append("  " + pr["breakdown"] + ("  [init: %s]" % pr["init_source"]
                                                    if pr.get("init_source") else ""))

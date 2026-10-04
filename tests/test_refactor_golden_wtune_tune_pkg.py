@@ -100,11 +100,10 @@ def test_golden_level0_unknown_run_length(monkeypatch, tmp_path, capsys):
     args = wtune_tune.build_arg_parser().parse_args(
         ["matthew", "--site", "scc", "--out", str(tmp_path / "out"), "-O0",
          "--ledger-dir", str(tmp_path / "ledger")])
-    # KNOWN BUG (pinned, not fixed): render_pipeline_text indexes the None predicted_range_s
-    with pytest.raises(TypeError, match="not subscriptable"):
-        wtune_tune.run(args, sbatch_runner=lambda cmd: None, clock=T.FakeClock())
+    wtune_tune.run(args, sbatch_runner=lambda cmd: None, clock=T.FakeClock())
     out = capsys.readouterr().out
-    assert not os.path.exists(tmp_path / "out" / "tune_report.json")
+    assert "unavailable (run length unknown)" in out
+    assert os.path.exists(tmp_path / "out" / "tune_report.json")
     G._check("pkg_level0_unknown_steps.txt", G._norm(out, tmp_path))
 
 

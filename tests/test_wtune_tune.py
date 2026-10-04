@@ -2958,8 +2958,10 @@ def test_pipeline_run_length_io_reads_the_case_namelist(tmp_path, capsys):
                  " start_day = 27,\n interval_seconds = 21600\n history_interval = 60,\n"
                  " restart_interval = 100000,\n /\n &domains\n time_step = 72, max_dom = 1,"
                  " e_we = 170, e_sn = 130, e_vert = 40,\n /\n &physics\n radt = 12,\n /\n")
-    io = wtune_tune.pipeline_run_length_io(str(p))
+    io = wtune_tune.pipeline_run_length_io(str(p), io="netcdf")
     assert io["total_s"] == pytest.approx(41.6, abs=0.1)        # SC26-P2: 49 frames + 8 bdy
+    ad = wtune_tune.pipeline_run_length_io(str(p))              # default: ADIOS2
+    assert ad["io_format"] == "adios2" and ad["total_s"] < io["total_s"]
     assert wtune_tune.pipeline_run_length_io(str(tmp_path / "missing")) is None
     assert "run-length I/O model unavailable" in capsys.readouterr().out
 

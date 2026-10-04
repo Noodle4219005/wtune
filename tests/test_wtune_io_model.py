@@ -92,7 +92,7 @@ def test_per_unit_costs_and_frame_counts_match_wtune_run(tmp_path, text, io_form
     w, r = iom.restart_io_s(geo["points"], io_form)
     assert (w, r) == (over["restart_write_s"], over["restart_read_s"])
     assert iom.history_frame_s(geo["points"]) == over["history_frame_s"]
-    io = iom.run_length_io(nl)
+    io = iom.run_length_io(nl, io="netcdf")
     assert io["points"] == geo["points"]
     for d in range(geo["max_dom"]):
         assert io["history_frames"][d] == wr.history_frames(geo, d, 0, geo["steps"])
@@ -101,7 +101,7 @@ def test_per_unit_costs_and_frame_counts_match_wtune_run(tmp_path, text, io_form
 
 
 def test_three_domain_history_begin_and_adios2_restart(tmp_path):
-    io = iom.run_length_io(_nl(tmp_path, THREE_DOM))
+    io = iom.run_length_io(_nl(tmp_path, THREE_DOM), io="netcdf")
     assert io["history_frames"] == [13, 25, 43]     # 0..12 h; d03 from 01:30 every 15 min
     assert io["io_form_restart"] == 14 and io["n_restart"] == 0     # 7200 min > 12 h
     assert io["n_boundary"] == 2 and io["aux_s"] == 0.0
@@ -109,7 +109,7 @@ def test_three_domain_history_begin_and_adios2_restart(tmp_path):
 
 # --- climate-ea50 calibration -----------------------------------------------------------------
 def test_climate_ea50_terms_against_the_rsl_decomposition(tmp_path):
-    io = iom.run_length_io(_nl(tmp_path, CLIMATE_EA50))
+    io = iom.run_length_io(_nl(tmp_path, CLIMATE_EA50), io="netcdf")
     assert io["run_s"] == 142560 * 240.0
     assert io["history_frames"] == [1585] and io["n_restart"] == 13      # 1598 writes in the rsl
     assert io["history_frames"][0] + io["n_restart"] == 1598
@@ -129,7 +129,7 @@ def test_climate_ea50_terms_against_the_rsl_decomposition(tmp_path):
 def test_climate_ea50_whole_run_prediction_and_breakdown(tmp_path):
     # init = round0's MEASURED startup 49.9 s (5 runs), not predict_init's 125.6 s (which charges
     # the whole 13-month wrfbdy as an init read -- the boundary term already counts it per update)
-    io = iom.run_length_io(_nl(tmp_path, CLIMATE_EA50))
+    io = iom.run_length_io(_nl(tmp_path, CLIMATE_EA50), io="netcdf")
     compute, init = 44 * 60 + 9.0, 49.9
     total = compute + init + io["total_s"]
     assert total == pytest.approx(4545.0, abs=1.0)                   # 75:45 (was 46:14)
@@ -151,7 +151,7 @@ def test_sc26p2_what_the_new_terms_add(tmp_path):
     # almost all history (49 frames x 0.80 s at 170x130x40 -- the same per-point rate the
     # climate-ea50 rsl measured, 0.72 s/frame at 150x110x45). With round0's measured startup
     # 54.1 s as init: 36.0 + 41.6 + 54.1 = 131.7 s (2:12), -6.6% vs 141 s (was +10.6%).
-    io = iom.run_length_io(_nl(tmp_path, SC26_P2))
+    io = iom.run_length_io(_nl(tmp_path, SC26_P2), io="netcdf")
     assert io["history_frames"] == [49] and io["n_boundary"] == 8 and io["n_restart"] == 0
     assert io["history_s"] == pytest.approx(39.0, abs=0.1)
     assert io["boundary_s"] == pytest.approx(2.5, abs=0.1)
@@ -171,10 +171,51 @@ def test_switches_turn_terms_off_and_restart_default(tmp_path):
             .replace("io_form_history = 2", "io_form_history = 0")
             .replace("sst_update = 1", "sst_update = 0")
             .replace(" &physics", " &bdy_control\n specified = .false.\n /\n &physics"))
-    io = iom.run_length_io(_nl(tmp_path, text))
+    io = iom.run_length_io(_nl(tmp_path, text), io="netcdf")
     assert io["history_s"] == 0.0 and io["aux_s"] == 0.0 and io["boundary_s"] == 0.0
     assert io["restart_interval_min"] == 1440.0 and io["n_restart"] == 396   # WRF default 1 day
 
 
 def test_unknown_restart_io_form_uses_the_netcdf_anchor():
     assert iom.restart_io_s([90e6], 11) == iom.restart_io_s([90e6], 2) == (324.0, 120.0)
+
+
+# --- I/O format: adios2 (default) vs netcdf ---------------------------------------------------
+def test_netcdf_numbers_unchanged_and_default_is_adios2(tmp_path):
+    nl = _nl(tmp_path, SC26_P2)
+    nc = iom.run_length_io(nl, io="netcdf")
+    assert nc["io_format"] == "netcdf" and nc["total_s"] == pytest.approx(41.6, abs=0.1)
+    assert iom.run_length_io(nl)["io_format"] == "adios2"
+
+
+def test_adios2_is_lower_by_the_history_and_boundary_difference(tmp_path):
+    nl = _nl(tmp_path, SC26_P2)
+    nc, ad = iom.run_length_io(nl, io="netcdf"), iom.run_length_io(nl, io="adios2")
+    pts = 170 * 130 * 40
+    assert ad["history_s"] == pytest.approx(49 * 0.042, rel=1e-9)           # SC26-P2 rsl 0.042 s
+    assert ad["history_s"] == pytest.approx(49 * pts * iom.ADIOS2_HISTORY_S_PER_POINT_FRAME)
+    assert nc["history_s"] - ad["history_s"] == pytest.approx(39.0 - 2.06, abs=0.1)
+    assert ad["boundary_s"] == pytest.approx(8 * 2 * 300 * 40 * 0.24 / (2 * 260 * 45), rel=1e-9)
+    assert ad["boundary_s"] < nc["boundary_s"]
+    assert ad["total_s"] == pytest.approx(nc["total_s"] - (nc["history_s"] - ad["history_s"])
+                                          - (nc["boundary_s"] - ad["boundary_s"]))
+
+
+def test_adios2_prices_restart_as_io_form_14(tmp_path):
+    nl = _nl(tmp_path, CLIMATE_EA50)                      # namelist io_form_restart = 2
+    nc, ad = iom.run_length_io(nl, io="netcdf"), iom.run_length_io(nl, io="adios2")
+    assert nc["io_form_restart"] == 2 and ad["io_form_restart"] == 14
+    assert ad["restart_write_s"] == pytest.approx(iom.restart_io_s(ad["points"], 14)[0])
+    assert ad["restart_s"] < nc["restart_s"]
+
+
+@pytest.mark.parametrize("spelling,fmt", [(None, "adios2"), ("adios2", "adios2"), (14, "adios2"),
+                                          ("ADIOS2", "adios2"), ("netcdf", "netcdf"),
+                                          (2, "netcdf"), ("nc", "netcdf")])
+def test_io_format_selection(spelling, fmt):
+    assert iom.normalize_io_format(spelling) == fmt
+
+
+def test_unknown_io_format_is_refused():
+    with pytest.raises(ValueError):
+        iom.normalize_io_format("hdf5")

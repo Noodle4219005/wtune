@@ -686,13 +686,15 @@ def time_suggestion_s(T_s: float, band: float, step_s: float = TIME_STEP_S) -> f
     return max(math.ceil(T_s / step_s) * step_s + band * T_s, 1.2 * T_s)
 
 
-def pipeline_run_length_io(namelist_path: str | None) -> dict | None:
+def pipeline_run_length_io(namelist_path: str | None, io: str | None = None) -> dict | None:
     """wtune_io_model.run_length_io of the case namelist (history, boundary, auxinput4 and
-    restart I/O of one unsegmented run); None, with the reason printed, when unavailable."""
+    restart I/O of one unsegmented run); `io` adios2 (default) | netcdf; None, with the reason
+    printed, when unavailable."""
     if wtune_io_model is None or wtune_predict is None or not namelist_path:
         return None
     try:
-        return wtune_io_model.run_length_io(wtune_predict.parse_namelist(namelist_path))
+        return wtune_io_model.run_length_io(wtune_predict.parse_namelist(namelist_path),
+                                            io=io or wtune_io_model.DEFAULT_IO_FORMAT)
     except Exception as e:                                  # noqa: BLE001
         print("pipeline: run-length I/O model unavailable (%s: %s) -- whole-run prediction is "
               "compute + init only" % (type(e).__name__, e))

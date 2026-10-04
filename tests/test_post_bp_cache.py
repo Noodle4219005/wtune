@@ -310,3 +310,12 @@ def test_vapor_bundle_links_the_cached_netcdf_and_says_so(tmp_path, fake_bp):
     assert "就地改寫原檔" not in readme             # not the same data as the run's history
     manifest = json.load(open(r["manifest"]))
     assert [f["native"] for f in manifest["frames"]] == [b0, b6]
+
+
+def test_cache_tolerates_nfs_mtime_skew_but_not_a_rewrite():
+    sig = [["data.0", 100, 10**18], ["md.idx", 10, 10**18]]
+    skew = [[n, z, t + 18 * 10**9] for n, z, t in sig]            # another NFS client's view
+    late = [[n, z, t + 3600 * 10**9] for n, z, t in sig]          # written again an hour later
+    assert extract._same_files(sig, skew) and not extract._same_files(sig, late)
+    assert not extract._same_files(sig, [["data.0", 101, 10**18], ["md.idx", 10, 10**18]])
+    assert not extract._same_files(None, sig) and not extract._same_files(sig[:1], sig)

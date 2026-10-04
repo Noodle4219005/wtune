@@ -262,8 +262,17 @@ def _cache_valid(nc, bp, sig):
             meta = json.load(fh)
     except (OSError, ValueError):
         return False
-    return (meta.get("source") == os.path.abspath(bp) and meta.get("signature") == sig
+    return (meta.get("source") == os.path.abspath(bp) and _same_files(meta.get("signature"), sig)
             and os.path.isfile(nc))
+
+
+MTIME_SLACK_NS = 120 * 10**9   # NFS clients disagree on a file's mtime by seconds (scc: 18 s)
+
+
+def _same_files(a, b):
+    """Same names and sizes, mtimes within MTIME_SLACK_NS (a rewrite is much later than that)."""
+    return (isinstance(a, list) and len(a) == len(b)
+            and all(x[:2] == y[:2] and abs(x[2] - y[2]) <= MTIME_SLACK_NS for x, y in zip(a, b)))
 
 
 def _tmp_tag():

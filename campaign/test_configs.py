@@ -1549,6 +1549,19 @@ class TestPhysicsListAndOrder(unittest.TestCase):
 
 
 class TestPhysicsDescribe(unittest.TestCase):
+    def setUp(self):
+        # describe reads the case's real namelist (an scc-only path); point karina at a temp copy
+        import tempfile
+        from unittest import mock
+        d = tempfile.mkdtemp()
+        path = os.path.join(d, "namelist.input")
+        with open(path, "w") as f:
+            f.write(TestApplyPhysicsEdit.SINGLE_DOMAIN)
+        patch = mock.patch.dict(configs.CASES["karina"],
+                                {"namelist_template": path, "max_dom": 1})
+        patch.start()
+        self.addCleanup(patch.stop)
+
     def test_describe_p00_has_no_empty_fields_so_bash_read_cannot_shift_columns(self):
         # regression: P00 has no edits; an empty TSV field made bash `IFS=$'\t' read` shift
         # every later column (time_step got mp_physics) in campaign ledgers 1077168-1077173

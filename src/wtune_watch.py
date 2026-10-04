@@ -750,7 +750,7 @@ def snapshot(rundir: str, now: float | None = None, replay_fraction: float | Non
 # --------------------------------------------------------------------------
 # `wtune run --out` root: OUT/run_report.json + OUT/seg_<k>/ (wtune_run.run_controller)
 # --------------------------------------------------------------------------
-_SEG_DIR_RE = re.compile(r"^seg_(\d+)(_rescue)?$")
+_SEG_DIR_RE = re.compile(r"^seg_(\d+)(_rescue)?(?:_r(\d+))?$")
 
 
 def _parse_wrf_t(s):
@@ -763,7 +763,8 @@ def _parse_wrf_t(s):
 def follow_run_root(root: str) -> dict | None:
     """None for a run dir (namelist.input present) or a dir without seg_<k>/; else the segment to
     watch: {dir, segment: k, n_segments: K or None, run_start, run_end, run_status} -- the
-    highest-numbered seg_<k> (its seg_<k>_rescue when the CFL rescue made one), K and the whole
+    highest-numbered seg_<k> (its latest attempt: seg_<k>_rescue from the CFL rescue,
+    seg_<k>[_rescue]_r<n> from an auto-resume), K and the whole
     window (first segment start .. last segment end) from run_report.json when it lists the
     segments. Re-read on every poll (the controller rewrites the report after each attempt)."""
     if os.path.exists(os.path.join(root, "namelist.input")):
@@ -772,12 +773,12 @@ def follow_run_root(root: str) -> dict | None:
         names = os.listdir(root)
     except OSError:
         return None
-    segs = sorted((int(m.group(1)), bool(m.group(2)), n) for n, m in
+    segs = sorted((int(m.group(1)), bool(m.group(2)), int(m.group(3) or 0), n) for n, m in
                   ((n, _SEG_DIR_RE.match(n)) for n in names)
                   if m and os.path.isdir(os.path.join(root, n)))
     if not segs:
         return None
-    k, _, name = segs[-1]
+    k, _, _, name = segs[-1]
     try:
         with open(os.path.join(root, "run_report.json")) as f:
             rep = json.load(f)

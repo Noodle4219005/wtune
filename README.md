@@ -197,6 +197,8 @@ wtune run case/ --nodes 4 --nx 16 --ny 28 --numtiles 4 --omp 2 \
 
 CFL/NaN 失敗時預設**停下來**，並寫出建議的 `time_step` 與 `segment.advice.namelist.input`，不會自動重送。加上 `--cfl-rescue` 才會以 0.75 倍 dt 重跑該 segment 一次（標記 PHYSICS-GRAY）；這是唯一被預先授權的例外，且不適用於 Chem、Hydro、moving nest。
 
+節點故障、逾時這類非模式失敗，預設會從最近一個有效 restart 自動續跑一次（`--resume N`，設 0 關閉）；找不到有效 restart 就停下來並說明原因。個案自己沒有在 run 內寫 restart 時，`--checkpoint-minutes`（預設 `auto`）會補上檢查點。`--sidecar` 會在 job 執行期間驗證每組 restart，並用 WRF 沒用到的核心把寫完的 history 轉成 netCDF，放進 `wtune post` 的快取。
+
 **`wtune watch`：唯讀監看。**
 
 ```bash
@@ -742,7 +744,8 @@ only as fresh as the login node's view of the rsl mtime.
 wtune run CASE_DIR --nodes N --nx X --ny Y [--numtiles T] [--omp O]
     [--wall-limit HH:MM:SS | --segment-minutes M] [--stop-at YYYY-MM-DD_HH:MM:SS]
     [--prediction pred_rebuild.json] [--tune-report tune_report.json]
-    [--restart-io-form 14|2] [--cfl-rescue] --out OUT [--dry-run]
+    [--restart-io-form 14|2] [--cfl-rescue] [--resume N] [--checkpoint-minutes M|auto]
+    [--sidecar] --out OUT [--dry-run]
 ```
 
 A login-node controller: segment k runs in `OUT/seg_k` as its own Slurm job (inputs symlinked;
@@ -778,6 +781,26 @@ than the rescue case below stops with an error, never a silent retry.
   stopped with an error (jobs 1537/1538) — detection, one rescue and a clean stop all work. dt 30 s
   and 45 s ran cleanly on dorian's first 30 min, so one 0.75× step cannot rescue a time step that
   is far off; that conservatism is deliberate.
+- `--resume N` (default 1 per run, 0 disables): a segment job lost to the infrastructure -- sacct
+  `NODE_FAIL`/`TIMEOUT`/`PREEMPTED`/`BOOT_FAIL`, or a job that ended without `SUCCESS` and with
+  no CFL/NaN/segfault/forrtl/FATAL in any rsl; never `CANCELLED` -- is resumed in
+  `OUT/seg_k_r<n>` from its latest valid restart to the segment end, same layout and time step.
+  A restart time is valid when every domain's `wrfrst` is complete, the rsl shows its write
+  finished, and it lies after the attempt's start on an input record time. No valid restart:
+  the run stops and says why. `run_report.json` carries each attempt's `failure_class` and
+  `resume_time`. Unit-tested only; not yet measured on hardware.
+- `--checkpoint-minutes M` (default `auto`): the restarts `--resume` resumes from. When the
+  case's own `restart_interval` puts no restart inside a segment, `restart_interval` = M; auto
+  (only with `--resume` > 0) is the smallest multiple of the input record step >= run length / 8
+  (72 h with 6 h boundary records: 720). An explicit M must be a multiple of that step; `0`
+  writes none. The plan line shows it: `restart checkpoints every 720 min (auto, for --resume)`.
+- `--sidecar` (off by default): on every poll the controller records each newly valid restart
+  in `run_report.json` and hands finished history frames to one `srun --jobid --overlap` on the
+  allocation's last node, bound to the cores WRF leaves idle, which converts them BP -> netCDF
+  into the `wtune post` cache (`$WTUNE_NC_CACHE`, else `<project>/_nc_cache`, else
+  `OUT/_nc_cache` -- without a project, pass that to `wtune post --nc-cache`). No idle core:
+  conversion waits for the run to end and gets a node of its own. Output: `OUT/sidecar.log`.
+  Unit-tested only; not yet measured on hardware.
 
 Evidence (dorian2019 first hour, 4 nodes 16×18): **R1** 30 + 30 min chain (jobs 1405 + 1410) vs
 one-shot (job 1392): 01:00 `wrfout` for d01 and d02, **202 variables each, bit-identical**, no

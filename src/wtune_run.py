@@ -4,7 +4,8 @@
     wtune run CASE_DIR [--nodes N --nx X --ny Y] [--numtiles T] [--omp O]
         [--wall-limit HH:MM:SS | --segment-minutes M] [--stop-at YYYY-MM-DD_HH:MM:SS]
         [--prediction pred_rebuild.json] [--tune-report tune_report.json]
-        [--restart-io-form 14|2] [--io adios2|netcdf] [--cfl-rescue] --out OUT [--dry-run]
+        [--restart-io-form 14|2] [--io adios2|netcdf] [--cfl-rescue] [--resume N]
+        [--checkpoint-minutes M|auto] [--sidecar] --out OUT [--dry-run]
 
 The layout (nodes, nproc_x/y, numtiles, omp) is the CLI's; flags not given come from
 --tune-report's winner (tune_report_layout), and the node/nx/ny triple must come from one of them.
@@ -32,8 +33,13 @@ Segment planning (plan_run; boundaries are d01 step indices)
     the case's restart keys untouched when that interval is < the run length (a 13-month case
     still writes its checkpoints), else restart_interval = RESTART_OFF_MIN; several segments keep
     it when it divides L (every boundary is then a restart time anyway), else restart_interval =
-    L. The restart writes at that cadence are counted in every predicted wall and listed in the
-    io_form 14 adios2.xml; the plan line prints the effective cadence.
+    L. Checkpoints (--checkpoint-minutes, for --resume): when the case's interval puts no
+    restart strictly inside a segment, restart_interval = M -- auto (only with --resume > 0):
+    the smallest multiple of the segment-cut unit (input record times, see I/O) >= run length
+    / 8, which with segments must also divide L and be < L; an explicit M wins over the case
+    and must be a multiple of that unit (and divide L); 0 writes none. The restart writes at
+    the cadence are counted in every predicted wall, listed in the io_form 14 adios2.xml and
+    get pre-created output dirs; the plan line prints the effective cadence.
     Compute over [a, b] = C(b) - C(a), C a prefix sum of tools/coldstart_sample.
     predicted_compute_total's per-step terms (the same arithmetic wtune_probe_plan.combine uses
     for the whole run; C(N) is asserted equal to its total). Its
@@ -117,8 +123,16 @@ and L
 (and the d01 history interval and radt when possible); the run is then PHYSICS-GRAY and later segments go
 back to the case's time_step. Anything else stops with an error -- never a silent retry.
 OUT/run_report.json is rewritten after every segment attempt.
+
+Auto-resume (--resume N, default 1 per run; 0 disables): an infrastructure failure (sacct
+NODE_FAIL/TIMEOUT/PREEMPTED/BOOT_FAIL, or a job that ended with no CFL/NaN/segfault/forrtl/FATAL
+in any rsl; never CANCELLED) is resumed in OUT/seg_<k>_r<n> from the failed attempt's latest
+valid restart (wtune_resume) to the segment end, same layout and time step.
+--sidecar (wtune_sidecar): while a job runs, each valid restart is recorded in the report and
+finished history frames are converted to netCDF in the post cache, on the job's idle cores.
 """
 import argparse
+import dataclasses
 import datetime as dt
 import difflib
 import fractions
@@ -146,6 +160,7 @@ import wtune_extensions
 import wtune_io_model as iom        # noqa: E402  per-format I/O anchors (history, restart)
 import wtune_predict as wp             # noqa: E402  namelist parsing, calibration, sample points
 import wtune_probe_plan as pp          # noqa: E402  _resolve_r_rad_from_points (combine's r rule)
+import wtune_resume as resume          # noqa: E402  failure class, valid restarts (--resume)
 import wtune_watch                     # noqa: E402  snapshot(rundir): done/failed/CFL/NaN
 
 try:
@@ -259,14 +274,25 @@ def step_time(geo, n):
     return geo["start"] + dt.timedelta(seconds=float(_frac(geo["dt"]) * n))
 
 
+def _step_fraction(geo, t):
+    """Datetime t as a (possibly fractional) number of d01 steps from the run start."""
+    off_ms = int(round((t - geo["start"]).total_seconds() * 1000))
+    return fractions.Fraction(off_ms, 1000) / _frac(geo["dt"])
+
+
+def step_of(geo, t):
+    """d01 step index of WRF_FMT time t; None when it is not on a whole step."""
+    n = _step_fraction(geo, dt.datetime.strptime(t, WRF_FMT))
+    return int(n) if n.denominator == 1 else None
+
+
 def resolve_end_step(geo, stop_at=None):
     """d01 step index of the run end: the case's own end, or --stop-at when earlier. stop_at must
     fall on a whole d01 step after the run start."""
     if stop_at is None:
         return geo["steps"]
     t = dt.datetime.strptime(stop_at, WRF_FMT) if isinstance(stop_at, str) else stop_at
-    off_ms = int(round((t - geo["start"]).total_seconds() * 1000))
-    n = fractions.Fraction(off_ms, 1000) / _frac(geo["dt"])
+    n = _step_fraction(geo, t)
     if n.denominator != 1:
         raise RunError("--stop-at %s is not on a whole time step (dt=%gs from %s)"
                        % (_fmt(t), geo["dt"], _fmt(geo["start"])))
@@ -700,15 +726,18 @@ def missing_record_files(links, per_record_names, segments):
 
 
 def plan_run(geo, n_end, candidates, over, segment_minutes=None, wall_limit_s=None,
-             case_restart_s=None, align=None, notes=None):
+             case_restart_s=None, align=None, notes=None, checkpoint=None):
     """(L, segments): L = the restart quantum in d01 steps (None: one segment), each segment one
     L block [jL, (j+1)L], the last possibly shorter (see module docstring). case_restart_s: the
     case's own restart interval (s), whose writes restart_setting keeps -- counted in the walls.
     align (input_record_alignment, per-record ADIOS2 inputs): L must be a multiple of
     align["steps"] so every cut is an input record time -- --segment-minutes is rounded DOWN to
     one (a note in `notes`), never up; shorter than one unit is a RunError; --wall-limit
-    searches only multiples of it."""
+    searches only multiples of it. checkpoint: restart_setting's (its writes are in the walls)."""
     unit = align["steps"] if align else geo["quantum"]
+
+    def rst(L):
+        return restart_setting(geo, L, n_end, case_restart_s, checkpoint, align)
     if segment_minutes:
         L = segment_steps_for_minutes(geo, segment_minutes)
         if (L * geo["dt"]) % 60:
@@ -733,8 +762,10 @@ def plan_run(geo, n_end, candidates, over, segment_minutes=None, wall_limit_s=No
             L = cut
     elif wall_limit_s:
         def wall_fn(a, b, L):
-            cad = restart_setting(geo, L, n_end, case_restart_s)["cadence_s"]
+            cad = rst(L)["cadence_s"]
             return min(segment_wall(geo, c["compute"], over, a, b, L, cad) for c in candidates)
+        if checkpoint not in (None, "auto"):      # an explicit cadence must divide every L
+            unit = unit * checkpoint // math.gcd(unit, checkpoint)
         try:
             L = choose_restart_quantum(n_end, unit, wall_fn, WALL_FRACTION * wall_limit_s)
         except RunError as e:
@@ -746,8 +777,7 @@ def plan_run(geo, n_end, candidates, over, segment_minutes=None, wall_limit_s=No
     else:
         L = None
     bounds = plan_segments_fixed(n_end, L) if L else [(0, n_end)]
-    cad = restart_setting(geo, L, n_end, case_restart_s)["cadence_s"]
-    return L, assign_segments(geo, bounds, candidates, over, L, wall_limit_s, cad)
+    return L, assign_segments(geo, bounds, candidates, over, L, wall_limit_s, rst(L)["cadence_s"])
 
 
 def case_restart_interval_s(nl):
@@ -756,26 +786,89 @@ def case_restart_interval_s(nl):
     return float(coldstart.wrf_interval_minutes(nl, "restart_interval")) * 60.0
 
 
-def restart_setting(geo, L, n_end, case_restart_s=None):
+def checkpoint_request(value, resume):
+    """--checkpoint-minutes -> None (no extra restarts), "auto" or whole minutes. "auto" asks
+    for checkpoints only when --resume could use them."""
+    if value == "auto":
+        return "auto" if resume > 0 else None
+    try:
+        minutes = int(value)
+    except ValueError:
+        minutes = -1
+    if minutes < 0:
+        raise RunError("--checkpoint-minutes takes 'auto' or whole minutes >= 0, not %r" % value)
+    return minutes or None
+
+
+def checkpoint_steps_for_minutes(geo, minutes, align=None):
+    """d01 steps of an explicit --checkpoint-minutes; RunError unless it is a multiple of the
+    step every restart must sit on (input record times, else whole minutes on the step grid)."""
+    unit = align["steps"] if align else geo["quantum"]
+    n = _frac(minutes * 60) / _frac(geo["dt"])
+    if n.denominator != 1 or n % unit:
+        raise RunError("--checkpoint-minutes %d is not a multiple of the %d min %s"
+                       % (minutes, float(_frac(geo["dt"]) * unit) // 60,
+                          "input record step (%s)" % align["label"] if align
+                          else "step grid"))
+    return int(n)
+
+
+def auto_checkpoint_steps(n_end, L, unit):
+    """Checkpoint cadence in d01 steps: the smallest multiple of `unit` >= run length / 8 that
+    falls inside the run -- with segments, inside each one and dividing L. None: none fits."""
+    m = max(1, -(-n_end // (8 * unit))) * unit
+    while m < (L or n_end):
+        if not L or L % m == 0:
+            return m
+        m += unit
+    return None
+
+
+def _checkpoint_setting(geo, L, n_end, checkpoint, align):
+    """restart_setting's result for a checkpoint cadence ("auto" or explicit d01 steps), or
+    None when no auto checkpoint fits."""
+    explicit = checkpoint != "auto"
+    m = checkpoint if explicit else auto_checkpoint_steps(
+        n_end, L, align["steps"] if align else geo["quantum"])
+    if m is None:
+        return None
+    if L and L % m:
+        raise RunError("--checkpoint-minutes %d does not divide the %s segment length: every "
+                       "segment must end on a restart" % (restart_interval_minutes(geo, m),
+                                                          _hms(float(_frac(geo["dt"]) * L))))
+    minutes = restart_interval_minutes(geo, m)
+    return {"set_min": minutes, "cadence_s": minutes * 60.0,
+            "label": "checkpoints every %d min (%s)" % (
+                minutes, "--checkpoint-minutes" if explicit else "auto, for --resume")}
+
+
+def restart_setting(geo, L, n_end, case_restart_s=None, checkpoint=None, align=None):
     """What every segment namelist does with restart_interval: {"set_min": minutes to write, or
-    None = leave the case's restart_interval* keys untouched, "cadence_s": restart alarm period
-    (None: no restart write), "label": plan-line text}. Never switches off restart output the
-    case asked for inside the run (climate-ea50: a 13-month single-segment run with
-    restart_interval set used to get RESTART_OFF_MIN and no checkpoint at all)."""
+    None = the case's restart_interval* keys stay, "cadence_s": restart alarm period (None: no
+    restart write), "label": plan-line text}. checkpoint (None, "auto", explicit d01 steps):
+    restarts written for --resume when the case's own interval puts none inside a segment."""
     run_s = float(_frac(geo["dt"]) * n_end)
     case_s = float(case_restart_s or 0)
+    L_s = _frac(geo["dt"]) * L if L else None
+    # the case's own interval is never switched off when it writes inside the run (climate-ea50:
+    # 13 months, one segment, used to get RESTART_OFF_MIN and no checkpoint at all)
+    keep = None
+    if not L and 0 < case_s < run_s:
+        keep = "every %s (case's restart_interval kept; one segment)" % _hms(case_s)
+    elif L and case_s > 0 and L_s % _frac(case_s) == 0:
+        keep = ("every %s (case's restart_interval kept; it divides the %s segment quantum)"
+                % (_hms(case_s), _hms(float(L_s))))
+    inside = keep and (not L or case_s < L_s)       # the case restarts inside every segment
+    if checkpoint and (checkpoint != "auto" or not inside):
+        ckpt = _checkpoint_setting(geo, L, n_end, checkpoint, align)
+        if ckpt:
+            return ckpt
+    if keep:
+        return {"set_min": None, "cadence_s": case_s, "label": keep}
     if not L:
-        if 0 < case_s < run_s:
-            return {"set_min": None, "cadence_s": case_s,
-                    "label": "every %s (case's restart_interval kept; one segment)" % _hms(case_s)}
         return {"set_min": RESTART_OFF_MIN, "cadence_s": None,
                 "label": "off (one segment%s)" % (
                     "; case restart_interval %s >= run length" % _hms(case_s) if case_s else "")}
-    L_s = _frac(geo["dt"]) * L
-    if case_s > 0 and L_s % _frac(case_s) == 0:
-        return {"set_min": None, "cadence_s": case_s,
-                "label": "every %s (case's restart_interval kept; it divides the %s segment "
-                         "quantum)" % (_hms(case_s), _hms(float(L_s)))}
     m = restart_interval_minutes(geo, L)
     return {"set_min": m, "cadence_s": float(L_s),
             "label": "%d min (every segment%s)" % (
@@ -818,10 +911,11 @@ def _set_one(txt, key, value, group="time_control"):
 
 def render_segment_namelist(text, seg_start, seg_end, k, config, restart_interval_min,
                             restart_io_form=14, time_step=None, io_streams=None,
-                            per_record_edits=None):
+                            per_record_edits=None, resumed=False):
     """The case's namelist.input text -> segment k's (see module docstring). seg_start/seg_end
     are datetimes; restart_interval_min None leaves the case's restart_interval* keys as they are;
-    time_step (int s) overrides the d01 time step (CFL rescue). io_streams (ADIOS2 I/O, the
+    time_step (int s) overrides the d01 time step (CFL rescue). resumed: segment 0 restarted
+    mid-way (--resume), so restart=.true. as for k > 0. io_streams (ADIOS2 I/O, the
     default; None = --io netcdf, the case's own io_form_* kept): io_form_history = 14,
     adios2_numaggregators = the segment's rank count, and per input stream in the list
     (configs.adios2_input_streams entries) io_form = 14 + its inname with the .bp suffix.
@@ -851,7 +945,7 @@ def render_segment_namelist(text, seg_start, seg_end, k, config, restart_interva
             if cs.count_key(text, "restart_interval" + suffix):
                 txt = _set_one(txt, "restart_interval" + suffix, v)
     txt = _set_one(txt, "io_form_restart", int(restart_io_form))
-    if k > 0:
+    if k > 0 or resumed:
         txt = _set_one(txt, "restart", ".true.")
     elif cs.count_key(text, "restart"):
         txt = _set_one(txt, "restart", ".false.")
@@ -876,7 +970,7 @@ def render_segment_namelist(text, seg_start, seg_end, k, config, restart_interva
     required = (["%s_%s" % (p, q) for p in ("start", "end") for q in _TIME_PARTS]
                 + ["run_days", "run_hours", "run_minutes", "run_seconds", "nproc_x", "nproc_y",
                    "numtiles", "restart_interval", "io_form_restart"] + io_keys
-                + (["restart"] if k > 0 else []))
+                + (["restart"] if k > 0 or resumed else []))
     if time_step is not None:
         txt = _set_one(txt, "time_step", int(time_step), "domains")
         if cs.count_key(text, "time_step_fract_num"):
@@ -886,14 +980,19 @@ def render_segment_namelist(text, seg_start, seg_end, k, config, restart_interva
     return txt
 
 
+def find_project_dir(project=None):
+    """The project dir (--project, $WTUNE_PROJECT, a project.yaml above cwd) or None."""
+    import wtune_project
+    try:
+        return wtune_project.find_project(explicit=project)
+    except wtune_project.ProjectError as e:
+        raise RunError(str(e))
+
+
 def bp_cache_dir(out, project=None):
     """BP input cache: <project>/input/bp/ when a project resolves (--project, $WTUNE_PROJECT or
     a project.yaml above cwd -- decision 0058), else OUT/_bp_inputs/."""
-    import wtune_project
-    try:
-        project_dir = wtune_project.find_project(explicit=project)
-    except wtune_project.ProjectError as e:
-        raise RunError(str(e))
+    project_dir = find_project_dir(project)
     if project_dir:
         return os.path.join(os.path.abspath(project_dir), "input", "bp")
     return os.path.join(out, "_bp_inputs")
@@ -1185,20 +1284,13 @@ def rescue_time_step(dt_s, seg_len_s, multiples=()):
 
 def rsl_has_cfl(rundir):
     """True when any rsl.error.* / rsl.out.* line mentions cfl (every rank, not just 0000)."""
-    for path in glob.glob(os.path.join(rundir, "rsl.*")):
-        try:
-            with open(path, "r", errors="replace") as f:
-                for ln in f:
-                    if "cfl" in ln.lower():
-                        return True
-        except OSError:
-            continue
-    return False
+    return resume.rsl_mentions(rundir, ("cfl",))
 
 
 def wait_for_job(job_id, sacct_runner, sacct_cmd="sacct", poll_s=60.0, sleep=time.sleep,
-                 log=print):
-    """Poll sacct until job_id leaves PENDING/RUNNING -> (state, elapsed_s or None)."""
+                 log=print, on_poll=None):
+    """Poll sacct until job_id leaves PENDING/RUNNING -> (state, elapsed_s or None). on_poll
+    (state) runs before every sleep (--sidecar)."""
     unknown = 0
     last = None
     while True:
@@ -1213,6 +1305,8 @@ def wait_for_job(job_id, sacct_runner, sacct_cmd="sacct", poll_s=60.0, sleep=tim
                 return state, None
         elif state not in sweep.IN_FLIGHT_STATES:
             return state, (wtune_tune._parse_slurm_elapsed(elapsed) if wtune_tune else None)
+        if on_poll:
+            on_poll(state)
         sleep(poll_s)
 
 
@@ -1236,170 +1330,290 @@ def _logging_copier(log):
     return copy
 
 
+@dataclasses.dataclass(frozen=True)
+class Attempt:
+    """One job of a segment: d01 steps (a, segment end] from the restart in src_dir."""
+    a: int
+    src_dir: str = None            # None: cold start
+    time_step: int = None          # s, CFL rescue
+    resume: int = 0                # ordinal of the --resume that started it
+    time_limit: str = None         # --time when not the segment's own
+
+
+@dataclasses.dataclass
+class Outcome:
+    """What one attempt left: its dir, report record, sacct state and watch snapshot."""
+    dir: str
+    rec: dict
+    state: str
+    elapsed: float
+    snap: dict
+    ok: bool
+
+
+def attempt_dir_name(k, att):
+    """seg_<k>[_rescue][_r<n>]; a later attempt sorts later (wtune_watch._SEG_DIR_RE)."""
+    return "seg_%d%s%s" % (k, "_rescue" if att.time_step else "",
+                           "_r%d" % att.resume if att.resume else "")
+
+
+def _attempt_times(geo, seg, att):
+    """(start, end) datetimes of an attempt, whole seconds as WRF names them."""
+    return (dt.datetime.strptime(_fmt(step_time(geo, att.a)), WRF_FMT),
+            dt.datetime.strptime(seg["end"], WRF_FMT))
+
+
+def _attempt_namelist(ctx, k, seg, att, time_step):
+    t_a, t_b = _attempt_times(ctx["geo"], seg, att)
+    return render_segment_namelist(ctx["text"], t_a, t_b, k, seg["config"],
+                                   ctx["restart_set_min"], ctx["restart_io_form"],
+                                   time_step=time_step, io_streams=ctx.get("io_streams"),
+                                   per_record_edits=ctx.get("per_record_edits"),
+                                   resumed=bool(att.resume))
+
+
+def _restart_links(geo, k, att, start):
+    """Every domain's wrfrst at `start` in the attempt's source dir; [] for a cold start."""
+    if att.src_dir is None:
+        return []
+    found = restart_files(att.src_dir, start, geo["max_dom"])
+    missing = [d for d, p in found.items() if not p]
+    if missing:
+        raise RunError("segment %d: no wrfrst for d%s at %s in %s"
+                       % (k, ",".join("%02d" % d for d in missing), start, att.src_dir))
+    return [p for d in sorted(found) for p in found[d]]
+
+
+def _attempt_xml(ctx, seg, att, start):
+    """The attempt's adios2.xml text; None when the case's own file is linked instead."""
+    adios2_io = ctx.get("io_streams") is not None
+    base = (merge_adios2_xml(ctx.get("case_adios2_xml"), ctx.get("bp_adios2_xml"))
+            if adios2_io else ctx.get("case_adios2_xml"))
+    if int(ctx["restart_io_form"]) == 14:
+        times = (([start] if att.src_dir else [])
+                 + restart_times(ctx["geo"], att.a, seg["end_step"], ctx["restart_cadence_s"]))
+        return render_adios2_restart_xml(times, ctx["geo"]["max_dom"], base)
+    return base if adios2_io and base else None
+
+
+def _stage_attempt(ctx, k, seg, att):
+    """Create and populate the attempt's run dir -> (dir, pre-created output dir names)."""
+    geo, log = ctx["geo"], ctx["log"]
+    seg_dir = os.path.join(ctx["out"], attempt_dir_name(k, att))
+    t_a, t_b = _attempt_times(geo, seg, att)
+    txt = _attempt_namelist(ctx, k, seg, att, att.time_step)
+    staged = setup_segment_dir(ctx["case_dir"], seg_dir, txt,
+                               _restart_links(geo, k, att, _fmt(t_a)),
+                               _attempt_xml(ctx, seg, att, _fmt(t_a)), ctx.get("wrf_tree"),
+                               bp_links=ctx.get("bp_links"),
+                               fresh_sources=ctx.get("bp_fresh_sources"),
+                               copier=ctx.get("bp_copier"))
+    out_names = []
+    if ctx.get("io_streams") is not None:
+        nl_seg = wp.parse_namelist(os.path.join(seg_dir, "namelist.input"))
+        out_names = output_dir_names(nl_seg, t_a, t_b, geo["max_dom"])
+        log("  pre-created %d output dirs" % precreate_output_dirs(seg_dir, out_names))
+    if k == 0 and not seg["attempts"]:
+        for ln in sweep.campaign_configs.format_namelist_stage(staged, [ctx["case_dir"]]):
+            log(ln)
+    return seg_dir, out_names
+
+
+def _submit_attempt(ctx, k, seg, att, seg_dir):
+    """Write segment.sbatch into seg_dir and submit it -> job id."""
+    limit = att.time_limit or seg["time_limit"]
+    script = render_segment_sbatch(
+        seg_dir, k, seg["config"], limit,
+        "wtrun-%s-s%d" % (os.path.basename(ctx["case_dir"]), k),
+        env_source=ctx["env_source"], campaign_dir=ctx["campaign_dir"])
+    spath = os.path.join(seg_dir, "segment.sbatch")
+    with open(spath, "w") as f:
+        f.write(script)
+    job_id = sweep.submit_job("sbatch %s" % shlex.quote(spath),
+                              sbatch_runner=ctx["sbatch_runner"])
+    ctx["log"]("segment %d/%d %s -> %s  %s  --time=%s  job %s%s"
+               % (k, len(ctx["segments"]) - 1, _fmt(step_time(ctx["geo"], att.a)), seg["end"],
+                  seg["config"]["id"], limit, job_id,
+                  "  (CFL rescue dt=%ds)" % att.time_step if att.time_step else ""))
+    return job_id
+
+
+def _save_report(ctx):
+    _write_report(os.path.join(ctx["out"], "run_report.json"), ctx["report"])
+
+
+def _run_attempt(ctx, k, seg, att, is_last):
+    """Stage, submit, wait for and inspect one attempt; its record goes into the report."""
+    geo, side = ctx["geo"], ctx.get("sidecar")
+    seg_dir, out_names = _stage_attempt(ctx, k, seg, att)
+    job_id = _submit_attempt(ctx, k, seg, att, seg_dir)
+    rec = {"dir": seg_dir, "job_id": job_id, "time_step": att.time_step,
+           "submitted_utc": dt.datetime.utcnow().isoformat()}
+    if att.resume:
+        rec["start"] = _fmt(step_time(geo, att.a))
+    seg["attempts"].append(rec)
+    _save_report(ctx)
+    state, elapsed = wait_for_job(
+        job_id, ctx["sacct_runner"], ctx["sacct_cmd"], ctx["poll_s"], ctx["sleep"], ctx["log"],
+        on_poll=side.watcher(seg_dir, job_id, seg["config"]) if side else None)
+    remove_empty_output_dirs(seg_dir, out_names)    # before any wrfout/wrfrst check
+    if side:
+        side.job_ended(seg_dir)
+    snap = ctx["snapshot_fn"](seg_dir)
+    rst_ok = is_last or all(restart_files(seg_dir, seg["end"], geo["max_dom"]).values())
+    ok = snap.get("status") == "done" and rst_ok
+    rec.update(state=state, elapsed_s=elapsed, watch_status=snap.get("status"),
+               warnings=[w["code"] for w in snap.get("warnings", [])],
+               sum_d01_elapsed_s=snap.get("sum_d01_elapsed_s"),
+               n_d01_steps=snap.get("n_d01_steps"), restart_ok=rst_ok, ok=ok)
+    return Outcome(seg_dir, rec, state, elapsed, snap, ok)
+
+
+def resume_time_limit(ctx, seg, a, snap):
+    """--time of an attempt resumed at step a: the failed attempt's observed s/step (else the
+    segment's predicted rate) x the steps left, + init + restart read."""
+    n, total = snap.get("n_d01_steps"), snap.get("sum_d01_elapsed_s")
+    rate = (total / n if n and total
+            else seg["predicted_compute_s"] / (seg["end_step"] - seg["start_step"]))
+    wall = rate * (seg["end_step"] - a) + ctx["over"]["init_s"] + ctx["over"]["restart_read_s"]
+    return _hms(time_limit_s(wall, ctx["wall_limit_s"]))
+
+
+def _resume_attempt(ctx, k, seg, att, out, run):
+    """(the attempt resuming the failed `out` from its latest valid restart, None), else
+    (None, why not). Logs and records the resume."""
+    geo, rec, limit = ctx["geo"], out.rec, ctx.get("resume") or 0
+    if run["resumes"] >= limit:
+        return None, "--resume %d %s" % (limit, "already used" if limit else "disables it")
+    is_bp = sweep.campaign_configs._import_wtune_bp().is_bp
+    times = resume.valid_restart_times(out.dir, geo["max_dom"], is_bp)
+    last = resume.last_d01_time(out.dir)
+    n, why = resume.resume_point([step_of(geo, t) for t in times], att.a, seg["end_step"],
+                                 ctx.get("align_steps") or geo["quantum"],
+                                 _step_fraction(geo, last) if last else None)
+    if n is None:
+        return None, why
+    run["resumes"] += 1
+    rec["resume_time"] = _fmt(step_time(geo, n))
+    ctx["report"]["resumes"] = run["resumes"]
+    ctx["report"]["decisions"].append({"segment": k, "decision": "resume",
+                                       "class": rec["failure_class"], "job_id": rec["job_id"],
+                                       "restart": rec["resume_time"]})
+    ctx["log"]("  resume %d/%d: %s at job %s; restart %s"
+               % (run["resumes"], limit, rec["failure_class"], rec["job_id"], rec["resume_time"]))
+    return dataclasses.replace(att, a=n, src_dir=out.dir, resume=run["resumes"],
+                               time_limit=resume_time_limit(ctx, seg, n, out.snap)), None
+
+
+def _rescue_dt(ctx, seg, att):
+    """(CFL-rescue time step or None, the length in s it has to divide)."""
+    geo = ctx["geo"]
+    t_a, t_b = _attempt_times(geo, seg, att)
+    seg_len = int(round((t_b - t_a).total_seconds()))
+    if ctx["restart_cadence_s"]:                   # keep the restart alarm whole too
+        seg_len = math.gcd(seg_len, int(ctx["restart_cadence_s"]))
+    hist = geo["hist"][0]["iv_s"] if geo["hist"][0] else None
+    return rescue_time_step(geo["dt"], seg_len, (hist, geo["radt_s"])), seg_len
+
+
+def _cfl_rescue_attempt(ctx, k, seg, att, run):
+    """`att` again with the rescue time step; the run becomes PHYSICS-GRAY."""
+    geo, report = ctx["geo"], ctx["report"]
+    new_dt, seg_len = _rescue_dt(ctx, seg, att)
+    if new_dt is None:
+        raise RunError("segment %d failed with CFL/NaN and no integer time step in "
+                       "[%.2f, %.2f] s divides its %d s length" % (
+                           k, CFL_RESCUE_MIN_FACTOR * geo["dt"],
+                           CFL_RESCUE_FACTOR * geo["dt"], seg_len))
+    run["rescue_used"] = True
+    report["physics_gray"] = True
+    report["physics_gray_reason"] = (
+        "segment %d re-run with time_step %d s (case %g s) after CFL/NaN"
+        % (k, new_dt, geo["dt"]))
+    report["decisions"].append({"segment": k, "decision": "cfl_rescue", "time_step": new_dt})
+    ctx["log"]("PHYSICS-GRAY: " + report["physics_gray_reason"])
+    return dataclasses.replace(att, time_step=new_dt)
+
+
+def _cfl_advice(ctx, k, seg, att, seg_dir):
+    """Decision 0056: without --cfl-rescue (the only user-pre-authorized exception to "advisory
+    only for anything that changes the solution") print the recommended time_step and write
+    the would-be namelist for inspection; nothing is submitted."""
+    geo, log = ctx["geo"], ctx["log"]
+    advice_dt, _len = _rescue_dt(ctx, seg, att)
+    advice_path = None
+    if advice_dt is not None:
+        advice_path = os.path.join(seg_dir, "segment.advice.namelist.input")
+        with open(advice_path, "w") as f:
+            f.write(_attempt_namelist(ctx, k, seg, att, advice_dt))
+    log("PHYSICS-GRAY ADVICE: segment %d failed with CFL/NaN; recommended "
+        "time_step=%s s (case %g s) -- this CHANGES THE SOLUTION (PHYSICS-GRAY), "
+        "so it is advisory only and was NOT applied. Re-run with --cfl-rescue "
+        "(the only user-pre-authorized exception) to apply it automatically."
+        % (k, advice_dt if advice_dt is not None else "none found in range", geo["dt"]))
+    if advice_path:
+        log("  advice namelist written: %s" % advice_path)
+    for _w in wtune_extensions.cfl_coupling_warnings(ctx["case_dir"], geo["dt"], advice_dt):
+        log(_w)
+    ctx["report"]["decisions"].append({"segment": k, "decision": "cfl_advice",
+                                       "recommended_time_step": advice_dt,
+                                       "advice_namelist": advice_path})
+
+
+def _next_attempt(ctx, k, seg, att, out, run):
+    """The attempt that follows a failed one: an auto-resume (infrastructure failure with a
+    valid restart) or the CFL rescue; anything else raises RunError -- never a silent retry."""
+    rec, snap = out.rec, out.snap
+    codes = rec["warnings"]
+    nan = any(w["code"] == "FAILED" and "NaN" in w["text"] for w in snap.get("warnings", []))
+    cfl = "CFL" in codes or nan or rsl_has_cfl(out.dir)
+    model = cfl or "FAILED" in codes or resume.rsl_mentions(out.dir, resume.MODEL_NEEDLES)
+    rec["failure_class"] = resume.classify_failure(out.state, model)
+    why = None
+    if rec["failure_class"] == "infrastructure":
+        nxt, why = _resume_attempt(ctx, k, seg, att, out, run)
+        if nxt:
+            return nxt
+        rec["no_resume_reason"] = why
+    if ctx["cfl_rescue"] and cfl and not run["rescue_used"]:
+        return _cfl_rescue_attempt(ctx, k, seg, att, run)
+    if cfl and not ctx["cfl_rescue"]:
+        _cfl_advice(ctx, k, seg, att, out.dir)
+    reason = ("watch status %s, sacct %s, restart %s, warnings %s%s"
+              % (snap.get("status"), out.state, "ok" if rec["restart_ok"] else "MISSING",
+                 ",".join(codes) or "none", ", CFL/NaN seen" if cfl else ""))
+    if cfl and run["rescue_used"]:
+        reason += " (CFL rescue already used once in this run)"
+    if why:
+        reason += "; not resumed: " + why
+    raise RunError("segment %d (%s) failed: %s" % (k, out.dir, reason))
+
+
 def run_controller(ctx):
-    """Execute ctx['segments'] in order (see module docstring). Returns 0 on success, 1 on a
-    stop. ctx keys: case_dir, out, text, geo, n_end, segments, restart_set_min (restart_interval
-    written into every segment, None = the case's own kept), restart_cadence_s, over,
-    restart_io_form, cfl_rescue, replan (bool: no prediction), wall_limit_s,
-    wrf_tree, env_source, campaign_dir, sbatch_runner, sacct_runner, sacct_cmd, snapshot_fn,
-    poll_s, sleep, log, report."""
-    geo, log, report = ctx["geo"], ctx["log"], ctx["report"]
-    report_path = os.path.join(ctx["out"], "run_report.json")
-    segs = ctx["segments"]
+    """Execute ctx['segments'] in order (see module docstring) -> 0; a stop raises RunError.
+    ctx is main()'s dict: the case and plan, the injected runners, the report."""
+    report, segs = ctx["report"], ctx["segments"]
     report["segments"] = segs
-    rescue_used = False
+    run = {"rescue_used": False, "resumes": 0}      # both are per run, not per segment
     prev_dir = None
-    k = 0
-    while k < len(segs):
-        seg = segs[k]
+    for k, seg in enumerate(segs):
         is_last = k == len(segs) - 1
         seg.setdefault("attempts", [])
-        time_step = None
-        attempt = 0
-        while True:
-            name = "seg_%d" % k + ("_rescue" if attempt else "")
-            seg_dir = os.path.join(ctx["out"], name)
-            t_a = dt.datetime.strptime(seg["start"], WRF_FMT)
-            t_b = dt.datetime.strptime(seg["end"], WRF_FMT)
-            txt = render_segment_namelist(ctx["text"], t_a, t_b, k, seg["config"],
-                                          ctx["restart_set_min"], ctx["restart_io_form"],
-                                          time_step=time_step, io_streams=ctx.get("io_streams"),
-                                          per_record_edits=ctx.get("per_record_edits"))
-            links = []
-            if k > 0:
-                found = restart_files(prev_dir, seg["start"], geo["max_dom"])
-                missing = [d for d, p in found.items() if not p]
-                if missing:
-                    raise RunError("segment %d: no wrfrst for d%s at %s in %s"
-                                   % (k, ",".join("%02d" % d for d in missing), seg["start"],
-                                      prev_dir))
-                links = [p for d in sorted(found) for p in found[d]]
-            xml = None
-            adios2_io = ctx.get("io_streams") is not None
-            base = (merge_adios2_xml(ctx.get("case_adios2_xml"), ctx.get("bp_adios2_xml"))
-                    if adios2_io else ctx.get("case_adios2_xml"))
-            if int(ctx["restart_io_form"]) == 14:
-                times = (([seg["start"]] if k > 0 else [])
-                         + restart_times(geo, seg["start_step"], seg["end_step"],
-                                         ctx["restart_cadence_s"]))
-                xml = render_adios2_restart_xml(times, geo["max_dom"], base)
-            elif adios2_io and base:
-                xml = base
-            staged = setup_segment_dir(ctx["case_dir"], seg_dir, txt, links, xml,
-                                       ctx.get("wrf_tree"), bp_links=ctx.get("bp_links"),
-                                       fresh_sources=ctx.get("bp_fresh_sources"),
-                                       copier=ctx.get("bp_copier"))
-            out_names = []
-            if adios2_io:
-                nl_seg = wp.parse_namelist(os.path.join(seg_dir, "namelist.input"))
-                out_names = output_dir_names(nl_seg, t_a, t_b, geo["max_dom"])
-                log("  pre-created %d output dirs" % precreate_output_dirs(seg_dir, out_names))
-            if k == 0 and attempt == 0:
-                for ln in sweep.campaign_configs.format_namelist_stage(staged, [ctx["case_dir"]]):
-                    log(ln)
-            script = render_segment_sbatch(
-                seg_dir, k, seg["config"], seg["time_limit"],
-                "wtrun-%s-s%d" % (os.path.basename(ctx["case_dir"]), k),
-                env_source=ctx["env_source"], campaign_dir=ctx["campaign_dir"])
-            spath = os.path.join(seg_dir, "segment.sbatch")
-            with open(spath, "w") as f:
-                f.write(script)
-            job_id = sweep.submit_job("sbatch %s" % shlex.quote(spath),
-                                      sbatch_runner=ctx["sbatch_runner"])
-            log("segment %d/%d %s -> %s  %s  --time=%s  job %s%s"
-                % (k, len(segs) - 1, seg["start"], seg["end"], seg["config"]["id"],
-                   seg["time_limit"], job_id, "  (CFL rescue dt=%ds)" % time_step
-                   if time_step else ""))
-            rec = {"dir": seg_dir, "job_id": job_id, "time_step": time_step,
-                   "submitted_utc": dt.datetime.utcnow().isoformat()}
-            seg["attempts"].append(rec)
-            _write_report(report_path, report)
-            state, elapsed = wait_for_job(job_id, ctx["sacct_runner"], ctx["sacct_cmd"],
-                                          ctx["poll_s"], ctx["sleep"], log)
-            remove_empty_output_dirs(seg_dir, out_names)    # before any wrfout/wrfrst check
-            snap = ctx["snapshot_fn"](seg_dir)
-            codes = [w["code"] for w in snap.get("warnings", [])]
-            nan = any(w["code"] == "FAILED" and "NaN" in w["text"]
-                      for w in snap.get("warnings", []))
-            rst_ok = is_last or all(restart_files(seg_dir, seg["end"], geo["max_dom"]).values())
-            ok = snap.get("status") == "done" and rst_ok
-            rec.update(state=state, elapsed_s=elapsed, watch_status=snap.get("status"),
-                       warnings=codes, sum_d01_elapsed_s=snap.get("sum_d01_elapsed_s"),
-                       n_d01_steps=snap.get("n_d01_steps"), restart_ok=rst_ok, ok=ok)
-            if ok:
-                seg["observed_wall_s"] = elapsed
-                seg["run_dir"] = seg_dir
-                # the copy is only for this job's reads; a failed attempt keeps it for diagnosis
-                shutil.rmtree(os.path.join(seg_dir, FRESH_BP_SUBDIR), ignore_errors=True)
-                break
-            cfl = "CFL" in codes or nan or rsl_has_cfl(seg_dir)
-            if ctx["cfl_rescue"] and cfl and not rescue_used:
-                seg_len = int(round((t_b - t_a).total_seconds()))
-                if ctx["restart_cadence_s"]:                   # keep the restart alarm whole too
-                    seg_len = math.gcd(seg_len, int(ctx["restart_cadence_s"]))
-                hist = geo["hist"][0]["iv_s"] if geo["hist"][0] else None
-                new_dt = rescue_time_step(geo["dt"], seg_len, (hist, geo["radt_s"]))
-                if new_dt is None:
-                    raise RunError("segment %d failed with CFL/NaN and no integer time step in "
-                                   "[%.2f, %.2f] s divides its %d s length" % (
-                                       k, CFL_RESCUE_MIN_FACTOR * geo["dt"],
-                                       CFL_RESCUE_FACTOR * geo["dt"], seg_len))
-                rescue_used = True
-                time_step = new_dt
-                attempt += 1
-                report["physics_gray"] = True
-                report["physics_gray_reason"] = (
-                    "segment %d re-run with time_step %d s (case %g s) after CFL/NaN"
-                    % (k, new_dt, geo["dt"]))
-                report["decisions"].append({"segment": k, "decision": "cfl_rescue",
-                                            "time_step": new_dt})
-                log("PHYSICS-GRAY: " + report["physics_gray_reason"])
-                continue
-            if cfl and not ctx["cfl_rescue"]:
-                # decision 0056: --cfl-rescue is the only user-pre-authorized exception to
-                # "advisory only for anything that changes the solution" -- without it, stop
-                # and print the advice instead of silently proposing a different time_step,
-                # write the would-be namelist for inspection, and submit nothing further.
-                seg_len = int(round((t_b - t_a).total_seconds()))
-                if ctx["restart_cadence_s"]:
-                    seg_len = math.gcd(seg_len, int(ctx["restart_cadence_s"]))
-                hist = geo["hist"][0]["iv_s"] if geo["hist"][0] else None
-                advice_dt = rescue_time_step(geo["dt"], seg_len, (hist, geo["radt_s"]))
-                advice_path = None
-                if advice_dt is not None:
-                    advice_txt = render_segment_namelist(
-                        ctx["text"], t_a, t_b, k, seg["config"], ctx["restart_set_min"],
-                        ctx["restart_io_form"], time_step=advice_dt,
-                        io_streams=ctx.get("io_streams"),
-                        per_record_edits=ctx.get("per_record_edits"))
-                    advice_path = os.path.join(seg_dir, "segment.advice.namelist.input")
-                    with open(advice_path, "w") as f:
-                        f.write(advice_txt)
-                log("PHYSICS-GRAY ADVICE: segment %d failed with CFL/NaN; recommended "
-                    "time_step=%s s (case %g s) -- this CHANGES THE SOLUTION (PHYSICS-GRAY), "
-                    "so it is advisory only and was NOT applied. Re-run with --cfl-rescue "
-                    "(the only user-pre-authorized exception) to apply it automatically."
-                    % (k, advice_dt if advice_dt is not None else "none found in range",
-                       geo["dt"]))
-                if advice_path:
-                    log("  advice namelist written: %s" % advice_path)
-                for _w in wtune_extensions.cfl_coupling_warnings(ctx["case_dir"], geo["dt"], advice_dt):
-                    log(_w)
-                report["decisions"].append({"segment": k, "decision": "cfl_advice",
-                                            "recommended_time_step": advice_dt,
-                                            "advice_namelist": advice_path})
-            reason = ("watch status %s, sacct %s, restart %s, warnings %s%s"
-                      % (snap.get("status"), state, "ok" if rst_ok else "MISSING",
-                         ",".join(codes) or "none", ", CFL/NaN seen" if cfl else ""))
-            if cfl and rescue_used:
-                reason += " (CFL rescue already used once in this run)"
-            raise RunError("segment %d (%s) failed: %s" % (k, seg_dir, reason))
-        prev_dir = seg["run_dir"]
+        att = Attempt(a=seg["start_step"], src_dir=prev_dir)
+        out = _run_attempt(ctx, k, seg, att, is_last)
+        while not out.ok:
+            att = _next_attempt(ctx, k, seg, att, out, run)
+            out = _run_attempt(ctx, k, seg, att, is_last)
+        seg["observed_wall_s"] = out.elapsed
+        seg["run_dir"] = prev_dir = out.dir
+        # the copy is only for this job's reads; a failed attempt keeps it for diagnosis
+        shutil.rmtree(os.path.join(out.dir, FRESH_BP_SUBDIR), ignore_errors=True)
         report["decisions"].append({"segment": k, "decision": "done" if is_last else "next"})
         if not is_last:
-            _update_from_observed(ctx, k, snap, elapsed)
-        _write_report(report_path, report)
-        k += 1
+            _update_from_observed(ctx, k, out.snap, out.elapsed)
+        _save_report(ctx)
+    if ctx.get("sidecar"):
+        ctx["sidecar"].finish()
     return 0
 
 
@@ -1431,6 +1645,17 @@ def _update_from_observed(ctx, k, snap, elapsed):
         "observed_s_per_step": sum_d01 / n, "compute_replaced": s_step is not None})
     ctx["log"]("segment %d observed: overhead %.0f s, %.3f s/step -> later --time updated"
                % (k, ovh, sum_d01 / n))
+
+
+def _make_sidecar(ctx, nc_root, runner=None):
+    """The run's wtune_sidecar.Sidecar; its sruns go through `runner` (tests inject a fake)."""
+    import wtune_sidecar
+    out = ctx["out"]
+    return wtune_sidecar.Sidecar(
+        out, nc_root, ctx["geo"]["max_dom"], sweep.campaign_configs._import_wtune_bp().is_bp,
+        ctx["report"], save=lambda: _save_report(ctx), log=ctx["log"],
+        cores_per_node=CORES_PER_NODE, exclude_arg=sweep.exclude_arg(),
+        runner=runner or wtune_sidecar.popen_runner(os.path.join(out, "sidecar.log")))
 
 
 # ---------------------------------------------------------------------------
@@ -1466,6 +1691,18 @@ def build_arg_parser():
                          "advisory-only rule for solution-changing knobs -- without it, a CFL/NaN "
                          "failure stops and writes advice (recommended time_step + a "
                          "segment.advice.namelist.input) instead of resubmitting anything.")
+    ap.add_argument("--resume", type=int, default=1, metavar="N",
+                    help="auto-resume an infrastructure-failed segment job from its latest "
+                         "valid restart, at most N times per run (default 1; 0 disables)")
+    ap.add_argument("--checkpoint-minutes", default="auto", metavar="M",
+                    help="restart every M model minutes for --resume, when the case's own "
+                         "restart_interval puts none inside a segment. Default auto: the "
+                         "smallest multiple of the input record step >= run length / 8 (only "
+                         "with --resume > 0); 0 writes none")
+    ap.add_argument("--sidecar", action="store_true",
+                    help="while a segment job runs, record each valid restart and convert "
+                         "finished history frames to netCDF in the `wtune post` cache, on the "
+                         "job's idle cores")
     ap.add_argument("--wrfda-forecast-only", action="store_true",
                     help="acknowledge that this WRFDA case is run as wrf.exe forecast segments "
                          "only: WTune does NOT run DA cycles (obsproc/da_wrfvar/da_update_bc). "
@@ -1485,7 +1722,7 @@ def build_arg_parser():
 
 
 def main(argv=None, sbatch_runner=None, sacct_runner=None, snapshot_fn=None, sleep=None,
-         log=print):
+         log=print, sidecar_runner=None):
     a = build_arg_parser().parse_args(argv)
     case_dir = os.path.abspath(a.case_dir)
     import wtune_extensions
@@ -1606,15 +1843,21 @@ def main(argv=None, sbatch_runner=None, sacct_runner=None, snapshot_fn=None, sle
                              "returns its FIRST record for every read -- remove it so the "
                              "netCDF is converted per record" % t)
         case_rst_s = case_restart_interval_s(nl)
+        ckpt = checkpoint_request(a.checkpoint_minutes, a.resume)
+        if isinstance(ckpt, int):
+            ckpt = checkpoint_steps_for_minutes(geo, ckpt, align)
         L, segs = plan_run(geo, n_end, candidates, over, a.segment_minutes, wall_limit_s,
-                           case_restart_s=case_rst_s, align=align, notes=notes)
+                           case_restart_s=case_rst_s, align=align, notes=notes, checkpoint=ckpt)
         if bp_plan is not None:
             miss = missing_record_files(bp_plan["links"], per_record, segs)
             if miss:
                 raise RunError("per-record ADIOS2 input missing at a segment start: %s (WRF "
                                "opens <name>_<segment start>.bp)"
                                % ", ".join("seg %d %s" % m for m in miss[:6]))
-        rst = restart_setting(geo, L, n_end, case_rst_s)
+        rst = restart_setting(geo, L, n_end, case_rst_s, ckpt, align)
+        if a.resume > 0 and not restart_times(geo, 0, (L or n_end) - 1, rst["cadence_s"]):
+            notes.append("no restart is written inside a segment (restart %s): --resume has "
+                         "nothing to resume a failed job from" % rst["label"])
         for key, name in _missing_namelist_files(text, case_dir):
             notes.append("WARNING: the namelist's %s names %s, which is not in CASE_DIR -- every "
                          "segment will lack it%s" % (
@@ -1629,6 +1872,10 @@ def main(argv=None, sbatch_runner=None, sacct_runner=None, snapshot_fn=None, sle
         if coldstart.get_first(text, "write_hist_at_0h_rst", ".false.").lower().startswith(".t"):
             notes.append("case sets write_hist_at_0h_rst=.true.: every resumed segment repeats "
                          "its start history frame")
+        nc_root = None
+        if a.sidecar:
+            import wtune_sidecar
+            nc_root = wtune_sidecar.post_cache_root(out, find_project_dir(a.project))
     except (RunError, OSError, ValueError, wp.PredictError, coldstart.ColdstartError) as e:
         print("error: %s" % e, file=sys.stderr)
         return 2
@@ -1698,7 +1945,8 @@ def main(argv=None, sbatch_runner=None, sacct_runner=None, snapshot_fn=None, sle
                                        else rst["cadence_s"] / 60.0),
               "restart_interval_source": "case" if rst["set_min"] is None else "wtune",
               "restart_cadence_s": rst["cadence_s"],
-              "notes": notes, "physics_gray": False, "decisions": [], "status": "running",
+              "notes": notes, "physics_gray": False, "resumes": 0, "decisions": [],
+              "status": "running",
               "started_utc": dt.datetime.utcnow().isoformat()}
     ctx = dict(case_dir=case_dir, out=out, text=text, geo=geo, n_end=n_end, segments=segs,
                restart_set_min=rst["set_min"], restart_cadence_s=rst["cadence_s"], over=over,
@@ -1707,7 +1955,9 @@ def main(argv=None, sbatch_runner=None, sacct_runner=None, snapshot_fn=None, sle
                bp_links=bp_plan["links"] if bp_plan else None, bp_adios2_xml=bp_xml,
                bp_fresh_sources={n: bp_plan["per_record"][n] for n in per_record} or None,
                bp_copier=_logging_copier(log),
-               cfl_rescue=a.cfl_rescue, replan=replan, wall_limit_s=wall_limit_s, wrf_tree=a.wrf_tree or os.environ.get("WRF_TREE"),
+               cfl_rescue=a.cfl_rescue, resume=a.resume,
+               align_steps=align["steps"] if align else None, replan=replan,
+               wall_limit_s=wall_limit_s, wrf_tree=a.wrf_tree or os.environ.get("WRF_TREE"),
                env_source=a.env_source, campaign_dir=a.campaign_dir,
                sbatch_runner=sbatch_runner or sweep.default_sbatch_runner,
                sacct_runner=sacct_runner or sweep.default_sacct_runner, sacct_cmd=a.sacct_cmd,
@@ -1717,6 +1967,8 @@ def main(argv=None, sbatch_runner=None, sacct_runner=None, snapshot_fn=None, sle
     if os.path.isfile(case_xml):
         with open(case_xml) as f:
             ctx["case_adios2_xml"] = f.read()
+    if a.sidecar:
+        ctx["sidecar"] = _make_sidecar(ctx, nc_root, sidecar_runner)
     path = os.path.join(out, "run_report.json")
     try:
         rc = run_controller(ctx)

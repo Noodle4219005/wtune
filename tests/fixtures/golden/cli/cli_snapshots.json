@@ -729,7 +729,7 @@
   ],
   "rc": 2,
   "script": "wtune.py",
-  "stderr": "usage: wtune run [-h] [--nodes NODES] [--nx NX] [--ny NY]\n                 [--numtiles NUMTILES] [--omp OMP] [--wall-limit WALL_LIMIT]\n                 [--segment-minutes SEGMENT_MINUTES] [--stop-at STOP_AT]\n                 [--prediction PREDICTION] [--tune-report TUNE_REPORT]\n                 [--restart-io-form {14,2}] [--io {adios2,netcdf}]\n                 [--cfl-rescue] [--wrfda-forecast-only] [--out OUT]\n                 [--project PROJECT] [--dry-run] [--wrf-tree WRF_TREE]\n                 [--env-source ENV_SOURCE] [--campaign-dir CAMPAIGN_DIR]\n                 [--sacct-cmd SACCT_CMD] [--poll-interval POLL_INTERVAL]\n                 case_dir\nwtune run: error: the following arguments are required: case_dir\n",
+  "stderr": "usage: wtune run [-h] [--nodes NODES] [--nx NX] [--ny NY]\n                 [--numtiles NUMTILES] [--omp OMP] [--wall-limit WALL_LIMIT]\n                 [--segment-minutes SEGMENT_MINUTES] [--stop-at STOP_AT]\n                 [--prediction PREDICTION] [--tune-report TUNE_REPORT]\n                 [--restart-io-form {14,2}] [--io {adios2,netcdf}]\n                 [--cfl-rescue] [--resume N] [--checkpoint-minutes M]\n                 [--sidecar] [--wrfda-forecast-only] [--out OUT]\n                 [--project PROJECT] [--dry-run] [--wrf-tree WRF_TREE]\n                 [--env-source ENV_SOURCE] [--campaign-dir CAMPAIGN_DIR]\n                 [--sacct-cmd SACCT_CMD] [--poll-interval POLL_INTERVAL]\n                 case_dir\nwtune run: error: the following arguments are required: case_dir\n",
   "stdout": ""
  },
  "scenario-no-args": {

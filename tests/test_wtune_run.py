@@ -830,7 +830,7 @@ def test_single_segment_run_without_case_restart_stays_off(tmp_path):
     _make_case(tmp_path)                                     # restart_interval 7200 > 12 h
     lines = []
     rc = wr.main([str(tmp_path / "case"), "--nodes", "1", "--nx", "8", "--ny", "9",
-                  "--out", str(tmp_path / "o"), "--dry-run"], log=lines.append)
+                  "--out", str(tmp_path / "o"), "--dry-run", "--resume", "0"], log=lines.append)
     assert rc == 0 and "restart off (one segment; case restart_interval" in lines[0]
 
 

@@ -90,7 +90,7 @@ def _netcdf4():
     return netCDF4
 
 
-_SEGMENT_RE = re.compile(r"seg_(\d+)(_rescue)?$")
+_SEGMENT_RE = re.compile(r"seg_(\d+)(_rescue)?(?:_r(\d+))?$")    # as wtune_watch._SEG_DIR_RE
 
 
 def _is_empty_dir(path):
@@ -107,9 +107,10 @@ def _wrfout_paths(d):
 
 
 def segment_dirs(run_dir):
-    """The segment run dirs of a segmented `wtune run --out` dir (OUT/seg_<k>, plus a CFL-rescue
-    re-run OUT/seg_<k>_rescue right after its seg_<k>), in segment order -- [] when run_dir holds
-    wrfout_d* itself (a flat run dir) or has no seg_<int> subdirs."""
+    """The segment run dirs of a segmented `wtune run --out` dir (OUT/seg_<k>, plus its later
+    attempts right after it: a CFL-rescue re-run OUT/seg_<k>_rescue, an auto-resume
+    OUT/seg_<k>[_rescue]_r<n>), in segment then attempt order -- [] when run_dir holds wrfout_d*
+    itself (a flat run dir) or has no seg_<int> subdirs."""
     if _wrfout_paths(run_dir):
         return []
     try:
@@ -121,7 +122,7 @@ def segment_dirs(run_dir):
         m = _SEGMENT_RE.match(name)
         path = os.path.join(run_dir, name)
         if m and os.path.isdir(path):
-            segs.append(((int(m.group(1)), bool(m.group(2))), path))
+            segs.append(((int(m.group(1)), bool(m.group(2)), int(m.group(3) or 0)), path))
     return [path for _key, path in sorted(segs)]
 
 
@@ -462,12 +463,18 @@ def _file_entries(run_dir):
     return out
 
 
+def convert_frames(run_dir, bps):
+    """Converts (or validates the cache of) the BP history directories `bps` of run_dir ->
+    {bp: error} for those that failed. Raises BPConversionError like prepare_history."""
+    return _bp_to_nc(run_dir, list(bps))[1] if bps else {}
+
+
 def prepare_history(run_dir):
     """Converts (or validates the cache of) every BP history directory of run_dir up front.
     Returns dict(n_bp, cache, failed=[(bp, error), ...]). Raises BPConversionError when BP
     history needs converting and the converter is unavailable."""
     bps = [path for _d, _t, path, is_bp in _raw_entries(run_dir) if is_bp]
-    failed = _bp_to_nc(run_dir, bps)[1] if bps else {}
+    failed = convert_frames(run_dir, bps)
     return dict(n_bp=len(bps), cache=os.path.join(nc_cache_root(run_dir), _run_id(run_dir)),
                 failed=sorted(failed.items()))
 
@@ -485,8 +492,8 @@ def frame_refs(run_dir):
     own Times variable (file_times), so a file holding frames_per_outfile > 1 times yields one
     entry per time; an unreadable file (or one without Times) contributes its file-name time
     at timeidx 0, exactly the pre-Times behaviour. A valid time present in two files (the shared
-    boundary frame of two segments, a rescued segment's re-run) maps to the LATER file in
-    segment-then-name order."""
+    boundary frame of two segments, a rescued or resumed segment's re-run) maps to the LATER
+    file in segment-then-name order."""
     out = {}
     for dom, name_time, path in _file_entries(run_dir):
         times = file_times(path) or [name_time]

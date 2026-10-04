@@ -579,6 +579,36 @@ def test_physics_benchmark_no_physics_rows(tmp_path):
 _SIX_CASES = ("karina", "conus25", "conus12", "isc21", "lafe", "maria1km")
 
 
+def _synth_namelist(case):
+    """Namelist text built from cases.json's own physics dict (the real prep_dir namelists are
+    cluster-only paths); one value per active domain, time_step from the case's dt."""
+    nd = campaign_configs._case_effective_max_dom(case)
+    phys = "".join(" %s = %s,\n" % (k, ", ".join([repr(v) if isinstance(v, str) else str(v)] * nd))
+                   for k, v in case["physics"].items())
+    return ("&time_control\n/\n&physics\n%s/\n&domains\n max_dom = %d,\n time_step = %s,\n/\n"
+            "&dynamics\n/\n&bdy_control\n/\n") % (phys, nd, case["dt"])
+
+
+@pytest.fixture
+def case_namelists(tmp_path):
+    """Point every case without a readable real namelist at a synthesized one."""
+    patches = {}
+    for cid in _SIX_CASES:
+        case = campaign_configs.CASES[cid]
+        if os.path.exists(campaign_configs._case_namelist_path(case)):
+            continue
+        path = tmp_path / ("%s.namelist.input" % cid)
+        path.write_text(_synth_namelist(case))
+        patches[cid] = case.get("namelist_template")
+        case["namelist_template"] = str(path)
+    yield
+    for cid, old in patches.items():
+        if old is None:
+            campaign_configs.CASES[cid].pop("namelist_template", None)
+        else:
+            campaign_configs.CASES[cid]["namelist_template"] = old
+
+
 def _cast(v):
     if v is None or isinstance(v, (int, float)):
         return v
@@ -593,7 +623,7 @@ def _cast(v):
         return s
 
 
-def test_template_engine_consistency_across_real_case_namelists():
+def test_template_engine_consistency_across_real_case_namelists(case_namelists):
     for case_id in _SIX_CASES:
         case = campaign_configs.CASES[case_id]
         max_dom = campaign_configs._case_effective_max_dom(case)
@@ -647,7 +677,7 @@ def test_template_engine_consistency_across_real_case_namelists():
                         % (case_id, tid, key, ch["from"], text_from[key]))
 
 
-def test_physics_candidates_from_namelist_matches_text_engine_for_karina():
+def test_physics_candidates_from_namelist_matches_text_engine_for_karina(case_namelists):
     """The NEW text-engine candidate function (what recommend.py --compliance PHYSICS-GRAY
     actually calls for a real namelist) must reproduce campaign/configs.py's own
     resolve_physics_config exactly for karina (a non-suite case, so no -1-resolution ambiguity)."""

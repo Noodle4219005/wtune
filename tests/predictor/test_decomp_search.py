@@ -615,7 +615,9 @@ _KARINA_PRIOR_LEDGER = os.path.join(_FIXTURES, "ledger_karina_1075297.csv")
 _KARINA_ROUND1_LEDGER = os.path.join(_FIXTURES, "ledger_karina_1078093.csv")
 
 
-@pytest.mark.skipif(not os.path.exists(_LAFE_STATE_R1), reason="fixture not present")
+@pytest.mark.skipif(
+    not (os.path.exists(_LAFE_STATE_R1) and os.path.exists(_LAFE_PRIOR_LEDGER)),
+    reason="fixture not present (ledger CSVs are gitignored real campaign data)")
 def test_real_lafe_round2_incumbent_is_now_on_the_campaign_reference_scale():
     """Reproduces the exact 2026-09-15 lafe round-2 STOP: propose() computed incumbent_y=-0.37442
     for R01D0003 (measured 1.304/1.317 s/step) against an isolated round-1-only baseline of

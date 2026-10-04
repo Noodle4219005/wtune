@@ -54,7 +54,13 @@ import wtune_runlength as runlen  # repo root: resolve_run_seconds, the single-s
 HERE = Path(__file__).resolve().parent
 DEFAULT_CALIBRATION = HERE.parent / "machine" / "calibration" / "scc.json"  # HERE is src/; machine/ stays at repo root
 
-CORES_PER_NODE = 112  # scc site convention (see predictor/ledger.py CORES_PER_NODE)
+CORES_PER_NODE = 112  # fallback only (f1); a calibration's "cores_per_node" wins (scc: 72)
+
+
+def cores_per_node(calibration=None):
+    """Cores per node of the machine the calibration describes; CORES_PER_NODE when unknown."""
+    v = (calibration or {}).get("cores_per_node")
+    return int(v) if v else CORES_PER_NODE
 SEGMENT_HOURS = 6.0   # long-run compute display chunking
 LONG_RUN_HOURS = 12.0  # threshold above which the compute row is segmented
 
@@ -1427,7 +1433,8 @@ def predict_init(case_dir: str | None, nl: dict, calibration: dict, ranks: int |
 # Parameter table / launch line
 # --------------------------------------------------------------------------
 
-def build_param_table(config: dict, nodes: int, io_form: int, io_target: str) -> dict:
+def build_param_table(config: dict, nodes: int, io_form: int, io_target: str,
+                      cores_per_node: int | None = None) -> dict:
     # ranks/omp/nx/ny are load-bearing INSIDE the launch line itself (-np R
     # ... PE=OMP); a half-"UNKNOWN" mpirun command is worse than no command,
     # so these are REQUIRED -- refuse loudly rather than guess or print junk.
@@ -1449,6 +1456,10 @@ def build_param_table(config: dict, nodes: int, io_form: int, io_target: str) ->
     if nodes and ranks % nodes != 0:
         warnings.append("ranks (%d) not evenly divisible by nodes (%d); TPN rounded down to %d" % (
             ranks, nodes, tpn))
+
+    if tpn and cores_per_node and tpn * omp > cores_per_node:     # only when the machine is known
+        warnings.append("%d ranks/node x omp %d = %d cores exceeds %d cores/node"
+                        % (tpn, omp, tpn * omp, cores_per_node))
 
     # Matches campaign/sites/scc.sh site_launch() exactly: --rank-by node reproduces
     # WRF's cyclic across-node rank order for dist=cyclic; block is OMPI5's own
@@ -1599,7 +1610,8 @@ def build_prediction(namelist_path: str, case_dir: str | None, nodes: int, confi
         low, high = max(0.0, total_s - range_abs_s), total_s + range_abs_s
         range_source = None
 
-    params = build_param_table(config, nodes, io_form_history_effective, io_target)
+    params = build_param_table(config, nodes, io_form_history_effective, io_target,
+                               cores_per_node(calibration))
 
     return {
         "case_name": name, "namelist": str(namelist_path),

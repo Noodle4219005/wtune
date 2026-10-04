@@ -1,6 +1,7 @@
 {
   "schema_version": 1,
   "site": "scc",
+  "cores_per_node": 72,
   "description": "Calibration constants for wtune_predict.py's offline wall-time model. Every derived number cites the raw measured fact(s) it came from; anything not backed by a direct measurement is labelled UNCALIBRATED GUESS or ASSUMED and carries a wide uncertainty.",
   "conus25_calibration_run": {
     "_comment": "job 427: CONUS 2.5km, 720 ranks, 24x30 decomposition, netCDF (io_form 2) history to NFS. This is the ONLY run used to calibrate compute-rate self-consistency and the netCDF/NFS write+read rates -- everything under 'derived' is computed from these fields.",

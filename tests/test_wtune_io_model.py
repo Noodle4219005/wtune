@@ -85,14 +85,16 @@ def test_constants_are_the_wtune_run_copies():
 
 @pytest.mark.parametrize("text", [CLIMATE_EA50, SC26_P2, THREE_DOM])
 @pytest.mark.parametrize("io_form", [2, 14])
-def test_per_unit_costs_and_frame_counts_match_wtune_run(tmp_path, text, io_form):
+@pytest.mark.parametrize("io", ["netcdf", "adios2"])
+def test_per_unit_costs_and_frame_counts_match_wtune_run(tmp_path, text, io_form, io):
     nl = _nl(tmp_path, text)
     geo = wr.case_geometry(nl)
-    over = wr.fallback_overheads(geo, io_form)
+    over = wr.fallback_overheads(geo, io_form, io)
     w, r = iom.restart_io_s(geo["points"], io_form)
     assert (w, r) == (over["restart_write_s"], over["restart_read_s"])
-    assert iom.history_frame_s(geo["points"]) == over["history_frame_s"]
+    assert iom.history_frame_s(geo["points"], io) == over["history_frame_s"]
     io = iom.run_length_io(nl, io="netcdf")
+    over = wr.fallback_overheads(geo, io_form, "netcdf")
     assert io["points"] == geo["points"]
     for d in range(geo["max_dom"]):
         assert io["history_frames"][d] == wr.history_frames(geo, d, 0, geo["steps"])

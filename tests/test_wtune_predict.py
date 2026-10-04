@@ -408,6 +408,17 @@ def test_short_run_not_segmented():
 # 4. parameter table / launch line
 # --------------------------------------------------------------------------
 
+def test_cores_per_node_comes_from_the_scc_calibration_else_112():
+    assert wp.cores_per_node(wp.load_calibration(CALIBRATION)) == 72
+    assert wp.cores_per_node({}) == wp.cores_per_node(None) == 112
+    config = {"ranks": 288, "omp": 1, "nx": 16, "ny": 18, "numtiles": 1, "dist": "block"}
+    scc = wp.build_param_table(config, 4, 2, "nfs", wp.cores_per_node(wp.load_calibration(CALIBRATION)))
+    assert scc["ranks_per_node"] == 72 and scc["warning"] is None
+    over = wp.build_param_table(dict(config, ranks=320), 4, 2, "nfs", 72)    # 80/node > 72
+    assert "exceeds 72 cores/node" in over["warning"]
+    assert wp.build_param_table(dict(config, ranks=320), 4, 2, "nfs")["warning"] is None
+
+
 def test_param_table_launch_line_and_namelist_lines():
     config = {"ranks": 448, "omp": 2, "nx": 16, "ny": 14, "numtiles": 12, "dist": "cyclic"}
     p = wp.build_param_table(config, nodes=4, io_form=2, io_target="nfs")

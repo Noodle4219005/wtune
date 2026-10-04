@@ -143,6 +143,7 @@ import coldstart_sample as coldstart   # noqa: E402  tools/: namelist editing, p
                                         # the shared sbatch signal-trap/hygiene preamble
 import scc_sweep as sweep              # noqa: E402  tools/: sacct_states/submit_job/exclude_arg
 import wtune_extensions
+import wtune_io_model as iom        # noqa: E402  per-format I/O anchors (history, restart)
 import wtune_predict as wp             # noqa: E402  namelist parsing, calibration, sample points
 import wtune_probe_plan as pp          # noqa: E402  _resolve_r_rad_from_points (combine's r rule)
 import wtune_watch                     # noqa: E402  snapshot(rundir): done/failed/CFL/NaN
@@ -336,13 +337,14 @@ def choose_restart_quantum(n_end, quantum, wall_fn, budget_s):
 #  - history: dorian2019 scc truth (job 1019, 6 h; d01 664x700x40 every 60 min = 7 frames, d02
 #    451x451x40 every 15 min = 25 frames) summed 300.5 s of history writes (rank 0 'Timing for
 #    Writing') -> 300.5 / (7 x 18.592e6 + 25 x 8.136e6) = 9.0e-7 s per point per frame. The f1
-#    atlas dorian netCDF frames agree (d01 ~15.7 s = 8.4e-7, d02 ~7.4 s = 9.1e-7). One netCDF
-#    anchor is used for every io_form_history (conservative for ADIOS2 history).
-CONUS25_RESTART_POINTS = 1500 * 1200 * 50
-RESTART_IO_ANCHOR_S = {2: (324.0, 120.0), 14: (1.05, 2.3)}   # io_form: (write, read) at conus25
-DORIAN_HISTORY_WRITE_S = 300.5
-DORIAN_HISTORY_POINT_FRAMES = 7 * 664 * 700 * 40 + 25 * 451 * 451 * 40
-HISTORY_S_PER_POINT_FRAME = DORIAN_HISTORY_WRITE_S / DORIAN_HISTORY_POINT_FRAMES
+#    atlas dorian netCDF frames agree (d01 ~15.7 s = 8.4e-7, d02 ~7.4 s = 9.1e-7). --io adios2
+#    (default) prices history at wtune_io_model's ADIOS2 anchor instead.
+#  The constants live in wtune_io_model; this module re-exports them.
+CONUS25_RESTART_POINTS = iom.CONUS25_RESTART_POINTS
+RESTART_IO_ANCHOR_S = iom.RESTART_IO_ANCHOR_S
+DORIAN_HISTORY_WRITE_S = iom.DORIAN_HISTORY_WRITE_S
+DORIAN_HISTORY_POINT_FRAMES = iom.DORIAN_HISTORY_POINT_FRAMES
+HISTORY_S_PER_POINT_FRAME = iom.HISTORY_S_PER_POINT_FRAME
 
 
 def fallback_restart_io_s(geo, io_form):
@@ -352,15 +354,15 @@ def fallback_restart_io_s(geo, io_form):
     return w * f, r * f
 
 
-def fallback_history_frame_s(geo):
-    """Per-domain seconds for one history frame, scaled from the dorian2019 anchor."""
-    return [p * HISTORY_S_PER_POINT_FRAME for p in geo["points"]]
+def fallback_history_frame_s(geo, io="adios2"):
+    """Per-domain seconds for one history frame of the run's --io format (adios2 | netcdf)."""
+    return iom.history_frame_s(geo["points"], iom.normalize_io_format(io))
 
 
-def fallback_overheads(geo, io_form_restart):
+def fallback_overheads(geo, io_form_restart, io="adios2"):
     w, r = fallback_restart_io_s(geo, io_form_restart)
     return overheads(init_s=FALLBACK_INIT_S, restart_read_s=r, restart_write_s=w,
-                     history_frame_s=fallback_history_frame_s(geo),
+                     history_frame_s=fallback_history_frame_s(geo, io),
                      source="fallback (conus25/dorian2019 I/O anchors)")
 
 
@@ -1497,7 +1499,7 @@ def main(argv=None, sbatch_runner=None, sacct_runner=None, snapshot_fn=None, sle
         sample_points = None
         if a.prediction or a.tune_report:
             sample_points, _src = wp.read_wrfinput_sample_points(case_dir)
-        over = fallback_overheads(geo, a.restart_io_form)
+        over = fallback_overheads(geo, a.restart_io_form, a.io)
         candidates, notes = [], []
         if a.prediction:
             with open(a.prediction) as f:

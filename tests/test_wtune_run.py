@@ -12,9 +12,19 @@ import types
 
 import pytest
 
+# Importing wtune_run -> scc_sweep sets SITE=scc and loads campaign `configs` with it; undo both so
+# campaign/test_configs.py (collected later in the same process) gets its own f1 import.
+_SITE_BEFORE = os.environ.get("SITE")
+_CONFIGS_BEFORE = sys.modules.get("configs")
+
 import wtune_predict as wp
 import wtune_run as wr
 import wtune_watch
+
+if _SITE_BEFORE is None:
+    os.environ.pop("SITE", None)
+if _CONFIGS_BEFORE is None:
+    sys.modules.pop("configs", None)
 
 
 def _load_real_bp():
@@ -287,9 +297,19 @@ def test_fallback_io_scales_from_conus25_and_dorian_anchors(tmp_path):
     half = dict(g, points=[g["points"][0] / 2])
     assert wr.fallback_restart_io_s(half, 2) == pytest.approx((162.0, 60.0))
     dorian = dict(g, points=[664 * 700 * 40, 451 * 451 * 40], max_dom=2)
-    d01, d02 = wr.fallback_history_frame_s(dorian)
+    d01, d02 = wr.fallback_history_frame_s(dorian, "netcdf")
     assert 7 * d01 + 25 * d02 == pytest.approx(300.5)          # the anchor reproduces itself
     assert d01 == pytest.approx(16.75, abs=0.05)               # f1 atlas measured ~15.7 s
+
+
+def test_fallback_history_follows_the_run_io_format(tmp_path):
+    g = _geo(tmp_path)
+    nc = wr.fallback_overheads(g, 14, "netcdf")["history_frame_s"]
+    ad = wr.fallback_overheads(g, 14, "adios2")["history_frame_s"]
+    assert nc == wr.fallback_history_frame_s(g, "netcdf")
+    assert ad == wr.fallback_history_frame_s(g)                # adios2 is the default, as --io
+    assert all(x < n / 10 for x, n in zip(ad, nc))             # ADIOS2 anchor ~21x cheaper
+    assert ad[0] == pytest.approx(g["points"][0] * wr.iom.ADIOS2_HISTORY_S_PER_POINT_FRAME)
 
 
 def test_prediction_io_block_wins_over_fallback(tmp_path):

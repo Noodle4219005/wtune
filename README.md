@@ -1197,6 +1197,7 @@ convection observation comparison.
 ```bash
 curl -fsSL https://pixi.sh/install.sh | bash          # once per user; installs ~/.pixi/bin/pixi
 pixi install --manifest-path envs/wtune/pixi.toml     # linux-64 and linux-aarch64
+pixi install --manifest-path envs/adios2/pixi.toml    # netCDF <-> ADIOS2 converters (default I/O)
 bin/wtune --version                                   # always launch through bin/wtune
 ```
 

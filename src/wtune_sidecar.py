@@ -46,6 +46,18 @@ def bound_within(mask):
     return all(int(mask, 16) >> c & 1 for c in os.sched_getaffinity(0))
 
 
+def bind_to(mask):
+    """Restrict this process to its allowed cores inside hex `mask`; False when there are none.
+    scc has no Slurm TaskPlugin, so srun --cpu-bind is a no-op there."""
+    wanted = {c for c in os.sched_getaffinity(0) if int(mask, 16) >> c & 1}
+    try:
+        if wanted:
+            os.sched_setaffinity(0, wanted)
+    except OSError:
+        return False
+    return bool(wanted)
+
+
 def finished_frames(seg_dir, job_ended):
     """BP history dirs of seg_dir that WRF has closed: every written frame a later frame of
     its domain follows -- all of them once the job ended."""
@@ -225,7 +237,7 @@ def main(argv=None):
     cv.add_argument("--cpu-mask", default=None)
     cv.add_argument("frames", nargs="*")
     a = ap.parse_args(argv)
-    if a.cpu_mask and not bound_within(a.cpu_mask):
+    if a.cpu_mask and not bound_within(a.cpu_mask) and not bind_to(a.cpu_mask):
         print("sidecar: not bound inside the idle cores %s (running on %s): nothing converted"
               % (a.cpu_mask, sorted(os.sched_getaffinity(0))), file=sys.stderr)
         return 3

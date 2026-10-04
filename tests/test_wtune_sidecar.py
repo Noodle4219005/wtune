@@ -96,6 +96,11 @@ def test_convert_refuses_to_run_outside_the_idle_cores(tmp_path, monkeypatch, ca
     monkeypatch.setattr(ws, "bound_within", REAL_BOUND_WITHIN)
     monkeypatch.setattr(os, "sched_getaffinity", lambda pid: {0, 1, 48}, raising=False)
     assert ws.bound_within("0x7") is False and ws.bound_within(ws.cpu_mask([0, 1, 48])) is True
+    bound = []
+    monkeypatch.setattr(os, "sched_setaffinity", lambda pid, cores: bound.append(set(cores)),
+                        raising=False)
+    assert ws.bind_to(ws.cpu_mask(range(48, 72))) is True and bound == [{48}]   # self-bind
+    monkeypatch.setattr(os, "sched_getaffinity", lambda pid: {0, 1, 2}, raising=False)
     rc = ws.main(["convert", "--cpu-mask", ws.cpu_mask(range(48, 72)), "--run-dir",
                   str(tmp_path), "--nc-cache", str(tmp_path / "c")])
     assert rc == 3 and "nothing converted" in capsys.readouterr().err
@@ -188,6 +193,7 @@ def test_leftover_and_cut_off_frames_are_converted_at_the_end(tmp_path, fake_bp)
 
 def test_empty_batch_ends_in_job_conversion(tmp_path, fake_bp, monkeypatch):  # noqa: F811
     monkeypatch.setattr(ws, "bound_within", lambda mask: False)     # the binding did not take
+    monkeypatch.setattr(ws, "bind_to", lambda mask: False)
     r = Runner()
     side, run, report, lines = _sidecar(tmp_path, r)
     seg = run / "seg_0"

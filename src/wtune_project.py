@@ -28,7 +28,6 @@ found, the caller falls back to its pre-project behaviour unchanged (decision 00
 from __future__ import annotations
 
 import argparse
-import glob
 import hashlib
 import json
 import os
@@ -146,12 +145,12 @@ def discover_runs(project_dir):
             d = os.path.join(runs_root, name)
             if not os.path.isdir(d):
                 continue
-            if glob.glob(os.path.join(d, "wrfout_d*")) or any(
-                    glob.glob(os.path.join(seg, "wrfout_d*")) for seg in extract.segment_dirs(d)):
+            if extract._wrfout_paths(d) or any(
+                    extract._wrfout_paths(seg) for seg in extract.segment_dirs(d)):
                 out.append((name, d))
     if not out:
         case_dir = os.path.join(project_dir, "case")
-        if glob.glob(os.path.join(case_dir, "wrfout_d*")):
+        if extract._wrfout_paths(case_dir):
             out.append(("case", case_dir))
         else:
             try:
@@ -160,7 +159,7 @@ def discover_runs(project_dir):
                 doc = None
             case = doc.get("case") if isinstance(doc, dict) else None
             src = case.get("source_dir") if isinstance(case, dict) else None
-            if src and glob.glob(os.path.join(src, "wrfout_d*")):
+            if src and extract._wrfout_paths(src):
                 out.append(("case", src))
     return out
 

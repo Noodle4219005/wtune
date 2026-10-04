@@ -416,6 +416,14 @@ def _file_age_origin(st):
 _WRFOUT_D01_RE = re.compile(r"^wrfout_d01_(\d{4}-\d\d-\d\d_\d\d:\d\d:\d\d)")
 
 
+def _is_empty_dir(path: str) -> bool:
+    """A pre-created output dir WRF has not written yet (`wtune run`)."""
+    try:
+        return os.path.isdir(path) and not os.listdir(path)
+    except OSError:
+        return False
+
+
 def latest_wrfout(rundir: str) -> tuple[dt.datetime | None, float | None]:
     """(latest wrfout_d01_<valid time> datetime, newest wrfout_d01 mtime) in rundir, (None, None)
     without one. On NFS the compute node's rsl.error.0000 can reach the login node minutes late
@@ -428,7 +436,7 @@ def latest_wrfout(rundir: str) -> tuple[dt.datetime | None, float | None]:
         return None, None
     for name in names:
         m = _WRFOUT_D01_RE.match(name)
-        if not m:
+        if not m or _is_empty_dir(os.path.join(rundir, name)):
             continue
         try:
             t = dt.datetime.strptime(m.group(1), WRF_FMT)

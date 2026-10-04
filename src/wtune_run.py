@@ -993,6 +993,48 @@ def restart_files(rundir, t, max_dom):
             for d in range(1, max_dom + 1)}
 
 
+def _stamps(t_a, t_b, step_s, include_start):
+    """WRF_FMT times from t_a (inclusive or not) to t_b inclusive, every step_s seconds."""
+    out, t = [], t_a if include_start else t_a + dt.timedelta(seconds=step_s)
+    while step_s > 0 and t <= t_b:
+        out.append(t.strftime(WRF_FMT))
+        t += dt.timedelta(seconds=step_s)
+    return out
+
+
+def output_dir_names(nl, t_a, t_b, max_dom):
+    """Names of the ADIOS2 history/restart outputs a segment [t_a, t_b] writes (parsed namelist).
+    A custom history_outname gives no history names; other streams are never listed."""
+    tc = lambda key, d=0, default=None: wp.g_dom(nl, "time_control", key, d, default)  # noqa: E731
+    names = []
+    for d in range(max_dom):
+        iv = round(coldstart.wrf_interval_minutes(nl, "history_interval", d) * 60)
+        if iv > 0 and not wp.g(nl, "time_control", "history_outname"):
+            per_file = max(1, int(tc("frames_per_outfile", d, 1) or 1))
+            names += ["wrfout_d%02d_%s" % (d + 1, t)
+                      for t in _stamps(t_a, t_b, iv, True)[::per_file]]
+    rst = round(coldstart.wrf_interval_minutes(nl, "restart_interval") * 60)
+    for t in _stamps(t_a, t_b, rst, False):
+        names += ["wrfrst_d%02d_%s" % (d, t) for d in range(1, max_dom + 1)]
+    return names
+
+
+def precreate_output_dirs(seg_dir, names):
+    """Empty output directories in seg_dir, so rank 0 sends no NFS CREATE during the run."""
+    for n in names:
+        os.makedirs(os.path.join(seg_dir, n), exist_ok=True)
+    return len(names)
+
+
+def remove_empty_output_dirs(seg_dir, names):
+    """Drop pre-created directories the job left empty (os.rmdir refuses a non-empty one)."""
+    for n in names:
+        try:
+            os.rmdir(os.path.join(seg_dir, n))
+        except OSError:
+            pass
+
+
 def _case_link_ok(name, path, skip_adios2_xml):
     if name == "wrf.out" or name.startswith(_CASE_LINK_SKIP):
         return False
@@ -1247,6 +1289,11 @@ def run_controller(ctx):
                                        ctx.get("wrf_tree"), bp_links=ctx.get("bp_links"),
                                        fresh_sources=ctx.get("bp_fresh_sources"),
                                        copier=ctx.get("bp_copier"))
+            out_names = []
+            if adios2_io:
+                nl_seg = wp.parse_namelist(os.path.join(seg_dir, "namelist.input"))
+                out_names = output_dir_names(nl_seg, t_a, t_b, geo["max_dom"])
+                log("  pre-created %d output dirs" % precreate_output_dirs(seg_dir, out_names))
             if k == 0 and attempt == 0:
                 for ln in sweep.campaign_configs.format_namelist_stage(staged, [ctx["case_dir"]]):
                     log(ln)
@@ -1269,6 +1316,7 @@ def run_controller(ctx):
             _write_report(report_path, report)
             state, elapsed = wait_for_job(job_id, ctx["sacct_runner"], ctx["sacct_cmd"],
                                           ctx["poll_s"], ctx["sleep"], log)
+            remove_empty_output_dirs(seg_dir, out_names)    # before any wrfout/wrfrst check
             snap = ctx["snapshot_fn"](seg_dir)
             codes = [w["code"] for w in snap.get("warnings", [])]
             nan = any(w["code"] == "FAILED" and "NaN" in w["text"]

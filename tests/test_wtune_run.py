@@ -576,8 +576,10 @@ class Fakes:
         self.submitted.append((seg, outcome))
         if outcome == "done":
             for d in range(1, len(info["domains"]) + 1):
-                os.mkdir(os.path.join(seg, "wrfrst_d%02d_%s" % (d, info["end"].strftime(
-                    "%Y-%m-%d_%H:%M:%S"))))
+                rst = os.path.join(seg, "wrfrst_d%02d_%s" % (d, info["end"].strftime(
+                    "%Y-%m-%d_%H:%M:%S")))
+                os.makedirs(rst, exist_ok=True)
+                open(os.path.join(rst, "md.idx"), "w").close()
         self.snap_by_dir[seg] = outcome
         return "Submitted batch job %d\n" % (1000 + len(self.submitted))
 
@@ -1205,3 +1207,97 @@ def test_fresh_copy_falls_back_to_cp_a_without_reflink(tmp_path, fake_bp, capsys
                                                       ["cp", "-a", fake_bp.cp_calls[1][2]]]
     assert "WARNING: no reflink copy of" in capsys.readouterr().err
     assert any("fresh per-record inputs" in ln and "cp -a" in ln for ln in lines)
+
+
+# ---------------------------------------------------------------------------
+# pre-created output dirs (NFS CREATE stalls on rank 0, scc jobs 2962-2977)
+# ---------------------------------------------------------------------------
+def _nl(tmp_path, **kv):
+    text = NAMELIST_3DOM
+    for key, val in kv.items():
+        text = re.sub(r"(?m)^ %s\s*=.*$" % key, " %s = %s" % (key, val), text)
+    p = tmp_path / "nl.input"
+    p.write_text(text)
+    return wp.parse_namelist(str(p))
+
+
+T0 = datetime.datetime(2020, 6, 1, 0)
+
+
+def test_output_dir_names_two_domains_different_intervals(tmp_path):
+    nl = _nl(tmp_path, history_interval="180, 60, 60", restart_interval="360")
+    got = wr.output_dir_names(nl, T0, T0 + datetime.timedelta(hours=6), 2)
+    assert [n for n in got if n.startswith("wrfout_d01")] == [
+        "wrfout_d01_2020-06-01_%02d:00:00" % h for h in (0, 3, 6)]
+    assert len([n for n in got if n.startswith("wrfout_d02")]) == 7
+    assert sorted(n for n in got if n.startswith("wrfrst")) == [
+        "wrfrst_d01_2020-06-01_06:00:00", "wrfrst_d02_2020-06-01_06:00:00"]
+
+
+def test_output_dir_names_frames_per_outfile_and_restart_start_excluded(tmp_path):
+    nl = _nl(tmp_path, frames_per_outfile="3, 3, 3", restart_interval="120")
+    t1 = T0 + datetime.timedelta(hours=6)
+    got = wr.output_dir_names(nl, t1, t1 + datetime.timedelta(hours=6), 1)
+    assert [n for n in got if n.startswith("wrfout")] == [
+        "wrfout_d01_2020-06-01_06:00:00", "wrfout_d01_2020-06-01_09:00:00",
+        "wrfout_d01_2020-06-01_12:00:00"][:3]
+    rst = [n for n in got if n.startswith("wrfrst")]
+    assert "wrfrst_d01_2020-06-01_06:00:00" not in rst and len(rst) == 3
+
+
+def test_output_dir_names_custom_history_outname_skips_history(tmp_path):
+    nl = _nl(tmp_path, history_interval="60")
+    nl["time_control"]["history_outname"] = ["out_d<domain>_<date>"]
+    got = wr.output_dir_names(nl, T0, T0 + datetime.timedelta(hours=2), 1)
+    assert not any(n.startswith("wrfout") for n in got)
+
+
+def test_remove_empty_output_dirs_keeps_non_empty(tmp_path):
+    names = ["wrfout_d01_a", "wrfrst_d01_b"]
+    assert wr.precreate_output_dirs(str(tmp_path), names) == 2
+    (tmp_path / names[1] / "md.idx").write_text("x")
+    wr.remove_empty_output_dirs(str(tmp_path), names)
+    assert not (tmp_path / names[0]).exists() and (tmp_path / names[1]).is_dir()
+
+
+class _Spy(Fakes):
+    """Records the empty dirs present at submit and what restart_files sees after the job."""
+    def sbatch(self, cmd):
+        seg = os.path.dirname(cmd.split()[-1].strip("'"))
+        self.seen = getattr(self, "seen", {})
+        self.seen[os.path.basename(seg)] = sorted(
+            n for n in os.listdir(seg) if n.startswith(("wrfout", "wrfrst")))
+        return super().sbatch(cmd)
+
+
+def test_controller_precreates_and_cleans_before_handoff(tmp_path):
+    f = _Spy()
+    rc, out, rep, lines = _run(tmp_path, f)
+    assert rc == 0
+    assert sum(ln.startswith("  pre-created ") and ln.endswith(" output dirs") for ln in lines) == 2
+    assert "wrfrst_d01_2020-06-01_06:00:00" in f.seen["seg_0"]
+    assert "wrfout_d03_2020-06-01_00:00:00" in f.seen["seg_0"]
+    seg0 = os.listdir(out / "seg_0")
+    # leftovers removed; the hand-off restart (non-empty) survives and seg_1 linked it
+    assert not [n for n in seg0 if n.startswith("wrfout")]
+    assert os.path.isfile(out / "seg_0" / "wrfrst_d01_2020-06-01_06:00:00" / "md.idx")
+    assert "wrfrst_d01_2020-06-01_06:00:00" in f.seen["seg_1"]      # seg_1's own start dir
+
+
+def test_controller_io_netcdf_creates_nothing(tmp_path):
+    f = _Spy()
+    rc, out, rep, lines = _run(tmp_path, f, extra=["--io", "netcdf"])
+    assert rc == 0 and not any("pre-created" in ln for ln in lines)
+    assert f.seen["seg_0"] == []
+
+
+def test_watch_and_post_ignore_empty_wrfout_dir(tmp_path):
+    from post import extract
+    run = tmp_path / "run"
+    (run / "seg_0").mkdir(parents=True)
+    (run / "seg_0" / "wrfout_d01_2020-06-01_03:00:00").mkdir()
+    assert wtune_watch.latest_wrfout(str(run / "seg_0")) == (None, None)
+    assert extract.list_frames(str(run), 1) == []
+    assert extract.segment_dirs(str(run / "seg_0")) == []
+    (run / "seg_0" / "wrfout_d01_2020-06-01_03:00:00" / "md.idx").write_text("x")
+    assert wtune_watch.latest_wrfout(str(run / "seg_0"))[0] == datetime.datetime(2020, 6, 1, 3)

@@ -93,11 +93,24 @@ def _netcdf4():
 _SEGMENT_RE = re.compile(r"seg_(\d+)(_rescue)?$")
 
 
+def _is_empty_dir(path):
+    """A pre-created output dir WRF has not written (`wtune run` removes them after the job)."""
+    try:
+        return os.path.isdir(path) and not os.listdir(path)
+    except OSError:
+        return False
+
+
+def _wrfout_paths(d):
+    """wrfout_d* entries of d, minus empty (pre-created, unwritten) directories."""
+    return [p for p in glob.glob(os.path.join(d, "wrfout_d*")) if not _is_empty_dir(p)]
+
+
 def segment_dirs(run_dir):
     """The segment run dirs of a segmented `wtune run --out` dir (OUT/seg_<k>, plus a CFL-rescue
     re-run OUT/seg_<k>_rescue right after its seg_<k>), in segment order -- [] when run_dir holds
     wrfout_d* itself (a flat run dir) or has no seg_<int> subdirs."""
-    if glob.glob(os.path.join(run_dir, "wrfout_d*")):
+    if _wrfout_paths(run_dir):
         return []
     try:
         names = os.listdir(run_dir)
@@ -412,6 +425,8 @@ def _dir_entries(d):
         if not m:
             continue
         path = os.path.join(d, name)
+        if _is_empty_dir(path):
+            continue
         try:
             is_bp = entry.is_dir()          # d_type, no extra stat; follows a symlinked BP dir
         except OSError:

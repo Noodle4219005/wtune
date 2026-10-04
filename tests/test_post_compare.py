@@ -110,6 +110,7 @@ def test_compare_adios2_bp_input_raises_clear_error(tmp_path, monkeypatch):
     a, b = tmp_path / "a", tmp_path / "b"
     a.mkdir(); b.mkdir()
     (a / "wrfout_d01_2005-08-27_00:00:00.bp").mkdir()
+    (a / "wrfout_d01_2005-08-27_00:00:00.bp").joinpath("md.idx").touch()        # an empty dir is not a frame
     _touch(b / "wrfout_d01_2005-08-27_00:00:00")
 
     with pytest.raises(compare.CompareError, match="wrf_adios2_to_netcdf4"):

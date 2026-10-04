@@ -70,6 +70,7 @@ def _no_bp_converter(monkeypatch):
 def test_inventory_detects_adios2_bp_dirs(tmp_path, monkeypatch):
     _no_bp_converter(monkeypatch)
     (tmp_path / "wrfout_d01_2005-08-27_00:00:00.bp").mkdir()
+    (tmp_path / "wrfout_d01_2005-08-27_00:00:00.bp").joinpath("md.idx").touch()        # an empty dir is not a frame
     inv = inventory.inventory(str(tmp_path))
     assert inv["format"] == "adios2_bp"
     assert inv["bp_dirs"]

@@ -2758,8 +2758,9 @@ def resolve_bp_inputs(text, src_dir, cache_dir, convert=True, bp=None, log=None)
     for d in sorted(todo):
         names = [b for b, _ in todo[d]]
         if log:
-            log("ADIOS2 inputs: converting %s from %s into %s (BP4, cached)"
-                % (" ".join(names), d, cache_dir))
+            hit = getattr(bp, "cached_inputs", lambda *a: None)(d, cache_dir, names)
+            verb = "using cached" if hit else "converting"
+            log("ADIOS2 inputs: %s %s from %s in %s (BP4)" % (verb, " ".join(names), d, cache_dir))
         got = bp.convert_inputs(d, cache_dir, names=names)   # engine: wtune_bp.DEFAULT_ENGINE (BP4)
         for base, link in todo[d]:
             target = (got or {}).get(base)

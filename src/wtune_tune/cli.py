@@ -21,7 +21,6 @@ from .predicted import MAX_WALL_FACTOR, PREDICTED_MAX_POINTS, RANK_BY_CHOICES, S
 from .preflight import DEFAULT_WRF_TREE, default_preflight_runner, node_preflight
 from .report import _attach_advice, _emit_report, final_winner, write_report_json
 from . import context as _context
-from . import jobs as _jobs
 from . import node_search as _node_search
 from . import pipeline as _pipeline
 from . import predicted as _predicted
@@ -111,11 +110,6 @@ def run(args: argparse.Namespace, sbatch_runner: Callable | None = None,
           % (o.case, "search" if ns.node_search else ns.nodes, ns.nodes_note,
              ("%.1f min" % o.minutes) if o.minutes is not None else "none", max_nodes, out_dir))
 
-    if o.level != 0 or o.rank_by == "predicted":   # -O0 submits no job
-        try:            # the cache must exist before the first wave (scc jobs 2884/2885)
-            _jobs.ensure_bp_inputs(ctx, [(ctx.case, None)], os.path.join(out_dir, "bp_convert"))
-        except RuntimeError as e:
-            raise SystemExit(str(e)) from e
     s_est, _src, _n = sweep.estimate_s_per_step(ctx.case, ctx.nodes, ctx.ledger_dir,
                                                  ctx.hardware_id)
 

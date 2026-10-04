@@ -167,6 +167,9 @@ def nc2bp_command(ctx: Ctx, cases: list[str], cases_json: str | None, out_dir: s
                os.path.join(campaign, "nc2bp.sbatch")))
 
 
+_BP_READY: set = set()   # (case_id, cases_json) already converted in this process
+
+
 def ensure_bp_inputs(ctx: Ctx, cases: list[tuple], out_dir: str) -> None:
     """Make the BP cache of every (case_id, cases_json) current before its probes: ONE nc2bp job
     for the stale ones, waited for and re-checked; RuntimeError otherwise. Probes converting
@@ -181,6 +184,7 @@ def ensure_bp_inputs(ctx: Ctx, cases: list[tuple], out_dir: str) -> None:
     stale = [(c, j) for c, j in cases if status[c][0] == "stale"]
     if not stale:
         print("bp inputs: cache current")
+        _BP_READY.update(cases)
         return
     names, cases_json = [c for c, _j in stale], stale[0][1]   # one case file per call
     os.makedirs(out_dir, exist_ok=True)
@@ -195,6 +199,7 @@ def ensure_bp_inputs(ctx: Ctx, cases: list[tuple], out_dir: str) -> None:
         raise RuntimeError("ERROR: BP input conversion job %s ended %s; cache not current for %s "
                            "-- no probes submitted (log: %s/nc2bp-%s.out)"
                            % (job_id, state, " ".join(still) or "-", out_dir, job_id))
+    _BP_READY.update(cases)
     print("bp inputs: converted %s in %.0f s (job %s)" % (" ".join(names), ctx.clock.now() - t0,
                                                           job_id))
 
@@ -206,6 +211,11 @@ def fresh_input_export(ctx: Ctx, case_id: str, job_out_dir: str, runs: int,
     submission: a fake runner (tests) never copies."""
     if not _submits_for_real(ctx):
         return []
+    if (case_id, cases_json) not in _BP_READY:   # first submission of this case converts once
+        try:
+            ensure_bp_inputs(ctx, [(case_id, cases_json)], os.path.join(job_out_dir, "bp_convert"))
+        except RuntimeError as e:
+            raise SystemExit(str(e)) from e
     try:
         d = sweep.campaign_configs.fresh_probe_inputs(
             case_id, os.path.join(job_out_dir, "bp_fresh"), runs, cases_json=cases_json)

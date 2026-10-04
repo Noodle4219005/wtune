@@ -6,7 +6,6 @@ import re
 
 import pytest
 
-import wtune_tune
 from wtune_tune import jobs, prediction
 from wtune_tune._deps import sweep
 import test_wtune_tune as T
@@ -89,6 +88,11 @@ class _Cache:
             self.events.append("probe")
             return inner(cmd)
         return run
+
+
+@pytest.fixture(autouse=True)
+def _fresh_bp_memo():
+    jobs._BP_READY.clear()        # conversion is memoized per process
 
 
 def _wire(monkeypatch, cache):

@@ -19,8 +19,9 @@ import sys
 from pathlib import Path
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
-if _HERE not in sys.path:
-    sys.path.insert(0, _HERE)
+for _p in (os.path.join(_HERE, "tools"), _HERE):      # tools/: wtune_io_model's coldstart_sample
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
 import wtune_predict as wp  # parse_namelist / g / g_dom / get_max_dom / get_domain_geom / ...
 import wtune_physics as wphys  # resolve_suite (physics_suite sentinel resolution)
@@ -1365,6 +1366,64 @@ def check_c10_wrfinput_sanity(nl: dict, run_dir: str | Path, findings: list[Find
 
 
 # --------------------------------------------------------------------------
+# C11 -- iofields files are re-parsed at every I/O call (WARN when that costs real time)
+# --------------------------------------------------------------------------
+
+IOFIELDS_WARN_S = 60.0              # WARN above max(this, the fraction below of compute time)
+IOFIELDS_WARN_COMPUTE_FRACTION = 0.02
+IOFIELDS_PARSE_EVIDENCE = ("climate-ea50 on scc, 12 lines / 167 fields: 0.21 s per parse, 38% "
+                           "of a 13-month run (perf job 3134); one merged line bit-identical and "
+                           "10% faster, 30 kept fields listed additively 30% faster (jobs "
+                           "3142-3144)")
+
+
+def _iofields_files(nl, run_dir):
+    """['<name> <lines> line(s) / <fields> field(s)', ...] of the distinct iofields files."""
+    import wtune_iofields
+    out = []
+    for d in range(wp.get_max_dom(nl)):
+        fname = _namelist_file_names(nl, "iofields_filename", None, d)
+        path = _resolve_path(run_dir, fname) if fname else None
+        if path and path.is_file():
+            item = "%s %d line(s) / %d field(s)" % ((fname,) + wtune_iofields.counts(
+                path.read_text()))
+            if item not in out:
+                out.append(item)
+    return out
+
+
+def check_c11_iofields_parse(nl: dict, run_dir: str | Path, findings: list[Finding],
+                             compute_s: float | None = None) -> None:
+    """WRF re-parses the iofields file on rank 0 at every input/output call while the other
+    ranks wait. WARN when that costs the run more than max(60 s, 2% of compute_s), with the
+    seconds as written and after the line merge `wtune run` does (wtune_io_model's term)."""
+    import wtune_io_model as iom
+    raw = iom.case_iofields_calls(nl, str(run_dir), merge=False)
+    if not any(raw):
+        return
+    try:
+        call_s = iom.iofields_call_s(wp.load_calibration(str(wp.DEFAULT_CALIBRATION)))
+    except wp.PredictError:
+        call_s = iom.iofields_call_s()
+    parses = iom.run_length_io(nl)["iofields_parses"]
+    raw_s = iom.iofields_parse_s(parses, raw, call_s)
+    merged_s = iom.iofields_parse_s(parses, iom.case_iofields_calls(nl, str(run_dir)), call_s)
+    if raw_s <= max(IOFIELDS_WARN_S, IOFIELDS_WARN_COMPUTE_FRACTION * (compute_s or 0.0)):
+        return
+    findings.append(Finding(
+        WARN, "C11",
+        "iofields parsing costs about %.0f s of this run as written, %.0f s after `wtune run` "
+        "merges the lines (automatic): %s; WRF re-parses the file at every input/output call "
+        "(%d parses, %d get_fieldstr calls each as written)"
+        % (raw_s, merged_s, "; ".join(_iofields_files(nl, run_dir)), sum(parses), max(raw)),
+        evidence=IOFIELDS_PARSE_EVIDENCE,
+        fix="to cut it further, list only the fields you KEEP, additively, on an auxiliary "
+            "history stream (`+:h:<n>:FIELD,FIELD,...` with auxhist<n>_outname/_interval and "
+            "the default history stream switched off): (5 + kept) calls per parse instead of "
+            "%d. That restructures the output streams, so it stays your decision" % max(raw)))
+
+
+# --------------------------------------------------------------------------
 # orchestration
 # --------------------------------------------------------------------------
 
@@ -1385,6 +1444,7 @@ def run_checks(nl: dict, run_dir: str | Path, namelist_path: str | Path, ranks: 
         ("C8", lambda: check_c8_time_step(nl, findings)),
         ("C9", lambda: check_c9_disk(nl, run_dir, findings)),
         ("C10", lambda: check_c10_wrfinput_sanity(nl, run_dir, findings)),
+        ("C11", lambda: check_c11_iofields_parse(nl, run_dir, findings)),
     ]
     for cid, fn in checks:
         try:

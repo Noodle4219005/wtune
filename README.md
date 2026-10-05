@@ -781,6 +781,12 @@ than the rescue case below stops with an error, never a silent retry.
   stopped with an error (jobs 1537/1538) — detection, one rescue and a clean stop all work. dt 30 s
   and 45 s ran cleanly on dorian's first 30 min, so one 0.75× step cannot rescue a time step that
   is far off; that conservatism is deliberate.
+- **iofields files are staged with their lines merged.** WRF re-parses `iofields_filename` on
+  rank 0 at every input/output call (5 x lines + fields `get_fieldstr` calls, every other rank
+  waiting). Adjacent lines of one `op:kind:stream` prefix become one in the segment dir's copy
+  (same fields, same order; the case dir is never touched) -- climate-ea50, 12 lines x 167
+  fields: bit-identical history, 10% faster (scc jobs 3142-3145). The log says
+  `iofields: <name> 12 -> 1 line(s)`. Tuner probes staged by `link-namelist-files` get the same.
 - `--resume N` (default 1 per run, 0 disables): a segment job lost to the infrastructure -- sacct
   `NODE_FAIL`/`TIMEOUT`/`PREEMPTED`/`BOOT_FAIL`, or a job that ended without `SUCCESS` and with
   no CFL/NaN/segfault/forrtl/FATAL in any rsl; never `CANCELLED` -- is resumed in
@@ -882,6 +888,10 @@ the job's user with lifetime %CPU > 20 and elapsed ≥ 30 s (kernel threads igno
   `aerosol*.formatted` only for `aer_opt=1` on d01; `URBPARM_LCZ.TBL` *replaces* `URBPARM.TBL`
   when `use_wudapt_lcz=1`; GFDL (co2tf-dependent), Goddard, eclipse, slab/RUC/CLM/PX/SSiB,
   `HLC.TBL` for chem.
+- **C11 iofields parse cost.** WARN when re-parsing the iofields file at every I/O call costs
+  more than 60 s of the run (same term as the whole-run prediction's `iofields`): seconds as
+  written and after `wtune run`'s line merge, plus the advice to list the kept fields
+  additively on an auxiliary history stream ((5 + kept) calls per parse).
 - **C10 wrfinput sanity uses land/water masks.** TSLB on land only: exactly 0 is real.exe's
   "undefined" fill → WARN; non-zero outside [200, 350] K → FATAL above 0.1% of the domain's land
   TSLB values, WARN below. SST on water only (exact 0 skipped: inland lakes); SMOIS < 0 → WARN,

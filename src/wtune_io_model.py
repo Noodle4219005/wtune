@@ -15,6 +15,8 @@ module adds, for one unsegmented run of the case's own length:
             seconds
   restart   floor(run_min / restart_interval) writes (all domains in one write) x per-write
             seconds; restart_interval absent -> WRF's Registry default 1440 min
+  iofields  ADIOS2 only: WRF re-parses each domain's iofields file at every input/output call
+            (iofields_parse_s): parses x get_fieldstr calls of the file x seconds per call
 
 Per-unit costs. History and restart are COPIES of wtune_run.py's fallback I/O formula
 (fallback_restart_io_s / fallback_history_frame_s, measured scc anchors scaled by grid points x
@@ -33,6 +35,7 @@ Not included: per-segment startup (the segment count is not known at tune time; 
 segment adds ~init_s, exposed as `init_s` for wtune_run), restart reads, auxhist streams.
 """
 import math
+import os
 
 import coldstart_sample as coldstart    # tools/: wrf_interval_minutes (WRF's own _d/_h/_m/_s sum)
 import wtune_predict as wp
@@ -57,9 +60,17 @@ AUX4_S_PER_COLUMN = CLIMATE_EA50_AUX4_S / CLIMATE_EA50_AUX4_COLUMNS
 # ADIOS2 (io_form 14, the wtune run default; scc rsl "Timing for Writing", 2026-10). History:
 # SC26-P2 0.042 s/write at 170x130x40 (P1 0.044, netCDF 0.888/1.226) -> per point-frame. Boundary:
 # climate-ea50 0.24 s/update (netCDF 0.31); P2 saw ~0.03 s, so the climate anchor is conservative.
-# Restart already has its io_form 14 anchor above. aux reads are left at the netCDF anchor.
+# Restart already has its io_form 14 anchor above. Boundary and aux: climate-ea50 WITHOUT an
+# iofields file (job 3144, 151x111x45, 120 ranks): 0.0216 s per boundary update, and the 0.078 s
+# I/O step less boundary and the 0.0233 s history frame = 0.033 s per auxinput4 read (upper
+# bound: it carries the step's bookkeeping). The earlier 0.24 s boundary anchor held one
+# iofields parse (0.21 s); P2 measured ~0.03 s per update.
 ADIOS2_HISTORY_S_PER_POINT_FRAME = 0.042 / (170 * 130 * 40)
-ADIOS2_BOUNDARY_S_PER_PERIMETER_POINT = 0.24 / CLIMATE_EA50_BOUNDARY_PERIMETER
+ADIOS2_BOUNDARY_S_PER_PERIMETER_POINT = 0.0216 / (2 * (151 + 111) * 45)
+ADIOS2_AUX4_S_PER_COLUMN = 0.033 / (151 * 111)
+# iofields: seconds per get_fieldstr call (scc nvhpc, job 3134 perf: 0.21 s / 227 calls; 0.66-0.89
+# ms measured, more with longer lines). machine/calibration/<site>.json "iofields_call_ms".
+IOFIELDS_CALL_MS = 0.9
 ADIOS2_IO_FORM = 14
 DEFAULT_IO_FORMAT = "adios2"
 WRF_DEFAULT_RESTART_INTERVAL_MIN = 1440.0            # Registry default when the namelist omits it
@@ -104,9 +115,45 @@ def boundary_update_s(e_we, e_sn, e_vert, io_format="netcdf"):
     return 2 * (e_we + e_sn) * e_vert * rate
 
 
-def aux4_read_s(e_we, e_sn):
+def aux4_read_s(e_we, e_sn, io_format="netcdf"):
     """Seconds of one auxinput4 (wrflowinp) read for one domain."""
-    return e_we * e_sn * AUX4_S_PER_COLUMN
+    return e_we * e_sn * (ADIOS2_AUX4_S_PER_COLUMN if io_format == "adios2"
+                          else AUX4_S_PER_COLUMN)
+
+
+def iofields_call_s(calibration=None):
+    """Seconds per get_fieldstr call: the machine calibration's iofields_call_ms, else 0.9 ms."""
+    return float((calibration or {}).get("iofields_call_ms", IOFIELDS_CALL_MS)) / 1000.0
+
+
+def iofields_parses(frames, frames_per_outfile, n_aux, n_boundary):
+    """Per-domain count of iofields parses in a run: one per history frame, one more per
+    history file opened, two per auxinput read, one per boundary update (d01 only)."""
+    return [n + (-(-n // max(1, int(fpo)))) + 2 * aux + (n_boundary if d == 0 else 0)
+            for d, (n, fpo, aux) in enumerate(zip(frames, frames_per_outfile, n_aux))]
+
+
+def iofields_parse_s(parses, calls, call_s):
+    """Seconds a run spends re-parsing iofields files: per domain parses x get_fieldstr calls
+    of its file (wtune_iofields.parse_calls; 0/None = no file) x seconds per call."""
+    return sum(n * (c or 0) for n, c in zip(parses, calls or [])) * call_s
+
+
+def case_iofields_calls(nl, case_dir, merge=True):
+    """Per-domain get_fieldstr calls per parse of the case's iofields files as `wtune run`
+    stages them (lines merged; merge=False: as written); 0 where a domain names no file or it
+    is missing."""
+    import wtune_iofields
+    out = []
+    for d in range(wp.get_max_dom(nl)):
+        name = str(wp.g_dom(nl, "time_control", "iofields_filename", d, "") or "").strip()
+        path = os.path.join(case_dir, name.replace("<domain>", "%02d" % (d + 1)))
+        text = ""
+        if name and name.upper() != "NONE_SPECIFIED" and os.path.isfile(path):
+            with open(path) as f:
+                text = f.read()
+        out.append(wtune_iofields.parse_calls(wtune_iofields.merged(text) if merge else text))
+    return out
 
 
 def history_frames_whole_run(run_s, iv_s, begin_s=0.0):
@@ -132,16 +179,20 @@ def _flag(v):
     return v is True or str(v).strip().strip(".").lower() in ("true", "t", "1")
 
 
-def run_length_io(nl, run_s=None, io="adios2"):
+def run_length_io(nl, run_s=None, io="adios2", iofields_calls=None, call_s=None):
     """Run-length I/O of one unsegmented run of namelist `nl` ({group: {key: [values]}}, as
     wtune_predict.parse_namelist returns). run_s defaults to the d01 run length. Returns a dict:
-    total_s, history_s, boundary_s, aux_s, restart_s, and the counts / per-unit costs behind each
-    (history_frames, history_frame_s per domain; n_boundary, boundary_update_s; n_aux,
-    aux_read_s per domain; n_restart, restart_write_s, restart_interval_min, io_form_restart),
-    plus run_s, points, io_format, source. `io` is the run's I/O format ("adios2", the wtune run
+    total_s, history_s, boundary_s, aux_s, restart_s, iofields_s and the counts / per-unit costs
+    behind each (history_frames, history_frame_s per domain; n_boundary, boundary_update_s; n_aux,
+    aux_read_s per domain; n_restart, restart_write_s, restart_interval_min, io_form_restart;
+    iofields_parses, iofields_calls, iofields_call_s), plus run_s, points, io_format, source.
+    `io` is the run's I/O format ("adios2", the wtune run
     default, or "netcdf" = --io netcdf): netCDF keeps the namelist's io_form_restart and the
-    original anchors; adios2 prices history/boundary at the ADIOS2 anchors and restart as io_form 14.
-    The namelist's own io_form_history only switches history on/off (0 = off) either way."""
+    original anchors; adios2 prices history/boundary/aux at the ADIOS2 anchors and restart as
+    io_form 14. The namelist's own io_form_history only switches history on/off (0 = off) either
+    way. iofields_calls (per domain, case_iofields_calls) and call_s (iofields_call_s) price the
+    iofields re-parsing -- ADIOS2 only: the netCDF boundary/aux anchors are the climate-ea50 rsl,
+    measured with that case's iofields file, so they already hold its parses."""
     fmt = normalize_io_format(io)
     if run_s is None:
         run_s = wp.get_d01_steps(nl)[1]
@@ -164,7 +215,7 @@ def run_length_io(nl, run_s=None, io="adios2"):
     bdy_one = boundary_update_s(*geom[0], io_format=fmt)
     boundary_s = n_bdy * bdy_one
 
-    n_aux, aux_one = [0] * max_dom, [aux4_read_s(a, b) for a, b, _c in geom]
+    n_aux, aux_one = [0] * max_dom, [aux4_read_s(a, b, fmt) for a, b, _c in geom]
     if int(wp.g(nl, "physics", "sst_update", 0) or 0) == 1:
         for d in range(max_dom):
             n_aux[d] = _events(run_s, coldstart.wrf_interval_minutes(nl, "auxinput4_interval",
@@ -180,14 +231,23 @@ def run_length_io(nl, run_s=None, io="adios2"):
     n_rst = _events(run_s, rst_min * 60.0)
     restart_s = n_rst * rst_w
 
-    total = history_s + boundary_s + aux_s + restart_s
+    fpo = [wp.g_dom(nl, "time_control", "frames_per_outfile", d, 1) or 1 for d in range(max_dom)]
+    parses = iofields_parses(frames, fpo, n_aux, n_bdy)
+    calls = list(iofields_calls or [0] * max_dom) if fmt == "adios2" else [0] * max_dom
+    call_s = iofields_call_s() if call_s is None else call_s
+    iofields_s = iofields_parse_s(parses, calls, call_s)
+
+    total = history_s + boundary_s + aux_s + restart_s + iofields_s
     return dict(total_s=total, history_s=history_s, boundary_s=boundary_s, aux_s=aux_s,
-                restart_s=restart_s, history_frames=frames, history_frame_s=frame_s,
+                restart_s=restart_s, iofields_s=iofields_s, iofields_parses=parses,
+                iofields_calls=calls, iofields_call_s=call_s,
+                history_frames=frames, history_frame_s=frame_s,
                 n_boundary=n_bdy, boundary_update_s=bdy_one, n_aux=n_aux, aux_read_s=aux_one,
                 n_restart=n_rst, restart_write_s=rst_w, restart_interval_min=rst_min,
                 io_form_restart=io_rst, run_s=run_s, points=points, io_format=fmt,
                 source="wtune_io_model[%s] (history/restart: wtune_run fallback anchors, "
-                       "adios2 history: SC26-P2 rsl; boundary/aux: climate-ea50 rsl)" % fmt)
+                       "adios2 history: SC26-P2 rsl; boundary/aux: climate-ea50 rsl; iofields: "
+                       "parses x get_fieldstr calls)" % fmt)
 
 
 def _s(x):
@@ -195,11 +255,13 @@ def _s(x):
 
 
 def breakdown_line(compute_s, io, init_s):
-    """'compute X + history Y + boundary Z + aux W + restart R + init I = TOTAL' (seconds)."""
+    """'compute X + history Y + boundary Z + aux W + restart R + init I = TOTAL' (seconds);
+    '+ iofields P' after restart when the run re-parses an iofields file."""
     total = compute_s + io["total_s"] + init_s
-    return ("compute %s + history %s + boundary %s + aux %s + restart %s + init %s = %s"
+    iof = " + iofields %s" % _s(io["iofields_s"]) if io.get("iofields_s") else ""
+    return ("compute %s + history %s + boundary %s + aux %s + restart %s%s + init %s = %s"
             % (_s(compute_s), _s(io["history_s"]), _s(io["boundary_s"]), _s(io["aux_s"]),
-               _s(io["restart_s"]), _s(init_s), _s(total)))
+               _s(io["restart_s"]), iof, _s(init_s), _s(total)))
 
 
 def segment_note(init_s):

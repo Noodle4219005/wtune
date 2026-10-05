@@ -2470,6 +2470,17 @@ def stage_namelist_files(text, run_dir, search_dirs):
     return out
 
 
+def merge_iofields(text, run_dir):
+    """Merge the lines of run_dir's iofields files (src/wtune_iofields: same fields, fewer
+    lines for WRF to re-parse at every I/O call) -> log lines. Only run_dir is written."""
+    src = os.path.join(REPO_ROOT, "src")
+    if src not in sys.path:
+        sys.path.insert(0, src)
+    import wtune_iofields
+    names = [n for key, n, _req in namelist_file_refs(text) if key == "iofields_filename"]
+    return wtune_iofields.merge_log_lines(wtune_iofields.merge_in_dir(run_dir, names))
+
+
 def format_namelist_stage(result, search_dirs):
     """Log lines for stage_namelist_files' result (missing ones as WARNING lines)."""
     lines = ["namelist file: linked %s (%s) from %s" % (n, k, s) for k, n, s in result["linked"]]
@@ -2951,15 +2962,15 @@ def _shq(v):
 
 def _cmd_link_namelist_files(argv):
     """configs.py link-namelist-files NAMELIST RUN_DIR SEARCH_DIR... (from a staged run dir, once
-    namelist.input is final): stage_namelist_files + its log lines; exits 0 (a missing file is
-    reported, not fatal -- `wtune check` is the gate)."""
+    namelist.input is final): stage_namelist_files + its log lines, then merge_iofields; exits 0
+    (a missing file is reported, not fatal -- `wtune check` is the gate)."""
     if len(argv) < 2:
         sys.stderr.write("usage: configs.py link-namelist-files NAMELIST RUN_DIR SEARCH_DIR...\n")
         return 2
     with open(argv[0]) as f:
         text = f.read()
     res = stage_namelist_files(text, argv[1], argv[2:])
-    for line in format_namelist_stage(res, argv[2:]):
+    for line in format_namelist_stage(res, argv[2:]) + merge_iofields(text, argv[1]):
         (sys.stderr if line.startswith("WARNING") else sys.stdout).write(line + "\n")
     return 0
 

@@ -687,14 +687,19 @@ def time_suggestion_s(T_s: float, band: float, step_s: float = TIME_STEP_S) -> f
 
 
 def pipeline_run_length_io(namelist_path: str | None, io: str | None = None) -> dict | None:
-    """wtune_io_model.run_length_io of the case namelist (history, boundary, auxinput4 and
-    restart I/O of one unsegmented run); `io` adios2 (default) | netcdf; None, with the reason
-    printed, when unavailable."""
+    """wtune_io_model.run_length_io of the case namelist (history, boundary, auxinput4,
+    restart I/O and iofields re-parsing of one unsegmented run); `io` adios2 (default) |
+    netcdf; None, with the reason printed, when unavailable."""
     if wtune_io_model is None or wtune_predict is None or not namelist_path:
         return None
     try:
-        return wtune_io_model.run_length_io(wtune_predict.parse_namelist(namelist_path),
-                                            io=io or wtune_io_model.DEFAULT_IO_FORMAT)
+        nl = wtune_predict.parse_namelist(namelist_path)
+        cal = wtune_predict.load_calibration(str(wtune_predict.DEFAULT_CALIBRATION))
+        return wtune_io_model.run_length_io(
+            nl, io=io or wtune_io_model.DEFAULT_IO_FORMAT,
+            iofields_calls=wtune_io_model.case_iofields_calls(
+                nl, os.path.dirname(os.path.abspath(namelist_path))),
+            call_s=wtune_io_model.iofields_call_s(cal))
     except Exception as e:                                  # noqa: BLE001
         print("pipeline: run-length I/O model unavailable (%s: %s) -- whole-run prediction is "
               "compute + init only" % (type(e).__name__, e))

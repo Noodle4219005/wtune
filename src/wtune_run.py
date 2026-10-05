@@ -102,7 +102,9 @@ Segment run dir (setup_segment_dir): symlinks to every regular file of CASE_DIR 
 rsl.*, wrfout*, wrfrst*, wrf.out (plus ADIOS2 *.bp input directories), every file the namelist
 names (iofields_filename, sst_update's auxinput4 wrflowinp, fdda, auxinput*, tslist -- configs.
 stage_namelist_files; also from a subdirectory of CASE_DIR), WRF_TREE/run/* not already present,
-the previous segment's wrfrst_d<NN>_<start> for k > 0, a fresh namelist.input, and for io_form 14
+the previous segment's wrfrst_d<NN>_<start> for k > 0, a fresh namelist.input, the iofields
+file(s) as a regular file with adjacent same-prefix lines merged when that changes them
+(wtune_iofields: same masks, WRF re-parses the file at every I/O call), and for io_form 14
 an adios2.xml selecting the BP4 engine for every restart file the segment reads or writes
 (campaign/strict_campaign.sbatch write_adios2_restart_xml, same content; a case adios2.xml is
 copied with these entries appended instead of being linked). History output stays in each
@@ -1408,13 +1410,15 @@ def _stage_attempt(ctx, k, seg, att):
                                bp_links=ctx.get("bp_links"),
                                fresh_sources=ctx.get("bp_fresh_sources"),
                                copier=ctx.get("bp_copier"))
+    merged = sweep.campaign_configs.merge_iofields(txt, seg_dir)
     out_names = []
     if ctx.get("io_streams") is not None:
         nl_seg = wp.parse_namelist(os.path.join(seg_dir, "namelist.input"))
         out_names = output_dir_names(nl_seg, t_a, t_b, geo["max_dom"])
         log("  pre-created %d output dirs" % precreate_output_dirs(seg_dir, out_names))
     if k == 0 and not seg["attempts"]:
-        for ln in sweep.campaign_configs.format_namelist_stage(staged, [ctx["case_dir"]]):
+        staged = sweep.campaign_configs.format_namelist_stage(staged, [ctx["case_dir"]])
+        for ln in staged + merged:
             log(ln)
     return seg_dir, out_names
 

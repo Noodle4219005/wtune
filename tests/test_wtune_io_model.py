@@ -197,7 +197,7 @@ def test_adios2_is_lower_by_the_history_and_boundary_difference(tmp_path):
     assert ad["history_s"] == pytest.approx(49 * 0.042, rel=1e-9)           # SC26-P2 rsl 0.042 s
     assert ad["history_s"] == pytest.approx(49 * pts * iom.ADIOS2_HISTORY_S_PER_POINT_FRAME)
     assert nc["history_s"] - ad["history_s"] == pytest.approx(39.0 - 2.06, abs=0.1)
-    assert ad["boundary_s"] == pytest.approx(8 * 2 * 300 * 40 * 0.24 / (2 * 260 * 45), rel=1e-9)
+    assert ad["boundary_s"] == pytest.approx(8 * 2 * 300 * 40 * 0.0216 / (2 * 262 * 45), rel=1e-9)
     assert ad["boundary_s"] < nc["boundary_s"]
     assert ad["total_s"] == pytest.approx(nc["total_s"] - (nc["history_s"] - ad["history_s"])
                                           - (nc["boundary_s"] - ad["boundary_s"]))
@@ -221,3 +221,75 @@ def test_io_format_selection(spelling, fmt):
 def test_unknown_io_format_is_refused():
     with pytest.raises(ValueError):
         iom.normalize_io_format("hdf5")
+
+
+# --- iofields re-parsing + the ADIOS2 anchors without it (climate-ea50 jobs 3123, 3142-3144) ---
+CLIMATE_151 = CLIMATE_EA50.replace("e_we = 150, e_sn = 110", "e_we = 151, e_sn = 111")
+IO_STEPS = 1584
+
+
+def test_iofields_parses_per_event():
+    # history frame 1 + file open 1/4 + auxinput4 read 2 + boundary update 1 = 4.25 per I/O step
+    assert iom.iofields_parses([1585], [4], [1584], 1584) == [1585 + 397 + 3168 + 1584]
+    assert iom.iofields_parses([13, 25], [1, 10], [0, 4], 2) == [13 + 13 + 2, 25 + 3 + 8]
+    assert iom.iofields_parse_s([6734, 10], [172, 0], 0.0009) == pytest.approx(6734 * 172 * 0.0009)
+    assert iom.iofields_parse_s([6734], None, 0.0009) == 0.0
+
+
+def test_iofields_term_is_zero_without_a_file_and_in_the_total_with_one(tmp_path):
+    nl = _nl(tmp_path, CLIMATE_151)
+    none, one = iom.run_length_io(nl), iom.run_length_io(nl, iofields_calls=[172])
+    assert none["iofields_s"] == 0.0 and none["iofields_parses"] == [6734]
+    assert one["iofields_s"] == pytest.approx(6734 * 172 * 0.0009)
+    assert one["total_s"] == pytest.approx(none["total_s"] + one["iofields_s"])
+    assert iom.run_length_io(nl, iofields_calls=[172], call_s=0.001)["iofields_s"] == \
+        pytest.approx(6734 * 0.172)
+    assert iom.breakdown_line(100.0, one, 50.0) == (
+        "compute 100s + history 57s + boundary 34s + aux 52s + restart 0s + iofields 1042s "
+        "+ init 50s = 1336s")
+    assert "iofields" not in iom.breakdown_line(100.0, none, 50.0)
+
+
+def test_netcdf_totals_do_not_move_with_iofields(tmp_path):
+    for text, total in ((CLIMATE_EA50, 1846.1), (SC26_P2, 41.6)):
+        nl = _nl(tmp_path, text)
+        nc = iom.run_length_io(nl, io="netcdf", iofields_calls=[227])
+        assert nc["iofields_s"] == 0.0 and nc["total_s"] == pytest.approx(total, abs=1.0)
+        assert nc["total_s"] == iom.run_length_io(nl, io="netcdf")["total_s"]
+
+
+def test_climate_ea50_adios2_io_steps_near_the_measured_arms(tmp_path):
+    nl = _nl(tmp_path, CLIMATE_151)
+    def per_step(calls):
+        return iom.run_length_io(nl, iofields_calls=[calls])["total_s"] / IO_STEPS
+    assert per_step(227) == pytest.approx(0.99, rel=0.05)      # A0: 12 lines x 167 fields
+    assert per_step(172) == pytest.approx(0.72, rel=0.05)      # M: merged to one line
+    assert per_step(35) == pytest.approx(0.218, rel=0.05)      # P: 30 kept fields, additive
+    assert per_step(0) == pytest.approx(0.078, rel=0.20)       # N: no iofields file
+    io = iom.run_length_io(nl)
+    assert io["boundary_update_s"] == pytest.approx(0.0216) and io["aux_read_s"] == [
+        pytest.approx(0.033)]
+
+
+def test_sc26p2_adios2_anchors_against_its_rsl(tmp_path):
+    io = iom.run_length_io(_nl(tmp_path, SC26_P2))
+    assert io["history_frame_s"] == [pytest.approx(0.042)]
+    assert io["boundary_update_s"] == pytest.approx(0.03, rel=0.30)     # 0.022 vs ~0.03 measured
+    assert io["iofields_s"] == 0.0 and io["aux_s"] == 0.0
+
+
+def test_case_iofields_calls_reads_the_files_as_run_stages_them(tmp_path):
+    text = THREE_DOM.replace(" io_form_history = 2", ' iofields_filename = "io_d<domain>.txt", '
+                             '"io_d<domain>.txt", "NONE_SPECIFIED",\n io_form_history = 2')
+    (tmp_path / "io_d01.txt").write_text("-:h:0:U,V\n-:h:0:W\n")
+    nl = _nl(tmp_path, text)                               # io_d02.txt is missing
+    assert iom.case_iofields_calls(nl, str(tmp_path)) == [5 + 3, 0, 0]
+    assert iom.case_iofields_calls(nl, str(tmp_path), merge=False) == [10 + 3, 0, 0]
+    assert iom.case_iofields_calls(_nl(tmp_path, THREE_DOM), str(tmp_path)) == [0, 0, 0]
+
+
+def test_call_seconds_come_from_the_machine_calibration():
+    cal = wp.load_calibration(str(wp.DEFAULT_CALIBRATION))
+    assert cal["iofields_call_ms"] == 0.9
+    assert iom.iofields_call_s(cal) == pytest.approx(0.0009) == iom.iofields_call_s({})
+    assert iom.iofields_call_s({"iofields_call_ms": 0.66}) == pytest.approx(0.00066)

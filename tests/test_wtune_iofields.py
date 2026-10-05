@@ -119,12 +119,12 @@ def test_run_stages_a_merged_copy_and_never_touches_the_case(tmp_path, extra):
 def test_run_leaves_a_one_line_file_linked_and_does_nothing_without_iofields(tmp_path):
     case = _case_with_iofields(tmp_path, "-:h:0:U,V\n")
     rc, out, rep, lines = _run(tmp_path, Fakes())
-    assert rc == 0 and not any("iofields:" in ln for ln in lines)
+    assert rc == 0 and not any(ln.startswith("  iofields:") for ln in lines)
     assert os.readlink(out / "seg_0" / "iofields_d01.txt") == str(case / "iofields_d01.txt")
     other = tmp_path / "plain"
     other.mkdir()
     rc, out, rep, lines = _run(other, Fakes())                 # the case names no iofields file
-    assert rc == 0 and not any("iofields" in ln for ln in lines)
+    assert rc == 0 and not any(ln.startswith("  iofields:") for ln in lines)   # tmp paths may say iofields
 
 
 def test_probe_staging_merges_too(tmp_path, capsys):

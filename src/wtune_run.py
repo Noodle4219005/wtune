@@ -1745,6 +1745,8 @@ def main(argv=None, sbatch_runner=None, sacct_runner=None, snapshot_fn=None, sle
     try:
         if os.path.commonpath([out, case_dir]) == case_dir:
             raise RunError("--out must be outside CASE_DIR (the case is never modified)")
+        if not a.dry_run and os.path.isdir(os.path.join(out, "seg_0")):
+            raise RunError("%s already holds a run (seg_0): choose another --out" % out)
         nml = os.path.join(case_dir, "namelist.input")
         with open(nml) as f:
             text = f.read()

@@ -1301,3 +1301,11 @@ def test_watch_and_post_ignore_empty_wrfout_dir(tmp_path):
     assert extract.segment_dirs(str(run / "seg_0")) == []
     (run / "seg_0" / "wrfout_d01_2020-06-01_03:00:00" / "md.idx").write_text("x")
     assert wtune_watch.latest_wrfout(str(run / "seg_0"))[0] == datetime.datetime(2020, 6, 1, 3)
+
+
+def test_existing_run_dir_is_refused_before_planning(tmp_path, capsys):
+    f = Fakes()
+    (tmp_path / "out" / "seg_0").mkdir(parents=True)
+    rc, _out, _rep, lines = _run(tmp_path, f)
+    assert rc != 0 and f.submitted == [] and lines == []      # refused before the plan is printed
+    assert "already holds a run" in capsys.readouterr().err

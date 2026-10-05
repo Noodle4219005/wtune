@@ -6,6 +6,9 @@ import sys
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# another test module may have imported configs with SITE=scc (scc_sweep sets it): start clean
+os.environ.pop("SITE", None)
+sys.modules.pop("configs", None)
 import configs  # noqa: E402
 
 
@@ -2037,6 +2040,7 @@ class TestCasesJsonEnv(unittest.TestCase):
         import subprocess
         env = dict(os.environ)
         env.pop("CASES_JSON", None)
+        env.pop("SITE", None)        # the scc overlay would add its own cases
         if env_value is not None:
             env["CASES_JSON"] = env_value
         code = "import json, configs; print(json.dumps([configs.CASES_JSON_PATH, sorted(configs.CASES)]))"

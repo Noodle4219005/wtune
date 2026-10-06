@@ -1,0 +1,2403 @@
+{
+ "cf": {
+  "convert": {
+   "nc": {
+    "attrs": {
+     "Conventions": "CF-1.8",
+     "history": "<TS>: wtune post cf3d x",
+     "source": "WRF V4.5.1",
+     "title": "WRF d01 pressure-level fields on a regular lon-lat grid",
+     "wtune_boundary_zone_cells": "5",
+     "wtune_domain": "1",
+     "wtune_dropped_levels_hpa": "[200. 150. 100.]",
+     "wtune_grid_spacing_deg": "0.11",
+     "wtune_model_top_hpa": "200.0",
+     "wtune_native_projection": "+proj=lcc +units=m +a=6370000.0 +b=6370000.0 +lat_1=30.0 +lat_2=60.0 +lat_0=38.0 +lon_0=-98.0 +nadgrids=@null +type=crs",
+     "wtune_pressure_levels_hpa": "[1000.  975.  950.  925.  900.  850.  800.  750.  700.  650.  600.  550.\n  500.  450.  400.  350.  300.  250.]",
+     "wtune_qice": "present",
+     "wtune_regrid_method": "bilinear in native WRF projected x/y (pyproj + scipy.ndimage.map_coordinates order=1); target points outside the native grid or inside the lateral boundary zone are _FillValue",
+     "wtune_vertical_interpolation": "wrf-python interplevel on mass-level pressure, no extrapolation; below-ground points are _FillValue",
+     "wtune_wrfout": "<TMP>/wrfout_d01_2005-08-28_06:00:00",
+     "wtune_wrfout_native": "netcdf"
+    },
+    "dims": {
+     "isobaric": [
+      18,
+      false
+     ],
+     "lat": [
+      14,
+      false
+     ],
+     "lon": [
+      25,
+      false
+     ],
+     "time": [
+      1,
+      true
+     ]
+    },
+    "vars": {
+     "CLOUD_TOTAL": {
+      "attrs": {
+       "_FillValue": "9.96921e+36",
+       "comment": "levels below the lowest model mass level (below ground) are _FillValue; no extrapolation",
+       "long_name": "cloud water + cloud ice mixing ratio (QCLOUD+QICE)",
+       "missing_value": "9.96921e+36",
+       "units": "kg kg-1"
+      },
+      "dims": [
+       "time",
+       "isobaric",
+       "lat",
+       "lon"
+      ],
+      "dtype": "float32",
+      "filters": {
+       "blosc": "False",
+       "bzip2": "False",
+       "complevel": "4",
+       "fletcher32": "False",
+       "shuffle": "True",
+       "szip": "False",
+       "zlib": "True",
+       "zstd": "False"
+      },
+      "masked": 831,
+      "sha256": "68b614136f00e2f482290cc67e0187be1d96b5e51ec69a0f63a68f2660afc755",
+      "shape": [
+       1,
+       18,
+       14,
+       25
+      ]
+     },
+     "QCLOUD": {
+      "attrs": {
+       "_FillValue": "9.96921e+36",
+       "comment": "levels below the lowest model mass level (below ground) are _FillValue; no extrapolation",
+       "long_name": "cloud water mixing ratio",
+       "missing_value": "9.96921e+36",
+       "units": "kg kg-1"
+      },
+      "dims": [
+       "time",
+       "isobaric",
+       "lat",
+       "lon"
+      ],
+      "dtype": "float32",
+      "filters": {
+       "blosc": "False",
+       "bzip2": "False",
+       "complevel": "4",
+       "fletcher32": "False",
+       "shuffle": "True",
+       "szip": "False",
+       "zlib": "True",
+       "zstd": "False"
+      },
+      "masked": 831,
+      "sha256": "7bed208de120b00af469e8e797f674936e8f4c9bc0ecfc7af8b742c16aae2f2c",
+      "shape": [
+       1,
+       18,
+       14,
+       25
+      ]
+     },
+     "QICE": {
+      "attrs": {
+       "_FillValue": "9.96921e+36",
+       "comment": "levels below the lowest model mass level (below ground) are _FillValue; no extrapolation",
+       "long_name": "cloud ice mixing ratio",
+       "missing_value": "9.96921e+36",
+       "units": "kg kg-1"
+      },
+      "dims": [
+       "time",
+       "isobaric",
+       "lat",
+       "lon"
+      ],
+      "dtype": "float32",
+      "filters": {
+       "blosc": "False",
+       "bzip2": "False",
+       "complevel": "4",
+       "fletcher32": "False",
+       "shuffle": "True",
+       "szip": "False",
+       "zlib": "True",
+       "zstd": "False"
+      },
+      "masked": 831,
+      "sha256": "aea6d1cf664c0d6c85cd5622392dd9af459dadf0d1c3543679a8d9bff7892bad",
+      "shape": [
+       1,
+       18,
+       14,
+       25
+      ]
+     },
+     "air_temperature": {
+      "attrs": {
+       "_FillValue": "9.96921e+36",
+       "comment": "levels below the lowest model mass level (below ground) are _FillValue; no extrapolation",
+       "long_name": "air temperature (wrf-python 'tk')",
+       "missing_value": "9.96921e+36",
+       "standard_name": "air_temperature",
+       "units": "K"
+      },
+      "dims": [
+       "time",
+       "isobaric",
+       "lat",
+       "lon"
+      ],
+      "dtype": "float32",
+      "filters": {
+       "blosc": "False",
+       "bzip2": "False",
+       "complevel": "4",
+       "fletcher32": "False",
+       "shuffle": "True",
+       "szip": "False",
+       "zlib": "True",
+       "zstd": "False"
+      },
+      "masked": 831,
+      "sha256": "a819ea713c76c0ab9273199759686d8fcc0418097e2244ab56174c3b722f5797",
+      "shape": [
+       1,
+       18,
+       14,
+       25
+      ]
+     },
+     "eastward_wind": {
+      "attrs": {
+       "_FillValue": "9.96921e+36",
+       "comment": "levels below the lowest model mass level (below ground) are _FillValue; no extrapolation",
+       "long_name": "earth-relative eastward wind (wrf-python 'uvmet', rotated from grid-relative U)",
+       "missing_value": "9.96921e+36",
+       "standard_name": "eastward_wind",
+       "units": "m s-1"
+      },
+      "dims": [
+       "time",
+       "isobaric",
+       "lat",
+       "lon"
+      ],
+      "dtype": "float32",
+      "filters": {
+       "blosc": "False",
+       "bzip2": "False",
+       "complevel": "4",
+       "fletcher32": "False",
+       "shuffle": "True",
+       "szip": "False",
+       "zlib": "True",
+       "zstd": "False"
+      },
+      "masked": 831,
+      "sha256": "caa547d2d5e9302a6637d8ef705b700796540e11ee158dab52bf785b3c5f1b30",
+      "shape": [
+       1,
+       18,
+       14,
+       25
+      ]
+     },
+     "forecast_reference_time": {
+      "attrs": {
+       "calendar": "standard",
+       "long_name": "simulation start (SIMULATION_START_DATE)",
+       "standard_name": "forecast_reference_time",
+       "units": "hours since 2005-08-28 00:00:00"
+      },
+      "dims": [],
+      "dtype": "float64",
+      "filters": {
+       "blosc": "False",
+       "bzip2": "False",
+       "complevel": "0",
+       "fletcher32": "False",
+       "shuffle": "False",
+       "szip": "False",
+       "zlib": "False",
+       "zstd": "False"
+      },
+      "masked": 0,
+      "sha256": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "shape": []
+     },
+     "geopotential_height": {
+      "attrs": {
+       "_FillValue": "9.96921e+36",
+       "comment": "levels below the lowest model mass level (below ground) are _FillValue; no extrapolation",
+       "long_name": "geopotential height (wrf-python 'z')",
+       "missing_value": "9.96921e+36",
+       "standard_name": "geopotential_height",
+       "units": "m"
+      },
+      "dims": [
+       "time",
+       "isobaric",
+       "lat",
+       "lon"
+      ],
+      "dtype": "float32",
+      "filters": {
+       "blosc": "False",
+       "bzip2": "False",
+       "complevel": "4",
+       "fletcher32": "False",
+       "shuffle": "True",
+       "szip": "False",
+       "zlib": "True",
+       "zstd": "False"
+      },
+      "masked": 831,
+      "sha256": "d573ae9302ccc2b8af2fd09376525fdaa91909d38de2989eb3800066594d72e3",
+      "shape": [
+       1,
+       18,
+       14,
+       25
+      ]
+     },
+     "isobaric": {
+      "attrs": {
+       "axis": "Z",
+       "long_name": "Isobaric surface",
+       "positive": "down",
+       "standard_name": "air_pressure",
+       "units": "hPa"
+      },
+      "dims": [
+       "isobaric"
+      ],
+      "dtype": "float32",
+      "filters": {
+       "blosc": "False",
+       "bzip2": "False",
+       "complevel": "0",
+       "fletcher32": "False",
+       "shuffle": "False",
+       "szip": "False",
+       "zlib": "False",
+       "zstd": "False"
+      },
+      "masked": 0,
+      "sha256": "b71a3e4b1a2eaa4203b8d32b4426f2899856f1efbd6aee790f4e2d8fa8e1a731",
+      "shape": [
+       18
+      ]
+     },
+     "lat": {
+      "attrs": {
+       "axis": "Y",
+       "long_name": "latitude",
+       "standard_name": "latitude",
+       "units": "degrees_north"
+      },
+      "dims": [
+       "lat"
+      ],
+      "dtype": "float64",
+      "filters": {
+       "blosc": "False",
+       "bzip2": "False",
+       "complevel": "0",
+       "fletcher32": "False",
+       "shuffle": "False",
+       "szip": "False",
+       "zlib": "False",
+       "zstd": "False"
+      },
+      "masked": 0,
+      "sha256": "bfec4d184fe85bfac2f0eec74fe36c618e177dd4370149eb4638f267811e66b3",
+      "shape": [
+       14
+      ]
+     },
+     "lon": {
+      "attrs": {
+       "axis": "X",
+       "long_name": "longitude",
+       "standard_name": "longitude",
+       "units": "degrees_east"
+      },
+      "dims": [
+       "lon"
+      ],
+      "dtype": "float64",
+      "filters": {
+       "blosc": "False",
+       "bzip2": "False",
+       "complevel": "0",
+       "fletcher32": "False",
+       "shuffle": "False",
+       "szip": "False",
+       "zlib": "False",
+       "zstd": "False"
+      },
+      "masked": 0,
+      "sha256": "03690a001f83abaa4bbc4ef7448130e19a3d6808c3496b509e5b7fd698bc539e",
+      "shape": [
+       25
+      ]
+     },
+     "northward_wind": {
+      "attrs": {
+       "_FillValue": "9.96921e+36",
+       "comment": "levels below the lowest model mass level (below ground) are _FillValue; no extrapolation",
+       "long_name": "earth-relative northward wind (wrf-python 'uvmet', rotated from grid-relative V)",
+       "missing_value": "9.96921e+36",
+       "standard_name": "northward_wind",
+       "units": "m s-1"
+      },
+      "dims": [
+       "time",
+       "isobaric",
+       "lat",
+       "lon"
+      ],
+      "dtype": "float32",
+      "filters": {
+       "blosc": "False",
+       "bzip2": "False",
+       "complevel": "4",
+       "fletcher32": "False",
+       "shuffle": "True",
+       "szip": "False",
+       "zlib": "True",
+       "zstd": "False"
+      },
+      "masked": 831,
+      "sha256": "0a8fd894206cb78772fdf6d8c66c767ac214437d267a39787e905e31c3115750",
+      "shape": [
+       1,
+       18,
+       14,
+       25
+      ]
+     },
+     "relative_humidity": {
+      "attrs": {
+       "_FillValue": "9.96921e+36",
+       "comment": "levels below the lowest model mass level (below ground) are _FillValue; no extrapolation",
+       "long_name": "relative humidity (wrf-python 'rh')",
+       "missing_value": "9.96921e+36",
+       "standard_name": "relative_humidity",
+       "units": "%"
+      },
+      "dims": [
+       "time",
+       "isobaric",
+       "lat",
+       "lon"
+      ],
+      "dtype": "float32",
+      "filters": {
+       "blosc": "False",
+       "bzip2": "False",
+       "complevel": "4",
+       "fletcher32": "False",
+       "shuffle": "True",
+       "szip": "False",
+       "zlib": "True",
+       "zstd": "False"
+      },
+      "masked": 831,
+      "sha256": "5dfc9f762009a4eef98776b59b3f2dbf026cc7a3865da319c7a55f87eeb09b15",
+      "shape": [
+       1,
+       18,
+       14,
+       25
+      ]
+     },
+     "surface_altitude": {
+      "attrs": {
+       "_FillValue": "9.96921e+36",
+       "long_name": "model terrain height (HGT)",
+       "missing_value": "9.96921e+36",
+       "standard_name": "surface_altitude",
+       "units": "m"
+      },
+      "dims": [
+       "lat",
+       "lon"
+      ],
+      "dtype": "float32",
+      "filters": {
+       "blosc": "False",
+       "bzip2": "False",
+       "complevel": "4",
+       "fletcher32": "False",
+       "shuffle": "True",
+       "szip": "False",
+       "zlib": "True",
+       "zstd": "False"
+      },
+      "masked": 22,
+      "sha256": "c9f1ac396f1333a3cbbbc3f4087fb4be6126031c8d51fa45973a7fdcaa8652f5",
+      "shape": [
+       14,
+       25
+      ]
+     },
+     "time": {
+      "attrs": {
+       "axis": "T",
+       "calendar": "standard",
+       "long_name": "valid time",
+       "standard_name": "time",
+       "units": "hours since 2005-08-28 00:00:00"
+      },
+      "dims": [
+       "time"
+      ],
+      "dtype": "float64",
+      "filters": {
+       "blosc": "False",
+       "bzip2": "False",
+       "complevel": "0",
+       "fletcher32": "False",
+       "shuffle": "False",
+       "szip": "False",
+       "zlib": "False",
+       "zstd": "False"
+      },
+      "masked": 0,
+      "sha256": "3e6357a56fbae74413051d518261f4b70e5b3758172a70e7f101e996e00a9ee0",
+      "shape": [
+       1
+      ]
+     },
+     "upward_air_velocity": {
+      "attrs": {
+       "_FillValue": "9.96921e+36",
+       "comment": "levels below the lowest model mass level (below ground) are _FillValue; no extrapolation",
+       "long_name": "vertical velocity on mass levels (wrf-python 'wa')",
+       "missing_value": "9.96921e+36",
+       "standard_name": "upward_air_velocity",
+       "units": "m s-1"
+      },
+      "dims": [
+       "time",
+       "isobaric",
+       "lat",
+       "lon"
+      ],
+      "dtype": "float32",
+      "filters": {
+       "blosc": "False",
+       "bzip2": "False",
+       "complevel": "4",
+       "fletcher32": "False",
+       "shuffle": "True",
+       "szip": "False",
+       "zlib": "True",
+       "zstd": "False"
+      },
+      "masked": 831,
+      "sha256": "c2ac93a64e46d1d392131d737acea309fdad270746a1bb3beb0c727f239cc349",
+      "shape": [
+       1,
+       18,
+       14,
+       25
+      ]
+     }
+    }
+   },
+   "result": {
+    "dlon": 0.11,
+    "dropped_levels": [
+     200.0,
+     150.0,
+     100.0
+    ],
+    "has_qice": true,
+    "levels": [
+     1000.0,
+     975.0,
+     950.0,
+     925.0,
+     900.0,
+     850.0,
+     800.0,
+     750.0,
+     700.0,
+     650.0,
+     600.0,
+     550.0,
+     500.0,
+     450.0,
+     400.0,
+     350.0,
+     300.0,
+     250.0
+    ],
+    "nlat": 14,
+    "nlon": 25,
+    "path": "<TMP>/a.nc",
+    "size_bytes": "<n>",
+    "valid_time": "2005-08-28_06:00:00"
+   }
+  },
+  "convert_noqice": {
+   "nc": {
+    "attrs": {
+     "Conventions": "CF-1.8",
+     "history": "<TS>: <argv>",
+     "source": "WRF V4.5.1",
+     "title": "WRF d01 pressure-level fields on a regular lon-lat grid",
+     "wtune_boundary_zone_cells": "5",
+     "wtune_domain": "1",
+     "wtune_dropped_levels_hpa": "[200. 150. 100.]",
+     "wtune_grid_spacing_deg": "0.11",
+     "wtune_model_top_hpa": "200.0",
+     "wtune_native_projection": "+proj=lcc +units=m +a=6370000.0 +b=6370000.0 +lat_1=30.0 +lat_2=60.0 +lat_0=38.0 +lon_0=-98.0 +nadgrids=@null +type=crs",
+     "wtune_pressure_levels_hpa": "[1000.  975.  950.  925.  900.  850.  800.  750.  700.  650.  600.  550.\n  500.  450.  400.  350.  300.  250.]",
+     "wtune_qice": "absent (CLOUD_TOTAL = QCLOUD)",
+     "wtune_regrid_method": "bilinear in native WRF projected x/y (pyproj + scipy.ndimage.map_coordinates order=1); target points outside the native grid or inside the lateral boundary zone are _FillValue",
+     "wtune_vertical_interpolation": "wrf-python interplevel on mass-level pressure, no extrapolation; below-ground points are _FillValue",
+     "wtune_wrfout": "<TMP>/noqice/wrfout_d01_2005-08-28_06:00:00",
+     "wtune_wrfout_native": "netcdf"
+    },
+    "dims": {
+     "isobaric": [
+      18,
+      false
+     ],
+     "lat": [
+      14,
+      false
+     ],
+     "lon": [
+      25,
+      false
+     ],
+     "time": [
+      1,
+      true
+     ]
+    },
+    "vars": {
+     "CLOUD_TOTAL": {
+      "attrs": {
+       "_FillValue": "9.96921e+36",
+       "comment": "CLOUD_TOTAL = QCLOUD: this wrfout has no QICE. levels below the lowest model mass level (below ground) are _FillValue; no extrapolation",
+       "long_name": "cloud water mixing ratio (QCLOUD only; no QICE in this wrfout, warm-rain microphysics)",
+       "missing_value": "9.96921e+36",
+       "units": "kg kg-1"
+      },
+      "dims": [
+       "time",
+       "isobaric",
+       "lat",
+       "lon"
+      ],
+      "dtype": "float32",
+      "filters": {
+       "blosc": "False",
+       "bzip2": "False",
+       "complevel": "4",
+       "fletcher32": "False",
+       "shuffle": "True",
+       "szip": "False",
+       "zlib": "True",
+       "zstd": "False"
+      },
+      "masked": 831,
+      "sha256": "7bed208de120b00af469e8e797f674936e8f4c9bc0ecfc7af8b742c16aae2f2c",
+      "shape": [
+       1,
+       18,
+       14,
+       25
+      ]
+     },
+     "QCLOUD": {
+      "attrs": {
+       "_FillValue": "9.96921e+36",
+       "comment": "levels below the lowest model mass level (below ground) are _FillValue; no extrapolation",
+       "long_name": "cloud water mixing ratio",
+       "missing_value": "9.96921e+36",
+       "units": "kg kg-1"
+      },
+      "dims": [
+       "time",
+       "isobaric",
+       "lat",
+       "lon"
+      ],
+      "dtype": "float32",
+      "filters": {
+       "blosc": "False",
+       "bzip2": "False",
+       "complevel": "4",
+       "fletcher32": "False",
+       "shuffle": "True",
+       "szip": "False",
+       "zlib": "True",
+       "zstd": "False"
+      },
+      "masked": 831,
+      "sha256": "7bed208de120b00af469e8e797f674936e8f4c9bc0ecfc7af8b742c16aae2f2c",
+      "shape": [
+       1,
+       18,
+       14,
+       25
+      ]
+     },
+     "air_temperature": {
+      "attrs": {
+       "_FillValue": "9.96921e+36",
+       "comment": "levels below the lowest model mass level (below ground) are _FillValue; no extrapolation",
+       "long_name": "air temperature (wrf-python 'tk')",
+       "missing_value": "9.96921e+36",
+       "standard_name": "air_temperature",
+       "units": "K"
+      },
+      "dims": [
+       "time",
+       "isobaric",
+       "lat",
+       "lon"
+      ],
+      "dtype": "float32",
+      "filters": {
+       "blosc": "False",
+       "bzip2": "False",
+       "complevel": "4",
+       "fletcher32": "False",
+       "shuffle": "True",
+       "szip": "False",
+       "zlib": "True",
+       "zstd": "False"
+      },
+      "masked": 831,
+      "sha256": "a819ea713c76c0ab9273199759686d8fcc0418097e2244ab56174c3b722f5797",
+      "shape": [
+       1,
+       18,
+       14,
+       25
+      ]
+     },
+     "eastward_wind": {
+      "attrs": {
+       "_FillValue": "9.96921e+36",
+       "comment": "levels below the lowest model mass level (below ground) are _FillValue; no extrapolation",
+       "long_name": "earth-relative eastward wind (wrf-python 'uvmet', rotated from grid-relative U)",
+       "missing_value": "9.96921e+36",
+       "standard_name": "eastward_wind",
+       "units": "m s-1"
+      },
+      "dims": [
+       "time",
+       "isobaric",
+       "lat",
+       "lon"
+      ],
+      "dtype": "float32",
+      "filters": {
+       "blosc": "False",
+       "bzip2": "False",
+       "complevel": "4",
+       "fletcher32": "False",
+       "shuffle": "True",
+       "szip": "False",
+       "zlib": "True",
+       "zstd": "False"
+      },
+      "masked": 831,
+      "sha256": "caa547d2d5e9302a6637d8ef705b700796540e11ee158dab52bf785b3c5f1b30",
+      "shape": [
+       1,
+       18,
+       14,
+       25
+      ]
+     },
+     "forecast_reference_time": {
+      "attrs": {
+       "calendar": "standard",
+       "long_name": "simulation start (SIMULATION_START_DATE)",
+       "standard_name": "forecast_reference_time",
+       "units": "hours since 2005-08-28 00:00:00"
+      },
+      "dims": [],
+      "dtype": "float64",
+      "filters": {
+       "blosc": "False",
+       "bzip2": "False",
+       "complevel": "0",
+       "fletcher32": "False",
+       "shuffle": "False",
+       "szip": "False",
+       "zlib": "False",
+       "zstd": "False"
+      },
+      "masked": 0,
+      "sha256": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "shape": []
+     },
+     "geopotential_height": {
+      "attrs": {
+       "_FillValue": "9.96921e+36",
+       "comment": "levels below the lowest model mass level (below ground) are _FillValue; no extrapolation",
+       "long_name": "geopotential height (wrf-python 'z')",
+       "missing_value": "9.96921e+36",
+       "standard_name": "geopotential_height",
+       "units": "m"
+      },
+      "dims": [
+       "time",
+       "isobaric",
+       "lat",
+       "lon"
+      ],
+      "dtype": "float32",
+      "filters": {
+       "blosc": "False",
+       "bzip2": "False",
+       "complevel": "4",
+       "fletcher32": "False",
+       "shuffle": "True",
+       "szip": "False",
+       "zlib": "True",
+       "zstd": "False"
+      },
+      "masked": 831,
+      "sha256": "d573ae9302ccc2b8af2fd09376525fdaa91909d38de2989eb3800066594d72e3",
+      "shape": [
+       1,
+       18,
+       14,
+       25
+      ]
+     },
+     "isobaric": {
+      "attrs": {
+       "axis": "Z",
+       "long_name": "Isobaric surface",
+       "positive": "down",
+       "standard_name": "air_pressure",
+       "units": "hPa"
+      },
+      "dims": [
+       "isobaric"
+      ],
+      "dtype": "float32",
+      "filters": {
+       "blosc": "False",
+       "bzip2": "False",
+       "complevel": "0",
+       "fletcher32": "False",
+       "shuffle": "False",
+       "szip": "False",
+       "zlib": "False",
+       "zstd": "False"
+      },
+      "masked": 0,
+      "sha256": "b71a3e4b1a2eaa4203b8d32b4426f2899856f1efbd6aee790f4e2d8fa8e1a731",
+      "shape": [
+       18
+      ]
+     },
+     "lat": {
+      "attrs": {
+       "axis": "Y",
+       "long_name": "latitude",
+       "standard_name": "latitude",
+       "units": "degrees_north"
+      },
+      "dims": [
+       "lat"
+      ],
+      "dtype": "float64",
+      "filters": {
+       "blosc": "False",
+       "bzip2": "False",
+       "complevel": "0",
+       "fletcher32": "False",
+       "shuffle": "False",
+       "szip": "False",
+       "zlib": "False",
+       "zstd": "False"
+      },
+      "masked": 0,
+      "sha256": "bfec4d184fe85bfac2f0eec74fe36c618e177dd4370149eb4638f267811e66b3",
+      "shape": [
+       14
+      ]
+     },
+     "lon": {
+      "attrs": {
+       "axis": "X",
+       "long_name": "longitude",
+       "standard_name": "longitude",
+       "units": "degrees_east"
+      },
+      "dims": [
+       "lon"
+      ],
+      "dtype": "float64",
+      "filters": {
+       "blosc": "False",
+       "bzip2": "False",
+       "complevel": "0",
+       "fletcher32": "False",
+       "shuffle": "False",
+       "szip": "False",
+       "zlib": "False",
+       "zstd": "False"
+      },
+      "masked": 0,
+      "sha256": "03690a001f83abaa4bbc4ef7448130e19a3d6808c3496b509e5b7fd698bc539e",
+      "shape": [
+       25
+      ]
+     },
+     "northward_wind": {
+      "attrs": {
+       "_FillValue": "9.96921e+36",
+       "comment": "levels below the lowest model mass level (below ground) are _FillValue; no extrapolation",
+       "long_name": "earth-relative northward wind (wrf-python 'uvmet', rotated from grid-relative V)",
+       "missing_value": "9.96921e+36",
+       "standard_name": "northward_wind",
+       "units": "m s-1"
+      },
+      "dims": [
+       "time",
+       "isobaric",
+       "lat",
+       "lon"
+      ],
+      "dtype": "float32",
+      "filters": {
+       "blosc": "False",
+       "bzip2": "False",
+       "complevel": "4",
+       "fletcher32": "False",
+       "shuffle": "True",
+       "szip": "False",
+       "zlib": "True",
+       "zstd": "False"
+      },
+      "masked": 831,
+      "sha256": "0a8fd894206cb78772fdf6d8c66c767ac214437d267a39787e905e31c3115750",
+      "shape": [
+       1,
+       18,
+       14,
+       25
+      ]
+     },
+     "relative_humidity": {
+      "attrs": {
+       "_FillValue": "9.96921e+36",
+       "comment": "levels below the lowest model mass level (below ground) are _FillValue; no extrapolation",
+       "long_name": "relative humidity (wrf-python 'rh')",
+       "missing_value": "9.96921e+36",
+       "standard_name": "relative_humidity",
+       "units": "%"
+      },
+      "dims": [
+       "time",
+       "isobaric",
+       "lat",
+       "lon"
+      ],
+      "dtype": "float32",
+      "filters": {
+       "blosc": "False",
+       "bzip2": "False",
+       "complevel": "4",
+       "fletcher32": "False",
+       "shuffle": "True",
+       "szip": "False",
+       "zlib": "True",
+       "zstd": "False"
+      },
+      "masked": 831,
+      "sha256": "5dfc9f762009a4eef98776b59b3f2dbf026cc7a3865da319c7a55f87eeb09b15",
+      "shape": [
+       1,
+       18,
+       14,
+       25
+      ]
+     },
+     "surface_altitude": {
+      "attrs": {
+       "_FillValue": "9.96921e+36",
+       "long_name": "model terrain height (HGT)",
+       "missing_value": "9.96921e+36",
+       "standard_name": "surface_altitude",
+       "units": "m"
+      },
+      "dims": [
+       "lat",
+       "lon"
+      ],
+      "dtype": "float32",
+      "filters": {
+       "blosc": "False",
+       "bzip2": "False",
+       "complevel": "4",
+       "fletcher32": "False",
+       "shuffle": "True",
+       "szip": "False",
+       "zlib": "True",
+       "zstd": "False"
+      },
+      "masked": 22,
+      "sha256": "c9f1ac396f1333a3cbbbc3f4087fb4be6126031c8d51fa45973a7fdcaa8652f5",
+      "shape": [
+       14,
+       25
+      ]
+     },
+     "time": {
+      "attrs": {
+       "axis": "T",
+       "calendar": "standard",
+       "long_name": "valid time",
+       "standard_name": "time",
+       "units": "hours since 2005-08-28 00:00:00"
+      },
+      "dims": [
+       "time"
+      ],
+      "dtype": "float64",
+      "filters": {
+       "blosc": "False",
+       "bzip2": "False",
+       "complevel": "0",
+       "fletcher32": "False",
+       "shuffle": "False",
+       "szip": "False",
+       "zlib": "False",
+       "zstd": "False"
+      },
+      "masked": 0,
+      "sha256": "3e6357a56fbae74413051d518261f4b70e5b3758172a70e7f101e996e00a9ee0",
+      "shape": [
+       1
+      ]
+     },
+     "upward_air_velocity": {
+      "attrs": {
+       "_FillValue": "9.96921e+36",
+       "comment": "levels below the lowest model mass level (below ground) are _FillValue; no extrapolation",
+       "long_name": "vertical velocity on mass levels (wrf-python 'wa')",
+       "missing_value": "9.96921e+36",
+       "standard_name": "upward_air_velocity",
+       "units": "m s-1"
+      },
+      "dims": [
+       "time",
+       "isobaric",
+       "lat",
+       "lon"
+      ],
+      "dtype": "float32",
+      "filters": {
+       "blosc": "False",
+       "bzip2": "False",
+       "complevel": "4",
+       "fletcher32": "False",
+       "shuffle": "True",
+       "szip": "False",
+       "zlib": "True",
+       "zstd": "False"
+      },
+      "masked": 831,
+      "sha256": "c2ac93a64e46d1d392131d737acea309fdad270746a1bb3beb0c727f239cc349",
+      "shape": [
+       1,
+       18,
+       14,
+       25
+      ]
+     }
+    }
+   },
+   "result": {
+    "dlon": 0.11,
+    "dropped_levels": [
+     200.0,
+     150.0,
+     100.0
+    ],
+    "has_qice": false,
+    "levels": [
+     1000.0,
+     975.0,
+     950.0,
+     925.0,
+     900.0,
+     850.0,
+     800.0,
+     750.0,
+     700.0,
+     650.0,
+     600.0,
+     550.0,
+     500.0,
+     450.0,
+     400.0,
+     350.0,
+     300.0,
+     250.0
+    ],
+    "nlat": 14,
+    "nlon": 25,
+    "path": "<TMP>/b.nc",
+    "size_bytes": "<n>",
+    "valid_time": "2005-08-28_06:00:00"
+   }
+  },
+  "export": {
+   "nc": {
+    "exp/cf3d/d01/wrf_d01_pl_20050828_0600.nc": {
+     "attrs": {
+      "Conventions": "CF-1.8",
+      "history": "<TS>: <argv>",
+      "source": "WRF V4.5.1",
+      "title": "WRF d01 pressure-level fields on a regular lon-lat grid",
+      "wtune_boundary_zone_cells": "5",
+      "wtune_domain": "1",
+      "wtune_dropped_levels_hpa": "[200. 150. 100.]",
+      "wtune_grid_spacing_deg": "0.11",
+      "wtune_model_top_hpa": "200.0",
+      "wtune_native_projection": "+proj=lcc +units=m +a=6370000.0 +b=6370000.0 +lat_1=30.0 +lat_2=60.0 +lat_0=38.0 +lon_0=-98.0 +nadgrids=@null +type=crs",
+      "wtune_pressure_levels_hpa": "[1000.  975.  950.  925.  900.  850.  800.  750.  700.  650.  600.  550.\n  500.  450.  400.  350.  300.  250.]",
+      "wtune_qice": "present",
+      "wtune_regrid_method": "bilinear in native WRF projected x/y (pyproj + scipy.ndimage.map_coordinates order=1); target points outside the native grid or inside the lateral boundary zone are _FillValue",
+      "wtune_vertical_interpolation": "wrf-python interplevel on mass-level pressure, no extrapolation; below-ground points are _FillValue",
+      "wtune_wrfout": "<TMP>/run/wrfout_d01_2005-08-28_06:00:00",
+      "wtune_wrfout_native": "netcdf"
+     },
+     "dims": {
+      "isobaric": [
+       18,
+       false
+      ],
+      "lat": [
+       14,
+       false
+      ],
+      "lon": [
+       25,
+       false
+      ],
+      "time": [
+       1,
+       true
+      ]
+     },
+     "vars": {
+      "CLOUD_TOTAL": {
+       "attrs": {
+        "_FillValue": "9.96921e+36",
+        "comment": "levels below the lowest model mass level (below ground) are _FillValue; no extrapolation",
+        "long_name": "cloud water + cloud ice mixing ratio (QCLOUD+QICE)",
+        "missing_value": "9.96921e+36",
+        "units": "kg kg-1"
+       },
+       "dims": [
+        "time",
+        "isobaric",
+        "lat",
+        "lon"
+       ],
+       "dtype": "float32",
+       "filters": {
+        "blosc": "False",
+        "bzip2": "False",
+        "complevel": "4",
+        "fletcher32": "False",
+        "shuffle": "True",
+        "szip": "False",
+        "zlib": "True",
+        "zstd": "False"
+       },
+       "masked": 831,
+       "sha256": "68b614136f00e2f482290cc67e0187be1d96b5e51ec69a0f63a68f2660afc755",
+       "shape": [
+        1,
+        18,
+        14,
+        25
+       ]
+      },
+      "QCLOUD": {
+       "attrs": {
+        "_FillValue": "9.96921e+36",
+        "comment": "levels below the lowest model mass level (below ground) are _FillValue; no extrapolation",
+        "long_name": "cloud water mixing ratio",
+        "missing_value": "9.96921e+36",
+        "units": "kg kg-1"
+       },
+       "dims": [
+        "time",
+        "isobaric",
+        "lat",
+        "lon"
+       ],
+       "dtype": "float32",
+       "filters": {
+        "blosc": "False",
+        "bzip2": "False",
+        "complevel": "4",
+        "fletcher32": "False",
+        "shuffle": "True",
+        "szip": "False",
+        "zlib": "True",
+        "zstd": "False"
+       },
+       "masked": 831,
+       "sha256": "7bed208de120b00af469e8e797f674936e8f4c9bc0ecfc7af8b742c16aae2f2c",
+       "shape": [
+        1,
+        18,
+        14,
+        25
+       ]
+      },
+      "QICE": {
+       "attrs": {
+        "_FillValue": "9.96921e+36",
+        "comment": "levels below the lowest model mass level (below ground) are _FillValue; no extrapolation",
+        "long_name": "cloud ice mixing ratio",
+        "missing_value": "9.96921e+36",
+        "units": "kg kg-1"
+       },
+       "dims": [
+        "time",
+        "isobaric",
+        "lat",
+        "lon"
+       ],
+       "dtype": "float32",
+       "filters": {
+        "blosc": "False",
+        "bzip2": "False",
+        "complevel": "4",
+        "fletcher32": "False",
+        "shuffle": "True",
+        "szip": "False",
+        "zlib": "True",
+        "zstd": "False"
+       },
+       "masked": 831,
+       "sha256": "aea6d1cf664c0d6c85cd5622392dd9af459dadf0d1c3543679a8d9bff7892bad",
+       "shape": [
+        1,
+        18,
+        14,
+        25
+       ]
+      },
+      "air_temperature": {
+       "attrs": {
+        "_FillValue": "9.96921e+36",
+        "comment": "levels below the lowest model mass level (below ground) are _FillValue; no extrapolation",
+        "long_name": "air temperature (wrf-python 'tk')",
+        "missing_value": "9.96921e+36",
+        "standard_name": "air_temperature",
+        "units": "K"
+       },
+       "dims": [
+        "time",
+        "isobaric",
+        "lat",
+        "lon"
+       ],
+       "dtype": "float32",
+       "filters": {
+        "blosc": "False",
+        "bzip2": "False",
+        "complevel": "4",
+        "fletcher32": "False",
+        "shuffle": "True",
+        "szip": "False",
+        "zlib": "True",
+        "zstd": "False"
+       },
+       "masked": 831,
+       "sha256": "a819ea713c76c0ab9273199759686d8fcc0418097e2244ab56174c3b722f5797",
+       "shape": [
+        1,
+        18,
+        14,
+        25
+       ]
+      },
+      "eastward_wind": {
+       "attrs": {
+        "_FillValue": "9.96921e+36",
+        "comment": "levels below the lowest model mass level (below ground) are _FillValue; no extrapolation",
+        "long_name": "earth-relative eastward wind (wrf-python 'uvmet', rotated from grid-relative U)",
+        "missing_value": "9.96921e+36",
+        "standard_name": "eastward_wind",
+        "units": "m s-1"
+       },
+       "dims": [
+        "time",
+        "isobaric",
+        "lat",
+        "lon"
+       ],
+       "dtype": "float32",
+       "filters": {
+        "blosc": "False",
+        "bzip2": "False",
+        "complevel": "4",
+        "fletcher32": "False",
+        "shuffle": "True",
+        "szip": "False",
+        "zlib": "True",
+        "zstd": "False"
+       },
+       "masked": 831,
+       "sha256": "caa547d2d5e9302a6637d8ef705b700796540e11ee158dab52bf785b3c5f1b30",
+       "shape": [
+        1,
+        18,
+        14,
+        25
+       ]
+      },
+      "forecast_reference_time": {
+       "attrs": {
+        "calendar": "standard",
+        "long_name": "simulation start (SIMULATION_START_DATE)",
+        "standard_name": "forecast_reference_time",
+        "units": "hours since 2005-08-28 00:00:00"
+       },
+       "dims": [],
+       "dtype": "float64",
+       "filters": {
+        "blosc": "False",
+        "bzip2": "False",
+        "complevel": "0",
+        "fletcher32": "False",
+        "shuffle": "False",
+        "szip": "False",
+        "zlib": "False",
+        "zstd": "False"
+       },
+       "masked": 0,
+       "sha256": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+       "shape": []
+      },
+      "geopotential_height": {
+       "attrs": {
+        "_FillValue": "9.96921e+36",
+        "comment": "levels below the lowest model mass level (below ground) are _FillValue; no extrapolation",
+        "long_name": "geopotential height (wrf-python 'z')",
+        "missing_value": "9.96921e+36",
+        "standard_name": "geopotential_height",
+        "units": "m"
+       },
+       "dims": [
+        "time",
+        "isobaric",
+        "lat",
+        "lon"
+       ],
+       "dtype": "float32",
+       "filters": {
+        "blosc": "False",
+        "bzip2": "False",
+        "complevel": "4",
+        "fletcher32": "False",
+        "shuffle": "True",
+        "szip": "False",
+        "zlib": "True",
+        "zstd": "False"
+       },
+       "masked": 831,
+       "sha256": "d573ae9302ccc2b8af2fd09376525fdaa91909d38de2989eb3800066594d72e3",
+       "shape": [
+        1,
+        18,
+        14,
+        25
+       ]
+      },
+      "isobaric": {
+       "attrs": {
+        "axis": "Z",
+        "long_name": "Isobaric surface",
+        "positive": "down",
+        "standard_name": "air_pressure",
+        "units": "hPa"
+       },
+       "dims": [
+        "isobaric"
+       ],
+       "dtype": "float32",
+       "filters": {
+        "blosc": "False",
+        "bzip2": "False",
+        "complevel": "0",
+        "fletcher32": "False",
+        "shuffle": "False",
+        "szip": "False",
+        "zlib": "False",
+        "zstd": "False"
+       },
+       "masked": 0,
+       "sha256": "b71a3e4b1a2eaa4203b8d32b4426f2899856f1efbd6aee790f4e2d8fa8e1a731",
+       "shape": [
+        18
+       ]
+      },
+      "lat": {
+       "attrs": {
+        "axis": "Y",
+        "long_name": "latitude",
+        "standard_name": "latitude",
+        "units": "degrees_north"
+       },
+       "dims": [
+        "lat"
+       ],
+       "dtype": "float64",
+       "filters": {
+        "blosc": "False",
+        "bzip2": "False",
+        "complevel": "0",
+        "fletcher32": "False",
+        "shuffle": "False",
+        "szip": "False",
+        "zlib": "False",
+        "zstd": "False"
+       },
+       "masked": 0,
+       "sha256": "bfec4d184fe85bfac2f0eec74fe36c618e177dd4370149eb4638f267811e66b3",
+       "shape": [
+        14
+       ]
+      },
+      "lon": {
+       "attrs": {
+        "axis": "X",
+        "long_name": "longitude",
+        "standard_name": "longitude",
+        "units": "degrees_east"
+       },
+       "dims": [
+        "lon"
+       ],
+       "dtype": "float64",
+       "filters": {
+        "blosc": "False",
+        "bzip2": "False",
+        "complevel": "0",
+        "fletcher32": "False",
+        "shuffle": "False",
+        "szip": "False",
+        "zlib": "False",
+        "zstd": "False"
+       },
+       "masked": 0,
+       "sha256": "03690a001f83abaa4bbc4ef7448130e19a3d6808c3496b509e5b7fd698bc539e",
+       "shape": [
+        25
+       ]
+      },
+      "northward_wind": {
+       "attrs": {
+        "_FillValue": "9.96921e+36",
+        "comment": "levels below the lowest model mass level (below ground) are _FillValue; no extrapolation",
+        "long_name": "earth-relative northward wind (wrf-python 'uvmet', rotated from grid-relative V)",
+        "missing_value": "9.96921e+36",
+        "standard_name": "northward_wind",
+        "units": "m s-1"
+       },
+       "dims": [
+        "time",
+        "isobaric",
+        "lat",
+        "lon"
+       ],
+       "dtype": "float32",
+       "filters": {
+        "blosc": "False",
+        "bzip2": "False",
+        "complevel": "4",
+        "fletcher32": "False",
+        "shuffle": "True",
+        "szip": "False",
+        "zlib": "True",
+        "zstd": "False"
+       },
+       "masked": 831,
+       "sha256": "0a8fd894206cb78772fdf6d8c66c767ac214437d267a39787e905e31c3115750",
+       "shape": [
+        1,
+        18,
+        14,
+        25
+       ]
+      },
+      "relative_humidity": {
+       "attrs": {
+        "_FillValue": "9.96921e+36",
+        "comment": "levels below the lowest model mass level (below ground) are _FillValue; no extrapolation",
+        "long_name": "relative humidity (wrf-python 'rh')",
+        "missing_value": "9.96921e+36",
+        "standard_name": "relative_humidity",
+        "units": "%"
+       },
+       "dims": [
+        "time",
+        "isobaric",
+        "lat",
+        "lon"
+       ],
+       "dtype": "float32",
+       "filters": {
+        "blosc": "False",
+        "bzip2": "False",
+        "complevel": "4",
+        "fletcher32": "False",
+        "shuffle": "True",
+        "szip": "False",
+        "zlib": "True",
+        "zstd": "False"
+       },
+       "masked": 831,
+       "sha256": "5dfc9f762009a4eef98776b59b3f2dbf026cc7a3865da319c7a55f87eeb09b15",
+       "shape": [
+        1,
+        18,
+        14,
+        25
+       ]
+      },
+      "surface_altitude": {
+       "attrs": {
+        "_FillValue": "9.96921e+36",
+        "long_name": "model terrain height (HGT)",
+        "missing_value": "9.96921e+36",
+        "standard_name": "surface_altitude",
+        "units": "m"
+       },
+       "dims": [
+        "lat",
+        "lon"
+       ],
+       "dtype": "float32",
+       "filters": {
+        "blosc": "False",
+        "bzip2": "False",
+        "complevel": "4",
+        "fletcher32": "False",
+        "shuffle": "True",
+        "szip": "False",
+        "zlib": "True",
+        "zstd": "False"
+       },
+       "masked": 22,
+       "sha256": "c9f1ac396f1333a3cbbbc3f4087fb4be6126031c8d51fa45973a7fdcaa8652f5",
+       "shape": [
+        14,
+        25
+       ]
+      },
+      "time": {
+       "attrs": {
+        "axis": "T",
+        "calendar": "standard",
+        "long_name": "valid time",
+        "standard_name": "time",
+        "units": "hours since 2005-08-28 00:00:00"
+       },
+       "dims": [
+        "time"
+       ],
+       "dtype": "float64",
+       "filters": {
+        "blosc": "False",
+        "bzip2": "False",
+        "complevel": "0",
+        "fletcher32": "False",
+        "shuffle": "False",
+        "szip": "False",
+        "zlib": "False",
+        "zstd": "False"
+       },
+       "masked": 0,
+       "sha256": "3e6357a56fbae74413051d518261f4b70e5b3758172a70e7f101e996e00a9ee0",
+       "shape": [
+        1
+       ]
+      },
+      "upward_air_velocity": {
+       "attrs": {
+        "_FillValue": "9.96921e+36",
+        "comment": "levels below the lowest model mass level (below ground) are _FillValue; no extrapolation",
+        "long_name": "vertical velocity on mass levels (wrf-python 'wa')",
+        "missing_value": "9.96921e+36",
+        "standard_name": "upward_air_velocity",
+        "units": "m s-1"
+       },
+       "dims": [
+        "time",
+        "isobaric",
+        "lat",
+        "lon"
+       ],
+       "dtype": "float32",
+       "filters": {
+        "blosc": "False",
+        "bzip2": "False",
+        "complevel": "4",
+        "fletcher32": "False",
+        "shuffle": "True",
+        "szip": "False",
+        "zlib": "True",
+        "zstd": "False"
+       },
+       "masked": 831,
+       "sha256": "c2ac93a64e46d1d392131d737acea309fdad270746a1bb3beb0c727f239cc349",
+       "shape": [
+        1,
+        18,
+        14,
+        25
+       ]
+      }
+     }
+    },
+    "exp/cf3d/d01/wrf_d01_pl_20050828_1200.nc": {
+     "attrs": {
+      "Conventions": "CF-1.8",
+      "history": "<TS>: <argv>",
+      "source": "WRF V4.5.1",
+      "title": "WRF d01 pressure-level fields on a regular lon-lat grid",
+      "wtune_boundary_zone_cells": "5",
+      "wtune_domain": "1",
+      "wtune_dropped_levels_hpa": "[200. 150. 100.]",
+      "wtune_grid_spacing_deg": "0.11",
+      "wtune_model_top_hpa": "200.0",
+      "wtune_native_projection": "+proj=lcc +units=m +a=6370000.0 +b=6370000.0 +lat_1=30.0 +lat_2=60.0 +lat_0=38.0 +lon_0=-98.0 +nadgrids=@null +type=crs",
+      "wtune_pressure_levels_hpa": "[1000.  975.  950.  925.  900.  850.  800.  750.  700.  650.  600.  550.\n  500.  450.  400.  350.  300.  250.]",
+      "wtune_qice": "present",
+      "wtune_regrid_method": "bilinear in native WRF projected x/y (pyproj + scipy.ndimage.map_coordinates order=1); target points outside the native grid or inside the lateral boundary zone are _FillValue",
+      "wtune_vertical_interpolation": "wrf-python interplevel on mass-level pressure, no extrapolation; below-ground points are _FillValue",
+      "wtune_wrfout": "<TMP>/run/wrfout_d01_2005-08-28_12:00:00",
+      "wtune_wrfout_native": "netcdf"
+     },
+     "dims": {
+      "isobaric": [
+       18,
+       false
+      ],
+      "lat": [
+       14,
+       false
+      ],
+      "lon": [
+       25,
+       false
+      ],
+      "time": [
+       1,
+       true
+      ]
+     },
+     "vars": {
+      "CLOUD_TOTAL": {
+       "attrs": {
+        "_FillValue": "9.96921e+36",
+        "comment": "levels below the lowest model mass level (below ground) are _FillValue; no extrapolation",
+        "long_name": "cloud water + cloud ice mixing ratio (QCLOUD+QICE)",
+        "missing_value": "9.96921e+36",
+        "units": "kg kg-1"
+       },
+       "dims": [
+        "time",
+        "isobaric",
+        "lat",
+        "lon"
+       ],
+       "dtype": "float32",
+       "filters": {
+        "blosc": "False",
+        "bzip2": "False",
+        "complevel": "4",
+        "fletcher32": "False",
+        "shuffle": "True",
+        "szip": "False",
+        "zlib": "True",
+        "zstd": "False"
+       },
+       "masked": 831,
+       "sha256": "68b614136f00e2f482290cc67e0187be1d96b5e51ec69a0f63a68f2660afc755",
+       "shape": [
+        1,
+        18,
+        14,
+        25
+       ]
+      },
+      "QCLOUD": {
+       "attrs": {
+        "_FillValue": "9.96921e+36",
+        "comment": "levels below the lowest model mass level (below ground) are _FillValue; no extrapolation",
+        "long_name": "cloud water mixing ratio",
+        "missing_value": "9.96921e+36",
+        "units": "kg kg-1"
+       },
+       "dims": [
+        "time",
+        "isobaric",
+        "lat",
+        "lon"
+       ],
+       "dtype": "float32",
+       "filters": {
+        "blosc": "False",
+        "bzip2": "False",
+        "complevel": "4",
+        "fletcher32": "False",
+        "shuffle": "True",
+        "szip": "False",
+        "zlib": "True",
+        "zstd": "False"
+       },
+       "masked": 831,
+       "sha256": "7bed208de120b00af469e8e797f674936e8f4c9bc0ecfc7af8b742c16aae2f2c",
+       "shape": [
+        1,
+        18,
+        14,
+        25
+       ]
+      },
+      "QICE": {
+       "attrs": {
+        "_FillValue": "9.96921e+36",
+        "comment": "levels below the lowest model mass level (below ground) are _FillValue; no extrapolation",
+        "long_name": "cloud ice mixing ratio",
+        "missing_value": "9.96921e+36",
+        "units": "kg kg-1"
+       },
+       "dims": [
+        "time",
+        "isobaric",
+        "lat",
+        "lon"
+       ],
+       "dtype": "float32",
+       "filters": {
+        "blosc": "False",
+        "bzip2": "False",
+        "complevel": "4",
+        "fletcher32": "False",
+        "shuffle": "True",
+        "szip": "False",
+        "zlib": "True",
+        "zstd": "False"
+       },
+       "masked": 831,
+       "sha256": "aea6d1cf664c0d6c85cd5622392dd9af459dadf0d1c3543679a8d9bff7892bad",
+       "shape": [
+        1,
+        18,
+        14,
+        25
+       ]
+      },
+      "air_temperature": {
+       "attrs": {
+        "_FillValue": "9.96921e+36",
+        "comment": "levels below the lowest model mass level (below ground) are _FillValue; no extrapolation",
+        "long_name": "air temperature (wrf-python 'tk')",
+        "missing_value": "9.96921e+36",
+        "standard_name": "air_temperature",
+        "units": "K"
+       },
+       "dims": [
+        "time",
+        "isobaric",
+        "lat",
+        "lon"
+       ],
+       "dtype": "float32",
+       "filters": {
+        "blosc": "False",
+        "bzip2": "False",
+        "complevel": "4",
+        "fletcher32": "False",
+        "shuffle": "True",
+        "szip": "False",
+        "zlib": "True",
+        "zstd": "False"
+       },
+       "masked": 831,
+       "sha256": "a819ea713c76c0ab9273199759686d8fcc0418097e2244ab56174c3b722f5797",
+       "shape": [
+        1,
+        18,
+        14,
+        25
+       ]
+      },
+      "eastward_wind": {
+       "attrs": {
+        "_FillValue": "9.96921e+36",
+        "comment": "levels below the lowest model mass level (below ground) are _FillValue; no extrapolation",
+        "long_name": "earth-relative eastward wind (wrf-python 'uvmet', rotated from grid-relative U)",
+        "missing_value": "9.96921e+36",
+        "standard_name": "eastward_wind",
+        "units": "m s-1"
+       },
+       "dims": [
+        "time",
+        "isobaric",
+        "lat",
+        "lon"
+       ],
+       "dtype": "float32",
+       "filters": {
+        "blosc": "False",
+        "bzip2": "False",
+        "complevel": "4",
+        "fletcher32": "False",
+        "shuffle": "True",
+        "szip": "False",
+        "zlib": "True",
+        "zstd": "False"
+       },
+       "masked": 831,
+       "sha256": "caa547d2d5e9302a6637d8ef705b700796540e11ee158dab52bf785b3c5f1b30",
+       "shape": [
+        1,
+        18,
+        14,
+        25
+       ]
+      },
+      "forecast_reference_time": {
+       "attrs": {
+        "calendar": "standard",
+        "long_name": "simulation start (SIMULATION_START_DATE)",
+        "standard_name": "forecast_reference_time",
+        "units": "hours since 2005-08-28 00:00:00"
+       },
+       "dims": [],
+       "dtype": "float64",
+       "filters": {
+        "blosc": "False",
+        "bzip2": "False",
+        "complevel": "0",
+        "fletcher32": "False",
+        "shuffle": "False",
+        "szip": "False",
+        "zlib": "False",
+        "zstd": "False"
+       },
+       "masked": 0,
+       "sha256": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+       "shape": []
+      },
+      "geopotential_height": {
+       "attrs": {
+        "_FillValue": "9.96921e+36",
+        "comment": "levels below the lowest model mass level (below ground) are _FillValue; no extrapolation",
+        "long_name": "geopotential height (wrf-python 'z')",
+        "missing_value": "9.96921e+36",
+        "standard_name": "geopotential_height",
+        "units": "m"
+       },
+       "dims": [
+        "time",
+        "isobaric",
+        "lat",
+        "lon"
+       ],
+       "dtype": "float32",
+       "filters": {
+        "blosc": "False",
+        "bzip2": "False",
+        "complevel": "4",
+        "fletcher32": "False",
+        "shuffle": "True",
+        "szip": "False",
+        "zlib": "True",
+        "zstd": "False"
+       },
+       "masked": 831,
+       "sha256": "d573ae9302ccc2b8af2fd09376525fdaa91909d38de2989eb3800066594d72e3",
+       "shape": [
+        1,
+        18,
+        14,
+        25
+       ]
+      },
+      "isobaric": {
+       "attrs": {
+        "axis": "Z",
+        "long_name": "Isobaric surface",
+        "positive": "down",
+        "standard_name": "air_pressure",
+        "units": "hPa"
+       },
+       "dims": [
+        "isobaric"
+       ],
+       "dtype": "float32",
+       "filters": {
+        "blosc": "False",
+        "bzip2": "False",
+        "complevel": "0",
+        "fletcher32": "False",
+        "shuffle": "False",
+        "szip": "False",
+        "zlib": "False",
+        "zstd": "False"
+       },
+       "masked": 0,
+       "sha256": "b71a3e4b1a2eaa4203b8d32b4426f2899856f1efbd6aee790f4e2d8fa8e1a731",
+       "shape": [
+        18
+       ]
+      },
+      "lat": {
+       "attrs": {
+        "axis": "Y",
+        "long_name": "latitude",
+        "standard_name": "latitude",
+        "units": "degrees_north"
+       },
+       "dims": [
+        "lat"
+       ],
+       "dtype": "float64",
+       "filters": {
+        "blosc": "False",
+        "bzip2": "False",
+        "complevel": "0",
+        "fletcher32": "False",
+        "shuffle": "False",
+        "szip": "False",
+        "zlib": "False",
+        "zstd": "False"
+       },
+       "masked": 0,
+       "sha256": "bfec4d184fe85bfac2f0eec74fe36c618e177dd4370149eb4638f267811e66b3",
+       "shape": [
+        14
+       ]
+      },
+      "lon": {
+       "attrs": {
+        "axis": "X",
+        "long_name": "longitude",
+        "standard_name": "longitude",
+        "units": "degrees_east"
+       },
+       "dims": [
+        "lon"
+       ],
+       "dtype": "float64",
+       "filters": {
+        "blosc": "False",
+        "bzip2": "False",
+        "complevel": "0",
+        "fletcher32": "False",
+        "shuffle": "False",
+        "szip": "False",
+        "zlib": "False",
+        "zstd": "False"
+       },
+       "masked": 0,
+       "sha256": "03690a001f83abaa4bbc4ef7448130e19a3d6808c3496b509e5b7fd698bc539e",
+       "shape": [
+        25
+       ]
+      },
+      "northward_wind": {
+       "attrs": {
+        "_FillValue": "9.96921e+36",
+        "comment": "levels below the lowest model mass level (below ground) are _FillValue; no extrapolation",
+        "long_name": "earth-relative northward wind (wrf-python 'uvmet', rotated from grid-relative V)",
+        "missing_value": "9.96921e+36",
+        "standard_name": "northward_wind",
+        "units": "m s-1"
+       },
+       "dims": [
+        "time",
+        "isobaric",
+        "lat",
+        "lon"
+       ],
+       "dtype": "float32",
+       "filters": {
+        "blosc": "False",
+        "bzip2": "False",
+        "complevel": "4",
+        "fletcher32": "False",
+        "shuffle": "True",
+        "szip": "False",
+        "zlib": "True",
+        "zstd": "False"
+       },
+       "masked": 831,
+       "sha256": "0a8fd894206cb78772fdf6d8c66c767ac214437d267a39787e905e31c3115750",
+       "shape": [
+        1,
+        18,
+        14,
+        25
+       ]
+      },
+      "relative_humidity": {
+       "attrs": {
+        "_FillValue": "9.96921e+36",
+        "comment": "levels below the lowest model mass level (below ground) are _FillValue; no extrapolation",
+        "long_name": "relative humidity (wrf-python 'rh')",
+        "missing_value": "9.96921e+36",
+        "standard_name": "relative_humidity",
+        "units": "%"
+       },
+       "dims": [
+        "time",
+        "isobaric",
+        "lat",
+        "lon"
+       ],
+       "dtype": "float32",
+       "filters": {
+        "blosc": "False",
+        "bzip2": "False",
+        "complevel": "4",
+        "fletcher32": "False",
+        "shuffle": "True",
+        "szip": "False",
+        "zlib": "True",
+        "zstd": "False"
+       },
+       "masked": 831,
+       "sha256": "5dfc9f762009a4eef98776b59b3f2dbf026cc7a3865da319c7a55f87eeb09b15",
+       "shape": [
+        1,
+        18,
+        14,
+        25
+       ]
+      },
+      "surface_altitude": {
+       "attrs": {
+        "_FillValue": "9.96921e+36",
+        "long_name": "model terrain height (HGT)",
+        "missing_value": "9.96921e+36",
+        "standard_name": "surface_altitude",
+        "units": "m"
+       },
+       "dims": [
+        "lat",
+        "lon"
+       ],
+       "dtype": "float32",
+       "filters": {
+        "blosc": "False",
+        "bzip2": "False",
+        "complevel": "4",
+        "fletcher32": "False",
+        "shuffle": "True",
+        "szip": "False",
+        "zlib": "True",
+        "zstd": "False"
+       },
+       "masked": 22,
+       "sha256": "c9f1ac396f1333a3cbbbc3f4087fb4be6126031c8d51fa45973a7fdcaa8652f5",
+       "shape": [
+        14,
+        25
+       ]
+      },
+      "time": {
+       "attrs": {
+        "axis": "T",
+        "calendar": "standard",
+        "long_name": "valid time",
+        "standard_name": "time",
+        "units": "hours since 2005-08-28 00:00:00"
+       },
+       "dims": [
+        "time"
+       ],
+       "dtype": "float64",
+       "filters": {
+        "blosc": "False",
+        "bzip2": "False",
+        "complevel": "0",
+        "fletcher32": "False",
+        "shuffle": "False",
+        "szip": "False",
+        "zlib": "False",
+        "zstd": "False"
+       },
+       "masked": 0,
+       "sha256": "5bb55e5e852b3de478fe3b72f7fe57a0889b44830af6a18d775dcf8a60aa0a6e",
+       "shape": [
+        1
+       ]
+      },
+      "upward_air_velocity": {
+       "attrs": {
+        "_FillValue": "9.96921e+36",
+        "comment": "levels below the lowest model mass level (below ground) are _FillValue; no extrapolation",
+        "long_name": "vertical velocity on mass levels (wrf-python 'wa')",
+        "missing_value": "9.96921e+36",
+        "standard_name": "upward_air_velocity",
+        "units": "m s-1"
+       },
+       "dims": [
+        "time",
+        "isobaric",
+        "lat",
+        "lon"
+       ],
+       "dtype": "float32",
+       "filters": {
+        "blosc": "False",
+        "bzip2": "False",
+        "complevel": "4",
+        "fletcher32": "False",
+        "shuffle": "True",
+        "szip": "False",
+        "zlib": "True",
+        "zstd": "False"
+       },
+       "masked": 831,
+       "sha256": "c2ac93a64e46d1d392131d737acea309fdad270746a1bb3beb0c727f239cc349",
+       "shape": [
+        1,
+        18,
+        14,
+        25
+       ]
+      }
+     }
+    }
+   },
+   "results": [
+    {
+     "dlon": 0.11,
+     "domain": 1,
+     "dropped_levels": [
+      200.0,
+      150.0,
+      100.0
+     ],
+     "has_qice": true,
+     "levels": [
+      1000.0,
+      975.0,
+      950.0,
+      925.0,
+      900.0,
+      850.0,
+      800.0,
+      750.0,
+      700.0,
+      650.0,
+      600.0,
+      550.0,
+      500.0,
+      450.0,
+      400.0,
+      350.0,
+      300.0,
+      250.0
+     ],
+     "nlat": 14,
+     "nlon": 25,
+     "path": "<TMP>/exp/cf3d/d01/wrf_d01_pl_20050828_0600.nc",
+     "size_bytes": "<n>",
+     "valid_time": "2005-08-28_06:00:00"
+    },
+    {
+     "dlon": 0.11,
+     "domain": 1,
+     "dropped_levels": [
+      200.0,
+      150.0,
+      100.0
+     ],
+     "has_qice": true,
+     "levels": [
+      1000.0,
+      975.0,
+      950.0,
+      925.0,
+      900.0,
+      850.0,
+      800.0,
+      750.0,
+      700.0,
+      650.0,
+      600.0,
+      550.0,
+      500.0,
+      450.0,
+      400.0,
+      350.0,
+      300.0,
+      250.0
+     ],
+     "nlat": 14,
+     "nlon": 25,
+     "path": "<TMP>/exp/cf3d/d01/wrf_d01_pl_20050828_1200.nc",
+     "size_bytes": "<n>",
+     "valid_time": "2005-08-28_12:00:00"
+    }
+   ]
+  }
+ },
+ "vapor": {
+  "copy": {
+   "result": {
+    "copied_bytes": 1001,
+    "dir": "<TMP>/o5/vapor/d01",
+    "domain": 1,
+    "frames": [
+     {
+      "mode": "copy",
+      "name": "wrfout_d01_2005-08-28_06_00_00",
+      "native": null,
+      "original": "<TMP>/run/wrfout_d01_2005-08-28_06:00:00",
+      "size_bytes": 1001,
+      "timeidx": 0,
+      "valid_time": "2005-08-28_06:00:00"
+     }
+    ],
+    "link_note": "copied (0.0 MB)",
+    "manifest": "<TMP>/o5/vapor/d01/bundle.json",
+    "n_files": 1,
+    "readme": "<TMP>/o5/vapor/d01/README.md",
+    "script": "<TMP>/o5/vapor/d01/vapor_render.py",
+    "total_bytes": 1001
+   },
+   "tree": {
+    "o5/vapor/d01/README.md": {
+     "sha256": null,
+     "size": null
+    },
+    "o5/vapor/d01/bundle.json": {
+     "sha256": null,
+     "size": null
+    },
+    "o5/vapor/d01/vapor_render.py": {
+     "sha256": "0280d0d5c819a4a7e691fb05cfb75f8eadf311882e0abaf97520aa4cd1d91aaf",
+     "size": 7888
+    },
+    "o5/vapor/d01/wrfout_d01_2005-08-28_06_00_00": {
+     "sha256": "cbe4a2e86e808c9b51174c17d56b401791a6282036247a95c3fb2098f098ff79",
+     "size": 1001
+    }
+   }
+  },
+  "every": {
+   "bundle_json_text": "{\n  \"run_dir\": \"<TMP>/run\",\n  \"run_label\": \"base\",\n  \"domain\": 1,\n  \"selection\": \"--every 6h\",\n  \"frames\": [\n    {\n      \"original\": \"<TMP>/run/wrfout_d01_2005-08-28_00:00:00\",\n      \"name\": \"wrfout_d01_2005-08-28_00_00_00\",\n      \"valid_time\": \"2005-08-28_00:00:00\",\n      \"timeidx\": 0,\n      \"size_bytes\": 1000,\n      \"mode\": \"hardlink\",\n      \"native\": null\n    },\n    {\n      \"original\": \"<TMP>/run/wrfout_d01_2005-08-28_06:00:00\",\n      \"name\": \"wrfout_d01_2005-08-28_06_00_00\",\n      \"valid_time\": \"2005-08-28_06:00:00\",\n      \"timeidx\": 0,\n      \"size_bytes\": 1001,\n      \"mode\": \"hardlink\",\n      \"native\": null\n    },\n    {\n      \"original\": \"<TMP>/run/wrfout_d01_2005-08-28_12:00:00\",\n      \"name\": \"wrfout_d01_2005-08-28_12_00_00\",\n      \"valid_time\": \"2005-08-28_12:00:00\",\n      \"timeidx\": 0,\n      \"size_bytes\": 1002,\n      \"mode\": \"hardlink\",\n      \"native\": null\n    }\n  ],\n  \"total_bytes\": 3003,\n  \"copied_bytes\": 0,\n  \"link_note\": \"hard-linked (no extra space)\",\n  \"wtune_version\": \"0.8.2\",\n  \"wtune_commit\": \"<SHA>\",\n  \"created_utc\": \"<TS>\"\n}",
+   "manifest": {
+    "copied_bytes": 0,
+    "created_utc": "<TS>",
+    "domain": 1,
+    "frames": [
+     {
+      "mode": "hardlink",
+      "name": "wrfout_d01_2005-08-28_00_00_00",
+      "native": null,
+      "original": "<TMP>/run/wrfout_d01_2005-08-28_00:00:00",
+      "size_bytes": 1000,
+      "timeidx": 0,
+      "valid_time": "2005-08-28_00:00:00"
+     },
+     {
+      "mode": "hardlink",
+      "name": "wrfout_d01_2005-08-28_06_00_00",
+      "native": null,
+      "original": "<TMP>/run/wrfout_d01_2005-08-28_06:00:00",
+      "size_bytes": 1001,
+      "timeidx": 0,
+      "valid_time": "2005-08-28_06:00:00"
+     },
+     {
+      "mode": "hardlink",
+      "name": "wrfout_d01_2005-08-28_12_00_00",
+      "native": null,
+      "original": "<TMP>/run/wrfout_d01_2005-08-28_12:00:00",
+      "size_bytes": 1002,
+      "timeidx": 0,
+      "valid_time": "2005-08-28_12:00:00"
+     }
+    ],
+    "link_note": "hard-linked (no extra space)",
+    "run_dir": "<TMP>/run",
+    "run_label": "base",
+    "selection": "--every 6h",
+    "total_bytes": 3003,
+    "wtune_commit": "<SHA>",
+    "wtune_version": "0.8.2"
+   },
+   "names": [
+    "README.md",
+    "bundle.json",
+    "vapor_render.py",
+    "wrfout_d01_2005-08-28_00_00_00",
+    "wrfout_d01_2005-08-28_06_00_00",
+    "wrfout_d01_2005-08-28_12_00_00"
+   ],
+   "readme": "# WTune VAPOR bundle\uff1abase d01\n\n\u7531 `wtune post vapor-bundle` / `wtune post recipe` \u65bc <TS> \u7522\u751f\u3002\u672c\u8cc7\u6599\u593e\u53ef\u6574\u5305\u8907\u88fd\u5230\u4f60\u81ea\u5df1\u7684\n\u5de5\u4f5c\u7ad9\uff0c\u7528 NCAR \u5b98\u65b9 VAPOR \u958b\u555f\u3002scc\uff08aarch64\uff09\u4e0a\u6c92\u6709 VAPOR\uff1aVAPOR \u6c92\u6709 linux-aarch64 build\u3002\n\n## \u5167\u5bb9\n\n| \u6a94\u6848 | \u8aaa\u660e |\n|---|---|\n| `wrfout_d01_2005-08-28_00_00_00` | wrfout\uff0cvalid time 2005-08-28_00:00:00 |\n| `wrfout_d01_2005-08-28_06_00_00` | wrfout\uff0cvalid time 2005-08-28_06:00:00 |\n| `wrfout_d01_2005-08-28_12_00_00` | wrfout\uff0cvalid time 2005-08-28_12:00:00 |\n| `vapor_render.py` | \u4ee5 VAPOR Python API \u7b97\u5716\uff08\u5730\u5f62 + QCLOUD/QICE isosurface\uff09\uff0c\u4e5f\u53ef\u53ea\u5b58 session |\n| `bundle.json` | manifest\uff1a\u539f\u59cb wrfout \u8def\u5f91\u3001bundle \u5167\u6a94\u540d\u3001valid time\u3001\u5927\u5c0f\u3001hard link \u6216 copy |\n\n- run\uff1a`<TMP>/run`\n- domain\uff1ad01\uff1b\u6642\u9593\uff1a3 \u500b frame\uff08--every 6h\uff09\n- \u6a94\u6848\uff1ahard-linked (no extra space)\u3002\u540c\u4e00\u6a94\u6848\u7cfb\u7d71\u4e0a\u4e00\u5f8b hard link\uff08\u4e0d\u4f54\u984d\u5916\u7a7a\u9593\uff09\uff1b\u8de8\u6a94\u6848\u7cfb\u7d71\u6642 `wtune post\n  recipe` \u4e0d\u8907\u88fd\uff08\u5831\u544a\u8a18\u70ba missing\uff0c\u4e26\u7d66\u51fa\u6307\u4ee4\uff09\uff0c\u53ea\u6709\u660e\u78ba\u4e0b `wtune post vapor-bundle --allow-copy`\n  \u624d\u8907\u88fd\u3002\n- \u6a94\u540d\u628a WRF \u539f\u540d\u7684 `:` \u63db\u6210 `_`\uff08macOS/Windows \u53ef\u7528\uff09\u3002**\u5047\u8a2d**\uff1aVAPOR \u5f9e\u6bcf\u500b\u6a94\u6848\u7684 `Times`\n  \u8b8a\u6578\u8b80\u6642\u9593\uff0c\u4e0d\u770b\u6a94\u540d\u2014\u2014\u6b64\u9ede\u672a\u5728 VAPOR \u4e0a\u9a57\u8b49\u3002\n\n## 1. \u8907\u88fd\u5230\u5de5\u4f5c\u7ad9\n\n```\nrsync -av scc:<TMP>/o1/vapor/d01/ ./\n```\n\nhard link \u7684\u6a94\u6848\u5728 rsync \u6642\u7167\u5e38\u50b3\u5b8c\u6574\u5167\u5bb9\uff1b\u672c\u6a5f\u4e0d\u9700\u8981 scc \u4e0a\u7684\u539f\u59cb run\u3002hard link \u8207 run \u7684\u539f\u59cb\nwrfout \u662f\u540c\u4e00\u4efd\u8cc7\u6599\uff1a\u4e4b\u5f8c\u82e5\u5c31\u5730\u6539\u5beb\u539f\u6a94\uff0cbundle \u5167\u5bb9\u4e5f\u6703\u8ddf\u8457\u8b8a\u3002\n\n## 2. \u5b89\u88dd VAPOR\uff08x86_64 Linux / macOS\uff09\n\n```\nconda create -n vapor -c conda-forge -c ncar-vapor vapor\nconda activate vapor\n```\n\n## 3. \u7528 Python \u7b97\u5716\uff08`vapor_render.py`\uff09\n\n```\npython vapor_render.py                    # \u6bcf\u500b\u6642\u9593\u4e00\u5f35 PNG + wtune_session.vs3\uff0c\u8f38\u51fa\u5230 ./vapor_png\npython vapor_render.py --list             # \u53ea\u5217\u51fa\u8b8a\u6578\u540d\u7a31\u8207 time step \u6578\npython vapor_render.py --session-only     # \u53ea\u5b58 .vs3\uff08\u7d66 GUI \u958b\uff09\uff0c\u4e0d\u7b97\u5716\npython vapor_render.py --iso-cloud 2e-4 --iso-ice 1e-5 --width 1920 --height 1080\n```\n\n\u6c92\u6709\u87a2\u5e55\u7684 Linux \u4e3b\u6a5f\u53ef\u80fd\u8981 `xvfb-run -a python vapor_render.py`\uff08\u672a\u9a57\u8b49\uff09\u3002\u7d50\u5c3e\u7684 summary \u6703\u5217\u51fa\n\u7b97\u51fa\u54ea\u4e9b PNG\u3001\u7565\u904e\u4ec0\u9ebc\uff08\u4f8b\u5982\u6c92\u6709 QICE \u6642\u7684 QICE isosurface\uff09\u3001\u54ea\u4e9b\u672a\u9a57\u8b49\u7684\u547c\u53eb\u5931\u6557\u3002\n\n## 4. \u7528 GUI \u958b\n\n`vapor` \u555f\u52d5\u5f8c\uff1a\n\n- File > Open Session\uff0c\u9078 `vapor_png/wtune_session.vs3`\uff08\u5148\u8dd1\u904e `vapor_render.py` \u6216 `--session-only`\uff09\uff0c\u6216\n- File > Import > WRF-ARW\uff0c\u9078\u53d6\u672c\u8cc7\u6599\u593e**\u5168\u90e8** `wrfout_*` \u6a94\uff08VAPOR \u9700\u8981\u6574\u500b\u6642\u9593\u5e8f\u5217\u7684\u6a94\u6848\u6e05\u55ae\uff09\u3002\n\n\u5782\u76f4\u653e\u5927\u500d\u7387\uff08vertical exaggeration\uff09\u6c92\u6709 Python API\uff0c\u8acb\u5728 GUI \u7684 Viewpoint / Scene \u8a2d\u5b9a\u88e1\u8abf\u3002\n\n## \u672a\u9a57\u8b49\u7684\u90e8\u5206\uff08\u672c bundle \u7522\u751f\u6642\u7121\u6cd5\u5728 VAPOR \u4e0a\u57f7\u884c\uff09\n\n- `Session.SetTimestep(i)`\uff1a\u6587\u4ef6\u672a\u8a18\u8f09\u3001\u6709\u4e0d\u7a69\u5b9a\u7684\u56de\u5831\u3002\u82e5\u88ab\u5ffd\u7565\uff0c\u6bcf\u5f35 PNG \u53ef\u80fd\u90fd\u662f**\u540c\u4e00\u500b\u6642\u9593**\uff1b\n  `vapor_render.py` \u7121\u6cd5\u5075\u6e2c\uff0c\u53ea\u6703\u5728\u547c\u53eb\u5931\u6557\u6642\u63d0\u793a\u3002\u6b64\u6642\u8acb\u6539\u7528 GUI \u7684\u6642\u9593\u8ef8\u3002\n- \u659c\u8996\u76f8\u6a5f\uff1a`Camera.GetPosition/GetTarget/SetPosition/SetDirection/SetUp`\uff08\u628a ViewAll \u7684\u4fef\u8996\u6539\u70ba\u7531\u5357\u65b9\n  \u7d04 45\u00b0 \u659c\u770b\uff09\u3002\n- isosurface \u984f\u8272\uff1a`GetPrimaryTransferFunction().SetColorRGBList(...)`\u3002\n- \u4ee5\u4e0a\u547c\u53eb\u5931\u6557\u6642 `vapor_render.py` \u53ea\u5370 note \u4e26\u7e7c\u7e8c\uff1b\u5176\u9918\uff08Session\u3001OpenDataset\u3001GetDataVarNames\u3001\n  GetNumTimeSteps\u3001NewRenderer\u3001SetVariableName\u3001SetIsoValues\u3001SetHeightVariableName\u3001SetResolution\u3001\n  GetCamera\u3001ViewAll\u3001Render\u3001Save\uff09\u662f VAPOR \u6587\u4ef6\u8a18\u8f09\u7684\u547c\u53eb\u3002\n- `xvfb-run` \u7684\u9700\u6c42\u3001\u6a94\u540d\u4e0d\u5f71\u97ff\u6642\u9593\u7684\u5047\u8a2d\uff0c\u540c\u6a23\u672a\u9a57\u8b49\u3002\n",
+   "render_sha": "0280d0d5c819a4a7e691fb05cfb75f8eadf311882e0abaf97520aa4cd1d91aaf",
+   "result": {
+    "copied_bytes": 0,
+    "dir": "<TMP>/o1/vapor/d01",
+    "domain": 1,
+    "frames": [
+     {
+      "mode": "hardlink",
+      "name": "wrfout_d01_2005-08-28_00_00_00",
+      "native": null,
+      "original": "<TMP>/run/wrfout_d01_2005-08-28_00:00:00",
+      "size_bytes": 1000,
+      "timeidx": 0,
+      "valid_time": "2005-08-28_00:00:00"
+     },
+     {
+      "mode": "hardlink",
+      "name": "wrfout_d01_2005-08-28_06_00_00",
+      "native": null,
+      "original": "<TMP>/run/wrfout_d01_2005-08-28_06:00:00",
+      "size_bytes": 1001,
+      "timeidx": 0,
+      "valid_time": "2005-08-28_06:00:00"
+     },
+     {
+      "mode": "hardlink",
+      "name": "wrfout_d01_2005-08-28_12_00_00",
+      "native": null,
+      "original": "<TMP>/run/wrfout_d01_2005-08-28_12:00:00",
+      "size_bytes": 1002,
+      "timeidx": 0,
+      "valid_time": "2005-08-28_12:00:00"
+     }
+    ],
+    "link_note": "hard-linked (no extra space)",
+    "manifest": "<TMP>/o1/vapor/d01/bundle.json",
+    "n_files": 3,
+    "readme": "<TMP>/o1/vapor/d01/README.md",
+    "script": "<TMP>/o1/vapor/d01/vapor_render.py",
+    "total_bytes": 3003
+   }
+  },
+  "export": [
+   {
+    "domain": 1,
+    "error": "NotHardLinkable: vapor bundle not hard-linkable here (Invalid cross-device link); run `wtune post vapor-bundle <TMP>/run --domain 1 --every 6h --out <TMP>/o6 --allow-copy` to copy 3 files (~0.0 MB)"
+   },
+   {
+    "domain": 2,
+    "error": "ValueError: no wrfout_d02_* frames in <TMP>/run"
+   }
+  ],
+  "last": {
+   "names": [
+    "README.md",
+    "bundle.json",
+    "vapor_render.py",
+    "wrfout_d01_2005-08-28_12_00_00"
+   ],
+   "result": {
+    "copied_bytes": 0,
+    "dir": "<TMP>/o2/vapor/d01",
+    "domain": 1,
+    "frames": [
+     {
+      "mode": "hardlink",
+      "name": "wrfout_d01_2005-08-28_12_00_00",
+      "native": null,
+      "original": "<TMP>/run/wrfout_d01_2005-08-28_12:00:00",
+      "size_bytes": 1002,
+      "timeidx": 0,
+      "valid_time": "2005-08-28_12:00:00"
+     }
+    ],
+    "link_note": "hard-linked (no extra space)",
+    "manifest": "<TMP>/o2/vapor/d01/bundle.json",
+    "n_files": 1,
+    "readme": "<TMP>/o2/vapor/d01/README.md",
+    "script": "<TMP>/o2/vapor/d01/vapor_render.py",
+    "total_bytes": 1002
+   }
+  },
+  "nolink_error": {
+   "left": null,
+   "msg": "vapor bundle not hard-linkable here (Invalid cross-device link); run `wtune post vapor-bundle <TMP>/run --domain 1 --every 6h --out <TMP>/o4 --allow-copy` to copy 3 files (~0.0 MB)",
+   "type": "NotHardLinkable"
+  },
+  "times": {
+   "result": {
+    "copied_bytes": 0,
+    "dir": "<TMP>/o3/vapor/d01",
+    "domain": 1,
+    "frames": [
+     {
+      "mode": "hardlink",
+      "name": "wrfout_d01_2005-08-28_06_00_00",
+      "native": null,
+      "original": "<TMP>/run/wrfout_d01_2005-08-28_06:00:00",
+      "size_bytes": 1001,
+      "timeidx": 0,
+      "valid_time": "2005-08-28_06:00:00"
+     }
+    ],
+    "link_note": "hard-linked (no extra space)",
+    "manifest": "<TMP>/o3/vapor/d01/bundle.json",
+    "n_files": 1,
+    "readme": "<TMP>/o3/vapor/d01/README.md",
+    "script": "<TMP>/o3/vapor/d01/vapor_render.py",
+    "total_bytes": 1001
+   },
+   "tree": {
+    "o3/vapor/d01/README.md": {
+     "sha256": null,
+     "size": null
+    },
+    "o3/vapor/d01/bundle.json": {
+     "sha256": null,
+     "size": null
+    },
+    "o3/vapor/d01/vapor_render.py": {
+     "sha256": "0280d0d5c819a4a7e691fb05cfb75f8eadf311882e0abaf97520aa4cd1d91aaf",
+     "size": 7888
+    },
+    "o3/vapor/d01/wrfout_d01_2005-08-28_06_00_00": {
+     "sha256": "cbe4a2e86e808c9b51174c17d56b401791a6282036247a95c3fb2098f098ff79",
+     "size": 1001
+    }
+   }
+  }
+ }
+}

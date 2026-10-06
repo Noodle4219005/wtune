@@ -1,9 +1,7 @@
-"""post/inventory.py -- `wtune post inventory RUN_DIR`: domains, times, grid, variables,
-missing-frame check, file format. Grid and variable list come from `ncdump -h`; lon/lat
-extent is cross-checked against `cdo sinfon` (decision 0056, 2026-09-29 update: wrap
-established tools). The only self-written piece left is the missing-frame check -- no
-established tool audits a WRF run's own wrfout_dNN_TIME cadence, since that convention is
-WTune/WRF-specific, not something cdo/ncdump can know about.
+"""post/inventory.py -- `wtune post inventory RUN_DIR`: domains, times, grid, variables, file format
+and a missing-frame check. Grid/variables come from `ncdump -h`, lon/lat extent is cross-checked
+with `cdo sinfon` (decision 0056). Only the wrfout_dNN_TIME cadence audit is self-written: no
+established tool knows that WTune/WRF convention.
 """
 from __future__ import annotations
 
@@ -70,7 +68,7 @@ def _missing_frames(times):
     return expected, missing
 
 
-def inventory(run_dir):
+def inventory(run_dir: str) -> dict:
     """Returns a dict: format, bp_dirs (ADIOS2 note), domains -> {times, n_times, grid,
     variables, expected_interval_s, missing}."""
     from post import extract
@@ -114,7 +112,7 @@ def inventory(run_dir):
     return result
 
 
-def render_summary(inv):
+def render_summary(inv: dict) -> str:
     lines = ["run_dir: %s  format: %s" % (inv["run_dir"], inv["format"])]
     if inv.get("note"):
         lines.append(inv["note"])

@@ -1,87 +1,13 @@
 #!/usr/bin/env python3
-"""Convert WRF input netCDF files to BP files readable by WRF io_form=14.
+"""Convert WRF input netCDF files to BP files readable by WRF io_form=14 (serial, one time slice
+at a time, no MPI). Library callers use wtune_bp.nc2bp / convert_inputs; CLI: `wtune convert nc2bp`.
 
-This is deliberately a serial, one-time-slice-at-a-time converter.  It does
-not use MPI and it never materialises the complete input file in memory.
-
-Provenance: restored (layout logic unchanged) from ``git show
-8ba1629:tools/wrf_nc2bp.py`` after the 2026-09-24 src/ layout refactor lost
-it.  That version was validated on f1: conversion job 1071692 and regression
-gate 1072441 (WRF with BP5 inputs and BP5 history, zero netCDF I/O inside
-WRF, bit-identical to the netCDF path via diffwrf).  Library callers should
-go through ``wtune_bp.nc2bp`` / ``wtune_bp.convert_inputs`` (atomic output,
-manifest cache); the CLI front end is ``wtune convert nc2bp``.
-
-Layout decisions are taken from the WRF ADIOS2 writer/reader in
-``WRF/external/io_adios2`` (the line numbers below refer to the supplied
-``intel-adios2-dmsm`` source tree):
-
-* ``wrf_io.F90:1254-1272`` defines ``_DIM_DateStrLen``, a scalar string
-  ``Times`` variable, and its ``Dims = [DateStrLen, Time]`` attribute.
-* ``wrf_io.F90:2295-2523`` defines ordinary variables with a global shape,
-  stores time as BP steps, and writes ``Dims`` in WRF's reversed netCDF
-  dimension order followed by ``Time``.  The Python ADIOS2 binding exposes
-  the resulting shape in netCDF order (as verified against a real WRF BP
-  file), so the shape passed here is the netCDF spatial shape while the
-  ``Dims`` attribute is explicitly reversed.
-* ``wrf_io.F90:2530-2542`` writes ``FieldType`` and canonical
-  ``MemoryOrder`` metadata.  The converter preserves the source attribute
-  spelling/padding where present; WRF's reader obtains these values from the
-  registry/call site, while the BP ``FieldType`` is required by
-  ``wrf_io.F90:2733-2784``.
-* ``wrf_io.F90:327-389`` and ``wrf_io.F90:1374-1411`` show that every input
-  time is one BP step and that ``Times`` is written once per step.
-* ``wrf_io.F90:949-1033`` opens the exact supplied path, counts BP steps,
-  reads ``Times``, and ignores ordinary variables whose names start with
-  ``md___``.  Such variables are nevertheless retained here because the
-  boundary reader directly requests the ``md___thisbdytime...`` and
-  ``md___nextbdytime...`` variables.
-* ``ext_adios2_put_var_td.code:98-137`` and
-  ``ext_adios2_put_var_ti.code:91-110`` establish ``_DIM_*``, ``Dims``, and
-  per-variable attribute encodings.  Character metadata emitted by WRF is a
-  one-element string attribute; numeric metadata remains typed numeric data.
-* ``ext_adios2_put_dom_ti.code:82-87`` and ``wrf_io.F90:1714-1836`` establish
-  that netCDF global attributes correspond to root BP attributes.  Logical
-  values in the WRF build are represented as integer 0/1 values.
-
-The source writer leaves the engine at the ADIOS2 default, which is BP5 in
-the target ADIOS2 2.10.2 stack; only the optional burst-buffer path forces
-BP4 (``wrf_io.F90:1306-1315``).  WRF's reader, however, opens inputs in
-``adios2_mode_read`` and inquires ``Times`` before any BeginStep
-(``wrf_io.F90:949-959``), which BP5 refuses (code 4); this CLI therefore
-defaults to BP4 (scc, 2026-10-03).  Compression is intentionally not used:
-the supplied Python wheel has no Blosc support, and uncompressed BP is fully
-readable by WRF.
-
-The WRF source does not interpret boundary suffixes in this directory.  The
-converter consequently keeps ``_BXS/_BXE/_BYS/_BYE``, ``_BTXS...`` and all
-``md___`` names byte-for-byte as netCDF variable names, applying the same
-ordinary field/step contract.
-
-Multi-record inputs (wrfbdy, wrflowinp, wrffdda): the layout written here is
-structurally the one WRF itself writes (scc 2026-10-03: real.exe io_form 14
-BP4 wrfbdy vs this converter on the same real.exe netCDF wrfbdy -- same
-variables, types, shapes, step count, per-step Times and md___ strings,
-attribute set).  WRF nevertheless cannot read such a file correctly:
-``FieldIO`` (``wrf_io.F90:652-660``) calls ``adios2_set_step_selection`` only
-when ``IO == 'write'``, and ``ext_adios2_read_field`` never sets it either, so
-every field Get returns BP step 0 whatever record the DateStr names (only
-``Times`` and the ``md___`` strings are step-selected, ``wrf_io.F90:978`` and
-``ext_adios2_get_var_td.code:119``).  WRF fed with its own BP4 wrfbdy is
-bit-identical to WRF fed with a netCDF wrfbdy whose records 2..N carry record
-1's fields (13/13 hourly frames, scc job 2780) and departs from the netCDF run
-one hour after the first boundary update.  No single-file layout can avoid
-this; the converter warns on stderr for any multi-record single-file output.
-
-The way around it without touching WRF is one record per file
-(``--split-prefix``): with ``multi_bdy_files = .true.`` WRF builds the boundary
-file name from ``bdy_inname`` with <date> = the current clock time, opens it,
-reads it and closes it every boundary interval
-(``share/mediation_integrate.F:1451-1516``); a dated ``auxinput4_inname``
-plus ``frames_per_auxinput4 = 1`` does the same for sst_update (open_aux_u,
-``share/mediation_integrate.F:1613-1682``, closes after
-``frames_per_auxinput4`` frames, ``inc/med_auxinput_in_closes.inc``).  Every
-read then hits the file's only step.
+Layout follows WRF's own writer/reader (WRF/external/io_adios2/wrf_io.F90: Times 1254-1272, fields
+2295-2523, FieldType/MemoryOrder 2530-2542, one BP step per time 327-389, reader 949-1033).
+Restored from 8ba1629; validated f1 jobs 1071692/1072441 (wiki: adios2-bp4-restart-via-adios2-xml...).
+Engine defaults to BP4: WRF's reader inquires Times before BeginStep, which BP5 refuses (scc 2026-10-03).
+Multi-record files read back as step 0 for every field (wrf_io.F90:652-660; scc jobs 2778/2780), so
+--split-prefix writes one BP per record (multi_bdy_files / dated auxinput names).
 """
 
 from __future__ import annotations
@@ -100,6 +26,8 @@ from netCDF4 import Dataset
 DEFAULT_ENGINE = "BP4"
 WRF_DATE_STR_LEN = 19
 WRF_MAX_TIMES = 60000
+# Boundary suffixes (_BXS.., _BTXS.., md___*) are kept byte-for-byte: WRF does not interpret them
+# here and the boundary reader requests md___thisbdytime/nextbdytime directly.
 
 
 def _is_char_dtype(dtype: np.dtype) -> bool:
@@ -119,12 +47,8 @@ def _attribute_value(value: Any) -> Any:
 
 
 def _variable_attribute_value(name: str, value: Any) -> Any:
-    """Match WRF's per-variable character-attribute encoding.
-
-    ``put_var_ti_char`` calls the Fortran ADIOS2 binding with a count of one,
-    which appears as a one-element string array to FileReader.  MemoryOrder
-    is written separately by the field writer as a scalar character value.
-    """
+    """WRF's per-variable character attribute encoding: a one-element string array
+    (put_var_ti_char, count 1); MemoryOrder and Dims stay scalars."""
     value = _attribute_value(value)
     if isinstance(value, str) and name not in {"MemoryOrder", "Dims"}:
         return [value]
@@ -225,10 +149,8 @@ def _make_specs(ds: Dataset, time_name: str | None) -> list[VariableSpec]:
 
 
 def _define_dimensions(io: Any, ds: Dataset) -> None:
-    # Time is implicit in the BP step count.  WRF always defines DateStrLen
-    # before any field; defining all physical netCDF dimensions is harmless,
-    # preserves unused dimensions for the reverse converter, and gives the
-    # same integer _DIM_* representation to every dimension used by a field.
+    # Time is the BP step count; every other dimension becomes an integer _DIM_* attribute
+    # (also the unused ones, which the reverse converter needs).
     source_global_names = set(ds.ncattrs())
     for name, dimension in ds.dimensions.items():
         if name == "Time":
@@ -335,12 +257,44 @@ def _write_bp(
 
 
 def record_file_name(prefix: str, date: str) -> str:
-    """Per-record BP name: what WRF's construct_filename2a (share/module_io_domain.F:194-252)
-    makes of ``<prefix-with-domain>_<date>.bp`` with <date> = the clock's current_timestr
-    (19 characters, colons kept: maybe_remove_colons only acts with nocolons=.true.)."""
+    """Per-record BP name <prefix>_<date>.bp as WRF's construct_filename2a builds it
+    (share/module_io_domain.F:194-252; 19-character date, colons kept)."""
     if len(date) != WRF_DATE_STR_LEN:
         raise ValueError(f"bad WRF date string {date!r}")
     return f"{prefix}_{date}.bp"
+
+
+def _check_times(ds: Dataset, time_name: str | None) -> tuple[int, Any]:
+    """(number of Time records, the Times variable) of a WRF input; raises ValueError if unusable."""
+    nsteps = len(ds.dimensions[time_name]) if time_name else 1
+    if nsteps < 1:
+        raise ValueError("input has no Time records")
+    if nsteps > WRF_MAX_TIMES:
+        raise ValueError(f"input has {nsteps} Time records; WRF limit is {WRF_MAX_TIMES}")
+    if "Times" not in ds.variables:
+        raise ValueError("WRF ADIOS2 input requires a Times variable")
+    times = ds.variables["Times"]
+    if times.ndim != 2 or times.dimensions[0] != "Time":
+        raise ValueError(f"Times must have dimensions (Time, DateStrLen), got {times.dimensions}")
+    if len(times.dimensions) != 2 or len(ds.dimensions[times.dimensions[1]]) != WRF_DATE_STR_LEN:
+        raise ValueError("Times must use a 19-character DateStrLen dimension")
+    return nsteps, times
+
+
+def _write_split(ds: Dataset, specs: list[VariableSpec], times: Any, nsteps: int,
+                 input_path: str, output_path: str, engine_name: str, split_prefix: str) -> list[str]:
+    """One single-step BP per Time record under the new directory output_path."""
+    dates = [_decode_char(times[k, :]) for k in range(nsteps)]
+    names = [record_file_name(split_prefix, d) for d in dates]
+    if len(set(names)) != len(names):
+        raise ValueError(f"{input_path}: duplicate Times, cannot split per record")
+    os.makedirs(output_path)
+    written = []
+    for k, name in enumerate(names):
+        path = os.path.join(output_path, name)
+        _write_bp(ds, specs, path, engine_name, [k])
+        written.append(path)
+    return written
 
 
 def convert(
@@ -349,12 +303,9 @@ def convert(
     engine_name: str = DEFAULT_ENGINE,
     split_prefix: str | None = None,
 ) -> list[str]:
-    """Convert ``input_path``.  Without ``split_prefix``: one BP (one step per Time record)
-    at ``output_path``.  With it: ``output_path`` becomes a directory holding one single-step
-    BP per record, ``record_file_name(split_prefix, Times[k])``, each carrying record k's
-    fields, Times and md___ strings unchanged (the per-record layout for WRF's
-    multi_bdy_files / dated auxinput names, see the module docstring).  Returns the written
-    BP paths."""
+    """Convert input_path to one BP (a step per Time record) at output_path, or, with
+    split_prefix, to a directory of one-record BPs record_file_name(split_prefix, Times[k]).
+    Returns the written BP paths."""
     if engine_name not in {"BP4", "BP5"}:
         raise ValueError(f"unsupported engine {engine_name!r}; use BP4 or BP5")
     if os.path.exists(output_path):
@@ -364,31 +315,11 @@ def convert(
         ds.set_auto_mask(False)
         ds.set_auto_scale(False)
         time_name = _time_dimension(ds)
-        nsteps = len(ds.dimensions[time_name]) if time_name else 1
-        if nsteps < 1:
-            raise ValueError("input has no Time records")
-        if nsteps > WRF_MAX_TIMES:
-            raise ValueError(f"input has {nsteps} Time records; WRF limit is {WRF_MAX_TIMES}")
-        if "Times" not in ds.variables:
-            raise ValueError("WRF ADIOS2 input requires a Times variable")
-        times = ds.variables["Times"]
-        if times.ndim != 2 or times.dimensions[0] != "Time":
-            raise ValueError(f"Times must have dimensions (Time, DateStrLen), got {times.dimensions}")
-        if len(times.dimensions) != 2 or len(ds.dimensions[times.dimensions[1]]) != WRF_DATE_STR_LEN:
-            raise ValueError("Times must use a 19-character DateStrLen dimension")
+        nsteps, times = _check_times(ds, time_name)
         if split_prefix is not None:
             specs = _make_specs(ds, time_name)
-            dates = [_decode_char(times[k, :]) for k in range(nsteps)]
-            names = [record_file_name(split_prefix, d) for d in dates]
-            if len(set(names)) != len(names):
-                raise ValueError(f"{input_path}: duplicate Times, cannot split per record")
-            os.makedirs(output_path)
-            written = []
-            for k, name in enumerate(names):
-                path = os.path.join(output_path, name)
-                _write_bp(ds, specs, path, engine_name, [k])
-                written.append(path)
-            return written
+            return _write_split(ds, specs, times, nsteps, input_path, output_path,
+                                engine_name, split_prefix)
         if nsteps > 1:
             print(
                 f"WARNING: {input_path} has {nsteps} Time records; WRF's io_adios2 reader "

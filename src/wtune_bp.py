@@ -1,47 +1,12 @@
 #!/usr/bin/env python3
-"""wtune_bp.py -- shared ADIOS2 (WRF io_form 14) helpers: BP detection, netCDF <-> BP
-conversion, a manifest-cached input converter, round-trip verification, the run-dir
-adios2.xml, and the `wtune convert` CLI.
+"""wtune_bp.py -- shared ADIOS2 (WRF io_form 14) helpers: BP detection, netCDF <-> BP conversion,
+a manifest-cached input converter, round-trip check, the run-dir adios2.xml, `wtune convert`.
 
-Converters
-  nc -> BP : src/tools/wrf_nc2bp.py (restored from 8ba1629, validated on f1: convert job
-             1071692, regression gate 1072441 -- WRF with BP5 inputs + BP5 history bit-identical
-             to the netCDF path via diffwrf). Default engine BP4 (see adios2.xml below); BP5 on
-             request. Multi-record inputs (wrfbdy/wrflowinp/wrffdda) convert to the same layout
-             WRF writes itself, but WRF's io_adios2 reader returns BP step 0 for every field
-             read (wrf_io.F90:652-660 sets the step selection only for writes), so WRF gets
-             record 1's fields for every boundary/SST/FDDA record -- with WRF's own BP wrfbdy
-             too (scc 2026-10-03, jobs 2778/2780). The converter's stderr WARNING says so and
-             nc2bp relays it. convert_inputs therefore writes those names per record:
-             cache/<name>/ is a plain directory of one-step BPs <name>_<date>.bp (WRF's own
-             current_timestr), read by WRF one file per interval via multi_bdy_files / a
-             dated auxinput name (per_record_namelist_edits, bp_input_links).
-  BP -> nc : src/tools/wrf_adios2_to_netcdf4/convert.py (vendored upstream + patches, see its
-             UPSTREAM.md). Serial path only; float/int32/string variables only (its typemap).
-
-Both need the `adios2` Python module, which this module never imports: conda-forge adios2 2.10
-conflicts with the hdf5 pinned in envs/wtune, so it lives in its own env, envs/adios2 (adios2
-2.10.* nompi, matching the ADIOS2 2.10.2 library WRF is linked against). The converters run as a
-subprocess of that interpreter: $WTUNE_ADIOS2_PYTHON if set (no fallback), else
-envs/adios2/.pixi/envs/default/bin/python, else a `python`/`python3` on PATH that imports adios2
-(adios2_python()). The child gets PYTHONPATH/PYTHONHOME/LD_LIBRARY_PATH removed so a loaded
-nvhpc/spack ADIOS2 or the caller's env cannot shadow the conda libraries. Everything else here --
-is_bp, manifest bookkeeping, the netCDF comparison (netCDF4 is in envs/wtune), adios2_xml, CLI
-parsing -- runs in-process without adios2.
-
-adios2.xml: WRF reads ./adios2.xml (hard-coded path, external/io_adios2/wrf_io.F90:1656) and
-declares one ADIOS2 IO per file, named by the file name itself (DH%FileName, wrf_io.F90:1233-1236),
-so an <io> entry must name the exact file, timestamp included -- there is no per-stream wildcard.
-Restart files need BP4: WRF opens a file for read and queries `Times` without BeginStep, which
-BP5's streaming read mode refuses (FATAL `adios2 error in ext_adios2_open_for_read_begin`, code 4);
-with BP4 selected for the restart file on both the writing and the reading run the readback works
-and is bit-identical to the netCDF restart (wiki: 2026-09-27
-adios2-bp4-restart-via-adios2-xml-is-bit-identical-and-300x-faster). The same open path reads
-the INPUT files, so nc2bp writes inputs as BP4 (DEFAULT_ENGINE): on scc (WRF 4.8 + ADIOS2 2.10.2
-nvhpc) a BP5 wrfinput_d01.bp fails with exactly that code-4 FATAL while the BP4 conversion runs
-and gives history bit-identical to netCDF inputs (SC26-P2, 2026-10-03, jobs 2734-2736; the f1
-BP5-input gate 1072441 does not carry over). History is written by WRF with its default engine
-and read back here by Python, so it needs no entry.
+adios2 lives in its own env (envs/adios2; hdf5 conflict with envs/wtune): the converters run as a
+subprocess of that interpreter ($WTUNE_ADIOS2_PYTHON, else envs/adios2, else PATH python), and this
+module never imports adios2. nc -> BP is src/tools/wrf_nc2bp.py, BP -> nc is
+src/tools/wrf_adios2_to_netcdf4/convert.py. Evidence per constant/function below (wiki:
+adios2-bp4-restart-via-adios2-xml-is-bit-identical-and-300x-faster; scc jobs 2734-2736, 2778/2780).
 """
 
 import argparse
@@ -55,10 +20,11 @@ import subprocess
 import sys
 import tempfile
 import time
+from typing import IO, Any, Dict, Iterable, List, Optional, Tuple, Union
 from xml.sax.saxutils import quoteattr
 
 ADIOS2_IO_FORM = 14
-DEFAULT_ENGINE = "BP4"   # WRF reads inputs like restarts: BP5 fails (see module docstring)
+DEFAULT_ENGINE = "BP4"   # WRF opens inputs like restarts; BP5 hits the code-4 FATAL (scc jobs 2734-2736)
 ENGINES = ("BP4", "BP5")
 # Bump when the nc->BP layout logic changes: every cached conversion is then redone.
 CONVERTER_VERSION = "wrf_nc2bp@8ba1629"
@@ -91,11 +57,11 @@ class Adios2ConversionError(RuntimeError):
 _IMPORT_OK = {}     # interpreter path -> bool (`import adios2` result, cached per process)
 
 
-def _child_env():
+def _child_env() -> Dict[str, str]:
     return {k: v for k, v in os.environ.items() if k not in _CHILD_ENV_DROP}
 
 
-def _imports_adios2(py):
+def _imports_adios2(py: str) -> bool:
     if py not in _IMPORT_OK:
         try:
             r = subprocess.run([py, "-c", "import adios2"], stdin=subprocess.DEVNULL,
@@ -107,14 +73,14 @@ def _imports_adios2(py):
     return _IMPORT_OK[py]
 
 
-def _adios2_candidates():
+def _adios2_candidates() -> List[str]:
     explicit = os.environ.get("WTUNE_ADIOS2_PYTHON")
     if explicit:
         return [explicit]
     return [c for c in (_ADIOS2_ENV_PY, shutil.which("python"), shutil.which("python3")) if c]
 
 
-def adios2_python():
+def adios2_python() -> Optional[str]:
     """Path of the interpreter the converters run under, or None (see module docstring)."""
     for py in _adios2_candidates():
         if _imports_adios2(py):
@@ -122,7 +88,7 @@ def adios2_python():
     return None
 
 
-def require_adios2_python():
+def require_adios2_python() -> str:
     """Return the adios2-capable interpreter path, or raise Adios2Unavailable naming the fix.
     Never imports adios2 into this process."""
     py = adios2_python()
@@ -141,7 +107,7 @@ def require_adios2_python():
         "python that imports adios2 2.10." % (why, _ADIOS2_ENV))
 
 
-def _run_adios2(args, what):
+def _run_adios2(args: Iterable[str], what: str) -> None:
     py = require_adios2_python()
     r = subprocess.run([py] + list(args), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                        stderr=subprocess.PIPE, env=_child_env(), text=True, errors="replace")
@@ -156,11 +122,11 @@ def _run_adios2(args, what):
 # ---------------------------------------------------------------------------
 # detection
 # ---------------------------------------------------------------------------
-def _has_data_subfile(entries):
+def _has_data_subfile(entries: Iterable[str]) -> bool:
     return any(re.fullmatch(r"data\.\d+", e) for e in entries)
 
 
-def bp_engine(path):
+def bp_engine(path: str) -> Optional[str]:
     """'BP5' (md.0 + mmd.0 + data.N), 'BP4' (md.idx + data.N, no mmd.0) or None."""
     if not os.path.isdir(path):
         return None
@@ -177,13 +143,13 @@ def bp_engine(path):
     return None
 
 
-def is_bp(path):
+def is_bp(path: str) -> bool:
     """True for a BP4/BP5 directory as written by WRF io_form 14 or by nc2bp (symlinks
     followed). A regular file (netCDF, or a legacy BP3 single file) is False."""
     return bp_engine(path) is not None
 
 
-def is_netcdf(path):
+def is_netcdf(path: str) -> bool:
     """True for a regular file carrying a netCDF classic/64-bit/CDF5 or HDF5 signature."""
     if not os.path.isfile(path):
         return False
@@ -198,7 +164,7 @@ def is_netcdf(path):
 # ---------------------------------------------------------------------------
 # single-file converters (atomic: write a sibling temp, then rename)
 # ---------------------------------------------------------------------------
-def ensure_dir(path, attempts=6, sleep=time.sleep):
+def ensure_dir(path: str, attempts: int = 6, sleep=time.sleep) -> str:
     """os.makedirs(exist_ok=True) that survives another node creating a parent at the same time:
     the NFS client gets EEXIST for the parent, then ENOENT for the child from its stale negative
     dentry (scc jobs 2884/2885). Re-lists the parent to revalidate and retries."""
@@ -217,7 +183,7 @@ def ensure_dir(path, attempts=6, sleep=time.sleep):
             sleep(0.2 * (i + 1))
 
 
-def open_lock(path, attempts=6, sleep=time.sleep):
+def open_lock(path: str, attempts: int = 6, sleep=time.sleep) -> IO[str]:
     """Open (create if needed, never truncate) a lockf lock file in a possibly just-created dir;
     concurrent creators are fine (O_CREAT without O_EXCL)."""
     for i in range(attempts):
@@ -230,19 +196,20 @@ def open_lock(path, attempts=6, sleep=time.sleep):
             sleep(0.2 * (i + 1))
 
 
-def _tmp_sibling(dst):
+def _tmp_sibling(dst: str) -> str:
     d, b = os.path.split(os.path.abspath(dst))
     return os.path.join(d, ".%s.tmp-%d-%d" % (b, os.getpid(), time.monotonic_ns()))
 
 
-def _rm(path):
+def _rm(path: str) -> None:
     if os.path.isdir(path) and not os.path.islink(path):
         shutil.rmtree(path, ignore_errors=True)
     elif os.path.lexists(path):
         os.unlink(path)
 
 
-def nc2bp(src_nc, dst_bp, engine=DEFAULT_ENGINE, split_prefix=None):
+def nc2bp(src_nc: str, dst_bp: str, engine: str = DEFAULT_ENGINE,
+          split_prefix: Optional[str] = None) -> str:
     """Convert one WRF input netCDF file to a WRF-readable BP directory. Raises
     FileExistsError if dst_bp exists; on any failure nothing is left at dst_bp.
     split_prefix (e.g. "wrfbdy_d01"): dst_bp becomes a plain directory of one-record BPs
@@ -264,7 +231,7 @@ def nc2bp(src_nc, dst_bp, engine=DEFAULT_ENGINE, split_prefix=None):
     return dst_bp
 
 
-def bp2nc(src_bp, dst_nc):
+def bp2nc(src_bp: str, dst_nc: str) -> str:
     """Convert one BP directory (WRF output or nc2bp output) to netCDF4 (all steps).
     Atomic: a failed conversion leaves no partial dst_nc (the 132 KB stub that once made
     the 1072441 gate report a conversion that had failed)."""
@@ -282,13 +249,13 @@ def bp2nc(src_bp, dst_nc):
     return dst_nc
 
 
-def is_per_record_dir(path):
+def is_per_record_dir(path: str) -> bool:
     """True for a per-record container (nc2bp split_prefix output): a plain directory, not
     itself BP, holding <name>_<date>.bp BP directories."""
     return os.path.isdir(path) and not is_bp(path) and bool(record_files(path))
 
 
-def record_files(container):
+def record_files(container: str) -> List[str]:
     """Sorted (= chronological: WRF date strings) per-record BP basenames in a container."""
     try:
         entries = os.listdir(container)
@@ -298,7 +265,7 @@ def record_files(container):
                   if e.endswith(".bp") and is_bp(os.path.join(container, e)))
 
 
-def bp_input_links(name, target):
+def bp_input_links(name: str, target: str) -> Dict[str, str]:
     """Run-dir symlinks {link name: target} for one converted input: <name>.bp -> target for
     a single BP; one <name>_<date>.bp -> target/<name>_<date>.bp per record for a per-record
     container (the exact names WRF opens with per_record_namelist_edits)."""
@@ -307,24 +274,16 @@ def bp_input_links(name, target):
     return {name + ".bp": target}
 
 
-def per_record_namelist_edits(names, max_dom=1):
-    """Namelist edits that make WRF read per-record BP inputs, as
-    {namelist group: {key: Fortran literal}} for the input names present (e.g. wrfbdy_d01,
-    wrflowinp_d01). io_form_* are not included (unchanged: 14).
-
-    wrfbdy  : &bdy_control multi_bdy_files = .true. and bdy_inname "wrfbdy_d<domain>_<date>.bp"
-              (module_check_a_mundo.F:1324-1333 requires the "_<date>" substring;
-              mediation_integrate.F:1451-1516 opens/reads/closes one file per boundary time,
-              <date> = current_timestr via construct_filename2a). Run-verified, scc 2026-10-03.
-    wrflowinp: auxinput4_inname "wrflowinp_d<domain>_<date>.bp" and frames_per_auxinput4 = 1
-              per domain: open_aux_u (mediation_integrate.F:1613-1682) builds the dated name
-              only when the stream is not open, and med_auxinput_in_closes.inc closes it only
-              after frames_per_auxinput4 frames (Registry default 999999). Run-verified (B3).
-    wrffdda : gfdda_inname (&fdda; copied to auxinput10_inname by module_check_a_mundo)
-              "wrffdda_d<domain>_<date>.bp" and frames_per_auxinput10 = 1 -- same mechanism
-              as auxinput4, NOT run-verified.
-    Limitation: the files are named by the clock time of each read, so a run must start
-    (cold or restart) on a record time; WRF opens <name>_<start>.bp first."""
+def per_record_namelist_edits(names: Iterable[str],
+                             max_dom: int = 1) -> Dict[str, Dict[str, str]]:
+    """Namelist edits {group: {key: Fortran literal}} that make WRF read per-record BP inputs
+    for the wrfbdy/wrflowinp/wrffdda names present (io_form_* stay 14). WRF names each file by
+    the clock time of its read, so a run must start on a record time (wiki: 2026-10-03 adios2 gate)."""
+    # wrfbdy: module_check_a_mundo.F:1324-1333 wants "_<date>"; mediation_integrate.F:1451-1516
+    # opens one file per boundary time (run-verified, scc 2026-10-03).
+    # wrflowinp: open_aux_u (mediation_integrate.F:1613-1682) builds the dated name only when the
+    #   stream is closed, so frames_per_auxinput4 = 1 per domain (run-verified, B3).
+    # wrffdda: same mechanism as auxinput4 via gfdda_inname -> auxinput10; NOT run-verified.
     kinds = {PER_RECORD_NAME_RE.match(n).group(1) for n in names if PER_RECORD_NAME_RE.match(n)}
     ones = ", ".join(["1"] * max_dom)
     edits = {}
@@ -344,7 +303,7 @@ def per_record_namelist_edits(names, max_dom=1):
 # ---------------------------------------------------------------------------
 # cached input conversion
 # ---------------------------------------------------------------------------
-def sha256_file(path, bufsize=16 << 20):
+def sha256_file(path: str, bufsize: int = 16 << 20) -> str:
     h = hashlib.sha256()
     with open(path, "rb") as f:
         while True:
@@ -355,7 +314,7 @@ def sha256_file(path, bufsize=16 << 20):
     return h.hexdigest()
 
 
-def find_input_names(case_dir):
+def find_input_names(case_dir: str) -> List[str]:
     """Sorted wrfinput/wrfbdy/wrflowinp/wrffdda_d0N names in case_dir that are netCDF files
     (BP directories and anything else with those names are ignored)."""
     out = []
@@ -365,7 +324,7 @@ def find_input_names(case_dir):
     return out
 
 
-def _read_manifest(path):
+def _read_manifest(path: str) -> Dict[str, Any]:
     try:
         with open(path) as f:
             data = json.load(f)
@@ -376,7 +335,7 @@ def _read_manifest(path):
     return data
 
 
-def _write_manifest(path, data):
+def _write_manifest(path: str, data: Dict[str, Any]) -> None:
     tmp = _tmp_sibling(path)
     with open(tmp, "w") as f:
         json.dump(data, f, indent=1, sort_keys=True)
@@ -384,7 +343,8 @@ def _write_manifest(path, data):
     os.replace(tmp, path)
 
 
-def _entry_current(entry, src, st, engine, dst, layout=SINGLE_LAYOUT):
+def _entry_current(entry: Optional[Dict[str, Any]], src: str, st, engine: str, dst: str,
+                   layout: str = SINGLE_LAYOUT) -> Tuple[bool, Optional[str]]:
     """(current, sha) -- current means the cached BP still corresponds to src. Size+mtime
     unchanged skips hashing; otherwise the source is re-hashed and only a content change
     counts (a touch/copy with identical bytes does not force a reconversion). An entry
@@ -408,33 +368,66 @@ def _entry_current(entry, src, st, engine, dst, layout=SINGLE_LAYOUT):
     return sha == entry.get("sha256"), sha
 
 
-def convert_inputs(case_dir, cache_dir, names=None, engine=DEFAULT_ENGINE):
-    """Convert a case's WRF input netCDF files to BP under cache_dir, cached.
+def _layout_of(name: str) -> str:
+    return PER_RECORD_LAYOUT if PER_RECORD_NAME_RE.match(name) else SINGLE_LAYOUT
 
-    names None -> every wrfinput/wrfbdy/wrflowinp/wrffdda_d0N netCDF file in case_dir.
-    Output cache_dir/<name> (a BP directory named exactly like the WRF input, so a run dir can
-    symlink wrfinput_d01 -> cache_dir/wrfinput_d01). cache_dir/bp_manifest.json records per name
-    the resolved source path, size, mtime, sha256, engine, converter version and BP path; a name
-    is reconverted only when one of those no longer matches (or the BP is missing).
-    Multi-record names (PER_RECORD_NAME_RE: wrfbdy/wrflowinp/wrffdda) are written per record:
-    cache_dir/<name> is then a plain directory of <name>_<date>.bp (manifest "layout":
-    "per-record", "records": [basenames]; bp_input_links gives the run-dir links,
-    per_record_namelist_edits the namelist). Other names: "layout": "single". Conversions
-    are atomic and serialized by a POSIX lock (lockf: GPFS/NFS-safe across nodes) on
-    cache_dir/.bp_manifest.lock.
-    Returns {name: bp_path}."""
+
+def _resolve_input_names(case_dir: str, names: Optional[Iterable[str]]) -> List[str]:
+    """names None -> every netCDF input in case_dir; explicit names must be netCDF files."""
+    if names is None:
+        return find_input_names(case_dir)
+    names = list(names)
+    for n in names:
+        p = os.path.join(case_dir, n)
+        if not os.path.isfile(p):
+            raise FileNotFoundError("no input file %s" % p)
+        if not is_netcdf(p):
+            raise ValueError("%s is not a netCDF file" % p)
+    return names
+
+
+def _convert_into(src: str, dst: str, name: str, layout: str, engine: str) -> None:
+    """Convert src to a temp sibling of dst, then swap it in (the old dst is removed last)."""
+    tmp = _tmp_sibling(dst)
+    try:
+        if layout == PER_RECORD_LAYOUT:
+            nc2bp(src, tmp, engine=engine, split_prefix=name)
+        else:
+            nc2bp(src, tmp, engine=engine)
+        if os.path.lexists(dst):
+            old = _tmp_sibling(dst) + ".old"
+            os.rename(dst, old)
+            os.rename(tmp, dst)
+            _rm(old)
+        else:
+            os.rename(tmp, dst)
+    except BaseException:
+        _rm(tmp)
+        raise
+
+
+def _manifest_entry(src: str, st, sha: str, engine: str, dst: str, layout: str,
+                    converted_at: Optional[str]) -> Dict[str, Any]:
+    entry = {
+        "source": src, "size": st.st_size, "mtime": st.st_mtime, "sha256": sha,
+        "engine": engine, "converter_version": CONVERTER_VERSION,
+        "bp_path": os.path.abspath(dst), "layout": layout, "converted_at": converted_at,
+    }
+    if layout == PER_RECORD_LAYOUT:
+        entry["records"] = record_files(dst)
+    return entry
+
+
+def convert_inputs(case_dir: str, cache_dir: str, names: Optional[Iterable[str]] = None,
+                   engine: str = DEFAULT_ENGINE) -> Dict[str, str]:
+    """Convert a case's WRF input netCDF files to BP under cache_dir/<name>; returns {name: bp_path}.
+    bp_manifest.json records source/size/mtime/sha256/engine/converter version per name; a name is
+    reconverted only when one of them changed or the BP is gone. wrfbdy/wrflowinp/wrffdda are
+    written one BP per record (layout "per-record", see bp_input_links). Atomic, serialized by a
+    lockf on cache_dir/.bp_manifest.lock (GPFS/NFS-safe across nodes)."""
     if engine not in ENGINES:
         raise ValueError("unsupported engine %r; use BP4 or BP5" % (engine,))
-    if names is None:
-        names = find_input_names(case_dir)
-    else:
-        names = list(names)
-        for n in names:
-            p = os.path.join(case_dir, n)
-            if not os.path.isfile(p):
-                raise FileNotFoundError("no input file %s" % p)
-            if not is_netcdf(p):
-                raise ValueError("%s is not a netCDF file" % p)
+    names = _resolve_input_names(case_dir, names)
     mpath = os.path.join(cache_dir, MANIFEST_NAME)
     result = {}
     with open_lock(os.path.join(cache_dir, ".bp_manifest.lock")) as lockf:
@@ -445,42 +438,21 @@ def convert_inputs(case_dir, cache_dir, names=None, engine=DEFAULT_ENGINE):
             src = os.path.realpath(os.path.join(case_dir, name))
             dst = os.path.join(cache_dir, name)
             st = os.stat(src)
-            layout = PER_RECORD_LAYOUT if PER_RECORD_NAME_RE.match(name) else SINGLE_LAYOUT
+            layout = _layout_of(name)
             current, sha = _entry_current(entries.get(name), src, st, engine, dst, layout)
             if not current:
                 sha = sha or sha256_file(src)
-                tmp = _tmp_sibling(dst)
-                try:
-                    if layout == PER_RECORD_LAYOUT:
-                        nc2bp(src, tmp, engine=engine, split_prefix=name)
-                    else:
-                        nc2bp(src, tmp, engine=engine)
-                    if os.path.lexists(dst):
-                        old = _tmp_sibling(dst) + ".old"
-                        os.rename(dst, old)
-                        os.rename(tmp, dst)
-                        _rm(old)
-                    else:
-                        os.rename(tmp, dst)
-                except BaseException:
-                    _rm(tmp)
-                    raise
-            entries[name] = {
-                "source": src, "size": st.st_size, "mtime": st.st_mtime, "sha256": sha,
-                "engine": engine, "converter_version": CONVERTER_VERSION,
-                "bp_path": os.path.abspath(dst), "layout": layout,
-                "converted_at": (entries.get(name, {}).get("converted_at") if current
-                                 else time.strftime("%Y-%m-%dT%H:%M:%S")),
-            }
-            if layout == PER_RECORD_LAYOUT:
-                entries[name]["records"] = record_files(dst)
-            # persist after every file so an interrupted batch keeps what it finished
-            _write_manifest(mpath, manifest)
+                _convert_into(src, dst, name, layout, engine)
+            converted_at = (entries.get(name, {}).get("converted_at") if current
+                            else time.strftime("%Y-%m-%dT%H:%M:%S"))
+            entries[name] = _manifest_entry(src, st, sha, engine, dst, layout, converted_at)
+            _write_manifest(mpath, manifest)    # per file: an interrupted batch keeps what finished
             result[name] = dst
     return result
 
 
-def cached_inputs(case_dir, cache_dir, names, engine=DEFAULT_ENGINE):
+def cached_inputs(case_dir: str, cache_dir: str, names: Iterable[str],
+                  engine: str = DEFAULT_ENGINE) -> Optional[Dict[str, str]]:
     """{name: cache_dir/<name>} when every name's cached conversion is current, else None.
     Read-only (no lock, no conversion): for a submitting host that must not convert."""
     try:
@@ -491,7 +463,7 @@ def cached_inputs(case_dir, cache_dir, names, engine=DEFAULT_ENGINE):
     for name in names:
         src = os.path.realpath(os.path.join(case_dir, name))
         dst = os.path.join(cache_dir, name)
-        layout = PER_RECORD_LAYOUT if PER_RECORD_NAME_RE.match(name) else SINGLE_LAYOUT
+        layout = _layout_of(name)
         try:
             current, _sha = _entry_current(entries.get(name), src, os.stat(src), engine, dst,
                                            layout)
@@ -503,7 +475,7 @@ def cached_inputs(case_dir, cache_dir, names, engine=DEFAULT_ENGINE):
     return out
 
 
-def _du_bytes(path):
+def _du_bytes(path: str) -> int:
     total = 0
     for root, _dirs, files in os.walk(path):
         for f in files:
@@ -514,7 +486,8 @@ def _du_bytes(path):
     return total
 
 
-def fresh_input_copy(src_dirs, dest_dir, runner=subprocess.run, stats=None):
+def fresh_input_copy(src_dirs: Union[Dict[str, str], Iterable[str]], dest_dir: str,
+                     runner=subprocess.run, stats: Optional[Dict[str, Any]] = None) -> Dict[str, str]:
     """Copy per-record input dirs to dest_dir/<name> (`cp -a --reflink=always`, else `cp -a`).
     src_dirs: {name: dir} or [dir]. Returns {name: copied dir}; stats (dict) gets reflink/bytes.
     Run on the submitting host: a fresh inode per run avoids the NFS open stall (wiki
@@ -550,11 +523,11 @@ def fresh_input_copy(src_dirs, dest_dir, runner=subprocess.run, stats=None):
 # ---------------------------------------------------------------------------
 # round-trip verification
 # ---------------------------------------------------------------------------
-def _attrs(obj):
+def _attrs(obj) -> Dict[str, Any]:
     return {a: obj.getncattr(a) for a in obj.ncattrs() if a != "_FillValue"}
 
 
-def _attr_equal(a, b):
+def _attr_equal(a, b) -> bool:
     import numpy as np
     if isinstance(a, (str, bytes)) or isinstance(b, (str, bytes)):
         return a == b
@@ -562,7 +535,7 @@ def _attr_equal(a, b):
     return a.dtype == b.dtype and a.shape == b.shape and np.array_equal(a, b)
 
 
-def _compare_arrays(a, b):
+def _compare_arrays(a, b) -> Tuple[bool, Optional[float]]:
     """(equal, max_abs_diff or None). Character data byte-for-byte; floats NaN-equal."""
     import numpy as np
     a, b = np.asarray(a), np.asarray(b)
@@ -580,76 +553,92 @@ def _compare_arrays(a, b):
     return eq, (float(diff.max()) if diff.size else (0.0 if eq else float("nan")))
 
 
-def compare_netcdf(left_nc, right_nc, left_record=None):
-    """Compare every variable (data, dtype, shape, dimensions, attributes) and every global
-    attribute and dimension length. Returns dict(ok, vars_compared, max_abs_diff, mismatches).
-    left_record k: compare only record k of left's Time-dimensioned variables (Time length 1
-    expected on the right) -- one file of a per-record conversion."""
+def _left_shape(v, left_record: Optional[int]):
+    """Shape of a left variable; with left_record only one Time record is compared."""
+    if left_record is not None and v.dimensions[:1] == ("Time",):
+        return (1,) + tuple(v.shape[1:])
+    return v.shape
+
+
+def _compare_dimensions(L, R, left_record: Optional[int]) -> List[str]:
+    out = []
+    for d, dim in L.dimensions.items():
+        n = 1 if left_record is not None and d == "Time" else len(dim)
+        if d not in R.dimensions:
+            out.append("dim %s missing" % d)
+        elif len(R.dimensions[d]) != n:
+            out.append("dim %s: %d != %d" % (d, n, len(R.dimensions[d])))
+    return out
+
+
+def _compare_attr_dicts(la: Dict[str, Any], ra: Dict[str, Any], label: str,
+                        missing: str) -> List[str]:
+    out = []
+    for a in la:
+        if a not in ra:
+            out.append("%s%s %s" % (label, a, missing))
+        elif not _attr_equal(la[a], ra[a]):
+            out.append("%s%s %r != %r" % (label, a, la[a], ra[a]))
+    return out
+
+
+def _record_pairs(lv, left_record: Optional[int]) -> list:
+    """(left index, right index) pairs, one leading record at a time: bounded memory for GB fields."""
+    if left_record is not None and lv.dimensions[:1] == ("Time",):
+        return [((left_record,), (0,))]
+    if lv.ndim >= 2 and lv.shape[0] > 1:
+        return [((i,), (i,)) for i in range(lv.shape[0])]
+    return [(Ellipsis, Ellipsis)]
+
+
+def _compare_variable(name: str, lv, rv, left_record: Optional[int]) -> Tuple[List[str], float]:
+    """(mismatches, max_abs_diff) of one variable present on both sides."""
+    if lv.dtype != rv.dtype:
+        return ["%s: dtype %s != %s" % (name, lv.dtype, rv.dtype)], 0.0
+    lshape = _left_shape(lv, left_record)
+    if lshape != rv.shape or lv.dimensions != rv.dimensions:
+        return ["%s: shape %s%s != %s%s" % (name, lv.dimensions, lshape, rv.dimensions,
+                                            rv.shape)], 0.0
+    mismatches, max_abs = [], 0.0
+    for ls, rs in _record_pairs(lv, left_record):
+        eq, diff = _compare_arrays(lv[ls], rv[rs])
+        if diff is not None and diff == diff:
+            max_abs = max(max_abs, diff)
+        if not eq:
+            mismatches.append("%s: data differs (max_abs_diff %s)" % (name, diff))
+            break
+    mismatches += _compare_attr_dicts(_attrs(lv), _attrs(rv), name + ":", "attribute missing")
+    return mismatches, max_abs
+
+
+def compare_netcdf(left_nc: str, right_nc: str, left_record: Optional[int] = None) -> Dict[str, Any]:
+    """Compare every variable (data, dtype, shape, dims, attributes), global attribute and
+    dimension length: dict(ok, vars_compared, max_abs_diff, mismatches). left_record k compares
+    only record k of left's Time variables (one file of a per-record conversion)."""
     from netCDF4 import Dataset
-    mismatches = []
     vars_compared = 0
     max_abs = 0.0
     with Dataset(left_nc) as L, Dataset(right_nc) as R:
         for ds in (L, R):
             ds.set_auto_mask(False)
             ds.set_auto_scale(False)
-        def lshape(v):
-            if left_record is not None and v.dimensions[:1] == ("Time",):
-                return (1,) + tuple(v.shape[1:])
-            return v.shape
-
-        for d, dim in L.dimensions.items():
-            n = 1 if left_record is not None and d == "Time" else len(dim)
-            if d not in R.dimensions:
-                mismatches.append("dim %s missing" % d)
-            elif len(R.dimensions[d]) != n:
-                mismatches.append("dim %s: %d != %d" % (d, n, len(R.dimensions[d])))
+        mismatches = _compare_dimensions(L, R, left_record)
         for name in sorted(set(R.variables) - set(L.variables)):
             mismatches.append("%s: extra variable in round trip" % name)
         for name, lv in L.variables.items():
             if name not in R.variables:
                 mismatches.append("%s: missing in round trip" % name)
                 continue
-            rv = R.variables[name]
             vars_compared += 1
-            if lv.dtype != rv.dtype:
-                mismatches.append("%s: dtype %s != %s" % (name, lv.dtype, rv.dtype))
-                continue
-            if lshape(lv) != rv.shape or lv.dimensions != rv.dimensions:
-                mismatches.append("%s: shape %s%s != %s%s"
-                                  % (name, lv.dimensions, lshape(lv), rv.dimensions, rv.shape))
-                continue
-            # one leading record at a time: bounded memory for multi-GB fields
-            if left_record is not None and lv.dimensions[:1] == ("Time",):
-                pairs = [((left_record,), (0,))]
-            elif lv.ndim >= 2 and lv.shape[0] > 1:
-                pairs = [((i,), (i,)) for i in range(lv.shape[0])]
-            else:
-                pairs = [(Ellipsis, Ellipsis)]
-            for ls, rs in pairs:
-                eq, diff = _compare_arrays(lv[ls], rv[rs])
-                if diff is not None and diff == diff:
-                    max_abs = max(max_abs, diff)
-                if not eq:
-                    mismatches.append("%s: data differs (max_abs_diff %s)" % (name, diff))
-                    break
-            la, ra = _attrs(lv), _attrs(rv)
-            for a in la:
-                if a not in ra:
-                    mismatches.append("%s:%s attribute missing" % (name, a))
-                elif not _attr_equal(la[a], ra[a]):
-                    mismatches.append("%s:%s %r != %r" % (name, a, la[a], ra[a]))
-        lg, rg = _attrs(L), _attrs(R)
-        for a in lg:
-            if a not in rg:
-                mismatches.append("global:%s missing" % a)
-            elif not _attr_equal(lg[a], rg[a]):
-                mismatches.append("global:%s %r != %r" % (a, lg[a], rg[a]))
+            found, diff = _compare_variable(name, lv, R.variables[name], left_record)
+            mismatches += found
+            max_abs = max(max_abs, diff)
+        mismatches += _compare_attr_dicts(_attrs(L), _attrs(R), "global:", "missing")
     return {"ok": not mismatches, "vars_compared": vars_compared,
             "max_abs_diff": max_abs, "mismatches": mismatches}
 
 
-def roundtrip_check(src_nc, bp_path, tmp_dir):
+def roundtrip_check(src_nc: str, bp_path: str, tmp_dir: str) -> Dict[str, Any]:
     """nc -> BP -> nc and compare with the source (see compare_netcdf). bp_path is converted
     from src_nc first when it does not exist yet; the netCDF copy is written in tmp_dir and
     removed afterwards. Returns dict(ok, vars_compared, max_abs_diff, mismatches)."""
@@ -667,7 +656,7 @@ def roundtrip_check(src_nc, bp_path, tmp_dir):
         _rm(back)
 
 
-def _roundtrip_per_record(src_nc, container, tmp_dir):
+def _roundtrip_per_record(src_nc: str, container: str, tmp_dir: str) -> Dict[str, Any]:
     """Record file i (chronological) must hold exactly source record i, and there must be
     one file per source record."""
     from netCDF4 import Dataset
@@ -697,26 +686,21 @@ def _roundtrip_per_record(src_nc, container, tmp_dir):
 # ---------------------------------------------------------------------------
 # adios2.xml
 # ---------------------------------------------------------------------------
-def default_engine_for(io_name):
-    """BP4 for restart files (the BP5 readback failure, see module docstring); None (= no
-    entry, ADIOS2 default BP5) for everything else."""
+def default_engine_for(io_name: str) -> Optional[str]:
+    """BP4 for restart files (BP5 cannot be read back, wiki: adios2-bp4-restart-via-adios2-xml...);
+    None (= ADIOS2 default BP5) for everything else."""
     return "BP4" if os.path.basename(io_name).startswith("wrfrst_d") else None
 
 
-def restart_io_names(restart_times, max_dom):
+def restart_io_names(restart_times: Iterable[str], max_dom: int) -> List[str]:
     """ADIOS2 IO names WRF uses for the restart files: wrfrst_d<NN>_<YYYY-MM-DD_HH:MM:SS>."""
     return ["wrfrst_d%02d_%s" % (d, t) for t in restart_times for d in range(1, max_dom + 1)]
 
 
-def adios2_xml(engine_by_stream=None):
-    """XML text for <run_dir>/adios2.xml.
-
-    engine_by_stream: {io_name: engine} or an iterable of io_names. io_name is the exact file
-    name WRF opens (WRF names each ADIOS2 IO after the file, timestamp included; ADIOS2 matches
-    names exactly -- see restart_io_names). An engine of None (or a bare name) takes
-    default_engine_for(name): BP4 for wrfrst_* (restart readback needs BP4 on both the
-    writing and the reading run), no entry otherwise. None -> a config with no IO entries
-    (every file on the ADIOS2 default, BP5)."""
+def adios2_xml(engine_by_stream: Union[None, Dict[str, Optional[str]], Iterable[str]] = None) -> str:
+    """XML text for <run_dir>/adios2.xml. engine_by_stream: {io_name: engine} or io_names; io_name
+    is the exact file name WRF opens (timestamp included, see restart_io_names). A None engine
+    takes default_engine_for(name): BP4 for wrfrst_*, no entry otherwise; None -> no entries."""
     if engine_by_stream is None:
         items = []
     elif isinstance(engine_by_stream, dict):
@@ -740,7 +724,7 @@ def adios2_xml(engine_by_stream=None):
 # ---------------------------------------------------------------------------
 # CLI: wtune convert nc2bp | bp2nc | inputs
 # ---------------------------------------------------------------------------
-def build_parser():
+def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="wtune convert",
                                 description="WRF netCDF <-> ADIOS2 BP (io_form %d) conversion"
                                             % ADIOS2_IO_FORM)
@@ -767,14 +751,14 @@ def build_parser():
     return p
 
 
-def nc2bp_target(src, out=None):
+def nc2bp_target(src: str, out: Optional[str] = None) -> str:
     base = os.path.basename(os.path.normpath(src))
     if out is None or os.path.realpath(out) == os.path.realpath(os.path.dirname(os.path.abspath(src))):
         return os.path.join(os.path.dirname(os.path.abspath(src)), base + ".bp")
     return os.path.join(out, base)
 
 
-def bp2nc_target(src, out=None):
+def bp2nc_target(src: str, out: Optional[str] = None) -> str:
     base = os.path.basename(os.path.normpath(src))
     if base.endswith(".bp"):
         base = base[:-3]
@@ -782,7 +766,7 @@ def bp2nc_target(src, out=None):
                         base + ".nc")
 
 
-def _check(src, bp, scratch_parent):
+def _check(src: str, bp: str, scratch_parent: str) -> bool:
     with tempfile.TemporaryDirectory(prefix=".wtune-roundtrip-", dir=scratch_parent) as td:
         r = roundtrip_check(src, bp, td)
     status = "PASS" if r["ok"] else "FAIL"
@@ -793,46 +777,59 @@ def _check(src, bp, scratch_parent):
     return r["ok"]
 
 
-def main(argv=None):
+def _main_nc2bp(args) -> int:
+    if args.out:
+        os.makedirs(args.out, exist_ok=True)
+    ok = True
+    for src in args.src:
+        dst = nc2bp_target(src, args.out)
+        t0 = time.time()
+        nc2bp(src, dst, engine=args.engine)
+        print("%s -> %s (%s, %.1f s)" % (src, dst, args.engine, time.time() - t0))
+        if args.check:
+            ok = _check(src, dst, os.path.dirname(os.path.abspath(dst))) and ok
+    return 0 if ok else 1
+
+
+def _main_bp2nc(args) -> int:
+    if args.out:
+        os.makedirs(args.out, exist_ok=True)
+    for src in args.src:
+        if not is_bp(src):
+            print("wtune convert: %s is not a BP4/BP5 directory" % src, file=sys.stderr)
+            return 2
+        dst = bp2nc_target(src, args.out)
+        t0 = time.time()
+        bp2nc(src, dst)
+        print("%s -> %s (%.1f s)" % (src, dst, time.time() - t0))
+    return 0
+
+
+def _main_inputs(args) -> int:
+    mapping = convert_inputs(args.case_dir, args.cache, names=args.names, engine=args.engine)
+    if not mapping:
+        print("wtune convert: no wrfinput/wrfbdy/wrflowinp/wrffdda_d0N netCDF files in %s"
+              % args.case_dir, file=sys.stderr)
+        return 2
+    ok = True
+    for name, bp in mapping.items():
+        print("%s -> %s" % (name, bp))
+        if args.check:
+            ok = _check(os.path.join(args.case_dir, name), bp, args.cache) and ok
+    return 0 if ok else 1
+
+
+_ACTIONS = {"nc2bp": _main_nc2bp, "bp2nc": _main_bp2nc, "inputs": _main_inputs}
+
+
+def main(argv: Optional[List[str]] = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         require_adios2_python()
     except Adios2Unavailable as exc:
         print("wtune convert: %s" % exc, file=sys.stderr)
         return 2
-    ok = True
-    if args.action == "nc2bp":
-        if args.out:
-            os.makedirs(args.out, exist_ok=True)
-        for src in args.src:
-            dst = nc2bp_target(src, args.out)
-            t0 = time.time()
-            nc2bp(src, dst, engine=args.engine)
-            print("%s -> %s (%s, %.1f s)" % (src, dst, args.engine, time.time() - t0))
-            if args.check:
-                ok = _check(src, dst, os.path.dirname(os.path.abspath(dst))) and ok
-    elif args.action == "bp2nc":
-        if args.out:
-            os.makedirs(args.out, exist_ok=True)
-        for src in args.src:
-            if not is_bp(src):
-                print("wtune convert: %s is not a BP4/BP5 directory" % src, file=sys.stderr)
-                return 2
-            dst = bp2nc_target(src, args.out)
-            t0 = time.time()
-            bp2nc(src, dst)
-            print("%s -> %s (%.1f s)" % (src, dst, time.time() - t0))
-    else:
-        mapping = convert_inputs(args.case_dir, args.cache, names=args.names, engine=args.engine)
-        if not mapping:
-            print("wtune convert: no wrfinput/wrfbdy/wrflowinp/wrffdda_d0N netCDF files in %s"
-                  % args.case_dir, file=sys.stderr)
-            return 2
-        for name, bp in mapping.items():
-            print("%s -> %s" % (name, bp))
-            if args.check:
-                ok = _check(os.path.join(args.case_dir, name), bp, args.cache) and ok
-    return 0 if ok else 1
+    return _ACTIONS[args.action](args)
 
 
 if __name__ == "__main__":

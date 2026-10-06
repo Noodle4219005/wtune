@@ -1,54 +1,42 @@
-"""post/recipe.py -- `wtune post recipe RUN_DIR [RUN_DIR ...] --out DIR` (decision 0057):
-detects which case type(s) this run matches (post/caseinfo.py, multi-label -- when types
-overlap, every matching type's figures are produced, never just one), dispatches to each
-detected type's figure set (post/recipes/*.py), deduplicates figures that only need drawing
-once (the domain map), and builds one self-contained HTML report (post/report.py) whose header
-lists the detected types and the exact evidence for each.
-
-Every figure record this module's fig()/missing() helpers produce is one of:
-  fig(id, path, run, domain=None, valid_time=None, extra=None)      -- a real figure
-  missing(id, dataset, reason, run=None)                            -- an explicit gap, never
-                                                                        a silently-dropped one
-`post.recipes.*`'s own figures() functions import fig/missing from THIS module lazily (inside
-their own functions), not at their top level, to avoid a circular import with this module's own
-top-level `from post.recipes import ...` dispatch imports.
+"""post/recipe.py -- `wtune post recipe RUN_DIR... --out DIR` (decision 0057): detect the case
+type(s) (post/caseinfo.py, multi-label), run each type's figure set (post/recipes/*.py), dedupe
+once-only figures and build one HTML report (post/report.py). Records are fig(...) (a figure),
+missing(...) (an explicit gap) and note(...) (a hint; moved to result["notes"]). Recipe modules
+import fig/missing/note lazily to avoid a circular import with the dispatch imports below.
 """
 from __future__ import annotations
 
 import json
 import os
+from dataclasses import dataclass, field
 
-from post import caseinfo, tools
+from post import caseinfo
 
 CATALOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "recipes", "catalog.json")
 
 
-def fig(id, path, run, domain=None, valid_time=None, extra=None):
+def fig(id, path, run, domain=None, valid_time=None, extra=None) -> dict:
     d = dict(id=id, missing=False, path=path, run=run, domain=domain, valid_time=valid_time)
     if extra:
         d.update(extra)
     return d
 
 
-def note(source, text, level="warning"):
+def note(source, text, level="warning") -> dict:
     """A user-facing hint that is neither a figure nor a missing observation (e.g. "the track is
-    on a 12 km grid"). Any recipe module may include these in the list its figures()/handler
-    returns; run_recipe() pulls them out (they never reach the figure list, so they are not
-    counted as missing observations) into the top-level result["notes"] list of
-    {"source", "level", "text"}, which the report renders as a warning box. A figure's own
-    extra["note"] stays on the figure."""
+    on a 12 km grid"); run_recipe() moves these out of the figure list into result["notes"]."""
     return dict(kind="note", source=source, level=level, text=text)
 
 
-def is_note(entry):
+def is_note(entry) -> bool:
     return entry.get("kind") == "note"
 
 
-def missing(id, dataset, reason, run=None):
+def missing(id, dataset, reason, run=None) -> dict:
     return dict(id=id, missing=True, dataset=dataset, reason=reason, run=run)
 
 
-def load_catalog():
+def load_catalog() -> dict:
     with open(CATALOG_PATH) as fh:
         return json.load(fh)
 
@@ -169,7 +157,7 @@ def _simple_dispatch(module_name, out_subdir):
     return run
 
 
-def guarded(name, fn, *args, **kwargs):
+def guarded(name, fn, *args, **kwargs) -> list:
     """fn(*args, **kwargs); a wrfout written with a reduced history stream (iofields) that
     lacks a variable/attribute the figure set needs (post.extract.is_missing_field_error)
     becomes ONE missing entry naming it -- never an aborted report, never a raw
@@ -209,14 +197,10 @@ def _tc_centre_from_track(hurdat2_path, storm_id, bdeck_path, run_dir):
     return nearest[1], nearest[2]
 
 
-def run_recipe(run_dirs, out_dir, **kwargs):
-    """ADIOS2 BP history first (post.extract.prepare_history): every run's BP directories are
-    converted to (or validated in) the netCDF cache -- <project>/_nc_cache, else
-    <out_dir>/_nc_cache, unless the CLI/--nc-cache/$WTUNE_NC_CACHE chose already -- before any
-    figure set looks at a frame. A run whose BP history cannot be converted at all (adios2
-    missing) gives a report with ONE missing entry naming the fix instead of a traceback from
-    whichever recipe touched a frame first; single files that failed to convert become notes.
-    Then _run_recipe (the pipeline below)."""
+def run_recipe(run_dirs, out_dir, **kwargs) -> dict:
+    """Convert/validate ADIOS2 BP history into the netCDF cache first (post.extract.prepare_history),
+    then _run_recipe. A run whose BP history cannot be converted (adios2 missing) gives a report
+    with one missing entry naming the fix; single files that failed become notes."""
     from post import extract
     labels = kwargs.get("labels") or [("run%d" % i) for i in range(len(run_dirs))]
     with extract.nc_cache(base=kwargs.get("project_dir") or out_dir):
@@ -245,31 +229,121 @@ def run_recipe(run_dirs, out_dir, **kwargs):
         return _run_recipe(run_dirs, out_dir, pre_notes=bp_notes, **kwargs)
 
 
+@dataclass
+class _RecipeRun:
+    """Inputs shared by every type runner of one `wtune post recipe` run."""
+    run_dirs: list
+    labels: list
+    out_dir: str
+    case_info: dict
+    spinup_hours: float = 6
+    hurdat2_path: str | None = None
+    storm_id: str | None = None
+    bdeck_path: str | None = None
+    ebtrk_path: str | None = None
+    paraview: bool = True
+    every: str | None = None
+    times: list | None = None
+    cross_sections: dict = field(default_factory=dict)
+    xsec_top_km: float | None = None
+    xsec_halfwidth_km: float | None = None
+    project_dir: str | None = None
+    spinup_days: float | None = None
+    track_smooth_km: float | None = None
+    tc_centre: tuple | None = None
+
+
+def _args4(r: _RecipeRun) -> tuple:
+    return r.run_dirs, r.labels, r.out_dir, r.case_info
+
+
+def _run_tc(handler, r: _RecipeRun) -> list:
+    has_track = bool(r.hurdat2_path and r.storm_id)
+    out = []
+    if not has_track:
+        out.append(missing("tc_figure", "HURDAT2/--storm",
+                           "tc was detected but --hurdat2/--storm is required "
+                           "to build the a-deck/b-deck comparison"))
+    else:
+        out += guarded("tc", handler, *_args4(r), r.hurdat2_path, r.storm_id, r.bdeck_path,
+                       r.ebtrk_path, r.paraview, r.spinup_hours,
+                       track_smooth_km=r.track_smooth_km)
+    out += guarded("tc_structure", _tc_structure_figures, *_args4(r), paraview=r.paraview,
+                   every=r.every, times=r.times, use_track=has_track)
+    return out
+
+
+def _run_cloud(handler, r: _RecipeRun) -> list:
+    return guarded("cloud", handler, *_args4(r), paraview=r.paraview, every=r.every,
+                   times=r.times)
+
+
+def _run_convection(handler, r: _RecipeRun) -> list:
+    return guarded("convection", handler, *_args4(r), r.paraview, r.spinup_hours)
+
+
+def _run_terrain(handler, r: _RecipeRun) -> list:
+    return handler(*_args4(r), spinup_hours=r.spinup_hours,
+                   cross_section=r.cross_sections.get("terrain"),
+                   xsec_top_km=r.xsec_top_km, xsec_halfwidth_km=r.xsec_halfwidth_km,
+                   project_dir=r.project_dir)
+
+
+def _run_moisture(handler, r: _RecipeRun) -> list:
+    return handler(*_args4(r), spinup_hours=r.spinup_hours,
+                   cross_section=r.cross_sections.get("moisture"), tc_centre=r.tc_centre,
+                   xsec_top_km=r.xsec_top_km, xsec_halfwidth_km=r.xsec_halfwidth_km,
+                   project_dir=r.project_dir)
+
+
+def _run_simple(handler, r: _RecipeRun) -> list:
+    return handler(*_args4(r), spinup_hours=r.spinup_hours, project_dir=r.project_dir,
+                   spinup_days=r.spinup_days)
+
+
+_TYPE_RUNNERS = {"tc": _run_tc, "cloud": _run_cloud, "convection": _run_convection,
+                 "terrain": _run_terrain, "moisture": _run_moisture}
+
+
+def _type_figures(types: list, r: _RecipeRun) -> list:
+    """Figures of every detected type that has a handler, in detection order."""
+    out = []
+    for t in types:
+        if t in ("common",):
+            continue
+        handler = TYPE_DISPATCH.get(t)
+        if handler is not None:
+            out += _TYPE_RUNNERS.get(t, _run_simple)(handler, r)
+    return out
+
+
+def _split_notes(entries: list) -> tuple[list, list]:
+    """(notes as {source, level, text}, the remaining figure/missing entries)."""
+    notes = [{k: e[k] for k in ("source", "level", "text")} for e in entries if is_note(e)]
+    return notes, [e for e in entries if not is_note(e)]
+
+
+def _build_report(run_dirs, labels, out_dir, case_info, figures, spinup_hours, title, notes, advice):
+    import inspect
+    from post.report import build_recipe_report
+    kwargs = {"notes": notes} if "notes" in inspect.signature(build_recipe_report).parameters else {}
+    if advice and advice["advice"]:
+        import wtune_advise
+        kwargs["advice_html"] = wtune_advise.render_html(advice)
+    return build_recipe_report(out_dir, case_info, figures, run_dirs, labels, spinup_hours,
+                               load_catalog(), title=title, **kwargs)
+
+
 def _run_recipe(run_dirs, out_dir, types_override=None, ensemble=False, spinup_hours=6,
                 hurdat2_path=None, storm_id=None, bdeck_path=None, ebtrk_path=None,
                 labels=None, paraview=True, decomposition_only=False, title=None,
                 every=None, times=None, cross_sections=None, animate=False,
                 xsec_top_km=None, xsec_halfwidth_km=None, project_dir=None, spinup_days=None,
-                track_smooth_km=None, pre_notes=None):
-    """Full `wtune post recipe` pipeline. Returns {"out_dir", "case_info", "figures",
-    "notes", "report_path"}. notes = [{"source", "level", "text"}] hints collected from any recipe
-    module (note()); they are not figures and not missing observations.
-
-    every/times (decision 0058 P3): when either is given, an additional per-valid-time full
-    figure set (post/timeseries.py) plus consecutive/vs-t0 change maps (post/changemap.py) are
-    produced on the finest domain of run_dirs[0], on top of the type-driven recipe figures
-    above; they also set the cadence of the always-on CF pressure-level NetCDF data product
-    (post/recipes/cf3d.py) and of the VAPOR bundle (post/recipes/vapor_bundle.py); last frame
-    only when neither is given. animate: also builds one MP4 (post/anim.py) per time-series
-    field when 2+ times were selected. cross_sections: optional {"terrain": {...},
-    "moisture": {...}} line
-    overrides (project.yaml's cross_sections.*, decision 0057 update). xsec_top_km/
-    xsec_halfwidth_km: project.yaml's own xsec_top_km/xsec_halfwidth_km (2026-09-29 second
-    lead review) -- the terrain/moisture cross-section figures' height window and
-    centred-line half-width; None lets each recipe module use its own default. project_dir: the
-    --project directory, handed to every recipe module whose figures() takes `project_dir`. spinup_days: likewise handed to modules whose figures() takes
-    `spinup_days` (climate); None keeps that module's own default. track_smooth_km: the TC
-    tracker's SLP smoothing radius (post/tc.py; None = its default 30, 0 = raw)."""
+                track_smooth_km=None, pre_notes=None) -> dict:
+    """The `wtune post recipe` pipeline: detect types, run each type's figure set, add the CF/VAPOR
+    data products and (with every/times) the time series, split notes from figures, build the HTML
+    report. Returns {out_dir, case_info, figures, notes, report_path, advice}. Option meanings:
+    docs/ post section (decisions 0057/0058); None keeps each recipe module's own default."""
     from post.recipes import common as common_mod
     from post.recipes import vapor_bundle as vapor_bundle_mod
 
@@ -282,7 +356,6 @@ def _run_recipe(run_dirs, out_dir, types_override=None, ensemble=False, spinup_h
                                       hurdat2_path=hurdat2_path, storm_id=storm_id,
                                       bdeck_path=bdeck_path)
     types = case_info["types"]
-    cross_sections = cross_sections or {}
 
     all_figures = list(pre_notes or [])     # note() entries from run_recipe's BP conversion
     all_figures += common_mod.figures(run_dirs, labels, out_dir, case_info,
@@ -298,65 +371,23 @@ def _run_recipe(run_dirs, out_dir, types_override=None, ensemble=False, spinup_h
         except Exception:
             tc_centre = None
 
-    for t in types:
-        if t in ("common",):
-            continue
-        handler = TYPE_DISPATCH.get(t)
-        if handler is None:
-            continue
-        if t == "tc":
-            has_track = bool(hurdat2_path and storm_id)
-            if not has_track:
-                all_figures.append(missing("tc_figure", "HURDAT2/--storm",
-                                           "tc was detected but --hurdat2/--storm is required "
-                                           "to build the a-deck/b-deck comparison"))
-            else:
-                all_figures += guarded("tc", handler, run_dirs, labels, out_dir, case_info,
-                                       hurdat2_path, storm_id, bdeck_path, ebtrk_path, paraview,
-                                       spinup_hours, track_smooth_km=track_smooth_km)
-            all_figures += guarded("tc_structure", _tc_structure_figures, run_dirs, labels,
-                                   out_dir, case_info, paraview=paraview, every=every,
-                                   times=times, use_track=has_track)
-        elif t == "cloud":
-            all_figures += guarded("cloud", handler, run_dirs, labels, out_dir, case_info,
-                                   paraview=paraview, every=every, times=times)
-        elif t == "convection":
-            all_figures += guarded("convection", handler, run_dirs, labels, out_dir, case_info,
-                                   paraview, spinup_hours)
-        elif t == "terrain":
-            all_figures += handler(run_dirs, labels, out_dir, case_info,
-                                   spinup_hours=spinup_hours,
-                                   cross_section=cross_sections.get("terrain"),
-                                   xsec_top_km=xsec_top_km, xsec_halfwidth_km=xsec_halfwidth_km,
-                                   project_dir=project_dir)
-        elif t == "moisture":
-            all_figures += handler(run_dirs, labels, out_dir, case_info,
-                                   spinup_hours=spinup_hours,
-                                   cross_section=cross_sections.get("moisture"),
-                                   tc_centre=tc_centre,
-                                   xsec_top_km=xsec_top_km, xsec_halfwidth_km=xsec_halfwidth_km,
-                                   project_dir=project_dir)
-        else:
-            all_figures += handler(run_dirs, labels, out_dir, case_info, spinup_hours=spinup_hours,
-                                   project_dir=project_dir, spinup_days=spinup_days)
+    run = _RecipeRun(
+        run_dirs, labels, out_dir, case_info, spinup_hours=spinup_hours,
+        hurdat2_path=hurdat2_path, storm_id=storm_id, bdeck_path=bdeck_path,
+        ebtrk_path=ebtrk_path, paraview=paraview, every=every, times=times,
+        cross_sections=cross_sections or {}, xsec_top_km=xsec_top_km,
+        xsec_halfwidth_km=xsec_halfwidth_km, project_dir=project_dir, spinup_days=spinup_days,
+        track_smooth_km=track_smooth_km, tc_centre=tc_centre)
+    all_figures += _type_figures(types, run)
 
     if every or times:
         all_figures += guarded("timeseries", _time_series_figures, run_dirs, labels, out_dir,
                                case_info, every, times, animate=animate)
 
-    notes = [{k: e[k] for k in ("source", "level", "text")} for e in all_figures if is_note(e)]
-    all_figures = [e for e in all_figures if not is_note(e)]
-
+    notes, all_figures = _split_notes(all_figures)
     advice = _verification_advice(run_dirs[0], out_dir, hurdat2_path, storm_id, bdeck_path, notes)
-
-    import inspect
-    from post.report import build_recipe_report
-    kwargs = {"notes": notes} if "notes" in inspect.signature(build_recipe_report).parameters else {}
-    if advice and advice["advice"]:
-        import wtune_advise
-        kwargs["advice_html"] = wtune_advise.render_html(advice)
-    report_path = build_recipe_report(out_dir, case_info, all_figures, run_dirs, labels,
-                                      spinup_hours, load_catalog(), title=title, **kwargs)
+    report_path = _build_report(run_dirs, labels, out_dir, case_info, all_figures, spinup_hours,
+                                title, notes, advice)
     return dict(out_dir=out_dir, case_info=case_info, figures=all_figures, notes=notes,
                 report_path=report_path, advice=advice)
 

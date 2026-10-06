@@ -1,0 +1,929 @@
+{
+ "climate": {
+  "keys": [
+   "total_s",
+   "history_s",
+   "boundary_s",
+   "aux_s",
+   "restart_s",
+   "iofields_s",
+   "iofields_parses",
+   "iofields_calls",
+   "iofields_call_s",
+   "history_frames",
+   "history_frame_s",
+   "n_boundary",
+   "boundary_update_s",
+   "n_aux",
+   "aux_read_s",
+   "n_restart",
+   "restart_write_s",
+   "restart_interval_min",
+   "io_form_restart",
+   "run_s",
+   "points",
+   "io_format",
+   "source"
+  ],
+  "values": {
+   "total_s": 141.4381431122418,
+   "history_s": 55.91428167420815,
+   "boundary_s": 33.9532213740458,
+   "aux_s": 51.45802756398783,
+   "restart_s": 0.1126125,
+   "iofields_s": 0.0,
+   "iofields_parses": [
+    6734
+   ],
+   "iofields_calls": [
+    0
+   ],
+   "iofields_call_s": 0.0009,
+   "history_frames": [
+    1585
+   ],
+   "history_frame_s": [
+    0.03527714932126697
+   ],
+   "n_boundary": 1584,
+   "boundary_update_s": 0.021435114503816795,
+   "n_aux": [
+    1584
+   ],
+   "aux_read_s": [
+    0.032486128512618576
+   ],
+   "n_restart": 13,
+   "restart_write_s": 0.0086625,
+   "restart_interval_min": 43200.0,
+   "io_form_restart": 14,
+   "run_s": 34214400.0,
+   "points": [
+    742500
+   ],
+   "io_format": "adios2",
+   "source": "wtune_io_model[adios2] (history/restart: wtune_run fallback anchors, adios2 history: SC26-P2 rsl; boundary/aux: climate-ea50 rsl; iofields: parses x get_fieldstr calls)"
+  },
+  "line": "compute 1000s + history 56s + boundary 34s + aux 51s + restart 0s + init 60s = 1201s"
+ },
+ "climate-netcdf": {
+  "keys": [
+   "total_s",
+   "history_s",
+   "boundary_s",
+   "aux_s",
+   "restart_s",
+   "iofields_s",
+   "iofields_parses",
+   "iofields_calls",
+   "iofields_call_s",
+   "history_frames",
+   "history_frame_s",
+   "n_boundary",
+   "boundary_update_s",
+   "n_aux",
+   "aux_read_s",
+   "n_restart",
+   "restart_write_s",
+   "restart_interval_min",
+   "io_form_restart",
+   "run_s",
+   "points",
+   "io_format",
+   "source"
+  ],
+  "values": {
+   "total_s": 1846.0572733963932,
+   "history_s": 1060.2682733963932,
+   "boundary_s": 491.04,
+   "aux_s": 260.0,
+   "restart_s": 34.749,
+   "iofields_s": 0.0,
+   "iofields_parses": [
+    6734
+   ],
+   "iofields_calls": [
+    0
+   ],
+   "iofields_call_s": 0.0009,
+   "history_frames": [
+    1585
+   ],
+   "history_frame_s": [
+    0.6689389737516677
+   ],
+   "n_boundary": 1584,
+   "boundary_update_s": 0.31,
+   "n_aux": [
+    1584
+   ],
+   "aux_read_s": [
+    0.16414141414141414
+   ],
+   "n_restart": 13,
+   "restart_write_s": 2.673,
+   "restart_interval_min": 43200.0,
+   "io_form_restart": 2,
+   "run_s": 34214400.0,
+   "points": [
+    742500
+   ],
+   "io_format": "netcdf",
+   "source": "wtune_io_model[netcdf] (history/restart: wtune_run fallback anchors, adios2 history: SC26-P2 rsl; boundary/aux: climate-ea50 rsl; iofields: parses x get_fieldstr calls)"
+  },
+  "line": "compute 1000s + history 1060s + boundary 491s + aux 260s + restart 35s + init 60s = 2906s"
+ },
+ "climate-iofields": {
+  "keys": [
+   "total_s",
+   "history_s",
+   "boundary_s",
+   "aux_s",
+   "restart_s",
+   "iofields_s",
+   "iofields_parses",
+   "iofields_calls",
+   "iofields_call_s",
+   "history_frames",
+   "history_frame_s",
+   "n_boundary",
+   "boundary_update_s",
+   "n_aux",
+   "aux_read_s",
+   "n_restart",
+   "restart_write_s",
+   "restart_interval_min",
+   "io_form_restart",
+   "run_s",
+   "points",
+   "io_format",
+   "source"
+  ],
+  "values": {
+   "total_s": 3508.438143112242,
+   "history_s": 55.91428167420815,
+   "boundary_s": 33.9532213740458,
+   "aux_s": 51.45802756398783,
+   "restart_s": 0.1126125,
+   "iofields_s": 3367.0,
+   "iofields_parses": [
+    6734
+   ],
+   "iofields_calls": [
+    500
+   ],
+   "iofields_call_s": 0.001,
+   "history_frames": [
+    1585
+   ],
+   "history_frame_s": [
+    0.03527714932126697
+   ],
+   "n_boundary": 1584,
+   "boundary_update_s": 0.021435114503816795,
+   "n_aux": [
+    1584
+   ],
+   "aux_read_s": [
+    0.032486128512618576
+   ],
+   "n_restart": 13,
+   "restart_write_s": 0.0086625,
+   "restart_interval_min": 43200.0,
+   "io_form_restart": 14,
+   "run_s": 34214400.0,
+   "points": [
+    742500
+   ],
+   "io_format": "adios2",
+   "source": "wtune_io_model[adios2] (history/restart: wtune_run fallback anchors, adios2 history: SC26-P2 rsl; boundary/aux: climate-ea50 rsl; iofields: parses x get_fieldstr calls)"
+  },
+  "line": "compute 1000s + history 56s + boundary 34s + aux 51s + restart 0s + iofields 3367s + init 60s = 4568s"
+ },
+ "climate-iofields-netcdf": {
+  "keys": [
+   "total_s",
+   "history_s",
+   "boundary_s",
+   "aux_s",
+   "restart_s",
+   "iofields_s",
+   "iofields_parses",
+   "iofields_calls",
+   "iofields_call_s",
+   "history_frames",
+   "history_frame_s",
+   "n_boundary",
+   "boundary_update_s",
+   "n_aux",
+   "aux_read_s",
+   "n_restart",
+   "restart_write_s",
+   "restart_interval_min",
+   "io_form_restart",
+   "run_s",
+   "points",
+   "io_format",
+   "source"
+  ],
+  "values": {
+   "total_s": 1846.0572733963932,
+   "history_s": 1060.2682733963932,
+   "boundary_s": 491.04,
+   "aux_s": 260.0,
+   "restart_s": 34.749,
+   "iofields_s": 0.0,
+   "iofields_parses": [
+    6734
+   ],
+   "iofields_calls": [
+    0
+   ],
+   "iofields_call_s": 0.0009,
+   "history_frames": [
+    1585
+   ],
+   "history_frame_s": [
+    0.6689389737516677
+   ],
+   "n_boundary": 1584,
+   "boundary_update_s": 0.31,
+   "n_aux": [
+    1584
+   ],
+   "aux_read_s": [
+    0.16414141414141414
+   ],
+   "n_restart": 13,
+   "restart_write_s": 2.673,
+   "restart_interval_min": 43200.0,
+   "io_form_restart": 2,
+   "run_s": 34214400.0,
+   "points": [
+    742500
+   ],
+   "io_format": "netcdf",
+   "source": "wtune_io_model[netcdf] (history/restart: wtune_run fallback anchors, adios2 history: SC26-P2 rsl; boundary/aux: climate-ea50 rsl; iofields: parses x get_fieldstr calls)"
+  },
+  "line": "compute 1000s + history 1060s + boundary 491s + aux 260s + restart 35s + init 60s = 2906s"
+ },
+ "sc26": {
+  "keys": [
+   "total_s",
+   "history_s",
+   "boundary_s",
+   "aux_s",
+   "restart_s",
+   "iofields_s",
+   "iofields_parses",
+   "iofields_calls",
+   "iofields_call_s",
+   "history_frames",
+   "history_frame_s",
+   "n_boundary",
+   "boundary_update_s",
+   "n_aux",
+   "aux_read_s",
+   "n_restart",
+   "restart_write_s",
+   "restart_interval_min",
+   "io_form_restart",
+   "run_s",
+   "points",
+   "io_format",
+   "source"
+  ],
+  "values": {
+   "total_s": 2.23387786259542,
+   "history_s": 2.0580000000000003,
+   "boundary_s": 0.17587786259541985,
+   "aux_s": 0.0,
+   "restart_s": 0.0,
+   "iofields_s": 0.0,
+   "iofields_parses": [
+    106
+   ],
+   "iofields_calls": [
+    0
+   ],
+   "iofields_call_s": 0.0009,
+   "history_frames": [
+    49
+   ],
+   "history_frame_s": [
+    0.042
+   ],
+   "n_boundary": 8,
+   "boundary_update_s": 0.02198473282442748,
+   "n_aux": [
+    0
+   ],
+   "aux_read_s": [
+    0.04351172364417397
+   ],
+   "n_restart": 0,
+   "restart_write_s": 0.010313333333333334,
+   "restart_interval_min": 100000.0,
+   "io_form_restart": 14,
+   "run_s": 172800.0,
+   "points": [
+    884000
+   ],
+   "io_format": "adios2",
+   "source": "wtune_io_model[adios2] (history/restart: wtune_run fallback anchors, adios2 history: SC26-P2 rsl; boundary/aux: climate-ea50 rsl; iofields: parses x get_fieldstr calls)"
+  },
+  "line": "compute 1000s + history 2s + boundary 0s + aux 0s + restart 0s + init 60s = 1062s"
+ },
+ "sc26-netcdf": {
+  "keys": [
+   "total_s",
+   "history_s",
+   "boundary_s",
+   "aux_s",
+   "restart_s",
+   "iofields_s",
+   "iofields_parses",
+   "iofields_calls",
+   "iofields_call_s",
+   "history_frames",
+   "history_frame_s",
+   "n_boundary",
+   "boundary_update_s",
+   "n_aux",
+   "aux_read_s",
+   "n_restart",
+   "restart_write_s",
+   "restart_interval_min",
+   "io_form_restart",
+   "run_s",
+   "points",
+   "io_format",
+   "source"
+  ],
+  "values": {
+   "total_s": 41.56818312679141,
+   "history_s": 39.02459338320167,
+   "boundary_s": 2.5435897435897434,
+   "aux_s": 0.0,
+   "restart_s": 0.0,
+   "iofields_s": 0.0,
+   "iofields_parses": [
+    106
+   ],
+   "iofields_calls": [
+    0
+   ],
+   "iofields_call_s": 0.0009,
+   "history_frames": [
+    49
+   ],
+   "history_frame_s": [
+    0.7964202731265646
+   ],
+   "n_boundary": 8,
+   "boundary_update_s": 0.31794871794871793,
+   "n_aux": [
+    0
+   ],
+   "aux_read_s": [
+    0.21985001530456075
+   ],
+   "n_restart": 0,
+   "restart_write_s": 3.1824,
+   "restart_interval_min": 100000.0,
+   "io_form_restart": 2,
+   "run_s": 172800.0,
+   "points": [
+    884000
+   ],
+   "io_format": "netcdf",
+   "source": "wtune_io_model[netcdf] (history/restart: wtune_run fallback anchors, adios2 history: SC26-P2 rsl; boundary/aux: climate-ea50 rsl; iofields: parses x get_fieldstr calls)"
+  },
+  "line": "compute 1000s + history 39s + boundary 3s + aux 0s + restart 0s + init 60s = 1102s"
+ },
+ "sc26-run-s": {
+  "keys": [
+   "total_s",
+   "history_s",
+   "boundary_s",
+   "aux_s",
+   "restart_s",
+   "iofields_s",
+   "iofields_parses",
+   "iofields_calls",
+   "iofields_call_s",
+   "history_frames",
+   "history_frame_s",
+   "n_boundary",
+   "boundary_update_s",
+   "n_aux",
+   "aux_read_s",
+   "n_restart",
+   "restart_write_s",
+   "restart_interval_min",
+   "io_form_restart",
+   "run_s",
+   "points",
+   "io_format",
+   "source"
+  ],
+  "values": {
+   "total_s": 0.126,
+   "history_s": 0.126,
+   "boundary_s": 0.0,
+   "aux_s": 0.0,
+   "restart_s": 0.0,
+   "iofields_s": 0.0,
+   "iofields_parses": [
+    6
+   ],
+   "iofields_calls": [
+    0
+   ],
+   "iofields_call_s": 0.0009,
+   "history_frames": [
+    3
+   ],
+   "history_frame_s": [
+    0.042
+   ],
+   "n_boundary": 0,
+   "boundary_update_s": 0.02198473282442748,
+   "n_aux": [
+    0
+   ],
+   "aux_read_s": [
+    0.04351172364417397
+   ],
+   "n_restart": 0,
+   "restart_write_s": 0.010313333333333334,
+   "restart_interval_min": 100000.0,
+   "io_form_restart": 14,
+   "run_s": 7200.0,
+   "points": [
+    884000
+   ],
+   "io_format": "adios2",
+   "source": "wtune_io_model[adios2] (history/restart: wtune_run fallback anchors, adios2 history: SC26-P2 rsl; boundary/aux: climate-ea50 rsl; iofields: parses x get_fieldstr calls)"
+  },
+  "line": "compute 1000s + history 0s + boundary 0s + aux 0s + restart 0s + init 60s = 1060s"
+ },
+ "three": {
+  "keys": [
+   "total_s",
+   "history_s",
+   "boundary_s",
+   "aux_s",
+   "restart_s",
+   "iofields_s",
+   "iofields_parses",
+   "iofields_calls",
+   "iofields_call_s",
+   "history_frames",
+   "history_frame_s",
+   "n_boundary",
+   "boundary_update_s",
+   "n_aux",
+   "aux_read_s",
+   "n_restart",
+   "restart_write_s",
+   "restart_interval_min",
+   "io_form_restart",
+   "run_s",
+   "points",
+   "io_format",
+   "source"
+  ],
+  "values": {
+   "total_s": 1.5586240110013472,
+   "history_s": 1.525646911764706,
+   "boundary_s": 0.03297709923664122,
+   "aux_s": 0.0,
+   "restart_s": 0.0,
+   "iofields_s": 0.0,
+   "iofields_parses": [
+    28,
+    50,
+    86
+   ],
+   "iofields_calls": [
+    0,
+    0,
+    0
+   ],
+   "iofields_call_s": 0.0009,
+   "history_frames": [
+    13,
+    25,
+    43
+   ],
+   "history_frame_s": [
+    0.02138009049773756,
+    0.019455882352941177,
+    0.017704852941176474
+   ],
+   "n_boundary": 2,
+   "boundary_update_s": 0.01648854961832061,
+   "n_aux": [
+    0,
+    0,
+    0
+   ],
+   "aux_read_s": [
+    0.01968856273492035,
+    0.01791659208877752,
+    0.016304098800787543
+   ],
+   "n_restart": 0,
+   "restart_write_s": 0.014375025,
+   "restart_interval_min": 7200.0,
+   "io_form_restart": 14,
+   "run_s": 43200.0,
+   "points": [
+    450000,
+    409500,
+    372645
+   ],
+   "io_format": "adios2",
+   "source": "wtune_io_model[adios2] (history/restart: wtune_run fallback anchors, adios2 history: SC26-P2 rsl; boundary/aux: climate-ea50 rsl; iofields: parses x get_fieldstr calls)"
+  },
+  "line": "compute 1000s + history 2s + boundary 0s + aux 0s + restart 0s + init 60s = 1062s"
+ },
+ "three-iofields": {
+  "keys": [
+   "total_s",
+   "history_s",
+   "boundary_s",
+   "aux_s",
+   "restart_s",
+   "iofields_s",
+   "iofields_parses",
+   "iofields_calls",
+   "iofields_call_s",
+   "history_frames",
+   "history_frame_s",
+   "n_boundary",
+   "boundary_update_s",
+   "n_aux",
+   "aux_read_s",
+   "n_restart",
+   "restart_write_s",
+   "restart_interval_min",
+   "io_form_restart",
+   "run_s",
+   "points",
+   "io_format",
+   "source"
+  ],
+  "values": {
+   "total_s": 2.710624011001347,
+   "history_s": 1.525646911764706,
+   "boundary_s": 0.03297709923664122,
+   "aux_s": 0.0,
+   "restart_s": 0.0,
+   "iofields_s": 1.152,
+   "iofields_parses": [
+    28,
+    50,
+    86
+   ],
+   "iofields_calls": [
+    10,
+    20,
+    0
+   ],
+   "iofields_call_s": 0.0009,
+   "history_frames": [
+    13,
+    25,
+    43
+   ],
+   "history_frame_s": [
+    0.02138009049773756,
+    0.019455882352941177,
+    0.017704852941176474
+   ],
+   "n_boundary": 2,
+   "boundary_update_s": 0.01648854961832061,
+   "n_aux": [
+    0,
+    0,
+    0
+   ],
+   "aux_read_s": [
+    0.01968856273492035,
+    0.01791659208877752,
+    0.016304098800787543
+   ],
+   "n_restart": 0,
+   "restart_write_s": 0.014375025,
+   "restart_interval_min": 7200.0,
+   "io_form_restart": 14,
+   "run_s": 43200.0,
+   "points": [
+    450000,
+    409500,
+    372645
+   ],
+   "io_format": "adios2",
+   "source": "wtune_io_model[adios2] (history/restart: wtune_run fallback anchors, adios2 history: SC26-P2 rsl; boundary/aux: climate-ea50 rsl; iofields: parses x get_fieldstr calls)"
+  },
+  "line": "compute 1000s + history 2s + boundary 0s + aux 0s + restart 0s + iofields 1s + init 60s = 1063s"
+ },
+ "three-netcdf": {
+  "keys": [
+   "total_s",
+   "history_s",
+   "boundary_s",
+   "aux_s",
+   "restart_s",
+   "iofields_s",
+   "iofields_parses",
+   "iofields_calls",
+   "iofields_call_s",
+   "history_frames",
+   "history_frame_s",
+   "n_boundary",
+   "boundary_update_s",
+   "n_aux",
+   "aux_read_s",
+   "n_restart",
+   "restart_write_s",
+   "restart_interval_min",
+   "io_form_restart",
+   "run_s",
+   "points",
+   "io_format",
+   "source"
+  ],
+  "values": {
+   "total_s": 1.5586240110013472,
+   "history_s": 1.525646911764706,
+   "boundary_s": 0.03297709923664122,
+   "aux_s": 0.0,
+   "restart_s": 0.0,
+   "iofields_s": 0.0,
+   "iofields_parses": [
+    28,
+    50,
+    86
+   ],
+   "iofields_calls": [
+    0,
+    0,
+    0
+   ],
+   "iofields_call_s": 0.0009,
+   "history_frames": [
+    13,
+    25,
+    43
+   ],
+   "history_frame_s": [
+    0.02138009049773756,
+    0.019455882352941177,
+    0.017704852941176474
+   ],
+   "n_boundary": 2,
+   "boundary_update_s": 0.01648854961832061,
+   "n_aux": [
+    0,
+    0,
+    0
+   ],
+   "aux_read_s": [
+    0.01968856273492035,
+    0.01791659208877752,
+    0.016304098800787543
+   ],
+   "n_restart": 0,
+   "restart_write_s": 0.014375025,
+   "restart_interval_min": 7200.0,
+   "io_form_restart": 14,
+   "run_s": 43200.0,
+   "points": [
+    450000,
+    409500,
+    372645
+   ],
+   "io_format": "adios2",
+   "source": "wtune_io_model[adios2] (history/restart: wtune_run fallback anchors, adios2 history: SC26-P2 rsl; boundary/aux: climate-ea50 rsl; iofields: parses x get_fieldstr calls)"
+  },
+  "line": "compute 1000s + history 2s + boundary 0s + aux 0s + restart 0s + init 60s = 1062s"
+ },
+ "three-io-nc": {
+  "keys": [
+   "total_s",
+   "history_s",
+   "boundary_s",
+   "aux_s",
+   "restart_s",
+   "iofields_s",
+   "iofields_parses",
+   "iofields_calls",
+   "iofields_call_s",
+   "history_frames",
+   "history_frame_s",
+   "n_boundary",
+   "boundary_update_s",
+   "n_aux",
+   "aux_read_s",
+   "n_restart",
+   "restart_write_s",
+   "restart_interval_min",
+   "io_form_restart",
+   "run_s",
+   "points",
+   "io_format",
+   "source"
+  ],
+  "values": {
+   "total_s": 29.406830937931336,
+   "history_s": 28.92990786100826,
+   "boundary_s": 0.4769230769230769,
+   "aux_s": 0.0,
+   "restart_s": 0.0,
+   "iofields_s": 0.0,
+   "iofields_parses": [
+    28,
+    50,
+    86
+   ],
+   "iofields_calls": [
+    0,
+    0,
+    0
+   ],
+   "iofields_call_s": 0.0009,
+   "history_frames": [
+    13,
+    25,
+    43
+   ],
+   "history_frame_s": [
+    0.40541755984949557,
+    0.36892997946304096,
+    0.3357262813113673
+   ],
+   "n_boundary": 2,
+   "boundary_update_s": 0.23846153846153845,
+   "n_aux": [
+    0,
+    0,
+    0
+   ],
+   "aux_read_s": [
+    0.09947964493419038,
+    0.09052647689011326,
+    0.08237909397000305
+   ],
+   "n_restart": 0,
+   "restart_write_s": 0.014375025,
+   "restart_interval_min": 7200.0,
+   "io_form_restart": 14,
+   "run_s": 43200.0,
+   "points": [
+    450000,
+    409500,
+    372645
+   ],
+   "io_format": "netcdf",
+   "source": "wtune_io_model[netcdf] (history/restart: wtune_run fallback anchors, adios2 history: SC26-P2 rsl; boundary/aux: climate-ea50 rsl; iofields: parses x get_fieldstr calls)"
+  },
+  "line": "compute 1000s + history 29s + boundary 0s + aux 0s + restart 0s + init 60s = 1089s"
+ },
+ "history-off-aux": {
+  "keys": [
+   "total_s",
+   "history_s",
+   "boundary_s",
+   "aux_s",
+   "restart_s",
+   "iofields_s",
+   "iofields_parses",
+   "iofields_calls",
+   "iofields_call_s",
+   "history_frames",
+   "history_frame_s",
+   "n_boundary",
+   "boundary_update_s",
+   "n_aux",
+   "aux_read_s",
+   "n_restart",
+   "restart_write_s",
+   "restart_interval_min",
+   "io_form_restart",
+   "run_s",
+   "points",
+   "io_format",
+   "source"
+  ],
+  "values": {
+   "total_s": 0.8720654409022034,
+   "history_s": 0.0,
+   "boundary_s": 0.17587786259541985,
+   "aux_s": 0.6961875783067836,
+   "restart_s": 0.0,
+   "iofields_s": 0.0,
+   "iofields_parses": [
+    40
+   ],
+   "iofields_calls": [
+    0
+   ],
+   "iofields_call_s": 0.0009,
+   "history_frames": [
+    0
+   ],
+   "history_frame_s": [
+    0.042
+   ],
+   "n_boundary": 8,
+   "boundary_update_s": 0.02198473282442748,
+   "n_aux": [
+    16
+   ],
+   "aux_read_s": [
+    0.04351172364417397
+   ],
+   "n_restart": 0,
+   "restart_write_s": 0.010313333333333334,
+   "restart_interval_min": 100000.0,
+   "io_form_restart": 14,
+   "run_s": 172800.0,
+   "points": [
+    884000
+   ],
+   "io_format": "adios2",
+   "source": "wtune_io_model[adios2] (history/restart: wtune_run fallback anchors, adios2 history: SC26-P2 rsl; boundary/aux: climate-ea50 rsl; iofields: parses x get_fieldstr calls)"
+  },
+  "line": "compute 1000s + history 0s + boundary 0s + aux 1s + restart 0s + init 60s = 1061s"
+ },
+ "not-specified": {
+  "keys": [
+   "total_s",
+   "history_s",
+   "boundary_s",
+   "aux_s",
+   "restart_s",
+   "iofields_s",
+   "iofields_parses",
+   "iofields_calls",
+   "iofields_call_s",
+   "history_frames",
+   "history_frame_s",
+   "n_boundary",
+   "boundary_update_s",
+   "n_aux",
+   "aux_read_s",
+   "n_restart",
+   "restart_write_s",
+   "restart_interval_min",
+   "io_form_restart",
+   "run_s",
+   "points",
+   "io_format",
+   "source"
+  ],
+  "values": {
+   "total_s": 107.48492173819598,
+   "history_s": 55.91428167420815,
+   "boundary_s": 0.0,
+   "aux_s": 51.45802756398783,
+   "restart_s": 0.1126125,
+   "iofields_s": 0.0,
+   "iofields_parses": [
+    5150
+   ],
+   "iofields_calls": [
+    0
+   ],
+   "iofields_call_s": 0.0009,
+   "history_frames": [
+    1585
+   ],
+   "history_frame_s": [
+    0.03527714932126697
+   ],
+   "n_boundary": 0,
+   "boundary_update_s": 0.021435114503816795,
+   "n_aux": [
+    1584
+   ],
+   "aux_read_s": [
+    0.032486128512618576
+   ],
+   "n_restart": 13,
+   "restart_write_s": 0.0086625,
+   "restart_interval_min": 43200.0,
+   "io_form_restart": 14,
+   "run_s": 34214400.0,
+   "points": [
+    742500
+   ],
+   "io_format": "adios2",
+   "source": "wtune_io_model[adios2] (history/restart: wtune_run fallback anchors, adios2 history: SC26-P2 rsl; boundary/aux: climate-ea50 rsl; iofields: parses x get_fieldstr calls)"
+  },
+  "line": "compute 1000s + history 56s + boundary 0s + aux 51s + restart 0s + init 60s = 1167s"
+ }
+}

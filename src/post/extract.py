@@ -1,58 +1,11 @@
-"""post/extract.py -- `wtune post extract RUN_DIR --vars ... --out FILE`: wrf-python
-derived diagnostic fields as a point time-series CSV or a gridded NetCDF box. wrf-python
-and netCDF4 are imported lazily (only inside functions), never at module import time, so
-`wtune post inventory`/`compare` and `wtune --help` never need them installed.
+"""post/extract.py -- `wtune post extract RUN_DIR --vars ... --out FILE`: wrf-python diagnostics as a
+point time-series CSV (--points) or a gridded NetCDF box (--box); frames extracted in a process pool
+(netCDF-C is not thread-safe). Supported --vars: SURFACE_FIELDS and LEVEL_FIELDS below. wrf-python
+and netCDF4 are imported lazily, so `wtune post inventory`/`compare` and `wtune --help` never need
+them. The --box crop stays self-written: it crops a wrf-python-derived in-memory field (decision 0056).
 
-Supported --vars:
-  slp                sea-level pressure, hPa
-  t2                 2 m temperature, K
-  td2                2 m dewpoint, degC
-  rh2                2 m relative humidity, %
-  wspd10 / wdir10    10 m earth-relative wind speed (m/s) / direction (deg)
-  rain_acc           accumulated precip, mm (RAINC + RAINNC)
-  rain_rate          hourly precip rate, mm/h (finite difference of rain_acc between
-                     consecutive extracted frames, divided by the frame spacing in hours;
-                     the first frame has no rate and is written as an empty field)
-  mdbz               max column reflectivity, dBZ
-  mcape / mcin       2-D max CAPE / the CIN at the mcape level, J/kg (cape_2d)
-  pw                 precipitable water, kg/m2 (wrf-python getvar 'pw')
-  z, tc, ua, va, wspd  interpolated to each of --levels (hPa) via wrf.interplevel:
-                     geopotential height (m), temperature (degC), earth-relative u/v
-                     (m/s), wind speed (m/s)
-
---points "lat,lon[,name]" (repeatable) -> nearest grid point (wrf.ll_to_xy) time series,
-written as CSV with a units header row. --box lat0,lat1,lon0,lon1 -> NetCDF subset with
-zlib compression. Frames are extracted in a ProcessPoolExecutor (netCDF-C is not
-thread-safe, so this must be processes, not threads).
-
-Decision 0056 (2026-09-29 update, wrap established tools): wrf-python stays -- it is the
-NCAR tool for these diagnostics, nothing in CDO/NCO computes slp/mcape/interpolated-level
-fields from WRF's native eta levels. The --box spatial subsetting below stays self-written
-too, for a narrower reason: it crops the wrf-python-DERIVED field already held in memory
-(a numpy boolean mask over XLAT/XLONG), not a raw file variable -- there is no plain-file
-subset step for CDO/NCO to replace it with, since the field being cropped does not exist
-in any file until wrf-python computes it. `wtune post inventory` and `compare` do the
-analogous file-level work (headers, netCDF diffing) through ncdump/cdo/diffwrf instead;
-see their module docstrings.
-
-ADIOS2 BP history (io_form_history=14, the project default): WRF's ADIOS2 engine writes each
-wrfout_dNN_<time> as a BP DIRECTORY -- named exactly like the netCDF file, or with ".bp"
-appended; both are recognised (any wrfout_dNN_<time>[.bp] that is a directory). Every reader
-here (wrf-python, MET, cdo, xWRF, VAPOR) needs netCDF, so the frame index (_file_entries, and
-through it frame_refs/file_index/list_frames/...) converts each BP directory ONCE into a
-netCDF cache and indexes the cached file in its place -- every caller keeps working on plain
-netCDF paths, timeidx and multi-frame Times included. Cache layout:
-<root>/<run_id>/[<seg_k>/]<wrfout name without .bp>.nc, where <root> is `--nc-cache DIR` (the
-nc_cache() scope), else $WTUNE_NC_CACHE, else <base>/_nc_cache with <base> the project dir or
-the post output dir the CLI/run_recipe set (nc_cache(base=...)), else <run_dir>/_nc_cache.
-<run_id> is the run dir's basename plus 8 hex of its realpath's sha1 (every project's run is
-called "case" -- a shared $WTUNE_NC_CACHE must not let them overwrite each other). A sidecar
-<file>.nc.json records the source BP path and the (name, size, mtime_ns) of every file in the
-BP directory; the cache is reused while that signature matches, reconverted otherwise.
-Conversion runs in a process pool bounded by the CPUs this process may use, writes to a
-temporary name and os.replace()s it. A netCDF file and a BP directory for the same time in the
-same directory: the netCDF file wins. The adios2 Python module is needed only when something
-has to be (re)converted -- missing, the index raises BPConversionError naming the fix.
+ADIOS2 BP history (io_form_history=14): each wrfout_dNN_<time>[.bp] BP directory is converted once
+to a netCDF cache (see nc_cache) and indexed in its place, so every caller keeps using netCDF paths.
 """
 from __future__ import annotations
 
@@ -64,10 +17,14 @@ import json
 import os
 import re
 import sys
+from collections.abc import Iterator
 from concurrent.futures import ProcessPoolExecutor
 
 WRF_TIME_FMT = "%Y-%m-%d_%H:%M:%S"
 
+# rain_acc = RAINC + RAINNC; rain_rate = finite difference of rain_acc between consecutive extracted
+# frames per hour (first frame empty); mcape/mcin = 2-D max CAPE / its CIN (cape_2d); pw = wrf 'pw'.
+# LEVEL_FIELDS are interpolated to each --levels hPa with wrf.interplevel.
 SURFACE_FIELDS = ("slp", "t2", "td2", "rh2", "wspd10", "wdir10", "rain_acc", "rain_rate",
                   "mdbz", "mcape", "mcin", "pw")
 LEVEL_FIELDS = ("z", "tc", "ua", "va", "wspd")
@@ -106,7 +63,7 @@ def _wrfout_paths(d):
     return [p for p in glob.glob(os.path.join(d, "wrfout_d*")) if not _is_empty_dir(p)]
 
 
-def segment_dirs(run_dir):
+def segment_dirs(run_dir: str) -> list[str]:
     """The segment run dirs of a segmented `wtune run --out` dir (OUT/seg_<k>, plus its later
     attempts right after it: a CFL-rescue re-run OUT/seg_<k>_rescue, an auto-resume
     OUT/seg_<k>[_rescue]_r<n>), in segment then attempt order -- [] when run_dir holds wrfout_d*
@@ -142,7 +99,7 @@ def _decode_times(var):
             for r in rows]
 
 
-def file_times(path):
+def file_times(path: str) -> list[str] | None:
     """The valid times a wrfout file holds, from its own Times variable (WRF writes
     frames_per_outfile > 1 history times into one file) -- [time_str, ...] in file order, the
     list index being the file's own timeidx. None when the file is not readable netCDF or has
@@ -181,10 +138,16 @@ class BPConversionError(ExtractError):
     module or wtune_bp is unavailable); str() names the fix."""
 
 
+# Cache layout: <root>/<run_id>/[<seg_k>/]<wrfout name without .bp>.nc; <root> is --nc-cache DIR, else
+# $WTUNE_NC_CACHE, else <base>/_nc_cache (project or post output dir), else <run_dir>/_nc_cache.
+# <run_id> = run dir basename + 8 hex of its realpath sha1 (every project's run is called "case").
+# A sidecar <file>.nc.json holds the BP path and (name, size, mtime_ns) of its files: the cache is
+# reused while that matches. A netCDF file beats a BP directory for the same time; adios2 is only
+# needed to (re)convert (BPConversionError names the fix).
 @contextlib.contextmanager
-def nc_cache(directory=None, base=None):
+def nc_cache(directory: str | None = None, base: str | None = None) -> Iterator[None]:
     """Scope of the BP -> netCDF cache location. directory (`--nc-cache DIR`): the cache root
-    itself. base (a project dir, else the post output dir): the root becomes <base>/_nc_cache --
+    itself. base (project dir, else the post output dir): the root becomes <base>/_nc_cache --
     applied only when no base is set yet, so the CLI's choice wins over run_recipe's default."""
     old = dict(_NC_CACHE)
     if directory:
@@ -198,7 +161,7 @@ def nc_cache(directory=None, base=None):
         _NC_CACHE.update(old)
 
 
-def nc_cache_root(run_dir):
+def nc_cache_root(run_dir: str) -> str:
     explicit = _NC_CACHE["dir"] or os.environ.get(NC_CACHE_ENV)
     if explicit:
         return os.path.abspath(explicit)
@@ -211,7 +174,7 @@ def _run_id(run_dir):
                       hashlib.sha1(real.encode("utf-8", "surrogateescape")).hexdigest()[:8])
 
 
-def cached_nc_path(run_dir, bp_path):
+def cached_nc_path(run_dir: str, bp_path: str) -> str:
     """<root>/<run_id>/[<segment>/]<BP name without .bp>.nc for BP directory bp_path of
     run_dir (bp_path directly in run_dir, or in one of its segment_dirs)."""
     seg_dir = os.path.dirname(os.path.abspath(bp_path))
@@ -224,7 +187,7 @@ def cached_nc_path(run_dir, bp_path):
     return os.path.join(*(parts + [name + ".nc"]))
 
 
-def bp_signature(bp_path):
+def bp_signature(bp_path: str) -> list:
     """Sorted [[name, size, mtime_ns], ...] of the regular files in a BP directory (data.*,
     md.*, mmd.*, ...): changes whenever WRF (re)writes or appends to it."""
     sig = []
@@ -408,7 +371,7 @@ def _bp_to_nc(run_dir, bps):
     return mapped, failed
 
 
-def bp_origin(path):
+def bp_origin(path: str) -> str | None:
     """The ADIOS2 BP directory a cached netCDF history file was converted from, else None."""
     ap = os.path.abspath(path)
     if ap in _BP_ORIGIN:
@@ -472,13 +435,13 @@ def _file_entries(run_dir):
     return out
 
 
-def convert_frames(run_dir, bps):
+def convert_frames(run_dir: str, bps) -> dict:
     """Converts (or validates the cache of) the BP history directories `bps` of run_dir ->
     {bp: error} for those that failed. Raises BPConversionError like prepare_history."""
     return _bp_to_nc(run_dir, list(bps))[1] if bps else {}
 
 
-def prepare_history(run_dir):
+def prepare_history(run_dir: str) -> dict:
     """Converts (or validates the cache of) every BP history directory of run_dir up front.
     Returns dict(n_bp, cache, failed=[(bp, error), ...]). Raises BPConversionError when BP
     history needs converting and the converter is unavailable."""
@@ -488,21 +451,17 @@ def prepare_history(run_dir):
                 failed=sorted(failed.items()))
 
 
-def file_index(run_dir):
+def file_index(run_dir: str) -> dict:
     """{(domain, file_name_time): path} -- one entry per wrfout FILE, keyed by the time in its
     name (a later segment's file of the same name wins). For whole-file tools (diffwrf in
     post/compare.py) that compare files rather than individual valid times."""
     return {(dom, t): path for dom, t, path in _file_entries(run_dir)}
 
 
-def frame_refs(run_dir):
-    """{(domain, valid_time): (path, timeidx)} for every history time in run_dir -- or, for a
-    segmented run dir (segment_dirs), in all its segments. Valid times come from each file's
-    own Times variable (file_times), so a file holding frames_per_outfile > 1 times yields one
-    entry per time; an unreadable file (or one without Times) contributes its file-name time
-    at timeidx 0, exactly the pre-Times behaviour. A valid time present in two files (the shared
-    boundary frame of two segments, a rescued or resumed segment's re-run) maps to the LATER
-    file in segment-then-name order."""
+def frame_refs(run_dir: str) -> dict:
+    """{(domain, valid_time): (path, timeidx)} for every history time in run_dir (all segments of a
+    segmented run dir), valid times from each file's own Times variable (file_times); an unreadable
+    file contributes its file-name time at timeidx 0. A time in two files maps to the later one."""
     out = {}
     for dom, name_time, path in _file_entries(run_dir):
         times = file_times(path) or [name_time]
@@ -511,19 +470,19 @@ def frame_refs(run_dir):
     return out
 
 
-def frame_index(run_dir):
+def frame_index(run_dir: str) -> dict:
     """{(domain, valid_time): path} -- frame_refs without the timeidx (the containing file of
     each valid time). Identical to the old file-name index for single-frame files."""
     return {k: path for k, (path, _idx) in frame_refs(run_dir).items()}
 
 
-def list_frame_refs(run_dir, domain=1):
+def list_frame_refs(run_dir: str, domain: int = 1) -> list[tuple]:
     """Sorted [(valid_time, path, timeidx), ...] for domain <domain> (see frame_refs)."""
     return sorted((t, path, idx) for (d, t), (path, idx) in frame_refs(run_dir).items()
                   if d == domain)
 
 
-def list_frames(run_dir, domain=1):
+def list_frames(run_dir: str, domain: int = 1) -> list[tuple]:
     """Sorted [(valid_time, path), ...] for domain <domain> (merged across segments for a
     segmented run dir, see frame_refs). With multi-frame files several valid times share one
     path -- a caller that reads a time-varying field must use list_frame_refs/frame_ref for
@@ -531,7 +490,7 @@ def list_frames(run_dir, domain=1):
     return [(t, path) for t, path, _idx in list_frame_refs(run_dir, domain)]
 
 
-def frame_ref(run_dir, domain, time_str):
+def frame_ref(run_dir: str, domain: int, time_str: str) -> tuple[str, int]:
     """(path, timeidx) of valid time time_str on domain <domain> (segment-aware, Times-based,
     see frame_refs); (the flat run_dir/wrfout_dNN_<time_str> path, 0) when no file holds that
     time, so a caller's own exists()/open error still names the expected file."""
@@ -542,7 +501,7 @@ def frame_ref(run_dir, domain, time_str):
     return flat, 0
 
 
-def frame_path(run_dir, domain, time_str):
+def frame_path(run_dir: str, domain: int, time_str: str) -> str:
     """Path of the file holding valid time time_str (frame_ref without the timeidx)."""
     return frame_ref(run_dir, domain, time_str)[0]
 
@@ -557,7 +516,7 @@ class MissingFields(ExtractError):
                          % (", ".join(self.names), (" for " + what) if what else ""))
 
 
-def require_fields(ds, variables=(), attributes=(), what=None):
+def require_fields(ds, variables=(), attributes=(), what=None) -> None:
     """Raise MissingFields naming every one of `variables` (netCDF variables) and `attributes`
     (global attributes) that ds lacks -- checked up front, so a recipe reports what the
     reduced history stream is missing instead of a bare AttributeError/KeyError."""
@@ -568,7 +527,7 @@ def require_fields(ds, variables=(), attributes=(), what=None):
         raise MissingFields(missing, what)
 
 
-def is_missing_field_error(exc):
+def is_missing_field_error(exc: BaseException) -> bool:
     """True for the exceptions a reduced (iofields) history stream produces when a diagnostic
     reads a variable/attribute that is not there: MissingFields, a netCDF4/wrf-python KeyError,
     wrf.getvar's ValueError "'X' is not a valid variable name", netCDF's AttributeError
@@ -580,7 +539,7 @@ def is_missing_field_error(exc):
             or "not found in NetCDF" in text)
 
 
-def missing_reason(exc):
+def missing_reason(exc: BaseException) -> str:
     """A human missing-entry reason for an exception raised while reading a wrfout frame:
     MissingFields keeps its own text; a netCDF/wrf-python KeyError/AttributeError/ValueError
     that names a variable or attribute becomes "history stream lacks <name> ..." rather than
@@ -642,7 +601,7 @@ def _level_base_field(ds, wrf_mod, name, timeidx):
     raise ExtractError("unknown level field %r" % name)
 
 
-def extract_frame(task):
+def extract_frame(task: tuple) -> dict:
     """Runs in a worker process (module-level for picklability). task = (path, time_str,
     surface_vars, level_vars, levels_hpa[, timeidx]) -- timeidx (default 0) is the valid
     time's index inside a multi-frame file (frame_ref). Returns {"time": ..., fields...} with each
@@ -682,8 +641,8 @@ def _add_rain_rate(frames, time_fmt=WRF_TIME_FMT):
                                   if dt_h > 0 else np.zeros_like(frames[i]["rain_acc"]))
 
 
-def extract(run_dir, variables, out_path, domain=1, times=None, levels_hpa=None,
-            points=None, box=None, workers=1):
+def extract(run_dir: str, variables: list[str], out_path: str, domain: int = 1, times=None,
+            levels_hpa=None, points=None, box=None, workers: int = 1) -> dict:
     """variables: list of field names (SURFACE_FIELDS + LEVEL_FIELDS). times: optional list
     of WRF time strings to restrict to (default: every frame). points: [(lat, lon, name)];
     box: (lat0, lat1, lon0, lon1). Exactly one of points/box must be given; the output

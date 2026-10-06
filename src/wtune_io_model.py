@@ -1,41 +1,19 @@
 #!/usr/bin/env python3
 """wtune_io_model.py -- run-length I/O terms of the whole-run prediction (release 0.8.2).
 
-The -O pipeline's whole-run prediction (wtune_probe_plan.combine) is compute + init only. On a
-long run the run-length I/O dominates what that misses (scc climate-ea50, 150x110x45, 13 months,
-N=5: predicted 46:14, actual 89:38 summed over 14 segments; rsl decomposition: history+restart
-writes 1598 x 0.74 s = 1181 s, lateral boundary processing 1584 x 0.31 s = 494 s, other in-step
-overhead ~260 s, mostly the sst_update auxinput4 reads, per-segment startup 14 x ~53 s). This
-module adds, for one unsegmented run of the case's own length:
-
-  history   per domain: frames (history_interval / history_begin, the t=0 frame included -- the
-            same count as wtune_run.history_frames over (0, steps]) x per-frame write seconds
-  boundary  d01 lateral boundary updates floor(run_s / interval_seconds) x per-update seconds
-  aux       sst_update=1: per domain floor(run_s / auxinput4_interval) wrflowinp reads x per-read
-            seconds
-  restart   floor(run_min / restart_interval) writes (all domains in one write) x per-write
-            seconds; restart_interval absent -> WRF's Registry default 1440 min
-  iofields  ADIOS2 only: WRF re-parses each domain's iofields file at every input/output call
-            (iofields_parse_s): parses x get_fieldstr calls of the file x seconds per call
-
-Per-unit costs. History and restart are COPIES of wtune_run.py's fallback I/O formula
-(fallback_restart_io_s / fallback_history_frame_s, measured scc anchors scaled by grid points x
-levels). wtune_run.py is not imported here (it pulls in the Slurm controller stack and
-wtune_tune, so that would be circular); instead wtune_run imports this module and re-exports the
-constants, so there is one source of truth (tests/test_wtune_io_model.py checks the agreement). Boundary and
-auxinput4 have one anchor each, the climate-ea50 rsl above (single-case calibration, no
-cross-check yet):
-  boundary  0.31 s per update at 2 x (150 + 110) x 45 perimeter points x levels, scaled by that
-            (the wrfbdy record is the 4 edges x spec_bdy_width x levels)
-  aux       ~260 s / 1584 reads = 0.164 s per read at 150 x 110 columns, scaled by e_we x e_sn
-            (wrflowinp carries 2-D fields); ALL of the ~260 s "other in-step" overhead is charged
-            to it, so it is an upper bound
-
-Not included: per-segment startup (the segment count is not known at tune time; each extra
-segment adds ~init_s, exposed as `init_s` for wtune_run), restart reads, auxhist streams.
+wtune_probe_plan.combine predicts compute + init only; on a long run I/O dominates what it misses
+(scc climate-ea50: predicted 46:14, actual 89:38; rsl decomposition in the anchors below). Terms for
+one unsegmented run: history (frames x per-frame write), boundary (d01 updates), aux (sst_update
+wrflowinp reads), restart (writes; all domains in one), iofields (ADIOS2 only: re-parses per I/O
+call). History/restart copy wtune_run's fallback formula (not imported: circular; wtune_run
+re-exports these constants, tests/test_wtune_io_model.py checks agreement). Not included: per-segment
+startup (`init_s`), restart reads, auxhist streams.
 """
+from __future__ import annotations
+
 import math
 import os
+from typing import Any, Optional, Sequence
 
 import coldstart_sample as coldstart    # tools/: wrf_interval_minutes (WRF's own _d/_h/_m/_s sum)
 import wtune_predict as wp
@@ -49,7 +27,8 @@ DORIAN_HISTORY_POINT_FRAMES = 7 * 664 * 700 * 40 + 25 * 451 * 451 * 40
 HISTORY_S_PER_POINT_FRAME = DORIAN_HISTORY_WRITE_S / DORIAN_HISTORY_POINT_FRAMES
 # --- end of the copy ---------------------------------------------------------------------------
 
-# climate-ea50 (scc, 2026-10, 150x110x45, N=5 120x3) rsl anchors
+# climate-ea50 (scc, 2026-10, 150x110x45, N=5 120x3) rsl: history+restart 1598 x 0.74 s, boundary
+# 1584 x 0.31 s, other in-step ~260 s (mostly sst_update auxinput4 reads, charged to aux: upper bound)
 CLIMATE_EA50_BOUNDARY_S = 0.31                       # per lateral boundary update
 CLIMATE_EA50_BOUNDARY_PERIMETER = 2 * (150 + 110) * 45
 BOUNDARY_S_PER_PERIMETER_POINT = CLIMATE_EA50_BOUNDARY_S / CLIMATE_EA50_BOUNDARY_PERIMETER
@@ -79,7 +58,7 @@ SEGMENT_NOTE = ("each extra run segment adds ~%.0f s (init_s, the predicted star
                 "segment count is decided by `wtune run`, not here")
 
 
-def restart_io_s(points, io_form):
+def restart_io_s(points: Sequence[int], io_form: Any) -> tuple[float, float]:
     """(write_s, read_s) of one restart of every domain (`points` = per-domain e_we x e_sn x
     e_vert), conus25 anchor; an io_form without an anchor uses netCDF's (2)."""
     w, r = RESTART_IO_ANCHOR_S.get(int(io_form), RESTART_IO_ANCHOR_S[2])
@@ -87,7 +66,7 @@ def restart_io_s(points, io_form):
     return w * f, r * f
 
 
-def normalize_io_format(io):
+def normalize_io_format(io: Any) -> str:
     """'adios2' | 'netcdf' from wtune run's --io spelling or an io_form number (14 / 2);
     None -> the default (adios2)."""
     if io is None:
@@ -100,7 +79,7 @@ def normalize_io_format(io):
     raise ValueError("unknown I/O format %r (adios2 | netcdf)" % (io,))
 
 
-def history_frame_s(points, io_format="netcdf"):
+def history_frame_s(points: Sequence[int], io_format: str = "netcdf") -> list[float]:
     """Per-domain seconds of one history frame: dorian2019 anchor (netCDF) or the SC26-P2
     ADIOS2 anchor."""
     rate = (ADIOS2_HISTORY_S_PER_POINT_FRAME if io_format == "adios2"
@@ -108,38 +87,39 @@ def history_frame_s(points, io_format="netcdf"):
     return [p * rate for p in points]
 
 
-def boundary_update_s(e_we, e_sn, e_vert, io_format="netcdf"):
+def boundary_update_s(e_we: int, e_sn: int, e_vert: int, io_format: str = "netcdf") -> float:
     """Seconds of one d01 lateral boundary update."""
     rate = (ADIOS2_BOUNDARY_S_PER_PERIMETER_POINT if io_format == "adios2"
             else BOUNDARY_S_PER_PERIMETER_POINT)
     return 2 * (e_we + e_sn) * e_vert * rate
 
 
-def aux4_read_s(e_we, e_sn, io_format="netcdf"):
+def aux4_read_s(e_we: int, e_sn: int, io_format: str = "netcdf") -> float:
     """Seconds of one auxinput4 (wrflowinp) read for one domain."""
     return e_we * e_sn * (ADIOS2_AUX4_S_PER_COLUMN if io_format == "adios2"
                           else AUX4_S_PER_COLUMN)
 
 
-def iofields_call_s(calibration=None):
+def iofields_call_s(calibration: Optional[dict] = None) -> float:
     """Seconds per get_fieldstr call: the machine calibration's iofields_call_ms, else 0.9 ms."""
     return float((calibration or {}).get("iofields_call_ms", IOFIELDS_CALL_MS)) / 1000.0
 
 
-def iofields_parses(frames, frames_per_outfile, n_aux, n_boundary):
+def iofields_parses(frames: Sequence[int], frames_per_outfile: Sequence[Any],
+                    n_aux: Sequence[int], n_boundary: int) -> list[int]:
     """Per-domain count of iofields parses in a run: one per history frame, one more per
     history file opened, two per auxinput read, one per boundary update (d01 only)."""
     return [n + (-(-n // max(1, int(fpo)))) + 2 * aux + (n_boundary if d == 0 else 0)
             for d, (n, fpo, aux) in enumerate(zip(frames, frames_per_outfile, n_aux))]
 
 
-def iofields_parse_s(parses, calls, call_s):
+def iofields_parse_s(parses: Sequence[int], calls: Optional[Sequence[int]], call_s: float) -> float:
     """Seconds a run spends re-parsing iofields files: per domain parses x get_fieldstr calls
     of its file (wtune_iofields.parse_calls; 0/None = no file) x seconds per call."""
     return sum(n * (c or 0) for n, c in zip(parses, calls or [])) * call_s
 
 
-def case_iofields_calls(nl, case_dir, merge=True):
+def case_iofields_calls(nl: dict, case_dir: str, merge: bool = True) -> list[int]:
     """Per-domain get_fieldstr calls per parse of the case's iofields files as `wtune run`
     stages them (lines merged; merge=False: as written); 0 where a domain names no file or it
     is missing."""
@@ -156,7 +136,7 @@ def case_iofields_calls(nl, case_dir, merge=True):
     return out
 
 
-def history_frames_whole_run(run_s, iv_s, begin_s=0.0):
+def history_frames_whole_run(run_s: float, iv_s: float, begin_s: float = 0.0) -> int:
     """Frames at begin + j*iv in [0, run_s], the t=0 frame included when begin is 0 --
     wtune_run.history_frames(geo, d, 0, steps) for a whole run."""
     if not iv_s or iv_s <= 0:
@@ -170,29 +150,69 @@ def history_frames_whole_run(run_s, iv_s, begin_s=0.0):
     return n
 
 
-def _events(run_s, iv_s):
+def _events(run_s: float, iv_s: float) -> int:
     """Interval events after t=0 up to and including run_s."""
     return int(math.floor(run_s / iv_s + 1e-9)) if iv_s and iv_s > 0 else 0
 
 
-def _flag(v):
+def _flag(v: Any) -> bool:
     return v is True or str(v).strip().strip(".").lower() in ("true", "t", "1")
 
 
-def run_length_io(nl, run_s=None, io="adios2", iofields_calls=None, call_s=None):
-    """Run-length I/O of one unsegmented run of namelist `nl` ({group: {key: [values]}}, as
-    wtune_predict.parse_namelist returns). run_s defaults to the d01 run length. Returns a dict:
-    total_s, history_s, boundary_s, aux_s, restart_s, iofields_s and the counts / per-unit costs
-    behind each (history_frames, history_frame_s per domain; n_boundary, boundary_update_s; n_aux,
-    aux_read_s per domain; n_restart, restart_write_s, restart_interval_min, io_form_restart;
-    iofields_parses, iofields_calls, iofields_call_s), plus run_s, points, io_format, source.
-    `io` is the run's I/O format ("adios2", the wtune run
-    default, or "netcdf" = --io netcdf): netCDF keeps the namelist's io_form_restart and the
-    original anchors; adios2 prices history/boundary/aux at the ADIOS2 anchors and restart as
-    io_form 14. The namelist's own io_form_history only switches history on/off (0 = off) either
-    way. iofields_calls (per domain, case_iofields_calls) and call_s (iofields_call_s) price the
-    iofields re-parsing -- ADIOS2 only: the netCDF boundary/aux anchors are the climate-ea50 rsl,
-    measured with that case's iofields file, so they already hold its parses."""
+def _history_term(nl: dict, points: Sequence[int], run_s: float, fmt: str) -> tuple[list[int], list[float], float]:
+    """(frames per domain, seconds per frame per domain, total seconds)."""
+    io_hist = wp.g(nl, "time_control", "io_form_history", 2)
+    frames, frame_s = [], history_frame_s(points, fmt)
+    for d in range(len(points)):
+        iv = coldstart.wrf_interval_minutes(nl, "history_interval", d) * 60.0
+        begin = coldstart.wrf_interval_minutes(nl, "history_begin", d) * 60.0
+        frames.append(history_frames_whole_run(run_s, iv, begin) if io_hist and iv > 0 else 0)
+    return frames, frame_s, sum(n * s for n, s in zip(frames, frame_s))
+
+
+def _boundary_term(nl: dict, geom: Sequence[Sequence[int]], run_s: float,
+                   fmt: str) -> tuple[int, float, float]:
+    """(d01 boundary updates, seconds per update, total seconds)."""
+    specified = wp.g(nl, "bdy_control", "specified", None)
+    bdy_iv = float(wp.g(nl, "time_control", "interval_seconds", 0) or 0)
+    n_bdy = _events(run_s, bdy_iv) if (specified is None or _flag(specified)) else 0
+    one = boundary_update_s(*geom[0], io_format=fmt)
+    return n_bdy, one, n_bdy * one
+
+
+def _aux_term(nl: dict, geom: Sequence[Sequence[int]], run_s: float,
+              fmt: str) -> tuple[list[int], list[float], float]:
+    """(auxinput4 reads per domain, seconds per read per domain, total seconds); sst_update=1 only."""
+    max_dom = len(geom)
+    n_aux, one = [0] * max_dom, [aux4_read_s(a, b, fmt) for a, b, _c in geom]
+    if int(wp.g(nl, "physics", "sst_update", 0) or 0) == 1:
+        for d in range(max_dom):
+            n_aux[d] = _events(run_s, coldstart.wrf_interval_minutes(nl, "auxinput4_interval",
+                                                                      d) * 60.0)
+    return n_aux, one, sum(n * s for n, s in zip(n_aux, one))
+
+
+def _restart_term(nl: dict, points: Sequence[int], run_s: float,
+                  fmt: str) -> tuple[float, int, float, int, float]:
+    """(interval min, io_form, seconds per write, writes, total seconds)."""
+    rst_min = coldstart.wrf_interval_minutes(nl, "restart_interval")
+    if rst_min <= 0:
+        rst_min = WRF_DEFAULT_RESTART_INTERVAL_MIN
+    io_rst = (ADIOS2_IO_FORM if fmt == "adios2"
+              else int(wp.g(nl, "time_control", "io_form_restart", 2) or 2))
+    rst_w, _rst_r = restart_io_s(points, io_rst)
+    n_rst = _events(run_s, rst_min * 60.0)
+    return rst_min, io_rst, rst_w, n_rst, n_rst * rst_w
+
+
+def run_length_io(nl: dict, run_s: Optional[float] = None, io: Any = "adios2",
+                  iofields_calls: Optional[Sequence[int]] = None,
+                  call_s: Optional[float] = None) -> dict:
+    """Run-length I/O of one unsegmented run of namelist `nl` (wtune_predict.parse_namelist form);
+    run_s defaults to the d01 length. Dict: total_s and history/boundary/aux/restart/iofields_s,
+    the counts and per-unit costs behind each, run_s, points, io_format, source. io "netcdf"
+    keeps the namelist's io_form_restart and original anchors; "adios2" (default) uses the ADIOS2
+    anchors and io_form 14 restart. iofields_calls/call_s price iofields re-parsing (ADIOS2 only)."""
     fmt = normalize_io_format(io)
     if run_s is None:
         run_s = wp.get_d01_steps(nl)[1]
@@ -201,35 +221,10 @@ def run_length_io(nl, run_s=None, io="adios2", iofields_calls=None, call_s=None)
     geom = [wp.get_domain_geom(nl, d) for d in range(max_dom)]
     points = [int(a) * int(b) * int(c) for a, b, c in geom]
 
-    io_hist = wp.g(nl, "time_control", "io_form_history", 2)
-    frames, frame_s = [], history_frame_s(points, fmt)
-    for d in range(max_dom):
-        iv = coldstart.wrf_interval_minutes(nl, "history_interval", d) * 60.0
-        begin = coldstart.wrf_interval_minutes(nl, "history_begin", d) * 60.0
-        frames.append(history_frames_whole_run(run_s, iv, begin) if io_hist and iv > 0 else 0)
-    history_s = sum(n * s for n, s in zip(frames, frame_s))
-
-    specified = wp.g(nl, "bdy_control", "specified", None)
-    bdy_iv = float(wp.g(nl, "time_control", "interval_seconds", 0) or 0)
-    n_bdy = _events(run_s, bdy_iv) if (specified is None or _flag(specified)) else 0
-    bdy_one = boundary_update_s(*geom[0], io_format=fmt)
-    boundary_s = n_bdy * bdy_one
-
-    n_aux, aux_one = [0] * max_dom, [aux4_read_s(a, b, fmt) for a, b, _c in geom]
-    if int(wp.g(nl, "physics", "sst_update", 0) or 0) == 1:
-        for d in range(max_dom):
-            n_aux[d] = _events(run_s, coldstart.wrf_interval_minutes(nl, "auxinput4_interval",
-                                                                      d) * 60.0)
-    aux_s = sum(n * s for n, s in zip(n_aux, aux_one))
-
-    rst_min = coldstart.wrf_interval_minutes(nl, "restart_interval")
-    if rst_min <= 0:
-        rst_min = WRF_DEFAULT_RESTART_INTERVAL_MIN
-    io_rst = (ADIOS2_IO_FORM if fmt == "adios2"
-              else int(wp.g(nl, "time_control", "io_form_restart", 2) or 2))
-    rst_w, _rst_r = restart_io_s(points, io_rst)
-    n_rst = _events(run_s, rst_min * 60.0)
-    restart_s = n_rst * rst_w
+    frames, frame_s, history_s = _history_term(nl, points, run_s, fmt)
+    n_bdy, bdy_one, boundary_s = _boundary_term(nl, geom, run_s, fmt)
+    n_aux, aux_one, aux_s = _aux_term(nl, geom, run_s, fmt)
+    rst_min, io_rst, rst_w, n_rst, restart_s = _restart_term(nl, points, run_s, fmt)
 
     fpo = [wp.g_dom(nl, "time_control", "frames_per_outfile", d, 1) or 1 for d in range(max_dom)]
     parses = iofields_parses(frames, fpo, n_aux, n_bdy)
@@ -250,11 +245,11 @@ def run_length_io(nl, run_s=None, io="adios2", iofields_calls=None, call_s=None)
                        "parses x get_fieldstr calls)" % fmt)
 
 
-def _s(x):
+def _s(x: float) -> str:
     return "%.0fs" % x
 
 
-def breakdown_line(compute_s, io, init_s):
+def breakdown_line(compute_s: float, io: dict, init_s: float) -> str:
     """'compute X + history Y + boundary Z + aux W + restart R + init I = TOTAL' (seconds);
     '+ iofields P' after restart when the run re-parses an iofields file."""
     total = compute_s + io["total_s"] + init_s
@@ -264,5 +259,5 @@ def breakdown_line(compute_s, io, init_s):
                _s(io["restart_s"]), iof, _s(init_s), _s(total)))
 
 
-def segment_note(init_s):
+def segment_note(init_s: float) -> str:
     return SEGMENT_NOTE % init_s

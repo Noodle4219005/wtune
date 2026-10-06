@@ -1,0 +1,143 @@
+{
+ "cli": {
+  "bp2nc-not-bp": {
+   "rc": 2,
+   "stderr": "wtune convert: <TMP> is not a BP4/BP5 directory\n",
+   "stdout": ""
+  },
+  "bp2nc-ok": {
+   "rc": 0,
+   "stderr": "",
+   "stdout": "<TMP>/x.bp -> <TMP>/o2/x.nc (<T> s)\n"
+  },
+  "inputs-all": {
+   "rc": 0,
+   "stderr": "",
+   "stdout": "wrfbdy_d01 -> <TMP>/cache/wrfbdy_d01\nwrfinput_d01 -> <TMP>/cache/wrfinput_d01\n"
+  },
+  "inputs-check": {
+   "rc": 1,
+   "stderr": "",
+   "stdout": "wrfbdy_d01 -> <TMP>/cache2/wrfbdy_d01\nCHECK FAIL <TMP>/cache2/wrfbdy_d01: 3 variables, max_abs_diff 0.25\n  MISMATCH U: data differs\n  MISMATCH V: shape\nwrfinput_d01 -> <TMP>/cache2/wrfinput_d01\nCHECK PASS <TMP>/cache2/wrfinput_d01: 3 variables, max_abs_diff 0.25\n"
+  },
+  "inputs-names": {
+   "rc": 0,
+   "stderr": "",
+   "stdout": "wrfinput_d01 -> <TMP>/cache3/wrfinput_d01\n"
+  },
+  "inputs-none": {
+   "rc": 2,
+   "stderr": "wtune convert: no wrfinput/wrfbdy/wrflowinp/wrffdda_d0N netCDF files in <TMP>/empty\n",
+   "stdout": ""
+  },
+  "nc2bp-default": {
+   "rc": 0,
+   "stderr": "",
+   "stdout": "<TMP>/wrfinput_d01 -> <TMP>/wrfinput_d01.bp (BP4, <T> s)\n"
+  },
+  "nc2bp-out-engine-check": {
+   "rc": 0,
+   "stderr": "",
+   "stdout": "<TMP>/wrfinput_d01 -> <TMP>/o/wrfinput_d01 (BP5, <T> s)\nCHECK PASS <TMP>/o/wrfinput_d01: 3 variables, max_abs_diff 0.25\n"
+  }
+ },
+ "compare": {
+  "attrs": {
+   "max_abs_diff": 0.0,
+   "mismatches": [
+    "Times: data differs (max_abs_diff None)",
+    "U:units 'm s-1' != 'm/s'",
+    "global:DX np.float32(3000.0) != np.float32(1.0)"
+   ],
+   "ok": false,
+   "vars_compared": 3
+  },
+  "data": {
+   "max_abs_diff": 0.5,
+   "mismatches": [
+    "U: data differs (max_abs_diff 0.5)"
+   ],
+   "ok": false,
+   "vars_compared": 3
+  },
+  "dtype": {
+   "max_abs_diff": 0.0,
+   "mismatches": [
+    "U: dtype float32 != float64"
+   ],
+   "ok": false,
+   "vars_compared": 3
+  },
+  "extra": {
+   "max_abs_diff": 0.0,
+   "mismatches": [
+    "EXTRA: extra variable in round trip",
+    "I: missing in round trip"
+   ],
+   "ok": false,
+   "vars_compared": 2
+  },
+  "narrow": {
+   "max_abs_diff": 0.0,
+   "mismatches": [
+    "dim x: 3 != 2",
+    "U: shape ('Time', 'x')(2, 3) != ('Time', 'x')(2, 2)",
+    "I: shape ('Time', 'x')(2, 3) != ('Time', 'x')(2, 2)"
+   ],
+   "ok": false,
+   "vars_compared": 3
+  },
+  "record0": {
+   "max_abs_diff": 0.0,
+   "mismatches": [],
+   "ok": true,
+   "vars_compared": 3
+  },
+  "record1-bad": {
+   "max_abs_diff": 3.0,
+   "mismatches": [
+    "U: data differs (max_abs_diff 3.0)",
+    "I: data differs (max_abs_diff 3.0)"
+   ],
+   "ok": false,
+   "vars_compared": 3
+  },
+  "same": {
+   "max_abs_diff": 0.0,
+   "mismatches": [],
+   "ok": true,
+   "vars_compared": 3
+  }
+ },
+ "manifest": {
+  "entries": {
+   "wrfbdy_d01": {
+    "bp_path": "<TMP>/cache/wrfbdy_d01",
+    "converted_at": "<ts>",
+    "converter_version": "wrf_nc2bp@8ba1629",
+    "engine": "BP4",
+    "layout": "per-record",
+    "mtime": "<mtime>",
+    "records": [
+     "wrfbdy_d01_2026-01-01_00:00:00.bp",
+     "wrfbdy_d01_2026-01-01_06:00:00.bp"
+    ],
+    "sha256": "9547741d5683bdfb2a04d549b6da16d39fb025193857991135c3ebe1d1e1b692",
+    "size": 65,
+    "source": "<TMP>/case/wrfbdy_d01"
+   },
+   "wrfinput_d01": {
+    "bp_path": "<TMP>/cache/wrfinput_d01",
+    "converted_at": "<ts>",
+    "converter_version": "wrf_nc2bp@8ba1629",
+    "engine": "BP4",
+    "layout": "single",
+    "mtime": "<mtime>",
+    "sha256": "15621287b03f63f88a525fbf04d24569d7ddbef9852bc4761a67b35430264a54",
+    "size": 65,
+    "source": "<TMP>/case/wrfinput_d01"
+   }
+  },
+  "version": 1
+ }
+}

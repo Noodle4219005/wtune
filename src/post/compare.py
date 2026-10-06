@@ -1,9 +1,7 @@
-"""post/compare.py -- `wtune post compare RUN_A RUN_B`: verify a STRICT-classified change
-did not move the answer (decision 0056). Runs WRF's own diffwrf on every common (domain,
-time) wrfout frame pair and parses its differing-field table -- no self-written numpy diff
-(2026-09-29 update: wrap established tools, delete the substitute). `ncdump -h` validates
-a requested --vars name actually exists in the file, since diffwrf itself takes no field
-filter and silently reports nothing for a name it never saw.
+"""post/compare.py -- `wtune post compare RUN_A RUN_B`: verify a STRICT change did not move the
+answer (decision 0056). Runs WRF's diffwrf on every common (domain, time) wrfout pair and parses its
+differing-field table; `ncdump -h` checks a requested --vars name exists (diffwrf takes no field
+filter and silently reports nothing for an unknown name).
 """
 from __future__ import annotations
 
@@ -50,7 +48,7 @@ def _check_not_adios2(run_dir, frames):
         "-- nothing for `wtune post compare` to diff." % run_dir)
 
 
-def parse_diffwrf(text):
+def parse_diffwrf(text: str) -> list[dict]:
     """diffwrf's "Field Ndifs Dims RMS(1) RMS(2) DIGITS RMSE pntwise max" table -> list of
     dicts, one per row (a field absent here had zero differing points). Fortran's `D`
     exponent marker is normalized to `E` before float() (diffwrf never emits it in
@@ -78,18 +76,11 @@ def _validate_vars(path, variables):
         raise CompareError("--vars names not present in %s: %s" % (path, unknown))
 
 
-def compare_runs(run_a, run_b, variables=None, domain=None):
-    """Compares every common (domain, time) frame between two run directories via diffwrf.
-
-    variables: restrict the reported table to these field names (validated against the
-    first compared frame's `ncdump -h` header; diffwrf itself always diffs every field).
-    domain: restrict to one domain number (e.g. 1 for d01) -- default: all domains.
-
-    Returns {"identical": bool, "n_frames_compared": int, "n_different": int,
-             "results": [{"domain", "time", "field", "ndifs", "dims", "rms1", "rms2",
-                          "digits", "rmse", "pntwise_max"}]} -- one result row per
-    differing field per compared frame (a frame with no differing fields contributes none).
-    """
+def compare_runs(run_a: str, run_b: str, variables=None, domain: int | None = None) -> dict:
+    """Compare every common (domain, time) frame of two run dirs via diffwrf. variables restricts
+    the table (validated against the first frame's `ncdump -h`); domain restricts to one domain.
+    Returns {identical, n_frames_compared, n_different, results: [{domain, time, field, ndifs,
+    dims, rms1, rms2, digits, rmse, pntwise_max}]}, one row per differing field per frame."""
     diffwrf = tools.find_diffwrf()
 
     frames_a, frames_b = _frames(run_a), _frames(run_b)
@@ -117,7 +108,7 @@ def compare_runs(run_a, run_b, variables=None, domain=None):
                 n_different=n_different, results=results)
 
 
-def render_summary(comparison):
+def render_summary(comparison: dict) -> str:
     if not comparison["results"] and comparison["n_frames_compared"] == 0:
         return "no common (domain, time) frames found to compare"
     if comparison["identical"]:

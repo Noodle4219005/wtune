@@ -1,0 +1,19 @@
+&time_control
+ run_hours = 6,
+ iofields_filename = "iofields_d01.txt", 'io/fields_d02.txt',  ignore_iofields_warning = .true.,
+ auxinput4_inname = "wrflowinp_d<domain>", auxinput4_interval = 360, 360,
+ auxinput1_inname = "met_em.d<domain>.<date>",
+ auxinput11_inname = 'obs_d<domain>.txt',
+ auxinput5_inname = 'wrfchemi_d<domain>_<date>',
+ ! iofields_filename = 'commented.txt',
+/
+&domains
+ max_dom = 2,
+/
+&physics
+ sst_update = 1,
+/
+&fdda
+ grid_fdda = 1, 0,
+ obs_nudge_opt = 0, 1,
+/

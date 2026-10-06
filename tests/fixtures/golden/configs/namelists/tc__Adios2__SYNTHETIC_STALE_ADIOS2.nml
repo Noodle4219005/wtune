@@ -1,0 +1,16 @@
+&time_control
+ run_days=0, run_hours=1, run_minutes=0,
+ history_interval=999,
+ input_inname="wrfinput_d<domain>", bdy_inname="wrfbdy_d<domain>",
+ io_form_history=2,
+ io_form_input=11,
+ io_form_boundary=11,
+ io_form_restart=2,
+ restart_interval=60,
+/
+&domains
+ time_step=15, e_we=901, e_sn=901, e_vert=45,
+/
+&namelist_adios2
+ adios2_numaggregators=99,
+/

@@ -1,0 +1,6 @@
+&domains
+ max_dom = 2,
+/
+&dynamics
+ diff_opt = 1, 1,
+/

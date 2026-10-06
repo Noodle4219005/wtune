@@ -1,0 +1,2315 @@
+{
+ "ADIOS2_BLOSC_COMPRESSOR": [
+  "str",
+  "zstd"
+ ],
+ "ADIOS2_COMPRESSION_ENABLE": [
+  "str",
+  ".true."
+ ],
+ "ADIOS2_IO_FORM": [
+  "int",
+  14
+ ],
+ "CAMPAIGN_DIR": [
+  "str",
+  "<REPO>/campaign"
+ ],
+ "CASES": [
+  "dict",
+  {
+   "karina": {
+    "prep_dir": "<FIX>/namelists/prep_unused",
+    "namelist_template": "<FIX>/namelists/repo__rebuild_wrfbdy_times.nml",
+    "e_we": 425,
+    "e_sn": 300,
+    "e_vert": 45,
+    "dt": 72,
+    "steps": 40,
+    "physics": {
+     "mp_physics": 8,
+     "cu_physics": 1,
+     "bl_pbl_physics": 1,
+     "sf_sfclay_physics": 1,
+     "sf_surface_physics": 2,
+     "ra_lw_physics": 4,
+     "ra_sw_physics": 4,
+     "radt": 12
+    }
+   },
+   "maria1km": {
+    "prep_dir": "<FIX>/namelists/prep_unused",
+    "namelist_template": "<FIX>/namelists/repo__m1.nml",
+    "e_we": 425,
+    "e_sn": 300,
+    "e_vert": 45,
+    "dt": 72,
+    "steps": 40,
+    "physics": {
+     "mp_physics": 8,
+     "cu_physics": 1,
+     "bl_pbl_physics": 1,
+     "sf_sfclay_physics": 1,
+     "sf_surface_physics": 2,
+     "ra_lw_physics": 4,
+     "ra_sw_physics": 4,
+     "radt": 12
+    },
+    "max_dom": 2,
+    "e_we_list": [
+     170,
+     244
+    ],
+    "e_sn_list": [
+     130,
+     175
+    ]
+   },
+   "isc21": {
+    "prep_dir": "<FIX>/namelists/prep_unused",
+    "namelist_template": "<FIX>/namelists/repo__rebuild_nested_suite.nml",
+    "e_we": 425,
+    "e_sn": 300,
+    "e_vert": 45,
+    "dt": 72,
+    "steps": 40,
+    "physics": {
+     "mp_physics": 8,
+     "cu_physics": 1,
+     "bl_pbl_physics": 1,
+     "sf_sfclay_physics": 1,
+     "sf_surface_physics": 2,
+     "ra_lw_physics": 4,
+     "ra_sw_physics": 4,
+     "radt": 12
+    },
+    "max_dom": 3
+   },
+   "lafe": {
+    "prep_dir": "<FIX>/namelists/prep_unused",
+    "namelist_template": "<FIX>/namelists/syn__sst_fdda_packed.nml",
+    "e_we": 425,
+    "e_sn": 300,
+    "e_vert": 45,
+    "dt": 72,
+    "steps": 40,
+    "physics": {
+     "mp_physics": 8,
+     "cu_physics": 1,
+     "bl_pbl_physics": 1,
+     "sf_sfclay_physics": 1,
+     "sf_surface_physics": 2,
+     "ra_lw_physics": 4,
+     "ra_sw_physics": 4,
+     "radt": 12
+    },
+    "max_dom": 3,
+    "namelist_overrides": {
+     "max_dom": 1
+    }
+   },
+   "sc26p1": {
+    "prep_dir": "<FIX>/namelists/prep_unused",
+    "namelist_template": "<FIX>/namelists/repo__m1.nml",
+    "e_we": 425,
+    "e_sn": 300,
+    "e_vert": 45,
+    "dt": 72,
+    "steps": 40,
+    "physics": {
+     "mp_physics": 8,
+     "cu_physics": 1,
+     "bl_pbl_physics": 1,
+     "sf_sfclay_physics": 1,
+     "sf_surface_physics": 2,
+     "ra_lw_physics": 4,
+     "ra_sw_physics": 4,
+     "radt": 12
+    },
+    "max_dom": 2,
+    "frozen_keys": [
+     "time_step",
+     "Debug_Level"
+    ]
+   },
+   "bigchill": {
+    "prep_dir": "<FIX>/namelists/prep_unused",
+    "namelist_template": "<FIX>/namelists/tc__DiagnosticsAndCadenceTemplates__NL.nml",
+    "e_we": 425,
+    "e_sn": 300,
+    "e_vert": 45,
+    "dt": 72,
+    "steps": 40,
+    "physics": {
+     "mp_physics": 8,
+     "cu_physics": 1,
+     "bl_pbl_physics": 1,
+     "sf_sfclay_physics": 1,
+     "sf_surface_physics": 2,
+     "ra_lw_physics": 4,
+     "ra_sw_physics": 4,
+     "radt": 12
+    },
+    "max_dom": 2
+   },
+   "conus12": {
+    "prep_dir": "<FIX>/prep_conus12",
+    "e_we": 425,
+    "e_sn": 300,
+    "e_vert": 45,
+    "dt": 72,
+    "steps": 40,
+    "physics": {
+     "mp_physics": 8,
+     "cu_physics": 1,
+     "bl_pbl_physics": 1,
+     "sf_sfclay_physics": 1,
+     "sf_surface_physics": 2,
+     "ra_lw_physics": 4,
+     "ra_sw_physics": 4,
+     "radt": 12
+    }
+   },
+   "gone": {
+    "prep_dir": "<FIX>/namelists/prep_unused",
+    "namelist_template": "<FIX>/namelists/does_not_exist.nml",
+    "e_we": 425,
+    "e_sn": 300,
+    "e_vert": 45,
+    "dt": 72,
+    "steps": 40,
+    "physics": {
+     "mp_physics": 8,
+     "cu_physics": 1,
+     "bl_pbl_physics": 1,
+     "sf_sfclay_physics": 1,
+     "sf_surface_physics": 2,
+     "ra_lw_physics": 4,
+     "ra_sw_physics": 4,
+     "radt": 12
+    }
+   },
+   "off": {
+    "prep_dir": "<FIX>/namelists/prep_unused",
+    "namelist_template": "<FIX>/namelists/repo__m1.nml",
+    "e_we": 425,
+    "e_sn": 300,
+    "e_vert": 45,
+    "dt": 72,
+    "steps": 40,
+    "physics": {
+     "mp_physics": 8,
+     "cu_physics": 1,
+     "bl_pbl_physics": 1,
+     "sf_sfclay_physics": 1,
+     "sf_surface_physics": 2,
+     "ra_lw_physics": 4,
+     "ra_sw_physics": 4,
+     "radt": 12
+    },
+    "enabled": false,
+    "reason": "fixture: switched off"
+   },
+   "noreason": {
+    "prep_dir": "<FIX>/namelists/prep_unused",
+    "namelist_template": "<FIX>/namelists/repo__m1.nml",
+    "e_we": 425,
+    "e_sn": 300,
+    "e_vert": 45,
+    "dt": 72,
+    "steps": 40,
+    "physics": {
+     "mp_physics": 8,
+     "cu_physics": 1,
+     "bl_pbl_physics": 1,
+     "sf_sfclay_physics": 1,
+     "sf_surface_physics": 2,
+     "ra_lw_physics": 4,
+     "ra_sw_physics": 4,
+     "radt": 12
+    },
+    "enabled": false
+   }
+  }
+ ],
+ "CASES_JSON_PATH": [
+  "str",
+  "<TMP>/api/cases.json"
+ ],
+ "CASE_ORDER": [
+  "list",
+  [
+   "karina",
+   "conus25",
+   "conus12",
+   "isc21",
+   "maria1km",
+   "lafe",
+   "sc26p1",
+   "sc26p2",
+   "sc26p2narr",
+   "severe2023",
+   "matthew",
+   "c34",
+   "zhengzhou",
+   "elevconv",
+   "marshall",
+   "bigchill"
+  ]
+ ],
+ "COST_GUESS": [
+  "dict",
+  {
+   "(901, 901, 45)": {
+    "(tuple)": [
+     {
+      "(float)": "0.3"
+     },
+     70
+    ]
+   },
+   "(901, 901, 80)": {
+    "(tuple)": [
+     {
+      "(float)": "0.5"
+     },
+     110
+    ]
+   },
+   "(1501, 1201, 50)": {
+    "(tuple)": [
+     {
+      "(float)": "0.6"
+     },
+     120
+    ]
+   },
+   "(425, 300, 50)": {
+    "(tuple)": [
+     {
+      "(float)": "0.08"
+     },
+     30
+    ]
+   },
+   "(793, 853, 51)": {
+    "(tuple)": [
+     {
+      "(float)": "15.0"
+     },
+     230
+    ]
+   },
+   "(900, 900, 50)": {
+    "(tuple)": [
+     {
+      "(float)": "5.8"
+     },
+     250
+    ]
+   },
+   "(1000, 1000, 100)": {
+    "(tuple)": [
+     {
+      "(float)": "4.0"
+     },
+     150
+    ]
+   }
+  }
+ ],
+ "DECOMP_IDENTITY_FIELDS": [
+  "tuple",
+  {
+   "(tuple)": [
+    "ranks",
+    "omp",
+    "nx",
+    "ny",
+    "numtiles",
+    "dist",
+    "blocktime",
+    "numtiles_x",
+    "numtiles_y",
+    "tile_sz_x",
+    "tile_sz_y",
+    "tile_strategy"
+   ]
+  }
+ ],
+ "DEFAULT_SCREEN_DIR": [
+  "str",
+  "/home/u5727520/wrf-bench/wscore/physics"
+ ],
+ "FIDELITY_TOKEN_NA": [
+  "str",
+  "NA"
+ ],
+ "FRESH_COPY_PREFIX": [
+  "str",
+  "copy_"
+ ],
+ "HISTORY_NEVER_MINUTES": [
+  "int",
+  1000000
+ ],
+ "HISTORY_REQUIRING_DIAGNOSTICS": [
+  "tuple",
+  {
+   "(tuple)": [
+    "nwp_diagnostics",
+    "hailcast_opt",
+    "afwa_diag_opt"
+   ]
+  }
+ ],
+ "MIN_PATCH": [
+  "int",
+  10
+ ],
+ "PER_RECORD_STREAMS": [
+  "dict",
+  {
+   "boundary": {
+    "(tuple)": [
+     "wrfbdy",
+     "io_form_boundary",
+     "time_control",
+     "bdy_inname",
+     "wrfbdy_d<domain>",
+     null
+    ]
+   },
+   "auxinput4": {
+    "(tuple)": [
+     "wrflowinp",
+     "io_form_auxinput4",
+     "time_control",
+     "auxinput4_inname",
+     "wrflowinp_d<domain>",
+     "frames_per_auxinput4"
+    ]
+   },
+   "gfdda": {
+    "(tuple)": [
+     "wrffdda",
+     "io_form_gfdda",
+     "fdda",
+     "gfdda_inname",
+     "wrffdda_d<domain>",
+     "frames_per_auxinput10"
+    ]
+   }
+  }
+ ],
+ "PHYSICS_TEMPLATES": [
+  "sha1",
+  "be2024e0e8ea610629921b79f31733ace726caf3",
+  [
+   "A01",
+   "A02",
+   "A03",
+   "A04",
+   "A05",
+   "D01",
+   "D02",
+   "D03",
+   "D04",
+   "D05",
+   "D06",
+   "D07",
+   "P00",
+   "P01",
+   "P02",
+   "P03",
+   "P04",
+   "P05",
+   "P06"
+  ]
+ ],
+ "PHYSICS_TEMPLATES_JSON_PATH": [
+  "str",
+  "<REPO>/campaign/physics_templates.json"
+ ],
+ "PHYSICS_TEMPLATE_ORDER": [
+  "list",
+  [
+   "A01",
+   "A02",
+   "A03",
+   "A04",
+   "A05",
+   "D01",
+   "D02",
+   "D03",
+   "D04",
+   "D05",
+   "D06",
+   "D07",
+   "P00",
+   "P01",
+   "P02",
+   "P03",
+   "P04",
+   "P05",
+   "P06"
+  ]
+ ],
+ "REPO_ROOT": [
+  "str",
+  "<REPO>"
+ ],
+ "SITE": [
+  "str",
+  "f1"
+ ],
+ "TEMPLATES": [
+  "list",
+  [
+   {
+    "id": "C01",
+    "ranks": 448,
+    "omp": 1,
+    "shape": "best",
+    "numtiles": 1,
+    "dist": "cyclic",
+    "blocktime": "0"
+   },
+   {
+    "id": "C02",
+    "ranks": 448,
+    "omp": 1,
+    "shape": "best",
+    "numtiles": 8,
+    "dist": "cyclic",
+    "blocktime": "0"
+   },
+   {
+    "id": "C03",
+    "ranks": 448,
+    "omp": 1,
+    "shape": "alt1",
+    "numtiles": 8,
+    "dist": "cyclic",
+    "blocktime": "0"
+   },
+   {
+    "id": "C04",
+    "ranks": 448,
+    "omp": 1,
+    "shape": "best",
+    "numtiles": 8,
+    "dist": "block",
+    "blocktime": "0"
+   },
+   {
+    "id": "C05",
+    "ranks": 224,
+    "omp": 2,
+    "shape": "best",
+    "numtiles": 13,
+    "dist": "cyclic",
+    "blocktime": "0"
+   },
+   {
+    "id": "C06",
+    "ranks": 224,
+    "omp": 2,
+    "shape": "best",
+    "numtiles": 12,
+    "dist": "cyclic",
+    "blocktime": "0"
+   },
+   {
+    "id": "C07",
+    "ranks": 224,
+    "omp": 2,
+    "shape": "best",
+    "numtiles": 14,
+    "dist": "cyclic",
+    "blocktime": "0"
+   },
+   {
+    "id": "C08",
+    "ranks": 224,
+    "omp": 2,
+    "shape": "best",
+    "numtiles": 2,
+    "dist": "cyclic",
+    "blocktime": "0"
+   },
+   {
+    "id": "C09",
+    "ranks": 224,
+    "omp": 2,
+    "shape": "alt1",
+    "numtiles": 12,
+    "dist": "cyclic",
+    "blocktime": "0"
+   },
+   {
+    "id": "C10",
+    "ranks": 224,
+    "omp": 2,
+    "shape": "alt2",
+    "numtiles": 12,
+    "dist": "cyclic",
+    "blocktime": "0"
+   },
+   {
+    "id": "C11",
+    "ranks": 224,
+    "omp": 2,
+    "shape": "best",
+    "numtiles": 12,
+    "dist": "block",
+    "blocktime": "0"
+   },
+   {
+    "id": "C12",
+    "ranks": 224,
+    "omp": 2,
+    "shape": "best",
+    "numtiles": 12,
+    "dist": "cyclic",
+    "blocktime": "default"
+   },
+   {
+    "id": "C13",
+    "ranks": 112,
+    "omp": 4,
+    "shape": "best",
+    "numtiles": 16,
+    "dist": "cyclic",
+    "blocktime": "0"
+   },
+   {
+    "id": "C14",
+    "ranks": 112,
+    "omp": 4,
+    "shape": "best",
+    "numtiles": 12,
+    "dist": "cyclic",
+    "blocktime": "0"
+   },
+   {
+    "id": "C15",
+    "ranks": 112,
+    "omp": 4,
+    "shape": "alt1",
+    "numtiles": 16,
+    "dist": "cyclic",
+    "blocktime": "0"
+   },
+   {
+    "id": "C16",
+    "ranks": 112,
+    "omp": 4,
+    "shape": "best",
+    "numtiles": 13,
+    "dist": "cyclic",
+    "blocktime": "0"
+   }
+  ]
+ ],
+ "TOTAL_CORES": [
+  "int",
+  448
+ ],
+ "WRF_DATE_FMT": [
+  "str",
+  "%Y-%m-%d_%H:%M:%S"
+ ],
+ "_COMPLIANCE_KNOBS": [
+  "tuple",
+  {
+   "(tuple)": [
+    "mpi_ranks",
+    "OMP_NUM_THREADS",
+    "nproc_x",
+    "nproc_y",
+    "numtiles",
+    "srun_distribution",
+    "KMP_BLOCKTIME"
+   ]
+  }
+ ],
+ "_DECOMP": [
+  "NoneType",
+  null
+ ],
+ "_DECOMP_PAIR_COLUMNS": [
+  "tuple",
+  {
+   "(tuple)": [
+    "role",
+    "config_id",
+    "ranks",
+    "omp",
+    "nproc_x",
+    "nproc_y",
+    "numtiles",
+    "dist",
+    "blocktime",
+    "numtiles_x",
+    "numtiles_y",
+    "tile_sz_x",
+    "tile_sz_y",
+    "tile_strategy",
+    "config_source"
+   ]
+  }
+ ],
+ "_DECOMP_TRIED": [
+  "bool",
+  false
+ ],
+ "_GENERATED_TILE_FIELDS": [
+  "tuple",
+  {
+   "(tuple)": [
+    "numtiles_x",
+    "numtiles_y",
+    "tile_sz_x",
+    "tile_sz_y",
+    "tile_strategy"
+   ]
+  }
+ ],
+ "_LEDGER_PHYSICS_KEYS": [
+  "tuple",
+  {
+   "(tuple)": [
+    "time_step",
+    "mp_physics",
+    "cu_physics",
+    "bl_pbl_physics",
+    "sf_sfclay_physics",
+    "sf_surface_physics",
+    "ra_lw_physics",
+    "ra_sw_physics",
+    "radt",
+    "cudt"
+   ]
+  }
+ ],
+ "_NML_NEXT_KEY_RE": [
+  "Pattern",
+  {
+   "(regex)": [
+    "[A-Za-z_][A-Za-z0-9_%]*[ \\t]*=",
+    32
+   ]
+  }
+ ],
+ "_NML_REF_SKIP_AUXINPUT": [
+  "tuple",
+  {
+   "(tuple)": [
+    1,
+    4
+   ]
+  }
+ ],
+ "_PER_RECORD_NAME_RE": [
+  "Pattern",
+  {
+   "(regex)": [
+    "^(wrfbdy|wrflowinp|wrffdda)_d\\d\\d$",
+    32
+   ]
+  }
+ ],
+ "_PROBE_VERDICT_RE": [
+  "Pattern",
+  {
+   "(regex)": [
+    "(?m)^[ \\t]*(?P<knob>\\S+)[ \\t]+\\[(?:PHYSICS-GRAY|STRICT)[ \\t]*\\][ \\t]+(?P<verdict>\\S+)",
+    40
+   ]
+  }
+ ],
+ "_SHAPE_INDEX": [
+  "dict",
+  {
+   "best": 0,
+   "alt1": 1,
+   "alt2": 2
+  }
+ ],
+ "_TIMING_D01_RE": [
+  "Pattern",
+  {
+   "(regex)": [
+    "Timing for main: time (\\d{4}-\\d\\d-\\d\\d_\\d\\d:\\d\\d:\\d\\d)\\s+on domain\\s+1:\\s+([0-9.]+) elapsed",
+    32
+   ]
+  }
+ ],
+ "_active_domain_extents": [
+  "function",
+  [
+   "case",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ]
+ ],
+ "_apply_adios2": [
+  "function",
+  [
+   "text",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "ranks",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "max_dom",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "start",
+   "POSITIONAL_OR_KEYWORD",
+   null
+  ]
+ ],
+ "_apply_restart_from": [
+  "function",
+  [
+   "text",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "restart_time",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "max_dom",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ]
+ ],
+ "_case_bp_plan": [
+  "function",
+  [
+   "case_id",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "cases_json",
+   "POSITIONAL_OR_KEYWORD",
+   null
+  ],
+  [
+   "site",
+   "POSITIONAL_OR_KEYWORD",
+   "scc"
+  ],
+  [
+   "bp",
+   "POSITIONAL_OR_KEYWORD",
+   null
+  ]
+ ],
+ "_case_effective_max_dom": [
+  "function",
+  [
+   "case",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ]
+ ],
+ "_case_namelist_path": [
+  "function",
+  [
+   "case",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ]
+ ],
+ "_cmd_edit_namelist": [
+  "function",
+  [
+   "argv",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ]
+ ],
+ "_cmd_fused_steps": [
+  "function",
+  [
+   "argv",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ]
+ ],
+ "_cmd_link_namelist_files": [
+  "function",
+  [
+   "argv",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ]
+ ],
+ "_cmd_point_plan": [
+  "function",
+  [
+   "argv",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ]
+ ],
+ "_cmd_quota_free_gib": [
+  "function",
+  [
+   "argv",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ]
+ ],
+ "_cmd_stage_bp_inputs": [
+  "function",
+  [
+   "argv",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ]
+ ],
+ "_cmd_step_stats": [
+  "function",
+  [
+   "argv",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ]
+ ],
+ "_decomp_identity": [
+  "function",
+  [
+   "cfg",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ]
+ ],
+ "_delete_key_lines": [
+  "function",
+  [
+   "text",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "key",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "ignore_case",
+   "POSITIONAL_OR_KEYWORD",
+   false
+  ]
+ ],
+ "_fallback_score": [
+  "function",
+  [
+   "e_we",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "e_sn",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "nx",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "ny",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ]
+ ],
+ "_find_namelist_key": [
+  "function",
+  [
+   "text",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "key",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ]
+ ],
+ "_get_scalar_first": [
+  "function",
+  [
+   "text",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "key",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "default",
+   "POSITIONAL_OR_KEYWORD",
+   null
+  ]
+ ],
+ "_has_key": [
+  "function",
+  [
+   "text",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "key",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ]
+ ],
+ "_history_key_and_value": [
+  "function",
+  [
+   "text",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "minutes",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ]
+ ],
+ "_history_requiring_diagnostics_on": [
+  "function",
+  [
+   "text",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ]
+ ],
+ "_import_wtune_bp": [
+  "function"
+ ],
+ "_insert_after_domains": [
+  "function",
+  [
+   "text",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "nproc_x",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "nproc_y",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "numtiles",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "max_dom",
+   "POSITIONAL_OR_KEYWORD",
+   1
+  ],
+  [
+   "extra",
+   "POSITIONAL_OR_KEYWORD",
+   null
+  ]
+ ],
+ "_insert_after_section_header": [
+  "function",
+  [
+   "text",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "section",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "line",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ]
+ ],
+ "_link_idempotent": [
+  "function",
+  [
+   "dst",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "target",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ]
+ ],
+ "_load_decomp": [
+  "function"
+ ],
+ "_namelist_ints": [
+  "function",
+  [
+   "text",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "key",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ]
+ ],
+ "_namelist_string_values": [
+  "function",
+  [
+   "text",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "key",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ]
+ ],
+ "_per_record_netcdf_fallback": [
+  "function",
+  [
+   "text",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "stream",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "max_dom",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ]
+ ],
+ "_replace_list_line": [
+  "function",
+  [
+   "text",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "key",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "values",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ]
+ ],
+ "_set_history_interval": [
+  "function",
+  [
+   "text",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "history_minutes",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "max_dom",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "nest_history_on",
+   "POSITIONAL_OR_KEYWORD",
+   false
+  ]
+ ],
+ "_set_history_mode": [
+  "function",
+  [
+   "text",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "history_mode",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "run_minutes",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "max_dom",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "nest_history_on",
+   "POSITIONAL_OR_KEYWORD",
+   false
+  ],
+  [
+   "history_minutes",
+   "POSITIONAL_OR_KEYWORD",
+   null
+  ]
+ ],
+ "_set_namelist_value": [
+  "function",
+  [
+   "text",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "key",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "literal",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "group",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ]
+ ],
+ "_set_or_insert_time_control_scalar": [
+  "function",
+  [
+   "text",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "key",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "value",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "group",
+   "POSITIONAL_OR_KEYWORD",
+   "time_control"
+  ]
+ ],
+ "_set_scalar": [
+  "function",
+  [
+   "text",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "key",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "value",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ]
+ ],
+ "_set_values_for_domains": [
+  "function",
+  [
+   "edit",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "n",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "max_dom",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ]
+ ],
+ "_shq": [
+  "function",
+  [
+   "v",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ]
+ ],
+ "_src_path": [
+  "function",
+  [
+   "src_dir",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "name",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ]
+ ],
+ "_stage_bp_inputs_locked": [
+  "function",
+  [
+   "a",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "text",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "cache",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "err",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ]
+ ],
+ "adios2_input_streams": [
+  "function",
+  [
+   "text",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ]
+ ],
+ "adios2_stream_edits": [
+  "function",
+  [
+   "stream",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ]
+ ],
+ "apply_physics_edit": [
+  "function",
+  [
+   "text",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "edit",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "max_dom",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ]
+ ],
+ "apply_physics_template": [
+  "function",
+  [
+   "text",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "template",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "max_dom",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "case_id",
+   "POSITIONAL_OR_KEYWORD",
+   null
+  ],
+  [
+   "frozen_keys",
+   "POSITIONAL_OR_KEYWORD",
+   null
+  ]
+ ],
+ "assert_strict_compliance": [
+  "function"
+ ],
+ "available_decomps": [
+  "function",
+  [
+   "case_id",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "config_file",
+   "POSITIONAL_OR_KEYWORD",
+   null
+  ],
+  [
+   "cases",
+   "POSITIONAL_OR_KEYWORD",
+   null
+  ]
+ ],
+ "bp_cache_dir": [
+  "function",
+  [
+   "case_id",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "src_dir",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "root",
+   "POSITIONAL_OR_KEYWORD",
+   null
+  ]
+ ],
+ "bp_cache_status": [
+  "function",
+  [
+   "case_id",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "cases_json",
+   "POSITIONAL_OR_KEYWORD",
+   null
+  ],
+  [
+   "site",
+   "POSITIONAL_OR_KEYWORD",
+   "scc"
+  ],
+  [
+   "bp",
+   "POSITIONAL_OR_KEYWORD",
+   null
+  ]
+ ],
+ "build_order": [
+  "function",
+  [
+   "config_ids",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "reps",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ]
+ ],
+ "case_frozen_keys": [
+  "function",
+  [
+   "case",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ]
+ ],
+ "case_start_datetime": [
+  "function",
+  [
+   "text",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ]
+ ],
+ "cmd_all": [
+  "function"
+ ],
+ "cmd_case": [
+  "function",
+  [
+   "case_id",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ]
+ ],
+ "cmd_case_generated": [
+  "function",
+  [
+   "case_id",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "config_file",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ]
+ ],
+ "cmd_config_extras": [
+  "function",
+  [
+   "case_id",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "config_file",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ]
+ ],
+ "cmd_decomp_pair": [
+  "function",
+  [
+   "argv",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ]
+ ],
+ "cmd_fidelity_tokens": [
+  "function",
+  [
+   "argv",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ]
+ ],
+ "cmd_order": [
+  "function",
+  [
+   "case_id",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "reps",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "config_file",
+   "POSITIONAL_OR_KEYWORD",
+   null
+  ]
+ ],
+ "cmd_physics_describe": [
+  "function",
+  [
+   "argv",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ]
+ ],
+ "cmd_physics_list": [
+  "function",
+  [
+   "argv",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ]
+ ],
+ "cmd_physics_order": [
+  "function",
+  [
+   "argv",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ]
+ ],
+ "cmd_restart_time": [
+  "function",
+  [
+   "case_id",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "spinup_minutes",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ]
+ ],
+ "config_extras_rows": [
+  "function",
+  [
+   "configs_list",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "case_id",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ]
+ ],
+ "dedupe": [
+  "function",
+  [
+   "resolved",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ]
+ ],
+ "describe_decomp": [
+  "function",
+  [
+   "cfg",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ]
+ ],
+ "describe_field": [
+  "function",
+  [
+   "value",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ]
+ ],
+ "edit_namelist": [
+  "function",
+  [
+   "text",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "nproc_x",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "nproc_y",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "numtiles",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "run_minutes",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "max_dom",
+   "POSITIONAL_OR_KEYWORD",
+   1
+  ],
+  [
+   "overrides",
+   "POSITIONAL_OR_KEYWORD",
+   null
+  ],
+  [
+   "delete_keys",
+   "POSITIONAL_OR_KEYWORD",
+   null
+  ],
+  [
+   "nest_history_on",
+   "POSITIONAL_OR_KEYWORD",
+   false
+  ],
+  [
+   "history_mode",
+   "POSITIONAL_OR_KEYWORD",
+   "off"
+  ],
+  [
+   "adios2",
+   "POSITIONAL_OR_KEYWORD",
+   true
+  ],
+  [
+   "ranks",
+   "POSITIONAL_OR_KEYWORD",
+   null
+  ],
+  [
+   "history_minutes",
+   "POSITIONAL_OR_KEYWORD",
+   null
+  ],
+  [
+   "physics_template",
+   "POSITIONAL_OR_KEYWORD",
+   null
+  ],
+  [
+   "physics_case",
+   "POSITIONAL_OR_KEYWORD",
+   null
+  ],
+  [
+   "numtiles_x",
+   "POSITIONAL_OR_KEYWORD",
+   null
+  ],
+  [
+   "numtiles_y",
+   "POSITIONAL_OR_KEYWORD",
+   null
+  ],
+  [
+   "tile_sz_x",
+   "POSITIONAL_OR_KEYWORD",
+   null
+  ],
+  [
+   "tile_sz_y",
+   "POSITIONAL_OR_KEYWORD",
+   null
+  ],
+  [
+   "tile_strategy",
+   "POSITIONAL_OR_KEYWORD",
+   null
+  ],
+  [
+   "restart_from",
+   "POSITIONAL_OR_KEYWORD",
+   null
+  ],
+  [
+   "restart_io_form",
+   "POSITIONAL_OR_KEYWORD",
+   null
+  ],
+  [
+   "write_restart_interval",
+   "POSITIONAL_OR_KEYWORD",
+   null
+  ],
+  [
+   "run_seconds",
+   "POSITIONAL_OR_KEYWORD",
+   null
+  ]
+ ],
+ "factor_pairs": [
+  "function",
+  [
+   "n",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ]
+ ],
+ "fidelity_max_over_fields": [
+  "function",
+  [
+   "payload",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "key",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ]
+ ],
+ "fidelity_notes_tokens": [
+  "function",
+  [
+   "payload",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ]
+ ],
+ "format_namelist_stage": [
+  "function",
+  [
+   "result",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "search_dirs",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ]
+ ],
+ "format_physics_edits": [
+  "function",
+  [
+   "summary",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ]
+ ],
+ "fresh_probe_inputs": [
+  "function",
+  [
+   "case_id",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "dest_dir",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "copies",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "cases_json",
+   "POSITIONAL_OR_KEYWORD",
+   null
+  ],
+  [
+   "site",
+   "POSITIONAL_OR_KEYWORD",
+   "scc"
+  ],
+  [
+   "bp",
+   "POSITIONAL_OR_KEYWORD",
+   null
+  ]
+ ],
+ "legal_shapes": [
+  "function",
+  [
+   "e_we",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "e_sn",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "ranks",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "min_patch",
+   "POSITIONAL_OR_KEYWORD",
+   10
+  ]
+ ],
+ "load_cases": [
+  "function",
+  [
+   "path",
+   "POSITIONAL_OR_KEYWORD",
+   "<TMP>/api/cases.json"
+  ],
+  [
+   "site",
+   "POSITIONAL_OR_KEYWORD",
+   null
+  ]
+ ],
+ "load_generated_configs": [
+  "function",
+  [
+   "path",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ]
+ ],
+ "load_physics_templates": [
+  "function",
+  [
+   "path",
+   "POSITIONAL_OR_KEYWORD",
+   "<REPO>/campaign/physics_templates.json"
+  ]
+ ],
+ "main": [
+  "function",
+  [
+   "argv",
+   "POSITIONAL_OR_KEYWORD",
+   null
+  ]
+ ],
+ "merge_iofields": [
+  "function",
+  [
+   "text",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "run_dir",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ]
+ ],
+ "namelist_file_refs": [
+  "function",
+  [
+   "text",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ]
+ ],
+ "parse_probe_verdicts": [
+  "function",
+  [
+   "screen_text",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ]
+ ],
+ "patch_dims": [
+  "function",
+  [
+   "extent",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "nproc",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ]
+ ],
+ "per_record_has": [
+  "function",
+  [
+   "bp_dir",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "name",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "when",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ]
+ ],
+ "per_record_sources": [
+  "function",
+  [
+   "case_id",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "cases_json",
+   "POSITIONAL_OR_KEYWORD",
+   null
+  ],
+  [
+   "site",
+   "POSITIONAL_OR_KEYWORD",
+   "scc"
+  ],
+  [
+   "bp",
+   "POSITIONAL_OR_KEYWORD",
+   null
+  ]
+ ],
+ "per_record_streams": [
+  "function",
+  [
+   "names",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "start",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "text",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "bp_dir",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "aux_ok",
+   "POSITIONAL_OR_KEYWORD",
+   null
+  ]
+ ],
+ "physics_ledger_columns": [
+  "function",
+  [
+   "case",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "summary",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ]
+ ],
+ "physics_tag_template": [
+  "function",
+  [
+   "tag",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ]
+ ],
+ "physics_template_applicability": [
+  "function",
+  [
+   "case_id",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "template",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "frozen_keys",
+   "POSITIONAL_OR_KEYWORD",
+   null
+  ]
+ ],
+ "post_spinup_steps": [
+  "function",
+  [
+   "rsl_text",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "spin_seconds",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "dt",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ]
+ ],
+ "probe_verdicts_for_case": [
+  "function",
+  [
+   "case_id",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "keys",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "screen_dir",
+   "POSITIONAL_OR_KEYWORD",
+   "/home/u5727520/wrf-bench/wscore/physics"
+  ]
+ ],
+ "quota_free_gib": [
+  "function",
+  [
+   "mmlsquota_text",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "filesystem",
+   "POSITIONAL_OR_KEYWORD",
+   "home1"
+  ]
+ ],
+ "ranked_shapes": [
+  "function",
+  [
+   "e_we",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "e_sn",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "e_vert",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "ranks",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "omp",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "nodes",
+   "POSITIONAL_OR_KEYWORD",
+   4
+  ]
+ ],
+ "resolve_bp_inputs": [
+  "function",
+  [
+   "text",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "src_dir",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "cache_dir",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "convert",
+   "POSITIONAL_OR_KEYWORD",
+   true
+  ],
+  [
+   "bp",
+   "POSITIONAL_OR_KEYWORD",
+   null
+  ],
+  [
+   "log",
+   "POSITIONAL_OR_KEYWORD",
+   null
+  ]
+ ],
+ "resolve_case": [
+  "function",
+  [
+   "case",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ]
+ ],
+ "resolve_config": [
+  "function",
+  [
+   "case",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "template",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ]
+ ],
+ "resolve_decomp_pair": [
+  "function",
+  [
+   "case_id",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "decomp_id",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "twin_id",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "config_file",
+   "POSITIONAL_OR_KEYWORD",
+   null
+  ],
+  [
+   "cases",
+   "POSITIONAL_OR_KEYWORD",
+   null
+  ]
+ ],
+ "resolve_physics_config": [
+  "function",
+  [
+   "case_id",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "template_id",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "cases",
+   "POSITIONAL_OR_KEYWORD",
+   null
+  ],
+  [
+   "templates",
+   "POSITIONAL_OR_KEYWORD",
+   null
+  ]
+ ],
+ "resolve_point_plan": [
+  "function",
+  [
+   "order",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "point_fused",
+   "POSITIONAL_OR_KEYWORD",
+   false
+  ],
+  [
+   "anchor_end",
+   "POSITIONAL_OR_KEYWORD",
+   null
+  ],
+  [
+   "window_frame",
+   "POSITIONAL_OR_KEYWORD",
+   false
+  ]
+ ],
+ "stage_namelist_files": [
+  "function",
+  [
+   "text",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "run_dir",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "search_dirs",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ]
+ ],
+ "step_stats": [
+  "function",
+  [
+   "values",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ]
+ ],
+ "template_frozen_key_conflicts": [
+  "function",
+  [
+   "template",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "frozen_keys",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "case_id",
+   "POSITIONAL_OR_KEYWORD",
+   null
+  ]
+ ],
+ "window_frame_level": [
+  "function",
+  [
+   "value",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ]
+ ],
+ "wrf_patch_legal": [
+  "function",
+  [
+   "extent",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "nproc",
+   "POSITIONAL_OR_KEYWORD",
+   "<required>"
+  ],
+  [
+   "min_patch",
+   "POSITIONAL_OR_KEYWORD",
+   10
+  ]
+ ]
+}

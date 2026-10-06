@@ -1,0 +1,7 @@
+&time_control
+ run_hours=0, run_minutes=8, history_interval=8,
+ io_form_history=2, io_form_restart=2, io_form_input=2, io_form_boundary=2,
+/
+&domains
+ time_step=15, e_we=901, e_sn=901, e_vert=45,
+/

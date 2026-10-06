@@ -1,0 +1,10 @@
+&time_control
+ history_interval = 60, 60,
+/
+&domains
+ time_step=15, max_dom=2,
+/
+&physics
+ mp_physics = 8, 8,
+ hailcast_opt = 1, 1,
+/

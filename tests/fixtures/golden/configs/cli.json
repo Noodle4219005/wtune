@@ -1,0 +1,2128 @@
+{
+ "usage": {
+  "argv": [],
+  "env": {},
+  "rc": 2,
+  "stdout": "",
+  "stderr": "usage: configs.py CASE_ID | --all | order CASE_ID [--reps N] | decomp-pair CASE_ID DECOMP TWIN_DECOMP [--config-file FILE.json] | edit-namelist IN OUT --nproc-x X --nproc-y Y --numtiles N --run-minutes M [--max-dom N] [--history-mode off|interval|end_d01] [--history-minutes N] [--set KEY=VALUE ...] [--delete-key KEY ...] [--nest-history-on] [--ranks N] [--no-adios2] [--numtiles-x N] [--numtiles-y N] [--tile-sz-x N] [--tile-sz-y N] [--tile-strategy N] [--physics-template Pxx] | step-stats STEPS_FILE | physics-list CASE_ID [--json] | physics-order CASE_ID [--pconfigs P01+P02+...] [--reps N] | physics-describe CASE_ID TEMPLATE_ID | fidelity-tokens FIDELITY_JSON | quota-free-gib [--filesystem home1] (reads mmlsquota text on stdin) | link-namelist-files NAMELIST RUN_DIR SEARCH_DIR... | stage-bp-inputs CASE_ID NAMELIST SRC_DIR [--cache-dir DIR] [--check]\nCONFIG_FILE=path.json env (predictor/decomp_space.py to_campaign_configs/sample output): CASE_ID and order CASE_ID measure that generated config set instead of the fixed C01-C16 STRICT templates, and decomp-pair resolves DECOMP/TWIN_DECOMP from it -- which is how MODE=physics reaches a case that resolves no STRICT template at all (sc26p1).\n"
+ },
+ "all": {
+  "argv": [
+   "--all"
+  ],
+  "env": {},
+  "rc": 0,
+  "stdout": "case\tn_configs\tn_skipped\treps\truns\test_wall_h\tnode_hours\tcost\nkarina\t16\t0\t2\t32\t0.841\t3.364\t75.34\nconus25\t16\t0\t2\t32\t1.371\t5.483\t122.81\nconus12\t16\t0\t2\t32\t0.423\t1.691\t37.88\nisc21\t16\t0\t2\t32\t5.511\t22.044\t493.80\nmaria1km\t16\t0\t2\t32\t3.902\t15.609\t349.64\nlafe\t16\t0\t2\t32\t2.356\t9.422\t211.06\nTOTAL\truns=192\test_wall_h=14.403\tnode_hours=57.613\tcost=1290.53  (GUESS: s_per_step/init_io are task-spec estimates, not measurements)\n",
+  "stderr": "sc26p1: no cost guess for grid (150, 150, 50)\nsc26p2: no cost guess for grid (170, 130, 40)\nsc26p2narr: no cost guess for grid (170, 130, 40)\nsevere2023: no cost guess for grid (100, 100, 45)\nmatthew: no cost guess for grid (91, 100, 45)\nc34: no cost guess for grid (118, 118, 45)\nzhengzhou: no cost guess for grid (601, 372, 60)\nelevconv: no cost guess for grid (561, 450, 85)\nmarshall: no cost guess for grid (505, 505, 45)\nbigchill: no cost guess for grid (561, 450, 86)\n"
+ },
+ "case-karina": {
+  "argv": [
+   "karina"
+  ],
+  "env": {},
+  "rc": 0,
+  "stdout": "config_id\tranks\tomp\tnproc_x\tnproc_y\tnumtiles\tdist\tblocktime\tpatch_x\tpatch_y\nC01\t448\t1\t8\t56\t1\tcyclic\t0\t113\t17\nC02\t448\t1\t8\t56\t8\tcyclic\t0\t113\t17\nC03\t448\t1\t7\t64\t8\tcyclic\t0\t129\t15\nC04\t448\t1\t8\t56\t8\tblock\t0\t113\t17\nC05\t224\t2\t7\t32\t13\tcyclic\t0\t129\t29\nC06\t224\t2\t7\t32\t12\tcyclic\t0\t129\t29\nC07\t224\t2\t7\t32\t14\tcyclic\t0\t129\t29\nC08\t224\t2\t7\t32\t2\tcyclic\t0\t129\t29\nC09\t224\t2\t4\t56\t12\tcyclic\t0\t226\t17\nC10\t224\t2\t8\t28\t12\tcyclic\t0\t113\t33\nC11\t224\t2\t7\t32\t12\tblock\t0\t129\t29\nC12\t224\t2\t7\t32\t12\tcyclic\tdefault\t129\t29\nC13\t112\t4\t8\t14\t16\tcyclic\t0\t113\t65\nC14\t112\t4\t8\t14\t12\tcyclic\t0\t113\t65\nC15\t112\t4\t14\t8\t16\tcyclic\t0\t65\t113\nC16\t112\t4\t8\t14\t13\tcyclic\t0\t113\t65\n",
+  "stderr": ""
+ },
+ "case-conus12": {
+  "argv": [
+   "conus12"
+  ],
+  "env": {},
+  "rc": 0,
+  "stdout": "config_id\tranks\tomp\tnproc_x\tnproc_y\tnumtiles\tdist\tblocktime\tpatch_x\tpatch_y\nC01\t448\t1\t16\t28\t1\tcyclic\t0\t27\t11\nC02\t448\t1\t16\t28\t8\tcyclic\t0\t27\t11\nC03\t448\t1\t28\t16\t8\tcyclic\t0\t16\t19\nC04\t448\t1\t16\t28\t8\tblock\t0\t27\t11\nC05\t224\t2\t8\t28\t13\tcyclic\t0\t54\t11\nC06\t224\t2\t8\t28\t12\tcyclic\t0\t54\t11\nC07\t224\t2\t8\t28\t14\tcyclic\t0\t54\t11\nC08\t224\t2\t8\t28\t2\tcyclic\t0\t54\t11\nC09\t224\t2\t14\t16\t12\tcyclic\t0\t31\t19\nC10\t224\t2\t16\t14\t12\tcyclic\t0\t27\t22\nC11\t224\t2\t8\t28\t12\tblock\t0\t54\t11\nC12\t224\t2\t8\t28\t12\tcyclic\tdefault\t54\t11\nC13\t112\t4\t14\t8\t16\tcyclic\t0\t31\t38\nC14\t112\t4\t14\t8\t12\tcyclic\t0\t31\t38\nC15\t112\t4\t16\t7\t16\tcyclic\t0\t27\t43\nC16\t112\t4\t14\t8\t13\tcyclic\t0\t31\t38\n",
+  "stderr": ""
+ },
+ "case-isc21": {
+  "argv": [
+   "isc21"
+  ],
+  "env": {},
+  "rc": 0,
+  "stdout": "config_id\tranks\tomp\tnproc_x\tnproc_y\tnumtiles\tdist\tblocktime\tpatch_x\tpatch_y\nC01\t448\t1\t7\t64\t1\tcyclic\t0\t114\t14\nC02\t448\t1\t7\t64\t8\tcyclic\t0\t114\t14\nC03\t448\t1\t8\t56\t8\tcyclic\t0\t100\t16\nC04\t448\t1\t7\t64\t8\tblock\t0\t114\t14\nC05\t224\t2\t7\t32\t13\tcyclic\t0\t114\t27\nC06\t224\t2\t7\t32\t12\tcyclic\t0\t114\t27\nC07\t224\t2\t7\t32\t14\tcyclic\t0\t114\t27\nC08\t224\t2\t7\t32\t2\tcyclic\t0\t114\t27\nC09\t224\t2\t4\t56\t12\tcyclic\t0\t199\t16\nC10\t224\t2\t8\t28\t12\tcyclic\t0\t100\t31\nC11\t224\t2\t7\t32\t12\tblock\t0\t114\t27\nC12\t224\t2\t7\t32\t12\tcyclic\tdefault\t114\t27\nC13\t112\t4\t8\t14\t16\tcyclic\t0\t100\t61\nC14\t112\t4\t8\t14\t12\tcyclic\t0\t100\t61\nC15\t112\t4\t14\t8\t16\tcyclic\t0\t57\t107\nC16\t112\t4\t8\t14\t13\tcyclic\t0\t100\t61\n",
+  "stderr": ""
+ },
+ "case-sc26p1": {
+  "argv": [
+   "sc26p1"
+  ],
+  "env": {},
+  "rc": 0,
+  "stdout": "config_id\tranks\tomp\tnproc_x\tnproc_y\tnumtiles\tdist\tblocktime\tpatch_x\tpatch_y\n",
+  "stderr": "SKIP C01: no legal 'best' shape (index 0) at ranks=448: only 0 legal shape(s) found via fallback (max_dom=2)\nSKIP C02: no legal 'best' shape (index 0) at ranks=448: only 0 legal shape(s) found via fallback (max_dom=2)\nSKIP C03: no legal 'alt1' shape (index 1) at ranks=448: only 0 legal shape(s) found via fallback (max_dom=2)\nSKIP C04: no legal 'best' shape (index 0) at ranks=448: only 0 legal shape(s) found via fallback (max_dom=2)\nSKIP C05: no legal 'best' shape (index 0) at ranks=224: only 0 legal shape(s) found via fallback (max_dom=2)\nSKIP C06: no legal 'best' shape (index 0) at ranks=224: only 0 legal shape(s) found via fallback (max_dom=2)\nSKIP C07: no legal 'best' shape (index 0) at ranks=224: only 0 legal shape(s) found via fallback (max_dom=2)\nSKIP C08: no legal 'best' shape (index 0) at ranks=224: only 0 legal shape(s) found via fallback (max_dom=2)\nSKIP C09: no legal 'alt1' shape (index 1) at ranks=224: only 0 legal shape(s) found via fallback (max_dom=2)\nSKIP C10: no legal 'alt2' shape (index 2) at ranks=224: only 0 legal shape(s) found via fallback (max_dom=2)\nSKIP C11: no legal 'best' shape (index 0) at ranks=224: only 0 legal shape(s) found via fallback (max_dom=2)\nSKIP C12: no legal 'best' shape (index 0) at ranks=224: only 0 legal shape(s) found via fallback (max_dom=2)\nSKIP C13: no legal 'best' shape (index 0) at ranks=112: only 0 legal shape(s) found via fallback (max_dom=2)\nSKIP C14: no legal 'best' shape (index 0) at ranks=112: only 0 legal shape(s) found via fallback (max_dom=2)\nSKIP C15: no legal 'alt1' shape (index 1) at ranks=112: only 0 legal shape(s) found via fallback (max_dom=2)\nSKIP C16: no legal 'best' shape (index 0) at ranks=112: only 0 legal shape(s) found via fallback (max_dom=2)\n"
+ },
+ "case-c34": {
+  "argv": [
+   "c34"
+  ],
+  "env": {},
+  "rc": 0,
+  "stdout": "config_id\tranks\tomp\tnproc_x\tnproc_y\tnumtiles\tdist\tblocktime\tpatch_x\tpatch_y\n",
+  "stderr": "SKIP C01: no legal 'best' shape (index 0) at ranks=448: only 0 legal shape(s) found via fallback (max_dom=2)\nSKIP C02: no legal 'best' shape (index 0) at ranks=448: only 0 legal shape(s) found via fallback (max_dom=2)\nSKIP C03: no legal 'alt1' shape (index 1) at ranks=448: only 0 legal shape(s) found via fallback (max_dom=2)\nSKIP C04: no legal 'best' shape (index 0) at ranks=448: only 0 legal shape(s) found via fallback (max_dom=2)\nSKIP C05: omp(2) exceeds case max_omp=1\nSKIP C06: omp(2) exceeds case max_omp=1\nSKIP C07: omp(2) exceeds case max_omp=1\nSKIP C08: omp(2) exceeds case max_omp=1\nSKIP C09: omp(2) exceeds case max_omp=1\nSKIP C10: omp(2) exceeds case max_omp=1\nSKIP C11: omp(2) exceeds case max_omp=1\nSKIP C12: omp(2) exceeds case max_omp=1\nSKIP C13: omp(4) exceeds case max_omp=1\nSKIP C14: omp(4) exceeds case max_omp=1\nSKIP C15: omp(4) exceeds case max_omp=1\nSKIP C16: omp(4) exceeds case max_omp=1\n"
+ },
+ "case-unknown": {
+  "argv": [
+   "nosuchcase"
+  ],
+  "env": {},
+  "rc": 2,
+  "stdout": "",
+  "stderr": "unknown case 'nosuchcase'\n"
+ },
+ "case-scc-288": {
+  "argv": [
+   "conus12"
+  ],
+  "env": {
+   "SITE": "scc",
+   "WTUNE_TOTAL_CORES": "288"
+  },
+  "rc": 0,
+  "stdout": "config_id\tranks\tomp\tnproc_x\tnproc_y\tnumtiles\tdist\tblocktime\tpatch_x\tpatch_y\n",
+  "stderr": "SKIP C01: ranks(448)*omp(1) != 288\nSKIP C02: ranks(448)*omp(1) != 288\nSKIP C03: ranks(448)*omp(1) != 288\nSKIP C04: ranks(448)*omp(1) != 288\nSKIP C05: ranks(224)*omp(2) != 288\nSKIP C06: ranks(224)*omp(2) != 288\nSKIP C07: ranks(224)*omp(2) != 288\nSKIP C08: ranks(224)*omp(2) != 288\nSKIP C09: ranks(224)*omp(2) != 288\nSKIP C10: ranks(224)*omp(2) != 288\nSKIP C11: ranks(224)*omp(2) != 288\nSKIP C12: ranks(224)*omp(2) != 288\nSKIP C13: ranks(112)*omp(4) != 288\nSKIP C14: ranks(112)*omp(4) != 288\nSKIP C15: ranks(112)*omp(4) != 288\nSKIP C16: ranks(112)*omp(4) != 288\n"
+ },
+ "case-72-cores": {
+  "argv": [
+   "karina"
+  ],
+  "env": {
+   "WTUNE_TOTAL_CORES": "72"
+  },
+  "rc": 0,
+  "stdout": "config_id\tranks\tomp\tnproc_x\tnproc_y\tnumtiles\tdist\tblocktime\tpatch_x\tpatch_y\n",
+  "stderr": "SKIP C01: ranks(448)*omp(1) != 72\nSKIP C02: ranks(448)*omp(1) != 72\nSKIP C03: ranks(448)*omp(1) != 72\nSKIP C04: ranks(448)*omp(1) != 72\nSKIP C05: ranks(224)*omp(2) != 72\nSKIP C06: ranks(224)*omp(2) != 72\nSKIP C07: ranks(224)*omp(2) != 72\nSKIP C08: ranks(224)*omp(2) != 72\nSKIP C09: ranks(224)*omp(2) != 72\nSKIP C10: ranks(224)*omp(2) != 72\nSKIP C11: ranks(224)*omp(2) != 72\nSKIP C12: ranks(224)*omp(2) != 72\nSKIP C13: ranks(112)*omp(4) != 72\nSKIP C14: ranks(112)*omp(4) != 72\nSKIP C15: ranks(112)*omp(4) != 72\nSKIP C16: ranks(112)*omp(4) != 72\n"
+ },
+ "case-disabled": {
+  "argv": [
+   "off"
+  ],
+  "env": {
+   "CASES_JSON": "<TMP>/in/cases.json"
+  },
+  "rc": 1,
+  "stdout": "",
+  "stderr": "case off is disabled: fixture: switched off\n"
+ },
+ "case-disabled-noreason": {
+  "argv": [
+   "noreason"
+  ],
+  "env": {
+   "CASES_JSON": "<TMP>/in/cases.json"
+  },
+  "rc": 1,
+  "stdout": "",
+  "stderr": "case noreason is disabled: (no reason recorded)\n"
+ },
+ "order": {
+  "argv": [
+   "order",
+   "karina"
+  ],
+  "env": {},
+  "rc": 0,
+  "stdout": "C01\nC02\nC03\nC04\nC05\nC06\nC07\nC08\nC09\nC10\nC11\nC12\nC13\nC14\nC15\nC16\nC16\nC15\nC14\nC13\nC12\nC11\nC10\nC09\nC08\nC07\nC06\nC05\nC04\nC03\nC02\nC01\n",
+  "stderr": ""
+ },
+ "order-reps3": {
+  "argv": [
+   "order",
+   "karina",
+   "--reps",
+   "3"
+  ],
+  "env": {},
+  "rc": 0,
+  "stdout": "C01\nC02\nC03\nC04\nC05\nC06\nC07\nC08\nC09\nC10\nC11\nC12\nC13\nC14\nC15\nC16\nC16\nC15\nC14\nC13\nC12\nC11\nC10\nC09\nC08\nC07\nC06\nC05\nC04\nC03\nC02\nC01\nC01\nC02\nC03\nC04\nC05\nC06\nC07\nC08\nC09\nC10\nC11\nC12\nC13\nC14\nC15\nC16\n",
+  "stderr": ""
+ },
+ "order-reps0": {
+  "argv": [
+   "order",
+   "karina",
+   "--reps",
+   "0"
+  ],
+  "env": {},
+  "rc": 0,
+  "stdout": "",
+  "stderr": ""
+ },
+ "order-unknown": {
+  "argv": [
+   "order",
+   "nosuchcase"
+  ],
+  "env": {},
+  "rc": 2,
+  "stdout": "",
+  "stderr": "case nosuchcase unknown or disabled\n"
+ },
+ "order-disabled": {
+  "argv": [
+   "order",
+   "off"
+  ],
+  "env": {
+   "CASES_JSON": "<TMP>/in/cases.json"
+  },
+  "rc": 2,
+  "stdout": "",
+  "stderr": "case off unknown or disabled\n"
+ },
+ "order-noargs": {
+  "argv": [
+   "order"
+  ],
+  "env": {},
+  "rc": 2,
+  "stdout": "",
+  "stderr": "usage: configs.py order [-h] [--reps REPS] case_id\nconfigs.py order: error: the following arguments are required: case_id\n"
+ },
+ "order-help": {
+  "argv": [
+   "order",
+   "--help"
+  ],
+  "env": {},
+  "rc": 0,
+  "stdout": "usage: configs.py order [-h] [--reps REPS] case_id\n\npositional arguments:\n  case_id\n\noptions:\n  -h, --help   show this help message and exit\n  --reps REPS\n",
+  "stderr": ""
+ },
+ "decomp-pair": {
+  "argv": [
+   "decomp-pair",
+   "karina",
+   "C02",
+   "C06"
+  ],
+  "env": {},
+  "rc": 0,
+  "stdout": "role\tconfig_id\tranks\tomp\tnproc_x\tnproc_y\tnumtiles\tdist\tblocktime\tnumtiles_x\tnumtiles_y\ttile_sz_x\ttile_sz_y\ttile_strategy\tconfig_source\nreference\tC02\t448\t1\t8\t56\t8\tcyclic\t0\t0\t0\t0\t0\t0\tstrict_template\ntwin\tC06\t224\t2\t7\t32\t12\tcyclic\t0\t0\t0\t0\t0\t0\tstrict_template\n",
+  "stderr": ""
+ },
+ "decomp-pair-same": {
+  "argv": [
+   "decomp-pair",
+   "karina",
+   "C02",
+   "C02"
+  ],
+  "env": {},
+  "rc": 2,
+  "stdout": "",
+  "stderr": "DECOMP-PAIR ERROR: TWIN_DECOMP=C02 is the SAME decomposition as DECOMP=C02 (ranks=448 omp=1 nproc_x=8 nproc_y=56 numtiles=8 dist=cyclic blocktime=0). The twin is not a replicate: it is the same physics on a DIFFERENT decomposition, and the reference-vs-twin spread is the chaos floor fidelity_gate.py measures every candidate against. An identical twin reports a floor of ~0 and would relabel every real candidate LARGE-DRIFT, so pick a twin differing in at least one of: ranks, omp, nx, ny, numtiles, dist, blocktime, numtiles_x, numtiles_y, tile_sz_x, tile_sz_y, tile_strategy\n"
+ },
+ "decomp-pair-underscore": {
+  "argv": [
+   "decomp-pair",
+   "karina",
+   "C02",
+   "C_6"
+  ],
+  "env": {},
+  "rc": 2,
+  "stdout": "",
+  "stderr": "DECOMP-PAIR ERROR: TWIN_DECOMP='C_6' contains an underscore or whitespace. A config id is embedded verbatim in the ledger run_id (case_cid_rN_job, parsed by predictor/decomp_search.py parse_run_id) and in the space-separated key=value notes field, so neither character can appear in it\n"
+ },
+ "decomp-pair-empty": {
+  "argv": [
+   "decomp-pair",
+   "karina",
+   "C02",
+   ""
+  ],
+  "env": {},
+  "rc": 2,
+  "stdout": "",
+  "stderr": "DECOMP-PAIR ERROR: TWIN_DECOMP is empty: name one of C01, C02, C03, C04, C05, C06, C07, C08, C09, C10, C11, C12, C13, C14, C15, C16\n"
+ },
+ "decomp-pair-unknown-id": {
+  "argv": [
+   "decomp-pair",
+   "karina",
+   "C02",
+   "C99"
+  ],
+  "env": {},
+  "rc": 2,
+  "stdout": "",
+  "stderr": "DECOMP-PAIR ERROR: TWIN_DECOMP='C99' is not a resolved config for case karina from the STRICT templates C01-C16 -- available ids: C01, C02, C03, C04, C05, C06, C07, C08, C09, C10, C11, C12, C13, C14, C15, C16\n"
+ },
+ "decomp-pair-zero-strict": {
+  "argv": [
+   "decomp-pair",
+   "sc26p1",
+   "C02",
+   "C06"
+  ],
+  "env": {},
+  "rc": 2,
+  "stdout": "",
+  "stderr": "DECOMP-PAIR ERROR: case sc26p1 resolves ZERO of the 16 STRICT templates C01-C16 (first reason: no legal 'best' shape (index 0) at ranks=448: only 0 legal shape(s) found via fallback (max_dom=2)), so no template id can name a decomposition for it. Generate a decomposition set instead -- predictor/decomp_space.py sample sc26p1 --n N --seed S --total-cores C --nodes N --out FILE.json -- and run with CONFIG_FILE=FILE.json plus DECOMP/TWIN_DECOMP ids taken from that file\n"
+ },
+ "decomp-pair-unknown-case": {
+  "argv": [
+   "decomp-pair",
+   "nosuchcase",
+   "C02",
+   "C06"
+  ],
+  "env": {},
+  "rc": 2,
+  "stdout": "",
+  "stderr": "DECOMP-PAIR ERROR: unknown case 'nosuchcase'\n"
+ },
+ "decomp-pair-config-file": {
+  "argv": [
+   "decomp-pair",
+   "karina",
+   "G0001",
+   "G0002",
+   "--config-file",
+   "<TMP>/in/gen_list.json"
+  ],
+  "env": {},
+  "rc": 0,
+  "stdout": "role\tconfig_id\tranks\tomp\tnproc_x\tnproc_y\tnumtiles\tdist\tblocktime\tnumtiles_x\tnumtiles_y\ttile_sz_x\ttile_sz_y\ttile_strategy\tconfig_source\nreference\tG0001\t48\t6\t6\t8\t1\tcyclic\t0\t0\t0\t0\t0\t0\tstrict_template\ntwin\tG0002\t72\t4\t8\t9\t12\tblock\tdefault\t0\t0\t0\t0\t0\tseed\n",
+  "stderr": ""
+ },
+ "decomp-pair-config-env": {
+  "argv": [
+   "decomp-pair",
+   "karina",
+   "G0002",
+   "G0001"
+  ],
+  "env": {
+   "CONFIG_FILE": "<TMP>/in/gen_dict.json"
+  },
+  "rc": 0,
+  "stdout": "role\tconfig_id\tranks\tomp\tnproc_x\tnproc_y\tnumtiles\tdist\tblocktime\tnumtiles_x\tnumtiles_y\ttile_sz_x\ttile_sz_y\ttile_strategy\tconfig_source\nreference\tG0002\t72\t4\t8\t9\t12\tblock\tdefault\t0\t0\t0\t0\t0\tseed\ntwin\tG0001\t96\t3\t8\t12\t4\tcyclic\t0\t2\t2\t0\t0\t3\tstrict_template\n",
+  "stderr": ""
+ },
+ "decomp-pair-config-no-ids": {
+  "argv": [
+   "decomp-pair",
+   "karina",
+   "G0001",
+   "G0002"
+  ],
+  "env": {
+   "CONFIG_FILE": "<TMP>/in/gen_empty.json"
+  },
+  "rc": 2,
+  "stdout": "",
+  "stderr": "DECOMP-PAIR ERROR: CONFIG_FILE <TMP>/in/gen_empty.json carries no configs with an 'id' field (expected predictor/decomp_space.py sample|seed output: a bare JSON list or {\"configs\": [...]})\n"
+ },
+ "decomp-pair-help": {
+  "argv": [
+   "decomp-pair",
+   "--help"
+  ],
+  "env": {},
+  "rc": 0,
+  "stdout": "usage: configs.py decomp-pair [-h] [--config-file CONFIG_FILE]\n                              case_id decomp twin_decomp\n\npositional arguments:\n  case_id\n  decomp\n  twin_decomp\n\noptions:\n  -h, --help            show this help message and exit\n  --config-file CONFIG_FILE\n                        generated config set (predictor/decomp_space.py\n                        sample|seed output); default: the CONFIG_FILE env var,\n                        and unset means the STRICT templates\n",
+  "stderr": ""
+ },
+ "generated-case": {
+  "argv": [
+   "karina"
+  ],
+  "env": {
+   "CONFIG_FILE": "<TMP>/in/gen_list.json"
+  },
+  "rc": 0,
+  "stdout": "config_id\tranks\tomp\tnproc_x\tnproc_y\tnumtiles\tdist\tblocktime\tpatch_x\tpatch_y\tnumtiles_x\tnumtiles_y\ttile_sz_x\ttile_sz_y\ttile_strategy\tconfig_source\nG0001\t96\t3\t8\t12\t4\tcyclic\t0\t113\t76\t2\t2\t0\t0\t3\tgenerated\nG0002\t72\t4\t8\t9\t12\tblock\tdefault\t\t\t0\t0\t0\t0\t0\tseed\nG0001\t48\t6\t6\t8\t1\tcyclic\t0\t\t\t0\t0\t0\t0\t0\tgenerated\n\t1\t1\t\t\t\t\t\t\t\t0\t0\t0\t0\t0\tgenerated\n",
+  "stderr": ""
+ },
+ "generated-case-dict": {
+  "argv": [
+   "karina"
+  ],
+  "env": {
+   "CONFIG_FILE": "<TMP>/in/gen_dict.json"
+  },
+  "rc": 0,
+  "stdout": "config_id\tranks\tomp\tnproc_x\tnproc_y\tnumtiles\tdist\tblocktime\tpatch_x\tpatch_y\tnumtiles_x\tnumtiles_y\ttile_sz_x\ttile_sz_y\ttile_strategy\tconfig_source\nG0001\t96\t3\t8\t12\t4\tcyclic\t0\t113\t76\t2\t2\t0\t0\t3\tgenerated\nG0002\t72\t4\t8\t9\t12\tblock\tdefault\t\t\t0\t0\t0\t0\t0\tseed\n",
+  "stderr": ""
+ },
+ "generated-case-unknown": {
+  "argv": [
+   "nosuchcase"
+  ],
+  "env": {
+   "CONFIG_FILE": "<TMP>/in/gen_list.json"
+  },
+  "rc": 2,
+  "stdout": "",
+  "stderr": "unknown case 'nosuchcase'\n"
+ },
+ "generated-order": {
+  "argv": [
+   "order",
+   "karina",
+   "--reps",
+   "2"
+  ],
+  "env": {
+   "CONFIG_FILE": "<TMP>/in/gen_dict.json"
+  },
+  "rc": 0,
+  "stdout": "G0001\nG0002\nG0002\nG0001\n",
+  "stderr": ""
+ },
+ "config-extras": {
+  "argv": [
+   "config-extras",
+   "karina"
+  ],
+  "env": {
+   "CONFIG_FILE": "<TMP>/in/gen_list.json"
+  },
+  "rc": 0,
+  "stdout": "G0001\t/pts/karina/namelist.P02\t2\nG0002\t\t1\nG0001\t\t0\n\t\t0\n",
+  "stderr": ""
+ },
+ "config-extras-other-case": {
+  "argv": [
+   "config-extras",
+   "lafe"
+  ],
+  "env": {
+   "CONFIG_FILE": "<TMP>/in/gen_dict.json"
+  },
+  "rc": 0,
+  "stdout": "G0001\t\t2\nG0002\t\t1\n",
+  "stderr": ""
+ },
+ "config-extras-no-env": {
+  "argv": [
+   "config-extras",
+   "karina"
+  ],
+  "env": {},
+  "rc": 2,
+  "stdout": "",
+  "stderr": "usage: CONFIG_FILE=path.json configs.py config-extras CASE_ID\n"
+ },
+ "config-extras-argc": {
+  "argv": [
+   "config-extras"
+  ],
+  "env": {
+   "CONFIG_FILE": "<TMP>/in/gen_list.json"
+  },
+  "rc": 2,
+  "stdout": "",
+  "stderr": "usage: CONFIG_FILE=path.json configs.py config-extras CASE_ID\n"
+ },
+ "physics-list-karina": {
+  "argv": [
+   "physics-list",
+   "karina"
+  ],
+  "env": {
+   "CASES_JSON": "<TMP>/in/cases.json"
+  },
+  "rc": 0,
+  "stdout": "A01 (dynamics) APPLICABLE: time_step: 72 -> 58\nA02 (dynamics) APPLICABLE: time_step_sound:  -> 6\nA03 (dynamics) APPLICABLE: moist_adv_opt:  -> 2; scalar_adv_opt:  -> 2\nA04 (dynamics) APPLICABLE: h_mom_adv_order:  -> 6; h_sca_adv_order:  -> 6\nA05 (radiation) APPLICABLE: radt: 12 -> 6.0\nD01 (dynamics) APPLICABLE: time_step_sound:  -> 3\nD02 (dynamics) APPLICABLE: rk_ord:  -> 2\nD03 (dynamics) APPLICABLE: moist_adv_opt:  -> 0; scalar_adv_opt:  -> 0\nD04 (diagnostics) SKIP: not in applies_to ['bigchill', 'elevconv']\nD05 (pbl_surface) APPLICABLE: bldt:  -> 10\nD06 (nesting) SKIP: not in applies_to ['zhengzhou', 'severe2023', 'bigchill', 'elevconv', 'maria1km', 'isc21']\nD07 (dynamics) SKIP: not in applies_to ['sc26p1']\nP00 (none) APPLICABLE: (no edits -- reference template)\nP01 (radiation) APPLICABLE: swint_opt:  -> 1\nP02 (radiation) APPLICABLE: radt: 12 -> 24; swint_opt:  -> 1\nP03 (dynamics) APPLICABLE: time_step: 72 -> 86\nP04 (microphysics) APPLICABLE: mp_physics: 8 -> 6\nP05 (pbl_surface) APPLICABLE: bl_pbl_physics: 1 -> 5; sf_sfclay_physics: 1 -> 5\nP06 (radiation) APPLICABLE: ra_lw_physics: 4 -> 1; ra_sw_physics: 4 -> 1\n",
+  "stderr": ""
+ },
+ "physics-list-maria1km": {
+  "argv": [
+   "physics-list",
+   "maria1km"
+  ],
+  "env": {
+   "CASES_JSON": "<TMP>/in/cases.json"
+  },
+  "rc": 0,
+  "stdout": "A01 (dynamics) APPLICABLE: time_step: 72 -> 58\nA02 (dynamics) APPLICABLE: time_step_sound:  -> 6,6\nA03 (dynamics) APPLICABLE: moist_adv_opt: 1,1 -> 2,2; scalar_adv_opt: 1,1 -> 2,2\nA04 (dynamics) APPLICABLE: h_mom_adv_order:  -> 6,6; h_sca_adv_order:  -> 6,6\nA05 (radiation) APPLICABLE: radt: 12,12 -> 6.0,6.0\nD01 (dynamics) APPLICABLE: time_step_sound:  -> 3,3\nD02 (dynamics) APPLICABLE: rk_ord:  -> 2\nD03 (dynamics) APPLICABLE: moist_adv_opt: 1,1 -> 0,0; scalar_adv_opt: 1,1 -> 0,0\nD04 (diagnostics) SKIP: not in applies_to ['bigchill', 'elevconv']\nD05 (pbl_surface) APPLICABLE: bldt: 0,0 -> 10,10\nD06 (nesting) APPLICABLE: feedback: 1 -> 0\nD07 (dynamics) SKIP: not in applies_to ['sc26p1']\nP00 (none) APPLICABLE: (no edits -- reference template)\nP01 (radiation) APPLICABLE: swint_opt:  -> 1\nP02 (radiation) APPLICABLE: radt: 12,12 -> 24,24; swint_opt:  -> 1\nP03 (dynamics) APPLICABLE: time_step: 72 -> 86\nP04 (microphysics) SKIP: physics_suite='tropical' already resolves mp_physics to WSM6 (share/module_check_a_mundo.F:3184-3196), so mp_physics=6 is a no-op, not a physics change\nP05 (pbl_surface) APPLICABLE: bl_pbl_physics: 1,1 -> 5,5; sf_sfclay_physics: 1,1 -> 5,5\nP06 (radiation) APPLICABLE: ra_lw_physics: 4,4 -> 1,1; ra_sw_physics: 4,4 -> 1,1\n",
+  "stderr": ""
+ },
+ "physics-list-isc21": {
+  "argv": [
+   "physics-list",
+   "isc21"
+  ],
+  "env": {
+   "CASES_JSON": "<TMP>/in/cases.json"
+  },
+  "rc": 0,
+  "stdout": "A01 (dynamics) APPLICABLE: time_step: 54 -> 43\nA02 (dynamics) APPLICABLE: time_step_sound:  -> 6,6,6\nA03 (dynamics) SKIP: isc21's own namelist already sets moist_adv_opt=2,2,2 and scalar_adv_opt=2,2,2, so monotonic transport is a no-op there, not an accuracy change\nA04 (dynamics) SKIP: isc21 natively runs moist_adv_opt=2,2,2 / scalar_adv_opt=2,2,2 (monotonic), and advect_scalar_mono implements h_sca_adv_order 5 only (dyn_em/module_advect_em.F:9643) -- h_sca_adv_order=6 would abort at module_advect_em.F:10016-10017 mid-integration, with no namelist-time check to catch it\nA05 (radiation) SKIP: physics template: key 'radt' not found for op 'mul'\nD01 (dynamics) APPLICABLE: time_step_sound:  -> 3,3,3\nD02 (dynamics) APPLICABLE: rk_ord:  -> 2\nD03 (dynamics) APPLICABLE: moist_adv_opt:  -> 0,0,0; scalar_adv_opt:  -> 0,0,0\nD04 (diagnostics) SKIP: not in applies_to ['bigchill', 'elevconv']\nD05 (pbl_surface) APPLICABLE: bldt:  -> 10,10,10\nD06 (nesting) APPLICABLE: feedback:  -> 0\nD07 (dynamics) SKIP: not in applies_to ['sc26p1']\nP00 (none) APPLICABLE: (no edits -- reference template)\nP01 (radiation) APPLICABLE: swint_opt:  -> 1\nP02 (radiation) SKIP: physics template: key 'radt' not found for op 'mul'\nP03 (dynamics) APPLICABLE: time_step: 54 -> 65\nP04 (microphysics) APPLICABLE: mp_physics: -1,-1 -> 6,6\nP05 (pbl_surface) APPLICABLE: bl_pbl_physics:  -> 1; sf_sfclay_physics:  -> 1\nP06 (radiation) APPLICABLE: ra_lw_physics: -1,-1 -> 1,1; ra_sw_physics:  -> 1\n",
+  "stderr": ""
+ },
+ "physics-list-sc26p1": {
+  "argv": [
+   "physics-list",
+   "sc26p1"
+  ],
+  "env": {
+   "CASES_JSON": "<TMP>/in/cases.json"
+  },
+  "rc": 0,
+  "stdout": "A01 (dynamics) SKIP: edits task-mandated frozen key(s) time_step for case sc26p1: the task FIXES their value, so changing one is a rules violation, not a tuning trade-off\nA02 (dynamics) APPLICABLE: time_step_sound:  -> 6,6\nA03 (dynamics) APPLICABLE: moist_adv_opt: 1,1 -> 2,2; scalar_adv_opt: 1,1 -> 2,2\nA04 (dynamics) APPLICABLE: h_mom_adv_order:  -> 6,6; h_sca_adv_order:  -> 6,6\nA05 (radiation) APPLICABLE: radt: 12,12 -> 6.0,6.0\nD01 (dynamics) APPLICABLE: time_step_sound:  -> 3,3\nD02 (dynamics) APPLICABLE: rk_ord:  -> 2\nD03 (dynamics) APPLICABLE: moist_adv_opt: 1,1 -> 0,0; scalar_adv_opt: 1,1 -> 0,0\nD04 (diagnostics) SKIP: not in applies_to ['bigchill', 'elevconv']\nD05 (pbl_surface) APPLICABLE: bldt: 0,0 -> 10,10\nD06 (nesting) SKIP: not in applies_to ['zhengzhou', 'severe2023', 'bigchill', 'elevconv', 'maria1km', 'isc21']\nD07 (dynamics) APPLICABLE: time_step_sound:  -> 2,2\nP00 (none) APPLICABLE: (no edits -- reference template)\nP01 (radiation) APPLICABLE: swint_opt:  -> 1\nP02 (radiation) APPLICABLE: radt: 12,12 -> 24,24; swint_opt:  -> 1\nP03 (dynamics) SKIP: edits task-mandated frozen key(s) time_step for case sc26p1: the task FIXES their value, so changing one is a rules violation, not a tuning trade-off\nP04 (microphysics) APPLICABLE: mp_physics: 8,8 -> 6,6\nP05 (pbl_surface) APPLICABLE: (no edits -- reference template)\nP06 (radiation) APPLICABLE: ra_lw_physics: 4,4 -> 1,1; ra_sw_physics: 4,4 -> 1,1\n",
+  "stderr": ""
+ },
+ "physics-list-gone": {
+  "argv": [
+   "physics-list",
+   "gone"
+  ],
+  "env": {
+   "CASES_JSON": "<TMP>/in/cases.json"
+  },
+  "rc": 0,
+  "stdout": "A01 (dynamics) SKIP: cannot read namelist template <FIX>/namelists/does_not_exist.nml: [Errno 2] No such file or directory: '<FIX>/namelists/does_not_exist.nml'\nA02 (dynamics) SKIP: cannot read namelist template <FIX>/namelists/does_not_exist.nml: [Errno 2] No such file or directory: '<FIX>/namelists/does_not_exist.nml'\nA03 (dynamics) SKIP: cannot read namelist template <FIX>/namelists/does_not_exist.nml: [Errno 2] No such file or directory: '<FIX>/namelists/does_not_exist.nml'\nA04 (dynamics) SKIP: cannot read namelist template <FIX>/namelists/does_not_exist.nml: [Errno 2] No such file or directory: '<FIX>/namelists/does_not_exist.nml'\nA05 (radiation) SKIP: cannot read namelist template <FIX>/namelists/does_not_exist.nml: [Errno 2] No such file or directory: '<FIX>/namelists/does_not_exist.nml'\nD01 (dynamics) SKIP: cannot read namelist template <FIX>/namelists/does_not_exist.nml: [Errno 2] No such file or directory: '<FIX>/namelists/does_not_exist.nml'\nD02 (dynamics) SKIP: cannot read namelist template <FIX>/namelists/does_not_exist.nml: [Errno 2] No such file or directory: '<FIX>/namelists/does_not_exist.nml'\nD03 (dynamics) SKIP: cannot read namelist template <FIX>/namelists/does_not_exist.nml: [Errno 2] No such file or directory: '<FIX>/namelists/does_not_exist.nml'\nD04 (diagnostics) SKIP: not in applies_to ['bigchill', 'elevconv']\nD05 (pbl_surface) SKIP: cannot read namelist template <FIX>/namelists/does_not_exist.nml: [Errno 2] No such file or directory: '<FIX>/namelists/does_not_exist.nml'\nD06 (nesting) SKIP: not in applies_to ['zhengzhou', 'severe2023', 'bigchill', 'elevconv', 'maria1km', 'isc21']\nD07 (dynamics) SKIP: not in applies_to ['sc26p1']\nP00 (none) SKIP: cannot read namelist template <FIX>/namelists/does_not_exist.nml: [Errno 2] No such file or directory: '<FIX>/namelists/does_not_exist.nml'\nP01 (radiation) SKIP: cannot read namelist template <FIX>/namelists/does_not_exist.nml: [Errno 2] No such file or directory: '<FIX>/namelists/does_not_exist.nml'\nP02 (radiation) SKIP: cannot read namelist template <FIX>/namelists/does_not_exist.nml: [Errno 2] No such file or directory: '<FIX>/namelists/does_not_exist.nml'\nP03 (dynamics) SKIP: cannot read namelist template <FIX>/namelists/does_not_exist.nml: [Errno 2] No such file or directory: '<FIX>/namelists/does_not_exist.nml'\nP04 (microphysics) SKIP: cannot read namelist template <FIX>/namelists/does_not_exist.nml: [Errno 2] No such file or directory: '<FIX>/namelists/does_not_exist.nml'\nP05 (pbl_surface) SKIP: cannot read namelist template <FIX>/namelists/does_not_exist.nml: [Errno 2] No such file or directory: '<FIX>/namelists/does_not_exist.nml'\nP06 (radiation) SKIP: cannot read namelist template <FIX>/namelists/does_not_exist.nml: [Errno 2] No such file or directory: '<FIX>/namelists/does_not_exist.nml'\n",
+  "stderr": ""
+ },
+ "physics-list-json": {
+  "argv": [
+   "physics-list",
+   "karina",
+   "--json"
+  ],
+  "env": {
+   "CASES_JSON": "<TMP>/in/cases.json"
+  },
+  "rc": 0,
+  "stdout": "[\"A01\", \"A02\", \"A03\", \"A04\", \"A05\", \"D01\", \"D02\", \"D03\", \"D05\", \"P01\", \"P02\", \"P03\", \"P04\", \"P05\", \"P06\"]\n",
+  "stderr": ""
+ },
+ "physics-list-unknown": {
+  "argv": [
+   "physics-list",
+   "nosuchcase"
+  ],
+  "env": {
+   "CASES_JSON": "<TMP>/in/cases.json"
+  },
+  "rc": 2,
+  "stdout": "",
+  "stderr": "unknown case 'nosuchcase'\n"
+ },
+ "physics-list-help": {
+  "argv": [
+   "physics-list",
+   "--help"
+  ],
+  "env": {},
+  "rc": 0,
+  "stdout": "usage: configs.py physics-list [-h] [--json] case_id\n\npositional arguments:\n  case_id\n\noptions:\n  -h, --help  show this help message and exit\n  --json      print applicable non-P00 template ids as a JSON list\n              (PHYSICS_TEMPLATE_ORDER order) instead of the human-readable\n              per-template report\n",
+  "stderr": ""
+ },
+ "physics-order": {
+  "argv": [
+   "physics-order",
+   "karina"
+  ],
+  "env": {
+   "CASES_JSON": "<TMP>/in/cases.json"
+  },
+  "rc": 0,
+  "stdout": "P00_ref\nP00_twin\nA01\nA02\nA03\nA04\nA05\nD01\nD02\nD03\nD05\nP01\nP02\nP03\nP04\nP05\nP06\nP06\nP05\nP04\nP03\nP02\nP01\nD05\nD03\nD02\nD01\nA05\nA04\nA03\nA02\nA01\nP00_twin\nP00_ref\n",
+  "stderr": ""
+ },
+ "physics-order-pconfigs": {
+  "argv": [
+   "physics-order",
+   "lafe",
+   "--pconfigs",
+   "P02+P03++A01",
+   "--reps",
+   "3"
+  ],
+  "env": {
+   "CASES_JSON": "<TMP>/in/cases.json"
+  },
+  "rc": 0,
+  "stdout": "P00_ref\nP00_twin\nP02\nP03\nA01\nA01\nP03\nP02\nP00_twin\nP00_ref\nP00_ref\nP00_twin\nP02\nP03\nA01\n",
+  "stderr": ""
+ },
+ "physics-order-unknown": {
+  "argv": [
+   "physics-order",
+   "nosuchcase"
+  ],
+  "env": {
+   "CASES_JSON": "<TMP>/in/cases.json"
+  },
+  "rc": 2,
+  "stdout": "",
+  "stderr": "unknown case 'nosuchcase'\n"
+ },
+ "physics-order-help": {
+  "argv": [
+   "physics-order",
+   "--help"
+  ],
+  "env": {},
+  "rc": 0,
+  "stdout": "usage: configs.py physics-order [-h] [--pconfigs PCONFIGS] [--reps REPS]\n                                case_id\n\npositional arguments:\n  case_id\n\noptions:\n  -h, --help           show this help message and exit\n  --pconfigs PCONFIGS  '+'-separated physics template ids (default: every\n                       template applicable to this case, in\n                       PHYSICS_TEMPLATE_ORDER, excluding P00)\n  --reps REPS\n",
+  "stderr": ""
+ },
+ "physics-describe-karina-P00": {
+  "argv": [
+   "physics-describe",
+   "karina",
+   "P00"
+  ],
+  "env": {
+   "CASES_JSON": "<TMP>/in/cases.json"
+  },
+  "rc": 0,
+  "stdout": "none\t-\tprobe=none\t72\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
+  "stderr": ""
+ },
+ "physics-describe-karina-P02": {
+  "argv": [
+   "physics-describe",
+   "karina",
+   "P02"
+  ],
+  "env": {
+   "CASES_JSON": "<TMP>/in/cases.json"
+  },
+  "rc": 0,
+  "stdout": "radiation\tradt=24;swint_opt=1\tprobe=none\t72\t8\t1\t1\t1\t2\t4\t4\t24\t-\n",
+  "stderr": ""
+ },
+ "physics-describe-karina-P05": {
+  "argv": [
+   "physics-describe",
+   "karina",
+   "P05"
+  ],
+  "env": {
+   "CASES_JSON": "<TMP>/in/cases.json"
+  },
+  "rc": 0,
+  "stdout": "pbl_surface\tbl_pbl_physics=5;sf_sfclay_physics=5\tprobe=none\t72\t8\t1\t5\t5\t2\t4\t4\t12\t-\n",
+  "stderr": ""
+ },
+ "physics-describe-lafe-P04": {
+  "argv": [
+   "physics-describe",
+   "lafe",
+   "P04"
+  ],
+  "env": {
+   "CASES_JSON": "<TMP>/in/cases.json"
+  },
+  "rc": 0,
+  "stdout": "microphysics\tmp_physics=6;aer_opt=0;use_aero_icbc=.false.\tprobe=none\t72\t6\t1\t1\t1\t2\t4\t4\t12\t-\n",
+  "stderr": ""
+ },
+ "physics-describe-maria1km-P04": {
+  "argv": [
+   "physics-describe",
+   "maria1km",
+   "P04"
+  ],
+  "env": {
+   "CASES_JSON": "<TMP>/in/cases.json"
+  },
+  "rc": 0,
+  "stdout": "SKIP\tphysics_suite='tropical' already resolves mp_physics to WSM6 (share/module_check_a_mundo.F:3184-3196), so mp_physics=6 is a no-op, not a physics change\n",
+  "stderr": ""
+ },
+ "physics-describe-isc21-P02": {
+  "argv": [
+   "physics-describe",
+   "isc21",
+   "P02"
+  ],
+  "env": {
+   "CASES_JSON": "<TMP>/in/cases.json"
+  },
+  "rc": 0,
+  "stdout": "SKIP\tphysics template: key 'radt' not found for op 'mul'\n",
+  "stderr": ""
+ },
+ "physics-describe-sc26p1-A01": {
+  "argv": [
+   "physics-describe",
+   "sc26p1",
+   "A01"
+  ],
+  "env": {
+   "CASES_JSON": "<TMP>/in/cases.json"
+  },
+  "rc": 0,
+  "stdout": "SKIP\tedits task-mandated frozen key(s) time_step for case sc26p1: the task FIXES their value, so changing one is a rules violation, not a tuning trade-off\n",
+  "stderr": ""
+ },
+ "physics-describe-sc26p1-D07": {
+  "argv": [
+   "physics-describe",
+   "sc26p1",
+   "D07"
+  ],
+  "env": {
+   "CASES_JSON": "<TMP>/in/cases.json"
+  },
+  "rc": 0,
+  "stdout": "dynamics\ttime_step_sound=2/2\tprobe=none\t72\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
+  "stderr": ""
+ },
+ "physics-describe-bigchill-D04": {
+  "argv": [
+   "physics-describe",
+   "bigchill",
+   "D04"
+  ],
+  "env": {
+   "CASES_JSON": "<TMP>/in/cases.json"
+  },
+  "rc": 0,
+  "stdout": "diagnostics\tnwp_diagnostics=0;hailcast_opt=0/0;do_radar_ref=0\tprobe=none\t72\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
+  "stderr": ""
+ },
+ "physics-describe-conus12-A05": {
+  "argv": [
+   "physics-describe",
+   "conus12",
+   "A05"
+  ],
+  "env": {
+   "CASES_JSON": "<TMP>/in/cases.json"
+  },
+  "rc": 0,
+  "stdout": "SKIP\tphysics template: key 'radt' not found for op 'mul'\n",
+  "stderr": ""
+ },
+ "physics-describe-gone-P01": {
+  "argv": [
+   "physics-describe",
+   "gone",
+   "P01"
+  ],
+  "env": {
+   "CASES_JSON": "<TMP>/in/cases.json"
+  },
+  "rc": 0,
+  "stdout": "SKIP\tcannot read namelist template <FIX>/namelists/does_not_exist.nml: [Errno 2] No such file or directory: '<FIX>/namelists/does_not_exist.nml'\n",
+  "stderr": ""
+ },
+ "physics-describe-screen": {
+  "argv": [
+   "physics-describe",
+   "karina",
+   "P02",
+   "--screen-dir",
+   "<FIX>/screen"
+  ],
+  "env": {
+   "CASES_JSON": "<TMP>/in/cases.json"
+  },
+  "rc": 0,
+  "stdout": "radiation\tradt=24;swint_opt=1\tprobe=radt:PASS->WRF,swint_opt:CONFIRM\t72\t8\t1\t1\t1\t2\t4\t4\t24\t-\n",
+  "stderr": ""
+ },
+ "physics-describe-unknown-case": {
+  "argv": [
+   "physics-describe",
+   "nosuchcase",
+   "P02"
+  ],
+  "env": {
+   "CASES_JSON": "<TMP>/in/cases.json"
+  },
+  "rc": 2,
+  "stdout": "",
+  "stderr": "unknown case 'nosuchcase'\n"
+ },
+ "physics-describe-unknown-template": {
+  "argv": [
+   "physics-describe",
+   "karina",
+   "P99"
+  ],
+  "env": {
+   "CASES_JSON": "<TMP>/in/cases.json"
+  },
+  "rc": 2,
+  "stdout": "",
+  "stderr": "unknown physics template 'P99'\n"
+ },
+ "physics-describe-help": {
+  "argv": [
+   "physics-describe",
+   "--help"
+  ],
+  "env": {},
+  "rc": 0,
+  "stdout": "usage: configs.py physics-describe [-h] [--screen-dir SCREEN_DIR]\n                                   case_id template_id\n\npositional arguments:\n  case_id\n  template_id\n\noptions:\n  -h, --help            show this help message and exit\n  --screen-dir SCREEN_DIR\n",
+  "stderr": ""
+ },
+ "restart-time": {
+  "argv": [
+   "restart-time",
+   "maria1km",
+   "30"
+  ],
+  "env": {
+   "CASES_JSON": "<TMP>/in/cases.json"
+  },
+  "rc": 0,
+  "stdout": "2005-08-27_00:30:00\n",
+  "stderr": ""
+ },
+ "restart-time-fraction": {
+  "argv": [
+   "restart-time",
+   "lafe",
+   "7.5"
+  ],
+  "env": {
+   "CASES_JSON": "<TMP>/in/cases.json"
+  },
+  "rc": 0,
+  "stdout": "2020-01-01_00:07:30\n",
+  "stderr": ""
+ },
+ "restart-time-prep-dir": {
+  "argv": [
+   "restart-time",
+   "conus12",
+   "90"
+  ],
+  "env": {
+   "CASES_JSON": "<TMP>/in/cases.json"
+  },
+  "rc": 0,
+  "stdout": "2020-01-01_01:30:00\n",
+  "stderr": ""
+ },
+ "restart-time-unknown": {
+  "argv": [
+   "restart-time",
+   "nosuchcase",
+   "30"
+  ],
+  "env": {
+   "CASES_JSON": "<TMP>/in/cases.json"
+  },
+  "rc": 2,
+  "stdout": "",
+  "stderr": "unknown case 'nosuchcase'\n"
+ },
+ "restart-time-argc": {
+  "argv": [
+   "restart-time",
+   "maria1km"
+  ],
+  "env": {
+   "CASES_JSON": "<TMP>/in/cases.json"
+  },
+  "rc": 2,
+  "stdout": "",
+  "stderr": "usage: configs.py restart-time CASE_ID SPINUP_MINUTES\n"
+ },
+ "restart-time-no-namelist": {
+  "argv": [
+   "restart-time",
+   "gone",
+   "30"
+  ],
+  "env": {
+   "CASES_JSON": "<TMP>/in/cases.json"
+  },
+  "rc": 1,
+  "stdout": "",
+  "stderr": "Traceback (most recent call last):\n  ...\nFileNotFoundError: [Errno 2] No such file or directory: '<FIX>/namelists/does_not_exist.nml'\n"
+ },
+ "step-stats": {
+  "argv": [
+   "step-stats",
+   "<TMP>/in/steps.txt"
+  ],
+  "env": {},
+  "rc": 0,
+  "stdout": "med=1.75000 mean=3.25000 n=6 excl=2 nall=7\n",
+  "stderr": ""
+ },
+ "step-stats-one": {
+  "argv": [
+   "step-stats",
+   "<TMP>/in/one_step.txt"
+  ],
+  "env": {},
+  "rc": 0,
+  "stdout": "med= mean= n=0 excl=1 nall=0\n",
+  "stderr": ""
+ },
+ "step-stats-missing": {
+  "argv": [
+   "step-stats",
+   "<TMP>/cli/step-stats-missing/nothing.txt"
+  ],
+  "env": {},
+  "rc": 0,
+  "stdout": "med= mean= n=0 excl=0 nall=0\n",
+  "stderr": ""
+ },
+ "step-stats-help": {
+  "argv": [
+   "step-stats",
+   "--help"
+  ],
+  "env": {},
+  "rc": 0,
+  "stdout": "usage: configs.py step-stats [-h] steps_file\n\npositional arguments:\n  steps_file\n\noptions:\n  -h, --help  show this help message and exit\n",
+  "stderr": ""
+ },
+ "fused-steps": {
+  "argv": [
+   "fused-steps",
+   "<TMP>/in/rsl.out.0000",
+   "--spin-seconds",
+   "180",
+   "--dt",
+   "60"
+  ],
+  "env": {},
+  "rc": 0,
+  "stdout": "10.75\n2.0\n1.5\n1.75\n2.0\n",
+  "stderr": ""
+ },
+ "fused-steps-all-spinup": {
+  "argv": [
+   "fused-steps",
+   "<TMP>/in/rsl.out.0000",
+   "--spin-seconds",
+   "3600",
+   "--dt",
+   "60"
+  ],
+  "env": {},
+  "rc": 0,
+  "stdout": "",
+  "stderr": ""
+ },
+ "fused-steps-missing": {
+  "argv": [
+   "fused-steps",
+   "<TMP>/cli/fused-steps-missing/nothing",
+   "--spin-seconds",
+   "1",
+   "--dt",
+   "1"
+  ],
+  "env": {},
+  "rc": 0,
+  "stdout": "",
+  "stderr": ""
+ },
+ "fused-steps-help": {
+  "argv": [
+   "fused-steps",
+   "--help"
+  ],
+  "env": {},
+  "rc": 0,
+  "stdout": "usage: configs.py fused-steps [-h] --spin-seconds SPIN_SECONDS --dt DT\n                              rsl_file\n\npositional arguments:\n  rsl_file\n\noptions:\n  -h, --help            show this help message and exit\n  --spin-seconds SPIN_SECONDS\n  --dt DT\n",
+  "stderr": ""
+ },
+ "point-plan": {
+  "argv": [
+   "point-plan",
+   "ANCHOR",
+   "G1",
+   "G2",
+   "ANCHOREND"
+  ],
+  "env": {},
+  "rc": 0,
+  "stdout": "POINT_ORDER=('ANCHOR' 'G1' 'G2' 'ANCHOREND')\nPOINT_FUSED_ON=0\nPOINT_ANCHOR_END=1\nPOINT_NOTE=''\n",
+  "stderr": ""
+ },
+ "point-plan-fused": {
+  "argv": [
+   "point-plan",
+   "--fused",
+   "1",
+   "ANCHOR",
+   "G1",
+   "ANCHOREND"
+  ],
+  "env": {},
+  "rc": 0,
+  "stdout": "POINT_ORDER=('G1')\nPOINT_FUSED_ON=1\nPOINT_ANCHOR_END=0\nPOINT_NOTE=''\n",
+  "stderr": ""
+ },
+ "point-plan-fused-anchor-end": {
+  "argv": [
+   "point-plan",
+   "--fused",
+   "1",
+   "--anchor-end",
+   "1",
+   "ANCHOR",
+   "G1"
+  ],
+  "env": {},
+  "rc": 0,
+  "stdout": "POINT_ORDER=('G1')\nPOINT_FUSED_ON=1\nPOINT_ANCHOR_END=0\nPOINT_NOTE='ANCHOR_END=1 ignored in fused mode (no restart to bracket)'\n",
+  "stderr": ""
+ },
+ "point-plan-fused-many": {
+  "argv": [
+   "point-plan",
+   "--fused",
+   "1",
+   "ANCHOR",
+   "G1",
+   "G2"
+  ],
+  "env": {},
+  "rc": 0,
+  "stdout": "POINT_ORDER=('ANCHOR' 'G1' 'G2')\nPOINT_FUSED_ON=0\nPOINT_ANCHOR_END=1\nPOINT_NOTE='POINT_FUSED ignored: 2 runs after dropping anchors (need exactly 1)'\n",
+  "stderr": ""
+ },
+ "point-plan-fused-frame": {
+  "argv": [
+   "point-plan",
+   "--fused",
+   "1",
+   "--window-frame",
+   "1",
+   "G'1"
+  ],
+  "env": {},
+  "rc": 0,
+  "stdout": "POINT_ORDER=('G'1')\nPOINT_FUSED_ON=0\nPOINT_ANCHOR_END=1\nPOINT_NOTE='POINT_FUSED ignored: window_frame requested'\n",
+  "stderr": ""
+ },
+ "point-plan-no-anchor-end": {
+  "argv": [
+   "point-plan",
+   "--anchor-end",
+   "0",
+   "ANCHOR",
+   "G1",
+   "ANCHOREND"
+  ],
+  "env": {},
+  "rc": 0,
+  "stdout": "POINT_ORDER=('ANCHOR' 'G1')\nPOINT_FUSED_ON=0\nPOINT_ANCHOR_END=0\nPOINT_NOTE=''\n",
+  "stderr": ""
+ },
+ "point-plan-empty": {
+  "argv": [
+   "point-plan"
+  ],
+  "env": {},
+  "rc": 0,
+  "stdout": "POINT_ORDER=()\nPOINT_FUSED_ON=0\nPOINT_ANCHOR_END=1\nPOINT_NOTE=''\n",
+  "stderr": ""
+ },
+ "point-plan-help": {
+  "argv": [
+   "point-plan",
+   "--help"
+  ],
+  "env": {},
+  "rc": 0,
+  "stdout": "usage: configs.py point-plan [-h] [--fused FUSED] [--anchor-end ANCHOR_END]\n                             [--window-frame WINDOW_FRAME]\n                             [ids ...]\n\npositional arguments:\n  ids\n\noptions:\n  -h, --help            show this help message and exit\n  --fused FUSED\n  --anchor-end ANCHOR_END\n  --window-frame WINDOW_FRAME\n",
+  "stderr": ""
+ },
+ "quota-free-gib": {
+  "argv": [
+   "quota-free-gib"
+  ],
+  "env": {},
+  "rc": 0,
+  "stdout": "100.000\n",
+  "stderr": ""
+ },
+ "quota-free-gib-work2": {
+  "argv": [
+   "quota-free-gib",
+   "--filesystem",
+   "work2"
+  ],
+  "env": {},
+  "rc": 1,
+  "stdout": "NA\n",
+  "stderr": ""
+ },
+ "quota-free-gib-garbage": {
+  "argv": [
+   "quota-free-gib"
+  ],
+  "env": {},
+  "rc": 1,
+  "stdout": "NA\n",
+  "stderr": ""
+ },
+ "quota-free-gib-help": {
+  "argv": [
+   "quota-free-gib",
+   "--help"
+  ],
+  "env": {},
+  "rc": 0,
+  "stdout": "usage: configs.py quota-free-gib [-h] [--filesystem FILESYSTEM]\n\noptions:\n  -h, --help            show this help message and exit\n  --filesystem FILESYSTEM\n",
+  "stderr": ""
+ },
+ "fidelity-tokens": {
+  "argv": [
+   "fidelity-tokens",
+   "<TMP>/in/fidelity.json"
+  ],
+  "env": {},
+  "rc": 0,
+  "stdout": "SMALL DRIFT 1.125 3.5 T2_at_6_h\n",
+  "stderr": ""
+ },
+ "fidelity-tokens-empty": {
+  "argv": [
+   "fidelity-tokens",
+   "<TMP>/in/fidelity_empty.json"
+  ],
+  "env": {},
+  "rc": 0,
+  "stdout": "NA NA NA NA\n",
+  "stderr": ""
+ },
+ "fidelity-tokens-bad-json": {
+  "argv": [
+   "fidelity-tokens",
+   "<TMP>/in/fidelity_bad.json"
+  ],
+  "env": {},
+  "rc": 2,
+  "stdout": "",
+  "stderr": "cannot read fidelity JSON <TMP>/in/fidelity_bad.json: Expecting property name enclosed in double quotes: line 1 column 2 (char 1)\n"
+ },
+ "fidelity-tokens-missing": {
+  "argv": [
+   "fidelity-tokens",
+   "<TMP>/cli/fidelity-tokens-missing/nothing.json"
+  ],
+  "env": {},
+  "rc": 2,
+  "stdout": "",
+  "stderr": "cannot read fidelity JSON <TMP>/cli/fidelity-tokens-missing/nothing.json: [Errno 2] No such file or directory: '<TMP>/cli/fidelity-tokens-missing/nothing.json'\n"
+ },
+ "fidelity-tokens-help": {
+  "argv": [
+   "fidelity-tokens",
+   "--help"
+  ],
+  "env": {},
+  "rc": 0,
+  "stdout": "usage: configs.py fidelity-tokens [-h] fidelity_json\n\npositional arguments:\n  fidelity_json\n\noptions:\n  -h, --help     show this help message and exit\n",
+  "stderr": ""
+ },
+ "edit-timing": {
+  "argv": [
+   "edit-namelist",
+   "<FIX>/namelists/repo__m1.nml",
+   "<TMP>/cli/edit-timing/namelist.input",
+   "--nproc-x",
+   "7",
+   "--nproc-y",
+   "32",
+   "--numtiles",
+   "12",
+   "--run-minutes",
+   "8",
+   "--ranks",
+   "224",
+   "--max-dom",
+   "2"
+  ],
+  "env": {},
+  "rc": 0,
+  "stdout": "",
+  "stderr": "",
+  "files": {
+   "<TMP>/cli/edit-timing": {
+    "namelist.input": "&time_control\n input_inname=\"wrfinput_d<domain>.bp\", bdy_inname=\"wrfbdy_d<domain>.bp\",\n history_interval = 0, 0,\n run_days=0, run_hours=0, run_minutes=8, run_seconds=0,\n start_year=2005, 2005, start_month=08, 08, start_day=27, 27, start_hour=00, 00,\n end_year=2005, 2005, end_month=08, 08, end_day=29, 29, end_hour=00, 00,\n interval_seconds=21600,\n input_from_file=.true., .true.,\n restart=.false., restart_interval=1000000,\n io_form_history=14, io_form_restart=14, io_form_input=14, io_form_boundary=14,\n debug_level=0,\n/\n&domains\n nproc_x=7, nproc_y=32, numtiles=12,\n time_step=72, time_step_fract_num=0, time_step_fract_den=1,\n max_dom=2,\n e_we=170, 244, e_sn=130, 175, e_vert=55, 55,\n dx=12000, 4000, dy=12000, 4000,\n grid_id=1, 2, parent_id=0, 1,\n i_parent_start=1, 69, j_parent_start=1, 45,\n parent_grid_ratio=1, 3, parent_time_step_ratio=1, 3,\n feedback=1, smooth_option=0,\n num_metgrid_levels=33, num_metgrid_soil_levels=4, p_top_requested=5000,\n/\n&physics\n mp_physics=8, 8,\n ra_lw_physics=4, 4, ra_sw_physics=4, 4, radt=12, 12,\n sf_sfclay_physics=1, 1, sf_surface_physics=2, 2,\n bl_pbl_physics=1, 1, bldt=0, 0,\n cu_physics=1, 0, cudt=0, 0, kfeta_trigger=3, cu_rad_feedback=.true., .false.,\n isftcflx=2, sf_ocean_physics=0, oml_hml0=50, oml_gamma=0.14,\n num_soil_layers=4, num_land_cat=21,\n/\n&dynamics\n hybrid_opt=2, w_damping=1,\n diff_opt=1, 1, km_opt=4, 4, diff_6th_opt=0, 0, diff_6th_factor=0.12, 0.12,\n damp_opt=3, zdamp=5000.0, 5000.0, dampcoef=0.2, 0.2,\n khdif=0, 0, kvdif=0, 0, non_hydrostatic=.true., .true.,\n moist_adv_opt=1, 1, scalar_adv_opt=1, 1, gwd_opt=0,\n/\n&bdy_control\n spec_bdy_width=5, spec_zone=1, relax_zone=4,\n specified=.true., .false., nested=.false., .true.,\n/\n&namelist_adios2\n adios2_numaggregators=224,\n adios2_compression_enable=.true.,\n adios2_blosc_compressor=\"zstd\",\n/\n&namelist_quilt\n nio_tasks_per_group=0,\n nio_groups=1,\n/\n"
+   }
+  }
+ },
+ "edit-sbatch-full": {
+  "argv": [
+   "edit-namelist",
+   "<FIX>/namelists/syn__sst_fdda_packed.nml",
+   "<TMP>/cli/edit-sbatch-full/namelist.input",
+   "--nproc-x",
+   "7",
+   "--nproc-y",
+   "32",
+   "--numtiles",
+   "12",
+   "--run-minutes",
+   "8",
+   "--ranks",
+   "72",
+   "--max-dom",
+   "2",
+   "--history-mode",
+   "end_d01",
+   "--set",
+   "max_dom=2",
+   "--set",
+   "restart=.false.",
+   "--delete-key",
+   "opt_run",
+   "--delete-key",
+   "BL_MYNN_TKEBUDGET",
+   "--numtiles-x",
+   "2",
+   "--numtiles-y",
+   "6",
+   "--tile-sz-x",
+   "0",
+   "--tile-sz-y",
+   "0",
+   "--tile-strategy",
+   "3"
+  ],
+  "env": {},
+  "rc": 0,
+  "stdout": "",
+  "stderr": "",
+  "files": {
+   "<TMP>/cli/edit-sbatch-full": {
+    "namelist.input": "&time_control\n input_inname=\"wrfinput_d<domain>.bp\", bdy_inname=\"wrfbdy_d<domain>.bp\",\n history_begin_s = 480, 0,\n history_interval_s = 480, 60000000,\n run_days=0, run_hours=0, run_minutes=8, run_seconds=0,\n start_year=2020, 2020, start_month=01, 01, start_day=01, 01, start_hour=00, 00,\n start_minute=00, 00, start_second=00, 00,\n end_year=2020, 2020, end_month=01, 01, end_day=01, 01, end_hour=06, 06,\n interval_seconds=21600,\n input_from_file=.true., .true.,\n restart=.false., restart_interval=1000000, override_restart_timers=.false.,\n io_form_history=14, io_form_restart=14, io_form_input=14, io_form_boundary=14,\n auxinput4_inname=\"wrflowinp_d<domain>\", auxinput4_interval=360, 360, io_form_auxinput4=2,\n auxinput5_inname='wrfchemi_d<domain>_<date>', io_form_auxinput5=2,\n iofields_filename=\"iofields_d01.txt\", \"iofields_d02.txt\", ignore_iofields_warning=.true.,\n ! io_form_input=11,\n nwp_diagnostics=1,\n/\n&domains\n nproc_x=7, nproc_y=32, numtiles=12, numtiles_x=2, numtiles_y=6, tile_sz_x=0, tile_sz_y=0, tile_strategy=3,\n time_step=60, max_dom=2, nproc_x=4, nproc_y=18, numtiles=2,\n e_we=170, 244, e_sn=130, 175, e_vert=55, 55,\n dx=12000, 4000, dy=12000, 4000,\n parent_time_step_ratio=1, 3,\n/\n&physics\n mp_physics=8, 8, ra_lw_physics=4, 4, ra_sw_physics=4, 4, radt=12, 12,\n sf_sfclay_physics=1, 1, sf_surface_physics=2, 2, bl_pbl_physics=1, 1, bldt=0, 0,\n cu_physics=1, 0, cudt=0, 0, sst_update=1, hailcast_opt=0, 1,\n/\n&fdda\n grid_fdda=1, 0, gfdda_inname=\"wrffdda_d<domain>\", gfdda_interval_m=360, 360, io_form_gfdda=2,\n grid_sfdda=0, 1,\n/\n&dynamics\n hybrid_opt=2, w_damping=1, time_step_sound=4, 4, moist_adv_opt=1, 1, scalar_adv_opt=1, 1,\n/\n&bdy_control\n spec_bdy_width=5, specified=.true., .false., nested=.false., .true.,\n/\n&namelist_adios2\n adios2_numaggregators=72,\n adios2_compression_enable=.true.,\n adios2_blosc_compressor=\"zstd\",\n/\n&namelist_quilt\n nio_tasks_per_group=0,\n nio_groups=1,\n/\n"
+   }
+  }
+ },
+ "edit-interval-physics": {
+  "argv": [
+   "edit-namelist",
+   "<FIX>/namelists/repo__m1.nml",
+   "<TMP>/cli/edit-interval-physics/namelist.input",
+   "--nproc-x",
+   "7",
+   "--nproc-y",
+   "32",
+   "--numtiles",
+   "12",
+   "--run-minutes",
+   "8",
+   "--ranks",
+   "224",
+   "--max-dom",
+   "2",
+   "--history-mode",
+   "interval",
+   "--history-minutes",
+   "30",
+   "--physics-template",
+   "P05",
+   "--physics-case",
+   "karina",
+   "--nest-history-on"
+  ],
+  "env": {},
+  "rc": 0,
+  "stdout": "",
+  "stderr": "",
+  "files": {
+   "<TMP>/cli/edit-interval-physics": {
+    "namelist.input": "&time_control\n input_inname=\"wrfinput_d<domain>.bp\", bdy_inname=\"wrfbdy_d<domain>.bp\",\n history_begin = 0, 0,\n history_interval = 30, 30,\n run_days=0, run_hours=0, run_minutes=8, run_seconds=0,\n start_year=2005, 2005, start_month=08, 08, start_day=27, 27, start_hour=00, 00,\n end_year=2005, 2005, end_month=08, 08, end_day=29, 29, end_hour=00, 00,\n interval_seconds=21600,\n input_from_file=.true., .true.,\n restart=.false., restart_interval=1000000,\n io_form_history=14, io_form_restart=14, io_form_input=14, io_form_boundary=14,\n debug_level=0,\n/\n&domains\n nproc_x=7, nproc_y=32, numtiles=12,\n time_step=72, time_step_fract_num=0, time_step_fract_den=1,\n max_dom=2,\n e_we=170, 244, e_sn=130, 175, e_vert=55, 55,\n dx=12000, 4000, dy=12000, 4000,\n grid_id=1, 2, parent_id=0, 1,\n i_parent_start=1, 69, j_parent_start=1, 45,\n parent_grid_ratio=1, 3, parent_time_step_ratio=1, 3,\n feedback=1, smooth_option=0,\n num_metgrid_levels=33, num_metgrid_soil_levels=4, p_top_requested=5000,\n/\n&physics\n mp_physics=8, 8,\n ra_lw_physics=4, 4, ra_sw_physics=4, 4, radt=12, 12,\n sf_sfclay_physics=5, 5, sf_surface_physics=2, 2,\n bl_pbl_physics=5, 5, bldt=0, 0,\n cu_physics=1, 0, cudt=0, 0, kfeta_trigger=3, cu_rad_feedback=.true., .false.,\n isftcflx=2, sf_ocean_physics=0, oml_hml0=50, oml_gamma=0.14,\n num_soil_layers=4, num_land_cat=21,\n/\n&dynamics\n hybrid_opt=2, w_damping=1,\n diff_opt=1, 1, km_opt=4, 4, diff_6th_opt=0, 0, diff_6th_factor=0.12, 0.12,\n damp_opt=3, zdamp=5000.0, 5000.0, dampcoef=0.2, 0.2,\n khdif=0, 0, kvdif=0, 0, non_hydrostatic=.true., .true.,\n moist_adv_opt=1, 1, scalar_adv_opt=1, 1, gwd_opt=0,\n/\n&bdy_control\n spec_bdy_width=5, spec_zone=1, relax_zone=4,\n specified=.true., .false., nested=.false., .true.,\n/\n&namelist_adios2\n adios2_numaggregators=224,\n adios2_compression_enable=.true.,\n adios2_blosc_compressor=\"zstd\",\n/\n&namelist_quilt\n nio_tasks_per_group=0,\n nio_groups=1,\n/\n"
+   }
+  }
+ },
+ "edit-mid-end": {
+  "argv": [
+   "edit-namelist",
+   "<FIX>/namelists/repo__rebuild_nested_suite.nml",
+   "<TMP>/cli/edit-mid-end/namelist.input",
+   "--nproc-x",
+   "7",
+   "--nproc-y",
+   "32",
+   "--numtiles",
+   "12",
+   "--run-minutes",
+   "8",
+   "--ranks",
+   "112",
+   "--max-dom",
+   "2",
+   "--history-mode",
+   "mid_end_d01"
+  ],
+  "env": {},
+  "rc": 0,
+  "stdout": "",
+  "stderr": "",
+  "files": {
+   "<TMP>/cli/edit-mid-end": {
+    "namelist.input": "&time_control\n input_inname=\"wrfinput_d<domain>.bp\", bdy_inname=\"wrfbdy_d<domain>.bp\",\n history_begin_m = 4, 0,\n history_interval_m = 4, 0,\n io_form_boundary = 14,\n io_form_input = 14,\n io_form_restart = 14,\n io_form_history = 14,\n restart_interval = 1000000,\n restart = .false.,\n frames_per_outfile = 1, 1,\n run_seconds = 0,\n run_minutes = 8,\n run_days = 0,\n end_second = 15, 15,\n end_minute = 30, 30,\n end_hour = 19, 19,\n end_day = 26, 26,\n end_month = 11, 11,\n end_year = 2019, 2019,\n start_second = 0, 0,\n start_minute = 0, 0,\n start_hour = 12, 12,\n start_day = 26, 26,\n start_month = 11, 11,\n interval_seconds = 10800,\n run_hours = 0,\n start_year = 2019, 2019,\n/\n&domains\n nproc_x=7, nproc_y=32, numtiles=12,\n parent_time_step_ratio = 1, 3,\n time_step = 54,\n p_top_requested = 5000,\n num_metgrid_levels = 34,\n max_dom = 2,\n e_we = 100, 61,\n e_sn = 100, 61,\n e_vert = 40, 40,\n dx = 9000, 3000,\n parent_grid_ratio = 1, 3,\n/\n&physics\n physics_suite = 'CONUS',\n mp_physics = -1, -1,\n ra_lw_physics = -1, -1,\n cu_physics = 6, 0,\n/\n&bdy_control\n nested = .false., .true.,\n specified = .true., .false.,\n relax_zone = 4,\n spec_zone = 1,\n spec_bdy_width = 5,\n/\n\n\n&fdda\n/\n\n&dynamics\n/\n\n&grib2\n/\n&namelist_adios2\n adios2_numaggregators=112,\n adios2_compression_enable=.true.,\n adios2_blosc_compressor=\"zstd\",\n/\n&namelist_quilt\n nio_tasks_per_group=0,\n nio_groups=1,\n/\n"
+   }
+  }
+ },
+ "edit-no-adios2": {
+  "argv": [
+   "edit-namelist",
+   "<FIX>/namelists/tc__QuiltingOff__LAFE_LIKE.nml",
+   "<TMP>/cli/edit-no-adios2/namelist.input",
+   "--nproc-x",
+   "7",
+   "--nproc-y",
+   "32",
+   "--numtiles",
+   "12",
+   "--run-minutes",
+   "8",
+   "--no-adios2",
+   "--max-dom",
+   "2"
+  ],
+  "env": {},
+  "rc": 0,
+  "stdout": "",
+  "stderr": "",
+  "files": {
+   "<TMP>/cli/edit-no-adios2": {
+    "namelist.input": "&time_control\n history_interval = 0, 0,\n run_minutes = 8,\n io_form_history = 2,\n io_form_input = 11,\n io_form_boundary = 11,\n io_form_restart = 11,\n/\n&domains\n nproc_x=7, nproc_y=32, numtiles=12,\n max_dom = 2,\n time_step = 10,\n/\n&namelist_quilt\n nio_tasks_per_group = 32,\n nio_groups = 4,\n! nio_tasks_per_group = 0,\n! nio_groups = 1,\n/\n"
+   }
+  }
+ },
+ "edit-anchor-spinup": {
+  "argv": [
+   "edit-namelist",
+   "<FIX>/namelists/repo__m1.nml",
+   "<TMP>/cli/edit-anchor-spinup/namelist.input",
+   "--nproc-x",
+   "7",
+   "--nproc-y",
+   "32",
+   "--numtiles",
+   "12",
+   "--run-minutes",
+   "8",
+   "--ranks",
+   "224",
+   "--max-dom",
+   "2",
+   "--write-restart-interval",
+   "30",
+   "--restart-io-form",
+   "2",
+   "--run-seconds",
+   "45"
+  ],
+  "env": {},
+  "rc": 0,
+  "stdout": "",
+  "stderr": "",
+  "files": {
+   "<TMP>/cli/edit-anchor-spinup": {
+    "namelist.input": "&time_control\n input_inname=\"wrfinput_d<domain>.bp\", bdy_inname=\"wrfbdy_d<domain>.bp\",\n history_interval = 0, 0,\n run_days=0, run_hours=0, run_minutes=8, run_seconds=45,\n start_year=2005, 2005, start_month=08, 08, start_day=27, 27, start_hour=00, 00,\n end_year=2005, 2005, end_month=08, 08, end_day=29, 29, end_hour=00, 00,\n interval_seconds=21600,\n input_from_file=.true., .true.,\n restart=.false., restart_interval=30,\n io_form_history=14, io_form_restart=2, io_form_input=14, io_form_boundary=14,\n debug_level=0,\n/\n&domains\n nproc_x=7, nproc_y=32, numtiles=12,\n time_step=72, time_step_fract_num=0, time_step_fract_den=1,\n max_dom=2,\n e_we=170, 244, e_sn=130, 175, e_vert=55, 55,\n dx=12000, 4000, dy=12000, 4000,\n grid_id=1, 2, parent_id=0, 1,\n i_parent_start=1, 69, j_parent_start=1, 45,\n parent_grid_ratio=1, 3, parent_time_step_ratio=1, 3,\n feedback=1, smooth_option=0,\n num_metgrid_levels=33, num_metgrid_soil_levels=4, p_top_requested=5000,\n/\n&physics\n mp_physics=8, 8,\n ra_lw_physics=4, 4, ra_sw_physics=4, 4, radt=12, 12,\n sf_sfclay_physics=1, 1, sf_surface_physics=2, 2,\n bl_pbl_physics=1, 1, bldt=0, 0,\n cu_physics=1, 0, cudt=0, 0, kfeta_trigger=3, cu_rad_feedback=.true., .false.,\n isftcflx=2, sf_ocean_physics=0, oml_hml0=50, oml_gamma=0.14,\n num_soil_layers=4, num_land_cat=21,\n/\n&dynamics\n hybrid_opt=2, w_damping=1,\n diff_opt=1, 1, km_opt=4, 4, diff_6th_opt=0, 0, diff_6th_factor=0.12, 0.12,\n damp_opt=3, zdamp=5000.0, 5000.0, dampcoef=0.2, 0.2,\n khdif=0, 0, kvdif=0, 0, non_hydrostatic=.true., .true.,\n moist_adv_opt=1, 1, scalar_adv_opt=1, 1, gwd_opt=0,\n/\n&bdy_control\n spec_bdy_width=5, spec_zone=1, relax_zone=4,\n specified=.true., .false., nested=.false., .true.,\n/\n&namelist_adios2\n adios2_numaggregators=224,\n adios2_compression_enable=.true.,\n adios2_blosc_compressor=\"zstd\",\n/\n&namelist_quilt\n nio_tasks_per_group=0,\n nio_groups=1,\n/\n"
+   }
+  }
+ },
+ "edit-restart-from": {
+  "argv": [
+   "edit-namelist",
+   "<FIX>/namelists/repo__m1.nml",
+   "<TMP>/cli/edit-restart-from/namelist.input",
+   "--nproc-x",
+   "7",
+   "--nproc-y",
+   "32",
+   "--numtiles",
+   "12",
+   "--run-minutes",
+   "8",
+   "--ranks",
+   "224",
+   "--max-dom",
+   "2",
+   "--restart-from",
+   "2005-08-27_00:30:00",
+   "--restart-io-form",
+   "2"
+  ],
+  "env": {},
+  "rc": 0,
+  "stdout": "",
+  "stderr": "",
+  "files": {
+   "<TMP>/cli/edit-restart-from": {
+    "namelist.input": "&time_control\n override_restart_timers = .true.,\n start_second = 0, 0,\n start_minute = 30, 30,\n start_hour = 0, 0,\n start_day = 27, 27,\n start_month = 8, 8,\n start_year = 2005, 2005,\n input_inname=\"wrfinput_d<domain>.bp\", bdy_inname=\"wrfbdy_d<domain>.bp\",\n history_interval = 0, 0,\n run_days=0, run_hours=0, run_minutes=8, run_seconds=0,\n end_year=2005, 2005, end_month=08, 08, end_day=29, 29, end_hour=00, 00,\n interval_seconds=21600,\n input_from_file=.true., .true.,\n restart=.true., restart_interval=1000000,\n io_form_history=14, io_form_restart=2, io_form_input=14, io_form_boundary=14,\n debug_level=0,\n/\n&domains\n nproc_x=7, nproc_y=32, numtiles=12,\n time_step=72, time_step_fract_num=0, time_step_fract_den=1,\n max_dom=2,\n e_we=170, 244, e_sn=130, 175, e_vert=55, 55,\n dx=12000, 4000, dy=12000, 4000,\n grid_id=1, 2, parent_id=0, 1,\n i_parent_start=1, 69, j_parent_start=1, 45,\n parent_grid_ratio=1, 3, parent_time_step_ratio=1, 3,\n feedback=1, smooth_option=0,\n num_metgrid_levels=33, num_metgrid_soil_levels=4, p_top_requested=5000,\n/\n&physics\n mp_physics=8, 8,\n ra_lw_physics=4, 4, ra_sw_physics=4, 4, radt=12, 12,\n sf_sfclay_physics=1, 1, sf_surface_physics=2, 2,\n bl_pbl_physics=1, 1, bldt=0, 0,\n cu_physics=1, 0, cudt=0, 0, kfeta_trigger=3, cu_rad_feedback=.true., .false.,\n isftcflx=2, sf_ocean_physics=0, oml_hml0=50, oml_gamma=0.14,\n num_soil_layers=4, num_land_cat=21,\n/\n&dynamics\n hybrid_opt=2, w_damping=1,\n diff_opt=1, 1, km_opt=4, 4, diff_6th_opt=0, 0, diff_6th_factor=0.12, 0.12,\n damp_opt=3, zdamp=5000.0, 5000.0, dampcoef=0.2, 0.2,\n khdif=0, 0, kvdif=0, 0, non_hydrostatic=.true., .true.,\n moist_adv_opt=1, 1, scalar_adv_opt=1, 1, gwd_opt=0,\n/\n&bdy_control\n spec_bdy_width=5, spec_zone=1, relax_zone=4,\n specified=.true., .false., nested=.false., .true.,\n/\n&namelist_adios2\n adios2_numaggregators=224,\n adios2_compression_enable=.true.,\n adios2_blosc_compressor=\"zstd\",\n/\n&namelist_quilt\n nio_tasks_per_group=0,\n nio_groups=1,\n/\n"
+   }
+  }
+ },
+ "edit-netcdf-inputs": {
+  "argv": [
+   "edit-namelist",
+   "<FIX>/namelists/tc__Adios2InputStaging__NL.nml",
+   "<TMP>/cli/edit-netcdf-inputs/namelist.input",
+   "--nproc-x",
+   "7",
+   "--nproc-y",
+   "32",
+   "--numtiles",
+   "12",
+   "--run-minutes",
+   "8",
+   "--ranks",
+   "72",
+   "--max-dom",
+   "2"
+  ],
+  "env": {
+   "WTUNE_INPUT_FORMAT": "netcdf"
+  },
+  "rc": 0,
+  "stdout": "",
+  "stderr": "",
+  "files": {
+   "<TMP>/cli/edit-netcdf-inputs": {
+    "namelist.input": " &time_control\n restart_interval=1000000,\n io_form_restart=14,\n history_interval = 0, 0,\n io_form_history = 14,\n io_form_input = 2,\n io_form_boundary = 2,\n auxinput4_inname = \"wrflowinp_d<domain>\",\n io_form_auxinput4 = 2,\n /\n &domains\n nproc_x=7, nproc_y=32, numtiles=12,\n max_dom = 2,\n /\n &physics\n sst_update = 1,\n /\n &fdda\n grid_fdda = 1, 0,\n gfdda_inname = \"wrffdda_d<domain>\",\n io_form_gfdda = 2,\n /\n&namelist_adios2\n adios2_numaggregators=72,\n adios2_compression_enable=.true.,\n adios2_blosc_compressor=\"zstd\",\n/\n&namelist_quilt\n nio_tasks_per_group=0,\n nio_groups=1,\n/\n"
+   }
+  }
+ },
+ "edit-aux-streams": {
+  "argv": [
+   "edit-namelist",
+   "<FIX>/namelists/tc__Adios2InputStaging__NL.nml",
+   "<TMP>/cli/edit-aux-streams/namelist.input",
+   "--nproc-x",
+   "7",
+   "--nproc-y",
+   "32",
+   "--numtiles",
+   "12",
+   "--run-minutes",
+   "8",
+   "--ranks",
+   "72",
+   "--max-dom",
+   "2"
+  ],
+  "env": {
+   "WTUNE_AUX_BP_STREAMS": "auxinput4,gfdda"
+  },
+  "rc": 0,
+  "stdout": "",
+  "stderr": "",
+  "files": {
+   "<TMP>/cli/edit-aux-streams": {
+    "namelist.input": " &time_control\n input_inname=\"wrfinput_d<domain>.bp\", bdy_inname=\"wrfbdy_d<domain>.bp\",\n restart_interval=1000000,\n io_form_restart=14,\n history_interval = 0, 0,\n io_form_history = 14,\n io_form_input = 14,\n io_form_boundary = 14,\n auxinput4_inname = \"wrflowinp_d<domain>.bp\",\n io_form_auxinput4 = 14,\n /\n &domains\n nproc_x=7, nproc_y=32, numtiles=12,\n max_dom = 2,\n /\n &physics\n sst_update = 1,\n /\n &fdda\n grid_fdda = 1, 0,\n gfdda_inname = \"wrffdda_d<domain>.bp\",\n io_form_gfdda = 14,\n /\n&namelist_adios2\n adios2_numaggregators=72,\n adios2_compression_enable=.true.,\n adios2_blosc_compressor=\"zstd\",\n/\n&namelist_quilt\n nio_tasks_per_group=0,\n nio_groups=1,\n/\n"
+   }
+  }
+ },
+ "edit-per-record": {
+  "argv": [
+   "edit-namelist",
+   "<FIX>/namelists/tc__PerRecordInputs__NL.nml",
+   "<TMP>/cli/edit-per-record/namelist.input",
+   "--nproc-x",
+   "7",
+   "--nproc-y",
+   "32",
+   "--numtiles",
+   "12",
+   "--run-minutes",
+   "8",
+   "--ranks",
+   "72",
+   "--max-dom",
+   "2"
+  ],
+  "env": {
+   "WTUNE_AUX_BP_STREAMS": "auxinput4",
+   "WTUNE_BP_DIR": "<TMP>/in/bp_rec",
+   "WTUNE_PER_RECORD_BP": "wrfbdy_d01 wrflowinp_d01 wrflowinp_d02"
+  },
+  "rc": 0,
+  "stdout": "",
+  "stderr": "",
+  "files": {
+   "<TMP>/cli/edit-per-record": {
+    "namelist.input": " &time_control\n frames_per_auxinput4 = 1, 1,\n bdy_inname = \"wrfbdy_d<domain>_<date>.bp\",\n input_inname=\"wrfinput_d<domain>.bp\",\n history_interval = 0, 0,\n start_year = 2020, 2020,\n start_month = 01, 01,\n start_day = 01, 01,\n start_hour = 00, 00,\n start_minute = 00, 00,\n start_second = 00, 00,\n interval_seconds = 21600,\n run_minutes = 8,\n io_form_history = 14,\n io_form_input = 14,\n io_form_boundary = 14,\n io_form_restart = 14,\n restart_interval = 1000000,\n auxinput4_inname = \"wrflowinp_d<domain>_<date>.bp\",\n io_form_auxinput4 = 14,\n auxinput4_interval = 360, 360,\n /\n &domains\n nproc_x=7, nproc_y=32, numtiles=12,\n max_dom = 2,\n time_step = 60,\n /\n &physics\n sst_update = 1,\n /\n&bdy_control\n multi_bdy_files = .true.,\n/\n&namelist_adios2\n adios2_numaggregators=72,\n adios2_compression_enable=.true.,\n adios2_blosc_compressor=\"zstd\",\n/\n&namelist_quilt\n nio_tasks_per_group=0,\n nio_groups=1,\n/\n"
+   }
+  }
+ },
+ "edit-per-record-off-record": {
+  "argv": [
+   "edit-namelist",
+   "<FIX>/namelists/tc__PerRecordInputs__NL.nml",
+   "<TMP>/cli/edit-per-record-off-record/namelist.input",
+   "--nproc-x",
+   "7",
+   "--nproc-y",
+   "32",
+   "--numtiles",
+   "12",
+   "--run-minutes",
+   "8",
+   "--ranks",
+   "72",
+   "--max-dom",
+   "2",
+   "--restart-from",
+   "2020-01-01_03:00:00"
+  ],
+  "env": {
+   "WTUNE_AUX_BP_STREAMS": "auxinput4",
+   "WTUNE_BP_DIR": "<TMP>/in/bp_rec",
+   "WTUNE_PER_RECORD_BP": "wrfbdy_d01 wrflowinp_d01 wrflowinp_d02"
+  },
+  "rc": 0,
+  "stdout": "",
+  "stderr": "NOTE: ADIOS2 per-record auxinput4 input has no record at the run start (wrflowinp_d01_2020-01-01_03:00:00.bp, wrflowinp_d02_2020-01-01_03:00:00.bp) -- this run reads that stream from netCDF instead\nNOTE: ADIOS2 per-record boundary input has no record at the run start (wrfbdy_d01_2020-01-01_03:00:00.bp) -- this run reads that stream from netCDF instead\n",
+  "files": {
+   "<TMP>/cli/edit-per-record-off-record": {
+    "namelist.input": " &time_control\n override_restart_timers = .true.,\n start_second = 0, 0,\n start_minute = 0, 0,\n start_hour = 3, 3,\n start_day = 1, 1,\n start_month = 1, 1,\n start_year = 2020, 2020,\n input_inname=\"wrfinput_d<domain>.bp\",\n history_interval = 0, 0,\n interval_seconds = 21600,\n run_minutes = 8,\n io_form_history = 14,\n io_form_input = 14,\n io_form_boundary = 2,\n io_form_restart = 14,\n restart_interval = 1000000,\n auxinput4_inname = \"wrflowinp_d<domain>\",\n io_form_auxinput4 = 2,\n auxinput4_interval = 360, 360,\n /\n &domains\n nproc_x=7, nproc_y=32, numtiles=12,\n max_dom = 2,\n time_step = 60,\n /\n &physics\n sst_update = 1,\n /\n&namelist_adios2\n adios2_numaggregators=72,\n adios2_compression_enable=.true.,\n adios2_blosc_compressor=\"zstd\",\n/\n&namelist_quilt\n nio_tasks_per_group=0,\n nio_groups=1,\n/\n"
+   }
+  }
+ },
+ "edit-unknown-template": {
+  "argv": [
+   "edit-namelist",
+   "<FIX>/namelists/repo__m1.nml",
+   "<TMP>/cli/edit-unknown-template/namelist.input",
+   "--nproc-x",
+   "7",
+   "--nproc-y",
+   "32",
+   "--numtiles",
+   "12",
+   "--run-minutes",
+   "8",
+   "--ranks",
+   "224",
+   "--physics-template",
+   "P99"
+  ],
+  "env": {},
+  "rc": 1,
+  "stdout": "",
+  "stderr": "Traceback (most recent call last):\n  ...\nValueError: unknown physics template 'P99'\n",
+  "files": {
+   "<TMP>/cli/edit-unknown-template": {}
+  }
+ },
+ "edit-err-no-ranks": {
+  "argv": [
+   "edit-namelist",
+   "<FIX>/namelists/repo__m1.nml",
+   "<TMP>/cli/edit-err-no-ranks/namelist.input",
+   "--nproc-x",
+   "7",
+   "--nproc-y",
+   "32",
+   "--numtiles",
+   "12",
+   "--run-minutes",
+   "8"
+  ],
+  "env": {},
+  "rc": 2,
+  "stdout": "",
+  "stderr": "usage: configs.py edit-namelist [-h] --nproc-x NPROC_X --nproc-y NPROC_Y\n                                --numtiles NUMTILES --run-minutes RUN_MINUTES\n                                [--max-dom MAX_DOM]\n                                [--history-mode {off,interval,end_d01,mid_end_d01}]\n                                [--history-minutes HISTORY_MINUTES]\n                                [--physics-template Pxx] [--physics-case CASE]\n                                [--set KEY=VALUE] [--delete-key KEY]\n                                [--nest-history-on] [--no-adios2]\n                                [--ranks RANKS] [--numtiles-x N]\n                                [--numtiles-y N] [--tile-sz-x N]\n                                [--tile-sz-y N] [--tile-strategy N]\n                                [--restart-from YYYY-MM-DD_HH:MM:SS]\n                                [--restart-io-form N]\n                                [--write-restart-interval MINUTES]\n                                [--run-seconds S]\n                                infile outfile\nconfigs.py edit-namelist: error: --ranks is required unless --no-adios2 is given\n",
+  "files": {
+   "<TMP>/cli/edit-err-no-ranks": {}
+  }
+ },
+ "edit-err-set": {
+  "argv": [
+   "edit-namelist",
+   "<FIX>/namelists/repo__m1.nml",
+   "<TMP>/cli/edit-err-set/namelist.input",
+   "--nproc-x",
+   "7",
+   "--nproc-y",
+   "32",
+   "--numtiles",
+   "12",
+   "--run-minutes",
+   "8",
+   "--ranks",
+   "224",
+   "--set",
+   "max_dom"
+  ],
+  "env": {},
+  "rc": 2,
+  "stdout": "",
+  "stderr": "usage: configs.py edit-namelist [-h] --nproc-x NPROC_X --nproc-y NPROC_Y\n                                --numtiles NUMTILES --run-minutes RUN_MINUTES\n                                [--max-dom MAX_DOM]\n                                [--history-mode {off,interval,end_d01,mid_end_d01}]\n                                [--history-minutes HISTORY_MINUTES]\n                                [--physics-template Pxx] [--physics-case CASE]\n                                [--set KEY=VALUE] [--delete-key KEY]\n                                [--nest-history-on] [--no-adios2]\n                                [--ranks RANKS] [--numtiles-x N]\n                                [--numtiles-y N] [--tile-sz-x N]\n                                [--tile-sz-y N] [--tile-strategy N]\n                                [--restart-from YYYY-MM-DD_HH:MM:SS]\n                                [--restart-io-form N]\n                                [--write-restart-interval MINUTES]\n                                [--run-seconds S]\n                                infile outfile\nconfigs.py edit-namelist: error: --set expects KEY=VALUE, got 'max_dom'\n",
+  "files": {
+   "<TMP>/cli/edit-err-set": {}
+  }
+ },
+ "edit-err-restart-from": {
+  "argv": [
+   "edit-namelist",
+   "<FIX>/namelists/repo__m1.nml",
+   "<TMP>/cli/edit-err-restart-from/namelist.input",
+   "--nproc-x",
+   "7",
+   "--nproc-y",
+   "32",
+   "--numtiles",
+   "12",
+   "--run-minutes",
+   "8",
+   "--ranks",
+   "224",
+   "--restart-from",
+   "2005-08-27"
+  ],
+  "env": {},
+  "rc": 2,
+  "stdout": "",
+  "stderr": "usage: configs.py edit-namelist [-h] --nproc-x NPROC_X --nproc-y NPROC_Y\n                                --numtiles NUMTILES --run-minutes RUN_MINUTES\n                                [--max-dom MAX_DOM]\n                                [--history-mode {off,interval,end_d01,mid_end_d01}]\n                                [--history-minutes HISTORY_MINUTES]\n                                [--physics-template Pxx] [--physics-case CASE]\n                                [--set KEY=VALUE] [--delete-key KEY]\n                                [--nest-history-on] [--no-adios2]\n                                [--ranks RANKS] [--numtiles-x N]\n                                [--numtiles-y N] [--tile-sz-x N]\n                                [--tile-sz-y N] [--tile-strategy N]\n                                [--restart-from YYYY-MM-DD_HH:MM:SS]\n                                [--restart-io-form N]\n                                [--write-restart-interval MINUTES]\n                                [--run-seconds S]\n                                infile outfile\nconfigs.py edit-namelist: error: --restart-from must be YYYY-MM-DD_HH:MM:SS, got '2005-08-27'\n",
+  "files": {
+   "<TMP>/cli/edit-err-restart-from": {}
+  }
+ },
+ "edit-err-run-seconds": {
+  "argv": [
+   "edit-namelist",
+   "<FIX>/namelists/repo__m1.nml",
+   "<TMP>/cli/edit-err-run-seconds/namelist.input",
+   "--nproc-x",
+   "7",
+   "--nproc-y",
+   "32",
+   "--numtiles",
+   "12",
+   "--run-minutes",
+   "8",
+   "--ranks",
+   "224",
+   "--history-mode",
+   "end_d01",
+   "--run-seconds",
+   "30"
+  ],
+  "env": {},
+  "rc": 2,
+  "stdout": "",
+  "stderr": "usage: configs.py edit-namelist [-h] --nproc-x NPROC_X --nproc-y NPROC_Y\n                                --numtiles NUMTILES --run-minutes RUN_MINUTES\n                                [--max-dom MAX_DOM]\n                                [--history-mode {off,interval,end_d01,mid_end_d01}]\n                                [--history-minutes HISTORY_MINUTES]\n                                [--physics-template Pxx] [--physics-case CASE]\n                                [--set KEY=VALUE] [--delete-key KEY]\n                                [--nest-history-on] [--no-adios2]\n                                [--ranks RANKS] [--numtiles-x N]\n                                [--numtiles-y N] [--tile-sz-x N]\n                                [--tile-sz-y N] [--tile-strategy N]\n                                [--restart-from YYYY-MM-DD_HH:MM:SS]\n                                [--restart-io-form N]\n                                [--write-restart-interval MINUTES]\n                                [--run-seconds S]\n                                infile outfile\nconfigs.py edit-namelist: error: --run-seconds requires --history-mode off\n",
+  "files": {
+   "<TMP>/cli/edit-err-run-seconds": {}
+  }
+ },
+ "edit-err-interval": {
+  "argv": [
+   "edit-namelist",
+   "<FIX>/namelists/repo__m1.nml",
+   "<TMP>/cli/edit-err-interval/namelist.input",
+   "--nproc-x",
+   "7",
+   "--nproc-y",
+   "32",
+   "--numtiles",
+   "12",
+   "--run-minutes",
+   "8",
+   "--ranks",
+   "224",
+   "--history-mode",
+   "interval"
+  ],
+  "env": {},
+  "rc": 2,
+  "stdout": "",
+  "stderr": "usage: configs.py edit-namelist [-h] --nproc-x NPROC_X --nproc-y NPROC_Y\n                                --numtiles NUMTILES --run-minutes RUN_MINUTES\n                                [--max-dom MAX_DOM]\n                                [--history-mode {off,interval,end_d01,mid_end_d01}]\n                                [--history-minutes HISTORY_MINUTES]\n                                [--physics-template Pxx] [--physics-case CASE]\n                                [--set KEY=VALUE] [--delete-key KEY]\n                                [--nest-history-on] [--no-adios2]\n                                [--ranks RANKS] [--numtiles-x N]\n                                [--numtiles-y N] [--tile-sz-x N]\n                                [--tile-sz-y N] [--tile-strategy N]\n                                [--restart-from YYYY-MM-DD_HH:MM:SS]\n                                [--restart-io-form N]\n                                [--write-restart-interval MINUTES]\n                                [--run-seconds S]\n                                infile outfile\nconfigs.py edit-namelist: error: --history-minutes is required when --history-mode interval is given\n",
+  "files": {
+   "<TMP>/cli/edit-err-interval": {}
+  }
+ },
+ "edit-err-no-infile": {
+  "argv": [
+   "edit-namelist",
+   "<TMP>/cli/edit-err-no-infile/nothing",
+   "<TMP>/cli/edit-err-no-infile/out",
+   "--nproc-x",
+   "7",
+   "--nproc-y",
+   "32",
+   "--numtiles",
+   "12",
+   "--run-minutes",
+   "8",
+   "--ranks",
+   "4"
+  ],
+  "env": {},
+  "rc": 1,
+  "stdout": "",
+  "stderr": "Traceback (most recent call last):\n  ...\nFileNotFoundError: [Errno 2] No such file or directory: '<TMP>/cli/edit-err-no-infile/nothing'\n"
+ },
+ "edit-help": {
+  "argv": [
+   "edit-namelist",
+   "--help"
+  ],
+  "env": {},
+  "rc": 0,
+  "stdout": "usage: configs.py edit-namelist [-h] --nproc-x NPROC_X --nproc-y NPROC_Y\n                                --numtiles NUMTILES --run-minutes RUN_MINUTES\n                                [--max-dom MAX_DOM]\n                                [--history-mode {off,interval,end_d01,mid_end_d01}]\n                                [--history-minutes HISTORY_MINUTES]\n                                [--physics-template Pxx] [--physics-case CASE]\n                                [--set KEY=VALUE] [--delete-key KEY]\n                                [--nest-history-on] [--no-adios2]\n                                [--ranks RANKS] [--numtiles-x N]\n                                [--numtiles-y N] [--tile-sz-x N]\n                                [--tile-sz-y N] [--tile-strategy N]\n                                [--restart-from YYYY-MM-DD_HH:MM:SS]\n                                [--restart-io-form N]\n                                [--write-restart-interval MINUTES]\n                                [--run-seconds S]\n                                infile outfile\n\npositional arguments:\n  infile\n  outfile\n\noptions:\n  -h, --help            show this help message and exit\n  --nproc-x NPROC_X\n  --nproc-y NPROC_Y\n  --numtiles NUMTILES\n  --run-minutes RUN_MINUTES\n  --max-dom MAX_DOM     number of active domains; controls how many per-domain\n                        values are written for numtiles and history_interval*\n  --history-mode {off,interval,end_d01,mid_end_d01}\n                        'off' (default, timing runs): no domain writes\n                        history. 'interval' (PHYSICS-GRAY fidelity\n                        replicates): d01 writes a frame every --history-\n                        minutes, starting at t=0; requires --history-minutes.\n                        'end_d01': d01 writes only its final frame\n                        (correctness runs); nested domains always get 0.\n                        'mid_end_d01': d01 writes two frames, at\n                        run_minutes//2 and at the end (window-frame fidelity-\n                        gate input).\n  --history-minutes HISTORY_MINUTES\n                        required when --history-mode interval is given\n  --physics-template Pxx\n                        apply a physics_templates.json template id (decision\n                        0051 PHYSICS-GRAY data campaign) on top of every other\n                        edit, including ADIOS2, e.g. --physics-template P02\n  --physics-case CASE   cases.json case id whose extra_edits (per-case paired\n                        edits) are applied with --physics-template\n  --set KEY=VALUE       repeatable; forces namelist scalar KEY to VALUE after\n                        every other edit except ADIOS2, e.g. --set max_dom=2\n                        --set restart=.false.\n  --delete-key KEY      repeatable; delete every line assigning this namelist\n                        key (case-insensitive, any group), e.g. --delete-key\n                        opt_run\n  --nest-history-on     keep history-interval writes for nested domains\n                        (default: nested domains get 0, d01 gets the run\n                        length)\n  --no-adios2           disable ADIOS2 I/O settings (default: on). Legacy\n                        behaviour: io_form_history forced to 2, nothing else\n                        about I/O touched.\n  --ranks RANKS         MPI rank count; required unless --no-adios2 is given\n                        (adios2_numaggregators MUST equal the rank count)\n  --numtiles-x N        &domains numtiles_x (WTune D1 decomposition-space\n                        work); not written at all when omitted\n  --numtiles-y N        &domains numtiles_y; not written at all when omitted\n  --tile-sz-x N         &domains tile_sz_x (overrides numtiles entirely,\n                        frame/module_tiles.F:353); not written at all when\n                        omitted\n  --tile-sz-y N         &domains tile_sz_y; not written at all when omitted\n  --tile-strategy N     &domains tile_strategy (TILE_NONE=0 TILE_X=1 TILE_Y=2\n                        TILE_XY=3, module_machine.F:11); not written at all\n                        when omitted\n  --restart-from YYYY-MM-DD_HH:MM:SS\n                        WTune probe multi-point (2026-09-26): this is a\n                        RANKING-PROBE run that starts from an existing WRF\n                        restart file at this time instead of the case's own t0\n                        -- every domain's start_* is overridden to it and\n                        restart is forced to .true. (see edit_namelist's\n                        docstring). Not written at all when omitted (default:\n                        unchanged behaviour).\n  --restart-io-form N   overrides io_form_restart on EITHER a --restart-from\n                        run or a --write-restart-interval run, applied after\n                        --no-adios2/ADIOS2's own default (e.g. 2 for netCDF,\n                        decomposition-independent -- unlike ADIOS2's io_form\n                        14). Not written at all when omitted.\n  --write-restart-interval MINUTES\n                        the ANCHOR spin-up run that WRITES the shared restart\n                        file: sets restart_interval to exactly this value\n                        (restart itself is left '.false.' -- this run still\n                        starts at t0). Not written at all when omitted.\n  --run-seconds S       exact sub-minute tail added to --run-minutes\n                        (POINT_FUSED / WINDOW_EXACT: window = STEPS*dt, not\n                        rounded up to whole minutes). Only with --history-mode\n                        off. Not written when 0 (default).\n",
+  "stderr": ""
+ },
+ "link-namelist-files": {
+  "argv": [
+   "link-namelist-files",
+   "<TMP>/cli/link-namelist-files/run/namelist.input",
+   "<TMP>/cli/link-namelist-files/run",
+   "<TMP>/cli/link-namelist-files/src",
+   "<TMP>/cli/link-namelist-files/other",
+   "",
+   "/nonexistent/dir"
+  ],
+  "env": {},
+  "rc": 0,
+  "stdout": "namelist file: linked iofields_d01.txt (iofields_filename) from <TMP>/cli/link-namelist-files/other/iofields_d01.txt\nnamelist file: linked io/fields_d02.txt (iofields_filename) from <TMP>/cli/link-namelist-files/src/io/fields_d02.txt\nnamelist file: linked wrflowinp_d01 (auxinput4_inname) from <TMP>/cli/link-namelist-files/src/wrflowinp_d01\nnamelist file: linked wrfchemi_d01_2020-01-01_00:00:00 (auxinput5_inname) from <TMP>/cli/link-namelist-files/src/wrfchemi_d01_2020-01-01_00:00:00\nnamelist file: linked OBS_DOMAIN201 (obs_nudge_opt) from <TMP>/cli/link-namelist-files/src/OBS_DOMAIN201\nnamelist file: linked tslist (tslist) from <TMP>/cli/link-namelist-files/src/tslist\n  iofields: iofields_d01.txt 4 -> 2 line(s) (same fields; WRF parses it at every I/O call)\n",
+  "stderr": "WARNING: the namelist's gfdda_inname names wrffdda_d01, which exists neither in the run dir nor in <TMP>/cli/link-namelist-files/src / <TMP>/cli/link-namelist-files/other / /nonexistent/dir -- left absent\n",
+  "files": {
+   "<TMP>/cli/link-namelist-files/run": {
+    "OBS_DOMAIN201": "link -> <TMP>/cli/link-namelist-files/src/OBS_DOMAIN201",
+    "io": "dir",
+    "iofields_d01.txt": "+:h:0:T2,Q2,U10\n# note\n-:h:0:W,P,PB\n",
+    "namelist.input": "&time_control\n run_hours = 6,\n iofields_filename = \"iofields_d01.txt\", 'io/fields_d02.txt',  ignore_iofields_warning = .true.,\n auxinput4_inname = \"wrflowinp_d<domain>\", auxinput4_interval = 360, 360,\n auxinput1_inname = \"met_em.d<domain>.<date>\",\n auxinput11_inname = 'obs_d<domain>.txt',\n auxinput5_inname = 'wrfchemi_d<domain>_<date>',\n ! iofields_filename = 'commented.txt',\n/\n&domains\n max_dom = 2,\n/\n&physics\n sst_update = 1,\n/\n&fdda\n grid_fdda = 1, 0,\n obs_nudge_opt = 0, 1,\n/\n",
+    "tslist": "link -> <TMP>/cli/link-namelist-files/src/tslist",
+    "wrfchemi_d01_2020-01-01_00:00:00": "link -> <TMP>/cli/link-namelist-files/src/wrfchemi_d01_2020-01-01_00:00:00",
+    "wrflowinp_d01": "link -> <TMP>/cli/link-namelist-files/src/wrflowinp_d01",
+    "wrflowinp_d02": "already staged",
+    "io/fields_d02.txt": "link -> <TMP>/cli/link-namelist-files/src/io/fields_d02.txt"
+   }
+  }
+ },
+ "link-namelist-files-argc": {
+  "argv": [
+   "link-namelist-files",
+   "<TMP>/cli/link-namelist-files-argc/namelist.input"
+  ],
+  "env": {},
+  "rc": 2,
+  "stdout": "",
+  "stderr": "usage: configs.py link-namelist-files NAMELIST RUN_DIR SEARCH_DIR...\n"
+ },
+ "link-namelist-files-no-namelist": {
+  "argv": [
+   "link-namelist-files",
+   "<TMP>/cli/link-namelist-files-no-namelist/nothing",
+   "<TMP>/cli/link-namelist-files-no-namelist"
+  ],
+  "env": {},
+  "rc": 1,
+  "stdout": "",
+  "stderr": "Traceback (most recent call last):\n  ...\nFileNotFoundError: [Errno 2] No such file or directory: '<TMP>/cli/link-namelist-files-no-namelist/nothing'\n"
+ },
+ "stage-convert": {
+  "argv": [
+   "stage-bp-inputs",
+   "sc26p1",
+   "<TMP>/cli/stage-convert/namelist.input",
+   "<TMP>/cli/stage-convert/layouts/netcdf",
+   "--cache-dir",
+   "<TMP>/cli/stage-convert/cache"
+  ],
+  "env": {
+   "FAKE_BP_LOG": "<TMP>/cli/stage-convert/convert.log",
+   "FAKE_BP_REAL": "<REPO>/src/wtune_bp.py",
+   "WTUNE_BP_CACHE": "<TMP>/cli/stage-convert/bp-cache",
+   "WTUNE_SRC": "<TMP>/in/fake_src"
+  },
+  "rc": 0,
+  "stdout": "BP_DIR='<TMP>/cli/stage-convert/cache'\nWTUNE_AUX_BP_STREAMS='auxinput4'\nWTUNE_PER_RECORD_BP='wrfbdy_d01 wrflowinp_d01 wrflowinp_d02'\nBP_CONVERTED='wrfinput_d01 wrfinput_d02 wrfbdy_d01 wrflowinp_d01 wrflowinp_d02'\n",
+  "stderr": "ADIOS2 inputs: converting wrfinput_d01 wrfinput_d02 wrfbdy_d01 wrflowinp_d01 wrflowinp_d02 from <TMP>/cli/stage-convert/layouts/netcdf in <TMP>/cli/stage-convert/cache (BP4)\nWARNING: gfdda input wrffdda_d01 found nowhere in <TMP>/cli/stage-convert/layouts/netcdf (neither netCDF nor .bp)\nBP input wrfinput_d01.bp -> <TMP>/cli/stage-convert/cache/wrfinput_d01\nBP input wrfinput_d02.bp -> <TMP>/cli/stage-convert/cache/wrfinput_d02\nBP input wrfbdy_d01 -> <TMP>/cli/stage-convert/cache/wrfbdy_d01 (per record, 2 files)\nBP input wrflowinp_d01 -> <TMP>/cli/stage-convert/cache/wrflowinp_d01 (per record, 2 files)\nBP input wrflowinp_d02 -> <TMP>/cli/stage-convert/cache/wrflowinp_d02 (per record, 2 files)\n",
+  "files": {
+   "<TMP>/cli/stage-convert/cache": {
+    ".stage.lock": "",
+    "wrfbdy_d01": "dir",
+    "wrfinput_d01": "dir",
+    "wrfinput_d01.bp": "link -> <TMP>/cli/stage-convert/cache/wrfinput_d01",
+    "wrfinput_d02": "dir",
+    "wrfinput_d02.bp": "link -> <TMP>/cli/stage-convert/cache/wrfinput_d02",
+    "wrflowinp_d01": "dir",
+    "wrflowinp_d02": "dir",
+    "wrfbdy_d01/wrfbdy_d01_2020-01-01_00:00:00.bp": "dir",
+    "wrfbdy_d01/wrfbdy_d01_2020-01-01_06:00:00.bp": "dir",
+    "wrfbdy_d01/wrfbdy_d01_2020-01-01_00:00:00.bp/data.0": "",
+    "wrfbdy_d01/wrfbdy_d01_2020-01-01_00:00:00.bp/md.idx": "",
+    "wrfbdy_d01/wrfbdy_d01_2020-01-01_06:00:00.bp/data.0": "",
+    "wrfbdy_d01/wrfbdy_d01_2020-01-01_06:00:00.bp/md.idx": "",
+    "wrfinput_d01/data.0": "",
+    "wrfinput_d01/md.idx": "",
+    "wrfinput_d02/data.0": "",
+    "wrfinput_d02/md.idx": "",
+    "wrflowinp_d01/wrflowinp_d01_2020-01-01_00:00:00.bp": "dir",
+    "wrflowinp_d01/wrflowinp_d01_2020-01-01_06:00:00.bp": "dir",
+    "wrflowinp_d01/wrflowinp_d01_2020-01-01_00:00:00.bp/data.0": "",
+    "wrflowinp_d01/wrflowinp_d01_2020-01-01_00:00:00.bp/md.idx": "",
+    "wrflowinp_d01/wrflowinp_d01_2020-01-01_06:00:00.bp/data.0": "",
+    "wrflowinp_d01/wrflowinp_d01_2020-01-01_06:00:00.bp/md.idx": "",
+    "wrflowinp_d02/wrflowinp_d02_2020-01-01_00:00:00.bp": "dir",
+    "wrflowinp_d02/wrflowinp_d02_2020-01-01_06:00:00.bp": "dir",
+    "wrflowinp_d02/wrflowinp_d02_2020-01-01_00:00:00.bp/data.0": "",
+    "wrflowinp_d02/wrflowinp_d02_2020-01-01_00:00:00.bp/md.idx": "",
+    "wrflowinp_d02/wrflowinp_d02_2020-01-01_06:00:00.bp/data.0": "",
+    "wrflowinp_d02/wrflowinp_d02_2020-01-01_06:00:00.bp/md.idx": ""
+   },
+   "<TMP>/cli/stage-convert/convert.log": "convert wrfinput_d01 BP4\nconvert wrfinput_d02 BP4\nconvert wrfbdy_d01 BP4\nconvert wrflowinp_d01 BP4\nconvert wrflowinp_d02 BP4\n"
+  }
+ },
+ "stage-convert-cached": {
+  "argv": [
+   "stage-bp-inputs",
+   "sc26p1",
+   "<TMP>/cli/stage-convert-cached/namelist.input",
+   "<TMP>/cli/stage-convert-cached/layouts/netcdf",
+   "--cache-dir",
+   "<TMP>/cli/stage-convert-cached/cache"
+  ],
+  "env": {
+   "FAKE_BP_LOG": "<TMP>/cli/stage-convert-cached/convert.log",
+   "FAKE_BP_REAL": "<REPO>/src/wtune_bp.py",
+   "WTUNE_BP_CACHE": "<TMP>/cli/stage-convert-cached/bp-cache",
+   "WTUNE_SRC": "<TMP>/in/fake_src"
+  },
+  "rc": 0,
+  "stdout": "BP_DIR='<TMP>/cli/stage-convert-cached/cache'\nWTUNE_AUX_BP_STREAMS='auxinput4'\nWTUNE_PER_RECORD_BP='wrfbdy_d01 wrflowinp_d01 wrflowinp_d02'\nBP_CONVERTED='wrfinput_d01 wrfinput_d02 wrfbdy_d01 wrflowinp_d01 wrflowinp_d02'\n",
+  "stderr": "ADIOS2 inputs: using cached wrfinput_d01 wrfinput_d02 wrfbdy_d01 wrflowinp_d01 wrflowinp_d02 from <TMP>/cli/stage-convert-cached/layouts/netcdf in <TMP>/cli/stage-convert-cached/cache (BP4)\nWARNING: gfdda input wrffdda_d01 found nowhere in <TMP>/cli/stage-convert-cached/layouts/netcdf (neither netCDF nor .bp)\nBP input wrfinput_d01.bp -> <TMP>/cli/stage-convert-cached/cache/wrfinput_d01\nBP input wrfinput_d02.bp -> <TMP>/cli/stage-convert-cached/cache/wrfinput_d02\nBP input wrfbdy_d01 -> <TMP>/cli/stage-convert-cached/cache/wrfbdy_d01 (per record, 2 files)\nBP input wrflowinp_d01 -> <TMP>/cli/stage-convert-cached/cache/wrflowinp_d01 (per record, 2 files)\nBP input wrflowinp_d02 -> <TMP>/cli/stage-convert-cached/cache/wrflowinp_d02 (per record, 2 files)\n",
+  "files": {
+   "<TMP>/cli/stage-convert-cached/cache": {
+    ".stage.lock": "",
+    "wrfbdy_d01": "dir",
+    "wrfinput_d01": "dir",
+    "wrfinput_d01.bp": "link -> <TMP>/cli/stage-convert-cached/cache/wrfinput_d01",
+    "wrfinput_d02": "dir",
+    "wrfinput_d02.bp": "link -> <TMP>/cli/stage-convert-cached/cache/wrfinput_d02",
+    "wrflowinp_d01": "dir",
+    "wrflowinp_d02": "dir",
+    "wrfbdy_d01/wrfbdy_d01_2020-01-01_00:00:00.bp": "dir",
+    "wrfbdy_d01/wrfbdy_d01_2020-01-01_06:00:00.bp": "dir",
+    "wrfbdy_d01/wrfbdy_d01_2020-01-01_00:00:00.bp/data.0": "",
+    "wrfbdy_d01/wrfbdy_d01_2020-01-01_00:00:00.bp/md.idx": "",
+    "wrfbdy_d01/wrfbdy_d01_2020-01-01_06:00:00.bp/data.0": "",
+    "wrfbdy_d01/wrfbdy_d01_2020-01-01_06:00:00.bp/md.idx": "",
+    "wrfinput_d01/data.0": "",
+    "wrfinput_d01/md.idx": "",
+    "wrfinput_d02/data.0": "",
+    "wrfinput_d02/md.idx": "",
+    "wrflowinp_d01/wrflowinp_d01_2020-01-01_00:00:00.bp": "dir",
+    "wrflowinp_d01/wrflowinp_d01_2020-01-01_06:00:00.bp": "dir",
+    "wrflowinp_d01/wrflowinp_d01_2020-01-01_00:00:00.bp/data.0": "",
+    "wrflowinp_d01/wrflowinp_d01_2020-01-01_00:00:00.bp/md.idx": "",
+    "wrflowinp_d01/wrflowinp_d01_2020-01-01_06:00:00.bp/data.0": "",
+    "wrflowinp_d01/wrflowinp_d01_2020-01-01_06:00:00.bp/md.idx": "",
+    "wrflowinp_d02/wrflowinp_d02_2020-01-01_00:00:00.bp": "dir",
+    "wrflowinp_d02/wrflowinp_d02_2020-01-01_06:00:00.bp": "dir",
+    "wrflowinp_d02/wrflowinp_d02_2020-01-01_00:00:00.bp/data.0": "",
+    "wrflowinp_d02/wrflowinp_d02_2020-01-01_00:00:00.bp/md.idx": "",
+    "wrflowinp_d02/wrflowinp_d02_2020-01-01_06:00:00.bp/data.0": "",
+    "wrflowinp_d02/wrflowinp_d02_2020-01-01_06:00:00.bp/md.idx": ""
+   },
+   "<TMP>/cli/stage-convert-cached/convert.log": "convert wrfinput_d01 BP4\nconvert wrfinput_d02 BP4\nconvert wrfbdy_d01 BP4\nconvert wrflowinp_d01 BP4\nconvert wrflowinp_d02 BP4\n"
+  }
+ },
+ "stage-default-cache": {
+  "argv": [
+   "stage-bp-inputs",
+   "sc26p1",
+   "<TMP>/cli/stage-default-cache/namelist.input",
+   "<TMP>/cli/stage-default-cache/layouts/netcdf"
+  ],
+  "env": {
+   "FAKE_BP_LOG": "<TMP>/cli/stage-default-cache/convert.log",
+   "FAKE_BP_REAL": "<REPO>/src/wtune_bp.py",
+   "WTUNE_BP_CACHE": "<TMP>/cli/stage-default-cache/bp-cache",
+   "WTUNE_SRC": "<TMP>/in/fake_src"
+  },
+  "rc": 0,
+  "stdout": "BP_DIR='<TMP>/cli/stage-default-cache/bp-cache/sc26p1/<SHA12>'\nWTUNE_AUX_BP_STREAMS='auxinput4'\nWTUNE_PER_RECORD_BP='wrfbdy_d01 wrflowinp_d01 wrflowinp_d02'\nBP_CONVERTED='wrfinput_d01 wrfinput_d02 wrfbdy_d01 wrflowinp_d01 wrflowinp_d02'\n",
+  "stderr": "ADIOS2 inputs: converting wrfinput_d01 wrfinput_d02 wrfbdy_d01 wrflowinp_d01 wrflowinp_d02 from <TMP>/cli/stage-default-cache/layouts/netcdf in <TMP>/cli/stage-default-cache/bp-cache/sc26p1/<SHA12> (BP4)\nWARNING: gfdda input wrffdda_d01 found nowhere in <TMP>/cli/stage-default-cache/layouts/netcdf (neither netCDF nor .bp)\nBP input wrfinput_d01.bp -> <TMP>/cli/stage-default-cache/bp-cache/sc26p1/<SHA12>/wrfinput_d01\nBP input wrfinput_d02.bp -> <TMP>/cli/stage-default-cache/bp-cache/sc26p1/<SHA12>/wrfinput_d02\nBP input wrfbdy_d01 -> <TMP>/cli/stage-default-cache/bp-cache/sc26p1/<SHA12>/wrfbdy_d01 (per record, 2 files)\nBP input wrflowinp_d01 -> <TMP>/cli/stage-default-cache/bp-cache/sc26p1/<SHA12>/wrflowinp_d01 (per record, 2 files)\nBP input wrflowinp_d02 -> <TMP>/cli/stage-default-cache/bp-cache/sc26p1/<SHA12>/wrflowinp_d02 (per record, 2 files)\n",
+  "files": {
+   "<TMP>/cli/stage-default-cache/bp-cache": {
+    "sc26p1": "dir",
+    "sc26p1/<SHA12>": "dir",
+    "sc26p1/<SHA12>/.stage.lock": "",
+    "sc26p1/<SHA12>/wrfbdy_d01": "dir",
+    "sc26p1/<SHA12>/wrfinput_d01": "dir",
+    "sc26p1/<SHA12>/wrfinput_d01.bp": "link -> <TMP>/cli/stage-default-cache/bp-cache/sc26p1/<SHA12>/wrfinput_d01",
+    "sc26p1/<SHA12>/wrfinput_d02": "dir",
+    "sc26p1/<SHA12>/wrfinput_d02.bp": "link -> <TMP>/cli/stage-default-cache/bp-cache/sc26p1/<SHA12>/wrfinput_d02",
+    "sc26p1/<SHA12>/wrflowinp_d01": "dir",
+    "sc26p1/<SHA12>/wrflowinp_d02": "dir",
+    "sc26p1/<SHA12>/wrfbdy_d01/wrfbdy_d01_2020-01-01_00:00:00.bp": "dir",
+    "sc26p1/<SHA12>/wrfbdy_d01/wrfbdy_d01_2020-01-01_06:00:00.bp": "dir",
+    "sc26p1/<SHA12>/wrfbdy_d01/wrfbdy_d01_2020-01-01_00:00:00.bp/data.0": "",
+    "sc26p1/<SHA12>/wrfbdy_d01/wrfbdy_d01_2020-01-01_00:00:00.bp/md.idx": "",
+    "sc26p1/<SHA12>/wrfbdy_d01/wrfbdy_d01_2020-01-01_06:00:00.bp/data.0": "",
+    "sc26p1/<SHA12>/wrfbdy_d01/wrfbdy_d01_2020-01-01_06:00:00.bp/md.idx": "",
+    "sc26p1/<SHA12>/wrfinput_d01/data.0": "",
+    "sc26p1/<SHA12>/wrfinput_d01/md.idx": "",
+    "sc26p1/<SHA12>/wrfinput_d02/data.0": "",
+    "sc26p1/<SHA12>/wrfinput_d02/md.idx": "",
+    "sc26p1/<SHA12>/wrflowinp_d01/wrflowinp_d01_2020-01-01_00:00:00.bp": "dir",
+    "sc26p1/<SHA12>/wrflowinp_d01/wrflowinp_d01_2020-01-01_06:00:00.bp": "dir",
+    "sc26p1/<SHA12>/wrflowinp_d01/wrflowinp_d01_2020-01-01_00:00:00.bp/data.0": "",
+    "sc26p1/<SHA12>/wrflowinp_d01/wrflowinp_d01_2020-01-01_00:00:00.bp/md.idx": "",
+    "sc26p1/<SHA12>/wrflowinp_d01/wrflowinp_d01_2020-01-01_06:00:00.bp/data.0": "",
+    "sc26p1/<SHA12>/wrflowinp_d01/wrflowinp_d01_2020-01-01_06:00:00.bp/md.idx": "",
+    "sc26p1/<SHA12>/wrflowinp_d02/wrflowinp_d02_2020-01-01_00:00:00.bp": "dir",
+    "sc26p1/<SHA12>/wrflowinp_d02/wrflowinp_d02_2020-01-01_06:00:00.bp": "dir",
+    "sc26p1/<SHA12>/wrflowinp_d02/wrflowinp_d02_2020-01-01_00:00:00.bp/data.0": "",
+    "sc26p1/<SHA12>/wrflowinp_d02/wrflowinp_d02_2020-01-01_00:00:00.bp/md.idx": "",
+    "sc26p1/<SHA12>/wrflowinp_d02/wrflowinp_d02_2020-01-01_06:00:00.bp/data.0": "",
+    "sc26p1/<SHA12>/wrflowinp_d02/wrflowinp_d02_2020-01-01_06:00:00.bp/md.idx": ""
+   },
+   "<TMP>/cli/stage-default-cache/convert.log": "convert wrfinput_d01 BP4\nconvert wrfinput_d02 BP4\nconvert wrfbdy_d01 BP4\nconvert wrflowinp_d01 BP4\nconvert wrflowinp_d02 BP4\n"
+  }
+ },
+ "stage-both": {
+  "argv": [
+   "stage-bp-inputs",
+   "sc26p1",
+   "<TMP>/cli/stage-both/namelist.input",
+   "<TMP>/cli/stage-both/layouts/both",
+   "--cache-dir",
+   "<TMP>/cli/stage-both/cache"
+  ],
+  "env": {
+   "FAKE_BP_LOG": "<TMP>/cli/stage-both/convert.log",
+   "FAKE_BP_REAL": "<REPO>/src/wtune_bp.py",
+   "WTUNE_BP_CACHE": "<TMP>/cli/stage-both/bp-cache",
+   "WTUNE_SRC": "<TMP>/in/fake_src"
+  },
+  "rc": 0,
+  "stdout": "BP_DIR='<TMP>/cli/stage-both/cache'\nWTUNE_AUX_BP_STREAMS='auxinput4,gfdda'\nWTUNE_PER_RECORD_BP='wrfbdy_d01 wrffdda_d01 wrflowinp_d01'\nBP_CONVERTED='wrfbdy_d01 wrflowinp_d01'\n",
+  "stderr": "ADIOS2 inputs: converting wrfbdy_d01 wrflowinp_d01 from <TMP>/cli/stage-both/layouts/both in <TMP>/cli/stage-both/cache (BP4)\nBP input wrfinput_d01.bp -> <TMP>/cli/stage-both/layouts/both/wrfinput_d01.bp\nBP input wrflowinp_d02.bp -> <TMP>/cli/stage-both/layouts/both/wrflowinp_d02.bp\nBP input wrfbdy_d01 -> <TMP>/cli/stage-both/cache/wrfbdy_d01 (per record, 2 files)\nBP input wrffdda_d01 -> <TMP>/cli/stage-both/layouts/both/wrffdda_d01 (per record, 2 files)\nBP input wrflowinp_d01 -> <TMP>/cli/stage-both/cache/wrflowinp_d01 (per record, 2 files)\nWARNING: <TMP>/cli/stage-both/layouts/both/wrflowinp_d02.bp is a single multi-record BP: WRF 4.8's ADIOS2 reader returns its FIRST record for every boundary/SST/FDDA read -- convert the netCDF per record instead (wtune convert inputs)\n",
+  "files": {
+   "<TMP>/cli/stage-both/cache": {
+    ".stage.lock": "",
+    "wrfbdy_d01": "dir",
+    "wrffdda_d01": "link -> <TMP>/cli/stage-both/layouts/both/wrffdda_d01",
+    "wrfinput_d01.bp": "link -> <TMP>/cli/stage-both/layouts/both/wrfinput_d01.bp",
+    "wrflowinp_d01": "dir",
+    "wrflowinp_d02.bp": "link -> <TMP>/cli/stage-both/layouts/both/wrflowinp_d02.bp",
+    "wrfbdy_d01/wrfbdy_d01_2020-01-01_00:00:00.bp": "dir",
+    "wrfbdy_d01/wrfbdy_d01_2020-01-01_06:00:00.bp": "dir",
+    "wrfbdy_d01/wrfbdy_d01_2020-01-01_00:00:00.bp/data.0": "",
+    "wrfbdy_d01/wrfbdy_d01_2020-01-01_00:00:00.bp/md.idx": "",
+    "wrfbdy_d01/wrfbdy_d01_2020-01-01_06:00:00.bp/data.0": "",
+    "wrfbdy_d01/wrfbdy_d01_2020-01-01_06:00:00.bp/md.idx": "",
+    "wrflowinp_d01/wrflowinp_d01_2020-01-01_00:00:00.bp": "dir",
+    "wrflowinp_d01/wrflowinp_d01_2020-01-01_06:00:00.bp": "dir",
+    "wrflowinp_d01/wrflowinp_d01_2020-01-01_00:00:00.bp/data.0": "",
+    "wrflowinp_d01/wrflowinp_d01_2020-01-01_00:00:00.bp/md.idx": "",
+    "wrflowinp_d01/wrflowinp_d01_2020-01-01_06:00:00.bp/data.0": "",
+    "wrflowinp_d01/wrflowinp_d01_2020-01-01_06:00:00.bp/md.idx": ""
+   },
+   "<TMP>/cli/stage-both/convert.log": "convert wrfbdy_d01 BP4\nconvert wrflowinp_d01 BP4\n"
+  }
+ },
+ "stage-bp-only": {
+  "argv": [
+   "stage-bp-inputs",
+   "sc26p1",
+   "<TMP>/cli/stage-bp-only/namelist.input",
+   "<TMP>/cli/stage-bp-only/layouts/bp",
+   "--cache-dir",
+   "<TMP>/cli/stage-bp-only/cache"
+  ],
+  "env": {
+   "FAKE_BP_LOG": "<TMP>/cli/stage-bp-only/convert.log",
+   "FAKE_BP_REAL": "<REPO>/src/wtune_bp.py",
+   "WTUNE_BP_CACHE": "<TMP>/cli/stage-bp-only/bp-cache",
+   "WTUNE_SRC": "<TMP>/in/fake_src"
+  },
+  "rc": 0,
+  "stdout": "BP_DIR='<TMP>/cli/stage-bp-only/cache'\nWTUNE_AUX_BP_STREAMS='auxinput4'\nWTUNE_PER_RECORD_BP='wrflowinp_d01 wrflowinp_d02'\nBP_CONVERTED=''\n",
+  "stderr": "WARNING: gfdda input wrffdda_d01 found nowhere in <TMP>/cli/stage-bp-only/layouts/bp (neither netCDF nor .bp)\nBP input wrfbdy_d01.bp -> <TMP>/cli/stage-bp-only/layouts/bp/wrfbdy_d01.bp\nBP input wrfinput_d01.bp -> <TMP>/cli/stage-bp-only/layouts/bp/wrfinput_d01.bp\nBP input wrfinput_d02.bp -> <TMP>/cli/stage-bp-only/layouts/bp/wrfinput_d02.bp\nBP input wrflowinp_d01 -> <TMP>/cli/stage-bp-only/layouts/bp/wrflowinp_d01 (per record, 2 files)\nBP input wrflowinp_d02 -> <TMP>/cli/stage-bp-only/layouts/bp/wrflowinp_d02.bp (per record, 2 files)\nWARNING: <TMP>/cli/stage-bp-only/layouts/bp/wrfbdy_d01.bp is a single multi-record BP: WRF 4.8's ADIOS2 reader returns its FIRST record for every boundary/SST/FDDA read -- convert the netCDF per record instead (wtune convert inputs)\n",
+  "files": {
+   "<TMP>/cli/stage-bp-only/cache": {
+    ".stage.lock": "",
+    "wrfbdy_d01.bp": "link -> <TMP>/cli/stage-bp-only/layouts/bp/wrfbdy_d01.bp",
+    "wrfinput_d01.bp": "link -> <TMP>/cli/stage-bp-only/layouts/bp/wrfinput_d01.bp",
+    "wrfinput_d02.bp": "link -> <TMP>/cli/stage-bp-only/layouts/bp/wrfinput_d02.bp",
+    "wrflowinp_d01": "link -> <TMP>/cli/stage-bp-only/layouts/bp/wrflowinp_d01",
+    "wrflowinp_d02": "link -> <TMP>/cli/stage-bp-only/layouts/bp/wrflowinp_d02.bp"
+   }
+  }
+ },
+ "stage-dated": {
+  "argv": [
+   "stage-bp-inputs",
+   "sc26p1",
+   "<TMP>/cli/stage-dated/namelist.input",
+   "<TMP>/cli/stage-dated/layouts/dated",
+   "--cache-dir",
+   "<TMP>/cli/stage-dated/cache"
+  ],
+  "env": {
+   "FAKE_BP_LOG": "<TMP>/cli/stage-dated/convert.log",
+   "FAKE_BP_REAL": "<REPO>/src/wtune_bp.py",
+   "WTUNE_BP_CACHE": "<TMP>/cli/stage-dated/bp-cache",
+   "WTUNE_SRC": "<TMP>/in/fake_src"
+  },
+  "rc": 0,
+  "stdout": "BP_DIR='<TMP>/cli/stage-dated/cache'\nWTUNE_AUX_BP_STREAMS='auxinput5'\nWTUNE_PER_RECORD_BP='wrfbdy_d01'\nBP_CONVERTED='wrfinput_d01 wrfbdy_d01 wrfchemi_d01_2020-01-01_00:00:00'\n",
+  "stderr": "ADIOS2 inputs: converting wrfinput_d01 wrfbdy_d01 wrfchemi_d01_2020-01-01_00:00:00 from <TMP>/cli/stage-dated/layouts/dated in <TMP>/cli/stage-dated/cache (BP4)\nBP input wrfchemi_d01_2020-01-01_00:00:00.bp -> <TMP>/cli/stage-dated/cache/wrfchemi_d01_2020-01-01_00:00:00\nBP input wrfchemi_d01_2020-01-01_06:00:00.bp -> <TMP>/cli/stage-dated/layouts/dated/wrfchemi_d01_2020-01-01_06:00:00.bp\nBP input wrfinput_d01.bp -> <TMP>/cli/stage-dated/cache/wrfinput_d01\nBP input wrfbdy_d01 -> <TMP>/cli/stage-dated/cache/wrfbdy_d01 (per record, 2 files)\n",
+  "files": {
+   "<TMP>/cli/stage-dated/cache": {
+    ".stage.lock": "",
+    "wrfbdy_d01": "dir",
+    "wrfchemi_d01_2020-01-01_00:00:00": "dir",
+    "wrfchemi_d01_2020-01-01_00:00:00.bp": "link -> <TMP>/cli/stage-dated/cache/wrfchemi_d01_2020-01-01_00:00:00",
+    "wrfchemi_d01_2020-01-01_06:00:00.bp": "link -> <TMP>/cli/stage-dated/layouts/dated/wrfchemi_d01_2020-01-01_06:00:00.bp",
+    "wrfinput_d01": "dir",
+    "wrfinput_d01.bp": "link -> <TMP>/cli/stage-dated/cache/wrfinput_d01",
+    "wrfbdy_d01/wrfbdy_d01_2020-01-01_00:00:00.bp": "dir",
+    "wrfbdy_d01/wrfbdy_d01_2020-01-01_06:00:00.bp": "dir",
+    "wrfbdy_d01/wrfbdy_d01_2020-01-01_00:00:00.bp/data.0": "",
+    "wrfbdy_d01/wrfbdy_d01_2020-01-01_00:00:00.bp/md.idx": "",
+    "wrfbdy_d01/wrfbdy_d01_2020-01-01_06:00:00.bp/data.0": "",
+    "wrfbdy_d01/wrfbdy_d01_2020-01-01_06:00:00.bp/md.idx": "",
+    "wrfchemi_d01_2020-01-01_00:00:00/data.0": "",
+    "wrfchemi_d01_2020-01-01_00:00:00/md.idx": "",
+    "wrfinput_d01/data.0": "",
+    "wrfinput_d01/md.idx": ""
+   },
+   "<TMP>/cli/stage-dated/convert.log": "convert wrfinput_d01 BP4\nconvert wrfbdy_d01 BP4\nconvert wrfchemi_d01_2020-01-01_00:00:00 BP4\n"
+  }
+ },
+ "stage-check-bp": {
+  "argv": [
+   "stage-bp-inputs",
+   "sc26p1",
+   "<TMP>/cli/stage-check-bp/namelist.input",
+   "<TMP>/cli/stage-check-bp/layouts/bp",
+   "--check"
+  ],
+  "env": {
+   "FAKE_BP_LOG": "<TMP>/cli/stage-check-bp/convert.log",
+   "FAKE_BP_REAL": "<REPO>/src/wtune_bp.py",
+   "WTUNE_BP_CACHE": "<TMP>/cli/stage-check-bp/bp-cache",
+   "WTUNE_SRC": "<TMP>/in/fake_src"
+  },
+  "rc": 0,
+  "stdout": "BP_DIR='<TMP>/cli/stage-check-bp/bp-cache/sc26p1/<SHA12>'\nWTUNE_AUX_BP_STREAMS='auxinput4'\nWTUNE_PER_RECORD_BP='wrflowinp_d01 wrflowinp_d02'\nBP_CONVERTED=''\n",
+  "stderr": "WARNING: gfdda input wrffdda_d01 found nowhere in <TMP>/cli/stage-check-bp/layouts/bp (neither netCDF nor .bp)\nWARNING: <TMP>/cli/stage-check-bp/layouts/bp/wrfbdy_d01.bp is a single multi-record BP: WRF 4.8's ADIOS2 reader returns its FIRST record for every boundary/SST/FDDA read -- convert the netCDF per record instead (wtune convert inputs)\n"
+ },
+ "stage-check-netcdf": {
+  "argv": [
+   "stage-bp-inputs",
+   "sc26p1",
+   "<TMP>/cli/stage-check-netcdf/namelist.input",
+   "<TMP>/cli/stage-check-netcdf/layouts/netcdf",
+   "--check",
+   "--cache-dir",
+   "<TMP>/cli/stage-check-netcdf/cache"
+  ],
+  "env": {
+   "FAKE_BP_LOG": "<TMP>/cli/stage-check-netcdf/convert.log",
+   "FAKE_BP_REAL": "<REPO>/src/wtune_bp.py",
+   "WTUNE_BP_CACHE": "<TMP>/cli/stage-check-netcdf/bp-cache",
+   "WTUNE_SRC": "<TMP>/in/fake_src"
+  },
+  "rc": 1,
+  "stdout": "",
+  "stderr": "WARNING: gfdda input wrffdda_d01 found nowhere in <TMP>/cli/stage-check-netcdf/layouts/netcdf (neither netCDF nor .bp)\nWARNING: <TMP>/cli/stage-check-netcdf/layouts/netcdf/wrfinput_d01 is netCDF only (no .bp next to it) -- its stream stays netCDF\nWARNING: <TMP>/cli/stage-check-netcdf/layouts/netcdf/wrfinput_d02 is netCDF only (no .bp next to it) -- its stream stays netCDF\nWARNING: <TMP>/cli/stage-check-netcdf/layouts/netcdf/wrfbdy_d01 is netCDF only (no .bp next to it) -- its stream stays netCDF\nWARNING: <TMP>/cli/stage-check-netcdf/layouts/netcdf/wrflowinp_d01 is netCDF only (no .bp next to it) -- its stream stays netCDF\nWARNING: <TMP>/cli/stage-check-netcdf/layouts/netcdf/wrflowinp_d02 is netCDF only (no .bp next to it) -- its stream stays netCDF\nFATAL: --check: wrfinput/wrfbdy are not all BP in <TMP>/cli/stage-check-netcdf/layouts/netcdf\n"
+ },
+ "stage-check-both": {
+  "argv": [
+   "stage-bp-inputs",
+   "sc26p1",
+   "<TMP>/cli/stage-check-both/namelist.input",
+   "<TMP>/cli/stage-check-both/layouts/both",
+   "--check",
+   "--cache-dir",
+   "<TMP>/cli/stage-check-both/cache"
+  ],
+  "env": {
+   "FAKE_BP_LOG": "<TMP>/cli/stage-check-both/convert.log",
+   "FAKE_BP_REAL": "<REPO>/src/wtune_bp.py",
+   "WTUNE_BP_CACHE": "<TMP>/cli/stage-check-both/bp-cache",
+   "WTUNE_SRC": "<TMP>/in/fake_src"
+  },
+  "rc": 1,
+  "stdout": "",
+  "stderr": "WARNING: <TMP>/cli/stage-check-both/layouts/both/wrfbdy_d01 is netCDF only (no .bp next to it) -- its stream stays netCDF\nWARNING: <TMP>/cli/stage-check-both/layouts/both/wrflowinp_d01 is netCDF only (no .bp next to it) -- its stream stays netCDF\nFATAL: --check: wrfinput/wrfbdy are not all BP in <TMP>/cli/stage-check-both/layouts/both\n"
+ },
+ "stage-missing-bdy": {
+  "argv": [
+   "stage-bp-inputs",
+   "sc26p1",
+   "<TMP>/cli/stage-missing-bdy/namelist.input",
+   "<TMP>/cli/stage-missing-bdy/layouts/missing",
+   "--cache-dir",
+   "<TMP>/cli/stage-missing-bdy/cache"
+  ],
+  "env": {
+   "FAKE_BP_LOG": "<TMP>/cli/stage-missing-bdy/convert.log",
+   "FAKE_BP_REAL": "<REPO>/src/wtune_bp.py",
+   "WTUNE_BP_CACHE": "<TMP>/cli/stage-missing-bdy/bp-cache",
+   "WTUNE_SRC": "<TMP>/in/fake_src"
+  },
+  "rc": 1,
+  "stdout": "",
+  "stderr": "ADIOS2 inputs: converting wrfinput_d01 from <TMP>/cli/stage-missing-bdy/layouts/missing in <TMP>/cli/stage-missing-bdy/cache (BP4)\nWARNING: boundary input wrfbdy_d01 found nowhere in <TMP>/cli/stage-missing-bdy/layouts/missing (neither netCDF nor .bp)\nWARNING: auxinput4 input wrflowinp_d01 found nowhere in <TMP>/cli/stage-missing-bdy/layouts/missing (neither netCDF nor .bp)\nWARNING: auxinput4 input wrflowinp_d02 found nowhere in <TMP>/cli/stage-missing-bdy/layouts/missing (neither netCDF nor .bp)\nWARNING: gfdda input wrffdda_d01 found nowhere in <TMP>/cli/stage-missing-bdy/layouts/missing (neither netCDF nor .bp)\nFATAL: wrfinput/wrfbdy not available as ADIOS2 inputs for sc26p1\n",
+  "files": {
+   "<TMP>/cli/stage-missing-bdy/cache": {
+    ".stage.lock": "",
+    "wrfinput_d01": "dir",
+    "wrfinput_d01/data.0": "",
+    "wrfinput_d01/md.idx": ""
+   },
+   "<TMP>/cli/stage-missing-bdy/convert.log": "convert wrfinput_d01 BP4\n"
+  }
+ },
+ "stage-convert-fails": {
+  "argv": [
+   "stage-bp-inputs",
+   "sc26p1",
+   "<TMP>/cli/stage-convert-fails/namelist.input",
+   "<TMP>/cli/stage-convert-fails/layouts/netcdf",
+   "--cache-dir",
+   "<TMP>/cli/stage-convert-fails/cache"
+  ],
+  "env": {
+   "FAKE_BP_FAIL": "1",
+   "FAKE_BP_LOG": "<TMP>/cli/stage-convert-fails/convert.log",
+   "FAKE_BP_REAL": "<REPO>/src/wtune_bp.py",
+   "WTUNE_BP_CACHE": "<TMP>/cli/stage-convert-fails/bp-cache",
+   "WTUNE_SRC": "<TMP>/in/fake_src"
+  },
+  "rc": 1,
+  "stdout": "",
+  "stderr": "FATAL: ADIOS2 input staging failed for sc26p1: RuntimeError: no Python that can import adios2\n",
+  "files": {
+   "<TMP>/cli/stage-convert-fails/cache": {
+    ".stage.lock": ""
+   }
+  }
+ },
+ "stage-no-namelist": {
+  "argv": [
+   "stage-bp-inputs",
+   "sc26p1",
+   "<TMP>/cli/stage-no-namelist/nothing",
+   "<TMP>/cli/stage-no-namelist"
+  ],
+  "env": {
+   "FAKE_BP_LOG": "<TMP>/cli/stage-no-namelist/convert.log",
+   "FAKE_BP_REAL": "<REPO>/src/wtune_bp.py",
+   "WTUNE_BP_CACHE": "<TMP>/cli/stage-no-namelist/bp-cache",
+   "WTUNE_SRC": "<TMP>/in/fake_src"
+  },
+  "rc": 1,
+  "stdout": "",
+  "stderr": "Traceback (most recent call last):\n  ...\nFileNotFoundError: [Errno 2] No such file or directory: '<TMP>/cli/stage-no-namelist/nothing'\n"
+ },
+ "stage-help": {
+  "argv": [
+   "stage-bp-inputs",
+   "--help"
+  ],
+  "env": {},
+  "rc": 0,
+  "stdout": "usage: configs.py stage-bp-inputs [-h] [--cache-dir CACHE_DIR] [--check]\n                                  case_id namelist src_dir\n\npositional arguments:\n  case_id\n  namelist\n  src_dir\n\noptions:\n  -h, --help            show this help message and exit\n  --cache-dir CACHE_DIR\n  --check\n",
+  "stderr": ""
+ }
+}

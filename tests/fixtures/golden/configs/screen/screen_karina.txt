@@ -1,0 +1,5 @@
+STAGE 2 SpeedyWeather probe
+  radt        [PHYSICS-GRAY ] PASS->WRF   dT=0.02
+  swint_opt   [PHYSICS-GRAY ] CONFIRM     dT=0.00
+  time_step   [STRICT ] REJECT  cfl
+  mp_physics  [PHYSICS-GRAY ] NEED-PROBE

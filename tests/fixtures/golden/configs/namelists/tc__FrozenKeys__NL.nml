@@ -1,0 +1,6 @@
+&domains
+ time_step = 10, max_dom = 1,
+/
+&physics
+ radt = 9,
+/

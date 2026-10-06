@@ -1,0 +1,9 @@
+&physics
+ mp_physics = 8, 8, 8,
+ radt = 3, 3, 3,
+ swint_opt = 1,
+/
+&domains
+ max_dom=3,
+ time_step = 15,
+/

@@ -1,0 +1,9 @@
+&domains
+ time_step=15, max_dom=2,
+/
+&physics
+ mp_physics = 8, 8,
+/
+&dynamics
+ diff_opt=1, km_opt=4,
+/

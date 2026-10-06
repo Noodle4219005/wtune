@@ -1,0 +1,11 @@
+&time_control
+ run_days = 0,
+ run_hours = 6,
+ run_minutes = 0,
+ history_interval_m = 60
+ io_form_history = 2
+/
+&domains
+ nproc_x = 8, nproc_y = 56,
+ time_step = 15,
+/

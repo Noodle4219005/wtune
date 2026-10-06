@@ -1,0 +1,18 @@
+&time_control
+ run_minutes = 0,
+ history_interval = 5, 5, 5,
+ io_form_history = 11,
+ io_form_input = 11,
+ io_form_boundary = 11,
+ io_form_restart = 11,
+/
+&domains
+ max_dom = 2,
+ time_step = 10,
+/
+&namelist_quilt
+ nio_tasks_per_group = 32,
+ nio_groups = 4,
+! nio_tasks_per_group = 0,
+! nio_groups = 1,
+/

@@ -1,0 +1,7 @@
+rc=2
+--- log
+--- stdout
+
+--- stderr
+error: --stop-at 2020-06-01_00:00:00 is not after the run start 2020-06-01_00:00:00
+

@@ -1,0 +1,54 @@
+rc=0
+--- log
+run 2020-06-01_00:00:00 -> 2020-06-01_12:00:00 (720 d01 steps of 60s); 1 segment(s), restart checkpoints every 360 min (auto, for --resume), overheads: fallback (conus25/dorian2019 I/O anchors)
+  seg 0  2020-06-01_00:00:00 -> 2020-06-01_12:00:00  cli      8x9 t1 omp1  predicted 00:07:36  --time=00:25:00
+  note: no prediction: 0.465 s/step fallback (cell-step model x 1.5); later segments' --time from each finished segment's observed rate
+  note: WARNING: the namelist's iofields_filename names iofields_d01.txt, which is not in CASE_DIR -- every segment will lack it (WRF 4.8 hangs at input_input when the iofields file is missing, even with ignore_iofields_warning=.true.)
+I/O: ADIOS2 (history/restart/input/boundary), inputs from <TMP>/out/_bp_inputs (3 netCDF -> BP4, 1 existing BP); one BP per record: wrfbdy_d01
+namelist diff, segment 0:
+  + bdy_inname = "wrfbdy_d<domain>_<date>.bp",
+  + input_inname = "wrfinput_d<domain>.bp",
+  + end_second = 00, 00, 00,
+  + end_minute = 00, 00, 00,
+  + start_second = 00, 00, 00,
+  + start_minute = 00, 00, 00,
+  - run_hours                           = 12,
+  + run_hours                           = 0,
+  - run_seconds                         = 0,
+  + run_seconds                         = 43200,
+  - start_month                         = 06,   06,   06,
+  - start_day                           = 01,   01,   01,
+  - start_hour                          = 00,   00,   00,
+  + start_month                         = 06, 06, 06,
+  + start_day                           = 01, 01, 01,
+  + start_hour                          = 00, 00, 00,
+  - end_month                           = 06,   06,   06,
+  - end_day                             = 01,   01,   01,
+  - end_hour                            = 12,   12,   12,
+  + end_month                           = 06, 06, 06,
+  + end_day                             = 01, 01, 01,
+  + end_hour                            = 12, 12, 12,
+  - restart_interval                    = 7200,
+  + restart_interval                    = 360,
+  - io_form_history                     = 2
+  - io_form_restart                     = 2
+  - io_form_input                       = 2
+  - io_form_boundary                    = 2
+  + io_form_history                     = 14
+  + io_form_restart                     = 14
+  + io_form_input                       = 14
+  + io_form_boundary                    = 14
+  + numtiles = 1,
+  + nproc_y = 9,
+  + nproc_x = 8,
+  +&bdy_control
+  + multi_bdy_files = .true.,
+  +/
+  +
+  +&namelist_adios2
+  + adios2_numaggregators = 72,
+  +/
+--- stdout
+
+--- stderr
+

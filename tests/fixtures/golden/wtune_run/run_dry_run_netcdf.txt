@@ -1,0 +1,72 @@
+rc=0
+--- log
+run 2020-06-01_00:00:00 -> 2020-06-01_12:00:00 (720 d01 steps of 60s); 4 segment(s), restart checkpoints every 90 min (auto, for --resume), overheads: fallback (conus25/dorian2019 I/O anchors)
+  seg 0  2020-06-01_00:00:00 -> 2020-06-01_03:00:00  cli      8x9 t1 omp1  predicted 00:03:28  --time=00:20:00
+  seg 1  2020-06-01_03:00:00 -> 2020-06-01_06:00:00  cli      8x9 t1 omp1  predicted 00:03:27  --time=00:20:00
+  seg 2  2020-06-01_06:00:00 -> 2020-06-01_09:00:00  cli      8x9 t1 omp1  predicted 00:03:27  --time=00:20:00
+  seg 3  2020-06-01_09:00:00 -> 2020-06-01_12:00:00  cli      8x9 t1 omp1  predicted 00:03:27  --time=00:20:00
+  note: no prediction: 0.465 s/step fallback (cell-step model x 1.5); later segments' --time from each finished segment's observed rate
+WARNING: --io netcdf is the LEGACY netCDF I/O path (ADIOS2 is the default for every WRF stream since 2026-10-03): the case's own io_form_history/input/boundary/aux are kept, restart io_form 14
+I/O: LEGACY netCDF (--io netcdf): case io_form_* kept, restart io_form 14
+namelist diff, segment 0:
+  + end_second = 00, 00, 00,
+  + end_minute = 00, 00, 00,
+  + start_second = 00, 00, 00,
+  + start_minute = 00, 00, 00,
+  - run_hours                           = 12,
+  + run_hours                           = 0,
+  - run_seconds                         = 0,
+  + run_seconds                         = 10800,
+  - start_month                         = 06,   06,   06,
+  - start_day                           = 01,   01,   01,
+  - start_hour                          = 00,   00,   00,
+  + start_month                         = 06, 06, 06,
+  + start_day                           = 01, 01, 01,
+  + start_hour                          = 00, 00, 00,
+  - end_month                           = 06,   06,   06,
+  - end_day                             = 01,   01,   01,
+  - end_hour                            = 12,   12,   12,
+  + end_month                           = 06, 06, 06,
+  + end_day                             = 01, 01, 01,
+  + end_hour                            = 03, 03, 03,
+  - restart_interval                    = 7200,
+  + restart_interval                    = 90,
+  - io_form_restart                     = 2
+  + io_form_restart                     = 14
+  + numtiles = 1,
+  + nproc_y = 9,
+  + nproc_x = 8,
+namelist diff, segment 1:
+  + end_second = 00, 00, 00,
+  + end_minute = 00, 00, 00,
+  + start_second = 00, 00, 00,
+  + start_minute = 00, 00, 00,
+  - run_hours                           = 12,
+  + run_hours                           = 0,
+  - run_seconds                         = 0,
+  + run_seconds                         = 10800,
+  - start_month                         = 06,   06,   06,
+  - start_day                           = 01,   01,   01,
+  - start_hour                          = 00,   00,   00,
+  + start_month                         = 06, 06, 06,
+  + start_day                           = 01, 01, 01,
+  + start_hour                          = 03, 03, 03,
+  - end_month                           = 06,   06,   06,
+  - end_day                             = 01,   01,   01,
+  - end_hour                            = 12,   12,   12,
+  + end_month                           = 06, 06, 06,
+  + end_day                             = 01, 01, 01,
+  + end_hour                            = 06, 06, 06,
+  - restart                             = .false.,
+  - restart_interval                    = 7200,
+  + restart                             = .true.,
+  + restart_interval                    = 90,
+  - io_form_restart                     = 2
+  + io_form_restart                     = 14
+  + numtiles = 1,
+  + nproc_y = 9,
+  + nproc_x = 8,
+--- stdout
+
+--- stderr
+

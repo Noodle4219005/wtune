@@ -3,9 +3,13 @@
 
 A restart time T is valid when every domain's wrfrst_d<NN>_<T> is complete on disk and the rsl
 shows its write finished; `wtune run --sidecar` records the same list while the job runs."""
+from __future__ import annotations
+
+import datetime as dt
 import glob
 import os
 import re
+from typing import Callable, Iterable, Optional
 
 import wtune_watch
 
@@ -17,7 +21,7 @@ MODEL_NEEDLES = ("cfl", "segmentation fault", "forrtl", "fatal called")
 _RST_RE = re.compile(r"^wrfrst_d(\d\d)_(\d{4}-\d\d-\d\d_\d\d:\d\d:\d\d)(\.bp)?$")
 
 
-def rsl_mentions(rundir, needles):
+def rsl_mentions(rundir: str, needles: Iterable[str]) -> bool:
     """True when any rsl.* line of any rank contains one of `needles` (lower case)."""
     for path in glob.glob(os.path.join(rundir, "rsl.*")):
         try:
@@ -31,7 +35,7 @@ def rsl_mentions(rundir, needles):
     return False
 
 
-def classify_failure(state, model_error):
+def classify_failure(state: str, model_error: bool) -> str:
     """Failure class of a segment job that did not finish: 'infrastructure' (resumable),
     'model', 'cancelled' or 'other'."""
     if state.startswith("CANCELLED"):
@@ -43,12 +47,12 @@ def classify_failure(state, model_error):
     return "infrastructure" if state in QUIET_STATES else "other"
 
 
-def restart_complete(path, is_bp):
+def restart_complete(path: str, is_bp: Callable[[str], bool]) -> bool:
     """A written restart: a BP directory, or a non-empty netCDF file (io_form_restart 2)."""
     return is_bp(path) or (os.path.isfile(path) and os.path.getsize(path) > 0)
 
 
-def restart_sets_on_disk(seg_dir, max_dom, is_bp):
+def restart_sets_on_disk(seg_dir: str, max_dom: int, is_bp: Callable[[str], bool]) -> list[str]:
     """Sorted times whose wrfrst_d<NN>_<T> is complete for every domain 1..max_dom."""
     try:
         names = os.listdir(seg_dir)
@@ -65,7 +69,7 @@ def restart_sets_on_disk(seg_dir, max_dom, is_bp):
     return sorted(t for t, got in doms.items() if want <= got)
 
 
-def restart_writes_finished(rsl_text, max_dom):
+def restart_writes_finished(rsl_text: str, max_dom: int) -> list[dt.datetime]:
     """Times whose restart write finished for every domain: WRF prints one 'Timing for Writing
     restart for domain N' per domain after T's d01 Timing line and before the next one."""
     steps, trailing = wtune_watch.parse_d01_steps(rsl_text)
@@ -79,7 +83,8 @@ def restart_writes_finished(rsl_text, max_dom):
     return out
 
 
-def valid_restart_times(seg_dir, max_dom, is_bp, skip=()):
+def valid_restart_times(seg_dir: str, max_dom: int, is_bp: Callable[[str], bool],
+                        skip: Iterable[str] = ()) -> list[str]:
     """WRF_FMT times of seg_dir's valid restarts (module docstring), those in `skip` left out.
     The rsl is the rank-0 file wtune_watch.read_rsl picks (either can be truncated)."""
     on_disk = [t for t in restart_sets_on_disk(seg_dir, max_dom, is_bp) if t not in skip]
@@ -90,14 +95,15 @@ def valid_restart_times(seg_dir, max_dom, is_bp, skip=()):
     return [t for t in on_disk if t in done]
 
 
-def last_d01_time(seg_dir):
+def last_d01_time(seg_dir: str) -> Optional[dt.datetime]:
     """The last d01 'Timing for main' time in seg_dir's rsl, or None."""
     chosen = wtune_watch.read_rsl(seg_dir)[0]
     times = [t for dom, t, _s in (chosen["timing"] if chosen else []) if dom == 1 and t]
     return times[-1] if times else None
 
 
-def resume_point(steps, a, b, unit, last_step):
+def resume_point(steps: list, a: int, b: int, unit: int,
+                 last_step) -> tuple[Optional[int], Optional[str]]:
     """(step, None): the latest valid restart step usable to resume an attempt over (a, b] --
     after its start, before its end, on the `unit` grid (input record times) -- or (None, why).
     `steps` are the valid restarts' d01 step indices, None for one off the step grid."""

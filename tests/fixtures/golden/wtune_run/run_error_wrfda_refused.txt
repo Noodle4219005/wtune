@@ -1,0 +1,7 @@
+rc=2
+--- log
+--- stdout
+
+--- stderr
+error: wtune run refused: WRFDA case (&wrfvar1,wrfvar3,wrfvar4,wrfvar5,wrfvar6,wrfvar7 group(s) in namelist.input). WTune does not run or orchestrate DA cycles (obsproc -> da_wrfvar.exe -> da_update_bc -> forecast); `wtune run` only segments wrf.exe forecasts. Run the DA cycle with your own workflow; to run only the forecast segments here, add --wrfda-forecast-only.
+

@@ -1,0 +1,7 @@
+rc=2
+--- log
+--- stdout
+
+--- stderr
+error: --checkpoint-minutes takes 'auto' or whole minutes >= 0, not 'soon'
+

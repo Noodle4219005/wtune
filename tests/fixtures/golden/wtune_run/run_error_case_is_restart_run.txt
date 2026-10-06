@@ -1,0 +1,7 @@
+rc=2
+--- log
+--- stdout
+
+--- stderr
+error: the case itself is a restart run (restart=.true.): not supported
+

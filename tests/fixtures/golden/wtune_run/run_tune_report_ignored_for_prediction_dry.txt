@@ -1,0 +1,54 @@
+rc=0
+--- log
+layout from tune report: N=1 8x9 tiles 2 omp 1 (cores/node 72, 0.5000 s/step)
+run 2020-06-01_00:00:00 -> 2020-06-01_12:00:00 (720 d01 steps of 60s); 1 segment(s), restart checkpoints every 360 min (auto, for --resume), overheads: prediction (measured io)
+  seg 0  2020-06-01_00:00:00 -> 2020-06-01_12:00:00  cli      8x9 t2 omp1  predicted 00:12:12  --time=00:30:00
+  note: tune report has no ranking points: ignored (--prediction is used)
+I/O: ADIOS2 (history/restart/input/boundary), inputs from <TMP>/out/_bp_inputs (3 netCDF -> BP4, 1 existing BP); one BP per record: wrfbdy_d01
+namelist diff, segment 0:
+  + bdy_inname = "wrfbdy_d<domain>_<date>.bp",
+  + input_inname = "wrfinput_d<domain>.bp",
+  + end_second = 00, 00, 00,
+  + end_minute = 00, 00, 00,
+  + start_second = 00, 00, 00,
+  + start_minute = 00, 00, 00,
+  - run_hours                           = 12,
+  + run_hours                           = 0,
+  - run_seconds                         = 0,
+  + run_seconds                         = 43200,
+  - start_month                         = 06,   06,   06,
+  - start_day                           = 01,   01,   01,
+  - start_hour                          = 00,   00,   00,
+  + start_month                         = 06, 06, 06,
+  + start_day                           = 01, 01, 01,
+  + start_hour                          = 00, 00, 00,
+  - end_month                           = 06,   06,   06,
+  - end_day                             = 01,   01,   01,
+  - end_hour                            = 12,   12,   12,
+  + end_month                           = 06, 06, 06,
+  + end_day                             = 01, 01, 01,
+  + end_hour                            = 12, 12, 12,
+  - restart_interval                    = 7200,
+  - io_form_history                     = 2
+  - io_form_restart                     = 2
+  - io_form_input                       = 2
+  - io_form_boundary                    = 2
+  + restart_interval                    = 360,
+  + io_form_history                     = 14
+  + io_form_restart                     = 14
+  + io_form_input                       = 14
+  + io_form_boundary                    = 14
+  + numtiles = 2,
+  + nproc_y = 9,
+  + nproc_x = 8,
+  +&bdy_control
+  + multi_bdy_files = .true.,
+  +/
+  +
+  +&namelist_adios2
+  + adios2_numaggregators = 72,
+  +/
+--- stdout
+
+--- stderr
+

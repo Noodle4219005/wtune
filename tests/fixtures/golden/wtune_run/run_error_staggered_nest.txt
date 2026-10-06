@@ -1,0 +1,7 @@
+rc=2
+--- log
+--- stdout
+
+--- stderr
+error: d02 starts at 2020-06-01_03:00:00, not with d01 (2020-06-01_00:00:00): staggered nest starts are not supported
+

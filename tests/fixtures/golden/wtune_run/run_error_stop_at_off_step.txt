@@ -1,0 +1,7 @@
+rc=2
+--- log
+--- stdout
+
+--- stderr
+error: --stop-at 2020-06-01_06:00:30 is not on a whole time step (dt=60s from 2020-06-01_00:00:00)
+

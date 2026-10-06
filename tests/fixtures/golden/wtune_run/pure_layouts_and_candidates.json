@@ -1,0 +1,118 @@
+{
+ "tune_report_layout": [
+  {
+   "nodes": 1,
+   "nx": 8,
+   "ny": 9,
+   "numtiles": 2,
+   "omp": 1,
+   "cores_per_node": 72,
+   "median": 0.5,
+   "cid": "ANCHOR"
+  },
+  {
+   "nodes": 1,
+   "nx": 6,
+   "ny": 9,
+   "numtiles": 2,
+   "omp": 1,
+   "cores_per_node": 72,
+   "median": 0.5,
+   "cid": null
+  },
+  {
+   "nodes": 1,
+   "nx": 4,
+   "ny": 18,
+   "numtiles": 2,
+   "omp": 1,
+   "cores_per_node": 72,
+   "median": 0.6,
+   "cid": "ANCHOR"
+  },
+  {
+   "nodes": 2,
+   "nx": 8,
+   "ny": 9,
+   "numtiles": 2,
+   "omp": 1,
+   "cores_per_node": 72,
+   "median": 0.3,
+   "cid": "ANCHOR"
+  },
+  null,
+  null
+ ],
+ "make_config": [
+  {
+   "id": "cli",
+   "nx": 8,
+   "ny": 9,
+   "ranks": 72,
+   "numtiles": 1,
+   "omp": 1,
+   "nodes": 1,
+   "dist": "block"
+  },
+  {
+   "id": "G7",
+   "nx": 6,
+   "ny": 12,
+   "ranks": 72,
+   "numtiles": 2,
+   "omp": 2,
+   "nodes": 2,
+   "dist": "cyclic"
+  },
+  "RunError: config cli: 81 ranks x 1 threads exceeds 1 node(s) x 72 cores"
+ ],
+ "rank_mapping_notes": [
+  [],
+  [
+   "WARNING: 80 ranks do not divide over 6 nodes: ppr 14/node places 84 (wtune tune measured ranks//nodes = 13/node)"
+  ],
+  [
+   "WARNING: 16 ranks/node x 3 threads = 48 cores/node, the tune report measured 72"
+  ],
+  [
+   "WARNING: 3 ranks do not divide over 2 nodes: ppr 2/node places 4 (wtune tune measured ranks//nodes = 1/node)",
+   "WARNING: 2 ranks/node x 40 threads = 80 cores > 72 per node"
+  ]
+ ],
+ "tune_candidates": [
+  {
+   "id": "A",
+   "nx": 8,
+   "ny": 9,
+   "ranks": 72,
+   "numtiles": 1,
+   "omp": 1,
+   "nodes": 1,
+   "dist": "block"
+  },
+  {
+   "id": "B",
+   "nx": 6,
+   "ny": 12,
+   "ranks": 72,
+   "numtiles": 2,
+   "omp": 1,
+   "nodes": 1,
+   "dist": "cyclic"
+  }
+ ],
+ "tune_candidates_compute": [
+  [
+   560.0027777777779,
+   931.0000000000001
+  ],
+  [
+   824.0,
+   816.0
+  ]
+ ],
+ "tune_candidates_errors": [
+  "RunError: --tune-report was measured at 2 node(s), --nodes is 1",
+  "RunError: --tune-report has no ranking row with measured points and no winner with a measured median s/step"
+ ]
+}

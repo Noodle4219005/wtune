@@ -1,0 +1,85 @@
+{
+ "completed": {
+  "result": [
+   "COMPLETED",
+   3723.0
+  ],
+  "log": [
+   "  job 77: PENDING",
+   "  job 77: RUNNING",
+   "  job 77: COMPLETED"
+  ],
+  "on_poll": [
+   "PENDING",
+   "RUNNING",
+   "RUNNING"
+  ],
+  "sleeps": [
+   3.0,
+   3.0,
+   3.0
+  ]
+ },
+ "failed_at_once": {
+  "result": [
+   "NODE_FAIL",
+   86410.0
+  ],
+  "log": [
+   "  job 77: NODE_FAIL"
+  ],
+  "on_poll": [],
+  "sleeps": []
+ },
+ "unknown_then_listed": {
+  "result": [
+   "TIMEOUT",
+   1800.0
+  ],
+  "log": [
+   "  job 77: UNKNOWN",
+   "  job 77: TIMEOUT"
+  ],
+  "on_poll": [
+   "UNKNOWN",
+   "UNKNOWN"
+  ],
+  "sleeps": [
+   3.0,
+   3.0
+  ]
+ },
+ "never_listed": {
+  "result": [
+   "UNKNOWN",
+   null
+  ],
+  "log": [
+   "  job 77: UNKNOWN"
+  ],
+  "on_poll": [
+   "UNKNOWN",
+   "UNKNOWN",
+   "UNKNOWN",
+   "UNKNOWN",
+   "UNKNOWN",
+   "UNKNOWN",
+   "UNKNOWN",
+   "UNKNOWN",
+   "UNKNOWN",
+   "UNKNOWN"
+  ],
+  "sleeps": [
+   3.0,
+   3.0,
+   3.0,
+   3.0,
+   3.0,
+   3.0,
+   3.0,
+   3.0,
+   3.0,
+   3.0
+  ]
+ }
+}

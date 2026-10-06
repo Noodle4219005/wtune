@@ -2,16 +2,16 @@
 """wtune_sidecar.py -- `wtune run --sidecar`: work done next to a running segment job.
 
 Every controller poll records the newly valid restarts (wtune_resume) in run_report.json and
-hands finished history frames to ONE srun inside the job's allocation, bound to the cores WRF
-leaves idle, which converts them BP -> netCDF into the `wtune post` cache. Leftovers are
-converted after the run on a node of their own. The head process itself never converts.
+hands finished history frames to ONE srun in the job's allocation, on the cores WRF leaves idle,
+which converts them BP -> netCDF into the `wtune post` cache (`wtune_sidecar.py convert`);
+leftovers are converted after the run on a node of their own. The head process never converts."""
+from __future__ import annotations
 
-    python wtune_sidecar.py convert --run-dir OUT --nc-cache ROOT [BP ...]     (what srun runs)
-"""
 import argparse
 import os
 import subprocess
 import sys
+from typing import Any, Callable, Iterable, Mapping, Optional
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 if _HERE not in sys.path:
@@ -24,29 +24,29 @@ MAX_BATCH = 64                  # frames per in-job srun
 FINAL_TIME = "01:00:00"         # --time of the after-run conversion
 
 
-def post_cache_root(run_dir, project_dir=None):
+def post_cache_root(run_dir: str, project_dir: Optional[str] = None) -> str:
     """The netCDF cache root `wtune post` uses for run_dir: $WTUNE_NC_CACHE, else
     <project>/_nc_cache, else <run_dir>/_nc_cache."""
     with extract.nc_cache(base=project_dir):
         return extract.nc_cache_root(run_dir)
 
 
-def idle_cores(config, cores_per_node):
+def idle_cores(config: Mapping, cores_per_node: int) -> list[int]:
     """Core ids of a node the launch leaves free: mpirun packs ranks x omp from core 0."""
     used = -(-config["ranks"] // config["nodes"]) * config["omp"]
     return list(range(used, cores_per_node))
 
 
-def cpu_mask(cores):
+def cpu_mask(cores: Iterable[int]) -> str:
     return hex(sum(1 << c for c in cores))
 
 
-def bound_within(mask):
+def bound_within(mask: str) -> bool:
     """True when this process may run only on cores of hex `mask` (the srun binding took)."""
     return all(int(mask, 16) >> c & 1 for c in os.sched_getaffinity(0))
 
 
-def bind_to(mask):
+def bind_to(mask: str) -> bool:
     """Restrict this process to its allowed cores inside hex `mask`; False when there are none.
     scc has no Slurm TaskPlugin, so srun --cpu-bind is a no-op there."""
     wanted = {c for c in os.sched_getaffinity(0) if int(mask, 16) >> c & 1}
@@ -58,7 +58,7 @@ def bind_to(mask):
     return bool(wanted)
 
 
-def finished_frames(seg_dir, job_ended):
+def finished_frames(seg_dir: str, job_ended: bool) -> list[str]:
     """BP history dirs of seg_dir that WRF has closed: every written frame a later frame of
     its domain follows -- all of them once the job ended."""
     by_dom = {}
@@ -68,7 +68,7 @@ def finished_frames(seg_dir, job_ended):
     return sorted(p for paths in by_dom.values() for p in (paths if job_ended else paths[:-1]))
 
 
-def in_job_srun(job_id, cores, cores_per_node, nodes):
+def in_job_srun(job_id: str, cores: list, cores_per_node: int, nodes: int) -> list[str]:
     """srun prefix: one task on the LAST node of job_id's allocation (rank 0 is on the first),
     bound to `cores`."""
     # -c is the whole node so the mask lies inside the step's cpuset, whichever cores Slurm picks
@@ -76,13 +76,14 @@ def in_job_srun(job_id, cores, cores_per_node, nodes):
             "-c", str(cores_per_node), "--cpu-bind=verbose,mask_cpu:%s" % cpu_mask(cores)]
 
 
-def own_srun(cores_per_node, exclude_arg):
+def own_srun(cores_per_node: int, exclude_arg: str) -> list[str]:
     """srun prefix: one whole node of its own (the run's allocation is gone)."""
     return ["srun", "-p", "compute", "-N1", "-n1", "-c", str(cores_per_node),
             "--time=%s" % FINAL_TIME, exclude_arg]
 
 
-def convert_argv(run_dir, cache_root, frames, mask=None):
+def convert_argv(run_dir: str, cache_root: str, frames: Iterable[str],
+                 mask: Optional[str] = None) -> list[str]:
     """The conversion command: `frames` (none: every frame of run_dir); with `mask` it refuses
     to run unless bound inside it."""
     return ([sys.executable, os.path.abspath(__file__), "convert"]
@@ -90,7 +91,7 @@ def convert_argv(run_dir, cache_root, frames, mask=None):
             + ["--run-dir", run_dir, "--nc-cache", cache_root] + list(frames))
 
 
-def popen_runner(log_path):
+def popen_runner(log_path: str) -> Callable[[list], Any]:
     """runner(argv) -> a started subprocess.Popen, its output appended to log_path."""
     def run(argv):
         with open(log_path, "a") as f:
@@ -116,8 +117,10 @@ class Sidecar:
     """One run's sidecar state. runner(argv) starts a process and returns a handle with
     poll()/wait(); at most one is alive at a time."""
 
-    def __init__(self, run_dir, cache_root, max_dom, is_bp, report, save, log, cores_per_node,
-                 exclude_arg, runner):
+    def __init__(self, run_dir: str, cache_root: str, max_dom: int,
+                 is_bp: Callable[[str], bool], report: dict, save: Callable[[], None],
+                 log: Callable[[str], None], cores_per_node: int, exclude_arg: str,
+                 runner: Callable[[list], Any]) -> None:
         self.run_dir, self.cache_root = run_dir, cache_root
         self.max_dom, self.is_bp = max_dom, is_bp
         self.save, self.log, self.runner, self.off = save, log, runner, False
@@ -130,18 +133,18 @@ class Sidecar:
         self.sent = set()                     # frames already handed to an in-job srun
         self.backlog = []                     # finished frames of attempts whose job is gone
 
-    def watcher(self, seg_dir, job_id, config):
+    def watcher(self, seg_dir: str, job_id: str, config: Mapping) -> Callable[[str], None]:
         """The controller's on_poll(state) for one attempt's job."""
         return lambda state: self.poll(seg_dir, job_id, config, state)
 
     @_never_fatal
-    def poll(self, seg_dir, job_id, config, state):
+    def poll(self, seg_dir: str, job_id: str, config: Mapping, state: str) -> None:
         self.record_restarts(seg_dir)
         self._reap()
         if state == "RUNNING" and self.proc is None and self.in_job:
             self._convert_in_job(seg_dir, job_id, config)
 
-    def record_restarts(self, seg_dir):
+    def record_restarts(self, seg_dir: str) -> None:
         """Add seg_dir's newly valid restart times to the report."""
         known = set(r["time"] for r in self.rec["valid_restarts"] if r["dir"] == seg_dir)
         new = resume.valid_restart_times(seg_dir, self.max_dom, self.is_bp, skip=known)
@@ -153,7 +156,7 @@ class Sidecar:
             self.save()
 
     @_never_fatal
-    def job_ended(self, seg_dir):
+    def job_ended(self, seg_dir: str) -> None:
         """The attempt's job is gone: last restart check; its unconverted frames wait for the
         next job or finish()."""
         self.record_restarts(seg_dir)
@@ -162,7 +165,7 @@ class Sidecar:
                          if f not in self.sent and not self._converted(f)]
 
     @_never_fatal
-    def finish(self):
+    def finish(self) -> None:
         """After the last segment: convert every frame still missing from the cache."""
         self._reap(wait=True)
         left = self._missing()
@@ -218,7 +221,7 @@ class Sidecar:
             + convert_argv(self.run_dir, self.cache_root, ready, cpu_mask(cores)))
 
 
-def convert(run_dir, cache_root, frames):
+def convert(run_dir: str, cache_root: str, frames: list) -> int:
     """Convert `frames` (none: every BP history frame of run_dir) into the post cache -> rc."""
     with extract.nc_cache(directory=cache_root):
         failed = (extract.convert_frames(run_dir, frames) if frames
@@ -228,7 +231,7 @@ def convert(run_dir, cache_root, frames):
     return 1 if failed else 0
 
 
-def main(argv=None):
+def main(argv: Optional[list] = None) -> int:
     ap = argparse.ArgumentParser(prog="wtune_sidecar.py", description=__doc__.split("\n\n")[0])
     sub = ap.add_subparsers(dest="command", required=True)
     cv = sub.add_parser("convert")

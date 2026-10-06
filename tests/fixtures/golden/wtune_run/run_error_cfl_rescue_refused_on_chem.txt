@@ -1,0 +1,7 @@
+rc=2
+--- log
+--- stdout
+
+--- stderr
+error: wtune run refused: --cfl-rescue would change time_step, which is not allowed on WRF-Chem cases (WRF-Chem: chemdt/photdt are tied to time_step). Extension parameters are never touched; drop --cfl-rescue and lower time_step yourself if the run hits CFL.
+

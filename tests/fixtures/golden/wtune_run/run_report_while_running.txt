@@ -1,0 +1,520 @@
+rc=0
+--- poll 0
+{
+ "case_dir": "<TMP>/case",
+ "out": "<TMP>/out",
+ "run_start": "2020-06-01_00:00:00",
+ "run_end": "2020-06-01_12:00:00",
+ "stop_at": null,
+ "dt": 60.0,
+ "restart_io_form": 14,
+ "io": {
+  "mode": "netcdf"
+ },
+ "cfl_rescue": true,
+ "prediction": null,
+ "tune_report": null,
+ "overheads": {
+  "init_s": 120.0,
+  "restart_read_s": 0.03148815,
+  "restart_write_s": 0.014375025,
+  "history_frame_s": [
+   0.40541755984949557,
+   0.36892997946304096,
+   0.3357262813113673
+  ],
+  "source": "fallback (conus25/dorian2019 I/O anchors)"
+ },
+ "restart_quantum_steps": 360,
+ "restart_interval_min": 120.0,
+ "restart_interval_source": "case",
+ "restart_cadence_s": 7200.0,
+ "notes": [
+  "no prediction: 0.465 s/step fallback (cell-step model x 1.5); later segments' --time from each finished segment's observed rate"
+ ],
+ "physics_gray": false,
+ "resumes": 0,
+ "decisions": [],
+ "status": "running",
+ "started_utc": "<UTC>",
+ "segments": [
+  {
+   "index": 0,
+   "start_step": 0,
+   "end_step": 360,
+   "start": "2020-06-01_00:00:00",
+   "end": "2020-06-01_06:00:00",
+   "config": {
+    "id": "cli",
+    "nx": 8,
+    "ny": 9,
+    "ranks": 72,
+    "numtiles": 1,
+    "omp": 1,
+    "nodes": 1,
+    "dist": "block"
+   },
+   "writes_restart": true,
+   "predicted_compute_s": 167.47541947888195,
+   "predicted_wall_s": 295.28906129824924,
+   "time_limit": "00:20:00",
+   "attempts": [
+    {
+     "dir": "<TMP>/out/seg_0",
+     "job_id": "1001",
+     "time_step": null,
+     "submitted_utc": "<UTC>"
+    }
+   ]
+  },
+  {
+   "index": 1,
+   "start_step": 360,
+   "end_step": 720,
+   "start": "2020-06-01_06:00:00",
+   "end": "2020-06-01_12:00:00",
+   "config": {
+    "id": "cli",
+    "nx": 8,
+    "ny": 9,
+    "ranks": 72,
+    "numtiles": 1,
+    "omp": 1,
+    "nodes": 1,
+    "dist": "block"
+   },
+   "writes_restart": true,
+   "predicted_compute_s": 167.47541947888195,
+   "predicted_wall_s": 294.21047562762527,
+   "time_limit": "00:20:00"
+  }
+ ]
+}
+--- poll 1
+{
+ "case_dir": "<TMP>/case",
+ "out": "<TMP>/out",
+ "run_start": "2020-06-01_00:00:00",
+ "run_end": "2020-06-01_12:00:00",
+ "stop_at": null,
+ "dt": 60.0,
+ "restart_io_form": 14,
+ "io": {
+  "mode": "netcdf"
+ },
+ "cfl_rescue": true,
+ "prediction": null,
+ "tune_report": null,
+ "overheads": {
+  "init_s": 120.0,
+  "restart_read_s": 0.03148815,
+  "restart_write_s": 0.014375025,
+  "history_frame_s": [
+   0.40541755984949557,
+   0.36892997946304096,
+   0.3357262813113673
+  ],
+  "source": "fallback (conus25/dorian2019 I/O anchors)"
+ },
+ "restart_quantum_steps": 360,
+ "restart_interval_min": 120.0,
+ "restart_interval_source": "case",
+ "restart_cadence_s": 7200.0,
+ "notes": [
+  "no prediction: 0.465 s/step fallback (cell-step model x 1.5); later segments' --time from each finished segment's observed rate"
+ ],
+ "physics_gray": false,
+ "resumes": 1,
+ "decisions": [
+  {
+   "segment": 0,
+   "decision": "resume",
+   "class": "infrastructure",
+   "job_id": "1001",
+   "restart": "2020-06-01_04:00:00"
+  }
+ ],
+ "status": "running",
+ "started_utc": "<UTC>",
+ "segments": [
+  {
+   "index": 0,
+   "start_step": 0,
+   "end_step": 360,
+   "start": "2020-06-01_00:00:00",
+   "end": "2020-06-01_06:00:00",
+   "config": {
+    "id": "cli",
+    "nx": 8,
+    "ny": 9,
+    "ranks": 72,
+    "numtiles": 1,
+    "omp": 1,
+    "nodes": 1,
+    "dist": "block"
+   },
+   "writes_restart": true,
+   "predicted_compute_s": 167.47541947888195,
+   "predicted_wall_s": 295.28906129824924,
+   "time_limit": "00:20:00",
+   "attempts": [
+    {
+     "dir": "<TMP>/out/seg_0",
+     "job_id": "1001",
+     "time_step": null,
+     "submitted_utc": "<UTC>",
+     "state": "NODE_FAIL",
+     "elapsed_s": 600.0,
+     "watch_status": "running",
+     "warnings": [],
+     "sum_d01_elapsed_s": 600.0,
+     "n_d01_steps": 300,
+     "restart_ok": false,
+     "ok": false,
+     "failure_class": "infrastructure",
+     "resume_time": "2020-06-01_04:00:00"
+    },
+    {
+     "dir": "<TMP>/out/seg_0_r1",
+     "job_id": "1002",
+     "time_step": null,
+     "submitted_utc": "<UTC>",
+     "start": "2020-06-01_04:00:00"
+    }
+   ]
+  },
+  {
+   "index": 1,
+   "start_step": 360,
+   "end_step": 720,
+   "start": "2020-06-01_06:00:00",
+   "end": "2020-06-01_12:00:00",
+   "config": {
+    "id": "cli",
+    "nx": 8,
+    "ny": 9,
+    "ranks": 72,
+    "numtiles": 1,
+    "omp": 1,
+    "nodes": 1,
+    "dist": "block"
+   },
+   "writes_restart": true,
+   "predicted_compute_s": 167.47541947888195,
+   "predicted_wall_s": 294.21047562762527,
+   "time_limit": "00:20:00"
+  }
+ ]
+}
+--- poll 2
+{
+ "case_dir": "<TMP>/case",
+ "out": "<TMP>/out",
+ "run_start": "2020-06-01_00:00:00",
+ "run_end": "2020-06-01_12:00:00",
+ "stop_at": null,
+ "dt": 60.0,
+ "restart_io_form": 14,
+ "io": {
+  "mode": "netcdf"
+ },
+ "cfl_rescue": true,
+ "prediction": null,
+ "tune_report": null,
+ "overheads": {
+  "init_s": 120.0,
+  "restart_read_s": 0.03148815,
+  "restart_write_s": 0.014375025,
+  "history_frame_s": [
+   0.40541755984949557,
+   0.36892997946304096,
+   0.3357262813113673
+  ],
+  "source": "fallback (conus25/dorian2019 I/O anchors)"
+ },
+ "restart_quantum_steps": 360,
+ "restart_interval_min": 120.0,
+ "restart_interval_source": "case",
+ "restart_cadence_s": 7200.0,
+ "notes": [
+  "no prediction: 0.465 s/step fallback (cell-step model x 1.5); later segments' --time from each finished segment's observed rate"
+ ],
+ "physics_gray": true,
+ "resumes": 1,
+ "decisions": [
+  {
+   "segment": 0,
+   "decision": "resume",
+   "class": "infrastructure",
+   "job_id": "1001",
+   "restart": "2020-06-01_04:00:00"
+  },
+  {
+   "segment": 0,
+   "decision": "cfl_rescue",
+   "time_step": 45
+  }
+ ],
+ "status": "running",
+ "started_utc": "<UTC>",
+ "segments": [
+  {
+   "index": 0,
+   "start_step": 0,
+   "end_step": 360,
+   "start": "2020-06-01_00:00:00",
+   "end": "2020-06-01_06:00:00",
+   "config": {
+    "id": "cli",
+    "nx": 8,
+    "ny": 9,
+    "ranks": 72,
+    "numtiles": 1,
+    "omp": 1,
+    "nodes": 1,
+    "dist": "block"
+   },
+   "writes_restart": true,
+   "predicted_compute_s": 167.47541947888195,
+   "predicted_wall_s": 295.28906129824924,
+   "time_limit": "00:20:00",
+   "attempts": [
+    {
+     "dir": "<TMP>/out/seg_0",
+     "job_id": "1001",
+     "time_step": null,
+     "submitted_utc": "<UTC>",
+     "state": "NODE_FAIL",
+     "elapsed_s": 600.0,
+     "watch_status": "running",
+     "warnings": [],
+     "sum_d01_elapsed_s": 600.0,
+     "n_d01_steps": 300,
+     "restart_ok": false,
+     "ok": false,
+     "failure_class": "infrastructure",
+     "resume_time": "2020-06-01_04:00:00"
+    },
+    {
+     "dir": "<TMP>/out/seg_0_r1",
+     "job_id": "1002",
+     "time_step": null,
+     "submitted_utc": "<UTC>",
+     "start": "2020-06-01_04:00:00",
+     "state": "COMPLETED",
+     "elapsed_s": 600.0,
+     "watch_status": "failed",
+     "warnings": [
+      "FAILED",
+      "CFL"
+     ],
+     "sum_d01_elapsed_s": null,
+     "n_d01_steps": null,
+     "restart_ok": false,
+     "ok": false,
+     "failure_class": "model"
+    },
+    {
+     "dir": "<TMP>/out/seg_0_rescue_r1",
+     "job_id": "1003",
+     "time_step": 45,
+     "submitted_utc": "<UTC>",
+     "start": "2020-06-01_04:00:00"
+    }
+   ]
+  },
+  {
+   "index": 1,
+   "start_step": 360,
+   "end_step": 720,
+   "start": "2020-06-01_06:00:00",
+   "end": "2020-06-01_12:00:00",
+   "config": {
+    "id": "cli",
+    "nx": 8,
+    "ny": 9,
+    "ranks": 72,
+    "numtiles": 1,
+    "omp": 1,
+    "nodes": 1,
+    "dist": "block"
+   },
+   "writes_restart": true,
+   "predicted_compute_s": 167.47541947888195,
+   "predicted_wall_s": 294.21047562762527,
+   "time_limit": "00:20:00"
+  }
+ ],
+ "physics_gray_reason": "segment 0 re-run with time_step 45 s (case 60 s) after CFL/NaN"
+}
+--- poll 3
+{
+ "case_dir": "<TMP>/case",
+ "out": "<TMP>/out",
+ "run_start": "2020-06-01_00:00:00",
+ "run_end": "2020-06-01_12:00:00",
+ "stop_at": null,
+ "dt": 60.0,
+ "restart_io_form": 14,
+ "io": {
+  "mode": "netcdf"
+ },
+ "cfl_rescue": true,
+ "prediction": null,
+ "tune_report": null,
+ "overheads": {
+  "init_s": 120.0,
+  "restart_read_s": 0.03148815,
+  "restart_write_s": 0.014375025,
+  "history_frame_s": [
+   0.40541755984949557,
+   0.36892997946304096,
+   0.3357262813113673
+  ],
+  "source": "fallback (conus25/dorian2019 I/O anchors)"
+ },
+ "restart_quantum_steps": 360,
+ "restart_interval_min": 120.0,
+ "restart_interval_source": "case",
+ "restart_cadence_s": 7200.0,
+ "notes": [
+  "no prediction: 0.465 s/step fallback (cell-step model x 1.5); later segments' --time from each finished segment's observed rate"
+ ],
+ "physics_gray": true,
+ "resumes": 1,
+ "decisions": [
+  {
+   "segment": 0,
+   "decision": "resume",
+   "class": "infrastructure",
+   "job_id": "1001",
+   "restart": "2020-06-01_04:00:00"
+  },
+  {
+   "segment": 0,
+   "decision": "cfl_rescue",
+   "time_step": 45
+  },
+  {
+   "segment": 0,
+   "decision": "next"
+  },
+  {
+   "segment": 0,
+   "decision": "observed_overhead",
+   "overhead_s": 300.0,
+   "observed_s_per_step": 0.8333333333333334,
+   "compute_replaced": true
+  }
+ ],
+ "status": "running",
+ "started_utc": "<UTC>",
+ "segments": [
+  {
+   "index": 0,
+   "start_step": 0,
+   "end_step": 360,
+   "start": "2020-06-01_00:00:00",
+   "end": "2020-06-01_06:00:00",
+   "config": {
+    "id": "cli",
+    "nx": 8,
+    "ny": 9,
+    "ranks": 72,
+    "numtiles": 1,
+    "omp": 1,
+    "nodes": 1,
+    "dist": "block"
+   },
+   "writes_restart": true,
+   "predicted_compute_s": 167.47541947888195,
+   "predicted_wall_s": 295.28906129824924,
+   "time_limit": "00:20:00",
+   "attempts": [
+    {
+     "dir": "<TMP>/out/seg_0",
+     "job_id": "1001",
+     "time_step": null,
+     "submitted_utc": "<UTC>",
+     "state": "NODE_FAIL",
+     "elapsed_s": 600.0,
+     "watch_status": "running",
+     "warnings": [],
+     "sum_d01_elapsed_s": 600.0,
+     "n_d01_steps": 300,
+     "restart_ok": false,
+     "ok": false,
+     "failure_class": "infrastructure",
+     "resume_time": "2020-06-01_04:00:00"
+    },
+    {
+     "dir": "<TMP>/out/seg_0_r1",
+     "job_id": "1002",
+     "time_step": null,
+     "submitted_utc": "<UTC>",
+     "start": "2020-06-01_04:00:00",
+     "state": "COMPLETED",
+     "elapsed_s": 600.0,
+     "watch_status": "failed",
+     "warnings": [
+      "FAILED",
+      "CFL"
+     ],
+     "sum_d01_elapsed_s": null,
+     "n_d01_steps": null,
+     "restart_ok": false,
+     "ok": false,
+     "failure_class": "model"
+    },
+    {
+     "dir": "<TMP>/out/seg_0_rescue_r1",
+     "job_id": "1003",
+     "time_step": 45,
+     "submitted_utc": "<UTC>",
+     "start": "2020-06-01_04:00:00",
+     "state": "COMPLETED",
+     "elapsed_s": 600.0,
+     "watch_status": "done",
+     "warnings": [],
+     "sum_d01_elapsed_s": 300.0,
+     "n_d01_steps": 360,
+     "restart_ok": true,
+     "ok": true
+    }
+   ],
+   "observed_wall_s": 600.0,
+   "run_dir": "<TMP>/out/seg_0_rescue_r1"
+  },
+  {
+   "index": 1,
+   "start_step": 360,
+   "end_step": 720,
+   "start": "2020-06-01_06:00:00",
+   "end": "2020-06-01_12:00:00",
+   "config": {
+    "id": "cli",
+    "nx": 8,
+    "ny": 9,
+    "ranks": 72,
+    "numtiles": 1,
+    "omp": 1,
+    "nodes": 1,
+    "dist": "block"
+   },
+   "writes_restart": true,
+   "predicted_compute_s": 300.0,
+   "predicted_wall_s": 600.03148815,
+   "time_limit": "00:30:00",
+   "wall_source": "observed overhead of segment 0",
+   "attempts": [
+    {
+     "dir": "<TMP>/out/seg_1",
+     "job_id": "1004",
+     "time_step": null,
+     "submitted_utc": "<UTC>"
+    }
+   ]
+  }
+ ],
+ "physics_gray_reason": "segment 0 re-run with time_step 45 s (case 60 s) after CFL/NaN"
+}

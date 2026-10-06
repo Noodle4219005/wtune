@@ -1,0 +1,45 @@
+{
+ "alignment": [
+  {
+   "steps": 720,
+   "seconds": 43200.0,
+   "label": "interval_seconds 06:00:00 + auxinput4_interval 02:00:00/04:00:00"
+  },
+  {
+   "steps": 360,
+   "seconds": 21600.0,
+   "label": "interval_seconds 06:00:00"
+  },
+  {
+   "steps": 120,
+   "seconds": 7200.0,
+   "label": "auxinput4_interval 02:00:00"
+  },
+  null,
+  null,
+  "RunError: per-record ADIOS2 wrfbdy needs the case's interval_seconds (&time_control) to place segment cuts on boundary records"
+ ],
+ "missing_record_files": [
+  [
+   [
+    1,
+    "wrfbdy_d01_2020-06-01_06:00:00.bp"
+   ]
+  ],
+  []
+ ],
+ "adios2_streams": [
+  "input",
+  "boundary"
+ ],
+ "adios2_notes": [
+  "WARNING: aux input stream auxinput4 keeps the case's own (netCDF) io_form: wrflowinp_d01, wrflowinp_d02, wrflowinp_d03 not found in CASE_DIR",
+  "WARNING: aux input stream gfdda keeps the case's own (netCDF) io_form: wrffdda_d01 not found in CASE_DIR"
+ ],
+ "io_plan_lines": [
+  "I/O: ADIOS2 (history/restart/input/boundary), inputs from <TMP>/cache (3 netCDF -> BP4, 1 existing BP); one BP per record: wrfbdy_d01",
+  "I/O: ADIOS2 (history/input/boundary); restart netCDF (--restart-io-form 2), inputs from <TMP>/cache (3 netCDF -> BP4, 1 existing BP); one BP per record: wrfbdy_d01",
+  "I/O: LEGACY netCDF (--io netcdf): case io_form_* kept, restart io_form 2"
+ ],
+ "adios2_missing_boundary": "RunError: ADIOS2 I/O: wrfbdy_d01 not found in <TMP>/case (neither netCDF nor .bp) -- the legacy --io netcdf path does not need it either"
+}

@@ -1,0 +1,7 @@
+rc=2
+--- log
+--- stdout
+
+--- stderr
+error: --checkpoint-minutes 300 is not a multiple of the 360 min input record step (interval_seconds 06:00:00)
+

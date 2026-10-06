@@ -33,6 +33,8 @@ _TS = re.compile(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d+)?(Z|\+00:00)?")
 def _norm(text, tmp):
     text = _TS.sub("<TS>", str(text).replace(str(tmp), "<TMP>"))
     text = re.sub(r"[0-9a-f]{40}(-dirty)?", "<SHA>", text)                # wtune_commit: git HEAD
+    text = re.sub(r'("wtune_commit": )null', r'\1"<SHA>"', text)        # exported tree without .git
+    text = re.sub(r'(\\"wtune_commit\\": )null', r'\1\\"<SHA>\\"', text)   # same, inside a JSON string
     return re.sub(r"(<TS>: )(?!wtune)\S.*", r"\1<argv>", text)  # history: sys.argv of the runner
 
 

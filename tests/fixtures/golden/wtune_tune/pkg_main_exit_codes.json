@@ -5,7 +5,7 @@
   "rc": 2
  },
  "no_case": {
-  "err": "ERROR: case is required: pass it positionally or set 'case' in --config\n",
+  "err": "ERROR: case is required: pass it positionally, set 'case' in --config, or run inside a project made with `wtune project init --case DIR`\n",
   "out": "",
   "rc": 1
  },

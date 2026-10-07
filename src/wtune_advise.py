@@ -105,8 +105,9 @@ def _expand(p):
 
 def load_registry_case(case_id, site="scc"):
     """cases.json overlaid by cases.<site>.json (same merge as campaign/configs.py:load_cases,
-    re-implemented here only to avoid importing the predictor stack for a read-only lookup)."""
-    with open(os.path.join(CAMPAIGN_DIR, "cases.json")) as f:
+    re-implemented here only to avoid importing the predictor stack for a read-only lookup).
+    $CASES_JSON replaces cases.json, as in configs.py."""
+    with open(os.environ.get("CASES_JSON") or os.path.join(CAMPAIGN_DIR, "cases.json")) as f:
         cases = json.load(f)["cases"]
     if site and site != "f1":
         ov_path = os.path.join(CAMPAIGN_DIR, "cases.%s.json" % site)

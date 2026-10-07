@@ -35,7 +35,9 @@ DESCRIPTION = "wtune_run.py -- segmented WRF executor with restart hand-offs (`w
 
 def build_arg_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(prog="wtune run", description=DESCRIPTION)
-    ap.add_argument("case_dir")
+    ap.add_argument("case_dir", nargs="?", default=None,
+                    help="default: the project's case/ (then the newest tune/*/tune_report.json "
+                         "is used unless --tune-report or --nodes is given)")
     ap.add_argument("--nodes", type=int, default=None,
                     help="required unless --tune-report names a winner layout (flags override it)")
     ap.add_argument("--nx", type=int, default=None)
@@ -95,6 +97,25 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
 def parse_options(argv: Optional[list] = None) -> RunOptions:
     return RunOptions(**vars(build_arg_parser().parse_args(argv)))
+
+
+def apply_project_defaults(opts: RunOptions, log: Callable) -> RunOptions:
+    """No CASE_DIR: the project's case/. Running the project's own case with neither
+    --tune-report nor --nodes: its newest tune report."""
+    import wtune_project
+    project_dir = wtune_project.find_project(explicit=opts.project)
+    if opts.case_dir is None:
+        if not project_dir or not os.path.isdir(os.path.join(project_dir, "case")):
+            raise RunError("CASE_DIR is required outside a project (wtune project init --case)")
+        opts = dataclasses.replace(opts, case_dir=os.path.join(project_dir, "case"))
+    own_case = project_dir and os.path.realpath(opts.case_dir) == os.path.realpath(
+        os.path.join(project_dir, "case"))
+    if own_case and opts.tune_report is None and opts.nodes is None:
+        report = wtune_project.latest_tune_report(project_dir)
+        if report:
+            log("tune report: %s (newest in %s)" % (report, os.path.join(project_dir, "tune")))
+            opts = dataclasses.replace(opts, tune_report=report)
+    return opts
 
 
 # ---------------------------------------------------------------------------
@@ -394,6 +415,10 @@ def main(argv: Optional[list] = None, sbatch_runner: Optional[Callable] = None,
          sleep: Optional[Callable] = None, log: Callable = print,
          sidecar_runner: Optional[Callable] = None) -> int:
     opts = parse_options(argv)
+    try:
+        opts = apply_project_defaults(opts, log)
+    except RunError as e:
+        return _fail(e)
     case_dir = os.path.abspath(opts.case_dir)
     refusal = wtune_extensions.refusal_run(case_dir, cfl_rescue=opts.cfl_rescue,
                                            wrfda_forecast_only=opts.wrfda_forecast_only)

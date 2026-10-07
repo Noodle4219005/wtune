@@ -130,6 +130,100 @@ def project_xsec_config(project_doc):
     return dict(top_km=doc.get("xsec_top_km"), halfwidth_km=doc.get("xsec_halfwidth_km"))
 
 
+def project_exclude_nodes(project_doc):
+    """project.yaml's exclude_nodes (list of node names), [] when unset."""
+    nodes = (project_doc or {}).get("exclude_nodes") or []
+    if isinstance(nodes, str):
+        nodes = nodes.split(",")
+    return [n.strip() for n in nodes if n and n.strip()]
+
+
+def project_post_defaults(project_doc):
+    """project.yaml's post block: {"types", "every", "fetch"}; missing keys -> None ([] for
+    fetch, the observation datasets `wtune submit` fetches before post)."""
+    post = (project_doc or {}).get("post") or {}
+    return dict(types=post.get("types"), every=post.get("every"), fetch=post.get("fetch") or [])
+
+
+def project_case_id(project_doc):
+    """The case id `wtune project init --case` registered, or None."""
+    return ((project_doc or {}).get("case") or {}).get("id")
+
+
+def project_case_table(project_dir):
+    return os.path.join(project_dir, "cases.json")
+
+
+def apply_project_env(project_dir, project_doc):
+    """Exports the project settings the tuner, run and post read from the environment:
+    exclude_nodes joins WTUNE_SBATCH_EXCLUDE, and the registered case table becomes CASES_JSON
+    unless one is already set."""
+    nodes = project_exclude_nodes(project_doc)
+    if nodes:
+        have = [n for n in os.environ.get("WTUNE_SBATCH_EXCLUDE", "").split(",") if n]
+        os.environ["WTUNE_SBATCH_EXCLUDE"] = ",".join(have + [n for n in nodes if n not in have])
+    table = project_case_table(project_dir)
+    if project_case_id(project_doc) and os.path.isfile(table):
+        os.environ.setdefault("CASES_JSON", table)
+
+
+def latest_tune_report(project_dir):
+    """Newest <project>/tune/*/tune_report.json by mtime, or None."""
+    tune_dir = os.path.join(project_dir, "tune")
+    reports = []
+    if os.path.isdir(tune_dir):
+        for name in os.listdir(tune_dir):
+            path = os.path.join(tune_dir, name, "tune_report.json")
+            if os.path.isfile(path):
+                reports.append((os.path.getmtime(path), path))
+    return max(reports)[1] if reports else None
+
+
+PHYSICS_KEYS = ("mp_physics", "cu_physics", "bl_pbl_physics", "sf_sfclay_physics",
+                "sf_surface_physics", "ra_lw_physics", "ra_sw_physics", "radt", "cudt",
+                "physics_suite")
+
+
+def case_entry_from_namelist(case_dir):
+    """A campaign/cases.json entry for an unregistered case, read from its namelist.input."""
+    import wtune_predict as wp
+    nl = wp.parse_namelist(os.path.join(case_dir, "namelist.input"))
+    max_dom = int(wp.g(nl, "domains", "max_dom", 1))
+
+    def per_dom(key):
+        return [int(wp.g_dom(nl, "domains", key, d)) for d in range(max_dom)]
+
+    e_we, e_sn, e_vert = per_dom("e_we"), per_dom("e_sn"), per_dom("e_vert")
+    # the probe job (strict_campaign.sbatch) reads these d01 physics keys and case_family
+    physics = {k: wp.g(nl, "physics", k) for k in PHYSICS_KEYS
+               if wp.g(nl, "physics", k) is not None}
+    return dict(
+        prep_dir=case_dir, bp_dir="", restart=False, input_files=[],
+        history_key="history_interval", dt=wp.g(nl, "domains", "time_step"),
+        e_we=e_we[0], e_sn=e_sn[0], e_vert=e_vert[0],
+        dx=wp.g(nl, "domains", "dx"), dy=wp.g(nl, "domains", "dy") or wp.g(nl, "domains", "dx"),
+        max_dom=max_dom,
+        e_we_list=e_we, e_sn_list=e_sn, e_vert_list=e_vert, physics=physics,
+        case_family="unclassified", namelist_overrides={}, steps=64, enabled=True,
+        notes="registered by wtune project init from %s" % case_dir)
+
+
+def register_project_case(project_dir, case_dir):
+    """Writes <project>/cases.json: campaign/cases.json plus this project's case, and returns
+    its id -- the case dir's name, with "-proj" when that name is already a registered case
+    (a site overlay would otherwise replace its prep_dir)."""
+    repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    with open(os.path.join(repo, "campaign", "cases.json")) as fh:
+        table = json.load(fh)
+    case_id = os.path.basename(os.path.normpath(case_dir))
+    if case_id in table["cases"]:
+        case_id += "-proj"
+    table["cases"][case_id] = case_entry_from_namelist(os.path.join(project_dir, "case"))
+    with open(project_case_table(project_dir), "w") as fh:
+        json.dump(table, fh, indent=1)
+    return case_id
+
+
 def discover_runs(project_dir):
     """[(run_id, path), ...] wrfout-bearing directories: every runs/<id>/ subdirectory that
     has at least one wrfout_* frame -- at top level, or in its seg_<k> segment dirs (a segmented
@@ -315,9 +409,32 @@ def _populate_case_dir(case_dir, dest_dir):
     return skipped
 
 
-def init_project(path, case_dir=None, name=None, storm=None, hurdat2=None, site=None):
+POST_EVERY_MAX_RUN_DAYS = 7   # longer runs get no default --every (too many frames)
+DEFAULT_FETCH = ("era5", "igra", "stage4", "stations")
+
+
+def _default_post_block(case_dir):
+    """post defaults for a new project: --types auto; for runs of at most
+    POST_EVERY_MAX_RUN_DAYS also --every 6h and the observations the standard figures compare
+    against."""
+    import wtune_predict as wp
+    every = None
+    try:
+        _steps, run_s, _dt, note = wp.get_d01_steps(
+            wp.parse_namelist(os.path.join(case_dir, "namelist.input")))
+        if not note and run_s and run_s <= POST_EVERY_MAX_RUN_DAYS * 86400:
+            every = "6h"
+    except (OSError, ValueError, wp.PredictError):
+        pass
+    return dict(types="auto", every=every, fetch=list(DEFAULT_FETCH) if every else [])
+
+
+def init_project(path, case_dir=None, name=None, storm=None, hurdat2=None, site=None,
+                 exclude_nodes=None):
     """`wtune project init PATH [--case CASE_DIR] [--name ...] [--storm ID] [--hurdat2 F]`
-    (decision 0058 P1). PATH must not already exist, or must be empty."""
+    (decision 0058 P1). PATH must not already exist, or must be empty. With --case, the case is
+    registered in <project>/cases.json so `wtune tune` takes it without a case id.
+    exclude_nodes defaults to $WTUNE_SBATCH_EXCLUDE."""
     path = os.path.abspath(path)
     if os.path.exists(path) and os.listdir(path):
         raise ProjectError("%s already exists and is not empty" % path)
@@ -336,11 +453,22 @@ def init_project(path, case_dir=None, name=None, storm=None, hurdat2=None, site=
         raise ProjectError("--hurdat2 %s not found" % hurdat2)
 
     name = name or default_project_name(case_dir)
+    case_id = None
+    if case_dir and os.path.isfile(os.path.join(path, "case", "namelist.input")):
+        try:
+            case_id = register_project_case(path, case_dir)
+        except (OSError, ValueError, KeyError, TypeError) as e:
+            print("note: case not registered for `wtune tune` (%s: %s)" % (type(e).__name__, e))
+    if exclude_nodes is None:
+        exclude_nodes = os.environ.get("WTUNE_SBATCH_EXCLUDE", "")
     project_doc = dict(
         name=name,
         created=_utc_now_iso(),
-        case=dict(source_dir=case_dir) if case_dir else None,
+        case=dict(source_dir=case_dir, id=case_id) if case_dir else None,
         site=site,
+        exclude_nodes=project_exclude_nodes(dict(exclude_nodes=exclude_nodes)),
+        post=_default_post_block(os.path.join(path, "case")) if case_dir else dict(
+            types="auto", every=None, fetch=[]),
         storm=(dict(id=storm, hurdat2=os.path.abspath(hurdat2) if hurdat2 else None)
               if (storm or hurdat2) else None),
         obs=dict(),
@@ -388,6 +516,40 @@ def set_project(project_dir, storm=None, hurdat2=None, argv=None):
     return block
 
 
+def set_project_defaults(project_dir, exclude_nodes=None, post_every=None, post_types=None,
+                         post_fetch=None, register_case=False, argv=None):
+    """`wtune project set --exclude-nodes/--post-every/--post-types/--post-fetch/
+    --register-case`: updates those keys in place. "none" clears post_every and post_fetch.
+    Returns the updated document."""
+    doc = load_project(project_dir)
+    if register_case:
+        case = dict(doc.get("case") or {})
+        if not case.get("source_dir"):
+            raise ProjectError("--register-case: project.yaml has no case.source_dir")
+        case["id"] = register_project_case(project_dir, case["source_dir"])
+        doc["case"] = case
+    if exclude_nodes is not None:
+        doc["exclude_nodes"] = project_exclude_nodes(dict(exclude_nodes=exclude_nodes))
+    if post_every is not None or post_types is not None or post_fetch is not None:
+        post = dict(doc.get("post") or {})
+        if post_every is not None:
+            post["every"] = None if post_every.lower() == "none" else post_every
+        if post_types is not None:
+            post["types"] = post_types
+        if post_fetch is not None:
+            post["fetch"] = ([] if post_fetch.lower() == "none" else
+                             [n.strip() for n in post_fetch.split(",") if n.strip()])
+        doc["post"] = post
+    path = os.path.join(project_dir, PROJECT_YAML)
+    tmp = path + ".tmp"
+    with open(tmp, "w") as fh:
+        yaml.safe_dump(doc, fh, sort_keys=False, allow_unicode=True)
+    os.replace(tmp, path)
+    manifest_append(project_dir, argv or ["wtune", "project", "set"], out_dir=project_dir,
+                    exit_code=0)
+    return doc
+
+
 def info_project(project_dir):
     doc = load_project(project_dir)
     lines = ["project: %s" % project_dir, "name: %s" % doc.get("name"),
@@ -395,9 +557,18 @@ def info_project(project_dir):
     case = doc.get("case") or {}
     if case.get("source_dir"):
         lines.append("case source: %s" % case["source_dir"])
+    if case.get("id"):
+        lines.append("case id: %s (%s)" % (case["id"], project_case_table(project_dir)))
     storm = doc.get("storm") or {}
     if storm.get("id"):
         lines.append("storm: %s (hurdat2=%s)" % (storm.get("id"), storm.get("hurdat2")))
+    lines.append("exclude_nodes: %s" % (",".join(project_exclude_nodes(doc)) or "-"))
+    post = project_post_defaults(doc)
+    lines.append("post defaults: --types %s --every %s; submit fetches: %s"
+                 % (post["types"] or "auto", post["every"] or "-", ",".join(post["fetch"]) or "-"))
+    report = latest_tune_report(project_dir)
+    if report:
+        lines.append("latest tune report: %s" % os.path.relpath(report, project_dir))
     for sub in SUBDIRS:
         d = os.path.join(project_dir, sub)
         n = len(os.listdir(d)) if os.path.isdir(d) else 0
@@ -427,14 +598,25 @@ def build_parser():
     p_init.add_argument("--storm", default=None, help="e.g. AL122005")
     p_init.add_argument("--hurdat2", default=None, help="HURDAT2 file")
     p_init.add_argument("--site", default=None, help="machine/site label")
+    p_init.add_argument("--exclude-nodes", default=None,
+                        help="nodes every job of this project avoids, e.g. work1 "
+                             "(default: $WTUNE_SBATCH_EXCLUDE)")
 
     p_info = sub.add_parser("info", help="print the resolved project's layout/config")
     p_info.add_argument("--project", default=None)
 
-    p_set = sub.add_parser("set", help="update the resolved project's project.yaml storm block")
+    p_set = sub.add_parser("set", help="update the resolved project's project.yaml")
     p_set.add_argument("--project", default=None)
     p_set.add_argument("--storm", default=None, help="e.g. AL122005")
     p_set.add_argument("--hurdat2", default=None, help="HURDAT2 file")
+    p_set.add_argument("--exclude-nodes", default=None, help="comma list, '' clears")
+    p_set.add_argument("--post-every", default=None, help="e.g. 6h, 1d; 'none' clears")
+    p_set.add_argument("--post-types", default=None, help="'auto' or e.g. 'tc,convection'")
+    p_set.add_argument("--post-fetch", default=None,
+                       help="observations `wtune submit` fetches, e.g. era5,stage4; 'none' clears")
+    p_set.add_argument("--register-case", action="store_true",
+                       help="register case/ in <project>/cases.json for `wtune tune` "
+                            "(projects made before this existed)")
 
     return parser
 
@@ -446,7 +628,8 @@ def main(argv=None):
     if args.project_command == "init":
         try:
             path = init_project(args.path, case_dir=args.case_dir, name=args.name,
-                                storm=args.storm, hurdat2=args.hurdat2, site=args.site)
+                                storm=args.storm, hurdat2=args.hurdat2, site=args.site,
+                                exclude_nodes=args.exclude_nodes)
         except ProjectError as e:
             print("error: %s" % e, file=sys.stderr)
             return 1
@@ -459,9 +642,20 @@ def main(argv=None):
             if not project_dir:
                 raise ProjectError("no project found (--project, $WTUNE_PROJECT, or a "
                                    "project.yaml above the current directory)")
+            full_argv = ["wtune", "project"] + list(argv if argv is not None else sys.argv[1:])
+            defaults = (args.exclude_nodes, args.post_every, args.post_types, args.post_fetch)
+            if any(v is not None for v in defaults) or args.register_case:
+                doc = set_project_defaults(project_dir, *defaults,
+                                           register_case=args.register_case, argv=full_argv)
+                post = project_post_defaults(doc)
+                print("%s: case id=%s exclude_nodes=%s post --types %s --every %s"
+                      % (os.path.join(project_dir, PROJECT_YAML), project_case_id(doc) or "-",
+                         ",".join(project_exclude_nodes(doc)) or "-", post["types"] or "auto",
+                         post["every"] or "-"))
+                if not (args.storm or args.hurdat2):
+                    return 0
             block = set_project(project_dir, storm=args.storm, hurdat2=args.hurdat2,
-                                argv=["wtune", "project"] + list(argv if argv is not None
-                                                                 else sys.argv[1:]))
+                                argv=full_argv)
         except ProjectError as e:
             print("error: %s" % e, file=sys.stderr)
             return 1

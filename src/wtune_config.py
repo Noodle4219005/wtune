@@ -910,11 +910,12 @@ def cmd_show(argv: list[str]) -> int:
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     if not argv or argv[0] not in ("init", "show", "validate"):
-        sys.stderr.write(
+        asked = bool(argv) and argv[0] in ("-h", "--help")
+        (sys.stdout if asked else sys.stderr).write(
             "usage: wtune_config.py init CASE [--out FILE] | "
             "wtune_config.py show FILE [--case NAME|--case-dir DIR] [--nodes N,N,...] | "
             "wtune_config.py validate FILE\n")
-        return 2
+        return 0 if asked else 2
     cmd, rest = argv[0], argv[1:]
     if cmd == "init":
         return cmd_init(rest)

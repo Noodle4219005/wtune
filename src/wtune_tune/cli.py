@@ -189,9 +189,14 @@ def _run_config(args: argparse.Namespace) -> tuple[str | None, dict]:
 
 
 def _run_case_name(args: argparse.Namespace, cfg: dict) -> str:
-    """The case id: positional, else --config's 'case'; SystemExit when neither is given (a
-    case_dir-only config cannot be tuned yet)."""
+    """The case id: positional, else --config's 'case', else the project's registered case;
+    SystemExit when none is given (a case_dir-only config cannot be tuned yet)."""
     case = args.case if args.case is not None else cfg["case"]
+    if case is None and not cfg.get("case_dir"):
+        import wtune_project
+        project_dir = wtune_project.find_project(explicit=getattr(args, "project", None))
+        if project_dir:
+            case = wtune_project.project_case_id(wtune_project.load_project(project_dir))
     if case is None:
         if cfg.get("case_dir"):
             raise SystemExit(
@@ -199,7 +204,8 @@ def _run_case_name(args: argparse.Namespace, cfg: dict) -> str:
                 "arbitrary case_dir yet (only `wtune config show`/`config init` preview it) -- "
                 "pass a registered case name positionally, or set 'case' in --config instead"
                 % cfg["case_dir"])
-        raise SystemExit("case is required: pass it positionally or set 'case' in --config")
+        raise SystemExit("case is required: pass it positionally, set 'case' in --config, or "
+                         "run inside a project made with `wtune project init --case DIR`")
     return case
 
 

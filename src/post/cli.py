@@ -214,6 +214,18 @@ def cmd_recipe(args: argparse.Namespace) -> int:
     labels = _check_labels(args, run_dirs, _basenames(run_dirs) if project_dir else
                            [("run%d" % i) for i in range(len(run_dirs))])
     out = _resolve_out(args, project_dir, "recipe")
+    if project_dir:
+        import wtune_project
+        defaults = wtune_project.project_post_defaults(project_doc)
+        used = []
+        if args.types is None and defaults["types"]:
+            args.types = defaults["types"]
+            used.append("--types %s" % args.types)
+        if args.every is None and args.times is None and defaults["every"]:
+            args.every = defaults["every"]
+            used.append("--every %s" % args.every)
+        if used:
+            print("project defaults: %s" % " ".join(used))
 
     hurdat2, storm = args.hurdat2, args.storm
     if project_dir and not hurdat2 and not storm:
@@ -239,7 +251,8 @@ def cmd_recipe(args: argparse.Namespace) -> int:
         xsec_top_km=xsec_top_km, xsec_halfwidth_km=xsec_halfwidth_km, project_dir=project_dir,
         spinup_days=args.climate_spinup_days, track_smooth_km=args.track_smooth_km)
     _print_recipe_result(result)
-    _record_manifest(project_dir, ["wtune", "post", "recipe"] + run_dirs, out, run_dirs)
+    argv = getattr(args, "argv", ["recipe"] + run_dirs)
+    _record_manifest(project_dir, ["wtune", "post"] + argv, out, run_dirs)
     return 0
 
 
@@ -457,8 +470,9 @@ _COMMANDS = [
                     "maps and animations (decision 0058)"), [
         _arg("run_dirs", nargs="*", help="default: a project's runs/*/ or case/"),
         _OUT_DIR, _PROJECT,
-        _arg("--types", default="auto", help="'auto' (default) or a comma-separated "
-             "list, e.g. 'tc,convection' (common is always included)"),
+        _arg("--types", default=None, help="'auto' or a comma-separated list, e.g. "
+             "'tc,convection' (common is always included); default: project.yaml "
+             "post.types, else auto"),
         _arg("--ensemble", action="store_true", help="treat RUN_DIRs as ensemble "
              "members (enables the ensemble figure set)"),
         _arg("--spinup-hours", type=float, default=6.0, dest="spinup_hours"),
@@ -543,7 +557,10 @@ def _add_fetch_parsers(sub) -> dict:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="wtune.py post")
+    parser = argparse.ArgumentParser(
+        prog="wtune.py post", epilog="--srun (any subcommand): run it as one exclusive "
+        "compute-node job step (srun -N1 --exclusive -t %d), excluding head and the project's "
+        "exclude_nodes" % POST_JOB_MINUTES)
     sub = parser.add_subparsers(dest="post_command")
     parsers = {}
     for name, kw, specs in _COMMANDS:
@@ -556,9 +573,29 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+POST_JOB_MINUTES = 120
+
+
+def srun_command(post_argv: list[str], minutes: int = POST_JOB_MINUTES) -> list[str]:
+    """`wtune post <post_argv>` as one exclusive compute-node job step, avoiding the same nodes
+    as every other wtune job (head, $WTUNE_SBATCH_EXCLUDE / project exclude_nodes)."""
+    src = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    sys.path.insert(0, os.path.join(src, "tools"))
+    import scc_sweep
+    wtune_bin = os.path.join(os.path.dirname(src), "bin", "wtune")
+    return (["srun", "--exclude=" + ",".join(scc_sweep.excluded_nodes()), "-N1", "--exclusive",
+             "-t", str(minutes), wtune_bin, "post"] + list(post_argv))
+
+
 def main(argv: list[str] | None = None) -> int:
+    argv = list(argv if argv is not None else sys.argv[1:])
+    if "--srun" in argv:
+        cmd = srun_command([a for a in argv if a != "--srun"])
+        print("post job: %s" % " ".join(cmd), flush=True)
+        os.execvp(cmd[0], cmd)
     parser = build_parser()
     args = parser.parse_args(argv)
+    args.argv = argv
     dispatch = dict(inventory=cmd_inventory, extract=cmd_extract, plot=cmd_plot,
                     sounding=cmd_sounding, tc=cmd_tc, compare=cmd_compare, report=cmd_report,
                     recipe=cmd_recipe, custom=cmd_custom, fetch=cmd_fetch, cf3d=cmd_cf3d)

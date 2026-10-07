@@ -40,12 +40,19 @@ def add_arguments(parser):
                         "(the synoptic recipe's own rule; default 6)")
     parser.add_argument("--margin", type=float, default=2.0,
                         help="degrees added around the d01 bbox (default 2)")
+    parser.add_argument("--end", default=None,
+                        help="with --bbox, instead of --run-dir: the run's last valid time "
+                        "(UTC, YYYYmmddHH), which the synoptic recipe compares at")
+    parser.add_argument("--bbox", default=None, help="lat0,lat1,lon0,lon1 of d01")
 
 
 def _target(args):
     """(valid datetime, bbox) the synoptic recipe will ask for, or (None, reason)."""
     from post.caseinfo import WRF_TIME_FMT
     from post.recipes.synoptic import _post_spinup_time
+    if getattr(args, "end", None) and getattr(args, "bbox", None):
+        return (sources.parse_time(args.end),
+                tuple(float(x) for x in args.bbox.split(","))), None
     if not getattr(args, "run_dir", None):
         return None, "--run-dir is required (the valid time and region come from its wrfout_d01)"
     chosen, _frames = _post_spinup_time(args.run_dir, 1, args.spinup_hours)

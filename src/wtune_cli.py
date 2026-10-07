@@ -1857,6 +1857,10 @@ _IN_PROCESS_PARSERS = (
 # argv goes to, module imported to run it). The dest is visible: it names the positional in the
 # subcommand's usage line. `prep` has no module entry: see _forwarded_module.
 _FORWARDED_COMMANDS = (
+    ('submit', 'submit_args', 'tune -> run -> post for the current project in one command '
+     '(wtune_submit.py)', 'wtune_submit.py', 'wtune_submit'),
+    ('doctor', 'doctor_args', 'check that this machine and project are ready (wtune_doctor.py)',
+     'wtune_doctor.py', 'wtune_doctor'),
     ('tune', 'tune_args', 'budgeted on-cluster tuner (scc): probe, screen, confirm, report',
      'wtune_tune.py', 'wtune_tune'),
     ('config', 'config_args', 'wtune tune search-space YAML config (wtune_config.py): init | show | validate',
@@ -1899,7 +1903,15 @@ _FORWARDED_MODULE = {name: module for name, _dest, _help, _target, module in _FO
 
 
 def _build_parser():
-    parser = argparse.ArgumentParser(prog='wtune.py', description='WRF config autotuner analytical core')
+    parser = argparse.ArgumentParser(
+        prog='wtune.py', description='WRF config autotuner analytical core',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog='common workflow:\n'
+               '  wtune project init DIR --case CASE_DIR   new project (registers the case)\n'
+               '  cd DIR; wtune doctor                     is everything installed?\n'
+               '  wtune submit                             tune -> run -> post in one go\n'
+               '  wtune tune -O2 / wtune run / wtune post recipe --srun   the same, step by step\n'
+               '  wtune watch runs/<id>                    progress of a running run')
     parser.add_argument('--version', action='version',
                         version='wtune %s' % wtune_version.__version__)
     sub = parser.add_subparsers(dest='command')
@@ -1955,11 +1967,61 @@ _IN_PROCESS_COMMANDS = {
 }
 
 
+# Forwarded commands that take project.yaml's exclude_nodes and case table, and the subset
+# whose full argv goes to manifest.jsonl here (post and project record their own).
+_PROJECT_AWARE = ('tune', 'run', 'post', 'watch', 'check', 'convert', 'advise', 'submit',
+                  'doctor')
+_RECORDED = ('tune', 'run', 'submit')
+
+
+def _project_for(argv):
+    """(project_dir, project_doc) a forwarded argv runs in, from --project, $WTUNE_PROJECT or
+    a project.yaml above cwd; (None, None) when none resolves."""
+    import wtune_project
+    explicit = None
+    for i, a in enumerate(argv):
+        if a == '--project' and i + 1 < len(argv):
+            explicit = argv[i + 1]
+        elif a.startswith('--project='):
+            explicit = a.split('=', 1)[1]
+    try:
+        project_dir = wtune_project.find_project(explicit=explicit)
+    except wtune_project.ProjectError:
+        return None, None          # the subcommand reports a bad --project itself
+    return project_dir, (wtune_project.load_project(project_dir) if project_dir else None)
+
+
+def _run_forwarded(args):
+    argv = getattr(args, _FORWARDED_DEST[args.command])
+    project_dir = None
+    if args.command in _PROJECT_AWARE:
+        import wtune_project
+        project_dir, doc = _project_for(argv)
+        if project_dir:
+            wtune_project.apply_project_env(project_dir, doc)
+    try:
+        status = _forwarded_module(args).main(argv)
+    except SystemExit as e:
+        status = e.code
+    if project_dir and args.command in _RECORDED and not {'-h', '--help'} & set(argv):
+        import wtune_project
+        code = (status or 0) if isinstance(status, (int, type(None))) else 1
+        wtune_project.manifest_append(project_dir, ['wtune', args.command] + list(argv),
+                                      exit_code=code)
+    return status
+
+
 def main():
+    argv = sys.argv[1:]
+    # argparse's REMAINDER only starts at the first positional, so `wtune run --dry-run` would
+    # fail at this level: hand a forwarded command its argv untouched.
+    if argv and argv[0] in _FORWARDED_DEST:
+        args = argparse.Namespace(command=argv[0], **{_FORWARDED_DEST[argv[0]]: argv[1:]})
+        sys.exit(_run_forwarded(args))
     parser = _build_parser()
     args = parser.parse_args()
     if args.command in _FORWARDED_DEST:
-        sys.exit(_forwarded_module(args).main(getattr(args, _FORWARDED_DEST[args.command])))
+        sys.exit(_run_forwarded(args))
     if args.command not in _IN_PROCESS_COMMANDS:
         parser.print_help()
         sys.exit(1)

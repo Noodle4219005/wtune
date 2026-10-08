@@ -336,12 +336,18 @@ def download(url, dest, known_sha=None, timeout=120, retries=3):
             req = urllib.request.Request(url, headers=headers)
             with urllib.request.urlopen(req, timeout=timeout) as r:
                 mode = "ab" if (have and r.status == 206) else "wb"
+                expected, got = r.headers.get("Content-Length"), 0
                 with open(part, mode) as fh:
                     while True:
                         chunk = r.read(1 << 20)
                         if not chunk:
                             break
                         fh.write(chunk)
+                        got += len(chunk)
+            # a connection cut mid-body makes read() return b"", not raise; .part is kept so
+            # the next attempt resumes it with Range
+            if expected is not None and got != int(expected):
+                raise OSError("%s: got %d of %s bytes" % (url, got, expected))
             os.replace(part, dest)
             return sha256_file(dest), True
         except urllib.error.HTTPError as e:

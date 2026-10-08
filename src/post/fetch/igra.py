@@ -200,6 +200,8 @@ def stream_zip_lines(url, timeout=120):
                 yield ln.decode("ascii", "replace")
             if dec is not None and dec.eof:
                 break
+        if dec is not None and not dec.eof:     # connection cut mid-member
+            raise RuntimeError("%s: stream ended before the zip member was complete" % url)
         if buf:
             yield buf.decode("ascii", "replace")
 

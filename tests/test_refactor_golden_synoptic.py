@@ -58,7 +58,7 @@ class FakeDS:
         self.path = path
         self.variables = {
             "HGT": _grid(0.0, 900.0, (1, NY, NX)),
-            "PSFC": _grid(80000.0, 101000.0, (1, NY, NX)),
+            "PSFC": np.concatenate([_grid(80000.0, 101000.0, (1, NY, NX))] * 2),
             "XLAT": _grid(20.0, 30.0, (1, NY, NX)),
             "XLONG": _grid(-100.0, -90.0, (1, NY, NX)),
         }
@@ -91,6 +91,7 @@ class FakeWrf:
             "theta_e": three + 330.0,
             "ua": three * 3.0 - 2.0,
             "va": three * 2.0 + 1.0,
+            "uvmet": np.stack([three * 3.0 - 2.0, three * 2.0 + 1.0]),
             "wspd_wdir": np.stack([three * 10.0 + self.jet_max - 20.0, three]),
             "T2": _grid(260.0, 305.0),
             "uvmet10": np.stack([_grid(-5.0, 5.0), _grid(0.0, 8.0)]),

@@ -144,6 +144,15 @@ def box_mean(field, lat, lon, box, mask):
     return float((field[sel] * w).sum() / w.sum()), int(sel.sum())
 
 
+def boxes_outside(lat, lon, interior, boxes=None):
+    """Names of the boxes with no interior model cell at all (domain elsewhere on the globe)."""
+    out = []
+    for name, (lat0, lat1, lon0, lon1), _kind in (BOXES if boxes is None else boxes):
+        if not ((lat >= lat0) & (lat <= lat1) & (lon >= lon0) & (lon <= lon1) & interior).any():
+            out.append(name)
+    return out
+
+
 def interp_to_grid(ref_lat, ref_lon, ref_field, lat2d, lon2d):
     """Bilinear interpolation of a regular lat/lon field onto model points (lat2d, lon2d).
     Longitudes are put in the reference's convention (0..360 or -180..180); NaN in the reference
@@ -225,6 +234,13 @@ def _cdo_inputs(frames, work_dir, cdo):
     return inputs, temps
 
 
+def rain_expr(bucket_mm):
+    """`cdo expr` for the running accumulation PR, with the bucket counters when bucket_mm > 0."""
+    if bucket_mm:
+        return "PR=RAINC+RAINNC+(I_RAINC+I_RAINNC)*%r" % float(bucket_mm)
+    return "PR=RAINC+RAINNC"
+
+
 def model_monthly(frames, work_dir, ny, nx, step_s):
     """CDO reductions of the run's frames (every valid time, also inside multi-frame files --
     see _cdo_inputs): {"T2": {(y,m): arr}, "SST": ..., "PR_acc": ...} where PR_acc is the
@@ -234,14 +250,19 @@ def model_monthly(frames, work_dir, ny, nx, step_s):
     os.makedirs(work_dir, exist_ok=True)
     merged = os.path.join(work_dir, "merged.nc")
     inputs, temps = _cdo_inputs(frames, work_dir, cdo)
-    tools.run([cdo, "-s", "-O", "select,name=T2,SST,RAINC,RAINNC"] + inputs + [merged])
+    import netCDF4
+    from post.recipes.common import _bucket_mm
+    with netCDF4.Dataset(frames[0][1]) as ds:
+        bucket = _bucket_mm(ds)             # > 0: part of the rain is in I_RAINC/I_RAINNC
+    names = "T2,SST,RAINC,RAINNC" + (",I_RAINC,I_RAINNC" if bucket else "")
+    tools.run([cdo, "-s", "-O", "select,name=" + names] + inputs + [merged])
     for path in temps:
         os.remove(path)
     mmean = os.path.join(work_dir, "monmean.nc")
     tools.run([cdo, "-s", "-O", "monmean", "-selname,T2,SST", merged, mmean])
     rain = os.path.join(work_dir, "rain_monmax.nc")
     tools.run([cdo, "-s", "-O", "monmax", "-shifttime,-%dseconds" % step_s,
-               "-expr,PR=RAINC+RAINNC", merged, rain])
+               "-expr," + rain_expr(bucket), merged, rain])
     out = {"T2": _read_cdo_monthly(mmean, "T2", ny, nx),
            "SST": _read_cdo_monthly(mmean, "SST", ny, nx),
            "PR_acc": _read_cdo_monthly(rain, "PR", ny, nx)}
@@ -322,7 +343,10 @@ def plot_annual_cycle(months, series, out_path, run_label, notes):
             ax = axes[r, c]
             s = series[key]
             mod = s["model"].get(name)
-            if mod is None or not np.isfinite(mod).any():
+            if name in s.get("outside", ()):
+                ax.text(0.5, 0.5, "box outside domain", ha="center", va="center",
+                        transform=ax.transAxes, fontsize=10)
+            elif mod is None or not np.isfinite(mod).any():
                 ax.text(0.5, 0.5, s["why"], ha="center", va="center", transform=ax.transAxes, fontsize=10)
             else:
                 # temperatures in degC (decision 0064); the CSV keeps K
@@ -502,9 +526,13 @@ def figures(run_dirs, labels, out_dir, case_info, project_dir=None, spinup_days=
             notes.append("GPCP missing: " + hint % "gpcp_monthly")
         if sst_flat:
             notes.append("SST is constant in wrfout (sst_update=0): no ocean-box SST cycle")
+        outside = boxes_outside(lat, lon, interior)
+        if outside:
+            notes.append("box outside domain: " + ", ".join(outside))
         series = {"T": {"model": mod_t, "ref": ref_t, "ref_label": "ERA5 (T2 land / SST ocean)",
-                        "why": "SST constant in wrfout (sst_update=0)"},
-                  "P": {"model": mod_p, "ref": ref_p, "ref_label": "GPCP v2.3, 2.5 deg", "why": "no data"}}
+                        "why": "SST constant in wrfout (sst_update=0)", "outside": outside},
+                  "P": {"model": mod_p, "ref": ref_p, "ref_label": "GPCP v2.3, 2.5 deg",
+                        "why": "no data", "outside": outside}}
         path = plot_annual_cycle(months, series, os.path.join(out_dir, "climate_annual_cycle.png"),
                                  run_label, notes)
         rows = []

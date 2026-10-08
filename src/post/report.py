@@ -96,8 +96,16 @@ _TYPE_ID_PREFIX = dict(common="common_", tc="tc_", convection="conv_", precip="p
 
 
 def _figures_for_type(figures, type_name):
+    """The type's figures by id prefix, plus post.recipe's whole-set missing entry
+    ("<type>_figures", e.g. convection_figures, which does not start with conv_)."""
     prefix = _TYPE_ID_PREFIX.get(type_name, type_name + "_")
-    return [f for f in figures if f["id"].startswith(prefix)]
+    return [f for f in figures
+            if f["id"].startswith(prefix) or f["id"] == type_name + "_figures"]
+
+
+def _in_time_series(f):
+    fid = f.get("id", "")
+    return fid == "timeseries" or fid.startswith(("timeseries_", "chg_", "anim_"))
 
 
 def _caption_block(catalog, fig_id):
@@ -208,8 +216,9 @@ def _build_time_series_section(out_dir, figures, catalog, spinup_hours):
     (fNNN_<validZ>Z), with prev/next navigation between times, plus an Animations
     sub-section (post/anim.py's MP4/GIF records, referenced by relative path next to
     report.html -- never base64-embedded, decision 0058 update: "報告裡可以直接播放")."""
-    ts_and_chg = [f for f in figures if f.get("id", "").startswith(("timeseries_", "chg_"))]
     anim_figs = [f for f in figures if f.get("id", "").startswith("anim_")]
+    ts_and_chg = [f for f in figures
+                  if _in_time_series(f) and not f["id"].startswith("anim_")]
     if not ts_and_chg and not anim_figs:
         return ""
 
@@ -304,10 +313,12 @@ def build_recipe_report(out_dir, case_info, figures, run_dirs, labels, spinup_ho
                                         case_info["d01_extent_km"][0], case_info["d01_extent_km"][1]))
 
     data_ids_shown = set()
-    for t in case_info["types"]:
-        type_figs = _figures_for_type(figures, t)
+    shown = set()       # id() of every entry some section rendered
+
+    def section(t, type_figs):
         if not type_figs:
-            continue
+            return
+        shown.update(id(f) for f in type_figs)
         parts.append("<h2>%s</h2>" % html.escape(t))
         for f in type_figs:
             if f.get("missing"):
@@ -346,7 +357,11 @@ def build_recipe_report(out_dir, case_info, figures, run_dirs, labels, spinup_ho
             parts.append(_source_lines(f))
             parts.append(_caption_block(catalog, f["id"]))
 
+    for t in case_info["types"]:
+        section(t, _figures_for_type(figures, t))
     parts.append(_build_time_series_section(out_dir, figures, catalog, spinup_hours))
+    # catch-all: an entry no section claimed is listed, never silently dropped
+    section("other", [f for f in figures if id(f) not in shown and not _in_time_series(f)])
     parts.append(_sources_section(figures, out_dir))
 
     parts.append("</body></html>")

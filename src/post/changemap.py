@@ -166,6 +166,7 @@ def figures_for_change_maps(run_dir, run_label, domain, out_dir, selected_times,
     "時段量，例如 6 h 雨量"). Every diff is computed first (cdo sub), then ONE colour scale is
     fixed per (field, mode) -- consecutive vs since-t0 -- and shared by all its maps, so the
     frames are comparable. Returns post/recipe.py fig()/missing() records."""
+    from post.extract import is_missing_field_error, missing_reason
     from post.recipe import missing
     if len(selected_times) < 2:
         return []
@@ -189,6 +190,11 @@ def figures_for_change_maps(run_dir, run_label, domain, out_dir, selected_times,
         except (tools.ToolError, ImportError, KeyError, OSError) as e:
             errors[j] = missing(fig_id or "chg_%s" % field, "cdo/wrf-python", str(e),
                                 run=run_label)
+        except Exception as e:                              # noqa: BLE001 -- filtered below
+            if not is_missing_field_error(e):
+                raise
+            errors[j] = missing(fig_id or "chg_%s" % field, "wrfout history stream",
+                                missing_reason(e), run=run_label)   # this field only
 
     scales = {}
     for key in {(f, m) for (f, _, m, _, _) in jobs}:

@@ -559,6 +559,20 @@ def missing_reason(exc: BaseException) -> str:
     return "%s: %s" % (type(exc).__name__, text)
 
 
+def accumulated_rain(ds, timeidx=0):
+    """Accumulated total precipitation (mm) at timeidx as a 2-D ndarray: RAINC + RAINNC, plus
+    (I_RAINC + I_RAINNC) * BUCKET_MM when the run used bucket_mm > 0 (WRF then resets
+    RAINC/RAINNC every BUCKET_MM mm and counts the resets in I_RAIN*)."""
+    import numpy as np
+    v = ds.variables
+    total = np.asarray(v["RAINC"][timeidx]) + np.asarray(v["RAINNC"][timeidx])
+    bucket = float(getattr(ds, "BUCKET_MM", -1.0))
+    tips = [np.asarray(v[n][timeidx], dtype="f8") for n in ("I_RAINC", "I_RAINNC") if n in v]
+    if bucket > 0 and tips:
+        total = total.astype("f8") + bucket * sum(tips)
+    return total
+
+
 def _surface_field(ds, wrf_mod, name, timeidx):
     if name == "slp":
         return wrf_mod.getvar(ds, "slp", timeidx=timeidx, units="hPa")
@@ -576,6 +590,8 @@ def _surface_field(ds, wrf_mod, name, timeidx):
         rainnc = wrf_mod.getvar(ds, "RAINNC", timeidx=timeidx)
         total = rainc + rainnc
         total.attrs = dict(rainc.attrs)    # xarray < 2025.11 drops attrs in arithmetic; get_cartopy needs 'projection'
+        if float(getattr(ds, "BUCKET_MM", -1.0)) > 0:      # bucket_mm > 0: add the bucket tips
+            total = total.astype("f8").copy(data=accumulated_rain(ds, timeidx))
         return total
     if name == "mdbz":
         return wrf_mod.getvar(ds, "mdbz", timeidx=timeidx)

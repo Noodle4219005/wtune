@@ -26,6 +26,7 @@ import os
 from post import tools
 from post.conventions import reflectivity_cmap
 from post.extract import frame_ref, list_frame_refs, list_frames
+from post.recipes.common import FIELD_ERRORS, error_reason
 
 
 def _finest_convective_domain(domains):
@@ -156,6 +157,8 @@ def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6):
                        valid_time=last_time))
     except (tools.ToolNotFoundError, ImportError) as e:
         out.append(missing("conv_max_reflectivity", "wrf-python", str(e)))
+    except FIELD_ERRORS as e:
+        out.append(missing("conv_max_reflectivity", "wrfout_d%02d" % domain, error_reason(e)))
 
     try:
         for field, label in (("mcape", "MCAPE (J/kg)"), ("mcin", "MCIN (J/kg)")):
@@ -167,6 +170,8 @@ def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6):
                            valid_time=last_time))
     except (tools.ToolNotFoundError, ImportError) as e:
         out.append(missing("conv_mcape_mcin", "wrf-python", str(e)))
+    except FIELD_ERRORS as e:
+        out.append(missing("conv_mcape_mcin", "wrfout_d%02d" % domain, error_reason(e)))
 
     try:
         uh_max, lats, lons, crs = _uh_time_max(run_dir, domain, post_spinup)
@@ -187,6 +192,8 @@ def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6):
                        valid_time="%s..%s" % (post_spinup[0][0], post_spinup[-1][0])))
     except (tools.ToolNotFoundError, ImportError) as e:
         out.append(missing("conv_uh25_max", "wrf-python", str(e)))
+    except FIELD_ERRORS as e:
+        out.append(missing("conv_uh25_max", "wrfout_d%02d" % domain, error_reason(e)))
 
     try:
         lat, lon = _max_reflectivity_point(run_dir, domain, last_time)
@@ -198,6 +205,8 @@ def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6):
                        extra={"point": "%.3f,%.3f (max-reflectivity column)" % (lat, lon)}))
     except (tools.ToolNotFoundError, ImportError) as e:
         out.append(missing("conv_skewt", "MetPy", str(e)))
+    except FIELD_ERRORS as e:
+        out.append(missing("conv_skewt", "wrfout_d%02d" % domain, error_reason(e)))
 
     out += _radar_figures(run_dir, run_label, domain, case_info, out_dir, spinup_hours)
     return out

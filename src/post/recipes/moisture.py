@@ -13,6 +13,7 @@ import os
 
 from post import tools
 from post.extract import list_frame_refs, list_frames
+from post.recipes.common import FIELD_ERRORS, error_reason
 
 
 def _plt():
@@ -68,6 +69,7 @@ def _default_moisture_point(run_dir, domain, tc_centre=None):
     import netCDF4
     import numpy as np
     from post import caseinfo
+    from post.extract import accumulated_rain
     wrf_mod = __import__("wrf")
     if tc_centre:
         return tc_centre
@@ -75,8 +77,7 @@ def _default_moisture_point(run_dir, domain, tc_centre=None):
     time0, path0, ti = frames[-1]
     with netCDF4.Dataset(path0) as ds:
         rainc = wrf_mod.getvar(ds, "RAINC", timeidx=ti)
-        rainnc = wrf_mod.getvar(ds, "RAINNC", timeidx=ti)
-        rain = np.asarray(rainc + rainnc)
+        rain = accumulated_rain(ds, ti)        # incl. the I_RAINC/I_RAINNC bucket part
         lats, lons = wrf_mod.latlon_coords(rainc, as_np=True)
     bounds = caseinfo._interior_bounds(rain.shape[0], rain.shape[1], caseinfo.spec_bdy_width(run_dir))
     if bounds is not None:
@@ -298,6 +299,10 @@ def _cross_section_figure(run_dir, run_label, domain, out_dir, point, line=None,
     return out_path
 
 
+class PointOutsideDomain(ValueError):
+    pass
+
+
 def _point_time_height(run_dir, run_label, domain, out_dir, point, reason=None, top_m=12000.0):
     import netCDF4
     import numpy as np
@@ -315,6 +320,10 @@ def _point_time_height(run_dir, run_label, domain, out_dir, point, reason=None, 
     with netCDF4.Dataset(frames[0][1]) as ds:
         xy = wrf_mod.ll_to_xy(ds, lat, lon)
         i, j = int(xy[0]), int(xy[1])
+        ny, nx = ds.variables["XLAT"].shape[-2:]
+    if not (0 <= i < nx and 0 <= j < ny):   # a negative index would wrap to the opposite edge
+        raise PointOutsideDomain("point %.2f, %.2f is outside d%02d (grid index i=%d, j=%d of "
+                                 "%d x %d)" % (lat, lon, domain, i, j, nx, ny))
 
     times, q_profiles, z_profiles = [], [], []
     hgt = 0.0
@@ -379,6 +388,8 @@ def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6, cross_section=
             out.append(missing("moisture_pw", "wrfout_d%02d_*" % domain, "no frames found"))
     except (tools.ToolNotFoundError, ImportError) as e:
         out.append(missing("moisture_pw", "wrf-python/cartopy", str(e)))
+    except FIELD_ERRORS as e:
+        out.append(missing("moisture_pw", "wrfout_d%02d" % domain, error_reason(e)))
 
     try:
         record = _pw_change_figure(run_dir, run_label, domain, out_dir)
@@ -387,6 +398,8 @@ def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6, cross_section=
                                                  "earlier frame nearer 6 h than the last one)"))
     except (tools.ToolNotFoundError, ImportError) as e:
         out.append(missing("moisture_pw_chg6h", "cdo/wrf-python", str(e)))
+    except FIELD_ERRORS as e:
+        out.append(missing("moisture_pw_chg6h", "wrfout_d%02d" % domain, error_reason(e)))
 
     try:
         path = _ivt_figure(run_dir, run_label, domain, out_dir)
@@ -396,6 +409,8 @@ def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6, cross_section=
             out.append(missing("moisture_ivt", "wrfout_d%02d_*" % domain, "no frames found"))
     except (tools.ToolNotFoundError, ImportError) as e:
         out.append(missing("moisture_ivt", "wrf-python/cartopy", str(e)))
+    except FIELD_ERRORS as e:
+        out.append(missing("moisture_ivt", "wrfout_d%02d" % domain, error_reason(e)))
 
     try:
         point = _default_moisture_point(run_dir, domain, tc_centre=tc_centre)
@@ -410,6 +425,9 @@ def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6, cross_section=
     except (tools.ToolNotFoundError, ImportError, ValueError) as e:
         out.append(missing("moisture_crosssection", "wrf-python", str(e)))
         point = None
+    except (KeyError, IndexError) as e:
+        out.append(missing("moisture_crosssection", "wrfout_d%02d" % domain, error_reason(e)))
+        point = None
 
     try:
         if point is None:
@@ -420,7 +438,11 @@ def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6, cross_section=
             out.append(fig("moisture_timeheight", path, run_label, domain="d%02d" % domain))
         else:
             out.append(missing("moisture_timeheight", "wrfout_d%02d_*" % domain, "no frames found"))
+    except PointOutsideDomain as e:
+        out.append(missing("moisture_timeheight", "wrfout_d%02d_*" % domain, str(e)))
     except (tools.ToolNotFoundError, ImportError) as e:
         out.append(missing("moisture_timeheight", "wrf-python", str(e)))
+    except FIELD_ERRORS as e:
+        out.append(missing("moisture_timeheight", "wrfout_d%02d" % domain, error_reason(e)))
 
     return out

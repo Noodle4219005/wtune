@@ -30,6 +30,7 @@ VARS = {
     "PRMSL": dict(col=6, hgt=0, scale=0.1, offset=0.0, model="MSLP", label="MSLP", unit="hPa"),
 }
 MAX_TIMES = 48
+_TAG_FMT = "%Y%m%d%H%M"      # with minutes: sub-hourly history (HH:00, HH:30)
 BOOT_REPS = 1000
 
 
@@ -177,7 +178,7 @@ def verify_run(run_dir, domain, frames, project_dir, out_dir, spinup_hours):
     poly = met_gridstat.write_interior_polygon(times[-1][1], spec_bdy_width(run_dir),
                                                os.path.join(work, "interior.poly"))
     for t, path in times:
-        tag = t.strftime("%Y%m%d%H")
+        tag = t.strftime(_TAG_FMT)
         lat, lon, fields, valid = model_fields(path, timeidx=tidx[t])
         fnc = met_gridstat.curvilinear_to_latlon(lat, lon, fields, valid,
                                                  os.path.join(work, "fcst_%s.nc" % tag), method="remapbil")
@@ -198,7 +199,7 @@ def summarize(work, times, out_dir, project_dir):
     stn = {}
     pairs_by_time = {}
     for t, _p in times:
-        d = os.path.join(work, "ps_%s" % t.strftime("%Y%m%d%H"))
+        d = os.path.join(work, "ps_%s" % t.strftime(_TAG_FMT))
         if not os.path.isdir(d):
             continue
         cnt = {r["FCST_VAR"]: r for r in _tables(d, "_cnt.txt") if r.get("LINE_TYPE") == "CNT"}
@@ -235,7 +236,7 @@ def summarize(work, times, out_dir, project_dir):
     # align: each variable's series have one entry per time that had its CNT row; rebuild x per var
     per_var_x = {}
     for t, _p in times:
-        d = os.path.join(work, "ps_%s" % t.strftime("%Y%m%d%H"))
+        d = os.path.join(work, "ps_%s" % t.strftime(_TAG_FMT))
         if os.path.isdir(d):
             have = {r["FCST_VAR"] for r in _tables(d, "_cnt.txt") if r.get("LINE_TYPE") == "CNT"}
             for mv in have:

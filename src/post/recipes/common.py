@@ -14,6 +14,25 @@ import os
 from post import tools
 from post.extract import list_frames
 
+# what one figure of a set may raise on a reduced history stream / an out-of-range point
+# (cloud.py's _ERRORS = tool/import errors + these)
+FIELD_ERRORS = (KeyError, ValueError, IndexError)
+
+
+def error_reason(e):
+    """missing() reason for one failed figure (same rule as cloud.py's _reason)."""
+    from post.extract import is_missing_field_error, missing_reason
+    return missing_reason(e) if is_missing_field_error(e) else "%s: %s" % (type(e).__name__, e)
+
+
+def _bucket_mm(ds):
+    """BUCKET_MM when the frame carries the I_RAINC/I_RAINNC bucket counters (namelist
+    bucket_mm > 0), else 0.0 -- for the CDO route; netCDF4 readers use
+    post.extract.accumulated_rain."""
+    bucket = float(getattr(ds, "BUCKET_MM", -1.0))
+    has = "I_RAINC" in ds.variables and "I_RAINNC" in ds.variables
+    return bucket if bucket > 0 and has else 0.0
+
 
 def _domain_edge_latlon(ds):
     import numpy as np
@@ -147,6 +166,7 @@ def figures(run_dirs, labels, out_dir, case_info, decomposition_only=False):
         out.append(missing("common_domain_map", "wrf-python/cartopy", str(e)))
 
     if decomposition_only and len(run_dirs) >= 2:
+        from post.compare import CompareError       # diffwrf failed: compare_runs fails closed
         try:
             path = plot_repro_envelope(run_dirs, labels, out_dir)
             if path:
@@ -155,7 +175,7 @@ def figures(run_dirs, labels, out_dir, case_info, decomposition_only=False):
                 out.append(missing("common_repro_envelope", "diffwrf",
                                    "no common (domain,time) frames differed -- runs identical "
                                    "or no overlapping frames"))
-        except (tools.ToolNotFoundError, ImportError) as e:
+        except (tools.ToolNotFoundError, ImportError, CompareError) as e:
             out.append(missing("common_repro_envelope", "diffwrf", str(e)))
     return out
 

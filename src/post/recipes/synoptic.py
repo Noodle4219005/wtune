@@ -13,6 +13,7 @@ from typing import Any, Callable
 
 from post import met_gridstat, tools
 from post.extract import list_frame_refs
+from post.recipes.common import FIELD_ERRORS, error_reason
 
 KT_PER_MS = 1.943844          # kt per m s-1
 _SYNOPTIC_DOMAIN = 1          # read on d01, the domain the extent test used
@@ -84,6 +85,18 @@ def _read_shared_fields(c: _Chart) -> None:
     c.ylim = wrf_mod.cartopy_ylim(var=c.z500)
 
 
+def cyclonic_avo(np: Any, avo: Any, lats: Any) -> tuple[Any, str]:
+    """(absolute vorticity with the sign flipped south of the equator, label): cyclonic is
+    positive in both hemispheres, so the fixed positive levels also shade a SH trough. A grid
+    wholly north of the equator is returned unchanged with the plain label."""
+    label = "absolute vorticity (10$^{-5}$ s$^{-1}$)"
+    south = np.asarray(lats) < 0.0
+    if not south.any():
+        return avo, label
+    return (np.where(south, -avo, avo),
+            label[:-1] + "; sign flipped south of the equator: cyclonic +)")
+
+
 def _z500_vort_chart(c: _Chart, fig: Callable, missing: Callable) -> dict:
     """Classic 500 hPa chart (decision 0064): heights every 60 m, absolute vorticity shaded from
     16e-5 s-1 every 4e-5 s-1."""
@@ -100,11 +113,12 @@ def _z500_vort_chart(c: _Chart, fig: Callable, missing: Callable) -> dict:
         return missing("syn_z500_vort", "wrfout MAPFAC_U/V/M, F",
                        "absolute vorticity needs map-factor fields not in this wrfout "
                        "(%s) -- re-run with them in the history stream" % c.avo_missing)
+    avo_np, avo_label = cyclonic_avo(np, avo_np, c.lats)
     p1 = os.path.join(c.out_dir, "syn_z500_vort.png")
     c.save_map(p1, c.lats, c.lons,
                "%s d01 500 hPa height (every 60 m) + absolute vorticity (shaded)  %s"
                % (c.run_label, c.tlabel),
-               fill_field=avo_np, fill_label="absolute vorticity (10$^{-5}$ s$^{-1}$)",
+               fill_field=avo_np, fill_label=avo_label,
                fill_levels=avo_levels, fill_colors=avo_colors, fill_extend="max",
                contour_field=z500_np, contour_levels=z_levels, contour_label_fmt="%d",
                ds=c.ds, crs=c.crs, gridline_labels=True, terrain=False)
@@ -168,11 +182,11 @@ def _thetae850_chart(c: _Chart, fig: Callable) -> dict:
     """850 hPa theta-e every 4 K + wind barbs (kt), hatched where 850 hPa is below ground."""
     np, wrf_mod, ds, ti = c.np, c.wrf, c.ds, c.ti
     theta_e850 = wrf_mod.interplevel(wrf_mod.getvar(ds, "theta_e", timeidx=ti), c.pressure, 850)
-    u850 = np.asarray(wrf_mod.interplevel(
-        wrf_mod.getvar(ds, "ua", timeidx=ti, units="m s-1"), c.pressure, 850))
-    v850 = np.asarray(wrf_mod.interplevel(
-        wrf_mod.getvar(ds, "va", timeidx=ti, units="m s-1"), c.pressure, 850))
-    below850 = np.asarray(ds.variables["PSFC"][0]) / 100.0 < 850.0   # surface pressure, hPa
+    # earth-relative wind: save_map draws the barbs on lat/lon (ua/va are along the grid axes)
+    uvmet = wrf_mod.getvar(ds, "uvmet", timeidx=ti, units="m s-1")
+    u850 = np.asarray(wrf_mod.interplevel(uvmet[0], c.pressure, 850))
+    v850 = np.asarray(wrf_mod.interplevel(uvmet[1], c.pressure, 850))
+    below850 = np.asarray(ds.variables["PSFC"][ti]) / 100.0 < 850.0   # surface pressure, hPa
     p3 = os.path.join(c.out_dir, "syn_850_thetae_wind.png")
     te = np.asarray(theta_e850, dtype="f8")
     te_levels = np.arange(4.0 * np.floor(np.nanmin(te) / 4.0), np.nanmax(te) + 4.0, 4.0)
@@ -296,11 +310,15 @@ def figures(run_dirs: list[str], labels: list[str], out_dir: str, case_info: dic
                        run_label=run_label, time_str=time_str,
                        tlabel=ds_time_label(ds, time_str))   # init / valid / lead (decision 0064)
             _read_shared_fields(c)
-            out.append(_z500_vort_chart(c, fig, missing))
-            out.append(_slp_thickness_chart(c, fig))
-            out.append(_thetae850_chart(c, fig))
-            out.append(_jet250_chart(c, fig))
-            out.append(_t2_wind10_chart(c, fig))
+            for fid, chart, args in (("syn_z500_vort", _z500_vort_chart, (c, fig, missing)),
+                                     ("syn_slp_thickness", _slp_thickness_chart, (c, fig)),
+                                     ("syn_850_thetae_wind", _thetae850_chart, (c, fig)),
+                                     ("syn_250_jet", _jet250_chart, (c, fig)),
+                                     ("syn_t2_wind10", _t2_wind10_chart, (c, fig))):
+                try:       # one chart's missing field is one missing entry, the others survive
+                    out.append(chart(*args))
+                except FIELD_ERRORS as e:
+                    out.append(missing(fid, "wrfout_d01", error_reason(e)))
             model_bbox = _model_bbox(np, ds)
     except (tools.ToolNotFoundError, ImportError) as e:
         out.append(missing("syn_maps", "wrf-python/cartopy", str(e)))

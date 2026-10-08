@@ -172,12 +172,19 @@ def cmd_tc(args: argparse.Namespace) -> int:
 def cmd_compare(args: argparse.Namespace) -> int:
     import post.compare as compare
     variables = _parse_vars(args.vars) if args.vars else None
-    result = compare.compare_runs(args.run_a, args.run_b, variables=variables, domain=args.domain)
+    try:
+        result = compare.compare_runs(args.run_a, args.run_b, variables=variables,
+                                      domain=args.domain)
+    except compare.CompareError as e:       # fail closed: an uncomparable pair is not identical
+        print("error: %s" % e, file=sys.stderr)
+        return 2
     if args.json:
         print(json.dumps(result, indent=2))
     else:
         print(compare.render_summary(result))
-    return 0 if result["identical"] or not result["results"] else 1
+    if result["n_frames_compared"] == 0:
+        return 2
+    return 0 if result["identical"] else 1
 
 
 def cmd_report(args: argparse.Namespace) -> int:
@@ -560,7 +567,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="wtune.py post", epilog="--srun (any subcommand): run it as one exclusive "
         "compute-node job step (srun -N1 --exclusive -t %d), excluding head and the project's "
-        "exclude_nodes" % POST_JOB_MINUTES)
+        "exclude_nodes; --srun-minutes N changes that time limit" % POST_JOB_MINUTES)
     sub = parser.add_subparsers(dest="post_command")
     parsers = {}
     for name, kw, specs in _COMMANDS:
@@ -587,10 +594,28 @@ def srun_command(post_argv: list[str], minutes: int = POST_JOB_MINUTES) -> list[
              "-t", str(minutes), wtune_bin, "post"] + list(post_argv))
 
 
+def _pop_srun_minutes(argv: list[str]) -> tuple[list[str], int]:
+    """(argv without --srun-minutes N / --srun-minutes=N, minutes)."""
+    out, minutes, i = [], POST_JOB_MINUTES, 0
+    while i < len(argv):
+        a = argv[i]
+        if a == "--srun-minutes" or a.startswith("--srun-minutes="):
+            value = a.partition("=")[2] if "=" in a else "".join(argv[i + 1:i + 2])
+            i += 1 if "=" in a else 2
+            if not value.isdigit() or int(value) < 1:
+                raise SystemExit("--srun-minutes expects a positive integer: %r" % value)
+            minutes = int(value)
+            continue
+        out.append(a)
+        i += 1
+    return out, minutes
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = list(argv if argv is not None else sys.argv[1:])
+    argv, minutes = _pop_srun_minutes(argv)
     if "--srun" in argv:
-        cmd = srun_command([a for a in argv if a != "--srun"])
+        cmd = srun_command([a for a in argv if a != "--srun"], minutes)
         print("post job: %s" % " ".join(cmd), flush=True)
         os.execvp(cmd[0], cmd)
     parser = build_parser()

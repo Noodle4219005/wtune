@@ -25,6 +25,7 @@ from datetime import datetime, timezone
 
 from post import tools
 from post.extract import frame_ref, list_frame_refs
+from post.recipes.common import FIELD_ERRORS, error_reason
 
 WRF_FMT = "%Y-%m-%d_%H:%M:%S"
 TOP_AGL_M = 4000.0
@@ -402,14 +403,25 @@ def figures(run_dirs, labels, out_dir, case_info, project_dir=None, xsec_top_km=
                                 os.path.join(out_dir, "pbl_time_height.png"), run_label, domain)
         out.append(fig("pbl_time_height", path, run_label, domain=dom, valid_time=span,
                        extra={"column": label, "grid_ji": [j, i]}))
-        tmax = max(series[1:], key=lambda s: s[1]["pblh_model"])[0].strftime(WRF_FMT)
-        path = plot_cross_section(run_dir, domain, tmax, j, i,
-                                  os.path.join(out_dir, "pbl_cross_terrain.png"), run_label, label,
-                                  halfwidth_km=xsec_halfwidth_km or 500.0, top_km=xsec_top_km)
-        out.append(fig("pbl_cross_terrain", path, run_label, domain=dom, valid_time=tmax))
     except (tools.ToolNotFoundError, ImportError) as e:
         return out + [missing("pbl_time_height", "wrf-python", str(e)),
                       missing("pbl_cross_terrain", "wrf-python", str(e))]
+    except FIELD_ERRORS as e:           # the section needs this column: both are missing
+        series = None
+        out += [missing("pbl_time_height", "wrfout_%s" % dom, error_reason(e)),
+                missing("pbl_cross_terrain", "wrfout_%s" % dom, error_reason(e))]
+    try:
+        if series is not None:
+            tmax = max(series[1:], key=lambda s: s[1]["pblh_model"])[0].strftime(WRF_FMT)
+            path = plot_cross_section(run_dir, domain, tmax, j, i,
+                                      os.path.join(out_dir, "pbl_cross_terrain.png"), run_label,
+                                      label, halfwidth_km=xsec_halfwidth_km or 500.0,
+                                      top_km=xsec_top_km)
+            out.append(fig("pbl_cross_terrain", path, run_label, domain=dom, valid_time=tmax))
+    except (tools.ToolNotFoundError, ImportError) as e:
+        return out + [missing("pbl_cross_terrain", "wrf-python", str(e))]
+    except FIELD_ERRORS as e:
+        out.append(missing("pbl_cross_terrain", "wrfout_%s" % dom, error_reason(e)))
 
     if not stations:
         out.append(missing("pbl_skewt_obs", "IGRA radiosondes",
@@ -433,4 +445,6 @@ def figures(run_dirs, labels, out_dir, case_info, project_dir=None, xsec_top_km=
                        extra={"stats_csv": csv_path}))
     except (tools.ToolNotFoundError, ImportError) as e:
         out.append(missing("pbl_skewt_obs", "metpy", str(e)))
+    except FIELD_ERRORS as e:
+        out.append(missing("pbl_skewt_obs", "wrfout_%s / IGRA" % dom, error_reason(e)))
     return out

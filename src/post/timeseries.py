@@ -142,6 +142,7 @@ def figures_for_time_series(run_dir, run_label, domain, out_dir, every=None, tim
     from post.recipe import fig, missing
     from post.plotting import plot_field
     from post import tools
+    from post.extract import is_missing_field_error, missing_reason
 
     all_times = [t for t, _ in list_frames(run_dir, domain=domain)]
     selected = select_times(all_times, every=every, times=times)
@@ -154,14 +155,19 @@ def figures_for_time_series(run_dir, run_label, domain, out_dir, every=None, tim
     if include_mcape:
         fields.append("mcape")
 
-    scales = {}
-    for field in fields:
+    scales, out = {}, []
+    for field in list(fields):
         try:
             scales[field] = fixed_scale(run_dir, field, domain, selected)
         except (tools.ToolNotFoundError, ImportError):
             scales[field] = None   # plot_field below reports the missing tool per figure
+        except Exception as e:                              # noqa: BLE001 -- filtered below
+            if not is_missing_field_error(e):
+                raise
+            fields.remove(field)   # only this field is dropped; the others keep their series
+            out.append(missing("timeseries_%s" % field, "wrfout history stream",
+                               missing_reason(e), run=run_label))
 
-    out = []
     for valid_time in selected:
         tag = forecast_dir_name(t0, valid_time)
         time_dir = os.path.join(out_dir, tag)

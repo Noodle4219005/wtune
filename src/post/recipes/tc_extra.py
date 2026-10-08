@@ -38,6 +38,19 @@ def tangential_wind(lat0, lon0, lat, lon, u, v):
     return -np.asarray(u) * np.sin(phi) + np.asarray(v) * np.cos(phi)
 
 
+def earth_relative(u, v, sina, cosa):
+    """Grid-relative (u, v) -> earth-relative (east, north) with WRF's SINALPHA/COSALPHA."""
+    return u * cosa - v * sina, v * cosa + u * sina
+
+
+def ring_means(vt, rr, radius_bins_km, dx_km):
+    """Mean of vt per radius bin; a ring cut by the domain edge (under half its cells present)
+    is NaN -- tc_structure.azimuthal_mean's coverage rule."""
+    import numpy as np
+    from post.recipes.tc_structure import azimuthal_mean
+    return azimuthal_mean(vt, rr, np.asarray(radius_bins_km, "f8"), dx_km=dx_km)
+
+
 def radius_time_plot(run_dir, adeck_path, out_path, domain=1, radius_bins_km=RADIUS_BINS_KM):
     """Azimuthally-averaged 10 m tangential wind (m/s) per radius bin per lead hour, as a
     pcolormesh. Returns out_path, or None if no a-deck point has a matching wrfout frame.
@@ -82,12 +95,15 @@ def radius_time_plot(run_dir, adeck_path, out_path, domain=1, radius_bins_km=RAD
             lon = np.asarray(ds.variables["XLONG"][ti])
             u10 = np.asarray(ds.variables["U10"][ti])
             v10 = np.asarray(ds.variables["V10"][ti])
+            # U10/V10 are along the grid axes; the azimuth below is on lat/lon
+            u10, v10 = earth_relative(u10, v10, np.asarray(ds.variables["SINALPHA"][ti]),
+                                      np.asarray(ds.variables["COSALPHA"][ti]))
+            dx_km = float(ds.getncattr("DX")) / 1000.0
         rr = tm.dist_km(r["lat"], r["lon"], lat, lon)
         vt = tangential_wind(r["lat"], r["lon"], lat, lon, u10, v10)
-        for b in range(n_bins):
-            mask = (rr >= radius_bins_km[b]) & (rr < radius_bins_km[b + 1])
-            if mask.any():
-                grid[b, k] = float(np.nanmean(vt[mask]))
+        if r["lat"] < 0:                # clockwise is cyclonic in the SH
+            vt = -vt
+        grid[:, k] = ring_means(vt, rr, radius_bins_km, dx_km)
 
     if not any_frame or np.all(np.isnan(grid)):
         return None
@@ -125,7 +141,12 @@ def figures(run_dir, run_label, adeck_path, domain, out_dir):
     # _tc_figures from run_tc_report's summary["notes"]); here they only annotate this figure.
     notes = tracking_notes_for(run_label, out_dir)
     path = os.path.join(out_dir, "tc_radius_time_wind_%s.png" % run_label)
-    written = radius_time_plot(run_dir, adeck_path, path, domain=domain)
+    try:
+        written = radius_time_plot(run_dir, adeck_path, path, domain=domain)
+    except KeyError as e:               # U10/V10/SINALPHA/COSALPHA not in the history stream
+        from post.recipes.common import error_reason
+        return [missing("tc_radius_time_wind", "wrfout U10/V10/SINALPHA/COSALPHA",
+                        error_reason(e), run=run_label)]
     out = []
     if written:
         out.append(fig("tc_radius_time_wind", written, run_label, domain="d%02d" % domain,

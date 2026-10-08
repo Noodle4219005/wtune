@@ -305,6 +305,17 @@ _TYPE_RUNNERS = {"tc": _run_tc, "cloud": _run_cloud, "convection": _run_convecti
                  "terrain": _run_terrain, "moisture": _run_moisture}
 
 
+def _fail_soft(name, fn, *args, **kwargs) -> list:
+    """fn(*args, **kwargs); any Exception (e.g. TCError "no track found", a missing external
+    tool) becomes ONE missing entry for that figure set, so the report is still written with
+    the figures already produced. KeyboardInterrupt/SystemExit propagate."""
+    try:
+        return fn(*args, **kwargs)
+    except Exception as e:                                  # noqa: BLE001
+        return [missing("%s_figures" % name, "%s figure set" % name,
+                        "%s: %s" % (type(e).__name__, e))]
+
+
 def _type_figures(types: list, r: _RecipeRun) -> list:
     """Figures of every detected type that has a handler, in detection order."""
     out = []
@@ -313,7 +324,7 @@ def _type_figures(types: list, r: _RecipeRun) -> list:
             continue
         handler = TYPE_DISPATCH.get(t)
         if handler is not None:
-            out += _TYPE_RUNNERS.get(t, _run_simple)(handler, r)
+            out += _fail_soft(t, _TYPE_RUNNERS.get(t, _run_simple), handler, r)
     return out
 
 
@@ -358,8 +369,8 @@ def _run_recipe(run_dirs, out_dir, types_override=None, ensemble=False, spinup_h
     types = case_info["types"]
 
     all_figures = list(pre_notes or [])     # note() entries from run_recipe's BP conversion
-    all_figures += common_mod.figures(run_dirs, labels, out_dir, case_info,
-                                      decomposition_only=decomposition_only)
+    all_figures += _fail_soft("common", common_mod.figures, run_dirs, labels, out_dir,
+                              case_info, decomposition_only=decomposition_only)
     all_figures += _cf3d_data(run_dirs[0], labels[0], out_dir, case_info, every, times)
     all_figures += vapor_bundle_mod.figures(run_dirs[0], labels[0], out_dir, case_info,
                                             every=every, times=times)
@@ -381,8 +392,9 @@ def _run_recipe(run_dirs, out_dir, types_override=None, ensemble=False, spinup_h
     all_figures += _type_figures(types, run)
 
     if every or times:
-        all_figures += guarded("timeseries", _time_series_figures, run_dirs, labels, out_dir,
-                               case_info, every, times, animate=animate)
+        all_figures += _fail_soft("timeseries", guarded, "timeseries", _time_series_figures,
+                                  run_dirs, labels, out_dir, case_info, every, times,
+                                  animate=animate)
 
     notes, all_figures = _split_notes(all_figures)
     advice = _verification_advice(run_dirs[0], out_dir, hurdat2_path, storm_id, bdeck_path, notes)

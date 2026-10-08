@@ -5,12 +5,14 @@ figures of post/tc.py answer "where"; these answer "what does the storm look lik
 Storm centre, one per frame: the chosen track post/tc.py wrote (tc/track_domains_<label>.csv,
 TempestExtremes on CDO-smoothed SLP, finest domain holding the storm) when that file has the
 frame's time; otherwise the minimum of SLP smoothed over 3x3 grid cells (scipy uniform_filter)
-inside the domain interior (spec_bdy_width edge cells excluded). The centre is a grid cell
+inside the domain interior (spec_bdy_width edge cells excluded); the Hovmoller, given a track,
+leaves a frame the track does not cover blank instead. The centre is a grid cell
 (+- dx/2). Domain: the track's domain at the last frame, else the finest domain whose smoothed-
 SLP minimum lies at least 3 cells inside its interior, else d01.
 
 Storm-relative wind: radial/tangential components come from wrf-python ua/va rotated about the
-centre IN THE NATIVE PROJECTED GRID: x/y offsets are (i - ic) dx, (j - jc) dx and ua/va are
+centre IN THE NATIVE PROJECTED GRID (vt is then made cyclonic-positive by the sign of the centre
+latitude): x/y offsets are (i - ic) dx, (j - jc) dx and ua/va are
 grid-relative (WRF's U/V are along the grid axes; uvmet would rotate them to earth axes), so
 vr = (u x + v y) / r and vt = (-u y + v x) / r are exact on the projected plane (the map
 factor, ~1 over a storm-sized area, is ignored). Height fields use wrf.interplevel (z MSL,
@@ -75,6 +77,12 @@ def radial_tangential(u, v, X, Y):
     u = np.asarray(u, "f8")
     v = np.asarray(v, "f8")
     return u * cx + v * sy, -u * sy + v * cx
+
+
+def cyclonic_sign(lat):
+    """+1 north of the equator, -1 south: multiplies a counter-clockwise-positive tangential
+    wind so that cyclonic is positive in both hemispheres."""
+    return -1.0 if lat < 0 else 1.0
 
 
 def radius_edges(dx_km, rmax_km=R_MAX_KM):
@@ -151,7 +159,8 @@ def annulus_label(annulus):
 
 
 def rmw_profile(vt_rz, r_centres):
-    """Radius of max azimuthal-mean Vt per level (NaN where the level is all NaN)."""
+    """Radius of max azimuthal-mean Vt per level (NaN where the level is all NaN). Vt must
+    be cyclonic-positive (cyclonic_sign)."""
     import numpy as np
     a = np.asarray(vt_rz, "f8")
     if a.ndim == 1:
@@ -234,8 +243,9 @@ def symmetric_levels(a, step=1.0, cap=20.0):
 
 # ---------------------------------------------------------------- centre / domain
 
-def frame_centre(ds, time_str, track, bdy_width, timeidx=0):
-    """(j, i, source) of the storm centre in this frame."""
+def frame_centre(ds, time_str, track, bdy_width, timeidx=0, slp_fallback=True):
+    """(j, i, source) of the storm centre in this frame. Without slp_fallback: None when the
+    track has no point inside the domain at this time (the SLP minimum may be another low)."""
     import numpy as np
     wrf_mod = cl._wrf()
     ny, nx = np.shape(ds.variables["XLAT"][timeidx])
@@ -244,6 +254,8 @@ def frame_centre(ds, time_str, track, bdy_width, timeidx=0):
         x, y = (int(v) for v in np.asarray(wrf_mod.ll_to_xy(ds, lat, lon, timeidx=timeidx, meta=False)).ravel()[:2])
         if 0 <= x < nx and 0 <= y < ny:
             return y, x, "minimum-SLP track"
+    if not slp_fallback:
+        return None
     slp = np.asarray(wrf_mod.getvar(ds, "slp", timeidx=timeidx, meta=False), "f8")
     j, i = centre_from_slp(slp, bdy_width)
     return j, i, "minimum SLP (smoothed)"
@@ -297,6 +309,7 @@ def reflectivity_2km_figure(path, time_str, centre, out_path, run_label, domain,
         X, Y = grid_offsets_km((ny, nx), jc, ic, dx)
         r = np.hypot(X, Y)
         _, vt10 = radial_tangential(u10, v10, X, Y)
+        vt10 = vt10 * cyclonic_sign(lats[jc, ic])
         edges = radius_edges(dx)
         rc = 0.5 * (edges[1:] + edges[:-1])
         vt_r = azimuthal_mean(vt10, r, edges, dx_km=dx)
@@ -369,6 +382,7 @@ def rz_analysis(path, centre, bdy_width, timeidx=0):
         dx = cl.dx_km_of(ds)
         z = np.asarray(wrf_mod.getvar(ds, "z", timeidx=timeidx, units="m", meta=False), "f8")
         hgt = np.asarray(ds.variables["HGT"][timeidx], "f8")
+        sign = cyclonic_sign(float(ds.variables["XLAT"][timeidx][jc, ic]))
 
         def lev(name, **kw):
             return cl.interp_heights(np.asarray(wrf_mod.getvar(ds, name, timeidx=timeidx, meta=False,
@@ -380,6 +394,7 @@ def rz_analysis(path, centre, bdy_width, timeidx=0):
     X, Y = grid_offsets_km((ny, nx), jc, ic, dx)
     r = np.hypot(X, Y)
     vr, vt = radial_tangential(ua, va, X, Y)
+    vt = vt * sign                      # cyclonic positive in both hemispheres
     edges = radius_edges(dx)
     rc = 0.5 * (edges[1:] + edges[:-1])
     am = lambda f: azimuthal_mean(f, r, edges, dx_km=dx)      # noqa: E731
@@ -389,7 +404,7 @@ def rz_analysis(path, centre, bdy_width, timeidx=0):
     return dict(dx=dx, r=rc, z_km=levels / 1000.0, vt=vt_rz, vr=am(vr), w=am(wa),
                 tprime=am(tk) - t_env[:, None], theta=am(th), tc=am(tk) - 273.15,
                 q_gkg=am(q) * 1000.0, ter_km=am(hgt[None])[0] / 1000.0,
-                rmw=rmw_profile(vt_rz, rc), annulus=annulus, source=source)
+                rmw=rmw_profile(vt_rz, rc), annulus=annulus, source=source, sh=sign < 0)
 
 
 def _rz_axes():
@@ -436,7 +451,8 @@ def rz_wind_figure(rz, out_path, run_label, domain, tlabel):
     levels = np.arange(0.0, top + 2.5, 5.0)
     if np.isfinite(vt).any():
         cf = ax.contourf(rz["r"], rz["z_km"], vt, levels=levels, cmap="YlOrRd", extend="both")
-        fig.colorbar(cf, ax=ax, label="tangential wind V$_t$ (m s$^{-1}$, 5 m s$^{-1}$ steps)")
+        fig.colorbar(cf, ax=ax, label="tangential wind V$_t$ (m s$^{-1}$, 5 m s$^{-1}$ steps%s)"
+                     % (", cyclonic (clockwise, SH) +" if rz.get("sh") else ""))
     has_neg = bool(np.isfinite(vt).any() and np.nanmin(vt) <= -5.0)
     if has_neg:
         neg = np.arange(-5.0 * math.ceil(-np.nanmin(vt) / 5.0), -4.9, 5.0)
@@ -571,7 +587,11 @@ def eye_profile(path, time_str, track, bdy_width, levels, timeidx=0):
     wrf_mod = cl._wrf()
     with netCDF4.Dataset(path) as ds:
         dx = cl.dx_km_of(ds)
-        jc, ic, _src = frame_centre(ds, time_str, track, bdy_width, timeidx)
+        # with a track, a frame it does not cover gets no column, not some other SLP minimum
+        centre = frame_centre(ds, time_str, track, bdy_width, timeidx, slp_fallback=not track)
+        if centre is None:
+            return None, None
+        jc, ic, _src = centre
         z = np.asarray(wrf_mod.getvar(ds, "z", timeidx=timeidx, units="m", meta=False), "f8")
         hgt = np.asarray(ds.variables["HGT"][timeidx], "f8")
         tk = cl.interp_heights(np.asarray(wrf_mod.getvar(ds, "tk", timeidx=timeidx, meta=False), "f8"),
@@ -599,6 +619,7 @@ def hovmoller_figure(run_dir, domain, frame_times, track, bdy_width, out_path, r
         if ann is not None:
             reduced.append(ann)
     times, arr = hovmoller_assemble(cols, len(levels))
+    n_blank = sum(1 for _t, prof in cols if prof is None)
     plt = cl._plt()
     fig, ax = plt.subplots(figsize=(9.5, 5.2), layout="constrained")
     cf = ax.contourf(times, levels / 1000.0, arr, levels=symmetric_levels(arr), cmap="RdBu_r",
@@ -615,8 +636,9 @@ def hovmoller_figure(run_dir, domain, frame_times, track, bdy_width, out_path, r
         env = "environment = 500-1000 km annulus"
     ax.set_title(cl.wrap_title(
         "%s  d%02d  warm-core Hovmoller: eye T' = mean T within r <= dx of the centre minus the "
-        "%s, per frame (%d frames)\n%s"
+        "%s, per frame (%d frames%s)\n%s"
         % (run_label, domain, env, len(frame_times),
+           "; %d without a track centre left blank" % n_blank if track and n_blank else "",
            path_time_label(frame_path(run_dir, domain, frame_times[-1]), frame_times[-1]))),
         fontsize=9)
     fig.savefig(out_path)

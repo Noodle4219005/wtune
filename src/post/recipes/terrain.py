@@ -35,6 +35,7 @@ from datetime import datetime, timedelta
 
 from post import met_pointstat, sources, tools
 from post.extract import list_frame_refs
+from post.recipes.common import FIELD_ERRORS, error_reason
 
 
 DEFAULT_XSEC_TOP_KM = 10.0
@@ -399,6 +400,7 @@ def _rain_over_terrain(run_dir, run_label, domain, out_dir):
     import netCDF4
     import numpy as np
     wrf_mod = __import__("wrf")
+    from post.extract import accumulated_rain
     from post.recipes.mapfig import save_map
 
     frames = list_frame_refs(run_dir, domain=domain)
@@ -406,9 +408,7 @@ def _rain_over_terrain(run_dir, run_label, domain, out_dir):
         return None
     time0, path0, ti = frames[-1]
     with netCDF4.Dataset(path0) as ds:
-        rainc = wrf_mod.getvar(ds, "RAINC", timeidx=ti)
-        rainnc = wrf_mod.getvar(ds, "RAINNC", timeidx=ti)
-        rain = np.asarray(rainc + rainnc)
+        rain = accumulated_rain(ds, ti)        # incl. the I_RAINC/I_RAINNC bucket part
         ter = np.asarray(wrf_mod.getvar(ds, "ter", timeidx=ti))
         lats, lons = wrf_mod.latlon_coords(wrf_mod.getvar(ds, "ter", timeidx=ti), as_np=True)
         crs = wrf_mod.get_cartopy(var=wrf_mod.getvar(ds, "ter", timeidx=ti))
@@ -584,17 +584,20 @@ def _valley_time_height(run_dir, run_label, domain, out_dir, bdy_width=None):
                         colors="black", linewidths=0.5)
         ax.clabel(cs, inline=True, fontsize=5, fmt="%g")
 
+    barbs_drawn = False
     if have_wind:
+        from post.conventions import KT_PER_MS      # barbs in kt, like the wind map
         barb_time_idx = [k for k, t in enumerate(times)
                          if datetime.strptime(t, "%Y-%m-%d_%H:%M:%S").hour % 3 == 0]
         for h_km in VALLEY_BARB_HEIGHTS_KM:
             if h_km > top_km or not barb_time_idx:
                 continue
             level_idx = int(np.argmin(np.abs(z_km - h_km)))
-            us = [u_arr[level_idx, k] for k in barb_time_idx]
-            vs = [v_arr[level_idx, k] for k in barb_time_idx]
+            us = [u_arr[level_idx, k] * KT_PER_MS for k in barb_time_idx]
+            vs = [v_arr[level_idx, k] * KT_PER_MS for k in barb_time_idx]
             ax.barbs(barb_time_idx, [h_km] * len(barb_time_idx), us, vs, length=5,
                      color="dimgray")
+            barbs_drawn = True
 
     # ticks at whole 6-hour marks (00/06/12/18Z), not an arbitrary evenly-spaced count.
     tick_idx = [k for k, t in enumerate(times)
@@ -605,8 +608,9 @@ def _valley_time_height(run_dir, run_label, domain, out_dir, bdy_width=None):
     ax.set_xticklabels([_short_time_label(times[k]) for k in tick_idx], rotation=45, fontsize=7)
     ax.set_ylim(0, top_km)
     ax.set_ylabel("height AGL (km)")
-    ax.set_title("%s  d%02d  valley time-height (theta) at (%.2f, %.2f)  HGT=%.0f m"
-                 % (run_label, domain, lat_here, lon_here, hgt_here), fontsize=9)
+    ax.set_title("%s  d%02d  valley time-height (theta%s) at (%.2f, %.2f)  HGT=%.0f m"
+                 % (run_label, domain, ", wind barbs in kt" if barbs_drawn else "",
+                    lat_here, lon_here, hgt_here), fontsize=9)
     out_path = os.path.join(out_dir, "terrain_valley_timeheight_d%02d.png" % domain)
     fig.tight_layout()
     fig.savefig(out_path)
@@ -850,6 +854,8 @@ def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6, cross_section=
             out.append(missing("terrain_wind_map", "wrfout_d%02d_*" % domain, "no frames found"))
     except (tools.ToolNotFoundError, ImportError) as e:
         out.append(missing("terrain_wind_map", "wrf-python/cartopy", str(e)))
+    except FIELD_ERRORS as e:
+        out.append(missing("terrain_wind_map", "wrfout_d%02d" % domain, error_reason(e)))
 
     try:
         path = _cross_section_figure(run_dir, run_label, domain, out_dir, line=cross_section,
@@ -860,6 +866,8 @@ def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6, cross_section=
             out.append(missing("terrain_crosssection", "wrfout_d%02d_*" % domain, "no frames found"))
     except (tools.ToolNotFoundError, ImportError, ValueError, CrossSectionError) as e:
         out.append(missing("terrain_crosssection", "wrf-python", str(e)))
+    except (KeyError, IndexError) as e:
+        out.append(missing("terrain_crosssection", "wrfout_d%02d" % domain, error_reason(e)))
 
     try:
         path = _rain_over_terrain(run_dir, run_label, domain, out_dir)
@@ -869,6 +877,8 @@ def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6, cross_section=
             out.append(missing("terrain_rain", "wrfout_d%02d_*" % domain, "no frames found"))
     except (tools.ToolNotFoundError, ImportError) as e:
         out.append(missing("terrain_rain", "wrf-python/cartopy", str(e)))
+    except FIELD_ERRORS as e:
+        out.append(missing("terrain_rain", "wrfout_d%02d" % domain, error_reason(e)))
 
     try:
         path, reason = _valley_time_height(run_dir, run_label, domain, out_dir)
@@ -878,6 +888,8 @@ def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6, cross_section=
             out.append(missing("terrain_valley_timeheight", "wrfout_d%02d_*" % domain, reason))
     except (tools.ToolNotFoundError, ImportError) as e:
         out.append(missing("terrain_valley_timeheight", "wrf-python", str(e)))
+    except FIELD_ERRORS as e:
+        out.append(missing("terrain_valley_timeheight", "wrfout_d%02d" % domain, error_reason(e)))
 
     try:
         frames = list_frame_refs(run_dir, domain=domain)
@@ -894,9 +906,13 @@ def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6, cross_section=
                                    extra))
     except (tools.ToolNotFoundError, ImportError, CrossSectionError, OSError) as e:
         out.append(missing("terrain_leeward_station", "wrf-python", str(e)))
+    except FIELD_ERRORS as e:
+        out.append(missing("terrain_leeward_station", "wrfout_d%02d" % domain, error_reason(e)))
 
     try:
         out.append(_point_stat(run_dir, run_label, domain, out_dir, project_dir, spinup_hours))
     except (tools.ToolNotFoundError, ImportError, OSError) as e:
         out.append(missing("terrain_point_stat", "MET Point-Stat vs. station obs", str(e)))
+    except FIELD_ERRORS as e:
+        out.append(missing("terrain_point_stat", "wrfout_d%02d" % domain, error_reason(e)))
     return out

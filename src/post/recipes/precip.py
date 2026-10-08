@@ -99,10 +99,11 @@ def _model_accum(ref0, ref1):
     bare path for timeidx 0."""
     import netCDF4
     import numpy as np
+    from post.extract import accumulated_rain
     (path0, i0), (path1, i1) = [(r, 0) if isinstance(r, str) else r for r in (ref0, ref1)]
     with netCDF4.Dataset(path0) as d0, netCDF4.Dataset(path1) as d1:
-        r0 = np.asarray(d0.variables["RAINC"][i0], "f8") + np.asarray(d0.variables["RAINNC"][i0], "f8")
-        r1 = np.asarray(d1.variables["RAINC"][i1], "f8") + np.asarray(d1.variables["RAINNC"][i1], "f8")
+        r0 = np.asarray(accumulated_rain(d0, i0), "f8")   # incl. the I_RAIN* bucket part
+        r1 = np.asarray(accumulated_rain(d1, i1), "f8")
         lat = np.asarray(d1.variables["XLAT"][i1], "f8")
         lon = np.asarray(d1.variables["XLONG"][i1], "f8")
     return lat, lon, np.maximum(r1 - r0, 0.0)

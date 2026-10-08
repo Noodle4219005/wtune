@@ -37,6 +37,9 @@ def _member_field(run_dir, domain, time_str, field="slp"):
         lats, lons = wrf_mod.latlon_coords(var, as_np=True)
         crs = wrf_mod.get_cartopy(var=var)
         arr = np.array(var, dtype=float)
+        if field == "rain_acc":                # add the I_RAINC/I_RAINNC bucket part
+            from post.extract import accumulated_rain
+            arr = np.array(accumulated_rain(ds, ti), dtype=float)
         w = caseinfo.spec_bdy_width(run_dir)
         arr[:w, :] = np.nan
         arr[-w:, :] = np.nan

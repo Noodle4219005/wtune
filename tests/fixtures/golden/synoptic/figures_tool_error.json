@@ -330,19 +330,13 @@
   ],
   [
    "getvar",
-   "ua",
+   "uvmet",
    1,
    "m s-1"
   ],
   [
    "interplevel",
    850
-  ],
-  [
-   "getvar",
-   "va",
-   1,
-   "m s-1"
   ],
   [
    "interplevel",

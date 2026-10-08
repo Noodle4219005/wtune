@@ -187,8 +187,11 @@ def _wrf_fields_on_pressure_levels(wrfout_path, out_nc, levels=PRESSURE_LEVELS_H
         lon = np.asarray(wrf.getvar(src, "lon", timeidx=timeidx))
         wspd10 = np.asarray(wrf.getvar(src, "wspd_wdir10", timeidx=timeidx)[0])
         p = wrf.getvar(src, "pressure", timeidx=timeidx)
-        u = np.asarray(wrf.interplevel(wrf.getvar(src, "ua", timeidx=timeidx), p, list(levels)))
-        v = np.asarray(wrf.interplevel(wrf.getvar(src, "va", timeidx=timeidx), p, list(levels)))
+        # uvmet = rotated to earth coordinates; ua/va are grid-relative (on a Lambert grid
+        # tc_rmw would then read tangential wind as radial)
+        uvmet = wrf.getvar(src, "uvmet", timeidx=timeidx, units="m s-1")
+        u = np.asarray(wrf.interplevel(uvmet[0], p, list(levels)))
+        v = np.asarray(wrf.interplevel(uvmet[1], p, list(levels)))
         valid = wrf.extract_times(src, timeidx)
     ny, nx = lat.shape
     with netCDF4.Dataset(out_nc, "w") as dst:

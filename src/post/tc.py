@@ -687,16 +687,17 @@ def tracking_notes(label, records, doms, skipped=None):
     return notes
 
 
-def model_quadrant_radii(run_dir, track, domain=1):
+def model_quadrant_radii(run_dir, track, domain=1, init_time=None):
     """Per-lead 34/50/64 kt quadrant wind radii (tc_metrics.quadrant_radii) from this
     domain's U10/V10, centred on the TempestExtremes-tracked point at each lead. Returns
-    a list of {"time", "lead_h", radii dict...} for leads with a frame present."""
+    a list of {"time", "lead_h", radii dict...} for leads with a frame present. init_time:
+    the run's start (lead 0); default the first tracked time."""
     netcdf4 = _netcdf4()
     import numpy as np
 
     if not track:
         return []
-    t0 = min(datetime.strptime(t, WRF_TIME_FMT) for t in track)
+    t0 = init_time or min(datetime.strptime(t, WRF_TIME_FMT) for t in track)
     rows = []
     for time_str, pt in sorted(track.items()):
         path, ti = extract.frame_ref(run_dir, domain, time_str)
@@ -725,11 +726,14 @@ def _radii_kt_for_lead(quadrant_row):
     return radii_kt
 
 
-def build_adeck(chosen_track, quadrant_rows, out_path, basin, cy, tech, storm_name=""):
+def build_adeck(chosen_track, quadrant_rows, out_path, basin, cy, tech, storm_name="",
+                init_time=None):
     """chosen_track: TempestExtremes track (list of {time, lat, lon, pmin_hpa, vmax_ms}).
     quadrant_rows: model_quadrant_radii() output, keyed by time to attach radii. Writes
-    one ATCF a-deck line per (threshold reached) via post.atcf.write_lines."""
-    t0 = min(pt["time"] for pt in chosen_track)
+    one ATCF a-deck line per (threshold reached) via post.atcf.write_lines. init_time: the
+    run's start -- the first tracked time (the default) is later than it when the tracker
+    first detects the storm late, which would shift every lead."""
+    t0 = init_time or min(pt["time"] for pt in chosen_track)
     by_time = {r["time"]: r for r in quadrant_rows}
     rows = []
     for pt in sorted(chosen_track, key=lambda p: p["time"]):
@@ -819,11 +823,12 @@ def run_tc_report(run_dirs, labels, hurdat2_path, storm_id, out_dir, ebtrk_path=
         track_csvs[label] = os.path.join(out_dir, "track_domains_%s.csv" % label)
         # Quadrant radii stay on the PARENT domain: a nest is often smaller than the 600 km
         # radius search and would clip R34/R50/R64; only the centre comes from the finest track.
-        quadrant_rows = model_quadrant_radii(run_dir, track_dict(chosen), domain=parent_dom)
+        quadrant_rows = model_quadrant_radii(run_dir, track_dict(chosen), domain=parent_dom,
+                                             init_time=start)
         _write_csv(os.path.join(out_dir, "quadrant_%s.csv" % label), quadrant_rows)
         adeck_path = build_adeck(chosen, quadrant_rows,
                                  os.path.join(out_dir, "adeck_%s.dat" % label),
-                                 basin, cy, tech=label)
+                                 basin, cy, tech=label, init_time=start)
         adecks[label] = adeck_path
         precise[label] = [(pt["time"], (pt["lat"], pt["lon"]), pt["domain"]) for pt in chosen]
     with open(os.path.join(out_dir, "tracking_notes.json"), "w") as fh:

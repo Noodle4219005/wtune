@@ -32,6 +32,7 @@ from __future__ import annotations
 import gzip
 import os
 import urllib.request
+import zlib
 from datetime import datetime
 
 TIME_FMT = "%Y%m%d%H"
@@ -157,7 +158,7 @@ def fetch_bdeck(year, basin, cy, dest_path, timeout=30):
         raise ATCFError("could not download b-deck from %s: %s" % (url, e))
     try:
         text = gzip.decompress(compressed)
-    except OSError as e:
+    except (OSError, EOFError, zlib.error) as e:     # EOFError: truncated download
         raise ATCFError("b-deck at %s did not decompress as gzip: %s" % (url, e))
     os.makedirs(os.path.dirname(os.path.abspath(dest_path)) or ".", exist_ok=True)
     with open(dest_path, "wb") as fh:

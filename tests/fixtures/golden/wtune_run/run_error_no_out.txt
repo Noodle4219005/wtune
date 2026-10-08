@@ -1,6 +1,7 @@
-rc=RunError: --out is required (or --project DIR / $WTUNE_PROJECT for a default runs/<id>/ -- decision 0058)
+rc=2
 --- log
 --- stdout
 
 --- stderr
+error: --out is required (or --project DIR / $WTUNE_PROJECT for a default runs/<id>/ -- decision 0058)
 

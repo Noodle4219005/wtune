@@ -114,7 +114,8 @@ def render_segment_namelist(text: str, seg_start: dt.datetime, seg_end: dt.datet
     txt, io_keys = _set_io_keys(text, txt, config, io_streams, per_record_edits)
     required = (["%s_%s" % (p, q) for p in ("start", "end") for q in _TIME_PARTS]
                 + ["run_days", "run_hours", "run_minutes", "run_seconds", "nproc_x", "nproc_y",
-                   "numtiles", "restart_interval", "io_form_restart"] + io_keys
+                   "numtiles", "io_form_restart"] + io_keys
+                + (["restart_interval"] if restart_interval_min is not None else [])
                 + (["restart"] if restarted else []))
     if time_step is not None:
         txt = _set_one(txt, "time_step", int(time_step), "domains")

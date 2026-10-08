@@ -99,11 +99,22 @@ def parse_options(argv: Optional[list] = None) -> RunOptions:
     return RunOptions(**vars(build_arg_parser().parse_args(argv)))
 
 
+def _project_tune_report(project_dir: str, log: Callable) -> Optional[str]:
+    """The newest <project>/tune/*/tune_report.json made for the project's registered case
+    (none registered: the newest of all)."""
+    import wtune_project
+    case_id = wtune_project.project_case_id(wtune_project.load_project(project_dir))
+    return wtune_project.latest_tune_report(project_dir, case_id, log)
+
+
 def apply_project_defaults(opts: RunOptions, log: Callable) -> RunOptions:
     """No CASE_DIR: the project's case/. Running the project's own case with neither
     --tune-report nor --nodes: its newest tune report."""
     import wtune_project
-    project_dir = wtune_project.find_project(explicit=opts.project)
+    try:
+        project_dir = wtune_project.find_project(explicit=opts.project)
+    except wtune_project.ProjectError as e:
+        raise RunError(str(e)) from None
     if opts.case_dir is None:
         if not project_dir or not os.path.isdir(os.path.join(project_dir, "case")):
             raise RunError("CASE_DIR is required outside a project (wtune project init --case)")
@@ -111,7 +122,7 @@ def apply_project_defaults(opts: RunOptions, log: Callable) -> RunOptions:
     own_case = project_dir and os.path.realpath(opts.case_dir) == os.path.realpath(
         os.path.join(project_dir, "case"))
     if own_case and opts.tune_report is None and opts.nodes is None:
-        report = wtune_project.latest_tune_report(project_dir)
+        report = _project_tune_report(project_dir, log)
         if report:
             log("tune report: %s (newest in %s)" % (report, os.path.join(project_dir, "tune")))
             opts = dataclasses.replace(opts, tune_report=report)
@@ -219,7 +230,15 @@ def _tune_report_candidates(case: Case, choice: LayoutChoice, sample_points, can
     rep, winner = choice.report, choice.winner
     if any(r.get("points") for r in rep.get("ranking") or []) or not (winner and winner.median):
         cal = wp.load_calibration(str(wp.DEFAULT_CALIBRATION))
-        candidates += tune_candidates(rep, case.geo, sample_points, cal, choice.lay.nodes)
+        found = tune_candidates(rep, case.geo, sample_points, cal, choice.lay.nodes)
+        if choice.overridden:          # explicit flags: that layout only, never the ranking's
+            c = choice.config
+            found = [x for x in found if (x.config.nx, x.config.ny, x.config.numtiles,
+                                          x.config.omp) == (c.nx, c.ny, c.numtiles, c.omp)]
+            if not found:
+                notes.append("tune report ranks no layout matching the CLI overrides: its "
+                             "predictions are not used")
+        candidates += found
         return False
     if candidates:
         notes.append("tune report has no ranking points: ignored (--prediction is used)")
@@ -397,6 +416,11 @@ def execute(ctx: RunContext) -> int:
         _write_report(path, report)
         print("error: %s" % e, file=sys.stderr)
         return 1
+    except BaseException as e:         # Ctrl-C, a bug: never leave the report at "running"
+        report["status"] = "failed"
+        report["error"] = "%s: %s" % (type(e).__name__, e)
+        _write_report(path, report)
+        raise
     report["finished_utc"] = dt.datetime.utcnow().isoformat()
     _write_report(path, report)
     log("done: %d segment(s)%s; report %s" % (len(ctx.segments),
@@ -426,14 +450,17 @@ def main(argv: Optional[list] = None, sbatch_runner: Optional[Callable] = None,
         return _fail(refusal)
     for note in wtune_extensions.run_notes(case_dir):
         log("EXTENSION: %s" % note)
-    out = _resolve_out(opts)
     try:
+        out = _resolve_out(opts)
         plan = build_plan(opts, case_dir, out, log)
     except (RunError, OSError, ValueError, wp.PredictError, coldstart.ColdstartError) as e:
         return _fail(e)
     print_plan(opts, plan, log)
     if opts.dry_run:
-        print_dry_run(opts, plan, log)
+        try:
+            print_dry_run(opts, plan, log)
+        except coldstart.ColdstartError as e:
+            return _fail(e)
         return 0
     os.makedirs(out, exist_ok=True)
     try:

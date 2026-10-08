@@ -145,6 +145,7 @@ l seg_1/wrfrst_d03_2020-06-01_06:00:00 -> <TMP>/out/seg_0/wrfrst_d03_2020-06-01_
 #SBATCH --job-name=wtrun-case-s0
 #SBATCH -p compute -N 1 --exclusive --ntasks-per-node=72 --time=00:20:00 --exclude=head
 #SBATCH --signal=B:USR1@90
+#SBATCH --no-requeue
 #SBATCH --output=<TMP>/out/seg_0/segment-%j.out
 set -uo pipefail
 SEG=<TMP>/out/seg_0
@@ -283,6 +284,7 @@ echo "SEGMENT rc=$rc wall=$wall ok=$ok" | tee -a "$STATUS"
 #SBATCH --job-name=wtrun-case-s1
 #SBATCH -p compute -N 1 --exclusive --ntasks-per-node=72 --time=00:30:00 --exclude=head
 #SBATCH --signal=B:USR1@90
+#SBATCH --no-requeue
 #SBATCH --output=<TMP>/out/seg_1/segment-%j.out
 set -uo pipefail
 SEG=<TMP>/out/seg_1

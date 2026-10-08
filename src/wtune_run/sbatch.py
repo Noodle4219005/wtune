@@ -18,6 +18,7 @@ def _header_lines(seg_dir: str, nodes: int, time_limit: str, job_name: str, env_
             "#SBATCH -p compute -N %d --exclusive --ntasks-per-node=%d --time=%s %s"
             % (nodes, CORES_PER_NODE, time_limit, sweep.exclude_arg()),
             "#SBATCH --signal=B:USR1@90",
+            "#SBATCH --no-requeue",        # a requeued job would rerun beside the resume
             "#SBATCH --output=%s/segment-%%j.out" % seg_dir,
             "set -uo pipefail",
             "SEG=%s" % shlex.quote(seg_dir),

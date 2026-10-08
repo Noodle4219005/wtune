@@ -175,6 +175,8 @@ def wait_for_job(job_id: str, sacct_runner: Callable, sacct_cmd: str = "sacct",
                 return state, None
         elif state not in sweep.IN_FLIGHT_STATES:
             return state, (wtune_tune._parse_slurm_elapsed(elapsed) if wtune_tune else None)
+        else:
+            unknown = 0                # only consecutive misses count
         if on_poll:
             on_poll(state)
         sleep(poll_s)

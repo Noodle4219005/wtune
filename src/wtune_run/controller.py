@@ -41,6 +41,18 @@ def rsl_has_cfl(rundir: str) -> bool:
     return resume.rsl_mentions(rundir, ("cfl",))
 
 
+def _interrupted(out: Outcome) -> bool:
+    """The job was cut short from outside: sacct says so, or the sbatch trap recorded
+    INTERRUPTED in segment_status.txt (it exits 3, so sacct says FAILED)."""
+    if out.state in resume.INFRA_STATES:
+        return True
+    try:
+        with open(os.path.join(out.dir, "segment_status.txt")) as f:
+            return "INTERRUPTED" in f.read()
+    except OSError:
+        return False
+
+
 def resume_time_limit(ctx: RunContext, seg: Segment, a: int, snap: dict) -> str:
     """--time of an attempt resumed at step a: the failed attempt's observed s/step (else the
     segment's predicted rate) x the steps left, + init + restart read."""
@@ -151,8 +163,10 @@ def _next_attempt(ctx: RunContext, k: int, seg: Segment, att: Attempt, out: Outc
     rec, snap = out.rec, out.snap
     codes = rec.warnings
     nan = any(w["code"] == "FAILED" and "NaN" in w["text"] for w in snap.get("warnings", []))
-    cfl = "CFL" in codes or nan or rsl_has_cfl(out.dir)
-    model = cfl or "FAILED" in codes or resume.rsl_mentions(out.dir, resume.MODEL_NEEDLES)
+    # a cfl line alone is routine output: in an interrupted job it is not the failure
+    cfl = nan or (("CFL" in codes or rsl_has_cfl(out.dir)) and not _interrupted(out))
+    model = cfl or "FAILED" in codes or resume.rsl_mentions(
+        out.dir, [n for n in resume.MODEL_NEEDLES if n != "cfl"])
     rec.failure_class = resume.classify_failure(out.state, model)
     why = None
     if rec.failure_class == "infrastructure":
@@ -160,7 +174,8 @@ def _next_attempt(ctx: RunContext, k: int, seg: Segment, att: Attempt, out: Outc
         if nxt:
             return nxt
         rec.no_resume_reason = why
-    if ctx.opts.cfl_rescue and cfl and not ctx.state.rescue_used:
+    if (ctx.opts.cfl_rescue and cfl and rec.failure_class == "model"
+            and not ctx.state.rescue_used):
         return _cfl_rescue_attempt(ctx, k, seg, att)
     if cfl and not ctx.opts.cfl_rescue:
         _cfl_advice(ctx, k, seg, att, out.dir)
@@ -171,6 +186,18 @@ def _next_attempt(ctx: RunContext, k: int, seg: Segment, att: Attempt, out: Outc
 def run_controller(ctx: RunContext) -> int:
     """Execute the plan's segments in order -> 0; a stop raises RunError. The report is
     rewritten after every attempt."""
+    try:
+        _run_segments(ctx)
+    except Exception:
+        if ctx.sidecar:                # a failed run's frames are converted and booked too
+            ctx.sidecar.finish()
+        raise
+    if ctx.sidecar:
+        ctx.sidecar.finish()
+    return 0
+
+
+def _run_segments(ctx: RunContext) -> None:
     report, segs = ctx.report, ctx.segments
     report["segments"] = segs
     prev_dir = None
@@ -191,9 +218,6 @@ def run_controller(ctx: RunContext) -> int:
         if not is_last:
             _update_from_observed(ctx, k, out.snap, out.elapsed)
         _save_report(ctx)
-    if ctx.sidecar:
-        ctx.sidecar.finish()
-    return 0
 
 
 def _update_from_observed(ctx: RunContext, k: int, snap: dict, elapsed: Optional[float]) -> None:

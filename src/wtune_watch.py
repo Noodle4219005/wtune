@@ -692,7 +692,8 @@ def snapshot(rundir: str, now: float | None = None, replay_fraction: float | Non
     rsl_last_t = d01[-1][0] if d01 else None
     # wrfout floor (live only): a d01 frame later than the rsl's last d01 line means the rsl lags
     wrf_t, wrf_mtime = (None, None) if replay else latest_wrfout(rundir)
-    lagging = wrf_t is not None and (rsl_last_t is None or wrf_t > rsl_last_t)
+    floor = rsl_last_t or (info["start"] if info else None)   # the t=0 frame is no progress
+    lagging = wrf_t is not None and (floor is None or wrf_t > floor)
 
     success, fatal, problem = _set_status(snap, found, chosen, d01, lagging, replay, warn)
     if not d01 and not lagging and not (not replay and (success or fatal)):
@@ -810,6 +811,10 @@ def annotate_run_root(snap: dict, root: str, fol: dict) -> dict:
                 n_segments=fol["n_segments"], run_status=fol["run_status"],
                 whole_run_start=_fmt_t(start), whole_run_end=_fmt_t(end),
                 segment_fraction=snap.get("fraction"), fraction=frac)
+    if fol["run_status"] == "failed" and snap["status"] != "failed":
+        snap["status"] = "failed"        # the controller stopped the run: not RUNNING, rc 3
+        snap["warnings"].append({"code": "FAILED",
+                                 "text": "run_report.json: the run failed (see its error)"})
     return snap
 
 

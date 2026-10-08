@@ -3,6 +3,7 @@
 #SBATCH --job-name=wtrun-x-s0
 #SBATCH -p compute -N 2 --exclusive --ntasks-per-node=72 --time=01:30:00 --exclude=head
 #SBATCH --signal=B:USR1@90
+#SBATCH --no-requeue
 #SBATCH --output=<TMP>/seg dir/segment-%j.out
 set -uo pipefail
 SEG='<TMP>/seg dir'
@@ -78,6 +79,7 @@ echo "SEGMENT rc=$rc wall=$wall ok=$ok" | tee -a "$STATUS"
 #SBATCH --job-name=wtrun-x-s3
 #SBATCH -p compute -N 2 --exclusive --ntasks-per-node=72 --time=01:30:00 --exclude=head
 #SBATCH --signal=B:USR1@90
+#SBATCH --no-requeue
 #SBATCH --output=<TMP>/seg dir/segment-%j.out
 set -uo pipefail
 SEG='<TMP>/seg dir'

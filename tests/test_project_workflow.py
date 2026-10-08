@@ -1,7 +1,9 @@
 """The project-driven workflow: project.yaml defaults reach tune, run and post, and
 `wtune submit` chains the three steps."""
+import argparse
 import json
 import os
+import re
 import time
 
 import pytest
@@ -56,12 +58,15 @@ def _doc(project_dir):
 
 def test_init_registers_case_and_writes_defaults(project):
     doc = _doc(project)
-    assert doc["case"]["id"] == "mycase"
+    case_id = doc["case"]["id"]
+    assert re.fullmatch(r"mycase-[0-9a-f]{6}", case_id)
     assert doc["exclude_nodes"] == ["work1"]
     assert doc["post"] == {"types": "auto", "every": "6h",       # 72 h run
                            "fetch": ["era5", "igra", "stage4", "stations"]}
     with open(proj.project_case_table(project)) as fh:
-        entry = json.load(fh)["cases"]["mycase"]
+        table = json.load(fh)["cases"]
+    assert list(table) == [case_id]                             # only the project's own case
+    entry = table[case_id]
     assert entry["prep_dir"] == os.path.join(project, "case")
     assert (entry["dt"], entry["max_dom"]) == (10, 2)
     assert (entry["e_we_list"], entry["e_sn_list"], entry["e_vert_list"]) == (
@@ -70,14 +75,26 @@ def test_init_registers_case_and_writes_defaults(project):
     assert entry["case_family"] == "unclassified"
 
 
-def test_registered_name_gets_proj_suffix(tmp_path, monkeypatch):
+def test_case_id_is_safe_and_distinct_per_case(tmp_path, monkeypatch):
     monkeypatch.delenv("WTUNE_SBATCH_EXCLUDE", raising=False)
-    d = tmp_path / "sc26p1"                                     # an official case id
-    d.mkdir()
-    (d / "namelist.input").write_text(NAMELIST)
-    p = proj.init_project(str(tmp_path / "p"), case_dir=str(d))
-    assert _doc(p)["case"]["id"] == "sc26p1-proj"
-    assert _doc(p)["exclude_nodes"] == []
+    ids = []
+    for parent, text in (("a", NAMELIST), ("b", NAMELIST),
+                         ("a2", NAMELIST.replace("time_step = 10", "time_step = 12"))):
+        d = tmp_path / parent / "my_run.v2"                     # same dir name, '_' and '.'
+        d.mkdir(parents=True)
+        (d / "namelist.input").write_text(text)
+        p = proj.init_project(str(tmp_path / ("p" + parent)), case_dir=str(d))
+        ids.append(_doc(p)["case"]["id"])
+        assert _doc(p)["exclude_nodes"] == []
+    assert all(re.fullmatch(r"my-run-v2-[0-9a-f]{6}", i) for i in ids)   # no '_' (run-id split)
+    assert len(set(ids)) == 3                 # the measurement ledger is keyed by this id
+
+
+def test_init_validates_arguments_before_creating_anything(tmp_path, case_dir):
+    target = tmp_path / "p"
+    with pytest.raises(proj.ProjectError, match="hurdat2"):
+        proj.init_project(str(target), case_dir=case_dir, hurdat2=str(tmp_path / "nope"))
+    assert not target.exists()
 
 
 def test_long_run_gets_no_default_every(tmp_path):
@@ -91,10 +108,25 @@ def test_long_run_gets_no_default_every(tmp_path):
 
 def test_apply_project_env_merges_exclude_and_sets_case_table(project, monkeypatch):
     monkeypatch.setenv("WTUNE_SBATCH_EXCLUDE", "work9")
-    monkeypatch.delenv("CASES_JSON", raising=False)
+    monkeypatch.setenv("CASES_JSON", "")      # empty = unset; setenv (not delenv) so it is restored
     proj.apply_project_env(project, _doc(project))
     assert os.environ["WTUNE_SBATCH_EXCLUDE"] == "work9,work1"
-    assert os.environ["CASES_JSON"] == proj.project_case_table(project)
+    with open(os.environ["CASES_JSON"]) as fh:
+        merged = json.load(fh)["cases"]
+    assert _doc(project)["case"]["id"] in merged
+    assert "sc26p1" in merged                 # the shared table is read fresh, not snapshotted
+
+
+def test_project_env_keeps_a_user_set_case_table(project, monkeypatch):
+    monkeypatch.setenv("CASES_JSON", "/elsewhere/cases.json")
+    proj.apply_project_env(project, _doc(project))
+    assert os.environ["CASES_JSON"] == "/elsewhere/cases.json"
+
+
+def test_register_case_error_is_a_project_error(project):
+    os.remove(os.path.join(project, "case", "namelist.input"))
+    with pytest.raises(proj.ProjectError, match="register-case"):
+        proj.set_project_defaults(project, register_case=True)
 
 
 def test_set_defaults_and_register_case(project):
@@ -107,12 +139,13 @@ def test_set_defaults_and_register_case(project):
     assert os.path.isfile(proj.project_case_table(project))
 
 
-def _report(project_dir, name, mtime):
+def _report(project_dir, name, mtime, case=None):
     d = os.path.join(project_dir, "tune", name)
     os.makedirs(d)
     path = os.path.join(d, "tune_report.json")
     with open(path, "w") as fh:
-        json.dump({"winner": {"nodes": 2, "nx": 4, "ny": 4, "numtiles": 1, "omp": 1}}, fh)
+        json.dump({"case": case or _doc(project_dir)["case"]["id"],
+                   "winner": {"nodes": 2, "nx": 4, "ny": 4, "numtiles": 1, "omp": 1}}, fh)
     os.utime(path, (mtime, mtime))
     return path
 
@@ -125,6 +158,18 @@ def test_run_defaults_to_project_case_and_newest_report(project):
     opts = run_cli.apply_project_defaults(opts, log=lambda *_: None)
     assert opts.case_dir == os.path.join(project, "case")
     assert opts.tune_report == newest
+
+
+def test_run_skips_a_newer_report_of_another_case(project):
+    now = time.time()
+    own = _report(project, "own", now - 100)
+    _report(project, "other", now, case="some-other-case")
+    skipped = []
+    opts = run_cli.apply_project_defaults(run_cli.parse_options(["--project", project]),
+                                          log=skipped.append)
+    assert opts.tune_report == own
+    assert any("some-other-case" in line for line in skipped)
+    assert proj.latest_tune_report(project, _doc(project)["case"]["id"]) == own
 
 
 def test_run_explicit_nodes_or_other_case_keeps_no_report(project, tmp_path):
@@ -161,13 +206,19 @@ def test_submit_steps_share_one_id(project):
 
 def test_fetch_steps_window_the_case_and_sit_between_run_and_post(project):
     import datetime as dt
-    window = (dt.datetime(2019, 1, 28), dt.datetime(2019, 1, 31), (35.1, 47.5, -93.6, -77.2))
+    window = (dt.datetime(2019, 1, 28), dt.datetime(2019, 1, 31, 6), (-35.1, 47.5, -93.6, -77.2),
+              dt.datetime(2019, 1, 31))
     fetch = wtune_submit.fetch_steps(project, ["era5", "stage4"], window)
     era5, stage4 = (cmd for _name, cmd in fetch)
     assert era5[2:4] == ["fetch", "era5"] and "--start" not in era5
-    assert era5[era5.index("--end") + 1] == "2019013100"
+    assert era5[era5.index("--end") + 1] == "201901310000"      # last history frame, not run end
     assert stage4[stage4.index("--start") + 1] == "2019012800"
-    assert stage4[stage4.index("--bbox") + 1] == "35.100,47.500,-93.600,-77.200"
+    assert stage4[stage4.index("--end") + 1] == "2019013106"
+    # one argv element: a leading '-' (southern hemisphere) must not parse as an option
+    assert "--bbox=-35.100,47.500,-93.600,-77.200" in stage4 and "--bbox" not in stage4
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--bbox")
+    assert ap.parse_args([a for a in stage4 if a.startswith("--bbox")]).bbox.startswith("-35.1")
     steps = wtune_submit.plan_steps(project, "ID", "2", False, False, fetch)
     assert [n for n, _c in steps] == ["tune", "run", "fetch era5", "fetch stage4", "post"]
     steps = wtune_submit.plan_steps(project, "ID", "2", False, True, fetch)
@@ -183,9 +234,44 @@ def test_case_window_from_namelist_and_wrfinput(project):
         ds.createVariable("XLAT", "f4", ("Time", "y", "x"))[:] = np.array([[[30, 30], [40, 40]]])
         ds.createVariable("XLONG", "f4", ("Time", "y", "x"))[:] = np.array([[[-90, -80],
                                                                                [-90, -80]]])
-    start, end, bbox = wtune_submit.case_window(case)
+    start, end, bbox, last = wtune_submit.case_window(case)
     assert (start.isoformat(), end.isoformat()) == ("2019-01-28T00:00:00", "2019-01-31T00:00:00")
-    assert bbox == (30.0, 40.0, -90.0, -80.0)
+    assert bbox == (30.0, 40.0, -90.0, -80.0) and last == end
+
+
+def test_case_window_last_frame_and_odd_time_step(project):
+    netCDF4 = pytest.importorskip("netCDF4")
+    case = os.path.join(project, "case")
+    path = os.path.join(case, "namelist.input")
+    text = open(path).read().replace("run_hours = 72", "run_hours = 30").replace(
+        "history_interval = 60, 60", "history_interval = 720, 720").replace(
+        "time_step = 10", "time_step = 7")     # 30 h is not a multiple of 7 s: still a window
+    with open(path, "w") as fh:
+        fh.write(text)
+    with netCDF4.Dataset(os.path.join(case, "wrfinput_d01"), "w") as ds:
+        ds.createDimension("Time", 1), ds.createDimension("y", 1), ds.createDimension("x", 1)
+        ds.createVariable("XLAT", "f4", ("Time", "y", "x"))[:] = 30.0
+        ds.createVariable("XLONG", "f4", ("Time", "y", "x"))[:] = -90.0
+    start, end, _bbox, last = wtune_submit.case_window(case)
+    assert (end - start).total_seconds() == 30 * 3600
+    assert (last - start).total_seconds() == 24 * 3600          # frames at +0, +12, +24 h
+
+
+def test_detach_child_gets_the_resolved_project(project, monkeypatch):
+    seen = {}
+
+    class FakePopen:
+        pid = 1
+
+        def __init__(self, cmd, **kw):
+            seen["cmd"], seen["cwd"] = cmd, kw["cwd"]
+    monkeypatch.setattr(wtune_submit.subprocess, "Popen", FakePopen)
+    wtune_submit._detach(["--project", "./rel", "--detach", "-O", "1", "--project=./rel2"],
+                         project, "ID")
+    cmd = seen["cmd"]
+    assert cmd[cmd.index("--project") + 1] == project and cmd.count("--project") == 1
+    assert "./rel" not in cmd and "--project=./rel2" not in cmd and "--detach" not in cmd
+    assert cmd[-2:] == ["-O", "1"] and seen["cwd"] == project
 
 
 def test_submit_refuses_outside_project(tmp_path, monkeypatch, capsys):

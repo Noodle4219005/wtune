@@ -31,6 +31,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import shutil
 import sys
 from datetime import datetime, timezone
@@ -154,29 +155,65 @@ def project_case_table(project_dir):
     return os.path.join(project_dir, "cases.json")
 
 
+def _base_case_table():
+    repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(repo, "campaign", "cases.json")
+
+
+def merged_case_table(project_dir, case_id):
+    """Writes <project>/.cases.merged.json -- today's campaign/cases.json plus the project's
+    own case -- and returns its path. Rebuilt on every call so the shared table never goes
+    stale; only the project's own entry is taken from <project>/cases.json."""
+    with open(_base_case_table()) as fh:
+        table = json.load(fh)
+    with open(project_case_table(project_dir)) as fh:
+        table["cases"][case_id] = json.load(fh)["cases"][case_id]
+    path = os.path.join(project_dir, ".cases.merged.json")
+    tmp = "%s.%d.tmp" % (path, os.getpid())
+    with open(tmp, "w") as fh:
+        json.dump(table, fh, indent=1)
+    os.replace(tmp, path)
+    return path
+
+
 def apply_project_env(project_dir, project_doc):
     """Exports the project settings the tuner, run and post read from the environment:
-    exclude_nodes joins WTUNE_SBATCH_EXCLUDE, and the registered case table becomes CASES_JSON
-    unless one is already set."""
+    exclude_nodes joins WTUNE_SBATCH_EXCLUDE, and the case table with the project's case
+    becomes CASES_JSON unless one is already set."""
     nodes = project_exclude_nodes(project_doc)
     if nodes:
         have = [n for n in os.environ.get("WTUNE_SBATCH_EXCLUDE", "").split(",") if n]
         os.environ["WTUNE_SBATCH_EXCLUDE"] = ",".join(have + [n for n in nodes if n not in have])
-    table = project_case_table(project_dir)
-    if project_case_id(project_doc) and os.path.isfile(table):
-        os.environ.setdefault("CASES_JSON", table)
+    case_id = project_case_id(project_doc)
+    if case_id and os.path.isfile(project_case_table(project_dir)) \
+            and not os.environ.get("CASES_JSON"):
+        try:
+            os.environ["CASES_JSON"] = merged_case_table(project_dir, case_id)
+        except (OSError, ValueError, KeyError) as e:
+            print("note: project case table not usable (%s: %s)" % (type(e).__name__, e),
+                  file=sys.stderr)
 
 
-def latest_tune_report(project_dir):
-    """Newest <project>/tune/*/tune_report.json by mtime, or None."""
+def latest_tune_report(project_dir, case_id=None, log=None):
+    """Newest <project>/tune/*/tune_report.json by mtime, or None. With case_id, only a report
+    made for that case counts; each newer report skipped for another case is passed to log."""
     tune_dir = os.path.join(project_dir, "tune")
-    reports = []
-    if os.path.isdir(tune_dir):
-        for name in os.listdir(tune_dir):
-            path = os.path.join(tune_dir, name, "tune_report.json")
-            if os.path.isfile(path):
-                reports.append((os.path.getmtime(path), path))
-    return max(reports)[1] if reports else None
+    names = os.listdir(tune_dir) if os.path.isdir(tune_dir) else []
+    paths = [p for p in (os.path.join(tune_dir, n, "tune_report.json") for n in names)
+             if os.path.isfile(p)]
+    for path in sorted(paths, key=os.path.getmtime, reverse=True):
+        if not case_id:
+            return path
+        try:
+            with open(path) as fh:
+                case = json.load(fh).get("case")
+        except (OSError, ValueError, AttributeError):
+            case = None
+        if case == case_id:
+            return path
+        if log:
+            log("tune report skipped: %s is for case %s, not %s" % (path, case or "?", case_id))
+    return None
 
 
 PHYSICS_KEYS = ("mp_physics", "cu_physics", "bl_pbl_physics", "sf_sfclay_physics",
@@ -208,17 +245,23 @@ def case_entry_from_namelist(case_dir):
         notes="registered by wtune project init from %s" % case_dir)
 
 
+def project_case_name(case_dir, namelist_path):
+    """Case id for a project's case: the case dir's name (letters, digits and '-' only -- run
+    ids are split on '_') plus 6 hex of sha1(source path + namelist). The measurement ledger is
+    keyed by this id and shared by every project, so two different cases must never share one;
+    the same case registered twice keeps its measurements."""
+    name = re.sub(r"[^A-Za-z0-9]+", "-", os.path.basename(os.path.normpath(case_dir))).strip("-")
+    h = hashlib.sha1(os.path.realpath(case_dir).encode())
+    with open(namelist_path, "rb") as fh:
+        h.update(fh.read())
+    return "%s-%s" % (name or "case", h.hexdigest()[:6])
+
+
 def register_project_case(project_dir, case_dir):
-    """Writes <project>/cases.json: campaign/cases.json plus this project's case, and returns
-    its id -- the case dir's name, with "-proj" when that name is already a registered case
-    (a site overlay would otherwise replace its prep_dir)."""
-    repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    with open(os.path.join(repo, "campaign", "cases.json")) as fh:
-        table = json.load(fh)
-    case_id = os.path.basename(os.path.normpath(case_dir))
-    if case_id in table["cases"]:
-        case_id += "-proj"
-    table["cases"][case_id] = case_entry_from_namelist(os.path.join(project_dir, "case"))
+    """Writes the project's own entry to <project>/cases.json and returns its id."""
+    namelist = os.path.join(project_dir, "case", "namelist.input")
+    case_id = project_case_name(case_dir, namelist)
+    table = {"cases": {case_id: case_entry_from_namelist(os.path.join(project_dir, "case"))}}
     with open(project_case_table(project_dir), "w") as fh:
         json.dump(table, fh, indent=1)
     return case_id
@@ -420,9 +463,9 @@ def _default_post_block(case_dir):
     import wtune_predict as wp
     every = None
     try:
-        _steps, run_s, _dt, note = wp.get_d01_steps(
+        _steps, run_s, _dt, _note = wp.get_d01_steps(
             wp.parse_namelist(os.path.join(case_dir, "namelist.input")))
-        if not note and run_s and run_s <= POST_EVERY_MAX_RUN_DAYS * 86400:
+        if run_s and run_s <= POST_EVERY_MAX_RUN_DAYS * 86400:
             every = "6h"
     except (OSError, ValueError, wp.PredictError):
         pass
@@ -438,19 +481,19 @@ def init_project(path, case_dir=None, name=None, storm=None, hurdat2=None, site=
     path = os.path.abspath(path)
     if os.path.exists(path) and os.listdir(path):
         raise ProjectError("%s already exists and is not empty" % path)
-    os.makedirs(path, exist_ok=True)
-    for sub in SUBDIRS:
-        os.makedirs(os.path.join(path, sub), exist_ok=True)
-
     if case_dir:
         case_dir = os.path.abspath(case_dir)
         if not os.path.isdir(case_dir):
             raise ProjectError("--case %s is not a directory" % case_dir)
+    if hurdat2 and not os.path.isfile(hurdat2):
+        raise ProjectError("--hurdat2 %s not found" % hurdat2)
+    os.makedirs(path, exist_ok=True)       # nothing is created before the arguments check out
+    for sub in SUBDIRS:
+        os.makedirs(os.path.join(path, sub), exist_ok=True)
+    if case_dir:
         skipped = _populate_case_dir(case_dir, os.path.join(path, "case"))
         if skipped:
             print("skipped %d output file(s) of a previous run in %s" % (skipped, case_dir))
-    if hurdat2 and not os.path.isfile(hurdat2):
-        raise ProjectError("--hurdat2 %s not found" % hurdat2)
 
     name = name or default_project_name(case_dir)
     case_id = None
@@ -526,7 +569,11 @@ def set_project_defaults(project_dir, exclude_nodes=None, post_every=None, post_
         case = dict(doc.get("case") or {})
         if not case.get("source_dir"):
             raise ProjectError("--register-case: project.yaml has no case.source_dir")
-        case["id"] = register_project_case(project_dir, case["source_dir"])
+        try:
+            case["id"] = register_project_case(project_dir, case["source_dir"])
+        except (OSError, ValueError, KeyError, TypeError) as e:
+            raise ProjectError("--register-case: cannot read case/namelist.input (%s: %s)"
+                               % (type(e).__name__, e)) from e
         doc["case"] = case
     if exclude_nodes is not None:
         doc["exclude_nodes"] = project_exclude_nodes(dict(exclude_nodes=exclude_nodes))
@@ -566,7 +613,7 @@ def info_project(project_dir):
     post = project_post_defaults(doc)
     lines.append("post defaults: --types %s --every %s; submit fetches: %s"
                  % (post["types"] or "auto", post["every"] or "-", ",".join(post["fetch"]) or "-"))
-    report = latest_tune_report(project_dir)
+    report = latest_tune_report(project_dir, case.get("id"))
     if report:
         lines.append("latest tune report: %s" % os.path.relpath(report, project_dir))
     for sub in SUBDIRS:

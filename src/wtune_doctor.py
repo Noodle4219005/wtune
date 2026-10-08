@@ -67,7 +67,7 @@ def project_checks(project_dir: str) -> list[tuple[str, str, str]]:
     post = wtune_project.project_post_defaults(doc)
     out.append(("OK", "post defaults: --types %s --every %s"
                 % (post["types"] or "auto", post["every"] or "-"), ""))
-    report = wtune_project.latest_tune_report(project_dir)
+    report = wtune_project.latest_tune_report(project_dir, case_id)
     out.append(("OK", "newest tune report: %s" % os.path.relpath(report, project_dir), "")
                if report else ("OK", "no tune report yet (wtune tune, or wtune submit)", ""))
     return out

@@ -174,10 +174,20 @@ run_node_hygiene () {
   # was requested and found a dirty node, NODE_DIRTY_NOTE (sticky -- the caller records the
   # preflight's one measurement in every ledger row this job writes, not a per-run
   # re-measurement).
-  local mode="$1" tmo="$2" out
+  local mode="$1" tmo="$2" out hrc=0 nok
   site_hygiene "$mode"
-  out=$(timeout "$tmo" "${SITE_HYGIENE_CMD[@]}" 2>&1) || true
+  out=$(timeout "$tmo" "${SITE_HYGIENE_CMD[@]}" 2>&1) || hrc=$?
   [ -n "$out" ] && echo "$out"
+  # fail-closed: node_hygiene.sh prints one HYGIENE_OK line per node it completed on. A census
+  # whose dispatch failed or that did not report from every node is "unknown", never "none".
+  # (a no-op site_hygiene -- f1's `true` -- has nothing to count.)
+  if [ "${SITE_HYGIENE_CMD[0]}" != "true" ]; then
+    nok=$(printf '%s\n' "$out" | grep -c "^HYGIENE_OK .*mode=$mode\$")
+    if [ "$hrc" != "0" ] || [ "$nok" -lt "$ALLOC_NODES" ]; then
+      echo "WARN hygiene_incomplete mode=$mode rc=$hrc ok_nodes=$nok/$ALLOC_NODES" >&2
+      case "$mode" in *census*) [ "$NODE_DIRTY_NOTE" = "node_dirty=none" ] && NODE_DIRTY_NOTE="node_dirty=unknown" ;; esac
+    fi
+  fi
   REAP_N=$(printf '%s\n' "$out" | awk '/^REAPED_ORPHANS /{for(i=1;i<=NF;i++){split($i,kv,"="); if(kv[1]=="n") s+=kv[2]}} END{print s+0}')
   if printf '%s\n' "$out" | grep -q '^NODE_DIRTY '; then
     NODE_DIRTY_NOTE="node_dirty=$(printf '%s\n' "$out" | awk '/^NODE_DIRTY /{h=c=b="";for(i=1;i<=NF;i++){split($i,kv,"="); if(kv[1]=="host")h=kv[2]; else if(kv[1]=="cpu")c=kv[2]; else if(kv[1]=="busy")b=kv[2]} printf "%s:cpu%s:%s,",h,c,b}' | sed 's/,$//')"
@@ -604,8 +614,8 @@ if [ -n "${CONFIG_FILE:-}" ]; then
   done < <("$PYBIN" "$CAMPAIGN/configs.py" config-extras "$CASE" 2>/dev/null | tr '\t' '\037')
 fi
 WINDOW_FRAME_ANY=0
-[ "$WINDOW_FRAME" = "1" ] && WINDOW_FRAME_ANY=1
-for cid in "${!CFG_WINDOW_FRAME[@]}"; do [ "${CFG_WINDOW_FRAME[$cid]}" = "1" ] && WINDOW_FRAME_ANY=1; done
+case "$WINDOW_FRAME" in 0|"") ;; *) WINDOW_FRAME_ANY=1 ;; esac
+for cid in "${!CFG_WINDOW_FRAME[@]}"; do case "${CFG_WINDOW_FRAME[$cid]}" in 0|"") ;; *) WINDOW_FRAME_ANY=1 ;; esac; done
 if [ "$MODE" = "timing" ] && [ "$WINDOW_FRAME_ANY" = "1" ] && [ ! -f "$CONV" ]; then
   echo "FATAL: ADIOS2->netCDF converter not found at $CONV (needed by window_frame) -- refusing to run" >&2
   exit 1
@@ -1166,6 +1176,7 @@ case "$RANKING_RESTART_IO_FORM" in 2|14) ;; *) echo "RANKING_RESTART_IO_FORM mus
 # at init (io_adios2/wrf_io.F90), so the engine is chosen per restart file there -- no code change.
 write_adios2_restart_xml() {  # dir restart_time max_dom
   [ "$RANKING_RESTART_IO_FORM" = 14 ] || return 0
+  rm -f "$1/adios2.xml"  # a symlink here (input_files / $W/run) must not be written through
   { echo '<?xml version="1.0"?>'; echo '<adios-config>'
     for d in $(seq 1 "$3"); do
       printf '  <io name="wrfrst_d%02d_%s">\n    <engine type="BP4"/>\n  </io>\n' "$d" "$2"
@@ -1280,6 +1291,19 @@ if [ "$RANKING_START" = "spinup" ] && [ "$MODE" = "timing" ] && [ "$FUSED_ON" !=
   A_NY=${CFG_NY[ANCHOR]}; A_NUMTILES=${CFG_NUMTILES[ANCHOR]}; A_DIST=${CFG_DIST[ANCHOR]}
   A_BLOCKTIME=${CFG_BLOCKTIME[ANCHOR]}
   A_NTASKS_PER_NODE=$(( A_RANKS / ALLOC_NODES ))
+  # same case overrides / delete-keys / nest / tile arguments as the candidate runs' edit-namelist
+  # below: the spin-up must run under the namelist the candidates restart into.
+  A_SET_ARGS=()
+  for kv in ${NAMELIST_OVERRIDES:-}; do A_SET_ARGS+=(--set "$kv"); done
+  A_DELETE_ARGS=()
+  for k in ${NAMELIST_DELETE_KEYS:-}; do A_DELETE_ARGS+=(--delete-key "$k"); done
+  A_NEST_ARGS=()
+  [ "$NEST_HISTORY" = "1" ] && A_NEST_ARGS+=(--nest-history-on)
+  A_TILE_ARGS=(
+    --numtiles-x "${CFG_NTILES_X[ANCHOR]:-0}" --numtiles-y "${CFG_NTILES_Y[ANCHOR]:-0}"
+    --tile-sz-x "${CFG_TSZ_X[ANCHOR]:-0}" --tile-sz-y "${CFG_TSZ_Y[ANCHOR]:-0}"
+    --tile-strategy "${CFG_TSTRAT[ANCHOR]:-0}"
+  )
   for M in "${TARGET_MIN_ARR[@]}"; do
     SRC_DIR="$OUT/${CASE}_rankspinup_m${M}_${J}"
     if [ -n "$RESTART_SRC_DIR" ] && [ "${#TARGET_MIN_ARR[@]}" -eq 1 ] \
@@ -1308,6 +1332,7 @@ if [ "$RANKING_START" = "spinup" ] && [ "$MODE" = "timing" ] && [ "$FUSED_ON" !=
       python3 "$CAMPAIGN/configs.py" edit-namelist ./namelist.input.orig ./namelist.input \
         --nproc-x "$A_NX" --nproc-y "$A_NY" --numtiles "$A_NUMTILES" \
         --run-minutes "$M" --max-dom "$MAX_DOM" --history-mode off --ranks "$A_RANKS" \
+        "${A_SET_ARGS[@]}" "${A_DELETE_ARGS[@]}" "${A_NEST_ARGS[@]}" "${A_TILE_ARGS[@]}" \
         --write-restart-interval "$M" --restart-io-form "$RANKING_RESTART_IO_FORM"
       rm -f ./namelist.input.orig
       write_adios2_restart_xml "$SRC_DIR" "$(python3 "$CAMPAIGN/configs.py" restart-time "$CASE" "$M")" "$MAX_DOM"
@@ -1468,7 +1493,6 @@ for cid in "${ORDER[@]}"; do
       RESTART_SKIP_REASON="physics_mismatch"
     else
       ln -sf "$RESTART_SRC_DIR"/wrfrst_d0*_* .
-      write_adios2_restart_xml . "$RESTART_TIME" "$MAX_DOM"
       cp ./namelist.input ./namelist.input.restart_orig
       python3 "$CAMPAIGN/configs.py" edit-namelist ./namelist.input.restart_orig ./namelist.input \
         --nproc-x "$nx" --nproc-y "$ny" --numtiles "$numtiles" \
@@ -1476,9 +1500,20 @@ for cid in "${ORDER[@]}"; do
         --history-mode "$RUN_HISTORY_ARG" --ranks "$ranks" \
         "${SET_ARGS[@]}" "${DELETE_ARGS[@]}" "${NEST_ARGS[@]}" "${TILE_ARGS[@]}" \
         --restart-from "$RESTART_TIME" --restart-io-form "$RANKING_RESTART_IO_FORM"
-      rm -f ./namelist.input.restart_orig
-      echo "RANKING_START=spinup: cid=$cid starts from the shared restart at $RESTART_TIME"
-      RESTART_USED=1
+      RESTART_EDIT_RC=$?
+      if [ "$RESTART_EDIT_RC" = "0" ]; then
+        write_adios2_restart_xml . "$RESTART_TIME" "$MAX_DOM"
+        rm -f ./namelist.input.restart_orig
+        echo "RANKING_START=spinup: cid=$cid starts from the shared restart at $RESTART_TIME"
+        RESTART_USED=1
+      else
+        # never measure a t0 run under the restart label: put the t0 namelist back, restart_used
+        # stays 0 (SKIPPED under RANKING_STRICT_RESTART=1, an honest t0 fallback otherwise).
+        mv -f ./namelist.input.restart_orig ./namelist.input
+        rm -f ./wrfrst_d0*_*
+        echo "RESTART_EDIT_FAILED cid=$cid rc=$RESTART_EDIT_RC -- not starting from the shared restart" >&2
+        RESTART_SKIP_REASON="restart_edit_failed"
+      fi
     fi
   fi
   if [ "$RANKING_ACTIVE" = "1" ] && [ "$RESTART_USED" != "1" ] && [ "$RANKING_STRICT_RESTART" = "1" ]; then
@@ -1527,6 +1562,17 @@ for cid in "${ORDER[@]}"; do
   grep -a "Timing for main" rsl.out.0000 2>/dev/null |   # -a: debug_level>=50 puts a Fortran NUL in mminlu, and GNU grep then prints "Binary file ... matches" and harvests ZERO steps (SC26-P1 job 1081398: rc=0 ok=1 but n=0 while all 324 timing lines were present)
     sed -nE 's/.*on domain +([0-9]+): +([0-9.]+) elapsed.*/\1 \2/p' > steps_by_domain.txt
   awk '$1 == 1 { print $2 }' steps_by_domain.txt > steps.txt
+
+  # restart_used=1 must mean the run REALLY started at the shared restart (same check as the
+  # physics loop's copy, which never sees RESTART_USED=1): a restart run's first d01 step is
+  # stamped RESTART_TIME+dt, a t0 start earlier. POINT_FUSED reads no restart, so it is exempt.
+  if [ "$RESTART_USED" = "1" ] && [ "$FUSED_ON" != "1" ] && [ -n "$RESTART_TIME" ]; then
+    FIRST_STEP_TIME=$(grep -a -m1 "Timing for main" rsl.out.0000 2>/dev/null | sed -nE 's/.*time +([0-9_:-]+) .*/\1/p')
+    if [ -n "$FIRST_STEP_TIME" ] && [[ ! "$FIRST_STEP_TIME" > "$RESTART_TIME" ]]; then
+      echo "RESTART_CHECK_FAILED cid=$cid first_step=$FIRST_STEP_TIME restart_time=$RESTART_TIME" >&2
+      RESTART_USED=0
+    fi
+  fi
 
   # step_stats() (campaign/configs.py) computes median (radiation-excluded, as
   # before) and mean_all (ALL d01 steps 2..n, radiation included -- see the

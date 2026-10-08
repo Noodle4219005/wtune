@@ -253,14 +253,17 @@ def _fill_run_defaults(ed: _NamelistEditor, facts: dict, run_s: int) -> None:
     if ed.max_dom > 1 and cs.count_key(ed.txt, "parent_time_step_ratio") == 0:
         ratios = [1] + [int(facts["parent_grid_ratio"][d]) for d in range(1, ed.max_dom)]
         ed.fill_values_if_missing("parent_time_step_ratio", ratios, "= parent_grid_ratio per nest")
-    if cs.count_key(ed.txt, "history_interval") == 0 and \
-            cs.count_key(ed.txt, "history_interval_m") == 0:
+    # WRF sums interval, _d, _h, _m and _s: any one of them present is the case's own cadence
+    def has_interval(base):
+        return any(cs.count_key(ed.txt, base + sfx) for sfx in ("", "_d", "_h", "_m", "_s"))
+    if not has_interval("history_interval"):
         ed.fill_if_missing("history_interval", _DEFAULT_HISTORY_MIN,
                            "default history cadence (minutes)")
     ed.fill_if_missing("frames_per_outfile", 1, "default")
     ed.fill_if_missing("restart", ".false.", "default")
     run_minutes = int(round(run_s / 60.0))
-    ed.fill_if_missing("restart_interval", run_minutes, "one restart at the end of the run")
+    if not has_interval("restart_interval"):
+        ed.fill_if_missing("restart_interval", run_minutes, "one restart at the end of the run")
     for key in _IO_FORM_KEYS:
         ed.fill_if_missing(key, _NETCDF_IO_FORM, "default netCDF io_form")
 
@@ -1013,6 +1016,8 @@ def cmd_rebuild_plan(case_dir: str, out_dir: str, namelist: str | None = None,
         raise RebuildError("rebuild plan: no forcing source covers %s (and no --grib-dir given)"
                            % span_start.strftime(_WRF_TIME_FMT))
     primary = chain[0]
+    if primary.forcing_interval_h is None:
+        raise RebuildError(cs._LOCAL_FORCING_UNSUPPORTED % ("rebuild plan", primary.dataset))
     interval_s = primary.forcing_interval_h * 3600
     span_start_grid = cs.align_to_interval(span_start, primary.forcing_interval_h)
     span_end_grid = cs.next_grib_time_ge(span_start_grid, interval_s, span_end)
@@ -1426,7 +1431,7 @@ def _sbatch_header(job: _RebuildJob) -> list[str]:
     lines = ["#!/usr/bin/env bash",
              "#SBATCH --job-name=case-rebuild",
              "#SBATCH --partition=compute",
-             "#SBATCH --exclude=head",
+             "#SBATCH --exclude=%s" % ",".join(cs.sbatch_excluded_nodes()),
              "#SBATCH -N %d --exclusive --ntasks-per-node=%d" % (job.nodes, job.ppn),
              "#SBATCH --time=%02d:%02d:00" % (job.time_min // 60, job.time_min % 60),
              "#SBATCH --signal=B:USR1@90"]

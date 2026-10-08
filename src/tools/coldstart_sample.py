@@ -1282,6 +1282,11 @@ def _windows_from_picks(picks, t0_grid, window_interval_seconds, W, shift_s_t0):
     return windows, grib_times
 
 
+_LOCAL_FORCING_UNSUPPORTED = (
+    "%s: forcing source %r (--grib-dir) has no known cadence, file list or Vtable -- a local "
+    "GRIB directory cannot drive the WPS steps; use a date an online source covers or --forcing")
+
+
 def _forcing_grid(window_anchor_start, case_interval_seconds, grib_dir, forcing, now):
     """(primary_source, t0_grid, shift_s_t0): the first source of the resolved (or --forcing
     pinned) chain, the window anchor aligned onto that source's own valid-time grid, and how far
@@ -1294,6 +1299,8 @@ def _forcing_grid(window_anchor_start, case_interval_seconds, grib_dir, forcing,
             % window_anchor_start.strftime(_WRF_TIME_FMT))
     primary_source = chain[0]
     forcing_interval_h = primary_source.forcing_interval_h
+    if forcing_interval_h is None:
+        raise ColdstartError(_LOCAL_FORCING_UNSUPPORTED % ("plan", primary_source.dataset))
     window_interval_seconds = forcing_interval_h * 3600
 
     t0_grid = align_to_interval(window_anchor_start, forcing_interval_h)
@@ -1617,14 +1624,17 @@ def _set_list_rhs(text, key, rhs, new_key_group="time_control"):
     packed lines. A missing key is appended to the first &new_key_group (default time_control),
     creating that group when absent."""
     keyre = r"(?<![A-Za-z0-9_])(%s\s*=\s*)" % re.escape(key)
-    pat = re.compile(keyre + r"((?:[^,=\n/!]*,)+)(?=\s*(?:[A-Za-z_][A-Za-z0-9_%]*\s*=|$|/|!))",
+    # a quoted string is one unit: its own '/', '=', '!' or ',' does not end the value list
+    item = r"""(?:'[^'\n]*'|"[^"\n]*"|[^,=\n/!'"])*"""
+    pat = re.compile(keyre + r"((?:%s,)+)(?=\s*(?:[A-Za-z_][A-Za-z0-9_%%]*\s*=|$|/|!))" % item,
                       re.I | re.M)
     new, n = pat.subn(lambda m: m.group(1) + rhs, text, count=1)
     if n:
         return new
     # a list whose last entry has no trailing comma (yagi2024 "2024, 2024,2024"); else the insert
     # below added a second line ('keys not present exactly once')
-    pat2 = re.compile(keyre + r"([^=\n/!]*?)\s*(?=[A-Za-z_][A-Za-z0-9_%]*\s*=|$|/|!)", re.I | re.M)
+    pat2 = re.compile(keyre + r"""((?:'[^'\n]*'|"[^"\n]*"|[^=\n/!'"])*?)"""
+                      r"\s*(?=[A-Za-z_][A-Za-z0-9_%]*\s*=|$|/|!)", re.I | re.M)
     new, n = pat2.subn(lambda m: m.group(1) + rhs, text, count=1)
     if n:
         return new
@@ -2567,13 +2577,7 @@ def _sbatch_directive_lines(plan, nodes, ppn, n_windows, per_window_estimate_min
     # WTUNE_SBATCH_EXCLUDE: extra nodes to avoid (comma list), e.g. one carrying non-Slurm load
     # (scc work5, 2026-09-27: a root VS Code server stole a core and slowed wrf.exe 5x).
     # merged with the controller's own node-health pre-flight failures (scc_sweep.excluded_nodes)
-    try:
-        import scc_sweep
-        excluded = scc_sweep.excluded_nodes()
-    except ImportError:
-        excluded = ["head"] + [n.strip() for n in os.environ.get("WTUNE_SBATCH_EXCLUDE", "").split(",")
-                               if n.strip()]
-    lines.append("#SBATCH --exclude=%s" % ",".join(excluded))
+    lines.append("#SBATCH --exclude=%s" % ",".join(sbatch_excluded_nodes()))
     lines.append("#SBATCH -N %d --exclusive --ntasks-per-node=%d" % (nodes, ppn))
     lines.append("#SBATCH --time=%s" % time_str)
     lines.append("#SBATCH --signal=B:USR1@90")
@@ -2914,6 +2918,16 @@ def _window_call_lines(k, window, forcing, max_dom):
     return lines
 
 
+def sbatch_excluded_nodes() -> list:
+    """Nodes every generated sbatch excludes (render_run_sbatch, case_rebuild's rebuild sbatch)."""
+    try:
+        import scc_sweep
+        return scc_sweep.excluded_nodes()
+    except ImportError:
+        return ["head"] + [n.strip() for n in os.environ.get("WTUNE_SBATCH_EXCLUDE", "").split(",")
+                           if n.strip()]
+
+
 def render_run_sbatch(plan: dict, site: str = "scc", per_window_estimate_min: int = 15,
                       wps_estimate_min: int = 20, per_window_forcing: list[dict] | None = None
                       ) -> str:
@@ -3025,18 +3039,24 @@ def score_windows_from_rsl(plan: dict, sample_points: list | None, calibration: 
     spinup_seconds = plan["spinup_min"] * 60.0
     run_start_dt = datetime.datetime.strptime(plan["run_start"], _WRF_TIME_FMT)
     status = read_windows_status(plan["_plan_dir"])
+    # a status file that exists but has no line for a window means that window never finished
+    default_ok = not os.path.exists(os.path.join(plan["_plan_dir"], "windows_status.txt"))
 
     windows_out = []
     pooled_radiation_samples = []
     anchors = []
     skipped = []
+    no_rsl = []
     for k, w in enumerate(plan["windows"]):
-        if not status.get(k, True):
+        if not status.get(k, default_ok):
             skipped.append(k)
             continue
         T = datetime.datetime.strptime(w["t"], _WRF_TIME_FMT)
         rsl_path = plan.get("_rsl_path_override", {}).get(k) or \
             os.path.join(plan["_plan_dir"], "win_%d" % k, "wrf", "rsl.error.0000")
+        if not os.path.exists(rsl_path):
+            no_rsl.append(k)
+            continue
         steps = predict.parse_rsl_d01_step_seconds(rsl_path)
         cutoff = T + datetime.timedelta(seconds=spinup_seconds)
         kept = [(sd, sec) for sd, sec in steps if sd is not None and sd >= cutoff]
@@ -3089,10 +3109,12 @@ def score_windows_from_rsl(plan: dict, sample_points: list | None, calibration: 
                             "shift_s": w.get("shift_s", 0.0), "forcing": forcing})
     if not windows_out:
         raise ColdstartError(
-            "score: no usable windows (all %d marked ok=0 in windows_status.txt)"
-            % len(plan["windows"]))
+            "score: no usable windows (all %d marked ok=0 in windows_status.txt"
+            " or without an rsl.error.0000)" % len(plan["windows"]))
     if skipped:
         print("skipping windows (ok=0 in windows_status.txt): %s" % skipped)
+    if no_rsl:
+        print("skipping windows (no rsl.error.0000): %s" % no_rsl)
     return windows_out, pooled_radiation_samples, anchors
 
 

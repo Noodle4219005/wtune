@@ -41,7 +41,7 @@ sys.path.insert(0, os.environ["CAMPAIGN"])
 import configs
 c = configs.CASES.get(sys.argv[1])
 if c is None:
-    print('echo "unknown case %s" >&2; exit 1' % sys.argv[1])
+    print('echo "unknown case %s" >&2; return 1' % sys.argv[1])  # return: the next case still converts
     sys.exit(0)
 print("PREP_DIR=%s" % configs._shq(c["prep_dir"]))
 print("NAMELIST_TEMPLATE=%s" % configs._shq(

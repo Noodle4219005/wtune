@@ -29,6 +29,8 @@
 #               children) are ignored.
 #               Silent if none. NODE_DIRTY is unchanged by this scan.
 #   reap+census reap, then census.
+# Every invocation with a valid mode ends with exactly one "HYGIENE_OK host=<h> mode=<mode>" line,
+# so the caller can tell "ran on this node and found nothing" from "never ran".
 # Always exits 0 -- a dirty/orphaned node is something to report, not something that should
 # abort the caller's mpirun dispatch.
 set -uo pipefail
@@ -80,4 +82,5 @@ case "$MODE" in
   reap+census) reap; census; foreign_load ;;
   *) echo "node_hygiene.sh: bad mode '$MODE' (want reap|census|reap+census)" >&2; exit 1 ;;
 esac
+echo "HYGIENE_OK host=$HOST mode=$MODE"
 exit 0

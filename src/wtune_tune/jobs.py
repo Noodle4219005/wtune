@@ -16,6 +16,7 @@ from .context import Ctx, QueueCapExceeded
 
 PROGRESS_BAR_WIDTH = 24                # characters of the progress bar
 ANCHOR_DRIFT_MAX = 0.01                # |s(ANCHOREND)/s(ANCHOR) - 1| allowed inside one job
+SACCT_MISS_MAX = 5                     # consecutive polls sacct may not list a submitted job
 _RSS_RE = re.compile(r"^(\d+(?:\.\d+)?)([KMGT]?)$")
 _RSS_TO_KB = {"": 1.0, "K": 1.0, "M": 1024.0, "G": 1024.0 ** 2, "T": 1024.0 ** 3}
 MAXRSS_NOTE = ("MaxRSS is whatever Slurm accounting reports for the job's steps; mpirun-launched "
@@ -45,6 +46,26 @@ def cancel_jobs(ctx: Ctx, job_ids: list) -> None:
     ctx.cancelled_jobs.extend(job_ids)
 
 
+def _in_flight(job_ids: list, states: dict, misses: dict, stage: str) -> list:
+    """The ids still PENDING/RUNNING. One sacct does not list (the call failed, or slurmdbd has
+    not recorded the fresh job yet) counts as in flight until SACCT_MISS_MAX consecutive misses
+    (`misses`: {job: count}, kept by the caller across polls)."""
+    out = []
+    for j in job_ids:
+        if j in states:
+            misses.pop(j, None)
+            if states[j][0] in sweep.IN_FLIGHT_STATES:
+                out.append(j)
+            continue
+        misses[j] = misses.get(j, 0) + 1
+        if misses[j] < SACCT_MISS_MAX:
+            out.append(j)
+        elif misses[j] == SACCT_MISS_MAX:
+            print("%s: job %s not reported by sacct in %d consecutive polls -- no longer waited "
+                  "for" % (stage, j, SACCT_MISS_MAX))
+    return out
+
+
 def wait_for_jobs(ctx: Ctx, job_ids: list, stage: str, note: str = "",
                   pending_cutoff: Callable[[], bool] | None = None,
                   exempt_budget: bool = False) -> dict:
@@ -56,11 +77,11 @@ def wait_for_jobs(ctx: Ctx, job_ids: list, stage: str, note: str = "",
         return {}
     if ctx.budget_mode == "running":
         return _wait_running_budget(ctx, job_ids, stage, note, pending_cutoff, exempt_budget)
+    misses: dict = {}
     while True:
         elapsed = ctx.elapsed()
         states = sweep.sacct_states(job_ids, sacct_runner=ctx.sacct_runner, sacct_cmd=ctx.sacct_cmd)
-        in_flight = [j for j in job_ids
-                     if states.get(j, ("UNKNOWN", ""))[0] in sweep.IN_FLIGHT_STATES]
+        in_flight = _in_flight(job_ids, states, misses, stage)
         print_progress(stage, elapsed, ctx.budget_s, note)
         if not in_flight:
             return states
@@ -77,6 +98,7 @@ def _wait_running_budget(ctx: Ctx, job_ids: list, stage: str, note: str,
     only when one of our jobs (or ctx.background_jobs) runs, else counted as queue wait (capped by
     max_queue_s). Cancels at the budget (not when `exempt_budget`) or the wall cap; once
     `pending_cutoff()` is true, still-PENDING jobs are cancelled as not measured."""
+    misses: dict = {}
     while True:
         elapsed = ctx.elapsed()
         wall = ctx.wall_elapsed()
@@ -85,9 +107,8 @@ def _wait_running_budget(ctx: Ctx, job_ids: list, stage: str, note: str,
                                     sacct_cmd=ctx.sacct_cmd)
         bg_running = any(states.get(j, ("", ""))[0] == "RUNNING" for j in bg)
         states = {j: v for j, v in states.items() if j not in bg}
-        in_flight = [j for j in job_ids
-                     if states.get(j, ("UNKNOWN", ""))[0] in sweep.IN_FLIGHT_STATES
-                     and j not in ctx.cancelled_jobs]
+        in_flight = [j for j in _in_flight(job_ids, states, misses, stage)
+                     if j not in ctx.cancelled_jobs]
         print_progress(stage, elapsed, ctx.budget_s,
                        (note + " " if note else "") + "(running budget; wall %s, queue-only %s)"
                        % (_fmt_hms(wall), _fmt_hms(ctx.queue_wait_s)))

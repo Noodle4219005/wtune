@@ -534,7 +534,13 @@ def run_node_search(ctx: Ctx, profile: dict, objective: str, deadline_s: float |
     report["elapsed_minutes"] = ctx.elapsed() / 60.0
     report["job_ids"] = list(ctx.owned_jobs)
     report["cancelled_job_ids"] = list(ctx.cancelled_jobs)
-    layouts_tab = build_layout_table(sw, cores_info, outcomes, ctx)
+    o = outcomes[final_n]
+    best = (o.confirm_results or {}).get(report["best"]["id"]) or \
+        o.all_results.get(report["best"]["id"])
+    layouts_tab = build_layout_table(
+        sw, cores_info, outcomes, ctx,
+        best=((final_n, final_c, sweep._identity(best["config"]))
+              if best and best.get("config") else None))
     report["layout_table"] = layouts_tab
     report["node_selection"] = NodeSelection(
         objective=objective, chosen=chosen, chosen_note=note, final=final_n,
@@ -563,10 +569,14 @@ def _layout_row(source: str, nodes: int, cores: int, cfg: dict, vals: list[float
                 cid=cfg.get("id"))
 
 
-def build_layout_table(sw: dict, cores_info: dict, outcomes: dict, ctx: Ctx) -> dict:
+def build_layout_table(sw: dict, cores_info: dict, outcomes: dict, ctx: Ctx,
+                       best: tuple | None = None) -> dict:
     """Every MEASURED layout best first (sweep ANCHORs, cores/node ANCHORs, finalist layouts with
     confirm reps winning), the winner over the finalists' layouts, the runner-up (next DIFFERENT
-    layout) and whether they differ beyond noise: {rows, winner, runner_up, comparison}."""
+    layout) and whether they differ beyond noise: {rows, winner, runner_up, comparison}. The
+    winner pool is what the report ranks (a finalist's confirm reps when it has any, never mixed
+    with its 1-rep rows); `best` = (nodes, cores, scc_sweep._identity) of the report's BEST is
+    the winner, so WINNER and BEST name one layout; without it, the pool minimum."""
     seen: dict = {}
 
     def add(row, key):
@@ -589,21 +599,25 @@ def build_layout_table(sw: dict, cores_info: dict, outcomes: dict, ctx: Ctx) -> 
     for n, o in outcomes.items():
         merged = dict(o.all_results or {})
         merged.update(o.confirm_results or {})
+        ranked = o.confirm_results or merged     # what build_report ranks: confirm reps if any
         for cid, r in merged.items():
             cfg = r.get("config")
             if not cfg or not r.get("s_values"):
                 continue
             row = _layout_row("finalist search", n, o.cores, cfg, r["s_values"])
             add(row, (n, o.cores, sweep._identity(cfg)))
-            tuned.append((n, o.cores, sweep._identity(cfg)))
+            if cid in ranked:
+                tuned.append((n, o.cores, sweep._identity(cfg)))
     rows = sorted(seen.values(), key=lambda r: r["median"])
     pool = [seen[k] for k in dict.fromkeys(tuned)] or rows
     pool = sorted(pool, key=lambda r: r["median"])
+    if best in seen:                        # the report's BEST first, the rest by median
+        pool = [seen[best]] + [r for r in pool if r is not seen[best]]
     winner = pool[0] if pool else None
     runner = pool[1] if len(pool) > 1 else None
     comparison = None
     if winner and runner:
         gap = (runner["median"] - winner["median"]) / winner["median"]
         comparison = dict(gap=gap, noise=wtune_nodes.NOISE_FRAC,
-                          beyond_noise=gap > wtune_nodes.NOISE_FRAC)
+                          beyond_noise=abs(gap) > wtune_nodes.NOISE_FRAC)
     return dict(rows=rows, winner=winner, runner_up=runner, comparison=comparison)

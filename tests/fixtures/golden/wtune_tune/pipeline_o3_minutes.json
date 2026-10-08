@@ -713,19 +713,19 @@
         "cores_per_node": 72,
         "excluded": 0,
         "excluded_reasons": [],
-        "legal": 777,
+        "legal": 780,
         "nodes": 4,
-        "raw": 5880,
-        "unique": 777
+        "raw": 5904,
+        "unique": 780
       },
       "N=5 c=72": {
         "cores_per_node": 72,
         "excluded": 0,
         "excluded_reasons": [],
-        "legal": 810,
+        "legal": 812,
         "nodes": 5,
-        "raw": 6136,
-        "unique": 810
+        "raw": 6152,
+        "unique": 812
       }
     },
     "final": 4,

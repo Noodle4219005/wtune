@@ -305,12 +305,14 @@ def incumbent_from_measured(case_measured_rows):
 # State
 # ---------------------------------------------------------------------------
 def measured_candidate_keys(state):
-    keys = set()
-    for cid in state.get("measured", {}):
-        cfg = state.get("configs", {}).get(cid)
-        if cfg is not None:
-            keys.add(candidate_key(cfg))
-    return keys
+    """Keys of every config measured OR already handed out for a run (state['submitted'] cids and
+    each round's proposed_ids): a failed run has no measurement and must not be proposed again
+    under a new id."""
+    cids = set(state.get("measured", {})) | set(state.get("submitted", ()))
+    for r in state.get("rounds", []):
+        cids.update(r.get("proposed_ids", ()))
+    configs = state.get("configs", {})
+    return {candidate_key(configs[cid]) for cid in cids if configs.get(cid) is not None}
 
 
 def build_case_measured_rows(state, case_name, case_fields, hardware_id, nodes):
@@ -485,7 +487,8 @@ def propose_core(candidates, labeled_rows, case_name, case_fields, hardware_id, 
 # ---------------------------------------------------------------------------
 # propose: real CLI path, against decomp_space.enumerate_space's full pool
 # ---------------------------------------------------------------------------
-_RUN_ID_RE = re.compile(r"^(?P<case>[^_]+)_(?P<cid>.+)_r(?P<rep>\d+)_(?P<job>\d+)$")
+# the case may contain '_' (ids come from directory names); a cid never does
+_RUN_ID_RE = re.compile(r"^(?P<case>.+)_(?P<cid>[^_]+)_r(?P<rep>\d+)_(?P<job>\d+)$")
 
 
 def parse_run_id(run_id):

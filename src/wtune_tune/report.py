@@ -168,7 +168,7 @@ def render_report_text(report: dict) -> str:
         lines.append("cancelled (budget deadline): %s" % ",".join(report["cancelled_job_ids"]))
     lines.append("")
     lines += _ranking_lines(report)
-    if report["best"]:
+    if report["best"] and report["param_table"]:
         lines.append("")
         lines.append("BEST: %s" % report["best"]["id"])
         pt = report["param_table"]

@@ -710,21 +710,21 @@
     "enumerated": {
       "N=4 c=72": {
         "cores_per_node": 72,
-        "excluded": 705,
+        "excluded": 708,
         "excluded_reasons": [],
         "legal": 72,
         "nodes": 4,
-        "raw": 5880,
-        "unique": 777
+        "raw": 5904,
+        "unique": 780
       },
       "N=5 c=72": {
         "cores_per_node": 72,
-        "excluded": 720,
+        "excluded": 722,
         "excluded_reasons": [],
         "legal": 90,
         "nodes": 5,
-        "raw": 6136,
-        "unique": 810
+        "raw": 6152,
+        "unique": 812
       }
     },
     "final": 4,

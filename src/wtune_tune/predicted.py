@@ -117,7 +117,8 @@ def run_predicted(ctx: Ctx, nodes: int, nodes_note: str, s_est: float) -> dict:
     ctx.stage1_extra_reserve_s = 0.0
     if prep_handle is not None:
         ctx.background_jobs = []
-        rebuilt = _points.finish_rebuilt_points(ctx, prep_handle)
+        # stage 1 may have used all of --minutes; the prep belongs to stage 2 (outside it)
+        rebuilt = _points.finish_rebuilt_points(ctx, dict(prep_handle, exempt_budget=True))
     top, stage2_est, skip_reason, meas_by_cid, gates, stage2_jobs = _predicted_stage2(
         ctx, pp, stage1, top, anchor, rebuilt, s_by_cid)
     stage2_running_s = ctx.elapsed() - stage1_running_s

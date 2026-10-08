@@ -484,7 +484,7 @@ def run_adaptive_rounds(ctx: Ctx, all_configs_by_cid: dict, all_results: dict,
             print("adaptive rounds skipped: predictor/decomp_search.py not importable (%s)" % e)
             return
 
-    state: dict[str, Any] = dict(configs={}, measured={}, rounds=[])
+    state: dict[str, Any] = dict(configs={}, measured={}, rounds=[], submitted=[])
     for cid, r in all_results.items():
         if r["config"] is None:
             continue
@@ -492,6 +492,10 @@ def run_adaptive_rounds(ctx: Ctx, all_configs_by_cid: dict, all_results: dict,
         state["measured"][cid] = [dict(run_id="%s_%s_r%d_seed" % (ctx.case, cid, i),
                                         job_id=None, rep_index=i, s_per_step_median=s)
                                    for i, s in enumerate(r["s_values"])]
+    for cid, c in all_configs_by_cid.items():      # submitted but failed: never proposed again
+        if c is not None:
+            state["configs"].setdefault(cid, c)
+            state["submitted"].append(cid)
 
     for round_idx in range(1, ADAPTIVE_MAX_ROUNDS + 1):
         elapsed = ctx.elapsed()
@@ -518,6 +522,7 @@ def run_adaptive_rounds(ctx: Ctx, all_configs_by_cid: dict, all_results: dict,
         for c in configs_out:
             all_configs_by_cid[c["id"]] = c
             state["configs"][c["id"]] = c
+            state["submitted"].append(c["id"])
 
         _jobs.wait_for_jobs(ctx, [job_id], "round%d" % round_idx, pending_cutoff=_stage1_cutoff(ctx))
         rows = ctx.ledger_reader(_ledger_case(ctx), [job_id])

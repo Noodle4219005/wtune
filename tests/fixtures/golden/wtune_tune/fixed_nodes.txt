@@ -60,9 +60,9 @@ adaptive round 6: proposer stopped at kappa=1 (test stub); retrying with more ex
 adaptive round 6: proposer exhausted (test stub); falling back to 34 decomp_space-diverse candidate(s) not yet measured
 adaptive round 6: submitted job 7032 (34 configs)
 [round6   ] [------------------------]   0%  elapsed=0:00 / budget=30:00
-confirm candidate D0034    median=0.3774s/step (n=2) -> per_run~17.1s (startup_s=15.2s) x REPS=2
-confirm candidate D0033    median=0.3846s/step (n=2) -> per_run~17.2s (startup_s=15.2s) x REPS=2
-confirm candidate D0032    median=0.3922s/step (n=2) -> per_run~17.2s (startup_s=15.2s) x REPS=2
+confirm candidate D0437    median=0.3774s/step (n=2) -> per_run~17.1s (startup_s=15.2s) x REPS=2
+confirm candidate D0471    median=0.3774s/step (n=2) -> per_run~17.1s (startup_s=15.2s) x REPS=2
+confirm candidate D0505    median=0.3774s/step (n=2) -> per_run~17.1s (startup_s=15.2s) x REPS=2
 confirm candidate ANCHOR   median=1.0000s/step (n=2) -> per_run~20.2s (startup_s=15.2s) x REPS=2
 confirm: estimated 2:23 for 4 config(s) (REPS=2, expected -- not the padded --time request) -- elapsed=0:00 / budget=30:00
 confirm: submitted job 7033 (4 configs, REPS=2)
@@ -74,14 +74,14 @@ budget=30.0 min  elapsed=0.0 min  jobs=7001,7002,7003,7004,7005,7006,7007,7008,7
 
 id           pred_total  ranks  omp    nx    ny tiles    dist   median_s        range_s speedup pred_spd    n pred_source confirmed
 ANCHOR           FAILED     72    1     8     9     1   block     0.8696  0.8696-0.8696  1.150x        -    2 -           True
-D0032            FAILED      8    9     4     2    18  cyclic     0.9091  0.9091-0.9091  1.100x        -    2 -           True
-D0033            FAILED     24    3     4     6     2   block     0.9524  0.9524-0.9524  1.050x        -    2 -           True
-D0034            FAILED      6   12     2     3    24  cyclic     1.0000  1.0000-1.0000  1.000x        -    2 -           True
+D0505            FAILED      3   24     1     3    24   block     0.9091  0.9091-0.9091  1.100x        -    2 -           True
+D0471            FAILED     12    6     3     4    24  cyclic     0.9524  0.9524-0.9524  1.050x        -    2 -           True
+D0437            FAILED      9    8     3     3    24  cyclic     1.0000  1.0000-1.0000  1.000x        -    2 -           True
 
 PREDICTION FAILED for ANCHOR: FileNotFoundError: [Errno 2] No such file or directory: '<TMP>/namelist.input' -- ranked by median s/step instead
-PREDICTION FAILED for D0032: FileNotFoundError: [Errno 2] No such file or directory: '<TMP>/namelist.input' -- ranked by median s/step instead
-PREDICTION FAILED for D0033: FileNotFoundError: [Errno 2] No such file or directory: '<TMP>/namelist.input' -- ranked by median s/step instead
-PREDICTION FAILED for D0034: FileNotFoundError: [Errno 2] No such file or directory: '<TMP>/namelist.input' -- ranked by median s/step instead
+PREDICTION FAILED for D0505: FileNotFoundError: [Errno 2] No such file or directory: '<TMP>/namelist.input' -- ranked by median s/step instead
+PREDICTION FAILED for D0471: FileNotFoundError: [Errno 2] No such file or directory: '<TMP>/namelist.input' -- ranked by median s/step instead
+PREDICTION FAILED for D0437: FileNotFoundError: [Errno 2] No such file or directory: '<TMP>/namelist.input' -- ranked by median s/step instead
 
 BEST: ANCHOR
   namelist: nproc_x=8, nproc_y=9, numtiles=1,

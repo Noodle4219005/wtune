@@ -10,6 +10,7 @@ import json
 import math
 import os
 import re
+import threading
 from typing import Any
 
 from ._deps import coldstart, sweep, wtune_predict, wtune_probe_plan
@@ -189,12 +190,17 @@ def submit_rebuilt_points(ctx: Ctx, points: list, anchor: dict, case_dir: str,
         cmd = ("sbatch --export=ALL,CAMPAIGN=%s %s" % (campaign_dir, sbatch_path)
                if campaign_dir else "sbatch %s" % sbatch_path)
         job_id = sweep.submit_job(cmd, sbatch_runner=ctx.sbatch_runner)
+        with owned_lock:       # owned at once: another point failing must not orphan this job
+            ctx.owned_jobs.append(job_id)
         print("rebuilt point %d: real_only job %s (%s)" % (i, job_id, sbatch_path), flush=True)
         return plan, pdir, job_id
 
+    owned_lock = threading.Lock()
     with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, len(points))) as pool:
         done = list(pool.map(lambda ip: _prepare_and_submit(*ip), enumerate(points)))
     job_ids = [d[2] for d in done]
+    for j in job_ids:                      # all submitted: back to point order
+        ctx.owned_jobs.remove(j)
     ctx.owned_jobs.extend(job_ids)
     return dict(points=points, done=done, job_ids=job_ids, anchor=anchor, case_entry=case_entry,
                 out_dir=out_dir, spinup_min=spinup_min, stepra=stepra, dt=dt,
@@ -204,12 +210,15 @@ def submit_rebuilt_points(ctx: Ctx, points: list, anchor: dict, case_dir: str,
 def finish_rebuilt_points(ctx: Ctx, handle: dict) -> list[dict]:
     """Wait for the rebuild jobs, write each point's case entry and ONE rebuilt_cases.json
     (CASES_JSON). Returns [{index, point, case_id, T, cases_json, prep_dir, template, steps,
-    spinup_min, stepra, dt, plan_dir, job_id}]; raises when a job did not complete."""
+    spinup_min, stepra, dt, plan_dir, job_id}]; raises when a job did not complete.
+    handle["exempt_budget"] (stage1=t0: --minutes is stage 1 only) keeps the budget from
+    cancelling the jobs."""
     points, done, job_ids = handle["points"], handle["done"], handle["job_ids"]
     anchor, case_entry, out_dir = handle["anchor"], handle["case_entry"], handle["out_dir"]
     spinup_min, stepra, dt, steps = (handle["spinup_min"], handle["stepra"], handle["dt"],
                                      handle["steps"])
-    states = _jobs.wait_for_jobs(ctx, job_ids, "rebuild-prep")
+    states = _jobs.wait_for_jobs(ctx, job_ids, "rebuild-prep",
+                                 exempt_budget=bool(handle.get("exempt_budget")))
     bad = {j: states.get(j, ("UNKNOWN", ""))[0] for j in job_ids
            if states.get(j, ("UNKNOWN", ""))[0] != "COMPLETED"}
     if bad:

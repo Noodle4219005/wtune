@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import dataclasses
 import io
+import re
 import statistics
 
 from ._deps import campaign_configs, decomp_space, sweep, wtune_config, wtune_extensions
@@ -57,7 +58,14 @@ def sample_more_diverse_configs(ctx: Ctx, exclude_configs: list[dict], k: int,
         return []
     chosen, _coverage = decomp_space.sample_design(fresh, min(k, len(fresh)), seed,
                                                      must_include=None)
-    return decomp_space.to_campaign_configs(chosen, prefix="D")
+    out = decomp_space.to_campaign_configs(chosen, prefix="D")
+    # ids continue after the D ids already used in this tune: a restart at D0001 would overwrite
+    # an earlier round's measurement of a different layout
+    used = [int(m.group(1)) for c in exclude_configs if c
+            for m in [re.match(r"D(\d+)$", str(c.get("id")))] if m]
+    for i, c in enumerate(out, start=max(used, default=0) + 1):
+        c["id"] = "D%04d" % i
+    return out
 
 
 def aggregate_by_cid(rows: list[dict], configs_by_cid: dict) -> dict:

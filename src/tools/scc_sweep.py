@@ -325,7 +325,10 @@ def manifest_lookup(rows):
 # sacct / sbatch, both behind injectable runner functions (tests substitute fakes)
 # ---------------------------------------------------------------------------
 def default_sacct_runner(cmd):
-    return subprocess.run(cmd, capture_output=True, text=True, check=False).stdout
+    """sacct's stdout; "" when sacct failed (rc != 0), so no job gets a state from a broken call
+    and callers see every job as unreported (UNKNOWN) rather than finished."""
+    out = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    return out.stdout if out.returncode == 0 else ""
 
 
 def sacct_states(job_ids, sacct_runner=default_sacct_runner, sacct_cmd="sacct"):

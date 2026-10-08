@@ -127,8 +127,8 @@ choice knee   N=4  objective=knee: N=4 efficiency=0.83 >= 0.70 (largest such N)
    3    72    216    1     12x18     1      0.4100    0.0%     2  t0 sweep ANCHOR
    2    72    144    1     12x12     1      0.5200    0.0%     2  t0 sweep ANCHOR
    1    72     72    1       8x9     1      1.0000    0.0%     2  t0 sweep ANCHOR
-WINNER:    N=4 c/n=72 ranks=16 omp=18 1x16 tiles=13 0.2857 s/step
-RUNNER-UP: N=4 c/n=72 ranks=144 omp=2 9x16 tiles=14 0.2857 s/step
+WINNER:    N=4 c/n=72 ranks=144 omp=2 16x9 tiles=8 0.2857 s/step
+RUNNER-UP: N=4 c/n=72 ranks=16 omp=18 1x16 tiles=13 0.2857 s/step
 winner vs runner-up: 0.0% apart -> NOT distinguishable from noise: either is fine (noise floor 3%)
 NOT TRIED: 7 (reasons below; full list in node_selection.untried)
      6 x not measured: outside refinement bracket (3..5 around the best N=4)

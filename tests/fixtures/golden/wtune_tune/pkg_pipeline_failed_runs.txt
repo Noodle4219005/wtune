@@ -35,7 +35,7 @@ node sweep: cores-n5-c36 submitted job 7014 (ANCHOR ranks=180 omp=1 12x15, REPS=
 core sweep: N=4 chose cores/node=72 -- cores/node=72 median=0.3000 s/step; fastest is 0.3000, fullest c within 3% noise of it
 core sweep: N=5 chose cores/node=72 -- cores/node=72 median=0.3050 s/step; fastest is 0.3050, fullest c within 3% noise of it
 node search: finalist N=4 cores/node=72, budget share none
-round0 (full layout search): N=4 cores/node=72: 5880 enumerated, 777 unique, 777 legal (0 excluded) -> 1 waves of 3 job(s)
+round0 (full layout search): N=4 cores/node=72: 5904 enumerated, 780 unique, 780 legal (0 excluded) -> 1 waves of 3 job(s)
 round0-w0 slot 0: submitted job 7015 (3 configs)
 round0-w0 slot 1: submitted job 7016 (3 configs)
 round0-w0 slot 2: submitted job 7017 (2 configs)
@@ -46,7 +46,7 @@ confirm: estimated 2:00 for 1 config(s) (REPS=2, expected -- not the padded --ti
 confirm: submitted job 7018 (1 configs, REPS=2)
 [confirm  ] [------------------------]   0%  elapsed=0:00 / budget=none  (running budget; wall 0:00, queue-only 0:00)
 node search: finalist N=5 cores/node=72, budget share none
-round0 (full layout search): N=5 cores/node=72: 6136 enumerated, 810 unique, 810 legal (0 excluded) -> 1 waves of 2 job(s)
+round0 (full layout search): N=5 cores/node=72: 6152 enumerated, 812 unique, 812 legal (0 excluded) -> 1 waves of 2 job(s)
 round0-w0 slot 0: submitted job 7019 (4 configs)
 round0-w0 slot 1: submitted job 7020 (4 configs)
 [round0-w0] [------------------------]   0%  elapsed=0:00 / budget=none  (running budget; wall 0:00, queue-only 0:00)
@@ -125,8 +125,8 @@ choice knee   N=4  objective=knee: N=4 efficiency=0.83 >= 0.70 (largest such N)
 WINNER:    N=4 c/n=72 ranks=288 omp=1 16x18 tiles=1 0.3000 s/step
 RUNNER-UP: N=5 c/n=72 ranks=360 omp=1 18x20 tiles=1 0.3050 s/step
 winner vs runner-up: 1.7% apart -> NOT distinguishable from noise: either is fine (noise floor 3%)
-enumerated N=4 c=72: 5880 raw, 777 unique (block, 1-D tiles), 777 legal, 0 excluded
-enumerated N=5 c=72: 6136 raw, 810 unique (block, 1-D tiles), 810 legal, 0 excluded
+enumerated N=4 c=72: 5904 raw, 780 unique (block, 1-D tiles), 780 legal, 0 excluded
+enumerated N=5 c=72: 6152 raw, 812 unique (block, 1-D tiles), 812 legal, 0 excluded
 NOT TRIED: 21 (reasons below; full list in node_selection.untried)
     14 x no measurement (the run failed or its job was cancelled)
      6 x not measured: outside refinement bracket (3..5 around the best N=4)

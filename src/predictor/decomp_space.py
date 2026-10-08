@@ -318,13 +318,14 @@ def default_omp_options(total_cores: int, nodes: int, hardware_id: str) -> list[
 
 def numtiles_candidates(omp: int, tile_options: dict | None) -> list[int]:
     """{1} u {omp*k : k in tile_options['numtiles_multiples']} u the 16 STRICT templates' own
-    numtiles values (see _TEMPLATE_NUMTILES), capped at tile_options['max_numtiles']."""
+    numtiles values (see _TEMPLATE_NUMTILES), capped at tile_options['max_numtiles'] -- except
+    numtiles == omp (k=1), always kept: at omp=72 the cap left only numtiles <= 16 < omp."""
     multiples = tile_options.get("numtiles_multiples", DEFAULT_TILE_OPTIONS["numtiles_multiples"])
     max_nt = tile_options.get("max_numtiles", DEFAULT_TILE_OPTIONS["max_numtiles"])
     cands = set([1])
     for k in multiples:
         nt = omp * k
-        if nt <= max_nt:
+        if nt <= max_nt or k == 1:
             cands.add(nt)
     for nt in _TEMPLATE_NUMTILES:
         if nt <= max_nt:

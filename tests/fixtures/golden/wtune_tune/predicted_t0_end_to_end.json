@@ -4,8 +4,8 @@
   "best": {
    "dist": "cyclic",
    "id": "D0001",
-   "nproc_x": 8,
-   "nproc_y": 36,
+   "nproc_x": 144,
+   "nproc_y": 2,
    "numtiles": 12,
    "omp": 1,
    "points": [
@@ -13,30 +13,30 @@
      "at": "2021-07-19T18:20:00",
      "n_rad": 2,
      "r": 3.5,
-     "s_normal": 1.5795000000000003
+     "s_normal": 1.0530000000000002
     },
     {
      "at": "2021-07-20T00:20:00",
      "n_rad": 2,
      "r": 3.5,
-     "s_normal": 1.5795000000000003
+     "s_normal": 1.0530000000000002
     },
     {
      "at": "2021-07-20T06:20:00",
      "n_rad": 2,
      "r": 3.5,
-     "s_normal": 1.5795000000000003
+     "s_normal": 1.0530000000000002
     }
    ],
    "predicted_range_s": [
-    8703.439874999343,
-    10637.537624999199
+    5802.293249999694,
+    7091.691749999626
    ],
-   "predicted_total_hms": "2:41:10",
-   "predicted_total_s": 9670.488749999271,
+   "predicted_total_hms": "1:47:26",
+   "predicted_total_s": 6446.99249999966,
    "ranks": 288,
-   "speedup_vs_anchor_predicted": 1.2345679012347224,
-   "stage1_median_s_per_step": 1.5795000000000003,
+   "speedup_vs_anchor_predicted": 1.8518518518520417,
+   "stage1_median_s_per_step": 1.0530000000000002,
    "stage1_norm_key": 0.81
   },
   "budget_minutes": 90.0,
@@ -45,7 +45,7 @@
   "case": "matthew",
   "cores_per_node": 72,
   "elapsed_minutes": 90.0,
-  "full_run_prediction": "=== full-run prediction (rank_by=predicted, D0001, 3 rebuilt point(s)) ===\ncompute_total: 2:41:10   init: 0.0s   TOTAL: 2:41:10 (range 2:25:03 - 2:57:17, +-10.0% drift)\nr_rad: night=2.439 day=4.561 source=ratio_from_day",
+  "full_run_prediction": "=== full-run prediction (rank_by=predicted, D0001, 3 rebuilt point(s)) ===\ncompute_total: 1:47:26   init: 0.0s   TOTAL: 1:47:26 (range 1:36:42 - 1:58:11, +-10.0% drift)\nr_rad: night=2.439 day=4.561 source=ratio_from_day",
   "gates": [
    {
     "anchor_drift": 0.0,
@@ -169,14 +169,14 @@
    },
    "launch_line": "mpirun -np 288 --map-by ppr:72:node:PE=1 --bind-to core --rank-by node ./wrf.exe",
    "namelist_lines": [
-    "nproc_x=8,",
-    "nproc_y=36,",
+    "nproc_x=144,",
+    "nproc_y=2,",
     "numtiles=12,"
    ],
    "nodes": 4,
    "note": "KMP_BLOCKTIME: n/a on scc (nvhpc OpenMP runtime has no KMP_BLOCKTIME concept)",
-   "nproc_x": 8,
-   "nproc_y": 36,
+   "nproc_x": 144,
+   "nproc_y": 2,
    "numtiles": 12,
    "omp": 1,
    "ranks": 288,
@@ -220,8 +220,8 @@
    {
     "dist": "cyclic",
     "id": "D0001",
-    "nproc_x": 8,
-    "nproc_y": 36,
+    "nproc_x": 144,
+    "nproc_y": 2,
     "numtiles": 12,
     "omp": 1,
     "points": [
@@ -229,31 +229,69 @@
       "at": "2021-07-19T18:20:00",
       "n_rad": 2,
       "r": 3.5,
-      "s_normal": 1.5795000000000003
+      "s_normal": 1.0530000000000002
      },
      {
       "at": "2021-07-20T00:20:00",
       "n_rad": 2,
       "r": 3.5,
-      "s_normal": 1.5795000000000003
+      "s_normal": 1.0530000000000002
      },
      {
       "at": "2021-07-20T06:20:00",
       "n_rad": 2,
       "r": 3.5,
-      "s_normal": 1.5795000000000003
+      "s_normal": 1.0530000000000002
      }
     ],
     "predicted_range_s": [
-     8703.439874999343,
-     10637.537624999199
+     5802.293249999694,
+     7091.691749999626
     ],
-    "predicted_total_hms": "2:41:10",
-    "predicted_total_s": 9670.488749999271,
+    "predicted_total_hms": "1:47:26",
+    "predicted_total_s": 6446.99249999966,
     "ranks": 288,
-    "speedup_vs_anchor_predicted": 1.2345679012347224,
-    "stage1_median_s_per_step": 1.5795000000000003,
+    "speedup_vs_anchor_predicted": 1.8518518518520417,
+    "stage1_median_s_per_step": 1.0530000000000002,
     "stage1_norm_key": 0.81
+   },
+   {
+    "dist": "block",
+    "id": "D0002",
+    "nproc_x": 1,
+    "nproc_y": 24,
+    "numtiles": 24,
+    "omp": 12,
+    "points": [
+     {
+      "at": "2021-07-19T18:20:00",
+      "n_rad": 2,
+      "r": 3.5,
+      "s_normal": 1.066
+     },
+     {
+      "at": "2021-07-20T00:20:00",
+      "n_rad": 2,
+      "r": 3.5,
+      "s_normal": 1.066
+     },
+     {
+      "at": "2021-07-20T06:20:00",
+      "n_rad": 2,
+      "r": 3.5,
+      "s_normal": 1.066
+     }
+    ],
+    "predicted_range_s": [
+     5873.9264999993575,
+     7179.243499999215
+    ],
+    "predicted_total_hms": "1:48:46",
+    "predicted_total_s": 6526.584999999286,
+    "ranks": 24,
+    "speedup_vs_anchor_predicted": 1.829268292683218,
+    "stage1_median_s_per_step": 1.066,
+    "stage1_norm_key": 0.8200000000000001
    },
    {
     "dist": "block",
@@ -292,44 +330,6 @@
     "speedup_vs_anchor_predicted": 1.2345679012347224,
     "stage1_median_s_per_step": 1.5795000000000003,
     "stage1_norm_key": 0.81
-   },
-   {
-    "dist": "block",
-    "id": "D0002",
-    "nproc_x": 24,
-    "nproc_y": 1,
-    "numtiles": 13,
-    "omp": 12,
-    "points": [
-     {
-      "at": "2021-07-19T18:20:00",
-      "n_rad": 2,
-      "r": 3.5,
-      "s_normal": 1.5990000000000002
-     },
-     {
-      "at": "2021-07-20T00:20:00",
-      "n_rad": 2,
-      "r": 3.5,
-      "s_normal": 1.5990000000000002
-     },
-     {
-      "at": "2021-07-20T06:20:00",
-      "n_rad": 2,
-      "r": 3.5,
-      "s_normal": 1.5990000000000002
-     }
-    ],
-    "predicted_range_s": [
-     8810.889750000617,
-     10768.865250000752
-    ],
-    "predicted_total_hms": "2:43:09",
-    "predicted_total_s": 9789.877500000684,
-    "ranks": 24,
-    "speedup_vs_anchor_predicted": 1.2195121951219268,
-    "stage1_median_s_per_step": 1.5990000000000002,
-    "stage1_norm_key": 0.8200000000000001
    },
    {
     "dist": "block",
@@ -380,9 +380,9 @@
    {
     "id": "D0001",
     "jobs": [
-     "3005"
+     "3004"
     ],
-    "median_s_per_step": 1.5795000000000003,
+    "median_s_per_step": 1.0530000000000002,
     "norm_key": 0.81,
     "stage2": true
    },
@@ -398,9 +398,9 @@
    {
     "id": "D0002",
     "jobs": [
-     "3005"
+     "3004"
     ],
-    "median_s_per_step": 1.5990000000000002,
+    "median_s_per_step": 1.066,
     "norm_key": 0.8200000000000001,
     "stage2": true
    },
@@ -416,9 +416,9 @@
    {
     "id": "D0003",
     "jobs": [
-     "3005"
+     "3004"
     ],
-    "median_s_per_step": 1.6185000000000003,
+    "median_s_per_step": 1.0790000000000002,
     "norm_key": 0.8300000000000001,
     "stage2": false
    },
@@ -432,15 +432,6 @@
     "stage2": false
    },
    {
-    "id": "D0004",
-    "jobs": [
-     "3005"
-    ],
-    "median_s_per_step": 1.6380000000000001,
-    "norm_key": 0.84,
-    "stage2": false
-   },
-   {
     "id": "G0004",
     "jobs": [
      "3001"
@@ -450,12 +441,21 @@
     "stage2": false
    },
    {
+    "id": "D0004",
+    "jobs": [
+     "3004"
+    ],
+    "median_s_per_step": 1.092,
+    "norm_key": 0.8400000000000001,
+    "stage2": false
+   },
+   {
     "id": "D0005",
     "jobs": [
-     "3005"
+     "3004"
     ],
-    "median_s_per_step": 1.6575000000000002,
-    "norm_key": 0.85,
+    "median_s_per_step": 1.1050000000000002,
+    "norm_key": 0.8500000000000001,
     "stage2": false
    },
    {
@@ -468,21 +468,21 @@
     "stage2": false
    },
    {
-    "id": "D0006",
-    "jobs": [
-     "3005"
-    ],
-    "median_s_per_step": 1.677,
-    "norm_key": 0.86,
-    "stage2": false
-   },
-   {
     "id": "G0006",
     "jobs": [
      "3003"
     ],
     "median_s_per_step": 1.677,
     "norm_key": 0.86,
+    "stage2": false
+   },
+   {
+    "id": "D0006",
+    "jobs": [
+     "3004"
+    ],
+    "median_s_per_step": 1.118,
+    "norm_key": 0.8600000000000001,
     "stage2": false
    },
    {
@@ -594,12 +594,30 @@
     "stage2": false
    },
    {
+    "id": "D0013",
+    "jobs": [
+     "3005"
+    ],
+    "median_s_per_step": 1.8135000000000001,
+    "norm_key": 0.9299999999999999,
+    "stage2": false
+   },
+   {
     "id": "G0013",
     "jobs": [
      "3001"
     ],
     "median_s_per_step": 1.8135000000000001,
     "norm_key": 0.9299999999999999,
+    "stage2": false
+   },
+   {
+    "id": "D0014",
+    "jobs": [
+     "3005"
+    ],
+    "median_s_per_step": 1.8330000000000002,
+    "norm_key": 0.9400000000000001,
     "stage2": false
    },
    {
@@ -612,12 +630,30 @@
     "stage2": false
    },
    {
+    "id": "D0015",
+    "jobs": [
+     "3005"
+    ],
+    "median_s_per_step": 1.8525,
+    "norm_key": 0.95,
+    "stage2": false
+   },
+   {
     "id": "G0015",
     "jobs": [
      "3003"
     ],
     "median_s_per_step": 1.8525,
     "norm_key": 0.95,
+    "stage2": false
+   },
+   {
+    "id": "D0016",
+    "jobs": [
+     "3005"
+    ],
+    "median_s_per_step": 1.8720000000000003,
+    "norm_key": 0.9600000000000001,
     "stage2": false
    },
    {
@@ -630,12 +666,30 @@
     "stage2": false
    },
    {
+    "id": "D0017",
+    "jobs": [
+     "3005"
+    ],
+    "median_s_per_step": 1.8915000000000002,
+    "norm_key": 0.97,
+    "stage2": false
+   },
+   {
     "id": "G0017",
     "jobs": [
      "3002"
     ],
     "median_s_per_step": 1.2610000000000001,
     "norm_key": 0.9700000000000001,
+    "stage2": false
+   },
+   {
+    "id": "D0018",
+    "jobs": [
+     "3005"
+    ],
+    "median_s_per_step": 1.911,
+    "norm_key": 0.98,
     "stage2": false
    },
    {
@@ -747,18 +801,9 @@
     "stage2": false
    },
    {
-    "id": "G0030",
-    "jobs": [
-     "3003"
-    ],
-    "median_s_per_step": 2.1450000000000005,
-    "norm_key": 1.1,
-    "stage2": false
-   },
-   {
     "id": "G0031",
     "jobs": [
-     "3001"
+     "3003"
     ],
     "median_s_per_step": 2.1645000000000003,
     "norm_key": 1.11,
@@ -767,25 +812,25 @@
    {
     "id": "G0032",
     "jobs": [
-     "3002"
+     "3001"
     ],
-    "median_s_per_step": 1.4560000000000002,
-    "norm_key": 1.12,
+    "median_s_per_step": 2.184,
+    "norm_key": 1.1199999999999999,
     "stage2": false
    },
    {
     "id": "G0033",
     "jobs": [
-     "3003"
+     "3002"
     ],
-    "median_s_per_step": 2.2035000000000005,
+    "median_s_per_step": 1.4690000000000003,
     "norm_key": 1.1300000000000001,
     "stage2": false
    },
    {
     "id": "G0034",
     "jobs": [
-     "3001"
+     "3003"
     ],
     "median_s_per_step": 2.2230000000000003,
     "norm_key": 1.1400000000000001,
@@ -794,18 +839,18 @@
    {
     "id": "G0035",
     "jobs": [
-     "3002"
+     "3001"
     ],
-    "median_s_per_step": 1.4950000000000003,
+    "median_s_per_step": 2.2425000000000006,
     "norm_key": 1.1500000000000001,
     "stage2": false
    },
    {
     "id": "G0036",
     "jobs": [
-     "3003"
+     "3002"
     ],
-    "median_s_per_step": 2.2620000000000005,
+    "median_s_per_step": 1.5080000000000002,
     "norm_key": 1.1600000000000001,
     "stage2": false
    }
@@ -813,25 +858,25 @@
   "stage1_running_min": 90.0,
   "stage1_trimmed": [
    {
-    "cid": "D0007",
+    "cid": "D0019",
     "reason": "trimmed to fit the budget + stage-2 reserve",
     "stage": "round2"
    },
    {
-    "cid": "D0008",
+    "cid": "D0020",
     "reason": "trimmed to fit the budget + stage-2 reserve",
     "stage": "round2"
    }
   ],
   "stage2_concurrency": 3,
   "stage2_estimate_min": 78.58765,
-  "stage2_estimate_s": 1794.44682,
+  "stage2_estimate_s": 1703.8626198780487,
   "stage2_job_ids": [
    "9001"
   ],
   "stage2_minutes_cap": null,
   "stage2_overrun_s": null,
-  "stage2_reserve_note": "stage-2 estimate (NOT held back from --minutes, stage1=t0) 31:33 = 1 wave(s) [3 point job(s), 3 concurrent: observed max 3 stage-1 job(s) running at once, cap floor(max_nodes/nodes)=3] x (spin-up + 5 runs); per-run 322s = startup 115s + restart read 30s + 82 steps x 1.950s x rad factor 1.107 (r_rad 3.93 every 40 steps); spin-up 283s (80 steps, rad factor 1.073)",
+  "stage2_reserve_note": "stage-2 estimate (NOT held back from --minutes, stage1=t0) 31:39 = 1 wave(s) [3 point job(s), 3 concurrent: observed max 3 stage-1 job(s) running at once, cap floor(max_nodes/nodes)=3] x (spin-up + 5 runs); per-run 323s = startup 116s + restart read 30s + 82 steps x 1.950s x rad factor 1.107 (r_rad 3.93 every 40 steps); spin-up 284s (80 steps, rad factor 1.073)",
   "stage2_running_min": 0.0,
   "stage2_skipped_reason": null,
   "total_job_run_s": 0,

@@ -48,8 +48,9 @@ class Record:
                 if getattr(self, f.name) is not UNSET}
 
 # RUN_ID="${CASE}_${cid}_r${rep}_${J}" (strict_campaign.sbatch:962); duplicated from
-# predictor/decomp_search.py so parsing a run id does not import numpy/sklearn/catboost
-_RUN_ID_RE = re.compile(r"^(?P<case>[^_]+)_(?P<cid>.+)_r(?P<rep>\d+)_(?P<job>\d+)$")
+# predictor/decomp_search.py so parsing a run id does not import numpy/sklearn/catboost. The case
+# may contain '_' (ids come from directory names); a cid never does.
+_RUN_ID_RE = re.compile(r"^(?P<case>.+)_(?P<cid>[^_]+)_r(?P<rep>\d+)_(?P<job>\d+)$")
 
 
 def _fmt_hms(seconds: float | None) -> str:

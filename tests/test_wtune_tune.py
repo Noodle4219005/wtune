@@ -3010,7 +3010,8 @@ def test_full_space_enumeration_covers_every_axis_and_sc26p1_counts():
                     shapes={(c["nx"], c["ny"]) for c in configs}, ranks={c["ranks"] for c in configs})
         assert len(axes["omp"]) >= 5 and len(axes["tiles"]) >= 3     # threads and tiles vary
         assert len(axes["shapes"]) > len(axes["ranks"]) and len(axes["ranks"]) > 1   # nx x ny shapes
-    assert counts == {1: 339, 4: 244, 8: 157, 10: 196}      # the SC26-P1 numbers quoted in the report
+    # SC26-P1; includes the omp=72 layouts with numtiles == omp (one tile per thread)
+    assert counts == {1: 340, 4: 247, 8: 161, 10: 200}
 
 
 def test_default_level_enumerates_the_full_layout_space_at_the_finalists(monkeypatch, tmp_path):

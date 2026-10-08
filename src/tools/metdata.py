@@ -1205,7 +1205,10 @@ def print_find(plan, general_warnings):
 def do_check(plan):
     n_ok, n_missing = 0, 0
     for entry in plan:
-        if entry['source'] is None:
+        if entry['source'] is None:   # no source at all is a failure, not a skip
+            print('NOSOURCE {} -- {}'.format(
+                entry['valid_time'].strftime('%Y-%m-%d_%H'), entry['reason']))
+            n_missing += 1
             continue
         for msg in entry['messages']:
             result = check_url(msg['url'])
@@ -1241,6 +1244,8 @@ def do_fetch(plan, cache_dir, bbox_crop, grib_dir, host, case=None, wrfinput_pat
     for entry in plan:
         if entry['source'] is None:
             results.append({'valid_time': entry['valid_time'], 'status': 'skipped', 'detail': entry['reason']})
+            print('FAIL {} no source -- {}'.format(
+                entry['valid_time'].strftime('%Y-%m-%d_%H'), entry['reason']))
             continue
         # WPS purpose + aws/nomads (S3, 2026-09-24): use the idx-driven selection
         # (fetch_wps_messages_idx_driven / select_wps_messages / validate_wps_selection) instead
@@ -1325,7 +1330,7 @@ def main(argv=None):
         case, _nl, wi_path = load_case(args.case_dir, args.namelist, args.wrfinput)
         results = do_fetch(plan, args.cache_dir, args.bbox_crop, args.grib_dir, args.rda_host,
                             case=case, wrfinput_path=wi_path)
-        n_fail = sum(1 for r in results if r['status'] == 'error')
+        n_fail = sum(1 for r in results if r['status'] in ('error', 'skipped'))
         return 1 if n_fail else 0
     return 1
 

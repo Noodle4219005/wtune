@@ -120,11 +120,13 @@ def find_out_of_block_assignments(namelist_path: str | Path) -> list[tuple[int, 
         m = re.match(r"&([A-Za-z_]\w*)", line)
         if m:
             group = m.group(1).lower()
-            continue
+            line = line[m.end():].strip()  # same-line assignments belong to this group
         if line.startswith("/"):
             group = None
             continue
         if group is not None:
+            if wp._mask_quotes(line).endswith("/"):  # trailing '/' closes the group
+                group = None
             continue
         for key, _raw_value in wp._split_assignments(line):
             out.append((lineno, key.lower(), line))
@@ -192,8 +194,32 @@ def _c1_d01_end(nl: dict, d01_start: datetime.datetime, findings: list[Finding])
     return d01_end, "start_date -> end_date span (run_* all 0/absent)"
 
 
+# Registry.EM_COMMON defaults of &time_control start_*/end_* (year..second)
+_C1_REGISTRY_DEFAULTS = {"start": (1993, 3, 13, 12, 0, 0), "end": (1993, 3, 14, 12, 0, 0)}
+
+
+def _c1_warn_short_lists(nl: dict, d: int, findings: list[Finding]) -> None:
+    """WRF does NOT broadcast start_*/end_*: an element the namelist does not give keeps its
+    Registry default, while g_dom (used below) reuses the last value. WARN where they differ."""
+    parts = ("year", "month", "day", "hour", "minute", "second")
+    for prefix, defaults in _C1_REGISTRY_DEFAULTS.items():
+        for part, default in zip(parts, defaults):
+            key = "%s_%s" % (prefix, part)
+            vals = nl.get("time_control", {}).get(key)
+            if vals and len(vals) <= d and vals[-1] != default:
+                findings.append(Finding(
+                    WARN, "C1",
+                    "%s has %d value(s), none for domain %d: WRF will use the Registry default "
+                    "%s there (not %s), so the window computed below may be wrong"
+                    % (key, len(vals), d + 1, default, vals[-1]),
+                    evidence="%s = %s" % (key, ", ".join(str(v) for v in vals)),
+                    fix="give %s one value per domain" % key,
+                ))
+
+
 def _c1_check_nest(nl: dict, d: int, d01_end: datetime.datetime, d01_source: str,
                    findings: list[Finding]) -> None:
+    _c1_warn_short_lists(nl, d, findings)
     start_d = _domain_datetime(nl, "start", d)
     end_d = _domain_datetime(nl, "end", d)
     if start_d is None or end_d is None:
@@ -952,6 +978,9 @@ def _c7_shape(nl: dict, findings: list[Finding], ranks: int | None, nproc_x: int
     shape to check patch sizes against (INFO emitted where the user should know)."""
     eff_x = nproc_x if nproc_x is not None else wp.g(nl, "domains", "nproc_x", None)
     eff_y = nproc_y if nproc_y is not None else wp.g(nl, "domains", "nproc_y", None)
+    # Registry default -1 means "not set" (WRF then picks the shape itself)
+    eff_x = None if isinstance(eff_x, int) and eff_x <= 0 else eff_x
+    eff_y = None if isinstance(eff_y, int) and eff_y <= 0 else eff_y
     if eff_x is None and eff_y is None and ranks is None:
         findings.append(Finding(
             INFO, "C7",

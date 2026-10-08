@@ -322,7 +322,7 @@ def trajectory(case_dir, namelist=None, wrfinput=None, start=None, hours=None, e
     case, _nl_path, wi_path = load_case(case_dir, namelist, wrfinput)
     lat2d, lon2d, _grid_mode = target_grid(case, wi_path)
     times = resolve_times(case, start, hours, every)
-    src_choice, _reason = md.select_source(times[0], override=source)
+    src_choice, _reason = md.select_source(times[0], override=source, grib_dir=grib_dir)
     if src_choice is None:
         raise RuntimeError('no GRIB source available for {}: {}'.format(times[0], _reason))
     if src_choice == 'local' and not grib_dir:

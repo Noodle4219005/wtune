@@ -92,9 +92,9 @@ def _parse_scalar(tok):
     if not tok:
         return None
     low = tok.lower()
-    if low in (".true.", ".t.", "true"):
+    if low in (".true.", ".t.", "true", "t"):
         return True
-    if low in (".false.", ".f.", "false"):
+    if low in (".false.", ".f.", "false", "f"):
         return False
     if len(tok) >= 2 and tok[0] == tok[-1] and tok[0] in ("'", '"'):
         return tok[1:-1]
@@ -131,7 +131,9 @@ def _mask_quotes(line):
     return "".join(out)
 
 
-_ASSIGNMENT_RE = re.compile(r"[A-Za-z_]\w*\s*=(?!=)")
+# 'key =' or the indexed form 'key(2) =' (kept as its own key "key(2)", never merged into the
+# previous key's list).
+_ASSIGNMENT_RE = re.compile(r"[A-Za-z_]\w*\s*(?:\(\s*\d+\s*\)\s*)?=(?!=)")
 
 
 def _split_assignments(line):
@@ -148,10 +150,17 @@ def _split_assignments(line):
         return []
     out = []
     for i, m in enumerate(matches):
-        key = m.group(0).split("=", 1)[0].strip()
+        key = re.sub(r"\s+", "", m.group(0).split("=", 1)[0])
         value_end = matches[i + 1].start() if i + 1 < len(matches) else len(line)
         out.append((key, line[m.end():value_end]))
     return out
+
+
+def _is_plain_scalar(tok):
+    """True for a number/logical or a fully quoted string (what 'n*value' may repeat)."""
+    tok = tok.strip()
+    quoted = len(tok) >= 2 and tok[0] == tok[-1] and tok[0] in ("'", '"')
+    return quoted or not isinstance(_parse_scalar(tok), str)
 
 
 def _append_values(bucket, raw_value_text):
@@ -161,6 +170,11 @@ def _append_values(bucket, raw_value_text):
     for tok in rest.split(","):
         tok = tok.strip()
         if tok == "":
+            continue
+        # Fortran repeat count 'n*value' (e_we = 2*100); a stray '*' in a string is left alone.
+        m = re.fullmatch(r"(\d+)\*(.+)", tok)
+        if m and _is_plain_scalar(m.group(2)):
+            bucket.extend([_parse_scalar(m.group(2))] * int(m.group(1)))
             continue
         bucket.append(_parse_scalar(tok))
 
@@ -186,7 +200,9 @@ def parse_namelist(path: str | Path) -> dict[str, dict[str, list]]:
             group = m.group(1).lower()
             groups.setdefault(group, {})
             last_key = None
-            continue
+            line = line[m.end():].strip()  # assignments may follow the header on its line
+            if not line:
+                continue
 
         if line.startswith("/"):
             group = None
@@ -195,6 +211,11 @@ def parse_namelist(path: str | Path) -> dict[str, dict[str, list]]:
 
         if group is None:
             continue
+
+        # an unquoted trailing '/' ends the group; it is not part of the last value
+        ends_group = _mask_quotes(line).endswith("/")
+        if ends_group:
+            line = line[:-1].rstrip()
 
         assignments = _split_assignments(line)
         if assignments:
@@ -206,6 +227,9 @@ def parse_namelist(path: str | Path) -> dict[str, dict[str, list]]:
         elif last_key is not None:
             _append_values(groups[group][last_key], line)
         # else: stray line with no assignment and no prior key -- ignore.
+        if ends_group:
+            group = None
+            last_key = None
 
     return groups
 
@@ -575,12 +599,18 @@ def resolve_probe(ledger_rows: list[dict], case_name: str, config: dict) -> dict
                 "config": {"n_ranks": ranks, "omp_threads": omp,
                            "nproc_x": nx, "nproc_y": ny, "numtiles": numtiles}}
 
-    best = min(same_case, key=lambda r: abs((_row_int(r, "n_ranks") or 0) - ranks))
+    # nearest row and scaling by CORES (ranks x omp): 36 ranks x omp 2 is the same 72 cores as
+    # 72 ranks x omp 1, not half of them. A row without omp_threads counts as omp 1.
+    def _row_cores(r):
+        return (_row_int(r, "n_ranks") or 0) * (_row_int(r, "omp_threads") or 1)
+
+    cores = ranks * (omp or 1)
+    best = min(same_case, key=lambda r: abs(_row_cores(r) - cores))
     from_ranks = _row_int(best, "n_ranks")
     from_s = _row_float(best, "s_per_step_median")
     if not from_ranks or from_s is None:
         return None
-    s_normal = from_s * (from_ranks / float(ranks))
+    s_normal = from_s * (_row_cores(best) / float(cores))
     return {"s_normal": s_normal, "source": "extrapolated",
             "from_ranks": from_ranks, "to_ranks": ranks,
             "from_config": {"n_ranks": from_ranks,
@@ -1498,10 +1528,10 @@ def resolve_config(args: argparse.Namespace) -> dict:
             raw = json.loads(args.config)
         except json.JSONDecodeError:
             raw = json.loads(Path(args.config).read_text())
-        ranks = int(raw.get("ranks") or (raw.get("nx", 1) * raw.get("ny", 1)))
         omp = int(raw.get("omp", 1))
         nx = int(raw["nx"] if "nx" in raw else raw["nproc_x"])
         ny = int(raw["ny"] if "ny" in raw else raw["nproc_y"])
+        ranks = int(raw.get("ranks") or nx * ny)
         numtiles = int(raw.get("numtiles", 1))
         # dist is NOT defaulted (see build_param_table): a config dict or CLI
         # invocation that doesn't say block/cyclic must produce dist=UNKNOWN
@@ -1593,6 +1623,11 @@ def build_prediction(namelist_path: str, case_dir: str | None, nodes: int, confi
             compute_drift_abs_s = math.hypot(compute_drift_abs_s,
                                              compute["compute_total_s"] * ext_unc / 100.0)
         drift_abs_s = compute_drift_abs_s
+        # the s/step source noise (+-50% no-probe fallback, +-15% extrapolated, ...) belongs in
+        # the compute band too; noise_abs_s already carries ext_unc, so combine it with the
+        # bare drift (quadrature), as the no-bracket branch below does.
+        compute_drift_abs_s = math.hypot(compute["compute_total_s"] * (drift_pct / 100.0),
+                                         compute["noise_abs_s"])
         low = (max(0.0, compute["compute_total_s"] - compute_drift_abs_s)
                + io_w * io_range["fast_total_s"] + init["total_s"])
         high = (compute["compute_total_s"] + compute_drift_abs_s
@@ -1600,7 +1635,8 @@ def build_prediction(namelist_path: str, case_dir: str | None, nodes: int, confi
         range_source = (("I/O: measured %.1f-%.1f MB/s write-rate bracket; "
                          % (io_low_mbps, io_high_mbps) if io_w else
                          "I/O excluded (--include-io adds it); ")
-                        + "compute: +-%.0f%% drift band (NOT VALIDATED)" % drift_pct)
+                        + "compute: +-%.0f%% drift band (NOT VALIDATED) with +-%.0f%% s/step "
+                          "source noise" % (drift_pct, compute["noise_pct"]))
         if ext_unc:
             range_source += "; widened by WRF-extension factor uncertainty +-%.0f%%" % ext_unc
     else:

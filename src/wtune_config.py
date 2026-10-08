@@ -664,7 +664,7 @@ def filter_candidates(candidates: list[dict], search_cfg: dict | None,
 def resolve_node_counts(budget_cfg: dict) -> list[int]:
     nodes = budget_cfg.get("nodes")
     max_nodes = budget_cfg.get("max_nodes") or DEFAULT_MAX_NODES
-    if nodes in (None, "auto"):
+    if nodes in (None, "auto", "search"):  # "search": measured node sweep, same preview set
         counts = [n for n in AUTO_NODE_COUNTS if n <= max_nodes]
         return counts or [max_nodes]
     if isinstance(nodes, list):

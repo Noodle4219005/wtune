@@ -8,7 +8,8 @@ _CATEGORY_ORDER = (
     'terrain-latitude',
 )
 
-_NUM_SOIL_LSM = {0: 5, 1: 5, 2: 4, 5: 4, 3: 6, 7: 2, 8: 3}
+# WRF module_check_a_mundo: Noah(2)/Noah-MP(4)/CTSM(6) 4, CLM(5) 10, RUC(3) 6, PX(7) 2, SSiB(8) 3
+_NUM_SOIL_LSM = {0: 5, 1: 5, 2: 4, 4: 4, 5: 10, 6: 4, 3: 6, 7: 2, 8: 3}
 
 
 def dx_km(case):
@@ -39,7 +40,7 @@ def _rule_num_soil(case):
     rec = _NUM_SOIL_LSM[lsm]
     cur = case.get('num_soil_layers')
     if cur is not None:
-        if cur == rec:
+        if cur == rec or (lsm == 3 and cur == 9):      # RUC accepts 6 or 9
             return _finding('num_soil_layers', 'correctness-setup', 'CORRECTNESS', True,
                             cur, rec, 'OK',
                             'num_soil_layers matches LSM {0}.'.format(lsm))
@@ -360,7 +361,7 @@ def _rule_tmn_update(case):
     if run is None or run <= 24:
         return None
     lsm = case.get('sf_surface_physics')
-    if lsm not in (2, 5):
+    if lsm not in (2, 4):          # Noah, Noah-MP
         return None
     cur = case.get('tmn_update')
     if cur == 1:

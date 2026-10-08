@@ -103,7 +103,7 @@ def r_metadata(adios2f, attrs):
         dims = adios2f.read_attribute_string("Dims", var)
         dims.reverse()
         var_dims[var] = dims
-    typemap = {"float": "f", "int32_t": "i", "string": "c"}
+    typemap = {"float": "f", "double": "d", "int32_t": "i", "string": "c"}
     var_types = {}
     for var in vars:
         vtype = vars[var]["Type"]
@@ -255,6 +255,10 @@ def convert(input_file, output_file, parallel=False, diskless=False, step=None):
     # time in one BP directory, but tools/verify_wrf.py compares against a
     # single-frame official reference, so it needs one frame -- and converting
     # only that frame costs one seventh of the disk and wall time.
+    if step is not None and not -num_steps <= step < num_steps:
+        raise ValueError(
+            "--step %d out of range: %s has %d frame(s)" % (step, input_file, num_steps)
+        )
     steps = range(num_steps) if step is None else [step % num_steps]
     create_nc_dims(netcdff, len(steps), dim_lens)
     create_nc_vars(netcdff, var_names, var_types, var_dims)

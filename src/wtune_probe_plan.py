@@ -494,10 +494,11 @@ def first_global_step_from_rsl(rsl_path: str, run_start: datetime.datetime, dt: 
     the printed time is the END of that step, so g = (time - run_start) / dt. Needed because a
     window that does not start on the radiation cycle (e.g. a restart at 20:02 with radt=10 min)
     has its radiation steps at global g % stepra == 1, not at local i % stepra == 1 (C3 job 1231:
-    the 20:02 window's real radiation step was local #33; local #41 read r=0.995)."""
+    the 20:02 window's real radiation step was local #33; local #41 read r=0.995). Only d01
+    lines count: a nest's sub-steps are printed before the d01 step they belong to."""
     with open(rsl_path) as f:
         for line in f:
-            if "Timing for main" in line:
+            if "Timing for main" in line and re.search(r"on domain\s+1:", line):
                 t = datetime.datetime.strptime(line.split("time", 1)[1].split()[0],
                                                "%Y-%m-%d_%H:%M:%S")
                 return int(round((t - run_start).total_seconds() / dt))

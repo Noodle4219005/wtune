@@ -1488,14 +1488,15 @@ def test_io_range_brackets_point_estimate_and_widens_exactly(tmp_path):
 
     compute_total = pred["compute"]["compute_total_s"]
     drift_pct = pred["drift_pct"]
-    compute_drift = compute_total * (drift_pct / 100.0)
+    # compute band: drift and the probe's own noise, root-sum-square
+    compute_drift = math.hypot(compute_total * drift_pct / 100.0, pred["compute"]["noise_abs_s"])
     expected_low = max(0.0, compute_total - compute_drift) + io_range["fast_total_s"] + pred["init"]["total_s"]
     expected_high = (compute_total + compute_drift) + io_range["slow_total_s"] + pred["init"]["total_s"]
 
     assert pred["range_low_s"] == pytest.approx(expected_low)
     assert pred["range_high_s"] == pytest.approx(expected_high)
     assert pred["range_low_s"] <= pred["total_s"] <= pred["range_high_s"]
-    # widens by exactly the I/O fast/slow spread plus the compute-only drift band on both sides
+    # widens by exactly the I/O fast/slow spread plus the compute band on both sides
     assert (pred["range_high_s"] - pred["range_low_s"]) == pytest.approx(
         (io_range["slow_total_s"] - io_range["fast_total_s"]) + 2 * compute_drift)
 

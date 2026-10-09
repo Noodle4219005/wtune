@@ -63,3 +63,24 @@ Left in place: the point-job code `-O1..-O3` use (`points.py`, `ranking_cost_mod
 `evaluate_job_gates`, the running budget); `run_rebuild_points` (`predict-rebuild`); the
 `probe.rank_by` / `stage1` / `stage2_minutes` keys of `src/wtune_config.py`, still accepted so
 existing YAML files load (`rank_by: predicted` is now refused by `wtune tune`).
+
+## Retired probe-script modes (2026-10-10)
+
+`campaign/strict_campaign.sbatch` went from 1797 to 1213 lines: `MODE=physics`, `MODE=correctness`,
+the fixed C01-C16 run set (no `CONFIG_FILE`) and the `CONFIGS=` subset filter were deleted. The
+script now takes `MODE=timing` with a required `CONFIG_FILE`, which is all `wtune tune` submits.
+
+| what | files |
+|---|---|
+| the script as at 30572ce, byte-identical (runs as before from this path if `CAMPAIGN` is set) | `campaign/strict_campaign_full.sbatch` |
+| `configs.py` subcommands only the physics block called (`decomp-pair`, `physics-order`, `physics-describe`, `fidelity-tokens`), verbatim, not importable as is | `campaign/configs_cli_legacy.py` |
+| their tests and the script-text tests of the physics block, cut from `campaign/test_configs.py` (not runnable as is) | `campaign/test_configs_legacy.py` |
+
+Their entries were dropped from `tests/fixtures/golden/configs/{cli,api,surface}.json`; the only
+changed values there are the three usage texts.
+
+Left in place: the helpers those subcommands called (`resolve_decomp_pair`, `physics_ledger_columns`,
+`probe_verdicts_for_case`, `format_physics_edits`, `describe_field`, `fidelity_notes_tokens`; still
+exported by `configs.py` and tested), `edit-namelist --physics-template` and `--history-mode interval`,
+and `src/predictor/recommend.py` / `experiment.py`, which still print `MODE=physics` and
+`MODE=timing,CONFIGS=...` sbatch command lines that the trimmed script now refuses.

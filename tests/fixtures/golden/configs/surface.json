@@ -638,28 +638,6 @@
   "NoneType",
   null
  ],
- "_DECOMP_PAIR_COLUMNS": [
-  "tuple",
-  {
-   "(tuple)": [
-    "role",
-    "config_id",
-    "ranks",
-    "omp",
-    "nproc_x",
-    "nproc_y",
-    "numtiles",
-    "dist",
-    "blocktime",
-    "numtiles_x",
-    "numtiles_y",
-    "tile_sz_x",
-    "tile_sz_y",
-    "tile_strategy",
-    "config_source"
-   ]
-  }
- ],
  "_DECOMP_TRIED": [
   "bool",
   false
@@ -1508,22 +1486,6 @@
    "<required>"
   ]
  ],
- "cmd_decomp_pair": [
-  "function",
-  [
-   "argv",
-   "POSITIONAL_OR_KEYWORD",
-   "<required>"
-  ]
- ],
- "cmd_fidelity_tokens": [
-  "function",
-  [
-   "argv",
-   "POSITIONAL_OR_KEYWORD",
-   "<required>"
-  ]
- ],
  "cmd_order": [
   "function",
   [
@@ -1542,23 +1504,7 @@
    null
   ]
  ],
- "cmd_physics_describe": [
-  "function",
-  [
-   "argv",
-   "POSITIONAL_OR_KEYWORD",
-   "<required>"
-  ]
- ],
  "cmd_physics_list": [
-  "function",
-  [
-   "argv",
-   "POSITIONAL_OR_KEYWORD",
-   "<required>"
-  ]
- ],
- "cmd_physics_order": [
   "function",
   [
    "argv",

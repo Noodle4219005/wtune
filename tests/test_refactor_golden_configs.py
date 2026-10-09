@@ -275,9 +275,6 @@ def _cli_cases(tmp):
                    "".join("%s\n" % v for v in (30.5, 1.5, 1.75, 2.0, 12.25, 1.5, 1.75, 2.0)) + "\n")
     one_step = _write(os.path.join(inp, "one_step.txt"), "30.5\n")
     rsl = _write(os.path.join(inp, "rsl.out.0000"), RSL)
-    fid = _write(os.path.join(inp, "fidelity.json"), json.dumps(FIDELITY))
-    fid_empty = _write(os.path.join(inp, "fidelity_empty.json"), "{}")
-    fid_bad = _write(os.path.join(inp, "fidelity_bad.json"), "{not json")
     fake_src = os.path.join(inp, "fake_src")
     _write(os.path.join(fake_src, "wtune_bp.py"), FAKE_BP)
     bp_rec = os.path.join(inp, "bp_rec")
@@ -312,20 +309,6 @@ def _cli_cases(tmp):
     add("order-disabled", ["order", "off"], fx)
     add("order-noargs", ["order"])
     add("order-help", ["order", "--help"])
-    add("decomp-pair", ["decomp-pair", "karina", "C02", "C06"])
-    add("decomp-pair-same", ["decomp-pair", "karina", "C02", "C02"])
-    add("decomp-pair-underscore", ["decomp-pair", "karina", "C02", "C_6"])
-    add("decomp-pair-empty", ["decomp-pair", "karina", "C02", ""])
-    add("decomp-pair-unknown-id", ["decomp-pair", "karina", "C02", "C99"])
-    add("decomp-pair-zero-strict", ["decomp-pair", "sc26p1", "C02", "C06"])
-    add("decomp-pair-unknown-case", ["decomp-pair", "nosuchcase", "C02", "C06"])
-    add("decomp-pair-config-file", ["decomp-pair", "karina", "G0001", "G0002", "--config-file",
-                                    gen_list])
-    add("decomp-pair-config-env", ["decomp-pair", "karina", "G0002", "G0001"],
-        dict(CONFIG_FILE=gen_dict))
-    add("decomp-pair-config-no-ids", ["decomp-pair", "karina", "G0001", "G0002"],
-        dict(CONFIG_FILE=gen_empty))
-    add("decomp-pair-help", ["decomp-pair", "--help"])
     add("generated-case", ["karina"], dict(CONFIG_FILE=gen_list))
     add("generated-case-dict", ["karina"], dict(CONFIG_FILE=gen_dict))
     add("generated-case-unknown", ["nosuchcase"], dict(CONFIG_FILE=gen_list))
@@ -340,21 +323,6 @@ def _cli_cases(tmp):
     add("physics-list-json", ["physics-list", "karina", "--json"], fx)
     add("physics-list-unknown", ["physics-list", "nosuchcase"], fx)
     add("physics-list-help", ["physics-list", "--help"])
-    add("physics-order", ["physics-order", "karina"], fx)
-    add("physics-order-pconfigs", ["physics-order", "lafe", "--pconfigs", "P02+P03++A01",
-                                   "--reps", "3"], fx)
-    add("physics-order-unknown", ["physics-order", "nosuchcase"], fx)
-    add("physics-order-help", ["physics-order", "--help"])
-    for case, tid in (("karina", "P00"), ("karina", "P02"), ("karina", "P05"), ("lafe", "P04"),
-                      ("maria1km", "P04"), ("isc21", "P02"), ("sc26p1", "A01"),
-                      ("sc26p1", "D07"), ("bigchill", "D04"), ("conus12", "A05"),
-                      ("gone", "P01")):
-        add("physics-describe-%s-%s" % (case, tid), ["physics-describe", case, tid], fx)
-    add("physics-describe-screen", ["physics-describe", "karina", "P02", "--screen-dir",
-                                    os.path.join(FIX, "screen")], fx)
-    add("physics-describe-unknown-case", ["physics-describe", "nosuchcase", "P02"], fx)
-    add("physics-describe-unknown-template", ["physics-describe", "karina", "P99"], fx)
-    add("physics-describe-help", ["physics-describe", "--help"])
     add("restart-time", ["restart-time", "maria1km", "30"], fx)
     add("restart-time-fraction", ["restart-time", "lafe", "7.5"], fx)
     add("restart-time-prep-dir", ["restart-time", "conus12", "90"], fx)
@@ -384,11 +352,6 @@ def _cli_cases(tmp):
     add("quota-free-gib-work2", ["quota-free-gib", "--filesystem", "work2"], stdin=MMLSQUOTA)
     add("quota-free-gib-garbage", ["quota-free-gib"], stdin="mmlsquota: command not found\n")
     add("quota-free-gib-help", ["quota-free-gib", "--help"])
-    add("fidelity-tokens", ["fidelity-tokens", fid])
-    add("fidelity-tokens-empty", ["fidelity-tokens", fid_empty])
-    add("fidelity-tokens-bad-json", ["fidelity-tokens", fid_bad])
-    add("fidelity-tokens-missing", ["fidelity-tokens", "{D}/nothing.json"])
-    add("fidelity-tokens-help", ["fidelity-tokens", "--help"])
     # --- edit-namelist: the command line strict_campaign.sbatch builds -----------------------
     base = ["--nproc-x", "7", "--nproc-y", "32", "--numtiles", "12", "--run-minutes", "8"]
     edit = lambda cid, name, args, env=None: add(
@@ -740,18 +703,14 @@ def _api_main(configs, put, tmp):
     cases = list(fixture_cases()) + ["nosuchcase"]
     screen = os.path.join(FIX, "screen")
     for cid in cases:
-        for argv in (["physics-list", cid], ["physics-list", cid, "--json"], ["physics-order", cid],
-                     ["physics-order", cid, "--reps", "1"], ["restart-time", cid, "45"]):
+        for argv in (["physics-list", cid], ["physics-list", cid, "--json"],
+                     ["restart-time", cid, "45"]):
             put("main|" + " ".join(argv), _call(configs.main, argv))
-        for tid in configs.PHYSICS_TEMPLATE_ORDER + ["P99"]:
-            put("main|physics-describe %s %s" % (cid, tid),
-                _call(configs.main, ["physics-describe", cid, tid, "--screen-dir", screen]))
     gen = _write(os.path.join(tmp, "api", "gen.json"), json.dumps({"configs": GENERATED}))
     for env in ({}, {"CONFIG_FILE": gen}):
         with _environ(**env):
             for argv in (["karina"], ["off"], ["order", "maria1km", "--reps", "3"],
-                         ["config-extras", "karina"], ["decomp-pair", "karina", "G0001", "G0002"],
-                         ["decomp-pair", "karina", "C01", "C02"], ["--all"], []):
+                         ["config-extras", "karina"], ["--all"], []):
                 put("main|%s|%s" % ("CONFIG_FILE" if env else "strict", " ".join(argv)),
                     _call(configs.main, argv))
 
@@ -1055,9 +1014,8 @@ def test_cli_matches_golden(cli):
 
 def test_cli_covers_every_subcommand(cli):
     for sub in ("edit-namelist", "step-stats", "fused-steps", "point-plan", "quota-free-gib",
-                "link-namelist-files", "stage-bp-inputs", "physics-list", "physics-order",
-                "physics-describe", "fidelity-tokens", "restart-time", "config-extras",
-                "decomp-pair", "--all", "order"):
+                "link-namelist-files", "stage-bp-inputs", "physics-list", "restart-time",
+                "config-extras", "--all", "order"):
         assert any(sub == _items(rec)["argv"][:1][0] for rec in cli[1].values()
                    if _items(rec)["argv"]), sub
 

@@ -533,7 +533,10 @@ never on production timing runs.
 
 ### Configuration predictor and STRICT data campaign
 
-`campaign/strict_campaign.sbatch` measures the 16 STRICT templates of `campaign/configs.py`
+`campaign/strict_campaign.sbatch` measured the 16 STRICT templates of `campaign/configs.py`
+(since 2026-10-10 it takes a `CONFIG_FILE` config set and `MODE=timing` only; the fixed-template
+run set, `MODE=physics` and `MODE=correctness` are in
+`archive/unused-2026-10/campaign/strict_campaign_full.sbatch`)
 per case (all-ADIOS2 I/O, palindromic replicates) into `ledger_<case>_<job>.csv`;
 `predictor/run_benchmark.sbatch` builds the ledger (`predictor/ledger.py`) and runs the
 grouped-CV benchmark (`predictor/benchmark.py`). First cf448 campaign: jobs 1075293-1075304;
@@ -586,13 +589,12 @@ source bug, not a namelist one, and it is not patched here.
     output diagnostics off, `bldt`, one-way nesting, `time_step_sound`.
   - **A01-A05 — accuracy mirrors** (`direction: accuracy`): the same knobs pushed the other way, so
     `recommend.py --objective accuracy` has candidates to rank.
-- `strict_campaign.sbatch MODE=physics` (env `PCONFIGS`, `DECOMP`, `TWIN_DECOMP`, `SIM_MINUTES`, `HIST_MINUTES`, `CONFIG_FILE`) runs three kinds of run:
+- `strict_campaign_full.sbatch MODE=physics` (archived 2026-10-10, `archive/unused-2026-10/campaign/`; env `PCONFIGS`, `DECOMP`, `TWIN_DECOMP`, `SIM_MINUTES`, `HIST_MINUTES`, `CONFIG_FILE`) runs three kinds of run:
   - reference P00 at DECOMP;
   - a same-physics twin at TWIN_DECOMP;
   - each candidate at DECOMP.
   `CONFIG_FILE` is the only way to run a case that has no template of its own — it supplies the
-  decomposition pair directly (`campaign/configs.py decomp-pair`); see
-  `campaign/strict_campaign.sbatch:38-46`.
+  decomposition pair directly (`configs.py decomp-pair`, archived with it in `configs_cli_legacy.py`).
 - Replicate 1 writes interval history (fidelity), replicate 2 is timing only. Every candidate is scored by `fidelity_gate.py`.
 - `fidelity_gate.py --reference --twin --candidate --family --out-prefix` computes, per field:
   - the chaos-floor ratio RMS(ref,cand)/RMS(ref,twin)

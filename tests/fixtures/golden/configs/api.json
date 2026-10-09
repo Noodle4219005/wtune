@@ -24446,120 +24446,10 @@
   "stdout": "[\"A01\", \"A02\", \"A03\", \"A04\", \"A05\", \"D01\", \"D02\", \"D03\", \"D05\", \"P01\", \"P02\", \"P03\", \"P04\", \"P05\", \"P06\"]\n",
   "stderr": ""
  },
- "main|physics-order karina": {
-  "result": 0,
-  "stdout": "P00_ref\nP00_twin\nA01\nA02\nA03\nA04\nA05\nD01\nD02\nD03\nD05\nP01\nP02\nP03\nP04\nP05\nP06\nP06\nP05\nP04\nP03\nP02\nP01\nD05\nD03\nD02\nD01\nA05\nA04\nA03\nA02\nA01\nP00_twin\nP00_ref\n",
-  "stderr": ""
- },
- "main|physics-order karina --reps 1": {
-  "result": 0,
-  "stdout": "P00_ref\nP00_twin\nA01\nA02\nA03\nA04\nA05\nD01\nD02\nD03\nD05\nP01\nP02\nP03\nP04\nP05\nP06\n",
-  "stderr": ""
- },
  "main|restart-time karina 45": {
   "result": 0,
   "stdout": "2019-11-26_12:45:00\n",
   "stderr": ""
- },
- "main|physics-describe karina A01": {
-  "result": 0,
-  "stdout": "dynamics\ttime_step=58\tprobe=time_step:REJECT\t58\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe karina A02": {
-  "result": 0,
-  "stdout": "dynamics\ttime_step_sound=6\tprobe=time_step_sound:NOTFOUND\t72\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe karina A03": {
-  "result": 0,
-  "stdout": "dynamics\tmoist_adv_opt=2;scalar_adv_opt=2\tprobe=moist_adv_opt:NOTFOUND,scalar_adv_opt:NOTFOUND\t72\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe karina A04": {
-  "result": 0,
-  "stdout": "dynamics\th_mom_adv_order=6;h_sca_adv_order=6\tprobe=h_mom_adv_order:NOTFOUND,h_sca_adv_order:NOTFOUND\t72\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe karina A05": {
-  "result": 0,
-  "stdout": "radiation\tradt=6.0\tprobe=radt:PASS->WRF\t72\t8\t1\t1\t1\t2\t4\t4\t6.0\t-\n",
-  "stderr": ""
- },
- "main|physics-describe karina D01": {
-  "result": 0,
-  "stdout": "dynamics\ttime_step_sound=3\tprobe=time_step_sound:NOTFOUND\t72\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe karina D02": {
-  "result": 0,
-  "stdout": "dynamics\trk_ord=2\tprobe=rk_ord:NOTFOUND\t72\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe karina D03": {
-  "result": 0,
-  "stdout": "dynamics\tmoist_adv_opt=0;scalar_adv_opt=0\tprobe=moist_adv_opt:NOTFOUND,scalar_adv_opt:NOTFOUND\t72\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe karina D04": {
-  "result": 0,
-  "stdout": "SKIP\tnot in applies_to ['bigchill', 'elevconv']\n",
-  "stderr": ""
- },
- "main|physics-describe karina D05": {
-  "result": 0,
-  "stdout": "pbl_surface\tbldt=10\tprobe=bldt:NOTFOUND\t72\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe karina D06": {
-  "result": 0,
-  "stdout": "SKIP\tnot in applies_to ['zhengzhou', 'severe2023', 'bigchill', 'elevconv', 'maria1km', 'isc21']\n",
-  "stderr": ""
- },
- "main|physics-describe karina D07": {
-  "result": 0,
-  "stdout": "SKIP\tnot in applies_to ['sc26p1']\n",
-  "stderr": ""
- },
- "main|physics-describe karina P00": {
-  "result": 0,
-  "stdout": "none\t-\tprobe=none\t72\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe karina P01": {
-  "result": 0,
-  "stdout": "radiation\tswint_opt=1\tprobe=swint_opt:CONFIRM\t72\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe karina P02": {
-  "result": 0,
-  "stdout": "radiation\tradt=24;swint_opt=1\tprobe=radt:PASS->WRF,swint_opt:CONFIRM\t72\t8\t1\t1\t1\t2\t4\t4\t24\t-\n",
-  "stderr": ""
- },
- "main|physics-describe karina P03": {
-  "result": 0,
-  "stdout": "dynamics\ttime_step=86\tprobe=time_step:REJECT\t86\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe karina P04": {
-  "result": 0,
-  "stdout": "microphysics\tmp_physics=6\tprobe=mp_physics:NEED-PROBE\t72\t6\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe karina P05": {
-  "result": 0,
-  "stdout": "pbl_surface\tbl_pbl_physics=5;sf_sfclay_physics=5\tprobe=bl_pbl_physics:NOTFOUND,sf_sfclay_physics:NOTFOUND\t72\t8\t1\t5\t5\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe karina P06": {
-  "result": 0,
-  "stdout": "radiation\tra_lw_physics=1;ra_sw_physics=1\tprobe=ra_lw_physics:NOTFOUND,ra_sw_physics:NOTFOUND\t72\t8\t1\t1\t1\t2\t1\t1\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe karina P99": {
-  "result": 2,
-  "stdout": "",
-  "stderr": "unknown physics template 'P99'\n"
  },
  "main|physics-list maria1km": {
   "result": 0,
@@ -24571,120 +24461,10 @@
   "stdout": "[\"A01\", \"A02\", \"A03\", \"A04\", \"A05\", \"D01\", \"D02\", \"D03\", \"D05\", \"D06\", \"P01\", \"P02\", \"P03\", \"P05\", \"P06\"]\n",
   "stderr": ""
  },
- "main|physics-order maria1km": {
-  "result": 0,
-  "stdout": "P00_ref\nP00_twin\nA01\nA02\nA03\nA04\nA05\nD01\nD02\nD03\nD05\nD06\nP01\nP02\nP03\nP05\nP06\nP06\nP05\nP03\nP02\nP01\nD06\nD05\nD03\nD02\nD01\nA05\nA04\nA03\nA02\nA01\nP00_twin\nP00_ref\n",
-  "stderr": ""
- },
- "main|physics-order maria1km --reps 1": {
-  "result": 0,
-  "stdout": "P00_ref\nP00_twin\nA01\nA02\nA03\nA04\nA05\nD01\nD02\nD03\nD05\nD06\nP01\nP02\nP03\nP05\nP06\n",
-  "stderr": ""
- },
  "main|restart-time maria1km 45": {
   "result": 0,
   "stdout": "2005-08-27_00:45:00\n",
   "stderr": ""
- },
- "main|physics-describe maria1km A01": {
-  "result": 0,
-  "stdout": "dynamics\ttime_step=58\tprobe=none\t58\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe maria1km A02": {
-  "result": 0,
-  "stdout": "dynamics\ttime_step_sound=6/6\tprobe=none\t72\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe maria1km A03": {
-  "result": 0,
-  "stdout": "dynamics\tmoist_adv_opt=2/2;scalar_adv_opt=2/2\tprobe=none\t72\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe maria1km A04": {
-  "result": 0,
-  "stdout": "dynamics\th_mom_adv_order=6/6;h_sca_adv_order=6/6\tprobe=none\t72\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe maria1km A05": {
-  "result": 0,
-  "stdout": "radiation\tradt=6.0/6.0\tprobe=none\t72\t8\t1\t1\t1\t2\t4\t4\t6.0\t-\n",
-  "stderr": ""
- },
- "main|physics-describe maria1km D01": {
-  "result": 0,
-  "stdout": "dynamics\ttime_step_sound=3/3\tprobe=none\t72\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe maria1km D02": {
-  "result": 0,
-  "stdout": "dynamics\trk_ord=2\tprobe=none\t72\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe maria1km D03": {
-  "result": 0,
-  "stdout": "dynamics\tmoist_adv_opt=0/0;scalar_adv_opt=0/0\tprobe=none\t72\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe maria1km D04": {
-  "result": 0,
-  "stdout": "SKIP\tnot in applies_to ['bigchill', 'elevconv']\n",
-  "stderr": ""
- },
- "main|physics-describe maria1km D05": {
-  "result": 0,
-  "stdout": "pbl_surface\tbldt=10/10\tprobe=none\t72\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe maria1km D06": {
-  "result": 0,
-  "stdout": "nesting\tfeedback=0\tprobe=none\t72\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe maria1km D07": {
-  "result": 0,
-  "stdout": "SKIP\tnot in applies_to ['sc26p1']\n",
-  "stderr": ""
- },
- "main|physics-describe maria1km P00": {
-  "result": 0,
-  "stdout": "none\t-\tprobe=none\t72\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe maria1km P01": {
-  "result": 0,
-  "stdout": "radiation\tswint_opt=1\tprobe=none\t72\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe maria1km P02": {
-  "result": 0,
-  "stdout": "radiation\tradt=24/24;swint_opt=1\tprobe=none\t72\t8\t1\t1\t1\t2\t4\t4\t24\t-\n",
-  "stderr": ""
- },
- "main|physics-describe maria1km P03": {
-  "result": 0,
-  "stdout": "dynamics\ttime_step=86\tprobe=none\t86\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe maria1km P04": {
-  "result": 0,
-  "stdout": "SKIP\tphysics_suite='tropical' already resolves mp_physics to WSM6 (share/module_check_a_mundo.F:3184-3196), so mp_physics=6 is a no-op, not a physics change\n",
-  "stderr": ""
- },
- "main|physics-describe maria1km P05": {
-  "result": 0,
-  "stdout": "pbl_surface\tbl_pbl_physics=5/5;sf_sfclay_physics=5/5\tprobe=none\t72\t8\t1\t5\t5\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe maria1km P06": {
-  "result": 0,
-  "stdout": "radiation\tra_lw_physics=1/1;ra_sw_physics=1/1\tprobe=none\t72\t8\t1\t1\t1\t2\t1\t1\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe maria1km P99": {
-  "result": 2,
-  "stdout": "",
-  "stderr": "unknown physics template 'P99'\n"
  },
  "main|physics-list isc21": {
   "result": 0,
@@ -24696,120 +24476,10 @@
   "stdout": "[\"A01\", \"A02\", \"D01\", \"D02\", \"D03\", \"D05\", \"D06\", \"P01\", \"P03\", \"P04\", \"P05\", \"P06\"]\n",
   "stderr": ""
  },
- "main|physics-order isc21": {
-  "result": 0,
-  "stdout": "P00_ref\nP00_twin\nA01\nA02\nD01\nD02\nD03\nD05\nD06\nP01\nP03\nP04\nP05\nP06\nP06\nP05\nP04\nP03\nP01\nD06\nD05\nD03\nD02\nD01\nA02\nA01\nP00_twin\nP00_ref\n",
-  "stderr": ""
- },
- "main|physics-order isc21 --reps 1": {
-  "result": 0,
-  "stdout": "P00_ref\nP00_twin\nA01\nA02\nD01\nD02\nD03\nD05\nD06\nP01\nP03\nP04\nP05\nP06\n",
-  "stderr": ""
- },
  "main|restart-time isc21 45": {
   "result": 0,
   "stdout": "2019-11-26_12:45:00\n",
   "stderr": ""
- },
- "main|physics-describe isc21 A01": {
-  "result": 0,
-  "stdout": "dynamics\ttime_step=43\tprobe=none\t43\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe isc21 A02": {
-  "result": 0,
-  "stdout": "dynamics\ttime_step_sound=6/6/6\tprobe=none\t72\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe isc21 A03": {
-  "result": 0,
-  "stdout": "SKIP\tisc21's own namelist already sets moist_adv_opt=2,2,2 and scalar_adv_opt=2,2,2, so monotonic transport is a no-op there, not an accuracy change\n",
-  "stderr": ""
- },
- "main|physics-describe isc21 A04": {
-  "result": 0,
-  "stdout": "SKIP\tisc21 natively runs moist_adv_opt=2,2,2 / scalar_adv_opt=2,2,2 (monotonic), and advect_scalar_mono implements h_sca_adv_order 5 only (dyn_em/module_advect_em.F:9643) -- h_sca_adv_order=6 would abort at module_advect_em.F:10016-10017 mid-integration, with no namelist-time check to catch it\n",
-  "stderr": ""
- },
- "main|physics-describe isc21 A05": {
-  "result": 0,
-  "stdout": "SKIP\tphysics template: key 'radt' not found for op 'mul'\n",
-  "stderr": ""
- },
- "main|physics-describe isc21 D01": {
-  "result": 0,
-  "stdout": "dynamics\ttime_step_sound=3/3/3\tprobe=none\t72\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe isc21 D02": {
-  "result": 0,
-  "stdout": "dynamics\trk_ord=2\tprobe=none\t72\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe isc21 D03": {
-  "result": 0,
-  "stdout": "dynamics\tmoist_adv_opt=0/0/0;scalar_adv_opt=0/0/0\tprobe=none\t72\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe isc21 D04": {
-  "result": 0,
-  "stdout": "SKIP\tnot in applies_to ['bigchill', 'elevconv']\n",
-  "stderr": ""
- },
- "main|physics-describe isc21 D05": {
-  "result": 0,
-  "stdout": "pbl_surface\tbldt=10/10/10\tprobe=none\t72\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe isc21 D06": {
-  "result": 0,
-  "stdout": "nesting\tfeedback=0\tprobe=none\t72\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe isc21 D07": {
-  "result": 0,
-  "stdout": "SKIP\tnot in applies_to ['sc26p1']\n",
-  "stderr": ""
- },
- "main|physics-describe isc21 P00": {
-  "result": 0,
-  "stdout": "none\t-\tprobe=none\t72\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe isc21 P01": {
-  "result": 0,
-  "stdout": "radiation\tswint_opt=1\tprobe=none\t72\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe isc21 P02": {
-  "result": 0,
-  "stdout": "SKIP\tphysics template: key 'radt' not found for op 'mul'\n",
-  "stderr": ""
- },
- "main|physics-describe isc21 P03": {
-  "result": 0,
-  "stdout": "dynamics\ttime_step=65\tprobe=none\t65\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe isc21 P04": {
-  "result": 0,
-  "stdout": "microphysics\tmp_physics=6/6\tprobe=none\t72\t6\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe isc21 P05": {
-  "result": 0,
-  "stdout": "pbl_surface\tbl_pbl_physics=1;sf_sfclay_physics=1\tprobe=none\t72\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe isc21 P06": {
-  "result": 0,
-  "stdout": "radiation\tra_lw_physics=1/1;ra_sw_physics=1\tprobe=none\t72\t8\t1\t1\t1\t2\t1\t1\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe isc21 P99": {
-  "result": 2,
-  "stdout": "",
-  "stderr": "unknown physics template 'P99'\n"
  },
  "main|physics-list lafe": {
   "result": 0,
@@ -24821,120 +24491,10 @@
   "stdout": "[\"A01\", \"A02\", \"A03\", \"A04\", \"A05\", \"D01\", \"D02\", \"D03\", \"D05\", \"P01\", \"P02\", \"P03\", \"P04\", \"P05\", \"P06\"]\n",
   "stderr": ""
  },
- "main|physics-order lafe": {
-  "result": 0,
-  "stdout": "P00_ref\nP00_twin\nA01\nA02\nA03\nA04\nA05\nD01\nD02\nD03\nD05\nP01\nP02\nP03\nP04\nP05\nP06\nP06\nP05\nP04\nP03\nP02\nP01\nD05\nD03\nD02\nD01\nA05\nA04\nA03\nA02\nA01\nP00_twin\nP00_ref\n",
-  "stderr": ""
- },
- "main|physics-order lafe --reps 1": {
-  "result": 0,
-  "stdout": "P00_ref\nP00_twin\nA01\nA02\nA03\nA04\nA05\nD01\nD02\nD03\nD05\nP01\nP02\nP03\nP04\nP05\nP06\n",
-  "stderr": ""
- },
  "main|restart-time lafe 45": {
   "result": 0,
   "stdout": "2020-01-01_00:45:00\n",
   "stderr": ""
- },
- "main|physics-describe lafe A01": {
-  "result": 0,
-  "stdout": "dynamics\ttime_step=48\tprobe=none\t48\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe lafe A02": {
-  "result": 0,
-  "stdout": "dynamics\ttime_step_sound=6\tprobe=none\t72\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe lafe A03": {
-  "result": 0,
-  "stdout": "dynamics\tmoist_adv_opt=2;scalar_adv_opt=2\tprobe=none\t72\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe lafe A04": {
-  "result": 0,
-  "stdout": "dynamics\th_mom_adv_order=6;h_sca_adv_order=6\tprobe=none\t72\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe lafe A05": {
-  "result": 0,
-  "stdout": "radiation\tradt=6.0\tprobe=none\t72\t8\t1\t1\t1\t2\t4\t4\t6.0\t-\n",
-  "stderr": ""
- },
- "main|physics-describe lafe D01": {
-  "result": 0,
-  "stdout": "dynamics\ttime_step_sound=3\tprobe=none\t72\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe lafe D02": {
-  "result": 0,
-  "stdout": "dynamics\trk_ord=2\tprobe=none\t72\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe lafe D03": {
-  "result": 0,
-  "stdout": "dynamics\tmoist_adv_opt=0;scalar_adv_opt=0\tprobe=none\t72\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe lafe D04": {
-  "result": 0,
-  "stdout": "SKIP\tnot in applies_to ['bigchill', 'elevconv']\n",
-  "stderr": ""
- },
- "main|physics-describe lafe D05": {
-  "result": 0,
-  "stdout": "pbl_surface\tbldt=10\tprobe=none\t72\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe lafe D06": {
-  "result": 0,
-  "stdout": "SKIP\tnot in applies_to ['zhengzhou', 'severe2023', 'bigchill', 'elevconv', 'maria1km', 'isc21']\n",
-  "stderr": ""
- },
- "main|physics-describe lafe D07": {
-  "result": 0,
-  "stdout": "SKIP\tnot in applies_to ['sc26p1']\n",
-  "stderr": ""
- },
- "main|physics-describe lafe P00": {
-  "result": 0,
-  "stdout": "none\t-\tprobe=none\t72\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe lafe P01": {
-  "result": 0,
-  "stdout": "radiation\tswint_opt=1\tprobe=none\t72\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe lafe P02": {
-  "result": 0,
-  "stdout": "radiation\tradt=24;swint_opt=1\tprobe=none\t72\t8\t1\t1\t1\t2\t4\t4\t24\t-\n",
-  "stderr": ""
- },
- "main|physics-describe lafe P03": {
-  "result": 0,
-  "stdout": "dynamics\ttime_step=72\tprobe=none\t72\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe lafe P04": {
-  "result": 0,
-  "stdout": "microphysics\tmp_physics=6;aer_opt=0;use_aero_icbc=.false.\tprobe=none\t72\t6\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe lafe P05": {
-  "result": 0,
-  "stdout": "pbl_surface\tbl_pbl_physics=1;sf_sfclay_physics=1\tprobe=none\t72\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe lafe P06": {
-  "result": 0,
-  "stdout": "radiation\tra_lw_physics=1;ra_sw_physics=1;aer_opt=0\tprobe=none\t72\t8\t1\t1\t1\t2\t1\t1\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe lafe P99": {
-  "result": 2,
-  "stdout": "",
-  "stderr": "unknown physics template 'P99'\n"
  },
  "main|physics-list sc26p1": {
   "result": 0,
@@ -24946,120 +24506,10 @@
   "stdout": "[\"A02\", \"A03\", \"A04\", \"A05\", \"D01\", \"D02\", \"D03\", \"D05\", \"D07\", \"P01\", \"P02\", \"P04\", \"P05\", \"P06\"]\n",
   "stderr": ""
  },
- "main|physics-order sc26p1": {
-  "result": 0,
-  "stdout": "P00_ref\nP00_twin\nA02\nA03\nA04\nA05\nD01\nD02\nD03\nD05\nD07\nP01\nP02\nP04\nP05\nP06\nP06\nP05\nP04\nP02\nP01\nD07\nD05\nD03\nD02\nD01\nA05\nA04\nA03\nA02\nP00_twin\nP00_ref\n",
-  "stderr": ""
- },
- "main|physics-order sc26p1 --reps 1": {
-  "result": 0,
-  "stdout": "P00_ref\nP00_twin\nA02\nA03\nA04\nA05\nD01\nD02\nD03\nD05\nD07\nP01\nP02\nP04\nP05\nP06\n",
-  "stderr": ""
- },
  "main|restart-time sc26p1 45": {
   "result": 0,
   "stdout": "2005-08-27_00:45:00\n",
   "stderr": ""
- },
- "main|physics-describe sc26p1 A01": {
-  "result": 0,
-  "stdout": "SKIP\tedits task-mandated frozen key(s) time_step for case sc26p1: the task FIXES their value, so changing one is a rules violation, not a tuning trade-off\n",
-  "stderr": ""
- },
- "main|physics-describe sc26p1 A02": {
-  "result": 0,
-  "stdout": "dynamics\ttime_step_sound=6/6\tprobe=none\t72\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe sc26p1 A03": {
-  "result": 0,
-  "stdout": "dynamics\tmoist_adv_opt=2/2;scalar_adv_opt=2/2\tprobe=none\t72\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe sc26p1 A04": {
-  "result": 0,
-  "stdout": "dynamics\th_mom_adv_order=6/6;h_sca_adv_order=6/6\tprobe=none\t72\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe sc26p1 A05": {
-  "result": 0,
-  "stdout": "radiation\tradt=6.0/6.0\tprobe=none\t72\t8\t1\t1\t1\t2\t4\t4\t6.0\t-\n",
-  "stderr": ""
- },
- "main|physics-describe sc26p1 D01": {
-  "result": 0,
-  "stdout": "dynamics\ttime_step_sound=3/3\tprobe=none\t72\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe sc26p1 D02": {
-  "result": 0,
-  "stdout": "dynamics\trk_ord=2\tprobe=none\t72\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe sc26p1 D03": {
-  "result": 0,
-  "stdout": "dynamics\tmoist_adv_opt=0/0;scalar_adv_opt=0/0\tprobe=none\t72\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe sc26p1 D04": {
-  "result": 0,
-  "stdout": "SKIP\tnot in applies_to ['bigchill', 'elevconv']\n",
-  "stderr": ""
- },
- "main|physics-describe sc26p1 D05": {
-  "result": 0,
-  "stdout": "pbl_surface\tbldt=10/10\tprobe=none\t72\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe sc26p1 D06": {
-  "result": 0,
-  "stdout": "SKIP\tnot in applies_to ['zhengzhou', 'severe2023', 'bigchill', 'elevconv', 'maria1km', 'isc21']\n",
-  "stderr": ""
- },
- "main|physics-describe sc26p1 D07": {
-  "result": 0,
-  "stdout": "dynamics\ttime_step_sound=2/2\tprobe=none\t72\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe sc26p1 P00": {
-  "result": 0,
-  "stdout": "none\t-\tprobe=none\t72\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe sc26p1 P01": {
-  "result": 0,
-  "stdout": "radiation\tswint_opt=1\tprobe=none\t72\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe sc26p1 P02": {
-  "result": 0,
-  "stdout": "radiation\tradt=24/24;swint_opt=1\tprobe=none\t72\t8\t1\t1\t1\t2\t4\t4\t24\t-\n",
-  "stderr": ""
- },
- "main|physics-describe sc26p1 P03": {
-  "result": 0,
-  "stdout": "SKIP\tedits task-mandated frozen key(s) time_step for case sc26p1: the task FIXES their value, so changing one is a rules violation, not a tuning trade-off\n",
-  "stderr": ""
- },
- "main|physics-describe sc26p1 P04": {
-  "result": 0,
-  "stdout": "microphysics\tmp_physics=6/6\tprobe=none\t72\t6\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe sc26p1 P05": {
-  "result": 0,
-  "stdout": "pbl_surface\t-\tprobe=none\t72\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe sc26p1 P06": {
-  "result": 0,
-  "stdout": "radiation\tra_lw_physics=1/1;ra_sw_physics=1/1\tprobe=none\t72\t8\t1\t1\t1\t2\t1\t1\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe sc26p1 P99": {
-  "result": 2,
-  "stdout": "",
-  "stderr": "unknown physics template 'P99'\n"
  },
  "main|physics-list bigchill": {
   "result": 0,
@@ -25071,118 +24521,8 @@
   "stdout": "[\"A01\", \"D04\", \"D05\", \"D06\", \"P01\", \"P03\", \"P04\", \"P05\", \"P06\"]\n",
   "stderr": ""
  },
- "main|physics-order bigchill": {
-  "result": 0,
-  "stdout": "P00_ref\nP00_twin\nA01\nD04\nD05\nD06\nP01\nP03\nP04\nP05\nP06\nP06\nP05\nP04\nP03\nP01\nD06\nD05\nD04\nA01\nP00_twin\nP00_ref\n",
-  "stderr": ""
- },
- "main|physics-order bigchill --reps 1": {
-  "result": 0,
-  "stdout": "P00_ref\nP00_twin\nA01\nD04\nD05\nD06\nP01\nP03\nP04\nP05\nP06\n",
-  "stderr": ""
- },
  "main|restart-time bigchill 45": {
   "(raises)": "TypeError: int() argument must be a string, a bytes-like object or a real number, not 'NoneType'"
- },
- "main|physics-describe bigchill A01": {
-  "result": 0,
-  "stdout": "dynamics\ttime_step=12\tprobe=none\t12\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe bigchill A02": {
-  "result": 0,
-  "stdout": "SKIP\tno &dynamics section found in namelist\n",
-  "stderr": ""
- },
- "main|physics-describe bigchill A03": {
-  "result": 0,
-  "stdout": "SKIP\tno &dynamics section found in namelist\n",
-  "stderr": ""
- },
- "main|physics-describe bigchill A04": {
-  "result": 0,
-  "stdout": "SKIP\tno &dynamics section found in namelist\n",
-  "stderr": ""
- },
- "main|physics-describe bigchill A05": {
-  "result": 0,
-  "stdout": "SKIP\tphysics template: key 'radt' not found for op 'mul'\n",
-  "stderr": ""
- },
- "main|physics-describe bigchill D01": {
-  "result": 0,
-  "stdout": "SKIP\tno &dynamics section found in namelist\n",
-  "stderr": ""
- },
- "main|physics-describe bigchill D02": {
-  "result": 0,
-  "stdout": "SKIP\tno &dynamics section found in namelist\n",
-  "stderr": ""
- },
- "main|physics-describe bigchill D03": {
-  "result": 0,
-  "stdout": "SKIP\tno &dynamics section found in namelist\n",
-  "stderr": ""
- },
- "main|physics-describe bigchill D04": {
-  "result": 0,
-  "stdout": "diagnostics\tnwp_diagnostics=0;hailcast_opt=0/0;do_radar_ref=0\tprobe=none\t72\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe bigchill D05": {
-  "result": 0,
-  "stdout": "pbl_surface\tbldt=10/10\tprobe=none\t72\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe bigchill D06": {
-  "result": 0,
-  "stdout": "nesting\tfeedback=0\tprobe=none\t72\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe bigchill D07": {
-  "result": 0,
-  "stdout": "SKIP\tnot in applies_to ['sc26p1']\n",
-  "stderr": ""
- },
- "main|physics-describe bigchill P00": {
-  "result": 0,
-  "stdout": "none\t-\tprobe=none\t72\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe bigchill P01": {
-  "result": 0,
-  "stdout": "radiation\tswint_opt=1\tprobe=none\t72\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe bigchill P02": {
-  "result": 0,
-  "stdout": "SKIP\tphysics template: key 'radt' not found for op 'mul'\n",
-  "stderr": ""
- },
- "main|physics-describe bigchill P03": {
-  "result": 0,
-  "stdout": "dynamics\ttime_step=18\tprobe=none\t18\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe bigchill P04": {
-  "result": 0,
-  "stdout": "microphysics\tmp_physics=6/6\tprobe=none\t72\t6\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe bigchill P05": {
-  "result": 0,
-  "stdout": "pbl_surface\t-\tprobe=none\t72\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe bigchill P06": {
-  "result": 0,
-  "stdout": "radiation\tra_lw_physics=1;ra_sw_physics=1\tprobe=none\t72\t8\t1\t1\t1\t2\t1\t1\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe bigchill P99": {
-  "result": 2,
-  "stdout": "",
-  "stderr": "unknown physics template 'P99'\n"
  },
  "main|physics-list conus12": {
   "result": 0,
@@ -25194,120 +24534,10 @@
   "stdout": "[\"A01\", \"A02\", \"A03\", \"A04\", \"D01\", \"D02\", \"D03\", \"D05\", \"P01\", \"P03\", \"P04\", \"P05\", \"P06\"]\n",
   "stderr": ""
  },
- "main|physics-order conus12": {
-  "result": 0,
-  "stdout": "P00_ref\nP00_twin\nA01\nA02\nA03\nA04\nD01\nD02\nD03\nD05\nP01\nP03\nP04\nP05\nP06\nP06\nP05\nP04\nP03\nP01\nD05\nD03\nD02\nD01\nA04\nA03\nA02\nA01\nP00_twin\nP00_ref\n",
-  "stderr": ""
- },
- "main|physics-order conus12 --reps 1": {
-  "result": 0,
-  "stdout": "P00_ref\nP00_twin\nA01\nA02\nA03\nA04\nD01\nD02\nD03\nD05\nP01\nP03\nP04\nP05\nP06\n",
-  "stderr": ""
- },
  "main|restart-time conus12 45": {
   "result": 0,
   "stdout": "2020-01-01_00:45:00\n",
   "stderr": ""
- },
- "main|physics-describe conus12 A01": {
-  "result": 0,
-  "stdout": "dynamics\ttime_step=58\tprobe=none\t58\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe conus12 A02": {
-  "result": 0,
-  "stdout": "dynamics\ttime_step_sound=6\tprobe=none\t72\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe conus12 A03": {
-  "result": 0,
-  "stdout": "dynamics\tmoist_adv_opt=2;scalar_adv_opt=2\tprobe=none\t72\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe conus12 A04": {
-  "result": 0,
-  "stdout": "dynamics\th_mom_adv_order=6;h_sca_adv_order=6\tprobe=none\t72\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe conus12 A05": {
-  "result": 0,
-  "stdout": "SKIP\tphysics template: key 'radt' not found for op 'mul'\n",
-  "stderr": ""
- },
- "main|physics-describe conus12 D01": {
-  "result": 0,
-  "stdout": "dynamics\ttime_step_sound=3\tprobe=none\t72\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe conus12 D02": {
-  "result": 0,
-  "stdout": "dynamics\trk_ord=2\tprobe=none\t72\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe conus12 D03": {
-  "result": 0,
-  "stdout": "dynamics\tmoist_adv_opt=0;scalar_adv_opt=0\tprobe=none\t72\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe conus12 D04": {
-  "result": 0,
-  "stdout": "SKIP\tnot in applies_to ['bigchill', 'elevconv']\n",
-  "stderr": ""
- },
- "main|physics-describe conus12 D05": {
-  "result": 0,
-  "stdout": "pbl_surface\tbldt=10\tprobe=none\t72\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe conus12 D06": {
-  "result": 0,
-  "stdout": "SKIP\tnot in applies_to ['zhengzhou', 'severe2023', 'bigchill', 'elevconv', 'maria1km', 'isc21']\n",
-  "stderr": ""
- },
- "main|physics-describe conus12 D07": {
-  "result": 0,
-  "stdout": "SKIP\tnot in applies_to ['sc26p1']\n",
-  "stderr": ""
- },
- "main|physics-describe conus12 P00": {
-  "result": 0,
-  "stdout": "none\t-\tprobe=none\t72\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe conus12 P01": {
-  "result": 0,
-  "stdout": "radiation\tswint_opt=1\tprobe=none\t72\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe conus12 P02": {
-  "result": 0,
-  "stdout": "SKIP\tphysics template: key 'radt' not found for op 'mul'\n",
-  "stderr": ""
- },
- "main|physics-describe conus12 P03": {
-  "result": 0,
-  "stdout": "dynamics\ttime_step=86\tprobe=none\t86\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe conus12 P04": {
-  "result": 0,
-  "stdout": "microphysics\tmp_physics=6\tprobe=none\t72\t6\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe conus12 P05": {
-  "result": 0,
-  "stdout": "pbl_surface\tbl_pbl_physics=1;sf_sfclay_physics=1\tprobe=none\t72\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe conus12 P06": {
-  "result": 0,
-  "stdout": "radiation\tra_lw_physics=1;ra_sw_physics=1\tprobe=none\t72\t8\t1\t1\t1\t2\t1\t1\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe conus12 P99": {
-  "result": 2,
-  "stdout": "",
-  "stderr": "unknown physics template 'P99'\n"
  },
  "main|physics-list gone": {
   "result": 0,
@@ -25319,118 +24549,8 @@
   "stdout": "[]\n",
   "stderr": ""
  },
- "main|physics-order gone": {
-  "result": 0,
-  "stdout": "P00_ref\nP00_twin\nP00_twin\nP00_ref\n",
-  "stderr": ""
- },
- "main|physics-order gone --reps 1": {
-  "result": 0,
-  "stdout": "P00_ref\nP00_twin\n",
-  "stderr": ""
- },
  "main|restart-time gone 45": {
   "(raises)": "FileNotFoundError: [Errno 2] No such file or directory: '<FIX>/namelists/does_not_exist.nml'"
- },
- "main|physics-describe gone A01": {
-  "result": 0,
-  "stdout": "SKIP\tcannot read namelist template <FIX>/namelists/does_not_exist.nml: [Errno 2] No such file or directory: '<FIX>/namelists/does_not_exist.nml'\n",
-  "stderr": ""
- },
- "main|physics-describe gone A02": {
-  "result": 0,
-  "stdout": "SKIP\tcannot read namelist template <FIX>/namelists/does_not_exist.nml: [Errno 2] No such file or directory: '<FIX>/namelists/does_not_exist.nml'\n",
-  "stderr": ""
- },
- "main|physics-describe gone A03": {
-  "result": 0,
-  "stdout": "SKIP\tcannot read namelist template <FIX>/namelists/does_not_exist.nml: [Errno 2] No such file or directory: '<FIX>/namelists/does_not_exist.nml'\n",
-  "stderr": ""
- },
- "main|physics-describe gone A04": {
-  "result": 0,
-  "stdout": "SKIP\tcannot read namelist template <FIX>/namelists/does_not_exist.nml: [Errno 2] No such file or directory: '<FIX>/namelists/does_not_exist.nml'\n",
-  "stderr": ""
- },
- "main|physics-describe gone A05": {
-  "result": 0,
-  "stdout": "SKIP\tcannot read namelist template <FIX>/namelists/does_not_exist.nml: [Errno 2] No such file or directory: '<FIX>/namelists/does_not_exist.nml'\n",
-  "stderr": ""
- },
- "main|physics-describe gone D01": {
-  "result": 0,
-  "stdout": "SKIP\tcannot read namelist template <FIX>/namelists/does_not_exist.nml: [Errno 2] No such file or directory: '<FIX>/namelists/does_not_exist.nml'\n",
-  "stderr": ""
- },
- "main|physics-describe gone D02": {
-  "result": 0,
-  "stdout": "SKIP\tcannot read namelist template <FIX>/namelists/does_not_exist.nml: [Errno 2] No such file or directory: '<FIX>/namelists/does_not_exist.nml'\n",
-  "stderr": ""
- },
- "main|physics-describe gone D03": {
-  "result": 0,
-  "stdout": "SKIP\tcannot read namelist template <FIX>/namelists/does_not_exist.nml: [Errno 2] No such file or directory: '<FIX>/namelists/does_not_exist.nml'\n",
-  "stderr": ""
- },
- "main|physics-describe gone D04": {
-  "result": 0,
-  "stdout": "SKIP\tnot in applies_to ['bigchill', 'elevconv']\n",
-  "stderr": ""
- },
- "main|physics-describe gone D05": {
-  "result": 0,
-  "stdout": "SKIP\tcannot read namelist template <FIX>/namelists/does_not_exist.nml: [Errno 2] No such file or directory: '<FIX>/namelists/does_not_exist.nml'\n",
-  "stderr": ""
- },
- "main|physics-describe gone D06": {
-  "result": 0,
-  "stdout": "SKIP\tnot in applies_to ['zhengzhou', 'severe2023', 'bigchill', 'elevconv', 'maria1km', 'isc21']\n",
-  "stderr": ""
- },
- "main|physics-describe gone D07": {
-  "result": 0,
-  "stdout": "SKIP\tnot in applies_to ['sc26p1']\n",
-  "stderr": ""
- },
- "main|physics-describe gone P00": {
-  "result": 0,
-  "stdout": "SKIP\tcannot read namelist template <FIX>/namelists/does_not_exist.nml: [Errno 2] No such file or directory: '<FIX>/namelists/does_not_exist.nml'\n",
-  "stderr": ""
- },
- "main|physics-describe gone P01": {
-  "result": 0,
-  "stdout": "SKIP\tcannot read namelist template <FIX>/namelists/does_not_exist.nml: [Errno 2] No such file or directory: '<FIX>/namelists/does_not_exist.nml'\n",
-  "stderr": ""
- },
- "main|physics-describe gone P02": {
-  "result": 0,
-  "stdout": "SKIP\tcannot read namelist template <FIX>/namelists/does_not_exist.nml: [Errno 2] No such file or directory: '<FIX>/namelists/does_not_exist.nml'\n",
-  "stderr": ""
- },
- "main|physics-describe gone P03": {
-  "result": 0,
-  "stdout": "SKIP\tcannot read namelist template <FIX>/namelists/does_not_exist.nml: [Errno 2] No such file or directory: '<FIX>/namelists/does_not_exist.nml'\n",
-  "stderr": ""
- },
- "main|physics-describe gone P04": {
-  "result": 0,
-  "stdout": "SKIP\tcannot read namelist template <FIX>/namelists/does_not_exist.nml: [Errno 2] No such file or directory: '<FIX>/namelists/does_not_exist.nml'\n",
-  "stderr": ""
- },
- "main|physics-describe gone P05": {
-  "result": 0,
-  "stdout": "SKIP\tcannot read namelist template <FIX>/namelists/does_not_exist.nml: [Errno 2] No such file or directory: '<FIX>/namelists/does_not_exist.nml'\n",
-  "stderr": ""
- },
- "main|physics-describe gone P06": {
-  "result": 0,
-  "stdout": "SKIP\tcannot read namelist template <FIX>/namelists/does_not_exist.nml: [Errno 2] No such file or directory: '<FIX>/namelists/does_not_exist.nml'\n",
-  "stderr": ""
- },
- "main|physics-describe gone P99": {
-  "result": 2,
-  "stdout": "",
-  "stderr": "unknown physics template 'P99'\n"
  },
  "main|physics-list off": {
   "result": 0,
@@ -25442,120 +24562,10 @@
   "stdout": "[\"A01\", \"A02\", \"A03\", \"A04\", \"A05\", \"D01\", \"D02\", \"D03\", \"D05\", \"P01\", \"P02\", \"P03\", \"P04\", \"P05\", \"P06\"]\n",
   "stderr": ""
  },
- "main|physics-order off": {
-  "result": 0,
-  "stdout": "P00_ref\nP00_twin\nA01\nA02\nA03\nA04\nA05\nD01\nD02\nD03\nD05\nP01\nP02\nP03\nP04\nP05\nP06\nP06\nP05\nP04\nP03\nP02\nP01\nD05\nD03\nD02\nD01\nA05\nA04\nA03\nA02\nA01\nP00_twin\nP00_ref\n",
-  "stderr": ""
- },
- "main|physics-order off --reps 1": {
-  "result": 0,
-  "stdout": "P00_ref\nP00_twin\nA01\nA02\nA03\nA04\nA05\nD01\nD02\nD03\nD05\nP01\nP02\nP03\nP04\nP05\nP06\n",
-  "stderr": ""
- },
  "main|restart-time off 45": {
   "result": 0,
   "stdout": "2005-08-27_00:45:00\n",
   "stderr": ""
- },
- "main|physics-describe off A01": {
-  "result": 0,
-  "stdout": "dynamics\ttime_step=58\tprobe=none\t58\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe off A02": {
-  "result": 0,
-  "stdout": "dynamics\ttime_step_sound=6\tprobe=none\t72\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe off A03": {
-  "result": 0,
-  "stdout": "dynamics\tmoist_adv_opt=2;scalar_adv_opt=2\tprobe=none\t72\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe off A04": {
-  "result": 0,
-  "stdout": "dynamics\th_mom_adv_order=6;h_sca_adv_order=6\tprobe=none\t72\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe off A05": {
-  "result": 0,
-  "stdout": "radiation\tradt=6.0\tprobe=none\t72\t8\t1\t1\t1\t2\t4\t4\t6.0\t-\n",
-  "stderr": ""
- },
- "main|physics-describe off D01": {
-  "result": 0,
-  "stdout": "dynamics\ttime_step_sound=3\tprobe=none\t72\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe off D02": {
-  "result": 0,
-  "stdout": "dynamics\trk_ord=2\tprobe=none\t72\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe off D03": {
-  "result": 0,
-  "stdout": "dynamics\tmoist_adv_opt=0;scalar_adv_opt=0\tprobe=none\t72\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe off D04": {
-  "result": 0,
-  "stdout": "SKIP\tnot in applies_to ['bigchill', 'elevconv']\n",
-  "stderr": ""
- },
- "main|physics-describe off D05": {
-  "result": 0,
-  "stdout": "pbl_surface\tbldt=10\tprobe=none\t72\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe off D06": {
-  "result": 0,
-  "stdout": "SKIP\tnot in applies_to ['zhengzhou', 'severe2023', 'bigchill', 'elevconv', 'maria1km', 'isc21']\n",
-  "stderr": ""
- },
- "main|physics-describe off D07": {
-  "result": 0,
-  "stdout": "SKIP\tnot in applies_to ['sc26p1']\n",
-  "stderr": ""
- },
- "main|physics-describe off P00": {
-  "result": 0,
-  "stdout": "none\t-\tprobe=none\t72\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe off P01": {
-  "result": 0,
-  "stdout": "radiation\tswint_opt=1\tprobe=none\t72\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe off P02": {
-  "result": 0,
-  "stdout": "radiation\tradt=24;swint_opt=1\tprobe=none\t72\t8\t1\t1\t1\t2\t4\t4\t24\t-\n",
-  "stderr": ""
- },
- "main|physics-describe off P03": {
-  "result": 0,
-  "stdout": "dynamics\ttime_step=86\tprobe=none\t86\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe off P04": {
-  "result": 0,
-  "stdout": "microphysics\tmp_physics=6\tprobe=none\t72\t6\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe off P05": {
-  "result": 0,
-  "stdout": "pbl_surface\t-\tprobe=none\t72\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe off P06": {
-  "result": 0,
-  "stdout": "radiation\tra_lw_physics=1;ra_sw_physics=1\tprobe=none\t72\t8\t1\t1\t1\t2\t1\t1\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe off P99": {
-  "result": 2,
-  "stdout": "",
-  "stderr": "unknown physics template 'P99'\n"
  },
  "main|physics-list noreason": {
   "result": 0,
@@ -25567,120 +24577,10 @@
   "stdout": "[\"A01\", \"A02\", \"A03\", \"A04\", \"A05\", \"D01\", \"D02\", \"D03\", \"D05\", \"P01\", \"P02\", \"P03\", \"P04\", \"P05\", \"P06\"]\n",
   "stderr": ""
  },
- "main|physics-order noreason": {
-  "result": 0,
-  "stdout": "P00_ref\nP00_twin\nA01\nA02\nA03\nA04\nA05\nD01\nD02\nD03\nD05\nP01\nP02\nP03\nP04\nP05\nP06\nP06\nP05\nP04\nP03\nP02\nP01\nD05\nD03\nD02\nD01\nA05\nA04\nA03\nA02\nA01\nP00_twin\nP00_ref\n",
-  "stderr": ""
- },
- "main|physics-order noreason --reps 1": {
-  "result": 0,
-  "stdout": "P00_ref\nP00_twin\nA01\nA02\nA03\nA04\nA05\nD01\nD02\nD03\nD05\nP01\nP02\nP03\nP04\nP05\nP06\n",
-  "stderr": ""
- },
  "main|restart-time noreason 45": {
   "result": 0,
   "stdout": "2005-08-27_00:45:00\n",
   "stderr": ""
- },
- "main|physics-describe noreason A01": {
-  "result": 0,
-  "stdout": "dynamics\ttime_step=58\tprobe=none\t58\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe noreason A02": {
-  "result": 0,
-  "stdout": "dynamics\ttime_step_sound=6\tprobe=none\t72\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe noreason A03": {
-  "result": 0,
-  "stdout": "dynamics\tmoist_adv_opt=2;scalar_adv_opt=2\tprobe=none\t72\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe noreason A04": {
-  "result": 0,
-  "stdout": "dynamics\th_mom_adv_order=6;h_sca_adv_order=6\tprobe=none\t72\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe noreason A05": {
-  "result": 0,
-  "stdout": "radiation\tradt=6.0\tprobe=none\t72\t8\t1\t1\t1\t2\t4\t4\t6.0\t-\n",
-  "stderr": ""
- },
- "main|physics-describe noreason D01": {
-  "result": 0,
-  "stdout": "dynamics\ttime_step_sound=3\tprobe=none\t72\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe noreason D02": {
-  "result": 0,
-  "stdout": "dynamics\trk_ord=2\tprobe=none\t72\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe noreason D03": {
-  "result": 0,
-  "stdout": "dynamics\tmoist_adv_opt=0;scalar_adv_opt=0\tprobe=none\t72\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe noreason D04": {
-  "result": 0,
-  "stdout": "SKIP\tnot in applies_to ['bigchill', 'elevconv']\n",
-  "stderr": ""
- },
- "main|physics-describe noreason D05": {
-  "result": 0,
-  "stdout": "pbl_surface\tbldt=10\tprobe=none\t72\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe noreason D06": {
-  "result": 0,
-  "stdout": "SKIP\tnot in applies_to ['zhengzhou', 'severe2023', 'bigchill', 'elevconv', 'maria1km', 'isc21']\n",
-  "stderr": ""
- },
- "main|physics-describe noreason D07": {
-  "result": 0,
-  "stdout": "SKIP\tnot in applies_to ['sc26p1']\n",
-  "stderr": ""
- },
- "main|physics-describe noreason P00": {
-  "result": 0,
-  "stdout": "none\t-\tprobe=none\t72\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe noreason P01": {
-  "result": 0,
-  "stdout": "radiation\tswint_opt=1\tprobe=none\t72\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe noreason P02": {
-  "result": 0,
-  "stdout": "radiation\tradt=24;swint_opt=1\tprobe=none\t72\t8\t1\t1\t1\t2\t4\t4\t24\t-\n",
-  "stderr": ""
- },
- "main|physics-describe noreason P03": {
-  "result": 0,
-  "stdout": "dynamics\ttime_step=86\tprobe=none\t86\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe noreason P04": {
-  "result": 0,
-  "stdout": "microphysics\tmp_physics=6\tprobe=none\t72\t6\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe noreason P05": {
-  "result": 0,
-  "stdout": "pbl_surface\t-\tprobe=none\t72\t8\t1\t1\t1\t2\t4\t4\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe noreason P06": {
-  "result": 0,
-  "stdout": "radiation\tra_lw_physics=1;ra_sw_physics=1\tprobe=none\t72\t8\t1\t1\t1\t2\t1\t1\t12\t-\n",
-  "stderr": ""
- },
- "main|physics-describe noreason P99": {
-  "result": 2,
-  "stdout": "",
-  "stderr": "unknown physics template 'P99'\n"
  },
  "main|physics-list nosuchcase": {
   "result": 2,
@@ -25692,117 +24592,7 @@
   "stdout": "",
   "stderr": "unknown case 'nosuchcase'\n"
  },
- "main|physics-order nosuchcase": {
-  "result": 2,
-  "stdout": "",
-  "stderr": "unknown case 'nosuchcase'\n"
- },
- "main|physics-order nosuchcase --reps 1": {
-  "result": 2,
-  "stdout": "",
-  "stderr": "unknown case 'nosuchcase'\n"
- },
  "main|restart-time nosuchcase 45": {
-  "result": 2,
-  "stdout": "",
-  "stderr": "unknown case 'nosuchcase'\n"
- },
- "main|physics-describe nosuchcase A01": {
-  "result": 2,
-  "stdout": "",
-  "stderr": "unknown case 'nosuchcase'\n"
- },
- "main|physics-describe nosuchcase A02": {
-  "result": 2,
-  "stdout": "",
-  "stderr": "unknown case 'nosuchcase'\n"
- },
- "main|physics-describe nosuchcase A03": {
-  "result": 2,
-  "stdout": "",
-  "stderr": "unknown case 'nosuchcase'\n"
- },
- "main|physics-describe nosuchcase A04": {
-  "result": 2,
-  "stdout": "",
-  "stderr": "unknown case 'nosuchcase'\n"
- },
- "main|physics-describe nosuchcase A05": {
-  "result": 2,
-  "stdout": "",
-  "stderr": "unknown case 'nosuchcase'\n"
- },
- "main|physics-describe nosuchcase D01": {
-  "result": 2,
-  "stdout": "",
-  "stderr": "unknown case 'nosuchcase'\n"
- },
- "main|physics-describe nosuchcase D02": {
-  "result": 2,
-  "stdout": "",
-  "stderr": "unknown case 'nosuchcase'\n"
- },
- "main|physics-describe nosuchcase D03": {
-  "result": 2,
-  "stdout": "",
-  "stderr": "unknown case 'nosuchcase'\n"
- },
- "main|physics-describe nosuchcase D04": {
-  "result": 2,
-  "stdout": "",
-  "stderr": "unknown case 'nosuchcase'\n"
- },
- "main|physics-describe nosuchcase D05": {
-  "result": 2,
-  "stdout": "",
-  "stderr": "unknown case 'nosuchcase'\n"
- },
- "main|physics-describe nosuchcase D06": {
-  "result": 2,
-  "stdout": "",
-  "stderr": "unknown case 'nosuchcase'\n"
- },
- "main|physics-describe nosuchcase D07": {
-  "result": 2,
-  "stdout": "",
-  "stderr": "unknown case 'nosuchcase'\n"
- },
- "main|physics-describe nosuchcase P00": {
-  "result": 2,
-  "stdout": "",
-  "stderr": "unknown case 'nosuchcase'\n"
- },
- "main|physics-describe nosuchcase P01": {
-  "result": 2,
-  "stdout": "",
-  "stderr": "unknown case 'nosuchcase'\n"
- },
- "main|physics-describe nosuchcase P02": {
-  "result": 2,
-  "stdout": "",
-  "stderr": "unknown case 'nosuchcase'\n"
- },
- "main|physics-describe nosuchcase P03": {
-  "result": 2,
-  "stdout": "",
-  "stderr": "unknown case 'nosuchcase'\n"
- },
- "main|physics-describe nosuchcase P04": {
-  "result": 2,
-  "stdout": "",
-  "stderr": "unknown case 'nosuchcase'\n"
- },
- "main|physics-describe nosuchcase P05": {
-  "result": 2,
-  "stdout": "",
-  "stderr": "unknown case 'nosuchcase'\n"
- },
- "main|physics-describe nosuchcase P06": {
-  "result": 2,
-  "stdout": "",
-  "stderr": "unknown case 'nosuchcase'\n"
- },
- "main|physics-describe nosuchcase P99": {
   "result": 2,
   "stdout": "",
   "stderr": "unknown case 'nosuchcase'\n"
@@ -25827,16 +24617,6 @@
   "stdout": "",
   "stderr": "usage: CONFIG_FILE=path.json configs.py config-extras CASE_ID\n"
  },
- "main|strict|decomp-pair karina G0001 G0002": {
-  "result": 2,
-  "stdout": "",
-  "stderr": "DECOMP-PAIR ERROR: DECOMP='G0001' is not a resolved config for case karina from the STRICT templates C01-C16 -- available ids: C01, C02, C03, C04, C05, C06, C07, C08, C09, C10, C11, C12, C13, C14, C15, C16\n"
- },
- "main|strict|decomp-pair karina C01 C02": {
-  "result": 0,
-  "stdout": "role\tconfig_id\tranks\tomp\tnproc_x\tnproc_y\tnumtiles\tdist\tblocktime\tnumtiles_x\tnumtiles_y\ttile_sz_x\ttile_sz_y\ttile_strategy\tconfig_source\nreference\tC01\t448\t1\t16\t28\t1\tcyclic\t0\t0\t0\t0\t0\t0\tstrict_template\ntwin\tC02\t448\t1\t16\t28\t8\tcyclic\t0\t0\t0\t0\t0\t0\tstrict_template\n",
-  "stderr": ""
- },
  "main|strict|--all": {
   "result": 0,
   "stdout": "case\tn_configs\tn_skipped\treps\truns\test_wall_h\tnode_hours\tcost\nTOTAL\truns=0\test_wall_h=0.000\tnode_hours=0.000\tcost=0.00  (GUESS: s_per_step/init_io are task-spec estimates, not measurements)\n",
@@ -25845,7 +24625,7 @@
  "main|strict|": {
   "result": 2,
   "stdout": "",
-  "stderr": "usage: configs.py CASE_ID | --all | order CASE_ID [--reps N] | decomp-pair CASE_ID DECOMP TWIN_DECOMP [--config-file FILE.json] | edit-namelist IN OUT --nproc-x X --nproc-y Y --numtiles N --run-minutes M [--max-dom N] [--history-mode off|interval|end_d01] [--history-minutes N] [--set KEY=VALUE ...] [--delete-key KEY ...] [--nest-history-on] [--ranks N] [--no-adios2] [--numtiles-x N] [--numtiles-y N] [--tile-sz-x N] [--tile-sz-y N] [--tile-strategy N] [--physics-template Pxx] | step-stats STEPS_FILE | physics-list CASE_ID [--json] | physics-order CASE_ID [--pconfigs P01+P02+...] [--reps N] | physics-describe CASE_ID TEMPLATE_ID | fidelity-tokens FIDELITY_JSON | quota-free-gib [--filesystem home1] (reads mmlsquota text on stdin) | link-namelist-files NAMELIST RUN_DIR SEARCH_DIR... | stage-bp-inputs CASE_ID NAMELIST SRC_DIR [--cache-dir DIR] [--check]\nCONFIG_FILE=path.json env (predictor/decomp_space.py to_campaign_configs/sample output): CASE_ID and order CASE_ID measure that generated config set instead of the fixed C01-C16 STRICT templates, and decomp-pair resolves DECOMP/TWIN_DECOMP from it -- which is how MODE=physics reaches a case that resolves no STRICT template at all (sc26p1).\n"
+  "stderr": "usage: configs.py CASE_ID | --all | order CASE_ID [--reps N] | edit-namelist IN OUT --nproc-x X --nproc-y Y --numtiles N --run-minutes M [--max-dom N] [--history-mode off|interval|end_d01] [--history-minutes N] [--set KEY=VALUE ...] [--delete-key KEY ...] [--nest-history-on] [--ranks N] [--no-adios2] [--numtiles-x N] [--numtiles-y N] [--tile-sz-x N] [--tile-sz-y N] [--tile-strategy N] [--physics-template Pxx] | step-stats STEPS_FILE | physics-list CASE_ID [--json] | quota-free-gib [--filesystem home1] (reads mmlsquota text on stdin) | link-namelist-files NAMELIST RUN_DIR SEARCH_DIR... | stage-bp-inputs CASE_ID NAMELIST SRC_DIR [--cache-dir DIR] [--check]\nCONFIG_FILE=path.json env (predictor/decomp_space.py to_campaign_configs/sample output): CASE_ID and order CASE_ID measure that generated config set instead of the fixed C01-C16 STRICT templates.\n"
  },
  "main|CONFIG_FILE|karina": {
   "result": 0,
@@ -25865,16 +24645,6 @@
   "stdout": "G0001\t/pts/karina/namelist.P02\t2\nG0002\t\t1\nG0001\t\t0\n\t\t0\n",
   "stderr": ""
  },
- "main|CONFIG_FILE|decomp-pair karina G0001 G0002": {
-  "result": 0,
-  "stdout": "role\tconfig_id\tranks\tomp\tnproc_x\tnproc_y\tnumtiles\tdist\tblocktime\tnumtiles_x\tnumtiles_y\ttile_sz_x\ttile_sz_y\ttile_strategy\tconfig_source\nreference\tG0001\t48\t6\t6\t8\t1\tcyclic\t0\t0\t0\t0\t0\t0\tstrict_template\ntwin\tG0002\t72\t4\t8\t9\t12\tblock\tdefault\t0\t0\t0\t0\t0\tseed\n",
-  "stderr": ""
- },
- "main|CONFIG_FILE|decomp-pair karina C01 C02": {
-  "result": 2,
-  "stdout": "",
-  "stderr": "DECOMP-PAIR ERROR: DECOMP='C01' is not a resolved config for case karina from CONFIG_FILE=<TMP>/api/gen.json -- available ids: G0001, G0002\n"
- },
  "main|CONFIG_FILE|--all": {
   "result": 0,
   "stdout": "case\tn_configs\tn_skipped\treps\truns\test_wall_h\tnode_hours\tcost\nTOTAL\truns=0\test_wall_h=0.000\tnode_hours=0.000\tcost=0.00  (GUESS: s_per_step/init_io are task-spec estimates, not measurements)\n",
@@ -25883,7 +24653,7 @@
  "main|CONFIG_FILE|": {
   "result": 2,
   "stdout": "",
-  "stderr": "usage: configs.py CASE_ID | --all | order CASE_ID [--reps N] | decomp-pair CASE_ID DECOMP TWIN_DECOMP [--config-file FILE.json] | edit-namelist IN OUT --nproc-x X --nproc-y Y --numtiles N --run-minutes M [--max-dom N] [--history-mode off|interval|end_d01] [--history-minutes N] [--set KEY=VALUE ...] [--delete-key KEY ...] [--nest-history-on] [--ranks N] [--no-adios2] [--numtiles-x N] [--numtiles-y N] [--tile-sz-x N] [--tile-sz-y N] [--tile-strategy N] [--physics-template Pxx] | step-stats STEPS_FILE | physics-list CASE_ID [--json] | physics-order CASE_ID [--pconfigs P01+P02+...] [--reps N] | physics-describe CASE_ID TEMPLATE_ID | fidelity-tokens FIDELITY_JSON | quota-free-gib [--filesystem home1] (reads mmlsquota text on stdin) | link-namelist-files NAMELIST RUN_DIR SEARCH_DIR... | stage-bp-inputs CASE_ID NAMELIST SRC_DIR [--cache-dir DIR] [--check]\nCONFIG_FILE=path.json env (predictor/decomp_space.py to_campaign_configs/sample output): CASE_ID and order CASE_ID measure that generated config set instead of the fixed C01-C16 STRICT templates, and decomp-pair resolves DECOMP/TWIN_DECOMP from it -- which is how MODE=physics reaches a case that resolves no STRICT template at all (sc26p1).\n"
+  "stderr": "usage: configs.py CASE_ID | --all | order CASE_ID [--reps N] | edit-namelist IN OUT --nproc-x X --nproc-y Y --numtiles N --run-minutes M [--max-dom N] [--history-mode off|interval|end_d01] [--history-minutes N] [--set KEY=VALUE ...] [--delete-key KEY ...] [--nest-history-on] [--ranks N] [--no-adios2] [--numtiles-x N] [--numtiles-y N] [--tile-sz-x N] [--tile-sz-y N] [--tile-strategy N] [--physics-template Pxx] | step-stats STEPS_FILE | physics-list CASE_ID [--json] | quota-free-gib [--filesystem home1] (reads mmlsquota text on stdin) | link-namelist-files NAMELIST RUN_DIR SEARCH_DIR... | stage-bp-inputs CASE_ID NAMELIST SRC_DIR [--cache-dir DIR] [--check]\nCONFIG_FILE=path.json env (predictor/decomp_space.py to_campaign_configs/sample output): CASE_ID and order CASE_ID measure that generated config set instead of the fixed C01-C16 STRICT templates.\n"
  },
  "load_cases|f1|ids": [
   "karina",

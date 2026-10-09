@@ -45,7 +45,7 @@ A 層分三塊：調校與量測約 4,850 行、執行與專案約 4,990 行、�
 | `campaign/namelist_adios2.py`、`namelist_streams.py` | `apply_adios2`、`_force_io_forms`、`_write_adios2_group`、`adios2_input_streams`、`per_record_streams` | io_form 14、`numaggregators = ranks`、哪些輸入讀 BP |
 
 B（掃過）：`strict_campaign.sbatch` 的參數解析、連結檔案、BP 轉檔、ledger 寫出；`nc2bp.sbatch`；`configs.py`、`bp_inputs.py`、`case_tables.py`、`namelist_files.py`、`namelist_text.py`。
-其他模式不用讀：`strict_campaign.sbatch` 的 `MODE=physics` 區塊、correctness／window-frame 區塊。
+`MODE=physics`、`MODE=correctness`、沒有 `CONFIG_FILE` 的固定 C01-C16 分支已於 2026-10-10 移出（原檔 `archive/unused-2026-10/campaign/strict_campaign_full.sbatch`）；腳本剩 1213 行，只收 `MODE=timing`。window-frame 區塊仍在（-O3 與第二階段的 frame 會用）。
 沒執行到但屬於這條路徑：共用 spin-up restart、restart 編輯失敗的處理、`RESTART_CHECK_FAILED`。
 
 ### 1.2 候選版面從哪裡來

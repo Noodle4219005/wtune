@@ -24,14 +24,9 @@
 # _apply_adios2 and regress_bp.sbatch/job 1072441). MODE picks the history policy:
 #   timing      (default) -- no run writes history at all (--history-mode off);
 #                             fastest, cleanest wall-clock measurement.
-#   correctness -- d01 writes exactly one (final) frame (--history-mode end_d01),
-#                  converted to netCDF and diffwrf'd against the first successful
-#                  run's netCDF; use with a small CONFIGS subset and REPS=1.
 #
-# Usage: sbatch --export=ALL,CASE=karina campaign/strict_campaign.sbatch
-#        sbatch --export=ALL,CASE=karina,MODE=correctness,CONFIGS=C01+C05,REPS=1 campaign/strict_campaign.sbatch
-#        sbatch --export=ALL,CASE=karina,CONFIG_FILE=/abs/path/sample.json campaign/strict_campaign.sbatch
-# Env:   CASE (required), MODE (timing|correctness, default timing), REPS (default
+# Usage: sbatch --export=ALL,CASE=karina,CONFIG_FILE=/abs/path/sample.json campaign/strict_campaign.sbatch
+# Env:   CASE (required), MODE (timing only), REPS (default
 #        2), STEPS (default: cases.json's "steps" for this case), TIMEOUT_S
 #        (default 600). Override --time per case at submission -- the lead's job,
 #        not this script's.
@@ -39,25 +34,11 @@
 #        below) -- the job aborts itself with a ledger row instead of running into a
 #        mid-write 'Disk quota exceeded' when home1 free space under the soft quota
 #        drops below this many GiB.
-#        CONFIG_FILE (WTune D1 decomposition-space work, predictor/decomp_space.py
-#        to_campaign_configs/sample output): measures that generated config set instead of the
-#        fixed C01-C16 STRICT templates in the default (non-MODE=physics) loop below -- same
+#        CONFIG_FILE (required; WTune D1 decomposition-space work, predictor/decomp_space.py
+#        to_campaign_configs/sample output): the generated config set this job measures --
 #        palindromic REPS order, same ledger schema (tile geometry goes into notes, see
-#        config_source= below). Unset (the default): every line below this comment behaves
-#        exactly as it did before CONFIG_FILE existed.
-#        MODE=physics honors CONFIG_FILE too (2026-09-17), with a different meaning: it does
-#        NOT change the run set (that stays P00_ref + P00_twin + the requested templates) --
-#        it is where DECOMP and TWIN_DECOMP are looked up. This is the only way to run
-#        PHYSICS-GRAY on a case that resolves no STRICT template at all: sc26p1's d02 has 100
-#        cells and WRF needs floor(e/nproc) >= 10 on every active domain, capping BOTH domains
-#        at 10x10 = 100 ranks, while C01-C16 are anchored at 448/224/112 -- `configs.py sc26p1`
-#        prints 16 SKIP lines and an empty table. Example:
-#          sbatch -p cf112 -N1 --export=ALL,CASE=sc26p1,MODE=physics,\
-#            CONFIG_FILE=/abs/pair.json,DECOMP=G0001,TWIN_DECOMP=G0002,PCONFIGS=D07,REPS=2 \
-#            campaign/strict_campaign.sbatch
-#        Both ids must exist in the file and must be DIFFERENT decompositions (the twin is the
-#        chaos floor, not a replicate); configs.py decomp-pair enforces both, see below.
-#        Two OPTIONAL per-config CONFIG_FILE fields for the default (non-MODE=physics) loop
+#        config_source= below).
+#        Two OPTIONAL per-config CONFIG_FILE fields
 #        (decision 0059, `wtune tune --pipeline full`; read by `configs.py config-extras`):
 #          "physics_namelists": {"<point case id>": "/abs/namelist.input", ...}
 #              this config's run for CASE=<point case id> uses that file as its namelist template
@@ -101,10 +82,6 @@ export CAMPAIGN
 # CORES_PER_NODE and the functions site_env() (module load / MPI+IO env, called once below) and
 # site_launch() (the per-run srun/mpirun invocation, called from both loops below).
 source "$CAMPAIGN/sites/$SITE.sh"
-if [ "${MODE:-timing}" != "timing" ] && [ ! -f "$CONV" ]; then
-  echo "FATAL: ADIOS2->netCDF converter not found at $CONV (needed by MODE=${MODE}) -- refusing to run" >&2
-  exit 1
-fi
 
 REPS=${REPS:-2}
 TIMEOUT_S=${TIMEOUT_S:-600}
@@ -114,10 +91,9 @@ ALLOC_NODES=${SLURM_JOB_NUM_NODES:-4}
 MODE=${MODE:-timing}
 case "$MODE" in
   timing) HISTORY_MODE_ARG=off ;;
-  correctness) HISTORY_MODE_ARG=end_d01 ;;
-  physics) HISTORY_MODE_ARG="" ;;  # MODE=physics picks its own per-replicate history mode below, not a single fixed value
-  *) echo "MODE must be 'timing', 'correctness' or 'physics', got '$MODE'" >&2; exit 1 ;;
+  *) echo "MODE must be 'timing', got '$MODE' (the old modes are in archive/unused-2026-10/campaign/strict_campaign_full.sbatch)" >&2; exit 1 ;;
 esac
+: "${CONFIG_FILE:?CONFIG_FILE env var is required (the fixed C01-C16 run set is in archive/unused-2026-10/campaign/strict_campaign_full.sbatch)}"
 # config generation needs Python >= 3.7 so configs.py can import wtune_decomp's scorer
 # (it uses `from __future__ import annotations`; the system python3 is 3.6 and silently falls back)
 PY="pixi run --manifest-path $PIXI_ENV/pixi.toml python"
@@ -511,7 +487,6 @@ for k in ("mp_physics", "cu_physics", "bl_pbl_physics", "sf_sfclay_physics",
           "sf_surface_physics", "ra_lw_physics", "ra_sw_physics", "radt", "cudt"):
     print("PHYS_%s=%s" % (k.upper(), q(phys.get(k, ""))))
 print("PHYSICS_SUITE=%s" % q(phys.get("physics_suite", "")))
-print("PHYSICS_SIM_MINUTES_DEFAULT=%s" % q(c.get("physics_sim_minutes", 60)))
 PY
 )"
 
@@ -593,13 +568,6 @@ if [ -n "${CONFIG_FILE:-}" ]; then
     CFG_NTILES_X[$cid]=$ntx; CFG_NTILES_Y[$cid]=$nty; CFG_TSZ_X[$cid]=$tsx; CFG_TSZ_Y[$cid]=$tsy
     CFG_TSTRAT[$cid]=$tstrat; CFG_SRC[$cid]=$src
   done < <("$PYBIN" "$CAMPAIGN/configs.py" "$CASE" 2>/dev/null | tr '\t' '\037')
-else
-  while IFS=$'\t' read -r cid ranks omp nx ny numtiles dist blocktime patchx patchy; do
-    [ "$cid" = "config_id" ] && continue
-    [ -z "$cid" ] && continue
-    CFG_RANKS[$cid]=$ranks; CFG_OMP[$cid]=$omp; CFG_NX[$cid]=$nx; CFG_NY[$cid]=$ny
-    CFG_NUMTILES[$cid]=$numtiles; CFG_DIST[$cid]=$dist; CFG_BLOCKTIME[$cid]=$blocktime
-  done < <("$PYBIN" "$CAMPAIGN/configs.py" "$CASE" 2>/dev/null)
 fi
 
 # Per-config physics_namelists / window_frame (see the header). Parsed with the same \037
@@ -621,515 +589,7 @@ if [ "$MODE" = "timing" ] && [ "$WINDOW_FRAME_ANY" = "1" ] && [ ! -f "$CONV" ]; 
   exit 1
 fi
 
-
-# =================================================================================
-# MODE=physics: PHYSICS-GRAY data campaign (decision 0051) -- timing + fidelity.
-# Run set: P00 at DECOMP (reference), P00 at TWIN_DECOMP (twin, same physics/
-# different STRICT decomposition -- measures the chaos floor), then each requested
-# Pxx at DECOMP (candidate). Palindromic replicate order over that run-set exactly
-# like the STRICT loop below, tracked by tag (P00_ref/P00_twin/Pxx) instead of by
-# STRICT config id. Replicate 1 of every tag writes interval history (fidelity);
-# replicate 2+ writes no history (clean timing only). Because cmd_physics_order
-# always lists P00_ref/P00_twin FIRST in the entries handed to build_order(), and
-# build_order's very first pass is forward, BOTH reference's and twin's own
-# replicate 1 always complete before any candidate's replicate 1 begins for any
-# REPS>=1 -- so reference/twin BP->netCDF conversion can happen inline, in one
-# pass, with no separate deferred/pending-file bookkeeping needed.
-# =================================================================================
-if [ "$MODE" = "physics" ]; then
-  FIDELITY_GATE="$(dirname "$CAMPAIGN")/src/fidelity_gate.py"
-  if [ ! -f "$FIDELITY_GATE" ]; then
-    echo "ERROR: fidelity_gate.py not found at $FIDELITY_GATE -- required for MODE=physics" >&2
-    exit 1
-  fi
-
-  DECOMP=${DECOMP:-C02}
-  TWIN_DECOMP=${TWIN_DECOMP:-C06}
-  if [ -z "${CFG_RANKS[$DECOMP]:-}" ]; then
-    echo "ERROR: DECOMP=$DECOMP is not a resolved STRICT config for case $CASE" >&2
-    exit 1
-  fi
-  if [ -z "${CFG_RANKS[$TWIN_DECOMP]:-}" ]; then
-    echo "ERROR: TWIN_DECOMP=$TWIN_DECOMP is not a resolved STRICT config for case $CASE" >&2
-    exit 1
-  fi
-  # Single rule set for the reference/twin pair, whether the ids are STRICT templates or come
-  # from CONFIG_FILE (configs.resolve_decomp_pair, unit-tested in campaign/test_configs.py
-  # TestResolveDecompPair / TestDecompPairCLI). It re-checks resolvability with a message that
-  # names the available ids -- the two guards above cannot, because their CFG_* tables are built
-  # with stderr discarded and look identical whether the id was wrong or configs.py itself failed
-  # -- and it additionally refuses TWIN_DECOMP == DECOMP, which would measure a ~0 chaos floor
-  # and relabel every candidate LARGE-DRIFT. Fail-fast: this runs before the first WRF srun.
-  if ! $PY "$CAMPAIGN/configs.py" decomp-pair "$CASE" "$DECOMP" "$TWIN_DECOMP"; then
-    echo "ERROR: DECOMP=$DECOMP / TWIN_DECOMP=$TWIN_DECOMP rejected for case $CASE (reason above; CONFIG_FILE=${CONFIG_FILE:-unset})" >&2
-    exit 1
-  fi
-
-  SIM_MINUTES=${SIM_MINUTES:-$PHYSICS_SIM_MINUTES_DEFAULT}
-  HIST_MINUTES_CALC=$(( (SIM_MINUTES + 3) / 6 ))
-  [ "$HIST_MINUTES_CALC" -lt 5 ] && HIST_MINUTES_CALC=5
-  HIST_MINUTES=${HIST_MINUTES:-$HIST_MINUTES_CALC}
-  REPS=${REPS:-2}
-
-  echo "physics campaign: case=$CASE decomp=$DECOMP twin_decomp=$TWIN_DECOMP sim_minutes=$SIM_MINUTES hist_minutes=$HIST_MINUTES reps=$REPS pconfigs=${PCONFIGS:-(default: all applicable)}"
-
-  PCONFIGS_ARGS=()
-  [ -n "${PCONFIGS:-}" ] && PCONFIGS_ARGS=(--pconfigs "$PCONFIGS")
-  # 2>/dev/null + a tag-shaped grep filter: defends the run order against any stray
-  # noise line (e.g. a pixi cache warning) a $PY invocation might print to stdout,
-  # which would otherwise silently splice a bogus entry into PORDER.
-  mapfile -t PORDER < <("$PYBIN" "$CAMPAIGN/configs.py" physics-order "$CASE" "${PCONFIGS_ARGS[@]}" --reps "$REPS" \
-    2>/dev/null | grep -E '^(P00_ref|P00_twin|[PD][0-9]+)$')  # [PD]: D01+ are the &dynamics/
-    # diagnostics/cadence templates (2026-09-16); a P-only filter silently dropped every one of them
-    # and left an empty candidate list (job 1080256)
-  echo "physics order (${#PORDER[@]} runs): ${PORDER[*]}"
-  if [ ${#PORDER[@]} -eq 0 ]; then
-    echo "no physics templates resolved for case $CASE" >&2
-    exit 1
-  fi
-
-  FIDOUT="$OUT/fidelity_${CASE}_${J}"
-  mkdir -p "$FIDOUT"
-
-  declare -A PREPCOUNT
-  declare -A EXPECTED_CANDIDATE
-  REF_OK=0; TWIN_OK=0
-  REF_NC_FILES=(); TWIN_NC_FILES=()
-  GOT_FIDELITY=0
-
-  for tag in "${PORDER[@]}"; do
-    PREPCOUNT[$tag]=$(( ${PREPCOUNT[$tag]:-0} + 1 ))
-    rep=${PREPCOUNT[$tag]}
-
-    case "$tag" in
-      P00_ref)  TEMPLATE_ID=P00; DECOMP_ID=$DECOMP; ROLE=reference ;;
-      P00_twin) TEMPLATE_ID=P00; DECOMP_ID=$TWIN_DECOMP; ROLE=twin ;;
-      *)        TEMPLATE_ID=$tag; DECOMP_ID=$DECOMP; ROLE=candidate ;;
-    esac
-    if [ "$TEMPLATE_ID" = "P00" ]; then COMPLIANCE_CLASS=STRICT; else COMPLIANCE_CLASS=PHYSICS-GRAY; fi
-
-    ranks=${CFG_RANKS[$DECOMP_ID]}; omp=${CFG_OMP[$DECOMP_ID]}; nx=${CFG_NX[$DECOMP_ID]}; ny=${CFG_NY[$DECOMP_ID]}
-    numtiles=${CFG_NUMTILES[$DECOMP_ID]}; dist=${CFG_DIST[$DECOMP_ID]}; blocktime=${CFG_BLOCKTIME[$DECOMP_ID]}
-    ntasks_per_node=$(( ranks / ALLOC_NODES ))
-    # ledger kmp_blocktime column: "n/a" on scc (no such knob under nvhpc OpenMP, see
-    # configure_omp_env below), else the template/generated value verbatim, unchanged from before
-    # SITE existed. Computed here too (not only in configure_omp_env) so a SKIP row below -- which
-    # never reaches configure_omp_env, since no run happens -- still records the right value.
-    if [ "$SITE" = "scc" ]; then BLOCKTIME_RECORD="n/a"; else BLOCKTIME_RECORD="$blocktime"; fi
-
-    # 2>/dev/null + tail -n1: physics-describe prints exactly one real line (SKIP\treason
-    # or the 13-field TSV); this defends the read against any stray noise line (e.g. a
-    # pixi cache warning) landing before it.
-    IFS=$'\t' read -r P_FAMILY P_EDITS P_PROBE P_TS P_MP P_CU P_BL P_SFCLAY P_SFSURF P_RLW P_RSW P_RADT P_CUDT \
-      < <("$PYBIN" "$CAMPAIGN/configs.py" physics-describe "$CASE" "$TEMPLATE_ID" 2>/dev/null | tail -n1)
-    # physics-describe writes "-" for empty fields (tab IFS collapses empty fields); map back
-    [ "$P_FAMILY" != "SKIP" ] && for _v in P_EDITS P_PROBE P_TS P_MP P_CU P_BL P_SFCLAY P_SFSURF P_RLW P_RSW P_RADT P_CUDT; do
-      [ "${!_v}" = "-" ] && printf -v "$_v" '%s' ""
-    done
-
-    if [ "$ROLE" = "candidate" ] && [ "$rep" = "1" ] && [ "$P_FAMILY" != "SKIP" ]; then
-      EXPECTED_CANDIDATE[$tag]=1
-    fi
-
-    if [ "$P_FAMILY" = "SKIP" ]; then
-      REASON_TXT=$(echo "$P_EDITS" | tr ' \t' '__')
-      echo "SKIP case=$CASE template=$TEMPLATE_ID tag=$tag rep=$rep reason=$P_EDITS"
-      NOTES="mode=physics template=$TEMPLATE_ID family=- edits= decomp=$DECOMP_ID sim_minutes=$SIM_MINUTES hist_minutes=$HIST_MINUTES fidelity_nd_max= fidelity_floor_ratio_max= fidelity_deciding= tag=$tag role=$ROLE rep=$rep probe=none status=SKIPPED reason=$REASON_TXT $NODE_DIRTY_NOTE"
-      export RUN_ID="${CASE}_physics_${tag}_r${rep}_${J}" SRC_DATASET="physics_campaign" JOB_ID="$J" \
-        REP_INDEX="$rep" CASE_RAW="$CASE" CASE_BASE="$CASE" CASE_FAMILY="$CASE_FAMILY" \
-        HARDWARE_ID="$HARDWARE_ID" BINARY_KIND="pristine" COMPLIANCE_CLASS="$COMPLIANCE_CLASS" \
-        E_WE="$E_WE" E_SN="$E_SN" E_VERT="$E_VERT" DX="$DX" DY="$DY" TIME_STEP="$DT" \
-        MP_PHYSICS="$PHYS_MP_PHYSICS" CU_PHYSICS="$PHYS_CU_PHYSICS" BL_PBL_PHYSICS="$PHYS_BL_PBL_PHYSICS" \
-        SF_SFCLAY_PHYSICS="$PHYS_SF_SFCLAY_PHYSICS" SF_SURFACE_PHYSICS="$PHYS_SF_SURFACE_PHYSICS" \
-        RA_LW_PHYSICS="$PHYS_RA_LW_PHYSICS" RA_SW_PHYSICS="$PHYS_RA_SW_PHYSICS" \
-        RADT="$PHYS_RADT" CUDT="$PHYS_CUDT" \
-        HISTORY_INTERVAL="0" IO_FORM_HISTORY="14" \
-        N_NODES="$ALLOC_NODES" N_RANKS="$ranks" OMP_THREADS="$omp" NPROC_X="$nx" NPROC_Y="$ny" \
-        NUMTILES="$numtiles" DISTRIBUTION="$dist" KMP_BLOCKTIME_COL="$BLOCKTIME_RECORD" \
-        S_PER_STEP_MEDIAN="" S_PER_STEP_MEAN="" N_STEPS_MEASURED="" \
-        DIFFWRF_DIFFERING_FIELDS="" FIDELITY_LABEL="" NOTES="$NOTES" PHYSICS_SUITE_NOTE="$PHYSICS_SUITE"
-      python3 - "$LEDGER" <<'PY'
-import csv, os, sys
-ledger = sys.argv[1]
-e = os.environ.get
-notes = e("NOTES", "")
-suite = e("PHYSICS_SUITE_NOTE", "")
-if suite:
-    notes = "physics_suite=%s %s" % (suite, notes)
-row = [
-    e("RUN_ID"), e("SRC_DATASET"), e("JOB_ID"), e("REP_INDEX"), e("CASE_RAW"), e("CASE_BASE"),
-    e("CASE_FAMILY"), e("HARDWARE_ID"), e("BINARY_KIND"), e("COMPLIANCE_CLASS"),
-    e("E_WE"), e("E_SN"), e("E_VERT"), e("DX"), e("DY"), e("TIME_STEP"),
-    e("MP_PHYSICS"), e("CU_PHYSICS"), e("BL_PBL_PHYSICS"), e("SF_SFCLAY_PHYSICS"),
-    e("SF_SURFACE_PHYSICS"), e("RA_LW_PHYSICS"), e("RA_SW_PHYSICS"), e("RADT"), e("CUDT"),
-    e("HISTORY_INTERVAL"), e("IO_FORM_HISTORY"), e("N_NODES"), e("N_RANKS"), e("OMP_THREADS"),
-    e("NPROC_X"), e("NPROC_Y"), e("NUMTILES"), e("DISTRIBUTION"), e("KMP_BLOCKTIME_COL"),
-    e("S_PER_STEP_MEDIAN", ""), e("S_PER_STEP_MEAN", ""), e("N_STEPS_MEASURED", ""),
-    e("DIFFWRF_DIFFERING_FIELDS", ""), e("FIDELITY_LABEL"),
-    "", "", "", "", "", "", "",
-    notes,
-]
-with open(ledger, "a", newline="") as f:
-    csv.writer(f).writerow(row)
-PY
-      continue
-    fi
-
-    check_disk_guard "physics_${tag}_r${rep}"
-
-    RUNDIR="$OUT/${CASE}_physics_${tag}_r${rep}_${J}"
-    rm -rf "$RUNDIR"; mkdir -p "$RUNDIR"; cd "$RUNDIR"
-
-    for f in "${INPUT_FILES_ARR[@]}"; do
-      ln -sf "$PREP_DIR/$f" "$f"
-    done
-    link_wrf_inputs
-    link_thompson_tables
-    for f in "$W"/run/*; do
-      b=$(basename "$f")
-      case "$b" in namelist.input|wrfout*|wrfinput*|wrfbdy*|wrfrst*|rsl.*) ;;
-        *) [ -e "$b" ] || ln -sf "$f" "$b" ;; esac
-    done
-    cp "$NAMELIST_TEMPLATE" ./namelist.input.orig
-    SET_ARGS=()
-    if [ -n "${NAMELIST_OVERRIDES:-}" ]; then
-      for kv in $NAMELIST_OVERRIDES; do
-        SET_ARGS+=(--set "$kv")
-      done
-    fi
-    DELETE_ARGS=()
-    if [ -n "${NAMELIST_DELETE_KEYS:-}" ]; then
-      for k in $NAMELIST_DELETE_KEYS; do
-        DELETE_ARGS+=(--delete-key "$k")
-      done
-    fi
-    NEST_ARGS=()
-    [ "$NEST_HISTORY" = "1" ] && NEST_ARGS+=(--nest-history-on)
-    if [ "$rep" = "1" ]; then
-      HIST_ARGS=(--history-mode interval --history-minutes "$HIST_MINUTES")
-    else
-      HIST_ARGS=(--history-mode off)
-    fi
-    # Tile geometry, same rule as the STRICT loop below: only a CONFIG_FILE-generated
-    # decomposition ever has these CFG_* entries populated, so with CONFIG_FILE unset TILE_ARGS
-    # stays empty and this edit-namelist call is byte-identical to before. Before 2026-09-17 the
-    # physics loop omitted them unconditionally, which silently dropped the tile geometry of any
-    # generated decomposition it was handed.
-    TILE_ARGS=()
-    if [ -n "${CONFIG_FILE:-}" ]; then
-      TILE_ARGS=(
-        --numtiles-x "${CFG_NTILES_X[$DECOMP_ID]:-0}" --numtiles-y "${CFG_NTILES_Y[$DECOMP_ID]:-0}"
-        --tile-sz-x "${CFG_TSZ_X[$DECOMP_ID]:-0}" --tile-sz-y "${CFG_TSZ_Y[$DECOMP_ID]:-0}"
-        --tile-strategy "${CFG_TSTRAT[$DECOMP_ID]:-0}"
-      )
-    fi
-    python3 "$CAMPAIGN/configs.py" edit-namelist ./namelist.input.orig ./namelist.input \
-      --nproc-x "$nx" --nproc-y "$ny" --numtiles "$numtiles" \
-      --run-minutes "$SIM_MINUTES" --max-dom "$MAX_DOM" --ranks "$ranks" \
-      "${SET_ARGS[@]}" "${DELETE_ARGS[@]}" "${NEST_ARGS[@]}" "${HIST_ARGS[@]}" "${TILE_ARGS[@]}" \
-      --physics-template "$TEMPLATE_ID" --physics-case "$CASE"
-    rm -f ./namelist.input.orig
-    link_namelist_files
-    ln -sf "$W/main/wrf.exe" ./wrf.exe
-
-    configure_omp_env "$omp" "$blocktime"
-
-    T0=$(date +%s.%N)
-    site_launch "$ranks" "$ntasks_per_node" "$omp" "$dist"
-    # background + explicit wait, not a foreground pipeline -- see the node-hygiene block's
-    # own comment above (job 740) for why. CUR_RUN_ID marks exactly the window a USR1/TERM/INT
-    # trap should record as interrupted if it lands here.
-    CUR_RUN_ID="${CASE}_physics_${tag}_r${rep}_${J}"
-    timeout "$TIMEOUT_S" "${SITE_LAUNCH_CMD[@]}" > wrf.out 2>&1 &
-    WRF_PID=$!
-    wait "$WRF_PID"
-    RC=$?
-    # wait returns 128+signum instead of the launched program's own exit status when a trapped
-    # signal interrupts it; node_hygiene_trap already wrote this run's ledger row and exited
-    # before this line in that case, so RC>128 here can only be a narrow race (signal landing
-    # after wait returned but before CUR_RUN_ID is cleared below) -- keep OK=0/FAILED, never
-    # treat it as success.
-    WRF_PID=""
-    CUR_RUN_ID=""
-    T1=$(date +%s.%N)
-    WALL=$(python3 -c "print('%.1f' % ($T1 - $T0))")
-
-    # post-run reap (design point 2): mpirun returned (normal exit or TIMEOUT_S watchdog) --
-    # reap any wrf.exe it left behind before the next run starts.
-    run_node_hygiene reap 60
-    [ "${REAP_N:-0}" -gt 0 ] && echo "WARN orphans_after_run cfg=$tag n=$REAP_N"
-
-    # harvest any freshly-computed Thompson table BEFORE the retention cleanup below
-    # (which, on a failed run, purges everything except the 5 diagnostic files) so a
-    # table generated by this run is never lost -- runs regardless of RC/OK.
-    harvest_thompson_tables
-
-    OK=0
-    if [ -f rsl.error.0000 ] && grep -qa "SUCCESS COMPLETE WRF" rsl.error.0000; then
-      OK=1
-    fi
-
-    grep -a "Timing for main" rsl.out.0000 2>/dev/null |   # -a: debug_level>=50 puts a Fortran NUL in mminlu, and GNU grep then prints "Binary file ... matches" and harvests ZERO steps (SC26-P1 job 1081398: rc=0 ok=1 but n=0 while all 324 timing lines were present)
-    sed -nE 's/.*on domain +([0-9]+): +([0-9.]+) elapsed.*/\1 \2/p' > steps_by_domain.txt
-    awk '$1 == 1 { print $2 }' steps_by_domain.txt > steps.txt
-  # restart_used=1 must mean the run REALLY started at the shared restart: the first d01 "Timing
-  # for main" line of a restart run is stamped RESTART_TIME+dt (strictly later than
-  # RESTART_TIME); a t0 start stamps T+dt < RESTART_TIME. Same-format timestamps compare
-  # lexicographically. No Timing line (failed run) leaves the configured value alone.
-  if [ "${RESTART_USED:-0}" = "1" ] && [ -f rsl.error.0000 ]; then
-    FIRST_STEP_TIME=$(grep -a -m1 "Timing for main" rsl.error.0000 | sed -nE 's/.*time +([0-9_:-]+) .*/\1/p')
-    if [ -n "$FIRST_STEP_TIME" ] && [[ ! "$FIRST_STEP_TIME" > "$RESTART_TIME" ]]; then
-      echo "RESTART_CHECK_FAILED cid=$cid first_step=$FIRST_STEP_TIME restart_time=$RESTART_TIME" >&2
-      RESTART_USED=0
-    fi
-  fi
-
-    if [ "$RC" = "0" ] && [ "$OK" = "1" ]; then
-      STATS=$("$PYBIN" "$CAMPAIGN/configs.py" step-stats steps.txt)
-    else
-      NALL_RAW=$(wc -l < steps.txt 2>/dev/null || echo 0)
-      NALL=$(( NALL_RAW > 0 ? NALL_RAW - 1 : 0 ))
-      NEXCL0=0; [ -s steps.txt ] && NEXCL0=1
-      STATS="med= mean= n=0 excl=$NEXCL0 nall=$NALL"
-    fi
-    kv () { echo "$STATS" | awk -v k="$1" '{for (i = 1; i <= NF; i++) {split($i, a, "="); if (a[1] == k) print a[2]}}'; }
-    MED=$(kv med); MEAN=$(kv mean); NMEAS=$(kv n); NEXCL=$(kv excl); NALL=$(kv nall)
-
-    echo "RESULT case=$CASE mode=physics tag=$tag template=$TEMPLATE_ID role=$ROLE rep=$rep decomp=$DECOMP_ID rc=$RC ok=$OK med=$MED mean=$MEAN n=$NMEAS wall=$WALL"
-
-    FID_LABEL=""; FID_ND=""; FID_FLOOR=""; FID_DECIDING=""
-    STATUS_NOTE=""
-    if [ "$rep" = "1" ]; then
-      if [ "$RC" = "0" ] && [ "$OK" = "1" ]; then
-        mapfile -t FRAMES < <(ls -d wrfout_d01_* 2>/dev/null | sort)
-        NC_FILES=()
-        CONV_OK=1
-        if [ ${#FRAMES[@]} -eq 0 ]; then
-          CONV_OK=0
-        fi
-        # Convert every frame of THIS run in parallel (2026-09-15 fix): the previous
-        # one-frame-at-a-time serial loop measured ~3 min per BP frame on the
-        # 1000x1000x100 lafe grid, which alone burned through the whole job's time limit
-        # before the run set finished (job 1076893, cancelled mid-P06). Launch one
-        # --exclusive srun step per frame in the background -- Slurm packs them onto
-        # whatever nodes/cores are free in this job's own allocation, no manual node
-        # assignment needed -- then wait for every one before checking results, so one
-        # slow frame does not stall the others.
-        CONV_PIDS=()
-        for bf in "${FRAMES[@]}"; do
-          ncf="${bf}.nc"
-          srun --exclusive -N1 -n1 -c8 bash -c "cd $PIXI_ENV && pixi run python $CONV --input $RUNDIR/$bf --output $RUNDIR/$ncf" \
-            > "convert_${bf}.log" 2>&1 &
-          CONV_PIDS+=("$!")
-        done
-        CONV_RCS=()
-        for pid in "${CONV_PIDS[@]}"; do
-          wait "$pid"
-          CONV_RCS+=("$?")
-        done
-        for i in "${!FRAMES[@]}"; do
-          bf="${FRAMES[$i]}"
-          ncf="${bf}.nc"
-          rc="${CONV_RCS[$i]:-1}"
-          if [ "$rc" != "0" ] || [ ! -s "$ncf" ]; then
-            CONV_OK=0
-            rm -f "$ncf"
-            continue
-          fi
-          NC_FILES+=("$RUNDIR/$ncf")
-          # problem 1: BP history is never needed again once its netCDF is verified
-          # (non-empty, checked above) -- delete it immediately rather than waiting for
-          # the end-of-tag-loop sweep, so a job aborted partway through the tag loop
-          # (disk guard, timeout on a later run, ...) never leaves it behind.
-          rm -rf "$RUNDIR/$bf"
-        done
-        if [ "$CONV_OK" = "1" ]; then
-          case "$ROLE" in
-            reference)
-              REF_NC_FILES=("${NC_FILES[@]}")
-              REF_OK=1
-              ;;
-            twin)
-              TWIN_NC_FILES=("${NC_FILES[@]}")
-              TWIN_OK=1
-              if [ "$REF_OK" = "1" ]; then
-                FID_PREFIX="$RUNDIR/fidelity_TWIN_sanity"
-                $PY "$FIDELITY_GATE" --reference "${REF_NC_FILES[@]}" --twin "${TWIN_NC_FILES[@]}" \
-                  --candidate "${TWIN_NC_FILES[@]}" --family all --out-prefix "$FID_PREFIX" \
-                  > "$RUNDIR/fidelity_gate.log" 2>&1
-                if [ -f "${FID_PREFIX}.json" ]; then
-                  # 2>/dev/null + tail -n1: fidelity-tokens prints exactly one real line;
-                  # defends the read against any stray noise line preceding it. The extraction
-                  # itself is configs.fidelity_notes_tokens() (unit-tested in
-                  # campaign/test_configs.py TestFidelityNotesTokens) rather than an inline
-                  # heredoc, which used to exist here as two byte-identical copies and once
-                  # aborted the whole physics block with a $(...) syntax error (smoke jobs
-                  # 1076238/1076240). If the helper fails, `read` gets nothing and FID_* stay
-                  # empty -- the same notes shape as a run with no fidelity JSON at all.
-                  # FID_ND / FID_FLOOR are the MEASURED maxima over fields at the last common
-                  # time, not the thresholds.
-                  read -r FID_LABEL FID_ND FID_FLOOR FID_DECIDING \
-                    < <("$PYBIN" "$CAMPAIGN/configs.py" fidelity-tokens "${FID_PREFIX}.json" 2>/dev/null | tail -n1)
-                  cp "${FID_PREFIX}.json" "${FID_PREFIX}.csv" "$FIDOUT/" 2>/dev/null
-                  GOT_FIDELITY=$((GOT_FIDELITY + 1))
-                else
-                  STATUS_NOTE="status=FAILED reason=fidelity_gate_error_see_fidelity_gate.log"
-                fi
-              fi
-              ;;
-            candidate)
-              if [ "$REF_OK" = "1" ] && [ "$TWIN_OK" = "1" ]; then
-                FID_PREFIX="$RUNDIR/fidelity_${TEMPLATE_ID}"
-                $PY "$FIDELITY_GATE" --reference "${REF_NC_FILES[@]}" --twin "${TWIN_NC_FILES[@]}" \
-                  --candidate "${NC_FILES[@]}" --family "$P_FAMILY" --out-prefix "$FID_PREFIX" \
-                  > "$RUNDIR/fidelity_gate.log" 2>&1
-                if [ -f "${FID_PREFIX}.json" ]; then
-                  # 2>/dev/null + tail -n1: fidelity-tokens prints exactly one real line;
-                  # defends the read against any stray noise line preceding it. The extraction
-                  # itself is configs.fidelity_notes_tokens() (unit-tested in
-                  # campaign/test_configs.py TestFidelityNotesTokens) rather than an inline
-                  # heredoc, which used to exist here as two byte-identical copies and once
-                  # aborted the whole physics block with a $(...) syntax error (smoke jobs
-                  # 1076238/1076240). If the helper fails, `read` gets nothing and FID_* stay
-                  # empty -- the same notes shape as a run with no fidelity JSON at all.
-                  # FID_ND / FID_FLOOR are the MEASURED maxima over fields at the last common
-                  # time, not the thresholds.
-                  read -r FID_LABEL FID_ND FID_FLOOR FID_DECIDING \
-                    < <("$PYBIN" "$CAMPAIGN/configs.py" fidelity-tokens "${FID_PREFIX}.json" 2>/dev/null | tail -n1)
-                  cp "${FID_PREFIX}.json" "${FID_PREFIX}.csv" "$FIDOUT/" 2>/dev/null
-                  GOT_FIDELITY=$((GOT_FIDELITY + 1))
-                else
-                  STATUS_NOTE="status=FAILED reason=fidelity_gate_error_see_fidelity_gate.log"
-                fi
-              else
-                STATUS_NOTE="status=FAILED reason=reference_or_twin_unavailable"
-              fi
-              # problem 1: a candidate's own netCDF is used exactly once (this
-              # comparison, above) -- unlike reference/twin it is never needed again by
-              # a later candidate, so delete it now regardless of outcome.
-              rm -f "${NC_FILES[@]}"
-              ;;
-          esac
-        else
-          STATUS_NOTE="status=FAILED reason=bp_to_netcdf_conversion_failed"
-        fi
-      else
-        STATUS_NOTE="status=FAILED reason=run_failed_rc=${RC}_ok=${OK}"
-      fi
-    fi
-
-    NOTES="mode=physics template=$TEMPLATE_ID family=$P_FAMILY edits=$P_EDITS decomp=$DECOMP_ID sim_minutes=$SIM_MINUTES hist_minutes=$HIST_MINUTES fidelity_nd_max=$FID_ND fidelity_floor_ratio_max=$FID_FLOOR fidelity_deciding=$FID_DECIDING tag=$tag role=$ROLE rep=$rep n_excluded_steps=$NEXCL mean_includes_radiation=1 n_all_steps=$NALL io=adios2 $P_PROBE"
-    [ -n "$STATUS_NOTE" ] && NOTES="$NOTES $STATUS_NOTE"
-    # Same rule as the STRICT loop below: a CONFIG_FILE-generated decomposition's tile geometry
-    # has no ledger column of its own, so it goes into notes. Absent when CONFIG_FILE is unset.
-    if [ -n "${CONFIG_FILE:-}" ]; then
-      NOTES="$NOTES config_source=${CFG_SRC[$DECOMP_ID]:-generated} numtiles_x=${CFG_NTILES_X[$DECOMP_ID]:-} numtiles_y=${CFG_NTILES_Y[$DECOMP_ID]:-} tile_sz_x=${CFG_TSZ_X[$DECOMP_ID]:-} tile_sz_y=${CFG_TSZ_Y[$DECOMP_ID]:-} tile_strategy=${CFG_TSTRAT[$DECOMP_ID]:-} twin_decomp=$TWIN_DECOMP"
-    fi
-    [ "$RC" != "0" ] && NOTES="$NOTES rc=$RC"
-    [ "$OK" != "1" ] && NOTES="$NOTES ok=$OK"
-    NOTES="$NOTES $NODE_DIRTY_NOTE"
-
-    export RUN_ID="${CASE}_physics_${tag}_r${rep}_${J}" SRC_DATASET="physics_campaign" JOB_ID="$J" \
-      REP_INDEX="$rep" CASE_RAW="$CASE" CASE_BASE="$CASE" CASE_FAMILY="$CASE_FAMILY" \
-      HARDWARE_ID="$HARDWARE_ID" BINARY_KIND="pristine" COMPLIANCE_CLASS="$COMPLIANCE_CLASS" \
-      E_WE="$E_WE" E_SN="$E_SN" E_VERT="$E_VERT" DX="$DX" DY="$DY" TIME_STEP="$P_TS" \
-      MP_PHYSICS="$P_MP" CU_PHYSICS="$P_CU" BL_PBL_PHYSICS="$P_BL" \
-      SF_SFCLAY_PHYSICS="$P_SFCLAY" SF_SURFACE_PHYSICS="$P_SFSURF" \
-      RA_LW_PHYSICS="$P_RLW" RA_SW_PHYSICS="$P_RSW" \
-      RADT="$P_RADT" CUDT="$P_CUDT" \
-      HISTORY_INTERVAL="$([ "$rep" = "1" ] && echo "$HIST_MINUTES" || echo 0)" IO_FORM_HISTORY="14" \
-      N_NODES="$ALLOC_NODES" N_RANKS="$ranks" OMP_THREADS="$omp" NPROC_X="$nx" NPROC_Y="$ny" \
-      NUMTILES="$numtiles" DISTRIBUTION="$dist" KMP_BLOCKTIME_COL="$BLOCKTIME_RECORD" \
-      S_PER_STEP_MEDIAN="$MED" S_PER_STEP_MEAN="$MEAN" N_STEPS_MEASURED="$NMEAS" \
-      DIFFWRF_DIFFERING_FIELDS="" FIDELITY_LABEL="$FID_LABEL" NOTES="$NOTES" \
-      PHYSICS_SUITE_NOTE="$PHYSICS_SUITE"
-    python3 - "$LEDGER" <<'PY'
-import csv, os, sys
-ledger = sys.argv[1]
-e = os.environ.get
-notes = e("NOTES", "")
-suite = e("PHYSICS_SUITE_NOTE", "")
-if suite:
-    notes = "physics_suite=%s %s" % (suite, notes)
-row = [
-    e("RUN_ID"), e("SRC_DATASET"), e("JOB_ID"), e("REP_INDEX"), e("CASE_RAW"), e("CASE_BASE"),
-    e("CASE_FAMILY"), e("HARDWARE_ID"), e("BINARY_KIND"), e("COMPLIANCE_CLASS"),
-    e("E_WE"), e("E_SN"), e("E_VERT"), e("DX"), e("DY"), e("TIME_STEP"),
-    e("MP_PHYSICS"), e("CU_PHYSICS"), e("BL_PBL_PHYSICS"), e("SF_SFCLAY_PHYSICS"),
-    e("SF_SURFACE_PHYSICS"), e("RA_LW_PHYSICS"), e("RA_SW_PHYSICS"), e("RADT"), e("CUDT"),
-    e("HISTORY_INTERVAL"), e("IO_FORM_HISTORY"), e("N_NODES"), e("N_RANKS"), e("OMP_THREADS"),
-    e("NPROC_X"), e("NPROC_Y"), e("NUMTILES"), e("DISTRIBUTION"), e("KMP_BLOCKTIME_COL"),
-    e("S_PER_STEP_MEDIAN", ""), e("S_PER_STEP_MEAN", ""), e("N_STEPS_MEASURED", ""),
-    e("DIFFWRF_DIFFERING_FIELDS", ""), e("FIDELITY_LABEL"),
-    "", "", "", "", "", "", "",
-    notes,
-]
-with open(ledger, "a", newline="") as f:
-    csv.writer(f).writerow(row)
-PY
-
-    # problem 1 retention rule: a successful run's rsl.* is trimmed to the two kept
-    # files and wrf.out is redundant with them, so drop it (its own BP history/netCDF
-    # were already handled immediately above -- converted+deleted, or, for a
-    # candidate, deleted right after its own fidelity computation; reference/twin's
-    # netCDF persists until the tag loop ends, see below). A FAILED run (rc!=0,
-    # timeout, or no SUCCESS in rsl.error.0000) keeps only the minimum needed to
-    # diagnose it -- smoke jobs 1076238-1076340 kept EVERYTHING (BP history + netCDF
-    # too) for a failed run whenever any expected fidelity JSON was missing anywhere
-    # in the job, and filled home1's soft quota.
-    if [ "$RC" = "0" ] && [ "$OK" = "1" ]; then
-      find . -maxdepth 1 -name 'rsl.*' ! -name 'rsl.out.0000' ! -name 'rsl.error.0000' -delete
-      rm -f wrf.out
-    else
-      find . -maxdepth 1 -mindepth 1 \
-        ! -name 'rsl.error.0000' ! -name 'rsl.out.0000' ! -name 'wrf.out' \
-        ! -name 'namelist.input' ! -name 'namelist.output' \
-        -exec rm -rf {} +
-    fi
-
-    cd "$OUT"
-  done
-
-  # problem 1: reference's and twin's own netCDF are consulted by EVERY candidate's
-  # fidelity_gate call (see the candidate arm above), so they cannot be deleted until
-  # the job's last fidelity computation -- that is here, unconditionally, whether or
-  # not every expected fidelity JSON got computed (the old conditional kept everything
-  # on any miss/failure, which is exactly what filled home1's soft quota). A defensive
-  # sweep also catches any residual wrfout_d0* BP dir (there should be none left: every
-  # successful conversion deletes its own BP immediately above, and a failed run's BP
-  # is purged by the retention block above too).
-  # an EMPTY associative array expands to an unbound variable under set -u (job 1080256 died here
-  # once the filter above had dropped every candidate), so count it through a +x guard
-  EXPECTED_N=0
-  [ -n "${EXPECTED_CANDIDATE[*]+x}" ] && EXPECTED_N=${#EXPECTED_CANDIDATE[@]}
-  EXPECTED_FIDELITY=$(( 1 + EXPECTED_N ))
-  rm -f "${REF_NC_FILES[@]}" "${TWIN_NC_FILES[@]}"
-  for d in "$OUT/${CASE}_physics_"*"_${J}"; do
-    [ -d "$d" ] || continue
-    find "$d" -maxdepth 1 -name 'wrfout_d0*' -exec rm -rf {} +
-  done
-  echo "RETENTION: reference/twin netCDF and any residual BP history cleaned up for case=$CASE job=$J -- ref_ok=$REF_OK twin_ok=$TWIN_OK got_fidelity=$GOT_FIDELITY expected_fidelity=$EXPECTED_FIDELITY (fidelity JSON/CSV kept in $FIDOUT; see per-run notes in $LEDGER for anything missing/failed)"
-
-  echo "=== done (MODE=physics)"
-  exit 0
-fi
-# A runtime error inside the physics block (e.g. a syntax error in a command substitution)
-# aborts that compound command and resumes HERE; never fall through into the STRICT loop
-# (smoke jobs 1076238/1076240 did, and ran C01-C16 with an empty --history-mode until timeout).
-if [ "$MODE" = "physics" ]; then
-  echo "MODE=physics block aborted before completion -- refusing to fall through to the STRICT loop" >&2
-  exit 1
-fi
-
 mapfile -t ORDER < <("$PYBIN" "$CAMPAIGN/configs.py" order "$CASE" --reps "$REPS")
-# optional subset for smoke tests: CONFIGS=C02+C05 keeps only those ids, preserving the order
-# ('+' separated: sbatch --export splits its argument on commas, so CONFIGS=C02,C05 would arrive as C02)
-if [ -n "${CONFIGS:-}" ]; then
-  KEEP=",${CONFIGS//+/,},"
-  FILTERED=()
-  for c in "${ORDER[@]}"; do case "$KEEP" in *",$c,"*) FILTERED+=("$c") ;; esac; done
-  ORDER=("${FILTERED[@]}")
-fi
 echo "order (${#ORDER[@]} runs): ${ORDER[*]}"
 if [ ${#ORDER[@]} -eq 0 ]; then
   echo "no configs resolved for case $CASE" >&2
@@ -1596,40 +1056,7 @@ for cid in "${ORDER[@]}"; do
   kv () { echo "$STATS" | awk -v k="$1" '{for (i = 1; i <= NF; i++) {split($i, a, "="); if (a[1] == k) print a[2]}}'; }
   MED=$(kv med); MEAN=$(kv mean); NMEAS=$(kv n); NEXCL=$(kv excl); NALL=$(kv nall)
 
-  # ---- correctness mode: convert the (only, thanks to history_mode=end_d01) BP
-  # frame to netCDF outside the timed region above, diffwrf against the first
-  # successful run's netCDF, then discard the BP frame and any non-reference nc.
-  # timing mode never writes a wrfout_d0* frame at all (history_mode=off), so
-  # this whole block is a no-op there and DIFF_FIELDS/DIFF_STATUS stay empty/off.
   DIFF_FIELDS=""
-  DIFF_STATUS="off"
-  CONVERT_RC=""
-  if [ "$MODE" = "correctness" ]; then
-    BP_FRAME=$(ls -d wrfout_d01_* 2>/dev/null | sort | tail -1)
-    if [ "$RC" = "0" ] && [ "$OK" = "1" ] && [ -n "$BP_FRAME" ]; then
-      NC_FILE="${BP_FRAME}.nc"
-      srun -N1 -n1 -c8 bash -c "cd $PIXI_ENV && pixi run python $CONV --input $RUNDIR/$BP_FRAME --output $RUNDIR/$NC_FILE" \
-        > convert.log 2>&1
-      CONVERT_RC=$?
-      if [ "$CONVERT_RC" != "0" ]; then
-        rm -f "$NC_FILE"  # convert.py leaves a partial .nc behind on failure
-        DIFF_STATUS="convert_failed"
-      elif [ -z "$REF_NC" ]; then
-        REF_NC="$RUNDIR/$NC_FILE"; REF_CONFIG="$cid"
-        DIFF_STATUS="reference"
-      elif [ -e "$REF_NC" ]; then
-        "$W/external/io_netcdf/diffwrf" "$REF_NC" "$NC_FILE" > diffwrf_vs_ref.txt 2>&1
-        DIFF_FIELDS=$(awk '/Field +Ndifs/{h=1;next} h && NF>=3 && $2 ~ /^[0-9]+$/ {n++} END{print n+0}' diffwrf_vs_ref.txt)
-        if [ "$DIFF_FIELDS" = "0" ]; then DIFF_STATUS="bit_identical"; else DIFF_STATUS="diff_detected"; fi
-        rm -f "$NC_FILE"
-      else
-        DIFF_STATUS="no_reference"
-      fi
-    else
-      DIFF_STATUS="run_failed"
-    fi
-    [ -n "${BP_FRAME:-}" ] && rm -rf "$BP_FRAME"
-  fi
 
   # ---- window_frame: convert the end-of-window (and, level 2, window-mid) BP frames to NetCDF,
   # AFTER the timed region.
@@ -1666,12 +1093,8 @@ for cid in "${ORDER[@]}"; do
 
   # ---- ledger row ----
   # fidelity_label is reserved for PHYSICS-GRAY fidelity; STRICT diffwrf status goes to notes.
-  # diffwrf only ever compares wrfout_d01_* frames (see BP_FRAME globs above), so a nested
-  # (max_dom>1) case's correctness check covers d01 only -- record both facts in notes.
   NOTES="config=$cid n_excluded_steps=$NEXCL ref_config=$REF_CONFIG mode=$MODE io=adios2"
-  if [ "$MODE" = "correctness" ]; then
-    NOTES="$NOTES history=end_d01 diff_status=$DIFF_STATUS diff_domain=d01 max_dom=$MAX_DOM convert_rc=$CONVERT_RC"
-  elif [ "$WF" != "0" ]; then
+  if [ "$WF" != "0" ]; then
     NOTES="$NOTES history=$RUN_HISTORY_ARG $WF_NOTE"
   else
     NOTES="$NOTES history=off"
@@ -1702,7 +1125,7 @@ for cid in "${ORDER[@]}"; do
     SF_SFCLAY_PHYSICS="$PHYS_SF_SFCLAY_PHYSICS" SF_SURFACE_PHYSICS="$PHYS_SF_SURFACE_PHYSICS" \
     RA_LW_PHYSICS="$PHYS_RA_LW_PHYSICS" RA_SW_PHYSICS="$PHYS_RA_SW_PHYSICS" \
     RADT="$PHYS_RADT" CUDT="$PHYS_CUDT" \
-    HISTORY_INTERVAL="$(if [ "$MODE" = correctness ] || [ "$WF" = "1" ]; then echo "$MIN"; elif [ "$WF" = "2" ]; then echo $(( MIN - MIN / 2 )); else echo 0; fi)" IO_FORM_HISTORY="14" \
+    HISTORY_INTERVAL="$(if [ "$WF" = "1" ]; then echo "$MIN"; elif [ "$WF" = "2" ]; then echo $(( MIN - MIN / 2 )); else echo 0; fi)" IO_FORM_HISTORY="14" \
     N_NODES="$ALLOC_NODES" N_RANKS="$ranks" OMP_THREADS="$omp" NPROC_X="$nx" NPROC_Y="$ny" \
     NUMTILES="$numtiles" DISTRIBUTION="$dist" KMP_BLOCKTIME_COL="$BLOCKTIME_RECORD" \
     S_PER_STEP_MEDIAN="$MED" S_PER_STEP_MEAN="$MEAN" N_STEPS_MEASURED="$NMEAS" \
@@ -1733,12 +1156,7 @@ with open(ledger, "a", newline="") as f:
     csv.writer(f).writerow(row)
 PY
 
-  # ---- cleanup: keep rsl.out.0000, rsl.error.0000, namelist.input, steps.txt,
-  # diffwrf_vs_ref.txt; delete everything else. Every BP frame is already gone
-  # (converted+deleted, or convert_failed and deleted, above) except the one
-  # netCDF this iteration just became the correctness reference for -- exclude
-  # only that (a plain generic safety net in timing mode, which writes nothing
-  # matching wrfout_d0* in the first place).
+  # ---- cleanup: keep rsl.out.0000, rsl.error.0000, namelist.input, steps.txt; delete everything else.
   find . -maxdepth 1 -name 'rsl.*' ! -name 'rsl.out.0000' ! -name 'rsl.error.0000' -delete
   # (window_frame keeps its converted wrfout_d01_<Times>.nc: the orchestrator reads it afterwards)
   WF_FIND_ARGS=()
@@ -1750,8 +1168,6 @@ PY
 
   cd "$OUT"
 done
-
-[ -n "$REF_NC" ] && [ -e "$REF_NC" ] && rm -f "$REF_NC"
 
 # The shared spin-up restarts this job wrote are only needed by this job's candidates (conus25:
 # ~12 GB per spin-up; 23 of them had piled up to 251 GB on scc by 2026-09-28). Remove them unless

@@ -42,8 +42,8 @@ from case_tables import (  # noqa: E402,F401
     CASE_ORDER, COST_GUESS, _active_domain_extents, _case_effective_max_dom,
     _case_namelist_path, case_frozen_keys, load_generated_configs)
 from configs_cli import (  # noqa: E402,F401
-    _COMPLIANCE_KNOBS, _DECOMP_PAIR_COLUMNS, _shq, _stage_bp_inputs_locked,
-    assert_strict_compliance, cmd_config_extras, cmd_fidelity_tokens)
+    _COMPLIANCE_KNOBS, _shq, _stage_bp_inputs_locked,
+    assert_strict_compliance, cmd_config_extras)
 from configs_cli import cmd_fused_steps as _cmd_fused_steps  # noqa: E402,F401
 from configs_cli import cmd_link_namelist_files as _cmd_link_namelist_files  # noqa: E402,F401
 from configs_cli import cmd_point_plan as _cmd_point_plan  # noqa: E402,F401
@@ -232,7 +232,7 @@ def _campaign() -> _cli.Campaign:
     return _cli.Campaign(
         cases=CASES, case_order=CASE_ORDER, cost_guess=COST_GUESS,
         physics_templates=PHYSICS_TEMPLATES, physics_order=PHYSICS_TEMPLATE_ORDER,
-        resolve_case=resolve_case, resolve_decomp_pair=resolve_decomp_pair,
+        resolve_case=resolve_case,
         resolve_physics_config=resolve_physics_config, edit_namelist=edit_namelist)
 
 
@@ -246,10 +246,6 @@ def cmd_case_generated(case_id: str, config_file: str) -> int:
 
 def cmd_restart_time(case_id: str, spinup_minutes: Any) -> int:
     return _cli.cmd_restart_time(_campaign(), case_id, spinup_minutes)
-
-
-def cmd_decomp_pair(argv: Sequence[str]) -> int:
-    return _cli.cmd_decomp_pair(_campaign(), argv)
 
 
 def cmd_order(case_id: str, reps: Any, config_file: Optional[str] = None) -> int:
@@ -266,14 +262,6 @@ def _cmd_edit_namelist(argv: Sequence[str]) -> int:
 
 def cmd_physics_list(argv: Sequence[str]) -> int:
     return _cli.cmd_physics_list(_campaign(), argv)
-
-
-def cmd_physics_order(argv: Sequence[str]) -> int:
-    return _cli.cmd_physics_order(_campaign(), argv)
-
-
-def cmd_physics_describe(argv: Sequence[str]) -> int:
-    return _cli.cmd_physics_describe(_campaign(), argv)
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:

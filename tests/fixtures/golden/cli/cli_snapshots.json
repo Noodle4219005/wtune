@@ -17,17 +17,6 @@
   "stderr": "",
   "stdout": "usage: wtune.py analyze [-h] {diag,tc-track} ...\n\npositional arguments:\n  {diag,tc-track}\n    diag           wrf-python derived diagnostic fields, no tracking\n    tc-track       TempestExtremes DetectNodes+StitchNodes TC track vs.\n                   HURDAT2 best track, side by side with the naive method\n\noptions:\n  -h, --help       show this help message and exit\n"
  },
- "audit-no-file": {
-  "argv": [
-   "audit",
-   "--namelist",
-   "/nonexistent/wtune-golden/namelist.input"
-  ],
-  "rc": 1,
-  "script": "wtune.py",
-  "stderr": "ERROR reading namelist: [Errno 2] No such file or directory: '/nonexistent/wtune-golden/namelist.input'\n",
-  "stdout": ""
- },
  "calc-no-args": {
   "argv": [
    "calc"
@@ -70,17 +59,6 @@
   "stderr": "",
   "stdout": "usage: wtune_calibrate.py [-h] {plan,fit} ...\n\npositional arguments:\n  {plan,fit}\n    plan      write sbatch scripts that measure a case at several rank counts\n    fit       fit a calibration JSON from plan's completed runs\n\noptions:\n  -h, --help  show this help message and exit\n"
  },
- "catalog-grep": {
-  "argv": [
-   "catalog",
-   "--grep",
-   "numtiles"
-  ],
-  "rc": 0,
-  "script": "wtune.py",
-  "stderr": "",
-  "stdout": "=== WRF parameter catalog (Registry-derived, forecast-relevant) ===\nsource: WRF Registry (rconfig namelist entries) | total 2062 params\n\n&domains (4 params, I/O plumbing hidden)\n  numtiles                   integer   default=1         numtiles\n  numtiles_inc               integer   default=0         numtiles_inc\n  numtiles_x                 integer   default=0         numtiles_x\n  numtiles_y                 integer   default=0         numtiles_y\n\n(4 params shown)\n"
- },
  "check-no-args": {
   "argv": [
    "check"
@@ -119,30 +97,6 @@
   "stderr": "usage: wtune_config.py init CASE [--out FILE] | wtune_config.py show FILE [--case NAME|--case-dir DIR] [--nodes N,N,...] | wtune_config.py validate FILE\n",
   "stdout": ""
  },
- "feedback-missing": {
-  "argv": [
-   "feedback"
-  ],
-  "rc": 2,
-  "script": "wtune.py",
-  "stderr": "usage: wtune.py feedback [-h] --input INPUT --json-out JSON_OUT --csv-out\n                         CSV_OUT\nwtune.py feedback: error: the following arguments are required: --input, --json-out, --csv-out\n",
-  "stdout": ""
- },
- "feedback-no-file": {
-  "argv": [
-   "feedback",
-   "--input",
-   "/nonexistent/wtune-golden/in.json",
-   "--json-out",
-   "/nonexistent/wtune-golden/o.json",
-   "--csv-out",
-   "/nonexistent/wtune-golden/o.csv"
-  ],
-  "rc": 1,
-  "script": "wtune.py",
-  "stderr": "ERROR restart-window: feedback input/output: [Errno 2] No such file or directory: '/nonexistent/wtune-golden/in.json'\n",
-  "stdout": ""
- },
  "help-advise": {
   "argv": [
    "advise",
@@ -163,16 +117,6 @@
   "stderr": "",
   "stdout": "usage: wtune.py analyze [-h] {diag,tc-track} ...\n\npositional arguments:\n  {diag,tc-track}\n    diag           wrf-python derived diagnostic fields, no tracking\n    tc-track       TempestExtremes DetectNodes+StitchNodes TC track vs.\n                   HURDAT2 best track, side by side with the naive method\n\noptions:\n  -h, --help       show this help message and exit\n"
  },
- "help-audit": {
-  "argv": [
-   "audit",
-   "--help"
-  ],
-  "rc": 0,
-  "script": "wtune.py",
-  "stderr": "",
-  "stdout": "usage: wtune.py audit [-h] --namelist NAMELIST\n\noptions:\n  -h, --help           show this help message and exit\n  --namelist NAMELIST  path to namelist.input\n"
- },
  "help-calc": {
   "argv": [
    "calc",
@@ -192,16 +136,6 @@
   "script": "wtune.py",
   "stderr": "",
   "stdout": "usage: wtune_calibrate.py [-h] {plan,fit} ...\n\npositional arguments:\n  {plan,fit}\n    plan      write sbatch scripts that measure a case at several rank counts\n    fit       fit a calibration JSON from plan's completed runs\n\noptions:\n  -h, --help  show this help message and exit\n"
- },
- "help-catalog": {
-  "argv": [
-   "catalog",
-   "--help"
-  ],
-  "rc": 0,
-  "script": "wtune.py",
-  "stderr": "",
-  "stdout": "usage: wtune.py catalog [-h] [--group GROUP] [--grep GREP] [--include-io]\n\noptions:\n  -h, --help     show this help message and exit\n  --group GROUP  filter to one namelist group (e.g. physics)\n  --grep GREP    filter by substring in param name\n  --include-io   include per-stream I/O plumbing params\n"
  },
  "help-check": {
   "argv": [
@@ -233,36 +167,6 @@
   "stderr": "",
   "stdout": "usage: wtune_config.py init CASE [--out FILE] | wtune_config.py show FILE [--case NAME|--case-dir DIR] [--nodes N,N,...] | wtune_config.py validate FILE\n"
  },
- "help-feedback": {
-  "argv": [
-   "feedback",
-   "--help"
-  ],
-  "rc": 0,
-  "script": "wtune.py",
-  "stderr": "",
-  "stdout": "usage: wtune.py feedback [-h] --input INPUT --json-out JSON_OUT --csv-out\n                         CSV_OUT\n\noptions:\n  -h, --help           show this help message and exit\n  --input INPUT        JSON samples and controller limits\n  --json-out JSON_OUT  decision JSON output\n  --csv-out CSV_OUT    canonical telemetry/decision CSV output\n"
- },
- "help-hotspot": {
-  "argv": [
-   "hotspot",
-   "--help"
-  ],
-  "rc": 0,
-  "script": "wtune.py",
-  "stderr": "",
-  "stdout": "usage: wtune.py hotspot [-h] --namelist NAMELIST [--wrfinput WRFINPUT]\n                        [--surrogate-json SURROGATE_JSON] [--run-surrogate]\n                        [--trunc TRUNC] [--nlayers NLAYERS] [--srun SRUN]\n\noptions:\n  -h, --help            show this help message and exit\n  --namelist NAMELIST   path to namelist.input\n  --wrfinput WRFINPUT   wrfinput/wrfout for lat/lon/date\n  --surrogate-json SURROGATE_JSON\n                        use a precomputed SpeedyWeather hotspot JSON\n  --run-surrogate       run SpeedyWeather now (slow: JIT + model)\n  --trunc TRUNC         SpeedyWeather spectral truncation (default 31)\n  --nlayers NLAYERS     SpeedyWeather vertical layers (default 8)\n  --srun SRUN           srun prefix to run the surrogate on a compute node\n"
- },
- "help-knobs": {
-  "argv": [
-   "knobs",
-   "--help"
-  ],
-  "rc": 0,
-  "script": "wtune.py",
-  "stderr": "",
-  "stdout": "usage: wtune.py knobs [-h] --namelist NAMELIST [--wrfinput WRFINPUT] [--all]\n                      [--compliance {physics-gray,research,strict}]\n\noptions:\n  -h, --help            show this help message and exit\n  --namelist NAMELIST   path to namelist.input\n  --wrfinput WRFINPUT   wrfinput/wrfout for lat/lon/date (via ncdump -h)\n  --all                 show OK findings too, not just actionable\n  --compliance {physics-gray,research,strict}\n                        keep only findings admitted at this compliance level\n                        (decision 0050); default: show all, labelled\n"
- },
  "help-machine-profile": {
   "argv": [
    "machine-profile",
@@ -283,16 +187,6 @@
   "stderr": "",
   "stdout": "usage: metdata.py [-h] {find,check,fetch} ...\n\nGFS/NAM/NARR source selection, availability, and download\n\npositional arguments:\n  {find,check,fetch}\n    find              print chosen source/URLs/messages per required time (no\n                      network)\n    check             confirm each URL/local file exists (HEAD/listing only,\n                      no download)\n    fetch             download (resumable, never re-downloads a cached file)\n\noptions:\n  -h, --help          show this help message and exit\n"
  },
- "help-oracle-map": {
-  "argv": [
-   "oracle-map",
-   "--help"
-  ],
-  "rc": 0,
-  "script": "wtune.py",
-  "stderr": "",
-  "stdout": "usage: wtune.py oracle-map [-h] --namelist NAMELIST [--snapshot SNAPSHOT]\n                           [--wrfinput WRFINPUT] [--stride STRIDE]\n                           [--top-k TOP_K] [--grid GRID] [--json-out JSON_OUT]\n                           [--npz-out NPZ_OUT]\n\noptions:\n  -h, --help           show this help message and exit\n  --namelist NAMELIST  path to namelist.input (for date + cu_physics + run\n                       length)\n  --snapshot SNAPSHOT  wrfout/wrfinput NetCDF with model-state fields\n                       (defaults to --wrfinput)\n  --wrfinput WRFINPUT  wrfinput/wrfout for lat/lon/date (via ncdump -h); also\n                       the snapshot fallback\n  --stride STRIDE      spatial subsample stride for the model-state read\n                       (default 4)\n  --top-k TOP_K        number of hottest cells to list (default 12)\n  --grid GRID          max side of the per-phase JSON grid (block-mean\n                       downsample, default 24)\n  --json-out JSON_OUT  write the artifact JSON here (compact grids + top-k)\n  --npz-out NPZ_OUT    write the full-resolution per-phase fields here as .npz\n"
- },
  "help-physics": {
   "argv": [
    "physics",
@@ -302,16 +196,6 @@
   "script": "wtune.py",
   "stderr": "",
   "stdout": "usage: wtune.py physics [-h] --namelist NAMELIST [--menu]\n                        [--wrfinput WRFINPUT] [--probe-json PROBE_JSON]\n                        [--wps WPS] [--latlon LATLON]\n                        [--probe-hours PROBE_HOURS]\n                        [--probe-trunc PROBE_TRUNC]\n                        [--probe-nlayers PROBE_NLAYERS] [--no-probe]\n                        [--compliance {physics-gray,research,strict}]\n\noptions:\n  -h, --help            show this help message and exit\n  --namelist NAMELIST   path to namelist.input\n  --menu                also print the advisory scheme menu\n  --wrfinput WRFINPUT   wrfinput/wrfout for lat/lon/date (via ncdump -h); also\n                        sets the probe bbox\n  --probe-json PROBE_JSON\n                        use THIS speedy_probe.jl JSON instead of auto-running\n                        the probe\n  --wps WPS             namelist.wps for the domain centre (default: sibling\n                        of --namelist)\n  --latlon LATLON       override domain-centre \"LAT,LON\" for the probe bbox\n  --probe-hours PROBE_HOURS\n                        SpeedyWeather probe forecast length (default 6)\n  --probe-trunc PROBE_TRUNC\n                        SpeedyWeather spectral truncation (default 31); part\n                        of the probe cache key\n  --probe-nlayers PROBE_NLAYERS\n                        SpeedyWeather vertical layers (default 8); part of the\n                        probe cache key\n  --no-probe            skip the built-in SpeedyWeather probe\n  --compliance {physics-gray,research,strict}\n                        keep only findings admitted at this compliance level\n                        (decision 0050); default: show all, labelled\n"
- },
- "help-plan": {
-  "argv": [
-   "plan",
-   "--help"
-  ],
-  "rc": 0,
-  "script": "wtune.py",
-  "stderr": "",
-  "stdout": "usage: wtune.py plan [-h] --namelist NAMELIST [--ranks RANKS] [--nodes NODES]\n                     [--cores-per-node CORES_PER_NODE]\n                     [--numa-domains NUMA_DOMAINS]\n                     [--cores-per-numa CORES_PER_NUMA] [--smt {on,off}]\n                     [--json] [--allow-hybrid] [--wrfinput WRFINPUT]\n                     [--surrogate-json SURROGATE_JSON]\n\noptions:\n  -h, --help            show this help message and exit\n  --namelist NAMELIST   path to namelist.input\n  --ranks RANKS         total MPI ranks\n  --nodes NODES         number of nodes\n  --cores-per-node CORES_PER_NODE\n                        default 112\n  --numa-domains NUMA_DOMAINS\n                        default 8\n  --cores-per-numa CORES_PER_NUMA\n                        default derived or 14\n  --smt {on,off}        default off\n  --json                emit JSON\n  --allow-hybrid        report hybrid alternative\n  --wrfinput WRFINPUT   wrfinput/wrfout for lat/lon/date (via ncdump -h)\n  --surrogate-json SURROGATE_JSON\n                        precomputed SpeedyWeather hotspot JSON to include\n"
  },
  "help-post": {
   "argv": [
@@ -353,16 +237,6 @@
   "stderr": "",
   "stdout": "usage: wtune prep geog [-h]\n                       {list,fetch,import-dem,verify,bounds,srtm-fetch} ...\n\nwtune_geog.py -- OPTIONAL high-resolution WPS_GEOG datasets and external DEM\nimport (decision 0063). `wtune prep geog <list|fetch|import-\ndem|verify|bounds|srtm-fetch>`.\n\npositional arguments:\n  {list,fetch,import-dem,verify,bounds,srtm-fetch}\n    list                datasets present under WPS_GEOG vs. known to\n                        GEOGRID.TBL\n    fetch               download an official WPS geog dataset (size shown,\n                        --yes to proceed)\n    import-dem          GeoTIFF / SRTM .hgt(.gz) -> WPS binary dataset +\n                        GEOGRID.TBL copy\n    verify              decode a WPS dataset and compare with its source\n                        raster\n    bounds              domain lat/lon bounds and the SRTM tiles that cover\n                        them\n    srtm-fetch          download SRTM 1-arcsec tiles (AWS Terrain Tiles, no\n                        key) for a domain/bbox\n\noptions:\n  -h, --help            show this help message and exit\n"
  },
- "help-profile": {
-  "argv": [
-   "profile",
-   "--help"
-  ],
-  "rc": 0,
-  "script": "wtune.py",
-  "stderr": "",
-  "stdout": "usage: wtune.py profile [-h] [--namelist NAMELIST] [--wrfinput WRFINPUT]\n                        [--cores-per-node CORES_PER_NODE] [--json JSON]\n                        case_dir\n\npositional arguments:\n  case_dir              directory with namelist.input (+ optional\n                        wrfinput_d0N)\n\noptions:\n  -h, --help            show this help message and exit\n  --namelist NAMELIST   explicit namelist.input path (default:\n                        <case_dir>/namelist.input)\n  --wrfinput WRFINPUT   explicit wrfinput/wrfout path (default: first\n                        wrfinput_d0N in case_dir)\n  --cores-per-node CORES_PER_NODE\n                        default 72 (GH200 Grace)\n  --json JSON           also write the full profile as JSON to this path\n"
- },
  "help-project": {
   "argv": [
    "project",
@@ -372,16 +246,6 @@
   "script": "wtune.py",
   "stderr": "",
   "stdout": "usage: wtune project [-h] {init,info,set} ...\n\npositional arguments:\n  {init,info,set}\n    init           create a new project folder (decision 0058)\n    info           print the resolved project's layout/config\n    set            update the resolved project's project.yaml\n\noptions:\n  -h, --help       show this help message and exit\n"
- },
- "help-restart-window": {
-  "argv": [
-   "restart-window",
-   "--help"
-  ],
-  "rc": 0,
-  "script": "wtune.py",
-  "stderr": "",
-  "stdout": "usage: wtune.py restart-window [-h] --namelist NAMELIST --snapshot SNAPSHOT\n                               --topology-json TOPOLOGY_JSON\n                               [--rank-counts RANK_COUNTS]\n                               [--window-hours WINDOW_HOURS]\n                               [--run-hours RUN_HOURS] [--stride STRIDE]\n                               [--top-k TOP_K] [--output-dir OUTPUT_DIR]\n                               [--manifest-out MANIFEST_OUT]\n\noptions:\n  -h, --help            show this help message and exit\n  --namelist NAMELIST   path to namelist.input (never modified)\n  --snapshot SNAPSHOT   readable wrfout/wrfrst snapshot for oracle fields\n  --topology-json TOPOLOGY_JSON\n                        topology JSON with node-local CPU lists\n  --rank-counts RANK_COUNTS, --ranks RANK_COUNTS\n                        comma-separated MPI rank counts (default\n                        nproc_x*nproc_y)\n  --window-hours WINDOW_HOURS\n                        restart advisor window size in hours\n  --run-hours RUN_HOURS\n                        override namelist run duration in hours\n  --stride STRIDE       snapshot spatial subsample stride (default 4)\n  --top-k TOP_K         candidates per rank count/window\n  --output-dir OUTPUT_DIR\n                        directory for rank maps and wrappers\n  --manifest-out MANIFEST_OUT\n                        overall canonical JSON manifest path\n"
  },
  "help-run": {
   "argv": [
@@ -430,7 +294,7 @@
   "rc": 0,
   "script": "wtune.py",
   "stderr": "",
-  "stdout": "usage: wtune.py [-h] [--version]\n                {plan,hotspot,physics,knobs,catalog,audit,screen,profile,machine-profile,oracle-map,restart-window,feedback,selftest,compliance,predict,submit,doctor,tune,config,metdata,check,calibrate,post,prep,project,analyze,predict-rebuild,watch,run,convert,advise,calc,scenario}\n                ...\n\nWRF config autotuner analytical core\n\npositional arguments:\n  {plan,hotspot,physics,knobs,catalog,audit,screen,profile,machine-profile,oracle-map,restart-window,feedback,selftest,compliance,predict,submit,doctor,tune,config,metdata,check,calibrate,post,prep,project,analyze,predict-rebuild,watch,run,convert,advise,calc,scenario}\n    plan                generate ranked decomposition shortlist\n    hotspot             physics load map: analytic terminator + convective\n                        surrogate\n    physics             physics diagnosis + numerics advice + scheme menu\n    knobs               full knob advisor: input-derived param recommendations\n                        + mismatch flags\n    catalog             list the complete Registry-derived parameter catalog\n    audit               Registry-driven scan of EVERY (2062) catalog param\n                        (coverage guarantee, any WRF case)\n    screen              autotuner funnel: analytic screen (all params) ->\n                        SpeedyWeather vet -> effective few\n    profile             case-understanding profile (PRIOR, pre-measurement):\n                        identity/physics/cost-structure/imbalance/core-count\n                        priors\n    machine-profile     print a human summary of a\n                        machine/run_machine_profile.sh JSON (MEASURED machine\n                        speed, not the case profile)\n    oracle-map          DIAGNOSTIC spatial physics-load map (per-cell phase\n                        cost + hotspots); NOT a partition selector\n    restart-window      UNVERIFIED restart-boundary decomposition/team\n                        hypotheses\n    feedback            manifest-only advisory feedback decisions\n    selftest            run CONUS calibration self-test\n    compliance          compliance model + knob catalog (decision 0050):\n                        validate/list/classify\n    predict             predict per-stage + total wall time for a WRF run,\n                        without running it\n    submit              tune -> run -> post for the current project in one\n                        command (wtune_submit.py)\n    doctor              check that this machine and project are ready\n                        (wtune_doctor.py)\n    tune                budgeted on-cluster tuner (scc): probe, screen,\n                        confirm, report\n    config              wtune tune search-space YAML config (wtune_config.py):\n                        init | show | validate\n    metdata             GRIB source selection/availability/download\n                        (tools/metdata.py): find | check | fetch\n    check               pre-submission WRF run_dir sanity checker\n                        (wtune_preflight.py): time windows, iofields, physics\n                        data files, decomposition, disk\n    calibrate           machine calibration for a new cluster\n                        (wtune_calibrate.py plan | fit)\n    post                post-processing/analysis, advisory only (decision\n                        0056; post/cli.py): inventory | extract | plot |\n                        sounding | tc | compare | report | recipe | custom\n    prep                optional input-data preparation, user-invoked only\n                        (decision 0063; wtune_geog.py): geog list | fetch |\n                        import-dem | verify | bounds | srtm-fetch\n    project             project folder holding case/input/config/runs/post\n                        (decision 0058; wtune_project.py): init | info | set\n    analyze             TC diagnostics/tracking via wrf-python +\n                        TempestExtremes (analysis/cli.py): diag | tc-track\n    predict-rebuild     whole-run wall-time prediction from rebuilt segments\n                        measured in parallel on the target config\n                        (wtune_rebuild_predict.py)\n    watch               read-only monitor of a WRF run dir: progress,\n                        remaining time, hang/nest-stop/failure warnings\n                        (wtune_watch.py)\n    run                 segmented WRF execution with restart hand-offs, per-\n                        segment config and opt-in CFL rescue (wtune_run.py)\n    convert             WRF netCDF <-> ADIOS2 BP (io_form 14) conversion\n                        (wtune_bp.py): nc2bp | bp2nc | inputs (cached,\n                        manifest) [--check round trip]\n    advise              advice-only: detect case conditions and suggest WRF\n                        modes/workflows with cost, evidence and side effects\n                        (decision 0061; wtune_advise.py)\n    calc                rules of thumb and unit conversions for namelist\n                        parameters, plus `calc check <namelist.input>`\n                        (decision 0062; wtune_calc.py)\n    scenario            pluggable scenario generators for fictional-date WRF\n                        forcing (scenario/cli.py): list | generate | inspect\n\noptions:\n  -h, --help            show this help message and exit\n  --version             show program's version number and exit\n\ncommon workflow:\n  wtune project init DIR --case CASE_DIR   new project (registers the case)\n  cd DIR; wtune doctor                     is everything installed?\n  wtune submit                             tune -> run -> post in one go\n  wtune tune -O2 / wtune run / wtune post recipe --srun   the same, step by step\n  wtune watch runs/<id>                    progress of a running run\n"
+  "stdout": "usage: wtune.py [-h] [--version]\n                {physics,screen,machine-profile,selftest,compliance,predict,submit,doctor,tune,config,metdata,check,calibrate,post,prep,project,analyze,predict-rebuild,watch,run,convert,advise,calc,scenario}\n                ...\n\nWRF config autotuner analytical core\n\npositional arguments:\n  {physics,screen,machine-profile,selftest,compliance,predict,submit,doctor,tune,config,metdata,check,calibrate,post,prep,project,analyze,predict-rebuild,watch,run,convert,advise,calc,scenario}\n    physics             physics diagnosis + numerics advice + scheme menu\n    screen              autotuner funnel: analytic screen (all params) ->\n                        SpeedyWeather vet -> effective few\n    machine-profile     print a human summary of a\n                        machine/run_machine_profile.sh JSON (MEASURED machine\n                        speed, not the case profile)\n    selftest            run CONUS calibration self-test\n    compliance          compliance model + knob catalog (decision 0050):\n                        validate/list/classify\n    predict             predict per-stage + total wall time for a WRF run,\n                        without running it\n    submit              tune -> run -> post for the current project in one\n                        command (wtune_submit.py)\n    doctor              check that this machine and project are ready\n                        (wtune_doctor.py)\n    tune                budgeted on-cluster tuner (scc): probe, screen,\n                        confirm, report\n    config              wtune tune search-space YAML config (wtune_config.py):\n                        init | show | validate\n    metdata             GRIB source selection/availability/download\n                        (tools/metdata.py): find | check | fetch\n    check               pre-submission WRF run_dir sanity checker\n                        (wtune_preflight.py): time windows, iofields, physics\n                        data files, decomposition, disk\n    calibrate           machine calibration for a new cluster\n                        (wtune_calibrate.py plan | fit)\n    post                post-processing/analysis, advisory only (decision\n                        0056; post/cli.py): inventory | extract | plot |\n                        sounding | tc | compare | report | recipe | custom\n    prep                optional input-data preparation, user-invoked only\n                        (decision 0063; wtune_geog.py): geog list | fetch |\n                        import-dem | verify | bounds | srtm-fetch\n    project             project folder holding case/input/config/runs/post\n                        (decision 0058; wtune_project.py): init | info | set\n    analyze             TC diagnostics/tracking via wrf-python +\n                        TempestExtremes (analysis/cli.py): diag | tc-track\n    predict-rebuild     whole-run wall-time prediction from rebuilt segments\n                        measured in parallel on the target config\n                        (wtune_rebuild_predict.py)\n    watch               read-only monitor of a WRF run dir: progress,\n                        remaining time, hang/nest-stop/failure warnings\n                        (wtune_watch.py)\n    run                 segmented WRF execution with restart hand-offs, per-\n                        segment config and opt-in CFL rescue (wtune_run.py)\n    convert             WRF netCDF <-> ADIOS2 BP (io_form 14) conversion\n                        (wtune_bp.py): nc2bp | bp2nc | inputs (cached,\n                        manifest) [--check round trip]\n    advise              advice-only: detect case conditions and suggest WRF\n                        modes/workflows with cost, evidence and side effects\n                        (decision 0061; wtune_advise.py)\n    calc                rules of thumb and unit conversions for namelist\n                        parameters, plus `calc check <namelist.input>`\n                        (decision 0062; wtune_calc.py)\n    scenario            pluggable scenario generators for fictional-date WRF\n                        forcing (scenario/cli.py): list | generate | inspect\n\noptions:\n  -h, --help            show this help message and exit\n  --version             show program's version number and exit\n\ncommon workflow:\n  wtune project init DIR --case CASE_DIR   new project (registers the case)\n  cd DIR; wtune doctor                     is everything installed?\n  wtune submit                             tune -> run -> post in one go\n  wtune tune -O2 / wtune run / wtune post recipe --srun   the same, step by step\n  wtune watch runs/<id>                    progress of a running run\n"
  },
  "help-top-direct": {
   "argv": [
@@ -439,7 +303,7 @@
   "rc": 0,
   "script": "src/wtune_cli.py",
   "stderr": "",
-  "stdout": "usage: wtune.py [-h] [--version]\n                {plan,hotspot,physics,knobs,catalog,audit,screen,profile,machine-profile,oracle-map,restart-window,feedback,selftest,compliance,predict,submit,doctor,tune,config,metdata,check,calibrate,post,prep,project,analyze,predict-rebuild,watch,run,convert,advise,calc,scenario}\n                ...\n\nWRF config autotuner analytical core\n\npositional arguments:\n  {plan,hotspot,physics,knobs,catalog,audit,screen,profile,machine-profile,oracle-map,restart-window,feedback,selftest,compliance,predict,submit,doctor,tune,config,metdata,check,calibrate,post,prep,project,analyze,predict-rebuild,watch,run,convert,advise,calc,scenario}\n    plan                generate ranked decomposition shortlist\n    hotspot             physics load map: analytic terminator + convective\n                        surrogate\n    physics             physics diagnosis + numerics advice + scheme menu\n    knobs               full knob advisor: input-derived param recommendations\n                        + mismatch flags\n    catalog             list the complete Registry-derived parameter catalog\n    audit               Registry-driven scan of EVERY (2062) catalog param\n                        (coverage guarantee, any WRF case)\n    screen              autotuner funnel: analytic screen (all params) ->\n                        SpeedyWeather vet -> effective few\n    profile             case-understanding profile (PRIOR, pre-measurement):\n                        identity/physics/cost-structure/imbalance/core-count\n                        priors\n    machine-profile     print a human summary of a\n                        machine/run_machine_profile.sh JSON (MEASURED machine\n                        speed, not the case profile)\n    oracle-map          DIAGNOSTIC spatial physics-load map (per-cell phase\n                        cost + hotspots); NOT a partition selector\n    restart-window      UNVERIFIED restart-boundary decomposition/team\n                        hypotheses\n    feedback            manifest-only advisory feedback decisions\n    selftest            run CONUS calibration self-test\n    compliance          compliance model + knob catalog (decision 0050):\n                        validate/list/classify\n    predict             predict per-stage + total wall time for a WRF run,\n                        without running it\n    submit              tune -> run -> post for the current project in one\n                        command (wtune_submit.py)\n    doctor              check that this machine and project are ready\n                        (wtune_doctor.py)\n    tune                budgeted on-cluster tuner (scc): probe, screen,\n                        confirm, report\n    config              wtune tune search-space YAML config (wtune_config.py):\n                        init | show | validate\n    metdata             GRIB source selection/availability/download\n                        (tools/metdata.py): find | check | fetch\n    check               pre-submission WRF run_dir sanity checker\n                        (wtune_preflight.py): time windows, iofields, physics\n                        data files, decomposition, disk\n    calibrate           machine calibration for a new cluster\n                        (wtune_calibrate.py plan | fit)\n    post                post-processing/analysis, advisory only (decision\n                        0056; post/cli.py): inventory | extract | plot |\n                        sounding | tc | compare | report | recipe | custom\n    prep                optional input-data preparation, user-invoked only\n                        (decision 0063; wtune_geog.py): geog list | fetch |\n                        import-dem | verify | bounds | srtm-fetch\n    project             project folder holding case/input/config/runs/post\n                        (decision 0058; wtune_project.py): init | info | set\n    analyze             TC diagnostics/tracking via wrf-python +\n                        TempestExtremes (analysis/cli.py): diag | tc-track\n    predict-rebuild     whole-run wall-time prediction from rebuilt segments\n                        measured in parallel on the target config\n                        (wtune_rebuild_predict.py)\n    watch               read-only monitor of a WRF run dir: progress,\n                        remaining time, hang/nest-stop/failure warnings\n                        (wtune_watch.py)\n    run                 segmented WRF execution with restart hand-offs, per-\n                        segment config and opt-in CFL rescue (wtune_run.py)\n    convert             WRF netCDF <-> ADIOS2 BP (io_form 14) conversion\n                        (wtune_bp.py): nc2bp | bp2nc | inputs (cached,\n                        manifest) [--check round trip]\n    advise              advice-only: detect case conditions and suggest WRF\n                        modes/workflows with cost, evidence and side effects\n                        (decision 0061; wtune_advise.py)\n    calc                rules of thumb and unit conversions for namelist\n                        parameters, plus `calc check <namelist.input>`\n                        (decision 0062; wtune_calc.py)\n    scenario            pluggable scenario generators for fictional-date WRF\n                        forcing (scenario/cli.py): list | generate | inspect\n\noptions:\n  -h, --help            show this help message and exit\n  --version             show program's version number and exit\n\ncommon workflow:\n  wtune project init DIR --case CASE_DIR   new project (registers the case)\n  cd DIR; wtune doctor                     is everything installed?\n  wtune submit                             tune -> run -> post in one go\n  wtune tune -O2 / wtune run / wtune post recipe --srun   the same, step by step\n  wtune watch runs/<id>                    progress of a running run\n"
+  "stdout": "usage: wtune.py [-h] [--version]\n                {physics,screen,machine-profile,selftest,compliance,predict,submit,doctor,tune,config,metdata,check,calibrate,post,prep,project,analyze,predict-rebuild,watch,run,convert,advise,calc,scenario}\n                ...\n\nWRF config autotuner analytical core\n\npositional arguments:\n  {physics,screen,machine-profile,selftest,compliance,predict,submit,doctor,tune,config,metdata,check,calibrate,post,prep,project,analyze,predict-rebuild,watch,run,convert,advise,calc,scenario}\n    physics             physics diagnosis + numerics advice + scheme menu\n    screen              autotuner funnel: analytic screen (all params) ->\n                        SpeedyWeather vet -> effective few\n    machine-profile     print a human summary of a\n                        machine/run_machine_profile.sh JSON (MEASURED machine\n                        speed, not the case profile)\n    selftest            run CONUS calibration self-test\n    compliance          compliance model + knob catalog (decision 0050):\n                        validate/list/classify\n    predict             predict per-stage + total wall time for a WRF run,\n                        without running it\n    submit              tune -> run -> post for the current project in one\n                        command (wtune_submit.py)\n    doctor              check that this machine and project are ready\n                        (wtune_doctor.py)\n    tune                budgeted on-cluster tuner (scc): probe, screen,\n                        confirm, report\n    config              wtune tune search-space YAML config (wtune_config.py):\n                        init | show | validate\n    metdata             GRIB source selection/availability/download\n                        (tools/metdata.py): find | check | fetch\n    check               pre-submission WRF run_dir sanity checker\n                        (wtune_preflight.py): time windows, iofields, physics\n                        data files, decomposition, disk\n    calibrate           machine calibration for a new cluster\n                        (wtune_calibrate.py plan | fit)\n    post                post-processing/analysis, advisory only (decision\n                        0056; post/cli.py): inventory | extract | plot |\n                        sounding | tc | compare | report | recipe | custom\n    prep                optional input-data preparation, user-invoked only\n                        (decision 0063; wtune_geog.py): geog list | fetch |\n                        import-dem | verify | bounds | srtm-fetch\n    project             project folder holding case/input/config/runs/post\n                        (decision 0058; wtune_project.py): init | info | set\n    analyze             TC diagnostics/tracking via wrf-python +\n                        TempestExtremes (analysis/cli.py): diag | tc-track\n    predict-rebuild     whole-run wall-time prediction from rebuilt segments\n                        measured in parallel on the target config\n                        (wtune_rebuild_predict.py)\n    watch               read-only monitor of a WRF run dir: progress,\n                        remaining time, hang/nest-stop/failure warnings\n                        (wtune_watch.py)\n    run                 segmented WRF execution with restart hand-offs, per-\n                        segment config and opt-in CFL rescue (wtune_run.py)\n    convert             WRF netCDF <-> ADIOS2 BP (io_form 14) conversion\n                        (wtune_bp.py): nc2bp | bp2nc | inputs (cached,\n                        manifest) [--check round trip]\n    advise              advice-only: detect case conditions and suggest WRF\n                        modes/workflows with cost, evidence and side effects\n                        (decision 0061; wtune_advise.py)\n    calc                rules of thumb and unit conversions for namelist\n                        parameters, plus `calc check <namelist.input>`\n                        (decision 0062; wtune_calc.py)\n    scenario            pluggable scenario generators for fictional-date WRF\n                        forcing (scenario/cli.py): list | generate | inspect\n\noptions:\n  -h, --help            show this help message and exit\n  --version             show program's version number and exit\n\ncommon workflow:\n  wtune project init DIR --case CASE_DIR   new project (registers the case)\n  cd DIR; wtune doctor                     is everything installed?\n  wtune submit                             tune -> run -> post in one go\n  wtune tune -O2 / wtune run / wtune post recipe --srun   the same, step by step\n  wtune watch runs/<id>                    progress of a running run\n"
  },
  "help-tune": {
   "argv": [
@@ -460,41 +324,6 @@
   "script": "wtune.py",
   "stderr": "",
   "stdout": "usage: wtune watch [-h] [--interval INTERVAL] [--once] [--json]\n                   [--replay-fraction REPLAY_FRACTION]\n                   [--init-limit INIT_LIMIT] [--hang-factor HANG_FACTOR]\n                   [--hang-min HANG_MIN] [--prediction PRED_JSON]\n                   rundir\n\nwtune_watch.py -- read-only monitor for a running (or finished) WRF run\ndirectory.\n\npositional arguments:\n  rundir\n\noptions:\n  -h, --help            show this help message and exit\n  --interval INTERVAL   poll period, s (default 60)\n  --once                one snapshot, then exit\n  --json                one JSON object per snapshot (a JSON list for a\n                        --replay-fraction list)\n  --replay-fraction REPLAY_FRACTION\n                        F or F1,F2,... in (0,1]: replay a finished log at that\n                        fraction of its d01 steps and compare the estimate\n                        with the actual remaining (implies --once)\n  --init-limit INIT_LIMIT\n                        HANG_INIT after this many s with no d01 Timing line\n                        (default 600)\n  --hang-factor HANG_FACTOR\n  --hang-min HANG_MIN\n  --prediction PRED_JSON\n                        wtune predict-rebuild's OUT/pred_rebuild.json:\n                        remaining = its compute curve over the unrun steps x\n                        (observed / predicted so far); primary ETA\n"
- },
- "hotspot-no-file": {
-  "argv": [
-   "hotspot",
-   "--namelist",
-   "/nonexistent/wtune-golden/namelist.input"
-  ],
-  "rc": 1,
-  "script": "wtune.py",
-  "stderr": "ERROR reading namelist: [Errno 2] No such file or directory: '/nonexistent/wtune-golden/namelist.input'\n",
-  "stdout": ""
- },
- "knobs-bad-compliance": {
-  "argv": [
-   "knobs",
-   "--namelist",
-   "/nonexistent/wtune-golden/namelist.input",
-   "--compliance",
-   "x"
-  ],
-  "rc": 2,
-  "script": "wtune.py",
-  "stderr": "usage: wtune.py knobs [-h] --namelist NAMELIST [--wrfinput WRFINPUT] [--all]\n                      [--compliance {physics-gray,research,strict}]\nwtune.py knobs: error: argument --compliance: invalid choice: 'x' (choose from 'physics-gray', 'research', 'strict')\n",
-  "stdout": ""
- },
- "knobs-no-file": {
-  "argv": [
-   "knobs",
-   "--namelist",
-   "/nonexistent/wtune-golden/namelist.input"
-  ],
-  "rc": 1,
-  "script": "wtune.py",
-  "stderr": "ERROR reading namelist: [Errno 2] No such file or directory: '/nonexistent/wtune-golden/namelist.input'\n",
-  "stdout": ""
  },
  "machine-profile-no-file": {
   "argv": [
@@ -520,18 +349,7 @@
   "rc": 1,
   "script": "wtune.py",
   "stderr": "",
-  "stdout": "usage: wtune.py [-h] [--version]\n                {plan,hotspot,physics,knobs,catalog,audit,screen,profile,machine-profile,oracle-map,restart-window,feedback,selftest,compliance,predict,submit,doctor,tune,config,metdata,check,calibrate,post,prep,project,analyze,predict-rebuild,watch,run,convert,advise,calc,scenario}\n                ...\n\nWRF config autotuner analytical core\n\npositional arguments:\n  {plan,hotspot,physics,knobs,catalog,audit,screen,profile,machine-profile,oracle-map,restart-window,feedback,selftest,compliance,predict,submit,doctor,tune,config,metdata,check,calibrate,post,prep,project,analyze,predict-rebuild,watch,run,convert,advise,calc,scenario}\n    plan                generate ranked decomposition shortlist\n    hotspot             physics load map: analytic terminator + convective\n                        surrogate\n    physics             physics diagnosis + numerics advice + scheme menu\n    knobs               full knob advisor: input-derived param recommendations\n                        + mismatch flags\n    catalog             list the complete Registry-derived parameter catalog\n    audit               Registry-driven scan of EVERY (2062) catalog param\n                        (coverage guarantee, any WRF case)\n    screen              autotuner funnel: analytic screen (all params) ->\n                        SpeedyWeather vet -> effective few\n    profile             case-understanding profile (PRIOR, pre-measurement):\n                        identity/physics/cost-structure/imbalance/core-count\n                        priors\n    machine-profile     print a human summary of a\n                        machine/run_machine_profile.sh JSON (MEASURED machine\n                        speed, not the case profile)\n    oracle-map          DIAGNOSTIC spatial physics-load map (per-cell phase\n                        cost + hotspots); NOT a partition selector\n    restart-window      UNVERIFIED restart-boundary decomposition/team\n                        hypotheses\n    feedback            manifest-only advisory feedback decisions\n    selftest            run CONUS calibration self-test\n    compliance          compliance model + knob catalog (decision 0050):\n                        validate/list/classify\n    predict             predict per-stage + total wall time for a WRF run,\n                        without running it\n    submit              tune -> run -> post for the current project in one\n                        command (wtune_submit.py)\n    doctor              check that this machine and project are ready\n                        (wtune_doctor.py)\n    tune                budgeted on-cluster tuner (scc): probe, screen,\n                        confirm, report\n    config              wtune tune search-space YAML config (wtune_config.py):\n                        init | show | validate\n    metdata             GRIB source selection/availability/download\n                        (tools/metdata.py): find | check | fetch\n    check               pre-submission WRF run_dir sanity checker\n                        (wtune_preflight.py): time windows, iofields, physics\n                        data files, decomposition, disk\n    calibrate           machine calibration for a new cluster\n                        (wtune_calibrate.py plan | fit)\n    post                post-processing/analysis, advisory only (decision\n                        0056; post/cli.py): inventory | extract | plot |\n                        sounding | tc | compare | report | recipe | custom\n    prep                optional input-data preparation, user-invoked only\n                        (decision 0063; wtune_geog.py): geog list | fetch |\n                        import-dem | verify | bounds | srtm-fetch\n    project             project folder holding case/input/config/runs/post\n                        (decision 0058; wtune_project.py): init | info | set\n    analyze             TC diagnostics/tracking via wrf-python +\n                        TempestExtremes (analysis/cli.py): diag | tc-track\n    predict-rebuild     whole-run wall-time prediction from rebuilt segments\n                        measured in parallel on the target config\n                        (wtune_rebuild_predict.py)\n    watch               read-only monitor of a WRF run dir: progress,\n                        remaining time, hang/nest-stop/failure warnings\n                        (wtune_watch.py)\n    run                 segmented WRF execution with restart hand-offs, per-\n                        segment config and opt-in CFL rescue (wtune_run.py)\n    convert             WRF netCDF <-> ADIOS2 BP (io_form 14) conversion\n                        (wtune_bp.py): nc2bp | bp2nc | inputs (cached,\n                        manifest) [--check round trip]\n    advise              advice-only: detect case conditions and suggest WRF\n                        modes/workflows with cost, evidence and side effects\n                        (decision 0061; wtune_advise.py)\n    calc                rules of thumb and unit conversions for namelist\n                        parameters, plus `calc check <namelist.input>`\n                        (decision 0062; wtune_calc.py)\n    scenario            pluggable scenario generators for fictional-date WRF\n                        forcing (scenario/cli.py): list | generate | inspect\n\noptions:\n  -h, --help            show this help message and exit\n  --version             show program's version number and exit\n\ncommon workflow:\n  wtune project init DIR --case CASE_DIR   new project (registers the case)\n  cd DIR; wtune doctor                     is everything installed?\n  wtune submit                             tune -> run -> post in one go\n  wtune tune -O2 / wtune run / wtune post recipe --srun   the same, step by step\n  wtune watch runs/<id>                    progress of a running run\n"
- },
- "oracle-map-no-file": {
-  "argv": [
-   "oracle-map",
-   "--namelist",
-   "/nonexistent/wtune-golden/namelist.input"
-  ],
-  "rc": 1,
-  "script": "wtune.py",
-  "stderr": "ERROR reading namelist: [Errno 2] No such file or directory: '/nonexistent/wtune-golden/namelist.input'\n",
-  "stdout": ""
+  "stdout": "usage: wtune.py [-h] [--version]\n                {physics,screen,machine-profile,selftest,compliance,predict,submit,doctor,tune,config,metdata,check,calibrate,post,prep,project,analyze,predict-rebuild,watch,run,convert,advise,calc,scenario}\n                ...\n\nWRF config autotuner analytical core\n\npositional arguments:\n  {physics,screen,machine-profile,selftest,compliance,predict,submit,doctor,tune,config,metdata,check,calibrate,post,prep,project,analyze,predict-rebuild,watch,run,convert,advise,calc,scenario}\n    physics             physics diagnosis + numerics advice + scheme menu\n    screen              autotuner funnel: analytic screen (all params) ->\n                        SpeedyWeather vet -> effective few\n    machine-profile     print a human summary of a\n                        machine/run_machine_profile.sh JSON (MEASURED machine\n                        speed, not the case profile)\n    selftest            run CONUS calibration self-test\n    compliance          compliance model + knob catalog (decision 0050):\n                        validate/list/classify\n    predict             predict per-stage + total wall time for a WRF run,\n                        without running it\n    submit              tune -> run -> post for the current project in one\n                        command (wtune_submit.py)\n    doctor              check that this machine and project are ready\n                        (wtune_doctor.py)\n    tune                budgeted on-cluster tuner (scc): probe, screen,\n                        confirm, report\n    config              wtune tune search-space YAML config (wtune_config.py):\n                        init | show | validate\n    metdata             GRIB source selection/availability/download\n                        (tools/metdata.py): find | check | fetch\n    check               pre-submission WRF run_dir sanity checker\n                        (wtune_preflight.py): time windows, iofields, physics\n                        data files, decomposition, disk\n    calibrate           machine calibration for a new cluster\n                        (wtune_calibrate.py plan | fit)\n    post                post-processing/analysis, advisory only (decision\n                        0056; post/cli.py): inventory | extract | plot |\n                        sounding | tc | compare | report | recipe | custom\n    prep                optional input-data preparation, user-invoked only\n                        (decision 0063; wtune_geog.py): geog list | fetch |\n                        import-dem | verify | bounds | srtm-fetch\n    project             project folder holding case/input/config/runs/post\n                        (decision 0058; wtune_project.py): init | info | set\n    analyze             TC diagnostics/tracking via wrf-python +\n                        TempestExtremes (analysis/cli.py): diag | tc-track\n    predict-rebuild     whole-run wall-time prediction from rebuilt segments\n                        measured in parallel on the target config\n                        (wtune_rebuild_predict.py)\n    watch               read-only monitor of a WRF run dir: progress,\n                        remaining time, hang/nest-stop/failure warnings\n                        (wtune_watch.py)\n    run                 segmented WRF execution with restart hand-offs, per-\n                        segment config and opt-in CFL rescue (wtune_run.py)\n    convert             WRF netCDF <-> ADIOS2 BP (io_form 14) conversion\n                        (wtune_bp.py): nc2bp | bp2nc | inputs (cached,\n                        manifest) [--check round trip]\n    advise              advice-only: detect case conditions and suggest WRF\n                        modes/workflows with cost, evidence and side effects\n                        (decision 0061; wtune_advise.py)\n    calc                rules of thumb and unit conversions for namelist\n                        parameters, plus `calc check <namelist.input>`\n                        (decision 0062; wtune_calc.py)\n    scenario            pluggable scenario generators for fictional-date WRF\n                        forcing (scenario/cli.py): list | generate | inspect\n\noptions:\n  -h, --help            show this help message and exit\n  --version             show program's version number and exit\n\ncommon workflow:\n  wtune project init DIR --case CASE_DIR   new project (registers the case)\n  cd DIR; wtune doctor                     is everything installed?\n  wtune submit                             tune -> run -> post in one go\n  wtune tune -O2 / wtune run / wtune post recipe --srun   the same, step by step\n  wtune watch runs/<id>                    progress of a running run\n"
  },
  "physics-bad-compliance": {
   "argv": [
@@ -552,52 +370,6 @@
    "--namelist",
    "/nonexistent/wtune-golden/namelist.input",
    "--no-probe"
-  ],
-  "rc": 1,
-  "script": "wtune.py",
-  "stderr": "ERROR reading namelist: [Errno 2] No such file or directory: '/nonexistent/wtune-golden/namelist.input'\n",
-  "stdout": ""
- },
- "plan-bad-int": {
-  "argv": [
-   "plan",
-   "--namelist",
-   "/nonexistent/wtune-golden/namelist.input",
-   "--ranks",
-   "abc"
-  ],
-  "rc": 2,
-  "script": "wtune.py",
-  "stderr": "usage: wtune.py plan [-h] --namelist NAMELIST [--ranks RANKS] [--nodes NODES]\n                     [--cores-per-node CORES_PER_NODE]\n                     [--numa-domains NUMA_DOMAINS]\n                     [--cores-per-numa CORES_PER_NUMA] [--smt {on,off}]\n                     [--json] [--allow-hybrid] [--wrfinput WRFINPUT]\n                     [--surrogate-json SURROGATE_JSON]\nwtune.py plan: error: argument --ranks: invalid int value: 'abc'\n",
-  "stdout": ""
- },
- "plan-bad-smt": {
-  "argv": [
-   "plan",
-   "--namelist",
-   "/nonexistent/wtune-golden/namelist.input",
-   "--smt",
-   "maybe"
-  ],
-  "rc": 2,
-  "script": "wtune.py",
-  "stderr": "usage: wtune.py plan [-h] --namelist NAMELIST [--ranks RANKS] [--nodes NODES]\n                     [--cores-per-node CORES_PER_NODE]\n                     [--numa-domains NUMA_DOMAINS]\n                     [--cores-per-numa CORES_PER_NUMA] [--smt {on,off}]\n                     [--json] [--allow-hybrid] [--wrfinput WRFINPUT]\n                     [--surrogate-json SURROGATE_JSON]\nwtune.py plan: error: argument --smt: invalid choice: 'maybe' (choose from 'on', 'off')\n",
-  "stdout": ""
- },
- "plan-missing-namelist": {
-  "argv": [
-   "plan"
-  ],
-  "rc": 2,
-  "script": "wtune.py",
-  "stderr": "usage: wtune.py plan [-h] --namelist NAMELIST [--ranks RANKS] [--nodes NODES]\n                     [--cores-per-node CORES_PER_NODE]\n                     [--numa-domains NUMA_DOMAINS]\n                     [--cores-per-numa CORES_PER_NUMA] [--smt {on,off}]\n                     [--json] [--allow-hybrid] [--wrfinput WRFINPUT]\n                     [--surrogate-json SURROGATE_JSON]\nwtune.py plan: error: the following arguments are required: --namelist\n",
-  "stdout": ""
- },
- "plan-no-file": {
-  "argv": [
-   "plan",
-   "--namelist",
-   "/nonexistent/wtune-golden/namelist.input"
   ],
   "rc": 1,
   "script": "wtune.py",
@@ -652,25 +424,6 @@
   "stderr": "usage: wtune prep geog [-h]\n                       {list,fetch,import-dem,verify,bounds,srtm-fetch} ...\nwtune prep geog: error: the following arguments are required: cmd\n",
   "stdout": ""
  },
- "profile-missing-arg": {
-  "argv": [
-   "profile"
-  ],
-  "rc": 2,
-  "script": "wtune.py",
-  "stderr": "usage: wtune.py profile [-h] [--namelist NAMELIST] [--wrfinput WRFINPUT]\n                        [--cores-per-node CORES_PER_NODE] [--json JSON]\n                        case_dir\nwtune.py profile: error: the following arguments are required: case_dir\n",
-  "stdout": ""
- },
- "profile-no-dir": {
-  "argv": [
-   "profile",
-   "/nonexistent/wtune-golden/case"
-  ],
-  "rc": 1,
-  "script": "wtune.py",
-  "stderr": "ERROR: no namelist found at /nonexistent/wtune-golden/case/namelist.input (pass --namelist)\n",
-  "stdout": ""
- },
  "project-no-args": {
   "argv": [
    "project"
@@ -679,49 +432,6 @@
   "script": "wtune.py",
   "stderr": "",
   "stdout": "usage: wtune project [-h] {init,info,set} ...\n\npositional arguments:\n  {init,info,set}\n    init           create a new project folder (decision 0058)\n    info           print the resolved project's layout/config\n    set            update the resolved project's project.yaml\n\noptions:\n  -h, --help       show this help message and exit\n"
- },
- "restart-window-missing": {
-  "argv": [
-   "restart-window",
-   "--namelist",
-   "/nonexistent/wtune-golden/namelist.input"
-  ],
-  "rc": 2,
-  "script": "wtune.py",
-  "stderr": "usage: wtune.py restart-window [-h] --namelist NAMELIST --snapshot SNAPSHOT\n                               --topology-json TOPOLOGY_JSON\n                               [--rank-counts RANK_COUNTS]\n                               [--window-hours WINDOW_HOURS]\n                               [--run-hours RUN_HOURS] [--stride STRIDE]\n                               [--top-k TOP_K] [--output-dir OUTPUT_DIR]\n                               [--manifest-out MANIFEST_OUT]\nwtune.py restart-window: error: the following arguments are required: --snapshot, --topology-json\n",
-  "stdout": ""
- },
- "restart-window-no-file": {
-  "argv": [
-   "restart-window",
-   "--namelist",
-   "/nonexistent/wtune-golden/namelist.input",
-   "--snapshot",
-   "/nonexistent/wtune-golden/namelist.input",
-   "--topology-json",
-   "/nonexistent/wtune-golden/namelist.input"
-  ],
-  "rc": 1,
-  "script": "wtune.py",
-  "stderr": "WARNING restart-window: deprecated path (see archive/deprecated/README.md); PLOV is the live rebalancer\nERROR restart-window: reading namelist: [Errno 2] No such file or directory: '/nonexistent/wtune-golden/namelist.input'\n",
-  "stdout": ""
- },
- "restart-window-topk0": {
-  "argv": [
-   "restart-window",
-   "--namelist",
-   "/nonexistent/wtune-golden/namelist.input",
-   "--snapshot",
-   "/nonexistent/wtune-golden/namelist.input",
-   "--topology-json",
-   "/nonexistent/wtune-golden/namelist.input",
-   "--top-k",
-   "0"
-  ],
-  "rc": 1,
-  "script": "wtune.py",
-  "stderr": "WARNING restart-window: deprecated path (see archive/deprecated/README.md); PLOV is the live rebalancer\nERROR restart-window: top-k must be positive\n",
-  "stdout": ""
  },
  "run-no-args": {
   "argv": [
@@ -777,7 +487,7 @@
   ],
   "rc": 2,
   "script": "wtune.py",
-  "stderr": "usage: wtune.py [-h] [--version]\n                {plan,hotspot,physics,knobs,catalog,audit,screen,profile,machine-profile,oracle-map,restart-window,feedback,selftest,compliance,predict,submit,doctor,tune,config,metdata,check,calibrate,post,prep,project,analyze,predict-rebuild,watch,run,convert,advise,calc,scenario}\n                ...\nwtune.py: error: argument command: invalid choice: 'bogus' (choose from 'plan', 'hotspot', 'physics', 'knobs', 'catalog', 'audit', 'screen', 'profile', 'machine-profile', 'oracle-map', 'restart-window', 'feedback', 'selftest', 'compliance', 'predict', 'submit', 'doctor', 'tune', 'config', 'metdata', 'check', 'calibrate', 'post', 'prep', 'project', 'analyze', 'predict-rebuild', 'watch', 'run', 'convert', 'advise', 'calc', 'scenario')\n",
+  "stderr": "usage: wtune.py [-h] [--version]\n                {physics,screen,machine-profile,selftest,compliance,predict,submit,doctor,tune,config,metdata,check,calibrate,post,prep,project,analyze,predict-rebuild,watch,run,convert,advise,calc,scenario}\n                ...\nwtune.py: error: argument command: invalid choice: 'bogus' (choose from 'physics', 'screen', 'machine-profile', 'selftest', 'compliance', 'predict', 'submit', 'doctor', 'tune', 'config', 'metdata', 'check', 'calibrate', 'post', 'prep', 'project', 'analyze', 'predict-rebuild', 'watch', 'run', 'convert', 'advise', 'calc', 'scenario')\n",
   "stdout": ""
  },
  "version": {

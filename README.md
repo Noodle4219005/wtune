@@ -21,7 +21,7 @@ per-segment choice, and only when the user passes that report.
    with a feedback controller. **-13.0% s/step over 400 steps, bit-identical** (job 1070876).
    This is an upper bound on execution-flow interposition, not a STRICT-tuning result — see
    Compliance model below.
-2. **Pick the launch configuration** — `wtune.py plan/physics/knobs/screen`: decomposition
+2. **Pick the launch configuration** — `wtune.py physics/screen` (`plan`/`knobs` retired): decomposition
    shape, tiles, physics-consistent knobs, `srun --distribution=cyclic`, `KMP_BLOCKTIME=0`.
    Recommendations carry a STRICT or PHYSICS-GRAY compliance label; filter with `--compliance`.
 3. **Gate result-affecting knobs** — `wtune_config_gate.py`: `radt`, `non_hydrostatic`,
@@ -103,12 +103,7 @@ wtune check case/ --ranks 448 --json check.json
 ```
 看輸出的 FATAL／WARN 行：FATAL 代表這個 wrfinput 或設定會讓 run 失敗，先修再往下走。若偵測到 WRF 擴展，還會多印一行支援說明（moving nest、WRF-Chem、WRF-Hydro、WRFDA 各一行，內容見第 7 節）。
 
-**4.2 `wtune plan`：decomposition 候選。** 由 namelist 與機器拓樸排出 MPI decomposition 短名單。
-
-```bash
-wtune plan --namelist case/namelist.input --nodes 4 --json
-```
-看排名最前的 `nproc_x × nproc_y`；它只是候選，要不要採用由 tune 實測決定。
+**4.2 decomposition 候選（`wtune plan` 已退役）。** decomposition 現在由 `wtune tune` 直接實測決定，不需要先排短名單。`plan` 等九個早期指令在 2026-10-10 退役，原始碼保存在 `archive/unused-2026-10/src/wtune_cli_legacy.py`。
 
 **4.3 `wtune predict-rebuild`：整段 run 的牆鐘時間預測。** 在目標設定上，用 ERA5 重建數個時間點，各跑 WPS + real.exe + 短 spin-up + 若干量測步，再合成整段時間。這會對叢集送 Slurm job，先用 `--dry-run` 看計畫。
 
@@ -318,7 +313,6 @@ these are the RESEARCH-path proofs for PLOV.
 
 ```bash
 python3 wtune.py compliance list --compliance strict
-python3 wtune.py knobs --namelist namelist.input --compliance strict
 ```
 
 ### What WTune changes automatically vs. only recommends (decision 0056)
@@ -376,16 +370,15 @@ Build, run, verify: `plov/README.md`; the exact environment: `plov/production.en
 ## 2. Advisory layer — `wtune.py`
 
 ```bash
-python3 wtune.py plan    --namelist namelist.input [--ranks N] [--wrfinput wrfinput_d01]
 python3 wtune.py physics --namelist namelist.input [--menu] [--probe-json speedy_probe.json]
-python3 wtune.py knobs   --namelist namelist.input [--all]
 python3 wtune.py screen  --namelist namelist.input     # 3-stage funnel to the effective few
-python3 wtune.py audit   --namelist namelist.input     # classify all ~2062 catalog params
-python3 wtune.py catalog [--group physics] [--grep mp_]
-python3 wtune.py hotspot --namelist namelist.input --wrfinput ... [--run-surrogate]
-python3 wtune.py feedback ...                          # PLOV controller replay / decisions CSV
 python3 wtune.py selftest
 ```
+
+`plan`, `knobs`, `audit`, `catalog`, `hotspot`, `feedback`, `profile`, `oracle-map` and
+`restart-window` were retired on 2026-10-10 (source kept in
+`archive/unused-2026-10/src/wtune_cli_legacy.py`); the paragraphs below that describe them are
+history.
 
 - **Decomposition** — cache · vectorization · halo · NUMA score over the legal
   `nproc_x x nproc_y` shapes; re-derives the measured CONUS 2.5 km winner (`8x56`) without

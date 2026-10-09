@@ -6,7 +6,6 @@ Run: python3 -m pytest -q test_wtune_case.py
 """
 import json
 import os
-import subprocess
 import sys
 import tempfile
 
@@ -264,21 +263,6 @@ def test_cli_json_has_all_top_level_keys(conus_namelist, tmp_path):
                   '--cores-per-node', '72', '--json', out_json])
     assert rc == 0
     assert os.path.exists(out_json)
-    with open(out_json) as fh:
-        payload = json.load(fh)
-    for key in wc.PROFILE_KEYS:
-        assert key in payload
-
-
-def test_cli_via_wtune_subcommand(conus_namelist, tmp_path):
-    """The actual documented entry point: python3 wtune.py profile <case_dir> ..."""
-    out_json = os.path.join(str(tmp_path), 'profile2.json')
-    case_dir = os.path.dirname(conus_namelist)
-    result = subprocess.run(
-        [sys.executable, os.path.join(HERE, 'wtune.py'), 'profile', case_dir,
-         '--cores-per-node', '72', '--json', out_json],
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=HERE, timeout=60)
-    assert result.returncode == 0, result.stderr.decode()
     with open(out_json) as fh:
         payload = json.load(fh)
     for key in wc.PROFILE_KEYS:

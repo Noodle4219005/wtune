@@ -20,3 +20,21 @@ or names them as a script.
 
 Their tests are under `tests/` here and are not part of the main suite.
 Known defects found by the 2026-10-09 review in these files were not fixed.
+
+## Retired commands (2026-10-10)
+
+Nine early in-process `wtune` subcommands the current workflow no longer uses were removed from
+`src/wtune_cli.py`: `plan`, `hotspot`, `oracle-map`, `restart-window`, `feedback`, `knobs`,
+`catalog`, `audit`, `profile`. A tenth, `screen`, was meant to go with them but is still wired:
+`src/predictor/recommend.py` (`run_probe_screen`) runs `wtune.py screen --json` as a subprocess.
+
+| what | files |
+|---|---|
+| their parsers, handlers and command-only helpers, verbatim as at 18a9b9f (one file, not wired to anything, not importable as is) | `src/wtune_cli_legacy.py` |
+| PLOV feedback controller (only `feedback` imported it) | `src/wtune_feedback.py`, `tests/test_wtune_feedback.py` |
+| the two tests of `wtune profile` / `wtune knobs`, cut from `tests/test_wtune_case.py` and `tests/test_wtune_compliance.py` | `tests/test_retired_cli_commands.py` |
+
+Left in place because live code still reaches them: `src/wtune_surrogate.py` (`wtune physics`
+and `screen`), `src/wtune_oracle.py` and `src/wrf_frame.py` (`wtune_oracle_train.py` ->
+`tools/state_correction_model.py`), `src/wtune_knobs.py` (no importer left;
+`tests/test_wtune_compliance.py` reads its source), `src/wtune_case.py` (tune, calc, advise).

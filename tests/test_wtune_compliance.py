@@ -3,7 +3,6 @@ import os
 import re
 import subprocess
 import sys
-import tempfile
 import unittest
 
 from wtune_compliance import (
@@ -292,55 +291,6 @@ class CliSmokeTests(unittest.TestCase):
             [sys.executable, os.path.join(ROOT, 'wtune.py'), 'compliance', 'classify', 'numtiles'],
             cwd=ROOT).decode()
         self.assertIn('numtiles STRICT', out)
-
-    def test_knobs_strict_hides_physics_gray_labels(self):
-        namelist = (
-            "&time_control\n"
-            " run_hours = 6,\n"
-            " history_interval = 60,\n"
-            " io_form_history = 2,\n"
-            " io_form_restart = 2,\n"
-            "/\n"
-            "&domains\n"
-            " e_we = 100,\n"
-            " e_sn = 100,\n"
-            " e_vert = 50,\n"
-            " dx = 2500.0,\n"
-            " dy = 2500.0,\n"
-            " time_step = 15,\n"
-            " max_dom = 1,\n"
-            " nproc_x = 8,\n"
-            " nproc_y = 56,\n"
-            "/\n"
-            "&physics\n"
-            " mp_physics = 8,\n"
-            " cu_physics = 1,\n"
-            " radt = 5,\n"
-            " sf_sfclay_physics = 1,\n"
-            " sf_surface_physics = 2,\n"
-            " bl_pbl_physics = 1,\n"
-            " num_soil_layers = 4,\n"
-            "/\n"
-            "&dynamics\n"
-            " non_hydrostatic = .true.,\n"
-            "/\n"
-        )
-        with tempfile.TemporaryDirectory() as d:
-            path = os.path.join(d, 'namelist.input')
-            with open(path, 'w') as f:
-                f.write(namelist)
-            out_all = subprocess.check_output(
-                [sys.executable, os.path.join(ROOT, 'wtune.py'), 'knobs', '--namelist', path, '--all'],
-                cwd=ROOT).decode()
-            # sanity: this namelist DOES trigger a RESULTS-tagged rule (cu_physics at dx=2.5km).
-            self.assertIn('cu_physics', out_all)
-            out_strict = subprocess.check_output(
-                [sys.executable, os.path.join(ROOT, 'wtune.py'), 'knobs', '--namelist', path,
-                 '--all', '--compliance', 'strict'],
-                cwd=ROOT).decode()
-        self.assertNotIn('[PHYSICS-GRAY]', out_strict)
-        self.assertNotIn('[RESEARCH]', out_strict)
-        self.assertIn('hidden as unclassified/disallowed at --compliance strict', out_strict)
 
 
 if __name__ == '__main__':

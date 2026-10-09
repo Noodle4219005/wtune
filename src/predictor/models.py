@@ -44,6 +44,10 @@ except ImportError:
     HAVE_LIGHTGBM = False
 
 SEED = 0
+# Trees are fitted on tens to hundreds of rows: a few threads are plenty. Left unset, CatBoost
+# takes every core -- 72 threads on the shared login node, where the -O3 proposer runs -- and
+# not only in fit(): building a Pool from arrays and predict() default to every core too.
+THREADS = 4
 
 
 def available_models():
@@ -230,15 +234,15 @@ class CatBoostPointModel:
         vec = DictVectorizer(sparse=False)
         X = vec.fit_transform(dicts)
         model = CatBoostRegressor(depth=4, l2_leaf_reg=10, iterations=500, random_seed=SEED,
-                                   loss_function="RMSE", verbose=False)
-        model.fit(X, y)
+                                   loss_function="RMSE", verbose=False, thread_count=THREADS)
+        model.fit(Pool(X, y, thread_count=THREADS))
         self._vec, self._model = vec, model
         return self
 
     def score(self, rows):
         dicts = [_feature_dict(r, self.use_profile) for r in rows]
         X = self._vec.transform(dicts)
-        return list(self._model.predict(X))
+        return list(self._model.predict(X, thread_count=THREADS))
 
     def feature_importance(self):
         return dict(zip(self._vec.get_feature_names_out(), self._model.get_feature_importance()))
@@ -277,14 +281,14 @@ class PairwiseModel:
 
         if HAVE_CATBOOST:
             # target = -y so that "higher relevance" = "faster" for CatBoost's ranking convention
-            pool = Pool(X, label=-y, group_id=group_ids)
+            pool = Pool(X, label=-y, group_id=group_ids, thread_count=THREADS)
             model = CatBoostRanker(loss_function="PairLogit", depth=4, iterations=300,
-                                    random_seed=SEED, verbose=False)
+                                    random_seed=SEED, verbose=False, thread_count=THREADS)
             model.fit(pool)
             self.backend, self._model = "catboost", model
         elif HAVE_LIGHTGBM:
             model = lgb.LGBMRanker(objective="lambdarank", max_depth=4, n_estimators=300,
-                                    random_state=SEED)
+                                    random_state=SEED, n_jobs=THREADS)
             model.fit(X, -y, group=list(group_sizes))
             self.backend, self._model = "lightgbm", model
         else:
@@ -295,7 +299,8 @@ class PairwiseModel:
     def score(self, rows):
         dicts = [_feature_dict(r, self.use_profile) for r in rows]
         X = self._vec.transform(dicts)
-        pred = self._model.predict(X)
+        kw = dict(thread_count=THREADS) if self.backend == "catboost" else {}
+        pred = self._model.predict(X, **kw)
         return list(-np.asarray(pred))  # back to lower=faster convention
 
     def prob_better(self, row_a, row_b):

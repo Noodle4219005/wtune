@@ -635,7 +635,7 @@ def main(argv: list[str] | None = None) -> int:
     if fn is None:
         parser.print_help()
         return 1
-    from post import extract
+    from post import extract, plotting
     try:
         with extract.nc_cache(directory=getattr(args, "nc_cache", None),
                               base=_nc_cache_base(args)):
@@ -643,6 +643,9 @@ def main(argv: list[str] | None = None) -> int:
     except extract.BPConversionError as e:  # ADIOS2 BP history, converter unavailable
         print("error: %s" % e, file=sys.stderr)
         return 2
+    except (extract.ExtractError, plotting.PlotError, ValueError) as e:   # bad field, time, ...
+        print("error: %s" % e, file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":

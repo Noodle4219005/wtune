@@ -608,7 +608,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     """`wtune tune` / `python3 src/wtune_tune.py`: 2 for a site other than scc, 1 for an invalid
     option (message on stderr), else 0. With no level, pipeline, --nodes or --rank-by the run
-    is the default -O3 full layout search."""
+    is the default -O2 layout search."""
     # line-buffered: under nohup stdout is a block-buffered file and the progress log stayed empty
     try:
         sys.stdout.reconfigure(line_buffering=True)
@@ -620,7 +620,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     if (getattr(args, "level", None) is None and getattr(args, "pipeline", None) is None
             and args.nodes is None and getattr(args, "rank_by", None) is None):
-        args.level = DEFAULT_LEVEL            # the default run: the O3 full layout search
+        args.level = DEFAULT_LEVEL            # the default run: -O2
     os.environ.setdefault("SITE", "scc")
     try:
         run(args)

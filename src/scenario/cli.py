@@ -24,7 +24,10 @@ def _parse_bbox(s: str):
 
 
 def _parse_iso(s: str) -> datetime.datetime:
-    return datetime.datetime.fromisoformat(s)
+    try:
+        return datetime.datetime.fromisoformat(s)
+    except ValueError:
+        raise ScenarioError("bad date %r: use ISO form, e.g. 2019-01-28T00:00" % s)
 
 
 def _interval_h_from_case(case_dir):

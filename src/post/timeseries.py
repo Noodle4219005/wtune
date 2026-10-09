@@ -44,7 +44,10 @@ def _nearest_time(all_times, wanted):
     try:
         target = datetime.strptime(wanted, WRF_TIME_FMT)
     except ValueError:
-        target = datetime.strptime(wanted, VALID_TIME_FMT)
+        try:
+            target = datetime.strptime(wanted, VALID_TIME_FMT)
+        except ValueError:
+            raise ValueError("--times %r: use YYYYMMDDHH, e.g. 2019013000" % wanted) from None
     parsed = [datetime.strptime(t, WRF_TIME_FMT) for t in all_times]
     best = min(range(len(all_times)), key=lambda i: abs((parsed[i] - target).total_seconds()))
     return all_times[best]

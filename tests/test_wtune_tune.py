@@ -3089,12 +3089,12 @@ def test_physics_advice_is_opt_in(monkeypatch, tmp_path):
     assert report["pipeline"]["physics_advice"]
 
 
-def test_main_defaults_to_the_o3_layout_search_unless_a_mode_is_chosen(monkeypatch):
+def test_main_defaults_to_the_o2_layout_search_unless_a_mode_is_chosen(monkeypatch):
     seen = {}
     monkeypatch.setattr(wtune_tune.cli, "run", lambda args, **k: seen.update(level=args.level,
                                                                        nodes=args.nodes))
     wtune_tune.main(["matthew"])
-    assert seen["level"] == 3 and wtune_tune.DEFAULT_LEVEL == 3
+    assert seen["level"] == 2 and wtune_tune.DEFAULT_LEVEL == 2
     wtune_tune.main(["matthew", "-O1"])
     assert seen["level"] == 1
     wtune_tune.main(["matthew", "--nodes", "4", "--minutes", "30"])      # legacy fixed N: untouched

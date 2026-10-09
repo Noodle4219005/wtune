@@ -18,7 +18,7 @@ LEVELS = {
                               "cores/node, ranks x omp, nx x ny, numtiles at the finalists + "
                               "confirm reps"),
 }
-DEFAULT_LEVEL = 3
+DEFAULT_LEVEL = 2
 
 # effort-model guesses, replaced by measurements once they exist
 EST_REBUILD_S = 180.0                # s per ERA5 point rebuild: 1:21-3:00 measured (sc26p1)

@@ -406,3 +406,12 @@ def test_stage4_partial_download_keeps_the_rest_and_exits_nonzero(tmp_path, monk
     args.fetch_name, args.list = "stage4", False
     assert cli.cmd_fetch(args) == 1                                     # not a traceback, not 0
     assert "could not be downloaded" in capsys.readouterr().err
+
+
+def test_post_user_errors_print_one_line_not_a_traceback(tmp_path, capsys):
+    from post import cli
+    assert cli.main(["plot", "--field", "t2", "--out", str(tmp_path / "o"), str(tmp_path)]) == 1
+    assert capsys.readouterr().err.startswith("error: ")
+    from post import timeseries
+    with pytest.raises(ValueError, match="use YYYYMMDDHH"):
+        timeseries._nearest_time(["2019-01-30_00:00:00"], "last")

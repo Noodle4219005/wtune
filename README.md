@@ -133,13 +133,6 @@ wtune tune conus25 --minutes 90 --nodes search --node-objective knee --min-effic
 
 固定節點數用 `--nodes N`；不量測、以未校準的效率代理挑一個節點數用 `--nodes auto`（搭配 `--nodes-policy min|cap|knee`）。
 
-*依預測整段時間排名：*
-
-```bash
-wtune tune conus25 --minutes 120 --rank-by predicted --project .
-```
-`--rank-by predicted` 以 ERA5 重建、spin-up 後的共享 restart，依預測整段 compute+init 排名，而不是只看 t0 的 s/step；此模式的 `--nodes` 預設為 `auto`。
-
 *讀 `tune_report.json`*（在 `tune/<id>/`，同樣內容也會印在 stdout）：
 1. 找最佳設定：decomposition、numtiles、OMP、`--distribution`，以及它對 ANCHOR 的相對時間。
 2. 看 `node_selection`：`--nodes search` 時會記錄採用的目標、選中的節點數與理由；節點表列出每個 N 的 median s/step、重複次數、spread、speedup、efficiency 與 node-hours，被跳過的 N 附原因。
@@ -173,8 +166,6 @@ search:
   omp: [1, 2, 4, 8]
   numtiles: [1, 4, 8, 16]
   rank_distribution: [block, cyclic]
-probe:
-  rank_by: t0               # t0 | predicted
 ```
 `validate` 通過、`show` 印出展開後的搜尋空間即可。完整的 key 與註解見 `examples/wtune.yaml`；`node_objective` 等節點搜尋 key 的名稱以該檔與 `wtune config validate` 為準。
 
@@ -809,42 +800,23 @@ because the prediction had no io block and restart/history fell back to constant
 scale from measured scc anchors (conus25 restart, dorian2019 history) by grid points × levels.
 Rerun with an io-block prediction (`r2_chain`, jobs 1409 + 1420): predicted 197.1 / 173.1 s vs measured 201 / 164 s (**+2.0% / −5.3%**; segment 1's estimate updated from segment 0's observed rate) — **R2 passes**.
 
-### `wtune tune --rank-by predicted` — rank by predicted whole-run time (decision 0055, opt-in)
+### Ranking by predicted whole-run time (decision 0055) — retired 2026-10-10
 
-```bash
-wtune tune CASE --site scc --minutes 60 --nodes 4 --max-nodes 12 --rank-by predicted \
-    [--max-points 3] [--max-wall-minutes M] [--restart-io-form 14|2] --out DIR
-```
-
-The default (`t0`) is unchanged. In predicted mode:
-
-1. Plan points as `predict-rebuild` does (ERA5; spin-up = smallest whole minute ≥ 20 on the
-   time-step grid, dt 36 s → 21 min) and rebuild every point once (real_only, 1 node each, in
-   parallel — real.exe output does not depend on the candidates' decomposition).
-2. Stage 1 at P* (the point with the largest sunlit fraction): each Slurm job spins up once and
-   every candidate in it starts from that shared restart; ANCHOR runs first and ANCHOREND last in
-   every job, and each run is normalised by its own job's anchors. Jobs with foreign load or a
-   run that did not start from the restart are excluded.
-3. Stage 2: top 3 + ANCHOR/ANCHOREND at every point in parallel, one `combine()` per candidate;
-   the smallest predicted compute+init wins. Gates raise on: restart not used, |ANCHOREND ÷
-   ANCHOR − 1| > 1%, foreign load, wrong first global step.
+The separate predicted-ranking mode of `wtune tune` (stage 1 search, stage 2 = top 3 +
+ANCHOR/ANCHOREND at every ERA5-rebuilt point) was retired; its code and tests are in
+`archive/unused-2026-10/`. `-O1..-O3` keep what it established: rebuilt points, one point job
+per point from a shared spun-up restart, the gates (restart used, |ANCHOREND ÷ ANCHOR − 1| ≤ 1%,
+no foreign load, exact first global step) and `combine()` for the whole-run prediction. The
+measurements below are from that mode.
 
 Candidate runs set `override_restart_timers = .true.`: gate G0 found that with
 `restart_interval = 1000000` WRF still inherited the spin-up's 20-min restart interval and wrote
 a restart inside every measured window (netCDF 299 s on a radiation step, r ≈ 5 → 121; ADIOS2
 0.6 s). `run_seconds` is zeroed next to `run_minutes`, because WRF adds all four `run_*` keys.
 
-Budget: `--minutes` counts **running** time only (queue time is reported separately; hard wall
-cap `--max-wall-minutes`, default 3 × budget). Before anything is submitted a feasibility check
-computes the least running budget (rebuild prep + one stage-1 job of ANCHOR + 1 candidate +
-ANCHOREND + stage 2 for that one candidate) and refuses with that number. A stage-1 job starts
-only if elapsed + its own estimate + the stage-2 reserve fits; stage-1 jobs are trimmed to fit
-(floor ANCHOR + 1 + ANCHOREND); pending stage-1 jobs at the cutoff are cancelled and reported as
-not measured; stage 2 drops its lowest candidates until it fits, or is skipped with the reason.
-All estimates use one cost model: per run = startup + restart read + steps × s/step ×
+Point-job cost model: per run = startup + restart read + steps × s/step ×
 (1 + ⌈steps/stepra⌉ (r_rad − 1)/steps), r_rad 3.93 (conus25, 82 steps: 1.107; the earlier blanket
-×1.5 overstated it ~1.36×), with per-run overhead re-measured after the first wave.
-`--max-points` defaults to 3 in this mode.
+×1.5 overstated it ~1.36×).
 
 | gate / attempt | result |
 |---|---|
@@ -856,8 +828,8 @@ All estimates use one cost model: per run = startup + restart read + steps × s/
 | e2e 5 | stopped during stage 1 (same narrow-pool problem; superseded by the budget split) |
 | e2e 6 (conus25-pred6, stage 1 = t0 search, `--minutes 30` for stage 1 only) | stage 1 30.0 min + stage 2 58.0 min (announced 78.6) + 2.1 min, queue 2:33. Winner **G0001** again (predicted 33:19). Within the same candidate pool the t0 ranking and the whole-run ranking picked the **same** config; G3 vs G0014 still fails on pool breadth (one 4-node job at a time → ~6 candidates in 30 min) |
 
-**Conclusion (decision 0055):** `--rank-by predicted` stays **opt-in**; `t0` is the default. Its
-measured value is an accurate whole-run prediction of the winner (+0.75%); on conus25 it did not
+**Conclusion (decision 0055):** the mode's measured value was an accurate whole-run prediction
+of the winner (+0.75%); on conus25 it did not
 change the choice — consistent with 0.1.0's finding that the best decomposition does not move
 with simulated length. Recommended pipeline: `wtune tune` (t0) → `wtune predict-rebuild` on the
 winner (1 config × 3 points, ~15 min, same prediction quality) rather than stage 2 (5 configs ×

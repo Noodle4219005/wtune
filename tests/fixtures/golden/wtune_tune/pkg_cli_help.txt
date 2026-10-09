@@ -8,14 +8,12 @@ usage: wtune_tune.py [-h] [--config CONFIG] [--site SITE] [--minutes MINUTES] [-
                      [--physics-max-candidates PHYSICS_MAX_CANDIDATES]
                      [--node-finalists NODE_FINALISTS] [--nodes-policy {cap,knee,min}]
                      [--max-nodes MAX_NODES] [--out OUT] [--project PROJECT] [--steps STEPS]
-                     [--confirm-reps CONFIRM_REPS] [--rank-by {t0,predicted}]
-                     [--restart-io-form {14,2}] [--stage1 {t0,pstar}]
-                     [--stage2-minutes STAGE2_MINUTES] [--max-points MAX_POINTS]
-                     [--points-by {time,cost-indicators}] [--max-wall-minutes MAX_WALL_MINUTES]
-                     [--seed SEED] [--kappa KAPPA] [--cores-per-node CORES_PER_NODE]
-                     [--hardware-id HARDWARE_ID] [--env-source ENV_SOURCE]
-                     [--sbatch-script SBATCH_SCRIPT] [--ledger-dir LEDGER_DIR]
-                     [--sacct-cmd SACCT_CMD] [--poll-interval POLL_INTERVAL]
+                     [--confirm-reps CONFIRM_REPS] [--restart-io-form {14,2}]
+                     [--max-points MAX_POINTS] [--points-by {time,cost-indicators}] [--seed SEED]
+                     [--kappa KAPPA] [--cores-per-node CORES_PER_NODE] [--hardware-id HARDWARE_ID]
+                     [--env-source ENV_SOURCE] [--sbatch-script SBATCH_SCRIPT]
+                     [--ledger-dir LEDGER_DIR] [--sacct-cmd SACCT_CMD]
+                     [--poll-interval POLL_INTERVAL]
                      [case]
 
 positional arguments:
@@ -33,8 +31,7 @@ options:
   --nodes NODES         N = fixed node count; 'search' (DEFAULT) = measure the ANCHOR at each
                         legal node count, choose N by --node-objective, then tune at the finalist
                         N; 'auto' = uncalibrated efficiency proxy (--nodes-policy), no
-                        measurement. (--rank-by predicted defaults to 'auto'; a --config
-                        budget.nodes also overrides the default)
+                        measurement. (a --config budget.nodes also overrides the default)
   --node-objective {time,cost,knee}
                         --nodes search: time = fastest (smallest N within noise), cost = fewest
                         node-hours (within --deadline-minutes), knee = largest N with efficiency
@@ -110,32 +107,15 @@ options:
   --steps STEPS         default: 20 (or --config's probe.steps)
   --confirm-reps CONFIRM_REPS
                         default: 2 (or --config's probe.confirm_reps)
-  --rank-by {t0,predicted}
-                        t0 (default, or --config's probe.rank_by): rank by t0-probe s/step then
-                        predicted wall time. predicted (decision 0055): rebuild ERA5 points, spin
-                        each up once, rank every candidate from the shared restarts by predicted
-                        whole-run compute+init
   --restart-io-form {14,2}
-                        --rank-by predicted only: io_form of the shared ranking restart
-                        (RANKING_RESTART_IO_FORM); default 14 (ADIOS2), or --config's
-                        probe.restart_io_form
-  --stage1 {t0,pstar}   --rank-by predicted only: stage-1 search. t0 (default, or --config's
-                        probe.stage1): the broad t0 tuner search, rebuild prep running beside it.
-                        pstar: every stage-1 job spins up at P* and starts candidates from that
-                        restart (pre-2026-09-28 behaviour)
-  --stage2-minutes STAGE2_MINUTES
-                        --rank-by predicted --stage1 t0 only: optional cap on stage 2's running
-                        time (fit_stage2 trims the shortlist to it); default none -- stage 2
-                        always runs, its estimated cost is announced at start
+                        io_form of the point jobs' shared restart (RANKING_RESTART_IO_FORM);
+                        default 14 (ADIOS2), or --config's probe.restart_io_form
   --max-points MAX_POINTS
-                        probe.max_points override (--rank-by predicted default: 3)
+                        probe.max_points override
   --points-by {time,cost-indicators}
                         probe.points_by override (decision 0060): place the prediction points by
                         sun/time (default) or by a weather cost proxy (wtune_cost_drivers; sources
                         from probe.indicator_sources)
-  --max-wall-minutes MAX_WALL_MINUTES
-                        --rank-by predicted only: hard wall-clock cap (default 3x --minutes); the
-                        --minutes budget itself counts only RUNNING time there
   --seed SEED
   --kappa KAPPA
   --cores-per-node CORES_PER_NODE

@@ -22,8 +22,6 @@ from . import jobs as _jobs
 
 _PROBE_LEDGER_FIELDS = ["case_base", "n_ranks", "omp_threads", "nproc_x", "nproc_y", "numtiles",
                         "s_per_step_median"]
-_RANKING_RUNDIR_ROOT = os.path.expanduser("~/wtune-runs/campaign")   # campaign/sites/scc.sh OUT
-                                                                     # (hardcoded there, no env)
 COLD_START_BAND = 0.25               # +-25%: `wtune predict` held-out median 5.8%, padded for
                                      # weather it cannot see
 FALLBACK_BANDS = (                   # (rebuilt points, method, band) when wtune_cost_drivers is
@@ -192,90 +190,6 @@ def _probe_plan_preview(ctx: Ctx, nodes: int, best_config: dict) -> tuple | None
         return None
 
 
-def build_ranking_sbatch_command(case: str, nodes: int, cores_per_node: int, time_limit: str,
-                                 timeout_s: int, reps: int, steps: int, configs_path: str,
-                                 out_dir: str, spinup_minutes: Any, env_source: str | None = None,
-                                 sbatch_script: str | None = None,
-                                 campaign_dir: str | None = None,
-                                 extra_export: list | None = None) -> str:
-    """sbatch command of a RANKING_START=spinup trajectory job: scc_sweep.build_sbatch_command's
-    shape + SPINUP_MINUTES (':'-separated -- a ',' would split --export; ValueError), CAMPAIGN
-    when given, then extra_export [(KEY, VALUE)]."""
-    env_source = env_source or sweep.DEFAULT_ENV_SOURCE
-    sbatch_script = sbatch_script or sweep.DEFAULT_SBATCH_SCRIPT
-    total_cores = nodes * cores_per_node
-    export = ("ALL,SITE=scc,WTUNE_TOTAL_CORES=%d,CASE=%s,MODE=timing,REPS=%d,STEPS=%d,"
-              "TIMEOUT_S=%d,CONFIG_FILE=%s,RANKING_START=spinup,SPINUP_MINUTES=%s"
-              % (total_cores, case, reps, steps, timeout_s, configs_path, spinup_minutes))
-    if "," in str(spinup_minutes):
-        raise ValueError("SPINUP_MINUTES %r contains ',' which sbatch --export would split; "
-                         "use ':'" % (spinup_minutes,))
-    campaign_dir = campaign_dir or sweep.campaign_dir_for(sbatch_script)
-    if campaign_dir:
-        export += ",CAMPAIGN=%s" % campaign_dir
-    export += "".join(",%s=%s" % kv for kv in extra_export or [])
-    sbatch = ("sbatch -p compute -N %d --ntasks-per-node=%d --exclusive %s "
-              "--time=%s --job-name=c3-traj-%s-n%d --output=%s/c3traj-%%j.out --export=%s %s"
-              % (nodes, cores_per_node, sweep.exclude_arg(), time_limit, case, nodes, out_dir, export,
-                 sweep._expand(sbatch_script)))
-    return "source %s; %s" % (sweep._expand(env_source), sbatch)
-
-
-def run_trajectory_points(ctx: Ctx, points: list, best_config: dict, nodes: int, run_start: Any,
-                          stepra: int, out_dir: str, sbatch_script: str | None = None,
-                          campaign_dir: str | None = None) -> tuple[list, str] | list:
-    """Measure the trajectory/restart points in ONE job of the winner's layout (REPS = points,
-    SPINUP_MINUTES = each point's t0-relative minute; rep r -> points[r-1]). Returns
-    ([PointMeasurement] in point order, job id); RuntimeError on any infrastructure failure."""
-    if not points:
-        return []
-    minute_list = [int(round((p.at - run_start).total_seconds() / 60.0)) for p in points]
-    reps = len(points)
-    cfg = dict(id="ANCHOR", ranks=best_config["ranks"], omp=best_config["omp"],
-               nx=best_config["nx"], ny=best_config["ny"], numtiles=best_config["numtiles"],
-               dist=best_config["dist"], blocktime=best_config.get("blocktime", 0),
-               patch_x=None, patch_y=None, numtiles_x=0, numtiles_y=0, tile_sz_x=0,
-               tile_sz_y=0, tile_strategy=0, config_source="anchor")
-    os.makedirs(out_dir, exist_ok=True)
-    configs_path = os.path.join(out_dir, "configs_trajectory.json")
-    with open(configs_path, "w") as f:
-        json.dump({"configs": [cfg]}, f)
-    steps = points[0].steps
-    # watchdog: 20 s per simulated anchor spin-up minute, floor 1800 s (job 1211 postmortem)
-    timeout_s = max(1800, max(minute_list) * 20)
-    time_min = max(45, timeout_s // 60 + 15)
-    time_limit = "%02d:%02d:00" % (time_min // 60, time_min % 60)
-    cmd_str = build_ranking_sbatch_command(
-        ctx.case, nodes, ctx.cores_per_node, time_limit, timeout_s, reps, steps,
-        os.path.abspath(configs_path), out_dir, ":".join(str(m) for m in minute_list),
-        env_source=ctx.env_source, sbatch_script=sbatch_script, campaign_dir=campaign_dir,
-        extra_export=_jobs.fresh_input_export(ctx, ctx.case, out_dir,
-                                              2 * reps + 1))   # spin-up + run per point
-    job_id = sweep.submit_job(cmd_str, sbatch_runner=ctx.sbatch_runner)
-    ctx.owned_jobs.append(job_id)
-    print("C3 trajectory job submitted: %s (targets=%s minutes)" % (job_id, minute_list))
-    states = _jobs.wait_for_jobs(ctx, [job_id], "c3-trajectory")
-    state = states.get(job_id, ("UNKNOWN", ""))[0]
-    if state != "COMPLETED":
-        raise RuntimeError("C3 trajectory job %s ended in state %s (expected COMPLETED) -- "
-                            "infrastructure failure, stop and diagnose read-only" % (job_id, state))
-    _n, _run_s, dt, _note = wtune_predict.get_d01_steps(
-        wtune_predict.parse_namelist(ctx.namelist_path))
-    measurements = []
-    for i, p in enumerate(points):
-        rep = i + 1
-        rundir = os.path.join(_RANKING_RUNDIR_ROOT, "%s_ANCHOR_r%d_%s" % (ctx.case, rep, job_id))
-        steps_path = os.path.join(rundir, "steps.txt")
-        if not os.path.exists(steps_path) or os.path.getsize(steps_path) == 0:
-            raise RuntimeError("C3 trajectory job %s: %s missing/empty for point %s (rep %d)"
-                                % (job_id, steps_path, p.at.isoformat(), rep))
-        g0 = wtune_probe_plan.first_global_step_from_rsl(
-            os.path.join(rundir, "rsl.error.0000"), run_start, dt)
-        measurements.append(wtune_probe_plan.measurement_from_steps_file(
-            steps_path, stepra, p.at, p.reason, p.source, first_global_step=g0))
-    return measurements, job_id
-
-
 def run_rebuild_points(ctx: Ctx, points: list, best_config: dict, nodes: int, case_dir: str,
                        out_dir: str, run_start: Any, spinup_min: float = 60,
                        grib_dir: str | None = None, date_shift_to: Any = None,
@@ -337,50 +251,6 @@ def run_rebuild_points(ctx: Ctx, points: list, best_config: dict, nodes: int, ca
                 at=at, reason=w["reason"], source="rebuild", s_normal=w["s_k"],
                 n_rad=w["n_rad"], r=w["r_local"]))
     return measurements, ",".join(job_ids)
-
-
-def run_c3_prediction(ctx: Ctx, best_config: dict, nodes: int, out_dir: str,
-                      sbatch_script: str | None = None, campaign_dir: str | None = None,
-                      grib_dir: str | None = None) -> tuple:
-    """Plan the winner's points, measure trajectory/restart points (one job) and rebuild points
-    (one job per point) -- one allocation per source type (decision 0054) -- and combine() them.
-    Returns (result, points, notes, job_ids); raises on any infrastructure failure."""
-    nl = wtune_predict.parse_namelist(ctx.namelist_path)
-    run_start, run_end, dt, stepra = _run_window(nl)
-    spinup_s = float(ctx.probe_cfg.get("spinup_min") or 0) * 60.0
-    case_dir = ctx.case_json["prep_dir"]
-    cost_series = _cost_series_for_ctx(ctx, run_start, run_end, case_dir, grib_dir)
-    points, notes = wtune_probe_plan.plan_points(
-        nl, run_start, run_end, dt, stepra, spinup_s, ctx.probe_cfg, case_dir=case_dir,
-        indicators=cost_series)
-
-    traj_points = [p for p in points if p.source in ("trajectory", "restart")]
-    rebuild_points = [p for p in points if p.source == "rebuild"]
-
-    job_ids = []
-    measurements: list = []
-    if traj_points:
-        out_traj = os.path.join(out_dir, "c3_trajectory")
-        m, jid = run_trajectory_points(ctx, traj_points, best_config, nodes, run_start, stepra,
-                                        out_traj, sbatch_script=sbatch_script,
-                                        campaign_dir=campaign_dir)
-        measurements.extend(m)
-        job_ids.append(jid)
-    if rebuild_points:
-        out_rebuild = os.path.join(out_dir, "c3_rebuild")
-        spinup_min = ctx.probe_cfg.get("spinup_min") or 60
-        m, jid = run_rebuild_points(ctx, rebuild_points, best_config, nodes, case_dir, out_rebuild,
-                                     run_start, spinup_min=spinup_min, grib_dir=grib_dir)
-        measurements.extend(m)
-        job_ids.append(jid)
-
-    calibration = _drift_calibration(ctx)
-    sample_points, _geom_src = wtune_predict.read_wrfinput_sample_points(case_dir)
-    result = wtune_probe_plan.combine(
-        measurements, run_start, run_end, dt, stepra, calibration=calibration,
-        sample_points=sample_points, case_dir=case_dir, nl=nl, ranks=best_config.get("ranks"),
-        nodes=nodes, cost_series=cost_series)
-    return result, points, notes, job_ids
 
 
 def build_full_run_prediction(ctx: Ctx, best_config: dict | None, nodes: int, all_results: dict,
@@ -606,24 +476,6 @@ def _fallback_point_plan(T_s: float, precision_s: float, measured: bool,
     pts = n_available
     method, band = _band_for_points(pts, measured)
     return pts, method, band
-
-
-def _match_points(res_points: list | None, wrapped: list[dict]) -> list[dict]:
-    """plan_points_for_case's points (indices, objects with .at, datetimes or dicts) mapped onto
-    the planned points `wrapped` [{index, point}]."""
-    out = []
-    for item in res_points or []:
-        at = item if isinstance(item, datetime.datetime) else None
-        idx = item if isinstance(item, int) and not isinstance(item, bool) else None
-        if isinstance(item, dict):
-            idx, at = item.get("index"), item.get("at")
-        elif hasattr(item, "at"):
-            at = item.at
-        for w in wrapped:
-            if (idx is not None and w["index"] == idx) or (at is not None and w["point"].at == at):
-                out.append(w)
-                break
-    return out
 
 
 def _case_types_and_track(ctx: Ctx) -> tuple[list, Any]:

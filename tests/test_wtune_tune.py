@@ -322,46 +322,6 @@ def test_aggregate_by_cid_medians_across_replicates():
 # ---------------------------------------------------------------------------
 # confirm stage picks top-3 + anchor
 # ---------------------------------------------------------------------------
-def test_select_confirm_configs_top3_plus_anchor():
-    # No real namelist in this ctx (see _ctx()'s fake namelist_path), so every candidate's
-    # wtune_predict.build_prediction() call raises -- predict_candidates flags pred_error for
-    # all of them and rank_predicted_entries falls back to median s/step, reproducing the
-    # pre-prediction ranking exactly (see rank_predicted_entries's docstring).
-    ctx = _ctx()
-    all_results = {
-        "ANCHOR": _result("ANCHOR", 1.0),
-        "G0001": _result("G0001", 0.5),
-        "G0002": _result("G0002", 0.6),
-        "G0003": _result("G0003", 0.7),
-        "G0004": _result("G0004", 0.8),
-    }
-    ids = [c["id"] for c in
-           wtune_tune.select_confirm_configs(ctx, 1, all_results, anchor_cid="ANCHOR")]
-    assert ids == ["G0001", "G0002", "G0003", "ANCHOR"]
-
-
-def test_select_confirm_configs_anchor_already_in_top3_not_duplicated():
-    ctx = _ctx()
-    all_results = {
-        "ANCHOR": _result("ANCHOR", 0.4),
-        "G0001": _result("G0001", 0.5),
-        "G0002": _result("G0002", 0.6),
-        "G0003": _result("G0003", 0.7),
-    }
-    ids = [c["id"] for c in
-           wtune_tune.select_confirm_configs(ctx, 1, all_results, anchor_cid="ANCHOR")]
-    assert ids == ["ANCHOR", "G0001", "G0002"]
-    assert len(ids) == len(set(ids))
-
-
-def test_select_confirm_configs_missing_anchor_is_fine():
-    ctx = _ctx()
-    all_results = {"G0001": _result("G0001", 0.5)}
-    ids = [c["id"] for c in
-           wtune_tune.select_confirm_configs(ctx, 1, all_results, anchor_cid=None)]
-    assert ids == ["G0001"]
-
-
 def test_run_confirm_drops_a_slow_outlier_instead_of_skipping_everything():
     # Regression for the 2026-09-22 sc26p2 run: "confirm: SKIP -- estimated end would exceed
     # budget" fired at elapsed 2.7/30 min on a case measured at 0.03-0.04 s/step, because top-3-
@@ -1577,12 +1537,6 @@ def test_nodes_auto_is_unchanged_and_keeps_the_warning(monkeypatch, tmp_path, ca
     assert report["nodes"] == 1 and "node_selection" not in report
     assert "UNCALIBRATED" in capsys.readouterr().out
     assert set(job_nodes.values()) == {1}
-
-
-def test_nodes_search_with_rank_by_predicted_is_refused(monkeypatch, tmp_path):
-    with pytest.raises(SystemExit, match="not supported with --rank-by predicted"):
-        _run_cli(monkeypatch, tmp_path,
-                 ["--minutes", "30", "--nodes", "search", "--rank-by", "predicted"])
 
 
 def test_node_sweep_budget_cap_skips_larger_n(tmp_path):

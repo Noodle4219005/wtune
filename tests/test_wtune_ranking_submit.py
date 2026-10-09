@@ -3,10 +3,6 @@ import re
 import subprocess
 from pathlib import Path
 
-import pytest
-
-import wtune_tune
-
 SBATCH = Path(__file__).resolve().parents[1] / "campaign" / "strict_campaign.sbatch"
 
 
@@ -35,24 +31,6 @@ def test_config_file_loop_keeps_empty_fields_in_place(tmp_path):
               'echo "${CFG_NX[ANCHOR]} ${CFG_TSZ_Y[ANCHOR]} ${CFG_TSTRAT[ANCHOR]} ${CFG_SRC[ANCHOR]}"\n')
     out = subprocess.run(["bash", "-c", script], capture_output=True, text=True, check=True).stdout
     assert out.split() == ["12", "0", "0", "anchor"]
-
-
-def _cmd(spinup_minutes):
-    return wtune_tune.build_ranking_sbatch_command(
-        "conus25", 4, 72, "01:00:00", 1800, 2, 50, "/x/configs.json", "/x/out", spinup_minutes)
-
-
-def test_spinup_minutes_never_contains_a_comma_inside_export():
-    cmd = _cmd("60:122")
-    export = re.search(r"--export=(\S+)", cmd).group(1)
-    pairs = export.split(",")
-    assert "SPINUP_MINUTES=60:122" in pairs
-    assert all("=" in p or p == "ALL" for p in pairs)
-
-
-def test_spinup_minutes_with_comma_is_refused():
-    with pytest.raises(ValueError, match="sbatch --export"):
-        _cmd("60,122")
 
 
 def test_adios2_restart_xml_selects_bp4_for_every_domain(tmp_path):

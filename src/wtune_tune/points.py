@@ -143,7 +143,7 @@ def prepare_rebuilt_points(ctx: Ctx, points: list, anchor: dict, case_dir: str,
                            stepra: int, dt: float, forcing: str = PREDICTED_FORCING,
                            grib_dir: str | None = None,
                            date_shift_to: Any = None) -> list[dict]:
-    """submit_rebuilt_points + finish_rebuilt_points (stage1=pstar needs the points first)."""
+    """submit_rebuilt_points + finish_rebuilt_points."""
     return finish_rebuilt_points(ctx, submit_rebuilt_points(
         ctx, points, anchor, case_dir, namelist_path, case_entry, out_dir, spinup_min, stepra,
         dt, forcing=forcing, grib_dir=grib_dir, date_shift_to=date_shift_to))
@@ -211,8 +211,7 @@ def finish_rebuilt_points(ctx: Ctx, handle: dict) -> list[dict]:
     """Wait for the rebuild jobs, write each point's case entry and ONE rebuilt_cases.json
     (CASES_JSON). Returns [{index, point, case_id, T, cases_json, prep_dir, template, steps,
     spinup_min, stepra, dt, plan_dir, job_id}]; raises when a job did not complete.
-    handle["exempt_budget"] (stage1=t0: --minutes is stage 1 only) keeps the budget from
-    cancelling the jobs."""
+    handle["exempt_budget"] keeps the budget from cancelling the jobs."""
     points, done, job_ids = handle["points"], handle["done"], handle["job_ids"]
     anchor, case_entry, out_dir = handle["anchor"], handle["case_entry"], handle["out_dir"]
     spinup_min, stepra, dt, steps = (handle["spinup_min"], handle["stepra"], handle["dt"],

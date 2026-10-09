@@ -104,33 +104,13 @@ class Ctx:
     startup_s: float = DEFAULT_STARTUP_S          # s/run every run-time estimate sizes off
     startup_source: str = "documented constant (scc_sweep.STARTUP_S)"
     startup_runs: int | None = None               # completed round0 runs behind a measurement
-    # --rank-by predicted (decision 0055); every field below is inert in t0 mode
-    rank_by: str = "t0"
-    restart_io_form: int = 14
-    ranking: dict | None = None                   # ranking context of the stage-1 jobs (pstar)
+    restart_io_form: int = 14                     # io_form of the point jobs' shared restart
     ranking_gates: list = dataclasses.field(default_factory=list)   # evaluate_job_gates records
-    stage1_jobs: dict = dataclasses.field(default_factory=dict)     # {job: s_anchor_job, ...}
     budget_mode: str = "wall"                     # "running": queue-only waits are not charged
     queue_only_s: float = 0.0
     max_wall_s: float | None = None               # hard wall-clock cap (running budget only)
-    reserve: dict | None = None                   # stage-2 reserve inputs (stage2_reserve_s)
-    s_prior: float | None = None                  # s/step before anything is measured
-    restart_read_s: float | None = None           # None -> RESTART_READ_S_BY_IO[restart_io_form]
-    stage1_max_running: int = 0                   # max stage-1 ranking jobs seen RUNNING at once
-    stage1: dict | None = None                    # {mode: "t0"|"pstar", anchor} during stage 1
-    stage1_mode: str = "t0"                       # "t0" (default) | "pstar"
-    reserve_in_stage1: bool = True                # False in stage1=t0: --minutes is stage 1 only
-    uncharged_s: float = 0.0                      # controller time kept off the running clock
-    stage2_budget_s: float | None = None          # --stage2-minutes cap (stage1=t0)
-    max_wall_explicit: bool = False               # --max-wall-minutes was given
-    stage1_extra_reserve_s: float = 0.0
-    stage2_estimate_start_s: float | None = None
-    prep_submit_s: float = 0.0
+    stage1_max_running: int = 0                   # point jobs assumed to run at once
     background_jobs: list = dataclasses.field(default_factory=list)  # RUNNING for the clock only
-    stage2_overrun_s: float | None = None         # stage-2 running time beyond the budget
-    stage1_trimmed: list = dataclasses.field(default_factory=list)
-    job_cids: dict = dataclasses.field(default_factory=dict)        # {job: [cid, ...]}
-    not_measured: list = dataclasses.field(default_factory=list)
     anchor_override: dict | None = None           # node search: the sweep's hybrid ANCHOR at nodes
     core_budget: int | None = None                # node search: cores/node the layouts may use
     full_space: bool = False                      # enumerate every legal layout (O3)
@@ -163,7 +143,7 @@ class Ctx:
         if self.budget_mode == "running":
             if self.shared_queue is not None and "run_s" in self.shared_queue:
                 return self.shared_queue["run_s"]     # pipeline: controller work excluded too
-            return (self.clock.now() - self.start_time - self.queue_wait_s - self.uncharged_s)
+            return self.clock.now() - self.start_time - self.queue_wait_s
         return self.clock.now() - self.start_time
 
 

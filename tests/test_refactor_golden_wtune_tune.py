@@ -10,7 +10,7 @@ tests/fixtures/golden/wtune_tune/:
                                representative path: -O0..-O3, degraded / skipped / aborted phase 2,
                                budget truncation, step-down, the t0-anchor prediction, ...
   dispatch.json                for a list of argv, what run() hands to the selected runner
-                               (run_level0 / run_pipeline_full / run_node_search / run_predicted /
+                               (run_level0 / run_pipeline_full / run_node_search /
                                run_tuning_at, all replaced by recorders): its kwargs and every
                                non-callable Ctx attribute -- pins argument resolution, the context
                                build and the dispatch table without running any search.
@@ -190,11 +190,6 @@ DISPATCH_ARGV = {
     "o2_minutes": ["-O2", "--minutes", "120", "--precision", "5", "--stop-if-short"],
     "o3_full": ["--pipeline", "full", "--physics-advice", "--physics-max-candidates", "2",
                 "--max-queue-hours", "3", "--keep-frames", "--steps", "9"],
-    "predicted": ["--minutes", "30", "--nodes", "4", "--rank-by", "predicted",
-                  "--stage2-minutes", "7", "--max-wall-minutes", "50", "--stage1", "pstar",
-                  "--restart-io-form", "2"],
-    "predicted_points": ["--minutes", "30", "--nodes", "auto", "--rank-by", "predicted",
-                         "--max-points", "3", "--points-by", "cost-indicators"],
     "no_preflight_o3": ["-O3", "--no-node-preflight", "--confirm-reps", "3", "--seed", "7"],
 }
 DISPATCH_ERRORS = {
@@ -202,10 +197,7 @@ DISPATCH_ERRORS = {
     "bad_core_opts": ["--minutes", "30", "--cores-per-node-options", "72,x"],
     "core_opts_range": ["--minutes", "30", "--cores-per-node-options", "80"],
     "pipeline_fixed_nodes": ["-O2", "--nodes", "4"],
-    "pipeline_predicted": ["-O2", "--rank-by", "predicted"],
-    "search_predicted": ["--minutes", "30", "--nodes", "search", "--rank-by", "predicted"],
     "nodes_over_max": ["--minutes", "30", "--nodes", "9", "--max-nodes", "8"],
-    "bad_stage1": ["--minutes", "30", "--nodes", "2"],
 }
 
 
@@ -240,13 +232,11 @@ def _dispatch_env(monkeypatch, tmp_path, rec):
 
     for kind, mod in (("run_level0", wtune_tune.pipeline), ("run_pipeline_full", wtune_tune.pipeline),
                       ("run_node_search", wtune_tune.node_search),
-                      ("run_predicted", wtune_tune.predicted), ("run_tuning_at", wtune_tune.rounds)):
+                      ("run_tuning_at", wtune_tune.rounds)):
         monkeypatch.setattr(mod, kind, recorder(kind))
     monkeypatch.setattr(wtune_tune.report, "build_report",
                         lambda ctx, *a, **k: stub_report(ctx))
     monkeypatch.setattr(wtune_tune.report, "render_pipeline_text", lambda pipe: "PIPELINE %r" % (pipe,))
-    monkeypatch.setattr(wtune_tune.predicted, "render_predicted_report_text",
-                        lambda rep: "PREDICTED %r" % sorted(rep))
 
 
 def test_golden_run_dispatch(monkeypatch, tmp_path, capsys):
@@ -273,42 +263,9 @@ def test_golden_run_dispatch(monkeypatch, tmp_path, capsys):
         args = wtune_tune.build_arg_parser().parse_args(
             ["matthew", "--site", "scc", "--out", str(d / "out"),
              "--ledger-dir", str(d / "ledger")] + extra)
-        if name == "bad_stage1":
-            args.stage1 = "bogus"
         with pytest.raises(SystemExit) as ei:
             wtune_tune.run(args, sbatch_runner=lambda cmd: None, clock=T.FakeClock(),
                            preflight_runner=_no_sinfo)
         errors[name] = dict(msg=str(ei.value), out=capsys.readouterr().out)
     text = json.dumps(dict(runs=snap, errors=errors), indent=1, sort_keys=True)
     _check("dispatch.json", _norm(text, tmp_path) + "\n")
-
-
-# --- run_predicted (--rank-by predicted): the end-to-end scenarios of test_wtune_rank_predicted,
-# re-run with run_predicted's return value and printed text snapshotted --------------------------
-import test_wtune_rank_predicted as R  # noqa: E402
-
-PREDICTED = {
-    "pstar_conus25": (R.test_conus25_like_runs_stage1_and_stage2, dict(stage2_extra_s=0.0)),
-    "pstar_conus25_overrun": (R.test_conus25_like_runs_stage1_and_stage2,
-                              dict(stage2_extra_s=3000.0)),
-    "t0_end_to_end": (R.test_stage1_t0_end_to_end, {}),
-    "pstar_refused": (R.test_feasibility_precheck_refuses_before_submitting, {}),
-    "pstar_refused_60min": (R.test_conus25_60min_is_refused_with_conservative_concurrency, {}),
-}
-
-
-@pytest.mark.parametrize("name", sorted(PREDICTED))
-def test_golden_run_predicted(name, monkeypatch, tmp_path, capsys):
-    fn, kw = PREDICTED[name]
-    real = wtune_tune.run_predicted
-    reports = []
-
-    def recording(*a, **k):
-        reports.append(real(*a, **k))
-        return reports[-1]
-    monkeypatch.setattr(wtune_tune, "run_predicted", recording)
-    fn(monkeypatch, tmp_path, **kw)
-    out = capsys.readouterr().out
-    rep = json.dumps(reports, indent=1, sort_keys=True, default=str)
-    _check("predicted_%s.txt" % name, _norm(_norm(out, tmp_path), T._SCRATCH))
-    _check("predicted_%s.json" % name, _norm(_norm(rep, tmp_path), T._SCRATCH) + "\n")

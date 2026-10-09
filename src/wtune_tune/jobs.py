@@ -6,11 +6,9 @@ import datetime
 import os
 import re
 import sys
-from typing import Callable
 
 from ._deps import sweep
-from .budget import (_job_time_est, _ranking_wrap, _stage1_active, ranking_export,
-                     stage2_concurrency, wrap_with_anchors)
+from .budget import _job_time_est
 from .common import ANCHOR_END_ID, _fmt_hms, _notes_kv, parse_run_id
 from .context import Ctx, QueueCapExceeded
 
@@ -67,16 +65,15 @@ def _in_flight(job_ids: list, states: dict, misses: dict, stage: str) -> list:
 
 
 def wait_for_jobs(ctx: Ctx, job_ids: list, stage: str, note: str = "",
-                  pending_cutoff: Callable[[], bool] | None = None,
                   exempt_budget: bool = False) -> dict:
     """Poll sacct until `job_ids` leave PENDING/RUNNING, printing one progress line per poll; at
     the budget deadline cancel those ids only. Returns the last {job: (State, Elapsed)} ({} for
-    no ids). budget_mode "running" uses _wait_running_budget (pending_cutoff, exempt_budget)."""
+    no ids). budget_mode "running" uses _wait_running_budget (exempt_budget)."""
     job_ids = [j for j in job_ids if j]
     if not job_ids:
         return {}
     if ctx.budget_mode == "running":
-        return _wait_running_budget(ctx, job_ids, stage, note, pending_cutoff, exempt_budget)
+        return _wait_running_budget(ctx, job_ids, stage, note, exempt_budget)
     misses: dict = {}
     while True:
         elapsed = ctx.elapsed()
@@ -92,12 +89,10 @@ def wait_for_jobs(ctx: Ctx, job_ids: list, stage: str, note: str = "",
 
 
 def _wait_running_budget(ctx: Ctx, job_ids: list, stage: str, note: str,
-                         pending_cutoff: Callable[[], bool] | None,
                          exempt_budget: bool = False) -> dict:
     """wait_for_jobs on the RUNNING-time budget (decision 0055 gap 3): a poll interval is charged
     only when one of our jobs (or ctx.background_jobs) runs, else counted as queue wait (capped by
-    max_queue_s). Cancels at the budget (not when `exempt_budget`) or the wall cap; once
-    `pending_cutoff()` is true, still-PENDING jobs are cancelled as not measured."""
+    max_queue_s). Cancels at the budget (not when `exempt_budget`) or the wall cap."""
     misses: dict = {}
     while True:
         elapsed = ctx.elapsed()
@@ -114,13 +109,6 @@ def _wait_running_budget(ctx: Ctx, job_ids: list, stage: str, note: str,
                        % (_fmt_hms(wall), _fmt_hms(ctx.queue_wait_s)))
         if not in_flight:
             return states
-        if pending_cutoff is not None and pending_cutoff():
-            pend = [j for j in in_flight if states.get(j, ("", ""))[0] == "PENDING"]
-            if pend:
-                cancel_unstarted(ctx, pend, stage)
-                in_flight = [j for j in in_flight if j not in pend]
-                if not in_flight:
-                    return states
         over_budget = elapsed >= ctx.budget_s and not exempt_budget
         if over_budget or (ctx.max_wall_s is not None and wall >= ctx.max_wall_s):
             if not over_budget:
@@ -129,10 +117,6 @@ def _wait_running_budget(ctx: Ctx, job_ids: list, stage: str, note: str,
             cancel_jobs(ctx, in_flight)
             return states
         n_running = sum(1 for j in in_flight if states.get(j, ("", ""))[0] == "RUNNING")
-        if _stage1_active(ctx) and n_running > ctx.stage1_max_running:
-            ctx.stage1_max_running = n_running
-            print("%s: observed %d of this run's ranking job(s) RUNNING at once (stage-2 "
-                  "concurrency now %d)" % (stage, n_running, stage2_concurrency(ctx)))
         running = n_running > 0 or bg_running
         step = min(ctx.poll_interval, max(0.0, ctx.budget_s - elapsed))
         if exempt_budget:
@@ -156,18 +140,6 @@ def _wait_running_budget(ctx: Ctx, job_ids: list, stage: str, note: str,
                     "queue-only wait %s reached --max-queue-hours (%s); in-flight job(s) %s "
                     "cancelled" % (_fmt_hms(ctx.queue_wait_s), _fmt_hms(ctx.max_queue_s),
                                    ",".join(in_flight)))
-
-
-def cancel_unstarted(ctx: Ctx, job_ids: list, stage: str) -> None:
-    """Stage-1 cutoff: scancel jobs that never started; their candidates go to ctx.not_measured."""
-    print("%s: stage-1 cutoff reached -- cancelling %d job(s) that never started: %s "
-          "(their candidates are not measured)" % (stage, len(job_ids), ",".join(job_ids)))
-    ctx.scancel_runner(job_ids)
-    ctx.cancelled_jobs.extend(job_ids)
-    for j in job_ids:
-        cids = [c for c in ctx.job_cids.get(j, []) if c not in ("ANCHOR", ANCHOR_END_ID)]
-        ctx.not_measured.append(dict(job_id=j, cids=cids, stage=stage,
-                                     reason="job still PENDING at the stage-1 cutoff"))
 
 
 def _submits_for_real(ctx: Ctx) -> bool:
@@ -248,36 +220,25 @@ def fresh_input_export(ctx: Ctx, case_id: str, job_out_dir: str, runs: int,
 
 
 def submit_configs_job(ctx: Ctx, configs: list[dict], reps: int, name_suffix: str,
-                       s_est: float | None, time_est: dict | None = None,
-                       ranking: dict | None = None) -> tuple[str, str, dict]:
+                       s_est: float | None, time_est: dict | None = None) -> tuple[str, str, dict]:
     """Submit one strict_campaign.sbatch CONFIG_FILE job. Returns (job id, configs.json, time
-    estimate). With a ranking context (default ctx.ranking) the job runs as the rebuilt point's
-    case from its shared restart, configs wrapped in ANCHOR ... ANCHOREND; CAMPAIGN is exported
-    for a real campaign checkout so the spooled script never pairs with stale helpers."""
-    ranking = ctx.ranking if ranking is None else ranking
-    if ranking:
-        configs = wrap_with_anchors(configs, ranking["anchor"])
-    elif _stage1_active(ctx):
-        configs = _ranking_wrap(ctx, configs)        # stage1=t0: anchors in every job too
+    estimate). CAMPAIGN is exported for a real campaign checkout so the spooled script never
+    pairs with stale helpers."""
     if time_est is None:
-        time_est = _job_time_est(ctx, len(configs), reps, s_est, ranking=ranking)
+        time_est = _job_time_est(ctx, len(configs), reps, s_est)
     job_out_dir = os.path.join(ctx.out_dir, name_suffix)
     os.makedirs(job_out_dir, exist_ok=True)
     configs_path = os.path.join(job_out_dir, "configs.json")
     sweep.write_configs_json(configs_path, configs)
-    fresh = fresh_input_export(ctx, ranking["case_id"] if ranking else ctx.case, job_out_dir,
-                               len(configs) * reps + 2,          # + spin-up + slack
-                               ranking.get("cases_json") if ranking else None)
+    fresh = fresh_input_export(ctx, ctx.case, job_out_dir, len(configs) * reps + 2)   # + slack
     cmd_str = sweep.build_sbatch_command(
-        ranking["case_id"] if ranking else ctx.case, ctx.nodes, ctx.cores_per_node,
-        time_est["time_limit"], time_est["timeout_s"],
-        reps, ranking["steps"] if ranking else ctx.steps, os.path.abspath(configs_path),
+        ctx.case, ctx.nodes, ctx.cores_per_node, time_est["time_limit"], time_est["timeout_s"],
+        reps, ctx.steps, os.path.abspath(configs_path),
         job_out_dir, env_source=ctx.env_source, sbatch_script=ctx.sbatch_script,
         campaign_dir=sweep.campaign_dir_for(ctx.sbatch_script),
-        extra_export=(ranking_export(ranking, time_est) if ranking else []) + fresh or None)
+        extra_export=fresh or None)
     job_id = sweep.submit_job(cmd_str, sbatch_runner=ctx.sbatch_runner)
     ctx.owned_jobs.append(job_id)
-    ctx.job_cids[job_id] = [c["id"] for c in configs]
     return job_id, configs_path, time_est
 
 
@@ -321,47 +282,6 @@ def evaluate_job_gates(job_id: str, rows: list[dict], s_by_cid: dict, expected_c
                             % (100 * drift, 100 * drift_max, a, e))
     return dict(job_id=str(job_id), ok=not failures, failures=failures, anchor_drift=drift,
                 s_anchor=a, s_anchor_end=e)
-
-
-def _record_stage1_gates(ctx: Ctx, job_ids: list, rows: list[dict], label: str) -> None:
-    """Predicted-mode stage 1: record (and warn about, never raise) every job's gates, plus its
-    s_anchor_job = mean(ANCHOR, ANCHOREND) normalizer and whether foreign load or a missed restart
-    excludes its candidates (ctx.ranking_gates, ctx.stage1_jobs). No-op outside stage 1."""
-    if not _stage1_active(ctx):
-        return
-    require_restart = ctx.ranking is not None     # stage1=t0 jobs start at t0, not a restart
-    for jid in job_ids:
-        mine = [r for r in rows if (parse_run_id(r.get("run_id")) or {}).get("job") == str(jid)]
-        cids = [parse_run_id(r["run_id"])["cid"] for r in mine]
-        s_by_cid = {}
-        for r in mine:
-            s = sweep._to_float(r.get("s_per_step_median"))
-            if s:
-                s_by_cid[parse_run_id(r["run_id"])["cid"]] = s
-        rec = evaluate_job_gates(jid, mine, s_by_cid, cids, require_restart=require_restart)
-        reasons = []
-        for r in mine:
-            kv = _notes_kv(r.get("notes"))
-            cid = parse_run_id(r["run_id"])["cid"]
-            if kv.get("foreign_load") == "1":
-                reasons.append("%s foreign_load=1 (%s)" % (cid, kv.get("foreign", "?")))
-            if require_restart and kv.get("restart_used") != "1":
-                reasons.append("%s restart_used=%s" % (cid, kv.get("restart_used", "missing")))
-        a, e = s_by_cid.get("ANCHOR"), s_by_cid.get(ANCHOR_END_ID)
-        s_anchor_job = ((a + e) / 2.0) if (a and e) else a
-        if not s_anchor_job:
-            reasons.append("no ANCHOR measurement to normalize by")
-        rec.update(stage="stage1", label=label, s_anchor_job=s_anchor_job,
-                   excluded=bool(reasons), exclude_reason="; ".join(reasons) or None)
-        ctx.ranking_gates.append(rec)
-        ctx.stage1_jobs[str(jid)] = dict(s_anchor_job=s_anchor_job, excluded=bool(reasons),
-                                         reason=rec["exclude_reason"], label=label)
-        if reasons:
-            print("WARNING: %s job %s EXCLUDED from the stage-1 ranking: %s"
-                  % (label, jid, rec["exclude_reason"]))
-        elif not rec["ok"]:
-            print("WARNING: %s job %s failed ranking gates (kept, anchor-normalized): %s"
-                  % (label, jid, "; ".join(rec["failures"])))
 
 
 def job_timing(ctx: Ctx, job_ids: list) -> dict:

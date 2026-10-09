@@ -8,17 +8,14 @@ import os
 from typing import Any, Callable
 
 from ._deps import sweep
-from .budget import (_job_time_est, _ledger_case, _ranking_wrap, _stage1_active, _stage1_anchor,
-                     _stage1_cutoff, _stage1_may_start, describe_cost_model,
-                     describe_stage2_reserve, estimate_run_time, rad_factor, stage1_reserve_s,
-                     update_s_est, wrap_with_anchors)
+from .budget import _job_time_est, estimate_run_time, update_s_est
 from .candidates import (FULL_SPACE_CONFIGS_PER_JOB, _apply_search_filter, aggregate_by_cid,
                          rank_predicted_entries, sample_more_diverse_configs)
-from .common import (ANCHOR_END_ID, _fmt_hms, _parse_slurm_elapsed, chunk_round_robin,
-                     compute_slots, would_exceed_budget)
+from .common import (ANCHOR_END_ID, _fmt_hms, chunk_round_robin, compute_slots,
+                     would_exceed_budget)
 from .context import Ctx, cores_used
 from .estimates import EST_ROUND0_CONFIGS
-from .jobs import _record_stage1_gates, submit_configs_job
+from .jobs import submit_configs_job
 from .prediction import predict_candidates
 from . import budget as _budget
 from . import candidates as _candidates
@@ -52,30 +49,17 @@ def select_confirm_entries(ctx: Ctx, nodes: int, all_results: dict,
     return entries
 
 
-def select_confirm_configs(ctx: Ctx, nodes: int, all_results: dict,
-                           anchor_cid: str | None) -> list[dict]:
-    """The configs of select_confirm_entries."""
-    return [e["config"] for e in select_confirm_entries(ctx, nodes, all_results, anchor_cid)]
-
-
 def _submit_round0_wave(ctx: Ctx, configs: list[dict], slots: int, s_est: float,
                         name_prefix: str) -> Wave:
     """Deal `configs` over `slots` parallel jobs, submit each whose RAW expected time fits the
     budget, wait for all. Returns (job_ids, configs_by_cid, rows, job_configs, states) -- the
-    last two feed measure_startup_s. Predicted-mode stage 1 uses _submit_ranking_wave."""
-    if _stage1_active(ctx):
-        return _submit_ranking_wave(ctx, configs, slots, s_est, name_prefix)
+    last two feed measure_startup_s."""
     chunks = chunk_round_robin(configs, slots)
     job_ids, configs_by_cid, job_configs = [], {}, {}
     for i, chunk in enumerate(chunks):
-        chunk = _ranking_wrap(ctx, chunk)     # predicted mode: ANCHOR ... ANCHOREND in EVERY chunk
         time_est = _job_time_est(ctx, len(chunk), 1, s_est)
         if would_exceed_budget(ctx.elapsed(), time_est["total_run_s"], ctx.budget_s):
             print("%s slot %d: SKIP -- estimated end would exceed budget" % (name_prefix, i))
-            continue
-        ok, why = _stage1_may_start(ctx, time_est["total_run_s"])
-        if not ok:
-            print("%s slot %d: SKIP -- %s" % (name_prefix, i, why))
             continue
         job_id, _path, _te = submit_configs_job(ctx, chunk, reps=1,
                                                   name_suffix="%s-s%d" % (name_prefix, i),
@@ -86,104 +70,9 @@ def _submit_round0_wave(ctx: Ctx, configs: list[dict], slots: int, s_est: float,
             configs_by_cid[c["id"]] = c
         print("%s slot %d: submitted job %s (%d configs)" % (name_prefix, i, job_id, len(chunk)))
 
-    states = _jobs.wait_for_jobs(ctx, job_ids, name_prefix, pending_cutoff=_stage1_cutoff(ctx))
-    rows = ctx.ledger_reader(_ledger_case(ctx), job_ids)
-    _record_stage1_gates(ctx, job_ids, rows, name_prefix)
+    states = _jobs.wait_for_jobs(ctx, job_ids, name_prefix)
+    rows = ctx.ledger_reader(ctx.case, job_ids)
     return job_ids, configs_by_cid, rows, job_configs, states
-
-
-def fit_stage1_job(ctx: Ctx, candidates: list[dict],
-                   s_est: float) -> tuple[list[dict] | None, list[dict], dict | None]:
-    """Predicted mode: the longest prefix of `candidates` (sampling priority order) whose job --
-    spin-up + ANCHOR + prefix + ANCHOREND -- still fits elapsed + job + stage-2 reserve <= budget.
-    Returns (wrapped, dropped, time_est), or (None, candidates, estimate of the minimum)."""
-    cands = [c for c in candidates if c.get("id") not in ("ANCHOR", ANCHOR_END_ID)]
-    est = None
-    for n in range(len(cands), 0, -1):
-        wrapped = wrap_with_anchors(cands[:n], _stage1_anchor(ctx))
-        est = _job_time_est(ctx, len(wrapped), 1, s_est)
-        ok, _why = _stage1_may_start(ctx, est["total_run_s"])
-        if ok:
-            return wrapped, cands[n:], est
-    return None, cands, est
-
-
-def _submit_ranking_wave(ctx: Ctx, configs: list[dict], slots: int, s_est: float,
-                         name_prefix: str) -> Wave:
-    """Predicted-mode stage-1 wave: candidates dealt over min(slots, #candidates) slots, each
-    with its own ANCHOR/ANCHOREND and SHRUNK to fit (fit_stage1_job; trimmed ones recorded); the
-    plan is logged before anything is submitted. Same return as _submit_round0_wave."""
-    cands = [c for c in configs if c.get("id") not in ("ANCHOR", ANCHOR_END_ID)]
-    n_slots = max(1, min(int(slots), len(cands)))
-    plan = []
-    for i, chunk in enumerate(chunk_round_robin(cands, n_slots)):
-        wrapped, dropped, est = fit_stage1_job(ctx, chunk, s_est)
-        plan.append((i, wrapped, dropped, est))
-    print("%s plan: %d slot(s) (max %d concurrent = floor(max_nodes/nodes)), candidates per slot "
-          "%s, expected %s per job; elapsed %s, %s"
-          % (name_prefix, sum(1 for p in plan if p[1]), slots,
-             [len(p[1]) - 2 if p[1] else 0 for p in plan],
-             ", ".join(_fmt_hms(p[3]["total_run_s"]) if p[1] else "skip" for p in plan),
-             _fmt_hms(ctx.elapsed()), describe_stage2_reserve(ctx)))
-    if plan and plan[0][3] and plan[0][3].get("cost_model"):
-        print("%s cost model: %s" % (name_prefix, describe_cost_model(plan[0][3]["cost_model"])))
-    job_ids, configs_by_cid, job_configs = [], {}, {}
-    for i, wrapped, dropped, est in plan:
-        for c in dropped:
-            ctx.stage1_trimmed.append(dict(cid=c["id"], stage=name_prefix,
-                                           reason="trimmed to fit the budget + stage-2 reserve"))
-        if wrapped is None:
-            print("%s slot %d: SKIP -- even ANCHOR + 1 candidate + ANCHOREND (%s) does not fit: %s"
-                  % (name_prefix, i, _fmt_hms(est["total_run_s"]) if est else "-",
-                     _stage1_may_start(ctx, est["total_run_s"])[1] if est else "no candidate"))
-            continue
-        if dropped:
-            print("%s slot %d: trimmed %d candidate(s) to fit: %s"
-                  % (name_prefix, i, len(dropped), ", ".join(c["id"] for c in dropped)))
-        job_id, _path, _te = submit_configs_job(ctx, wrapped, reps=1,
-                                                  name_suffix="%s-s%d" % (name_prefix, i),
-                                                  s_est=s_est, time_est=est)
-        job_ids.append(job_id)
-        job_configs[job_id] = wrapped
-        for c in wrapped:
-            configs_by_cid[c["id"]] = c
-        print("%s slot %d: submitted job %s (%d configs, expected %s)"
-              % (name_prefix, i, job_id, len(wrapped), _fmt_hms(est["total_run_s"])))
-    states = _jobs.wait_for_jobs(ctx, job_ids, name_prefix, pending_cutoff=_stage1_cutoff(ctx))
-    rows = ctx.ledger_reader(_ledger_case(ctx), job_ids)
-    _record_stage1_gates(ctx, job_ids, rows, name_prefix)
-    return job_ids, configs_by_cid, rows, job_configs, states
-
-
-def measure_ranking_overhead(ctx: Ctx, job_configs: dict, states: dict,
-                             wave_results: dict) -> tuple[float | None, int]:
-    """Predicted-mode measure_startup_s: per-run overhead = (elapsed - compute) / (runs + 1), the
-    compute including the ANCHOR spin-up and radiation factors; it replaces startup_s + restart
-    read together. (None, 0) without a usable COMPLETED job."""
-    r = ctx.ranking
-    spin_steps = r["spinup_minutes"] * 60.0 / float(r["dt"])
-    f_run, f_spin = rad_factor(r["steps"], r.get("stepra")), rad_factor(spin_steps, r.get("stepra"))
-    tot_e = tot_c = 0.0
-    n = 0
-    for jid, configs in job_configs.items():
-        state, elapsed_str = states.get(jid, ("UNKNOWN", ""))
-        el = _parse_slurm_elapsed(elapsed_str)
-        a = wave_results.get("ANCHOR")
-        if state != "COMPLETED" or el is None or not a:
-            continue
-        comp, cnt = spin_steps * a["median"] * f_spin, 0
-        for c in configs:
-            w = wave_results.get(c["id"])
-            if w:
-                comp += r["steps"] * w["median"] * f_run
-                cnt += 1
-        if cnt:
-            tot_e += el
-            tot_c += comp
-            n += cnt + 1
-    if not n:
-        return None, 0
-    return max(0.0, (tot_e - tot_c) / n), n
 
 
 def _configs_for_budget(budget_s: float, per_run_s: float, slots: int) -> int:
@@ -247,37 +136,18 @@ def _run_full_space_round0(ctx: Ctx, s_est: float, slots: int) -> tuple[list, di
 
 def _round0_size(ctx: Ctx, s_est: float, slots: int) -> tuple[int, int]:
     """(configs per job, configs to build incl. the ANCHOR): round 0's share of the budget at
-    `s_est`; in predicted-mode stage 1 every job carries its own ANCHOR/ANCHOREND (+1), and pstar
-    sizes off what one job holds after its spin-up and two anchor runs."""
+    `s_est`."""
     per_run_s = ctx.startup_s + ctx.steps * s_est
-    round0_budget_s = min(ctx.budget_s - ctx.elapsed() - stage1_reserve_s(ctx),
-                          ctx.budget_s * ROUND0_BUDGET_FRACTION)
+    round0_budget_s = min(ctx.budget_s - ctx.elapsed(), ctx.budget_s * ROUND0_BUDGET_FRACTION)
     configs_per_job = _configs_for_budget(round0_budget_s, per_run_s, slots)
-    total_k = slots * configs_per_job
-    if _stage1_active(ctx) and not ctx.ranking:
-        total_k = slots * configs_per_job + 1
-    elif _stage1_active(ctx):
-        est1 = _job_time_est(ctx, 1, 1, s_est)
-        m = est1.get("cost_model")
-        per_run = m["per_run_s"] if m else est1["total_run_s"]
-        spin = m["spin_s"] if m else 0.0
-        avail = ctx.budget_s - ctx.elapsed() - stage1_reserve_s(ctx) - spin - 2 * per_run
-        configs_per_job = max(1, int(avail // per_run))
-        total_k = slots * configs_per_job + 1
-    return configs_per_job, total_k
+    return configs_per_job, slots * configs_per_job
 
 
 def _adopt_round0_startup(ctx: Ctx, job_configs: dict, states: dict, wave0_results: dict) -> None:
-    """Refresh ctx.startup_s from wave 0's own Slurm elapsed time (the ranking overhead in pstar),
-    logged either way so the run says which startup is in effect."""
-    if ctx.ranking:
-        measured_startup, n_runs = measure_ranking_overhead(ctx, job_configs, states,
-                                                            wave0_results)
-        if measured_startup is not None:
-            ctx.restart_read_s = 0.0      # the measured overhead already includes it
-    else:
-        measured_startup, n_runs = _budget.measure_startup_s(job_configs, states, wave0_results,
-                                                             ctx.steps)
+    """Refresh ctx.startup_s from wave 0's own Slurm elapsed time, logged either way so the run
+    says which startup is in effect."""
+    measured_startup, n_runs = _budget.measure_startup_s(job_configs, states, wave0_results,
+                                                         ctx.steps)
     if measured_startup is not None:
         print("startup_s: measured %.1fs/run from %d completed run(s) in round0 (was %.1fs, %s)"
               % (measured_startup, n_runs, ctx.startup_s, ctx.startup_source))
@@ -317,10 +187,6 @@ def run_round0(ctx: Ctx) -> tuple[list, dict, list]:
                                                           ctx.hardware_id)
     if ctx.full_space:
         return _run_full_space_round0(ctx, s_est, compute_slots(ctx.max_nodes, ctx.nodes))
-    if _stage1_active(ctx) and ctx.s_prior and n_rows == 0:
-        # no ledger history: the cell-step model beats the 10 s/step fallback, which would also
-        # inflate the stage-2 reserve until nothing in stage 1 fits
-        s_est, s_source = ctx.s_prior, "cell-step model"
     slots = compute_slots(ctx.max_nodes, ctx.nodes)
     configs_per_job, total_k = _round0_size(ctx, s_est, slots)
 
@@ -372,8 +238,6 @@ def _default_proposer(ctx: Ctx) -> Callable:
     for path in sorted(glob.glob(os.path.join(ctx.ledger_dir, "ledger_*.csv"))):
         if os.path.basename(path).startswith("ledger_%s_" % ctx.case):
             continue    # this case's own ledgers are already in `state` (case_measured_rows)
-        if ctx.ranking and os.path.basename(path).startswith("ledger_%s_" % ctx.ranking["case_id"]):
-            continue    # predicted mode: this run's own rebuilt-point ledgers, same reason
         try:
             prior_rows.extend(decomp_search.benchmark.load_ledger(path))
         except Exception:
@@ -389,19 +253,13 @@ def _default_proposer(ctx: Ctx) -> Callable:
 
 
 def _round_batch_size(ctx: Ctx, round_idx: int, elapsed: float, s_est: float) -> int | None:
-    """Configs adaptive round `round_idx` may propose, or None (printed) when the rounds stop:
-    t0 at 75% of the budget, predicted-mode stage 1 when no stage-1 time is left."""
-    if not _stage1_active(ctx) and elapsed >= ADAPTIVE_STOP_FRACTION * ctx.budget_s:
+    """Configs adaptive round `round_idx` may propose, or None (printed) when the rounds stop
+    at 75% of the budget."""
+    if elapsed >= ADAPTIVE_STOP_FRACTION * ctx.budget_s:
         print("adaptive rounds: stopping before round %d -- elapsed already >= %.0f%% of budget"
               % (round_idx, ADAPTIVE_STOP_FRACTION * 100))
         return None
-    remaining_s = ctx.budget_s - elapsed - stage1_reserve_s(ctx)
-    if _stage1_active(ctx) and remaining_s <= 0:
-        print("adaptive rounds: stopping before round %d -- no stage-1 time left (elapsed %s, "
-              "stage-1 reserve %s, budget %s)"
-              % (round_idx, _fmt_hms(elapsed), _fmt_hms(stage1_reserve_s(ctx)),
-                 _fmt_hms(ctx.budget_s)))
-        return None
+    remaining_s = ctx.budget_s - elapsed
     per_run_s = ctx.startup_s + ctx.steps * s_est
     return _configs_for_budget(min(remaining_s, ctx.budget_s * ROUND0_BUDGET_FRACTION), per_run_s, 1)
 
@@ -441,30 +299,11 @@ def _propose_round(ctx: Ctx, proposer: Callable, state: dict, batch_size: int, r
 
 def _plan_round_job(ctx: Ctx, configs_out: list[dict], s_est: float, round_idx: int,
                     elapsed: float) -> tuple[list[dict], dict] | None:
-    """(configs, time estimate) of the round's job -- shrunk to fit in predicted-mode stage 1 --
-    or None (printed) when it may not start (t0: projected finish > 75% of the budget)."""
-    time_est = _job_time_est(ctx, len(_ranking_wrap(ctx, configs_out)), 1, s_est)
-    if _stage1_active(ctx):
-        wrapped, dropped, fit_est = fit_stage1_job(ctx, configs_out, s_est)
-        if wrapped is None:
-            print("adaptive rounds: stopping before round %d -- even ANCHOR + 1 candidate + "
-                  "ANCHOREND does not fit before the stage-2 reserve" % round_idx)
-            return None
-        for c in dropped:
-            ctx.stage1_trimmed.append(dict(cid=c["id"], stage="round%d" % round_idx,
-                                           reason="trimmed to fit the budget + stage-2 "
-                                                  "reserve"))
-        configs_out = wrapped[1:-1]
-        time_est = fit_est
-        print("adaptive round %d plan: %d candidate(s), expected %s%s"
-              % (round_idx, len(configs_out), _fmt_hms(time_est["total_run_s"]),
-                 (" (trimmed %d)" % len(dropped)) if dropped else ""))
+    """(configs, time estimate) of the round's job, or None (printed) when it may not start
+    (projected finish > 75% of the budget)."""
+    time_est = _job_time_est(ctx, len(configs_out), 1, s_est)
     projected_end = elapsed + time_est["total_run_s"]        # RAW/EXPECTED -- never job_hours
-    ok, why = _stage1_may_start(ctx, time_est["total_run_s"])
-    if not ok:
-        print("adaptive rounds: stopping before round %d -- %s" % (round_idx, why))
-        return None
-    if not _stage1_active(ctx) and projected_end > ADAPTIVE_STOP_FRACTION * ctx.budget_s:
+    if projected_end > ADAPTIVE_STOP_FRACTION * ctx.budget_s:
         print("adaptive rounds: stopping before round %d -- projected finish %s > %.0f%% "
               "of budget" % (round_idx, _fmt_hms(projected_end), ADAPTIVE_STOP_FRACTION * 100))
         return None
@@ -524,9 +363,8 @@ def run_adaptive_rounds(ctx: Ctx, all_configs_by_cid: dict, all_results: dict,
             state["configs"][c["id"]] = c
             state["submitted"].append(c["id"])
 
-        _jobs.wait_for_jobs(ctx, [job_id], "round%d" % round_idx, pending_cutoff=_stage1_cutoff(ctx))
-        rows = ctx.ledger_reader(_ledger_case(ctx), [job_id])
-        _record_stage1_gates(ctx, [job_id], rows, "round%d" % round_idx)
+        _jobs.wait_for_jobs(ctx, [job_id], "round%d" % round_idx)
+        rows = ctx.ledger_reader(ctx.case, [job_id])
         new_results = aggregate_by_cid(rows, all_configs_by_cid)
         new_results.pop(ANCHOR_END_ID, None)       # drift check only, never a candidate
         for cid, r in new_results.items():

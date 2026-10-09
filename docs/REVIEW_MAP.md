@@ -14,7 +14,7 @@
 |---|---|---|---:|
 | **A 決策邏輯** | 會改變「WRF 實際怎麼跑」或「WTune 報出什麼數字／選哪個版面」 | 逐行 | 約 14,600 行 |
 | **B 檔案處理與流程** | 建目錄、連結、轉檔、參數解析、列印、送 job、輪詢 | 快速掃過 | 約 8,800 行 |
-| **C 選用模組** | 這次沒進入、但屬於功能（颱風／對流／climate 圖組、`-O3` 提案器、predicted 模式…） | 可交給第二位審查者 | 見文末 |
+| **C 選用模組** | 這次沒進入、但屬於功能（颱風／對流／climate 圖組、`-O3` 提案器…） | 可交給第二位審查者 | 見文末 |
 | **歸檔** | 沒有任何指令會走到 | 不審 | `archive/unused-2026-10/` |
 
 A 層分三塊：調校與量測約 4,850 行、執行與專案約 4,990 行、後處理約 4,770 行。
@@ -163,7 +163,7 @@ B（掃過）：`report.py`、`tools.py`、`basemap.py`、`plotting.py` 的繪�
 | `src/post/recipes/pbl.py`、`sounding.py`、`fetch/igra.py` | 約 1,160 | 邊界層、探空 |
 | `src/post/recipes/ensemble.py`、`recipes/chem.py` | 約 290 | ensemble、WRF-Chem |
 | `src/predictor/decomp_search.py`、`models.py`、`features.py`、`ledger.py`、`targets.py`、`benchmark.py` | 2,977 | `-O3` 的 CatBoost 提案器 |
-| `src/wtune_tune/predicted.py`、`points.py`、`physics_phase.py`、`src/tools/case_rebuild.py`、`coldstart_sample.py` 其餘部分 | 約 7,000 | predicted 模式、重建量測點、physics 建議 |
+| `src/wtune_tune/points.py`、`physics_phase.py`、`src/tools/case_rebuild.py`、`coldstart_sample.py` 其餘部分 | 約 6,500 | 重建量測點、physics 建議 |
 | `src/wtune_geog.py`、`wtune_calibrate.py`、`src/scenario/`、`src/analysis/`、`src/tools/metdata.py` | 約 6,500 | `prep`、`calibrate`、`scenario`、`analyze`、`metdata` 指令 |
 
 ---
@@ -171,7 +171,7 @@ B（掃過）：`report.py`、`tools.py`、`basemap.py`、`plotting.py` 的繪�
 ## 審的時候請特別留意（已知、尚未處理）
 
 1. **`-O2` 不會拒絕髒節點上的量測。** probe job 把 `node_dirty`／`foreign_load` 寫進 ledger，
-   但 `wtune_tune/jobs.py` 的 `_record_stage1_gates` 在非 predicted 模式直接 return，node sweep 也不呼叫它。
+   但 t0 搜尋與 node sweep 都不檢查這兩個欄位（原本只有已退役的 predicted 模式會看）。
    節點上有別人的程序在搶核時，量測照樣被採用。自己殘留的 `wrf.exe` 會在 job 開頭被清掉。
 2. **報告印的 launcher 行可能和實際不同。** `report.local_param_table` 用 `ranks // nodes`，`site_launch` 是進位。
 3. **兩個雜訊門檻。** 選 N／核數／贏家用 3%（`wtune_nodes.NOISE_FRAC`）；`_cluster_rank` 用 0.5%（`predictor/targets.NOISE`）。

@@ -38,3 +38,28 @@ Left in place because live code still reaches them: `src/wtune_surrogate.py` (`w
 and `screen`), `src/wtune_oracle.py` and `src/wrf_frame.py` (`wtune_oracle_train.py` ->
 `tools/state_correction_model.py`), `src/wtune_knobs.py` (no importer left;
 `tests/test_wtune_compliance.py` reads its source), `src/wtune_case.py` (tune, calc, advise).
+
+## Retired `wtune tune --rank-by predicted` (2026-10-10)
+
+The older predicted-ranking mode (stage 1 search, stage 2 at every rebuilt point) and its flags
+`--rank-by`, `--stage1`, `--stage2-minutes`, `--max-wall-minutes` were removed from `wtune tune`.
+`-O0..-O3`, `--nodes N|auto|search` and `predict-rebuild` are unchanged: the pipeline goldens
+(`tests/fixtures/golden/wtune_tune/pipeline_*`, `pkg_pipeline_*`, `fixed_nodes`, `node_search`,
+`level0`) pass byte-identical.
+
+| what | files |
+|---|---|
+| the mode itself (`run_predicted`, its report) | `src/wtune_tune/predicted.py` |
+| functions cut from `cli.py`, `budget.py`, `jobs.py`, `rounds.py`, `prediction.py`, verbatim as at 1fa9fe8 (one file, not importable as is); includes the dead `run_c3_prediction`, `run_trajectory_points`, `build_ranking_sbatch_command`, `_match_points`, `select_confirm_configs` | `src/wtune_tune/predicted_hooks_legacy.py` |
+| their tests, cut from `tests/test_wtune_rank_predicted.py`, `test_wtune_tune.py`, `test_wtune_ranking_submit.py`, `test_wtune_tune_fresh_inputs.py` and the two `test_refactor_golden_wtune_tune*.py` (one file, not runnable as is) | `tests/test_retired_predicted_mode.py` |
+| golden snapshots of the mode and of `run_c3_prediction` | `tests/fixtures/golden/wtune_tune/predicted_*`, `pkg_run_c3_prediction.txt` |
+
+The branches removed from inside functions that stayed (`submit_configs_job`, `_job_time_est`,
+`_submit_round0_wave`, `_round0_size`, `run_round0`, `_plan_round_job`, `_wait_running_budget`, the
+`Ctx` fields) are in 1fa9fe8's history only.
+
+Left in place: the point-job code `-O1..-O3` use (`points.py`, `ranking_cost_model`,
+`ranking_context`, `ranking_export`, `wrap_with_anchors`, `stage2_concurrency`, `fit_stage2`,
+`evaluate_job_gates`, the running budget); `run_rebuild_points` (`predict-rebuild`); the
+`probe.rank_by` / `stage1` / `stage2_minutes` keys of `src/wtune_config.py`, still accepted so
+existing YAML files load (`rank_by: predicted` is now refused by `wtune tune`).

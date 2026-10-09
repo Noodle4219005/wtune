@@ -24,7 +24,7 @@ SRC = os.path.join(REPO, "src")
 # the module each monkeypatched name is looked up in by the code under test; the pre-split
 # single module (which regenerates the snapshots) looks every name up in itself
 SEAM = dict(resolve_case="context", _total_steps="context", cold_start_prediction="prediction",
-            run_trajectory_points="prediction", run_rebuild_points="prediction",
+            run_rebuild_points="prediction",
             plan_predicted_points="points", measure_candidates_at_points="points",
             finish_rebuilt_points="points")
 
@@ -207,38 +207,6 @@ def test_golden_full_run_prediction_multipoint(drift, monkeypatch, tmp_path):
     text = wtune_tune.build_full_run_prediction(ctx, best, 2, {}, None, probe_measurements=meas)
     G._check("pkg_multipoint_%s.txt" % drift, G._norm(json.dumps(
         dict(text=text, calls=calls), indent=1, default=repr), tmp_path) + "\n")
-
-
-def test_golden_run_c3_prediction(monkeypatch, tmp_path):
-    import datetime as _dt
-    calls = []
-    _fake_predict_stack(monkeypatch, calls)
-    t = _dt.datetime(2026, 1, 1, 9, 0)
-    pts = [types.SimpleNamespace(at=t, reason="t0", source="trajectory", steps=30),
-           types.SimpleNamespace(at=t, reason="sunlit", source="rebuild", steps=30),
-           types.SimpleNamespace(at=t, reason="peak", source="restart", steps=30)]
-    monkeypatch.setattr(wtune_tune.wtune_probe_plan, "plan_points",
-                        lambda *a, **k: calls.append(("plan", a[1:6], sorted(k))) or
-                        (list(pts), ["fake note"]))
-    _patch(monkeypatch, "run_trajectory_points",
-           lambda ctx, points, best, nodes, run_start, stepra, out, **k: (
-               calls.append(("traj", [p.reason for p in points], nodes, str(run_start), stepra,
-                             os.path.basename(out), sorted(k.items()))) or (["m1", "m2"], "501")))
-    _patch(monkeypatch, "run_rebuild_points",
-           lambda ctx, points, best, nodes, case_dir, out, run_start, **k: (
-               calls.append(("rebuild", [p.reason for p in points], case_dir,
-                             os.path.basename(out), sorted(k.items()))) or (["m3"], "601,602")))
-    ctx = T._ctx(out_dir=str(tmp_path / "o"), ledger_dir=str(tmp_path / "l"),
-                 case_json=dict(T.MATTHEW_LIKE, prep_dir=str(tmp_path / "case")))
-    ctx.prediction_cfg["drift_band_pct"] = 6.0
-    ctx.probe_cfg["spinup_min"] = 30
-    best = dict(id="D1", ranks=72, omp=1, nx=8, ny=9, numtiles=1, dist="block")
-    result, points, notes, job_ids = wtune_tune.run_c3_prediction(
-        ctx, best, 2, str(tmp_path / "c3"), sbatch_script="/x/strict_campaign.sbatch",
-        campaign_dir="/x", grib_dir="/g")
-    G._check("pkg_run_c3_prediction.txt", G._norm(json.dumps(
-        dict(result=result, n_points=len(points), notes=notes, job_ids=job_ids, calls=calls),
-        indent=1, sort_keys=True, default=repr), tmp_path) + "\n")
 
 
 def test_golden_prediction_context(monkeypatch, tmp_path):

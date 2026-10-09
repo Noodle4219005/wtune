@@ -1,7 +1,7 @@
 """wtune tune: the budgeted on-cluster layout tuner for a WRF case on scc (decisions 0055, 0059).
 
 Layers, bottom up: _deps, common, context -> budget, jobs -> candidates, points, prediction ->
-rounds, report, node_search -> predicted, pipeline (+ physics_phase) -> cli. Every name of the
+rounds, report, node_search -> pipeline (+ physics_phase) -> cli. Every name of the
 former single module is re-exported here; names tests monkeypatch are called through their
 defining module (`_jobs.wait_for_jobs`), so patch them there (wtune_tune.jobs.wait_for_jobs)."""
 from ._deps import (  # noqa: F401
@@ -20,16 +20,14 @@ from .context import (  # noqa: F401
     _total_steps, cores_used, _namelist_dt,
 )
 from .budget import (  # noqa: F401
-    TOP_K_STAGE2, RANKING_R_RAD, RESTART_READ_S_BY_IO, estimate_run_time, measure_startup_s,
+    RANKING_R_RAD, RESTART_READ_S_BY_IO, estimate_run_time, measure_startup_s,
     update_s_est, _fallback_s_per_step, rebuild_segment_timeout_min, rad_factor,
-    ranking_cost_model, describe_cost_model, estimate_stage2_s, stage2_concurrency,
-    stage2_reserve_s, stage1_reserve_s, describe_stage2_reserve, _stage1_may_start,
-    _stage1_cutoff, anchor_end_of, wrap_with_anchors, ranking_context, ranking_export,
+    ranking_cost_model, stage2_concurrency, anchor_end_of, wrap_with_anchors, ranking_context,
+    ranking_export,
 )
 from .jobs import (  # noqa: F401
     PROGRESS_BAR_WIDTH, ANCHOR_DRIFT_MAX, MAXRSS_NOTE, print_progress, cancel_jobs,
-    wait_for_jobs, cancel_unstarted, submit_configs_job, evaluate_job_gates,
-    _record_stage1_gates, job_timing, _maxrss_mb_by_job,
+    wait_for_jobs, submit_configs_job, evaluate_job_gates, job_timing, _maxrss_mb_by_job,
 )
 from .candidates import (  # noqa: F401
     FULL_SPACE_CONFIGS_PER_JOB, _apply_search_filter, sample_more_diverse_configs,
@@ -51,8 +49,7 @@ from .points import (  # noqa: F401
 )
 from .prediction import (  # noqa: F401
     COLD_START_BAND, FALLBACK_BANDS, TIME_STEP_S, write_probe_ledger, predict_candidates,
-    _cost_series_for_ctx, build_ranking_sbatch_command, run_trajectory_points,
-    run_rebuild_points, run_c3_prediction, build_full_run_prediction, _prediction_context,
+    _cost_series_for_ctx, run_rebuild_points, build_full_run_prediction, _prediction_context,
     WholeRunPrediction, add_run_length_io, _fallback_point_plan, _case_types_and_track,
     plan_prediction_points, time_suggestion_s, pipeline_run_length_io, prediction_init,
     cold_start_prediction,
@@ -60,8 +57,8 @@ from .prediction import (  # noqa: F401
 from .rounds import (  # noqa: F401
     ROUND0_BUDGET_FRACTION, ADAPTIVE_STOP_FRACTION, ADAPTIVE_MAX_ROUNDS,
     KAPPA_ESCALATION_FACTOR, KAPPA_MAX_ESCALATIONS, Wave, select_confirm_entries,
-    select_confirm_configs, _submit_round0_wave, fit_stage1_job, measure_ranking_overhead,
-    run_round0, _default_proposer, run_adaptive_rounds, run_confirm, run_tuning_at,
+    _submit_round0_wave, run_round0, _default_proposer, run_adaptive_rounds, run_confirm,
+    run_tuning_at,
 )
 from .preflight import (  # noqa: F401
     PREFLIGHT_TIMEOUT_S, SINFO_TIMEOUT_S, HEALTH_BAD_STATES, DEFAULT_WRF_TREE, Runner,
@@ -78,11 +75,6 @@ from .node_search import (  # noqa: F401
     choose_nodes, run_node_sweep, run_core_sweep, node_choices, run_node_search,
     build_layout_table,
 )
-from .predicted import (  # noqa: F401
-    RANK_BY_CHOICES, STAGE1_CHOICES, PREDICTED_MAX_POINTS, MAX_WALL_FACTOR, REBUILD_PREP_EST_S,
-    stage1_normalized_ranking, predicted_min_budget_s, run_predicted, build_predicted_report,
-    render_predicted_report_text,
-)
 from .pipeline_state import (  # noqa: F401
     NOT_RUN_BUDGET, ClockMark, PhaseRecord, StepDown, LevelInfo, RebuildInfo,
     PredictionPlanRecord, Phase2Plan, ShortRun, PredictionBand, PipelineSummary, PointPreview,
@@ -98,5 +90,5 @@ from .pipeline import (  # noqa: F401
     pipeline_layouts, phase2_plans, run_pipeline_full, run_level0,
 )
 from .cli import (  # noqa: F401
-    _probe_key_explicit, run, build_arg_parser, main,
+    run, build_arg_parser, main,
 )

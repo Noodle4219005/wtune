@@ -6,7 +6,7 @@ import re
 
 import pytest
 
-from wtune_tune import jobs, prediction
+from wtune_tune import jobs
 from wtune_tune._deps import sweep
 import test_wtune_tune as T
 
@@ -57,16 +57,6 @@ def test_submit_configs_job_without_fresh_dir_is_unchanged(monkeypatch):
     jobs.submit_configs_job(ctx, [dict(id="C1", ranks=72, omp=1, nx=8, ny=9, numtiles=1,
                                        dist="block", blocktime=0)], 1, "plain", s_est=0.5)
     assert "WTUNE_BP_FRESH_DIR" not in calls[-1]
-
-
-def test_trajectory_command_carries_extra_export():
-    cmd = prediction.build_ranking_sbatch_command(
-        "conus25", 4, 72, "01:00:00", 900, 2, 50, "/x/c.json", "/x", "60:120",
-        extra_export=[("WTUNE_BP_FRESH_DIR", "/x/bp_fresh")])
-    assert re.search(r"SPINUP_MINUTES=60:120(,CAMPAIGN=\S+)?,WTUNE_BP_FRESH_DIR=/x/bp_fresh ", cmd)
-    plain = prediction.build_ranking_sbatch_command(
-        "conus25", 4, 72, "01:00:00", 900, 2, 50, "/x/c.json", "/x", "60:120")
-    assert "WTUNE_BP_FRESH_DIR" not in plain
 
 
 # ---- the BP cache is made current by ONE nc2bp job before the first probes (scc 2884/2885) ----

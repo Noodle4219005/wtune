@@ -17,13 +17,11 @@ from .jobs import _final_cancel_safety_net
 from .node_search import DEFAULT_SWEEP_BUDGET_FRAC, NODES_POLICIES, choose_nodes
 from .physics_phase import PIPELINE_PHYSICS_MAX_CANDIDATES
 from .pipeline import PIPELINE_MAX_QUEUE_HOURS, PRECISION_DEFAULT_MIN
-from .predicted import MAX_WALL_FACTOR, PREDICTED_MAX_POINTS, RANK_BY_CHOICES, STAGE1_CHOICES
 from .preflight import DEFAULT_WRF_TREE, default_preflight_runner, node_preflight
-from .report import _attach_advice, _emit_report, final_winner, write_report_json
+from .report import _emit_report
 from . import context as _context
 from . import node_search as _node_search
 from . import pipeline as _pipeline
-from . import predicted as _predicted
 from . import report as _report
 from . import rounds as _rounds
 
@@ -42,9 +40,6 @@ class _RunOptions:
     max_nodes_requested: int
     steps_cfg: Any
     confirm_reps: int
-    rank_by: str
-    stage1_mode: str
-    stage2_minutes: float | None
     restart_io_form: Any
 
 
@@ -78,17 +73,12 @@ def _cfg_key_explicit(config_path: str | None, section: str, key: str) -> bool:
         return False
 
 
-def _probe_key_explicit(config_path: str | None, key: str) -> bool:
-    """True when the --config YAML itself sets probe.<key>."""
-    return _cfg_key_explicit(config_path, "probe", key)
-
-
 def run(args: argparse.Namespace, sbatch_runner: Callable | None = None,
         sacct_runner: Callable | None = None, scancel_runner: Callable | None = None,
         ledger_reader: Callable | None = None, proposer: Callable | None = None,
         clock: Any = None, preflight_runner: Callable | None = None) -> dict:
     """`wtune tune` for parsed `args`: resolve the options, the case, the node pre-flight and
-    the node count, build the Ctx and run the mode -- predicted, -O0, -O1..3, --nodes search or
+    the node count, build the Ctx and run the mode -- -O0, -O1..3, --nodes search or
     a fixed node count -- then print the report and write <out>/tune_report.json. Returns the
     report; SystemExit for invalid options. The runners and clock default to the real ones."""
     o = _resolve_run_options(args)
@@ -113,8 +103,6 @@ def run(args: argparse.Namespace, sbatch_runner: Callable | None = None,
     s_est, _src, _n = sweep.estimate_s_per_step(ctx.case, ctx.nodes, ctx.ledger_dir,
                                                  ctx.hardware_id)
 
-    if o.rank_by == "predicted":
-        return _run_predicted_mode(ctx, args, o, ns, s_est, node_health, out_dir)
     if o.level == 0:                       # no jobs: nothing to cancel
         report = _pipeline.run_level0(ctx, profile, ns.total_steps, o.nodes_policy)
     elif ns.pipeline == "full":
@@ -169,8 +157,7 @@ def _build_ctx(args: argparse.Namespace, o: _RunOptions, ns: _NodeChoice, case_j
                chem_e_sn=wtune_extensions.chem_e_sn_for_namelist(namelist_path),
                confirm_reps=o.confirm_reps, prediction_cfg=o.cfg["prediction"],
                probe_cfg=o.cfg["probe"], ranking_start_note=ranking_start_note,
-               rank_by=o.rank_by, restart_io_form=int(o.restart_io_form),
-               stage1_mode=o.stage1_mode)
+               restart_io_form=int(o.restart_io_form))
 
 
 def _run_config(args: argparse.Namespace) -> tuple[str | None, dict]:
@@ -210,12 +197,11 @@ def _run_case_name(args: argparse.Namespace, cfg: dict) -> str:
 
 
 def _run_nodes_raw(args: argparse.Namespace, cfg: dict, config_path: str | None) -> Any:
-    """The --nodes request (N, "auto" or "search"); the t0 ranking defaults to "search".
-    SystemExit for a budget.nodes list of several counts."""
+    """The --nodes request (N, "auto" or "search"), default "search". SystemExit for a
+    budget.nodes list of several counts."""
     nodes_raw = args.nodes if args.nodes is not None else cfg["budget"]["nodes"]
     if (args.nodes is None and nodes_raw == "auto"
-            and not _cfg_key_explicit(config_path, "budget", "nodes")
-            and (getattr(args, "rank_by", None) or cfg["probe"].get("rank_by") or "t0") == "t0"):
+            and not _cfg_key_explicit(config_path, "budget", "nodes")):
         nodes_raw = "search"      # default: MEASURE s/step across node counts (node sweep)
     if isinstance(nodes_raw, list):
         if len(nodes_raw) != 1:
@@ -228,28 +214,17 @@ def _run_nodes_raw(args: argparse.Namespace, cfg: dict, config_path: str | None)
     return nodes_raw
 
 
-def _run_probe_options(args: argparse.Namespace, cfg: dict, config_path: str | None,
-                       rank_by: str) -> tuple[str, float | None, Any]:
-    """(stage1_mode, stage2_minutes, restart_io_form); writes --points-by / --max-points (and
-    the predicted-mode max_points default) into cfg["probe"]. SystemExit for an unknown
-    --stage1 or --rank-by."""
-    stage1_mode = getattr(args, "stage1", None) or cfg["probe"].get("stage1") or "t0"
-    stage2_minutes = getattr(args, "stage2_minutes", None)
-    if stage2_minutes is None:
-        stage2_minutes = cfg["probe"].get("stage2_minutes")
-    if stage1_mode not in STAGE1_CHOICES:
-        raise SystemExit("--stage1 %r not in %s" % (stage1_mode, list(STAGE1_CHOICES)))
+def _run_probe_options(args: argparse.Namespace, cfg: dict) -> Any:
+    """restart_io_form; writes --points-by / --max-points into cfg["probe"]. SystemExit for
+    --config's retired probe.rank_by: predicted."""
+    if cfg["probe"].get("rank_by") == "predicted":
+        raise SystemExit("probe.rank_by: predicted was retired (archive/unused-2026-10); remove "
+                         "the key or set it to t0")
     if getattr(args, "points_by", None) is not None:
         cfg["probe"]["points_by"] = args.points_by
     if getattr(args, "max_points", None) is not None:
         cfg["probe"]["max_points"] = args.max_points
-    elif rank_by == "predicted" and not _probe_key_explicit(config_path, "max_points"):
-        cfg["probe"]["max_points"] = PREDICTED_MAX_POINTS
-    restart_io_form = getattr(args, "restart_io_form", None) or \
-        cfg["probe"].get("restart_io_form") or 14
-    if rank_by not in RANK_BY_CHOICES:
-        raise SystemExit("--rank-by %r not in %s" % (rank_by, list(RANK_BY_CHOICES)))
-    return stage1_mode, stage2_minutes, restart_io_form
+    return getattr(args, "restart_io_form", None) or cfg["probe"].get("restart_io_form") or 14
 
 
 def _resolve_run_options(args: argparse.Namespace) -> _RunOptions:
@@ -270,14 +245,11 @@ def _resolve_run_options(args: argparse.Namespace) -> _RunOptions:
     max_nodes_requested = args.max_nodes if args.max_nodes is not None else cfg["budget"]["max_nodes"]
     steps_cfg = args.steps if args.steps is not None else cfg["probe"]["steps"]
     confirm_reps = args.confirm_reps if args.confirm_reps is not None else cfg["probe"]["confirm_reps"]
-    rank_by = getattr(args, "rank_by", None) or cfg["probe"].get("rank_by") or "t0"
-    stage1_mode, stage2_minutes, restart_io_form = _run_probe_options(args, cfg, config_path,
-                                                                      rank_by)
+    restart_io_form = _run_probe_options(args, cfg)
     return _RunOptions(config_path=config_path, cfg=cfg, case=case, minutes=minutes, level=level,
                        nodes_raw=nodes_raw, nodes_policy=nodes_policy,
                        max_nodes_requested=max_nodes_requested, steps_cfg=steps_cfg,
-                       confirm_reps=confirm_reps, rank_by=rank_by, stage1_mode=stage1_mode,
-                       stage2_minutes=stage2_minutes, restart_io_form=restart_io_form)
+                       confirm_reps=confirm_reps, restart_io_form=restart_io_form)
 
 
 def _run_case_inputs(o: _RunOptions, case_json: dict,
@@ -355,17 +327,14 @@ def _resolve_node_choice(args: argparse.Namespace, o: _RunOptions, profile: dict
     """The mode (-O / --pipeline: its own node search), the --nodes search options (CLI flag >
     --config budget.<name> > default), the total step count and the node count. Prints the
     --nodes auto warning; SystemExit for incompatible options."""
-    nodes_raw, rank_by = o.nodes_raw, o.rank_by
+    nodes_raw = o.nodes_raw
     pipeline = "full" if o.level is not None else None
     if pipeline == "full":
-        if args.nodes not in (None, "search") or rank_by == "predicted":
+        if args.nodes not in (None, "search"):
             raise SystemExit("-O/--pipeline runs its own node search: do not combine it with "
                              "--nodes N/auto or --rank-by predicted")
         nodes_raw = "search"
     node_search = (nodes_raw == "search")
-    if node_search and rank_by == "predicted":
-        raise SystemExit("--nodes search is not supported with --rank-by predicted; pass --nodes "
-                         "N or --nodes auto")
 
     def _nopt(name, default):          # CLI flag > --config budget.<name> > built-in default
         v = getattr(args, name, None)
@@ -413,30 +382,6 @@ def _run_out_dir(args: argparse.Namespace, case: str) -> str:
     return out_dir
 
 
-def _run_predicted_mode(ctx: Ctx, args: argparse.Namespace, o: _RunOptions, ns: _NodeChoice,
-                        s_est: float, node_health: dict | None, out_dir: str) -> dict:
-    """--rank-by predicted on the RUNNING-time budget with a hard wall cap: run_predicted, then
-    print the report (+ advice) and write tune_report.json. Returns the report."""
-    ctx.budget_mode = "running"
-    ctx.stage2_budget_s = o.stage2_minutes * 60.0 if o.stage2_minutes is not None else None
-    max_wall_min = getattr(args, "max_wall_minutes", None)
-    ctx.max_wall_explicit = max_wall_min is not None
-    ctx.max_wall_s = (max_wall_min if max_wall_min is not None
-                      else MAX_WALL_FACTOR * o.minutes) * 60.0
-    print("predicted mode: budget %.1f min of RUNNING time, hard wall-clock cap %.1f min"
-          % (o.minutes, ctx.max_wall_s / 60.0))
-    report = _predicted.run_predicted(ctx, ns.nodes, ns.nodes_note, s_est)
-    if node_health:
-        report["node_health"] = node_health
-    _final_cancel_safety_net(ctx)
-    text = _predicted.render_predicted_report_text(report) + _attach_advice(report)
-    print("")
-    print(text)
-    report["winner"] = final_winner(report)
-    write_report_json(report, out_dir)
-    return report
-
-
 def _run_pipeline_mode(ctx: Ctx, profile: dict, args: argparse.Namespace, o: _RunOptions,
                        ns: _NodeChoice, ext_notes: list, preflight: Callable | None) -> dict:
     """-O1..3 / --pipeline full: run_pipeline_full with the resolved options (not yet emitted)."""
@@ -476,8 +421,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
                     help="N = fixed node count; 'search' (DEFAULT) = measure the ANCHOR at each "
                          "legal node count, choose N by --node-objective, then tune at the "
                          "finalist N; 'auto' = uncalibrated efficiency proxy (--nodes-policy), "
-                         "no measurement. (--rank-by predicted defaults to 'auto'; a --config "
-                         "budget.nodes also overrides the default)")
+                         "no measurement. (a --config budget.nodes also overrides the "
+                         "default)")
     p.add_argument("--node-objective", choices=wtune_nodes.OBJECTIVES, default=None,
                     dest="node_objective",
                     help="--nodes search: time = fastest (smallest N within noise), cost = fewest "
@@ -560,37 +505,17 @@ def build_arg_parser() -> argparse.ArgumentParser:
                     help="default: %d (or --config's probe.steps)" % DEFAULT_STEPS)
     p.add_argument("--confirm-reps", type=int, default=None, dest="confirm_reps",
                     help="default: %d (or --config's probe.confirm_reps)" % CONFIRM_REPS)
-    p.add_argument("--rank-by", choices=RANK_BY_CHOICES, default=None, dest="rank_by",
-                    help="t0 (default, or --config's probe.rank_by): rank by t0-probe s/step then "
-                         "predicted wall time. predicted (decision 0055): rebuild ERA5 points, "
-                         "spin each up once, rank every candidate from the shared restarts by "
-                         "predicted whole-run compute+init")
     p.add_argument("--restart-io-form", type=int, choices=(14, 2), default=None,
                     dest="restart_io_form",
-                    help="--rank-by predicted only: io_form of the shared ranking restart "
-                         "(RANKING_RESTART_IO_FORM); default 14 (ADIOS2), or --config's "
-                         "probe.restart_io_form")
-    p.add_argument("--stage1", choices=STAGE1_CHOICES, default=None, dest="stage1",
-                    help="--rank-by predicted only: stage-1 search. t0 (default, or --config's "
-                         "probe.stage1): the broad t0 tuner search, rebuild prep running beside "
-                         "it. pstar: every stage-1 job spins up at P* and starts candidates "
-                         "from that restart (pre-2026-09-28 behaviour)")
-    p.add_argument("--stage2-minutes", type=float, default=None, dest="stage2_minutes",
-                    help="--rank-by predicted --stage1 t0 only: optional cap on stage 2's "
-                         "running time (fit_stage2 trims the shortlist to it); default none -- "
-                         "stage 2 always runs, its estimated cost is announced at start")
+                    help="io_form of the point jobs' shared restart (RANKING_RESTART_IO_FORM); "
+                         "default 14 (ADIOS2), or --config's probe.restart_io_form")
     p.add_argument("--max-points", type=int, default=None, dest="max_points",
-                    help="probe.max_points override (--rank-by predicted default: %d)"
-                         % PREDICTED_MAX_POINTS)
+                    help="probe.max_points override")
     p.add_argument("--points-by", choices=("time", "cost-indicators"), default=None,
                     dest="points_by",
                     help="probe.points_by override (decision 0060): place the prediction points by "
                          "sun/time (default) or by a weather cost proxy (wtune_cost_drivers; "
                          "sources from probe.indicator_sources)")
-    p.add_argument("--max-wall-minutes", type=float, default=None, dest="max_wall_minutes",
-                    help="--rank-by predicted only: hard wall-clock cap (default %gx --minutes); "
-                         "the --minutes budget itself counts only RUNNING time there"
-                         % MAX_WALL_FACTOR)
     p.add_argument("--seed", type=int, default=DEFAULT_SEED)
     p.add_argument("--kappa", type=float, default=DEFAULT_KAPPA)
     p.add_argument("--cores-per-node", type=int, default=sweep.DEFAULT_CORES_PER_NODE,
@@ -607,8 +532,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     """`wtune tune` / `python3 src/wtune_tune.py`: 2 for a site other than scc, 1 for an invalid
-    option (message on stderr), else 0. With no level, pipeline, --nodes or --rank-by the run
-    is the default -O2 layout search."""
+    option (message on stderr), else 0. With no level, pipeline or --nodes the run is the default
+    -O2 layout search."""
     # line-buffered: under nohup stdout is a block-buffered file and the progress log stayed empty
     try:
         sys.stdout.reconfigure(line_buffering=True)
@@ -619,7 +544,7 @@ def main(argv: list[str] | None = None) -> int:
         print("ERROR: only --site scc is supported", file=sys.stderr)
         return 2
     if (getattr(args, "level", None) is None and getattr(args, "pipeline", None) is None
-            and args.nodes is None and getattr(args, "rank_by", None) is None):
+            and args.nodes is None):
         args.level = DEFAULT_LEVEL            # the default run: -O2
     os.environ.setdefault("SITE", "scc")
     try:

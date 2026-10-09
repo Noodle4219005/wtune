@@ -207,6 +207,14 @@ def _stage4_figures(run_dir, run_label, domain, frames, out_dir, spinup_hours, p
     p = obs_figs.fss_vs_scale(nbr, STAGE4_CELL_KM, "Grid-Stat FSS vs Stage IV, %s" % win_txt,
                               os.path.join(out_dir, "precip_fss.png"), " mm")
     out.append(fig("precip_fss", p, run_label, domain="d%02d" % domain, valid_time=stamp, extra=common))
+    prov = sources.read_provenance(project_dir, "stage4") if project_dir else {}
+    if prov is None or prov.get("failed"):
+        # a partial download still gives figures, on whatever window the files allow
+        from post.recipe import note
+        n = len(prov["failed"]) if prov else None
+        out.append(note("precip", "Stage IV download was incomplete (%s): this comparison uses %s. "
+                        "Run `wtune post fetch stage4` again, then post again."
+                        % ("%d file(s) failed" % n if n else "no provenance record", win_txt)))
     return out
 
 

@@ -165,6 +165,11 @@ _FIGURE_ID_SOURCES = (("syn_z500_diff", ("era5",)), ("syn_gridstat", ("era5",)),
                       ("pbl_skewt_obs", ("igra",)), ("pbl_height_compare", ("igra",)))
 
 
+class FetchIncomplete(RuntimeError):
+    """Some files could not be downloaded (network). What was fetched is on disk and recorded
+    in provenance.json; `wtune post fetch` exits 1 so the caller knows the set is partial."""
+
+
 class FetchUnavailable(Exception):
     """Raised internally when data does not exist for the requested time/region."""
 

@@ -90,20 +90,24 @@ def run(args):
         t, a = job
         dest = path_for(args.project, t, a)
         rel = os.path.basename(dest)
-        sha, downloaded = sources.download(url_for(t, a), dest, known_sha=known.get(rel))
-        return t, a, dest, sha, downloaded
+        try:
+            sha, downloaded = sources.download(url_for(t, a), dest, known_sha=known.get(rel))
+        except OSError as e:     # network, after download()'s own retries: keep the other files
+            return t, a, dest, None, False, str(e)
+        return t, a, dest, sha, downloaded, None
 
     with ThreadPoolExecutor(max_workers=max(1, args.jobs)) as ex:
         results = list(ex.map(one, jobs))
     written, urls, files = [], [], {}
-    for t, a, dest, sha, downloaded in results:
+    for t, a, dest, sha, downloaded, _err in results:
         if sha is None:
             continue
         written.append(dest)
         files[os.path.basename(dest)] = sha
         if downloaded:
             urls.append(url_for(t, a))
-    missing = [(t, a) for t, a, _d, sha, _dl in results if sha is None]
+    failed = [(os.path.basename(d), err) for _t, _a, d, _s, _dl, err in results if err]
+    missing = [(t, a) for t, a, _d, sha, _dl, err in results if sha is None and not err]
     if missing:
         print("stage4: %d of %d files do not exist on the server (e.g. %s %02dh) -- Stage IV "
               "6 h/24 h products are absent on some days" % (len(missing), len(results),
@@ -112,18 +116,28 @@ def run(args):
         # radar site list (HOMR): the recipe masks the verification to radar range, because Stage
         # IV is 0 (not missing) beyond it, e.g. over the open Gulf
         sites = os.path.join(sources.dataset_dir(args.project, NAME), SITES_FILE)
-        sha, dl = sources.download(SITES_URL, sites, known_sha=known.get(SITES_FILE))
+        try:
+            sha, dl = sources.download(SITES_URL, sites, known_sha=known.get(SITES_FILE))
+        except OSError as e:
+            sha, dl = None, False
+            failed.append((SITES_FILE, str(e)))
         if sha:
             files[SITES_FILE] = sha
             if dl:
                 urls.append(SITES_URL)
-    if not written:
+    if not written and not failed:
         print("stage4: no Stage IV file exists for %s..%s (coverage: 2001-present, CONUS)"
               % (start, end))
         return []
-    sources.write_provenance(args.project, NAME, PROVENANCE, urls, files,
-                             window=sources.window_dict(start, end), bbox=list(bbox),
-                             extra={"accumulations_h": accums})
+    if written:
+        sources.write_provenance(args.project, NAME, PROVENANCE, urls, files,
+                                 window=sources.window_dict(start, end), bbox=list(bbox),
+                                 extra={"accumulations_h": accums,
+                                        "failed": [name for name, _err in failed]})
     print("stage4: %d file(s) in %s (%d newly downloaded)"
           % (len(written), sources.dataset_dir(args.project, NAME), len(urls)))
+    if failed:
+        raise sources.FetchIncomplete(
+            "stage4: %d of %d files could not be downloaded (%s: %s); run the same fetch again "
+            "to get the rest" % (len(failed), len(results), failed[0][0], failed[0][1]))
     return written

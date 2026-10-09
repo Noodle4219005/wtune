@@ -361,7 +361,12 @@ def cmd_fetch(args: argparse.Namespace) -> int:
     if not name:
         raise SystemExit("wtune post fetch <name> --project P [--run-dir R] ... (or --list); "
                          "available: %s" % ", ".join(sorted(fetch.discover()[0])))
-    paths = fetch.run_module(name, args)
+    from post import sources
+    try:
+        paths = fetch.run_module(name, args)
+    except sources.FetchIncomplete as e:
+        print("error: %s" % e, file=sys.stderr)
+        return 1
     print("%s: %d file(s)%s" % (name, len(paths), "" if paths else " -- nothing fetched (reason above)"))
     return 0
 

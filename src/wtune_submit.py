@@ -172,7 +172,8 @@ def main(argv: list[str] | None = None) -> int:
         print("=== submit step %d/%d: %s ===" % (i, len(steps), name), flush=True)
         rc = subprocess.call(cmd, cwd=project_dir)
         if rc != 0 and name.startswith("fetch "):
-            print("=== %s exited %d: continuing; post marks its figures missing ===" % (name, rc),
+            print("=== %s exited %d: continuing; post uses what was fetched and says what "
+                  "is missing or partial ===" % (name, rc),
                   flush=True)
             continue
         if rc != 0:

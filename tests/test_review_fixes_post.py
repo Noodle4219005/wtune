@@ -377,3 +377,32 @@ def test_srun_minutes_sets_the_job_step_time_limit(monkeypatch, extra, minutes):
 def test_srun_minutes_rejects_a_non_number():
     with pytest.raises(SystemExit, match="--srun-minutes"):
         cli.main(["recipe", "r", "--srun", "--srun-minutes", "soon"])
+
+
+# ---------------------------------------------------------------------------
+# Stage IV: one file failing on the network must not abort the fetch or pass unnoticed
+# ---------------------------------------------------------------------------
+def test_stage4_partial_download_keeps_the_rest_and_exits_nonzero(tmp_path, monkeypatch, capsys):
+    import argparse
+    from post import cli, sources
+    from post.fetch import stage4
+
+    def fake_download(url, dest, known_sha=None, **_kw):
+        if url == stage4.SITES_URL or "06h" in url:
+            raise OSError("handshake timed out")
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        with open(dest, "w") as fh:
+            fh.write("x")
+        return "sha", True
+    monkeypatch.setattr(sources, "download", fake_download)
+    args = argparse.Namespace(project=str(tmp_path), run_dir=None, start="2019012800",
+                              end="2019012812", bbox="35,47,-93,-77", accum="1,6", jobs=1)
+    with pytest.raises(sources.FetchIncomplete, match="could not be downloaded"):
+        stage4.run(args)
+    prov = sources.read_provenance(str(tmp_path), "stage4")
+    assert prov["files"] and all("01h" in f for f in prov["files"])     # the 1 h files are kept
+    assert any("06h" in f for f in prov["failed"]) and stage4.SITES_FILE in prov["failed"]
+
+    args.fetch_name, args.list = "stage4", False
+    assert cli.cmd_fetch(args) == 1                                     # not a traceback, not 0
+    assert "could not be downloaded" in capsys.readouterr().err

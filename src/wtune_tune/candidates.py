@@ -9,7 +9,7 @@ import re
 import statistics
 
 from ._deps import campaign_configs, decomp_space, sweep, wtune_config, wtune_extensions
-from .common import _cluster_rank, _log_key, parse_run_id
+from .common import _cluster_rank, _log_key, _notes_kv, parse_run_id
 from .context import Ctx, cores_used
 
 FULL_SPACE_CONFIGS_PER_JOB = 24      # configs in one full-space job (~1 h at 20 steps)
@@ -69,10 +69,11 @@ def sample_more_diverse_configs(ctx: Ctx, exclude_configs: list[dict], k: int,
 
 
 def aggregate_by_cid(rows: list[dict], configs_by_cid: dict) -> dict:
-    """{cid: {cid, config, s_values, median, lo, hi, n, run_ids}} over the rows with a real
-    s_per_step_median (a failed run has none and is dropped). run_ids parallel s_values: each is
+    """{cid: {cid, config, s_values, median, lo, hi, n, run_ids[, dirty]}} over the rows with a
+    real s_per_step_median (a failed run has none and is dropped). run_ids parallel s_values: each is
     its run's RUNDIR basename (see _rsl_paths_for_entry)."""
     by_cid: dict = {}
+    dirty: dict = {}
     for r in rows:
         parsed = parse_run_id(r.get("run_id"))
         if not parsed:
@@ -81,12 +82,19 @@ def aggregate_by_cid(rows: list[dict], configs_by_cid: dict) -> dict:
         if s is None or s <= 0:
             continue
         by_cid.setdefault(parsed["cid"], []).append((s, r.get("run_id")))
+        kv = _notes_kv(r.get("notes"))
+        if kv.get("node_dirty", "none") != "none":
+            dirty.setdefault(parsed["cid"], set()).add("node_dirty=" + kv["node_dirty"])
+        if kv.get("foreign_load") == "1":
+            dirty.setdefault(parsed["cid"], set()).add("foreign_load=" + kv.get("foreign", "1"))
     out = {}
     for cid, pairs in by_cid.items():
         svals = [p[0] for p in pairs]
         out[cid] = dict(cid=cid, config=configs_by_cid.get(cid), s_values=svals,
                          median=statistics.median(svals), lo=min(svals), hi=max(svals),
                          n=len(svals), run_ids=[p[1] for p in pairs])
+        if cid in dirty:          # measured while the node was not clean (hygiene census)
+            out[cid]["dirty"] = sorted(dirty[cid])
     return out
 
 

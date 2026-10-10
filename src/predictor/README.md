@@ -56,7 +56,13 @@ pixi run --manifest-path /home/u5727520/wrf-stack/wtune-predictor-env/pixi.toml 
 builds the ledger with the cf448 campaign ledgers 1075293-1075304 via `CAMPAIGN_GLOB`, drops the
 removed training cases `EXCLUDED_CASE_BASES`, and skips campaign correctness-mode rows)
 
-## Shortlist command (`recommend.py`)
+## Shortlist command (`recommend.py`, archived)
+Moved 2026-10-10 to `archive/unused-2026-10/src/predictor/recommend.py` (no `wtune` command reached
+it, and its verify plans print `MODE=physics` commands `campaign/strict_campaign.sbatch` no longer
+takes). The same happened to the `experiment.py` plan/record/reconcile engine
+(`experiment_legacy.py` there); `experiment.py` keeps only `_generated_baseline` and `_format_hms`.
+What follows describes the archived command.
+
 The tuner only narrows the search: every output ends with the verify plan and a statement that the
 user makes the final choice. Nothing is applied automatically.
 

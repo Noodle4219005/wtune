@@ -53,7 +53,7 @@ B（掃過）：`strict_campaign.sbatch` 的參數解析、連結檔案、BP 轉
 | 檔案 | A | 它決定什麼 |
 |---|---|---|
 | `src/predictor/decomp_space.py` | `legal_shapes_exact`、`rsl_patch_extents`、`enumerate_space`、`default_omp_options`、`numtiles_candidates`、`sample_design`、tile 幾何一族 | 合法切法（每個 domain 每個 patch ≥ 10 格）、候選空間、分層抽樣 |
-| `src/predictor/experiment.py` | `_max_legal_ranks`、`_generated_baseline` | ANCHOR：omp=1、最大合法 rank 數、長寬比最小 |
+| `src/predictor/experiment.py`（115 行，其餘已移至 `archive/unused-2026-10/`） | `_max_legal_ranks`、`_generated_baseline` | ANCHOR：omp=1、最大合法 rank 數、長寬比最小 |
 | `src/tools/scc_sweep.py` | `estimate_s_per_step`、`build_anchor`、`build_sampled`、`build_configs`、`_identity`、`excluded_nodes`／`exclude_arg`、`build_sbatch_command`、檔頭常數 | 候選去重、`--exclude` 清單（head + `WTUNE_SBATCH_EXCLUDE` + 預檢失敗節點）、時限估計常數 |
 | `src/wtune_tune/candidates.py` | `aggregate_by_cid`、`_sweep_anchor`、`_hybrid_anchor`、`_sweep_omp_options`、`_apply_search_filter` | 失敗或 ≤0 的量測丟掉；各 rep 取中位數；每個 N 的 ANCHOR |
 

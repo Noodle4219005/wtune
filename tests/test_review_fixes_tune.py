@@ -319,3 +319,60 @@ def test_node_search_report_winner_and_best_name_the_same_layout(monkeypatch, tm
     assert (w["nodes"], w["cid"]) == (report["nodes"], best["id"])
     assert (w["ranks"], w["omp"], w["nx"], w["ny"], w["numtiles"]) == (
         best["ranks"], best["omp"], best["nproc_x"], best["nproc_y"], best["numtiles"])
+
+
+def test_first_node_sweep_budget_check_does_not_use_the_10s_time_limit_estimate(monkeypatch):
+    from wtune_tune import node_search
+    monkeypatch.setattr(node_search.wtune_predict, "parse_namelist", lambda path: {})
+    monkeypatch.setattr(node_search, "_fallback_s_per_step", lambda nl, ranks, omp: 0.1)
+    ctx = _ctx()
+    anchor = _cfg("ANCHOR")
+    s, src = node_search._cold_budget_s_per_step(ctx, anchor, 10.0, "fallback_10s")
+    assert s == pytest.approx(0.3) and "cell-step model" in src
+    assert node_search._cold_budget_s_per_step(ctx, anchor, 0.2, "ledger") == (0.2, "ledger")
+    monkeypatch.setattr(node_search, "_fallback_s_per_step", lambda *a: 1 / 0)
+    assert node_search._cold_budget_s_per_step(ctx, anchor, 10.0, "fallback_10s")[0] == 10.0
+
+
+def _row(cid, job, s, notes="node_dirty=none foreign_load=0"):
+    return {"run_id": "conus25_%s_r1_%s" % (cid, job), "s_per_step_median": str(s), "notes": notes}
+
+
+def test_aggregate_marks_measurements_taken_on_a_dirty_node():
+    cfgs = {"D0001": _cfg("D0001"), "D0002": _cfg("D0002")}
+    out = wt.aggregate_by_cid([_row("D0001", 1, 0.2, "node_dirty=work3:cpu64:0.98"),
+                               _row("D0002", 1, 0.3)], cfgs)
+    assert out["D0001"]["dirty"] == ["node_dirty=work3:cpu64:0.98"]
+    assert "dirty" not in out["D0002"]
+
+
+@pytest.mark.parametrize("second_notes,expect_dirty,expect_median", [
+    ("node_dirty=none foreign_load=0", False, 0.5),       # clean re-measure replaces the number
+    ("foreign_load=1 foreign=work3:1:root:code:91", True, 0.2),   # still dirty: number kept
+])
+def test_a_dirty_fastest_layout_is_measured_once_more(second_notes, expect_dirty, expect_median,
+                                                      capsys):
+    from wtune_tune import rounds
+    cfgs = {"D0001": _cfg("D0001"), "D0002": _cfg("D0002")}
+    results = wt.aggregate_by_cid([_row("D0001", 1, 0.2, "node_dirty=work3:cpu64:0.98"),
+                                   _row("D0002", 1, 0.3)], cfgs)
+    submitted = []
+    ctx = _ctx(sbatch_runner=lambda cmd: submitted.append(cmd) or "Submitted batch job 900",
+               ledger_reader=lambda case, ids: [_row("D0001", 900, 0.5, second_notes)],
+               budget_s=36000.0)
+    rounds._remeasure_dirty_best(ctx, results, 0.2)
+    assert len(submitted) == 1
+    assert bool(results["D0001"].get("dirty")) is expect_dirty
+    assert results["D0001"]["median"] == pytest.approx(expect_median)
+    assert "dirty node" in capsys.readouterr().out
+
+
+def test_a_clean_fastest_layout_is_not_measured_again():
+    from wtune_tune import rounds
+    cfgs = {"D0001": _cfg("D0001"), "D0002": _cfg("D0002")}
+    results = wt.aggregate_by_cid([_row("D0001", 1, 0.2),
+                                   _row("D0002", 1, 0.3, "node_dirty=work3:cpu64:0.98")], cfgs)
+    submitted = []
+    ctx = _ctx(sbatch_runner=lambda cmd: submitted.append(cmd) or "Submitted batch job 900")
+    rounds._remeasure_dirty_best(ctx, results, 0.2)
+    assert submitted == []

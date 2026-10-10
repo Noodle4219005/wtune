@@ -544,7 +544,8 @@ benchmark 1075654 -- leave-one-case-out median regret catboost_pairwise 0.4% vs 
 C01) 15.2% over 6 cases, but conus12 and leave-one-hardware-out do not generalise. The
 predictor outputs a ranked shortlist; the final configuration is the user's decision.
 
-`predictor/recommend.py` is the user-facing shortlist command (STRICT and PHYSICS-GRAY); see
+`predictor/recommend.py` (archived 2026-10-10 to `archive/unused-2026-10/src/predictor/`; its verify
+plans print `MODE=physics` commands the trimmed probe script refuses) was the shortlist command (STRICT and PHYSICS-GRAY); see
 `predictor/README.md` for flags, evidence warnings, and status rules. It has two objective
 modes, `--objective perf` (default) and `--objective accuracy` (`OBJECTIVES` at
 `predictor/recommend.py:1502`): perf-first ranks on cost subject to a fidelity constraint,
@@ -1255,7 +1256,7 @@ The repo root is user-facing only; everything else lives under one of these dire
 | `src/wtune_oracle.py`, `wtune_oracle_train.py`, `wtune_segment_train.py`, `wrf_frame.py`, `featurize_frames.py`, `wtune_runtime_predict.py`, `wtune_runtime12.py`, `wtune_cost_model.py` | live | prediction layer |
 | `campaign/` | **live, production** (unmoved) | the measurement side: `strict_campaign.sbatch`, `configs.py`, `cases.json`, `physics_templates.json`, the decomposition-search campaign and its rankers |
 | `machine/` | **live, production** (unmoved) | hardware calibration data and probes (`machine/calibration/*.json`, `machine/bench/`) |
-| `src/predictor/` | **live, production** | the decision side: ledger, benchmark, `recommend.py`, decomposition space and search, `stability.py`, `verify_obs.py` (`src/predictor/README.md`) |
+| `src/predictor/` | **live, production** | the decision side: ledger, benchmark, decomposition space and search (`recommend.py` and the `experiment.py` engine are in `archive/unused-2026-10/`), `stability.py`, `verify_obs.py` (`src/predictor/README.md`) |
 | `src/fidelity_gate.py` (+ test) | live | chaos-floor scoring of a candidate against a reference and a twin |
 | `src/fingerprint/` | live | out-of-process phase fingerprinter (autotuner step 2) -- moved into `src/` late in the refactor after `tests/test_wtune_fingerprint.py` proved it is imported, not dead |
 | `src/tools/` | live | `bp_compression_check.py`, `run_tests.sbatch`, the ADIOS2→netCDF4 converter, `predict_validate/` |

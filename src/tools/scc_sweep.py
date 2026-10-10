@@ -285,7 +285,7 @@ def estimate_time(n_configs, reps, steps, s_est):
 
     per_run = STARTUP_S + steps*s_est; total = n_configs * reps * per_run (REPS multiplies each
     config's run time -- the task's one-line formula omits this, but a REPS=2 job genuinely runs
-    every config twice; predictor/experiment.py's own _cost_estimate uses the identical
+    every config twice; the archived experiment engine's _cost_estimate uses the identical
     `reps * (...)` shape). (total/3600)*1.5 + 10 min, capped at 12 h, is the --time request;
     TIMEOUT_S = max(600, 3*per_run) is the per-run watchdog, independent of REPS/cap."""
     per_run_s = STARTUP_S + steps * s_est

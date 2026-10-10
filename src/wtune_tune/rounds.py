@@ -447,6 +447,38 @@ def run_confirm(ctx: Ctx, all_configs_by_cid: dict, all_results: dict, anchor_ci
     return job_id, confirm_results
 
 
+def _remeasure_dirty_best(ctx: Ctx, all_results: dict, s_est: float) -> None:
+    """A measurement taken on a dirty node (orphan wrf.exe, foreign load) is kept but marked
+    `dirty`. When the fastest layout is one of them, measure it once more and use the new
+    number if that run was clean; otherwise the mark stays and the report warns."""
+    measured = [r for r in all_results.values() if r.get("config")]
+    if not measured:
+        return
+    best = min(measured, key=lambda r: r["median"])
+    if not best.get("dirty"):
+        return
+    cid = best["cid"]
+    print("WARNING: the fastest layout %s (%.4f s/step) was measured on a dirty node (%s)"
+          % (cid, best["median"], "; ".join(best["dirty"])))
+    est = estimate_run_time([(best["config"], best["median"])], 2, ctx.steps,
+                            startup_s=ctx.startup_s)
+    if would_exceed_budget(ctx.elapsed(), est["total_run_s"], ctx.budget_s):
+        print("recheck: SKIP -- no budget left; %s keeps its dirty-node number" % cid)
+        return
+    job_id, _path, _te = submit_configs_job(ctx, [best["config"]], reps=2, name_suffix="recheck",
+                                            s_est=s_est, time_est=est)
+    print("recheck: submitted job %s (%s, REPS=2)" % (job_id, cid))
+    _jobs.wait_for_jobs(ctx, [job_id], "recheck")
+    again = aggregate_by_cid(ctx.ledger_reader(ctx.case, [job_id]), {cid: best["config"]}).get(cid)
+    if again is None or again.get("dirty"):
+        print("recheck: %s -- %s keeps its dirty-node number"
+              % ("no measurement" if again is None else "node still dirty", cid))
+        return
+    print("recheck: %s clean re-measure %.4f s/step (was %.4f)" % (cid, again["median"],
+                                                                 best["median"]))
+    all_results[cid] = again
+
+
 def run_tuning_at(ctx: Ctx, s_est: float | None = None, adaptive: bool = True,
                   confirm: bool = True) -> tuple[dict, dict | None, str | None]:
     """round0 -> adaptive rounds -> confirm at ctx.nodes. Returns (all_results,
@@ -463,6 +495,8 @@ def run_tuning_at(ctx: Ctx, s_est: float | None = None, adaptive: bool = True,
 
     if job_ids0 and adaptive and not ctx.full_space:       # the full space leaves nothing to propose
         run_adaptive_rounds(ctx, configs_by_cid, all_results, s_est)
+
+    _remeasure_dirty_best(ctx, all_results, s_est)
 
     confirm_job_id, confirm_results = (None, None)
     if all_results and confirm:

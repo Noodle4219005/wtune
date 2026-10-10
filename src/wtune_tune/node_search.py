@@ -9,8 +9,8 @@ import os
 import statistics
 from typing import Any, Callable
 
-from ._deps import sweep, wtune_nodes
-from .budget import _job_time_est
+from ._deps import sweep, wtune_nodes, wtune_predict
+from .budget import _fallback_s_per_step, _job_time_est
 from .candidates import _sweep_anchor, aggregate_by_cid
 from .common import UNSET, Record, _fmt_hms, parse_run_id, would_exceed_budget
 from .context import Ctx
@@ -151,6 +151,23 @@ def _pack_items(items: list[dict], max_nodes: int) -> list[list[dict]]:
     return waves
 
 
+COLD_BUDGET_SAFETY = 3.0
+
+
+def _cold_budget_s_per_step(ctx: Ctx, anchor: dict, s_est: float, src: str) -> tuple[float, str]:
+    """s/step for the budget check of a first measurement. With no ledger row s_est is the
+    10 s/step used for the job's time limit; charging that to a small --minutes skipped every N
+    (sc26p1: 25 min estimated, 20 s real). Use the cell-step model x3 for the budget instead."""
+    if src != "fallback_10s":
+        return s_est, src
+    try:
+        nl = wtune_predict.parse_namelist(ctx.namelist_path)
+        model = _fallback_s_per_step(nl, anchor["ranks"], anchor["omp"]) * COLD_BUDGET_SAFETY
+    except Exception:                                   # noqa: BLE001
+        return s_est, src
+    return min(s_est, model), "cell-step model x%g" % COLD_BUDGET_SAFETY
+
+
 def _measure_anchor_wave(ctx: Ctx, items: list[dict], s_est_for: Callable,
                          skipped: list) -> dict:
     """One REPS=2 ANCHOR job per item {key, nodes, anchor, suffix, tag} that fits the budget
@@ -162,9 +179,11 @@ def _measure_anchor_wave(ctx: Ctx, items: list[dict], s_est_for: Callable,
         cn = dataclasses.replace(ctx, nodes=n)
         s_est, src = s_est_for(n)
         est = _job_time_est(cn, 1, NODE_SWEEP_REPS, s_est)
-        if would_exceed_budget(ctx.elapsed(), est["total_run_s"], ctx.budget_s):
+        s_budget, src_budget = _cold_budget_s_per_step(ctx, it["anchor"], s_est, src)
+        need_s = _job_time_est(cn, 1, NODE_SWEEP_REPS, s_budget)["total_run_s"]
+        if would_exceed_budget(ctx.elapsed(), need_s, ctx.budget_s):
             why = ("estimated end would exceed the budget (job ~%s at %.3fs/step[%s], elapsed %s "
-                   "/ budget %s)" % (_fmt_hms(est["total_run_s"]), s_est, src,
+                   "/ budget %s)" % (_fmt_hms(need_s), s_budget, src_budget,
                                      _fmt_hms(ctx.elapsed()), _fmt_hms(ctx.budget_s)))
             skipped.append(dict(it["tag"], reason=why))
             print("node sweep: %s skipped -- %s" % (it["suffix"], why))
@@ -560,13 +579,17 @@ def run_node_search(ctx: Ctx, profile: dict, objective: str, deadline_s: float |
     return report
 
 
-def _layout_row(source: str, nodes: int, cores: int, cfg: dict, vals: list[float]) -> dict:
+def _layout_row(source: str, nodes: int, cores: int, cfg: dict, vals: list[float],
+                dirty: list | None = None) -> dict:
     med = statistics.median(vals)
-    return dict(source=source, nodes=nodes, cores_per_node=cores, ranks=cfg.get("ranks"),
-                omp=cfg.get("omp"), nx=cfg.get("nx"), ny=cfg.get("ny"),
-                numtiles=cfg.get("numtiles"), median=med, reps=len(vals),
-                spread=((max(vals) - min(vals)) / med if len(vals) >= 2 and med else 0.0),
-                cid=cfg.get("id"))
+    row = dict(source=source, nodes=nodes, cores_per_node=cores, ranks=cfg.get("ranks"),
+               omp=cfg.get("omp"), nx=cfg.get("nx"), ny=cfg.get("ny"),
+               numtiles=cfg.get("numtiles"), median=med, reps=len(vals),
+               spread=((max(vals) - min(vals)) / med if len(vals) >= 2 and med else 0.0),
+               cid=cfg.get("id"))
+    if dirty:                         # measured on a node that was not clean
+        row["dirty"] = dirty
+    return row
 
 
 def build_layout_table(sw: dict, cores_info: dict, outcomes: dict, ctx: Ctx,
@@ -588,12 +611,13 @@ def build_layout_table(sw: dict, cores_info: dict, outcomes: dict, ctx: Ctx,
     C = ctx.cores_per_node
     for n, agg in sw["results"].items():
         a = sw["anchors"][n]
-        add(_layout_row("t0 sweep ANCHOR", n, C, a, agg["s_values"]),
+        add(_layout_row("t0 sweep ANCHOR", n, C, a, agg["s_values"], agg.get("dirty")),
             (n, C, sweep._identity(a)))
     for n, ci in cores_info.items():
         for c, agg in ci["results"].items():
             a = ci["anchors"][c]
-            add(_layout_row("cores/node sweep ANCHOR", n, c, a, agg["s_values"]),
+            add(_layout_row("cores/node sweep ANCHOR", n, c, a, agg["s_values"],
+                            agg.get("dirty")),
                 (n, c, sweep._identity(a)))
     tuned = []
     for n, o in outcomes.items():
@@ -604,7 +628,7 @@ def build_layout_table(sw: dict, cores_info: dict, outcomes: dict, ctx: Ctx,
             cfg = r.get("config")
             if not cfg or not r.get("s_values"):
                 continue
-            row = _layout_row("finalist search", n, o.cores, cfg, r["s_values"])
+            row = _layout_row("finalist search", n, o.cores, cfg, r["s_values"], r.get("dirty"))
             add(row, (n, o.cores, sweep._identity(cfg)))
             if cid in ranked:
                 tuned.append((n, o.cores, sweep._identity(cfg)))

@@ -254,6 +254,14 @@ def _layout_lines(ns: dict) -> list[str]:
                         r["numtiles"], r["median"]))
     if w:
         lines.append("WINNER:    " + fmt(w))
+        if w.get("dirty"):
+            lines.append("WARNING: the winner's number comes from a dirty node (%s); the "
+                         "ranking may be wrong -- clean the node and tune again"
+                         % "; ".join(w["dirty"]))
+    n_dirty = sum(1 for r in rows if r.get("dirty"))
+    if n_dirty:
+        lines.append("note: %d of %d measured layouts were taken on a dirty node"
+                     % (n_dirty, len(rows)))
     if ru:
         lines.append("RUNNER-UP: " + fmt(ru))
     if cmp_:

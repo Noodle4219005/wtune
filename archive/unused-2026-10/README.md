@@ -27,6 +27,7 @@ Nine early in-process `wtune` subcommands the current workflow no longer uses we
 `src/wtune_cli.py`: `plan`, `hotspot`, `oracle-map`, `restart-window`, `feedback`, `knobs`,
 `catalog`, `audit`, `profile`. A tenth, `screen`, was meant to go with them but is still wired:
 `src/predictor/recommend.py` (`run_probe_screen`) runs `wtune.py screen --json` as a subprocess.
+(`recommend.py` was archived later the same day; see the last section.)
 
 | what | files |
 |---|---|
@@ -81,6 +82,28 @@ changed values there are the three usage texts.
 
 Left in place: the helpers those subcommands called (`resolve_decomp_pair`, `physics_ledger_columns`,
 `probe_verdicts_for_case`, `format_physics_edits`, `describe_field`, `fidelity_notes_tokens`; still
-exported by `configs.py` and tested), `edit-namelist --physics-template` and `--history-mode interval`,
-and `src/predictor/recommend.py` / `experiment.py`, which still print `MODE=physics` and
-`MODE=timing,CONFIGS=...` sbatch command lines that the trimmed script now refuses.
+exported by `configs.py` and tested), `edit-namelist --physics-template` and `--history-mode interval`.
+
+## Retired shortlist command and experiment engine (2026-10-10)
+
+`src/predictor/recommend.py` and most of `src/predictor/experiment.py` printed `MODE=physics` and
+`MODE=timing,CONFIGS=...` sbatch command lines that the trimmed probe script refuses. No `wtune`
+command, tuner module, campaign script or shell script imported or ran either one (grep for
+imports, `recommend.py` / `experiment.py` as a script name, `importlib` / `pkgutil` /
+`__import__`); only `src/tools/scc_sweep.py` uses `experiment._generated_baseline` and
+`experiment._format_hms`.
+
+| what | files |
+|---|---|
+| the shortlist command, whole file | `src/predictor/recommend.py` |
+| its tests and golden snapshots | `tests/predictor/test_recommend.py`, `tests/test_refactor_golden_recommend.py`, `tests/fixtures/golden/recommend/` |
+| four `recommend` tests cut from `tests/predictor/test_verify_obs.py` (not runnable as is) | `tests/predictor/test_verify_obs_recommend_legacy.py` |
+| `experiment.py` minus the five names below, verbatim as at 35c1c10 (plan, record, screen, reconcile, summarize, `_sbatch_command`; not importable as is) | `src/predictor/experiment_legacy.py` |
+| its tests (not runnable as is) | `tests/predictor/test_experiment_legacy.py` |
+
+Left in place: `src/predictor/experiment.py` with `_format_hms`, `_import_decomp_space`,
+`_max_legal_ranks`, `_generated_baseline`, `GENERATED_BASELINE_RULE` (1550 -> 115 lines) and their
+three tests; every other `src/predictor/` module (`physics.py` via `wtune_physics_advice`,
+`verify_obs.py` via `analysis/tc_track.py`, `validate.py` via `benchmark.py`, the rest via
+`decomp_search.py`). `wtune screen` has no caller left except its own CLI entry and tests; it was
+not removed.

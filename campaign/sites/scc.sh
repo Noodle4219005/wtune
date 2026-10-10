@@ -28,9 +28,9 @@ HARDWARE_ID=scc-gh200
 export PATH=$HOME/.pixi/bin:$PATH
 PIXI_ENV=$HOME/wtune-envs/campaign
 # derived from CAMPAIGN (this checkout's campaign/ dir, exported by the sbatch script) so the
-# converter comes from the SAME tree as the script: $HOME/wtune has no src/tools at all, and the
+# converter comes from the SAME tree as the script: $HOME/wtune has no src/wtune/tools at all, and the
 # tree wtune deploys to is $HOME/wtune-src. Equals the old value for CAMPAIGN=$HOME/wtune/campaign.
-CONV=${CONV:-$(dirname "$CAMPAIGN")/src/tools/wrf_adios2_to_netcdf4/convert.py}
+CONV=${CONV:-$(dirname "$CAMPAIGN")/src/wtune/tools/wrf_adios2_to_netcdf4/convert.py}
 CASES_JSON_DEFAULT=$HOME/wtune/campaign/cases.json
 
 site_env () {

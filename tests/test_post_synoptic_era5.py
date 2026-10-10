@@ -7,9 +7,9 @@ from datetime import datetime
 import numpy as np
 import pytest
 
-from post import met_gridstat
-from post.recipes import era5
-from post.recipes.synoptic import symmetric_levels
+from wtune.post import met_gridstat
+from wtune.post.recipes import era5
+from wtune.post.recipes.synoptic import symmetric_levels
 
 FIX = os.path.join(os.path.dirname(__file__), "fixtures")
 
@@ -74,8 +74,8 @@ def test_missing_local_subset_falls_back_to_arco(tmp_path, monkeypatch):
 def test_era5_diff_entry_missing_when_era5_import_fails(monkeypatch):
     import sys
     import types
-    from post.recipes import synoptic
-    monkeypatch.setitem(sys.modules, "post.recipes.era5", None)
+    from wtune.post.recipes import synoptic
+    monkeypatch.setitem(sys.modules, "wtune.post.recipes.era5", None)
     calls = []
     out = synoptic._era5_diff_entry(types.SimpleNamespace(np=None), "", "", None, None,
                                     lambda *a: calls.append(a) or "missing")

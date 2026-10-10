@@ -5,8 +5,8 @@ import os
 
 import pytest
 
-import post.compare as compare
-from post import tools
+import wtune.post.compare as compare
+from wtune.post import tools
 
 FIXTURES = os.path.join(os.path.dirname(__file__), "fixtures", "post")
 DIFFWRF_IDENTICAL = open(os.path.join(FIXTURES, "diffwrf_identical.txt")).read()

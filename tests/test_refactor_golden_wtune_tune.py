@@ -68,7 +68,7 @@ def _check(name, got):
 def _isolate(monkeypatch):
     """Deterministic environment: no node exclusions leaking in from another test, and a stub
     wtune_advise (advice text is another module's output)."""
-    import scc_sweep
+    from wtune.tools import scc_sweep
     for var in ("WTUNE_SBATCH_EXCLUDE", scc_sweep.PREFLIGHT_EXCLUDE_ENV):
         monkeypatch.setenv(var, "")
         monkeypatch.delenv(var)

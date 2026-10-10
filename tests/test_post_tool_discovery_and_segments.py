@@ -6,9 +6,9 @@ import os
 
 import pytest
 
-from post import caseinfo, compare, extract, tools
-from post.custom_api import Context
-from post.recipes import paraview3d
+from wtune.post import caseinfo, compare, extract, tools
+from wtune.post.custom_api import Context
+from wtune.post.recipes import paraview3d
 
 
 def _touch(path):

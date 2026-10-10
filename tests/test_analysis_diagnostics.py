@@ -22,7 +22,7 @@ import pytest
 netCDF4 = pytest.importorskip("netCDF4")
 wrf = pytest.importorskip("wrf")
 
-import analysis.diagnostics as diag
+import wtune.analysis.diagnostics as diag
 
 
 # --------------------------------------------------------------------------------------

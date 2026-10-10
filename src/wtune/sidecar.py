@@ -20,7 +20,7 @@ _HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
 
-from post import extract        # noqa: E402  the cache layout is post's, never restated here
+from wtune.post import extract        # noqa: E402  the cache layout is post's, never restated here
 from wtune import resume as resume   # noqa: E402
 
 MAX_BATCH = 64                  # frames per in-job srun

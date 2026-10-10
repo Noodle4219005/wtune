@@ -274,7 +274,7 @@ def discover_runs(project_dir):
     runs/ is empty) the case/ directory itself, labeled "case" -- decision 0058 item 2: "runs
     discovered from runs/*/ or case/". init no longer links a previous run's wrfout into case/,
     so "case" falls back to project.yaml's case.source_dir when that holds wrfout_d* frames."""
-    from post import extract
+    from wtune.post import extract
     runs_root = os.path.join(project_dir, "runs")
     out = []
     if os.path.isdir(runs_root):

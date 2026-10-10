@@ -11,8 +11,8 @@ from datetime import datetime
 
 import pytest
 
-import post.tc as tc
-from post import atcf
+import wtune.post.tc as tc
+from wtune.post import atcf
 
 HURDAT2_TEXT = textwrap.dedent("""\
     AL122005,            KATRINA,     2,

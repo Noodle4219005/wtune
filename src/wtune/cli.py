@@ -965,14 +965,14 @@ _FORWARDED_COMMANDS = (
     ('config', 'config_args', 'wtune tune search-space YAML config (wtune_config.py): init | show | validate',
      'wtune_config.py', 'wtune.config'),
     ('metdata', 'metdata_args', 'GRIB source selection/availability/download (tools/metdata.py): find | check | fetch',
-     'tools/metdata.py', 'metdata'),
+     'tools/metdata.py', 'wtune.tools.metdata'),
     ('check', 'check_args', 'pre-submission WRF run_dir sanity checker (wtune_preflight.py): time windows, iofields, physics data files, decomposition, disk',
      'wtune_preflight.py', 'wtune.preflight'),
     ('calibrate', 'calibrate_args', 'machine calibration for a new cluster (wtune_calibrate.py plan | fit)',
      'wtune_calibrate.py', 'wtune.calibrate'),
     ('post', 'post_args', 'post-processing/analysis, advisory only (decision 0056; post/cli.py): '
                           'inventory | extract | plot | sounding | tc | compare | report | recipe | custom',
-     'post/cli.py', 'post.cli'),
+     'post/cli.py', 'wtune.post.cli'),
     ('prep', 'prep_args', 'optional input-data preparation, user-invoked only (decision 0063; wtune_geog.py): '
                           'geog list | fetch | import-dem | verify | bounds | srtm-fetch',
      'wtune_geog.py', None),
@@ -980,7 +980,7 @@ _FORWARDED_COMMANDS = (
                                 '(decision 0058; wtune_project.py): init | info | set',
      'wtune_project.py', 'wtune.project'),
     ('analyze', 'analyze_args', 'TC diagnostics/tracking via wrf-python + TempestExtremes (analysis/cli.py): diag | tc-track',
-     'analysis/cli.py', 'analysis.cli'),
+     'analysis/cli.py', 'wtune.analysis.cli'),
     ('predict-rebuild', 'prb_args', 'whole-run wall-time prediction from rebuilt segments measured in parallel on the target config (wtune_rebuild_predict.py)',
      'wtune_rebuild_predict.py', 'wtune.rebuild_predict'),
     ('watch', 'watch_args', 'read-only monitor of a WRF run dir: progress, remaining time, hang/nest-stop/failure warnings (wtune_watch.py)',
@@ -995,7 +995,7 @@ _FORWARDED_COMMANDS = (
     ('calc', 'calc_args', 'rules of thumb and unit conversions for namelist parameters, plus `calc check <namelist.input>` (decision 0062; wtune_calc.py)',
      'wtune_calc.py', 'wtune.calc'),
     ('scenario', 'scenario_args', 'pluggable scenario generators for fictional-date WRF forcing (scenario/cli.py): list | generate | inspect',
-     'scenario/cli.py', 'scenario.cli'),
+     'scenario/cli.py', 'wtune.scenario.cli'),
 )
 _FORWARDED_DEST = {name: dest for name, dest, _help, _target, _module in _FORWARDED_COMMANDS}
 _FORWARDED_MODULE = {name: module for name, _dest, _help, _target, module in _FORWARDED_COMMANDS}
@@ -1027,13 +1027,10 @@ def _forwarded_module(args):
     subcommand's module (and its dependencies) loads.
 
     `prep` keeps a literal import statement: decision 0063 keeps wtune_geog out of every other
-    code path, and test_wtune_geog pins that it is imported only inside the 'prep' branch.
-    tools/metdata.py is not in a package, so its directory goes on sys.path first."""
+    code path, and test_wtune_geog pins that it is imported only inside the 'prep' branch."""
     if args.command == 'prep':
         from wtune import geog as wtune_geog
         return wtune_geog
-    if args.command == 'metdata':
-        sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'tools'))
     return importlib.import_module(_FORWARDED_MODULE[args.command])
 
 

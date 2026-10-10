@@ -15,7 +15,7 @@ import math
 import os
 from typing import Any, Optional, Sequence
 
-import coldstart_sample as coldstart    # tools/: wrf_interval_minutes (WRF's own _d/_h/_m/_s sum)
+from wtune.tools import coldstart_sample as coldstart    # tools/: wrf_interval_minutes (WRF's own _d/_h/_m/_s sum)
 from wtune import predict as wp
 
 # --- re-exported by wtune/run/ ("Fallback I/O anchors" block, fallback_restart_io_s,

@@ -7,7 +7,7 @@ import os
 
 import pytest
 
-from post import met_tc, tools
+from wtune.post import met_tc, tools
 
 # Representative of a MET .tcst/.stat table: header line of column names, then
 # whitespace-padded rows -- the one MET convention this module actually depends on.

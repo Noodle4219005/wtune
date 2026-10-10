@@ -1,25 +1,22 @@
 """The modules wtune_tune builds on, imported once: required ones directly, the prediction /
 physics stack best-effort (None when not importable; callers check before use).
 
-src/, src/tools and src/predictor are top-level import roots, as for every other src/ module.
+src/, src/wtune/tools and src/wtune/predictor are top-level import roots, as for every other src/ module.
 """
 import os
 import sys
 
 _HERE = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))     # src/
-_TOOLS_DIR = os.path.join(_HERE, "tools")
-_PREDICTOR_DIR = os.path.join(_HERE, "predictor")
-for _p in (_TOOLS_DIR, _PREDICTOR_DIR, _HERE):
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
+if _HERE not in sys.path:
+    sys.path.insert(0, _HERE)
 
-import scc_sweep as sweep        # noqa: E402  tools/: sbatch builder, sacct/submit runners, anchors
+from wtune.tools import scc_sweep as sweep        # noqa: E402  tools/: sbatch builder, sacct/submit runners, anchors
 from wtune import case as wtune_case                # noqa: E402  build_profile: the pre-measurement PRIOR
 from wtune import compliance as wc    # noqa: E402  decision 0056: assert_strict_only on the final report
 from wtune import extensions as wtune_extensions          # noqa: E402  chem/hydro/WRFDA gates and OMP caps
 from wtune import nodes as wtune_nodes               # noqa: E402  node-count choice from measured s/step
 from wtune import config as wtune_config              # noqa: E402  --config YAML (PyYAML imported lazily)
-import targets as pred_targets   # noqa: E402  predictor/: NOISE, the reproducibility floor
+from wtune.predictor import targets as pred_targets   # noqa: E402  predictor/: NOISE, the reproducibility floor
 
 try:
     from wtune import predict as wtune_predict          # full-run prediction, namelist parsing
@@ -37,7 +34,7 @@ except ImportError:
     wtune_io_model = None
 
 try:
-    import coldstart_sample as coldstart   # tools/: ERA5 rebuild fetch/stage/score
+    from wtune.tools import coldstart_sample as coldstart   # tools/: ERA5 rebuild fetch/stage/score
 except ImportError:
     coldstart = None
 

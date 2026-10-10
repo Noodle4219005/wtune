@@ -24,7 +24,7 @@ from unittest import mock
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import metdata as md   # noqa: E402
+from wtune.tools import metdata as md   # noqa: E402
 
 
 # ---------------------------------------------------------------------------

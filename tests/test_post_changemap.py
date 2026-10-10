@@ -10,7 +10,7 @@ import types
 import numpy as np
 import pytest
 
-from post import changemap, tools
+from wtune.post import changemap, tools
 
 
 class _FakeVar:
@@ -49,10 +49,10 @@ def fake_deps(tmp_path, monkeypatch):
         extract_calls.append((variables, times, box))
         open(out_path, "w").close()
 
-    monkeypatch.setattr("post.extract.extract", fake_extract)
+    monkeypatch.setattr("wtune.post.extract.extract", fake_extract)
     monkeypatch.setitem(sys.modules, "netCDF4", types.SimpleNamespace(Dataset=_FakeDataset))
 
-    import post.recipes.mapfig as mapfig
+    import wtune.post.recipes.mapfig as mapfig
     monkeypatch.setattr(mapfig, "save_map", lambda *a, **kw: a[0])
 
     return dict(cdo_calls=calls, extract_calls=extract_calls)

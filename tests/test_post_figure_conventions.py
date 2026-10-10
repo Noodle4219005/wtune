@@ -10,8 +10,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 matplotlib = pytest.importorskip("matplotlib")
 matplotlib.use("Agg")
 
-from post import obs_figs  # noqa: E402
-from post.recipes import mapfig, synoptic  # noqa: E402
+from wtune.post import obs_figs  # noqa: E402
+from wtune.post.recipes import mapfig, synoptic  # noqa: E402
 
 
 def test_wpc_precip_levels_in_mm():
@@ -69,7 +69,7 @@ def test_bias_rmse_series_with_ci_and_counts(tmp_path):
 
 
 def test_station_temperature_units_are_celsius():
-    from post import met_pointstat
+    from wtune.post import met_pointstat
     assert met_pointstat.VARS["TMP"]["unit"] == "°C"
     assert met_pointstat.VARS["DPT"]["unit"] == "°C"
 
@@ -85,7 +85,7 @@ def test_highs_lows_skips_excluded_cells():
 def test_reflectivity_table_fits_boundarynorm_with_overflow():
     pytest.importorskip("metpy")
     from matplotlib.colors import BoundaryNorm
-    from post.conventions import DBZ_LEVELS, reflectivity_cmap
+    from wtune.post.conventions import DBZ_LEVELS, reflectivity_cmap
     cm = reflectivity_cmap()
     BoundaryNorm(DBZ_LEVELS, cm.N, extend="max")      # raises if the table is one colour short
     assert DBZ_LEVELS[0] == 5 and DBZ_LEVELS[-1] == 75 and DBZ_LEVELS[1] - DBZ_LEVELS[0] == 5

@@ -8,8 +8,8 @@ import types
 import pytest
 
 from wtune import tune as wt
-import decomp_search            # predictor/ is on sys.path once wtune_tune is imported
-import decomp_space
+from wtune.predictor import decomp_search            # predictor/ is on sys.path once wtune_tune is imported
+from wtune.predictor import decomp_space
 from test_wtune_tune import (FakeClock, MATTHEW_LIKE, _ctx, _pipe_run, make_fake_sacct,
                              make_fake_sbatch, make_fake_scancel)
 

@@ -17,9 +17,8 @@ import sys
 from typing import Any, Callable
 
 _HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-_PREDICTOR_DIR = os.path.join(_HERE, "predictor")
 _CAMPAIGN_DIR = os.path.join(os.path.dirname(_HERE), "campaign")  # campaign/ stays at repo root
-for _p in (_HERE, _PREDICTOR_DIR, _CAMPAIGN_DIR):
+for _p in (_HERE, _CAMPAIGN_DIR):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
@@ -679,7 +678,7 @@ def count_legal_candidates(case_json: dict, nodes: int, cfg: dict, is_fire: bool
     this config's search/exclude restrictions (no anchor exemption: the preview counts what
     round0/top-up/adaptive draw from). Sets $SITE if unset (side effect of the lazy import)."""
     os.environ.setdefault("SITE", cfg.get("site") or DEFAULT_SITE)
-    import decomp_space  # predictor/decomp_space.py -- stdlib only, imported lazily
+    from wtune.predictor import decomp_space  # predictor/decomp_space.py -- stdlib only, imported lazily
     hardware_id = hardware_id or DEFAULT_HARDWARE_ID
     total_cores = nodes * cores_per_node
     candidates, axis = decomp_space.enumerate_space(case_json, total_cores=total_cores, nodes=nodes,

@@ -11,7 +11,7 @@ matplotlib = pytest.importorskip("matplotlib")
 import numpy as np
 
 from test_post_extract import _write_wrfout, LAT0, DLAT, NY, NX, LON0, DLON, TIMES  # noqa: E402
-import post.plotting as plotting
+import wtune.post.plotting as plotting
 
 
 @pytest.fixture

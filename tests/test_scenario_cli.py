@@ -5,8 +5,8 @@ import datetime
 
 import pytest
 
-import scenario.cli as scenario_cli
-from scenario.base import list_generators
+import wtune.scenario.cli as scenario_cli
+from wtune.scenario.base import list_generators
 
 
 def test_cli_list_contains_every_registered_name(capsys):
@@ -152,7 +152,7 @@ def test_interval_h_coarsened_for_gpu_generator_prints_note(tmp_path, capsys):
 def test_interval_h_coarsened_note_and_provenance_written(tmp_path, monkeypatch):
     """Non-dry-run: interval_seconds and interval_coarsened land in forcing.json's provenance,
     for a downstream namelist-rendering stage to read -- never touching the formal case dir."""
-    from scenario.base import Caps, ForcingSet
+    from wtune.scenario.base import Caps, ForcingSet
 
     class FakeGpuGen:
         def capabilities(self):

@@ -19,8 +19,8 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import ledger
-import physics
+from wtune.predictor import ledger
+from wtune.predictor import physics
 
 # physics.py's own module-level sys.path.insert already put campaign/ on sys.path (see
 # physics.py's top -- it imports campaign/configs.py itself now, for the single-source-of-truth

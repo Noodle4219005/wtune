@@ -88,7 +88,7 @@ def test_option_off_golden_identical_to_pre_change_output():
 
 
 def test_select_windows_default_unchanged_with_cost_lookup_none():
-    import coldstart_sample as cs_mod
+    from wtune.tools import coldstart_sample as cs_mod
     cands = cs_mod.candidate_times(D(2020, 6, 1, 6), D(2020, 6, 2, 6), 3600.0, 3600.0)
     base = cs_mod.select_windows(cands, 0.0, 3600.0, 5)
     assert cs_mod.select_windows(cands, 0.0, 3600.0, 5, cost_lookup=None) == base
@@ -233,7 +233,7 @@ def test_combine_adds_totals_and_leaves_total_s_untouched():
 
 # ---- case forcing providers -----------------------------------------------------------------
 def _write_intermediate(path, hdate, q=1.0e-4, u=3.0, v=4.0):
-    from scenario import wps_intermediate as wi
+    from wtune.scenario import wps_intermediate as wi
 
     def rec(field, xlvl, val):
         return wi.Record(hdate=hdate, xfcst=0.0, map_source="TEST", field=field, units="x", desc="d",

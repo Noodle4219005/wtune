@@ -9,7 +9,7 @@ matplotlib = pytest.importorskip("matplotlib")
 metpy = pytest.importorskip("metpy")
 
 from test_post_extract import _write_wrfout, LAT0, DLAT, NY, LON0, TIMES  # noqa: E402
-import post.sounding as sounding
+import wtune.post.sounding as sounding
 
 
 def test_make_sounding_writes_png(tmp_path):

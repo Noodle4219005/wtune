@@ -13,7 +13,7 @@ matplotlib = pytest.importorskip("matplotlib")
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 
-from post import basemap  # noqa: E402
+from wtune.post import basemap  # noqa: E402
 
 
 def _grid(ny=40, nx=50):
@@ -134,6 +134,6 @@ PLAN_VIEW_FILES = ["post/plotting.py", "post/obs_figs.py", "post/tc.py",
 
 @pytest.mark.parametrize("rel", PLAN_VIEW_FILES)
 def test_no_private_coastline_drawing(rel):
-    text = open(os.path.join(SRC, rel)).read()
+    text = open(os.path.join(SRC, "wtune", rel)).read()
     assert not re.search(r"cfeature\.(COASTLINE|BORDERS)|\.coastlines\(", text), rel
     assert "add_base_map" in text or "_coastline(" in text, rel

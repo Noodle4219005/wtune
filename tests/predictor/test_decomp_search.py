@@ -16,13 +16,13 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import benchmark
-import decomp_search as dsearch
-import decomp_space as ds
-import features as feat
-import ledger as ledgermod
-import models as modelmod
-import targets
+from wtune.predictor import benchmark
+from wtune.predictor import decomp_search as dsearch
+from wtune.predictor import decomp_space as ds
+from wtune.predictor import features as feat
+from wtune.predictor import ledger as ledgermod
+from wtune.predictor import models as modelmod
+from wtune.predictor import targets
 import configs as campaign_configs   # decomp_search.py itself inserts campaign/ onto sys.path
 
 _FIXTURES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures")

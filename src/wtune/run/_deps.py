@@ -1,4 +1,4 @@
-"""The modules wtune_run builds on, imported once. src/, src/tools and src/predictor are
+"""The modules wtune_run builds on, imported once. src/, src/wtune/tools and src/wtune/predictor are
 top-level import roots, as for every other src/ module."""
 import os
 import sys
@@ -6,13 +6,12 @@ import sys
 _HERE = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))     # src/
 _REPO_ROOT = os.path.dirname(_HERE)
 _CAMPAIGN_DIR = os.path.join(_REPO_ROOT, "campaign")
-for _p in (os.path.join(_HERE, "tools"), os.path.join(_HERE, "predictor"), _HERE):
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
+if _HERE not in sys.path:
+    sys.path.insert(0, _HERE)
 
-import coldstart_sample as coldstart   # noqa: E402  tools/: namelist editing, predicted compute,
+from wtune.tools import coldstart_sample as coldstart   # noqa: E402  tools/: namelist editing, predicted compute,
                                         # the shared sbatch signal-trap/hygiene preamble
-import scc_sweep as sweep              # noqa: E402  tools/: sacct_states/submit_job/exclude_arg
+from wtune.tools import scc_sweep as sweep              # noqa: E402  tools/: sacct_states/submit_job/exclude_arg
 from wtune import extensions as wtune_extensions                # noqa: E402  chem/hydro/WRFDA refusals and notes
 from wtune import io_model as iom           # noqa: E402  per-format I/O anchors (history, restart)
 from wtune import predict as wp             # noqa: E402  namelist parsing, calibration, sample points

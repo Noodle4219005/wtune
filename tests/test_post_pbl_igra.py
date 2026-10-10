@@ -5,7 +5,7 @@ import datetime as dt
 import numpy as np
 import pytest
 
-from post.fetch import igra
+from wtune.post.fetch import igra
 
 HDR = "#USM00072233 2005 08 27 12 1115  3 ncdc6301 ncdc6301  303369  -898250"
 
@@ -80,7 +80,7 @@ def test_station_list_parse():
 
 
 metpy = pytest.importorskip("metpy")
-import post.sounding as sounding  # noqa: E402
+import wtune.post.sounding as sounding  # noqa: E402
 
 
 def _column(z_top=3000.0, mixed_depth=1000.0, n=60):
@@ -123,7 +123,7 @@ def test_profile_stats_zero_for_identical_and_bias_sign():
 
 
 def test_fill_below_valid_leaves_no_nan_wedge():
-    from post.recipes.pbl import _fill_below_valid
+    from wtune.post.recipes.pbl import _fill_below_valid
     a = np.array([[np.nan, 1.0], [np.nan, 2.0], [5.0, 3.0]])
     out = _fill_below_valid(a)
     assert not np.isnan(out).any() and out[0, 0] == 5.0

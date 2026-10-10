@@ -10,8 +10,8 @@ import xml.etree.ElementTree as ET
 import numpy as np
 import pytest
 
-from post import tools, xwrf_convert as xc
-from post.recipes import paraview3d
+from wtune.post import tools, xwrf_convert as xc
+from wtune.post.recipes import paraview3d
 
 RENDER_VOLUME = os.path.join(os.path.dirname(paraview3d.__file__), "..", "paraview",
                              "render_volume.py")
@@ -442,7 +442,7 @@ def test_ruler_placement_screen_left_corner():
 
 
 def test_shorelines_include_lakes_filtered_to_bbox(monkeypatch):
-    from post import basemap
+    from wtune.post import basemap
     lake = np.array([[-87.5, 42.0], [-86.5, 42.5], [-87.0, 44.0]])
     far = np.array([[10.0, 50.0], [11.0, 51.0]])
     coast = np.array([[-80.0, 25.0], [-79.0, 26.0]])

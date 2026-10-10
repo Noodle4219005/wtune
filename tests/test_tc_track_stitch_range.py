@@ -5,7 +5,7 @@ import pytest
 
 netCDF4 = pytest.importorskip("netCDF4")
 
-import analysis.tc_track as tc_track
+import wtune.analysis.tc_track as tc_track
 
 
 def _time_nc(path, values, units):

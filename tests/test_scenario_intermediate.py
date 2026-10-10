@@ -8,7 +8,7 @@ import struct
 import numpy as np
 import pytest
 
-import scenario.wps_intermediate as wi
+import wtune.scenario.wps_intermediate as wi
 
 
 def _sample_record(nx=3, ny=2, slab=None):

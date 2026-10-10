@@ -14,8 +14,8 @@ import sys
 import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-import decomp_space as ds   # noqa: E402
-import features as feat     # noqa: E402
+from wtune.predictor import decomp_space as ds   # noqa: E402
+from wtune.predictor import features as feat     # noqa: E402
 
 
 def _group_sizes(npoints, nparts):

@@ -8,9 +8,9 @@ from datetime import datetime
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from post import met_gridstat, met_pointstat, report, sources  # noqa: E402
-from post.fetch import mrms, nexrad, stage4, stations  # noqa: E402
-from post.recipes import convection, precip  # noqa: E402
+from wtune.post import met_gridstat, met_pointstat, report, sources  # noqa: E402
+from wtune.post.fetch import mrms, nexrad, stage4, stations  # noqa: E402
+from wtune.post.recipes import convection, precip  # noqa: E402
 
 
 def _args(**kw):

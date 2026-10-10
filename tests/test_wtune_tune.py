@@ -2377,7 +2377,7 @@ def test_preflight_merges_with_the_user_exclude_in_every_sbatch(monkeypatch):
     cmd = wtune_tune.sweep.build_sbatch_command("c", 1, 72, "00:10:00", 600, 1, 5, "/x.json", "/o")
     assert "--exclude=head,work9,work2,work3" in cmd
     # the coldstart sbatch renderer reads the same merged set
-    import coldstart_sample
+    from wtune.tools import coldstart_sample
     plan = {"windows": [{"t": "2019-11-26_15:00:00", "reason": "t0"}], "nodes": 1,
             "config": {"ranks": 72, "omp": 1, "nx": 9, "ny": 8, "numtiles": 1}}
     assert "#SBATCH --exclude=head,work9,work2,work3\n" in coldstart_sample.render_run_sbatch(

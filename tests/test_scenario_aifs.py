@@ -10,9 +10,9 @@ import pytest
 
 netCDF4 = pytest.importorskip("netCDF4")
 
-import scenario.wps_intermediate as wi
-from scenario.base import ScenarioRequest, get_generator
-from scenario.generators.aifs import G, netcdf_to_records
+import wtune.scenario.wps_intermediate as wi
+from wtune.scenario.base import ScenarioRequest, get_generator
+from wtune.scenario.generators.aifs import G, netcdf_to_records
 
 
 def _make_synthetic_nc(path, omit=(), valid_time=None):
@@ -147,7 +147,7 @@ def test_aifs_generator_end_to_end_with_nc_paths(tmp_path):
 def test_aifs_generator_raises_when_both_psfc_and_pmsl_are_absent(tmp_path):
     """Neither PSFC nor PMSL at all (fill.PRESSURE_GROUP entirely absent) is a real capability
     gap -- fill may not supply either from the analog, so this must raise, not silently fill."""
-    from scenario.base import ScenarioError
+    from wtune.scenario.base import ScenarioError
 
     nc_path = tmp_path / "synthetic_no_pressure.nc"
     _make_synthetic_nc(nc_path, omit=("sp",))
@@ -169,7 +169,7 @@ def test_aifs_generator_runs_at_analog_date_and_relabels_to_fictional_date(tmp_p
     every field came back NaN. generate() must run the runner at the real climatological analog
     date instead (same date analog.select_analog_date() picks), and relabel the resulting
     records' HDATE back to the fictional valid time -- everything else (SLAB bytes) unchanged."""
-    monkeypatch.setattr("scenario.generators.analog.select_analog_date",
+    monkeypatch.setattr("wtune.scenario.generators.analog.select_analog_date",
                          lambda start, **kw: datetime.datetime(2025, 8, 20, 0))
 
     calls = []

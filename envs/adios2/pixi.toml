@@ -1,5 +1,5 @@
-# Separate environment for the netCDF <-> ADIOS2 BP converters (src/tools/wrf_nc2bp.py,
-# src/tools/wrf_adios2_to_netcdf4). adios2 2.10.* matches the ADIOS2 2.10.2 library WRF is linked
+# Separate environment for the netCDF <-> ADIOS2 BP converters (src/wtune/tools/wrf_nc2bp.py,
+# src/wtune/tools/wrf_adios2_to_netcdf4). adios2 2.10.* matches the ADIOS2 2.10.2 library WRF is linked
 # against (BP files written here must be readable by WRF's reader); its conda builds conflict with
 # the hdf5 pinned in envs/wtune, so it lives in its own environment and wtune_bp calls it as a
 # subprocess.

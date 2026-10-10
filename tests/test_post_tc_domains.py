@@ -9,8 +9,8 @@ from datetime import datetime, timedelta
 import numpy as np
 import pytest
 
-import post.tc as tc
-from post.recipes import tc_extra
+import wtune.post.tc as tc
+from wtune.post.recipes import tc_extra
 
 T0 = datetime(2005, 8, 27, 0)
 
@@ -38,7 +38,8 @@ def fake_nest(monkeypatch):
     monkeypatch.setattr(tc, "_tracks_for_domain", lambda *a, **k: box["tracks"])
     monkeypatch.setattr(tc, "in_domain_interior",
                         lambda frame, lat, lon, bdy: lon < box["east"])
-    import analysis.tc_track  # noqa: F401  -- must import for finest_domain_track's own guard
+    import wtune.analysis.tc_track
+    from wtune import analysis  # noqa: F401  -- must import for finest_domain_track's own guard
     return box
 
 
@@ -168,7 +169,7 @@ def test_tc_extra_annotates_figure_but_emits_no_missing_entry(tmp_path, monkeypa
 
 
 def test_recipe_notes_are_collected_and_not_counted_as_figures():
-    from post import recipe
+    from wtune.post import recipe
     n = recipe.note("tc", "12 km grid")
     assert n == dict(kind="note", source="tc", level="warning", text="12 km grid")
     assert recipe.is_note(n) and not recipe.is_note(recipe.missing("x", "d", "r"))
@@ -239,7 +240,7 @@ def test_rmw_fill_down_reaches_the_lowest_valid_level_only():
 
 
 def test_met_tc_pressure_levels_are_every_50_hpa():
-    from post import met_tc
+    from wtune.post import met_tc
     assert met_tc.PRESSURE_LEVELS_HPA[0] == 1000 and met_tc.PRESSURE_LEVELS_HPA[-1] == 100
     assert len(met_tc.PRESSURE_LEVELS_HPA) == 19
     assert set(np.diff(met_tc.PRESSURE_LEVELS_HPA)) == {-50}
@@ -278,7 +279,7 @@ def test_step_stats_without_bdeck_and_format_line():
 
 
 def test_bdeck_fixes_one_per_time(tmp_path):
-    from post import atcf
+    from wtune.post import atcf
     rows = [dict(time=T0, tau_h=0, lat=25.0, lon=-85.0, vmax_kt=70, mslp_hpa=980,
                  radii_kt={34: (10, 10, 10, 10), 50: (5, 5, 5, 5)})]
     path = atcf.write_lines(rows, str(tmp_path / "b.dat"), basin="AL", cy="12", tech="BEST")
@@ -286,7 +287,7 @@ def test_bdeck_fixes_one_per_time(tmp_path):
 
 
 def test_track_smooth_km_option_default_30_and_zero_means_raw():
-    from post import cli
+    from wtune.post import cli
     p = cli.build_parser()
     assert p.parse_args(["tc"]).track_smooth_km == 30.0
     assert p.parse_args(["tc", "--track-smooth-km", "0"]).track_smooth_km == 0.0
@@ -296,8 +297,8 @@ def test_track_smooth_km_option_default_30_and_zero_means_raw():
 def test_zero_smoothing_skips_cdo(tmp_path, monkeypatch):
     called = []
     monkeypatch.setattr(tc, "smooth_slp_field", lambda *a, **k: called.append(1))
-    import analysis.diagnostics as diag
-    import analysis.tc_track as tct
+    import wtune.analysis.diagnostics as diag
+    import wtune.analysis.tc_track as tct
     monkeypatch.setattr(diag, "wrfout_to_tc_fields", lambda pat, out: None)
     seen = {}
     monkeypatch.setattr(tct, "detect_and_stitch", lambda f, w, params=None: (seen.setdefault("f", f) and [], None))

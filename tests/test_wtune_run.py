@@ -220,7 +220,7 @@ def test_compute_over_interval_is_difference_of_whole_run_totals(tmp_path):
     g = _geo(tmp_path)
     pts = [(g["start"], 1.0), (g["end"], 3.0)]
     comp = wr.compute_fn_from_points(g, pts, 2.0, 4.0, None)
-    import coldstart_sample as cs
+    from wtune.tools import coldstart_sample as cs
     anchors = [(0.0, 1.0), ((g["end"] - g["start"]).total_seconds(), 3.0)]
     whole = cs.predicted_compute_total(720, 60.0, g["stepra"], g["start"], anchors, None, 2.0, 4.0)[0]
     assert comp(0, 300) + comp(300, 720) == pytest.approx(whole)
@@ -1293,7 +1293,7 @@ def test_controller_io_netcdf_creates_nothing(tmp_path):
 
 
 def test_watch_and_post_ignore_empty_wrfout_dir(tmp_path):
-    from post import extract
+    from wtune.post import extract
     run = tmp_path / "run"
     (run / "seg_0").mkdir(parents=True)
     (run / "seg_0" / "wrfout_d01_2020-06-01_03:00:00").mkdir()

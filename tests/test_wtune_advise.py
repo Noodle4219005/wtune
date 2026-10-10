@@ -405,7 +405,7 @@ def test_render_html_and_report_hook(tmp_path, monkeypatch):
     html = adv.render_html(adv.advise(case))
     assert "Advice" in html and "WRF-Chem" in html and "只提示，未套用" in html
     assert adv.render_html({"advice": []}) == ""
-    from post import report
+    from wtune.post import report
     out = tmp_path / "rep"
     out.mkdir()
     info = {"types": ["common"], "evidence": {"common": "always"}, "run_length_h": 48.0,

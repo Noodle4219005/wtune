@@ -42,8 +42,8 @@ def machine_checks() -> list[tuple[str, str, str]]:
         out.append(("FAIL", "no main/wrf.exe under WRF_TREE=%s" % wrf_tree, "build WRF first"))
     else:
         out.append(("OK", "wrf.exe: %s/main/wrf.exe" % wrf_tree, ""))
-    from post import tools
-    from post.recipes import paraview3d
+    from wtune.post import tools
+    from wtune.post.recipes import paraview3d
     for tool, what, find in (("grid_stat", "MET verification figures",
                               lambda: tools.find_postproc_tool("grid_stat")),
                              ("pvbatch", "ParaView 3-D figures", paraview3d.find_pvbatch)):

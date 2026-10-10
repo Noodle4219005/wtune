@@ -11,8 +11,8 @@ import pytest
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "tools"))
-import case_rebuild as cr  # noqa: E402
-import coldstart_sample as cs  # noqa: E402
+from wtune.tools import case_rebuild as cr  # noqa: E402
+from wtune.tools import coldstart_sample as cs  # noqa: E402
 import test_coldstart_sample as tcs  # noqa: E402
 
 SBATCH = os.path.join(REPO, "campaign", "strict_campaign.sbatch")
@@ -179,7 +179,7 @@ def test_nc2bp_unknown_case_does_not_end_the_job():
 # coldstart_sample / case_rebuild
 # ---------------------------------------------------------------------------
 def test_rebuild_sbatch_honours_exclude_env(monkeypatch):
-    import scc_sweep
+    from wtune.tools import scc_sweep
     plan = {"nodes": 2, "config": {"ranks": 100, "omp": 2, "nx": 10, "ny": 10, "numtiles": 1},
             "max_dom": 1, "verify_steps": 0, "span_start": "2020-01-01_00:00:00",
             "span_end": "2020-01-01_06:00:00", "interval_seconds": 10800}

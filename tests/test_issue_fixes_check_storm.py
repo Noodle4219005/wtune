@@ -19,7 +19,7 @@ from wtune import extensions as we
 from wtune import predict as wp
 from wtune import preflight as pf
 from wtune import project as proj
-from post import tc
+from wtune.post import tc
 
 FIXTURES = os.path.join(os.path.dirname(__file__), "fixtures", "post")
 M1_NAMELIST = os.path.join(FIXTURES, "m1-namelist.input")   # Katrina m1: 2005-08-27_00, 48 h

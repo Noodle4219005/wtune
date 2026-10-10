@@ -428,7 +428,7 @@ def test_budget_nodes_exceeding_max_nodes_is_reported():
 # ---------------------------------------------------------------------------
 @pytest.fixture(scope="module")
 def matthew_candidates():
-    import decomp_space   # predictor/decomp_space.py; wtune_config's own sys.path bootstrap
+    from wtune.predictor import decomp_space   # predictor/decomp_space.py; wtune_config's own sys.path bootstrap
     candidates, _axis = decomp_space.enumerate_space(MATTHEW_LIKE, total_cores=72, nodes=1,
                                                         hardware_id="scc-gh200")
     return candidates

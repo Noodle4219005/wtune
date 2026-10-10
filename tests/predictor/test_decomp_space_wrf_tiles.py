@@ -27,7 +27,7 @@ import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-import decomp_space as ds   # noqa: E402
+from wtune.predictor import decomp_space as ds   # noqa: E402
 
 # karina: e_we=e_sn=901 (campaign/cases.json), the case this smoke job actually ran.
 E_WE = E_SN = 901

@@ -5,9 +5,9 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__)))), "campaign"))
 
-import experiment as ex          # noqa: E402
+from wtune.predictor import experiment as ex          # noqa: E402
 import configs as campaign_configs  # noqa: E402
-import decomp_space              # noqa: E402
+from wtune.predictor import decomp_space              # noqa: E402
 
 
 def test_time_limit_formatting():

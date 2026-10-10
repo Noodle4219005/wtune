@@ -17,7 +17,7 @@ import pytest
 
 netCDF4 = pytest.importorskip("netCDF4")
 
-from post import extract  # noqa: E402
+from wtune.post import extract  # noqa: E402
 from test_post_multiframe import T, _times_file  # noqa: E402
 
 
@@ -113,7 +113,7 @@ def test_bp_history_is_converted_once_and_reused(tmp_path, fake_bp, monkeypatch)
     meta = json.load(open(ca + ".json"))
     assert meta["source"] == a and [e[0] for e in meta["signature"]] == \
         ["data.0", "md.0", "md.idx", "mmd.0"]
-    from post import cf_pressure
+    from wtune.post import cf_pressure
     assert cf_pressure._native_history(ca) == a
     assert not [n for n in os.listdir(_cache(run)) if "wtune-tmp" in n]
 
@@ -192,7 +192,7 @@ def test_segmented_multiframe_bp_run(tmp_path, fake_bp):
     assert by[T(54)] == (os.path.join(c, "seg_1", "wrfout_d01_%s.nc" % T(54)), 0)  # later wins
     assert by[T(72)] == (os.path.join(c, "seg_1", "wrfout_d01_%s.nc" % T(54)), 3)
     assert len(fake_bp.conversions()) == 4
-    from post import caseinfo
+    from wtune.post import caseinfo
     assert caseinfo.run_length_hours(str(out)) == pytest.approx(72.0)
 
 
@@ -221,8 +221,8 @@ def test_cache_location_precedence(tmp_path, fake_bp, monkeypatch):
 
 
 def test_cli_nc_cache_flag_and_default_base(tmp_path, fake_bp, monkeypatch, capsys):
-    from post import cli
-    from post import inventory
+    from wtune.post import cli
+    from wtune.post import inventory
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("WTUNE_PROJECT", raising=False)
     monkeypatch.setattr(inventory, "_domain_grid", lambda path: (
@@ -255,7 +255,7 @@ def test_missing_adios2_is_one_clear_error(tmp_path, fake_bp, monkeypatch, capsy
     assert "wrf_adios2_to_netcdf4" in msg and fake_bp.conversions() == []
 
     # the recipe: ONE missing entry naming the fix, a report, no traceback
-    from post import recipe
+    from wtune.post import recipe
     res = recipe.run_recipe([str(run)], str(tmp_path / "out"), labels=["r"])
     assert len(res["figures"]) == 1
     gap = res["figures"][0]
@@ -263,7 +263,7 @@ def test_missing_adios2_is_one_clear_error(tmp_path, fake_bp, monkeypatch, capsy
     assert "pixi install" in open(res["report_path"]).read()
 
     # whole-run CLI commands: an error line and exit 2; inventory/compare report it
-    from post import cli, compare, inventory
+    from wtune.post import cli, compare, inventory
     assert cli.main(["cf3d", str(run), "--out", str(tmp_path / "cf")]) == 2
     assert "pixi install" in capsys.readouterr().err
     inv = inventory.inventory(str(run))
@@ -295,7 +295,7 @@ def test_a_failed_conversion_leaves_that_file_out_and_is_not_retried(tmp_path, f
 
 
 def test_vapor_bundle_links_the_cached_netcdf_and_says_so(tmp_path, fake_bp):
-    from post import vapor_bundle as vb
+    from wtune.post import vapor_bundle as vb
     run = tmp_path / "run"
     b0 = _bp(run / ("wrfout_d01_%s" % T(0)), [T(0)])
     b6 = _bp(run / ("wrfout_d01_%s" % T(6)), [T(6)])

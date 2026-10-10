@@ -3,11 +3,11 @@ notes are split from figures in run_recipe's result."""
 import sys
 import types
 
-from post import recipe
+from wtune.post import recipe
 
 
 def _fake_module(name, with_project):
-    mod = types.ModuleType("post.recipes." + name)
+    mod = types.ModuleType("wtune.post.recipes." + name)
     seen = {}
     if with_project:
         def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6, project_dir=None):
@@ -18,7 +18,7 @@ def _fake_module(name, with_project):
             seen["called"] = True
             return []
     mod.figures = figures
-    sys.modules["post.recipes." + name] = mod
+    sys.modules["wtune.post.recipes." + name] = mod
     return seen
 
 
@@ -35,14 +35,14 @@ def test_simple_dispatch_passes_project_dir_only_when_accepted(tmp_path, monkeyp
 
 
 def test_spinup_days_passed_only_when_accepted_and_given(tmp_path):
-    mod = types.ModuleType("post.recipes.fakeclim")
+    mod = types.ModuleType("wtune.post.recipes.fakeclim")
     seen = {}
 
     def figures(run_dirs, labels, out_dir, case_info, spinup_days=30):
         seen["d"] = spinup_days
         return []
     mod.figures = figures
-    sys.modules["post.recipes.fakeclim"] = mod
+    sys.modules["wtune.post.recipes.fakeclim"] = mod
     run = recipe._simple_dispatch("fakeclim", "sub")
     run(["r"], ["l"], str(tmp_path), {}, spinup_days=10.0)
     assert seen["d"] == 10.0
@@ -53,7 +53,7 @@ def test_spinup_days_passed_only_when_accepted_and_given(tmp_path):
 
 
 def test_cli_exposes_climate_spinup_days():
-    from post import cli
+    from wtune.post import cli
     a = cli.build_parser().parse_args(["recipe", "--climate-spinup-days", "12"])
     assert a.climate_spinup_days == 12.0
     assert cli.build_parser().parse_args(["recipe"]).climate_spinup_days is None

@@ -17,15 +17,14 @@ from dataclasses import dataclass
 from pathlib import Path
 
 _HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-for _p in (os.path.join(_HERE, "tools"), _HERE):      # tools/: wtune_io_model's coldstart_sample
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
+if _HERE not in sys.path:
+    sys.path.insert(0, _HERE)
 
 from wtune import predict as wp  # parse_namelist / g / g_dom / get_max_dom / get_domain_geom / ...
 from wtune import physics as wphys  # resolve_suite (physics_suite sentinel resolution)
 
 try:
-    from predictor.decomp_space import rsl_patch_extents, MIN_PATCH
+    from wtune.predictor.decomp_space import rsl_patch_extents, MIN_PATCH
 except Exception:  # pragma: no cover -- exercised only if predictor/ is not shipped alongside
     MIN_PATCH = 10
 

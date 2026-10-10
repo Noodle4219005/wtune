@@ -17,7 +17,7 @@ import unittest
 from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import coldstart_sample as cs   # noqa: E402
+from wtune.tools import coldstart_sample as cs   # noqa: E402
 from wtune import predict as predict  # noqa: E402
 
 
@@ -890,9 +890,10 @@ class TestToolPathInSbatch(unittest.TestCase):
 
 class TestNoNumpyOnComputeNode(unittest.TestCase):
     def setUp(self):
-        self._saved = {k: sys.modules.get(k) for k in ("numpy", "metdata", "grib_state")}
-        for k in ("numpy", "metdata", "grib_state"):
+        self._saved = {k: sys.modules.get(k) for k in ("numpy", "wtune.tools.metdata", "wtune.tools.grib_state")}
+        for k in ("numpy", "wtune.tools.metdata", "wtune.tools.grib_state"):
             sys.modules.pop(k, None)
+            vars(sys.modules["wtune.tools"]).pop(k.rpartition(".")[2], None)
         sys.modules["numpy"] = None   # sys.modules[name] = None makes `import name` raise ImportError
 
     def tearDown(self):
@@ -903,8 +904,9 @@ class TestNoNumpyOnComputeNode(unittest.TestCase):
                 sys.modules[k] = v
 
     def test_import_succeeds_with_numpy_blocked(self):
-        sys.modules.pop("coldstart_sample", None)
-        import coldstart_sample as cs2   # noqa: F401  -- must not raise
+        sys.modules.pop("wtune.tools.coldstart_sample", None)
+        vars(sys.modules["wtune.tools"]).pop("coldstart_sample", None)
+        from wtune.tools import coldstart_sample as cs2   # noqa: F401  -- must not raise
         self.assertIsNotNone(cs2)
 
     def test_fix_wps_namelist_does_not_import_numpy(self):
@@ -922,8 +924,8 @@ class TestNoNumpyOnComputeNode(unittest.TestCase):
             with open(os.path.join(plan_dir, "plan.json"), "w") as f:
                 json.dump(plan, f)
             cs.cmd_fix_wps_namelist(plan_dir, 0)   # must not raise ImportError
-        self.assertNotIn("metdata", sys.modules)
-        self.assertNotIn("grib_state", sys.modules)
+        self.assertNotIn("wtune.tools.metdata", sys.modules)
+        self.assertNotIn("wtune.tools.grib_state", sys.modules)
 
     def test_fix_real_and_wrf_namelist_do_not_import_numpy(self):
         with tempfile.TemporaryDirectory() as d:
@@ -947,8 +949,8 @@ class TestNoNumpyOnComputeNode(unittest.TestCase):
                  mock.patch.object(cs, "_read_met_em_dims", return_value=(34, 4, 28)):
                 cs.cmd_fix_real_namelist(plan_dir, 0)   # must not raise ImportError
                 cs.cmd_fix_wrf_namelist(plan_dir, 0, 6, 12, 1)   # must not raise ImportError
-        self.assertNotIn("metdata", sys.modules)
-        self.assertNotIn("grib_state", sys.modules)
+        self.assertNotIn("wtune.tools.metdata", sys.modules)
+        self.assertNotIn("wtune.tools.grib_state", sys.modules)
 
     def test_fix_real_namelist_applies_vertical_grid_from_plan_json_with_numpy_blocked(self):
         # T12 (2026-09-24, job 965): plan.json['vertical_grid'] (read at PLAN time, on the login
@@ -988,8 +990,8 @@ class TestNoNumpyOnComputeNode(unittest.TestCase):
         self.assertEqual(cs.get_first(txt, "p_top_requested"), "4000.0")
         for key in ("dzbot", "dzstretch_s", "dzstretch_u", "auto_levels_opt"):
             self.assertEqual(cs.count_key(txt, key), 0)
-        self.assertNotIn("metdata", sys.modules)
-        self.assertNotIn("grib_state", sys.modules)
+        self.assertNotIn("wtune.tools.metdata", sys.modules)
+        self.assertNotIn("wtune.tools.grib_state", sys.modules)
 
     def test_stage_does_not_import_numpy(self):
         with tempfile.TemporaryDirectory() as d:
@@ -1008,8 +1010,8 @@ class TestNoNumpyOnComputeNode(unittest.TestCase):
                 for k, v in saved_env.items():
                     if v is not None:
                         os.environ[k] = v
-        self.assertNotIn("metdata", sys.modules)
-        self.assertNotIn("grib_state", sys.modules)
+        self.assertNotIn("wtune.tools.metdata", sys.modules)
+        self.assertNotIn("wtune.tools.grib_state", sys.modules)
 
     def test_score_does_not_import_numpy(self):
         with tempfile.TemporaryDirectory() as d:
@@ -1037,8 +1039,8 @@ class TestNoNumpyOnComputeNode(unittest.TestCase):
             with open(os.path.join(plan_dir, "plan.json"), "w") as f:
                 json.dump(plan, f)
             cs.score_plan(plan_dir)   # must not raise ImportError (wtune_predict is stdlib-only)
-        self.assertNotIn("metdata", sys.modules)
-        self.assertNotIn("grib_state", sys.modules)
+        self.assertNotIn("wtune.tools.metdata", sys.modules)
+        self.assertNotIn("wtune.tools.grib_state", sys.modules)
 
 
 # ---------------------------------------------------------------------------
@@ -2323,7 +2325,7 @@ class TestDownloadRetriesAndFailsOnMissing(unittest.TestCase):
             open(dest, "w").close()
 
         with tempfile.TemporaryDirectory() as d:
-            import metdata as md
+            from wtune.tools import metdata as md
             paths = cs._download_forcing_for_window(md.SRC_FNL, self.T, self.T_end, d,
                                                     download_fn=flaky, sleep_fn=lambda s: None)
             names = sorted(os.path.basename(p) for p in paths)
@@ -2336,7 +2338,7 @@ class TestDownloadRetriesAndFailsOnMissing(unittest.TestCase):
             open(dest, "w").close()
 
         with tempfile.TemporaryDirectory() as d:
-            import metdata as md
+            from wtune.tools import metdata as md
             with self.assertRaisesRegex(cs.ColdstartError, "fnl_2024090312.grib"):
                 cs._download_forcing_for_window(md.SRC_FNL, self.T, self.T_end, d,
                                                 download_fn=only_18z, sleep_fn=lambda s: None)

@@ -3,9 +3,9 @@ scenario.config.parse_scenario."""
 
 import pytest
 
-import scenario.base as base
-from scenario.base import LicenseError, ScenarioError, get_generator, list_generators
-from scenario.config import parse_scenario
+import wtune.scenario.base as base
+from wtune.scenario.base import LicenseError, ScenarioError, get_generator, list_generators
+from wtune.scenario.config import parse_scenario
 
 
 def test_list_generators_contains_every_registered_name():

@@ -6,7 +6,7 @@ a-deck -- exercised manually against the real m1 run (see the delegation report)
 import numpy as np
 import pytest
 
-from post.recipes import tc_extra
+from wtune.post.recipes import tc_extra
 
 
 def test_tangential_wind_matches_solid_body_rotation_east_of_centre():

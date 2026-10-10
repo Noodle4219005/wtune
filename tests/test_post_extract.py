@@ -12,7 +12,7 @@ import pytest
 netCDF4 = pytest.importorskip("netCDF4")
 wrf = pytest.importorskip("wrf")
 
-import post.extract as extract
+import wtune.post.extract as extract
 
 NY, NX, NZ = 16, 20, 8
 LAT0, LON0 = 24.0, -90.0

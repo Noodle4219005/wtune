@@ -16,12 +16,12 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import benchmark
-import features as feat
-import ledger
-import models as modelmod
-import targets
-import validate
+from wtune.predictor import benchmark
+from wtune.predictor import features as feat
+from wtune.predictor import ledger
+from wtune.predictor import models as modelmod
+from wtune.predictor import targets
+from wtune.predictor import validate
 
 HARDWARE_ID = ledger.HARDWARE_ID
 

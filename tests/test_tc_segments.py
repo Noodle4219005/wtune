@@ -11,8 +11,8 @@ import numpy as np
 import pytest
 
 from wtune import project as proj
-from analysis import tc_track
-from post import tc, tools
+from wtune.analysis import tc_track
+from wtune.post import tc, tools
 
 T = ["2005-08-27_00:00:00", "2005-08-27_06:00:00", "2005-08-27_12:00:00", "2005-08-27_18:00:00"]
 
@@ -51,7 +51,7 @@ def test_run_start_and_max_dom_on_segments(tmp_path):
 
 def test_tracks_for_domain_gets_one_frame_per_time_from_segments(tmp_path, monkeypatch):
     out = _segmented(tmp_path)
-    from analysis import diagnostics
+    from wtune.analysis import diagnostics
     seen = {}
 
     class Stop(Exception):

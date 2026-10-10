@@ -30,7 +30,7 @@ import pytest
 
 netCDF4 = pytest.importorskip("netCDF4")
 
-import analysis.tc_track as tc_track
+import wtune.analysis.tc_track as tc_track
 
 pytestmark = pytest.mark.skipif(
     shutil.which("DetectNodes") is None,

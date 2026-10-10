@@ -1,4 +1,4 @@
-"""Golden snapshots of src/post/cli.py, pinned before the round-3 tidy-up table-drove
+"""Golden snapshots of src/wtune/post/cli.py, pinned before the round-3 tidy-up table-drove
 build_parser and split cmd_recipe/cmd_tc: --help of every post subcommand (fixed COLUMNS),
 parsed Namespace (defaults and a few explicit options) per subcommand, and stdout/rc/call kwargs
 of cmd_recipe/cmd_tc/cmd_cf3d/cmd_vapor_bundle with the heavy backends stubbed.
@@ -20,8 +20,8 @@ GOLDEN = os.path.join(HERE, "fixtures", "golden", "post_cli", "post_cli.json")
 REGEN = os.environ.get("WTUNE_GOLDEN_REGEN") == "1"
 
 _HELP_SNIPPET = (
-    "import sys; sys.path[:0] = [%r, %r]; from post import cli; sys.exit(cli.main(sys.argv[1:]))"
-    % (os.path.join(REPO, "src"), os.path.join(REPO, "src", "tools")))
+    "import sys; sys.path[:0] = [%r]; from wtune.post import cli; sys.exit(cli.main(sys.argv[1:]))"
+    % os.path.join(REPO, "src"))
 
 SUBS = ["inventory", "extract", "plot", "sounding", "tc", "compare", "report", "recipe", "cf3d",
         "vapor-bundle", "custom", "fetch", "fetch-era5"]
@@ -35,7 +35,7 @@ def _help(argv):
 
 
 def _fetch_names():
-    from post import fetch
+    from wtune.post import fetch
     return sorted(fetch.discover()[0])
 
 
@@ -78,7 +78,7 @@ PARSE = {
 
 
 def _parse_all():
-    from post import cli
+    from wtune.post import cli
     out = {}
     for cid, argv in PARSE.items():
         ns = cli.build_parser().parse_args(argv)
@@ -94,9 +94,9 @@ def _parse_all():
 
 def _call(argv, tmp_path, monkeypatch):
     """main(argv) with the heavy backends stubbed; returns rc, stdout, stderr, backend calls."""
-    from post import cf_pressure, fetch, recipe, tc, vapor_bundle
+    from wtune.post import cf_pressure, fetch, recipe, tc, vapor_bundle
     from wtune import project as wtune_project
-    from post import cli
+    from wtune.post import cli
     calls = []
 
     def rec(name, ret):

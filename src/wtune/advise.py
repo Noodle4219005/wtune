@@ -31,7 +31,7 @@ Detector reuse (file:line as of this commit):
                      TC-Pairs .tcst columns TK_ERR/AMSLP/BMSLP/LEAD, parsed with
                      post/met_tc.py:45 parse_met_table (same columns post/tc.py:1031 _error_figures plots)
 
-Not found in src/post: any IBTrACS reader/fetcher (only HURDAT2 + NHC ATCF b-deck exist, see
+Not found in src/wtune/post: any IBTrACS reader/fetcher (only HURDAT2 + NHC ATCF b-deck exist, see
 post/tc.py:175 resolve_bdeck). So best track = --bdeck | --hurdat2(+--storm) | project.yaml storm
 | registry observations{kind:track}; no download is done here.
 """
@@ -48,9 +48,8 @@ import sys
 from datetime import datetime, timedelta
 
 _HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-for _p in (_HERE, os.path.join(_HERE, "tools"), os.path.join(_HERE, "predictor")):
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
+if _HERE not in sys.path:
+    sys.path.insert(0, _HERE)
 
 RULES_PATH = os.path.join(_HERE, "wtune_advice_rules.json")
 COEFFS_PATH = os.path.join(_HERE, "wtune_extension_coefficients.json")
@@ -275,7 +274,7 @@ def _read_min_slp(path, lat, lon, radius_km):
     import netCDF4
     import numpy as np
     from wrf import getvar
-    from post import tc_metrics as tm
+    from wtune.post import tc_metrics as tm
     with netCDF4.Dataset(path) as ds:
         slp = np.asarray(getvar(ds, "slp", timeidx=0, units="hPa"))
         xlat = np.asarray(ds.variables["XLAT"][0])
@@ -323,7 +322,7 @@ def _domain_bbox(case):
 def _scan_hurdat2_for_storm(path, bbox, t_start, t_end):
     """Storm id in a HURDAT2 file with the most fixes inside (bbox, [t_start, t_end]); None if
     no storm qualifies. One pass, coordinates parsed with post/tc.py:58 _hurdat2_coord."""
-    from post.tc import _hurdat2_coord
+    from wtune.post.tc import _hurdat2_coord
     lat0, lat1, lon0, lon1 = bbox[:4]
     best, best_n, cur, n = None, 0, None, 0
     with open(path, errors="replace") as fh:
@@ -356,12 +355,12 @@ def best_track(case):
         return case.cache["track"]
     rows = None
     if case.bdeck and os.path.exists(case.bdeck):
-        from post import atcf
+        from wtune.post import atcf
         rows = sorted(({"time": r["time"], "lat": r["lat"], "lon": r["lon"],
                         "pmin_hpa": float(r["mslp_hpa"]) if r["mslp_hpa"] else None}
                        for r in atcf.parse_file(case.bdeck)), key=lambda r: r["time"])
     elif case.hurdat2 and os.path.exists(case.hurdat2):
-        from post.tc import parse_hurdat2_full, resolve_storm
+        from wtune.post.tc import parse_hurdat2_full, resolve_storm
         storm = case.storm
         if storm:
             # NAME / NAME+YEAR -> ATCF id, restricted to storms overlapping the case window
@@ -391,7 +390,7 @@ def _unavail(reason):
 def det_case_types(case):
     """Multi-label case type (decision 0057). Full detect_types when wrfout frames exist;
     otherwise the same thresholds read from the namelist plus a best-track fix test."""
-    from post import caseinfo
+    from wtune.post import caseinfo
     if case.run_dir and glob.glob(os.path.join(case.run_dir, "wrfout_d01_*")):
         try:
             best_track(case)                    # fills cache["storm_found"] when only HURDAT2 given
@@ -488,8 +487,8 @@ def _nest_path(case, dom):
 
 
 def det_tc_nest_exit(case):
-    from post import caseinfo
-    from post import tc_metrics as tm
+    from wtune.post import caseinfo
+    from wtune.post import tc_metrics as tm
     import numpy as np
     max_dom = _max_dom(case)
     track = best_track(case)
@@ -524,7 +523,7 @@ def det_tc_nest_exit(case):
 
 
 def det_radar_coverage(case):
-    from post.fetch import mrms, stage4
+    from wtune.post.fetch import mrms, stage4
     try:
         bbox = _domain_bbox(case)
         t0, t1 = _window(case)
@@ -567,7 +566,7 @@ def _tcst_rows(case):
                    glob.glob(os.path.join(case.post_tc_dir, "*.tcst")))
     if not paths:
         return None
-    from post import met_tc
+    from wtune.post import met_tc
     rows = []
     for p in paths:
         with open(p) as fh:

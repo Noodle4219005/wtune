@@ -13,13 +13,13 @@ from datetime import datetime
 import numpy as np
 import pytest
 
-import post.cli as cli
-import post.compare as compare
-import post.extract as extract
-import post.recipe as recipe
-import post.report as report
-from post import atcf, changemap, met_pointstat, met_tc, sources, tc, timeseries, tools
-from post.fetch import igra
+import wtune.post.cli as cli
+import wtune.post.compare as compare
+import wtune.post.extract as extract
+import wtune.post.recipe as recipe
+import wtune.post.report as report
+from wtune.post import atcf, changemap, met_pointstat, met_tc, sources, tc, timeseries, tools
+from wtune.post.fetch import igra
 
 FIXTURES = os.path.join(os.path.dirname(__file__), "fixtures", "post")
 DIFFWRF_IDENTICAL = open(os.path.join(FIXTURES, "diffwrf_identical.txt")).read()
@@ -206,7 +206,7 @@ def test_type_failure_guard_lets_keyboard_interrupt_through(tmp_path, monkeypatc
 # ------------------------------------------------------------------ 5. one field failing
 
 def test_time_series_field_without_its_variable_only_drops_that_field(tmp_path, monkeypatch):
-    import post.plotting as plotting
+    import wtune.post.plotting as plotting
 
     def scale(run_dir, field, domain, times):
         if field == "pw":
@@ -331,7 +331,7 @@ def test_adeck_leads_count_from_the_run_start_not_first_detection(tmp_path):
 # ------------------------------------------------------------------ 9. point_stat tags
 
 def test_point_stat_output_dirs_are_distinct_for_sub_hourly_frames(tmp_path, monkeypatch):
-    import post.caseinfo as caseinfo
+    import wtune.post.caseinfo as caseinfo
     dirs = []
 
     def to_latlon(lat, lon, fields, valid, out_nc, method=None):
@@ -358,7 +358,7 @@ def test_point_stat_output_dirs_are_distinct_for_sub_hourly_frames(tmp_path, mon
 @pytest.mark.parametrize("extra,minutes", [
     ([], "120"), (["--srun-minutes", "480"], "480"), (["--srun-minutes=30"], "30")])
 def test_srun_minutes_sets_the_job_step_time_limit(monkeypatch, extra, minutes):
-    import scc_sweep
+    from wtune.tools import scc_sweep
     seen = []
     monkeypatch.setattr(scc_sweep, "excluded_nodes", lambda: ["head"])
 
@@ -384,8 +384,8 @@ def test_srun_minutes_rejects_a_non_number():
 # ---------------------------------------------------------------------------
 def test_stage4_partial_download_keeps_the_rest_and_exits_nonzero(tmp_path, monkeypatch, capsys):
     import argparse
-    from post import cli, sources
-    from post.fetch import stage4
+    from wtune.post import cli, sources
+    from wtune.post.fetch import stage4
 
     def fake_download(url, dest, known_sha=None, **_kw):
         if url == stage4.SITES_URL or "06h" in url:
@@ -409,9 +409,9 @@ def test_stage4_partial_download_keeps_the_rest_and_exits_nonzero(tmp_path, monk
 
 
 def test_post_user_errors_print_one_line_not_a_traceback(tmp_path, capsys):
-    from post import cli
+    from wtune.post import cli
     assert cli.main(["plot", "--field", "t2", "--out", str(tmp_path / "o"), str(tmp_path)]) == 1
     assert capsys.readouterr().err.startswith("error: ")
-    from post import timeseries
+    from wtune.post import timeseries
     with pytest.raises(ValueError, match="use YYYYMMDDHH"):
         timeseries._nearest_time(["2019-01-30_00:00:00"], "last")

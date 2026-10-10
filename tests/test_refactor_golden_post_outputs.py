@@ -21,8 +21,8 @@ pytest.importorskip("scipy")
 
 import test_post_cf_pressure as tcp  # noqa: E402
 import test_post_vapor_bundle as tvb  # noqa: E402
-from post import cf_pressure as cp  # noqa: E402
-from post import vapor_bundle as vb  # noqa: E402
+from wtune.post import cf_pressure as cp  # noqa: E402
+from wtune.post import vapor_bundle as vb  # noqa: E402
 
 GOLDEN = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures", "golden",
                       "post_outputs", "post_outputs.json")

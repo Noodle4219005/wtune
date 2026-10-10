@@ -18,7 +18,7 @@ import re
 import statistics
 from typing import Any, Callable
 
-import coldstart_sample as coldstart   # tools/coldstart_sample.py -- READ-ONLY dependency: this
+from wtune.tools import coldstart_sample as coldstart   # tools/coldstart_sample.py -- READ-ONLY dependency: this
                                         # module calls its functions, never edits them.
 from wtune import predict as predict        # wtune/predict.py -- same read-only relationship.
 
@@ -239,7 +239,7 @@ def resolve_rebuild_target_date(case_dir: str, at: datetime.datetime, namelist: 
 
     if analog_fn is None:
         try:
-            import case_rebuild  # tools/case_rebuild.py -- lazy import: heavy, network-using
+            from wtune.tools import case_rebuild  # tools/case_rebuild.py -- lazy import: heavy, network-using
             analog_fn = case_rebuild.cmd_analog
         except ImportError as e:
             return at, True, ("rebuild target %s has no forcing coverage (%s) and "

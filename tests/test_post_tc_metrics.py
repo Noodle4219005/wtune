@@ -12,7 +12,7 @@ fixture.
 import numpy as np
 import pytest
 
-import post.tc_metrics as tm
+import wtune.post.tc_metrics as tm
 
 LAT0, LON0 = 20.0, 260.0
 VMAX, RMW = 40.0, 50.0

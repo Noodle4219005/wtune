@@ -441,12 +441,12 @@ restart — an unknown case has none). Measured on the cluster (conus12, 3 times
 true restarts): cold-start cost equals restart cost within 0.35% once the first ~1 simulated
 hour is discarded, so every window budgets a spin-up discard before it starts measuring.
 
-    python3 src/tools/coldstart_sample.py inspect --case-dir D [--namelist-wps P | --geo-from-wrfinput P] [--grib-dir G]
-    python3 src/tools/coldstart_sample.py plan --case-dir D --out PLAN_DIR --k 4 --nodes N --ranks R --omp T --nx X --ny Y
-    python3 src/tools/coldstart_sample.py fetch --plan PLAN_DIR         # login node; needs network
-    python3 src/tools/coldstart_sample.py stage --plan PLAN_DIR --site scc
+    python3 src/wtune/tools/coldstart_sample.py inspect --case-dir D [--namelist-wps P | --geo-from-wrfinput P] [--grib-dir G]
+    python3 src/wtune/tools/coldstart_sample.py plan --case-dir D --out PLAN_DIR --k 4 --nodes N --ranks R --omp T --nx X --ny Y
+    python3 src/wtune/tools/coldstart_sample.py fetch --plan PLAN_DIR         # login node; needs network
+    python3 src/wtune/tools/coldstart_sample.py stage --plan PLAN_DIR --site scc
     sbatch PLAN_DIR/run.sbatch
-    python3 src/tools/coldstart_sample.py score --plan PLAN_DIR --json PLAN_DIR/score.json
+    python3 src/wtune/tools/coldstart_sample.py score --plan PLAN_DIR --json PLAN_DIR/score.json
 
 `inspect` names every blocker explicitly (no projection source; a run time older than the GFS
 0.25deg archive's 2015-01-15 start with no `--grib-dir`; `ifire>0` — WRF-SFIRE unsupported; a
@@ -949,7 +949,7 @@ a-deck/b-deck files directly). Written only if MET is installed: `tc_pairs.tcst`
 from them — a missing MET tool is reported in the command's `warning:` output, not a hard
 failure, so the a-deck/track-map part of the report is still usable without MET.
 
-MET's exact `tc_pairs`/`tc_stat`/`tc_rmw` config syntax in `src/post/met/*.conf.tmpl` is based on
+MET's exact `tc_pairs`/`tc_stat`/`tc_rmw` config syntax in `src/wtune/post/met/*.conf.tmpl` is based on
 MET 12.1.1's documented config structure but **has not been run against a real binary** — MET
 was still building (spack job 1575) when this was written. Diff the templates against
 `$WTUNE_POSTPROC_VIEW/share/met/config/TC*Config_default` once installed and fix any mismatch.
@@ -979,7 +979,7 @@ evidence for each (e.g. `convection: d02 dx=4 km, cu_physics=0`).
 | `climate` | run length >= 30 d | `cdo ymonmean`/`yseasmean` (the ERA5 side of the seasonal bias is not implemented this round) |
 | `ensemble` | >=2 RUN_DIRs with `--ensemble` | a spaghetti plot, a probability-above-threshold map; MET `ensemble_stat` rank histogram/spread-skill needs obs wiring not implemented this round |
 
-Every figure is captioned from `src/post/recipes/catalog.json` (zh + en: the question it answers,
+Every figure is captioned from `src/wtune/post/recipes/catalog.json` (zh + en: the question it answers,
 how to read it, common misreadings) and stamped with run/domain/valid time and the excluded
 spin-up length. `wtune post recipe --types tc` (or any explicit list) narrows the report to
 exactly `common` + the given type(s), skipping auto-detection.
@@ -1256,13 +1256,13 @@ The repo root is user-facing only; everything else lives under one of these dire
 | `src/wtune_segment_train.py`, `featurize_frames.py`, `wtune_runtime_predict.py`, `wtune_runtime12.py`, `wtune_cost_model.py` | live | prediction layer |
 | `campaign/` | **live, production** (unmoved) | the measurement side: `strict_campaign.sbatch`, `configs.py`, `cases.json`, `physics_templates.json`, the decomposition-search campaign and its rankers |
 | `machine/` | **live, production** (unmoved) | hardware calibration data and probes (`machine/calibration/*.json`, `machine/bench/`) |
-| `src/predictor/` | **live, production** | the decision side: ledger, benchmark, decomposition space and search (`recommend.py` and the `experiment.py` engine are in `archive/unused-2026-10/`), `stability.py`, `verify_obs.py` (`src/predictor/README.md`) |
-| `src/fidelity_gate.py` (+ test) | live | chaos-floor scoring of a candidate against a reference and a twin |
+| `src/wtune/predictor/` | **live, production** | the decision side: ledger, benchmark, decomposition space and search (`recommend.py` and the `experiment.py` engine are in `archive/unused-2026-10/`), `stability.py`, `verify_obs.py` (`src/wtune/predictor/README.md`) |
+| `src/wtune/fidelity_gate.py` (+ test) | live | chaos-floor scoring of a candidate against a reference and a twin |
 | `src/fingerprint/` | live | out-of-process phase fingerprinter (autotuner step 2) -- moved into `src/` late in the refactor after `tests/test_wtune_fingerprint.py` proved it is imported, not dead |
-| `src/tools/` | live | `bp_compression_check.py`, `run_tests.sbatch`, the ADIOS2→netCDF4 converter, `predict_validate/` |
-| `src/analysis/` | live (not yet wired/tested) | wrf-python + TempestExtremes wrappers |
-| `src/post/` | live | `wtune post` (decision 0056): inventory/extract/plot/sounding/tc/compare/report, advisory only, all heavy imports lazy |
-| `tests/` | live | every test (`tests/`, `tests/tools/`, `tests/predictor/` incl. fixtures) + `tests/conftest.py`, which puts `src/`, `src/predictor`, `src/tools` on `sys.path` |
+| `src/wtune/tools/` | live | `bp_compression_check.py`, `run_tests.sbatch`, the ADIOS2→netCDF4 converter, `predict_validate/` |
+| `src/wtune/analysis/` | live (not yet wired/tested) | wrf-python + TempestExtremes wrappers |
+| `src/wtune/post/` | live | `wtune post` (decision 0056): inventory/extract/plot/sounding/tc/compare/report, advisory only, all heavy imports lazy |
+| `tests/` | live | every test (`tests/`, `tests/tools/`, `tests/predictor/` incl. fixtures) + `tests/conftest.py`, which puts `src/`, `src/wtune/predictor`, `src/wtune/tools` on `sys.path` |
 | `results/derived-data/` | data (unmoved) | canonical processed CSV/JSON behind every reported number |
 | `examples/`, `docs/` | unmoved | example configs; docs |
 | `archive/` | **not imported by any live code or test** — see below | `plov/`, `research/`, `experiments/`, `profilers/`, `deprecated/` |
@@ -1288,8 +1288,8 @@ python -m pytest -q tests/`) — **1744 passed / 9 skipped / 4 known pre-existin
 `tests/test_wtune_config.py::test_examples_wtune_yaml_matches_the_rendered_template_and_validates` --
 found during this update, unrelated to it: `examples/wtune.yaml` has drifted from
 `wtune_config.render_template("conus25")`'s current output; neither file was touched by decision
-0056's `src/post/` work).
-`src/tools/run_tests.sbatch` runs the whole suite on a compute node the same way it always
+0056's `src/wtune/post/` work).
+`src/wtune/tools/run_tests.sbatch` runs the whole suite on a compute node the same way it always
 did (`predictor/tests` needs the predictor pixi env; running it in the other one turns 18
 skips into 19 lightgbm failures that look like a regression). The pieces, if you need one
 directly: `pytest tests/test_wtune_*.py tests/test_fidelity_gate.py`, `pytest campaign

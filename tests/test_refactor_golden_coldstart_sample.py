@@ -10,8 +10,8 @@ import os
 
 import pytest
 
-import coldstart_sample as cs
-import scc_sweep
+from wtune.tools import coldstart_sample as cs
+from wtune.tools import scc_sweep
 
 GOLDEN_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                           "fixtures", "golden", "coldstart_sample")

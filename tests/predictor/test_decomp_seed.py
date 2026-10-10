@@ -3,7 +3,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import decomp_space as ds  # noqa: E402
+from wtune.predictor import decomp_space as ds  # noqa: E402
 
 CONUS12 = dict(e_we=425, e_sn=300, e_vert=50, max_dom=1)
 

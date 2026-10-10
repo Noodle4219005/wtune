@@ -206,14 +206,14 @@ def _no_source_plan(md):
 
 
 def test_metdata_check_fails_loudly_without_a_source(capsys):
-    md = importlib.import_module("metdata")
+    md = importlib.import_module("wtune.tools.metdata")
     assert md.do_check(_no_source_plan(md)) == 1
     out = capsys.readouterr().out
     assert "2010-06-01_00" in out and "--grib-dir" in out
 
 
 def test_metdata_fetch_exits_nonzero_without_a_source(tmp_path, monkeypatch, capsys):
-    md = importlib.import_module("metdata")
+    md = importlib.import_module("wtune.tools.metdata")
     monkeypatch.setattr(md, "build_plan", lambda *a, **k: (_no_source_plan(md), []))
     monkeypatch.setattr(md, "load_case", lambda *a, **k: ({}, None, None))
     rc = md.main(["fetch", "--case-dir", str(tmp_path), "--cache-dir", str(tmp_path / "c")])
@@ -232,7 +232,7 @@ def convert_mod(monkeypatch):
             importlib.import_module("adios2")
         except ImportError:   # only the module object is needed, never a real reader
             monkeypatch.setitem(sys.modules, "adios2", types.ModuleType("adios2"))
-    name = "tools.wrf_adios2_to_netcdf4.convert"
+    name = "wtune.tools.wrf_adios2_to_netcdf4.convert"
     monkeypatch.delitem(sys.modules, name, raising=False)
     return importlib.import_module(name)
 

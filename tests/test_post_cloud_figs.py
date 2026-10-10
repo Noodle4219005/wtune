@@ -17,7 +17,7 @@ pytest.importorskip("pyproj")
 pytest.importorskip("scipy")
 pytest.importorskip("cartopy")
 
-from post.recipes import cloud as cl  # noqa: E402
+from wtune.post.recipes import cloud as cl  # noqa: E402
 from test_post_tc_structure import NX, NY, TIMES, write_wrfout  # noqa: E402
 
 CASE = dict(types=["common", "precip", "cloud"], domains=[dict(domain=1, dx_km=12.0)])
@@ -97,7 +97,7 @@ def test_ir_palette_grey_above_240_coloured_below():
 
 
 def test_cloud_case_type_detected_from_hydrometeors(tmp_path):
-    from post import caseinfo
+    from wtune.post import caseinfo
     run = _lake_run(tmp_path, n=1)
     ok, ev = caseinfo.detect_cloud(run)
     assert ok and "QSNOW" in ev
@@ -123,7 +123,7 @@ def _fake_volume(calls, exc=None):
 
 
 def test_figures_render_every_cloud_figure(tmp_path, monkeypatch):
-    from post.recipes import paraview3d
+    from wtune.post.recipes import paraview3d
     calls = []
     monkeypatch.setattr(paraview3d, "render_condensate_volume", _fake_volume(calls),
                         raising=False)
@@ -142,7 +142,7 @@ def test_figures_render_every_cloud_figure(tmp_path, monkeypatch):
 
 
 def test_missing_entries_without_hydrometeors_or_3d(tmp_path, monkeypatch):
-    from post.recipes import paraview3d
+    from wtune.post.recipes import paraview3d
     monkeypatch.setattr(paraview3d, "render_condensate_volume",
                         _fake_volume([], NotImplementedError("later")), raising=False)
     dry = tmp_path / "dry"
@@ -181,7 +181,7 @@ def test_xsec_line_runs_along_the_bl_wind(tmp_path, monkeypatch):
 
 
 def test_recipe_dispatches_cloud_with_cadence(tmp_path, monkeypatch):
-    from post import recipe
+    from wtune.post import recipe
     seen = {}
 
     def fake(run_dirs, labels, out_dir, case_info, every=None, times=None, paraview=True):

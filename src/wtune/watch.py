@@ -22,9 +22,8 @@ import time
 from typing import Callable
 
 _HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-for _p in (os.path.join(_HERE, "tools"), _HERE):
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
+if _HERE not in sys.path:
+    sys.path.insert(0, _HERE)
 
 from wtune import predict as wp  # noqa: E402  (namelist helpers, stepra, run length)
 
@@ -74,7 +73,7 @@ def parse_d01_steps(text: str) -> tuple[list[dict], list[tuple[str, int, float]]
     attributed to the NEXT d01 'Timing for main' line (nest Timing lines in between allowed) --
     rsl_write_absorbing_d01_times' rule; writes after the last d01 line (end-of-run frame) are
     trailing. Same d01 line filter as parse_timing, so the lists align."""
-    import coldstart_sample as cs
+    from wtune.tools import coldstart_sample as cs
     steps, pending = [], []
     for line in text.splitlines():
         m = cs._RSL_WRITE_RE.search(line)
@@ -194,7 +193,7 @@ def write_streams(nl: dict, info: dict) -> list[dict]:
     sim minutes from the run start. history/auxhistN per domain over begin..end (a resumed run skips
     t=0 unless write_hist_at_0h_rst), restart at j x restart_interval. prefix matches an observed
     'Timing for Writing <name>' line ('restart' is WRF's literal name)."""
-    import coldstart_sample as cs
+    from wtune.tools import coldstart_sample as cs
     run_min = info["run_s"] / 60.0
     resumed = bool(wp.g(nl, "time_control", "restart", False))
     skip_t0 = resumed and not wp.g(nl, "time_control", "write_hist_at_0h_rst", False)
@@ -383,7 +382,7 @@ def pred_cum(pred: dict, info: dict, m: int) -> float:
     if m <= 0:
         return 0.0
     if m not in pred["_cum"]:
-        import coldstart_sample as coldstart
+        from wtune.tools import coldstart_sample as coldstart
         r_night = pred["r_night"] if pred["r_night"] is not None else 1.0
         r_day = pred["r_day"] if pred["r_day"] is not None else r_night
         anchors = [((at - info["start"]).total_seconds(), s) for at, s in pred["anchors_at"]]

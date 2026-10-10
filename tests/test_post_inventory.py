@@ -4,8 +4,8 @@ the real captures in tests/fixtures/post/) and missing-frame detection (pure, no
 from conftest import swap_wtune_module
 import os
 
-import post.inventory as inventory
-from post import tools
+import wtune.post.inventory as inventory
+from wtune.post import tools
 
 FIXTURES = os.path.join(os.path.dirname(__file__), "fixtures", "post")
 NCDUMP_H_TEXT = open(os.path.join(FIXTURES, "ncdump_h_sample.txt")).read()
@@ -58,7 +58,7 @@ def _no_bp_converter(monkeypatch):
     """A wtune_bp whose adios2 interpreter is missing (as on a machine without envs/adios2)."""
     import sys
     import types
-    from post import extract
+    from wtune.post import extract
 
     def unavailable():
         raise RuntimeError("no Python that can `import adios2` was found: run `pixi install` "

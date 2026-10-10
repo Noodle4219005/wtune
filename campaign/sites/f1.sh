@@ -21,7 +21,7 @@ PIXI_ENV=/home/u5727520/wrf-stack/wtune-pixi-env-20260830
 # vendored into this repo 2026-09-15: the old external path
 # /home/u5727520/SC26-WRF-p0/scripts/vendor/wrf-adios2-to-netcdf4/convert.py disappeared, and
 # physics smoke 1076771-1076776 silently produced no netCDF / no fidelity at all.
-CONV=${CONV:-/home/u5727520/wrf-stack/wtune-autotuner/src/tools/wrf_adios2_to_netcdf4/convert.py}
+CONV=${CONV:-/home/u5727520/wrf-stack/wtune-autotuner/src/wtune/tools/wrf_adios2_to_netcdf4/convert.py}
 CASES_JSON_DEFAULT=/home/u5727520/wrf-stack/wtune-autotuner/campaign/cases.json
 
 site_env () {

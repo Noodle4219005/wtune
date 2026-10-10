@@ -33,9 +33,8 @@ import sys
 import time
 
 _HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-for _p in (os.path.join(_HERE, "tools"), os.path.join(_HERE, "predictor"), _HERE):
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
+if _HERE not in sys.path:
+    sys.path.insert(0, _HERE)
 
 ERA5_PIN = "era5_arco"
 IO_FACTOR = 2.0          # recommended --time covers 2x the measured I/O (scc NFS: 2.4x spread)
@@ -104,7 +103,7 @@ def user_io_frames(nl, run_s):
     io_form_history is 0 or the interval is 0/absent, else floor((run - begin)/interval) + 1
     (0 when begin > run); a resumed run (restart=.true.) skips the t=0 frame unless
     write_hist_at_0h_rst. Restart: floor(run/restart_interval) when restart_interval > 0."""
-    import coldstart_sample as cs
+    from wtune.tools import coldstart_sample as cs
     from wtune import predict as wp
     run_min = run_s / 60.0
     io_form = wp.g(nl, "time_control", "io_form_history", 2)
@@ -133,7 +132,7 @@ def user_io_frames(nl, run_s):
 def read_probe_writes(pdir):
     """(probe block, parse_rsl_write_seconds result or None, probe frame sim time) for the probe
     segment's plan dir; (None, None, None) when that plan carries no io_probe."""
-    import coldstart_sample as cs
+    from wtune.tools import coldstart_sample as cs
     with open(os.path.join(pdir, "plan.json")) as f:
         plan = json.load(f)
     probe = plan.get("io_probe")
@@ -198,7 +197,7 @@ def recommend_time(range_high_s, io_s):
 
 
 def _ctx(case_dir, nodes, out_dir, max_wait_hours=24.0):
-    import scc_sweep as sweep
+    from wtune.tools import scc_sweep as sweep
     from wtune import tune as wtune_tune
     clock = wtune_tune.RealClock()
     ctx = wtune_tune.Ctx(

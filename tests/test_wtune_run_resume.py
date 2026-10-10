@@ -287,7 +287,7 @@ def _frames(d, hours):
 
 
 def test_frame_listing_merges_attempts_later_wins(tmp_path):
-    from post import extract
+    from wtune.post import extract
     out = tmp_path / "out"
     _frames(out / "seg_0", [0, 1, 2, 3])                 # died after 03:00, restart at 02:00
     _frames(out / "seg_0_r1", [3, 4])

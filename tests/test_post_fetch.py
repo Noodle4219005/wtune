@@ -8,9 +8,9 @@ from datetime import datetime
 import numpy as np
 import pytest
 
-from post import cli, fetch, sources
-from post.fetch import era5 as fetch_era5
-from post.recipes import era5 as recipe_era5
+from wtune.post import cli, fetch, sources
+from wtune.post.fetch import era5 as fetch_era5
+from wtune.post.recipes import era5 as recipe_era5
 
 
 def test_discovery_finds_era5_and_every_module_meets_the_contract():

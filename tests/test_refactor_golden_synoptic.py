@@ -14,8 +14,8 @@ import netCDF4
 import numpy as np
 import pytest
 
-from post import caseinfo, conventions, met_gridstat, tools
-from post.recipes import era5, mapfig, synoptic
+from wtune.post import caseinfo, conventions, met_gridstat, tools
+from wtune.post.recipes import era5, mapfig, synoptic
 
 GOLDEN_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                           "fixtures", "golden", "synoptic")

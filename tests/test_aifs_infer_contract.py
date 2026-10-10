@@ -16,7 +16,7 @@ pytest.importorskip("torch")
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from scenario.generators import aifs_infer as m  # noqa: E402
+from wtune.scenario.generators import aifs_infer as m  # noqa: E402
 
 
 def test_parse_bbox_normalizes_order():

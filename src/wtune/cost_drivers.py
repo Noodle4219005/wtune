@@ -52,9 +52,8 @@ import sys
 # `python -m wtune_cost_drivers` from src/ must resolve coldstart_sample, era5_intermediate, ...
 # the way wtune_tune / wtune_rebuild_predict do (tools/ and predictor/ are top-level import roots).
 _HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-for _p in (os.path.join(_HERE, "tools"), os.path.join(_HERE, "predictor"), _HERE):
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
+if _HERE not in sys.path:
+    sys.path.insert(0, _HERE)
 
 from wtune import predict as predict  # noqa: E402
 
@@ -547,7 +546,7 @@ class CaseForcingProvider:
     @staticmethod
     def _intermediate(path, bounds):
         np = _np()
-        from scenario import wps_intermediate as wi
+        from wtune.scenario import wps_intermediate as wi
         recs = wi.read_fields(path)
         res, levels = {}, {"QC": {}, "QI": {}}
         uu = vv = None
@@ -616,11 +615,11 @@ class Era5Provider:
         try:
             ds = self._ds
             if ds is None:
-                from post.recipes import era5 as recipe_era5
+                from wtune.post.recipes import era5 as recipe_era5
                 ds = recipe_era5.open_era5()
                 recipe_era5.check_time_covered(ds, t_start)
                 recipe_era5.check_time_covered(ds, t_end)
-            import tools.era5_intermediate as era5_mod
+            import wtune.tools.era5_intermediate as era5_mod
             lat_idx, lon_idx, _lv = era5_mod.crop_indices(ds["latitude"].values,
                                                           ds["longitude"].values, bounds, self.margin)
         except Exception as e:  # noqa: BLE001
@@ -691,7 +690,7 @@ class GfsProvider:
 
     def fetch(self, bounds, t_start, t_end, interval_h):
         try:
-            import tools.metdata as md
+            import wtune.tools.metdata as md
         except Exception as e:  # noqa: BLE001
             raise ProviderError("tools.metdata not importable: %s" % e)
         np = _np()
@@ -770,8 +769,8 @@ class Stage4Provider:
         self.cache_dir = cache_dir or os.path.join(os.environ.get("TMPDIR", "/tmp"), "wtune_stage4")
 
     def fetch(self, bounds, t_start, t_end, interval_h):
-        from post.fetch import stage4
-        from post import sources
+        from wtune.post.fetch import stage4
+        from wtune.post import sources
         if not stage4._overlaps(bounds):
             raise ProviderError("domain %s outside Stage IV CONUS %s" % (bounds, stage4.CONUS_BBOX))
         series, urls = {}, []
@@ -797,7 +796,7 @@ class MrmsProvider:
         self.cache_dir = cache_dir or os.path.join(os.environ.get("TMPDIR", "/tmp"), "wtune_mrms")
 
     def fetch(self, bounds, t_start, t_end, interval_h):
-        from post.fetch import mrms
+        from wtune.post.fetch import mrms
         if t_end < mrms.FIRST_DAY:
             raise ProviderError("MRMS starts %s" % mrms.FIRST_DAY.date())
         region = mrms.pick_region(bounds)
@@ -1095,7 +1094,7 @@ def plan_points_for_case(case_types, run_start, run_end, precision_min, T_est_s,
         if not cand:
             break
         if cs is not None:
-            import coldstart_sample as _cs_mod
+            from wtune.tools import coldstart_sample as _cs_mod
             lk = {t: cs.value_at(t) for t in cand + list(chosen) + [e[0] for e in extra]}
             pool = sorted(set(cand + [x for x in chosen] + [e[0] for e in extra]))
             sel = _cs_mod._select_by_cost(pool, lk, len(chosen) + len(extra) + 1) or []

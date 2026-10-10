@@ -231,7 +231,7 @@ def _default_proposer(ctx: Ctx) -> Callable:
     """proposer(state, batch_size, kappa) over predictor/decomp_search.py, imported here so the
     tuner itself never needs numpy / scikit-learn / catboost. Other cases' ledgers are the
     cross-case prior (this case's own rows are already in `state`)."""
-    import decomp_search   # predictor/decomp_search.py
+    from wtune.predictor import decomp_search   # predictor/decomp_search.py
 
     case_fields = decomp_search.case_row_fields(ctx.case_json)
     prior_rows = []

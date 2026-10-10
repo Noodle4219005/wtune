@@ -10,7 +10,7 @@ import re
 
 import pytest
 
-from post import recipe, report
+from wtune.post import recipe, report
 
 
 def test_fig_and_missing_record_shapes():
@@ -41,7 +41,7 @@ def test_catalog_loads_and_every_entry_has_both_languages():
 # without importing every module (several need wrf-python/cartopy/xwrf at import time only
 # inside functions, which is fine, but this test should stay import-free and fast).
 _RECIPES_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                            "src", "post", "recipes")
+                            "src", "wtune", "post", "recipes")
 _ID_CALL_RE = re.compile(r'(?:fig|missing)\(\s*"([a-zA-Z0-9_]+)"')
 
 

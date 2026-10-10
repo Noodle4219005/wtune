@@ -7,7 +7,7 @@ from pathlib import Path
 import netCDF4
 import numpy as np
 
-import fidelity_gate as fg
+from wtune import fidelity_gate as fg
 
 
 MODULE = Path(fg.__file__).resolve()

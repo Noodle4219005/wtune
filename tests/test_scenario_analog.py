@@ -8,10 +8,10 @@ import datetime
 import numpy as np
 import pytest
 
-import case_rebuild as cr
-import scenario.wps_intermediate as wi
-from scenario.base import ForcingSet, ScenarioRequest, get_generator
-from scenario.generators.analog import select_analog_date
+from wtune.tools import case_rebuild as cr
+import wtune.scenario.wps_intermediate as wi
+from wtune.scenario.base import ForcingSet, ScenarioRequest, get_generator
+from wtune.scenario.generators.analog import select_analog_date
 
 
 def test_select_analog_date_matches_case_rebuild_selector():

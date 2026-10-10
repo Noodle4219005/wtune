@@ -28,11 +28,10 @@ import sys
 import tempfile
 
 _SRC = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-for _p in (_SRC, os.path.join(_SRC, "predictor"), os.path.join(_SRC, "tools")):
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
+if _SRC not in sys.path:
+    sys.path.insert(0, _SRC)
 
-import fidelity_gate as chaos_gate      # decision 0051 chaos-floor gate: run_gate() -> label
+from wtune import fidelity_gate as chaos_gate      # decision 0051 chaos-floor gate: run_gate() -> label
 from wtune import config_gate as gate        # compare() + _check_results(): field-by-field gate
 from wtune import extensions as wext         # detect(): chem / hydro / wrfda / movenest
 from wtune import physics as phys            # cost_weight, resolve_suite, scheme_name
@@ -77,7 +76,7 @@ class CandidateList(list):
 
 def _deps():
     """Lazy: predictor.physics pulls in sklearn/catboost -- only plan_candidates needs it."""
-    import physics as predictor_physics
+    from wtune.predictor import physics as predictor_physics
     return predictor_physics, predictor_physics.campaign_configs
 
 

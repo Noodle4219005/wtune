@@ -14,7 +14,7 @@ pytest.importorskip("netCDF4")
 
 import test_wtune_run  # noqa: F401  first: its wtune_run import restores SITE/configs
 from wtune import sidecar as ws  # noqa: E402
-from post import extract  # noqa: E402
+from wtune.post import extract  # noqa: E402
 from test_post_bp_cache import _bp, _fresh_process, fake_bp  # noqa: E402,F401
 from test_wtune_run_resume import FMT, T0, _real_bp, _rsl  # noqa: E402
 

@@ -11,7 +11,7 @@ import yaml
 
 from wtune import project as proj
 from wtune import submit as wtune_submit
-from post import cli as post_cli
+from wtune.post import cli as post_cli
 from wtune.run import cli as run_cli
 
 NAMELIST = """&time_control

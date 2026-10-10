@@ -91,10 +91,9 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent.parent
 REPO_ROOT = HERE.parent  # HERE is src/; machine/ and campaign/ stay at the true repo root
 sys.path.insert(0, str(HERE))
-sys.path.insert(0, str(HERE / "predictor"))
 
 from wtune import predict as wp          # noqa: E402  (path insert above)
-import decomp_space as ds           # noqa: E402  (predictor/decomp_space.py)
+from wtune.predictor import decomp_space as ds           # noqa: E402  (predictor/decomp_space.py)
 
 DEFAULT_CALIBRATION = REPO_ROOT / "machine" / "calibration" / "scc.json"
 DEFAULT_RANKS_LIST = "1,36,72,144,288"

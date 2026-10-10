@@ -7,7 +7,7 @@ from datetime import datetime
 
 import pytest
 
-from post import atcf
+from wtune.post import atcf
 
 FIXTURES = os.path.join(os.path.dirname(__file__), "fixtures", "post")
 BDECK_SAMPLE = os.path.join(FIXTURES, "bal122005_sample.dat")

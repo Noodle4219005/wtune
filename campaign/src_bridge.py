@@ -37,8 +37,6 @@ def _import_wtune_bp() -> ModuleType:
             spec.loader.exec_module(mod)
             _BP_BY_PATH[path] = mod
         return _BP_BY_PATH[path]
-    for p in (os.path.join(SRC_DIR, "tools"), SRC_DIR):
-        if p not in sys.path:
-            sys.path.insert(0, p)
+    add_src_to_path()
     from wtune import bp as wtune_bp
     return wtune_bp

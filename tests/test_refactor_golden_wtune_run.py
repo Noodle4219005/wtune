@@ -36,7 +36,7 @@ ALIGN = {"steps": 360, "seconds": 21600.0, "label": "interval_seconds 06:00:00"}
 @pytest.fixture(autouse=True)
 def _isolate(monkeypatch, tmp_path):
     """No node exclusions, no WRF tree / project / post cache from the environment."""
-    import scc_sweep
+    from wtune.tools import scc_sweep
     for var in ("WTUNE_SBATCH_EXCLUDE", scc_sweep.PREFLIGHT_EXCLUDE_ENV, "WRF_TREE",
                 "WTUNE_NC_CACHE", "SLURM_JOB_ID"):   # inside a Slurm job the copy guard warns
         monkeypatch.delenv(var, raising=False)

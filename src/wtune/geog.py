@@ -395,7 +395,7 @@ def _head_size(url, timeout=30):
 
 
 def _download(url, dest):
-    from post import sources
+    from wtune.post import sources
     return sources.download(url, dest)
 
 

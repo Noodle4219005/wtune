@@ -9,9 +9,8 @@ from datetime import datetime
 import numpy as np
 import pytest
 
-from post.recipes import (climate, common, convection, moisture, pbl, precip, synoptic, tc_extra,
-                          terrain)
-from post.recipes import tc_structure as ts
+from wtune.post.recipes import (climate, common, convection, moisture, pbl, precip, synoptic, tc_extra, terrain)
+from wtune.post.recipes import tc_structure as ts
 
 
 class _DS:
@@ -183,7 +182,7 @@ def test_synoptic_charts_survive_a_missing_field(monkeypatch, tmp_path):
                         lambda *a: (("2020-01-01_00:00:00", "/p", 0), []))
     monkeypatch.setattr("netCDF4.Dataset", lambda p: _DS())
     monkeypatch.setitem(sys.modules, "wrf", types.SimpleNamespace())
-    monkeypatch.setattr("post.conventions.ds_time_label", lambda ds, t: t)
+    monkeypatch.setattr("wtune.post.conventions.ds_time_label", lambda ds, t: t)
     monkeypatch.setattr(synoptic, "_read_shared_fields", lambda c: None)
     for name in ("_z500_vort_chart", "_slp_thickness_chart", "_thetae850_chart",
                  "_t2_wind10_chart"):
@@ -374,12 +373,12 @@ def test_precip_model_accum_with_bucket(monkeypatch):
 
 
 def test_ensemble_rain_acc_with_bucket(monkeypatch):
-    from post.recipes import ensemble
+    from wtune.post.recipes import ensemble
     v = dict(_rain_ds().variables)
     v = {k: np.repeat(np.repeat(a, 4, axis=1), 2, axis=2) for k, a in v.items()}   # (2, 4, 4)
     monkeypatch.setattr("netCDF4.Dataset", lambda p: _DS(v, BUCKET_MM=100.0))
     monkeypatch.setattr(ensemble, "frame_ref", lambda r, d, t: ("/a", 1))
-    monkeypatch.setattr("post.caseinfo.spec_bdy_width", lambda r: 1)
+    monkeypatch.setattr("wtune.post.caseinfo.spec_bdy_width", lambda r: 1)
     monkeypatch.setitem(sys.modules, "wrf", types.SimpleNamespace(
         getvar=lambda ds, name, timeidx=0: ds.variables[name][timeidx],
         latlon_coords=lambda var, as_np=True: (None, None), get_cartopy=lambda var=None: None))
@@ -390,7 +389,7 @@ def test_ensemble_rain_acc_with_bucket(monkeypatch):
 # ---- follow-up: a failed diffwrf comparison is one missing envelope entry
 
 def test_repro_envelope_compare_error_is_one_missing_entry(monkeypatch, tmp_path):
-    from post.compare import CompareError
+    from wtune.post.compare import CompareError
     monkeypatch.setattr(common, "_domain_physics", lambda r: (None, [1]))
     monkeypatch.setattr(common, "plot_domain_map", lambda *a: str(tmp_path / "d.png"))
     monkeypatch.setattr(common, "list_frames", lambda r, domain=1: [("t0", "/p")])

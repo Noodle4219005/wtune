@@ -16,7 +16,7 @@ pyproj = pytest.importorskip("pyproj")
 pytest.importorskip("scipy")
 pytest.importorskip("cartopy")
 
-from post.recipes import tc_structure as ts
+from wtune.post.recipes import tc_structure as ts
 
 NY = NX = 50
 DX = 12000.0
@@ -318,7 +318,7 @@ def _fake_volume(calls, raise_exc=None):
 
 
 def test_figures_render_every_tc_structure_figure(tmp_path, monkeypatch):
-    from post.recipes import paraview3d
+    from wtune.post.recipes import paraview3d
     calls = []
     monkeypatch.setattr(paraview3d, "render_condensate_volume", _fake_volume(calls),
                         raising=False)
@@ -340,7 +340,7 @@ def test_figures_render_every_tc_structure_figure(tmp_path, monkeypatch):
 
 
 def test_ir_not_drawn_twice_when_cloud_set_runs_and_3d_missing(tmp_path, monkeypatch):
-    from post.recipes import paraview3d
+    from wtune.post.recipes import paraview3d
     monkeypatch.setattr(paraview3d, "render_condensate_volume",
                         _fake_volume([], ImportError("not yet")), raising=False)
     run = make_run(tmp_path, n=1)
@@ -361,7 +361,7 @@ def test_ir_not_drawn_twice_when_cloud_set_runs_and_3d_missing(tmp_path, monkeyp
 # ---------------------------------------------------------------- registration / wiring
 
 def test_catalog_and_dispatch_registration():
-    from post import caseinfo, recipe
+    from wtune.post import caseinfo, recipe
     cat = recipe.load_catalog()
     for fid in ("tc_struct_reflectivity_2km", "tc_struct_ir_proxy", "tc_struct_rz_wind",
                 "tc_struct_rz_warmcore", "tc_struct_rz_condensate", "tc_struct_xsec",
@@ -372,7 +372,7 @@ def test_catalog_and_dispatch_registration():
 
 
 def test_recipe_passes_track_csv_to_structure_set(tmp_path, monkeypatch):
-    from post import recipe
+    from wtune.post import recipe
     seen = {}
 
     def fake(run_dir, label, out_dir, case_info, track_csv=None, every=None, times=None,
@@ -393,7 +393,7 @@ def test_recipe_passes_track_csv_to_structure_set(tmp_path, monkeypatch):
 
 def test_no_code_paths_in_captions():
     import re
-    from post import recipe
+    from wtune.post import recipe
     cat = recipe.load_catalog()
     for fid, entry in cat.items():
         if fid.startswith(("tc_struct_", "cloud_")):

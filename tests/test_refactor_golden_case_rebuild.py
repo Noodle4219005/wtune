@@ -14,8 +14,8 @@ import sys
 import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "tools"))
-import case_rebuild as cr  # noqa: E402
-import coldstart_sample as cs  # noqa: E402
+from wtune.tools import case_rebuild as cr  # noqa: E402
+from wtune.tools import coldstart_sample as cs  # noqa: E402
 import test_case_rebuild as tcr  # noqa: E402
 
 GOLDEN_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),

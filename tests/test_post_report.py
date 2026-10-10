@@ -2,7 +2,7 @@
 import csv
 import os
 
-import post.report as report
+import wtune.post.report as report
 
 
 def _write_png(path):

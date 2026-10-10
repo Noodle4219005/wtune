@@ -16,7 +16,7 @@ import types
 
 import pytest
 
-from post import vapor_bundle as vb
+from wtune.post import vapor_bundle as vb
 
 TIMES = ("2005-08-28_00:00:00", "2005-08-28_06:00:00", "2005-08-28_12:00:00")
 
@@ -118,7 +118,7 @@ def test_copy_only_with_allow_copy(tmp_path, monkeypatch):
 
 
 def test_recipe_never_copies(tmp_path, monkeypatch):
-    from post.recipes import vapor_bundle as recipe_vb
+    from wtune.post.recipes import vapor_bundle as recipe_vb
     run = _run_dir(tmp_path)
     _no_link(monkeypatch)
     out = tmp_path / "rec"
@@ -130,8 +130,8 @@ def test_recipe_never_copies(tmp_path, monkeypatch):
 
 
 def test_recipe_entry_and_report(tmp_path):
-    from post import report
-    from post.recipes import vapor_bundle as recipe_vb
+    from wtune.post import report
+    from wtune.post.recipes import vapor_bundle as recipe_vb
     run = _run_dir(tmp_path, domains=(1, 2))
     out = tmp_path / "rec"
     case_info = dict(domains=[dict(domain=1), dict(domain=2)], types=["common"],
@@ -154,7 +154,7 @@ def test_recipe_entry_and_report(tmp_path):
 
 
 def test_cli_vapor_bundle(tmp_path, capsys):
-    from post import cli
+    from wtune.post import cli
     run = _run_dir(tmp_path)
     out = tmp_path / "cli"
     assert cli.main(["vapor-bundle", str(run), "--every", "12h", "--out", str(out)]) == 0
@@ -165,7 +165,7 @@ def test_cli_vapor_bundle(tmp_path, capsys):
 
 
 def test_cli_vapor_bundle_copies_only_with_allow_copy(tmp_path, monkeypatch, capsys):
-    from post import cli
+    from wtune.post import cli
     run = _run_dir(tmp_path)
     _no_link(monkeypatch)
     out = tmp_path / "cli"

@@ -7,10 +7,9 @@ import numpy as np
 import pytest
 
 xr = pytest.importorskip("xarray")
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "src", "tools"))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "src"))
-import era5_intermediate as e5  # noqa: E402
-from scenario import wps_intermediate as wi  # noqa: E402
+from wtune.tools import era5_intermediate as e5  # noqa: E402
+from wtune.scenario import wps_intermediate as wi  # noqa: E402
 
 
 def _ds():

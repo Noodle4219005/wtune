@@ -10,7 +10,7 @@ import json
 import os
 
 
-from post import caseinfo, recipe
+from wtune.post import caseinfo, recipe
 
 GOLDEN = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures", "golden",
                       "post_recipe", "recipe_calls.json")
@@ -57,8 +57,8 @@ def _run(tmp, monkeypatch, name, cfg):
     log = []
     monkeypatch.setattr(caseinfo, "detect_types", _recorder(
         log, "detect_types", dict(types=types, domains=[{"domain": 1}, {"domain": 2}], evidence={})))
-    import post.recipes.common as common_mod
-    import post.recipes.vapor_bundle as vb_mod
+    import wtune.post.recipes.common as common_mod
+    import wtune.post.recipes.vapor_bundle as vb_mod
     monkeypatch.setattr(common_mod, "figures", _recorder(log, "common", [_fig("common")]))
     monkeypatch.setattr(vb_mod, "figures", _recorder(log, "vapor", [_fig("vapor")]))
     monkeypatch.setattr(recipe, "_cf3d_data", _recorder(log, "cf3d", [_fig("cf3d")]))
@@ -83,7 +83,7 @@ def _run(tmp, monkeypatch, name, cfg):
         from wtune import advise as wtune_advise
         monkeypatch.setattr(wtune_advise, "render_html", lambda a: "<advice/>")
     monkeypatch.setattr(recipe, "load_catalog", lambda: {"cat": 1})
-    import post.report as report
+    import wtune.post.report as report
 
     def fake_report(out_dir, case_info, figures, run_dirs, labels, spinup_hours, catalog,
                     title=None, notes=None, advice_html=None):

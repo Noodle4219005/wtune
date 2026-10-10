@@ -4,8 +4,8 @@ a manifest-cached input converter, round-trip check, the run-dir adios2.xml, `wt
 
 adios2 lives in its own env (envs/adios2; hdf5 conflict with envs/wtune): the converters run as a
 subprocess of that interpreter ($WTUNE_ADIOS2_PYTHON, else envs/adios2, else PATH python), and this
-module never imports adios2. nc -> BP is src/tools/wrf_nc2bp.py, BP -> nc is
-src/tools/wrf_adios2_to_netcdf4/convert.py. Evidence per constant/function below (wiki:
+module never imports adios2. nc -> BP is src/wtune/tools/wrf_nc2bp.py, BP -> nc is
+src/wtune/tools/wrf_adios2_to_netcdf4/convert.py. Evidence per constant/function below (wiki:
 adios2-bp4-restart-via-adios2-xml-is-bit-identical-and-300x-faster; scc jobs 2734-2736, 2778/2780).
 """
 
@@ -40,8 +40,8 @@ if not __package__:                    # run by path: src/wtune itself is not an
                    if os.path.abspath(p or ".") != os.path.dirname(os.path.abspath(__file__))]
 _SRC = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _REPO = os.path.dirname(_SRC)
-_NC2BP_PATH = os.path.join(_SRC, "tools", "wrf_nc2bp.py")
-_BP2NC_PATH = os.path.join(_SRC, "tools", "wrf_adios2_to_netcdf4", "convert.py")
+_NC2BP_PATH = os.path.join(_SRC, "wtune", "tools", "wrf_nc2bp.py")
+_BP2NC_PATH = os.path.join(_SRC, "wtune", "tools", "wrf_adios2_to_netcdf4", "convert.py")
 _ADIOS2_ENV = os.path.join(_REPO, "envs", "adios2")
 _ADIOS2_ENV_PY = os.path.join(_ADIOS2_ENV, ".pixi", "envs", "default", "bin", "python")
 _CHILD_ENV_DROP = ("PYTHONPATH", "PYTHONHOME", "LD_LIBRARY_PATH")

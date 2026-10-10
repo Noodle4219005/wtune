@@ -6,9 +6,9 @@ import datetime
 import numpy as np
 import pytest
 
-import scenario.fill as fill
-import scenario.wps_intermediate as wi
-from scenario.base import Caps
+import wtune.scenario.fill as fill
+import wtune.scenario.wps_intermediate as wi
+from wtune.scenario.base import Caps
 
 
 def _caps(fields):

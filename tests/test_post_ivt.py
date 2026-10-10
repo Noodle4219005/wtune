@@ -9,7 +9,7 @@ floating-point precision, at any number of sample levels and regardless of level
 """
 import numpy as np
 
-from post.ivt import G, ivt_components, ivt_field
+from wtune.post.ivt import G, ivt_components, ivt_field
 
 
 def test_ivt_components_matches_analytic_solution_for_constant_profile():

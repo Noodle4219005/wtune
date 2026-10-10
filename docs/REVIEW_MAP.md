@@ -52,9 +52,9 @@ B（掃過）：`strict_campaign.sbatch` 的參數解析、連結檔案、BP 轉
 
 | 檔案 | A | 它決定什麼 |
 |---|---|---|
-| `src/predictor/decomp_space.py` | `legal_shapes_exact`、`rsl_patch_extents`、`enumerate_space`、`default_omp_options`、`numtiles_candidates`、`sample_design`、tile 幾何一族 | 合法切法（每個 domain 每個 patch ≥ 10 格）、候選空間、分層抽樣 |
-| `src/predictor/experiment.py`（115 行，其餘已移至 `archive/unused-2026-10/`） | `_max_legal_ranks`、`_generated_baseline` | ANCHOR：omp=1、最大合法 rank 數、長寬比最小 |
-| `src/tools/scc_sweep.py` | `estimate_s_per_step`、`build_anchor`、`build_sampled`、`build_configs`、`_identity`、`excluded_nodes`／`exclude_arg`、`build_sbatch_command`、檔頭常數 | 候選去重、`--exclude` 清單（head + `WTUNE_SBATCH_EXCLUDE` + 預檢失敗節點）、時限估計常數 |
+| `src/wtune/predictor/decomp_space.py` | `legal_shapes_exact`、`rsl_patch_extents`、`enumerate_space`、`default_omp_options`、`numtiles_candidates`、`sample_design`、tile 幾何一族 | 合法切法（每個 domain 每個 patch ≥ 10 格）、候選空間、分層抽樣 |
+| `src/wtune/predictor/experiment.py`（115 行，其餘已移至 `archive/unused-2026-10/`） | `_max_legal_ranks`、`_generated_baseline` | ANCHOR：omp=1、最大合法 rank 數、長寬比最小 |
+| `src/wtune/tools/scc_sweep.py` | `estimate_s_per_step`、`build_anchor`、`build_sampled`、`build_configs`、`_identity`、`excluded_nodes`／`exclude_arg`、`build_sbatch_command`、檔頭常數 | 候選去重、`--exclude` 清單（head + `WTUNE_SBATCH_EXCLUDE` + 預檢失敗節點）、時限估計常數 |
 | `src/wtune/tune/candidates.py` | `aggregate_by_cid`、`_sweep_anchor`、`_hybrid_anchor`、`_sweep_omp_options`、`_apply_search_filter` | 失敗或 ≤0 的量測丟掉；各 rep 取中位數；每個 N 的 ANCHOR |
 
 ### 1.3 節點數與贏家
@@ -103,7 +103,7 @@ B（掃過）：`wtune/predict.py` 的 namelist parser 與 ledger 讀取、`rend
 7. `src/wtune/run/staging.py`：`render_adios2_restart_xml`、`merge_adios2_xml`、`output_dir_names`、`restart_files`。
 8. `src/wtune/run/sbatch.py`（全檔 70 行）：`_header_lines`、`_launch_lines`、`render_segment_sbatch`
    — `--exclude`、`--signal=B:USR1@90`、`--no-requeue`、launcher 與綁核。
-   連同 `src/tools/coldstart_sample.py` 的 `render_signal_trap_and_hygiene_preamble`（trap、kill、reap、`INTERRUPTED`）。
+   連同 `src/wtune/tools/coldstart_sample.py` 的 `render_signal_trap_and_hygiene_preamble`（trap、kill、reap、`INTERRUPTED`）。
 9. `src/wtune/run/attempts.py`：`_run_attempt`（成功 = watch 判 done 且 restart 完整）、`wait_for_job`、`_submit_attempt`。
 10. `src/wtune/run/controller.py`：`_run_segments`、`_next_attempt`、`_interrupted`、`_resume_attempt`、`resume_time_limit`、
     `rescue_time_step`、`_cfl_rescue_attempt`、`_update_from_observed`
@@ -133,21 +133,21 @@ B（掃過）：`wtune/run/inputs.py` 的連結與複製、`common.py`、`contex
 
 ## 第 3 部分：後處理（一行寫錯就會給出錯的科學結果的地方）
 
-1. `src/post/extract.py`：`segment_dirs`、`file_times`、`_file_entries`、`frame_refs`、`list_frame_refs`
+1. `src/wtune/post/extract.py`：`segment_dirs`、`file_times`、`_file_entries`、`frame_refs`、`list_frame_refs`
    — **每張圖的時刻都從這裡來**（分段合併、同一時刻後段蓋前段）。
    `cached_nc_path`、`bp_signature`、`_cache_valid`、`_same_files`、`_bp_to_nc` — 轉檔快取會不會用到舊檔。
    `_surface_field`、`accumulated_rain`、`extract_frame` — 單位、雨量（含 bucket）、等壓面內插。
-2. `src/post/caseinfo.py`：`detect_types`、`detect_terrain`、`detect_tc`、`detect_cloud`、`run_length_hours` — 自動判定個案類型的全部門檻。
-3. `src/post/timeseries.py`、`conventions.py`：`select_times`、`figures_for_time_series`、`time_label` — `--every` 選哪些時刻、圖上的時間標籤。
-4. `src/post/recipes/precip.py`：`stage4_index`、`pick_window`、`_model_accum`、`_stage4_figures`、`station_verification`。
-5. `src/post/met_gridstat.py` 與 `src/post/met/*.conf.tmpl`：`run_verification`、`curvilinear_to_latlon`、`write_interior_polygon`、`coverage_polygon`、`parse_cts_table` — 每個驗證分數的網格、遮罩、門檻。
-6. `src/post/met_pointstat.py`：`parse_isd_lite`、`build_obs_text`、`model_fields`、`verify_run`、`summarize` — 測站配對、單位換算、時間窗。
-7. `src/post/recipes/synoptic.py`、`era5.py`：`_post_spinup_time`、`_read_shared_fields`、`cyclonic_avo`、各 `_*_chart`、`z500_at`。
-8. `src/post/ivt.py`、`condensate.py`、`recipes/moisture.py`、`recipes/terrain.py`、`recipes/cloud.py`、`recipes/xsection.py`、`cf_pressure.py`
+2. `src/wtune/post/caseinfo.py`：`detect_types`、`detect_terrain`、`detect_tc`、`detect_cloud`、`run_length_hours` — 自動判定個案類型的全部門檻。
+3. `src/wtune/post/timeseries.py`、`conventions.py`：`select_times`、`figures_for_time_series`、`time_label` — `--every` 選哪些時刻、圖上的時間標籤。
+4. `src/wtune/post/recipes/precip.py`：`stage4_index`、`pick_window`、`_model_accum`、`_stage4_figures`、`station_verification`。
+5. `src/wtune/post/met_gridstat.py` 與 `src/wtune/post/met/*.conf.tmpl`：`run_verification`、`curvilinear_to_latlon`、`write_interior_polygon`、`coverage_polygon`、`parse_cts_table` — 每個驗證分數的網格、遮罩、門檻。
+6. `src/wtune/post/met_pointstat.py`：`parse_isd_lite`、`build_obs_text`、`model_fields`、`verify_run`、`summarize` — 測站配對、單位換算、時間窗。
+7. `src/wtune/post/recipes/synoptic.py`、`era5.py`：`_post_spinup_time`、`_read_shared_fields`、`cyclonic_avo`、各 `_*_chart`、`z500_at`。
+8. `src/wtune/post/ivt.py`、`condensate.py`、`recipes/moisture.py`、`recipes/terrain.py`、`recipes/cloud.py`、`recipes/xsection.py`、`cf_pressure.py`
    — 積分、剖面幾何、地面以下的處理、垂直內插。
-9. `src/post/compare.py`（這次沒進入，但屬於你要審的）：逐位元比對工具，驗收靠它。
-10. `src/post/sources.py`：`download`、`http_get`、`resolve_window`；`src/post/fetch/{era5,stage4,stations}.py` 的 `run` — 下載完整性、抓哪個時間窗。
-11. `src/post/recipe.py`：`guarded`、`_run_recipe`、`_type_figures` — 哪些錯誤變成「缺」。
+9. `src/wtune/post/compare.py`（這次沒進入，但屬於你要審的）：逐位元比對工具，驗收靠它。
+10. `src/wtune/post/sources.py`：`download`、`http_get`、`resolve_window`；`src/wtune/post/fetch/{era5,stage4,stations}.py` 的 `run` — 下載完整性、抓哪個時間窗。
+11. `src/wtune/post/recipe.py`：`guarded`、`_run_recipe`、`_type_figures` — 哪些錯誤變成「缺」。
 
 B（掃過）：`report.py`、`tools.py`、`basemap.py`、`plotting.py` 的繪圖、色階、標籤；`cli.py` 的參數；`vapor_bundle.py`、`paraview3d.py`、`xwrf_convert.py` 的 3D 輸出（只影響視覺）。
 
@@ -157,14 +157,14 @@ B（掃過）：`report.py`、`tools.py`、`basemap.py`、`plotting.py` 的繪�
 
 | 模組 | 行數 | 什麼時候才會用到 |
 |---|---:|---|
-| `src/post/tc.py`、`recipes/tc_structure.py`、`recipes/tc_extra.py`、`tc_metrics.py`、`met_tc.py`、`atcf.py` | 約 2,600 | 颱風個案 |
-| `src/post/recipes/convection.py`、`radar_composite.py`、`fetch/mrms.py`、`fetch/nexrad.py` | 約 1,000 | 對流個案、雷達比對 |
-| `src/post/recipes/climate.py`、`fetch/era5_monthly.py`、`fetch/gpcp_monthly.py` | 約 860 | 長積分 |
-| `src/post/recipes/pbl.py`、`sounding.py`、`fetch/igra.py` | 約 1,160 | 邊界層、探空 |
-| `src/post/recipes/ensemble.py`、`recipes/chem.py` | 約 290 | ensemble、WRF-Chem |
-| `src/predictor/decomp_search.py`、`models.py`、`features.py`、`ledger.py`、`targets.py`、`benchmark.py` | 2,977 | `-O3` 的 CatBoost 提案器 |
-| `src/wtune/tune/points.py`、`physics_phase.py`、`src/tools/case_rebuild.py`、`coldstart_sample.py` 其餘部分 | 約 6,500 | 重建量測點、physics 建議 |
-| `src/wtune/geog.py`、`wtune/calibrate.py`、`src/scenario/`、`src/analysis/`、`src/tools/metdata.py` | 約 6,500 | `prep`、`calibrate`、`scenario`、`analyze`、`metdata` 指令 |
+| `src/wtune/post/tc.py`、`recipes/tc_structure.py`、`recipes/tc_extra.py`、`tc_metrics.py`、`met_tc.py`、`atcf.py` | 約 2,600 | 颱風個案 |
+| `src/wtune/post/recipes/convection.py`、`radar_composite.py`、`fetch/mrms.py`、`fetch/nexrad.py` | 約 1,000 | 對流個案、雷達比對 |
+| `src/wtune/post/recipes/climate.py`、`fetch/era5_monthly.py`、`fetch/gpcp_monthly.py` | 約 860 | 長積分 |
+| `src/wtune/post/recipes/pbl.py`、`sounding.py`、`fetch/igra.py` | 約 1,160 | 邊界層、探空 |
+| `src/wtune/post/recipes/ensemble.py`、`recipes/chem.py` | 約 290 | ensemble、WRF-Chem |
+| `src/wtune/predictor/decomp_search.py`、`models.py`、`features.py`、`ledger.py`、`targets.py`、`benchmark.py` | 2,977 | `-O3` 的 CatBoost 提案器 |
+| `src/wtune/tune/points.py`、`physics_phase.py`、`src/wtune/tools/case_rebuild.py`、`coldstart_sample.py` 其餘部分 | 約 6,500 | 重建量測點、physics 建議 |
+| `src/wtune/geog.py`、`wtune/calibrate.py`、`src/wtune/scenario/`、`src/wtune/analysis/`、`src/wtune/tools/metdata.py` | 約 6,500 | `prep`、`calibrate`、`scenario`、`analyze`、`metdata` 指令 |
 
 ---
 

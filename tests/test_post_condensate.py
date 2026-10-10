@@ -2,7 +2,7 @@
 import numpy as np
 import pytest
 
-from post import condensate as cd
+from wtune.post import condensate as cd
 
 
 class _Var:

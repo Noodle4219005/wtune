@@ -1,4 +1,4 @@
-"""Golden call log of src/tools/wrf_nc2bp.py against a FAKE adios2 module (real adios2 is not
+"""Golden call log of src/wtune/tools/wrf_nc2bp.py against a FAKE adios2 module (real adios2 is not
 installed in envs/wtune, so test_wrf_nc2bp.py skips): every declare/define/open/put/step call,
 the files written and the stderr warning, for a single-step, a multi-record and a split-per-record
 conversion plus the error paths. Pinned before the round-3 tidy-up split convert().
@@ -21,7 +21,7 @@ import pytest
 netCDF4 = pytest.importorskip("netCDF4")
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-SRC = os.path.join(os.path.dirname(HERE), "src", "tools", "wrf_nc2bp.py")
+SRC = os.path.join(os.path.dirname(HERE), "src", "wtune", "tools", "wrf_nc2bp.py")
 GOLDEN = os.path.join(HERE, "fixtures", "golden", "nc2bp", "calls.json")
 REGEN = os.environ.get("WTUNE_GOLDEN_REGEN") == "1"
 SRC_OVERRIDE = os.environ.get("WTUNE_GOLDEN_SRC")     # regen from an older revision's file

@@ -469,7 +469,7 @@ def test_plain_arw_compute_untouched(tmp_path):
 def test_coldstart_chem_blocks_only_on_missing_input_files(tmp_path):
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), "tools"))
     import test_coldstart_sample as t
-    import coldstart_sample as cs
+    from wtune.tools import coldstart_sample as cs
     case = tmp_path / "cs"
     case.mkdir()
     t.write_namelist(str(case / "namelist.input"), extra=CHEM_GROUP)

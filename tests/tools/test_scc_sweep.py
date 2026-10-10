@@ -13,7 +13,7 @@ import sys
 import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import scc_sweep as sw  # noqa: E402
+from wtune.tools import scc_sweep as sw  # noqa: E402
 
 MATTHEW_LIKE = dict(e_we=91, e_sn=100, e_vert=45)
 TINY_ILLEGAL = dict(e_we=5, e_sn=5, e_vert=10)   # floor(5/1) < MIN_PATCH(10): no legal shape ever

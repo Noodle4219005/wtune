@@ -29,7 +29,7 @@ import types
 
 import numpy as np
 
-from post.recipes import terrain
+from wtune.post.recipes import terrain
 
 
 def _case_info(domains, terrain_domains):

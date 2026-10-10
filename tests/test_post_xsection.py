@@ -7,8 +7,7 @@ network-free geometry (cartopy.geodesic), no netCDF/wrf-python needed.
 """
 import cartopy.geodesic as cgeo
 
-from post.recipes.xsection import (bbox_predicate, clip_halfwidth_to_domain,
-                                   line_from_point_bearing, line_unit_vector)
+from wtune.post.recipes.xsection import (bbox_predicate, clip_halfwidth_to_domain, line_from_point_bearing, line_unit_vector)
 
 
 def test_clip_returns_full_halfwidth_when_it_already_fits():

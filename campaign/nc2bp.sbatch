@@ -7,7 +7,7 @@
 # Pre-convert one campaign case's netCDF inputs into the BP cache strict_campaign.sbatch reads
 # (2026-10-03: ADIOS2 for every WRF input stream). Optional: strict_campaign converts on first use
 # by itself; this only moves that one-off cost out of a probe allocation. SAME code path:
-# configs.py stage-bp-inputs -> src/wtune_bp.convert_inputs (src/tools/wrf_nc2bp.py under the
+# configs.py stage-bp-inputs -> src/wtune_bp.convert_inputs (src/wtune/tools/wrf_nc2bp.py under the
 # envs/adios2 python, $WTUNE_ADIOS2_PYTHON overrides; BP4; manifest-cached; lockf-serialized, so a
 # probe job starting meanwhile waits instead of converting twice). Converts wrfinput_d0N, wrfbdy_d01
 # and the aux inputs the case namelist reads (wrflowinp when sst_update=1, wrffdda, ...) from the

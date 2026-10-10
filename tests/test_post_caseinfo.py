@@ -16,7 +16,7 @@ from datetime import datetime
 
 import pytest
 
-from post import caseinfo
+from wtune.post import caseinfo
 
 FIXTURE_DIR = os.path.join(os.path.dirname(__file__), "fixtures", "post")
 NAMELIST_SRC = os.path.join(FIXTURE_DIR, "m1-namelist.input")

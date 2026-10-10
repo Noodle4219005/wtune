@@ -19,7 +19,7 @@ from unittest import mock
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import state_correction_model as scm  # noqa: E402
+from wtune.tools import state_correction_model as scm  # noqa: E402
 
 try:
     import netCDF4

@@ -22,8 +22,8 @@ from unittest import mock
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import case_rebuild as cr   # noqa: E402
-import coldstart_sample as cs  # noqa: E402
+from wtune.tools import case_rebuild as cr   # noqa: E402
+from wtune.tools import coldstart_sample as cs  # noqa: E402
 from wtune import predict as predict  # noqa: E402
 
 _WRF_TIME_FMT = cr._WRF_TIME_FMT
@@ -1790,12 +1790,13 @@ class TestBuildAnalogOutput(unittest.TestCase):
 
 class TestNoNumpyAtModuleImport(unittest.TestCase):
     def test_import_succeeds_with_numpy_blocked(self):
-        saved = {k: sys.modules.get(k) for k in ("numpy", "case_rebuild")}
-        for k in ("numpy", "case_rebuild"):
+        saved = {k: sys.modules.get(k) for k in ("numpy", "wtune.tools.case_rebuild")}
+        for k in ("numpy", "wtune.tools.case_rebuild"):
             sys.modules.pop(k, None)
+            vars(sys.modules["wtune.tools"]).pop(k.rpartition(".")[2], None)
         sys.modules["numpy"] = None
         try:
-            import case_rebuild as cr2   # noqa: F401
+            from wtune.tools import case_rebuild as cr2   # noqa: F401
             self.assertIsNotNone(cr2)
         finally:
             for k, v in saved.items():

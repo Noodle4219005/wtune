@@ -7,8 +7,8 @@ import os
 import numpy as np
 import pytest
 
-from post.recipes import paraview3d
-from post import xwrf_convert
+from wtune.post.recipes import paraview3d
+from wtune.post import xwrf_convert
 
 
 def _render_cloud_module():

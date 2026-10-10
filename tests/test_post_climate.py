@@ -7,8 +7,8 @@ from datetime import datetime, timedelta
 import numpy as np
 import pytest
 
-from post.recipes import climate
-from post.fetch import era5_monthly, gpcp_monthly
+from wtune.post.recipes import climate
+from wtune.post.fetch import era5_monthly, gpcp_monthly
 
 
 def test_analysis_months_excludes_spinup_and_incomplete_tail():

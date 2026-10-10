@@ -20,8 +20,8 @@ import pytest
 
 netCDF4 = pytest.importorskip("netCDF4")
 
-from post import caseinfo, extract, recipe  # noqa: E402
-from post import vapor_bundle as vb  # noqa: E402
+from wtune.post import caseinfo, extract, recipe  # noqa: E402
+from wtune.post import vapor_bundle as vb  # noqa: E402
 
 FMT = "%Y-%m-%d_%H:%M:%S"
 T0 = datetime(2023, 1, 1)
@@ -104,21 +104,21 @@ def test_unreadable_files_fall_back_to_the_file_name_time(tmp_path):
 def test_run_length_window_and_last_time_use_every_valid_time(tmp_path):
     out, f = _segmented(tmp_path)
     assert caseinfo.run_length_hours(out) == pytest.approx(72.0)   # file names alone: 54 h
-    from post import cf_pressure
+    from wtune.post import cf_pressure
     assert cf_pressure.select_frames(out, 1) == [(T(72), f["d"], 3)]
     assert [s[0] for s in cf_pressure.select_frames(out, 1, every="24h")] == \
         [T(0), T(24), T(48), T(72)]
 
 
 def test_pw_6h_change_finds_both_frames_inside_one_file(tmp_path, monkeypatch):
-    from post.recipes import moisture
+    from wtune.post.recipes import moisture
     out, f = _segmented(tmp_path)
     captured = {}
 
     def fake_change_map(run_dir, run_label, field, domain, out_dir, t_prev, t_curr, t0, **kw):
         captured.update(t_prev=t_prev, t_curr=t_curr, t0=t0)
         return {"id": kw.get("fig_id"), "missing": False}
-    monkeypatch.setattr("post.changemap.change_map", fake_change_map)
+    monkeypatch.setattr("wtune.post.changemap.change_map", fake_change_map)
     assert moisture._pw_change_figure(out, "r", 1, str(tmp_path)) is not None
     assert (captured["t_prev"], captured["t_curr"], captured["t0"]) == (T(66), T(72), T(0))
     assert extract.frame_ref(out, 1, T(66)) == (f["d"], 2)
@@ -146,7 +146,7 @@ def _climate_run(tmp_path):
 
 
 def test_climate_layout_run_length_and_twelve_months(tmp_path):
-    from post.recipes import climate
+    from wtune.post.recipes import climate
     run = _climate_run(tmp_path)
     files = extract.file_index(run)
     assert max(t for _d, t in files) == "2023-12-31_06:00:00"     # the real case's last file
@@ -164,7 +164,7 @@ def test_climate_layout_run_length_and_twelve_months(tmp_path):
 
 
 def test_climate_cdo_inputs_cut_only_overridden_times(tmp_path, monkeypatch):
-    from post.recipes import climate
+    from wtune.post.recipes import climate
     out, f = _segmented(tmp_path)
     calls = []
     monkeypatch.setattr(climate.tools, "run", lambda cmd, **kw: calls.append(cmd))
@@ -222,7 +222,7 @@ def _cf_multiframe(tmp_path, hours=(0, 6, 12)):
 
 
 def test_cf3d_converts_each_valid_time_at_its_timeidx(tmp_path):
-    from post import cf_pressure as cp
+    from wtune.post import cf_pressure as cp
     run, multi, srcs, times = _cf_multiframe(tmp_path)
     res = cp.export(run, str(tmp_path / "out"), [1], 5, every="6h")
     assert [r["valid_time"] for r in res] == times and not any(r.get("error") for r in res)
@@ -242,7 +242,7 @@ def test_cf3d_converts_each_valid_time_at_its_timeidx(tmp_path):
 def test_extract_and_precip_accum_read_the_frame_timeidx(tmp_path):
     pytest.importorskip("wrf")
     from test_post_extract import _write_wrfout, LAT0, LON0
-    from post.recipes import precip
+    from wtune.post.recipes import precip
     run = tmp_path / "run"
     run.mkdir()
     times = [T(h) for h in (0, 6, 12, 18)]
@@ -275,7 +275,7 @@ def test_vapor_bundle_refuses_multiframe_without_allow_copy(tmp_path):
     msg = str(e.value)
     assert "multi-frame" in msg and "--allow-copy" in msg and "frames_per_outfile" in msg
     assert not root.exists()                       # refused before anything was written
-    from post.recipes import vapor_bundle as recipe_vb
+    from wtune.post.recipes import vapor_bundle as recipe_vb
     case_info = {"domains": [{"domain": 1}]}
     rec = recipe_vb.figures(out, "r", str(root), case_info)
     assert len(rec) == 1 and rec[0]["missing"] and "multi-frame" in rec[0]["reason"]
@@ -307,8 +307,8 @@ def test_reduced_history_stream_is_a_missing_entry_naming_the_fields(tmp_path):
     pytest.importorskip("pyproj")
     pytest.importorskip("scipy")
     from test_post_cf_pressure import _write_wrfout
-    from post import cf_pressure as cp
-    from post.recipes import cf3d
+    from wtune.post import cf_pressure as cp
+    from wtune.post.recipes import cf3d
     full = str(tmp_path / "full.nc")
     _write_wrfout(full, time_str="2005-08-28_06:00:00")
     run = tmp_path / "run"

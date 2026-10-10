@@ -38,7 +38,7 @@ def _patch(monkeypatch, name, value):
 @pytest.fixture(autouse=True)
 def _isolate(monkeypatch):
     """Same isolation as the first golden file: no node exclusions, a stub wtune_advise."""
-    import scc_sweep
+    from wtune.tools import scc_sweep
     for var in ("WTUNE_SBATCH_EXCLUDE", scc_sweep.PREFLIGHT_EXCLUDE_ENV):
         monkeypatch.setenv(var, "")
         monkeypatch.delenv(var)

@@ -4,7 +4,7 @@ import datetime
 import json
 import os
 
-import coldstart_sample as cs
+from wtune.tools import coldstart_sample as cs
 from wtune import predict as predict
 
 FMT = cs._WRF_TIME_FMT
@@ -237,7 +237,7 @@ _ELEV_LIKE = """&time_control
 
 
 def test_out_of_group_assignment_is_commented_not_counted():
-    import coldstart_sample as cs
+    from wtune.tools import coldstart_sample as cs
     t = cs.comment_out_of_group_assignments(_ELEV_LIKE)
     assert cs.count_key(t, "iofields_filename") == 1
     assert "! (outside any namelist group; ignored by Fortran)  iofields_filename = 'stray.txt'" in t
@@ -246,7 +246,7 @@ def test_out_of_group_assignment_is_commented_not_counted():
 
 def test_nwp_diagnostics_window_keeps_history_interval_nonzero_and_no_frame():
     import datetime
-    import coldstart_sample as cs
+    from wtune.tools import coldstart_sample as cs
     txt = cs.build_wrf_window_namelist_text(_ELEV_LIKE, datetime.datetime(2022, 5, 12, 14), 100,
                                             15.0, 16, 18, 1)
     assert "history_interval = 999999, 999999" in txt.replace("  ", " ") or \
@@ -260,7 +260,7 @@ def test_nwp_diagnostics_window_keeps_history_interval_nonzero_and_no_frame():
 
 def test_run_sbatch_stops_wrf_after_fatal():
     import subprocess, tempfile, os
-    import coldstart_sample as cs
+    from wtune.tools import coldstart_sample as cs
     plan = {"windows": [{"t": "2019-11-26_15:00:00", "reason": "t0"}], "nodes": 1,
             "config": {"ranks": 72, "omp": 1, "nx": 9, "ny": 8, "numtiles": 1}}
     text = cs.render_run_sbatch(plan, site="scc")
@@ -274,7 +274,7 @@ def test_run_sbatch_stops_wrf_after_fatal():
 
 
 def test_every_window_links_the_case_iofields_file(tmp_path):
-    import coldstart_sample as cs
+    from wtune.tools import coldstart_sample as cs
     case = tmp_path / "case"; case.mkdir()
     (case / "namelist.input").write_text(_ELEV_LIKE)
     (case / "storm_diags_d01.txt").write_text("")
@@ -287,7 +287,7 @@ def test_every_window_links_the_case_iofields_file(tmp_path):
 
 
 def test_run_sbatch_stops_a_silent_init_hang():
-    import coldstart_sample as cs
+    from wtune.tools import coldstart_sample as cs
     plan = {"windows": [{"t": "2019-11-26_15:00:00", "reason": "t0"}], "nodes": 1,
             "config": {"ranks": 72, "omp": 1, "nx": 9, "ny": 8, "numtiles": 1}}
     text = cs.render_run_sbatch(plan, site="scc")
@@ -296,7 +296,7 @@ def test_run_sbatch_stops_a_silent_init_hang():
 
 def test_nwp_diagnostics_probe_window_uses_plain_minutes():
     import datetime
-    import coldstart_sample as cs
+    from wtune.tools import coldstart_sample as cs
     probe = {"window": 0, "history": [True, True], "restart": False, "iofields": None}
     # 1200 s window (whole minutes): plain keys, both = 20 min, nothing huge left
     txt = cs.build_wrf_window_namelist_text(_ELEV_LIKE, datetime.datetime(2022, 5, 12, 14), 80,
@@ -313,7 +313,7 @@ def test_nwp_diagnostics_probe_window_uses_plain_minutes():
 
 def test_probe_with_seconds_zeroes_plain_keys():
     import datetime
-    import coldstart_sample as cs
+    from wtune.tools import coldstart_sample as cs
     plain = _ELEV_LIKE.replace(" nwp_diagnostics = 1,", " nwp_diagnostics = 0,")
     probe = {"window": 0, "history": [True, True], "restart": False, "iofields": None}
     txt = cs.build_wrf_window_namelist_text(plain, datetime.datetime(2022, 5, 12, 14), 110,

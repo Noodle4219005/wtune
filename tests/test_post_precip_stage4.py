@@ -3,7 +3,7 @@ station Point-Stat helper reuse."""
 import os
 from datetime import datetime, timedelta
 
-from post.recipes import precip
+from wtune.post.recipes import precip
 
 
 def _project(tmp_path):

@@ -3,8 +3,8 @@
 rain 'change' sequential from 0."""
 import numpy as np
 
-from post import changemap
-from post.recipes import mapfig
+from wtune.post import changemap
+from wtune.post.recipes import mapfig
 
 
 def test_pooled_levels_span_all_frames_not_one():
@@ -32,7 +32,7 @@ def test_change_scale_symmetric_with_no_zero_boundary():
 
 def test_change_scale_rain_is_sequential_on_wpc_thresholds():
     # decision 0064: interval rainfall on the WPC isohyets; below 0.01 in stays unshaded
-    from post.obs_figs import PRECIP_LEVELS
+    from wtune.post.obs_figs import PRECIP_LEVELS
     levels, cmap, extend = changemap._change_scale("rain_acc", [np.array([0.0, 5.0, 80.0])])
     assert list(levels) == PRECIP_LEVELS[:len(levels)] and levels[0] == 0.25
     assert cmap != "RdBu_r" and extend == "max"
@@ -67,7 +67,7 @@ def test_minmax_levels_keep_the_extremes():
 
 
 def test_time_series_fields_include_pw_and_rules_documented():
-    from post import timeseries
+    from wtune.post import timeseries
     assert "pw" in timeseries.TIME_SERIES_FIELDS
     assert timeseries.SCALE_RULE["slp"].startswith("true min/max")
     assert "percentile" in timeseries.SCALE_RULE["mcape"]

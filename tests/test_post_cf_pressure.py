@@ -19,7 +19,7 @@ pytest.importorskip("wrf")
 pyproj = pytest.importorskip("pyproj")
 pytest.importorskip("scipy")
 
-from post import cf_pressure as cp
+from wtune.post import cf_pressure as cp
 
 NY, NX = 24, 30
 DX = 12000.0
@@ -237,8 +237,8 @@ def test_export_last_frame_by_default_and_every(tmp_path):
 
 def test_recipe_hook_data_file_record_report_and_import_failure(tmp_path, monkeypatch):
     import sys
-    from post import report
-    from post.recipes import cf3d
+    from wtune.post import report
+    from wtune.post.recipes import cf3d
     run = _run_dir(tmp_path)
     case_info = dict(domains=[dict(domain=1)], types=["common"], evidence={"common": "always"},
                      run_length_h=6.0, d01_extent_km=(348.0, 276.0))
@@ -259,7 +259,7 @@ def test_recipe_hook_data_file_record_report_and_import_failure(tmp_path, monkey
 
 
 def test_cli_cf3d_writes_into_out(tmp_path):
-    from post import cli
+    from wtune.post import cli
     run = _run_dir(tmp_path)
     out = tmp_path / "cli"
     assert cli.main(["cf3d", str(run), "--times", "2005082806", "--out", str(out)]) == 0

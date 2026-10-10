@@ -222,26 +222,6 @@ def test_metdata_fetch_exits_nonzero_without_a_source(tmp_path, monkeypatch, cap
     assert "2010-06-01_00" in out and "--grib-dir" in out
 
 
-def test_grib_state_trajectory_passes_grib_dir_to_select_source(monkeypatch):
-    gs = importlib.import_module("grib_state")
-    seen = {}
-
-    class _Stop(Exception):
-        pass
-
-    def fake_select(valid_dt, now=None, override=None, grib_dir=None):
-        seen.update(override=override, grib_dir=grib_dir)
-        raise _Stop()
-
-    monkeypatch.setattr(gs, "load_case", lambda *a, **k: ({}, None, None))
-    monkeypatch.setattr(gs, "target_grid", lambda *a, **k: (None, None, None))
-    monkeypatch.setattr(gs, "resolve_times", lambda *a, **k: [datetime.datetime(2010, 6, 1)])
-    monkeypatch.setattr(gs.md, "select_source", fake_select)
-    with pytest.raises(_Stop):
-        gs.trajectory("unused", source="auto", grib_dir="/data/narr")
-    assert seen == {"override": "auto", "grib_dir": "/data/narr"}
-
-
 # ---- 10. ADIOS2 -> netCDF converter: double variables, --step bounds ------------------
 
 @pytest.fixture

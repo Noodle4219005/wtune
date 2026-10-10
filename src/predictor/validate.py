@@ -389,7 +389,7 @@ def quantile_variant(rows, use_profile=False, scope=None):
     for q in (0.05, 0.95):
         m = CatBoostRegressor(depth=4, l2_leaf_reg=10, iterations=300, random_seed=modelmod.SEED,
                                loss_function="Quantile:alpha=%.2f" % q, verbose=False,
-                               thread_count=modelmod.THREADS)
+                               thread_count=modelmod.THREADS, allow_writing_files=False)
         m.fit(modelmod.Pool(X, y, thread_count=modelmod.THREADS))
         out[q] = (vec, m)
     return out

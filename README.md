@@ -413,7 +413,7 @@ passes at any tolerance.
 
 ## 4. Prediction layer — runtime and cost
 
-Features come from a `wrfout` snapshot aggregated per rank patch (`wtune_oracle.py`;
+Features come from a `wrfout` snapshot aggregated per rank patch (`wtune_oracle.py`, now in `archive/unused-2026-10/src/`;
 `featurize_frames.py` reduces a 1-2 GB frame to 448 x 17 and deletes it; `wtune_segment_train.py`
 aligns segmented features to segmented labels).
 
@@ -1248,12 +1248,12 @@ The repo root is user-facing only; everything else lives under one of these dire
 | `wtune.py` | live | thin entry point: puts `src/` on `sys.path` and calls `wtune_cli.main()` |
 | `bin/wtune` | live | runs `wtune.py` under the `envs/wtune` pixi env |
 | `src/wtune_cli.py` | live | the ~1800-line CLI body (formerly `wtune.py` itself) |
-| `src/wtune_physics.py`, `wtune_knobs.py`, `wtune_solar.py`, `wtune_surrogate.py`, `speedy_probe.jl`, `speedy_hotspot.jl`, `jlenv/`, `wind_probe.py`, `wtune_decomp.py`, `wtune_shape.py`, `gen_registry_catalog.py`, `wtune_catalog_registry.json` | live | advisory layer |
+| `src/wtune_physics.py`, `wtune_solar.py`, `wtune_surrogate.py`, `speedy_probe.jl`, `speedy_hotspot.jl`, `jlenv/`, `wind_probe.py`, `wtune_decomp.py`, `wtune_shape.py`, `gen_registry_catalog.py`, `wtune_catalog_registry.json` | live | advisory layer |
 | `src/wtune_config_gate.py` (+ test) | live | calibration gate for result-affecting knobs |
 | `src/wtune_transition_controller.py` | live (gate branch deprecated) | zero-measurement config + node-scaling projection |
 | `src/wtune_feedback.py` (+ test), `wtune_probe.py` (+ test) | live | PLOV controller replay; ABBA probe harness |
 | `src/wtune_rebuild_predict.py`, `wtune_watch.py`, `wtune_run.py`, `wtune_tune.py`, `wtune_preflight.py`, `tools/coldstart_sample.py`, `tools/era5_intermediate.py`, `tools/rescore_rebuild.py`, `tools/tc_bogus.py` | live | `predict-rebuild`, `watch`, `run`, `tune`, `check` and their helpers (section 6) |
-| `src/wtune_oracle.py`, `wtune_oracle_train.py`, `wtune_segment_train.py`, `wrf_frame.py`, `featurize_frames.py`, `wtune_runtime_predict.py`, `wtune_runtime12.py`, `wtune_cost_model.py` | live | prediction layer |
+| `src/wtune_segment_train.py`, `featurize_frames.py`, `wtune_runtime_predict.py`, `wtune_runtime12.py`, `wtune_cost_model.py` | live | prediction layer |
 | `campaign/` | **live, production** (unmoved) | the measurement side: `strict_campaign.sbatch`, `configs.py`, `cases.json`, `physics_templates.json`, the decomposition-search campaign and its rankers |
 | `machine/` | **live, production** (unmoved) | hardware calibration data and probes (`machine/calibration/*.json`, `machine/bench/`) |
 | `src/predictor/` | **live, production** | the decision side: ledger, benchmark, decomposition space and search (`recommend.py` and the `experiment.py` engine are in `archive/unused-2026-10/`), `stability.py`, `verify_obs.py` (`src/predictor/README.md`) |

@@ -469,7 +469,7 @@ class PhysicsCatBoostModel:
         X = vec.fit_transform(dicts)
         model = CatBoostRegressor(depth=4, l2_leaf_reg=10, iterations=500, random_seed=SEED,
                                    loss_function="RMSE", verbose=False,
-                                   thread_count=modelmod.THREADS)
+                                   thread_count=modelmod.THREADS, allow_writing_files=False)
         model.fit(modelmod.Pool(X, y, thread_count=modelmod.THREADS))
         self._vec, self._model = vec, model
         return self

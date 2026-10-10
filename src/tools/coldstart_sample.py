@@ -1155,7 +1155,7 @@ def choose_forcing_for_window(T: datetime.datetime, T_end: datetime.datetime, ch
 def try_precip_lookup(case_dir: str, nl: dict, candidates: list, W_seconds: float,
                       grib_dir: str | None = None, source: str = "auto",
                       cache_dir: str | None = None) -> tuple[dict | None, str | None]:
-    """--state precip_peak candidate lookup via tools/grib_state.py's trajectory (import, not a
+    """--state precip_peak candidate lookup via tools/grib_state.py's regrid/precip (import, not a
     subprocess). Returns (lookup_dict_or_None, skip_reason_or_None). Best-effort: any failure
     (missing wrfinput for the target grid, no network, missing deps) is caught and reported as a
     skip reason, never raised -- SPEC.md: 'if grib_state needs a wrfinput for its target grid and

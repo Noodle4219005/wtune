@@ -32,9 +32,6 @@ for _p in (_REPO_ROOT, _HERE):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-import wtune_oracle_train as oc_train   # ridge_fit/ridge_pred reused verbatim (no numpy ML
-                                         # library on the cluster -- see wtune_oracle_train.py
-                                         # module docstring).
 import wtune_predict as predict         # solar_cos_zenith (exact same formula the rest of the
                                          # project uses for day/night weighting).
 
@@ -375,11 +372,23 @@ def build_pairs(pairs, out_path, n_columns=3000, seed=0):
 
 # ---------------------------------------------------------------------------
 # ML core: ridge with nested (inner-LOO) alpha selection, LOCO harness, kNN, two-part
-# presence/amount model for hydrometeors. Deliberately reuses oc_train.ridge_fit/ridge_pred
-# rather than a new solver (repo policy: no scipy/sklearn, one ridge implementation).
+# presence/amount model for hydrometeors. One pure-numpy ridge (ridge_fit/ridge_pred below);
+# repo policy: no scipy/sklearn.
 # ---------------------------------------------------------------------------
 
 RIDGE_ALPHAS = (0.1, 1.0, 10.0, 100.0)
+
+
+# ridge_fit / ridge_pred: verbatim from the archived wtune_oracle_train.py
+def ridge_fit(X, y, lam=1.0):
+    Xa = np.column_stack([np.ones(len(X)), X])
+    A = Xa.T @ Xa + lam * np.eye(Xa.shape[1]); A[0, 0] -= lam
+    w = np.linalg.solve(A, Xa.T @ y)
+    return w
+
+
+def ridge_pred(w, X):
+    return np.column_stack([np.ones(len(X)), X]) @ w
 
 
 def _standardize_fit(X):
@@ -405,8 +414,8 @@ def _inner_loco_rmse(X, y, groups, alpha):
         train = groups != c
         test = groups == c
         mu, sd = _standardize_fit(X[train])
-        w = oc_train.ridge_fit((X[train] - mu) / sd, y[train], lam=alpha)
-        preds[test] = oc_train.ridge_pred(w, (X[test] - mu) / sd)
+        w = ridge_fit((X[train] - mu) / sd, y[train], lam=alpha)
+        preds[test] = ridge_pred(w, (X[test] - mu) / sd)
     return _rmse(preds, y)
 
 
@@ -429,7 +438,7 @@ def fit_ridge_nested(X, y, groups=None, alphas=RIDGE_ALPHAS):
               % n_cases, flush=True)
     mu, sd = _standardize_fit(X)
     Xs = (X - mu) / sd
-    w = oc_train.ridge_fit(Xs, y, lam=best_alpha)
+    w = ridge_fit(Xs, y, lam=best_alpha)
     return {"kind": "ridge", "w": w.tolist(), "mu": mu.tolist(), "sd": sd.tolist(),
             "alpha": best_alpha}
 
@@ -439,7 +448,7 @@ def ridge_predict_model(model, X):
     sd = np.asarray(model["sd"])
     w = np.asarray(model["w"])
     Xs = (X - mu) / sd
-    return oc_train.ridge_pred(w, Xs)
+    return ridge_pred(w, Xs)
 
 
 def knn_predict(X_train, y_train, X_test, k=3, chunk_size=2000):

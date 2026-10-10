@@ -149,7 +149,7 @@ class TestRidgeExactOffset(unittest.TestCase):
 
 class TestInnerAlphaSelectionNeverSeesOuterHeldout(unittest.TestCase):
     def test_inner_ridge_fits_stay_within_their_own_outer_training_fold(self):
-        # Every low-level oc_train.ridge_fit call made DURING one outer LOCO fold's
+        # Every low-level ridge_fit call made DURING one outer LOCO fold's
         # fit_ridge_nested must only ever see rows whose case is in THAT fold's own training
         # set -- which loco_predict already constructs to exclude the outer held-out case. A
         # violation here would mean the inner alpha search somehow reached past its own
@@ -164,7 +164,7 @@ class TestInnerAlphaSelectionNeverSeesOuterHeldout(unittest.TestCase):
         y_to_group = {float(v): g for v, g in zip(y, groups)}
 
         violations = []
-        real_ridge_fit = scm.oc_train.ridge_fit
+        real_ridge_fit = scm.ridge_fit
         current_allowed = {"groups": None}
 
         def spy_ridge_fit(Xtr, ytr, lam):
@@ -182,7 +182,7 @@ class TestInnerAlphaSelectionNeverSeesOuterHeldout(unittest.TestCase):
             finally:
                 current_allowed["groups"] = None
 
-        with mock.patch.object(scm.oc_train, "ridge_fit", side_effect=spy_ridge_fit):
+        with mock.patch.object(scm, "ridge_fit", side_effect=spy_ridge_fit):
             preds = scm.loco_predict(X, y, groups, outer_fit_wrapper, scm.ridge_predict_model)
 
         self.assertEqual(len(preds), n)

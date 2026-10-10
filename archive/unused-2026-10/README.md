@@ -107,3 +107,26 @@ three tests; every other `src/predictor/` module (`physics.py` via `wtune_physic
 `verify_obs.py` via `analysis/tc_track.py`, `validate.py` via `benchmark.py`, the rest via
 `decomp_search.py`). `wtune screen` has no caller left except its own CLI entry and tests; it was
 not removed.
+
+## Unreachable files and functions (2026-10-10, second pass)
+
+Checked by grep over `src campaign bin tests docs README.md`: no import, attribute access or
+script invocation outside tests reaches any of these. Cut at 33a1ef7.
+
+| what | files |
+|---|---|
+| per-rank cost oracle and its frame reader, whole files; `ridge_fit` / `ridge_pred`, the only names still used, were copied into `src/tools/state_correction_model.py` | `src/wtune_oracle.py`, `src/wtune_oracle_train.py`, `src/wrf_frame.py` |
+| knob advisor, whole file (no importer), and the catalog parity checks that read its source, cut from `tests/test_wtune_compliance.py` (not runnable as is) | `src/wtune_knobs.py`, `tests/test_wtune_knobs_parity_legacy.py` |
+| `scc_sweep.py` plan/submit/status command line and manifest, verbatim, not importable as is; its tests, cut from `tests/tools/test_scc_sweep.py` | `src/tools/scc_sweep_cli_legacy.py`, `tests/tools/test_scc_sweep_cli_legacy.py` |
+| SpeedyWeather hotspot runner and sampler cut from `wtune_surrogate.py` (`run_speedy`, `sample_domain`, `convective_summary`, helpers, `DEFAULT_*`) | `src/wtune_surrogate_legacy.py` |
+| shape advisor cut from `wtune_shape.py` (`tiling`, `factor_pairs`, `evaluate`, `rank`, `rank_nested`, `even_grids`, `validate`, `main`) | `src/wtune_shape_legacy.py` |
+| `grib_state.py` `trajectory` command, CSV writer, patch-imbalance helpers, `cloud_frac_*`, `precip_rate_from_apcp_diff`; their tests, cut from `tests/tools/test_grib_state.py` and `tests/test_review_fixes_core.py` | `src/tools/grib_state_legacy.py`, `tests/tools/test_grib_state_legacy.py` |
+
+Left in place: the `scc_sweep.py` library `wtune tune` / `wtune run` use, with the CLI-only
+constants (`DEFAULT_K`, `DEFAULT_ROOT`, `MANIFEST_FIELDS`, ...); `wtune_surrogate.py`
+`load_probe`, `analyze_probe`, `probe_steering_wind`, `speedy_vet` (`wtune physics`, `screen`);
+`wtune_shape.py` `patch_dims` and the measured constants (`wtune_case.py`); `grib_state.py`
+`target_grid`, `regrid_nearest_regular`, `precip_frac`, `precip_rate_from_apcp_window`
+(`coldstart_sample.py`, `case_rebuild.py`). Not moved although nothing calls them now:
+`grib_state.py` `precip_mean`, `cos_zenith_grid`, `sunlit_frac`, `pblh_*`, `wind10_max`, `hfx_mean`,
+`load_case`, `resolve_times` (still tested), and `src/speedy_hotspot.jl` (only `run_speedy` ran it).

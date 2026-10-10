@@ -13,14 +13,6 @@ from wtune_compliance import (
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # tests/ -> repo root
 SRC = os.path.join(ROOT, "src")
 
-# Params the knob advisor (wtune_knobs.py) emits today -- all PHYSICS-GRAY.
-KNOBS_PARAMS = [
-    'num_soil_layers', 'sf_sfclay_physics', 'km_opt', 'diff_opt', 'o3input', 'cu_physics',
-    'radt', 'diff_6th_opt', 'non_hydrostatic', 'mp_physics', 'w_damping', 'epssm', 'gwd_opt',
-    'sst_update', 'tmn_update', 'bucket_mm', 'prec_acc_dt', 'fractional_seaice',
-    'slope_rad/topo_shading', 'sf_urban_physics',
-]
-
 # Params the physics-candidate screener (wtune_physics.py _effective_opinion) emits today.
 PHYSICS_CANDIDATE_PARAMS = [
     'io_form_history', 'io_form_restart', 'io_form_input', 'numtiles', 'nproc_x', 'nproc_y',
@@ -35,11 +27,6 @@ def _entry(name):
         if e['name'] == name:
             return copy.deepcopy(e)
     raise KeyError(name)
-
-
-def _extract_knobs_params():
-    text = open(os.path.join(SRC, 'wtune_knobs.py')).read()
-    return set(re.findall(r"_finding\('([^']+)'", text))
 
 
 def _extract_physics_params():
@@ -256,20 +243,9 @@ class AssertStrictOnlyTests(unittest.TestCase):
 
 
 class AdvisorCoverageTests(unittest.TestCase):
-    def test_knobs_params_all_classified(self):
-        for name in KNOBS_PARAMS:
-            self.assertNotEqual(classify(name), UNCLASSIFIED, name)
-
     def test_physics_candidate_params_all_classified(self):
         for name in PHYSICS_CANDIDATE_PARAMS:
             self.assertNotEqual(classify(name), UNCLASSIFIED, name)
-
-    def test_knobs_params_match_source(self):
-        found = _extract_knobs_params()
-        self.assertEqual(found, set(KNOBS_PARAMS),
-                          'wtune_knobs.py _finding() names vs hard-coded KNOBS_PARAMS differ: '
-                          'extra-in-source={} extra-in-list={}'.format(
-                              found - set(KNOBS_PARAMS), set(KNOBS_PARAMS) - found))
 
     def test_physics_candidate_params_match_source(self):
         found, matched = _extract_physics_params()

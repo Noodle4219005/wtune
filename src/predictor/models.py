@@ -234,7 +234,8 @@ class CatBoostPointModel:
         vec = DictVectorizer(sparse=False)
         X = vec.fit_transform(dicts)
         model = CatBoostRegressor(depth=4, l2_leaf_reg=10, iterations=500, random_seed=SEED,
-                                   loss_function="RMSE", verbose=False, thread_count=THREADS)
+                                   loss_function="RMSE", verbose=False, thread_count=THREADS,
+                                   allow_writing_files=False)
         model.fit(Pool(X, y, thread_count=THREADS))
         self._vec, self._model = vec, model
         return self
@@ -283,7 +284,8 @@ class PairwiseModel:
             # target = -y so that "higher relevance" = "faster" for CatBoost's ranking convention
             pool = Pool(X, label=-y, group_id=group_ids, thread_count=THREADS)
             model = CatBoostRanker(loss_function="PairLogit", depth=4, iterations=300,
-                                    random_seed=SEED, verbose=False, thread_count=THREADS)
+                                    random_seed=SEED, verbose=False, thread_count=THREADS,
+                                    allow_writing_files=False)
             model.fit(pool)
             self.backend, self._model = "catboost", model
         elif HAVE_LIGHTGBM:

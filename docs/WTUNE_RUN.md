@@ -1,10 +1,10 @@
 # wtune run: design notes
 
-The behaviour rules of `wtune run` (the text that used to head `src/wtune_run.py`; the code now
-lives in the `src/wtune_run/` package, one topic per module).
+The behaviour rules of `wtune run` (the text that used to head `src/wtune/run/`; the code now
+lives in the `src/wtune/run/` package, one topic per module).
 
 ```text
-wtune_run.py -- segmented WRF executor with restart hand-offs (`wtune run`).
+wtune/run/ -- segmented WRF executor with restart hand-offs (`wtune run`).
 
     wtune run CASE_DIR [--nodes N --nx X --ny Y] [--numtiles T] [--omp O]
         [--wall-limit HH:MM:SS | --segment-minutes M] [--stop-at YYYY-MM-DD_HH:MM:SS]

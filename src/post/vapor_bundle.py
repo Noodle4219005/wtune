@@ -59,7 +59,7 @@ def _wtune_provenance():
     """(version, git commit or None) of this WTune checkout -- read-only, best effort."""
     import subprocess
     try:
-        import wtune_version
+        from wtune import version as wtune_version
         version = wtune_version.__version__
     except ImportError:
         version = None

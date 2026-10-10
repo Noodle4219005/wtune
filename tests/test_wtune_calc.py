@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-import wtune_calc as wc
+from wtune import calc as wc
 
 REPO = Path(__file__).resolve().parent.parent
 LEVELS = {"wrf-doc", "wtune-measured", "rule-of-thumb"}
@@ -402,7 +402,7 @@ def test_check_real_local_namelists_have_no_error():
 # ------------------------------------------------------------------------------------------ CLI
 
 def run_cli(*args):
-    return subprocess.run([sys.executable, str(REPO / "src/wtune_calc.py"), *args], capture_output=True, text=True)
+    return subprocess.run([sys.executable, "-m", "wtune.calc", *args], cwd=str(REPO / "src"), capture_output=True, text=True)
 
 
 def test_cli_help_lists_every_topic():
@@ -454,6 +454,6 @@ def test_cli_geog_res_arcsec_option_and_bad_args(tmp_path, capsys):
 
 
 def test_wtune_cli_dispatches_calc():
-    p = subprocess.run([sys.executable, str(REPO / "src/wtune_cli.py"), "calc", "units", "kt-ms", "10"],
+    p = subprocess.run([sys.executable, str(REPO / "src/wtune/cli.py"), "calc", "units", "kt-ms", "10"],
                        capture_output=True, text=True)
     assert p.returncode == 0 and "5.14444" in p.stdout

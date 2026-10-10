@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""pytest suite for wtune_config.py (the `wtune tune` YAML search-space config loader).
+"""pytest suite for wtune/config.py (the `wtune tune` YAML search-space config loader).
 
 Every test exercises the dict-level API (`resolve_config`, `filter_candidates`,
 `candidate_allowed`, `is_fire_case`, ...) directly, so none of them require PyYAML. Only the
@@ -16,7 +16,7 @@ import os
 
 import pytest
 
-import wtune_config as wcfg
+from wtune import config as wcfg
 
 MATTHEW_LIKE = dict(e_we=91, e_sn=100, e_vert=45)
 

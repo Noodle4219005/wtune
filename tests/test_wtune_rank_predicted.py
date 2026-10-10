@@ -14,8 +14,8 @@ from pathlib import Path
 import pytest
 
 import scc_sweep
-import wtune_config
-import wtune_tune as wt
+from wtune import config as wtune_config
+from wtune import tune as wt
 from test_wtune_tune import _ctx, make_fake_sbatch
 
 REPO = Path(__file__).resolve().parents[1]
@@ -401,7 +401,7 @@ def test_strict_restart_defaults_do_not_change_t0_notes():
 
 def test_campaign_sbatch_commands_honour_extra_exclude(monkeypatch):
     import scc_sweep as sweep
-    import wtune_tune as wt
+    from wtune import tune as wt
     monkeypatch.delenv("WTUNE_SBATCH_EXCLUDE", raising=False)
     assert sweep.exclude_arg() == "--exclude=head"
     monkeypatch.setenv("WTUNE_SBATCH_EXCLUDE", "work5, work7")

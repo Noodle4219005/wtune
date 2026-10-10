@@ -8,10 +8,10 @@ import os
 import pytest
 
 import test_wtune_run  # noqa: F401  first: its wtune_run import restores SITE/configs
-import wtune_predict as wp
-import wtune_resume as wres
-import wtune_run as wr
-import wtune_watch
+from wtune import predict as wp
+from wtune import resume as wres
+from wtune import run as wr
+from wtune import watch as wtune_watch
 from test_wtune_run import (REAL_BP, Fakes, _make_case, _run, _with_restart,
                             fake_bp)  # noqa: F401  (autouse fixture)
 

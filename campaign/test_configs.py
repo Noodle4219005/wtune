@@ -931,7 +931,7 @@ class TestComplianceKnobs(unittest.TestCase):
     def test_all_varied_knobs_are_strict(self):
         sys.path.insert(0, os.path.join(configs.REPO_ROOT, "src"))
         try:
-            import wtune_compliance
+            from wtune import compliance as wtune_compliance
         except Exception as e:  # pragma: no cover - only if repo layout changes
             self.skipTest("wtune_compliance not importable: %s" % e)
         for name in configs._COMPLIANCE_KNOBS:
@@ -1531,7 +1531,7 @@ class TestConfigFileGeneratedConfigs(unittest.TestCase):
     """CONFIG_FILE (WTune D1 decomposition-space work): campaign/configs.py's own side of
     consuming a predictor/decomp_space.py `to_campaign_configs`-shaped JSON file. The JSON here
     is built by hand (not via `import decomp_space`) -- decomp_space.py uses `from __future__
-    import annotations` (Python >= 3.7 only, same reason wtune_decomp.py cannot be imported under
+    import annotations` (Python >= 3.7 only, same reason wtune/decomp.py cannot be imported under
     this file's own python3.6-compatibility requirement -- see configs.py's module docstring), so
     this file, which must stay importable under the campaign's python3.6, cannot import it either.
     predictor/tests/test_decomp_space.py owns decomp_space.py's own correctness."""
@@ -2792,7 +2792,7 @@ class TestFrozenKeys(unittest.TestCase):
 class TestRestartFrom(unittest.TestCase):
     """edit_namelist's restart_from/restart_io_form/write_restart_interval (WTune probe
     multi-point redesign, 2026-09-26): a RANKING-PROBE run starting from an existing WRF restart
-    file instead of from t0 -- see edit_namelist's own docstring and wtune_probe_plan.py."""
+    file instead of from t0 -- see edit_namelist's own docstring and wtune/probe_plan.py."""
 
     SYNTHETIC_3DOM_RESTART = (
         "&time_control\n"
@@ -3086,7 +3086,7 @@ class TestStrictCampaignStagesNamelistFiles(unittest.TestCase):
 
 class TestAdios2InputStaging(unittest.TestCase):
     """2026-10-03 user decision: ADIOS2 for every WRF input stream. adios2_input_streams /
-    _apply_adios2's aux switch / stage-bp-inputs (conversion through a FAKE src/wtune_bp found via
+    _apply_adios2's aux switch / stage-bp-inputs (conversion through a FAKE src/wtune/bp.py found via
     WTUNE_SRC, lock-serialized) / strict_campaign.sbatch's staging block (extracted, run with a stub
     interpreter) / nc2bp.sbatch."""
 
@@ -3137,8 +3137,8 @@ class TestAdios2InputStaging(unittest.TestCase):
         import tempfile
         self.tmp = tempfile.mkdtemp(prefix="wtune-bp-test-")
         self.src = os.path.join(self.tmp, "src")
-        os.makedirs(self.src)
-        with open(os.path.join(self.src, "wtune_bp.py"), "w") as f:
+        os.makedirs(os.path.join(self.src, "wtune"))
+        with open(os.path.join(self.src, "wtune", "bp.py"), "w") as f:
             f.write(self.FAKE_BP)
         self.prep = os.path.join(self.tmp, "prep")
         os.makedirs(self.prep)
@@ -3152,7 +3152,7 @@ class TestAdios2InputStaging(unittest.TestCase):
         self.env = dict(os.environ, WTUNE_SRC=self.src, FAKE_BP_LOG=self.log,
                         WTUNE_BP_CACHE=os.path.join(self.tmp, "cache"),
                         FAKE_BP_REAL=os.path.join(os.path.dirname(self.HERE), "src",
-                                                  "wtune_bp.py"))
+                                                  "wtune", "bp.py"))
 
     def tearDown(self):
         import shutil

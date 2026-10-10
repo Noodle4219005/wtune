@@ -1,4 +1,4 @@
-"""wtune_preflight_tables.py -- static tables for wtune_preflight's C3 check: the data files each
+"""wtune/preflight_tables.py -- static tables for wtune_preflight's C3 check: the data files each
 physics scheme opens at init (WRF source anchors in the comments). Pure data, no logic."""
 
 # scheme id -> required run_dir files, verified 2026-09-24 against

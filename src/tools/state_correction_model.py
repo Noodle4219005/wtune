@@ -32,7 +32,7 @@ for _p in (_REPO_ROOT, _HERE):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-import wtune_predict as predict         # solar_cos_zenith (exact same formula the rest of the
+from wtune import predict as predict         # solar_cos_zenith (exact same formula the rest of the
                                          # project uses for day/night weighting).
 
 _WRF_TIME_FMT = "%Y-%m-%d_%H:%M:%S"

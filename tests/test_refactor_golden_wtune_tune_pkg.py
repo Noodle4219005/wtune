@@ -3,9 +3,10 @@
 file does not pin -- the CLI surface (help text, main() exit codes, the script / `-m` entry
 points), the node-search fallback, -O0 without a known run length, and two more pipeline paths.
 
-Snapshots live next to the first file's, under tests/fixtures/golden/wtune_tune/ (prefix pkg_).
+Snapshots live next to the first file's, under tests/fixtures/golden/wtune/tune/ (prefix pkg_).
 Regenerate (only with the UNCHANGED code): WTUNE_GOLDEN_REGEN=1 pytest tests/<this file>.
 """
+from conftest import swap_wtune_module
 import json
 import os
 import subprocess
@@ -14,7 +15,7 @@ import types
 
 import pytest
 
-import wtune_tune
+from wtune import tune as wtune_tune
 import test_wtune_tune as T
 import test_refactor_golden_wtune_tune as G
 
@@ -45,7 +46,7 @@ def _isolate(monkeypatch):
     stub.advise_case_id = lambda case_id, site="scc", needs=(): dict(
         advice=[dict(id="stub", case=case_id)], unavailable=[])
     stub.render_text = lambda res: "advice: %d stub item(s)" % len(res["advice"])
-    monkeypatch.setitem(sys.modules, "wtune_advise", stub)
+    swap_wtune_module(monkeypatch, "advise", stub)
     monkeypatch.setenv("COLUMNS", "100")
 
 
@@ -68,8 +69,8 @@ def test_golden_main_exit_codes(monkeypatch, capsys):
 @pytest.mark.parametrize("entry", ["script", "module"])
 def test_golden_entry_points(entry):
     env = dict(os.environ, COLUMNS="100", PYTHONPATH=SRC)
-    argv = ([sys.executable, os.path.join(SRC, "wtune_tune.py"), "--help"] if entry == "script"
-            else [sys.executable, "-m", "wtune_tune", "--help"])
+    argv = ([sys.executable, os.path.join(SRC, "wtune", "tune"), "--help"] if entry == "script"
+            else [sys.executable, "-m", "wtune.tune", "--help"])
     r = subprocess.run(argv, capture_output=True, text=True, cwd=REPO, env=env, timeout=120)
     G._check("pkg_entry_%s.txt" % entry, "rc=%d\n%s" % (r.returncode, r.stdout))
 

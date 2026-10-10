@@ -600,7 +600,7 @@ fi
 # RANKING_START=spinup (2026-09-26, wtune probe multi-point redesign, wired end-to-end): every
 # candidate in the STRICT loop below starts from a SHARED WRF restart (t0+<minutes>) instead of
 # t0, so a short ranking probe lands in a representative (post-spin-up) part of the run instead
-# of the artificially-cheap cold-start ramp -- see wtune_probe_plan.py's module docstring and
+# of the artificially-cheap cold-start ramp -- see wtune/probe_plan.py's module docstring and
 # configs.py's edit_namelist restart_from/write_restart_interval/restart_io_form params. Fully
 # opt-in via RANKING_START (default "t0"): unset/"t0" makes every line in this block and the
 # RESTART_ARGS append below UNREACHABLE, so a run with RANKING_START unset is byte-identical to

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for wtune_preflight.py (`wtune.py check`) -- every check paired with a synthetic
+"""Tests for wtune/preflight.py (`wtune/cli.py check`) -- every check paired with a synthetic
 fixture reproducing its real incident (must be caught, right severity) and a clean fixture
 (must be silent), plus one end-to-end clean-CONUS-like exit-0 case.
 
@@ -13,8 +13,8 @@ import pytest
 netCDF4 = pytest.importorskip("netCDF4")
 import numpy as np
 
-import wtune_preflight as pf
-import wtune_predict as wp
+from wtune import preflight as pf
+from wtune import predict as wp
 
 
 # --------------------------------------------------------------------------

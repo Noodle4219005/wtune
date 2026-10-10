@@ -1,4 +1,4 @@
-"""wtune_submit.py -- `wtune submit`: tune -> run -> post for the current project in one command.
+"""wtune/submit.py -- `wtune submit`: tune -> run -> post for the current project in one command.
 
 Each step is its own `wtune` process, so it takes the project's settings and is recorded in
 manifest.jsonl exactly as if typed by hand. The three outputs share one id:

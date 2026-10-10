@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""wtune_resume.py -- which failed segment jobs `wtune run --resume` may resume, and from where.
+"""wtune/resume.py -- which failed segment jobs `wtune run --resume` may resume, and from where.
 
 A restart time T is valid when every domain's wrfrst_d<NN>_<T> is complete on disk and the rsl
 shows its write finished; `wtune run --sidecar` records the same list while the job runs."""

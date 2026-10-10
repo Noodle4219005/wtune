@@ -1,5 +1,5 @@
 """scenario.config -- parse_scenario(dict) -> ScenarioConfig, for embedding a scenario block in
-a wtune.yaml-style config WITHOUT wiring into src/wtune_config.py itself (that file is owned by
+a wtune.yaml-style config WITHOUT wiring into src/wtune/config.py itself (that file is owned by
 another agent in this round; this module is deliberately standalone).
 
 Applies the license gate (base.get_generator) to `generator` AND every name in `ensemble`, so a

@@ -66,7 +66,7 @@ _TOOLS_DIR = os.path.join(_SRC_DIR, "tools")
 
 def _case_rebuild():
     """Lazy import of tools/case_rebuild.py -- needs src/tools/ on sys.path, exactly like
-    wtune_cli.py's own 'metdata'/'analyze' subcommand dispatch does (src/wtune_cli.py:1801-1804)."""
+    wtune/cli.py's own 'metdata'/'analyze' subcommand dispatch does (src/wtune/cli.py:1801-1804)."""
     if _TOOLS_DIR not in sys.path:
         sys.path.insert(0, _TOOLS_DIR)
     import case_rebuild as cr

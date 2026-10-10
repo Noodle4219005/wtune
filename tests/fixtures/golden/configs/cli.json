@@ -1294,7 +1294,7 @@
   ],
   "env": {
    "FAKE_BP_LOG": "<TMP>/cli/stage-convert/convert.log",
-   "FAKE_BP_REAL": "<REPO>/src/wtune_bp.py",
+   "FAKE_BP_REAL": "<REPO>/src/wtune/bp.py",
    "WTUNE_BP_CACHE": "<TMP>/cli/stage-convert/bp-cache",
    "WTUNE_SRC": "<TMP>/in/fake_src"
   },
@@ -1348,7 +1348,7 @@
   ],
   "env": {
    "FAKE_BP_LOG": "<TMP>/cli/stage-convert-cached/convert.log",
-   "FAKE_BP_REAL": "<REPO>/src/wtune_bp.py",
+   "FAKE_BP_REAL": "<REPO>/src/wtune/bp.py",
    "WTUNE_BP_CACHE": "<TMP>/cli/stage-convert-cached/bp-cache",
    "WTUNE_SRC": "<TMP>/in/fake_src"
   },
@@ -1400,7 +1400,7 @@
   ],
   "env": {
    "FAKE_BP_LOG": "<TMP>/cli/stage-default-cache/convert.log",
-   "FAKE_BP_REAL": "<REPO>/src/wtune_bp.py",
+   "FAKE_BP_REAL": "<REPO>/src/wtune/bp.py",
    "WTUNE_BP_CACHE": "<TMP>/cli/stage-default-cache/bp-cache",
    "WTUNE_SRC": "<TMP>/in/fake_src"
   },
@@ -1456,7 +1456,7 @@
   ],
   "env": {
    "FAKE_BP_LOG": "<TMP>/cli/stage-both/convert.log",
-   "FAKE_BP_REAL": "<REPO>/src/wtune_bp.py",
+   "FAKE_BP_REAL": "<REPO>/src/wtune/bp.py",
    "WTUNE_BP_CACHE": "<TMP>/cli/stage-both/bp-cache",
    "WTUNE_SRC": "<TMP>/in/fake_src"
   },
@@ -1498,7 +1498,7 @@
   ],
   "env": {
    "FAKE_BP_LOG": "<TMP>/cli/stage-bp-only/convert.log",
-   "FAKE_BP_REAL": "<REPO>/src/wtune_bp.py",
+   "FAKE_BP_REAL": "<REPO>/src/wtune/bp.py",
    "WTUNE_BP_CACHE": "<TMP>/cli/stage-bp-only/bp-cache",
    "WTUNE_SRC": "<TMP>/in/fake_src"
   },
@@ -1527,7 +1527,7 @@
   ],
   "env": {
    "FAKE_BP_LOG": "<TMP>/cli/stage-dated/convert.log",
-   "FAKE_BP_REAL": "<REPO>/src/wtune_bp.py",
+   "FAKE_BP_REAL": "<REPO>/src/wtune/bp.py",
    "WTUNE_BP_CACHE": "<TMP>/cli/stage-dated/bp-cache",
    "WTUNE_SRC": "<TMP>/in/fake_src"
   },
@@ -1567,7 +1567,7 @@
   ],
   "env": {
    "FAKE_BP_LOG": "<TMP>/cli/stage-check-bp/convert.log",
-   "FAKE_BP_REAL": "<REPO>/src/wtune_bp.py",
+   "FAKE_BP_REAL": "<REPO>/src/wtune/bp.py",
    "WTUNE_BP_CACHE": "<TMP>/cli/stage-check-bp/bp-cache",
    "WTUNE_SRC": "<TMP>/in/fake_src"
   },
@@ -1587,7 +1587,7 @@
   ],
   "env": {
    "FAKE_BP_LOG": "<TMP>/cli/stage-check-netcdf/convert.log",
-   "FAKE_BP_REAL": "<REPO>/src/wtune_bp.py",
+   "FAKE_BP_REAL": "<REPO>/src/wtune/bp.py",
    "WTUNE_BP_CACHE": "<TMP>/cli/stage-check-netcdf/bp-cache",
    "WTUNE_SRC": "<TMP>/in/fake_src"
   },
@@ -1607,7 +1607,7 @@
   ],
   "env": {
    "FAKE_BP_LOG": "<TMP>/cli/stage-check-both/convert.log",
-   "FAKE_BP_REAL": "<REPO>/src/wtune_bp.py",
+   "FAKE_BP_REAL": "<REPO>/src/wtune/bp.py",
    "WTUNE_BP_CACHE": "<TMP>/cli/stage-check-both/bp-cache",
    "WTUNE_SRC": "<TMP>/in/fake_src"
   },
@@ -1626,7 +1626,7 @@
   ],
   "env": {
    "FAKE_BP_LOG": "<TMP>/cli/stage-missing-bdy/convert.log",
-   "FAKE_BP_REAL": "<REPO>/src/wtune_bp.py",
+   "FAKE_BP_REAL": "<REPO>/src/wtune/bp.py",
    "WTUNE_BP_CACHE": "<TMP>/cli/stage-missing-bdy/bp-cache",
    "WTUNE_SRC": "<TMP>/in/fake_src"
   },
@@ -1655,7 +1655,7 @@
   "env": {
    "FAKE_BP_FAIL": "1",
    "FAKE_BP_LOG": "<TMP>/cli/stage-convert-fails/convert.log",
-   "FAKE_BP_REAL": "<REPO>/src/wtune_bp.py",
+   "FAKE_BP_REAL": "<REPO>/src/wtune/bp.py",
    "WTUNE_BP_CACHE": "<TMP>/cli/stage-convert-fails/bp-cache",
    "WTUNE_SRC": "<TMP>/in/fake_src"
   },
@@ -1677,7 +1677,7 @@
   ],
   "env": {
    "FAKE_BP_LOG": "<TMP>/cli/stage-no-namelist/convert.log",
-   "FAKE_BP_REAL": "<REPO>/src/wtune_bp.py",
+   "FAKE_BP_REAL": "<REPO>/src/wtune/bp.py",
    "WTUNE_BP_CACHE": "<TMP>/cli/stage-no-namelist/bp-cache",
    "WTUNE_SRC": "<TMP>/in/fake_src"
   },

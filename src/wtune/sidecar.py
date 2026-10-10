@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""wtune_sidecar.py -- `wtune run --sidecar`: work done next to a running segment job.
+"""wtune/sidecar.py -- `wtune run --sidecar`: work done next to a running segment job.
 
 Every controller poll records the newly valid restarts (wtune_resume) in run_report.json and
 hands finished history frames to ONE srun in the job's allocation, on the cores WRF leaves idle,
-which converts them BP -> netCDF into the `wtune post` cache (`wtune_sidecar.py convert`);
+which converts them BP -> netCDF into the `wtune post` cache (`wtune/sidecar.py convert`);
 leftovers are converted after the run on a node of their own. The head process never converts."""
 from __future__ import annotations
 

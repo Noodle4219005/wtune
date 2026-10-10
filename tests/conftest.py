@@ -19,3 +19,13 @@ for _p in (_SRC, os.path.join(_SRC, "predictor"), os.path.join(_SRC, "tools")):
         sys.path.insert(0, _p)
 
 del _p
+
+
+def swap_wtune_module(monkeypatch, name, module):
+    """Make `from wtune import <name>` yield `module`; None makes the import fail."""
+    import wtune
+    monkeypatch.setitem(sys.modules, "wtune." + name, module)
+    if module is None:
+        monkeypatch.delattr(wtune, name, raising=False)
+    else:
+        monkeypatch.setattr(wtune, name, module, raising=False)

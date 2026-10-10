@@ -3,7 +3,7 @@
 
 PHYSICS-GRAY knobs (mp_physics, bl_pbl_physics, radt, time_step, ...) legitimately
 change the computed solution, so bit-identity (`diffwrf`) and the roundoff-tolerance
-gate (`wtune_config_gate.py`) cannot judge them. This implements the "chaos-floor"
+gate (`wtune/config_gate.py`) cannot judge them. This implements the "chaos-floor"
 methodology from [[wrf-within-tolerance-speed-knobs-conus25]]: a candidate is judged
 against how far a same-physics, different-decomposition TWIN run drifts from the
 reference by pure round-off/decomposition divergence. That divergence is the FLOOR a
@@ -54,7 +54,7 @@ JSON output so a label is reproducible from the file alone):
 
 This tool reports numbers and a provisional label. It does not decide acceptability;
 passing WITHIN-FLOOR or SMALL-DRIFT here is not an official WRF ruling (report as
-PHYSICS-GRAY / UNCONFIRMED per wtune_compliance.py).
+PHYSICS-GRAY / UNCONFIRMED per wtune/compliance.py).
 
 usage:
   python3 fidelity_gate.py --reference REF.nc [REF2.nc ...] \\

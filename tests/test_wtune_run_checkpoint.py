@@ -6,8 +6,8 @@ import json
 import pytest
 
 import test_wtune_run  # noqa: F401  first: its wtune_run import restores SITE/configs
-import wtune_predict as wp
-import wtune_run as wr
+from wtune import predict as wp
+from wtune import run as wr
 from test_wtune_run import (_geo, _make_case, _Spy, _with_restart,
                             fake_bp)  # noqa: F401  (autouse fixture)
 from test_wtune_run_resume import Dying

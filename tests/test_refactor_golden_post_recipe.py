@@ -80,7 +80,7 @@ def _run(tmp, monkeypatch, name, cfg):
         monkeypatch.setattr(recipe, "_verification_advice",
                             lambda *a, **k: log.append(["advice", repr(a[1:5])]) or adv)
     if advice is True:
-        import wtune_advise
+        from wtune import advise as wtune_advise
         monkeypatch.setattr(wtune_advise, "render_html", lambda a: "<advice/>")
     monkeypatch.setattr(recipe, "load_catalog", lambda: {"cat": 1})
     import post.report as report

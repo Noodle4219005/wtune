@@ -57,7 +57,7 @@ PY
   echo "staged into $BP_DIR in $(( $(date +%s) - t0 )) s; converted: ${BP_CONVERTED:-none}; aux streams as BP: ${WTUNE_AUX_BP_STREAMS:-none}; per record: ${WTUNE_PER_RECORD_BP:-none}"
   [ "${CHECK:-1}" = 1 ] && [ -n "$BP_CONVERTED" ] || return 0
   WTUNE_PY=${WTUNE_PY:-$(dirname "$CAMPAIGN")/envs/wtune/.pixi/envs/default/bin/python}
-  BP_PYMOD=${WTUNE_SRC:-$(dirname "$CAMPAIGN")/src}/wtune_bp.py
+  BP_PYMOD=${WTUNE_SRC:-$(dirname "$CAMPAIGN")/src}/wtune/bp.py
   if [ -x "$WTUNE_PY" ] && [ -f "$BP_PYMOD" ]; then
     # shellcheck disable=SC2086
     "$WTUNE_PY" "$BP_PYMOD" inputs "$PREP_DIR" --cache "$BP_DIR" --names $BP_CONVERTED --check || return 1

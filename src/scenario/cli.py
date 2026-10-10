@@ -1,6 +1,6 @@
 """scenario.cli -- `wtune scenario ...` subcommands: list, generate, inspect. Wired into
-src/wtune_cli.py via a single 'scenario' subparser that forwards its remainder args to main()
-(same REMAINDER-forwarding pattern wtune_cli.py already uses for 'metdata'/'analyze')."""
+src/wtune/cli.py via a single 'scenario' subparser that forwards its remainder args to main()
+(same REMAINDER-forwarding pattern wtune/cli.py already uses for 'metdata'/'analyze')."""
 
 from __future__ import annotations
 
@@ -39,7 +39,7 @@ def _interval_h_from_case(case_dir):
     reads) when namelist.wps is absent -- most user cases ship only namelist.input, not a
     namelist.wps. 21600s (6h, WPS's own conventional default) when neither file exists under
     case_dir or has a usable interval_seconds."""
-    import wtune_cli as wt
+    from wtune import cli as wt
 
     wps_path = Path(case_dir) / "namelist.wps"
     if wps_path.exists():

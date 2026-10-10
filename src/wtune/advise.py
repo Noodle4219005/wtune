@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""wtune_advise.py -- `wtune advise <case> [--need chem|hydro|surge] [--json]` (wiki decision 0061).
+"""wtune/advise.py -- `wtune advise <case> [--need chem|hydro|surge] [--json]` (wiki decision 0061).
 
 Detect conditions in a case (and, when available, in a finished run's verification output) and
 print concrete, costed, evidence-backed ADVICE for WRF modes / workflows the user can choose
@@ -26,7 +26,7 @@ Detector reuse (file:line as of this commit):
   radar_coverage     post/fetch/mrms.py:29 FIRST_DAY + :31 REGIONS/:50 pick_region,
                      post/fetch/stage4.py:28 CONUS_BBOX (US domain), post/fetch/nexrad.py:11
                      (verified-present date)
-  run_length         wtune_cli.py:127 extract_case['run_total_hours'] (resolve_run_seconds)
+  run_length         wtune/cli.py:127 extract_case['run_total_hours'] (resolve_run_seconds)
   post_track_growth / post_intensity_bias
                      TC-Pairs .tcst columns TK_ERR/AMSLP/BMSLP/LEAD, parsed with
                      post/met_tc.py:45 parse_met_table (same columns post/tc.py:1031 _error_figures plots)

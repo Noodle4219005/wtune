@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "note": "Cost coefficients for WRF extensions (wtune_extensions.py). status is 'measured' only when the number comes from a recorded experiment; 'placeholder' means an unfitted stand-in that MUST NOT be read as a prediction of the extension's true cost. To calibrate, fit the *_frac / default_* fields from rsl.out.0000 step timings of extension runs and replace this file (or point $WTUNE_EXTENSION_COEFFS at a copy, or put the same object under the calibration JSON key 'extension_coefficients'); no code change is needed. uncertainty_pct is the relative 1-sigma-like widening added in quadrature to the compute noise when the factor is applied.",
+  "note": "Cost coefficients for WRF extensions (wtune/extensions.py). status is 'measured' only when the number comes from a recorded experiment; 'placeholder' means an unfitted stand-in that MUST NOT be read as a prediction of the extension's true cost. To calibrate, fit the *_frac / default_* fields from rsl.out.0000 step timings of extension runs and replace this file (or point $WTUNE_EXTENSION_COEFFS at a copy, or put the same object under the calibration JSON key 'extension_coefficients'); no code change is needed. uncertainty_pct is the relative 1-sigma-like widening added in quadrature to the compute noise when the factor is applied.",
   "movenest": {
     "status": "measured",
     "const_frac": 0.06,

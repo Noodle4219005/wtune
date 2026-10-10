@@ -55,7 +55,7 @@ def _obs_dir(run_dir, project_dir=None):
     a project.yaml above the run dir or the current directory."""
     cands = [project_dir]
     try:
-        import wtune_project
+        from wtune import project as wtune_project
         cands += [wtune_project.find_project(start_dir=run_dir), wtune_project.find_project()]
     except Exception:                      # no project / unresolvable env var: just no obs
         pass

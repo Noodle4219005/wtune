@@ -276,7 +276,7 @@ def _cli_cases(tmp):
     one_step = _write(os.path.join(inp, "one_step.txt"), "30.5\n")
     rsl = _write(os.path.join(inp, "rsl.out.0000"), RSL)
     fake_src = os.path.join(inp, "fake_src")
-    _write(os.path.join(fake_src, "wtune_bp.py"), FAKE_BP)
+    _write(os.path.join(fake_src, "wtune", "bp.py"), FAKE_BP)
     bp_rec = os.path.join(inp, "bp_rec")
     for n in ("wrfbdy_d01", "wrflowinp_d01", "wrflowinp_d02"):
         _mk_records(os.path.join(bp_rec, n), n)
@@ -400,7 +400,7 @@ def _cli_cases(tmp):
     add("link-namelist-files-argc", ["link-namelist-files", "{D}/namelist.input"])
     add("link-namelist-files-no-namelist", ["link-namelist-files", "{D}/nothing", "{D}"])
     bp_env = dict(WTUNE_SRC=fake_src, FAKE_BP_LOG="{D}/convert.log",
-                  FAKE_BP_REAL=os.path.join(REPO, "src", "wtune_bp.py"),
+                  FAKE_BP_REAL=os.path.join(REPO, "src", "wtune", "bp.py"),
                   WTUNE_BP_CACHE="{D}/bp-cache")
 
     def stage(cid, layout, args, env=None, twice=False):

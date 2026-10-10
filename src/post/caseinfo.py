@@ -15,7 +15,7 @@ from __future__ import annotations
 import os
 from datetime import datetime
 
-import wtune_cli as _core
+from wtune import cli as _core
 from post import atcf
 from post.extract import list_frames, segment_dirs
 
@@ -51,11 +51,11 @@ def find_namelist(run_dir):
     bug where a literal '/' anywhere on a line ended the current namelist group -- false-
     triggering on namelist.output's own machine-dumped string defaults that contain a path,
     e.g. ` PATH_TO_FILES = ~/WRFV3/,` inside &physics, silently truncating that group before
-    cu_physics/bl_pbl_physics/ra_lw_physics were ever read. Fixed upstream in wtune_cli.py (a
+    cu_physics/bl_pbl_physics/ra_lw_physics were ever read. Fixed upstream in wtune/cli.py (a
     group now ends only at a slash standing alone at end of line); see
     tests/test_post_caseinfo.py::test_parse_namelist_keeps_group_past_unquoted_path_value."""
     # a segmented `wtune run --out` dir has no namelist of its own: its first segment's
-    # (OUT/seg_0) carries the case's grid/physics/bdy_control unchanged (wtune_run.py
+    # (OUT/seg_0) carries the case's grid/physics/bdy_control unchanged (wtune/run/
     # render_segment_namelist only rewrites times, decomposition and restart settings).
     segs = segment_dirs(run_dir)
     for d in [run_dir] + segs[:1]:

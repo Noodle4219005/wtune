@@ -4,8 +4,8 @@ import datetime
 import numpy as np
 import pytest
 
-import wtune_cost_drivers as cd
-import wtune_probe_plan as plan
+from wtune import cost_drivers as cd
+from wtune import probe_plan as plan
 
 D = datetime.datetime
 RUN_START = D(2022, 6, 24, 0)
@@ -315,7 +315,7 @@ def test_python_dash_m_help_runs_from_src():
     import subprocess
     import sys
     src = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src")
-    r = subprocess.run([sys.executable, "-m", "wtune_cost_drivers", "--help"], cwd=src,
+    r = subprocess.run([sys.executable, "-m", "wtune.cost_drivers", "--help"], cwd=src,
                        capture_output=True, text=True, env={k: v for k, v in os.environ.items()
                                                             if k != "PYTHONPATH"})
     assert r.returncode == 0, r.stderr

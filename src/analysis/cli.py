@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""analysis/cli.py -- `wtune.py analyze` subcommands: tc-track, diag.
+"""analysis/cli.py -- `wtune/cli.py analyze` subcommands: tc-track, diag.
 
-    wtune.py analyze tc-track --wrfout 'glob' --hurdat2 FILE --storm AL122005 --out DIR
+    wtune/cli.py analyze tc-track --wrfout 'glob' --hurdat2 FILE --storm AL122005 --out DIR
         [--first-guess LAT,LON] [--vars slp,wspd10,pw,td2]
         [--mintime-h H] [--maxgap-h H] [--range-deg D] [--ocean-only-naive]
 
@@ -9,7 +9,7 @@
         TempestExtremes provenance), DIR/track.csv (chosen track), DIR/compare.csv
         (tracker vs. naive vs. best track per matched time), prints a short table.
 
-    wtune.py analyze diag --wrfout 'glob' --vars slp,pw,wspd10 --out FILE.nc
+    wtune/cli.py analyze diag --wrfout 'glob' --vars slp,pw,wspd10 --out FILE.nc
 
         Writes wrf-python derived diagnostic fields only (analysis.diagnostics), no
         tracking. Useful to inspect the fields TempestExtremes will see.

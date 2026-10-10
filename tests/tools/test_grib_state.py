@@ -20,7 +20,7 @@ import numpy as np
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import grib_state as gs          # noqa: E402
-import wtune_solar as wsolar     # noqa: E402
+from wtune import solar as wsolar     # noqa: E402
 
 
 # ---------------------------------------------------------------------------

@@ -2,6 +2,7 @@
 """`wtune run --sidecar`: restart validation records and in-allocation history conversion.
 Every srun is a fake handle; the conversion it stands for is wtune_sidecar's own CLI run
 in-process on test_post_bp_cache's fake BP directories (no adios2)."""
+from conftest import swap_wtune_module
 import datetime as dt
 import json
 import os
@@ -12,7 +13,7 @@ import pytest
 pytest.importorskip("netCDF4")
 
 import test_wtune_run  # noqa: F401  first: its wtune_run import restores SITE/configs
-import wtune_sidecar as ws  # noqa: E402
+from wtune import sidecar as ws  # noqa: E402
 from post import extract  # noqa: E402
 from test_post_bp_cache import _bp, _fresh_process, fake_bp  # noqa: E402,F401
 from test_wtune_run_resume import FMT, T0, _real_bp, _rsl  # noqa: E402
@@ -285,11 +286,11 @@ def test_restart_validation_records_each_new_valid_set(tmp_path, fake_bp):  # no
 # through `wtune run`
 # ---------------------------------------------------------------------------
 def test_wtune_run_sidecar_hook(tmp_path, monkeypatch):
-    import wtune_predict as wp
-    import wtune_run as wr
-    import wtune_watch
+    from wtune import predict as wp
+    from wtune import run as wr
+    from wtune import watch as wtune_watch
     import test_wtune_run as twr
-    monkeypatch.setitem(sys.modules, "wtune_bp", twr.FakeBP().module())
+    swap_wtune_module(monkeypatch, "bp", twr.FakeBP().module())
     monkeypatch.delenv("WTUNE_PROJECT", raising=False)
     monkeypatch.delenv(extract.NC_CACHE_ENV, raising=False)
 

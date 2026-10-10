@@ -11,7 +11,7 @@ import pytest
 from PIL import Image
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
-import wtune_geog as g  # noqa: E402
+from wtune import geog as g  # noqa: E402
 
 SRC = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src")
 
@@ -286,16 +286,16 @@ def test_g3_no_tune_or_advise_path_reaches_geog():
     importers = []
     for root, _, files in os.walk(SRC):
         for f in files:
-            if not f.endswith(".py") or f == "wtune_geog.py":
+            if not f.endswith(".py") or (f == "geog.py" and root.endswith("wtune")):
                 continue
             txt = open(os.path.join(root, f), errors="replace").read()
-            if re.search(r"^\s*(import|from)\s+wtune_geog\b|importlib.*wtune_geog", txt, re.M):
+            if re.search(r"^\s*from\s+wtune\s+import\s+geog\b|^\s*(import|from)\s+wtune\.geog\b", txt, re.M):
                 importers.append(f)
-    assert importers == ["wtune_cli.py"], importers
-    cli = open(os.path.join(SRC, "wtune_cli.py")).read()
-    m = re.search(r"if args.command == 'prep':\n\s+import wtune_geog", cli)
+    assert importers == ["cli.py"], importers
+    cli = open(os.path.join(SRC, "wtune", "cli.py")).read()
+    m = re.search(r"if args.command == 'prep':\n\s+from wtune import geog as wtune_geog", cli)
     assert m, "wtune_geog must be imported only inside the 'prep' dispatch"
-    assert cli.count("import wtune_geog") == 1
-    mine = open(os.path.join(SRC, "wtune_geog.py")).read()
-    for banned in ("wtune_tune", "wtune_advise", "wtune_calc", "wtune_probe_plan", "wtune_cost_drivers"):
-        assert not re.search(r"^\s*(import|from)\s+%s\b" % banned, mine, re.M)
+    assert cli.count("import geog as wtune_geog") == 1
+    mine = open(os.path.join(SRC, "wtune", "geog.py")).read()
+    for banned in ("tune", "advise", "calc", "probe_plan", "cost_drivers"):
+        assert not re.search(r"^\s*from\s+wtune(\.%s\b|\s+import\s+%s\b)" % (banned, banned), mine, re.M)

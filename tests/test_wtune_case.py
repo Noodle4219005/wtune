@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for wtune_case.py -- the case-understanding profile. Synthetic namelists only, no
+"""Tests for wtune/case.py -- the case-understanding profile. Synthetic namelists only, no
 netCDF4 required (wrfinput-derived fields must degrade gracefully when it is absent).
 
 Run: python3 -m pytest -q test_wtune_case.py
@@ -11,8 +11,8 @@ import tempfile
 
 import pytest
 
-import wtune_case as wc
-import wtune_physics as phys
+from wtune import case as wc
+from wtune import physics as phys
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # tests/ -> repo root
 

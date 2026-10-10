@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# bin/wtune -- launches wtune.py under the envs/wtune pixi environment (python 3.11 + numpy,
+# bin/wtune -- launches src/wtune under the envs/wtune pixi environment (python 3.11 + numpy,
 # netCDF4, catboost, scikit-learn, cfgrib... -- see envs/wtune/pixi.toml), never under a bare
 # system python3. scc's /usr/bin/python3 has none of numpy/catboost/sklearn, so the CatBoost
 # proposer (predictor/decomp_search.py) never ran there under a bare-python invocation; this is
-# the fix, not a change to wtune.py itself. See campaign/configs.py's module docstring (2026-09-24
+# the fix. See campaign/configs.py's module docstring (2026-09-24
 # update) for the wider "supported interpreter" note.
 set -euo pipefail
 
@@ -24,4 +24,4 @@ if [ -z "$pixi_bin" ]; then
   exit 1
 fi
 
-exec "$pixi_bin" run --manifest-path "$manifest" python "$repo/wtune.py" "$@"
+exec "$pixi_bin" run --manifest-path "$manifest" python "$repo/src/wtune" "$@"

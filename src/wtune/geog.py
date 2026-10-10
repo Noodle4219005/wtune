@@ -1,4 +1,4 @@
-"""wtune_geog.py -- OPTIONAL high-resolution WPS_GEOG datasets and external DEM import
+"""wtune/geog.py -- OPTIONAL high-resolution WPS_GEOG datasets and external DEM import
 (decision 0063).  `wtune prep geog <list|fetch|import-dem|verify|bounds|srtm-fetch>`.
 
 Nothing here runs unless the user types the command: wtune tune / advise / calc never import

@@ -10,7 +10,7 @@ import netCDF4
 import numpy as np
 import pytest
 
-import wtune_project as proj
+from wtune import project as proj
 from analysis import tc_track
 from post import tc, tools
 

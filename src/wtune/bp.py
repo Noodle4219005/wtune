@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""wtune_bp.py -- shared ADIOS2 (WRF io_form 14) helpers: BP detection, netCDF <-> BP conversion,
+"""wtune/bp.py -- shared ADIOS2 (WRF io_form 14) helpers: BP detection, netCDF <-> BP conversion,
 a manifest-cached input converter, round-trip check, the run-dir adios2.xml, `wtune convert`.
 
 adios2 lives in its own env (envs/adios2; hdf5 conflict with envs/wtune): the converters run as a

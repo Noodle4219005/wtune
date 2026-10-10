@@ -6,8 +6,8 @@ import re
 
 import pytest
 
-from wtune_tune import jobs
-from wtune_tune._deps import sweep
+from wtune.tune import jobs
+from wtune.tune._deps import sweep
 import test_wtune_tune as T
 
 

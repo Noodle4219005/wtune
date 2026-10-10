@@ -12,7 +12,7 @@ import re
 import numpy as np
 import pytest
 
-import wtune_bp
+from wtune import bp as wtune_bp
 
 GOLDEN = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures", "golden", "bp",
                       "bp_snapshots.json")

@@ -379,7 +379,7 @@
         "cu_physics"
       ],
       "source_level": "rule-of-thumb",
-      "source_ref": "community convention; same thresholds as src/wtune_case.py:_dx_regime (needs verification on scc for specific cases)",
+      "source_ref": "community convention; same thresholds as src/wtune/case.py:_dx_regime (needs verification on scc for specific cases)",
       "applicability": "physics suites without cu_physics = -1 (a suite default is not resolved here)",
       "exceptions": "deliberate explicit-convection runs at 12 km, or cumulus kept at 3-4 km for specific events, are legitimate",
       "message": {
@@ -419,7 +419,7 @@
         "ranks"
       ],
       "source_level": "wrf-doc",
-      "source_ref": "share/module_check_a_mundo.F:3014-3029 (Fortran integer division, 'Minimum decomposed computational patch size, either x-dir or y-dir, is 10 grid cells'); reuses src/wtune_case.py:compute_r_max and src/predictor/decomp_space.py:legal_shapes_exact",
+      "source_ref": "share/module_check_a_mundo.F:3014-3029 (Fortran integer division, 'Minimum decomposed computational patch size, either x-dir or y-dir, is 10 grid cells'); reuses src/wtune/case.py:compute_r_max and src/predictor/decomp_space.py:legal_shapes_exact",
       "applicability": "explicit nproc_x/nproc_y > 0 (automatic decomposition picks a legal shape itself or aborts)",
       "exceptions": "none",
       "message": {
@@ -480,7 +480,7 @@
         "n2d"
       ],
       "source_level": "rule-of-thumb",
-      "source_ref": "ESTIMATE. Defaults n3d=22 (19 mass-level + 3 staggered-level 3-D fields) and n2d=76 (70 + 6 2-D fields with an extra categorical dimension) are the variable counts of a real matthew wrfinput_d01 (/home/nk/wrf-local/matthew, 91x100x45): the formula gives 38 MB vs 40.3 MB uncompressed on that file (-6%). That is wrfinput, NOT wrfout (no local wrfout exists); a wrfout carries more diagnostics, so treat the default as a floor. Pass --n3d/--n2d (or an iofields subset) for a real case; src/wtune_predict.py:iofields_frame_bytes sizes an exact subset.",
+      "source_ref": "ESTIMATE. Defaults n3d=22 (19 mass-level + 3 staggered-level 3-D fields) and n2d=76 (70 + 6 2-D fields with an extra categorical dimension) are the variable counts of a real matthew wrfinput_d01 (/home/nk/wrf-local/matthew, 91x100x45): the formula gives 38 MB vs 40.3 MB uncompressed on that file (-6%). That is wrfinput, NOT wrfout (no local wrfout exists); a wrfout carries more diagnostics, so treat the default as a floor. Pass --n3d/--n2d (or an iofields subset) for a real case; src/wtune/predict.py:iofields_frame_bytes sizes an exact subset.",
       "applicability": "history/restart size planning before the first run",
       "exceptions": "iofields_filename subsets, chem/hydro/aux streams, compressed io_form 14 or netCDF4 compression change the size",
       "message": {
@@ -500,7 +500,7 @@
         "e_vert"
       ],
       "source_level": "wtune-measured",
-      "source_ref": "machine/calibration/scc.json derived.bytes_per_cell_level (conus25: 2786477540 B / (1501*1201*50)); the same constant src/wtune_predict.py applies",
+      "source_ref": "machine/calibration/scc.json derived.bytes_per_cell_level (conus25: 2786477540 B / (1501*1201*50)); the same constant src/wtune/predict.py applies",
       "applicability": "a history frame with the conus25 output variable set",
       "exceptions": "other output sets scale differently",
       "message": {
@@ -519,7 +519,7 @@
         "time_step"
       ],
       "source_level": "wrf-doc",
-      "source_ref": "run/README.namelist:9-13 (run_days/run_hours/...), :155 (time_step); implemented by src/wtune_predict.py:get_d01_steps",
+      "source_ref": "run/README.namelist:9-13 (run_days/run_hours/...), :155 (time_step); implemented by src/wtune/predict.py:get_d01_steps",
       "applicability": "fixed time step",
       "exceptions": "adaptive time stepping changes the count",
       "message": {
@@ -540,7 +540,7 @@
         "ny"
       ],
       "source_level": "wtune-measured",
-      "source_ref": "src/wtune_predict.py build_prediction; machine/calibration/scc.json; accuracy statements live with that module",
+      "source_ref": "src/wtune/predict.py build_prediction; machine/calibration/scc.json; accuracy statements live with that module",
       "applicability": "scc f1 nodes with a matching calibration",
       "exceptions": "see wtune_predict for out-of-sample caveats",
       "message": {

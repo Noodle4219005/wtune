@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """wtune decomp -- every decomposition axis WRF actually exposes, in one place.
 
-`wtune_shape.py` ranks nproc_x x nproc_y and picks a numtiles. That is four of the eleven axes
+`wtune/shape.py` ranks nproc_x x nproc_y and picks a numtiles. That is four of the eleven axes
 the source actually has. This enumerates all of them, applies the constraint each one really
 carries, and says WHY the rejected ones are rejected -- with a source line or a measurement,
 never an assertion.

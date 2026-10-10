@@ -33,7 +33,7 @@ The model is a function of patch width because that is what the sweep says it is
 So halo volume is not the driver; the length of the contiguous i-dimension inner loop is.
 `--validate` replays the sweep and prints the residuals rather than asserting the fit is good.
 
-Only `patch_dims` is still called (wtune_case.py). The ranking functions and the command line
+Only `patch_dims` is still called (wtune/case.py). The ranking functions and the command line
 are in archive/unused-2026-10/src/wtune_shape_legacy.py; the measured constants stay here.
 """
 from __future__ import annotations

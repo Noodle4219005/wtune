@@ -258,7 +258,7 @@ def build_full_run_prediction(ctx: Ctx, best_config: dict | None, nodes: int, al
                               probe_measurements: list | None = None) -> str:
     """The winner's full-run prediction text: combine() over `probe_measurements` when given,
     else wtune_predict.build_prediction fed this run's probe ledger (+ notes). Without
-    wtune_predict or a winner: the `wtune.py predict` command to run instead. Never raises."""
+    wtune_predict or a winner: the `wtune/cli.py predict` command to run instead. Never raises."""
     if wtune_predict is None or best_config is None:
         return ("full-run prediction: run `python3 wtune.py predict %s --nodes %d --config "
                 "'%s'`" % (ctx.case_json["prep_dir"], nodes,

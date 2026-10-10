@@ -23,7 +23,7 @@ from collections import Counter, defaultdict
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 try:
-    import wtune_compliance  # repo root, read-only import
+    from wtune import compliance as wtune_compliance  # repo root, read-only import
 except ImportError:
     wtune_compliance = None  # classify() falls back to UNCLASSIFIED-safe heuristics below
 
@@ -58,7 +58,7 @@ LEDGER_FIELDS = [
 # Fields not in LEDGER_FIELDS, carried per-row only to decide compliance_class (never written out).
 _EXTRA_KNOB_KEY = "_extra_knobs"
 
-# ledger field -> wtune_compliance.py catalog knob name, used to classify a config that differs
+# ledger field -> wtune/compliance.py catalog knob name, used to classify a config that differs
 # from its case's baseline. Only fields that ever vary within one case_base are listed; grid
 # geometry (e_we/e_sn/e_vert/dx) is a case property, not a config knob, so it is excluded here.
 KNOB_CATALOG_NAME = {
@@ -619,7 +619,7 @@ ADAPTERS = [
 #
 # "A run row is STRICT if every knob that differs from its case baseline is STRICT, and
 # PHYSICS-GRAY if any differing knob is physics." PLOV/wtimer/--wrap binaries are always RESEARCH
-# (overrides everything else), per the brief and per wtune_compliance.py's own RESEARCH carve-out
+# (overrides everything else), per the brief and per wtune/compliance.py's own RESEARCH carve-out
 # for plov_*/link_wrap/ld_preload_shim.
 #
 # "Case baseline" here is computed per (case_base, n_ranks, omp_threads) group -- i.e. among runs

@@ -224,7 +224,7 @@ RADAR_IDS = ("conv_radar_compare", "conv_radar_scores", "conv_fss")
 
 def _project_of(out_dir):
     try:
-        from wtune_project import find_project
+        from wtune.project import find_project
         return find_project(out_dir)
     except Exception:
         return None

@@ -7,7 +7,7 @@ Regenerate (only when a behaviour change is intended) with:
 import json
 import os
 
-import wtune_config as wcfg
+from wtune import config as wcfg
 
 GOLDEN = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                       "fixtures", "golden", "config", "resolve_config.json")

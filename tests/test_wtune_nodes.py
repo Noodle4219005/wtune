@@ -1,7 +1,7 @@
-"""pytest suite for wtune_nodes.py (pure node-count selection from measured s/step)."""
+"""pytest suite for wtune/nodes.py (pure node-count selection from measured s/step)."""
 import pytest
 
-import wtune_nodes as wn
+from wtune import nodes as wn
 
 NONMONO = {1: [1.0, 1.02], 2: [0.52, 0.53], 4: [0.30, 0.31], 8: [0.33, 0.34]}
 

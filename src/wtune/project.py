@@ -1,4 +1,4 @@
-"""wtune_project.py -- `wtune project init|info|set` (decision 0058): a project folder that
+"""wtune/project.py -- `wtune project init|info|set` (decision 0058): a project folder that
 collects one WRF case's definition/inputs/config, every wtune tune/predict-rebuild/run
 output, and every post-processing figure/report under one user-named directory, so nothing
 has to be tracked by hand across separate --out flags.

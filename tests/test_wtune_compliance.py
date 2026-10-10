@@ -5,15 +5,12 @@ import subprocess
 import sys
 import unittest
 
-from wtune_compliance import (
-    CATALOG, GATE_FOR_NUMERICS, LEVELS, PHYSICS_GRAY, REQUIRED_FIELDS, RESEARCH,
-    STRICT, UNCLASSIFIED, ComplianceError, admits, assert_strict_only, classify, validate,
-)
+from wtune.compliance import (CATALOG, GATE_FOR_NUMERICS, LEVELS, PHYSICS_GRAY, REQUIRED_FIELDS, RESEARCH, STRICT, UNCLASSIFIED, ComplianceError, admits, assert_strict_only, classify, validate)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # tests/ -> repo root
 SRC = os.path.join(ROOT, "src")
 
-# Params the physics-candidate screener (wtune_physics.py _effective_opinion) emits today.
+# Params the physics-candidate screener (wtune/physics.py _effective_opinion) emits today.
 PHYSICS_CANDIDATE_PARAMS = [
     'io_form_history', 'io_form_restart', 'io_form_input', 'numtiles', 'nproc_x', 'nproc_y',
     'swint_opt', 'radt', 'time_step', 'mp_physics', 'h_sca_adv_order', 'h_mom_adv_order',
@@ -30,7 +27,7 @@ def _entry(name):
 
 
 def _extract_physics_params():
-    text = open(os.path.join(SRC, 'wtune_physics.py')).read()
+    text = open(os.path.join(SRC, 'wtune', 'physics.py')).read()
     m = re.search(r"def _effective_opinion\(.*?\n(?=def )", text, re.S)
     self_assert = m is not None
     block = m.group(0) if m else ''
@@ -258,13 +255,13 @@ class AdvisorCoverageTests(unittest.TestCase):
 
 class CliSmokeTests(unittest.TestCase):
     def test_compliance_validate_exits_zero(self):
-        rc = subprocess.call([sys.executable, os.path.join(ROOT, 'wtune.py'), 'compliance', 'validate'],
+        rc = subprocess.call([sys.executable, os.path.join(ROOT, 'src', 'wtune'), 'compliance', 'validate'],
                               cwd=ROOT, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         self.assertEqual(rc, 0)
 
     def test_compliance_classify_numtiles_prints_strict(self):
         out = subprocess.check_output(
-            [sys.executable, os.path.join(ROOT, 'wtune.py'), 'compliance', 'classify', 'numtiles'],
+            [sys.executable, os.path.join(ROOT, 'src', 'wtune'), 'compliance', 'classify', 'numtiles'],
             cwd=ROOT).decode()
         self.assertIn('numtiles STRICT', out)
 

@@ -18,16 +18,27 @@ def add_src_to_path() -> None:
         sys.path.insert(0, SRC_DIR)
 
 
+_BP_BY_PATH = {}
+
+
 def _import_wtune_bp() -> ModuleType:
-    """src/wtune_bp (the ADIOS2 converter), from $WTUNE_SRC, else this checkout's src/.
+    """src/wtune/bp.py (the ADIOS2 converter), from $WTUNE_SRC, else this checkout's src/.
 
     It runs on the stdlib and calls the adios2 converters in envs/adios2's interpreter.
+    $WTUNE_SRC's copy is loaded by path: `wtune` may already be this checkout's package.
     """
-    for src in (os.environ.get("WTUNE_SRC"), SRC_DIR):
-        if src and os.path.isfile(os.path.join(src, "wtune_bp.py")):
-            for p in (os.path.join(src, "tools"), src):
-                if p not in sys.path:
-                    sys.path.insert(0, p)
-            break
-    import wtune_bp
+    src = os.environ.get("WTUNE_SRC")
+    path = os.path.join(src, "wtune", "bp.py") if src else None
+    if path and os.path.isfile(path) and os.path.abspath(src) != os.path.abspath(SRC_DIR):
+        if path not in _BP_BY_PATH:
+            import importlib.util
+            spec = importlib.util.spec_from_file_location("wtune_bp_from_wtune_src", path)
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            _BP_BY_PATH[path] = mod
+        return _BP_BY_PATH[path]
+    for p in (os.path.join(SRC_DIR, "tools"), SRC_DIR):
+        if p not in sys.path:
+            sys.path.insert(0, p)
+    from wtune import bp as wtune_bp
     return wtune_bp

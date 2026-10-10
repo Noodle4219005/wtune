@@ -18,7 +18,7 @@ from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import coldstart_sample as cs   # noqa: E402
-import wtune_predict as predict  # noqa: E402
+from wtune import predict as predict  # noqa: E402
 
 
 _WRF_TIME_FMT = cs._WRF_TIME_FMT

@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""wtune_calibrate.py -- produce a machine calibration file for wtune_predict.py by running
+"""wtune/calibrate.py -- produce a machine calibration file for wtune/predict.py by running
 the user's own WRF case at several rank counts on a new cluster and fitting the calibration
-constants wtune_predict.py's offline wall-time model consumes, instead of hand-editing JSON
+constants wtune/predict.py's offline wall-time model consumes, instead of hand-editing JSON
 the way machine/calibration/scc.json was built.
 
-Read first: wtune_predict.py's module docstring ('Calibration' section) and its
+Read first: wtune/predict.py's module docstring ('Calibration' section) and its
 load_calibration/predict_init/predict_compute/build_prediction for exactly how each key below
 is consumed; machine/calibration/scc.json for the schema and its *_source/_note provenance
 convention (every derived number cites the raw measured fact(s) it came from, or is labelled
@@ -15,7 +15,7 @@ tool reuses instead of re-implementing namelist surgery.
 
 Two subcommands:
 
-  wtune_calibrate.py plan --site SITE --case-dir CASE --out DIR
+  wtune/calibrate.py plan --site SITE --case-dir CASE --out DIR
       [--ranks-list 1,36,72,144,288] [--cores-per-node 72] [--steps 20] [--min-patch 10]
       [--time-limit 00:15:00]
 
@@ -36,7 +36,7 @@ Two subcommands:
     plan never calls sbatch itself -- submission (respecting whatever concurrent-job limit the
     site imposes) is a separate, explicit step the caller controls.
 
-  wtune_calibrate.py fit --runs DIR --out machine/calibration/<name>.json
+  wtune/calibrate.py fit --runs DIR --out machine/calibration/<name>.json
       [--base machine/calibration/scc.json] [--cores-per-node 72] [--host HOST]
 
     --runs is repeatable: pass it once per plan --out directory (e.g. once for a small case's
@@ -55,7 +55,7 @@ Two subcommands:
         feeds startup_s_per_node instead, neither should also pull the cap's own median.
       - startup_s_base/startup_s_per_rank: least-squares wall - sum(main) over runs with
         ranks < --cores-per-node (same min(cap, base + per_rank*ranks) sub-node model
-        wtune_predict.py already implements).
+        wtune/predict.py already implements).
       - startup_s_per_node: the cap's growth per additional node beyond one (predict_init:
         startup_term = startup_s + startup_s_per_node*(nodes-1), evidence: a 4-node/192-rank
         sc26p2 run's wall - sum(main) ~32s vs a 1-node run's ~19.4s). Fitted from every run with
@@ -606,7 +606,7 @@ def fit_startup(used, cores_per_node):
         base = 0.0
     base_clipped = max(0.0, base) if base is not None else None
 
-    # predict_init (wtune_predict.py) computes startup_term = min(startup_s + ...,
+    # predict_init (wtune/predict.py) computes startup_term = min(startup_s + ...,
     # startup_s_base + startup_s_per_rank*ranks) -- that min() assumes per_rank >= 0 (a
     # sub-node line that rises toward the cap and gets clamped by it). A NEGATIVE per_rank
     # makes that second term fall WITHOUT BOUND as ranks grows, so min() picks it over the cap

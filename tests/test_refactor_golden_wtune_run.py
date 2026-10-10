@@ -19,8 +19,8 @@ import pytest
 import test_wtune_run as T          # first: its wtune_run import restores SITE/configs
 import test_wtune_extensions as TE
 import test_wtune_run_resume as TR
-import wtune_run as wr
-from test_wtune_run import fake_bp  # noqa: F401  (autouse: the fake src/wtune_bp)
+from wtune import run as wr
+from test_wtune_run import fake_bp  # noqa: F401  (autouse: the fake src/wtune/bp.py)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
@@ -333,7 +333,7 @@ def test_golden_run_prints_with_the_default_log(tmp_path, capsys):
 
 
 def test_golden_run_project_default_out(tmp_path, capsys):
-    import wtune_project
+    from wtune import project as wtune_project
     T._make_case(tmp_path)
     proj = tmp_path / "proj"
     wtune_project.init_project(str(proj))
@@ -383,8 +383,8 @@ def test_golden_cli_help():
 @pytest.mark.parametrize("entry", ["script", "module"])
 def test_golden_entry_points(entry, tmp_path):
     env = dict(os.environ, COLUMNS="100", PYTHONPATH=SRC)
-    argv = ([sys.executable, os.path.join(SRC, "wtune_run.py")] if entry == "script"
-            else [sys.executable, "-m", "wtune_run"])
+    argv = ([sys.executable, os.path.join(SRC, "wtune", "run")] if entry == "script"
+            else [sys.executable, "-m", "wtune.run"])
     T._make_case(tmp_path)
     out = []
     for args in (["--help"], [str(tmp_path / "case")] + LAYOUT + [
@@ -689,7 +689,7 @@ LAYERS = ["_deps", "common", "geometry", "estimate", "layout", "plan", "namelist
 def test_package_layers_import_only_lower_layers():
     """Each wtune_run module imports (from .x) only modules listed before it in LAYERS."""
     import ast
-    pkg = os.path.join(SRC, "wtune_run")
+    pkg = os.path.join(SRC, "wtune", "run")
     if not os.path.isdir(pkg):
         pytest.skip("single-module wtune_run")
     found = sorted(n[:-3] for n in os.listdir(pkg)

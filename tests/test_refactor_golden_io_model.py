@@ -9,7 +9,7 @@ import json
 import os
 
 import test_wtune_io_model as tim
-import wtune_io_model as iom
+from wtune import io_model as iom
 
 GOLDEN = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures", "golden",
                       "io_model", "run_length_io.json")

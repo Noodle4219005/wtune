@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""wtune_io_model.py: run-length I/O terms of the whole-run prediction (release 0.8.2).
+"""wtune/io_model.py: run-length I/O terms of the whole-run prediction (release 0.8.2).
 
 Calibration evidence (scc, 2026-10): climate-ea50 150x110x45 50 km, dt 240 s, 142,560 steps
 (396 d), history 6 h (frames_per_outfile 4), interval_seconds 21600, sst_update=1 auxinput4 6 h,
@@ -8,9 +8,9 @@ summed; rsl: history+restart writes 1598 x 0.74 s = 1181 s, lateral boundary 158
 494 s, other in-step ~260 s (sst_update reads etc.), per-segment startup 14 x ~53 s = 745 s."""
 import pytest
 
-import wtune_io_model as iom
-import wtune_predict as wp
-import wtune_run as wr
+from wtune import io_model as iom
+from wtune import predict as wp
+from wtune import run as wr
 
 CLIMATE_EA50 = """ &time_control
  run_days = 0, run_hours = 0, run_minutes = 0, run_seconds = 34214400,
@@ -76,7 +76,7 @@ def _nl(tmp_path, text, name="namelist.input"):
     return wp.parse_namelist(str(p))
 
 
-# --- the copied formula equals wtune_run.py's ------------------------------------------------
+# --- the copied formula equals wtune/run/'s ------------------------------------------------
 def test_constants_are_the_wtune_run_copies():
     assert iom.CONUS25_RESTART_POINTS == wr.CONUS25_RESTART_POINTS
     assert iom.RESTART_IO_ANCHOR_S == wr.RESTART_IO_ANCHOR_S

@@ -51,7 +51,7 @@ for _p in (_REPO_ROOT, _HERE):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-import wtune_predict as predict   # repo root -- delegates run-length resolution to
+from wtune import predict as predict   # repo root -- delegates run-length resolution to
                                    # wtune_runlength.resolve_run_seconds internally
                                    # (stdlib only, per its own docstring -- no numpy)
 
@@ -607,7 +607,7 @@ def _inspect_capabilities(nl, case_dir, geog_path, rows, blockers):
     if obs_nudge_opt > 0:
         blockers.append("obs_nudge_opt=%d needs observation files (unsupported)" % obs_nudge_opt)
 
-    import wtune_extensions
+    from wtune import extensions as wtune_extensions
     for _d in wtune_extensions.detect(nl, case_dir):
         if _d["id"] in ("hydro", "movenest", "wrfda") and _d["active"]:
             rows.append((_d["label"], True, "; ".join(_d["evidence"]),

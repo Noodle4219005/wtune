@@ -1,4 +1,4 @@
-"""Tests for wtune_advise.py (decision 0061): detectors with fixtures/fakes, each rule firing and
+"""Tests for wtune/advise.py (decision 0061): detectors with fixtures/fakes, each rule firing and
 not firing, A4 (an ordinary non-TC case fires no TC rule), the JSON shape, the CLI.
 
 Real inputs: tests/fixtures/post/m1-namelist.input (Katrina m1: 12->4 km, d02 cu_physics=0,
@@ -17,7 +17,7 @@ import sys
 import numpy as np
 import pytest
 
-import wtune_advise as adv
+from wtune import advise as adv
 
 FIXTURES = os.path.join(os.path.dirname(__file__), "fixtures", "post")
 NAMELIST = os.path.join(FIXTURES, "m1-namelist.input")
@@ -418,7 +418,7 @@ def test_render_html_and_report_hook(tmp_path, monkeypatch):
 
 
 def test_tune_hook_appends_text_and_json(monkeypatch):
-    import wtune_tune
+    from wtune import tune as wtune_tune
     fake = {"case": "k", "surface": "advise", "case_types": ["common"], "unavailable": {"x": "r"},
             "footer": adv.load_rules()["footer"], "not_fired": [],
             "advice": [{"id": "i", "title": "T", "trigger": "t", "recommendation": "r", "how": ["h"],
@@ -460,13 +460,13 @@ def test_cli_json_and_need_comma_list(tmp_path, monkeypatch, capsys):
 
 
 def test_wtune_cli_dispatches_advise(tmp_path):
-    out = subprocess.run([sys.executable, os.path.join(REPO, "wtune.py"), "--help"],
+    out = subprocess.run([sys.executable, os.path.join(REPO, "src", "wtune"), "--help"],
                          capture_output=True, text=True, cwd=REPO)
     assert out.returncode == 0 and "advise" in out.stdout
     d = tmp_path / "c"
     d.mkdir()
     shutil.copy(NAMELIST, d / "namelist.input")
-    r = subprocess.run([sys.executable, os.path.join(REPO, "wtune.py"), "advise", str(d), "--need", "hydro"],
+    r = subprocess.run([sys.executable, os.path.join(REPO, "src", "wtune"), "advise", str(d), "--need", "hydro"],
                        capture_output=True, text=True, cwd=REPO)
     assert r.returncode == 0 and "WRF-Hydro" in r.stdout
 

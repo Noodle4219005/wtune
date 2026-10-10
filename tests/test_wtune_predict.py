@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for wtune_predict.py -- the offline wall-time predictor.
+"""Tests for wtune/predict.py -- the offline wall-time predictor.
 
 Run: /home/nk/miniforge3/envs/hqvit-pixi/bin/python3 -m pytest -q test_wtune_predict.py
 
@@ -28,7 +28,7 @@ import types
 
 import pytest
 
-import wtune_predict as wp
+from wtune import predict as wp
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # tests/ -> repo root
 CALIBRATION = os.path.join(HERE, "machine", "calibration", "scc.json")
@@ -619,7 +619,7 @@ def test_conus25_self_consistency_within_5pct(tmp_path):
 #        never read); io_form_history=2; restart_interval=120 (ONE restart
 #        at t=120min, for EVERY active domain -- d01 AND d02);
 #        frames_per_outfile is present in the real namelist but is NOT
-#        modeled by wtune_predict.py (noted, not simulated).
+#        modeled by wtune/predict.py (noted, not simulated).
 #      - isc21: 2026-09-22 REAL settings from the cluster (namelist +
 #        fields_d0N.txt content), replacing the earlier ASSUMED ones:
 #        io_form_history=0 (primary wrfout off); io_form_auxhist24=2 on all
@@ -632,7 +632,7 @@ def test_conus25_self_consistency_within_5pct(tmp_path):
 #        '+:h:24:U,V,T,QVAPOR,XLAT,XLONG,LU_INDEX,HGT'. Sized first-principles
 #        (no calibration constant): U/V staggered +1 in x/y, T/QVAPOR
 #        unstaggered 3-D, XLAT/XLONG/LU_INDEX/HGT 2-D -- all 8 names are in
-#        wtune_predict.py's built-in table, nothing guessed.
+#        wtune/predict.py's built-in table, nothing guessed.
 # --------------------------------------------------------------------------
 
 MARIA1KM_NAMELIST = """\
@@ -786,7 +786,7 @@ def test_holdout_maria1km_within_20pct(tmp_path):
 
 
 # --------------------------------------------------------------------------
-# 8. wtune.py CLI hook smoke test
+# 8. wtune/cli.py CLI hook smoke test
 # --------------------------------------------------------------------------
 
 def test_wtune_py_predict_subcommand_smoke(tmp_path):
@@ -795,7 +795,7 @@ def test_wtune_py_predict_subcommand_smoke(tmp_path):
     _write(str(case_dir / "namelist.input"), CONUS25_NAMELIST)
     out_json = tmp_path / "out.json"
     result = subprocess.run(
-        [sys.executable, os.path.join(HERE, "wtune.py"), "predict", str(case_dir),
+        [sys.executable, os.path.join(HERE, "src", "wtune"), "predict", str(case_dir),
          "--nodes", "7", "--nx", "24", "--ny", "30", "--ranks", "720",
          "--calibration", CALIBRATION, "--json", str(out_json)],
         capture_output=True, text=True, cwd=HERE)
@@ -1605,11 +1605,11 @@ def test_wtune_predict_cli_case_name_flag(tmp_path):
     _write(str(ledger_path), LEDGER_HEADER + "\n" + _ledger_row(**row) + "\n")
     out_json = tmp_path / "out.json"
     result = subprocess.run(
-        [sys.executable, os.path.join(HERE, "src", "wtune_predict.py"), "predict", str(case_dir),
+        [sys.executable, "-m", "wtune.predict", "predict", str(case_dir),
          "--nodes", "1", "--nx", "9", "--ny", "8", "--ranks", "72",
          "--probe", str(ledger_path), "--case-name", "lafe",
          "--calibration", CALIBRATION, "--json", str(out_json)],
-        capture_output=True, text=True, cwd=HERE)
+        capture_output=True, text=True, cwd=os.path.join(HERE, "src"))
     assert result.returncode == 0, result.stderr
     doc = json.loads(out_json.read_text())
     assert doc["compute"]["source"] == "measured"

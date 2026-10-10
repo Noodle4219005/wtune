@@ -24,7 +24,7 @@ import numpy as np
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import case_rebuild as cr   # noqa: E402
 import coldstart_sample as cs  # noqa: E402
-import wtune_predict as predict  # noqa: E402
+from wtune import predict as predict  # noqa: E402
 
 _WRF_TIME_FMT = cr._WRF_TIME_FMT
 

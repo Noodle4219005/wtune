@@ -95,7 +95,7 @@ def _parse_all():
 def _call(argv, tmp_path, monkeypatch):
     """main(argv) with the heavy backends stubbed; returns rc, stdout, stderr, backend calls."""
     from post import cf_pressure, fetch, recipe, tc, vapor_bundle
-    import wtune_project
+    from wtune import project as wtune_project
     from post import cli
     calls = []
 

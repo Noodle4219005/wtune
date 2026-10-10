@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Pure node-count selection from MEASURED seconds/step (stdlib only, no I/O).
 
-wtune_tune.py's old `choose_nodes` picks N from an uncalibrated efficiency proxy; measured scc
+wtune/tune/'s old `choose_nodes` picks N from an uncalibrated efficiency proxy; measured scc
 scaling disagrees (large cases keep 82-87% efficiency at 8 nodes, small ones drop to 24-46%, some
 are slower at 8 than at 4). This module turns per-N measurements {nodes: [s_per_step, ...]} into
 a table and a choice under one of three objectives: time, cost, knee.

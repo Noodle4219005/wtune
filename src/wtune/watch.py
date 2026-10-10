@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""wtune_watch.py -- read-only monitor for a running (or finished) WRF run directory.
+"""wtune/watch.py -- read-only monitor for a running (or finished) WRF run directory.
 
     wtune watch RUNDIR [--interval SEC=60] [--once] [--json] [--replay-fraction F[,F...]]
         [--init-limit SEC=600] [--hang-factor K=10] [--hang-min SEC=300] [--prediction PRED_JSON]

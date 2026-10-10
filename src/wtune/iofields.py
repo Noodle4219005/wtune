@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""wtune_iofields.py -- WRF iofields files (`iofields_filename`): parse, count, merge lines.
+"""wtune/iofields.py -- WRF iofields files (`iofields_filename`): parse, count, merge lines.
 
 WRF re-parses the file on rank 0 at every input/output call (frame/module_domain.F
 modify_io_masks1) with 5 x lines + fields get_fieldstr calls, while every other rank waits.

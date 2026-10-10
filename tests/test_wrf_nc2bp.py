@@ -9,7 +9,7 @@ import sys
 import numpy as np
 import pytest
 
-import wtune_bp
+from wtune import bp as wtune_bp
 
 netCDF4 = pytest.importorskip("netCDF4")
 Dataset = netCDF4.Dataset

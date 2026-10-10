@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""wtune_probe_plan.py -- multi-point probe planning + whole-run combine (2026-09-26 redesign).
+"""wtune/probe_plan.py -- multi-point probe planning + whole-run combine (2026-09-26 redesign).
 
 A fixed 20-step t0 probe missed every radiation step and the spin-up cost ramp (conus25: -9.6 %).
 plan_points() places probe points on the run's own timeline (coldstart_sample's window policy
@@ -20,7 +20,7 @@ from typing import Any, Callable
 
 import coldstart_sample as coldstart   # tools/coldstart_sample.py -- READ-ONLY dependency: this
                                         # module calls its functions, never edits them.
-from wtune import predict as predict        # wtune_predict.py -- same read-only relationship.
+from wtune import predict as predict        # wtune/predict.py -- same read-only relationship.
 
 
 class ProbePlanError(Exception):
@@ -71,7 +71,7 @@ def steps_for_stepra(stepra: int) -> int:
 def resolve_ranking_steps(radt_minutes: float, dt_seconds: float) -> int:
     """steps_for_stepra(), computing stepra from radt/dt itself (wtune_predict.
     steps_per_radiation_call) -- the convenience form callers use when they don't already have
-    stepra (e.g. wtune_tune.py resolving probe.steps='auto')."""
+    stepra (e.g. wtune/tune/ resolving probe.steps='auto')."""
     stepra = predict.steps_per_radiation_call(radt_minutes, dt_seconds)
     return steps_for_stepra(stepra)
 
@@ -86,7 +86,7 @@ _SOURCE_ALIASES = {"coldstart": "rebuild"}   # pre-2026-09-26 name, still accept
 def canonical_source(name: str) -> str:
     """Normalizes a source name -- 'coldstart' (legacy) -> 'rebuild'; anything else passes
     through unchanged (validation of whether it's actually a KNOWN name is the caller's job --
-    see wtune_config.py, which validates against PROBE_SOURCES | _SOURCE_ALIASES)."""
+    see wtune/config.py, which validates against PROBE_SOURCES | _SOURCE_ALIASES)."""
     return _SOURCE_ALIASES.get(name, name)
 
 

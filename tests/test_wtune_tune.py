@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""pytest suite for wtune_tune.py -- fake Slurm (sbatch/sacct/scancel), a synthetic-time clock and
+"""pytest suite for wtune/tune/ -- fake Slurm (sbatch/sacct/scancel), a synthetic-time clock and
 synthetic ledgers throughout, so this never touches a real cluster and never needs
 numpy/scikit-learn/catboost (predictor/decomp_search.py, the real adaptive-round proposer, is only
 imported lazily by wtune_tune._default_proposer when no proposer is injected -- every test here
@@ -19,8 +19,8 @@ import tempfile
 
 import pytest
 
-import wtune_config
-import wtune_tune
+from wtune import config as wtune_config
+from wtune import tune as wtune_tune
 
 # per-session scratch for _ctx's out/ledger dirs: a fixed /tmp path is owned by whichever user
 # ran the tests first on a shared node (scc work3: another user's /tmp/wtune-tune-test-out
@@ -544,7 +544,7 @@ def test_wait_for_jobs_does_not_cancel_when_jobs_finish_in_time():
 # ---------------------------------------------------------------------------
 def test_run_adaptive_rounds_falls_back_to_diversity_sampling_after_kappa_escalation():
     # Regression for the 2026-09-22 sc26p2 run: predictor/decomp_search.py's own LCB-vs-incumbent
-    # stop rule fired at round 1 with 90% of the budget unused. wtune_tune.py must not accept that
+    # stop rule fired at round 1 with 90% of the budget unused. wtune/tune/ must not accept that
     # as final -- it retries with escalating kappa (more exploration pressure), and only once that
     # ALSO fails to unstick the proposer does it fall back to raw decomp_space diversity sampling.
     calls = []
@@ -892,7 +892,7 @@ def test_write_probe_ledger_makes_full_run_prediction_use_measured_source(tmp_pa
 
 
 # ---------------------------------------------------------------------------
-# --config wiring (wtune_config.py): shared search filter, confirm_reps, prediction_cfg,
+# --config wiring (wtune/config.py): shared search filter, confirm_reps, prediction_cfg,
 # CLI > file > defaults precedence.
 # ---------------------------------------------------------------------------
 def test_apply_search_filter_exempts_anchor_from_search_but_not_from_exclude():
@@ -1168,7 +1168,7 @@ def _patched_load_config(raw):
     `raw` (a plain dict, the same shape a parsed YAML file would produce) through
     wtune_config.resolve_config directly. Lets the --config wiring in wtune_tune.run() (CLI > file
     > defaults precedence, search filtering, probe/prediction plumbing) be exercised without
-    requiring PyYAML in this test environment -- only wtune_config.py's OWN load_config/CLI tests
+    requiring PyYAML in this test environment -- only wtune/config.py's OWN load_config/CLI tests
     (test_wtune_config.py) need real YAML and are skipped there when PyYAML is absent."""
     def fake(path):
         cfg, errs = wtune_config.resolve_config(raw)
@@ -1637,7 +1637,7 @@ def test_node_sweep_coarse_to_fine_finds_optimum_at_6(tmp_path):
 
 
 def wtune_nodes_choose(sw):
-    import wtune_nodes
+    from wtune import nodes as wtune_nodes
     return wtune_nodes.choose(wtune_nodes.summarize(sw["measurements"]), "time")[0]
 
 
@@ -2583,7 +2583,7 @@ def _hourly_points(n=48, t0=_dt.datetime(2026, 1, 1)):
 
 
 def test_plan_prediction_points_calls_the_REAL_planner_common_case_needs_t0_only(monkeypatch):
-    import wtune_cost_drivers as real                     # the real module, not a stub
+    from wtune import cost_drivers as real                     # the real module, not a stub
     monkeypatch.setattr(wtune_tune.prediction, "wtune_cost_drivers", real)
     monkeypatch.setattr(wtune_tune.prediction, "_case_types_and_track", lambda ctx: (["common"], None))
     t0 = _dt.datetime(2026, 1, 1)
@@ -2599,7 +2599,7 @@ def test_plan_prediction_points_calls_the_REAL_planner_common_case_needs_t0_only
 
 
 def test_plan_prediction_points_convection_case_gets_t0_plus_the_peak(monkeypatch):
-    import wtune_cost_drivers as real
+    from wtune import cost_drivers as real
     monkeypatch.setattr(wtune_tune.prediction, "wtune_cost_drivers", real)
     monkeypatch.setattr(wtune_tune.prediction, "_case_types_and_track", lambda ctx: (["convection"], None))
     t0 = _dt.datetime(2026, 1, 1)
@@ -2630,7 +2630,7 @@ def test_plan_prediction_points_convection_case_gets_t0_plus_the_peak(monkeypatc
 
 
 def test_plan_prediction_points_falls_back_loudly_on_a_real_error(monkeypatch, capsys):
-    import wtune_cost_drivers as real
+    from wtune import cost_drivers as real
     monkeypatch.setattr(wtune_tune.prediction, "wtune_cost_drivers", real)
 
     def boom(ctx):

@@ -16,12 +16,12 @@ import types
 
 import pytest
 
-import wtune_cli
-import wtune_compliance as wc
-import wtune_extensions as we
-import wtune_predict as wp
-import wtune_run as wr
-import wtune_tune
+from wtune import cli as wtune_cli
+from wtune import compliance as wc
+from wtune import extensions as we
+from wtune import predict as wp
+from wtune import run as wr
+from wtune import tune as wtune_tune
 
 BASE = """ &time_control
  run_days                            = 0,
@@ -485,7 +485,7 @@ def test_coldstart_chem_blocks_only_on_missing_input_files(tmp_path):
 
 # ---------------------------------------------------------------- direct invocation (no wtune_cli)
 def test_preflight_main_direct_prints_extension_lines_and_fails_on_build_mismatch(tmp_path, capsys):
-    import wtune_preflight
+    from wtune import preflight as wtune_preflight
     d = make(tmp_path, CHEM_GROUP)
     fake_exe(d / "wrf.exe")
     code = wtune_preflight.main([str(d)])
@@ -494,14 +494,14 @@ def test_preflight_main_direct_prints_extension_lines_and_fails_on_build_mismatc
 
 
 def test_preflight_main_direct_plain_case_has_no_extension_output(tmp_path, capsys):
-    import wtune_preflight
+    from wtune import preflight as wtune_preflight
     d = make(tmp_path)
     wtune_preflight.main([str(d)])
     assert "EXT-" not in capsys.readouterr().out
 
 
 def test_rebuild_predict_main_direct_refuses(tmp_path, capsys):
-    import wtune_rebuild_predict as rb
+    from wtune import rebuild_predict as rb
     d = make(tmp_path, CHEM_GROUP)
     assert rb.main([str(d), "--nodes", "1", "--nx", "4", "--ny", "4", "--dry-run"]) == 2
     assert "predict-rebuild refused" in capsys.readouterr().err
@@ -561,7 +561,7 @@ def test_support_line_states_no_openmp_for_hydro_and_wrfda(tmp_path):
 def test_tune_search_filter_drops_omp_gt_1_on_chem(tmp_path):
     d = make(tmp_path, CHEM_GROUP)
     cap = we.omp_cap_for_namelist(str(d / "namelist.input"))
-    import wtune_config
+    from wtune import config as wtune_config
     ctx = types.SimpleNamespace(omp_cap=cap, search_cfg={}, exclude_rules=[], is_fire=False)
     cfgs = [{"id": "a", "omp": 1}, {"id": "b", "omp": 2}, {"id": "ANCHOR", "omp": 4}]
     assert [c["id"] for c in wtune_tune._apply_search_filter(ctx, cfgs)] == ["a"]

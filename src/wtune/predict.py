@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""wtune_predict.py -- offline wall-time predictor for a WRF run of any length, without running WRF.
+"""wtune/predict.py -- offline wall-time predictor for a WRF run of any length, without running WRF.
 
-Standalone (stdlib only, never imports wtune.py); `wtune predict` loads it lazily. Model below,
+Standalone (stdlib only, never imports wtune/cli.py); `wtune predict` loads it lazily. Model below,
 constants in machine/calibration/scc.json:
 
 steps      d01 steps = run length / d01 time_step (+ fract). Nested substeps are inside the d01
@@ -1439,7 +1439,7 @@ def predict_init(case_dir: str | None, nl: dict, calibration: dict, ranks: int |
     startup_term = float(startup_s) if startup_calibrated else 0.0
     # the cap grows with node count (2026-09-24, sc26p2 4 nodes/192 ranks: wall - sum(main)
     # ~32 s vs the 1-node 19.4 s cap, the out-of-sample miss); per-node slope comes from
-    # wtune.py calibrate; absent -> 0, i.e. the old single-node cap
+    # wtune/cli.py calibrate; absent -> 0, i.e. the old single-node cap
     per_node = calibration.get("startup_s_per_node")
     if startup_calibrated and nodes and per_node and per_node > 0:
         startup_term += per_node * max(0, nodes - 1)
@@ -1578,7 +1578,7 @@ def build_prediction(namelist_path: str, case_dir: str | None, nodes: int, confi
                               sample_points=sample_points, run_start_dt=run_start_dt,
                               geometry_source=geometry_source)
     # WRF extensions (chem/hydro/moving nest/WRFDA): explicit cost factors with measured/placeholder
-    # status and widened uncertainty (wtune_extensions.py); no-op for plain ARW.
+    # status and widened uncertainty (wtune/extensions.py); no-op for plain ARW.
     from wtune import extensions as wtune_extensions
     compute = wtune_extensions.apply_cost_factors(compute, nl, dt, run_dir=case_dir,
                                                   calibration=calibration)

@@ -11,9 +11,9 @@ import types
 
 import pytest
 
-import wtune_config as wcfg
-import wtune_predict as wp
-import wtune_preflight as pf
+from wtune import config as wcfg
+from wtune import predict as wp
+from wtune import preflight as pf
 
 
 def _nl(tmp_path, text):

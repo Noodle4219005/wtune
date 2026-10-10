@@ -3,7 +3,7 @@ import types
 
 import pytest
 
-import wtune_rebuild_predict as wrp
+from wtune import rebuild_predict as wrp
 
 
 def _fake_plan(case_dir, forcing, spinup_min, max_points, sources=("rebuild",)):
@@ -42,7 +42,7 @@ def test_refuses_output_inside_case_dir(monkeypatch, tmp_path):
 
 def test_rebuild_points_fetch_into_each_point_plan_dir(monkeypatch, tmp_path):
     import datetime as _dt
-    import wtune_tune
+    from wtune import tune as wtune_tune
     seen, seen_timeout = [], []
     monkeypatch.setenv("WPS_DIR", "/x")
     monkeypatch.setenv("WRF_TREE", "/x")
@@ -69,7 +69,7 @@ def test_rebuild_points_fetch_into_each_point_plan_dir(monkeypatch, tmp_path):
 
 
 def test_segment_timeout_scales_with_case_cost_and_has_a_floor(monkeypatch):
-    import wtune_tune
+    from wtune import tune as wtune_tune
     wp = wtune_tune.wtune_predict
     monkeypatch.setattr(wp, "parse_namelist", lambda p: {})
     monkeypatch.setattr(wp, "get_d01_steps", lambda nl: (432, 10800, 25.0, ""))
@@ -85,7 +85,7 @@ def test_segment_timeout_scales_with_case_cost_and_has_a_floor(monkeypatch):
 
 
 def test_measure_steps_option():
-    from wtune_rebuild_predict import _measure_steps
+    from wtune.rebuild_predict import _measure_steps
     assert _measure_steps(None, 17) is None
     assert _measure_steps("short", 17) == 30   # 30-step floor
     assert _measure_steps("short", 29) == 39
@@ -112,7 +112,7 @@ _NL_IO = """\
 
 
 def _nl(tmp_path, text):
-    import wtune_predict as wp
+    from wtune import predict as wp
     p = tmp_path / "namelist.input"
     p.write_text(text)
     return wp.parse_namelist(str(p))
@@ -188,14 +188,14 @@ def test_ctx_charges_running_time_only(tmp_path):
 
 
 def test_points_by_flag_defaults_to_time_and_plan_stays_time_based(monkeypatch, tmp_path, capsys):
-    import wtune_rebuild_predict as rp
+    from wtune import rebuild_predict as rp
     seen = {}
 
     def fake_plan(case_dir, forcing, spinup, max_points, **kw):
         seen.update(kw)
         raise SystemExit(0)
     monkeypatch.setattr(rp, "plan", fake_plan)
-    monkeypatch.setattr("wtune_extensions.refusal_predict_rebuild", lambda d: None)
+    monkeypatch.setattr("wtune.extensions.refusal_predict_rebuild", lambda d: None)
     with pytest.raises(SystemExit):
         rp.main([str(tmp_path), "--nodes", "1", "--nx", "1", "--ny", "1", "--dry-run"])
     assert seen == {}          # option off: plan() is called exactly as before

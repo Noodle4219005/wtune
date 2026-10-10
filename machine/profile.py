@@ -14,7 +14,7 @@ This module has two jobs:
                    combined document.
   2. `summary`  -- read an already-merged document and print a short
                    human-readable summary (this is what
-                   `wtune.py machine-profile <json>` calls).
+                   `wtune/cli.py machine-profile <json>` calls).
 
 MERGED SCHEMA (schema_version 1)
 ---------------------------------

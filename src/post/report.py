@@ -173,7 +173,7 @@ def _sources_section(figures, out_dir):
     if not names:
         return ""
     try:
-        from wtune_project import find_project
+        from wtune.project import find_project
         project_dir = find_project(out_dir)
     except Exception:
         project_dir = None

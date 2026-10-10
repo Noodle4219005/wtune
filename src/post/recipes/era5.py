@@ -116,7 +116,7 @@ def fetch_hint(project_dir=None):
                 "--project P --run-dir R` on the login node")
     run_dirs = []
     try:
-        import wtune_project
+        from wtune import project as wtune_project
         run_dirs = [p for _id, p in wtune_project.discover_runs(project_dir)]
     except Exception:  # noqa: BLE001 -- the hint must never mask the real error
         pass

@@ -7,7 +7,7 @@ import types
 
 import pytest
 
-import wtune_tune as wt
+from wtune import tune as wt
 import decomp_search            # predictor/ is on sys.path once wtune_tune is imported
 import decomp_space
 from test_wtune_tune import (FakeClock, MATTHEW_LIKE, _ctx, _pipe_run, make_fake_sacct,
@@ -322,7 +322,7 @@ def test_node_search_report_winner_and_best_name_the_same_layout(monkeypatch, tm
 
 
 def test_first_node_sweep_budget_check_does_not_use_the_10s_time_limit_estimate(monkeypatch):
-    from wtune_tune import node_search
+    from wtune.tune import node_search
     monkeypatch.setattr(node_search.wtune_predict, "parse_namelist", lambda path: {})
     monkeypatch.setattr(node_search, "_fallback_s_per_step", lambda nl, ranks, omp: 0.1)
     ctx = _ctx()
@@ -352,7 +352,7 @@ def test_aggregate_marks_measurements_taken_on_a_dirty_node():
 ])
 def test_a_dirty_fastest_layout_is_measured_once_more(second_notes, expect_dirty, expect_median,
                                                       capsys):
-    from wtune_tune import rounds
+    from wtune.tune import rounds
     cfgs = {"D0001": _cfg("D0001"), "D0002": _cfg("D0002")}
     results = wt.aggregate_by_cid([_row("D0001", 1, 0.2, "node_dirty=work3:cpu64:0.98"),
                                    _row("D0002", 1, 0.3)], cfgs)
@@ -368,7 +368,7 @@ def test_a_dirty_fastest_layout_is_measured_once_more(second_notes, expect_dirty
 
 
 def test_a_clean_fastest_layout_is_not_measured_again():
-    from wtune_tune import rounds
+    from wtune.tune import rounds
     cfgs = {"D0001": _cfg("D0001"), "D0002": _cfg("D0002")}
     results = wt.aggregate_by_cid([_row("D0001", 1, 0.2),
                                    _row("D0002", 1, 0.3, "node_dirty=work3:cpu64:0.98")], cfgs)

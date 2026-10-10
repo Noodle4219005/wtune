@@ -46,7 +46,7 @@ for _p in (_HERE, _REPO_ROOT, _PREDICTOR_DIR):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-import wtune_solar as wsolar           # repo root: cos_zenith/declination_deg/day_of_year/domain_bbox
+from wtune import solar as wsolar           # repo root: cos_zenith/declination_deg/day_of_year/domain_bbox
 
 # ---------------------------------------------------------------------------
 # Data source / URL construction / availability / download / GRIB decode: all owned by
@@ -153,7 +153,7 @@ def hfx_mean(shtfl_wm2):
 
 
 # ---------------------------------------------------------------------------
-# Case / namelist loading + target grid (reuses wtune.py / wtune_solar.py conventions)
+# Case / namelist loading + target grid (reuses wtune/cli.py / wtune/solar.py conventions)
 # ---------------------------------------------------------------------------
 
 # load_case/resolve_times are now owned by tools/metdata.py (find/check/fetch need the identical
@@ -165,7 +165,7 @@ resolve_times = md.resolve_times
 def target_grid(case, wrfinput_path):
     """(lat2d, lon2d, mode) -- the WRF-grid regrid target. mode 'wrfinput' reads the exact
     XLAT/XLONG (needs netCDF4); mode 'bbox' falls back to an analytic uniform mesh from
-    wtune_solar.domain_bbox (same flat-earth approximation wtune_case.py already relies on when
+    wtune_solar.domain_bbox (same flat-earth approximation wtune/case.py already relies on when
     no wrfinput exists)."""
     if wrfinput_path and os.path.exists(wrfinput_path):
         try:

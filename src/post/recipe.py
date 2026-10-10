@@ -339,7 +339,7 @@ def _build_report(run_dirs, labels, out_dir, case_info, figures, spinup_hours, t
     from post.report import build_recipe_report
     kwargs = {"notes": notes} if "notes" in inspect.signature(build_recipe_report).parameters else {}
     if advice and advice["advice"]:
-        import wtune_advise
+        from wtune import advise as wtune_advise
         kwargs["advice_html"] = wtune_advise.render_html(advice)
     return build_recipe_report(out_dir, case_info, figures, run_dirs, labels, spinup_hours,
                                load_catalog(), title=title, **kwargs)
@@ -408,7 +408,7 @@ def _verification_advice(run_dir, out_dir, hurdat2_path, storm_id, bdeck_path, n
     """Decision 0061: verification-triggered advice (rules with a post_* clause) for the report.
     Advice-only; a failure here becomes a report note, never a failed recipe."""
     try:
-        import wtune_advise
+        from wtune import advise as wtune_advise
         case = wtune_advise.build_case(run_dir, hurdat2=hurdat2_path, storm=storm_id,
                                        bdeck=bdeck_path, post_tc_dir=os.path.join(out_dir, "tc"))
         advice = wtune_advise.advise(case, surface="post")

@@ -5,10 +5,10 @@ import os
 
 import pytest
 
-import wtune_iofields as iof
-import wtune_predict as wp
-import wtune_preflight as pf
-import wtune_run as wr
+from wtune import iofields as iof
+from wtune import predict as wp
+from wtune import preflight as pf
+from wtune import run as wr
 from test_wtune_run import (NAMELIST_3DOM, Fakes, _make_case, _run, _tree_state,
                             fake_bp)  # noqa: F401  (autouse fixture)
 

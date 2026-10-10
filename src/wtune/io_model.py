@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""wtune_io_model.py -- run-length I/O terms of the whole-run prediction (release 0.8.2).
+"""wtune/io_model.py -- run-length I/O terms of the whole-run prediction (release 0.8.2).
 
 wtune_probe_plan.combine predicts compute + init only; on a long run I/O dominates what it misses
 (scc climate-ea50: predicted 46:14, actual 89:38; rsl decomposition in the anchors below). Terms for
@@ -18,7 +18,7 @@ from typing import Any, Optional, Sequence
 import coldstart_sample as coldstart    # tools/: wrf_interval_minutes (WRF's own _d/_h/_m/_s sum)
 from wtune import predict as wp
 
-# --- re-exported by wtune_run.py ("Fallback I/O anchors" block, fallback_restart_io_s,
+# --- re-exported by wtune/run/ ("Fallback I/O anchors" block, fallback_restart_io_s,
 # fallback_history_frame_s) ---------------------
 CONUS25_RESTART_POINTS = 1500 * 1200 * 50
 RESTART_IO_ANCHOR_S = {2: (324.0, 120.0), 14: (1.05, 2.3)}   # io_form: (write, read) at conus25

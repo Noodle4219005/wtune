@@ -7,17 +7,17 @@ import time
 
 import pytest
 
-import wtune_project as proj
-import wtune_run as wr
-import wtune_watch as ww
-from wtune_run import cli as run_cli
-from wtune_run._deps import coldstart
+from wtune import project as proj
+from wtune import run as wr
+from wtune import watch as ww
+from wtune.run import cli as run_cli
+from wtune.run._deps import coldstart
 
 import test_refactor_golden_wtune_run as G
 import test_watch_run_root as W
 import test_wtune_run as T
 import test_wtune_run_resume as TR
-from test_wtune_run import fake_bp  # noqa: F401  (autouse: a fake src/wtune_bp)
+from test_wtune_run import fake_bp  # noqa: F401  (autouse: a fake src/wtune/bp.py)
 
 LAYOUT = ["--nodes", "1", "--nx", "8", "--ny", "9"]
 

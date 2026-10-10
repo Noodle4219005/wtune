@@ -264,7 +264,7 @@ def _era5_diff_entry(c: _Chart, run_dir: str, path: str, model_bbox: tuple, fig:
         from post.caseinfo import WRF_TIME_FMT, spec_bdy_width
         from datetime import datetime
         try:
-            from wtune_project import find_project
+            from wtune.project import find_project
             project_dir = find_project(c.out_dir)
         except Exception:
             project_dir = None

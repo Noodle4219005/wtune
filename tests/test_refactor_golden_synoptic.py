@@ -137,7 +137,7 @@ def _run(monkeypatch, tmp_path, frames=None, era5_exc=None, gs_exc=None, project
                       {k: _summ(v) for k, v in kw.items()}])
     monkeypatch.setattr(mapfig, "save_map", save_map)
 
-    import wtune_project
+    from wtune import project as wtune_project
 
     def find_project(out_dir):
         if not project:

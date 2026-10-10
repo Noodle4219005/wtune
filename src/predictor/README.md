@@ -38,7 +38,7 @@ out-of-fold coverage at 90%/95%, plus a CatBoost `Quantile(0.05/0.95)` variant w
 recommendation: predicted gain `= 1 - exp(y_pred)`, label **SAFE** when even the pessimistic
 (upper-bound) end of the 95% interval still beats baseline, else **EXPERIMENTAL**.
 
-## Compliance (`ledger.py`, via the repo root's `wtune_compliance.py`)
+## Compliance (`ledger.py`, via the repo root's `wtune/compliance.py`)
 A row is STRICT if every config knob differing from its case's baseline is STRICT under
 `wtune_compliance.classify()`, PHYSICS-GRAY if any differing knob is a physics scheme, always
 RESEARCH for PLOV/wtimer-wrapped/`--wrap` binaries regardless of knobs. The fidelity-risk model
@@ -75,7 +75,7 @@ user makes the final choice. Nothing is applied automatically.
 - **PHYSICS-GRAY:** `recommend.py --compliance PHYSICS-GRAY ... [--decomp Cxx] [--physics-ledger P ...] [--allowed-labels WITHIN-FLOOR,SMALL-DRIFT] (--probe-screen SCREEN.txt | --run-probe --latlon LAT,LON)`
   - Candidates come from `campaign/physics_templates.json` (P01–P06) applied to the user's namelist through `campaign/configs.apply_physics_template`, the single template engine.
   - New cases get per-case pairing from `physics.generic_extra_edits`; a test keeps it consistent with the JSON for the six campaign cases.
-  - The SpeedyWeather probe always runs (or is read from a saved `wtune.py screen` output); it is marked invalid below dx 1 km.
+  - The SpeedyWeather probe always runs (or is read from a saved `wtune/cli.py screen` output); it is marked invalid below dx 1 km.
   - Status RECOMMENDABLE needs all of: predicted fidelity label allowed, probe not REJECT, same-hardware physics data, a performance prediction. Everything else is UNCONFIRMED with reasons. Until a physics campaign exists, every candidate is UNCONFIRMED.
   - Fidelity labels mean model self-drift against a same-physics twin, not observed forecast skill.
 

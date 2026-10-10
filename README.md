@@ -5,7 +5,7 @@
 WTune = profile-guided, compliance-aware WRF performance and physics configuration autotuner
 (decision 0050). The full autotuner pipeline — profile → diagnosis → ceiling → candidates →
 experiments → correctness gate → compliance classification → selection — is being built in
-steps. Landed so far: **step 1** (the compliance model: `wtune_compliance.py`, `wtune.py
+steps. Landed so far: **step 1** (the compliance model: `wtune/compliance.py`, `wtune/cli.py
 compliance`, `--compliance` on `knobs`/`physics`/`screen`), **step 2** (the phase
 fingerprinter), **steps 4-5** (the configuration predictor, the STRICT and PHYSICS-GRAY
 campaigns, the fidelity gate) and **research step D1** (the decomposition space and its
@@ -21,10 +21,10 @@ per-segment choice, and only when the user passes that report.
    with a feedback controller. **-13.0% s/step over 400 steps, bit-identical** (job 1070876).
    This is an upper bound on execution-flow interposition, not a STRICT-tuning result — see
    Compliance model below.
-2. **Pick the launch configuration** — `wtune.py physics/screen` (`plan`/`knobs` retired): decomposition
+2. **Pick the launch configuration** — `wtune/cli.py physics/screen` (`plan`/`knobs` retired): decomposition
    shape, tiles, physics-consistent knobs, `srun --distribution=cyclic`, `KMP_BLOCKTIME=0`.
    Recommendations carry a STRICT or PHYSICS-GRAY compliance label; filter with `--compliance`.
-3. **Gate result-affecting knobs** — `wtune_config_gate.py`: `radt`, `non_hydrostatic`,
+3. **Gate result-affecting knobs** — `wtune/config_gate.py`: `radt`, `non_hydrostatic`,
    `cudt`, … legitimately change the answer, so they are compared field-by-field against a
    reference `wrfout` with a tolerance *calibrated* from a known-acceptable pair. This is the
    fidelity gate that PHYSICS-GRAY knobs must pass; bit-identity (`diffwrf`) is the gate for
@@ -275,7 +275,7 @@ wtune post custom --project .
 Invariant, unchanged from before: **no WRF `.F`/`.c`/`.h` is ever edited.**
 
 Every knob/lever WTune touches is classified into exactly one of three classes
-(`wtune_compliance.py`); **the three classes are never ranked together**:
+(`wtune/compliance.py`); **the three classes are never ranked together**:
 
 - **STRICT** — WRF source unchanged, normal build, simulation semantics unchanged
   (decomposition, tiling, placement, binding, OpenMP/MPI runtime, compiler flags, I/O layout).
@@ -303,7 +303,7 @@ trampolines; `diffwrf` against an unmodified run proves the output is unchanged 
 these are the RESEARCH-path proofs for PLOV.
 
 ```bash
-python3 wtune.py compliance list --compliance strict
+python3 wtune/cli.py compliance list --compliance strict
 ```
 
 ### What WTune changes automatically vs. only recommends (decision 0056)
@@ -358,12 +358,12 @@ decision; it is measured and safe.
 
 Build, run, verify: `plov/README.md`; the exact environment: `plov/production.env`.
 
-## 2. Advisory layer — `wtune.py`
+## 2. Advisory layer — `wtune/cli.py`
 
 ```bash
-python3 wtune.py physics --namelist namelist.input [--menu] [--probe-json speedy_probe.json]
-python3 wtune.py screen  --namelist namelist.input     # 3-stage funnel to the effective few
-python3 wtune.py selftest
+python3 wtune/cli.py physics --namelist namelist.input [--menu] [--probe-json speedy_probe.json]
+python3 wtune/cli.py screen  --namelist namelist.input     # 3-stage funnel to the effective few
+python3 wtune/cli.py selftest
 ```
 
 `plan`, `knobs`, `audit`, `catalog`, `hotspot`, `feedback`, `profile`, `oracle-map` and
@@ -373,14 +373,14 @@ history.
 
 - **Decomposition** — cache · vectorization · halo · NUMA score over the legal
   `nproc_x x nproc_y` shapes; re-derives the measured CONUS 2.5 km winner (`8x56`) without
-  running the sweep (`wtune_decomp.py`, `wtune_shape.py` for the patch geometry).
+  running the sweep (`wtune/decomp.py`, `wtune/shape.py` for the patch geometry).
 - **Physics suite + knobs** — 20 input-derived rules over a Registry-generated catalog of
   ~2062 parameters (`num_soil_layers`<->LSM, `radt`≈dx, PBL<->sfclay pairing, `cu_physics` vs
   dx …). Knobs are labelled by what they can change: `code_enforced` (WRF overrides them),
   performance-only (`numtiles`, decomposition, I/O), and **RESULTS-affecting numerics**
-  (`radt`, `non_hydrostatic`, `cudt`, …) which `wtune.py` prints under "gated tuning only".
-- **Hotspot preview** — analytic solar terminator (`wtune_solar.py`) plus the SpeedyWeather
-  convective surrogate (`wtune_surrogate.py` + `speedy_hotspot.jl`; always run the probe).
+  (`radt`, `non_hydrostatic`, `cudt`, …) which `wtune/cli.py` prints under "gated tuning only".
+- **Hotspot preview** — analytic solar terminator (`wtune/solar.py`) plus the SpeedyWeather
+  convective surrogate (`wtune/surrogate.py` + `speedy_hotspot.jl`; always run the probe).
   Used to *explain* a case; PLOV does not consume it.
 - **Transition controller** — `wtune_transition_controller.py` (copied from `../g0a/`):
   zero-measurement initial config and node-scaling projection (4N->8N measured -44.6%,
@@ -390,7 +390,7 @@ history.
 Lat/lon/date come from a `wrfinput`/`wrfout` header via `ncdump -h` when the namelist lacks
 them.
 
-## 3. Calibration gate for result-affecting knobs — `wtune_config_gate.py`
+## 3. Calibration gate for result-affecting knobs — `wtune/config_gate.py`
 
 Config-layer changes such as `radt` 10->15 or `non_hydrostatic` are worth up to -15% on a
 15 km case but change the fields, so bit-identity cannot judge them. The gate compares a
@@ -401,9 +401,9 @@ reference vs an accepted change):
 
 ```bash
 PY="pixi run --manifest-path ../wtune-pixi-env-20260830/pixi.toml python"   # numpy + netCDF4
-$PY wtune_config_gate.py calibrate --ref accepted_A/wrfout_d01_... --cand accepted_B/wrfout_d01_...
+$PY wtune/config_gate.py calibrate --ref accepted_A/wrfout_d01_... --cand accepted_B/wrfout_d01_...
 #   -> prints the per-field table and a suggested --tol-rel (max rel_rms x safety 3)
-$PY wtune_config_gate.py check --ref ref/wrfout_d01_... --cand cand/wrfout_d01_... --tol-rel <that> --json gate.json
+$PY wtune/config_gate.py check --ref ref/wrfout_d01_... --cand cand/wrfout_d01_... --tol-rel <that> --json gate.json
 #   -> GATE PASS / GATE FAIL <fields>, exit 0/1
 ```
 
@@ -431,7 +431,7 @@ it — so the per-rank hotspot model itself is in `deprecated/` (decision 0045).
 ### Cold-start sampling (`tools/coldstart_sample.py`) — unknown-case prediction
 
 For a case with only a `namelist.input` (+ a projection source) and NO wrfinput/wrfbdy/restart
-files, `wtune_predict.py`'s probe-based model has nothing to measure from. `coldstart_sample.py`
+files, `wtune/predict.py`'s probe-based model has nothing to measure from. `coldstart_sample.py`
 closes that gap: it picks K "characteristic point" sampling times inside the run, fetches only
 the GFS GRIB times those windows need, stages ONE sbatch running geogrid -> ungrib -> metgrid ->
 real.exe (one per window) -> wrf.exe (one short cold-start window per sampling time, all at the
@@ -623,7 +623,7 @@ source bug, not a namelist one, and it is not patched here.
 
 ## 6. Whole-run prediction, monitoring and segmented execution (0.2.0)
 
-Four subcommands of `bin/wtune` (`wtune.py <cmd>`), plus preflight rules. None edits a WRF
+Four subcommands of `bin/wtune` (`wtune/cli.py <cmd>`), plus preflight rules. None edits a WRF
 source file or injects anything; none writes inside `CASE_DIR`. Every sbatch they generate
 carries `--exclude=head[,$WTUNE_SBATCH_EXCLUDE]`. All evidence below is scc (72 ranks/node),
 2026-09-27; errors are against a truth run of the same case and configuration.
@@ -1231,7 +1231,7 @@ tc`'s MET steps are unverified against a real binary until it completes.
 
 ## Requirements
 
-- Python 3.6+ (stdlib only) for `wtune.py` and the transition controller; everything else
+- Python 3.6+ (stdlib only) for `wtune/cli.py` and the transition controller; everything else
   runs in the pixi environment above (see Installation).
 - `ncdump` for headers; Julia + SpeedyWeather.jl for the convective probe
   (`julia --project=src/jlenv -e 'using Pkg; Pkg.instantiate()'`).
@@ -1245,14 +1245,14 @@ The repo root is user-facing only; everything else lives under one of these dire
 
 | path | status | contents |
 |---|---|---|
-| `wtune.py` | live | thin entry point: puts `src/` on `sys.path` and calls `wtune_cli.main()` |
-| `bin/wtune` | live | runs `wtune.py` under the `envs/wtune` pixi env |
-| `src/wtune_cli.py` | live | the ~1800-line CLI body (formerly `wtune.py` itself) |
-| `src/wtune_physics.py`, `wtune_solar.py`, `wtune_surrogate.py`, `speedy_probe.jl`, `speedy_hotspot.jl`, `jlenv/`, `wind_probe.py`, `wtune_decomp.py`, `wtune_shape.py`, `gen_registry_catalog.py`, `wtune_catalog_registry.json` | live | advisory layer |
-| `src/wtune_config_gate.py` (+ test) | live | calibration gate for result-affecting knobs |
+| `wtune/cli.py` | live | thin entry point: puts `src/` on `sys.path` and calls `wtune_cli.main()` |
+| `bin/wtune` | live | runs `wtune/cli.py` under the `envs/wtune` pixi env |
+| `src/wtune/cli.py` | live | the ~1800-line CLI body (formerly `wtune/cli.py` itself) |
+| `src/wtune/physics.py`, `wtune/solar.py`, `wtune/surrogate.py`, `speedy_probe.jl`, `speedy_hotspot.jl`, `jlenv/`, `wind_probe.py`, `wtune/decomp.py`, `wtune/shape.py`, `gen_registry_catalog.py`, `wtune_catalog_registry.json` | live | advisory layer |
+| `src/wtune/config_gate.py` (+ test) | live | calibration gate for result-affecting knobs |
 | `src/wtune_transition_controller.py` | live (gate branch deprecated) | zero-measurement config + node-scaling projection |
 | `src/wtune_feedback.py` (+ test), `wtune_probe.py` (+ test) | live | PLOV controller replay; ABBA probe harness |
-| `src/wtune_rebuild_predict.py`, `wtune_watch.py`, `wtune_run.py`, `wtune_tune.py`, `wtune_preflight.py`, `tools/coldstart_sample.py`, `tools/era5_intermediate.py`, `tools/rescore_rebuild.py`, `tools/tc_bogus.py` | live | `predict-rebuild`, `watch`, `run`, `tune`, `check` and their helpers (section 6) |
+| `src/wtune/rebuild_predict.py`, `wtune/watch.py`, `wtune/run/`, `wtune/tune/`, `wtune/preflight.py`, `tools/coldstart_sample.py`, `tools/era5_intermediate.py`, `tools/rescore_rebuild.py`, `tools/tc_bogus.py` | live | `predict-rebuild`, `watch`, `run`, `tune`, `check` and their helpers (section 6) |
 | `src/wtune_segment_train.py`, `featurize_frames.py`, `wtune_runtime_predict.py`, `wtune_runtime12.py`, `wtune_cost_model.py` | live | prediction layer |
 | `campaign/` | **live, production** (unmoved) | the measurement side: `strict_campaign.sbatch`, `configs.py`, `cases.json`, `physics_templates.json`, the decomposition-search campaign and its rankers |
 | `machine/` | **live, production** (unmoved) | hardware calibration data and probes (`machine/calibration/*.json`, `machine/bench/`) |
@@ -1294,7 +1294,7 @@ did (`predictor/tests` needs the predictor pixi env; running it in the other one
 skips into 19 lightgbm failures that look like a regression). The pieces, if you need one
 directly: `pytest tests/test_wtune_*.py tests/test_fidelity_gate.py`, `pytest campaign
 tests/tools archive/experiments`, `pytest tests/predictor` (predictor env), `pytest
-archive/deprecated/` (archived), `python3 wtune.py selftest` (also runs
+archive/deprecated/` (archived), `python3 wtune/cli.py selftest` (also runs
 `wtune_compliance.validate()`), `python3 src/wtune_transition_controller.py selftest`
 (38/40; both failures are in the deprecated imbalance-gate branch).
 

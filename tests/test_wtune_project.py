@@ -1,4 +1,4 @@
-"""Tests for wtune_project.py (decision 0058): `wtune project init` layout/symlink contract
+"""Tests for wtune/project.py (decision 0058): `wtune project init` layout/symlink contract
 (P1), project discovery (--project/$WTUNE_PROJECT/walk-up), manifest.jsonl, and the
 post/<id>/-style output-directory naming.
 """
@@ -8,7 +8,7 @@ import os
 import pytest
 import yaml
 
-import wtune_project as proj
+from wtune import project as proj
 
 
 def _sha256(path):
@@ -296,7 +296,7 @@ def _make_run_case(tmp_path, name="case"):
 
 
 def test_wtune_run_defaults_out_to_project_runs_dir_when_out_omitted(tmp_path):
-    import wtune_run as wr
+    from wtune import run as wr
     case = _make_run_case(tmp_path)
     project_dir = str(tmp_path / "proj")
     proj.init_project(project_dir)
@@ -312,7 +312,7 @@ def test_wtune_run_defaults_out_to_project_runs_dir_when_out_omitted(tmp_path):
 
 
 def test_wtune_run_still_requires_out_without_project(tmp_path, capsys):
-    import wtune_run as wr
+    from wtune import run as wr
     case = _make_run_case(tmp_path)
     rc = wr.main([str(case), "--nodes", "1", "--nx", "1", "--ny", "1", "--dry-run"],
                  log=lambda s: None)
@@ -321,7 +321,7 @@ def test_wtune_run_still_requires_out_without_project(tmp_path, capsys):
 
 
 def test_wtune_run_explicit_out_still_overrides_project(tmp_path):
-    import wtune_run as wr
+    from wtune import run as wr
     case = _make_run_case(tmp_path)
     project_dir = str(tmp_path / "proj")
     proj.init_project(project_dir)
@@ -335,13 +335,13 @@ def test_wtune_run_explicit_out_still_overrides_project(tmp_path):
 
 
 def test_wtune_tune_cli_has_project_flag_wired_to_out_dir_default(tmp_path):
-    """wtune_tune.py's own out_dir line (`out_dir = sweep._expand(args.out) if args.out else
+    """wtune/tune/'s own out_dir line (`out_dir = sweep._expand(args.out) if args.out else
     ...`) was edited to check --project before falling back to $HOME/wtune-runs/tune/<case>;
     this reproduces exactly that logic against a real project (not a mock), the same way the
-    module itself computes it, since driving wtune_tune.py's full main() needs the scc-tuning
+    module itself computes it, since driving wtune/tune/'s full main() needs the scc-tuning
     mocks already covered by test_wtune_tune.py and would duplicate them for no extra
     coverage of the --project wiring itself."""
-    import wtune_tune
+    from wtune import tune as wtune_tune
 
     project_dir = str(tmp_path / "proj")
     proj.init_project(project_dir)

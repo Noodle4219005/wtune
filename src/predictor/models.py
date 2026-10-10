@@ -27,7 +27,7 @@ sys.path.insert(0, __file__.rsplit("/", 1)[0])
 sys.path.insert(0, __file__.rsplit("/", 1)[0].rsplit("/", 1)[0])
 import features as feat  # predictor/features.py
 try:
-    import wtune_decomp  # repo root; used by the heuristic model when importable
+    from wtune import decomp as wtune_decomp  # repo root; used by the heuristic model when importable
 except ImportError:
     wtune_decomp = None
 
@@ -108,7 +108,7 @@ class HeuristicModel:
     def _decomp_score(self, row):
         # knowledge/2026-08-26-wrf-8x56-decomposition-zero-code-win.md: patch aspect ratio
         # cache/vectorization effect, U-shaped in nproc_x with a documented sweet spot -- and
-        # wtune_decomp.py's fitted shape model (ALPHA+BETA/wmin+GAMMA/hmin) is exactly that curve,
+        # wtune/decomp.py's fitted shape model (ALPHA+BETA/wmin+GAMMA/hmin) is exactly that curve,
         # generalized past the one measured grid. Use it when importable; otherwise fall back to
         # a a bare patch-aspect proxy from features.py (same qualitative shape, unfitted).
         e_we, e_sn = _num(row.get("e_we")), _num(row.get("e_sn"))

@@ -14,11 +14,11 @@ from datetime import datetime
 import pytest
 import yaml
 
-import wtune_advise as adv
-import wtune_extensions as we
-import wtune_predict as wp
-import wtune_preflight as pf
-import wtune_project as proj
+from wtune import advise as adv
+from wtune import extensions as we
+from wtune import predict as wp
+from wtune import preflight as pf
+from wtune import project as proj
 from post import tc
 
 FIXTURES = os.path.join(os.path.dirname(__file__), "fixtures", "post")

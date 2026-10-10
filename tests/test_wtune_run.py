@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""pytest suite for wtune_run.py (`wtune run`: segmented WRF executor with restart hand-offs).
+"""pytest suite for wtune/run/ (`wtune run`: segmented WRF executor with restart hand-offs).
 No job is ever submitted: sbatch/sacct/snapshot are fakes, every directory is a tmp dir."""
+from conftest import swap_wtune_module
 import datetime
 import json
 import os
@@ -17,9 +18,9 @@ import pytest
 _SITE_BEFORE = os.environ.get("SITE")
 _CONFIGS_BEFORE = sys.modules.get("configs")
 
-import wtune_predict as wp
-import wtune_run as wr
-import wtune_watch
+from wtune import predict as wp
+from wtune import run as wr
+from wtune import watch as wtune_watch
 
 if _SITE_BEFORE is None:
     os.environ.pop("SITE", None)
@@ -31,7 +32,7 @@ def _load_real_bp():
     import importlib.util
     spec = importlib.util.spec_from_file_location(
         "wtune_bp_real", os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(
-            __file__))), "src", "wtune_bp.py"))
+            __file__))), "src", "wtune", "bp.py"))
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
@@ -48,7 +49,7 @@ def _mk_bp(path):
 
 
 class FakeBP:
-    """Stand-in for src/wtune_bp (the converter module): convert_inputs makes cache_dir/<name>
+    """Stand-in for src/wtune/bp.py (the converter module): convert_inputs makes cache_dir/<name>
     BP directories (its real output naming; wrfbdy/wrflowinp/wrffdda as per-record containers of
     <name>_<date>.bp, dates from `records`) and records the call; no adios2 anywhere. The
     per-record helpers are the real module's."""
@@ -107,7 +108,7 @@ class FakeBP:
 @pytest.fixture(autouse=True)
 def fake_bp(monkeypatch):
     fb = FakeBP()
-    monkeypatch.setitem(sys.modules, "wtune_bp", fb.module())
+    swap_wtune_module(monkeypatch, "bp", fb.module())
     monkeypatch.delenv("WTUNE_PROJECT", raising=False)
     return fb
 

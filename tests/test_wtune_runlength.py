@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for wtune_runlength.py -- the single-sourced WRF run-length resolver.
+"""Tests for wtune/runlength.py -- the single-sourced WRF run-length resolver.
 
 Run: /home/nk/miniforge3/envs/hqvit-pixi/bin/python3 -m pytest -q test_wtune_runlength.py
 
@@ -13,7 +13,7 @@ import datetime
 
 import pytest
 
-import wtune_runlength as runlen
+from wtune import runlength as runlen
 
 
 def test_keys_win_over_dates():

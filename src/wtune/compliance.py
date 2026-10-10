@@ -15,9 +15,9 @@ Every catalog entry carries the fields in REQUIRED_FIELDS. numerics_change is th
   solution  the computed solution legitimately changes             -> gate 'fidelity_gate'
 
 usage:
-  python3 wtune_compliance.py validate
-  python3 wtune_compliance.py list [--compliance strict|physics-gray|research] [--json]
-  python3 wtune_compliance.py classify NAME [NAME ...]
+  python3 wtune/compliance.py validate
+  python3 wtune/compliance.py list [--compliance strict|physics-gray|research] [--json]
+  python3 wtune/compliance.py classify NAME [NAME ...]
 """
 import argparse
 import json
@@ -446,7 +446,7 @@ CATALOG = [
 # ---- extension-specific parameters (WRF-Chem, WRF-Hydro, WRFDA, moving nest): PHYSICS-GRAY, do-not-touch.
 # User decision 2026-09-29: for these extensions WTune tunes only grid/rank-level STRICT knobs and never
 # changes or suggests these; listing them here makes assert_strict_only reject any change (they were
-# UNCLASSIFIED before). Names/wildcards come from wtune_extensions.py (single source).
+# UNCLASSIFIED before). Names/wildcards come from wtune/extensions.py (single source).
 def _extension_entries():
     from wtune import extensions as we
     have = {e['name'] for e in CATALOG}
@@ -626,7 +626,8 @@ def assert_strict_only(orig, final, exempt=PROBE_WINDOW_EXEMPT_KEYS):
 
 
 def _main(argv=None):
-    ap = argparse.ArgumentParser(description='WTune compliance model and knob catalog (decision 0050)')
+    ap = argparse.ArgumentParser(prog='wtune.py',
+                                 description='WTune compliance model and knob catalog (decision 0050)')
     sub = ap.add_subparsers(dest='cmd')
     sub.add_parser('validate', help='check catalog consistency; exit 1 on any error')
     lp = sub.add_parser('list', help='list catalog entries admitted by a compliance level')

@@ -2,7 +2,7 @@
 
 Policy (decisions 0051 / 0056): a physics or time-step change alters the solution, so WTune only
 ADVISES -- every row of the advice table says "advice only -- not applied". This module never
-launches anything and never writes a namelist to disk; the orchestrator (wtune_tune.py) runs the
+launches anything and never writes a namelist to disk; the orchestrator (wtune/tune/) runs the
 candidates and feeds the measurements back in.
 
   plan_candidates(namelist_path)            -> case-relevant PHYSICS-GRAY candidates, best prior first

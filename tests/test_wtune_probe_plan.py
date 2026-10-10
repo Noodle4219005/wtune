@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""pytest suite for wtune_probe_plan.py (2026-09-26 multi-point probe redesign).
+"""pytest suite for wtune/probe_plan.py (2026-09-26 multi-point probe redesign).
 
-See wtune_probe_plan.py's module docstring for the design (RANKING layer restart-start probes;
+See wtune/probe_plan.py's module docstring for the design (RANKING layer restart-start probes;
 PREDICTION layer plan_points/combine) and this task's report for the conus25 evidence that
 motivated it.
 """
@@ -9,8 +9,8 @@ import datetime
 
 import pytest
 
-import wtune_predict as predict
-import wtune_probe_plan as plan
+from wtune import predict as predict
+from wtune import probe_plan as plan
 
 
 def _dt(s):
@@ -397,7 +397,7 @@ def test_combine_integral_matches_linear_rise_within_1_percent():
 # point measurements at +1h/+3h/+5h and compares against the truth wall time 1783.4s.
 # ---------------------------------------------------------------------------
 def test_posthoc_g0014_combine_vs_truth():
-    # conus25 G0014 truth (2026-09-26 evidence, see wtune_probe_plan.py's module docstring):
+    # conus25 G0014 truth (2026-09-26 evidence, see wtune/probe_plan.py's module docstring):
     # hourly normal-step medians for hours 0-5, dt=15s, 1440 steps total, 37 radiation steps
     # measured at ratio 4.97, init=69s. Truth: wall - writes = 1783.4s.
     run_start = _dt("2020-01-01_00:00:00")

@@ -1,9 +1,9 @@
 """Phase-2 short-run guard: a plan costing >= the real run is refused when pipe.short_run is set."""
 import types
 
-from wtune_tune import pipeline as P
-from wtune_tune.pipeline_state import ShortRun
-from wtune_tune.common import UNSET
+from wtune.tune import pipeline as P
+from wtune.tune.pipeline_state import ShortRun
+from wtune.tune.common import UNSET
 
 
 def _st(monkeypatch, estimates, short):

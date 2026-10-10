@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """Tests for wtune.py's own core functions (parse_namelist/extract_case) that are not already
-covered indirectly through wtune_case.py/wtune_predict.py's own test files.
+covered indirectly through wtune/case.py/wtune/predict.py's own test files.
 
 Run: /home/nk/miniforge3/envs/hqvit-pixi/bin/python3 -m pytest -q test_wtune.py
 
 Focus here: extract_case's 'run_total_hours' field, which used to be `run_hours + run_days * 24`
 -- silently dropping run_minutes/run_seconds and having no start_date/end_date fallback, so it
 returned 0 for BOTH real cluster namelists this module is regression-tested against below (see
-wtune_runlength.py's module docstring for the shared resolver both this function and
-tools/temporal_validation.py:read_run_length_hours / wtune_predict.py:get_run_seconds now go
+wtune/runlength.py's module docstring for the shared resolver both this function and
+tools/temporal_validation.py:read_run_length_hours / wtune/predict.py:get_run_seconds now go
 through). Fixtures are transcribed verbatim from the real templates (leading-zero months,
 per-domain comma lists, irregular spacing all preserved -- see
 tools/test_temporal_validation.py's NML_LAFE_SHAPE/NML_ISC21_SHAPE and
@@ -17,7 +17,7 @@ through the other call sites).
 """
 import os
 
-import wtune_cli as wt
+from wtune import cli as wt
 
 LAFE_NML = """\
  &time_control

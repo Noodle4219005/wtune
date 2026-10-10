@@ -1,4 +1,4 @@
-"""Tests for src/wtune_physics_advice.py (decision 0059 phase 3). Synthetic namelists and numbers
+"""Tests for src/wtune/physics_advice.py (decision 0059 phase 3). Synthetic namelists and numbers
 only; the field-by-field gate is monkeypatched at wtune_config_gate.compare (its tolerance check,
 _check_results, stays real)."""
 import datetime
@@ -6,8 +6,8 @@ import math
 
 import pytest
 
-import wtune_physics_advice as adv
-import wtune_probe_plan as pp
+from wtune import physics_advice as adv
+from wtune import probe_plan as pp
 
 
 def _nl(tmp_path, *, dx, dt, mp=8, cu=1, bl=1, sfclay=1, lsm=2, lw=4, sw=4, radt=None,

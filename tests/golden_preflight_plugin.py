@@ -8,7 +8,7 @@ import re
 
 import pytest
 
-import wtune_preflight as pf
+from wtune import preflight as pf
 
 _RECORDS = {}
 _CURRENT = [None]

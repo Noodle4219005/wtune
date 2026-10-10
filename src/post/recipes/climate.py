@@ -278,7 +278,7 @@ def _project(run_dir, project_dir):
     if project_dir:
         return project_dir
     try:
-        import wtune_project
+        from wtune import project as wtune_project
         return wtune_project.find_project(start_dir=run_dir) or wtune_project.find_project()
     except Exception:                        # noqa: BLE001 -- no project: no references
         return None

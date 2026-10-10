@@ -88,7 +88,7 @@ class Ctx:
     start_time: float = 0.0
     owned_jobs: list = dataclasses.field(default_factory=list)
     cancelled_jobs: list = dataclasses.field(default_factory=list)
-    # --config (wtune_config.py); the defaults are a no-op filter / the pre---config behaviour
+    # --config (wtune/config.py); the defaults are a no-op filter / the pre---config behaviour
     search_cfg: dict = dataclasses.field(
         default_factory=lambda: copy.deepcopy(wtune_config.DEFAULTS["search"]))
     exclude_rules: list = dataclasses.field(default_factory=list)

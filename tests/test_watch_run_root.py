@@ -6,7 +6,7 @@ import json
 import os
 import time
 
-import wtune_watch as ww
+from wtune import watch as ww
 
 T0 = dt.datetime(2021, 7, 19, 0)
 FMT = "%Y-%m-%d_%H:%M:%S"

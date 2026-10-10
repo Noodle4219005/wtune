@@ -1,4 +1,4 @@
-"""wtune_doctor.py -- `wtune doctor`: is this machine and project ready for tune/run/post?
+"""wtune/doctor.py -- `wtune doctor`: is this machine and project ready for tune/run/post?
 
 One line per check: OK, WARN (a feature will be skipped) or FAIL (a step cannot run), each
 FAIL/WARN with the command that fixes it. Exit status 1 when any check FAILs."""

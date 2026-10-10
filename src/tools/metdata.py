@@ -78,8 +78,8 @@ _REPO_ROOT = os.path.dirname(_HERE)
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
-import wtune_cli as wt         # src/wtune_cli.py: parse_namelist/extract_case/enrich_case/first_value
-import wtune_solar as wsolar   # repo root: domain_bbox
+from wtune import cli as wt         # src/wtune/cli.py: parse_namelist/extract_case/enrich_case/first_value
+from wtune import solar as wsolar   # repo root: domain_bbox
 
 # ---------------------------------------------------------------------------
 # Constants

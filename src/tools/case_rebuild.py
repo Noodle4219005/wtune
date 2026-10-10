@@ -9,8 +9,8 @@ resolution, forcing chain choice/probe/fetch, namelist editing helpers, run.sbat
 incl. geogrid/metgrid TBL dir links + output checks + OMP + real.exe timeout/serial fallback),
 tools/metdata.py (resolve_forcing_chain, state-purpose byte-range fetch + bbox crop, via
 coldstart_sample's own lazy accessors), tools/grib_state.py (target_grid,
-regrid_nearest_regular), wtune_predict.py (parse_namelist, g/g_dom, sunlit_fraction),
-wtune_runlength.py (via wtune_predict).
+regrid_nearest_regular), wtune/predict.py (parse_namelist, g/g_dom, sunlit_fraction),
+wtune/runlength.py (via wtune_predict).
 
 Module-level imports are STDLIB + coldstart_sample + wtune_predict ONLY (both of those are
 themselves numpy-free) -- `rebuild`'s fix-span-*-namelist subcommands run inside a batch job on
@@ -53,7 +53,7 @@ for _p in (_REPO_ROOT, _HERE):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-import wtune_predict as predict     # repo root -- stdlib only
+from wtune import predict as predict     # repo root -- stdlib only
 import coldstart_sample as cs       # tools/ -- stdlib only at module level (lazy md/gs)
 
 if TYPE_CHECKING:

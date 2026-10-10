@@ -110,14 +110,14 @@ _DECOMP_TRIED = False
 
 
 def _load_decomp() -> Optional[ModuleType]:
-    """src/wtune_decomp (it needs Python >= 3.7) or None; tried once, a failure is cached too."""
+    """src/wtune/decomp.py (it needs Python >= 3.7) or None; tried once, a failure is cached too."""
     global _DECOMP, _DECOMP_TRIED
     if _DECOMP_TRIED:
         return _DECOMP
     _DECOMP_TRIED = True
     add_src_to_path()
     try:
-        import wtune_decomp
+        from wtune import decomp as wtune_decomp
         _DECOMP = wtune_decomp
     except Exception as e:
         sys.stderr.write(

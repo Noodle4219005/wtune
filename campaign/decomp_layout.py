@@ -110,7 +110,7 @@ def ranked_shapes(e_we: int, e_sn: int, e_vert: int, ranks: int, omp: int, nodes
                   load_decomp: Optional[DecompLoader] = None) -> Tuple[List[Shape], str]:
     """(legal (nx, ny) pairs best first, 'wtune_decomp' | 'fallback').
 
-    load_decomp() gives src/wtune_decomp or None (it needs Python >= 3.7; f1's is 3.6).
+    load_decomp() gives src/wtune/decomp.py or None (it needs Python >= 3.7; f1's is 3.6).
     """
     decomp = load_decomp() if load_decomp is not None else None
     if decomp is not None:

@@ -287,7 +287,7 @@ def _bp2nc_or_raise(run_dir, n_files, example):
             "(src/tools/wrf_adios2_to_netcdf4/ via src/wtune_bp.py) cannot run here: "
             % (run_dir, n_files, os.path.basename(example)))
     try:
-        import wtune_bp
+        from wtune import bp as wtune_bp
     except Exception as e:                                  # noqa: BLE001
         raise BPConversionError(what + "cannot import wtune_bp (%s: %s)"
                                 % (type(e).__name__, e)) from e

@@ -7,7 +7,7 @@ from pathlib import Path
 import netCDF4
 import numpy as np
 
-import wtune_config_gate
+from wtune import config_gate as wtune_config_gate
 
 
 MODULE = Path(wtune_config_gate.__file__).resolve()

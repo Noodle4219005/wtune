@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for wtune_calibrate.py -- offline only, no cluster access.
+"""Tests for wtune/calibrate.py -- offline only, no cluster access.
 
 Run: uv run --with pytest --with numpy --with netCDF4 python -m pytest -q \\
      test_wtune_calibrate.py test_wtune_predict.py
@@ -11,8 +11,8 @@ import sys
 
 import pytest
 
-import wtune_calibrate as wc
-import wtune_predict as wp
+from wtune import calibrate as wc
+from wtune import predict as wp
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # tests/ -> repo root
 REAL_CALIBRATION = os.path.join(HERE, "machine", "calibration", "scc.json")

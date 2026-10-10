@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""wtune_config.py -- YAML search-space configuration for `wtune tune`.
+"""wtune/config.py -- YAML search-space configuration for `wtune tune`.
 
-Precedence: CLI flag > this file > DEFAULTS (= wtune_tune.py's former argparse defaults). Every
+Precedence: CLI flag > this file > DEFAULTS (= wtune/tune/'s former argparse defaults). Every
 violation is reported (ConfigError); a declared-but-unsearched knob (search.io, physics_gray)
 enabled is an error, never a silent no-op. Schema: examples/wtune.yaml. PyYAML is imported lazily.
-CLI: wtune_config.py init <case> [--out F] | show <file> [--case N|--case-dir D] [--nodes N,..]
+CLI: wtune/config.py init <case> [--out F] | show <file> [--case N|--case-dir D] [--nodes N,..]
 | validate <file> (exit 2 on error)."""
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ for _p in (_HERE, _PREDICTOR_DIR, _CAMPAIGN_DIR):
 from wtune import compliance as wc
 
 # ---------------------------------------------------------------------------
-# built-in defaults -- duplicated from wtune_tune.py (it imports this module; the reverse would
+# built-in defaults -- duplicated from wtune/tune/ (it imports this module; the reverse would
 # be circular).
 # ---------------------------------------------------------------------------
 DEFAULT_SITE = "scc"
@@ -48,7 +48,7 @@ DEFAULTS = {
         "max_nodes": DEFAULT_MAX_NODES,
         "nodes": "auto",
         "nodes_policy": "knee",
-        # --nodes search knobs (wtune_tune.py: None = the CLI default applies)
+        # --nodes search knobs (wtune/tune/: None = the CLI default applies)
         "node_objective": None,        # time | cost | knee
         "deadline_minutes": None,
         "min_efficiency": None,
@@ -572,7 +572,7 @@ def is_fire_case(case_json: dict | None = None, namelist_path: str | None = None
         return True
     if namelist_path and os.path.exists(namelist_path):
         try:
-            from wtune import cli as _wtune_core  # root wtune.py: parse_namelist (stdlib only)
+            from wtune import cli as _wtune_core  # root wtune/cli.py: parse_namelist (stdlib only)
             nl = _wtune_core.parse_namelist(namelist_path)
             ifire_raw = nl.get("fire", {}).get("ifire")
             if any(v and v > 0 for v in _all_numbers(ifire_raw)):

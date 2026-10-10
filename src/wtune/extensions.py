@@ -5,7 +5,7 @@ grid/rank-level STRICT knobs (MPI ranks, nproc_x/nproc_y, tiles, OpenMP threads,
 Every extension-specific parameter (chem_opt, chemdt, photdt, emissions, hydro routing
 timesteps, AGGFACTRT, DA iterations/outer loops/B-matrix options, vortex_interval and the other
 vortex-following parameters, ...) is left byte-for-byte as given and is not even suggested. They
-are catalogued PHYSICS-GRAY / do-not-touch in wtune_compliance.py so assert_strict_only rejects
+are catalogued PHYSICS-GRAY / do-not-touch in wtune/compliance.py so assert_strict_only rejects
 any change.
 
 Stdlib only (wtune_compliance imports the key tables from here). Namelists are the nested

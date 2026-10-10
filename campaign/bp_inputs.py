@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """A case's WRF inputs as ADIOS2 BP: plan which files exist as BP or need converting, convert
-them into a cache (src/wtune_bp), link them, and make fresh per-run copies.
+them into a cache (src/wtune/bp.py), link them, and make fresh per-run copies.
 
 netCDF is no longer used for WRF I/O (2026-10-03): every input stream is read as BP.
 Stdlib only, Python 3.6.
@@ -54,7 +54,7 @@ class _InputPlan(object):
     def __init__(self, streams: List[Stream], src_dir: str, cache_dir: str, bp: Any) -> None:
         self.src_dir = src_dir
         self.cache_dir = cache_dir
-        self.bp = bp                    # src/wtune_bp; imported only when a step needs it
+        self.bp = bp                    # src/wtune/bp.py; imported only when a step needs it
         self.todo = {}                  # type: Dict[str, List[Tuple[str, str]]]  # dir -> names
         self.res = {"links": {}, "convert": [], "existing": [], "missing": [], "ready": [],
                     "needs_convert": [], "per_record": {}, "single_multirecord": [],

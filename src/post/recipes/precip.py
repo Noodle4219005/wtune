@@ -36,7 +36,7 @@ RADAR_RANGE_KM = 230
 def _project_of(out_dir):
     """Walk-up fallback (absolute path) for callers that were not handed --project."""
     try:
-        from wtune_project import find_project
+        from wtune.project import find_project
         return find_project(os.path.abspath(out_dir))
     except Exception:
         return None

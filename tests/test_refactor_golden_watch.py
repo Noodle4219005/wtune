@@ -15,7 +15,7 @@ import pytest
 
 import test_watch_run_root as trr
 import test_wtune_watch as tw
-import wtune_watch as ww
+from wtune import watch as ww
 
 GOLDEN_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                           "fixtures", "golden", "watch")

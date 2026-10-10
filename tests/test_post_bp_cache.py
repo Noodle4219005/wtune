@@ -6,6 +6,7 @@ wrfout of tests/test_post_multiframe.py -- so the index, cache, invalidation, wo
 error paths are tested without adios2. Every conversion appends "<pid> <bp>" to $FAKE_BP_LOG,
 which also counts conversions done inside pool workers.
 """
+from conftest import swap_wtune_module
 import json
 import os
 import sys
@@ -78,7 +79,7 @@ def fake_bp(tmp_path, monkeypatch):
     mod.bp2nc = _fake_bp2nc
     mod.require_adios2_python = lambda: "/fake/adios2/python"
     mod.is_bp = os.path.isdir
-    monkeypatch.setitem(sys.modules, "wtune_bp", mod)
+    swap_wtune_module(monkeypatch, "bp", mod)
     monkeypatch.setattr(extract, "_BP_MEMO", {})
     monkeypatch.setattr(extract, "_BP_ORIGIN", {})
     monkeypatch.setattr(extract, "_cpu_budget", lambda: 1)
@@ -271,7 +272,7 @@ def test_missing_adios2_is_one_clear_error(tmp_path, fake_bp, monkeypatch, capsy
         compare._frames(str(run))
 
     # no wtune_bp at all
-    monkeypatch.setitem(sys.modules, "wtune_bp", None)
+    swap_wtune_module(monkeypatch, "bp", None)
     with pytest.raises(extract.BPConversionError, match="cannot import wtune_bp"):
         extract.list_frames(str(run))
 

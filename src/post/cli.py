@@ -60,7 +60,7 @@ def _project_context(args: argparse.Namespace) -> tuple:
     (project_dir_or_None, project_doc_or_None). Never raises for "no project found" -- only
     an explicit --project/$WTUNE_PROJECT that does not resolve is an error
     (wtune_project.find_project's own contract, surfaced by the caller)."""
-    import wtune_project
+    from wtune import project as wtune_project
     project_dir = wtune_project.find_project(explicit=getattr(args, "project", None))
     if not project_dir:
         return None, None
@@ -74,7 +74,7 @@ def _resolve_out(args: argparse.Namespace, project_dir: str | None, tag: str) ->
         return out
     if not project_dir:
         raise SystemExit("--out required (or --project DIR for a default post/<id>/)")
-    import wtune_project
+    from wtune import project as wtune_project
     return wtune_project.default_out_dir(project_dir, "post", tag=tag)
 
 
@@ -85,7 +85,7 @@ def _resolve_run_dirs(args: argparse.Namespace, project_dir: str | None) -> list
         return run_dirs
     if not project_dir:
         raise SystemExit("RUN_DIRS required (or --project DIR to auto-discover runs/*/)")
-    import wtune_project
+    from wtune import project as wtune_project
     run_dirs = [p for _id, p in wtune_project.discover_runs(project_dir)]
     if not run_dirs:
         raise SystemExit("--project %s has no runs/*/ or case/ with wrfout frames" % project_dir)
@@ -107,7 +107,7 @@ def _basenames(run_dirs: list[str]) -> list[str]:
 def _record_manifest(project_dir: str | None, argv: list[str], out: str, key_paths: list[str],
                      exit_code: int = 0) -> None:
     if project_dir:
-        import wtune_project
+        from wtune import project as wtune_project
         wtune_project.manifest_append(project_dir, argv, out_dir=out, exit_code=exit_code,
                                       key_paths=key_paths)
 
@@ -155,7 +155,7 @@ def cmd_tc(args: argparse.Namespace) -> int:
 
     hurdat2, storm = args.hurdat2, args.storm
     if project_dir and not hurdat2 and not storm:
-        import wtune_project
+        from wtune import project as wtune_project
         storm, hurdat2 = wtune_project.project_storm(project_doc)
     if not (hurdat2 and storm):
         raise SystemExit("--hurdat2/--storm required (or set them in project.yaml's storm:)")
@@ -196,7 +196,7 @@ def cmd_report(args: argparse.Namespace) -> int:
 
 def _recipe_cross_sections(project_doc: dict) -> tuple[dict, float | None, float | None]:
     """(cross_sections, xsec_top_km, xsec_halfwidth_km) from the project doc."""
-    import wtune_project
+    from wtune import project as wtune_project
     cross_sections = dict(
         terrain=wtune_project.project_cross_section(project_doc, "terrain"),
         moisture=wtune_project.project_cross_section(project_doc, "moisture"))
@@ -222,7 +222,7 @@ def cmd_recipe(args: argparse.Namespace) -> int:
                            [("run%d" % i) for i in range(len(run_dirs))])
     out = _resolve_out(args, project_dir, "recipe")
     if project_dir:
-        import wtune_project
+        from wtune import project as wtune_project
         defaults = wtune_project.project_post_defaults(project_doc)
         used = []
         if args.types is None and defaults["types"]:
@@ -236,7 +236,7 @@ def cmd_recipe(args: argparse.Namespace) -> int:
 
     hurdat2, storm = args.hurdat2, args.storm
     if project_dir and not hurdat2 and not storm:
-        import wtune_project
+        from wtune import project as wtune_project
         storm, hurdat2 = wtune_project.project_storm(project_doc)
 
     cross_sections = xsec_top_km = xsec_halfwidth_km = None
@@ -332,7 +332,7 @@ def cmd_vapor_bundle(args: argparse.Namespace) -> int:
 
 def cmd_custom(args: argparse.Namespace) -> int:
     import post.custom as custom
-    import wtune_project
+    from wtune import project as wtune_project
     project_dir = wtune_project.find_project(explicit=args.project)
     if not project_dir:
         raise SystemExit("wtune post custom needs a project (--project DIR or $WTUNE_PROJECT "

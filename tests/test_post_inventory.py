@@ -1,6 +1,7 @@
 """Tests for post/inventory.py: grid/variable summary (ncdump -h + cdo sinfon, mocked with
 the real captures in tests/fixtures/post/) and missing-frame detection (pure, no tool call).
 """
+from conftest import swap_wtune_module
 import os
 
 import post.inventory as inventory
@@ -62,7 +63,7 @@ def _no_bp_converter(monkeypatch):
     def unavailable():
         raise RuntimeError("no Python that can `import adios2` was found: run `pixi install` "
                            "in envs/adios2")
-    monkeypatch.setitem(sys.modules, "wtune_bp", types.SimpleNamespace(
+    swap_wtune_module(monkeypatch, "bp", types.SimpleNamespace(
         require_adios2_python=unavailable, bp2nc=None))
     monkeypatch.setattr(extract, "_BP_MEMO", {})
 

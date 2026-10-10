@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Characterization (golden) tests for the top-level CLI (src/wtune_cli.py, wtune.py).
+"""Characterization (golden) tests for the top-level CLI (src/wtune/cli.py, wtune/cli.py).
 
 Pins what a user sees from the argparse front end -- the top-level and every subcommand's
 --help text, the exit code and stdout/stderr of representative invalid or cheap invocations --
@@ -34,39 +34,39 @@ SUBCOMMANDS = [
 ]
 
 # (case id, entry script relative to REPO, argv)
-CASES = [("help-top", "wtune.py", ["--help"]),
-         ("help-top-direct", "src/wtune_cli.py", ["--help"])]
-CASES += [("help-" + c, "wtune.py", [c, "--help"]) for c in SUBCOMMANDS]
+CASES = [("help-top", "src/wtune", ["--help"]),
+         ("help-top-direct", "src/wtune/cli.py", ["--help"])]
+CASES += [("help-" + c, "src/wtune", [c, "--help"]) for c in SUBCOMMANDS]
 CASES += [
-    ("no-command", "wtune.py", []),
-    ("unknown-command", "wtune.py", ["bogus"]),
-    ("version", "wtune.py", ["--version"]),
-    ("physics-bad-compliance", "wtune.py", ["physics", "--namelist", NL, "--compliance", "bogus"]),
-    ("physics-no-file", "wtune.py", ["physics", "--namelist", NL, "--no-probe"]),
-    ("screen-no-file", "wtune.py", ["screen", "--namelist", NL, "--no-probe"]),
-    ("machine-profile-no-file", "wtune.py", ["machine-profile", "/nonexistent/wtune-golden/m.json"]),
-    ("selftest", "wtune.py", ["selftest"]),
-    ("compliance-classify", "wtune.py", ["compliance", "classify", "numtiles"]),
-    ("compliance-no-args", "wtune.py", ["compliance"]),
-    ("predict-missing", "wtune.py", ["predict"]),
-    ("predict-no-dir", "wtune.py", ["predict", CASE, "--nodes", "1"]),
-    ("calc-units", "wtune.py", ["calc", "units", "kt-ms", "10"]),
-    ("calc-units-direct", "src/wtune_cli.py", ["calc", "units", "kt-ms", "10"]),
-    ("calc-no-args", "wtune.py", ["calc"]),
-    ("advise-no-args", "wtune.py", ["advise"]),
-    ("tune-no-args", "wtune.py", ["tune"]),
-    ("config-no-args", "wtune.py", ["config"]),
-    ("metdata-no-args", "wtune.py", ["metdata"]),
-    ("check-no-args", "wtune.py", ["check"]),
-    ("calibrate-no-args", "wtune.py", ["calibrate"]),
-    ("post-no-args", "wtune.py", ["post"]),
-    ("prep-no-args", "wtune.py", ["prep"]),
-    ("project-no-args", "wtune.py", ["project"]),
-    ("analyze-no-args", "wtune.py", ["analyze"]),
-    ("predict-rebuild-no-args", "wtune.py", ["predict-rebuild"]),
-    ("watch-no-args", "wtune.py", ["watch"]),
-    ("run-no-args", "wtune.py", ["run"]),
-    ("scenario-no-args", "wtune.py", ["scenario"]),
+    ("no-command", "src/wtune", []),
+    ("unknown-command", "src/wtune", ["bogus"]),
+    ("version", "src/wtune", ["--version"]),
+    ("physics-bad-compliance", "src/wtune", ["physics", "--namelist", NL, "--compliance", "bogus"]),
+    ("physics-no-file", "src/wtune", ["physics", "--namelist", NL, "--no-probe"]),
+    ("screen-no-file", "src/wtune", ["screen", "--namelist", NL, "--no-probe"]),
+    ("machine-profile-no-file", "src/wtune", ["machine-profile", "/nonexistent/wtune-golden/m.json"]),
+    ("selftest", "src/wtune", ["selftest"]),
+    ("compliance-classify", "src/wtune", ["compliance", "classify", "numtiles"]),
+    ("compliance-no-args", "src/wtune", ["compliance"]),
+    ("predict-missing", "src/wtune", ["predict"]),
+    ("predict-no-dir", "src/wtune", ["predict", CASE, "--nodes", "1"]),
+    ("calc-units", "src/wtune", ["calc", "units", "kt-ms", "10"]),
+    ("calc-units-direct", "src/wtune/cli.py", ["calc", "units", "kt-ms", "10"]),
+    ("calc-no-args", "src/wtune", ["calc"]),
+    ("advise-no-args", "src/wtune", ["advise"]),
+    ("tune-no-args", "src/wtune", ["tune"]),
+    ("config-no-args", "src/wtune", ["config"]),
+    ("metdata-no-args", "src/wtune", ["metdata"]),
+    ("check-no-args", "src/wtune", ["check"]),
+    ("calibrate-no-args", "src/wtune", ["calibrate"]),
+    ("post-no-args", "src/wtune", ["post"]),
+    ("prep-no-args", "src/wtune", ["prep"]),
+    ("project-no-args", "src/wtune", ["project"]),
+    ("analyze-no-args", "src/wtune", ["analyze"]),
+    ("predict-rebuild-no-args", "src/wtune", ["predict-rebuild"]),
+    ("watch-no-args", "src/wtune", ["watch"]),
+    ("run-no-args", "src/wtune", ["run"]),
+    ("scenario-no-args", "src/wtune", ["scenario"]),
 ]
 
 
@@ -80,7 +80,7 @@ def _invoke(script, argv, cwd):
 
 def _normalize_traceback(stderr):
     """An uncaught exception is pinned by its final line (type + message) only: the frames carry
-    wtune_cli.py line numbers and source excerpts, which a restructuring legitimately moves."""
+    wtune/cli.py line numbers and source excerpts, which a restructuring legitimately moves."""
     if "Traceback (most recent call last):" not in stderr:
         return stderr
     head = stderr.split("Traceback (most recent call last):")[0]

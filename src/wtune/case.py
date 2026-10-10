@@ -1,22 +1,22 @@
 #!/usr/bin/env python3
-"""wtune_case.py -- "case understanding" profile: what WTune can infer about a case from its
+"""wtune/case.py -- "case understanding" profile: what WTune can infer about a case from its
 INPUTS ALONE, before any measurement. This is the prior used to pick a first physics/core-count
 starting point; every quantitative claim in here is labelled PRIOR/PREDICTION/UNCONFIRMED so a
 later measurement can confirm or refute it, never silently treated as ground truth.
 
-CLI: python3 wtune.py profile <case_dir> [--namelist P] [--wrfinput P] [--cores-per-node 72] [--json OUT]
+CLI: python3 wtune/cli.py profile <case_dir> [--namelist P] [--wrfinput P] [--cores-per-node 72] [--json OUT]
 
 Reuses (does not reimplement):
-  wtune.py             parse_namelist, _parse_nl_kv, extract_case, enrich_case, radiation_spacing,
-                        HALO (halo width constant, wtune.py:27)
-  wtune_physics.py      resolve_suite, diagnose, scheme_info/scheme_name, radt_advice,
+  wtune/cli.py             parse_namelist, _parse_nl_kv, extract_case, enrich_case, radiation_spacing,
+                        HALO (halo width constant, wtune/cli.py:27)
+  wtune/physics.py      resolve_suite, diagnose, scheme_info/scheme_name, radt_advice,
                         timestep_advice, time_step_sound_advice, nesting_advice, swint_advice,
                         _nl_list (per-domain namelist list parsing)
-  wtune_shape.py        MIN_PATCH, patch_dims, tiling
+  wtune/shape.py        MIN_PATCH, patch_dims, tiling
   predictor/decomp_space.py  legal_shapes_exact, MIN_PATCH (exact RSL patch legality, incl. nests)
-  wtune_solar.py        solar_summary, domain_bbox, day_of_year
+  wtune/solar.py        solar_summary, domain_bbox, day_of_year
   wind_probe.py         steering() -- OPTIONAL, lazy netCDF4 import
-  wtune_compliance.py   lookup, classify (legal enum values + STRICT/PHYSICS-GRAY classification)
+  wtune/compliance.py   lookup, classify (legal enum values + STRICT/PHYSICS-GRAY classification)
 
 netCDF4 is never imported at module load time. Every wrfinput-derived field is best-effort and
 degrades to "unavailable, say so" when netCDF4 or the file is missing.
@@ -65,7 +65,7 @@ DYN_WEIGHT = 5.0
 # ---------------------------------------------------------------------------
 # per-rank work ~ px*py (patch interior cells); halo exchange ~ c * 2*H*(px+py) (perimeter cells,
 # both directions, pack+MPI+unpack). H is the halo WIDTH, reusing wtune.py's own HALO=5 constant
-# (wtune.py:27, "WRF halo width approximation") so this file does not invent a second number for
+# (wtune/cli.py:27, "WRF halo width approximation") so this file does not invent a second number for
 # the same physical quantity. c is UNCALIBRATED: it assumes one halo-cell's exchange costs ~1x one
 # interior cell's per-step compute (pack + MPI send/recv + unpack ~ one cell of work). Both H and c
 # are printed with every prediction precisely so a later strong-scaling run can refute them.

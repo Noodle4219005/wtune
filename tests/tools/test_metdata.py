@@ -719,7 +719,7 @@ class TestBuildPlan(unittest.TestCase):
             self.assertEqual(len(plan), 3)   # 0,3,6h at 3h interval over a 6h run
 
     def test_build_plan_wps_purpose_lafe_shape_five_times(self):
-        """Regression for the wtune.py:extract_case bug where run_total_hours came out 0 for
+        """Regression for the wtune/cli.py:extract_case bug where run_total_hours came out 0 for
         the lafe shape (every run_* key is 0; length is expressed only via start_date
         (2017-08-23 06:00) -> end_date (2017-08-24 06:00) = 24h) -- 'metdata find --purpose wps'
         used to emit ONE GRIB time (0h only) instead of the FIVE (0,6,12,18,24h) a 24h case at

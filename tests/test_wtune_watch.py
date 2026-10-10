@@ -1,4 +1,4 @@
-"""Tests for wtune_watch.py -- synthetic namelist.input + rsl.error/out.0000 in tmp dirs.
+"""Tests for wtune/watch.py -- synthetic namelist.input + rsl.error/out.0000 in tmp dirs.
 
 Synthetic run: 3 domains (ratio 1:3:3), 24 h at dt=60 s -> 1440 d01 steps, radt=10 min
 (stepra 10), history every 60 min for every domain. d01 compute = 1.0 s, x4 on a radiation step
@@ -15,7 +15,7 @@ import time
 
 import pytest
 
-import wtune_watch as ww
+from wtune import watch as ww
 
 T0 = dt.datetime(2021, 7, 19, 0)
 DT = 60
@@ -326,7 +326,7 @@ def test_cfl_informational(tmp_path):
 
 
 def test_cli_registration(tmp_path, monkeypatch, capsys):
-    import wtune_cli
+    from wtune import cli as wtune_cli
     monkeypatch.setattr(sys, "argv", ["wtune", "watch", "--help"])
     with pytest.raises(SystemExit) as e:
         wtune_cli.main()

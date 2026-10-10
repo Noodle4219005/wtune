@@ -18,11 +18,11 @@
 | **歸檔** | 沒有任何指令會走到 | 不審 | `archive/unused-2026-10/` |
 
 A 層分三塊：調校與量測約 4,850 行、執行與專案約 4,990 行、後處理約 4,770 行。
-其中**真正會改變 WRF 怎麼跑**的（`wtune_run/`、續跑、sbatch、成功判定、submit、project）只有約 1,900 行，建議從那裡和第 1 部分開始。
+其中**真正會改變 WRF 怎麼跑**的（`wtune/run/`、續跑、sbatch、成功判定、submit、project）只有約 1,900 行，建議從那裡和第 1 部分開始。
 
 追蹤量測的限制：
 - 只記 Python。三支 shell（`campaign/strict_campaign.sbatch`、`node_hygiene.sh`、`sites/scc.sh`）是人工讀的。
-- 量測之後才加的函式不在紀錄裡（例如 `extract.accumulated_rain`、`wtune_run/controller._run_segments`），已人工補上。
+- 量測之後才加的函式不在紀錄裡（例如 `extract.accumulated_rain`、`wtune/run/controller._run_segments`），已人工補上。
 - 乾淨跑完一次不會經過錯誤分支；這些分支列在各檔的「沒執行到但屬於這條路徑」。
 - 函式名稱是穩定的定位方式（`grep -n "def <name>"`）；行數是寫這份文件時的大小，會隨修改變動。
 
@@ -55,18 +55,18 @@ B（掃過）：`strict_campaign.sbatch` 的參數解析、連結檔案、BP 轉
 | `src/predictor/decomp_space.py` | `legal_shapes_exact`、`rsl_patch_extents`、`enumerate_space`、`default_omp_options`、`numtiles_candidates`、`sample_design`、tile 幾何一族 | 合法切法（每個 domain 每個 patch ≥ 10 格）、候選空間、分層抽樣 |
 | `src/predictor/experiment.py`（115 行，其餘已移至 `archive/unused-2026-10/`） | `_max_legal_ranks`、`_generated_baseline` | ANCHOR：omp=1、最大合法 rank 數、長寬比最小 |
 | `src/tools/scc_sweep.py` | `estimate_s_per_step`、`build_anchor`、`build_sampled`、`build_configs`、`_identity`、`excluded_nodes`／`exclude_arg`、`build_sbatch_command`、檔頭常數 | 候選去重、`--exclude` 清單（head + `WTUNE_SBATCH_EXCLUDE` + 預檢失敗節點）、時限估計常數 |
-| `src/wtune_tune/candidates.py` | `aggregate_by_cid`、`_sweep_anchor`、`_hybrid_anchor`、`_sweep_omp_options`、`_apply_search_filter` | 失敗或 ≤0 的量測丟掉；各 rep 取中位數；每個 N 的 ANCHOR |
+| `src/wtune/tune/candidates.py` | `aggregate_by_cid`、`_sweep_anchor`、`_hybrid_anchor`、`_sweep_omp_options`、`_apply_search_filter` | 失敗或 ≤0 的量測丟掉；各 rep 取中位數；每個 N 的 ANCHOR |
 
 ### 1.3 節點數與贏家
 
 | 檔案 | A | 它決定什麼 |
 |---|---|---|
-| `src/wtune_nodes.py`（全檔 178 行） | `choose`、`stop_early`、`summarize`、`finalists`、`seed_nodes`、`refine_targets`、`choose_cores` | **3% 雜訊規則**：取「在最小值 3% 內的最小 N」；core 數平手取較滿的 |
-| `src/wtune_tune/node_search.py` | `run_node_search`、`run_node_sweep`、`_measure_anchor_wave`、`run_core_sweep`、`_tune_finalists`、`build_layout_table` | 掃哪些 N、何時提早停、最後的 (N, 每節點核數, 版面) |
-| `src/wtune_tune/rounds.py` | `run_round0`、`_round0_size`、`_configs_for_budget`、`run_tuning_at` | finalist 上量幾個候選 |
-| `src/wtune_tune/common.py` | `_cluster_rank`、`would_exceed_budget` | 0.5% 內視為同一群 |
-| `src/wtune_tune/report.py` | `build_report`、`final_winner`、`local_param_table`、`_assert_report_is_strict_only` | BEST 與 `report["winner"]`（`wtune run` 讀的就是它） |
-| `src/wtune_tune/budget.py`、`jobs.py`、`preflight.py` | `estimate_run_time`、`measure_startup_s`、`_wait_running_budget`、`wait_for_jobs`、`node_preflight` | 預算怎麼計、何時取消 job、哪些節點被排除 |
+| `src/wtune/nodes.py`（全檔 178 行） | `choose`、`stop_early`、`summarize`、`finalists`、`seed_nodes`、`refine_targets`、`choose_cores` | **3% 雜訊規則**：取「在最小值 3% 內的最小 N」；core 數平手取較滿的 |
+| `src/wtune/tune/node_search.py` | `run_node_search`、`run_node_sweep`、`_measure_anchor_wave`、`run_core_sweep`、`_tune_finalists`、`build_layout_table` | 掃哪些 N、何時提早停、最後的 (N, 每節點核數, 版面) |
+| `src/wtune/tune/rounds.py` | `run_round0`、`_round0_size`、`_configs_for_budget`、`run_tuning_at` | finalist 上量幾個候選 |
+| `src/wtune/tune/common.py` | `_cluster_rank`、`would_exceed_budget` | 0.5% 內視為同一群 |
+| `src/wtune/tune/report.py` | `build_report`、`final_winner`、`local_param_table`、`_assert_report_is_strict_only` | BEST 與 `report["winner"]`（`wtune run` 讀的就是它） |
+| `src/wtune/tune/budget.py`、`jobs.py`、`preflight.py` | `estimate_run_time`、`measure_startup_s`、`_wait_running_budget`、`wait_for_jobs`、`node_preflight` | 預算怎麼計、何時取消 job、哪些節點被排除 |
 
 沒執行到但屬於這條路徑：`_proxy_fallback_report`（什麼都沒量到時）、`evaluate_job_gates`、`cancel_jobs`、`_in_flight`、`sample_more_diverse_configs`。
 
@@ -74,13 +74,13 @@ B（掃過）：`strict_campaign.sbatch` 的參數解析、連結檔案、BP 轉
 
 | 檔案 | A | 它決定什麼 |
 |---|---|---|
-| `src/wtune_tune/pipeline.py` | `run_pipeline_full`、`_pipeline_phase1_layout`、`_pipeline_on_sweep`、`_prediction_from_t0_anchor`、`_pipeline_prediction`、`_pipeline_finish`、`_pipeline_cold_estimate` | 等級怎麼降（模擬比調校短就降級）、預測來源 |
-| `src/wtune_tune/prediction.py` | `WholeRunPrediction.add_run_length_io`、`time_suggestion_s`、`plan_prediction_points`、`cold_start_prediction` | T = 計算 + 啟動 + I/O；建議的 `--time` |
-| `src/wtune_predict.py` | `build_prediction`、`predict_compute`、`predict_radiation_extra`、`measure_rad_from_rsl`、`parse_rsl_d01_step_seconds`、`resolve_probe`、`classify_steps`、`predict_init`、`get_d01_steps` | 預測值與區間；輻射步怎麼分類 |
-| `src/wtune_io_model.py`、`wtune_runlength.py` | `run_length_io` 及其各項、`resolve_run_seconds` | history／restart 的 I/O 時間、iofields 的重複解析成本 |
-| `src/wtune_probe_plan.py`、`wtune_cost_drivers.py` | `plan_points`、`plan_points_for_case`、`first_global_step_from_rsl`、`measurement_from_steps_file` | 量哪幾個模式時刻、區間寬度 |
+| `src/wtune/tune/pipeline.py` | `run_pipeline_full`、`_pipeline_phase1_layout`、`_pipeline_on_sweep`、`_prediction_from_t0_anchor`、`_pipeline_prediction`、`_pipeline_finish`、`_pipeline_cold_estimate` | 等級怎麼降（模擬比調校短就降級）、預測來源 |
+| `src/wtune/tune/prediction.py` | `WholeRunPrediction.add_run_length_io`、`time_suggestion_s`、`plan_prediction_points`、`cold_start_prediction` | T = 計算 + 啟動 + I/O；建議的 `--time` |
+| `src/wtune/predict.py` | `build_prediction`、`predict_compute`、`predict_radiation_extra`、`measure_rad_from_rsl`、`parse_rsl_d01_step_seconds`、`resolve_probe`、`classify_steps`、`predict_init`、`get_d01_steps` | 預測值與區間；輻射步怎麼分類 |
+| `src/wtune/io_model.py`、`wtune/runlength.py` | `run_length_io` 及其各項、`resolve_run_seconds` | history／restart 的 I/O 時間、iofields 的重複解析成本 |
+| `src/wtune/probe_plan.py`、`wtune/cost_drivers.py` | `plan_points`、`plan_points_for_case`、`first_global_step_from_rsl`、`measurement_from_steps_file` | 量哪幾個模式時刻、區間寬度 |
 
-B（掃過）：`wtune_predict.py` 的 namelist parser 與 ledger 讀取、`render_text`；`report.py` 的列印函式；`context.py`、`cli.py` 的參數組裝。
+B（掃過）：`wtune/predict.py` 的 namelist parser 與 ledger 讀取、`render_text`；`report.py` 的列印函式；`context.py`、`cli.py` 的參數組裝。
 
 ---
 
@@ -88,46 +88,46 @@ B（掃過）：`wtune_predict.py` 的 namelist parser 與 ledger 讀取、`rend
 
 建議照這個順序讀：
 
-1. `src/wtune_submit.py`：`plan_steps`、`case_window`、`fetch_steps`、`main`
+1. `src/wtune/submit.py`：`plan_steps`、`case_window`、`fetch_steps`、`main`
    — tune → run → 下載 → post 的指令；下載失敗繼續、其餘失敗即停。
-2. `src/wtune_project.py`：`find_project`、`apply_project_env`、`merged_case_table`、`latest_tune_report`、
+2. `src/wtune/project.py`：`find_project`、`apply_project_env`、`merged_case_table`、`latest_tune_report`、
    `project_case_name`、`case_entry_from_namelist`、`register_project_case`、`init_project`、`_default_post_block`
    — 哪些節點被排除、case 表怎麼合併、用哪一份 tune 報告、case id 怎麼產生。
-3. `src/wtune_run/layout.py`：`tune_report_layout`、`resolve_layout`、`make_config` — 實際執行的版面（命令列旗標蓋過報告）。
-4. `src/wtune_run/plan.py`（全檔都是 A）：`plan_run`、`restart_setting`、`auto_checkpoint_steps`、`checkpoint_request`、
+3. `src/wtune/run/layout.py`：`tune_report_layout`、`resolve_layout`、`make_config` — 實際執行的版面（命令列旗標蓋過報告）。
+4. `src/wtune/run/plan.py`（全檔都是 A）：`plan_run`、`restart_setting`、`auto_checkpoint_steps`、`checkpoint_request`、
    `assign_segments`、`input_record_alignment` — 分幾段、restart／checkpoint 落在哪些時刻。
-5. `src/wtune_run/estimate.py`：`time_limit_s`、`segment_wall`、`history_wall`、`restart_write_steps`
+5. `src/wtune/run/estimate.py`：`time_limit_s`、`segment_wall`、`history_wall`、`restart_write_steps`
    與檔頭常數（`TIME_FACTOR=1.5`、`TIME_PAD_S=600`、`TIME_ROUND_S=300`）— 每個 job 的 `--time`。
-6. `src/wtune_run/namelist.py`：`render_segment_namelist`、`_set_window_and_layout`、`_set_restart_keys`、`_set_io_keys`
+6. `src/wtune/run/namelist.py`：`render_segment_namelist`、`_set_window_and_layout`、`_set_restart_keys`、`_set_io_keys`
    — 對 namelist 的全部改動，以及「不准改到白名單以外的 key」的檢查。
-7. `src/wtune_run/staging.py`：`render_adios2_restart_xml`、`merge_adios2_xml`、`output_dir_names`、`restart_files`。
-8. `src/wtune_run/sbatch.py`（全檔 70 行）：`_header_lines`、`_launch_lines`、`render_segment_sbatch`
+7. `src/wtune/run/staging.py`：`render_adios2_restart_xml`、`merge_adios2_xml`、`output_dir_names`、`restart_files`。
+8. `src/wtune/run/sbatch.py`（全檔 70 行）：`_header_lines`、`_launch_lines`、`render_segment_sbatch`
    — `--exclude`、`--signal=B:USR1@90`、`--no-requeue`、launcher 與綁核。
    連同 `src/tools/coldstart_sample.py` 的 `render_signal_trap_and_hygiene_preamble`（trap、kill、reap、`INTERRUPTED`）。
-9. `src/wtune_run/attempts.py`：`_run_attempt`（成功 = watch 判 done 且 restart 完整）、`wait_for_job`、`_submit_attempt`。
-10. `src/wtune_run/controller.py`：`_run_segments`、`_next_attempt`、`_interrupted`、`_resume_attempt`、`resume_time_limit`、
+9. `src/wtune/run/attempts.py`：`_run_attempt`（成功 = watch 判 done 且 restart 完整）、`wait_for_job`、`_submit_attempt`。
+10. `src/wtune/run/controller.py`：`_run_segments`、`_next_attempt`、`_interrupted`、`_resume_attempt`、`resume_time_limit`、
     `rescue_time_step`、`_cfl_rescue_attempt`、`_update_from_observed`
     — 失敗怎麼分類、從哪個 restart 續跑。**`--cfl-rescue` 是整個 WTune 唯一會改變模擬解的地方。**
-11. `src/wtune_resume.py`（全檔約 80 行，乾淨的 run 不會執行）：`classify_failure`、`resume_point`、
+11. `src/wtune/resume.py`（全檔約 80 行，乾淨的 run 不會執行）：`classify_failure`、`resume_point`、
     `valid_restart_times`、`restart_complete`，以及 `INFRA_STATES`／`MODEL_NEEDLES` 常數。
-12. `src/wtune_watch.py`：`snapshot`、`_set_status`、`read_rsl`、`parse_d01_steps`、`_domain_progress`、`_check_cfl`、`exit_code`
+12. `src/wtune/watch.py`：`snapshot`、`_set_status`、`read_rsl`、`parse_d01_steps`、`_domain_progress`、`_check_cfl`、`exit_code`
     — done／failed／running 的定義（`wtune run` 靠它判定成功）。其餘是剩餘時間估計。
-13. `src/wtune_run/cli.py`：`apply_project_defaults`、`_load_case`、`_choose_layout`、`_tune_report_candidates`、`build_plan`、`execute`、`main`。
-14. `src/wtune_bp.py`：`per_record_namelist_edits`、`adios2_xml`、`_entry_current`、`cached_inputs`（其餘 26 個函式是 B）。
+13. `src/wtune/run/cli.py`：`apply_project_defaults`、`_load_case`、`_choose_layout`、`_tune_report_candidates`、`build_plan`、`execute`、`main`。
+14. `src/wtune/bp.py`：`per_record_namelist_edits`、`adios2_xml`、`_entry_current`、`cached_inputs`（其餘 26 個函式是 B）。
 
-B（掃過）：`wtune_run/inputs.py` 的連結與複製、`common.py`、`context.py`、`report.py`；`wtune_bp.py` 的轉檔、manifest、lock；`bin/wtune`。
-`src/wtune_cli.py` 只需要看 `main`、`_run_forwarded`、`_project_for` 與指令表。
+B（掃過）：`wtune/run/inputs.py` 的連結與複製、`common.py`、`context.py`、`report.py`；`wtune/bp.py` 的轉檔、manifest、lock；`bin/wtune`。
+`src/wtune/cli.py` 只需要看 `main`、`_run_forwarded`、`_project_for` 與指令表。
 
 ### 送出前的檢查與建議（不改變 WRF 怎麼跑，但決定 WTune 對使用者說什麼）
 
 | 檔案 | A | 內容 |
 |---|---|---|
-| `src/wtune_preflight.py` | `run_checks`、`exit_code_for`、`check_c1…check_c11` 及其 helper | 什麼情況判 FATAL／WARN：時間窗、iofields、物理資料檔、輸入一致性、切法、dt/dx、磁碟、wrfinput 數值 |
-| `src/wtune_extensions.py` | `detect`、`refusal_run`、`tune_gate`、`omp_cap`、`cost_factors` | Chem／Hydro／WRFDA／moving nest 的偵測、拒跑條件、成本係數 |
-| `src/wtune_calc.py` | `check` 與 13 個 `_chk_*`、公式函式 | 經驗法則（dt、radt、nest 比例…） |
-| `src/wtune_advise.py` | `advise`、`det_case_types`、`build_case` | 建議規則引擎 |
-| `src/wtune_compliance.py` | `assert_strict_only`、`classify` | STRICT 以外的 namelist 變動一律拒絕 |
-| `src/wtune_config.py`、`wtune_case.py`、`wtune_physics.py`、`wtune_doctor.py` | `resolve_config`、`candidate_allowed`、`compute_r_max`、`diagnose`、`machine_checks` | 設定檔驗證、case profile、環境檢查 |
+| `src/wtune/preflight.py` | `run_checks`、`exit_code_for`、`check_c1…check_c11` 及其 helper | 什麼情況判 FATAL／WARN：時間窗、iofields、物理資料檔、輸入一致性、切法、dt/dx、磁碟、wrfinput 數值 |
+| `src/wtune/extensions.py` | `detect`、`refusal_run`、`tune_gate`、`omp_cap`、`cost_factors` | Chem／Hydro／WRFDA／moving nest 的偵測、拒跑條件、成本係數 |
+| `src/wtune/calc.py` | `check` 與 13 個 `_chk_*`、公式函式 | 經驗法則（dt、radt、nest 比例…） |
+| `src/wtune/advise.py` | `advise`、`det_case_types`、`build_case` | 建議規則引擎 |
+| `src/wtune/compliance.py` | `assert_strict_only`、`classify` | STRICT 以外的 namelist 變動一律拒絕 |
+| `src/wtune/config.py`、`wtune/case.py`、`wtune/physics.py`、`wtune/doctor.py` | `resolve_config`、`candidate_allowed`、`compute_r_max`、`diagnose`、`machine_checks` | 設定檔驗證、case profile、環境檢查 |
 
 ---
 
@@ -163,8 +163,8 @@ B（掃過）：`report.py`、`tools.py`、`basemap.py`、`plotting.py` 的繪�
 | `src/post/recipes/pbl.py`、`sounding.py`、`fetch/igra.py` | 約 1,160 | 邊界層、探空 |
 | `src/post/recipes/ensemble.py`、`recipes/chem.py` | 約 290 | ensemble、WRF-Chem |
 | `src/predictor/decomp_search.py`、`models.py`、`features.py`、`ledger.py`、`targets.py`、`benchmark.py` | 2,977 | `-O3` 的 CatBoost 提案器 |
-| `src/wtune_tune/points.py`、`physics_phase.py`、`src/tools/case_rebuild.py`、`coldstart_sample.py` 其餘部分 | 約 6,500 | 重建量測點、physics 建議 |
-| `src/wtune_geog.py`、`wtune_calibrate.py`、`src/scenario/`、`src/analysis/`、`src/tools/metdata.py` | 約 6,500 | `prep`、`calibrate`、`scenario`、`analyze`、`metdata` 指令 |
+| `src/wtune/tune/points.py`、`physics_phase.py`、`src/tools/case_rebuild.py`、`coldstart_sample.py` 其餘部分 | 約 6,500 | 重建量測點、physics 建議 |
+| `src/wtune/geog.py`、`wtune/calibrate.py`、`src/scenario/`、`src/analysis/`、`src/tools/metdata.py` | 約 6,500 | `prep`、`calibrate`、`scenario`、`analyze`、`metdata` 指令 |
 
 ---
 

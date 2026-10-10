@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""wtune.py - analytical core (Stage A + Stage B) of a WRF config autotuner."""
+"""wtune/cli.py - analytical core (Stage A + Stage B) of a WRF config autotuner."""
 
 import argparse
 import hashlib
@@ -13,6 +13,8 @@ import sys
 from pathlib import Path
 
 # sibling modules (same directory as this script)
+if not __package__:                    # run by path: src/wtune itself is not an import root
+    sys.path[:] = [p for p in sys.path if Path(p or '.').resolve() != Path(__file__).resolve().parent]
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from wtune import physics as phys
 from wtune import solar as wsolar
@@ -880,7 +882,7 @@ def _print_extension_notes(nl, namelist_path):
 #     through _IN_PROCESS_COMMANDS;
 #   * forwarded: the subcommand takes its whole argv as one REMAINDER positional and hands it
 #     to another module's main(argv) (_FORWARDED_COMMANDS), which owns its own parser.
-# Subparsers are registered in the order `wtune.py --help` lists them.
+# Subparsers are registered in the order `wtune/cli.py --help` lists them.
 
 _COMPLIANCE_HELP = ('keep only %s admitted at this compliance level (decision 0050); '
                     'default: show all, labelled')
@@ -955,7 +957,7 @@ _IN_PROCESS_PARSERS = (
 # subcommand's usage line. `prep` has no module entry: see _forwarded_module.
 _FORWARDED_COMMANDS = (
     ('submit', 'submit_args', 'tune -> run -> post for the current project in one command '
-     '(wtune_submit.py)', 'wtune_submit.py', 'wtune_submit'),
+     '(wtune_submit.py)', 'wtune_submit.py', 'wtune.submit'),
     ('doctor', 'doctor_args', 'check that this machine and project are ready (wtune_doctor.py)',
      'wtune_doctor.py', 'wtune.doctor'),
     ('tune', 'tune_args', 'budgeted on-cluster tuner (scc): probe, screen, confirm, report',

@@ -10,7 +10,7 @@ import xml.etree.ElementTree as ET
 import numpy as np
 import pytest
 
-import wtune_bp
+from wtune import bp as wtune_bp
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 NC = b"CDF\x01" + b"\0" * 60
@@ -356,7 +356,7 @@ def test_cli_main_without_adios2_exits_2(no_adios2, capsys):
 
 
 def test_wtune_cli_registers_convert():
-    r = subprocess.run([sys.executable, os.path.join(REPO, "wtune.py"), "convert", "inputs", "--help"],
+    r = subprocess.run([sys.executable, os.path.join(REPO, "src", "wtune"), "convert", "inputs", "--help"],
                        capture_output=True, text=True, timeout=120)
     assert r.returncode == 0, r.stderr
     assert "--cache" in r.stdout and "wtune convert" in r.stdout
@@ -517,7 +517,7 @@ def test_ensure_dir_retries_the_nfs_enoent_race(tmp_path, monkeypatch):
 def test_concurrent_cache_dir_and_lock_creation_does_not_raise(tmp_path):
     """Several processes create the same (absent) cache dir and lock at once."""
     target = tmp_path / "bp-cache" / "sc26p1" / "6b2981d4f855"
-    code = ("import sys, fcntl; sys.path.insert(0, %r); import wtune_bp\n"
+    code = ("import sys, fcntl; sys.path.insert(0, %r); from wtune import bp as wtune_bp\n"
             "f = wtune_bp.open_lock(%r); fcntl.lockf(f, fcntl.LOCK_EX); f.write('x'); f.close()\n"
             % (os.path.join(REPO, "src"), str(target / ".stage.lock")))
     procs = [subprocess.Popen([sys.executable, "-c", code], stderr=subprocess.PIPE)

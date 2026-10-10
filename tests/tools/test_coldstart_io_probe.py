@@ -5,7 +5,7 @@ import json
 import os
 
 import coldstart_sample as cs
-import wtune_predict as predict
+from wtune import predict as predict
 
 FMT = cs._WRF_TIME_FMT
 

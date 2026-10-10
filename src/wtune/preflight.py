@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""wtune_preflight.py -- pre-submission WRF run_dir sanity checker (`wtune.py check`).
+"""wtune/preflight.py -- pre-submission WRF run_dir sanity checker (`wtune/cli.py check`).
 
 Each check C1-C11 stems from an incident where WRF aborted misleadingly or hung (cited in its
 docstring). Severities: FATAL, HANG (silent), WARN, INFO; exit 0 / 1 (worst WARN) / 2 (FATAL or
@@ -1162,7 +1162,7 @@ def _history_interval_minutes(nl, dom_index):
 def check_c9_disk(nl: dict, run_dir: str | Path, findings: list[Finding]) -> None:
     """Conservative estimate: bytes_per_frame = e_we*e_sn*e_vert*4 bytes*~40 3-D fields, summed
     over every active domain's history frames (floor(run_minutes/history_interval)+1, the same
-    frame-count rule wtune_predict.py uses), compared against os.statvfs(run_dir) free space."""
+    frame-count rule wtune/predict.py uses), compared against os.statvfs(run_dir) free space."""
     try:
         run_s = wp.get_run_seconds(nl)
     except wp.PredictError as exc:
@@ -1552,7 +1552,7 @@ def main(argv: list[str] | None = None) -> int:
         Path(args.json).write_text(json.dumps([f.to_dict() for f in findings], indent=2))
 
     # WRF extensions (chem/hydro/WRFDA/moving nest): support lines, unsupported families, build
-    # mismatch (wtune_extensions.py); no-op for plain ARW.
+    # mismatch (wtune/extensions.py); no-op for plain ARW.
     from wtune import extensions as wtune_extensions
     ext_lines, ext_code = wtune_extensions.check_report(
         str(namelist_path), str(run_dir), ranks=args.ranks, nproc_x=args.nproc_x, nproc_y=args.nproc_y)

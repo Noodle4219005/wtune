@@ -20,7 +20,7 @@ _CONFIGS_BEFORE = sys.modules.get("configs")
 
 from wtune import predict as wp
 from wtune import run as wr
-from wtune import watch as wtune_watch
+import wtune.watch
 
 if _SITE_BEFORE is None:
     os.environ.pop("SITE", None)
@@ -381,7 +381,7 @@ def test_namelist_every_domain_start_end_and_run_length(tmp_path):
         assert tc[key] == [want] * 3, key
     assert (tc["run_days"], tc["run_hours"], tc["run_minutes"], tc["run_seconds"]) == \
         ([0], [0], [0], [10800])
-    info = wtune_watch.run_info(nl)
+    info = wtune.watch.run_info(nl)
     assert info["start"] == _dt("2020-06-01_06:00:00") and info["end"] == _dt("2020-06-01_09:00:00")
     assert all(d["end"] == info["end"] and d["start"] == info["start"] for d in info["domains"])
     assert nl["domains"]["nproc_x"] == [12] and nl["domains"]["nproc_y"] == [6]
@@ -572,7 +572,7 @@ class Fakes:
         path = cmd.split()[-1].strip("'")
         seg = os.path.dirname(path)
         nl = wp.parse_namelist(os.path.join(seg, "namelist.input"))
-        info = wtune_watch.run_info(nl)
+        info = wtune.watch.run_info(nl)
         outcome = self.outcomes.pop(0) if self.outcomes else "done"
         self.submitted.append((seg, outcome))
         if outcome == "done":
@@ -1297,11 +1297,11 @@ def test_watch_and_post_ignore_empty_wrfout_dir(tmp_path):
     run = tmp_path / "run"
     (run / "seg_0").mkdir(parents=True)
     (run / "seg_0" / "wrfout_d01_2020-06-01_03:00:00").mkdir()
-    assert wtune_watch.latest_wrfout(str(run / "seg_0")) == (None, None)
+    assert wtune.watch.latest_wrfout(str(run / "seg_0")) == (None, None)
     assert extract.list_frames(str(run), 1) == []
     assert extract.segment_dirs(str(run / "seg_0")) == []
     (run / "seg_0" / "wrfout_d01_2020-06-01_03:00:00" / "md.idx").write_text("x")
-    assert wtune_watch.latest_wrfout(str(run / "seg_0"))[0] == datetime.datetime(2020, 6, 1, 3)
+    assert wtune.watch.latest_wrfout(str(run / "seg_0"))[0] == datetime.datetime(2020, 6, 1, 3)
 
 
 def test_existing_run_dir_is_refused_before_planning(tmp_path, capsys):

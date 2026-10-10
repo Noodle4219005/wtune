@@ -11,7 +11,7 @@ import os
 import re
 from typing import Callable, Iterable, Optional
 
-from wtune import watch as wtune_watch
+import wtune.watch
 
 WRF_FMT = "%Y-%m-%d_%H:%M:%S"
 INFRA_STATES = ("NODE_FAIL", "TIMEOUT", "PREEMPTED", "BOOT_FAIL")
@@ -72,7 +72,7 @@ def restart_sets_on_disk(seg_dir: str, max_dom: int, is_bp: Callable[[str], bool
 def restart_writes_finished(rsl_text: str, max_dom: int) -> list[dt.datetime]:
     """Times whose restart write finished for every domain: WRF prints one 'Timing for Writing
     restart for domain N' per domain after T's d01 Timing line and before the next one."""
-    steps, trailing = wtune_watch.parse_d01_steps(rsl_text)
+    steps, trailing = wtune.watch.parse_d01_steps(rsl_text)
     want = set(range(1, max_dom + 1))
     out, prev = [], None
     for st in steps + [{"t": None, "writes": trailing}]:
@@ -88,7 +88,7 @@ def valid_restart_times(seg_dir: str, max_dom: int, is_bp: Callable[[str], bool]
     """WRF_FMT times of seg_dir's valid restarts (module docstring), those in `skip` left out.
     The rsl is the rank-0 file wtune_watch.read_rsl picks (either can be truncated)."""
     on_disk = [t for t in restart_sets_on_disk(seg_dir, max_dom, is_bp) if t not in skip]
-    chosen = wtune_watch.read_rsl(seg_dir)[0] if on_disk else None
+    chosen = wtune.watch.read_rsl(seg_dir)[0] if on_disk else None
     if chosen is None:
         return []
     done = set(t.strftime(WRF_FMT) for t in restart_writes_finished(chosen["text"], max_dom))
@@ -97,7 +97,7 @@ def valid_restart_times(seg_dir: str, max_dom: int, is_bp: Callable[[str], bool]
 
 def last_d01_time(seg_dir: str) -> Optional[dt.datetime]:
     """The last d01 'Timing for main' time in seg_dir's rsl, or None."""
-    chosen = wtune_watch.read_rsl(seg_dir)[0]
+    chosen = wtune.watch.read_rsl(seg_dir)[0]
     times = [t for dom, t, _s in (chosen["timing"] if chosen else []) if dom == 1 and t]
     return times[-1] if times else None
 

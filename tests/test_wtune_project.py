@@ -341,23 +341,23 @@ def test_wtune_tune_cli_has_project_flag_wired_to_out_dir_default(tmp_path):
     module itself computes it, since driving wtune/tune/'s full main() needs the scc-tuning
     mocks already covered by test_wtune_tune.py and would duplicate them for no extra
     coverage of the --project wiring itself."""
-    from wtune import tune as wtune_tune
+    import wtune.tune
 
     project_dir = str(tmp_path / "proj")
     proj.init_project(project_dir)
 
     args_out, args_project, case = None, project_dir, "some-case"
     if args_out:
-        out_dir = wtune_tune.sweep._expand(args_out)
+        out_dir = wtune.tune.sweep._expand(args_out)
     else:
         project_resolved = proj.find_project(explicit=args_project)
         out_dir = (proj.default_out_dir(project_resolved, "tune") if project_resolved
-                  else wtune_tune.sweep._expand("$HOME/wtune-runs/tune/%s" % case))
+                  else wtune.tune.sweep._expand("$HOME/wtune-runs/tune/%s" % case))
     assert out_dir.startswith(os.path.join(project_dir, "tune"))
 
     # --out still takes priority over --project when both are given.
     args_out = str(tmp_path / "explicit")
-    out_dir2 = wtune_tune.sweep._expand(args_out) if args_out else None
+    out_dir2 = wtune.tune.sweep._expand(args_out) if args_out else None
     assert out_dir2 == str(tmp_path / "explicit")
 
 

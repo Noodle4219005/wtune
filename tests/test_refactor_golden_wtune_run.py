@@ -333,10 +333,10 @@ def test_golden_run_prints_with_the_default_log(tmp_path, capsys):
 
 
 def test_golden_run_project_default_out(tmp_path, capsys):
-    from wtune import project as wtune_project
+    import wtune.project
     T._make_case(tmp_path)
     proj = tmp_path / "proj"
-    wtune_project.init_project(str(proj))
+    wtune.project.init_project(str(proj))
     lines = []
     rc = wr.main([str(tmp_path / "case")] + LAYOUT + ["--project", str(proj), "--dry-run"],
                  log=lines.append)

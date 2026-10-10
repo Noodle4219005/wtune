@@ -82,9 +82,9 @@ def merge_iofields(text: str, run_dir: str) -> List[str]:
     """Merge the lines of run_dir's iofields files (same fields, fewer lines for WRF to
     re-parse at every I/O call: src/wtune/iofields.py) -> log lines. Only run_dir is written."""
     add_src_to_path()
-    from wtune import iofields as wtune_iofields
+    import wtune.iofields
     names = [n for key, n, _req in namelist_file_refs(text) if key == "iofields_filename"]
-    return wtune_iofields.merge_log_lines(wtune_iofields.merge_in_dir(run_dir, names))
+    return wtune.iofields.merge_log_lines(wtune.iofields.merge_in_dir(run_dir, names))
 
 
 def format_namelist_stage(result: StageResult, search_dirs: Sequence[Optional[str]]) -> List[str]:

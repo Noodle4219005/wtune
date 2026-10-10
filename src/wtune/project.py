@@ -38,7 +38,7 @@ from datetime import datetime, timezone
 
 import yaml
 
-from wtune import version as wtune_version
+import wtune.version
 
 PROJECT_YAML = "project.yaml"
 MANIFEST_NAME = "manifest.jsonl"
@@ -343,7 +343,7 @@ def manifest_append(project_dir, argv, out_dir=None, exit_code=0, key_paths=None
     version, argv, key input paths (+sha256 for files <50MB), output dir, exit code."""
     entry = dict(
         time=_utc_now_iso(),
-        wtune_version=wtune_version.__version__,
+        wtune_version=wtune.version.__version__,
         argv=[str(a) for a in argv],
         inputs=[_path_record(p) for p in (key_paths or []) if p],
         out_dir=(os.path.relpath(out_dir, project_dir) if out_dir else None),

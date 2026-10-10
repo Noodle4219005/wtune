@@ -289,11 +289,11 @@ def test_detect_terrain_uses_interior_relief_when_boundary_also_has_relief():
 def test_parse_namelist_keeps_group_past_unquoted_path_value(tmp_path):
     # namelist.output writes string defaults unquoted; a slash inside the value must not end
     # the group (it used to truncate &physics before cu_physics / bl_pbl_physics)
-    from wtune import cli as wtune_cli
+    import wtune.cli
     nl = tmp_path / "namelist.output"
     nl.write_text(" &physics\n MP_PHYSICS = 8, 8,\n PATH_TO_FILES = ~/WRFV3/,\n"
                   " CU_PHYSICS = 1, 0,\n BL_PBL_PHYSICS = 1, 1,\n /\n &domains\n MAX_DOM = 2, /\n")
-    groups = wtune_cli.parse_namelist(str(nl))
+    groups = wtune.cli.parse_namelist(str(nl))
     phys = {k.lower(): v for k, v in groups["physics"].items()}
     assert "cu_physics" in phys and "bl_pbl_physics" in phys
     assert "max_dom" in {k.lower() for k in groups["domains"]}

@@ -38,5 +38,5 @@ def _import_wtune_bp() -> ModuleType:
             _BP_BY_PATH[path] = mod
         return _BP_BY_PATH[path]
     add_src_to_path()
-    from wtune import bp as wtune_bp
-    return wtune_bp
+    import wtune.bp
+    return wtune.bp

@@ -111,7 +111,7 @@ def test_rank_mapping_notes():
 # ---------------------------------------------------------------------------
 # wtune tune: top-level "winner" = the FINAL pick (wtune_tune.final_winner)
 # ---------------------------------------------------------------------------
-from wtune import tune as wtune_tune  # noqa: E402
+import wtune.tune  # noqa: E402
 import test_wtune_tune as tt  # noqa: E402
 
 
@@ -129,16 +129,16 @@ def test_final_winner_is_the_matching_layouts_row():
     rows = [_row(4, 72, 16, 18, median=0.30, cid="G7"), _row(5, 72, 18, 20, median=0.28)]
     rep = {"nodes": 4, "cores_used_per_node": 72, "best": _best(16, 18, cid="G7"),
            "node_selection": {"winner": rows[1], "layouts": rows}}
-    assert wtune_tune.final_winner(rep) == rows[0]     # the final pick, not the fastest row
+    assert wtune.tune.final_winner(rep) == rows[0]     # the final pick, not the fastest row
 
 
 def test_final_winner_built_from_ranking_row_when_no_layouts_row():
     rep = {"nodes": 6, "best": _best(12, 12, omp=3, numtiles=3, cid="ANCHOR", median=0.0153),
            "node_selection": {"layouts": [], "core_choice": {"6": {"cores": 72}}}}
-    w = wtune_tune.final_winner(rep)
+    w = wtune.tune.final_winner(rep)
     assert (w["nodes"], w["cores_per_node"], w["nx"], w["ny"], w["omp"], w["numtiles"],
             w["ranks"], w["median"], w["cid"]) == (6, 72, 12, 12, 3, 3, 144, 0.0153, "ANCHOR")
-    assert wtune_tune.final_winner({"nodes": 2, "best": _best(8, 9), "pipeline_only": True}) \
+    assert wtune.tune.final_winner({"nodes": 2, "best": _best(8, 9), "pipeline_only": True}) \
         is None
 
 
@@ -179,7 +179,7 @@ def test_pipeline_phase_2_overturn_updates_the_winner(monkeypatch, tmp_path):
 
         def __init__(self, mp, *a, **k):
             super().__init__(mp, *a, **k)
-            fake, calls = wtune_tune.points.rank_by_predicted_total, {"n": 0}
+            fake, calls = wtune.tune.points.rank_by_predicted_total, {"n": 0}
 
             def rank(*args):
                 out = fake(*args)
@@ -188,7 +188,7 @@ def test_pipeline_phase_2_overturn_updates_the_winner(monkeypatch, tmp_path):
                         e["pred_total_s"] += 1e6
                 calls["n"] += 1
                 return out
-            mp.setattr(wtune_tune.points, "rank_by_predicted_total", rank)
+            mp.setattr(wtune.tune.points, "rank_by_predicted_total", rank)
 
     monkeypatch.setattr(tt, "_PipeEnv", Overturn)
     report, _env = tt._pipe_run(monkeypatch, tmp_path,

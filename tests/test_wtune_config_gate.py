@@ -7,10 +7,10 @@ from pathlib import Path
 import netCDF4
 import numpy as np
 
-from wtune import config_gate as wtune_config_gate
+import wtune.config_gate
 
 
-MODULE = Path(wtune_config_gate.__file__).resolve()
+MODULE = Path(wtune.config_gate.__file__).resolve()
 
 
 def _write_file(path, drop=()):
@@ -64,7 +64,7 @@ def _run(*args):
 
 def test_identical_files_compare_and_check(tmp_path):
     ref, cand = _pair(tmp_path)
-    results = wtune_config_gate.compare(ref, cand)
+    results = wtune.config_gate.compare(ref, cand)
     assert {item["name"] for item in results} == {"T2", "U10", "RAINC"}
     assert all(item["rel_rms"] == 0.0 for item in results)
 

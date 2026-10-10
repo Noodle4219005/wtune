@@ -1579,8 +1579,8 @@ def build_prediction(namelist_path: str, case_dir: str | None, nodes: int, confi
                               geometry_source=geometry_source)
     # WRF extensions (chem/hydro/moving nest/WRFDA): explicit cost factors with measured/placeholder
     # status and widened uncertainty (wtune/extensions.py); no-op for plain ARW.
-    from wtune import extensions as wtune_extensions
-    compute = wtune_extensions.apply_cost_factors(compute, nl, dt, run_dir=case_dir,
+    import wtune.extensions
+    compute = wtune.extensions.apply_cost_factors(compute, nl, dt, run_dir=case_dir,
                                                   calibration=calibration)
     segments = segment_compute(compute, run_hours, dt)
 
@@ -1715,8 +1715,8 @@ def render_text(pred: dict) -> str:
                            sa["day_sim_time"], sa["day_sunlit_fraction"]))
     out.append("  compute total: %s  (+-%.1f%% = +-%s, source=%s)"
                 % (_fmt_hms(c["compute_total_s"]), c["noise_pct"], _fmt_hms(c["noise_abs_s"]), c["source"]))
-    from wtune import extensions as wtune_extensions
-    out.extend(wtune_extensions.render_factor_lines(c))
+    import wtune.extensions
+    out.extend(wtune.extensions.render_factor_lines(c))
     if pred["segments"]:
         out.append("  segmented (>%.0fh simulated, %.0fh chunks, NOT VALIDATED drift):"
                     % (LONG_RUN_HOURS, SEGMENT_HOURS))

@@ -10,7 +10,7 @@ import pytest
 import yaml
 
 from wtune import project as proj
-from wtune import submit as wtune_submit
+import wtune.submit
 from wtune.post import cli as post_cli
 from wtune.run import cli as run_cli
 
@@ -192,14 +192,14 @@ def test_run_without_case_outside_project_is_refused(tmp_path, monkeypatch):
 
 
 def test_submit_steps_share_one_id(project):
-    steps = wtune_submit.plan_steps(project, "ID", "2", skip_tune=False, no_post=False)
+    steps = wtune.submit.plan_steps(project, "ID", "2", skip_tune=False, no_post=False)
     assert [name for name, _cmd in steps] == ["tune", "run", "post"]
     tune, run, post = (cmd for _name, cmd in steps)
     assert tune[1:3] == ["tune", "-O2"] and tune[-1] == os.path.join(project, "tune", "ID")
     assert run[run.index("--tune-report") + 1] == os.path.join(project, "tune", "ID",
                                                                "tune_report.json")
     assert post[3] == os.path.join(project, "runs", "ID") and post[-1] == "--srun"
-    steps = wtune_submit.plan_steps(project, "ID", "2", skip_tune=True, no_post=True)
+    steps = wtune.submit.plan_steps(project, "ID", "2", skip_tune=True, no_post=True)
     assert [name for name, _cmd in steps] == ["run"]
     assert "--tune-report" not in steps[0][1]
 
@@ -208,7 +208,7 @@ def test_fetch_steps_window_the_case_and_sit_between_run_and_post(project):
     import datetime as dt
     window = (dt.datetime(2019, 1, 28), dt.datetime(2019, 1, 31, 6), (-35.1, 47.5, -93.6, -77.2),
               dt.datetime(2019, 1, 31))
-    fetch = wtune_submit.fetch_steps(project, ["era5", "stage4"], window)
+    fetch = wtune.submit.fetch_steps(project, ["era5", "stage4"], window)
     era5, stage4 = (cmd for _name, cmd in fetch)
     assert era5[2:4] == ["fetch", "era5"] and "--start" not in era5
     assert era5[era5.index("--end") + 1] == "201901310000"      # last history frame, not run end
@@ -219,9 +219,9 @@ def test_fetch_steps_window_the_case_and_sit_between_run_and_post(project):
     ap = argparse.ArgumentParser()
     ap.add_argument("--bbox")
     assert ap.parse_args([a for a in stage4 if a.startswith("--bbox")]).bbox.startswith("-35.1")
-    steps = wtune_submit.plan_steps(project, "ID", "2", False, False, fetch)
+    steps = wtune.submit.plan_steps(project, "ID", "2", False, False, fetch)
     assert [n for n, _c in steps] == ["tune", "run", "fetch era5", "fetch stage4", "post"]
-    steps = wtune_submit.plan_steps(project, "ID", "2", False, True, fetch)
+    steps = wtune.submit.plan_steps(project, "ID", "2", False, True, fetch)
     assert [n for n, _c in steps] == ["tune", "run"]
 
 
@@ -234,7 +234,7 @@ def test_case_window_from_namelist_and_wrfinput(project):
         ds.createVariable("XLAT", "f4", ("Time", "y", "x"))[:] = np.array([[[30, 30], [40, 40]]])
         ds.createVariable("XLONG", "f4", ("Time", "y", "x"))[:] = np.array([[[-90, -80],
                                                                                [-90, -80]]])
-    start, end, bbox, last = wtune_submit.case_window(case)
+    start, end, bbox, last = wtune.submit.case_window(case)
     assert (start.isoformat(), end.isoformat()) == ("2019-01-28T00:00:00", "2019-01-31T00:00:00")
     assert bbox == (30.0, 40.0, -90.0, -80.0) and last == end
 
@@ -252,7 +252,7 @@ def test_case_window_last_frame_and_odd_time_step(project):
         ds.createDimension("Time", 1), ds.createDimension("y", 1), ds.createDimension("x", 1)
         ds.createVariable("XLAT", "f4", ("Time", "y", "x"))[:] = 30.0
         ds.createVariable("XLONG", "f4", ("Time", "y", "x"))[:] = -90.0
-    start, end, _bbox, last = wtune_submit.case_window(case)
+    start, end, _bbox, last = wtune.submit.case_window(case)
     assert (end - start).total_seconds() == 30 * 3600
     assert (last - start).total_seconds() == 24 * 3600          # frames at +0, +12, +24 h
 
@@ -265,8 +265,8 @@ def test_detach_child_gets_the_resolved_project(project, monkeypatch):
 
         def __init__(self, cmd, **kw):
             seen["cmd"], seen["cwd"] = cmd, kw["cwd"]
-    monkeypatch.setattr(wtune_submit.subprocess, "Popen", FakePopen)
-    wtune_submit._detach(["--project", "./rel", "--detach", "-O", "1", "--project=./rel2"],
+    monkeypatch.setattr(wtune.submit.subprocess, "Popen", FakePopen)
+    wtune.submit._detach(["--project", "./rel", "--detach", "-O", "1", "--project=./rel2"],
                          project, "ID")
     cmd = seen["cmd"]
     assert cmd[cmd.index("--project") + 1] == project and cmd.count("--project") == 1
@@ -277,7 +277,7 @@ def test_detach_child_gets_the_resolved_project(project, monkeypatch):
 def test_submit_refuses_outside_project(tmp_path, monkeypatch, capsys):
     monkeypatch.delenv("WTUNE_PROJECT", raising=False)
     monkeypatch.chdir(tmp_path)
-    assert wtune_submit.main(["--dry-run"]) == 2
+    assert wtune.submit.main(["--dry-run"]) == 2
     assert "no project here" in capsys.readouterr().err
 
 

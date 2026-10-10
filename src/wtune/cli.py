@@ -19,7 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from wtune import physics as phys
 from wtune import solar as wsolar
 from wtune import compliance as wc
-from wtune import version as wtune_version
+import wtune.version
 from wtune import runlength as runlen         # resolve_run_seconds: single-sourced run_* keys vs.
                                           # start/end date-span resolver (dependency-free)
 
@@ -942,8 +942,8 @@ def _add_compliance_parser(sub):
 
 
 def _add_predict_parser(sub):
-    from wtune import predict as wtune_predict
-    wtune_predict.add_subparser(sub)
+    import wtune.predict
+    wtune.predict.add_subparser(sub)
 
 
 # In-process subcommand builders, in --help order (`predict` is defined by wtune_predict).
@@ -1012,7 +1012,7 @@ def _build_parser():
                '  wtune tune -O2 / wtune run / wtune post recipe --srun   the same, step by step\n'
                '  wtune watch runs/<id>                    progress of a running run')
     parser.add_argument('--version', action='version',
-                        version='wtune %s' % wtune_version.__version__)
+                        version='wtune %s' % wtune.version.__version__)
     sub = parser.add_subparsers(dest='command')
     for add_parser in _IN_PROCESS_PARSERS:
         add_parser(sub)
@@ -1035,8 +1035,8 @@ def _forwarded_module(args):
 
 
 def _predict_cmd(args):
-    from wtune import predict as wtune_predict
-    return wtune_predict.predict_cmd(args)
+    import wtune.predict
+    return wtune.predict.predict_cmd(args)
 
 
 # In-process subcommand -> (handler(args), always_exit). The handler's return value is the exit
@@ -1064,7 +1064,7 @@ _RECORDED = ('tune', 'run', 'submit')
 def _project_for(argv):
     """(project_dir, project_doc) a forwarded argv runs in, from --project, $WTUNE_PROJECT or
     a project.yaml above cwd; (None, None) when none resolves."""
-    from wtune import project as wtune_project
+    import wtune.project
     explicit = None
     for i, a in enumerate(argv):
         if a == '--project' and i + 1 < len(argv):
@@ -1072,10 +1072,10 @@ def _project_for(argv):
         elif a.startswith('--project='):
             explicit = a.split('=', 1)[1]
     try:
-        project_dir = wtune_project.find_project(explicit=explicit)
-    except wtune_project.ProjectError:
+        project_dir = wtune.project.find_project(explicit=explicit)
+    except wtune.project.ProjectError:
         return None, None          # the subcommand reports a bad --project itself
-    return project_dir, (wtune_project.load_project(project_dir) if project_dir else None)
+    return project_dir, (wtune.project.load_project(project_dir) if project_dir else None)
 
 
 def _run_forwarded(args):

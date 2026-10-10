@@ -156,8 +156,8 @@ _COEFF_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__fil
 # namelist helpers
 # ---------------------------------------------------------------------------
 def load_namelist(path):
-    from wtune import predict as wtune_predict
-    return wtune_predict.parse_namelist(path)
+    import wtune.predict
+    return wtune.predict.parse_namelist(path)
 
 
 def _vals(nl, key, groups=None):

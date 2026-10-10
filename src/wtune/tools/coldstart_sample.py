@@ -608,8 +608,8 @@ def _inspect_capabilities(nl, case_dir, geog_path, rows, blockers):
     if obs_nudge_opt > 0:
         blockers.append("obs_nudge_opt=%d needs observation files (unsupported)" % obs_nudge_opt)
 
-    from wtune import extensions as wtune_extensions
-    for _d in wtune_extensions.detect(nl, case_dir):
+    import wtune.extensions
+    for _d in wtune.extensions.detect(nl, case_dir):
         if _d["id"] in ("hydro", "movenest", "wrfda") and _d["active"]:
             rows.append((_d["label"], True, "; ".join(_d["evidence"]),
                          "grid/rank tuning only: extension settings untouched"))

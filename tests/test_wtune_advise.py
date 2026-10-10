@@ -418,7 +418,7 @@ def test_render_html_and_report_hook(tmp_path, monkeypatch):
 
 
 def test_tune_hook_appends_text_and_json(monkeypatch):
-    from wtune import tune as wtune_tune
+    import wtune.tune
     fake = {"case": "k", "surface": "advise", "case_types": ["common"], "unavailable": {"x": "r"},
             "footer": adv.load_rules()["footer"], "not_fired": [],
             "advice": [{"id": "i", "title": "T", "trigger": "t", "recommendation": "r", "how": ["h"],
@@ -427,11 +427,11 @@ def test_tune_hook_appends_text_and_json(monkeypatch):
                         "footer": adv.load_rules()["footer"], "measured": {}}]}
     monkeypatch.setattr(adv, "advise_case_id", lambda cid, **kw: fake)
     report = {"case": "k"}
-    text = wtune_tune._attach_advice(report)
+    text = wtune.tune._attach_advice(report)
     assert "只提示，未套用" in text and report["advice"] == fake["advice"]
     monkeypatch.setattr(adv, "advise_case_id", lambda cid, **kw: (_ for _ in ()).throw(RuntimeError("boom")))
     report = {"case": "k"}
-    assert wtune_tune._attach_advice(report) == "" and report["advice"] == [] \
+    assert wtune.tune._attach_advice(report) == "" and report["advice"] == [] \
         and "boom" in report["advice_error"]
 
 

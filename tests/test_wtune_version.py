@@ -6,7 +6,7 @@ section drifts from the code is worse than no changelog: it is a claim nobody re
 import os
 import re
 
-from wtune import version as wtune_version
+import wtune.version
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # tests/ -> repo root
 CHANGELOG = os.path.join(HERE, "CHANGELOG.md")
@@ -22,11 +22,11 @@ def _top_version():
 
 
 def test_version_is_three_numeric_parts():
-    assert re.match(r"^\d+\.\d+\.\d+$", wtune_version.__version__), wtune_version.__version__
+    assert re.match(r"^\d+\.\d+\.\d+$", wtune.version.__version__), wtune.version.__version__
 
 
 def test_changelog_top_section_matches_the_declared_version():
-    assert _top_version() == wtune_version.__version__
+    assert _top_version() == wtune.version.__version__
 
 
 def test_changelog_versions_are_unique_and_descending():
@@ -44,4 +44,4 @@ def test_cli_reports_the_same_version():
     r = subprocess.run([sys.executable, os.path.join(HERE, "src", "wtune"), "--version"],
                        capture_output=True, text=True)
     assert r.returncode == 0, r.stderr
-    assert wtune_version.__version__ in (r.stdout + r.stderr)
+    assert wtune.version.__version__ in (r.stdout + r.stderr)

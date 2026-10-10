@@ -9,7 +9,7 @@ import os
 import shutil
 import sys
 
-from wtune import project as wtune_project
+import wtune.project
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -56,18 +56,18 @@ def machine_checks() -> list[tuple[str, str, str]]:
 
 
 def project_checks(project_dir: str) -> list[tuple[str, str, str]]:
-    doc = wtune_project.load_project(project_dir)
+    doc = wtune.project.load_project(project_dir)
     out = [("OK", "project: %s" % project_dir, "")]
-    case_id = wtune_project.project_case_id(doc)
+    case_id = wtune.project.project_case_id(doc)
     out.append(("OK", "case registered for tune: %s" % case_id, "") if case_id else
                ("WARN", "case not registered: `wtune tune` needs a case id",
                 "wtune project set --register-case"))
-    nodes = wtune_project.project_exclude_nodes(doc)
+    nodes = wtune.project.project_exclude_nodes(doc)
     out.append(("OK", "jobs exclude: head%s" % ("," + ",".join(nodes) if nodes else ""), ""))
-    post = wtune_project.project_post_defaults(doc)
+    post = wtune.project.project_post_defaults(doc)
     out.append(("OK", "post defaults: --types %s --every %s"
                 % (post["types"] or "auto", post["every"] or "-"), ""))
-    report = wtune_project.latest_tune_report(project_dir, case_id)
+    report = wtune.project.latest_tune_report(project_dir, case_id)
     out.append(("OK", "newest tune report: %s" % os.path.relpath(report, project_dir), "")
                if report else ("OK", "no tune report yet (wtune tune, or wtune submit)", ""))
     return out
@@ -79,8 +79,8 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
     checks = machine_checks()
     try:
-        project_dir = wtune_project.find_project(explicit=args.project)
-    except wtune_project.ProjectError as e:
+        project_dir = wtune.project.find_project(explicit=args.project)
+    except wtune.project.ProjectError as e:
         checks.append(("FAIL", str(e), ""))
         project_dir = None
     if project_dir:

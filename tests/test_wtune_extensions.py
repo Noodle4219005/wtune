@@ -16,12 +16,12 @@ import types
 
 import pytest
 
-from wtune import cli as wtune_cli
+import wtune.cli
 from wtune import compliance as wc
 from wtune import extensions as we
 from wtune import predict as wp
 from wtune import run as wr
-from wtune import tune as wtune_tune
+import wtune.tune
 
 BASE = """ &time_control
  run_days                            = 0,
@@ -262,7 +262,7 @@ def test_unsupported_family_flagged_in_check(tmp_path):
 def _cli(monkeypatch, capsys, *argv):
     monkeypatch.setattr(sys, "argv", ["wtune"] + list(argv))
     with pytest.raises(SystemExit) as e:
-        wtune_cli.main()
+        wtune.cli.main()
     return e.value.code, capsys.readouterr()
 
 
@@ -354,14 +354,14 @@ def test_param_table_only_touches_strict_keys(tmp_path, groups, dom):
     table = wp.build_param_table(cfg, 1, 2, "nfs")
     assert {ln.split("=")[0].strip() for ln in table["namelist_lines"]} <= STRICT_CHANGES
     ctx = types.SimpleNamespace(namelist_path=str(d / "namelist.input"))
-    wtune_tune._assert_report_is_strict_only(ctx, table)      # no raise
+    wtune.tune._assert_report_is_strict_only(ctx, table)      # no raise
 
 
 def test_tune_guard_rejects_changed_extension_key(tmp_path):
     d = make(tmp_path, CHEM_GROUP)
     ctx = types.SimpleNamespace(namelist_path=str(d / "namelist.input"))
     with pytest.raises(wc.ComplianceError):
-        wtune_tune._assert_report_is_strict_only(
+        wtune.tune._assert_report_is_strict_only(
             ctx, {"namelist_lines": ["nproc_x=4,", "chem_opt=1,"]})
 
 
@@ -485,18 +485,18 @@ def test_coldstart_chem_blocks_only_on_missing_input_files(tmp_path):
 
 # ---------------------------------------------------------------- direct invocation (no wtune_cli)
 def test_preflight_main_direct_prints_extension_lines_and_fails_on_build_mismatch(tmp_path, capsys):
-    from wtune import preflight as wtune_preflight
+    import wtune.preflight
     d = make(tmp_path, CHEM_GROUP)
     fake_exe(d / "wrf.exe")
-    code = wtune_preflight.main([str(d)])
+    code = wtune.preflight.main([str(d)])
     out = capsys.readouterr().out
     assert code == 2 and "INFO EXT-CHEM WRF-Chem detected" in out and "FATAL EXT-BUILD" in out
 
 
 def test_preflight_main_direct_plain_case_has_no_extension_output(tmp_path, capsys):
-    from wtune import preflight as wtune_preflight
+    import wtune.preflight
     d = make(tmp_path)
-    wtune_preflight.main([str(d)])
+    wtune.preflight.main([str(d)])
     assert "EXT-" not in capsys.readouterr().out
 
 
@@ -561,12 +561,12 @@ def test_support_line_states_no_openmp_for_hydro_and_wrfda(tmp_path):
 def test_tune_search_filter_drops_omp_gt_1_on_chem(tmp_path):
     d = make(tmp_path, CHEM_GROUP)
     cap = we.omp_cap_for_namelist(str(d / "namelist.input"))
-    from wtune import config as wtune_config
+    import wtune.config
     ctx = types.SimpleNamespace(omp_cap=cap, search_cfg={}, exclude_rules=[], is_fire=False)
     cfgs = [{"id": "a", "omp": 1}, {"id": "b", "omp": 2}, {"id": "ANCHOR", "omp": 4}]
-    assert [c["id"] for c in wtune_tune._apply_search_filter(ctx, cfgs)] == ["a"]
+    assert [c["id"] for c in wtune.tune._apply_search_filter(ctx, cfgs)] == ["a"]
     ctx.omp_cap = None
-    assert len(wtune_tune._apply_search_filter(ctx, cfgs)) == 3
+    assert len(wtune.tune._apply_search_filter(ctx, cfgs)) == 3
 
 
 # ---------------------------------------------------------------- recorded real-binary evidence (agent E)
@@ -643,5 +643,5 @@ def test_tune_filter_rejects_hanging_chem_splits(tmp_path, capsys):
                                 search_cfg={}, exclude_rules=[], is_fire=False)
     cfgs = [{"id": "a", "nx": 8, "ny": 9, "omp": 1}, {"id": "b", "nx": 6, "ny": 12, "omp": 1},
             {"id": "c", "nx": 12, "ny": 6, "omp": 1}, {"id": "d", "nx": 6, "ny": 6, "omp": 1}]
-    assert [c["id"] for c in wtune_tune._apply_search_filter(ctx, cfgs)] == ["c", "d"]
+    assert [c["id"] for c in wtune.tune._apply_search_filter(ctx, cfgs)] == ["c", "d"]
     assert "CHEM_MIN_J_PATCH" in capsys.readouterr().out

@@ -30,7 +30,7 @@ import types
 
 import pytest
 
-from wtune import tune as wtune_tune
+import wtune.tune
 import test_wtune_tune as T
 
 GOLDEN = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures", "golden",
@@ -92,7 +92,7 @@ class _NoPredictionContext(T._PipeEnv):
 
         def boom(ctx):
             raise RuntimeError("no namelist here")
-        monkeypatch.setattr(wtune_tune.prediction, "_prediction_context", boom)
+        monkeypatch.setattr(wtune.tune.prediction, "_prediction_context", boom)
 
 
 def _healthy_runner():
@@ -142,16 +142,16 @@ def test_golden_pipeline(name, monkeypatch, tmp_path, capsys):
 
 
 def test_golden_level0(monkeypatch, tmp_path, capsys):
-    monkeypatch.setattr(wtune_tune.context, "resolve_case",
+    monkeypatch.setattr(wtune.tune.context, "resolve_case",
                         lambda case, cpn: (dict(T.BIG_GRID, prep_dir=str(tmp_path / "m")),
                                            str(tmp_path / "namelist.input"), T.ALL_NODES_PROFILE))
-    monkeypatch.setattr(wtune_tune.context, "_total_steps", lambda nl: 1000)
-    monkeypatch.setattr(wtune_tune.prediction, "cold_start_prediction",
+    monkeypatch.setattr(wtune.tune.context, "_total_steps", lambda nl: 1000)
+    monkeypatch.setattr(wtune.tune.prediction, "cold_start_prediction",
                         lambda ctx, nodes, cfg, steps: (1687.0, 0.05, "fake cold start"))
-    args = wtune_tune.build_arg_parser().parse_args(
+    args = wtune.tune.build_arg_parser().parse_args(
         ["matthew", "--site", "scc", "--out", str(tmp_path / "out"), "-O0",
          "--ledger-dir", str(tmp_path / "ledger")])
-    wtune_tune.run(args, sbatch_runner=lambda cmd: None, clock=T.FakeClock())
+    wtune.tune.run(args, sbatch_runner=lambda cmd: None, clock=T.FakeClock())
     out = capsys.readouterr().out
     with open(tmp_path / "out" / "tune_report.json") as f:
         js = f.read()
@@ -212,10 +212,10 @@ def _ctx_snapshot(ctx):
 
 
 def _dispatch_env(monkeypatch, tmp_path, rec):
-    monkeypatch.setattr(wtune_tune.context, "resolve_case",
+    monkeypatch.setattr(wtune.tune.context, "resolve_case",
                         lambda case, cpn: (dict(T.BIG_GRID, prep_dir=str(tmp_path / "m")),
                                            str(tmp_path / "namelist.input"), T.ALL_NODES_PROFILE))
-    monkeypatch.setattr(wtune_tune.context, "_total_steps", lambda nl: 1000)
+    monkeypatch.setattr(wtune.tune.context, "_total_steps", lambda nl: 1000)
     stub_report = lambda ctx: dict(case=ctx.case, pipeline_only=True, nodes=ctx.nodes,  # noqa: E731
                                    pipeline=dict(stub=True), job_ids=[], cancelled_job_ids=[])
 
@@ -231,13 +231,13 @@ def _dispatch_env(monkeypatch, tmp_path, rec):
             return stub_report(ctx)
         return f
 
-    for kind, mod in (("run_level0", wtune_tune.pipeline), ("run_pipeline_full", wtune_tune.pipeline),
-                      ("run_node_search", wtune_tune.node_search),
-                      ("run_tuning_at", wtune_tune.rounds)):
+    for kind, mod in (("run_level0", wtune.tune.pipeline), ("run_pipeline_full", wtune.tune.pipeline),
+                      ("run_node_search", wtune.tune.node_search),
+                      ("run_tuning_at", wtune.tune.rounds)):
         monkeypatch.setattr(mod, kind, recorder(kind))
-    monkeypatch.setattr(wtune_tune.report, "build_report",
+    monkeypatch.setattr(wtune.tune.report, "build_report",
                         lambda ctx, *a, **k: stub_report(ctx))
-    monkeypatch.setattr(wtune_tune.report, "render_pipeline_text", lambda pipe: "PIPELINE %r" % (pipe,))
+    monkeypatch.setattr(wtune.tune.report, "render_pipeline_text", lambda pipe: "PIPELINE %r" % (pipe,))
 
 
 def test_golden_run_dispatch(monkeypatch, tmp_path, capsys):
@@ -246,10 +246,10 @@ def test_golden_run_dispatch(monkeypatch, tmp_path, capsys):
         rec = []
         d = tmp_path / name
         _dispatch_env(monkeypatch, d, rec)
-        args = wtune_tune.build_arg_parser().parse_args(
+        args = wtune.tune.build_arg_parser().parse_args(
             ["matthew", "--site", "scc", "--out", str(d / "out"),
              "--ledger-dir", str(d / "ledger")] + extra)
-        report = wtune_tune.run(args, sbatch_runner=lambda cmd: None,
+        report = wtune.tune.run(args, sbatch_runner=lambda cmd: None,
                                 sacct_runner=T.make_fake_sacct({}),
                                 scancel_runner=lambda ids: None, clock=T.FakeClock(),
                                 preflight_runner=_no_sinfo)
@@ -261,11 +261,11 @@ def test_golden_run_dispatch(monkeypatch, tmp_path, capsys):
     for name, extra in sorted(DISPATCH_ERRORS.items()):
         d = tmp_path / ("err_" + name)
         _dispatch_env(monkeypatch, d, [])
-        args = wtune_tune.build_arg_parser().parse_args(
+        args = wtune.tune.build_arg_parser().parse_args(
             ["matthew", "--site", "scc", "--out", str(d / "out"),
              "--ledger-dir", str(d / "ledger")] + extra)
         with pytest.raises(SystemExit) as ei:
-            wtune_tune.run(args, sbatch_runner=lambda cmd: None, clock=T.FakeClock(),
+            wtune.tune.run(args, sbatch_runner=lambda cmd: None, clock=T.FakeClock(),
                            preflight_runner=_no_sinfo)
         errors[name] = dict(msg=str(ei.value), out=capsys.readouterr().out)
     text = json.dumps(dict(runs=snap, errors=errors), indent=1, sort_keys=True)

@@ -326,19 +326,19 @@ def test_cfl_informational(tmp_path):
 
 
 def test_cli_registration(tmp_path, monkeypatch, capsys):
-    from wtune import cli as wtune_cli
+    import wtune.cli
     monkeypatch.setattr(sys, "argv", ["wtune", "watch", "--help"])
     with pytest.raises(SystemExit) as e:
-        wtune_cli.main()
+        wtune.cli.main()
     assert e.value.code == 0 and "watch" in capsys.readouterr().out
     d = _rundir(tmp_path, rsl=_rsl(n_d01=50))
     monkeypatch.setattr(sys, "argv", ["wtune", "watch", d, "--help"])
     with pytest.raises(SystemExit) as e:
-        wtune_cli.main()
+        wtune.cli.main()
     assert e.value.code == 0 and "--replay-fraction" in capsys.readouterr().out
     monkeypatch.setattr(sys, "argv", ["wtune", "watch", d, "--once"])
     with pytest.raises(SystemExit) as e:
-        wtune_cli.main()
+        wtune.cli.main()
     assert e.value.code == 0 and "RUNNING" in capsys.readouterr().out
 
 

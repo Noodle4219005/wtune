@@ -95,7 +95,7 @@ def _parse_all():
 def _call(argv, tmp_path, monkeypatch):
     """main(argv) with the heavy backends stubbed; returns rc, stdout, stderr, backend calls."""
     from wtune.post import cf_pressure, fetch, recipe, tc, vapor_bundle
-    from wtune import project as wtune_project
+    import wtune.project
     from wtune.post import cli
     calls = []
 
@@ -122,7 +122,7 @@ def _call(argv, tmp_path, monkeypatch):
         {"domain": 2, "dir": "D", "n_files": 2, "total_bytes": 2 ** 21, "link_note": "linked",
          "readme": "/x/README.md"}]))
     monkeypatch.setattr(fetch, "offline_summary", lambda p, r: "offline-note")
-    monkeypatch.setattr(wtune_project, "manifest_append",
+    monkeypatch.setattr(wtune.project, "manifest_append",
                         rec("manifest_append", None))
     out, err = io.StringIO(), io.StringIO()
     rc = None

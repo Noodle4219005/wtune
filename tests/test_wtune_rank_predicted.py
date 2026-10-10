@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 
 from wtune.tools import scc_sweep
-from wtune import config as wtune_config
+import wtune.config
 from wtune import tune as wt
 from test_wtune_tune import _ctx, make_fake_sbatch
 
@@ -326,9 +326,9 @@ def test_cli_restart_io_form_flag():
 
 
 def test_yaml_rank_by_keys():
-    cfg, errs = wtune_config.resolve_config({})
+    cfg, errs = wtune.config.resolve_config({})
     assert cfg["probe"]["rank_by"] == "t0" and cfg["probe"]["restart_io_form"] == 14 and not errs
-    _cfg2, errs = wtune_config.resolve_config({"probe": {"rank_by": "bogus",
+    _cfg2, errs = wtune.config.resolve_config({"probe": {"rank_by": "bogus",
                                                          "restart_io_form": 11}})
     assert any("rank_by" in e for e in errs) and any("restart_io_form" in e for e in errs)
 

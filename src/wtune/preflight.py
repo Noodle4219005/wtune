@@ -1418,13 +1418,13 @@ IOFIELDS_PARSE_EVIDENCE = ("climate-ea50 on scc, 12 lines / 167 fields: 0.21 s p
 
 def _iofields_files(nl, run_dir):
     """['<name> <lines> line(s) / <fields> field(s)', ...] of the distinct iofields files."""
-    from wtune import iofields as wtune_iofields
+    import wtune.iofields
     out = []
     for d in range(wp.get_max_dom(nl)):
         fname = _namelist_file_names(nl, "iofields_filename", None, d)
         path = _resolve_path(run_dir, fname) if fname else None
         if path and path.is_file():
-            item = "%s %d line(s) / %d field(s)" % ((fname,) + wtune_iofields.counts(
+            item = "%s %d line(s) / %d field(s)" % ((fname,) + wtune.iofields.counts(
                 path.read_text()))
             if item not in out:
                 out.append(item)
@@ -1552,8 +1552,8 @@ def main(argv: list[str] | None = None) -> int:
 
     # WRF extensions (chem/hydro/WRFDA/moving nest): support lines, unsupported families, build
     # mismatch (wtune/extensions.py); no-op for plain ARW.
-    from wtune import extensions as wtune_extensions
-    ext_lines, ext_code = wtune_extensions.check_report(
+    import wtune.extensions
+    ext_lines, ext_code = wtune.extensions.check_report(
         str(namelist_path), str(run_dir), ranks=args.ranks, nproc_x=args.nproc_x, nproc_y=args.nproc_y)
     for line in ext_lines:
         print(line)

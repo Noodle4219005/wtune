@@ -60,11 +60,11 @@ def _project_context(args: argparse.Namespace) -> tuple:
     (project_dir_or_None, project_doc_or_None). Never raises for "no project found" -- only
     an explicit --project/$WTUNE_PROJECT that does not resolve is an error
     (wtune_project.find_project's own contract, surfaced by the caller)."""
-    from wtune import project as wtune_project
-    project_dir = wtune_project.find_project(explicit=getattr(args, "project", None))
+    import wtune.project
+    project_dir = wtune.project.find_project(explicit=getattr(args, "project", None))
     if not project_dir:
         return None, None
-    return project_dir, wtune_project.load_project(project_dir)
+    return project_dir, wtune.project.load_project(project_dir)
 
 
 def _resolve_out(args: argparse.Namespace, project_dir: str | None, tag: str) -> str:
@@ -74,8 +74,8 @@ def _resolve_out(args: argparse.Namespace, project_dir: str | None, tag: str) ->
         return out
     if not project_dir:
         raise SystemExit("--out required (or --project DIR for a default post/<id>/)")
-    from wtune import project as wtune_project
-    return wtune_project.default_out_dir(project_dir, "post", tag=tag)
+    import wtune.project
+    return wtune.project.default_out_dir(project_dir, "post", tag=tag)
 
 
 def _resolve_run_dirs(args: argparse.Namespace, project_dir: str | None) -> list[str]:
@@ -85,8 +85,8 @@ def _resolve_run_dirs(args: argparse.Namespace, project_dir: str | None) -> list
         return run_dirs
     if not project_dir:
         raise SystemExit("RUN_DIRS required (or --project DIR to auto-discover runs/*/)")
-    from wtune import project as wtune_project
-    run_dirs = [p for _id, p in wtune_project.discover_runs(project_dir)]
+    import wtune.project
+    run_dirs = [p for _id, p in wtune.project.discover_runs(project_dir)]
     if not run_dirs:
         raise SystemExit("--project %s has no runs/*/ or case/ with wrfout frames" % project_dir)
     return run_dirs
@@ -196,11 +196,11 @@ def cmd_report(args: argparse.Namespace) -> int:
 
 def _recipe_cross_sections(project_doc: dict) -> tuple[dict, float | None, float | None]:
     """(cross_sections, xsec_top_km, xsec_halfwidth_km) from the project doc."""
-    from wtune import project as wtune_project
+    import wtune.project
     cross_sections = dict(
-        terrain=wtune_project.project_cross_section(project_doc, "terrain"),
-        moisture=wtune_project.project_cross_section(project_doc, "moisture"))
-    xsec_cfg = wtune_project.project_xsec_config(project_doc)
+        terrain=wtune.project.project_cross_section(project_doc, "terrain"),
+        moisture=wtune.project.project_cross_section(project_doc, "moisture"))
+    xsec_cfg = wtune.project.project_xsec_config(project_doc)
     return cross_sections, xsec_cfg.get("top_km"), xsec_cfg.get("halfwidth_km")
 
 
@@ -332,13 +332,13 @@ def cmd_vapor_bundle(args: argparse.Namespace) -> int:
 
 def cmd_custom(args: argparse.Namespace) -> int:
     import wtune.post.custom as custom
-    from wtune import project as wtune_project
-    project_dir = wtune_project.find_project(explicit=args.project)
+    import wtune.project
+    project_dir = wtune.project.find_project(explicit=args.project)
     if not project_dir:
         raise SystemExit("wtune post custom needs a project (--project DIR or $WTUNE_PROJECT "
                          "or a project.yaml above the current directory)")
-    out = args.out or wtune_project.default_out_dir(project_dir, "post", tag="custom")
-    run_dirs = wtune_project.discover_runs(project_dir)
+    out = args.out or wtune.project.default_out_dir(project_dir, "post", tag="custom")
+    run_dirs = wtune.project.discover_runs(project_dir)
     result = custom.run_custom(project_dir, out, run_dirs)
     n_ok = sum(1 for s in result["scripts"] if s["ok"])
     n_err = sum(1 for s in result["scripts"] if not s["ok"])
@@ -347,7 +347,7 @@ def cmd_custom(args: argparse.Namespace) -> int:
     for s in result["scripts"]:
         if not s["ok"]:
             print("error in %s: %s" % (s["script"], s["error"].splitlines()[-1]))
-    wtune_project.manifest_append(project_dir, ["wtune", "post", "custom"], out_dir=out,
+    wtune.project.manifest_append(project_dir, ["wtune", "post", "custom"], out_dir=out,
                                   exit_code=0)
     return 0
 

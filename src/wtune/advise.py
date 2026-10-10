@@ -149,11 +149,11 @@ def _project_storm_defaults(storm, hurdat2, project=None):
     project-dir branch of build_case does. Explicit flags win; no project -> unchanged."""
     if storm and hurdat2:
         return storm, hurdat2
-    from wtune import project as wtune_project
-    pdir = wtune_project.find_project(explicit=project)
+    import wtune.project
+    pdir = wtune.project.find_project(explicit=project)
     if not pdir:
         return storm, hurdat2
-    p_storm, p_hurdat = wtune_project.project_storm(wtune_project.load_project(pdir))
+    p_storm, p_hurdat = wtune.project.project_storm(wtune.project.load_project(pdir))
     return storm or p_storm, hurdat2 or _expand(p_hurdat)
 
 
@@ -214,13 +214,13 @@ def _nl(case):
 
 
 def _g_dom(case, group, key, d, default=None):
-    from wtune import predict as wtune_predict
-    return wtune_predict.g_dom(_nl(case), group, key, d, default)
+    import wtune.predict
+    return wtune.predict.g_dom(_nl(case), group, key, d, default)
 
 
 def _max_dom(case):
-    from wtune import predict as wtune_predict
-    return int(wtune_predict.get_max_dom(_nl(case)))
+    import wtune.predict
+    return int(wtune.predict.get_max_dom(_nl(case)))
 
 
 def _window(case):
@@ -253,8 +253,8 @@ def _window(case):
 def _run_hours(case):
     if not case.namelist:
         raise AdviseError("no namelist.input/namelist.output in the case directory")
-    from wtune import cli as wtune_cli
-    return float(wtune_cli.extract_case(wtune_cli.parse_namelist(case.namelist))
+    import wtune.cli
+    return float(wtune.cli.extract_case(wtune.cli.parse_namelist(case.namelist))
                  .get("run_total_hours") or 0.0)
 
 

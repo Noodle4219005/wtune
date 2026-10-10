@@ -137,13 +137,13 @@ def _run(monkeypatch, tmp_path, frames=None, era5_exc=None, gs_exc=None, project
                       {k: _summ(v) for k, v in kw.items()}])
     monkeypatch.setattr(mapfig, "save_map", save_map)
 
-    from wtune import project as wtune_project
+    import wtune.project
 
     def find_project(out_dir):
         if not project:
             raise RuntimeError("no project")
         return "/proj"
-    monkeypatch.setattr(wtune_project, "find_project", find_project)
+    monkeypatch.setattr(wtune.project, "find_project", find_project)
 
     def z500_for(t, bbox, project_dir):
         calls.append(["z500_for", t.isoformat(), _summ(list(bbox)), project_dir])

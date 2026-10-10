@@ -9,12 +9,12 @@ import sys
 import numpy as np
 import pytest
 
-from wtune import bp as wtune_bp
+import wtune.bp
 
 netCDF4 = pytest.importorskip("netCDF4")
 Dataset = netCDF4.Dataset
 
-if wtune_bp.adios2_python() is None:
+if wtune.bp.adios2_python() is None:
     pytest.skip("no adios2-capable interpreter (pixi install in envs/adios2, or set "
                 "WTUNE_ADIOS2_PYTHON)", allow_module_level=True)
 
@@ -92,11 +92,11 @@ def test_roundtrip_bit_exact(tmp_path, engine):
     source = tmp_path / "wrfinput_d01"
     bp = tmp_path / "wrfinput_d01.bp"
     _make_source(str(source))
-    assert wtune_bp.nc2bp(str(source), str(bp), engine=engine) == str(bp)
-    assert wtune_bp.bp_engine(str(bp)) == engine
+    assert wtune.bp.nc2bp(str(source), str(bp), engine=engine) == str(bp)
+    assert wtune.bp.bp_engine(str(bp)) == engine
     back = tmp_path / "back.nc"
-    wtune_bp.bp2nc(str(bp), str(back))
-    r = wtune_bp.compare_netcdf(str(source), str(back))
+    wtune.bp.bp2nc(str(bp), str(back))
+    r = wtune.bp.compare_netcdf(str(source), str(back))
     assert r["ok"], r["mismatches"]
     assert r["vars_compared"] == 8 and r["max_abs_diff"] == 0.0
 
@@ -107,12 +107,12 @@ def test_api_roundtrip_check_and_cached_inputs(tmp_path):
     _make_source(str(case / "wrfinput_d01"))
     _make_source(str(case / "wrfbdy_d01"))
     cache = tmp_path / "cache"
-    m = wtune_bp.convert_inputs(str(case), str(cache))
+    m = wtune.bp.convert_inputs(str(case), str(cache))
     assert sorted(m) == ["wrfbdy_d01", "wrfinput_d01"]
-    assert wtune_bp.is_bp(m["wrfinput_d01"])                 # single-record: one BP, unchanged
-    assert wtune_bp.is_per_record_dir(m["wrfbdy_d01"])       # multi-record: one BP per record
+    assert wtune.bp.is_bp(m["wrfinput_d01"])                 # single-record: one BP, unchanged
+    assert wtune.bp.is_per_record_dir(m["wrfbdy_d01"])       # multi-record: one BP per record
     for name, bp in m.items():
-        r = wtune_bp.roundtrip_check(str(case / name), bp, str(tmp_path / "rt"))
+        r = wtune.bp.roundtrip_check(str(case / name), bp, str(tmp_path / "rt"))
         assert r["ok"], r["mismatches"]
     assert not os.listdir(tmp_path / "rt")
     assert "adios2" not in sys.modules     # never imported into the wtune process
@@ -122,10 +122,10 @@ def test_cli_nc2bp_check(tmp_path, capsys):
     source = tmp_path / "wrfinput_d01"
     _make_source(str(source))
     out = tmp_path / "out"
-    assert wtune_bp.main(["nc2bp", str(source), "--out", str(out), "--check"]) == 0
-    assert wtune_bp.is_bp(str(out / "wrfinput_d01"))
+    assert wtune.bp.main(["nc2bp", str(source), "--out", str(out), "--check"]) == 0
+    assert wtune.bp.is_bp(str(out / "wrfinput_d01"))
     assert "CHECK PASS" in capsys.readouterr().out
-    assert wtune_bp.main(["bp2nc", str(out / "wrfinput_d01"), "--out", str(out)]) == 0
+    assert wtune.bp.main(["bp2nc", str(out / "wrfinput_d01"), "--out", str(out)]) == 0
     assert (out / "wrfinput_d01.nc").is_file()
 
 
@@ -155,12 +155,12 @@ def test_multi_record_boundary_layout_matches_wrf_writer(tmp_path, capsys):
     source = tmp_path / "wrfbdy_d01"
     bp = tmp_path / "wrfbdy_d01.bp"
     _make_source(str(source))
-    wtune_bp.nc2bp(str(source), str(bp))
+    wtune.bp.nc2bp(str(source), str(bp))
     assert "returns BP step 0" in capsys.readouterr().err
     probe = tmp_path / "probe.py"
     probe.write_text(_PROBE)
-    r = subprocess.run([wtune_bp.require_adios2_python(), str(probe), str(bp)],
-                       env=wtune_bp._child_env(), capture_output=True, text=True, check=True)
+    r = subprocess.run([wtune.bp.require_adios2_python(), str(probe), str(bp)],
+                       env=wtune.bp._child_env(), capture_output=True, text=True, check=True)
     got = json.loads(r.stdout)
     assert got["nsteps"] == 2
     assert set(got["steps"].values()) == {2}
@@ -194,8 +194,8 @@ def _probe_record(tmp_path, bp):
     import subprocess
     probe = tmp_path / "record_probe.py"
     probe.write_text(_RECORD_PROBE)
-    r = subprocess.run([wtune_bp.require_adios2_python(), str(probe), str(bp)],
-                       env=wtune_bp._child_env(), capture_output=True, text=True, check=True)
+    r = subprocess.run([wtune.bp.require_adios2_python(), str(probe), str(bp)],
+                       env=wtune.bp._child_env(), capture_output=True, text=True, check=True)
     return json.loads(r.stdout)
 
 
@@ -206,20 +206,20 @@ def test_split_one_bp_per_record_named_by_wrf_date(tmp_path, capsys):
     source = tmp_path / "wrfbdy_d01"
     out = tmp_path / "split"
     _make_source(str(source))
-    wtune_bp.nc2bp(str(source), str(out), split_prefix="wrfbdy_d01")
+    wtune.bp.nc2bp(str(source), str(out), split_prefix="wrfbdy_d01")
     assert "returns BP step 0" not in capsys.readouterr().err    # no single-file warning
-    assert wtune_bp.record_files(str(out)) == ["wrfbdy_d01_%s.bp" % d for d in _DATES]
-    assert not wtune_bp.is_bp(str(out)) and wtune_bp.is_per_record_dir(str(out))
+    assert wtune.bp.record_files(str(out)) == ["wrfbdy_d01_%s.bp" % d for d in _DATES]
+    assert not wtune.bp.is_bp(str(out)) and wtune.bp.is_per_record_dir(str(out))
     with Dataset(str(source)) as ds:
-        for k, rec in enumerate(wtune_bp.record_files(str(out))):
-            assert wtune_bp.bp_engine(str(out / rec)) == "BP4"
+        for k, rec in enumerate(wtune.bp.record_files(str(out))):
+            assert wtune.bp.bp_engine(str(out / rec)) == "BP4"
             got = _probe_record(tmp_path, out / rec)
             assert got["nsteps"] == 1
             assert got["Times"] == _DATES[k] and got["this"] == _DATES[k]
             assert got["next"] == _NEXT[k]
             assert np.array_equal(np.asarray(got["U_BXS"], dtype=np.float32),
                                   ds.variables["U_BXS"][k])
-    r = wtune_bp.roundtrip_check(str(source), str(out), str(tmp_path / "rt"))
+    r = wtune.bp.roundtrip_check(str(source), str(out), str(tmp_path / "rt"))
     assert r["ok"], r["mismatches"]
     assert r["vars_compared"] == 2 * 8
 
@@ -231,11 +231,11 @@ def test_split_roundtrip_detects_wrong_record(tmp_path):
     source = tmp_path / "wrfbdy_d01"
     out = tmp_path / "split"
     _make_source(str(source))
-    wtune_bp.nc2bp(str(source), str(out), split_prefix="wrfbdy_d01")
-    a, b = [out / r for r in wtune_bp.record_files(str(out))]
+    wtune.bp.nc2bp(str(source), str(out), split_prefix="wrfbdy_d01")
+    a, b = [out / r for r in wtune.bp.record_files(str(out))]
     tmp = out / "swap"
     shutil.move(str(a), str(tmp)); shutil.move(str(b), str(a)); shutil.move(str(tmp), str(b))
-    r = wtune_bp.roundtrip_check(str(source), str(out), str(tmp_path / "rt"))
+    r = wtune.bp.roundtrip_check(str(source), str(out), str(tmp_path / "rt"))
     assert not r["ok"]
 
 
@@ -247,23 +247,23 @@ def test_convert_inputs_per_record_manifest_links_and_cache(tmp_path):
     _make_source(str(case / "wrfbdy_d01"))
     _make_source(str(case / "wrflowinp_d01"))
     cache = tmp_path / "cache"
-    m = wtune_bp.convert_inputs(str(case), str(cache))
-    man = json.loads((cache / wtune_bp.MANIFEST_NAME).read_text())["entries"]
+    m = wtune.bp.convert_inputs(str(case), str(cache))
+    man = json.loads((cache / wtune.bp.MANIFEST_NAME).read_text())["entries"]
     assert man["wrfinput_d01"]["layout"] == "single" and "records" not in man["wrfinput_d01"]
     for name in ("wrfbdy_d01", "wrflowinp_d01"):
         assert man[name]["layout"] == "per-record"
         assert man[name]["records"] == ["%s_%s.bp" % (name, d) for d in _DATES]
     links = {}
     for name, target in m.items():
-        links.update(wtune_bp.bp_input_links(name, target))
+        links.update(wtune.bp.bp_input_links(name, target))
     assert sorted(links) == sorted(["wrfinput_d01.bp"]
                                    + ["wrfbdy_d01_%s.bp" % d for d in _DATES]
                                    + ["wrflowinp_d01_%s.bp" % d for d in _DATES])
-    assert all(wtune_bp.is_bp(t) for t in links.values())
+    assert all(wtune.bp.is_bp(t) for t in links.values())
     # cached: a second call converts nothing
     stamp = {n: e["converted_at"] for n, e in man.items()}
     mt = os.path.getmtime(links["wrfbdy_d01_%s.bp" % _DATES[0]])
-    wtune_bp.convert_inputs(str(case), str(cache))
-    man2 = json.loads((cache / wtune_bp.MANIFEST_NAME).read_text())["entries"]
+    wtune.bp.convert_inputs(str(case), str(cache))
+    man2 = json.loads((cache / wtune.bp.MANIFEST_NAME).read_text())["entries"]
     assert {n: e["converted_at"] for n, e in man2.items()} == stamp
     assert os.path.getmtime(links["wrfbdy_d01_%s.bp" % _DATES[0]]) == mt

@@ -11,7 +11,7 @@ import test_wtune_run  # noqa: F401  first: its wtune_run import restores SITE/c
 from wtune import predict as wp
 from wtune import resume as wres
 from wtune import run as wr
-from wtune import watch as wtune_watch
+import wtune.watch
 from test_wtune_run import (REAL_BP, Fakes, _make_case, _run, _with_restart,
                             fake_bp)  # noqa: F401  (autouse fixture)
 
@@ -51,7 +51,7 @@ class Dying(Fakes):
         _died, state, hours = self.outcomes.pop(0)
         seg = os.path.dirname(cmd.split()[-1].strip("'"))
         nl = wp.parse_namelist(os.path.join(seg, "namelist.input"))
-        info = wtune_watch.run_info(nl)
+        info = wtune.watch.run_info(nl)
         every = dt.timedelta(minutes=nl["time_control"]["restart_interval"][0])
         rst = [T0 + j * every for j in range(1, 100)
                if info["start"] < T0 + j * every <= _at(hours)]
@@ -305,8 +305,8 @@ def test_frame_listing_merges_attempts_later_wins(tmp_path):
 def test_watch_follows_the_latest_attempt(tmp_path):
     for name in ("seg_0", "seg_0_r1", "seg_0_r2"):
         (tmp_path / name).mkdir()
-    assert os.path.basename(wtune_watch.follow_run_root(str(tmp_path))["dir"]) == "seg_0_r2"
+    assert os.path.basename(wtune.watch.follow_run_root(str(tmp_path))["dir"]) == "seg_0_r2"
     (tmp_path / "seg_0_rescue").mkdir()
     (tmp_path / "seg_0_rescue_r3").mkdir()
-    fol = wtune_watch.follow_run_root(str(tmp_path))
+    fol = wtune.watch.follow_run_root(str(tmp_path))
     assert os.path.basename(fol["dir"]) == "seg_0_rescue_r3" and fol["segment"] == 0

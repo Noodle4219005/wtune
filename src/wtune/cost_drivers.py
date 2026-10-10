@@ -920,8 +920,8 @@ def case_types_for(case):
     """Labels from the existing classifier for a wtune_advise Case object (reuse, not a second
     implementation): post.caseinfo.detect_types when wrfout frames exist, else its namelist
     fallback. Returns a list of type labels."""
-    from wtune import advise as wtune_advise
-    return list(wtune_advise.det_case_types(case)["types"])
+    import wtune.advise
+    return list(wtune.advise.det_case_types(case)["types"])
 
 
 def _grid_time(cs, t):

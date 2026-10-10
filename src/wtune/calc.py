@@ -332,8 +332,8 @@ def geog(dx_km, res_arcsec=30.0, lat=0.0):
 # ------------------------------------------------------------------------------------ decomp
 
 def _wc():
-    from wtune import case as wtune_case
-    return wtune_case
+    import wtune.case
+    return wtune.case
 
 
 def decomp(we_list, sn_list, ranks=None, cores_per_node=None):
@@ -390,8 +390,8 @@ def io(e_we, e_sn, e_vert, frames=1, n3d=None, n2d=None):
 # --------------------------------------------------------------------------------------- run
 
 def _wp():
-    from wtune import predict as wtune_predict
-    return wtune_predict
+    import wtune.predict
+    return wtune.predict
 
 
 def run(namelist, nodes=None, nx=None, ny=None, calibration=None):

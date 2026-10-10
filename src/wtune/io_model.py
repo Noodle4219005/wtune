@@ -123,7 +123,7 @@ def case_iofields_calls(nl: dict, case_dir: str, merge: bool = True) -> list[int
     """Per-domain get_fieldstr calls per parse of the case's iofields files as `wtune run`
     stages them (lines merged; merge=False: as written); 0 where a domain names no file or it
     is missing."""
-    from wtune import iofields as wtune_iofields
+    import wtune.iofields
     out = []
     for d in range(wp.get_max_dom(nl)):
         name = str(wp.g_dom(nl, "time_control", "iofields_filename", d, "") or "").strip()
@@ -132,7 +132,7 @@ def case_iofields_calls(nl: dict, case_dir: str, merge: bool = True) -> list[int
         if name and name.upper() != "NONE_SPECIFIED" and os.path.isfile(path):
             with open(path) as f:
                 text = f.read()
-        out.append(wtune_iofields.parse_calls(wtune_iofields.merged(text) if merge else text))
+        out.append(wtune.iofields.parse_calls(wtune.iofields.merged(text) if merge else text))
     return out
 
 

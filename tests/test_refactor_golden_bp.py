@@ -12,7 +12,7 @@ import re
 import numpy as np
 import pytest
 
-from wtune import bp as wtune_bp
+import wtune.bp
 
 GOLDEN = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures", "golden", "bp",
                       "bp_snapshots.json")
@@ -47,10 +47,10 @@ def fakes(monkeypatch):
         open(dst, "wb").write(NC)
         return dst
 
-    monkeypatch.setattr(wtune_bp, "require_adios2_python", lambda: "/fake/python")
-    monkeypatch.setattr(wtune_bp, "nc2bp", fake_nc2bp)
-    monkeypatch.setattr(wtune_bp, "bp2nc", fake_bp2nc)
-    monkeypatch.setattr(wtune_bp, "roundtrip_check", lambda s, b, t: {
+    monkeypatch.setattr(wtune.bp, "require_adios2_python", lambda: "/fake/python")
+    monkeypatch.setattr(wtune.bp, "nc2bp", fake_nc2bp)
+    monkeypatch.setattr(wtune.bp, "bp2nc", fake_bp2nc)
+    monkeypatch.setattr(wtune.bp, "roundtrip_check", lambda s, b, t: {
         "ok": not s.endswith("wrfbdy_d01"), "vars_compared": 3, "max_abs_diff": 0.25,
         "mismatches": ["U: data differs", "V: shape"] if s.endswith("wrfbdy_d01") else []})
 
@@ -65,7 +65,7 @@ def _case(tmp):
 
 
 def _run(argv, tmp, capsys):
-    rc = wtune_bp.main(argv)
+    rc = wtune.bp.main(argv)
     cap = capsys.readouterr()
     return {"rc": rc, "stdout": _norm(cap.out, tmp), "stderr": _norm(cap.err, tmp)}
 
@@ -94,7 +94,7 @@ def _cli_cases(tmp):
 def _manifest(tmp):
     case = _case(tmp)
     cache = tmp / "cache"
-    wtune_bp.convert_inputs(case, str(cache))
+    wtune.bp.convert_inputs(case, str(cache))
     man = json.load(open(cache / "bp_manifest.json"))
     for e in man["entries"].values():
         e["mtime"] = "<mtime>"
@@ -145,7 +145,7 @@ def _compare(tmp):
              "attrs": ("base", "attrs", None), "extra": ("base", "extra", None),
              "dtype": ("base", "dtype", None), "narrow": ("base", "narrow", None),
              "record0": ("base", "one", 0), "record1-bad": ("base", "one", 1)}
-    return {k: wtune_bp.compare_netcdf(paths[a], paths[b], left_record=r)
+    return {k: wtune.bp.compare_netcdf(paths[a], paths[b], left_record=r)
             for k, (a, b, r) in pairs.items()}
 
 

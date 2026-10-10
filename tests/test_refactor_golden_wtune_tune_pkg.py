@@ -15,7 +15,7 @@ import types
 
 import pytest
 
-from wtune import tune as wtune_tune
+import wtune.tune
 import test_wtune_tune as T
 import test_refactor_golden_wtune_tune as G
 
@@ -31,7 +31,7 @@ SEAM = dict(resolve_case="context", _total_steps="context", cold_start_predictio
 
 
 def _patch(monkeypatch, name, value):
-    target = getattr(wtune_tune, SEAM[name]) if hasattr(wtune_tune, "__path__") else wtune_tune
+    target = getattr(wtune.tune, SEAM[name]) if hasattr(wtune.tune, "__path__") else wtune.tune
     monkeypatch.setattr(target, name, value)
 
 
@@ -51,7 +51,7 @@ def _isolate(monkeypatch):
 
 
 def test_golden_cli_help():
-    G._check("pkg_cli_help.txt", wtune_tune.build_arg_parser().format_help())
+    G._check("pkg_cli_help.txt", wtune.tune.build_arg_parser().format_help())
 
 
 def test_golden_main_exit_codes(monkeypatch, capsys):
@@ -60,7 +60,7 @@ def test_golden_main_exit_codes(monkeypatch, capsys):
     for name, argv in (("bad_site", ["matthew", "--site", "x"]),
                        ("no_minutes", ["matthew", "--nodes", "2"]),
                        ("no_case", ["--minutes", "5", "--nodes", "2"])):
-        rc = wtune_tune.main(argv)
+        rc = wtune.tune.main(argv)
         cap = capsys.readouterr()
         out[name] = dict(rc=rc, out=cap.out, err=cap.err)
     G._check("pkg_main_exit_codes.json", json.dumps(out, indent=1, sort_keys=True) + "\n")
@@ -98,10 +98,10 @@ def test_golden_level0_unknown_run_length(monkeypatch, tmp_path, capsys):
            lambda case, cpn: (dict(T.BIG_GRID, prep_dir=str(tmp_path / "m")),
                               str(tmp_path / "namelist.input"), T.ALL_NODES_PROFILE))
     _patch(monkeypatch, "_total_steps", lambda nl: None)
-    args = wtune_tune.build_arg_parser().parse_args(
+    args = wtune.tune.build_arg_parser().parse_args(
         ["matthew", "--site", "scc", "--out", str(tmp_path / "out"), "-O0",
          "--ledger-dir", str(tmp_path / "ledger")])
-    wtune_tune.run(args, sbatch_runner=lambda cmd: None, clock=T.FakeClock())
+    wtune.tune.run(args, sbatch_runner=lambda cmd: None, clock=T.FakeClock())
     out = capsys.readouterr().out
     assert "unavailable (run length unknown)" in out
     assert os.path.exists(tmp_path / "out" / "tune_report.json")
@@ -167,7 +167,7 @@ def test_golden_pipeline_more(name, monkeypatch, tmp_path, capsys):
 # the pipeline's prediction context, with wtune_predict / wtune_probe_plan faked -----------------
 def _fake_predict_stack(monkeypatch, calls):
     import datetime as _dt
-    wp, pp = wtune_tune.wtune_predict, wtune_tune.wtune_probe_plan
+    wp, pp = wtune.tune.wtune_predict, wtune.tune.wtune_probe_plan
     monkeypatch.setattr(wp, "parse_namelist", lambda path: calls.append(("nl", path)) or {"nl": 1})
     monkeypatch.setattr(wp, "get_d01_steps", lambda nl: (1440, 21600.0, 15.0, None))
     monkeypatch.setattr(wp, "get_time_control_datetime",
@@ -205,7 +205,7 @@ def test_golden_full_run_prediction_multipoint(drift, monkeypatch, tmp_path):
         ctx.prediction_cfg["drift_band_pct"] = drift
     best = dict(id="D1", ranks=72, omp=1, nx=8, ny=9, numtiles=1, dist="block")
     meas = [types.SimpleNamespace(at=None), types.SimpleNamespace(at=None)]
-    text = wtune_tune.build_full_run_prediction(ctx, best, 2, {}, None, probe_measurements=meas)
+    text = wtune.tune.build_full_run_prediction(ctx, best, 2, {}, None, probe_measurements=meas)
     G._check("pkg_multipoint_%s.txt" % drift, G._norm(json.dumps(
         dict(text=text, calls=calls), indent=1, default=repr), tmp_path) + "\n")
 
@@ -216,7 +216,7 @@ def test_golden_prediction_context(monkeypatch, tmp_path):
     ctx = T._ctx(out_dir=str(tmp_path / "o"), ledger_dir=str(tmp_path / "l"),
                  case_json=dict(T.MATTHEW_LIKE, prep_dir=str(tmp_path / "case")))
     ctx.prediction_cfg["drift_band_pct"] = 9.0
-    target = wtune_tune.prediction if hasattr(wtune_tune, "__path__") else wtune_tune
+    target = wtune.tune.prediction if hasattr(wtune.tune, "__path__") else wtune.tune
     out = target._prediction_context(ctx)
     G._check("pkg_prediction_context.txt", G._norm(json.dumps(
         dict(out=out, calls=calls), indent=1, default=repr), tmp_path) + "\n")

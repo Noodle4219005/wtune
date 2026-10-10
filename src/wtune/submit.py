@@ -10,7 +10,7 @@ import os
 import subprocess
 import sys
 
-from wtune import project as wtune_project
+import wtune.project
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 WTUNE_BIN = os.path.join(REPO_ROOT, "bin", "wtune")
@@ -131,28 +131,28 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--id", dest="out_id", default=None, help=argparse.SUPPRESS)
     args = ap.parse_args(argv)
     try:
-        project_dir = wtune_project.find_project(explicit=args.project)
-    except wtune_project.ProjectError as e:
+        project_dir = wtune.project.find_project(explicit=args.project)
+    except wtune.project.ProjectError as e:
         print("error: %s" % e, file=sys.stderr)
         return 2
     if not project_dir:
         print("error: no project here: `wtune project init DIR --case CASE_DIR`, then cd DIR "
               "(or pass --project DIR)", file=sys.stderr)
         return 2
-    doc = wtune_project.load_project(project_dir)
-    if not args.skip_tune and not wtune_project.project_case_id(doc):
+    doc = wtune.project.load_project(project_dir)
+    if not args.skip_tune and not wtune.project.project_case_id(doc):
         print("error: the project's case is not registered for tune: "
               "wtune project set --register-case", file=sys.stderr)
         return 2
-    if args.skip_tune and not wtune_project.latest_tune_report(
-            project_dir, wtune_project.project_case_id(doc)):
+    if args.skip_tune and not wtune.project.latest_tune_report(
+            project_dir, wtune.project.project_case_id(doc)):
         print("error: --skip-tune but %s has no tune report for this case"
               % os.path.join(project_dir, "tune"), file=sys.stderr)
         return 2
 
-    out_id = args.out_id or wtune_project.new_output_id()
+    out_id = args.out_id or wtune.project.new_output_id()
     fetch = []
-    names = wtune_project.project_post_defaults(doc)["fetch"]
+    names = wtune.project.project_post_defaults(doc)["fetch"]
     if names and not args.no_post:
         window = case_window(os.path.join(project_dir, "case"))
         if window:

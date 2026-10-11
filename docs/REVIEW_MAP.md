@@ -174,7 +174,7 @@ B（掃過）：`report.py`、`tools.py`、`basemap.py`、`plotting.py` 的繪�
    但 t0 搜尋與 node sweep 都不檢查這兩個欄位（原本只有已退役的 predicted 模式會看）。
    節點上有別人的程序在搶核時，量測照樣被採用。自己殘留的 `wrf.exe` 會在 job 開頭被清掉。
 2. **報告印的 launcher 行可能和實際不同。** `report.local_param_table` 用 `ranks // nodes`，`site_launch` 是進位。
-3. **兩個雜訊門檻。** 選 N／核數／贏家用 3%（`wtune_nodes.NOISE_FRAC`）；`_cluster_rank` 用 0.5%（`predictor/targets.NOISE`）。
+3. **兩個雜訊門檻。** 選 N／核數／贏家用 3%（`wtune.nodes.NOISE_FRAC`）；`_cluster_rank` 用 0.5%（`predictor/targets.NOISE`）。
 4. **輻射步有兩種定義。** `step_stats` 用「大於 3 倍中位數」；`measure_rad_from_rsl` 用輻射排程的相位。
 5. **probe 步數有兩個預設。** `context.DEFAULT_STEPS=20` 與 auto 的 `max(30, stepra+10)`。
 6. **等級會自動降。** 給了 `--minutes` 之後，模擬比調校短就從 O3 降到 O2 再降到 O1；降級後選出的版面可能不同（SC26-P1：O1 選 N=4，O2 選 N=5）。

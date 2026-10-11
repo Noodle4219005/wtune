@@ -108,7 +108,7 @@ B（掃過）：`wtune/predict.py` 的 namelist parser 與 ledger 讀取、`rend
 10. `src/wtune/run/controller.py`：`_run_segments`、`_next_attempt`、`_interrupted`、`_resume_attempt`、`resume_time_limit`、
     `rescue_time_step`、`_cfl_rescue_attempt`、`_update_from_observed`
     — 失敗怎麼分類、從哪個 restart 續跑。**`--cfl-rescue` 是整個 WTune 唯一會改變模擬解的地方。**
-11. `src/wtune/resume.py`（全檔約 80 行，乾淨的 run 不會執行）：`classify_failure`、`resume_point`、
+11. `src/wtune/resume.py`（全檔 118 行，乾淨的 run 不會執行）：`classify_failure`、`resume_point`、
     `valid_restart_times`、`restart_complete`，以及 `INFRA_STATES`／`MODEL_NEEDLES` 常數。
 12. `src/wtune/watch.py`：`snapshot`、`_set_status`、`read_rsl`、`parse_d01_steps`、`_domain_progress`、`_check_cfl`、`exit_code`
     — done／failed／running 的定義（`wtune run` 靠它判定成功）。其餘是剩餘時間估計。

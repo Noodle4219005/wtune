@@ -7,7 +7,7 @@ node sweep: nodes-n4 submitted job 7003 (ANCHOR ranks=72 omp=4 8x9, REPS=2, ~5:4
 [node-sweep] [------------------------]   0%  elapsed=0:00 / budget=10:00:00
 node sweep: nodes-n8 submitted job 7004 (ANCHOR ranks=72 omp=8 8x9, REPS=2, ~5:40)
 [node-sweep] [------------------------]   0%  elapsed=0:00 / budget=10:00:00
-WARNING: node sweep produced no measurement; falling back to the proxy. scaling model is UNCALIBRATED (wtune_case.py's halo-efficiency proxy, c=1.0, never fit to a real measurement) -- nodes=13 (policy=knee) is a starting point, not a validated optimum
+WARNING: node sweep produced no measurement; falling back to the proxy. scaling model is UNCALIBRATED (wtune/case.py's halo-efficiency proxy, c=1.0, never fit to a real measurement) -- nodes=13 (policy=knee) is a starting point, not a validated optimum
 round0: s_est=10.000s/step[fallback_10s,n=0] startup_s=120.0s[documented constant (scc_sweep.STARTUP_S)] slots=1 configs_per_job=74 total=1 (ok)
 round0 slot 0: submitted job 7005 (1 configs)
 [round0   ] [------------------------]   0%  elapsed=0:00 / budget=10:00:00
@@ -16,13 +16,13 @@ adaptive round 1: proposer stopped at kappa=0.5 (test stub); retrying with more 
 adaptive round 1: proposer stopped at kappa=1 (test stub); retrying with more exploration pressure (kappa=2)
 adaptive rounds: stopped at round 1 -- proposer exhausted even after kappa escalation (test stub) and the decomp_space pool has no unmeasured candidate left
 
-=== wtune_tune: matthew ===
+=== wtune tune: matthew ===
 nodes=13 (node sweep failed; policy=knee: every profiled doubling step up to --max-nodes cap=13 clears 1.5x; using nodes=13)
 budget=600.0 min  elapsed=0.0 min  jobs=7001,7002,7003,7004,7005
 
 id           pred_total  ranks  omp    nx    ny tiles    dist   median_s        range_s speedup pred_spd    n pred_source confirmed
 
-full-run prediction: run `python3 wtune.py predict <TMP>/matthew --nodes 13 --config '...'`
+full-run prediction: run `wtune predict <TMP>/matthew --nodes 13 --config '...'`
 
 --- node selection (measured, ANCHOR config per node count) ---
 nodes     median_s  reps   spread  speedup    eff     wall_s node_hours maxrss_MB

@@ -106,7 +106,7 @@ def render_segment_namelist(text: str, seg_start: dt.datetime, seg_end: dt.datet
     """The case's namelist.input text -> segment k's. restart_interval_min None keeps the
     case's restart keys; time_step (s) is the CFL-rescue step; resumed: segment 0 restarted
     mid-way. io_streams (configs.adios2_input_streams entries; None = --io netcdf) switch
-    those streams to ADIOS2; per_record_edits (wtune_bp.per_record_namelist_edits) go last."""
+    those streams to ADIOS2; per_record_edits (wtune.bp.per_record_namelist_edits) go last."""
     config = Config.coerce(config)
     restarted = k > 0 or resumed
     txt = _set_window_and_layout(text, seg_start, seg_end, config)

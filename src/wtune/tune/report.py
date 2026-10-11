@@ -1,7 +1,7 @@
 """The tune report: ranking table, the winner's parameter table under the STRICT guard (decision
 0056), the text rendering of every section, and its emission to stdout + tune_report.json.
 
-`report` stays a plain dict: it is the JSON boundary that run(), the tests and wtune_run read.
+`report` stays a plain dict: it is the JSON boundary that run(), the tests and wtune.run read.
 """
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ LAYOUT_ROWS_SHOWN = 40               # rows of node_selection.layouts printed (t
 
 def local_param_table(config: dict, nodes: int) -> dict:
     """Parameter table of `config` at `nodes`: namelist lines, the mpirun line of campaign/sites/
-    scc.sh site_launch (cyclic adds --rank-by node) and its env. wtune_predict.build_param_table
+    scc.sh site_launch (cyclic adds --rank-by node) and its env. wtune.predict.build_param_table
     is not used: it hardcodes dist=cyclic."""
     ranks, omp = int(config["ranks"]), int(config["omp"])
     nx, ny, numtiles = int(config["nx"]), int(config["ny"]), int(config["numtiles"])
@@ -47,8 +47,8 @@ def local_param_table(config: dict, nodes: int) -> dict:
 
 def _assert_report_is_strict_only(ctx: Ctx, param_table: dict) -> None:
     """Decision 0056: every namelist key the recommended configuration changes must be STRICT
-    (wtune_compliance) and no extension-owned group (&chem, &wrfvar*) may change at all. Skipped
-    without wtune_predict or a readable namelist; raises wc.ComplianceError."""
+    (wtune.compliance) and no extension-owned group (&chem, &wrfvar*) may change at all. Skipped
+    without wtune.predict or a readable namelist; raises wc.ComplianceError."""
     if predict is None:
         return
     try:
@@ -159,7 +159,7 @@ def render_report_text(report: dict) -> str:
     """The printed t0 / node-search report, with the node selection, node health and pipeline
     sections when present."""
     lines = []
-    lines.append("=== wtune_tune: %s ===" % report["case"])
+    lines.append("=== wtune tune: %s ===" % report["case"])
     lines.append("nodes=%d (%s)" % (report["nodes"], report["nodes_note"]))
     lines.append("budget=%s  elapsed=%.1f min  jobs=%s"
                   % (("%.1f min" % report["budget_minutes"]) if report["budget_minutes"] is not None

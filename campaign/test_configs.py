@@ -933,7 +933,7 @@ class TestComplianceKnobs(unittest.TestCase):
         try:
             import wtune.compliance
         except Exception as e:  # pragma: no cover - only if repo layout changes
-            self.skipTest("wtune_compliance not importable: %s" % e)
+            self.skipTest("wtune.compliance not importable: %s" % e)
         for name in configs._COMPLIANCE_KNOBS:
             self.assertEqual(wtune.compliance.classify(name), wtune.compliance.STRICT, name)
 
@@ -2084,7 +2084,7 @@ class TestConfigExtras(unittest.TestCase):
         here = os.path.dirname(os.path.abspath(__file__))
         with open(os.path.join(here, "strict_campaign.sbatch")) as f:
             text = f.read()
-        self.assertIn("physics_namelists", text)       # wtune_tune.PHYSICS_RUNNER_MARKER
+        self.assertIn("physics_namelists", text)       # wtune.tune.PHYSICS_RUNNER_MARKER
         self.assertIn("config-extras", text)
         self.assertIn('--history-mode "$RUN_HISTORY_ARG"', text)
         self.assertNotIn('--history-mode "$HISTORY_MODE_ARG" --ranks "$ranks"', text)

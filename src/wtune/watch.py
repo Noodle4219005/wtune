@@ -30,7 +30,7 @@ from wtune import predict as wp  # noqa: E402  (namelist helpers, stepra, run le
 RSL_FILES = ("rsl.error.0000", "rsl.out.0000")  # tie -> the first
 TAIL_LINES = 200   # lines of each rsl file scanned for FATAL / SUCCESS
 WRF_FMT = "%Y-%m-%d_%H:%M:%S"
-# Elapsed token is \S+ (not [\d.]+ as in wtune_predict._RSL_TIMING_RE) so NaN lines are seen.
+# Elapsed token is \S+ (not [\d.]+ as in wtune.predict._RSL_TIMING_RE) so NaN lines are seen.
 # d01 elapsed includes nest integration and that step's writes: wall ~= init + sum(d01 elapsed)
 # (zhengzhou, 3 domains: 17789.5 s vs job wall 17827.6 s).
 _TIMING_RE = re.compile(
@@ -142,7 +142,7 @@ def _int_period(x):
 
 
 def run_info(nl: dict) -> dict:
-    """Run geometry from a parsed namelist: d01 start/end (run_* wins, wtune_runlength rule), dt,
+    """Run geometry from a parsed namelist: d01 start/end (run_* wins, wtune.runlength rule), dt,
     total d01 steps, stepra, the periodic-cost periods in d01 steps, and per active domain
     {id, parent, dt, parent_dt, start, end} where a nest's end is its OWN end_* datetime (None when
     absent) -- WRF applies run_* to d01 only."""
@@ -345,7 +345,7 @@ def rate_window(elapsed: list, stepra: int | None, periods: list[int]
 def load_prediction(path: str, rundir: str | None = None) -> dict:
     """pred_rebuild.json -> {anchors_at: [(datetime, s_normal)], r_night, r_day, steps_n, total_s,
     compute_total_s, init_s, sample_points, sample_source, path}. sample_points come from
-    RUNDIR/wrfinput_d01 when present (read-only; wtune_predict.read_wrfinput_sample_points), for
+    RUNDIR/wrfinput_d01 when present (read-only; wtune.predict.read_wrfinput_sample_points), for
     the same day/night radiation weighting combine() used; None -> the (r_night+r_day)/2 mean,
     exactly as predicted_compute_total does without them."""
     with open(path) as f:
@@ -375,7 +375,7 @@ def load_prediction(path: str, rundir: str | None = None) -> dict:
 
 def pred_cum(pred: dict, info: dict, m: int) -> float:
     """Predicted compute seconds of d01 steps 1..m -- tools/coldstart_sample.
-    predicted_compute_total over the first m steps (the exact arithmetic wtune_probe_plan.combine
+    predicted_compute_total over the first m steps (the exact arithmetic wtune.probe_plan.combine
     uses: piecewise-linear s_normal anchors + WRF-schedule radiation steps x r(t); both are
     prefix-stable in m, so cum(b) - cum(a) is the prediction for steps a+1..b). Memoised per m."""
     m = int(m)
@@ -748,7 +748,7 @@ def snapshot(rundir: str, now: float | None = None, replay_fraction: float | Non
 
 
 # --------------------------------------------------------------------------
-# `wtune run --out` root: OUT/run_report.json + OUT/seg_<k>/ (wtune_run.run_controller)
+# `wtune run --out` root: OUT/run_report.json + OUT/seg_<k>/ (wtune.run.run_controller)
 # --------------------------------------------------------------------------
 _SEG_DIR_RE = re.compile(r"^seg_(\d+)(_rescue)?(?:_r(\d+))?$")
 

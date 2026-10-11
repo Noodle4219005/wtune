@@ -294,7 +294,7 @@ def get_time_control_datetime(nl: dict, prefix: str) -> datetime.datetime | None
 
 def get_run_seconds(nl: dict) -> float:
     """Run length (s): run_days/hours/minutes/seconds when their sum > 0, else the d01
-    start -> end span (WRF's own fallback). Delegates to wtune_runlength.resolve_run_seconds;
+    start -> end span (WRF's own fallback). Delegates to wtune.runlength.resolve_run_seconds;
     raises PredictError instead of its ValueError."""
     days = g(nl, "time_control", "run_days", 0) or 0
     hours = g(nl, "time_control", "run_hours", 0) or 0
@@ -1862,7 +1862,7 @@ def predict_cmd(args: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="wtune_predict.py")
+    parser = argparse.ArgumentParser(prog="wtune predict")
     sub = parser.add_subparsers(dest="command")
     add_subparser(sub)
     args = parser.parse_args(argv)

@@ -300,7 +300,7 @@ def _radt_cloud_bound(case, wind=12.0, ncells=3.0):
 
 def swint_advice(case):
     """Case-general: the zenith STAIRCASE only bites when the run crosses the terminator.
-    Uses the solar geometry (wtune_solar) to decide, and bounds any radt increase by
+    Uses the solar geometry (wtune.solar) to decide, and bounds any radt increase by
     cloud-optics staleness (dx + steering wind), not just a flat 1.5x."""
     if case.get('ra_sw_physics') not in (1, 2, 3, 4, 5):
         return None

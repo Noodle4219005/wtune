@@ -50,7 +50,7 @@ class NodeSelection(Record):
     final: Any = UNSET
     final_note: Any = UNSET
     final_cores_per_node: Any = UNSET
-    table: Any = UNSET                    # wtune_nodes.table rows + maxrss_mb
+    table: Any = UNSET                    # wtune.nodes.table rows + maxrss_mb
     choices: Any = UNSET                  # {objective: {nodes, note}}
     skipped: Any = UNSET
     finalists: Any = UNSET
@@ -98,7 +98,7 @@ def choose_nodes_cap(profile: dict, max_nodes: int) -> tuple[int, str]:
 
 
 def choose_nodes_knee(profile: dict, max_nodes: int) -> tuple[int, str]:
-    """policy=knee (default): stop at the first legal node count whose next doubling (wtune_case
+    """policy=knee (default): stop at the first legal node count whose next doubling (wtune.case
     checkpoints 1,2,4,8,13) has a predicted speed-up n_j*E(n_j) / (n_i*E(n_i)) below 1.5x."""
     rows = _legal_rows(profile, max_nodes)
     if not rows:
@@ -115,7 +115,7 @@ def choose_nodes_knee(profile: dict, max_nodes: int) -> tuple[int, str]:
     if n < max_nodes:
         # say the cap was not reached, so nodes=n is not read as a verified stop below the cap
         return n, ("policy=knee: every doubling among the LEGAL profiled node counts (<=%d) "
-                   "clears 1.5x; nodes=%d is the largest one wtune_case profiled as legal "
+                   "clears 1.5x; nodes=%d is the largest one wtune.case profiled as legal "
                    "(--max-nodes cap is %d, not reached)" % (n, n, max_nodes))
     return n, ("policy=knee: every profiled doubling step up to --max-nodes cap=%d clears 1.5x; "
                "using nodes=%d" % (max_nodes, n))
@@ -125,14 +125,14 @@ NODES_POLICIES = {"min": choose_nodes_min, "cap": choose_nodes_cap, "knee": choo
 
 
 def choose_nodes(profile: dict, max_nodes: int, policy: str) -> tuple[int, str, str]:
-    """(nodes, note, warning) by `policy`. The proxy (wtune_case's halo efficiency, c=1.0) is
+    """(nodes, note, warning) by `policy`. The proxy (wtune.case's halo efficiency, c=1.0) is
     UNCALIBRATED, so the choice always carries that warning. SystemExit for an unknown policy."""
     fn = NODES_POLICIES.get(policy)
     if fn is None:
         raise SystemExit("unknown --nodes-policy %r (choices: %s)"
                           % (policy, ", ".join(sorted(NODES_POLICIES))))
     nodes, note = fn(profile, max_nodes)
-    warning = ("scaling model is UNCALIBRATED (wtune_case.py's halo-efficiency proxy, c=1.0, "
+    warning = ("scaling model is UNCALIBRATED (wtune/case.py's halo-efficiency proxy, c=1.0, "
                "never fit to a real measurement) -- nodes=%d (policy=%s) is a starting point, "
                "not a validated optimum" % (nodes, policy))
     return nodes, note, warning
@@ -140,7 +140,7 @@ def choose_nodes(profile: dict, max_nodes: int, policy: str) -> tuple[int, str, 
 
 def _pack_items(items: list[dict], max_nodes: int) -> list[list[dict]]:
     """First-fit ascending packing of jobs into concurrent waves of <= max_nodes nodes
-    (wtune_nodes.sweep_waves' rule)."""
+    (wtune.nodes.sweep_waves' rule)."""
     waves: list[list[dict]] = []
     for it in sorted(items, key=lambda x: (x["nodes"], -x.get("cores", 0))):
         for w in waves:
@@ -353,7 +353,7 @@ def run_core_sweep(ctx: Ctx, finals: list[int], sw: dict, core_options: list[int
                    budget_frac: float = DEFAULT_SWEEP_BUDGET_FRAC / 2) -> tuple[dict, list]:
     """Cores per node at each finalist N: one REPS=2 hybrid-ANCHOR job per legal (N, c < C)
     (the rest of the node idles; c = C reuses the sweep's measurement), c chosen by
-    wtune_nodes.choose_cores (ties -> fuller c). Returns ({N: {anchors, results, rss, rows,
+    wtune.nodes.choose_cores (ties -> fuller c). Returns ({N: {anchors, results, rss, rows,
     chosen, note}}, skipped_cores)."""
     C = ctx.cores_per_node
     info, skipped, items = {}, [], []

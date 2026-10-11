@@ -1,4 +1,4 @@
-"""Shared by every wtune_run layer: constants, RunError, time and fraction helpers, and Record,
+"""Shared by every wtune.run layer: constants, RunError, time and fraction helpers, and Record,
 the base of the run's dataclasses."""
 from __future__ import annotations
 

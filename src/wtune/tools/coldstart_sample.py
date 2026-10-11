@@ -53,7 +53,7 @@ if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
 from wtune import predict as predict   # repo root -- delegates run-length resolution to
-                                   # wtune_runlength.resolve_run_seconds internally
+                                   # wtune.runlength.resolve_run_seconds internally
                                    # (stdlib only, per its own docstring -- no numpy)
 
 DEFAULT_CALIBRATION = os.path.join(
@@ -103,7 +103,7 @@ def _grib_state():
 
 
 # ---------------------------------------------------------------------------
-# namelist.input helpers (thin wrappers over wtune_predict -- do not re-parse)
+# namelist.input helpers (thin wrappers over wtune.predict -- do not re-parse)
 # ---------------------------------------------------------------------------
 
 def load_namelist(path: str) -> dict:
@@ -217,7 +217,7 @@ def geo_from_wrfinput_attrs(attrs: dict, nl: dict) -> dict:
 
 def geo_from_namelist_wps(nlw: dict, nl: dict) -> dict:
     """d01 projection fields from an existing namelist.wps &geogrid group (already parsed via
-    wtune_predict.parse_namelist)."""
+    wtune.predict.parse_namelist)."""
     if "geogrid" not in nlw or "share" not in nlw:
         raise ColdstartError("namelist.wps has no &geogrid/&share group")
     map_proj = predict.g(nlw, "geogrid", "map_proj", None)
@@ -737,7 +737,7 @@ def print_inspect(rows: list, blockers: list[str]) -> None:
 
 def domain_lattice_from_geom(ref_lat: float, ref_lon: float, dx_m: float, e_we: int,
                              dy_m: float | None = None, e_sn: int | None = None) -> list:
-    """5x5 sample lattice (wtune_predict.sample_lattice_5x5) approximated from the d01 center
+    """5x5 sample lattice (wtune.predict.sample_lattice_5x5) approximated from the d01 center
     and extent: half-width = dx*(e_we-1)/2 converted from meters to km to degrees (1 deg lat ~=
     111 km; lon degrees scaled by 1/cos(lat) for the same km extent)."""
     dy_m = dx_m if dy_m is None else dy_m
@@ -757,7 +757,7 @@ def domain_lattice_from_geom(ref_lat: float, ref_lon: float, dx_m: float, e_we: 
 
 def measured_window_mean_sunlit(sample_points: list, t_start: datetime.datetime,
                                 t_end: datetime.datetime, n_samples: int = 5) -> float | None:
-    """Mean of wtune_predict.sunlit_fraction over n_samples evenly spaced times in
+    """Mean of wtune.predict.sunlit_fraction over n_samples evenly spaced times in
     [t_start, t_end] -- "approximate is fine for ranking candidates" (SPEC.md). None when
     sample_points is empty/None."""
     if not sample_points:
@@ -779,7 +779,7 @@ def measured_window_mean_sunlit(sample_points: list, t_start: datetime.datetime,
 def compute_window_seconds(spinup_min: float, dt_seconds: float, radt_minutes: float,
                            measure_steps: int | None = None) -> tuple[float, int, int | None]:
     """W = spinup_min*60 + measure_steps*dt, measure_steps = max(30, 2*stepra) by default, stepra =
-    wtune_predict.steps_per_radiation_call(radt, dt) -- so every window contains >= 2
+    wtune.predict.steps_per_radiation_call(radt, dt) -- so every window contains >= 2
     post-spin-up radiation steps. An explicit `measure_steps` (>= stepra + 1, so at least one
     radiation step is measured) shortens the window; scoring then locates radiation steps by
     their known phase instead of detecting it. Returns (W_seconds, stepra, measure_steps)."""
@@ -1008,7 +1008,7 @@ _NETCDF_LOCK = threading.Lock()
 
 def _d01_bbox_from_case(case_dir):
     """(lat_min, lat_max, lon_min, lon_max) of the case's own wrfinput_d01 grid. Serialized:
-    wtune_tune.run_rebuild_points fetches points from a thread pool, and netCDF-C is not
+    wtune.tune.run_rebuild_points fetches points from a thread pool, and netCDF-C is not
     thread-safe -- concurrent opens corrupted its ID table and a later close in the same process
     failed with "NetCDF: Not a valid ID" (dorian2019 short-window run, 2026-09-27)."""
     import netCDF4
@@ -3098,7 +3098,7 @@ def score_windows_from_rsl(plan: dict, sample_points: list | None, calibration: 
                 if frac is not None:
                     pooled_radiation_samples.append((frac, sec / s_k))
         # r_local: this window's own radiation ratio (median, None without radiation steps), for a
-        # per-point (s_k, r) pair (wtune_probe_plan.PointMeasurement) instead of the pooled fit.
+        # per-point (s_k, r) pair (wtune.probe_plan.PointMeasurement) instead of the pooled fit.
         r_local = statistics.median(rad_ratios) if rad_ratios else None
         mid_dt = T + datetime.timedelta(seconds=spinup_seconds + (plan["W_seconds"] - spinup_seconds) / 2.0)
         # R6-D: map the analog-timeline window back to the stated timeline (shift_s 0 = no-op).
@@ -3214,7 +3214,7 @@ def score_plan(plan_dir: str, calibration_path: str = DEFAULT_CALIBRATION,
         range_note = ("analog_quality=%s widened the compute drift band to +-%.0f%% (measured "
                       "on scc: -9%%..+6.5%%, rounded)" % (analog_quality, analog_drift_pct))
     compute_drift_abs = compute_total * drift_frac
-    # I/O estimated but not in TOTAL by default -- same rule as wtune_predict.build_prediction
+    # I/O estimated but not in TOTAL by default -- same rule as wtune.predict.build_prediction
     io_w = 1.0 if include_io else 0.0
     total_s = compute_total + io_w * io["total_s"] + init["total_s"]
     if io_range is not None:

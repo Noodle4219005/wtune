@@ -86,7 +86,7 @@ def restart_writes_finished(rsl_text: str, max_dom: int) -> list[dt.datetime]:
 def valid_restart_times(seg_dir: str, max_dom: int, is_bp: Callable[[str], bool],
                         skip: Iterable[str] = ()) -> list[str]:
     """WRF_FMT times of seg_dir's valid restarts (module docstring), those in `skip` left out.
-    The rsl is the rank-0 file wtune_watch.read_rsl picks (either can be truncated)."""
+    The rsl is the rank-0 file wtune.watch.read_rsl picks (either can be truncated)."""
     on_disk = [t for t in restart_sets_on_disk(seg_dir, max_dom, is_bp) if t not in skip]
     chosen = wtune.watch.read_rsl(seg_dir)[0] if on_disk else None
     if chosen is None:

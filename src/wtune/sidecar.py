@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """wtune/sidecar.py -- `wtune run --sidecar`: work done next to a running segment job.
 
-Every controller poll records the newly valid restarts (wtune_resume) in run_report.json and
+Every controller poll records the newly valid restarts (wtune.resume) in run_report.json and
 hands finished history frames to ONE srun in the job's allocation, on the cores WRF leaves idle,
 which converts them BP -> netCDF into the `wtune post` cache (`wtune/sidecar.py convert`);
 leftovers are converted after the run on a node of their own. The head process never converts."""
@@ -235,7 +235,7 @@ def convert(run_dir: str, cache_root: str, frames: list) -> int:
 
 
 def main(argv: Optional[list] = None) -> int:
-    ap = argparse.ArgumentParser(prog="wtune_sidecar.py", description=__doc__.split("\n\n")[0])
+    ap = argparse.ArgumentParser(prog="wtune/sidecar.py", description=__doc__.split("\n\n")[0])
     sub = ap.add_subparsers(dest="command", required=True)
     cv = sub.add_parser("convert")
     cv.add_argument("--run-dir", required=True)

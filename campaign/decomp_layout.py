@@ -57,7 +57,7 @@ def factor_pairs(n: int) -> List[Shape]:
 
 
 def patch_dims(extent: int, nproc: int) -> int:
-    """ceil(extent / nproc): the reported patch size (wtune_decomp reports the floor)."""
+    """ceil(extent / nproc): the reported patch size (wtune.decomp reports the floor)."""
     q, rem = divmod(extent, nproc)
     return q + 1 if rem else q
 
@@ -120,7 +120,7 @@ def ranked_shapes(e_we: int, e_sn: int, e_vert: int, ranks: int, omp: int, nodes
                 return seen, "wtune_decomp"
         except Exception as e:
             sys.stderr.write(
-                "NOTE: wtune_decomp.enumerate_configs failed (%s: %s); using fallback\n"
+                "NOTE: wtune.decomp.enumerate_configs failed (%s: %s); using fallback\n"
                 % (type(e).__name__, e)
             )
     shapes = legal_shapes(e_we, e_sn, ranks)

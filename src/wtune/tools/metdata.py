@@ -488,7 +488,7 @@ def crop_bbox(lats_1d, lons_1d, values_2d, lat_min, lat_max, lon_min, lon_max, m
 
 def case_bbox(case, wrfinput_path=None):
     """(lat_min, lat_max, lon_min, lon_max) for a case -- exact from wrfinput XLAT/XLONG extrema
-    when available (needs netCDF4), else wtune_solar.domain_bbox's analytic approximation."""
+    when available (needs netCDF4), else wtune.solar.domain_bbox's analytic approximation."""
     if wrfinput_path and os.path.exists(wrfinput_path):
         try:
             import netCDF4
@@ -1088,7 +1088,7 @@ def probe_forcing_entries(entries, sleep_fn=None):
 
 def load_case(case_dir, namelist=None, wrfinput=None):
     """Resolve namelist + optional wrfinput and extract the namelist-derived case dict, the same
-    convention wtune_case.find_case_inputs / wtune.extract_case use."""
+    convention wtune.case.find_case_inputs / wtune.extract_case use."""
     nl_path = namelist or os.path.join(case_dir, 'namelist.input')
     wi_path = wrfinput
     if wi_path is None and case_dir and os.path.isdir(case_dir):

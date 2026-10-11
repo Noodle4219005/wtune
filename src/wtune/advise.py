@@ -134,7 +134,7 @@ def _find_first_state(case_dir):
 
 
 def _find_namelist(d):
-    # namelist.input first: it is what the user wrote and what wtune_predict.parse_namelist reads
+    # namelist.input first: it is what the user wrote and what wtune.predict.parse_namelist reads
     # everywhere else; WRF's namelist.output (fully resolved) is the fallback for a run dir
     for name in ("namelist.input", "namelist.output"):
         p = os.path.join(d, name)
@@ -145,7 +145,7 @@ def _find_namelist(d):
 
 def _project_storm_defaults(storm, hurdat2, project=None):
     """Fill an absent --storm/--hurdat2 from the project in effect (--project, $WTUNE_PROJECT,
-    or a project.yaml at/above cwd; wtune_project.find_project) -- per field, as the
+    or a project.yaml at/above cwd; wtune.project.find_project) -- per field, as the
     project-dir branch of build_case does. Explicit flags win; no project -> unchanged."""
     if storm and hurdat2:
         return storm, hurdat2
@@ -202,7 +202,7 @@ def build_case(arg, site="scc", needs=(), hurdat2=None, storm=None, bdeck=None, 
 
 
 # --------------------------------------------------------------------------------------------
-# namelist helpers (wtune_predict.parse_namelist: typed, per-domain aware)
+# namelist helpers (wtune.predict.parse_namelist: typed, per-domain aware)
 # --------------------------------------------------------------------------------------------
 def _nl(case):
     if not case.namelist:
@@ -225,7 +225,7 @@ def _max_dom(case):
 
 def _window(case):
     """(t_start, t_end) from &time_control start_*/end_* (d01). end falls back to start + run
-    length (wtune_cli.extract_case run_total_hours)."""
+    length (wtune.cli.extract_case run_total_hours)."""
     nl = _nl(case)
 
     def dt(prefix):
@@ -651,7 +651,7 @@ def run_detector(case, name):
 # --------------------------------------------------------------------------------------------
 def _step_weight(case, d, dt):
     """Per-column per-step prior weight of domain d: same ingredients as
-    wtune_case._build_cost_structure / wtune_physics_advice._cost_rate (dynamics + mp + cu +
+    wtune.case._build_cost_structure / wtune.physics_advice._cost_rate (dynamics + mp + cu +
     surface + pbl/sfclay + radiation, the last amortised by radt)."""
     from wtune import physics as phys
     from wtune.case import COST_WEIGHT, DYN_WEIGHT

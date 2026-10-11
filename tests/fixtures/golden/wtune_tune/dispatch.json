@@ -145,7 +145,7 @@
      "kwargs": {}
     }
    ],
-   "out": "NOTE: probe.steps='auto' requested but could not be resolved from <TMP>/auto/namelist.input (FileNotFoundError: [Errno 2] No such file or directory: '<TMP>/auto/namelist.input') -- using DEFAULT_STEPS=20 instead\nWARNING: scaling model is UNCALIBRATED (wtune_case.py's halo-efficiency proxy, c=1.0, never fit to a real measurement) -- nodes=8 (policy=cap) is a starting point, not a validated optimum\ncase=matthew nodes=8 (policy=cap: largest legal profiled node count within cap=8) budget=30.0 min max_nodes=8 out=<TMP>/auto/out\n\nPIPELINE {'stub': True}\n",
+   "out": "NOTE: probe.steps='auto' requested but could not be resolved from <TMP>/auto/namelist.input (FileNotFoundError: [Errno 2] No such file or directory: '<TMP>/auto/namelist.input') -- using DEFAULT_STEPS=20 instead\nWARNING: scaling model is UNCALIBRATED (wtune/case.py's halo-efficiency proxy, c=1.0, never fit to a real measurement) -- nodes=8 (policy=cap) is a starting point, not a validated optimum\ncase=matthew nodes=8 (policy=cap: largest legal profiled node count within cap=8) budget=30.0 min max_nodes=8 out=<TMP>/auto/out\n\nPIPELINE {'stub': True}\n",
    "report": {
     "cancelled_job_ids": [],
     "case": "matthew",

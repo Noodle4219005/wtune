@@ -1,5 +1,5 @@
-"""run_report.json: the plain dict the run keeps (the JSON boundary; wtune_watch and
-wtune_sidecar read and extend it) and its atomic writer."""
+"""run_report.json: the plain dict the run keeps (the JSON boundary; wtune.watch and
+wtune.sidecar read and extend it) and its atomic writer."""
 from __future__ import annotations
 
 import datetime as dt

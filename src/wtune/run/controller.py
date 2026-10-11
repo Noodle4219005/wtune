@@ -251,7 +251,7 @@ def _update_from_observed(ctx: RunContext, k: int, snap: dict, elapsed: Optional
 
 
 def _make_sidecar(ctx: RunContext, nc_root: str, runner: Optional[Callable] = None):
-    """The run's wtune_sidecar.Sidecar; its sruns go through `runner` (tests inject a fake)."""
+    """The run's wtune.sidecar.Sidecar; its sruns go through `runner` (tests inject a fake)."""
     import wtune.sidecar
     out = ctx.plan.out
     return wtune.sidecar.Sidecar(

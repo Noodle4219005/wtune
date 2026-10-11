@@ -273,7 +273,7 @@ def test_missing_adios2_is_one_clear_error(tmp_path, fake_bp, monkeypatch, capsy
 
     # no wtune_bp at all
     swap_wtune_module(monkeypatch, "bp", None)
-    with pytest.raises(extract.BPConversionError, match="cannot import wtune_bp"):
+    with pytest.raises(extract.BPConversionError, match="cannot import wtune.bp"):
         extract.list_frames(str(run))
 
 

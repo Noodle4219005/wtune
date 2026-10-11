@@ -34,7 +34,7 @@ DEFAULT_HARDWARE_ID = "scc-gh200"
 DEFAULT_CORES_PER_NODE = 72            # scc GH200
 AUTO_NODE_COUNTS = (1, 2, 4, 8, 13)     # scc_sweep DEFAULT_NODES; `config show` preview only
 NODES_POLICY_CHOICES = ("min", "cap", "knee")
-IO_TARGETS = ("nfs", "local")           # wtune_predict's own calibration targets (machine/calibration/*.json)
+IO_TARGETS = ("nfs", "local")           # wtune.predict's own calibration targets (machine/calibration/*.json)
 EXCLUDE_WHEN_VALUES = ("fire",)
 
 DEFAULTS = {
@@ -64,7 +64,7 @@ DEFAULTS = {
     "physics_gray": {"enabled": False, "knobs": {}},
     # steps "auto" = max(30, stepra+10): >= 1 radiation step per probe. spinup_min/ranking_start
     # rank every candidate; points..sources place the winner's full-run prediction points
-    # (wtune_probe_plan.plan_points). ranking_start defaults to t0: spinup start is not wired
+    # (wtune.probe_plan.plan_points). ranking_start defaults to t0: spinup start is not wired
     # into strict_campaign.sbatch yet (selecting it prints a NOTE and runs from t0).
     "probe": {"steps": "auto", "confirm_reps": 2, "spinup_min": 60, "ranking_start": "t0",
               "points": "auto", "max_points": 5, "budget_pct": 10.0,
@@ -99,7 +99,7 @@ RANKING_START_CHOICES = ("t0", "spinup")
 RANK_BY_CHOICES = ("t0", "predicted")
 RESTART_IO_FORM_CHOICES = (14, 2)
 STAGE1_CHOICES = ("t0", "pstar")
-# "coldstart" is the pre-2026-09-26 name, still accepted (wtune_probe_plan.canonical_source
+# "coldstart" is the pre-2026-09-26 name, still accepted (wtune.probe_plan.canonical_source
 # normalizes it to "rebuild" everywhere downstream) -- never rejected as an unknown source.
 PROBE_SOURCE_CHOICES = ("trajectory", "restart", "rebuild")
 PROBE_SOURCE_ALIASES = {"coldstart": "rebuild"}
@@ -112,7 +112,7 @@ EXCLUDE_RULE_KEYS = {"when"} | {"%s_%s" % (field, op)
                                  for op in ("gt", "lt", "ge", "le", "eq", "ne")}
 
 _YAML_MISSING_MSG = (
-    "wtune_config: PyYAML is required to load a wtune tune YAML config file.\n"
+    "wtune.config: PyYAML is required to load a wtune tune YAML config file.\n"
     "Install it with: pixi add pyyaml   (or: pip install pyyaml)\n"
 )
 
@@ -582,7 +582,7 @@ def is_fire_case(case_json: dict | None = None, namelist_path: str | None = None
 
 
 # ---------------------------------------------------------------------------
-# shared candidate filter for every wtune_tune generation site; the anchor is exempt from the
+# shared candidate filter for every wtune.tune generation site; the anchor is exempt from the
 # search restrictions (exempt_search) but not from `exclude`.
 # ---------------------------------------------------------------------------
 def _aspect(nx, ny):
@@ -752,7 +752,7 @@ _TEMPLATE = """\
 #
 # Precedence when used via `wtune tune --config FILE`: CLI flags > this file > built-in defaults.
 # Unknown keys are a validation error (a typo is caught, not silently ignored). Validate/preview
-# with: wtune.py config show %(case)s.yaml
+# with: wtune config show %(case)s.yaml
 
 site: scc                       # only "scc" is currently supported by wtune tune
 case: %(case)s                  # case name from campaign/cases.json (+ site overlay:
@@ -771,12 +771,12 @@ budget:
   minutes: 30                    # wall-clock budget for the whole `wtune tune` run (required: here or --minutes)
   max_nodes: 13                  # hard cap -- scc's compute pool is 13 nodes (work[1-13])
   nodes: auto                    # auto | search | <int> | [<int>, ...] -- search measures the ANCHOR at
-                                  # each legal node count (wtune_tune --nodes search; node_objective/
+                                  # each legal node count (wtune tune --nodes search; node_objective/
                                   # deadline_minutes/min_efficiency/node_finalists/sweep_budget_frac
                                   # keys mirror its CLI flags); auto picks ONE node count via
-                                  # `nodes_policy` from wtune_case's (uncalibrated) core-count profile;
+                                  # `nodes_policy` from wtune.case's (uncalibrated) core-count profile;
                                   # a list is previewed by `wtune config show` but not yet run by `wtune tune`
-  nodes_policy: knee              # min | cap | knee (see `wtune_tune.py --nodes-policy` for the exact rule)
+  nodes_policy: knee              # min | cap | knee (see `wtune tune --nodes-policy` for the exact rule)
 
 search:                          # STRICT-only restrictions on what `wtune tune` is allowed to try;
                                   # omitting a key (or leaving it null) means "no restriction" for that axis
@@ -784,14 +784,14 @@ search:                          # STRICT-only restrictions on what `wtune tune`
   numtiles: [1, 2, 4, 8, 12, 16, 24]     # WRF numtiles candidates (STRICT knob: numtiles, catalog range 1-64)
   rank_distribution: [block, cyclic]     # srun --distribution candidates (STRICT knob: srun_distribution)
   aspect_max: 8                          # max(nproc_x/nproc_y, nproc_y/nproc_x) allowed in a decomposition shape
-  io:                                    # STRICT knob: io_form_history -- NOT YET SEARCHED by wtune_tune.py;
+  io:                                    # STRICT knob: io_form_history -- NOT YET SEARCHED by wtune tune;
                                           # `enabled: true` is a hard config error, never a silent no-op
     enabled: false
     io_form_history: [2, 11, 14]         # 2=split netCDF, 11/14=ADIOS2 variants
-    target: [nfs, local]                 # filesystem target wtune_predict calibrates the I/O rate against
+    target: [nfs, local]                 # filesystem target wtune.predict calibrates the I/O rate against
 
 physics_gray:                     # PHYSICS-GRAY knobs -- only legal at compliance: physics-gray;
-                                   # NOT YET SEARCHED by wtune_tune.py -- `enabled: true` is a hard config error
+                                   # NOT YET SEARCHED by wtune tune -- `enabled: true` is a hard config error
   enabled: false
   knobs:
     radt: {multiply: [1.0, 1.5, 2.0]}       # PHYSICS-GRAY knob: radiation time step multiplier (namelist radt)
@@ -821,11 +821,11 @@ probe:
 
 prediction:
   io_target: nfs                  # nfs | local -- calibration target for the full-run I/O estimate
-  drift_band_pct: 6               # override wtune_predict's calibration drift band (percent); omit/null
+  drift_band_pct: 6               # override wtune.predict's calibration drift band (percent); omit/null
                                    # to use the calibration file's own default instead
   measure_r_rad: false            # derive the radiation-step cost multiplier (r_rad) from THIS run's own
                                    # probe measurements instead of the calibration file's fixed default --
-                                   # NOT YET IMPLEMENTED by wtune_predict.py; requesting it (true) is
+                                   # NOT YET IMPLEMENTED by wtune predict; requesting it (true) is
                                    # reported in the tune report as "requested, not yet implemented",
                                    # never silently ignored
 
@@ -848,7 +848,7 @@ def _print_errors(errors):
 
 
 def cmd_init(argv: list[str]) -> int:
-    ap = argparse.ArgumentParser(prog="wtune_config.py init")
+    ap = argparse.ArgumentParser(prog="wtune config init")
     ap.add_argument("case")
     ap.add_argument("--out", default="wtune.yaml")
     a = ap.parse_args(argv)
@@ -859,7 +859,7 @@ def cmd_init(argv: list[str]) -> int:
 
 
 def cmd_validate(argv: list[str]) -> int:
-    ap = argparse.ArgumentParser(prog="wtune_config.py validate")
+    ap = argparse.ArgumentParser(prog="wtune config validate")
     ap.add_argument("file")
     a = ap.parse_args(argv)
     try:
@@ -872,7 +872,7 @@ def cmd_validate(argv: list[str]) -> int:
 
 
 def cmd_show(argv: list[str]) -> int:
-    ap = argparse.ArgumentParser(prog="wtune_config.py show")
+    ap = argparse.ArgumentParser(prog="wtune config show")
     ap.add_argument("file")
     ap.add_argument("--case", default=None, help="override the case in the file")
     ap.add_argument("--case-dir", default=None, dest="case_dir")
@@ -911,9 +911,9 @@ def main(argv: list[str] | None = None) -> int:
     if not argv or argv[0] not in ("init", "show", "validate"):
         asked = bool(argv) and argv[0] in ("-h", "--help")
         (sys.stdout if asked else sys.stderr).write(
-            "usage: wtune_config.py init CASE [--out FILE] | "
-            "wtune_config.py show FILE [--case NAME|--case-dir DIR] [--nodes N,N,...] | "
-            "wtune_config.py validate FILE\n")
+            "usage: wtune config init CASE [--out FILE] | "
+            "wtune config show FILE [--case NAME|--case-dir DIR] [--nodes N,N,...] | "
+            "wtune config validate FILE\n")
         return 0 if asked else 2
     cmd, rest = argv[0], argv[1:]
     if cmd == "init":

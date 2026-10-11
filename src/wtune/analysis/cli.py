@@ -147,7 +147,7 @@ def cmd_tc_track(args):
 
 
 def build_parser():
-    parser = argparse.ArgumentParser(prog="wtune.py analyze")
+    parser = argparse.ArgumentParser(prog="wtune analyze")
     sub = parser.add_subparsers(dest="analyze_command")
 
     p_diag = sub.add_parser("diag", help="wrf-python derived diagnostic fields, no tracking")

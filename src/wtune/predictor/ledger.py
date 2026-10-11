@@ -265,7 +265,7 @@ def adapt_numtiles_12_13_14(path):
 #
 # Same karina 224x2x4-node case as adapter 2 (title: "karina 901x901x45, 224 rank x 4 nodes,
 # cyclic"). exe=wrf_wtimer.exe -> binary_kind=wtimer; plov==1 -> binary_kind=plov (both RESEARCH
-# per wtune_compliance's PLOV/wtimer carve-out, decided in classify_rows()). `bind` (cpu-bind
+# per wtune.compliance's PLOV/wtimer carve-out, decided in classify_rows()). `bind` (cpu-bind
 # mask) and `ctl` (elastic-core repin mode: none/static/dynamic) are not ledger columns; they are
 # recorded in `notes` and fed to compliance classification as extra knobs
 # (cpu_bind -> STRICT, elastic_core_repin -> STRICT per the catalog, so they do not by themselves

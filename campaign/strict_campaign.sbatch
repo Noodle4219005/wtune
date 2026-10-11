@@ -42,8 +42,8 @@
 #        (decision 0059, `wtune tune --pipeline full`; read by `configs.py config-extras`):
 #          "physics_namelists": {"<point case id>": "/abs/namelist.input", ...}
 #              this config's run for CASE=<point case id> uses that file as its namelist template
-#              instead of the case's own (physics edits pre-rendered by wtune_physics_advice.
-#              render_candidate_namelist + wtune_run.render_segment_namelist). nproc/numtiles/
+#              instead of the case's own (physics edits pre-rendered by wtune.physics_advice.
+#              render_candidate_namelist + wtune.run.render_segment_namelist). nproc/numtiles/
 #              ranks/adios2/history/restart are still applied per config on top, so ANY decomposition
 #              (a twin = same physics file, different nx/ny/omp/ranks) overrides what the file
 #              carries. Combine with RANKING_START=spinup: the run resumes from the point's shared
@@ -94,7 +94,7 @@ case "$MODE" in
   *) echo "MODE must be 'timing', got '$MODE' (the old modes are in archive/unused-2026-10/campaign/strict_campaign_full.sbatch)" >&2; exit 1 ;;
 esac
 : "${CONFIG_FILE:?CONFIG_FILE env var is required (the fixed C01-C16 run set is in archive/unused-2026-10/campaign/strict_campaign_full.sbatch)}"
-# config generation needs Python >= 3.7 so configs.py can import wtune_decomp's scorer
+# config generation needs Python >= 3.7 so configs.py can import wtune.decomp's scorer
 # (it uses `from __future__ import annotations`; the system python3 is 3.6 and silently falls back)
 PY="pixi run --manifest-path $PIXI_ENV/pixi.toml python"
 # PYBIN (2026-09-26, job 1218 postmortem): pixi's own startup chatter (e.g. its "cache is on a
@@ -472,7 +472,7 @@ print("MAX_DOM=%s" % q(c.get("max_dom", 1)))
 print("NAMELIST_TEMPLATE=%s" % q(c.get("namelist_template") or (c["prep_dir"] + "/namelist.input")))
 # NAMELIST_REF_DIRS: where link_namelist_files looks for files the namelist names (iofields,
 # wrflowinp, wrffdda, ...) -- prep_dir, the template's dir, and for a rebuilt case
-# (wtune_tune.write_rebuilt_case_entry) the original case's prep_dir.
+# (wtune.tune.write_rebuilt_case_entry) the original case's prep_dir.
 _ref = [c["prep_dir"], os.path.dirname(c.get("namelist_template") or c["prep_dir"] + "/x")]
 _orig = d.get(c.get("rebuilt_from") or "") or {}
 if _orig.get("prep_dir"):
@@ -491,7 +491,7 @@ PY
 )"
 
 # ---- ADIOS2 inputs (2026-10-03 user decision: netCDF is no longer used for WRF I/O) ----------
-# An empty bp_dir (site overlay, e.g. scc; every rebuilt point, wtune_tune.write_rebuilt_case_entry)
+# An empty bp_dir (site overlay, e.g. scc; every rebuilt point, wtune.tune.write_rebuilt_case_entry)
 # no longer means netCDF inputs: prep_dir's netCDF wrfinput_d0N/wrfbdy_d01 and the aux inputs the
 # case namelist reads (wrflowinp_d0N when sst_update=1, wrffdda_d0N when grid_fdda>0, ...; see
 # configs.py adios2_input_streams) are converted ONCE into a BP cache, here on the compute node and

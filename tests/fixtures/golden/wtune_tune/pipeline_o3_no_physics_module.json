@@ -1477,7 +1477,7 @@
         "queue_wait_s": 0.0,
         "running_s": 0.0,
         "start_s": 0.0,
-        "status": "not run (wtune_physics_advice not importable)",
+        "status": "not run (wtune.physics_advice not importable)",
         "wall_s": 0.0
       }
     ],

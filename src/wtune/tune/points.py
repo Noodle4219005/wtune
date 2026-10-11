@@ -22,7 +22,7 @@ from .jobs import evaluate_job_gates
 from . import budget as _budget
 from . import jobs as _jobs
 
-PREDICTED_FORCING = "era5_arco"        # wtune_rebuild_predict.ERA5_PIN (1 h cadence, with cloud)
+PREDICTED_FORCING = "era5_arco"        # wtune.rebuild_predict.ERA5_PIN (1 h cadence, with cloud)
 PREDICTED_SPINUP_MIN = 20              # min of ERA5 spin-up (rebuild phase 3, 2026-09-27)
 POINT_MODES = ("default", "no_end", "fused")
 _BUDGET_LEFT = object()                # fit_stage2 default: what is left of --minutes
@@ -412,7 +412,7 @@ def _gate_point_jobs(ctx: Ctx, jobs: list[tuple[dict, str]], runs: list[dict], n
 def rank_by_predicted_total(meas_by_cid: dict, run_start: Any, run_end: Any, dt: float,
                             stepra: int, calibration: dict, sample_points: Any, case_dir: str,
                             nl: Any, ranks_by_cid: dict, nodes: int) -> list[dict]:
-    """[{cid, pred_total_s, pred_low_s, pred_high_s, result}] from wtune_probe_plan.combine() per
+    """[{cid, pred_total_s, pred_low_s, pred_high_s, result}] from wtune.probe_plan.combine() per
     cid (never ANCHOREND), NOISE-clustered ascending (ANCHOR wins an in-noise tie)."""
     entries = []
     for cid, pms in meas_by_cid.items():
@@ -456,7 +456,7 @@ def predicted_spinup_min(dt: float, floor_min: int = PREDICTED_SPINUP_MIN,
 
 
 def plan_predicted_points(ctx: Ctx, spinup_min: int = PREDICTED_SPINUP_MIN) -> tuple:
-    """wtune_rebuild_predict.plan with the ERA5 pin, `spinup_min` and probe.max_points on the
+    """wtune.rebuild_predict.plan with the ERA5 pin, `spinup_min` and probe.max_points on the
     case's own namelist: (nl, run_start, run_end, dt, stepra, points, notes)."""
     import wtune.rebuild_predict
     return wtune.rebuild_predict.plan(

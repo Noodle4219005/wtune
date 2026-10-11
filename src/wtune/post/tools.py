@@ -22,7 +22,7 @@ class ToolError(RuntimeError):
 
 # <repo> = the parent of src/ (this file is src/wtune/post/tools.py). Module-level so tests can point
 # it at a synthetic tree. `bin/wtune` puts the pixi env on PATH and exports
-# WTUNE_POSTPROC_VIEW; `python src/wtune.py post ...` does neither, so every locator below also
+# WTUNE_POSTPROC_VIEW; `python src/wtune post ...` does neither, so every locator below also
 # looks in these repo-local install locations before giving up.
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__)))))

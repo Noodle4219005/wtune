@@ -59,7 +59,7 @@ def _project_context(args: argparse.Namespace) -> tuple:
     """--project DIR / $WTUNE_PROJECT / walk-up discovery (decision 0058 item 2). Returns
     (project_dir_or_None, project_doc_or_None). Never raises for "no project found" -- only
     an explicit --project/$WTUNE_PROJECT that does not resolve is an error
-    (wtune_project.find_project's own contract, surfaced by the caller)."""
+    (wtune.project.find_project's own contract, surfaced by the caller)."""
     import wtune.project
     project_dir = wtune.project.find_project(explicit=getattr(args, "project", None))
     if not project_dir:
@@ -570,7 +570,7 @@ def _add_fetch_parsers(sub) -> dict:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="wtune.py post", epilog="--srun (any subcommand): run it as one exclusive "
+        prog="wtune post", epilog="--srun (any subcommand): run it as one exclusive "
         "compute-node job step (srun -N1 --exclusive -t %d), excluding head and the project's "
         "exclude_nodes; --srun-minutes N changes that time limit" % POST_JOB_MINUTES)
     sub = parser.add_subparsers(dest="post_command")

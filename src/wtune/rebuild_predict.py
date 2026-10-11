@@ -2,7 +2,7 @@
 
 Every sampled point is rebuilt from analysis/reanalysis forcing (WPS + real.exe), spun up and
 measured on the TARGET hardware config, all points as parallel jobs; the measurements are then
-combined into one prediction (wtune_probe_plan.combine). Validated on scc (2026-09-27):
+combined into one prediction (wtune.probe_plan.combine). Validated on scc (2026-09-27):
 conus25 C3 -0.98 %, zhengzhou -5.78 % / -5.67 % (phase 7), ERA5 spin-up 20 min (phase 3).
 
     wtune predict-rebuild CASE_DIR --nodes 4 --nx 16 --ny 18 [--numtiles 1] [--omp 1]
@@ -66,7 +66,7 @@ def plan(case_dir, forcing, spinup_min, max_points, sources=("rebuild",), nameli
     """(nl, run_start, run_end, dt_s, stepra, points, notes) for CASE_DIR. `namelist_path`
     (default CASE_DIR/namelist.input) lets a caller whose case uses a different namelist
     template (cases.json namelist_template, e.g. lafe's d01-only one) plan on that instead.
-    points_by/indicators: decision 0060, see wtune_probe_plan.plan_points (None = time-based)."""
+    points_by/indicators: decision 0060, see wtune.probe_plan.plan_points (None = time-based)."""
     from wtune import config as wcfg
     from wtune import predict as wp
     from wtune import probe_plan as pp

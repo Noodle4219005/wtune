@@ -63,7 +63,7 @@ confirm: submitted job 7021 (4 configs, REPS=2)
 [confirm  ] [------------------------]   0%  elapsed=0:00 / budget=none  (running budget; wall 0:00, queue-only 0:00)
 pipeline: run-length I/O model unavailable (FileNotFoundError: [Errno 2] No such file or directory: '<TMP>/namelist.input') -- whole-run prediction is compute + init only
 
-=== wtune_tune: matthew ===
+=== wtune tune: matthew ===
 nodes=4 (final over tuned finalists [4, 5]: objective=time: N=4 median=0.2609 s/step; min is 0.2609, smallest N within 3% noise of it)
 budget=no cap  elapsed=0.0 min  jobs=9000,9001,9002,7001,7002,7003,7004,7005,7006,7007,7008,7009,7010,7011,7012,7013,7014,7015,7016,7017,7018,7019,7020,7021,8024,8025
 
@@ -173,7 +173,7 @@ tuning time, estimated at start: O1 ≈ 84 min  O2 ≈ 122 min  O3 ≈ 150 min <
 phase plan     running 0:00     (limit none    ) wall 0:00     queue wait 0:00     controller 0:00      ok
 phase layout   running 0:00     (limit none    ) wall 0:00     queue wait 0:00     controller 0:00      ok
 phase predict  running 0:00     (limit none    ) wall 0:00     queue wait 0:00     controller 0:00      ok
-phase physics  running 0:00     (limit none    ) wall 0:00     queue wait 0:00     controller 0:00      not run (wtune_physics_advice not importable)
+phase physics  running 0:00     (limit none    ) wall 0:00     queue wait 0:00     controller 0:00      not run (wtune.physics_advice not importable)
 whole-run time ±7% = ±1.2 min (common: fake case-type plan)
 suggested --time=00:32:00 (T rounded up to 15 min plus one band, >= 1.2x T)
 phase 2 plan: 2 layout(s) x all 3 points (none left; startup 17s/run); tried: 2 layout(s) x all 3 points ~4:08

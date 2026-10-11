@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Convert WRF input netCDF files to BP files readable by WRF io_form=14 (serial, one time slice
-at a time, no MPI). Library callers use wtune_bp.nc2bp / convert_inputs; CLI: `wtune convert nc2bp`.
+at a time, no MPI). Library callers use wtune.bp.nc2bp / convert_inputs; CLI: `wtune convert nc2bp`.
 
 Layout follows WRF's own writer/reader (WRF/external/io_adios2/wrf_io.F90: Times 1254-1272, fields
 2295-2523, FieldType/MemoryOrder 2530-2542, one BP step per time 327-389, reader 949-1033).

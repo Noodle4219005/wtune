@@ -90,13 +90,13 @@ def _enabled_case(cases: Dict[str, Case], case_id: str) -> Tuple[Optional[Case],
 
 # --------------------------------------------------------------------------- STRICT table
 def assert_strict_compliance() -> None:
-    """Every knob the campaign varies must be STRICT (wtune_compliance, decision 0050)."""
+    """Every knob the campaign varies must be STRICT (wtune.compliance, decision 0050)."""
     add_src_to_path()
     try:
         import wtune.compliance
     except Exception as e:
         sys.stderr.write(
-            "WARNING: could not import wtune_compliance (%s: %s); skipping the "
+            "WARNING: could not import wtune.compliance (%s: %s); skipping the "
             "STRICT-compliance assertion for this campaign's varied knobs\n"
             % (type(e).__name__, e)
         )

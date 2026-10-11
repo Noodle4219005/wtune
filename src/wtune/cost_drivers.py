@@ -1,4 +1,4 @@
-"""wtune_cost_drivers -- weather cost indicators c(t) for probe-point selection and weighting
+"""wtune.cost_drivers -- weather cost indicators c(t) for probe-point selection and weighting
 (decision 0060 in the wiki: "WTune 依天氣成本指標選取預測點並加權").
 
 Why: coldstart_sample.select_windows places probe points by sun position / time only, and the
@@ -7,7 +7,7 @@ piecewise-linear interpolation. Neither looks at the WEATHER, whose cost (microp
 varies by tens of percent along the run (elevconv: +44% at 10 UTC). This module computes, without
 running WRF, an hourly cost proxy c(t) from pluggable data sources and derives (a) which times to
 probe (coldstart_sample.select_windows(cost_lookup=...)) and (b) two alternative whole-run weightings
-(weighted_totals, attached by wtune_probe_plan.combine). It can only fix the TIME placement of the
+(weighted_totals, attached by wtune.probe_plan.combine). It can only fix the TIME placement of the
 points; it cannot fix a reconstruction that measures low at the peak (decision 0060, H2).
 
 Provider interface (ordered fallback):
@@ -24,7 +24,7 @@ Indicators (INDICATORS), aggregated over the domain, per time:
     cloud_col    mean total-column cloud liquid + ice water, kg m-2
     precip_area  fraction of points with precipitation > 1 mm/h
     cape_area    fraction of points with CAPE > 1000 J/kg
-    sunlit       fraction of points with the sun up (computed here, wtune_predict.sunlit_fraction)
+    sunlit       fraction of points with the sun up (computed here, wtune.predict.sunlit_fraction)
     wind_max     max 10 m wind speed, m/s (CFL risk)
 
 build_cost_series() asks providers in order and keeps each indicator from the FIRST provider that
@@ -33,7 +33,7 @@ weather indicators are all covered. It never raises.
 
 c(t): each indicator is z-scored over the run's hourly grid (zero-variance ones are dropped), then
 c = sum_i w_i z_i / sum_i w_i. Default w_i come from the physics cost shares of the case profile
-(wtune_case._build_cost_structure 'phases_ranked' weights, which come from COST_WEIGHT) when given,
+(wtune.case._build_cost_structure 'phases_ranked' weights, which come from COST_WEIGHT) when given,
 else DEFAULT_PHASE_WEIGHTS: cloud_col and precip_area <- microphysics (split in two), cape_area <-
 cumulus, sunlit <- radiation, wind_max <- dynamics. A second series c_noradiation drops 'sunlit':
 the regression target s_normal EXCLUDES radiation steps (those go through r(t)), so regressing it on
@@ -49,8 +49,8 @@ import re
 import statistics
 import sys
 
-# `python -m wtune_cost_drivers` from src/ must resolve coldstart_sample, era5_intermediate, ...
-# the way wtune_tune / wtune_rebuild_predict do (tools/ and predictor/ are top-level import roots).
+# `python -m wtune.cost_drivers` from src/ must resolve coldstart_sample, era5_intermediate, ...
+# the way wtune.tune / wtune.rebuild_predict do (tools/ and predictor/ are top-level import roots).
 _HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
@@ -108,7 +108,7 @@ def _zscore(vals):
 
 
 def indicator_weights(cost_structure=None):
-    """{indicator: weight}. cost_structure: wtune_case's expected_cost_structure dict
+    """{indicator: weight}. cost_structure: wtune.case's expected_cost_structure dict
     ('phases_ranked': [{'phase', 'weight'}, ...]) or None for DEFAULT_PHASE_WEIGHTS."""
     ph = dict(DEFAULT_PHASE_WEIGHTS)
     if cost_structure:
@@ -250,7 +250,7 @@ def build_cost_series(providers, bounds, t_start, t_end, sample_points=None, wei
 
 
 # ---------------------------------------------------------------------------------------
-# weighted totals (called from wtune_probe_plan.combine)
+# weighted totals (called from wtune.probe_plan.combine)
 # ---------------------------------------------------------------------------------------
 def _integrate(step_s, dt, stepra, run_start, sample_points, r_night, r_day):
     """sum_i s_i + sum over radiation steps (r(t_i)-1) s_i, r(t)=r_night+(r_day-r_night)*sunlit(t)
@@ -896,7 +896,7 @@ def cost_series_for_case(case_dir, run_start, run_end, sources=None, grib_dir=No
 # ---------------------------------------------------------------------------------------
 # point plan by CASE TYPE (user requirement: the points follow the kind of case, not the tuning
 # level). Labels come from the decision-0057 classifier -- post/caseinfo.detect_types, or its
-# namelist fallback wtune_advise.det_case_types -- never re-derived here (case_types_for below).
+# namelist fallback wtune.advise.det_case_types -- never re-derived here (case_types_for below).
 # ---------------------------------------------------------------------------------------
 # (band of a t0-only plan, band of the type's base set), percent of the predicted run time.
 # Rule-of-thumb numbers; the sources are:
@@ -907,7 +907,7 @@ def cost_series_for_case(case_dir, run_start, run_end, sources=None, grib_dir=No
 #   tc          10 % with the max-intensity point; t0-only 25 % (assumed, no TC measurement yet)
 #   terrain     10 % with the max moisture/precip point; t0-only 20 % (ASSUMED, no evidence)
 #   climate     10 % with 4-6 month-stratified points; t0-only 25 % (ASSUMED, no evidence)
-# conus25: a t0-only probe under-predicted the run by 9.6 % (wtune_probe_plan module docstring).
+# conus25: a t0-only probe under-predicted the run by 9.6 % (wtune.probe_plan module docstring).
 CASE_BANDS = {"common": (15.0, 15.0), "synoptic": (15.0, 15.0), "frontal": (15.0, 15.0),
               "convection": (25.0, 10.0), "tc": (25.0, 10.0), "terrain": (20.0, 10.0),
               "climate": (25.0, 10.0)}
@@ -917,7 +917,7 @@ CLIMATE_RUN_HOURS = 30 * 24
 
 
 def case_types_for(case):
-    """Labels from the existing classifier for a wtune_advise Case object (reuse, not a second
+    """Labels from the existing classifier for a wtune.advise Case object (reuse, not a second
     implementation): post.caseinfo.detect_types when wrfout frames exist, else its namelist
     fallback. Returns a list of type labels."""
     import wtune.advise
@@ -1024,7 +1024,7 @@ def plan_points_for_case(case_types, run_start, run_end, precision_min, T_est_s,
       terrain     t0 + max precip_area (else cloud_col) hour
       climate or run >= 30 days   4-6 equal time strata (month-sized), one hour per stratum nearest
                   the stratum's median c (midpoint without indicators); t0 is stratum 1
-    Several labels: union of the base sets, merged with wtune_probe_plan's min-gap rule; the band
+    Several labels: union of the base sets, merged with wtune.probe_plan's min-gap rule; the band
     is the WORST band among the present specific types (common's 15 % is ignored when a specific
     type is present).
 
@@ -1131,12 +1131,12 @@ def plan_points_for_case(case_types, run_start, run_end, precision_min, T_est_s,
 
 
 def main(argv=None):
-    """Dry run, no WRF: `python -m wtune_cost_drivers CASE_DIR [--sources a,b] [--spinup-min 20]
+    """Dry run, no WRF: `python -m wtune.cost_drivers CASE_DIR [--sources a,b] [--spinup-min 20]
     [--max-points 5]` prints the indicator provenance, c(t) per hour and the points
     plan_points(points_by='cost-indicators') would pick."""
     import argparse
     import copy
-    ap = argparse.ArgumentParser(prog="wtune_cost_drivers", description=main.__doc__)
+    ap = argparse.ArgumentParser(prog="wtune.cost_drivers", description=main.__doc__)
     ap.add_argument("case_dir")
     ap.add_argument("--namelist", default=None)
     ap.add_argument("--sources", default=",".join(DEFAULT_SOURCES))

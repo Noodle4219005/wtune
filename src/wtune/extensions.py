@@ -8,8 +8,8 @@ vortex-following parameters, ...) is left byte-for-byte as given and is not even
 are catalogued PHYSICS-GRAY / do-not-touch in wtune/compliance.py so assert_strict_only rejects
 any change.
 
-Stdlib only (wtune_compliance imports the key tables from here). Namelists are the nested
-{group: {key: [scalar, ...]}} dicts of wtune_predict.parse_namelist; `load_namelist` imports it
+Stdlib only (wtune.compliance imports the key tables from here). Namelists are the nested
+{group: {key: [scalar, ...]}} dicts of wtune.predict.parse_namelist; `load_namelist` imports it
 lazily.
 
 Build detection: `scan_binary` looks for symbol-name substrings in wrf.exe. BUILD_SIGNATURES are
@@ -24,7 +24,7 @@ import re
 
 # ---------------------------------------------------------------------------
 # extension-specific parameters (all do-not-touch); lowercase, as parse_namelist emits them.
-# Trailing '*' = prefix wildcard (wtune_compliance.lookup semantics).
+# Trailing '*' = prefix wildcard (wtune.compliance.lookup semantics).
 # ---------------------------------------------------------------------------
 CHEM_KEYS = (
     'chem_opt', 'chemdt', 'photdt', 'bioemdt', 'chem_in_opt', 'phot_opt', 'kemit',
@@ -735,7 +735,7 @@ _EMBEDDED_SOURCES = ('measured', 'probe_rsl', 'extrapolated', 'no_radiation')
 
 
 def apply_cost_factors(compute, nl, dt_s, run_dir=None, calibration=None):
-    """Scale a wtune_predict.predict_compute() result by the extension factors when it came from
+    """Scale a wtune.predict.predict_compute() result by the extension factors when it came from
     the no-probe fallback (calibrated on plain ARW runs). Returns the same dict, mutated, with
     'extension_factors' (always present when an extension is active, else absent) and widened
     noise_pct/noise_abs_s. Probe-based results are left numerically unchanged."""
@@ -769,7 +769,7 @@ def apply_cost_factors(compute, nl, dt_s, run_dir=None, calibration=None):
 
 
 def render_factor_lines(compute):
-    """Text lines for wtune_predict.render_text; empty when no extension is active."""
+    """Text lines for wtune.predict.render_text; empty when no extension is active."""
     out = []
     if any(f.get('applied') for f in compute.get('extension_factors') or ()):
         out.append('  (s/step and compute totals above already include the applied extension '

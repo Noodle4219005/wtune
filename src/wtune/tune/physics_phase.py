@@ -142,7 +142,7 @@ def _phase3_not_run_reason(st: PipelineRun, layouts: list[dict]) -> str | None:
     if ctx.elapsed() >= st.limit("physics"):
         return NOT_RUN_BUDGET
     if physics_advice is None:
-        return "not run (wtune_physics_advice not importable)"
+        return "not run (wtune.physics_advice not importable)"
     if not physics_runner_supported(ctx.sbatch_script):
         return ("not run (campaign runner has no per-config physics namelists: %s not found in "
                 "strict_campaign.sbatch/configs.py)" % PHYSICS_RUNNER_MARKER)
@@ -151,7 +151,7 @@ def _phase3_not_run_reason(st: PipelineRun, layouts: list[dict]) -> str | None:
 
 def _phase3_plan_candidates(st: PipelineRun,
                             physics_max_candidates: int) -> tuple[str | None, list]:
-    """(status or None to measure, candidates) from wtune_physics_advice.plan_candidates (<= the
+    """(status or None to measure, candidates) from wtune.physics_advice.plan_candidates (<= the
     cap); planned even when the window is too short for mid + end frames."""
     ctx, ph3, cands = st.ctx, None, []
     try:

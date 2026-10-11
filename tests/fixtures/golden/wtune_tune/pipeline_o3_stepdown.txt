@@ -17,7 +17,7 @@ node sweep: N=4  median=0.3000 s/step n=2 spread=0.0% speedup=3.33 eff=0.83
 node sweep: N=8  median=0.3200 s/step n=2 spread=0.0% speedup=3.12 eff=0.39
 pipeline: run-length I/O model unavailable (FileNotFoundError: [Errno 2] No such file or directory: '<TMP>/namelist.input') -- whole-run prediction is compute + init only
 
-=== wtune_tune: matthew ===
+=== wtune tune: matthew ===
 nodes=4 (objective=time: N=4 median=0.3000 s/step; min is 0.3000, smallest N within 3% noise of it; level O1: t0 sweep only -- ANCHOR config)
 budget=no cap  elapsed=0.0 min  jobs=9000,9001,9002,7001,7002,7003,7004,8007,8008
 

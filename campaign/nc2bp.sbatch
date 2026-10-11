@@ -15,7 +15,7 @@
 # ${WTUNE_BP_CACHE:-$HOME/wtune-runs/bp-cache}/<case>/<sha1(prep_dir)[:12]>/ -- wrfbdy/wrflowinp/
 # wrffdda one BP per record (<cache>/<name>/<name>_<date>.bp: WRF 4.8's ADIOS2 reader returns
 # record 1 for every read of a multi-record BP). CHECK=1 (default) then
-# round-trips every converted file back to netCDF and compares (wtune_bp inputs --check, needs
+# round-trips every converted file back to netCDF and compares (wtune convert inputs --check, needs
 # netCDF4: the envs/wtune python, $WTUNE_PY overrides).
 # usage (scc): sbatch --job-name=nc2bp-<case> --export=ALL,CASE=<case> campaign/nc2bp.sbatch
 #   CASES=<a>:<b>:... converts several cases in one job (wtune tune, before its first probes;

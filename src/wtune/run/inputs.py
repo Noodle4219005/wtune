@@ -23,7 +23,7 @@ class InputPlan:
     per_record: list = dataclasses.field(default_factory=list)   # sorted input names
     per_record_edits: Optional[dict] = None    # {group: {key: literal}} namelist edits
     align: Optional[RecordAlignment] = None
-    bp_xml: Optional[str] = None               # wtune_bp.adios2_xml(), once converted
+    bp_xml: Optional[str] = None               # wtune.bp.adios2_xml(), once converted
 
     @property
     def links(self) -> Optional[dict]:
@@ -148,7 +148,7 @@ def convert_inputs(inputs: InputPlan, text: str, case_dir: str, segments: list,
 
 
 def _logging_copier(log: Callable) -> Callable:
-    """wtune_bp.fresh_input_copy that logs reflink vs full copy (one line per segment attempt)."""
+    """wtune.bp.fresh_input_copy that logs reflink vs full copy (one line per segment attempt)."""
     def copy(sources, dest):
         stats = {}
         out = sweep.campaign_configs._import_wtune_bp().fresh_input_copy(sources, dest,

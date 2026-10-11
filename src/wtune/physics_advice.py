@@ -6,17 +6,17 @@ launches anything and never writes a namelist to disk; the orchestrator (wtune/t
 candidates and feeds the measurements back in.
 
   plan_candidates(namelist_path)            -> case-relevant PHYSICS-GRAY candidates, best prior first
-  weights_from_combine(points, ...)         -> per-point weights out of wtune_probe_plan.combine()
+  weights_from_combine(points, ...)         -> per-point weights out of wtune.probe_plan.combine()
   predicted_speedup(base, cand, weights)    -> per-point ratio + whole-run saving + spread
-  fidelity_verdict(ref_wrfout, cand_wrfout) -> wtune_config_gate field-by-field verdict
+  fidelity_verdict(ref_wrfout, cand_wrfout) -> wtune.config_gate field-by-field verdict
   advice_table(cands, speed, fidelity)      -> the report table
   render_candidate_namelist(text, cand)     -> candidate namelist TEXT (no file written)
 
 Reused, not reimplemented: predictor/physics.py (physics_candidates_from_namelist, generic_extra_edits,
 _template_case_entry), campaign/configs.py (apply_physics_template / apply_physics_edit /
-template_frozen_key_conflicts, physics_templates.json), wtune_case (COST_WEIGHT, DYN_WEIGHT),
-wtune_physics (cost_weight, resolve_suite, scheme_name), wtune_extensions.detect,
-wtune_config_gate.compare, wtune_probe_plan.combine.
+template_frozen_key_conflicts, physics_templates.json), wtune.case (COST_WEIGHT, DYN_WEIGHT),
+wtune.physics (cost_weight, resolve_suite, scheme_name), wtune.extensions.detect,
+wtune.config_gate.compare, wtune.probe_plan.combine.
 """
 
 from __future__ import annotations
@@ -60,7 +60,7 @@ DEFAULT_TOL_REL = 0.05
 # W is excluded by default: its rel_rms is O(1) for ANY solution change, so it fails every candidate.
 GATE_DEFAULT_FIELDS = ("T2", "Q2", "U10", "V10", "PSFC", "T", "U", "V", "QVAPOR")
 
-# moment class of mp_physics (wtune_physics._MP has cost labels, not moment counts)
+# moment class of mp_physics (wtune.physics._MP has cost labels, not moment counts)
 _MP_SINGLE_MOMENT = (2, 3, 4, 6)    # Lin, WSM3, WSM5, WSM6 (Kessler=1 is warm-rain only: not a substitute)
 _MP_DOUBLE_MOMENT = (8, 10, 16, 18, 28, 38, 40)
 _COST_CATS = ("mp_physics", "cu_physics", "bl_pbl_physics", "sf_sfclay_physics", "sf_surface_physics")
@@ -113,7 +113,7 @@ def _dt_list(nl, overlay, max_dom):
     dt = _num(overlay["time_step"][0]) if "time_step" in overlay else _num(
         wpredict.g(nl, "domains", "time_step"))
     if dt is None or dt <= 0:
-        dt = 60.0                    # adaptive/auto: same fallback as wtune_cli.radiation_spacing
+        dt = 60.0                    # adaptive/auto: same fallback as wtune.cli.radiation_spacing
     out, cum = [], 1.0
     for d in range(max_dom):
         if d > 0:
@@ -138,7 +138,7 @@ def _resolved_phys(nl, overlay, d):
 def _cost_rate(nl, overlay, max_dom):
     """Relative cost per SIMULATED second (prior, from the existing cost weights): per domain,
     (dynamics + mp + cu + pbl/sfclay (amortised by bldt) + lsm + radiation (amortised by radt))
-    x cells / dt_domain. Same ingredients as wtune_case._build_cost_structure, plus the bldt and
+    x cells / dt_domain. Same ingredients as wtune.case._build_cost_structure, plus the bldt and
     time-step amortisation the PHYSICS-GRAY templates act on. A ranking prior, never a wall time."""
     dts = _dt_list(nl, overlay, max_dom)
     total = 0.0
@@ -455,7 +455,7 @@ def fidelity_verdict(baseline_wrfout, cand_wrfout, *, twin=None, fields=None, to
     worst (top fields by floor ratio; `rel_rms` there is nd = rms_diff/std(ref)). run_gate writes
     <out_prefix>.json/.csv (a temp dir, discarded, when out_prefix is None).
 
-    FALLBACK (no twin): wtune_config_gate.compare + per-field rel_rms tolerance at the last record,
+    FALLBACK (no twin): wtune.config_gate.compare + per-field rel_rms tolerance at the last record,
     labelled provisional: gate='config-gate', verdict 'PASS'|'FAIL', label None, tol_rel None ->
     DEFAULT_TOL_REL ('provisional-default', NOT calibrated); W excluded by default; zero comparable
     fields fails."""
@@ -464,7 +464,7 @@ def fidelity_verdict(baseline_wrfout, cand_wrfout, *, twin=None, fields=None, to
                                     thresholds, judged_fields)
     source = "caller" if tol_rel is not None else "provisional-default"
     tol = DEFAULT_TOL_REL if tol_rel is None else float(tol_rel)
-    # wtune_config_gate.compare takes ONE wrfout file (last record): a window gives a list of frames
+    # wtune.config_gate.compare takes ONE wrfout file (last record): a window gives a list of frames
     # (mid + end), so compare the END frames. (Passing the list through str() made the open fail:
     # "['/home/.../wrfout_d01_..._00:29:00.nc', ...]" -- live SC26-P1 run.)
     results = gate.compare(_last_path(baseline_wrfout), _last_path(cand_wrfout),

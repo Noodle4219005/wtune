@@ -1,20 +1,20 @@
-usage: wtune_tune.py [-h] [--config CONFIG] [--site SITE] [--minutes MINUTES] [--nodes NODES]
-                     [--node-objective {time,cost,knee}] [--deadline-minutes DEADLINE_MINUTES]
-                     [--min-efficiency MIN_EFFICIENCY] [--sweep-budget-frac SWEEP_BUDGET_FRAC]
-                     [--cores-per-node-options CORES_PER_NODE_OPTIONS] [--pipeline {full}]
-                     [--max-queue-hours MAX_QUEUE_HOURS] [--no-node-preflight] [-O0] [-O1] [-O2]
-                     [-O3] [--precision PRECISION] [--level {0,1,2,3}] [--stop-if-short]
-                     [--physics-advice] [--keep-frames]
-                     [--physics-max-candidates PHYSICS_MAX_CANDIDATES]
-                     [--node-finalists NODE_FINALISTS] [--nodes-policy {cap,knee,min}]
-                     [--max-nodes MAX_NODES] [--out OUT] [--project PROJECT] [--steps STEPS]
-                     [--confirm-reps CONFIRM_REPS] [--restart-io-form {14,2}]
-                     [--max-points MAX_POINTS] [--points-by {time,cost-indicators}] [--seed SEED]
-                     [--kappa KAPPA] [--cores-per-node CORES_PER_NODE] [--hardware-id HARDWARE_ID]
-                     [--env-source ENV_SOURCE] [--sbatch-script SBATCH_SCRIPT]
-                     [--ledger-dir LEDGER_DIR] [--sacct-cmd SACCT_CMD]
-                     [--poll-interval POLL_INTERVAL]
-                     [case]
+usage: wtune tune [-h] [--config CONFIG] [--site SITE] [--minutes MINUTES] [--nodes NODES]
+                  [--node-objective {time,cost,knee}] [--deadline-minutes DEADLINE_MINUTES]
+                  [--min-efficiency MIN_EFFICIENCY] [--sweep-budget-frac SWEEP_BUDGET_FRAC]
+                  [--cores-per-node-options CORES_PER_NODE_OPTIONS] [--pipeline {full}]
+                  [--max-queue-hours MAX_QUEUE_HOURS] [--no-node-preflight] [-O0] [-O1] [-O2]
+                  [-O3] [--precision PRECISION] [--level {0,1,2,3}] [--stop-if-short]
+                  [--physics-advice] [--keep-frames]
+                  [--physics-max-candidates PHYSICS_MAX_CANDIDATES]
+                  [--node-finalists NODE_FINALISTS] [--nodes-policy {cap,knee,min}]
+                  [--max-nodes MAX_NODES] [--out OUT] [--project PROJECT] [--steps STEPS]
+                  [--confirm-reps CONFIRM_REPS] [--restart-io-form {14,2}]
+                  [--max-points MAX_POINTS] [--points-by {time,cost-indicators}] [--seed SEED]
+                  [--kappa KAPPA] [--cores-per-node CORES_PER_NODE] [--hardware-id HARDWARE_ID]
+                  [--env-source ENV_SOURCE] [--sbatch-script SBATCH_SCRIPT]
+                  [--ledger-dir LEDGER_DIR] [--sacct-cmd SACCT_CMD]
+                  [--poll-interval POLL_INTERVAL]
+                  [case]
 
 positional arguments:
   case                  registered campaign/cases.json case id; required here or via --config's
@@ -22,8 +22,8 @@ positional arguments:
 
 options:
   -h, --help            show this help message and exit
-  --config CONFIG       wtune_config.py YAML file: search-space restrictions +
-                        budget/probe/prediction defaults (wtune_config.py); CLI flags given
+  --config CONFIG       wtune config YAML file: search-space restrictions +
+                        budget/probe/prediction defaults (wtune/config.py); CLI flags given
                         explicitly still override it, which overrides this module's own built-in
                         defaults
   --site SITE
@@ -75,7 +75,7 @@ options:
   --precision PRECISION
                         whole-run wall time needed to +-MIN minutes (default 15): the case type
                         decides how many prediction points that takes
-                        (wtune_cost_drivers.plan_points_for_case)
+                        (wtune.cost_drivers.plan_points_for_case)
   --level {0,1,2,3}     same as -O<level>; selects the one-pass pipeline (default level when only
                         --pipeline full is given: 3). The estimated tuning time of every level is
                         printed before anything runs; --minutes is an optional hard cap
@@ -114,7 +114,7 @@ options:
                         probe.max_points override
   --points-by {time,cost-indicators}
                         probe.points_by override (decision 0060): place the prediction points by
-                        sun/time (default) or by a weather cost proxy (wtune_cost_drivers; sources
+                        sun/time (default) or by a weather cost proxy (wtune.cost_drivers; sources
                         from probe.indicator_sources)
   --seed SEED
   --kappa KAPPA

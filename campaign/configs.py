@@ -121,7 +121,7 @@ def _load_decomp() -> Optional[ModuleType]:
         _DECOMP = wtune.decomp
     except Exception as e:
         sys.stderr.write(
-            "NOTE: wtune_decomp unavailable (%s: %s); using fallback shape scorer\n"
+            "NOTE: wtune.decomp unavailable (%s: %s); using fallback shape scorer\n"
             % (type(e).__name__, e)
         )
         _DECOMP = None

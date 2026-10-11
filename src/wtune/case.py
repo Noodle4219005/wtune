@@ -40,14 +40,14 @@ from wtune import compliance as wc          # knob catalog: legal_values + class
 from wtune.predictor import decomp_space as ds              # predictor/decomp_space.py: legal_shapes_exact (exact RSL rules)
 
 DEFAULT_CORES_PER_NODE = 72            # GH200 Grace node default for THIS tool (independent of
-                                        # wtune.py's own DEFAULT_CORES_PER_NODE=112, a different
+                                        # wtune.cli's own DEFAULT_CORES_PER_NODE=112, a different
                                         # target machine)
 
 # ---------------------------------------------------------------------------
 # Section 3: expected cost structure (PRIOR -- relative ordering only, never a wall-time claim)
 # ---------------------------------------------------------------------------
-# One documented weight per qualitative wtune_physics scheme_info()['cost'] label. Thompson/
-# Morrison/NSSL etc. are already 'high' vs WSM's 'med' in wtune_physics._MP, so "microphysics
+# One documented weight per qualitative wtune.physics scheme_info()['cost'] label. Thompson/
+# Morrison/NSSL etc. are already 'high' vs WSM's 'med' in wtune.physics._MP, so "microphysics
 # heavier for Thompson than WSM" falls out of reusing that table rather than a name special-case.
 COST_WEIGHT = {'none': 0.0, 'low': 1.0, 'med': 2.0, 'high': 4.0}
 
@@ -61,7 +61,7 @@ DYN_WEIGHT = 5.0
 # Section 5: core-count priors -- strong-scaling knee model (PREDICTION, not measurement)
 # ---------------------------------------------------------------------------
 # per-rank work ~ px*py (patch interior cells); halo exchange ~ c * 2*H*(px+py) (perimeter cells,
-# both directions, pack+MPI+unpack). H is the halo WIDTH, reusing wtune.py's own HALO=5 constant
+# both directions, pack+MPI+unpack). H is the halo WIDTH, reusing wtune.cli's own HALO=5 constant
 # (wtune/cli.py:27, "WRF halo width approximation") so this file does not invent a second number for
 # the same physical quantity. c is UNCALIBRATED: it assumes one halo-cell's exchange costs ~1x one
 # interior cell's per-step compute (pack + MPI send/recv + unpack ~ one cell of work). Both H and c
@@ -141,7 +141,7 @@ def _divisors(n):
 
 # ---------------------------------------------------------------------------
 # Domain table (shared by identity / cost-structure / core-count sections): structured version of
-# the same compute-weight arithmetic wtune_physics.nesting_advice does internally (that function
+# the same compute-weight arithmetic wtune.physics.nesting_advice does internally (that function
 # only returns human-readable text lines, so it cannot be reused directly for structured data).
 # ---------------------------------------------------------------------------
 
@@ -390,7 +390,7 @@ def _build_core_priors(we_list, sn_list, doms, dom_i, cores_per_node):
                                 'checked_at_nodes': check_node, 'legal': legal})
 
     return {
-        'label': 'PREDICTION -- E(px,py)=px*py/(px*py + c*2*H*(px+py)), H={} (=wtune.py HALO), c={} '
+        'label': 'PREDICTION -- E(px,py)=px*py/(px*py + c*2*H*(px+py)), H={} (=wtune.cli HALO), c={} '
                  '(UNCALIBRATED); a later strong-scaling run must confirm/refute these constants'.format(
                      HALO_H, C_HALO),
         'min_patch': min_patch,
@@ -560,7 +560,7 @@ def find_case_inputs(case_dir, namelist=None, wrfinput=None):
 
 def main(argv=None):
     import argparse
-    p = argparse.ArgumentParser(prog='wtune_case.py', description='case-understanding profile (PRIOR, pre-measurement)')
+    p = argparse.ArgumentParser(prog='wtune/case.py', description='case-understanding profile (PRIOR, pre-measurement)')
     p.add_argument('case_dir', help='directory with namelist.input (+ optional wrfinput_d0N)')
     p.add_argument('--namelist', default=None, help='explicit namelist.input path (default: <case_dir>/namelist.input)')
     p.add_argument('--wrfinput', default=None, help='explicit wrfinput/wrfout path (default: first wrfinput_d0N in case_dir)')

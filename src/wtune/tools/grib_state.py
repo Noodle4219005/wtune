@@ -12,7 +12,7 @@ Feature set (names must match tools/state_timeline.py exactly):
                  longwave radiation, proxied by ULWRF top-of-atmosphere) < 200 W/m^2 when that
                  field is the one available -- which one was used for a given row is recorded in
                  the `cloud_frac_source` CSV column ('tcdc' or 'olr')
-  sunlit_frac    analytic, from lat/lon/UTC alone via wtune_solar.cos_zenith (no GRIB field)
+  sunlit_frac    analytic, from lat/lon/UTC alone via wtune.solar.cos_zenith (no GRIB field)
   pblh_mean/pblh_p90   domain mean / 90th percentile of HPBL (boundary-layer height), m
   wind10_max     domain max of sqrt(UGRD_10m^2 + VGRD_10m^2), m/s
   hfx_mean       domain mean of SHTFL (surface sensible heat flux), W/m^2
@@ -111,7 +111,7 @@ def precip_rate_from_apcp_window(apcp_mm, window_hours):
 
 def cos_zenith_grid(lat2d, lon2d, valid_dt_utc):
     """cos(solar zenith) at every grid column, at `valid_dt_utc` (timezone-naive UTC
-    datetime.datetime). Reuses wtune_solar.cos_zenith point-wise (np.vectorize) so this is
+    datetime.datetime). Reuses wtune.solar.cos_zenith point-wise (np.vectorize) so this is
     EXACTLY the WRF-side terminator geometry, never a re-derivation of it. Factored out of
     `sunlit_frac` so the same per-column indicator also feeds the sunlit_frac patch-imbalance
     columns (see patch_stats / trajectory)."""
@@ -165,7 +165,7 @@ resolve_times = md.resolve_times
 def target_grid(case, wrfinput_path):
     """(lat2d, lon2d, mode) -- the WRF-grid regrid target. mode 'wrfinput' reads the exact
     XLAT/XLONG (needs netCDF4); mode 'bbox' falls back to an analytic uniform mesh from
-    wtune_solar.domain_bbox (same flat-earth approximation wtune/case.py already relies on when
+    wtune.solar.domain_bbox (same flat-earth approximation wtune/case.py already relies on when
     no wrfinput exists)."""
     if wrfinput_path and os.path.exists(wrfinput_path):
         try:

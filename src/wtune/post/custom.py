@@ -30,7 +30,7 @@ def _load_script(path):
 
 
 def run_custom(project_dir, out_dir, run_dirs):
-    """run_dirs: [(run_id, path), ...] (wtune_project.discover_runs's shape). Returns
+    """run_dirs: [(run_id, path), ...] (wtune.project.discover_runs's shape). Returns
     {"out_dir", "scripts": [{"script","ok","error","outputs","logs"}, ...], "report_path"}."""
     os.makedirs(out_dir, exist_ok=True)
     analysis_dir = os.path.join(project_dir, "analysis")

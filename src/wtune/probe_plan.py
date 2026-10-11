@@ -69,7 +69,7 @@ def steps_for_stepra(stepra: int) -> int:
 
 
 def resolve_ranking_steps(radt_minutes: float, dt_seconds: float) -> int:
-    """steps_for_stepra(), computing stepra from radt/dt itself (wtune_predict.
+    """steps_for_stepra(), computing stepra from radt/dt itself (wtune.predict.
     steps_per_radiation_call) -- the convenience form callers use when they don't already have
     stepra (e.g. wtune/tune/ resolving probe.steps='auto')."""
     stepra = predict.steps_per_radiation_call(radt_minutes, dt_seconds)
@@ -510,7 +510,7 @@ def measurement_from_steps_file(path: str, stepra: int, at: datetime.datetime, r
                                 ) -> PointMeasurement:
     """PointMeasurement from a strict_campaign steps.txt (d01 step seconds, step order). Radiation
     steps are local i with i % stepra == 1 (schedule phase 1, verified on conus25/G0014 truth --
-    not wtune_predict's phase 0; the phase detector needs 2*stepra steps); step 1 is dropped;
+    not wtune.predict's phase 0; the phase detector needs 2*stepra steps); step 1 is dropped;
     medians. first_global_step (first_global_step_from_rsl) switches to global step numbers."""
     with open(path) as f:
         wall = [float(x) for x in f if x.strip()]
@@ -532,7 +532,7 @@ def measurement_from_steps_file(path: str, stepra: int, at: datetime.datetime, r
 # combine
 # ---------------------------------------------------------------------------
 def _resolve_r_rad_from_points(pooled_radiation_samples, calibration):
-    """(r_night, r_day, source): >= 2 radiation samples -> wtune_predict.fit_day_night_r_rad;
+    """(r_night, r_day, source): >= 2 radiation samples -> wtune.predict.fit_day_night_r_rad;
     one -> that ratio flat (reproduces the constant-ratio model); none -> the calibration
     default."""
     calibration = calibration or {}

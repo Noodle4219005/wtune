@@ -1,5 +1,5 @@
 """One attempt = one Slurm job of a segment: stage its run dir, submit segment.sbatch, wait
-(sacct), inspect the result (wtune_watch.snapshot) and record it in the report."""
+(sacct), inspect the result (wtune.watch.snapshot) and record it in the report."""
 from __future__ import annotations
 
 import dataclasses
@@ -45,12 +45,12 @@ class AttemptRecord(Record):
     state: Any = UNSET                 # sacct state
     elapsed_s: Any = UNSET
     watch_status: Any = UNSET
-    warnings: Any = UNSET              # wtune_watch warning codes
+    warnings: Any = UNSET              # wtune.watch warning codes
     sum_d01_elapsed_s: Any = UNSET
     n_d01_steps: Any = UNSET
     restart_ok: Any = UNSET
     ok: Any = UNSET
-    failure_class: Any = UNSET         # wtune_resume.classify_failure
+    failure_class: Any = UNSET         # wtune.resume.classify_failure
     resume_time: Any = UNSET           # the restart the next attempt resumed from
     no_resume_reason: Any = UNSET
 
@@ -67,7 +67,7 @@ class Outcome:
 
 
 def attempt_dir_name(k: int, att: Attempt) -> str:
-    """seg_<k>[_rescue][_r<n>]; a later attempt sorts later (wtune_watch._SEG_DIR_RE)."""
+    """seg_<k>[_rescue][_r<n>]; a later attempt sorts later (wtune.watch._SEG_DIR_RE)."""
     return "seg_%d%s%s" % (k, "_rescue" if att.time_step else "",
                            "_r%d" % att.resume if att.resume else "")
 

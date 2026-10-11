@@ -1,6 +1,6 @@
 """Pluggable surrogate layer: the CONVECTIVE (microphysics) hotspot.
 
-The analytic terminator map (wtune_solar) handles the dominant, deterministic
+The analytic terminator map (wtune.solar) handles the dominant, deterministic
 radiation driver. The convective/storm hotspot moves chaotically and needs the
 dynamics evolved -- that is this layer's job.
 
@@ -73,7 +73,7 @@ def analyze_probe(probe, case=None):
     # NOTE: cos_zenith / sw_down here are the run-END instantaneous field (leapfrog
     # last time level). For a dusk run they are ~0 at 00 UTC (night) and do NOT
     # capture the terminator SWEEP -> defer the terminator to the analytic,
-    # time-integrated solar model (wtune_solar), not this snapshot.
+    # time-integrated solar model (wtune.solar), not this snapshot.
     olr = probe.get('outgoing_longwave') or {}
     if olr.get('mean') is not None:
         L.append("  OLR mean {} W/m2 (run-end) -> radiation activity level; terminator SWEEP -> use the analytic "

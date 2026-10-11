@@ -41,7 +41,7 @@ round0-topup slot 2: submitted job 7016 (2 configs)
 [round0-topup] [------------------------]   0%  elapsed=0:00 / budget=none  (running budget; wall 0:00, queue-only 0:00)
 pipeline: run-length I/O model unavailable (FileNotFoundError: [Errno 2] No such file or directory: '<TMP>/namelist.input') -- whole-run prediction is compute + init only
 
-=== wtune_tune: matthew ===
+=== wtune tune: matthew ===
 nodes=4 (final over tuned finalists [4]: objective=time: N=4 median=0.2857 s/step; min is 0.2857, smallest N within 3% noise of it)
 budget=no cap  elapsed=0.0 min  jobs=9000,9001,9002,7001,7002,7003,7004,7005,7006,7007,7008,7009,7010,7011,7012,7013,7014,7015,7016,8019
 

@@ -24,7 +24,7 @@ class Config(Record):
 
     @classmethod
     def coerce(cls, value: Any) -> "Config":
-        """A dict may omit id/nodes/dist (wtune_tune.physics_phase passes the bare layout)."""
+        """A dict may omit id/nodes/dist (wtune.tune.physics_phase passes the bare layout)."""
         return value if isinstance(value, cls) else cls(**{"id": "cli", **value})
 
 

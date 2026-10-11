@@ -301,7 +301,7 @@ def vert(e_vert, p_top_pa=5000.0, p_sfc_hpa=ICAO_P0, eta=None):
 
 
 def dx_regime(dx_km):
-    """(text, suggested cu_physics) -- same thresholds as wtune_case._dx_regime."""
+    """(text, suggested cu_physics) -- same thresholds as wtune.case._dx_regime."""
     if dx_km <= 4.0:
         return "可解析對流（dx<=4 km）：cu_physics 應為 0", [0]
     if dx_km <= 10.0:
@@ -409,8 +409,8 @@ def run(namelist, nodes=None, nx=None, ny=None, calibration=None):
                                    config={"ranks": nx * ny, "omp": 1, "nx": nx, "ny": ny, "numtiles": 1, "dist": None},
                                    ledger_paths=None, calibration_path=calibration or str(wp.DEFAULT_CALIBRATION),
                                    io_form_override=None, io_target="nfs")
-        items.append(_item("run.predict", "predicted wall time (wtune_predict)", pred["total_s"], "s",
-                           "%d nodes, %dx%d ranks; accuracy caveats live in wtune_predict" % (nodes, nx, ny)))
+        items.append(_item("run.predict", "predicted wall time (wtune.predict)", pred["total_s"], "s",
+                           "%d nodes, %dx%d ranks; accuracy caveats live in wtune.predict" % (nodes, nx, ny)))
     return _result("run", {"namelist": str(namelist), "nodes": nodes, "nx": nx, "ny": ny}, items)
 
 
@@ -1015,7 +1015,7 @@ def _build_parser():
         ("--e-sn", dict(type=int, nargs="+", required=True)), ("--ranks", i(default=None)), ("--cores-per-node", i(default=None)))
     add("io", "history/restart frame size", ("--e-we", i(required=True)), ("--e-sn", i(required=True)), ("--e-vert", i(required=True)),
         ("--frames", i(default=1)), ("--n3d", i(default=None)), ("--n2d", i(default=None)))
-    add("run", "steps and (with --nodes/--nx/--ny) wtune_predict wall time", ("namelist", dict()),
+    add("run", "steps and (with --nodes/--nx/--ny) wtune.predict wall time", ("namelist", dict()),
         ("--nodes", i(default=None)), ("--nx", i(default=None)), ("--ny", i(default=None)))
     add("units", "unit conversions", ("kind", dict(choices=UNIT_KINDS)), ("value", dict(type=float)),
         ("--lat", f(default=0.0)), ("--axis", dict(choices=["lat", "lon"], default="lat")))

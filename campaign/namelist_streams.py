@@ -17,7 +17,7 @@ _NML_REF_SKIP_AUXINPUT = (1, 4)   # 1 = met_em (real.exe only); 4 = wrflowinp, v
 ADIOS2_IO_FORM = 14
 WRF_DATE_FMT = "%Y-%m-%d_%H:%M:%S"
 
-# Multi-record inputs converted one BP per record (wtune_bp.PER_RECORD_NAME_RE): stream ->
+# Multi-record inputs converted one BP per record (wtune.bp.PER_RECORD_NAME_RE): stream ->
 # (file kind, io_form key, group, inname key, netCDF default inname, frames_per key or None).
 PER_RECORD_STREAMS = {
     "boundary": ("wrfbdy", "io_form_boundary", "time_control", "bdy_inname",

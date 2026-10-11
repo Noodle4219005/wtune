@@ -190,7 +190,7 @@ def _run_case_name(args: argparse.Namespace, cfg: dict) -> str:
     if case is None:
         if cfg.get("case_dir"):
             raise SystemExit(
-                "config declares case_dir=%r, but wtune_tune.py cannot run a tune against an "
+                "config declares case_dir=%r, but wtune tune cannot run a tune against an "
                 "arbitrary case_dir yet (only `wtune config show`/`config init` preview it) -- "
                 "pass a registered case name positionally, or set 'case' in --config instead"
                 % cfg["case_dir"])
@@ -308,7 +308,7 @@ def _run_node_preflight(args: argparse.Namespace, level: int | None, case_json: 
 
 def _parse_core_options(args: argparse.Namespace) -> list[int] | None:
     """--cores-per-node-options as a descending list of distinct ints (None when not given:
-    wtune_nodes.default_core_options). SystemExit for a non-integer or a value outside
+    wtune.nodes.default_core_options). SystemExit for a non-integer or a value outside
     1..--cores-per-node."""
     core_options_raw = getattr(args, "cores_per_node_options", None)
     core_options = None
@@ -409,13 +409,13 @@ def _run_pipeline_mode(ctx: Ctx, profile: dict, args: argparse.Namespace, o: _Ru
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog="wtune_tune.py")
+    p = argparse.ArgumentParser(prog="wtune tune")
     p.add_argument("case", nargs="?", default=None,
                     help="registered campaign/cases.json case id; required here or via "
                          "--config's 'case' key")
     p.add_argument("--config", default=None,
-                    help="wtune_config.py YAML file: search-space restrictions + budget/probe/"
-                         "prediction defaults (wtune_config.py); CLI flags given explicitly still "
+                    help="wtune config YAML file: search-space restrictions + budget/probe/"
+                         "prediction defaults (wtune/config.py); CLI flags given explicitly still "
                          "override it, which overrides this module's own built-in defaults")
     p.add_argument("--site", default="scc")
     p.add_argument("--minutes", type=float, default=None,
@@ -468,7 +468,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--precision", type=float, default=None, dest="precision",
                     help="whole-run wall time needed to +-MIN minutes (default %g): the case type "
                          "decides how many prediction points that takes "
-                         "(wtune_cost_drivers.plan_points_for_case)" % PRECISION_DEFAULT_MIN)
+                         "(wtune.cost_drivers.plan_points_for_case)" % PRECISION_DEFAULT_MIN)
     p.add_argument("--level", type=int, choices=(0, 1, 2, 3), default=None, dest="level",
                     help="same as -O<level>; selects the one-pass pipeline (default level when "
                          "only --pipeline full is given: 3). The estimated tuning time of every "
@@ -517,7 +517,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--points-by", choices=("time", "cost-indicators"), default=None,
                     dest="points_by",
                     help="probe.points_by override (decision 0060): place the prediction points by "
-                         "sun/time (default) or by a weather cost proxy (wtune_cost_drivers; "
+                         "sun/time (default) or by a weather cost proxy (wtune.cost_drivers; "
                          "sources from probe.indicator_sources)")
     p.add_argument("--seed", type=int, default=DEFAULT_SEED)
     p.add_argument("--kappa", type=float, default=DEFAULT_KAPPA)

@@ -1,6 +1,6 @@
 """Wall model of a segment: compute over a step interval (from measured points, or a constant
 rate) plus init, restart read/write and history frames (Overheads); --time from that wall.
-Without a measured `io` block the I/O terms scale from wtune_io_model's scc anchors."""
+Without a measured `io` block the I/O terms scale from wtune.io_model's scc anchors."""
 from __future__ import annotations
 
 import dataclasses
@@ -15,11 +15,11 @@ from .geometry import Geometry
 TIME_FACTOR = 1.5                      # --time = ceil5min(1.5 x predicted wall + 10 min)
 TIME_PAD_S = 600.0
 TIME_ROUND_S = 300
-FALLBACK_INIT_S = 120.0                # init when unpredicted (wtune_tune rebuild_segment_timeout_min)
-FALLBACK_RADIATION_FACTOR = 1.5        # cell-step model x this (same padding as wtune_tune)
+FALLBACK_INIT_S = 120.0                # init when unpredicted (wtune.tune rebuild_segment_timeout_min)
+FALLBACK_RADIATION_FACTOR = 1.5        # cell-step model x this (same padding as wtune.tune)
 FALLBACK_RESTART_IO_S = 300.0          # one restart write/read, scc marshall measured ~300 s
 FALLBACK_HISTORY_FRAME_S = 30.0        # per domain frame when no I/O probe measured it
-# Fallback I/O anchors (wtune_io_model owns the numbers), linear in grid points x levels; the
+# Fallback I/O anchors (wtune.io_model owns the numbers), linear in grid points x levels; the
 # constant fallbacks above predicted 578 s for a segment observed at 198 s (scc R2).
 #  restart: conus25 (90e6 points) on scc, io_form 2 wrote 324 s / read 120 s, BP4 1.05 / 2.3 s
 #  history: dorian2019 scc job 1019, 300.5 s over 7 d01 + 25 d02 frames = 9.0e-7 s/point/frame
@@ -174,7 +174,7 @@ def time_limit_s(pred_wall_s: float, wall_limit_s: Optional[float] = None) -> fl
 
 
 def fallback_s_per_step(nl: dict, ranks: int, omp: int) -> float:
-    """Conservative constant s/step: wtune_tune's cell-step model x FALLBACK_RADIATION_FACTOR;
+    """Conservative constant s/step: wtune.tune's cell-step model x FALLBACK_RADIATION_FACTOR;
     scc_sweep.CONSERVATIVE_S_PER_STEP when that model fails."""
     try:
         return tune._fallback_s_per_step(nl, ranks, omp) * FALLBACK_RADIATION_FACTOR
@@ -210,7 +210,7 @@ def model_from_prediction(pred: dict, geo: Geometry, sample_points: Optional[lis
 def compute_fn_from_tune_row(row: dict, geo: Geometry, sample_points: Optional[list],
                              calibration: dict) -> Optional[ComputeFn]:
     """compute_fn of one predicted-mode tune_report ranking row (points at/s_normal/r/n_rad),
-    r_night/r_day pooled exactly as wtune_probe_plan.combine pools them; None without points."""
+    r_night/r_day pooled exactly as wtune.probe_plan.combine pools them; None without points."""
     pts = row.get("points") or []
     if not pts:
         return None

@@ -292,7 +292,7 @@ def build_recipe_report(out_dir, case_info, figures, run_dirs, labels, spinup_ho
              "h2{border-bottom:2px solid #333;padding-bottom:0.2em}</style>",
              "</head><body>", "<h1>%s</h1>" % html.escape(title)]
     parts.append(_notes_box(notes if notes is not None else case_info.get("notes")))
-    if advice_html:      # decision 0061: verification-triggered, advice only (wtune_advise.render_html)
+    if advice_html:      # decision 0061: verification-triggered, advice only (wtune.advise.render_html)
         parts.append(advice_html)
 
     parts.append("<h2>Run(s)</h2><ul>")

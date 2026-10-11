@@ -32,7 +32,7 @@ from .plan import (RestartSetting, Segment, case_restart_interval_s, checkpoint_
 from .report import _write_report, new_report
 from .staging import _missing_namelist_files
 
-DESCRIPTION = "wtune_run.py -- segmented WRF executor with restart hand-offs (`wtune run`)."
+DESCRIPTION = "wtune run -- segmented WRF executor with restart hand-offs (`wtune run`)."
 
 
 def build_arg_parser() -> argparse.ArgumentParser:

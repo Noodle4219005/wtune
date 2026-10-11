@@ -938,7 +938,7 @@ def _add_selftest_parser(sub):
 def _add_compliance_parser(sub):
     p = sub.add_parser('compliance', help='compliance model + knob catalog (decision 0050): validate/list/classify')
     p.add_argument('compliance_args', nargs=argparse.REMAINDER,
-                   help='forwarded to wtune_compliance.py (validate | list [--compliance LEVEL] [--json] | classify NAME...)')
+                   help='forwarded to wtune/compliance.py (validate | list [--compliance LEVEL] [--json] | classify NAME...)')
 
 
 def _add_predict_parser(sub):
@@ -946,7 +946,7 @@ def _add_predict_parser(sub):
     wtune.predict.add_subparser(sub)
 
 
-# In-process subcommand builders, in --help order (`predict` is defined by wtune_predict).
+# In-process subcommand builders, in --help order (`predict` is defined by wtune.predict).
 _IN_PROCESS_PARSERS = (
     _add_physics_parser, _add_screen_parser, _add_machine_profile_parser,
     _add_selftest_parser, _add_compliance_parser, _add_predict_parser,
@@ -957,43 +957,43 @@ _IN_PROCESS_PARSERS = (
 # subcommand's usage line. `prep` has no module entry: see _forwarded_module.
 _FORWARDED_COMMANDS = (
     ('submit', 'submit_args', 'tune -> run -> post for the current project in one command '
-     '(wtune_submit.py)', 'wtune_submit.py', 'wtune.submit'),
-    ('doctor', 'doctor_args', 'check that this machine and project are ready (wtune_doctor.py)',
-     'wtune_doctor.py', 'wtune.doctor'),
+     '(wtune/submit.py)', 'wtune/submit.py', 'wtune.submit'),
+    ('doctor', 'doctor_args', 'check that this machine and project are ready (wtune/doctor.py)',
+     'wtune/doctor.py', 'wtune.doctor'),
     ('tune', 'tune_args', 'budgeted on-cluster tuner (scc): probe, screen, confirm, report',
-     'wtune_tune.py', 'wtune.tune'),
-    ('config', 'config_args', 'wtune tune search-space YAML config (wtune_config.py): init | show | validate',
-     'wtune_config.py', 'wtune.config'),
+     'wtune/tune/', 'wtune.tune'),
+    ('config', 'config_args', 'wtune tune search-space YAML config (wtune/config.py): init | show | validate',
+     'wtune/config.py', 'wtune.config'),
     ('metdata', 'metdata_args', 'GRIB source selection/availability/download (tools/metdata.py): find | check | fetch',
      'tools/metdata.py', 'wtune.tools.metdata'),
-    ('check', 'check_args', 'pre-submission WRF run_dir sanity checker (wtune_preflight.py): time windows, iofields, physics data files, decomposition, disk',
-     'wtune_preflight.py', 'wtune.preflight'),
-    ('calibrate', 'calibrate_args', 'machine calibration for a new cluster (wtune_calibrate.py plan | fit)',
-     'wtune_calibrate.py', 'wtune.calibrate'),
+    ('check', 'check_args', 'pre-submission WRF run_dir sanity checker (wtune/preflight.py): time windows, iofields, physics data files, decomposition, disk',
+     'wtune/preflight.py', 'wtune.preflight'),
+    ('calibrate', 'calibrate_args', 'machine calibration for a new cluster (wtune/calibrate.py plan | fit)',
+     'wtune/calibrate.py', 'wtune.calibrate'),
     ('post', 'post_args', 'post-processing/analysis, advisory only (decision 0056; post/cli.py): '
                           'inventory | extract | plot | sounding | tc | compare | report | recipe | custom',
      'post/cli.py', 'wtune.post.cli'),
-    ('prep', 'prep_args', 'optional input-data preparation, user-invoked only (decision 0063; wtune_geog.py): '
+    ('prep', 'prep_args', 'optional input-data preparation, user-invoked only (decision 0063; wtune/geog.py): '
                           'geog list | fetch | import-dem | verify | bounds | srtm-fetch',
-     'wtune_geog.py', None),
+     'wtune/geog.py', None),
     ('project', 'project_args', 'project folder holding case/input/config/runs/post '
-                                '(decision 0058; wtune_project.py): init | info | set',
-     'wtune_project.py', 'wtune.project'),
+                                '(decision 0058; wtune/project.py): init | info | set',
+     'wtune/project.py', 'wtune.project'),
     ('analyze', 'analyze_args', 'TC diagnostics/tracking via wrf-python + TempestExtremes (analysis/cli.py): diag | tc-track',
      'analysis/cli.py', 'wtune.analysis.cli'),
-    ('predict-rebuild', 'prb_args', 'whole-run wall-time prediction from rebuilt segments measured in parallel on the target config (wtune_rebuild_predict.py)',
-     'wtune_rebuild_predict.py', 'wtune.rebuild_predict'),
-    ('watch', 'watch_args', 'read-only monitor of a WRF run dir: progress, remaining time, hang/nest-stop/failure warnings (wtune_watch.py)',
-     'wtune_watch.py', 'wtune.watch'),
-    ('run', 'run_args', 'segmented WRF execution with restart hand-offs, per-segment config and opt-in CFL rescue (wtune_run.py)',
-     'wtune_run.py', 'wtune.run'),
-    ('convert', 'convert_args', 'WRF netCDF <-> ADIOS2 BP (io_form 14) conversion (wtune_bp.py): '
+    ('predict-rebuild', 'prb_args', 'whole-run wall-time prediction from rebuilt segments measured in parallel on the target config (wtune/rebuild_predict.py)',
+     'wtune/rebuild_predict.py', 'wtune.rebuild_predict'),
+    ('watch', 'watch_args', 'read-only monitor of a WRF run dir: progress, remaining time, hang/nest-stop/failure warnings (wtune/watch.py)',
+     'wtune/watch.py', 'wtune.watch'),
+    ('run', 'run_args', 'segmented WRF execution with restart hand-offs, per-segment config and opt-in CFL rescue (wtune/run/)',
+     'wtune/run/', 'wtune.run'),
+    ('convert', 'convert_args', 'WRF netCDF <-> ADIOS2 BP (io_form 14) conversion (wtune/bp.py): '
      'nc2bp | bp2nc | inputs (cached, manifest) [--check round trip]',
-     'wtune_bp.py', 'wtune.bp'),
-    ('advise', 'advise_args', 'advice-only: detect case conditions and suggest WRF modes/workflows with cost, evidence and side effects (decision 0061; wtune_advise.py)',
-     'wtune_advise.py', 'wtune.advise'),
-    ('calc', 'calc_args', 'rules of thumb and unit conversions for namelist parameters, plus `calc check <namelist.input>` (decision 0062; wtune_calc.py)',
-     'wtune_calc.py', 'wtune.calc'),
+     'wtune/bp.py', 'wtune.bp'),
+    ('advise', 'advise_args', 'advice-only: detect case conditions and suggest WRF modes/workflows with cost, evidence and side effects (decision 0061; wtune/advise.py)',
+     'wtune/advise.py', 'wtune.advise'),
+    ('calc', 'calc_args', 'rules of thumb and unit conversions for namelist parameters, plus `calc check <namelist.input>` (decision 0062; wtune/calc.py)',
+     'wtune/calc.py', 'wtune.calc'),
     ('scenario', 'scenario_args', 'pluggable scenario generators for fictional-date WRF forcing (scenario/cli.py): list | generate | inspect',
      'scenario/cli.py', 'wtune.scenario.cli'),
 )
@@ -1003,7 +1003,7 @@ _FORWARDED_MODULE = {name: module for name, _dest, _help, _target, module in _FO
 
 def _build_parser():
     parser = argparse.ArgumentParser(
-        prog='wtune.py', description='WRF config autotuner analytical core',
+        prog='wtune', description='WRF config autotuner analytical core',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog='common workflow:\n'
                '  wtune project init DIR --case CASE_DIR   new project (registers the case)\n'
@@ -1026,7 +1026,7 @@ def _forwarded_module(args):
     """Import the module a forwarded subcommand hands its argv to -- lazily, so only the running
     subcommand's module (and its dependencies) loads.
 
-    `prep` keeps a literal import statement: decision 0063 keeps wtune_geog out of every other
+    `prep` keeps a literal import statement: decision 0063 keeps wtune.geog out of every other
     code path, and test_wtune_geog pins that it is imported only inside the 'prep' branch."""
     if args.command == 'prep':
         import wtune.geog
@@ -1043,7 +1043,7 @@ def _predict_cmd(args):
 # status: with always_exit the process exits with it even when it is 0/None; otherwise it exits
 # only on a nonzero status and main() returns normally (the plan/physics/... handlers return
 # None and report failure by calling sys.exit themselves). Handlers call the module-level
-# function by name at call time, so monkeypatching wtune_cli.<function> still takes effect.
+# function by name at call time, so monkeypatching wtune.cli.<function> still takes effect.
 _IN_PROCESS_COMMANDS = {
     'physics': (lambda args: physics_cmd(args), False),
     'machine-profile': (lambda args: machine_profile_cmd(args), False),

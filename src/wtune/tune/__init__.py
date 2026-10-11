@@ -3,7 +3,7 @@
 Layers, bottom up: _deps, common, context -> budget, jobs -> candidates, points, prediction ->
 rounds, report, node_search -> pipeline (+ physics_phase) -> cli. Every name of the
 former single module is re-exported here; names tests monkeypatch are called through their
-defining module (`_jobs.wait_for_jobs`), so patch them there (wtune_tune.jobs.wait_for_jobs)."""
+defining module (`_jobs.wait_for_jobs`), so patch them there (wtune.tune.jobs.wait_for_jobs)."""
 from ._deps import (  # noqa: F401
     _HERE, sweep, wc, pred_targets, predict, probe_plan, io_model, coldstart, physics_advice,
     cost_drivers, campaign_configs, decomp_space,

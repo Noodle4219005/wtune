@@ -2123,7 +2123,7 @@ def test_pipeline_full_physics_not_run_without_runner_or_module(monkeypatch, tmp
     assert _status(report)["physics"].startswith(
         "not run (campaign runner has no per-config physics namelists")
     report, _e = _pipe_run(monkeypatch, tmp_path, physics=False)
-    assert _status(report)["physics"] == "not run (wtune_physics_advice not importable)"
+    assert _status(report)["physics"] == "not run (wtune.physics_advice not importable)"
 
 
 def test_pipeline_full_queue_wait_is_not_charged_to_the_budget(monkeypatch, tmp_path):

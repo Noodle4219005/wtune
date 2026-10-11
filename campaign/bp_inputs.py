@@ -125,7 +125,7 @@ class _InputPlan(object):
         return ok
 
     def convert(self, log: Optional[Log]) -> None:
-        """Convert what was planned (cached by wtune_bp's manifest) and link the results."""
+        """Convert what was planned (cached by wtune.bp's manifest) and link the results."""
         bp = self.wtune_bp()
         bp.require_adios2_python()
         for d in sorted(self.todo):
@@ -155,7 +155,7 @@ class _InputPlan(object):
 def resolve_bp_inputs(text: str, src_dir: str, cache_dir: str, convert: bool = True,
                       bp: Any = None, log: Optional[Log] = None) -> Plan:
     """Every input-stream file of `text` as a BP directory: <src>/<name>.bp, else <src>/<name>
-    when it is a directory, else the netCDF converted into cache_dir/<name> (wtune_bp: cached,
+    when it is a directory, else the netCDF converted into cache_dir/<name> (wtune.bp: cached,
     lock-serialized; a per-record name becomes a directory of one-step BPs). convert=False
     plans only. Returns {"links": {link: target}, "convert", "existing", "missing": [(stream,
     name)], "ready", "needs_convert", "per_record": {name: dir}, "single_multirecord", "streams"}.

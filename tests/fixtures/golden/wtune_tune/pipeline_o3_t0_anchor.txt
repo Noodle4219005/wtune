@@ -63,7 +63,7 @@ confirm: submitted job 7021 (4 configs, REPS=2)
 [confirm  ] [------------------------]   0%  elapsed=0:00 / budget=none  (running budget; wall 0:00, queue-only 0:00)
 pipeline: run-length I/O model unavailable (FileNotFoundError: [Errno 2] No such file or directory: '<TMP>/namelist.input') -- whole-run prediction is compute + init only
 
-=== wtune_tune: matthew ===
+=== wtune tune: matthew ===
 nodes=4 (final over tuned finalists [4, 5]: objective=time: N=4 median=0.2609 s/step; min is 0.2609, smallest N within 3% noise of it)
 budget=no cap  elapsed=0.0 min  jobs=7001,7002,7003,7004,7005,7006,7007,7008,7009,7010,7011,7012,7013,7014,7015,7016,7017,7018,7019,7020,7021
 
@@ -84,7 +84,7 @@ BEST: ANCHOR
   env:      OMP_NUM_THREADS=1 OMP_STACKSIZE=1G  ulimit -s unlimited
   NOTE:     KMP_BLOCKTIME: n/a on scc (nvhpc OpenMP runtime has no KMP_BLOCKTIME concept)
 
-full-run prediction FAILED (FileNotFoundError: [Errno 2] No such file or directory: '<TMP>/namelist.input'); run `python3 wtune.py predict ...` manually
+full-run prediction FAILED (FileNotFoundError: [Errno 2] No such file or directory: '<TMP>/namelist.input'); run `wtune predict ...` manually
 
 --- node selection (measured, ANCHOR config per node count) ---
 nodes     median_s  reps   spread  speedup    eff     wall_s node_hours maxrss_MB

@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """wtune/io_model.py -- run-length I/O terms of the whole-run prediction (release 0.8.2).
 
-wtune_probe_plan.combine predicts compute + init only; on a long run I/O dominates what it misses
+wtune.probe_plan.combine predicts compute + init only; on a long run I/O dominates what it misses
 (scc climate-ea50: predicted 46:14, actual 89:38; rsl decomposition in the anchors below). Terms for
 one unsegmented run: history (frames x per-frame write), boundary (d01 updates), aux (sst_update
 wrflowinp reads), restart (writes; all domains in one), iofields (ADIOS2 only: re-parses per I/O
-call). History/restart copy wtune_run's fallback formula (not imported: circular; wtune_run
+call). History/restart copy wtune.run's fallback formula (not imported: circular; wtune.run
 re-exports these constants, tests/test_wtune_io_model.py checks agreement). Not included: per-segment
 startup (`init_s`), restart reads, auxhist streams.
 """
@@ -115,7 +115,7 @@ def iofields_parses(frames: Sequence[int], frames_per_outfile: Sequence[Any],
 
 def iofields_parse_s(parses: Sequence[int], calls: Optional[Sequence[int]], call_s: float) -> float:
     """Seconds a run spends re-parsing iofields files: per domain parses x get_fieldstr calls
-    of its file (wtune_iofields.parse_calls; 0/None = no file) x seconds per call."""
+    of its file (wtune.iofields.parse_calls; 0/None = no file) x seconds per call."""
     return sum(n * (c or 0) for n, c in zip(parses, calls or [])) * call_s
 
 
@@ -138,7 +138,7 @@ def case_iofields_calls(nl: dict, case_dir: str, merge: bool = True) -> list[int
 
 def history_frames_whole_run(run_s: float, iv_s: float, begin_s: float = 0.0) -> int:
     """Frames at begin + j*iv in [0, run_s], the t=0 frame included when begin is 0 --
-    wtune_run.history_frames(geo, d, 0, steps) for a whole run."""
+    wtune.run.history_frames(geo, d, 0, steps) for a whole run."""
     if not iv_s or iv_s <= 0:
         return 0
 
@@ -208,7 +208,7 @@ def _restart_term(nl: dict, points: Sequence[int], run_s: float,
 def run_length_io(nl: dict, run_s: Optional[float] = None, io: Any = "adios2",
                   iofields_calls: Optional[Sequence[int]] = None,
                   call_s: Optional[float] = None) -> dict:
-    """Run-length I/O of one unsegmented run of namelist `nl` (wtune_predict.parse_namelist form);
+    """Run-length I/O of one unsegmented run of namelist `nl` (wtune.predict.parse_namelist form);
     run_s defaults to the d01 length. Dict: total_s and history/boundary/aux/restart/iofields_s,
     the counts and per-unit costs behind each, run_s, points, io_format, source. io "netcdf"
     keeps the namelist's io_form_restart and original anchors; "adios2" (default) uses the ADIOS2

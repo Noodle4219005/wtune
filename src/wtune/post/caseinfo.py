@@ -4,7 +4,7 @@ the run never overrode) or namelist.input, plus a best-track fix check against H
 b-deck. This module only reads the fields decision 0057's table names and evaluates the exact
 thresholds it states -- no new domain rules are invented here.
 
-Reuses wtune_cli.parse_namelist/first_value (the repo's one namelist reader, stdlib only) rather
+Reuses wtune.cli.parse_namelist/first_value (the repo's one namelist reader, stdlib only) rather
 than writing a second Fortran-namelist parser, and post/atcf.py + post/tc.py's HURDAT2 reader for
 the best-track side, so this module adds no new file-format parsing of its own beyond a tiny
 comma-separated-values-per-domain splitter (namelist arrays have no established-tool reader; they
@@ -47,7 +47,7 @@ def find_namelist(run_dir):
     needs is present even when namelist.input relied on a compiled-in default. namelist.input
     is the fallback for a run that has not finished (no namelist.output written yet).
 
-    Previously this preferred namelist.input instead, working around a wtune_cli.parse_namelist
+    Previously this preferred namelist.input instead, working around a wtune.cli.parse_namelist
     bug where a literal '/' anywhere on a line ended the current namelist group -- false-
     triggering on namelist.output's own machine-dumped string defaults that contain a path,
     e.g. ` PATH_TO_FILES = ~/WRFV3/,` inside &physics, silently truncating that group before
@@ -68,7 +68,7 @@ def find_namelist(run_dir):
 
 def _num_list(raw, n):
     """Comma-separated per-domain namelist values -> a length-n list, coerced with
-    wtune_cli.first_value (handles WRF's '.true./.false.'/int/float tokens). A short list is
+    wtune.cli.first_value (handles WRF's '.true./.false.'/int/float tokens). A short list is
     padded by repeating its last value, matching WRF's own namelist semantics for a value that
     was only specified for domain 1."""
     if raw is None:

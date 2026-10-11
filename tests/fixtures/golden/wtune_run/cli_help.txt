@@ -7,7 +7,7 @@ usage: wtune run [-h] [--nodes NODES] [--nx NX] [--ny NY] [--numtiles NUMTILES] 
                  [--sacct-cmd SACCT_CMD] [--poll-interval POLL_INTERVAL]
                  [case_dir]
 
-wtune_run.py -- segmented WRF executor with restart hand-offs (`wtune run`).
+wtune run -- segmented WRF executor with restart hand-offs (`wtune run`).
 
 positional arguments:
   case_dir              default: the project's case/ (then the newest tune/*/tune_report.json is

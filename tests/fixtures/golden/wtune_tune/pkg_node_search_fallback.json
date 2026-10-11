@@ -13,7 +13,7 @@
   "case": "matthew",
   "cores_per_node": 72,
   "elapsed_minutes": 0.0,
-  "full_run_prediction": "full-run prediction: run `python3 wtune.py predict <TMP>/matthew --nodes 13 --config '...'`",
+  "full_run_prediction": "full-run prediction: run `wtune predict <TMP>/matthew --nodes 13 --config '...'`",
   "job_ids": [
     "7001",
     "7002",

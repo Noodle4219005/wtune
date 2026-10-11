@@ -47,7 +47,7 @@ def _netcdf4():
     return netCDF4
 
 
-_SEGMENT_RE = re.compile(r"seg_(\d+)(_rescue)?(?:_r(\d+))?$")    # as wtune_watch._SEG_DIR_RE
+_SEGMENT_RE = re.compile(r"seg_(\d+)(_rescue)?(?:_r(\d+))?$")    # as wtune.watch._SEG_DIR_RE
 
 
 def _is_empty_dir(path):
@@ -135,7 +135,7 @@ _BP_ORIGIN = {}     # {cached nc abs path: BP dir abs path}
 
 class BPConversionError(ExtractError):
     """A run's ADIOS2 BP history cannot be turned into netCDF at all (the adios2 Python
-    module or wtune_bp is unavailable); str() names the fix."""
+    module or wtune.bp is unavailable); str() names the fix."""
 
 
 # Cache layout: <root>/<run_id>/[<seg_k>/]<wrfout name without .bp>.nc; <root> is --nc-cache DIR, else
@@ -284,12 +284,12 @@ def _bp2nc_or_raise(run_dir, n_files, example):
     names the fix (the adios2 env); BPConversionError carrying that text otherwise."""
     what = ("%s holds ADIOS2 BP history (%d file(s) not yet converted, e.g. %s) that the post "
             "tools read as netCDF copies, but the BP -> netCDF converter "
-            "(src/tools/wrf_adios2_to_netcdf4/ via src/wtune_bp.py) cannot run here: "
+            "(src/wtune/tools/wrf_adios2_to_netcdf4/ via src/wtune/bp.py) cannot run here: "
             % (run_dir, n_files, os.path.basename(example)))
     try:
         import wtune.bp
     except Exception as e:                                  # noqa: BLE001
-        raise BPConversionError(what + "cannot import wtune_bp (%s: %s)"
+        raise BPConversionError(what + "cannot import wtune.bp (%s: %s)"
                                 % (type(e).__name__, e)) from e
     try:
         wtune.bp.require_adios2_python()

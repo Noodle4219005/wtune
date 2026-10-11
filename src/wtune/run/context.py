@@ -68,7 +68,7 @@ class Runners:
     """The outside world, injected so tests replace it."""
     sbatch_runner: Callable
     sacct_runner: Callable
-    snapshot_fn: Callable              # wtune_watch.snapshot(rundir)
+    snapshot_fn: Callable              # wtune.watch.snapshot(rundir)
     sleep: Callable
     log: Callable
 
@@ -90,7 +90,7 @@ class RunContext:
     wrf_tree: Optional[str] = None
     bp_copier: Optional[Callable] = None       # fresh per-record input copy
     case_adios2_xml: Optional[str] = None      # the case's own adios2.xml text
-    sidecar: Any = None                        # wtune_sidecar.Sidecar (--sidecar)
+    sidecar: Any = None                        # wtune.sidecar.Sidecar (--sidecar)
     state: RunState = dataclasses.field(default_factory=RunState)
 
     @property

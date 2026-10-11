@@ -68,7 +68,7 @@ confirm: estimated 2:23 for 4 config(s) (REPS=2, expected -- not the padded --ti
 confirm: submitted job 7033 (4 configs, REPS=2)
 [confirm  ] [------------------------]   0%  elapsed=0:00 / budget=30:00
 
-=== wtune_tune: matthew ===
+=== wtune tune: matthew ===
 nodes=1 (user-specified (cap=13))
 budget=30.0 min  elapsed=0.0 min  jobs=7001,7002,7003,7004,7005,7006,7007,7008,7009,7010,7011,7012,7013,7014,7015,7016,7017,7018,7019,7020,7021,7022,7023,7024,7025,7026,7027,7028,7029,7030,7031,7032,7033
 
@@ -89,6 +89,6 @@ BEST: ANCHOR
   env:      OMP_NUM_THREADS=1 OMP_STACKSIZE=1G  ulimit -s unlimited
   NOTE:     KMP_BLOCKTIME: n/a on scc (nvhpc OpenMP runtime has no KMP_BLOCKTIME concept)
 
-full-run prediction FAILED (FileNotFoundError: [Errno 2] No such file or directory: '<TMP>/namelist.input'); run `python3 wtune.py predict ...` manually
+full-run prediction FAILED (FileNotFoundError: [Errno 2] No such file or directory: '<TMP>/namelist.input'); run `wtune predict ...` manually
 
 advice: 1 stub item(s)

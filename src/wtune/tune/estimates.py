@@ -1,7 +1,7 @@
 """Effort levels -O0..-O3 and the pre-run estimate of their tuning (RUNNING) time.
 
 A level sets only the layout-search effort and whether physics advice runs; the prediction
-points and the error band come from the case type (wtune_cost_drivers.plan_points_for_case).
+points and the error band come from the case type (wtune.cost_drivers.plan_points_for_case).
 """
 from __future__ import annotations
 

@@ -806,7 +806,7 @@ def _pipeline_finish(st: PipelineRun, report: dict, pred: WholeRunPrediction | N
 def run_level0(ctx: Ctx, profile: dict, total_steps: int | None,
                nodes_policy: str = "knee") -> dict:
     """-O0, no jobs: the proxy's node count (choose_nodes; the first N with a legal layout), the
-    all-cores hybrid anchor there and wtune_predict's cold-start whole-run time (+-25%)."""
+    all-cores hybrid anchor there and wtune.predict's cold-start whole-run time (+-25%)."""
     n0, note, _warn = choose_nodes(profile, ctx.max_nodes, nodes_policy)
     cfg, why = None, None
     for n in [n0] + [m for m in range(1, ctx.max_nodes + 1) if m != n0]:

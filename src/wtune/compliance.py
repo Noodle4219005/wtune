@@ -251,20 +251,20 @@ CATALOG = [
     _k('io_form_history', 'io', _S, 'none', ('io',), hw=('adios2_build',), status='gain',
        evidence='ADIOS2 (14) -30% total wall on CONUS 2.5km, same field values [[wrf-formal-runs-adios2-backend]]',
        legal=_legal('enum', values=[2, 11, 14],
-                    source='wtune_physics.py:319-320,671; campaign/configs.py:594,1117',
+                    source='wtune/physics.py:319-320,671; campaign/configs.py:594,1117',
                     constraints=['confirmed-legal subset only; WRF defines additional io_form codes (e.g. '
                                  '1=binary, 4=PHDF5, 5/10=GRIB) not locally verified -- treat unlisted values as '
                                  'unverified, not illegal'])),
     _k('io_form_restart', 'io', _S, 'none', ('io',), hw=('adios2_build',), status='gain',
        evidence='ADIOS2 -29% total wall on CONUS 2.5km [[wrf-formal-runs-adios2-backend]]',
        legal=_legal('enum', values=[2, 14],
-                    source='wtune_physics.py:671; campaign/configs.py:594,1074',
+                    source='wtune/physics.py:671; campaign/configs.py:594,1074',
                     constraints=['confirmed-legal subset only; see io_form_history for the same caveat'])),
     _k('io_form_input', 'io', _S, 'none', ('io',), hw=('adios2_build',),
        evidence='unmeasured wall-time (read once at cold start); correctness: same field values on CONUS 2.5km'
                 ' [[wrf-conus25-tuning-conclusion]]',
        legal=_legal('enum', values=[2, 14],
-                    source='wtune_physics.py:671; campaign/configs.py:1074',
+                    source='wtune/physics.py:671; campaign/configs.py:1074',
                     constraints=['confirmed-legal subset only; see io_form_history for the same caveat'])),
     _k('nio_tasks_per_group', 'io', _S, 'none', ('io',), evidence='unmeasured',
        legal=_legal('int', min=0, max=None, source='campaign/configs.py:639-644',
@@ -626,7 +626,7 @@ def assert_strict_only(orig, final, exempt=PROBE_WINDOW_EXEMPT_KEYS):
 
 
 def _main(argv=None):
-    ap = argparse.ArgumentParser(prog='wtune.py',
+    ap = argparse.ArgumentParser(prog='wtune',
                                  description='WTune compliance model and knob catalog (decision 0050)')
     sub = ap.add_subparsers(dest='cmd')
     sub.add_parser('validate', help='check catalog consistency; exit 1 on any error')

@@ -149,7 +149,7 @@ class Ctx:
 
 
 def resolve_case(case_id: str, cores_per_node: int) -> tuple[dict, str, dict]:
-    """(case json, namelist path, wtune_case profile) of a registered case."""
+    """(case json, namelist path, wtune.case profile) of a registered case."""
     case_json = sweep.resolve_case_json(case_id)
     prep_dir = sweep._expand(case_json["prep_dir"])
     namelist_path = sweep._expand(campaign_configs._case_namelist_path(case_json))
@@ -160,10 +160,10 @@ def resolve_case(case_id: str, cores_per_node: int) -> tuple[dict, str, dict]:
 
 def resolve_auto_probe_steps(namelist_path: str) -> tuple[int, str]:
     """probe.steps='auto': (steps, note) with steps = max(30, stepra+10), so every probe holds a
-    radiation step (wtune_probe_plan.steps_for_stepra). Never raises: DEFAULT_STEPS plus a note
+    radiation step (wtune.probe_plan.steps_for_stepra). Never raises: DEFAULT_STEPS plus a note
     when the namelist or the prediction modules are unavailable."""
     if predict is None or probe_plan is None:
-        return DEFAULT_STEPS, ("probe.steps='auto' requested but wtune_predict/wtune_probe_plan "
+        return DEFAULT_STEPS, ("probe.steps='auto' requested but wtune.predict/wtune.probe_plan "
                                 "is not importable -- using DEFAULT_STEPS=%d instead" % DEFAULT_STEPS)
     try:
         nl = predict.parse_namelist(namelist_path)

@@ -67,7 +67,7 @@ def _switch_aux_streams(text: str, aux_ok: Set[str], per_record: Set[str]) -> st
 
 
 def _read_per_record(text: str, streams: Dict[str, List[str]], max_dom: int) -> str:
-    """Per-record streams: wtune_bp's dated innames / multi_bdy_files, and io_form 14."""
+    """Per-record streams: wtune.bp's dated innames / multi_bdy_files, and io_form 14."""
     if not streams:
         return text
     names = [n for s in streams.values() for n in s]

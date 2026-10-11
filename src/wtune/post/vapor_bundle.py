@@ -151,7 +151,7 @@ _NATIVE_BP = """
 ## 原生 history 是 ADIOS2 BP，這裡是轉出的 netCDF 複本
 
 這個 run 的 history 原生格式是 ADIOS2 BP（`io_form_history=14`），VAPOR 讀不了 BP。bundle 內的
-wrfout 是 `wtune post` 以 `src/tools/wrf_adios2_to_netcdf4/` 轉出的 netCDF4 **複本**，取自 netCDF
+wrfout 是 `wtune post` 以 `src/wtune/tools/wrf_adios2_to_netcdf4/` 轉出的 netCDF4 **複本**，取自 netCDF
 cache（{cache_dirs}），不是 run 目錄裡的原始檔；每個檔案對應的 BP 目錄記在 `{manifest}` 的
 `native` 欄位。
 

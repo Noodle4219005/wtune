@@ -10,9 +10,9 @@ incl. geogrid/metgrid TBL dir links + output checks + OMP + real.exe timeout/ser
 tools/metdata.py (resolve_forcing_chain, state-purpose byte-range fetch + bbox crop, via
 coldstart_sample's own lazy accessors), tools/grib_state.py (target_grid,
 regrid_nearest_regular), wtune/predict.py (parse_namelist, g/g_dom, sunlit_fraction),
-wtune/runlength.py (via wtune_predict).
+wtune/runlength.py (via wtune.predict).
 
-Module-level imports are STDLIB + coldstart_sample + wtune_predict ONLY (both of those are
+Module-level imports are STDLIB + coldstart_sample + wtune.predict ONLY (both of those are
 themselves numpy-free) -- `rebuild`'s fix-span-*-namelist subcommands run inside a batch job on
 scc's /usr/bin/python3, which has no numpy. numpy/netCDF4 (only on the cluster's grib pixi env,
 ~/wtune/envs/grib -- numpy 2.4, netCDF4 1.7, xarray, cfgrib, eccodes, requests; NO scipy/sklearn)

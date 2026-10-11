@@ -49,7 +49,7 @@ class Context:
     # -- project/run discovery ---------------------------------------------------------
     def runs(self):
         """[(run_id, path), ...] -- every wrfout-bearing run directory this project has
-        (wtune_project.discover_runs's own result)."""
+        (wtune.project.discover_runs's own result)."""
         return list(self._run_dirs)
 
     def finest_domain(self, run_dir):

@@ -8,7 +8,7 @@ answer), and only the first of those read WRF's real semantics. Verified against
 cluster namelists (see tools/test_temporal_validation.py's NML_LAFE_SHAPE/NML_ISC21_SHAPE,
 transcribed from the actual templates): lafe (all four run_* keys 0, start=2017-08-23 06:00 ->
 end=2017-08-24 06:00) runs 24.0h; isc21 (run_minutes=30, every other run_* key 0, start/end date
-span a DIFFERENT 15h that must NOT win) runs 0.5h. wtune.py's extract_case and wtune/predict.py's
+span a DIFFERENT 15h that must NOT win) runs 0.5h. wtune.cli's extract_case and wtune/predict.py's
 get_run_seconds both used to return/raise on 0 for lafe (dropping the date-span case entirely),
 and the run_minutes/run_seconds-dropping variant in extract_case separately turned isc21's
 30-minute run into a nonsense 0.
@@ -25,7 +25,7 @@ as "unset" silently; this module raises instead.
 This module is intentionally dependency-free (stdlib only) and takes ALREADY-EXTRACTED scalars,
 never a namelist object: the three callers each own a different in-memory namelist
 representation (temporal_validation.py parses raw text field-by-field via campaign/configs.py's
-_find_namelist_key; wtune.py's parse_namelist returns {group: {key: raw_string}}; wtune/predict.py's
+_find_namelist_key; wtune.cli's parse_namelist returns {group: {key: raw_string}}; wtune/predict.py's
 parse_namelist returns {group: {key: [scalar, ...]}} and is list/per-domain aware) and unifying
 those representations is out of scope here -- only the resulting six scalars are.
 """

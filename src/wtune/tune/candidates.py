@@ -19,7 +19,7 @@ FULL_SPACE_CONFIGS_PER_JOB = 24      # configs in one full-space job (~1 h at 20
 
 def _apply_search_filter(ctx: Ctx, configs: list[dict]) -> list[dict]:
     """The one candidate filter of every generation site: WRF-Chem j-patch guard, extension OMP
-    cap, then wtune_config.candidate_allowed (--config search restrictions + exclude rules; a
+    cap, then wtune.config.candidate_allowed (--config search restrictions + exclude rules; a
     no-op without --config). The ANCHOR is exempt from the search restrictions only; dropped
     candidates are printed."""
     out = []

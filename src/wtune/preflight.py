@@ -105,7 +105,7 @@ def _domain_datetime(nl, prefix, dom_index):
 
 def find_out_of_block_assignments(namelist_path: str | Path) -> list[tuple[int, str, str]]:
     """'key = value' assignments outside every &group / block -> [(lineno, key_lower, raw_line)],
-    the complement of what wtune_predict.parse_namelist captures (same regexes and
+    the complement of what wtune.predict.parse_namelist captures (same regexes and
     _split_assignments). Fortran's namelist read ignores them (elevconv2022 line 39: a second
     iofields_filename between &time_control and &domains)."""
     text = Path(namelist_path).read_text()
@@ -133,7 +133,7 @@ def find_out_of_block_assignments(namelist_path: str | Path) -> list[tuple[int, 
 
 
 def _resolved_physics(nl, dom_index):
-    """physics_suite-resolved *_physics scheme IDs for one domain (wtune_physics.resolve_suite
+    """physics_suite-resolved *_physics scheme IDs for one domain (wtune.physics.resolve_suite
     fills -1 sentinels from the suite table -- needed because real templates such as
     atlas-validate/conus25 set physics_suite='conus' with every *_physics=-1)."""
     case = {
@@ -641,7 +641,7 @@ def check_c3_physics_files(nl: dict, run_dir: str | Path, findings: list[Finding
                            wrf_run_dir: str | Path | None = None) -> None:
     """Data files the chosen physics opens at init, per active domain (FATAL; plain-Thompson
     .dat tables WARN): radiation, LSM/urban/Noah-MP tables, microphysics, chem HLC.TBL, plus
-    the domain-1-only aerosol/ozone/eclipse inputs. Tables and WRF anchors: wtune_preflight_tables."""
+    the domain-1-only aerosol/ozone/eclipse inputs. Tables and WRF anchors: wtune.preflight_tables."""
     f = _c3_facts(nl, run_dir, findings, wrf_run_dir)
     _c3_domain1_only(f)
     for d in range(wp.get_max_dom(nl)):
@@ -1435,7 +1435,7 @@ def check_c11_iofields_parse(nl: dict, run_dir: str | Path, findings: list[Findi
                              compute_s: float | None = None) -> None:
     """WRF re-parses the iofields file on rank 0 at every input/output call while the other
     ranks wait. WARN when that costs the run more than max(60 s, 2% of compute_s), with the
-    seconds as written and after the line merge `wtune run` does (wtune_io_model's term)."""
+    seconds as written and after the line merge `wtune run` does (wtune.io_model's term)."""
     from wtune import io_model as iom
     raw = iom.case_iofields_calls(nl, str(run_dir), merge=False)
     if not any(raw):
@@ -1506,7 +1506,7 @@ def exit_code_for(findings: list[Finding]) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        prog="wtune.py check",
+        prog="wtune check",
         description="pre-submission WRF run_dir sanity checker",
     )
     parser.add_argument("run_dir", help="directory WRF will be run from")

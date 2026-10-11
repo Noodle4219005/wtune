@@ -1,7 +1,7 @@
 """ADIOS2 BP history (io_form_history=14) read through post.extract's netCDF cache.
 
 The BP directories here are fakes (data.0 holds the Times as JSON, md.0/md.idx/mmd.0 stand in
-for the metadata) and wtune_bp is a fake module whose bp2nc writes the small multi-frame
+for the metadata) and wtune.bp is a fake module whose bp2nc writes the small multi-frame
 wrfout of tests/test_post_multiframe.py -- so the index, cache, invalidation, worker pool and
 error paths are tested without adios2. Every conversion appends "<pid> <bp>" to $FAKE_BP_LOG,
 which also counts conversions done inside pool workers.
@@ -271,7 +271,7 @@ def test_missing_adios2_is_one_clear_error(tmp_path, fake_bp, monkeypatch, capsy
     with pytest.raises(compare.CompareError, match="pixi install"):
         compare._frames(str(run))
 
-    # no wtune_bp at all
+    # no wtune.bp at all
     swap_wtune_module(monkeypatch, "bp", None)
     with pytest.raises(extract.BPConversionError, match="cannot import wtune.bp"):
         extract.list_frames(str(run))

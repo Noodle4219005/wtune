@@ -287,7 +287,7 @@ Every knob/lever WTune touches is classified into exactly one of three classes
   `LD_PRELOAD`, owner/helper work migration). Upper bound / oracle only. `-Wl,--wrap`,
   `LD_PRELOAD`, and PMPI shims are **RESEARCH — not allowed in STRICT tuning.**
 
-Every catalog entry (`wtune_compliance.CATALOG`) carries: `name`, `kind`, `classification`,
+Every catalog entry (`wtune.compliance.CATALOG`) carries: `name`, `kind`, `classification`,
 `source_change`, `numerics_change`, `execution_interposition`, `requires_correctness_gate`,
 `applicable_phases`, `hardware_requirements`, `status`, `evidence`. `numerics_change` maps to
 the correctness gate that class must clear:
@@ -309,7 +309,7 @@ python3 wtune/cli.py compliance list --compliance strict
 ### What WTune changes automatically vs. only recommends (decision 0056)
 
 **Auto-applies (no separate approval per run): STRICT only.** `wtune tune`'s final recommended
-configuration (`wtune_tune.build_report`) is guarded by `wtune_compliance.assert_strict_only`,
+configuration (`wtune.tune.build_report`) is guarded by `wtune.compliance.assert_strict_only`,
 which diffs every namelist key the report changed against the case's own namelist and raises
 `ComplianceError` if any changed key classifies as anything other than STRICT (measurement-only
 probe-window keys — `run_*`, `start_*`, `end_*` — are exempt, since narrowing a probe window does
@@ -486,7 +486,7 @@ imported lazily and only by `inspect`/`plan --state`/`fetch` — every compute-n
 them. `score` classifies radiation steps from each window's own data
 (`classify_steps_detected`), fits a day/night radiation ratio (`fit_day_night_r_rad`), and
 linearly interpolates each window's measured step cost across the full run between window
-measured-part midpoints; I/O and init come from `wtune_predict.build_prediction` against
+measured-part midpoints; I/O and init come from `wtune.predict.build_prediction` against
 `PLAN_DIR/win_0/real` (the generated wrfinput), never the original case_dir, which in an unknown
 case has none and in a held-out validation case would be leakage.
 
@@ -641,7 +641,7 @@ Places up to K points on the run's timeline (default 5; on the forcing's hourly 
 WPS intermediate, no ungrib; `--forcing auto` = GFS chain with a 60-min spin-up), runs WPS +
 real.exe + a 20-min spin-up + `max(30, 2*stepra)` measured d01 steps **on the target
 decomposition**, one Slurm job per point, all submitted at once, then combines the points into
-compute+init (`wtune_probe_plan.combine`: per-point normal-step cost, day/night radiation ratio).
+compute+init (`wtune.probe_plan.combine`: per-point normal-step cost, day/night radiation ratio).
 `OUT/pred_rebuild.json` is written before anything is compared with it. Needs the site env
 (`WPS_DIR`, `WRF_TREE`) and `CASE_DIR/wrfinput_d01` (geometry and ERA5 crop box).
 
@@ -1245,7 +1245,7 @@ The repo root is user-facing only; everything else lives under one of these dire
 
 | path | status | contents |
 |---|---|---|
-| `wtune/cli.py` | live | thin entry point: puts `src/` on `sys.path` and calls `wtune_cli.main()` |
+| `wtune/cli.py` | live | thin entry point: puts `src/` on `sys.path` and calls `wtune.cli.main()` |
 | `bin/wtune` | live | runs `wtune/cli.py` under the `envs/wtune` pixi env |
 | `src/wtune/cli.py` | live | the ~1800-line CLI body (formerly `wtune/cli.py` itself) |
 | `src/wtune/physics.py`, `wtune/solar.py`, `wtune/surrogate.py`, `speedy_probe.jl`, `speedy_hotspot.jl`, `jlenv/`, `wind_probe.py`, `wtune/decomp.py`, `wtune/shape.py`, `gen_registry_catalog.py`, `wtune_catalog_registry.json` | live | advisory layer |
@@ -1287,7 +1287,7 @@ python -m pytest -q tests/`) — **1744 passed / 9 skipped / 4 known pre-existin
 `tests/predictor/test_physics.py::test_physics_candidates_from_namelist_matches_text_engine_for_karina`,
 `tests/test_wtune_config.py::test_examples_wtune_yaml_matches_the_rendered_template_and_validates` --
 found during this update, unrelated to it: `examples/wtune.yaml` has drifted from
-`wtune_config.render_template("conus25")`'s current output; neither file was touched by decision
+`wtune.config.render_template("conus25")`'s current output; neither file was touched by decision
 0056's `src/wtune/post/` work).
 `src/wtune/tools/run_tests.sbatch` runs the whole suite on a compute node the same way it always
 did (`predictor/tests` needs the predictor pixi env; running it in the other one turns 18
@@ -1295,7 +1295,7 @@ skips into 19 lightgbm failures that look like a regression). The pieces, if you
 directly: `pytest tests/test_wtune_*.py tests/test_fidelity_gate.py`, `pytest campaign
 tests/tools archive/experiments`, `pytest tests/predictor` (predictor env), `pytest
 archive/deprecated/` (archived), `python3 wtune/cli.py selftest` (also runs
-`wtune_compliance.validate()`), `python3 src/wtune_transition_controller.py selftest`
+`wtune.compliance.validate()`), `python3 src/wtune_transition_controller.py selftest`
 (38/40; both failures are in the deprecated imbalance-gate branch).
 
 ## Status

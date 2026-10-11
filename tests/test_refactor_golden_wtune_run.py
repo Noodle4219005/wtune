@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Golden snapshots of `wtune run` (wtune_run), pinned before the round-3 package split: what
+"""Golden snapshots of `wtune run` (wtune.run), pinned before the round-3 package split: what
 main() prints (log, stdout, stderr, exit code), the OUT tree, every segment namelist /
 segment.sbatch / adios2.xml and run_report.json (key order included), plus the pure planners'
 results and error texts. Fakes are test_wtune_run's (no job, no adios2); the tmp path, the repo
@@ -16,7 +16,7 @@ import sys
 
 import pytest
 
-import test_wtune_run as T          # first: its wtune_run import restores SITE/configs
+import test_wtune_run as T          # first: its wtune.run import restores SITE/configs
 import test_wtune_extensions as TE
 import test_wtune_run_resume as TR
 from wtune import run as wr
@@ -687,11 +687,11 @@ LAYERS = ["_deps", "common", "geometry", "estimate", "layout", "plan", "namelist
 
 
 def test_package_layers_import_only_lower_layers():
-    """Each wtune_run module imports (from .x) only modules listed before it in LAYERS."""
+    """Each wtune.run module imports (from .x) only modules listed before it in LAYERS."""
     import ast
     pkg = os.path.join(SRC, "wtune", "run")
     if not os.path.isdir(pkg):
-        pytest.skip("single-module wtune_run")
+        pytest.skip("single-module wtune.run")
     found = sorted(n[:-3] for n in os.listdir(pkg)
                    if n.endswith(".py") and n not in ("__init__.py", "__main__.py"))
     assert found == sorted(LAYERS)

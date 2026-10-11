@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for wtune.py's own core functions (parse_namelist/extract_case) that are not already
+"""Tests for wtune.cli's own core functions (parse_namelist/extract_case) that are not already
 covered indirectly through wtune/case.py/wtune/predict.py's own test files.
 
 Run: /home/nk/miniforge3/envs/hqvit-pixi/bin/python3 -m pytest -q test_wtune.py
@@ -135,7 +135,7 @@ def test_extract_case_run_minutes_and_seconds_no_longer_dropped(tmp_path):
 def test_extract_case_no_time_info_falls_back_to_zero_not_raise(tmp_path):
     """extract_case must never raise merely because run length can't be resolved (it is called
     from contexts, e.g. pure domain-geometry queries, that never need it) -- falls back to the
-    same 0.0 'unset' sentinel it always used, rather than propagating wtune_runlength's
+    same 0.0 'unset' sentinel it always used, rather than propagating wtune.runlength's
     ValueError."""
     text = """\
 &domains

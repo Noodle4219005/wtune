@@ -240,7 +240,7 @@ def run_length_io(nl: dict, run_s: Optional[float] = None, io: Any = "adios2",
                 n_boundary=n_bdy, boundary_update_s=bdy_one, n_aux=n_aux, aux_read_s=aux_one,
                 n_restart=n_rst, restart_write_s=rst_w, restart_interval_min=rst_min,
                 io_form_restart=io_rst, run_s=run_s, points=points, io_format=fmt,
-                source="wtune_io_model[%s] (history/restart: wtune_run fallback anchors, "
+                source="wtune.io_model[%s] (history/restart: wtune.run fallback anchors, "
                        "adios2 history: SC26-P2 rsl; boundary/aux: climate-ea50 rsl; iofields: "
                        "parses x get_fieldstr calls)" % fmt)
 

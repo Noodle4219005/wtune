@@ -2,7 +2,7 @@
 """pytest suite for wtune/tune/ -- fake Slurm (sbatch/sacct/scancel), a synthetic-time clock and
 synthetic ledgers throughout, so this never touches a real cluster and never needs
 numpy/scikit-learn/catboost (predictor/decomp_search.py, the real adaptive-round proposer, is only
-imported lazily by wtune_tune._default_proposer when no proposer is injected -- every test here
+imported lazily by wtune.tune._default_proposer when no proposer is injected -- every test here
 injects one). Run with:
 
   /home/nk/miniforge3/envs/hqvit-pixi/bin/python3 -m pytest test_wtune_tune.py
@@ -51,7 +51,7 @@ class FakeClock:
 def make_fake_sbatch(start=1000):
     """Also records, per job id, the CONFIG_FILE path from --export=... (parsed out of the exact
     command scc_sweep.build_sbatch_command produces), so a fake ledger_reader can read back the
-    real configs.json wtune_tune wrote and fabricate a plausible measurement per config id."""
+    real configs.json wtune.tune wrote and fabricate a plausible measurement per config id."""
     counter = {"n": start}
     calls = []
     job_to_configs_path = {}
@@ -653,7 +653,7 @@ def test_build_report_fields():
 
 def test_build_report_strict_guard_runs_against_the_real_namelist(tmp_path, monkeypatch):
     # decision 0056: build_report's final param_table (nproc_x/nproc_y/numtiles only, see
-    # local_param_table) must pass wtune_compliance.assert_strict_only against the case's
+    # local_param_table) must pass wtune.compliance.assert_strict_only against the case's
     # own namelist -- confirm the guard actually runs (not skipped as "no real namelist")
     # and that the normal decomposition-only report passes it cleanly.
     namelist_path = tmp_path / "namelist.input"
@@ -838,7 +838,7 @@ def test_round0_measuring_0_3s_per_step_lets_adaptive_and_confirm_both_run_withi
 
 
 # ---------------------------------------------------------------------------
-# regression: the full-run-prediction hook must feed wtune_predict this run's own measurements,
+# regression: the full-run-prediction hook must feed wtune.predict this run's own measurements,
 # not call it with ledger_paths=None (which always fell back to source=no_probe_fallback, +-50%,
 # even right after measuring the winning config directly).
 # ---------------------------------------------------------------------------
@@ -867,7 +867,7 @@ _PREDICT_TEST_NAMELIST = """\
 
 
 def test_write_probe_ledger_makes_full_run_prediction_use_measured_source(tmp_path):
-    assert wtune.tune.predict is not None, "wtune_predict.py must be importable for this test"
+    assert wtune.tune.predict is not None, "wtune predict must be importable for this test"
     namelist_path = tmp_path / "namelist.input"
     namelist_path.write_text(_PREDICT_TEST_NAMELIST)
 
@@ -946,7 +946,7 @@ def test_confirm_reps_default_matches_the_previous_hardcoded_constant():
 
 
 def test_build_full_run_prediction_applies_drift_band_override_and_flags_measure_r_rad(tmp_path):
-    assert wtune.tune.predict is not None, "wtune_predict.py must be importable for this test"
+    assert wtune.tune.predict is not None, "wtune predict must be importable for this test"
     namelist_path = tmp_path / "namelist.input"
     namelist_path.write_text(_PREDICT_TEST_NAMELIST)
     best_config = dict(id="ANCHOR", ranks=72, omp=1, nx=8, ny=9, numtiles=1, dist="block")
@@ -968,7 +968,7 @@ def test_build_full_run_prediction_applies_drift_band_override_and_flags_measure
 
 
 def test_build_full_run_prediction_no_drift_override_by_default(tmp_path):
-    assert wtune.tune.predict is not None, "wtune_predict.py must be importable for this test"
+    assert wtune.tune.predict is not None, "wtune predict must be importable for this test"
     namelist_path = tmp_path / "namelist.input"
     namelist_path.write_text(_PREDICT_TEST_NAMELIST)
     best_config = dict(id="ANCHOR", ranks=72, omp=1, nx=8, ny=9, numtiles=1, dist="block")
@@ -986,9 +986,9 @@ def test_build_full_run_prediction_no_drift_override_by_default(tmp_path):
 
 # ---------------------------------------------------------------------------
 # ranking by PREDICTED whole-run wall time (2026-09-24 decision), not raw median s/step --
-# predict_candidates/rank_predicted_entries. wtune_predict.build_prediction is monkeypatched in
+# predict_candidates/rank_predicted_entries. wtune.predict.build_prediction is monkeypatched in
 # most of these: the point is to test THIS module's consumption of a prediction (ranking, tie
-# rule, failure handling), not wtune_predict's own physics model (that belongs to
+# rule, failure handling), not wtune.predict's own physics model (that belongs to
 # test_wtune_predict.py). Tests that need a REAL prediction (the h:mm:ss column, the
 # include_io=False guarantee end to end) reuse _PREDICT_TEST_NAMELIST/MATTHEW_LIKE, the same
 # fixture the build_full_run_prediction tests above already rely on.
@@ -1118,7 +1118,7 @@ def test_rank_predicted_entries_anchor_sorts_first_within_its_cluster_even_when_
 
 
 def test_render_report_text_shows_predicted_total_hms_column(tmp_path):
-    assert wtune.tune.predict is not None, "wtune_predict.py must be importable for this test"
+    assert wtune.tune.predict is not None, "wtune predict must be importable for this test"
     namelist_path = tmp_path / "namelist.input"
     namelist_path.write_text(_PREDICT_TEST_NAMELIST)
     best_config = dict(id="ANCHOR", ranks=72, omp=1, nx=8, ny=9, numtiles=1, dist="block")
@@ -1139,7 +1139,7 @@ def test_render_report_text_shows_predicted_total_hms_column(tmp_path):
 
 
 def test_build_prediction_never_called_with_include_io_true(tmp_path, monkeypatch):
-    assert wtune.tune.predict is not None, "wtune_predict.py must be importable for this test"
+    assert wtune.tune.predict is not None, "wtune predict must be importable for this test"
     namelist_path = tmp_path / "namelist.input"
     namelist_path.write_text(_PREDICT_TEST_NAMELIST)
     best_config = dict(id="ANCHOR", ranks=72, omp=1, nx=8, ny=9, numtiles=1, dist="block")
@@ -1164,9 +1164,9 @@ def test_build_prediction_never_called_with_include_io_true(tmp_path, monkeypatc
 
 
 def _patched_load_config(raw):
-    """A stand-in for wtune_config.load_config that skips real YAML parsing entirely -- resolves
+    """A stand-in for wtune.config.load_config that skips real YAML parsing entirely -- resolves
     `raw` (a plain dict, the same shape a parsed YAML file would produce) through
-    wtune_config.resolve_config directly. Lets the --config wiring in wtune_tune.run() (CLI > file
+    wtune.config.resolve_config directly. Lets the --config wiring in wtune.tune.run() (CLI > file
     > defaults precedence, search filtering, probe/prediction plumbing) be exercised without
     requiring PyYAML in this test environment -- only wtune/config.py's OWN load_config/CLI tests
     (test_wtune_config.py) need real YAML and are skipped there when PyYAML is absent."""
@@ -1831,7 +1831,7 @@ class _PipeEnv:
 
         def plan_points(case_types, run_start, run_end, precision_min, T_est_s, indicators=None,
                         best_track=None, window_s=0.0, min_gap_s=1800.0, max_points=6):
-            # R's real signature (wtune_cost_drivers.plan_points_for_case)
+            # R's real signature (wtune.cost_drivers.plan_points_for_case)
             n = len(pcalls)
             pcalls.append(dict(types=list(case_types), precision_min=precision_min, T=T_est_s,
                                call=n, window_s=window_s, run_start=run_start, run_end=run_end))
@@ -2591,7 +2591,7 @@ def test_plan_prediction_points_calls_the_REAL_planner_common_case_needs_t0_only
     r = wtune.tune.plan_prediction_points(_planner_ctx(), wrapped, 15.0, 25 * 60.0, False,
                                           run_start=t0, run_end=t0 + _dt.timedelta(hours=24),
                                           window_s=3600.0)
-    assert r["source"] == "wtune_cost_drivers"                 # NOT the silent fallback table
+    assert r["source"] == "wtune.cost_drivers"                 # NOT the silent fallback table
     assert r["selected"] == []                                  # needs_rebuild == []: t0 only
     assert r["band"] == pytest.approx(0.15) and r["meets_precision"] is True
     assert [p[1] for p in r["points"]] == ["t0"] and r["types"] == ["common"]
@@ -2616,7 +2616,7 @@ def test_plan_prediction_points_convection_case_gets_t0_plus_the_peak(monkeypatc
     r = wtune.tune.plan_prediction_points(_planner_ctx(), wrapped, 15.0, 90 * 60.0, False,
                                           run_start=t0, run_end=t0 + _dt.timedelta(hours=24),
                                           window_s=3600.0)
-    assert r["source"] == "wtune_cost_drivers" and r["band"] == pytest.approx(0.10)
+    assert r["source"] == "wtune.cost_drivers" and r["band"] == pytest.approx(0.10)
     assert [p[1] for p in r["points"]] == ["t0", "convective_peak"]
     assert [w["index"] for w in r["selected"]] == [14]          # needs_rebuild == [the peak hour]
     assert r["meets_precision"] is True and r["types"] == ["convection"]
@@ -2898,11 +2898,11 @@ def test_add_run_length_io_without_a_model_keeps_the_total():
 def test_prediction_init_prefers_the_measured_round0_startup():
     ctx = _types.SimpleNamespace(startup_s=120.0, startup_runs=None,
                                  startup_source="documented constant (scc_sweep.STARTUP_S)")
-    assert wtune.tune.prediction_init(ctx, 125.6, "wtune_predict.predict_init") == (
-        125.6, "wtune_predict.predict_init")
+    assert wtune.tune.prediction_init(ctx, 125.6, "wtune.predict.predict_init") == (
+        125.6, "wtune.predict.predict_init")
     ctx.startup_s, ctx.startup_runs = 49.9, 5
     ctx.startup_source = "measured in phase 1 (median of 2 finalist(s))"
-    assert wtune.tune.prediction_init(ctx, 125.6, "wtune_predict.predict_init") == (
+    assert wtune.tune.prediction_init(ctx, 125.6, "wtune.predict.predict_init") == (
         49.9, "measured round0 startup (5 runs)")
 
 

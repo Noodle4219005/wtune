@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Golden tests added before the wtune_tune package split (round 2): the paths the first golden
+"""Golden tests added before the wtune.tune package split (round 2): the paths the first golden
 file does not pin -- the CLI surface (help text, main() exit codes, the script / `-m` entry
 points), the node-search fallback, -O0 without a known run length, and two more pipeline paths.
 
@@ -37,7 +37,7 @@ def _patch(monkeypatch, name, value):
 
 @pytest.fixture(autouse=True)
 def _isolate(monkeypatch):
-    """Same isolation as the first golden file: no node exclusions, a stub wtune_advise."""
+    """Same isolation as the first golden file: no node exclusions, a stub wtune.advise."""
     from wtune.tools import scc_sweep
     for var in ("WTUNE_SBATCH_EXCLUDE", scc_sweep.PREFLIGHT_EXCLUDE_ENV):
         monkeypatch.setenv(var, "")
@@ -164,7 +164,7 @@ def test_golden_pipeline_more(name, monkeypatch, tmp_path, capsys):
 
 
 # --- prediction paths no other test reaches: combine() over measured points, the C3 driver and
-# the pipeline's prediction context, with wtune_predict / wtune_probe_plan faked -----------------
+# the pipeline's prediction context, with wtune.predict / wtune.probe_plan faked -----------------
 def _fake_predict_stack(monkeypatch, calls):
     import datetime as _dt
     wp, pp = wtune.tune.predict, wtune.tune.probe_plan

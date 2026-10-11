@@ -131,7 +131,7 @@ def _load_decomp() -> Optional[ModuleType]:
 # --------------------------------------------------------------------------- bound functions
 def ranked_shapes(e_we: int, e_sn: int, e_vert: int, ranks: int, omp: int,
                   nodes: int = 4) -> Tuple[List[Tuple[int, int]], str]:
-    """(legal (nx, ny) pairs best first, 'wtune_decomp' | 'fallback')."""
+    """(legal (nx, ny) pairs best first, 'wtune.decomp' | 'fallback')."""
     return _layout.ranked_shapes(e_we, e_sn, e_vert, ranks, omp, nodes, load_decomp=_load_decomp)
 
 

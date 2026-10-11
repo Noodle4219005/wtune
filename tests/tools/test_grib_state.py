@@ -5,7 +5,7 @@ Source selection, URL construction, .idx parsing, availability checking, downloa
 and bbox crop all moved to tools/metdata.py -- see tools/test_metdata.py for those. This suite
 covers what's still grib_state.py's own: nearest-neighbour regrid, feature math (matching the
 WRF-side thresholds in tools/state_timeline.py), the RSL-lite patch-imbalance helpers, and
-sunlit_frac against wtune_solar directly. No network access, no eccodes/cfgrib required.
+sunlit_frac against wtune.solar directly. No network access, no eccodes/cfgrib required.
 
 Run with:
   /home/nk/miniforge3/envs/hqvit-pixi/bin/python3 -m pytest -q tools/test_grib_state.py
@@ -105,7 +105,7 @@ class TestFeatureMath(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# sunlit_frac against wtune_solar directly
+# sunlit_frac against wtune.solar directly
 # ---------------------------------------------------------------------------
 
 class TestSunlitFrac(unittest.TestCase):

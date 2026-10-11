@@ -1345,7 +1345,7 @@
       "effective": 3,
       "estimate_info": {
         "nodes": 13,
-        "points_source": "wtune_cost_drivers",
+        "points_source": "wtune.cost_drivers",
         "precision_min": 15.0,
         "prediction_points": 0,
         "s_per_step_n": 10.0,
@@ -1380,7 +1380,7 @@
           "2026-01-01T03:00:00",
           "2026-01-01T05:00:00"
         ],
-        "points_source": "wtune_cost_drivers",
+        "points_source": "wtune.cost_drivers",
         "prediction_points": 0,
         "queue_s_max": null,
         "queue_s_sum": null,
@@ -1511,7 +1511,7 @@
       "method": "common: fake case-type plan",
       "points": [],
       "precision_min": 15.0,
-      "source": "wtune_cost_drivers"
+      "source": "wtune.cost_drivers"
     },
     "queue_cap_hit": false,
     "rebuild": {
@@ -1521,7 +1521,7 @@
         "2026-01-01T03:00:00",
         "2026-01-01T05:00:00"
       ],
-      "points_source": "wtune_cost_drivers",
+      "points_source": "wtune.cost_drivers",
       "prediction_points": 0,
       "spinup_min": 20,
       "status": "ok (no rebuild submitted: the case needs no prediction point)"

@@ -36,7 +36,7 @@
   "cores_per_node": 72,
   "cores_used_per_node": 72,
   "elapsed_minutes": 0.0,
-  "full_run_prediction": "=== full-run prediction (rank_by=predicted, ANCHOR, 1 rebuilt point(s)) ===\ncompute_total: 17:10   init: 10.0s   TOTAL: 17:20 (range 17:10 - 17:10, +-1.0% drift)\nr_rad: night=1.000 day=3.900 source=fake\nwhole run: compute 1020s + init 10s = 1030s (run-length I/O NOT included)  [init: wtune_predict.predict_init]",
+  "full_run_prediction": "=== full-run prediction (rank_by=predicted, ANCHOR, 1 rebuilt point(s)) ===\ncompute_total: 17:10   init: 10.0s   TOTAL: 17:20 (range 17:10 - 17:10, +-1.0% drift)\nr_rad: night=1.000 day=3.900 source=fake\nwhole run: compute 1020s + init 10s = 1030s (run-length I/O NOT included)  [init: wtune.predict.predict_init]",
   "job_ids": [
     "9000",
     "9001",
@@ -452,7 +452,7 @@
       "effective": 1,
       "estimate_info": {
         "nodes": 13,
-        "points_source": "wtune_cost_drivers",
+        "points_source": "wtune.cost_drivers",
         "precision_min": 15.0,
         "prediction_points": 3,
         "s_per_step_n": 0.05,
@@ -497,7 +497,7 @@
           "2026-01-01T03:00:00",
           "2026-01-01T05:00:00"
         ],
-        "points_source": "wtune_cost_drivers",
+        "points_source": "wtune.cost_drivers",
         "prediction_points": 3,
         "queue_s_max": null,
         "queue_s_sum": null,
@@ -671,7 +671,7 @@
       "degraded": false,
       "error_min": 1.2016666666666669,
       "init_s": 10.0,
-      "init_source": "wtune_predict.predict_init",
+      "init_source": "wtune.predict.predict_init",
       "io": null,
       "io_s": 0.0,
       "layout_id": "ANCHOR",
@@ -702,7 +702,7 @@
         2
       ],
       "precision_min": 15.0,
-      "source": "wtune_cost_drivers"
+      "source": "wtune.cost_drivers"
     },
     "queue_cap_hit": false,
     "rebuild": {
@@ -712,7 +712,7 @@
         "2026-01-01T03:00:00",
         "2026-01-01T05:00:00"
       ],
-      "points_source": "wtune_cost_drivers",
+      "points_source": "wtune.cost_drivers",
       "prediction_points": 3,
       "rebuild_jobs": [
         "9000",

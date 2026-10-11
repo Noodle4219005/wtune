@@ -1,4 +1,4 @@
-"""Golden snapshot of wtune_io_model.run_length_io (full dict, key order included) and
+"""Golden snapshot of wtune.io_model.run_length_io (full dict, key order included) and
 breakdown_line on the namelists of test_wtune_io_model.py, pinned before the round-3 tidy-up
 split run_length_io into per-term helpers.
 

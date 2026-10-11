@@ -1,5 +1,5 @@
-"""Regression tests for the 8bdcd3c source-review findings in wtune_run / wtune_watch /
-wtune_sidecar. No job is ever submitted: sbatch/sacct/snapshot/srun are fakes in tmp dirs."""
+"""Regression tests for the 8bdcd3c source-review findings in wtune.run / wtune.watch /
+wtune.sidecar. No job is ever submitted: sbatch/sacct/snapshot/srun are fakes in tmp dirs."""
 import datetime as dt
 import json
 import os

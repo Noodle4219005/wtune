@@ -1,4 +1,4 @@
-"""wtune_geog: synthetic GeoTIFF import, tile decode, TBL copy, list, fetch (fake downloader), G3."""
+"""wtune.geog: synthetic GeoTIFF import, tile decode, TBL copy, list, fetch (fake downloader), G3."""
 import io
 import json
 import os
@@ -281,7 +281,7 @@ def test_domain_bounds_namelist_wps(tmp_path):
 
 
 def test_g3_no_tune_or_advise_path_reaches_geog():
-    """G3 (static): no module outside the explicit CLI dispatch imports wtune_geog, and wtune_geog
+    """G3 (static): no module outside the explicit CLI dispatch imports wtune.geog, and wtune.geog
     imports nothing from the tune/advise code."""
     importers = []
     for root, _, files in os.walk(SRC):

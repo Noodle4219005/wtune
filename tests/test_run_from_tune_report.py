@@ -109,7 +109,7 @@ def test_rank_mapping_notes():
 
 
 # ---------------------------------------------------------------------------
-# wtune tune: top-level "winner" = the FINAL pick (wtune_tune.final_winner)
+# wtune tune: top-level "winner" = the FINAL pick (wtune.tune.final_winner)
 # ---------------------------------------------------------------------------
 import wtune.tune  # noqa: E402
 import test_wtune_tune as tt  # noqa: E402

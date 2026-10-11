@@ -483,7 +483,7 @@
       "effective": 3,
       "estimate_info": {
         "nodes": 13,
-        "points_source": "wtune_cost_drivers",
+        "points_source": "wtune.cost_drivers",
         "precision_min": 15.0,
         "prediction_points": 5,
         "s_per_step_n": 10.0,
@@ -526,7 +526,7 @@
           "2026-01-01T07:00:00",
           "2026-01-01T09:00:00"
         ],
-        "points_source": "wtune_cost_drivers",
+        "points_source": "wtune.cost_drivers",
         "prediction_points": 5,
         "queue_s_max": null,
         "queue_s_sum": null,
@@ -641,7 +641,7 @@
         4
       ],
       "precision_min": 15.0,
-      "source": "wtune_cost_drivers"
+      "source": "wtune.cost_drivers"
     },
     "queue_cap_hit": false,
     "rebuild": {
@@ -653,7 +653,7 @@
         "2026-01-01T07:00:00",
         "2026-01-01T09:00:00"
       ],
-      "points_source": "wtune_cost_drivers",
+      "points_source": "wtune.cost_drivers",
       "prediction_points": 5,
       "rebuild_jobs": [
         "9000",

@@ -1,6 +1,6 @@
 case=matthew nodes=search (node search (measured)) budget=none max_nodes=13 out=<TMP>/out
 pipeline O3: hard cap none of RUNNING time (queue wait not charged; queue cap 6:00:00)
-pipeline: 預估調校時間 O1 ≈ 38 min  O2 ≈ 76 min  O3 ≈ 104 min <-  (running time; queue wait extra); whole run ~2:48:40 (cold start); prediction points for this case at ±15 min: 0 (wtune_cost_drivers)
+pipeline: 預估調校時間 O1 ≈ 38 min  O2 ≈ 76 min  O3 ≈ 104 min <-  (running time; queue wait extra); whole run ~2:48:40 (cold start); prediction points for this case at ±15 min: 0 (wtune.cost_drivers)
 pipeline: phase 0 rebuild submission FAILED -- failed: RuntimeError: no ERA5-rebuildable point planned ()
 node sweep: nodes-n1 submitted job 7001 (ANCHOR ranks=72 omp=1 8x9, REPS=2, ~5:40)
 node sweep: nodes-n2 submitted job 7002 (ANCHOR ranks=144 omp=1 12x12, REPS=2, ~5:40)

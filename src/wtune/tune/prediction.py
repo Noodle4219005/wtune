@@ -519,7 +519,7 @@ def plan_prediction_points(ctx: Ctx, wrapped: list[dict], precision_min: float, 
             why = (res.get("rationale") or [""])
             return dict(selected=sel, band=float(res["band_pct"]) / 100.0,
                         method="%s: %s" % ("/".join(res.get("types") or types), why[0]),
-                        source="wtune_cost_drivers", types=list(res.get("types") or types),
+                        source="wtune.cost_drivers", types=list(res.get("types") or types),
                         meets_precision=res.get("meets_precision"),
                         confidence=res.get("confidence"), rationale=list(why),
                         points=[(t.isoformat(), r) for t, r in res.get("points", [])])
@@ -581,7 +581,7 @@ def cold_start_prediction(ctx: Ctx, nodes: int, config: dict | None,
                 io_form_override=None, io_target=ctx.prediction_cfg.get("io_target") or "nfs",
                 case_name=ctx.case, rsl_paths=None, include_io=False)
             T = float(pred["total_s"])
-            return T, max(1e-6, (T - ctx.startup_s) / max(1, total_steps)), "wtune_predict cold start"
+            return T, max(1e-6, (T - ctx.startup_s) / max(1, total_steps)), "wtune.predict cold start"
         except Exception:                                   # noqa: BLE001
             pass
     s_est, src, _k = sweep.estimate_s_per_step(ctx.case, nodes, ctx.ledger_dir, ctx.hardware_id)

@@ -62,7 +62,7 @@
     742500
    ],
    "io_format": "adios2",
-   "source": "wtune_io_model[adios2] (history/restart: wtune_run fallback anchors, adios2 history: SC26-P2 rsl; boundary/aux: climate-ea50 rsl; iofields: parses x get_fieldstr calls)"
+   "source": "wtune.io_model[adios2] (history/restart: wtune.run fallback anchors, adios2 history: SC26-P2 rsl; boundary/aux: climate-ea50 rsl; iofields: parses x get_fieldstr calls)"
   },
   "line": "compute 1000s + history 56s + boundary 34s + aux 51s + restart 0s + init 60s = 1201s"
  },
@@ -129,7 +129,7 @@
     742500
    ],
    "io_format": "netcdf",
-   "source": "wtune_io_model[netcdf] (history/restart: wtune_run fallback anchors, adios2 history: SC26-P2 rsl; boundary/aux: climate-ea50 rsl; iofields: parses x get_fieldstr calls)"
+   "source": "wtune.io_model[netcdf] (history/restart: wtune.run fallback anchors, adios2 history: SC26-P2 rsl; boundary/aux: climate-ea50 rsl; iofields: parses x get_fieldstr calls)"
   },
   "line": "compute 1000s + history 1060s + boundary 491s + aux 260s + restart 35s + init 60s = 2906s"
  },
@@ -196,7 +196,7 @@
     742500
    ],
    "io_format": "adios2",
-   "source": "wtune_io_model[adios2] (history/restart: wtune_run fallback anchors, adios2 history: SC26-P2 rsl; boundary/aux: climate-ea50 rsl; iofields: parses x get_fieldstr calls)"
+   "source": "wtune.io_model[adios2] (history/restart: wtune.run fallback anchors, adios2 history: SC26-P2 rsl; boundary/aux: climate-ea50 rsl; iofields: parses x get_fieldstr calls)"
   },
   "line": "compute 1000s + history 56s + boundary 34s + aux 51s + restart 0s + iofields 3367s + init 60s = 4568s"
  },
@@ -263,7 +263,7 @@
     742500
    ],
    "io_format": "netcdf",
-   "source": "wtune_io_model[netcdf] (history/restart: wtune_run fallback anchors, adios2 history: SC26-P2 rsl; boundary/aux: climate-ea50 rsl; iofields: parses x get_fieldstr calls)"
+   "source": "wtune.io_model[netcdf] (history/restart: wtune.run fallback anchors, adios2 history: SC26-P2 rsl; boundary/aux: climate-ea50 rsl; iofields: parses x get_fieldstr calls)"
   },
   "line": "compute 1000s + history 1060s + boundary 491s + aux 260s + restart 35s + init 60s = 2906s"
  },
@@ -330,7 +330,7 @@
     884000
    ],
    "io_format": "adios2",
-   "source": "wtune_io_model[adios2] (history/restart: wtune_run fallback anchors, adios2 history: SC26-P2 rsl; boundary/aux: climate-ea50 rsl; iofields: parses x get_fieldstr calls)"
+   "source": "wtune.io_model[adios2] (history/restart: wtune.run fallback anchors, adios2 history: SC26-P2 rsl; boundary/aux: climate-ea50 rsl; iofields: parses x get_fieldstr calls)"
   },
   "line": "compute 1000s + history 2s + boundary 0s + aux 0s + restart 0s + init 60s = 1062s"
  },
@@ -397,7 +397,7 @@
     884000
    ],
    "io_format": "netcdf",
-   "source": "wtune_io_model[netcdf] (history/restart: wtune_run fallback anchors, adios2 history: SC26-P2 rsl; boundary/aux: climate-ea50 rsl; iofields: parses x get_fieldstr calls)"
+   "source": "wtune.io_model[netcdf] (history/restart: wtune.run fallback anchors, adios2 history: SC26-P2 rsl; boundary/aux: climate-ea50 rsl; iofields: parses x get_fieldstr calls)"
   },
   "line": "compute 1000s + history 39s + boundary 3s + aux 0s + restart 0s + init 60s = 1102s"
  },
@@ -464,7 +464,7 @@
     884000
    ],
    "io_format": "adios2",
-   "source": "wtune_io_model[adios2] (history/restart: wtune_run fallback anchors, adios2 history: SC26-P2 rsl; boundary/aux: climate-ea50 rsl; iofields: parses x get_fieldstr calls)"
+   "source": "wtune.io_model[adios2] (history/restart: wtune.run fallback anchors, adios2 history: SC26-P2 rsl; boundary/aux: climate-ea50 rsl; iofields: parses x get_fieldstr calls)"
   },
   "line": "compute 1000s + history 0s + boundary 0s + aux 0s + restart 0s + init 60s = 1060s"
  },
@@ -545,7 +545,7 @@
     372645
    ],
    "io_format": "adios2",
-   "source": "wtune_io_model[adios2] (history/restart: wtune_run fallback anchors, adios2 history: SC26-P2 rsl; boundary/aux: climate-ea50 rsl; iofields: parses x get_fieldstr calls)"
+   "source": "wtune.io_model[adios2] (history/restart: wtune.run fallback anchors, adios2 history: SC26-P2 rsl; boundary/aux: climate-ea50 rsl; iofields: parses x get_fieldstr calls)"
   },
   "line": "compute 1000s + history 2s + boundary 0s + aux 0s + restart 0s + init 60s = 1062s"
  },
@@ -626,7 +626,7 @@
     372645
    ],
    "io_format": "adios2",
-   "source": "wtune_io_model[adios2] (history/restart: wtune_run fallback anchors, adios2 history: SC26-P2 rsl; boundary/aux: climate-ea50 rsl; iofields: parses x get_fieldstr calls)"
+   "source": "wtune.io_model[adios2] (history/restart: wtune.run fallback anchors, adios2 history: SC26-P2 rsl; boundary/aux: climate-ea50 rsl; iofields: parses x get_fieldstr calls)"
   },
   "line": "compute 1000s + history 2s + boundary 0s + aux 0s + restart 0s + iofields 1s + init 60s = 1063s"
  },
@@ -707,7 +707,7 @@
     372645
    ],
    "io_format": "adios2",
-   "source": "wtune_io_model[adios2] (history/restart: wtune_run fallback anchors, adios2 history: SC26-P2 rsl; boundary/aux: climate-ea50 rsl; iofields: parses x get_fieldstr calls)"
+   "source": "wtune.io_model[adios2] (history/restart: wtune.run fallback anchors, adios2 history: SC26-P2 rsl; boundary/aux: climate-ea50 rsl; iofields: parses x get_fieldstr calls)"
   },
   "line": "compute 1000s + history 2s + boundary 0s + aux 0s + restart 0s + init 60s = 1062s"
  },
@@ -788,7 +788,7 @@
     372645
    ],
    "io_format": "netcdf",
-   "source": "wtune_io_model[netcdf] (history/restart: wtune_run fallback anchors, adios2 history: SC26-P2 rsl; boundary/aux: climate-ea50 rsl; iofields: parses x get_fieldstr calls)"
+   "source": "wtune.io_model[netcdf] (history/restart: wtune.run fallback anchors, adios2 history: SC26-P2 rsl; boundary/aux: climate-ea50 rsl; iofields: parses x get_fieldstr calls)"
   },
   "line": "compute 1000s + history 29s + boundary 0s + aux 0s + restart 0s + init 60s = 1089s"
  },
@@ -855,7 +855,7 @@
     884000
    ],
    "io_format": "adios2",
-   "source": "wtune_io_model[adios2] (history/restart: wtune_run fallback anchors, adios2 history: SC26-P2 rsl; boundary/aux: climate-ea50 rsl; iofields: parses x get_fieldstr calls)"
+   "source": "wtune.io_model[adios2] (history/restart: wtune.run fallback anchors, adios2 history: SC26-P2 rsl; boundary/aux: climate-ea50 rsl; iofields: parses x get_fieldstr calls)"
   },
   "line": "compute 1000s + history 0s + boundary 0s + aux 1s + restart 0s + init 60s = 1061s"
  },
@@ -922,7 +922,7 @@
     742500
    ],
    "io_format": "adios2",
-   "source": "wtune_io_model[adios2] (history/restart: wtune_run fallback anchors, adios2 history: SC26-P2 rsl; boundary/aux: climate-ea50 rsl; iofields: parses x get_fieldstr calls)"
+   "source": "wtune.io_model[adios2] (history/restart: wtune.run fallback anchors, adios2 history: SC26-P2 rsl; boundary/aux: climate-ea50 rsl; iofields: parses x get_fieldstr calls)"
   },
   "line": "compute 1000s + history 56s + boundary 0s + aux 51s + restart 0s + init 60s = 1167s"
  }

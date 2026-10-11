@@ -246,9 +246,9 @@ class AdvisorCoverageTests(unittest.TestCase):
 
     def test_physics_candidate_params_match_source(self):
         found, matched = _extract_physics_params()
-        self.assertTrue(matched, 'could not locate _effective_opinion() body in wtune_physics.py')
+        self.assertTrue(matched, 'could not locate _effective_opinion() body in wtune/physics.py')
         self.assertEqual(found, set(PHYSICS_CANDIDATE_PARAMS),
-                          'wtune_physics.py _effective_opinion() names vs hard-coded '
+                          'wtune/physics.py _effective_opinion() names vs hard-coded '
                           'PHYSICS_CANDIDATE_PARAMS differ: extra-in-source={} extra-in-list={}'.format(
                               found - set(PHYSICS_CANDIDATE_PARAMS), set(PHYSICS_CANDIDATE_PARAMS) - found))
 

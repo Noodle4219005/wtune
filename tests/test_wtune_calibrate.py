@@ -515,7 +515,7 @@ def test_fit_raises_when_no_run_directories_found(tmp_path):
 
 
 # --------------------------------------------------------------------------
-# integration: the fitted calibration file loads and works inside wtune_predict
+# integration: the fitted calibration file loads and works inside wtune.predict
 # --------------------------------------------------------------------------
 
 PREDICT_FIXTURE_NAMELIST = """\

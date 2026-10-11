@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""wtune_iofields (merge the lines WRF re-parses at every I/O call) and where it is applied:
+"""wtune.iofields (merge the lines WRF re-parses at every I/O call) and where it is applied:
 `wtune run`'s segment dirs, the probes' link-namelist-files staging, `wtune check` C11."""
 import os
 

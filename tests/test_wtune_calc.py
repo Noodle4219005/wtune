@@ -1,4 +1,4 @@
-"""Tests for wtune_calc (decision 0062): known-value conversions, dt/radt/nest/cfl arithmetic,
+"""Tests for wtune.calc (decision 0062): known-value conversions, dt/radt/nest/cfl arithmetic,
 physics-scale formulas, rules-file integrity and `check` behaviour.
 
 Run: envs/wtune/.pixi/envs/default/bin/python -m pytest -q tests/test_wtune_calc.py
@@ -82,7 +82,7 @@ def test_only_wrf_doc_rules_can_be_hard():
 def test_wtune_measured_rules_cite_a_wiki_note_or_calibration():
     for rid, r in wc.rules().items():
         if r["source_level"] == "wtune-measured":
-            assert re.search(r"\.md|calibration|wtune_predict", r["source_ref"]), rid
+            assert re.search(r"\.md|calibration|wtune.predict", r["source_ref"]), rid
 
 
 def test_rule_of_thumb_not_disguised_as_official():

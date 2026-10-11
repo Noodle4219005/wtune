@@ -7,7 +7,7 @@ import os
 
 import pytest
 
-import test_wtune_run  # noqa: F401  first: its wtune_run import restores SITE/configs
+import test_wtune_run  # noqa: F401  first: its wtune.run import restores SITE/configs
 from wtune import predict as wp
 from wtune import resume as wres
 from wtune import run as wr
@@ -204,7 +204,7 @@ def test_resume_0_disables(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# wtune_resume (pure / files)
+# wtune.resume (pure / files)
 # ---------------------------------------------------------------------------
 @pytest.mark.parametrize("state,model,want", [
     ("NODE_FAIL", False, "infrastructure"), ("TIMEOUT", True, "infrastructure"),

@@ -13,7 +13,7 @@ import types
 
 import pytest
 
-# Importing wtune_run -> scc_sweep sets SITE=scc and loads campaign `configs` with it; undo both so
+# Importing wtune.run -> scc_sweep sets SITE=scc and loads campaign `configs` with it; undo both so
 # campaign/test_configs.py (collected later in the same process) gets its own f1 import.
 _SITE_BEFORE = os.environ.get("SITE")
 _CONFIGS_BEFORE = sys.modules.get("configs")
@@ -42,7 +42,7 @@ REAL_BP = _load_real_bp()        # its per-record helpers (stdlib only, no adios
 
 
 def _mk_bp(path):
-    """A directory wtune_bp.is_bp recognizes (BP4: md.idx + data.0)."""
+    """A directory wtune.bp.is_bp recognizes (BP4: md.idx + data.0)."""
     os.makedirs(path, exist_ok=True)
     for f in ("md.idx", "data.0"):
         open(os.path.join(path, f), "w").close()
@@ -955,7 +955,7 @@ def test_run_adios2_default_converts_once_links_bp_inputs_and_writes_xml(tmp_pat
         assert bdy["multi_bdy_files"] == [True]
         xml = (d / "adios2.xml").read_text()
         assert xml.count("<adios-config>") == 1 and "wrfrst_d01_2020-06-01_06:00:00" in xml
-    # the case's own adios2.xml ("x") is not XML: segments get wtune_bp's + the restart entries
+    # the case's own adios2.xml ("x") is not XML: segments get wtune.bp's + the restart entries
     assert rep["io"]["mode"] == "adios2" and rep["io"]["bp_cache"] == str(cache)
     assert _tree_state(case) == before
 

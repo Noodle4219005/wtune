@@ -1,4 +1,4 @@
-"""Golden snapshots of wtune_watch.snapshot (dict, key order included) and format_line, pinned
+"""Golden snapshots of wtune.watch.snapshot (dict, key order included) and format_line, pinned
 before the round-2 readability refactor split snapshot(). Run dirs come from the synthetic
 builders of test_wtune_watch.py / test_watch_run_root.py (imported, not copied); file mtimes,
 `now`, TZ and the file-age origin are pinned so nothing depends on the wall clock.

@@ -128,7 +128,7 @@ def write_namelist(path, sy=2020, smo=1, sd=1, sh=0, ey=2020, emo=1, ed=1, eh=3,
                                             ey=ey, emo=emo, ed=ed, eh=eh, ifire=ifire,
                                             run_hours=run_hours))
         if extra:
-            # wtune_predict.parse_namelist merges repeated '&group' blocks into the same dict
+            # wtune.predict.parse_namelist merges repeated '&group' blocks into the same dict
             # (groups.setdefault), so a second small &physics/&chem/&fdda block just adds keys.
             f.write("\n" + extra)
 
@@ -1038,7 +1038,7 @@ class TestNoNumpyOnComputeNode(unittest.TestCase):
             }
             with open(os.path.join(plan_dir, "plan.json"), "w") as f:
                 json.dump(plan, f)
-            cs.score_plan(plan_dir)   # must not raise ImportError (wtune_predict is stdlib-only)
+            cs.score_plan(plan_dir)   # must not raise ImportError (wtune.predict is stdlib-only)
         self.assertNotIn("wtune.tools.metdata", sys.modules)
         self.assertNotIn("wtune.tools.grib_state", sys.modules)
 

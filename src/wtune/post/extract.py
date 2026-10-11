@@ -268,7 +268,7 @@ def _convert_job(job):
             os.remove(tmp)
         raise
     _write_json_atomic(_sidecar(nc), dict(source=os.path.abspath(bp), signature=sig,
-                                          converter="wtune_bp.bp2nc"))
+                                          converter="wtune.bp.bp2nc"))
     return nc
 
 
@@ -280,7 +280,7 @@ def _cpu_budget():
 
 
 def _bp2nc_or_raise(run_dir, n_files, example):
-    """wtune_bp.bp2nc, after wtune.bp.require_adios2_python() -- whose Adios2Unavailable text
+    """wtune.bp.bp2nc, after wtune.bp.require_adios2_python() -- whose Adios2Unavailable text
     names the fix (the adios2 env); BPConversionError carrying that text otherwise."""
     what = ("%s holds ADIOS2 BP history (%d file(s) not yet converted, e.g. %s) that the post "
             "tools read as netCDF copies, but the BP -> netCDF converter "

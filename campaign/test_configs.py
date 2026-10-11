@@ -56,7 +56,7 @@ class TestLegalShapes(unittest.TestCase):
         # alt shapes" without assuming it lacks ALL shapes.
         shapes, method = configs.ranked_shapes(425, 300, 50, 448, 1)
         self.assertGreater(len(shapes), 0)
-        self.assertIn(method, ("wtune_decomp", "fallback"))
+        self.assertIn(method, ("wtune.decomp", "fallback"))
 
     def test_multidomain_shape_legal_on_d01_illegal_on_smaller_nest_is_rejected(self):
         # d01=2000x2000 (large, patch never binds), d02=150x900 (e_we tiny) -- a

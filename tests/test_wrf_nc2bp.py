@@ -1,6 +1,6 @@
 """Synthetic WRF netCDF -> BP -> netCDF bit-exact regression (restored from
 8ba1629:tools/wrf_nc2bp_roundtrip_test.py). Runs under the wtune env: the converters go through
-wtune_bp, which runs them as a subprocess of the envs/adios2 interpreter (or
+wtune.bp, which runs them as a subprocess of the envs/adios2 interpreter (or
 $WTUNE_ADIOS2_PYTHON); skipped when no adios2-capable interpreter is found."""
 
 import os

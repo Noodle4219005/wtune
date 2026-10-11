@@ -140,7 +140,7 @@ def dx12_namelist(tmp_path):
 
 # cu_physics=5 (Grell-3D) crashed the sc26p1 blind test with KeyError('?') because _CU had no
 # entry for it; cu_physics=999 is a value the WRF Registry does not list at all, used to exercise
-# the generic unknown-scheme degrade path (see wtune_physics.cost_weight).
+# the generic unknown-scheme degrade path (see wtune.physics.cost_weight).
 CU5_NAMELIST = CONUS_2500M.replace('cu_physics = 0,', 'cu_physics = 5,')
 CU_UNKNOWN_NAMELIST = CONUS_2500M.replace('cu_physics = 0,', 'cu_physics = 999,')
 

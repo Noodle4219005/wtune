@@ -98,7 +98,7 @@ def test_per_unit_costs_and_frame_counts_match_wtune_run(tmp_path, text, io_form
     assert io["points"] == geo["points"]
     for d in range(geo["max_dom"]):
         assert io["history_frames"][d] == wr.history_frames(geo, d, 0, geo["steps"])
-    # whole-run history seconds == wtune_run.history_wall over the whole run
+    # whole-run history seconds == wtune.run.history_wall over the whole run
     assert io["history_s"] == pytest.approx(wr.history_wall(geo, over, 0, geo["steps"]))
 
 

@@ -1,4 +1,4 @@
-"""Golden snapshot of wtune_preflight findings (severity/id/message/evidence/fix, order
+"""Golden snapshot of wtune.preflight findings (severity/id/message/evidence/fix, order
 included) on the fixture cases of test_wtune_preflight.py: that suite is re-run in a subprocess
 under tests/golden_preflight_plugin.py, which records what every check_*/run_checks call
 produced. Pinned before the round-3 tidy-up split the long check functions.

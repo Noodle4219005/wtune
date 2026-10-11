@@ -3,7 +3,7 @@
 
 Pins what a user sees from the argparse front end -- the top-level and every subcommand's
 --help text, the exit code and stdout/stderr of representative invalid or cheap invocations --
-so a restructuring of wtune_cli.main (parser construction, dispatch) can be checked to be
+so a restructuring of wtune.cli.main (parser construction, dispatch) can be checked to be
 behaviour-preserving. The golden file was generated from the UNCHANGED code (tag v0.8.2) with:
 
     WTUNE_GOLDEN_REGEN=1 python -m pytest -q tests/test_refactor_golden_cli.py

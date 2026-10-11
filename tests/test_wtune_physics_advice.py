@@ -1,5 +1,5 @@
 """Tests for src/wtune/physics_advice.py (decision 0059 phase 3). Synthetic namelists and numbers
-only; the field-by-field gate is monkeypatched at wtune_config_gate.compare (its tolerance check,
+only; the field-by-field gate is monkeypatched at wtune.config_gate.compare (its tolerance check,
 _check_results, stays real)."""
 import datetime
 import math

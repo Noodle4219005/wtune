@@ -1,4 +1,4 @@
-"""wtune_watch: `wtune run --out` root following (seg_<k>/ + run_report.json) and the wrfout
+"""wtune.watch: `wtune run --out` root following (seg_<k>/ + run_report.json) and the wrfout
 progress floor for an rsl lagging behind on NFS. Synthetic dirs: 1-domain namelist (dt 60 s),
 rsl.error.0000 with d01 Timing lines, empty wrfout_d01_<time> files."""
 import datetime as dt

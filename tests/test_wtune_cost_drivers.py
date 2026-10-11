@@ -1,4 +1,4 @@
-"""Tests for wtune_cost_drivers (decision 0060): synthetic data only, no network."""
+"""Tests for wtune.cost_drivers (decision 0060): synthetic data only, no network."""
 import datetime
 
 import numpy as np

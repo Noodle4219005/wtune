@@ -1,6 +1,6 @@
 case=matthew nodes=search (node search (measured)) budget=11.7 min max_nodes=13 out=<TMP>/out
 pipeline O3: hard cap 11:40 of RUNNING time (queue wait not charged; queue cap 6:00:00); phase limits (cumulative): plan 0:35, layout 6:25, predict 9:20, physics 11:40
-pipeline: 預估調校時間 O1 ≈ 130 min  O2 ≈ 168 min  O3 ≈ 196 min <-  (running time; queue wait extra); whole run ~2777:48:40 (cold start); prediction points for this case at ±15 min: 5 (wtune_cost_drivers)
+pipeline: 預估調校時間 O1 ≈ 130 min  O2 ≈ 168 min  O3 ≈ 196 min <-  (running time; queue wait extra); whole run ~2777:48:40 (cold start); prediction points for this case at ±15 min: 5 (wtune.cost_drivers)
 node sweep: nodes-n1 submitted job 7001 (ANCHOR ranks=72 omp=1 8x9, REPS=2, ~5:40)
 node sweep: nodes-n2 submitted job 7002 (ANCHOR ranks=144 omp=1 12x12, REPS=2, ~5:40)
 node sweep: nodes-n4 submitted job 7003 (ANCHOR ranks=288 omp=1 16x18, REPS=2, ~5:40)
@@ -67,7 +67,7 @@ BEST: ANCHOR
 === full-run prediction (rank_by=predicted, ANCHOR, 1 rebuilt point(s)) ===
 compute_total: 10:10   init: 10.0s   TOTAL: 10:20 (range 10:10 - 10:10, +-1.0% drift)
 r_rad: night=1.000 day=3.900 source=fake
-whole run: compute 600s + init 10s = 610s (run-length I/O NOT included)  [init: wtune_predict.predict_init]
+whole run: compute 600s + init 10s = 610s (run-length I/O NOT included)  [init: wtune.predict.predict_init]
 
 --- node selection (measured, ANCHOR config per node count) ---
 nodes     median_s  reps   spread  speedup    eff     wall_s node_hours maxrss_MB
@@ -146,7 +146,7 @@ suggested --time=00:16:00 (T rounded up to 15 min plus one band, >= 1.2x T)
 phase 2 plan: winner only x 2 points (t0 + costliest) (9:20 left; startup 120s/run); tried: 2 layout(s) x all 5 points ~24:15; 2 layout(s) x 2 points (t0 + costliest) ~9:42; winner only x all 5 points ~9:41; winner only x 2 points (t0 + costliest) ~4:50
 physics fidelity gate: config-gate, PROVISIONAL (no phase-2 twin: uncalibrated tolerance); baseline: phase-2 winner
 predicted whole run: 10:10 (range 9:39 - 10:40) at N=4 cores/node=72 {'ranks': 288, 'omp': 1, 'nx': 16, 'ny': 18, 'numtiles': 1, 'dist': 'block'}; suggested --time=00:16:00
-  compute 600s + init 10s = 610s (run-length I/O NOT included)  [init: wtune_predict.predict_init]
+  compute 600s + init 10s = 610s (run-length I/O NOT included)  [init: wtune.predict.predict_init]
 physics advice (ADVISORY ONLY, not applied; points 2026-01-01T01:00:00, 2026-01-01T09:00:00):
   PH1        saving 10.0%   fidelity pass     -> consider  (PH1)
   PH2        saving -       fidelity not run  -> estimate only — needs a cold start to measure  (PH2)

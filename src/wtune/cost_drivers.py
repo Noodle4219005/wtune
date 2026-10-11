@@ -245,7 +245,7 @@ def build_cost_series(providers, bounds, t_start, t_end, sample_points=None, wei
         prov.append(pv)
     if sample_points:
         got["sunlit"] = [predict.sunlit_fraction(sample_points, t) for t in times]
-        used["sunlit"] = "computed (wtune_predict.sunlit_fraction)"
+        used["sunlit"] = "computed (wtune.predict.sunlit_fraction)"
     return CostSeries(t_start, times, got, wts, prov, used)
 
 

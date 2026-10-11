@@ -698,7 +698,7 @@ def _prediction_from_winner(st: PipelineRun, report: dict, layouts: list[dict],
                                  for k in ("ranks", "omp", "nx", "ny", "numtiles")})
                     for e in st.ranked_all])
     init_w = float((winner.result or {}).get("init_s") or 0.0)
-    init_s, init_src = prediction_init(ctx, init_w, "wtune_predict.predict_init")
+    init_s, init_src = prediction_init(ctx, init_w, "wtune.predict.predict_init")
     pred.add_run_length_io(io_run, pred_s - init_w, init_s, band_eff, init_src)
     pred_s = pred.predicted_total_s
     if (winner.nodes, winner.cores, sweep._identity(cfg)) != (

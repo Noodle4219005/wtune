@@ -108,7 +108,7 @@ def _scorer_shapes(decomp: ModuleType, e_we: int, e_sn: int, e_vert: int, ranks:
 
 def ranked_shapes(e_we: int, e_sn: int, e_vert: int, ranks: int, omp: int, nodes: int = 4,
                   load_decomp: Optional[DecompLoader] = None) -> Tuple[List[Shape], str]:
-    """(legal (nx, ny) pairs best first, 'wtune_decomp' | 'fallback').
+    """(legal (nx, ny) pairs best first, 'wtune.decomp' | 'fallback').
 
     load_decomp() gives src/wtune/decomp.py or None (it needs Python >= 3.7; f1's is 3.6).
     """
@@ -117,7 +117,7 @@ def ranked_shapes(e_we: int, e_sn: int, e_vert: int, ranks: int, omp: int, nodes
         try:
             seen = _scorer_shapes(decomp, e_we, e_sn, e_vert, ranks, omp, nodes)
             if seen:
-                return seen, "wtune_decomp"
+                return seen, "wtune.decomp"
         except Exception as e:
             sys.stderr.write(
                 "NOTE: wtune.decomp.enumerate_configs failed (%s: %s); using fallback\n"

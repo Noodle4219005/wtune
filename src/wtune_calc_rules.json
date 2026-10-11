@@ -531,7 +531,7 @@
     {
       "id": "run.predict",
       "topic": "run",
-      "formula": "whole-run wall-time prediction from the calibrated per-stage model (delegates to wtune_predict.build_prediction; nothing is re-implemented here)",
+      "formula": "whole-run wall-time prediction from the calibrated per-stage model (delegates to wtune.predict.build_prediction; nothing is re-implemented here)",
       "function": "run",
       "parameters": [
         "namelist",
@@ -542,7 +542,7 @@
       "source_level": "wtune-measured",
       "source_ref": "src/wtune/predict.py build_prediction; machine/calibration/scc.json; accuracy statements live with that module",
       "applicability": "scc f1 nodes with a matching calibration",
-      "exceptions": "see wtune_predict for out-of-sample caveats",
+      "exceptions": "see wtune.predict for out-of-sample caveats",
       "message": {
         "ok": "",
         "deviates": ""

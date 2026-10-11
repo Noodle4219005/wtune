@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """`wtune run --sidecar`: restart validation records and in-allocation history conversion.
-Every srun is a fake handle; the conversion it stands for is wtune_sidecar's own CLI run
+Every srun is a fake handle; the conversion it stands for is wtune.sidecar's own CLI run
 in-process on test_post_bp_cache's fake BP directories (no adios2)."""
 from conftest import swap_wtune_module
 import datetime as dt
@@ -12,7 +12,7 @@ import pytest
 
 pytest.importorskip("netCDF4")
 
-import test_wtune_run  # noqa: F401  first: its wtune_run import restores SITE/configs
+import test_wtune_run  # noqa: F401  first: its wtune.run import restores SITE/configs
 from wtune import sidecar as ws  # noqa: E402
 from wtune.post import extract  # noqa: E402
 from test_post_bp_cache import _bp, _fresh_process, fake_bp  # noqa: E402,F401

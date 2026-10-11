@@ -1,6 +1,6 @@
 """pytest plugin for test_refactor_golden_preflight.py: records, per test of
 test_wtune_preflight.py, the findings (severity/id/message/evidence/fix, in order) that every
-wtune_preflight.check_* / run_checks call produced. Writes JSON to $WTUNE_GOLDEN_OUT."""
+wtune.preflight.check_* / run_checks call produced. Writes JSON to $WTUNE_GOLDEN_OUT."""
 import inspect
 import json
 import os

@@ -1,5 +1,5 @@
-"""Regression tests for the 8bdcd3c source-review findings in wtune_predict, wtune_preflight,
-wtune_config, tools/metdata, tools/grib_state and tools/wrf_adios2_to_netcdf4/convert."""
+"""Regression tests for the 8bdcd3c source-review findings in wtune.predict, wtune.preflight,
+wtune.config, tools/metdata, tools/grib_state and tools/wrf_adios2_to_netcdf4/convert."""
 
 import argparse
 import datetime

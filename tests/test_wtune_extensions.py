@@ -483,7 +483,7 @@ def test_coldstart_chem_blocks_only_on_missing_input_files(tmp_path):
     assert any(r[0] == "WRF-Chem" and "grid/rank" in r[3] for r in rows)
 
 
-# ---------------------------------------------------------------- direct invocation (no wtune_cli)
+# ---------------------------------------------------------------- direct invocation (no wtune.cli)
 def test_preflight_main_direct_prints_extension_lines_and_fails_on_build_mismatch(tmp_path, capsys):
     import wtune.preflight
     d = make(tmp_path, CHEM_GROUP)

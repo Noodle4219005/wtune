@@ -24799,7 +24799,7 @@
      "patch_x": 113,
      "patch_y": 17,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C02",
@@ -24813,7 +24813,7 @@
      "patch_x": 113,
      "patch_y": 17,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C03",
@@ -24827,7 +24827,7 @@
      "patch_x": 129,
      "patch_y": 15,
      "shape": "alt1",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C04",
@@ -24841,7 +24841,7 @@
      "patch_x": 113,
      "patch_y": 17,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C05",
@@ -24855,7 +24855,7 @@
      "patch_x": 129,
      "patch_y": 29,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C06",
@@ -24869,7 +24869,7 @@
      "patch_x": 129,
      "patch_y": 29,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C07",
@@ -24883,7 +24883,7 @@
      "patch_x": 129,
      "patch_y": 29,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C08",
@@ -24897,7 +24897,7 @@
      "patch_x": 129,
      "patch_y": 29,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C09",
@@ -24911,7 +24911,7 @@
      "patch_x": 226,
      "patch_y": 17,
      "shape": "alt1",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C10",
@@ -24925,7 +24925,7 @@
      "patch_x": 113,
      "patch_y": 33,
      "shape": "alt2",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C11",
@@ -24939,7 +24939,7 @@
      "patch_x": 129,
      "patch_y": 29,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C12",
@@ -24953,7 +24953,7 @@
      "patch_x": 129,
      "patch_y": 29,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C13",
@@ -25059,7 +25059,7 @@
      "patch_x": 113,
      "patch_y": 17,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     "C02": {
      "id": "C02",
@@ -25073,7 +25073,7 @@
      "patch_x": 113,
      "patch_y": 17,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     "C03": {
      "id": "C03",
@@ -25087,7 +25087,7 @@
      "patch_x": 129,
      "patch_y": 15,
      "shape": "alt1",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     "C04": {
      "id": "C04",
@@ -25101,7 +25101,7 @@
      "patch_x": 113,
      "patch_y": 17,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     "C05": {
      "id": "C05",
@@ -25115,7 +25115,7 @@
      "patch_x": 129,
      "patch_y": 29,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     "C06": {
      "id": "C06",
@@ -25129,7 +25129,7 @@
      "patch_x": 129,
      "patch_y": 29,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     "C07": {
      "id": "C07",
@@ -25143,7 +25143,7 @@
      "patch_x": 129,
      "patch_y": 29,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     "C08": {
      "id": "C08",
@@ -25157,7 +25157,7 @@
      "patch_x": 129,
      "patch_y": 29,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     "C09": {
      "id": "C09",
@@ -25171,7 +25171,7 @@
      "patch_x": 226,
      "patch_y": 17,
      "shape": "alt1",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     "C10": {
      "id": "C10",
@@ -25185,7 +25185,7 @@
      "patch_x": 113,
      "patch_y": 33,
      "shape": "alt2",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     "C11": {
      "id": "C11",
@@ -25199,7 +25199,7 @@
      "patch_x": 129,
      "patch_y": 29,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     "C12": {
      "id": "C12",
@@ -25213,7 +25213,7 @@
      "patch_x": 129,
      "patch_y": 29,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     "C13": {
      "id": "C13",
@@ -25289,7 +25289,7 @@
     "patch_x": 113,
     "patch_y": 17,
     "shape": "best",
-    "shape_method": "wtune_decomp"
+    "shape_method": "wtune.decomp"
    },
    {
     "id": "C06",
@@ -25303,7 +25303,7 @@
     "patch_x": 129,
     "patch_y": 29,
     "shape": "best",
-    "shape_method": "wtune_decomp"
+    "shape_method": "wtune.decomp"
    },
    null
   ]
@@ -25323,7 +25323,7 @@
      "patch_x": 215,
      "patch_y": 19,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C02",
@@ -25337,7 +25337,7 @@
      "patch_x": 215,
      "patch_y": 19,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C03",
@@ -25351,7 +25351,7 @@
      "patch_x": 188,
      "patch_y": 22,
      "shape": "alt1",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C04",
@@ -25365,7 +25365,7 @@
      "patch_x": 215,
      "patch_y": 19,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C05",
@@ -25379,7 +25379,7 @@
      "patch_x": 188,
      "patch_y": 43,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C06",
@@ -25393,7 +25393,7 @@
      "patch_x": 188,
      "patch_y": 43,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C07",
@@ -25407,7 +25407,7 @@
      "patch_x": 188,
      "patch_y": 43,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C08",
@@ -25421,7 +25421,7 @@
      "patch_x": 188,
      "patch_y": 43,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C09",
@@ -25435,7 +25435,7 @@
      "patch_x": 215,
      "patch_y": 38,
      "shape": "alt1",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C10",
@@ -25449,7 +25449,7 @@
      "patch_x": 376,
      "patch_y": 22,
      "shape": "alt2",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C11",
@@ -25463,7 +25463,7 @@
      "patch_x": 188,
      "patch_y": 43,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C12",
@@ -25477,7 +25477,7 @@
      "patch_x": 188,
      "patch_y": 43,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C13",
@@ -25564,7 +25564,7 @@
     "patch_x": 215,
     "patch_y": 19,
     "shape": "best",
-    "shape_method": "wtune_decomp"
+    "shape_method": "wtune.decomp"
    },
    {
     "id": "C06",
@@ -25578,7 +25578,7 @@
     "patch_x": 188,
     "patch_y": 43,
     "shape": "best",
-    "shape_method": "wtune_decomp"
+    "shape_method": "wtune.decomp"
    },
    null
   ]
@@ -25598,7 +25598,7 @@
      "patch_x": 27,
      "patch_y": 11,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C02",
@@ -25612,7 +25612,7 @@
      "patch_x": 27,
      "patch_y": 11,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C03",
@@ -25626,7 +25626,7 @@
      "patch_x": 16,
      "patch_y": 19,
      "shape": "alt1",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C04",
@@ -25640,7 +25640,7 @@
      "patch_x": 27,
      "patch_y": 11,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C05",
@@ -25654,7 +25654,7 @@
      "patch_x": 54,
      "patch_y": 11,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C06",
@@ -25668,7 +25668,7 @@
      "patch_x": 54,
      "patch_y": 11,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C07",
@@ -25682,7 +25682,7 @@
      "patch_x": 54,
      "patch_y": 11,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C08",
@@ -25696,7 +25696,7 @@
      "patch_x": 54,
      "patch_y": 11,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C09",
@@ -25710,7 +25710,7 @@
      "patch_x": 31,
      "patch_y": 19,
      "shape": "alt1",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C10",
@@ -25724,7 +25724,7 @@
      "patch_x": 27,
      "patch_y": 22,
      "shape": "alt2",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C11",
@@ -25738,7 +25738,7 @@
      "patch_x": 54,
      "patch_y": 11,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C12",
@@ -25752,7 +25752,7 @@
      "patch_x": 54,
      "patch_y": 11,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C13",
@@ -25839,7 +25839,7 @@
     "patch_x": 27,
     "patch_y": 11,
     "shape": "best",
-    "shape_method": "wtune_decomp"
+    "shape_method": "wtune.decomp"
    },
    {
     "id": "C06",
@@ -25853,7 +25853,7 @@
     "patch_x": 54,
     "patch_y": 11,
     "shape": "best",
-    "shape_method": "wtune_decomp"
+    "shape_method": "wtune.decomp"
    },
    null
   ]
@@ -25873,7 +25873,7 @@
      "patch_x": 114,
      "patch_y": 14,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C02",
@@ -25887,7 +25887,7 @@
      "patch_x": 114,
      "patch_y": 14,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C03",
@@ -25901,7 +25901,7 @@
      "patch_x": 100,
      "patch_y": 16,
      "shape": "alt1",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C04",
@@ -25915,7 +25915,7 @@
      "patch_x": 114,
      "patch_y": 14,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C05",
@@ -25929,7 +25929,7 @@
      "patch_x": 114,
      "patch_y": 27,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C06",
@@ -25943,7 +25943,7 @@
      "patch_x": 114,
      "patch_y": 27,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C07",
@@ -25957,7 +25957,7 @@
      "patch_x": 114,
      "patch_y": 27,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C08",
@@ -25971,7 +25971,7 @@
      "patch_x": 114,
      "patch_y": 27,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C09",
@@ -25985,7 +25985,7 @@
      "patch_x": 199,
      "patch_y": 16,
      "shape": "alt1",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C10",
@@ -25999,7 +25999,7 @@
      "patch_x": 100,
      "patch_y": 31,
      "shape": "alt2",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C11",
@@ -26013,7 +26013,7 @@
      "patch_x": 114,
      "patch_y": 27,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C12",
@@ -26027,7 +26027,7 @@
      "patch_x": 114,
      "patch_y": 27,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C13",
@@ -26137,7 +26137,7 @@
      "patch_x": 114,
      "patch_y": 14,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     "C02": {
      "id": "C02",
@@ -26151,7 +26151,7 @@
      "patch_x": 114,
      "patch_y": 14,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     "C03": {
      "id": "C03",
@@ -26165,7 +26165,7 @@
      "patch_x": 100,
      "patch_y": 16,
      "shape": "alt1",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     "C04": {
      "id": "C04",
@@ -26179,7 +26179,7 @@
      "patch_x": 114,
      "patch_y": 14,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     "C05": {
      "id": "C05",
@@ -26193,7 +26193,7 @@
      "patch_x": 114,
      "patch_y": 27,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     "C06": {
      "id": "C06",
@@ -26207,7 +26207,7 @@
      "patch_x": 114,
      "patch_y": 27,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     "C07": {
      "id": "C07",
@@ -26221,7 +26221,7 @@
      "patch_x": 114,
      "patch_y": 27,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     "C08": {
      "id": "C08",
@@ -26235,7 +26235,7 @@
      "patch_x": 114,
      "patch_y": 27,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     "C09": {
      "id": "C09",
@@ -26249,7 +26249,7 @@
      "patch_x": 199,
      "patch_y": 16,
      "shape": "alt1",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     "C10": {
      "id": "C10",
@@ -26263,7 +26263,7 @@
      "patch_x": 100,
      "patch_y": 31,
      "shape": "alt2",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     "C11": {
      "id": "C11",
@@ -26277,7 +26277,7 @@
      "patch_x": 114,
      "patch_y": 27,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     "C12": {
      "id": "C12",
@@ -26291,7 +26291,7 @@
      "patch_x": 114,
      "patch_y": 27,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     "C13": {
      "id": "C13",
@@ -26367,7 +26367,7 @@
     "patch_x": 114,
     "patch_y": 14,
     "shape": "best",
-    "shape_method": "wtune_decomp"
+    "shape_method": "wtune.decomp"
    },
    {
     "id": "C06",
@@ -26381,7 +26381,7 @@
     "patch_x": 114,
     "patch_y": 27,
     "shape": "best",
-    "shape_method": "wtune_decomp"
+    "shape_method": "wtune.decomp"
    },
    null
   ]
@@ -26401,7 +26401,7 @@
      "patch_x": 125,
      "patch_y": 18,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C02",
@@ -26415,7 +26415,7 @@
      "patch_x": 125,
      "patch_y": 18,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C03",
@@ -26429,7 +26429,7 @@
      "patch_x": 143,
      "patch_y": 16,
      "shape": "alt1",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C04",
@@ -26443,7 +26443,7 @@
      "patch_x": 125,
      "patch_y": 18,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C05",
@@ -26457,7 +26457,7 @@
      "patch_x": 250,
      "patch_y": 18,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C06",
@@ -26471,7 +26471,7 @@
      "patch_x": 250,
      "patch_y": 18,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C07",
@@ -26485,7 +26485,7 @@
      "patch_x": 250,
      "patch_y": 18,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C08",
@@ -26499,7 +26499,7 @@
      "patch_x": 250,
      "patch_y": 18,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C09",
@@ -26513,7 +26513,7 @@
      "patch_x": 125,
      "patch_y": 36,
      "shape": "alt1",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C10",
@@ -26527,7 +26527,7 @@
      "patch_x": 143,
      "patch_y": 32,
      "shape": "alt2",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C11",
@@ -26541,7 +26541,7 @@
      "patch_x": 250,
      "patch_y": 18,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C12",
@@ -26555,7 +26555,7 @@
      "patch_x": 250,
      "patch_y": 18,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C13",
@@ -26642,7 +26642,7 @@
     "patch_x": 125,
     "patch_y": 18,
     "shape": "best",
-    "shape_method": "wtune_decomp"
+    "shape_method": "wtune.decomp"
    },
    {
     "id": "C06",
@@ -26656,7 +26656,7 @@
     "patch_x": 250,
     "patch_y": 18,
     "shape": "best",
-    "shape_method": "wtune_decomp"
+    "shape_method": "wtune.decomp"
    },
    null
   ]
@@ -26676,7 +26676,7 @@
      "patch_x": 113,
      "patch_y": 17,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C02",
@@ -26690,7 +26690,7 @@
      "patch_x": 113,
      "patch_y": 17,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C03",
@@ -26704,7 +26704,7 @@
      "patch_x": 129,
      "patch_y": 15,
      "shape": "alt1",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C04",
@@ -26718,7 +26718,7 @@
      "patch_x": 113,
      "patch_y": 17,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C05",
@@ -26732,7 +26732,7 @@
      "patch_x": 129,
      "patch_y": 29,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C06",
@@ -26746,7 +26746,7 @@
      "patch_x": 129,
      "patch_y": 29,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C07",
@@ -26760,7 +26760,7 @@
      "patch_x": 129,
      "patch_y": 29,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C08",
@@ -26774,7 +26774,7 @@
      "patch_x": 129,
      "patch_y": 29,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C09",
@@ -26788,7 +26788,7 @@
      "patch_x": 225,
      "patch_y": 17,
      "shape": "alt1",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C10",
@@ -26802,7 +26802,7 @@
      "patch_x": 113,
      "patch_y": 33,
      "shape": "alt2",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C11",
@@ -26816,7 +26816,7 @@
      "patch_x": 129,
      "patch_y": 29,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C12",
@@ -26830,7 +26830,7 @@
      "patch_x": 129,
      "patch_y": 29,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C13",
@@ -26919,7 +26919,7 @@
     "patch_x": 113,
     "patch_y": 17,
     "shape": "best",
-    "shape_method": "wtune_decomp"
+    "shape_method": "wtune.decomp"
    },
    {
     "id": "C06",
@@ -26933,7 +26933,7 @@
     "patch_x": 129,
     "patch_y": 29,
     "shape": "best",
-    "shape_method": "wtune_decomp"
+    "shape_method": "wtune.decomp"
    },
    null
   ]
@@ -27320,7 +27320,7 @@
      "patch_x": 43,
      "patch_y": 12,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C02",
@@ -27334,7 +27334,7 @@
      "patch_x": 43,
      "patch_y": 12,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C03",
@@ -27348,7 +27348,7 @@
      "patch_x": 38,
      "patch_y": 14,
      "shape": "alt1",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C04",
@@ -27362,7 +27362,7 @@
      "patch_x": 43,
      "patch_y": 12,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C05",
@@ -27376,7 +27376,7 @@
      "patch_x": 86,
      "patch_y": 12,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C06",
@@ -27390,7 +27390,7 @@
      "patch_x": 86,
      "patch_y": 12,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C07",
@@ -27404,7 +27404,7 @@
      "patch_x": 86,
      "patch_y": 12,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C08",
@@ -27418,7 +27418,7 @@
      "patch_x": 86,
      "patch_y": 12,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C09",
@@ -27432,7 +27432,7 @@
      "patch_x": 76,
      "patch_y": 14,
      "shape": "alt1",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C10",
@@ -27446,7 +27446,7 @@
      "patch_x": 43,
      "patch_y": 24,
      "shape": "alt2",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C11",
@@ -27460,7 +27460,7 @@
      "patch_x": 86,
      "patch_y": 12,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C12",
@@ -27474,7 +27474,7 @@
      "patch_x": 86,
      "patch_y": 12,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C13",
@@ -27565,7 +27565,7 @@
     "patch_x": 43,
     "patch_y": 12,
     "shape": "best",
-    "shape_method": "wtune_decomp"
+    "shape_method": "wtune.decomp"
    },
    {
     "id": "C06",
@@ -27579,7 +27579,7 @@
     "patch_x": 86,
     "patch_y": 12,
     "shape": "best",
-    "shape_method": "wtune_decomp"
+    "shape_method": "wtune.decomp"
    },
    null
   ]
@@ -27599,7 +27599,7 @@
      "patch_x": 41,
      "patch_y": 15,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C02",
@@ -27613,7 +27613,7 @@
      "patch_x": 41,
      "patch_y": 15,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C03",
@@ -27627,7 +27627,7 @@
      "patch_x": 36,
      "patch_y": 17,
      "shape": "alt1",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C04",
@@ -27641,7 +27641,7 @@
      "patch_x": 41,
      "patch_y": 15,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C05",
@@ -27655,7 +27655,7 @@
      "patch_x": 81,
      "patch_y": 15,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C06",
@@ -27669,7 +27669,7 @@
      "patch_x": 81,
      "patch_y": 15,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C07",
@@ -27683,7 +27683,7 @@
      "patch_x": 81,
      "patch_y": 15,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C08",
@@ -27697,7 +27697,7 @@
      "patch_x": 81,
      "patch_y": 15,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C09",
@@ -27711,7 +27711,7 @@
      "patch_x": 71,
      "patch_y": 17,
      "shape": "alt1",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C10",
@@ -27725,7 +27725,7 @@
      "patch_x": 41,
      "patch_y": 29,
      "shape": "alt2",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C11",
@@ -27739,7 +27739,7 @@
      "patch_x": 81,
      "patch_y": 15,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C12",
@@ -27753,7 +27753,7 @@
      "patch_x": 81,
      "patch_y": 15,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C13",
@@ -27842,7 +27842,7 @@
     "patch_x": 41,
     "patch_y": 15,
     "shape": "best",
-    "shape_method": "wtune_decomp"
+    "shape_method": "wtune.decomp"
    },
    {
     "id": "C06",
@@ -27856,7 +27856,7 @@
     "patch_x": 81,
     "patch_y": 15,
     "shape": "best",
-    "shape_method": "wtune_decomp"
+    "shape_method": "wtune.decomp"
    },
    null
   ]
@@ -27876,7 +27876,7 @@
      "patch_x": 37,
      "patch_y": 16,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C02",
@@ -27890,7 +27890,7 @@
      "patch_x": 37,
      "patch_y": 16,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C03",
@@ -27904,7 +27904,7 @@
      "patch_x": 32,
      "patch_y": 19,
      "shape": "alt1",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C04",
@@ -27918,7 +27918,7 @@
      "patch_x": 37,
      "patch_y": 16,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     }
    ],
    [
@@ -28032,7 +28032,7 @@
      "patch_x": 41,
      "patch_y": 15,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C02",
@@ -28046,7 +28046,7 @@
      "patch_x": 41,
      "patch_y": 15,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C03",
@@ -28060,7 +28060,7 @@
      "patch_x": 36,
      "patch_y": 17,
      "shape": "alt1",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C04",
@@ -28074,7 +28074,7 @@
      "patch_x": 41,
      "patch_y": 15,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C05",
@@ -28088,7 +28088,7 @@
      "patch_x": 81,
      "patch_y": 15,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C06",
@@ -28102,7 +28102,7 @@
      "patch_x": 81,
      "patch_y": 15,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C07",
@@ -28116,7 +28116,7 @@
      "patch_x": 81,
      "patch_y": 15,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C08",
@@ -28130,7 +28130,7 @@
      "patch_x": 81,
      "patch_y": 15,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C09",
@@ -28144,7 +28144,7 @@
      "patch_x": 71,
      "patch_y": 17,
      "shape": "alt1",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C10",
@@ -28158,7 +28158,7 @@
      "patch_x": 41,
      "patch_y": 29,
      "shape": "alt2",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C11",
@@ -28172,7 +28172,7 @@
      "patch_x": 81,
      "patch_y": 15,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C12",
@@ -28186,7 +28186,7 @@
      "patch_x": 81,
      "patch_y": 15,
      "shape": "best",
-     "shape_method": "wtune_decomp"
+     "shape_method": "wtune.decomp"
     },
     {
      "id": "C13",
@@ -28275,7 +28275,7 @@
     "patch_x": 41,
     "patch_y": 15,
     "shape": "best",
-    "shape_method": "wtune_decomp"
+    "shape_method": "wtune.decomp"
    },
    {
     "id": "C06",
@@ -28289,7 +28289,7 @@
     "patch_x": 81,
     "patch_y": 15,
     "shape": "best",
-    "shape_method": "wtune_decomp"
+    "shape_method": "wtune.decomp"
    },
    null
   ]
@@ -28784,7 +28784,7 @@
      ]
     }
    ],
-   "wtune_decomp"
+   "wtune.decomp"
   ]
  },
  "legal_shapes|(901, 901, 45)|448": [
@@ -28905,7 +28905,7 @@
      ]
     }
    ],
-   "wtune_decomp"
+   "wtune.decomp"
   ]
  },
  "legal_shapes|(901, 901, 45)|224": [
@@ -29303,7 +29303,7 @@
      ]
     }
    ],
-   "wtune_decomp"
+   "wtune.decomp"
   ]
  },
  "legal_shapes|(425, 300, 50)|448": [
@@ -29366,7 +29366,7 @@
      ]
     }
    ],
-   "wtune_decomp"
+   "wtune.decomp"
   ]
  },
  "legal_shapes|(425, 300, 50)|224": [
@@ -29897,7 +29897,7 @@
     "patch_x": 65,
     "patch_y": 29,
     "shape": "alt2",
-    "shape_method": "wtune_decomp"
+    "shape_method": "wtune.decomp"
    },
    null
   ]

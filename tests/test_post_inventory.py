@@ -55,7 +55,7 @@ def test_inventory_reports_missing_frame(tmp_path, monkeypatch):
 
 
 def _no_bp_converter(monkeypatch):
-    """A wtune_bp whose adios2 interpreter is missing (as on a machine without envs/adios2)."""
+    """A wtune.bp whose adios2 interpreter is missing (as on a machine without envs/adios2)."""
     import sys
     import types
     from wtune.post import extract

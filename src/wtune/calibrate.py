@@ -849,7 +849,7 @@ def build_output_calibration(args, used, excluded, startup_fit, per_node_fit, wr
             "%s, NOT measured on this machine" % base_path)
 
     out["calibration_provenance"] = {
-        "generated_by": "wtune_calibrate.py fit", "generated_at": date, "host": host,
+        "generated_by": "wtune calibrate fit", "generated_at": date, "host": host,
         "base_file": str(base_path), "runs_dirs": [str(d) for d in runs_dirs],
         "measured_fields": measured_fields,
         "transferred_fields": transferred_fields,

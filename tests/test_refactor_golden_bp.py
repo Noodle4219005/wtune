@@ -1,4 +1,4 @@
-"""Golden snapshots of wtune_bp.main (CLI stdout/stderr/rc, fake converters), the convert_inputs
+"""Golden snapshots of wtune.bp.main (CLI stdout/stderr/rc, fake converters), the convert_inputs
 manifest and the full compare_netcdf result dicts, pinned before the round-3 tidy-up split
 convert_inputs/compare_netcdf. Tmp paths and timings are normalised.
 

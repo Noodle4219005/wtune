@@ -1,4 +1,4 @@
-"""Golden snapshot of wtune_config.resolve_config's validation messages (order included), pinned
+"""Golden snapshot of wtune.config.resolve_config's validation messages (order included), pinned
 before the round-2 refactor made _validate_semantics table-driven.
 
 Regenerate (only when a behaviour change is intended) with:

@@ -1,4 +1,4 @@
-"""wtune_bp behaviour that needs no adios2 module: BP detection, manifest caching (converter
+"""wtune.bp behaviour that needs no adios2 module: BP detection, manifest caching (converter
 monkeypatched), adios2.xml, CLI wiring, the missing-module error, and the netCDF comparator."""
 
 import json
@@ -279,7 +279,7 @@ def test_adios2_xml():
     text = wtune.bp.adios2_xml(names + ["wrfout_d01_2019-11-26_19:00:00"])
     ios = ET.fromstring(text).findall("io")
     assert [(i.get("name"), i.find("engine").get("type")) for i in ios] == [(n, "BP4") for n in names]
-    # same entry text as wtune_run.render_adios2_restart_xml / strict_campaign.sbatch
+    # same entry text as wtune.run.render_adios2_restart_xml / strict_campaign.sbatch
     assert '  <io name="wrfrst_d01_2019-11-26_19:00:00">\n    <engine type="BP4"/>\n  </io>\n' in text
 
     text = wtune.bp.adios2_xml({"wrfout_d01_x": "BP5", "wrfrst_d01_x": None, "wrfinput_d01": None})

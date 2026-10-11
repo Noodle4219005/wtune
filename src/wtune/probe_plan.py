@@ -561,7 +561,7 @@ def combine(points_measurements: list[PointMeasurement], run_start: datetime.dat
     """Whole-run prediction from >= 1 PointMeasurement -> {compute_total_s, init_s, init_note,
     total_s, range_low_s, range_high_s, drift_pct, r_night, r_day, r_source, steps_n, points}.
     Arithmetic of coldstart_sample.predicted_compute_total/resolve_r_rad and
-    wtune_predict.predict_init; range = +-drift_band_pct of total_s (no I/O term). cost_series
+    wtune.predict.predict_init; range = +-drift_band_pct of total_s (no I/O term). cost_series
     (decision 0060) adds stratified/regression totals; total_s stays interpolated."""
     if not points_measurements:
         raise ProbePlanError("combine: no point measurements given")

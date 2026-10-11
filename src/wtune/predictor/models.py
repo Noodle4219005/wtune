@@ -25,9 +25,9 @@ from sklearn.preprocessing import StandardScaler
 
 from wtune.predictor import features as feat  # predictor/features.py
 try:
-    from wtune import decomp as wtune_decomp  # repo root; used by the heuristic model when importable
+    from wtune import decomp  # repo root; used by the heuristic model when importable
 except ImportError:
-    wtune_decomp = None
+    decomp = None
 
 try:
     from catboost import CatBoostClassifier, CatBoostRegressor, CatBoostRanker, Pool  # noqa: F401  availability probe: HAVE_CATBOOST requires all four
@@ -113,12 +113,12 @@ class HeuristicModel:
         nproc_x, nproc_y = _num(row.get("nproc_x")), _num(row.get("nproc_y"))
         if not (e_we and e_sn and nproc_x and nproc_y):
             return 0.0
-        if wtune_decomp is not None:
-            wmax, wmin = wtune_decomp.patch_dims(int(e_we), int(nproc_x))
-            hmax, hmin = wtune_decomp.patch_dims(int(e_sn), int(nproc_y))
+        if decomp is not None:
+            wmax, wmin = decomp.patch_dims(int(e_we), int(nproc_x))
+            hmax, hmin = decomp.patch_dims(int(e_sn), int(nproc_y))
             if wmin <= 0 or hmin <= 0:
                 return 0.0
-            shape = wtune_decomp.ALPHA + wtune_decomp.BETA / wmin + wtune_decomp.GAMMA / hmin
+            shape = decomp.ALPHA + decomp.BETA / wmin + decomp.GAMMA / hmin
             return math.log(shape)  # lower shape score = more efficient patch geometry
         cf = feat.config_features(row)
         ratio = cf.get("decomp_aspect")

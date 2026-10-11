@@ -93,7 +93,7 @@ def assert_strict_compliance() -> None:
     """Every knob the campaign varies must be STRICT (wtune_compliance, decision 0050)."""
     add_src_to_path()
     try:
-        from wtune import compliance as wtune_compliance
+        import wtune.compliance
     except Exception as e:
         sys.stderr.write(
             "WARNING: could not import wtune_compliance (%s: %s); skipping the "
@@ -101,8 +101,8 @@ def assert_strict_compliance() -> None:
             % (type(e).__name__, e)
         )
         return
-    bad = [(n, wtune_compliance.classify(n)) for n in _COMPLIANCE_KNOBS]
-    bad = [(n, c) for n, c in bad if c != wtune_compliance.STRICT]
+    bad = [(n, wtune.compliance.classify(n)) for n in _COMPLIANCE_KNOBS]
+    bad = [(n, c) for n, c in bad if c != wtune.compliance.STRICT]
     assert not bad, "campaign varies non-STRICT knob(s): %s" % (bad,)
 
 

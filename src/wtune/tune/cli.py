@@ -8,7 +8,10 @@ import os
 import sys
 from typing import Any, Callable
 
-from ._deps import _HERE, sweep, wtune_config, wtune_extensions, wtune_nodes
+import wtune.config
+import wtune.extensions
+import wtune.nodes
+from ._deps import _HERE, sweep
 from .context import (CONFIRM_REPS, DEFAULT_HARDWARE_ID, DEFAULT_KAPPA, DEFAULT_MAX_NODES,
                       DEFAULT_POLL_INTERVAL_S, DEFAULT_SEED, DEFAULT_STEPS, Ctx, RealClock,
                       default_ledger_reader, default_scancel_runner, resolve_auto_probe_steps)
@@ -65,7 +68,7 @@ def _cfg_key_explicit(config_path: str | None, section: str, key: str) -> bool:
     if not config_path:
         return False
     try:
-        yaml = wtune_config._load_yaml_module()
+        yaml = wtune.config._load_yaml_module()
         with open(config_path) as f:
             raw = yaml.safe_load(f) or {}
         return key in (raw.get(section) or {})
@@ -153,8 +156,8 @@ def _build_ctx(args: argparse.Namespace, o: _RunOptions, ns: _NodeChoice, case_j
                sacct_runner=sacct_runner, scancel_runner=scancel_runner,
                ledger_reader=ledger_reader, proposer=proposer, clock=clock,
                search_cfg=o.cfg["search"], exclude_rules=o.cfg["exclude"], is_fire=is_fire,
-               omp_cap=wtune_extensions.omp_cap_for_namelist(namelist_path),
-               chem_e_sn=wtune_extensions.chem_e_sn_for_namelist(namelist_path),
+               omp_cap=wtune.extensions.omp_cap_for_namelist(namelist_path),
+               chem_e_sn=wtune.extensions.chem_e_sn_for_namelist(namelist_path),
                confirm_reps=o.confirm_reps, prediction_cfg=o.cfg["prediction"],
                probe_cfg=o.cfg["probe"], ranking_start_note=ranking_start_note,
                restart_io_form=int(o.restart_io_form))
@@ -166,12 +169,12 @@ def _run_config(args: argparse.Namespace) -> tuple[str | None, dict]:
     config_path = getattr(args, "config", None)
     if config_path:
         try:
-            cfg = wtune_config.load_config(config_path)
-        except wtune_config.ConfigError as e:
+            cfg = wtune.config.load_config(config_path)
+        except wtune.config.ConfigError as e:
             raise SystemExit("--config %s is invalid:\n%s"
                              % (config_path, "\n".join("  - %s" % m for m in e.errors))) from e
     else:
-        cfg, _errs = wtune_config.resolve_config({})
+        cfg, _errs = wtune.config.resolve_config({})
     return config_path, cfg
 
 
@@ -180,10 +183,10 @@ def _run_case_name(args: argparse.Namespace, cfg: dict) -> str:
     SystemExit when none is given (a case_dir-only config cannot be tuned yet)."""
     case = args.case if args.case is not None else cfg["case"]
     if case is None and not cfg.get("case_dir"):
-        from wtune import project as wtune_project
-        project_dir = wtune_project.find_project(explicit=getattr(args, "project", None))
+        import wtune.project
+        project_dir = wtune.project.find_project(explicit=getattr(args, "project", None))
         if project_dir:
-            case = wtune_project.project_case_id(wtune_project.load_project(project_dir))
+            case = wtune.project.project_case_id(wtune.project.load_project(project_dir))
     if case is None:
         if cfg.get("case_dir"):
             raise SystemExit(
@@ -257,8 +260,8 @@ def _run_case_inputs(o: _RunOptions, case_json: dict,
     """(is_fire, extension notes, probe steps, ranking_start note) of the resolved case: the
     extension gate (SystemExit when it refuses), probe.steps 'auto' and the not-yet-wired
     probe.ranking_start=spinup note, printed."""
-    is_fire = wtune_config.is_fire_case(case_json, namelist_path)
-    _ext_notes, _ext_refusal = wtune_extensions.tune_gate(namelist_path)
+    is_fire = wtune.config.is_fire_case(case_json, namelist_path)
+    _ext_notes, _ext_refusal = wtune.extensions.tune_gate(namelist_path)
     if _ext_refusal:
         raise SystemExit(_ext_refusal)
     for _n in _ext_notes:
@@ -343,7 +346,7 @@ def _resolve_node_choice(args: argparse.Namespace, o: _RunOptions, profile: dict
         return default if v is None else v
     node_objective = _nopt("node_objective", "time")
     deadline_minutes = _nopt("deadline_minutes", None)
-    min_efficiency = _nopt("min_efficiency", wtune_nodes.DEFAULT_MIN_EFFICIENCY)
+    min_efficiency = _nopt("min_efficiency", wtune.nodes.DEFAULT_MIN_EFFICIENCY)
     node_finalists = max(1, int(_nopt("node_finalists", 2)))
     sweep_budget_frac = float(_nopt("sweep_budget_frac", DEFAULT_SWEEP_BUDGET_FRAC))
     core_options = _parse_core_options(args)
@@ -374,9 +377,9 @@ def _run_out_dir(args: argparse.Namespace, case: str) -> str:
     if args.out:
         out_dir = sweep._expand(args.out)
     else:
-        from wtune import project as wtune_project
-        _project_dir = wtune_project.find_project(explicit=getattr(args, "project", None))
-        out_dir = (wtune_project.default_out_dir(_project_dir, "tune") if _project_dir
+        import wtune.project
+        _project_dir = wtune.project.find_project(explicit=getattr(args, "project", None))
+        out_dir = (wtune.project.default_out_dir(_project_dir, "tune") if _project_dir
                    else sweep._expand("$HOME/wtune-runs/tune/%s" % case))
     os.makedirs(out_dir, exist_ok=True)
     return out_dir
@@ -423,7 +426,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
                          "finalist N; 'auto' = uncalibrated efficiency proxy (--nodes-policy), "
                          "no measurement. (a --config budget.nodes also overrides the "
                          "default)")
-    p.add_argument("--node-objective", choices=wtune_nodes.OBJECTIVES, default=None,
+    p.add_argument("--node-objective", choices=wtune.nodes.OBJECTIVES, default=None,
                     dest="node_objective",
                     help="--nodes search: time = fastest (smallest N within noise), cost = fewest "
                          "node-hours (within --deadline-minutes), knee = largest N with "
@@ -432,7 +435,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
                     help="--node-objective cost: whole-run wall-time limit (minutes)")
     p.add_argument("--min-efficiency", type=float, default=None, dest="min_efficiency",
                     help="--node-objective knee: efficiency threshold (default %.2f)"
-                         % wtune_nodes.DEFAULT_MIN_EFFICIENCY)
+                         % wtune.nodes.DEFAULT_MIN_EFFICIENCY)
     p.add_argument("--sweep-budget-frac", type=float, default=None, dest="sweep_budget_frac",
                     help="--nodes search: share of --minutes the node sweep may use; once spent, "
                          "larger N are skipped ('sweep budget cap') so the finalists keep budget "

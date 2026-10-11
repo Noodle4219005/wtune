@@ -38,10 +38,10 @@ class InputPlan:
 
 def find_project_dir(project: Optional[str] = None) -> Optional[str]:
     """The project dir (--project, $WTUNE_PROJECT, a project.yaml above cwd) or None."""
-    from wtune import project as wtune_project
+    import wtune.project
     try:
-        return wtune_project.find_project(explicit=project)
-    except wtune_project.ProjectError as e:
+        return wtune.project.find_project(explicit=project)
+    except wtune.project.ProjectError as e:
         raise RunError(str(e))
 
 

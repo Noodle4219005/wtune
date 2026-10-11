@@ -10,7 +10,7 @@ import math
 import os
 from typing import Any
 
-from ._deps import sweep, wtune_physics_advice
+from ._deps import sweep, physics_advice
 from .common import ANCHOR_END_ID, compute_slots
 from .context import Ctx, QueueCapExceeded
 from .pipeline_state import NOT_RUN_BUDGET, MeasuredLayout, PipelineRun, _mark, _phase_record
@@ -64,7 +64,7 @@ def _delete_window_frames(ctx: Ctx, runs: list[tuple]) -> int:
 
 def phase2_writes_frames(st: PipelineRun) -> bool:
     """Whether phase-2 configs keep window frames: only when phase 3 can gate on them (I/O cost)."""
-    return bool(st.physics and not st.extension and wtune_physics_advice is not None
+    return bool(st.physics and not st.extension and physics_advice is not None
                 and physics_runner_supported(st.ctx.sbatch_script))
 
 
@@ -74,8 +74,8 @@ def build_physics_window_namelists(ctx: Ctx, cands: list[dict], rsub: list[dict]
     window end, d01 history = the window, NetCDF) for the baseline and every candidate. Returns
     (baseline config, [candidate configs]) carrying `physics_namelists` {point case id: path}.
     UNVERIFIED against the real runner (it does not read them yet)."""
-    from wtune import run as wtune_run                  # imports wtune_tune itself: kept lazy
-    api = wtune_physics_advice
+    import wtune.run                  # imports wtune.tune itself: kept lazy
+    api = physics_advice
     cfg = dict(ranks=anchor["ranks"], omp=anchor["omp"], nx=anchor["nx"], ny=anchor["ny"],
                numtiles=anchor["numtiles"])
 
@@ -98,11 +98,11 @@ def build_physics_window_namelists(ctx: Ctx, cands: list[dict], rsub: list[dict]
         seg_end = seg_start + datetime.timedelta(minutes=wmin)
 
         def window(text):
-            txt = wtune_run.render_segment_namelist(text, seg_start, seg_end, 1, cfg,
-                                                    wtune_run.RESTART_OFF_MIN,
+            txt = wtune.run.render_segment_namelist(text, seg_start, seg_end, 1, cfg,
+                                                    wtune.run.RESTART_OFF_MIN,
                                                     restart_io_form=ctx.restart_io_form)
-            txt = wtune_run._set_one(txt, "history_interval", wmin)
-            return wtune_run._set_one(txt, "io_form_history", 2)
+            txt = wtune.run._set_one(txt, "history_interval", wmin)
+            return wtune.run._set_one(txt, "io_form_history", 2)
 
         base_paths[rp["case_id"]] = write(rp, "ANCHOR", window(template))
         for cd in cands:
@@ -141,7 +141,7 @@ def _phase3_not_run_reason(st: PipelineRun, layouts: list[dict]) -> str | None:
         return "not run (no rebuilt points)" if st.rebuilt is None else "not run (no layout)"
     if ctx.elapsed() >= st.limit("physics"):
         return NOT_RUN_BUDGET
-    if wtune_physics_advice is None:
+    if physics_advice is None:
         return "not run (wtune_physics_advice not importable)"
     if not physics_runner_supported(ctx.sbatch_script):
         return ("not run (campaign runner has no per-config physics namelists: %s not found in "
@@ -158,7 +158,7 @@ def _phase3_plan_candidates(st: PipelineRun,
         if min(rp["steps"] * float(rp["dt"]) / 60.0 for rp in st.rebuilt) < MIN_WINDOW_MIN:
             ph3 = "not run (window < %d min of model time: mid+end frames need more)" \
                 % MIN_WINDOW_MIN
-        cands = wtune_physics_advice.plan_candidates(
+        cands = physics_advice.plan_candidates(
             ctx.namelist_path, max_candidates=min(int(physics_max_candidates),
                                                   PIPELINE_PHYSICS_MAX_CANDIDATES),
             case_name=ctx.case)
@@ -238,7 +238,7 @@ def _phase3_measure(st: PipelineRun, layouts: list[dict], cands: list) -> str:
     at t0 + the costliest point: one job per point, baseline + candidates from its shared
     restart; scheme swaps stay estimate-only rows. Returns the status (may raise); sets
     st.advice and the pipe.physics_* fields."""
-    ctx, pipe, api = st.ctx, st.pipe, wtune_physics_advice
+    ctx, pipe, api = st.ctx, st.pipe, physics_advice
     # a skipped phase 2 must not skip phase 3: phase 1's best layout, the provisional gate and
     # weights from the phase-3 baseline itself
     w3 = st.winner or MeasuredLayout(layout=layouts[0], nodes=layouts[0]["nodes"],

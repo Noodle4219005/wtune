@@ -865,10 +865,10 @@ def bounds_from_points(sample_points, margin=0.0):
 def case_cost_structure(case_dir, namelist_path=None, cores_per_node=None):
     """wtune_case's expected_cost_structure for the case (physics-scheme cost shares), or None."""
     try:
-        from wtune import case as wtune_case
-        nl, wi = wtune_case.find_case_inputs(case_dir, namelist=namelist_path)
+        import wtune.case
+        nl, wi = wtune.case.find_case_inputs(case_dir, namelist=namelist_path)
         args = (nl, wi) if cores_per_node is None else (nl, wi, cores_per_node)
-        return wtune_case.build_profile(*args)["expected_cost_structure"]
+        return wtune.case.build_profile(*args)["expected_cost_structure"]
     except Exception:  # noqa: BLE001
         return None
 

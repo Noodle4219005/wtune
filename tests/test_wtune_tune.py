@@ -867,7 +867,7 @@ _PREDICT_TEST_NAMELIST = """\
 
 
 def test_write_probe_ledger_makes_full_run_prediction_use_measured_source(tmp_path):
-    assert wtune.tune.wtune_predict is not None, "wtune_predict.py must be importable for this test"
+    assert wtune.tune.predict is not None, "wtune_predict.py must be importable for this test"
     namelist_path = tmp_path / "namelist.input"
     namelist_path.write_text(_PREDICT_TEST_NAMELIST)
 
@@ -946,7 +946,7 @@ def test_confirm_reps_default_matches_the_previous_hardcoded_constant():
 
 
 def test_build_full_run_prediction_applies_drift_band_override_and_flags_measure_r_rad(tmp_path):
-    assert wtune.tune.wtune_predict is not None, "wtune_predict.py must be importable for this test"
+    assert wtune.tune.predict is not None, "wtune_predict.py must be importable for this test"
     namelist_path = tmp_path / "namelist.input"
     namelist_path.write_text(_PREDICT_TEST_NAMELIST)
     best_config = dict(id="ANCHOR", ranks=72, omp=1, nx=8, ny=9, numtiles=1, dist="block")
@@ -968,7 +968,7 @@ def test_build_full_run_prediction_applies_drift_band_override_and_flags_measure
 
 
 def test_build_full_run_prediction_no_drift_override_by_default(tmp_path):
-    assert wtune.tune.wtune_predict is not None, "wtune_predict.py must be importable for this test"
+    assert wtune.tune.predict is not None, "wtune_predict.py must be importable for this test"
     namelist_path = tmp_path / "namelist.input"
     namelist_path.write_text(_PREDICT_TEST_NAMELIST)
     best_config = dict(id="ANCHOR", ranks=72, omp=1, nx=8, ny=9, numtiles=1, dist="block")
@@ -1014,7 +1014,7 @@ def test_predict_candidates_ranking_can_invert_relative_to_median_s_per_step(tmp
         return {"total_s": total, "range_low_s": total * 0.95, "range_high_s": total * 1.05,
                 "compute": {"r_rad_source": "fake_test_source"}}
 
-    monkeypatch.setattr(wtune.tune.wtune_predict, "build_prediction", fake_build_prediction)
+    monkeypatch.setattr(wtune.tune.predict, "build_prediction", fake_build_prediction)
 
     predicted = wtune.tune.predict_candidates(ctx, nodes=1, results=results)
     assert predicted["G_FAST"]["pred_total_s"] == 5000.0
@@ -1047,7 +1047,7 @@ def test_rank_predicted_entries_failed_prediction_ranks_last_and_is_flagged(tmp_
         return {"total_s": 999.0, "range_low_s": 950.0, "range_high_s": 1050.0,
                 "compute": {"r_rad_source": "fake_test_source"}}
 
-    monkeypatch.setattr(wtune.tune.wtune_predict, "build_prediction", fake_build_prediction)
+    monkeypatch.setattr(wtune.tune.predict, "build_prediction", fake_build_prediction)
 
     predicted = wtune.tune.predict_candidates(ctx, nodes=1, results=results)
     assert predicted["G_BAD"]["pred_total_s"] is None
@@ -1118,7 +1118,7 @@ def test_rank_predicted_entries_anchor_sorts_first_within_its_cluster_even_when_
 
 
 def test_render_report_text_shows_predicted_total_hms_column(tmp_path):
-    assert wtune.tune.wtune_predict is not None, "wtune_predict.py must be importable for this test"
+    assert wtune.tune.predict is not None, "wtune_predict.py must be importable for this test"
     namelist_path = tmp_path / "namelist.input"
     namelist_path.write_text(_PREDICT_TEST_NAMELIST)
     best_config = dict(id="ANCHOR", ranks=72, omp=1, nx=8, ny=9, numtiles=1, dist="block")
@@ -1139,7 +1139,7 @@ def test_render_report_text_shows_predicted_total_hms_column(tmp_path):
 
 
 def test_build_prediction_never_called_with_include_io_true(tmp_path, monkeypatch):
-    assert wtune.tune.wtune_predict is not None, "wtune_predict.py must be importable for this test"
+    assert wtune.tune.predict is not None, "wtune_predict.py must be importable for this test"
     namelist_path = tmp_path / "namelist.input"
     namelist_path.write_text(_PREDICT_TEST_NAMELIST)
     best_config = dict(id="ANCHOR", ranks=72, omp=1, nx=8, ny=9, numtiles=1, dist="block")
@@ -1147,14 +1147,14 @@ def test_build_prediction_never_called_with_include_io_true(tmp_path, monkeypatc
                case_json=dict(MATTHEW_LIKE, prep_dir=str(tmp_path)), out_dir=str(tmp_path / "out"))
     all_results = {"ANCHOR": _result("ANCHOR", 0.93, best_config)}
 
-    real_build_prediction = wtune.tune.wtune_predict.build_prediction
+    real_build_prediction = wtune.tune.predict.build_prediction
     seen_include_io = []
 
     def spy(*args, **kwargs):
         seen_include_io.append(kwargs.get("include_io", False))
         return real_build_prediction(*args, **kwargs)
 
-    monkeypatch.setattr(wtune.tune.wtune_predict, "build_prediction", spy)
+    monkeypatch.setattr(wtune.tune.predict, "build_prediction", spy)
 
     wtune.tune.build_report(ctx, nodes=1, nodes_note="test", all_results=all_results,
                              confirm_results=None, anchor_cid="ANCHOR")
@@ -1492,7 +1492,7 @@ def test_node_sweep_omp_cap_limits_candidates(tmp_path):
 
 def test_node_sweep_applies_chem_j_patch_guard(monkeypatch, tmp_path):
     sbatch, reader, job_nodes = make_scaling_fakes({1: 1.0})
-    monkeypatch.setattr(wtune.tune.wtune_extensions, "chem_j_patch_reason",
+    monkeypatch.setattr(wtune.extensions, "chem_j_patch_reason",
                         lambda e_sn, ny, nx=None: "j-patch too narrow (test)")
     ctx = _ctx(sbatch_runner=sbatch, ledger_reader=reader, budget_s=36000.0, chem_e_sn=[100],
                out_dir=str(tmp_path / "o"), ledger_dir=str(tmp_path / "l"))
@@ -1844,7 +1844,7 @@ class _PipeEnv:
                         needs_rebuild=[p.at for p in pts], confidence="normal",
                         meets_precision=True, types=list(case_types))
 
-        mp.setattr(wtune.tune.prediction, "wtune_cost_drivers",
+        mp.setattr(wtune.tune.prediction, "cost_drivers",
                    _types.SimpleNamespace(plan_points_for_case=plan_points))
         mp.setattr(wtune.tune.prediction, "_case_types_and_track", lambda ctx: (["common"], None))
         mp.setattr(wtune.tune.points, "submit_rebuilt_points", submit)
@@ -1891,9 +1891,9 @@ class _PipeEnv:
                 ratio_min=0.9, ratio_max=0.9),
             fidelity_verdict=fidelity, advice_table=table)
         api.PROGNOSTIC_FIELDS = ("T", "U", "V", "QVAPOR", "PSFC", "T2", "Q2", "U10", "V10")
-        mp.setattr(wtune.tune.physics_phase, "wtune_physics_advice", api if physics else None)
+        mp.setattr(wtune.tune.physics_phase, "physics_advice", api if physics else None)
         if extension:
-            mp.setattr(wtune.tune.wtune_extensions, "omp_cap_for_namelist", lambda p: 1)
+            mp.setattr(wtune.extensions, "omp_cap_for_namelist", lambda p: 1)
 
 
 def make_pending_sacct(pending_polls):
@@ -2584,7 +2584,7 @@ def _hourly_points(n=48, t0=_dt.datetime(2026, 1, 1)):
 
 def test_plan_prediction_points_calls_the_REAL_planner_common_case_needs_t0_only(monkeypatch):
     from wtune import cost_drivers as real                     # the real module, not a stub
-    monkeypatch.setattr(wtune.tune.prediction, "wtune_cost_drivers", real)
+    monkeypatch.setattr(wtune.tune.prediction, "cost_drivers", real)
     monkeypatch.setattr(wtune.tune.prediction, "_case_types_and_track", lambda ctx: (["common"], None))
     t0 = _dt.datetime(2026, 1, 1)
     wrapped = _hourly_points(30, t0)
@@ -2600,7 +2600,7 @@ def test_plan_prediction_points_calls_the_REAL_planner_common_case_needs_t0_only
 
 def test_plan_prediction_points_convection_case_gets_t0_plus_the_peak(monkeypatch):
     from wtune import cost_drivers as real
-    monkeypatch.setattr(wtune.tune.prediction, "wtune_cost_drivers", real)
+    monkeypatch.setattr(wtune.tune.prediction, "cost_drivers", real)
     monkeypatch.setattr(wtune.tune.prediction, "_case_types_and_track", lambda ctx: (["convection"], None))
     t0 = _dt.datetime(2026, 1, 1)
     hours = list(range(25))
@@ -2631,7 +2631,7 @@ def test_plan_prediction_points_convection_case_gets_t0_plus_the_peak(monkeypatc
 
 def test_plan_prediction_points_falls_back_loudly_on_a_real_error(monkeypatch, capsys):
     from wtune import cost_drivers as real
-    monkeypatch.setattr(wtune.tune.prediction, "wtune_cost_drivers", real)
+    monkeypatch.setattr(wtune.tune.prediction, "cost_drivers", real)
 
     def boom(ctx):
         raise RuntimeError("no case")

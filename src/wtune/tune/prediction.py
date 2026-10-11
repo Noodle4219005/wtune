@@ -12,8 +12,7 @@ import math
 import os
 from typing import Any
 
-from ._deps import (coldstart, sweep, wtune_cost_drivers, wtune_io_model, wtune_predict,
-                    wtune_probe_plan)
+from ._deps import coldstart, sweep, cost_drivers, io_model, predict, probe_plan
 from .common import UNSET, Record, _fmt_hms, _fmt_sbatch_time, is_set
 from .context import Ctx
 from .points import pick_precision_points
@@ -34,17 +33,17 @@ TIME_STEP_S = 15 * 60.0              # s: --time suggestions are rounded UP to t
 
 def _run_window(nl: dict) -> tuple:
     """(run_start, run_end, dt, stepra) of a parsed namelist."""
-    _steps_n, run_s, dt, _note = wtune_predict.get_d01_steps(nl)
-    run_start = wtune_predict.get_time_control_datetime(nl, "start")
+    _steps_n, run_s, dt, _note = predict.get_d01_steps(nl)
+    run_start = predict.get_time_control_datetime(nl, "start")
     run_end = run_start + datetime.timedelta(seconds=run_s)
-    radt = wtune_predict.g(nl, "physics", "radt", None)
-    stepra = wtune_predict.steps_per_radiation_call(float(radt), dt)
+    radt = predict.g(nl, "physics", "radt", None)
+    stepra = predict.steps_per_radiation_call(float(radt), dt)
     return run_start, run_end, dt, stepra
 
 
 def _drift_calibration(ctx: Ctx) -> dict:
     """The default calibration, with --config prediction.drift_band_pct applied."""
-    calibration = wtune_predict.load_calibration(str(wtune_predict.DEFAULT_CALIBRATION))
+    calibration = predict.load_calibration(str(predict.DEFAULT_CALIBRATION))
     if ctx.prediction_cfg.get("drift_band_pct") is not None:
         calibration = dict(calibration, drift_band_pct=ctx.prediction_cfg["drift_band_pct"])
     return calibration
@@ -91,14 +90,14 @@ def predict_candidates(ctx: Ctx, nodes: int, results: dict) -> dict:
     per candidate, sharing one probe CSV that matches each config's own rows. A failure sets
     pred_total_s None and pred_error instead of raising."""
     out = {}
-    if wtune_predict is None:
+    if predict is None:
         for cid, entry in results.items():
             out[cid] = dict(entry, pred_total_s=None, pred_low_s=None, pred_high_s=None,
                              pred_source=None, pred_error="wtune_predict not importable")
         return out
 
     probe_path = write_probe_ledger(ctx, results, None)
-    calibration_path = str(wtune_predict.DEFAULT_CALIBRATION)
+    calibration_path = str(predict.DEFAULT_CALIBRATION)
     if ctx.prediction_cfg.get("drift_band_pct") is not None:
         calibration_path, _note = _calibration_with_drift_override(
             ctx, calibration_path, ctx.prediction_cfg["drift_band_pct"])
@@ -111,7 +110,7 @@ def predict_candidates(ctx: Ctx, nodes: int, results: dict) -> dict:
             continue
         rsl_paths = _rsl_paths_for_entry(ctx, entry)
         try:
-            pred = wtune_predict.build_prediction(
+            pred = predict.build_prediction(
                 namelist_path=ctx.namelist_path, case_dir=ctx.case_json["prep_dir"], nodes=nodes,
                 config=dict(ranks=cfg["ranks"], omp=cfg["omp"], nx=cfg["nx"], ny=cfg["ny"],
                             numtiles=cfg["numtiles"]),
@@ -156,8 +155,8 @@ def _cost_series_for_ctx(ctx: Ctx, run_start: Any, run_end: Any, case_dir: str,
     if (ctx.probe_cfg or {}).get("points_by") != "cost-indicators":
         return None
     try:
-        from wtune import cost_drivers as wtune_cost_drivers
-        return wtune_cost_drivers.cost_series_for_case(
+        import wtune.cost_drivers
+        return cost_drivers.cost_series_for_case(
             case_dir, run_start, run_end, ctx.probe_cfg.get("indicator_sources"), grib_dir,
             namelist_path=ctx.namelist_path)
     except Exception:
@@ -167,21 +166,21 @@ def _cost_series_for_ctx(ctx: Ctx, run_start: Any, run_end: Any, case_dir: str,
 def _probe_plan_preview(ctx: Ctx, nodes: int, best_config: dict) -> tuple | None:
     """(points, notes, run_start, run_end, dt, stepra) wtune_probe_plan.plan_points would probe
     for the winner -- an informational preview; None on any failure."""
-    if wtune_predict is None or wtune_probe_plan is None:
+    if predict is None or probe_plan is None:
         return None
     try:
-        nl = wtune_predict.parse_namelist(ctx.namelist_path)
-        steps_n, run_s, dt, _note = wtune_predict.get_d01_steps(nl)
-        run_start = wtune_predict.get_time_control_datetime(nl, "start")
+        nl = predict.parse_namelist(ctx.namelist_path)
+        steps_n, run_s, dt, _note = predict.get_d01_steps(nl)
+        run_start = predict.get_time_control_datetime(nl, "start")
         if run_start is None:
             return None
         run_end = run_start + datetime.timedelta(seconds=run_s)
-        radt = wtune_predict.g(nl, "physics", "radt", None)
+        radt = predict.g(nl, "physics", "radt", None)
         if radt is None:
             return None
-        stepra = wtune_predict.steps_per_radiation_call(float(radt), dt)
+        stepra = predict.steps_per_radiation_call(float(radt), dt)
         spinup_s = float(ctx.probe_cfg.get("spinup_min") or 0) * 60.0
-        points, notes = wtune_probe_plan.plan_points(
+        points, notes = probe_plan.plan_points(
             nl, run_start, run_end, dt, stepra, spinup_s, ctx.probe_cfg,
             case_dir=ctx.case_json.get("prep_dir"),
             indicators=_cost_series_for_ctx(ctx, run_start, run_end, ctx.case_json.get("prep_dir")))
@@ -213,7 +212,7 @@ def run_rebuild_points(ctx: Ctx, points: list, best_config: dict, nodes: int, ca
 
     def _prepare_and_submit(i, p):
         pdir = os.path.join(out_dir, "pt_%d" % i)
-        plan = wtune_probe_plan.plan_rebuild_segments(
+        plan = probe_plan.plan_rebuild_segments(
             case_dir, [p], config, pdir, spinup_min=spinup_min, date_shift_to=date_shift_to,
             grib_dir=grib_dir, forcing=forcing, measure_steps=measure_steps)
         # the point's own PLAN/grib: a shared cache left GRIB links dangling (zhengzhou 2026-09-27)
@@ -239,15 +238,15 @@ def run_rebuild_points(ctx: Ctx, points: list, best_config: dict, nodes: int, ca
     if bad:
         raise RuntimeError("C3 rebuild job(s) %s not COMPLETED -- infrastructure failure, stop "
                            "and diagnose read-only" % bad)
-    sample_points, _geom_src = wtune_predict.read_wrfinput_sample_points(case_dir)
-    calibration = wtune_predict.load_calibration(str(wtune_predict.DEFAULT_CALIBRATION))
+    sample_points, _geom_src = predict.read_wrfinput_sample_points(case_dir)
+    calibration = predict.load_calibration(str(predict.DEFAULT_CALIBRATION))
     measurements = []
     for plan in plans:
         windows_out, _pooled, anchors = coldstart.score_windows_from_rsl(plan, sample_points,
                                                                           calibration)
         for w, (anchor_s, _s_k) in zip(windows_out, anchors):
             at = run_start + datetime.timedelta(seconds=anchor_s)
-            measurements.append(wtune_probe_plan.PointMeasurement(
+            measurements.append(probe_plan.PointMeasurement(
                 at=at, reason=w["reason"], source="rebuild", s_normal=w["s_k"],
                 n_rad=w["n_rad"], r=w["r_local"]))
     return measurements, ",".join(job_ids)
@@ -259,14 +258,14 @@ def build_full_run_prediction(ctx: Ctx, best_config: dict | None, nodes: int, al
     """The winner's full-run prediction text: combine() over `probe_measurements` when given,
     else wtune_predict.build_prediction fed this run's probe ledger (+ notes). Without
     wtune_predict or a winner: the `wtune/cli.py predict` command to run instead. Never raises."""
-    if wtune_predict is None or best_config is None:
+    if predict is None or best_config is None:
         return ("full-run prediction: run `python3 wtune.py predict %s --nodes %d --config "
                 "'%s'`" % (ctx.case_json["prep_dir"], nodes,
                            json.dumps(dict(ranks=best_config["ranks"], omp=best_config["omp"],
                                             nx=best_config["nx"], ny=best_config["ny"],
                                             numtiles=best_config["numtiles"]))
                            if best_config else "..."))
-    if probe_measurements and wtune_probe_plan is not None:
+    if probe_measurements and probe_plan is not None:
         try:
             return _multipoint_prediction_text(ctx, best_config, nodes, probe_measurements)
         except Exception as e:
@@ -284,12 +283,12 @@ def build_full_run_prediction(ctx: Ctx, best_config: dict | None, nodes: int, al
 def _multipoint_prediction_text(ctx: Ctx, best_config: dict, nodes: int,
                                 probe_measurements: list) -> str:
     """combine() of the winner's measured points, as report lines."""
-    nl = wtune_predict.parse_namelist(ctx.namelist_path)
+    nl = predict.parse_namelist(ctx.namelist_path)
     run_start, run_end, dt, stepra = _run_window(nl)
     calibration = _drift_calibration(ctx)
-    sample_points, _src = wtune_predict.read_wrfinput_sample_points(
+    sample_points, _src = predict.read_wrfinput_sample_points(
         ctx.case_json["prep_dir"])
-    result = wtune_probe_plan.combine(
+    result = probe_plan.combine(
         probe_measurements, run_start, run_end, dt, stepra, calibration=calibration,
         sample_points=sample_points, case_dir=ctx.case_json["prep_dir"], nl=nl,
         ranks=best_config.get("ranks"), nodes=nodes,
@@ -332,7 +331,7 @@ def _single_probe_prediction_text(ctx: Ctx, best_config: dict, nodes: int, all_r
     (ledger_paths=None used to force no_probe_fallback, +-50%), rendered, plus the drift,
     measure_r_rad and multi-point preview notes."""
     probe_path = write_probe_ledger(ctx, all_results, confirm_results)
-    calibration_path = str(wtune_predict.DEFAULT_CALIBRATION)
+    calibration_path = str(predict.DEFAULT_CALIBRATION)
     drift_note = None
     if ctx.prediction_cfg.get("drift_band_pct") is not None:
         calibration_path, drift_note = _calibration_with_drift_override(
@@ -340,7 +339,7 @@ def _single_probe_prediction_text(ctx: Ctx, best_config: dict, nodes: int, all_r
     entry = (confirm_results or {}).get(best_config.get("id")) or \
         (all_results or {}).get(best_config.get("id"))
     rsl_paths = _rsl_paths_for_entry(ctx, entry)
-    pred = wtune_predict.build_prediction(
+    pred = predict.build_prediction(
         namelist_path=ctx.namelist_path, case_dir=ctx.case_json["prep_dir"], nodes=nodes,
         config=dict(ranks=best_config["ranks"], omp=best_config["omp"], nx=best_config["nx"],
                     ny=best_config["ny"], numtiles=best_config["numtiles"]),
@@ -348,7 +347,7 @@ def _single_probe_prediction_text(ctx: Ctx, best_config: dict, nodes: int, all_r
         calibration_path=calibration_path, io_form_override=None,
         io_target=ctx.prediction_cfg.get("io_target") or "nfs", case_name=ctx.case,
         rsl_paths=rsl_paths or None, include_io=False)
-    text = wtune_predict.render_text(pred)
+    text = predict.render_text(pred)
     if drift_note:
         text += "\n" + drift_note
     if ctx.prediction_cfg.get("measure_r_rad"):
@@ -382,11 +381,11 @@ def _single_probe_prediction_text(ctx: Ctx, best_config: dict, nodes: int, all_r
 def _prediction_context(ctx: Ctx) -> tuple:
     """(nl, run_start, run_end, dt, stepra, calibration, sample_points, case_dir) for
     combine()-based prediction."""
-    nl = wtune_predict.parse_namelist(ctx.namelist_path)
+    nl = predict.parse_namelist(ctx.namelist_path)
     run_start, run_end, dt, stepra = _run_window(nl)
     calibration = _drift_calibration(ctx)
     case_dir = sweep._expand(ctx.case_json["prep_dir"])
-    sample_points, _src = wtune_predict.read_wrfinput_sample_points(case_dir)
+    sample_points, _src = predict.read_wrfinput_sample_points(case_dir)
     return nl, run_start, run_end, dt, stepra, calibration, sample_points, case_dir
 
 
@@ -435,8 +434,8 @@ class WholeRunPrediction(Record):
         self.time_suggestion = _fmt_sbatch_time(time_suggestion_s(T, band))
         self.error_min = band * T / 60.0
         if io:
-            self.breakdown = wtune_io_model.breakdown_line(compute_s, io, init_s)
-            self.segment_note = wtune_io_model.segment_note(init_s)
+            self.breakdown = io_model.breakdown_line(compute_s, io, init_s)
+            self.segment_note = io_model.segment_note(init_s)
         else:
             self.breakdown = ("compute %.0fs + init %.0fs = %.0fs (run-length I/O NOT included)"
                               % (compute_s, init_s, T))
@@ -481,10 +480,10 @@ def _fallback_point_plan(T_s: float, precision_s: float, measured: bool,
 def _case_types_and_track(ctx: Ctx) -> tuple[list, Any]:
     """(case type labels, TC best track or None): wtune_advise.build_case ->
     wtune_cost_drivers.case_types_for (decision-0057 classifier)."""
-    from wtune import advise as wtune_advise
-    case = wtune_advise.build_case(ctx.case)
-    types = list(wtune_cost_drivers.case_types_for(case))
-    track = wtune_advise.best_track(case) if "tc" in types else None
+    import wtune.advise
+    case = wtune.advise.build_case(ctx.case)
+    types = list(cost_drivers.case_types_for(case))
+    track = wtune.advise.best_track(case) if "tc" in types else None
     return types, track
 
 
@@ -507,7 +506,7 @@ def plan_prediction_points(ctx: Ctx, wrapped: list[dict], precision_min: float, 
     plan_points_for_case (case types, cost indicators, TC track) with each needs_rebuild time
     mapped onto the nearest planned point; on failure (printed) the fallback band table.
     Returns {selected, band, method, source, ...}."""
-    api = wtune_cost_drivers
+    api = cost_drivers
     if api is not None and getattr(api, "plan_points_for_case", None) and run_start is not None:
         try:
             types, track = _case_types_and_track(ctx)
@@ -542,16 +541,16 @@ def pipeline_run_length_io(namelist_path: str | None, io: str | None = None) -> 
     """wtune_io_model.run_length_io of the case namelist (history, boundary, auxinput4,
     restart I/O and iofields re-parsing of one unsegmented run); `io` adios2 (default) |
     netcdf; None, with the reason printed, when unavailable."""
-    if wtune_io_model is None or wtune_predict is None or not namelist_path:
+    if io_model is None or predict is None or not namelist_path:
         return None
     try:
-        nl = wtune_predict.parse_namelist(namelist_path)
-        cal = wtune_predict.load_calibration(str(wtune_predict.DEFAULT_CALIBRATION))
-        return wtune_io_model.run_length_io(
-            nl, io=io or wtune_io_model.DEFAULT_IO_FORMAT,
-            iofields_calls=wtune_io_model.case_iofields_calls(
+        nl = predict.parse_namelist(namelist_path)
+        cal = predict.load_calibration(str(predict.DEFAULT_CALIBRATION))
+        return io_model.run_length_io(
+            nl, io=io or io_model.DEFAULT_IO_FORMAT,
+            iofields_calls=io_model.case_iofields_calls(
                 nl, os.path.dirname(os.path.abspath(namelist_path))),
-            call_s=wtune_io_model.iofields_call_s(cal))
+            call_s=io_model.iofields_call_s(cal))
     except Exception as e:                                  # noqa: BLE001
         print("pipeline: run-length I/O model unavailable (%s: %s) -- whole-run prediction is "
               "compute + init only" % (type(e).__name__, e))
@@ -572,13 +571,13 @@ def cold_start_prediction(ctx: Ctx, nodes: int, config: dict | None,
                           total_steps: int) -> tuple[float, float, str]:
     """(whole-run s, s/step at `nodes`, source): wtune_predict's no-probe prediction, else the
     ledger estimate (10 s/step fallback). Crude by design: the O0 band is +-25%."""
-    if wtune_predict is not None and config:
+    if predict is not None and config:
         try:
-            pred = wtune_predict.build_prediction(
+            pred = predict.build_prediction(
                 namelist_path=ctx.namelist_path, case_dir=ctx.case_json["prep_dir"], nodes=nodes,
                 config=dict(ranks=config["ranks"], omp=config["omp"], nx=config["nx"],
                             ny=config["ny"], numtiles=config["numtiles"]),
-                ledger_paths=None, calibration_path=str(wtune_predict.DEFAULT_CALIBRATION),
+                ledger_paths=None, calibration_path=str(predict.DEFAULT_CALIBRATION),
                 io_form_override=None, io_target=ctx.prediction_cfg.get("io_target") or "nfs",
                 case_name=ctx.case, rsl_paths=None, include_io=False)
             T = float(pred["total_s"])

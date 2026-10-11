@@ -293,9 +293,9 @@ def test_g3_no_tune_or_advise_path_reaches_geog():
                 importers.append(f)
     assert importers == ["cli.py"], importers
     cli = open(os.path.join(SRC, "wtune", "cli.py")).read()
-    m = re.search(r"if args.command == 'prep':\n\s+from wtune import geog as wtune_geog", cli)
-    assert m, "wtune_geog must be imported only inside the 'prep' dispatch"
-    assert cli.count("import geog as wtune_geog") == 1
+    m = re.search(r"if args.command == 'prep':\n\s+import wtune\.geog\n", cli)
+    assert m, "wtune.geog must be imported only inside the 'prep' dispatch"
+    assert cli.count("import wtune.geog") == 1
     mine = open(os.path.join(SRC, "wtune", "geog.py")).read()
     for banned in ("tune", "advise", "calc", "probe_plan", "cost_drivers"):
         assert not re.search(r"^\s*from\s+wtune(\.%s\b|\s+import\s+%s\b)" % (banned, banned), mine, re.M)

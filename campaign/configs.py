@@ -117,8 +117,8 @@ def _load_decomp() -> Optional[ModuleType]:
     _DECOMP_TRIED = True
     add_src_to_path()
     try:
-        from wtune import decomp as wtune_decomp
-        _DECOMP = wtune_decomp
+        import wtune.decomp
+        _DECOMP = wtune.decomp
     except Exception as e:
         sys.stderr.write(
             "NOTE: wtune_decomp unavailable (%s: %s); using fallback shape scorer\n"

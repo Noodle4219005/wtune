@@ -13,7 +13,7 @@ import re
 import threading
 from typing import Any
 
-from ._deps import coldstart, sweep, wtune_predict, wtune_probe_plan
+from ._deps import coldstart, sweep, predict, probe_plan
 from .budget import (_fallback_s_per_step, _restart_read_s, ranking_context, ranking_cost_model,
                      ranking_export, stage2_concurrency, wrap_with_anchors)
 from .common import ANCHOR_END_ID, _cluster_rank, _fmt_hms, _log_key
@@ -72,7 +72,7 @@ def choose_primary_point(points: list, sample_points: Any) -> tuple[int, Any, fl
         raise ValueError("choose_primary_point: no planned points")
     best = None
     for i, p in enumerate(points):
-        frac = (wtune_predict.sunlit_fraction(sample_points, p.at) if sample_points else None) or 0.0
+        frac = (predict.sunlit_fraction(sample_points, p.at) if sample_points else None) or 0.0
         key = (-frac, p.at, i)
         if best is None or key < best[0]:
             best = (key, i, p, frac)
@@ -178,7 +178,7 @@ def submit_rebuilt_points(ctx: Ctx, points: list, anchor: dict, case_dir: str,
 
     def _prepare_and_submit(i, p):
         pdir = os.path.join(out_dir, "pt_%d" % i)
-        plan = wtune_probe_plan.plan_rebuild_segments(
+        plan = probe_plan.plan_rebuild_segments(
             case_dir, [p], config, pdir, spinup_min=spinup_min, date_shift_to=date_shift_to,
             namelist=namelist_path, grib_dir=grib_dir, forcing=forcing,
             measure_steps=measure_steps, real_only=True)
@@ -282,10 +282,10 @@ def _measure_run(ctx: Ctx, rp: dict, cid: str, job_id: str, dt: float,
         raise RuntimeError("%s missing/empty" % steps_path)
     # a fused row keeps only the post-spin-up steps: its first step is known, the rsl log says 1
     g0 = (first_global_step if first_global_step is not None else
-          wtune_probe_plan.first_global_step_from_rsl(os.path.join(rundir, "rsl.error.0000"),
+          probe_plan.first_global_step_from_rsl(os.path.join(rundir, "rsl.error.0000"),
                                                       rp["T"], dt))
     at = rp["point"].at + datetime.timedelta(seconds=rp["steps"] * dt / 2.0)
-    pm = wtune_probe_plan.measurement_from_steps_file(
+    pm = probe_plan.measurement_from_steps_file(
         steps_path, rp["stepra"], at, rp["point"].reason, "rebuild", first_global_step=g0)
     return pm, g0
 
@@ -327,7 +327,7 @@ def _submit_point_jobs(ctx: Ctx, wrapped: list[dict], runs: list[dict], rebuilt_
     [(rebuilt point, job id)]."""
     nl = None
     try:
-        nl = wtune_predict.parse_namelist(ctx.namelist_path)
+        nl = predict.parse_namelist(ctx.namelist_path)
     except Exception:
         pass
     jobs = []
@@ -418,7 +418,7 @@ def rank_by_predicted_total(meas_by_cid: dict, run_start: Any, run_end: Any, dt:
     for cid, pms in meas_by_cid.items():
         if cid == ANCHOR_END_ID or not pms:
             continue
-        res = wtune_probe_plan.combine(
+        res = probe_plan.combine(
             sorted(pms, key=lambda m: m.at), run_start, run_end, dt, stepra,
             calibration=calibration, sample_points=sample_points, case_dir=case_dir, nl=nl,
             ranks=ranks_by_cid.get(cid), nodes=nodes)
@@ -458,8 +458,8 @@ def predicted_spinup_min(dt: float, floor_min: int = PREDICTED_SPINUP_MIN,
 def plan_predicted_points(ctx: Ctx, spinup_min: int = PREDICTED_SPINUP_MIN) -> tuple:
     """wtune_rebuild_predict.plan with the ERA5 pin, `spinup_min` and probe.max_points on the
     case's own namelist: (nl, run_start, run_end, dt, stepra, points, notes)."""
-    from wtune import rebuild_predict as wtune_rebuild_predict
-    return wtune_rebuild_predict.plan(
+    import wtune.rebuild_predict
+    return wtune.rebuild_predict.plan(
         sweep._expand(ctx.case_json["prep_dir"]), PREDICTED_FORCING, spinup_min,
         ctx.probe_cfg.get("max_points"), namelist_path=ctx.namelist_path)
 

@@ -12,7 +12,9 @@ import sys
 import time
 from typing import Callable, Optional
 
-from ._deps import _CAMPAIGN_DIR, coldstart, sweep, wp, wtune_extensions, wtune_watch
+import wtune.extensions
+import wtune.watch
+from ._deps import _CAMPAIGN_DIR, coldstart, sweep, wp
 from .common import WRF_FMT, RunError, _fmt, _hms, parse_hms
 from .context import RunContext, RunOptions, RunPlan, Runners
 from .controller import _make_sidecar, run_controller
@@ -102,18 +104,18 @@ def parse_options(argv: Optional[list] = None) -> RunOptions:
 def _project_tune_report(project_dir: str, log: Callable) -> Optional[str]:
     """The newest <project>/tune/*/tune_report.json made for the project's registered case
     (none registered: the newest of all)."""
-    from wtune import project as wtune_project
-    case_id = wtune_project.project_case_id(wtune_project.load_project(project_dir))
-    return wtune_project.latest_tune_report(project_dir, case_id, log)
+    import wtune.project
+    case_id = wtune.project.project_case_id(wtune.project.load_project(project_dir))
+    return wtune.project.latest_tune_report(project_dir, case_id, log)
 
 
 def apply_project_defaults(opts: RunOptions, log: Callable) -> RunOptions:
     """No CASE_DIR: the project's case/. Running the project's own case with neither
     --tune-report nor --nodes: its newest tune report."""
-    from wtune import project as wtune_project
+    import wtune.project
     try:
-        project_dir = wtune_project.find_project(explicit=opts.project)
-    except wtune_project.ProjectError as e:
+        project_dir = wtune.project.find_project(explicit=opts.project)
+    except wtune.project.ProjectError as e:
         raise RunError(str(e)) from None
     if opts.case_dir is None:
         if not project_dir or not os.path.isdir(os.path.join(project_dir, "case")):
@@ -156,12 +158,12 @@ def _resolve_out(opts: RunOptions) -> str:
     """--out, else <project>/runs/<id>/ (decision 0058)."""
     if opts.out:
         return os.path.abspath(opts.out)
-    from wtune import project as wtune_project
-    project_dir = wtune_project.find_project(explicit=opts.project)
+    import wtune.project
+    project_dir = wtune.project.find_project(explicit=opts.project)
     if not project_dir:
         raise RunError("--out is required (or --project DIR / $WTUNE_PROJECT for a "
                        "default runs/<id>/ -- decision 0058)")
-    return wtune_project.default_out_dir(project_dir, "runs")
+    return wtune.project.default_out_dir(project_dir, "runs")
 
 
 def _load_case(opts: RunOptions, case_dir: str, out: str) -> Case:
@@ -339,8 +341,8 @@ def build_plan(opts: RunOptions, case_dir: str, out: str, log: Callable) -> RunP
     _plan_notes(opts, case, L, segs, rst, notes)
     nc_root = None
     if opts.sidecar:
-        from wtune import sidecar as wtune_sidecar
-        nc_root = wtune_sidecar.post_cache_root(out, find_project_dir(opts.project))
+        import wtune.sidecar
+        nc_root = wtune.sidecar.post_cache_root(out, find_project_dir(opts.project))
     return RunPlan(case_dir=case_dir, out=out, text=case.text, geo=case.geo, n_end=case.n_end,
                    wall_limit_s=wall_limit_s, over=over, replan=replan, inputs=inputs, L=L,
                    segments=segs, restart=rst, notes=notes, nc_root=nc_root)
@@ -444,11 +446,11 @@ def main(argv: Optional[list] = None, sbatch_runner: Optional[Callable] = None,
     except RunError as e:
         return _fail(e)
     case_dir = os.path.abspath(opts.case_dir)
-    refusal = wtune_extensions.refusal_run(case_dir, cfl_rescue=opts.cfl_rescue,
+    refusal = wtune.extensions.refusal_run(case_dir, cfl_rescue=opts.cfl_rescue,
                                            wrfda_forecast_only=opts.wrfda_forecast_only)
     if refusal:
         return _fail(refusal)
-    for note in wtune_extensions.run_notes(case_dir):
+    for note in wtune.extensions.run_notes(case_dir):
         log("EXTENSION: %s" % note)
     try:
         out = _resolve_out(opts)
@@ -469,6 +471,6 @@ def main(argv: Optional[list] = None, sbatch_runner: Optional[Callable] = None,
         return _fail(e)
     runners = Runners(sbatch_runner=sbatch_runner or sweep.default_sbatch_runner,
                       sacct_runner=sacct_runner or sweep.default_sacct_runner,
-                      snapshot_fn=snapshot_fn or wtune_watch.snapshot,
+                      snapshot_fn=snapshot_fn or wtune.watch.snapshot,
                       sleep=sleep or time.sleep, log=log)
     return execute(_run_context(opts, plan, runners, sidecar_runner))

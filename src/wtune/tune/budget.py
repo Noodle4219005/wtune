@@ -6,7 +6,7 @@ import math
 import os
 import statistics
 
-from ._deps import sweep, wtune_predict
+from ._deps import sweep, predict
 from .common import ANCHOR_END_ID, _parse_slurm_elapsed, compute_slots
 from .context import DEFAULT_STARTUP_S, Ctx
 
@@ -77,10 +77,10 @@ def update_s_est(all_results: dict, fallback: float) -> float:
 
 def _fallback_s_per_step(nl: dict, ranks: int, omp: int) -> float:
     """s/step of the uncalibrated cell-step model (calibration fallback_s_per_cell_step_ns)."""
-    max_dom = int(wtune_predict.g(nl, "domains", "max_dom", 1))
-    cal = wtune_predict.load_calibration(str(wtune_predict.DEFAULT_CALIBRATION))
+    max_dom = int(predict.g(nl, "domains", "max_dom", 1))
+    cal = predict.load_calibration(str(predict.DEFAULT_CALIBRATION))
     return (cal["fallback_s_per_cell_step_ns"] * 1e-9
-            * wtune_predict.nested_equivalent_cells(nl, max_dom) / max(int(ranks) * int(omp), 1))
+            * predict.nested_equivalent_cells(nl, max_dom) / max(int(ranks) * int(omp), 1))
 
 
 def rebuild_segment_timeout_min(case_dir: str, spinup_min: float, ranks: int, omp: int = 1,
@@ -89,14 +89,14 @@ def rebuild_segment_timeout_min(case_dir: str, spinup_min: float, ranks: int, om
     `floor_min`; 90 when the namelist cannot be read. It only guards hangs, so it errs long
     (coldstart's 15 min killed every maria1km segment, 2026-09-27)."""
     try:
-        nl = wtune_predict.parse_namelist(os.path.join(case_dir, "namelist.input"))
-        _n, _run_s, dt, _note = wtune_predict.get_d01_steps(nl)
-        stepra = wtune_predict.steps_per_radiation_call(
-            float(wtune_predict.g(nl, "physics", "radt", None)), dt)
-        max_dom = int(wtune_predict.g(nl, "domains", "max_dom", 1))
-        cal = wtune_predict.load_calibration(str(wtune_predict.DEFAULT_CALIBRATION))
+        nl = predict.parse_namelist(os.path.join(case_dir, "namelist.input"))
+        _n, _run_s, dt, _note = predict.get_d01_steps(nl)
+        stepra = predict.steps_per_radiation_call(
+            float(predict.g(nl, "physics", "radt", None)), dt)
+        max_dom = int(predict.g(nl, "domains", "max_dom", 1))
+        cal = predict.load_calibration(str(predict.DEFAULT_CALIBRATION))
         s_step = (cal["fallback_s_per_cell_step_ns"] * 1e-9
-                  * wtune_predict.nested_equivalent_cells(nl, max_dom) / max(ranks * omp, 1))
+                  * predict.nested_equivalent_cells(nl, max_dom) / max(ranks * omp, 1))
         steps = (spinup_min * 60.0) / dt + max(30, 2 * stepra)
         est_s = steps * s_step * 1.5 + 120.0          # x1.5 radiation steps, + 120 s init
         return max(floor_min, int(math.ceil(safety * est_s / 60.0)))

@@ -8,7 +8,7 @@ from __future__ import annotations
 import math
 from typing import Any
 
-from ._deps import wtune_nodes
+import wtune.nodes
 
 LEVELS = {
     0: dict(name="O0", method="no jobs: cold-start predict + proxy layout"),
@@ -38,7 +38,7 @@ def layout_estimates(*, s1: float, steps_probe: int, startup_s: float, max_nodes
     S = float(startup_s)
     job = lambda n, reps=2: reps * (S + steps_probe * s1 / n)            # noqa: E731
     seeds = sorted({n for n in (1, 2, 4, 8, max_nodes) if 1 <= n <= max_nodes})
-    t1 = sum(max(job(n) for n in wave) for wave in wtune_nodes.sweep_waves(seeds, max_nodes))
+    t1 = sum(max(job(n) for n in wave) for wave in wtune.nodes.sweep_waves(seeds, max_nodes))
     nstar = max(1, min(4, max_nodes))
     wave_n = job(nstar)
     slots = max(1, max_nodes // nstar)

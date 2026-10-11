@@ -9,7 +9,7 @@ import shlex
 import time
 from typing import Any, Callable, Optional
 
-from ._deps import sweep, wp, wtune_tune
+from ._deps import sweep, wp, tune
 from .common import ADIOS2_IO_FORM, UNSET, WRF_FMT, Record, RunError, _fmt
 from .context import RunContext
 from .geometry import Geometry, step_time
@@ -174,7 +174,7 @@ def wait_for_job(job_id: str, sacct_runner: Callable, sacct_cmd: str = "sacct",
             if unknown > UNKNOWN_POLLS_MAX:
                 return state, None
         elif state not in sweep.IN_FLIGHT_STATES:
-            return state, (wtune_tune._parse_slurm_elapsed(elapsed) if wtune_tune else None)
+            return state, (tune._parse_slurm_elapsed(elapsed) if tune else None)
         else:
             unknown = 0                # only consecutive misses count
         if on_poll:

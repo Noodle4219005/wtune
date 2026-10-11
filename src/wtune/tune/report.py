@@ -9,7 +9,8 @@ import json
 import math
 import os
 
-from ._deps import wc, wtune_extensions, wtune_predict
+import wtune.extensions
+from ._deps import wc, predict
 from .candidates import rank_predicted_entries
 from .common import _fmt_hms
 from .context import Ctx
@@ -48,10 +49,10 @@ def _assert_report_is_strict_only(ctx: Ctx, param_table: dict) -> None:
     """Decision 0056: every namelist key the recommended configuration changes must be STRICT
     (wtune_compliance) and no extension-owned group (&chem, &wrfvar*) may change at all. Skipped
     without wtune_predict or a readable namelist; raises wc.ComplianceError."""
-    if wtune_predict is None:
+    if predict is None:
         return
     try:
-        orig_nested = wtune_predict.parse_namelist(ctx.namelist_path)
+        orig_nested = predict.parse_namelist(ctx.namelist_path)
     except OSError:
         return
     orig_flat = {k: v for grp in orig_nested.values() for k, v in grp.items()}
@@ -68,7 +69,7 @@ def _assert_report_is_strict_only(ctx: Ctx, param_table: dict) -> None:
         for k in grp:
             if k in final_flat and final_flat[k] != orig_flat.get(k):
                 grp[k] = final_flat[k]
-    bad = wtune_extensions.extension_keys_changed(orig_nested, final_nested)
+    bad = wtune.extensions.extension_keys_changed(orig_nested, final_nested)
     if bad:
         raise wc.ComplianceError(
             "extension parameter(s) changed in the final recommended configuration: "
@@ -415,11 +416,11 @@ def _attach_advice(report: dict) -> str:
     """Decision 0061: the advice-only tail (report["advice"] + its text). Never fails the tune:
     an error goes to report["advice_error"]."""
     try:
-        from wtune import advise as wtune_advise          # looked up at call time (tests swap it in sys.modules)
-        res = wtune_advise.advise_case_id(report["case"])
+        import wtune.advise          # looked up at call time (tests swap it in sys.modules)
+        res = wtune.advise.advise_case_id(report["case"])
         report["advice"] = res["advice"]
         report["advice_unavailable"] = res["unavailable"]
-        return "\n\n" + wtune_advise.render_text(res)
+        return "\n\n" + wtune.advise.render_text(res)
     except Exception as e:                                  # noqa: BLE001
         report["advice"] = []
         report["advice_error"] = "%s: %s" % (type(e).__name__, e)

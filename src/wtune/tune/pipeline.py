@@ -11,7 +11,8 @@ import os
 import statistics
 from typing import Any, Callable
 
-from ._deps import sweep, wtune_nodes, wtune_predict
+import wtune.nodes
+from ._deps import sweep, predict
 from .candidates import _sweep_anchor
 from .common import ANCHOR_END_ID, _fmt_hms, _fmt_sbatch_time, compute_slots, if_set, is_set
 from .context import Ctx, QueueCapExceeded
@@ -281,7 +282,7 @@ def _phase0_submit_rebuild(st: PipelineRun, precision_min: float, info: RebuildI
                 break
     case_dir = sweep._expand(ctx.case_json["prep_dir"])
     try:
-        sample_pts0, _src = wtune_predict.read_wrfinput_sample_points(case_dir)
+        sample_pts0, _src = predict.read_wrfinput_sample_points(case_dir)
     except Exception:                                   # noqa: BLE001
         sample_pts0 = None
     wrapped0 = [dict(index=i, point=p) for i, p in enumerate(points)]
@@ -388,7 +389,7 @@ def _pipeline_phase1_layout(st: PipelineRun, profile: dict, objective: str,
     try:
         report = _node_search.run_node_search(
             ctx1, profile, objective, deadline_s,
-            min_efficiency if min_efficiency is not None else wtune_nodes.DEFAULT_MIN_EFFICIENCY,
+            min_efficiency if min_efficiency is not None else wtune.nodes.DEFAULT_MIN_EFFICIENCY,
             k_finalists, st.total_steps, nodes_policy=nodes_policy,
             sweep_budget_frac=(sweep_budget_frac if sweep_budget_frac is not None
                                else DEFAULT_SWEEP_BUDGET_FRAC),

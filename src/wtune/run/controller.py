@@ -9,7 +9,8 @@ import os
 import shutil
 from typing import Callable, Iterable, Optional
 
-from ._deps import resume, sweep, wtune_extensions
+import wtune.extensions
+from ._deps import resume, sweep
 from .attempts import Attempt, Outcome, _attempt_namelist, _attempt_times, _run_attempt
 from .common import CORES_PER_NODE, RunError, _fmt, _hms
 from .context import RunContext
@@ -138,7 +139,7 @@ def _cfl_advice(ctx: RunContext, k: int, seg: Segment, att: Attempt, seg_dir: st
         % (k, advice_dt if advice_dt is not None else "none found in range", geo.dt))
     if advice_path:
         log("  advice namelist written: %s" % advice_path)
-    for _w in wtune_extensions.cfl_coupling_warnings(ctx.plan.case_dir, geo.dt, advice_dt):
+    for _w in wtune.extensions.cfl_coupling_warnings(ctx.plan.case_dir, geo.dt, advice_dt):
         log(_w)
     ctx.report["decisions"].append({"segment": k, "decision": "cfl_advice",
                                     "recommended_time_step": advice_dt,
@@ -251,10 +252,10 @@ def _update_from_observed(ctx: RunContext, k: int, snap: dict, elapsed: Optional
 
 def _make_sidecar(ctx: RunContext, nc_root: str, runner: Optional[Callable] = None):
     """The run's wtune_sidecar.Sidecar; its sruns go through `runner` (tests inject a fake)."""
-    from wtune import sidecar as wtune_sidecar
+    import wtune.sidecar
     out = ctx.plan.out
-    return wtune_sidecar.Sidecar(
+    return wtune.sidecar.Sidecar(
         out, nc_root, ctx.geo.max_dom, sweep.campaign_configs._import_wtune_bp().is_bp,
         ctx.report, save=lambda: _save_report(ctx), log=ctx.log,
         cores_per_node=CORES_PER_NODE, exclude_arg=sweep.exclude_arg(),
-        runner=runner or wtune_sidecar.popen_runner(os.path.join(out, "sidecar.log")))
+        runner=runner or wtune.sidecar.popen_runner(os.path.join(out, "sidecar.log")))

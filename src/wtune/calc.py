@@ -365,8 +365,8 @@ def io_frame_bytes(e_we, e_sn, e_vert, n3d=IO_N3D, n2d=IO_N2D):
 
 def _calibrated_bytes_per_cell_level():
     try:
-        from wtune import predict as wtune_predict
-        cal = wtune_predict.load_calibration(wtune_predict.DEFAULT_CALIBRATION)
+        import wtune.predict
+        cal = wtune.predict.load_calibration(wtune.predict.DEFAULT_CALIBRATION)
         return float(cal["derived"]["bytes_per_cell_level"])
     except Exception:
         return None

@@ -602,8 +602,8 @@ def combine(points_measurements: list[PointMeasurement], run_start: datetime.dat
                   total_s=total_s, range_low_s=low, range_high_s=high, drift_pct=drift_pct,
                   r_night=r_night, r_day=r_day, r_source=r_source, steps_n=steps_n, points=table)
     if cost_series is not None and cost_series.usable:
-        from wtune import cost_drivers as wtune_cost_drivers
-        wtune_cost_drivers.attach_weighted_totals(result, cost_series, points_measurements,
+        import wtune.cost_drivers
+        wtune.cost_drivers.attach_weighted_totals(result, cost_series, points_measurements,
                                                   run_start, run_end, dt, stepra, sample_points)
     return result
 

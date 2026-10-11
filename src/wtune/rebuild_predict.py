@@ -264,8 +264,8 @@ def main(argv=None):
     a = ap.parse_args(argv)
 
     case_dir = os.path.abspath(a.case_dir)
-    from wtune import extensions as wtune_extensions
-    refusal = wtune_extensions.refusal_predict_rebuild(case_dir)
+    import wtune.extensions
+    refusal = wtune.extensions.refusal_predict_rebuild(case_dir)
     if refusal:
         print("error: %s" % refusal, file=sys.stderr)
         return 2
@@ -278,11 +278,11 @@ def main(argv=None):
     t_start = time.time()
     cost_series = None
     if a.points_by == "cost-indicators":
-        from wtune import cost_drivers as wtune_cost_drivers
+        import wtune.cost_drivers
         from wtune import predict as wp
         _nl0 = wp.parse_namelist(os.path.join(case_dir, "namelist.input"))
         _s0 = wp.get_time_control_datetime(_nl0, "start")
-        cost_series = wtune_cost_drivers.cost_series_for_case(
+        cost_series = wtune.cost_drivers.cost_series_for_case(
             case_dir, _s0, _s0 + dt.timedelta(seconds=wp.get_d01_steps(_nl0)[1]),
             [x for x in (a.indicator_sources or "").split(",") if x] or None)
     plan_kw = dict(points_by=a.points_by, indicators=cost_series) \
@@ -316,14 +316,14 @@ def main(argv=None):
         os.environ["WTUNE_ERA5_RAIN_SNOW"] = "1"
     from wtune import predict as wp
     from wtune import probe_plan as pp
-    from wtune import tune as wtune_tune
+    import wtune.tune
     if a.out:
         out = os.path.abspath(a.out)
     else:
-        from wtune import project as wtune_project
-        _project_dir = wtune_project.find_project(explicit=getattr(a, "project", None))
+        import wtune.project
+        _project_dir = wtune.project.find_project(explicit=getattr(a, "project", None))
         out = os.path.abspath(
-            wtune_project.default_out_dir(_project_dir, "predict") if _project_dir
+            wtune.project.default_out_dir(_project_dir, "predict") if _project_dir
             else "wtune-rebuild-%s-%s" % (os.path.basename(case_dir),
                                           dt.datetime.utcnow().strftime("%Y%m%dT%H%M%S")))
     if os.path.commonpath([out, case_dir]) == case_dir:
@@ -333,7 +333,7 @@ def main(argv=None):
     best = dict(id="target", ranks=ranks, omp=a.omp, nx=a.nx, ny=a.ny, numtiles=a.numtiles,
                 dist="block", blocktime=0)
     ctx = _ctx(case_dir, a.nodes, out, max_wait_hours=a.max_wait_hours)
-    meas, job_ids = wtune_tune.run_rebuild_points(
+    meas, job_ids = wtune.tune.run_rebuild_points(
         ctx, points, best, a.nodes, case_dir, os.path.join(out, "rebuild"), run_start,
         spinup_min=spinup, forcing=None if forcing == "auto" else forcing,
         measure_steps=measure_steps)

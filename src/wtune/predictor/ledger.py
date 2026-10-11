@@ -22,9 +22,9 @@ import sys
 from collections import Counter, defaultdict
 
 try:
-    from wtune import compliance as wtune_compliance  # repo root, read-only import
+    from wtune import compliance  # repo root, read-only import
 except ImportError:
-    wtune_compliance = None  # classify() falls back to UNCLASSIFIED-safe heuristics below
+    compliance = None  # classify() falls back to UNCLASSIFIED-safe heuristics below
 
 HARDWARE_ID = "f1-spr-icpnq"  # f1 Sapphire Rapids icpnq nodes: 112 cores/node, 2 sockets,
                                # SNC 8 NUMA domains x 14 cores, SMT off (see AGENTS/CLAUDE.md HPC notes)
@@ -627,8 +627,8 @@ ADAPTERS = [
 # rule, scoped tighter so grid-incomparable groups, e.g. 448x1 vs 224x2 karina, never mix).
 # ---------------------------------------------------------------------------
 def _classify(name):
-    if wtune_compliance is not None:
-        return wtune_compliance.classify(name)
+    if compliance is not None:
+        return compliance.classify(name)
     return "STRICT"  # degrades safely only if the repo import ever fails; ledger stays usable
 
 

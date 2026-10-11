@@ -166,11 +166,11 @@ def build_case(arg, site="scc", needs=(), hurdat2=None, storm=None, bdeck=None, 
     if os.path.isdir(_expand(arg)):
         d = os.path.abspath(_expand(arg))
         if os.path.isfile(os.path.join(d, "project.yaml")):
-            from wtune import project as wtune_project
-            doc = wtune_project.load_project(d)
-            p_storm, p_hurdat = wtune_project.project_storm(doc)
+            import wtune.project
+            doc = wtune.project.load_project(d)
+            p_storm, p_hurdat = wtune.project.project_storm(doc)
             storm, hurdat2 = storm or p_storm, hurdat2 or p_hurdat
-            runs = wtune_project.discover_runs(d)
+            runs = wtune.project.discover_runs(d)
             case_dir = os.path.join(d, "case")
             run_dir = runs[0][1] if runs else None
             namelist = _find_namelist(run_dir or case_dir) or _find_namelist(case_dir)
@@ -208,8 +208,8 @@ def _nl(case):
     if not case.namelist:
         raise AdviseError("no namelist.input/namelist.output in the case directory")
     if "nl" not in case.cache:
-        from wtune import predict as wtune_predict
-        case.cache["nl"] = wtune_predict.parse_namelist(case.namelist)
+        import wtune.predict
+        case.cache["nl"] = wtune.predict.parse_namelist(case.namelist)
     return case.cache["nl"]
 
 

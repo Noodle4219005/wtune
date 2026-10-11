@@ -107,8 +107,8 @@ def _basenames(run_dirs: list[str]) -> list[str]:
 def _record_manifest(project_dir: str | None, argv: list[str], out: str, key_paths: list[str],
                      exit_code: int = 0) -> None:
     if project_dir:
-        from wtune import project as wtune_project
-        wtune_project.manifest_append(project_dir, argv, out_dir=out, exit_code=exit_code,
+        import wtune.project
+        wtune.project.manifest_append(project_dir, argv, out_dir=out, exit_code=exit_code,
                                       key_paths=key_paths)
 
 
@@ -155,8 +155,8 @@ def cmd_tc(args: argparse.Namespace) -> int:
 
     hurdat2, storm = args.hurdat2, args.storm
     if project_dir and not hurdat2 and not storm:
-        from wtune import project as wtune_project
-        storm, hurdat2 = wtune_project.project_storm(project_doc)
+        import wtune.project
+        storm, hurdat2 = wtune.project.project_storm(project_doc)
     if not (hurdat2 and storm):
         raise SystemExit("--hurdat2/--storm required (or set them in project.yaml's storm:)")
 
@@ -222,8 +222,8 @@ def cmd_recipe(args: argparse.Namespace) -> int:
                            [("run%d" % i) for i in range(len(run_dirs))])
     out = _resolve_out(args, project_dir, "recipe")
     if project_dir:
-        from wtune import project as wtune_project
-        defaults = wtune_project.project_post_defaults(project_doc)
+        import wtune.project
+        defaults = wtune.project.project_post_defaults(project_doc)
         used = []
         if args.types is None and defaults["types"]:
             args.types = defaults["types"]
@@ -236,8 +236,8 @@ def cmd_recipe(args: argparse.Namespace) -> int:
 
     hurdat2, storm = args.hurdat2, args.storm
     if project_dir and not hurdat2 and not storm:
-        from wtune import project as wtune_project
-        storm, hurdat2 = wtune_project.project_storm(project_doc)
+        import wtune.project
+        storm, hurdat2 = wtune.project.project_storm(project_doc)
 
     cross_sections = xsec_top_km = xsec_halfwidth_km = None
     if project_dir:

@@ -8,7 +8,9 @@ import io
 import re
 import statistics
 
-from ._deps import campaign_configs, decomp_space, sweep, wtune_config, wtune_extensions
+import wtune.config
+import wtune.extensions
+from ._deps import campaign_configs, decomp_space, sweep
 from .common import _cluster_rank, _log_key, _notes_kv, parse_run_id
 from .context import Ctx, cores_used
 
@@ -26,7 +28,7 @@ def _apply_search_filter(ctx: Ctx, configs: list[dict]) -> list[dict]:
         exempt = c.get("config_source") == "anchor" or c.get("id") == "ANCHOR"
         chem_e_sn = getattr(ctx, "chem_e_sn", None)
         if chem_e_sn and c.get("ny"):     # PROVISIONAL WRF-Chem narrow-j-patch hang guard
-            why = wtune_extensions.chem_j_patch_reason(chem_e_sn, int(c["ny"]), c.get("nx"))
+            why = wtune.extensions.chem_j_patch_reason(chem_e_sn, int(c["ny"]), c.get("nx"))
             if why:
                 print("config: %s %s" % (c.get("id"), why))
                 continue
@@ -35,7 +37,7 @@ def _apply_search_filter(ctx: Ctx, configs: list[dict]) -> list[dict]:
                 print("config: ANCHOR omp=%s dropped: OpenMP not supported by this extension build"
                       % c.get("omp"))
             continue
-        if wtune_config.candidate_allowed(c, ctx.search_cfg, ctx.exclude_rules, ctx.is_fire,
+        if wtune.config.candidate_allowed(c, ctx.search_cfg, ctx.exclude_rules, ctx.is_fire,
                                            exempt_search=exempt):
             out.append(c)
         elif exempt:

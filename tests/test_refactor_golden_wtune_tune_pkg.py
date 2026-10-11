@@ -167,7 +167,7 @@ def test_golden_pipeline_more(name, monkeypatch, tmp_path, capsys):
 # the pipeline's prediction context, with wtune_predict / wtune_probe_plan faked -----------------
 def _fake_predict_stack(monkeypatch, calls):
     import datetime as _dt
-    wp, pp = wtune.tune.wtune_predict, wtune.tune.wtune_probe_plan
+    wp, pp = wtune.tune.predict, wtune.tune.probe_plan
     monkeypatch.setattr(wp, "parse_namelist", lambda path: calls.append(("nl", path)) or {"nl": 1})
     monkeypatch.setattr(wp, "get_d01_steps", lambda nl: (1440, 21600.0, 15.0, None))
     monkeypatch.setattr(wp, "get_time_control_datetime",

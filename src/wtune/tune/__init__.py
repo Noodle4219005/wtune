@@ -5,9 +5,8 @@ rounds, report, node_search -> pipeline (+ physics_phase) -> cli. Every name of 
 former single module is re-exported here; names tests monkeypatch are called through their
 defining module (`_jobs.wait_for_jobs`), so patch them there (wtune_tune.jobs.wait_for_jobs)."""
 from ._deps import (  # noqa: F401
-    _HERE, sweep, wtune_case, wc, wtune_extensions, wtune_nodes, wtune_config, pred_targets,
-    wtune_predict, wtune_probe_plan, wtune_io_model, coldstart, wtune_physics_advice,
-    wtune_cost_drivers, campaign_configs, decomp_space,
+    _HERE, sweep, wc, pred_targets, predict, probe_plan, io_model, coldstart, physics_advice,
+    cost_drivers, campaign_configs, decomp_space,
 )
 from .common import (  # noqa: F401
     ANCHOR_END_ID, is_set, if_set, Record, _fmt_hms, _fmt_sbatch_time, parse_run_id,

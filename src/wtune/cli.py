@@ -859,20 +859,20 @@ def screen_cmd(args):
 
 def _print_extension_notes(nl, namelist_path):
     """One support line per detected extension (plan/physics/knobs): grid/rank-only policy."""
-    from wtune import extensions as wtune_extensions
+    import wtune.extensions
     try:
-        from wtune import predict as wtune_predict
-        pnl = wtune_predict.parse_namelist(namelist_path)
+        import wtune.predict
+        pnl = wtune.predict.parse_namelist(namelist_path)
     except Exception:
         return
     run_dir = os.path.dirname(os.path.abspath(namelist_path))
-    dets = [d for d in wtune_extensions.detect(pnl, run_dir) if d['active']]
+    dets = [d for d in wtune.extensions.detect(pnl, run_dir) if d['active']]
     for d in dets:
-        print('EXTENSION: ' + wtune_extensions.support_line(d))
+        print('EXTENSION: ' + wtune.extensions.support_line(d))
     if any(d['id'] == 'wrfda' for d in dets):
-        print('EXTENSION: ' + wtune_extensions.DA_ADVISORY_BANNER)
-    for _uid, label, msg, hits in wtune_extensions.detect_unsupported(run_dir):
-        print('EXTENSION: ' + wtune_extensions.unsupported_line(label, msg, hits))
+        print('EXTENSION: ' + wtune.extensions.DA_ADVISORY_BANNER)
+    for _uid, label, msg, hits in wtune.extensions.detect_unsupported(run_dir):
+        print('EXTENSION: ' + wtune.extensions.unsupported_line(label, msg, hits))
 
 
 # ---------------------------------------------------------------- command-line front end
@@ -1029,8 +1029,8 @@ def _forwarded_module(args):
     `prep` keeps a literal import statement: decision 0063 keeps wtune_geog out of every other
     code path, and test_wtune_geog pins that it is imported only inside the 'prep' branch."""
     if args.command == 'prep':
-        from wtune import geog as wtune_geog
-        return wtune_geog
+        import wtune.geog
+        return wtune.geog
     return importlib.import_module(_FORWARDED_MODULE[args.command])
 
 
@@ -1082,18 +1082,18 @@ def _run_forwarded(args):
     argv = getattr(args, _FORWARDED_DEST[args.command])
     project_dir = None
     if args.command in _PROJECT_AWARE:
-        from wtune import project as wtune_project
+        import wtune.project
         project_dir, doc = _project_for(argv)
         if project_dir:
-            wtune_project.apply_project_env(project_dir, doc)
+            wtune.project.apply_project_env(project_dir, doc)
     try:
         status = _forwarded_module(args).main(argv)
     except SystemExit as e:
         status = e.code
     if project_dir and args.command in _RECORDED and not {'-h', '--help'} & set(argv):
-        from wtune import project as wtune_project
+        import wtune.project
         code = (status or 0) if isinstance(status, (int, type(None))) else 1
-        wtune_project.manifest_append(project_dir, ['wtune', args.command] + list(argv),
+        wtune.project.manifest_append(project_dir, ['wtune', args.command] + list(argv),
                                       exit_code=code)
     return status
 

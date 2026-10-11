@@ -21,7 +21,7 @@ from test_wtune_tune import _ctx, make_fake_sbatch
 REPO = Path(__file__).resolve().parents[1]
 SBATCH = REPO / "campaign" / "strict_campaign.sbatch"
 HYGIENE = REPO / "campaign" / "node_hygiene.sh"
-PM = wt.wtune_probe_plan.PointMeasurement
+PM = wt.probe_plan.PointMeasurement
 T0 = dt.datetime(2021, 7, 19, 18)
 ANCHOR = dict(id="ANCHOR", ranks=288, omp=1, nx=16, ny=18, numtiles=1, dist="block",
               blocktime=0, config_source="anchor")
@@ -151,7 +151,7 @@ def test_prepare_rebuilt_points_writes_one_cases_json(monkeypatch, tmp_path):
         os.rename(str(_p), pdir)
         return plan
 
-    monkeypatch.setattr(wt.wtune_probe_plan, "plan_rebuild_segments", plan_segments)
+    monkeypatch.setattr(wt.probe_plan, "plan_rebuild_segments", plan_segments)
     monkeypatch.setattr(wt.coldstart, "resolve_and_fetch_forcing", lambda *a, **k: (0, {}))
     monkeypatch.setattr(wt.budget, "rebuild_segment_timeout_min", lambda *a, **k: 30)
     monkeypatch.setattr(wt.coldstart, "stage_plan", lambda pdir, **k: pdir + "/run.sbatch")
@@ -307,7 +307,7 @@ def test_rank_by_predicted_total_orders_by_total():
 def test_choose_primary_point(monkeypatch):
     pts = [types.SimpleNamespace(at=T0 + dt.timedelta(hours=h)) for h in (0, 6, 12, 18)]
     fr = {0: 0.2, 6: 0.9, 12: 0.9, 18: 0.1}
-    monkeypatch.setattr(wt.wtune_predict, "sunlit_fraction",
+    monkeypatch.setattr(wt.predict, "sunlit_fraction",
                         lambda sp, at: fr[int((at - T0).total_seconds() // 3600)])
     idx, p, frac = wt.choose_primary_point(pts, [(0.0, 0.0)])
     assert idx == 1 and frac == 0.9                     # tie 6h/12h -> earliest

@@ -931,11 +931,11 @@ class TestComplianceKnobs(unittest.TestCase):
     def test_all_varied_knobs_are_strict(self):
         sys.path.insert(0, os.path.join(configs.REPO_ROOT, "src"))
         try:
-            from wtune import compliance as wtune_compliance
+            import wtune.compliance
         except Exception as e:  # pragma: no cover - only if repo layout changes
             self.skipTest("wtune_compliance not importable: %s" % e)
         for name in configs._COMPLIANCE_KNOBS:
-            self.assertEqual(wtune_compliance.classify(name), wtune_compliance.STRICT, name)
+            self.assertEqual(wtune.compliance.classify(name), wtune.compliance.STRICT, name)
 
 
 class TestCasesJson(unittest.TestCase):

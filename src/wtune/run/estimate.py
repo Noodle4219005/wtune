@@ -8,7 +8,7 @@ import datetime as dt
 import math
 from typing import Callable, Optional
 
-from ._deps import coldstart, iom, pp, sweep, wp, wtune_tune
+from ._deps import coldstart, iom, pp, sweep, wp, tune
 from .common import WRF_FMT, Record, RunError, _frac
 from .geometry import Geometry
 
@@ -177,7 +177,7 @@ def fallback_s_per_step(nl: dict, ranks: int, omp: int) -> float:
     """Conservative constant s/step: wtune_tune's cell-step model x FALLBACK_RADIATION_FACTOR;
     scc_sweep.CONSERVATIVE_S_PER_STEP when that model fails."""
     try:
-        return wtune_tune._fallback_s_per_step(nl, ranks, omp) * FALLBACK_RADIATION_FACTOR
+        return tune._fallback_s_per_step(nl, ranks, omp) * FALLBACK_RADIATION_FACTOR
     except Exception:
         return sweep.CONSERVATIVE_S_PER_STEP
 

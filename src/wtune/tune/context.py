@@ -10,8 +10,9 @@ import subprocess
 import time
 from typing import Any, Callable
 
-from ._deps import (campaign_configs, sweep, wtune_case, wtune_config, wtune_predict,
-                    wtune_probe_plan)
+import wtune.case
+import wtune.config
+from ._deps import campaign_configs, sweep, predict, probe_plan
 
 DEFAULT_MAX_NODES = 13                 # scc compute pool: work[1-13], head excluded (scc_sweep.py)
 DEFAULT_STEPS = 20                     # probe steps per run (t0 search)
@@ -90,16 +91,16 @@ class Ctx:
     cancelled_jobs: list = dataclasses.field(default_factory=list)
     # --config (wtune/config.py); the defaults are a no-op filter / the pre---config behaviour
     search_cfg: dict = dataclasses.field(
-        default_factory=lambda: copy.deepcopy(wtune_config.DEFAULTS["search"]))
+        default_factory=lambda: copy.deepcopy(wtune.config.DEFAULTS["search"]))
     exclude_rules: list = dataclasses.field(default_factory=list)
     is_fire: bool = False
     chem_e_sn: Any = None              # e_sn list of an active WRF-Chem case (j-patch guard)
     omp_cap: Any = None                # 1 for WRF-Chem/Hydro/WRFDA (dmpar-only builds)
     confirm_reps: int = CONFIRM_REPS
     prediction_cfg: dict = dataclasses.field(
-        default_factory=lambda: copy.deepcopy(wtune_config.DEFAULTS["prediction"]))
+        default_factory=lambda: copy.deepcopy(wtune.config.DEFAULTS["prediction"]))
     probe_cfg: dict = dataclasses.field(          # probe.* (points, spinup_min, ...) for the winner
-        default_factory=lambda: copy.deepcopy(wtune_config.DEFAULTS["probe"]))
+        default_factory=lambda: copy.deepcopy(wtune.config.DEFAULTS["probe"]))
     ranking_start_note: str | None = None
     startup_s: float = DEFAULT_STARTUP_S          # s/run every run-time estimate sizes off
     startup_source: str = "documented constant (scc_sweep.STARTUP_S)"
@@ -152,8 +153,8 @@ def resolve_case(case_id: str, cores_per_node: int) -> tuple[dict, str, dict]:
     case_json = sweep.resolve_case_json(case_id)
     prep_dir = sweep._expand(case_json["prep_dir"])
     namelist_path = sweep._expand(campaign_configs._case_namelist_path(case_json))
-    _, wrfinput_path = wtune_case.find_case_inputs(prep_dir)
-    profile = wtune_case.build_profile(namelist_path, wrfinput_path, cores_per_node)
+    _, wrfinput_path = wtune.case.find_case_inputs(prep_dir)
+    profile = wtune.case.build_profile(namelist_path, wrfinput_path, cores_per_node)
     return case_json, namelist_path, profile
 
 
@@ -161,17 +162,17 @@ def resolve_auto_probe_steps(namelist_path: str) -> tuple[int, str]:
     """probe.steps='auto': (steps, note) with steps = max(30, stepra+10), so every probe holds a
     radiation step (wtune_probe_plan.steps_for_stepra). Never raises: DEFAULT_STEPS plus a note
     when the namelist or the prediction modules are unavailable."""
-    if wtune_predict is None or wtune_probe_plan is None:
+    if predict is None or probe_plan is None:
         return DEFAULT_STEPS, ("probe.steps='auto' requested but wtune_predict/wtune_probe_plan "
                                 "is not importable -- using DEFAULT_STEPS=%d instead" % DEFAULT_STEPS)
     try:
-        nl = wtune_predict.parse_namelist(namelist_path)
-        dt = wtune_predict.get_timestep_seconds(nl)
-        radt = wtune_predict.g(nl, "physics", "radt", None)
+        nl = predict.parse_namelist(namelist_path)
+        dt = predict.get_timestep_seconds(nl)
+        radt = predict.g(nl, "physics", "radt", None)
         if radt is None:
             raise ValueError("no radt in &physics")
-        stepra = wtune_predict.steps_per_radiation_call(float(radt), dt)
-        steps = wtune_probe_plan.steps_for_stepra(stepra)
+        stepra = predict.steps_per_radiation_call(float(radt), dt)
+        steps = probe_plan.steps_for_stepra(stepra)
         return steps, ("probe.steps='auto' resolved to %d steps (dt=%.3fs, radt=%smin, stepra=%d)"
                         % (steps, dt, radt, stepra))
     except Exception as e:
@@ -182,11 +183,11 @@ def resolve_auto_probe_steps(namelist_path: str) -> tuple[int, str]:
 
 def _total_steps(namelist_path: str) -> int | None:
     """d01 steps of the whole run (run length / time_step), or None when unavailable."""
-    if wtune_predict is None:
+    if predict is None:
         return None
     try:
-        steps_n, _run_s, _dt, _note = wtune_predict.get_d01_steps(
-            wtune_predict.parse_namelist(namelist_path))
+        steps_n, _run_s, _dt, _note = predict.get_d01_steps(
+            predict.parse_namelist(namelist_path))
         return int(steps_n) if steps_n and steps_n > 0 else None
     except Exception:
         return None
@@ -199,4 +200,4 @@ def cores_used(ctx: Ctx) -> int:
 
 def _namelist_dt(ctx: Ctx) -> float:
     """d01 time step (s) of the case's namelist."""
-    return wtune_predict.get_d01_steps(wtune_predict.parse_namelist(ctx.namelist_path))[2]
+    return predict.get_d01_steps(predict.parse_namelist(ctx.namelist_path))[2]

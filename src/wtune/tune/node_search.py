@@ -9,7 +9,8 @@ import os
 import statistics
 from typing import Any, Callable
 
-from ._deps import sweep, wtune_nodes, wtune_predict
+import wtune.nodes
+from ._deps import sweep, predict
 from .budget import _fallback_s_per_step, _job_time_est
 from .candidates import _sweep_anchor, aggregate_by_cid
 from .common import UNSET, Record, _fmt_hms, parse_run_id, would_exceed_budget
@@ -161,7 +162,7 @@ def _cold_budget_s_per_step(ctx: Ctx, anchor: dict, s_est: float, src: str) -> t
     if src != "fallback_10s":
         return s_est, src
     try:
-        nl = wtune_predict.parse_namelist(ctx.namelist_path)
+        nl = predict.parse_namelist(ctx.namelist_path)
         model = _fallback_s_per_step(nl, anchor["ranks"], anchor["omp"]) * COLD_BUDGET_SAFETY
     except Exception:                                   # noqa: BLE001
         return s_est, src
@@ -225,9 +226,9 @@ def run_node_sweep(ctx: Ctx, legal_nodes: list[int],
     neighbours of the best N (`chooser`) until they are measured; `budget_frac` of what is left
     caps it. Returns {measurements, anchors, results, skipped (with reasons), jobs, legal,
     maxrss_mb}."""
-    chooser = chooser or (lambda rows: wtune_nodes.choose(rows, "time")[0])
+    chooser = chooser or (lambda rows: wtune.nodes.choose(rows, "time")[0])
     skipped, anchors = [], {}
-    for n in wtune_nodes.candidate_node_counts(legal_nodes, ctx.max_nodes):
+    for n in wtune.nodes.candidate_node_counts(legal_nodes, ctx.max_nodes):
         anchor, why = _sweep_anchor(ctx, n)
         if anchor is None:
             skipped.append(dict(nodes=n, reason=why))
@@ -243,7 +244,7 @@ def run_node_sweep(ctx: Ctx, legal_nodes: list[int],
     jobs: dict[int, str] = {}
     rss: dict[int, Any] = {}
     attempted: set = set()
-    seeds = wtune_nodes.seed_nodes(legal, ctx.max_nodes) if legal else []
+    seeds = wtune.nodes.seed_nodes(legal, ctx.max_nodes) if legal else []
     sweep_t0 = ctx.elapsed()
     cap_s = budget_frac * max(0.0, ctx.budget_s - sweep_t0)   # share of what is left
     state: dict[str, Any] = dict(stopped=None)
@@ -270,7 +271,7 @@ def run_node_sweep(ctx: Ctx, legal_nodes: list[int],
                                                     r["maxrss_mb"])
 
     # phase 1: geometric seeds, early stop on the upward side
-    for wave in wtune_nodes.sweep_waves(seeds, ctx.max_nodes):
+    for wave in wtune.nodes.sweep_waves(seeds, ctx.max_nodes):
         if not state["stopped"]:
             state["stopped"] = cap_reason()
             if state["stopped"]:
@@ -285,19 +286,19 @@ def run_node_sweep(ctx: Ctx, legal_nodes: list[int],
             if halt:                  # e.g. the short-run guard: no more waves, no refinement
                 state["stopped"] = state["halt"] = halt
                 continue
-        srows = wtune_nodes.summarize(meas)
-        if wtune_nodes.stop_early(srows):
+        srows = wtune.nodes.summarize(meas)
+        if wtune.nodes.stop_early(srows):
             a, b = srows[-2], srows[-1]
             state["stopped"] = ("early stop: N=%d (%.4f s/step) did not beat N=%d (%.4f s/step) "
                                 "by >%.0f%%" % (b["nodes"], b["median"], a["nodes"], a["median"],
-                                                wtune_nodes.NOISE_FRAC * 100))
+                                                wtune.nodes.NOISE_FRAC * 100))
             print("node sweep: %s; larger N not submitted" % state["stopped"])
 
     # phase 2: refine around the best N
     cap_hit = state.get("halt")
     while meas and not state.get("halt") and refine():
-        best = chooser(wtune_nodes.summarize(meas))
-        todo = wtune_nodes.refine_targets(best, set(seeds) | set(meas), legal, attempted)
+        best = chooser(wtune.nodes.summarize(meas))
+        todo = wtune.nodes.refine_targets(best, set(seeds) | set(meas), legal, attempted)
         if not todo:
             break
         cap_hit = cap_reason()
@@ -305,7 +306,7 @@ def run_node_sweep(ctx: Ctx, legal_nodes: list[int],
             print("node sweep: %s; refinement stopped" % cap_hit)
             break
         print("node sweep: refining around best N=%d: measuring N=%s" % (best, todo))
-        for wave in wtune_nodes.sweep_waves(todo, ctx.max_nodes):
+        for wave in wtune.nodes.sweep_waves(todo, ctx.max_nodes):
             run_wave(wave)
 
     _explain_unmeasured(legal, meas, seeds, skipped, cap_hit, refine, chooser)
@@ -316,9 +317,9 @@ def run_node_sweep(ctx: Ctx, legal_nodes: list[int],
 def _explain_unmeasured(legal: list[int], meas: dict, seeds: list[int], skipped: list,
                         cap_hit: Any, refine: Callable[[], bool], chooser: Callable) -> None:
     """Give every legal N that was never measured an explicit reason in `skipped` (sorted)."""
-    rows = wtune_nodes.summarize(meas)
+    rows = wtune.nodes.summarize(meas)
     best = chooser(rows) if rows else None
-    lo, hi = wtune_nodes.bracket(best, set(seeds) | set(meas)) if best else (0, None)
+    lo, hi = wtune.nodes.bracket(best, set(seeds) | set(meas)) if best else (0, None)
     already = {s["nodes"] for s in skipped}
     for n in legal:
         if n in meas or n in already:
@@ -386,7 +387,7 @@ def run_core_sweep(ctx: Ctx, finals: list[int], sw: dict, core_options: list[int
     for n in finals:
         rows = [_core_row(c, n, info[n]["anchors"][c], info[n]["results"][c], info[n]["rss"][c])
                 for c in sorted(info[n]["results"], reverse=True)]
-        chosen, note = wtune_nodes.choose_cores(rows)
+        chosen, note = wtune.nodes.choose_cores(rows)
         for r in rows:
             r["chosen"] = (r["cores"] == chosen)
         info[n].update(rows=rows, chosen=chosen, note=note)
@@ -399,9 +400,9 @@ def node_choices(rows: list[dict], *, deadline_s: float | None, total_steps: int
                  overhead_s: float, min_efficiency: float) -> dict:
     """{objective: {nodes, note}} for all three objectives (cost needs total_steps)."""
     out = {}
-    for obj in wtune_nodes.OBJECTIVES:
+    for obj in wtune.nodes.OBJECTIVES:
         try:
-            n, note = wtune_nodes.choose(rows, obj, deadline_s=deadline_s, total_steps=total_steps,
+            n, note = wtune.nodes.choose(rows, obj, deadline_s=deadline_s, total_steps=total_steps,
                                          overhead_s=overhead_s, min_efficiency=min_efficiency)
             out[obj] = dict(nodes=n, note=note)
         except ValueError as e:
@@ -492,16 +493,16 @@ def run_node_search(ctx: Ctx, profile: dict, objective: str, deadline_s: float |
     kw = dict(deadline_s=deadline_s, total_steps=total_steps, overhead_s=overhead_s,
               min_efficiency=min_efficiency)
     sw = run_node_sweep(ctx, list(range(1, ctx.max_nodes + 1)), budget_frac=sweep_budget_frac,
-                        chooser=lambda rows: wtune_nodes.choose(rows, objective, **kw)[0],
+                        chooser=lambda rows: wtune.nodes.choose(rows, objective, **kw)[0],
                         on_wave=on_wave, refine=lambda: lvl() >= 2)
-    rows = wtune_nodes.summarize(sw["measurements"])
+    rows = wtune.nodes.summarize(sw["measurements"])
     if not rows:
         return _proxy_fallback_report(ctx, profile, objective, nodes_policy, sw)
 
     choices = node_choices(rows, **kw)
-    chosen, note = wtune_nodes.choose(rows, objective, **kw)
-    finals = wtune_nodes.finalists(rows, objective, k=(1 if lvl() == 2 else k_finalists), **kw)
-    tab = wtune_nodes.table(rows, total_steps=total_steps, overhead_s=overhead_s)
+    chosen, note = wtune.nodes.choose(rows, objective, **kw)
+    finals = wtune.nodes.finalists(rows, objective, k=(1 if lvl() == 2 else k_finalists), **kw)
+    tab = wtune.nodes.table(rows, total_steps=total_steps, overhead_s=overhead_s)
     for r in tab:
         r["maxrss_mb"] = sw["maxrss_mb"].get(r["nodes"])
     if on_sweep is not None:        # --pipeline full: re-estimate the budget from the measurement
@@ -513,7 +514,7 @@ def run_node_search(ctx: Ctx, profile: dict, objective: str, deadline_s: float |
                  r["efficiency"]))
 
     if core_options is None:
-        core_options = wtune_nodes.default_core_options(ctx.cores_per_node)
+        core_options = wtune.nodes.default_core_options(ctx.cores_per_node)
     cores_info: dict = {}
     skipped_cores: list = []
     if lvl() <= 1:                       # O1: the t0 wave only -- no cores sweep, no finalists
@@ -530,11 +531,11 @@ def run_node_search(ctx: Ctx, profile: dict, objective: str, deadline_s: float |
             "; budget exhausted after the sweep -- ANCHOR config")
     else:
         by_sweep = {r["nodes"]: r for r in rows}
-        frows = wtune_nodes.summarize({n: [o.best_median] for n, o in outcomes.items()})
+        frows = wtune.nodes.summarize({n: [o.best_median] for n, o in outcomes.items()})
         for r in frows:                     # scaling figures stay the sweep's (anchor-based)
             r["speedup"], r["efficiency"] = (by_sweep[r["nodes"]]["speedup"],
                                               by_sweep[r["nodes"]]["efficiency"])
-        final_n, final_note = wtune_nodes.choose(frows, objective, **kw)
+        final_n, final_note = wtune.nodes.choose(frows, objective, **kw)
         final_note = "final over tuned finalists %s: %s" % (sorted(outcomes), final_note)
     if collect is not None:
         collect.update(outcomes=outcomes, final_n=final_n, sweep=sw, cores_info=cores_info)
@@ -642,6 +643,6 @@ def build_layout_table(sw: dict, cores_info: dict, outcomes: dict, ctx: Ctx,
     comparison = None
     if winner and runner:
         gap = (runner["median"] - winner["median"]) / winner["median"]
-        comparison = dict(gap=gap, noise=wtune_nodes.NOISE_FRAC,
-                          beyond_noise=abs(gap) > wtune_nodes.NOISE_FRAC)
+        comparison = dict(gap=gap, noise=wtune.nodes.NOISE_FRAC,
+                          beyond_noise=abs(gap) > wtune.nodes.NOISE_FRAC)
     return dict(rows=rows, winner=winner, runner_up=runner, comparison=comparison)

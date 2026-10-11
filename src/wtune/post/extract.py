@@ -280,22 +280,22 @@ def _cpu_budget():
 
 
 def _bp2nc_or_raise(run_dir, n_files, example):
-    """wtune_bp.bp2nc, after wtune_bp.require_adios2_python() -- whose Adios2Unavailable text
+    """wtune_bp.bp2nc, after wtune.bp.require_adios2_python() -- whose Adios2Unavailable text
     names the fix (the adios2 env); BPConversionError carrying that text otherwise."""
     what = ("%s holds ADIOS2 BP history (%d file(s) not yet converted, e.g. %s) that the post "
             "tools read as netCDF copies, but the BP -> netCDF converter "
             "(src/tools/wrf_adios2_to_netcdf4/ via src/wtune_bp.py) cannot run here: "
             % (run_dir, n_files, os.path.basename(example)))
     try:
-        from wtune import bp as wtune_bp
+        import wtune.bp
     except Exception as e:                                  # noqa: BLE001
         raise BPConversionError(what + "cannot import wtune_bp (%s: %s)"
                                 % (type(e).__name__, e)) from e
     try:
-        wtune_bp.require_adios2_python()
+        wtune.bp.require_adios2_python()
     except (Exception, SystemExit) as e:                    # noqa: BLE001 -- Adios2Unavailable
         raise BPConversionError(what + str(e)) from e
-    return wtune_bp.bp2nc
+    return wtune.bp.bp2nc
 
 
 def _convert_all(run_dir, jobs):

@@ -46,7 +46,7 @@ def test_rebuild_points_fetch_into_each_point_plan_dir(monkeypatch, tmp_path):
     seen, seen_timeout = [], []
     monkeypatch.setenv("WPS_DIR", "/x")
     monkeypatch.setenv("WRF_TREE", "/x")
-    monkeypatch.setattr(wtune.tune.wtune_probe_plan, "plan_rebuild_segments",
+    monkeypatch.setattr(wtune.tune.probe_plan, "plan_rebuild_segments",
                         lambda case_dir, pts, cfg, pdir, **k: {"windows": [], "pdir": pdir})
     monkeypatch.setattr(wtune.tune.coldstart, "resolve_and_fetch_forcing",
                         lambda plan, pdir, cache, grib_dir=None: (seen.append((pdir, cache)) or (0, {})))
@@ -56,8 +56,8 @@ def test_rebuild_points_fetch_into_each_point_plan_dir(monkeypatch, tmp_path):
                                                                        or pdir + "/run.sbatch"))
     monkeypatch.setattr(wtune.tune.sweep, "submit_job", lambda cmd, sbatch_runner=None: "1")
     monkeypatch.setattr(wtune.tune.jobs, "wait_for_jobs", lambda ctx, ids, label: {j: ("COMPLETED", "") for j in ids})
-    monkeypatch.setattr(wtune.tune.wtune_predict, "read_wrfinput_sample_points", lambda d: ([], None))
-    monkeypatch.setattr(wtune.tune.wtune_predict, "load_calibration", lambda p: {})
+    monkeypatch.setattr(wtune.tune.predict, "read_wrfinput_sample_points", lambda d: ([], None))
+    monkeypatch.setattr(wtune.tune.predict, "load_calibration", lambda p: {})
     monkeypatch.setattr(wtune.tune.coldstart, "score_windows_from_rsl", lambda plan, sp, cal: ([], None, []))
     ctx = types.SimpleNamespace(sbatch_runner=None, owned_jobs=[])
     pts = [types.SimpleNamespace(at=_dt.datetime(2021, 7, 20, h)) for h in (1, 8)]
@@ -70,7 +70,7 @@ def test_rebuild_points_fetch_into_each_point_plan_dir(monkeypatch, tmp_path):
 
 def test_segment_timeout_scales_with_case_cost_and_has_a_floor(monkeypatch):
     import wtune.tune
-    wp = wtune.tune.wtune_predict
+    wp = wtune.tune.predict
     monkeypatch.setattr(wp, "parse_namelist", lambda p: {})
     monkeypatch.setattr(wp, "get_d01_steps", lambda nl: (432, 10800, 25.0, ""))
     monkeypatch.setattr(wp, "steps_per_radiation_call", lambda radt, dt: 29)

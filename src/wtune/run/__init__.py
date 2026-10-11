@@ -5,8 +5,7 @@ Layers, bottom up: _deps, common -> geometry -> estimate -> layout -> plan -> na
 staging, sbatch, inputs -> context -> report -> attempts -> controller -> cli. Every name of
 the former single module is re-exported here."""
 from ._deps import (  # noqa: F401
-    _HERE, _REPO_ROOT, _CAMPAIGN_DIR, coldstart, sweep, wtune_extensions, iom, wp, pp, resume,
-    wtune_watch, wtune_tune,
+    _HERE, _REPO_ROOT, _CAMPAIGN_DIR, coldstart, sweep, iom, wp, pp, resume, tune,
 )
 from .common import (  # noqa: F401
     WRF_FMT, CORES_PER_NODE, ADIOS2_IO_FORM, _TIME_PARTS, _PER_RECORD_KIND_RE, RunError, UNSET,

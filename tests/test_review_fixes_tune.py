@@ -200,7 +200,7 @@ def _rebuild_env(monkeypatch, tmp_path, sbatch_runner):
     monkeypatch.setenv("WRF_TREE", "/x")
     case_dir = tmp_path / "case"
     case_dir.mkdir()
-    monkeypatch.setattr(wt.wtune_probe_plan, "plan_rebuild_segments",
+    monkeypatch.setattr(wt.probe_plan, "plan_rebuild_segments",
                         lambda cdir, pts, cfg, pdir, **k: dict(pdir=pdir))
     monkeypatch.setattr(wt.coldstart, "resolve_and_fetch_forcing", lambda *a, **k: (0, {}))
     monkeypatch.setattr(wt.budget, "rebuild_segment_timeout_min", lambda *a, **k: 30)
@@ -323,7 +323,7 @@ def test_node_search_report_winner_and_best_name_the_same_layout(monkeypatch, tm
 
 def test_first_node_sweep_budget_check_does_not_use_the_10s_time_limit_estimate(monkeypatch):
     from wtune.tune import node_search
-    monkeypatch.setattr(node_search.wtune_predict, "parse_namelist", lambda path: {})
+    monkeypatch.setattr(node_search.predict, "parse_namelist", lambda path: {})
     monkeypatch.setattr(node_search, "_fallback_s_per_step", lambda nl, ranks, omp: 0.1)
     ctx = _ctx()
     anchor = _cfg("ANCHOR")

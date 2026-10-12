@@ -14,3 +14,4 @@ jieba = "*"               # Chinese word segmentation for the search index
 [tasks]
 serve = "mkdocs serve -f ../../mkdocs.yml"
 build = "mkdocs build --strict -f ../../mkdocs.yml"
+build-public = "mkdocs build --strict -f ../../mkdocs.public.yml"

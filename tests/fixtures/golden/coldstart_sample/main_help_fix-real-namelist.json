@@ -1,0 +1,5 @@
+{
+ "error": "SystemExit: 0",
+ "stdout": "usage: coldstart_sample.py fix-real-namelist [-h] --plan PLAN --win WIN [--ncdump NCDUMP]\n                                             [--serial]\n\noptions:\n  -h, --help       show this help message and exit\n  --plan PLAN\n  --win WIN\n  --ncdump NCDUMP\n  --serial         force nproc_x=nproc_y=1 (real.exe hang-at-some-decompositions fallback --\n                   run.sbatch's own retry path)\n",
+ "stderr": ""
+}

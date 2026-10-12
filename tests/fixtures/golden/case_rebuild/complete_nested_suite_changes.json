@@ -1,0 +1,224 @@
+[
+ {
+  "key": "num_metgrid_levels",
+  "old": null,
+  "new": "34",
+  "reason": "met_em NUM_METGRID_LEVELS"
+ },
+ {
+  "key": "interval_seconds",
+  "old": null,
+  "new": "10800",
+  "reason": "forcing cadence"
+ },
+ {
+  "key": "start_month",
+  "old": null,
+  "new": "11",
+  "reason": "rebuild span start"
+ },
+ {
+  "key": "start_day",
+  "old": null,
+  "new": "26",
+  "reason": "rebuild span start"
+ },
+ {
+  "key": "start_hour",
+  "old": null,
+  "new": "12",
+  "reason": "rebuild span start"
+ },
+ {
+  "key": "start_minute",
+  "old": null,
+  "new": "0",
+  "reason": "rebuild span start"
+ },
+ {
+  "key": "start_second",
+  "old": null,
+  "new": "0",
+  "reason": "rebuild span start"
+ },
+ {
+  "key": "end_year",
+  "old": null,
+  "new": "2019",
+  "reason": "rebuild span end"
+ },
+ {
+  "key": "end_month",
+  "old": null,
+  "new": "11",
+  "reason": "rebuild span end"
+ },
+ {
+  "key": "end_day",
+  "old": null,
+  "new": "26",
+  "reason": "rebuild span end"
+ },
+ {
+  "key": "end_hour",
+  "old": null,
+  "new": "19",
+  "reason": "rebuild span end"
+ },
+ {
+  "key": "end_minute",
+  "old": null,
+  "new": "30",
+  "reason": "rebuild span end"
+ },
+ {
+  "key": "end_second",
+  "old": null,
+  "new": "15",
+  "reason": "rebuild span end"
+ },
+ {
+  "key": "run_days",
+  "old": null,
+  "new": "0",
+  "reason": "rebuild span"
+ },
+ {
+  "key": "run_hours",
+  "old": "6",
+  "new": "0",
+  "reason": "rebuild span"
+ },
+ {
+  "key": "run_minutes",
+  "old": null,
+  "new": "0",
+  "reason": "rebuild span"
+ },
+ {
+  "key": "run_seconds",
+  "old": null,
+  "new": "27015",
+  "reason": "rebuild span"
+ },
+ {
+  "key": "p_top_requested",
+  "old": null,
+  "new": "5000",
+  "reason": "default model top (Pa)"
+ },
+ {
+  "key": "time_step",
+  "old": null,
+  "new": "54",
+  "reason": "largest int <= 6*dx_km(d01), >=1"
+ },
+ {
+  "key": "parent_time_step_ratio",
+  "old": null,
+  "new": "[1, 3]",
+  "reason": "= parent_grid_ratio per nest"
+ },
+ {
+  "key": "frames_per_outfile",
+  "old": null,
+  "new": "1",
+  "reason": "default"
+ },
+ {
+  "key": "restart",
+  "old": null,
+  "new": ".false.",
+  "reason": "default"
+ },
+ {
+  "key": "restart_interval",
+  "old": null,
+  "new": "450",
+  "reason": "one restart at the end of the run"
+ },
+ {
+  "key": "io_form_history",
+  "old": null,
+  "new": "2",
+  "reason": "default netCDF io_form"
+ },
+ {
+  "key": "io_form_restart",
+  "old": null,
+  "new": "2",
+  "reason": "default netCDF io_form"
+ },
+ {
+  "key": "io_form_input",
+  "old": null,
+  "new": "2",
+  "reason": "default netCDF io_form"
+ },
+ {
+  "key": "io_form_boundary",
+  "old": null,
+  "new": "2",
+  "reason": "default netCDF io_form"
+ },
+ {
+  "key": "physics_suite_placeholders",
+  "old": "'CONUS'",
+  "new": "'CONUS'",
+  "reason": "physics_suite='CONUS' with -1 placeholders for mp_physics, ra_lw_physics -- these mean 'use the suite's own default', not unset; treat an explicit scheme value in a comparison as EQUIVALENT to -1 here, not a mismatch"
+ },
+ {
+  "key": "spec_zone",
+  "old": null,
+  "new": "1",
+  "reason": "default"
+ },
+ {
+  "key": "relax_zone",
+  "old": null,
+  "new": "4",
+  "reason": "default"
+ },
+ {
+  "key": "specified",
+  "old": null,
+  "new": "['.true.', '.false.']",
+  "reason": "d01 is specified by the lateral boundary file; nests are not"
+ },
+ {
+  "key": "nested",
+  "old": null,
+  "new": "['.false.', '.true.']",
+  "reason": "every domain but d01 is nested"
+ },
+ {
+  "key": "nio_tasks_per_group",
+  "old": null,
+  "new": "0",
+  "reason": "default"
+ },
+ {
+  "key": "nio_groups",
+  "old": null,
+  "new": "1",
+  "reason": "default"
+ },
+ {
+  "key": "&fdda",
+  "old": null,
+  "new": "(empty group)",
+  "reason": "WRF's namelist reader requires this group to exist even when empty"
+ },
+ {
+  "key": "&dynamics",
+  "old": null,
+  "new": "(empty group)",
+  "reason": "WRF's namelist reader requires this group to exist even when empty"
+ },
+ {
+  "key": "&grib2",
+  "old": null,
+  "new": "(empty group)",
+  "reason": "WRF's namelist reader requires this group to exist even when empty"
+ }
+]

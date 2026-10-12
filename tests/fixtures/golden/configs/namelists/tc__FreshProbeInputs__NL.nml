@@ -1,0 +1,10 @@
+ &time_control
+ start_year = 2020,
+ start_month = 01,
+ start_day = 01,
+ start_hour = 00,
+ interval_seconds = 21600,
+ /
+ &domains
+ max_dom = 1,
+ /

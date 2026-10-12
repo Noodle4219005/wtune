@@ -1,0 +1,7 @@
+rc=2
+--- log
+--- stdout
+
+--- stderr
+error: --checkpoint-minutes 240 does not divide the 06:00:00 segment length: every segment must end on a restart
+

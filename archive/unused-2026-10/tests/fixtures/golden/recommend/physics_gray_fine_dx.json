@@ -1,0 +1,642 @@
+{
+ "case_name": "finecase",
+ "hardware_id": "hw-train-synthetic",
+ "compliance": "PHYSICS-GRAY",
+ "nodes": 4,
+ "max_dom": 1,
+ "auto_apply_disclaimer": "This tool only narrows the search to a shortlist. A human decides and applies the final physics template -- nothing here is auto-applied.",
+ "probe_source": "--probe-screen <TMP>/screen_synthtest.txt",
+ "probe_valid": false,
+ "probe_verdicts": {
+  "swint_opt": "CONFIRM",
+  "mp_physics": "REJECT"
+ },
+ "allowed_labels": [
+  "WITHIN-FLOOR",
+  "SMALL-DRIFT"
+ ],
+ "candidates": [
+  {
+   "template": "A01",
+   "family": "dynamics",
+   "applicable": true,
+   "skip_reason": null,
+   "changes": {
+    "time_step": {
+     "from": 15,
+     "to": 12
+    }
+   },
+   "generic_rule_used": false
+  },
+  {
+   "template": "A02",
+   "family": "dynamics",
+   "applicable": false,
+   "skip_reason": "no &dynamics section found in namelist",
+   "changes": {},
+   "generic_rule_used": false
+  },
+  {
+   "template": "A03",
+   "family": "dynamics",
+   "applicable": false,
+   "skip_reason": "no &dynamics section found in namelist",
+   "changes": {},
+   "generic_rule_used": false
+  },
+  {
+   "template": "A04",
+   "family": "dynamics",
+   "applicable": false,
+   "skip_reason": "no &dynamics section found in namelist",
+   "changes": {},
+   "generic_rule_used": false
+  },
+  {
+   "template": "A05",
+   "family": "radiation",
+   "applicable": true,
+   "skip_reason": null,
+   "changes": {
+    "radt": {
+     "from": 15,
+     "to": 7.5
+    }
+   },
+   "generic_rule_used": false
+  },
+  {
+   "template": "D01",
+   "family": "dynamics",
+   "applicable": false,
+   "skip_reason": "no &dynamics section found in namelist",
+   "changes": {},
+   "generic_rule_used": false
+  },
+  {
+   "template": "D02",
+   "family": "dynamics",
+   "applicable": false,
+   "skip_reason": "no &dynamics section found in namelist",
+   "changes": {},
+   "generic_rule_used": false
+  },
+  {
+   "template": "D03",
+   "family": "dynamics",
+   "applicable": false,
+   "skip_reason": "no &dynamics section found in namelist",
+   "changes": {},
+   "generic_rule_used": false
+  },
+  {
+   "template": "D04",
+   "family": "diagnostics",
+   "applicable": false,
+   "skip_reason": "not in applies_to ['bigchill', 'elevconv']",
+   "changes": {},
+   "generic_rule_used": false
+  },
+  {
+   "template": "D05",
+   "family": "pbl_surface",
+   "applicable": true,
+   "skip_reason": null,
+   "changes": {
+    "bldt": {
+     "from": null,
+     "to": 10
+    }
+   },
+   "generic_rule_used": false
+  },
+  {
+   "template": "D06",
+   "family": "nesting",
+   "applicable": false,
+   "skip_reason": "not in applies_to ['zhengzhou', 'severe2023', 'bigchill', 'elevconv', 'maria1km', 'isc21']",
+   "changes": {},
+   "generic_rule_used": false
+  },
+  {
+   "template": "D07",
+   "family": "dynamics",
+   "applicable": false,
+   "skip_reason": "not in applies_to ['sc26p1']",
+   "changes": {},
+   "generic_rule_used": false
+  },
+  {
+   "template": "P01",
+   "family": "radiation",
+   "applicable": true,
+   "skip_reason": null,
+   "changes": {
+    "swint_opt": {
+     "from": null,
+     "to": 1
+    }
+   },
+   "generic_rule_used": false
+  },
+  {
+   "template": "P02",
+   "family": "radiation",
+   "applicable": true,
+   "skip_reason": null,
+   "changes": {
+    "radt": {
+     "from": 15,
+     "to": 30
+    },
+    "swint_opt": {
+     "from": null,
+     "to": 1
+    }
+   },
+   "generic_rule_used": false
+  },
+  {
+   "template": "P03",
+   "family": "dynamics",
+   "applicable": true,
+   "skip_reason": null,
+   "changes": {
+    "time_step": {
+     "from": 15,
+     "to": 18
+    }
+   },
+   "generic_rule_used": false
+  },
+  {
+   "template": "P04",
+   "family": "microphysics",
+   "applicable": true,
+   "skip_reason": null,
+   "changes": {
+    "mp_physics": {
+     "from": 8,
+     "to": 6
+    }
+   },
+   "generic_rule_used": false
+  },
+  {
+   "template": "P05",
+   "family": "pbl_surface",
+   "applicable": true,
+   "skip_reason": null,
+   "changes": {
+    "bl_pbl_physics": {
+     "from": 1,
+     "to": 5
+    },
+    "sf_sfclay_physics": {
+     "from": 1,
+     "to": 5
+    }
+   },
+   "generic_rule_used": true
+  },
+  {
+   "template": "P06",
+   "family": "radiation",
+   "applicable": true,
+   "skip_reason": null,
+   "changes": {
+    "ra_lw_physics": {
+     "from": 4,
+     "to": 1
+    },
+    "ra_sw_physics": {
+     "from": 4,
+     "to": 1
+    }
+   },
+   "generic_rule_used": false
+  }
+ ],
+ "shortlist": [
+  {
+   "template": "A01",
+   "family": "dynamics",
+   "status": "UNCONFIRMED",
+   "reasons": [
+    "no PHYSICS-GRAY campaign data",
+    "no PHYSICS-GRAY campaign data",
+    "no PHYSICS-GRAY campaign data",
+    "no same-hardware training data",
+    "insufficient out-of-fold fidelity evidence for this template (n=0, need >=5)",
+    "no predicted speed benefit (no performance prediction)"
+   ],
+   "predicted_time_to_solution_pct": null,
+   "time_to_solution_interval_pct": null,
+   "time_to_solution_interval_note": "time-to-solution interval unavailable: case_base has 0 distinct group(s), need >=2",
+   "predicted_y": null,
+   "predicted_fidelity_label": null,
+   "predicted_fidelity_nd": null,
+   "probe_verdict": null,
+   "same_hardware_data": false,
+   "infeasibility": null,
+   "dangerous_miss": null,
+   "template_track_record": null
+  },
+  {
+   "template": "A02",
+   "family": "dynamics",
+   "status": "UNCONFIRMED",
+   "reasons": [
+    "not applicable to this case: no &dynamics section found in namelist"
+   ],
+   "predicted_time_to_solution_pct": null,
+   "time_to_solution_interval_pct": null,
+   "time_to_solution_interval_note": null,
+   "predicted_y": null,
+   "predicted_fidelity_label": null,
+   "predicted_fidelity_nd": null,
+   "probe_verdict": null,
+   "same_hardware_data": null,
+   "infeasibility": null,
+   "dangerous_miss": null,
+   "template_track_record": null
+  },
+  {
+   "template": "A03",
+   "family": "dynamics",
+   "status": "UNCONFIRMED",
+   "reasons": [
+    "not applicable to this case: no &dynamics section found in namelist"
+   ],
+   "predicted_time_to_solution_pct": null,
+   "time_to_solution_interval_pct": null,
+   "time_to_solution_interval_note": null,
+   "predicted_y": null,
+   "predicted_fidelity_label": null,
+   "predicted_fidelity_nd": null,
+   "probe_verdict": null,
+   "same_hardware_data": null,
+   "infeasibility": null,
+   "dangerous_miss": null,
+   "template_track_record": null
+  },
+  {
+   "template": "A04",
+   "family": "dynamics",
+   "status": "UNCONFIRMED",
+   "reasons": [
+    "not applicable to this case: no &dynamics section found in namelist"
+   ],
+   "predicted_time_to_solution_pct": null,
+   "time_to_solution_interval_pct": null,
+   "time_to_solution_interval_note": null,
+   "predicted_y": null,
+   "predicted_fidelity_label": null,
+   "predicted_fidelity_nd": null,
+   "probe_verdict": null,
+   "same_hardware_data": null,
+   "infeasibility": null,
+   "dangerous_miss": null,
+   "template_track_record": null
+  },
+  {
+   "template": "A05",
+   "family": "radiation",
+   "status": "UNCONFIRMED",
+   "reasons": [
+    "no PHYSICS-GRAY campaign data",
+    "no PHYSICS-GRAY campaign data",
+    "no PHYSICS-GRAY campaign data",
+    "no same-hardware training data",
+    "insufficient out-of-fold fidelity evidence for this template (n=0, need >=5)",
+    "no predicted speed benefit (no performance prediction)"
+   ],
+   "predicted_time_to_solution_pct": null,
+   "time_to_solution_interval_pct": null,
+   "time_to_solution_interval_note": "time-to-solution interval unavailable: case_base has 0 distinct group(s), need >=2",
+   "predicted_y": null,
+   "predicted_fidelity_label": null,
+   "predicted_fidelity_nd": null,
+   "probe_verdict": null,
+   "same_hardware_data": false,
+   "infeasibility": null,
+   "dangerous_miss": null,
+   "template_track_record": null
+  },
+  {
+   "template": "D01",
+   "family": "dynamics",
+   "status": "UNCONFIRMED",
+   "reasons": [
+    "not applicable to this case: no &dynamics section found in namelist"
+   ],
+   "predicted_time_to_solution_pct": null,
+   "time_to_solution_interval_pct": null,
+   "time_to_solution_interval_note": null,
+   "predicted_y": null,
+   "predicted_fidelity_label": null,
+   "predicted_fidelity_nd": null,
+   "probe_verdict": null,
+   "same_hardware_data": null,
+   "infeasibility": null,
+   "dangerous_miss": null,
+   "template_track_record": null
+  },
+  {
+   "template": "D02",
+   "family": "dynamics",
+   "status": "UNCONFIRMED",
+   "reasons": [
+    "not applicable to this case: no &dynamics section found in namelist"
+   ],
+   "predicted_time_to_solution_pct": null,
+   "time_to_solution_interval_pct": null,
+   "time_to_solution_interval_note": null,
+   "predicted_y": null,
+   "predicted_fidelity_label": null,
+   "predicted_fidelity_nd": null,
+   "probe_verdict": null,
+   "same_hardware_data": null,
+   "infeasibility": null,
+   "dangerous_miss": null,
+   "template_track_record": null
+  },
+  {
+   "template": "D03",
+   "family": "dynamics",
+   "status": "UNCONFIRMED",
+   "reasons": [
+    "not applicable to this case: no &dynamics section found in namelist"
+   ],
+   "predicted_time_to_solution_pct": null,
+   "time_to_solution_interval_pct": null,
+   "time_to_solution_interval_note": null,
+   "predicted_y": null,
+   "predicted_fidelity_label": null,
+   "predicted_fidelity_nd": null,
+   "probe_verdict": null,
+   "same_hardware_data": null,
+   "infeasibility": null,
+   "dangerous_miss": null,
+   "template_track_record": null
+  },
+  {
+   "template": "D04",
+   "family": "diagnostics",
+   "status": "UNCONFIRMED",
+   "reasons": [
+    "not applicable to this case: not in applies_to ['bigchill', 'elevconv']"
+   ],
+   "predicted_time_to_solution_pct": null,
+   "time_to_solution_interval_pct": null,
+   "time_to_solution_interval_note": null,
+   "predicted_y": null,
+   "predicted_fidelity_label": null,
+   "predicted_fidelity_nd": null,
+   "probe_verdict": null,
+   "same_hardware_data": null,
+   "infeasibility": null,
+   "dangerous_miss": null,
+   "template_track_record": null
+  },
+  {
+   "template": "D05",
+   "family": "pbl_surface",
+   "status": "UNCONFIRMED",
+   "reasons": [
+    "no PHYSICS-GRAY campaign data",
+    "no PHYSICS-GRAY campaign data",
+    "no PHYSICS-GRAY campaign data",
+    "no same-hardware training data",
+    "insufficient out-of-fold fidelity evidence for this template (n=0, need >=5)",
+    "no predicted speed benefit (no performance prediction)"
+   ],
+   "predicted_time_to_solution_pct": null,
+   "time_to_solution_interval_pct": null,
+   "time_to_solution_interval_note": "time-to-solution interval unavailable: case_base has 0 distinct group(s), need >=2",
+   "predicted_y": null,
+   "predicted_fidelity_label": null,
+   "predicted_fidelity_nd": null,
+   "probe_verdict": null,
+   "same_hardware_data": false,
+   "infeasibility": null,
+   "dangerous_miss": null,
+   "template_track_record": null
+  },
+  {
+   "template": "D06",
+   "family": "nesting",
+   "status": "UNCONFIRMED",
+   "reasons": [
+    "not applicable to this case: not in applies_to ['zhengzhou', 'severe2023', 'bigchill', 'elevconv', 'maria1km', 'isc21']"
+   ],
+   "predicted_time_to_solution_pct": null,
+   "time_to_solution_interval_pct": null,
+   "time_to_solution_interval_note": null,
+   "predicted_y": null,
+   "predicted_fidelity_label": null,
+   "predicted_fidelity_nd": null,
+   "probe_verdict": null,
+   "same_hardware_data": null,
+   "infeasibility": null,
+   "dangerous_miss": null,
+   "template_track_record": null
+  },
+  {
+   "template": "D07",
+   "family": "dynamics",
+   "status": "UNCONFIRMED",
+   "reasons": [
+    "not applicable to this case: not in applies_to ['sc26p1']"
+   ],
+   "predicted_time_to_solution_pct": null,
+   "time_to_solution_interval_pct": null,
+   "time_to_solution_interval_note": null,
+   "predicted_y": null,
+   "predicted_fidelity_label": null,
+   "predicted_fidelity_nd": null,
+   "probe_verdict": null,
+   "same_hardware_data": null,
+   "infeasibility": null,
+   "dangerous_miss": null,
+   "template_track_record": null
+  },
+  {
+   "template": "P01",
+   "family": "radiation",
+   "status": "UNCONFIRMED",
+   "reasons": [
+    "no PHYSICS-GRAY campaign data",
+    "no PHYSICS-GRAY campaign data",
+    "no PHYSICS-GRAY campaign data",
+    "no same-hardware training data",
+    "insufficient out-of-fold fidelity evidence for this template (n=0, need >=5)",
+    "no predicted speed benefit (no performance prediction)"
+   ],
+   "predicted_time_to_solution_pct": null,
+   "time_to_solution_interval_pct": null,
+   "time_to_solution_interval_note": "time-to-solution interval unavailable: case_base has 0 distinct group(s), need >=2",
+   "predicted_y": null,
+   "predicted_fidelity_label": null,
+   "predicted_fidelity_nd": null,
+   "probe_verdict": null,
+   "same_hardware_data": false,
+   "infeasibility": null,
+   "dangerous_miss": null,
+   "template_track_record": null
+  },
+  {
+   "template": "P02",
+   "family": "radiation",
+   "status": "UNCONFIRMED",
+   "reasons": [
+    "no PHYSICS-GRAY campaign data",
+    "no PHYSICS-GRAY campaign data",
+    "no PHYSICS-GRAY campaign data",
+    "no same-hardware training data",
+    "insufficient out-of-fold fidelity evidence for this template (n=0, need >=5)",
+    "no predicted speed benefit (no performance prediction)"
+   ],
+   "predicted_time_to_solution_pct": null,
+   "time_to_solution_interval_pct": null,
+   "time_to_solution_interval_note": "time-to-solution interval unavailable: case_base has 0 distinct group(s), need >=2",
+   "predicted_y": null,
+   "predicted_fidelity_label": null,
+   "predicted_fidelity_nd": null,
+   "probe_verdict": null,
+   "same_hardware_data": false,
+   "infeasibility": null,
+   "dangerous_miss": null,
+   "template_track_record": null
+  },
+  {
+   "template": "P03",
+   "family": "dynamics",
+   "status": "UNCONFIRMED",
+   "reasons": [
+    "no PHYSICS-GRAY campaign data",
+    "no PHYSICS-GRAY campaign data",
+    "no PHYSICS-GRAY campaign data",
+    "no same-hardware training data",
+    "insufficient out-of-fold fidelity evidence for this template (n=0, need >=5)",
+    "no predicted speed benefit (no performance prediction)"
+   ],
+   "predicted_time_to_solution_pct": null,
+   "time_to_solution_interval_pct": null,
+   "time_to_solution_interval_note": "time-to-solution interval unavailable: case_base has 0 distinct group(s), need >=2",
+   "predicted_y": null,
+   "predicted_fidelity_label": null,
+   "predicted_fidelity_nd": null,
+   "probe_verdict": null,
+   "same_hardware_data": false,
+   "infeasibility": null,
+   "dangerous_miss": null,
+   "template_track_record": null
+  },
+  {
+   "template": "P04",
+   "family": "microphysics",
+   "status": "UNCONFIRMED",
+   "reasons": [
+    "no PHYSICS-GRAY campaign data",
+    "no PHYSICS-GRAY campaign data",
+    "no PHYSICS-GRAY campaign data",
+    "no same-hardware training data",
+    "insufficient out-of-fold fidelity evidence for this template (n=0, need >=5)",
+    "no predicted speed benefit (no performance prediction)"
+   ],
+   "predicted_time_to_solution_pct": null,
+   "time_to_solution_interval_pct": null,
+   "time_to_solution_interval_note": "time-to-solution interval unavailable: case_base has 0 distinct group(s), need >=2",
+   "predicted_y": null,
+   "predicted_fidelity_label": null,
+   "predicted_fidelity_nd": null,
+   "probe_verdict": null,
+   "same_hardware_data": false,
+   "infeasibility": null,
+   "dangerous_miss": null,
+   "template_track_record": null
+  },
+  {
+   "template": "P05",
+   "family": "pbl_surface",
+   "status": "UNCONFIRMED",
+   "reasons": [
+    "this template has no physics_templates.json per-case entry for this case -- the generic per-case pairing rule (physics.generic_extra_edits) supplied its extra edit(s)/skip decision instead",
+    "no PHYSICS-GRAY campaign data",
+    "no PHYSICS-GRAY campaign data",
+    "no PHYSICS-GRAY campaign data",
+    "no same-hardware training data",
+    "insufficient out-of-fold fidelity evidence for this template (n=0, need >=5)",
+    "no predicted speed benefit (no performance prediction)"
+   ],
+   "predicted_time_to_solution_pct": null,
+   "time_to_solution_interval_pct": null,
+   "time_to_solution_interval_note": "time-to-solution interval unavailable: case_base has 0 distinct group(s), need >=2",
+   "predicted_y": null,
+   "predicted_fidelity_label": null,
+   "predicted_fidelity_nd": null,
+   "probe_verdict": null,
+   "same_hardware_data": false,
+   "infeasibility": null,
+   "dangerous_miss": null,
+   "template_track_record": null
+  },
+  {
+   "template": "P06",
+   "family": "radiation",
+   "status": "UNCONFIRMED",
+   "reasons": [
+    "no PHYSICS-GRAY campaign data",
+    "no PHYSICS-GRAY campaign data",
+    "no PHYSICS-GRAY campaign data",
+    "no same-hardware training data",
+    "insufficient out-of-fold fidelity evidence for this template (n=0, need >=5)",
+    "no predicted speed benefit (no performance prediction)"
+   ],
+   "predicted_time_to_solution_pct": null,
+   "time_to_solution_interval_pct": null,
+   "time_to_solution_interval_note": "time-to-solution interval unavailable: case_base has 0 distinct group(s), need >=2",
+   "predicted_y": null,
+   "predicted_fidelity_label": null,
+   "predicted_fidelity_nd": null,
+   "probe_verdict": null,
+   "same_hardware_data": false,
+   "infeasibility": null,
+   "dangerous_miss": null,
+   "template_track_record": null
+  }
+ ],
+ "warnings": [
+  "dx=500 m < 1000 m: the SpeedyWeather probe is NOT valid below 1 km -- every probe verdict for this case is DISREGARDED below (treated as no probe data), never trusted",
+  "probe: --probe-screen <TMP>/screen_synthtest.txt; dx=500; 2 knob verdict(s) parsed (DISREGARDED below: dx < 1000 m)",
+  "this case is not one of the six PHYSICS-GRAY campaign cases physics_templates.json already knows about -- any template needing per-case pairing (P04/P05/P06) used the generic rule (physics.generic_extra_edits) instead of a hand-written entry",
+  "allowed fidelity labels: WITHIN-FLOOR, SMALL-DRIFT",
+  "fidelity labels describe the MODEL's OWN drift vs a same-physics twin at a different STRICT decomposition (the chaos floor), not observed forecast skill against any observation/reanalysis -- see decision 0051",
+  "no PHYSICS-GRAY campaign data (--physics-ledger not given): every candidate below is UNCONFIRMED",
+  "time-to-solution interval unavailable: case_base has 0 distinct group(s), need >=2",
+  "cost-share filter: this case has no profile row in the ledger (profile_{radiation,micro,dynamics,mpi,io}_share all absent) -- no candidate was annotated or demoted. Profile one run of this case to enable it.",
+  "floor_zero hint: if DECOMP=C13 and TWIN_DECOMP=C06 happen to produce BIT-IDENTICAL output (rms diff 0 on every compared field), the twin's chaos floor is floor_zero -- a real degenerate case fidelity_gate.py handles explicitly, but a candidate's drift cannot be judged against a zero floor. If fidelity_gate.py reports floor_zero for this pair, rerun the twin at a different TWIN_DECOMP (known example: isc21's C02/C06 pair was bit-identical; C13 was used instead)."
+ ],
+ "verify_plan": {
+  "decomp": "C13",
+  "decomp_source": "this run's own STRICT top-1 shortlist entry",
+  "twin_decomp": "C06",
+  "pconfigs": [
+   "A01",
+   "A02",
+   "A03"
+  ],
+  "sbatch_command": "sbatch --export=ALL,CASE=finecase,MODE=physics,PCONFIGS=A01+A02+A03,DECOMP=C13,TWIN_DECOMP=C06 campaign/strict_campaign.sbatch",
+  "fidelity_gate_commands": [
+   "python3 fidelity_gate.py --reference <REFERENCE wrfout_d01_*> --twin <TWIN wrfout_d01_*> --candidate <A01 CANDIDATE wrfout_d01_*> --family dynamics --out-prefix <out_dir>/fidelity_finecase_A01",
+   "python3 fidelity_gate.py --reference <REFERENCE wrfout_d01_*> --twin <TWIN wrfout_d01_*> --candidate <A02 CANDIDATE wrfout_d01_*> --family dynamics --out-prefix <out_dir>/fidelity_finecase_A02",
+   "python3 fidelity_gate.py --reference <REFERENCE wrfout_d01_*> --twin <TWIN wrfout_d01_*> --candidate <A03 CANDIDATE wrfout_d01_*> --family dynamics --out-prefix <out_dir>/fidelity_finecase_A03"
+  ],
+  "note": "run P00 (reference at DECOMP + twin at TWIN_DECOMP -- same physics, different STRICT decomposition -- for the chaos floor) plus the top-3 physics candidate(s) above, all at DECOMP, via strict_campaign.sbatch MODE=physics; then run fidelity_gate.py per candidate. The user makes the final accept/reject decision from the measured labels -- this tool only narrows the search"
+ },
+ "profile_shares": {},
+ "min_bucket_share": 0.05,
+ "frozen_keys": []
+}

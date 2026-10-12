@@ -1,0 +1,665 @@
+{
+ "calls": {
+  "cf3d-no-out": {
+   "calls": [],
+   "rc": "SystemExit('--out required (or --project DIR for a default post/<id>/)')",
+   "stderr": "",
+   "stdout": ""
+  },
+  "cf3d-plain": {
+   "calls": [
+    [
+     "cf_export",
+     "('r', 'o', [1], 5)",
+     "[('command', 'wtune post cf3d r --every 6h --times t1,t2 --out o'), ('every', '6h'), ('times', ['t1', 't2'])]"
+    ]
+   ],
+   "rc": 1,
+   "stderr": "",
+   "stdout": "error: d01 T: boom\nwrote P (2 levels, 3x4 lat-lon, 3.0 MB)\n"
+  },
+  "cf3d-project": {
+   "calls": [
+    [
+     "cf_export",
+     "('r', '<TMP>/proj/post/<ID>-cf3d', [2], 5)",
+     "[('command', 'wtune post cf3d r --domain 2 --out <TMP>/proj/post/<ID>-cf3d'), ('every', None), ('times', None)]"
+    ],
+    [
+     "manifest_append",
+     "('<TMP>/proj', ['wtune', 'post', 'cf3d', 'r'])",
+     "[('exit_code', 1), ('key_paths', ['r']), ('out_dir', '<TMP>/proj/post/<ID>-cf3d')]"
+    ]
+   ],
+   "rc": 1,
+   "stderr": "",
+   "stdout": "error: d01 T: boom\nwrote P (2 levels, 3x4 lat-lon, 3.0 MB)\n"
+  },
+  "no-command": {
+   "calls": [],
+   "rc": 1,
+   "stderr": "",
+   "stdout": "usage: wtune post [-h]\n                  {inventory,extract,plot,sounding,tc,compare,report,recipe,cf3d,vapor-bundle,custom,fetch,fetch-era5}\n                  ...\n\npositional arguments:\n  {inventory,extract,plot,sounding,tc,compare,report,recipe,cf3d,vapor-bundle,custom,fetch,fetch-era5}\n    inventory           domains/times/grid/variables/missing-frame summary\n    extract             wrf-python diagnostics -> points CSV or box NetCDF\n    plot                filled-contour maps on lat/lon, one file per time\n    sounding            MetPy Skew-T at the nearest grid column\n    tc                  TC track (TempestExtremes) + ATCF a-deck vs. b-deck\n                        (MET tc_pairs/tc_stat/tc_rmw)\n    compare             verify a STRICT change did not move the answer\n    report              collect PNGs/CSVs in a dir into one self-contained\n                        HTML\n    recipe              case-type-driven standard figure set + HTML report\n                        (decision 0057), plus optional --every/--times time\n                        series, change maps and animations (decision 0058)\n    cf3d                CF-1.8 NetCDF on pressure levels and a regular lon-lat\n                        grid (Met.3D/ParaView), wrf_d0N_pl_YYYYMMDD_HHMM.nc\n                        under OUT/cf3d/d0N/\n    vapor-bundle        ready-to-copy NCAR VAPOR bundle (wrfout frames hard-\n                        linked, vapor_render.py, README.md, bundle.json) under\n                        OUT/vapor/d0N/ -- VAPOR itself runs on an x86_64/macOS\n                        workstation\n    custom              run every analysis/*.py script in a project (decision\n                        0058 section 2), collect their figures/tables into one\n                        HTML report\n    fetch               download observation/reanalysis data into a project's\n                        input/ (login node: compute nodes have no internet)\n    fetch-era5          alias of `fetch era5`\n\noptions:\n  -h, --help            show this help message and exit\n\n--srun (any subcommand): run it as one exclusive compute-node job step (srun\n-N1 --exclusive -t 120), excluding head and the project's exclude_nodes;\n--srun-minutes N changes that time limit\n"
+  },
+  "recipe-full": {
+   "calls": [
+    [
+     "run_recipe",
+     "(['a'], 'o')",
+     "[('animate', True), ('bdeck_path', 'b'), ('cross_sections', None), ('decomposition_only', True), ('ebtrk_path', 'e'), ('ensemble', True), ('every', '6h'), ('hurdat2_path', 'h'), ('labels', ['l']), ('paraview', False), ('project_dir', None), ('spinup_days', 7.0), ('spinup_hours', 3.0), ('storm_id', 'S'), ('times', ['t1', 't2']), ('title', 'T'), ('track_smooth_km', 5.0), ('types_override', 'tc,x'), ('xsec_halfwidth_km', None), ('xsec_top_km', None)]"
+    ]
+   ],
+   "rc": 0,
+   "stderr": "",
+   "stdout": "detected types: common, tc\nwrote 2 figure(s), 1 missing-observation entr(y/ies), report: REPORT\nnote: src: txt\n"
+  },
+  "recipe-label-mismatch": {
+   "calls": [],
+   "rc": "SystemExit('--labels must have one entry per RUN_DIR (1 given, 2 run dirs)')",
+   "stderr": "",
+   "stdout": ""
+  },
+  "recipe-no-out": {
+   "calls": [],
+   "rc": "SystemExit('--out required (or --project DIR for a default post/<id>/)')",
+   "stderr": "",
+   "stdout": ""
+  },
+  "recipe-no-rundirs": {
+   "calls": [],
+   "rc": "SystemExit('RUN_DIRS required (or --project DIR to auto-discover runs/*/)')",
+   "stderr": "",
+   "stdout": ""
+  },
+  "recipe-plain": {
+   "calls": [
+    [
+     "run_recipe",
+     "(['a', 'b'], 'o')",
+     "[('animate', False), ('bdeck_path', None), ('cross_sections', None), ('decomposition_only', False), ('ebtrk_path', None), ('ensemble', False), ('every', None), ('hurdat2_path', None), ('labels', ['run0', 'run1']), ('paraview', True), ('project_dir', None), ('spinup_days', None), ('spinup_hours', 6.0), ('storm_id', None), ('times', None), ('title', None), ('track_smooth_km', 30.0), ('types_override', None), ('xsec_halfwidth_km', None), ('xsec_top_km', None)]"
+    ]
+   ],
+   "rc": 0,
+   "stderr": "",
+   "stdout": "detected types: common, tc\nwrote 2 figure(s), 1 missing-observation entr(y/ies), report: REPORT\nnote: src: txt\n"
+  },
+  "recipe-project": {
+   "calls": [
+    [
+     "run_recipe",
+     "(['<TMP>/proj/runs/r1'], '<TMP>/proj/post/<ID>-recipe')",
+     "[('animate', False), ('bdeck_path', None), ('cross_sections', {'terrain': None, 'moisture': None}), ('decomposition_only', False), ('ebtrk_path', None), ('ensemble', False), ('every', None), ('hurdat2_path', '/h.txt'), ('labels', ['r1']), ('paraview', True), ('project_dir', '<TMP>/proj'), ('spinup_days', None), ('spinup_hours', 6.0), ('storm_id', 'AL012020'), ('times', None), ('title', None), ('track_smooth_km', 30.0), ('types_override', None), ('xsec_halfwidth_km', None), ('xsec_top_km', None)]"
+    ],
+    [
+     "manifest_append",
+     "('<TMP>/proj', ['wtune', 'post', 'recipe', '--project', '<TMP>/proj'])",
+     "[('exit_code', 0), ('key_paths', ['<TMP>/proj/runs/r1']), ('out_dir', '<TMP>/proj/post/<ID>-recipe')]"
+    ]
+   ],
+   "rc": 0,
+   "stderr": "",
+   "stdout": "note: offline-note\ndetected types: common, tc\nwrote 2 figure(s), 1 missing-observation entr(y/ies), report: REPORT\nnote: src: txt\n"
+  },
+  "recipe-project-explicit-runs": {
+   "calls": [
+    [
+     "run_recipe",
+     "(['x/y'], 'o')",
+     "[('animate', False), ('bdeck_path', None), ('cross_sections', {'terrain': None, 'moisture': None}), ('decomposition_only', False), ('ebtrk_path', None), ('ensemble', False), ('every', None), ('hurdat2_path', '/h.txt'), ('labels', ['y']), ('paraview', True), ('project_dir', '<TMP>/proj'), ('spinup_days', None), ('spinup_hours', 6.0), ('storm_id', 'AL012020'), ('times', None), ('title', None), ('track_smooth_km', 30.0), ('types_override', None), ('xsec_halfwidth_km', None), ('xsec_top_km', None)]"
+    ],
+    [
+     "manifest_append",
+     "('<TMP>/proj', ['wtune', 'post', 'recipe', 'x/y', '--project', '<TMP>/proj', '--out', 'o'])",
+     "[('exit_code', 0), ('key_paths', ['x/y']), ('out_dir', 'o')]"
+    ]
+   ],
+   "rc": 0,
+   "stderr": "",
+   "stdout": "note: offline-note\ndetected types: common, tc\nwrote 2 figure(s), 1 missing-observation entr(y/ies), report: REPORT\nnote: src: txt\n"
+  },
+  "recipe-types-auto": {
+   "calls": [
+    [
+     "run_recipe",
+     "(['a'], 'o')",
+     "[('animate', False), ('bdeck_path', None), ('cross_sections', None), ('decomposition_only', False), ('ebtrk_path', None), ('ensemble', False), ('every', None), ('hurdat2_path', None), ('labels', ['run0']), ('paraview', True), ('project_dir', None), ('spinup_days', None), ('spinup_hours', 6.0), ('storm_id', None), ('times', None), ('title', None), ('track_smooth_km', 30.0), ('types_override', None), ('xsec_halfwidth_km', None), ('xsec_top_km', None)]"
+    ]
+   ],
+   "rc": 0,
+   "stderr": "",
+   "stdout": "detected types: common, tc\nwrote 2 figure(s), 1 missing-observation entr(y/ies), report: REPORT\nnote: src: txt\n"
+  },
+  "tc-label-mismatch": {
+   "calls": [],
+   "rc": "SystemExit('--labels must have one entry per RUN_DIR (1 given, 2 run dirs)')",
+   "stderr": "",
+   "stdout": ""
+  },
+  "tc-no-out": {
+   "calls": [],
+   "rc": "SystemExit('--out required (or --project DIR for a default post/<id>/)')",
+   "stderr": "",
+   "stdout": ""
+  },
+  "tc-no-rundirs": {
+   "calls": [],
+   "rc": "SystemExit('RUN_DIRS required (or --project DIR to auto-discover runs/*/)')",
+   "stderr": "",
+   "stdout": ""
+  },
+  "tc-no-storm": {
+   "calls": [],
+   "rc": "SystemExit(\"--hurdat2/--storm required (or set them in project.yaml's storm:)\")",
+   "stderr": "",
+   "stdout": ""
+  },
+  "tc-plain": {
+   "calls": [
+    [
+     "run_tc_report",
+     "(['a'], ['a'], 'h', 'S', 'o')",
+     "[('bdeck_path', None), ('ebtrk_path', None), ('smooth_km', 30.0)]"
+    ]
+   ],
+   "rc": 0,
+   "stderr": "",
+   "stdout": "wrote 1 a-deck(s), 2 figure(s) to o\nwarning: w1\nwarning: tracking grid: n1\nsteps lab {'x': 1}\n"
+  },
+  "tc-project": {
+   "calls": [
+    [
+     "run_tc_report",
+     "(['<TMP>/proj/runs/r1'], ['r1'], '/h.txt', 'AL012020', '<TMP>/proj/post/<ID>-tc')",
+     "[('bdeck_path', None), ('ebtrk_path', None), ('smooth_km', 30.0)]"
+    ],
+    [
+     "manifest_append",
+     "('<TMP>/proj', ['wtune', 'post', 'tc', '<TMP>/proj/runs/r1'])",
+     "[('exit_code', 0), ('key_paths', ['<TMP>/proj/runs/r1', '/h.txt']), ('out_dir', '<TMP>/proj/post/<ID>-tc')]"
+    ]
+   ],
+   "rc": 0,
+   "stderr": "",
+   "stdout": "wrote 1 a-deck(s), 2 figure(s) to <TMP>/proj/post/<ID>-tc\nwarning: w1\nwarning: tracking grid: n1\nsteps lab {'x': 1}\n"
+  },
+  "vapor-no-out": {
+   "calls": [],
+   "rc": "SystemExit('--out required (or --project DIR for a default post/<id>/)')",
+   "stderr": "",
+   "stdout": ""
+  },
+  "vapor-plain": {
+   "calls": [
+    [
+     "vb_export",
+     "('r', 'o', [1])",
+     "[('allow_copy', True), ('every', None), ('times', ['t'])]"
+    ]
+   ],
+   "rc": 1,
+   "stderr": "",
+   "stdout": "error: d01: bad\nbundle D: 2 wrfout file(s), 2.0 MB, linked\n  copy with: rsync -av <host>:<TMP>/D/ ./  (see README.md)\n"
+  },
+  "vapor-project": {
+   "calls": [
+    [
+     "vb_export",
+     "('r', '<TMP>/proj/post/<ID>-vapor', [1])",
+     "[('allow_copy', False), ('every', None), ('times', None)]"
+    ],
+    [
+     "manifest_append",
+     "('<TMP>/proj', ['wtune', 'post', 'vapor-bundle', 'r'])",
+     "[('exit_code', 1), ('key_paths', ['r']), ('out_dir', '<TMP>/proj/post/<ID>-vapor')]"
+    ]
+   ],
+   "rc": 1,
+   "stderr": "",
+   "stdout": "error: d01: bad\nbundle D: 2 wrfout file(s), 2.0 MB, linked\n  copy with: rsync -av <host>:<TMP>/D/ ./  (see README.md)\n"
+  }
+ },
+ "help": {
+  "cf3d": {
+   "rc": 0,
+   "stderr": "",
+   "stdout": "usage: wtune post cf3d [-h] [--domain DOMAIN] [--every 6h|1d] [--times TIMES]\n                       [--out OUT] [--project PROJECT] [--nc-cache DIR]\n                       run_dir\n\npositional arguments:\n  run_dir\n\noptions:\n  -h, --help         show this help message and exit\n  --domain DOMAIN    default: the finest domain, plus d01 when there is a nest\n                     (same as `post recipe`)\n  --every 6h|1d      one file per valid time at this interval (default: the\n                     last frame only)\n  --times TIMES      comma-separated WRF times or YYYYmmddHH, snapped to the\n                     nearest available frame\n  --out OUT          output directory (default: a project's post/<id>/ --\n                     decision 0058)\n  --project PROJECT  project dir (decision 0058); default: $WTUNE_PROJECT or a\n                     project.yaml above the current directory\n  --nc-cache DIR     where ADIOS2 BP history (io_form_history=14) is converted\n                     to netCDF once and reused (default: $WTUNE_NC_CACHE, else\n                     <project or output dir>/_nc_cache, else <run\n                     dir>/_nc_cache)\n"
+  },
+  "compare": {
+   "rc": 0,
+   "stderr": "",
+   "stdout": "usage: wtune post compare [-h] [--vars VARS] [--domain DOMAIN] [--json]\n                          [--nc-cache DIR]\n                          run_a run_b\n\npositional arguments:\n  run_a\n  run_b\n\noptions:\n  -h, --help       show this help message and exit\n  --vars VARS\n  --domain DOMAIN\n  --json\n  --nc-cache DIR   where ADIOS2 BP history (io_form_history=14) is converted\n                   to netCDF once and reused (default: $WTUNE_NC_CACHE, else\n                   <project or output dir>/_nc_cache, else <run\n                   dir>/_nc_cache)\n"
+  },
+  "custom": {
+   "rc": 0,
+   "stderr": "",
+   "stdout": "usage: wtune post custom [-h] [--project PROJECT] [--out OUT] [--nc-cache DIR]\n\noptions:\n  -h, --help         show this help message and exit\n  --project PROJECT  project dir; default: $WTUNE_PROJECT or a project.yaml\n                     above the current directory\n  --out OUT          output directory (default: a project's post/<id>/)\n  --nc-cache DIR     where ADIOS2 BP history (io_form_history=14) is converted\n                     to netCDF once and reused (default: $WTUNE_NC_CACHE, else\n                     <project or output dir>/_nc_cache, else <run\n                     dir>/_nc_cache)\n"
+  },
+  "extract": {
+   "rc": 0,
+   "stderr": "",
+   "stdout": "usage: wtune post extract [-h] --vars VARS [--domain DOMAIN] [--times TIMES]\n                          [--levels LEVELS] [--points LAT,LON[,NAME]]\n                          [--box LAT0,LAT1,LON0,LON1] --out OUT\n                          [--workers WORKERS] [--nc-cache DIR]\n                          run_dir\n\npositional arguments:\n  run_dir\n\noptions:\n  -h, --help            show this help message and exit\n  --vars VARS\n  --domain DOMAIN\n  --times TIMES         comma-separated WRF time strings\n  --levels LEVELS       comma-separated hPa, for z/tc/ua/va/wspd\n  --points LAT,LON[,NAME]\n  --box LAT0,LAT1,LON0,LON1\n  --out OUT\n  --workers WORKERS\n  --nc-cache DIR        where ADIOS2 BP history (io_form_history=14) is\n                        converted to netCDF once and reused (default:\n                        $WTUNE_NC_CACHE, else <project or output\n                        dir>/_nc_cache, else <run dir>/_nc_cache)\n"
+  },
+  "fetch": {
+   "rc": 0,
+   "stderr": "",
+   "stdout": "usage: wtune post fetch [-h] [--list]\n                        {era5,era5_monthly,gpcp_monthly,igra,mrms,nexrad,stage4,stations}\n                        ...\n\npositional arguments:\n  {era5,era5_monthly,gpcp_monthly,igra,mrms,nexrad,stage4,stations}\n    era5                ERA5 z500 subset (ARCO-ERA5 zarr, anonymous) for the\n                        synoptic comparison -> <project>/input/era5/\n    era5_monthly        ERA5 monthly means (t2m, sst, tp) aggregated from ARCO\n                        hourly data -> <project>/input/era5/monthly/\n    gpcp_monthly        GPCP v2.3 monthly precipitation, 2.5 deg (NOAA NCEI)\n                        -> <project>/input/obs/gpcp_monthly/\n    igra                NOAA NCEI IGRA v2 radiosonde soundings (00Z/12Z) for\n                        stations inside the WRF domain\n    mrms                NOAA MRMS reflectivity composite / QPE (AWS noaa-mrms-\n                        pds; 2020-10-14 onward only)\n    nexrad              NEXRAD Level II volumes (AWS unidata-nexrad-level2)\n                        nearest each hour, per radar\n    stage4              NCEP Stage IV QPE (1/6/24 h, CONUS ~4.8 km) from the\n                        IEM archive\n    stations            NOAA ISD-Lite hourly surface stations (T, Td, MSLP,\n                        wind, precip)\n\noptions:\n  -h, --help            show this help message and exit\n  --list                list fetch modules: NAME, HELP, coverage_time\n"
+  },
+  "fetch-era5": {
+   "rc": 0,
+   "stderr": "",
+   "stdout": "usage: wtune post fetch era5 [-h] --project PROJECT [--run-dir RUN_DIR]\n                             [--spinup-hours SPINUP_HOURS] [--margin MARGIN]\n                             [--end END] [--bbox BBOX] [--nc-cache DIR]\n\nERA5 z500 subset (ARCO-ERA5 zarr, anonymous) for the synoptic comparison ->\n<project>/input/era5/\n\noptions:\n  -h, --help            show this help message and exit\n  --project PROJECT     project dir; data goes to its input/era5/\n  --run-dir RUN_DIR     run whose wrfout gives the time window and region\n  --spinup-hours SPINUP_HOURS\n                        pick the last d01 frame at least this many hours after\n                        the first (the synoptic recipe's own rule; default 6)\n  --margin MARGIN       degrees added around the d01 bbox (default 2)\n  --end END             with --bbox, instead of --run-dir: the run's last\n                        valid time (UTC, YYYYmmddHH), which the synoptic\n                        recipe compares at\n  --bbox BBOX           lat0,lat1,lon0,lon1 of d01\n  --nc-cache DIR        where ADIOS2 BP history (io_form_history=14) is\n                        converted to netCDF once and reused (default:\n                        $WTUNE_NC_CACHE, else <project or output\n                        dir>/_nc_cache, else <run dir>/_nc_cache)\n"
+  },
+  "fetch-era5_monthly": {
+   "rc": 0,
+   "stderr": "",
+   "stdout": "usage: wtune post fetch era5_monthly [-h] --project PROJECT\n                                     [--run-dir RUN_DIR] [--start START]\n                                     [--end END] [--bbox BBOX] [--vars VARS]\n                                     [--skip-days SKIP_DAYS]\n                                     [--step-hours STEP_HOURS] [--jobs JOBS]\n                                     [--margin MARGIN] [--nc-cache DIR]\n\nERA5 monthly means (t2m, sst, tp) aggregated from ARCO hourly data ->\n<project>/input/era5/monthly/\n\noptions:\n  -h, --help            show this help message and exit\n  --project PROJECT     project dir; data goes to its input/obs/era5_monthly/\n  --run-dir RUN_DIR     run whose wrfout gives the time window and region\n  --start START         override the window start (UTC, YYYY-MM-DD_HH)\n  --end END             override the window end (UTC, YYYY-MM-DD_HH)\n  --bbox BBOX           override the region: lat0,lat1,lon0,lon1 (lon east +)\n  --vars VARS           comma list of t2m,sst,tp (default t2m,sst; tp reads\n                        every hour of every month)\n  --skip-days SKIP_DAYS\n                        do not fetch months starting before window start +\n                        this (spin-up; default 30)\n  --step-hours STEP_HOURS\n                        sampling interval of t2m/sst (default 6 = 00/06/12/18\n                        UTC)\n  --jobs JOBS           concurrent chunk reads (default 8)\n  --margin MARGIN       degrees around the bbox (default 3)\n  --nc-cache DIR        where ADIOS2 BP history (io_form_history=14) is\n                        converted to netCDF once and reused (default:\n                        $WTUNE_NC_CACHE, else <project or output\n                        dir>/_nc_cache, else <run dir>/_nc_cache)\n"
+  },
+  "fetch-gpcp_monthly": {
+   "rc": 0,
+   "stderr": "",
+   "stdout": "usage: wtune post fetch gpcp_monthly [-h] --project PROJECT\n                                     [--run-dir RUN_DIR] [--start START]\n                                     [--end END] [--bbox BBOX]\n                                     [--skip-days SKIP_DAYS] [--nc-cache DIR]\n\nGPCP v2.3 monthly precipitation, 2.5 deg (NOAA NCEI) ->\n<project>/input/obs/gpcp_monthly/\n\noptions:\n  -h, --help            show this help message and exit\n  --project PROJECT     project dir; data goes to its input/obs/gpcp_monthly/\n  --run-dir RUN_DIR     run whose wrfout gives the time window and region\n  --start START         override the window start (UTC, YYYY-MM-DD_HH)\n  --end END             override the window end (UTC, YYYY-MM-DD_HH)\n  --bbox BBOX           override the region: lat0,lat1,lon0,lon1 (lon east +)\n  --skip-days SKIP_DAYS\n                        skip months starting before window start + this (spin-\n                        up; default 30)\n  --nc-cache DIR        where ADIOS2 BP history (io_form_history=14) is\n                        converted to netCDF once and reused (default:\n                        $WTUNE_NC_CACHE, else <project or output\n                        dir>/_nc_cache, else <run dir>/_nc_cache)\n"
+  },
+  "fetch-igra": {
+   "rc": 0,
+   "stderr": "",
+   "stdout": "usage: wtune post fetch igra [-h] --project PROJECT [--run-dir RUN_DIR]\n                             [--start START] [--end END]\n                             [--bbox LAT0,LAT1,LON0,LON1] [--domain DOMAIN]\n                             [--hours HOURS] [--stations STATIONS]\n                             [--max-stations MAX_STATIONS] [--nc-cache DIR]\n\nNOAA NCEI IGRA v2 radiosonde soundings (00Z/12Z) for stations inside the WRF\ndomain\n\noptions:\n  -h, --help            show this help message and exit\n  --project PROJECT     project dir; data goes to its input/obs/igra/\n  --run-dir RUN_DIR     run whose wrfout gives the time window and region\n  --start START         UTC YYYYmmddHH (default: first wrfout time)\n  --end END             UTC YYYYmmddHH (default: last wrfout time)\n  --bbox LAT0,LAT1,LON0,LON1\n                        default: interior of --run-dir's domain\n  --domain DOMAIN       wrfout domain for --run-dir (default 1)\n  --hours HOURS         nominal launch hours to keep (default 0,12; 'all'\n                        keeps every sounding)\n  --stations STATIONS   comma-separated IGRA ids (default: chosen inside the\n                        bbox)\n  --max-stations MAX_STATIONS\n  --nc-cache DIR        where ADIOS2 BP history (io_form_history=14) is\n                        converted to netCDF once and reused (default:\n                        $WTUNE_NC_CACHE, else <project or output\n                        dir>/_nc_cache, else <run dir>/_nc_cache)\n"
+  },
+  "fetch-mrms": {
+   "rc": 0,
+   "stderr": "",
+   "stdout": "usage: wtune post fetch mrms [-h] --project PROJECT [--run-dir RUN_DIR]\n                             [--start START] [--end END] [--bbox BBOX]\n                             [--products PRODUCTS] [--step-min STEP_MIN]\n                             [--region {ALASKA,CARIB,CONUS,GUAM,HAWAII}]\n                             [--nc-cache DIR]\n\nNOAA MRMS reflectivity composite / QPE (AWS noaa-mrms-pds; 2020-10-14 onward\nonly)\n\noptions:\n  -h, --help            show this help message and exit\n  --project PROJECT     project dir; data goes to its input/obs/mrms/\n  --run-dir RUN_DIR     run whose wrfout gives the time window and region\n  --start START         override the window start (UTC, YYYY-MM-DD_HH)\n  --end END             override the window end (UTC, YYYY-MM-DD_HH)\n  --bbox BBOX           override the region: lat0,lat1,lon0,lon1 (lon east +)\n  --products PRODUCTS   comma list of refl (reflectivity composite), qpe (1 h\n                        QPE)\n  --step-min STEP_MIN   reflectivity sampling step in minutes (default 60)\n  --region {ALASKA,CARIB,CONUS,GUAM,HAWAII}\n                        force an MRMS sub-domain instead of choosing by\n                        overlap\n  --nc-cache DIR        where ADIOS2 BP history (io_form_history=14) is\n                        converted to netCDF once and reused (default:\n                        $WTUNE_NC_CACHE, else <project or output\n                        dir>/_nc_cache, else <run dir>/_nc_cache)\n"
+  },
+  "fetch-nexrad": {
+   "rc": 0,
+   "stderr": "",
+   "stdout": "usage: wtune post fetch nexrad [-h] --project PROJECT [--run-dir RUN_DIR]\n                               [--start START] [--end END] [--bbox BBOX]\n                               [--radars RADARS] [--max-radars MAX_RADARS]\n                               [--step-min STEP_MIN] [--tol-min TOL_MIN]\n                               [--nc-cache DIR]\n\nNEXRAD Level II volumes (AWS unidata-nexrad-level2) nearest each hour, per\nradar\n\noptions:\n  -h, --help            show this help message and exit\n  --project PROJECT     project dir; data goes to its input/obs/nexrad/\n  --run-dir RUN_DIR     run whose wrfout gives the time window and region\n  --start START         override the window start (UTC, YYYY-MM-DD_HH)\n  --end END             override the window end (UTC, YYYY-MM-DD_HH)\n  --bbox BBOX           override the region: lat0,lat1,lon0,lon1 (lon east +)\n  --radars RADARS       comma list of radar ids (e.g. KLIX,KMOB); default:\n                        nearest sites to the region centre\n  --max-radars MAX_RADARS\n  --step-min STEP_MIN   sampling step (default 60)\n  --tol-min TOL_MIN     max |file time - target| (min)\n  --nc-cache DIR        where ADIOS2 BP history (io_form_history=14) is\n                        converted to netCDF once and reused (default:\n                        $WTUNE_NC_CACHE, else <project or output\n                        dir>/_nc_cache, else <run dir>/_nc_cache)\n"
+  },
+  "fetch-stage4": {
+   "rc": 0,
+   "stderr": "",
+   "stdout": "usage: wtune post fetch stage4 [-h] --project PROJECT [--run-dir RUN_DIR]\n                               [--start START] [--end END] [--bbox BBOX]\n                               [--accum ACCUM] [--jobs JOBS] [--nc-cache DIR]\n\nNCEP Stage IV QPE (1/6/24 h, CONUS ~4.8 km) from the IEM archive\n\noptions:\n  -h, --help         show this help message and exit\n  --project PROJECT  project dir; data goes to its input/obs/stage4/\n  --run-dir RUN_DIR  run whose wrfout gives the time window and region\n  --start START      override the window start (UTC, YYYY-MM-DD_HH)\n  --end END          override the window end (UTC, YYYY-MM-DD_HH)\n  --bbox BBOX        override the region: lat0,lat1,lon0,lon1 (lon east +)\n  --accum ACCUM      accumulation lengths in hours to fetch (default 1,6,24)\n  --jobs JOBS        parallel downloads (default 4)\n  --nc-cache DIR     where ADIOS2 BP history (io_form_history=14) is converted\n                     to netCDF once and reused (default: $WTUNE_NC_CACHE, else\n                     <project or output dir>/_nc_cache, else <run\n                     dir>/_nc_cache)\n"
+  },
+  "fetch-stations": {
+   "rc": 0,
+   "stderr": "",
+   "stdout": "usage: wtune post fetch stations [-h] --project PROJECT [--run-dir RUN_DIR]\n                                 [--start START] [--end END] [--bbox BBOX]\n                                 [--max-stations MAX_STATIONS]\n                                 [--nc-cache DIR]\n\nNOAA ISD-Lite hourly surface stations (T, Td, MSLP, wind, precip)\n\noptions:\n  -h, --help            show this help message and exit\n  --project PROJECT     project dir; data goes to its input/obs/stations/\n  --run-dir RUN_DIR     run whose wrfout gives the time window and region\n  --start START         override the window start (UTC, YYYY-MM-DD_HH)\n  --end END             override the window end (UTC, YYYY-MM-DD_HH)\n  --bbox BBOX           override the region: lat0,lat1,lon0,lon1 (lon east +)\n  --max-stations MAX_STATIONS\n  --nc-cache DIR        where ADIOS2 BP history (io_form_history=14) is\n                        converted to netCDF once and reused (default:\n                        $WTUNE_NC_CACHE, else <project or output\n                        dir>/_nc_cache, else <run dir>/_nc_cache)\n"
+  },
+  "inventory": {
+   "rc": 0,
+   "stderr": "",
+   "stdout": "usage: wtune post inventory [-h] [--json] [--nc-cache DIR] run_dir\n\npositional arguments:\n  run_dir\n\noptions:\n  -h, --help      show this help message and exit\n  --json\n  --nc-cache DIR  where ADIOS2 BP history (io_form_history=14) is converted to\n                  netCDF once and reused (default: $WTUNE_NC_CACHE, else\n                  <project or output dir>/_nc_cache, else <run dir>/_nc_cache)\n"
+  },
+  "plot": {
+   "rc": 0,
+   "stderr": "",
+   "stdout": "usage: wtune post plot [-h] --field FIELD [--domain DOMAIN] [--times TIMES]\n                       [--level HPA] [--overlay {wind}]\n                       [--basemap {landmask,cartopy}] [--format {png,svg}]\n                       [--out OUT] [--project PROJECT] [--nc-cache DIR]\n                       run_dir\n\npositional arguments:\n  run_dir\n\noptions:\n  -h, --help            show this help message and exit\n  --field FIELD\n  --domain DOMAIN\n  --times TIMES\n  --level HPA\n  --overlay {wind}\n  --basemap {landmask,cartopy}\n  --format {png,svg}\n  --out OUT             output directory (default: a project's post/<id>/ --\n                        decision 0058)\n  --project PROJECT     project dir (decision 0058); default: $WTUNE_PROJECT\n                        or a project.yaml above the current directory\n  --nc-cache DIR        where ADIOS2 BP history (io_form_history=14) is\n                        converted to netCDF once and reused (default:\n                        $WTUNE_NC_CACHE, else <project or output\n                        dir>/_nc_cache, else <run dir>/_nc_cache)\n"
+  },
+  "recipe": {
+   "rc": 0,
+   "stderr": "",
+   "stdout": "usage: wtune post recipe [-h] [--out OUT] [--project PROJECT] [--types TYPES]\n                         [--ensemble] [--spinup-hours SPINUP_HOURS]\n                         [--hurdat2 HURDAT2] [--storm STORM] [--bdeck BDECK]\n                         [--ebtrk EBTRK] [--labels LABELS] [--repro-pairs]\n                         [--no-paraview] [--every 6h|1d] [--times TIMES]\n                         [--animate] [--track-smooth-km KM]\n                         [--climate-spinup-days N] [--title TITLE]\n                         [--nc-cache DIR]\n                         [run_dirs ...]\n\npositional arguments:\n  run_dirs              default: a project's runs/*/ or case/\n\noptions:\n  -h, --help            show this help message and exit\n  --out OUT             output directory (default: a project's post/<id>/ --\n                        decision 0058)\n  --project PROJECT     project dir (decision 0058); default: $WTUNE_PROJECT\n                        or a project.yaml above the current directory\n  --types TYPES         'auto' or a comma-separated list, e.g. 'tc,convection'\n                        (common is always included); default: project.yaml\n                        post.types, else auto\n  --ensemble            treat RUN_DIRs as ensemble members (enables the\n                        ensemble figure set)\n  --spinup-hours SPINUP_HOURS\n  --hurdat2 HURDAT2     HURDAT2 file, for tc detection + track comparison;\n                        default: a project's storm.hurdat2\n  --storm STORM         e.g. AL122005 (required with --hurdat2); default: a\n                        project's storm.id\n  --bdeck BDECK         local ATCF b-deck (overrides HURDAT2 for the tc\n                        comparison; also usable alone for tc detection)\n  --ebtrk EBTRK         Extended Best Track file (RMW only)\n  --labels LABELS       comma-separated, one per RUN_DIR\n  --repro-pairs         extra RUN_DIRs differ only in decomposition -- draw\n                        the reproducibility-noise envelope (common figure set)\n  --no-paraview         skip the ParaView 3-D cloud rendering (tc/convection)\n                        even if pvbatch is available\n  --every 6h|1d         one full figure set per valid time at this interval,\n                        in post/<id>/timeseries/ (decision 0058 P3); mutually\n                        usable with --times\n  --times TIMES         comma-separated WRF times or YYYYmmddHH, snapped to\n                        the nearest available frame -- an explicit alternative\n                        to --every\n  --animate             also build an MP4 per time-series field (needs 2+\n                        selected times; requires ffmpeg)\n  --track-smooth-km KM  TC track position is searched on SLP smoothed by CDO\n                        (cdo smooth, this radius, the same on every domain;\n                        intensity is read from the unsmoothed fields). Default\n                        30; 0 = raw SLP minimum (hops between mesovortices in\n                        a large eye)\n  --climate-spinup-days N\n                        days of spin-up the climate recipe excludes (default:\n                        that recipe's own, 30)\n  --title TITLE\n  --nc-cache DIR        where ADIOS2 BP history (io_form_history=14) is\n                        converted to netCDF once and reused (default:\n                        $WTUNE_NC_CACHE, else <project or output\n                        dir>/_nc_cache, else <run dir>/_nc_cache)\n"
+  },
+  "report": {
+   "rc": 0,
+   "stderr": "",
+   "stdout": "usage: wtune post report [-h] [--title TITLE] out_dir\n\npositional arguments:\n  out_dir\n\noptions:\n  -h, --help     show this help message and exit\n  --title TITLE\n"
+  },
+  "sounding": {
+   "rc": 0,
+   "stderr": "",
+   "stdout": "usage: wtune post sounding [-h] --point LAT,LON --time WRF_TIME\n                           [--domain DOMAIN] --out OUT [--nc-cache DIR]\n                           run_dir\n\npositional arguments:\n  run_dir\n\noptions:\n  -h, --help       show this help message and exit\n  --point LAT,LON\n  --time WRF_TIME\n  --domain DOMAIN\n  --out OUT        output PNG path\n  --nc-cache DIR   where ADIOS2 BP history (io_form_history=14) is converted\n                   to netCDF once and reused (default: $WTUNE_NC_CACHE, else\n                   <project or output dir>/_nc_cache, else <run\n                   dir>/_nc_cache)\n"
+  },
+  "tc": {
+   "rc": 0,
+   "stderr": "",
+   "stdout": "usage: wtune post tc [-h] [--hurdat2 HURDAT2] [--storm STORM] [--bdeck BDECK]\n                     [--ebtrk EBTRK] [--track-smooth-km KM] [--labels LABELS]\n                     [--out OUT] [--project PROJECT] [--nc-cache DIR]\n                     [run_dirs ...]\n\npositional arguments:\n  run_dirs              default: a project's runs/*/ or case/\n\noptions:\n  -h, --help            show this help message and exit\n  --hurdat2 HURDAT2     HURDAT2 file (first-guess centre + b-deck fallback if\n                        --bdeck is not given and the NHC download fails);\n                        default: a project's storm.hurdat2\n  --storm STORM         e.g. AL122005 (basin+cyclone+year); default: a\n                        project's storm.id\n  --bdeck BDECK         local ATCF b-deck file (default: download from the NHC\n                        archive, else fall back to HURDAT2)\n  --ebtrk EBTRK         Extended Best Track file (RMW only, recorded in\n                        obs.json)\n  --track-smooth-km KM  TC track position is searched on SLP smoothed by CDO\n                        (cdo smooth, this radius, the same on every domain;\n                        intensity is read from the unsmoothed fields). Default\n                        30; 0 = raw SLP minimum (hops between mesovortices in\n                        a large eye)\n  --labels LABELS       comma-separated, one per RUN_DIR (also the ATCF a-deck\n                        TECH id, truncated to 4 chars)\n  --out OUT             output directory (default: a project's post/<id>/ --\n                        decision 0058)\n  --project PROJECT     project dir (decision 0058); default: $WTUNE_PROJECT\n                        or a project.yaml above the current directory\n  --nc-cache DIR        where ADIOS2 BP history (io_form_history=14) is\n                        converted to netCDF once and reused (default:\n                        $WTUNE_NC_CACHE, else <project or output\n                        dir>/_nc_cache, else <run dir>/_nc_cache)\n"
+  },
+  "top": {
+   "rc": 0,
+   "stderr": "",
+   "stdout": "usage: wtune post [-h]\n                  {inventory,extract,plot,sounding,tc,compare,report,recipe,cf3d,vapor-bundle,custom,fetch,fetch-era5}\n                  ...\n\npositional arguments:\n  {inventory,extract,plot,sounding,tc,compare,report,recipe,cf3d,vapor-bundle,custom,fetch,fetch-era5}\n    inventory           domains/times/grid/variables/missing-frame summary\n    extract             wrf-python diagnostics -> points CSV or box NetCDF\n    plot                filled-contour maps on lat/lon, one file per time\n    sounding            MetPy Skew-T at the nearest grid column\n    tc                  TC track (TempestExtremes) + ATCF a-deck vs. b-deck\n                        (MET tc_pairs/tc_stat/tc_rmw)\n    compare             verify a STRICT change did not move the answer\n    report              collect PNGs/CSVs in a dir into one self-contained\n                        HTML\n    recipe              case-type-driven standard figure set + HTML report\n                        (decision 0057), plus optional --every/--times time\n                        series, change maps and animations (decision 0058)\n    cf3d                CF-1.8 NetCDF on pressure levels and a regular lon-lat\n                        grid (Met.3D/ParaView), wrf_d0N_pl_YYYYMMDD_HHMM.nc\n                        under OUT/cf3d/d0N/\n    vapor-bundle        ready-to-copy NCAR VAPOR bundle (wrfout frames hard-\n                        linked, vapor_render.py, README.md, bundle.json) under\n                        OUT/vapor/d0N/ -- VAPOR itself runs on an x86_64/macOS\n                        workstation\n    custom              run every analysis/*.py script in a project (decision\n                        0058 section 2), collect their figures/tables into one\n                        HTML report\n    fetch               download observation/reanalysis data into a project's\n                        input/ (login node: compute nodes have no internet)\n    fetch-era5          alias of `fetch era5`\n\noptions:\n  -h, --help            show this help message and exit\n\n--srun (any subcommand): run it as one exclusive compute-node job step (srun\n-N1 --exclusive -t 120), excluding head and the project's exclude_nodes;\n--srun-minutes N changes that time limit\n"
+  },
+  "vapor-bundle": {
+   "rc": 0,
+   "stderr": "",
+   "stdout": "usage: wtune post vapor-bundle [-h] [--domain DOMAIN] [--every 6h|1d]\n                               [--times TIMES] [--allow-copy] [--out OUT]\n                               [--project PROJECT] [--nc-cache DIR]\n                               run_dir\n\npositional arguments:\n  run_dir\n\noptions:\n  -h, --help         show this help message and exit\n  --domain DOMAIN    default: the finest domain, plus d01 when there is a nest\n                     (same as `post recipe`)\n  --every 6h|1d      frames at this interval (default: the last frame only)\n  --times TIMES      comma-separated WRF times or YYYYmmddHH, snapped to the\n                     nearest available frame\n  --allow-copy       copy the frames when they cannot be hard-linked (OUT on\n                     another filesystem); without it that domain fails with\n                     the size it would copy\n  --out OUT          output directory (default: a project's post/<id>/ --\n                     decision 0058)\n  --project PROJECT  project dir (decision 0058); default: $WTUNE_PROJECT or a\n                     project.yaml above the current directory\n  --nc-cache DIR     where ADIOS2 BP history (io_form_history=14) is converted\n                     to netCDF once and reused (default: $WTUNE_NC_CACHE, else\n                     <project or output dir>/_nc_cache, else <run\n                     dir>/_nc_cache)\n"
+  }
+ },
+ "parse": {
+  "cf3d": {
+   "domain": "None",
+   "every": "None",
+   "nc_cache": "None",
+   "out": "None",
+   "post_command": "'cf3d'",
+   "project": "None",
+   "run_dir": "'r'",
+   "times": "None"
+  },
+  "cf3d-full": {
+   "domain": "2",
+   "every": "'6h'",
+   "nc_cache": "None",
+   "out": "'o'",
+   "post_command": "'cf3d'",
+   "project": "'p'",
+   "run_dir": "'r'",
+   "times": "'t'"
+  },
+  "compare": {
+   "domain": "None",
+   "json": "False",
+   "nc_cache": "None",
+   "post_command": "'compare'",
+   "run_a": "'a'",
+   "run_b": "'b'",
+   "vars": "None"
+  },
+  "compare-full": {
+   "domain": "2",
+   "json": "True",
+   "nc_cache": "None",
+   "post_command": "'compare'",
+   "run_a": "'a'",
+   "run_b": "'b'",
+   "vars": "'v'"
+  },
+  "custom": {
+   "nc_cache": "None",
+   "out": "'o'",
+   "post_command": "'custom'",
+   "project": "'p'"
+  },
+  "extract": {
+   "box": "None",
+   "domain": "1",
+   "levels": "None",
+   "nc_cache": "None",
+   "out": "'o'",
+   "points": "None",
+   "post_command": "'extract'",
+   "run_dir": "'r'",
+   "times": "None",
+   "vars": "'a,b'",
+   "workers": "1"
+  },
+  "extract-full": {
+   "box": "'1,2,3,4'",
+   "domain": "2",
+   "levels": "'500,850'",
+   "nc_cache": "None",
+   "out": "'o'",
+   "points": "['1,2', '3,4,N']",
+   "post_command": "'extract'",
+   "run_dir": "'r'",
+   "times": "'t1,t2'",
+   "vars": "'a'",
+   "workers": "4"
+  },
+  "fetch-era5": {
+   "bbox": "None",
+   "end": "None",
+   "fetch_name": "'era5'",
+   "list": "False",
+   "margin": "2.0",
+   "nc_cache": "None",
+   "post_command": "'fetch'",
+   "project": "'p'",
+   "run_dir": "None",
+   "spinup_hours": "6.0"
+  },
+  "fetch-era5_monthly": {
+   "bbox": "None",
+   "end": "None",
+   "fetch_name": "'era5_monthly'",
+   "jobs": "8",
+   "list": "False",
+   "margin": "3.0",
+   "nc_cache": "None",
+   "post_command": "'fetch'",
+   "project": "'p'",
+   "run_dir": "None",
+   "skip_days": "30.0",
+   "start": "None",
+   "step_hours": "6",
+   "vars": "'t2m,sst'"
+  },
+  "fetch-gpcp_monthly": {
+   "bbox": "None",
+   "end": "None",
+   "fetch_name": "'gpcp_monthly'",
+   "list": "False",
+   "nc_cache": "None",
+   "post_command": "'fetch'",
+   "project": "'p'",
+   "run_dir": "None",
+   "skip_days": "30.0",
+   "start": "None"
+  },
+  "fetch-igra": {
+   "bbox": "None",
+   "domain": "1",
+   "end": "None",
+   "fetch_name": "'igra'",
+   "hours": "'0,12'",
+   "list": "False",
+   "max_stations": "6",
+   "nc_cache": "None",
+   "post_command": "'fetch'",
+   "project": "'p'",
+   "run_dir": "None",
+   "start": "None",
+   "stations": "None"
+  },
+  "fetch-list": {
+   "fetch_name": "None",
+   "list": "True",
+   "post_command": "'fetch'"
+  },
+  "fetch-mrms": {
+   "bbox": "None",
+   "end": "None",
+   "fetch_name": "'mrms'",
+   "list": "False",
+   "nc_cache": "None",
+   "post_command": "'fetch'",
+   "products": "'refl,qpe'",
+   "project": "'p'",
+   "region": "None",
+   "run_dir": "None",
+   "start": "None",
+   "step_min": "60"
+  },
+  "fetch-nexrad": {
+   "bbox": "None",
+   "end": "None",
+   "fetch_name": "'nexrad'",
+   "list": "False",
+   "max_radars": "4",
+   "nc_cache": "None",
+   "post_command": "'fetch'",
+   "project": "'p'",
+   "radars": "None",
+   "run_dir": "None",
+   "start": "None",
+   "step_min": "60",
+   "tol_min": "8"
+  },
+  "fetch-stage4": {
+   "accum": "'1,6,24'",
+   "bbox": "None",
+   "end": "None",
+   "fetch_name": "'stage4'",
+   "jobs": "4",
+   "list": "False",
+   "nc_cache": "None",
+   "post_command": "'fetch'",
+   "project": "'p'",
+   "run_dir": "None",
+   "start": "None"
+  },
+  "fetch-stations": {
+   "bbox": "None",
+   "end": "None",
+   "fetch_name": "'stations'",
+   "list": "False",
+   "max_stations": "120",
+   "nc_cache": "None",
+   "post_command": "'fetch'",
+   "project": "'p'",
+   "run_dir": "None",
+   "start": "None"
+  },
+  "inventory": {
+   "json": "False",
+   "nc_cache": "None",
+   "post_command": "'inventory'",
+   "run_dir": "'r'"
+  },
+  "inventory-json": {
+   "json": "True",
+   "nc_cache": "'c'",
+   "post_command": "'inventory'",
+   "run_dir": "'r'"
+  },
+  "none": {
+   "post_command": "None"
+  },
+  "plot": {
+   "basemap": "'cartopy'",
+   "domain": "1",
+   "field": "'f'",
+   "format": "'png'",
+   "level": "None",
+   "nc_cache": "None",
+   "out": "None",
+   "overlay": "None",
+   "post_command": "'plot'",
+   "project": "None",
+   "run_dir": "'r'",
+   "times": "None"
+  },
+  "plot-full": {
+   "basemap": "'landmask'",
+   "domain": "2",
+   "field": "'f'",
+   "format": "'svg'",
+   "level": "500.0",
+   "nc_cache": "None",
+   "out": "'o'",
+   "overlay": "'wind'",
+   "post_command": "'plot'",
+   "project": "'p'",
+   "run_dir": "'r'",
+   "times": "'t'"
+  },
+  "recipe": {
+   "animate": "False",
+   "bdeck": "None",
+   "climate_spinup_days": "None",
+   "ebtrk": "None",
+   "ensemble": "False",
+   "every": "None",
+   "hurdat2": "None",
+   "labels": "None",
+   "nc_cache": "None",
+   "no_paraview": "False",
+   "out": "None",
+   "post_command": "'recipe'",
+   "project": "None",
+   "repro_pairs": "False",
+   "run_dirs": "[]",
+   "spinup_hours": "6.0",
+   "storm": "None",
+   "times": "None",
+   "title": "None",
+   "track_smooth_km": "30.0",
+   "types": "None"
+  },
+  "recipe-full": {
+   "animate": "True",
+   "bdeck": "'b'",
+   "climate_spinup_days": "7.0",
+   "ebtrk": "'e'",
+   "ensemble": "True",
+   "every": "'6h'",
+   "hurdat2": "'h'",
+   "labels": "'l'",
+   "nc_cache": "None",
+   "no_paraview": "True",
+   "out": "'o'",
+   "post_command": "'recipe'",
+   "project": "'p'",
+   "repro_pairs": "True",
+   "run_dirs": "['a']",
+   "spinup_hours": "3.0",
+   "storm": "'S'",
+   "times": "'t'",
+   "title": "'T'",
+   "track_smooth_km": "5.0",
+   "types": "'tc,x'"
+  },
+  "report": {
+   "out_dir": "'o'",
+   "post_command": "'report'",
+   "title": "'T'"
+  },
+  "sounding": {
+   "domain": "1",
+   "nc_cache": "None",
+   "out": "'o'",
+   "point": "'1,2'",
+   "post_command": "'sounding'",
+   "run_dir": "'r'",
+   "time": "'t'"
+  },
+  "tc": {
+   "bdeck": "None",
+   "ebtrk": "None",
+   "hurdat2": "None",
+   "labels": "None",
+   "nc_cache": "None",
+   "out": "None",
+   "post_command": "'tc'",
+   "project": "None",
+   "run_dirs": "[]",
+   "storm": "None",
+   "track_smooth_km": "30.0"
+  },
+  "tc-full": {
+   "bdeck": "'bd'",
+   "ebtrk": "'e'",
+   "hurdat2": "'h'",
+   "labels": "'x,y'",
+   "nc_cache": "None",
+   "out": "'o'",
+   "post_command": "'tc'",
+   "project": "'p'",
+   "run_dirs": "['a', 'b']",
+   "storm": "'S'",
+   "track_smooth_km": "0.0"
+  },
+  "vapor-bundle": {
+   "allow_copy": "False",
+   "domain": "None",
+   "every": "None",
+   "nc_cache": "None",
+   "out": "None",
+   "post_command": "'vapor-bundle'",
+   "project": "None",
+   "run_dir": "'r'",
+   "times": "None"
+  },
+  "vapor-bundle-full": {
+   "allow_copy": "True",
+   "domain": "2",
+   "every": "'1d'",
+   "nc_cache": "None",
+   "out": "'o'",
+   "post_command": "'vapor-bundle'",
+   "project": "'p'",
+   "run_dir": "'r'",
+   "times": "'t'"
+  }
+ }
+}

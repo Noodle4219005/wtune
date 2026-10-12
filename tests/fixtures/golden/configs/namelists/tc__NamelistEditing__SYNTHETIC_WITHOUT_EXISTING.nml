@@ -1,0 +1,8 @@
+&time_control
+ run_days=0, run_hours=1, run_minutes=0, run_seconds=0,
+ history_interval=999, frames_per_outfile=1,
+ io_form_history=14,
+/
+&domains
+ time_step=15, e_we=901, e_sn=901, e_vert=45,
+/

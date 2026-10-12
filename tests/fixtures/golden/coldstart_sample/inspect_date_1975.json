@@ -1,0 +1,51 @@
+{
+ "rows": [
+  [
+   "namelist.input",
+   true,
+   "<TMP>/case/namelist.input",
+   ""
+  ],
+  [
+   "run length",
+   true,
+   "10800s",
+   ""
+  ],
+  [
+   "projection",
+   true,
+   "namelist.wps",
+   "map_proj=lambert"
+  ],
+  [
+   "ifire",
+   true,
+   "0",
+   ""
+  ],
+  [
+   "capability",
+   true,
+   "warning",
+   "filled differently: hydrometeors and number concentrations start at zero (GFS via Vtable.GFS carries no hydrometeor/number-concentration fields) -- this is why cold-start windows discard the first ~1 simulated hour as spin-up"
+  ],
+  [
+   "forcing chain (run start)",
+   false,
+   "NONE",
+   "no candidate source and no --grib-dir"
+  ],
+  [
+   "forcing chain (run end)",
+   false,
+   "NONE",
+   "no candidate source and no --grib-dir"
+  ]
+ ],
+ "blockers": [
+  "run start 1975-01-01_00:00:00: no forcing source covers this date (no --grib-dir given)",
+  "run end 1975-01-01_03:00:00: no forcing source covers this date (no --grib-dir given)"
+ ],
+ "nl_is_none": false
+}

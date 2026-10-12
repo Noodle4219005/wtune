@@ -1,0 +1,5 @@
+{
+ "error": "ColdstartError: plan: --times 2020-01-01_03:00:00 + W(14160s) does not fit in the run (run ends 2020-01-01_06:00:00)",
+ "stdout": "--times given: --k is ignored (using exactly the 1 pinned time(s))\n",
+ "stderr": ""
+}

@@ -1,0 +1,102 @@
+{
+ "rundir": "<TMP>",
+ "now": 1700000001.0,
+ "mode": "live",
+ "status": "failed",
+ "warnings": [
+  {
+   "code": "FAILED",
+   "text": "--- FATAL CALLED ---"
+  }
+ ],
+ "run_start": "2021-07-19_00:00:00",
+ "run_end": "2021-07-20_00:00:00",
+ "dt": 60.0,
+ "stepra": 10,
+ "total_steps": 1440,
+ "periods": [
+  10
+ ],
+ "rsl_file": "rsl.error.0000",
+ "rsl_d01_lines": {
+  "rsl.error.0000": 200
+ },
+ "n_d01_steps": 200,
+ "completed_steps": 200,
+ "d01_last_time": "2021-07-19_03:20:00",
+ "sum_d01_elapsed_s": 343.0,
+ "writes_so_far_s": 80.0,
+ "n_write_absorbing_steps": 4,
+ "rate_s_per_step": 1.3,
+ "rate_window": 50,
+ "median_step_s": 1.0,
+ "rate_lead_dropped": 1,
+ "fraction": 0.1388888888888889,
+ "remaining_steps": 1240,
+ "writes": [
+  {
+   "stream": "history",
+   "dom": 1,
+   "per_frame_s": 10.0,
+   "source": "observed",
+   "n_observed": 4,
+   "remaining_frames": 21,
+   "seconds": 210.0
+  },
+  {
+   "stream": "history",
+   "dom": 2,
+   "per_frame_s": 5.0,
+   "source": "observed",
+   "n_observed": 4,
+   "remaining_frames": 21,
+   "seconds": 105.0
+  },
+  {
+   "stream": "history",
+   "dom": 3,
+   "per_frame_s": 5.0,
+   "source": "observed",
+   "n_observed": 4,
+   "remaining_frames": 21,
+   "seconds": 105.0
+  }
+ ],
+ "write_notes": [],
+ "remaining_compute_rate_s": 1612.0,
+ "remaining_compute_pred_s": null,
+ "remaining_writes_s": 420.0,
+ "pred_scale_k": null,
+ "remaining_rate_s": 2032.0,
+ "remaining_pred_s": null,
+ "estimate": "rate",
+ "remaining_compute_s": 1612.0,
+ "remaining_s": 2032.0,
+ "eta": "2023-11-14 22:47:13",
+ "domains": [
+  {
+   "id": 1,
+   "last_time": "2021-07-19_03:20:00",
+   "n_lines": 200,
+   "start": "2021-07-19_00:00:00",
+   "end": "2021-07-20_00:00:00"
+  },
+  {
+   "id": 2,
+   "last_time": "2021-07-19_03:20:00",
+   "n_lines": 600,
+   "start": "2021-07-19_00:00:00",
+   "end": "2021-07-20_00:00:00"
+  },
+  {
+   "id": 3,
+   "last_time": "2021-07-19_03:20:00",
+   "n_lines": 1800,
+   "start": "2021-07-19_00:00:00",
+   "end": "2021-07-20_00:00:00"
+  }
+ ],
+ "cfl_count": 0
+}
+FAILED  13.9% sim 2021-07-19_03:20:00 (200/1440) elapsed 0:05:43 rate 1.300s/step[w=50] remaining 0:33:52 (compute 0:26:52 + writes 0:07:00) ETA 2023-11-14 22:47:13 | FAILED: --- FATAL CALLED ---
+exit=3

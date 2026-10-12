@@ -1,0 +1,353 @@
+#!/usr/bin/env python3
+"""tools/scc_sweep.py -- drives a large decomposition measurement sweep on the scc cluster
+(GH200, 72 cores/node, 13 compute nodes work[1-13]; login node `head` excluded) to feed a
+run-time prediction model.
+
+For each (case, node_count) this generates ANCHOR + K sampled decomposition configs via
+predictor/decomp_space.py's exact WRF legality gate (legal_shapes_exact/rsl patch rules) and
+predictor/experiment.py's own generated-space baseline rule (_generated_baseline/
+_max_legal_ranks, imported and reused, NOT re-derived), then submits ONE Slurm job running
+wtune's existing campaign/strict_campaign.sbatch runner over that config set
+(CONFIG_FILE=<configs.json>, MODE=timing).
+
+ANCHOR (one per case,N, always included so node counts stay comparable): omp=1, the maximum
+legal rank count <= N*cores_per_node, the least-aspect legal shape at that rank count, numtiles=1,
+dist=block. This is predictor/experiment.py's GENERATED_BASELINE_RULE (_generated_baseline) with
+`dist` overridden from 'cyclic' to 'block' post-hoc -- `dist` does not affect shape/tile-geometry
+resolution (enumerate_space enumerates both 'block' and 'cyclic' for the identical
+ranks/omp/nx/ny/numtiles candidate), so this is exactly the 'block' twin of the same anchor
+point, not a second implementation of the legality/aspect logic.
+
+The standalone plan/submit/status command line this file used to carry (and its manifest.csv)
+is in archive/unused-2026-10/src/tools/scc_sweep_cli_legacy.py; what is left is the library
+`wtune tune` / `wtune run` import.
+
+CASE_FILE/CONFIG_FILE mechanics reused verbatim: campaign/strict_campaign.sbatch's own
+CONFIG_FILE loop (campaign/configs.py load_generated_configs/cmd_case_generated) accepts either
+a bare JSON list or {"configs": [...]} -- the latter is what we write here, matching
+predictor/decomp_space.py's own `sample`/`to_campaign_configs` output shape.
+
+Config generation imports predictor/decomp_space.py and predictor/experiment.py DIRECTLY (both
+are plain-stdlib-importable -- verified: neither needs numpy/sklearn/pixi; only campaign/configs.py
+and predictor/features.py, both stdlib) instead of shelling out to the pixi-wrapped CLI the
+campaign historically used for this. SITE=scc is set here (before importing campaign/configs.py)
+so campaign_configs.CASES carries the campaign/cases.scc.json overlay (prep_dir/bp_dir path
+overrides; case geometry -- e_we/e_sn/e_vert -- is identical across sites and not overlaid).
+"""
+from __future__ import annotations
+
+import csv
+import glob
+import json
+import os
+import re
+import statistics
+import subprocess
+import sys
+
+_HERE = os.path.dirname(os.path.abspath(__file__))
+_REPO_ROOT = os.path.dirname(os.path.dirname(_HERE))  # src/
+_TRUE_ROOT = os.path.dirname(_REPO_ROOT)  # repo root
+_CAMPAIGN_DIR = os.path.join(_TRUE_ROOT, "campaign")
+if not __package__:                    # run by path: this directory is not an import root
+    sys.path[:] = [p for p in sys.path if os.path.abspath(p or ".") != _HERE]
+for _p in (_REPO_ROOT, _CAMPAIGN_DIR):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+
+# Must precede the first `import configs` anywhere in the process (campaign/configs.py reads
+# this env var at MODULE level: `SITE = os.environ.get("SITE") or "f1"`) -- setdefault so an
+# operator's own SITE=scc export (or a test's monkeypatch before import) is not clobbered.
+os.environ.setdefault("SITE", "scc")
+
+import configs as campaign_configs          # campaign/configs.py: CASES (scc-overlaid), stdlib only
+from wtune.predictor import decomp_space                         # predictor/decomp_space.py: enumerate_space/sample_design/
+                                             # to_campaign_configs/legal_shapes_exact, stdlib only
+from wtune.predictor import experiment as campaign_experiment    # predictor/experiment.py: _generated_baseline/
+                                             # _max_legal_ranks/_format_hms (reused, not copied),
+                                             # stdlib only
+
+DEFAULT_HARDWARE_ID = "scc-gh200"
+DEFAULT_CORES_PER_NODE = 72
+DEFAULT_NODES = [1, 2, 4, 8, 13]
+DEFAULT_K = 12
+DEFAULT_SEED = 1
+DEFAULT_REPS = 1
+DEFAULT_STEPS = 30
+DEFAULT_ROOT = "$HOME/wtune-runs/sweep"
+DEFAULT_LEDGER_DIR = "$HOME/wtune-runs/campaign"          # campaign/sites/scc.sh's own $OUT
+DEFAULT_MAX_NODES_IN_FLIGHT = 13                           # == total compute nodes, work[1-13]
+DEFAULT_ENV_SOURCE = "$HOME/wtune-scc/env.sh"
+# The campaign/ of THIS source tree (resolved from __file__), not a fixed "$HOME/wtune/campaign":
+# on scc ~/wtune is a stale checkout (no RANKING_START, no write_adios2_restart_xml, no \037 TSV
+# fix) while the live code runs from ~/wtune-src, so the old hardcoded default silently paired
+# new Python with an old campaign script (2026-09-27). --sbatch-script still overrides it.
+DEFAULT_SBATCH_SCRIPT = os.path.join(_CAMPAIGN_DIR, "strict_campaign.sbatch")
+
+STARTUP_S = 120.0                  # per-run startup overhead assumed for the time-limit estimate
+CONSERVATIVE_S_PER_STEP = 10.0     # fallback when no ledger row exists yet for this case on scc
+TIME_SAFETY_FACTOR = 1.5
+TIME_PAD_MIN = 10.0
+TIME_CAP_HOURS = 12.0
+TIMEOUT_MULTIPLIER = 3.0
+TIMEOUT_MIN_S = 600
+
+MANIFEST_FIELDS = ["case", "nodes", "job_id", "configs_path", "n_configs", "submitted_at", "state"]
+IN_FLIGHT_STATES = {"PENDING", "RUNNING"}   # sacct State values counted against --max-nodes-in-flight
+
+_JOBID_RE = re.compile(r"Submitted batch job (\d+)")
+
+
+# ---------------------------------------------------------------------------
+# small helpers
+# ---------------------------------------------------------------------------
+def _expand(path):
+    return os.path.expanduser(os.path.expandvars(path))
+
+
+def _to_float(v):
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+# ---------------------------------------------------------------------------
+# case selection
+# ---------------------------------------------------------------------------
+def resolve_case_json(case_id):
+    cj = campaign_configs.CASES.get(case_id)
+    if cj is None:
+        raise SystemExit("unknown case %r (not in campaign/cases.json)" % case_id)
+    return cj
+
+
+# ---------------------------------------------------------------------------
+# config generation: ANCHOR + K sampled, per (case, nodes)
+# ---------------------------------------------------------------------------
+def _identity(c):
+    return (int(c["ranks"]), int(c["omp"]), int(c["nx"]), int(c["ny"]), int(c["numtiles"]),
+            str(c["dist"]), str(c["blocktime"]))
+
+
+def build_anchor(case_json, total_cores, nodes, hardware_id):
+    """omp=1, max legal ranks <= total_cores, least-aspect legal shape, numtiles=1, dist=block --
+    see module docstring for why this is _generated_baseline() plus a post-hoc dist override
+    rather than a re-derivation. Returns None when no legal MPI decomposition exists at omp=1 for
+    any rank count in 1..total_cores (predictor/experiment.py's own failure mode there)."""
+    try:
+        base = campaign_experiment._generated_baseline(case_json, total_cores, nodes, hardware_id)
+    except SystemExit:
+        return None
+    return dict(
+        id="ANCHOR", ranks=base["ranks"], omp=base["omp"], nx=base["nx"], ny=base["ny"],
+        numtiles=base["numtiles"], dist="block", blocktime=base["blocktime"],
+        patch_x=base.get("patch_x"), patch_y=base.get("patch_y"),
+        numtiles_x=base.get("numtiles_x", 0), numtiles_y=base.get("numtiles_y", 0),
+        tile_sz_x=base.get("tile_sz_x", 0), tile_sz_y=base.get("tile_sz_y", 0),
+        tile_strategy=base.get("tile_strategy", 0), tile_shape="1d_y",
+        config_source="anchor",
+    )
+
+
+def build_sampled(case_json, total_cores, nodes, hardware_id, k, seed):
+    """K stratified-sampled generated configs (decomp_space.sample_design, must_include=None --
+    the '--no-must-include' convention: STRICT C01-C16 templates are anchored at f1's 448/224/112
+    core counts and never resolve at scc's 72*N core counts anyway). Returns (configs, space_size)
+    -- space_size is enumerate_space's exact legal-candidate count, 0 when nothing is legal at any
+    omp value whose exact-fit ranks (total_cores // omp) divides evenly."""
+    candidates, axis = decomp_space.enumerate_space(
+        case_json, total_cores=total_cores, nodes=nodes, hardware_id=hardware_id)
+    space_size = axis["total"]
+    if space_size == 0 or k <= 0:
+        return [], space_size
+    chosen, _coverage = decomp_space.sample_design(candidates, k, seed, must_include=None)
+    return decomp_space.to_campaign_configs(chosen, prefix="G"), space_size
+
+
+def build_configs(case, case_json, nodes, k, seed, hardware_id, cores_per_node):
+    """ANCHOR + K sampled configs for one (case, nodes), deduped by decomposition identity
+    (anchor wins ties). `skip_reason` is set iff the merged list is empty -- i.e. even the
+    downward-scanning anchor found no legal decomposition at all, not just the exact-fit sampled
+    space (those can differ: the sampled space only tries EXACT ranks=total_cores//omp)."""
+    total_cores = nodes * cores_per_node
+    anchor = build_anchor(case_json, total_cores, nodes, hardware_id)
+    sampled, space_size = build_sampled(case_json, total_cores, nodes, hardware_id, k, seed)
+
+    merged, seen = [], set()
+    if anchor is not None:
+        merged.append(anchor)
+        seen.add(_identity(anchor))
+    for c in sampled:
+        ident = _identity(c)
+        if ident in seen:
+            continue
+        seen.add(ident)
+        merged.append(c)
+
+    skip_reason = None
+    if not merged:
+        skip_reason = ("no legal WRF decomposition for case=%r at %d cores (N=%d x %d "
+                        "cores/node): floor(extent/nproc) >= 10 fails on every domain for every "
+                        "rank count 1..%d" % (case, total_cores, nodes, cores_per_node, total_cores))
+
+    n_anchor = 1 if anchor is not None else 0
+    return dict(configs=merged, total_cores=total_cores, space_size=space_size,
+                n_anchor=n_anchor, n_sampled=len(merged) - n_anchor, skip_reason=skip_reason)
+
+
+def write_configs_json(path, configs):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as f:
+        json.dump(dict(configs=configs), f, indent=2, sort_keys=True)
+        f.write("\n")
+
+
+# ---------------------------------------------------------------------------
+# s/step estimate (ideal core-count scaling from any prior scc ledger row for this case) and
+# time-limit / TIMEOUT_S estimate
+# ---------------------------------------------------------------------------
+def _read_ledger_rows(path):
+    with open(path, newline="") as f:
+        return list(csv.DictReader(f))
+
+
+def estimate_s_per_step(case, nodes, ledger_dir, hardware_id=DEFAULT_HARDWARE_ID,
+                         fallback=CONSERVATIVE_S_PER_STEP):
+    """Median of (measured s_per_step_median * n_nodes_measured / nodes) over every ledger row
+    for `case` on `hardware_id`, scanning ledger_dir/ledger_<case>_*.csv -- ideal linear
+    core-count scaling (72*n_measured/(72*nodes), the 72 cancels). `fallback` (source
+    'fallback_10s') when no matching row exists at all. Returns (s_est, source, n_rows_used).
+
+    ledger_dir is expanded here (not just by CLI-level callers) so an unexpanded default like
+    "$HOME/wtune-runs/campaign" resolves correctly regardless of what the caller passes."""
+    ledger_dir = _expand(ledger_dir)
+    scaled = []
+    for path in sorted(glob.glob(os.path.join(ledger_dir, "ledger_%s_*.csv" % case))):
+        try:
+            rows = _read_ledger_rows(path)
+        except OSError:
+            continue
+        for r in rows:
+            if r.get("case_base") != case or r.get("hardware_id") != hardware_id:
+                continue
+            s = _to_float(r.get("s_per_step_median"))
+            n = _to_float(r.get("n_nodes"))
+            if s is None or s <= 0 or n is None or n <= 0:
+                continue
+            scaled.append(s * n / nodes)
+    if scaled:
+        return statistics.median(scaled), "ledger", len(scaled)
+    return fallback, "fallback_10s", 0
+
+
+# ---------------------------------------------------------------------------
+# sacct / sbatch, both behind injectable runner functions (tests substitute fakes)
+# ---------------------------------------------------------------------------
+def default_sacct_runner(cmd):
+    """sacct's stdout; "" when sacct failed (rc != 0), so no job gets a state from a broken call
+    and callers see every job as unreported (UNKNOWN) rather than finished."""
+    out = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    return out.stdout if out.returncode == 0 else ""
+
+
+def sacct_states(job_ids, sacct_runner=default_sacct_runner, sacct_cmd="sacct"):
+    """{job_id: (state, elapsed)} via ONE batched sacct call (-X: no job-step rows, -n: no
+    header, -P: pipe-delimited)."""
+    job_ids = [str(j) for j in job_ids if j]
+    if not job_ids:
+        return {}
+    cmd = [sacct_cmd, "-j", ",".join(job_ids), "-X", "-n", "-P", "--format=JobID,State,Elapsed"]
+    out = sacct_runner(cmd)
+    states = {}
+    for line in out.splitlines():
+        parts = line.split("|")
+        if len(parts) < 3:
+            continue
+        jid = parts[0].strip().split(".")[0]
+        state = parts[1].strip()
+        states[jid] = ((state.split() or [state])[0], parts[2].strip())
+    return states
+
+
+def default_sbatch_runner(cmd_str):
+    out = subprocess.run(["bash", "-lc", cmd_str], capture_output=True, text=True, check=False)
+    if out.returncode != 0:
+        raise RuntimeError("sbatch failed (rc=%d): %s"
+                            % (out.returncode, (out.stderr or out.stdout).strip()))
+    return out.stdout
+
+
+def campaign_dir_for(sbatch_script):
+    """The campaign/ directory an sbatch script belongs to (its own dirname), or None when that
+    directory is not a campaign checkout (no configs.py next to it -- e.g. a script copied
+    elsewhere). strict_campaign.sbatch cannot find its own path once Slurm has spooled it, and
+    otherwise falls back to CAMPAIGN=$HOME/wtune/campaign -- which pairs the submitted script with
+    a possibly different tree's configs.py/sites/node_hygiene.sh. Exporting CAMPAIGN=<this> keeps
+    script and helpers from the SAME tree."""
+    d = os.path.dirname(os.path.abspath(_expand(sbatch_script)))
+    return d if os.path.isfile(os.path.join(d, "configs.py")) else None
+
+
+PREFLIGHT_EXCLUDE_ENV = "WTUNE_PREFLIGHT_EXCLUDE"   # set by the controller itself (wtune tune's
+                                                      # node health pre-flight): nodes that failed it
+
+
+def excluded_nodes():
+    """Ordered, de-duplicated node names every sbatch of this tool chain must avoid: head (always),
+    the user's opt-in WTUNE_SBATCH_EXCLUDE, and the controller's own WTUNE_PREFLIGHT_EXCLUDE (nodes
+    the health pre-flight found unusable). ONE helper -- exclude_arg() and
+    tools/coldstart_sample.render_run_sbatch both read it."""
+    out = ["head"]
+    for var in ("WTUNE_SBATCH_EXCLUDE", PREFLIGHT_EXCLUDE_ENV):
+        for n in os.environ.get(var, "").split(","):
+            n = n.strip()
+            if n and n not in out:
+                out.append(n)
+    return out
+
+
+def exclude_arg():
+    """'--exclude=head[,<WTUNE_SBATCH_EXCLUDE nodes>][,<pre-flight failures>]' -- the same opt-in
+    extra exclusion tools/coldstart_sample.render_run_sbatch honours (scc work5, 2026-09-27:
+    non-Slurm root load slowed wrf.exe 5x). head is always excluded."""
+    return "--exclude=" + ",".join(excluded_nodes())
+
+
+def build_sbatch_command(case, nodes, cores_per_node, time_limit, timeout_s, reps, steps,
+                          configs_path, out_dir, env_source=DEFAULT_ENV_SOURCE,
+                          sbatch_script=DEFAULT_SBATCH_SCRIPT, campaign_dir=None, extra_export=None):
+    """campaign_dir (optional): appended as CAMPAIGN=<dir> (see campaign_dir_for). extra_export
+    (optional): [(KEY, VALUE), ...] appended verbatim after it (CONFIG_FILE stays last) (decision 0055 ranking context:
+    CASES_JSON/RANKING_START/SPINUP_MINUTES/...); a VALUE containing ',' is refused -- sbatch
+    --export would split it. Both default to None, which reproduces the old command exactly."""
+    total_cores = nodes * cores_per_node
+    export = ("ALL,SITE=scc,WTUNE_TOTAL_CORES=%d,CASE=%s,MODE=timing,REPS=%d,STEPS=%d,"
+              "TIMEOUT_S=%d" % (total_cores, case, reps, steps, timeout_s))
+    if campaign_dir:
+        export += ",CAMPAIGN=%s" % campaign_dir
+    for key, value in (extra_export or []):
+        if "," in str(value):
+            raise ValueError("--export value %s=%r contains ',' which sbatch --export would split"
+                             % (key, value))
+        export += ",%s=%s" % (key, value)
+    export += ",CONFIG_FILE=%s" % configs_path      # kept LAST, exactly as before
+    sbatch = ("sbatch -p compute -N %d --ntasks-per-node=%d --exclusive %s "
+              "--time=%s --job-name=sw-%s-n%d --output=%s/sweep-%%j.out --export=%s %s"
+              % (nodes, cores_per_node, exclude_arg(), time_limit, case, nodes, out_dir, export,
+                 _expand(sbatch_script)))
+    return "source %s; %s" % (_expand(env_source), sbatch)
+
+
+def submit_job(cmd_str, sbatch_runner=default_sbatch_runner):
+    """Runs `cmd_str` (already includes the `source env.sh;` prefix) and parses the job id out
+    of sbatch's "Submitted batch job N" stdout line. --force re-running an in-flight job's
+    (case,N) slot is the one accepted imprecision in the --max-nodes-in-flight budget: the OLD
+    job's nodes stay counted in the run's initial in-flight baseline (taken once, from the
+    manifest, before the submit loop starts) even after the manifest row is overwritten --
+    conservative (under-states available budget) rather than over-subscribing the cluster."""
+    out = sbatch_runner(cmd_str)
+    m = _JOBID_RE.search(out)
+    if not m:
+        raise RuntimeError("could not parse job id from sbatch output: %r" % (out,))
+    return m.group(1)

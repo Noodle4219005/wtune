@@ -1,0 +1,7 @@
+rc=2
+--- log
+--- stdout
+
+--- stderr
+error: --nodes, --nx, --ny required: give them, or a --tune-report whose winner layout names them
+

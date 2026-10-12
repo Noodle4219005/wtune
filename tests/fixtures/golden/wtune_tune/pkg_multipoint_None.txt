@@ -1,0 +1,55 @@
+{
+ "text": "=== full-run prediction (MULTI-POINT, wtune.probe_plan.combine, 2 measured point(s)) ===\ncompute_total: 5:33:20   init: 90.0s   TOTAL: 5:34:50 (range 5:16:40 - 5:50:00, +-5.0% drift)\nr_rad: night=1.800 day=3.900 source=fake\ncost-indicator totals (compute+init): interpolated 5:34:50, stratified 5:41:40, regression - (R2 0.810), spread 4.2%; sources ['fake']\n  point 2026-01-01T07:00:00 reason=t0 source=rebuild s_normal=0.8000 n_rad=2 r=3.700\n  point 2026-01-01T07:00:00 reason=sunlit source=trajectory s_normal=0.9000 n_rad=1 r=-\nNOTE: fake init note",
+ "calls": [
+  [
+   "nl",
+   "/fake/matthew/namelist.input"
+  ],
+  [
+   "cal",
+   "scc.json"
+  ],
+  [
+   "sp",
+   "$HOME/wrf-cases/matthew"
+  ],
+  [
+   "combine",
+   2,
+   "2026-01-01 06:00:00",
+   "2026-01-01 12:00:00",
+   15.0,
+   40,
+   [
+    [
+     "calibration",
+     "{'drift_band_pct': 5.0, 'r_rad_default_day': 3.9}"
+    ],
+    [
+     "case_dir",
+     "'$HOME/wrf-cases/matthew'"
+    ],
+    [
+     "cost_series",
+     "None"
+    ],
+    [
+     "nl",
+     "{'nl': 1}"
+    ],
+    [
+     "nodes",
+     "2"
+    ],
+    [
+     "ranks",
+     "72"
+    ],
+    [
+     "sample_points",
+     "[(30.0, -90.0)]"
+    ]
+   ]
+  ]
+ ]
+}

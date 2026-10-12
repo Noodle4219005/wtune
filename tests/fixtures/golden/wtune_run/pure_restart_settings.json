@@ -1,0 +1,581 @@
+{
+ "L=None case=0 checkpoint=None align=False": {
+  "set_min": 1000000,
+  "cadence_s": null,
+  "label": "off (one segment)"
+ },
+ "L=None case=0 checkpoint=None align=True": {
+  "set_min": 1000000,
+  "cadence_s": null,
+  "label": "off (one segment)"
+ },
+ "L=None case=0 checkpoint=auto align=False": {
+  "set_min": 90,
+  "cadence_s": 5400.0,
+  "label": "checkpoints every 90 min (auto, for --resume)"
+ },
+ "L=None case=0 checkpoint=auto align=True": {
+  "set_min": 360,
+  "cadence_s": 21600.0,
+  "label": "checkpoints every 360 min (auto, for --resume)"
+ },
+ "L=None case=0 checkpoint=90 align=False": {
+  "set_min": 90,
+  "cadence_s": 5400.0,
+  "label": "checkpoints every 90 min (--checkpoint-minutes)"
+ },
+ "L=None case=0 checkpoint=90 align=True": {
+  "set_min": 90,
+  "cadence_s": 5400.0,
+  "label": "checkpoints every 90 min (--checkpoint-minutes)"
+ },
+ "L=None case=0 checkpoint=240 align=False": {
+  "set_min": 240,
+  "cadence_s": 14400.0,
+  "label": "checkpoints every 240 min (--checkpoint-minutes)"
+ },
+ "L=None case=0 checkpoint=240 align=True": {
+  "set_min": 240,
+  "cadence_s": 14400.0,
+  "label": "checkpoints every 240 min (--checkpoint-minutes)"
+ },
+ "L=None case=0 checkpoint=360 align=False": {
+  "set_min": 360,
+  "cadence_s": 21600.0,
+  "label": "checkpoints every 360 min (--checkpoint-minutes)"
+ },
+ "L=None case=0 checkpoint=360 align=True": {
+  "set_min": 360,
+  "cadence_s": 21600.0,
+  "label": "checkpoints every 360 min (--checkpoint-minutes)"
+ },
+ "L=None case=120 checkpoint=None align=False": {
+  "set_min": null,
+  "cadence_s": 7200.0,
+  "label": "every 02:00:00 (case's restart_interval kept; one segment)"
+ },
+ "L=None case=120 checkpoint=None align=True": {
+  "set_min": null,
+  "cadence_s": 7200.0,
+  "label": "every 02:00:00 (case's restart_interval kept; one segment)"
+ },
+ "L=None case=120 checkpoint=auto align=False": {
+  "set_min": null,
+  "cadence_s": 7200.0,
+  "label": "every 02:00:00 (case's restart_interval kept; one segment)"
+ },
+ "L=None case=120 checkpoint=auto align=True": {
+  "set_min": null,
+  "cadence_s": 7200.0,
+  "label": "every 02:00:00 (case's restart_interval kept; one segment)"
+ },
+ "L=None case=120 checkpoint=90 align=False": {
+  "set_min": 90,
+  "cadence_s": 5400.0,
+  "label": "checkpoints every 90 min (--checkpoint-minutes)"
+ },
+ "L=None case=120 checkpoint=90 align=True": {
+  "set_min": 90,
+  "cadence_s": 5400.0,
+  "label": "checkpoints every 90 min (--checkpoint-minutes)"
+ },
+ "L=None case=120 checkpoint=240 align=False": {
+  "set_min": 240,
+  "cadence_s": 14400.0,
+  "label": "checkpoints every 240 min (--checkpoint-minutes)"
+ },
+ "L=None case=120 checkpoint=240 align=True": {
+  "set_min": 240,
+  "cadence_s": 14400.0,
+  "label": "checkpoints every 240 min (--checkpoint-minutes)"
+ },
+ "L=None case=120 checkpoint=360 align=False": {
+  "set_min": 360,
+  "cadence_s": 21600.0,
+  "label": "checkpoints every 360 min (--checkpoint-minutes)"
+ },
+ "L=None case=120 checkpoint=360 align=True": {
+  "set_min": 360,
+  "cadence_s": 21600.0,
+  "label": "checkpoints every 360 min (--checkpoint-minutes)"
+ },
+ "L=None case=180 checkpoint=None align=False": {
+  "set_min": null,
+  "cadence_s": 10800.0,
+  "label": "every 03:00:00 (case's restart_interval kept; one segment)"
+ },
+ "L=None case=180 checkpoint=None align=True": {
+  "set_min": null,
+  "cadence_s": 10800.0,
+  "label": "every 03:00:00 (case's restart_interval kept; one segment)"
+ },
+ "L=None case=180 checkpoint=auto align=False": {
+  "set_min": null,
+  "cadence_s": 10800.0,
+  "label": "every 03:00:00 (case's restart_interval kept; one segment)"
+ },
+ "L=None case=180 checkpoint=auto align=True": {
+  "set_min": null,
+  "cadence_s": 10800.0,
+  "label": "every 03:00:00 (case's restart_interval kept; one segment)"
+ },
+ "L=None case=180 checkpoint=90 align=False": {
+  "set_min": 90,
+  "cadence_s": 5400.0,
+  "label": "checkpoints every 90 min (--checkpoint-minutes)"
+ },
+ "L=None case=180 checkpoint=90 align=True": {
+  "set_min": 90,
+  "cadence_s": 5400.0,
+  "label": "checkpoints every 90 min (--checkpoint-minutes)"
+ },
+ "L=None case=180 checkpoint=240 align=False": {
+  "set_min": 240,
+  "cadence_s": 14400.0,
+  "label": "checkpoints every 240 min (--checkpoint-minutes)"
+ },
+ "L=None case=180 checkpoint=240 align=True": {
+  "set_min": 240,
+  "cadence_s": 14400.0,
+  "label": "checkpoints every 240 min (--checkpoint-minutes)"
+ },
+ "L=None case=180 checkpoint=360 align=False": {
+  "set_min": 360,
+  "cadence_s": 21600.0,
+  "label": "checkpoints every 360 min (--checkpoint-minutes)"
+ },
+ "L=None case=180 checkpoint=360 align=True": {
+  "set_min": 360,
+  "cadence_s": 21600.0,
+  "label": "checkpoints every 360 min (--checkpoint-minutes)"
+ },
+ "L=None case=250 checkpoint=None align=False": {
+  "set_min": null,
+  "cadence_s": 15000.0,
+  "label": "every 04:10:00 (case's restart_interval kept; one segment)"
+ },
+ "L=None case=250 checkpoint=None align=True": {
+  "set_min": null,
+  "cadence_s": 15000.0,
+  "label": "every 04:10:00 (case's restart_interval kept; one segment)"
+ },
+ "L=None case=250 checkpoint=auto align=False": {
+  "set_min": null,
+  "cadence_s": 15000.0,
+  "label": "every 04:10:00 (case's restart_interval kept; one segment)"
+ },
+ "L=None case=250 checkpoint=auto align=True": {
+  "set_min": null,
+  "cadence_s": 15000.0,
+  "label": "every 04:10:00 (case's restart_interval kept; one segment)"
+ },
+ "L=None case=250 checkpoint=90 align=False": {
+  "set_min": 90,
+  "cadence_s": 5400.0,
+  "label": "checkpoints every 90 min (--checkpoint-minutes)"
+ },
+ "L=None case=250 checkpoint=90 align=True": {
+  "set_min": 90,
+  "cadence_s": 5400.0,
+  "label": "checkpoints every 90 min (--checkpoint-minutes)"
+ },
+ "L=None case=250 checkpoint=240 align=False": {
+  "set_min": 240,
+  "cadence_s": 14400.0,
+  "label": "checkpoints every 240 min (--checkpoint-minutes)"
+ },
+ "L=None case=250 checkpoint=240 align=True": {
+  "set_min": 240,
+  "cadence_s": 14400.0,
+  "label": "checkpoints every 240 min (--checkpoint-minutes)"
+ },
+ "L=None case=250 checkpoint=360 align=False": {
+  "set_min": 360,
+  "cadence_s": 21600.0,
+  "label": "checkpoints every 360 min (--checkpoint-minutes)"
+ },
+ "L=None case=250 checkpoint=360 align=True": {
+  "set_min": 360,
+  "cadence_s": 21600.0,
+  "label": "checkpoints every 360 min (--checkpoint-minutes)"
+ },
+ "L=None case=360 checkpoint=None align=False": {
+  "set_min": null,
+  "cadence_s": 21600.0,
+  "label": "every 06:00:00 (case's restart_interval kept; one segment)"
+ },
+ "L=None case=360 checkpoint=None align=True": {
+  "set_min": null,
+  "cadence_s": 21600.0,
+  "label": "every 06:00:00 (case's restart_interval kept; one segment)"
+ },
+ "L=None case=360 checkpoint=auto align=False": {
+  "set_min": null,
+  "cadence_s": 21600.0,
+  "label": "every 06:00:00 (case's restart_interval kept; one segment)"
+ },
+ "L=None case=360 checkpoint=auto align=True": {
+  "set_min": null,
+  "cadence_s": 21600.0,
+  "label": "every 06:00:00 (case's restart_interval kept; one segment)"
+ },
+ "L=None case=360 checkpoint=90 align=False": {
+  "set_min": 90,
+  "cadence_s": 5400.0,
+  "label": "checkpoints every 90 min (--checkpoint-minutes)"
+ },
+ "L=None case=360 checkpoint=90 align=True": {
+  "set_min": 90,
+  "cadence_s": 5400.0,
+  "label": "checkpoints every 90 min (--checkpoint-minutes)"
+ },
+ "L=None case=360 checkpoint=240 align=False": {
+  "set_min": 240,
+  "cadence_s": 14400.0,
+  "label": "checkpoints every 240 min (--checkpoint-minutes)"
+ },
+ "L=None case=360 checkpoint=240 align=True": {
+  "set_min": 240,
+  "cadence_s": 14400.0,
+  "label": "checkpoints every 240 min (--checkpoint-minutes)"
+ },
+ "L=None case=360 checkpoint=360 align=False": {
+  "set_min": 360,
+  "cadence_s": 21600.0,
+  "label": "checkpoints every 360 min (--checkpoint-minutes)"
+ },
+ "L=None case=360 checkpoint=360 align=True": {
+  "set_min": 360,
+  "cadence_s": 21600.0,
+  "label": "checkpoints every 360 min (--checkpoint-minutes)"
+ },
+ "L=None case=7200 checkpoint=None align=False": {
+  "set_min": 1000000,
+  "cadence_s": null,
+  "label": "off (one segment; case restart_interval 120:00:00 >= run length)"
+ },
+ "L=None case=7200 checkpoint=None align=True": {
+  "set_min": 1000000,
+  "cadence_s": null,
+  "label": "off (one segment; case restart_interval 120:00:00 >= run length)"
+ },
+ "L=None case=7200 checkpoint=auto align=False": {
+  "set_min": 90,
+  "cadence_s": 5400.0,
+  "label": "checkpoints every 90 min (auto, for --resume)"
+ },
+ "L=None case=7200 checkpoint=auto align=True": {
+  "set_min": 360,
+  "cadence_s": 21600.0,
+  "label": "checkpoints every 360 min (auto, for --resume)"
+ },
+ "L=None case=7200 checkpoint=90 align=False": {
+  "set_min": 90,
+  "cadence_s": 5400.0,
+  "label": "checkpoints every 90 min (--checkpoint-minutes)"
+ },
+ "L=None case=7200 checkpoint=90 align=True": {
+  "set_min": 90,
+  "cadence_s": 5400.0,
+  "label": "checkpoints every 90 min (--checkpoint-minutes)"
+ },
+ "L=None case=7200 checkpoint=240 align=False": {
+  "set_min": 240,
+  "cadence_s": 14400.0,
+  "label": "checkpoints every 240 min (--checkpoint-minutes)"
+ },
+ "L=None case=7200 checkpoint=240 align=True": {
+  "set_min": 240,
+  "cadence_s": 14400.0,
+  "label": "checkpoints every 240 min (--checkpoint-minutes)"
+ },
+ "L=None case=7200 checkpoint=360 align=False": {
+  "set_min": 360,
+  "cadence_s": 21600.0,
+  "label": "checkpoints every 360 min (--checkpoint-minutes)"
+ },
+ "L=None case=7200 checkpoint=360 align=True": {
+  "set_min": 360,
+  "cadence_s": 21600.0,
+  "label": "checkpoints every 360 min (--checkpoint-minutes)"
+ },
+ "L=360 case=0 checkpoint=None align=False": {
+  "set_min": 360,
+  "cadence_s": 21600.0,
+  "label": "360 min (every segment)"
+ },
+ "L=360 case=0 checkpoint=None align=True": {
+  "set_min": 360,
+  "cadence_s": 21600.0,
+  "label": "360 min (every segment)"
+ },
+ "L=360 case=0 checkpoint=auto align=False": {
+  "set_min": 90,
+  "cadence_s": 5400.0,
+  "label": "checkpoints every 90 min (auto, for --resume)"
+ },
+ "L=360 case=0 checkpoint=auto align=True": {
+  "set_min": 360,
+  "cadence_s": 21600.0,
+  "label": "360 min (every segment)"
+ },
+ "L=360 case=0 checkpoint=90 align=False": {
+  "set_min": 90,
+  "cadence_s": 5400.0,
+  "label": "checkpoints every 90 min (--checkpoint-minutes)"
+ },
+ "L=360 case=0 checkpoint=90 align=True": {
+  "set_min": 90,
+  "cadence_s": 5400.0,
+  "label": "checkpoints every 90 min (--checkpoint-minutes)"
+ },
+ "L=360 case=0 checkpoint=240 align=False": "RunError: --checkpoint-minutes 240 does not divide the 06:00:00 segment length: every segment must end on a restart",
+ "L=360 case=0 checkpoint=240 align=True": "RunError: --checkpoint-minutes 240 does not divide the 06:00:00 segment length: every segment must end on a restart",
+ "L=360 case=0 checkpoint=360 align=False": {
+  "set_min": 360,
+  "cadence_s": 21600.0,
+  "label": "checkpoints every 360 min (--checkpoint-minutes)"
+ },
+ "L=360 case=0 checkpoint=360 align=True": {
+  "set_min": 360,
+  "cadence_s": 21600.0,
+  "label": "checkpoints every 360 min (--checkpoint-minutes)"
+ },
+ "L=360 case=120 checkpoint=None align=False": {
+  "set_min": null,
+  "cadence_s": 7200.0,
+  "label": "every 02:00:00 (case's restart_interval kept; it divides the 06:00:00 segment quantum)"
+ },
+ "L=360 case=120 checkpoint=None align=True": {
+  "set_min": null,
+  "cadence_s": 7200.0,
+  "label": "every 02:00:00 (case's restart_interval kept; it divides the 06:00:00 segment quantum)"
+ },
+ "L=360 case=120 checkpoint=auto align=False": {
+  "set_min": null,
+  "cadence_s": 7200.0,
+  "label": "every 02:00:00 (case's restart_interval kept; it divides the 06:00:00 segment quantum)"
+ },
+ "L=360 case=120 checkpoint=auto align=True": {
+  "set_min": null,
+  "cadence_s": 7200.0,
+  "label": "every 02:00:00 (case's restart_interval kept; it divides the 06:00:00 segment quantum)"
+ },
+ "L=360 case=120 checkpoint=90 align=False": {
+  "set_min": 90,
+  "cadence_s": 5400.0,
+  "label": "checkpoints every 90 min (--checkpoint-minutes)"
+ },
+ "L=360 case=120 checkpoint=90 align=True": {
+  "set_min": 90,
+  "cadence_s": 5400.0,
+  "label": "checkpoints every 90 min (--checkpoint-minutes)"
+ },
+ "L=360 case=120 checkpoint=240 align=False": "RunError: --checkpoint-minutes 240 does not divide the 06:00:00 segment length: every segment must end on a restart",
+ "L=360 case=120 checkpoint=240 align=True": "RunError: --checkpoint-minutes 240 does not divide the 06:00:00 segment length: every segment must end on a restart",
+ "L=360 case=120 checkpoint=360 align=False": {
+  "set_min": 360,
+  "cadence_s": 21600.0,
+  "label": "checkpoints every 360 min (--checkpoint-minutes)"
+ },
+ "L=360 case=120 checkpoint=360 align=True": {
+  "set_min": 360,
+  "cadence_s": 21600.0,
+  "label": "checkpoints every 360 min (--checkpoint-minutes)"
+ },
+ "L=360 case=180 checkpoint=None align=False": {
+  "set_min": null,
+  "cadence_s": 10800.0,
+  "label": "every 03:00:00 (case's restart_interval kept; it divides the 06:00:00 segment quantum)"
+ },
+ "L=360 case=180 checkpoint=None align=True": {
+  "set_min": null,
+  "cadence_s": 10800.0,
+  "label": "every 03:00:00 (case's restart_interval kept; it divides the 06:00:00 segment quantum)"
+ },
+ "L=360 case=180 checkpoint=auto align=False": {
+  "set_min": null,
+  "cadence_s": 10800.0,
+  "label": "every 03:00:00 (case's restart_interval kept; it divides the 06:00:00 segment quantum)"
+ },
+ "L=360 case=180 checkpoint=auto align=True": {
+  "set_min": null,
+  "cadence_s": 10800.0,
+  "label": "every 03:00:00 (case's restart_interval kept; it divides the 06:00:00 segment quantum)"
+ },
+ "L=360 case=180 checkpoint=90 align=False": {
+  "set_min": 90,
+  "cadence_s": 5400.0,
+  "label": "checkpoints every 90 min (--checkpoint-minutes)"
+ },
+ "L=360 case=180 checkpoint=90 align=True": {
+  "set_min": 90,
+  "cadence_s": 5400.0,
+  "label": "checkpoints every 90 min (--checkpoint-minutes)"
+ },
+ "L=360 case=180 checkpoint=240 align=False": "RunError: --checkpoint-minutes 240 does not divide the 06:00:00 segment length: every segment must end on a restart",
+ "L=360 case=180 checkpoint=240 align=True": "RunError: --checkpoint-minutes 240 does not divide the 06:00:00 segment length: every segment must end on a restart",
+ "L=360 case=180 checkpoint=360 align=False": {
+  "set_min": 360,
+  "cadence_s": 21600.0,
+  "label": "checkpoints every 360 min (--checkpoint-minutes)"
+ },
+ "L=360 case=180 checkpoint=360 align=True": {
+  "set_min": 360,
+  "cadence_s": 21600.0,
+  "label": "checkpoints every 360 min (--checkpoint-minutes)"
+ },
+ "L=360 case=250 checkpoint=None align=False": {
+  "set_min": 360,
+  "cadence_s": 21600.0,
+  "label": "360 min (every segment; case restart_interval 04:10:00 does not divide it)"
+ },
+ "L=360 case=250 checkpoint=None align=True": {
+  "set_min": 360,
+  "cadence_s": 21600.0,
+  "label": "360 min (every segment; case restart_interval 04:10:00 does not divide it)"
+ },
+ "L=360 case=250 checkpoint=auto align=False": {
+  "set_min": 90,
+  "cadence_s": 5400.0,
+  "label": "checkpoints every 90 min (auto, for --resume)"
+ },
+ "L=360 case=250 checkpoint=auto align=True": {
+  "set_min": 360,
+  "cadence_s": 21600.0,
+  "label": "360 min (every segment; case restart_interval 04:10:00 does not divide it)"
+ },
+ "L=360 case=250 checkpoint=90 align=False": {
+  "set_min": 90,
+  "cadence_s": 5400.0,
+  "label": "checkpoints every 90 min (--checkpoint-minutes)"
+ },
+ "L=360 case=250 checkpoint=90 align=True": {
+  "set_min": 90,
+  "cadence_s": 5400.0,
+  "label": "checkpoints every 90 min (--checkpoint-minutes)"
+ },
+ "L=360 case=250 checkpoint=240 align=False": "RunError: --checkpoint-minutes 240 does not divide the 06:00:00 segment length: every segment must end on a restart",
+ "L=360 case=250 checkpoint=240 align=True": "RunError: --checkpoint-minutes 240 does not divide the 06:00:00 segment length: every segment must end on a restart",
+ "L=360 case=250 checkpoint=360 align=False": {
+  "set_min": 360,
+  "cadence_s": 21600.0,
+  "label": "checkpoints every 360 min (--checkpoint-minutes)"
+ },
+ "L=360 case=250 checkpoint=360 align=True": {
+  "set_min": 360,
+  "cadence_s": 21600.0,
+  "label": "checkpoints every 360 min (--checkpoint-minutes)"
+ },
+ "L=360 case=360 checkpoint=None align=False": {
+  "set_min": null,
+  "cadence_s": 21600.0,
+  "label": "every 06:00:00 (case's restart_interval kept; it divides the 06:00:00 segment quantum)"
+ },
+ "L=360 case=360 checkpoint=None align=True": {
+  "set_min": null,
+  "cadence_s": 21600.0,
+  "label": "every 06:00:00 (case's restart_interval kept; it divides the 06:00:00 segment quantum)"
+ },
+ "L=360 case=360 checkpoint=auto align=False": {
+  "set_min": 90,
+  "cadence_s": 5400.0,
+  "label": "checkpoints every 90 min (auto, for --resume)"
+ },
+ "L=360 case=360 checkpoint=auto align=True": {
+  "set_min": null,
+  "cadence_s": 21600.0,
+  "label": "every 06:00:00 (case's restart_interval kept; it divides the 06:00:00 segment quantum)"
+ },
+ "L=360 case=360 checkpoint=90 align=False": {
+  "set_min": 90,
+  "cadence_s": 5400.0,
+  "label": "checkpoints every 90 min (--checkpoint-minutes)"
+ },
+ "L=360 case=360 checkpoint=90 align=True": {
+  "set_min": 90,
+  "cadence_s": 5400.0,
+  "label": "checkpoints every 90 min (--checkpoint-minutes)"
+ },
+ "L=360 case=360 checkpoint=240 align=False": "RunError: --checkpoint-minutes 240 does not divide the 06:00:00 segment length: every segment must end on a restart",
+ "L=360 case=360 checkpoint=240 align=True": "RunError: --checkpoint-minutes 240 does not divide the 06:00:00 segment length: every segment must end on a restart",
+ "L=360 case=360 checkpoint=360 align=False": {
+  "set_min": 360,
+  "cadence_s": 21600.0,
+  "label": "checkpoints every 360 min (--checkpoint-minutes)"
+ },
+ "L=360 case=360 checkpoint=360 align=True": {
+  "set_min": 360,
+  "cadence_s": 21600.0,
+  "label": "checkpoints every 360 min (--checkpoint-minutes)"
+ },
+ "L=360 case=7200 checkpoint=None align=False": {
+  "set_min": 360,
+  "cadence_s": 21600.0,
+  "label": "360 min (every segment; case restart_interval 120:00:00 does not divide it)"
+ },
+ "L=360 case=7200 checkpoint=None align=True": {
+  "set_min": 360,
+  "cadence_s": 21600.0,
+  "label": "360 min (every segment; case restart_interval 120:00:00 does not divide it)"
+ },
+ "L=360 case=7200 checkpoint=auto align=False": {
+  "set_min": 90,
+  "cadence_s": 5400.0,
+  "label": "checkpoints every 90 min (auto, for --resume)"
+ },
+ "L=360 case=7200 checkpoint=auto align=True": {
+  "set_min": 360,
+  "cadence_s": 21600.0,
+  "label": "360 min (every segment; case restart_interval 120:00:00 does not divide it)"
+ },
+ "L=360 case=7200 checkpoint=90 align=False": {
+  "set_min": 90,
+  "cadence_s": 5400.0,
+  "label": "checkpoints every 90 min (--checkpoint-minutes)"
+ },
+ "L=360 case=7200 checkpoint=90 align=True": {
+  "set_min": 90,
+  "cadence_s": 5400.0,
+  "label": "checkpoints every 90 min (--checkpoint-minutes)"
+ },
+ "L=360 case=7200 checkpoint=240 align=False": "RunError: --checkpoint-minutes 240 does not divide the 06:00:00 segment length: every segment must end on a restart",
+ "L=360 case=7200 checkpoint=240 align=True": "RunError: --checkpoint-minutes 240 does not divide the 06:00:00 segment length: every segment must end on a restart",
+ "L=360 case=7200 checkpoint=360 align=False": {
+  "set_min": 360,
+  "cadence_s": 21600.0,
+  "label": "checkpoints every 360 min (--checkpoint-minutes)"
+ },
+ "L=360 case=7200 checkpoint=360 align=True": {
+  "set_min": 360,
+  "cadence_s": 21600.0,
+  "label": "checkpoints every 360 min (--checkpoint-minutes)"
+ },
+ "72h auto": {
+  "set_min": 720,
+  "cadence_s": 43200.0,
+  "label": "checkpoints every 720 min (auto, for --resume)"
+ },
+ "checkpoint_request": [
+  "auto",
+  null,
+  null,
+  90,
+  "RunError: --checkpoint-minutes takes 'auto' or whole minutes >= 0, not 'soon'",
+  "RunError: --checkpoint-minutes takes 'auto' or whole minutes >= 0, not '-5'"
+ ],
+ "checkpoint_steps_for_minutes": [
+  720,
+  45,
+  "RunError: --checkpoint-minutes 300 is not a multiple of the 360 min input record step (interval_seconds 06:00:00)"
+ ],
+ "auto_checkpoint_steps": [
+  720,
+  540,
+  360,
+  null,
+  720,
+  null,
+  null
+ ]
+}

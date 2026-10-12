@@ -1,0 +1,90 @@
+==============================================================================
+WTune PHYSICS-GRAY template shortlist -- case=synthtest hardware=hw-train-synthetic max_dom=1
+This tool only narrows the search to a shortlist. A human decides and applies the final physics template -- nothing here is auto-applied.
+==============================================================================
+
+-- Evidence warnings --
+  * probe: --probe-screen <TMP>/screen_synthtest.txt; dx=3000; 2 knob verdict(s) parsed
+  * this case is not one of the six PHYSICS-GRAY campaign cases physics_templates.json already knows about -- any template needing per-case pairing (P04/P05/P06) used the generic rule (physics.generic_extra_edits) instead of a hand-written entry
+  * allowed fidelity labels: WITHIN-FLOOR, SMALL-DRIFT
+  * fidelity labels describe the MODEL's OWN drift vs a same-physics twin at a different STRICT decomposition (the chaos floor), not observed forecast skill against any observation/reanalysis -- see decision 0051
+  * no PHYSICS-GRAY campaign data (--physics-ledger not given): every candidate below is UNCONFIRMED
+  * time-to-solution interval unavailable: case_base has 0 distinct group(s), need >=2
+  * cost-share filter: this case has no profile row in the ledger (profile_{radiation,micro,dynamics,mpi,io}_share all absent) -- no candidate was annotated or demoted. Profile one run of this case to enable it.
+  * floor_zero hint: if DECOMP=C13 and TWIN_DECOMP=C06 happen to produce BIT-IDENTICAL output (rms diff 0 on every compared field), the twin's chaos floor is floor_zero -- a real degenerate case fidelity_gate.py handles explicitly, but a candidate's drift cannot be judged against a zero floor. If fidelity_gate.py reports floor_zero for this pair, rerun the twin at a different TWIN_DECOMP (known example: isc21's C02/C06 pair was bit-identical; C13 was used instead).
+
+-- Shortlist (18 template(s)) --
+  time-to-solution vs P00: NEGATIVE = FASTER (cost per simulated second); [lo%,hi%] is a 95% leave-one-case-out jackknife+ interval when available, else n/a with the reason in the warnings above (printed once, not per row).
+  infeasible: <failed>/<tried> training cases (every replicate FAILED); OOF-miss: leave-one-case-out out-of-fold dangerous-miss <n>/<total> (predicted allowed, measured LARGE-DRIFT), or insuff(n=<n>) below the 5-prediction floor.
+  bucket: the profile bucket the template's family acts on and this case's measured share of step cost; upper-bound saving = that share (a template cannot save more than its bucket). '-' = no bucket bounds this family, or the case has no profile row. A DEMOTED row is ranked last, never hidden.
+  train LARGE: MEASURED (not predicted) LARGE-DRIFT <k>/<labeled training cases> -- a model-free track record that forces UNCONFIRMED on its own once the rate reaches --max-template-large-rate, regardless of the fidelity regression's own predicted label.
+rank template  changes (key old->new)                     time-to-sol vs P00   fidelity             infeasible OOF-miss  train LARGE probe     bucket        status        reasons
+1    A01       time_step 15->12                           n/a                  n/a                  n/a       insuff(n=0) n/a         none      -             UNCONFIRMED   no PHYSICS-GRAY campaign data; no PHYSICS-GRAY campaign data; no PHYSICS-GRAY campaign data; no same-hardware training data; insufficient out-of-fold fidelity evidence for this template (n=0, need >=5); no predicted speed benefit (no performance prediction)
+2    A02       time_step_sound None->6                    n/a                  n/a                  n/a       insuff(n=0) n/a         none      -             UNCONFIRMED   no PHYSICS-GRAY campaign data; no PHYSICS-GRAY campaign data; no PHYSICS-GRAY campaign data; no same-hardware training data; insufficient out-of-fold fidelity evidence for this template (n=0, need >=5); no predicted speed benefit (no performance prediction)
+3    A03       moist_adv_opt None->2, scalar_adv_opt None n/a                  n/a                  n/a       insuff(n=0) n/a         none      -             UNCONFIRMED   no PHYSICS-GRAY campaign data; no PHYSICS-GRAY campaign data; no PHYSICS-GRAY campaign data; no same-hardware training data; insufficient out-of-fold fidelity evidence for this template (n=0, need >=5); no predicted speed benefit (no performance prediction)
+4    A04       h_mom_adv_order None->6, h_sca_adv_order N n/a                  n/a                  n/a       insuff(n=0) n/a         none      -             UNCONFIRMED   no PHYSICS-GRAY campaign data; no PHYSICS-GRAY campaign data; no PHYSICS-GRAY campaign data; no same-hardware training data; insufficient out-of-fold fidelity evidence for this template (n=0, need >=5); no predicted speed benefit (no performance prediction)
+5    A05       radt 15->7.5                               n/a                  n/a                  n/a       insuff(n=0) n/a         none      -             UNCONFIRMED   no PHYSICS-GRAY campaign data; no PHYSICS-GRAY campaign data; no PHYSICS-GRAY campaign data; no same-hardware training data; insufficient out-of-fold fidelity evidence for this template (n=0, need >=5); no predicted speed benefit (no performance prediction)
+6    D01       time_step_sound None->3                    n/a                  n/a                  n/a       insuff(n=0) n/a         none      -             UNCONFIRMED   no PHYSICS-GRAY campaign data; no PHYSICS-GRAY campaign data; no PHYSICS-GRAY campaign data; no same-hardware training data; insufficient out-of-fold fidelity evidence for this template (n=0, need >=5); no predicted speed benefit (no performance prediction)
+7    D02       rk_ord None->2                             n/a                  n/a                  n/a       insuff(n=0) n/a         none      -             UNCONFIRMED   no PHYSICS-GRAY campaign data; no PHYSICS-GRAY campaign data; no PHYSICS-GRAY campaign data; no same-hardware training data; insufficient out-of-fold fidelity evidence for this template (n=0, need >=5); no predicted speed benefit (no performance prediction)
+8    D03       moist_adv_opt None->0, scalar_adv_opt None n/a                  n/a                  n/a       insuff(n=0) n/a         none      -             UNCONFIRMED   no PHYSICS-GRAY campaign data; no PHYSICS-GRAY campaign data; no PHYSICS-GRAY campaign data; no same-hardware training data; insufficient out-of-fold fidelity evidence for this template (n=0, need >=5); no predicted speed benefit (no performance prediction)
+9    D04       -                                          n/a                  n/a                  n/a       insuff(n=0) n/a         none      -             UNCONFIRMED   not applicable to this case: not in applies_to ['bigchill', 'elevconv']
+10   D05       bldt None->10                              n/a                  n/a                  n/a       insuff(n=0) n/a         none      -             UNCONFIRMED   no PHYSICS-GRAY campaign data; no PHYSICS-GRAY campaign data; no PHYSICS-GRAY campaign data; no same-hardware training data; insufficient out-of-fold fidelity evidence for this template (n=0, need >=5); no predicted speed benefit (no performance prediction)
+11   D06       -                                          n/a                  n/a                  n/a       insuff(n=0) n/a         none      -             UNCONFIRMED   not applicable to this case: not in applies_to ['zhengzhou', 'severe2023', 'bigchill', 'elevconv', 'maria1km', 'isc21']
+12   D07       -                                          n/a                  n/a                  n/a       insuff(n=0) n/a         none      -             UNCONFIRMED   not applicable to this case: not in applies_to ['sc26p1']
+13   P01       swint_opt None->1                          n/a                  n/a                  n/a       insuff(n=0) n/a         CONFIRM   -             UNCONFIRMED   no PHYSICS-GRAY campaign data; no PHYSICS-GRAY campaign data; no PHYSICS-GRAY campaign data; no same-hardware training data; insufficient out-of-fold fidelity evidence for this template (n=0, need >=5); no predicted speed benefit (no performance prediction)
+14   P02       radt 15->30, swint_opt None->1             n/a                  n/a                  n/a       insuff(n=0) n/a         CONFIRM   -             UNCONFIRMED   no PHYSICS-GRAY campaign data; no PHYSICS-GRAY campaign data; no PHYSICS-GRAY campaign data; no same-hardware training data; insufficient out-of-fold fidelity evidence for this template (n=0, need >=5); no predicted speed benefit (no performance prediction)
+15   P03       time_step 15->18                           n/a                  n/a                  n/a       insuff(n=0) n/a         none      -             UNCONFIRMED   no PHYSICS-GRAY campaign data; no PHYSICS-GRAY campaign data; no PHYSICS-GRAY campaign data; no same-hardware training data; insufficient out-of-fold fidelity evidence for this template (n=0, need >=5); no predicted speed benefit (no performance prediction)
+16   P04       mp_physics 8->6                            n/a                  n/a                  n/a       insuff(n=0) n/a         REJECT    -             UNCONFIRMED   probe REJECT on an edited knob; no PHYSICS-GRAY campaign data; no PHYSICS-GRAY campaign data; no PHYSICS-GRAY campaign data; no same-hardware training data; insufficient out-of-fold fidelity evidence for this template (n=0, need >=5); no predicted speed benefit (no performance prediction)
+17   P05       bl_pbl_physics 1->5, sf_sfclay_physics 1-> n/a                  n/a                  n/a       insuff(n=0) n/a         none      -             UNCONFIRMED   this template has no physics_templates.json per-case entry for this case -- the generic per-case pairing rule (physics.generic_extra_edits) supplied its extra edit(s)/skip decision instead; no PHYSICS-GRAY campaign data; no PHYSICS-GRAY campaign data; no PHYSICS-GRAY campaign data; no same-hardware training data; insufficient out-of-fold fidelity evidence for this template (n=0, need >=5); no predicted speed benefit (no performance prediction)
+18   P06       ra_lw_physics 4->1, ra_sw_physics 4->1     n/a                  n/a                  n/a       insuff(n=0) n/a         none      -             UNCONFIRMED   no PHYSICS-GRAY campaign data; no PHYSICS-GRAY campaign data; no PHYSICS-GRAY campaign data; no same-hardware training data; insufficient out-of-fold fidelity evidence for this template (n=0, need >=5); no predicted speed benefit (no performance prediction)
+
+==============================================================================
+ACCURACY-FIRST view (--objective accuracy) -- same candidates, ranked by fidelity error
+==============================================================================
+  fidelity error = nd, the normalized difference from the campaign REFERENCE at the last common time.
+  floor_ratio = that drift divided by the chaos floor (the SAME physics re-run at TWIN_DECOMP).
+  HARD RULE: floor_ratio <= 1.00 means the candidate moved the solution no more than merely re-decomposing the run does. Such a candidate is reported as indistinguishable from changing the decomposition and is NEVER presented as an accuracy improvement -- chasing error below the chaos floor is meaningless. Measured example from this campaign: pure RK2 (D02) on conus12 at 12 h had floor_ratio 1.593, i.e. dropping an entire RK stage was already within 2x of just re-decomposing.
+  Predicted speed is still reported for every candidate: accuracy mode changes the RANKING, not the evidence.
+
+-- Cost levers, ranked by LEAST departure from the reference (13) --
+  These are the P/D-series templates: they buy speed and pay in drift, so a SMALLER error is strictly better and rank 1 is the most conservative choice.
+rank template  direction fidelity error (nd)    floor_ratio            time-to-sol vs P00   pareto status
+1    D01       cost      n/a                    n/a                    n/a                  no     UNCONFIRMED
+2    D02       cost      n/a                    n/a                    n/a                  no     UNCONFIRMED
+3    D03       cost      n/a                    n/a                    n/a                  no     UNCONFIRMED
+4    D04       cost      n/a                    n/a                    n/a                  no     UNCONFIRMED
+5    D05       cost      n/a                    n/a                    n/a                  no     UNCONFIRMED
+6    D06       cost      n/a                    n/a                    n/a                  no     UNCONFIRMED
+7    D07       cost      n/a                    n/a                    n/a                  no     UNCONFIRMED
+8    P01       cost      n/a                    n/a                    n/a                  no     UNCONFIRMED
+9    P02       cost      n/a                    n/a                    n/a                  no     UNCONFIRMED
+10   P03       cost      n/a                    n/a                    n/a                  no     UNCONFIRMED
+11   P04       cost      n/a                    n/a                    n/a                  no     UNCONFIRMED
+12   P05       cost      n/a                    n/a                    n/a                  no     UNCONFIRMED
+13   P06       cost      n/a                    n/a                    n/a                  no     UNCONFIRMED
+
+-- Accuracy levers (A-series), ranked by LARGEST measurable correction (5) --
+  Ranked the OTHER WAY ROUND on purpose. For an A-series template the same nd is not an error, it is the correction the extra work applies to the reference; a small one means the reference was already converged in that knob and the template is pure added cost. Ranking these ascending alongside the cost levers would reward exactly the ones that do nothing.
+rank template  direction correction (nd)        floor_ratio            time-to-sol vs P00   pareto status
+1    A01       accuracy  n/a                    n/a                    n/a                  no     UNCONFIRMED
+2    A02       accuracy  n/a                    n/a                    n/a                  no     UNCONFIRMED
+3    A03       accuracy  n/a                    n/a                    n/a                  no     UNCONFIRMED
+4    A04       accuracy  n/a                    n/a                    n/a                  no     UNCONFIRMED
+5    A05       accuracy  n/a                    n/a                    n/a                  no     UNCONFIRMED
+
+-- Below the chaos floor: NOT accuracy improvements (0) --
+  (none)
+
+-- Pareto front over (predicted cost, fidelity error) (0) --
+  Every operating point that is not beaten on BOTH axes at once. perf-first is the cheapest end of this front and acc-first the lowest-error end; anything between them is a legitimate trade the user can pick. A candidate off the front is strictly worse than something on it.
+  (empty -- every candidate is missing a coordinate or sits below the chaos floor; see the exclusions below)
+  not placed on the front: A01 (no predicted time-to-solution); A02 (no predicted time-to-solution); A03 (no predicted time-to-solution); A04 (no predicted time-to-solution); A05 (no predicted time-to-solution); D01 (no predicted time-to-solution); D02 (no predicted time-to-solution); D03 (no predicted time-to-solution); D04 (no predicted time-to-solution); D05 (no predicted time-to-solution); D06 (no predicted time-to-solution); D07 (no predicted time-to-solution); P01 (no predicted time-to-solution); P02 (no predicted time-to-solution); P03 (no predicted time-to-solution); P04 (no predicted time-to-solution); P05 (no predicted time-to-solution); P06 (no predicted time-to-solution)
+
+-- Decomposition: a free axis in accuracy mode --
+  DECOMP=C13 (this run's own STRICT top-1 shortlist entry) is unchanged from perf mode: STRICT decomposition knobs (nproc_x/nproc_y/numtiles/OMP/distribution) redistribute the same arithmetic and never change the physics, so they are a FREE AXIS in accuracy mode -- the fastest legal decomposition is also the most accurate one. They do set the chaos floor every fidelity number below is judged against, which is the opposite of being a fidelity lever: a decomposition change is the NOISE, not the signal.
+
+-- What to run to verify (accuracy campaign) --
+  STAGE 1 -- run the A-series at DECOMP alongside the usual P00 reference and TWIN_DECOMP twin, and gate each A-template against P00. An A-template whose floor_ratio <= 1.00 means P00 was ALREADY converged in that knob: the extra work bought nothing measurable and that template is pure added cost, never an accuracy improvement. STAGE 2 -- for whichever A-template survives with the LARGEST drift (the biggest real correction), re-run fidelity_gate.py using its own wrfout as --reference. Only then is every other candidate's nd an error against a better-converged solution rather than a distance from P00, which is what the accuracy ranking above actually wants to measure. Until stage 2 exists, treat the cost-lever ranking as 'least departure from the current operating point', not as 'most accurate'. The user makes the final decision -- this tool only narrows the search.
+  STAGE 1: sbatch --export=ALL,CASE=synthtest,MODE=physics,PCONFIGS=A01+A02+A03+A04+A05,DECOMP=C13,TWIN_DECOMP=C06 campaign/strict_campaign.sbatch
+  STAGE 2: python3 fidelity_gate.py --reference <A-TEMPLATE wrfout_d01_*> --twin <TWIN wrfout_d01_*> --candidate <P00 REFERENCE wrfout_d01_*> --family all --out-prefix <out_dir>/fidelity_synthtest_P00_vs_converged
+  STAGE 2: then re-run each cost lever's gate the same way, swapping --reference for the A-template's wrfout: A01; A02; A03

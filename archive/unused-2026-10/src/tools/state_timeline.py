@@ -1,0 +1,1161 @@
+#!/usr/bin/env python3
+"""tools/state_timeline.py -- training-data extraction for a per-step WRF cost model driven by
+the atmosphere's physical state (this task's own framing: "predict WRF's per-step cost from the
+atmosphere's physical state").
+
+Companion to tools/temporal_validation.py's new TIMELINE mode (submit-timeline / TV_MODE=timeline
+in tools/temporal_run.sbatch): that mode runs a COMPLETE case (netCDF, cold start, full length or
+--hours) at up to 3 decompositions (anchor + <=2 alternatives) and additionally writes a small
+2-D auxiliary history stream every K simulated minutes. This module turns one such run directory
+into training rows:
+
+  `extract --run-dir D --case C [--config JSON]`: reads the run's auxhist netCDF frames (STATE)
+     and its rsl.out.0000 per-step timing series (TARGET), aggregates both to the same K-minute
+     interval grid, and writes <out>/<case>__<config>__timeline.csv + a JSON header.
+
+  `plan-training`: lists campaign/cases.json (+ SITE overlay) cases with their run length and a
+     rough full-run time estimate on N nodes (from existing scc-sweep ledgers when one exists,
+     else "unknown"), cheapest first, plus ready-to-paste `temporal_validation.py submit-timeline`
+     commands.
+
+netCDF4 is imported LAZILY, only inside the actual frame-reading path (`_lazy_netcdf4`,
+`read_2d_field`) -- never at module import time and never by any function under test. Every
+feature-math and namelist/rsl-parsing function below is pure (plain python lists/dicts/floats, no
+numpy, no netCDF4), specifically so tools/test_state_timeline.py can exercise the whole feature
+pipeline on a dev machine with neither installed (this repo's own convention: see
+tools/temporal_validation.py's module docstring on pixi-vs-bare-python3, and CAMPAIGN's own
+synthetic-fixture test style)."""
+from __future__ import annotations
+
+import argparse
+import bisect
+import csv
+import datetime
+import glob
+import json
+import math
+import os
+import re
+import statistics
+import sys
+
+_HERE = os.path.dirname(os.path.abspath(__file__))
+_REPO_ROOT = os.path.dirname(_HERE)  # == src/ (tools/ moved one level deeper under src/)
+_TRUE_ROOT = os.path.dirname(_REPO_ROOT)  # actual repo root; campaign/ did not move
+_CAMPAIGN_DIR = os.path.join(_TRUE_ROOT, "campaign")
+_PREDICTOR_DIR = os.path.join(_REPO_ROOT, "predictor")
+for _p in (_CAMPAIGN_DIR, _PREDICTOR_DIR, _REPO_ROOT, _HERE):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+
+# Same module-level SITE default as tools/temporal_validation.py -- must precede the first
+# `import configs` anywhere in the process (campaign/configs.py reads SITE at import time).
+os.environ.setdefault("SITE", "scc")
+
+import configs as campaign_configs          # campaign/configs.py: CASES/CASE_ORDER, namelist helpers
+import decomp_space                         # predictor/decomp_space.py: rsl_patch_width_for_rank
+import scc_sweep                            # tools/scc_sweep.py: s/step ledger estimate, _expand
+import temporal_validation as tv            # this task's sibling module: case metadata helpers
+
+DEFAULT_INTERVAL_MINUTES = 30
+MIN_INTERVAL_DT_MULTIPLE = 20              # task: K >= 20*dt
+
+# The task's own field list (2-D diagnostics added to the auxiliary stream) plus the
+# time-invariant static fields (written every frame like everything else on that stream --
+# WRF's iofields mechanism has no "first frame only" toggle -- but only ever READ from frame 0
+# by extract(), since they never change during one run).
+DEFAULT_TIMELINE_FIELDS = ("RAINNC", "RAINC", "SWDOWN", "OLR", "PBLH", "U10", "V10", "HFX", "LH",
+                            "COSZEN")
+DEFAULT_STATIC_FIELDS = ("XLAT", "XLONG", "LANDMASK")
+
+PRECIP_THRESHOLD_MM_H = 1.0
+CLOUD_OLR_THRESHOLD_WM2 = 200.0
+SUNLIT_SWDOWN_THRESHOLD_WM2 = 1.0
+
+AUX_STREAM_PREFERRED = 23
+AUX_STREAM_MIN = 1
+AUX_STREAM_MAX = 24
+
+
+# ===========================================================================
+# 1. rsl timing parsing, multi-domain, radiation/normal step separation
+# ===========================================================================
+_TIMING_RE = re.compile(r"Timing for main: time (\S+) on domain\s*(\d+):\s*([0-9.]+) elapsed")
+
+
+def parse_step_series(rsl_text, max_dom):
+    """{domain: [wall_seconds, ...]} for domain in 1..max_dom, in file order, from WRF's own
+    'Timing for main: time <sim_time> on domain <N>: <X> elapsed seconds' rsl.out.0000 lines
+    (same line family tools/temporal_validation.py's parse_domain1_step_series and
+    campaign/phase_ranking.py's PATTERN already consume) -- extended here to keep EVERY active
+    domain's own series, not just domain 1: a nested domain's line is its own sub-stepped
+    integration, not double-counted inside domain 1's line (confirmed against isc21 job 1074515,
+    same citation temporal_validation.py's own docstring uses), so per-domain cost is only
+    visible by keeping domain>1 lines too. A domain number outside 1..max_dom is ignored (stray
+    line, or a nest this run never activated)."""
+    by_domain = {d: [] for d in range(1, max_dom + 1)}
+    for line in rsl_text.splitlines():
+        if "Timing for main" not in line:
+            continue
+        m = _TIMING_RE.search(line)
+        if not m:
+            continue
+        dom = int(m.group(2))
+        if dom < 1 or dom > max_dom:
+            continue
+        by_domain[dom].append(float(m.group(3)))
+    return by_domain
+
+
+def steps_per_radiation_call(radt_minutes, dt_seconds):
+    """STEPRA = round(radt_minutes*60/dt_seconds), WRF's own radiation-call cadence (radiation is
+    invoked when itimestep==1 .or. mod(itimestep, STEPRA)==0 -- phys/module_radiation_driver.F via
+    share/module_first_rk_step_part1.F; the same radt/STEPRA relationship campaign/cases.json's
+    sc26p1 note already uses: "radt=9 at dt=10 => STEPRA=54" is round(9*60/10)==54). Floored at 1
+    (a radt so small relative to dt that it would fire every step)."""
+    if dt_seconds <= 0:
+        raise ValueError("dt_seconds must be > 0")
+    if radt_minutes <= 0:
+        raise ValueError("radt_minutes must be > 0")
+    # Fortran NINT rounds halves away from zero; Python round() rounds halves to even. conus12
+    # (radt 15 min, dt 72 s -> 12.5) radiates every 13 steps on scc, round() said 12 and the
+    # phase detection then filed every radiation step as normal (r_rad came out 1.00).
+    return max(1, int(math.floor(radt_minutes * 60.0 / dt_seconds + 0.5)))
+
+
+def classify_steps(n_steps, stepra):
+    """1-indexed itimestep -> is_radiation bool, for itimestep in 1..n_steps: True at
+    itimestep==1 (the initial radiation call every WRF run makes before its first dynamics step)
+    or wherever itimestep % stepra == 0 -- see steps_per_radiation_call. Unlike
+    temporal_validation.median_s_per_step's convention (step 1 always excluded from the median),
+    this module classifies step 1 as a real radiation-cost sample rather than discarding it: a
+    K-minute training bucket that happens to start at t=0 would otherwise silently lose its one
+    and only radiation-step observation."""
+    if n_steps <= 0:
+        return []
+    return [(i == 1) or (i % stepra == 0) for i in range(1, n_steps + 1)]
+
+
+def detect_radiation_phase(step_wall_times, stepra):
+    """Offset p in [0, stepra) such that rsl line i is a radiation step when i % stepra == p,
+    chosen as the phase whose steps have the highest MEDIAN wall time (medians ignore the rare
+    I/O-write spikes). The documented WRF rule (mod(itimestep, STEPRA)==0) did not match the rsl
+    line numbering on scc: matthew (dt 150 s, radt 15 min, STEPRA 6) spikes on lines 103, 109, ...,
+    i.e. phase 1, so a fixed phase 0 filed every radiation step as a normal step. Falls back to 0
+    when there are fewer than 2*stepra steps or the phases are indistinguishable."""
+    n = len(step_wall_times)
+    if stepra <= 1 or n < 2 * stepra:
+        return 0
+    best, best_med = 0, None
+    for p in range(stepra):
+        vals = [w for i, w in enumerate(step_wall_times, start=1) if i > 1 and i % stepra == p]
+        if not vals:
+            continue
+        med = statistics.median(vals)
+        if best_med is None or med > best_med:
+            best, best_med = p, med
+    return best
+
+
+def classify_steps_detected(step_wall_times, stepra):
+    """classify_steps with the radiation phase detected from the data (see detect_radiation_phase)."""
+    p = detect_radiation_phase(step_wall_times, stepra)
+    return [(i == 1) or (stepra > 0 and i % stepra == p) for i in range(1, len(step_wall_times) + 1)]
+
+
+def _finalize_step_buckets(buckets):
+    out = {}
+    for b, d in buckets.items():
+        out[b] = dict(
+            s_step_normal_median=(statistics.median(d["normal"]) if d["normal"] else None),
+            s_step_rad_median=(statistics.median(d["rad"]) if d["rad"] else None),
+            n_steps=len(d["normal"]) + len(d["rad"]),
+        )
+    return out
+
+
+def step_target_features(step_wall_times, dt_seconds, radt_minutes, interval_minutes):
+    """{bucket_index: {s_step_normal_median, s_step_rad_median, n_steps}} -- one domain's TARGET
+    columns per K=interval_minutes-minute simulated-time bucket. bucket_index = floor(sim_seconds
+    at the START of the step / (interval_minutes*60)), sim_seconds for 1-indexed step i is
+    (i-1)*dt_seconds -- same "bucket by simulated time at step start" convention
+    temporal_validation.drift_curve already uses for its 1-hour buckets, just parameterised by K
+    instead of a fixed hour. median() over an empty list is None, never 0 or NaN, so a bucket that
+    happened to contain zero radiation (or zero normal) steps is visibly "no data" downstream, not
+    a fabricated zero cost.
+
+    ASSUMES a fixed, exactly-K-spaced grid. extract() does NOT use this any more (real auxhist
+    frame spacing is not guaranteed to equal the requested K -- see
+    step_target_features_by_frame_edges and this module's own scc job 465/matthew post-mortem);
+    kept as a standalone pure function/tested building block for anything that genuinely has a
+    fixed grid."""
+    stepra = steps_per_radiation_call(radt_minutes, dt_seconds)
+    flags = classify_steps_detected(step_wall_times, stepra)
+    interval_seconds = interval_minutes * 60.0
+    buckets = {}
+    for i, (w, is_rad) in enumerate(zip(step_wall_times, flags), start=1):
+        sim_s = (i - 1) * dt_seconds
+        b = int(sim_s // interval_seconds)
+        d = buckets.setdefault(b, {"normal": [], "rad": []})
+        d["rad" if is_rad else "normal"].append(w)
+    return _finalize_step_buckets(buckets)
+
+
+def parse_wrf_times(time_strs):
+    """[datetime, ...] from WRF's own Times variable format (temporal_validation.WRF_TIME_FMT ==
+    '%Y-%m-%d_%H:%M:%S') -- the decoded strings read_times() extracts from a netCDF file's Times
+    char array [Time, DateStrLen], or a synthetic list of the same format in a test. Raises
+    ValueError (via strptime) on a malformed timestamp, not silently dropped -- a garbled Times
+    entry should fail loudly, not shift every later bucket."""
+    return [datetime.datetime.strptime(s, tv.WRF_TIME_FMT) for s in time_strs]
+
+
+def bucket_edges_from_frame_times(frame_times, run_start_dt):
+    """[edge_0, edge_1, ..., edge_N-1] simulated-seconds-from-run-start for N real auxhist frame
+    timestamps (edge_i = (frame_times[i] - run_start_dt).total_seconds()) -- the GROUND TRUTH
+    interval boundaries, read from the netCDF Times variable, not assumed from the K requested at
+    namelist-edit time (frames_per_auxhistN/restart timing can make WRF's real frame spacing
+    differ from that request -- confirmed on scc job 465/matthew: 96 frames landed in a SINGLE
+    auxhist23_d01_* file at whatever spacing WRF actually wrote, not necessarily every namelist-
+    requested K). frame_times must already be sorted ascending (chronological == file/Time-index
+    order, WRF's own append axis)."""
+    return [(t - run_start_dt).total_seconds() for t in frame_times]
+
+
+def bucket_start_hours_map(edges):
+    """{bucket_index: t_sim_hours at that bucket's own real start} for the len(edges)-1 buckets
+    defined by `edges` (bucket_edges_from_frame_times output, seconds) -- merge_interval_rows'
+    t_sim_hours column, in the auxhist frames' own real time, not an assumed fixed grid."""
+    return {i: edges[i] / 3600.0 for i in range(len(edges) - 1)}
+
+
+def _bucket_index_for_sim_seconds(sim_s, edges):
+    """Index i such that edges[i] <= sim_s < edges[i+1] (the [frame_i, frame_i+1) interval this
+    step's simulated time falls in), for the N-1 buckets defined by N edges. sim_s before the
+    first edge returns None (no bucket -- should not happen for a step within the run, but a step
+    at t=0 exactly equal to edges[0] is bucket 0, matching the task's own half-open interval).
+    sim_s at or beyond the LAST edge is clamped into the final (open-ended) bucket, so a partial
+    trailing interval with no closing frame still gets its steps counted rather than dropped."""
+    if len(edges) < 2 or sim_s < edges[0]:
+        return None
+    idx = bisect.bisect_right(edges, sim_s) - 1
+    return min(idx, len(edges) - 2)
+
+
+def step_target_features_by_frame_edges(step_wall_times, dt_seconds, radt_minutes, edges):
+    """Same per-bucket TARGET aggregation as step_target_features, but bucketed into the ACTUAL
+    auxhist frame intervals `edges` (bucket_edges_from_frame_times output) instead of an assumed
+    fixed K-minute grid -- see that function's docstring for why real frame spacing can differ
+    from the request. Steps before edges[0] (should not occur for a normal cold-start run, edges[0]
+    is ~0) are silently dropped, not misattributed to bucket 0."""
+    stepra = steps_per_radiation_call(radt_minutes, dt_seconds)
+    flags = classify_steps_detected(step_wall_times, stepra)
+    buckets = {}
+    for i, (w, is_rad) in enumerate(zip(step_wall_times, flags), start=1):
+        sim_s = (i - 1) * dt_seconds
+        b = _bucket_index_for_sim_seconds(sim_s, edges)
+        if b is None:
+            continue
+        d = buckets.setdefault(b, {"normal": [], "rad": []})
+        d["rad" if is_rad else "normal"].append(w)
+    return _finalize_step_buckets(buckets)
+
+
+# ===========================================================================
+# 2. namelist array readers (radt, parent_time_step_ratio) -- per-domain dt for STEPRA
+# ===========================================================================
+def read_namelist_int_list(text, key, max_dom, default=None):
+    """Up to max_dom int values of `key` (e.g. radt, parent_time_step_ratio), via
+    campaign/configs.py's own _find_namelist_key (never re-derived -- that function already
+    handles keys jammed onto one line with others, e.g. "mp_physics=8, ra_lw_physics=4, radt=15,",
+    the exact shape cases.json's own case notes cite for karina's template). Fewer values than
+    max_dom (a template that only bothered to write one value, meaning every domain uses it) pads
+    by repeating the LAST given value -- a pragmatic fallback, not a claim about strict Fortran
+    namelist-read semantics (which requires an exact count or an explicit r*value repeat).
+    Returns [default]*max_dom when the key has no assignment in `text` at all and default is not
+    None; raises ValueError when it is missing and default is None."""
+    found = campaign_configs._find_namelist_key(text, key)
+    if not found or not found["values"]:
+        if default is None:
+            raise ValueError("namelist key %r not found and no default given" % (key,))
+        return [default] * max_dom
+    values = [int(float(v)) for v in found["values"]]
+    if len(values) >= max_dom:
+        return values[:max_dom]
+    return values + [values[-1]] * (max_dom - len(values))
+
+
+def domain_dt_seconds(dt0_seconds, parent_time_step_ratio_list):
+    """Per-domain integration timestep (seconds), domain 1 = dt0_seconds, domain d>1 =
+    dt0_seconds / prod(parent_time_step_ratio_list[1:d]) -- WRF's own nested-timestep convention
+    (share/module_domain.F: each child steps parent_time_step_ratio times per parent step, so its
+    own dt is the parent's dt divided by that ratio; the ratio is applied once per nesting level,
+    domain 1's own ratio entry is unused/1). parent_time_step_ratio_list is 1-indexed by domain in
+    the namelist (index 0 == domain 1, conventionally 1 or unset)."""
+    out = [float(dt0_seconds)]
+    for d in range(1, len(parent_time_step_ratio_list)):
+        ratio = parent_time_step_ratio_list[d] or 1
+        out.append(out[-1] / ratio)
+    return out
+
+
+# ===========================================================================
+# 3. auxiliary-stream namelist editing (TIMELINE mode's own state stream)
+# ===========================================================================
+def _aux_interval_key(n):
+    return "auxhist%d_interval" % n
+
+
+def _aux_ioform_key(n):
+    return "io_form_auxhist%d" % n
+
+
+def _aux_frames_key(n):
+    return "frames_per_auxhist%d" % n
+
+
+def used_aux_streams(text):
+    """Every aux-stream number this namelist ALREADY assigns (auxhistN_interval or
+    io_form_auxhistN, any N) -- the "already uses it" detection the task asks for before
+    defaulting to stream 23."""
+    used = set()
+    for m in re.finditer(r"(?m)^(?![ \t]*!)[^\n]*?\b(?:auxhist|io_form_auxhist)(\d+)(?:_interval)?\b",
+                          text):
+        used.add(int(m.group(1)))
+    return used
+
+
+def pick_free_aux_stream(text, preferred=AUX_STREAM_PREFERRED, lo=AUX_STREAM_MIN, hi=AUX_STREAM_MAX):
+    """`preferred` (default 23, the task's own default) if this namelist does not already use it,
+    else the lowest free stream number in [lo, hi]. Raises ValueError when every stream in range
+    is already spoken for (24 aux streams is WRF's own ceiling; no case in this campaign is
+    expected to use anywhere near that many, but the check is explicit rather than silently
+    reusing/overwriting an in-use stream)."""
+    used = used_aux_streams(text)
+    if preferred not in used:
+        return preferred
+    for n in range(lo, hi + 1):
+        if n not in used:
+            return n
+    raise ValueError("no free aux stream in [%d, %d]: all already used by this namelist" % (lo, hi))
+
+
+def validate_aux_interval_minutes(interval_minutes, dt_seconds, min_multiple=MIN_INTERVAL_DT_MULTIPLE):
+    """Raises ValueError when interval_minutes*60 < min_multiple*dt_seconds (task: "K >= 20xdt").
+    dt_seconds is always domain 1's own timestep (case["dt"]) -- the largest dt among domains (a
+    nest's dt is smaller, see domain_dt_seconds), so satisfying this bound for d01 satisfies it
+    for every nest too."""
+    floor_s = min_multiple * dt_seconds
+    if interval_minutes * 60.0 < floor_s:
+        raise ValueError("aux interval %g min (%g s) is below the required %dxdt floor (%g s, dt=%gs)"
+                          % (interval_minutes, interval_minutes * 60.0, min_multiple, floor_s, dt_seconds))
+
+
+def build_iofields_content(fields, stream):
+    """iofields_filename file content adding exactly `fields` to history stream `stream`, WRF's
+    own '+:h:N:field1,field2,...' add-field syntax (Registry/registry.io_boilerplate and the
+    iofields_filename mechanism it documents: a leading '+' ADDS to whatever the stream already
+    carries by default, ':h:' scopes it to history-type output, ':N:' to stream N only -- so the
+    main history stream, which this campaign always turns off for STRICT/temporal runs, is
+    unaffected). One line, trailing newline; WRF reads iofields_filename line-by-line and this
+    field count (<=13) is far under any documented per-line limit."""
+    return "+:h:%d:%s\n" % (stream, ",".join(fields))
+
+
+def filter_fields_by_registry(fields, registry_text):
+    """(kept, dropped) -- `fields` split by whether a non-comment Registry 'state' line
+    (Registry/registry.* convention: "state <type> <NAME> <dims> ... ") mentions the field name as
+    a whole token anywhere on the line. Registry lines are whitespace/comma separated, case as
+    written (WRF Registry variable names are conventionally upper-case, e.g. RAINNC) -- matched
+    case-insensitively here since the task only needs existence, not the Registry's own casing
+    convention re-derived. Order of `fields` is preserved in both outputs."""
+    kept, dropped = [], []
+    state_lines = [ln for ln in registry_text.splitlines()
+                   if re.match(r"^\s*state\b", ln, re.IGNORECASE)]
+    blob = "\n".join(state_lines)
+    for f in fields:
+        pat = re.compile(r"(?<![A-Za-z0-9_])%s(?![A-Za-z0-9_])" % re.escape(f), re.IGNORECASE)
+        (kept if pat.search(blob) else dropped).append(f)
+    return kept, dropped
+
+
+def read_registry_dir(wrf_tree):
+    """Concatenated text of every file directly under $wrf_tree/Registry/ (WRF ships its Registry
+    as many Registry.* fragments, #include-d from a top-level Registry.EM/Registry.NMM -- rather
+    than resolve the #include graph, this reads every fragment, which only widens the search, it
+    cannot spuriously report a field as present). Returns None when the directory does not exist
+    (e.g. this dev checkout, or a wrf_tree that is not actually a WRF source/build tree) -- callers
+    must treat that as "not validated here", not as "no fields exist"."""
+    reg_dir = os.path.join(wrf_tree, "Registry")
+    if not os.path.isdir(reg_dir):
+        return None
+    chunks = []
+    for name in sorted(os.listdir(reg_dir)):
+        path = os.path.join(reg_dir, name)
+        if not os.path.isfile(path):
+            continue
+        try:
+            with open(path, errors="replace") as f:
+                chunks.append(f.read())
+        except OSError:
+            continue
+    return "\n".join(chunks)
+
+
+def edit_namelist_timeline(text, nproc_x, nproc_y, numtiles, ranks, max_dom, run_minutes,
+                            restart_every_minutes, aux_stream, aux_interval_minutes,
+                            iofields_filename, frames_per_auxhist=2000, dist="block",
+                            blocktime="0"):
+    """TIMELINE namelist: exactly tools/temporal_validation.edit_namelist_long's shape (cold
+    start, history off, netCDF restart every restart_every_minutes) PLUS one auxiliary output
+    stream: auxhist<N>_interval=aux_interval_minutes on d01 (0/never on any nest -- same
+    "diffwrf/analysis only ever look at d01" convention campaign/configs.py's own
+    _set_history_interval nest handling already documents), io_form_auxhist<N>=2 (netCDF, no
+    ADIOS2 aux writer path exists here), frames_per_auxhist<N>=frames_per_auxhist on every domain,
+    and iofields_filename=<iofields_filename> on every domain (WRF reads it once, applies its
+    '+:h:N:...' lines regardless of which domain triggered the read)."""
+    text = tv.edit_namelist_long(text, nproc_x, nproc_y, numtiles, ranks, max_dom, run_minutes,
+                                  restart_every_minutes, dist=dist, blocktime=blocktime)
+    interval_values = ([aux_interval_minutes] + [0] * (max_dom - 1)) if max_dom > 1 \
+        else [aux_interval_minutes]
+    text = campaign_configs._replace_list_line(text, _aux_interval_key(aux_stream), interval_values)
+    text = campaign_configs._replace_list_line(
+        text, _aux_frames_key(aux_stream), [frames_per_auxhist] * max_dom)
+    text = campaign_configs._set_or_insert_time_control_scalar(
+        text, _aux_ioform_key(aux_stream), 2)
+    quoted = '"%s"' % iofields_filename
+    text = campaign_configs._replace_list_line(text, "iofields_filename", [quoted] * max_dom)
+    return text
+
+
+# ===========================================================================
+# 4. MPI patch mapping (WRF's exact RSL-lite remainder-at-both-ends rule) + imbalance features
+# ===========================================================================
+def patch_bounds(extent, nproc):
+    """[(start, end), ...] length nproc, 0-indexed half-open column ranges along ONE dimension of
+    ONE domain split `nproc` ways -- built by summing predictor/decomp_space.rsl_patch_width_for_rank
+    (external/RSL_LITE/task_for_point.c's remainder-at-both-ends rule, the same ground truth
+    rsl_patch_extents' envelope is derived from) rank by rank, rather than re-deriving the
+    front/middle/back split here. sum(end-start for every rank) == extent."""
+    bounds = []
+    start = 0
+    for r in range(nproc):
+        w = decomp_space.rsl_patch_width_for_rank(extent, nproc, r)
+        bounds.append((start, start + w))
+        start += w
+    return bounds
+
+
+def patch_of_index(bounds, idx):
+    """0-indexed rank owning column `idx`, from patch_bounds() output. Linear scan: nproc is at
+    most a few hundred here and this runs once per analysis pass, not per grid column in a hot
+    loop (patch_aggregate below calls it once per column, which for a ~1000x1000 domain is still
+    <=1e6 calls total per field per frame -- fine for an offline extraction script)."""
+    for r, (lo, hi) in enumerate(bounds):
+        if lo <= idx < hi:
+            return r
+    raise ValueError("index %d out of range for bounds up to %d" % (idx, bounds[-1][1] if bounds else 0))
+
+
+def patch_aggregate(field_2d, we, sn, nproc_x, nproc_y):
+    """{(rank_x, rank_y): mean(field_2d over that patch's columns)} -- field_2d is a list of `sn`
+    rows, each a list of `we` values (row-major [south_north][west_east], matching a WRF history
+    variable's own axis order). Used for the imbalance features: run patch_aggregate on a 0/1
+    per-column indicator (precip-over-threshold, sunlit) to get each MPI patch's own fraction,
+    then max_mean_over_patches for the max/mean-over-patches ratio the task asks for."""
+    x_bounds = patch_bounds(we, nproc_x)
+    y_bounds = patch_bounds(sn, nproc_y)
+    sums, counts = {}, {}
+    for j in range(sn):
+        row = field_2d[j]
+        ry = patch_of_index(y_bounds, j)
+        for i in range(we):
+            rx = patch_of_index(x_bounds, i)
+            key = (rx, ry)
+            sums[key] = sums.get(key, 0.0) + row[i]
+            counts[key] = counts.get(key, 0) + 1
+    return {k: (sums[k] / counts[k] if counts[k] else 0.0) for k in sums}
+
+
+def max_mean_over_patches(patch_values):
+    """(max, mean) over patch_values.values() -- None, None for an empty map."""
+    vals = list(patch_values.values())
+    if not vals:
+        return None, None
+    return max(vals), statistics.mean(vals)
+
+
+# ===========================================================================
+# 5. state features (pure, numpy-free, over flat per-column lists)
+# ===========================================================================
+def precip_rate_mm_per_h(rainnc_prev, rainc_prev, rainnc_cur, rainc_cur, interval_hours):
+    """One column's precip rate (mm/h) from the RAINNC+RAINC bucket difference between two
+    frames, divided by the elapsed simulated time (hours) between them. RAINNC/RAINC are
+    monotonically non-decreasing accumulators that only reset on a WRF restart
+    (share/module_physics_init.F) -- this TIMELINE run never restarts mid-run (restart=.false.,
+    restart writes are snapshots, never reads, within one run) -- so a negative diff should never
+    occur; clipped to >=0 defensively rather than propagating a bogus negative rate into the
+    training data."""
+    rate = ((rainnc_cur + rainc_cur) - (rainnc_prev + rainc_prev)) / interval_hours
+    return max(0.0, rate)
+
+
+def precip_frac_and_mean(rates, threshold_mm_h=PRECIP_THRESHOLD_MM_H):
+    """(precip_frac, precip_mean) over a flat list of per-column precip rates (mm/h): precip_frac
+    is the fraction of columns with rate > threshold_mm_h; precip_mean is the plain mean over ALL
+    columns. (None, None) for an empty list."""
+    if not rates:
+        return None, None
+    n_over = sum(1 for r in rates if r > threshold_mm_h)
+    return n_over / len(rates), statistics.mean(rates)
+
+
+def precip_indicator(rates, threshold_mm_h=PRECIP_THRESHOLD_MM_H):
+    """Per-column 0.0/1.0 precip-over-threshold indicator, for patch_aggregate."""
+    return [1.0 if r > threshold_mm_h else 0.0 for r in rates]
+
+
+def cloud_frac(olr_values, threshold=CLOUD_OLR_THRESHOLD_WM2):
+    """Fraction of columns with OLR < threshold W/m^2 (deep convective cloud proxy, task's own
+    definition). None for an empty list."""
+    if not olr_values:
+        return None
+    return sum(1 for v in olr_values if v < threshold) / len(olr_values)
+
+
+def sunlit_frac(swdown_values, coszen_values=None, swdown_threshold=SUNLIT_SWDOWN_THRESHOLD_WM2):
+    """Fraction of columns sunlit: SWDOWN > swdown_threshold, OR (when coszen_values is given, same
+    length) COSZEN > 0. coszen_values=None is the expected path when COSZEN is not in this WRF
+    build's Registry (task point 1: drop it, fall back to SWDOWN alone) -- callers should call
+    sunlit_indicator with the same coszen_values so the domain-aggregate and per-patch numbers use
+    the identical rule."""
+    n = len(swdown_values)
+    if n == 0:
+        return None
+    if coszen_values is not None and len(coszen_values) == n:
+        return sum(1 for s, c in zip(swdown_values, coszen_values)
+                    if s > swdown_threshold or c > 0) / n
+    return sum(1 for s in swdown_values if s > swdown_threshold) / n
+
+
+def sunlit_indicator(swdown_values, coszen_values=None, swdown_threshold=SUNLIT_SWDOWN_THRESHOLD_WM2):
+    """Per-column 0.0/1.0 sunlit indicator, same rule as sunlit_frac, for patch_aggregate."""
+    if coszen_values is not None and len(coszen_values) == len(swdown_values):
+        return [1.0 if (s > swdown_threshold or c > 0) else 0.0
+                for s, c in zip(swdown_values, coszen_values)]
+    return [1.0 if s > swdown_threshold else 0.0 for s in swdown_values]
+
+
+def pblh_stats(pblh_values):
+    """(mean, p90) over a flat PBLH list. p90 is nearest-rank on the sorted list (index =
+    ceil(0.9*n)-1, clamped into range) -- no numpy/statistics.quantiles dependency, kept
+    deliberately simple/bare-python since this module's pure functions are the part required to
+    import and run with neither numpy nor netCDF4 installed. (None, None) for an empty list."""
+    if not pblh_values:
+        return None, None
+    s = sorted(pblh_values)
+    n = len(s)
+    idx = min(n - 1, max(0, math.ceil(0.9 * n) - 1))
+    return statistics.mean(pblh_values), s[idx]
+
+
+def wind10_max(u10_values, v10_values):
+    """max over columns of hypot(u10, v10). None for an empty list."""
+    if not u10_values:
+        return None
+    return max(math.hypot(u, v) for u, v in zip(u10_values, v10_values))
+
+
+def mean_or_none(values):
+    return statistics.mean(values) if values else None
+
+
+# ===========================================================================
+# 6. row assembly + CSV/JSON I/O
+# ===========================================================================
+def domain_target_columns(max_dom):
+    """Ordered list of every per-domain TARGET column name, d01..d<max_dom>."""
+    cols = []
+    for d in range(1, max_dom + 1):
+        df = "d%02d" % d
+        cols += ["s_step_normal_median_%s" % df, "s_step_rad_median_%s" % df, "n_steps_%s" % df]
+    return cols
+
+
+STATE_COLUMNS = [
+    "precip_frac", "precip_mean", "cloud_frac", "sunlit_frac", "pblh_mean", "pblh_p90",
+    "wind10_max", "hfx_mean",
+    "precip_frac_patch_max", "precip_frac_patch_mean", "precip_frac_imbalance",
+    "sunlit_frac_patch_max", "sunlit_frac_patch_mean", "sunlit_frac_imbalance",
+]
+
+
+def imbalance_ratio(patch_max, patch_mean):
+    """max-over-patches / mean-over-patches -- None when either input is None/0 (no data, or a
+    domain-wide-zero field where the ratio is undefined rather than meaningfully 0 or inf)."""
+    if patch_max is None or patch_mean is None or patch_mean == 0:
+        return None
+    return patch_max / patch_mean
+
+
+def build_state_row(precip_rates, olr, swdown, coszen, pblh, u10, v10, hfx, we, sn, nproc_x,
+                     nproc_y):
+    """One interval's full STATE_COLUMNS dict from flat per-column lists (length we*sn, row-major)
+    plus the run's decomposition (nproc_x, nproc_y) for the imbalance features. Any field list
+    that is empty/None is skipped (its dependent columns come out None) -- callers pass [] for a
+    field this build's Registry did not have (task point 1: COSZEN is the expected case)."""
+    precip_frac, precip_mean = precip_frac_and_mean(precip_rates)
+    row = dict(
+        precip_frac=precip_frac, precip_mean=precip_mean,
+        cloud_frac=cloud_frac(olr) if olr else None,
+        sunlit_frac=sunlit_frac(swdown, coszen) if swdown else None,
+        wind10_max=wind10_max(u10, v10) if u10 and v10 else None,
+        hfx_mean=mean_or_none(hfx),
+    )
+    pblh_mean, pblh_p90 = pblh_stats(pblh) if pblh else (None, None)
+    row["pblh_mean"] = pblh_mean
+    row["pblh_p90"] = pblh_p90
+
+    def _grid(flat):
+        return [flat[j * we:(j + 1) * we] for j in range(sn)]
+
+    have_decomp = bool(nproc_x) and bool(nproc_y)
+    if precip_rates and have_decomp:
+        ind = _grid(precip_indicator(precip_rates))
+        pmax, pmean = max_mean_over_patches(patch_aggregate(ind, we, sn, nproc_x, nproc_y))
+        row["precip_frac_patch_max"] = pmax
+        row["precip_frac_patch_mean"] = pmean
+        row["precip_frac_imbalance"] = imbalance_ratio(pmax, pmean)
+    else:
+        row["precip_frac_patch_max"] = row["precip_frac_patch_mean"] = row["precip_frac_imbalance"] = None
+    if swdown and have_decomp:
+        ind = _grid(sunlit_indicator(swdown, coszen))
+        smax, smean = max_mean_over_patches(patch_aggregate(ind, we, sn, nproc_x, nproc_y))
+        row["sunlit_frac_patch_max"] = smax
+        row["sunlit_frac_patch_mean"] = smean
+        row["sunlit_frac_imbalance"] = imbalance_ratio(smax, smean)
+    else:
+        row["sunlit_frac_patch_max"] = row["sunlit_frac_patch_mean"] = row["sunlit_frac_imbalance"] = None
+    return row
+
+
+def merge_interval_rows(state_by_bucket, target_by_domain_bucket, max_dom, bucket_start_hours):
+    """One row per bucket index present in EITHER state_by_bucket or any domain's target buckets
+    -- state_by_bucket: {bucket: STATE_COLUMNS dict}; target_by_domain_bucket: {domain:
+    {bucket: {s_step_normal_median, s_step_rad_median, n_steps}}}. Missing columns come out None,
+    never dropped (visibility over silent loss). Rows sorted by bucket index; t_sim_hours =
+    bucket_start_hours.get(bucket) -- the bucket's REAL start time (bucket_edges_from_frame_times
+    output, converted to hours), not an assumed bucket*K grid: real auxhist frame spacing is not
+    guaranteed to equal the K requested at namelist-edit time (scc job 465/matthew: WRF wrote all
+    96 frames into ONE file at whatever spacing it actually used). None when a bucket index has no
+    known edge (should not happen for a bucket that came from real frame data)."""
+    buckets = set(state_by_bucket)
+    for d in range(1, max_dom + 1):
+        buckets |= set(target_by_domain_bucket.get(d, {}))
+    rows = []
+    for b in sorted(buckets):
+        row = dict(interval_index=b, t_sim_hours=bucket_start_hours.get(b))
+        state = state_by_bucket.get(b, {})
+        for col in STATE_COLUMNS:
+            row[col] = state.get(col)
+        for d in range(1, max_dom + 1):
+            df = "d%02d" % d
+            t = target_by_domain_bucket.get(d, {}).get(b, {})
+            row["s_step_normal_median_%s" % df] = t.get("s_step_normal_median")
+            row["s_step_rad_median_%s" % df] = t.get("s_step_rad_median")
+            row["n_steps_%s" % df] = t.get("n_steps")
+        rows.append(row)
+    return rows
+
+
+def timeline_csv_fieldnames(max_dom):
+    return ["interval_index", "t_sim_hours"] + STATE_COLUMNS + domain_target_columns(max_dom)
+
+
+def write_timeline_csv(path, rows, max_dom):
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    fields = timeline_csv_fieldnames(max_dom)
+    with open(path, "w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=fields)
+        w.writeheader()
+        for r in rows:
+            w.writerow({k: r.get(k) for k in fields})
+
+
+def write_timeline_header_json(path, header):
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    with open(path, "w") as f:
+        json.dump(header, f, indent=2, sort_keys=True)
+        f.write("\n")
+
+
+# ===========================================================================
+# 7. netCDF glue -- LAZY import, never exercised by tests
+# ===========================================================================
+def _lazy_netcdf4():
+    import netCDF4  # noqa: PLC0415 -- local import, only available inside the pixi campaign env on the
+                     # cluster ($HOME/wtune-envs/campaign); never imported at module load time.
+    return netCDF4
+
+
+def find_auxhist_frames(run_dir, stream):
+    """Sorted auxhist<stream>_d01_* file paths in run_dir -- d01 (mother domain) only, matching
+    every other "diffwrf/analysis only ever looks at d01" convention already established in this
+    campaign (campaign/configs.py's own _set_history_mode docstring). WRF names each file after
+    ITS OWN first frame's valid time, so this sort is also chronological file order even when a
+    run's frames_per_auxhistN is small enough to split across several files."""
+    return sorted(glob.glob(os.path.join(run_dir, "auxhist%d_d01_*" % stream)))
+
+
+def read_times(ds):
+    """WRF's own Times variable (char array [Time, DateStrLen]) decoded to a list of time strings
+    (WRF_TIME_FMT, e.g. '2018-08-25_00:30:00'), one per frame in this file, in Time-index order
+    (WRF's own append axis, i.e. chronological)."""
+    out = []
+    for row in ds.variables["Times"][:]:
+        if hasattr(row, "tobytes"):
+            s = row.tobytes().decode("utf-8", "replace")
+        else:
+            s = "".join(c.decode("utf-8", "replace") if isinstance(c, (bytes, bytearray)) else str(c)
+                         for c in row)
+        out.append(s.split("\x00")[0])
+    return out
+
+
+def read_2d_field(ds, name, time_index):
+    """[south_north, west_east] 2-D slice of variable `name` at Time index `time_index`, as a
+    list-of-lists of python floats. Raises KeyError(name) when this file has no such variable --
+    the task's own "validate against the first output frame when analyzing" requirement; callers
+    catch this per-field/per-frame and drop it rather than aborting the whole extraction."""
+    if name not in ds.variables:
+        raise KeyError(name)
+    arr = ds.variables[name][time_index]
+    return [[float(v) for v in row] for row in arr]
+
+
+def _read_frame_fields(ds, fields, time_index):
+    found, missing = {}, []
+    for name in fields:
+        try:
+            found[name] = read_2d_field(ds, name, time_index)
+        except KeyError:
+            missing.append(name)
+    return found, missing
+
+
+def read_frames(path, fields):
+    """Every frame (Time index) in ONE auxhist file, as [(time_str, fields_dict, missing_list),
+    ...] in file order (== chronological, Time is WRF's own append axis). WRF's own
+    frames_per_auxhistN controls how many Time indices land in one file -- this task's TIMELINE
+    mode sets it large enough that a WHOLE RUN's history lands in a SINGLE file: confirmed on scc
+    job 465/matthew, where 96 requested ~30-50min frames all landed in one
+    auxhist23_d01_<first-time> file, not one file per frame (an earlier version of this module
+    assumed one-file-per-frame and silently discarded every frame past the first)."""
+    netCDF4 = _lazy_netcdf4()
+    out = []
+    with netCDF4.Dataset(path) as ds:
+        for t_idx, t_str in enumerate(read_times(ds)):
+            found, missing = _read_frame_fields(ds, fields, t_idx)
+            out.append((t_str, found, missing))
+    return out
+
+
+def read_all_frames(run_dir, stream, fields):
+    """Every frame across every auxhist<stream>_d01_* file in run_dir, concatenated in
+    find_auxhist_frames' own (chronological) file order, then within-file Time order."""
+    out = []
+    for path in find_auxhist_frames(run_dir, stream):
+        out.extend(read_frames(path, fields))
+    return out
+
+
+def read_static_fields_from_wrfinput(case, fields):
+    """(found_dict, missing_list) for `fields` from the case's own wrfinput_d01
+    (campaign/configs.py's CASES[case]['prep_dir'], the SITE=scc-overlaid case metadata source
+    temporal_validation.read_case_template already uses) -- the fallback for a static field this
+    build's default Registry "h"-stream tagging does not put on every history-type stream (XLAT/
+    XLONG usually ARE tagged onto every stream by default; LANDMASK, confirmed missing from the
+    aux stream on scc job 465/matthew, is not). Returns (None, list(fields)) -- UNREACHABLE, not
+    "absent" -- when wrfinput_d01 cannot be opened from this machine (e.g. no cluster access):
+    callers must not report a field as genuinely missing from the Registry/output on that basis
+    alone."""
+    cj = campaign_configs.CASES.get(case)
+    if cj is None:
+        return None, list(fields)
+    path = os.path.join(cj["prep_dir"], "wrfinput_d01")
+    if not os.path.exists(path):
+        return None, list(fields)
+    netCDF4 = _lazy_netcdf4()
+    with netCDF4.Dataset(path) as ds:
+        return _read_frame_fields(ds, fields, 0)
+
+
+# ===========================================================================
+# 8. CLI: extract
+# ===========================================================================
+def _flatten(grid):
+    return [v for row in grid for v in row]
+
+
+def parse_config_id_from_run_dir(run_dir, case):
+    """cid from a TIMELINE run directory named 'temporal_<case>_timeline_<cid>_<job>' -- the exact
+    RUNDIR shape tools/temporal_run.sbatch's own TV_MODE=timeline branch builds. None when the
+    directory name does not match this shape (e.g. a hand-made directory) -- callers fall back to
+    "unknown" only in that case, not silently otherwise."""
+    base = os.path.basename(os.path.normpath(run_dir))
+    prefix = "temporal_%s_timeline_" % case
+    if not base.startswith(prefix):
+        return None
+    m = re.match(r"^(.+)_(\d+)$", base[len(prefix):])
+    return m.group(1) if m else None
+
+
+def read_decomposition_from_namelist(text):
+    """(nproc_x, nproc_y) as campaign/configs.py's own _insert_after_domains writes them -- single
+    SCALAR namelist values (dimension 1, NOT a per-domain array like radt/history_interval).
+    (None, None) when either key is absent from `text`."""
+    nx = campaign_configs._find_namelist_key(text, "nproc_x")
+    ny = campaign_configs._find_namelist_key(text, "nproc_y")
+    if not nx or not ny or not nx["values"] or not ny["values"]:
+        return None, None
+    return int(nx["values"][0]), int(ny["values"][0])
+
+
+def resolve_run_config(run_dir, case, cfg):
+    """Fills cfg's config_id/nx/ny from the run directory itself when --config did not already
+    supply them: config_id from the RUNDIR name (parse_config_id_from_run_dir), nx/ny from the
+    run's own namelist.input (read_decomposition_from_namelist) -- so `extract --run-dir D --case
+    C` with no --config still gets a real config id (not the "unknown" placeholder every prior
+    real run came out with) and real imbalance features (not silently skipped for want of a
+    decomposition). Values already present in cfg are never overwritten."""
+    cfg = dict(cfg)
+    if not cfg.get("config_id"):
+        cid = parse_config_id_from_run_dir(run_dir, case)
+        if cid:
+            cfg["config_id"] = cid
+    if cfg.get("nx") is None or cfg.get("ny") is None:
+        nml_path = os.path.join(run_dir, "namelist.input")
+        if os.path.exists(nml_path):
+            with open(nml_path, errors="replace") as f:
+                nx, ny = read_decomposition_from_namelist(f.read())
+            cfg.setdefault("nx", nx)
+            cfg.setdefault("ny", ny)
+    return cfg
+
+
+def cmd_extract(args):
+    cfg = json.loads(args.config) if args.config else {}
+    cfg = resolve_run_config(args.run_dir, args.case, cfg)
+    max_dom = args.max_dom or campaign_configs._case_effective_max_dom(tv.case_json(args.case))
+    dt0 = args.dt or tv.case_json(args.case)["dt"]
+
+    rsl_path = os.path.join(args.run_dir, "rsl.out.0000")
+    with open(rsl_path, errors="replace") as f:
+        rsl_text = f.read()
+    by_domain_steps = parse_step_series(rsl_text, max_dom)
+
+    tmpl_text, _path = tv.read_case_template(tv.case_json(args.case))
+    if tmpl_text is not None:
+        radt_list = read_namelist_int_list(tmpl_text, "radt", max_dom, default=None)
+        ratio_list = read_namelist_int_list(tmpl_text, "parent_time_step_ratio", max_dom, default=1)
+        run_start_dt = tv.read_case_start_datetime(tmpl_text)
+    else:
+        radt_list = [args.radt] * max_dom if args.radt else None
+        ratio_list = [1] * max_dom
+        run_start_dt = None
+    if radt_list is None:
+        raise SystemExit("extract: could not read radt from the namelist template and no --radt "
+                          "fallback was given")
+    dts = domain_dt_seconds(dt0, ratio_list)
+
+    fields = list(args.fields.split(",")) if args.fields else list(DEFAULT_TIMELINE_FIELDS)
+    all_frames = read_all_frames(args.run_dir, args.stream, fields)
+    fields_missing_overall = set()
+    for _t, _found, missing in all_frames:
+        fields_missing_overall |= set(missing)
+
+    # Bucket boundaries come from the auxhist files' OWN Times variable, never from the K minutes
+    # requested at namelist-edit time -- see bucket_edges_from_frame_times' docstring (scc job
+    # 465/matthew: WRF's real frame spacing did not match a naive fixed-K assumption).
+    edges = []
+    if len(all_frames) < 2:
+        print("WARNING: only %d auxhist frame(s) found under %s (stream %d) -- need >=2 to "
+              "compute any interval; writing an empty timeline" % (
+                  len(all_frames), args.run_dir, args.stream), file=sys.stderr)
+    elif run_start_dt is None:
+        raise SystemExit("extract: could not read the case's start datetime from its namelist "
+                          "template (needed to convert real auxhist frame times into simulated-"
+                          "seconds-from-run-start) -- template unreadable from this machine")
+    else:
+        frame_times = parse_wrf_times([t for t, _f, _m in all_frames])
+        edges = bucket_edges_from_frame_times(frame_times, run_start_dt)
+
+    target_by_domain_bucket = {}
+    for d in range(1, max_dom + 1):
+        target_by_domain_bucket[d] = step_target_features_by_frame_edges(
+            by_domain_steps.get(d, []), dts[d - 1], radt_list[d - 1], edges)
+
+    nproc_x, nproc_y = cfg.get("nx"), cfg.get("ny")
+    state_by_bucket = {}
+    for i in range(len(all_frames) - 1):
+        _tp, prev, _mp = all_frames[i]
+        _tc, cur, _mc = all_frames[i + 1]
+        if not ("RAINNC" in prev and "RAINC" in prev and "RAINNC" in cur and "RAINC" in cur):
+            continue
+        interval_hours = (edges[i + 1] - edges[i]) / 3600.0
+        if interval_hours <= 0:
+            continue
+        rn0, rc0 = _flatten(prev["RAINNC"]), _flatten(prev["RAINC"])
+        rn1, rc1 = _flatten(cur["RAINNC"]), _flatten(cur["RAINC"])
+        rates = [precip_rate_mm_per_h(a, b, c, d, interval_hours)
+                 for a, b, c, d in zip(rn0, rc0, rn1, rc1)]
+        we = len(cur["RAINNC"][0]) if cur["RAINNC"] else 0
+        sn = len(cur["RAINNC"])
+        state_by_bucket[i] = build_state_row(
+            rates,
+            _flatten(cur.get("OLR", [])), _flatten(cur.get("SWDOWN", [])),
+            _flatten(cur.get("COSZEN", [])) if "COSZEN" in cur else None,
+            _flatten(cur.get("PBLH", [])), _flatten(cur.get("U10", [])),
+            _flatten(cur.get("V10", [])), _flatten(cur.get("HFX", [])),
+            we, sn, nproc_x, nproc_y)
+
+    rows = merge_interval_rows(state_by_bucket, target_by_domain_bucket, max_dom,
+                                bucket_start_hours_map(edges))
+    config_id = cfg.get("config_id") or "unknown"
+    out_csv = os.path.join(args.out, "%s__%s__timeline.csv" % (args.case, config_id))
+    out_json = os.path.join(args.out, "%s__%s__timeline.json" % (args.case, config_id))
+    write_timeline_csv(out_csv, rows, max_dom)
+
+    # XLAT/XLONG/LANDMASK: try the aux stream's own first frame first, then fall back to the
+    # case's wrfinput_d01 for whatever is still missing (task point 1 asked for these fields "for
+    # the first frame"; LANDMASK in particular is confirmed NOT written to the aux stream by this
+    # build's default Registry "h" tagging -- scc job 465/matthew). UNVERIFIED at full domain
+    # resolution: for a large domain this grid.json could be tens of MB; not measured without a
+    # real run, a future pass may want to down-sample instead of writing the full array.
+    static_found, static_missing = {}, list(DEFAULT_STATIC_FIELDS)
+    aux_files = find_auxhist_frames(args.run_dir, args.stream)
+    if aux_files:
+        first = read_frames(aux_files[0], DEFAULT_STATIC_FIELDS)
+        if first:
+            _t0, static_found, static_missing = first[0]
+    if static_missing:
+        fb_found, fb_missing = read_static_fields_from_wrfinput(args.case, static_missing)
+        if fb_found is not None:
+            static_found.update(fb_found)
+            static_missing = fb_missing
+    static_present = sorted(static_found)
+    if static_found:
+        out_grid = os.path.join(args.out, "%s__%s__grid.json" % (args.case, config_id))
+        write_timeline_header_json(out_grid, static_found)
+    if static_missing:
+        print("WARNING: static fields unresolved (absent from the aux stream's first frame AND "
+              "from wrfinput_d01, or wrfinput_d01 unreachable from this machine): %s"
+              % ",".join(static_missing), file=sys.stderr)
+
+    frame_spacing_min = (statistics.median([(edges[i + 1] - edges[i]) / 60.0
+                                             for i in range(len(edges) - 1)])
+                          if len(edges) > 1 else None)
+    write_timeline_header_json(out_json, dict(
+        case=args.case, config=cfg, dt=dt0, dt_by_domain=dts, radt_by_domain=radt_list,
+        max_dom=max_dom, interval_minutes_requested=args.interval_minutes, aux_stream=args.stream,
+        frame_spacing_minutes_observed=frame_spacing_min, n_frames=len(all_frames),
+        fields_requested=fields, fields_missing_in_output=sorted(fields_missing_overall),
+        static_fields_present=static_present, static_fields_unresolved=static_missing,
+        n_rows=len(rows),
+    ))
+    print("wrote %s (%d rows), %s" % (out_csv, len(rows), out_json))
+    if fields_missing_overall:
+        print("WARNING: fields absent from every auxhist frame read: %s"
+              % ",".join(sorted(fields_missing_overall)), file=sys.stderr)
+    return 0
+
+
+# ===========================================================================
+# 9. CLI plumbing for tools/temporal_run.sbatch's TIMELINE mode (TV_MODE=timeline) -- mirrors
+# tools/temporal_validation.py's own "internal plumbing" section (case-metadata,
+# edit-namelist-long, ...), just for the aux-stream/iofields concerns this module owns.
+# ===========================================================================
+def cmd_default_fields(args):
+    print(",".join(DEFAULT_TIMELINE_FIELDS))
+    return 0
+
+
+def cmd_pick_aux_stream(args):
+    with open(args.namelist_file, errors="replace") as f:
+        text = f.read()
+    print(pick_free_aux_stream(text, preferred=args.preferred))
+    return 0
+
+
+def cmd_check_iofields(args):
+    fields = [f.strip() for f in args.fields.split(",") if f.strip()]
+    registry_text = read_registry_dir(args.wrf_tree)
+    if registry_text is None:
+        sys.stderr.write("check-iofields: no Registry dir under %s -- fields not validated, "
+                          "passing all through unchanged\n" % args.wrf_tree)
+        print(",".join(fields))
+        return 0
+    kept, dropped = filter_fields_by_registry(fields, registry_text)
+    for f in dropped:
+        sys.stderr.write("check-iofields: DROPPED %s (no Registry 'state' line found under %s)\n"
+                          % (f, args.wrf_tree))
+    print(",".join(kept))
+    return 0
+
+
+def cmd_write_iofields(args):
+    fields = [f.strip() for f in args.fields.split(",") if f.strip()]
+    with open(args.outfile, "w") as f:
+        f.write(build_iofields_content(fields, args.stream))
+    return 0
+
+
+def cmd_edit_namelist_timeline(args):
+    """--run-minutes takes precedence over --hours*60 when given (temporal_validation.py's
+    RUN_MINUTES, job 587/588 postmortem correction 5): --hours*60 cannot represent a genuine
+    sub-hour run length (isc21: 30 minutes -> int(0) if only whole hours are available) nor an
+    already-capped length that is not a whole multiple of 60 minutes, and silently re-deriving it
+    from HOURS here would undo temporal_validation.py's own minute-precision resolution. --hours
+    stays accepted (default None) for any caller that still only has a whole-hour budget; exactly
+    one of --run-minutes/--hours must be given."""
+    with open(args.infile) as f:
+        text = f.read()
+    if args.run_minutes is not None:
+        run_minutes = args.run_minutes
+    elif args.hours is not None:
+        run_minutes = args.hours * 60
+    else:
+        raise SystemExit("edit-namelist-timeline: one of --run-minutes or --hours is required")
+    dt0 = args.dt if args.dt is not None else tv.case_json(args.case)["dt"]
+    # Raise a too-short interval to the 20xdt floor instead of failing (matthew dt=150 s needs >= 50
+    # min; the 30 min default aborted job 464's namelist step).
+    floor_min = int(math.ceil(MIN_INTERVAL_DT_MULTIPLE * dt0 / 60.0))
+    if args.aux_interval < floor_min:
+        sys.stderr.write("aux interval %g min < 20xdt floor; using %d min\n" % (args.aux_interval, floor_min))
+        args.aux_interval = floor_min
+    validate_aux_interval_minutes(args.aux_interval, dt0)
+    out = edit_namelist_timeline(
+        text, args.nproc_x, args.nproc_y, args.numtiles, args.ranks, args.max_dom,
+        run_minutes, args.every * 60, args.aux_stream, args.aux_interval,
+        args.iofields_filename, frames_per_auxhist=args.frames_per_auxhist)
+    with open(args.outfile, "w") as f:
+        f.write(out)
+    return 0
+
+
+# ===========================================================================
+# 10. CLI: plan-training
+# ===========================================================================
+def cmd_plan_training(args):
+    cases = args.cases if args.cases else tv.auto_select_cases(0)
+    rows = []
+    for case in cases:
+        cj = tv.case_json(case)
+        text, path = tv.read_case_template(cj)
+        full_hours = tv.read_run_length_hours(text) if text is not None else None
+        hours = (min(int(full_hours), args.hours) if (full_hours is not None and args.hours)
+                 else (int(full_hours) if full_hours is not None else args.hours))
+        s_est, s_source, _n = scc_sweep.estimate_s_per_step(
+            case, args.nodes, args.ledger_dir, args.hardware_id, fallback=None)
+        est_seconds = None
+        time_str = "unknown"
+        if s_est is not None and hours:
+            steps_est = max(1, int(hours * 3600 / cj["dt"]))
+            time_est = scc_sweep.estimate_time(1, 1, steps_est, s_est)
+            est_seconds = time_est["total_run_s"]
+            time_str = time_est["time_limit"]
+        rows.append(dict(case=case, hours=hours, s_est=s_est, s_source=s_source,
+                          est_seconds=est_seconds, time_str=time_str))
+    rows.sort(key=lambda r: (r["est_seconds"] is None, r["est_seconds"] or 0.0))
+    for r in rows:
+        s_est_str = ("%.3fs/step[%s]" % (r["s_est"], r["s_source"])) if r["s_est"] is not None \
+            else "s/step unknown (no ledger row for %s on %s)" % (r["case"], args.hardware_id)
+        print("%-14s hours=%-4s %s est_time=%s" % (r["case"], r["hours"], s_est_str, r["time_str"]))
+        cmd = ("tools/temporal_validation.py submit-timeline --case %s --hours %s "
+               "--nodes %d --k %d" % (r["case"], r["hours"], args.nodes, args.k))
+        print("  %s" % cmd)
+    return 0
+
+
+# ===========================================================================
+# CLI wiring
+# ===========================================================================
+def build_arg_parser():
+    p = argparse.ArgumentParser(prog="state_timeline.py")
+    sub = p.add_subparsers(dest="command", required=True)
+
+    sp = sub.add_parser("extract")
+    sp.add_argument("--run-dir", required=True, dest="run_dir")
+    sp.add_argument("--case", required=True)
+    sp.add_argument("--config", default=None, help="JSON dict: config_id, nx, ny, ranks, omp, ...")
+    sp.add_argument("--out", default=".")
+    sp.add_argument("--stream", type=int, default=AUX_STREAM_PREFERRED)
+    sp.add_argument("--interval-minutes", type=int, default=DEFAULT_INTERVAL_MINUTES,
+                     dest="interval_minutes")
+    sp.add_argument("--fields", default=None, help="comma-separated; default: task's own list")
+    sp.add_argument("--max-dom", type=int, default=None, dest="max_dom")
+    sp.add_argument("--dt", type=float, default=None)
+    sp.add_argument("--radt", type=float, default=None,
+                     help="fallback radt (minutes) when the namelist template is unreadable here")
+
+    sp = sub.add_parser("default-fields")
+
+    sp = sub.add_parser("pick-aux-stream")
+    sp.add_argument("namelist_file")
+    sp.add_argument("--preferred", type=int, default=AUX_STREAM_PREFERRED)
+
+    sp = sub.add_parser("check-iofields")
+    sp.add_argument("--wrf-tree", required=True, dest="wrf_tree")
+    sp.add_argument("--fields", required=True)
+
+    sp = sub.add_parser("write-iofields")
+    sp.add_argument("outfile")
+    sp.add_argument("--stream", type=int, required=True)
+    sp.add_argument("--fields", required=True)
+
+    sp = sub.add_parser("edit-namelist-timeline")
+    sp.add_argument("infile")
+    sp.add_argument("outfile")
+    sp.add_argument("--case", required=True)
+    sp.add_argument("--hours", type=int, default=None)
+    sp.add_argument("--run-minutes", type=int, default=None, dest="run_minutes",
+                     help="exact run length in minutes; takes precedence over --hours*60 "
+                          "(job 587/588 postmortem: --hours*60 cannot represent a sub-hour "
+                          "or non-whole-hour run length)")
+    sp.add_argument("--every", type=int, required=True)
+    sp.add_argument("--nproc-x", type=int, required=True, dest="nproc_x")
+    sp.add_argument("--nproc-y", type=int, required=True, dest="nproc_y")
+    sp.add_argument("--numtiles", type=int, required=True)
+    sp.add_argument("--ranks", type=int, required=True)
+    sp.add_argument("--max-dom", type=int, default=1, dest="max_dom")
+    sp.add_argument("--aux-stream", type=int, required=True, dest="aux_stream")
+    sp.add_argument("--aux-interval", type=int, required=True, dest="aux_interval")
+    sp.add_argument("--frames-per-auxhist", type=int, default=2000, dest="frames_per_auxhist")
+    sp.add_argument("--iofields-filename", required=True, dest="iofields_filename")
+    sp.add_argument("--dt", type=float, default=None)
+
+    sp = sub.add_parser("plan-training")
+    sp.add_argument("--cases", type=lambda s: [x.strip() for x in s.split(",") if x.strip()],
+                     default=None)
+    sp.add_argument("--hours", type=int, default=None)
+    sp.add_argument("--nodes", type=int, default=tv.DEFAULT_NODES)
+    sp.add_argument("--k", type=int, default=2)
+    sp.add_argument("--hardware-id", default=tv.DEFAULT_HARDWARE_ID, dest="hardware_id")
+    sp.add_argument("--ledger-dir", default="$HOME/wtune-runs/campaign", dest="ledger_dir")
+
+    return p
+
+
+def main(argv=None):
+    args = build_arg_parser().parse_args(argv)
+    handlers = {
+        "extract": cmd_extract, "plan-training": cmd_plan_training,
+        "default-fields": cmd_default_fields, "pick-aux-stream": cmd_pick_aux_stream,
+        "check-iofields": cmd_check_iofields, "write-iofields": cmd_write_iofields,
+        "edit-namelist-timeline": cmd_edit_namelist_timeline,
+    }
+    return handlers[args.command](args)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

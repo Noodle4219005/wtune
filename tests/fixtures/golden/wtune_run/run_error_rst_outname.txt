@@ -1,0 +1,7 @@
+rc=2
+--- log
+--- stdout
+
+--- stderr
+error: rst_outname is set: segments assume the default wrfrst_d<domain>_<date> names
+

@@ -1,0 +1,7 @@
+rc=2
+--- log
+--- stdout
+
+--- stderr
+error: --segment-minutes 180 is shorter than one input record interval: per-record ADIOS2 inputs (interval_seconds 06:00:00) exist only every 06:00:00 from the run start, and WRF opens the file of a resumed segment's start time -- use --segment-minutes 360 (or a multiple), or --io netcdf
+

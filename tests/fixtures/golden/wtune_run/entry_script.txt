@@ -1,0 +1,165 @@
+rc=0
+usage: wtune run [-h] [--nodes NODES] [--nx NX] [--ny NY] [--numtiles NUMTILES] [--omp OMP]
+                 [--wall-limit WALL_LIMIT] [--segment-minutes SEGMENT_MINUTES] [--stop-at STOP_AT]
+                 [--prediction PREDICTION] [--tune-report TUNE_REPORT] [--restart-io-form {14,2}]
+                 [--io {adios2,netcdf}] [--cfl-rescue] [--resume N] [--checkpoint-minutes M]
+                 [--sidecar] [--wrfda-forecast-only] [--out OUT] [--project PROJECT] [--dry-run]
+                 [--wrf-tree WRF_TREE] [--env-source ENV_SOURCE] [--campaign-dir CAMPAIGN_DIR]
+                 [--sacct-cmd SACCT_CMD] [--poll-interval POLL_INTERVAL]
+                 [case_dir]
+
+wtune run -- segmented WRF executor with restart hand-offs (`wtune run`).
+
+positional arguments:
+  case_dir              default: the project's case/ (then the newest tune/*/tune_report.json is
+                        used unless --tune-report or --nodes is given)
+
+options:
+  -h, --help            show this help message and exit
+  --nodes NODES         required unless --tune-report names a winner layout (flags override it)
+  --nx NX
+  --ny NY
+  --numtiles NUMTILES   default: tune report, else 1
+  --omp OMP             default: tune report, else 1
+  --wall-limit WALL_LIMIT
+                        HH:MM:SS per segment job
+  --segment-minutes SEGMENT_MINUTES
+  --stop-at STOP_AT     YYYY-MM-DD_HH:MM:SS (on a whole time step)
+  --prediction PREDICTION
+                        pred_rebuild.json (wtune predict-rebuild)
+  --tune-report TUNE_REPORT
+                        predicted-mode tune_report.json: per segment the lowest-predicted
+                        candidate is run
+  --restart-io-form {14,2}
+  --io {adios2,netcdf}  adios2 (default, 2026-10-03 decision): every stream -- history, restart,
+                        input, boundary, aux inputs -- is ADIOS2 (io_form 14); netCDF inputs are
+                        converted once into <project>/input/bp/ (no project: OUT/_bp_inputs/) and
+                        linked as <name>.bp. netcdf: LEGACY escape hatch -- the case's own
+                        io_form_* are kept (restart still per --restart-io-form)
+  --cfl-rescue          re-run a CFL/NaN-failed segment once with 0.75 dt (marks PHYSICS-GRAY).
+                        This is the ONLY user-pre-authorized exception to decision 0056's
+                        advisory-only rule for solution-changing knobs -- without it, a CFL/NaN
+                        failure stops and writes advice (recommended time_step + a
+                        segment.advice.namelist.input) instead of resubmitting anything.
+  --resume N            auto-resume an infrastructure-failed segment job from its latest valid
+                        restart, at most N times per run (default 1; 0 disables)
+  --checkpoint-minutes M
+                        restart every M model minutes for --resume, when the case's own
+                        restart_interval puts none inside a segment. Default auto: the smallest
+                        multiple of the input record step >= run length / 8 (only with --resume >
+                        0); 0 writes none
+  --sidecar             while a segment job runs, record each valid restart and convert finished
+                        history frames to netCDF in the `wtune post` cache, on the job's idle
+                        cores
+  --wrfda-forecast-only
+                        acknowledge that this WRFDA case is run as wrf.exe forecast segments only:
+                        WTune does NOT run DA cycles (obsproc/da_wrfvar/da_update_bc). Without it,
+                        a WRFDA case is refused.
+  --out OUT             required unless --project (or $WTUNE_PROJECT / a project.yaml above cwd)
+                        resolves, in which case it defaults to <project>/runs/<id>/ (decision
+                        0058)
+  --project PROJECT     project dir (decision 0058) -- see --out
+  --dry-run
+  --wrf-tree WRF_TREE   default $WRF_TREE (run/ files are linked by the job too)
+  --env-source ENV_SOURCE
+  --campaign-dir CAMPAIGN_DIR
+  --sacct-cmd SACCT_CMD
+  --poll-interval POLL_INTERVAL
+--- stderr
+
+rc=0
+run 2020-06-01_00:00:00 -> 2020-06-01_12:00:00 (720 d01 steps of 60s); 2 segment(s) cut on input record times (multiples of 06:00:00: interval_seconds 06:00:00), restart 360 min (every segment; case restart_interval 120:00:00 does not divide it), overheads: fallback (conus25/dorian2019 I/O anchors)
+  seg 0  2020-06-01_00:00:00 -> 2020-06-01_06:00:00  cli      8x9 t1 omp1  predicted 00:04:48  --time=00:20:00
+  seg 1  2020-06-01_06:00:00 -> 2020-06-01_12:00:00  cli      8x9 t1 omp1  predicted 00:04:48  --time=00:20:00
+  note: no prediction: 0.465 s/step fallback (cell-step model x 1.5); later segments' --time from each finished segment's observed rate
+  note: no restart is written inside a segment (restart 360 min (every segment; case restart_interval 120:00:00 does not divide it)): --resume has nothing to resume a failed job from
+I/O: ADIOS2 (history/restart/input/boundary), inputs from <TMP>/out/_bp_inputs (3 netCDF -> BP4, 1 existing BP); one BP per record: wrfbdy_d01
+namelist diff, segment 0:
+  + bdy_inname = "wrfbdy_d<domain>_<date>.bp",
+  + input_inname = "wrfinput_d<domain>.bp",
+  + end_second = 00, 00, 00,
+  + end_minute = 00, 00, 00,
+  + start_second = 00, 00, 00,
+  + start_minute = 00, 00, 00,
+  - run_hours                           = 12,
+  + run_hours                           = 0,
+  - run_seconds                         = 0,
+  + run_seconds                         = 21600,
+  - start_month                         = 06,   06,   06,
+  - start_day                           = 01,   01,   01,
+  - start_hour                          = 00,   00,   00,
+  + start_month                         = 06, 06, 06,
+  + start_day                           = 01, 01, 01,
+  + start_hour                          = 00, 00, 00,
+  - end_month                           = 06,   06,   06,
+  - end_day                             = 01,   01,   01,
+  - end_hour                            = 12,   12,   12,
+  + end_month                           = 06, 06, 06,
+  + end_day                             = 01, 01, 01,
+  + end_hour                            = 06, 06, 06,
+  - restart_interval                    = 7200,
+  - io_form_history                     = 2
+  - io_form_restart                     = 2
+  - io_form_input                       = 2
+  - io_form_boundary                    = 2
+  + restart_interval                    = 360,
+  + io_form_history                     = 14
+  + io_form_restart                     = 14
+  + io_form_input                       = 14
+  + io_form_boundary                    = 14
+  + numtiles = 1,
+  + nproc_y = 9,
+  + nproc_x = 8,
+  +&bdy_control
+  + multi_bdy_files = .true.,
+  +/
+  +
+  +&namelist_adios2
+  + adios2_numaggregators = 72,
+  +/
+namelist diff, segment 1:
+  + bdy_inname = "wrfbdy_d<domain>_<date>.bp",
+  + input_inname = "wrfinput_d<domain>.bp",
+  + end_second = 00, 00, 00,
+  + end_minute = 00, 00, 00,
+  + start_second = 00, 00, 00,
+  + start_minute = 00, 00, 00,
+  - run_hours                           = 12,
+  + run_hours                           = 0,
+  - run_seconds                         = 0,
+  + run_seconds                         = 21600,
+  - start_month                         = 06,   06,   06,
+  - start_day                           = 01,   01,   01,
+  - start_hour                          = 00,   00,   00,
+  + start_month                         = 06, 06, 06,
+  + start_day                           = 01, 01, 01,
+  + start_hour                          = 06, 06, 06,
+  - end_month                           = 06,   06,   06,
+  - end_day                             = 01,   01,   01,
+  - end_hour                            = 12,   12,   12,
+  + end_month                           = 06, 06, 06,
+  + end_day                             = 01, 01, 01,
+  + end_hour                            = 12, 12, 12,
+  - restart                             = .false.,
+  - restart_interval                    = 7200,
+  - io_form_history                     = 2
+  - io_form_restart                     = 2
+  - io_form_input                       = 2
+  - io_form_boundary                    = 2
+  + restart                             = .true.,
+  + restart_interval                    = 360,
+  + io_form_history                     = 14
+  + io_form_restart                     = 14
+  + io_form_input                       = 14
+  + io_form_boundary                    = 14
+  + numtiles = 1,
+  + nproc_y = 9,
+  + nproc_x = 8,
+  +&bdy_control
+  + multi_bdy_files = .true.,
+  +/
+  +
+  +&namelist_adios2
+  + adios2_numaggregators = 72,
+  +/
+--- stderr

@@ -1,0 +1,81 @@
+// verif_grid_stat.conf.tmpl -- MET Grid-Stat config for the model-vs-observation gridded
+// comparisons (post/met_gridstat.py run_verification): Stage IV precipitation (OBS on its own
+// HRAP grid, model regridded onto it) and radar composite reflectivity (both on one lat/lon
+// grid). Only the entries that differ from MET 12.1's GridStatConfig_default are set.
+// Categorical scores at the given thresholds (FHO/CTC/CTS: POD = PODY, FAR, CSI, FBIAS) and the
+// Fractions Skill Score (NBRCNT: FSS) for the neighbourhood widths, over the interior polygon.
+
+model   = "${MODEL}";
+obtype  = "${OBTYPE}";
+
+fcst = {
+  field = [ { name = "${FCST_NAME}"; level = [ "${FCST_LEVEL}" ]; cat_thresh = [ ${CAT_THRESH} ]; } ];
+}
+obs = {
+  field = [ { name = "${OBS_NAME}"; level = [ "${OBS_LEVEL}" ]; cat_thresh = [ ${CAT_THRESH} ]; } ];
+}
+
+regrid = {
+  to_grid = ${TO_GRID};
+  method  = ${REGRID_METHOD};
+  width   = 2;
+}
+
+mask = {
+  grid = [];
+  poly = [ "${POLY_FILE}" ];
+}
+
+nbrhd = {
+  width      = [ ${NBR_WIDTHS} ];
+  cov_thresh = [ >=0.5 ];
+  vld_thresh = 1.0;
+  shape      = SQUARE;
+}
+
+ci_alpha = [ 0.05 ];
+
+output_flag = {
+  fho    = BOTH;
+  ctc    = BOTH;
+  cts    = BOTH;
+  mctc   = NONE;
+  mcts   = NONE;
+  cnt    = BOTH;
+  sl1l2  = NONE;
+  sal1l2 = NONE;
+  vl1l2  = NONE;
+  val1l2 = NONE;
+  vcnt   = NONE;
+  pct    = NONE;
+  pstd   = NONE;
+  pjc    = NONE;
+  prc    = NONE;
+  eclv   = NONE;
+  nbrctc = NONE;
+  nbrcts = NONE;
+  nbrcnt = BOTH;
+  grad   = NONE;
+  dmap   = NONE;
+  mpr    = NONE;
+  orank  = NONE;
+}
+
+// matched-pair NetCDF on the verification grid: raw FCST and OBS fields (the side-by-side maps
+// draw these, so both panels are the very fields the scores were computed from) and DIFF.
+nc_pairs_flag = {
+  latlon       = TRUE;
+  raw          = TRUE;
+  diff         = TRUE;
+  climo        = FALSE;
+  climo_cdp    = FALSE;
+  seeps        = FALSE;
+  weight       = FALSE;
+  nbrhd        = FALSE;
+  fourier      = FALSE;
+  gradient     = FALSE;
+  distance_map = FALSE;
+  apply_mask   = TRUE;
+}
+
+version = "V12.1.1";

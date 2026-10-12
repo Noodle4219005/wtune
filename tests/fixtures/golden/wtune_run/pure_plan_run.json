@@ -1,0 +1,661 @@
+{
+ "one_segment": {
+  "L": null,
+  "segments": [
+   {
+    "index": 0,
+    "start_step": 0,
+    "end_step": 720,
+    "start": "2020-06-01_00:00:00",
+    "end": "2020-06-01_12:00:00",
+    "config": {
+     "id": "cli",
+     "nx": 8,
+     "ny": 9,
+     "ranks": 72,
+     "numtiles": 1,
+     "omp": 1,
+     "nodes": 1,
+     "dist": "block"
+    },
+    "writes_restart": false,
+    "predicted_compute_s": 720.0,
+    "predicted_wall_s": 1210.0,
+    "time_limit": "00:45:00"
+   }
+  ],
+  "notes": []
+ },
+ "segment_minutes": {
+  "L": 300,
+  "segments": [
+   {
+    "index": 0,
+    "start_step": 0,
+    "end_step": 300,
+    "start": "2020-06-01_00:00:00",
+    "end": "2020-06-01_05:00:00",
+    "config": {
+     "id": "cli",
+     "nx": 8,
+     "ny": 9,
+     "ranks": 72,
+     "numtiles": 1,
+     "omp": 1,
+     "nodes": 1,
+     "dist": "block"
+    },
+    "writes_restart": true,
+    "predicted_compute_s": 300.0,
+    "predicted_wall_s": 630.0,
+    "time_limit": "00:30:00"
+   },
+   {
+    "index": 1,
+    "start_step": 300,
+    "end_step": 600,
+    "start": "2020-06-01_05:00:00",
+    "end": "2020-06-01_10:00:00",
+    "config": {
+     "id": "cli",
+     "nx": 8,
+     "ny": 9,
+     "ranks": 72,
+     "numtiles": 1,
+     "omp": 1,
+     "nodes": 1,
+     "dist": "block"
+    },
+    "writes_restart": true,
+    "predicted_compute_s": 300.0,
+    "predicted_wall_s": 650.0,
+    "time_limit": "00:30:00"
+   },
+   {
+    "index": 2,
+    "start_step": 600,
+    "end_step": 700,
+    "start": "2020-06-01_10:00:00",
+    "end": "2020-06-01_11:40:00",
+    "config": {
+     "id": "cli",
+     "nx": 8,
+     "ny": 9,
+     "ranks": 72,
+     "numtiles": 1,
+     "omp": 1,
+     "nodes": 1,
+     "dist": "block"
+    },
+    "writes_restart": false,
+    "predicted_compute_s": 100.0,
+    "predicted_wall_s": 280.0,
+    "time_limit": "00:20:00"
+   }
+  ],
+  "notes": []
+ },
+ "segment_minutes_two_candidates": {
+  "L": 360,
+  "segments": [
+   {
+    "index": 0,
+    "start_step": 0,
+    "end_step": 360,
+    "start": "2020-06-01_00:00:00",
+    "end": "2020-06-01_06:00:00",
+    "config": {
+     "id": "cli",
+     "nx": 8,
+     "ny": 9,
+     "ranks": 72,
+     "numtiles": 1,
+     "omp": 1,
+     "nodes": 1,
+     "dist": "block"
+    },
+    "writes_restart": true,
+    "predicted_compute_s": 360.0,
+    "predicted_wall_s": 720.0,
+    "time_limit": "00:30:00"
+   },
+   {
+    "index": 1,
+    "start_step": 360,
+    "end_step": 720,
+    "start": "2020-06-01_06:00:00",
+    "end": "2020-06-01_12:00:00",
+    "config": {
+     "id": "B",
+     "nx": 6,
+     "ny": 12,
+     "ranks": 72,
+     "numtiles": 2,
+     "omp": 1,
+     "nodes": 1,
+     "dist": "block"
+    },
+    "writes_restart": true,
+    "predicted_compute_s": 180.0,
+    "predicted_wall_s": 560.0,
+    "time_limit": "00:25:00"
+   }
+  ],
+  "notes": []
+ },
+ "wall_limit": {
+  "L": 190,
+  "segments": [
+   {
+    "index": 0,
+    "start_step": 0,
+    "end_step": 190,
+    "start": "2020-06-01_00:00:00",
+    "end": "2020-06-01_03:10:00",
+    "config": {
+     "id": "cli",
+     "nx": 8,
+     "ny": 9,
+     "ranks": 72,
+     "numtiles": 1,
+     "omp": 1,
+     "nodes": 1,
+     "dist": "block"
+    },
+    "writes_restart": true,
+    "predicted_compute_s": 190.0,
+    "predicted_wall_s": 460.0,
+    "time_limit": "00:10:00"
+   },
+   {
+    "index": 1,
+    "start_step": 190,
+    "end_step": 380,
+    "start": "2020-06-01_03:10:00",
+    "end": "2020-06-01_06:20:00",
+    "config": {
+     "id": "cli",
+     "nx": 8,
+     "ny": 9,
+     "ranks": 72,
+     "numtiles": 1,
+     "omp": 1,
+     "nodes": 1,
+     "dist": "block"
+    },
+    "writes_restart": true,
+    "predicted_compute_s": 190.0,
+    "predicted_wall_s": 480.0,
+    "time_limit": "00:10:00"
+   },
+   {
+    "index": 2,
+    "start_step": 380,
+    "end_step": 570,
+    "start": "2020-06-01_06:20:00",
+    "end": "2020-06-01_09:30:00",
+    "config": {
+     "id": "cli",
+     "nx": 8,
+     "ny": 9,
+     "ranks": 72,
+     "numtiles": 1,
+     "omp": 1,
+     "nodes": 1,
+     "dist": "block"
+    },
+    "writes_restart": true,
+    "predicted_compute_s": 190.0,
+    "predicted_wall_s": 480.0,
+    "time_limit": "00:10:00"
+   },
+   {
+    "index": 3,
+    "start_step": 570,
+    "end_step": 720,
+    "start": "2020-06-01_09:30:00",
+    "end": "2020-06-01_12:00:00",
+    "config": {
+     "id": "cli",
+     "nx": 8,
+     "ny": 9,
+     "ranks": 72,
+     "numtiles": 1,
+     "omp": 1,
+     "nodes": 1,
+     "dist": "block"
+    },
+    "writes_restart": false,
+    "predicted_compute_s": 150.0,
+    "predicted_wall_s": 390.0,
+    "time_limit": "00:10:00"
+   }
+  ],
+  "notes": []
+ },
+ "wall_limit_too_small": "RunError: even 1-step segments exceed the 80 s budget (181 s predicted for the first)",
+ "wall_limit_aligned": {
+  "L": 240,
+  "segments": [
+   {
+    "index": 0,
+    "start_step": 0,
+    "end_step": 240,
+    "start": "2020-06-01_00:00:00",
+    "end": "2020-06-01_04:00:00",
+    "config": {
+     "id": "cli",
+     "nx": 8,
+     "ny": 9,
+     "ranks": 72,
+     "numtiles": 1,
+     "omp": 1,
+     "nodes": 1,
+     "dist": "block"
+    },
+    "writes_restart": true,
+    "predicted_compute_s": 240.0,
+    "predicted_wall_s": 540.0,
+    "time_limit": "00:16:40"
+   },
+   {
+    "index": 1,
+    "start_step": 240,
+    "end_step": 480,
+    "start": "2020-06-01_04:00:00",
+    "end": "2020-06-01_08:00:00",
+    "config": {
+     "id": "cli",
+     "nx": 8,
+     "ny": 9,
+     "ranks": 72,
+     "numtiles": 1,
+     "omp": 1,
+     "nodes": 1,
+     "dist": "block"
+    },
+    "writes_restart": true,
+    "predicted_compute_s": 240.0,
+    "predicted_wall_s": 560.0,
+    "time_limit": "00:16:40"
+   },
+   {
+    "index": 2,
+    "start_step": 480,
+    "end_step": 720,
+    "start": "2020-06-01_08:00:00",
+    "end": "2020-06-01_12:00:00",
+    "config": {
+     "id": "cli",
+     "nx": 8,
+     "ny": 9,
+     "ranks": 72,
+     "numtiles": 1,
+     "omp": 1,
+     "nodes": 1,
+     "dist": "block"
+    },
+    "writes_restart": true,
+    "predicted_compute_s": 240.0,
+    "predicted_wall_s": 560.0,
+    "time_limit": "00:16:40"
+   }
+  ],
+  "notes": []
+ },
+ "wall_limit_aligned_too_small": "RunError: even 360-step segments exceed the 8 s budget (720 s predicted for the first); segment cuts must fall on input record times (interval_seconds 06:00:00, every 06:00:00): raise --wall-limit, or use --io netcdf",
+ "wall_limit_explicit_checkpoint": {
+  "L": 90,
+  "segments": [
+   {
+    "index": 0,
+    "start_step": 0,
+    "end_step": 90,
+    "start": "2020-06-01_00:00:00",
+    "end": "2020-06-01_01:30:00",
+    "config": {
+     "id": "cli",
+     "nx": 8,
+     "ny": 9,
+     "ranks": 72,
+     "numtiles": 1,
+     "omp": 1,
+     "nodes": 1,
+     "dist": "block"
+    },
+    "writes_restart": true,
+    "predicted_compute_s": 90.0,
+    "predicted_wall_s": 350.0,
+    "time_limit": "00:10:00"
+   },
+   {
+    "index": 1,
+    "start_step": 90,
+    "end_step": 180,
+    "start": "2020-06-01_01:30:00",
+    "end": "2020-06-01_03:00:00",
+    "config": {
+     "id": "cli",
+     "nx": 8,
+     "ny": 9,
+     "ranks": 72,
+     "numtiles": 1,
+     "omp": 1,
+     "nodes": 1,
+     "dist": "block"
+    },
+    "writes_restart": true,
+    "predicted_compute_s": 90.0,
+    "predicted_wall_s": 400.0,
+    "time_limit": "00:10:00"
+   },
+   {
+    "index": 2,
+    "start_step": 180,
+    "end_step": 270,
+    "start": "2020-06-01_03:00:00",
+    "end": "2020-06-01_04:30:00",
+    "config": {
+     "id": "cli",
+     "nx": 8,
+     "ny": 9,
+     "ranks": 72,
+     "numtiles": 1,
+     "omp": 1,
+     "nodes": 1,
+     "dist": "block"
+    },
+    "writes_restart": true,
+    "predicted_compute_s": 90.0,
+    "predicted_wall_s": 370.0,
+    "time_limit": "00:10:00"
+   },
+   {
+    "index": 3,
+    "start_step": 270,
+    "end_step": 360,
+    "start": "2020-06-01_04:30:00",
+    "end": "2020-06-01_06:00:00",
+    "config": {
+     "id": "cli",
+     "nx": 8,
+     "ny": 9,
+     "ranks": 72,
+     "numtiles": 1,
+     "omp": 1,
+     "nodes": 1,
+     "dist": "block"
+    },
+    "writes_restart": true,
+    "predicted_compute_s": 90.0,
+    "predicted_wall_s": 400.0,
+    "time_limit": "00:10:00"
+   },
+   {
+    "index": 4,
+    "start_step": 360,
+    "end_step": 450,
+    "start": "2020-06-01_06:00:00",
+    "end": "2020-06-01_07:30:00",
+    "config": {
+     "id": "cli",
+     "nx": 8,
+     "ny": 9,
+     "ranks": 72,
+     "numtiles": 1,
+     "omp": 1,
+     "nodes": 1,
+     "dist": "block"
+    },
+    "writes_restart": true,
+    "predicted_compute_s": 90.0,
+    "predicted_wall_s": 370.0,
+    "time_limit": "00:10:00"
+   },
+   {
+    "index": 5,
+    "start_step": 450,
+    "end_step": 540,
+    "start": "2020-06-01_07:30:00",
+    "end": "2020-06-01_09:00:00",
+    "config": {
+     "id": "cli",
+     "nx": 8,
+     "ny": 9,
+     "ranks": 72,
+     "numtiles": 1,
+     "omp": 1,
+     "nodes": 1,
+     "dist": "block"
+    },
+    "writes_restart": true,
+    "predicted_compute_s": 90.0,
+    "predicted_wall_s": 400.0,
+    "time_limit": "00:10:00"
+   },
+   {
+    "index": 6,
+    "start_step": 540,
+    "end_step": 630,
+    "start": "2020-06-01_09:00:00",
+    "end": "2020-06-01_10:30:00",
+    "config": {
+     "id": "cli",
+     "nx": 8,
+     "ny": 9,
+     "ranks": 72,
+     "numtiles": 1,
+     "omp": 1,
+     "nodes": 1,
+     "dist": "block"
+    },
+    "writes_restart": true,
+    "predicted_compute_s": 90.0,
+    "predicted_wall_s": 370.0,
+    "time_limit": "00:10:00"
+   },
+   {
+    "index": 7,
+    "start_step": 630,
+    "end_step": 720,
+    "start": "2020-06-01_10:30:00",
+    "end": "2020-06-01_12:00:00",
+    "config": {
+     "id": "cli",
+     "nx": 8,
+     "ny": 9,
+     "ranks": 72,
+     "numtiles": 1,
+     "omp": 1,
+     "nodes": 1,
+     "dist": "block"
+    },
+    "writes_restart": true,
+    "predicted_compute_s": 90.0,
+    "predicted_wall_s": 400.0,
+    "time_limit": "00:10:00"
+   }
+  ],
+  "notes": []
+ },
+ "segment_minutes_rounded_to_records": {
+  "L": 360,
+  "segments": [
+   {
+    "index": 0,
+    "start_step": 0,
+    "end_step": 360,
+    "start": "2020-06-01_00:00:00",
+    "end": "2020-06-01_06:00:00",
+    "config": {
+     "id": "cli",
+     "nx": 8,
+     "ny": 9,
+     "ranks": 72,
+     "numtiles": 1,
+     "omp": 1,
+     "nodes": 1,
+     "dist": "block"
+    },
+    "writes_restart": true,
+    "predicted_compute_s": 360.0,
+    "predicted_wall_s": 720.0,
+    "time_limit": "00:30:00"
+   },
+   {
+    "index": 1,
+    "start_step": 360,
+    "end_step": 720,
+    "start": "2020-06-01_06:00:00",
+    "end": "2020-06-01_12:00:00",
+    "config": {
+     "id": "cli",
+     "nx": 8,
+     "ny": 9,
+     "ranks": 72,
+     "numtiles": 1,
+     "omp": 1,
+     "nodes": 1,
+     "dist": "block"
+    },
+    "writes_restart": true,
+    "predicted_compute_s": 360.0,
+    "predicted_wall_s": 740.0,
+    "time_limit": "00:30:00"
+   }
+  ],
+  "notes": [
+   "--segment-minutes 500 rounded down to 360: segment cuts must fall on input record times (interval_seconds 06:00:00, every 06:00:00 from the run start)"
+  ]
+ },
+ "segment_minutes_shorter_than_records": "RunError: --segment-minutes 180 is shorter than one input record interval: per-record ADIOS2 inputs (interval_seconds 06:00:00) exist only every 06:00:00 from the run start, and WRF opens the file of a resumed segment's start time -- use --segment-minutes 360 (or a multiple), or --io netcdf",
+ "segment_minutes_whole_run": {
+  "L": null,
+  "segments": [
+   {
+    "index": 0,
+    "start_step": 0,
+    "end_step": 720,
+    "start": "2020-06-01_00:00:00",
+    "end": "2020-06-01_12:00:00",
+    "config": {
+     "id": "cli",
+     "nx": 8,
+     "ny": 9,
+     "ranks": 72,
+     "numtiles": 1,
+     "omp": 1,
+     "nodes": 1,
+     "dist": "block"
+    },
+    "writes_restart": false,
+    "predicted_compute_s": 720.0,
+    "predicted_wall_s": 1210.0,
+    "time_limit": "00:45:00"
+   }
+  ],
+  "notes": []
+ },
+ "case_restart_kept": {
+  "L": null,
+  "segments": [
+   {
+    "index": 0,
+    "start_step": 0,
+    "end_step": 720,
+    "start": "2020-06-01_00:00:00",
+    "end": "2020-06-01_12:00:00",
+    "config": {
+     "id": "cli",
+     "nx": 8,
+     "ny": 9,
+     "ranks": 72,
+     "numtiles": 1,
+     "omp": 1,
+     "nodes": 1,
+     "dist": "block"
+    },
+    "writes_restart": false,
+    "predicted_compute_s": 720.0,
+    "predicted_wall_s": 1410.0,
+    "time_limit": "00:50:00"
+   }
+  ],
+  "notes": []
+ },
+ "case_restart_divides_segments": {
+  "L": 360,
+  "segments": [
+   {
+    "index": 0,
+    "start_step": 0,
+    "end_step": 360,
+    "start": "2020-06-01_00:00:00",
+    "end": "2020-06-01_06:00:00",
+    "config": {
+     "id": "cli",
+     "nx": 8,
+     "ny": 9,
+     "ranks": 72,
+     "numtiles": 1,
+     "omp": 1,
+     "nodes": 1,
+     "dist": "block"
+    },
+    "writes_restart": true,
+    "predicted_compute_s": 360.0,
+    "predicted_wall_s": 820.0,
+    "time_limit": "00:35:00"
+   },
+   {
+    "index": 1,
+    "start_step": 360,
+    "end_step": 720,
+    "start": "2020-06-01_06:00:00",
+    "end": "2020-06-01_12:00:00",
+    "config": {
+     "id": "cli",
+     "nx": 8,
+     "ny": 9,
+     "ranks": 72,
+     "numtiles": 1,
+     "omp": 1,
+     "nodes": 1,
+     "dist": "block"
+    },
+    "writes_restart": true,
+    "predicted_compute_s": 360.0,
+    "predicted_wall_s": 840.0,
+    "time_limit": "00:35:00"
+   }
+  ],
+  "notes": []
+ },
+ "auto_checkpoint": {
+  "L": null,
+  "segments": [
+   {
+    "index": 0,
+    "start_step": 0,
+    "end_step": 720,
+    "start": "2020-06-01_00:00:00",
+    "end": "2020-06-01_12:00:00",
+    "config": {
+     "id": "cli",
+     "nx": 8,
+     "ny": 9,
+     "ranks": 72,
+     "numtiles": 1,
+     "omp": 1,
+     "nodes": 1,
+     "dist": "block"
+    },
+    "writes_restart": false,
+    "predicted_compute_s": 720.0,
+    "predicted_wall_s": 1310.0,
+    "time_limit": "00:45:00"
+   }
+  ],
+  "notes": []
+ }
+}

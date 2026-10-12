@@ -1,0 +1,7 @@
+rc=2
+--- log
+--- stdout
+
+--- stderr
+error: even 1-step segments exceed the 24 s budget (122 s predicted for the first)
+

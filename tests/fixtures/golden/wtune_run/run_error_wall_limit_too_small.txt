@@ -1,0 +1,7 @@
+rc=2
+--- log
+--- stdout
+
+--- stderr
+error: even 360-step segments exceed the 24 s budget (288 s predicted for the first); segment cuts must fall on input record times (interval_seconds 06:00:00, every 06:00:00): raise --wall-limit, or use --io netcdf
+

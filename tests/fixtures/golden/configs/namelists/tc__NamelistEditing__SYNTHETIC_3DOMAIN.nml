@@ -1,0 +1,12 @@
+&time_control
+ run_days = 0, run_hours = 1, run_minutes = 0,
+ history_interval_s = 00, 00, 00,
+ io_form_history = 0,
+ restart = .false.,
+ io_form_input = 11,
+ io_form_boundary = 11,
+/
+&domains
+ max_dom = 3,
+ time_step=15, e_we=793, 805, 1001, e_sn=853, 805, 1001,
+/

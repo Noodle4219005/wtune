@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "note": "Cost coefficients for WRF extensions (wtune/extensions.py). status is 'measured' only when the number comes from a recorded experiment; 'placeholder' means an unfitted stand-in that MUST NOT be read as a prediction of the extension's true cost. To calibrate, fit the *_frac / default_* fields from rsl.out.0000 step timings of extension runs and replace this file (or point $WTUNE_EXTENSION_COEFFS at a copy, or put the same object under the calibration JSON key 'extension_coefficients'); no code change is needed. uncertainty_pct is the relative 1-sigma-like widening added in quadrature to the compute noise when the factor is applied.",
+  "movenest": {
+    "status": "measured",
+    "const_frac": 0.06,
+    "uncertainty_pct": 3.0,
+    "move_frac_not_applied": -0.006,
+    "source": "knowledge/experiments/2026-09-06-all-four-wrf-nesting-modes-measured.md ([[all-four-wrf-nesting-modes-measured]]): MOVE_NESTS binary +6.0% even when the nest does not move; moving itself about -0.6% (not applied); [[49-nest-moves-change-nothing-the-last-door-on-dynamic-geometry-is-closed]]: 49 moves do not change the best decomposition"
+  },
+  "chem": {
+    "status": "placeholder",
+    "frac_per_tracer": 0.02,
+    "default_n_tracers": 30,
+    "n_tracers_by_chem_opt": {},
+    "frac_per_chem_step": 0.5,
+    "uncertainty_pct": 100.0,
+    "source": "placeholder: multiplier = 1 + frac_per_tracer*n_tracers + frac_per_chem_step*min(1, dt/(chemdt*60)); NOT fitted. Fill n_tracers_by_chem_opt and refit from rsl timing of real chem runs."
+  },
+  "hydro": {
+    "status": "placeholder",
+    "frac_per_routing_cell_ratio": 0.002,
+    "default_aggfactrt": 4,
+    "uncertainty_pct": 100.0,
+    "source": "placeholder: multiplier = 1 + frac_per_routing_cell_ratio*AGGFACTRT^2*max(1, dt/DTRT_TER); NOT fitted. AGGFACTRT/DTRT_TER are read from hydro.namelist when present."
+  },
+  "wrfda": {
+    "status": "none",
+    "uncertainty_pct": 0.0,
+    "source": "no DA cost model: the forecast (wrf.exe) part uses the normal model; da_wrfvar.exe minimisation is out of scope"
+  }
+}

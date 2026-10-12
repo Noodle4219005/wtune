@@ -1,0 +1,14 @@
+rc=2
+--- log
+run 2020-06-01_00:00:00 -> 2020-06-01_12:00:00 (720 d01 steps of 60s); 2 segment(s) cut on input record times (multiples of 06:00:00: interval_seconds 06:00:00), restart 360 min (every segment; case restart_interval 120:00:00 does not divide it), overheads: fallback (conus25/dorian2019 I/O anchors)
+  seg 0  2020-06-01_00:00:00 -> 2020-06-01_06:00:00  cli      8x9 t1 omp1  predicted 00:04:48  --time=00:20:00
+  seg 1  2020-06-01_06:00:00 -> 2020-06-01_12:00:00  cli      8x9 t1 omp1  predicted 00:04:48  --time=00:20:00
+  note: no prediction: 0.465 s/step fallback (cell-step model x 1.5); later segments' --time from each finished segment's observed rate
+  note: no restart is written inside a segment (restart 360 min (every segment; case restart_interval 120:00:00 does not divide it)): --resume has nothing to resume a failed job from
+I/O: ADIOS2 (history/restart/input/boundary), inputs from <TMP>/out/_bp_inputs (3 netCDF -> BP4, 1 existing BP); one BP per record: wrfbdy_d01
+--- stdout
+
+--- stderr
+error: ADIOS2 input staging failed (RuntimeError: no Python that can `import adios2`) -- fix the converter env, or rerun with the legacy --io netcdf
+
+--- tree

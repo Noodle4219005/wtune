@@ -1,0 +1,6 @@
+&physics
+ mp_physics=8, radt=15,
+/
+&domains
+ time_step=15, e_we=901, e_sn=901, e_vert=45,
+/

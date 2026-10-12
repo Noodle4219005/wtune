@@ -1,0 +1,227 @@
+cdi  warning (cdf_set_var): Inconsistent variable definition for XLAT!
+cdi  warning (cdf_set_var): Inconsistent variable definition for XLONG!
+cdi  warning (cdf_set_var): Inconsistent variable definition for XLAT_U!
+cdi  warning (cdf_set_var): Inconsistent variable definition for XLONG_U!
+cdi  warning (cdf_set_var): Inconsistent variable definition for XLAT_V!
+cdi  warning (cdf_set_var): Inconsistent variable definition for XLONG_V!
+cdi  warning (cdf_check_variables): Unsupported data type (char/string), skipped variable Times!
+cdi  warning (set_coordinates_varids): Coordinates variable XTIME can't be assigned!
+   File format : NetCDF4 zip
+    -1 : Institut Source   T Steptype Levels Num    Points Num Dtype : Parameter name
+     1 : unknown  unknown  v instant       1   1     21801   1  F32z : LU_INDEX      
+     2 : unknown  unknown  v instant       1   1        39   2  F32  : ZNU           
+     3 : unknown  unknown  v instant       1   1        40   3  F32  : ZNW           
+     4 : unknown  unknown  v instant       1   1         4   4  F32  : ZS            
+     5 : unknown  unknown  v instant       1   1         4   4  F32  : DZS           
+     6 : unknown  unknown  v instant       1   1     21801   1  F32z : VAR_SSO       
+     7 : unknown  unknown  v instant       1   1         1   5  I32  : BATHYMETRY_FLAG
+     8 : unknown  unknown  v instant      39   2     21930   6  F32z : U             
+     9 : unknown  unknown  v instant      39   2     21970   7  F32z : V             
+    10 : unknown  unknown  v instant      40   3     21801   1  F32z : W             
+    11 : unknown  unknown  v instant      40   3     21801   1  F32z : PH            
+    12 : unknown  unknown  v instant      40   3     21801   1  F32z : PHB           
+    13 : unknown  unknown  v instant      39   2     21801   1  F32z : T             
+    14 : unknown  unknown  v instant      39   2     21801   1  F32z : THM           
+    15 : unknown  unknown  v instant       1   1         1   5  F32  : HFX_FORCE     
+    16 : unknown  unknown  v instant       1   1         1   5  F32  : LH_FORCE      
+    17 : unknown  unknown  v instant       1   1         1   5  F32  : TSK_FORCE     
+    18 : unknown  unknown  v instant       1   1         1   5  F32  : HFX_FORCE_TEND
+    19 : unknown  unknown  v instant       1   1         1   5  F32  : LH_FORCE_TEND 
+    20 : unknown  unknown  v instant       1   1         1   5  F32  : TSK_FORCE_TEND
+    21 : unknown  unknown  v instant       1   1     21801   1  F32z : MU            
+    22 : unknown  unknown  v instant       1   1     21801   1  F32z : MUB           
+    23 : unknown  unknown  v instant       1   1     21801   1  F32z : NEST_POS      
+    24 : unknown  unknown  v instant      39   2     21801   1  F32z : P             
+    25 : unknown  unknown  v instant      39   2     21801   1  F32z : PB            
+    26 : unknown  unknown  v instant       1   1        39   2  F32  : FNM           
+    27 : unknown  unknown  v instant       1   1        39   2  F32  : FNP           
+    28 : unknown  unknown  v instant       1   1        39   2  F32  : RDNW          
+    29 : unknown  unknown  v instant       1   1        39   2  F32  : RDN           
+    30 : unknown  unknown  v instant       1   1        39   2  F32  : DNW           
+    31 : unknown  unknown  v instant       1   1        39   2  F32  : DN            
+    32 : unknown  unknown  v instant       1   1         1   5  F32  : CFN           
+    33 : unknown  unknown  v instant       1   1         1   5  F32  : CFN1          
+    34 : unknown  unknown  v instant       1   1         1   5  I32  : THIS_IS_AN_IDEAL_RUN
+    35 : unknown  unknown  v instant      39   2     21801   1  F32z : P_HYD         
+    36 : unknown  unknown  v instant       1   1     21801   1  F32z : Q2            
+    37 : unknown  unknown  v instant       1   1     21801   1  F32z : T2            
+    38 : unknown  unknown  v instant       1   1     21801   1  F32z : TH2           
+    39 : unknown  unknown  v instant       1   1     21801   1  F32z : PSFC          
+    40 : unknown  unknown  v instant       1   1     21801   1  F32z : U10           
+    41 : unknown  unknown  v instant       1   1     21801   1  F32z : V10           
+    42 : unknown  unknown  v instant       1   1         1   5  F32  : RDX           
+    43 : unknown  unknown  v instant       1   1         1   5  F32  : RDY           
+    44 : unknown  unknown  v instant       1   1     21801   1  F32z : AREA2D        
+    45 : unknown  unknown  v instant       1   1     21801   1  F32z : DX2D          
+    46 : unknown  unknown  v instant       1   1         1   5  F32  : RESM          
+    47 : unknown  unknown  v instant       1   1         1   5  F32  : ZETATOP       
+    48 : unknown  unknown  v instant       1   1         1   5  F32  : CF1           
+    49 : unknown  unknown  v instant       1   1         1   5  F32  : CF2           
+    50 : unknown  unknown  v instant       1   1         1   5  F32  : CF3           
+    51 : unknown  unknown  v instant       1   1         1   5  I32  : ITIMESTEP     
+    52 : unknown  unknown  v instant      39   2     21801   1  F32z : QVAPOR        
+    53 : unknown  unknown  v instant      39   2     21801   1  F32z : QCLOUD        
+    54 : unknown  unknown  v instant      39   2     21801   1  F32z : QRAIN         
+    55 : unknown  unknown  v instant      39   2     21801   1  F32z : QICE          
+    56 : unknown  unknown  v instant      39   2     21801   1  F32z : QSNOW         
+    57 : unknown  unknown  v instant      39   2     21801   1  F32z : QGRAUP        
+    58 : unknown  unknown  v instant      39   2     21801   1  F32z : QNICE         
+    59 : unknown  unknown  v instant      39   2     21801   1  F32z : QNRAIN        
+    60 : unknown  unknown  v instant       1   1     21801   1  F32z : SHDMAX        
+    61 : unknown  unknown  v instant       1   1     21801   1  F32z : SHDMIN        
+    62 : unknown  unknown  v instant       1   1     21801   1  F32z : SHDAVG        
+    63 : unknown  unknown  v instant       1   1     21801   1  F32z : SNOALB        
+    64 : unknown  unknown  v instant       4   4     21801   1  F32z : TSLB          
+    65 : unknown  unknown  v instant       4   4     21801   1  F32z : SMOIS         
+    66 : unknown  unknown  v instant       4   4     21801   1  F32z : SH2O          
+    67 : unknown  unknown  v instant       4   4     21801   1  F32z : SMCREL        
+    68 : unknown  unknown  v instant       1   1     21801   1  F32z : SEAICE        
+    69 : unknown  unknown  v instant       1   1     21801   1  F32z : XICEM         
+    70 : unknown  unknown  v instant       1   1     21801   1  F32z : SFROFF        
+    71 : unknown  unknown  v instant       1   1     21801   1  F32z : UDROFF        
+    72 : unknown  unknown  v instant       1   1     21801   1  I32z : IVGTYP        
+    73 : unknown  unknown  v instant       1   1     21801   1  I32z : ISLTYP        
+    74 : unknown  unknown  v instant       1   1     21801   1  F32z : VEGFRA        
+    75 : unknown  unknown  v instant       1   1     21801   1  F32z : GRDFLX        
+    76 : unknown  unknown  v instant       1   1     21801   1  F32z : ACGRDFLX      
+    77 : unknown  unknown  v instant       1   1     21801   1  F32z : ACSNOM        
+    78 : unknown  unknown  v instant       1   1     21801   1  F32z : SNOW          
+    79 : unknown  unknown  v instant       1   1     21801   1  F32z : SNOWH         
+    80 : unknown  unknown  v instant       1   1     21801   1  F32z : CANWAT        
+    81 : unknown  unknown  v instant       1   1     21801   1  F32z : SSTSK         
+    82 : unknown  unknown  v instant       1   1     21801   1  F32z : WATER_DEPTH   
+    83 : unknown  unknown  v instant       1   1     21801   1  F32z : COSZEN        
+    84 : unknown  unknown  v instant       1   1     21801   1  F32z : LAI           
+    85 : unknown  unknown  v instant       1   1     21801   1  F32z : VAR           
+    86 : unknown  unknown  v instant       1   1     21801   1  F32z : O3_GFS_DU     
+    87 : unknown  unknown  v instant       1   1     21801   1  F32z : MAPFAC_M      
+    88 : unknown  unknown  v instant       1   1     21930   6  F32z : MAPFAC_U      
+    89 : unknown  unknown  v instant       1   1     21970   7  F32z : MAPFAC_V      
+    90 : unknown  unknown  v instant       1   1     21801   1  F32z : MAPFAC_MX     
+    91 : unknown  unknown  v instant       1   1     21801   1  F32z : MAPFAC_MY     
+    92 : unknown  unknown  v instant       1   1     21930   6  F32z : MAPFAC_UX     
+    93 : unknown  unknown  v instant       1   1     21930   6  F32z : MAPFAC_UY     
+    94 : unknown  unknown  v instant       1   1     21970   7  F32z : MAPFAC_VX     
+    95 : unknown  unknown  v instant       1   1     21970   7  F32z : MF_VX_INV     
+    96 : unknown  unknown  v instant       1   1     21970   7  F32z : MAPFAC_VY     
+    97 : unknown  unknown  v instant       1   1     21801   1  F32z : F             
+    98 : unknown  unknown  v instant       1   1     21801   1  F32z : E             
+    99 : unknown  unknown  v instant       1   1     21801   1  F32z : SINALPHA      
+   100 : unknown  unknown  v instant       1   1     21801   1  F32z : COSALPHA      
+   101 : unknown  unknown  v instant       1   1     21801   1  F32z : HGT           
+   102 : unknown  unknown  v instant       1   1     21801   1  F32z : TSK           
+   103 : unknown  unknown  v instant       1   1         1   5  F32  : P_TOP         
+   104 : unknown  unknown  v instant       1   1         1   5  I32  : GOT_VAR_SSO   
+   105 : unknown  unknown  v instant       1   1         1   5  F32  : T00           
+   106 : unknown  unknown  v instant       1   1         1   5  F32  : P00           
+   107 : unknown  unknown  v instant       1   1         1   5  F32  : TLP           
+   108 : unknown  unknown  v instant       1   1         1   5  F32  : TISO          
+   109 : unknown  unknown  v instant       1   1         1   5  F32  : TLP_STRAT     
+   110 : unknown  unknown  v instant       1   1         1   5  F32  : P_STRAT       
+   111 : unknown  unknown  v instant       1   1         1   5  F32  : MAX_MSFTX     
+   112 : unknown  unknown  v instant       1   1         1   5  F32  : MAX_MSFTY     
+   113 : unknown  unknown  v instant       1   1     21801   1  F32z : RAINC         
+   114 : unknown  unknown  v instant       1   1     21801   1  F32z : RAINSH        
+   115 : unknown  unknown  v instant       1   1     21801   1  F32z : RAINNC        
+   116 : unknown  unknown  v instant       1   1     21801   1  F32z : SNOWNC        
+   117 : unknown  unknown  v instant       1   1     21801   1  F32z : GRAUPELNC     
+   118 : unknown  unknown  v instant       1   1     21801   1  F32z : HAILNC        
+   119 : unknown  unknown  v instant      39   2     21801   1  F32z : CLDFRA        
+   120 : unknown  unknown  v instant       1   1     21801   1  F32z : SWDOWN        
+   121 : unknown  unknown  v instant       1   1     21801   1  F32z : GLW           
+   122 : unknown  unknown  v instant       1   1     21801   1  F32z : SWNORM        
+   123 : unknown  unknown  v instant       1   1     21801   1  F32z : ACSWUPT       
+   124 : unknown  unknown  v instant       1   1     21801   1  F32z : ACSWUPTC      
+   125 : unknown  unknown  v instant       1   1     21801   1  F32z : ACSWDNT       
+   126 : unknown  unknown  v instant       1   1     21801   1  F32z : ACSWDNTC      
+   127 : unknown  unknown  v instant       1   1     21801   1  F32z : ACSWUPB       
+   128 : unknown  unknown  v instant       1   1     21801   1  F32z : ACSWUPBC      
+   129 : unknown  unknown  v instant       1   1     21801   1  F32z : ACSWDNB       
+   130 : unknown  unknown  v instant       1   1     21801   1  F32z : ACSWDNBC      
+   131 : unknown  unknown  v instant       1   1     21801   1  F32z : ACLWUPT       
+   132 : unknown  unknown  v instant       1   1     21801   1  F32z : ACLWUPTC      
+   133 : unknown  unknown  v instant       1   1     21801   1  F32z : ACLWDNT       
+   134 : unknown  unknown  v instant       1   1     21801   1  F32z : ACLWDNTC      
+   135 : unknown  unknown  v instant       1   1     21801   1  F32z : ACLWUPB       
+   136 : unknown  unknown  v instant       1   1     21801   1  F32z : ACLWUPBC      
+   137 : unknown  unknown  v instant       1   1     21801   1  F32z : ACLWDNB       
+   138 : unknown  unknown  v instant       1   1     21801   1  F32z : ACLWDNBC      
+   139 : unknown  unknown  v instant       1   1     21801   1  F32z : SWUPT         
+   140 : unknown  unknown  v instant       1   1     21801   1  F32z : SWUPTC        
+   141 : unknown  unknown  v instant       1   1     21801   1  F32z : SWDNT         
+   142 : unknown  unknown  v instant       1   1     21801   1  F32z : SWDNTC        
+   143 : unknown  unknown  v instant       1   1     21801   1  F32z : SWUPB         
+   144 : unknown  unknown  v instant       1   1     21801   1  F32z : SWUPBC        
+   145 : unknown  unknown  v instant       1   1     21801   1  F32z : SWDNB         
+   146 : unknown  unknown  v instant       1   1     21801   1  F32z : SWDNBC        
+   147 : unknown  unknown  v instant       1   1     21801   1  F32z : LWUPT         
+   148 : unknown  unknown  v instant       1   1     21801   1  F32z : LWUPTC        
+   149 : unknown  unknown  v instant       1   1     21801   1  F32z : LWDNT         
+   150 : unknown  unknown  v instant       1   1     21801   1  F32z : LWDNTC        
+   151 : unknown  unknown  v instant       1   1     21801   1  F32z : LWUPB         
+   152 : unknown  unknown  v instant       1   1     21801   1  F32z : LWUPBC        
+   153 : unknown  unknown  v instant       1   1     21801   1  F32z : LWDNB         
+   154 : unknown  unknown  v instant       1   1     21801   1  F32z : LWDNBC        
+   155 : unknown  unknown  v instant       1   1     21801   1  F32z : OLR           
+   156 : unknown  unknown  v instant       1   1     21801   1  F32z : ALBEDO        
+   157 : unknown  unknown  v instant       1   1     21801   1  F32z : CLAT          
+   158 : unknown  unknown  v instant       1   1     21801   1  F32z : ALBBCK        
+   159 : unknown  unknown  v instant       1   1     21801   1  F32z : EMISS         
+   160 : unknown  unknown  v instant       1   1     21801   1  F32z : TMN           
+   161 : unknown  unknown  v instant       1   1     21801   1  F32z : XLAND         
+   162 : unknown  unknown  v instant       1   1     21801   1  F32z : ZNT           
+   163 : unknown  unknown  v instant       1   1     21801   1  F32z : UST           
+   164 : unknown  unknown  v instant       1   1     21801   1  F32z : PBLH          
+   165 : unknown  unknown  v instant       1   1     21801   1  F32z : HFX           
+   166 : unknown  unknown  v instant       1   1     21801   1  F32z : QFX           
+   167 : unknown  unknown  v instant       1   1     21801   1  F32z : LH            
+   168 : unknown  unknown  v instant       1   1     21801   1  F32z : ACHFX         
+   169 : unknown  unknown  v instant       1   1     21801   1  F32z : ACLHF         
+   170 : unknown  unknown  v instant       1   1     21801   1  F32z : SNOWC         
+   171 : unknown  unknown  v instant       1   1     21801   1  F32z : SR            
+   172 : unknown  unknown  v instant       1   1         1   5  I32  : SAVE_TOPO_FROM_REAL
+   173 : unknown  unknown  v instant       1   1        34   8  I32  : ISEEDARR_SPPT 
+   174 : unknown  unknown  v instant       1   1        34   8  I32  : ISEEDARR_SKEBS
+   175 : unknown  unknown  v instant       1   1        34   8  I32  : ISEEDARR_RAND_PERTURB
+   176 : unknown  unknown  v instant       1   1        34   8  I32  : ISEEDARRAY_SPP_CONV
+   177 : unknown  unknown  v instant       1   1        34   8  I32  : ISEEDARRAY_SPP_PBL
+   178 : unknown  unknown  v instant       1   1        34   8  I32  : ISEEDARRAY_SPP_LSM
+   179 : unknown  unknown  v instant       1   1        39   2  F32  : C1H           
+   180 : unknown  unknown  v instant       1   1        39   2  F32  : C2H           
+   181 : unknown  unknown  v instant       1   1        40   3  F32  : C1F           
+   182 : unknown  unknown  v instant       1   1        40   3  F32  : C2F           
+   183 : unknown  unknown  v instant       1   1        39   2  F32  : C3H           
+   184 : unknown  unknown  v instant       1   1        39   2  F32  : C4H           
+   185 : unknown  unknown  v instant       1   1        40   3  F32  : C3F           
+   186 : unknown  unknown  v instant       1   1        40   3  F32  : C4F           
+   187 : unknown  unknown  v instant       1   1     21801   1  F32z : PCB           
+   188 : unknown  unknown  v instant       1   1     21801   1  F32z : PC            
+   189 : unknown  unknown  v instant       1   1     21801   1  F32z : LANDMASK      
+   190 : unknown  unknown  v instant       1   1     21801   1  F32z : LAKEMASK      
+   191 : unknown  unknown  v instant       1   1     21801   1  F32z : SST           
+   192 : unknown  unknown  v instant       1   1     21801   1  F32z : SST_INPUT     
+   Grid coordinates :
+     1 : curvilinear              : points=21801 (169x129)
+                            XLONG : -99.00387 to -78.99613 by 0.1190937 [degree_east]
+                             XLAT : 17.91215 to 31.70172 [degree_north]
+     2 : generic                  : points=39
+     3 : generic                  : points=40
+     4 : generic                  : points=4
+     5 : generic                  : points=1
+     6 : curvilinear              : points=21930 (170x129)
+                          XLONG_U : -99.06342 to -78.93658 by 0.1190937 [degree_east]
+                           XLAT_U : 17.91215 to 31.70172 [degree_north]
+     7 : curvilinear              : points=21970 (169x130)
+                          XLONG_V : -99.00387 to -78.99613 by 0.1190937 [degree_east]
+                           XLAT_V : 17.85548 to 31.75238 [degree_north]
+     8 : generic                  : points=34
+   Vertical coordinates :
+     1 : surface                  : levels=1
+     2 : generic                  : levels=39
+     3 : generic                  : levels=40
+     4 : generic                  : levels=4
+   Time coordinate :
+                            XTIME : 1 step
+     RefTime =  2005-08-27 00:00:00  Units = minutes  Calendar = standard
+  YYYY-MM-DD hh:mm:ss  YYYY-MM-DD hh:mm:ss  YYYY-MM-DD hh:mm:ss  YYYY-MM-DD hh:mm:ss
+  2005-08-29 00:00:00

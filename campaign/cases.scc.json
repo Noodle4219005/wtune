@@ -1,0 +1,114 @@
+{
+  "_comment": "scc site overlay (decision 0050 step 8): path overrides merged over cases.json per case when SITE=scc. Geometry is identical to cases.json and not repeated. bp_dir is empty on purpose: scc has only the official netCDF wrfinput/wrfbdy, so strict_campaign.sbatch converts them (and the aux inputs the namelist reads) once per job start into the BP cache ${WTUNE_BP_CACHE:-$HOME/wtune-runs/bp-cache}/<case>/<prep hash> (configs.py stage-bp-inputs, lock-serialized) and runs all-ADIOS2 (2026-10-03 decision; WTUNE_INPUT_FORMAT=netcdf is only the legacy escape). Thompson/aux input_files at the maria1km/isc21 paths are not yet verified on scc. Cases other than conus25/maria1km/isc21/lafe were relayed from f1 (2026-09-22, ssh tar stream: wrfinput_d0N, wrfbdy_d01, namelist, *.txt/*.dat/*.TBL) into $HOME/wrf-cases/<case>/ with flat file names.",
+  "cases": {
+    "conus25": {
+      "prep_dir": "/nfs/data/wrf/v4.4_bench_conus2.5km",
+      "bp_dir": ""
+    },
+    "maria1km": {
+      "prep_dir": "/nfs/data/wrf/ob3-maria1km/maria1km",
+      "bp_dir": ""
+    },
+    "isc21": {
+      "prep_dir": "$HOME/wrf-cases/isc21/WRF_ISC21_3_DOMAIN",
+      "bp_dir": ""
+    },
+    "lafe": {
+      "prep_dir": "/nfs/data/wrf/doi4-lafe2017",
+      "bp_dir": "",
+      "namelist_template": "/nfs/data/wrf/doi4-lafe2017/namelist.input.d01only"
+    },
+    "karina": {
+      "prep_dir": "$HOME/wrf-cases/karina",
+      "bp_dir": ""
+    },
+    "conus12": {
+      "prep_dir": "$HOME/wrf-cases/conus12",
+      "bp_dir": ""
+    },
+    "severe2023": {
+      "prep_dir": "$HOME/wrf-cases/severe2023",
+      "bp_dir": ""
+    },
+    "matthew": {
+      "prep_dir": "$HOME/wrf-cases/matthew",
+      "bp_dir": "",
+      "namelist_template": "$HOME/wrf-cases/matthew/namelist.input.atlas-io14"
+    },
+    "c34": {
+      "prep_dir": "$HOME/wrf-cases/c34",
+      "bp_dir": ""
+    },
+    "zhengzhou": {
+      "prep_dir": "$HOME/wrf-cases/zhengzhou",
+      "bp_dir": ""
+    },
+    "elevconv": {
+      "prep_dir": "$HOME/wrf-cases/elevconv",
+      "bp_dir": ""
+    },
+    "marshall": {
+      "prep_dir": "$HOME/wrf-cases/marshall",
+      "bp_dir": ""
+    },
+    "bigchill": {
+      "prep_dir": "$HOME/wrf-cases/bigchill",
+      "bp_dir": ""
+    },
+    "sc26p1": {
+      "prep_dir": "$HOME/wrf-cases/sc26p1",
+      "bp_dir": ""
+    },
+    "sc26p2": {
+      "prep_dir": "$HOME/wrf-cases/sc26p2",
+      "bp_dir": ""
+    },
+    "sc26p2narr": {
+      "prep_dir": "$HOME/wrf-cases/sc26p2narr",
+      "bp_dir": ""
+    },
+    "climate-ea50": {
+      "prep_dir": "$HOME/wtune-runs/climate-ea50-2023/run",
+      "bp_dir": "",
+      "restart": false,
+      "input_files": [
+        "wrflowinp_d01",
+        "iofields_d01.txt"
+      ],
+      "history_key": "history_interval",
+      "dt": 240,
+      "e_we": 151,
+      "e_sn": 111,
+      "e_vert": 45,
+      "dx": 50000,
+      "dy": 50000,
+      "max_dom": 1,
+      "e_we_list": [
+        151
+      ],
+      "e_sn_list": [
+        111
+      ],
+      "e_vert_list": [
+        45
+      ],
+      "namelist_overrides": {},
+      "case_family": "regional_climate",
+      "physics": {
+        "mp_physics": 6,
+        "cu_physics": 1,
+        "bl_pbl_physics": 1,
+        "sf_sfclay_physics": 1,
+        "sf_surface_physics": 2,
+        "ra_lw_physics": 4,
+        "ra_sw_physics": 4,
+        "radt": 30,
+        "cudt": 0
+      },
+      "steps": 50,
+      "physics_sim_minutes": 60,
+      "enabled": true,
+      "notes": "scc-only (not in cases.json): 13-month East-Asia 50 km regional climate run 2022-12-01 -> 2024-01-01, ERA5 via ARCO, sst_update=1 so wrflowinp_d01 is an input file. Registered 2026-10-02 for the long-case end-to-end WTune test; first run was job 2016 (1 node, 64 ranks, 0.0688 s/step, 2:48:37). iofields_d01.txt is listed because WRF hangs at input_input when the namelist's iofields_filename is missing, even with ignore_iofields_warning=.true. (probe jobs 2541-2545, 2026-10-02)."
+    }
+  }
+}

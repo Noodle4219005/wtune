@@ -1,0 +1,7 @@
+rc=2
+--- log
+--- stdout
+
+--- stderr
+error: --out must be outside CASE_DIR (the case is never modified)
+

@@ -1,0 +1,5 @@
+case,job_id,config_id,roles,ranks,omp,nx,ny,numtiles,dist,blocktime,n,s_median,s_min,s_max,success,predicted_gain,gain_lower_95,label,verdict,regret,speedup_vs_c01
+sc26p2,1090692,GBASE,baseline,112,1,14,8,1,cyclic,0,2,0.03839,0.03832,0.03846,True,,,,INCONCLUSIVE,,
+sc26p2,1090692,GREC1,recommended:1,56,2,8,7,2,block,0,2,0.034365,0.03429,0.03444,True,,,,INCONCLUSIVE,,
+sc26p2,1090692,GREC2,recommended:2,56,2,8,7,2,block,0,2,0.05242,0.05233,0.05251,True,,,,INCONCLUSIVE,,
+sc26p2,1090692,GREC3,recommended:3,112,1,14,8,2,block,0,2,0.038294999999999996,0.03822,0.03837,True,,,,INCONCLUSIVE,,

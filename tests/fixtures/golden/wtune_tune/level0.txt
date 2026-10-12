@@ -1,0 +1,13 @@
+NOTE: probe.steps='auto' requested but could not be resolved from <TMP>/namelist.input (FileNotFoundError: [Errno 2] No such file or directory: '<TMP>/namelist.input') -- using DEFAULT_STEPS=20 instead
+case=matthew nodes=search (node search (measured)) budget=none max_nodes=13 out=<TMP>/out
+pipeline: run-length I/O model unavailable (FileNotFoundError: [Errno 2] No such file or directory: '<TMP>/namelist.input') -- whole-run prediction is compute + init only
+O0: no jobs -- nodes=13 (policy=knee: every profiled doubling step up to --max-nodes cap=13 clears 1.5x; using nodes=13), layout {'ranks': 936, 'omp': 1, 'nx': 26, 'ny': 36}, cold-start whole run 28:07 ±25% (fake cold start)
+
+
+=== wtune tune -O0 (decision 0059) ===
+level O0; time cap: none (no jobs)  whole run implied by the t0 anchor (info): -
+whole-run time ±25% = ±7.0 min (cold-start predict)
+suggested --time=00:38:00 (T rounded up to 15 min plus one band, >= 1.2x T)
+predicted whole run: 28:07 (range 21:05 - 35:08) at N=13 cores/node=72 {'ranks': 936, 'omp': 1, 'nx': 26, 'ny': 36, 'numtiles': 1, 'dist': 'block'}; suggested --time=00:38:00
+  compute 1567s + init 120s = 1687s (run-length I/O NOT included)  [init: documented constant (scc_sweep.STARTUP_S)]
+tune running time 0:00 (wall 0:00 = running + queue wait 0:00 + controller 0:00); predicted real run 28:07 (None)

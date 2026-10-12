@@ -1,0 +1,85 @@
+# wtune tune search-space configuration -- controls what `wtune tune` is allowed to search and
+# how, instead of hardcoded CLI defaults.
+#
+# Precedence when used via `wtune tune --config FILE`: CLI flags > this file > built-in defaults.
+# Unknown keys are a validation error (a typo is caught, not silently ignored). Validate/preview
+# with: wtune config show conus25.yaml
+
+site: scc                       # only "scc" is currently supported by wtune tune
+case: conus25                  # case name from campaign/cases.json (+ site overlay:
+                                 # campaign/cases.scc.json). ALTERNATIVE: replace this key with
+                                 # `case_dir: /path/to/case` (a directory with its own
+                                 # namelist.input, not registered in cases.json) -- `wtune config
+                                 # show/init` support it for search-space preview; `wtune tune`
+                                 # itself does not run against a case_dir yet.
+
+compliance: strict               # strict       = only the STRICT knobs below may vary (bit-identical
+                                  #                decomposition/tiling/placement/I/O-format changes)
+                                  # physics-gray = STRICT + the `physics_gray` section below (namelist/
+                                  #                physics values that MAY change the computed solution)
+
+budget:
+  minutes: 30                    # wall-clock budget for the whole `wtune tune` run (required: here or --minutes)
+  max_nodes: 13                  # hard cap -- scc's compute pool is 13 nodes (work[1-13])
+  nodes: auto                    # auto | search | <int> | [<int>, ...] -- search measures the ANCHOR at
+                                  # each legal node count (wtune tune --nodes search; node_objective/
+                                  # deadline_minutes/min_efficiency/node_finalists/sweep_budget_frac
+                                  # keys mirror its CLI flags); auto picks ONE node count via
+                                  # `nodes_policy` from wtune.case's (uncalibrated) core-count profile;
+                                  # a list is previewed by `wtune config show` but not yet run by `wtune tune`
+  nodes_policy: knee              # min | cap | knee (see `wtune tune --nodes-policy` for the exact rule)
+
+search:                          # STRICT-only restrictions on what `wtune tune` is allowed to try;
+                                  # omitting a key (or leaving it null) means "no restriction" for that axis
+  omp: [1, 2, 3, 4, 6, 8, 9, 12]         # OMP_NUM_THREADS candidates (STRICT knob: per_rank_omp_threads)
+  numtiles: [1, 2, 4, 8, 12, 16, 24]     # WRF numtiles candidates (STRICT knob: numtiles, catalog range 1-64)
+  rank_distribution: [block, cyclic]     # srun --distribution candidates (STRICT knob: srun_distribution)
+  aspect_max: 8                          # max(nproc_x/nproc_y, nproc_y/nproc_x) allowed in a decomposition shape
+  io:                                    # STRICT knob: io_form_history -- NOT YET SEARCHED by wtune tune;
+                                          # `enabled: true` is a hard config error, never a silent no-op
+    enabled: false
+    io_form_history: [2, 11, 14]         # 2=split netCDF, 11/14=ADIOS2 variants
+    target: [nfs, local]                 # filesystem target wtune.predict calibrates the I/O rate against
+
+physics_gray:                     # PHYSICS-GRAY knobs -- only legal at compliance: physics-gray;
+                                   # NOT YET SEARCHED by wtune tune -- `enabled: true` is a hard config error
+  enabled: false
+  knobs:
+    radt: {multiply: [1.0, 1.5, 2.0]}       # PHYSICS-GRAY knob: radiation time step multiplier (namelist radt)
+    time_step: {multiply: [1.0, 1.1, 1.2]}  # PHYSICS-GRAY knob: dynamics time step multiplier (namelist time_step)
+
+probe:
+  steps: auto                     # WRF steps run per candidate during round0/adaptive probing (--steps) --
+                                   # auto = max(30, stepra+10), so a probe always contains >= 1 radiation
+                                   # step; or a fixed positive integer
+  confirm_reps: 2                 # replicate count for the confirm stage's top candidates
+  spinup_min: 60                  # RANKING layer: minutes the anchor spin-up run advances before every
+                                   # candidate starts from ITS shared restart (0 disables -> t0 start)
+  ranking_start: t0                # t0 | spinup (spinup not yet wired into strict_campaign.sbatch;
+                                   # selecting it prints a NOTE and runs from t0)
+  points: auto                    # PREDICTION layer (winner's own full-run estimate): auto placement, or
+                                   # an explicit list, e.g. ["+90m", "70%", "2019-11-26_23:00:00",
+                                   # {at: "+3h", reason: night, source: rebuild}]
+  max_points: 5                   # cap on the number of prediction-layer probe points
+  budget_pct: 10                  # cap the points' own measurement cost to this % of the predicted run
+  sources: [trajectory, restart, rebuild]   # preference order per point ("coldstart" also accepted,
+                                             # legacy name for "rebuild")
+  rank_by: t0                     # t0 | predicted (decision 0055: rank by predicted whole-run time from
+                                   # ERA5-rebuilt, spun-up points; CLI --rank-by)
+  restart_io_form: 14             # rank_by=predicted only: shared restart io_form, 14 (ADIOS2) or 2
+  stage1: t0                      # rank_by=predicted only: t0 (broad t0 search) | pstar (P* restart)
+  stage2_minutes: null            # stage1=t0 only: optional cap on stage 2 (else it always runs)
+
+prediction:
+  io_target: nfs                  # nfs | local -- calibration target for the full-run I/O estimate
+  drift_band_pct: 6               # override wtune.predict's calibration drift band (percent); omit/null
+                                   # to use the calibration file's own default instead
+  measure_r_rad: false            # derive the radiation-step cost multiplier (r_rad) from THIS run's own
+                                   # probe measurements instead of the calibration file's fixed default --
+                                   # NOT YET IMPLEMENTED by wtune predict; requesting it (true) is
+                                   # reported in the tune report as "requested, not yet implemented",
+                                   # never silently ignored
+
+exclude:                          # hard exclusion rules, checked even against the anchor config
+  - {omp_gt: 1, when: fire}      # WRF-Fire (namelist &fire ifire>0 on any domain, or cases.json
+                                   # "max_omp": 1): any omp>1 crashes at the first step

@@ -1,0 +1,60 @@
+{
+ "rows": [
+  [
+   "namelist.input",
+   true,
+   "<TMP>/case/namelist.input",
+   ""
+  ],
+  [
+   "run length",
+   true,
+   "10800s",
+   ""
+  ],
+  [
+   "projection",
+   true,
+   "namelist.wps",
+   "map_proj=lambert"
+  ],
+  [
+   "ifire",
+   true,
+   "0",
+   ""
+  ],
+  [
+   "capability",
+   true,
+   "warning",
+   "filled differently: hydrometeors and number concentrations start at zero (GFS via Vtable.GFS carries no hydrometeor/number-concentration fields) -- this is why cold-start windows discard the first ~1 simulated hour as spin-up"
+  ],
+  [
+   "forcing chain (run start)",
+   true,
+   "ncei_g4 -> d083002",
+   "not probed (date rules only): ncei_g4 0.5deg grib2 interval=6h analysis"
+  ],
+  [
+   "capability",
+   true,
+   "warning",
+   "filled differently: forcing resolution 0.5deg (coarser than 0.25) at 2010-01-01_00:00:00 -- extra prediction uncertainty"
+  ],
+  [
+   "forcing chain (run end)",
+   true,
+   "ncei_g4 -> d083002",
+   "not probed (date rules only): ncei_g4 0.5deg grib2 interval=6h analysis"
+  ],
+  [
+   "capability",
+   true,
+   "warning",
+   "filled differently: forcing resolution 0.5deg (coarser than 0.25) at 2010-01-01_03:00:00 -- extra prediction uncertainty"
+  ]
+ ],
+ "blockers": [],
+ "nl_is_none": false
+}

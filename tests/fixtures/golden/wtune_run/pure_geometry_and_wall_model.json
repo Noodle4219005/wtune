@@ -1,0 +1,273 @@
+{
+ "geometry": {
+  "start": "2020-06-01 00:00:00",
+  "end": "2020-06-01 12:00:00",
+  "dt": 60.0,
+  "steps": 720,
+  "stepra": 30,
+  "max_dom": 3,
+  "radt_s": 1800.0,
+  "quantum": 1,
+  "hist": [
+   {
+    "iv_s": 3600.0,
+    "begin_s": 0.0
+   },
+   {
+    "iv_s": 3600.0,
+    "begin_s": 0.0
+   },
+   {
+    "iv_s": 3600.0,
+    "begin_s": 0.0
+   }
+  ],
+  "points": [
+   450000.0,
+   409500.0,
+   372645.0
+  ]
+ },
+ "geometry_dt36": {
+  "start": "2020-06-01 00:00:00",
+  "end": "2020-06-01 12:00:00",
+  "dt": 36.0,
+  "steps": 1200,
+  "stepra": 50,
+  "max_dom": 3,
+  "radt_s": 1800.0,
+  "quantum": 5,
+  "hist": [
+   {
+    "iv_s": 3600.0,
+    "begin_s": 0.0
+   },
+   {
+    "iv_s": 3600.0,
+    "begin_s": 0.0
+   },
+   {
+    "iv_s": 3600.0,
+    "begin_s": 0.0
+   }
+  ],
+  "points": [
+   450000.0,
+   409500.0,
+   372645.0
+  ]
+ },
+ "overheads_default": {
+  "init_s": 120.0,
+  "restart_read_s": 300.0,
+  "restart_write_s": 300.0,
+  "history_frame_s": null,
+  "source": "fallback"
+ },
+ "fallback_overheads": {
+  "14_adios2": {
+   "init_s": 120.0,
+   "restart_read_s": 0.03148815,
+   "restart_write_s": 0.014375025,
+   "history_frame_s": [
+    0.02138009049773756,
+    0.019455882352941177,
+    0.017704852941176474
+   ],
+   "source": "fallback (conus25/dorian2019 I/O anchors)"
+  },
+  "14_netcdf": {
+   "init_s": 120.0,
+   "restart_read_s": 0.03148815,
+   "restart_write_s": 0.014375025,
+   "history_frame_s": [
+    0.40541755984949557,
+    0.36892997946304096,
+    0.3357262813113673
+   ],
+   "source": "fallback (conus25/dorian2019 I/O anchors)"
+  },
+  "2_adios2": {
+   "init_s": 120.0,
+   "restart_read_s": 1.64286,
+   "restart_write_s": 4.435722,
+   "history_frame_s": [
+    0.02138009049773756,
+    0.019455882352941177,
+    0.017704852941176474
+   ],
+   "source": "fallback (conus25/dorian2019 I/O anchors)"
+  },
+  "2_netcdf": {
+   "init_s": 120.0,
+   "restart_read_s": 1.64286,
+   "restart_write_s": 4.435722,
+   "history_frame_s": [
+    0.40541755984949557,
+    0.36892997946304096,
+    0.3357262813113673
+   ],
+   "source": "fallback (conus25/dorian2019 I/O anchors)"
+  }
+ },
+ "model_from_prediction": [
+  {
+   "init_s": 50.0,
+   "restart_read_s": 1.64286,
+   "restart_write_s": 4.435722,
+   "history_frame_s": [
+    0.02138009049773756,
+    0.019455882352941177,
+    0.017704852941176474
+   ],
+   "source": "prediction + fallback (conus25/dorian2019 I/O anchors)"
+  },
+  {
+   "init_s": 50.0,
+   "restart_read_s": 7.0,
+   "restart_write_s": 7.0,
+   "history_frame_s": [
+    1.5,
+    0.019455882352941177,
+    0.017704852941176474
+   ],
+   "source": "prediction (measured io)"
+  }
+ ],
+ "compute": [
+  456.5888888888889,
+  1084.4166666666665,
+  10.0
+ ],
+ "history_frames": [
+  [
+   7,
+   7,
+   7,
+   0
+  ],
+  [
+   6,
+   6,
+   6,
+   0
+  ],
+  [
+   1,
+   1,
+   1,
+   0
+  ],
+  [
+   1,
+   1,
+   1,
+   0
+  ]
+ ],
+ "history_wall": [
+  140.0,
+  0.35124495475113127,
+  1170.0
+ ],
+ "segment_wall": [
+  1901.0055555555555,
+  859.5055555555557,
+  1271.4999999999998,
+  1146.0277777777774,
+  2061.0055555555555,
+  1351.4999999999998
+ ],
+ "restart_write_steps": [
+  [
+   180,
+   360,
+   540,
+   720
+  ],
+  [
+   2,
+   3,
+   5,
+   6,
+   8,
+   9
+  ],
+  [
+   5,
+   6,
+   8,
+   9
+  ],
+  []
+ ],
+ "restart_times": [
+  "2020-06-01_08:00:00",
+  "2020-06-01_10:00:00",
+  "2020-06-01_12:00:00"
+ ],
+ "restart_interval_minutes": [
+  1000000,
+  3,
+  180,
+  "RunError: restart quantum 7 steps is not whole minutes"
+ ],
+ "time_limit_s": [
+  2400,
+  2100,
+  1800
+ ],
+ "parse_hms": [
+  7200,
+  108000,
+  93784,
+  "ValueError: expected HH:MM:SS, got '10:00'"
+ ],
+ "step_times": [
+  "2020-06-01 00:03:00",
+  5,
+  null
+ ],
+ "resolve_end_step": [
+  720,
+  360,
+  720,
+  "RunError: --stop-at 2020-06-01_06:00:30 is not on a whole time step (dt=60s from 2020-06-01_00:00:00)",
+  "RunError: --stop-at 2020-06-01_00:00:00 is not after the run start 2020-06-01_00:00:00"
+ ],
+ "segment_steps_for_minutes": [
+  5,
+  "RunError: --segment-minutes 1 is not a whole number of 36s time steps",
+  "RunError: --segment-minutes 0 is not a whole number of 36s time steps"
+ ],
+ "plan_segments_fixed": [
+  [
+   [
+    60,
+    360
+   ],
+   [
+    360,
+    660
+   ],
+   [
+    660,
+    720
+   ]
+  ],
+  "RunError: segment length must be > 0 steps"
+ ],
+ "rescue_time_step": [
+  45,
+  75,
+  45,
+  null,
+  null
+ ],
+ "attempt_dir_name": [
+  "seg_0",
+  "seg_1_rescue",
+  "seg_2_r1",
+  "seg_3_rescue_r2"
+ ]
+}

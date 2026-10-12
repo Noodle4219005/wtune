@@ -1,0 +1,807 @@
+{
+ "case_name": "multidom",
+ "hardware_id": "hw-train-synthetic",
+ "nodes": 4,
+ "compliance": "STRICT",
+ "max_dom": 2,
+ "holdout_case": null,
+ "model_requested": "ridge",
+ "auto_apply_disclaimer": "This tool only narrows the search to a shortlist. A human decides and applies the final config -- nothing here is auto-applied.",
+ "hardware_match": {
+  "n_rows": 18,
+  "n_decision_groups": 3,
+  "n_cases": 3
+ },
+ "grid_neighbors": [
+  {
+   "case_base": "trainA",
+   "grid_size": 36531045.0,
+   "hardware_id": "hw-train-synthetic",
+   "same_hardware": true
+  },
+  {
+   "case_base": "trainB",
+   "grid_size": 36531045.0,
+   "hardware_id": "hw-train-synthetic",
+   "same_hardware": true
+  },
+  {
+   "case_base": "trainC",
+   "grid_size": 36531045.0,
+   "hardware_id": "hw-train-synthetic",
+   "same_hardware": true
+  }
+ ],
+ "grid_out_of_range": false,
+ "skipped": [
+  {
+   "config_id": "C01",
+   "reason": "no legal 'best' shape (index 0) at ranks=448: only 0 legal shape(s) found via wtune_decomp (max_dom=2)"
+  },
+  {
+   "config_id": "C02",
+   "reason": "no legal 'best' shape (index 0) at ranks=448: only 0 legal shape(s) found via wtune_decomp (max_dom=2)"
+  },
+  {
+   "config_id": "C03",
+   "reason": "no legal 'alt1' shape (index 1) at ranks=448: only 0 legal shape(s) found via wtune_decomp (max_dom=2)"
+  },
+  {
+   "config_id": "C04",
+   "reason": "no legal 'best' shape (index 0) at ranks=448: only 0 legal shape(s) found via wtune_decomp (max_dom=2)"
+  },
+  {
+   "config_id": "C10",
+   "reason": "no legal 'alt2' shape (index 2) at ranks=224: only 2 legal shape(s) found via wtune_decomp (max_dom=2)"
+  }
+ ],
+ "aliases": {},
+ "warnings": [
+  "run-to-run noise floor: predicted differences smaller than ~0.50% (targets.NOISE, a log-ratio of 0.0050, measured on 40-step karina runs) are not a reliable ordering -- do not read a rank gap below this as a real effect",
+  "IN-SAMPLE: this case is in the training data; the shortlist is not an out-of-sample prediction (an identical grid (e_we*e_sn*e_vert) also matches training case(s) ['trainA', 'trainB', 'trainC']) -- pass --holdout-case 'multidom' to see an honest out-of-sample shortlist",
+  "training evidence on hardware_id='hw-train-synthetic' (scope=STRICT): 18 row(s), 3 decision group(s), 3 case(s)",
+  "nearest training case(s) by grid size (e_we*e_sn*e_vert; this case=3.653e+07 on hardware_id='hw-train-synthetic'; same-hardware neighbours listed first): trainA [hw-train-synthetic] (3.653e+07), trainB [hw-train-synthetic] (3.653e+07), trainC [hw-train-synthetic] (3.653e+07)",
+  "predicted change (magnitude companion) is within the run-to-run noise floor (targets.NOISE, ~0.5%) between: C07~C05, C06~C09, C09~C11 -- not a reliable ordering, do not read the rank gap as real"
+ ],
+ "model_used": "ridge",
+ "model_fallback_attempts": [
+  {
+   "model": "ridge",
+   "used": true,
+   "reason": ""
+  }
+ ],
+ "magnitude_model_used": "catboost_point",
+ "magnitude_model_fallback_attempts": [
+  {
+   "model": "catboost_point",
+   "used": true,
+   "reason": ""
+  }
+ ],
+ "shortlist": [
+  {
+   "rank": 1,
+   "config_id": "C07",
+   "n_ranks": 224,
+   "omp_threads": 2,
+   "nproc_x": 14,
+   "nproc_y": 16,
+   "numtiles": 14,
+   "distribution": "cyclic",
+   "kmp_blocktime": 0,
+   "score_kind": "pct_change",
+   "value": -0.1025447891,
+   "predicted_y": 0.3254733185,
+   "interval_95": [
+    -0.3504328164,
+    -0.2847114377
+   ],
+   "interval_90": [
+    -0.3504328164,
+    -0.2847114377
+   ],
+   "magnitude_model": "catboost_point",
+   "magnitude_value": -0.009069978466,
+   "magnitude_predicted_y": 0.0285866387,
+   "magnitude_interval_95": [
+    -0.02117772161,
+    -0.004826555284
+   ],
+   "magnitude_interval_90": [
+    -0.02117772161,
+    -0.004826555284
+   ],
+   "predicted_gain": 0.009069978466,
+   "gain_lower_95": 0.004814926184,
+   "label": "SAFE",
+   "is_reference": false,
+   "compliance_class": "STRICT",
+   "fidelity_status": "N/A (STRICT)"
+  },
+  {
+   "rank": 2,
+   "config_id": "C05",
+   "n_ranks": 224,
+   "omp_threads": 2,
+   "nproc_x": 14,
+   "nproc_y": 16,
+   "numtiles": 13,
+   "distribution": "cyclic",
+   "kmp_blocktime": 0,
+   "score_kind": "pct_change",
+   "value": -0.05928258379,
+   "predicted_y": 0.3725528966,
+   "interval_95": [
+    -0.3293274694,
+    -0.2636060906
+   ],
+   "interval_90": [
+    -0.3293274694,
+    -0.2636060906
+   ],
+   "magnitude_model": "catboost_point",
+   "magnitude_value": -0.007098815278,
+   "magnitude_predicted_y": 0.03057386809,
+   "magnitude_interval_95": [
+    -0.01844903419,
+    -0.002097867862
+   ],
+   "magnitude_interval_90": [
+    -0.01844903419,
+    -0.002097867862
+   ],
+   "predicted_gain": 0.007098815278,
+   "gain_lower_95": 0.002095668875,
+   "label": "SAFE",
+   "is_reference": false,
+   "compliance_class": "STRICT",
+   "fidelity_status": "N/A (STRICT)"
+  },
+  {
+   "rank": 3,
+   "config_id": "C06",
+   "n_ranks": 224,
+   "omp_threads": 2,
+   "nproc_x": 14,
+   "nproc_y": 16,
+   "numtiles": 12,
+   "distribution": "cyclic",
+   "kmp_blocktime": 0,
+   "score_kind": "pct_change",
+   "value": 0.0,
+   "predicted_y": 0.4336653827,
+   "interval_95": [
+    -0.3038651922,
+    -0.2381438135
+   ],
+   "interval_90": [
+    -0.3038651922,
+    -0.2381438135
+   ],
+   "magnitude_model": "catboost_point",
+   "magnitude_value": 0.0,
+   "magnitude_predicted_y": 0.03769799984,
+   "magnitude_interval_95": [
+    -0.007240651532,
+    0.009110514795
+   ],
+   "magnitude_interval_90": [
+    -0.007240651532,
+    0.009110514795
+   ],
+   "predicted_gain": 0.0,
+   "gain_lower_95": -0.009152141853,
+   "label": "EXPERIMENTAL",
+   "is_reference": false,
+   "compliance_class": "STRICT",
+   "fidelity_status": "N/A (STRICT)"
+  },
+  {
+   "rank": 4,
+   "config_id": "C09",
+   "n_ranks": 224,
+   "omp_threads": 2,
+   "nproc_x": 16,
+   "nproc_y": 14,
+   "numtiles": 12,
+   "distribution": "cyclic",
+   "kmp_blocktime": 0,
+   "score_kind": "pct_change",
+   "value": 0.0,
+   "predicted_y": 0.4336653827,
+   "interval_95": [
+    -0.3038651922,
+    -0.2381438135
+   ],
+   "interval_90": [
+    -0.3038651922,
+    -0.2381438135
+   ],
+   "magnitude_model": "catboost_point",
+   "magnitude_value": 0.0,
+   "magnitude_predicted_y": 0.03769799984,
+   "magnitude_interval_95": [
+    -0.007240651532,
+    0.009110514795
+   ],
+   "magnitude_interval_90": [
+    -0.007240651532,
+    0.009110514795
+   ],
+   "predicted_gain": 0.0,
+   "gain_lower_95": -0.009152141853,
+   "label": "EXPERIMENTAL",
+   "is_reference": false,
+   "compliance_class": "STRICT",
+   "fidelity_status": "N/A (STRICT)"
+  },
+  {
+   "rank": 5,
+   "config_id": "C11",
+   "n_ranks": 224,
+   "omp_threads": 2,
+   "nproc_x": 14,
+   "nproc_y": 16,
+   "numtiles": 12,
+   "distribution": "block",
+   "kmp_blocktime": 0,
+   "score_kind": "pct_change",
+   "value": 0.0,
+   "predicted_y": 0.4336653827,
+   "interval_95": [
+    -0.3038651922,
+    -0.2381438135
+   ],
+   "interval_90": [
+    -0.3038651922,
+    -0.2381438135
+   ],
+   "magnitude_model": "catboost_point",
+   "magnitude_value": 0.0,
+   "magnitude_predicted_y": 0.03769799984,
+   "magnitude_interval_95": [
+    -0.007240651532,
+    0.009110514795
+   ],
+   "magnitude_interval_90": [
+    -0.007240651532,
+    0.009110514795
+   ],
+   "predicted_gain": 0.0,
+   "gain_lower_95": -0.009152141853,
+   "label": "EXPERIMENTAL",
+   "is_reference": true,
+   "compliance_class": "STRICT",
+   "fidelity_status": "N/A (STRICT)"
+  }
+ ],
+ "reference": {
+  "rank": 5,
+  "config_id": "C11",
+  "n_ranks": 224,
+  "omp_threads": 2,
+  "nproc_x": 14,
+  "nproc_y": 16,
+  "numtiles": 12,
+  "distribution": "block",
+  "kmp_blocktime": 0,
+  "score_kind": "pct_change",
+  "value": 0.0,
+  "predicted_y": 0.4336653827,
+  "interval_95": [
+   -0.3038651922,
+   -0.2381438135
+  ],
+  "interval_90": [
+   -0.3038651922,
+   -0.2381438135
+  ],
+  "magnitude_model": "catboost_point",
+  "magnitude_value": 0.0,
+  "magnitude_predicted_y": 0.03769799984,
+  "magnitude_interval_95": [
+   -0.007240651532,
+   0.009110514795
+  ],
+  "magnitude_interval_90": [
+   -0.007240651532,
+   0.009110514795
+  ],
+  "predicted_gain": 0.0,
+  "gain_lower_95": -0.009152141853,
+  "label": "EXPERIMENTAL",
+  "is_reference": true,
+  "compliance_class": "STRICT",
+  "fidelity_status": "N/A (STRICT)",
+  "in_shortlist": true
+ },
+ "all_ranked": [
+  {
+   "rank": 1,
+   "config_id": "C07",
+   "n_ranks": 224,
+   "omp_threads": 2,
+   "nproc_x": 14,
+   "nproc_y": 16,
+   "numtiles": 14,
+   "distribution": "cyclic",
+   "kmp_blocktime": 0,
+   "score_kind": "pct_change",
+   "value": -0.1025447891,
+   "predicted_y": 0.3254733185,
+   "interval_95": [
+    -0.3504328164,
+    -0.2847114377
+   ],
+   "interval_90": [
+    -0.3504328164,
+    -0.2847114377
+   ],
+   "magnitude_model": "catboost_point",
+   "magnitude_value": -0.009069978466,
+   "magnitude_predicted_y": 0.0285866387,
+   "magnitude_interval_95": [
+    -0.02117772161,
+    -0.004826555284
+   ],
+   "magnitude_interval_90": [
+    -0.02117772161,
+    -0.004826555284
+   ],
+   "predicted_gain": 0.009069978466,
+   "gain_lower_95": 0.004814926184,
+   "label": "SAFE",
+   "is_reference": false,
+   "compliance_class": "STRICT",
+   "fidelity_status": "N/A (STRICT)"
+  },
+  {
+   "rank": 2,
+   "config_id": "C05",
+   "n_ranks": 224,
+   "omp_threads": 2,
+   "nproc_x": 14,
+   "nproc_y": 16,
+   "numtiles": 13,
+   "distribution": "cyclic",
+   "kmp_blocktime": 0,
+   "score_kind": "pct_change",
+   "value": -0.05928258379,
+   "predicted_y": 0.3725528966,
+   "interval_95": [
+    -0.3293274694,
+    -0.2636060906
+   ],
+   "interval_90": [
+    -0.3293274694,
+    -0.2636060906
+   ],
+   "magnitude_model": "catboost_point",
+   "magnitude_value": -0.007098815278,
+   "magnitude_predicted_y": 0.03057386809,
+   "magnitude_interval_95": [
+    -0.01844903419,
+    -0.002097867862
+   ],
+   "magnitude_interval_90": [
+    -0.01844903419,
+    -0.002097867862
+   ],
+   "predicted_gain": 0.007098815278,
+   "gain_lower_95": 0.002095668875,
+   "label": "SAFE",
+   "is_reference": false,
+   "compliance_class": "STRICT",
+   "fidelity_status": "N/A (STRICT)"
+  },
+  {
+   "rank": 3,
+   "config_id": "C06",
+   "n_ranks": 224,
+   "omp_threads": 2,
+   "nproc_x": 14,
+   "nproc_y": 16,
+   "numtiles": 12,
+   "distribution": "cyclic",
+   "kmp_blocktime": 0,
+   "score_kind": "pct_change",
+   "value": 0.0,
+   "predicted_y": 0.4336653827,
+   "interval_95": [
+    -0.3038651922,
+    -0.2381438135
+   ],
+   "interval_90": [
+    -0.3038651922,
+    -0.2381438135
+   ],
+   "magnitude_model": "catboost_point",
+   "magnitude_value": 0.0,
+   "magnitude_predicted_y": 0.03769799984,
+   "magnitude_interval_95": [
+    -0.007240651532,
+    0.009110514795
+   ],
+   "magnitude_interval_90": [
+    -0.007240651532,
+    0.009110514795
+   ],
+   "predicted_gain": 0.0,
+   "gain_lower_95": -0.009152141853,
+   "label": "EXPERIMENTAL",
+   "is_reference": false,
+   "compliance_class": "STRICT",
+   "fidelity_status": "N/A (STRICT)"
+  },
+  {
+   "rank": 4,
+   "config_id": "C09",
+   "n_ranks": 224,
+   "omp_threads": 2,
+   "nproc_x": 16,
+   "nproc_y": 14,
+   "numtiles": 12,
+   "distribution": "cyclic",
+   "kmp_blocktime": 0,
+   "score_kind": "pct_change",
+   "value": 0.0,
+   "predicted_y": 0.4336653827,
+   "interval_95": [
+    -0.3038651922,
+    -0.2381438135
+   ],
+   "interval_90": [
+    -0.3038651922,
+    -0.2381438135
+   ],
+   "magnitude_model": "catboost_point",
+   "magnitude_value": 0.0,
+   "magnitude_predicted_y": 0.03769799984,
+   "magnitude_interval_95": [
+    -0.007240651532,
+    0.009110514795
+   ],
+   "magnitude_interval_90": [
+    -0.007240651532,
+    0.009110514795
+   ],
+   "predicted_gain": 0.0,
+   "gain_lower_95": -0.009152141853,
+   "label": "EXPERIMENTAL",
+   "is_reference": false,
+   "compliance_class": "STRICT",
+   "fidelity_status": "N/A (STRICT)"
+  },
+  {
+   "rank": 5,
+   "config_id": "C11",
+   "n_ranks": 224,
+   "omp_threads": 2,
+   "nproc_x": 14,
+   "nproc_y": 16,
+   "numtiles": 12,
+   "distribution": "block",
+   "kmp_blocktime": 0,
+   "score_kind": "pct_change",
+   "value": 0.0,
+   "predicted_y": 0.4336653827,
+   "interval_95": [
+    -0.3038651922,
+    -0.2381438135
+   ],
+   "interval_90": [
+    -0.3038651922,
+    -0.2381438135
+   ],
+   "magnitude_model": "catboost_point",
+   "magnitude_value": 0.0,
+   "magnitude_predicted_y": 0.03769799984,
+   "magnitude_interval_95": [
+    -0.007240651532,
+    0.009110514795
+   ],
+   "magnitude_interval_90": [
+    -0.007240651532,
+    0.009110514795
+   ],
+   "predicted_gain": 0.0,
+   "gain_lower_95": -0.009152141853,
+   "label": "EXPERIMENTAL",
+   "is_reference": true,
+   "compliance_class": "STRICT",
+   "fidelity_status": "N/A (STRICT)"
+  },
+  {
+   "rank": 6,
+   "config_id": "C12",
+   "n_ranks": 224,
+   "omp_threads": 2,
+   "nproc_x": 14,
+   "nproc_y": 16,
+   "numtiles": 12,
+   "distribution": "cyclic",
+   "kmp_blocktime": null,
+   "score_kind": "pct_change",
+   "value": 0.0,
+   "predicted_y": 0.4336653827,
+   "interval_95": [
+    -0.3038651922,
+    -0.2381438135
+   ],
+   "interval_90": [
+    -0.3038651922,
+    -0.2381438135
+   ],
+   "magnitude_model": "catboost_point",
+   "magnitude_value": 0.0,
+   "magnitude_predicted_y": 0.03769799984,
+   "magnitude_interval_95": [
+    -0.007240651532,
+    0.009110514795
+   ],
+   "magnitude_interval_90": [
+    -0.007240651532,
+    0.009110514795
+   ],
+   "predicted_gain": 0.0,
+   "gain_lower_95": -0.009152141853,
+   "label": "EXPERIMENTAL",
+   "is_reference": false,
+   "compliance_class": "STRICT",
+   "fidelity_status": "N/A (STRICT)"
+  },
+  {
+   "rank": 7,
+   "config_id": "C13",
+   "n_ranks": 112,
+   "omp_threads": 4,
+   "nproc_x": 8,
+   "nproc_y": 14,
+   "numtiles": 16,
+   "distribution": "cyclic",
+   "kmp_blocktime": 0,
+   "score_kind": "pct_change",
+   "value": 0.9565549432,
+   "predicted_y": 1.104850627,
+   "interval_95": [
+    -0.1041267461,
+    -0.03840536735
+   ],
+   "interval_90": [
+    -0.1041267461,
+    -0.03840536735
+   ],
+   "magnitude_model": "catboost_point",
+   "magnitude_value": -0.01344743079,
+   "magnitude_predicted_y": 0.02415933351,
+   "magnitude_interval_95": [
+    -0.02688245898,
+    -0.01053129266
+   ],
+   "magnitude_interval_90": [
+    -0.02688245898,
+    -0.01053129266
+   ],
+   "predicted_gain": 0.01344743079,
+   "gain_lower_95": 0.01047603275,
+   "label": "SAFE",
+   "is_reference": false,
+   "compliance_class": "STRICT",
+   "fidelity_status": "N/A (STRICT)"
+  },
+  {
+   "rank": 8,
+   "config_id": "C15",
+   "n_ranks": 112,
+   "omp_threads": 4,
+   "nproc_x": 14,
+   "nproc_y": 8,
+   "numtiles": 16,
+   "distribution": "cyclic",
+   "kmp_blocktime": 0,
+   "score_kind": "pct_change",
+   "value": 0.9565549432,
+   "predicted_y": 1.104850627,
+   "interval_95": [
+    -0.1041267461,
+    -0.03840536735
+   ],
+   "interval_90": [
+    -0.1041267461,
+    -0.03840536735
+   ],
+   "magnitude_model": "catboost_point",
+   "magnitude_value": -0.01344743079,
+   "magnitude_predicted_y": 0.02415933351,
+   "magnitude_interval_95": [
+    -0.02688245898,
+    -0.01053129266
+   ],
+   "magnitude_interval_90": [
+    -0.02688245898,
+    -0.01053129266
+   ],
+   "predicted_gain": 0.01344743079,
+   "gain_lower_95": 0.01047603275,
+   "label": "SAFE",
+   "is_reference": false,
+   "compliance_class": "STRICT",
+   "fidelity_status": "N/A (STRICT)"
+  },
+  {
+   "rank": 9,
+   "config_id": "C16",
+   "n_ranks": 112,
+   "omp_threads": 4,
+   "nproc_x": 8,
+   "nproc_y": 14,
+   "numtiles": 13,
+   "distribution": "cyclic",
+   "kmp_blocktime": 0,
+   "score_kind": "pct_change",
+   "value": 1.76364278,
+   "predicted_y": 1.45021504,
+   "interval_95": [
+    0.0193220793,
+    0.08504345806
+   ],
+   "interval_90": [
+    0.0193220793,
+    0.08504345806
+   ],
+   "magnitude_model": "catboost_point",
+   "magnitude_value": -0.007098815278,
+   "magnitude_predicted_y": 0.03057386809,
+   "magnitude_interval_95": [
+    -0.01844903419,
+    -0.002097867862
+   ],
+   "magnitude_interval_90": [
+    -0.01844903419,
+    -0.002097867862
+   ],
+   "predicted_gain": 0.007098815278,
+   "gain_lower_95": 0.002095668875,
+   "label": "SAFE",
+   "is_reference": false,
+   "compliance_class": "STRICT",
+   "fidelity_status": "N/A (STRICT)"
+  },
+  {
+   "rank": 10,
+   "config_id": "C14",
+   "n_ranks": 112,
+   "omp_threads": 4,
+   "nproc_x": 8,
+   "nproc_y": 14,
+   "numtiles": 12,
+   "distribution": "cyclic",
+   "kmp_blocktime": 0,
+   "score_kind": "pct_change",
+   "value": 2.255531245,
+   "predicted_y": 1.614020854,
+   "interval_95": [
+    0.07558717766,
+    0.1413085564
+   ],
+   "interval_90": [
+    0.07558717766,
+    0.1413085564
+   ],
+   "magnitude_model": "catboost_point",
+   "magnitude_value": 0.0,
+   "magnitude_predicted_y": 0.03769799984,
+   "magnitude_interval_95": [
+    -0.007240651532,
+    0.009110514795
+   ],
+   "magnitude_interval_90": [
+    -0.007240651532,
+    0.009110514795
+   ],
+   "predicted_gain": 0.0,
+   "gain_lower_95": -0.009152141853,
+   "label": "EXPERIMENTAL",
+   "is_reference": false,
+   "compliance_class": "STRICT",
+   "fidelity_status": "N/A (STRICT)"
+  },
+  {
+   "rank": 11,
+   "config_id": "C08",
+   "n_ranks": 224,
+   "omp_threads": 2,
+   "nproc_x": 14,
+   "nproc_y": 16,
+   "numtiles": 2,
+   "distribution": "cyclic",
+   "kmp_blocktime": 0,
+   "score_kind": "pct_change",
+   "value": 408.0324238,
+   "predicted_y": 6.447459811,
+   "interval_95": [
+    1.628175661,
+    1.693897039
+   ],
+   "interval_90": [
+    1.628175661,
+    1.693897039
+   ],
+   "magnitude_model": "catboost_point",
+   "magnitude_value": 0.06170805968,
+   "magnitude_predicted_y": 0.09757698814,
+   "magnitude_interval_95": [
+    0.0466327814,
+    0.06298394773
+   ],
+   "magnitude_interval_90": [
+    0.0466327814,
+    0.06298394773
+   ],
+   "predicted_gain": -0.06170805968,
+   "gain_lower_95": -0.06500974327,
+   "label": "EXPERIMENTAL",
+   "is_reference": false,
+   "compliance_class": "STRICT",
+   "fidelity_status": "N/A (STRICT)"
+  }
+ ],
+ "verify_plan": {
+  "configs": [
+   {
+    "config_id": "C07",
+    "namelist_keys": {
+     "nproc_x": 14,
+     "nproc_y": 16,
+     "numtiles": 14
+    },
+    "namelist_edit_command": "python3 campaign/configs.py edit-namelist namelist.input.orig namelist.input --nproc-x 14 --nproc-y 16 --numtiles 14 --run-minutes 8 --max-dom 2 --history-mode off --ranks 224",
+    "run_command": "export OMP_NUM_THREADS=2\nexport KMP_BLOCKTIME=0\nsrun --mpi=pmi2 --distribution=cyclic -n 224 --ntasks-per-node=56 -c 2 ./wrf.exe"
+   },
+   {
+    "config_id": "C05",
+    "namelist_keys": {
+     "nproc_x": 14,
+     "nproc_y": 16,
+     "numtiles": 13
+    },
+    "namelist_edit_command": "python3 campaign/configs.py edit-namelist namelist.input.orig namelist.input --nproc-x 14 --nproc-y 16 --numtiles 13 --run-minutes 8 --max-dom 2 --history-mode off --ranks 224",
+    "run_command": "export OMP_NUM_THREADS=2\nexport KMP_BLOCKTIME=0\nsrun --mpi=pmi2 --distribution=cyclic -n 224 --ntasks-per-node=56 -c 2 ./wrf.exe"
+   },
+   {
+    "config_id": "C06",
+    "namelist_keys": {
+     "nproc_x": 14,
+     "nproc_y": 16,
+     "numtiles": 12
+    },
+    "namelist_edit_command": "python3 campaign/configs.py edit-namelist namelist.input.orig namelist.input --nproc-x 14 --nproc-y 16 --numtiles 12 --run-minutes 8 --max-dom 2 --history-mode off --ranks 224",
+    "run_command": "export OMP_NUM_THREADS=2\nexport KMP_BLOCKTIME=0\nsrun --mpi=pmi2 --distribution=cyclic -n 224 --ntasks-per-node=56 -c 2 ./wrf.exe"
+   },
+   {
+    "config_id": "C11",
+    "namelist_keys": {
+     "nproc_x": 14,
+     "nproc_y": 16,
+     "numtiles": 12
+    },
+    "namelist_edit_command": "python3 campaign/configs.py edit-namelist namelist.input.orig namelist.input --nproc-x 14 --nproc-y 16 --numtiles 12 --run-minutes 8 --max-dom 2 --history-mode off --ranks 224",
+    "run_command": "export OMP_NUM_THREADS=2\nexport KMP_BLOCKTIME=0\nsrun --mpi=pmi2 --distribution=block -n 224 --ntasks-per-node=56 -c 2 ./wrf.exe"
+   }
+  ],
+  "palindromic_run_order": [
+   "C07",
+   "C05",
+   "C06",
+   "C11",
+   "C11",
+   "C06",
+   "C05",
+   "C07"
+  ],
+  "note": "measure the top-3 shortlisted configs PLUS the reference config, in this palindromic order, on the SAME node allocation, to control for run-to-run drift (order built by campaign/configs.py build_order)",
+  "run_minutes": 8,
+  "run_minutes_source": "'multidom' not found in campaign/cases.json (or missing steps/dt); documented default of 30 d01 steps x this namelist's time_step=15s = 450s -> 8 min, rounded up"
+ }
+}

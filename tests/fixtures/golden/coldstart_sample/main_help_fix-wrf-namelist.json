@@ -1,0 +1,5 @@
+{
+ "error": "SystemExit: 0",
+ "stdout": "usage: coldstart_sample.py fix-wrf-namelist [-h] --plan PLAN --win WIN --nproc-x NPROC_X --nproc-y\n                                            NPROC_Y [--numtiles NUMTILES] [--ncdump NCDUMP]\n\noptions:\n  -h, --help           show this help message and exit\n  --plan PLAN\n  --win WIN\n  --nproc-x NPROC_X\n  --nproc-y NPROC_Y\n  --numtiles NUMTILES\n  --ncdump NCDUMP\n",
+ "stderr": ""
+}

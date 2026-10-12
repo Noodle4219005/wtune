@@ -1,0 +1,70 @@
+{
+ "output_dir_names": [
+  [
+   "wrfout_d01_2020-06-01_00:00:00",
+   "wrfout_d01_2020-06-01_03:00:00",
+   "wrfout_d01_2020-06-01_06:00:00",
+   "wrfout_d02_2020-06-01_00:00:00",
+   "wrfout_d02_2020-06-01_03:00:00",
+   "wrfout_d02_2020-06-01_06:00:00",
+   "wrfrst_d01_2020-06-01_06:00:00",
+   "wrfrst_d02_2020-06-01_06:00:00"
+  ],
+  [
+   "wrfout_d01_2020-06-01_06:00:00",
+   "wrfout_d01_2020-06-01_09:00:00",
+   "wrfout_d01_2020-06-01_12:00:00",
+   "wrfout_d02_2020-06-01_06:00:00",
+   "wrfout_d02_2020-06-01_09:00:00",
+   "wrfout_d02_2020-06-01_12:00:00",
+   "wrfout_d03_2020-06-01_06:00:00",
+   "wrfout_d03_2020-06-01_07:00:00",
+   "wrfout_d03_2020-06-01_08:00:00",
+   "wrfout_d03_2020-06-01_09:00:00",
+   "wrfout_d03_2020-06-01_10:00:00",
+   "wrfout_d03_2020-06-01_11:00:00",
+   "wrfout_d03_2020-06-01_12:00:00",
+   "wrfrst_d01_2020-06-01_12:00:00",
+   "wrfrst_d02_2020-06-01_12:00:00",
+   "wrfrst_d03_2020-06-01_12:00:00"
+  ]
+ ],
+ "missing_namelist_files": [
+  [
+   "iofields_filename",
+   "iofields_d01.txt"
+  ]
+ ],
+ "staged": {
+  "linked": [],
+  "present": [],
+  "missing": [
+   [
+    "iofields_filename",
+    "iofields_d01.txt"
+   ]
+  ]
+ },
+ "tree": [
+  "d seg_0/",
+  "f seg_0/adios2.xml",
+  "f seg_0/namelist.input",
+  "l seg_0/myiofields.txt -> <TMP>/case/myiofields.txt",
+  "l seg_0/wrfbdy_d01 -> <TMP>/case/wrfbdy_d01",
+  "l seg_0/wrfinput_d01 -> <TMP>/case/wrfinput_d01",
+  "l seg_0/wrfinput_d02 -> <TMP>/case/wrfinput_d02",
+  "l seg_0/wrfinput_d03.bp -> <TMP>/case/wrfinput_d03.bp"
+ ],
+ "inside_case": "RunError: segment dir <TMP>/case/s is inside CASE_DIR",
+ "restart_files": {
+  "1": [
+   "<TMP>/case/wrfrst_d01_2020-06-01_06:00:00"
+  ],
+  "2": []
+ },
+ "fresh_bp_links": {
+  "a_1.bp": "/seg/_bp/a/a_1.bp",
+  "b.bp": "/cache/b"
+ },
+ "restart_links_missing": "RunError: segment 1: no wrfrst for d02,03 at 2020-06-01_06:00:00 in <TMP>/case"
+}

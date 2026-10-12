@@ -1,0 +1,18 @@
+ &time_control
+ io_form_history = 2,
+ io_form_input = 2,
+ io_form_boundary = 2,
+ auxinput4_inname = "wrflowinp_d<domain>",
+ io_form_auxinput4 = 2,
+ /
+ &domains
+ max_dom = 2,
+ /
+ &physics
+ sst_update = 1,
+ /
+ &fdda
+ grid_fdda = 1, 0,
+ gfdda_inname = "wrffdda_d<domain>",
+ io_form_gfdda = 2,
+ /

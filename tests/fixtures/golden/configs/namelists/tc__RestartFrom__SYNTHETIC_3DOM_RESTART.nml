@@ -1,0 +1,15 @@
+&time_control
+ run_days = 0, run_hours = 6, run_minutes = 0, run_seconds = 0,
+ start_year = 2019, 2019, 2019,
+ start_month = 11, 11, 11,
+ start_day = 25, 25, 25,
+ start_hour = 12, 12, 12,
+ start_minute = 00, 00, 00,
+ restart = .false.,
+ restart_interval = 1440,
+ io_form_restart = 2,
+/
+&domains
+ max_dom = 3,
+ time_step=15, e_we=793, 805, 1001, e_sn=853, 805, 1001,
+/

@@ -1,0 +1,6 @@
+case,job_id,config_id,roles,ranks,omp,nx,ny,numtiles,dist,blocktime,n,s_median,s_min,s_max,success,predicted_gain,gain_lower_95,label,verdict,regret,speedup_vs_c01
+severe2023,1090688,GBASE,baseline,100,1,10,10,1,cyclic,0,2,0.166045,0.16561,0.16648,True,,,,FAIL,0.10784056395065433,0.11033153663163597
+severe2023,1090688,GREC1,recommended:1,56,2,7,8,6,block,0,2,0.148195,0.148,0.14839,True,,,,FAIL,0.10784056395065433,0.11033153663163597
+severe2023,1090688,GREC2,recommended:2,56,2,7,8,6,block,0,2,0.18072,0.18071,0.18073,True,,,,FAIL,0.10784056395065433,0.11033153663163597
+severe2023,1090688,GREC3,recommended:3,16,7,2,8,14,block,0,2,0.147725,0.1477,0.14775,True,,,,FAIL,0.10784056395065433,0.11033153663163597
+severe2023,1090688,R01D0001,best_known,28,4,4,7,4,block,0,2,0.133345,0.13305,0.13364,True,,,,FAIL,0.10784056395065433,0.11033153663163597

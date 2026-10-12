@@ -23,8 +23,19 @@
 set -uo pipefail
 : "${CASE:?CASE env var is required}"
 
-REPO=/home/u5727520/wrf-stack/wtune-autotuner
-OUT=/home/u5727520/wrf-bench/wscore/campaign
+# SITE/REPO (decision 0050 step 8): same site-conditional-default + campaign/sites/$SITE.sh
+# pattern as strict_campaign.sbatch, so OUT/HARDWARE_ID/CORES_PER_NODE here are guaranteed
+# identical to what the nested strict_campaign.sbatch calls below (run_campaign) compute
+# themselves, instead of a second, driftable copy of the same per-site absolute paths.
+SITE=${SITE:-f1}
+export SITE
+if [ "$SITE" = "scc" ]; then
+  REPO=${REPO:-$HOME/wtune}
+else
+  REPO=${REPO:-/home/u5727520/wrf-stack/wtune-autotuner}
+fi
+export CAMPAIGN="$REPO/campaign"
+source "$CAMPAIGN/sites/$SITE.sh"   # OUT, HARDWARE_ID, CORES_PER_NODE (site_env/site_launch unused here)
 STATE_DIR=${STATE_DIR:-/home/u5727520/wrf-bench/wscore/decomp/search}
 PY="pixi run --manifest-path /home/u5727520/wrf-stack/wtune-predictor-env/pixi.toml python"
 TEMPLATES=${TEMPLATES-C01+C02+C07+C08+C10}
@@ -33,8 +44,7 @@ BATCH=${BATCH:-8}
 REPS=${REPS:-1}
 CONFIRM_TOP=${CONFIRM_TOP:-3}
 NODES=${SLURM_JOB_NUM_NODES:?}
-TOTAL_CORES=$(( NODES * 112 ))
-HARDWARE_ID=f1-spr-$(hostname -s | sed 's/[0-9]*$//')
+TOTAL_CORES=$(( NODES * CORES_PER_NODE ))
 J=$SLURM_JOB_ID
 LEDGER="$OUT/ledger_${CASE}_${J}.csv"      # strict_campaign.sbatch appends every round here
 L=$OUT
@@ -64,7 +74,7 @@ else
   # no templates for this allocation (e.g. 1 node): balanced shape per thread count instead, so D3's
   # first proposal is trained on this case's own rows rather than extrapolated from 448-core cases
   echo "===== R0 seed design"
-  $PY predictor/decomp_space.py seed "$CASE" --out "$D/seed.json" --total-cores "$TOTAL_CORES" \
+  $PY src/wtune/predictor/decomp_space.py seed "$CASE" --out "$D/seed.json" --total-cores "$TOTAL_CORES" \
       --nodes "$NODES" --hardware-id "$HARDWARE_ID" 2>&1 | grep -v "WARN cache"
   jq -r '.configs[] | [.id,.ranks,.omp,.nx,.ny,.numtiles] | @tsv' "$D/seed.json"
   run_campaign "$REPS" CONFIG_FILE="$D/seed.json" 2>&1 | grep -E "^RESULT|ERROR|FATAL|ABORT"
@@ -74,7 +84,7 @@ for r in $(seq 1 "$ROUNDS"); do
   P="$D/proposal_r${r}.json"
   echo "===== R$r propose"
   LEDGER_ARGS="$PRIOR_LEDGERS"; [ -f "$LEDGER" ] && LEDGER_ARGS="$LEDGER_ARGS $LEDGER"  # absent until a run happens (TEMPLATES=none)
-  $PY predictor/decomp_search.py propose --case "$CASE" --ledger $LEDGER_ARGS \
+  $PY src/wtune/predictor/decomp_search.py propose --case "$CASE" --ledger $LEDGER_ARGS \
       --state "$STATE" --batch "$BATCH" --out "$P" --total-cores "$TOTAL_CORES" --nodes "$NODES" \
       --hardware-id "$HARDWARE_ID" --reps "$REPS" $PROPOSE_LIMITS 2>&1 | grep -vE "WARN cache|^sbatch "
   [ -f "$P" ] || { echo "R$r: no proposal (stopped)"; break; }
@@ -84,7 +94,7 @@ for r in $(seq 1 "$ROUNDS"); do
   # ingest only this round's rows: ingest() appends, so re-reading earlier rounds would double them
   RL="$D/ledger_r${r}.csv"
   { head -1 "$LEDGER"; grep "^${CASE}_R$(printf %02d "$r")D" "$LEDGER"; } > "$RL"
-  $PY predictor/decomp_search.py ingest --state "$STATE" --ledger "$RL" 2>&1 | grep -v "WARN cache"
+  $PY src/wtune/predictor/decomp_search.py ingest --state "$STATE" --ledger "$RL" 2>&1 | grep -v "WARN cache"
 done
 
 if [ "$CONFIRM_TOP" -gt 0 ]; then

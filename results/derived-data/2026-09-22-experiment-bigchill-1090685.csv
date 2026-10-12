@@ -1,0 +1,6 @@
+case,job_id,config_id,roles,ranks,omp,nx,ny,numtiles,dist,blocktime,n,s_median,s_min,s_max,success,predicted_gain,gain_lower_95,label,verdict,regret,speedup_vs_c01
+bigchill,1090685,C01,baseline,448,1,14,32,1,cyclic,0,2,3.15727,3.15684,3.1577,True,,,,INCONCLUSIVE,,
+bigchill,1090685,C06,recommended:2,224,2,7,32,12,cyclic,0,0,,,,False,0.023670232499739985,-0.5707475383058758,EXPERIMENTAL,INCONCLUSIVE,,
+bigchill,1090685,C11,recommended:1,224,2,7,32,12,block,0,0,,,,False,0.02202440742083589,-0.5647838645797807,EXPERIMENTAL,INCONCLUSIVE,,
+bigchill,1090685,C12,recommended:3,224,2,7,32,12,cyclic,default,0,,,,False,0.023670232499739985,-0.5707475383058758,EXPERIMENTAL,INCONCLUSIVE,,
+bigchill,1090685,R01D0003,best_known,224,2,8,28,2,cyclic,0,2,2.74005,2.73574,2.74436,True,,,,INCONCLUSIVE,,

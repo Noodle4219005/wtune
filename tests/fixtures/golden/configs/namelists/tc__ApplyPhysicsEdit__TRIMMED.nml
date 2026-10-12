@@ -1,0 +1,8 @@
+&physics
+ mp_physics = 28, 28, 28,
+ radt = 1, 1, 1,
+/
+&domains
+ max_dom = 3,
+ time_step = 10,
+/

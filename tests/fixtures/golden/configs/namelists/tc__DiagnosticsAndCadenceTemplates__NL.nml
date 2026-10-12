@@ -1,0 +1,15 @@
+&time_control
+ nwp_diagnostics = 1,
+/
+&domains
+ time_step=15, max_dom=2,
+/
+&physics
+ mp_physics = 8, 8,
+ hailcast_opt = 1, 1,
+ do_radar_ref = 1,
+/
+&bdy_control
+ spec_bdy_width = 5,
+ feedback = 1,
+/

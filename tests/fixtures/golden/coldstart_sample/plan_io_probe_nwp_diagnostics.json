@@ -1,0 +1,139 @@
+{
+ "result": {
+  "case_dir": "<TMP>/case",
+  "namelist_input": "<TMP>/case/namelist.input",
+  "max_dom": 1,
+  "dt_s": 72.0,
+  "radt_min": 15,
+  "stepra": 13,
+  "measure_steps": 20,
+  "spinup_min": 1,
+  "W_seconds": 1500.0,
+  "case_interval_seconds": 10800,
+  "window_interval_seconds": 10800,
+  "forcing_pin": null,
+  "forcing_chain_primary": {
+   "provider": "ncar-rda",
+   "dataset": "d084001",
+   "product": "gfs.0p25",
+   "resolution_deg": 0.25,
+   "format": "grib2",
+   "forcing_interval_h": 3,
+   "source_kind": "forecast",
+   "vtable": "Vtable.GFS",
+   "prefix": "GFS",
+   "valid_from": "2015-01-15",
+   "valid_to": null
+  },
+  "run_start": "2020-01-01_00:00:00",
+  "run_end": "2020-01-02_00:00:00",
+  "stated_start": "2020-01-01_00:00:00",
+  "analog_start": null,
+  "shift_s": 0.0,
+  "analog_quality": null,
+  "windows": [
+   {
+    "t": "2020-01-01_00:00:00",
+    "t_end": "2020-01-01_03:00:00",
+    "reason": "t0",
+    "shift_s": 0.0
+   },
+   {
+    "t": "2020-01-01_03:00:00",
+    "t_end": "2020-01-01_06:00:00",
+    "reason": "night",
+    "shift_s": 0.0
+   }
+  ],
+  "grib_times": [
+   "2020-01-01_00:00:00",
+   "2020-01-01_03:00:00",
+   "2020-01-01_06:00:00"
+  ],
+  "geo": {
+   "map_proj": "lambert",
+   "truelat1": 30,
+   "truelat2": 60,
+   "stand_lon": -98,
+   "pole_lat": null,
+   "pole_lon": null,
+   "ref_lat": 40.00001,
+   "ref_lon": -98.0,
+   "e_we": 425,
+   "e_sn": 300,
+   "dx": 12000.0,
+   "dy": 12000.0,
+   "geog_data_res": "default",
+   "source": "namelist.wps"
+  },
+  "namelist_wps_fields": {
+   "max_dom": 1,
+   "prefix": "GFS",
+   "map_proj": "lambert",
+   "truelat1": 30,
+   "truelat2": 60,
+   "stand_lon": -98,
+   "pole_lat": null,
+   "pole_lon": null,
+   "ref_lat": 40.00001,
+   "ref_lon": -98.0,
+   "dx": 12000.0,
+   "dy": 12000.0,
+   "geog_data_res": [
+    "default"
+   ],
+   "geog_data_path": "/nfs/data/wrf/WPS_GEOG/",
+   "parent_id": [
+    1
+   ],
+   "parent_grid_ratio": [
+    1
+   ],
+   "i_parent_start": [
+    1
+   ],
+   "j_parent_start": [
+    1
+   ],
+   "e_we": [
+    425
+   ],
+   "e_sn": [
+    300
+   ],
+   "interval_seconds": 10800,
+   "start_date": "2020-01-01_00:00:00",
+   "end_date": "2020-01-01_06:00:00",
+   "constants_name": []
+  },
+  "nodes": 1,
+  "config": {
+   "ranks": 72,
+   "omp": 1,
+   "nx": 1,
+   "ny": 72,
+   "numtiles": 1
+  },
+  "real_only": false,
+  "vertical_grid": null,
+  "vertical_grid_warning": null,
+  "ml_model": null,
+  "io_probe": {
+   "history": [
+    true
+   ],
+   "restart": true,
+   "io_form_history": 2,
+   "io_form_restart": 2,
+   "history_prefix": "wrfout_d",
+   "iofields": null,
+   "warnings": [],
+   "notes": [],
+   "window": 1
+  }
+ },
+ "stdout": "",
+ "stderr": "",
+ "plan.json": "{\n  \"case_dir\": \"<TMP>/case\",\n  \"namelist_input\": \"<TMP>/case/namelist.input\",\n  \"max_dom\": 1,\n  \"dt_s\": 72.0,\n  \"radt_min\": 15,\n  \"stepra\": 13,\n  \"measure_steps\": 20,\n  \"spinup_min\": 1,\n  \"W_seconds\": 1500.0,\n  \"case_interval_seconds\": 10800,\n  \"window_interval_seconds\": 10800,\n  \"forcing_pin\": null,\n  \"forcing_chain_primary\": {\n    \"provider\": \"ncar-rda\",\n    \"dataset\": \"d084001\",\n    \"product\": \"gfs.0p25\",\n    \"resolution_deg\": 0.25,\n    \"format\": \"grib2\",\n    \"forcing_interval_h\": 3,\n    \"source_kind\": \"forecast\",\n    \"vtable\": \"Vtable.GFS\",\n    \"prefix\": \"GFS\",\n    \"valid_from\": \"2015-01-15\",\n    \"valid_to\": null\n  },\n  \"run_start\": \"2020-01-01_00:00:00\",\n  \"run_end\": \"2020-01-02_00:00:00\",\n  \"stated_start\": \"2020-01-01_00:00:00\",\n  \"analog_start\": null,\n  \"shift_s\": 0.0,\n  \"analog_quality\": null,\n  \"windows\": [\n    {\n      \"t\": \"2020-01-01_00:00:00\",\n      \"t_end\": \"2020-01-01_03:00:00\",\n      \"reason\": \"t0\",\n      \"shift_s\": 0.0\n    },\n    {\n      \"t\": \"2020-01-01_03:00:00\",\n      \"t_end\": \"2020-01-01_06:00:00\",\n      \"reason\": \"night\",\n      \"shift_s\": 0.0\n    }\n  ],\n  \"grib_times\": [\n    \"2020-01-01_00:00:00\",\n    \"2020-01-01_03:00:00\",\n    \"2020-01-01_06:00:00\"\n  ],\n  \"geo\": {\n    \"map_proj\": \"lambert\",\n    \"truelat1\": 30,\n    \"truelat2\": 60,\n    \"stand_lon\": -98,\n    \"pole_lat\": null,\n    \"pole_lon\": null,\n    \"ref_lat\": 40.00001,\n    \"ref_lon\": -98.0,\n    \"e_we\": 425,\n    \"e_sn\": 300,\n    \"dx\": 12000.0,\n    \"dy\": 12000.0,\n    \"geog_data_res\": \"default\",\n    \"source\": \"namelist.wps\"\n  },\n  \"namelist_wps_fields\": {\n    \"max_dom\": 1,\n    \"prefix\": \"GFS\",\n    \"map_proj\": \"lambert\",\n    \"truelat1\": 30,\n    \"truelat2\": 60,\n    \"stand_lon\": -98,\n    \"pole_lat\": null,\n    \"pole_lon\": null,\n    \"ref_lat\": 40.00001,\n    \"ref_lon\": -98.0,\n    \"dx\": 12000.0,\n    \"dy\": 12000.0,\n    \"geog_data_res\": [\n      \"default\"\n    ],\n    \"geog_data_path\": \"/nfs/data/wrf/WPS_GEOG/\",\n    \"parent_id\": [\n      1\n    ],\n    \"parent_grid_ratio\": [\n      1\n    ],\n    \"i_parent_start\": [\n      1\n    ],\n    \"j_parent_start\": [\n      1\n    ],\n    \"e_we\": [\n      425\n    ],\n    \"e_sn\": [\n      300\n    ],\n    \"interval_seconds\": 10800,\n    \"start_date\": \"2020-01-01_00:00:00\",\n    \"end_date\": \"2020-01-01_06:00:00\",\n    \"constants_name\": []\n  },\n  \"nodes\": 1,\n  \"config\": {\n    \"ranks\": 72,\n    \"omp\": 1,\n    \"nx\": 1,\n    \"ny\": 72,\n    \"numtiles\": 1\n  },\n  \"real_only\": false,\n  \"vertical_grid\": null,\n  \"vertical_grid_warning\": null,\n  \"ml_model\": null,\n  \"io_probe\": {\n    \"history\": [\n      true\n    ],\n    \"restart\": true,\n    \"io_form_history\": 2,\n    \"io_form_restart\": 2,\n    \"history_prefix\": \"wrfout_d\",\n    \"iofields\": null,\n    \"warnings\": [],\n    \"notes\": [],\n    \"window\": 1\n  }\n}",
+ "namelist.wps": "&share\n wrf_core = 'ARW',\n max_dom = 1,\n start_date = '2020-01-01_00:00:00',\n end_date   = '2020-01-01_06:00:00',\n interval_seconds = 10800,\n io_form_geogrid = 2,\n/\n\n&geogrid\n parent_id         = 1,\n parent_grid_ratio = 1,\n i_parent_start    = 1,\n j_parent_start    = 1,\n e_we              = 425,\n e_sn              = 300,\n geog_data_res     = 'default',\n dx                = 12000,\n dy                = 12000,\n map_proj          = 'lambert',\n truelat1          = 30,\n truelat2          = 60,\n stand_lon         = -98,\n ref_lat           = 40.00001,\n ref_lon           = -98,\n geog_data_path    = '/nfs/data/wrf/WPS_GEOG/'\n/\n\n&ungrib\n out_format = 'WPS',\n prefix = 'GFS',\n/\n\n&metgrid\n fg_name = 'GFS',\n io_form_metgrid = 2,\n/\n"
+}

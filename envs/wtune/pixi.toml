@@ -1,0 +1,36 @@
+[workspace]
+name = "wtune"
+description = "One interpreter for every WTune tool on scc: predictor, tuner (CatBoost proposer, wtune_decomp), cold-start/rebuild (GRIB, netCDF), ML state correction and the test suites. scc's /usr/bin/python3 has no numpy/netCDF4/catboost/sklearn."
+channels = ["conda-forge"]
+platforms = ["linux-64", "linux-aarch64"]
+version = "0.1.0"
+
+[dependencies]
+python = "3.11.*"
+numpy = "*"
+scipy = "*"
+netcdf4 = "*"
+eccodes = "*"
+cfgrib = "*"
+xarray = "*"
+requests = "*"
+catboost = "*"
+scikit-learn = "*"
+pytest = "*"
+wrf-python = "*"
+tempest-extremes = "*"
+matplotlib = "*"
+metpy = "*"
+nco = "*"
+cdo = "*"
+cartopy = "*"
+xwrf = "*"
+ffmpeg = "*"
+gcsfs = "*"
+zarr = "*"
+arm_pyart = ">=1.19,<2"   # radar_composite.py (NEXRAD level-2 -> composite reflectivity); <2 = pre-xradar-only API
+dask = "*"                # imported by pyart.correct but missing from the conda-forge arm_pyart run deps
+xradar = ">=0.9"          # native xarray.DataTree; xradar<0.9 pulls xarray-datatree and downgrades xarray to 2024.9
+
+[tasks]
+test = "python -m pytest -q tests/test_wtune_predict.py tests/tools/"

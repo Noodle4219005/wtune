@@ -1,0 +1,7 @@
+rc=2
+--- log
+--- stdout
+
+--- stderr
+error: config cli: 81 ranks x 1 threads exceeds 1 node(s) x 72 cores
+

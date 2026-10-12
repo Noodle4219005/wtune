@@ -1,0 +1,17 @@
+&time_control
+ run_days=0, run_hours=1, run_minutes=0,
+ history_interval=999,
+ io_form_history=14,
+/
+&domains
+ time_step=15, e_we=901, e_sn=901, e_vert=45,
+/
+&physics
+ bl_mynn_tkebudget = 0, 0, 0,
+ icloud_bl = 1,
+/
+&noah_mp
+ opt_run=3, ! former comment
+ dveg=9 ! former 3
+ opt_crs=1,
+/

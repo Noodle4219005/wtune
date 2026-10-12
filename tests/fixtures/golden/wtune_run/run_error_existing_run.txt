@@ -1,0 +1,9 @@
+rc=2
+--- log
+--- stdout
+
+--- stderr
+error: <TMP>/out already holds a run (seg_0): choose another --out
+
+--- tree
+d seg_0/

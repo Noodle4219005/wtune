@@ -1,0 +1,710 @@
+{
+ "defaults": {
+  "errors": [],
+  "cfg": {
+   "site": "scc",
+   "case": null,
+   "case_dir": null,
+   "compliance": "strict",
+   "budget": {
+    "minutes": null,
+    "max_nodes": 13,
+    "nodes": "auto",
+    "nodes_policy": "knee",
+    "node_objective": null,
+    "deadline_minutes": null,
+    "min_efficiency": null,
+    "node_finalists": null,
+    "sweep_budget_frac": null
+   },
+   "search": {
+    "omp": null,
+    "numtiles": null,
+    "rank_distribution": null,
+    "aspect_max": null,
+    "io": {
+     "enabled": false,
+     "io_form_history": [
+      2,
+      11,
+      14
+     ],
+     "target": [
+      "nfs",
+      "local"
+     ]
+    }
+   },
+   "physics_gray": {
+    "enabled": false,
+    "knobs": {}
+   },
+   "probe": {
+    "steps": "auto",
+    "confirm_reps": 2,
+    "spinup_min": 60,
+    "ranking_start": "t0",
+    "points": "auto",
+    "max_points": 5,
+    "budget_pct": 10.0,
+    "sources": [
+     "trajectory",
+     "restart",
+     "rebuild"
+    ],
+    "rank_by": "t0",
+    "restart_io_form": 14,
+    "stage1": "t0",
+    "stage2_minutes": null,
+    "points_by": "time",
+    "indicator_sources": [
+     "case_forcing",
+     "era5",
+     "gfs",
+     "stage4",
+     "mrms"
+    ]
+   },
+   "prediction": {
+    "io_target": "nfs",
+    "drift_band_pct": null,
+    "measure_r_rad": false
+   },
+   "exclude": []
+  }
+ },
+ "not_a_mapping": {
+  "errors": [
+   "top-level config must be a mapping, got list"
+  ],
+  "cfg": null
+ },
+ "top_level": {
+  "errors": [
+   "unknown top-level key: 'bogus'",
+   "case and case_dir are mutually exclusive; set only one",
+   "compliance: 'loose' not in ['strict', 'physics-gray']"
+  ],
+  "cfg": null
+ },
+ "budget_types": {
+  "errors": [
+   "budget.minutes: must be a positive number, got True",
+   "budget.max_nodes: must be a positive integer, got 0",
+   "budget.nodes_policy: 'x' not in ['min', 'cap', 'knee']",
+   "budget.node_objective: 'speed' not in ['time', 'cost', 'knee']",
+   "budget.deadline_minutes: must be a positive number, got -1",
+   "budget.min_efficiency: must be a positive number, got 'x'",
+   "budget.sweep_budget_frac: must be <= 1, got 1.5",
+   "budget.node_finalists: must be a positive integer, got 0",
+   "budget.nodes: 'a' is not an integer",
+   "budget.nodes: True is not an integer",
+   "budget.nodes: 0 must be positive"
+  ],
+  "cfg": null
+ },
+ "budget_bad_max_nodes_list": {
+  "errors": [
+   "budget.max_nodes: must be a positive integer, got True"
+  ],
+  "cfg": null
+ },
+ "budget_nodes_int": {
+  "errors": [
+   "budget.nodes: 8 exceeds budget.max_nodes=4"
+  ],
+  "cfg": null
+ },
+ "budget_nodes_zero": {
+  "errors": [
+   "budget.nodes: 0 must be positive"
+  ],
+  "cfg": null
+ },
+ "budget_nodes_str": {
+  "errors": [
+   "budget.nodes: must be 'auto', 'search', an integer, or a list of integers, got 'many'"
+  ],
+  "cfg": null
+ },
+ "budget_nodes_bool": {
+  "errors": [
+   "budget.nodes: must be 'auto', 'search', an integer, or a list of integers, got False"
+  ],
+  "cfg": null
+ },
+ "budget_nodes_empty": {
+  "errors": [
+   "budget.nodes: must be a non-empty list"
+  ],
+  "cfg": null
+ },
+ "budget_ok": {
+  "errors": [],
+  "cfg": {
+   "site": "scc",
+   "case": null,
+   "case_dir": null,
+   "compliance": "strict",
+   "budget": {
+    "minutes": 30,
+    "max_nodes": 8,
+    "nodes": [
+     1,
+     2,
+     8
+    ],
+    "nodes_policy": "knee",
+    "node_objective": "cost",
+    "deadline_minutes": 2.5,
+    "min_efficiency": null,
+    "node_finalists": 3,
+    "sweep_budget_frac": 1
+   },
+   "search": {
+    "omp": null,
+    "numtiles": null,
+    "rank_distribution": null,
+    "aspect_max": null,
+    "io": {
+     "enabled": false,
+     "io_form_history": [
+      2,
+      11,
+      14
+     ],
+     "target": [
+      "nfs",
+      "local"
+     ]
+    }
+   },
+   "physics_gray": {
+    "enabled": false,
+    "knobs": {}
+   },
+   "probe": {
+    "steps": "auto",
+    "confirm_reps": 2,
+    "spinup_min": 60,
+    "ranking_start": "t0",
+    "points": "auto",
+    "max_points": 5,
+    "budget_pct": 10.0,
+    "sources": [
+     "trajectory",
+     "restart",
+     "rebuild"
+    ],
+    "rank_by": "t0",
+    "restart_io_form": 14,
+    "stage1": "t0",
+    "stage2_minutes": null,
+    "points_by": "time",
+    "indicator_sources": [
+     "case_forcing",
+     "era5",
+     "gfs",
+     "stage4",
+     "mrms"
+    ]
+   },
+   "prediction": {
+    "io_target": "nfs",
+    "drift_band_pct": null,
+    "measure_r_rad": false
+   },
+   "exclude": []
+  }
+ },
+ "budget_not_mapping": {
+  "errors": [
+   "budget: must be a mapping, got int"
+  ],
+  "cfg": null
+ },
+ "search_bad": {
+  "errors": [
+   "search.io.zzz: unknown key",
+   "search.bad: unknown key",
+   "search.omp: 'a' is not an integer",
+   "search.omp: 0 is below the catalog minimum 1 (per_rank_omp_threads)",
+   "search.numtiles: must be a non-empty list",
+   "search.rank_distribution: must be a non-empty list",
+   "search.aspect_max: must be a positive number, got -2",
+   "search.io.enabled: must be a bool, got 'yes'",
+   "search.io.io_form_history: 'a' is not an integer",
+   "search.io.io_form_history: 99 is not in the catalog's legal set [11, 14, 2] (io_form_history)",
+   "search.io.target: 'tape' not in ['nfs', 'local']",
+   "declared but not yet supported by wtune tune: search.io"
+  ],
+  "cfg": null
+ },
+ "search_more_bad": {
+  "errors": [
+   "search.omp: must be a non-empty list",
+   "search.rank_distribution: 'nope' is not in the catalog's legal set ['block', 'cyclic'] (srun_distribution)",
+   "search.aspect_max: must be a positive number, got True",
+   "search.io.io_form_history: must be a non-empty list",
+   "search.io.target: must be a non-empty list",
+   "declared but not yet supported by wtune tune: search.io"
+  ],
+  "cfg": null
+ },
+ "search_ok": {
+  "errors": [],
+  "cfg": {
+   "site": "scc",
+   "case": null,
+   "case_dir": null,
+   "compliance": "strict",
+   "budget": {
+    "minutes": null,
+    "max_nodes": 13,
+    "nodes": "auto",
+    "nodes_policy": "knee",
+    "node_objective": null,
+    "deadline_minutes": null,
+    "min_efficiency": null,
+    "node_finalists": null,
+    "sweep_budget_frac": null
+   },
+   "search": {
+    "omp": [
+     1,
+     2
+    ],
+    "numtiles": [
+     1,
+     4
+    ],
+    "rank_distribution": null,
+    "aspect_max": 3.0,
+    "io": {
+     "enabled": false,
+     "io_form_history": [
+      2,
+      11,
+      14
+     ],
+     "target": [
+      "nfs",
+      "local"
+     ]
+    }
+   },
+   "physics_gray": {
+    "enabled": false,
+    "knobs": {}
+   },
+   "probe": {
+    "steps": "auto",
+    "confirm_reps": 2,
+    "spinup_min": 60,
+    "ranking_start": "t0",
+    "points": "auto",
+    "max_points": 5,
+    "budget_pct": 10.0,
+    "sources": [
+     "trajectory",
+     "restart",
+     "rebuild"
+    ],
+    "rank_by": "t0",
+    "restart_io_form": 14,
+    "stage1": "t0",
+    "stage2_minutes": null,
+    "points_by": "time",
+    "indicator_sources": [
+     "case_forcing",
+     "era5",
+     "gfs",
+     "stage4",
+     "mrms"
+    ]
+   },
+   "prediction": {
+    "io_target": "nfs",
+    "drift_band_pct": null,
+    "measure_r_rad": false
+   },
+   "exclude": []
+  }
+ },
+ "search_not_mapping": {
+  "errors": [
+   "search: must be a mapping, got str"
+  ],
+  "cfg": null
+ },
+ "search_io_not_mapping": {
+  "errors": [
+   "search.io: must be a mapping, got int"
+  ],
+  "cfg": null
+ },
+ "physics_gray_bad": {
+  "errors": [
+   "physics_gray.knobs.x: must be a mapping",
+   "physics_gray.knobs.y.zz: unknown key",
+   "physics_gray.enabled: must be a bool, got 'y'",
+   "physics_gray.knobs.radt: requires compliance: physics-gray (got 'strict')",
+   "physics_gray.knobs.radt.multiply: -1 must be a positive number",
+   "physics_gray.knobs.radt.multiply: True must be a positive number",
+   "physics_gray.knobs.nonexistent_knob: requires compliance: physics-gray (got 'strict')",
+   "physics_gray.knobs.nonexistent_knob: not found in the compliance catalog",
+   "physics_gray.knobs.nonexistent_knob: missing 'multiply'",
+   "physics_gray.knobs.per_rank_omp_threads: requires compliance: physics-gray (got 'strict')",
+   "physics_gray.knobs.per_rank_omp_threads: catalog classification is STRICT, not PHYSICS-GRAY",
+   "physics_gray.knobs.per_rank_omp_threads.multiply: must be a non-empty list",
+   "physics_gray.knobs.y: requires compliance: physics-gray (got 'strict')",
+   "physics_gray.knobs.y: not found in the compliance catalog",
+   "physics_gray.knobs.y.multiply: must be a non-empty list",
+   "declared but not yet supported by wtune tune: physics_gray"
+  ],
+  "cfg": null
+ },
+ "physics_gray_enabled_strict": {
+  "errors": [
+   "physics_gray.knobs.radt: requires compliance: physics-gray (got 'strict')",
+   "declared but not yet supported by wtune tune: physics_gray"
+  ],
+  "cfg": null
+ },
+ "physics_gray_enabled_gray": {
+  "errors": [
+   "declared but not yet supported by wtune tune: physics_gray"
+  ],
+  "cfg": null
+ },
+ "physics_gray_not_mapping": {
+  "errors": [
+   "physics_gray: must be a mapping, got list"
+  ],
+  "cfg": null
+ },
+ "physics_gray_knobs_not_mapping": {
+  "errors": [
+   "physics_gray.knobs: must be a mapping, got list",
+   "physics_gray.extra: unknown key"
+  ],
+  "cfg": null
+ },
+ "probe_bad": {
+  "errors": [
+   "probe.nope: unknown key",
+   "probe.steps: must be a positive integer or 'auto', got 0",
+   "probe.confirm_reps: must be a positive integer, got True",
+   "probe.spinup_min: must be a non-negative number, got -1",
+   "probe.ranking_start: 'late' not in ['t0', 'spinup']",
+   "probe.max_points: must be a positive integer, got 0",
+   "probe.budget_pct: must be a number in (0, 100], got 101",
+   "probe.rank_by: 'x' not in ['t0', 'predicted']",
+   "probe.stage2_minutes: must be a positive number or null, got 0",
+   "probe.stage1: 'y' not in ['t0', 'pstar']",
+   "probe.restart_io_form: True not in [14, 2]",
+   "probe.points_by: 'z' not in ['time', 'cost-indicators']",
+   "probe.indicator_sources: 'imerg' not in ['case_forcing', 'era5', 'gfs', 'stage4', 'mrms'] (IMERG needs NASA Earthdata credentials and is not supported)",
+   "probe.indicator_sources: duplicate entry",
+   "probe.sources: duplicate entry 'rebuild'",
+   "probe.sources: 'bogus' not in ['trajectory', 'restart', 'rebuild'] (or legacy alias ['coldstart'])",
+   "probe.sources: duplicate entry 'trajectory'",
+   "probe.points[3]: '+1d' is not a recognized form ('+<N>m', '+<N>h', '<N>%', or 'YYYY-MM-DD_HH:MM:SS')",
+   "probe.points[4]: 5 is not a recognized form ('+<N>m', '+<N>h', '<N>%', or 'YYYY-MM-DD_HH:MM:SS')",
+   "probe.points[5]: mapping form requires 'at'",
+   "probe.points[6]: unknown key(s) ['foo']",
+   "probe.points[6].source: 'z' not in ['trajectory', 'restart', 'rebuild'] (or legacy alias ['coldstart'])",
+   "probe.points[7]: 'bad' is not a recognized form ('+<N>m', '+<N>h', '<N>%', or 'YYYY-MM-DD_HH:MM:SS')"
+  ],
+  "cfg": null
+ },
+ "probe_more_bad": {
+  "errors": [
+   "probe.steps: must be a positive integer or 'auto', got 'many'",
+   "probe.confirm_reps: must be a positive integer, got 0",
+   "probe.spinup_min: must be a non-negative number, got 'x'",
+   "probe.max_points: must be a positive integer, got True",
+   "probe.budget_pct: must be a number in (0, 100], got 0",
+   "probe.stage2_minutes: must be a positive number or null, got True",
+   "probe.restart_io_form: 5 not in [14, 2]",
+   "probe.indicator_sources: must be a non-empty list",
+   "probe.sources: must be a non-empty list",
+   "probe.points: must be 'auto' or a non-empty list"
+  ],
+  "cfg": null
+ },
+ "probe_types": {
+  "errors": [
+   "probe.steps: must be a positive integer or 'auto', got 2.5",
+   "probe.budget_pct: must be a number in (0, 100], got 'x'",
+   "probe.stage2_minutes: must be a positive number or null, got 'y'",
+   "probe.indicator_sources: must be a non-empty list",
+   "probe.sources: must be a non-empty list",
+   "probe.points: must be 'auto' or a non-empty list"
+  ],
+  "cfg": null
+ },
+ "probe_ok": {
+  "errors": [],
+  "cfg": {
+   "site": "scc",
+   "case": null,
+   "case_dir": null,
+   "compliance": "strict",
+   "budget": {
+    "minutes": null,
+    "max_nodes": 13,
+    "nodes": "auto",
+    "nodes_policy": "knee",
+    "node_objective": null,
+    "deadline_minutes": null,
+    "min_efficiency": null,
+    "node_finalists": null,
+    "sweep_budget_frac": null
+   },
+   "search": {
+    "omp": null,
+    "numtiles": null,
+    "rank_distribution": null,
+    "aspect_max": null,
+    "io": {
+     "enabled": false,
+     "io_form_history": [
+      2,
+      11,
+      14
+     ],
+     "target": [
+      "nfs",
+      "local"
+     ]
+    }
+   },
+   "physics_gray": {
+    "enabled": false,
+    "knobs": {}
+   },
+   "probe": {
+    "steps": 30,
+    "confirm_reps": 2,
+    "spinup_min": 60,
+    "ranking_start": "t0",
+    "points": [
+     "+1h",
+     {
+      "at": "10%"
+     }
+    ],
+    "max_points": 5,
+    "budget_pct": 10.0,
+    "sources": [
+     "trajectory",
+     "restart",
+     "rebuild"
+    ],
+    "rank_by": "predicted",
+    "restart_io_form": 2,
+    "stage1": "pstar",
+    "stage2_minutes": 15,
+    "points_by": "cost-indicators",
+    "indicator_sources": [
+     "case_forcing",
+     "era5",
+     "gfs",
+     "stage4",
+     "mrms"
+    ]
+   },
+   "prediction": {
+    "io_target": "nfs",
+    "drift_band_pct": null,
+    "measure_r_rad": false
+   },
+   "exclude": []
+  }
+ },
+ "prediction_bad": {
+  "errors": [
+   "prediction.x: unknown key",
+   "prediction.io_target: 's3' not in ['nfs', 'local']",
+   "prediction.drift_band_pct: must be a number in [0, 100], got 101",
+   "prediction.measure_r_rad: must be a bool, got 'no'"
+  ],
+  "cfg": null
+ },
+ "prediction_bad_type": {
+  "errors": [
+   "prediction.drift_band_pct: must be a number in [0, 100], got True"
+  ],
+  "cfg": null
+ },
+ "prediction_ok": {
+  "errors": [],
+  "cfg": {
+   "site": "scc",
+   "case": null,
+   "case_dir": null,
+   "compliance": "strict",
+   "budget": {
+    "minutes": null,
+    "max_nodes": 13,
+    "nodes": "auto",
+    "nodes_policy": "knee",
+    "node_objective": null,
+    "deadline_minutes": null,
+    "min_efficiency": null,
+    "node_finalists": null,
+    "sweep_budget_frac": null
+   },
+   "search": {
+    "omp": null,
+    "numtiles": null,
+    "rank_distribution": null,
+    "aspect_max": null,
+    "io": {
+     "enabled": false,
+     "io_form_history": [
+      2,
+      11,
+      14
+     ],
+     "target": [
+      "nfs",
+      "local"
+     ]
+    }
+   },
+   "physics_gray": {
+    "enabled": false,
+    "knobs": {}
+   },
+   "probe": {
+    "steps": "auto",
+    "confirm_reps": 2,
+    "spinup_min": 60,
+    "ranking_start": "t0",
+    "points": "auto",
+    "max_points": 5,
+    "budget_pct": 10.0,
+    "sources": [
+     "trajectory",
+     "restart",
+     "rebuild"
+    ],
+    "rank_by": "t0",
+    "restart_io_form": 14,
+    "stage1": "t0",
+    "stage2_minutes": null,
+    "points_by": "time",
+    "indicator_sources": [
+     "case_forcing",
+     "era5",
+     "gfs",
+     "stage4",
+     "mrms"
+    ]
+   },
+   "prediction": {
+    "io_target": "local",
+    "drift_band_pct": 0,
+    "measure_r_rad": true
+   },
+   "exclude": []
+  }
+ },
+ "exclude_bad": {
+  "errors": [
+   "exclude[0].bogus: unknown key",
+   "exclude[0].when: 'rain' not in ['fire']",
+   "exclude[1]: must be a mapping",
+   "exclude[0].omp_gt: must be a number, got 'a'",
+   "exclude[1].nx_lt: must be a number, got True"
+  ],
+  "cfg": null
+ },
+ "exclude_not_list": {
+  "errors": [
+   "exclude: must be a list, got dict"
+  ],
+  "cfg": null
+ },
+ "exclude_ok": {
+  "errors": [],
+  "cfg": {
+   "site": "scc",
+   "case": null,
+   "case_dir": null,
+   "compliance": "strict",
+   "budget": {
+    "minutes": null,
+    "max_nodes": 13,
+    "nodes": "auto",
+    "nodes_policy": "knee",
+    "node_objective": null,
+    "deadline_minutes": null,
+    "min_efficiency": null,
+    "node_finalists": null,
+    "sweep_budget_frac": null
+   },
+   "search": {
+    "omp": null,
+    "numtiles": null,
+    "rank_distribution": null,
+    "aspect_max": null,
+    "io": {
+     "enabled": false,
+     "io_form_history": [
+      2,
+      11,
+      14
+     ],
+     "target": [
+      "nfs",
+      "local"
+     ]
+    }
+   },
+   "physics_gray": {
+    "enabled": false,
+    "knobs": {}
+   },
+   "probe": {
+    "steps": "auto",
+    "confirm_reps": 2,
+    "spinup_min": 60,
+    "ranking_start": "t0",
+    "points": "auto",
+    "max_points": 5,
+    "budget_pct": 10.0,
+    "sources": [
+     "trajectory",
+     "restart",
+     "rebuild"
+    ],
+    "rank_by": "t0",
+    "restart_io_form": 14,
+    "stage1": "t0",
+    "stage2_minutes": null,
+    "points_by": "time",
+    "indicator_sources": [
+     "case_forcing",
+     "era5",
+     "gfs",
+     "stage4",
+     "mrms"
+    ]
+   },
+   "prediction": {
+    "io_target": "nfs",
+    "drift_band_pct": null,
+    "measure_r_rad": false
+   },
+   "exclude": [
+    {
+     "when": "fire",
+     "omp_gt": 1
+    }
+   ]
+  }
+ }
+}

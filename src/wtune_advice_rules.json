@@ -1,0 +1,347 @@
+{
+  "schema": 1,
+  "note": "WTune advisor rules (wiki decision 0061). Data, not code: thresholds and wording live here; detectors live in wtune/advise.py. A rule fires when ALL clauses in trigger.all hold AND (trigger.any is empty OR at least one clause in trigger.any holds). A clause is {detector, field, op, value}; op is one of > >= < <= == is_true. A clause whose detector is unavailable (missing input) is false and is reported under 'unavailable', never silently dropped. Text templates use str.format fields from the detector measurements ({detector.field}). Every message is ADVICE ONLY: WTune applies nothing (decision 0056). trigger_text is a string or a list of {detector, text} parts; a part is printed only when its detector produced a value. how-lines cite WRF 4.8 run/README.namelist, var/README.* or main/tc_em.F (tree: ~/wrf-local/WRF); text prefixed （經驗值，未查證） is not verified against a local WRF source.",
+  "footer": "只提示，未套用（advice only — not applied）。WTune 不修改你的 namelist、輸入或 WRF 原始碼。",
+  "rules": [
+    {
+      "id": "tc_weak_vortex_early_start",
+      "trigger": {
+        "all": [
+          {
+            "detector": "case_types",
+            "field": "tc",
+            "op": "is_true"
+          }
+        ],
+        "any": [
+          {
+            "detector": "tc_vortex_deficit",
+            "field": "delta_hpa",
+            "op": ">",
+            "value": 15.0
+          },
+          {
+            "detector": "post_intensity_bias",
+            "field": "median_weak_hpa",
+            "op": ">",
+            "value": 20.0
+          }
+        ]
+      },
+      "title": "颱風初始渦旋偏弱：提前起報，內層網格 ≤ 3 km 且關閉積雲參數化",
+      "trigger_text": [
+        {
+          "detector": "case_types",
+          "text": "颱風個案（{case_types.tc_evidence}）。"
+        },
+        {
+          "detector": "tc_vortex_deficit",
+          "text": "起點（t0）模式中心 SLP {tc_vortex_deficit.model_slp_hpa:.1f} hPa，最佳路徑 {tc_vortex_deficit.best_pmin_hpa:.0f} hPa，偏弱 {tc_vortex_deficit.delta_hpa:.1f} hPa（門檻 > 15）。"
+        },
+        {
+          "detector": "post_intensity_bias",
+          "text": "post 驗證強度偏弱中位數 {post_intensity_bias.median_weak_hpa:.1f} hPa（門檻 > 20）。"
+        }
+      ],
+      "recommendation": "提前 24–36 h 起報，讓模式自行把渦旋加深；內層網格 ≤ 3 km 並設 cu_physics=0。只加細網格無效。",
+      "how": [
+        "把 WPS 的 start_date 與 namelist.input 的 start_*／run_* 各提前 24–36 h（end_date 不變），重跑 geogrid／ungrib／metgrid／real。",
+        "namelist.input &physics：內層 domain 的 cu_physics=0（例：cu_physics = 1, 0, 0；d01 12 km 可保留 KF）。（經驗值，未查證）：「內層 ≤ 3 km 且 cu_physics=0」是 wiki 決策 0061 登記的做法，證據只來自 Katrina 一個個案。",
+        "內層 ≤ 3 km 的網格：見下方成本欄的估計；用 wtune tune <case> 對新的 namelist 重新找分解。",
+        "wtune advise <case> --json 可重現本訊息與量到的數字。"
+      ],
+      "cost": {
+        "method": "cost_model",
+        "text_template": "成本模型（線性於模擬時數：total_wall = n_steps × rate）：提前 24 h = +{extra_24_pct:.0f}%，提前 36 h = +{extra_36_pct:.0f}%（目前 {run_h:.0f} h）。{nest_text}"
+      },
+      "evidence": {
+        "text": "Katrina（sc26p2）晚起報時，12／4／1.33 km 的 48 h 中心氣壓都停在 944–949 hPa（944.1／—／945.9），細網格單獨無效；ERA5 起點 987.1 hPa 對最佳路徑 959 hPa。",
+        "slug": "sc26p2-katrina-4km-nest-refinement-and-wind-structure"
+      },
+      "side_effects": "計算時間隨模擬時數線性增加；提前起報會把 spin-up 內的誤差帶進分析時段，驗證時需排除前段；內層加密另有成本與 nest 邊界效應。"
+    },
+    {
+      "id": "tc_bogus_vortex_tc_exe",
+      "trigger": {
+        "all": [
+          {
+            "detector": "case_types",
+            "field": "tc",
+            "op": "is_true"
+          }
+        ],
+        "any": [
+          {
+            "detector": "tc_vortex_deficit",
+            "field": "delta_hpa",
+            "op": ">",
+            "value": 15.0
+          },
+          {
+            "detector": "post_intensity_bias",
+            "field": "median_weak_hpa",
+            "op": ">",
+            "value": 20.0
+          }
+        ]
+      },
+      "title": "颱風初始渦旋偏弱且無法提前起報：用 tc.exe 植入渦旋（有路徑偏移風險）",
+      "trigger_text": [
+        {
+          "detector": "case_types",
+          "text": "颱風個案（{case_types.tc_evidence}）。"
+        },
+        {
+          "detector": "tc_vortex_deficit",
+          "text": "起點偏弱 {tc_vortex_deficit.delta_hpa:.1f} hPa（模式 {tc_vortex_deficit.model_slp_hpa:.1f}／最佳路徑 {tc_vortex_deficit.best_pmin_hpa:.0f} hPa，門檻 > 15）。"
+        },
+        {
+          "detector": "post_intensity_bias",
+          "text": "post 驗證強度偏弱中位數 {post_intensity_bias.median_weak_hpa:.1f} hPa（門檻 > 20）。"
+        },
+        {
+          "detector": "case_types",
+          "text": "僅在使用者必須晚起報時才考慮。"
+        }
+      ],
+      "recommendation": "晚起報且要補強度時，在 real.exe 之前以 tc.exe 植入渦旋（scc 已有 tc.exe）。先做一次與不植入組的路徑對照再採用。",
+      "how": [
+        "tc.exe 讀 metgrid 輸出（met_em，AUXINPUT1），不是 wrfinput；因此在 real.exe 之前執行，且只能單一 process（run/README.namelist &tc；main/tc_em.F:112「MPI TC bogus must run with a single processor only」）。先備份 met_em.*。",
+        "namelist.input 加 &tc（鍵名依 run/README.namelist:1802-1812）：insert_bogus_storm = .true.、num_storm = 1、latc_loc、lonc_loc、vmax_meters_per_second、rmax、vmax_ratio、rankine_lid。latc/lonc/vmax 取最佳路徑 t0 一筆；vmax_ratio 該檔註記 45 km 網格 0.75、15 km 網格 0.9。",
+        "tc.exe 的輸出檔名由 auxinput1_outname 決定（main/tc_em.F:591-599），再讓 real.exe 讀該檔。",
+        "用 wtune post tc 對植入組與不植入組各出一組 TC-Pairs，比較 48 h 路徑誤差後再決定。"
+      ],
+      "cost": {
+        "method": "uncalibrated",
+        "text": "未校正：tc.exe 本身是一次性前處理（秒到分鐘級，未量測）；wrf.exe 步成本不變。"
+      },
+      "evidence": {
+        "text": "Katrina：NAM+植入起點 978.2 hPa、48 h 946.8 hPa（深 31.4 hPa，比未植入多深 19.1 hPa）；但路徑平均／最大偏離 197.2／389.3 km（官方 NAM 為 102.7／172.4 km）。",
+        "slug": "sc26p2-katrina-official-vs-independent-analyses-and-bogus-48h"
+      },
+      "side_effects": "路徑變差（Katrina 最大偏離 389 km）：推測是 tc.exe 的 Rankine 外側衰減寫死為 −0.75，在整個 domain 加上大尺度環流而改變駛流（推測，未另行量測）。強度與路徑需一起驗證。"
+    },
+    {
+      "id": "tc_leaves_inner_nest_movenest",
+      "trigger": {
+        "all": [
+          {
+            "detector": "case_types",
+            "field": "tc",
+            "op": "is_true"
+          },
+          {
+            "detector": "tc_nest_exit",
+            "field": "n_outside",
+            "op": ">",
+            "value": 0
+          }
+        ],
+        "any": []
+      },
+      "title": "颱風中心離開內層網格：使用 moving nest（vortex following）",
+      "trigger_text": "最佳路徑 {tc_nest_exit.n_total} 個時刻中有 {tc_nest_exit.n_outside} 個落在 d{tc_nest_exit.nest_domain:02d} 範圍外（首次離開：{tc_nest_exit.first_exit}）。",
+      "recommendation": "改用 moving nest，讓內層網格追著渦旋走，而不是放大靜態 nest。",
+      "how": [
+        "需要同時編入 -DMOVE_NESTS 與 -DVORTEX_CENTER 的 wrf.exe（run/README.namelist:383-386；scc 的 movenest build 兩者都有，見 bin/build-wrf-extensions.sh:20）。該 README 標註此自動 vortex-following 選項為 experimental。",
+        "namelist.input &domains：vortex_interval、max_vortex_speed、corral_dist（README 預設 15、40、8；README.namelist:388-390），追蹤層 track_level 預設 50000 Pa（約 500 hPa）。",
+        "d02 初始中心需對準颱風（用最佳路徑 t0 位置換算）。（經驗值，未查證）：其餘 &domains 設定（i_parent_start／j_parent_start 與 nest 大小）需依個案另行檢查。"
+      ],
+      "cost": {
+        "method": "measured",
+        "text_template": "已量測（scc，單一 case：Katrina 12→4 km，6 h）：MOVE_NESTS 執行檔常駐成本 +3.1%（36 ranks）／+4.6%（72 ranks），範圍 +1.0–5.7%；nest 實際移動本身 ≈ 0（0.989×，即 −1.1%）。係數檔 wtune_extension_coefficients.json 的 movenest.const_frac = {const_frac_pct:.1f}%（他處量測，在 scc 上未被推翻）。"
+      },
+      "evidence": {
+        "text": "scc 校正：不移動 ÷ 正式靜態 = 1.031（1.010–1.056）；移動 ÷ 不移動 = 0.989（0.982–0.994）。",
+        "slug": "wtune-extension-cost-calibration-chem-hydro-movenest-wrfda"
+      },
+      "side_effects": "只有一個 case 的量測，不能一般化；移動 nest 的輸出幀幾何隨時間變，後處理需讀每幀的 XLAT/XLONG；WTune 對 moving nest 只調 grid／rank。"
+    },
+    {
+      "id": "convection_radar_wrfda",
+      "trigger": {
+        "all": [
+          {
+            "detector": "case_types",
+            "field": "convection",
+            "op": "is_true"
+          },
+          {
+            "detector": "radar_coverage",
+            "field": "covered",
+            "op": "is_true"
+          },
+          {
+            "detector": "case_types",
+            "field": "tc",
+            "op": "is_false"
+          }
+        ],
+        "any": []
+      },
+      "title": "短生命對流且有雷達觀測：用 WRFDA 3DVAR 同化雷達徑向風與反射率",
+      "trigger_text": [
+        {
+          "detector": "case_types",
+          "text": "個案類型含 convection（{case_types.convection_evidence}）；非颱風個案。"
+        },
+        {
+          "detector": "radar_coverage",
+          "text": "{radar_coverage.text}。"
+        }
+      ],
+      "recommendation": "起報前用 WRFDA 3DVAR 同化雷達徑向風與反射率；對颮線、冷池這類短生命對流，必要時改為循環同化（每 1 h 一次）。",
+      "how": [
+        "觀測：NEXRAD Level II（wtune post fetch nexrad ...）或 MRMS 反射率（wtune post fetch mrms ...）。（經驗值，未查證）：徑向風需先經 QC／去混疊的前處理，WTune 沒有這個步驟，也未查 WRFDA 要求的輸入格式。",
+        "WRFDA 已用 gcc 建好（scc）。雷達開關見 var/README.namelist:137-139：use_radarobs = .true.、use_radar_rv = .true.（徑向風）、use_radar_rf = .true.（反射率）。",
+        "流程：da_wrfvar.exe → da_update_bc.exe（會覆寫 wrfbdy_d01，先備份；var/README.basics:30-35）→ 以更新後的檔案重跑 wrf.exe。obsproc 步驟的細節未查。",
+        "循環同化是重複上述流程每個週期；（經驗值，未查證）：週期長度（例如 1 h）與每週期檔案更新方式需依個案設計。"
+      ],
+      "cost": {
+        "method": "uncalibrated",
+        "text": "未校正（WRFDA 無成本模型）：成本由觀測數 × 最小化迭代數 × 背景誤差協方差解析度決定；scc 的 con200 測試案例太小（整個 mpirun 1.3–2 s，幾乎全是啟動），不能拿來校正。循環同化成本 = 週期數 × 單次成本，且每週期還要加一次短預報。"
+      },
+      "evidence": {
+        "text": "scc：WRFDA（gcc build）con200 3DVAR 收斂，29 次迭代，最終 J = 21663.249（所有 rank 數相同）；但 con200 無法做 rank 縮放校正。",
+        "slug": "wtune-extension-cost-calibration-chem-hydro-movenest-wrfda"
+      },
+      "side_effects": "最小化的歸約順序使結果非逐位元可重現（STRICT 驗收要改為容差）；需觀測前處理；循環同化成本高；WTune 目前對 WRFDA 只提示，不調 DA。"
+    },
+    {
+      "id": "long_run_spectral_nudging",
+      "trigger": {
+        "all": [],
+        "any": [
+          {
+            "detector": "run_length",
+            "field": "run_days",
+            "op": ">=",
+            "value": 5.0
+          },
+          {
+            "detector": "post_track_growth",
+            "field": "slope_km_per_day",
+            "op": ">=",
+            "value": 30.0
+          }
+        ]
+      },
+      "title": "長時間模擬或路徑隨時間漂移：spectral nudging 只錨定大波長",
+      "trigger_text": [
+        {
+          "detector": "run_length",
+          "text": "模擬長度 {run_length.run_days:.1f} 天（門檻 ≥ 5）。"
+        },
+        {
+          "detector": "post_track_growth",
+          "text": "post 驗證路徑誤差隨預報時間增長 {post_track_growth.slope_km_per_day:.0f} km/day（門檻 ≥ 30；起始值，非證據導出）。"
+        }
+      ],
+      "recommendation": "開 spectral nudging（grid_fdda=2），只對大尺度波長（xwavenum/ywavenum 小）施加；是否 nudge 邊界層、是否加 q 依個案決定。",
+      "how": [
+        "namelist.input &fdda（鍵名與預設值取自 run/README.namelist:1449-1512）：grid_fdda = 2（spectral nudging）、gfdda_inname = \"wrffdda_d<domain>\"、gfdda_interval_m = 360、gfdda_end_h = <改為模擬時數；預設 6>、xwavenum = 3、ywavenum = 3、guv = 0.0003、gt = 0.0003、gq = 0.00001（皆為 README 預設值）。",
+        "if_no_pbl_nudging_uv／if_no_pbl_nudging_t（1 = 邊界層內不 nudge）與 if_zfac_uv／k_zfac_uv、if_zfac_t／k_zfac_t（限制只在某層以上 nudge）等選項存在於 README；（經驗值，未查證）：建議設 1、1、10 這組數值是經驗選擇，非 README 建議。",
+        "分析場檔 wrffdda_d01：（經驗值，未查證）：由 real.exe 在 grid_fdda > 0 時產生的說法未在 README 查到，請以 WRF 使用手冊的 FDDA 章節核對。",
+        "波數與增益需依個案區域大小調整：（經驗值，未查證）：「xwavenum ≈ domain 寬度 / 想保留的最小波長」只是粗略換算。"
+      ],
+      "cost": {
+        "method": "uncalibrated",
+        "text": "未校正：成本取決於 nudging 的場數（u/v/t/q）、gfdda_interval 讀檔頻率與 wrffdda 檔案 I/O；波數濾波為 FFT，量級小於動力核心，但尚未量測。"
+      },
+      "evidence": {
+        "text": "climate-ea50（東亞 50 km 一年期）2–15N 熱帶偏濕 5–15 mm/d（5–6 月 11–15N 為 20–28 mm/d，GPCP 只有 3–7），run 設定為「無 nudging」；原因清單含無 nudging，尚未調查。",
+        "slug": "climate-ea50-2023-real-data-test-of-climate-recipe"
+      },
+      "side_effects": "會壓低模式自身的大尺度變異（不再是自由模擬）；nudging 設太強會抹掉你要研究的訊號；證據只有「原因清單」，尚未用實驗驗證 nudging 能修正偏濕。"
+    },
+    {
+      "id": "need_chem_wrf_chem",
+      "trigger": {
+        "all": [
+          {
+            "detector": "user_need",
+            "field": "chem",
+            "op": "is_true"
+          }
+        ],
+        "any": []
+      },
+      "title": "沙塵／空品需求：WRF-Chem（無 KPP build）",
+      "trigger_text": "使用者以 --need chem 宣告需求。",
+      "recommendation": "使用 WRF-Chem（scc 已建好，無 KPP）；GOCART 簡易方案（chem_opt=300）可做沙塵。",
+      "how": [
+        "使用 chem build 的 wrf.exe；namelist.input &chem：chem_opt = 300, dust_opt = 1, emiss_opt = 5, aer_op_opt = 0（aer_op_opt 預設為 1，會每 rank 印數百萬行警告）。",
+        "分解：j 方向 patch ≥ 21 列（CHEM_MIN_J_PATCH），例如 6×6 以上的 nproc_y；窄 j patch（≤ 15 列）必定卡死。",
+        "job 時限設寬鬆並監看 wrfout 是否在第一次 t=0 之後的 history 寫入前進；卡住時重送同一設定通常可完成。"
+      ],
+      "cost": {
+        "method": "uncalibrated",
+        "text": "未校正（係數檔 chem 為 placeholder，±100%）。單一 case 的觀察值，不能一般化：Katrina d01 12 km、6 h，chem ÷ 同執行檔 chem_opt=0 = 1.71–1.75×（8–36 ranks）。"
+      },
+      "evidence": {
+        "text": "j patch ≥ 21 列通過、8×9 與 6×12（j patch 14–15、11）必定卡；寬 j patch 也有約 2/11 間歇卡住。",
+        "slug": "wrf-chem-gocart-hangs-at-small-j-patch-decomposition"
+      },
+      "side_effects": "只有 GOCART 沙塵路徑通過 smoke，KPP 機制未涵蓋；卡住被 timeout 殺掉後會在節點留下孤兒 wrf.exe，量測前先清查。"
+    },
+    {
+      "id": "need_hydro_wrf_hydro",
+      "trigger": {
+        "all": [
+          {
+            "detector": "user_need",
+            "field": "hydro",
+            "op": "is_true"
+          }
+        ],
+        "any": []
+      },
+      "title": "淹水／逕流需求：WRF-Hydro",
+      "trigger_text": "使用者以 --need hydro 宣告需求。",
+      "recommendation": "使用 WRF-Hydro（scc 已建好）；小 domain 要限制 rank 數。",
+      "how": [
+        "使用 hydro build 的 wrf.exe 並提供 hydro.namelist 與路由格網（AGGFACTRT、DTRT_TER 由 hydro.namelist 設定）。",
+        "rank 數上限：WRF 每個 patch 至少 10 格；d01 42×42、d02 52×31 最多 12 ranks。先以 wtune check 驗證分解合法再送。",
+        "輸出檢查：CHRTOUT 檔寫出且 streamflow > 0。"
+      ],
+      "cost": {
+        "method": "uncalibrated",
+        "text": "未校正（係數檔 hydro 為 placeholder，±100%）。單一小範例的觀察值：hydro ÷ 正式 build = 1.064×（4 ranks）、1.070×（8 ranks），但對照是不同 build，build 效應與 hydro 成本分不開。"
+      },
+      "evidence": {
+        "text": "scc：Front Range CO 範例 6 h，4／8 ranks 有效；16 ranks 因最小 patch 10 格無法執行。",
+        "slug": "wtune-extension-cost-calibration-chem-hydro-movenest-wrfda"
+      },
+      "side_effects": "只有一個小範例；rank 上限由最小 patch 決定，無法用 WTune 的一般分解搜尋放大。"
+    },
+    {
+      "id": "need_surge_holland_ocean_model",
+      "trigger": {
+        "all": [
+          {
+            "detector": "user_need",
+            "field": "surge",
+            "op": "is_true"
+          }
+        ],
+        "any": []
+      },
+      "title": "暴潮需求：以 Holland 參數化風壓場驅動海洋模式（WRF 範圍外）",
+      "trigger_text": "使用者以 --need surge 宣告需求。",
+      "recommendation": "暴潮不在 WRF 範圍內；用海洋／暴潮模式（例如 ADCIRC、SCHISM）以 Holland 參數化風壓場或 WRF 的 10 m 風與 SLP 驅動。",
+      "how": [
+        "把 wrfout 的 U10、V10、SLP（或最佳路徑加 Holland 參數）轉成海洋模式的風壓強迫檔。",
+        "WTune 不執行也不調整海洋模式；此條只是提示。"
+      ],
+      "cost": {
+        "method": "uncalibrated",
+        "text": "未校正：WRF 範圍外，WTune 沒有成本模型。"
+      },
+      "evidence": {
+        "text": "無實測（決策 0061 首批規則僅登記為提示）。",
+        "slug": "0061-wtune-advisor-messages-recommend-wrf-modes-and-workflows"
+      },
+      "side_effects": "—"
+    }
+  ]
+}

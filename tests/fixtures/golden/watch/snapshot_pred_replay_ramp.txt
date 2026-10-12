@@ -1,0 +1,105 @@
+{
+ "rundir": "<TMP>",
+ "now": 1700000000.0,
+ "mode": "replay",
+ "status": "replay",
+ "warnings": [],
+ "run_start": "2021-07-19_00:00:00",
+ "run_end": "2021-07-20_00:00:00",
+ "dt": 60.0,
+ "stepra": 10,
+ "total_steps": 1440,
+ "periods": [
+  10
+ ],
+ "rsl_file": "rsl.error.0000",
+ "rsl_d01_lines": {
+  "rsl.error.0000": 1440
+ },
+ "replay_fraction": 0.25,
+ "actual_partial": false,
+ "actual_remaining_s": 2047.6999100000005,
+ "n_d01_steps": 360,
+ "completed_steps": 360,
+ "d01_last_time": "2021-07-19_06:00:00",
+ "sum_d01_elapsed_s": 608.7006299999998,
+ "writes_so_far_s": 120.0,
+ "n_write_absorbing_steps": 6,
+ "rate_s_per_step": 1.3857291111111112,
+ "rate_window": 90,
+ "median_step_s": 1.06667,
+ "rate_lead_dropped": 1,
+ "fraction": 0.25,
+ "remaining_steps": 1080,
+ "writes": [
+  {
+   "stream": "history",
+   "dom": 1,
+   "per_frame_s": 10.0,
+   "source": "observed",
+   "n_observed": 6,
+   "remaining_frames": 19,
+   "seconds": 190.0
+  },
+  {
+   "stream": "history",
+   "dom": 2,
+   "per_frame_s": 5.0,
+   "source": "observed",
+   "n_observed": 6,
+   "remaining_frames": 19,
+   "seconds": 95.0
+  },
+  {
+   "stream": "history",
+   "dom": 3,
+   "per_frame_s": 5.0,
+   "source": "observed",
+   "n_observed": 6,
+   "remaining_frames": 19,
+   "seconds": 95.0
+  }
+ ],
+ "write_notes": [],
+ "remaining_compute_rate_s": 1496.58744,
+ "remaining_compute_pred_s": 1667.700028672387,
+ "remaining_writes_s": 380.0,
+ "pred_scale_k": 1.250000021490966,
+ "remaining_rate_s": 1876.58744,
+ "remaining_pred_s": 2047.700028672387,
+ "estimate": "prediction",
+ "remaining_compute_s": 1667.700028672387,
+ "remaining_s": 2047.700028672387,
+ "est_for_actual_rate_s": 1876.58744,
+ "est_for_actual_pred_s": 2047.700028672387,
+ "est_for_actual_s": 2047.700028672387,
+ "replay_error_pct": 5.7953993076365975e-06,
+ "replay_error_pct_rate": -8.35632551256011,
+ "replay_error_pct_pred": 5.7953993076365975e-06,
+ "error_pct": 5.7953993076365975e-06,
+ "domains": [
+  {
+   "id": 1,
+   "last_time": "2021-07-19_06:00:00",
+   "n_lines": 360,
+   "start": "2021-07-19_00:00:00",
+   "end": "2021-07-20_00:00:00"
+  },
+  {
+   "id": 2,
+   "last_time": "2021-07-19_06:00:00",
+   "n_lines": 1080,
+   "start": "2021-07-19_00:00:00",
+   "end": "2021-07-20_00:00:00"
+  },
+  {
+   "id": 3,
+   "last_time": "2021-07-19_06:00:00",
+   "n_lines": 3240,
+   "start": "2021-07-19_00:00:00",
+   "end": "2021-07-20_00:00:00"
+  }
+ ]
+}
+replay F=0.25  25.0% sim 2021-07-19_06:00:00 (360/1440) elapsed 0:10:09 rate 1.386s/step[w=90] remaining 0:34:08 (compute 0:27:48 pred x1.250 + writes 0:06:20; rate-only 0:31:17) actual 0:34:08 err +0.00% (rate-only -8.36%)
+exit=0

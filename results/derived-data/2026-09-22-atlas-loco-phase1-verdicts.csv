@@ -1,0 +1,19 @@
+case,job_id,space,nodes,verdict_engine,verdict_final,regret,speedup_best_rec_vs_baseline,est_su,actual_su,note
+karina,1090676,template,4,PASS,PASS,0.0125,0.0993,24.62,,
+conus25,1090677,template,4,PASS,PASS,0.0187,0.1359,28.03,,
+conus12,1090678,template,4,PASS,PASS,0.0,0.1285,19.81,3.29,best_known C08 was LOCO rank 2
+isc21,1090679,template,4,PASS,PASS,0.0,0.1121,48.65,43.21,
+lafe,1090680,template,4,PASS,PASS,0.0,0.1447,26.28,16.30,
+maria1km,1090681,template,4,PASS,PASS,0.0064,0.1163,61.32,50.95,
+zhengzhou,1090682,template,4,PASS,PASS,-0.0416,0.2584,51.04,,recommendation beat historical best
+elevconv,1090683,template,4,INCONCLUSIVE,FAIL-infeasible,,,74.08,114.79,all 3 recs 224x2 numtiles12 rc=124 (0/19 historical numtiles>=12 omp2)
+marshall,1090684,template,4,INCONCLUSIVE,FAIL-infeasible,,,37.23,9.88,all 3 recs 224x2 rc=137 WRF-Fire omp>1
+bigchill,1090685,template,4,INCONCLUSIVE,FAIL-infeasible,,,68.39,111.95,all 3 recs 224x2 numtiles12 rc=124 (0/19 historical)
+marshall-omp1,1090698,template,4,PASS,PASS,-0.0204,0.0846,37.18,19.24,rerun after max_omp=1 fix a3a7634
+severe2023,1090688,generated,1,FAIL,FAIL,0.1078,0.1103,6.22,,best_known 28x4 not in top-3
+matthew,1090689,generated,1,PASS,PASS,0.0,0.1088,5.71,0.58,
+c34,1090690,generated,1,INCONCLUSIVE,FAIL-infeasible,,,8.43,1.61,all 3 recs omp>1 crash; after fix propose returns 0 recs (not rerun)
+sc26p1,1090691,generated,1,PASS,PASS,0.0,0.1150,6.52,1.39,
+sc26p2,1090692,generated,1,INCONCLUSIVE,INCONCLUSIVE,,0.1048,4.95,0.77,no 1-node best_known in history
+sc26p2narr,1090693,generated,1,PASS,PASS-weak,-0.4715,0.0992,5.80,1.01,best_known is the only historical 1N config (numtiles8 slow)
+karina-repro-nt,1090686,explicit,4,FAIL,FAIL,,,33.24,9.86,C07 nt14 -1.65% C06 nt12 -0.66% vs C05 nt13; ranges overlap

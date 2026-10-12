@@ -6,6 +6,9 @@ import sys
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# another test module may have imported configs with SITE=scc (scc_sweep sets it): start clean
+os.environ.pop("SITE", None)
+sys.modules.pop("configs", None)
 import configs  # noqa: E402
 
 
@@ -53,7 +56,7 @@ class TestLegalShapes(unittest.TestCase):
         # alt shapes" without assuming it lacks ALL shapes.
         shapes, method = configs.ranked_shapes(425, 300, 50, 448, 1)
         self.assertGreater(len(shapes), 0)
-        self.assertIn(method, ("wtune_decomp", "fallback"))
+        self.assertIn(method, ("wtune.decomp", "fallback"))
 
     def test_multidomain_shape_legal_on_d01_illegal_on_smaller_nest_is_rejected(self):
         # d01=2000x2000 (large, patch never binds), d02=150x900 (e_we tiny) -- a
@@ -104,6 +107,56 @@ class TestDedupe(unittest.TestCase):
         kept, aliases = configs.dedupe(resolved)
         self.assertEqual(len(kept), 2)
         self.assertEqual(aliases, {})
+
+
+class TestMaxOmp(unittest.TestCase):
+    """case["max_omp"] (e.g. c34/marshall in campaign/cases.json: WRF-Fire crashes rc=137/139
+    at the first d01 step with any omp>1) must keep resolve_config/resolve_case from ever
+    proposing an omp>max_omp template, while an absent key changes nothing."""
+
+    def test_resolve_config_rejects_omp_above_case_cap(self):
+        case = dict(configs.CASES["karina"], max_omp=1)
+        template = dict(id="C06", ranks=224, omp=2, shape="best", numtiles=12,
+                         dist="cyclic", blocktime="0")
+        cfg, err = configs.resolve_config(case, template)
+        self.assertIsNone(cfg)
+        self.assertEqual(err, "omp(2) exceeds case max_omp=1")
+
+    def test_resolve_config_keeps_omp_at_or_below_case_cap(self):
+        case = dict(configs.CASES["karina"], max_omp=1)
+        template = dict(id="C01", ranks=448, omp=1, shape="best", numtiles=1,
+                         dist="cyclic", blocktime="0")
+        cfg, err = configs.resolve_config(case, template)
+        self.assertIsNone(err)
+        self.assertEqual(cfg["omp"], 1)
+
+    def test_resolve_config_absent_max_omp_is_unchanged_behaviour(self):
+        # karina itself carries no max_omp key -- omp=2 templates must resolve exactly as
+        # before this feature existed.
+        case = configs.CASES["karina"]
+        self.assertNotIn("max_omp", case)
+        template = dict(id="C06", ranks=224, omp=2, shape="best", numtiles=12,
+                         dist="cyclic", blocktime="0")
+        cfg, err = configs.resolve_config(case, template)
+        self.assertIsNone(err)
+        self.assertEqual(cfg["omp"], 2)
+
+    def test_resolve_case_with_max_omp_1_keeps_only_omp_1_templates(self):
+        # karina resolves all 16 TEMPLATES with no cap (asserted by the no-cap branch above);
+        # capping it to max_omp=1 must keep exactly the four omp=1 templates (C01-C04) and
+        # skip every omp=2/omp=4 template with the new reason string.
+        case = dict(configs.CASES["karina"], max_omp=1)
+        kept, skipped, aliases = configs.resolve_case(case)
+        self.assertEqual(sorted(c["id"] for c in kept), ["C01", "C02", "C03", "C04"])
+        skipped_by_id = dict(skipped)
+        for tid in ("C05", "C06", "C07", "C08", "C09", "C10", "C11", "C12"):
+            self.assertEqual(skipped_by_id[tid], "omp(2) exceeds case max_omp=1")
+        for tid in ("C13", "C14", "C15", "C16"):
+            self.assertEqual(skipped_by_id[tid], "omp(4) exceeds case max_omp=1")
+
+    def test_c34_and_marshall_carry_max_omp_1_in_cases_json(self):
+        for case_id in ("c34", "marshall"):
+            self.assertEqual(configs.CASES[case_id].get("max_omp"), 1, case_id)
 
 
 class TestBuildOrder(unittest.TestCase):
@@ -172,6 +225,15 @@ class TestNamelistEditing(unittest.TestCase):
         " time_step = 15,\n"
         "/\n"
     )
+
+    def test_run_seconds_is_zeroed(self):
+        # decision 0055: a rebuilt-segment template (coldstart real/wrf-window namelist) carries
+        # run_seconds=<window>; WRF adds it to run_minutes, so it must be zeroed.
+        text = self.SYNTHETIC_WITH_EXISTING.replace("run_seconds=0", "run_seconds=4830")
+        out = configs.edit_namelist(text, 14, 16, 12, 8, history_mode="off", ranks=224)
+        self.assertIn("run_seconds=0,", out)
+        self.assertIn("run_minutes=8", out)
+        self.assertNotIn("4830", out)
 
     def test_edit_with_existing_decomp_lines(self):
         out = configs.edit_namelist(self.SYNTHETIC_WITH_EXISTING, 14, 16, 12, 8,
@@ -867,13 +929,13 @@ class TestCasesJsonStrictCampaignEdits(unittest.TestCase):
 
 class TestComplianceKnobs(unittest.TestCase):
     def test_all_varied_knobs_are_strict(self):
-        sys.path.insert(0, configs.REPO_ROOT)
+        sys.path.insert(0, os.path.join(configs.REPO_ROOT, "src"))
         try:
-            import wtune_compliance
+            import wtune.compliance
         except Exception as e:  # pragma: no cover - only if repo layout changes
-            self.skipTest("wtune_compliance not importable: %s" % e)
+            self.skipTest("wtune.compliance not importable: %s" % e)
         for name in configs._COMPLIANCE_KNOBS:
-            self.assertEqual(wtune_compliance.classify(name), wtune_compliance.STRICT, name)
+            self.assertEqual(wtune.compliance.classify(name), wtune.compliance.STRICT, name)
 
 
 class TestCasesJson(unittest.TestCase):
@@ -1464,83 +1526,12 @@ class TestPhysicsListAndOrder(unittest.TestCase):
         rc = configs.cmd_physics_list(["no_such_case"])
         self.assertEqual(rc, 2)
 
-    def test_physics_order_default_pconfigs_includes_ref_and_twin_first(self):
-        import contextlib
-        import io
-        buf = io.StringIO()
-        with contextlib.redirect_stdout(buf):
-            rc = configs.cmd_physics_order(["karina", "--reps", "2"])
-        self.assertEqual(rc, 0)
-        lines = buf.getvalue().strip().split("\n")
-        self.assertEqual(lines[0], "P00_ref")
-        self.assertEqual(lines[1], "P00_twin")
-        # palindrome: last two entries are the same pair, reversed
-        self.assertEqual(lines[-1], "P00_ref")
-        self.assertEqual(lines[-2], "P00_twin")
-
-    def test_physics_order_explicit_pconfigs(self):
-        import contextlib
-        import io
-        buf = io.StringIO()
-        with contextlib.redirect_stdout(buf):
-            rc = configs.cmd_physics_order(["karina", "--pconfigs", "P01+P03", "--reps", "1"])
-        self.assertEqual(rc, 0)
-        lines = buf.getvalue().strip().split("\n")
-        self.assertEqual(lines, ["P00_ref", "P00_twin", "P01", "P03"])
-
-
-class TestPhysicsDescribe(unittest.TestCase):
-    def test_describe_p00_has_no_empty_fields_so_bash_read_cannot_shift_columns(self):
-        # regression: P00 has no edits; an empty TSV field made bash `IFS=$'\t' read` shift
-        # every later column (time_step got mp_physics) in campaign ledgers 1077168-1077173
-        import contextlib
-        import io
-        buf = io.StringIO()
-        with contextlib.redirect_stdout(buf):
-            rc = configs.cmd_physics_describe(["karina", "P00"])
-        self.assertEqual(rc, 0)
-        fields = buf.getvalue().strip("\n").split("\t")
-        self.assertEqual(len(fields), 13)
-        self.assertTrue(all(f != "" for f in fields), fields)
-        self.assertEqual(fields[1], "-")            # empty edits written as "-"
-        self.assertEqual(fields[3], str(configs.CASES["karina"]["dt"]))  # time_step stays in place
-
-    def test_describe_applicable_template(self):
-        import contextlib
-        import io
-        buf = io.StringIO()
-        with contextlib.redirect_stdout(buf):
-            rc = configs.cmd_physics_describe(["karina", "P01"])
-        self.assertEqual(rc, 0)
-        fields = buf.getvalue().strip("\n").split("\t")
-        self.assertEqual(len(fields), 13)
-        self.assertEqual(fields[0], "radiation")
-        self.assertIn("swint_opt=1", fields[1])
-
-    def test_describe_skip_returns_two_fields(self):
-        import contextlib
-        import io
-        buf = io.StringIO()
-        with contextlib.redirect_stdout(buf):
-            rc = configs.cmd_physics_describe(["maria1km", "P04"])
-        self.assertEqual(rc, 0)
-        fields = buf.getvalue().strip("\n").split("\t")
-        self.assertEqual(fields[0], "SKIP")
-
-    def test_describe_unknown_case(self):
-        rc = configs.cmd_physics_describe(["no_such_case", "P00"])
-        self.assertEqual(rc, 2)
-
-    def test_describe_unknown_template(self):
-        rc = configs.cmd_physics_describe(["karina", "P99"])
-        self.assertEqual(rc, 2)
-
 
 class TestConfigFileGeneratedConfigs(unittest.TestCase):
     """CONFIG_FILE (WTune D1 decomposition-space work): campaign/configs.py's own side of
     consuming a predictor/decomp_space.py `to_campaign_configs`-shaped JSON file. The JSON here
     is built by hand (not via `import decomp_space`) -- decomp_space.py uses `from __future__
-    import annotations` (Python >= 3.7 only, same reason wtune_decomp.py cannot be imported under
+    import annotations` (Python >= 3.7 only, same reason wtune/decomp.py cannot be imported under
     this file's own python3.6-compatibility requirement -- see configs.py's module docstring), so
     this file, which must stay importable under the campaign's python3.6, cannot import it either.
     predictor/tests/test_decomp_space.py owns decomp_space.py's own correctness."""
@@ -1808,68 +1799,6 @@ class TestResolveDecompPair(unittest.TestCase):
         self.assertIn("DECOMP is empty", reason)
 
 
-class TestDecompPairCLI(unittest.TestCase):
-    """configs.py decomp-pair -- the fail-fast gate strict_campaign.sbatch's MODE=physics runs
-    before the first WRF srun."""
-
-    def _capture(self, argv, env_config_file=None):
-        import contextlib
-        import io
-        out, err = io.StringIO(), io.StringIO()
-        old = os.environ.get("CONFIG_FILE")
-        if env_config_file is not None:
-            os.environ["CONFIG_FILE"] = env_config_file
-        else:
-            os.environ.pop("CONFIG_FILE", None)
-        try:
-            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-                rc = configs.main(argv)
-        finally:
-            if old is None:
-                os.environ.pop("CONFIG_FILE", None)
-            else:
-                os.environ["CONFIG_FILE"] = old
-        return rc, out.getvalue(), err.getvalue()
-
-    def test_strict_pair_prints_two_rows_and_rc_zero(self):
-        rc, out, err = self._capture(["decomp-pair", "karina", "C02", "C06"])
-        self.assertEqual(rc, 0, err)
-        lines = out.strip("\n").split("\n")
-        self.assertEqual(lines[0].split("\t"), [
-            "role", "config_id", "ranks", "omp", "nproc_x", "nproc_y", "numtiles", "dist",
-            "blocktime", "numtiles_x", "numtiles_y", "tile_sz_x", "tile_sz_y", "tile_strategy",
-            "config_source",
-        ])
-        self.assertEqual(len(lines), 3)
-        self.assertEqual(lines[1].split("\t")[:3], ["reference", "C02", "448"])
-        self.assertEqual(lines[2].split("\t")[:3], ["twin", "C06", "224"])
-        # a STRICT template has no tile geometry; it must read as the 0 the sbatch passes
-        self.assertEqual(lines[1].split("\t")[9:], ["0", "0", "0", "0", "0", "strict_template"])
-
-    def test_failure_is_rc2_with_one_tagged_stderr_line_and_no_stdout(self):
-        rc, out, err = self._capture(["decomp-pair", "sc26p1", "C02", "C06"])
-        self.assertEqual(rc, 2)
-        self.assertEqual(out, "")
-        self.assertTrue(err.startswith("DECOMP-PAIR ERROR: "), err)
-        self.assertEqual(len(err.strip("\n").split("\n")), 1)
-
-    def test_config_file_env_var_is_honoured(self):
-        path = TestResolveDecompPair()._config_file()
-        rc, out, err = self._capture(["decomp-pair", "sc26p1", "G0001", "G0002"],
-                                     env_config_file=path)
-        self.assertEqual(rc, 0, err)
-        rows = [l.split("\t") for l in out.strip("\n").split("\n")[1:]]
-        self.assertEqual([r[1] for r in rows], ["G0001", "G0002"])
-        self.assertEqual(rows[0][9:], ["2", "2", "0", "0", "3", "generated"])
-
-    def test_config_file_flag_overrides_the_env_var(self):
-        path = TestResolveDecompPair()._config_file()
-        rc, out, err = self._capture(
-            ["decomp-pair", "sc26p1", "G0001", "G0002", "--config-file", path])
-        self.assertEqual(rc, 0, err)
-        self.assertIn("G0001", out)
-
-
 MMLSQUOTA_SAMPLE = """\
                          Block Limits                                    |     File Limits
 Filesystem type             KB      quota      limit   in_doubt    grace |    files   quota    limit in_doubt    grace  Remarks
@@ -1965,6 +1894,7 @@ class TestCasesJsonEnv(unittest.TestCase):
         import subprocess
         env = dict(os.environ)
         env.pop("CASES_JSON", None)
+        env.pop("SITE", None)        # the scc overlay would add its own cases
         if env_value is not None:
             env["CASES_JSON"] = env_value
         code = "import json, configs; print(json.dumps([configs.CASES_JSON_PATH, sorted(configs.CASES)]))"
@@ -1991,6 +1921,86 @@ class TestCasesJsonEnv(unittest.TestCase):
             os.unlink(f.name)
 
 
+class TestTotalCoresEnv(unittest.TestCase):
+    """WTUNE_TOTAL_CORES env var (decision 0050 step 8, scc site) swaps TOTAL_CORES at import;
+    unset keeps the f1 default of 448 -- same subprocess-import pattern as TestCasesJsonEnv,
+    since TOTAL_CORES is bound once at module import time."""
+
+    def _import_in_subprocess(self, env_value):
+        import subprocess
+        env = dict(os.environ)
+        env.pop("WTUNE_TOTAL_CORES", None)
+        if env_value is not None:
+            env["WTUNE_TOTAL_CORES"] = env_value
+        code = "import configs; print(configs.TOTAL_CORES)"
+        p = subprocess.run([sys.executable, "-c", code], cwd=os.path.dirname(os.path.abspath(__file__)),
+                           env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                           universal_newlines=True, check=True)
+        return int(p.stdout.strip().splitlines()[-1])
+
+    def test_default_is_448(self):
+        self.assertEqual(self._import_in_subprocess(None), 448)
+
+    def test_env_overrides_total_cores(self):
+        self.assertEqual(self._import_in_subprocess("288"), 288)
+
+
+class TestCaseOverlay(unittest.TestCase):
+    """campaign/cases.<site>.json overlays cases.json per-case when SITE != f1 (decision 0050
+    step 8); SITE unset/"f1" must leave CASES byte-identical to before SITE existed."""
+
+    def test_f1_default_is_unmodified(self):
+        cases = configs.load_cases(site="f1")
+        self.assertEqual(cases["conus25"]["prep_dir"],
+                         "/home/u5727520/wrf-bench/atlas/v4.4_bench_conus2.5km")
+
+    def test_scc_overlay_replaces_prep_dir_and_bp_dir_only(self):
+        cases = configs.load_cases(site="scc")
+        c = cases["conus25"]
+        self.assertEqual(c["prep_dir"], "/nfs/data/wrf/v4.4_bench_conus2.5km")
+        # scc has no ADIOS2 .bp inputs: empty bp_dir => strict_campaign converts prep_dir into
+        # its BP cache (stage-bp-inputs, 2026-10-03); netCDF only via the legacy escape
+        self.assertEqual(c["bp_dir"], "")
+        # geometry untouched by the overlay
+        self.assertEqual(c["e_we"], configs.load_cases(site="f1")["conus25"]["e_we"])
+
+    def test_netcdf_input_format_keeps_inputs_at_io_form_2(self):
+        nl = "&time_control\n io_form_history = 2,\n/\n&domains\n/\n"
+        old = os.environ.get("WTUNE_INPUT_FORMAT")
+        try:
+            os.environ["WTUNE_INPUT_FORMAT"] = "netcdf"
+            out = configs._apply_adios2(nl, 72, 1)
+        finally:
+            if old is None:
+                os.environ.pop("WTUNE_INPUT_FORMAT", None)
+            else:
+                os.environ["WTUNE_INPUT_FORMAT"] = old
+        self.assertRegex(out, r"io_form_input\s*=\s*2")
+        self.assertRegex(out, r"io_form_boundary\s*=\s*2")
+        self.assertRegex(out, r"io_form_history\s*=\s*14")
+        self.assertNotIn("wrfinput_d<domain>.bp", out)
+
+    def test_scc_overlay_expands_home_and_tilde(self):
+        cases = configs.load_cases(site="scc")
+        self.assertNotIn("$HOME", cases["isc21"]["prep_dir"])
+        self.assertTrue(os.path.isabs(cases["isc21"]["prep_dir"]))
+
+    def test_unknown_site_with_no_overlay_file_is_unmodified(self):
+        cases = configs.load_cases(site="nosuchsite")
+        self.assertEqual(cases["conus25"]["prep_dir"],
+                         "/home/u5727520/wrf-bench/atlas/v4.4_bench_conus2.5km")
+
+    def test_module_level_cases_respects_site_env_at_import(self):
+        import subprocess
+        env = dict(os.environ)
+        env["SITE"] = "scc"
+        code = "import configs; print(configs.CASES['conus25']['prep_dir'])"
+        p = subprocess.run([sys.executable, "-c", code], cwd=os.path.dirname(os.path.abspath(__file__)),
+                           env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                           universal_newlines=True, check=True)
+        self.assertEqual(p.stdout.strip().splitlines()[-1], "/nfs/data/wrf/v4.4_bench_conus2.5km")
+
+
 class TestSbatchNodeCount(unittest.TestCase):
     """strict_campaign.sbatch derives ranks-per-node and the ledger n_nodes column from the
     allocation (SLURM_JOB_NUM_NODES, default 4) instead of a hard-coded 4, so a -N1 cf112 run of a
@@ -2004,8 +2014,8 @@ class TestSbatchNodeCount(unittest.TestCase):
         s = self._text()
         self.assertNotIn("ranks / 4", s)
         self.assertNotIn('N_NODES="4"', s)
-        self.assertEqual(s.count("ntasks_per_node=$(( ranks / ALLOC_NODES ))"), 2)
-        self.assertEqual(s.count('N_NODES="$ALLOC_NODES"'), 3)
+        self.assertEqual(s.count("ntasks_per_node=$(( ranks / ALLOC_NODES ))"), 1)
+        self.assertEqual(s.count('N_NODES="$ALLOC_NODES"'), 1)
 
     def test_default_is_four_and_follows_allocation(self):
         import subprocess
@@ -2019,6 +2029,221 @@ class TestSbatchNodeCount(unittest.TestCase):
             out = subprocess.run(["bash", "-c", line[0] + '; ranks=56; echo "$ALLOC_NODES $(( ranks / ALLOC_NODES ))"'],
                                  env=env, stdout=subprocess.PIPE, universal_newlines=True, check=True).stdout.split()
             self.assertEqual(out, [want, str(56 // int(want))])
+
+
+class TestConfigExtras(unittest.TestCase):
+    """physics_namelists / window_frame per-config fields (decision 0059): the
+    `configs.py config-extras CASE` TSV strict_campaign.sbatch reads, plus the runner wiring
+    markers `wtune tune --pipeline full` greps for (physics_runner_supported)."""
+
+    CFGS = [
+        {"id": "ANCHOR", "ranks": 72, "window_frame": True,
+         "physics_namelists": {"pt1": "/x/a1.input", "pt2": "/x/a2.input"}},
+        {"id": "TWIN", "ranks": 72},
+        {"id": "P1", "physics_namelists": {"pt1": "/x/p1.input"}, "window_frame": False},
+    ]
+
+    def test_rows_select_this_case_and_default_empty(self):
+        rows = configs.config_extras_rows(self.CFGS, "pt1")
+        self.assertEqual(rows, [("ANCHOR", "/x/a1.input", "1"), ("TWIN", "", "0"),
+                                ("P1", "/x/p1.input", "0")])
+        rows2 = configs.config_extras_rows(self.CFGS, "pt2")
+        self.assertEqual([r[1] for r in rows2], ["/x/a2.input", "", ""])
+
+    def test_window_frame_levels(self):
+        lv = configs.window_frame_level
+        self.assertEqual([lv(v) for v in (None, False, 0, "0", "")], [0] * 5)
+        self.assertEqual([lv(v) for v in (True, 1, "end", "1")], [1] * 4)
+        self.assertEqual([lv(v) for v in (2, "2", "mid_end")], [2] * 3)
+
+    def test_cli_prints_tsv_and_needs_config_file(self):
+        import contextlib
+        import io
+        import tempfile
+        path = os.path.join(tempfile.mkdtemp(), "c.json")
+        with open(path, "w") as f:
+            json.dump({"configs": self.CFGS}, f)
+        old = os.environ.get("CONFIG_FILE")
+        os.environ["CONFIG_FILE"] = path
+        try:
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                rc = configs.main(["config-extras", "pt1"])
+            self.assertEqual(rc, 0)
+            self.assertEqual(buf.getvalue().splitlines(),
+                             ["ANCHOR\t/x/a1.input\t1", "TWIN\t\t0", "P1\t/x/p1.input\t0"])
+            del os.environ["CONFIG_FILE"]
+            self.assertEqual(configs.main(["config-extras", "pt1"]), 2)
+        finally:
+            if old is None:
+                os.environ.pop("CONFIG_FILE", None)
+            else:
+                os.environ["CONFIG_FILE"] = old
+
+    def test_sbatch_wires_the_fields(self):
+        here = os.path.dirname(os.path.abspath(__file__))
+        with open(os.path.join(here, "strict_campaign.sbatch")) as f:
+            text = f.read()
+        self.assertIn("physics_namelists", text)       # wtune.tune.PHYSICS_RUNNER_MARKER
+        self.assertIn("config-extras", text)
+        self.assertIn('--history-mode "$RUN_HISTORY_ARG"', text)
+        self.assertNotIn('--history-mode "$HISTORY_MODE_ARG" --ranks "$ranks"', text)
+        self.assertIn("window_frame=", text)
+        self.assertIn("window_frame_mid=", text)
+        self.assertIn('rm -rf "$d"/wrfrst_d0*_*', text)
+
+    def test_restart_pass_gets_run_sec_args(self):
+        text = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "strict_campaign.sbatch")).read()
+        passes = [b for b in text.split("edit-namelist")[1:] if "--restart-from" in b.split("\n\n")[0]]
+        self.assertEqual(len(passes), 1)
+        self.assertIn('--run-minutes "$RUN_MIN_EFF" "${RUN_SEC_ARGS[@]}"', passes[0])
+
+    def test_mid_end_mode_writes_mid_and_end_frames(self):
+        text = ("&time_control\n run_minutes = 0,\n history_interval = 180,\n"
+                " history_begin = 7,\n/\n&domains\n max_dom = 1,\n/\n")
+        out = configs.edit_namelist(text, 8, 9, 1, 31, max_dom=1, history_mode="mid_end_d01",
+                                    ranks=72)
+        self.assertRegex(out, r"history_begin\s*=\s*15")      # frames at 15 and 15+16 = 31
+        self.assertRegex(out, r"history_interval\s*=\s*16")
+        with self.assertRaises(ValueError):
+            configs.edit_namelist(text, 8, 9, 1, 1, max_dom=1, history_mode="mid_end_d01",
+                                  ranks=72)
+
+    def test_end_d01_writes_one_frame_at_window_end_for_a_restart_window(self):
+        text = ("&time_control\n run_minutes = 0,\n history_interval = 180,\n"
+                " history_begin = 0,\n start_year = 2016,\n start_month = 10,\n"
+                " start_day = 6,\n start_hour = 0,\n/\n&domains\n max_dom = 1,\n/\n")
+        out = configs.edit_namelist(text, 8, 9, 1, 30, max_dom=1, history_mode="end_d01",
+                                    ranks=72)
+        self.assertRegex(out, r"history_interval\s*=\s*30")
+        self.assertRegex(out, r"history_begin\s*=\s*30")
+        self.assertRegex(out, r"nproc_x\s*=\s*8")
+
+
+class TestPointFused(unittest.TestCase):
+    """POINT_FUSED / ANCHOR_END / WINDOW_EXACT (decisions 0055/0059): resolve_point_plan,
+    post_spinup_steps, edit_namelist run_seconds, and the sbatch wiring (bash -n + static guards)."""
+
+    LINE = " Timing for main: time 2019-11-26_%s on domain   %d:    %.5f elapsed seconds\n"
+
+    def _rsl(self, n, dt=10, rad=None, nested=True):
+        out = []
+        for k in range(1, n + 1):
+            t = k * dt
+            stamp = "%02d:%02d:%02d" % (t // 3600, (t % 3600) // 60, t % 60)
+            v = 5.0 if rad and k in rad else 0.05
+            out.append(self.LINE % (stamp, 1, v))
+            if nested:
+                out.append(self.LINE % (stamp, 2, 0.01))
+        return "".join(out)
+
+    def test_default_order_unchanged(self):
+        o = ["ANCHOR", "C1", "C2", "ANCHOREND"]
+        r = configs.resolve_point_plan(o)
+        self.assertEqual(r["order"], o)
+        self.assertFalse(r["fused"])
+        self.assertTrue(r["anchor_end"])
+
+    def test_anchor_end_off_omits_run(self):
+        r = configs.resolve_point_plan(["ANCHOR", "C1", "C2", "ANCHOREND"], anchor_end=False)
+        self.assertEqual(r["order"], ["ANCHOR", "C1", "C2"])
+        self.assertFalse(r["anchor_end"])
+        r = configs.resolve_point_plan(["ANCHOR", "C1", "ANCHOREND"], anchor_end=True)
+        self.assertIn("ANCHOREND", r["order"])
+
+    def test_fused_single_config_drops_anchors_and_defaults_drift_gate_off(self):
+        r = configs.resolve_point_plan(["ANCHOR", "W", "ANCHOREND"], point_fused=True)
+        self.assertTrue(r["fused"])
+        self.assertEqual(r["order"], ["W"])
+        self.assertEqual(r["cid"], "W")
+        self.assertFalse(r["anchor_end"])
+
+    def test_fused_explicit_anchor_end_is_ignored_with_note(self):
+        r = configs.resolve_point_plan(["ANCHOR", "W", "ANCHOREND"], True, anchor_end=True)
+        self.assertTrue(r["fused"])
+        self.assertFalse(r["anchor_end"])
+        self.assertIn("ANCHOR_END=1", r["note"])
+
+    def test_fused_refused_for_multi_config_or_reps_or_window_frame(self):
+        for order in (["ANCHOR", "A", "B", "ANCHOREND"], ["W", "W"]):
+            r = configs.resolve_point_plan(order, point_fused=True)
+            self.assertFalse(r["fused"], order)
+            self.assertEqual(r["order"], order)
+            self.assertIn("POINT_FUSED ignored", r["note"])
+        r = configs.resolve_point_plan(["ANCHOR", "W"], point_fused=True, window_frame=True)
+        self.assertFalse(r["fused"])
+
+    def test_fused_with_only_anchor_uses_it(self):
+        r = configs.resolve_point_plan(["ANCHOR"], point_fused=True)
+        self.assertTrue(r["fused"])
+        self.assertEqual(r["order"], ["ANCHOR"])
+
+    def test_fused_selects_post_spinup_steps_only(self):
+        # dt=10, 60 s spin-up => steps 7.. count; 20 steps total -> 14 selected, d01 only
+        text = self._rsl(20)
+        vals = configs.post_spinup_steps(text, 60, 10)
+        self.assertEqual(len(vals), 14)
+        self.assertTrue(all(v == 0.05 for v in vals))   # nested 0.01 lines never leak in
+
+    def test_fused_excludes_spinup_radiation_and_step_stats_excludes_window_radiation(self):
+        text = self._rsl(20, rad={1, 7, 13})   # step 1 (spin-up), 7 (first window), 13 (in window)
+        vals = configs.post_spinup_steps(text, 60, 10)
+        self.assertEqual(vals[0], 5.0)           # step 7 is the first post-spin-up step
+        st = configs.step_stats(vals)
+        self.assertEqual(st["n_all"], len(vals) - 1)
+        self.assertAlmostEqual(st["median"], 0.05)
+        self.assertEqual(st["n_excluded"], 2)    # dropped first + radiation step 13
+
+    def test_fused_spinup_covering_everything_gives_no_steps(self):
+        self.assertEqual(configs.post_spinup_steps(self._rsl(6), 60, 10), [])
+
+    def test_fused_steps_cli(self):
+        import io
+        import tempfile
+        from contextlib import redirect_stdout
+        with tempfile.NamedTemporaryFile("w", suffix=".out", delete=False) as f:
+            f.write(self._rsl(10))
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            rc = configs.main(["fused-steps", f.name, "--spin-seconds", "60", "--dt", "10"])
+        os.unlink(f.name)
+        self.assertEqual(rc, 0)
+        self.assertEqual(len(buf.getvalue().split()), 4)
+
+    def test_point_plan_cli_emits_shell_assignments(self):
+        import io
+        from contextlib import redirect_stdout
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            configs.main(["point-plan", "--fused", "1", "--anchor-end", "", "ANCHOR", "W", "ANCHOREND"])
+        out = buf.getvalue()
+        self.assertIn("POINT_ORDER=('W')", out)
+        self.assertIn("POINT_FUSED_ON=1", out)
+        self.assertIn("POINT_ANCHOR_END=0", out)
+
+    NL = ("&time_control\n run_days = 0,\n run_hours = 0,\n run_minutes = 5,\n"
+          " run_seconds = 0,\n/\n&domains\n max_dom = 1,\n/\n")
+
+    def test_run_seconds_default_unchanged_and_exact_tail(self):
+        base = configs.edit_namelist(self.NL, 4, 4, 1, 11, max_dom=1, adios2=False)
+        same = configs.edit_namelist(self.NL, 4, 4, 1, 11, max_dom=1, adios2=False, run_seconds=None)
+        self.assertEqual(base, same)
+        self.assertRegex(base, r"run_seconds\s*=\s*0")
+        t = configs.edit_namelist(self.NL, 4, 4, 1, 11, max_dom=1, adios2=False, run_seconds=40)
+        self.assertRegex(t, r"run_seconds\s*=\s*40")
+        self.assertRegex(t, r"run_minutes\s*=\s*11")
+
+    def test_sbatch_syntax_and_defaults_wiring(self):
+        import subprocess
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "strict_campaign.sbatch")
+        p = subprocess.run(["bash", "-n", path], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        text = open(path).read()
+        # fused path skips the spin-up block; default (FUSED_ON=0) keeps it
+        self.assertIn('[ "$FUSED_ON" != "1" ]', text)
+        self.assertIn("FUSED_ON=0\n", text)
+        self.assertIn('POINT_FUSED:-0', text)
+        self.assertIn('--anchor-end "${ANCHOR_END:-}"', text)
 
 
 if __name__ == "__main__":
@@ -2375,53 +2600,6 @@ class TestFidelityNotesTokens(unittest.TestCase):
         _l, nd, floor, _d = configs.fidelity_notes_tokens(payload)
         self.assertEqual((nd, floor), ("NA", "NA"))
 
-    def test_cli_prints_one_line_and_refuses_a_missing_file(self):
-        import io as _io
-        import contextlib
-        import json as _json
-        import tempfile
-        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as fh:
-            _json.dump(self.PAYLOAD, fh)
-            path = fh.name
-        try:
-            buf = _io.StringIO()
-            with contextlib.redirect_stdout(buf):
-                rc = configs.main(["fidelity-tokens", path])
-            self.assertEqual(rc, 0)
-            self.assertEqual(buf.getvalue().strip().split(), list(configs.fidelity_notes_tokens(self.PAYLOAD)))
-        finally:
-            os.unlink(path)
-        buf, err = _io.StringIO(), _io.StringIO()
-        with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(err):
-            rc = configs.main(["fidelity-tokens", path + ".gone"])
-        # Nothing printed -> the sbatch's `read` leaves FID_* empty -> the same notes shape as a
-        # MODE=physics run that produced no fidelity JSON at all.
-        self.assertEqual(rc, 2)
-        self.assertEqual(buf.getvalue(), "")
-
-
-class TestSbatchFidelityExtraction(unittest.TestCase):
-    """strict_campaign.sbatch MODE=physics must call the tested helper instead of carrying two
-    byte-identical inline python heredocs, and must still emit both numeric notes tokens."""
-
-    def _text(self):
-        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                               "strict_campaign.sbatch")) as f:
-            return f.read()
-
-    def test_calls_configs_fidelity_tokens_in_both_arms(self):
-        s = self._text()
-        self.assertEqual(s.count('configs.py" fidelity-tokens'), 2)
-        self.assertNotIn("per_field_summary_at_last_time", s)
-
-    def test_both_numeric_tokens_still_reach_the_notes_column(self):
-        s = self._text()
-        for tok in ("fidelity_nd_max=$FID_ND", "fidelity_floor_ratio_max=$FID_FLOOR"):
-            self.assertIn(tok, s)
-        # The SKIPPED-row notes template keeps the same tokens with empty values, which is the
-        # "no fidelity JSON" shape predictor/ledger.py must read back as None.
-        self.assertIn("fidelity_nd_max= fidelity_floor_ratio_max=", s)
-
 
 class TestHailcastNestHistoryInterval(unittest.TestCase):
     """hailcast_opt aborts at init on a domain whose history_interval is 0 ("HAILCAST Error : No
@@ -2609,3 +2787,979 @@ class TestFrozenKeys(unittest.TestCase):
                                                                templates=templates)
         self.assertIsNone(ok_reason)
         self.assertEqual([e["key"] for e in ok_summary], ["radt"])
+
+
+class TestRestartFrom(unittest.TestCase):
+    """edit_namelist's restart_from/restart_io_form/write_restart_interval (WTune probe
+    multi-point redesign, 2026-09-26): a RANKING-PROBE run starting from an existing WRF restart
+    file instead of from t0 -- see edit_namelist's own docstring and wtune/probe_plan.py."""
+
+    SYNTHETIC_3DOM_RESTART = (
+        "&time_control\n"
+        " run_days = 0, run_hours = 6, run_minutes = 0, run_seconds = 0,\n"
+        " start_year = 2019, 2019, 2019,\n"
+        " start_month = 11, 11, 11,\n"
+        " start_day = 25, 25, 25,\n"
+        " start_hour = 12, 12, 12,\n"
+        " start_minute = 00, 00, 00,\n"
+        " restart = .false.,\n"
+        " restart_interval = 1440,\n"
+        " io_form_restart = 2,\n"
+        "/\n"
+        "&domains\n"
+        " max_dom = 3,\n"
+        " time_step=15, e_we=793, 805, 1001, e_sn=853, 805, 1001,\n"
+        "/\n"
+    )
+
+    def test_restart_from_sets_start_for_every_domain_and_restart_true(self):
+        import datetime
+        t = datetime.datetime(2019, 11, 26, 23, 0, 0)
+        out = configs.edit_namelist(self.SYNTHETIC_3DOM_RESTART, 16, 28, 8, 50, max_dom=3,
+                                     adios2=False, restart_from=t)
+        self.assertIn("start_year = 2019, 2019, 2019,", out)   # unchanged: same year
+        self.assertIn("start_month = 11, 11, 11,", out)
+        self.assertIn("start_day = 26, 26, 26,", out)
+        self.assertIn("start_hour = 23, 23, 23,", out)
+        self.assertIn("start_minute = 0, 0, 0,", out)
+        self.assertIn("start_second = 0, 0, 0,", out)
+        self.assertIn("restart = .true.,", out)
+        self.assertNotIn("restart = .false.,", out)
+        # run length = steps*dt handled by the caller via run_minutes (50 here); this function
+        # only overrides start_*/restart, so run_minutes=50 still comes through untouched
+        # (spacing preserved from the template's own "key = value" style -- see _set_scalar).
+        self.assertIn("run_minutes = 50", out)
+
+    def test_restart_from_overrides_restart_timers_stored_in_the_restart_file(self):
+        import re
+        # G0 (jobs 1371/1372): without it WRF reuses the spin-up's restart interval from the
+        # restart file and writes a restart inside the candidate's measured window.
+        import datetime
+        t = datetime.datetime(2019, 11, 26, 23, 0, 0)
+        out = configs.edit_namelist(self.SYNTHETIC_3DOM_RESTART, 16, 28, 8, 50, max_dom=3,
+                                     adios2=False, restart_from=t)
+        self.assertEqual(len(re.findall(r"(?m)^\s*override_restart_timers\s*=\s*\.true\.", out)), 1)
+        again = configs.edit_namelist(out, 16, 28, 8, 50, max_dom=3, adios2=False, restart_from=t)
+        self.assertEqual(len(re.findall(r"(?m)^\s*override_restart_timers\s*=", again)), 1)
+        plain = configs.edit_namelist(self.SYNTHETIC_3DOM_RESTART, 16, 28, 8, 50, max_dom=3,
+                                       adios2=False)
+        self.assertNotIn("override_restart_timers", plain)
+
+    def test_restart_from_none_is_byte_identical_to_before(self):
+        out_a = configs.edit_namelist(self.SYNTHETIC_3DOM_RESTART, 16, 28, 8, 50, max_dom=3,
+                                       adios2=False)
+        out_b = configs.edit_namelist(self.SYNTHETIC_3DOM_RESTART, 16, 28, 8, 50, max_dom=3,
+                                       adios2=False, restart_from=None, restart_io_form=None,
+                                       write_restart_interval=None)
+        self.assertEqual(out_a, out_b)
+        self.assertIn("restart = .false.,", out_a)   # untouched: no restart_from given
+
+    def test_restart_io_form_overrides_after_adios2(self):
+        import datetime
+        t = datetime.datetime(2019, 11, 26, 23, 0, 0)
+        out = configs.edit_namelist(self.SYNTHETIC_3DOM_RESTART, 16, 28, 8, 50, max_dom=3,
+                                     adios2=True, ranks=448, restart_from=t, restart_io_form=2)
+        # ADIOS2 forces io_form_restart=14 first; restart_io_form=2 must win (netCDF, so the
+        # restart file is decomposition-independent -- see edit_namelist's docstring). Spacing
+        # preserved from the template's own "key = value" style (the line already existed).
+        self.assertIn("io_form_restart = 2,", out)
+        self.assertNotIn("io_form_restart = 14", out)
+        # history/input/boundary stay on ADIOS2 -- only restart's OWN format is overridden
+        self.assertIn("io_form_history=14,", out)
+
+    def test_write_restart_interval_sets_interval_without_forcing_restart_true(self):
+        out = configs.edit_namelist(self.SYNTHETIC_3DOM_RESTART, 16, 28, 8, 360, max_dom=3,
+                                     adios2=False, write_restart_interval=60,
+                                     restart_io_form=2)
+        self.assertIn("restart_interval = 60", out)
+        self.assertNotIn("restart_interval = 1440", out)
+        self.assertIn("restart = .false.,", out)   # spin-up writer still starts at t0
+        self.assertIn("io_form_restart = 2", out)
+
+    def test_write_restart_interval_survives_adios2_default(self):
+        # adios2=True forces restart_interval=1000000 (see _apply_adios2's docstring) -- without
+        # write_restart_interval winning afterward, the spin-up run could never actually write a
+        # restart at t0+spinup.
+        out = configs.edit_namelist(self.SYNTHETIC_3DOM_RESTART, 16, 28, 8, 60, max_dom=3,
+                                     adios2=True, ranks=448, write_restart_interval=60)
+        self.assertIn("restart_interval = 60,", out)
+        self.assertNotIn("restart_interval = 1000000", out)
+
+
+class TestRestartTime(unittest.TestCase):
+    """case_start_datetime/cmd_restart_time -- the `configs.py restart-time CASE MINUTES` CLI
+    campaign/strict_campaign.sbatch's RANKING_START=spinup block calls once per job to compute
+    the --restart-from value every candidate's second edit-namelist pass uses (2026-09-26,
+    end-to-end wiring)."""
+
+    NL_TEXT = (
+        "&time_control\n"
+        " start_year = 2019, 2019, 2019,\n"
+        " start_month = 11, 11, 11,\n"
+        " start_day = 25, 25, 25,\n"
+        " start_hour = 12, 12, 12,\n"
+        "/\n"
+    )
+
+    def test_case_start_datetime_defaults_minute_second_to_zero(self):
+        import datetime
+        self.assertEqual(configs.case_start_datetime(self.NL_TEXT),
+                          datetime.datetime(2019, 11, 25, 12, 0, 0))
+
+    def test_case_start_datetime_reads_explicit_minute_second(self):
+        import datetime
+        text = self.NL_TEXT.replace(
+            " start_hour = 12, 12, 12,\n",
+            " start_hour = 12, 12, 12,\n start_minute = 30, 30, 30,\n"
+            " start_second = 15, 15, 15,\n")
+        self.assertEqual(configs.case_start_datetime(text),
+                          datetime.datetime(2019, 11, 25, 12, 30, 15))
+
+    def test_cmd_restart_time_prints_t0_plus_spinup(self):
+        import tempfile
+        tmpdir = tempfile.mkdtemp()
+        nl_path = os.path.join(tmpdir, "namelist.input")
+        with open(nl_path, "w") as f:
+            f.write(self.NL_TEXT)
+        configs.CASES["_test_restart_time_case"] = {"prep_dir": tmpdir}
+        try:
+            import io
+            import contextlib
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                rc = configs.main(["restart-time", "_test_restart_time_case", "90"])
+            self.assertEqual(rc, 0)
+            self.assertEqual(buf.getvalue().strip(), "2019-11-25_13:30:00")
+        finally:
+            del configs.CASES["_test_restart_time_case"]
+
+    def test_cmd_restart_time_unknown_case_is_an_error(self):
+        rc = configs.main(["restart-time", "_no_such_case_at_all", "60"])
+        self.assertEqual(rc, 2)
+
+    def test_cmd_restart_time_wrong_arg_count_is_an_error(self):
+        rc = configs.main(["restart-time", "onlyone"])
+        self.assertEqual(rc, 2)
+
+
+
+class TestNamelistFileStaging(unittest.TestCase):
+    """Files the namelist names are staged into run dirs (climate-ea50, scc probe jobs 2541-2545:
+    iofields_d01.txt never staged -> WRF 4.8 hung at input_input until the 1260 s timeout)."""
+
+    NML = """&time_control
+ run_hours = 6,
+ iofields_filename = "iofields_d01.txt", 'io/fields_d02.txt',  ignore_iofields_warning = .true.,
+ auxinput4_inname = "wrflowinp_d<domain>", auxinput4_interval = 360, 360,
+ auxinput1_inname = "met_em.d<domain>.<date>",
+ auxinput11_inname = 'obs_d<domain>.txt',
+ auxinput5_inname = 'wrfchemi_d<domain>_<date>',
+ ! iofields_filename = 'commented.txt',
+/
+&domains
+ max_dom = 2,
+/
+&physics
+ sst_update = 1,
+/
+&fdda
+ grid_fdda = 1, 0,
+ obs_nudge_opt = 0, 1,
+/
+"""
+
+    def setUp(self):
+        import tempfile
+        self.tmp = tempfile.mkdtemp()
+        self.src = os.path.join(self.tmp, "prep")
+        self.run_dir = os.path.join(self.tmp, "run")
+        os.makedirs(os.path.join(self.src, "io"))
+        os.makedirs(self.run_dir)
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmp)
+
+    def _touch(self, *names, **kw):
+        base = kw.get("base", self.src)
+        for n in names:
+            with open(os.path.join(base, n), "w") as f:
+                f.write("x")
+
+    def test_refs_resolve_domain_placeholder_and_requiredness(self):
+        refs = configs.namelist_file_refs(self.NML)
+        req = sorted(n for k, n, r in refs if r)
+        self.assertEqual(req, ["io/fields_d02.txt", "iofields_d01.txt", "wrffdda_d01",
+                               "wrflowinp_d01", "wrflowinp_d02"])
+        opt = sorted(n for k, n, r in refs if not r)
+        self.assertEqual(opt, ["OBS_DOMAIN2*", "obs_d01.txt", "obs_d02.txt", "tslist",
+                               "wrfchemi_d01_<date>", "wrfchemi_d02_<date>"])
+        self.assertFalse(any(k == "auxinput1_inname" for k, _n, _r in refs))   # real.exe only
+
+    def test_refs_none_specified_and_sst_off(self):
+        refs = configs.namelist_file_refs(
+            "&time_control\n iofields_filename = 'NONE_SPECIFIED',\n/\n&domains\n max_dom=1,\n/\n")
+        self.assertEqual(refs, [("tslist", "tslist", False)])
+
+    def test_stage_links_present_files_and_reports_missing(self):
+        self._touch("iofields_d01.txt", "io/fields_d02.txt", "wrflowinp_d01", "wrflowinp_d02",
+                    "OBS_DOMAIN201", "OBS_DOMAIN202", "tslist",
+                    "wrfchemi_d01_2020-01-01_00:00:00")
+        self._touch("wrflowinp_d02", base=self.run_dir)           # already staged: kept as is
+        res = configs.stage_namelist_files(self.NML, self.run_dir, [self.src])
+        for name in ("iofields_d01.txt", "io/fields_d02.txt", "wrflowinp_d01", "OBS_DOMAIN201",
+                     "OBS_DOMAIN202", "tslist", "wrfchemi_d01_2020-01-01_00:00:00"):
+            p = os.path.join(self.run_dir, name)
+            self.assertTrue(os.path.islink(p), name)
+            self.assertEqual(os.readlink(p), os.path.join(self.src, name))
+        self.assertFalse(os.path.islink(os.path.join(self.run_dir, "wrflowinp_d02")))
+        self.assertIn(("auxinput4_inname", "wrflowinp_d02"), res["present"])
+        self.assertEqual(res["missing"], [("gfdda_inname", "wrffdda_d01")])
+        lines = configs.format_namelist_stage(res, [self.src])
+        self.assertTrue(any(ln.startswith("WARNING") and "wrffdda_d01" in ln for ln in lines))
+
+    def test_stage_second_search_dir_and_iofields_warning(self):
+        other = os.path.join(self.tmp, "orig")
+        os.makedirs(other)
+        self._touch("iofields_d01.txt", base=other)
+        nml = '&time_control\n iofields_filename = "iofields_d01.txt", "gone_d02.txt",\n/\n' \
+              "&domains\n max_dom = 2,\n/\n"
+        res = configs.stage_namelist_files(nml, self.run_dir, [self.src, other, "", "/nonexistent"])
+        self.assertEqual(os.readlink(os.path.join(self.run_dir, "iofields_d01.txt")),
+                         os.path.join(other, "iofields_d01.txt"))
+        self.assertEqual(res["missing"], [("iofields_filename", "gone_d02.txt")])
+        warn = configs.format_namelist_stage(res, [self.src, other])[-1]
+        self.assertIn("hangs at input_input", warn)
+        self.assertFalse(os.path.lexists(os.path.join(self.run_dir, "gone_d02.txt")))
+
+    def test_cli_links_and_exits_zero_with_missing(self):
+        import subprocess
+        self._touch("iofields_d01.txt")
+        nml = os.path.join(self.run_dir, "namelist.input")
+        with open(nml, "w") as f:
+            f.write('&time_control\n iofields_filename = "iofields_d01.txt", "x_d02.txt",\n/\n'
+                    "&domains\n max_dom = 2,\n/\n")
+        p = subprocess.run([sys.executable, os.path.join(configs.CAMPAIGN_DIR, "configs.py"),
+                            "link-namelist-files", nml, self.run_dir, self.src],
+                           stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                           universal_newlines=True)
+        self.assertEqual(p.returncode, 0)
+        self.assertIn("linked iofields_d01.txt", p.stdout)
+        self.assertIn("WARNING", p.stderr)
+        self.assertTrue(os.path.islink(os.path.join(self.run_dir, "iofields_d01.txt")))
+
+
+class TestStrictCampaignStagesNamelistFiles(unittest.TestCase):
+    SBATCH = os.path.join(configs.CAMPAIGN_DIR, "strict_campaign.sbatch")
+
+    def test_every_wrf_exe_link_is_preceded_by_link_namelist_files(self):
+        with open(self.SBATCH) as f:
+            lines = f.read().splitlines()
+        idx = [i for i, ln in enumerate(lines) if 'ln -sf "$W/main/wrf.exe" ./wrf.exe' in ln]
+        self.assertEqual(len(idx), 2)
+        for i in idx:
+            self.assertEqual(lines[i - 1].strip(), "link_namelist_files", lines[i])
+
+    def test_case_loader_emits_namelist_ref_dirs_incl_rebuilt_origin(self):
+        import re as _re
+        import subprocess
+        import tempfile
+        with open(self.SBATCH) as f:
+            text = f.read()
+        m = _re.search(r"eval \"\$\(python3 - \"\$CASE\" <<'PY'\n(.*?)\nPY\n", text, _re.S)
+        self.assertIsNotNone(m)
+        tmp = tempfile.mkdtemp()
+        base = dict(prep_dir="/p/orig", bp_dir="", dt=60, steps=10, case_family="x", e_we=10,
+                    e_sn=10, e_vert=10, dx=1, dy=1, input_files=[], physics={})
+        rebuilt = dict(base, prep_dir="/p/win_0/real", namelist_template="/p/plan/nml.input",
+                       rebuilt_from="orig")
+        cases = os.path.join(tmp, "cases.json")
+        with open(cases, "w") as f:
+            json.dump({"cases": {"orig": base, "orig__rb0": rebuilt}}, f)
+        env = dict(os.environ, CASES_JSON=cases, CAMPAIGN=configs.CAMPAIGN_DIR, SITE="f1")
+        out = subprocess.run([sys.executable, "-", "orig__rb0"], input=m.group(1), env=env,
+                             stdout=subprocess.PIPE, universal_newlines=True).stdout
+        line = [ln for ln in out.splitlines() if ln.startswith("NAMELIST_REF_DIRS=")]
+        self.assertEqual(line, ["NAMELIST_REF_DIRS='/p/win_0/real /p/plan /p/orig'"])
+
+
+
+class TestAdios2InputStaging(unittest.TestCase):
+    """2026-10-03 user decision: ADIOS2 for every WRF input stream. adios2_input_streams /
+    _apply_adios2's aux switch / stage-bp-inputs (conversion through a FAKE src/wtune/bp.py found via
+    WTUNE_SRC, lock-serialized) / strict_campaign.sbatch's staging block (extracted, run with a stub
+    interpreter) / nc2bp.sbatch."""
+
+    HERE = os.path.dirname(os.path.abspath(__file__))
+    NL = (" &time_control\n io_form_history = 2,\n io_form_input = 2,\n io_form_boundary = 2,\n"
+          " auxinput4_inname = \"wrflowinp_d<domain>\",\n io_form_auxinput4 = 2,\n /\n"
+          " &domains\n max_dom = 2,\n /\n &physics\n sst_update = 1,\n /\n"
+          " &fdda\n grid_fdda = 1, 0,\n gfdda_inname = \"wrffdda_d<domain>\",\n"
+          " io_form_gfdda = 2,\n /\n")
+    FAKE_BP = (
+        "import importlib.util, os, time\n"
+        "_spec = importlib.util.spec_from_file_location('wtune_bp_real', os.environ['FAKE_BP_REAL'])\n"
+        "_real = importlib.util.module_from_spec(_spec)\n"
+        "_spec.loader.exec_module(_real)\n"
+        "# the real per-record helpers (stdlib only); conversion is faked\n"
+        "PER_RECORD_NAME_RE = _real.PER_RECORD_NAME_RE\n"
+        "is_per_record_dir, record_files = _real.is_per_record_dir, _real.record_files\n"
+        "bp_input_links = _real.bp_input_links\n"
+        "per_record_namelist_edits = _real.per_record_namelist_edits\n"
+        "ensure_dir, open_lock = _real.ensure_dir, _real.open_lock\n"
+        "def _mk_bp(p):\n"
+        "    os.makedirs(p)\n"
+        "    for f in ('md.idx', 'data.0'):\n"
+        "        open(os.path.join(p, f), 'w').close()\n"
+        "def require_adios2_python():\n"
+        "    if os.environ.get('FAKE_BP_FAIL'):\n"
+        "        raise RuntimeError('no Python that can import adios2')\n"
+        "    return '/fake/python'\n"
+        "def convert_inputs(case_dir, cache_dir, names=None, engine='BP5'):\n"
+        "    os.makedirs(cache_dir, exist_ok=True)\n"
+        "    out = {}\n"
+        "    for n in names:\n"
+        "        dst = os.path.join(cache_dir, n)\n"
+        "        if not os.path.isdir(dst):          # the manifest's 'current' check\n"
+        "            time.sleep(float(os.environ.get('FAKE_BP_SLEEP', '0')))\n"
+        "            with open(os.environ['FAKE_BP_LOG'], 'a') as f:\n"
+        "                f.write('convert %s %s\\n' % (n, engine))\n"
+        "            if PER_RECORD_NAME_RE.match(n):\n"
+        "                for t in os.environ.get('FAKE_BP_RECORDS', '2020-01-01_00:00:00 '\n"
+        "                                        '2020-01-01_06:00:00').split():\n"
+        "                    _mk_bp(os.path.join(dst, '%s_%s.bp' % (n, t)))\n"
+        "            else:\n"
+        "                _mk_bp(dst)\n"
+        "        out[n] = dst\n"
+        "    return out\n")
+
+    def setUp(self):
+        import tempfile
+        self.tmp = tempfile.mkdtemp(prefix="wtune-bp-test-")
+        self.src = os.path.join(self.tmp, "src")
+        os.makedirs(os.path.join(self.src, "wtune"))
+        with open(os.path.join(self.src, "wtune", "bp.py"), "w") as f:
+            f.write(self.FAKE_BP)
+        self.prep = os.path.join(self.tmp, "prep")
+        os.makedirs(self.prep)
+        for n in ("wrfinput_d01", "wrfinput_d02", "wrfbdy_d01", "wrflowinp_d01", "wrflowinp_d02"):
+            with open(os.path.join(self.prep, n), "w") as f:
+                f.write("CDF")
+        self.nl = os.path.join(self.prep, "namelist.input")
+        with open(self.nl, "w") as f:
+            f.write(self.NL)
+        self.log = os.path.join(self.tmp, "convert.log")
+        self.env = dict(os.environ, WTUNE_SRC=self.src, FAKE_BP_LOG=self.log,
+                        WTUNE_BP_CACHE=os.path.join(self.tmp, "cache"),
+                        FAKE_BP_REAL=os.path.join(os.path.dirname(self.HERE), "src",
+                                                  "wtune", "bp.py"))
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _stage(self, *args, env=None):
+        import subprocess
+        return subprocess.Popen([sys.executable, os.path.join(self.HERE, "configs.py"),
+                                 "stage-bp-inputs", "sc26p1"] + list(args),
+                                env=env or self.env, stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE, universal_newlines=True)
+
+    @staticmethod
+    def _assignments(stdout):
+        import shlex
+        return dict(shlex.split(l)[0].split("=", 1) if shlex.split(l) else (l.rstrip("="), "")
+                    for l in stdout.splitlines() if "=" in l)
+
+    def _converted(self):
+        if not os.path.exists(self.log):
+            return []
+        with open(self.log) as f:
+            return f.read().split("\n")[:-1]
+
+    def test_streams_and_bp_innames(self):
+        sts = {st["stream"]: st for st in configs.adios2_input_streams(self.NL)}
+        self.assertEqual(list(sts), ["input", "boundary", "auxinput4", "gfdda"])
+        self.assertEqual(sts["input"]["names"], ["wrfinput_d01", "wrfinput_d02"])
+        self.assertEqual(sts["input"]["required"], ["wrfinput_d01"])
+        self.assertEqual(sts["auxinput4"]["inname"], "wrflowinp_d<domain>.bp")
+        self.assertEqual(sts["gfdda"]["names"], ["wrffdda_d01"])
+        self.assertEqual(configs.adios2_stream_edits(sts["gfdda"]),
+                         [("io_form_gfdda", 14, "fdda"),
+                          ("gfdda_inname", '"wrffdda_d<domain>.bp"', "fdda")])
+        # an inname already carrying .bp is not doubled
+        nl = self.NL.replace('"wrflowinp_d<domain>"', '"wrflowinp_d<domain>.bp"')
+        aux = [s for s in configs.adios2_input_streams(nl) if s["stream"] == "auxinput4"][0]
+        self.assertEqual((aux["names"][0], aux["inname"]),
+                         ("wrflowinp_d01", "wrflowinp_d<domain>.bp"))
+
+    def _apply(self, aux_env):
+        old = {k: os.environ.get(k) for k in ("WTUNE_INPUT_FORMAT", "WTUNE_AUX_BP_STREAMS")}
+        try:
+            os.environ.pop("WTUNE_INPUT_FORMAT", None)
+            if aux_env is None:
+                os.environ.pop("WTUNE_AUX_BP_STREAMS", None)
+            else:
+                os.environ["WTUNE_AUX_BP_STREAMS"] = aux_env
+            return configs._apply_adios2(self.NL, 72, 2)
+        finally:
+            for k, v in old.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+
+    def test_apply_adios2_switches_only_the_aux_streams_available_as_bp(self):
+        out = self._apply("auxinput4")
+        for key in ("io_form_input", "io_form_boundary", "io_form_history", "io_form_restart",
+                    "io_form_auxinput4"):
+            self.assertRegex(out, r"(?m)^\s*%s\s*=\s*14\s*,\s*$" % key)
+        self.assertIn('auxinput4_inname = "wrflowinp_d<domain>.bp"', out)
+        self.assertRegex(out, r"(?m)^\s*io_form_gfdda\s*=\s*2,")          # not in the list
+        self.assertIn('gfdda_inname = "wrffdda_d<domain>"', out)
+        both = self._apply("auxinput4,gfdda")
+        fdda = both[both.index("&fdda"):]
+        self.assertRegex(fdda.split("/")[0], r"io_form_gfdda\s*=\s*14")
+        self.assertIn('gfdda_inname = "wrffdda_d<domain>.bp"', both)
+        none = self._apply(None)
+        self.assertRegex(none, r"(?m)^\s*io_form_auxinput4\s*=\s*2,")
+        self.assertIn('input_inname="wrfinput_d<domain>.bp"', none)
+
+    def test_bp_cache_dir_is_keyed_by_case_and_prep_dir(self):
+        old = os.environ.get("WTUNE_BP_CACHE")
+        try:
+            os.environ["WTUNE_BP_CACHE"] = "/c"
+            a = configs.bp_cache_dir("x", self.prep)
+            self.assertTrue(a.startswith("/c/x/") and len(os.path.basename(a)) == 12)
+            self.assertNotEqual(a, configs.bp_cache_dir("x", self.tmp))
+            self.assertEqual(a, configs.bp_cache_dir("x", self.prep + "/"))
+        finally:
+            if old is None:
+                os.environ.pop("WTUNE_BP_CACHE", None)
+            else:
+                os.environ["WTUNE_BP_CACHE"] = old
+
+    def test_stage_converts_links_and_reports_aux(self):
+        p = self._stage(self.nl, self.prep)
+        out, err = p.communicate()
+        self.assertEqual(p.returncode, 0, err)
+        a = self._assignments(out)
+        cache = configs.bp_cache_dir("sc26p1", self.prep, os.path.join(self.tmp, "cache"))
+        self.assertEqual(a["BP_DIR"], cache)
+        self.assertEqual(a["WTUNE_AUX_BP_STREAMS"], "auxinput4")      # no wrffdda_d01 at all
+        self.assertEqual(a["BP_CONVERTED"].split(), ["wrfinput_d01", "wrfinput_d02", "wrfbdy_d01",
+                                                     "wrflowinp_d01", "wrflowinp_d02"])
+        for n in ("wrfinput_d01", "wrfinput_d02"):
+            self.assertEqual(os.readlink(os.path.join(cache, n + ".bp")), os.path.join(cache, n))
+        # multi-record inputs: one BP per record in cache/<name>/, reported, no flat links
+        self.assertEqual(a["WTUNE_PER_RECORD_BP"], "wrfbdy_d01 wrflowinp_d01 wrflowinp_d02")
+        for n in ("wrfbdy_d01", "wrflowinp_d01", "wrflowinp_d02"):
+            self.assertFalse(os.path.lexists(os.path.join(cache, n + ".bp")))
+            self.assertEqual(sorted(os.listdir(os.path.join(cache, n))),
+                             ["%s_2020-01-01_00:00:00.bp" % n, "%s_2020-01-01_06:00:00.bp" % n])
+            self.assertFalse(os.path.lexists(os.path.join(cache, "%s_2020-01-01_00:00:00.bp" % n)))
+        self.assertIn("BP input wrfbdy_d01 -> %s (per record, 2 files)"
+                      % os.path.join(cache, "wrfbdy_d01"), err)
+        self.assertIn("gfdda input wrffdda_d01 found nowhere", err)
+        # second run: everything current, nothing reconverted, links kept
+        p = self._stage(self.nl, self.prep)
+        p.communicate()
+        self.assertEqual(p.returncode, 0)
+        self.assertEqual(len(self._converted()), 5)
+
+    def test_existing_bp_in_prep_is_used_not_converted(self):
+        os.makedirs(os.path.join(self.prep, "wrfinput_d02.bp"))
+        # a per-record container already in prep_dir: linked as cache/<name>, not converted
+        for t in ("2020-01-01_00:00:00", "2020-01-01_06:00:00"):
+            d = os.path.join(self.prep, "wrfbdy_d01.bp", "wrfbdy_d01_%s.bp" % t)
+            os.makedirs(d)
+            for f in ("md.idx", "data.0"):
+                open(os.path.join(d, f), "w").close()
+        p = self._stage(self.nl, self.prep)
+        out, err = p.communicate()
+        self.assertEqual(p.returncode, 0, err)
+        a = self._assignments(out)
+        cache = a["BP_DIR"]
+        self.assertEqual(os.readlink(os.path.join(cache, "wrfinput_d02.bp")),
+                         os.path.join(self.prep, "wrfinput_d02.bp"))
+        self.assertEqual(os.readlink(os.path.join(cache, "wrfbdy_d01")),
+                         os.path.join(self.prep, "wrfbdy_d01.bp"))
+        self.assertIn("wrfbdy_d01", a["WTUNE_PER_RECORD_BP"].split())
+        self.assertNotIn("convert wrfbdy_d01 BP5", self._converted())
+        self.assertNotIn("convert wrfinput_d02 BP5", self._converted())
+
+    def test_existing_single_multirecord_bp_is_reconverted_per_record(self):
+        # a single BP wrfbdy (multi-record: WRF reads record 1 everywhere) next to its netCDF:
+        # the netCDF is converted per record instead; without the netCDF it is used + WARNING
+        os.makedirs(os.path.join(self.prep, "wrfbdy_d01.bp"))
+        p = self._stage(self.nl, self.prep)
+        out, err = p.communicate()
+        self.assertEqual(p.returncode, 0, err)
+        self.assertIn("convert wrfbdy_d01 BP5", self._converted())
+        self.assertIn("wrfbdy_d01", self._assignments(out)["WTUNE_PER_RECORD_BP"].split())
+        os.remove(os.path.join(self.prep, "wrfbdy_d01"))
+        p = self._stage(self.nl, self.prep)
+        out, err = p.communicate()
+        self.assertEqual(p.returncode, 0, err)
+        self.assertIn("is a single multi-record BP", err)
+        cache = self._assignments(out)["BP_DIR"]
+        self.assertEqual(os.readlink(os.path.join(cache, "wrfbdy_d01.bp")),
+                         os.path.join(self.prep, "wrfbdy_d01.bp"))
+
+    def test_concurrent_jobs_convert_once(self):
+        env = dict(self.env, FAKE_BP_SLEEP="0.3")
+        procs = [self._stage(self.nl, self.prep, env=env) for _ in range(3)]
+        outs = [p.communicate() for p in procs]
+        self.assertEqual([p.returncode for p in procs], [0, 0, 0], [o[1] for o in outs])
+        self.assertEqual(sorted(self._converted()),
+                         sorted("convert %s BP5" % n for n in (
+                             "wrfinput_d01", "wrfinput_d02", "wrfbdy_d01", "wrflowinp_d01",
+                             "wrflowinp_d02")))
+        self.assertEqual(len(set(self._assignments(o[0])["BP_DIR"] for o in outs)), 1)
+
+    def test_converter_failure_and_missing_wrfinput_are_fatal(self):
+        p = self._stage(self.nl, self.prep, env=dict(self.env, FAKE_BP_FAIL="1"))
+        _, err = p.communicate()
+        self.assertEqual(p.returncode, 1)
+        self.assertIn("FATAL: ADIOS2 input staging failed for sc26p1", err)
+        os.remove(os.path.join(self.prep, "wrfinput_d01"))
+        p = self._stage(self.nl, self.prep)
+        _, err = p.communicate()
+        self.assertEqual(p.returncode, 1)
+        self.assertIn("FATAL: wrfinput/wrfbdy not available", err)
+
+    def test_check_mode_on_an_f1_bp_dir_writes_nothing(self):
+        bp = os.path.join(self.tmp, "bp")
+        for n in ("wrfinput_d01.bp", "wrfbdy_d01.bp", "wrflowinp_d01.bp"):
+            os.makedirs(os.path.join(bp, n))
+        before = sorted(os.listdir(bp))
+        p = self._stage(self.nl, bp, "--cache-dir", bp, "--check")
+        out, err = p.communicate()
+        self.assertEqual(p.returncode, 0, err)
+        a = self._assignments(out)
+        self.assertEqual((a["BP_DIR"], a["WTUNE_AUX_BP_STREAMS"], a["BP_CONVERTED"]),
+                         (bp, "", ""))                    # wrflowinp_d02.bp missing -> aux4 off
+        self.assertEqual(sorted(os.listdir(bp)), before)
+        self.assertEqual(self._converted(), [])
+
+    # ---- strict_campaign.sbatch staging block, extracted ---------------------------------
+    def _sbatch(self, name="strict_campaign.sbatch"):
+        with open(os.path.join(self.HERE, name)) as f:
+            return f.read()
+
+    def _block(self):
+        s = self._sbatch()
+        i = s.index('WTUNE_AUX_BP_STREAMS=""\n')
+        j = s.index("export WTUNE_AUX_BP_STREAMS\n", i) + len("export WTUNE_AUX_BP_STREAMS\n")
+        return s[i:j]
+
+    def _run_block(self, bp_dir, pybin_body, extra_env=None):
+        import subprocess
+        stub = os.path.join(self.tmp, "pybin")
+        with open(stub, "w") as f:
+            f.write("#!/usr/bin/env bash\necho \"$*\" >> %s/pybin.args\n%s\n"
+                    % (self.tmp, pybin_body))
+        os.chmod(stub, 0o755)
+        script = ("set -uo pipefail\nPYBIN=%s\nCAMPAIGN=/camp\nCASE=sc26p1\nPREP_DIR=/prep\n"
+                  "NAMELIST_TEMPLATE=/prep/namelist.input\nBP_DIR='%s'\n"
+                  "NAMELIST_REF_DIRS='/prep'\n" % (stub, bp_dir) + self._block() +
+                  'echo "OUT BP_DIR=$BP_DIR FMT=${WTUNE_INPUT_FORMAT:-} AUX=$WTUNE_AUX_BP_STREAMS '
+                  'REF=$NAMELIST_REF_DIRS"\n')
+        env = dict(os.environ)
+        env.pop("WTUNE_INPUT_FORMAT", None)
+        env.update(extra_env or {})
+        p = subprocess.run(["bash", "-c", script], env=env, stdout=subprocess.PIPE,
+                           stderr=subprocess.PIPE, universal_newlines=True)
+        args = ""
+        if os.path.exists(os.path.join(self.tmp, "pybin.args")):
+            with open(os.path.join(self.tmp, "pybin.args")) as f:
+                args = f.read()
+        return p, args
+
+    def test_sbatch_empty_bp_dir_stages_prep_into_cache_and_runs_adios2(self):
+        p, args = self._run_block("", "echo \"BP_DIR='/cache/sc26p1/abc'\"; "
+                                      "echo \"WTUNE_AUX_BP_STREAMS='auxinput4'\"")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertEqual(args.split(), ["/camp/configs.py", "stage-bp-inputs", "sc26p1",
+                                        "/prep/namelist.input", "/prep"])
+        self.assertIn("OUT BP_DIR=/cache/sc26p1/abc FMT=adios2 AUX=auxinput4 "
+                      "REF=/cache/sc26p1/abc /prep", p.stdout)
+
+    def test_sbatch_f1_bp_dir_is_only_checked(self):
+        p, args = self._run_block("/f1/bp", "echo \"BP_DIR='/f1/bp'\"; "
+                                            "echo \"WTUNE_AUX_BP_STREAMS=''\"")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertEqual(args.split(), ["/camp/configs.py", "stage-bp-inputs", "sc26p1",
+                                        "/prep/namelist.input", "/f1/bp", "--cache-dir", "/f1/bp",
+                                        "--check"])
+        self.assertIn("OUT BP_DIR=/f1/bp FMT=adios2 AUX= REF=/f1/bp /prep", p.stdout)
+
+    def test_sbatch_staging_failure_aborts_the_job(self):
+        p, _ = self._run_block("", "echo 'FATAL: x' >&2; exit 1")
+        self.assertEqual(p.returncode, 1)
+        self.assertIn("FATAL: ADIOS2 input staging failed for case sc26p1", p.stderr)
+        self.assertNotIn("OUT ", p.stdout)
+
+    def test_sbatch_netcdf_is_only_an_explicit_legacy_escape(self):
+        p, args = self._run_block("/f1/bp", "exit 1", {"WTUNE_INPUT_FORMAT": "netcdf"})
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertEqual(args, "")                              # no staging at all
+        self.assertIn("WARNING: WTUNE_INPUT_FORMAT=netcdf -- LEGACY", p.stderr)
+        self.assertIn("OUT BP_DIR= FMT=netcdf AUX= REF=/prep", p.stdout)
+        s = self._sbatch()
+        self.assertNotIn('if [ -z "$BP_DIR" ]; then export WTUNE_INPUT_FORMAT=netcdf', s)
+        # staged before the first run dir links its inputs
+        self.assertLess(s.index("export WTUNE_AUX_BP_STREAMS\n"), s.index("  link_wrf_inputs\n"))
+
+    def test_sbatch_scripts_parse_and_nc2bp_has_no_f1_paths(self):
+        import subprocess
+        for name in ("strict_campaign.sbatch", "nc2bp.sbatch"):
+            subprocess.run(["bash", "-n", os.path.join(self.HERE, name)], check=True)
+        s = self._sbatch("nc2bp.sbatch")
+        self.assertNotIn("/home/u5727520", s)
+        self.assertIn('configs.py" stage-bp-inputs "$CASE" "$NAMELIST_TEMPLATE" "$PREP_DIR"', s)
+
+
+class TestPerRecordInputs(unittest.TestCase):
+    """WRF 4.8's ADIOS2 reader never selects a BP step, so wrfbdy/wrflowinp/wrffdda are staged one
+    BP per record (<BP_DIR>/<name>/<name>_<date>.bp, WTUNE_PER_RECORD_BP) and read with
+    multi_bdy_files / dated innames. WRF opens the file of the run's START time, so a probe
+    restarting off a record time reads that stream from netCDF instead (_apply_adios2)."""
+
+    HERE = os.path.dirname(os.path.abspath(__file__))
+    NL = (" &time_control\n start_year = 2020, 2020,\n start_month = 01, 01,\n"
+          " start_day = 01, 01,\n start_hour = 00, 00,\n start_minute = 00, 00,\n"
+          " start_second = 00, 00,\n interval_seconds = 21600,\n run_minutes = 60,\n"
+          " io_form_history = 2,\n io_form_input = 2,\n io_form_boundary = 2,\n"
+          " io_form_restart = 2,\n restart_interval = 60,\n"
+          " auxinput4_inname = \"wrflowinp_d<domain>\",\n io_form_auxinput4 = 2,\n"
+          " auxinput4_interval = 360, 360,\n /\n"
+          " &domains\n max_dom = 2,\n time_step = 60,\n /\n"
+          " &physics\n sst_update = 1,\n /\n")
+
+    def setUp(self):
+        import tempfile
+        self.tmp = tempfile.mkdtemp(prefix="wtune-pr-test-")
+        self.bp = os.path.join(self.tmp, "bp")
+        for n in ("wrfbdy_d01", "wrflowinp_d01", "wrflowinp_d02"):
+            for t in ("2020-01-01_00:00:00", "2020-01-01_06:00:00"):
+                os.makedirs(os.path.join(self.bp, n, "%s_%s.bp" % (n, t)))
+        self._old = {k: os.environ.get(k) for k in (
+            "WTUNE_INPUT_FORMAT", "WTUNE_AUX_BP_STREAMS", "WTUNE_PER_RECORD_BP", "WTUNE_BP_DIR")}
+        os.environ.pop("WTUNE_INPUT_FORMAT", None)
+        os.environ["WTUNE_AUX_BP_STREAMS"] = "auxinput4"
+        os.environ["WTUNE_PER_RECORD_BP"] = "wrfbdy_d01 wrflowinp_d01 wrflowinp_d02"
+        os.environ["WTUNE_BP_DIR"] = self.bp
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmp, ignore_errors=True)
+        for k, v in self._old.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+    @staticmethod
+    def _vals(text, key):
+        return configs._namelist_string_values(text, key)
+
+    def _edit(self, text, restart_from=None):
+        return configs.edit_namelist(text, 8, 9, 1, 60, max_dom=2, ranks=72,
+                                     restart_from=restart_from)
+
+    def test_set_namelist_value_lists_packed_lines_and_absent_groups(self):
+        t = (" &time_control\n frames_per_auxinput4 = 999999, 999999, io_form_history = 2,\n"
+             " /\n &domains\n max_dom = 2,\n /\n")
+        out = configs._set_namelist_value(t, "frames_per_auxinput4", "1, 1", "time_control")
+        self.assertIn(" frames_per_auxinput4 = 1, 1, io_form_history = 2,\n", out)
+        out = configs._set_namelist_value(out, "multi_bdy_files", ".true.", "bdy_control")
+        self.assertTrue(out.endswith("&bdy_control\n multi_bdy_files = .true.,\n/\n"))
+        out = configs._set_namelist_value(out, "multi_bdy_files", ".false.", "bdy_control")
+        self.assertEqual(out.count("multi_bdy_files"), 1)
+        self.assertIn("multi_bdy_files = .false.,", out)
+        t2 = " &bdy_control\n spec_bdy_width = 5,\n /\n"
+        self.assertEqual(configs._set_namelist_value(t2, "multi_bdy_files", ".true.", "bdy_control"),
+                         " &bdy_control\n multi_bdy_files = .true.,\n spec_bdy_width = 5,\n /\n")
+        q = configs._set_namelist_value(' &fdda\n gfdda_inname = "a, b",\n /\n', "gfdda_inname",
+                                        '"wrffdda_d<domain>_<date>.bp"', "fdda")
+        self.assertIn('gfdda_inname = "wrffdda_d<domain>_<date>.bp",\n', q)
+
+    def test_cold_start_on_a_record_reads_per_record_bp(self):
+        import re
+        out = self._edit(self.NL)
+        self.assertEqual(self._vals(out, "io_form_boundary"), ["14"])
+        self.assertEqual(self._vals(out, "bdy_inname"), ["wrfbdy_d<domain>_<date>.bp"])
+        self.assertEqual(self._vals(out, "multi_bdy_files"), [".true."])
+        self.assertIn("&bdy_control", out)
+        self.assertEqual(self._vals(out, "io_form_auxinput4"), ["14"])
+        self.assertEqual(self._vals(out, "auxinput4_inname"), ["wrflowinp_d<domain>_<date>.bp"])
+        self.assertEqual(self._vals(out, "frames_per_auxinput4"), ["1", "1"])
+        self.assertEqual(self._vals(out, "input_inname"), ["wrfinput_d<domain>.bp"])
+        for k in ("bdy_inname", "auxinput4_inname", "multi_bdy_files", "frames_per_auxinput4"):
+            self.assertEqual(sum(1 for ln in out.splitlines()
+                                 if re.search(r"(?<![A-Za-z0-9_])%s\s*=" % k, ln)), 1, k)
+
+    def test_restart_on_a_record_time_keeps_per_record(self):
+        import datetime
+        first = self._edit(self.NL)
+        out = self._edit(first, restart_from=datetime.datetime(2020, 1, 1, 6))
+        self.assertEqual(self._vals(out, "bdy_inname"), ["wrfbdy_d<domain>_<date>.bp"])
+        self.assertEqual(self._vals(out, "io_form_auxinput4"), ["14"])
+
+    def test_restart_off_record_falls_back_to_netcdf_and_undoes_the_first_pass(self):
+        import contextlib
+        import datetime
+        import io
+        first = self._edit(self.NL)                      # the sbatch's pass 1 (cold start t0)
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            out = self._edit(first, restart_from=datetime.datetime(2020, 1, 1, 1))  # t0 + 60 min
+        self.assertEqual(self._vals(out, "io_form_boundary"), ["2"])
+        self.assertIsNone(self._vals(out, "bdy_inname"))          # WRF default wrfbdy_d<domain>
+        self.assertEqual(self._vals(out, "multi_bdy_files"), [".false."])
+        self.assertEqual(self._vals(out, "io_form_auxinput4"), ["2"])
+        self.assertEqual(self._vals(out, "auxinput4_inname"), ["wrflowinp_d<domain>"])
+        self.assertEqual(self._vals(out, "frames_per_auxinput4"), ["999999", "999999"])
+        self.assertEqual(self._vals(out, "input_inname"), ["wrfinput_d<domain>.bp"])
+        self.assertEqual(self._vals(out, "io_form_input"), ["14"])
+        self.assertEqual(self._vals(out, "start_hour"), ["1", "1"])
+        self.assertIn("boundary input has no record at the run start "
+                      "(wrfbdy_d01_2020-01-01_01:00:00.bp)", err.getvalue())
+        # idempotent for the I/O keys (_apply_restart_from itself reorders the start_* lines)
+        with contextlib.redirect_stderr(io.StringIO()):
+            again = self._edit(out, restart_from=datetime.datetime(2020, 1, 1, 1))
+        for k in ("io_form_boundary", "bdy_inname", "multi_bdy_files", "io_form_auxinput4",
+                  "auxinput4_inname", "frames_per_auxinput4", "input_inname", "io_form_input"):
+            self.assertEqual(self._vals(again, k), self._vals(out, k), k)
+
+    def test_one_domain_missing_its_record_falls_back_the_whole_stream(self):
+        import contextlib
+        import io
+        import shutil
+        shutil.rmtree(os.path.join(self.bp, "wrflowinp_d02",
+                                   "wrflowinp_d02_2020-01-01_00:00:00.bp"))
+        with contextlib.redirect_stderr(io.StringIO()):
+            out = self._edit(self.NL)
+        self.assertEqual(self._vals(out, "bdy_inname"), ["wrfbdy_d<domain>_<date>.bp"])
+        self.assertEqual(self._vals(out, "io_form_auxinput4"), ["2"])
+        self.assertEqual(self._vals(out, "auxinput4_inname"), ["wrflowinp_d<domain>"])
+        self.assertIsNone(self._vals(out, "frames_per_auxinput4"))   # never set, not added
+
+    def test_aux_stream_not_available_is_not_switched(self):
+        os.environ["WTUNE_AUX_BP_STREAMS"] = ""
+        out = self._edit(self.NL)
+        self.assertEqual(self._vals(out, "io_form_auxinput4"), ["2"])
+        self.assertEqual(self._vals(out, "auxinput4_inname"), ["wrflowinp_d<domain>"])
+        self.assertEqual(self._vals(out, "bdy_inname"), ["wrfbdy_d<domain>_<date>.bp"])
+
+    def test_no_per_record_inputs_keeps_the_single_bp_innames(self):
+        os.environ["WTUNE_PER_RECORD_BP"] = ""
+        out = self._edit(self.NL)
+        self.assertIn(' input_inname="wrfinput_d<domain>.bp", bdy_inname="wrfbdy_d<domain>.bp",',
+                      out)
+        self.assertNotIn("multi_bdy_files", out)
+
+    def test_stage_namelist_files_skips_a_per_record_dir_for_a_netcdf_name(self):
+        prep = os.path.join(self.tmp, "prep")
+        run = os.path.join(self.tmp, "run")
+        os.makedirs(prep)
+        os.makedirs(run)
+        for n in ("wrflowinp_d01", "wrflowinp_d02"):
+            open(os.path.join(prep, n), "w").close()
+        res = configs.stage_namelist_files(self.NL, run, [self.bp, prep])
+        self.assertEqual(os.readlink(os.path.join(run, "wrflowinp_d01")),
+                         os.path.join(prep, "wrflowinp_d01"))
+        self.assertEqual(res["missing"], [])
+        # a per-record namelist stages every record file of every domain
+        nl = self.NL.replace('"wrflowinp_d<domain>"', '"wrflowinp_d<domain>_<date>.bp"')
+        run2 = os.path.join(self.tmp, "run2")
+        os.makedirs(run2)
+        configs.stage_namelist_files(nl, run2, [os.path.join(self.bp, "wrflowinp_d01"),
+                                                os.path.join(self.bp, "wrflowinp_d02")])
+        self.assertEqual(sorted(os.listdir(run2)), [
+            "wrflowinp_d01_2020-01-01_00:00:00.bp", "wrflowinp_d01_2020-01-01_06:00:00.bp",
+            "wrflowinp_d02_2020-01-01_00:00:00.bp", "wrflowinp_d02_2020-01-01_06:00:00.bp"])
+
+    def test_sbatch_link_wrf_inputs_links_every_record_and_the_netcdf(self):
+        import subprocess
+        with open(os.path.join(self.HERE, "strict_campaign.sbatch")) as f:
+            s = f.read()
+        i = s.index("link_per_record() {")
+        j = s.index("\ncheck_disk_guard () {", i)
+        prep = os.path.join(self.tmp, "prep")
+        run = os.path.join(self.tmp, "run")
+        os.makedirs(prep)
+        os.makedirs(run)
+        open(os.path.join(prep, "wrfbdy_d01"), "w").close()
+        script = ("set -uo pipefail\nMAX_DOM=2\nPREP_DIR=%s\nBP_DIR=%s\n"
+                  "WTUNE_PER_RECORD_BP='wrfbdy_d01 wrflowinp_d01 wrflowinp_d02'\n"
+                  "%s\ncd %s && link_wrf_inputs\n" % (prep, self.bp, s[i:j], run))
+        p = subprocess.run(["bash", "-c", script], stdout=subprocess.PIPE,
+                           stderr=subprocess.PIPE, universal_newlines=True)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        names = sorted(os.listdir(run))
+        self.assertIn("wrfbdy_d01", names)                       # netCDF, for an off-record start
+        self.assertNotIn("wrfbdy_d01.bp", names)
+        for n in ("wrfbdy_d01", "wrflowinp_d01", "wrflowinp_d02"):
+            rec = "%s_2020-01-01_06:00:00.bp" % n
+            self.assertEqual(os.readlink(os.path.join(run, rec)), os.path.join(self.bp, n, rec))
+        self.assertIn("wrfinput_d02.bp", names)
+
+class TestFreshProbeInputs(unittest.TestCase):
+    """Head-side fresh per-record copies for probe jobs (WTUNE_BP_FRESH_DIR/copy_<i>/<name>/):
+    every wrf.exe run opens its own inodes -- NFS open stall, wiki 2026-10-03 adios2 gate."""
+
+    HERE = os.path.dirname(os.path.abspath(__file__))
+    NL = (" &time_control\n start_year = 2020,\n start_month = 01,\n start_day = 01,\n"
+          " start_hour = 00,\n interval_seconds = 21600,\n /\n &domains\n max_dom = 1,\n /\n")
+
+    def setUp(self):
+        import tempfile
+        self.tmp = tempfile.mkdtemp(prefix="wtune-fresh-test-")
+        self.prep = os.path.join(self.tmp, "prep")
+        os.makedirs(self.prep)
+        for n in ("wrfinput_d01", "wrfbdy_d01"):
+            with open(os.path.join(self.prep, n), "wb") as f:
+                f.write(b"CDF\x01" + b"\0" * 60)
+        with open(os.path.join(self.prep, "namelist.input"), "w") as f:
+            f.write(self.NL)
+        self.cases = os.path.join(self.tmp, "cases.json")
+        with open(self.cases, "w") as f:
+            json.dump({"cases": {"pt": {"prep_dir": self.prep, "bp_dir": ""}}}, f)
+        self.cache = configs.bp_cache_dir("pt", self.prep, os.path.join(self.tmp, "cache"))
+        self._old = os.environ.get("WTUNE_BP_CACHE")
+        os.environ["WTUNE_BP_CACHE"] = os.path.join(self.tmp, "cache")
+        self.copies = []
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmp, ignore_errors=True)
+        if self._old is None:
+            os.environ.pop("WTUNE_BP_CACHE", None)
+        else:
+            os.environ["WTUNE_BP_CACHE"] = self._old
+
+    def _bp(self, current=True, reflink=True):
+        import re as _re
+        import types
+        test = self
+
+        def fresh_input_copy(sources, dest, stats=None):
+            test.copies.append((dict(sources), dest))
+            stats.update(reflink=reflink, bytes=0 if reflink else 10)
+            return {n: os.path.join(dest, n) for n in sources}
+        return types.SimpleNamespace(
+            PER_RECORD_NAME_RE=_re.compile(r"^(wrfbdy|wrflowinp|wrffdda)_d\d\d$"),
+            is_per_record_dir=lambda p: False, fresh_input_copy=fresh_input_copy,
+            cached_inputs=lambda d, c, names: ({n: os.path.join(c, n) for n in names}
+                                               if current else None))
+
+    def test_copies_per_run_from_the_current_cache(self):
+        dest = os.path.join(self.tmp, "job", "bp_fresh")
+        got = configs.fresh_probe_inputs("pt", dest, 3, cases_json=self.cases, bp=self._bp())
+        self.assertEqual(got, dest)
+        self.assertEqual([d for _s, d in self.copies],
+                         [os.path.join(dest, "copy_%d" % i) for i in range(3)])
+        self.assertEqual(self.copies[0][0], {"wrfbdy_d01": os.path.join(self.cache, "wrfbdy_d01")})
+
+    def test_without_reflink_one_copy_only(self):
+        dest = os.path.join(self.tmp, "job", "bp_fresh")
+        configs.fresh_probe_inputs("pt", dest, 5, cases_json=self.cases,
+                                   bp=self._bp(reflink=False))
+        self.assertEqual(len(self.copies), 1)
+
+    def test_cache_not_current_gives_none_with_a_warning(self):
+        import contextlib
+        import io
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            got = configs.fresh_probe_inputs("pt", os.path.join(self.tmp, "d"), 2,
+                                             cases_json=self.cases, bp=self._bp(current=False))
+        self.assertIsNone(got)
+        self.assertEqual(self.copies, [])
+        self.assertIn("not current for wrfbdy_d01 (run campaign/nc2bp.sbatch first)",
+                      err.getvalue())
+
+    def test_bp_cache_status(self):
+        self.assertEqual(configs.bp_cache_status("pt", self.cases, bp=self._bp())[0], "current")
+        st, detail = configs.bp_cache_status("pt", self.cases, bp=self._bp(current=False))
+        self.assertEqual(st, "stale")
+        self.assertIn("wrfbdy_d01", detail)
+        self.assertEqual(configs.bp_cache_status("nope", self.cases, bp=self._bp())[0], "none")
+
+    def _link_script(self, fresh_dir, runs):
+        with open(os.path.join(self.HERE, "strict_campaign.sbatch")) as f:
+            s = f.read()
+        body = s[s.index("link_per_record() {"):s.index("\ncheck_disk_guard () {")]
+        # link_wrf_inputs must run in this shell (it advances FRESH_RUN_IDX): no subshell
+        cmds = "".join("mkdir run%d; cd run%d; link_wrf_inputs; cd ..\n" % (i, i)
+                       for i in range(runs))
+        return ("set -uo pipefail\nMAX_DOM=1\nPREP_DIR=%s\nBP_DIR=%s\n"
+                "WTUNE_PER_RECORD_BP='wrfbdy_d01'\nWTUNE_BP_FRESH_DIR='%s'\n%s\ncd %s\n%s"
+                % (self.prep, self.cache, fresh_dir, body, self.tmp, cmds))
+
+    def test_sbatch_links_copy_i_for_run_i_then_reuses_the_last(self):
+        import subprocess
+        rec = "wrfbdy_d01_2020-01-01_00:00:00.bp"
+        fresh = os.path.join(self.tmp, "bp_fresh")
+        for i in range(2):
+            os.makedirs(os.path.join(fresh, "copy_%d" % i, "wrfbdy_d01", rec))
+        os.makedirs(os.path.join(self.cache, "wrfbdy_d01", rec))
+        p = subprocess.run(["bash", "-c", self._link_script(fresh, 3)], stdout=subprocess.PIPE,
+                           stderr=subprocess.PIPE, universal_newlines=True)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        links = [os.readlink(os.path.join(self.tmp, "run%d" % i, rec)) for i in range(3)]
+        self.assertEqual(links, [os.path.join(fresh, "copy_0", "wrfbdy_d01", rec),
+                                 os.path.join(fresh, "copy_1", "wrfbdy_d01", rec),
+                                 os.path.join(fresh, "copy_1", "wrfbdy_d01", rec)])
+        self.assertIn("fresh BP copies exhausted at run 2", p.stderr)
+        # no fresh dir: the cache, as before
+        p = subprocess.run(["bash", "-c", self._link_script("", 1).replace(
+            "cd %s\n" % self.tmp, "cd %s\nrm -rf run0\n" % self.tmp)], stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, universal_newlines=True)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertEqual(os.readlink(os.path.join(self.tmp, "run0", rec)),
+                         os.path.join(self.cache, "wrfbdy_d01", rec))
+
+    def test_sbatch_warns_without_fresh_dir_and_cleans_up_its_copies(self):
+        with open(os.path.join(self.HERE, "strict_campaign.sbatch")) as f:
+            s = f.read()
+        self.assertIn("no WTUNE_BP_FRESH_DIR: runs share the cache's per-record inodes", s)
+        self.assertIn('rm -rf "$WTUNE_BP_FRESH_DIR"', s)
+
+
+class TestSbatchRefusesRetiredModes(unittest.TestCase):
+    """strict_campaign.sbatch runs MODE=timing with a CONFIG_FILE only; the script stops before
+    its python resolution, so an empty site file is enough to run it here."""
+    HERE = os.path.dirname(os.path.abspath(__file__))
+
+    def _run(self, **env):
+        import subprocess
+        import tempfile
+        stub = tempfile.mkdtemp()
+        os.makedirs(os.path.join(stub, "sites"))
+        open(os.path.join(stub, "sites", "f1.sh"), "w").close()
+        full = {k: v for k, v in os.environ.items() if k not in ("MODE", "CONFIG_FILE", "SITE")}
+        full.update(env, CAMPAIGN=stub)
+        return subprocess.run(["bash", os.path.join(self.HERE, "strict_campaign.sbatch")], env=full,
+                              stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                              universal_newlines=True)
+
+    def test_old_modes_are_refused_and_point_at_the_archive(self):
+        for mode in ("physics", "correctness"):
+            p = self._run(MODE=mode, CONFIG_FILE="/x.json")
+            self.assertEqual(p.returncode, 1, mode)
+            self.assertIn("MODE must be 'timing', got '%s'" % mode, p.stderr)
+            self.assertIn("archive/unused-2026-10/campaign/strict_campaign_full.sbatch", p.stderr)
+
+    def test_missing_config_file_is_refused(self):
+        for env in ({}, {"CONFIG_FILE": ""}):
+            p = self._run(MODE="timing", **env)
+            self.assertEqual(p.returncode, 1)
+            self.assertIn("CONFIG_FILE env var is required", p.stderr)
+            self.assertEqual(p.stdout, "")
+
+
+if __name__ == "__main__":
+    unittest.main()

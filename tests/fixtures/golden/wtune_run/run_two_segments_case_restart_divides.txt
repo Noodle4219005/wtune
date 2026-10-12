@@ -1,0 +1,584 @@
+rc=0
+--- log
+run 2020-06-01_00:00:00 -> 2020-06-01_12:00:00 (720 d01 steps of 60s); 2 segment(s) cut on input record times (multiples of 06:00:00: interval_seconds 06:00:00), restart every 02:00:00 (case's restart_interval kept; it divides the 06:00:00 segment quantum), overheads: fallback (conus25/dorian2019 I/O anchors)
+  seg 0  2020-06-01_00:00:00 -> 2020-06-01_06:00:00  cli      8x9 t1 omp1  predicted 00:04:48  --time=00:20:00
+  seg 1  2020-06-01_06:00:00 -> 2020-06-01_12:00:00  cli      8x9 t1 omp1  predicted 00:04:48  --time=00:20:00
+  note: no prediction: 0.465 s/step fallback (cell-step model x 1.5); later segments' --time from each finished segment's observed rate
+I/O: ADIOS2 (history/restart/input/boundary), inputs from <TMP>/out/_bp_inputs (3 netCDF -> BP4, 1 existing BP); one BP per record: wrfbdy_d01
+ADIOS2 inputs: converting wrfinput_d01 wrfinput_d02 wrfbdy_d01 from <TMP>/case in <TMP>/out/_bp_inputs (BP4)
+  fresh per-record inputs -> <TMP>/out/seg_0/_bp_inputs (reflink)
+  pre-created 30 output dirs
+segment 0/1 2020-06-01_00:00:00 -> 2020-06-01_06:00:00  cli  --time=00:20:00  job 1001
+  job 1001: COMPLETED
+segment 0 observed: overhead 300 s, 0.833 s/step -> later --time updated
+  fresh per-record inputs -> <TMP>/out/seg_1/_bp_inputs (reflink)
+  pre-created 30 output dirs
+segment 1/1 2020-06-01_06:00:00 -> 2020-06-01_12:00:00  cli  --time=00:30:00  job 1002
+  job 1002: COMPLETED
+done: 2 segment(s); report <TMP>/out/run_report.json
+--- stdout
+
+--- stderr
+
+--- tree
+d _bp_inputs/
+d _bp_inputs/wrfbdy_d01/
+d _bp_inputs/wrfbdy_d01/wrfbdy_d01_2020-06-01_00:00:00.bp/
+d _bp_inputs/wrfbdy_d01/wrfbdy_d01_2020-06-01_06:00:00.bp/
+d _bp_inputs/wrfbdy_d01/wrfbdy_d01_2020-06-01_12:00:00.bp/
+d _bp_inputs/wrfinput_d01/
+d _bp_inputs/wrfinput_d02/
+d seg_0/
+d seg_0/wrfrst_d01_2020-06-01_06:00:00/
+d seg_0/wrfrst_d02_2020-06-01_06:00:00/
+d seg_0/wrfrst_d03_2020-06-01_06:00:00/
+d seg_1/
+d seg_1/wrfrst_d01_2020-06-01_12:00:00/
+d seg_1/wrfrst_d02_2020-06-01_12:00:00/
+d seg_1/wrfrst_d03_2020-06-01_12:00:00/
+f _bp_inputs/wrfbdy_d01/wrfbdy_d01_2020-06-01_00:00:00.bp/data.0
+f _bp_inputs/wrfbdy_d01/wrfbdy_d01_2020-06-01_00:00:00.bp/md.idx
+f _bp_inputs/wrfbdy_d01/wrfbdy_d01_2020-06-01_06:00:00.bp/data.0
+f _bp_inputs/wrfbdy_d01/wrfbdy_d01_2020-06-01_06:00:00.bp/md.idx
+f _bp_inputs/wrfbdy_d01/wrfbdy_d01_2020-06-01_12:00:00.bp/data.0
+f _bp_inputs/wrfbdy_d01/wrfbdy_d01_2020-06-01_12:00:00.bp/md.idx
+f _bp_inputs/wrfinput_d01/data.0
+f _bp_inputs/wrfinput_d01/md.idx
+f _bp_inputs/wrfinput_d02/data.0
+f _bp_inputs/wrfinput_d02/md.idx
+f run_report.json
+f seg_0/adios2.xml
+f seg_0/namelist.input
+f seg_0/segment.sbatch
+f seg_0/wrfrst_d01_2020-06-01_06:00:00/md.idx
+f seg_0/wrfrst_d02_2020-06-01_06:00:00/md.idx
+f seg_0/wrfrst_d03_2020-06-01_06:00:00/md.idx
+f seg_1/adios2.xml
+f seg_1/namelist.input
+f seg_1/segment.sbatch
+f seg_1/wrfrst_d01_2020-06-01_12:00:00/md.idx
+f seg_1/wrfrst_d02_2020-06-01_12:00:00/md.idx
+f seg_1/wrfrst_d03_2020-06-01_12:00:00/md.idx
+l seg_0/myiofields.txt -> <TMP>/case/myiofields.txt
+l seg_0/wrfbdy_d01 -> <TMP>/case/wrfbdy_d01
+l seg_0/wrfbdy_d01_2020-06-01_00:00:00.bp -> <TMP>/out/seg_0/_bp_inputs/wrfbdy_d01/wrfbdy_d01_2020-06-01_00:00:00.bp
+l seg_0/wrfbdy_d01_2020-06-01_06:00:00.bp -> <TMP>/out/seg_0/_bp_inputs/wrfbdy_d01/wrfbdy_d01_2020-06-01_06:00:00.bp
+l seg_0/wrfbdy_d01_2020-06-01_12:00:00.bp -> <TMP>/out/seg_0/_bp_inputs/wrfbdy_d01/wrfbdy_d01_2020-06-01_12:00:00.bp
+l seg_0/wrfinput_d01 -> <TMP>/case/wrfinput_d01
+l seg_0/wrfinput_d01.bp -> <TMP>/out/_bp_inputs/wrfinput_d01
+l seg_0/wrfinput_d02 -> <TMP>/case/wrfinput_d02
+l seg_0/wrfinput_d02.bp -> <TMP>/out/_bp_inputs/wrfinput_d02
+l seg_0/wrfinput_d03.bp -> <TMP>/case/wrfinput_d03.bp
+l seg_1/myiofields.txt -> <TMP>/case/myiofields.txt
+l seg_1/wrfbdy_d01 -> <TMP>/case/wrfbdy_d01
+l seg_1/wrfbdy_d01_2020-06-01_00:00:00.bp -> <TMP>/out/seg_1/_bp_inputs/wrfbdy_d01/wrfbdy_d01_2020-06-01_00:00:00.bp
+l seg_1/wrfbdy_d01_2020-06-01_06:00:00.bp -> <TMP>/out/seg_1/_bp_inputs/wrfbdy_d01/wrfbdy_d01_2020-06-01_06:00:00.bp
+l seg_1/wrfbdy_d01_2020-06-01_12:00:00.bp -> <TMP>/out/seg_1/_bp_inputs/wrfbdy_d01/wrfbdy_d01_2020-06-01_12:00:00.bp
+l seg_1/wrfinput_d01 -> <TMP>/case/wrfinput_d01
+l seg_1/wrfinput_d01.bp -> <TMP>/out/_bp_inputs/wrfinput_d01
+l seg_1/wrfinput_d02 -> <TMP>/case/wrfinput_d02
+l seg_1/wrfinput_d02.bp -> <TMP>/out/_bp_inputs/wrfinput_d02
+l seg_1/wrfinput_d03.bp -> <TMP>/case/wrfinput_d03.bp
+l seg_1/wrfrst_d01_2020-06-01_06:00:00 -> <TMP>/out/seg_0/wrfrst_d01_2020-06-01_06:00:00
+l seg_1/wrfrst_d02_2020-06-01_06:00:00 -> <TMP>/out/seg_0/wrfrst_d02_2020-06-01_06:00:00
+l seg_1/wrfrst_d03_2020-06-01_06:00:00 -> <TMP>/out/seg_0/wrfrst_d03_2020-06-01_06:00:00
+--- seg_0/namelist.input
+ &time_control
+ bdy_inname = "wrfbdy_d<domain>_<date>.bp",
+ input_inname = "wrfinput_d<domain>.bp",
+ end_second = 00, 00, 00,
+ end_minute = 00, 00, 00,
+ start_second = 00, 00, 00,
+ start_minute = 00, 00, 00,
+ run_days                            = 0,
+ run_hours                           = 0,
+ run_minutes                         = 0,
+ run_seconds                         = 21600,
+ start_year                          = 2020, 2020, 2020,
+ start_month                         = 06, 06, 06,
+ start_day                           = 01, 01, 01,
+ start_hour                          = 00, 00, 00,
+ end_year                            = 2020, 2020, 2020,
+ end_month                           = 06, 06, 06,
+ end_day                             = 01, 01, 01,
+ end_hour                            = 06, 06, 06,
+ interval_seconds                    = 21600
+ input_from_file                     = .true.,.true.,.true.,
+ history_interval                    = 60,  60,   60,
+ frames_per_outfile                  = 1, 1, 1,
+ restart                             = .false.,
+ restart_interval                    = 120,
+ io_form_history                     = 14
+ io_form_restart                     = 14
+ io_form_input                       = 14
+ io_form_boundary                    = 14
+ /
+
+ &domains
+ numtiles = 1,
+ nproc_y = 9,
+ nproc_x = 8,
+ time_step                           = 60,
+ max_dom                             = 3,
+ e_we                                = 100, 100, 91,
+ e_sn                                = 100, 91,  91,
+ e_vert                              = 45,  45,  45,
+ parent_id                           = 1,   1,   2,
+ parent_grid_ratio                   = 1,   3,   3,
+ parent_time_step_ratio              = 1,   3,   3,
+ /
+
+ &physics
+ radt                                = 30, 10, 10,
+ /
+&bdy_control
+ multi_bdy_files = .true.,
+/
+
+&namelist_adios2
+ adios2_numaggregators = 72,
+/
+
+--- seg_0/segment.sbatch
+#!/usr/bin/env bash
+#SBATCH --job-name=wtrun-case-s0
+#SBATCH -p compute -N 1 --exclusive --ntasks-per-node=72 --time=00:20:00 --exclude=head
+#SBATCH --signal=B:USR1@90
+#SBATCH --no-requeue
+#SBATCH --output=<TMP>/out/seg_0/segment-%j.out
+set -uo pipefail
+SEG=<TMP>/out/seg_0
+SITE=scc
+CAMPAIGN=${CAMPAIGN:-<REPO>/campaign}
+source "$CAMPAIGN/sites/$SITE.sh"   # site_hygiene / W
+source "$HOME/wtune-scc/env.sh"
+W=${WRF_TREE:-$W}
+ulimit -s unlimited
+ALLOC_NODES=${SLURM_JOB_NUM_NODES:-1}
+STATUS="$SEG/segment_status.txt"
+: > "$STATUS"
+
+run_hygiene() {
+  site_hygiene "$1"
+  timeout 90 "${SITE_HYGIENE_CMD[@]}" 2>&1 || true
+}
+
+WRF_PID=""
+CUR_WINDOW=""
+kill_and_reap() {
+  if [ -n "$WRF_PID" ] && kill -0 "$WRF_PID" 2>/dev/null; then
+    kill -TERM "$WRF_PID" 2>/dev/null || true; sleep 3
+    kill -0 "$WRF_PID" 2>/dev/null && kill -KILL "$WRF_PID" 2>/dev/null || true
+  fi
+  pkill -u "$USER" -x real.exe 2>/dev/null; pkill -u "$USER" -x wrf.exe 2>/dev/null
+  run_hygiene reap
+}
+
+SIGNAL_TRAP_DONE=0
+on_signal() {
+  local sig="$1"
+  [ "$SIGNAL_TRAP_DONE" = 1 ] && return 0
+  SIGNAL_TRAP_DONE=1
+  kill_and_reap
+  if [ -n "$CUR_WINDOW" ]; then
+    echo "SEGMENT $CUR_WINDOW rc=1 ok=0 INTERRUPTED sig=$sig" >> "$STATUS"
+  fi
+  exit 3
+}
+on_exit() {
+  [ "$SIGNAL_TRAP_DONE" = 1 ] && return 0
+  run_hygiene reap
+}
+trap 'on_signal USR1' USR1
+trap 'on_signal TERM' TERM
+trap 'on_signal INT' INT
+trap on_exit EXIT
+
+run_hygiene reap+census
+
+cd "$SEG"
+for f in "$W"/run/*; do
+  b=$(basename "$f")
+  case "$b" in namelist.input|namelist.output|wrfout*|wrfinput*|wrfbdy*|wrfrst*|rsl.*) ;;
+    *) [ -e "$b" ] || ln -sf "$f" "$b" ;; esac
+done
+export OMP_NUM_THREADS=1
+unset KMP_BLOCKTIME
+unset OMP_PLACES OMP_PROC_BIND
+CUR_WINDOW=0
+T0=$(date +%s)
+mpirun -np 72 --map-by ppr:72:node:PE=1 --bind-to core ./wrf.exe &
+WRF_PID=$!
+wait "$WRF_PID"; rc=$?
+WRF_PID=""; CUR_WINDOW=""
+wall=$(( $(date +%s) - T0 ))
+ok=$(grep -c 'SUCCESS COMPLETE WRF' rsl.error.0000 2>/dev/null); ok=${ok:-0}
+echo "SEGMENT rc=$rc wall=$wall ok=$ok" | tee -a "$STATUS"
+
+--- seg_0/adios2.xml
+<?xml version="1.0"?>
+<!-- wtune -->
+<adios-config>
+  <io name="wrfrst_d01_2020-06-01_02:00:00">
+    <engine type="BP4"/>
+  </io>
+  <io name="wrfrst_d02_2020-06-01_02:00:00">
+    <engine type="BP4"/>
+  </io>
+  <io name="wrfrst_d03_2020-06-01_02:00:00">
+    <engine type="BP4"/>
+  </io>
+  <io name="wrfrst_d01_2020-06-01_04:00:00">
+    <engine type="BP4"/>
+  </io>
+  <io name="wrfrst_d02_2020-06-01_04:00:00">
+    <engine type="BP4"/>
+  </io>
+  <io name="wrfrst_d03_2020-06-01_04:00:00">
+    <engine type="BP4"/>
+  </io>
+  <io name="wrfrst_d01_2020-06-01_06:00:00">
+    <engine type="BP4"/>
+  </io>
+  <io name="wrfrst_d02_2020-06-01_06:00:00">
+    <engine type="BP4"/>
+  </io>
+  <io name="wrfrst_d03_2020-06-01_06:00:00">
+    <engine type="BP4"/>
+  </io>
+</adios-config>
+
+--- seg_1/namelist.input
+ &time_control
+ bdy_inname = "wrfbdy_d<domain>_<date>.bp",
+ input_inname = "wrfinput_d<domain>.bp",
+ end_second = 00, 00, 00,
+ end_minute = 00, 00, 00,
+ start_second = 00, 00, 00,
+ start_minute = 00, 00, 00,
+ run_days                            = 0,
+ run_hours                           = 0,
+ run_minutes                         = 0,
+ run_seconds                         = 21600,
+ start_year                          = 2020, 2020, 2020,
+ start_month                         = 06, 06, 06,
+ start_day                           = 01, 01, 01,
+ start_hour                          = 06, 06, 06,
+ end_year                            = 2020, 2020, 2020,
+ end_month                           = 06, 06, 06,
+ end_day                             = 01, 01, 01,
+ end_hour                            = 12, 12, 12,
+ interval_seconds                    = 21600
+ input_from_file                     = .true.,.true.,.true.,
+ history_interval                    = 60,  60,   60,
+ frames_per_outfile                  = 1, 1, 1,
+ restart                             = .true.,
+ restart_interval                    = 120,
+ io_form_history                     = 14
+ io_form_restart                     = 14
+ io_form_input                       = 14
+ io_form_boundary                    = 14
+ /
+
+ &domains
+ numtiles = 1,
+ nproc_y = 9,
+ nproc_x = 8,
+ time_step                           = 60,
+ max_dom                             = 3,
+ e_we                                = 100, 100, 91,
+ e_sn                                = 100, 91,  91,
+ e_vert                              = 45,  45,  45,
+ parent_id                           = 1,   1,   2,
+ parent_grid_ratio                   = 1,   3,   3,
+ parent_time_step_ratio              = 1,   3,   3,
+ /
+
+ &physics
+ radt                                = 30, 10, 10,
+ /
+&bdy_control
+ multi_bdy_files = .true.,
+/
+
+&namelist_adios2
+ adios2_numaggregators = 72,
+/
+
+--- seg_1/segment.sbatch
+#!/usr/bin/env bash
+#SBATCH --job-name=wtrun-case-s1
+#SBATCH -p compute -N 1 --exclusive --ntasks-per-node=72 --time=00:30:00 --exclude=head
+#SBATCH --signal=B:USR1@90
+#SBATCH --no-requeue
+#SBATCH --output=<TMP>/out/seg_1/segment-%j.out
+set -uo pipefail
+SEG=<TMP>/out/seg_1
+SITE=scc
+CAMPAIGN=${CAMPAIGN:-<REPO>/campaign}
+source "$CAMPAIGN/sites/$SITE.sh"   # site_hygiene / W
+source "$HOME/wtune-scc/env.sh"
+W=${WRF_TREE:-$W}
+ulimit -s unlimited
+ALLOC_NODES=${SLURM_JOB_NUM_NODES:-1}
+STATUS="$SEG/segment_status.txt"
+: > "$STATUS"
+
+run_hygiene() {
+  site_hygiene "$1"
+  timeout 90 "${SITE_HYGIENE_CMD[@]}" 2>&1 || true
+}
+
+WRF_PID=""
+CUR_WINDOW=""
+kill_and_reap() {
+  if [ -n "$WRF_PID" ] && kill -0 "$WRF_PID" 2>/dev/null; then
+    kill -TERM "$WRF_PID" 2>/dev/null || true; sleep 3
+    kill -0 "$WRF_PID" 2>/dev/null && kill -KILL "$WRF_PID" 2>/dev/null || true
+  fi
+  pkill -u "$USER" -x real.exe 2>/dev/null; pkill -u "$USER" -x wrf.exe 2>/dev/null
+  run_hygiene reap
+}
+
+SIGNAL_TRAP_DONE=0
+on_signal() {
+  local sig="$1"
+  [ "$SIGNAL_TRAP_DONE" = 1 ] && return 0
+  SIGNAL_TRAP_DONE=1
+  kill_and_reap
+  if [ -n "$CUR_WINDOW" ]; then
+    echo "SEGMENT $CUR_WINDOW rc=1 ok=0 INTERRUPTED sig=$sig" >> "$STATUS"
+  fi
+  exit 3
+}
+on_exit() {
+  [ "$SIGNAL_TRAP_DONE" = 1 ] && return 0
+  run_hygiene reap
+}
+trap 'on_signal USR1' USR1
+trap 'on_signal TERM' TERM
+trap 'on_signal INT' INT
+trap on_exit EXIT
+
+run_hygiene reap+census
+
+cd "$SEG"
+for f in "$W"/run/*; do
+  b=$(basename "$f")
+  case "$b" in namelist.input|namelist.output|wrfout*|wrfinput*|wrfbdy*|wrfrst*|rsl.*) ;;
+    *) [ -e "$b" ] || ln -sf "$f" "$b" ;; esac
+done
+export OMP_NUM_THREADS=1
+unset KMP_BLOCKTIME
+unset OMP_PLACES OMP_PROC_BIND
+CUR_WINDOW=1
+T0=$(date +%s)
+mpirun -np 72 --map-by ppr:72:node:PE=1 --bind-to core ./wrf.exe &
+WRF_PID=$!
+wait "$WRF_PID"; rc=$?
+WRF_PID=""; CUR_WINDOW=""
+wall=$(( $(date +%s) - T0 ))
+ok=$(grep -c 'SUCCESS COMPLETE WRF' rsl.error.0000 2>/dev/null); ok=${ok:-0}
+echo "SEGMENT rc=$rc wall=$wall ok=$ok" | tee -a "$STATUS"
+
+--- seg_1/adios2.xml
+<?xml version="1.0"?>
+<!-- wtune -->
+<adios-config>
+  <io name="wrfrst_d01_2020-06-01_06:00:00">
+    <engine type="BP4"/>
+  </io>
+  <io name="wrfrst_d02_2020-06-01_06:00:00">
+    <engine type="BP4"/>
+  </io>
+  <io name="wrfrst_d03_2020-06-01_06:00:00">
+    <engine type="BP4"/>
+  </io>
+  <io name="wrfrst_d01_2020-06-01_08:00:00">
+    <engine type="BP4"/>
+  </io>
+  <io name="wrfrst_d02_2020-06-01_08:00:00">
+    <engine type="BP4"/>
+  </io>
+  <io name="wrfrst_d03_2020-06-01_08:00:00">
+    <engine type="BP4"/>
+  </io>
+  <io name="wrfrst_d01_2020-06-01_10:00:00">
+    <engine type="BP4"/>
+  </io>
+  <io name="wrfrst_d02_2020-06-01_10:00:00">
+    <engine type="BP4"/>
+  </io>
+  <io name="wrfrst_d03_2020-06-01_10:00:00">
+    <engine type="BP4"/>
+  </io>
+  <io name="wrfrst_d01_2020-06-01_12:00:00">
+    <engine type="BP4"/>
+  </io>
+  <io name="wrfrst_d02_2020-06-01_12:00:00">
+    <engine type="BP4"/>
+  </io>
+  <io name="wrfrst_d03_2020-06-01_12:00:00">
+    <engine type="BP4"/>
+  </io>
+</adios-config>
+
+--- run_report.json
+{
+ "case_dir": "<TMP>/case",
+ "out": "<TMP>/out",
+ "run_start": "2020-06-01_00:00:00",
+ "run_end": "2020-06-01_12:00:00",
+ "stop_at": null,
+ "dt": 60.0,
+ "restart_io_form": 14,
+ "io": {
+  "mode": "adios2",
+  "streams": [
+   "input",
+   "boundary"
+  ],
+  "bp_cache": "<TMP>/out/_bp_inputs",
+  "bp_inputs": {
+   "wrfinput_d03.bp": "<TMP>/case/wrfinput_d03.bp",
+   "wrfinput_d01.bp": "<TMP>/out/_bp_inputs/wrfinput_d01",
+   "wrfinput_d02.bp": "<TMP>/out/_bp_inputs/wrfinput_d02",
+   "wrfbdy_d01_2020-06-01_00:00:00.bp": "<TMP>/out/_bp_inputs/wrfbdy_d01/wrfbdy_d01_2020-06-01_00:00:00.bp",
+   "wrfbdy_d01_2020-06-01_06:00:00.bp": "<TMP>/out/_bp_inputs/wrfbdy_d01/wrfbdy_d01_2020-06-01_06:00:00.bp",
+   "wrfbdy_d01_2020-06-01_12:00:00.bp": "<TMP>/out/_bp_inputs/wrfbdy_d01/wrfbdy_d01_2020-06-01_12:00:00.bp"
+  },
+  "converted": [
+   "<TMP>/case/wrfinput_d01",
+   "<TMP>/case/wrfinput_d02",
+   "<TMP>/case/wrfbdy_d01"
+  ],
+  "per_record": [
+   "wrfbdy_d01"
+  ],
+  "segment_unit_s": 21600.0
+ },
+ "cfl_rescue": false,
+ "prediction": null,
+ "tune_report": null,
+ "overheads": {
+  "init_s": 120.0,
+  "restart_read_s": 0.03148815,
+  "restart_write_s": 0.014375025,
+  "history_frame_s": [
+   0.02138009049773756,
+   0.019455882352941177,
+   0.017704852941176474
+  ],
+  "source": "fallback (conus25/dorian2019 I/O anchors)"
+ },
+ "restart_quantum_steps": 360,
+ "restart_interval_min": 120.0,
+ "restart_interval_source": "case",
+ "restart_cadence_s": 7200.0,
+ "notes": [
+  "no prediction: 0.465 s/step fallback (cell-step model x 1.5); later segments' --time from each finished segment's observed rate"
+ ],
+ "physics_gray": false,
+ "resumes": 0,
+ "decisions": [
+  {
+   "segment": 0,
+   "decision": "next"
+  },
+  {
+   "segment": 0,
+   "decision": "observed_overhead",
+   "overhead_s": 300.0,
+   "observed_s_per_step": 0.8333333333333334,
+   "compute_replaced": true
+  },
+  {
+   "segment": 1,
+   "decision": "done"
+  }
+ ],
+ "status": "completed",
+ "started_utc": "<UTC>",
+ "segments": [
+  {
+   "index": 0,
+   "start_step": 0,
+   "end_step": 360,
+   "start": "2020-06-01_00:00:00",
+   "end": "2020-06-01_06:00:00",
+   "config": {
+    "id": "cli",
+    "nx": 8,
+    "ny": 9,
+    "ranks": 72,
+    "numtiles": 1,
+    "omp": 1,
+    "nodes": 1,
+    "dist": "block"
+   },
+   "writes_restart": true,
+   "predicted_compute_s": 167.47541947888195,
+   "predicted_wall_s": 287.92833033442486,
+   "time_limit": "00:20:00",
+   "attempts": [
+    {
+     "dir": "<TMP>/out/seg_0",
+     "job_id": "1001",
+     "time_step": null,
+     "submitted_utc": "<UTC>",
+     "state": "COMPLETED",
+     "elapsed_s": 600.0,
+     "watch_status": "done",
+     "warnings": [],
+     "sum_d01_elapsed_s": 300.0,
+     "n_d01_steps": 360,
+     "restart_ok": true,
+     "ok": true
+    }
+   ],
+   "observed_wall_s": 600.0,
+   "run_dir": "<TMP>/out/seg_0"
+  },
+  {
+   "index": 1,
+   "start_step": 360,
+   "end_step": 720,
+   "start": "2020-06-01_06:00:00",
+   "end": "2020-06-01_12:00:00",
+   "config": {
+    "id": "cli",
+    "nx": 8,
+    "ny": 9,
+    "ranks": 72,
+    "numtiles": 1,
+    "omp": 1,
+    "nodes": 1,
+    "dist": "block"
+   },
+   "writes_restart": true,
+   "predicted_compute_s": 300.0,
+   "predicted_wall_s": 600.03148815,
+   "time_limit": "00:30:00",
+   "wall_source": "observed overhead of segment 0",
+   "attempts": [
+    {
+     "dir": "<TMP>/out/seg_1",
+     "job_id": "1002",
+     "time_step": null,
+     "submitted_utc": "<UTC>",
+     "state": "COMPLETED",
+     "elapsed_s": 600.0,
+     "watch_status": "done",
+     "warnings": [],
+     "sum_d01_elapsed_s": 300.0,
+     "n_d01_steps": 360,
+     "restart_ok": true,
+     "ok": true
+    }
+   ],
+   "observed_wall_s": 600.0,
+   "run_dir": "<TMP>/out/seg_1"
+  }
+ ],
+ "finished_utc": "<UTC>"
+}

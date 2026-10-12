@@ -1,0 +1,128 @@
+rc=0
+usage: wtune tune [-h] [--config CONFIG] [--site SITE] [--minutes MINUTES] [--nodes NODES]
+                  [--node-objective {time,cost,knee}] [--deadline-minutes DEADLINE_MINUTES]
+                  [--min-efficiency MIN_EFFICIENCY] [--sweep-budget-frac SWEEP_BUDGET_FRAC]
+                  [--cores-per-node-options CORES_PER_NODE_OPTIONS] [--pipeline {full}]
+                  [--max-queue-hours MAX_QUEUE_HOURS] [--no-node-preflight] [-O0] [-O1] [-O2]
+                  [-O3] [--precision PRECISION] [--level {0,1,2,3}] [--stop-if-short]
+                  [--physics-advice] [--keep-frames]
+                  [--physics-max-candidates PHYSICS_MAX_CANDIDATES]
+                  [--node-finalists NODE_FINALISTS] [--nodes-policy {cap,knee,min}]
+                  [--max-nodes MAX_NODES] [--out OUT] [--project PROJECT] [--steps STEPS]
+                  [--confirm-reps CONFIRM_REPS] [--restart-io-form {14,2}]
+                  [--max-points MAX_POINTS] [--points-by {time,cost-indicators}] [--seed SEED]
+                  [--kappa KAPPA] [--cores-per-node CORES_PER_NODE] [--hardware-id HARDWARE_ID]
+                  [--env-source ENV_SOURCE] [--sbatch-script SBATCH_SCRIPT]
+                  [--ledger-dir LEDGER_DIR] [--sacct-cmd SACCT_CMD]
+                  [--poll-interval POLL_INTERVAL]
+                  [case]
+
+positional arguments:
+  case                  registered campaign/cases.json case id; required here or via --config's
+                        'case' key
+
+options:
+  -h, --help            show this help message and exit
+  --config CONFIG       wtune config YAML file: search-space restrictions +
+                        budget/probe/prediction defaults (wtune/config.py); CLI flags given
+                        explicitly still override it, which overrides this module's own built-in
+                        defaults
+  --site SITE
+  --minutes MINUTES     required here or via --config's budget.minutes
+  --nodes NODES         N = fixed node count; 'search' (DEFAULT) = measure the ANCHOR at each
+                        legal node count, choose N by --node-objective, then tune at the finalist
+                        N; 'auto' = uncalibrated efficiency proxy (--nodes-policy), no
+                        measurement. (a --config budget.nodes also overrides the default)
+  --node-objective {time,cost,knee}
+                        --nodes search: time = fastest (smallest N within noise), cost = fewest
+                        node-hours (within --deadline-minutes), knee = largest N with efficiency
+                        >= --min-efficiency (default: time)
+  --deadline-minutes DEADLINE_MINUTES
+                        --node-objective cost: whole-run wall-time limit (minutes)
+  --min-efficiency MIN_EFFICIENCY
+                        --node-objective knee: efficiency threshold (default 0.70)
+  --sweep-budget-frac SWEEP_BUDGET_FRAC
+                        --nodes search: share of --minutes the node sweep may use; once spent,
+                        larger N are skipped ('sweep budget cap') so the finalists keep budget
+                        (default 0.4, or --config's budget.sweep_budget_frac)
+  --cores-per-node-options CORES_PER_NODE_OPTIONS
+                        --nodes search: comma list of cores per node to measure at the finalist
+                        node counts (the rest of the node idles). Default derived from the
+                        hardware core count C: C, C-2, round(C*8/9), round(C*2/3), C/2 (72 ->
+                        72,70,64,48,36); layouts that are not legal are skipped. '--cores-per-
+                        node-options 72' disables the dimension
+  --pipeline {full}     full = -O3 (kept for compatibility): one pass -- layout search (node,
+                        cores/node, ranks, threads, decomposition, tiles), whole-run prediction
+                        from rebuilt points, physics advice (decision 0059)
+  --max-queue-hours MAX_QUEUE_HOURS
+                        --pipeline full: safety cap on the accumulated queue-only wait (hours,
+                        default 6); queue wait is not charged to --minutes, but past this the run
+                        stops and reports
+  --no-node-preflight   skip the node health pre-flight (sinfo states + one 1-minute srun probe
+                        per node checking $HOME, the case dir, wtune-src and wrf.exe); by default
+                        failing nodes are excluded from every sbatch and max_nodes is capped at
+                        the healthy node count
+  -O0                   effort level 0: no jobs: cold-start predict + proxy layout (layout search
+                        effort + physics advice; the prediction points come from the case type)
+  -O1                   effort level 1: one t0 wave over N in {1,2,4,8,max healthy} (layout search
+                        effort + physics advice; the prediction points come from the case type)
+  -O2                   effort level 2: O1 + refinement, cores/node, sampled round0 at the winner
+                        (layout search effort + physics advice; the prediction points come from
+                        the case type)
+  -O3                   effort level 3: DEFAULT, full layout search: every legal N (coarse-to-
+                        fine), cores/node, ranks x omp, nx x ny, numtiles at the finalists +
+                        confirm reps (layout search effort + physics advice; the prediction points
+                        come from the case type)
+  --precision PRECISION
+                        whole-run wall time needed to +-MIN minutes (default 15): the case type
+                        decides how many prediction points that takes
+                        (wtune.cost_drivers.plan_points_for_case)
+  --level {0,1,2,3}     same as -O<level>; selects the one-pass pipeline (default level when only
+                        --pipeline full is given: 3). The estimated tuning time of every level is
+                        printed before anything runs; --minutes is an optional hard cap
+  --stop-if-short       -O levels: when the whole run is shorter than the estimated tuning time,
+                        step down to the highest level whose estimate fits (never below O1). OFF
+                        by default: the layout search is not cut short; also active when --minutes
+                        is given
+  --physics-advice      -O3: also run phase 3, the physics advice (opt-in, not part of the default
+                        run)
+  --keep-frames         --pipeline full: keep the phase-2/3 window-frame .nc files after the
+                        fidelity gate (default: delete them, keeping the gate json/csv)
+  --physics-max-candidates PHYSICS_MAX_CANDIDATES
+                        --pipeline full: physics candidates tried in phase 3 (default 3)
+  --node-finalists NODE_FINALISTS
+                        --nodes search: how many node counts get the full round0/adaptive/confirm
+                        search (default 2)
+  --nodes-policy {cap,knee,min}
+                        how --nodes auto picks a node count from the (uncalibrated) profile:
+                        min=smallest legal, cap=largest legal within --max-nodes, knee=stop
+                        doubling once marginal speedup drops below 1.5x (default: 'knee', or
+                        --config's budget.nodes_policy)
+  --max-nodes MAX_NODES
+                        default: 13 (or --config's budget.max_nodes)
+  --out OUT
+  --project PROJECT     project dir (decision 0058): when given (or via $WTUNE_PROJECT / a
+                        project.yaml above cwd) and --out is not, defaults --out to
+                        <project>/tune/<id>/ instead of $HOME/wtune-runs/tune/<case>. Does not
+                        otherwise change this command's behaviour.
+  --steps STEPS         default: 20 (or --config's probe.steps)
+  --confirm-reps CONFIRM_REPS
+                        default: 2 (or --config's probe.confirm_reps)
+  --restart-io-form {14,2}
+                        io_form of the point jobs' shared restart (RANKING_RESTART_IO_FORM);
+                        default 14 (ADIOS2), or --config's probe.restart_io_form
+  --max-points MAX_POINTS
+                        probe.max_points override
+  --points-by {time,cost-indicators}
+                        probe.points_by override (decision 0060): place the prediction points by
+                        sun/time (default) or by a weather cost proxy (wtune.cost_drivers; sources
+                        from probe.indicator_sources)
+  --seed SEED
+  --kappa KAPPA
+  --cores-per-node CORES_PER_NODE
+  --hardware-id HARDWARE_ID
+  --env-source ENV_SOURCE
+  --sbatch-script SBATCH_SCRIPT
+  --ledger-dir LEDGER_DIR
+  --sacct-cmd SACCT_CMD
+  --poll-interval POLL_INTERVAL

@@ -1,0 +1,8 @@
+&physics
+ physics_suite = 'conus'
+ mp_physics = -1,
+ radt = 10,
+/
+&domains
+ time_step=15,
+/

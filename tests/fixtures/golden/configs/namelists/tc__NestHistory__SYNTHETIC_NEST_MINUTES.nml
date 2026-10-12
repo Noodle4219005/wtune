@@ -1,0 +1,9 @@
+&time_control
+ run_days = 0, run_hours = 1, run_minutes = 0,
+ history_interval = 999, 999,
+ io_form_history = 2,
+/
+&domains
+ max_dom = 2,
+ time_step=15, e_we=1000, 1001, e_sn=1000, 1001,
+/

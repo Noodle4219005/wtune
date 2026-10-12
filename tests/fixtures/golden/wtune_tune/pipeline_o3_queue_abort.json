@@ -1,0 +1,227 @@
+{
+  "budget_minutes": 30.0,
+  "cancelled_job_ids": [
+    "7001",
+    "7002",
+    "7003"
+  ],
+  "case": "matthew",
+  "elapsed_minutes": 0.0,
+  "job_ids": [
+    "9000",
+    "9001",
+    "9002",
+    "7001",
+    "7002",
+    "7003"
+  ],
+  "node_health": {
+    "checks": [
+      {
+        "exclusions": [
+          "head"
+        ],
+        "failed": [],
+        "healthy": null,
+        "max_nodes_effective": 13,
+        "max_nodes_requested": 13,
+        "probe_s": "<PROBE_S>",
+        "skipped": "sinfo unavailable (OSError: sinfo rc=1: sinfo: not here)",
+        "user_exclude": [],
+        "when": "start"
+      }
+    ],
+    "exclusions": [
+      "head"
+    ],
+    "failed": [],
+    "healthy": null,
+    "max_nodes_effective": 13,
+    "max_nodes_requested": 13,
+    "nodes": {},
+    "probe_s": "<PROBE_S>",
+    "skipped": "sinfo unavailable (OSError: sinfo rc=1: sinfo: not here)",
+    "user_exclude": [],
+    "when": "start"
+  },
+  "nodes": null,
+  "pipeline": {
+    "B_s": 1800.0,
+    "T_cold_compute_s": 10000000.0,
+    "T_cold_s": 10000120.0,
+    "T_updated_s": null,
+    "budget_source": "--minutes hard cap (job running time; queue wait and controller work excluded)",
+    "extension": false,
+    "frames_deleted": 0,
+    "frames_kept": false,
+    "hard_deadline_s": 1800.0,
+    "level": {
+      "T_cold_s": 10000120.0,
+      "actual_running_s": 0.0,
+      "effective": 3,
+      "estimate_info": {
+        "nodes": 13,
+        "points_source": "wtune.cost_drivers",
+        "precision_min": 15.0,
+        "prediction_points": 3,
+        "s_per_step_n": 10.0,
+        "source": "ledger estimate (fallback_10s)",
+        "startup_s": 120.0
+      },
+      "estimate_s": {
+        "O0": 0.0,
+        "O1": 5042.5,
+        "O2": 7302.5,
+        "O3": 8997.5
+      },
+      "requested": 3,
+      "stepped_down": []
+    },
+    "max_queue_s": 3600.0,
+    "n_full_est": 8,
+    "n_points_est": 3,
+    "over_deadline_s": 0.0,
+    "phases": [
+      {
+        "controller_s": 0.0,
+        "end_s": 0.0,
+        "job_run_s_max": null,
+        "job_run_s_sum": null,
+        "jobs": [
+          "9000",
+          "9001",
+          "9002"
+        ],
+        "limit_s": 90.0,
+        "name": "plan",
+        "notes": [],
+        "points": [
+          "2026-01-01T01:00:00",
+          "2026-01-01T03:00:00",
+          "2026-01-01T05:00:00"
+        ],
+        "points_source": "wtune.cost_drivers",
+        "prediction_points": 3,
+        "queue_s_max": null,
+        "queue_s_sum": null,
+        "queue_wait_s": 0.0,
+        "rebuild_jobs": [
+          "9000",
+          "9001",
+          "9002"
+        ],
+        "running_s": 0.0,
+        "spinup_min": 20,
+        "start_s": 0.0,
+        "status": "ok",
+        "wall_s": 0.0
+      },
+      {
+        "controller_s": 0.0,
+        "end_s": 0.0,
+        "job_run_s_max": null,
+        "job_run_s_sum": null,
+        "jobs": [
+          "7001",
+          "7002",
+          "7003"
+        ],
+        "limit_s": 990.0000000000001,
+        "name": "layout",
+        "queue_s_max": null,
+        "queue_s_sum": null,
+        "queue_wait_s": 3600.0,
+        "running_s": 0.0,
+        "start_s": 0.0,
+        "status": "stopped: queue-only wait 1:00:00 reached --max-queue-hours (1:00:00); in-flight job(s) 7001,7002,7003 cancelled",
+        "wall_s": 3600.0
+      },
+      {
+        "controller_s": 0.0,
+        "end_s": 0.0,
+        "job_run_s_max": null,
+        "job_run_s_sum": null,
+        "jobs": [],
+        "limit_s": 1440.0,
+        "name": "predict",
+        "queue_s_max": null,
+        "queue_s_sum": null,
+        "queue_wait_s": 0.0,
+        "running_s": 0.0,
+        "start_s": 0.0,
+        "status": "not run (max queue wait exceeded)",
+        "wall_s": 0.0
+      },
+      {
+        "controller_s": 0.0,
+        "end_s": 0.0,
+        "job_run_s_max": null,
+        "job_run_s_sum": null,
+        "jobs": [],
+        "limit_s": 1800.0,
+        "name": "physics",
+        "queue_s_max": null,
+        "queue_s_sum": null,
+        "queue_wait_s": 0.0,
+        "running_s": 0.0,
+        "start_s": 0.0,
+        "status": "not run (max queue wait exceeded)",
+        "wall_s": 0.0
+      }
+    ],
+    "physics_advice": null,
+    "predicted_real_s": null,
+    "predicted_real_source": "phase-1 anchor s/step x steps",
+    "prediction": null,
+    "prediction_band": {
+      "band": 0.07,
+      "error_min": null,
+      "method": "common: fake case-type plan"
+    },
+    "prediction_plan": {
+      "T_est_s": 10000120.0,
+      "band": 0.07,
+      "measured": false,
+      "method": "common: fake case-type plan",
+      "points": [
+        0,
+        1,
+        2
+      ],
+      "precision_min": 15.0,
+      "source": "wtune.cost_drivers"
+    },
+    "queue_cap_hit": true,
+    "rebuild": {
+      "notes": [],
+      "points": [
+        "2026-01-01T01:00:00",
+        "2026-01-01T03:00:00",
+        "2026-01-01T05:00:00"
+      ],
+      "points_source": "wtune.cost_drivers",
+      "prediction_points": 3,
+      "rebuild_jobs": [
+        "9000",
+        "9001",
+        "9002"
+      ],
+      "spinup_min": 20,
+      "status": "ok"
+    },
+    "shares": {
+      "layout": 0.5,
+      "physics": 0.2,
+      "plan": 0.05,
+      "predict": 0.25
+    },
+    "time_suggestion": null,
+    "total_controller_s": 0.0,
+    "total_queue_wait_s": 3600.0,
+    "total_running_s": 0.0,
+    "total_steps": 1000000,
+    "total_wall_s": 3600.0
+  },
+  "pipeline_aborted": true,
+  "winner": null
+}

@@ -1,0 +1,96 @@
+case=matthew nodes=search (node search (measured)) budget=none max_nodes=13 out=<TMP>/out
+pipeline O3: hard cap none of RUNNING time (queue wait not charged; queue cap 6:00:00)
+pipeline: 模擬本身只要約 5 分鐘（冷啟動估計），比 O3 的調校時間短；自動降為 O1（--stop-if-short / --minutes 啟用）
+pipeline: 預估調校時間 O1 ≈ 19 min <-  O2 ≈ 35 min  O3 ≈ 48 min  (running time; queue wait extra); whole run ~5:00 (cold start); prediction points for this case at ±15 min: 3 (wtune.cost_drivers)
+node sweep: nodes-n1 submitted job 7001 (ANCHOR ranks=72 omp=1 8x9, REPS=2, ~5:40)
+node sweep: nodes-n2 submitted job 7002 (ANCHOR ranks=144 omp=1 12x12, REPS=2, ~5:40)
+node sweep: nodes-n4 submitted job 7003 (ANCHOR ranks=288 omp=1 16x18, REPS=2, ~5:40)
+[node-sweep] [------------------------]   0%  elapsed=0:00 / budget=none  (running budget; wall 0:00, queue-only 0:00)
+node sweep: nodes-n8 submitted job 7004 (ANCHOR ranks=576 omp=1 24x24, REPS=2, ~4:03)
+[node-sweep] [------------------------]   0%  elapsed=0:00 / budget=none  (running budget; wall 0:00, queue-only 0:00)
+node sweep: early stop: N=8 (0.3200 s/step) did not beat N=4 (0.3000 s/step) by >3%; larger N not submitted
+pipeline: best measured 0.3000 s/step -> whole run ~7:00
+node sweep: chose N=4 -- objective=time: N=4 median=0.3000 s/step; min is 0.3000, smallest N within 3% noise of it; finalists [4, 8]
+node sweep: N=1  median=1.0000 s/step n=2 spread=0.0% speedup=1.00 eff=1.00
+node sweep: N=2  median=0.5200 s/step n=2 spread=0.0% speedup=1.92 eff=0.96
+node sweep: N=4  median=0.3000 s/step n=2 spread=0.0% speedup=3.33 eff=0.83
+node sweep: N=8  median=0.3200 s/step n=2 spread=0.0% speedup=3.12 eff=0.39
+pipeline: run-length I/O model unavailable (FileNotFoundError: [Errno 2] No such file or directory: '<TMP>/namelist.input') -- whole-run prediction is compute + init only
+
+=== wtune tune: matthew ===
+nodes=4 (objective=time: N=4 median=0.3000 s/step; min is 0.3000, smallest N within 3% noise of it; level O1: t0 sweep only -- ANCHOR config)
+budget=no cap  elapsed=0.0 min  jobs=9000,9001,9002,7001,7002,7003,7004,8007,8008
+
+id           pred_total  ranks  omp    nx    ny tiles    dist   median_s        range_s speedup pred_spd    n pred_source confirmed
+ANCHOR           FAILED    288    1    16    18     1   block     0.3000  0.3000-0.3000  1.000x        -    2 -           False
+
+PREDICTION FAILED for ANCHOR: FileNotFoundError: [Errno 2] No such file or directory: '<TMP>/namelist.input' -- ranked by median s/step instead
+
+BEST: ANCHOR
+  namelist: nproc_x=16, nproc_y=18, numtiles=1,
+  launch:   mpirun -np 288 --map-by ppr:72:node:PE=1 --bind-to core ./wrf.exe
+  env:      OMP_NUM_THREADS=1 OMP_STACKSIZE=1G  ulimit -s unlimited
+  NOTE:     KMP_BLOCKTIME: n/a on scc (nvhpc OpenMP runtime has no KMP_BLOCKTIME concept)
+
+=== full-run prediction (rank_by=predicted, ANCHOR, 1 rebuilt point(s)) ===
+compute_total: 17:10   init: 10.0s   TOTAL: 17:20 (range 17:10 - 17:10, +-1.0% drift)
+r_rad: night=1.000 day=3.900 source=fake
+whole run: compute 1020s + init 10s = 1030s (run-length I/O NOT included)  [init: wtune.predict.predict_init]
+
+--- node selection (measured, ANCHOR config per node count) ---
+nodes     median_s  reps   spread  speedup    eff     wall_s node_hours maxrss_MB
+    1       1.0000     2     0.0%    1.00x   1.00       1120       0.31         -
+    2       0.5200     2     0.0%    1.92x   0.96        640       0.36         -
+    4       0.3000     2     0.0%    3.33x   0.83        420       0.47         -
+    8       0.3200     2     0.0%    3.12x   0.39        440       0.98         -
+choice time * N=4  objective=time: N=4 median=0.3000 s/step; min is 0.3000, smallest N within 3% noise of it
+choice cost   N=1  objective=cost: N=1 wall=1120s node_hours=0.31 (min among 4 feasible, no deadline)
+choice knee   N=4  objective=knee: N=4 efficiency=0.83 >= 0.70 (largest such N)
+(* = objective used; finalists searched: []; final N=4 cores/node=72)
+
+--- measured layouts (4; best first; the full table is in tune_report.json node_selection.layouts) ---
+   N   c/n  ranks  omp   nx x ny tiles    median_s  spread  reps  source
+   4    72    288    1     16x18     1      0.3000    0.0%     2  t0 sweep ANCHOR
+   8    72    576    1     24x24     1      0.3200    0.0%     2  t0 sweep ANCHOR
+   2    72    144    1     12x12     1      0.5200    0.0%     2  t0 sweep ANCHOR
+   1    72     72    1       8x9     1      1.0000    0.0%     2  t0 sweep ANCHOR
+WINNER:    N=4 c/n=72 ranks=288 omp=1 16x18 tiles=1 0.3000 s/step
+NOT TRIED: 9 (reasons below; full list in node_selection.untried)
+     8 x not measured: refinement is off at this level (O1 measures only {1,2,4,8,max})
+     1 x early stop: N=8 (0.3200 s/step) did not beat N=4 (0.3000 s/step) by >3%
+not run N=3: not measured: refinement is off at this level (O1 measures only {1,2,4,8,max})
+not run N=5: not measured: refinement is off at this level (O1 measures only {1,2,4,8,max})
+not run N=6: not measured: refinement is off at this level (O1 measures only {1,2,4,8,max})
+not run N=7: not measured: refinement is off at this level (O1 measures only {1,2,4,8,max})
+not run N=9: not measured: refinement is off at this level (O1 measures only {1,2,4,8,max})
+not run N=10: not measured: refinement is off at this level (O1 measures only {1,2,4,8,max})
+not run N=11: not measured: refinement is off at this level (O1 measures only {1,2,4,8,max})
+not run N=12: not measured: refinement is off at this level (O1 measures only {1,2,4,8,max})
+not run N=13: early stop: N=8 (0.3200 s/step) did not beat N=4 (0.3000 s/step) by >3%
+
+--- node health pre-flight (latest check: before phase 2) ---
+skipped: sinfo unavailable (OSError: sinfo rc=1: sinfo: not here)
+
+=== wtune tune -O1 (decision 0059) ===
+level O1 (requested O3); time cap: none (no time cap)  whole run implied by the t0 anchor (info): 7:00
+tuning time, estimated at start: O1 ≈ 19 min <-  O2 ≈ 35 min  O3 ≈ 48 min  (running time; queue wait extra); ACTUAL running time 0.0 min vs estimated O1 ≈ 19.3 min
+STEPPED DOWN (pre-run) -> O1
+phase plan     running 0:00     (limit none    ) wall 0:00     queue wait 0:00     controller 0:00      ok
+phase layout   running 0:00     (limit none    ) wall 0:00     queue wait 0:00     controller 0:00      ok
+phase predict  running 0:00     (limit none    ) wall 0:00     queue wait 0:00     controller 0:00      ok
+phase physics  running 0:00     (limit none    ) wall 0:00     queue wait 0:00     controller 0:00      ok
+whole-run time ±7% = ±1.2 min (common: fake case-type plan)
+suggested --time=00:32:00 (T rounded up to 15 min plus one band, >= 1.2x T)
+phase 2 plan: winner only x all 3 points (none left; startup 120s/run); tried: winner only x all 3 points ~4:50
+physics fidelity gate: config-gate, PROVISIONAL (no phase-2 twin: uncalibrated tolerance); baseline: phase-2 winner
+predicted whole run: 17:10 (range 16:18 - 18:01) at N=4 cores/node=72 {'ranks': 288, 'omp': 1, 'nx': 16, 'ny': 18, 'numtiles': 1, 'dist': 'block'}; suggested --time=00:32:00
+  compute 1020s + init 10s = 1030s (run-length I/O NOT included)  [init: wtune.predict.predict_init]
+physics advice (ADVISORY ONLY, not applied; points 2026-01-01T01:00:00, 2026-01-01T03:00:00):
+  PH1        saving 10.0%   fidelity pass     -> consider  (PH1)
+  PH2        saving 10.0%   fidelity pass     -> consider  (PH2)
+  PH3        saving 10.0%   fidelity pass     -> consider  (PH3)
+  EO1        saving -       fidelity not run  -> estimate only — needs a cold start to measure  (EO1)
+  EO2        saving -       fidelity not run  -> estimate only — needs a cold start to measure  (EO2)
+tune running time 0:00 (wall 0:00 = running + queue wait 0:00 + controller 0:00); predicted real run 17:10 (phase 2 combine())
+
+advice: 1 stub item(s)

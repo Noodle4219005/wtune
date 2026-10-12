@@ -1,0 +1,887 @@
+[
+ {
+  "anchor_id": "ANCHOR",
+  "best": {
+   "dist": "cyclic",
+   "id": "D0001",
+   "nproc_x": 144,
+   "nproc_y": 2,
+   "numtiles": 12,
+   "omp": 1,
+   "points": [
+    {
+     "at": "2021-07-19T18:20:00",
+     "n_rad": 2,
+     "r": 3.5,
+     "s_normal": 1.0530000000000002
+    },
+    {
+     "at": "2021-07-20T00:20:00",
+     "n_rad": 2,
+     "r": 3.5,
+     "s_normal": 1.0530000000000002
+    },
+    {
+     "at": "2021-07-20T06:20:00",
+     "n_rad": 2,
+     "r": 3.5,
+     "s_normal": 1.0530000000000002
+    }
+   ],
+   "predicted_range_s": [
+    5802.293249999694,
+    7091.691749999626
+   ],
+   "predicted_total_hms": "1:47:26",
+   "predicted_total_s": 6446.99249999966,
+   "ranks": 288,
+   "speedup_vs_anchor_predicted": 1.8518518518520417,
+   "stage1_median_s_per_step": 1.0530000000000002,
+   "stage1_norm_key": 0.81
+  },
+  "budget_minutes": 90.0,
+  "budget_semantics": "--minutes = stage-1 search only; stage 2 separate",
+  "cancelled_job_ids": [],
+  "case": "matthew",
+  "cores_per_node": 72,
+  "elapsed_minutes": 90.0,
+  "full_run_prediction": "=== full-run prediction (rank_by=predicted, D0001, 3 rebuilt point(s)) ===\ncompute_total: 1:47:26   init: 0.0s   TOTAL: 1:47:26 (range 1:36:42 - 1:58:11, +-10.0% drift)\nr_rad: night=2.439 day=4.561 source=ratio_from_day",
+  "gates": [
+   {
+    "anchor_drift": 0.0,
+    "exclude_reason": null,
+    "excluded": false,
+    "failures": [],
+    "job_id": "3001",
+    "label": "round0",
+    "ok": true,
+    "s_anchor": 1.9500000000000002,
+    "s_anchor_end": 1.9500000000000002,
+    "s_anchor_job": 1.9500000000000002,
+    "stage": "stage1"
+   },
+   {
+    "anchor_drift": 0.0,
+    "exclude_reason": null,
+    "excluded": false,
+    "failures": [],
+    "job_id": "3002",
+    "label": "round0",
+    "ok": true,
+    "s_anchor": 1.3,
+    "s_anchor_end": 1.3,
+    "s_anchor_job": 1.3,
+    "stage": "stage1"
+   },
+   {
+    "anchor_drift": 0.0,
+    "exclude_reason": null,
+    "excluded": false,
+    "failures": [],
+    "job_id": "3003",
+    "label": "round0",
+    "ok": true,
+    "s_anchor": 1.9500000000000002,
+    "s_anchor_end": 1.9500000000000002,
+    "s_anchor_job": 1.9500000000000002,
+    "stage": "stage1"
+   },
+   {
+    "anchor_drift": 0.0,
+    "exclude_reason": null,
+    "excluded": false,
+    "failures": [],
+    "job_id": "3004",
+    "label": "round1",
+    "ok": true,
+    "s_anchor": 1.3,
+    "s_anchor_end": 1.3,
+    "s_anchor_job": 1.3,
+    "stage": "stage1"
+   },
+   {
+    "anchor_drift": 0.0,
+    "exclude_reason": null,
+    "excluded": false,
+    "failures": [],
+    "job_id": "3005",
+    "label": "round2",
+    "ok": true,
+    "s_anchor": 1.9500000000000002,
+    "s_anchor_end": 1.9500000000000002,
+    "s_anchor_job": 1.9500000000000002,
+    "stage": "stage1"
+   }
+  ],
+  "job_ids": [
+   "p1",
+   "p2",
+   "p3",
+   "3001",
+   "3002",
+   "3003",
+   "3004",
+   "3005"
+  ],
+  "job_timing": {
+   "3001": {
+    "queue_s": null,
+    "run_s": null
+   },
+   "3002": {
+    "queue_s": null,
+    "run_s": null
+   },
+   "3003": {
+    "queue_s": null,
+    "run_s": null
+   },
+   "3004": {
+    "queue_s": null,
+    "run_s": null
+   },
+   "3005": {
+    "queue_s": null,
+    "run_s": null
+   },
+   "p1": {
+    "queue_s": null,
+    "run_s": null
+   },
+   "p2": {
+    "queue_s": null,
+    "run_s": null
+   },
+   "p3": {
+    "queue_s": null,
+    "run_s": null
+   }
+  },
+  "max_wall_minutes": 505.76295000000005,
+  "nodes": 4,
+  "nodes_note": "user",
+  "not_measured": [],
+  "param_table": {
+   "dist": "cyclic",
+   "env": {
+    "OMP_NUM_THREADS": "1",
+    "OMP_STACKSIZE": "1G"
+   },
+   "launch_line": "mpirun -np 288 --map-by ppr:72:node:PE=1 --bind-to core --rank-by node ./wrf.exe",
+   "namelist_lines": [
+    "nproc_x=144,",
+    "nproc_y=2,",
+    "numtiles=12,"
+   ],
+   "nodes": 4,
+   "note": "KMP_BLOCKTIME: n/a on scc (nvhpc OpenMP runtime has no KMP_BLOCKTIME concept)",
+   "nproc_x": 144,
+   "nproc_y": 2,
+   "numtiles": 12,
+   "omp": 1,
+   "ranks": 288,
+   "ranks_per_node": 72,
+   "ulimit": "ulimit -s unlimited"
+  },
+  "plan_notes": [],
+  "points": [
+   {
+    "at": "2021-07-19T18:20:00",
+    "case_id": "matthewp0",
+    "index": 0,
+    "primary": true,
+    "reason": "auto",
+    "rebuild_job": "p1",
+    "start": "2021-07-19T18:00:00"
+   },
+   {
+    "at": "2021-07-20T00:20:00",
+    "case_id": "matthewp1",
+    "index": 1,
+    "primary": false,
+    "reason": "auto",
+    "rebuild_job": "p2",
+    "start": "2021-07-20T00:00:00"
+   },
+   {
+    "at": "2021-07-20T06:20:00",
+    "case_id": "matthewp2",
+    "index": 2,
+    "primary": false,
+    "reason": "auto",
+    "rebuild_job": "p3",
+    "start": "2021-07-20T06:00:00"
+   }
+  ],
+  "prep_submit_min": 0.0,
+  "queue_only_minutes": 2.0,
+  "rank_by": "predicted",
+  "ranking": [
+   {
+    "dist": "cyclic",
+    "id": "D0001",
+    "nproc_x": 144,
+    "nproc_y": 2,
+    "numtiles": 12,
+    "omp": 1,
+    "points": [
+     {
+      "at": "2021-07-19T18:20:00",
+      "n_rad": 2,
+      "r": 3.5,
+      "s_normal": 1.0530000000000002
+     },
+     {
+      "at": "2021-07-20T00:20:00",
+      "n_rad": 2,
+      "r": 3.5,
+      "s_normal": 1.0530000000000002
+     },
+     {
+      "at": "2021-07-20T06:20:00",
+      "n_rad": 2,
+      "r": 3.5,
+      "s_normal": 1.0530000000000002
+     }
+    ],
+    "predicted_range_s": [
+     5802.293249999694,
+     7091.691749999626
+    ],
+    "predicted_total_hms": "1:47:26",
+    "predicted_total_s": 6446.99249999966,
+    "ranks": 288,
+    "speedup_vs_anchor_predicted": 1.8518518518520417,
+    "stage1_median_s_per_step": 1.0530000000000002,
+    "stage1_norm_key": 0.81
+   },
+   {
+    "dist": "block",
+    "id": "D0002",
+    "nproc_x": 1,
+    "nproc_y": 24,
+    "numtiles": 24,
+    "omp": 12,
+    "points": [
+     {
+      "at": "2021-07-19T18:20:00",
+      "n_rad": 2,
+      "r": 3.5,
+      "s_normal": 1.066
+     },
+     {
+      "at": "2021-07-20T00:20:00",
+      "n_rad": 2,
+      "r": 3.5,
+      "s_normal": 1.066
+     },
+     {
+      "at": "2021-07-20T06:20:00",
+      "n_rad": 2,
+      "r": 3.5,
+      "s_normal": 1.066
+     }
+    ],
+    "predicted_range_s": [
+     5873.9264999993575,
+     7179.243499999215
+    ],
+    "predicted_total_hms": "1:48:46",
+    "predicted_total_s": 6526.584999999286,
+    "ranks": 24,
+    "speedup_vs_anchor_predicted": 1.829268292683218,
+    "stage1_median_s_per_step": 1.066,
+    "stage1_norm_key": 0.8200000000000001
+   },
+   {
+    "dist": "block",
+    "id": "G0001",
+    "nproc_x": 6,
+    "nproc_y": 48,
+    "numtiles": 1,
+    "omp": 1,
+    "points": [
+     {
+      "at": "2021-07-19T18:20:00",
+      "n_rad": 2,
+      "r": 3.5,
+      "s_normal": 1.5795000000000003
+     },
+     {
+      "at": "2021-07-20T00:20:00",
+      "n_rad": 2,
+      "r": 3.5,
+      "s_normal": 1.5795000000000003
+     },
+     {
+      "at": "2021-07-20T06:20:00",
+      "n_rad": 2,
+      "r": 3.5,
+      "s_normal": 1.5795000000000003
+     }
+    ],
+    "predicted_range_s": [
+     8703.439874999343,
+     10637.537624999199
+    ],
+    "predicted_total_hms": "2:41:10",
+    "predicted_total_s": 9670.488749999271,
+    "ranks": 288,
+    "speedup_vs_anchor_predicted": 1.2345679012347224,
+    "stage1_median_s_per_step": 1.5795000000000003,
+    "stage1_norm_key": 0.81
+   },
+   {
+    "dist": "block",
+    "id": "ANCHOR",
+    "nproc_x": 18,
+    "nproc_y": 16,
+    "numtiles": 1,
+    "omp": 1,
+    "points": [
+     {
+      "at": "2021-07-19T18:20:00",
+      "n_rad": 2,
+      "r": 3.5,
+      "s_normal": 1.9500000000000002
+     },
+     {
+      "at": "2021-07-20T00:20:00",
+      "n_rad": 2,
+      "r": 3.5,
+      "s_normal": 1.9500000000000002
+     },
+     {
+      "at": "2021-07-20T06:20:00",
+      "n_rad": 2,
+      "r": 3.5,
+      "s_normal": 1.9500000000000002
+     }
+    ],
+    "predicted_range_s": [
+     10744.987500000536,
+     13132.762500000654
+    ],
+    "predicted_total_hms": "3:18:58",
+    "predicted_total_s": 11938.875000000595,
+    "ranks": 288,
+    "speedup_vs_anchor_predicted": 1.0,
+    "stage1_median_s_per_step": 1.9500000000000002,
+    "stage1_norm_key": null
+   }
+  ],
+  "ranking_start_note": null,
+  "running_elapsed_minutes": 90.0,
+  "spinup_min": 20,
+  "stage1_excluded": [],
+  "stage1_max_running": 3,
+  "stage1_mode": "t0",
+  "stage1_ranking": [
+   {
+    "id": "D0001",
+    "jobs": [
+     "3004"
+    ],
+    "median_s_per_step": 1.0530000000000002,
+    "norm_key": 0.81,
+    "stage2": true
+   },
+   {
+    "id": "G0001",
+    "jobs": [
+     "3001"
+    ],
+    "median_s_per_step": 1.5795000000000003,
+    "norm_key": 0.81,
+    "stage2": true
+   },
+   {
+    "id": "D0002",
+    "jobs": [
+     "3004"
+    ],
+    "median_s_per_step": 1.066,
+    "norm_key": 0.8200000000000001,
+    "stage2": true
+   },
+   {
+    "id": "G0002",
+    "jobs": [
+     "3002"
+    ],
+    "median_s_per_step": 1.066,
+    "norm_key": 0.8200000000000001,
+    "stage2": false
+   },
+   {
+    "id": "D0003",
+    "jobs": [
+     "3004"
+    ],
+    "median_s_per_step": 1.0790000000000002,
+    "norm_key": 0.8300000000000001,
+    "stage2": false
+   },
+   {
+    "id": "G0003",
+    "jobs": [
+     "3003"
+    ],
+    "median_s_per_step": 1.6185000000000003,
+    "norm_key": 0.8300000000000001,
+    "stage2": false
+   },
+   {
+    "id": "G0004",
+    "jobs": [
+     "3001"
+    ],
+    "median_s_per_step": 1.6380000000000001,
+    "norm_key": 0.84,
+    "stage2": false
+   },
+   {
+    "id": "D0004",
+    "jobs": [
+     "3004"
+    ],
+    "median_s_per_step": 1.092,
+    "norm_key": 0.8400000000000001,
+    "stage2": false
+   },
+   {
+    "id": "D0005",
+    "jobs": [
+     "3004"
+    ],
+    "median_s_per_step": 1.1050000000000002,
+    "norm_key": 0.8500000000000001,
+    "stage2": false
+   },
+   {
+    "id": "G0005",
+    "jobs": [
+     "3002"
+    ],
+    "median_s_per_step": 1.1050000000000002,
+    "norm_key": 0.8500000000000001,
+    "stage2": false
+   },
+   {
+    "id": "G0006",
+    "jobs": [
+     "3003"
+    ],
+    "median_s_per_step": 1.677,
+    "norm_key": 0.86,
+    "stage2": false
+   },
+   {
+    "id": "D0006",
+    "jobs": [
+     "3004"
+    ],
+    "median_s_per_step": 1.118,
+    "norm_key": 0.8600000000000001,
+    "stage2": false
+   },
+   {
+    "id": "D0007",
+    "jobs": [
+     "3004"
+    ],
+    "median_s_per_step": 1.1310000000000002,
+    "norm_key": 0.8700000000000001,
+    "stage2": false
+   },
+   {
+    "id": "G0007",
+    "jobs": [
+     "3001"
+    ],
+    "median_s_per_step": 1.6965000000000003,
+    "norm_key": 0.8700000000000001,
+    "stage2": false
+   },
+   {
+    "id": "D0008",
+    "jobs": [
+     "3004"
+    ],
+    "median_s_per_step": 1.1440000000000001,
+    "norm_key": 0.8800000000000001,
+    "stage2": false
+   },
+   {
+    "id": "G0008",
+    "jobs": [
+     "3002"
+    ],
+    "median_s_per_step": 1.1440000000000001,
+    "norm_key": 0.8800000000000001,
+    "stage2": false
+   },
+   {
+    "id": "G0009",
+    "jobs": [
+     "3003"
+    ],
+    "median_s_per_step": 1.7355,
+    "norm_key": 0.8899999999999999,
+    "stage2": false
+   },
+   {
+    "id": "D0009",
+    "jobs": [
+     "3004"
+    ],
+    "median_s_per_step": 1.157,
+    "norm_key": 0.89,
+    "stage2": false
+   },
+   {
+    "id": "D0010",
+    "jobs": [
+     "3004"
+    ],
+    "median_s_per_step": 1.1700000000000002,
+    "norm_key": 0.9000000000000001,
+    "stage2": false
+   },
+   {
+    "id": "G0010",
+    "jobs": [
+     "3001"
+    ],
+    "median_s_per_step": 1.7550000000000003,
+    "norm_key": 0.9000000000000001,
+    "stage2": false
+   },
+   {
+    "id": "D0011",
+    "jobs": [
+     "3004"
+    ],
+    "median_s_per_step": 1.183,
+    "norm_key": 0.91,
+    "stage2": false
+   },
+   {
+    "id": "G0011",
+    "jobs": [
+     "3002"
+    ],
+    "median_s_per_step": 1.183,
+    "norm_key": 0.91,
+    "stage2": false
+   },
+   {
+    "id": "G0012",
+    "jobs": [
+     "3003"
+    ],
+    "median_s_per_step": 1.7940000000000003,
+    "norm_key": 0.92,
+    "stage2": false
+   },
+   {
+    "id": "D0012",
+    "jobs": [
+     "3004"
+    ],
+    "median_s_per_step": 1.1960000000000002,
+    "norm_key": 0.9200000000000002,
+    "stage2": false
+   },
+   {
+    "id": "D0013",
+    "jobs": [
+     "3005"
+    ],
+    "median_s_per_step": 1.8135000000000001,
+    "norm_key": 0.9299999999999999,
+    "stage2": false
+   },
+   {
+    "id": "G0013",
+    "jobs": [
+     "3001"
+    ],
+    "median_s_per_step": 1.8135000000000001,
+    "norm_key": 0.9299999999999999,
+    "stage2": false
+   },
+   {
+    "id": "D0014",
+    "jobs": [
+     "3005"
+    ],
+    "median_s_per_step": 1.8330000000000002,
+    "norm_key": 0.9400000000000001,
+    "stage2": false
+   },
+   {
+    "id": "G0014",
+    "jobs": [
+     "3002"
+    ],
+    "median_s_per_step": 1.2220000000000002,
+    "norm_key": 0.9400000000000002,
+    "stage2": false
+   },
+   {
+    "id": "D0015",
+    "jobs": [
+     "3005"
+    ],
+    "median_s_per_step": 1.8525,
+    "norm_key": 0.95,
+    "stage2": false
+   },
+   {
+    "id": "G0015",
+    "jobs": [
+     "3003"
+    ],
+    "median_s_per_step": 1.8525,
+    "norm_key": 0.95,
+    "stage2": false
+   },
+   {
+    "id": "D0016",
+    "jobs": [
+     "3005"
+    ],
+    "median_s_per_step": 1.8720000000000003,
+    "norm_key": 0.9600000000000001,
+    "stage2": false
+   },
+   {
+    "id": "G0016",
+    "jobs": [
+     "3001"
+    ],
+    "median_s_per_step": 1.8720000000000003,
+    "norm_key": 0.9600000000000001,
+    "stage2": false
+   },
+   {
+    "id": "D0017",
+    "jobs": [
+     "3005"
+    ],
+    "median_s_per_step": 1.8915000000000002,
+    "norm_key": 0.97,
+    "stage2": false
+   },
+   {
+    "id": "G0017",
+    "jobs": [
+     "3002"
+    ],
+    "median_s_per_step": 1.2610000000000001,
+    "norm_key": 0.9700000000000001,
+    "stage2": false
+   },
+   {
+    "id": "D0018",
+    "jobs": [
+     "3005"
+    ],
+    "median_s_per_step": 1.911,
+    "norm_key": 0.98,
+    "stage2": false
+   },
+   {
+    "id": "G0018",
+    "jobs": [
+     "3003"
+    ],
+    "median_s_per_step": 1.911,
+    "norm_key": 0.98,
+    "stage2": false
+   },
+   {
+    "id": "G0019",
+    "jobs": [
+     "3001"
+    ],
+    "median_s_per_step": 1.9304999999999999,
+    "norm_key": 0.9899999999999999,
+    "stage2": false
+   },
+   {
+    "id": "G0020",
+    "jobs": [
+     "3002"
+    ],
+    "median_s_per_step": 1.3,
+    "norm_key": 1.0,
+    "stage2": false
+   },
+   {
+    "id": "G0021",
+    "jobs": [
+     "3003"
+    ],
+    "median_s_per_step": 1.9695000000000003,
+    "norm_key": 1.01,
+    "stage2": false
+   },
+   {
+    "id": "G0022",
+    "jobs": [
+     "3001"
+    ],
+    "median_s_per_step": 1.989,
+    "norm_key": 1.02,
+    "stage2": false
+   },
+   {
+    "id": "G0023",
+    "jobs": [
+     "3002"
+    ],
+    "median_s_per_step": 1.3390000000000002,
+    "norm_key": 1.03,
+    "stage2": false
+   },
+   {
+    "id": "G0024",
+    "jobs": [
+     "3003"
+    ],
+    "median_s_per_step": 2.028,
+    "norm_key": 1.0399999999999998,
+    "stage2": false
+   },
+   {
+    "id": "G0025",
+    "jobs": [
+     "3001"
+    ],
+    "median_s_per_step": 2.0475000000000003,
+    "norm_key": 1.05,
+    "stage2": false
+   },
+   {
+    "id": "G0026",
+    "jobs": [
+     "3002"
+    ],
+    "median_s_per_step": 1.3780000000000001,
+    "norm_key": 1.06,
+    "stage2": false
+   },
+   {
+    "id": "G0027",
+    "jobs": [
+     "3003"
+    ],
+    "median_s_per_step": 2.0865000000000005,
+    "norm_key": 1.07,
+    "stage2": false
+   },
+   {
+    "id": "G0028",
+    "jobs": [
+     "3001"
+    ],
+    "median_s_per_step": 2.1060000000000003,
+    "norm_key": 1.08,
+    "stage2": false
+   },
+   {
+    "id": "G0029",
+    "jobs": [
+     "3002"
+    ],
+    "median_s_per_step": 1.4170000000000003,
+    "norm_key": 1.09,
+    "stage2": false
+   },
+   {
+    "id": "G0031",
+    "jobs": [
+     "3003"
+    ],
+    "median_s_per_step": 2.1645000000000003,
+    "norm_key": 1.11,
+    "stage2": false
+   },
+   {
+    "id": "G0032",
+    "jobs": [
+     "3001"
+    ],
+    "median_s_per_step": 2.184,
+    "norm_key": 1.1199999999999999,
+    "stage2": false
+   },
+   {
+    "id": "G0033",
+    "jobs": [
+     "3002"
+    ],
+    "median_s_per_step": 1.4690000000000003,
+    "norm_key": 1.1300000000000001,
+    "stage2": false
+   },
+   {
+    "id": "G0034",
+    "jobs": [
+     "3003"
+    ],
+    "median_s_per_step": 2.2230000000000003,
+    "norm_key": 1.1400000000000001,
+    "stage2": false
+   },
+   {
+    "id": "G0035",
+    "jobs": [
+     "3001"
+    ],
+    "median_s_per_step": 2.2425000000000006,
+    "norm_key": 1.1500000000000001,
+    "stage2": false
+   },
+   {
+    "id": "G0036",
+    "jobs": [
+     "3002"
+    ],
+    "median_s_per_step": 1.5080000000000002,
+    "norm_key": 1.1600000000000001,
+    "stage2": false
+   }
+  ],
+  "stage1_running_min": 90.0,
+  "stage1_trimmed": [
+   {
+    "cid": "D0019",
+    "reason": "trimmed to fit the budget + stage-2 reserve",
+    "stage": "round2"
+   },
+   {
+    "cid": "D0020",
+    "reason": "trimmed to fit the budget + stage-2 reserve",
+    "stage": "round2"
+   }
+  ],
+  "stage2_concurrency": 3,
+  "stage2_estimate_min": 78.58765,
+  "stage2_estimate_s": 1703.8626198780487,
+  "stage2_job_ids": [
+   "9001"
+  ],
+  "stage2_minutes_cap": null,
+  "stage2_overrun_s": null,
+  "stage2_reserve_note": "stage-2 estimate (NOT held back from --minutes, stage1=t0) 31:39 = 1 wave(s) [3 point job(s), 3 concurrent: observed max 3 stage-1 job(s) running at once, cap floor(max_nodes/nodes)=3] x (spin-up + 5 runs); per-run 323s = startup 116s + restart read 30s + 82 steps x 1.950s x rad factor 1.107 (r_rad 3.93 every 40 steps); spin-up 284s (80 steps, rad factor 1.073)",
+  "stage2_running_min": 0.0,
+  "stage2_skipped_reason": null,
+  "total_job_run_s": 0,
+  "total_queue_s": 0,
+  "total_running_min": 90.0,
+  "wall_elapsed_minutes": 92.0
+ }
+]

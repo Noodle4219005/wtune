@@ -1,0 +1,9 @@
+NOTE: probe.steps='auto' requested but could not be resolved from <TMP>/namelist.input (FileNotFoundError: [Errno 2] No such file or directory: '<TMP>/namelist.input') -- using DEFAULT_STEPS=20 instead
+case=matthew nodes=search (node search (measured)) budget=none max_nodes=13 out=<TMP>/out
+O0: no jobs -- nodes=13 (policy=knee: every profiled doubling step up to --max-nodes cap=13 clears 1.5x; using nodes=13), layout {'ranks': 936, 'omp': 1, 'nx': 26, 'ny': 36}, cold-start whole run unknown ±25% (run length unknown)
+
+
+=== wtune tune -O0 (decision 0059) ===
+level O0; time cap: none (no jobs)  whole run implied by the t0 anchor (info): -
+predicted whole run: unavailable (run length unknown) at N=13 cores/node=72 {'ranks': 936, 'omp': 1, 'nx': 26, 'ny': 36, 'numtiles': 1, 'dist': 'block'}
+tune running time 0:00 (wall 0:00 = running + queue wait 0:00 + controller 0:00); predicted real run 0:00 (None)

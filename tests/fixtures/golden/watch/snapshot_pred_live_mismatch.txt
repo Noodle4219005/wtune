@@ -1,0 +1,103 @@
+{
+ "rundir": "<TMP>",
+ "now": 1700000002.0,
+ "mode": "live",
+ "status": "running",
+ "warnings": [
+  {
+   "code": "PRED_MISMATCH",
+   "text": "prediction steps_n 999 != namelist d01 steps 1440 (the namelist's run is used)"
+  }
+ ],
+ "run_start": "2021-07-19_00:00:00",
+ "run_end": "2021-07-20_00:00:00",
+ "dt": 60.0,
+ "stepra": 10,
+ "total_steps": 1440,
+ "periods": [
+  10
+ ],
+ "rsl_file": "rsl.error.0000",
+ "rsl_d01_lines": {
+  "rsl.error.0000": 500
+ },
+ "n_d01_steps": 500,
+ "completed_steps": 500,
+ "d01_last_time": "2021-07-19_08:20:00",
+ "sum_d01_elapsed_s": 867.0631199999998,
+ "writes_so_far_s": 180.0,
+ "n_write_absorbing_steps": 9,
+ "rate_s_per_step": 1.4182290000000004,
+ "rate_window": 130,
+ "median_step_s": 1.092185,
+ "rate_lead_dropped": 1,
+ "fraction": 0.3472222222222222,
+ "remaining_steps": 940,
+ "writes": [
+  {
+   "stream": "history",
+   "dom": 1,
+   "per_frame_s": 10.0,
+   "source": "observed",
+   "n_observed": 9,
+   "remaining_frames": 16,
+   "seconds": 160.0
+  },
+  {
+   "stream": "history",
+   "dom": 2,
+   "per_frame_s": 5.0,
+   "source": "observed",
+   "n_observed": 9,
+   "remaining_frames": 16,
+   "seconds": 80.0
+  },
+  {
+   "stream": "history",
+   "dom": 3,
+   "per_frame_s": 5.0,
+   "source": "observed",
+   "n_observed": 9,
+   "remaining_frames": 16,
+   "seconds": 80.0
+  }
+ ],
+ "write_notes": [],
+ "remaining_compute_rate_s": 1333.1352600000005,
+ "remaining_compute_pred_s": 1469.3374964148281,
+ "remaining_writes_s": 320.0,
+ "pred_scale_k": 1.24999999695001,
+ "remaining_rate_s": 1653.1352600000005,
+ "remaining_pred_s": 1789.3374964148281,
+ "estimate": "prediction",
+ "remaining_compute_s": 1469.3374964148281,
+ "remaining_s": 1789.3374964148281,
+ "eta": "2023-11-14 22:43:11",
+ "log_age_s": 2.0,
+ "domains": [
+  {
+   "id": 1,
+   "last_time": "2021-07-19_08:20:00",
+   "n_lines": 500,
+   "start": "2021-07-19_00:00:00",
+   "end": "2021-07-20_00:00:00"
+  },
+  {
+   "id": 2,
+   "last_time": "2021-07-19_08:20:00",
+   "n_lines": 1500,
+   "start": "2021-07-19_00:00:00",
+   "end": "2021-07-20_00:00:00"
+  },
+  {
+   "id": 3,
+   "last_time": "2021-07-19_08:20:00",
+   "n_lines": 4500,
+   "start": "2021-07-19_00:00:00",
+   "end": "2021-07-20_00:00:00"
+  }
+ ],
+ "cfl_count": 0
+}
+RUNNING  34.7% sim 2021-07-19_08:20:00 (500/1440) elapsed 0:14:27 rate 1.418s/step[w=130] remaining 0:29:49 (compute 0:24:29 pred x1.250 + writes 0:05:20; rate-only 0:27:33) ETA 2023-11-14 22:43:11 | PRED_MISMATCH: prediction steps_n 999 != namelist d01 steps 1440 (the namelist's run is used)
+exit=0

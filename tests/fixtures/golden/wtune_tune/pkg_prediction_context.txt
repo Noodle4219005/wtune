@@ -1,0 +1,36 @@
+{
+ "out": [
+  {
+   "nl": 1
+  },
+  "datetime.datetime(2026, 1, 1, 6, 0)",
+  "datetime.datetime(2026, 1, 1, 12, 0)",
+  15.0,
+  40,
+  {
+   "drift_band_pct": 9.0,
+   "r_rad_default_day": 3.9
+  },
+  [
+   [
+    30.0,
+    -90.0
+   ]
+  ],
+  "<TMP>/case"
+ ],
+ "calls": [
+  [
+   "nl",
+   "/fake/matthew/namelist.input"
+  ],
+  [
+   "cal",
+   "scc.json"
+  ],
+  [
+   "sp",
+   "<TMP>/case"
+  ]
+ ]
+}

@@ -1,0 +1,918 @@
+{
+ "advice-skipped": {
+  "log": [
+   [
+    "detect_types",
+    "(['r1'],)",
+    "[('bdeck_path', None), ('ensemble', False), ('hurdat2_path', None), ('storm_id', None), ('types_override', None)]"
+   ],
+   [
+    "common",
+    "(['r1'], ['run0'], '<OUT>', {'types': ['common', 'convection'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}})",
+    "[('decomposition_only', False)]"
+   ],
+   [
+    "cf3d",
+    "('r1', 'run0', '<OUT>', {'types': ['common', 'convection'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}}, None, None)",
+    "[]"
+   ],
+   [
+    "vapor",
+    "('r1', 'run0', '<OUT>', {'types': ['common', 'convection'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}})",
+    "[('every', None), ('times', None)]"
+   ],
+   [
+    "dispatch-convection",
+    "(['r1'], ['run0'], '<OUT>', {'types': ['common', 'convection'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}}, True, 6)",
+    "[]"
+   ],
+   [
+    "advice-none"
+   ],
+   [
+    "report",
+    "({'types': ['common', 'convection'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}}, [{'id': 'f_common', 'missing': False, 'path': '/p/common.png', 'run': 'run', 'domain': None, 'valid_time': None}, {'id': 'f_cf3d', 'missing': False, 'path': '/p/cf3d.png', 'run': 'run', 'domain': None, 'valid_time': None}, {'id': 'f_vapor', 'missing': False, 'path': '/p/vapor.png', 'run': 'run', 'domain': None, 'valid_time': None}, {'id': 'f_convection', 'missing': False, 'path': '/p/convection.png', 'run': 'run', 'domain': None, 'valid_time': None}], ['r1'], ['run0'], 6, {'cat': 1}, None, [{'source': 'src-convection', 'level': 'info', 'text': 'n-convection'}], None)"
+   ]
+  ],
+  "out_exists": true,
+  "result": {
+   "advice": null,
+   "case_info": {
+    "domains": [
+     {
+      "domain": 1
+     },
+     {
+      "domain": 2
+     }
+    ],
+    "evidence": {},
+    "types": [
+     "common",
+     "convection"
+    ]
+   },
+   "figures": [
+    {
+     "domain": null,
+     "id": "f_common",
+     "missing": false,
+     "path": "/p/common.png",
+     "run": "run",
+     "valid_time": null
+    },
+    {
+     "domain": null,
+     "id": "f_cf3d",
+     "missing": false,
+     "path": "/p/cf3d.png",
+     "run": "run",
+     "valid_time": null
+    },
+    {
+     "domain": null,
+     "id": "f_vapor",
+     "missing": false,
+     "path": "/p/vapor.png",
+     "run": "run",
+     "valid_time": null
+    },
+    {
+     "domain": null,
+     "id": "f_convection",
+     "missing": false,
+     "path": "/p/convection.png",
+     "run": "run",
+     "valid_time": null
+    }
+   ],
+   "notes": [
+    {
+     "level": "info",
+     "source": "src-convection",
+     "text": "n-convection"
+    }
+   ],
+   "out_dir": "<OUT>",
+   "report_path": "REPORT"
+  }
+ },
+ "all-types-track": {
+  "log": [
+   [
+    "detect_types",
+    "(['r1', 'r2'],)",
+    "[('bdeck_path', 'b'), ('ensemble', False), ('hurdat2_path', 'h.txt'), ('storm_id', 'AL012020'), ('types_override', None)]"
+   ],
+   [
+    "common",
+    "(['r1', 'r2'], ['a', 'b'], '<OUT>', {'types': ['common', 'tc', 'convection', 'cloud', 'terrain', 'moisture', 'precip', 'synoptic', 'pbl', 'chem', 'climate', 'ensemble', 'unknown-type'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}})",
+    "[('decomposition_only', False)]"
+   ],
+   [
+    "cf3d",
+    "('r1', 'a', '<OUT>', {'types': ['common', 'tc', 'convection', 'cloud', 'terrain', 'moisture', 'precip', 'synoptic', 'pbl', 'chem', 'climate', 'ensemble', 'unknown-type'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}}, '6h', ['t1'])",
+    "[]"
+   ],
+   [
+    "vapor",
+    "('r1', 'a', '<OUT>', {'types': ['common', 'tc', 'convection', 'cloud', 'terrain', 'moisture', 'precip', 'synoptic', 'pbl', 'chem', 'climate', 'ensemble', 'unknown-type'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}})",
+    "[('every', '6h'), ('times', ['t1'])]"
+   ],
+   [
+    "tc_centre",
+    "('h.txt', 'AL012020', 'b', 'r1')",
+    "[]"
+   ],
+   [
+    "dispatch-tc",
+    "(['r1', 'r2'], ['a', 'b'], '<OUT>', {'types': ['common', 'tc', 'convection', 'cloud', 'terrain', 'moisture', 'precip', 'synoptic', 'pbl', 'chem', 'climate', 'ensemble', 'unknown-type'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}}, 'h.txt', 'AL012020', 'b', 'e', False, 3)",
+    "[('track_smooth_km', 5.0)]"
+   ],
+   [
+    "tc_structure",
+    "(['r1', 'r2'], ['a', 'b'], '<OUT>', {'types': ['common', 'tc', 'convection', 'cloud', 'terrain', 'moisture', 'precip', 'synoptic', 'pbl', 'chem', 'climate', 'ensemble', 'unknown-type'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}})",
+    "[('every', '6h'), ('paraview', False), ('times', ['t1']), ('use_track', True)]"
+   ],
+   [
+    "dispatch-convection",
+    "(['r1', 'r2'], ['a', 'b'], '<OUT>', {'types': ['common', 'tc', 'convection', 'cloud', 'terrain', 'moisture', 'precip', 'synoptic', 'pbl', 'chem', 'climate', 'ensemble', 'unknown-type'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}}, False, 3)",
+    "[]"
+   ],
+   [
+    "dispatch-cloud",
+    "(['r1', 'r2'], ['a', 'b'], '<OUT>', {'types': ['common', 'tc', 'convection', 'cloud', 'terrain', 'moisture', 'precip', 'synoptic', 'pbl', 'chem', 'climate', 'ensemble', 'unknown-type'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}})",
+    "[('every', '6h'), ('paraview', False), ('times', ['t1'])]"
+   ],
+   [
+    "dispatch-terrain",
+    "(['r1', 'r2'], ['a', 'b'], '<OUT>', {'types': ['common', 'tc', 'convection', 'cloud', 'terrain', 'moisture', 'precip', 'synoptic', 'pbl', 'chem', 'climate', 'ensemble', 'unknown-type'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}})",
+    "[('cross_section', {'t': 1}), ('project_dir', 'P'), ('spinup_hours', 3), ('xsec_halfwidth_km', 300.0), ('xsec_top_km', 12.0)]"
+   ],
+   [
+    "dispatch-moisture",
+    "(['r1', 'r2'], ['a', 'b'], '<OUT>', {'types': ['common', 'tc', 'convection', 'cloud', 'terrain', 'moisture', 'precip', 'synoptic', 'pbl', 'chem', 'climate', 'ensemble', 'unknown-type'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}})",
+    "[('cross_section', {'m': 2}), ('project_dir', 'P'), ('spinup_hours', 3), ('tc_centre', (1.5, 2.5)), ('xsec_halfwidth_km', 300.0), ('xsec_top_km', 12.0)]"
+   ],
+   [
+    "dispatch-precip",
+    "(['r1', 'r2'], ['a', 'b'], '<OUT>', {'types': ['common', 'tc', 'convection', 'cloud', 'terrain', 'moisture', 'precip', 'synoptic', 'pbl', 'chem', 'climate', 'ensemble', 'unknown-type'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}})",
+    "[('project_dir', 'P'), ('spinup_days', 7.0), ('spinup_hours', 3)]"
+   ],
+   [
+    "dispatch-synoptic",
+    "(['r1', 'r2'], ['a', 'b'], '<OUT>', {'types': ['common', 'tc', 'convection', 'cloud', 'terrain', 'moisture', 'precip', 'synoptic', 'pbl', 'chem', 'climate', 'ensemble', 'unknown-type'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}})",
+    "[('project_dir', 'P'), ('spinup_days', 7.0), ('spinup_hours', 3)]"
+   ],
+   [
+    "dispatch-pbl",
+    "(['r1', 'r2'], ['a', 'b'], '<OUT>', {'types': ['common', 'tc', 'convection', 'cloud', 'terrain', 'moisture', 'precip', 'synoptic', 'pbl', 'chem', 'climate', 'ensemble', 'unknown-type'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}})",
+    "[('project_dir', 'P'), ('spinup_days', 7.0), ('spinup_hours', 3)]"
+   ],
+   [
+    "dispatch-chem",
+    "(['r1', 'r2'], ['a', 'b'], '<OUT>', {'types': ['common', 'tc', 'convection', 'cloud', 'terrain', 'moisture', 'precip', 'synoptic', 'pbl', 'chem', 'climate', 'ensemble', 'unknown-type'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}})",
+    "[('project_dir', 'P'), ('spinup_days', 7.0), ('spinup_hours', 3)]"
+   ],
+   [
+    "dispatch-climate",
+    "(['r1', 'r2'], ['a', 'b'], '<OUT>', {'types': ['common', 'tc', 'convection', 'cloud', 'terrain', 'moisture', 'precip', 'synoptic', 'pbl', 'chem', 'climate', 'ensemble', 'unknown-type'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}})",
+    "[('project_dir', 'P'), ('spinup_days', 7.0), ('spinup_hours', 3)]"
+   ],
+   [
+    "dispatch-ensemble",
+    "(['r1', 'r2'], ['a', 'b'], '<OUT>', {'types': ['common', 'tc', 'convection', 'cloud', 'terrain', 'moisture', 'precip', 'synoptic', 'pbl', 'chem', 'climate', 'ensemble', 'unknown-type'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}})",
+    "[('project_dir', 'P'), ('spinup_days', 7.0), ('spinup_hours', 3)]"
+   ],
+   [
+    "timeseries",
+    "(['r1', 'r2'], ['a', 'b'], '<OUT>', {'types': ['common', 'tc', 'convection', 'cloud', 'terrain', 'moisture', 'precip', 'synoptic', 'pbl', 'chem', 'climate', 'ensemble', 'unknown-type'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}}, '6h', ['t1'])",
+    "[('animate', True)]"
+   ],
+   [
+    "advice",
+    "('<OUT>', 'h.txt', 'AL012020', 'b')"
+   ],
+   [
+    "report",
+    "({'types': ['common', 'tc', 'convection', 'cloud', 'terrain', 'moisture', 'precip', 'synoptic', 'pbl', 'chem', 'climate', 'ensemble', 'unknown-type'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}}, [{'id': 'f_common', 'missing': False, 'path': '/p/common.png', 'run': 'run', 'domain': None, 'valid_time': None}, {'id': 'f_cf3d', 'missing': False, 'path': '/p/cf3d.png', 'run': 'run', 'domain': None, 'valid_time': None}, {'id': 'f_vapor', 'missing': False, 'path': '/p/vapor.png', 'run': 'run', 'domain': None, 'valid_time': None}, {'id': 'f_tc', 'missing': False, 'path': '/p/tc.png', 'run': 'run', 'domain': None, 'valid_time': None}, {'id': 'f_tcs', 'missing': False, 'path': '/p/tcs.png', 'run': 'run', 'domain': None, 'valid_time': None}, {'id': 'f_convection', 'missing': False, 'path': '/p/convection.png', 'run': 'run', 'domain': None, 'valid_time': None}, {'id': 'f_cloud', 'missing': False, 'path': '/p/cloud.png', 'run': 'run', 'domain': None, 'valid_time': None}, {'id': 'f_terrain', 'missing': False, 'path': '/p/terrain.png', 'run': 'run', 'domain': None, 'valid_time': None}, {'id': 'f_moisture', 'missing': False, 'path': '/p/moisture.png', 'run': 'run', 'domain': None, 'valid_time': None}, {'id': 'f_precip', 'missing': False, 'path': '/p/precip.png', 'run': 'run', 'domain': None, 'valid_time': None}, {'id': 'f_synoptic', 'missing': False, 'path': '/p/synoptic.png', 'run': 'run', 'domain': None, 'valid_time': None}, {'id': 'f_pbl', 'missing': False, 'path': '/p/pbl.png', 'run': 'run', 'domain': None, 'valid_time': None}, {'id': 'f_chem', 'missing': False, 'path': '/p/chem.png', 'run': 'run', 'domain': None, 'valid_time': None}, {'id': 'f_climate', 'missing': False, 'path': '/p/climate.png', 'run': 'run', 'domain': None, 'valid_time': None}, {'id': 'f_ensemble', 'missing': False, 'path': '/p/ensemble.png', 'run': 'run', 'domain': None, 'valid_time': None}, {'id': 'f_ts', 'missing': False, 'path': '/p/ts.png', 'run': 'run', 'domain': None, 'valid_time': None}], ['r1', 'r2'], ['a', 'b'], 3, {'cat': 1}, 'T', [{'source': 'src-tc', 'level': 'info', 'text': 'n-tc'}, {'source': 'src-convection', 'level': 'info', 'text': 'n-convection'}, {'source': 'src-cloud', 'level': 'info', 'text': 'n-cloud'}, {'source': 'src-terrain', 'level': 'info', 'text': 'n-terrain'}, {'source': 'src-moisture', 'level': 'info', 'text': 'n-moisture'}, {'source': 'src-precip', 'level': 'info', 'text': 'n-precip'}, {'source': 'src-synoptic', 'level': 'info', 'text': 'n-synoptic'}, {'source': 'src-pbl', 'level': 'info', 'text': 'n-pbl'}, {'source': 'src-chem', 'level': 'info', 'text': 'n-chem'}, {'source': 'src-climate', 'level': 'info', 'text': 'n-climate'}, {'source': 'src-ensemble', 'level': 'info', 'text': 'n-ensemble'}], None)"
+   ]
+  ],
+  "out_exists": true,
+  "result": {
+   "advice": null,
+   "case_info": {
+    "domains": [
+     {
+      "domain": 1
+     },
+     {
+      "domain": 2
+     }
+    ],
+    "evidence": {},
+    "types": [
+     "common",
+     "tc",
+     "convection",
+     "cloud",
+     "terrain",
+     "moisture",
+     "precip",
+     "synoptic",
+     "pbl",
+     "chem",
+     "climate",
+     "ensemble",
+     "unknown-type"
+    ]
+   },
+   "figures": [
+    {
+     "domain": null,
+     "id": "f_common",
+     "missing": false,
+     "path": "/p/common.png",
+     "run": "run",
+     "valid_time": null
+    },
+    {
+     "domain": null,
+     "id": "f_cf3d",
+     "missing": false,
+     "path": "/p/cf3d.png",
+     "run": "run",
+     "valid_time": null
+    },
+    {
+     "domain": null,
+     "id": "f_vapor",
+     "missing": false,
+     "path": "/p/vapor.png",
+     "run": "run",
+     "valid_time": null
+    },
+    {
+     "domain": null,
+     "id": "f_tc",
+     "missing": false,
+     "path": "/p/tc.png",
+     "run": "run",
+     "valid_time": null
+    },
+    {
+     "domain": null,
+     "id": "f_tcs",
+     "missing": false,
+     "path": "/p/tcs.png",
+     "run": "run",
+     "valid_time": null
+    },
+    {
+     "domain": null,
+     "id": "f_convection",
+     "missing": false,
+     "path": "/p/convection.png",
+     "run": "run",
+     "valid_time": null
+    },
+    {
+     "domain": null,
+     "id": "f_cloud",
+     "missing": false,
+     "path": "/p/cloud.png",
+     "run": "run",
+     "valid_time": null
+    },
+    {
+     "domain": null,
+     "id": "f_terrain",
+     "missing": false,
+     "path": "/p/terrain.png",
+     "run": "run",
+     "valid_time": null
+    },
+    {
+     "domain": null,
+     "id": "f_moisture",
+     "missing": false,
+     "path": "/p/moisture.png",
+     "run": "run",
+     "valid_time": null
+    },
+    {
+     "domain": null,
+     "id": "f_precip",
+     "missing": false,
+     "path": "/p/precip.png",
+     "run": "run",
+     "valid_time": null
+    },
+    {
+     "domain": null,
+     "id": "f_synoptic",
+     "missing": false,
+     "path": "/p/synoptic.png",
+     "run": "run",
+     "valid_time": null
+    },
+    {
+     "domain": null,
+     "id": "f_pbl",
+     "missing": false,
+     "path": "/p/pbl.png",
+     "run": "run",
+     "valid_time": null
+    },
+    {
+     "domain": null,
+     "id": "f_chem",
+     "missing": false,
+     "path": "/p/chem.png",
+     "run": "run",
+     "valid_time": null
+    },
+    {
+     "domain": null,
+     "id": "f_climate",
+     "missing": false,
+     "path": "/p/climate.png",
+     "run": "run",
+     "valid_time": null
+    },
+    {
+     "domain": null,
+     "id": "f_ensemble",
+     "missing": false,
+     "path": "/p/ensemble.png",
+     "run": "run",
+     "valid_time": null
+    },
+    {
+     "domain": null,
+     "id": "f_ts",
+     "missing": false,
+     "path": "/p/ts.png",
+     "run": "run",
+     "valid_time": null
+    }
+   ],
+   "notes": [
+    {
+     "level": "info",
+     "source": "src-tc",
+     "text": "n-tc"
+    },
+    {
+     "level": "info",
+     "source": "src-convection",
+     "text": "n-convection"
+    },
+    {
+     "level": "info",
+     "source": "src-cloud",
+     "text": "n-cloud"
+    },
+    {
+     "level": "info",
+     "source": "src-terrain",
+     "text": "n-terrain"
+    },
+    {
+     "level": "info",
+     "source": "src-moisture",
+     "text": "n-moisture"
+    },
+    {
+     "level": "info",
+     "source": "src-precip",
+     "text": "n-precip"
+    },
+    {
+     "level": "info",
+     "source": "src-synoptic",
+     "text": "n-synoptic"
+    },
+    {
+     "level": "info",
+     "source": "src-pbl",
+     "text": "n-pbl"
+    },
+    {
+     "level": "info",
+     "source": "src-chem",
+     "text": "n-chem"
+    },
+    {
+     "level": "info",
+     "source": "src-climate",
+     "text": "n-climate"
+    },
+    {
+     "level": "info",
+     "source": "src-ensemble",
+     "text": "n-ensemble"
+    }
+   ],
+   "out_dir": "<OUT>",
+   "report_path": "REPORT"
+  }
+ },
+ "common-only": {
+  "log": [
+   [
+    "detect_types",
+    "(['r1'],)",
+    "[('bdeck_path', None), ('ensemble', False), ('hurdat2_path', None), ('storm_id', None), ('types_override', None)]"
+   ],
+   [
+    "common",
+    "(['r1'], ['run0'], '<OUT>', {'types': ['common'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}})",
+    "[('decomposition_only', False)]"
+   ],
+   [
+    "cf3d",
+    "('r1', 'run0', '<OUT>', {'types': ['common'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}}, None, None)",
+    "[]"
+   ],
+   [
+    "vapor",
+    "('r1', 'run0', '<OUT>', {'types': ['common'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}})",
+    "[('every', None), ('times', None)]"
+   ],
+   [
+    "advice",
+    "('<OUT>', None, None, None)"
+   ],
+   [
+    "report",
+    "({'types': ['common'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}}, [{'id': 'f_common', 'missing': False, 'path': '/p/common.png', 'run': 'run', 'domain': None, 'valid_time': None}, {'id': 'f_cf3d', 'missing': False, 'path': '/p/cf3d.png', 'run': 'run', 'domain': None, 'valid_time': None}, {'id': 'f_vapor', 'missing': False, 'path': '/p/vapor.png', 'run': 'run', 'domain': None, 'valid_time': None}], ['r1'], ['run0'], 6, {'cat': 1}, None, [], None)"
+   ]
+  ],
+  "out_exists": true,
+  "result": {
+   "advice": null,
+   "case_info": {
+    "domains": [
+     {
+      "domain": 1
+     },
+     {
+      "domain": 2
+     }
+    ],
+    "evidence": {},
+    "types": [
+     "common"
+    ]
+   },
+   "figures": [
+    {
+     "domain": null,
+     "id": "f_common",
+     "missing": false,
+     "path": "/p/common.png",
+     "run": "run",
+     "valid_time": null
+    },
+    {
+     "domain": null,
+     "id": "f_cf3d",
+     "missing": false,
+     "path": "/p/cf3d.png",
+     "run": "run",
+     "valid_time": null
+    },
+    {
+     "domain": null,
+     "id": "f_vapor",
+     "missing": false,
+     "path": "/p/vapor.png",
+     "run": "run",
+     "valid_time": null
+    }
+   ],
+   "notes": [],
+   "out_dir": "<OUT>",
+   "report_path": "REPORT"
+  }
+ },
+ "label-mismatch": {
+  "log": [],
+  "out_exists": true,
+  "result": "ValueError: labels must have one entry per RUN_DIR"
+ },
+ "moisture-centre": {
+  "log": [
+   [
+    "detect_types",
+    "(['r1'],)",
+    "[('bdeck_path', None), ('ensemble', False), ('hurdat2_path', 'h.txt'), ('storm_id', 'S'), ('types_override', None)]"
+   ],
+   [
+    "common",
+    "(['r1'], ['run0'], '<OUT>', {'types': ['common', 'moisture'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}})",
+    "[('decomposition_only', False)]"
+   ],
+   [
+    "cf3d",
+    "('r1', 'run0', '<OUT>', {'types': ['common', 'moisture'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}}, None, None)",
+    "[]"
+   ],
+   [
+    "vapor",
+    "('r1', 'run0', '<OUT>', {'types': ['common', 'moisture'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}})",
+    "[('every', None), ('times', None)]"
+   ],
+   [
+    "tc_centre",
+    "('h.txt', 'S', None, 'r1')",
+    "[]"
+   ],
+   [
+    "dispatch-moisture",
+    "(['r1'], ['run0'], '<OUT>', {'types': ['common', 'moisture'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}})",
+    "[('cross_section', None), ('project_dir', None), ('spinup_hours', 6), ('tc_centre', (1.5, 2.5)), ('xsec_halfwidth_km', None), ('xsec_top_km', None)]"
+   ],
+   [
+    "advice",
+    "('<OUT>', 'h.txt', 'S', None)"
+   ],
+   [
+    "report",
+    "({'types': ['common', 'moisture'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}}, [{'id': 'f_common', 'missing': False, 'path': '/p/common.png', 'run': 'run', 'domain': None, 'valid_time': None}, {'id': 'f_cf3d', 'missing': False, 'path': '/p/cf3d.png', 'run': 'run', 'domain': None, 'valid_time': None}, {'id': 'f_vapor', 'missing': False, 'path': '/p/vapor.png', 'run': 'run', 'domain': None, 'valid_time': None}, {'id': 'f_moisture', 'missing': False, 'path': '/p/moisture.png', 'run': 'run', 'domain': None, 'valid_time': None}], ['r1'], ['run0'], 6, {'cat': 1}, None, [{'source': 'src-moisture', 'level': 'info', 'text': 'n-moisture'}], None)"
+   ]
+  ],
+  "out_exists": true,
+  "result": {
+   "advice": null,
+   "case_info": {
+    "domains": [
+     {
+      "domain": 1
+     },
+     {
+      "domain": 2
+     }
+    ],
+    "evidence": {},
+    "types": [
+     "common",
+     "moisture"
+    ]
+   },
+   "figures": [
+    {
+     "domain": null,
+     "id": "f_common",
+     "missing": false,
+     "path": "/p/common.png",
+     "run": "run",
+     "valid_time": null
+    },
+    {
+     "domain": null,
+     "id": "f_cf3d",
+     "missing": false,
+     "path": "/p/cf3d.png",
+     "run": "run",
+     "valid_time": null
+    },
+    {
+     "domain": null,
+     "id": "f_vapor",
+     "missing": false,
+     "path": "/p/vapor.png",
+     "run": "run",
+     "valid_time": null
+    },
+    {
+     "domain": null,
+     "id": "f_moisture",
+     "missing": false,
+     "path": "/p/moisture.png",
+     "run": "run",
+     "valid_time": null
+    }
+   ],
+   "notes": [
+    {
+     "level": "info",
+     "source": "src-moisture",
+     "text": "n-moisture"
+    }
+   ],
+   "out_dir": "<OUT>",
+   "report_path": "REPORT"
+  }
+ },
+ "moisture-centre-fails": {
+  "log": [
+   [
+    "detect_types",
+    "(['r1'],)",
+    "[('bdeck_path', 'b'), ('ensemble', False), ('hurdat2_path', None), ('storm_id', None), ('types_override', None)]"
+   ],
+   [
+    "common",
+    "(['r1'], ['run0'], '<OUT>', {'types': ['common', 'moisture'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}})",
+    "[('decomposition_only', False)]"
+   ],
+   [
+    "cf3d",
+    "('r1', 'run0', '<OUT>', {'types': ['common', 'moisture'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}}, None, None)",
+    "[]"
+   ],
+   [
+    "vapor",
+    "('r1', 'run0', '<OUT>', {'types': ['common', 'moisture'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}})",
+    "[('every', None), ('times', None)]"
+   ],
+   [
+    "dispatch-moisture",
+    "(['r1'], ['run0'], '<OUT>', {'types': ['common', 'moisture'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}})",
+    "[('cross_section', None), ('project_dir', None), ('spinup_hours', 6), ('tc_centre', None), ('xsec_halfwidth_km', None), ('xsec_top_km', None)]"
+   ],
+   [
+    "advice",
+    "('<OUT>', None, None, 'b')"
+   ],
+   [
+    "report",
+    "({'types': ['common', 'moisture'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}}, [{'id': 'f_common', 'missing': False, 'path': '/p/common.png', 'run': 'run', 'domain': None, 'valid_time': None}, {'id': 'f_cf3d', 'missing': False, 'path': '/p/cf3d.png', 'run': 'run', 'domain': None, 'valid_time': None}, {'id': 'f_vapor', 'missing': False, 'path': '/p/vapor.png', 'run': 'run', 'domain': None, 'valid_time': None}, {'id': 'f_moisture', 'missing': False, 'path': '/p/moisture.png', 'run': 'run', 'domain': None, 'valid_time': None}], ['r1'], ['run0'], 6, {'cat': 1}, None, [{'source': 'src-moisture', 'level': 'info', 'text': 'n-moisture'}], None)"
+   ]
+  ],
+  "out_exists": true,
+  "result": {
+   "advice": null,
+   "case_info": {
+    "domains": [
+     {
+      "domain": 1
+     },
+     {
+      "domain": 2
+     }
+    ],
+    "evidence": {},
+    "types": [
+     "common",
+     "moisture"
+    ]
+   },
+   "figures": [
+    {
+     "domain": null,
+     "id": "f_common",
+     "missing": false,
+     "path": "/p/common.png",
+     "run": "run",
+     "valid_time": null
+    },
+    {
+     "domain": null,
+     "id": "f_cf3d",
+     "missing": false,
+     "path": "/p/cf3d.png",
+     "run": "run",
+     "valid_time": null
+    },
+    {
+     "domain": null,
+     "id": "f_vapor",
+     "missing": false,
+     "path": "/p/vapor.png",
+     "run": "run",
+     "valid_time": null
+    },
+    {
+     "domain": null,
+     "id": "f_moisture",
+     "missing": false,
+     "path": "/p/moisture.png",
+     "run": "run",
+     "valid_time": null
+    }
+   ],
+   "notes": [
+    {
+     "level": "info",
+     "source": "src-moisture",
+     "text": "n-moisture"
+    }
+   ],
+   "out_dir": "<OUT>",
+   "report_path": "REPORT"
+  }
+ },
+ "pre-notes-and-advice": {
+  "log": [
+   [
+    "detect_types",
+    "(['r1'],)",
+    "[('bdeck_path', None), ('ensemble', False), ('hurdat2_path', None), ('storm_id', None), ('types_override', None)]"
+   ],
+   [
+    "common",
+    "(['r1'], ['run0'], '<OUT>', {'types': ['common', 'precip'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}})",
+    "[('decomposition_only', False)]"
+   ],
+   [
+    "cf3d",
+    "('r1', 'run0', '<OUT>', {'types': ['common', 'precip'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}}, None, None)",
+    "[]"
+   ],
+   [
+    "vapor",
+    "('r1', 'run0', '<OUT>', {'types': ['common', 'precip'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}})",
+    "[('every', None), ('times', None)]"
+   ],
+   [
+    "dispatch-precip",
+    "(['r1'], ['run0'], '<OUT>', {'types': ['common', 'precip'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}})",
+    "[('project_dir', None), ('spinup_days', None), ('spinup_hours', 6)]"
+   ],
+   [
+    "advice",
+    "('<OUT>', None, None, None)"
+   ],
+   [
+    "report",
+    "({'types': ['common', 'precip'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}}, [{'id': 'f_common', 'missing': False, 'path': '/p/common.png', 'run': 'run', 'domain': None, 'valid_time': None}, {'id': 'f_cf3d', 'missing': False, 'path': '/p/cf3d.png', 'run': 'run', 'domain': None, 'valid_time': None}, {'id': 'f_vapor', 'missing': False, 'path': '/p/vapor.png', 'run': 'run', 'domain': None, 'valid_time': None}, {'id': 'f_precip', 'missing': False, 'path': '/p/precip.png', 'run': 'run', 'domain': None, 'valid_time': None}], ['r1'], ['run0'], 6, {'cat': 1}, None, [{'source': 'history', 'level': 'warning', 'text': 'x'}, {'source': 'src-precip', 'level': 'info', 'text': 'n-precip'}], '<advice/>')"
+   ]
+  ],
+  "out_exists": true,
+  "result": {
+   "advice": {
+    "advice": [
+     {
+      "id": "x"
+     }
+    ]
+   },
+   "case_info": {
+    "domains": [
+     {
+      "domain": 1
+     },
+     {
+      "domain": 2
+     }
+    ],
+    "evidence": {},
+    "types": [
+     "common",
+     "precip"
+    ]
+   },
+   "figures": [
+    {
+     "domain": null,
+     "id": "f_common",
+     "missing": false,
+     "path": "/p/common.png",
+     "run": "run",
+     "valid_time": null
+    },
+    {
+     "domain": null,
+     "id": "f_cf3d",
+     "missing": false,
+     "path": "/p/cf3d.png",
+     "run": "run",
+     "valid_time": null
+    },
+    {
+     "domain": null,
+     "id": "f_vapor",
+     "missing": false,
+     "path": "/p/vapor.png",
+     "run": "run",
+     "valid_time": null
+    },
+    {
+     "domain": null,
+     "id": "f_precip",
+     "missing": false,
+     "path": "/p/precip.png",
+     "run": "run",
+     "valid_time": null
+    }
+   ],
+   "notes": [
+    {
+     "level": "warning",
+     "source": "history",
+     "text": "x"
+    },
+    {
+     "level": "info",
+     "source": "src-precip",
+     "text": "n-precip"
+    }
+   ],
+   "out_dir": "<OUT>",
+   "report_path": "REPORT"
+  }
+ },
+ "tc-no-track": {
+  "log": [
+   [
+    "detect_types",
+    "(['r1'],)",
+    "[('bdeck_path', None), ('ensemble', False), ('hurdat2_path', None), ('storm_id', None), ('types_override', None)]"
+   ],
+   [
+    "common",
+    "(['r1'], ['run0'], '<OUT>', {'types': ['common', 'tc'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}})",
+    "[('decomposition_only', False)]"
+   ],
+   [
+    "cf3d",
+    "('r1', 'run0', '<OUT>', {'types': ['common', 'tc'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}}, None, None)",
+    "[]"
+   ],
+   [
+    "vapor",
+    "('r1', 'run0', '<OUT>', {'types': ['common', 'tc'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}})",
+    "[('every', None), ('times', None)]"
+   ],
+   [
+    "tc_structure",
+    "(['r1'], ['run0'], '<OUT>', {'types': ['common', 'tc'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}})",
+    "[('every', None), ('paraview', True), ('times', None), ('use_track', False)]"
+   ],
+   [
+    "advice",
+    "('<OUT>', None, None, None)"
+   ],
+   [
+    "report",
+    "({'types': ['common', 'tc'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}}, [{'id': 'f_common', 'missing': False, 'path': '/p/common.png', 'run': 'run', 'domain': None, 'valid_time': None}, {'id': 'f_cf3d', 'missing': False, 'path': '/p/cf3d.png', 'run': 'run', 'domain': None, 'valid_time': None}, {'id': 'f_vapor', 'missing': False, 'path': '/p/vapor.png', 'run': 'run', 'domain': None, 'valid_time': None}, {'id': 'tc_figure', 'missing': True, 'dataset': 'HURDAT2/--storm', 'reason': 'tc was detected but --hurdat2/--storm is required to build the a-deck/b-deck comparison', 'run': None}, {'id': 'f_tcs', 'missing': False, 'path': '/p/tcs.png', 'run': 'run', 'domain': None, 'valid_time': None}], ['r1'], ['run0'], 6, {'cat': 1}, None, [], None)"
+   ]
+  ],
+  "out_exists": true,
+  "result": {
+   "advice": null,
+   "case_info": {
+    "domains": [
+     {
+      "domain": 1
+     },
+     {
+      "domain": 2
+     }
+    ],
+    "evidence": {},
+    "types": [
+     "common",
+     "tc"
+    ]
+   },
+   "figures": [
+    {
+     "domain": null,
+     "id": "f_common",
+     "missing": false,
+     "path": "/p/common.png",
+     "run": "run",
+     "valid_time": null
+    },
+    {
+     "domain": null,
+     "id": "f_cf3d",
+     "missing": false,
+     "path": "/p/cf3d.png",
+     "run": "run",
+     "valid_time": null
+    },
+    {
+     "domain": null,
+     "id": "f_vapor",
+     "missing": false,
+     "path": "/p/vapor.png",
+     "run": "run",
+     "valid_time": null
+    },
+    {
+     "dataset": "HURDAT2/--storm",
+     "id": "tc_figure",
+     "missing": true,
+     "reason": "tc was detected but --hurdat2/--storm is required to build the a-deck/b-deck comparison",
+     "run": null
+    },
+    {
+     "domain": null,
+     "id": "f_tcs",
+     "missing": false,
+     "path": "/p/tcs.png",
+     "run": "run",
+     "valid_time": null
+    }
+   ],
+   "notes": [],
+   "out_dir": "<OUT>",
+   "report_path": "REPORT"
+  }
+ }
+}

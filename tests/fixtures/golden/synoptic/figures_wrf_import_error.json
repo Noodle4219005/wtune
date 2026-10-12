@@ -1,0 +1,28 @@
+{
+ "out": [
+  {
+   "id": "syn_maps",
+   "missing": true,
+   "dataset": "wrf-python/cartopy",
+   "reason": "No module named wrf",
+   "run": null
+  }
+ ],
+ "calls": [
+  [
+   "frames",
+   "/run",
+   1
+  ],
+  [
+   "open",
+   "/run/wrfout_b"
+  ],
+  [
+   "getvar",
+   "pressure",
+   1,
+   null
+  ]
+ ]
+}

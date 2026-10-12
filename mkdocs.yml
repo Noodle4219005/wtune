@@ -1,0 +1,78 @@
+site_name: WTune 教學
+site_description: 不改 WRF 原始碼的 WRF 調校、分段執行與後處理工具
+repo_url: https://github.com/Noodle4219005/wtune
+repo_name: wtune
+docs_dir: docs
+site_dir: site
+
+theme:
+  name: material
+  language: zh-TW
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - content.code.copy
+    - search.suggest
+    - search.highlight
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-night
+        name: 切換到深色
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-sunny
+        name: 切換到淺色
+
+plugins:
+  - search:
+      lang: [zh, en]
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.highlight
+  - pymdownx.inlinehilite
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+
+nav:
+  - 首頁: index.md
+  - 教學:
+      - 1. 安裝: tutorial/install.md
+      - 2. 第一次跑完整流程: tutorial/quickstart.md
+      - 3. Project 資料夾: tutorial/project.md
+      - 4. 調校 (tune): tutorial/tune.md
+      - 5. 執行與監看 (run / watch): tutorial/run.md
+      - 6. 後處理 (post): tutorial/post.md
+  - 進階:
+      - 自動改什麼、只建議什麼: guide/compliance.md
+      - 提交前檢查與時間預測: guide/predict.md
+      - 用 YAML 限制搜尋空間: guide/config.md
+      - 建議類指令: guide/advice.md
+      - WRF 擴展: guide/extensions.md
+      - 常見問題與已知限制: guide/faq.md
+  - 參考:
+      - 指令總表: reference/cli.md
+      - 環境變數: reference/env.md
+  - 開發者:
+      - 審查地圖: REVIEW_MAP.md
+      - wtune run 設計筆記: WTUNE_RUN.md
+      - 程式風格: CODE_STYLE.md

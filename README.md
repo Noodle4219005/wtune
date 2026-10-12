@@ -1,6 +1,7 @@
 # wtune — profile-guided, compliance-aware WRF performance and physics configuration autotuner (decision 0050)
 
 > 第一次使用？直接跳到 [教學：從零開始用 WTune](#教學從零開始用-wtune)。
+> 教學網站（MkDocs）：`pixi run --manifest-path envs/docs/pixi.toml serve`，原始檔在 `docs/`。
 
 WTune = profile-guided, compliance-aware WRF performance and physics configuration autotuner
 (decision 0050). The full autotuner pipeline — profile → diagnosis → ceiling → candidates →

@@ -13,3 +13,5 @@ catboost_info/
 envs/postproc/.spack-env/
 envs/postproc/spack.lock
 envs/cartopy-data/
+# mkdocs build output
+site/

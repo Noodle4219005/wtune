@@ -1,0 +1,16 @@
+[workspace]
+name = "wtune-docs"
+description = "MkDocs site for docs/ (mkdocs.yml at the repo root)."
+channels = ["conda-forge"]
+platforms = ["linux-64", "linux-aarch64"]
+version = "0.1.0"
+
+[dependencies]
+python = "3.12.*"
+mkdocs = ">=1.6,<2"
+mkdocs-material = ">=9.5,<10"
+jieba = "*"               # Chinese word segmentation for the search index
+
+[tasks]
+serve = "mkdocs serve -f ../../mkdocs.yml"
+build = "mkdocs build --strict -f ../../mkdocs.yml"

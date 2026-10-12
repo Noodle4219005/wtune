@@ -3,6 +3,35 @@
 Versions are declared in `wtune_version.py`; `test_wtune_version.py` fails if the top section
 here does not match it. Development before 0.1.0 is in the git history, not in releases.
 
+## 0.9.0 — 2026-10-12
+
+Main code made small enough to review; behaviour of the tune -> run -> post path is unchanged
+unless listed here.
+
+**One package.** Everything lives under `src/wtune/` (`wtune.cli`, `wtune.tune`, `wtune.run`,
+`wtune.post`, ...); the `wtune_*` top-level modules and import aliases are gone. Code no command
+reaches moved to `archive/unused-2026-10/`; nine early commands and the predicted-ranking mode
+of `wtune tune` are retired. `docs/REVIEW_MAP.md` lists what is left and where to start.
+
+**New commands.** `wtune submit` runs tune -> run -> post for a project in one command;
+`wtune doctor` checks that the machine and project are ready. Commands read their defaults
+from `project.yaml`. `wtune submit` tunes at `-O2`.
+
+**Run.** Auto-resume from the last valid restart, checkpoints and an optional sidecar;
+`--out` that already holds a run is refused before planning; ADIOS2 output directories are
+created up front; job-state, restart and layout-override fixes.
+
+**Tune.** Every measurement is kept and a `sacct` failure no longer loses a round; a dirty
+winner is re-measured; the first node sweep fits a small `--minutes`; BP inputs are converted
+at the first real probe submission.
+
+**Post and checks.** `post compare` fails closed, figures report their own errors, winds are
+earth-relative, a partial Stage IV download is reported. `check`/`predict` validate namelist
+syntax, ranges and `nproc -1`; iofields lines are merged when staged.
+
+**Docs.** MkDocs tutorial site under `docs/` (`pixi run --manifest-path envs/docs/pixi.toml
+serve`), with a public build config.
+
 ## 0.8.2 — 2026-10-03
 
 Found on a long real case (climate-ea50: 13-month East-Asia 50 km run, 14 restart segments).

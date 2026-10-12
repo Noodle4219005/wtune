@@ -497,7 +497,7 @@
   "rc": 0,
   "script": "src/wtune",
   "stderr": "",
-  "stdout": "wtune 0.8.2\n"
+  "stdout": "wtune 0.9.0\n"
  },
  "watch-no-args": {
   "argv": [

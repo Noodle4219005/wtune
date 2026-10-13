@@ -160,7 +160,7 @@ def test_machine_block_reaches_every_command(project, no_machine_env, monkeypatc
     monkeypatch.setenv("WTUNE_PARTITION", "debug")       # set by hand: kept
     proj.apply_project_env(project, _doc(project))
     assert _machine() == (64, 20, "debug", [])
-    assert ("machine: cores_per_node=64 max_nodes=20 partition=batch login_nodes=-"
+    assert ("machine: cores_per_node=64 max_nodes=20 partition=batch login_nodes=- account=-"
             in proj.info_project(project))
 
 
@@ -169,6 +169,14 @@ def test_without_a_machine_block_the_built_in_values_apply(project, no_machine_e
     assert _machine() == (72, 13, "compute", ["head"])
     assert ("machine: cores_per_node=72 max_nodes=13 partition=compute login_nodes=head"
             in proj.info_project(project))
+
+
+def test_account_goes_on_every_job_of_the_project(project, no_machine_env, monkeypatch):
+    assert proj.main(["set", "--project", project, "--account", "proj42"]) == 0
+    proj.apply_project_env(project, _doc(project))
+    assert wtune.machine.account_arg() == "--account=proj42"
+    cmd = post_cli.srun_command(["recipe", "runs/r1"])
+    assert cmd[:5] == ["srun", "-p", "compute", "--exclude=head,work1", "--account=proj42"]
 
 
 def test_project_set_machine_flags(project, capsys):
@@ -184,7 +192,7 @@ def test_project_set_machine_flags(project, capsys):
 
 @pytest.mark.parametrize("block, message", [
     ({"cores": 64}, "unknown key"), ({"cores_per_node": 0}, "positive integer"),
-    ({"max_nodes": "many"}, "positive integer"), ({"partition": " "}, "partition name"),
+    ({"max_nodes": "many"}, "positive integer"), ({"partition": " "}, "must be a name"),
     ({"login_nodes": 3}, "list of node names"), ("compute", "must be a mapping")])
 def test_a_bad_machine_block_is_a_project_error(block, message):
     with pytest.raises(proj.ProjectError, match=message):
@@ -336,5 +344,5 @@ def test_submit_refuses_outside_project(tmp_path, monkeypatch, capsys):
 def test_post_srun_command_excludes_head_and_project_nodes(monkeypatch):
     monkeypatch.setenv("WTUNE_SBATCH_EXCLUDE", "work1")
     cmd = post_cli.srun_command(["recipe", "runs/r1"])
-    assert cmd[:2] == ["srun", "--exclude=head,work1"]
+    assert cmd[:4] == ["srun", "-p", "compute", "--exclude=head,work1"]
     assert cmd[-3:] == ["post", "recipe", "runs/r1"]

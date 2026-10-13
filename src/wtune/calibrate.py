@@ -161,10 +161,11 @@ def build_decomp(nl, max_dom, ranks, min_patch):
 
 
 def _scheduler_fields() -> dict:
-    """The partition and the login-node exclude line of the sbatch templates below."""
+    """The partition, and the exclude and account lines, of the sbatch templates below."""
     login = wtune.machine.login_nodes()
-    return dict(partition=wtune.machine.partition(),
-                exclude="#SBATCH --exclude=%s\n" % ",".join(login) if login else "")
+    lines = ["#SBATCH --exclude=%s\n" % ",".join(login) if login else "",
+             "#SBATCH %s\n" % wtune.machine.account_arg() if wtune.machine.account_arg() else ""]
+    return dict(partition=wtune.machine.partition(), exclude="".join(lines))
 
 
 PLAN_SBATCH_TEMPLATE = """#!/usr/bin/env bash

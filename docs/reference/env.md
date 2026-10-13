@@ -23,6 +23,7 @@ source ~/wtune-scc/env.sh       # scc：一次設好 WRF 與編譯器相關的�
 | `WTUNE_MAX_NODES` | 一個 job 最多用幾個節點 | `13` |
 | `WTUNE_PARTITION` | Slurm partition | `compute` |
 | `WTUNE_LOGIN_NODES` | 不送工作的節點，逗號分隔。設成空字串代表沒有 | `head` |
+| `WTUNE_ACCOUNT` | Slurm 的計畫帳號 | 不指定 |
 
 ```bash
 export WTUNE_SBATCH_EXCLUDE=work1
@@ -30,7 +31,7 @@ export WTUNE_SBATCH_EXCLUDE=work1
 
 `wtune project init` 沒給 `--exclude-nodes` 時，會把這個變數的值寫進 `project.yaml`。
 
-後四個是機器規格，平常寫在 `project.yaml` 的 [machine](../tutorial/project.md#machine) 區塊就好。手動設了環境變數時，環境變數優先。
+後五個是機器規格，平常寫在 `project.yaml` 的 [machine](../tutorial/project.md#machine) 區塊就好。手動設了環境變數時，環境變數優先。
 
 ## 後處理
 

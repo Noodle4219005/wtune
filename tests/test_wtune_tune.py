@@ -2347,7 +2347,8 @@ def test_preflight_no_home_node_and_probe_command_shape():
                                        reason="probe failed rc=3: no $HOME")
     assert h["nodes"]["work5"]["ok"] and h["failed"] == ["work2"]
     srun = next(a for a in log if a[0] == "srun" and "work5" in a)
-    assert srun[:9] == ["srun", "-w", "work5", "-N1", "-n1", "-t", "1", "--exclude=head", "bash"]
+    assert srun[:11] == ["srun", "-p", "compute", "-w", "work5", "-N1", "-n1", "-t", "1",
+                         "--exclude=head", "bash"]
     script = srun[-1]
     for needle in ("$HOME", "/case", "/src", "/wrf/main/wrf.exe"):
         assert needle in script

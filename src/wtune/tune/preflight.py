@@ -59,8 +59,9 @@ def _probe_node(runner: Runner, n: str, state: str, script: str,
     """(node, {state, ok, probed, reason}) of one srun probe; a timeout on an ALLOCATED node
     only means it is busy: kept, unprobed."""
     login = wtune.machine.login_nodes()
-    argv = (["srun", "-w", n, "-N1", "-n1", "-t", "1"]
-            + (["--exclude=" + ",".join(login)] if login else []) + ["bash", "-c", script])
+    argv = (["srun", "-p", wtune.machine.partition(), "-w", n, "-N1", "-n1", "-t", "1"]
+            + [a for a in ("--exclude=" + ",".join(login) if login else "",
+                           wtune.machine.account_arg()) if a] + ["bash", "-c", script])
     try:
         rc, out = runner(argv, timeout_s)
     except subprocess.TimeoutExpired:
@@ -90,7 +91,8 @@ def node_preflight(runner: Runner, *, case_dir: str, src_dir: str, wrf_exe: str,
                   max_nodes_effective=int(requested), probe_s=0.0)
     user = [n.strip() for n in os.environ.get("WTUNE_SBATCH_EXCLUDE", "").split(",") if n.strip()]
     try:
-        rc, text = runner(["sinfo", "-h", "-N", "-o", "%n %T"], SINFO_TIMEOUT_S)
+        rc, text = runner(["sinfo", "-h", "-N", "-p", wtune.machine.partition(), "-o", "%n %T"],
+                          SINFO_TIMEOUT_S)
         if rc != 0:
             raise OSError("sinfo rc=%d: %s" % (rc, text))
     except (OSError, subprocess.SubprocessError) as e:

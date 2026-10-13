@@ -91,6 +91,7 @@ machine:
   max_nodes: 20            # 一個 job 最多用幾個節點，內建 13
   partition: batch         # Slurm partition，內建 compute
   login_nodes: [login1]    # 不送工作的節點，內建 [head]；[] 代表沒有
+  account: myproject       # Slurm 的計畫帳號，內建不指定
 ```
 
 | key | 影響 |
@@ -99,6 +100,7 @@ machine:
 | `max_nodes` | `wtune tune` 搜尋節點數的上限。`--max-nodes` 和 `wtune.yaml` 的 `budget.max_nodes` 只能再往下調 |
 | `partition` | 每個 `sbatch` 和收尾轉檔 `srun` 用的 partition |
 | `login_nodes` | 每個 job 一律排除的節點，和 `exclude_nodes` 合併 |
+| `account` | 每個 `sbatch`、`srun` 加上 `--account=`。依計畫計費的機器不給會被拒絕 |
 
 `cores_per_node` 是節點的大小，不是每節點實際用幾核。實際用幾核由配置決定，`wtune tune` 會自己試少用幾核的配置。
 
@@ -116,7 +118,7 @@ error: project.yaml machine.cores_per_node: 'many' must be a positive integer
 ```
 
 !!! note "目前只在 scc 上驗證過"
-    這個區塊讓節點大小、節點數、partition 和登入節點可以換。MPI 的啟動方式和 WRF 的路徑仍由 `campaign/sites/scc.sh` 決定，換機器時那個檔也要準備一份。
+    這個區塊讓節點大小、節點數、partition、登入節點和計畫帳號可以換。MPI 的啟動方式和 WRF 的路徑仍由 `campaign/sites/scc.sh` 決定，換機器時那個檔也要準備一份。
 
 ## project set
 
@@ -125,7 +127,7 @@ error: project.yaml machine.cores_per_node: 'many' must be a positive integer
 ```bash
 wtune project set --exclude-nodes work1,work7
 wtune project set --cores-per-node 64 --max-nodes 20
-wtune project set --partition batch --login-nodes login1
+wtune project set --partition batch --login-nodes login1 --account myproject
 wtune project set --post-every 1d
 wtune project set --post-types tc,convection
 wtune project set --post-fetch era5,stage4

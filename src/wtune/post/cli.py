@@ -592,11 +592,11 @@ def srun_command(post_argv: list[str], minutes: int = POST_JOB_MINUTES) -> list[
     """`wtune post <post_argv>` as one exclusive compute-node job step, avoiding the same nodes
     as every other wtune job (head, $WTUNE_SBATCH_EXCLUDE / project exclude_nodes)."""
     src = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    import wtune.machine
     from wtune.tools import scc_sweep
     wtune_bin = os.path.join(os.path.dirname(src), "bin", "wtune")
-    exclude = scc_sweep.exclude_arg()
-    return (["srun"] + ([exclude] if exclude else []) + ["-N1", "--exclusive",
-             "-t", str(minutes), wtune_bin, "post"] + list(post_argv))
+    return (["srun", "-p", wtune.machine.partition()] + scc_sweep.scheduler_args().split()
+            + ["-N1", "--exclusive", "-t", str(minutes), wtune_bin, "post"] + list(post_argv))
 
 
 def _pop_srun_minutes(argv: list[str]) -> tuple[list[str], int]:

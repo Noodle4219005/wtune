@@ -2581,6 +2581,8 @@ def _sbatch_directive_lines(plan, nodes, ppn, n_windows, per_window_estimate_min
     # merged with the controller's own node-health pre-flight failures (scc_sweep.excluded_nodes)
     if sbatch_excluded_nodes():
         lines.append("#SBATCH --exclude=%s" % ",".join(sbatch_excluded_nodes()))
+    if wtune.machine.account_arg():
+        lines.append("#SBATCH " + wtune.machine.account_arg())
     lines.append("#SBATCH -N %d --exclusive --ntasks-per-node=%d" % (nodes, ppn))
     lines.append("#SBATCH --time=%s" % time_str)
     lines.append("#SBATCH --signal=B:USR1@90")

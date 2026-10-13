@@ -316,6 +316,11 @@ def exclude_arg():
     return "--exclude=" + ",".join(nodes) if nodes else ""
 
 
+def scheduler_args():
+    """exclude_arg() and the machine's --account, space-joined; '' when neither applies."""
+    return " ".join(a for a in (exclude_arg(), wtune.machine.account_arg()) if a)
+
+
 def build_sbatch_command(case, nodes, cores_per_node, time_limit, timeout_s, reps, steps,
                           configs_path, out_dir, env_source=DEFAULT_ENV_SOURCE,
                           sbatch_script=DEFAULT_SBATCH_SCRIPT, campaign_dir=None, extra_export=None):
@@ -336,7 +341,7 @@ def build_sbatch_command(case, nodes, cores_per_node, time_limit, timeout_s, rep
     export += ",CONFIG_FILE=%s" % configs_path      # kept LAST, exactly as before
     sbatch = ("sbatch -p %s -N %d --ntasks-per-node=%d --exclusive %s "
               "--time=%s --job-name=sw-%s-n%d --output=%s/sweep-%%j.out --export=%s %s"
-              % (wtune.machine.partition(), nodes, cores_per_node, exclude_arg(), time_limit,
+              % (wtune.machine.partition(), nodes, cores_per_node, scheduler_args(), time_limit,
                  case, nodes, out_dir, export, _expand(sbatch_script)))
     return "source %s; %s" % (_expand(env_source), sbatch)
 

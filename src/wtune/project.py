@@ -194,9 +194,9 @@ def project_machine(project_doc):
         if key in ("cores_per_node", "max_nodes"):
             if isinstance(value, bool) or not isinstance(value, int) or value < 1:
                 raise ProjectError("%s: %r must be a positive integer" % (where, value))
-        elif key == "partition":
-            if not isinstance(value, str) or not value.strip():
-                raise ProjectError("%s: %r must be a partition name" % (where, value))
+        elif key in ("partition", "account"):
+            if not isinstance(value, str) or (key == "partition" and not value.strip()):
+                raise ProjectError("%s: %r must be a name" % (where, value))
             value = value.strip()
         else:
             names = value.split(",") if isinstance(value, str) else value
@@ -211,6 +211,7 @@ def machine_line(project_doc):
     """'machine: cores_per_node=72 ...': the project's values over the built-in ones."""
     values = dict(wtune.machine.DEFAULTS, **project_machine(project_doc))
     values["login_nodes"] = ",".join(values["login_nodes"]) or "-"
+    values["account"] = values["account"] or "-"
     return "machine: " + " ".join("%s=%s" % (k, values[k]) for k in wtune.machine.DEFAULTS)
 
 
@@ -711,6 +712,8 @@ def build_parser():
     p_set.add_argument("--partition", default=None, help="Slurm partition (built-in compute)")
     p_set.add_argument("--login-nodes", default=None,
                        help="nodes no job is sent to, comma list, '' = none (built-in head)")
+    p_set.add_argument("--account", default=None,
+                       help="Slurm account of every job, '' = none (built-in none)")
     p_set.add_argument("--post-every", default=None, help="e.g. 6h, 1d; 'none' clears")
     p_set.add_argument("--post-types", default=None, help="'auto' or e.g. 'tc,convection'")
     p_set.add_argument("--post-fetch", default=None,

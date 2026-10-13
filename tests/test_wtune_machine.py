@@ -24,7 +24,8 @@ def scc(monkeypatch):
 @pytest.fixture
 def other_machine(scc, monkeypatch):
     for name, value in (("WTUNE_CORES_PER_NODE", "64"), ("WTUNE_MAX_NODES", "20"),
-                        ("WTUNE_PARTITION", "batch"), ("WTUNE_LOGIN_NODES", "")):
+                        ("WTUNE_PARTITION", "batch"), ("WTUNE_LOGIN_NODES", ""),
+                        ("WTUNE_ACCOUNT", "proj42")):
         monkeypatch.setenv(name, value)
 
 
@@ -51,7 +52,8 @@ def test_a_bad_count_is_refused(scc, monkeypatch, bad):
 def test_segment_job_asks_for_that_machine(other_machine):
     text = sbatch.render_segment_sbatch("/seg", 0, layout.make_config(8, 16, 1, 1, nodes=2),
                                         "01:00:00", "job")
-    assert "#SBATCH -p batch -N 2 --exclusive --ntasks-per-node=64 --time=01:00:00\n" in text
+    assert ("#SBATCH -p batch -N 2 --exclusive --ntasks-per-node=64 --time=01:00:00 "
+            "--account=proj42\n") in text
     assert "--exclude" not in text
 
 
@@ -60,6 +62,7 @@ def test_segment_job_on_scc_is_unchanged(scc):
                                         "01:00:00", "job")
     assert ("#SBATCH -p compute -N 2 --exclusive --ntasks-per-node=72 --time=01:00:00 "
             "--exclude=head\n") in text
+    assert "--account" not in text
 
 
 def test_layout_is_checked_against_the_node_size(other_machine):
@@ -72,7 +75,7 @@ def test_probe_job_asks_for_that_machine(other_machine):
     assert scc_sweep.exclude_arg() == ""
     cmd = scc_sweep.build_sbatch_command("c", 2, wtune.machine.cores_per_node(), "00:10:00",
                                          600, 1, 20, "/c.json", "/out")
-    assert "sbatch -p batch -N 2 --ntasks-per-node=64 --exclusive " in cmd
+    assert "sbatch -p batch -N 2 --ntasks-per-node=64 --exclusive --account=proj42 " in cmd
     assert "--exclude" not in cmd
 
 

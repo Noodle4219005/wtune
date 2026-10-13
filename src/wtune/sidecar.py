@@ -83,7 +83,8 @@ def in_job_srun(job_id: str, cores: list, cores_per_node: int, nodes: int) -> li
 def own_srun(cores_per_node: int, exclude_arg: str) -> list[str]:
     """srun prefix: one whole node of its own (the run's allocation is gone)."""
     return (["srun", "-p", wtune.machine.partition(), "-N1", "-n1", "-c", str(cores_per_node),
-             "--time=%s" % FINAL_TIME] + ([exclude_arg] if exclude_arg else []))
+             "--time=%s" % FINAL_TIME]
+            + [a for a in (exclude_arg, wtune.machine.account_arg()) if a])
 
 
 def convert_argv(run_dir: str, cache_root: str, frames: Iterable[str],

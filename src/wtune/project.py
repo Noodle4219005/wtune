@@ -721,6 +721,9 @@ def build_parser():
     p_set.add_argument("--max-hours", type=float, default=None,
                        help="longest job the partition accepts; jobs are planned and capped "
                             "to fit (built-in 0 = no cap)")
+    p_set.add_argument("--max-omp", type=int, default=None,
+                       help="most threads per rank WRF runs with here: 1 for a build without "
+                            "OpenMP (built-in 0 = no cap)")
     p_set.add_argument("--measured", action="append", default=None, metavar="NAME=NUMBER",
                        help="a number measured on this machine that replaces the built-in scc "
                             "one, e.g. noise_frac=0.05 (names: wtune.machine.MEASURED)")

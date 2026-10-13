@@ -146,6 +146,7 @@ def _build_ctx(args: argparse.Namespace, o: _RunOptions, ns: _NodeChoice, case_j
     ledger_dir = sweep._expand(args.ledger_dir)
     ledger_reader = ledger_reader or (lambda case, job_ids: default_ledger_reader(
         ledger_dir, case, job_ids))
+    extension_omp_cap = wtune.extensions.omp_cap_for_namelist(namelist_path)
     return Ctx(case=o.case, case_json=case_json, namelist_path=namelist_path, nodes=ns.nodes,
                cores_per_node=args.cores_per_node, hardware_id=args.hardware_id, steps=steps,
                seed=args.seed, kappa=args.kappa,
@@ -157,7 +158,8 @@ def _build_ctx(args: argparse.Namespace, o: _RunOptions, ns: _NodeChoice, case_j
                sacct_runner=sacct_runner, scancel_runner=scancel_runner,
                ledger_reader=ledger_reader, proposer=proposer, clock=clock,
                search_cfg=o.cfg["search"], exclude_rules=o.cfg["exclude"], is_fire=is_fire,
-               omp_cap=wtune.extensions.omp_cap_for_namelist(namelist_path),
+               omp_cap=wtune.machine.omp_cap(extension_omp_cap),
+               extension_omp_cap=extension_omp_cap,
                chem_e_sn=wtune.extensions.chem_e_sn_for_namelist(namelist_path),
                confirm_reps=o.confirm_reps, prediction_cfg=o.cfg["prediction"],
                probe_cfg=o.cfg["probe"], ranking_start_note=ranking_start_note,
@@ -396,7 +398,7 @@ def _run_pipeline_mode(ctx: Ctx, profile: dict, args: argparse.Namespace, o: _Ru
         min_efficiency=ns.min_efficiency, k_finalists=ns.node_finalists,
         nodes_policy=o.nodes_policy,
         sweep_budget_frac=ns.sweep_budget_frac, core_options=ns.core_options,
-        extension=bool(ext_notes or ctx.omp_cap or ctx.chem_e_sn),
+        extension=bool(ext_notes or ctx.extension_omp_cap or ctx.chem_e_sn),
         physics=bool(getattr(args, "physics_advice", False)),
         physics_max_candidates=int(getattr(args, "physics_max_candidates", None)
                                    or PIPELINE_PHYSICS_MAX_CANDIDATES),

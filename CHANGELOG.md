@@ -50,8 +50,7 @@ size, partition and hardware id instead of 448 cores on `cf448`.
 `archive/unused-2026-10/campaign/`.
 
 **f1-arm.** `campaign/sites/f1arm.sh` (144-core Grace nodes, two NUMA domains). `wtune submit`
-tunes with the project's own `wtune.yaml` when there is one, so a machine whose WRF has no
-OpenMP can keep `search.omp` at 1.
+tunes with the project's own `wtune.yaml` when there is one.
 
 **Tests on a cluster.** With Slurm on `PATH`, about 110 tests ran the real node preflight:
 `sinfo`, then one `srun` per idle node (1430 on scc in one run), and the nodes it then excluded
@@ -61,7 +60,9 @@ leaked into four later tests. The tests now see no Slurm unless they pass their 
 old job of the same number until slurmdbd had recorded the new one: a job just submitted read
 as FAILED. State, timing and MaxRSS queries now look at the last 30 days only. The node
 pre-flight no longer excludes a `mixed` node whose probe timed out: on a busy cluster that
-shares nodes it excluded every node that was not fully taken.
+shares nodes it excluded every node that was not fully taken. New machine setting `max_omp`
+(`--max-omp`, `WTUNE_MAX_OMP`): 1 for a WRF built without OpenMP. `search.omp` in a config does
+not bind the node sweep's ANCHOR; this cap does.
 
 ## 0.9.0 — 2026-10-12
 

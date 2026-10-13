@@ -182,3 +182,18 @@ def test_longest_job_of_the_partition_caps_time_limits(scc, monkeypatch):
     monkeypatch.setenv("WTUNE_MAX_HOURS", "soon")
     with pytest.raises(wtune.machine.MachineError, match="WTUNE_MAX_HOURS"):
         wtune.machine.max_hours()
+
+
+def test_max_omp_caps_threads_together_with_a_case_cap(monkeypatch):
+    monkeypatch.setenv("WTUNE_MAX_OMP", "")                 # restored afterwards; "" = not set
+    assert wtune.machine.max_omp() == 0 and wtune.machine.omp_cap() is None
+    assert wtune.machine.omp_cap(1) == 1                    # the case's own cap alone
+    wtune.machine.export(wtune.machine.check({"max_omp": 2}))
+    assert os.environ["WTUNE_MAX_OMP"] == "2"
+    caps = (wtune.machine.omp_cap(), wtune.machine.omp_cap(1), wtune.machine.omp_cap(4))
+    assert caps == (2, 1, 2)
+    with pytest.raises(wtune.machine.MachineError, match="number of threads"):
+        wtune.machine.check({"max_omp": -1})
+    monkeypatch.setenv("WTUNE_MAX_OMP", "two")
+    with pytest.raises(wtune.machine.MachineError, match="WTUNE_MAX_OMP"):
+        wtune.machine.max_omp()

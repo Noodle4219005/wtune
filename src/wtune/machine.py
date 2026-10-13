@@ -22,13 +22,15 @@ DEFAULTS = {"cores_per_node": 72,       # hardware cores of one compute node (sc
             "wrf_tree": "$HOME/wrf-stack/wrf/nvhpc-fast-adios2-dmsm/WRF",
             "geog": "/nfs/data/wrf/WPS_GEOG/",        # WPS static data
             "max_hours": 0,             # longest job the partition accepts; 0 = no cap
+            "max_omp": 0,               # threads per rank WRF runs with; 1 = no OpenMP, 0 = no cap
             "measured": {}}             # replacements for MEASURED below
 ENV = {"cores_per_node": "WTUNE_CORES_PER_NODE", "max_nodes": "WTUNE_MAX_NODES",
        "partition": "WTUNE_PARTITION", "login_nodes": "WTUNE_LOGIN_NODES",
        "account": "WTUNE_ACCOUNT", "hardware_id": "WTUNE_HARDWARE_ID",
        "numa_per_node": "WTUNE_NUMA_PER_NODE", "calibration": "WTUNE_CALIBRATION",
        "site": "WTUNE_SITE", "env_source": "WTUNE_ENV_SOURCE", "wrf_tree": "WRF_TREE",
-       "geog": "WPS_GEOG", "max_hours": "WTUNE_MAX_HOURS", "measured": "WTUNE_MEASURED"}
+       "geog": "WPS_GEOG", "max_hours": "WTUNE_MAX_HOURS", "max_omp": "WTUNE_MAX_OMP",
+       "measured": "WTUNE_MEASURED"}
 
 # Numbers measured on scc that estimates fall back on when nothing was measured for the
 # case at hand. Another machine replaces the ones it knows in its `measured:` map.
@@ -92,6 +94,10 @@ def check(block, where="machine") -> dict:
         elif key == "max_hours":
             if isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0:
                 raise MachineError("%s: %r must be a number of hours, 0 for no cap"
+                                   % (at, value))
+        elif key == "max_omp":
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise MachineError("%s: %r must be a number of threads, 0 for no cap"
                                    % (at, value))
         elif key == "measured":
             if not isinstance(value, dict):
@@ -242,6 +248,25 @@ def max_hours() -> float:
     if value < 0:
         raise MachineError("%s=%r: must be a number of hours" % (ENV["max_hours"], raw))
     return value
+
+
+def max_omp() -> int:
+    """Most OpenMP threads per rank this machine's WRF runs with (1: built without OpenMP);
+    0 when no cap is set."""
+    raw = os.environ.get(ENV["max_omp"], "").strip()
+    try:
+        value = int(raw) if raw else 0
+    except ValueError:
+        value = -1
+    if value < 0:
+        raise MachineError("%s=%r: must be a number of threads" % (ENV["max_omp"], raw))
+    return value
+
+
+def omp_cap(case_cap=None):
+    """The lower of a case's own thread cap (None: none) and max_omp(); None for no cap."""
+    caps = [c for c in (case_cap, max_omp()) if c]
+    return min(caps) if caps else None
 
 
 def cap_seconds(seconds: float) -> float:

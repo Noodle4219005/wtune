@@ -94,7 +94,8 @@ class Ctx:
     exclude_rules: list = dataclasses.field(default_factory=list)
     is_fire: bool = False
     chem_e_sn: Any = None              # e_sn list of an active WRF-Chem case (j-patch guard)
-    omp_cap: Any = None                # 1 for WRF-Chem/Hydro/WRFDA (dmpar-only builds)
+    omp_cap: Any = None                # threads per rank allowed: the extension's and the machine's
+    extension_omp_cap: Any = None      # 1 for WRF-Chem/Hydro/WRFDA (dmpar-only builds)
     confirm_reps: int = CONFIRM_REPS
     prediction_cfg: dict = dataclasses.field(
         default_factory=lambda: copy.deepcopy(wtune.config.DEFAULTS["prediction"]))

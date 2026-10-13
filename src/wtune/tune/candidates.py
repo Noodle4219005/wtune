@@ -32,9 +32,9 @@ def _apply_search_filter(ctx: Ctx, configs: list[dict]) -> list[dict]:
             if why:
                 print("config: %s %s" % (c.get("id"), why))
                 continue
-        if omp_cap and int(c.get("omp", 1) or 1) > omp_cap:   # dmpar-only extension build
+        if omp_cap and int(c.get("omp", 1) or 1) > omp_cap:   # dmpar-only build
             if exempt:
-                print("config: ANCHOR omp=%s dropped: OpenMP not supported by this extension build"
+                print("config: ANCHOR omp=%s dropped: above the thread cap of this WRF build"
                       % c.get("omp"))
             continue
         if wtune.config.candidate_allowed(c, ctx.search_cfg, ctx.exclude_rules, ctx.is_fire,

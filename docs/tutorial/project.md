@@ -100,6 +100,7 @@ machine:
   wrf_tree: ~/wrf/WRF      # WRF 的根目錄，底下有 main/wrf.exe
   geog: /data/WPS_GEOG     # WPS 的靜態地理資料
   max_hours: 8             # partition 允許的最長工作時數，內建 0（不設上限）
+  max_omp: 1               # 每個 rank 最多幾個執行緒；WRF 沒有 OpenMP 時設 1，內建 0（不限）
   measured:                # 這台機器自己量到的數字，取代內建的 scc 值
     noise_frac: 0.05
     restart_write_s_adios2: 2.4
@@ -120,6 +121,7 @@ machine:
 | `wrf_tree` | 等同環境變數 `WRF_TREE` |
 | `geog` | 等同環境變數 `WPS_GEOG`，重建個案時 geogrid 會用到 |
 | `max_hours` | 設了之後，`wtune run` 會把整段模擬切成每段都跑得完的長度，探測與重建工作的時限也不會超過它。不設就和以前一樣 |
+| `max_omp` | WRF 是沒有 OpenMP 的編譯（dmpar）時設 1：調校從節點掃描的基準組態開始就只用單執行緒，不會留一半核心閒置。不設就和以前一樣 |
 | `measured` | 見下方「measured」 |
 
 新機器至少要給 `cores_per_node`、`hardware_id`、`numa_per_node`。沿用 `scc-gh200` 這個名字卻改了核心數會直接報錯，避免別台機器的量測混進 scc 的紀錄。
@@ -222,12 +224,14 @@ wtune project set --register-case
 
 ## 專案自己的調校設定
 
-專案資料夾裡如果有 `wtune.yaml`，`wtune submit` 會把它當成 `wtune tune --config`。只寫要限制的項目即可，其餘用內建值。例如 WRF 是沒有 OpenMP 的編譯（dmpar）時，把每個 rank 的執行緒數固定為 1：
+專案資料夾裡如果有 `wtune.yaml`，`wtune submit` 會把它當成 `wtune tune --config`。只寫要限制的項目即可，其餘用內建值。例如只想試 1 和 2 個執行緒：
 
 ```yaml
 search:
-  omp: [1]
+  omp: [1, 2]
 ```
+
+`search` 的限制不會套到節點掃描的基準組態。整台機器的 WRF 都沒有 OpenMP 時，用 `machine` 的 `max_omp: 1`。
 
 ## manifest.jsonl
 

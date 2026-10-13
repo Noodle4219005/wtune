@@ -33,6 +33,7 @@ if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
 
 import wtune.machine
+import wtune.nodes
 from wtune import cli as wt                     # repo root: parse_namelist/_parse_nl_kv/extract_case/...
 from wtune import physics as phys           # physics knowledge base + advisor
 from wtune import shape as shape            # patch_dims/tiling (MIN_PATCH=10, cost-model constants)
@@ -65,7 +66,6 @@ DYN_WEIGHT = 5.0
 # are printed with every prediction precisely so a later strong-scaling run can refute them.
 HALO_H = wt.HALO
 C_HALO = 1.0
-NODE_COUNTS_TO_CHECK = (1, 2, 4, 8, 13)
 
 
 def efficiency(px, py, c=C_HALO, h=HALO_H):
@@ -356,7 +356,7 @@ def _build_core_priors(we_list, sn_list, doms, dom_i, cores_per_node):
     dom = doms[dom_i]
 
     table = []
-    for n in NODE_COUNTS_TO_CHECK:
+    for n in wtune.nodes.seed_counts(wtune.machine.max_nodes()):
         ranks = n * cores_per_node
         pair = least_aspect_legal(we_list, sn_list, ranks, min_patch)
         if pair is None:

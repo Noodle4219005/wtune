@@ -126,11 +126,20 @@ def finalists(rows, objective, k=2, within=0.10, **choose_kwargs):
 # ---------------------------------------------------------------------------
 # coarse-to-fine node search
 # ---------------------------------------------------------------------------
+def seed_counts(max_nodes):
+    """The powers of two below max_nodes, then max_nodes itself: 13 -> [1, 2, 4, 8, 13]."""
+    out, n = [], 1
+    while n < int(max_nodes):
+        out.append(n)
+        n *= 2
+    return out + [int(max_nodes)]
+
+
 def seed_nodes(legal, max_nodes):
-    """Geometric seeds {1, 2, 4, 8, max_nodes} intersected with the legal node counts (the
-    smallest legal N when none of them is legal)."""
+    """seed_counts(max_nodes) intersected with the legal node counts (the smallest legal N
+    when none of them is legal)."""
     legal = sorted(set(int(n) for n in legal))
-    seeds = sorted({1, 2, 4, 8, int(max_nodes)} & set(legal))
+    seeds = sorted(set(seed_counts(max_nodes)) & set(legal))
     return seeds or legal[:1]
 
 

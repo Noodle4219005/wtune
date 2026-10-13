@@ -23,6 +23,7 @@ for _p in (_HERE, _CAMPAIGN_DIR):
         sys.path.insert(0, _p)
 
 import wtune.machine
+import wtune.nodes
 from wtune import compliance as wc
 
 # ---------------------------------------------------------------------------
@@ -31,7 +32,6 @@ from wtune import compliance as wc
 # ---------------------------------------------------------------------------
 DEFAULT_SITE = "scc"
 DEFAULT_HARDWARE_ID = "scc-gh200"
-AUTO_NODE_COUNTS = (1, 2, 4, 8, 13)     # scc_sweep DEFAULT_NODES; `config show` preview only
 NODES_POLICY_CHOICES = ("min", "cap", "knee")
 IO_TARGETS = ("nfs", "local")           # wtune.predict's own calibration targets (machine/calibration/*.json)
 EXCLUDE_WHEN_VALUES = ("fire",)
@@ -665,7 +665,8 @@ def resolve_node_counts(budget_cfg: dict) -> list[int]:
     nodes = budget_cfg.get("nodes")
     max_nodes = budget_cfg.get("max_nodes") or wtune.machine.max_nodes()
     if nodes in (None, "auto", "search"):  # "search": measured node sweep, same preview set
-        counts = [n for n in AUTO_NODE_COUNTS if n <= max_nodes]
+        seeds = wtune.nodes.seed_counts(wtune.machine.max_nodes())   # `config show` preview only
+        counts = [n for n in seeds if n <= max_nodes]
         return counts or [max_nodes]
     if isinstance(nodes, list):
         return [int(n) for n in nodes]

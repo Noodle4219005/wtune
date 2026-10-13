@@ -98,8 +98,8 @@ def choose_nodes_cap(profile: dict, max_nodes: int) -> tuple[int, str]:
 
 
 def choose_nodes_knee(profile: dict, max_nodes: int) -> tuple[int, str]:
-    """policy=knee (default): stop at the first legal node count whose next doubling (wtune.case
-    checkpoints 1,2,4,8,13) has a predicted speed-up n_j*E(n_j) / (n_i*E(n_i)) below 1.5x."""
+    """policy=knee (default): stop at the first legal node count whose next profile row
+    (wtune.nodes.seed_counts) has a predicted speed-up n_j*E(n_j) / (n_i*E(n_i)) below 1.5x."""
     rows = _legal_rows(profile, max_nodes)
     if not rows:
         return 1, "policy=knee: no legal node count in the profile table; defaulting to nodes=1"
@@ -222,10 +222,10 @@ def run_node_sweep(ctx: Ctx, legal_nodes: list[int],
                    chooser: Callable | None = None, on_wave: Callable | None = None,
                    refine: Callable[[], bool] = lambda: True) -> dict:
     """Coarse-to-fine sweep of one REPS=2 ANCHOR job per N with a legal ANCHOR (_sweep_anchor):
-    the seeds {1,2,4,8,max} in ascending waves with an early stop upward, then the untested legal
-    neighbours of the best N (`chooser`) until they are measured; `budget_frac` of what is left
-    caps it. Returns {measurements, anchors, results, skipped (with reasons), jobs, legal,
-    maxrss_mb}."""
+    the seeds (wtune.nodes.seed_counts) in ascending waves with an early stop upward, then
+    the untested legal neighbours of the best N (`chooser`) until they are measured;
+    `budget_frac` of what is left caps it. Returns {measurements, anchors, results, skipped
+    (with reasons), jobs, legal, maxrss_mb}."""
     chooser = chooser or (lambda rows: wtune.nodes.choose(rows, "time")[0])
     skipped, anchors = [], {}
     for n in wtune.nodes.candidate_node_counts(legal_nodes, ctx.max_nodes):

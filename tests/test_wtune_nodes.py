@@ -100,6 +100,8 @@ def test_value_errors():
 def test_seed_nodes_and_refine_targets():
     legal = list(range(1, 14))
     assert wn.seed_nodes(legal, 13) == [1, 2, 4, 8, 13]
+    assert wn.seed_nodes(range(1, 65), 64) == [1, 2, 4, 8, 16, 32, 64]
+    assert [wn.seed_counts(m) for m in (1, 8, 20)] == [[1], [1, 2, 4, 8], [1, 2, 4, 8, 16, 20]]
     assert wn.seed_nodes([3, 5, 6], 13) == [3]                    # no seed legal -> smallest legal
     known = {1, 2, 4, 8, 13}
     assert wn.refine_targets(4, known, legal) == [3, 5]           # nearest legal each side

@@ -69,14 +69,12 @@ from wtune.predictor import experiment as campaign_experiment    # predictor/exp
                                              # stdlib only
 
 DEFAULT_HARDWARE_ID = "scc-gh200"
-DEFAULT_NODES = [1, 2, 4, 8, 13]
 DEFAULT_K = 12
 DEFAULT_SEED = 1
 DEFAULT_REPS = 1
 DEFAULT_STEPS = 30
 DEFAULT_ROOT = "$HOME/wtune-runs/sweep"
 DEFAULT_LEDGER_DIR = "$HOME/wtune-runs/campaign"          # campaign/sites/scc.sh's own $OUT
-DEFAULT_MAX_NODES_IN_FLIGHT = 13                           # == total compute nodes, work[1-13]
 DEFAULT_ENV_SOURCE = "$HOME/wtune-scc/env.sh"
 # The campaign/ of THIS source tree (resolved from __file__), not a fixed "$HOME/wtune/campaign":
 # on scc ~/wtune is a stale checkout (no RANKING_START, no write_adios2_restart_xml, no \037 TSV

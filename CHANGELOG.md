@@ -53,6 +53,10 @@ size, partition and hardware id instead of 448 cores on `cf448`.
 tunes with the project's own `wtune.yaml` when there is one, so a machine whose WRF has no
 OpenMP can keep `search.omp` at 1.
 
+**Tests on a cluster.** With Slurm on `PATH`, about 110 tests ran the real node preflight:
+`sinfo`, then one `srun` per idle node (1430 on scc in one run), and the nodes it then excluded
+leaked into four later tests. The tests now see no Slurm unless they pass their own runner.
+
 ## 0.9.0 — 2026-10-12
 
 Main code made small enough to review; behaviour of the tune -> run -> post path is unchanged

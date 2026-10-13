@@ -24,6 +24,9 @@ source ~/wtune-scc/env.sh       # scc：一次設好 WRF 與編譯器相關的�
 | `WTUNE_PARTITION` | Slurm partition | `compute` |
 | `WTUNE_LOGIN_NODES` | 不送工作的節點，逗號分隔。設成空字串代表沒有 | `head` |
 | `WTUNE_ACCOUNT` | Slurm 的計畫帳號 | 不指定 |
+| `WTUNE_HARDWARE_ID` | 這種節點在量測紀錄裡的名字 | `scc-gh200` |
+| `WTUNE_NUMA_PER_NODE` | 一個節點有幾個 NUMA 區 | `1` |
+| `WTUNE_CALIBRATION` | 這台機器的校準檔（絕對路徑） | `machine/calibration/scc.json` |
 
 ```bash
 export WTUNE_SBATCH_EXCLUDE=work1
@@ -31,7 +34,7 @@ export WTUNE_SBATCH_EXCLUDE=work1
 
 `wtune project init` 沒給 `--exclude-nodes` 時，會把這個變數的值寫進 `project.yaml`。
 
-後五個是機器規格，平常寫在 `project.yaml` 的 [machine](../tutorial/project.md#machine) 區塊就好。手動設了環境變數時，環境變數優先。
+後八個是機器規格，平常寫在 `project.yaml` 的 [machine](../tutorial/project.md#machine) 區塊就好。手動設了環境變數時，環境變數優先。
 
 ## 後處理
 

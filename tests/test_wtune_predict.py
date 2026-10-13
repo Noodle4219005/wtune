@@ -408,8 +408,9 @@ def test_short_run_not_segmented():
 # 4. parameter table / launch line
 # --------------------------------------------------------------------------
 
-def test_cores_per_node_comes_from_the_scc_calibration_else_112():
+def test_cores_per_node_comes_from_the_calibration_else_the_machine_setting(monkeypatch):
     assert wp.cores_per_node(wp.load_calibration(CALIBRATION)) == 72
+    monkeypatch.setenv("WTUNE_CORES_PER_NODE", "112")
     assert wp.cores_per_node({}) == wp.cores_per_node(None) == 112
     config = {"ranks": 288, "omp": 1, "nx": 16, "ny": 18, "numtiles": 1, "dist": "block"}
     scc = wp.build_param_table(config, 4, 2, "nfs", wp.cores_per_node(wp.load_calibration(CALIBRATION)))

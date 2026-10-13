@@ -11,10 +11,14 @@ DEFAULTS = {"cores_per_node": 72,       # hardware cores of one compute node (sc
             "max_nodes": 13,            # compute nodes one job may use (scc work[1-13])
             "partition": "compute",     # Slurm partition
             "login_nodes": ("head",),   # nodes no job is sent to
-            "account": ""}              # Slurm account, for sites that bill by project
+            "account": "",              # Slurm account, for sites that bill by project
+            "hardware_id": "scc-gh200",  # name of the node type in the measurement ledgers
+            "numa_per_node": 1,         # NUMA domains with cores in one node
+            "calibration": ""}          # calibration JSON of wtune.predict; "" = scc's
 ENV = {"cores_per_node": "WTUNE_CORES_PER_NODE", "max_nodes": "WTUNE_MAX_NODES",
        "partition": "WTUNE_PARTITION", "login_nodes": "WTUNE_LOGIN_NODES",
-       "account": "WTUNE_ACCOUNT"}
+       "account": "WTUNE_ACCOUNT", "hardware_id": "WTUNE_HARDWARE_ID",
+       "numa_per_node": "WTUNE_NUMA_PER_NODE", "calibration": "WTUNE_CALIBRATION"}
 
 
 class MachineError(ValueError):
@@ -38,8 +42,25 @@ def max_nodes() -> int:
     return _positive_int("max_nodes")
 
 
+def numa_per_node() -> int:
+    return _positive_int("numa_per_node")
+
+
+def _name(key: str) -> str:
+    return os.environ.get(ENV[key], "").strip() or DEFAULTS[key]
+
+
 def partition() -> str:
-    return os.environ.get(ENV["partition"], "").strip() or DEFAULTS["partition"]
+    return _name("partition")
+
+
+def hardware_id() -> str:
+    return _name("hardware_id")
+
+
+def calibration() -> str:
+    """Path of this machine's calibration file, or '' for the built-in one."""
+    return _name("calibration")
 
 
 def account_arg() -> str:

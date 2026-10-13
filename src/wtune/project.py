@@ -191,13 +191,18 @@ def project_machine(project_doc):
                                % (where, ", ".join(wtune.machine.DEFAULTS)))
         if value is None:
             continue
-        if key in ("cores_per_node", "max_nodes"):
+        if key in ("cores_per_node", "max_nodes", "numa_per_node"):
             if isinstance(value, bool) or not isinstance(value, int) or value < 1:
                 raise ProjectError("%s: %r must be a positive integer" % (where, value))
-        elif key in ("partition", "account"):
-            if not isinstance(value, str) or (key == "partition" and not value.strip()):
+        elif key in ("partition", "account", "hardware_id"):
+            if not isinstance(value, str) or (key != "account" and not value.strip()):
                 raise ProjectError("%s: %r must be a name" % (where, value))
             value = value.strip()
+        elif key == "calibration":
+            value = os.path.expanduser(value) if isinstance(value, str) else value
+            if not isinstance(value, str) or not os.path.isabs(value) or not os.path.isfile(value):
+                raise ProjectError("%s: %r must be the absolute path of an existing file"
+                                   % (where, value))
         else:
             names = value.split(",") if isinstance(value, str) else value
             if not isinstance(names, list) or not all(isinstance(n, str) for n in names):
@@ -212,6 +217,7 @@ def machine_line(project_doc):
     values = dict(wtune.machine.DEFAULTS, **project_machine(project_doc))
     values["login_nodes"] = ",".join(values["login_nodes"]) or "-"
     values["account"] = values["account"] or "-"
+    values["calibration"] = values["calibration"] or "built-in"
     return "machine: " + " ".join("%s=%s" % (k, values[k]) for k in wtune.machine.DEFAULTS)
 
 
@@ -714,6 +720,14 @@ def build_parser():
                        help="nodes no job is sent to, comma list, '' = none (built-in head)")
     p_set.add_argument("--account", default=None,
                        help="Slurm account of every job, '' = none (built-in none)")
+    p_set.add_argument("--hardware-id", default=None,
+                       help="name of the node type in the measurement ledgers (built-in "
+                            "scc-gh200); a machine the tool does not know needs its own")
+    p_set.add_argument("--numa-per-node", type=int, default=None,
+                       help="NUMA domains with cores in one node (built-in 1)")
+    p_set.add_argument("--calibration", default=None,
+                       help="calibration JSON of this machine (wtune calibrate fit); "
+                            "built-in: machine/calibration/scc.json")
     p_set.add_argument("--post-every", default=None, help="e.g. 6h, 1d; 'none' clears")
     p_set.add_argument("--post-types", default=None, help="'auto' or e.g. 'tc,convection'")
     p_set.add_argument("--post-fetch", default=None,
@@ -750,6 +764,9 @@ def main(argv=None):
             defaults = (args.exclude_nodes, args.post_every, args.post_types, args.post_fetch)
             machine = {k: getattr(args, k) for k in wtune.machine.DEFAULTS
                        if getattr(args, k) is not None}
+            if machine.get("calibration"):
+                machine["calibration"] = os.path.abspath(
+                    os.path.expanduser(machine["calibration"]))
             if any(v is not None for v in defaults) or args.register_case or machine:
                 doc = set_project_defaults(project_dir, *defaults, machine=machine,
                                            register_case=args.register_case, argv=full_argv)

@@ -13,7 +13,7 @@ from .common import (  # noqa: F401
     compute_slots, would_exceed_budget, chunk_round_robin, _parse_slurm_elapsed,
 )
 from .context import (  # noqa: F401
-    DEFAULT_STEPS, DEFAULT_SEED, DEFAULT_KAPPA, DEFAULT_HARDWARE_ID,
+    DEFAULT_STEPS, DEFAULT_SEED, DEFAULT_KAPPA,
     CONFIRM_REPS, DEFAULT_POLL_INTERVAL_S, DEFAULT_STARTUP_S, QueueCapExceeded, RealClock,
     default_scancel_runner, default_ledger_reader, Ctx, resolve_case, resolve_auto_probe_steps,
     _total_steps, cores_used, _namelist_dt,

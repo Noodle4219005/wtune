@@ -1084,12 +1084,14 @@ def _run_forwarded(args):
     if args.command in _PROJECT_AWARE:
         import wtune.machine
         import wtune.project
+        from wtune.predictor import features
         project_dir, doc = _project_for(argv)
         try:
             if project_dir:
                 wtune.project.apply_project_env(project_dir, doc)
-            wtune.machine.cores_per_node(), wtune.machine.max_nodes()
-        except (wtune.project.ProjectError, wtune.machine.MachineError) as e:
+            wtune.machine.max_nodes()
+            features.hardware(wtune.machine.hardware_id())
+        except (wtune.project.ProjectError, ValueError) as e:    # MachineError is a ValueError
             print("error: %s" % e, file=sys.stderr)
             return 2
     try:

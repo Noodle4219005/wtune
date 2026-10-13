@@ -13,7 +13,7 @@ import wtune.extensions
 import wtune.machine
 import wtune.nodes
 from ._deps import _HERE, sweep
-from .context import (CONFIRM_REPS, DEFAULT_HARDWARE_ID, DEFAULT_KAPPA,
+from .context import (CONFIRM_REPS, DEFAULT_KAPPA,
                       DEFAULT_POLL_INTERVAL_S, DEFAULT_SEED, DEFAULT_STEPS, Ctx, RealClock,
                       default_ledger_reader, default_scancel_runner, resolve_auto_probe_steps)
 from .estimates import DEFAULT_LEVEL, LEVELS
@@ -524,7 +524,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--kappa", type=float, default=DEFAULT_KAPPA)
     p.add_argument("--cores-per-node", type=int, default=wtune.machine.cores_per_node(),
                     dest="cores_per_node")
-    p.add_argument("--hardware-id", default=DEFAULT_HARDWARE_ID, dest="hardware_id")
+    p.add_argument("--hardware-id", default=wtune.machine.hardware_id(), dest="hardware_id")
     p.add_argument("--env-source", default=sweep.DEFAULT_ENV_SOURCE, dest="env_source")
     p.add_argument("--sbatch-script", default=sweep.DEFAULT_SBATCH_SCRIPT, dest="sbatch_script")
     p.add_argument("--ledger-dir", default=sweep.DEFAULT_LEDGER_DIR, dest="ledger_dir")

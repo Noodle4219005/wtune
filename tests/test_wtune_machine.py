@@ -5,6 +5,8 @@ import pytest
 import test_wtune_run  # noqa: F401  first: its wtune.run import restores SITE/configs
 import wtune.config
 import wtune.machine
+from wtune import predict
+from wtune.predictor import decomp_space, features
 from wtune.run import layout, sbatch
 from wtune.tools import scc_sweep
 
@@ -84,3 +86,39 @@ def test_config_node_cap_follows_the_machine(other_machine):
     assert not errors and cfg["budget"]["max_nodes"] == 20
     cfg, errors = wtune.config.resolve_config({"budget": {"max_nodes": 6}})
     assert not errors and cfg["budget"]["max_nodes"] == 6
+
+
+CASE = {"e_we": [150], "e_sn": [130], "max_dom": 1}
+
+
+def test_a_machine_the_table_does_not_know_is_described_by_its_settings(scc, monkeypatch):
+    for name, value in (("WTUNE_HARDWARE_ID", "newbox"), ("WTUNE_CORES_PER_NODE", "144"),
+                        ("WTUNE_NUMA_PER_NODE", "2")):
+        monkeypatch.setenv(name, value)
+    assert features.hardware("newbox") == dict(cores_per_node=144, cores_per_numa=72,
+                                               numa_per_node=2)
+    assert features.hardware("scc-gh200")["cores_per_node"] == 72      # the table still answers
+    assert features.hardware("elsewhere") == {}
+    assert decomp_space.default_omp_options(144, 1, "newbox") == [1, 2, 3, 4, 6, 8, 9, 12, 18,
+                                                                  24, 36, 72]
+    with pytest.raises(ValueError, match="unknown hardware_id 'elsewhere'"):
+        decomp_space.default_omp_options(144, 1, "elsewhere")
+
+
+def test_settings_that_contradict_a_known_machine_are_refused(scc, monkeypatch):
+    monkeypatch.setenv("WTUNE_CORES_PER_NODE", "64")           # still called scc-gh200
+    with pytest.raises(ValueError, match="give this machine its own machine.hardware_id"):
+        features.hardware("scc-gh200")
+    monkeypatch.setenv("WTUNE_HARDWARE_ID", "odd")
+    monkeypatch.setenv("WTUNE_NUMA_PER_NODE", "3")
+    with pytest.raises(ValueError, match="not a multiple of numa_per_node=3"):
+        features.hardware("odd")
+
+
+def test_calibration_file_follows_the_machine(scc, monkeypatch, tmp_path):
+    assert predict.calibration_path() == str(predict.DEFAULT_CALIBRATION)
+    mine = tmp_path / "newbox.json"
+    mine.write_text('{"site": "newbox", "cores_per_node": 144}')
+    monkeypatch.setenv("WTUNE_CALIBRATION", str(mine))
+    assert predict.calibration_path() == str(mine)
+    assert predict.cores_per_node(predict.load_calibration(predict.calibration_path())) == 144

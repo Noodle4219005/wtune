@@ -48,19 +48,24 @@ import sys
 from pathlib import Path
 from typing import Any
 
+import wtune.machine
 from wtune import runlength as runlen  # repo root: resolve_run_seconds, the single-sourced run_*
                                    # keys vs. start/end span resolver (stdlib only)
 
 HERE = Path(__file__).resolve().parent.parent
 DEFAULT_CALIBRATION = HERE.parent / "machine" / "calibration" / "scc.json"  # HERE is src/; machine/ stays at repo root
 
-CORES_PER_NODE = 112  # fallback only (f1); a calibration's "cores_per_node" wins (scc: 72)
+
+def calibration_path() -> str:
+    """This machine's calibration file (wtune.machine), else the built-in scc one."""
+    return wtune.machine.calibration() or str(DEFAULT_CALIBRATION)
 
 
 def cores_per_node(calibration=None):
-    """Cores per node of the machine the calibration describes; CORES_PER_NODE when unknown."""
+    """Cores per node of the machine the calibration describes; the machine setting when the
+    file does not say."""
     v = (calibration or {}).get("cores_per_node")
-    return int(v) if v else CORES_PER_NODE
+    return int(v) if v else wtune.machine.cores_per_node()
 SEGMENT_HOURS = 6.0   # long-run compute display chunking
 LONG_RUN_HOURS = 12.0  # threshold above which the compute row is segmented
 
@@ -1821,8 +1826,9 @@ def add_subparser(sub: Any) -> argparse.ArgumentParser:
                         "-- e.g. a case whose prep dir is /nfs/data/wrf/doi4-lafe2017 but whose "
                         "ledger case_base is 'lafe'; without this, --probe rows for that case "
                         "silently fail to match and prediction falls back to no_probe_fallback")
-    p.add_argument("--calibration", default=str(DEFAULT_CALIBRATION),
-                   help="calibration JSON (default machine/calibration/scc.json)")
+    p.add_argument("--calibration", default=calibration_path(),
+                   help="calibration JSON (default: the machine's, built-in "
+                        "machine/calibration/scc.json)")
     p.add_argument("--io-form", type=int, default=None, choices=[2, 11, 14],
                    help="override io_form_history (default: read from namelist)")
     p.add_argument("--io-target", choices=["nfs", "local"], default="nfs",

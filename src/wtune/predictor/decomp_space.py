@@ -308,13 +308,21 @@ def _divisors(n):
     return [d for d in range(1, n + 1) if n % d == 0]
 
 
+def _hardware(hardware_id: str) -> dict:
+    hw = feat.hardware(hardware_id)
+    if not hw:
+        raise ValueError("unknown hardware_id %r (known: %s): set machine.hardware_id and "
+                         "machine.numa_per_node for this machine"
+                         % (hardware_id, ", ".join(sorted(feat.HARDWARE_TABLE))))
+    return hw
+
+
 def default_omp_options(total_cores: int, nodes: int, hardware_id: str) -> list[int]:
     """Every divisor of the hardware's cores-per-NUMA that gives an integer rank count divisible
     by `nodes` -- i.e. every omp value whose ranks pack a whole number of NUMA domains per node
     with no thread crossing a NUMA boundary (ranks_per_numa = cores_per_numa // omp is then
     always exact, see `enumerate_space`)."""
-    hw = feat.HARDWARE_TABLE[hardware_id]
-    cores_per_numa = hw["cores_per_numa"]
+    cores_per_numa = _hardware(hardware_id)["cores_per_numa"]
     return [d for d in _divisors(cores_per_numa)
             if total_cores % d == 0 and (total_cores // d) % nodes == 0]
 
@@ -344,7 +352,7 @@ def enumerate_space(case: dict, total_cores: int = 448, nodes: int = 4,
     total_cores // omp, (nx, ny) legal on every active domain, numtiles, tile_shape ('1d_y' WRF
     default, '2d' least-aspect TILE_XY, optional 'tile_sz' variants), dist, blocktime. Tile geometry
     is reported for d01's smallest patch (1D->2D risk) and largest patch (cells_per_tile bound)."""
-    hw = feat.HARDWARE_TABLE[hardware_id]
+    hw = _hardware(hardware_id)
     if omp_options is None:
         omp_options = default_omp_options(total_cores, nodes, hardware_id)
     topts = dict(DEFAULT_TILE_OPTIONS)

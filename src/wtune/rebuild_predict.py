@@ -205,7 +205,7 @@ def _ctx(case_dir, nodes, out_dir, max_wait_hours=24.0):
         case=os.path.basename(os.path.abspath(case_dir)), case_json={"prep_dir": case_dir},
         namelist_path=os.path.join(case_dir, "namelist.input"), nodes=nodes,
         cores_per_node=wtune.machine.cores_per_node(),
-        hardware_id=sweep.DEFAULT_HARDWARE_ID, steps=50, seed=1, kappa=0.5, budget_s=4 * 3600.0,
+        hardware_id=wtune.machine.hardware_id(), steps=50, seed=1, kappa=0.5, budget_s=4 * 3600.0,
         max_nodes=64, out_dir=out_dir, ledger_dir=out_dir, env_source="$HOME/wtune-scc/env.sh",
         sbatch_script="", sacct_cmd="sacct", poll_interval=20.0,
         sbatch_runner=sweep.default_sbatch_runner, sacct_runner=sweep.default_sacct_runner,
@@ -339,7 +339,7 @@ def main(argv=None):
         ctx, points, best, a.nodes, case_dir, os.path.join(out, "rebuild"), run_start,
         spinup_min=spinup, forcing=None if forcing == "auto" else forcing,
         measure_steps=measure_steps)
-    cal = wp.load_calibration(str(wp.DEFAULT_CALIBRATION))
+    cal = wp.load_calibration(wp.calibration_path())
     sample_points, _g = wp.read_wrfinput_sample_points(case_dir)
     result = pp.combine(meas, run_start, run_end, dt_s, stepra, calibration=cal,
                         sample_points=sample_points, case_dir=case_dir, nl=nl, ranks=ranks,

@@ -78,7 +78,7 @@ def update_s_est(all_results: dict, fallback: float) -> float:
 def _fallback_s_per_step(nl: dict, ranks: int, omp: int) -> float:
     """s/step of the uncalibrated cell-step model (calibration fallback_s_per_cell_step_ns)."""
     max_dom = int(predict.g(nl, "domains", "max_dom", 1))
-    cal = predict.load_calibration(str(predict.DEFAULT_CALIBRATION))
+    cal = predict.load_calibration(predict.calibration_path())
     return (cal["fallback_s_per_cell_step_ns"] * 1e-9
             * predict.nested_equivalent_cells(nl, max_dom) / max(int(ranks) * int(omp), 1))
 
@@ -94,7 +94,7 @@ def rebuild_segment_timeout_min(case_dir: str, spinup_min: float, ranks: int, om
         stepra = predict.steps_per_radiation_call(
             float(predict.g(nl, "physics", "radt", None)), dt)
         max_dom = int(predict.g(nl, "domains", "max_dom", 1))
-        cal = predict.load_calibration(str(predict.DEFAULT_CALIBRATION))
+        cal = predict.load_calibration(predict.calibration_path())
         s_step = (cal["fallback_s_per_cell_step_ns"] * 1e-9
                   * predict.nested_equivalent_cells(nl, max_dom) / max(ranks * omp, 1))
         steps = (spinup_min * 60.0) / dt + max(30, 2 * stepra)

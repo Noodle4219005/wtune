@@ -231,7 +231,7 @@ def _tune_report_candidates(case: Case, choice: LayoutChoice, sample_points, can
     gives the winner's median s/step as a constant rate instead -> True (rate only)."""
     rep, winner = choice.report, choice.winner
     if any(r.get("points") for r in rep.get("ranking") or []) or not (winner and winner.median):
-        cal = wp.load_calibration(str(wp.DEFAULT_CALIBRATION))
+        cal = wp.load_calibration(wp.calibration_path())
         found = tune_candidates(rep, case.geo, sample_points, cal, choice.lay.nodes)
         if choice.overridden:          # explicit flags: that layout only, never the ranking's
             c = choice.config

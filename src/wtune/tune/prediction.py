@@ -43,7 +43,7 @@ def _run_window(nl: dict) -> tuple:
 
 def _drift_calibration(ctx: Ctx) -> dict:
     """The default calibration, with --config prediction.drift_band_pct applied."""
-    calibration = predict.load_calibration(str(predict.DEFAULT_CALIBRATION))
+    calibration = predict.load_calibration(predict.calibration_path())
     if ctx.prediction_cfg.get("drift_band_pct") is not None:
         calibration = dict(calibration, drift_band_pct=ctx.prediction_cfg["drift_band_pct"])
     return calibration
@@ -97,7 +97,7 @@ def predict_candidates(ctx: Ctx, nodes: int, results: dict) -> dict:
         return out
 
     probe_path = write_probe_ledger(ctx, results, None)
-    calibration_path = str(predict.DEFAULT_CALIBRATION)
+    calibration_path = predict.calibration_path()
     if ctx.prediction_cfg.get("drift_band_pct") is not None:
         calibration_path, _note = _calibration_with_drift_override(
             ctx, calibration_path, ctx.prediction_cfg["drift_band_pct"])
@@ -239,7 +239,7 @@ def run_rebuild_points(ctx: Ctx, points: list, best_config: dict, nodes: int, ca
         raise RuntimeError("C3 rebuild job(s) %s not COMPLETED -- infrastructure failure, stop "
                            "and diagnose read-only" % bad)
     sample_points, _geom_src = predict.read_wrfinput_sample_points(case_dir)
-    calibration = predict.load_calibration(str(predict.DEFAULT_CALIBRATION))
+    calibration = predict.load_calibration(predict.calibration_path())
     measurements = []
     for plan in plans:
         windows_out, _pooled, anchors = coldstart.score_windows_from_rsl(plan, sample_points,
@@ -331,7 +331,7 @@ def _single_probe_prediction_text(ctx: Ctx, best_config: dict, nodes: int, all_r
     (ledger_paths=None used to force no_probe_fallback, +-50%), rendered, plus the drift,
     measure_r_rad and multi-point preview notes."""
     probe_path = write_probe_ledger(ctx, all_results, confirm_results)
-    calibration_path = str(predict.DEFAULT_CALIBRATION)
+    calibration_path = predict.calibration_path()
     drift_note = None
     if ctx.prediction_cfg.get("drift_band_pct") is not None:
         calibration_path, drift_note = _calibration_with_drift_override(
@@ -545,7 +545,7 @@ def pipeline_run_length_io(namelist_path: str | None, io: str | None = None) -> 
         return None
     try:
         nl = predict.parse_namelist(namelist_path)
-        cal = predict.load_calibration(str(predict.DEFAULT_CALIBRATION))
+        cal = predict.load_calibration(predict.calibration_path())
         return io_model.run_length_io(
             nl, io=io or io_model.DEFAULT_IO_FORMAT,
             iofields_calls=io_model.case_iofields_calls(
@@ -577,7 +577,7 @@ def cold_start_prediction(ctx: Ctx, nodes: int, config: dict | None,
                 namelist_path=ctx.namelist_path, case_dir=ctx.case_json["prep_dir"], nodes=nodes,
                 config=dict(ranks=config["ranks"], omp=config["omp"], nx=config["nx"],
                             ny=config["ny"], numtiles=config["numtiles"]),
-                ledger_paths=None, calibration_path=str(predict.DEFAULT_CALIBRATION),
+                ledger_paths=None, calibration_path=predict.calibration_path(),
                 io_form_override=None, io_target=ctx.prediction_cfg.get("io_target") or "nfs",
                 case_name=ctx.case, rsl_paths=None, include_io=False)
             T = float(pred["total_s"])

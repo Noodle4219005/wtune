@@ -15,6 +15,15 @@ Without these settings every sbatch is unchanged; the post-processing `srun` and
 pre-flight's `sinfo`/`srun` now name the partition. `wtune tune --max-nodes` was silently
 capped at 13; the cap is now the machine's.
 
+**Calibration and hardware of another machine.** `machine.calibration` (`WTUNE_CALIBRATION`)
+names the calibration file tune, run, check and calc read; it was always
+`machine/calibration/scc.json`, so a file fitted with `wtune calibrate fit` was never used.
+`machine.hardware_id` and `machine.numa_per_node` describe a node type the built-in hardware
+table does not list, which used to end in a KeyError. Calling a machine `scc-gh200` while
+giving it another node size is refused. A calibration without `cores_per_node` now falls back
+to the machine setting, not to 112. The node search seeds are the powers of two below the node
+cap and the cap (unchanged at 13).
+
 ## 0.9.0 — 2026-10-12
 
 Main code made small enough to review; behaviour of the tune -> run -> post path is unchanged

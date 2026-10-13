@@ -17,7 +17,6 @@ from ._deps import campaign_configs, sweep, predict, probe_plan
 DEFAULT_STEPS = 20                     # probe steps per run (t0 search)
 DEFAULT_SEED = 1
 DEFAULT_KAPPA = 0.5                    # light exploration (spec: "kappa small, e.g. 0.5")
-DEFAULT_HARDWARE_ID = sweep.DEFAULT_HARDWARE_ID
 CONFIRM_REPS = 2                       # replicates per config in the confirm job
 DEFAULT_POLL_INTERVAL_S = 20.0         # s between sacct polls
 DEFAULT_STARTUP_S = sweep.STARTUP_S    # s/run startup, scc_sweep's documented constant, until

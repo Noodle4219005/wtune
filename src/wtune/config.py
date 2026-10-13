@@ -31,7 +31,6 @@ from wtune import compliance as wc
 # be circular).
 # ---------------------------------------------------------------------------
 DEFAULT_SITE = "scc"
-DEFAULT_HARDWARE_ID = "scc-gh200"
 NODES_POLICY_CHOICES = ("min", "cap", "knee")
 IO_TARGETS = ("nfs", "local")           # wtune.predict's own calibration targets (machine/calibration/*.json)
 EXCLUDE_WHEN_VALUES = ("fire",)
@@ -681,7 +680,7 @@ def count_legal_candidates(case_json: dict, nodes: int, cfg: dict, is_fire: bool
     round0/top-up/adaptive draw from). Sets $SITE if unset (side effect of the lazy import)."""
     os.environ.setdefault("SITE", cfg.get("site") or DEFAULT_SITE)
     from wtune.predictor import decomp_space  # predictor/decomp_space.py -- stdlib only, imported lazily
-    hardware_id = hardware_id or DEFAULT_HARDWARE_ID
+    hardware_id = hardware_id or wtune.machine.hardware_id()
     total_cores = nodes * (cores_per_node or wtune.machine.cores_per_node())
     candidates, axis = decomp_space.enumerate_space(case_json, total_cores=total_cores, nodes=nodes,
                                                       hardware_id=hardware_id)

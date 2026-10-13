@@ -179,6 +179,19 @@ def test_account_goes_on_every_job_of_the_project(project, no_machine_env, monke
     assert cmd[:5] == ["srun", "-p", "compute", "--exclude=head,work1", "--account=proj42"]
 
 
+def test_machine_description_and_calibration_in_the_project(project, no_machine_env, tmp_path):
+    cal = tmp_path / "newbox.json"
+    cal.write_text("{}")
+    assert proj.main(["set", "--project", project, "--hardware-id", "newbox",
+                      "--numa-per-node", "2", "--calibration", str(cal)]) == 0
+    assert _doc(project)["machine"] == dict(hardware_id="newbox", numa_per_node=2,
+                                            calibration=str(cal))
+    proj.apply_project_env(project, _doc(project))
+    assert (wtune.machine.hardware_id(), wtune.machine.numa_per_node(),
+            wtune.machine.calibration()) == ("newbox", 2, str(cal))
+    assert proj.main(["set", "--project", project, "--calibration", str(cal) + ".missing"]) == 1
+
+
 def test_project_set_machine_flags(project, capsys):
     assert proj.main(["set", "--project", project, "--max-nodes", "8",
                       "--login-nodes", "login1,login2"]) == 0
@@ -193,7 +206,9 @@ def test_project_set_machine_flags(project, capsys):
 @pytest.mark.parametrize("block, message", [
     ({"cores": 64}, "unknown key"), ({"cores_per_node": 0}, "positive integer"),
     ({"max_nodes": "many"}, "positive integer"), ({"partition": " "}, "must be a name"),
-    ({"login_nodes": 3}, "list of node names"), ("compute", "must be a mapping")])
+    ({"login_nodes": 3}, "list of node names"), ("compute", "must be a mapping"),
+    ({"numa_per_node": 0}, "positive integer"), ({"hardware_id": ""}, "must be a name"),
+    ({"calibration": "scc.json"}, "absolute path of an existing file")])
 def test_a_bad_machine_block_is_a_project_error(block, message):
     with pytest.raises(proj.ProjectError, match=message):
         proj.project_machine({"machine": block})

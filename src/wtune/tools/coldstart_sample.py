@@ -57,8 +57,6 @@ from wtune import predict as predict   # repo root -- delegates run-length resol
                                    # wtune.runlength.resolve_run_seconds internally
                                    # (stdlib only, per its own docstring -- no numpy)
 
-DEFAULT_CALIBRATION = os.path.join(
-    os.path.dirname(_REPO_ROOT), "machine", "calibration", "scc.json")  # machine/ stays at repo root
 _WRF_TIME_FMT = "%Y-%m-%d_%H:%M:%S"
 _SELF_PATH = os.path.abspath(__file__)
 # K5 ML apply: run with the grib-env python (needs numpy/netCDF4), never /usr/bin/python3.
@@ -3161,8 +3159,9 @@ def predicted_compute_total(steps_n: int, dt: float, stepra: int, run_start_dt: 
     return sum(s_values) + rad_extra, s_values
 
 
-def score_plan(plan_dir: str, calibration_path: str = DEFAULT_CALIBRATION,
+def score_plan(plan_dir: str, calibration_path: str | None = None,
                json_out: str | None = None, include_io: bool = False) -> dict:
+    calibration_path = calibration_path or predict.calibration_path()
     with open(os.path.join(plan_dir, "plan.json")) as f:
         plan = json.load(f)
     if plan.get("real_only"):
@@ -3341,7 +3340,7 @@ def _build_arg_parser():
     sp = sub.add_parser("score")
     sp.add_argument("--plan", required=True)
     sp.add_argument("--json")
-    sp.add_argument("--calibration", default=DEFAULT_CALIBRATION)
+    sp.add_argument("--calibration", default=predict.calibration_path())
     sp.add_argument("--include-io", action="store_true",
                     help="add the history I/O estimate to TOTAL (off by default)")
 

@@ -92,6 +92,9 @@ machine:
   partition: batch         # Slurm partition，內建 compute
   login_nodes: [login1]    # 不送工作的節點，內建 [head]；[] 代表沒有
   account: myproject       # Slurm 的計畫帳號，內建不指定
+  hardware_id: mybox       # 這種節點在量測紀錄裡的名字，內建 scc-gh200
+  numa_per_node: 2         # 一個節點有幾個 NUMA 區，內建 1
+  calibration: /path/to/mybox.json   # 這台機器的校準檔，內建用 scc 的
 ```
 
 | key | 影響 |
@@ -101,6 +104,11 @@ machine:
 | `partition` | 每個 `sbatch` 和收尾轉檔 `srun` 用的 partition |
 | `login_nodes` | 每個 job 一律排除的節點，和 `exclude_nodes` 合併 |
 | `account` | 每個 `sbatch`、`srun` 加上 `--account=`。依計畫計費的機器不給會被拒絕 |
+| `hardware_id` | 每筆量測都記這個名字，預測模型用它分辨機器。WTune 內建認得 `scc-gh200`、`f1-spr-icpnq`、`f1-spr-icpnp`；其他機器要自己取一個名字 |
+| `numa_per_node` | 決定可以試哪些 OpenMP 執行緒數：只試能整除「每個 NUMA 區核心數」的值，執行緒才不會跨區 |
+| `calibration` | `wtune tune`、`wtune run`、`wtune check` 估算執行時間用的校準檔，由 `wtune calibrate fit` 產生。要寫絕對路徑 |
+
+新機器至少要給 `cores_per_node`、`hardware_id`、`numa_per_node`。沿用 `scc-gh200` 這個名字卻改了核心數會直接報錯，避免別台機器的量測混進 scc 的紀錄。
 
 `cores_per_node` 是節點的大小，不是每節點實際用幾核。實際用幾核由配置決定，`wtune tune` 會自己試少用幾核的配置。
 
@@ -118,7 +126,7 @@ error: project.yaml machine.cores_per_node: 'many' must be a positive integer
 ```
 
 !!! note "目前只在 scc 上驗證過"
-    這個區塊讓節點大小、節點數、partition、登入節點和計畫帳號可以換。MPI 的啟動方式和 WRF 的路徑仍由 `campaign/sites/scc.sh` 決定，換機器時那個檔也要準備一份。
+    這個區塊讓節點大小、節點數、partition、登入節點、計畫帳號、硬體描述和校準檔可以換。MPI 的啟動方式和 WRF 的路徑仍由 `campaign/sites/scc.sh` 決定，換機器時那個檔也要準備一份。
 
 ## project set
 
@@ -128,6 +136,7 @@ error: project.yaml machine.cores_per_node: 'many' must be a positive integer
 wtune project set --exclude-nodes work1,work7
 wtune project set --cores-per-node 64 --max-nodes 20
 wtune project set --partition batch --login-nodes login1 --account myproject
+wtune project set --hardware-id mybox --numa-per-node 2 --calibration ~/mybox.json
 wtune project set --post-every 1d
 wtune project set --post-types tc,convection
 wtune project set --post-fetch era5,stage4

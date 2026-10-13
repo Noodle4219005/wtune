@@ -68,7 +68,6 @@ from wtune.predictor import experiment as campaign_experiment    # predictor/exp
                                              # _max_legal_ranks/_format_hms (reused, not copied),
                                              # stdlib only
 
-DEFAULT_HARDWARE_ID = "scc-gh200"
 DEFAULT_K = 12
 DEFAULT_SEED = 1
 DEFAULT_REPS = 1
@@ -210,7 +209,7 @@ def _read_ledger_rows(path):
         return list(csv.DictReader(f))
 
 
-def estimate_s_per_step(case, nodes, ledger_dir, hardware_id=DEFAULT_HARDWARE_ID,
+def estimate_s_per_step(case, nodes, ledger_dir, hardware_id=None,
                          fallback=CONSERVATIVE_S_PER_STEP):
     """Median of (measured s_per_step_median * n_nodes_measured / nodes) over every ledger row
     for `case` on `hardware_id`, scanning ledger_dir/ledger_<case>_*.csv -- ideal linear
@@ -220,6 +219,7 @@ def estimate_s_per_step(case, nodes, ledger_dir, hardware_id=DEFAULT_HARDWARE_ID
     ledger_dir is expanded here (not just by CLI-level callers) so an unexpanded default like
     "$HOME/wtune-runs/campaign" resolves correctly regardless of what the caller passes."""
     ledger_dir = _expand(ledger_dir)
+    hardware_id = hardware_id or wtune.machine.hardware_id()
     scaled = []
     for path in sorted(glob.glob(os.path.join(ledger_dir, "ledger_%s_*.csv" % case))):
         try:

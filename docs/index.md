@@ -9,9 +9,9 @@ wtune doctor      # 機器和專案準備好了嗎
 wtune submit      # 調校 → 執行 → 後處理，一次做完
 ```
 
-第一次使用請照順序讀「教學」的 1 到 6；整個流程最短的版本在 [第一次跑完整流程](tutorial/quickstart.md)。
+第一次使用請照順序讀「教學」的 1 到 6；整個流程最短的版本在 [submit](tutorial/quickstart.md)。
 
-## 它做三件事
+## 功能
 
 ```mermaid
 flowchart LR
@@ -40,13 +40,13 @@ flowchart LR
 
 `wtune submit` 就是把這三步依序做完。
 
-## 一條核心規則
+## 核心規則
 
 WTune 只會**自動**調整不改變模擬內容的設定：節點數、MPI decomposition（區域切法）、tile 數、OpenMP 執行緒數、I/O 格式。演算法、物理設定、時間步長都維持原樣。
 
-物理方案、`time_step`、垂直層數、nesting 這類會改變答案的設定，WTune **只給建議，不會替你改**。細節在 [自動改什麼、只建議什麼](guide/compliance.md)。
+物理方案、`time_step`、垂直層數、nesting 這類會改變答案的設定，WTune **只給建議，不會替你改**。細節在 [compliance](guide/compliance.md)。
 
-## 需要什麼
+## 需求
 
 - 一個已經能跑的 WRF 個案資料夾（`namelist.input`、`wrfinput_d01`、`wrfbdy_d01`）。
 - 一個已編好的 WRF（`$WRF_TREE/main/wrf.exe`）。WTune 不負責編 WRF。

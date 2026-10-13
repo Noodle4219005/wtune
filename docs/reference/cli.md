@@ -11,13 +11,13 @@ wtune <指令> --help
 
 | 指令 | 作用 | 會送 job | 教學 |
 |---|---|:-:|---|
-| `wtune project init\|info\|set` | 建立、檢視、修改 project 資料夾 | 否 | [Project 資料夾](../tutorial/project.md) |
+| `wtune project init\|info\|set` | 建立、檢視、修改 project 資料夾 | 否 | [project](../tutorial/project.md) |
 | `wtune doctor` | 檢查機器與專案是否準備好 | 否 | [安裝](../tutorial/install.md) |
-| `wtune submit` | 調校 → 執行 → 後處理，一次做完 | 是 | [第一次跑完整流程](../tutorial/quickstart.md) |
-| `wtune tune` | 實測找最快的配置 | 是 | [調校](../tutorial/tune.md) |
-| `wtune run` | 分段執行，restart 交接，失敗續跑 | 是 | [執行與監看](../tutorial/run.md) |
-| `wtune watch` | 唯讀監看一個執行目錄 | 否 | [執行與監看](../tutorial/run.md) |
-| `wtune post ...` | 後處理與分析 | 加 `--srun` 時 | [後處理](../tutorial/post.md) |
+| `wtune submit` | 調校 → 執行 → 後處理，一次做完 | 是 | [submit](../tutorial/quickstart.md) |
+| `wtune tune` | 實測找最快的配置 | 是 | [tune](../tutorial/tune.md) |
+| `wtune run` | 分段執行，restart 交接，失敗續跑 | 是 | [run 與 watch](../tutorial/run.md) |
+| `wtune watch` | 唯讀監看一個執行目錄 | 否 | [run 與 watch](../tutorial/run.md) |
+| `wtune post ...` | 後處理與分析 | 加 `--srun` 時 | [post](../tutorial/post.md) |
 
 ## 檢查與預測
 
@@ -28,7 +28,7 @@ wtune <指令> --help
 | `wtune predict-rebuild` | 在目標配置上量測重建的時間點，預測整段時間 | 是 |
 | `wtune config init\|show\|validate` | 管理調校的搜尋空間 YAML | 否 |
 
-## 只給建議
+## 建議
 
 | 指令 | 作用 |
 |---|---|
@@ -53,7 +53,7 @@ wtune <指令> --help
 | `wtune calibrate plan\|fit` | 在新叢集上量測並產生校正檔 |
 | `wtune machine-profile` | 印出機器量測結果的摘要 |
 
-## wtune post 的子指令
+## post 的 subcommand
 
 | 子指令 | 作用 |
 |---|---|

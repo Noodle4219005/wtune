@@ -1,4 +1,4 @@
-# 6. 後處理 (post)
+# 6. post
 
 ```bash
 wtune post recipe --srun
@@ -44,7 +44,7 @@ wtune post recipe --times 2005082700,2005082712 --srun
 
 圖放在 `post/<id>/timeseries/`，檔名像 `slp_d02_f018_2005082718Z.png`：欄位、域、預報時數、有效時間。
 
-## 和觀測比較
+## 觀測比較
 
 ```mermaid
 flowchart LR
@@ -75,7 +75,7 @@ wtune post fetch nexrad --project . --run-dir runs/<id>/
 
 比較範圍一律排除模式的側邊界區。降水比對另外限制在 NEXRAD 站 230 km 以內，因為 Stage IV 在外海是 0 而不是缺值。
 
-## 讀報告
+## 報告
 
 打開 `post/<id>/report.html`，從上往下看：
 
@@ -87,7 +87,7 @@ wtune post fetch nexrad --project . --run-dir runs/<id>/
 
 畫不出來的圖不會被默默略過，一定列在「缺少」裡並附原因。
 
-## 單一用途的工具
+## 其他 subcommand
 
 ```bash
 wtune post inventory runs/<id>/ --json
@@ -111,9 +111,9 @@ wtune post compare runs/a/ runs/b/ --vars T2,slp
     ```bash
     wtune post compare runs/before/ runs/after/
     ```
-    兩次執行只差在 tile 數、OpenMP 執行緒數或 rank 擺法時，`diffwrf` 應該回報完全相同。改了 decomposition 或 rank 數時，可能出現浮點捨入等級的差異，原因見 [自動改什麼、只建議什麼](../guide/compliance.md)。
+    兩次執行只差在 tile 數、OpenMP 執行緒數或 rank 擺法時，`diffwrf` 應該回報完全相同。改了 decomposition 或 rank 數時，可能出現浮點捨入等級的差異，原因見 [compliance](../guide/compliance.md)。
 
-## 自己的分析腳本
+## custom
 
 `wtune project init` 在 `analysis/` 放了一個範例。每個腳本定義一個 `run(ctx)`：
 
@@ -134,4 +134,4 @@ wtune post custom --srun
 
 所有腳本的圖和表會收成一份 HTML。某個腳本丟出例外時只會多一筆錯誤記錄，其他腳本照跑。
 
-教學到這裡結束。接下來可以看 [自動改什麼、只建議什麼](../guide/compliance.md)。
+教學到這裡結束。接下來可以看 [compliance](../guide/compliance.md)。

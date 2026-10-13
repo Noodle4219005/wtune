@@ -1,4 +1,4 @@
-# 4. 調校 (tune)
+# 4. tune
 
 ```bash
 wtune tune -O2
@@ -6,7 +6,7 @@ wtune tune -O2
 
 在 project 內執行。它會送出一批短的 Slurm job，實際量測不同配置的每步耗時（s/step），選出最快的，寫成 `tune/<id>/tune_report.json`。
 
-## 它在找什麼
+## 搜尋目標
 
 同一個個案、同一份 namelist，下面這些怎麼配都不會改變演算法和物理設定，但速度可以差很多：
 
@@ -27,7 +27,7 @@ flowchart LR
 
 每節點不一定要把核心用滿：有時少用幾顆核心反而比較快，所以 `c/n` 也是搜尋的一個維度。
 
-## 選力度：-O0 到 -O3
+## 等級 -O0 到 -O3
 
 | 等級 | 做什麼 | 什麼時候用 |
 |---|---|---|
@@ -48,13 +48,13 @@ wtune tune -O3 --stop-if-short     # 整段模擬比調校還短時，自動降�
 !!! note "排隊時間不算在預算裡"
     `--minutes` 只計算量測本身。累積的排隊等待另有上限 `--max-queue-hours`（預設 6 小時），超過就停下來回報。
 
-## 開始前的節點檢查
+## 節點檢查
 
 調校前 WTune 會檢查每個節點：`sinfo` 的狀態，加上每個節點一個 1 分鐘的 `srun` 探測（家目錄、個案目錄、WTune 原始碼、`wrf.exe` 是否都讀得到）。沒通過的節點會從所有 job 排除，可用節點數也跟著下修。
 
 要跳過這個檢查：`--no-node-preflight`。
 
-## 讀報告
+## 報告
 
 結果同時印在終端機和 `tune/<id>/tune_report.json`。先找這幾行：
 
@@ -87,7 +87,7 @@ winner vs runner-up: 1.2% apart -> NOT distinguishable from noise: either is fin
 
     意思是量測時那個節點上有別的行程在吃 CPU（常見原因是先前被砍的 job 留下的 `wrf.exe`）。清掉之後重新調校。
 
-## 節點數要怎麼選
+## 節點數
 
 預設的目標是「最快」。想省資源時改目標：
 
@@ -103,10 +103,10 @@ wtune tune --node-objective knee --min-efficiency 0.7    # 平行效率仍有 0.
 wtune tune --nodes 4
 ```
 
-## 調校不會動什麼
+## 不更動的項目
 
-調校只改上面那六項。報告產生前有一道檢查：把報告改過的每個 namelist key 和個案原本的 namelist 比對，只要有一個不屬於 STRICT 類別（見 [自動改什麼、只建議什麼](../guide/compliance.md)）就直接報錯。
+調校只改上面那六項。報告產生前有一道檢查：把報告改過的每個 namelist key 和個案原本的 namelist 比對，只要有一個不屬於 STRICT 類別（見 [compliance](../guide/compliance.md)）就直接報錯。
 
 加上 `--physics-advice`（僅 `-O3`）會另外跑一段物理方案的建議，那一段只產生建議，不會套用。
 
-下一步：[5. 執行與監看](run.md)。
+下一步：[5. run 與 watch](run.md)。

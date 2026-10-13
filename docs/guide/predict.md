@@ -1,4 +1,4 @@
-# 提交前檢查與時間預測
+# check 與 predict-rebuild
 
 ```bash
 wtune check case/ --ranks 448
@@ -6,7 +6,7 @@ wtune check case/ --ranks 448
 
 送出之前先檢查這個個案會不會一開始就失敗。
 
-## wtune check
+## check
 
 它在 WRF 的啟動目錄上檢查：時間窗、iofields 檔、物理方案需要的資料表、decomposition 是否合法、磁碟空間，以及 `wrfinput` 的內容。
 
@@ -25,7 +25,7 @@ wtune check case/ --wrf-run-dir $WRF_TREE/run                   # 列出 WRF run
 
 偵測到 WRF 擴展（moving nest、WRF-Chem、WRF-Hydro、WRFDA）時會各多印一行支援說明，見 [WRF 擴展](extensions.md)。
 
-## wtune predict-rebuild：整段要跑多久
+## predict-rebuild
 
 ```bash
 wtune predict-rebuild case/ --nodes 4 --nx 16 --ny 28 --numtiles 4 --omp 2 --dry-run
@@ -67,7 +67,7 @@ scc 上的實測（計算加初始化的時間，對同一配置的完整執行�
 - **WRF-Chem、WRF-Hydro、WRFDA、moving nest 一律拒絕。**
 - 只取模擬起點一個時間點會錯過日夜輻射的差異（lafe −10.5%、conus25 −9.6%），所以預設取多個點。
 
-### 把預測用起來
+### 預測的用途
 
 ```bash
 wtune run --prediction predict/<id>/pred_rebuild.json --wall-limit 04:00:00

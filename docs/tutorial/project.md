@@ -1,4 +1,4 @@
-# 3. Project 資料夾
+# 3. project
 
 ```bash
 wtune project info
@@ -6,7 +6,7 @@ wtune project info
 
 一個 project 資料夾收納同一個個案的輸入、設定、每次執行和所有圖。上面這個指令印出它目前的內容。
 
-## 長什麼樣子
+## 目錄結構
 
 ```text
 mycase/
@@ -35,7 +35,7 @@ flowchart TD
 !!! note "原始個案不會被動到"
     `case/` 裡的 `namelist.input` 是副本，可以自由編輯。`wrfinput`、`wrfbdy`、`met_em` 等是 symlink，WTune 不會開啟原始資料夾來寫入。
 
-## WTune 怎麼找到 project
+## project 的搜尋順序
 
 依序是：
 
@@ -80,7 +80,7 @@ storm: null
 | `post.fetch` | `wtune submit` 會自動去抓的觀測資料 |
 | `storm` | 颱風代號與 HURDAT2 檔，颱風個案才需要 |
 
-## 修改設定
+## project set
 
 不用手改 YAML，用 `wtune project set`：
 
@@ -100,7 +100,7 @@ wtune project set --storm AL122005 --hurdat2 hurdat2-1851-2024.txt
 wtune project set --register-case
 ```
 
-## manifest.jsonl：事後查得到做過什麼
+## manifest.jsonl
 
 每個 `wtune` 指令在這裡留一行：時間、WTune 版本、完整的 argv、主要輸入檔的路徑與 sha256（小於 50 MB 的檔案）、輸出目錄、exit code。
 
@@ -108,4 +108,4 @@ wtune project set --register-case
 tail -3 manifest.jsonl
 ```
 
-下一步：[4. 調校](tune.md)。
+下一步：[4. tune](tune.md)。

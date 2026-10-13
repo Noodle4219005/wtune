@@ -1,4 +1,4 @@
-# 用 YAML 限制搜尋空間
+# config
 
 ```bash
 wtune config init conus25 --out wtune.yaml
@@ -18,7 +18,7 @@ flowchart LR
 
 未知的 key 會直接報錯，打錯字不會被默默忽略。
 
-## 最常用的幾個 key
+## 常用 key
 
 ```yaml
 site: scc
@@ -54,14 +54,14 @@ probe:
 
 完整的 key 與註解在 `examples/wtune.yaml`。
 
-## 目前還不會被搜尋的區塊
+## 尚未搜尋的區塊
 
 下面兩個區塊在範例檔裡有，但 `wtune tune` 還沒實作；把 `enabled` 設成 `true` 會直接報設定錯誤，不會假裝有做：
 
 - `search.io`（歷史輸出的 `io_form`）
 - `physics_gray`（`radt`、`time_step` 的倍數）
 
-## 排除規則的例子
+## 排除規則範例
 
 ```yaml
 exclude:

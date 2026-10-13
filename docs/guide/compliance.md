@@ -1,4 +1,4 @@
-# 自動改什麼、只建議什麼
+# compliance
 
 ```bash
 wtune compliance list --compliance strict
@@ -6,7 +6,7 @@ wtune compliance list --compliance strict
 
 列出 WTune 可以自動調整的所有設定。這一頁說明分類的規則。
 
-## 不變的前提
+## 前提
 
 WTune **不修改任何 WRF 原始檔**，也不用 `LD_PRELOAD`、連結期的 `--wrap`、PMPI 這類方式介入 `wrf.exe` 的執行。它只動三樣東西：namelist、啟動方式（`mpirun` 的參數）、環境變數。
 
@@ -41,19 +41,19 @@ STRICT 的定義是：WRF 原始碼不變、正常編譯、模擬的演算法與
 
 `wtune compliance list` 的 `numerics=` 欄位寫明每個設定屬於哪一種（`none` 或 `roundoff`）。
 
-## 怎麼保證 tune 只動 STRICT
+## tune 的 STRICT 保證
 
 `wtune tune` 產生報告之前有一道檢查：把報告改過的每一個 namelist key 和個案原本的 namelist 比對。只要有一個 key 不屬於 STRICT，就直接報 `ComplianceError`，不會產生報告。
 
 量測用的時間窗 key（`run_*`、`start_*`、`end_*`）不在此限：縮短量測窗不會改變完整執行算出來的解。
 
-## 唯一的例外：`--cfl-rescue`
+## 例外：`--cfl-rescue`
 
 `wtune run` 遇到 CFL 或 NaN 失敗時，預設是**停下來**，把建議的 `time_step` 寫在失敗那一段旁邊的 `segment.advice.namelist.input`，不重送任何東西。
 
 只有你事先加上 `--cfl-rescue`，它才會用較小的 `time_step` 把那一段重跑一次，並在報告標記 `physics_gray: true`。
 
-## 驗證你自己的執行
+## 執行結果的驗證
 
 比對兩次執行的輸出：
 

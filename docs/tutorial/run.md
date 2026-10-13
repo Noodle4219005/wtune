@@ -1,4 +1,4 @@
-# 5. 執行與監看 (run / watch)
+# 5. run 與 watch
 
 ```bash
 wtune run --dry-run     # 先看會怎麼切
@@ -7,7 +7,7 @@ wtune run               # 送出
 
 在 project 內執行。它會採用最新的 `tune/*/tune_report.json` 裡的 WINNER 配置，把整段模擬送進 Slurm，輸出放在 `runs/<id>/`。
 
-## 為什麼要分段
+## 分段執行
 
 一個很長的 job 容易撞到時間上限，中途節點故障也會全部重來。`wtune run` 把模擬切成數段，每段是一個獨立的 Slurm job，段與段之間用 restart 檔交接。
 
@@ -29,7 +29,7 @@ wtune run --segment-minutes 180        # 每段固定 180 分鐘的模擬時間
 !!! note "分段不改變結果"
     每一段都寫在同一個 restart 間隔的格點上，歷史輸出的時間點不會因為分段而偏移。實測：`dorian2019` 的 30 + 30 分鐘 restart 接力和一次跑完相比，d01 與 d02 各 202 個變數逐位元相同。
 
-## 自己指定配置
+## 手動指定配置
 
 不想用 tune 的結果時：
 
@@ -39,7 +39,7 @@ wtune run --nodes 4 --nx 16 --ny 28 --numtiles 4 --omp 2
 
 `--nodes`、`--nx`、`--ny` 三個要嘛來自 tune 報告，要嘛全部自己給。指定某一份報告：`--tune-report tune/<id>/tune_report.json`。
 
-## 失敗時會怎樣
+## 失敗處理
 
 ```mermaid
 flowchart TD
@@ -74,7 +74,7 @@ flowchart TD
 
 `--sidecar`：job 執行期間，用 WRF 沒用到的核心驗證每組 restart，並把寫完的歷史輸出轉成 netCDF 放進後處理的快取。
 
-## 監看：wtune watch
+## watch
 
 ```bash
 wtune watch runs/<id>              # 每 60 秒更新
@@ -92,4 +92,4 @@ wtune watch runs/<id> --once       # 只印一次
 
 有時間預測檔時，加上 `--prediction predict/<id>/pred_rebuild.json`，剩餘時間會改用預測曲線乘上目前的實際與預測比值。
 
-下一步：[6. 後處理](post.md)。
+下一步：[6. post](post.md)。

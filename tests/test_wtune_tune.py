@@ -3156,3 +3156,9 @@ def test_phase2_uses_fused_for_winner_only_and_default_for_physics(monkeypatch, 
     # without physics the same plan is ONE fused wrf.exe per point
     report, env = _pipe_run(monkeypatch, tmp_path / "np", physics_advice=False)
     assert set(env.measure_modes) == {"fused"}
+
+
+def test_layout_row_keeps_the_rank_order_it_was_measured_with():
+    from wtune.tune import node_search
+    cfg = dict(id="c1", ranks=144, omp=1, nx=12, ny=12, numtiles=1, dist="cyclic")
+    assert node_search._layout_row("finalist search", 2, 72, cfg, [0.5, 0.6])["dist"] == "cyclic"

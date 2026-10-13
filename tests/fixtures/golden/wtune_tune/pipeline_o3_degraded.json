@@ -70,6 +70,7 @@
       {
         "cid": "ANCHOR",
         "cores_per_node": 72,
+        "dist": "block",
         "median": 0.3,
         "nodes": 4,
         "numtiles": 1,
@@ -84,6 +85,7 @@
       {
         "cid": "ANCHOR",
         "cores_per_node": 70,
+        "dist": "block",
         "median": 0.3,
         "nodes": 4,
         "numtiles": 1,
@@ -98,6 +100,7 @@
       {
         "cid": "ANCHOR",
         "cores_per_node": 64,
+        "dist": "block",
         "median": 0.3,
         "nodes": 4,
         "numtiles": 1,
@@ -112,6 +115,7 @@
       {
         "cid": "ANCHOR",
         "cores_per_node": 48,
+        "dist": "block",
         "median": 0.3,
         "nodes": 4,
         "numtiles": 1,
@@ -126,6 +130,7 @@
       {
         "cid": "ANCHOR",
         "cores_per_node": 36,
+        "dist": "block",
         "median": 0.3,
         "nodes": 4,
         "numtiles": 1,
@@ -140,6 +145,7 @@
       {
         "cid": "ANCHOR",
         "cores_per_node": 72,
+        "dist": "block",
         "median": 0.305,
         "nodes": 5,
         "numtiles": 1,
@@ -154,6 +160,7 @@
       {
         "cid": "ANCHOR",
         "cores_per_node": 70,
+        "dist": "block",
         "median": 0.305,
         "nodes": 5,
         "numtiles": 1,
@@ -168,6 +175,7 @@
       {
         "cid": "ANCHOR",
         "cores_per_node": 64,
+        "dist": "block",
         "median": 0.305,
         "nodes": 5,
         "numtiles": 1,
@@ -182,6 +190,7 @@
       {
         "cid": "ANCHOR",
         "cores_per_node": 48,
+        "dist": "block",
         "median": 0.305,
         "nodes": 5,
         "numtiles": 1,
@@ -196,6 +205,7 @@
       {
         "cid": "ANCHOR",
         "cores_per_node": 36,
+        "dist": "block",
         "median": 0.305,
         "nodes": 5,
         "numtiles": 1,
@@ -210,6 +220,7 @@
       {
         "cid": "ANCHOR",
         "cores_per_node": 72,
+        "dist": "block",
         "median": 0.32,
         "nodes": 8,
         "numtiles": 1,
@@ -224,6 +235,7 @@
       {
         "cid": "ANCHOR",
         "cores_per_node": 72,
+        "dist": "block",
         "median": 0.41000000000000003,
         "nodes": 3,
         "numtiles": 1,
@@ -238,6 +250,7 @@
       {
         "cid": "ANCHOR",
         "cores_per_node": 72,
+        "dist": "block",
         "median": 0.52,
         "nodes": 2,
         "numtiles": 1,
@@ -252,6 +265,7 @@
       {
         "cid": "ANCHOR",
         "cores_per_node": 72,
+        "dist": "block",
         "median": 1.0,
         "nodes": 1,
         "numtiles": 1,
@@ -267,6 +281,7 @@
     "runner_up": {
       "cid": "ANCHOR",
       "cores_per_node": 72,
+      "dist": "block",
       "median": 0.305,
       "nodes": 5,
       "numtiles": 1,
@@ -281,6 +296,7 @@
     "winner": {
       "cid": "ANCHOR",
       "cores_per_node": 72,
+      "dist": "block",
       "median": 0.3,
       "nodes": 4,
       "numtiles": 1,
@@ -541,6 +557,7 @@
       {
         "cid": "ANCHOR",
         "cores_per_node": 72,
+        "dist": "block",
         "median": 0.3,
         "nodes": 4,
         "numtiles": 1,
@@ -555,6 +572,7 @@
       {
         "cid": "ANCHOR",
         "cores_per_node": 70,
+        "dist": "block",
         "median": 0.3,
         "nodes": 4,
         "numtiles": 1,
@@ -569,6 +587,7 @@
       {
         "cid": "ANCHOR",
         "cores_per_node": 64,
+        "dist": "block",
         "median": 0.3,
         "nodes": 4,
         "numtiles": 1,
@@ -583,6 +602,7 @@
       {
         "cid": "ANCHOR",
         "cores_per_node": 48,
+        "dist": "block",
         "median": 0.3,
         "nodes": 4,
         "numtiles": 1,
@@ -597,6 +617,7 @@
       {
         "cid": "ANCHOR",
         "cores_per_node": 36,
+        "dist": "block",
         "median": 0.3,
         "nodes": 4,
         "numtiles": 1,
@@ -611,6 +632,7 @@
       {
         "cid": "ANCHOR",
         "cores_per_node": 72,
+        "dist": "block",
         "median": 0.305,
         "nodes": 5,
         "numtiles": 1,
@@ -625,6 +647,7 @@
       {
         "cid": "ANCHOR",
         "cores_per_node": 70,
+        "dist": "block",
         "median": 0.305,
         "nodes": 5,
         "numtiles": 1,
@@ -639,6 +662,7 @@
       {
         "cid": "ANCHOR",
         "cores_per_node": 64,
+        "dist": "block",
         "median": 0.305,
         "nodes": 5,
         "numtiles": 1,
@@ -653,6 +677,7 @@
       {
         "cid": "ANCHOR",
         "cores_per_node": 48,
+        "dist": "block",
         "median": 0.305,
         "nodes": 5,
         "numtiles": 1,
@@ -667,6 +692,7 @@
       {
         "cid": "ANCHOR",
         "cores_per_node": 36,
+        "dist": "block",
         "median": 0.305,
         "nodes": 5,
         "numtiles": 1,
@@ -681,6 +707,7 @@
       {
         "cid": "ANCHOR",
         "cores_per_node": 72,
+        "dist": "block",
         "median": 0.32,
         "nodes": 8,
         "numtiles": 1,
@@ -695,6 +722,7 @@
       {
         "cid": "ANCHOR",
         "cores_per_node": 72,
+        "dist": "block",
         "median": 0.41000000000000003,
         "nodes": 3,
         "numtiles": 1,
@@ -709,6 +737,7 @@
       {
         "cid": "ANCHOR",
         "cores_per_node": 72,
+        "dist": "block",
         "median": 0.52,
         "nodes": 2,
         "numtiles": 1,
@@ -723,6 +752,7 @@
       {
         "cid": "ANCHOR",
         "cores_per_node": 72,
+        "dist": "block",
         "median": 1.0,
         "nodes": 1,
         "numtiles": 1,
@@ -743,6 +773,7 @@
     "runner_up": {
       "cid": "ANCHOR",
       "cores_per_node": 72,
+      "dist": "block",
       "median": 0.305,
       "nodes": 5,
       "numtiles": 1,
@@ -1071,6 +1102,7 @@
     "winner": {
       "cid": "ANCHOR",
       "cores_per_node": 72,
+      "dist": "block",
       "median": 0.3,
       "nodes": 4,
       "numtiles": 1,
@@ -1103,7 +1135,7 @@
       "numtiles=1,"
     ],
     "nodes": 4,
-    "note": "KMP_BLOCKTIME: n/a on scc (nvhpc OpenMP runtime has no KMP_BLOCKTIME concept)",
+    "note": "KMP_BLOCKTIME: n/a on this cluster (nvhpc OpenMP runtime has no KMP_BLOCKTIME concept)",
     "nproc_x": 16,
     "nproc_y": 18,
     "numtiles": 1,
@@ -1469,6 +1501,7 @@
   "winner": {
     "cid": "ANCHOR",
     "cores_per_node": 72,
+    "dist": "block",
     "median": 0.3,
     "nodes": 4,
     "numtiles": 1,

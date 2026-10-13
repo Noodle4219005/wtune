@@ -86,7 +86,7 @@
       "numtiles=1,"
     ],
     "nodes": 1,
-    "note": "KMP_BLOCKTIME: n/a on scc (nvhpc OpenMP runtime has no KMP_BLOCKTIME concept)",
+    "note": "KMP_BLOCKTIME: n/a on this cluster (nvhpc OpenMP runtime has no KMP_BLOCKTIME concept)",
     "nproc_x": 8,
     "nproc_y": 9,
     "numtiles": 1,

@@ -76,7 +76,7 @@ BEST: D0004
   namelist: nproc_x=16, nproc_y=9, numtiles=8,
   launch:   mpirun -np 144 --map-by ppr:36:node:PE=2 --bind-to core --rank-by node ./wrf.exe
   env:      OMP_NUM_THREADS=2 OMP_STACKSIZE=1G  ulimit -s unlimited
-  NOTE:     KMP_BLOCKTIME: n/a on scc (nvhpc OpenMP runtime has no KMP_BLOCKTIME concept)
+  NOTE:     KMP_BLOCKTIME: n/a on this cluster (nvhpc OpenMP runtime has no KMP_BLOCKTIME concept)
 
 === full-run prediction (rank_by=predicted, G0003, 1 rebuilt point(s)) ===
 compute_total: 17:10   init: 10.0s   TOTAL: 17:20 (range 17:10 - 17:10, +-1.0% drift)

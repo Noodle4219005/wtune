@@ -41,7 +41,8 @@ def local_param_table(config: dict, nodes: int) -> dict:
         env=dict(OMP_NUM_THREADS=str(omp), OMP_STACKSIZE="1G"),
         namelist_lines=["nproc_x=%d," % nx, "nproc_y=%d," % ny, "numtiles=%d," % numtiles],
         ulimit="ulimit -s unlimited",
-        note="KMP_BLOCKTIME: n/a on scc (nvhpc OpenMP runtime has no KMP_BLOCKTIME concept)",
+        note="KMP_BLOCKTIME: n/a on this cluster (nvhpc OpenMP runtime has no KMP_BLOCKTIME "
+             "concept)",
     )
 
 

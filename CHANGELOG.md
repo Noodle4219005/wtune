@@ -71,6 +71,16 @@ submitted, so of the 40 probes all but two were refused and 38 nodes were exclud
 `site_launch`: on f1-arm (two NUMA domains per node) 90 ranks ran as 72 + 18 after being tuned as
 45 + 45, and a site that launches with `srun` could not run at all. scc's commands are unchanged.
 
+**A case that was a run directory.** `project init` no longer links its executables, `wrf.out`
+or tslist time series, and a segment never takes an executable from the case, nor a link into
+some WRF tree for a file `WRF_TREE/run` has: linked first, the old `wrf.exe` shadowed the
+machine's. A table the case ships as its own file is still the case's.
+
+**The winner's rank order.** The winner row of a tune report had no `dist`, so `wtune run`
+always started as `block` and a layout measured as `cyclic` would have run with another rank
+placement; the report also warned "dist not provided" for every sweep ANCHOR. The row keeps
+it and the run follows it. Report text no longer names scc.
+
 ## 0.9.0 — 2026-10-12
 
 Main code made small enough to review; behaviour of the tune -> run -> post path is unchanged

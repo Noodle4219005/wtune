@@ -586,7 +586,7 @@ def _layout_row(source: str, nodes: int, cores: int, cfg: dict, vals: list[float
     med = statistics.median(vals)
     row = dict(source=source, nodes=nodes, cores_per_node=cores, ranks=cfg.get("ranks"),
                omp=cfg.get("omp"), nx=cfg.get("nx"), ny=cfg.get("ny"),
-               numtiles=cfg.get("numtiles"), median=med, reps=len(vals),
+               numtiles=cfg.get("numtiles"), dist=cfg.get("dist"), median=med, reps=len(vals),
                spread=((max(vals) - min(vals)) / med if len(vals) >= 2 and med else 0.0),
                cid=cfg.get("id"))
     if dirty:                         # measured on a node that was not clean

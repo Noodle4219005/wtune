@@ -53,6 +53,7 @@ class TuneLayout(Record):
     cores_per_node: Optional[int]
     median: Optional[float]            # s/step
     cid: Optional[str]
+    dist: Optional[str] = None         # block | cyclic it was measured with
 
 
 @dataclasses.dataclass(frozen=True, eq=False)
@@ -114,7 +115,7 @@ def tune_report_layout(report: dict) -> Optional[TuneLayout]:
                       numtiles=int(w.get("numtiles") or 1), omp=int(w.get("omp") or 1),
                       cores_per_node=w.get("cores_per_node"),
                       median=float(w["median"]) if w.get("median") is not None else None,
-                      cid=w.get("cid"))
+                      cid=w.get("cid"), dist=w.get("dist"))
 
 
 def resolve_layout(a: Any, layout: Optional[TuneLayout]) -> tuple[Layout, list[str]]:

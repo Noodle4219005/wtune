@@ -208,7 +208,9 @@ def _choose_layout(opts: RunOptions, log: Callable) -> LayoutChoice:
                "; CLI overrides %s -> N=%d %dx%d tiles %d omp %d"
                % (" ".join(overridden), lay.nodes, lay.nx, lay.ny, lay.numtiles, lay.omp)
                if overridden else ""))
-    config = make_config(lay.nx, lay.ny, lay.numtiles, lay.omp, lay.nodes)
+    # the rank order the winner was measured with; a layout changed by hand starts as block
+    dist = winner.dist if winner is not None and not overridden and winner.dist else "block"
+    config = make_config(lay.nx, lay.ny, lay.numtiles, lay.omp, lay.nodes, dist=dist)
     return LayoutChoice(lay, config, rep, winner, overridden)
 
 

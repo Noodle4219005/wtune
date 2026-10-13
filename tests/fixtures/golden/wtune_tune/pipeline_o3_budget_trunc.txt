@@ -29,7 +29,7 @@ BEST: ANCHOR
   namelist: nproc_x=16, nproc_y=18, numtiles=1,
   launch:   mpirun -np 288 --map-by ppr:72:node:PE=1 --bind-to core ./wrf.exe
   env:      OMP_NUM_THREADS=1 OMP_STACKSIZE=1G  ulimit -s unlimited
-  NOTE:     KMP_BLOCKTIME: n/a on scc (nvhpc OpenMP runtime has no KMP_BLOCKTIME concept)
+  NOTE:     KMP_BLOCKTIME: n/a on this cluster (nvhpc OpenMP runtime has no KMP_BLOCKTIME concept)
 
 full-run prediction FAILED (FileNotFoundError: [Errno 2] No such file or directory: '<TMP>/namelist.input'); run `wtune predict ...` manually
 

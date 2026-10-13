@@ -62,7 +62,7 @@ BEST: ANCHOR
   namelist: nproc_x=16, nproc_y=18, numtiles=1,
   launch:   mpirun -np 288 --map-by ppr:72:node:PE=1 --bind-to core ./wrf.exe
   env:      OMP_NUM_THREADS=1 OMP_STACKSIZE=1G  ulimit -s unlimited
-  NOTE:     KMP_BLOCKTIME: n/a on scc (nvhpc OpenMP runtime has no KMP_BLOCKTIME concept)
+  NOTE:     KMP_BLOCKTIME: n/a on this cluster (nvhpc OpenMP runtime has no KMP_BLOCKTIME concept)
 
 === full-run prediction (rank_by=predicted, ANCHOR, 1 rebuilt point(s)) ===
 compute_total: 10:10   init: 10.0s   TOTAL: 10:20 (range 10:10 - 10:10, +-1.0% drift)

@@ -25,21 +25,19 @@ def _header_lines(seg_dir: str, nodes: int, time_limit: str, job_name: str, env_
             "SEG=%s" % shlex.quote(seg_dir),
             "SITE=%s" % wtune.machine.site(),
             "CAMPAIGN=${CAMPAIGN:-%s}" % shlex.quote(os.path.abspath(campaign_dir)),
-            "source \"$CAMPAIGN/sites/$SITE.sh\"   # site_hygiene / W",
+            "source \"$CAMPAIGN/sites/$SITE.sh\"   # site_launch / site_hygiene / W",
             "source \"%s\"" % env_source,
             "W=${WRF_TREE:-$W}",
             "ulimit -s unlimited"]
 
 
 def _launch_lines(k: int, config: Config) -> list[str]:
+    """The site file's own launcher (site_launch), the one the probes were measured with."""
     ppn = -(-config.ranks // config.nodes)
-    launch = "mpirun -np %d --map-by ppr:%d:node:PE=%d --bind-to core" % (config.ranks, ppn,
-                                                                         config.omp)
-    if config.dist == "cyclic":
-        launch += " --rank-by node"
     return ["CUR_WINDOW=%d" % k,
             "T0=$(date +%s)",
-            "%s ./wrf.exe &" % launch,
+            "site_launch %d %d %d %s" % (config.ranks, ppn, config.omp, config.dist),
+            "\"${SITE_LAUNCH_CMD[@]}\" &",
             "WRF_PID=$!",
             "wait \"$WRF_PID\"; rc=$?",
             "WRF_PID=\"\"; CUR_WINDOW=\"\"",

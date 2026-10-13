@@ -66,6 +66,11 @@ not bind the node sweep's ANCHOR; this cap does. New machine setting `node_prefl
 (`--node-preflight off`, `WTUNE_NODE_PREFLIGHT=0`): f1-arm lets a user have 2 to 12 jobs
 submitted, so of the 40 probes all but two were refused and 38 nodes were excluded.
 
+**`wtune run` starts WRF with the site file's launcher.** A segment wrote its own
+`mpirun --map-by ppr:<ranks per node>:node` line while the probes of `wtune tune` went through
+`site_launch`: on f1-arm (two NUMA domains per node) 90 ranks ran as 72 + 18 after being tuned as
+45 + 45, and a site that launches with `srun` could not run at all. scc's commands are unchanged.
+
 ## 0.9.0 — 2026-10-12
 
 Main code made small enough to review; behaviour of the tune -> run -> post path is unchanged

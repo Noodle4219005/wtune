@@ -528,7 +528,7 @@ def test_segment_sbatch_text(tmp_path, monkeypatch):
                                     campaign_dir="/repo/campaign")
     assert ("#SBATCH -p compute -N 2 --exclusive --ntasks-per-node=72 --time=01:30:00 "
             "--exclude=head,work5,work7") in text
-    assert "mpirun -np 72 --map-by ppr:36:node:PE=2 --bind-to core ./wrf.exe &" in text
+    assert "site_launch 72 36 2 block\n\"${SITE_LAUNCH_CMD[@]}\" &\n" in text
     assert "export OMP_NUM_THREADS=2" in text
     assert "export OMP_PLACES=cores OMP_PROC_BIND=close" in text
     assert "ulimit -s unlimited" in text
@@ -547,7 +547,25 @@ def test_segment_sbatch_omp1_unsets_places_and_cyclic(tmp_path, monkeypatch):
     text = wr.render_segment_sbatch(str(tmp_path), 1, cfg, "00:20:00", "j")
     assert "--exclude=head\n" in text
     assert "unset OMP_PLACES OMP_PROC_BIND" in text and "export OMP_NUM_THREADS=1" in text
-    assert "mpirun -np 130 --map-by ppr:65:node:PE=1 --bind-to core --rank-by node ./wrf.exe" in text
+    assert "site_launch 130 65 1 cyclic\n" in text
+
+
+@pytest.mark.parametrize("site, nodes, args, expected", [
+    ("scc", 2, "72 36 2 block", "mpirun -np 72 --map-by ppr:36:node:PE=2 --bind-to core ./wrf.exe"),
+    ("scc", 2, "130 65 1 cyclic",
+     "mpirun -np 130 --map-by ppr:65:node:PE=1 --bind-to core --rank-by node ./wrf.exe"),
+    # two NUMA domains per node on f1-arm: the ranks of a node are split over them
+    ("f1arm", 1, "90 90 1 block", "mpirun -np 90 --map-by ppr:45:numa:PE=1 --bind-to core ./wrf.exe"),
+    ("f1arm", 1, "81 81 1 block", "mpirun -np 81 --map-by ppr:81:node:PE=1 --bind-to core ./wrf.exe"),
+])
+def test_a_segment_starts_wrf_with_the_site_files_launcher(site, nodes, args, expected):
+    campaign = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "campaign")
+    script = ('CAMPAIGN=%s; source "$CAMPAIGN/sites/%s.sh"; site_launch %s; '
+              'echo "${SITE_LAUNCH_CMD[*]}"' % (campaign, site, args))
+    env = dict(HOME=os.environ.get("HOME", "/tmp"), PATH=os.environ["PATH"],
+               SLURM_JOB_NUM_NODES=str(nodes))
+    out = subprocess.run(["bash", "-c", script], capture_output=True, text=True, env=env)
+    assert out.stdout.strip() == expected, out.stderr
 
 
 def test_time_limit_rounding_and_cap():

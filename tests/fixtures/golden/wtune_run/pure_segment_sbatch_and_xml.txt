@@ -9,7 +9,7 @@ set -uo pipefail
 SEG='<TMP>/seg dir'
 SITE=scc
 CAMPAIGN=${CAMPAIGN:-/repo/campaign}
-source "$CAMPAIGN/sites/$SITE.sh"   # site_hygiene / W
+source "$CAMPAIGN/sites/$SITE.sh"   # site_launch / site_hygiene / W
 source "$HOME/wtune-scc/env.sh"
 W=${WRF_TREE:-$W}
 ulimit -s unlimited
@@ -66,7 +66,8 @@ unset KMP_BLOCKTIME
 export OMP_PLACES=cores OMP_PROC_BIND=close
 CUR_WINDOW=0
 T0=$(date +%s)
-mpirun -np 72 --map-by ppr:36:node:PE=2 --bind-to core ./wrf.exe &
+site_launch 72 36 2 block
+"${SITE_LAUNCH_CMD[@]}" &
 WRF_PID=$!
 wait "$WRF_PID"; rc=$?
 WRF_PID=""; CUR_WINDOW=""
@@ -85,7 +86,7 @@ set -uo pipefail
 SEG='<TMP>/seg dir'
 SITE=scc
 CAMPAIGN=${CAMPAIGN:-<REPO>/campaign}
-source "$CAMPAIGN/sites/$SITE.sh"   # site_hygiene / W
+source "$CAMPAIGN/sites/$SITE.sh"   # site_launch / site_hygiene / W
 source "/opt/env.sh"
 W=${WRF_TREE:-$W}
 ulimit -s unlimited
@@ -142,7 +143,8 @@ unset KMP_BLOCKTIME
 unset OMP_PLACES OMP_PROC_BIND
 CUR_WINDOW=3
 T0=$(date +%s)
-mpirun -np 130 --map-by ppr:65:node:PE=1 --bind-to core --rank-by node ./wrf.exe &
+site_launch 130 65 1 cyclic
+"${SITE_LAUNCH_CMD[@]}" &
 WRF_PID=$!
 wait "$WRF_PID"; rc=$?
 WRF_PID=""; CUR_WINDOW=""

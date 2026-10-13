@@ -128,7 +128,7 @@ set -uo pipefail
 SEG=<TMP>/out/seg_0
 SITE=scc
 CAMPAIGN=${CAMPAIGN:-<REPO>/campaign}
-source "$CAMPAIGN/sites/$SITE.sh"   # site_hygiene / W
+source "$CAMPAIGN/sites/$SITE.sh"   # site_launch / site_hygiene / W
 source "$HOME/wtune-scc/env.sh"
 W=${WRF_TREE:-$W}
 ulimit -s unlimited
@@ -185,7 +185,8 @@ unset KMP_BLOCKTIME
 unset OMP_PLACES OMP_PROC_BIND
 CUR_WINDOW=0
 T0=$(date +%s)
-mpirun -np 72 --map-by ppr:72:node:PE=1 --bind-to core ./wrf.exe &
+site_launch 72 72 1 block
+"${SITE_LAUNCH_CMD[@]}" &
 WRF_PID=$!
 wait "$WRF_PID"; rc=$?
 WRF_PID=""; CUR_WINDOW=""

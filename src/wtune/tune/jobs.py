@@ -153,7 +153,8 @@ def nc2bp_command(ctx: Ctx, cases: list[str], cases_json: str | None, out_dir: s
     probe exclusions apply: never head)."""
     campaign = (sweep.campaign_dir_for(ctx.sbatch_script)
                 or os.path.dirname(os.path.abspath(sweep._expand(ctx.sbatch_script))))
-    export = "ALL,SITE=scc,CHECK=0,CAMPAIGN=%s,CASES=%s" % (campaign, ":".join(cases))
+    export = ("ALL,SITE=%s,CHECK=0,CAMPAIGN=%s,CASES=%s"
+              % (wtune.machine.site(), campaign, ":".join(cases)))
     if cases_json:
         export += ",CASES_JSON=%s" % cases_json
     return ("source %s; sbatch -p %s %s --job-name=nc2bp-%s --output=%s/nc2bp-%%j.out --export=%s %s"

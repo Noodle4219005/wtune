@@ -178,43 +178,22 @@ def merged_case_table(project_dir, case_id):
 
 
 def project_machine(project_doc):
-    """project.yaml's machine block as {key: value}, only the keys it sets (wtune.machine has
-    the built-in values). ProjectError on an unknown key or a bad value."""
-    block = (project_doc or {}).get("machine") or {}
-    if not isinstance(block, dict):
-        raise ProjectError("project.yaml machine: must be a mapping")
-    out = {}
-    for key, value in block.items():
-        where = "project.yaml machine.%s" % key
-        if key not in wtune.machine.DEFAULTS:
-            raise ProjectError("%s: unknown key (known: %s)"
-                               % (where, ", ".join(wtune.machine.DEFAULTS)))
-        if value is None:
-            continue
-        if key in ("cores_per_node", "max_nodes", "numa_per_node"):
-            if isinstance(value, bool) or not isinstance(value, int) or value < 1:
-                raise ProjectError("%s: %r must be a positive integer" % (where, value))
-        elif key in ("partition", "account", "hardware_id"):
-            if not isinstance(value, str) or (key != "account" and not value.strip()):
-                raise ProjectError("%s: %r must be a name" % (where, value))
-            value = value.strip()
-        elif key == "calibration":
-            value = os.path.expanduser(value) if isinstance(value, str) else value
-            if not isinstance(value, str) or not os.path.isabs(value) or not os.path.isfile(value):
-                raise ProjectError("%s: %r must be the absolute path of an existing file"
-                                   % (where, value))
-        else:
-            names = value.split(",") if isinstance(value, str) else value
-            if not isinstance(names, list) or not all(isinstance(n, str) for n in names):
-                raise ProjectError("%s: %r must be a list of node names" % (where, value))
-            value = [n.strip() for n in names if n.strip()]
-        out[key] = value
-    return out
+    """project.yaml's machine block, checked (wtune.machine.check): only the keys it sets.
+    ProjectError when it is wrong."""
+    try:
+        return wtune.machine.check((project_doc or {}).get("machine"), "project.yaml machine")
+    except wtune.machine.MachineError as e:
+        raise ProjectError(str(e)) from e
 
 
 def machine_line(project_doc):
-    """'machine: cores_per_node=72 ...': the project's values over the built-in ones."""
-    values = dict(wtune.machine.DEFAULTS, **project_machine(project_doc))
+    """'machine: cores_per_node=72 ...': the built-in values, replaced by the user's file,
+    then by the project's block."""
+    try:
+        user = wtune.machine.load_user()
+    except wtune.machine.MachineError as e:
+        raise ProjectError(str(e)) from e
+    values = dict(wtune.machine.DEFAULTS, **dict(user, **project_machine(project_doc)))
     values["login_nodes"] = ",".join(values["login_nodes"]) or "-"
     values["account"] = values["account"] or "-"
     values["calibration"] = values["calibration"] or "built-in"
@@ -226,11 +205,7 @@ def apply_project_env(project_dir, project_doc):
     exclude_nodes joins WTUNE_SBATCH_EXCLUDE, the machine block becomes the WTUNE_* variables
     of wtune.machine unless they are already set, and the case table with the project's case
     becomes CASES_JSON unless one is already set."""
-    for key, value in project_machine(project_doc).items():
-        name = wtune.machine.ENV[key]
-        if os.environ.get(name) or (key == "login_nodes" and name in os.environ):
-            continue                   # set by hand
-        os.environ[name] = ",".join(value) if isinstance(value, list) else str(value)
+    wtune.machine.export(project_machine(project_doc))
     nodes = project_exclude_nodes(project_doc)
     if nodes:
         have = [n for n in os.environ.get("WTUNE_SBATCH_EXCLUDE", "").split(",") if n]
@@ -708,6 +683,10 @@ def build_parser():
 
     p_set = sub.add_parser("set", help="update the resolved project's project.yaml")
     p_set.add_argument("--project", default=None)
+    p_set.add_argument("--user", action="store_true",
+                       help="write the machine flags to your own settings file (%s), which "
+                            "every project on this machine uses, instead of this project"
+                            % wtune.machine.user_file())
     p_set.add_argument("--storm", default=None, help="e.g. AL122005")
     p_set.add_argument("--hurdat2", default=None, help="HURDAT2 file")
     p_set.add_argument("--exclude-nodes", default=None, help="comma list, '' clears")
@@ -725,6 +704,16 @@ def build_parser():
                             "scc-gh200); a machine the tool does not know needs its own")
     p_set.add_argument("--numa-per-node", type=int, default=None,
                        help="NUMA domains with cores in one node (built-in 1)")
+    p_set.add_argument("--site", default=None,
+                       help="campaign/sites/<site>.sh describes how jobs start here "
+                            "(built-in scc)")
+    p_set.add_argument("--env-source", default=None,
+                       help="script every job sources for compilers, MPI and WRF "
+                            "(built-in $HOME/wtune-scc/env.sh)")
+    p_set.add_argument("--wrf-tree", default=None,
+                       help="WRF root with main/wrf.exe; $WRF_TREE when set by hand")
+    p_set.add_argument("--geog", default=None,
+                       help="WPS static data; $WPS_GEOG when set by hand")
     p_set.add_argument("--calibration", default=None,
                        help="calibration JSON of this machine (wtune calibrate fit); "
                             "built-in: machine/calibration/scc.json")
@@ -752,6 +741,21 @@ def main(argv=None):
             print("error: %s" % e, file=sys.stderr)
             return 1
         print("created project: %s" % path)
+        return 0
+
+    if args.project_command == "set" and args.user:
+        machine = {k: getattr(args, k) for k in wtune.machine.DEFAULTS
+                   if getattr(args, k) is not None}
+        if machine.get("calibration"):
+            machine["calibration"] = os.path.abspath(os.path.expanduser(machine["calibration"]))
+        try:
+            if not machine:
+                raise ProjectError("--user: give at least one machine flag, e.g. --partition")
+            wtune.machine.save_user(machine)
+            print("%s\n%s" % (wtune.machine.user_file(), machine_line(None)))
+        except (ProjectError, wtune.machine.MachineError) as e:
+            print("error: %s" % e, file=sys.stderr)
+            return 1
         return 0
 
     if args.project_command == "set":

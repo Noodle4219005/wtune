@@ -192,6 +192,20 @@ def test_machine_description_and_calibration_in_the_project(project, no_machine_
     assert proj.main(["set", "--project", project, "--calibration", str(cal) + ".missing"]) == 1
 
 
+def test_project_set_user_writes_the_settings_every_project_shares(
+        project, no_machine_env, monkeypatch, tmp_path, capsys):
+    path = tmp_path / "machine.yaml"
+    monkeypatch.setenv("WTUNE_MACHINE_FILE", str(path))
+    assert proj.main(["set", "--user", "--partition", "mine", "--max-nodes", "4"]) == 0
+    assert yaml.safe_load(path.read_text()) == dict(max_nodes=4, partition="mine")
+    assert "partition=mine" in proj.info_project(project)            # no project block yet
+    proj.set_project_defaults(project, machine=dict(partition="here"))
+    assert "max_nodes=4 partition=here" in proj.info_project(project)
+    assert "project.yaml" not in capsys.readouterr().out             # --user leaves it alone
+    assert proj.main(["set", "--user"]) == 1
+    assert "at least one machine flag" in capsys.readouterr().err
+
+
 def test_project_set_machine_flags(project, capsys):
     assert proj.main(["set", "--project", project, "--max-nodes", "8",
                       "--login-nodes", "login1,login2"]) == 0

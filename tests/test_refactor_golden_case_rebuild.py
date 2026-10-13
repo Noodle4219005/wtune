@@ -195,6 +195,7 @@ SBATCH_CASES = {
 @pytest.fixture
 def _pinned_scm(monkeypatch):
     monkeypatch.setattr(cs, "_SCM_PATH", "/opt/wtune/src/tools/state_correction_model.py")
+    monkeypatch.setattr(cs, "_TREE", "/opt/wtune")
 
 
 @pytest.mark.parametrize("name", sorted(SBATCH_CASES))

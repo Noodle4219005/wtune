@@ -2219,7 +2219,7 @@
    }
   },
   "every": {
-   "bundle_json_text": "{\n  \"run_dir\": \"<TMP>/run\",\n  \"run_label\": \"base\",\n  \"domain\": 1,\n  \"selection\": \"--every 6h\",\n  \"frames\": [\n    {\n      \"original\": \"<TMP>/run/wrfout_d01_2005-08-28_00:00:00\",\n      \"name\": \"wrfout_d01_2005-08-28_00_00_00\",\n      \"valid_time\": \"2005-08-28_00:00:00\",\n      \"timeidx\": 0,\n      \"size_bytes\": 1000,\n      \"mode\": \"hardlink\",\n      \"native\": null\n    },\n    {\n      \"original\": \"<TMP>/run/wrfout_d01_2005-08-28_06:00:00\",\n      \"name\": \"wrfout_d01_2005-08-28_06_00_00\",\n      \"valid_time\": \"2005-08-28_06:00:00\",\n      \"timeidx\": 0,\n      \"size_bytes\": 1001,\n      \"mode\": \"hardlink\",\n      \"native\": null\n    },\n    {\n      \"original\": \"<TMP>/run/wrfout_d01_2005-08-28_12:00:00\",\n      \"name\": \"wrfout_d01_2005-08-28_12_00_00\",\n      \"valid_time\": \"2005-08-28_12:00:00\",\n      \"timeidx\": 0,\n      \"size_bytes\": 1002,\n      \"mode\": \"hardlink\",\n      \"native\": null\n    }\n  ],\n  \"total_bytes\": 3003,\n  \"copied_bytes\": 0,\n  \"link_note\": \"hard-linked (no extra space)\",\n  \"wtune_version\": \"0.8.2\",\n  \"wtune_commit\": \"<SHA>\",\n  \"created_utc\": \"<TS>\"\n}",
+   "bundle_json_text": "{\n  \"run_dir\": \"<TMP>/run\",\n  \"run_label\": \"base\",\n  \"domain\": 1,\n  \"selection\": \"--every 6h\",\n  \"frames\": [\n    {\n      \"original\": \"<TMP>/run/wrfout_d01_2005-08-28_00:00:00\",\n      \"name\": \"wrfout_d01_2005-08-28_00_00_00\",\n      \"valid_time\": \"2005-08-28_00:00:00\",\n      \"timeidx\": 0,\n      \"size_bytes\": 1000,\n      \"mode\": \"hardlink\",\n      \"native\": null\n    },\n    {\n      \"original\": \"<TMP>/run/wrfout_d01_2005-08-28_06:00:00\",\n      \"name\": \"wrfout_d01_2005-08-28_06_00_00\",\n      \"valid_time\": \"2005-08-28_06:00:00\",\n      \"timeidx\": 0,\n      \"size_bytes\": 1001,\n      \"mode\": \"hardlink\",\n      \"native\": null\n    },\n    {\n      \"original\": \"<TMP>/run/wrfout_d01_2005-08-28_12:00:00\",\n      \"name\": \"wrfout_d01_2005-08-28_12_00_00\",\n      \"valid_time\": \"2005-08-28_12:00:00\",\n      \"timeidx\": 0,\n      \"size_bytes\": 1002,\n      \"mode\": \"hardlink\",\n      \"native\": null\n    }\n  ],\n  \"total_bytes\": 3003,\n  \"copied_bytes\": 0,\n  \"link_note\": \"hard-linked (no extra space)\",\n  \"wtune_version\": \"0.9.0\",\n  \"wtune_commit\": \"<SHA>\",\n  \"created_utc\": \"<TS>\"\n}",
    "manifest": {
     "copied_bytes": 0,
     "created_utc": "<TS>",
@@ -2259,7 +2259,7 @@
     "selection": "--every 6h",
     "total_bytes": 3003,
     "wtune_commit": "<SHA>",
-    "wtune_version": "0.8.2"
+    "wtune_version": "0.9.0"
    },
    "names": [
     "README.md",

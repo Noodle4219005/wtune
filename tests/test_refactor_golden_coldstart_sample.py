@@ -97,6 +97,7 @@ def _pinned_environment(monkeypatch):
     monkeypatch.delenv("WTUNE_SBATCH_EXCLUDE", raising=False)
     monkeypatch.delenv(scc_sweep.PREFLIGHT_EXCLUDE_ENV, raising=False)
     monkeypatch.setattr(cs, "_SELF_PATH", "/opt/wtune/src/tools/coldstart_sample.py")
+    monkeypatch.setattr(cs, "_TREE", "/opt/wtune")
     monkeypatch.setattr(cs, "_SCM_PATH", "/opt/wtune/src/tools/state_correction_model.py")
 
 

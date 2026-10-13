@@ -17,6 +17,9 @@ _SRC = os.path.join(_REPO_ROOT, "src")
 if _SRC not in sys.path:
     sys.path.insert(0, _SRC)
 
+# the developer's own machine settings must not reach the tests (or the commands they spawn)
+os.environ["WTUNE_MACHINE_FILE"] = os.path.join(os.sep, "nonexistent", "wtune-machine.yaml")
+
 
 def swap_wtune_module(monkeypatch, name, module):
     """Make `from wtune import <name>` yield `module`; None makes the import fail."""

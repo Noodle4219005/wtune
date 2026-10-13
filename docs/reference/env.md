@@ -10,7 +10,7 @@ source ~/wtune-scc/env.sh       # scc：一次設好 WRF 與編譯器相關的�
 
 | 變數 | 內容 | 誰需要 |
 |---|---|---|
-| `WRF_TREE` | WRF 的根目錄，底下有 `main/wrf.exe`、`main/real.exe`、`run/` | `tune`、`run`、`post compare` |
+| `WRF_TREE` | WRF 的根目錄，底下有 `main/wrf.exe`、`main/real.exe`、`run/`。也可以寫成 `machine.wrf_tree` | `tune`、`run`、`post compare` |
 | `WPS_DIR` | WPS 的根目錄 | `predict-rebuild` |
 
 ## 專案與叢集
@@ -27,6 +27,10 @@ source ~/wtune-scc/env.sh       # scc：一次設好 WRF 與編譯器相關的�
 | `WTUNE_HARDWARE_ID` | 這種節點在量測紀錄裡的名字 | `scc-gh200` |
 | `WTUNE_NUMA_PER_NODE` | 一個節點有幾個 NUMA 區 | `1` |
 | `WTUNE_CALIBRATION` | 這台機器的校準檔（絕對路徑） | `machine/calibration/scc.json` |
+| `WTUNE_SITE` | 用哪一份 `campaign/sites/<site>.sh` | `scc` |
+| `WTUNE_ENV_SOURCE` | 每個工作先 source 的環境腳本 | `$HOME/wtune-scc/env.sh` |
+| `WPS_GEOG` | WPS 的靜態地理資料 | `/nfs/data/wrf/WPS_GEOG/` |
+| `WTUNE_MACHINE_FILE` | 使用者設定檔的位置 | `~/.config/wtune/machine.yaml` |
 
 ```bash
 export WTUNE_SBATCH_EXCLUDE=work1
@@ -34,7 +38,7 @@ export WTUNE_SBATCH_EXCLUDE=work1
 
 `wtune project init` 沒給 `--exclude-nodes` 時，會把這個變數的值寫進 `project.yaml`。
 
-後八個是機器規格，平常寫在 `project.yaml` 的 [machine](../tutorial/project.md#machine) 區塊就好。手動設了環境變數時，環境變數優先。
+從 `WTUNE_CORES_PER_NODE` 到 `WPS_GEOG` 都是機器規格，平常寫在使用者設定檔或 `project.yaml` 的 [machine](../tutorial/project.md#machine) 區塊就好。手動設了環境變數時，環境變數優先。
 
 ## 後處理
 

@@ -747,7 +747,7 @@ def new_domain_fields(center_lat: float, center_lon: float, size_km: tuple[float
         "start_date": start_dt.strftime(_WRF_TIME_FMT), "end_date": end_dt.strftime(_WRF_TIME_FMT),
         "interval_seconds": 10800, "parent_id": [1], "parent_grid_ratio": [1],
         "i_parent_start": [1], "j_parent_start": [1], "geog_data_res": ["default"],
-        "geog_data_path": "/nfs/data/wrf/WPS_GEOG/",
+        "geog_data_path": cs.geog_data_path_default(),
     }
     prov("ref_lat", "given")
     prov("ref_lon", "given")
@@ -998,10 +998,11 @@ def rebuild_span(nl: dict, date_shift_to: str | None = None) -> tuple:
 def cmd_rebuild_plan(case_dir: str, out_dir: str, namelist: str | None = None,
                      namelist_wps: str | None = None, geo_from_wrfinput: str | None = None,
                      date_shift_to: str | None = None, forcing: str | None = None,
-                     verify_steps: int = 0, nodes: int = 1, ranks: int = 72, omp: int = 1,
+                     verify_steps: int = 0, nodes: int = 1, ranks: int | None = None, omp: int = 1,
                      nx: int | None = None, ny: int | None = None, ncdump: str | None = None,
                      now: datetime.datetime | None = None, geog_path: str | None = None,
                      grib_dir: str | None = None, ml_model: str | None = None) -> dict:
+    ranks = ranks or wtune.machine.cores_per_node()
     rows, blockers, nl = cs.inspect_case(case_dir, namelist=namelist, namelist_wps=namelist_wps,
                                          geo_from_wrfinput=geo_from_wrfinput, grib_dir=grib_dir,
                                          ncdump=ncdump, now=now, geog_path=geog_path)
@@ -1445,13 +1446,11 @@ def _sbatch_header(job: _RebuildJob) -> list[str]:
     lines += ["set -uo pipefail", "", "TOOL=%s" % cs._sh_quote(os.path.abspath(__file__))]
     if job.ml_model:   # K5: ML state completion, default off; never /usr/bin/python3 for it
         lines += ["TOOL_SCM=%s" % cs._sh_quote(cs._SCM_PATH),
-                  "ML_MODEL=%s" % cs._sh_quote(os.path.abspath(job.ml_model)),
-                  "GRIB_PY=${GRIB_PYTHON:-$HOME/wtune/envs/grib/.pixi/envs/default/bin/python}"]
-    lines += ["SITE=%s" % job.site,
-              "CAMPAIGN=${CAMPAIGN:-$HOME/wtune/campaign}",
-              "source \"$CAMPAIGN/sites/$SITE.sh\"   # site_env / site_launch / site_hygiene -- "
+                  "ML_MODEL=%s" % cs._sh_quote(os.path.abspath(job.ml_model))]
+    lines += ["SITE=%s" % job.site] + cs.tree_default_lines(bool(job.ml_model))
+    lines += ["source \"$CAMPAIGN/sites/$SITE.sh\"   # site_env / site_launch / site_hygiene -- "
               "reused, not reimplemented",
-              "source ~/wtune-scc/env.sh",
+              "source %s" % wtune.machine.env_source(),
               "export PATH=$NETCDF/bin:$PATH",
               "ulimit -s unlimited",
               "site_env"]
@@ -2419,7 +2418,7 @@ def main(argv: list[str] | None = None) -> int:
     sp.add_argument("--forcing")
     sp.add_argument("--verify-steps", type=int, default=0)
     sp.add_argument("--nodes", type=int, default=1)
-    sp.add_argument("--ranks", type=int, default=72)
+    sp.add_argument("--ranks", type=int, default=wtune.machine.cores_per_node())
     sp.add_argument("--omp", type=int, default=1)
     sp.add_argument("--nx", type=int)
     sp.add_argument("--ny", type=int)
@@ -2439,7 +2438,7 @@ def main(argv: list[str] | None = None) -> int:
 
     sp = rebuild_sub.add_parser("stage")
     sp.add_argument("--out", required=True)
-    sp.add_argument("--site", default="scc")
+    sp.add_argument("--site", default=wtune.machine.site())
 
     sp = rebuild_sub.add_parser("finalize")
     sp.add_argument("--out", required=True)

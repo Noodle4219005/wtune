@@ -1,5 +1,7 @@
 """wtune.machine: the built-in scc values, what replaces them, and that the generated jobs
 follow."""
+import os
+
 import pytest
 
 import test_wtune_run  # noqa: F401  first: its wtune.run import restores SITE/configs
@@ -122,3 +124,35 @@ def test_calibration_file_follows_the_machine(scc, monkeypatch, tmp_path):
     monkeypatch.setenv("WTUNE_CALIBRATION", str(mine))
     assert predict.calibration_path() == str(mine)
     assert predict.cores_per_node(predict.load_calibration(predict.calibration_path())) == 144
+
+
+def test_jobs_name_the_site_and_source_the_machine_environment(scc, monkeypatch):
+    monkeypatch.setenv("WTUNE_SITE", "mysite")
+    monkeypatch.setenv("WTUNE_ENV_SOURCE", "/opt/env.sh")
+    text = sbatch.render_segment_sbatch("/seg", 0, layout.make_config(12, 12, 1, 1, nodes=2),
+                                        "01:00:00", "job")
+    assert "\nSITE=mysite\n" in text and '\nsource "/opt/env.sh"\n' in text
+    cmd = scc_sweep.build_sbatch_command("c", 2, 72, "00:10:00", 600, 1, 20, "/c.json", "/out")
+    assert cmd.startswith("source /opt/env.sh; sbatch ") and "ALL,SITE=mysite," in cmd
+
+
+def test_user_file_sits_between_the_built_in_values_and_the_project(scc, monkeypatch, tmp_path):
+    path = tmp_path / "cfg" / "machine.yaml"
+    monkeypatch.setenv("WTUNE_MACHINE_FILE", str(path))
+    assert wtune.machine.load_user() == {}
+    wtune.machine.save_user(dict(partition="mine", max_nodes=4))
+    assert wtune.machine.load_user() == dict(partition="mine", max_nodes=4)
+    wtune.machine.export(dict(partition="project"))     # the dispatcher exports the project first
+    wtune.machine.export(wtune.machine.load_user())
+    assert (wtune.machine.partition(), wtune.machine.max_nodes()) == ("project", 4)
+    path.write_text("cores: 9\n")
+    with pytest.raises(wtune.machine.MachineError, match="unknown key"):
+        wtune.machine.load_user()
+
+
+def test_paths_of_the_machine(scc, monkeypatch):
+    assert wtune.machine.geog() == "/nfs/data/wrf/WPS_GEOG/"
+    wtune.machine.export(dict(geog="~/geog", wrf_tree="$HOME/wrf", env_source="$HOME/env.sh"))
+    home = os.path.expanduser("~")
+    assert (wtune.machine.geog(), wtune.machine.wrf_tree()) == (home + "/geog", home + "/wrf")
+    assert wtune.machine.env_source() == "$HOME/env.sh"      # sourced by a shell: kept as written

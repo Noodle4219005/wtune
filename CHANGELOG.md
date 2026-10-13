@@ -24,6 +24,14 @@ giving it another node size is refused. A calibration without `cores_per_node` n
 to the machine setting, not to 112. The node search seeds are the powers of two below the node
 cap and the cap (unchanged at 13).
 
+**Site, paths and a per-user file.** `machine.site`, `machine.env_source`, `machine.wrf_tree`
+and `machine.geog` replace the fixed `SITE=scc`, `~/wtune-scc/env.sh`, the scc WRF tree and
+`/nfs/data/wrf/WPS_GEOG/`; `wtune tune` accepts any site that has a `campaign/sites/<site>.sh`.
+Generated rebuild and cold-start jobs default `CAMPAIGN` and `GRIB_PYTHON` to the checkout
+they were written from, not to `$HOME/wtune`. Machine settings can also live in
+`~/.config/wtune/machine.yaml` (`wtune project set --user`), shared by every project on the
+machine; a project's block overrides it.
+
 ## 0.9.0 — 2026-10-12
 
 Main code made small enough to review; behaviour of the tune -> run -> post path is unchanged

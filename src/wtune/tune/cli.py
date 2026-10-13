@@ -21,7 +21,7 @@ from .jobs import _final_cancel_safety_net
 from .node_search import DEFAULT_SWEEP_BUDGET_FRAC, NODES_POLICIES, choose_nodes
 from .physics_phase import PIPELINE_PHYSICS_MAX_CANDIDATES
 from .pipeline import PIPELINE_MAX_QUEUE_HOURS, PRECISION_DEFAULT_MIN
-from .preflight import DEFAULT_WRF_TREE, default_preflight_runner, node_preflight
+from .preflight import default_preflight_runner, node_preflight
 from .report import _emit_report
 from . import context as _context
 from . import node_search as _node_search
@@ -295,7 +295,7 @@ def _run_node_preflight(args: argparse.Namespace, level: int | None, case_json: 
     if getattr(args, "no_node_preflight", False) or level == 0:      # O0 runs no jobs
         return None, None, max_nodes
     _src_dir = os.path.dirname(sweep.campaign_dir_for(args.sbatch_script) or _HERE)
-    _wrf = os.path.join(sweep._expand(os.environ.get("WRF_TREE") or DEFAULT_WRF_TREE),
+    _wrf = os.path.join(sweep._expand(wtune.machine.wrf_tree()),
                         "main", "wrf.exe")
     _requested = max_nodes
 
@@ -418,7 +418,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
                     help="wtune config YAML file: search-space restrictions + budget/probe/"
                          "prediction defaults (wtune/config.py); CLI flags given explicitly still "
                          "override it, which overrides this module's own built-in defaults")
-    p.add_argument("--site", default="scc")
+    p.add_argument("--site", default=None,
+                    help="campaign/sites/<site>.sh (default: the machine's, built-in scc)")
     p.add_argument("--minutes", type=float, default=None,
                     help="required here or via --config's budget.minutes")
     p.add_argument("--nodes", default=None,
@@ -525,7 +526,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--cores-per-node", type=int, default=wtune.machine.cores_per_node(),
                     dest="cores_per_node")
     p.add_argument("--hardware-id", default=wtune.machine.hardware_id(), dest="hardware_id")
-    p.add_argument("--env-source", default=sweep.DEFAULT_ENV_SOURCE, dest="env_source")
+    p.add_argument("--env-source", default=wtune.machine.env_source(), dest="env_source")
     p.add_argument("--sbatch-script", default=sweep.DEFAULT_SBATCH_SCRIPT, dest="sbatch_script")
     p.add_argument("--ledger-dir", default=sweep.DEFAULT_LEDGER_DIR, dest="ledger_dir")
     p.add_argument("--sacct-cmd", default="sacct", dest="sacct_cmd")
@@ -544,9 +545,12 @@ def main(argv: list[str] | None = None) -> int:
     except (AttributeError, ValueError):
         pass
     args = build_arg_parser().parse_args(argv)
-    if args.site != "scc":
-        print("ERROR: only --site scc is supported", file=sys.stderr)
+    args.site = args.site or wtune.machine.site()
+    if not os.path.isfile(os.path.join(sweep._CAMPAIGN_DIR, "sites", args.site + ".sh")):
+        print("ERROR: --site %s: there is no campaign/sites/%s.sh" % (args.site, args.site),
+              file=sys.stderr)
         return 2
+    os.environ[wtune.machine.ENV["site"]] = args.site
     if (getattr(args, "level", None) is None and getattr(args, "pipeline", None) is None
             and args.nodes is None):
         args.level = DEFAULT_LEVEL            # the default run: -O2

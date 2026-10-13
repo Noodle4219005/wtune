@@ -186,7 +186,7 @@ def submit_rebuilt_points(ctx: Ctx, points: list, anchor: dict, case_dir: str,
             plan, pdir, os.path.join(pdir, "grib"), grib_dir=grib_dir)
         print("rebuilt point %d (%s): fetched %.1f MB forcing"
               % (i, p.at.isoformat(), total_bytes / 1e6), flush=True)
-        sbatch_path = coldstart.stage_plan(pdir, site="scc", per_window_min=seg_timeout_min)
+        sbatch_path = coldstart.stage_plan(pdir, per_window_min=seg_timeout_min)
         cmd = ("sbatch --export=ALL,CAMPAIGN=%s %s" % (campaign_dir, sbatch_path)
                if campaign_dir else "sbatch %s" % sbatch_path)
         job_id = sweep.submit_job(cmd, sbatch_runner=ctx.sbatch_runner)

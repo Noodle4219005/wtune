@@ -16,7 +16,6 @@ from ._deps import sweep
 PREFLIGHT_TIMEOUT_S = 45.0             # s per srun probe
 SINFO_TIMEOUT_S = 30                   # s for the sinfo call
 HEALTH_BAD_STATES = ("down", "drain", "fail", "maint", "unk", "no_respond", "inval", "powered")
-DEFAULT_WRF_TREE = "$HOME/wrf-stack/wrf/nvhpc-fast-adios2-dmsm/WRF"     # campaign/sites/scc.sh's W
 
 Runner = Callable[[list, float], tuple]
 

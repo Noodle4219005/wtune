@@ -9,6 +9,7 @@ import os
 import shutil
 import sys
 
+import wtune.machine
 import wtune.project
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -37,7 +38,7 @@ def machine_checks() -> list[tuple[str, str, str]]:
                    ("FAIL", "%s not on PATH (no Slurm here?)" % tool, "run on the login node"))
     wrf_tree = os.environ.get("WRF_TREE")
     if not wrf_tree:
-        out.append(("FAIL", "WRF_TREE is not set", "source ~/wtune-scc/env.sh"))
+        out.append(("FAIL", "WRF_TREE is not set", "source %s" % wtune.machine.env_source()))
     elif not os.path.isfile(os.path.join(wrf_tree, "main", "wrf.exe")):
         out.append(("FAIL", "no main/wrf.exe under WRF_TREE=%s" % wrf_tree, "build WRF first"))
     else:

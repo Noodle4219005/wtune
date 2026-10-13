@@ -58,9 +58,10 @@ for _p in (_REPO_ROOT, _CAMPAIGN_DIR):
 # Must precede the first `import configs` anywhere in the process (campaign/configs.py reads
 # this env var at MODULE level: `SITE = os.environ.get("SITE") or "f1"`) -- setdefault so an
 # operator's own SITE=scc export (or a test's monkeypatch before import) is not clobbered.
-os.environ.setdefault("SITE", "scc")
-
 import wtune.machine
+
+os.environ.setdefault("SITE", wtune.machine.site())
+
 import configs as campaign_configs          # campaign/configs.py: CASES (scc-overlaid), stdlib only
 from wtune.predictor import decomp_space                         # predictor/decomp_space.py: enumerate_space/sample_design/
                                              # to_campaign_configs/legal_shapes_exact, stdlib only
@@ -74,7 +75,6 @@ DEFAULT_REPS = 1
 DEFAULT_STEPS = 30
 DEFAULT_ROOT = "$HOME/wtune-runs/sweep"
 DEFAULT_LEDGER_DIR = "$HOME/wtune-runs/campaign"          # campaign/sites/scc.sh's own $OUT
-DEFAULT_ENV_SOURCE = "$HOME/wtune-scc/env.sh"
 # The campaign/ of THIS source tree (resolved from __file__), not a fixed "$HOME/wtune/campaign":
 # on scc ~/wtune is a stale checkout (no RANKING_START, no write_adios2_restart_xml, no \037 TSV
 # fix) while the live code runs from ~/wtune-src, so the old hardcoded default silently paired
@@ -320,15 +320,15 @@ def scheduler_args():
 
 
 def build_sbatch_command(case, nodes, cores_per_node, time_limit, timeout_s, reps, steps,
-                          configs_path, out_dir, env_source=DEFAULT_ENV_SOURCE,
+                          configs_path, out_dir, env_source=None,
                           sbatch_script=DEFAULT_SBATCH_SCRIPT, campaign_dir=None, extra_export=None):
     """campaign_dir (optional): appended as CAMPAIGN=<dir> (see campaign_dir_for). extra_export
     (optional): [(KEY, VALUE), ...] appended verbatim after it (CONFIG_FILE stays last) (decision 0055 ranking context:
     CASES_JSON/RANKING_START/SPINUP_MINUTES/...); a VALUE containing ',' is refused -- sbatch
     --export would split it. Both default to None, which reproduces the old command exactly."""
     total_cores = nodes * cores_per_node
-    export = ("ALL,SITE=scc,WTUNE_TOTAL_CORES=%d,CASE=%s,MODE=timing,REPS=%d,STEPS=%d,"
-              "TIMEOUT_S=%d" % (total_cores, case, reps, steps, timeout_s))
+    export = ("ALL,SITE=%s,WTUNE_TOTAL_CORES=%d,CASE=%s,MODE=timing,REPS=%d,STEPS=%d,"
+              "TIMEOUT_S=%d" % (wtune.machine.site(), total_cores, case, reps, steps, timeout_s))
     if campaign_dir:
         export += ",CAMPAIGN=%s" % campaign_dir
     for key, value in (extra_export or []):
@@ -341,7 +341,7 @@ def build_sbatch_command(case, nodes, cores_per_node, time_limit, timeout_s, rep
               "--time=%s --job-name=sw-%s-n%d --output=%s/sweep-%%j.out --export=%s %s"
               % (wtune.machine.partition(), nodes, cores_per_node, scheduler_args(), time_limit,
                  case, nodes, out_dir, export, _expand(sbatch_script)))
-    return "source %s; %s" % (_expand(env_source), sbatch)
+    return "source %s; %s" % (_expand(env_source or wtune.machine.env_source()), sbatch)
 
 
 def submit_job(cmd_str, sbatch_runner=default_sbatch_runner):

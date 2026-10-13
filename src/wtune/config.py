@@ -30,13 +30,12 @@ from wtune import compliance as wc
 # built-in defaults -- duplicated from wtune/tune/ (it imports this module; the reverse would
 # be circular).
 # ---------------------------------------------------------------------------
-DEFAULT_SITE = "scc"
 NODES_POLICY_CHOICES = ("min", "cap", "knee")
 IO_TARGETS = ("nfs", "local")           # wtune.predict's own calibration targets (machine/calibration/*.json)
 EXCLUDE_WHEN_VALUES = ("fire",)
 
 DEFAULTS = {
-    "site": DEFAULT_SITE,
+    "site": wtune.machine.DEFAULTS["site"],       # unset: resolve_config takes the machine's
     "case": None,
     "case_dir": None,
     "compliance": "strict",
@@ -529,7 +528,7 @@ def resolve_config(raw: Any) -> tuple[dict | None, list[str]]:
             errors.append("unknown top-level key: %r" % k)
 
     cfg = copy.deepcopy(DEFAULTS)
-    cfg["site"] = raw.get("site", cfg["site"])
+    cfg["site"] = raw.get("site", wtune.machine.site())
     cfg["case"] = raw.get("case", cfg["case"])
     cfg["case_dir"] = raw.get("case_dir", cfg["case_dir"])
     cfg["compliance"] = raw.get("compliance", cfg["compliance"])
@@ -678,7 +677,7 @@ def count_legal_candidates(case_json: dict, nodes: int, cfg: dict, is_fire: bool
     """(total, filtered) legal decomp_space candidates at `nodes` nodes, before and after
     this config's search/exclude restrictions (no anchor exemption: the preview counts what
     round0/top-up/adaptive draw from). Sets $SITE if unset (side effect of the lazy import)."""
-    os.environ.setdefault("SITE", cfg.get("site") or DEFAULT_SITE)
+    os.environ.setdefault("SITE", cfg.get("site") or wtune.machine.site())
     from wtune.predictor import decomp_space  # predictor/decomp_space.py -- stdlib only, imported lazily
     hardware_id = hardware_id or wtune.machine.hardware_id()
     total_cores = nodes * (cores_per_node or wtune.machine.cores_per_node())
@@ -725,7 +724,7 @@ def resolve_case_for_preview(cfg: dict) -> tuple[dict | None, str | None, str]:
     """(case_json, namelist_path, label_or_error). label_or_error is the case name/dir on
     success, or a human-readable reason case_json is None."""
     if cfg.get("case"):
-        os.environ.setdefault("SITE", cfg.get("site") or DEFAULT_SITE)
+        os.environ.setdefault("SITE", cfg.get("site") or wtune.machine.site())
         import configs as campaign_configs  # campaign/configs.py
         case_json = campaign_configs.CASES.get(cfg["case"])
         if case_json is None:

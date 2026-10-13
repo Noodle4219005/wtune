@@ -55,7 +55,7 @@ wtune doctor
 
 **支援範圍**
 
-- `wtune tune` 目前只支援 `scc` 站點。節點大小、節點數、partition、計畫帳號可以用 `project.yaml` 的 [machine](../tutorial/project.md#machine) 換，但 MPI 啟動方式與 WRF 路徑仍寫在 `campaign/sites/scc.sh`。
+- 只有 `scc` 這個站點實際跑過完整流程。換機器要準備 `campaign/sites/<site>.sh`，並在 [machine](../tutorial/project.md#machine) 填好規格與路徑。
 - ndown、NMM、MPAS 不支援。
 - WRF 擴展的限制見 [WRF 擴展](extensions.md)。
 

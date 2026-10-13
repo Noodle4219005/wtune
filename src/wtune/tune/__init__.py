@@ -60,7 +60,7 @@ from .rounds import (  # noqa: F401
     run_tuning_at,
 )
 from .preflight import (  # noqa: F401
-    PREFLIGHT_TIMEOUT_S, SINFO_TIMEOUT_S, HEALTH_BAD_STATES, DEFAULT_WRF_TREE, Runner,
+    PREFLIGHT_TIMEOUT_S, SINFO_TIMEOUT_S, HEALTH_BAD_STATES, Runner,
     default_preflight_runner, node_preflight, render_node_health_text,
 )
 from .report import (  # noqa: F401

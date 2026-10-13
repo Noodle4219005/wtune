@@ -594,7 +594,7 @@ class TestMlModelHook(unittest.TestCase):
         self.assertIn("ML_MODEL=/plan/dir/report.json", text)
         self.assertIn("TOOL_SCM=", text)
         self.assertIn("state_correction_model.py", text)
-        self.assertIn("GRIB_PY=${GRIB_PYTHON:-$HOME/wtune/envs/grib/.pixi/envs/default/bin/python}",
+        self.assertIn("GRIB_PY=${GRIB_PYTHON:-%s/envs/grib/.pixi/envs/default/bin/python}" % cs._TREE,
                      text)
         self.assertIn("\"$GRIB_PY\" \"$TOOL_SCM\" apply", text)
         self.assertIn("--targets-from-report", text)

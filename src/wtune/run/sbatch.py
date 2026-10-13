@@ -23,7 +23,7 @@ def _header_lines(seg_dir: str, nodes: int, time_limit: str, job_name: str, env_
             "#SBATCH --output=%s/segment-%%j.out" % seg_dir,
             "set -uo pipefail",
             "SEG=%s" % shlex.quote(seg_dir),
-            "SITE=scc",
+            "SITE=%s" % wtune.machine.site(),
             "CAMPAIGN=${CAMPAIGN:-%s}" % shlex.quote(os.path.abspath(campaign_dir)),
             "source \"$CAMPAIGN/sites/$SITE.sh\"   # site_hygiene / W",
             "source \"%s\"" % env_source,
@@ -49,11 +49,11 @@ def _launch_lines(k: int, config: Config) -> list[str]:
 
 
 def render_segment_sbatch(seg_dir: str, k: int, config: Config, time_limit: str, job_name: str,
-                          env_source: str = "$HOME/wtune-scc/env.sh",
+                          env_source: str | None = None,
                           campaign_dir: str = _CAMPAIGN_DIR) -> str:
     config = Config.coerce(config)
     lines = _header_lines(os.path.abspath(seg_dir), config.nodes, time_limit, job_name,
-                          env_source, campaign_dir)
+                          env_source or wtune.machine.env_source(), campaign_dir)
     lines += coldstart.render_signal_trap_and_hygiene_preamble(
         config.nodes, extra_lines_after_alloc_nodes=["STATUS=\"$SEG/segment_status.txt\"",
                                                      ": > \"$STATUS\""],

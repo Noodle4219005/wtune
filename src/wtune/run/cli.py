@@ -13,6 +13,7 @@ import time
 from typing import Callable, Optional
 
 import wtune.extensions
+import wtune.machine
 import wtune.watch
 from ._deps import _CAMPAIGN_DIR, coldstart, sweep, wp
 from .common import WRF_FMT, RunError, _fmt, _hms, parse_hms
@@ -90,7 +91,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--wrf-tree", default=None, help="default $WRF_TREE (run/ files are linked "
                                                      "by the job too)")
-    ap.add_argument("--env-source", default="$HOME/wtune-scc/env.sh")
+    ap.add_argument("--env-source", default=wtune.machine.env_source())
     ap.add_argument("--campaign-dir", default=_CAMPAIGN_DIR)
     ap.add_argument("--sacct-cmd", default="sacct")
     ap.add_argument("--poll-interval", type=float, default=60.0)

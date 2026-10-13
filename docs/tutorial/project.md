@@ -95,6 +95,10 @@ machine:
   hardware_id: mybox       # 這種節點在量測紀錄裡的名字，內建 scc-gh200
   numa_per_node: 2         # 一個節點有幾個 NUMA 區，內建 1
   calibration: /path/to/mybox.json   # 這台機器的校準檔，內建用 scc 的
+  site: mybox              # 用 campaign/sites/mybox.sh 啟動工作，內建 scc
+  env_source: ~/mybox-env.sh         # 每個工作先 source 的環境腳本，內建 $HOME/wtune-scc/env.sh
+  wrf_tree: ~/wrf/WRF      # WRF 的根目錄，底下有 main/wrf.exe
+  geog: /data/WPS_GEOG     # WPS 的靜態地理資料
 ```
 
 | key | 影響 |
@@ -107,6 +111,10 @@ machine:
 | `hardware_id` | 每筆量測都記這個名字，預測模型用它分辨機器。WTune 內建認得 `scc-gh200`、`f1-spr-icpnq`、`f1-spr-icpnp`；其他機器要自己取一個名字 |
 | `numa_per_node` | 決定可以試哪些 OpenMP 執行緒數：只試能整除「每個 NUMA 區核心數」的值，執行緒才不會跨區 |
 | `calibration` | `wtune tune`、`wtune run`、`wtune check` 估算執行時間用的校準檔，由 `wtune calibrate fit` 產生。要寫絕對路徑 |
+| `site` | 選用哪一份 `campaign/sites/<site>.sh`（MPI 怎麼啟動、節點怎麼清理）和 `campaign/cases.<site>.json`。那個檔不存在時 `wtune tune` 會直接報錯 |
+| `env_source` | 每個工作開頭 source 的腳本，負責載入編譯器、MPI 和函式庫 |
+| `wrf_tree` | 等同環境變數 `WRF_TREE` |
+| `geog` | 等同環境變數 `WPS_GEOG`，重建個案時 geogrid 會用到 |
 
 新機器至少要給 `cores_per_node`、`hardware_id`、`numa_per_node`。沿用 `scc-gh200` 這個名字卻改了核心數會直接報錯，避免別台機器的量測混進 scc 的紀錄。
 
@@ -116,8 +124,26 @@ machine:
 
 ```mermaid
 flowchart LR
-    A[手動設的 WTUNE_* 環境變數] -->|蓋過| B[project.yaml 的 machine] -->|蓋過| C[內建值]
+    A[手動設的環境變數] -->|蓋過| B[project.yaml 的 machine] -->|蓋過| U[使用者設定檔] -->|蓋過| C[內建值]
 ```
+
+### 使用者設定檔
+
+機器的規格每個專案都一樣，所以可以只寫一次，放在家目錄：
+
+```bash
+wtune project set --user --cores-per-node 144 --partition arm-dev --account myproject
+```
+
+這會寫進 `~/.config/wtune/machine.yaml`，內容和上面的 `machine:` 區塊相同，只是少一層縮排：
+
+```yaml
+cores_per_node: 144
+partition: arm-dev
+account: myproject
+```
+
+這台機器上的每個專案、以及在專案外下的指令都會讀它。要換位置就設環境變數 `WTUNE_MACHINE_FILE`。專案的 `machine:` 只需要寫和這份不同的地方。
 
 `tune`、`run`、`post`、`submit` 都讀這裡，所以設一次就夠。打錯 key 或給了不合理的值會直接報錯，例如：
 
@@ -126,7 +152,7 @@ error: project.yaml machine.cores_per_node: 'many' must be a positive integer
 ```
 
 !!! note "目前只在 scc 上驗證過"
-    這個區塊讓節點大小、節點數、partition、登入節點、計畫帳號、硬體描述和校準檔可以換。MPI 的啟動方式和 WRF 的路徑仍由 `campaign/sites/scc.sh` 決定，換機器時那個檔也要準備一份。
+    這些設定在 f1-arm 上只確認過排程器接受產生的工作，還沒有在 scc 以外實際跑完一次 WRF。MPI 的啟動方式和節點清理寫在 `campaign/sites/<site>.sh`，換機器時要準備一份，再把 `site` 指過去。
 
 ## project set
 
@@ -137,6 +163,8 @@ wtune project set --exclude-nodes work1,work7
 wtune project set --cores-per-node 64 --max-nodes 20
 wtune project set --partition batch --login-nodes login1 --account myproject
 wtune project set --hardware-id mybox --numa-per-node 2 --calibration ~/mybox.json
+wtune project set --site mybox --env-source ~/mybox-env.sh --wrf-tree ~/wrf/WRF --geog /data/WPS_GEOG
+wtune project set --user --partition batch      # 寫進使用者設定檔，不動這個專案
 wtune project set --post-every 1d
 wtune project set --post-types tc,convection
 wtune project set --post-fetch era5,stage4

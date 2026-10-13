@@ -1,6 +1,6 @@
 {
  "bad_site": {
-  "err": "ERROR: only --site scc is supported\n",
+  "err": "ERROR: --site x: there is no campaign/sites/x.sh\n",
   "out": "",
   "rc": 2
  },

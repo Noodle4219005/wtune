@@ -26,7 +26,7 @@ options:
                         budget/probe/prediction defaults (wtune/config.py); CLI flags given
                         explicitly still override it, which overrides this module's own built-in
                         defaults
-  --site SITE
+  --site SITE           campaign/sites/<site>.sh (default: the machine's, built-in scc)
   --minutes MINUTES     required here or via --config's budget.minutes
   --nodes NODES         N = fixed node count; 'search' (DEFAULT) = measure the ANCHOR at each
                         legal node count, choose N by --node-objective, then tune at the finalist

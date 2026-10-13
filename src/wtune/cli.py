@@ -1079,21 +1079,23 @@ def _project_for(argv):
 
 
 def _run_forwarded(args):
+    import wtune.machine
+    import wtune.project
+    from wtune.predictor import features
     argv = getattr(args, _FORWARDED_DEST[args.command])
     project_dir = None
-    if args.command in _PROJECT_AWARE:
-        import wtune.machine
-        import wtune.project
-        from wtune.predictor import features
-        project_dir, doc = _project_for(argv)
-        try:
+    try:
+        if args.command in _PROJECT_AWARE:
+            project_dir, doc = _project_for(argv)
             if project_dir:
                 wtune.project.apply_project_env(project_dir, doc)
+        if args.command != "project":           # `project set` stays usable to repair them
+            wtune.machine.export(wtune.machine.load_user())     # after the project: it wins
             wtune.machine.max_nodes()
             features.hardware(wtune.machine.hardware_id())
-        except (wtune.project.ProjectError, ValueError) as e:    # MachineError is a ValueError
-            print("error: %s" % e, file=sys.stderr)
-            return 2
+    except (wtune.project.ProjectError, ValueError) as e:    # MachineError is a ValueError
+        print("error: %s" % e, file=sys.stderr)
+        return 2
     try:
         status = _forwarded_module(args).main(argv)
     except SystemExit as e:

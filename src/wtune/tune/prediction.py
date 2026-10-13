@@ -12,6 +12,7 @@ import math
 import os
 from typing import Any
 
+import wtune.machine
 from ._deps import coldstart, sweep, cost_drivers, io_model, predict, probe_plan
 from .common import UNSET, Record, _fmt_hms, _fmt_sbatch_time, is_set
 from .context import Ctx
@@ -202,8 +203,9 @@ def run_rebuild_points(ctx: Ctx, points: list, best_config: dict, nodes: int, ca
         return []
     missing_env = [v for v in ("WPS_DIR", "WRF_TREE") if not os.environ.get(v)]
     if missing_env:          # job 1236: staged without these, the windows died in 3 s
-        raise RuntimeError("run_rebuild_points: %s not set -- source the site env (e.g. "
-                           "~/wtune-scc/env.sh) before running the driver" % ", ".join(missing_env))
+        raise RuntimeError("run_rebuild_points: %s not set -- source the site env (%s) before "
+                           "running the driver"
+                           % (", ".join(missing_env), wtune.machine.env_source()))
     config = dict(ranks=best_config["ranks"], omp=best_config["omp"], nx=best_config["nx"],
                   ny=best_config["ny"], numtiles=best_config.get("numtiles", 1), nodes=nodes)
     # one plan dir per point: windows sharing $PLAN/wps would overwrite each other's met_em files
@@ -220,7 +222,7 @@ def run_rebuild_points(ctx: Ctx, points: list, best_config: dict, nodes: int, ca
             plan, pdir, os.path.join(pdir, "grib"), grib_dir=grib_dir)
         print("C3 rebuild point %d (%s): fetched %.1f MB forcing"
               % (i, p.at.isoformat(), total_bytes / 1e6), flush=True)
-        sbatch_path = coldstart.stage_plan(pdir, site="scc", per_window_min=seg_timeout_min)
+        sbatch_path = coldstart.stage_plan(pdir, per_window_min=seg_timeout_min)
         job_id = sweep.submit_job("sbatch %s" % sbatch_path, sbatch_runner=ctx.sbatch_runner)
         print("C3 rebuild job submitted: %s (%s)" % (job_id, sbatch_path), flush=True)
         plan["_plan_dir"] = pdir

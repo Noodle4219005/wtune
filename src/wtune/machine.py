@@ -6,6 +6,7 @@ The built-in values are scc's. They are replaced, in this order, by the user's o
 files into the environment before a command runs; the getters read it at call time."""
 from __future__ import annotations
 
+import json
 import os
 
 DEFAULTS = {"cores_per_node": 72,       # hardware cores of one compute node (scc GH200)
@@ -19,16 +20,52 @@ DEFAULTS = {"cores_per_node": 72,       # hardware cores of one compute node (sc
             "site": "scc",              # campaign/sites/<site>.sh and cases.<site>.json
             "env_source": "$HOME/wtune-scc/env.sh",   # sourced by every job
             "wrf_tree": "$HOME/wrf-stack/wrf/nvhpc-fast-adios2-dmsm/WRF",
-            "geog": "/nfs/data/wrf/WPS_GEOG/"}        # WPS static data
+            "geog": "/nfs/data/wrf/WPS_GEOG/",        # WPS static data
+            "max_hours": 0,             # longest job the partition accepts; 0 = no cap
+            "measured": {}}             # replacements for MEASURED below
 ENV = {"cores_per_node": "WTUNE_CORES_PER_NODE", "max_nodes": "WTUNE_MAX_NODES",
        "partition": "WTUNE_PARTITION", "login_nodes": "WTUNE_LOGIN_NODES",
        "account": "WTUNE_ACCOUNT", "hardware_id": "WTUNE_HARDWARE_ID",
        "numa_per_node": "WTUNE_NUMA_PER_NODE", "calibration": "WTUNE_CALIBRATION",
        "site": "WTUNE_SITE", "env_source": "WTUNE_ENV_SOURCE", "wrf_tree": "WRF_TREE",
-       "geog": "WPS_GEOG"}
+       "geog": "WPS_GEOG", "max_hours": "WTUNE_MAX_HOURS", "measured": "WTUNE_MEASURED"}
+
+# Numbers measured on scc that estimates fall back on when nothing was measured for the
+# case at hand. Another machine replaces the ones it knows in its `measured:` map.
+MEASURED = {
+    "noise_frac": 0.03,                 # run-to-run repeatability: ties and early stop
+    "anchor_drift_max": 0.01,           # drift allowed between the two ANCHOR runs of a job
+    "startup_s": 120.0,                 # one run's startup, until round 0 measures it
+    "s_per_step": 10.0,                 # s/step when no ledger row and no cell model applies
+    "init_s": 120.0,                    # WRF init of a segment that has no prediction
+    "restart_io_s": 300.0,              # one restart write or read (marshall)
+    "history_frame_s": 30.0,            # one history frame of one domain
+    "radiation_factor": 1.5,            # padding on the cell-step model for radiation steps
+    "io_factor": 2.0,                   # --time covers this x the measured I/O (NFS: 2.4x spread)
+    "rebuild_s": 180.0,                 # one ERA5 point rebuild (sc26p1: 1:21-3:00)
+    "r_rad_default": 5.0,               # radiation step / normal step, no calibration
+    "r_rad_day_night_ratio": 1.87,
+    "ranking_r_rad": 3.93,              # the calibration's day level
+    "probe_noise_measured_pct": 3.0,    # % of compute, by where s/step came from
+    "probe_noise_extrapolated_pct": 15.0,
+    "probe_noise_rsl_pct": 5.0,
+    "probe_noise_fallback_pct": 50.0,
+    "cold_start_band": 0.25,            # +-25% on a prediction with no rebuilt point
+    "vec_kv": 50.0,                     # vectorisation gain of wide patches (wtune.cli)
+    # I/O anchors, each at the grid wtune.io_model names next to it
+    "restart_write_s_netcdf": 324.0, "restart_read_s_netcdf": 120.0,       # conus25
+    "restart_write_s_adios2": 1.05, "restart_read_s_adios2": 2.3,
+    "history_write_s_netcdf": 300.5,    # dorian2019, all frames of the run
+    "history_write_s_adios2": 0.042,    # SC26-P2, one frame
+    "boundary_s_netcdf": 0.31, "boundary_s_adios2": 0.0216,                # climate-ea50
+    "aux4_s_netcdf": 260.0 / 1584, "aux4_s_adios2": 0.033,
+    "iofields_call_ms": 0.9,
+    "probe_restart_read_s_adios2": 30.0, "probe_restart_read_s_netcdf": 120.0,
+}
 
 
 INT_KEYS = ("cores_per_node", "max_nodes", "numa_per_node")
+_measured_cache = ("", {})
 PATH_KEYS = ("wrf_tree", "geog")        # read by python: ~ and $VARS are expanded on export
 
 
@@ -52,6 +89,20 @@ def check(block, where="machine") -> dict:
         if key in INT_KEYS:
             if isinstance(value, bool) or not isinstance(value, int) or value < 1:
                 raise MachineError("%s: %r must be a positive integer" % (at, value))
+        elif key == "max_hours":
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0:
+                raise MachineError("%s: %r must be a number of hours, 0 for no cap"
+                                   % (at, value))
+        elif key == "measured":
+            if not isinstance(value, dict):
+                raise MachineError("%s: must be a mapping of name: number" % at)
+            for name, v in value.items():
+                if name not in MEASURED:
+                    raise MachineError("%s.%s: unknown name (known: %s)"
+                                       % (at, name, ", ".join(MEASURED)))
+                if isinstance(v, bool) or not isinstance(v, (int, float)) or v < 0:
+                    raise MachineError("%s.%s: %r must be a number >= 0" % (at, name, v))
+            value = {name: float(v) for name, v in value.items()}
         elif key == "login_nodes":
             names = value.split(",") if isinstance(value, str) else value
             if not isinstance(names, list) or not all(isinstance(n, str) for n in names):
@@ -74,11 +125,29 @@ def export(block: dict) -> None:
     """Put checked settings into the environment; a variable that is already set wins."""
     for key, value in block.items():
         name = ENV[key]
+        if key == "measured":
+            _export_measured(value)
+            continue
         if os.environ.get(name) or (key == "login_nodes" and name in os.environ):
             continue
         if key in PATH_KEYS:
             value = os.path.expandvars(os.path.expanduser(value))
         os.environ[name] = ",".join(value) if isinstance(value, list) else str(value)
+
+
+def _export_measured(value: dict) -> None:
+    """Name by name: what the environment already holds wins."""
+    merged = dict(value, **json.loads(os.environ.get(ENV["measured"]) or "{}"))
+    if merged:
+        os.environ[ENV["measured"]] = json.dumps(merged, sort_keys=True)
+
+
+def merged(old: dict, changes: dict) -> dict:
+    """`changes` over `old`; the measured map is merged name by name."""
+    out = dict(old or {}, **changes)
+    if "measured" in changes and (old or {}).get("measured"):
+        out["measured"] = dict(old["measured"], **changes["measured"])
+    return out
 
 
 def user_file() -> str:
@@ -106,7 +175,7 @@ def save_user(changes: dict) -> dict:
     """Merge `changes` into user_file(), creating it; returns the settings it now holds."""
     import yaml
     path = user_file()
-    block = check(dict(load_user(), **changes), path)
+    block = check(merged(load_user(), changes), path)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path + ".tmp", "w") as fh:
         yaml.safe_dump(block, fh, sort_keys=False, allow_unicode=True)
@@ -161,6 +230,37 @@ def wrf_tree() -> str:
 
 def geog() -> str:
     return _name("geog")
+
+
+def max_hours() -> float:
+    """Longest job the partition accepts, in hours; 0 when no cap is set."""
+    raw = os.environ.get(ENV["max_hours"], "").strip()
+    try:
+        value = float(raw) if raw else 0.0
+    except ValueError:
+        value = -1.0
+    if value < 0:
+        raise MachineError("%s=%r: must be a number of hours" % (ENV["max_hours"], raw))
+    return value
+
+
+def cap_seconds(seconds: float) -> float:
+    """`seconds`, not above max_hours() when one is set."""
+    cap = max_hours() * 3600.0
+    return min(seconds, cap) if cap else seconds
+
+
+def measured(name: str) -> float:
+    """MEASURED[name], or this machine's own value for it."""
+    global _measured_cache
+    raw = os.environ.get(ENV["measured"], "")
+    if raw != _measured_cache[0]:
+        try:
+            _measured_cache = (raw, check({"measured": json.loads(raw or "{}")},
+                                          ENV["measured"])["measured"])
+        except ValueError as e:
+            raise MachineError("%s: %s" % (ENV["measured"], e)) from e
+    return _measured_cache[1].get(name, MEASURED[name])
 
 
 def calibration() -> str:

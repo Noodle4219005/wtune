@@ -99,6 +99,10 @@ machine:
   env_source: ~/mybox-env.sh         # 每個工作先 source 的環境腳本，內建 $HOME/wtune-scc/env.sh
   wrf_tree: ~/wrf/WRF      # WRF 的根目錄，底下有 main/wrf.exe
   geog: /data/WPS_GEOG     # WPS 的靜態地理資料
+  max_hours: 8             # partition 允許的最長工作時數，內建 0（不設上限）
+  measured:                # 這台機器自己量到的數字，取代內建的 scc 值
+    noise_frac: 0.05
+    restart_write_s_adios2: 2.4
 ```
 
 | key | 影響 |
@@ -115,6 +119,8 @@ machine:
 | `env_source` | 每個工作開頭 source 的腳本，負責載入編譯器、MPI 和函式庫 |
 | `wrf_tree` | 等同環境變數 `WRF_TREE` |
 | `geog` | 等同環境變數 `WPS_GEOG`，重建個案時 geogrid 會用到 |
+| `max_hours` | 設了之後，`wtune run` 會把整段模擬切成每段都跑得完的長度，探測與重建工作的時限也不會超過它。不設就和以前一樣 |
+| `measured` | 見下方「measured」 |
 
 新機器至少要給 `cores_per_node`、`hardware_id`、`numa_per_node`。沿用 `scc-gh200` 這個名字卻改了核心數會直接報錯，避免別台機器的量測混進 scc 的紀錄。
 
@@ -126,6 +132,40 @@ machine:
 flowchart LR
     A[手動設的環境變數] -->|蓋過| B[project.yaml 的 machine] -->|蓋過| U[使用者設定檔] -->|蓋過| C[內建值]
 ```
+
+### measured
+
+沒有實測資料時，WTune 用一組在 scc 上量到的數字來估時間、判斷兩個配置誰快。換機器後這些數字不一定準，量到自己的值就寫進 `measured`，只寫要換的：
+
+```bash
+wtune project set --measured noise_frac=0.05 --measured init_s=60
+```
+
+| 名稱 | 內建值 | 意義 |
+|---|---|---|
+| `noise_frac` | 0.03 | 同一個配置重複量測的誤差。差距小於它就視為一樣快，節點搜尋也用它決定要不要早停 |
+| `anchor_drift_max` | 0.01 | 同一個探測工作頭尾兩次基準量測允許的漂移 |
+| `startup_s` | 120 | 一次執行的啟動時間，第一輪量到之前先用這個 |
+| `s_per_step` | 10 | 完全沒有資料時假設的每步秒數 |
+| `init_s` | 120 | 一段模擬的初始化時間 |
+| `restart_io_s` | 300 | 讀或寫一次 restart |
+| `history_frame_s` | 30 | 一個 domain 寫一張輸出 |
+| `radiation_factor` | 1.5 | 估每步時間時替輻射步留的倍數 |
+| `io_factor` | 2.0 | 建議時限涵蓋實測 I/O 的幾倍 |
+| `rebuild_s` | 180 | 重建一個時間點的輸入 |
+| `r_rad_default`、`r_rad_day_night_ratio`、`ranking_r_rad` | 5.0、1.87、3.93 | 輻射步相對一般步的成本 |
+| `probe_noise_measured_pct`、`_extrapolated_pct`、`_rsl_pct`、`_fallback_pct` | 3、15、5、50 | 預測區間的寬度（%），依每步時間的來源而定 |
+| `cold_start_band` | 0.25 | 沒有重建點時預測的 ± 範圍 |
+| `restart_write_s_netcdf`、`restart_read_s_netcdf` | 324、120 | conus25 大小的 restart，netCDF |
+| `restart_write_s_adios2`、`restart_read_s_adios2` | 1.05、2.3 | 同上，ADIOS2 |
+| `history_write_s_netcdf`、`history_write_s_adios2` | 300.5、0.042 | 輸出寫入的基準（各自的基準網格見 `wtune/io_model.py`） |
+| `boundary_s_netcdf`、`boundary_s_adios2` | 0.31、0.0216 | 一次側邊界更新 |
+| `aux4_s_netcdf`、`aux4_s_adios2` | 0.164、0.033 | 一次 `wrflowinp` 讀取 |
+| `iofields_call_ms` | 0.9 | 解析一次 iofields |
+| `probe_restart_read_s_adios2`、`probe_restart_read_s_netcdf` | 30、120 | 探測工作讀共用 restart |
+| `vec_kv` | 50 | `wtune calc` 成本模型裡寬 patch 的向量化增益 |
+
+名稱打錯會直接報錯並列出所有可用的名稱。
 
 ### 使用者設定檔
 
@@ -164,6 +204,7 @@ wtune project set --cores-per-node 64 --max-nodes 20
 wtune project set --partition batch --login-nodes login1 --account myproject
 wtune project set --hardware-id mybox --numa-per-node 2 --calibration ~/mybox.json
 wtune project set --site mybox --env-source ~/mybox-env.sh --wrf-tree ~/wrf/WRF --geog /data/WPS_GEOG
+wtune project set --max-hours 8 --measured noise_frac=0.05
 wtune project set --user --partition batch      # 寫進使用者設定檔，不動這個專案
 wtune project set --post-every 1d
 wtune project set --post-types tc,convection

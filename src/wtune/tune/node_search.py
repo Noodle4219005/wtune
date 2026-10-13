@@ -9,6 +9,7 @@ import os
 import statistics
 from typing import Any, Callable
 
+import wtune.machine
 import wtune.nodes
 from ._deps import sweep, predict
 from .budget import _fallback_s_per_step, _job_time_est
@@ -291,7 +292,7 @@ def run_node_sweep(ctx: Ctx, legal_nodes: list[int],
             a, b = srows[-2], srows[-1]
             state["stopped"] = ("early stop: N=%d (%.4f s/step) did not beat N=%d (%.4f s/step) "
                                 "by >%.0f%%" % (b["nodes"], b["median"], a["nodes"], a["median"],
-                                                wtune.nodes.NOISE_FRAC * 100))
+                                                wtune.machine.measured("noise_frac") * 100))
             print("node sweep: %s; larger N not submitted" % state["stopped"])
 
     # phase 2: refine around the best N
@@ -643,6 +644,6 @@ def build_layout_table(sw: dict, cores_info: dict, outcomes: dict, ctx: Ctx,
     comparison = None
     if winner and runner:
         gap = (runner["median"] - winner["median"]) / winner["median"]
-        comparison = dict(gap=gap, noise=wtune.nodes.NOISE_FRAC,
-                          beyond_noise=abs(gap) > wtune.nodes.NOISE_FRAC)
+        comparison = dict(gap=gap, noise=wtune.machine.measured("noise_frac"),
+                          beyond_noise=abs(gap) > wtune.machine.measured("noise_frac"))
     return dict(rows=rows, winner=winner, runner_up=runner, comparison=comparison)

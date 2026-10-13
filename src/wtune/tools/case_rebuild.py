@@ -1376,8 +1376,6 @@ def cmd_rebuild_fix_span_wrf_namelist(out_dir: str, nproc_x: int, nproc_y: int,
     print("wrote %s (verify_steps=%d)" % (out_path, win_steps))
 
 
-_REAL_TIMEOUT_S = 600              # s; decomposed real.exe, then serial fallback
-_REAL_SERIAL_TIMEOUT_S = 1800      # s
 _SMOKE_EXTRA_MIN = 30              # added to the job time limit when the wrf.exe smoke run is on
 
 
@@ -1426,7 +1424,8 @@ def _rebuild_job(plan: dict, chosen: dict, site: str, estimate_min: int) -> _Reb
         expected_ungrib=cs.expected_wps_intermediate_files(prefix, T, T_end, interval_s),
         expected_met=cs.expected_met_em_files(max_dom, T, T_end, interval_s),
         geo_em_expected=["geo_em.d%02d.nc" % d for d in range(1, max_dom + 1)],
-        time_min=max(60, estimate_min * 2 + (_SMOKE_EXTRA_MIN if verify_steps else 0)),
+        time_min=int(wtune.machine.cap_seconds(60.0 * max(
+            60, estimate_min * 2 + (_SMOKE_EXTRA_MIN if verify_steps else 0))) // 60),
         ml_model=plan.get("ml_model"), site=site, estimate_min=estimate_min)
 
 
@@ -1553,14 +1552,14 @@ def _sbatch_real(job: _RebuildJob) -> list[str]:
         "for f in met_em.d0*.*.nc; do [ \"$f\" = \"${f//:/_}\" ] || ln -sf \"$f\" \"${f//:/_}\"; done",
         "python3 \"$TOOL\" rebuild fix-span-real-namelist --out \"$REBUILD_DIR\" || exit 1",
         "timeout %d mpirun -np %d --map-by ppr:%d:node:PE=1 --bind-to core ./real.exe"
-        % (_REAL_TIMEOUT_S, job.ranks, job.ppn),
+        % (cs.REAL_TIMEOUT_S, job.ranks, job.ppn),
         "rc=$?; pkill -u \"$USER\" -x real.exe 2>/dev/null",
         "if [ $rc -eq 124 ] || [ ! -f wrfinput_d01 ] || [ ! -f wrfbdy_d01 ]; then",
         "  echo \"real.exe decomposed attempt rc=$rc -- retrying serial\" >&2",
         "  python3 \"$TOOL\" rebuild fix-span-real-namelist --out \"$REBUILD_DIR\" "
         "--serial || exit 1",
         "  timeout %d mpirun -np 1 --map-by ppr:1:node:PE=1 --bind-to core ./real.exe"
-        % _REAL_SERIAL_TIMEOUT_S,
+        % cs.REAL_SERIAL_TIMEOUT_S,
         "  rc=$?; pkill -u \"$USER\" -x real.exe 2>/dev/null",
         "fi",
         "[ $rc -ne 0 ] && { echo \"FATAL real.exe rc=$rc\"; exit 1; }",

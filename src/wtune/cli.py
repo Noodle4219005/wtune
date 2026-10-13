@@ -19,13 +19,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from wtune import physics as phys
 from wtune import solar as wsolar
 from wtune import compliance as wc
+import wtune.machine
 import wtune.version
 from wtune import runlength as runlen         # resolve_run_seconds: single-sourced run_* keys vs.
                                           # start/end date-span resolver (dependency-free)
 
 FLOOR = 10              # minimum mass points in each direction after halo
 HALO = 5                # WRF halo width approximation
-KV = 50.0               # vectorization/amortization constant, calibrated to the measured
+KV = wtune.machine.MEASURED["vec_kv"]   # built-in; vectorization/amortization constant,
+                        # calibrated to the measured
                         # CONUS 2.5km sweep so the RANKING matches wall time:
                         # 8x56 (0.9219, best) < 16x28 (0.9393) < 4x112 (1.0307, worst).
                         # KV=100 over-rewarded wide patches -> wrongly ranked 4x112 above 16x28.
@@ -509,7 +511,7 @@ def cost_model(nx, ny, px, py, ranks, nodes, numa_domains):
     patch_y = ny / float(py)
 
     ghost_inflation = ((patch_x + 2 * HALO) * (patch_y + 2 * HALO)) / (patch_x * patch_y)
-    vec_factor = 1.0 + KV / patch_x
+    vec_factor = 1.0 + wtune.machine.measured("vec_kv") / patch_x
 
     if nodes is not None:
         if ranks % nodes == 0:

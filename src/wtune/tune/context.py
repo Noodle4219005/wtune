@@ -12,6 +12,7 @@ from typing import Any, Callable
 
 import wtune.case
 import wtune.config
+import wtune.machine
 from ._deps import campaign_configs, sweep, predict, probe_plan
 
 DEFAULT_STEPS = 20                     # probe steps per run (t0 search)
@@ -100,7 +101,8 @@ class Ctx:
     probe_cfg: dict = dataclasses.field(          # probe.* (points, spinup_min, ...) for the winner
         default_factory=lambda: copy.deepcopy(wtune.config.DEFAULTS["probe"]))
     ranking_start_note: str | None = None
-    startup_s: float = DEFAULT_STARTUP_S          # s/run every run-time estimate sizes off
+    startup_s: float = dataclasses.field(         # s/run every run-time estimate sizes off
+        default_factory=lambda: wtune.machine.measured("startup_s"))
     startup_source: str = "documented constant (scc_sweep.STARTUP_S)"
     startup_runs: int | None = None               # completed round0 runs behind a measurement
     restart_io_form: int = 14                     # io_form of the point jobs' shared restart

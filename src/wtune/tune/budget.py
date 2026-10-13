@@ -6,22 +6,26 @@ import math
 import os
 import statistics
 
+import wtune.machine
+
 from ._deps import sweep, predict
 from .common import ANCHOR_END_ID, _parse_slurm_elapsed, compute_slots
-from .context import DEFAULT_STARTUP_S, Ctx
+from .context import Ctx
 
-RANKING_R_RAD = 3.93                   # radiation-step cost / normal step: calibration's day level
+RANKING_R_RAD = wtune.machine.MEASURED["ranking_r_rad"]   # built-in; rad_factor reads the machine's
                                        # (r_rad_default_day) -- P* is the most daylit point
-RESTART_READ_S_BY_IO = {14: 30.0, 2: 120.0}    # s/run restart read on top of startup_s: ADIOS2 BP
+RESTART_READ_S_BY_IO = {14: wtune.machine.MEASURED["probe_restart_read_s_adios2"],   # built-in:
+                        2: wtune.machine.MEASURED["probe_restart_read_s_netcdf"]}    # ADIOS2 BP
                                        # vs serial netCDF (conus25 11.5 GB, job 1231: 120 s)
 
 
 def estimate_run_time(n_or_pairs: int | list, reps: int, steps: int, s_est: float | None = None,
-                      startup_s: float = DEFAULT_STARTUP_S) -> dict:
+                      startup_s: float | None = None) -> dict:
     """One job of `reps` replicate(s): `n_or_pairs` is a config count sized at `s_est`, or
     [(config, s_per_step)] sized per config. total_run_s is the RAW expected time, the only
     number budget decisions may use; job_hours/time_limit/timeout_s are scc_sweep's padded
     sbatch request (x1.5 + 10 min, capped) -- never a budget input (2026-09-23 conus25)."""
+    startup_s = wtune.machine.measured("startup_s") if startup_s is None else startup_s
     if isinstance(n_or_pairs, int):
         per_run_s_list = [startup_s + steps * s_est] * n_or_pairs
     else:
@@ -29,7 +33,7 @@ def estimate_run_time(n_or_pairs: int | list, reps: int, steps: int, s_est: floa
     total_run_s = reps * sum(per_run_s_list)
     job_hours = total_run_s / 3600.0
     padded_hours = job_hours * sweep.TIME_SAFETY_FACTOR + sweep.TIME_PAD_MIN / 60.0
-    capped_hours = min(padded_hours, sweep.TIME_CAP_HOURS)
+    capped_hours = min(padded_hours, sweep.time_cap_hours())
     max_per_run_s = max(per_run_s_list) if per_run_s_list else 0.0
     timeout_s = max(sweep.TIMEOUT_MIN_S, int(math.ceil(sweep.TIMEOUT_MULTIPLIER * max_per_run_s)))
     return dict(total_run_s=total_run_s, job_hours=capped_hours, uncapped_hours=padded_hours,
@@ -104,9 +108,10 @@ def rebuild_segment_timeout_min(case_dir: str, spinup_min: float, ranks: int, om
         return 90
 
 
-def rad_factor(steps: float, stepra: int | None, r_rad: float = RANKING_R_RAD) -> float:
+def rad_factor(steps: float, stepra: int | None, r_rad: float | None = None) -> float:
     """Mean cost of `steps` consecutive steps over a normal step: ceil(steps/stepra) radiation
     steps at r_rad each; 1.0 without a stepra."""
+    r_rad = wtune.machine.measured("ranking_r_rad") if r_rad is None else r_rad
     if not stepra or steps <= 0:
         return 1.0
     return 1.0 + math.ceil(float(steps) / stepra) * (r_rad - 1.0) / float(steps)
@@ -121,12 +126,14 @@ def ranking_cost_model(startup_s: float, restart_read_s: float, steps: int, spin
     return dict(per_run_s=startup_s + restart_read_s + steps * s_step * f_run,
                 spin_s=startup_s + spin_steps * s_step * f_spin, s_step=s_step, steps=steps,
                 spin_steps=spin_steps, stepra=stepra, rad_factor_run=f_run,
-                rad_factor_spin=f_spin, r_rad=RANKING_R_RAD, startup_s=startup_s,
+                rad_factor_spin=f_spin, r_rad=wtune.machine.measured("ranking_r_rad"),
+                startup_s=startup_s,
                 restart_read_s=restart_read_s)
 
 
 def _restart_read_s(ctx: Ctx) -> float:
-    return RESTART_READ_S_BY_IO.get(int(ctx.restart_io_form), 120.0)
+    fmt = "adios2" if int(ctx.restart_io_form) == 14 else "netcdf"
+    return wtune.machine.measured("probe_restart_read_s_" + fmt)
 
 
 def stage2_concurrency(ctx: Ctx) -> int:

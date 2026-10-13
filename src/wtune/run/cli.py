@@ -281,7 +281,7 @@ def _wall_model(opts: RunOptions, case: Case, choice: LayoutChoice,
         candidates = [Candidate(config=config, compute=constant_compute_fn(s))]
         notes.append("no prediction: %.3f s/step fallback (cell-step model x %.1f); later "
                      "segments' --time from each finished segment's observed rate"
-                     % (s, FALLBACK_RADIATION_FACTOR))
+                     % (s, wtune.machine.measured("radiation_factor")))
     return candidates, over, replan
 
 
@@ -328,11 +328,18 @@ def _plan_notes(opts: RunOptions, case: Case, L: Optional[int], segs: list,
                      "its start history frame")
 
 
+def _wall_limit_s(opts: RunOptions) -> Optional[float]:
+    """--wall-limit in seconds, else the machine's longest job, else None (no limit)."""
+    if opts.wall_limit:
+        return parse_hms(opts.wall_limit)
+    return wtune.machine.max_hours() * 3600.0 or None
+
+
 def build_plan(opts: RunOptions, case_dir: str, out: str, log: Callable) -> RunPlan:
     """Everything decided before the first job; RunError (and the errors main() lists) when
     the run cannot be planned."""
     case = _load_case(opts, case_dir, out)
-    wall_limit_s = parse_hms(opts.wall_limit) if opts.wall_limit else None
+    wall_limit_s = _wall_limit_s(opts)
     choice = _choose_layout(opts, log)
     notes: list[str] = []
     candidates, over, replan = _wall_model(opts, case, choice, notes)

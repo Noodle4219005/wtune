@@ -14,7 +14,7 @@ from .common import ANCHOR_END_ID, _fmt_hms, _notes_kv, parse_run_id
 from .context import Ctx, QueueCapExceeded
 
 PROGRESS_BAR_WIDTH = 24                # characters of the progress bar
-ANCHOR_DRIFT_MAX = 0.01                # |s(ANCHOREND)/s(ANCHOR) - 1| allowed inside one job
+ANCHOR_DRIFT_MAX = wtune.machine.MEASURED["anchor_drift_max"]   # |s(ANCHOREND)/s(ANCHOR) - 1|
 SACCT_MISS_MAX = 5                     # consecutive polls sacct may not list a submitted job
 _RSS_RE = re.compile(r"^(\d+(?:\.\d+)?)([KMGT]?)$")
 _RSS_TO_KB = {"": 1.0, "K": 1.0, "M": 1024.0, "G": 1024.0 ** 2, "T": 1024.0 ** 3}
@@ -246,12 +246,13 @@ def submit_configs_job(ctx: Ctx, configs: list[dict], reps: int, name_suffix: st
 
 
 def evaluate_job_gates(job_id: str, rows: list[dict], s_by_cid: dict, expected_cids: list,
-                       drift_max: float = ANCHOR_DRIFT_MAX, require_restart: bool = True,
+                       drift_max: float | None = None, require_restart: bool = True,
                        check_drift: bool = True) -> dict:
     """Validity gates of ONE ranking job (decision 0055), never raising: every expected cid has a
     row that restarted (restart_used=1, unless not require_restart) on a clean node, and
     |s(ANCHOREND)/s(ANCHOR) - 1| <= drift_max (when check_drift). Returns {job_id, ok, failures,
     anchor_drift, s_anchor, s_anchor_end}."""
+    drift_max = wtune.machine.measured("anchor_drift_max") if drift_max is None else drift_max
     failures = []
     by_cid = {}
     for r in rows:

@@ -81,11 +81,11 @@ DEFAULT_LEDGER_DIR = "$HOME/wtune-runs/campaign"          # campaign/sites/scc.s
 # new Python with an old campaign script (2026-09-27). --sbatch-script still overrides it.
 DEFAULT_SBATCH_SCRIPT = os.path.join(_CAMPAIGN_DIR, "strict_campaign.sbatch")
 
-STARTUP_S = 120.0                  # per-run startup overhead assumed for the time-limit estimate
-CONSERVATIVE_S_PER_STEP = 10.0     # fallback when no ledger row exists yet for this case on scc
+STARTUP_S = wtune.machine.MEASURED["startup_s"]            # built-in values; the code reads
+CONSERVATIVE_S_PER_STEP = wtune.machine.MEASURED["s_per_step"]    # wtune.machine.measured
 TIME_SAFETY_FACTOR = 1.5
 TIME_PAD_MIN = 10.0
-TIME_CAP_HOURS = 12.0
+TIME_CAP_HOURS = 12.0             # of one probe job; time_cap_hours() adds the machine's cap
 TIMEOUT_MULTIPLIER = 3.0
 TIMEOUT_MIN_S = 600
 
@@ -210,7 +210,7 @@ def _read_ledger_rows(path):
 
 
 def estimate_s_per_step(case, nodes, ledger_dir, hardware_id=None,
-                         fallback=CONSERVATIVE_S_PER_STEP):
+                         fallback=None):
     """Median of (measured s_per_step_median * n_nodes_measured / nodes) over every ledger row
     for `case` on `hardware_id`, scanning ledger_dir/ledger_<case>_*.csv -- ideal linear
     core-count scaling (72*n_measured/(72*nodes), the 72 cancels). `fallback` (source
@@ -218,6 +218,7 @@ def estimate_s_per_step(case, nodes, ledger_dir, hardware_id=None,
 
     ledger_dir is expanded here (not just by CLI-level callers) so an unexpanded default like
     "$HOME/wtune-runs/campaign" resolves correctly regardless of what the caller passes."""
+    fallback = wtune.machine.measured("s_per_step") if fallback is None else fallback
     ledger_dir = _expand(ledger_dir)
     hardware_id = hardware_id or wtune.machine.hardware_id()
     scaled = []
@@ -289,6 +290,11 @@ def campaign_dir_for(sbatch_script):
 
 PREFLIGHT_EXCLUDE_ENV = "WTUNE_PREFLIGHT_EXCLUDE"   # set by the controller itself (wtune tune's
                                                       # node health pre-flight): nodes that failed it
+
+
+def time_cap_hours():
+    """TIME_CAP_HOURS, or the machine's max_hours when that is lower."""
+    return wtune.machine.cap_seconds(TIME_CAP_HOURS * 3600.0) / 3600.0
 
 
 def excluded_nodes():

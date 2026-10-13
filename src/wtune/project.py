@@ -197,6 +197,9 @@ def machine_line(project_doc):
     values["login_nodes"] = ",".join(values["login_nodes"]) or "-"
     values["account"] = values["account"] or "-"
     values["calibration"] = values["calibration"] or "built-in"
+    values["max_hours"] = "%g" % values["max_hours"]
+    values["measured"] = ",".join(
+        "%s=%g" % kv for kv in sorted(values["measured"].items())) or "-"
     return "machine: " + " ".join("%s=%s" % (k, values[k]) for k in wtune.machine.DEFAULTS)
 
 
@@ -592,7 +595,8 @@ def set_project_defaults(project_dir, exclude_nodes=None, post_every=None, post_
     post_every and post_fetch. Returns the updated document."""
     doc = load_project(project_dir)
     if machine:
-        doc["machine"] = project_machine(dict(machine=dict(doc.get("machine") or {}, **machine)))
+        doc["machine"] = project_machine(
+            dict(machine=wtune.machine.merged(doc.get("machine"), machine)))
     if register_case:
         case = dict(doc.get("case") or {})
         if not case.get("source_dir"):
@@ -714,6 +718,12 @@ def build_parser():
                        help="WRF root with main/wrf.exe; $WRF_TREE when set by hand")
     p_set.add_argument("--geog", default=None,
                        help="WPS static data; $WPS_GEOG when set by hand")
+    p_set.add_argument("--max-hours", type=float, default=None,
+                       help="longest job the partition accepts; jobs are planned and capped "
+                            "to fit (built-in 0 = no cap)")
+    p_set.add_argument("--measured", action="append", default=None, metavar="NAME=NUMBER",
+                       help="a number measured on this machine that replaces the built-in scc "
+                            "one, e.g. noise_frac=0.05 (names: wtune.machine.MEASURED)")
     p_set.add_argument("--calibration", default=None,
                        help="calibration JSON of this machine (wtune calibrate fit); "
                             "built-in: machine/calibration/scc.json")
@@ -726,6 +736,21 @@ def build_parser():
                             "(projects made before this existed)")
 
     return parser
+
+
+def _machine_flags(args):
+    """The machine flags of `project set` as a machine block (unchecked)."""
+    machine = {k: getattr(args, k) for k in wtune.machine.DEFAULTS if getattr(args, k) is not None}
+    if machine.get("calibration"):
+        machine["calibration"] = os.path.abspath(os.path.expanduser(machine["calibration"]))
+    if "measured" in machine:
+        pairs = [item.partition("=") for item in machine["measured"]]
+        try:
+            machine["measured"] = {name: float(value) for name, _eq, value in pairs}
+        except ValueError:
+            raise ProjectError("--measured: expected NAME=NUMBER, got %s"
+                               % " ".join(args.measured)) from None
+    return machine
 
 
 def main(argv=None):
@@ -744,11 +769,8 @@ def main(argv=None):
         return 0
 
     if args.project_command == "set" and args.user:
-        machine = {k: getattr(args, k) for k in wtune.machine.DEFAULTS
-                   if getattr(args, k) is not None}
-        if machine.get("calibration"):
-            machine["calibration"] = os.path.abspath(os.path.expanduser(machine["calibration"]))
         try:
+            machine = _machine_flags(args)
             if not machine:
                 raise ProjectError("--user: give at least one machine flag, e.g. --partition")
             wtune.machine.save_user(machine)
@@ -766,11 +788,7 @@ def main(argv=None):
                                    "project.yaml above the current directory)")
             full_argv = ["wtune", "project"] + list(argv if argv is not None else sys.argv[1:])
             defaults = (args.exclude_nodes, args.post_every, args.post_types, args.post_fetch)
-            machine = {k: getattr(args, k) for k in wtune.machine.DEFAULTS
-                       if getattr(args, k) is not None}
-            if machine.get("calibration"):
-                machine["calibration"] = os.path.abspath(
-                    os.path.expanduser(machine["calibration"]))
+            machine = _machine_flags(args)
             if any(v is not None for v in defaults) or args.register_case or machine:
                 doc = set_project_defaults(project_dir, *defaults, machine=machine,
                                            register_case=args.register_case, argv=full_argv)

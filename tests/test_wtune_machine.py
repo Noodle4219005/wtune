@@ -7,6 +7,7 @@ import pytest
 import test_wtune_run  # noqa: F401  first: its wtune.run import restores SITE/configs
 import wtune.config
 import wtune.machine
+import wtune.nodes
 from wtune import predict
 from wtune.predictor import decomp_space, features
 from wtune.run import layout, sbatch
@@ -156,3 +157,28 @@ def test_paths_of_the_machine(scc, monkeypatch):
     home = os.path.expanduser("~")
     assert (wtune.machine.geog(), wtune.machine.wrf_tree()) == (home + "/geog", home + "/wrf")
     assert wtune.machine.env_source() == "$HOME/env.sh"      # sourced by a shell: kept as written
+
+
+def test_measured_numbers_can_be_replaced_per_machine(scc):
+    measured = wtune.machine.measured
+    rows = [dict(nodes=1, median=1.0), dict(nodes=2, median=0.96)]
+    assert measured("noise_frac") == 0.03 and not wtune.nodes.stop_early(rows)    # 4% > 3%
+    wtune.machine.export(dict(measured={"noise_frac": 0.05}))
+    assert measured("noise_frac") == 0.05 and wtune.nodes.stop_early(rows)
+    wtune.machine.export(dict(measured={"noise_frac": 0.2, "init_s": 60.0}))   # exported later
+    assert (measured("noise_frac"), measured("init_s")) == (0.05, 60.0)
+    assert measured("io_factor") == 2.0                                        # untouched
+    with pytest.raises(wtune.machine.MachineError, match="unknown name"):
+        wtune.machine.check({"measured": {"nope": 1}})
+    with pytest.raises(wtune.machine.MachineError, match="must be a number"):
+        wtune.machine.check({"measured": {"init_s": "fast"}})
+
+
+def test_longest_job_of_the_partition_caps_time_limits(scc, monkeypatch):
+    assert wtune.machine.max_hours() == 0 and wtune.machine.cap_seconds(1e6) == 1e6
+    assert scc_sweep.time_cap_hours() == 12
+    monkeypatch.setenv("WTUNE_MAX_HOURS", "8")
+    assert wtune.machine.cap_seconds(1e6) == 8 * 3600 and scc_sweep.time_cap_hours() == 8
+    monkeypatch.setenv("WTUNE_MAX_HOURS", "soon")
+    with pytest.raises(wtune.machine.MachineError, match="WTUNE_MAX_HOURS"):
+        wtune.machine.max_hours()

@@ -48,6 +48,8 @@ from typing import Any, Callable
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _REPO_ROOT = os.path.dirname(os.path.dirname(_HERE))  # src/
 _TREE = os.path.dirname(_REPO_ROOT)                   # the checkout this tool runs from
+REAL_TIMEOUT_S = 600                   # real.exe at the config's own decomposition
+REAL_SERIAL_TIMEOUT_S = 1800           # then once more on one rank
 if not __package__:                    # run by path: this directory is not an import root
     sys.path[:] = [p for p in sys.path if os.path.abspath(p or ".") != _HERE]
 if _REPO_ROOT not in sys.path:
@@ -2577,7 +2579,7 @@ def _sbatch_directive_lines(plan, nodes, ppn, n_windows, per_window_estimate_min
     estimate (wps + n_windows x per-window), minimum 60 minutes."""
     total_min = wps_estimate_min + n_windows * per_window_estimate_min
     # generous: 2x the stated estimate, minimum 60 minutes
-    time_min = max(60, total_min * 2)
+    time_min = int(wtune.machine.cap_seconds(60.0 * max(60, total_min * 2)) // 60)
     hh = time_min // 60
     mm = time_min % 60
     time_str = "%02d:%02d:00" % (hh, mm)
@@ -2792,16 +2794,17 @@ def _run_window_real_lines(ranks, real_tpn):
     lines.append("  for f in met_em.d0*.*.nc; do [ \"$f\" = \"${f//:/_}\" ] || ln -sf \"$f\" \"${f//:/_}\"; done")
     lines.append("  python3 \"$TOOL\" fix-real-namelist --plan \"$PLAN\" --win \"$k\" || return 1")
     # real.exe hangs at some decompositions (3x3, 5x5; sc26p1/severe2023): the config's own under
-    # timeout 600, then serial (nproc 1x1) under timeout 1800 on rc=124 or no output.
-    lines.append("  timeout 600 mpirun -np %d --map-by ppr:%d:node:PE=1 --bind-to core ./real.exe"
-                  % (ranks, real_tpn))
+    # REAL_TIMEOUT_S, then serial (nproc 1x1) under REAL_SERIAL_TIMEOUT_S on rc=124 or no output.
+    lines.append("  timeout %d mpirun -np %d --map-by ppr:%d:node:PE=1 --bind-to core ./real.exe"
+                  % (REAL_TIMEOUT_S, ranks, real_tpn))
     lines.append("  rc=$?; pkill -u \"$USER\" -x real.exe 2>/dev/null")
     lines.append("  real_path=decomp")
     lines.append("  if [ $rc -eq 124 ] || [ ! -f wrfinput_d01 ] || [ ! -f wrfbdy_d01 ]; then")
     lines.append("    echo \"window $k: real.exe decomposed attempt rc=$rc -- retrying serial "
                   "(nproc_x=nproc_y=1)\" >&2")
     lines.append("    python3 \"$TOOL\" fix-real-namelist --plan \"$PLAN\" --win \"$k\" --serial || return 1")
-    lines.append("    timeout 1800 mpirun -np 1 --map-by ppr:1:node:PE=1 --bind-to core ./real.exe")
+    lines.append("    timeout %d mpirun -np 1 --map-by ppr:1:node:PE=1 --bind-to core ./real.exe"
+                  % REAL_SERIAL_TIMEOUT_S)
     lines.append("    rc=$?; pkill -u \"$USER\" -x real.exe 2>/dev/null")
     lines.append("    real_path=serial")
     lines.append("  fi")
@@ -3134,9 +3137,10 @@ def score_windows_from_rsl(plan: dict, sample_points: list | None, calibration: 
 
 
 def resolve_r_rad(pooled_radiation_samples: list, calibration: dict) -> tuple[float, float, str]:
-    default_r_rad = calibration.get("radiation", {}).get("r_rad_default", 5.0)
+    default_r_rad = calibration.get("radiation", {}).get(
+        "r_rad_default", wtune.machine.measured("r_rad_default"))
     day_night_ratio = calibration.get("radiation", {}).get(
-        "r_rad_day_night_ratio", predict.DEFAULT_R_RAD_DAY_NIGHT_RATIO)
+        "r_rad_day_night_ratio", wtune.machine.measured("r_rad_day_night_ratio"))
     r_night, r_day, source = predict.fit_day_night_r_rad(pooled_radiation_samples, day_night_ratio)
     if r_night is None:
         cal_rad = calibration.get("radiation", {})

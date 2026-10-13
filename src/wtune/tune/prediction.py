@@ -22,7 +22,8 @@ from . import jobs as _jobs
 
 _PROBE_LEDGER_FIELDS = ["case_base", "n_ranks", "omp_threads", "nproc_x", "nproc_y", "numtiles",
                         "s_per_step_median"]
-COLD_START_BAND = 0.25               # +-25%: `wtune predict` held-out median 5.8%, padded for
+COLD_START_BAND = wtune.machine.MEASURED["cold_start_band"]   # built-in; +-25%: `wtune predict`
+                                     # held-out median 5.8%, padded for
                                      # weather it cannot see
 FALLBACK_BANDS = (                   # (rebuilt points, method, band) when wtune.cost_drivers is
     (0, "t0 anchor (phase-1 data)", 0.15),     # not importable: t0-only underestimates ~9.6%
@@ -460,8 +461,8 @@ def add_run_length_io(pred: dict | WholeRunPrediction, io: dict | None, compute_
 
 def _band_for_points(points: int, measured: bool) -> tuple[str, float]:
     if points <= 0:
-        return ("t0 anchor (phase-1 data)", 0.15) if measured else ("cold-start predict",
-                                                                    COLD_START_BAND)
+        return (("t0 anchor (phase-1 data)", 0.15) if measured
+                else ("cold-start predict", wtune.machine.measured("cold_start_band")))
     return (FALLBACK_BANDS[1][1], FALLBACK_BANDS[1][2]) if points < 3 else (
         FALLBACK_BANDS[2][1], FALLBACK_BANDS[2][2])
 

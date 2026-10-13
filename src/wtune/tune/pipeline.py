@@ -11,6 +11,7 @@ import os
 import statistics
 from typing import Any, Callable
 
+import wtune.machine
 import wtune.nodes
 from ._deps import sweep, predict
 from .candidates import _sweep_anchor
@@ -26,7 +27,7 @@ from .pipeline_state import (NOT_RUN_BUDGET, ColdEstimate, LevelInfo, MeasuredLa
                              StepDown, _attach_phase_timing, _mark, _phase_record)
 from .points import (_predicted_winner_text, choose_point_mode, fit_stage2, pick_points,
                      predicted_spinup_min, rebuilt_steps)
-from .prediction import (COLD_START_BAND, WholeRunPrediction, plan_prediction_points,
+from .prediction import (WholeRunPrediction, plan_prediction_points,
                          prediction_init, time_suggestion_s)
 from .report import _assert_report_is_strict_only, local_param_table
 from . import candidates as _candidates
@@ -689,7 +690,7 @@ def _prediction_from_winner(st: PipelineRun, report: dict, layouts: list[dict],
         predicted_total_s=pred_s, predicted_total_hms=_fmt_hms(pred_s),
         predicted_range_s=[winner.pred_low_s, winner.pred_high_s],
         time_suggestion=_fmt_sbatch_time(
-            time_suggestion_s(pred_s, pplan["band"] if pplan else COLD_START_BAND)),
+            time_suggestion_s(pred_s, pplan["band"] if pplan else wtune.machine.measured("cold_start_band"))),
         points_used=len(winner.points or []),
         degraded=bool(is_set(predict_plan) and predict_plan.degraded),
         candidates=[dict(nodes=e.nodes, cores=e.cores, pid=e.cid,
@@ -745,7 +746,7 @@ def _pipeline_prediction(st: PipelineRun, report: dict, layouts: list[dict], ppl
     init only). Returns (pred, band, run-length I/O); sets pipe.prediction."""
     ctx, pipe, winner = st.ctx, st.pipe, st.winner
     pred = None
-    band_eff = pplan["band"] if pplan else COLD_START_BAND
+    band_eff = pplan["band"] if pplan else wtune.machine.measured("cold_start_band")
     io_run = (_prediction.pipeline_run_length_io(getattr(ctx, "namelist_path", None))
               if (winner is not None or T_dec or pipe.T_updated_s) else None)
     if winner is not None:
@@ -816,7 +817,7 @@ def run_level0(ctx: Ctx, profile: dict, total_steps: int | None,
             break
     if cfg is None:
         raise SystemExit("O0: no legal layout at any node count (%s)" % why)
-    band = COLD_START_BAND
+    band = wtune.machine.measured("cold_start_band")
     T, s_n, src = (_prediction.cold_start_prediction(ctx, n0, cfg, total_steps) if total_steps
                    else (None, None, "run length unknown"))
     io_run = _prediction.pipeline_run_length_io(ctx.namelist_path) if T else None

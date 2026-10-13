@@ -16,23 +16,26 @@ import os
 from typing import Any, Optional, Sequence
 
 from wtune.tools import coldstart_sample as coldstart    # tools/: wrf_interval_minutes (WRF's own _d/_h/_m/_s sum)
+import wtune.machine
 from wtune import predict as wp
 
 # --- re-exported by wtune/run/ ("Fallback I/O anchors" block, fallback_restart_io_s,
 # fallback_history_frame_s) ---------------------
 CONUS25_RESTART_POINTS = 1500 * 1200 * 50
-RESTART_IO_ANCHOR_S = {2: (324.0, 120.0), 14: (1.05, 2.3)}   # io_form: (write, read) at conus25
-DORIAN_HISTORY_WRITE_S = 300.5
+_M = wtune.machine.MEASURED                 # built-in anchors; the functions read measured()
+RESTART_IO_ANCHOR_S = {2: (_M["restart_write_s_netcdf"], _M["restart_read_s_netcdf"]),
+                       14: (_M["restart_write_s_adios2"], _M["restart_read_s_adios2"])}
+DORIAN_HISTORY_WRITE_S = _M["history_write_s_netcdf"]
 DORIAN_HISTORY_POINT_FRAMES = 7 * 664 * 700 * 40 + 25 * 451 * 451 * 40
 HISTORY_S_PER_POINT_FRAME = DORIAN_HISTORY_WRITE_S / DORIAN_HISTORY_POINT_FRAMES
 # --- end of the copy ---------------------------------------------------------------------------
 
 # climate-ea50 (scc, 2026-10, 150x110x45, N=5 120x3) rsl: history+restart 1598 x 0.74 s, boundary
 # 1584 x 0.31 s, other in-step ~260 s (mostly sst_update auxinput4 reads, charged to aux: upper bound)
-CLIMATE_EA50_BOUNDARY_S = 0.31                       # per lateral boundary update
+CLIMATE_EA50_BOUNDARY_S = _M["boundary_s_netcdf"]    # per lateral boundary update
 CLIMATE_EA50_BOUNDARY_PERIMETER = 2 * (150 + 110) * 45
 BOUNDARY_S_PER_PERIMETER_POINT = CLIMATE_EA50_BOUNDARY_S / CLIMATE_EA50_BOUNDARY_PERIMETER
-CLIMATE_EA50_AUX4_S = 260.0 / 1584                   # per auxinput4 read (upper bound, see above)
+CLIMATE_EA50_AUX4_S = _M["aux4_s_netcdf"]            # per auxinput4 read (upper bound)
 CLIMATE_EA50_AUX4_COLUMNS = 150 * 110
 AUX4_S_PER_COLUMN = CLIMATE_EA50_AUX4_S / CLIMATE_EA50_AUX4_COLUMNS
 
@@ -44,12 +47,15 @@ AUX4_S_PER_COLUMN = CLIMATE_EA50_AUX4_S / CLIMATE_EA50_AUX4_COLUMNS
 # I/O step less boundary and the 0.0233 s history frame = 0.033 s per auxinput4 read (upper
 # bound: it carries the step's bookkeeping). The earlier 0.24 s boundary anchor held one
 # iofields parse (0.21 s); P2 measured ~0.03 s per update.
-ADIOS2_HISTORY_S_PER_POINT_FRAME = 0.042 / (170 * 130 * 40)
-ADIOS2_BOUNDARY_S_PER_PERIMETER_POINT = 0.0216 / (2 * (151 + 111) * 45)
-ADIOS2_AUX4_S_PER_COLUMN = 0.033 / (151 * 111)
+SC26P2_POINTS = 170 * 130 * 40
+CLIMATE_EA50_ADIOS2_PERIMETER = 2 * (151 + 111) * 45
+CLIMATE_EA50_ADIOS2_COLUMNS = 151 * 111
+ADIOS2_HISTORY_S_PER_POINT_FRAME = _M["history_write_s_adios2"] / SC26P2_POINTS
+ADIOS2_BOUNDARY_S_PER_PERIMETER_POINT = _M["boundary_s_adios2"] / CLIMATE_EA50_ADIOS2_PERIMETER
+ADIOS2_AUX4_S_PER_COLUMN = _M["aux4_s_adios2"] / CLIMATE_EA50_ADIOS2_COLUMNS
 # iofields: seconds per get_fieldstr call (scc nvhpc, job 3134 perf: 0.21 s / 227 calls; 0.66-0.89
 # ms measured, more with longer lines). machine/calibration/<site>.json "iofields_call_ms".
-IOFIELDS_CALL_MS = 0.9
+IOFIELDS_CALL_MS = _M["iofields_call_ms"]
 ADIOS2_IO_FORM = 14
 DEFAULT_IO_FORMAT = "adios2"
 WRF_DEFAULT_RESTART_INTERVAL_MIN = 1440.0            # Registry default when the namelist omits it
@@ -58,10 +64,20 @@ SEGMENT_NOTE = ("each extra run segment adds ~%.0f s (init_s, the predicted star
                 "segment count is decided by `wtune run`, not here")
 
 
+def restart_anchor_s(io_form: Any) -> tuple[float, float]:
+    """(write, read) seconds of one conus25 restart; KeyError for an io_form with no anchor."""
+    fmt = {2: "netcdf", 14: "adios2"}[int(io_form)]
+    return (wtune.machine.measured("restart_write_s_" + fmt),
+            wtune.machine.measured("restart_read_s_" + fmt))
+
+
 def restart_io_s(points: Sequence[int], io_form: Any) -> tuple[float, float]:
     """(write_s, read_s) of one restart of every domain (`points` = per-domain e_we x e_sn x
     e_vert), conus25 anchor; an io_form without an anchor uses netCDF's (2)."""
-    w, r = RESTART_IO_ANCHOR_S.get(int(io_form), RESTART_IO_ANCHOR_S[2])
+    try:
+        w, r = restart_anchor_s(io_form)
+    except KeyError:
+        w, r = restart_anchor_s(2)
     f = sum(points) / float(CONUS25_RESTART_POINTS)
     return w * f, r * f
 
@@ -82,27 +98,32 @@ def normalize_io_format(io: Any) -> str:
 def history_frame_s(points: Sequence[int], io_format: str = "netcdf") -> list[float]:
     """Per-domain seconds of one history frame: dorian2019 anchor (netCDF) or the SC26-P2
     ADIOS2 anchor."""
-    rate = (ADIOS2_HISTORY_S_PER_POINT_FRAME if io_format == "adios2"
-            else HISTORY_S_PER_POINT_FRAME)
+    m = wtune.machine.measured
+    rate = (m("history_write_s_adios2") / SC26P2_POINTS if io_format == "adios2"
+            else m("history_write_s_netcdf") / DORIAN_HISTORY_POINT_FRAMES)
     return [p * rate for p in points]
 
 
 def boundary_update_s(e_we: int, e_sn: int, e_vert: int, io_format: str = "netcdf") -> float:
     """Seconds of one d01 lateral boundary update."""
-    rate = (ADIOS2_BOUNDARY_S_PER_PERIMETER_POINT if io_format == "adios2"
-            else BOUNDARY_S_PER_PERIMETER_POINT)
+    m = wtune.machine.measured
+    rate = (m("boundary_s_adios2") / CLIMATE_EA50_ADIOS2_PERIMETER if io_format == "adios2"
+            else m("boundary_s_netcdf") / CLIMATE_EA50_BOUNDARY_PERIMETER)
     return 2 * (e_we + e_sn) * e_vert * rate
 
 
 def aux4_read_s(e_we: int, e_sn: int, io_format: str = "netcdf") -> float:
     """Seconds of one auxinput4 (wrflowinp) read for one domain."""
-    return e_we * e_sn * (ADIOS2_AUX4_S_PER_COLUMN if io_format == "adios2"
-                          else AUX4_S_PER_COLUMN)
+    m = wtune.machine.measured
+    return e_we * e_sn * (m("aux4_s_adios2") / CLIMATE_EA50_ADIOS2_COLUMNS
+                          if io_format == "adios2"
+                          else m("aux4_s_netcdf") / CLIMATE_EA50_AUX4_COLUMNS)
 
 
 def iofields_call_s(calibration: Optional[dict] = None) -> float:
     """Seconds per get_fieldstr call: the machine calibration's iofields_call_ms, else 0.9 ms."""
-    return float((calibration or {}).get("iofields_call_ms", IOFIELDS_CALL_MS)) / 1000.0
+    return float((calibration or {}).get(
+        "iofields_call_ms", wtune.machine.measured("iofields_call_ms"))) / 1000.0
 
 
 def iofields_parses(frames: Sequence[int], frames_per_outfile: Sequence[Any],

@@ -32,12 +32,14 @@ import statistics
 import sys
 import time
 
+import wtune.machine
+
 _HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
 
 ERA5_PIN = "era5_arco"
-IO_FACTOR = 2.0          # recommended --time covers 2x the measured I/O (scc NFS: 2.4x spread)
+IO_FACTOR = wtune.machine.MEASURED["io_factor"]    # built-in; recommend_time reads the machine's
 # Margin and rounding scale with the run (T1 on scc, 2026-09-27: a fixed 5 min margin + 5 min
 # rounding gave dorian2019's 1718 s run a 45:00 --time, 1.57x; maria1km 1.29x, zhengzhou 1.09x).
 TIME_MARGIN_FRAC = 0.10  # of range_high
@@ -186,12 +188,13 @@ def recommend_time(range_high_s, io_s):
     [TIME_MARGIN_MIN_S, TIME_MARGIN_MAX_S], rounded UP to 1 min below 2 h and to 5 min above;
     io_s None (no measured I/O) -> range_high + margin, flagged as not covering writes."""
     margin = min(max(TIME_MARGIN_FRAC * range_high_s, TIME_MARGIN_MIN_S), TIME_MARGIN_MAX_S)
-    raw = range_high_s + (IO_FACTOR * io_s if io_s is not None else 0.0) + margin
+    io_factor = wtune.machine.measured("io_factor")
+    raw = range_high_s + (io_factor * io_s if io_s is not None else 0.0) + margin
     round_s = TIME_ROUND_SHORT_S if raw < TIME_ROUND_SHORT_BELOW_S else TIME_ROUND_S
     time_s = int(math.ceil(round(raw, 6) / round_s)) * round_s
     return {"time_s": time_s, "time": "%02d:%02d:%02d" % (time_s // 3600, time_s % 3600 // 60,
                                                              time_s % 60),
-            "range_high_s": range_high_s, "io_s": io_s, "io_factor": IO_FACTOR,
+            "range_high_s": range_high_s, "io_s": io_s, "io_factor": io_factor,
             "margin_s": margin, "round_s": round_s, "raw_s": raw,
             "covers_io": io_s is not None}
 

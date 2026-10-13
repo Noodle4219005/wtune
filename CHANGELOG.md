@@ -32,6 +32,14 @@ they were written from, not to `$HOME/wtune`. Machine settings can also live in
 `~/.config/wtune/machine.yaml` (`wtune project set --user`), shared by every project on the
 machine; a project's block overrides it.
 
+**Measured numbers and the longest job.** The numbers the estimates fall back on (repeatability
+floor, startup and init time, I/O anchors, radiation ratios, prediction bands: 31 of them) were
+literals in a dozen modules. They are `wtune.machine.MEASURED`; a machine replaces the ones it
+knows with `machine.measured` (`wtune project set --measured NAME=NUMBER`). `machine.max_hours`
+is the longest job the partition accepts: `wtune run` segments to fit and probe and rebuild
+jobs are capped at it; unset, nothing changes. `wtune calibrate plan --time-limit` now also
+moves the launch timeout inside the job, which stayed at 14 minutes.
+
 ## 0.9.0 — 2026-10-12
 
 Main code made small enough to review; behaviour of the tune -> run -> post path is unchanged

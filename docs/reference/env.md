@@ -30,6 +30,8 @@ source ~/wtune-scc/env.sh       # scc：一次設好 WRF 與編譯器相關的�
 | `WTUNE_SITE` | 用哪一份 `campaign/sites/<site>.sh` | `scc` |
 | `WTUNE_ENV_SOURCE` | 每個工作先 source 的環境腳本 | `$HOME/wtune-scc/env.sh` |
 | `WPS_GEOG` | WPS 的靜態地理資料 | `/nfs/data/wrf/WPS_GEOG/` |
+| `WTUNE_MAX_HOURS` | partition 允許的最長工作時數 | `0`（不設上限） |
+| `WTUNE_MEASURED` | `measured` 對照表的 JSON 形式，由 WTune 自己設定 | 無 |
 | `WTUNE_MACHINE_FILE` | 使用者設定檔的位置 | `~/.config/wtune/machine.yaml` |
 
 ```bash

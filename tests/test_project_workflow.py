@@ -206,6 +206,20 @@ def test_project_set_user_writes_the_settings_every_project_shares(
     assert "at least one machine flag" in capsys.readouterr().err
 
 
+def test_measured_numbers_and_the_longest_job_in_the_project(project, no_machine_env, capsys):
+    assert proj.main(["set", "--project", project, "--max-hours", "8",
+                      "--measured", "noise_frac=0.05", "--measured", "init_s=60"]) == 0
+    assert proj.main(["set", "--project", project, "--measured", "io_factor=3"]) == 0
+    assert _doc(project)["machine"] == dict(
+        max_hours=8.0, measured=dict(noise_frac=0.05, init_s=60.0, io_factor=3.0))
+    assert "max_hours=8 measured=init_s=60,io_factor=3,noise_frac=0.05" in proj.info_project(project)
+    proj.apply_project_env(project, _doc(project))
+    assert (wtune.machine.max_hours(), wtune.machine.measured("io_factor")) == (8.0, 3.0)
+    capsys.readouterr()
+    assert proj.main(["set", "--project", project, "--measured", "nope"]) == 1
+    assert "NAME=NUMBER" in capsys.readouterr().err
+
+
 def test_project_set_machine_flags(project, capsys):
     assert proj.main(["set", "--project", project, "--max-nodes", "8",
                       "--login-nodes", "login1,login2"]) == 0

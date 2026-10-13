@@ -160,6 +160,11 @@ def build_decomp(nl, max_dom, ranks, min_patch):
     return pick_near_square(shapes, aspect=aspect)
 
 
+def _hms_seconds(hms: str) -> int:
+    h, m, s = (int(x) for x in hms.split(":"))
+    return 3600 * h + 60 * m + s
+
+
 def _scheduler_fields() -> dict:
     """The partition, and the exclude and account lines, of the sbatch templates below."""
     login = wtune.machine.login_nodes()
@@ -252,7 +257,7 @@ fi
 
 T0=$(date +%s.%N)
 site_launch {ranks} {tpn_launch} 1 block
-timeout 840 "${{SITE_LAUNCH_CMD[@]}}" > wrf.out 2>&1 &
+timeout {launch_timeout_s} "${{SITE_LAUNCH_CMD[@]}}" > wrf.out 2>&1 &
 WRF_PID=$!
 wait "$WRF_PID"
 RC=$?
@@ -379,7 +384,8 @@ def plan_cmd(args):
             time_limit=args.time_limit, out_dir=out_dir, site=args.site,
             case_dir=case_dir, steps=steps, run_minutes=run_minutes, nx=nx, ny=ny,
             max_dom=max_dom, history_mode=history_mode, history_mode_note=history_mode_note,
-            campaign_dir=campaign_dir, sbatch_path=sbatch_path, **_scheduler_fields())
+            campaign_dir=campaign_dir, sbatch_path=sbatch_path,
+            launch_timeout_s=_hms_seconds(args.time_limit) - 60, **_scheduler_fields())
         sbatch_path.write_text(text)
         runs.append({"ranks": ranks, "nodes": nodes, "nx": nx, "ny": ny,
                      "tpn_launch": tpn_launch, "history_mode": history_mode,

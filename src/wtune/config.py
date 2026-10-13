@@ -754,7 +754,7 @@ _TEMPLATE = """\
 # Unknown keys are a validation error (a typo is caught, not silently ignored). Validate/preview
 # with: wtune config show %(case)s.yaml
 
-site: scc                       # only "scc" is currently supported by wtune tune
+site: scc                       # campaign/sites/<site>.sh; omit it to use the machine's
 case: %(case)s                  # case name from campaign/cases.json (+ site overlay:
                                  # campaign/cases.scc.json). ALTERNATIVE: replace this key with
                                  # `case_dir: /path/to/case` (a directory with its own

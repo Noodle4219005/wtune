@@ -40,6 +40,15 @@ is the longest job the partition accepts: `wtune run` segments to fit and probe 
 jobs are capped at it; unset, nothing changes. `wtune calibrate plan --time-limit` now also
 moves the launch timeout inside the job, which stayed at 14 minutes.
 
+**f1 leftovers.** `campaign/strict_campaign.sbatch`, the probe job scc uses too, no longer
+carries f1's account, partition, node shape and a personal output path in its header (the
+sbatch command line supplies them) and finds `CAMPAIGN` under `$SLURM_SUBMIT_DIR` instead of
+a fixed home directory; its thread setup follows the site file's `OMP_RUNTIME`, not the name
+`scc`. `campaign/sites/f1.sh` uses `$HOME`. The predictor tools default to the machine's node
+size, partition and hardware id instead of 448 cores on `cf448`.
+`campaign/decomp_search_campaign.sbatch`, which nothing referenced, moved to
+`archive/unused-2026-10/campaign/`.
+
 ## 0.9.0 — 2026-10-12
 
 Main code made small enough to review; behaviour of the tune -> run -> post path is unchanged

@@ -9,7 +9,7 @@ Stdlib only. Read-only on the wiki data tree; writes only under this repo's
 `predictor/` directory.
 
 CLI:
-    python3 ledger.py build --wiki-data /home/u5727520/my-llm-wiki/data --out predictor/ledger/runs.csv
+    python3 ledger.py build --wiki-data <wiki>/data --out predictor/ledger/runs.csv
     python3 ledger.py validate --ledger predictor/ledger/runs.csv
 """
 from __future__ import annotations

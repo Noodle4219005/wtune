@@ -1135,7 +1135,7 @@ def _rebuild_forcing_choice(out_dir):
     return primary, plan
 
 
-def cmd_rebuild_stage(out_dir: str, site: str = "scc") -> str:
+def cmd_rebuild_stage(out_dir: str, site: str | None = None) -> str:
     chosen, plan = _rebuild_forcing_choice(out_dir)
     wps_dir_env = os.environ.get("WPS_DIR")
     wrf_tree = os.environ.get("WRF_TREE")
@@ -1426,7 +1426,8 @@ def _rebuild_job(plan: dict, chosen: dict, site: str, estimate_min: int) -> _Reb
         geo_em_expected=["geo_em.d%02d.nc" % d for d in range(1, max_dom + 1)],
         time_min=int(wtune.machine.cap_seconds(60.0 * max(
             60, estimate_min * 2 + (_SMOKE_EXTRA_MIN if verify_steps else 0))) // 60),
-        ml_model=plan.get("ml_model"), site=site, estimate_min=estimate_min)
+        ml_model=plan.get("ml_model"), site=site or wtune.machine.site(),
+        estimate_min=estimate_min)
 
 
 def _sbatch_header(job: _RebuildJob) -> list[str]:
@@ -1609,7 +1610,7 @@ def _sbatch_wrf_smoke(job: _RebuildJob) -> list[str]:
     ]
 
 
-def render_rebuild_sbatch(plan: dict, chosen: dict, site: str = "scc",
+def render_rebuild_sbatch(plan: dict, chosen: dict, site: str | None = None,
                           estimate_min: int = 30) -> str:
     """One sbatch for the span: geogrid -> ungrib+metgrid (expected-file checks) -> real.exe
     (timeout + serial fallback) -> optional ML apply -> optional wrf.exe smoke run of

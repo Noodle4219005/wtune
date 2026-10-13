@@ -23,7 +23,8 @@
 CORES_PER_NODE=${WTUNE_CORES_PER_NODE:-72}
 W=${WRF_TREE:-$HOME/wrf-stack/wrf/nvhpc-fast-adios2-dmsm/WRF}
 OUT=$HOME/wtune-runs/campaign
-HARDWARE_ID=scc-gh200
+HARDWARE_ID=${WTUNE_HARDWARE_ID:-scc-gh200}
+OMP_RUNTIME=nvhpc        # no KMP_BLOCKTIME: threads are pinned with OMP_PLACES/OMP_PROC_BIND
 # pixi lives in ~/.pixi/bin, which is not on PATH inside a batch job (smoke job 437: "pixi: command not found").
 export PATH=$HOME/.pixi/bin:$PATH
 PIXI_ENV=$HOME/wtune-envs/campaign
@@ -31,7 +32,7 @@ PIXI_ENV=$HOME/wtune-envs/campaign
 # converter comes from the SAME tree as the script: $HOME/wtune has no src/wtune/tools at all, and the
 # tree wtune deploys to is $HOME/wtune-src. Equals the old value for CAMPAIGN=$HOME/wtune/campaign.
 CONV=${CONV:-$(dirname "$CAMPAIGN")/src/wtune/tools/wrf_adios2_to_netcdf4/convert.py}
-CASES_JSON_DEFAULT=$HOME/wtune/campaign/cases.json
+CASES_JSON_DEFAULT=$CAMPAIGN/cases.json
 
 site_env () {
   # nvhpc 26.5 + HPC-X 2.50 / Open MPI 5.0.10; sets NETCDF/HDF5/PNETCDF/ADIOS2_DIR/BLOSC2_LIB,

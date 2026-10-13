@@ -339,7 +339,7 @@
  ],
  "DEFAULT_SCREEN_DIR": [
   "str",
-  "/home/u5727520/wrf-bench/wscore/physics"
+  "<TMP>/wrf-bench/wscore/physics"
  ],
  "FIDELITY_TOKEN_NA": [
   "str",
@@ -2011,7 +2011,7 @@
   [
    "screen_dir",
    "POSITIONAL_OR_KEYWORD",
-   "/home/u5727520/wrf-bench/wscore/physics"
+   "<TMP>/wrf-bench/wscore/physics"
   ]
  ],
  "quota_free_gib": [

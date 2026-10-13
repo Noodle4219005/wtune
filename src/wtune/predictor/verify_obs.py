@@ -44,7 +44,7 @@ CLI:
 
     python3 predictor/verify_obs.py track \\
         --wrfout 'run/wrfout_d01_*' \\
-        --hurdat2 /home/u5727520/wrf-bench/atlas/sc26p2/hurdat2-1851-2024-040425.txt \\
+        --hurdat2 hurdat2-1851-2024-040425.txt \\
         --storm-id AL122005 [--ocean-only] [--min-match-frac 0.9] [--json out.json]
 
     python3 predictor/verify_obs.py case --cases campaign/cases.json --case sc26p2 \\
@@ -119,8 +119,7 @@ def _netcdf4():
         raise VerifyObsError(
             "netCDF4 is required to read wrfout files but is not importable. Run this "
             "under the WRF pixi env, e.g.\n"
-            "  pixi run --manifest-path "
-            "/home/u5727520/wrf-stack/wtune-pixi-env-20260830/pixi.toml python "
+            "  pixi run --manifest-path envs/wtune/pixi.toml python "
             "predictor/verify_obs.py ...") from exc
     return netCDF4
 
@@ -145,8 +144,7 @@ EXPECTED_OBS_HINT = {
     ),
     "track": (
         "HURDAT2 best track. Fetch once on a login node:\n"
-        "  curl -sSLo /home/u5727520/wrf-bench/atlas/sc26p2/"
-        "hurdat2-1851-2024-040425.txt \\\n"
+        "  curl -sSLo hurdat2-1851-2024-040425.txt \\\n"
         "    https://www.nhc.noaa.gov/data/hurdat/hurdat2-1851-2024-040425.txt"
     ),
 }

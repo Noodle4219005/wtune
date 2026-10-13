@@ -44,6 +44,8 @@ from __future__ import annotations
 
 import argparse
 
+import wtune.machine
+
 MIN_PATCH = 10                  # measured: 4x112 -> patch 225x8 -> FATAL on both sweep cases
 FIT_W_MIN, FIT_W_MAX = 28, 128  # width model's fitted range; 225 was predicted best, came third
 TILE_COLUMN_CELLS = 251 * 50    # cells x levels per tile; both anchors ran at e_vert=50
@@ -141,10 +143,12 @@ def main() -> int:
     p.add_argument("--e-we", type=int, default=901)
     p.add_argument("--e-sn", type=int, default=901)
     p.add_argument("--e-vert", type=int, default=45)
-    p.add_argument("--cores", type=int, default=448)
-    p.add_argument("--nodes", type=int, default=4)
+    p.add_argument("--cores", type=int, default=None,
+                   help="default: --nodes x the machine's cores per node")
+    p.add_argument("--nodes", type=int, default=1)
     p.add_argument("--top", type=int, default=10)
     a = p.parse_args()
+    a.cores = a.cores or a.nodes * wtune.machine.cores_per_node()
 
     cfg = enumerate_configs(a.e_we, a.e_sn, a.e_vert, a.cores, a.nodes)
     for c in cfg:

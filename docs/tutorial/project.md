@@ -115,7 +115,7 @@ machine:
 | `hardware_id` | 每筆量測都記這個名字，預測模型用它分辨機器。WTune 內建認得 `scc-gh200`、`f1-spr-icpnq`、`f1-spr-icpnp`；其他機器要自己取一個名字 |
 | `numa_per_node` | 決定可以試哪些 OpenMP 執行緒數：只試能整除「每個 NUMA 區核心數」的值，執行緒才不會跨區 |
 | `calibration` | `wtune tune`、`wtune run`、`wtune check` 估算執行時間用的校準檔，由 `wtune calibrate fit` 產生。要寫絕對路徑 |
-| `site` | 選用哪一份 `campaign/sites/<site>.sh`（MPI 怎麼啟動、節點怎麼清理）和 `campaign/cases.<site>.json`。那個檔不存在時 `wtune tune` 會直接報錯 |
+| `site` | 選用哪一份 `campaign/sites/<site>.sh`（MPI 怎麼啟動、節點怎麼清理、OpenMP 用哪一種執行期函式庫）和 `campaign/cases.<site>.json`。那個檔不存在時 `wtune tune` 會直接報錯 |
 | `env_source` | 每個工作開頭 source 的腳本，負責載入編譯器、MPI 和函式庫 |
 | `wrf_tree` | 等同環境變數 `WRF_TREE` |
 | `geog` | 等同環境變數 `WPS_GEOG`，重建個案時 geogrid 會用到 |

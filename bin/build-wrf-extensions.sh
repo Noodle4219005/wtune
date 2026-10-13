@@ -41,7 +41,7 @@ SELF=$(readlink -f "${BASH_SOURCE[0]}")
 WRF_STACK_ROOT=${WRF_STACK_ROOT:-$HOME/wrf-stack}
 WRF_SRC=${WRF_SRC:-$HOME/SC26-WRF/src/WRF}
 PROD=${PROD:-$WRF_STACK_ROOT/wrf/nvhpc-fast-adios2-dmsm/WRF}
-TCSH=/nfs/software/tcsh/6.24.16/bin/tcsh
+TCSH=${TCSH:-/nfs/software/tcsh/6.24.16/bin/tcsh}
 BUILD_CORES=${BUILD_CORES:-16}
 FCOPTIM_FLAGS='-O3 -fast -Mvect=noaltcode -Mprefetch=distance:8 -tp=neoverse-v2 -Mstack_arrays'
 COMPILER=${COMPILER:-nvhpc}
@@ -75,7 +75,9 @@ submit)
   mkdir -p "$WRF_STACK_ROOT/logs"
   for e in "$@"; do
     bash "$SELF" prep "$e"
-    sbatch --parsable --exclude=head --job-name="wrfext-$e" --nodes=1 --ntasks=1 \
+    login=${WTUNE_LOGIN_NODES-head}      # the machine settings wtune itself uses, scc built in
+    sbatch --parsable ${login:+--exclude=$login} ${WTUNE_PARTITION:+-p $WTUNE_PARTITION} \
+      ${WTUNE_ACCOUNT:+--account=$WTUNE_ACCOUNT} --job-name="wrfext-$e" --nodes=1 --ntasks=1 \
       --cpus-per-task="${CPUS:-32}" --mem=48G --time="${WALL:-01:30:00}" \
       --output="$WRF_STACK_ROOT/logs/wrfext-$e-%j.out" \
       --export=ALL "$SELF" build "$e"
@@ -102,7 +104,7 @@ if [ "$COMPILER" = gnu ]; then
   # gcc-built MPI + netCDF-C/Fortran + HDF5 in a separate spack env; its view merges C and Fortran netCDF
   # into one prefix, as WRF's configure expects. Only this new env is added to the spack tree.
   # shellcheck disable=SC1091
-  set +u; source "$HOME/load_spack.sh" >/dev/null 2>&1; set -u
+  set +u; source "${SPACK_SETUP:-$HOME/load_spack.sh}" >/dev/null 2>&1; set -u
   # flags must precede %gcc: written after it they attach to the compiler node and concretization fails
   # ("Only external, or concrete, compilers are allowed"). Rewritten every run so the spec list is exact.
   # ^zlib-ng: the external zlib is registered at prefix /usr but lives in /usr/lib/aarch64-linux-gnu,
@@ -128,7 +130,7 @@ YAML
   command -v mpif90 >/dev/null || { echo "mpif90 missing in $VIEW"; exit 1; }
 else
 # shellcheck disable=SC1091
-source "$HOME/wtune-scc/env.sh"       # nvhpc 26.5 + HPC-X MPI + netcdf/hdf5/pnetcdf/adios2 paths
+source "${WTUNE_ENV_SOURCE:-$HOME/wtune-scc/env.sh}"   # nvhpc + MPI + netcdf/hdf5/pnetcdf/adios2 paths
 export NETCDF PNETCDF HDF5
 if [ "${USE_ADIOS2:-1}" = 0 ]; then unset ADIOS2 ADIOS2_DIR; else export ADIOS2=$ADIOS2_DIR; fi
 fi
@@ -152,7 +154,7 @@ case "$EXT" in
       # KPP needs flex + yacc; none on scc's system. spack has flex/bison (built with gcc, only used
       # as build tools). yacc = bison -y via wrapper. csh -> tcsh symlink for scripts calling `csh`.
       # shellcheck disable=SC1091
-      set +u; source "$HOME/load_spack.sh" >/dev/null 2>&1; set -u
+      set +u; source "${SPACK_SETUP:-$HOME/load_spack.sh}" >/dev/null 2>&1; set -u
       # two identical flex/bison specs are installed, so `spack location -i` is ambiguous: take the first prefix
       FLEXP=$(spack find --format "{prefix}" flex | head -1); BISONP=$(spack find --format "{prefix}" bison | head -1)
       printf '#!/bin/sh\nexec %s/bin/bison -y "$@"\n' "$BISONP" > "$WRFDIR/.tools/bin/yacc"

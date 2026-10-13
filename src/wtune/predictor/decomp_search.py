@@ -76,6 +76,7 @@ for _p in (_SRC, _CAMPAIGN_DIR):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
+import wtune.machine
 from wtune.predictor import benchmark                       # predictor/benchmark.py: load_ledger()
 from wtune.predictor import decomp_space as ds              # predictor/decomp_space.py
 from wtune.predictor import features as feat                # predictor/features.py
@@ -94,7 +95,6 @@ DEFAULT_MAX_ROUNDS = 6
 DEFAULT_MAX_PER_RANK_OMP = 2
 DEFAULT_ENSEMBLE_SIZE = 8
 DEFAULT_BATCH = 8
-DEFAULT_PARTITION = "cf448"
 DEFAULT_REPS = 2
 
 NOISE = targets.NOISE
@@ -510,7 +510,7 @@ def tile_rows(c):
 
 
 def propose_for_case(case_name, case_json, case_fields, prior_rows, state, batch_size,
-                      total_cores=448, nodes=4, hardware_id=ds.DEFAULT_HARDWARE,
+                      total_cores=None, nodes=1, hardware_id=None,
                       kappa=DEFAULT_KAPPA, max_per_rank_omp=DEFAULT_MAX_PER_RANK_OMP,
                       ensemble_size=DEFAULT_ENSEMBLE_SIZE, ensemble_seed=0,
                       max_rounds=DEFAULT_MAX_ROUNDS, max_omp=None, min_tile_rows=None, tile_shapes=None):
@@ -523,6 +523,8 @@ def propose_for_case(case_name, case_json, case_fields, prior_rows, state, batch
     configs_out) where configs_out is decomp_space.to_campaign_configs(chosen, ...) -- [] when
     stopped. Does not mutate `state`; the caller applies bookkeeping once it has written the
     proposal file."""
+    hardware_id = hardware_id or wtune.machine.hardware_id()
+    total_cores = total_cores or nodes * wtune.machine.cores_per_node()
     candidates, _axis = ds.enumerate_space(case_json, total_cores, nodes, hardware_id)
     if max_omp is not None:
         # failed runs are never ingested, so D3 cannot learn that a thread count crashes (WRF-Fire
@@ -564,8 +566,8 @@ def propose_for_case(case_name, case_json, case_fields, prior_rows, state, batch
     return result, configs_out
 
 
-def propose(case_name, ledger_paths, state, batch_size, total_cores=448, nodes=4,
-            hardware_id=ds.DEFAULT_HARDWARE, kappa=DEFAULT_KAPPA,
+def propose(case_name, ledger_paths, state, batch_size, total_cores=None, nodes=1,
+            hardware_id=None, kappa=DEFAULT_KAPPA,
             max_per_rank_omp=DEFAULT_MAX_PER_RANK_OMP, ensemble_size=DEFAULT_ENSEMBLE_SIZE,
             ensemble_seed=0, max_rounds=DEFAULT_MAX_ROUNDS, max_omp=None, min_tile_rows=None, tile_shapes=None):
     """CLI-facing convenience wrapper: `case_name` must be a campaign/cases.json case id. See
@@ -588,9 +590,10 @@ def propose(case_name, ledger_paths, state, batch_size, total_cores=448, nodes=4
         min_tile_rows=min_tile_rows, tile_shapes=tile_shapes)
 
 
-def sbatch_command(case_name, config_file, partition=DEFAULT_PARTITION, reps=DEFAULT_REPS):
+def sbatch_command(case_name, config_file, partition=None, reps=DEFAULT_REPS):
     return ("sbatch -p %s --export=ALL,CASE=%s,MODE=timing,REPS=%d,CONFIG_FILE=%s "
-            "campaign/strict_campaign.sbatch" % (partition, case_name, reps, config_file))
+            "campaign/strict_campaign.sbatch"
+            % (partition or wtune.machine.partition(), case_name, reps, config_file))
 
 
 # ---------------------------------------------------------------------------
@@ -845,15 +848,16 @@ def _cmd_propose(argv):
     ap.add_argument("--state", required=True)
     ap.add_argument("--batch", type=int, default=DEFAULT_BATCH)
     ap.add_argument("--out", required=True)
-    ap.add_argument("--total-cores", type=int, default=448)
-    ap.add_argument("--nodes", type=int, default=4)
-    ap.add_argument("--hardware-id", default=ds.DEFAULT_HARDWARE)
+    ap.add_argument("--total-cores", type=int, default=None,
+                    help="default: --nodes x the machine's cores per node")
+    ap.add_argument("--nodes", type=int, default=1)
+    ap.add_argument("--hardware-id", default=wtune.machine.hardware_id())
     ap.add_argument("--kappa", type=float, default=DEFAULT_KAPPA)
     ap.add_argument("--max-rounds", type=int, default=DEFAULT_MAX_ROUNDS)
     ap.add_argument("--max-per-rank-omp", type=int, default=DEFAULT_MAX_PER_RANK_OMP)
     ap.add_argument("--ensemble-size", type=int, default=DEFAULT_ENSEMBLE_SIZE)
     ap.add_argument("--ensemble-seed", type=int, default=0)
-    ap.add_argument("--partition", default=DEFAULT_PARTITION)
+    ap.add_argument("--partition", default=wtune.machine.partition())
     ap.add_argument("--reps", type=int, default=DEFAULT_REPS)
     ap.add_argument("--max-omp", type=int, default=None,
                     help="only propose configs with at most this many OpenMP threads per rank")

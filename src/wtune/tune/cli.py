@@ -554,7 +554,7 @@ def main(argv: list[str] | None = None) -> int:
     if (getattr(args, "level", None) is None and getattr(args, "pipeline", None) is None
             and args.nodes is None):
         args.level = DEFAULT_LEVEL            # the default run: -O2
-    os.environ.setdefault("SITE", "scc")
+    os.environ.setdefault("SITE", args.site)
     try:
         run(args)
     except SystemExit as e:

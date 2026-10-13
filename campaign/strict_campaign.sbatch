@@ -1,10 +1,7 @@
 #!/usr/bin/env bash
 #SBATCH --job-name=strictcamp
-#SBATCH --account=ACD110018
-#SBATCH --partition=cf448
-#SBATCH --nodes=4 --ntasks-per-node=112
-#SBATCH --time=02:00:00
-#SBATCH --output=/home/u5727520/wrf-bench/wscore/campaign/strictcamp-%x-%j.out
+# partition, nodes, tasks, time, account and output come from the sbatch command line
+# (wtune.tools.scc_sweep.build_sbatch_command), which knows the machine.
 #SBATCH --signal=B:USR1@90
 #
 # --signal=B:USR1@90 (job 740 postmortem, 2026-09): Slurm delivers SIGUSR1 to the batch shell
@@ -65,18 +62,14 @@
 #              window_frame=none:<reason> and no frame is kept.
 set -uo pipefail
 
-SITE=${SITE:-f1}
+SITE=${SITE:-scc}
 export SITE
-# CAMPAIGN locates this checkout's campaign/ dir, so its own default must vary by site (the repo
-# lives at a different absolute path on each cluster) -- everything else site-specific is inside
-# campaign/sites/$SITE.sh, sourced below, which f1.sh reproduces byte-for-byte as it stood before
-# SITE existed. export: CASES_JSON's default path (below) and the CASES_JSON overlay merge both
-# need CAMPAIGN from a plain python3 subprocess, not just from this shell.
-if [ "$SITE" = "scc" ]; then
-  CAMPAIGN=${CAMPAIGN:-$HOME/wtune/campaign}
-else
-  CAMPAIGN=${CAMPAIGN:-/home/u5727520/wrf-stack/wtune-autotuner/campaign}
-fi
+# CAMPAIGN is this checkout's campaign/ dir: the submitter exports it; submitted by hand from the
+# checkout it is found under $SLURM_SUBMIT_DIR. Everything site-specific is inside
+# campaign/sites/$SITE.sh, sourced below. export: CASES_JSON's default path (below) and the
+# CASES_JSON overlay merge both need CAMPAIGN from a plain python3 subprocess.
+CAMPAIGN=${CAMPAIGN:-${SLURM_SUBMIT_DIR:-$PWD}/campaign}
+[ -d "$CAMPAIGN/sites" ] || { echo "CAMPAIGN=$CAMPAIGN has no sites/: export CAMPAIGN=<checkout>/campaign" >&2; exit 2; }
 export CAMPAIGN
 # campaign/sites/$SITE.sh defines W, OUT, HARDWARE_ID, PIXI_ENV, CONV, CASES_JSON_DEFAULT,
 # CORES_PER_NODE and the functions site_env() (module load / MPI+IO env, called once below) and
@@ -391,7 +384,7 @@ harvest_thompson_tables () {
   done
 }
 
-# ---- per-run OpenMP/threading env (site-conditional) ----------------------------------
+# ---- per-run OpenMP/threading env (the site file's OMP_RUNTIME) ------------------------
 # f1's KMP_BLOCKTIME knob has no equivalent under scc's nvhpc OpenMP runtime (SITE FACTS,
 # decision 0050 step 8) -- never export it there, and record the ledger's kmp_blocktime column
 # as "n/a" instead of the numeric/"default" value configs.py generated. scc uses OMP_PLACES/
@@ -401,7 +394,7 @@ harvest_thompson_tables () {
 configure_omp_env () {
   local omp="$1" blocktime="$2"
   export OMP_NUM_THREADS="$omp"
-  if [ "$SITE" = "scc" ]; then
+  if [ "${OMP_RUNTIME:-}" != "intel" ]; then
     unset KMP_BLOCKTIME
     if [ "$omp" -gt 1 ]; then
       export OMP_PLACES=cores OMP_PROC_BIND=close
@@ -425,8 +418,8 @@ echo "job $J case $CASE nodes $SLURM_JOB_NODELIST reps $REPS timeout $TIMEOUT_S"
 eval "$(python3 - "$CASE" <<'PY'
 import json, os, sys
 case_id = sys.argv[1]
-campaign_dir = os.environ.get("CAMPAIGN") or "/home/u5727520/wrf-stack/wtune-autotuner/campaign"
-site = os.environ.get("SITE") or "f1"
+campaign_dir = os.environ["CAMPAIGN"]
+site = os.environ["SITE"]
 # CASES_JSON (optional): alternate case file, same schema; configs.py honours the same env var
 d = json.load(open(os.environ.get("CASES_JSON") or os.path.join(campaign_dir, "cases.json")))["cases"]
 if site != "f1":

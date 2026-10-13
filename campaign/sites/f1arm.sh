@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# f1-arm site (Grace CPU Superchip: 144 Neoverse-V2 cores/node in two 72-core NUMA domains,
+# SMT off; Open MPI 5.0.10 from a Spack view, nvhpc 25.5). The toolchain comes from the
+# machine's env_source ($HOME/wtune-f1arm/env.sh). f1 refuses a job without --account
+# (machine.account) and has no login node inside its partitions (machine.login_nodes '').
+#
+# Defines the same names as scc.sh: CORES_PER_NODE, W, OUT, HARDWARE_ID, OMP_RUNTIME, PIXI_ENV,
+# CONV, CASES_JSON_DEFAULT, site_env(), site_launch(), site_hygiene().
+
+CORES_PER_NODE=${WTUNE_CORES_PER_NODE:-144}
+NUMA_PER_NODE=${WTUNE_NUMA_PER_NODE:-2}
+W=${WRF_TREE:-$HOME/wrf-env/nvhpc-arm/wrf/nvhpc-adios2-tuned-dmpar/WRF}
+OUT=$HOME/wtune-runs/campaign
+HARDWARE_ID=${WTUNE_HARDWARE_ID:-f1-grace}
+OMP_RUNTIME=nvhpc
+export PATH=$HOME/.pixi/bin:$PATH
+PIXI_ENV=$HOME/wtune-envs/campaign
+CONV=${CONV:-$(dirname "$CAMPAIGN")/src/wtune/tools/wrf_adios2_to_netcdf4/convert.py}
+CASES_JSON_DEFAULT=$CAMPAIGN/cases.json
+
+site_env () {
+  source "${WTUNE_ENV_SOURCE:-$HOME/wtune-f1arm/env.sh}"
+  ulimit -s unlimited      # nvhpc -Mstack_arrays: automatic arrays live on the stack
+}
+
+# site_launch <ranks> <tpn> <omp> <dist>: fills SITE_LAUNCH_CMD, same contract as scc.sh's.
+# Each die owns its memory, so the ranks of a node are split evenly over its NUMA domains;
+# a per-node rank count the domains do not divide is mapped per node instead.
+site_launch () {
+  local ranks="$1" tpn="$2" omp="$3" dist="$4"
+  local nn="${SLURM_JOB_NUM_NODES:-1}"
+  [ $(( tpn * nn )) -lt "$ranks" ] && tpn=$(( (ranks + nn - 1) / nn ))
+  local map="ppr:${tpn}:node:PE=${omp}"
+  if [ $(( tpn % NUMA_PER_NODE )) -eq 0 ]; then
+    map="ppr:$(( tpn / NUMA_PER_NODE )):numa:PE=${omp}"
+  fi
+  SITE_LAUNCH_CMD=(mpirun -np "$ranks" --map-by "$map" --bind-to core)
+  if [ "$dist" = "cyclic" ]; then
+    SITE_LAUNCH_CMD+=(--rank-by node)
+  fi
+  SITE_LAUNCH_CMD+=(./wrf.exe)
+}
+
+# site_hygiene <mode>: no-op. f1's Slurm tracks a job's processes in a cgroup
+# (ProctrackType=proctrack/cgroup), so nothing outlives the job.
+site_hygiene () {
+  SITE_HYGIENE_CMD=(true)
+}

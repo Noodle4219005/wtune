@@ -13,7 +13,7 @@ import wtune.machine
 import wtune.nodes
 from ._deps import sweep, predict
 from .budget import _fallback_s_per_step, _job_time_est
-from .candidates import _sweep_anchor, aggregate_by_cid
+from .candidates import _sweep_anchor, _sweep_anchor_fitting, aggregate_by_cid
 from .common import UNSET, Record, _fmt_hms, parse_run_id, would_exceed_budget
 from .context import Ctx
 from .jobs import MAXRSS_NOTE, _maxrss_mb_by_job, submit_configs_job
@@ -225,17 +225,22 @@ def run_node_sweep(ctx: Ctx, legal_nodes: list[int],
     """Coarse-to-fine sweep of one REPS=2 ANCHOR job per N with a legal ANCHOR (_sweep_anchor):
     the seeds (wtune.nodes.seed_counts) in ascending waves with an early stop upward, then
     the untested legal neighbours of the best N (`chooser`) until they are measured;
-    `budget_frac` of what is left caps it. Returns {measurements, anchors, results, skipped
-    (with reasons), jobs, legal, maxrss_mb}."""
+    `budget_frac` of what is left caps it. An N whose full nodes have no legal decomposition
+    gets its ANCHOR on the most cores per node that have one (`cores`). Returns {measurements,
+    anchors, cores, results, skipped (with reasons), jobs, legal, maxrss_mb}."""
     chooser = chooser or (lambda rows: wtune.nodes.choose(rows, "time")[0])
-    skipped, anchors = [], {}
+    skipped, anchors, cores = [], {}, {}
     for n in wtune.nodes.candidate_node_counts(legal_nodes, ctx.max_nodes):
-        anchor, why = _sweep_anchor(ctx, n)
+        anchor, c, why = _sweep_anchor_fitting(ctx, n)
         if anchor is None:
             skipped.append(dict(nodes=n, reason=why))
             print("node sweep: N=%d skipped -- %s" % (n, why))
-        else:
-            anchors[n] = anchor
+            continue
+        anchors[n], cores[n] = anchor, c
+        if c < ctx.cores_per_node:
+            print("node sweep: N=%d has no legal decomposition on all %d cores/node; ANCHOR "
+                  "on %d (%d ranks x omp %d)"
+                  % (n, ctx.cores_per_node, c, anchor["ranks"], anchor["omp"]))
     h = ctx.node_health or {}
     for n in range(ctx.max_nodes + 1, int(h.get("max_nodes_requested") or 0) + 1):
         skipped.append(dict(nodes=n, reason="skipped (only %d healthy nodes)" % h["healthy"]))
@@ -311,8 +316,8 @@ def run_node_sweep(ctx: Ctx, legal_nodes: list[int],
             run_wave(wave)
 
     _explain_unmeasured(legal, meas, seeds, skipped, cap_hit, refine, chooser)
-    return dict(measurements=meas, anchors=anchors, results=results, skipped=skipped, jobs=jobs,
-                legal=legal, maxrss_mb=rss)
+    return dict(measurements=meas, anchors=anchors, cores=cores, results=results,
+                skipped=skipped, jobs=jobs, legal=legal, maxrss_mb=rss)
 
 
 def _explain_unmeasured(legal: list[int], meas: dict, seeds: list[int], skipped: list,
@@ -350,18 +355,28 @@ def _core_row(cores: int, nodes: int, anchor: dict, agg: dict, maxrss_mb: float 
                 maxrss_mb=maxrss_mb, chosen=chosen)
 
 
+def _sweep_cores(ctx: Ctx, sw: dict, n: int) -> int:
+    """Cores per node of the sweep's ANCHOR at N: all of them unless none was legal there."""
+    return (sw.get("cores") or {}).get(n, ctx.cores_per_node)
+
+
 def run_core_sweep(ctx: Ctx, finals: list[int], sw: dict, core_options: list[int],
                    budget_frac: float = DEFAULT_SWEEP_BUDGET_FRAC / 2) -> tuple[dict, list]:
     """Cores per node at each finalist N: one REPS=2 hybrid-ANCHOR job per legal (N, c < C)
-    (the rest of the node idles; c = C reuses the sweep's measurement), c chosen by
+    (the rest of the node idles; c = C reuses the sweep's measurement; C is the sweep's own
+    core count at N, and where that is not the whole node its usual fractions are tried too), c
+    chosen by
     wtune.nodes.choose_cores (ties -> fuller c). Returns ({N: {anchors, results, rss, rows,
     chosen, note}}, skipped_cores)."""
-    C = ctx.cores_per_node
     info, skipped, items = {}, [], []
     for n in finals:
+        C = _sweep_cores(ctx, sw, n)
         info[n] = dict(anchors={C: sw["anchors"][n]}, results={C: sw["results"][n]},
                        rss={C: sw["maxrss_mb"].get(n)})
-        for c in sorted((c for c in core_options if c < C), reverse=True):
+        options = set(core_options)
+        if C < ctx.cores_per_node:      # the node was too big for the grid: fractions of C
+            options |= set(wtune.nodes.default_core_options(C))
+        for c in sorted((c for c in options if c < C), reverse=True):
             a, why = _sweep_anchor(ctx, n, cores=c)
             if a is None:
                 skipped.append(dict(nodes=n, cores=c, reason=why))
@@ -436,7 +451,7 @@ def _tune_finalists(ctx: Ctx, finals: list[int], cores_info: dict, sw: dict, pla
             print("node search: no budget left for finalist N=%d" % n)
             continue
         share = remaining / (len(finals) - i)
-        c = cores_info[n]["chosen"] if n in cores_info else ctx.cores_per_node
+        c = cores_info[n]["chosen"] if n in cores_info else _sweep_cores(ctx, sw, n)
         anchor = cores_info[n]["anchors"][c] if n in cores_info else sw["anchors"].get(n)
         fctx = dataclasses.replace(ctx, nodes=n, budget_s=ctx.elapsed() + share,
                                     out_dir=os.path.join(ctx.out_dir, "n%d" % n),
@@ -467,7 +482,7 @@ def _tune_finalists(ctx: Ctx, finals: list[int], cores_info: dict, sw: dict, pla
 def _sweep_anchor_outcome(ctx: Ctx, chosen: int, note: str, cores_info: dict,
                           sw: dict) -> FinalistOutcome:
     """No finalist produced a result (budget gone, or O1): the sweep ANCHOR at `chosen`."""
-    c = cores_info[chosen]["chosen"] if chosen in cores_info else ctx.cores_per_node
+    c = cores_info[chosen]["chosen"] if chosen in cores_info else _sweep_cores(ctx, sw, chosen)
     anchor = cores_info[chosen]["anchors"][c] if chosen in cores_info else sw["anchors"][chosen]
     res = cores_info[chosen]["results"][c] if chosen in cores_info else sw["results"][chosen]
     fctx = dataclasses.replace(ctx, nodes=chosen, core_budget=c)
@@ -610,9 +625,8 @@ def build_layout_table(sw: dict, cores_info: dict, outcomes: dict, ctx: Ctx,
                                                        and row["median"] < old["median"]):
             seen[key] = row
 
-    C = ctx.cores_per_node
     for n, agg in sw["results"].items():
-        a = sw["anchors"][n]
+        a, C = sw["anchors"][n], _sweep_cores(ctx, sw, n)
         add(_layout_row("t0 sweep ANCHOR", n, C, a, agg["s_values"], agg.get("dirty")),
             (n, C, sweep._identity(a)))
     for n, ci in cores_info.items():

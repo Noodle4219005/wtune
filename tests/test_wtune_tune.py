@@ -1481,13 +1481,24 @@ def test_node_sweep_skips_n_without_legal_decomposition(tmp_path):
     assert sw["anchors"][1]["omp"] == 18
 
 
-def test_node_sweep_omp_cap_limits_candidates(tmp_path):
+def test_node_sweep_uses_fewer_cores_when_full_nodes_have_no_legal_decomposition(tmp_path):
+    """f1-arm matthew 2026-10-14: 91x100 cuts into 90 ranks at most. With the thread cap at 1 a
+    node count whose full nodes need more ranks was skipped (here N=2: 144), and on a 144-core
+    node the whole tune measured one layout."""
     sbatch, reader, job_nodes = make_scaling_fakes({1: 1.0, 2: 0.6})
     ctx = _ctx(sbatch_runner=sbatch, ledger_reader=reader, budget_s=360000.0, omp_cap=1,
                out_dir=str(tmp_path / "o"), ledger_dir=str(tmp_path / "l"))
     sw = wtune.tune.run_node_sweep(ctx, [1, 2], budget_frac=1.0)
-    assert sorted(sw["measurements"]) == [1]            # N=2 needs omp=2 > cap
-    assert sw["skipped"][0]["reason"] == "no legal decomposition at any omp in {1}"
+    assert sorted(sw["measurements"]) == [1, 2] and sw["skipped"] == []
+    assert sw["cores"] == {1: 72, 2: 45}                # N=2: 90 ranks, 45 on each node
+    assert all(a["omp"] == 1 for a in sw["anchors"].values())          # the cap still holds
+    assert (sw["anchors"][2]["ranks"], sw["anchors"][2]["nx"], sw["anchors"][2]["ny"]) == (90, 9, 10)
+    # the cores/node sweep starts from those 45, not from the 72 of a node
+    info, _skipped = wtune.tune.node_search.run_core_sweep(ctx, [2], sw, [72, 64, 48, 36])
+    assert max(info[2]["anchors"]) == 45 and {40, 36, 30} <= set(info[2]["results"])
+    assert info[2]["chosen"] == 45                      # all tie here: the fullest wins
+    rows = wtune.tune.node_search.build_layout_table(sw, info, {}, ctx)["rows"]
+    assert {(r["nodes"], r["cores_per_node"]) for r in rows} >= {(1, 72), (2, 45), (2, 36)}
 
 
 def test_node_sweep_applies_chem_j_patch_guard(monkeypatch, tmp_path):

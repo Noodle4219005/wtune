@@ -81,6 +81,12 @@ always started as `block` and a layout measured as `cyclic` would have run with 
 placement; the report also warned "dist not provided" for every sweep ANCHOR. The row keeps
 it and the run follows it. Report text no longer names scc.
 
+**A grid too small for a full node.** The node sweep measured one ANCHOR per node count on all
+the cores of a node and skipped a count with no legal decomposition there: `matthew` (91x100,
+90 ranks at most) on a 144-core node with one thread per rank left the whole tune with a single
+layout. Such a count now gets its ANCHOR on the most cores per node that have a legal one, and
+the cores/node sweep compares the usual fractions of that count.
+
 ## 0.9.0 — 2026-10-12
 
 Main code made small enough to review; behaviour of the tune -> run -> post path is unchanged

@@ -148,6 +148,21 @@ def _sweep_omp_options(ctx: Ctx, nodes: int, cores: int | None = None) -> list[i
     return [o for o in opts if not cap or o <= cap]
 
 
+def _sweep_anchor_fitting(ctx: Ctx, nodes: int) -> tuple[dict | None, int | None, str | None]:
+    """(ANCHOR, cores per node, None): on all the cores of a node, or, when nothing is legal
+    there, on the most cores per node that has a legal ANCHOR -- a small grid on big nodes
+    with a low thread cap (91x100 cuts into 90 ranks at most; a 144-core node at omp 1 wants
+    144). (None, None, reason) when no core count has one."""
+    anchor, why = _sweep_anchor(ctx, nodes)
+    if anchor is not None:
+        return anchor, ctx.cores_per_node, None
+    for c in range(ctx.cores_per_node - 1, 0, -1):
+        anchor, _why = _sweep_anchor(ctx, nodes, cores=c)
+        if anchor is not None:
+            return anchor, c, None
+    return None, None, why
+
+
 def _hybrid_anchor(ctx: Ctx, nodes: int, omp: int, cores: int | None = None) -> dict | None:
     """ANCHOR at `nodes` x `cores` (default all) cores/node: ranks = nodes*cores/omp, numtiles =
     omp, the least-aspect legal (nx, ny), dist=block (scc_sweep.build_anchor conventions); None

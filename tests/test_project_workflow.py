@@ -307,6 +307,15 @@ def test_submit_steps_share_one_id(project):
     assert "--tune-report" not in steps[0][1]
 
 
+def test_submit_tunes_with_the_projects_own_config(project):
+    assert "--config" not in wtune.submit.plan_steps(project, "ID", "2", False, True)[0][1]
+    config = os.path.join(project, "wtune.yaml")
+    with open(config, "w") as f:
+        f.write("search:\n  omp: [1]\n")
+    tune = wtune.submit.plan_steps(project, "ID", "2", False, True)[0][1]
+    assert tune[tune.index("--config") + 1] == config
+
+
 def test_fetch_steps_window_the_case_and_sit_between_run_and_post(project):
     import datetime as dt
     window = (dt.datetime(2019, 1, 28), dt.datetime(2019, 1, 31, 6), (-35.1, 47.5, -93.6, -77.2),

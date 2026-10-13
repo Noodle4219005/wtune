@@ -220,6 +220,15 @@ wtune project set --storm AL122005 --hurdat2 hurdat2-1851-2024.txt
 wtune project set --register-case
 ```
 
+## 專案自己的調校設定
+
+專案資料夾裡如果有 `wtune.yaml`，`wtune submit` 會把它當成 `wtune tune --config`。只寫要限制的項目即可，其餘用內建值。例如 WRF 是沒有 OpenMP 的編譯（dmpar）時，把每個 rank 的執行緒數固定為 1：
+
+```yaml
+search:
+  omp: [1]
+```
+
 ## manifest.jsonl
 
 每個 `wtune` 指令在這裡留一行：時間、WTune 版本、完整的 argv、主要輸入檔的路徑與 sha256（小於 50 MB 的檔案）、輸出目錄、exit code。

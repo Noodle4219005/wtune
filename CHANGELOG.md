@@ -49,6 +49,10 @@ size, partition and hardware id instead of 448 cores on `cf448`.
 `campaign/decomp_search_campaign.sbatch`, which nothing referenced, moved to
 `archive/unused-2026-10/campaign/`.
 
+**f1-arm.** `campaign/sites/f1arm.sh` (144-core Grace nodes, two NUMA domains). `wtune submit`
+tunes with the project's own `wtune.yaml` when there is one, so a machine whose WRF has no
+OpenMP can keep `search.omp` at 1.
+
 ## 0.9.0 — 2026-10-12
 
 Main code made small enough to review; behaviour of the tune -> run -> post path is unchanged

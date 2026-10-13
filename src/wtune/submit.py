@@ -87,15 +87,19 @@ def fetch_steps(project_dir: str, names: list[str], window) -> list[tuple[str, l
 
 def plan_steps(project_dir: str, out_id: str, level: str, skip_tune: bool, no_post: bool,
                fetch: list | None = None) -> list[tuple[str, list[str]]]:
-    """[(step name, argv), ...] for one submit. `fetch` steps (observations) never stop it."""
+    """[(step name, argv), ...] for one submit. `fetch` steps (observations) never stop it.
+    The project's own wtune.yaml, when there is one, is the tune's --config."""
     def out(sub):
         return os.path.join(project_dir, sub, out_id)
 
     steps = []
     run = [WTUNE_BIN, "run", "--project", project_dir, "--out", out("runs")]
     if not skip_tune:
-        steps.append(("tune", [WTUNE_BIN, "tune", "-O" + level, "--project", project_dir,
-                               "--out", out("tune")]))
+        tune = [WTUNE_BIN, "tune", "-O" + level, "--project", project_dir, "--out", out("tune")]
+        config = os.path.join(project_dir, "wtune.yaml")
+        if os.path.isfile(config):
+            tune += ["--config", config]
+        steps.append(("tune", tune))
         run += ["--tune-report", os.path.join(out("tune"), "tune_report.json")]
     steps.append(("run", run))
     if not no_post:

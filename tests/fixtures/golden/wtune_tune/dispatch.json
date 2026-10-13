@@ -46,7 +46,12 @@
       "core_budget": null,
       "cores_per_node": 72,
       "env_source": "$HOME/wtune-scc/env.sh",
-      "exclude_rules": [],
+      "exclude_rules": [
+       {
+        "omp_gt": 1,
+        "when": "fire"
+       }
+      ],
       "extension_omp_cap": null,
       "full_space": false,
       "hardware_id": "scc-gh200",
@@ -198,7 +203,12 @@
       "core_budget": null,
       "cores_per_node": 72,
       "env_source": "$HOME/wtune-scc/env.sh",
-      "exclude_rules": [],
+      "exclude_rules": [
+       {
+        "omp_gt": 1,
+        "when": "fire"
+       }
+      ],
       "extension_omp_cap": null,
       "full_space": false,
       "hardware_id": "scc-gh200",
@@ -348,7 +358,12 @@
       "core_budget": null,
       "cores_per_node": 72,
       "env_source": "$HOME/wtune-scc/env.sh",
-      "exclude_rules": [],
+      "exclude_rules": [
+       {
+        "omp_gt": 1,
+        "when": "fire"
+       }
+      ],
       "extension_omp_cap": null,
       "full_space": false,
       "hardware_id": "scc-gh200",
@@ -493,7 +508,12 @@
       "core_budget": null,
       "cores_per_node": 72,
       "env_source": "$HOME/wtune-scc/env.sh",
-      "exclude_rules": [],
+      "exclude_rules": [
+       {
+        "omp_gt": 1,
+        "when": "fire"
+       }
+      ],
       "extension_omp_cap": null,
       "full_space": false,
       "hardware_id": "scc-gh200",
@@ -616,7 +636,12 @@
       "core_budget": null,
       "cores_per_node": 72,
       "env_source": "$HOME/wtune-scc/env.sh",
-      "exclude_rules": [],
+      "exclude_rules": [
+       {
+        "omp_gt": 1,
+        "when": "fire"
+       }
+      ],
       "extension_omp_cap": null,
       "full_space": false,
       "hardware_id": "scc-gh200",
@@ -785,7 +810,12 @@
       "core_budget": null,
       "cores_per_node": 72,
       "env_source": "$HOME/wtune-scc/env.sh",
-      "exclude_rules": [],
+      "exclude_rules": [
+       {
+        "omp_gt": 1,
+        "when": "fire"
+       }
+      ],
       "extension_omp_cap": null,
       "full_space": false,
       "hardware_id": "scc-gh200",
@@ -954,7 +984,12 @@
       "core_budget": null,
       "cores_per_node": 72,
       "env_source": "$HOME/wtune-scc/env.sh",
-      "exclude_rules": [],
+      "exclude_rules": [
+       {
+        "omp_gt": 1,
+        "when": "fire"
+       }
+      ],
       "extension_omp_cap": null,
       "full_space": false,
       "hardware_id": "scc-gh200",
@@ -1123,7 +1158,12 @@
       "core_budget": null,
       "cores_per_node": 72,
       "env_source": "$HOME/wtune-scc/env.sh",
-      "exclude_rules": [],
+      "exclude_rules": [
+       {
+        "omp_gt": 1,
+        "when": "fire"
+       }
+      ],
       "extension_omp_cap": null,
       "full_space": false,
       "hardware_id": "scc-gh200",
@@ -1282,7 +1322,12 @@
       "core_budget": null,
       "cores_per_node": 72,
       "env_source": "$HOME/wtune-scc/env.sh",
-      "exclude_rules": [],
+      "exclude_rules": [
+       {
+        "omp_gt": 1,
+        "when": "fire"
+       }
+      ],
       "extension_omp_cap": null,
       "full_space": false,
       "hardware_id": "scc-gh200",

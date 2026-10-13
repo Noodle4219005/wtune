@@ -87,6 +87,11 @@ the cores of a node and skipped a count with no legal decomposition there: `matt
 layout. Such a count now gets its ANCHOR on the most cores per node that have a legal one, and
 the cores/node sweep compares the usual fractions of that count.
 
+**WRF-Fire without a config.** The rule that keeps a fire case at one thread was written only
+into the `wtune.yaml` template; `wtune tune` and `wtune submit` without `--config` had no rule
+and swept the node counts of `c34` at omp 2, 4 and 8 (one probe crashed, one hung for an hour).
+It is the built-in `exclude` now; `exclude: []` in a config lifts it.
+
 ## 0.9.0 — 2026-10-12
 
 Main code made small enough to review; behaviour of the tune -> run -> post path is unchanged

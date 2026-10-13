@@ -70,7 +70,12 @@
     "drift_band_pct": null,
     "measure_r_rad": false
    },
-   "exclude": []
+   "exclude": [
+    {
+     "omp_gt": 1,
+     "when": "fire"
+    }
+   ]
   }
  },
  "not_a_mapping": {
@@ -214,7 +219,12 @@
     "drift_band_pct": null,
     "measure_r_rad": false
    },
-   "exclude": []
+   "exclude": [
+    {
+     "omp_gt": 1,
+     "when": "fire"
+    }
+   ]
   }
  },
  "budget_not_mapping": {
@@ -328,7 +338,12 @@
     "drift_band_pct": null,
     "measure_r_rad": false
    },
-   "exclude": []
+   "exclude": [
+    {
+     "omp_gt": 1,
+     "when": "fire"
+    }
+   ]
   }
  },
  "search_not_mapping": {
@@ -520,7 +535,12 @@
     "drift_band_pct": null,
     "measure_r_rad": false
    },
-   "exclude": []
+   "exclude": [
+    {
+     "omp_gt": 1,
+     "when": "fire"
+    }
+   ]
   }
  },
  "prediction_bad": {
@@ -609,7 +629,12 @@
     "drift_band_pct": 0,
     "measure_r_rad": true
    },
-   "exclude": []
+   "exclude": [
+    {
+     "omp_gt": 1,
+     "when": "fire"
+    }
+   ]
   }
  },
  "exclude_bad": {

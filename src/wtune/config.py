@@ -75,7 +75,7 @@ DEFAULTS = {
               "points_by": "time",
               "indicator_sources": ["case_forcing", "era5", "gfs", "stage4", "mrms"]},
     "prediction": {"io_target": "nfs", "drift_band_pct": None, "measure_r_rad": False},
-    "exclude": [],
+    "exclude": [{"omp_gt": 1, "when": "fire"}],
 }
 
 TOP_KEYS = {"site", "case", "case_dir", "compliance", "budget", "search", "physics_gray",
@@ -219,8 +219,11 @@ def _merge_physics_gray(raw, errors):
 
 
 def _merge_exclude(raw, errors):
+    """`exclude` of a config; one that has none keeps the built-in rule (WRF-Fire crashes at
+    the first step with more than one thread -- scc c34 2026-10-14: a tune without --config
+    ran its node sweep at omp 2, 4, 8). `exclude: []` lifts it."""
     if raw is None:
-        return []
+        return copy.deepcopy(DEFAULTS["exclude"])
     if not isinstance(raw, list):
         errors.append("exclude: must be a list, got %s" % type(raw).__name__)
         return []

@@ -3173,3 +3173,18 @@ def test_layout_row_keeps_the_rank_order_it_was_measured_with():
     from wtune.tune import node_search
     cfg = dict(id="c1", ranks=144, omp=1, nx=12, ny=12, numtiles=1, dist="cyclic")
     assert node_search._layout_row("finalist search", 2, 72, cfg, [0.5, 0.6])["dist"] == "cyclic"
+
+
+def test_a_fire_case_is_tuned_single_threaded_without_any_config():
+    """scc c34 2026-10-14: the fire rule lived only in the wtune.yaml template, so a tune without
+    --config swept the node counts at omp 2, 4, 8 -- one probe crashed, one hung for an hour."""
+    cfg, errors = wtune.config.resolve_config({})
+    assert cfg["exclude"] == [dict(omp_gt=1, when="fire")] and not errors
+    assert wtune.config.resolve_config({"exclude": []})[0]["exclude"] == []     # lifted on request
+    fire = _ctx(exclude_rules=cfg["exclude"], is_fire=True)
+    for n in (1, 2, 4):
+        anchor, cores, why = wtune.tune.candidates._sweep_anchor_fitting(fire, n)
+        assert anchor["omp"] == 1 and anchor["ranks"] <= 90, why
+    assert wtune.tune.candidates._sweep_anchor_fitting(fire, 2)[1] == 45       # 90 ranks on 2 nodes
+    other = _ctx(exclude_rules=cfg["exclude"], is_fire=False)
+    assert wtune.tune.candidates._sweep_anchor_fitting(other, 2)[0]["omp"] == 2

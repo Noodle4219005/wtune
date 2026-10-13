@@ -1328,3 +1328,36 @@ def test_existing_run_dir_is_refused_before_planning(tmp_path, capsys):
     rc, _out, _rep, lines = _run(tmp_path, f)
     assert rc != 0 and f.submitted == [] and lines == []      # refused before the plan is printed
     assert "already holds a run" in capsys.readouterr().err
+
+
+def test_a_segment_runs_wrf_tree_not_what_a_former_run_dir_brought(tmp_path):
+    """atlas-b cases 2026-10-14: the case was a former run directory holding wrf.exe and table
+    links of the WRF it ran with; linked first, they shadowed WRF_TREE's."""
+    from wtune.run import staging
+
+    def tree(name):
+        root = tmp_path / name
+        for d in ("main", "Registry", "run"):
+            (root / d).mkdir(parents=True)
+        (root / "main" / "wrf.exe").write_text(name)
+        (root / "run" / "wrf.exe").symlink_to(root / "main" / "wrf.exe")
+        (root / "run" / "LANDUSE.TBL").write_text(name)
+        return root
+    new, old = tree("new"), tree("old")
+    (old / "run" / "ONLY_OLD.TBL").write_text("old")
+    case, seg = tmp_path / "case", tmp_path / "seg"
+    case.mkdir()
+    seg.mkdir()
+    (case / "wrfinput_d01").write_text("in")
+    (case / "wrf.exe").symlink_to(old / "main" / "wrf.exe")
+    (case / "real.exe").write_text("a copied executable")
+    (case / "LANDUSE.TBL").symlink_to(old / "run" / "LANDUSE.TBL")     # left over: the tree's wins
+    (case / "ONLY_OLD.TBL").symlink_to(old / "run" / "ONLY_OLD.TBL")   # WRF_TREE has none: kept
+    (case / "VEGPARM.TBL").write_text("the case's own table")
+    staging._link_case_files(str(case), str(seg), [], False, str(new))
+    staging._link_wrf_run_files(str(new), str(seg))
+    assert (seg / "wrf.exe").read_text() == "new" and not (seg / "real.exe").exists()
+    assert (seg / "LANDUSE.TBL").read_text() == "new"
+    assert (seg / "ONLY_OLD.TBL").read_text() == "old"
+    assert (seg / "VEGPARM.TBL").read_text() == "the case's own table"
+    assert (seg / "wrfinput_d01").read_text() == "in"

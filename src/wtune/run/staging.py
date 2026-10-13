@@ -105,8 +105,25 @@ def remove_empty_output_dirs(seg_dir: str, names: list) -> None:
 # ---------------------------------------------------------------------------
 # the directory
 # ---------------------------------------------------------------------------
-def _case_link_ok(name: str, path: str, skip_adios2_xml: bool) -> bool:
-    if name == "wrf.out" or name.startswith(_CASE_LINK_SKIP):
+def _in_wrf_tree(path: str) -> bool:
+    """True when `path`, links resolved, lies inside a WRF source tree."""
+    d = os.path.dirname(os.path.realpath(path))
+    for _ in range(8):
+        if os.path.isdir(os.path.join(d, "main")) and os.path.isdir(os.path.join(d, "Registry")):
+            return True
+        d = os.path.dirname(d)
+    return False
+
+
+def _case_link_ok(name: str, path: str, skip_adios2_xml: bool,
+                  wrf_run_names: Iterable[str] = ()) -> bool:
+    """A case that was once a run directory still holds the wrf.exe and the table links of
+    the WRF it ran with. The run uses WRF_TREE's: never an executable of the case, and not a
+    link into some WRF tree for a file WRF_TREE/run has. A table the case ships as its own
+    file stays the case's."""
+    if name == "wrf.out" or name.startswith(_CASE_LINK_SKIP) or name.endswith(".exe"):
+        return False
+    if name in wrf_run_names and os.path.islink(path) and _in_wrf_tree(path):
         return False
     if skip_adios2_xml and name == "adios2.xml":
         return False
@@ -138,10 +155,12 @@ def fresh_bp_links(bp_links: dict, sources: dict, copied: dict) -> dict:
 
 
 def _link_case_files(case_dir: str, seg_dir: str, restart_links: Iterable[str],
-                     skip_adios2_xml: bool) -> None:
+                     skip_adios2_xml: bool, wrf_tree: Optional[str] = None) -> None:
+    run_dir = os.path.join(wrf_tree, "run") if wrf_tree else None
+    wrf_run_names = set(os.listdir(run_dir)) if run_dir and os.path.isdir(run_dir) else set()
     for name in sorted(os.listdir(case_dir)):
         src = os.path.join(case_dir, name)
-        if _case_link_ok(name, src, skip_adios2_xml):
+        if _case_link_ok(name, src, skip_adios2_xml, wrf_run_names):
             os.symlink(src, os.path.join(seg_dir, name))
     for src in restart_links:
         os.symlink(os.path.abspath(src), os.path.join(seg_dir, os.path.basename(src)))
@@ -185,7 +204,7 @@ def setup_segment_dir(case_dir: str, seg_dir: str, namelist_text: str,
     if os.path.commonpath([seg_dir, case_dir]) == case_dir:
         raise RunError("segment dir %s is inside CASE_DIR" % seg_dir)
     os.makedirs(seg_dir)
-    _link_case_files(case_dir, seg_dir, restart_links, adios2_xml is not None)
+    _link_case_files(case_dir, seg_dir, restart_links, adios2_xml is not None, wrf_tree)
     _link_wrf_run_files(wrf_tree, seg_dir)
     _write_regular_files(seg_dir, namelist_text, adios2_xml)
     if fresh_sources:

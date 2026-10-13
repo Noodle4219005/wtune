@@ -56,6 +56,8 @@ NAMELIST_NAMES = ("namelist.input", "namelist.output", "namelist.wps")
 _PREV_RUN_OUTPUT_PREFIXES = ("wrfout_", "wrfrst_", "rsl.out.", "rsl.error.")
 _PREV_RUN_OUTPUT_NAMES = ("namelist.output",)
 _PREV_RUN_OUTPUT_SUFFIXES = (".log",)
+# time series of a tslist (<station>.d02.TS, .UU ... profiles): written by WRF, never read
+_TS_OUTPUT_RE = re.compile(r"\.d\d\d\.(?:all\.)?(?:TS|UU|VV|WW|TH|PH|QV|PR)$")
 
 
 class ProjectError(RuntimeError):
@@ -462,30 +464,35 @@ def run(ctx):
 
 def is_previous_run_output(name, entries=()):
     """True for a file a previous WRF run wrote into its run dir (wrfout_*, wrfrst_*,
-    rsl.out.*, rsl.error.*, *.log, and namelist.output when namelist.input is in `entries`)."""
+    rsl.out.*, rsl.error.*, *.log, wrf.out, tslist time series, and namelist.output when
+    namelist.input is in `entries`)."""
     if name in _PREV_RUN_OUTPUT_NAMES:
         return "namelist.input" in entries
-    return name.startswith(_PREV_RUN_OUTPUT_PREFIXES) or name.endswith(_PREV_RUN_OUTPUT_SUFFIXES)
+    return (name == "wrf.out" or name.startswith(_PREV_RUN_OUTPUT_PREFIXES)
+            or name.endswith(_PREV_RUN_OUTPUT_SUFFIXES) or bool(_TS_OUTPUT_RE.search(name)))
 
 
 def _populate_case_dir(case_dir, dest_dir):
     """Copies only namelists; symlinks everything else found directly in case_dir except the
-    outputs of a previous run (is_previous_run_output). Never opens a file under case_dir for
+    outputs of a previous run (is_previous_run_output) and its executables (the project runs
+    the machine's WRF). Never opens a file under case_dir for
     writing -- os.symlink and shutil.copy2 (read + fresh write at dest) both leave the source
     untouched, so the original case dir's mtime/sha256 are unchanged (decision 0058 P1).
-    Returns the number of skipped previous-run outputs."""
+    Returns (skipped previous-run outputs, skipped executables)."""
     entries = sorted(os.listdir(case_dir))
-    skipped = 0
+    skipped, executables = 0, 0
     for entry in entries:
         src = os.path.join(case_dir, entry)
         dst = os.path.join(dest_dir, entry)
         if is_previous_run_output(entry, entries):
             skipped += 1
+        elif entry.endswith(".exe"):
+            executables += 1
         elif entry in NAMELIST_NAMES and os.path.isfile(src):
             shutil.copy2(src, dst)
         else:
             os.symlink(src, dst)
-    return skipped
+    return skipped, executables
 
 
 POST_EVERY_MAX_RUN_DAYS = 7   # longer runs get no default --every (too many frames)
@@ -527,9 +534,12 @@ def init_project(path, case_dir=None, name=None, storm=None, hurdat2=None, site=
     for sub in SUBDIRS:
         os.makedirs(os.path.join(path, sub), exist_ok=True)
     if case_dir:
-        skipped = _populate_case_dir(case_dir, os.path.join(path, "case"))
+        skipped, executables = _populate_case_dir(case_dir, os.path.join(path, "case"))
         if skipped:
             print("skipped %d output file(s) of a previous run in %s" % (skipped, case_dir))
+        if executables:
+            print("skipped %d executable(s) in %s: the project runs the machine's WRF"
+                  % (executables, case_dir))
 
     name = name or default_project_name(case_dir)
     case_id = None

@@ -294,7 +294,8 @@ def _run_node_preflight(args: argparse.Namespace, level: int | None, case_json: 
                         ) -> tuple[dict | None, Callable | None, int]:
     """(start check, re-check callable, max_nodes capped at the healthy count); skipped (None,
     None, max_nodes) by --no-node-preflight and for -O0. Controller time, never budget."""
-    if getattr(args, "no_node_preflight", False) or level == 0:      # O0 runs no jobs
+    if (getattr(args, "no_node_preflight", False) or level == 0      # O0 runs no jobs
+            or not wtune.machine.node_preflight()):
         return None, None, max_nodes
     _src_dir = os.path.dirname(sweep.campaign_dir_for(args.sbatch_script) or _HERE)
     _wrf = os.path.join(sweep._expand(wtune.machine.wrf_tree()),

@@ -186,6 +186,12 @@ def project_machine(project_doc):
         raise ProjectError(str(e)) from e
 
 
+def _on_off(text):
+    if text not in ("on", "off"):
+        raise argparse.ArgumentTypeError("on or off, not %r" % text)
+    return text == "on"
+
+
 def machine_line(project_doc):
     """'machine: cores_per_node=72 ...': the built-in values, replaced by the user's file,
     then by the project's block."""
@@ -198,6 +204,7 @@ def machine_line(project_doc):
     values["account"] = values["account"] or "-"
     values["calibration"] = values["calibration"] or "built-in"
     values["max_hours"] = "%g" % values["max_hours"]
+    values["node_preflight"] = "on" if values["node_preflight"] else "off"
     values["measured"] = ",".join(
         "%s=%g" % kv for kv in sorted(values["measured"].items())) or "-"
     return "machine: " + " ".join("%s=%s" % (k, values[k]) for k in wtune.machine.DEFAULTS)
@@ -721,6 +728,9 @@ def build_parser():
     p_set.add_argument("--max-hours", type=float, default=None,
                        help="longest job the partition accepts; jobs are planned and capped "
                             "to fit (built-in 0 = no cap)")
+    p_set.add_argument("--node-preflight", type=_on_off, default=None, metavar="{on,off}",
+                       help="probe every node with one srun before a tune (built-in on); off "
+                            "where the scheduler limits how many jobs a user may submit")
     p_set.add_argument("--max-omp", type=int, default=None,
                        help="most threads per rank WRF runs with here: 1 for a build without "
                             "OpenMP (built-in 0 = no cap)")

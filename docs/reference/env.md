@@ -32,6 +32,7 @@ source ~/wtune-scc/env.sh       # scc：一次設好 WRF 與編譯器相關的�
 | `WPS_GEOG` | WPS 的靜態地理資料 | `/nfs/data/wrf/WPS_GEOG/` |
 | `WTUNE_MAX_HOURS` | partition 允許的最長工作時數 | `0`（不設上限） |
 | `WTUNE_MAX_OMP` | 每個 rank 最多幾個執行緒；WRF 沒有 OpenMP 時設 `1` | `0`（不限） |
+| `WTUNE_NODE_PREFLIGHT` | `0` 關掉調校前每個節點一個的探測工作 | `1` |
 | `WTUNE_MEASURED` | `measured` 對照表的 JSON 形式，由 WTune 自己設定 | 無 |
 | `WTUNE_MACHINE_FILE` | 使用者設定檔的位置 | `~/.config/wtune/machine.yaml` |
 

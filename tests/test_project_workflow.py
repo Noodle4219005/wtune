@@ -212,7 +212,7 @@ def test_measured_numbers_and_the_longest_job_in_the_project(project, no_machine
     assert proj.main(["set", "--project", project, "--measured", "io_factor=3"]) == 0
     assert _doc(project)["machine"] == dict(
         max_hours=8.0, measured=dict(noise_frac=0.05, init_s=60.0, io_factor=3.0))
-    assert ("max_hours=8 max_omp=0 measured=init_s=60,io_factor=3,noise_frac=0.05"
+    assert ("max_hours=8 max_omp=0 node_preflight=on measured=init_s=60,io_factor=3,noise_frac=0.05"
             in proj.info_project(project))
     proj.apply_project_env(project, _doc(project))
     assert (wtune.machine.max_hours(), wtune.machine.measured("io_factor")) == (8.0, 3.0)

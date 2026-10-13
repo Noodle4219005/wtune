@@ -101,6 +101,7 @@ machine:
   geog: /data/WPS_GEOG     # WPS 的靜態地理資料
   max_hours: 8             # partition 允許的最長工作時數，內建 0（不設上限）
   max_omp: 1               # 每個 rank 最多幾個執行緒；WRF 沒有 OpenMP 時設 1，內建 0（不限）
+  node_preflight: false    # 調校前不要對每個節點各送一個探測工作，內建 true
   measured:                # 這台機器自己量到的數字，取代內建的 scc 值
     noise_frac: 0.05
     restart_write_s_adios2: 2.4
@@ -122,6 +123,7 @@ machine:
 | `geog` | 等同環境變數 `WPS_GEOG`，重建個案時 geogrid 會用到 |
 | `max_hours` | 設了之後，`wtune run` 會把整段模擬切成每段都跑得完的長度，探測與重建工作的時限也不會超過它。不設就和以前一樣 |
 | `max_omp` | WRF 是沒有 OpenMP 的編譯（dmpar）時設 1：調校從節點掃描的基準組態開始就只用單執行緒，不會留一半核心閒置。不設就和以前一樣 |
+| `node_preflight` | 內建會在調校前對 partition 裡每個節點各送一個 1 分鐘的 `srun`，找出不能用的節點。排程器限制每人可送出的工作數時（例如上限 12 個而節點有 40 個），多出來的探測會被拒絕並被當成節點有問題，所以要設成 `false`（`--node-preflight off`） |
 | `measured` | 見下方「measured」 |
 
 新機器至少要給 `cores_per_node`、`hardware_id`、`numa_per_node`。沿用 `scc-gh200` 這個名字卻改了核心數會直接報錯，避免別台機器的量測混進 scc 的紀錄。

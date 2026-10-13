@@ -23,6 +23,7 @@ DEFAULTS = {"cores_per_node": 72,       # hardware cores of one compute node (sc
             "geog": "/nfs/data/wrf/WPS_GEOG/",        # WPS static data
             "max_hours": 0,             # longest job the partition accepts; 0 = no cap
             "max_omp": 0,               # threads per rank WRF runs with; 1 = no OpenMP, 0 = no cap
+            "node_preflight": True,     # one srun per node before a tune (wtune.tune.preflight)
             "measured": {}}             # replacements for MEASURED below
 ENV = {"cores_per_node": "WTUNE_CORES_PER_NODE", "max_nodes": "WTUNE_MAX_NODES",
        "partition": "WTUNE_PARTITION", "login_nodes": "WTUNE_LOGIN_NODES",
@@ -30,7 +31,7 @@ ENV = {"cores_per_node": "WTUNE_CORES_PER_NODE", "max_nodes": "WTUNE_MAX_NODES",
        "numa_per_node": "WTUNE_NUMA_PER_NODE", "calibration": "WTUNE_CALIBRATION",
        "site": "WTUNE_SITE", "env_source": "WTUNE_ENV_SOURCE", "wrf_tree": "WRF_TREE",
        "geog": "WPS_GEOG", "max_hours": "WTUNE_MAX_HOURS", "max_omp": "WTUNE_MAX_OMP",
-       "measured": "WTUNE_MEASURED"}
+       "node_preflight": "WTUNE_NODE_PREFLIGHT", "measured": "WTUNE_MEASURED"}
 
 # Numbers measured on scc that estimates fall back on when nothing was measured for the
 # case at hand. Another machine replaces the ones it knows in its `measured:` map.
@@ -95,6 +96,9 @@ def check(block, where="machine") -> dict:
             if isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0:
                 raise MachineError("%s: %r must be a number of hours, 0 for no cap"
                                    % (at, value))
+        elif key == "node_preflight":
+            if not isinstance(value, bool):
+                raise MachineError("%s: %r must be true or false" % (at, value))
         elif key == "max_omp":
             if isinstance(value, bool) or not isinstance(value, int) or value < 0:
                 raise MachineError("%s: %r must be a number of threads, 0 for no cap"
@@ -138,6 +142,8 @@ def export(block: dict) -> None:
             continue
         if key in PATH_KEYS:
             value = os.path.expandvars(os.path.expanduser(value))
+        if isinstance(value, bool):
+            value = "1" if value else "0"
         os.environ[name] = ",".join(value) if isinstance(value, list) else str(value)
 
 
@@ -248,6 +254,18 @@ def max_hours() -> float:
     if value < 0:
         raise MachineError("%s=%r: must be a number of hours" % (ENV["max_hours"], raw))
     return value
+
+
+def node_preflight() -> bool:
+    """False where a probe job on every node is not wanted: a cluster that limits how many
+    jobs a user may have submitted rejects most of them, and a rejected probe reads as a bad
+    node."""
+    raw = os.environ.get(ENV["node_preflight"], "").strip().lower()
+    if raw in ("", "1", "true", "on"):
+        return True
+    if raw in ("0", "false", "off"):
+        return False
+    raise MachineError("%s=%r: must be 1 or 0" % (ENV["node_preflight"], raw))
 
 
 def max_omp() -> int:

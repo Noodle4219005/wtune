@@ -62,7 +62,9 @@ as FAILED. State, timing and MaxRSS queries now look at the last 30 days only. T
 pre-flight no longer excludes a `mixed` node whose probe timed out: on a busy cluster that
 shares nodes it excluded every node that was not fully taken. New machine setting `max_omp`
 (`--max-omp`, `WTUNE_MAX_OMP`): 1 for a WRF built without OpenMP. `search.omp` in a config does
-not bind the node sweep's ANCHOR; this cap does.
+not bind the node sweep's ANCHOR; this cap does. New machine setting `node_preflight`
+(`--node-preflight off`, `WTUNE_NODE_PREFLIGHT=0`): f1-arm lets a user have 2 to 12 jobs
+submitted, so of the 40 probes all but two were refused and 38 nodes were excluded.
 
 ## 0.9.0 — 2026-10-12
 

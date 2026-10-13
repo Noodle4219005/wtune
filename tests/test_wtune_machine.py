@@ -197,3 +197,15 @@ def test_max_omp_caps_threads_together_with_a_case_cap(monkeypatch):
     monkeypatch.setenv("WTUNE_MAX_OMP", "two")
     with pytest.raises(wtune.machine.MachineError, match="WTUNE_MAX_OMP"):
         wtune.machine.max_omp()
+
+
+def test_node_preflight_can_be_turned_off_for_the_machine(monkeypatch):
+    monkeypatch.setenv("WTUNE_NODE_PREFLIGHT", "")          # restored afterwards; "" = not set
+    assert wtune.machine.node_preflight() is True
+    wtune.machine.export(wtune.machine.check({"node_preflight": False}))
+    assert os.environ["WTUNE_NODE_PREFLIGHT"] == "0" and wtune.machine.node_preflight() is False
+    with pytest.raises(wtune.machine.MachineError, match="true or false"):
+        wtune.machine.check({"node_preflight": "no"})
+    monkeypatch.setenv("WTUNE_NODE_PREFLIGHT", "maybe")
+    with pytest.raises(wtune.machine.MachineError, match="WTUNE_NODE_PREFLIGHT"):
+        wtune.machine.node_preflight()

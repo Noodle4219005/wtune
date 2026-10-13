@@ -295,8 +295,8 @@ def job_timing(ctx: Ctx, job_ids: list) -> dict:
     if not ids:
         return out
     try:
-        text = ctx.sacct_runner([ctx.sacct_cmd, "-j", ",".join(ids), "-X", "-n", "-P",
-                                 "--format=JobID,Submit,Start,End"])
+        text = ctx.sacct_runner([ctx.sacct_cmd, "-j", ",".join(ids), *sweep.SACCT_SINCE,
+                                 "-X", "-n", "-P", "--format=JobID,Submit,Start,End"])
     except Exception:
         return out
     fmt = "%Y-%m-%dT%H:%M:%S"
@@ -337,8 +337,8 @@ def _maxrss_mb_by_job(ctx: Ctx, job_ids: list) -> dict:
     job_ids = [str(j) for j in job_ids]
     best: dict = {}
     try:
-        out = ctx.sacct_runner([ctx.sacct_cmd, "-j", ",".join(job_ids), "-n", "-P",
-                                "--format=JobID,MaxRSS"])
+        out = ctx.sacct_runner([ctx.sacct_cmd, "-j", ",".join(job_ids), *sweep.SACCT_SINCE,
+                                "-n", "-P", "--format=JobID,MaxRSS"])
     except Exception:
         out = ""
     for line in (out or "").splitlines():

@@ -118,3 +118,15 @@ def test_estimate_s_per_step_expands_unexpanded_ledger_dir(monkeypatch):
 
 if __name__ == "__main__":
     raise SystemExit(__import__("pytest").main([__file__, "-v"]))
+
+
+def test_sacct_states_never_reads_an_old_job_of_the_same_number():
+    # f1-arm 2026-10-14: job ids started over, and `sacct -j 14841` answered with another
+    # user's FAILED job of 2024 until slurmdbd had the new one
+    seen = []
+
+    def runner(cmd):
+        seen.append(cmd)
+        return "14841|PENDING|00:00:00\n"
+    assert sw.sacct_states(["14841"], sacct_runner=runner) == {"14841": ("PENDING", "00:00:00")}
+    assert seen[0][seen[0].index("-S") + 1] == "now-30days"

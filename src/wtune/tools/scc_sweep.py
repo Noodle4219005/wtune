@@ -90,6 +90,10 @@ TIMEOUT_MULTIPLIER = 3.0
 TIMEOUT_MIN_S = 600
 
 MANIFEST_FIELDS = ["case", "nodes", "job_id", "configs_path", "n_configs", "submitted_at", "state"]
+# `sacct -j` alone searches all of slurmdbd and answers with the newest job of that number. On
+# a cluster whose job ids started over (f1-arm) that is another user's old job until the new
+# one is recorded: a job just submitted read as FAILED.
+SACCT_SINCE = ("-S", "now-30days")
 IN_FLIGHT_STATES = {"PENDING", "RUNNING"}   # sacct State values counted against --max-nodes-in-flight
 
 _JOBID_RE = re.compile(r"Submitted batch job (\d+)")
@@ -256,7 +260,8 @@ def sacct_states(job_ids, sacct_runner=default_sacct_runner, sacct_cmd="sacct"):
     job_ids = [str(j) for j in job_ids if j]
     if not job_ids:
         return {}
-    cmd = [sacct_cmd, "-j", ",".join(job_ids), "-X", "-n", "-P", "--format=JobID,State,Elapsed"]
+    cmd = [sacct_cmd, "-j", ",".join(job_ids), *SACCT_SINCE, "-X", "-n", "-P",
+           "--format=JobID,State,Elapsed"]
     out = sacct_runner(cmd)
     states = {}
     for line in out.splitlines():

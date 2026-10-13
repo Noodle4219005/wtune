@@ -15,6 +15,7 @@ from ._deps import sweep
 
 PREFLIGHT_TIMEOUT_S = 45.0             # s per srun probe
 SINFO_TIMEOUT_S = 30                   # s for the sinfo call
+BUSY_STATES = ("alloc", "mix")         # sinfo %T of a node running someone's job
 HEALTH_BAD_STATES = ("down", "drain", "fail", "maint", "unk", "no_respond", "inval", "powered")
 
 Runner = Callable[[list, float], tuple]
@@ -55,8 +56,9 @@ def _sinfo_states(text: str) -> dict[str, str]:
 
 def _probe_node(runner: Runner, n: str, state: str, script: str,
                 timeout_s: float) -> tuple[str, dict]:
-    """(node, {state, ok, probed, reason}) of one srun probe; a timeout on an ALLOCATED node
-    only means it is busy: kept, unprobed."""
+    """(node, {state, ok, probed, reason}) of one srun probe; a timeout on a node other jobs
+    are using (allocated, or mixed on a cluster that shares nodes) only means it is busy:
+    kept, unprobed."""
     login = wtune.machine.login_nodes()
     argv = (["srun", "-p", wtune.machine.partition(), "-w", n, "-N1", "-n1", "-t", "1"]
             + [a for a in ("--exclude=" + ",".join(login) if login else "",
@@ -64,9 +66,9 @@ def _probe_node(runner: Runner, n: str, state: str, script: str,
     try:
         rc, out = runner(argv, timeout_s)
     except subprocess.TimeoutExpired:
-        if state.lower().startswith("alloc"):
+        if state.lower().startswith(BUSY_STATES):
             return n, dict(state=state, ok=True, probed=False,
-                           reason="allocated by another job: not probed (timed out waiting)")
+                           reason="in use by another job: not probed (timed out waiting)")
         return n, dict(state=state, ok=False, probed=True,
                        reason="probe timed out after %gs" % timeout_s)
     except (OSError, subprocess.SubprocessError) as e:

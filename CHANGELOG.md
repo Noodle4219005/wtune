@@ -57,6 +57,12 @@ OpenMP can keep `search.omp` at 1.
 `sinfo`, then one `srun` per idle node (1430 on scc in one run), and the nodes it then excluded
 leaked into four later tests. The tests now see no Slurm unless they pass their own runner.
 
+**Found on f1-arm.** Job ids there started over, so `sacct -j <id>` answered with another user's
+old job of the same number until slurmdbd had recorded the new one: a job just submitted read
+as FAILED. State, timing and MaxRSS queries now look at the last 30 days only. The node
+pre-flight no longer excludes a `mixed` node whose probe timed out: on a busy cluster that
+shares nodes it excluded every node that was not fully taken.
+
 ## 0.9.0 — 2026-10-12
 
 Main code made small enough to review; behaviour of the tune -> run -> post path is unchanged

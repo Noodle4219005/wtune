@@ -2360,9 +2360,11 @@ def test_preflight_timeout_fails_an_idle_node_but_not_a_busy_one():
     runner, _log = make_health_runner(states, bad={n: "timeout" for n in states})
     h = _preflight(runner, requested=13, timeout_s=7)
     assert h["nodes"]["work2"]["reason"] == "probe timed out after 7s" and not h["nodes"]["work2"]["ok"]
-    assert not h["nodes"]["work4"]["ok"]                         # mixed node must answer
-    assert h["nodes"]["work3"]["ok"] and h["nodes"]["work3"]["probed"] is False   # busy: unprobed
-    assert h["failed"] == ["work2", "work4"] and h["healthy"] == 1
+    # busy: unprobed. A mixed node need not answer either: on f1-arm (shared nodes, busy queue)
+    # every mixed node timed out and got excluded, leaving only the nodes that were taken.
+    for n in ("work3", "work4"):
+        assert h["nodes"][n]["ok"] and h["nodes"][n]["probed"] is False
+    assert h["failed"] == ["work2"] and h["healthy"] == 2
 
 
 def test_preflight_merges_with_the_user_exclude_in_every_sbatch(monkeypatch):

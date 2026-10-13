@@ -10,9 +10,10 @@ from typing import Any, Callable
 
 import wtune.config
 import wtune.extensions
+import wtune.machine
 import wtune.nodes
 from ._deps import _HERE, sweep
-from .context import (CONFIRM_REPS, DEFAULT_HARDWARE_ID, DEFAULT_KAPPA, DEFAULT_MAX_NODES,
+from .context import (CONFIRM_REPS, DEFAULT_HARDWARE_ID, DEFAULT_KAPPA,
                       DEFAULT_POLL_INTERVAL_S, DEFAULT_SEED, DEFAULT_STEPS, Ctx, RealClock,
                       default_ledger_reader, default_scancel_runner, resolve_auto_probe_steps)
 from .estimates import DEFAULT_LEVEL, LEVELS
@@ -88,7 +89,7 @@ def run(args: argparse.Namespace, sbatch_runner: Callable | None = None,
     case_json, namelist_path, profile = _context.resolve_case(o.case, args.cores_per_node)
     is_fire, ext_notes, steps, ranking_start_note = _run_case_inputs(o, case_json, namelist_path)
 
-    max_nodes = min(int(o.max_nodes_requested), DEFAULT_MAX_NODES)
+    max_nodes = min(int(o.max_nodes_requested), wtune.machine.max_nodes())
     node_health, preflight, max_nodes = _run_node_preflight(args, o.level, case_json, max_nodes,
                                                             preflight_runner)
     ns = _resolve_node_choice(args, o, profile, max_nodes, namelist_path)
@@ -498,7 +499,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
                          "knee=stop doubling once marginal speedup drops below 1.5x "
                          "(default: 'knee', or --config's budget.nodes_policy)")
     p.add_argument("--max-nodes", type=int, default=None, dest="max_nodes",
-                    help="default: %d (or --config's budget.max_nodes)" % DEFAULT_MAX_NODES)
+                    help="default: %d (or --config's budget.max_nodes)" % wtune.machine.max_nodes())
     p.add_argument("--out", default=None)
     p.add_argument("--project", default=None, help="project dir (decision 0058): when given "
                    "(or via $WTUNE_PROJECT / a project.yaml above cwd) and --out is not, "
@@ -521,7 +522,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
                          "sources from probe.indicator_sources)")
     p.add_argument("--seed", type=int, default=DEFAULT_SEED)
     p.add_argument("--kappa", type=float, default=DEFAULT_KAPPA)
-    p.add_argument("--cores-per-node", type=int, default=sweep.DEFAULT_CORES_PER_NODE,
+    p.add_argument("--cores-per-node", type=int, default=wtune.machine.cores_per_node(),
                     dest="cores_per_node")
     p.add_argument("--hardware-id", default=DEFAULT_HARDWARE_ID, dest="hardware_id")
     p.add_argument("--env-source", default=sweep.DEFAULT_ENV_SOURCE, dest="env_source")

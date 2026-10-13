@@ -10,6 +10,7 @@ import subprocess
 import time
 from typing import Any, Callable
 
+import wtune.machine
 from ._deps import sweep
 
 PREFLIGHT_TIMEOUT_S = 45.0             # s per srun probe
@@ -43,9 +44,10 @@ def _sinfo_states(text: str) -> dict[str, str]:
     """{node: state} of `sinfo -h -N -o "%n %T"` output, head excluded; a node listed in several
     partitions keeps its first bad state."""
     states: dict[str, str] = {}
+    login = wtune.machine.login_nodes()
     for line in text.splitlines():
         parts = line.split()
-        if len(parts) >= 2 and parts[0] != "head":
+        if len(parts) >= 2 and parts[0] not in login:
             prev = states.get(parts[0])
             if prev is None or (_bad_state(parts[1]) and not _bad_state(prev)):
                 states[parts[0]] = parts[1]
@@ -56,7 +58,9 @@ def _probe_node(runner: Runner, n: str, state: str, script: str,
                 timeout_s: float) -> tuple[str, dict]:
     """(node, {state, ok, probed, reason}) of one srun probe; a timeout on an ALLOCATED node
     only means it is busy: kept, unprobed."""
-    argv = ["srun", "-w", n, "-N1", "-n1", "-t", "1", "--exclude=head", "bash", "-c", script]
+    login = wtune.machine.login_nodes()
+    argv = (["srun", "-w", n, "-N1", "-n1", "-t", "1"]
+            + (["--exclude=" + ",".join(login)] if login else []) + ["bash", "-c", script])
     try:
         rc, out = runner(argv, timeout_s)
     except subprocess.TimeoutExpired:

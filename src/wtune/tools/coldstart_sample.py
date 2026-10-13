@@ -52,6 +52,7 @@ if not __package__:                    # run by path: this directory is not an i
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
+import wtune.machine
 from wtune import predict as predict   # repo root -- delegates run-length resolution to
                                    # wtune.runlength.resolve_run_seconds internally
                                    # (stdlib only, per its own docstring -- no numpy)
@@ -2574,11 +2575,12 @@ def _sbatch_directive_lines(plan, nodes, ppn, n_windows, per_window_estimate_min
     lines = []
     lines.append("#!/usr/bin/env bash")
     lines.append("#SBATCH --job-name=coldstart-sample")
-    lines.append("#SBATCH --partition=compute")
+    lines.append("#SBATCH --partition=%s" % wtune.machine.partition())
     # WTUNE_SBATCH_EXCLUDE: extra nodes to avoid (comma list), e.g. one carrying non-Slurm load
     # (scc work5, 2026-09-27: a root VS Code server stole a core and slowed wrf.exe 5x).
     # merged with the controller's own node-health pre-flight failures (scc_sweep.excluded_nodes)
-    lines.append("#SBATCH --exclude=%s" % ",".join(sbatch_excluded_nodes()))
+    if sbatch_excluded_nodes():
+        lines.append("#SBATCH --exclude=%s" % ",".join(sbatch_excluded_nodes()))
     lines.append("#SBATCH -N %d --exclusive --ntasks-per-node=%d" % (nodes, ppn))
     lines.append("#SBATCH --time=%s" % time_str)
     lines.append("#SBATCH --signal=B:USR1@90")
@@ -2925,8 +2927,8 @@ def sbatch_excluded_nodes() -> list:
         from wtune.tools import scc_sweep
         return scc_sweep.excluded_nodes()
     except ImportError:
-        return ["head"] + [n.strip() for n in os.environ.get("WTUNE_SBATCH_EXCLUDE", "").split(",")
-                           if n.strip()]
+        return wtune.machine.login_nodes() + [
+            n.strip() for n in os.environ.get("WTUNE_SBATCH_EXCLUDE", "").split(",") if n.strip()]
 
 
 def render_run_sbatch(plan: dict, site: str = "scc", per_window_estimate_min: int = 15,
@@ -2949,8 +2951,9 @@ def render_run_sbatch(plan: dict, site: str = "scc", per_window_estimate_min: in
     # ceil(ranks/nodes), not floor: 90 ranks on 4 nodes need 23/node (rc=213 'not enough slots',
     # T7); assert rather than over-pack scc's CORES_PER_NODE.
     ppn = -(-ranks // max(nodes, 1))
-    assert ppn <= 72, ("ppn=%d exceeds CORES_PER_NODE=72 (ranks=%d nodes=%d)"
-                       % (ppn, ranks, nodes))
+    cores = wtune.machine.cores_per_node()
+    assert ppn <= cores, ("ppn=%d exceeds CORES_PER_NODE=%d (ranks=%d nodes=%d)"
+                          % (ppn, cores, ranks, nodes))
     max_dom = plan.get("max_dom", 1)
     geo_em_expected = ["geo_em.d%02d.nc" % d for d in range(1, max_dom + 1)]
 

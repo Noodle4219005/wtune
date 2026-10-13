@@ -60,6 +60,7 @@ for _p in (_REPO_ROOT, _CAMPAIGN_DIR):
 # operator's own SITE=scc export (or a test's monkeypatch before import) is not clobbered.
 os.environ.setdefault("SITE", "scc")
 
+import wtune.machine
 import configs as campaign_configs          # campaign/configs.py: CASES (scc-overlaid), stdlib only
 from wtune.predictor import decomp_space                         # predictor/decomp_space.py: enumerate_space/sample_design/
                                              # to_campaign_configs/legal_shapes_exact, stdlib only
@@ -68,7 +69,6 @@ from wtune.predictor import experiment as campaign_experiment    # predictor/exp
                                              # stdlib only
 
 DEFAULT_HARDWARE_ID = "scc-gh200"
-DEFAULT_CORES_PER_NODE = 72
 DEFAULT_NODES = [1, 2, 4, 8, 13]
 DEFAULT_K = 12
 DEFAULT_SEED = 1
@@ -294,11 +294,12 @@ PREFLIGHT_EXCLUDE_ENV = "WTUNE_PREFLIGHT_EXCLUDE"   # set by the controller itse
 
 
 def excluded_nodes():
-    """Ordered, de-duplicated node names every sbatch of this tool chain must avoid: head (always),
+    """Ordered, de-duplicated node names every sbatch of this tool chain must avoid: the login
+    nodes (wtune.machine, scc: head),
     the user's opt-in WTUNE_SBATCH_EXCLUDE, and the controller's own WTUNE_PREFLIGHT_EXCLUDE (nodes
     the health pre-flight found unusable). ONE helper -- exclude_arg() and
     tools/coldstart_sample.render_run_sbatch both read it."""
-    out = ["head"]
+    out = wtune.machine.login_nodes()
     for var in ("WTUNE_SBATCH_EXCLUDE", PREFLIGHT_EXCLUDE_ENV):
         for n in os.environ.get(var, "").split(","):
             n = n.strip()
@@ -310,8 +311,9 @@ def excluded_nodes():
 def exclude_arg():
     """'--exclude=head[,<WTUNE_SBATCH_EXCLUDE nodes>][,<pre-flight failures>]' -- the same opt-in
     extra exclusion tools/coldstart_sample.render_run_sbatch honours (scc work5, 2026-09-27:
-    non-Slurm root load slowed wrf.exe 5x). head is always excluded."""
-    return "--exclude=" + ",".join(excluded_nodes())
+    non-Slurm root load slowed wrf.exe 5x). '' when there is nothing to exclude."""
+    nodes = excluded_nodes()
+    return "--exclude=" + ",".join(nodes) if nodes else ""
 
 
 def build_sbatch_command(case, nodes, cores_per_node, time_limit, timeout_s, reps, steps,
@@ -332,10 +334,10 @@ def build_sbatch_command(case, nodes, cores_per_node, time_limit, timeout_s, rep
                              % (key, value))
         export += ",%s=%s" % (key, value)
     export += ",CONFIG_FILE=%s" % configs_path      # kept LAST, exactly as before
-    sbatch = ("sbatch -p compute -N %d --ntasks-per-node=%d --exclusive %s "
+    sbatch = ("sbatch -p %s -N %d --ntasks-per-node=%d --exclusive %s "
               "--time=%s --job-name=sw-%s-n%d --output=%s/sweep-%%j.out --export=%s %s"
-              % (nodes, cores_per_node, exclude_arg(), time_limit, case, nodes, out_dir, export,
-                 _expand(sbatch_script)))
+              % (wtune.machine.partition(), nodes, cores_per_node, exclude_arg(), time_limit,
+                 case, nodes, out_dir, export, _expand(sbatch_script)))
     return "source %s; %s" % (_expand(env_source), sbatch)
 
 

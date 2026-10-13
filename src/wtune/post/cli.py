@@ -594,7 +594,8 @@ def srun_command(post_argv: list[str], minutes: int = POST_JOB_MINUTES) -> list[
     src = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     from wtune.tools import scc_sweep
     wtune_bin = os.path.join(os.path.dirname(src), "bin", "wtune")
-    return (["srun", "--exclude=" + ",".join(scc_sweep.excluded_nodes()), "-N1", "--exclusive",
+    exclude = scc_sweep.exclude_arg()
+    return (["srun"] + ([exclude] if exclude else []) + ["-N1", "--exclusive",
              "-t", str(minutes), wtune_bin, "post"] + list(post_argv))
 
 

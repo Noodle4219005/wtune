@@ -1082,10 +1082,16 @@ def _run_forwarded(args):
     argv = getattr(args, _FORWARDED_DEST[args.command])
     project_dir = None
     if args.command in _PROJECT_AWARE:
+        import wtune.machine
         import wtune.project
         project_dir, doc = _project_for(argv)
-        if project_dir:
-            wtune.project.apply_project_env(project_dir, doc)
+        try:
+            if project_dir:
+                wtune.project.apply_project_env(project_dir, doc)
+            wtune.machine.cores_per_node(), wtune.machine.max_nodes()
+        except (wtune.project.ProjectError, wtune.machine.MachineError) as e:
+            print("error: %s" % e, file=sys.stderr)
+            return 2
     try:
         status = _forwarded_module(args).main(argv)
     except SystemExit as e:

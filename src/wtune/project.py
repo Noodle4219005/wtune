@@ -38,6 +38,7 @@ from datetime import datetime, timezone
 
 import yaml
 
+import wtune.machine
 import wtune.version
 
 PROJECT_YAML = "project.yaml"
@@ -176,10 +177,53 @@ def merged_case_table(project_dir, case_id):
     return path
 
 
+def project_machine(project_doc):
+    """project.yaml's machine block as {key: value}, only the keys it sets (wtune.machine has
+    the built-in values). ProjectError on an unknown key or a bad value."""
+    block = (project_doc or {}).get("machine") or {}
+    if not isinstance(block, dict):
+        raise ProjectError("project.yaml machine: must be a mapping")
+    out = {}
+    for key, value in block.items():
+        where = "project.yaml machine.%s" % key
+        if key not in wtune.machine.DEFAULTS:
+            raise ProjectError("%s: unknown key (known: %s)"
+                               % (where, ", ".join(wtune.machine.DEFAULTS)))
+        if value is None:
+            continue
+        if key in ("cores_per_node", "max_nodes"):
+            if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+                raise ProjectError("%s: %r must be a positive integer" % (where, value))
+        elif key == "partition":
+            if not isinstance(value, str) or not value.strip():
+                raise ProjectError("%s: %r must be a partition name" % (where, value))
+            value = value.strip()
+        else:
+            names = value.split(",") if isinstance(value, str) else value
+            if not isinstance(names, list) or not all(isinstance(n, str) for n in names):
+                raise ProjectError("%s: %r must be a list of node names" % (where, value))
+            value = [n.strip() for n in names if n.strip()]
+        out[key] = value
+    return out
+
+
+def machine_line(project_doc):
+    """'machine: cores_per_node=72 ...': the project's values over the built-in ones."""
+    values = dict(wtune.machine.DEFAULTS, **project_machine(project_doc))
+    values["login_nodes"] = ",".join(values["login_nodes"]) or "-"
+    return "machine: " + " ".join("%s=%s" % (k, values[k]) for k in wtune.machine.DEFAULTS)
+
+
 def apply_project_env(project_dir, project_doc):
     """Exports the project settings the tuner, run and post read from the environment:
-    exclude_nodes joins WTUNE_SBATCH_EXCLUDE, and the case table with the project's case
+    exclude_nodes joins WTUNE_SBATCH_EXCLUDE, the machine block becomes the WTUNE_* variables
+    of wtune.machine unless they are already set, and the case table with the project's case
     becomes CASES_JSON unless one is already set."""
+    for key, value in project_machine(project_doc).items():
+        name = wtune.machine.ENV[key]
+        if os.environ.get(name) or (key == "login_nodes" and name in os.environ):
+            continue                   # set by hand
+        os.environ[name] = ",".join(value) if isinstance(value, list) else str(value)
     nodes = project_exclude_nodes(project_doc)
     if nodes:
         have = [n for n in os.environ.get("WTUNE_SBATCH_EXCLUDE", "").split(",") if n]
@@ -560,11 +604,13 @@ def set_project(project_dir, storm=None, hurdat2=None, argv=None):
 
 
 def set_project_defaults(project_dir, exclude_nodes=None, post_every=None, post_types=None,
-                         post_fetch=None, register_case=False, argv=None):
+                         post_fetch=None, register_case=False, argv=None, machine=None):
     """`wtune project set --exclude-nodes/--post-every/--post-types/--post-fetch/
-    --register-case`: updates those keys in place. "none" clears post_every and post_fetch.
-    Returns the updated document."""
+    --register-case` and the machine flags: updates those keys in place. "none" clears
+    post_every and post_fetch. Returns the updated document."""
     doc = load_project(project_dir)
+    if machine:
+        doc["machine"] = project_machine(dict(machine=dict(doc.get("machine") or {}, **machine)))
     if register_case:
         case = dict(doc.get("case") or {})
         if not case.get("source_dir"):
@@ -610,6 +656,7 @@ def info_project(project_dir):
     if storm.get("id"):
         lines.append("storm: %s (hurdat2=%s)" % (storm.get("id"), storm.get("hurdat2")))
     lines.append("exclude_nodes: %s" % (",".join(project_exclude_nodes(doc)) or "-"))
+    lines.append(machine_line(doc))
     post = project_post_defaults(doc)
     lines.append("post defaults: --types %s --every %s; submit fetches: %s"
                  % (post["types"] or "auto", post["every"] or "-", ",".join(post["fetch"]) or "-"))
@@ -657,6 +704,13 @@ def build_parser():
     p_set.add_argument("--storm", default=None, help="e.g. AL122005")
     p_set.add_argument("--hurdat2", default=None, help="HURDAT2 file")
     p_set.add_argument("--exclude-nodes", default=None, help="comma list, '' clears")
+    p_set.add_argument("--cores-per-node", type=int, default=None,
+                       help="hardware cores of one compute node (built-in 72)")
+    p_set.add_argument("--max-nodes", type=int, default=None,
+                       help="compute nodes one job may use (built-in 13)")
+    p_set.add_argument("--partition", default=None, help="Slurm partition (built-in compute)")
+    p_set.add_argument("--login-nodes", default=None,
+                       help="nodes no job is sent to, comma list, '' = none (built-in head)")
     p_set.add_argument("--post-every", default=None, help="e.g. 6h, 1d; 'none' clears")
     p_set.add_argument("--post-types", default=None, help="'auto' or e.g. 'tc,convection'")
     p_set.add_argument("--post-fetch", default=None,
@@ -691,9 +745,13 @@ def main(argv=None):
                                    "project.yaml above the current directory)")
             full_argv = ["wtune", "project"] + list(argv if argv is not None else sys.argv[1:])
             defaults = (args.exclude_nodes, args.post_every, args.post_types, args.post_fetch)
-            if any(v is not None for v in defaults) or args.register_case:
-                doc = set_project_defaults(project_dir, *defaults,
+            machine = {k: getattr(args, k) for k in wtune.machine.DEFAULTS
+                       if getattr(args, k) is not None}
+            if any(v is not None for v in defaults) or args.register_case or machine:
+                doc = set_project_defaults(project_dir, *defaults, machine=machine,
                                            register_case=args.register_case, argv=full_argv)
+                if machine:
+                    print(machine_line(doc))
                 post = project_post_defaults(doc)
                 print("%s: case id=%s exclude_nodes=%s post --types %s --every %s"
                       % (os.path.join(project_dir, PROJECT_YAML), project_case_id(doc) or "-",
@@ -720,7 +778,11 @@ def main(argv=None):
             print("error: no project found (--project, $WTUNE_PROJECT, or a project.yaml "
                  "above the current directory)", file=sys.stderr)
             return 1
-        print(info_project(project_dir))
+        try:
+            print(info_project(project_dir))
+        except ProjectError as e:
+            print("error: %s" % e, file=sys.stderr)
+            return 1
         return 0
 
     parser.print_help()

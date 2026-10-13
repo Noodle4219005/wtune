@@ -14,7 +14,6 @@ import wtune.case
 import wtune.config
 from ._deps import campaign_configs, sweep, predict, probe_plan
 
-DEFAULT_MAX_NODES = 13                 # scc compute pool: work[1-13], head excluded (scc_sweep.py)
 DEFAULT_STEPS = 20                     # probe steps per run (t0 search)
 DEFAULT_SEED = 1
 DEFAULT_KAPPA = 0.5                    # light exploration (spec: "kappa small, e.g. 0.5")

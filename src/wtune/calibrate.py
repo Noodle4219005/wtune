@@ -92,12 +92,12 @@ HERE = Path(__file__).resolve().parent.parent
 REPO_ROOT = HERE.parent  # HERE is src/; machine/ and campaign/ stay at the true repo root
 sys.path.insert(0, str(HERE))
 
+import wtune.machine                     # noqa: E402
 from wtune import predict as wp          # noqa: E402  (path insert above)
 from wtune.predictor import decomp_space as ds           # noqa: E402  (predictor/decomp_space.py)
 
 DEFAULT_CALIBRATION = REPO_ROOT / "machine" / "calibration" / "scc.json"
 DEFAULT_RANKS_LIST = "1,36,72,144,288"
-DEFAULT_CORES_PER_NODE = 72
 DEFAULT_STEPS = 20
 DEFAULT_MIN_PATCH = 10
 DEFAULT_TIME_LIMIT = "00:15:00"
@@ -160,11 +160,17 @@ def build_decomp(nl, max_dom, ranks, min_patch):
     return pick_near_square(shapes, aspect=aspect)
 
 
+def _scheduler_fields() -> dict:
+    """The partition and the login-node exclude line of the sbatch templates below."""
+    login = wtune.machine.login_nodes()
+    return dict(partition=wtune.machine.partition(),
+                exclude="#SBATCH --exclude=%s\n" % ",".join(login) if login else "")
+
+
 PLAN_SBATCH_TEMPLATE = """#!/usr/bin/env bash
 #SBATCH --job-name=wtcal-{ranks}
-#SBATCH --partition=compute
-#SBATCH --exclude=head
-#SBATCH --nodes={nodes}
+#SBATCH --partition={partition}
+{exclude}#SBATCH --nodes={nodes}
 #SBATCH --ntasks-per-node={tpn_header}
 #SBATCH --time={time_limit}
 #SBATCH --output={out_dir}/wtcal_{ranks}_%j.out
@@ -276,9 +282,8 @@ exit 0
 
 MACHINE_PROFILE_SBATCH_TEMPLATE = """#!/usr/bin/env bash
 #SBATCH --job-name=wtcal-mprof
-#SBATCH --partition=compute
-#SBATCH --exclude=head
-#SBATCH --nodes=1
+#SBATCH --partition={partition}
+{exclude}#SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --time=00:20:00
 #SBATCH --output={out_dir}/wtcal_mprof_%j.out
@@ -373,7 +378,7 @@ def plan_cmd(args):
             time_limit=args.time_limit, out_dir=out_dir, site=args.site,
             case_dir=case_dir, steps=steps, run_minutes=run_minutes, nx=nx, ny=ny,
             max_dom=max_dom, history_mode=history_mode, history_mode_note=history_mode_note,
-            campaign_dir=campaign_dir, sbatch_path=sbatch_path)
+            campaign_dir=campaign_dir, sbatch_path=sbatch_path, **_scheduler_fields())
         sbatch_path.write_text(text)
         runs.append({"ranks": ranks, "nodes": nodes, "nx": nx, "ny": ny,
                      "tpn_launch": tpn_launch, "history_mode": history_mode,
@@ -383,7 +388,8 @@ def plan_cmd(args):
 
     mprof_path = out_dir / "machine_profile.sbatch"
     mprof_path.write_text(MACHINE_PROFILE_SBATCH_TEMPLATE.format(
-        out_dir=out_dir, site=args.site, campaign_dir=campaign_dir, machine_dir=machine_dir))
+        out_dir=out_dir, site=args.site, campaign_dir=campaign_dir, machine_dir=machine_dir,
+        **_scheduler_fields()))
     print("wrote %s (machine/run_machine_profile.sh topology/bandwidth snapshot)" % mprof_path)
 
     manifest = {
@@ -960,8 +966,8 @@ def add_plan_subparser(sub):
     p.add_argument("--out", required=True, help="directory to write plan_<ranks>.sbatch + MANIFEST.json into")
     p.add_argument("--ranks-list", default=DEFAULT_RANKS_LIST,
                     help="comma-separated rank counts (default %s)" % DEFAULT_RANKS_LIST)
-    p.add_argument("--cores-per-node", type=int, default=DEFAULT_CORES_PER_NODE,
-                    help="default %d" % DEFAULT_CORES_PER_NODE)
+    p.add_argument("--cores-per-node", type=int, default=wtune.machine.cores_per_node(),
+                    help="default %d" % wtune.machine.cores_per_node())
     p.add_argument("--steps", type=int, default=DEFAULT_STEPS, help="default %d" % DEFAULT_STEPS)
     p.add_argument("--min-patch", type=int, default=DEFAULT_MIN_PATCH,
                     help="WRF's own floor(e/nproc)>=min_patch legality gate (default %d)" %
@@ -981,8 +987,8 @@ def add_fit_subparser(sub):
     p.add_argument("--base", default=str(DEFAULT_CALIBRATION),
                     help="template calibration JSON to copy untouched fields from "
                          "(default machine/calibration/scc.json)")
-    p.add_argument("--cores-per-node", type=int, default=DEFAULT_CORES_PER_NODE,
-                    help="default %d" % DEFAULT_CORES_PER_NODE)
+    p.add_argument("--cores-per-node", type=int, default=wtune.machine.cores_per_node(),
+                    help="default %d" % wtune.machine.cores_per_node())
     p.add_argument("--site", default=None, help="'site' field to stamp in the output (default: base file's site + '-auto')")
     p.add_argument("--host", default=None, help="override the host name recorded in provenance strings (default: this machine's hostname)")
     p.add_argument("--no-read-rate", action="store_true",

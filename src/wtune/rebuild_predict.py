@@ -198,11 +198,13 @@ def recommend_time(range_high_s, io_s):
 
 def _ctx(case_dir, nodes, out_dir, max_wait_hours=24.0):
     from wtune.tools import scc_sweep as sweep
+    import wtune.machine
     import wtune.tune
     clock = wtune.tune.RealClock()
     ctx = wtune.tune.Ctx(
         case=os.path.basename(os.path.abspath(case_dir)), case_json={"prep_dir": case_dir},
-        namelist_path=os.path.join(case_dir, "namelist.input"), nodes=nodes, cores_per_node=72,
+        namelist_path=os.path.join(case_dir, "namelist.input"), nodes=nodes,
+        cores_per_node=wtune.machine.cores_per_node(),
         hardware_id=sweep.DEFAULT_HARDWARE_ID, steps=50, seed=1, kappa=0.5, budget_s=4 * 3600.0,
         max_nodes=64, out_dir=out_dir, ledger_dir=out_dir, env_source="$HOME/wtune-scc/env.sh",
         sbatch_script="", sacct_cmd="sacct", poll_interval=20.0,

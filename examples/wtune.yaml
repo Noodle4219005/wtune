@@ -20,7 +20,7 @@ compliance: strict               # strict       = only the STRICT knobs below ma
 
 budget:
   minutes: 30                    # wall-clock budget for the whole `wtune tune` run (required: here or --minutes)
-  max_nodes: 13                  # hard cap -- scc's compute pool is 13 nodes (work[1-13])
+  max_nodes: 13                  # node cap; omit it to use the machine's (project.yaml machine.max_nodes)
   nodes: auto                    # auto | search | <int> | [<int>, ...] -- search measures the ANCHOR at
                                   # each legal node count (wtune tune --nodes search; node_objective/
                                   # deadline_minutes/min_efficiency/node_finalists/sweep_budget_frac

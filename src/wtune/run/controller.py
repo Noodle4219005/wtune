@@ -10,9 +10,10 @@ import shutil
 from typing import Callable, Iterable, Optional
 
 import wtune.extensions
+import wtune.machine
 from ._deps import resume, sweep
 from .attempts import Attempt, Outcome, _attempt_namelist, _attempt_times, _run_attempt
-from .common import CORES_PER_NODE, RunError, _fmt, _hms
+from .common import RunError, _fmt, _hms
 from .context import RunContext
 from .estimate import history_wall, time_limit_s
 from .geometry import _step_fraction, step_of, step_time
@@ -257,5 +258,5 @@ def _make_sidecar(ctx: RunContext, nc_root: str, runner: Optional[Callable] = No
     return wtune.sidecar.Sidecar(
         out, nc_root, ctx.geo.max_dom, sweep.campaign_configs._import_wtune_bp().is_bp,
         ctx.report, save=lambda: _save_report(ctx), log=ctx.log,
-        cores_per_node=CORES_PER_NODE, exclude_arg=sweep.exclude_arg(),
+        cores_per_node=wtune.machine.cores_per_node(), exclude_arg=sweep.exclude_arg(),
         runner=runner or wtune.sidecar.popen_runner(os.path.join(out, "sidecar.log")))

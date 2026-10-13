@@ -7,6 +7,7 @@ import os
 import re
 import sys
 
+import wtune.machine
 from ._deps import sweep
 from .budget import _job_time_est
 from .common import ANCHOR_END_ID, _fmt_hms, _notes_kv, parse_run_id
@@ -155,8 +156,9 @@ def nc2bp_command(ctx: Ctx, cases: list[str], cases_json: str | None, out_dir: s
     export = "ALL,SITE=scc,CHECK=0,CAMPAIGN=%s,CASES=%s" % (campaign, ":".join(cases))
     if cases_json:
         export += ",CASES_JSON=%s" % cases_json
-    return ("source %s; sbatch %s --job-name=nc2bp-%s --output=%s/nc2bp-%%j.out --export=%s %s"
-            % (sweep._expand(ctx.env_source), sweep.exclude_arg(), cases[0], out_dir, export,
+    return ("source %s; sbatch -p %s %s --job-name=nc2bp-%s --output=%s/nc2bp-%%j.out --export=%s %s"
+            % (sweep._expand(ctx.env_source), wtune.machine.partition(), sweep.exclude_arg(),
+               cases[0], out_dir, export,
                os.path.join(campaign, "nc2bp.sbatch")))
 
 

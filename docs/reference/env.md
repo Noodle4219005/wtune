@@ -18,13 +18,19 @@ source ~/wtune-scc/env.sh       # scc：一次設好 WRF 與編譯器相關的�
 | 變數 | 內容 | 預設 |
 |---|---|---|
 | `WTUNE_PROJECT` | project 資料夾。指令列的 `--project` 優先 | 從目前目錄往上找 `project.yaml` |
-| `WTUNE_SBATCH_EXCLUDE` | 所有 job 額外避開的節點，逗號分隔。`head` 一律避開 | 無 |
+| `WTUNE_SBATCH_EXCLUDE` | 所有 job 額外避開的節點，逗號分隔。登入節點一律避開 | 無 |
+| `WTUNE_CORES_PER_NODE` | 一個計算節點的硬體核心數 | `72` |
+| `WTUNE_MAX_NODES` | 一個 job 最多用幾個節點 | `13` |
+| `WTUNE_PARTITION` | Slurm partition | `compute` |
+| `WTUNE_LOGIN_NODES` | 不送工作的節點，逗號分隔。設成空字串代表沒有 | `head` |
 
 ```bash
 export WTUNE_SBATCH_EXCLUDE=work1
 ```
 
 `wtune project init` 沒給 `--exclude-nodes` 時，會把這個變數的值寫進 `project.yaml`。
+
+後四個是機器規格，平常寫在 `project.yaml` 的 [machine](../tutorial/project.md#machine) 區塊就好。手動設了環境變數時，環境變數優先。
 
 ## 後處理
 

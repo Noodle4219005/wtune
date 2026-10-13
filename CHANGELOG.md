@@ -3,6 +3,16 @@
 Versions are declared in `wtune_version.py`; `test_wtune_version.py` fails if the top section
 here does not match it. Development before 0.1.0 is in the git history, not in releases.
 
+## Unreleased
+
+**Machine settings.** Cores per node (72), node cap (13), partition (`compute`) and login
+nodes (`head`) are no longer fixed in the code: they are the built-in values of
+`wtune.machine`, replaced by a project's `project.yaml` `machine:` block
+(`wtune project set --cores-per-node/--max-nodes/--partition/--login-nodes`) or by
+`WTUNE_CORES_PER_NODE`, `WTUNE_MAX_NODES`, `WTUNE_PARTITION`, `WTUNE_LOGIN_NODES`. Without
+them every generated job is unchanged. `wtune tune --max-nodes` was silently capped at 13;
+the cap is now the machine's.
+
 ## 0.9.0 — 2026-10-12
 
 Main code made small enough to review; behaviour of the tune -> run -> post path is unchanged

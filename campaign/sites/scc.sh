@@ -20,7 +20,7 @@
 # Defines the same four names as f1.sh: CORES_PER_NODE, W, OUT, HARDWARE_ID, PIXI_ENV, CONV,
 # CASES_JSON_DEFAULT, site_env(), site_launch().
 
-CORES_PER_NODE=72
+CORES_PER_NODE=${WTUNE_CORES_PER_NODE:-72}
 W=${WRF_TREE:-$HOME/wrf-stack/wrf/nvhpc-fast-adios2-dmsm/WRF}
 OUT=$HOME/wtune-runs/campaign
 HARDWARE_ID=scc-gh200

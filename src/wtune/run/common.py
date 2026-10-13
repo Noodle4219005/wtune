@@ -9,7 +9,6 @@ import re
 from typing import Any, TypeVar
 
 WRF_FMT = "%Y-%m-%d_%H:%M:%S"
-CORES_PER_NODE = 72                    # scc GH200 (campaign/sites/scc.sh)
 ADIOS2_IO_FORM = 14                    # WRF io_form for ADIOS2 (the default for every stream)
 _TIME_PARTS = ("year", "month", "day", "hour", "minute", "second")
 _PER_RECORD_KIND_RE = re.compile(r"^(wrfbdy|wrflowinp|wrffdda)_d(\d\d)$")

@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 #SBATCH --job-name=nc2bp
 #SBATCH --partition=compute
-#SBATCH --exclude=head
 #SBATCH --nodes=1 --ntasks-per-node=1 --cpus-per-task=8
 #SBATCH --time=00:40:00
 # Pre-convert one campaign case's netCDF inputs into the BP cache strict_campaign.sbatch reads
@@ -17,7 +16,7 @@
 # record 1 for every read of a multi-record BP). CHECK=1 (default) then
 # round-trips every converted file back to netCDF and compares (wtune convert inputs --check, needs
 # netCDF4: the envs/wtune python, $WTUNE_PY overrides).
-# usage (scc): sbatch --job-name=nc2bp-<case> --export=ALL,CASE=<case> campaign/nc2bp.sbatch
+# usage (scc): sbatch --exclude=head --job-name=nc2bp-<case> --export=ALL,CASE=<case> campaign/nc2bp.sbatch
 #   CASES=<a>:<b>:... converts several cases in one job (wtune tune, before its first probes;
 #   CASES_JSON selects a generated case file). other sites: add -p/-A/--exclude and SITE=<site>.
 set -uo pipefail

@@ -22,6 +22,7 @@ if _HERE not in sys.path:
 
 from wtune.post import extract        # noqa: E402  the cache layout is post's, never restated here
 from wtune import resume as resume   # noqa: E402
+import wtune.machine                # noqa: E402
 
 MAX_BATCH = 64                  # frames per in-job srun
 FINAL_TIME = "01:00:00"         # --time of the after-run conversion
@@ -81,8 +82,8 @@ def in_job_srun(job_id: str, cores: list, cores_per_node: int, nodes: int) -> li
 
 def own_srun(cores_per_node: int, exclude_arg: str) -> list[str]:
     """srun prefix: one whole node of its own (the run's allocation is gone)."""
-    return ["srun", "-p", "compute", "-N1", "-n1", "-c", str(cores_per_node),
-            "--time=%s" % FINAL_TIME, exclude_arg]
+    return (["srun", "-p", wtune.machine.partition(), "-N1", "-n1", "-c", str(cores_per_node),
+             "--time=%s" % FINAL_TIME] + ([exclude_arg] if exclude_arg else []))
 
 
 def convert_argv(run_dir: str, cache_root: str, frames: Iterable[str],

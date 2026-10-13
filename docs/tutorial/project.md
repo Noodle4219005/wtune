@@ -10,7 +10,7 @@ wtune project info
 
 ```text
 mycase/
-  project.yaml      個案、站點、要避開的節點、後處理預設值、風暴資訊
+  project.yaml      個案、站點、要避開的節點、機器規格、後處理預設值、風暴資訊
   cases.json        這個專案的個案登記（wtune tune 用）
   case/             namelist 的副本，其餘檔案是 symlink
   input/            驅動資料與觀測（era5/、obs/<name>/、bp/）
@@ -74,11 +74,49 @@ storm: null
 | 欄位 | 作用 |
 |---|---|
 | `case.id` | `wtune tune` 用的個案代號 |
-| `exclude_nodes` | 這個專案所有 job 都避開的節點（另外一律避開 `head`） |
+| `site` | 機器的標籤，只是記錄，不影響執行 |
+| `exclude_nodes` | 這個專案所有 job 都避開的節點（另外一律避開 `machine.login_nodes`） |
 | `post.types` | 後處理的個案類型，`auto` 代表自動判斷 |
 | `post.every` | 每隔多久出一組完整的圖 |
 | `post.fetch` | `wtune submit` 會自動去抓的觀測資料 |
 | `storm` | 颱風代號與 HURDAT2 檔，颱風個案才需要 |
+
+## machine
+
+叢集的規格。內建值是 scc 的，`wtune project init` 不會寫這個區塊。換一台機器時才加，只寫要改的 key：
+
+```yaml
+machine:
+  cores_per_node: 64       # 一個計算節點的硬體核心數，內建 72
+  max_nodes: 20            # 一個 job 最多用幾個節點，內建 13
+  partition: batch         # Slurm partition，內建 compute
+  login_nodes: [login1]    # 不送工作的節點，內建 [head]；[] 代表沒有
+```
+
+| key | 影響 |
+|---|---|
+| `cores_per_node` | 每個 job 向 Slurm 要的 `--ntasks-per-node`。配置的每節點 rank 數 × 執行緒數不能超過它 |
+| `max_nodes` | `wtune tune` 搜尋節點數的上限。`--max-nodes` 和 `wtune.yaml` 的 `budget.max_nodes` 只能再往下調 |
+| `partition` | 每個 `sbatch` 和收尾轉檔 `srun` 用的 partition |
+| `login_nodes` | 每個 job 一律排除的節點，和 `exclude_nodes` 合併 |
+
+`cores_per_node` 是節點的大小，不是每節點實際用幾核。實際用幾核由配置決定，`wtune tune` 會自己試少用幾核的配置。
+
+優先順序：
+
+```mermaid
+flowchart LR
+    A[手動設的 WTUNE_* 環境變數] -->|蓋過| B[project.yaml 的 machine] -->|蓋過| C[內建值]
+```
+
+`tune`、`run`、`post`、`submit` 都讀這裡，所以設一次就夠。打錯 key 或給了不合理的值會直接報錯，例如：
+
+```text
+error: project.yaml machine.cores_per_node: 'many' must be a positive integer
+```
+
+!!! note "目前只在 scc 上驗證過"
+    這個區塊讓節點大小、節點數、partition 和登入節點可以換。MPI 的啟動方式和 WRF 的路徑仍由 `campaign/sites/scc.sh` 決定，換機器時那個檔也要準備一份。
 
 ## project set
 
@@ -86,13 +124,15 @@ storm: null
 
 ```bash
 wtune project set --exclude-nodes work1,work7
+wtune project set --cores-per-node 64 --max-nodes 20
+wtune project set --partition batch --login-nodes login1
 wtune project set --post-every 1d
 wtune project set --post-types tc,convection
 wtune project set --post-fetch era5,stage4
 wtune project set --storm AL122005 --hurdat2 hurdat2-1851-2024.txt
 ```
 
-清除一個設定：`--exclude-nodes ''`、`--post-every none`、`--post-fetch none`。
+清除一個設定：`--exclude-nodes ''`、`--post-every none`、`--post-fetch none`。`--login-nodes ''` 代表這台機器沒有要排除的登入節點。要讓 `machine` 的某個 key 回到內建值，把那一行從 `project.yaml` 刪掉。
 
 比較舊的 project 沒有登記個案時：
 

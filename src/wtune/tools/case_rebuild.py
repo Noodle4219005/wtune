@@ -54,6 +54,7 @@ if not __package__:                    # run by path: this directory is not an i
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
+import wtune.machine
 from wtune import predict as predict     # repo root -- stdlib only
 from wtune.tools import coldstart_sample as cs       # tools/ -- stdlib only at module level (lazy md/gs)
 
@@ -1374,7 +1375,6 @@ def cmd_rebuild_fix_span_wrf_namelist(out_dir: str, nproc_x: int, nproc_y: int,
     print("wrote %s (verify_steps=%d)" % (out_path, win_steps))
 
 
-_CORES_PER_NODE = 72               # scc GH200 node
 _REAL_TIMEOUT_S = 600              # s; decomposed real.exe, then serial fallback
 _REAL_SERIAL_TIMEOUT_S = 1800      # s
 _SMOKE_EXTRA_MIN = 30              # added to the job time limit when the wrf.exe smoke run is on
@@ -1409,8 +1409,9 @@ def _rebuild_job(plan: dict, chosen: dict, site: str, estimate_min: int) -> _Reb
     omp = plan["config"]["omp"]
     nx, ny = plan["config"]["nx"], plan["config"]["ny"]
     ppn = -(-ranks // max(nodes, 1))   # ceil, not floor: floor gave rc=213 'not enough slots' (T7)
-    assert ppn <= _CORES_PER_NODE, ("ppn=%d exceeds CORES_PER_NODE=%d (ranks=%d nodes=%d)"
-                                    % (ppn, _CORES_PER_NODE, ranks, nodes))
+    cores = wtune.machine.cores_per_node()
+    assert ppn <= cores, ("ppn=%d exceeds CORES_PER_NODE=%d (ranks=%d nodes=%d)"
+                          % (ppn, cores, ranks, nodes))
     max_dom = plan["max_dom"]
     verify_steps = int(plan.get("verify_steps") or 0)
     T = datetime.datetime.strptime(plan["span_start"], _WRF_TIME_FMT)
@@ -1431,9 +1432,10 @@ def _rebuild_job(plan: dict, chosen: dict, site: str, estimate_min: int) -> _Reb
 def _sbatch_header(job: _RebuildJob) -> list[str]:
     lines = ["#!/usr/bin/env bash",
              "#SBATCH --job-name=case-rebuild",
-             "#SBATCH --partition=compute",
-             "#SBATCH --exclude=%s" % ",".join(cs.sbatch_excluded_nodes()),
-             "#SBATCH -N %d --exclusive --ntasks-per-node=%d" % (job.nodes, job.ppn),
+             "#SBATCH --partition=%s" % wtune.machine.partition()]
+    if cs.sbatch_excluded_nodes():
+        lines.append("#SBATCH --exclude=%s" % ",".join(cs.sbatch_excluded_nodes()))
+    lines += ["#SBATCH -N %d --exclusive --ntasks-per-node=%d" % (job.nodes, job.ppn),
              "#SBATCH --time=%02d:%02d:00" % (job.time_min // 60, job.time_min % 60),
              "#SBATCH --signal=B:USR1@90"]
     if job.out_dir_abs:

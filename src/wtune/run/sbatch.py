@@ -6,8 +6,8 @@ from __future__ import annotations
 import os
 import shlex
 
+import wtune.machine
 from ._deps import _CAMPAIGN_DIR, coldstart, sweep
-from .common import CORES_PER_NODE
 from .layout import Config
 
 
@@ -15,8 +15,9 @@ def _header_lines(seg_dir: str, nodes: int, time_limit: str, job_name: str, env_
                   campaign_dir: str) -> list[str]:
     return ["#!/usr/bin/env bash",
             "#SBATCH --job-name=%s" % job_name,
-            "#SBATCH -p compute -N %d --exclusive --ntasks-per-node=%d --time=%s %s"
-            % (nodes, CORES_PER_NODE, time_limit, sweep.exclude_arg()),
+            ("#SBATCH -p %s -N %d --exclusive --ntasks-per-node=%d --time=%s %s"
+             % (wtune.machine.partition(), nodes, wtune.machine.cores_per_node(), time_limit,
+                sweep.exclude_arg())).rstrip(),
             "#SBATCH --signal=B:USR1@90",
             "#SBATCH --no-requeue",        # a requeued job would rerun beside the resume
             "#SBATCH --output=%s/segment-%%j.out" % seg_dir,

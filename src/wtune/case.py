@@ -32,16 +32,13 @@ _HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
 
+import wtune.machine
 from wtune import cli as wt                     # repo root: parse_namelist/_parse_nl_kv/extract_case/...
 from wtune import physics as phys           # physics knowledge base + advisor
 from wtune import shape as shape            # patch_dims/tiling (MIN_PATCH=10, cost-model constants)
 from wtune import solar as wsolar           # terminator load map, domain_bbox, day_of_year
 from wtune import compliance as wc          # knob catalog: legal_values + classification
 from wtune.predictor import decomp_space as ds              # predictor/decomp_space.py: legal_shapes_exact (exact RSL rules)
-
-DEFAULT_CORES_PER_NODE = 72            # GH200 Grace node default for THIS tool (independent of
-                                        # wtune.cli's own DEFAULT_CORES_PER_NODE=112, a different
-                                        # target machine)
 
 # ---------------------------------------------------------------------------
 # Section 3: expected cost structure (PRIOR -- relative ordering only, never a wall-time claim)
@@ -454,7 +451,8 @@ PROFILE_KEYS = ('namelist', 'wrfinput', 'identity', 'physics', 'expected_cost_st
                 'load_imbalance_drivers', 'core_count_priors', 'physics_candidates')
 
 
-def build_profile(namelist_path, wrfinput_path=None, cores_per_node=DEFAULT_CORES_PER_NODE):
+def build_profile(namelist_path, wrfinput_path=None, cores_per_node=None):
+    cores_per_node = cores_per_node or wtune.machine.cores_per_node()
     nl = wt.parse_namelist(namelist_path)
     nl_kv = wt._parse_nl_kv(namelist_path)
     case = wt.extract_case(nl)
@@ -564,7 +562,8 @@ def main(argv=None):
     p.add_argument('case_dir', help='directory with namelist.input (+ optional wrfinput_d0N)')
     p.add_argument('--namelist', default=None, help='explicit namelist.input path (default: <case_dir>/namelist.input)')
     p.add_argument('--wrfinput', default=None, help='explicit wrfinput/wrfout path (default: first wrfinput_d0N in case_dir)')
-    p.add_argument('--cores-per-node', type=int, default=DEFAULT_CORES_PER_NODE, help='default 72 (GH200 Grace)')
+    p.add_argument('--cores-per-node', type=int, default=None,
+                   help='default: the machine setting (built-in 72)')
     p.add_argument('--json', default=None, help='also write the full profile as JSON to this path')
     args = p.parse_args(argv)
 

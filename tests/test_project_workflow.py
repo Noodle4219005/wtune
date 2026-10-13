@@ -10,6 +10,7 @@ import pytest
 import yaml
 
 from wtune import project as proj
+import wtune.machine
 import wtune.submit
 from wtune.post import cli as post_cli
 from wtune.run import cli as run_cli
@@ -137,6 +138,57 @@ def test_set_defaults_and_register_case(project):
     os.remove(proj.project_case_table(project))
     proj.set_project_defaults(project, register_case=True)
     assert os.path.isfile(proj.project_case_table(project))
+
+
+def _machine():
+    m = wtune.machine
+    return m.cores_per_node(), m.max_nodes(), m.partition(), m.login_nodes()
+
+
+@pytest.fixture
+def no_machine_env(monkeypatch):
+    for name in wtune.machine.ENV.values():
+        monkeypatch.setenv(name, "x")  # recorded, so the original state comes back afterwards
+        monkeypatch.delenv(name)
+
+
+def test_machine_block_reaches_every_command(project, no_machine_env, monkeypatch):
+    proj.set_project_defaults(project, machine=dict(cores_per_node=64, max_nodes=20,
+                                                    partition="batch", login_nodes=""))
+    assert _doc(project)["machine"] == dict(cores_per_node=64, max_nodes=20, partition="batch",
+                                            login_nodes=[])
+    monkeypatch.setenv("WTUNE_PARTITION", "debug")       # set by hand: kept
+    proj.apply_project_env(project, _doc(project))
+    assert _machine() == (64, 20, "debug", [])
+    assert ("machine: cores_per_node=64 max_nodes=20 partition=batch login_nodes=-"
+            in proj.info_project(project))
+
+
+def test_without_a_machine_block_the_built_in_values_apply(project, no_machine_env):
+    proj.apply_project_env(project, _doc(project))
+    assert _machine() == (72, 13, "compute", ["head"])
+    assert ("machine: cores_per_node=72 max_nodes=13 partition=compute login_nodes=head"
+            in proj.info_project(project))
+
+
+def test_project_set_machine_flags(project, capsys):
+    assert proj.main(["set", "--project", project, "--max-nodes", "8",
+                      "--login-nodes", "login1,login2"]) == 0
+    assert _doc(project)["machine"] == {"max_nodes": 8, "login_nodes": ["login1", "login2"]}
+    assert ("machine: cores_per_node=72 max_nodes=8 partition=compute login_nodes=login1,login2"
+            in capsys.readouterr().out)
+    assert proj.main(["set", "--project", project, "--cores-per-node", "0"]) == 1
+    assert "machine.cores_per_node: 0 must be a positive integer" in capsys.readouterr().err
+    assert _doc(project)["machine"] == {"max_nodes": 8, "login_nodes": ["login1", "login2"]}
+
+
+@pytest.mark.parametrize("block, message", [
+    ({"cores": 64}, "unknown key"), ({"cores_per_node": 0}, "positive integer"),
+    ({"max_nodes": "many"}, "positive integer"), ({"partition": " "}, "partition name"),
+    ({"login_nodes": 3}, "list of node names"), ("compute", "must be a mapping")])
+def test_a_bad_machine_block_is_a_project_error(block, message):
+    with pytest.raises(proj.ProjectError, match=message):
+        proj.project_machine({"machine": block})
 
 
 def _report(project_dir, name, mtime, case=None):

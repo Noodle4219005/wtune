@@ -22,6 +22,7 @@ for _p in (_HERE, _CAMPAIGN_DIR):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
+import wtune.machine
 from wtune import compliance as wc
 
 # ---------------------------------------------------------------------------
@@ -29,9 +30,7 @@ from wtune import compliance as wc
 # be circular).
 # ---------------------------------------------------------------------------
 DEFAULT_SITE = "scc"
-DEFAULT_MAX_NODES = 13                 # scc compute pool: work[1-13]
 DEFAULT_HARDWARE_ID = "scc-gh200"
-DEFAULT_CORES_PER_NODE = 72            # scc GH200
 AUTO_NODE_COUNTS = (1, 2, 4, 8, 13)     # scc_sweep DEFAULT_NODES; `config show` preview only
 NODES_POLICY_CHOICES = ("min", "cap", "knee")
 IO_TARGETS = ("nfs", "local")           # wtune.predict's own calibration targets (machine/calibration/*.json)
@@ -44,7 +43,7 @@ DEFAULTS = {
     "compliance": "strict",
     "budget": {
         "minutes": None,               # no built-in default: required via --minutes or this key
-        "max_nodes": DEFAULT_MAX_NODES,
+        "max_nodes": wtune.machine.DEFAULTS["max_nodes"],   # unset: resolve_config takes the machine's
         "nodes": "auto",
         "nodes_policy": "knee",
         # --nodes search knobs (wtune/tune/: None = the CLI default applies)
@@ -536,6 +535,8 @@ def resolve_config(raw: Any) -> tuple[dict | None, list[str]]:
     cfg["case_dir"] = raw.get("case_dir", cfg["case_dir"])
     cfg["compliance"] = raw.get("compliance", cfg["compliance"])
     cfg["budget"] = _merge_section("budget", raw.get("budget"), DEFAULTS["budget"], BUDGET_KEYS, errors)
+    if not isinstance(raw.get("budget"), dict) or "max_nodes" not in raw["budget"]:
+        cfg["budget"]["max_nodes"] = wtune.machine.max_nodes()
     cfg["search"] = _merge_search(raw.get("search"), errors)
     cfg["physics_gray"] = _merge_physics_gray(raw.get("physics_gray"), errors)
     cfg["probe"] = _merge_section("probe", raw.get("probe"), DEFAULTS["probe"], PROBE_KEYS, errors)
@@ -662,7 +663,7 @@ def filter_candidates(candidates: list[dict], search_cfg: dict | None,
 # ---------------------------------------------------------------------------
 def resolve_node_counts(budget_cfg: dict) -> list[int]:
     nodes = budget_cfg.get("nodes")
-    max_nodes = budget_cfg.get("max_nodes") or DEFAULT_MAX_NODES
+    max_nodes = budget_cfg.get("max_nodes") or wtune.machine.max_nodes()
     if nodes in (None, "auto", "search"):  # "search": measured node sweep, same preview set
         counts = [n for n in AUTO_NODE_COUNTS if n <= max_nodes]
         return counts or [max_nodes]
@@ -673,14 +674,14 @@ def resolve_node_counts(budget_cfg: dict) -> list[int]:
 
 def count_legal_candidates(case_json: dict, nodes: int, cfg: dict, is_fire: bool,
                            hardware_id: str | None = None,
-                           cores_per_node: int = DEFAULT_CORES_PER_NODE) -> tuple[int, int]:
+                           cores_per_node: int | None = None) -> tuple[int, int]:
     """(total, filtered) legal decomp_space candidates at `nodes` nodes, before and after
     this config's search/exclude restrictions (no anchor exemption: the preview counts what
     round0/top-up/adaptive draw from). Sets $SITE if unset (side effect of the lazy import)."""
     os.environ.setdefault("SITE", cfg.get("site") or DEFAULT_SITE)
     from wtune.predictor import decomp_space  # predictor/decomp_space.py -- stdlib only, imported lazily
     hardware_id = hardware_id or DEFAULT_HARDWARE_ID
-    total_cores = nodes * cores_per_node
+    total_cores = nodes * (cores_per_node or wtune.machine.cores_per_node())
     candidates, axis = decomp_space.enumerate_space(case_json, total_cores=total_cores, nodes=nodes,
                                                       hardware_id=hardware_id)
     filtered = filter_candidates(candidates, cfg["search"], cfg["exclude"], is_fire, exempt_search=False)
@@ -769,7 +770,7 @@ compliance: strict               # strict       = only the STRICT knobs below ma
 
 budget:
   minutes: 30                    # wall-clock budget for the whole `wtune tune` run (required: here or --minutes)
-  max_nodes: 13                  # hard cap -- scc's compute pool is 13 nodes (work[1-13])
+  max_nodes: 13                  # node cap; omit it to use the machine's (project.yaml machine.max_nodes)
   nodes: auto                    # auto | search | <int> | [<int>, ...] -- search measures the ANCHOR at
                                   # each legal node count (wtune tune --nodes search; node_objective/
                                   # deadline_minutes/min_efficiency/node_finalists/sweep_budget_frac

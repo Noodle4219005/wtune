@@ -27,7 +27,7 @@ compliance: strict
 
 budget:
   minutes: 60            # 整個調校的時間上限
-  max_nodes: 13          # 最多用幾個節點
+  max_nodes: 13          # 最多用幾個節點；不寫就用機器的上限
   nodes: search          # auto | search | 固定的整數
   node_objective: time   # time | cost | knee
 
@@ -53,6 +53,9 @@ probe:
 | `exclude` | 一定要排除的組合 |
 
 完整的 key 與註解在 `examples/wtune.yaml`。
+
+!!! note "機器規格不在這個檔"
+    每節點核心數、節點數上限、partition、登入節點寫在 `project.yaml` 的 [machine](../tutorial/project.md#machine) 區塊。`budget.max_nodes` 超過機器的上限時，以機器的上限為準。
 
 ## 尚未搜尋的區塊
 

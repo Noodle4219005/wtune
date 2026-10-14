@@ -51,6 +51,7 @@ export WTUNE_SBATCH_EXCLUDE=work1
 | `WTUNE_POSTPROC_VIEW` | MET 等工具的 spack view | 無；找不到時相關的圖列為缺少 |
 | `WTUNE_PARAVIEW_BIN` | `pvbatch` 所在目錄 | `envs/paraview/.pixi/envs/default/bin` |
 | `WTUNE_CARTOPY_DATA` | Natural Earth 底圖資料 | 無；找不到時改畫 LANDMASK 等值線 |
+| `WTUNE_POST_WORKERS` | `post recipe` 同時跑幾個圖組（程序）；`1` 是逐組依序畫 | job 可用的 CPU 數 |
 | `WTUNE_NC_CACHE` | ADIOS2 歷史輸出轉成 netCDF 的快取目錄 | project 或輸出目錄下的 `_nc_cache` |
 | `WTUNE_HURDAT2` | HURDAT2 最佳路徑檔（`wtune advise` 使用） | 無 |
 | `WTUNE_PYART_PATH` | Py-ART 的備用安裝目錄 | 使用 pixi 環境內的版本 |

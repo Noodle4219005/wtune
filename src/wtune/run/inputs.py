@@ -84,14 +84,15 @@ def _per_record_of(bp_plan: dict, io_streams: Optional[list]) -> list[str]:
 
 
 def io_plan_line(io: str, io_streams: Optional[list], restart_io_form: int,
-                 bp_plan: Optional[dict], bp_cache: Optional[str], case_dir: str) -> str:
+                 bp_plan: Optional[dict], bp_cache: Optional[str], case_dir: str,
+                 aux_outputs: tuple = ()) -> str:
     """The one-line I/O plan, e.g. 'I/O: ADIOS2 (history/restart/input/boundary/aux4), inputs
     from <cache> (3 netCDF -> BP4, 1 existing BP)'."""
     if io_streams is None:
         return "I/O: LEGACY netCDF (--io netcdf): case io_form_* kept, restart io_form %d" % (
             restart_io_form)
     parts = ["history"] + (["restart"] if int(restart_io_form) == ADIOS2_IO_FORM else []) + [
-        st["label"] for st in io_streams]
+        st["label"] for st in io_streams] + [k[len("io_form_"):] for k in aux_outputs]
     n_conv, n_bp = len(bp_plan["convert"]), len(bp_plan["existing"])
     src = bp_cache if n_conv else case_dir
     pr = _per_record_of(bp_plan, io_streams)

@@ -948,6 +948,10 @@ def test_namelist_adios2_switches_aux_outputs_the_case_writes():
     legacy = wr.render_segment_namelist(NAMELIST_AUXHIST, _dt("2020-06-01_00:00:00"),
                                         _dt("2020-06-01_06:00:00"), 0, _cfg(), 360)
     assert re.search(r"(?m)^\s*io_form_auxhist24\s*=\s*2\b", legacy)
+    line = wr.io_plan_line("adios2", _streams(NAMELIST_AUXHIST), 14,
+                           {"convert": [], "existing": []}, None, "/case",
+                           ("io_form_auxhist24",))
+    assert line.startswith("I/O: ADIOS2 (history/restart/input/boundary/auxhist24)")
 
 
 def test_namelist_netcdf_legacy_keeps_case_io_forms():

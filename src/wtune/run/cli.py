@@ -26,7 +26,7 @@ from .inputs import (InputPlan, _logging_copier, convert_inputs, find_project_di
                      plan_inputs)
 from .layout import (Candidate, Config, Layout, TuneLayout, make_config, rank_mapping_notes,
                      resolve_layout, tune_candidates, tune_report_layout)
-from .namelist import namelist_diff_summary, render_segment_namelist
+from .namelist import _aux_outputs, namelist_diff_summary, render_segment_namelist
 from .plan import (RestartSetting, Segment, case_restart_interval_s, checkpoint_request,
                    checkpoint_steps_for_minutes, missing_record_files, plan_run, restart_setting,
                    restart_times)
@@ -381,7 +381,7 @@ def print_plan(opts: RunOptions, plan: RunPlan, log: Callable) -> None:
             "WRF stream since 2026-10-03): the case's own io_form_history/input/boundary/aux are "
             "kept, restart io_form %d" % opts.restart_io_form)
     log(io_plan_line(opts.io, inputs.io_streams, opts.restart_io_form, inputs.bp_plan,
-                     inputs.bp_cache, plan.case_dir))
+                     inputs.bp_cache, plan.case_dir, tuple(_aux_outputs(plan.text))))
 
 
 def print_dry_run(opts: RunOptions, plan: RunPlan, log: Callable) -> None:

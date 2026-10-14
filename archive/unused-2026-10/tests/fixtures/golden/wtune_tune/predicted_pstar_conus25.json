@@ -1,0 +1,645 @@
+[
+ {
+  "anchor_id": "ANCHOR",
+  "best": {
+   "dist": "cyclic",
+   "id": "G0002",
+   "nproc_x": 24,
+   "nproc_y": 1,
+   "numtiles": 16,
+   "omp": 12,
+   "points": [
+    {
+     "at": "2021-07-19T18:20:00",
+     "n_rad": 2,
+     "r": 3.5,
+     "s_normal": 1.1739000000000002
+    },
+    {
+     "at": "2021-07-20T00:20:00",
+     "n_rad": 2,
+     "r": 3.5,
+     "s_normal": 1.1739000000000002
+    },
+    {
+     "at": "2021-07-20T06:20:00",
+     "n_rad": 2,
+     "r": 3.5,
+     "s_normal": 1.1739000000000002
+    }
+   ],
+   "predicted_range_s": [
+    6468.482474999196,
+    7905.923024999017
+   ],
+   "predicted_total_hms": "1:59:47",
+   "predicted_total_s": 7187.202749999106,
+   "ranks": 24,
+   "speedup_vs_anchor_predicted": 1.1074197120711113,
+   "stage1_median_s_per_step": 1.1739000000000002,
+   "stage1_norm_key": 0.9030000000000001
+  },
+  "budget_minutes": 80.0,
+  "budget_semantics": "--minutes = stage 1 + stage-2 reserve (pstar)",
+  "cancelled_job_ids": [],
+  "case": "matthew",
+  "cores_per_node": 72,
+  "elapsed_minutes": 57.0,
+  "full_run_prediction": "=== full-run prediction (rank_by=predicted, G0002, 3 rebuilt point(s)) ===\ncompute_total: 1:59:47   init: 0.0s   TOTAL: 1:59:47 (range 1:47:48 - 2:11:45, +-10.0% drift)\nr_rad: night=2.439 day=4.561 source=ratio_from_day",
+  "gates": [
+   {
+    "anchor_drift": 0.0,
+    "exclude_reason": null,
+    "excluded": false,
+    "failures": [],
+    "job_id": "2001",
+    "label": "round0",
+    "ok": true,
+    "s_anchor": 1.3,
+    "s_anchor_end": 1.3,
+    "s_anchor_job": 1.3,
+    "stage": "stage1"
+   },
+   {
+    "anchor_drift": 0.0,
+    "exclude_reason": null,
+    "excluded": false,
+    "failures": [],
+    "job_id": "2002",
+    "label": "round0",
+    "ok": true,
+    "s_anchor": 1.3,
+    "s_anchor_end": 1.3,
+    "s_anchor_job": 1.3,
+    "stage": "stage1"
+   },
+   {
+    "anchor_drift": 0.0,
+    "exclude_reason": null,
+    "excluded": false,
+    "failures": [],
+    "job_id": "2003",
+    "label": "round0",
+    "ok": true,
+    "s_anchor": 1.3,
+    "s_anchor_end": 1.3,
+    "s_anchor_job": 1.3,
+    "stage": "stage1"
+   },
+   {
+    "anchor_drift": 0.0,
+    "exclude_reason": null,
+    "excluded": false,
+    "failures": [],
+    "job_id": "2004",
+    "label": "round0-topup",
+    "ok": true,
+    "s_anchor": 1.3,
+    "s_anchor_end": 1.3,
+    "s_anchor_job": 1.3,
+    "stage": "stage1"
+   },
+   {
+    "anchor_drift": 0.0,
+    "exclude_reason": null,
+    "excluded": false,
+    "failures": [],
+    "job_id": "2005",
+    "label": "round0-topup",
+    "ok": true,
+    "s_anchor": 1.3,
+    "s_anchor_end": 1.3,
+    "s_anchor_job": 1.3,
+    "stage": "stage1"
+   },
+   {
+    "anchor_drift": 0.0,
+    "exclude_reason": null,
+    "excluded": false,
+    "failures": [],
+    "job_id": "2006",
+    "label": "round0-topup",
+    "ok": true,
+    "s_anchor": 1.3,
+    "s_anchor_end": 1.3,
+    "s_anchor_job": 1.3,
+    "stage": "stage1"
+   }
+  ],
+  "job_ids": [
+   "2001",
+   "2002",
+   "2003",
+   "2004",
+   "2005",
+   "2006"
+  ],
+  "job_timing": {
+   "2001": {
+    "queue_s": null,
+    "run_s": null
+   },
+   "2002": {
+    "queue_s": null,
+    "run_s": null
+   },
+   "2003": {
+    "queue_s": null,
+    "run_s": null
+   },
+   "2004": {
+    "queue_s": null,
+    "run_s": null
+   },
+   "2005": {
+    "queue_s": null,
+    "run_s": null
+   },
+   "2006": {
+    "queue_s": null,
+    "run_s": null
+   }
+  },
+  "max_wall_minutes": 180.0,
+  "nodes": 4,
+  "nodes_note": "user",
+  "not_measured": [],
+  "param_table": {
+   "dist": "cyclic",
+   "env": {
+    "OMP_NUM_THREADS": "12",
+    "OMP_STACKSIZE": "1G"
+   },
+   "launch_line": "mpirun -np 24 --map-by ppr:6:node:PE=12 --bind-to core --rank-by node ./wrf.exe",
+   "namelist_lines": [
+    "nproc_x=24,",
+    "nproc_y=1,",
+    "numtiles=16,"
+   ],
+   "nodes": 4,
+   "note": "KMP_BLOCKTIME: n/a on scc (nvhpc OpenMP runtime has no KMP_BLOCKTIME concept)",
+   "nproc_x": 24,
+   "nproc_y": 1,
+   "numtiles": 16,
+   "omp": 12,
+   "ranks": 24,
+   "ranks_per_node": 6,
+   "ulimit": "ulimit -s unlimited"
+  },
+  "plan_notes": [],
+  "points": [
+   {
+    "at": "2021-07-19T18:20:00",
+    "case_id": "matthewp0",
+    "index": 0,
+    "primary": true,
+    "reason": "auto",
+    "rebuild_job": "1",
+    "start": "2021-07-19T18:00:00"
+   },
+   {
+    "at": "2021-07-20T00:20:00",
+    "case_id": "matthewp1",
+    "index": 1,
+    "primary": false,
+    "reason": "auto",
+    "rebuild_job": "1",
+    "start": "2021-07-20T00:00:00"
+   },
+   {
+    "at": "2021-07-20T06:20:00",
+    "case_id": "matthewp2",
+    "index": 2,
+    "primary": false,
+    "reason": "auto",
+    "rebuild_job": "1",
+    "start": "2021-07-20T06:00:00"
+   }
+  ],
+  "prep_submit_min": 0.0,
+  "queue_only_minutes": 1.3333333333333333,
+  "rank_by": "predicted",
+  "ranking": [
+   {
+    "dist": "cyclic",
+    "id": "G0002",
+    "nproc_x": 24,
+    "nproc_y": 1,
+    "numtiles": 16,
+    "omp": 12,
+    "points": [
+     {
+      "at": "2021-07-19T18:20:00",
+      "n_rad": 2,
+      "r": 3.5,
+      "s_normal": 1.1739000000000002
+     },
+     {
+      "at": "2021-07-20T00:20:00",
+      "n_rad": 2,
+      "r": 3.5,
+      "s_normal": 1.1739000000000002
+     },
+     {
+      "at": "2021-07-20T06:20:00",
+      "n_rad": 2,
+      "r": 3.5,
+      "s_normal": 1.1739000000000002
+     }
+    ],
+    "predicted_range_s": [
+     6468.482474999196,
+     7905.923024999017
+    ],
+    "predicted_total_hms": "1:59:47",
+    "predicted_total_s": 7187.202749999106,
+    "ranks": 24,
+    "speedup_vs_anchor_predicted": 1.1074197120711113,
+    "stage1_median_s_per_step": 1.1739000000000002,
+    "stage1_norm_key": 0.9030000000000001
+   },
+   {
+    "dist": "block",
+    "id": "G0003",
+    "nproc_x": 1,
+    "nproc_y": 16,
+    "numtiles": 13,
+    "omp": 18,
+    "points": [
+     {
+      "at": "2021-07-19T18:20:00",
+      "n_rad": 2,
+      "r": 3.5,
+      "s_normal": 1.1869
+     },
+     {
+      "at": "2021-07-20T00:20:00",
+      "n_rad": 2,
+      "r": 3.5,
+      "s_normal": 1.1869
+     },
+     {
+      "at": "2021-07-20T06:20:00",
+      "n_rad": 2,
+      "r": 3.5,
+      "s_normal": 1.1869
+     }
+    ],
+    "predicted_range_s": [
+     6540.115724999553,
+     7993.474774999454
+    ],
+    "predicted_total_hms": "2:01:06",
+    "predicted_total_s": 7266.7952499995035,
+    "ranks": 16,
+    "speedup_vs_anchor_predicted": 1.0952902519169305,
+    "stage1_median_s_per_step": 1.1869,
+    "stage1_norm_key": 0.913
+   },
+   {
+    "dist": "block",
+    "id": "D0001",
+    "nproc_x": 144,
+    "nproc_y": 2,
+    "numtiles": 8,
+    "omp": 1,
+    "points": [
+     {
+      "at": "2021-07-19T18:20:00",
+      "n_rad": 2,
+      "r": 3.5,
+      "s_normal": 1.1999000000000002
+     },
+     {
+      "at": "2021-07-20T00:20:00",
+      "n_rad": 2,
+      "r": 3.5,
+      "s_normal": 1.1999000000000002
+     },
+     {
+      "at": "2021-07-20T06:20:00",
+      "n_rad": 2,
+      "r": 3.5,
+      "s_normal": 1.1999000000000002
+     }
+    ],
+    "predicted_range_s": [
+     6611.748974999339,
+     8081.026524999193
+    ],
+    "predicted_total_hms": "2:02:26",
+    "predicted_total_s": 7346.387749999266,
+    "ranks": 288,
+    "speedup_vs_anchor_predicted": 1.0834236186350912,
+    "stage1_median_s_per_step": 1.1999000000000002,
+    "stage1_norm_key": 0.9230000000000002
+   },
+   {
+    "dist": "block",
+    "id": "ANCHOR",
+    "nproc_x": 18,
+    "nproc_y": 16,
+    "numtiles": 1,
+    "omp": 1,
+    "points": [
+     {
+      "at": "2021-07-19T18:20:00",
+      "n_rad": 2,
+      "r": 3.5,
+      "s_normal": 1.3
+     },
+     {
+      "at": "2021-07-20T00:20:00",
+      "n_rad": 2,
+      "r": 3.5,
+      "s_normal": 1.3
+     },
+     {
+      "at": "2021-07-20T06:20:00",
+      "n_rad": 2,
+      "r": 3.5,
+      "s_normal": 1.3
+     }
+    ],
+    "predicted_range_s": [
+     7163.325000000639,
+     8755.175000000781
+    ],
+    "predicted_total_hms": "2:12:39",
+    "predicted_total_s": 7959.25000000071,
+    "ranks": 288,
+    "speedup_vs_anchor_predicted": 1.0,
+    "stage1_median_s_per_step": 1.3,
+    "stage1_norm_key": null
+   }
+  ],
+  "ranking_start_note": null,
+  "running_elapsed_minutes": 57.0,
+  "spinup_min": 20,
+  "stage1_excluded": [],
+  "stage1_max_running": 3,
+  "stage1_mode": "pstar",
+  "stage1_ranking": [
+   {
+    "id": "G0002",
+    "jobs": [
+     "2002"
+    ],
+    "median_s_per_step": 1.1739000000000002,
+    "norm_key": 0.9030000000000001,
+    "stage2": true
+   },
+   {
+    "id": "G0003",
+    "jobs": [
+     "2003"
+    ],
+    "median_s_per_step": 1.1869,
+    "norm_key": 0.913,
+    "stage2": true
+   },
+   {
+    "id": "D0001",
+    "jobs": [
+     "2004"
+    ],
+    "median_s_per_step": 1.1999000000000002,
+    "norm_key": 0.9230000000000002,
+    "stage2": true
+   },
+   {
+    "id": "D0004",
+    "jobs": [
+     "2004"
+    ],
+    "median_s_per_step": 1.2038000000000002,
+    "norm_key": 0.9260000000000002,
+    "stage2": false
+   },
+   {
+    "id": "D0007",
+    "jobs": [
+     "2004"
+    ],
+    "median_s_per_step": 1.2077,
+    "norm_key": 0.9289999999999999,
+    "stage2": false
+   },
+   {
+    "id": "D0010",
+    "jobs": [
+     "2004"
+    ],
+    "median_s_per_step": 1.2116,
+    "norm_key": 0.9319999999999999,
+    "stage2": false
+   },
+   {
+    "id": "D0002",
+    "jobs": [
+     "2005"
+    ],
+    "median_s_per_step": 1.2129,
+    "norm_key": 0.933,
+    "stage2": false
+   },
+   {
+    "id": "D0013",
+    "jobs": [
+     "2004"
+    ],
+    "median_s_per_step": 1.2155,
+    "norm_key": 0.9349999999999999,
+    "stage2": false
+   },
+   {
+    "id": "D0005",
+    "jobs": [
+     "2005"
+    ],
+    "median_s_per_step": 1.2168,
+    "norm_key": 0.936,
+    "stage2": false
+   },
+   {
+    "id": "D0016",
+    "jobs": [
+     "2004"
+    ],
+    "median_s_per_step": 1.2194,
+    "norm_key": 0.938,
+    "stage2": false
+   },
+   {
+    "id": "D0008",
+    "jobs": [
+     "2005"
+    ],
+    "median_s_per_step": 1.2207000000000001,
+    "norm_key": 0.9390000000000001,
+    "stage2": false
+   },
+   {
+    "id": "D0019",
+    "jobs": [
+     "2004"
+    ],
+    "median_s_per_step": 1.2233,
+    "norm_key": 0.9410000000000001,
+    "stage2": false
+   },
+   {
+    "id": "D0011",
+    "jobs": [
+     "2005"
+    ],
+    "median_s_per_step": 1.2246000000000001,
+    "norm_key": 0.9420000000000001,
+    "stage2": false
+   },
+   {
+    "id": "D0003",
+    "jobs": [
+     "2006"
+    ],
+    "median_s_per_step": 1.2259000000000002,
+    "norm_key": 0.9430000000000002,
+    "stage2": false
+   },
+   {
+    "id": "D0022",
+    "jobs": [
+     "2004"
+    ],
+    "median_s_per_step": 1.2272,
+    "norm_key": 0.9440000000000001,
+    "stage2": false
+   },
+   {
+    "id": "D0014",
+    "jobs": [
+     "2005"
+    ],
+    "median_s_per_step": 1.2285000000000001,
+    "norm_key": 0.9450000000000001,
+    "stage2": false
+   },
+   {
+    "id": "D0006",
+    "jobs": [
+     "2006"
+    ],
+    "median_s_per_step": 1.2298000000000002,
+    "norm_key": 0.9460000000000002,
+    "stage2": false
+   },
+   {
+    "id": "D0017",
+    "jobs": [
+     "2005"
+    ],
+    "median_s_per_step": 1.2324000000000002,
+    "norm_key": 0.9480000000000001,
+    "stage2": false
+   },
+   {
+    "id": "D0009",
+    "jobs": [
+     "2006"
+    ],
+    "median_s_per_step": 1.2337,
+    "norm_key": 0.949,
+    "stage2": false
+   },
+   {
+    "id": "D0020",
+    "jobs": [
+     "2005"
+    ],
+    "median_s_per_step": 1.2363000000000002,
+    "norm_key": 0.9510000000000001,
+    "stage2": false
+   },
+   {
+    "id": "D0012",
+    "jobs": [
+     "2006"
+    ],
+    "median_s_per_step": 1.2376,
+    "norm_key": 0.952,
+    "stage2": false
+   },
+   {
+    "id": "D0023",
+    "jobs": [
+     "2005"
+    ],
+    "median_s_per_step": 1.2402000000000002,
+    "norm_key": 0.9540000000000001,
+    "stage2": false
+   },
+   {
+    "id": "D0015",
+    "jobs": [
+     "2006"
+    ],
+    "median_s_per_step": 1.2415,
+    "norm_key": 0.955,
+    "stage2": false
+   },
+   {
+    "id": "D0018",
+    "jobs": [
+     "2006"
+    ],
+    "median_s_per_step": 1.2454,
+    "norm_key": 0.958,
+    "stage2": false
+   },
+   {
+    "id": "D0021",
+    "jobs": [
+     "2006"
+    ],
+    "median_s_per_step": 1.2493,
+    "norm_key": 0.9610000000000001,
+    "stage2": false
+   },
+   {
+    "id": "G0001",
+    "jobs": [
+     "2001"
+    ],
+    "median_s_per_step": 1.2519,
+    "norm_key": 0.963,
+    "stage2": false
+   },
+   {
+    "id": "D0024",
+    "jobs": [
+     "2006"
+    ],
+    "median_s_per_step": 1.2532,
+    "norm_key": 0.9640000000000001,
+    "stage2": false
+   }
+  ],
+  "stage1_running_min": 57.0,
+  "stage1_trimmed": [],
+  "stage2_concurrency": 3,
+  "stage2_estimate_min": 78.58765,
+  "stage2_estimate_s": 1245.4414364999998,
+  "stage2_job_ids": [
+   "9001"
+  ],
+  "stage2_minutes_cap": null,
+  "stage2_overrun_s": 0.0,
+  "stage2_reserve_note": "stage-2 reserve 21:16 = 1 wave(s) [3 point job(s), 3 concurrent: observed max 3 stage-1 job(s) running at once, cap floor(max_nodes/nodes)=3] x (spin-up + 5 runs); per-run 214s = startup 96s + restart read 0s + 82 steps x 1.300s x rad factor 1.107 (r_rad 3.93 every 40 steps); spin-up 207s (80 steps, rad factor 1.073)",
+  "stage2_running_min": 0.0,
+  "stage2_skipped_reason": null,
+  "total_job_run_s": 0,
+  "total_queue_s": 0,
+  "total_running_min": 57.0,
+  "wall_elapsed_minutes": 58.333333333333336
+ }
+]

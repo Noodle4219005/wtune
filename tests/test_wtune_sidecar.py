@@ -372,6 +372,7 @@ def test_compress_history_puts_each_checked_netcdf_in_place_of_its_bp(tmp_path, 
     side.finish()
     assert all(os.path.isfile(f) for f in frames)                 # netCDF under the BP's name
     assert not [n for n in os.listdir(seg) if n.endswith(".bp-replaced")]
+    assert not os.path.exists(side.cache_root)                     # no empty cache dirs left
     assert report["sidecar"]["converted"] == 3 and report["sidecar"]["not_converted"] == []
     _fresh_process(monkeypatch)
     prep = extract.prepare_history(str(run))

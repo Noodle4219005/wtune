@@ -207,6 +207,8 @@ class Sidecar:
             self.rec["not_converted"] = self._missing()
             self.rec["converted"] += len(left) - len(self.rec["not_converted"])
         self._drop_partial_conversions()
+        if self.replace:
+            self._drop_empty_cache_dirs()
         self.log("  sidecar: %d frame(s) %s%s" % (
             self.rec["converted"], "now netCDF in place of their BP" if self.replace
             else "in " + self.cache_root,
@@ -220,6 +222,13 @@ class Sidecar:
             for f in files:
                 if ".wtune-tmp-" in f:
                     os.remove(os.path.join(d, f))
+
+    def _drop_empty_cache_dirs(self):
+        """The cache directories --compress-history moved every netCDF out of."""
+        top = os.path.join(self.cache_root, extract._run_id(self.run_dir))
+        for d in [d for d, _sub, _files in os.walk(top, topdown=False)] + [self.cache_root]:
+            if os.path.isdir(d) and not os.listdir(d):
+                os.rmdir(d)
 
     def _missing(self):
         return [p for _d, _t, p, is_bp in extract._raw_entries(self.run_dir)

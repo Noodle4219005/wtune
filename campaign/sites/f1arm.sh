@@ -22,6 +22,9 @@ CASES_JSON_DEFAULT=$CAMPAIGN/cases.json
 site_env () {
   source "${WTUNE_ENV_SOURCE:-$HOME/wtune-f1arm/env.sh}"
   ulimit -s unlimited      # nvhpc -Mstack_arrays: automatic arrays live on the stack
+  # this Open MPI has no UCX: keep its TCP on the IPoIB network, not the 1 Gb/s eno1
+  # (conus12 at 4 nodes: 0.462 -> 0.053 s/step)
+  export OMPI_MCA_btl_tcp_if_include=${OMPI_MCA_btl_tcp_if_include:-10.200.0.0/14}
 }
 
 # site_launch <ranks> <tpn> <omp> <dist>: fills SITE_LAUNCH_CMD, same contract as scc.sh's.

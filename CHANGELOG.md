@@ -92,6 +92,12 @@ into the `wtune.yaml` template; `wtune tune` and `wtune submit` without `--confi
 and swept the node counts of `c34` at omp 2, 4 and 8 (one probe crashed, one hung for an hour).
 It is the built-in `exclude` now; `exclude: []` in a config lifts it.
 
+**Probes write no aux output.** A probe's history policy set only `history_interval`, so a
+case's own `auxhistN` streams still wrote: every `isc21` probe launch wrote all six frames of
+its `auxhist24` validation output on three domains, about 160 s of a 390 s launch at 8 nodes.
+Every stream with a nonzero interval now begins after the run ends; the measured s/step does
+not change (the median already left the write steps out).
+
 ## 0.9.0 — 2026-10-12
 
 Main code made small enough to review; behaviour of the tune -> run -> post path is unchanged

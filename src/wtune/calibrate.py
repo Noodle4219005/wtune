@@ -238,6 +238,8 @@ cp {case_dir}/namelist.input ./namelist.input.orig
 PY="pixi run --manifest-path $PIXI_ENV/pixi.toml python"
 PYBIN=$($PY -c 'import sys; print(sys.executable)' 2>/dev/null | tail -1)
 [ -x "$PYBIN" ] || {{ echo "FATAL: no python via $PY" >&2; exit 1; }}
+# as `pixi run` would: the converter looks for an adios2 python on PATH (f1-arm has no envs/adios2)
+export PATH="$(dirname "$PYBIN"):$PATH"
 STAGE=$("$PYBIN" "$CAMPAIGN/configs.py" stage-bp-inputs {case_id} ./namelist.input.orig {case_dir}) || exit 1
 eval "$STAGE"
 export WTUNE_INPUT_FORMAT=adios2 WTUNE_BP_DIR="$BP_DIR" WTUNE_PER_RECORD_BP WTUNE_AUX_BP_STREAMS

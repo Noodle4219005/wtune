@@ -164,6 +164,8 @@ def test_plan_skips_infeasible_ranks_and_writes_manifest(tmp_path):
         assert "--no-adios2" not in text
         assert "--ranks %d" % ranks in text
         assert "stage-bp-inputs case " in text and "export WTUNE_INPUT_FORMAT=adios2" in text
+        # f1-arm job 15532: the converter finds adios2 only through PATH
+        assert text.index('export PATH="$(dirname "$PYBIN"):$PATH"') < text.index("STAGE=")
         assert "--set restart=.false." in text
         # regression (scc job 1090/1091, 2026-09-25): scc.sh's site_hygiene() reads
         # $ALLOC_NODES itself; calling it before ALLOC_NODES is assigned made `set -u` abort

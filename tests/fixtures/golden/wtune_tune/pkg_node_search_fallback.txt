@@ -2,14 +2,14 @@ case=matthew nodes=search (node search (measured)) budget=600.0 min max_nodes=13
 node sweep: N=11 skipped -- no legal decomposition at any omp in {1, 2, 3, 4, 6, 8, 9, 12, 18, 24, 36, 72}
 node sweep: N=13 skipped -- no legal decomposition at any omp in {1, 2, 3, 4, 6, 8, 9, 12, 18, 24, 36, 72}
 node sweep: hotspot fill: N=[6] in the idle nodes of wave [1, 2, 4]
-node sweep: nodes-n1 submitted job 7001 (ANCHOR ranks=72 omp=1 8x9, REPS=2, 5 steps, ~5:40)
-node sweep: nodes-n2 submitted job 7002 (ANCHOR ranks=72 omp=2 8x9, REPS=2, 5 steps, ~5:40)
-node sweep: nodes-n4 submitted job 7003 (ANCHOR ranks=72 omp=4 8x9, REPS=2, 5 steps, ~5:40)
-node sweep: nodes-n6 submitted job 7004 (ANCHOR ranks=72 omp=6 8x9, REPS=2, 5 steps, ~5:40)
+node sweep: nodes-n1 submitted job 7001 (ANCHOR ranks=72 omp=1 8x9, REPS=1, 5 steps, ~2:50)
+node sweep: nodes-n2 submitted job 7002 (ANCHOR ranks=72 omp=2 8x9, REPS=1, 5 steps, ~2:50)
+node sweep: nodes-n4 submitted job 7003 (ANCHOR ranks=72 omp=4 8x9, REPS=1, 5 steps, ~2:50)
+node sweep: nodes-n6 submitted job 7004 (ANCHOR ranks=72 omp=6 8x9, REPS=1, 5 steps, ~2:50)
 [node-sweep] [------------------------]   0%  elapsed=0:00 / budget=10:00:00
 node sweep: hotspot fill: N=[5] in the idle nodes of wave [8]
-node sweep: nodes-n8 submitted job 7005 (ANCHOR ranks=72 omp=8 8x9, REPS=2, 5 steps, ~5:40)
-node sweep: nodes-n5 submitted job 7006 (ANCHOR ranks=90 omp=4 9x10, REPS=2, 5 steps, ~5:40)
+node sweep: nodes-n8 submitted job 7005 (ANCHOR ranks=72 omp=8 8x9, REPS=1, 5 steps, ~2:50)
+node sweep: nodes-n5 submitted job 7006 (ANCHOR ranks=90 omp=4 9x10, REPS=1, 5 steps, ~2:50)
 [node-sweep] [------------------------]   0%  elapsed=0:00 / budget=10:00:00
 WARNING: node sweep produced no measurement; falling back to the proxy. scaling model is UNCALIBRATED (wtune/case.py's halo-efficiency proxy, c=1.0, never fit to a real measurement) -- nodes=13 (policy=knee) is a starting point, not a validated optimum
 round0: s_est=10.000s/step[fallback_10s,n=0] startup_s=120.0s[documented constant (scc_sweep.STARTUP_S)] slots=1 configs_per_job=74 total=1 (ok)

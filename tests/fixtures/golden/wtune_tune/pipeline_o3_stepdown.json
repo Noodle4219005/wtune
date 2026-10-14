@@ -12,7 +12,7 @@
     "dist": "block",
     "id": "ANCHOR",
     "median_s_per_step": 0.3,
-    "n_measurements": 2,
+    "n_measurements": 4,
     "nproc_x": 16,
     "nproc_y": 18,
     "numtiles": 1,
@@ -46,8 +46,10 @@
     "7003",
     "7004",
     "7005",
-    "8008",
-    "8009"
+    "7006",
+    "7007",
+    "8010",
+    "8011"
   ],
   "layout_table": {
     "comparison": null,
@@ -63,7 +65,7 @@
         "ny": 18,
         "omp": 1,
         "ranks": 288,
-        "reps": 2,
+        "reps": 4,
         "source": "t0 sweep ANCHOR",
         "spread": 0.0
       },
@@ -78,7 +80,7 @@
         "ny": 24,
         "omp": 1,
         "ranks": 432,
-        "reps": 2,
+        "reps": 4,
         "source": "t0 sweep ANCHOR",
         "spread": 0.0
       },
@@ -140,7 +142,7 @@
       "ny": 18,
       "omp": 1,
       "ranks": 288,
-      "reps": 2,
+      "reps": 4,
       "source": "t0 sweep ANCHOR",
       "spread": 0.0
     }
@@ -234,7 +236,7 @@
         "ny": 18,
         "omp": 1,
         "ranks": 288,
-        "reps": 2,
+        "reps": 4,
         "source": "t0 sweep ANCHOR",
         "spread": 0.0
       },
@@ -249,7 +251,7 @@
         "ny": 24,
         "omp": 1,
         "ranks": 432,
-        "reps": 2,
+        "reps": 4,
         "source": "t0 sweep ANCHOR",
         "spread": 0.0
       },
@@ -345,7 +347,9 @@
       "7002",
       "7003",
       "7004",
-      "7005"
+      "7005",
+      "7006",
+      "7007"
     ],
     "table": [
       {
@@ -374,7 +378,7 @@
         "efficiency": 0.8333333333333334,
         "maxrss_mb": null,
         "median": 0.3,
-        "n": 2,
+        "n": 4,
         "node_hours": 0.4666666666666667,
         "nodes": 4,
         "speedup": 3.3333333333333335,
@@ -385,7 +389,7 @@
         "efficiency": 0.5376344086021506,
         "maxrss_mb": null,
         "median": 0.31,
-        "n": 2,
+        "n": 4,
         "node_hours": 0.7166666666666667,
         "nodes": 6,
         "speedup": 3.2258064516129035,
@@ -450,7 +454,7 @@
       "ny": 18,
       "omp": 1,
       "ranks": 288,
-      "reps": 2,
+      "reps": 4,
       "source": "t0 sweep ANCHOR",
       "spread": 0.0
     },
@@ -569,7 +573,9 @@
           "7002",
           "7003",
           "7004",
-          "7005"
+          "7005",
+          "7006",
+          "7007"
         ],
         "limit_s": Infinity,
         "name": "layout",
@@ -588,7 +594,7 @@
         "job_run_s_max": null,
         "job_run_s_sum": null,
         "jobs": [
-          "8008"
+          "8010"
         ],
         "limit_s": Infinity,
         "name": "predict",
@@ -606,7 +612,7 @@
         "job_run_s_max": null,
         "job_run_s_sum": null,
         "jobs": [
-          "8009"
+          "8011"
         ],
         "limit_s": Infinity,
         "name": "physics",
@@ -787,7 +793,7 @@
       "dist": "block",
       "id": "ANCHOR",
       "median_s_per_step": 0.3,
-      "n_measurements": 2,
+      "n_measurements": 4,
       "nproc_x": 16,
       "nproc_y": 18,
       "numtiles": 1,
@@ -807,6 +813,12 @@
     }
   ],
   "ranking_start_note": null,
+  "summary": [
+    "best:     N=4 c/n=72 288 ranks x 1 threads 16x18 tiles=1: 0.3000 s/step (4 runs)",
+    "run:      predicted 17:10 for the whole simulation (phase 2 combine())",
+    "not run:  N=13 early stop; N=3,5,7,9-12 not measured",
+    "tuning:   running 0:00, queue 0:00 (not counted)"
+  ],
   "winner": {
     "cid": "ANCHOR",
     "cores_per_node": 72,
@@ -818,7 +830,7 @@
     "ny": 18,
     "omp": 1,
     "ranks": 288,
-    "reps": 2,
+    "reps": 4,
     "source": "t0 sweep ANCHOR",
     "spread": 0.0
   }

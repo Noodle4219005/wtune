@@ -24,6 +24,7 @@ DEFAULTS = {"cores_per_node": 72,       # hardware cores of one compute node (sc
             "max_hours": 0,             # longest job the partition accepts; 0 = no cap
             "max_omp": 0,               # threads per rank WRF runs with; 1 = no OpenMP, 0 = no cap
             "node_preflight": True,     # one srun per node before a tune (wtune.tune.preflight)
+            "node_memory_gib": 0,       # memory of one compute node; 0 = unknown, no memory check
             "measured": {}}             # replacements for MEASURED below
 ENV = {"cores_per_node": "WTUNE_CORES_PER_NODE", "max_nodes": "WTUNE_MAX_NODES",
        "partition": "WTUNE_PARTITION", "login_nodes": "WTUNE_LOGIN_NODES",
@@ -31,7 +32,8 @@ ENV = {"cores_per_node": "WTUNE_CORES_PER_NODE", "max_nodes": "WTUNE_MAX_NODES",
        "numa_per_node": "WTUNE_NUMA_PER_NODE", "calibration": "WTUNE_CALIBRATION",
        "site": "WTUNE_SITE", "env_source": "WTUNE_ENV_SOURCE", "wrf_tree": "WRF_TREE",
        "geog": "WPS_GEOG", "max_hours": "WTUNE_MAX_HOURS", "max_omp": "WTUNE_MAX_OMP",
-       "node_preflight": "WTUNE_NODE_PREFLIGHT", "measured": "WTUNE_MEASURED"}
+       "node_preflight": "WTUNE_NODE_PREFLIGHT", "node_memory_gib": "WTUNE_NODE_MEMORY_GIB",
+       "measured": "WTUNE_MEASURED"}
 
 # Numbers measured on scc that estimates fall back on when nothing was measured for the
 # case at hand. Another machine replaces the ones it knows in its `measured:` map.
@@ -64,10 +66,13 @@ MEASURED = {
     "aux4_s_netcdf": 260.0 / 1584, "aux4_s_adios2": 0.033,
     "iofields_call_ms": 0.9,
     "probe_restart_read_s_adios2": 30.0, "probe_restart_read_s_netcdf": 120.0,
+    # memory per node = bytes per grid cell x cells + GiB per rank x ranks (isc21, f1-arm)
+    "mem_bytes_per_cell": 1600.0, "mem_gib_per_rank": 0.94,
 }
 
 
 INT_KEYS = ("cores_per_node", "max_nodes", "numa_per_node")
+_NUMBER_UNITS = {"max_hours": ("hours", "no cap"), "node_memory_gib": ("GiB", "unknown")}
 _measured_cache = ("", {})
 PATH_KEYS = ("wrf_tree", "geog")        # read by python: ~ and $VARS are expanded on export
 
@@ -92,10 +97,10 @@ def check(block, where="machine") -> dict:
         if key in INT_KEYS:
             if isinstance(value, bool) or not isinstance(value, int) or value < 1:
                 raise MachineError("%s: %r must be a positive integer" % (at, value))
-        elif key == "max_hours":
+        elif key in ("max_hours", "node_memory_gib"):
             if isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0:
-                raise MachineError("%s: %r must be a number of hours, 0 for no cap"
-                                   % (at, value))
+                raise MachineError("%s: %r must be a number of %s, 0 for %s"
+                                   % ((at, value) + _NUMBER_UNITS[key]))
         elif key == "node_preflight":
             if not isinstance(value, bool):
                 raise MachineError("%s: %r must be true or false" % (at, value))
@@ -256,16 +261,25 @@ def geog() -> str:
     return _name("geog")
 
 
-def max_hours() -> float:
-    """Longest job the partition accepts, in hours; 0 when no cap is set."""
-    raw = os.environ.get(ENV["max_hours"], "").strip()
+def _non_negative(key: str) -> float:
+    raw = os.environ.get(ENV[key], "").strip()
     try:
         value = float(raw) if raw else 0.0
     except ValueError:
         value = -1.0
     if value < 0:
-        raise MachineError("%s=%r: must be a number of hours" % (ENV["max_hours"], raw))
+        raise MachineError("%s=%r: must be a number of %s" % (ENV[key], raw, _NUMBER_UNITS[key][0]))
     return value
+
+
+def max_hours() -> float:
+    """Longest job the partition accepts, in hours; 0 when no cap is set."""
+    return _non_negative("max_hours")
+
+
+def node_memory_gib() -> float:
+    """Memory of one compute node in GiB; 0 when unknown (no memory check before probes)."""
+    return _non_negative("node_memory_gib")
 
 
 def node_preflight() -> bool:

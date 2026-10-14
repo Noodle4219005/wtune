@@ -12,8 +12,8 @@ import wtune.machine
 from ._deps import sweep
 from .budget import _job_time_est, estimate_run_time, update_s_est
 from .candidates import (FULL_SPACE_CONFIGS_PER_JOB, _apply_search_filter, aggregate_by_cid,
-                         rank_predicted_entries, sample_more_diverse_configs)
-from .common import (ANCHOR_END_ID, _fmt_hms, chunk_round_robin, compute_slots,
+                         merge_aggs, rank_predicted_entries, sample_more_diverse_configs)
+from .common import (ANCHOR_END_ID, _fmt_hms, chunk_round_robin, close_to_best, compute_slots,
                      would_exceed_budget)
 from .context import Ctx, cores_used
 from .estimates import EST_ROUND0_CONFIGS
@@ -503,6 +503,31 @@ def _remeasure_dirty_best(ctx: Ctx, all_results: dict, s_est: float) -> None:
     all_results[cid] = again
 
 
+def _race_leaders(ctx: Ctx, all_results: dict, s_est: float) -> None:
+    """With no confirm stage (-O2) the pick rests on one run: the layouts that tie with the
+    fastest (common.close_to_best) run once more, in one job, merged into their results."""
+    measured = {cid: r for cid, r in all_results.items() if r.get("config")}
+    cids = close_to_best({cid: r["median"] for cid, r in measured.items()},
+                         wtune.machine.measured("noise_frac"))
+    if not cids:
+        return
+    configs = [measured[c]["config"] for c in cids]
+    est = estimate_run_time([(measured[c]["config"], measured[c]["median"]) for c in cids], 1,
+                            ctx.steps, startup_s=ctx.startup_s)
+    if would_exceed_budget(ctx.elapsed(), est["total_run_s"], ctx.budget_s):
+        print("race: SKIP -- no budget left for a second run of %s" % cids)
+        return
+    job_id, _path, _te = submit_configs_job(ctx, configs, reps=1, name_suffix="race",
+                                            s_est=s_est, time_est=est)
+    print("race: submitted job %s (%s once more, within 2x noise of the fastest)"
+          % (job_id, ", ".join(cids)))
+    _jobs.wait_for_jobs(ctx, [job_id], "race")
+    again = aggregate_by_cid(ctx.ledger_reader(ctx.case, [job_id]),
+                             {c: measured[c]["config"] for c in cids})
+    for cid, r in again.items():
+        all_results[cid] = merge_aggs(all_results[cid], r)
+
+
 def run_tuning_at(ctx: Ctx, s_est: float | None = None, adaptive: bool = True,
                   confirm: bool = True) -> tuple[dict, dict | None, str | None]:
     """round0 -> adaptive rounds -> confirm at ctx.nodes. Returns (all_results,
@@ -521,6 +546,9 @@ def run_tuning_at(ctx: Ctx, s_est: float | None = None, adaptive: bool = True,
         run_adaptive_rounds(ctx, configs_by_cid, all_results, s_est)
 
     _remeasure_dirty_best(ctx, all_results, s_est)
+
+    if all_results and not confirm:
+        _race_leaders(ctx, all_results, s_est)
 
     confirm_job_id, confirm_results = (None, None)
     if all_results and confirm:

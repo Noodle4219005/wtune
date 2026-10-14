@@ -13,11 +13,13 @@ import wtune.machine
 import wtune.nodes
 from ._deps import sweep, predict
 from .budget import _fallback_s_per_step, _job_time_est
-from .candidates import _sweep_anchor, _sweep_anchor_fitting, aggregate_by_cid
-from .common import UNSET, Record, _fmt_hms, parse_run_id, would_exceed_budget
+from .candidates import _sweep_anchor, _sweep_anchor_fitting, aggregate_by_cid, merge_aggs
+from .common import (UNSET, Record, _fmt_hms, close_to_best, parse_run_id,
+                     would_exceed_budget)
 from .context import Ctx
 from .jobs import MAXRSS_NOTE, _maxrss_mb_by_job, submit_configs_job
 from . import jobs as _jobs
+from . import memory as _memory
 from . import prediction as _prediction
 from . import report as _report
 from . import rounds as _rounds
@@ -181,19 +183,26 @@ def _sweep_steps(ctx: Ctx, s_est: float) -> int:
     return max(lo, min(hi, int(round(ctx.startup_s / max(s_est, 1e-6)))))
 
 
+def _sweep_reps(ctx: Ctx) -> int:
+    """Runs of each sweep probe (probe.sweep_reps); with one, close calls are run again."""
+    return int((ctx.probe_cfg or {}).get("sweep_reps") or NODE_SWEEP_REPS)
+
+
 def _measure_anchor_wave(ctx: Ctx, items: list[dict], s_est_for: Callable,
-                         skipped: list) -> dict:
-    """One REPS=2 ANCHOR job per item {key, nodes, anchor, suffix, tag} that fits the budget
-    (the rest go to `skipped`), awaited together. Returns {key: {agg, job, maxrss_mb}} for the
-    items that produced a measurement."""
+                         skipped: list, reps: int | None = None) -> dict:
+    """One ANCHOR job of `reps` runs (default _sweep_reps) per item {key, nodes, anchor, suffix,
+    tag} that fits the budget (the rest go to `skipped`, with the Slurm state of a failed job),
+    awaited together. Returns {key: {agg, job, maxrss_mb}} for the items that produced a
+    measurement."""
+    reps = reps or _sweep_reps(ctx)
     jobs = {}
     for it in items:
         n = it["nodes"]
         s_est, src = s_est_for(n)
         cn = dataclasses.replace(ctx, nodes=n, steps=_sweep_steps(ctx, s_est))
-        est = _job_time_est(cn, 1, NODE_SWEEP_REPS, s_est)
+        est = _job_time_est(cn, 1, reps, s_est)
         s_budget, src_budget = _cold_budget_s_per_step(ctx, it["anchor"], s_est, src)
-        need_s = _job_time_est(cn, 1, NODE_SWEEP_REPS, s_budget)["total_run_s"]
+        need_s = _job_time_est(cn, 1, reps, s_budget)["total_run_s"]
         if would_exceed_budget(ctx.elapsed(), need_s, ctx.budget_s):
             why = ("estimated end would exceed the budget (job ~%s at %.3fs/step[%s], elapsed %s "
                    "/ budget %s)" % (_fmt_hms(need_s), s_budget, src_budget,
@@ -201,13 +210,13 @@ def _measure_anchor_wave(ctx: Ctx, items: list[dict], s_est_for: Callable,
             skipped.append(dict(it["tag"], reason=why))
             print("node sweep: %s skipped -- %s" % (it["suffix"], why))
             continue
-        job_id, _p, _te = submit_configs_job(cn, [it["anchor"]], reps=NODE_SWEEP_REPS,
+        job_id, _p, _te = submit_configs_job(cn, [it["anchor"]], reps=reps,
                                                name_suffix=it["suffix"], s_est=s_est, time_est=est)
         jobs[it["key"]] = job_id
         a = it["anchor"]
         print("node sweep: %s submitted job %s (ANCHOR ranks=%d omp=%d %dx%d, REPS=%d, "
               "%d steps, ~%s)"
-              % (it["suffix"], job_id, a["ranks"], a["omp"], a["nx"], a["ny"], NODE_SWEEP_REPS,
+              % (it["suffix"], job_id, a["ranks"], a["omp"], a["nx"], a["ny"], reps,
                  cn.steps, _fmt_hms(est["total_run_s"])))
     out: dict = {}
     if not jobs:
@@ -225,9 +234,35 @@ def _measure_anchor_wave(ctx: Ctx, items: list[dict], s_est_for: Callable,
         if agg:
             out[it["key"]] = dict(agg=agg, job=j, maxrss_mb=rss.get(j))
         else:
-            skipped.append(dict(it["tag"], reason="no successful measurement (job %s, state %s)"
-                                % (j, states.get(j, ("UNKNOWN", ""))[0])))
+            state = states.get(j, ("UNKNOWN", ""))[0]
+            skipped.append(dict(it["tag"], state=state,
+                                reason="no successful measurement (job %s, state %s)" % (j, state)))
     return out
+
+
+def _race(ctx: Ctx, entries: dict, s_est_for: Callable, label: str) -> list:
+    """Single-run sweeps: one more run of the entries {key: {nodes, anchor, agg, suffix}} that
+    tie with the fastest (common.close_to_best), merged into their agg in place. Returns the
+    jobs that measured."""
+    if _sweep_reps(ctx) >= 2:
+        return []
+    keys = close_to_best({k: e["agg"]["median"] for k, e in entries.items()},
+                         wtune.machine.measured("noise_frac"))
+    if not keys:
+        return []
+    print("%s: measuring %s once more (within 2x noise of the fastest)" % (label, keys))
+    items = [dict(key=k, nodes=entries[k]["nodes"], anchor=entries[k]["anchor"],
+                  suffix=entries[k]["suffix"] + "-race", tag=dict(nodes=entries[k]["nodes"]))
+             for k in keys]
+    lost: list = []
+    jobs = []
+    for wave in _pack_items(items, ctx.max_nodes):
+        for k, r in _measure_anchor_wave(ctx, wave, s_est_for, lost, reps=1).items():
+            entries[k]["agg"] = merge_aggs(entries[k]["agg"], r["agg"])
+            jobs.append(r["job"])
+    for s in lost:
+        print("%s: second run not measured -- %s" % (label, s["reason"]))
+    return jobs
 
 
 def run_node_sweep(ctx: Ctx, legal_nodes: list[int],
@@ -267,6 +302,13 @@ def run_node_sweep(ctx: Ctx, legal_nodes: list[int],
     sweep_t0 = ctx.elapsed()
     cap_s = budget_frac * max(0.0, ctx.budget_s - sweep_t0)   # share of what is left
     state: dict[str, Any] = dict(stopped=None)
+    mem = _memory.model_for(ctx.case_json, wtune.machine.node_memory_gib())
+    waves = wtune.nodes.sweep_waves(seeds, ctx.max_nodes)
+    descending = bool(mem and legal
+                      and mem.why_not(legal[0], anchors[legal[0]]["ranks"] // legal[0]))
+    if descending:                    # the largest N fits best, and its MaxRSS calibrates the rest
+        waves = waves[::-1]
+        print("node sweep: N=%d may not fit in memory; largest N first" % legal[0])
 
     def s_est_for(n):
         if meas:
@@ -287,7 +329,24 @@ def run_node_sweep(ctx: Ctx, legal_nodes: list[int],
             near = min(meas, key=lambda m: (abs(m - n), m))
             s = statistics.median(meas[near]) * near / n
         cn = dataclasses.replace(ctx, nodes=n, steps=_sweep_steps(ctx, s))
-        return _job_time_est(cn, 1, NODE_SWEEP_REPS, s)["total_run_s"]
+        return _job_time_est(cn, 1, _sweep_reps(ctx), s)["total_run_s"]
+
+    def fit_memory(n):
+        """True when N should fit: its ANCHOR as is, or on fewer cores per node (anchors and
+        cores updated); False, with the reason in `skipped`, when no core count fits."""
+        why = mem.why_not(n, anchors[n]["ranks"] // n) if mem else None
+        if why is None:
+            return True
+        for c in wtune.nodes.default_core_options(cores[n]):
+            a = _sweep_anchor(ctx, n, cores=c)[0] if c < cores[n] else None
+            if a is not None and mem.why_not(n, a["ranks"] // n) is None:
+                print("node sweep: N=%d on %d cores/node -- %s on %d" % (n, c, why, cores[n]))
+                anchors[n], cores[n] = a, c
+                return True
+        skipped.append(dict(nodes=n, reason=why))
+        attempted.add(n)
+        print("node sweep: N=%d skipped -- %s" % (n, why))
+        return False
 
     def fill(wave):
         """`wave` plus untried legal N in the nodes it leaves idle, nearest the best N first (the
@@ -303,7 +362,8 @@ def run_node_sweep(ctx: Ctx, legal_nodes: list[int],
             pool.sort(key=lambda n: (s_est_for(n)[0], -n))
         extra = []
         for n in pool:
-            if n <= free and job_s(n) <= longest:
+            if (n <= free and job_s(n) <= longest
+                    and not (mem and mem.why_not(n, anchors[n]["ranks"] // n))):
                 extra.append(n)
                 free -= n
         if extra:
@@ -311,15 +371,22 @@ def run_node_sweep(ctx: Ctx, legal_nodes: list[int],
         return wave + extra
 
     def run_wave(ns):
+        ns = [n for n in ns if fit_memory(n)]
         items = [dict(key=n, nodes=n, anchor=anchors[n], suffix="nodes-n%d" % n, tag=dict(nodes=n))
                  for n in ns]
         attempted.update(ns)
+        first_new = len(skipped)
         for n, r in _measure_anchor_wave(ctx, items, s_est_for, skipped).items():
             meas[n], results[n], jobs[n], rss[n] = (r["agg"]["s_values"], r["agg"], r["job"],
                                                     r["maxrss_mb"])
+            if mem:
+                mem.learn(n, anchors[n]["ranks"] // n, r["maxrss_mb"])
+        for s in skipped[first_new:]:
+            if mem and s.get("state") == "OUT_OF_MEMORY":
+                mem.learn_oom(s["nodes"], anchors[s["nodes"]]["ranks"] // s["nodes"])
 
     # phase 1: geometric seeds, early stop on the upward side
-    for wave in wtune.nodes.sweep_waves(seeds, ctx.max_nodes):
+    for wave in waves:
         if not state["stopped"]:
             state["stopped"] = cap_reason()
             if state["stopped"]:
@@ -335,7 +402,7 @@ def run_node_sweep(ctx: Ctx, legal_nodes: list[int],
                 state["stopped"] = state["halt"] = halt
                 continue
         srows = wtune.nodes.summarize({n: v for n, v in meas.items() if n in seeds})
-        if not every_n and wtune.nodes.stop_early(srows):
+        if not every_n and not descending and wtune.nodes.stop_early(srows):
             a, b = srows[-2], srows[-1]
             state["stopped"] = ("early stop: N=%d (%.4f s/step) did not beat N=%d (%.4f s/step) "
                                 "by >%.0f%%" % (b["nodes"], b["median"], a["nodes"], a["median"],
@@ -357,9 +424,18 @@ def run_node_sweep(ctx: Ctx, legal_nodes: list[int],
         for wave in wtune.nodes.sweep_waves(todo, ctx.max_nodes):
             run_wave(fill(wave))
 
+    race_jobs = []
+    if not state.get("halt"):
+        entries = {n: dict(nodes=n, anchor=anchors[n], agg=results[n], suffix="nodes-n%d" % n)
+                   for n in results}
+        race_jobs = _race(ctx, entries, s_est_for, "node sweep")
+        for n, e in entries.items():
+            results[n], meas[n] = e["agg"], e["agg"]["s_values"]
+
     _explain_unmeasured(legal, meas, seeds, skipped, cap_hit, refine, chooser)
     return dict(measurements=meas, anchors=anchors, cores=cores, results=results,
-                skipped=skipped, jobs=jobs, legal=legal, maxrss_mb=rss)
+                skipped=skipped, jobs=jobs, legal=legal, maxrss_mb=rss, memory=mem,
+                race_jobs=race_jobs)
 
 
 def _explain_unmeasured(legal: list[int], meas: dict, seeds: list[int], skipped: list,
@@ -411,6 +487,7 @@ def run_core_sweep(ctx: Ctx, finals: list[int], sw: dict, core_options: list[int
     wtune.nodes.choose_cores (ties -> fuller c). Returns ({N: {anchors, results, rss, rows,
     chosen, note}}, skipped_cores)."""
     info, skipped, items = {}, [], []
+    mem = sw.get("memory")
     for n in finals:
         C = _sweep_cores(ctx, sw, n)
         info[n] = dict(anchors={C: sw["anchors"][n]}, results={C: sw["results"][n]},
@@ -420,6 +497,9 @@ def run_core_sweep(ctx: Ctx, finals: list[int], sw: dict, core_options: list[int
             options |= set(wtune.nodes.default_core_options(C))
         for c in sorted((c for c in options if c < C), reverse=True):
             a, why = _sweep_anchor(ctx, n, cores=c)
+            if a is not None and mem:
+                why = mem.why_not(n, a["ranks"] // n)
+                a = None if why else a
             if a is None:
                 skipped.append(dict(nodes=n, cores=c, reason=why))
                 print("core sweep: N=%d c=%d skipped -- %s" % (n, c, why))
@@ -442,6 +522,13 @@ def run_core_sweep(ctx: Ctx, finals: list[int], sw: dict, core_options: list[int
         for key, r in _measure_anchor_wave(ctx, wave, s_est_for, skipped).items():
             info[key[0]]["results"][key[1]] = r["agg"]
             info[key[0]]["rss"][key[1]] = r["maxrss_mb"]
+    for n in finals:
+        entries = {c: dict(nodes=n, anchor=info[n]["anchors"][c], agg=agg,
+                           suffix="cores-n%d-c%d" % (n, c))
+                   for c, agg in info[n]["results"].items()}
+        _race(ctx, entries, s_est_for, "core sweep N=%d" % n)
+        for c, e in entries.items():
+            info[n]["results"][c] = e["agg"]
     for n in finals:
         rows = [_core_row(c, n, info[n]["anchors"][c], info[n]["results"][c], info[n]["rss"][c])
                 for c in sorted(info[n]["results"], reverse=True)]
@@ -630,7 +717,7 @@ def run_node_search(ctx: Ctx, profile: dict, objective: str, deadline_s: float |
                      for n, ci in cores_info.items()},
         skipped_cores=skipped_cores, core_options=list(core_options),
         total_steps=total_steps, deadline_s=deadline_s, min_efficiency=min_efficiency,
-        overhead_s=overhead_s, sweep_jobs=list(sw["jobs"].values()), maxrss_note=MAXRSS_NOTE,
+        overhead_s=overhead_s, sweep_jobs=list(sw["jobs"].values()) + sw.get("race_jobs", []), maxrss_note=MAXRSS_NOTE,
         layouts=layouts_tab["rows"], winner=layouts_tab["winner"],
         runner_up=layouts_tab["runner_up"], winner_vs_runner_up=layouts_tab["comparison"],
         untried=(sw["skipped"] + skipped_cores + layout_notes["untried"]),

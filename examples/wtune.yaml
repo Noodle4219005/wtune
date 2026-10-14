@@ -54,6 +54,8 @@ probe:
                                    # step; or a fixed positive integer
   sweep_steps: [10, 40]           # node and cores-per-node sweep probes: the steps one startup costs,
                                    # kept within [min, max] (cheap steps -> max); null = `steps`
+  sweep_reps: 1                   # runs of each sweep probe; with 1, the probes that tie with the
+                                   # fastest (within 2x noise) get one more run
   confirm_reps: 2                 # replicate count for the confirm stage's top candidates
   spinup_min: 60                  # RANKING layer: minutes the anchor spin-up run advances before every
                                    # candidate starts from ITS shared restart (0 disables -> t0 start)

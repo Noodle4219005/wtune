@@ -454,14 +454,75 @@ def final_winner(report: dict) -> dict | None:
                 reps=best.get("n_measurements"), cid=best.get("id"))
 
 
+def _ranges(ns: list) -> str:
+    """[1, 2, 3, 5] -> '1-3,5'."""
+    out, run = [], []
+    for n in sorted(set(ns)):
+        if run and n != run[-1] + 1:
+            out.append(run)
+            run = []
+        run.append(n)
+    out += [run] if run else []
+    return ",".join("%d-%d" % (r[0], r[-1]) if len(r) > 2 else ",".join(map(str, r)) for r in out)
+
+
+def _reason_tag(reason: str) -> str:
+    for prefix, tag in (("memory", "memory"), ("early stop", "early stop"),
+                        ("sweep budget cap", "budget"), ("estimated end", "budget"),
+                        ("no successful", "failed"), ("no legal", "no legal layout")):
+        if reason.startswith(prefix):
+            return tag
+    return "not measured"
+
+
+def summary_lines(report: dict) -> list[str]:
+    """At most five lines a reader acts on: the pick, the whole run it predicts, how sure the
+    pick is, the node counts not run and why, and what the tuning cost."""
+    w, ns, pipe = report.get("winner"), report.get("node_selection") or {}, report.get("pipeline")
+    if not w:
+        return []
+    fmt = lambda r: ("N=%s c/n=%s %s ranks x %s threads %sx%s tiles=%s"     # noqa: E731
+                     % (r["nodes"], r["cores_per_node"], r["ranks"], r["omp"], r["nx"], r["ny"],
+                        r["numtiles"]))
+    lines = ["best:     %s: %.4f s/step (%s runs)" % (fmt(w), w["median"], w.get("reps") or "?")]
+    real = (pipe or {}).get("predicted_real_s") or (report.get("best") or {}).get("predicted_total_s")
+    if real:
+        lines.append("run:      predicted %s for the whole simulation%s"
+                     % (_fmt_hms(real), " (%s)" % pipe["predicted_real_source"]
+                        if (pipe or {}).get("predicted_real_source") else ""))
+    cmp_, ru = ns.get("winner_vs_runner_up"), ns.get("runner_up")
+    if cmp_ and ru and cmp_["gap"] >= 0:
+        lines.append("margin:   %.1f%% ahead of %s -> %s (noise %.0f%%)"
+                     % (cmp_["gap"] * 100, fmt(ru), "a clear pick" if cmp_["beyond_noise"]
+                        else "within noise: either is fine", cmp_["noise"] * 100))
+    elif cmp_ and ru:
+        lines.append("margin:   %s is %.1f%% faster per step; the pick ranks by predicted "
+                     "whole-run time" % (fmt(ru), -cmp_["gap"] * 100))
+    by_tag: dict = {}
+    for sk in ns.get("skipped") or []:
+        by_tag.setdefault(_reason_tag(sk["reason"]), []).append(sk["nodes"])
+    if by_tag:
+        lines.append("not run:  " + "; ".join("N=%s %s" % (_ranges(v), k)
+                                              for k, v in sorted(by_tag.items())))
+    if pipe:
+        lines.append("tuning:   running %s, queue %s (not counted)"
+                     % (_fmt_hms(pipe.get("total_running_s", 0.0)),
+                        _fmt_hms(pipe.get("total_queue_wait_s", 0.0))))
+    return lines
+
+
 def _emit_report(report: dict, out_dir: str, node_health: dict | None = None) -> None:
-    """Print the report (+ advice) and write <out_dir>/tune_report.json (sorted keys)."""
+    """Print the summary, then the report (+ advice), and write <out_dir>/tune_report.json
+    (sorted keys)."""
     if node_health and "node_health" not in report:
         report["node_health"] = node_health
     report["winner"] = final_winner(report)
+    report["summary"] = summary_lines(report)
     only = report.get("pipeline_aborted") or report.get("pipeline_only")
     advice_text = "" if only else _attach_advice(report)
     print("")
+    if report["summary"]:
+        print("\n".join(["=== summary ==="] + report["summary"] + [""]))
     print(render_pipeline_text(report["pipeline"]) if only
           else render_report_text(report) + advice_text)
     write_report_json(report, out_dir)

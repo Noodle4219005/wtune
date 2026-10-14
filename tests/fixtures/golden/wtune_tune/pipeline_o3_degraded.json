@@ -12,7 +12,7 @@
     "dist": "block",
     "id": "ANCHOR",
     "median_s_per_step": 0.3,
-    "n_measurements": 2,
+    "n_measurements": 6,
     "nproc_x": 16,
     "nproc_y": 18,
     "numtiles": 1,
@@ -58,8 +58,17 @@
     "7013",
     "7014",
     "7015",
-    "8018",
-    "8019"
+    "7016",
+    "7017",
+    "7018",
+    "7019",
+    "7020",
+    "7021",
+    "7022",
+    "7023",
+    "7024",
+    "8027",
+    "8028"
   ],
   "layout_table": {
     "comparison": {
@@ -79,8 +88,8 @@
         "ny": 18,
         "omp": 1,
         "ranks": 288,
-        "reps": 2,
-        "source": "t0 sweep ANCHOR",
+        "reps": 6,
+        "source": "cores/node sweep ANCHOR",
         "spread": 0.0
       },
       {
@@ -94,7 +103,7 @@
         "ny": 20,
         "omp": 1,
         "ranks": 280,
-        "reps": 2,
+        "reps": 4,
         "source": "cores/node sweep ANCHOR",
         "spread": 0.0
       },
@@ -109,7 +118,7 @@
         "ny": 16,
         "omp": 1,
         "ranks": 256,
-        "reps": 2,
+        "reps": 4,
         "source": "cores/node sweep ANCHOR",
         "spread": 0.0
       },
@@ -154,8 +163,8 @@
         "ny": 20,
         "omp": 1,
         "ranks": 360,
-        "reps": 2,
-        "source": "t0 sweep ANCHOR",
+        "reps": 6,
+        "source": "cores/node sweep ANCHOR",
         "spread": 0.0
       },
       {
@@ -169,7 +178,7 @@
         "ny": 25,
         "omp": 1,
         "ranks": 350,
-        "reps": 2,
+        "reps": 4,
         "source": "cores/node sweep ANCHOR",
         "spread": 0.0
       },
@@ -184,7 +193,7 @@
         "ny": 20,
         "omp": 1,
         "ranks": 320,
-        "reps": 2,
+        "reps": 4,
         "source": "cores/node sweep ANCHOR",
         "spread": 0.0
       },
@@ -229,7 +238,7 @@
         "ny": 24,
         "omp": 1,
         "ranks": 432,
-        "reps": 2,
+        "reps": 4,
         "source": "t0 sweep ANCHOR",
         "spread": 0.0
       },
@@ -305,8 +314,8 @@
       "ny": 20,
       "omp": 1,
       "ranks": 360,
-      "reps": 2,
-      "source": "t0 sweep ANCHOR",
+      "reps": 6,
+      "source": "cores/node sweep ANCHOR",
       "spread": 0.0
     },
     "winner": {
@@ -320,8 +329,8 @@
       "ny": 18,
       "omp": 1,
       "ranks": 288,
-      "reps": 2,
-      "source": "t0 sweep ANCHOR",
+      "reps": 6,
+      "source": "cores/node sweep ANCHOR",
       "spread": 0.0
     }
   },
@@ -408,7 +417,7 @@
           "cores": 72,
           "maxrss_mb": null,
           "median": 0.3,
-          "n": 2,
+          "n": 6,
           "nx": 16,
           "ny": 18,
           "omp": 1,
@@ -421,7 +430,7 @@
           "cores": 70,
           "maxrss_mb": null,
           "median": 0.3,
-          "n": 2,
+          "n": 4,
           "nx": 14,
           "ny": 20,
           "omp": 1,
@@ -434,7 +443,7 @@
           "cores": 64,
           "maxrss_mb": null,
           "median": 0.3,
-          "n": 2,
+          "n": 4,
           "nx": 16,
           "ny": 16,
           "omp": 1,
@@ -475,7 +484,7 @@
           "cores": 72,
           "maxrss_mb": null,
           "median": 0.305,
-          "n": 2,
+          "n": 6,
           "nx": 18,
           "ny": 20,
           "omp": 1,
@@ -488,7 +497,7 @@
           "cores": 70,
           "maxrss_mb": null,
           "median": 0.305,
-          "n": 2,
+          "n": 4,
           "nx": 14,
           "ny": 25,
           "omp": 1,
@@ -501,7 +510,7 @@
           "cores": 64,
           "maxrss_mb": null,
           "median": 0.305,
-          "n": 2,
+          "n": 4,
           "nx": 16,
           "ny": 20,
           "omp": 1,
@@ -581,8 +590,8 @@
         "ny": 18,
         "omp": 1,
         "ranks": 288,
-        "reps": 2,
-        "source": "t0 sweep ANCHOR",
+        "reps": 6,
+        "source": "cores/node sweep ANCHOR",
         "spread": 0.0
       },
       {
@@ -596,7 +605,7 @@
         "ny": 20,
         "omp": 1,
         "ranks": 280,
-        "reps": 2,
+        "reps": 4,
         "source": "cores/node sweep ANCHOR",
         "spread": 0.0
       },
@@ -611,7 +620,7 @@
         "ny": 16,
         "omp": 1,
         "ranks": 256,
-        "reps": 2,
+        "reps": 4,
         "source": "cores/node sweep ANCHOR",
         "spread": 0.0
       },
@@ -656,8 +665,8 @@
         "ny": 20,
         "omp": 1,
         "ranks": 360,
-        "reps": 2,
-        "source": "t0 sweep ANCHOR",
+        "reps": 6,
+        "source": "cores/node sweep ANCHOR",
         "spread": 0.0
       },
       {
@@ -671,7 +680,7 @@
         "ny": 25,
         "omp": 1,
         "ranks": 350,
-        "reps": 2,
+        "reps": 4,
         "source": "cores/node sweep ANCHOR",
         "spread": 0.0
       },
@@ -686,7 +695,7 @@
         "ny": 20,
         "omp": 1,
         "ranks": 320,
-        "reps": 2,
+        "reps": 4,
         "source": "cores/node sweep ANCHOR",
         "spread": 0.0
       },
@@ -731,7 +740,7 @@
         "ny": 24,
         "omp": 1,
         "ranks": 432,
-        "reps": 2,
+        "reps": 4,
         "source": "t0 sweep ANCHOR",
         "spread": 0.0
       },
@@ -812,8 +821,8 @@
       "ny": 20,
       "omp": 1,
       "ranks": 360,
-      "reps": 2,
-      "source": "t0 sweep ANCHOR",
+      "reps": 6,
+      "source": "cores/node sweep ANCHOR",
       "spread": 0.0
     },
     "skipped": [
@@ -850,7 +859,10 @@
       "7004",
       "7005",
       "7006",
-      "7007"
+      "7007",
+      "7008",
+      "7009",
+      "7010"
     ],
     "table": [
       {
@@ -890,7 +902,7 @@
         "efficiency": 0.8333333333333334,
         "maxrss_mb": null,
         "median": 0.3,
-        "n": 2,
+        "n": 4,
         "node_hours": 333.46666666666664,
         "nodes": 4,
         "speedup": 3.3333333333333335,
@@ -901,7 +913,7 @@
         "efficiency": 0.6557377049180328,
         "maxrss_mb": null,
         "median": 0.305,
-        "n": 2,
+        "n": 4,
         "node_hours": 423.77777777777777,
         "nodes": 5,
         "speedup": 3.278688524590164,
@@ -912,7 +924,7 @@
         "efficiency": 0.5376344086021506,
         "maxrss_mb": null,
         "median": 0.31,
-        "n": 2,
+        "n": 4,
         "node_hours": 516.8666666666667,
         "nodes": 6,
         "speedup": 3.2258064516129035,
@@ -1145,8 +1157,8 @@
       "ny": 18,
       "omp": 1,
       "ranks": 288,
-      "reps": 2,
-      "source": "t0 sweep ANCHOR",
+      "reps": 6,
+      "source": "cores/node sweep ANCHOR",
       "spread": 0.0
     },
     "winner_vs_runner_up": {
@@ -1278,7 +1290,16 @@
           "7012",
           "7013",
           "7014",
-          "7015"
+          "7015",
+          "7016",
+          "7017",
+          "7018",
+          "7019",
+          "7020",
+          "7021",
+          "7022",
+          "7023",
+          "7024"
         ],
         "limit_s": 385.00000000000006,
         "name": "layout",
@@ -1297,7 +1318,7 @@
         "job_run_s_max": null,
         "job_run_s_sum": null,
         "jobs": [
-          "8018"
+          "8027"
         ],
         "limit_s": 560.0,
         "name": "predict",
@@ -1315,7 +1336,7 @@
         "job_run_s_max": null,
         "job_run_s_sum": null,
         "jobs": [
-          "8019"
+          "8028"
         ],
         "limit_s": 700.0,
         "name": "physics",
@@ -1514,7 +1535,7 @@
       "dist": "block",
       "id": "ANCHOR",
       "median_s_per_step": 0.3,
-      "n_measurements": 2,
+      "n_measurements": 6,
       "nproc_x": 16,
       "nproc_y": 18,
       "numtiles": 1,
@@ -1534,6 +1555,13 @@
     }
   ],
   "ranking_start_note": null,
+  "summary": [
+    "best:     N=4 c/n=72 288 ranks x 1 threads 16x18 tiles=1: 0.3000 s/step (6 runs)",
+    "run:      predicted 10:10 for the whole simulation (phase 2 combine())",
+    "margin:   1.7% ahead of N=5 c/n=72 360 ranks x 1 threads 18x20 tiles=1 -> within noise: either is fine (noise 3%)",
+    "not run:  N=13 early stop; N=7,9-12 not measured",
+    "tuning:   running 0:00, queue 0:00 (not counted)"
+  ],
   "winner": {
     "cid": "ANCHOR",
     "cores_per_node": 72,
@@ -1545,8 +1573,8 @@
     "ny": 18,
     "omp": 1,
     "ranks": 288,
-    "reps": 2,
-    "source": "t0 sweep ANCHOR",
+    "reps": 6,
+    "source": "cores/node sweep ANCHOR",
     "spread": 0.0
   }
 }

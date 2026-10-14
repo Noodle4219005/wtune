@@ -114,6 +114,7 @@
        "stage1": "t0",
        "stage2_minutes": null,
        "steps": "auto",
+       "sweep_reps": 1,
        "sweep_steps": [
         10,
         40
@@ -181,9 +182,10 @@
      "stub": true
     },
     "pipeline_only": true,
+    "summary": [],
     "winner": null
    },
-   "report_json": "{\n  \"cancelled_job_ids\": [],\n  \"case\": \"matthew\",\n  \"job_ids\": [],\n  \"node_health\": {\n    \"exclusions\": [\n      \"head\"\n    ],\n    \"failed\": [],\n    \"healthy\": null,\n    \"max_nodes_effective\": 8,\n    \"max_nodes_requested\": 8,\n    \"nodes\": {},\n    \"probe_s\": 0.0,\n    \"skipped\": \"sinfo unavailable (OSError: sinfo rc=1: sinfo: not here)\",\n    \"user_exclude\": [],\n    \"when\": \"start\"\n  },\n  \"nodes\": 8,\n  \"pipeline\": {\n    \"stub\": true\n  },\n  \"pipeline_only\": true,\n  \"winner\": null\n}\n"
+   "report_json": "{\n  \"cancelled_job_ids\": [],\n  \"case\": \"matthew\",\n  \"job_ids\": [],\n  \"node_health\": {\n    \"exclusions\": [\n      \"head\"\n    ],\n    \"failed\": [],\n    \"healthy\": null,\n    \"max_nodes_effective\": 8,\n    \"max_nodes_requested\": 8,\n    \"nodes\": {},\n    \"probe_s\": 0.0,\n    \"skipped\": \"sinfo unavailable (OSError: sinfo rc=1: sinfo: not here)\",\n    \"user_exclude\": [],\n    \"when\": \"start\"\n  },\n  \"nodes\": 8,\n  \"pipeline\": {\n    \"stub\": true\n  },\n  \"pipeline_only\": true,\n  \"summary\": [],\n  \"winner\": null\n}\n"
   },
   "fixed_n": {
    "calls": [
@@ -277,6 +279,7 @@
        "stage1": "t0",
        "stage2_minutes": null,
        "steps": "auto",
+       "sweep_reps": 1,
        "sweep_steps": [
         10,
         40
@@ -344,9 +347,10 @@
      "stub": true
     },
     "pipeline_only": true,
+    "summary": [],
     "winner": null
    },
-   "report_json": "{\n  \"cancelled_job_ids\": [],\n  \"case\": \"matthew\",\n  \"job_ids\": [],\n  \"node_health\": {\n    \"exclusions\": [\n      \"head\"\n    ],\n    \"failed\": [],\n    \"healthy\": null,\n    \"max_nodes_effective\": 13,\n    \"max_nodes_requested\": 13,\n    \"nodes\": {},\n    \"probe_s\": 0.0,\n    \"skipped\": \"sinfo unavailable (OSError: sinfo rc=1: sinfo: not here)\",\n    \"user_exclude\": [],\n    \"when\": \"start\"\n  },\n  \"nodes\": 2,\n  \"pipeline\": {\n    \"stub\": true\n  },\n  \"pipeline_only\": true,\n  \"winner\": null\n}\n"
+   "report_json": "{\n  \"cancelled_job_ids\": [],\n  \"case\": \"matthew\",\n  \"job_ids\": [],\n  \"node_health\": {\n    \"exclusions\": [\n      \"head\"\n    ],\n    \"failed\": [],\n    \"healthy\": null,\n    \"max_nodes_effective\": 13,\n    \"max_nodes_requested\": 13,\n    \"nodes\": {},\n    \"probe_s\": 0.0,\n    \"skipped\": \"sinfo unavailable (OSError: sinfo rc=1: sinfo: not here)\",\n    \"user_exclude\": [],\n    \"when\": \"start\"\n  },\n  \"nodes\": 2,\n  \"pipeline\": {\n    \"stub\": true\n  },\n  \"pipeline_only\": true,\n  \"summary\": [],\n  \"winner\": null\n}\n"
   },
   "no_preflight_o3": {
    "calls": [
@@ -425,6 +429,7 @@
        "stage1": "t0",
        "stage2_minutes": null,
        "steps": "auto",
+       "sweep_reps": 1,
        "sweep_steps": [
         10,
         40
@@ -497,9 +502,10 @@
      "stub": true
     },
     "pipeline_only": true,
+    "summary": [],
     "winner": null
    },
-   "report_json": "{\n  \"cancelled_job_ids\": [],\n  \"case\": \"matthew\",\n  \"job_ids\": [],\n  \"nodes\": 1,\n  \"pipeline\": {\n    \"stub\": true\n  },\n  \"pipeline_only\": true,\n  \"winner\": null\n}\n"
+   "report_json": "{\n  \"cancelled_job_ids\": [],\n  \"case\": \"matthew\",\n  \"job_ids\": [],\n  \"nodes\": 1,\n  \"pipeline\": {\n    \"stub\": true\n  },\n  \"pipeline_only\": true,\n  \"summary\": [],\n  \"winner\": null\n}\n"
   },
   "o0": {
    "calls": [
@@ -581,6 +587,7 @@
        "stage1": "t0",
        "stage2_minutes": null,
        "steps": "auto",
+       "sweep_reps": 1,
        "sweep_steps": [
         10,
         40
@@ -634,9 +641,10 @@
      "stub": true
     },
     "pipeline_only": true,
+    "summary": [],
     "winner": null
    },
-   "report_json": "{\n  \"cancelled_job_ids\": [],\n  \"case\": \"matthew\",\n  \"job_ids\": [],\n  \"nodes\": 1,\n  \"pipeline\": {\n    \"stub\": true\n  },\n  \"pipeline_only\": true,\n  \"winner\": null\n}\n"
+   "report_json": "{\n  \"cancelled_job_ids\": [],\n  \"case\": \"matthew\",\n  \"job_ids\": [],\n  \"nodes\": 1,\n  \"pipeline\": {\n    \"stub\": true\n  },\n  \"pipeline_only\": true,\n  \"summary\": [],\n  \"winner\": null\n}\n"
   },
   "o1": {
    "calls": [
@@ -728,6 +736,7 @@
        "stage1": "t0",
        "stage2_minutes": null,
        "steps": "auto",
+       "sweep_reps": 1,
        "sweep_steps": [
         10,
         40
@@ -814,9 +823,10 @@
      "stub": true
     },
     "pipeline_only": true,
+    "summary": [],
     "winner": null
    },
-   "report_json": "{\n  \"cancelled_job_ids\": [],\n  \"case\": \"matthew\",\n  \"job_ids\": [],\n  \"node_health\": {\n    \"exclusions\": [\n      \"head\"\n    ],\n    \"failed\": [],\n    \"healthy\": null,\n    \"max_nodes_effective\": 13,\n    \"max_nodes_requested\": 13,\n    \"nodes\": {},\n    \"probe_s\": 0.0,\n    \"skipped\": \"sinfo unavailable (OSError: sinfo rc=1: sinfo: not here)\",\n    \"user_exclude\": [],\n    \"when\": \"start\"\n  },\n  \"nodes\": 1,\n  \"pipeline\": {\n    \"stub\": true\n  },\n  \"pipeline_only\": true,\n  \"winner\": null\n}\n"
+   "report_json": "{\n  \"cancelled_job_ids\": [],\n  \"case\": \"matthew\",\n  \"job_ids\": [],\n  \"node_health\": {\n    \"exclusions\": [\n      \"head\"\n    ],\n    \"failed\": [],\n    \"healthy\": null,\n    \"max_nodes_effective\": 13,\n    \"max_nodes_requested\": 13,\n    \"nodes\": {},\n    \"probe_s\": 0.0,\n    \"skipped\": \"sinfo unavailable (OSError: sinfo rc=1: sinfo: not here)\",\n    \"user_exclude\": [],\n    \"when\": \"start\"\n  },\n  \"nodes\": 1,\n  \"pipeline\": {\n    \"stub\": true\n  },\n  \"pipeline_only\": true,\n  \"summary\": [],\n  \"winner\": null\n}\n"
   },
   "o2_minutes": {
    "calls": [
@@ -908,6 +918,7 @@
        "stage1": "t0",
        "stage2_minutes": null,
        "steps": "auto",
+       "sweep_reps": 1,
        "sweep_steps": [
         10,
         40
@@ -994,9 +1005,10 @@
      "stub": true
     },
     "pipeline_only": true,
+    "summary": [],
     "winner": null
    },
-   "report_json": "{\n  \"cancelled_job_ids\": [],\n  \"case\": \"matthew\",\n  \"job_ids\": [],\n  \"node_health\": {\n    \"exclusions\": [\n      \"head\"\n    ],\n    \"failed\": [],\n    \"healthy\": null,\n    \"max_nodes_effective\": 13,\n    \"max_nodes_requested\": 13,\n    \"nodes\": {},\n    \"probe_s\": 0.0,\n    \"skipped\": \"sinfo unavailable (OSError: sinfo rc=1: sinfo: not here)\",\n    \"user_exclude\": [],\n    \"when\": \"start\"\n  },\n  \"nodes\": 1,\n  \"pipeline\": {\n    \"stub\": true\n  },\n  \"pipeline_only\": true,\n  \"winner\": null\n}\n"
+   "report_json": "{\n  \"cancelled_job_ids\": [],\n  \"case\": \"matthew\",\n  \"job_ids\": [],\n  \"node_health\": {\n    \"exclusions\": [\n      \"head\"\n    ],\n    \"failed\": [],\n    \"healthy\": null,\n    \"max_nodes_effective\": 13,\n    \"max_nodes_requested\": 13,\n    \"nodes\": {},\n    \"probe_s\": 0.0,\n    \"skipped\": \"sinfo unavailable (OSError: sinfo rc=1: sinfo: not here)\",\n    \"user_exclude\": [],\n    \"when\": \"start\"\n  },\n  \"nodes\": 1,\n  \"pipeline\": {\n    \"stub\": true\n  },\n  \"pipeline_only\": true,\n  \"summary\": [],\n  \"winner\": null\n}\n"
   },
   "o3_full": {
    "calls": [
@@ -1088,6 +1100,7 @@
        "stage1": "t0",
        "stage2_minutes": null,
        "steps": "auto",
+       "sweep_reps": 1,
        "sweep_steps": null
       },
       "proposer": null,
@@ -1171,9 +1184,10 @@
      "stub": true
     },
     "pipeline_only": true,
+    "summary": [],
     "winner": null
    },
-   "report_json": "{\n  \"cancelled_job_ids\": [],\n  \"case\": \"matthew\",\n  \"job_ids\": [],\n  \"node_health\": {\n    \"exclusions\": [\n      \"head\"\n    ],\n    \"failed\": [],\n    \"healthy\": null,\n    \"max_nodes_effective\": 13,\n    \"max_nodes_requested\": 13,\n    \"nodes\": {},\n    \"probe_s\": 0.0,\n    \"skipped\": \"sinfo unavailable (OSError: sinfo rc=1: sinfo: not here)\",\n    \"user_exclude\": [],\n    \"when\": \"start\"\n  },\n  \"nodes\": 1,\n  \"pipeline\": {\n    \"stub\": true\n  },\n  \"pipeline_only\": true,\n  \"winner\": null\n}\n"
+   "report_json": "{\n  \"cancelled_job_ids\": [],\n  \"case\": \"matthew\",\n  \"job_ids\": [],\n  \"node_health\": {\n    \"exclusions\": [\n      \"head\"\n    ],\n    \"failed\": [],\n    \"healthy\": null,\n    \"max_nodes_effective\": 13,\n    \"max_nodes_requested\": 13,\n    \"nodes\": {},\n    \"probe_s\": 0.0,\n    \"skipped\": \"sinfo unavailable (OSError: sinfo rc=1: sinfo: not here)\",\n    \"user_exclude\": [],\n    \"when\": \"start\"\n  },\n  \"nodes\": 1,\n  \"pipeline\": {\n    \"stub\": true\n  },\n  \"pipeline_only\": true,\n  \"summary\": [],\n  \"winner\": null\n}\n"
   },
   "search_cost": {
    "calls": [
@@ -1265,6 +1279,7 @@
        "stage1": "t0",
        "stage2_minutes": null,
        "steps": "auto",
+       "sweep_reps": 1,
        "sweep_steps": [
         10,
         40
@@ -1341,9 +1356,10 @@
      "stub": true
     },
     "pipeline_only": true,
+    "summary": [],
     "winner": null
    },
-   "report_json": "{\n  \"cancelled_job_ids\": [],\n  \"case\": \"matthew\",\n  \"job_ids\": [],\n  \"node_health\": {\n    \"exclusions\": [\n      \"head\"\n    ],\n    \"failed\": [],\n    \"healthy\": null,\n    \"max_nodes_effective\": 13,\n    \"max_nodes_requested\": 13,\n    \"nodes\": {},\n    \"probe_s\": 0.0,\n    \"skipped\": \"sinfo unavailable (OSError: sinfo rc=1: sinfo: not here)\",\n    \"user_exclude\": [],\n    \"when\": \"start\"\n  },\n  \"nodes\": 1,\n  \"pipeline\": {\n    \"stub\": true\n  },\n  \"pipeline_only\": true,\n  \"winner\": null\n}\n"
+   "report_json": "{\n  \"cancelled_job_ids\": [],\n  \"case\": \"matthew\",\n  \"job_ids\": [],\n  \"node_health\": {\n    \"exclusions\": [\n      \"head\"\n    ],\n    \"failed\": [],\n    \"healthy\": null,\n    \"max_nodes_effective\": 13,\n    \"max_nodes_requested\": 13,\n    \"nodes\": {},\n    \"probe_s\": 0.0,\n    \"skipped\": \"sinfo unavailable (OSError: sinfo rc=1: sinfo: not here)\",\n    \"user_exclude\": [],\n    \"when\": \"start\"\n  },\n  \"nodes\": 1,\n  \"pipeline\": {\n    \"stub\": true\n  },\n  \"pipeline_only\": true,\n  \"summary\": [],\n  \"winner\": null\n}\n"
   },
   "search_default": {
    "calls": [
@@ -1435,6 +1451,7 @@
        "stage1": "t0",
        "stage2_minutes": null,
        "steps": "auto",
+       "sweep_reps": 1,
        "sweep_steps": [
         10,
         40
@@ -1515,9 +1532,10 @@
      "stub": true
     },
     "pipeline_only": true,
+    "summary": [],
     "winner": null
    },
-   "report_json": "{\n  \"cancelled_job_ids\": [],\n  \"case\": \"matthew\",\n  \"job_ids\": [],\n  \"node_health\": {\n    \"exclusions\": [\n      \"head\"\n    ],\n    \"failed\": [],\n    \"healthy\": null,\n    \"max_nodes_effective\": 13,\n    \"max_nodes_requested\": 13,\n    \"nodes\": {},\n    \"probe_s\": 0.0,\n    \"skipped\": \"sinfo unavailable (OSError: sinfo rc=1: sinfo: not here)\",\n    \"user_exclude\": [],\n    \"when\": \"start\"\n  },\n  \"nodes\": 1,\n  \"pipeline\": {\n    \"stub\": true\n  },\n  \"pipeline_only\": true,\n  \"winner\": null\n}\n"
+   "report_json": "{\n  \"cancelled_job_ids\": [],\n  \"case\": \"matthew\",\n  \"job_ids\": [],\n  \"node_health\": {\n    \"exclusions\": [\n      \"head\"\n    ],\n    \"failed\": [],\n    \"healthy\": null,\n    \"max_nodes_effective\": 13,\n    \"max_nodes_requested\": 13,\n    \"nodes\": {},\n    \"probe_s\": 0.0,\n    \"skipped\": \"sinfo unavailable (OSError: sinfo rc=1: sinfo: not here)\",\n    \"user_exclude\": [],\n    \"when\": \"start\"\n  },\n  \"nodes\": 1,\n  \"pipeline\": {\n    \"stub\": true\n  },\n  \"pipeline_only\": true,\n  \"summary\": [],\n  \"winner\": null\n}\n"
   }
  }
 }

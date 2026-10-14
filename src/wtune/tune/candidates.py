@@ -100,6 +100,17 @@ def aggregate_by_cid(rows: list[dict], configs_by_cid: dict) -> dict:
     return out
 
 
+def merge_aggs(a: dict, b: dict) -> dict:
+    """`a` with the runs of `b` (the same layout measured again) added."""
+    s = a["s_values"] + b["s_values"]
+    out = dict(a, s_values=s, median=statistics.median(s), lo=min(s), hi=max(s), n=len(s),
+               run_ids=(a.get("run_ids") or []) + (b.get("run_ids") or []))
+    dirty = sorted(set(a.get("dirty") or []) | set(b.get("dirty") or []))
+    if dirty:
+        out["dirty"] = dirty
+    return out
+
+
 def rank_predicted_entries(predicted: dict, anchor_cid: str | None) -> list[dict]:
     """predict_candidates() entries by predicted whole-run time (2026-09-24 decision), NOISE-
     clustered (_cluster_rank); entries whose prediction failed follow, ranked by median s/step.

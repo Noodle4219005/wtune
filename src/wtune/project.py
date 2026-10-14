@@ -206,6 +206,7 @@ def machine_line(project_doc):
     values["account"] = values["account"] or "-"
     values["calibration"] = values["calibration"] or "built-in"
     values["max_hours"] = "%g" % values["max_hours"]
+    values["node_memory_gib"] = "%g" % values["node_memory_gib"]
     values["node_preflight"] = "on" if values["node_preflight"] else "off"
     values["measured"] = ",".join(
         "%s=%g" % kv for kv in sorted(values["measured"].items())) or "-"
@@ -739,6 +740,9 @@ def build_parser():
     p_set.add_argument("--max-hours", type=float, default=None,
                        help="longest job the partition accepts; jobs are planned and capped "
                             "to fit (built-in 0 = no cap)")
+    p_set.add_argument("--node-memory-gib", type=float, default=None,
+                       help="memory of one compute node; probes that cannot fit are not sent "
+                            "(built-in 0 = unknown, no check)")
     p_set.add_argument("--node-preflight", type=_on_off, default=None, metavar="{on,off}",
                        help="probe every node with one srun before a tune (built-in on); off "
                             "where the scheduler limits how many jobs a user may submit")

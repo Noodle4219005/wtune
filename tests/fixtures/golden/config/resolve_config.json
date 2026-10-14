@@ -47,6 +47,7 @@
      10,
      40
     ],
+    "sweep_reps": 1,
     "confirm_reps": 2,
     "spinup_min": 60,
     "ranking_start": "t0",
@@ -202,6 +203,7 @@
      10,
      40
     ],
+    "sweep_reps": 1,
     "confirm_reps": 2,
     "spinup_min": 60,
     "ranking_start": "t0",
@@ -327,6 +329,7 @@
      10,
      40
     ],
+    "sweep_reps": 1,
     "confirm_reps": 2,
     "spinup_min": 60,
     "ranking_start": "t0",
@@ -525,6 +528,7 @@
      10,
      40
     ],
+    "sweep_reps": 1,
     "confirm_reps": 2,
     "spinup_min": 60,
     "ranking_start": "t0",
@@ -630,6 +634,7 @@
      10,
      40
     ],
+    "sweep_reps": 1,
     "confirm_reps": 2,
     "spinup_min": 60,
     "ranking_start": "t0",
@@ -731,6 +736,7 @@
      10,
      40
     ],
+    "sweep_reps": 1,
     "confirm_reps": 2,
     "spinup_min": 60,
     "ranking_start": "t0",

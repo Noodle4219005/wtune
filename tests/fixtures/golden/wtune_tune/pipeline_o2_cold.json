@@ -9,25 +9,25 @@
   "anchor_id": "ANCHOR",
   "best": {
     "confirmed": false,
-    "dist": "cyclic",
-    "id": "D0004",
-    "median_s_per_step": 0.2857142857142857,
-    "n_measurements": 2,
-    "nproc_x": 16,
-    "nproc_y": 9,
-    "numtiles": 8,
-    "omp": 2,
+    "dist": "block",
+    "id": "G0005",
+    "median_s_per_step": 0.2792207792207792,
+    "n_measurements": 4,
+    "nproc_x": 1,
+    "nproc_y": 12,
+    "numtiles": 48,
+    "omp": 24,
     "pred_error": "FileNotFoundError: [Errno 2] No such file or directory: '<TMP>/namelist.input'",
     "pred_source": null,
     "predicted_range_s": null,
     "predicted_total_hms": null,
     "predicted_total_s": null,
     "range_s_per_step": [
-      0.2857142857142857,
+      0.2727272727272727,
       0.2857142857142857
     ],
-    "ranks": 144,
-    "speedup_vs_anchor": 1.05,
+    "ranks": 12,
+    "speedup_vs_anchor": 1.0744186046511628,
     "speedup_vs_anchor_predicted": null
   },
   "budget_minutes": null,
@@ -36,7 +36,7 @@
   "cores_per_node": 72,
   "cores_used_per_node": 72,
   "elapsed_minutes": 0.0,
-  "full_run_prediction": "=== full-run prediction (rank_by=predicted, G0003, 1 rebuilt point(s)) ===\ncompute_total: 17:10   init: 10.0s   TOTAL: 17:20 (range 17:10 - 17:10, +-1.0% drift)\nr_rad: night=1.000 day=3.900 source=fake\nwhole run: compute 1020s + init 29s = 1049s (run-length I/O NOT included)  [init: measured round0 startup (6 runs)]",
+  "full_run_prediction": "=== full-run prediction (rank_by=predicted, G0005, 1 rebuilt point(s)) ===\ncompute_total: 17:10   init: 10.0s   TOTAL: 17:20 (range 17:10 - 17:10, +-1.0% drift)\nr_rad: night=1.000 day=3.900 source=fake\nwhole run: compute 1020s + init 29s = 1049s (run-length I/O NOT included)  [init: measured round0 startup (6 runs)]",
   "job_ids": [
     "9000",
     "9001",
@@ -58,29 +58,36 @@
     "7015",
     "7016",
     "7017",
-    "8020"
+    "7018",
+    "7019",
+    "7020",
+    "7021",
+    "7022",
+    "7023",
+    "7024",
+    "8027"
   ],
   "layout_table": {
     "comparison": {
       "beyond_noise": false,
-      "gap": 0.0,
+      "gap": 0.023255813953488382,
       "noise": 0.03
     },
     "rows": [
       {
-        "cid": "G0003",
+        "cid": "G0005",
         "cores_per_node": 72,
         "dist": "block",
-        "median": 0.2857142857142857,
+        "median": 0.2792207792207792,
         "nodes": 4,
-        "numtiles": 13,
+        "numtiles": 48,
         "nx": 1,
-        "ny": 16,
-        "omp": 18,
-        "ranks": 16,
-        "reps": 2,
+        "ny": 12,
+        "omp": 24,
+        "ranks": 12,
+        "reps": 4,
         "source": "finalist search",
-        "spread": 0.0
+        "spread": 0.046511627906976764
       },
       {
         "cid": "G0004",
@@ -93,22 +100,7 @@
         "ny": 16,
         "omp": 2,
         "ranks": 144,
-        "reps": 2,
-        "source": "finalist search",
-        "spread": 0.0
-      },
-      {
-        "cid": "G0005",
-        "cores_per_node": 72,
-        "dist": "block",
-        "median": 0.2857142857142857,
-        "nodes": 4,
-        "numtiles": 48,
-        "nx": 1,
-        "ny": 12,
-        "omp": 24,
-        "ranks": 12,
-        "reps": 2,
+        "reps": 4,
         "source": "finalist search",
         "spread": 0.0
       },
@@ -158,6 +150,21 @@
         "spread": 0.0
       },
       {
+        "cid": "G0003",
+        "cores_per_node": 72,
+        "dist": "block",
+        "median": 0.2928571428571428,
+        "nodes": 4,
+        "numtiles": 13,
+        "nx": 1,
+        "ny": 16,
+        "omp": 18,
+        "ranks": 16,
+        "reps": 4,
+        "source": "finalist search",
+        "spread": 0.04878048780487807
+      },
+      {
         "cid": "ANCHOR",
         "cores_per_node": 72,
         "dist": "block",
@@ -168,8 +175,8 @@
         "ny": 18,
         "omp": 1,
         "ranks": 288,
-        "reps": 2,
-        "source": "t0 sweep ANCHOR",
+        "reps": 6,
+        "source": "cores/node sweep ANCHOR",
         "spread": 0.0
       },
       {
@@ -183,7 +190,7 @@
         "ny": 20,
         "omp": 1,
         "ranks": 280,
-        "reps": 2,
+        "reps": 4,
         "source": "cores/node sweep ANCHOR",
         "spread": 0.0
       },
@@ -198,7 +205,7 @@
         "ny": 16,
         "omp": 1,
         "ranks": 256,
-        "reps": 2,
+        "reps": 4,
         "source": "cores/node sweep ANCHOR",
         "spread": 0.0
       },
@@ -318,7 +325,7 @@
         "ny": 20,
         "omp": 1,
         "ranks": 360,
-        "reps": 2,
+        "reps": 4,
         "source": "t0 sweep ANCHOR",
         "spread": 0.0
       },
@@ -333,7 +340,7 @@
         "ny": 24,
         "omp": 1,
         "ranks": 432,
-        "reps": 2,
+        "reps": 4,
         "source": "t0 sweep ANCHOR",
         "spread": 0.0
       },
@@ -399,34 +406,34 @@
       }
     ],
     "runner_up": {
-      "cid": "G0003",
+      "cid": "G0004",
       "cores_per_node": 72,
       "dist": "block",
       "median": 0.2857142857142857,
       "nodes": 4,
-      "numtiles": 13,
-      "nx": 1,
+      "numtiles": 14,
+      "nx": 9,
       "ny": 16,
-      "omp": 18,
-      "ranks": 16,
-      "reps": 2,
+      "omp": 2,
+      "ranks": 144,
+      "reps": 4,
       "source": "finalist search",
       "spread": 0.0
     },
     "winner": {
-      "cid": "D0004",
+      "cid": "G0005",
       "cores_per_node": 72,
-      "dist": "cyclic",
-      "median": 0.2857142857142857,
+      "dist": "block",
+      "median": 0.2792207792207792,
       "nodes": 4,
-      "numtiles": 8,
-      "nx": 16,
-      "ny": 9,
-      "omp": 2,
-      "ranks": 144,
-      "reps": 2,
+      "numtiles": 48,
+      "nx": 1,
+      "ny": 12,
+      "omp": 24,
+      "ranks": 12,
+      "reps": 4,
       "source": "finalist search",
-      "spread": 0.0
+      "spread": 0.046511627906976764
     }
   },
   "node_health": {
@@ -508,7 +515,7 @@
           "cores": 72,
           "maxrss_mb": null,
           "median": 0.3,
-          "n": 2,
+          "n": 6,
           "nx": 16,
           "ny": 18,
           "omp": 1,
@@ -521,7 +528,7 @@
           "cores": 70,
           "maxrss_mb": null,
           "median": 0.3,
-          "n": 2,
+          "n": 4,
           "nx": 14,
           "ny": 20,
           "omp": 1,
@@ -534,7 +541,7 @@
           "cores": 64,
           "maxrss_mb": null,
           "median": 0.3,
-          "n": 2,
+          "n": 4,
           "nx": 16,
           "ny": 16,
           "omp": 1,
@@ -574,28 +581,28 @@
     "enumerated": {},
     "final": 4,
     "final_cores_per_node": 72,
-    "final_note": "final over tuned finalists [4]: objective=time: N=4 median=0.2857 s/step; min is 0.2857, smallest N within 3% noise of it",
+    "final_note": "final over tuned finalists [4]: objective=time: N=4 median=0.2792 s/step; min is 0.2792, smallest N within 3% noise of it",
     "finalist_best": {
-      "4": 0.2857142857142857
+      "4": 0.2792207792207792
     },
     "finalists": [
       4
     ],
     "layouts": [
       {
-        "cid": "G0003",
+        "cid": "G0005",
         "cores_per_node": 72,
         "dist": "block",
-        "median": 0.2857142857142857,
+        "median": 0.2792207792207792,
         "nodes": 4,
-        "numtiles": 13,
+        "numtiles": 48,
         "nx": 1,
-        "ny": 16,
-        "omp": 18,
-        "ranks": 16,
-        "reps": 2,
+        "ny": 12,
+        "omp": 24,
+        "ranks": 12,
+        "reps": 4,
         "source": "finalist search",
-        "spread": 0.0
+        "spread": 0.046511627906976764
       },
       {
         "cid": "G0004",
@@ -608,22 +615,7 @@
         "ny": 16,
         "omp": 2,
         "ranks": 144,
-        "reps": 2,
-        "source": "finalist search",
-        "spread": 0.0
-      },
-      {
-        "cid": "G0005",
-        "cores_per_node": 72,
-        "dist": "block",
-        "median": 0.2857142857142857,
-        "nodes": 4,
-        "numtiles": 48,
-        "nx": 1,
-        "ny": 12,
-        "omp": 24,
-        "ranks": 12,
-        "reps": 2,
+        "reps": 4,
         "source": "finalist search",
         "spread": 0.0
       },
@@ -673,6 +665,21 @@
         "spread": 0.0
       },
       {
+        "cid": "G0003",
+        "cores_per_node": 72,
+        "dist": "block",
+        "median": 0.2928571428571428,
+        "nodes": 4,
+        "numtiles": 13,
+        "nx": 1,
+        "ny": 16,
+        "omp": 18,
+        "ranks": 16,
+        "reps": 4,
+        "source": "finalist search",
+        "spread": 0.04878048780487807
+      },
+      {
         "cid": "ANCHOR",
         "cores_per_node": 72,
         "dist": "block",
@@ -683,8 +690,8 @@
         "ny": 18,
         "omp": 1,
         "ranks": 288,
-        "reps": 2,
-        "source": "t0 sweep ANCHOR",
+        "reps": 6,
+        "source": "cores/node sweep ANCHOR",
         "spread": 0.0
       },
       {
@@ -698,7 +705,7 @@
         "ny": 20,
         "omp": 1,
         "ranks": 280,
-        "reps": 2,
+        "reps": 4,
         "source": "cores/node sweep ANCHOR",
         "spread": 0.0
       },
@@ -713,7 +720,7 @@
         "ny": 16,
         "omp": 1,
         "ranks": 256,
-        "reps": 2,
+        "reps": 4,
         "source": "cores/node sweep ANCHOR",
         "spread": 0.0
       },
@@ -833,7 +840,7 @@
         "ny": 20,
         "omp": 1,
         "ranks": 360,
-        "reps": 2,
+        "reps": 4,
         "source": "t0 sweep ANCHOR",
         "spread": 0.0
       },
@@ -848,7 +855,7 @@
         "ny": 24,
         "omp": 1,
         "ranks": 432,
-        "reps": 2,
+        "reps": 4,
         "source": "t0 sweep ANCHOR",
         "spread": 0.0
       },
@@ -919,17 +926,17 @@
     "objective": "time",
     "overhead_s": 120.0,
     "runner_up": {
-      "cid": "G0003",
+      "cid": "G0004",
       "cores_per_node": 72,
       "dist": "block",
       "median": 0.2857142857142857,
       "nodes": 4,
-      "numtiles": 13,
-      "nx": 1,
+      "numtiles": 14,
+      "nx": 9,
       "ny": 16,
-      "omp": 18,
-      "ranks": 16,
-      "reps": 2,
+      "omp": 2,
+      "ranks": 144,
+      "reps": 4,
       "source": "finalist search",
       "spread": 0.0
     },
@@ -967,7 +974,10 @@
       "7004",
       "7005",
       "7006",
-      "7007"
+      "7007",
+      "7008",
+      "7009",
+      "7010"
     ],
     "table": [
       {
@@ -1007,7 +1017,7 @@
         "efficiency": 0.8333333333333334,
         "maxrss_mb": null,
         "median": 0.3,
-        "n": 2,
+        "n": 4,
         "node_hours": 0.4666666666666667,
         "nodes": 4,
         "speedup": 3.3333333333333335,
@@ -1018,7 +1028,7 @@
         "efficiency": 0.6557377049180328,
         "maxrss_mb": null,
         "median": 0.305,
-        "n": 2,
+        "n": 4,
         "node_hours": 0.5902777777777778,
         "nodes": 5,
         "speedup": 3.278688524590164,
@@ -1029,7 +1039,7 @@
         "efficiency": 0.5376344086021506,
         "maxrss_mb": null,
         "median": 0.31,
-        "n": 2,
+        "n": 4,
         "node_hours": 0.7166666666666667,
         "nodes": 6,
         "speedup": 3.2258064516129035,
@@ -1076,48 +1086,48 @@
       }
     ],
     "winner": {
-      "cid": "D0004",
+      "cid": "G0005",
       "cores_per_node": 72,
-      "dist": "cyclic",
-      "median": 0.2857142857142857,
+      "dist": "block",
+      "median": 0.2792207792207792,
       "nodes": 4,
-      "numtiles": 8,
-      "nx": 16,
-      "ny": 9,
-      "omp": 2,
-      "ranks": 144,
-      "reps": 2,
+      "numtiles": 48,
+      "nx": 1,
+      "ny": 12,
+      "omp": 24,
+      "ranks": 12,
+      "reps": 4,
       "source": "finalist search",
-      "spread": 0.0
+      "spread": 0.046511627906976764
     },
     "winner_vs_runner_up": {
       "beyond_noise": false,
-      "gap": 0.0,
+      "gap": 0.023255813953488382,
       "noise": 0.03
     }
   },
   "nodes": 4,
-  "nodes_note": "final over tuned finalists [4]: objective=time: N=4 median=0.2857 s/step; min is 0.2857, smallest N within 3% noise of it",
+  "nodes_note": "final over tuned finalists [4]: objective=time: N=4 median=0.2792 s/step; min is 0.2792, smallest N within 3% noise of it",
   "param_table": {
-    "dist": "cyclic",
+    "dist": "block",
     "env": {
-      "OMP_NUM_THREADS": "2",
+      "OMP_NUM_THREADS": "24",
       "OMP_STACKSIZE": "1G"
     },
-    "launch_line": "mpirun -np 144 --map-by ppr:36:node:PE=2 --bind-to core --rank-by node ./wrf.exe",
+    "launch_line": "mpirun -np 12 --map-by ppr:3:node:PE=24 --bind-to core ./wrf.exe",
     "namelist_lines": [
-      "nproc_x=16,",
-      "nproc_y=9,",
-      "numtiles=8,"
+      "nproc_x=1,",
+      "nproc_y=12,",
+      "numtiles=48,"
     ],
     "nodes": 4,
     "note": "KMP_BLOCKTIME: n/a on this cluster (nvhpc OpenMP runtime has no KMP_BLOCKTIME concept)",
-    "nproc_x": 16,
-    "nproc_y": 9,
-    "numtiles": 8,
-    "omp": 2,
-    "ranks": 144,
-    "ranks_per_node": 36,
+    "nproc_x": 1,
+    "nproc_y": 12,
+    "numtiles": 48,
+    "omp": 24,
+    "ranks": 12,
+    "ranks_per_node": 3,
     "ulimit": "ulimit -s unlimited"
   },
   "pipeline": {
@@ -1215,7 +1225,14 @@
           "7014",
           "7015",
           "7016",
-          "7017"
+          "7017",
+          "7018",
+          "7019",
+          "7020",
+          "7021",
+          "7022",
+          "7023",
+          "7024"
         ],
         "limit_s": Infinity,
         "name": "layout",
@@ -1234,7 +1251,7 @@
         "job_run_s_max": null,
         "job_run_s_sum": null,
         "jobs": [
-          "8020"
+          "8027"
         ],
         "limit_s": Infinity,
         "name": "predict",
@@ -1271,7 +1288,7 @@
       "startup_s": 28.53571428571429,
       "tried": [
         {
-          "estimate_s": 106.95142857142858,
+          "estimate_s": 106.49961038961038,
           "plan": "winner only x all 3 points"
         }
       ]
@@ -1284,11 +1301,11 @@
       "candidates": [
         {
           "config": {
-            "numtiles": 13,
+            "numtiles": 48,
             "nx": 1,
-            "ny": 16,
-            "omp": 18,
-            "ranks": 16
+            "ny": 12,
+            "omp": 24,
+            "ranks": 12
           },
           "cores": 72,
           "nodes": 4,
@@ -1299,11 +1316,11 @@
       "compute_s": 1020.0,
       "config": {
         "dist": "block",
-        "numtiles": 13,
+        "numtiles": 48,
         "nx": 1,
-        "ny": 16,
-        "omp": 18,
-        "ranks": 16
+        "ny": 12,
+        "omp": 24,
+        "ranks": 12
       },
       "cores_per_node": 72,
       "degraded": false,
@@ -1312,7 +1329,7 @@
       "init_source": "measured round0 startup (6 runs)",
       "io": null,
       "io_s": 0.0,
-      "layout_id": "G0003",
+      "layout_id": "G0005",
       "nodes": 4,
       "points_used": 3,
       "predicted_range_s": [
@@ -1374,6 +1391,29 @@
     "total_wall_s": 0.0
   },
   "ranking": [
+    {
+      "confirmed": false,
+      "dist": "block",
+      "id": "G0005",
+      "median_s_per_step": 0.2792207792207792,
+      "n_measurements": 4,
+      "nproc_x": 1,
+      "nproc_y": 12,
+      "numtiles": 48,
+      "omp": 24,
+      "pred_error": "FileNotFoundError: [Errno 2] No such file or directory: '<TMP>/namelist.input'",
+      "pred_source": null,
+      "predicted_range_s": null,
+      "predicted_total_hms": null,
+      "predicted_total_s": null,
+      "range_s_per_step": [
+        0.2727272727272727,
+        0.2857142857142857
+      ],
+      "ranks": 12,
+      "speedup_vs_anchor": 1.0744186046511628,
+      "speedup_vs_anchor_predicted": null
+    },
     {
       "confirmed": false,
       "dist": "cyclic",
@@ -1446,32 +1486,9 @@
     {
       "confirmed": false,
       "dist": "block",
-      "id": "G0003",
-      "median_s_per_step": 0.2857142857142857,
-      "n_measurements": 2,
-      "nproc_x": 1,
-      "nproc_y": 16,
-      "numtiles": 13,
-      "omp": 18,
-      "pred_error": "FileNotFoundError: [Errno 2] No such file or directory: '<TMP>/namelist.input'",
-      "pred_source": null,
-      "predicted_range_s": null,
-      "predicted_total_hms": null,
-      "predicted_total_s": null,
-      "range_s_per_step": [
-        0.2857142857142857,
-        0.2857142857142857
-      ],
-      "ranks": 16,
-      "speedup_vs_anchor": 1.05,
-      "speedup_vs_anchor_predicted": null
-    },
-    {
-      "confirmed": false,
-      "dist": "block",
       "id": "G0004",
       "median_s_per_step": 0.2857142857142857,
-      "n_measurements": 2,
+      "n_measurements": 4,
       "nproc_x": 9,
       "nproc_y": 16,
       "numtiles": 14,
@@ -1492,13 +1509,13 @@
     {
       "confirmed": false,
       "dist": "block",
-      "id": "G0005",
-      "median_s_per_step": 0.2857142857142857,
-      "n_measurements": 2,
+      "id": "G0003",
+      "median_s_per_step": 0.2928571428571428,
+      "n_measurements": 4,
       "nproc_x": 1,
-      "nproc_y": 12,
-      "numtiles": 48,
-      "omp": 24,
+      "nproc_y": 16,
+      "numtiles": 13,
+      "omp": 18,
       "pred_error": "FileNotFoundError: [Errno 2] No such file or directory: '<TMP>/namelist.input'",
       "pred_source": null,
       "predicted_range_s": null,
@@ -1506,10 +1523,10 @@
       "predicted_total_s": null,
       "range_s_per_step": [
         0.2857142857142857,
-        0.2857142857142857
+        0.3
       ],
-      "ranks": 12,
-      "speedup_vs_anchor": 1.05,
+      "ranks": 16,
+      "speedup_vs_anchor": 1.024390243902439,
       "speedup_vs_anchor_predicted": null
     },
     {
@@ -1652,19 +1669,26 @@
     }
   ],
   "ranking_start_note": null,
+  "summary": [
+    "best:     N=4 c/n=72 12 ranks x 24 threads 1x12 tiles=48: 0.2792 s/step (4 runs)",
+    "run:      predicted 17:28 for the whole simulation (phase 2 combine())",
+    "margin:   2.3% ahead of N=4 c/n=72 144 ranks x 2 threads 9x16 tiles=14 -> within noise: either is fine (noise 3%)",
+    "not run:  N=13 early stop; N=7,9-12 not measured",
+    "tuning:   running 0:00, queue 0:00 (not counted)"
+  ],
   "winner": {
-    "cid": "D0004",
+    "cid": "G0005",
     "cores_per_node": 72,
-    "dist": "cyclic",
-    "median": 0.2857142857142857,
+    "dist": "block",
+    "median": 0.2792207792207792,
     "nodes": 4,
-    "numtiles": 8,
-    "nx": 16,
-    "ny": 9,
-    "omp": 2,
-    "ranks": 144,
-    "reps": 2,
+    "numtiles": 48,
+    "nx": 1,
+    "ny": 12,
+    "omp": 24,
+    "ranks": 12,
+    "reps": 4,
     "source": "finalist search",
-    "spread": 0.0
+    "spread": 0.046511627906976764
   }
 }

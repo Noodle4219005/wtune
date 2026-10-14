@@ -808,6 +808,12 @@
     }
   ],
   "ranking_start_note": null,
+  "summary": [
+    "best:     N=4 c/n=72 288 ranks x 1 threads 16x18 tiles=1: 0.3000 s/step (2 runs)",
+    "run:      predicted 83:22:00 for the whole simulation (phase-1 anchor s/step x steps)",
+    "not run:  N=3,5,7-13 budget",
+    "tuning:   running 9:13, queue 0:00 (not counted)"
+  ],
   "winner": {
     "cid": "ANCHOR",
     "cores_per_node": 72,

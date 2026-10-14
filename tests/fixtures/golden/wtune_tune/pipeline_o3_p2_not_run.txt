@@ -2,13 +2,18 @@ case=matthew nodes=search (node search (measured)) budget=11.7 min max_nodes=13 
 pipeline O3: hard cap 11:40 of RUNNING time (queue wait not charged; queue cap 6:00:00); phase limits (cumulative): plan 0:35, layout 6:25, predict 9:20, physics 11:40
 pipeline: 預估調校時間 O1 ≈ 130 min  O2 ≈ 168 min  O3 ≈ 196 min <-  (running time; queue wait extra); whole run ~2777:48:40 (cold start); prediction points for this case at ±15 min: 5 (wtune.cost_drivers)
 node sweep: hotspot fill: N=[6] in the idle nodes of wave [1, 2, 4]
-node sweep: nodes-n1 submitted job 7001 (ANCHOR ranks=72 omp=1 8x9, REPS=2, 5 steps, ~5:40)
-node sweep: nodes-n2 submitted job 7002 (ANCHOR ranks=144 omp=1 12x12, REPS=2, 5 steps, ~5:40)
-node sweep: nodes-n4 submitted job 7003 (ANCHOR ranks=288 omp=1 16x18, REPS=2, 5 steps, ~5:40)
-node sweep: nodes-n6 submitted job 7004 (ANCHOR ranks=432 omp=1 18x24, REPS=2, 5 steps, ~5:40)
+node sweep: nodes-n1 submitted job 7001 (ANCHOR ranks=72 omp=1 8x9, REPS=1, 5 steps, ~2:50)
+node sweep: nodes-n2 submitted job 7002 (ANCHOR ranks=144 omp=1 12x12, REPS=1, 5 steps, ~2:50)
+node sweep: nodes-n4 submitted job 7003 (ANCHOR ranks=288 omp=1 16x18, REPS=1, 5 steps, ~2:50)
+node sweep: nodes-n6 submitted job 7004 (ANCHOR ranks=432 omp=1 18x24, REPS=1, 5 steps, ~2:50)
 [node-sweep] [------------------------]   0%  elapsed=0:00 / budget=6:25  (running budget; wall 0:00, queue-only 0:00)
 node sweep: sweep budget cap: sweep used 9:13 >= 40% of the budget (2:34); larger N not submitted
 node sweep: sweep budget cap: sweep used 9:13 >= 40% of the budget (2:34); refinement stopped
+node sweep: measuring [4, 6] once more (within 2x noise of the fastest)
+node sweep: nodes-n4-race skipped -- estimated end would exceed the budget (job ~2:01 at 0.300s/step[median at N=4], elapsed 9:13 / budget 6:25)
+node sweep: nodes-n6-race skipped -- estimated end would exceed the budget (job ~2:01 at 0.310s/step[median at N=6], elapsed 9:13 / budget 6:25)
+node sweep: second run not measured -- estimated end would exceed the budget (job ~2:01 at 0.300s/step[median at N=4], elapsed 9:13 / budget 6:25)
+node sweep: second run not measured -- estimated end would exceed the budget (job ~2:01 at 0.310s/step[median at N=6], elapsed 9:13 / budget 6:25)
 pipeline: best measured 0.3000 s/step -> whole run ~83:22:00
 node sweep: chose N=4 -- objective=time: N=4 median=0.3000 s/step; min is 0.3000, smallest N within 3% noise of it; finalists [4, 6]
 node sweep: N=1  median=1.0000 s/step n=2 spread=0.0% speedup=1.00 eff=1.00
@@ -21,6 +26,12 @@ node search: no budget left for finalist N=4
 node search: no budget left for finalist N=6
 pipeline: phase 2 not run (budget): the smallest plan (winner only x 1 point (t0)) needs ~4:50 of running time, 0:07 left of the phase-2 share
 pipeline: run-length I/O model unavailable (FileNotFoundError: [Errno 2] No such file or directory: '<TMP>/namelist.input') -- whole-run prediction is compute + init only
+
+=== summary ===
+best:     N=4 c/n=72 288 ranks x 1 threads 16x18 tiles=1: 0.3000 s/step (2 runs)
+run:      predicted 83:22:00 for the whole simulation (phase-1 anchor s/step x steps)
+not run:  N=3,5,7-13 budget
+tuning:   running 9:13, queue 0:00 (not counted)
 
 === wtune tune: matthew ===
 nodes=4 (objective=time: N=4 median=0.3000 s/step; min is 0.3000, smallest N within 3% noise of it; budget exhausted after the sweep -- ANCHOR config)

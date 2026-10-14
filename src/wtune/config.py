@@ -65,7 +65,7 @@ DEFAULTS = {
     # rank every candidate; points..sources place the winner's full-run prediction points
     # (wtune.probe_plan.plan_points). ranking_start defaults to t0: spinup start is not wired
     # into strict_campaign.sbatch yet (selecting it prints a NOTE and runs from t0).
-    "probe": {"steps": "auto", "sweep_steps": [10, 40], "confirm_reps": 2, "spinup_min": 60, "ranking_start": "t0",
+    "probe": {"steps": "auto", "sweep_steps": [10, 40], "sweep_reps": 1, "confirm_reps": 2, "spinup_min": 60, "ranking_start": "t0",
               "points": "auto", "max_points": 5, "budget_pct": 10.0,
               "sources": ["trajectory", "restart", "rebuild"],
               # rank_by=predicted: rank by predicted whole-run time from shared spun-up ERA5
@@ -91,7 +91,7 @@ SEARCH_KEYS = {"omp", "numtiles", "rank_distribution", "aspect_max", "io"}
 SEARCH_IO_KEYS = {"enabled", "io_form_history", "target"}
 PHYSICS_GRAY_KEYS = {"enabled", "knobs"}
 PHYSICS_GRAY_KNOB_KEYS = {"multiply"}
-PROBE_KEYS = {"steps", "sweep_steps", "confirm_reps", "spinup_min", "ranking_start", "points", "max_points",
+PROBE_KEYS = {"steps", "sweep_steps", "sweep_reps", "confirm_reps", "spinup_min", "ranking_start", "points", "max_points",
               "budget_pct", "sources", "rank_by", "restart_io_form", "stage1",
               "stage2_minutes", "points_by", "indicator_sources"}
 POINTS_BY_CHOICES = ("time", "cost-indicators")
@@ -334,6 +334,7 @@ _PROBE_RULES = [
                                              and all(_is_int(x) and x > 0 for x in v)
                                              and v[0] <= v[1]),
      "must be [min, max] positive integers with min <= max, or null, got %r"),
+    ("sweep_reps", lambda v: _is_int(v) and v > 0, _POS_INT),
     ("confirm_reps", lambda v: _is_int(v) and v > 0, _POS_INT),
     ("spinup_min", lambda v: _is_number(v) and v >= 0, "must be a non-negative number, got %r"),
     ("ranking_start", *_choice(RANKING_START_CHOICES)),
@@ -816,6 +817,8 @@ probe:
                                    # step; or a fixed positive integer
   sweep_steps: [10, 40]           # node and cores-per-node sweep probes: the steps one startup costs,
                                    # kept within [min, max] (cheap steps -> max); null = `steps`
+  sweep_reps: 1                   # runs of each sweep probe; with 1, the probes that tie with the
+                                   # fastest (within 2x noise) get one more run
   confirm_reps: 2                 # replicate count for the confirm stage's top candidates
   spinup_min: 60                  # RANKING layer: minutes the anchor spin-up run advances before every
                                    # candidate starts from ITS shared restart (0 disables -> t0 start)

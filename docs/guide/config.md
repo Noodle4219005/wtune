@@ -42,6 +42,7 @@ search:
 probe:
   steps: auto            # 每個候選配置量幾步
   sweep_steps: [10, 40]  # 節點與核心數掃描的步數範圍
+  sweep_reps: 1          # 掃描每點量幾次；接近最快的會再量一次
   confirm_reps: 2        # 前幾名重複量幾次
 ```
 

@@ -262,6 +262,9 @@
     }
   ],
   "ranking_start_note": null,
+  "summary": [
+    "best:     N=1 c/n=72 72 ranks x 1 threads 8x9 tiles=1: 0.8696 s/step (2 runs)"
+  ],
   "winner": {
     "cid": "ANCHOR",
     "cores_per_node": 72,

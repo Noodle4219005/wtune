@@ -105,6 +105,12 @@ ADIOS2 history on the same machine writes a frame in 0.03-0.07 s. Every aux outp
 writes is now ADIOS2 too (`--io netcdf` keeps the case's formats); `wtune convert bp2nc`
 turns a frame back into netCDF.
 
+**`wtune calibrate` in ADIOS2.** The plan's jobs still ran `--no-adios2`: netCDF inputs and a
+netCDF history frame, so the measured write and read rates were netCDF's while every run is
+ADIOS2. Each job now stages the case's inputs as BP the way the probe jobs do (one conversion
+per case, shared cache), copies the per-record boundary files into its run directory, and
+writes ADIOS2. `fit` counts the bytes of a BP directory, not the directory entry.
+
 ## 0.9.0 — 2026-10-12
 
 Main code made small enough to review; behaviour of the tune -> run -> post path is unchanged

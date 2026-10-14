@@ -161,7 +161,9 @@ def test_plan_skips_infeasible_ranks_and_writes_manifest(tmp_path):
         assert r.returncode == 0, r.stderr
         text = sbatch_path.read_text()
         assert "#SBATCH --exclude=head" in text
-        assert "--no-adios2" in text
+        assert "--no-adios2" not in text
+        assert "--ranks %d" % ranks in text
+        assert "stage-bp-inputs case " in text and "export WTUNE_INPUT_FORMAT=adios2" in text
         assert "--set restart=.false." in text
         # regression (scc job 1090/1091, 2026-09-25): scc.sh's site_hygiene() reads
         # $ALLOC_NODES itself; calling it before ALLOC_NODES is assigned made `set -u` abort
@@ -561,3 +563,13 @@ def test_fitted_calibration_loads_in_wtune_predict_build_prediction(tmp_path):
     assert pred["init"]["startup_term_s"] == pytest.approx(19.4)
     text = wp.render_text(pred)
     assert "TOTAL predicted wall" in text
+
+
+def test_dir_bytes_counts_the_files_of_a_bp_directory(tmp_path):
+    bp = tmp_path / "wrfout_d01_2023-03-31_01:00:00"
+    bp.mkdir()
+    (bp / "data.0").write_bytes(b"\0" * 3000)
+    (bp / "md.0").write_bytes(b"\0" * 200)
+    (tmp_path / "wrfinput_d01.bp").symlink_to(bp)
+    assert wc._dir_bytes(tmp_path, ["wrfout_d01_*"])[0] == 3200
+    assert wc._dir_bytes(tmp_path, ["wrfinput_d*"])[0] == 3200

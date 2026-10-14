@@ -54,8 +54,8 @@ options:
                         cores
   --compress-history    --sidecar, and each converted history frame replaces its BP directory
                         (zlib netCDF, about 4x smaller, checked against the BP first; on a full
-                        node one core is shared at the lowest priority); WTune's own restart files
-                        are deleted once the run has succeeded
+                        node one core is shared at the lowest priority); of WTune's own restarts
+                        only the newest valid set is kept, none once the run has succeeded
   --wrfda-forecast-only
                         acknowledge that this WRFDA case is run as wrf.exe forecast segments only:
                         WTune does NOT run DA cycles (obsproc/da_wrfvar/da_update_bc). Without it,

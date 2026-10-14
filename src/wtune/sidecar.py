@@ -10,6 +10,7 @@ and then takes the BP directory's place: zlib netCDF that post reads directly, ~
 from __future__ import annotations
 
 import argparse
+import glob
 import os
 import shutil
 import subprocess
@@ -129,12 +130,13 @@ class Sidecar:
     def __init__(self, run_dir: str, cache_root: str, max_dom: int,
                  is_bp: Callable[[str], bool], report: dict, save: Callable[[], None],
                  log: Callable[[str], None], cores_per_node: int, exclude_arg: str,
-                 runner: Callable[[list], Any], replace: bool = False) -> None:
+                 runner: Callable[[list], Any], replace: bool = False,
+                 keep_last_restart: bool = False) -> None:
         self.run_dir, self.cache_root = run_dir, cache_root
         self.max_dom, self.is_bp = max_dom, is_bp
         self.save, self.log, self.runner, self.off = save, log, runner, False
         self.cores_per_node, self.exclude_arg = cores_per_node, exclude_arg
-        self.replace = replace
+        self.replace, self.keep_last_restart = replace, keep_last_restart
         self.rec = report.setdefault("sidecar", {"cache": cache_root, "valid_restarts": [],
                                                  "last_valid_restart": None, "converted": 0,
                                                  "not_converted": []})
@@ -163,7 +165,25 @@ class Sidecar:
             self.log("  sidecar: restart %s valid" % t)
         if new:
             self.rec["last_valid_restart"] = self.rec["valid_restarts"][-1]
+            if self.keep_last_restart:
+                self._drop_older_restarts(seg_dir)
             self.save()
+
+    def _drop_older_restarts(self, seg_dir: str) -> None:
+        """A resume starts from the newest valid restart of the dir (wtune.resume reads the
+        disk), so the older valid sets only take space."""
+        mine = sorted((r for r in self.rec["valid_restarts"]
+                       if r["dir"] == seg_dir and not r.get("deleted")), key=lambda r: r["time"])
+        for r in mine[:-1]:
+            for d in range(1, self.max_dom + 1):
+                for p in glob.glob(os.path.join(seg_dir, "wrfrst_d%02d_%s*"
+                                                % (d, glob.escape(r["time"])))):
+                    if os.path.isdir(p) and not os.path.islink(p):
+                        shutil.rmtree(p)
+                    else:
+                        os.remove(p)
+            r["deleted"] = True
+            self.log("  sidecar: restart %s deleted (a newer one is valid)" % r["time"])
 
     @_never_fatal
     def job_ended(self, seg_dir: str) -> None:

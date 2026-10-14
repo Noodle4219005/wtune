@@ -151,7 +151,8 @@ converted frame (zlib netCDF) is first compared with its BP variable by variable
 (`tools/bp_nc_same.py`) and then takes the BP directory's place, so `wtune post` reads it
 directly and keeps no second copy. matthew's 17 frames: 915.7 MB as BP, 237.4 MB as zlib
 netCDF. On a full node the conversion shares the last core at the lowest priority. After a
-run that succeeded, the restart files WTune added for its segment hand-offs are deleted.
+run, of the restart sets WTune added only the newest validated one per directory is kept (a
+resume starts from it); after a run that succeeded they are all deleted.
 
 ## 0.9.0 — 2026-10-12
 

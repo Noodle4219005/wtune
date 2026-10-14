@@ -283,4 +283,5 @@ def _make_sidecar(ctx: RunContext, nc_root: str, runner: Optional[Callable] = No
         ctx.report, save=lambda: _save_report(ctx), log=ctx.log,
         cores_per_node=wtune.machine.cores_per_node(), exclude_arg=sweep.exclude_arg(),
         runner=runner or wtune.sidecar.popen_runner(os.path.join(out, "sidecar.log")),
-        replace=ctx.opts.compress_history)
+        replace=ctx.opts.compress_history,
+        keep_last_restart=ctx.opts.compress_history and ctx.plan.restart.set_min is not None)

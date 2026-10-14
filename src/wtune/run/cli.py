@@ -83,8 +83,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
     ap.add_argument("--compress-history", action="store_true",
                     help="--sidecar, and each converted history frame replaces its BP directory "
                          "(zlib netCDF, about 4x smaller, checked against the BP first; on a "
-                         "full node one core is shared at the lowest priority); WTune's own "
-                         "restart files are deleted once the run has succeeded")
+                         "full node one core is shared at the lowest priority); of WTune's own "
+                         "restarts only the newest valid set is kept, none once the run has "
+                         "succeeded")
     ap.add_argument("--wrfda-forecast-only", action="store_true",
                     help="acknowledge that this WRFDA case is run as wrf.exe forecast segments "
                          "only: WTune does NOT run DA cycles (obsproc/da_wrfvar/da_update_bc). "

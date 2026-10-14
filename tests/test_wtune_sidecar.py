@@ -411,3 +411,27 @@ def test_finish_drops_the_partial_files_of_a_killed_conversion(tmp_path, fake_bp
         open(p, "w").close()
     side.finish()
     assert not os.path.exists(junk) and os.path.exists(keep)
+
+
+def test_compress_history_keeps_only_the_newest_valid_restart(tmp_path, fake_bp):  # noqa: F811
+    run = tmp_path / "out"
+    report, lines = {}, []
+    side = ws.Sidecar(str(run), ws.post_cache_root(str(run)), 2, os.path.isdir, report,
+                      save=lambda: None, log=lines.append, cores_per_node=72,
+                      exclude_arg="--exclude=head", runner=Runner(), keep_last_restart=True)
+    seg = run / "seg_0"
+    seg.mkdir(parents=True)
+    rst = lambda d, h: str(seg / ("wrfrst_d%02d_%s" % (d, _t(h))))   # noqa: E731
+    at = lambda h: T0 + dt.timedelta(hours=h)                        # noqa: E731
+    for h in (2, 4):
+        for d in (1, 2):
+            _real_bp(rst(d, h))
+    _real_bp(rst(1, 6))                                   # 06:00 still being written
+    (seg / "rsl.error.0000").write_text(_rsl(T0, at(5), [at(2)], 2))
+    side.poll(str(seg), "77", CFG, "RUNNING")
+    assert os.path.isdir(rst(1, 2)) and os.path.isdir(rst(2, 4))     # one valid: nothing goes
+    (seg / "rsl.error.0000").write_text(_rsl(T0, at(5), [at(2), at(4)], 2))
+    side.poll(str(seg), "77", CFG, "RUNNING")
+    assert not os.path.exists(rst(1, 2)) and not os.path.exists(rst(2, 2))
+    assert all(os.path.isdir(p) for p in (rst(1, 4), rst(2, 4), rst(1, 6)))
+    assert [v.get("deleted", False) for v in report["sidecar"]["valid_restarts"]] == [True, False]

@@ -89,7 +89,7 @@ storm: null
 machine:
   cores_per_node: 64       # 一個計算節點的硬體核心數，內建 72
   max_nodes: 20            # 一個 job 最多用幾個節點，內建 13
-  partition: batch         # Slurm partition，內建 compute
+  partition: batch         # Slurm partition，可列多個依序試，內建 compute
   login_nodes: [login1]    # 不送工作的節點，內建 [head]；[] 代表沒有
   account: myproject       # Slurm 的計畫帳號，內建不指定
   hardware_id: mybox       # 這種節點在量測紀錄裡的名字，內建 scc-gh200
@@ -111,7 +111,7 @@ machine:
 |---|---|
 | `cores_per_node` | 每個 job 向 Slurm 要的 `--ntasks-per-node`。配置的每節點 rank 數 × 執行緒數不能超過它 |
 | `max_nodes` | `wtune tune` 搜尋節點數的上限。`--max-nodes` 和 `wtune.yaml` 的 `budget.max_nodes` 只能再往下調 |
-| `partition` | 每個 `sbatch` 和收尾轉檔 `srun` 用的 partition |
+| `partition` | 每個 `sbatch` 和收尾轉檔 `srun` 用的 partition。可以列多個（`[arm144, arm576, arm1440]` 或 `arm144,arm576,arm1440`）：`sbatch` 被拒（例如節點數不合這個 partition、超過每人送出上限）就換下一個，全部被拒才報錯，錯誤訊息列出每個 partition 的原因。`srun` 和寫出的 sbatch 檔只用第一個，所以第一個要收單節點工作 |
 | `login_nodes` | 每個 job 一律排除的節點，和 `exclude_nodes` 合併 |
 | `account` | 每個 `sbatch`、`srun` 加上 `--account=`。依計畫計費的機器不給會被拒絕 |
 | `hardware_id` | 每筆量測都記這個名字，預測模型用它分辨機器。WTune 內建認得 `scc-gh200`、`f1-spr-icpnq`、`f1-spr-icpnp`；其他機器要自己取一個名字 |
@@ -176,14 +176,14 @@ wtune project set --measured noise_frac=0.05 --measured init_s=60
 機器的規格每個專案都一樣，所以可以只寫一次，放在家目錄：
 
 ```bash
-wtune project set --user --cores-per-node 144 --partition arm-dev --account myproject
+wtune project set --user --cores-per-node 144 --partition arm144,arm576,arm1440 --account myproject
 ```
 
 這會寫進 `~/.config/wtune/machine.yaml`，內容和上面的 `machine:` 區塊相同，只是少一層縮排：
 
 ```yaml
 cores_per_node: 144
-partition: arm-dev
+partition: arm144,arm576,arm1440
 account: myproject
 ```
 

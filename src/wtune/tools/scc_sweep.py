@@ -97,6 +97,7 @@ SACCT_SINCE = ("-S", "now-30days")
 IN_FLIGHT_STATES = {"PENDING", "RUNNING"}   # sacct State values counted against --max-nodes-in-flight
 
 _JOBID_RE = re.compile(r"Submitted batch job (\d+)")
+_SBATCH_RE = re.compile(r"(?<![\w./-])sbatch(?: -p \S+)?(?=\s)")    # the command, not *.sbatch
 
 
 # ---------------------------------------------------------------------------
@@ -361,8 +362,25 @@ def submit_job(cmd_str, sbatch_runner=default_sbatch_runner):
     (case,N) slot is the one accepted imprecision in the --max-nodes-in-flight budget: the OLD
     job's nodes stay counted in the run's initial in-flight baseline (taken once, from the
     manifest, before the submit loop starts) even after the manifest row is overwritten --
-    conservative (under-states available budget) rather than over-subscribing the cluster."""
-    out = sbatch_runner(cmd_str)
+    conservative (under-states available budget) rather than over-subscribing the cluster.
+    With several partitions each is tried in order (`-p` on the command line beats the
+    script's own); RuntimeError naming every refusal when none takes the job."""
+    parts = wtune.machine.partitions()
+    if len(parts) == 1:
+        out = sbatch_runner(cmd_str)
+    else:
+        refused = []
+        for p in parts:
+            cmd, n = _SBATCH_RE.subn("sbatch -p " + p, cmd_str, count=1)
+            if not n:
+                raise ValueError("no sbatch in %r" % (cmd_str,))
+            try:
+                out = sbatch_runner(cmd)
+                break
+            except RuntimeError as e:
+                refused.append("%s: %s" % (p, e))
+        else:
+            raise RuntimeError("no partition took the job -- " + "; ".join(refused))
     m = _JOBID_RE.search(out)
     if not m:
         raise RuntimeError("could not parse job id from sbatch output: %r" % (out,))

@@ -715,7 +715,8 @@ def build_parser():
                        help="hardware cores of one compute node (built-in 72)")
     p_set.add_argument("--max-nodes", type=int, default=None,
                        help="compute nodes one job may use (built-in 13)")
-    p_set.add_argument("--partition", default=None, help="Slurm partition (built-in compute)")
+    p_set.add_argument("--partition", default=None,
+                       help="Slurm partition, or a comma list tried in order (built-in compute)")
     p_set.add_argument("--login-nodes", default=None,
                        help="nodes no job is sent to, comma list, '' = none (built-in head)")
     p_set.add_argument("--account", default=None,

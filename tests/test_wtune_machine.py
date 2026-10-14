@@ -209,3 +209,36 @@ def test_node_preflight_can_be_turned_off_for_the_machine(monkeypatch):
     monkeypatch.setenv("WTUNE_NODE_PREFLIGHT", "maybe")
     with pytest.raises(wtune.machine.MachineError, match="WTUNE_NODE_PREFLIGHT"):
         wtune.machine.node_preflight()
+
+
+def test_a_refused_partition_moves_the_job_to_the_next(scc, monkeypatch):
+    wtune.machine.export(wtune.machine.check({"partition": ["small", "mid", "large"]}))
+    assert wtune.machine.partitions() == ["small", "mid", "large"]
+    assert wtune.machine.partition() == "small"
+    seen = []
+
+    def sbatch_runner(cmd):
+        seen.append(cmd)
+        if " -p large " not in cmd:
+            raise RuntimeError("sbatch failed (rc=1): Job violates accounting/QOS policy")
+        return "Submitted batch job 7\n"
+
+    cmd = scc_sweep.build_sbatch_command("c", 4, 72, "00:10:00", 600, 1, 20, "/c.json", "/out")
+    assert scc_sweep.submit_job(cmd, sbatch_runner) == "7"
+    assert [c.split("; ")[1].split()[:3] for c in seen] == [
+        ["sbatch", "-p", "small"], ["sbatch", "-p", "mid"], ["sbatch", "-p", "large"]]
+    seen.clear()
+    assert scc_sweep.submit_job("sbatch /x/nc2bp.sbatch", sbatch_runner) == "7"
+    assert seen[-1] == "sbatch -p large /x/nc2bp.sbatch"
+
+
+def test_every_partition_refusing_is_reported(scc):
+    wtune.machine.export(dict(partition="small,mid"))
+
+    def sbatch_runner(cmd):
+        raise RuntimeError("refused by " + cmd.split()[2])
+
+    with pytest.raises(RuntimeError, match="small: refused by small; mid: refused by mid"):
+        scc_sweep.submit_job("sbatch /seg.sbatch", sbatch_runner)
+    with pytest.raises(wtune.machine.MachineError, match="list of names"):
+        wtune.machine.check({"partition": []})

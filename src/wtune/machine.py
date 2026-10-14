@@ -11,7 +11,7 @@ import os
 
 DEFAULTS = {"cores_per_node": 72,       # hardware cores of one compute node (scc GH200)
             "max_nodes": 13,            # compute nodes one job may use (scc work[1-13])
-            "partition": "compute",     # Slurm partition
+            "partition": "compute",     # Slurm partition, or a list tried in order
             "login_nodes": ("head",),   # nodes no job is sent to
             "account": "",              # Slurm account, for sites that bill by project
             "hardware_id": "scc-gh200",  # name of the node type in the measurement ledgers
@@ -118,6 +118,11 @@ def check(block, where="machine") -> dict:
             if not isinstance(names, list) or not all(isinstance(n, str) for n in names):
                 raise MachineError("%s: %r must be a list of node names" % (at, value))
             value = [n.strip() for n in names if n.strip()]
+        elif key == "partition" and not isinstance(value, str):
+            if (not isinstance(value, list) or not value
+                    or not all(isinstance(n, str) and n.strip() for n in value)):
+                raise MachineError("%s: %r must be a name or a list of names" % (at, value))
+            value = [n.strip() for n in value]
         elif key == "calibration":
             value = os.path.expanduser(value) if isinstance(value, str) else value
             if not isinstance(value, str) or not os.path.isabs(value) or not os.path.isfile(value):
@@ -220,8 +225,15 @@ def _name(key: str) -> str:
     return os.environ.get(ENV[key], "").strip() or DEFAULTS[key]
 
 
+def partitions() -> list[str]:
+    """The partitions a job may go to, in the order they are tried (wtune.tools.scc_sweep
+    .submit_job moves on when sbatch refuses one)."""
+    return [p.strip() for p in _name("partition").split(",") if p.strip()]
+
+
 def partition() -> str:
-    return _name("partition")
+    """The first of partitions(): the one of srun steps and of written sbatch headers."""
+    return partitions()[0]
 
 
 def hardware_id() -> str:

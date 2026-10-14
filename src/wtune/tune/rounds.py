@@ -7,6 +7,8 @@ import math
 import os
 from typing import Any, Callable
 
+import wtune.machine
+
 from ._deps import sweep
 from .budget import _job_time_est, estimate_run_time, update_s_est
 from .candidates import (FULL_SPACE_CONFIGS_PER_JOB, _apply_search_filter, aggregate_by_cid,
@@ -254,14 +256,32 @@ def _default_proposer(ctx: Ctx) -> Callable:
 
 def _round_batch_size(ctx: Ctx, round_idx: int, elapsed: float, s_est: float) -> int | None:
     """Configs adaptive round `round_idx` may propose, or None (printed) when the rounds stop
-    at 75% of the budget."""
+    at 75% of the budget. The batch is one job's share; run_adaptive_rounds spreads it over
+    the free node slots, so a round ends sooner instead of measuring more."""
     if elapsed >= ADAPTIVE_STOP_FRACTION * ctx.budget_s:
         print("adaptive rounds: stopping before round %d -- elapsed already >= %.0f%% of budget"
               % (round_idx, ADAPTIVE_STOP_FRACTION * 100))
         return None
     remaining_s = ctx.budget_s - elapsed
     per_run_s = ctx.startup_s + ctx.steps * s_est
-    return _configs_for_budget(min(remaining_s, ctx.budget_s * ROUND0_BUDGET_FRACTION), per_run_s, 1)
+    return _configs_for_budget(min(remaining_s, ctx.budget_s * ROUND0_BUDGET_FRACTION),
+                               per_run_s, 1)
+
+
+def _clear_leader(all_results: dict, new_results: dict, noise: float) -> str | None:
+    """Why the adaptive rounds may stop: the leader is ahead of the runner-up by more than
+    the noise and this round found nothing better (the leader is not one of its configs)."""
+    ranked = sorted((r for r in all_results.values()
+                     if r.get("median") is not None and not r.get("dirty")),
+                    key=lambda r: r["median"])
+    if len(ranked) < 2 or ranked[0]["cid"] in new_results:
+        return None
+    leader, runner_up = ranked[0], ranked[1]
+    if runner_up["median"] <= leader["median"] * (1.0 + noise):
+        return None
+    return ("%s (%.4g s/step) leads %s (%.4g) by more than %.0f%% and this round found nothing "
+            "faster" % (leader["cid"], leader["median"], runner_up["cid"], runner_up["median"],
+                        noise * 100))
 
 
 def _propose_round(ctx: Ctx, proposer: Callable, state: dict, batch_size: int, round_idx: int,
@@ -298,10 +318,11 @@ def _propose_round(ctx: Ctx, proposer: Callable, state: dict, batch_size: int, r
 
 
 def _plan_round_job(ctx: Ctx, configs_out: list[dict], s_est: float, round_idx: int,
-                    elapsed: float) -> tuple[list[dict], dict] | None:
-    """(configs, time estimate) of the round's job, or None (printed) when it may not start
-    (projected finish > 75% of the budget)."""
-    time_est = _job_time_est(ctx, len(configs_out), 1, s_est)
+                    elapsed: float, slots: int = 1) -> tuple[list[dict], dict] | None:
+    """(configs, time estimate of its longest job) of the round, or None (printed) when it may
+    not start (projected finish > 75% of the budget)."""
+    time_est = _job_time_est(ctx, int(math.ceil(len(configs_out) / float(max(1, slots)))), 1,
+                             s_est)
     projected_end = elapsed + time_est["total_run_s"]        # RAW/EXPECTED -- never job_hours
     if projected_end > ADAPTIVE_STOP_FRACTION * ctx.budget_s:
         print("adaptive rounds: stopping before round %d -- projected finish %s > %.0f%% "
@@ -312,9 +333,10 @@ def _plan_round_job(ctx: Ctx, configs_out: list[dict], s_est: float, round_idx: 
 
 def run_adaptive_rounds(ctx: Ctx, all_configs_by_cid: dict, all_results: dict,
                         s_est: float) -> None:
-    """Up to ADAPTIVE_MAX_ROUNDS rounds of one job each, proposed by predictor/decomp_search.py
-    (ctx.proposer, else lazily imported) from everything measured so far; updates
-    `all_configs_by_cid` / `all_results` in place and stops at the budget lines."""
+    """Up to ADAPTIVE_MAX_ROUNDS rounds, each dealt over the free node slots as parallel jobs,
+    proposed by predictor/decomp_search.py (ctx.proposer, else lazily imported) from everything
+    measured so far; updates `all_configs_by_cid` / `all_results` in place and stops at the
+    budget lines, or early once the leader is clearly ahead (_clear_leader)."""
     proposer = ctx.proposer
     if proposer is None:
         try:
@@ -336,6 +358,8 @@ def run_adaptive_rounds(ctx: Ctx, all_configs_by_cid: dict, all_results: dict,
             state["configs"].setdefault(cid, c)
             state["submitted"].append(cid)
 
+    slots = compute_slots(ctx.max_nodes, ctx.nodes)
+    noise = wtune.machine.measured("noise_frac")
     for round_idx in range(1, ADAPTIVE_MAX_ROUNDS + 1):
         elapsed = ctx.elapsed()
         batch_size = _round_batch_size(ctx, round_idx, elapsed, s_est)
@@ -348,31 +372,31 @@ def run_adaptive_rounds(ctx: Ctx, all_configs_by_cid: dict, all_results: dict,
             return
         state.setdefault("rounds", []).append(dict(round=round_idx, batch_size=batch_size,
                                                      kappa=kappa))
-        planned = _plan_round_job(ctx, configs_out, s_est, round_idx, elapsed)
+        planned = _plan_round_job(ctx, configs_out, s_est, round_idx, elapsed, slots)
         if planned is None:
             return
-        configs_out, time_est = planned
+        configs_out, _time_est = planned
 
-        job_id, _path, _te = submit_configs_job(ctx, configs_out, reps=1,
-                                                  name_suffix="round%d" % round_idx, s_est=s_est,
-                                                  time_est=time_est)
-        print("adaptive round %d: submitted job %s (%d configs)"
-              % (round_idx, job_id, len(configs_out)))
         for c in configs_out:
             all_configs_by_cid[c["id"]] = c
             state["configs"][c["id"]] = c
             state["submitted"].append(c["id"])
-
-        _jobs.wait_for_jobs(ctx, [job_id], "round%d" % round_idx)
-        rows = ctx.ledger_reader(ctx.case, [job_id])
+        job_ids, _by_cid, rows, job_configs, _states = _submit_round0_wave(
+            ctx, configs_out, slots, s_est, "round%d" % round_idx)
+        job_of = {c["id"]: j for j, chunk in job_configs.items() for c in chunk}
         new_results = aggregate_by_cid(rows, all_configs_by_cid)
         new_results.pop(ANCHOR_END_ID, None)       # drift check only, never a candidate
         for cid, r in new_results.items():
             all_results[cid] = r
+            job_id = job_of.get(cid)
             state["measured"][cid] = [dict(run_id="%s_%s_r%d_%s" % (ctx.case, cid, i, job_id),
                                             job_id=job_id, rep_index=i, s_per_step_median=s)
                                        for i, s in enumerate(r["s_values"])]
         s_est = update_s_est(all_results, s_est)   # keep sizing off this run's freshest numbers
+        why = _clear_leader(all_results, new_results, noise)
+        if why:
+            print("adaptive rounds: early stop after round %d -- %s" % (round_idx, why))
+            return
 
 
 def _fit_confirm(ctx: Ctx, entries: list[dict]) -> tuple[list[dict], list[dict], dict | None]:

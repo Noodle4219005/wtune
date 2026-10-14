@@ -577,7 +577,12 @@ def test_run_adaptive_rounds_falls_back_to_diversity_sampling_after_kappa_escala
     # ample budget (3600s) and plenty of legal space left, keeps doing that every round up to
     # ADAPTIVE_MAX_ROUNDS rather than accepting the very first "stopped" as final.
     assert calls[:4] == [0.5, 0.5, 1.0, 2.0]
-    assert len(ctx.owned_jobs) == wtune.tune.ADAPTIVE_MAX_ROUNDS   # round1 + a fallback every round after
+    # round1's one config is one job; every fallback round after is dealt over the free slots,
+    # through the last round
+    assert wtune.tune.common.compute_slots(ctx.max_nodes, ctx.nodes) > 1
+    last = "round%d" % wtune.tune.ADAPTIVE_MAX_ROUNDS
+    assert sum(1 for c in sbatch_calls if last in c) > 1
+    assert len(ctx.owned_jobs) > wtune.tune.ADAPTIVE_MAX_ROUNDS
     assert sbatch_calls                      # the fallback really did submit real Slurm jobs
     assert all_results["R01D0001"]["median"] == pytest.approx(1.234)
     fallback_cids = [cid for cid in all_configs_by_cid if cid != "R01D0001"]
@@ -830,7 +835,8 @@ def test_round0_measuring_0_3s_per_step_lets_adaptive_and_confirm_both_run_withi
                              scancel_runner=scancel_runner, ledger_reader=ledger_reader,
                              proposer=one_round_proposer, clock=FakeClock())
 
-    assert proposer_calls["n"] >= 2                              # adaptive round DID submit a batch
+    # adaptive round DID submit a batch (it may then stop early: round 0's leader stays clear)
+    assert any("round1" in c for c in sbatch_calls)
     assert any(row["confirmed"] for row in report["ranking"])    # confirm DID run
     assert len(report["ranking"]) > 1                             # round0's top-up widened coverage
     assert scancel_calls == []                                   # everything fit inside the budget
@@ -3188,3 +3194,37 @@ def test_a_fire_case_is_tuned_single_threaded_without_any_config():
     assert wtune.tune.candidates._sweep_anchor_fitting(fire, 2)[1] == 45       # 90 ranks on 2 nodes
     other = _ctx(exclude_rules=cfg["exclude"], is_fire=False)
     assert wtune.tune.candidates._sweep_anchor_fitting(other, 2)[0]["omp"] == 2
+
+
+def _r(cid, median):
+    return dict(cid=cid, config={}, s_values=[median], median=median, lo=median, hi=median, n=1)
+
+
+def test_clear_leader_stops_only_when_the_round_found_nothing_better():
+    old = {"A": _r("A", 1.00), "B": _r("B", 1.10)}
+    # the leader came from an earlier round and leads by more than the noise: stop
+    assert "A (1 s/step) leads B" in wtune.tune.rounds._clear_leader(old, {"B": old["B"]}, 0.03)
+    # this round produced the leader: keep going
+    assert wtune.tune.rounds._clear_leader(old, {"A": old["A"]}, 0.03) is None
+    # within the noise: keep going
+    close = {"A": _r("A", 1.00), "B": _r("B", 1.02)}
+    assert wtune.tune.rounds._clear_leader(close, {"B": close["B"]}, 0.03) is None
+
+
+def test_adaptive_rounds_stop_early_when_the_leader_is_clear():
+    def proposer(state, batch_size, kappa=None):
+        return dict(stopped=False, round=1), [dict(id="SLOW%d" % len(state["rounds"]), ranks=72,
+                                                   omp=1, nx=8, ny=9, numtiles=1, dist="block",
+                                                   blocktime="0")]
+
+    sbatch_runner, _calls, _paths = make_fake_sbatch(start=4000)
+
+    def ledger_reader(case, job_ids):
+        return [dict(run_id="%s_SLOW%d_r1_%s" % (case, i, j), job_id=j, s_per_step_median="2.0")
+                for i, j in enumerate(job_ids)]
+
+    ctx = _ctx(sbatch_runner=sbatch_runner, ledger_reader=ledger_reader, proposer=proposer,
+               budget_s=3600.0)
+    all_results = {"BEST": _r("BEST", 1.0)}
+    wtune.tune.run_adaptive_rounds(ctx, {}, all_results, s_est=2.0)
+    assert len(ctx.owned_jobs) == 1                    # round 1 found nothing faster: stop

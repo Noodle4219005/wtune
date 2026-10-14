@@ -124,6 +124,14 @@ time series) now run in separate processes, one per CPU of the job, and their en
 merged in the old order; `WTUNE_POST_WORKERS` sets the count (1 = the old serial path).
 `DetectNodes` runs on time slices of the fields file at once and the node files are joined in
 time order, which is the file a single run writes (DetectNodes treats each time on its own).
+On f1-arm matthew's post went from 4:57 to 2:38 with the same 149 figures.
+
+**Configuration search: idle nodes and an early stop.** Each adaptive round was one job while
+the other node slots sat idle, and the rounds only stopped at 75% of the budget, after six
+rounds or when the proposer ran dry. A round's batch (unchanged in size) is now dealt over the
+free slots like round 0, so it ends sooner; and the rounds stop once the leader is ahead of the
+runner-up by more than `noise_frac` (3%) and a round found nothing faster, as the node search
+already did for larger node counts.
 
 ## 0.9.0 — 2026-10-12
 

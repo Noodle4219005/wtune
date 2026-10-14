@@ -399,3 +399,10 @@ def test_post_srun_command_excludes_head_and_project_nodes(monkeypatch):
     cmd = post_cli.srun_command(["recipe", "runs/r1"])
     assert cmd[:4] == ["srun", "-p", "compute", "--exclude=head,work1"]
     assert cmd[-3:] == ["post", "recipe", "runs/r1"]
+
+
+def test_submit_passes_compress_history_to_the_run(project):
+    steps = dict(wtune.submit.plan_steps(project, "ID", "2", True, True, compress_history=True))
+    assert "--compress-history" in steps["run"]
+    assert "--compress-history" not in dict(wtune.submit.plan_steps(project, "ID", "2", True,
+                                                                    True))["run"]

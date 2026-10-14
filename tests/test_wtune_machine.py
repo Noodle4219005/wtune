@@ -242,3 +242,11 @@ def test_every_partition_refusing_is_reported(scc):
         scc_sweep.submit_job("sbatch /seg.sbatch", sbatch_runner)
     with pytest.raises(wtune.machine.MachineError, match="list of names"):
         wtune.machine.check({"partition": []})
+
+
+def test_probe_input_copies_can_be_turned_off(scc, monkeypatch):
+    assert wtune.machine.copy_probe_inputs() is True
+    wtune.machine.export(wtune.machine.check({"copy_probe_inputs": False}))
+    assert wtune.machine.copy_probe_inputs() is False
+    with pytest.raises(wtune.machine.MachineError, match="true or false"):
+        wtune.machine.check({"copy_probe_inputs": "no"})

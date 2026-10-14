@@ -25,6 +25,7 @@ DEFAULTS = {"cores_per_node": 72,       # hardware cores of one compute node (sc
             "max_omp": 0,               # threads per rank WRF runs with; 1 = no OpenMP, 0 = no cap
             "node_preflight": True,     # one srun per node before a tune (wtune.tune.preflight)
             "node_memory_gib": 0,       # memory of one compute node; 0 = unknown, no memory check
+            "copy_probe_inputs": True,  # each probe job reads its own copy of the BP inputs
             "measured": {}}             # replacements for MEASURED below
 ENV = {"cores_per_node": "WTUNE_CORES_PER_NODE", "max_nodes": "WTUNE_MAX_NODES",
        "partition": "WTUNE_PARTITION", "login_nodes": "WTUNE_LOGIN_NODES",
@@ -33,6 +34,7 @@ ENV = {"cores_per_node": "WTUNE_CORES_PER_NODE", "max_nodes": "WTUNE_MAX_NODES",
        "site": "WTUNE_SITE", "env_source": "WTUNE_ENV_SOURCE", "wrf_tree": "WRF_TREE",
        "geog": "WPS_GEOG", "max_hours": "WTUNE_MAX_HOURS", "max_omp": "WTUNE_MAX_OMP",
        "node_preflight": "WTUNE_NODE_PREFLIGHT", "node_memory_gib": "WTUNE_NODE_MEMORY_GIB",
+       "copy_probe_inputs": "WTUNE_COPY_PROBE_INPUTS",
        "measured": "WTUNE_MEASURED"}
 
 # Numbers measured on scc that estimates fall back on when nothing was measured for the
@@ -101,7 +103,7 @@ def check(block, where="machine") -> dict:
             if isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0:
                 raise MachineError("%s: %r must be a number of %s, 0 for %s"
                                    % ((at, value) + _NUMBER_UNITS[key]))
-        elif key == "node_preflight":
+        elif key in ("node_preflight", "copy_probe_inputs"):
             if not isinstance(value, bool):
                 raise MachineError("%s: %r must be true or false" % (at, value))
         elif key == "max_omp":
@@ -292,6 +294,17 @@ def node_preflight() -> bool:
     if raw in ("0", "false", "off"):
         return False
     raise MachineError("%s=%r: must be 1 or 0" % (ENV["node_preflight"], raw))
+
+
+def copy_probe_inputs() -> bool:
+    """False where the probes may read the shared BP input cache: a copy per job avoids the scc
+    NFS open stall, but on a filesystem with a quota a wave of copies can fill it."""
+    raw = os.environ.get(ENV["copy_probe_inputs"], "").strip().lower()
+    if raw in ("", "1", "true", "on"):
+        return True
+    if raw in ("0", "false", "off"):
+        return False
+    raise MachineError("%s=%r: must be 1 or 0" % (ENV["copy_probe_inputs"], raw))
 
 
 def max_omp() -> int:

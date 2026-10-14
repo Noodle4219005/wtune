@@ -5,6 +5,7 @@ from __future__ import annotations
 import datetime
 import os
 import re
+import shutil
 import sys
 
 import wtune.machine
@@ -69,7 +70,18 @@ def wait_for_jobs(ctx: Ctx, job_ids: list, stage: str, note: str = "",
                   exempt_budget: bool = False) -> dict:
     """Poll sacct until `job_ids` leave PENDING/RUNNING, printing one progress line per poll; at
     the budget deadline cancel those ids only. Returns the last {job: (State, Elapsed)} ({} for
-    no ids). budget_mode "running" uses _wait_running_budget (exempt_budget)."""
+    no ids). budget_mode "running" uses _wait_running_budget (exempt_budget). The jobs' input
+    copies are removed once they have ended, whatever their state."""
+    states = _wait_for_jobs(ctx, job_ids, stage, note, exempt_budget)
+    for j in job_ids:
+        d = ctx.input_copies.pop(j, None)
+        if d:
+            shutil.rmtree(d, ignore_errors=True)
+    return states
+
+
+def _wait_for_jobs(ctx: Ctx, job_ids: list, stage: str, note: str,
+                   exempt_budget: bool) -> dict:
     job_ids = [j for j in job_ids if j]
     if not job_ids:
         return {}
@@ -212,6 +224,8 @@ def fresh_input_export(ctx: Ctx, case_id: str, job_out_dir: str, runs: int,
             ensure_bp_inputs(ctx, [(case_id, cases_json)], os.path.join(job_out_dir, "bp_convert"))
         except RuntimeError as e:
             raise SystemExit(str(e)) from e
+    if not wtune.machine.copy_probe_inputs():
+        return []                               # the jobs read the shared BP cache
     try:
         d = sweep.campaign_configs.fresh_probe_inputs(
             case_id, os.path.join(job_out_dir, "bp_fresh"), runs, cases_json=cases_json)
@@ -242,6 +256,8 @@ def submit_configs_job(ctx: Ctx, configs: list[dict], reps: int, name_suffix: st
         extra_export=fresh or None)
     job_id = sweep.submit_job(cmd_str, sbatch_runner=ctx.sbatch_runner)
     ctx.owned_jobs.append(job_id)
+    if fresh:
+        ctx.input_copies[job_id] = fresh[0][1]
     return job_id, configs_path, time_est
 
 

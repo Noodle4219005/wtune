@@ -103,6 +103,7 @@ machine:
   max_omp: 1               # 每個 rank 最多幾個執行緒；WRF 沒有 OpenMP 時設 1，內建 0（不限）
   node_preflight: false    # 調校前不要對每個節點各送一個探測工作，內建 true
   node_memory_gib: 218     # 一個計算節點的記憶體；內建 0（不知道，不檢查）
+  copy_probe_inputs: false # 探測直接讀共用的 BP 輸入快取，不各自複製；內建 true
   measured:                # 這台機器自己量到的數字，取代內建的 scc 值
     noise_frac: 0.05
     restart_write_s_adios2: 2.4
@@ -126,6 +127,7 @@ machine:
 | `max_omp` | WRF 是沒有 OpenMP 的編譯（dmpar）時設 1：調校從節點掃描的基準組態開始就只用單執行緒，不會留一半核心閒置。不設就和以前一樣 |
 | `node_preflight` | 內建會在調校前對 partition 裡每個節點各送一個 1 分鐘的 `srun`，找出不能用的節點。排程器限制每人可送出的工作數時（例如上限 12 個而節點有 40 個），多出來的探測會被拒絕並被當成節點有問題，所以要設成 `false`（`--node-preflight off`） |
 | `node_memory_gib` | 調校前先估每個配置每節點要多少記憶體，放不下的不送；第一個成功探測的 MaxRSS 會校正後面的估計。用 `scontrol show node <節點> \| grep RealMemory`（MB）換算 |
+| `copy_probe_inputs` | 內建每個探測作業各自複製一份 BP 輸入，避開 scc NFS 多人同時開檔卡住的問題。沒有 reflink 時是整份複製，一波幾個作業就是好幾份；在有配額的檔案系統（例如 f1-arm 的 100 G home2）設成 `false`。副本在作業結束後一律刪除 |
 | `measured` | 見下方「measured」 |
 
 新機器至少要給 `cores_per_node`、`hardware_id`、`numa_per_node`。沿用 `scc-gh200` 這個名字卻改了核心數會直接報錯，避免別台機器的量測混進 scc 的紀錄。

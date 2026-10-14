@@ -3333,3 +3333,12 @@ def test_summary_says_the_pick_its_run_its_margin_what_was_not_run_and_the_cost(
         "noise: either is fine (noise 3%)",
         "not run:  N=13 early stop; N=1-3 memory",
         "tuning:   running 28:00, queue 10:00 (not counted)"]
+
+
+def test_a_job_s_input_copy_is_removed_once_it_has_ended(tmp_path):
+    copy = tmp_path / "bp_fresh"
+    (copy / "copy_0").mkdir(parents=True)
+    ctx = _ctx(out_dir=str(tmp_path / "o"), ledger_dir=str(tmp_path / "l"))
+    ctx.input_copies["7001"] = str(copy)
+    wtune.tune.jobs.wait_for_jobs(ctx, ["7001"], "test")        # the fake sacct says COMPLETED
+    assert not copy.exists() and ctx.input_copies == {}

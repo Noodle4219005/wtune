@@ -7,7 +7,10 @@ import fig/missing/note lazily to avoid a circular import with the dispatch impo
 from __future__ import annotations
 
 import json
+import multiprocessing
 import os
+from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures.process import BrokenProcessPool
 from dataclasses import dataclass, field
 
 from wtune.post import caseinfo
@@ -316,16 +319,55 @@ def _fail_soft(name, fn, *args, **kwargs) -> list:
                         "%s: %s" % (type(e).__name__, e))]
 
 
+def _post_workers(n_tasks: int) -> int:
+    """Processes for the figure sets: WTUNE_POST_WORKERS, else one per CPU this job may use."""
+    from wtune.post.extract import _cpu_budget
+    env = os.environ.get("WTUNE_POST_WORKERS", "").strip()
+    return max(1, min(int(env) if env else _cpu_budget(), n_tasks))
+
+
+def _in_parallel(tasks: list) -> list:
+    """[(name, fn, args, kwargs)] -> their entries, concatenated in task order. Each figure set
+    only reads the history and writes its own subdirectory, so each runs in its own process; a
+    worker process that dies becomes one missing entry per unfinished set."""
+    workers = _post_workers(len(tasks))
+    if workers <= 1:
+        return [e for _name, fn, args, kw in tasks for e in fn(*args, **kw)]
+    out = []
+    with ProcessPoolExecutor(max_workers=workers,
+                             mp_context=multiprocessing.get_context("fork")) as ex:
+        futures = [(name, ex.submit(fn, *args, **kw)) for name, fn, args, kw in tasks]
+        for name, fut in futures:
+            try:
+                out += fut.result()
+            except BrokenProcessPool as e:
+                out.append(missing("%s_figures" % name, "%s figure set" % name,
+                                   "worker process died: %s" % e))
+    return out
+
+
+def _one_type(t: str, r: _RecipeRun) -> list:
+    """One type's figures. A worker looks the handler up by name: the dispatch closures do
+    not pickle."""
+    return _fail_soft(t, _TYPE_RUNNERS.get(t, _run_simple), TYPE_DISPATCH[t], r)
+
+
+def _type_tasks(types: list, r: _RecipeRun) -> list:
+    return [(t, _one_type, (t, r), {}) for t in types
+            if t != "common" and t in TYPE_DISPATCH]
+
+
 def _type_figures(types: list, r: _RecipeRun) -> list:
     """Figures of every detected type that has a handler, in detection order."""
-    out = []
-    for t in types:
-        if t in ("common",):
-            continue
-        handler = TYPE_DISPATCH.get(t)
-        if handler is not None:
-            out += _fail_soft(t, _TYPE_RUNNERS.get(t, _run_simple), handler, r)
-    return out
+    return _in_parallel(_type_tasks(types, r))
+
+
+def _data_products(run_dir, label, out_dir, case_info, every, times) -> list:
+    """The CF pressure-level file, then the VAPOR bundle (one task: their order is kept)."""
+    from wtune.post.recipes import vapor_bundle as vapor_bundle_mod
+    return (_cf3d_data(run_dir, label, out_dir, case_info, every, times)
+            + vapor_bundle_mod.figures(run_dir, label, out_dir, case_info,
+                                       every=every, times=times))
 
 
 def _split_notes(entries: list) -> tuple[list, list]:
@@ -356,7 +398,6 @@ def _run_recipe(run_dirs, out_dir, types_override=None, ensemble=False, spinup_h
     report. Returns {out_dir, case_info, figures, notes, report_path, advice}. Option meanings:
     docs/ post section (decisions 0057/0058); None keeps each recipe module's own default."""
     from wtune.post.recipes import common as common_mod
-    from wtune.post.recipes import vapor_bundle as vapor_bundle_mod
 
     os.makedirs(out_dir, exist_ok=True)
     labels = labels or [("run%d" % i) for i in range(len(run_dirs))]
@@ -367,13 +408,6 @@ def _run_recipe(run_dirs, out_dir, types_override=None, ensemble=False, spinup_h
                                       hurdat2_path=hurdat2_path, storm_id=storm_id,
                                       bdeck_path=bdeck_path)
     types = case_info["types"]
-
-    all_figures = list(pre_notes or [])     # note() entries from run_recipe's BP conversion
-    all_figures += _fail_soft("common", common_mod.figures, run_dirs, labels, out_dir,
-                              case_info, decomposition_only=decomposition_only)
-    all_figures += _cf3d_data(run_dirs[0], labels[0], out_dir, case_info, every, times)
-    all_figures += vapor_bundle_mod.figures(run_dirs[0], labels[0], out_dir, case_info,
-                                            every=every, times=times)
 
     tc_centre = None
     if "moisture" in types and (hurdat2_path or bdeck_path):
@@ -389,12 +423,17 @@ def _run_recipe(run_dirs, out_dir, types_override=None, ensemble=False, spinup_h
         cross_sections=cross_sections or {}, xsec_top_km=xsec_top_km,
         xsec_halfwidth_km=xsec_halfwidth_km, project_dir=project_dir, spinup_days=spinup_days,
         track_smooth_km=track_smooth_km, tc_centre=tc_centre)
-    all_figures += _type_figures(types, run)
-
+    tasks = [("common", _fail_soft, ("common", common_mod.figures, run_dirs, labels, out_dir,
+                                     case_info), dict(decomposition_only=decomposition_only)),
+             ("data", _data_products, (run_dirs[0], labels[0], out_dir, case_info, every, times),
+              {})]
+    tasks += _type_tasks(types, run)
     if every or times:
-        all_figures += _fail_soft("timeseries", guarded, "timeseries", _time_series_figures,
-                                  run_dirs, labels, out_dir, case_info, every, times,
-                                  animate=animate)
+        tasks.append(("timeseries", _fail_soft,
+                      ("timeseries", guarded, "timeseries", _time_series_figures, run_dirs,
+                       labels, out_dir, case_info, every, times), dict(animate=animate)))
+    # note() entries from run_recipe's BP conversion first
+    all_figures = list(pre_notes or []) + _in_parallel(tasks)
 
     notes, all_figures = _split_notes(all_figures)
     advice = _verification_advice(run_dirs[0], out_dir, hurdat2_path, storm_id, bdeck_path, notes)

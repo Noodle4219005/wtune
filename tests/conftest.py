@@ -23,6 +23,8 @@ if _SRC not in sys.path:
 os.environ["WTUNE_MACHINE_FILE"] = os.path.join(os.sep, "nonexistent", "wtune-machine.yaml")
 # nor the site's WRF tree: wtune check reads the build it names (f1-arm job 15557)
 os.environ.pop("WRF_TREE", None)
+# recipe figure sets in one process: tests stub them with local closures (test_post_recipe_parallel)
+os.environ["WTUNE_POST_WORKERS"] = "1"
 
 
 @pytest.fixture(autouse=True)

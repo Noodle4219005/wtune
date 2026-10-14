@@ -117,6 +117,14 @@ with a literal x1.5 and 120 s; it now uses the machine's `measured` `radiation_f
 f1-arm that is `home2` and scc has no GPFS quota, so every probe printed a warning and guarded
 nothing. A site file now names its `QUOTA_FS` (f1 `home1`, f1-arm `home2`, scc none: no guard).
 
+**Post-processing in parallel.** `wtune post recipe` drew every figure set one after another
+on one core: dorian's post job sat 56 minutes in a single `DetectNodes` on a 72-core node with
+one figure written. The figure sets (common, the CF/VAPOR data products, each case type, the
+time series) now run in separate processes, one per CPU of the job, and their entries are
+merged in the old order; `WTUNE_POST_WORKERS` sets the count (1 = the old serial path).
+`DetectNodes` runs on time slices of the fields file at once and the node files are joined in
+time order, which is the file a single run writes (DetectNodes treats each time on its own).
+
 ## 0.9.0 — 2026-10-12
 
 Main code made small enough to review; behaviour of the tune -> run -> post path is unchanged

@@ -105,6 +105,11 @@
     "[('bdeck_path', 'b'), ('ensemble', False), ('hurdat2_path', 'h.txt'), ('storm_id', 'AL012020'), ('types_override', None)]"
    ],
    [
+    "tc_centre",
+    "('h.txt', 'AL012020', 'b', 'r1')",
+    "[]"
+   ],
+   [
     "common",
     "(['r1', 'r2'], ['a', 'b'], '<OUT>', {'types': ['common', 'tc', 'convection', 'cloud', 'terrain', 'moisture', 'precip', 'synoptic', 'pbl', 'chem', 'climate', 'ensemble', 'unknown-type'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}})",
     "[('decomposition_only', False)]"
@@ -118,11 +123,6 @@
     "vapor",
     "('r1', 'a', '<OUT>', {'types': ['common', 'tc', 'convection', 'cloud', 'terrain', 'moisture', 'precip', 'synoptic', 'pbl', 'chem', 'climate', 'ensemble', 'unknown-type'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}})",
     "[('every', '6h'), ('times', ['t1'])]"
-   ],
-   [
-    "tc_centre",
-    "('h.txt', 'AL012020', 'b', 'r1')",
-    "[]"
    ],
    [
     "dispatch-tc",
@@ -510,6 +510,11 @@
     "[('bdeck_path', None), ('ensemble', False), ('hurdat2_path', 'h.txt'), ('storm_id', 'S'), ('types_override', None)]"
    ],
    [
+    "tc_centre",
+    "('h.txt', 'S', None, 'r1')",
+    "[]"
+   ],
+   [
     "common",
     "(['r1'], ['run0'], '<OUT>', {'types': ['common', 'moisture'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}})",
     "[('decomposition_only', False)]"
@@ -523,11 +528,6 @@
     "vapor",
     "('r1', 'run0', '<OUT>', {'types': ['common', 'moisture'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}})",
     "[('every', None), ('times', None)]"
-   ],
-   [
-    "tc_centre",
-    "('h.txt', 'S', None, 'r1')",
-    "[]"
    ],
    [
     "dispatch-moisture",

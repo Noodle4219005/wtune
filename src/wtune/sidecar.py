@@ -207,8 +207,9 @@ class Sidecar:
             self.rec["not_converted"] = self._missing()
             self.rec["converted"] += len(left) - len(self.rec["not_converted"])
         self._drop_partial_conversions()
-        self.log("  sidecar: %d frame(s) in %s%s" % (
-            self.rec["converted"], self.cache_root,
+        self.log("  sidecar: %d frame(s) %s%s" % (
+            self.rec["converted"], "now netCDF in place of their BP" if self.replace
+            else "in " + self.cache_root,
             ", %d NOT converted" % len(self.rec["not_converted"])
             if self.rec["not_converted"] else ""))
         self.save()

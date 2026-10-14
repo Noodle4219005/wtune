@@ -102,7 +102,8 @@ def rebuild_segment_timeout_min(case_dir: str, spinup_min: float, ranks: int, om
         s_step = (cal["fallback_s_per_cell_step_ns"] * 1e-9
                   * predict.nested_equivalent_cells(nl, max_dom) / max(ranks * omp, 1))
         steps = (spinup_min * 60.0) / dt + max(30, 2 * stepra)
-        est_s = steps * s_step * 1.5 + 120.0          # x1.5 radiation steps, + 120 s init
+        est_s = (steps * s_step * wtune.machine.measured("radiation_factor")
+                 + wtune.machine.measured("init_s"))
         return max(floor_min, int(math.ceil(safety * est_s / 60.0)))
     except Exception:
         return 90

@@ -29,8 +29,8 @@
 #        not this script's.
 #        MIN_FREE_GIB (default 60): disk-quota guard threshold (see check_disk_guard
 #        below) -- the job aborts itself with a ledger row instead of running into a
-#        mid-write 'Disk quota exceeded' when home1 free space under the soft quota
-#        drops below this many GiB.
+#        mid-write 'Disk quota exceeded' when the site's QUOTA_FS free space under the
+#        soft quota drops below this many GiB (no QUOTA_FS: no guard).
 #        CONFIG_FILE (required; WTune D1 decomposition-space work, predictor/decomp_space.py
 #        to_campaign_configs/sample output): the generated config set this job measures --
 #        palindromic REPS order, same ledger schema (tile geometry goes into notes, see
@@ -308,7 +308,8 @@ link_wrf_inputs() {
 
 check_disk_guard () {
   local ctx="$1" q_text free_gib
-  if ! q_text=$(mmlsquota -u "$USER" home1 2>&1); then
+  [ -n "${QUOTA_FS:-}" ] || return 0      # the site has no per-user GPFS quota
+  if ! q_text=$(mmlsquota -u "$USER" "$QUOTA_FS" 2>&1); then
     echo "WARNING: mmlsquota unavailable ($q_text) -- skipping disk guard for $ctx" >&2
     return 0
   fi
@@ -318,7 +319,7 @@ check_disk_guard () {
     return 0
   fi
   if awk -v f="$free_gib" -v m="$MIN_FREE_GIB" 'BEGIN { exit !(f < m) }'; then
-    echo "ABORT: home1 free space ${free_gib} GiB < MIN_FREE_GIB=${MIN_FREE_GIB} GiB before $ctx -- stopping job (case=$CASE job=$J) to avoid a mid-run Disk quota exceeded failure" >&2
+    echo "ABORT: $QUOTA_FS free space ${free_gib} GiB < MIN_FREE_GIB=${MIN_FREE_GIB} GiB before $ctx -- stopping job (case=$CASE job=$J) to avoid a mid-run Disk quota exceeded failure" >&2
     RUN_ID="${CASE}_${ctx}_${J}" JOB_ID="$J" CASE_RAW="$CASE" CASE_BASE="$CASE" \
       HARDWARE_ID="$HARDWARE_ID" NOTES_ABORT="status=ABORTED reason=low_disk free_gib=${free_gib} min_free_gib=${MIN_FREE_GIB} context=${ctx} $NODE_DIRTY_NOTE" \
       python3 - "$LEDGER" <<'PY'

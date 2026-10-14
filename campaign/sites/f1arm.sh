@@ -13,6 +13,7 @@ W=${WRF_TREE:-$HOME/wrf-env/nvhpc-arm/wrf/nvhpc-adios2-tuned-dmpar/WRF}
 OUT=$HOME/wtune-runs/campaign
 HARDWARE_ID=${WTUNE_HARDWARE_ID:-f1-grace}
 OMP_RUNTIME=nvhpc
+QUOTA_FS=home2           # mmlsquota filesystem: writes stop at the 100 G soft limit
 export PATH=$HOME/.pixi/bin:$PATH
 PIXI_ENV=$HOME/wtune-envs/campaign
 CONV=${CONV:-$(dirname "$CAMPAIGN")/src/wtune/tools/wrf_adios2_to_netcdf4/convert.py}

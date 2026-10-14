@@ -111,6 +111,12 @@ ADIOS2. Each job now stages the case's inputs as BP the way the probe jobs do (o
 per case, shared cache), copies the per-record boundary files into its run directory, and
 writes ADIOS2. `fit` counts the bytes of a BP directory, not the directory entry.
 
+**Two numbers left in the code.** The spin-up time limit of a ranking point padded its estimate
+with a literal x1.5 and 120 s; it now uses the machine's `measured` `radiation_factor` and
+`init_s`. The probe job's disk guard asked `mmlsquota` about `home1`, the old f1 filesystem: on
+f1-arm that is `home2` and scc has no GPFS quota, so every probe printed a warning and guarded
+nothing. A site file now names its `QUOTA_FS` (f1 `home1`, f1-arm `home2`, scc none: no guard).
+
 ## 0.9.0 — 2026-10-12
 
 Main code made small enough to review; behaviour of the tune -> run -> post path is unchanged

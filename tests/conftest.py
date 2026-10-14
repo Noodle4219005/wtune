@@ -21,6 +21,8 @@ if _SRC not in sys.path:
 
 # the developer's own machine settings must not reach the tests (or the commands they spawn)
 os.environ["WTUNE_MACHINE_FILE"] = os.path.join(os.sep, "nonexistent", "wtune-machine.yaml")
+# nor the site's WRF tree: wtune check reads the build it names (f1-arm job 15557)
+os.environ.pop("WRF_TREE", None)
 
 
 @pytest.fixture(autouse=True)

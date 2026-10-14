@@ -933,6 +933,23 @@ def test_namelist_adios2_every_io_form_14_and_bp_innames():
                      txt)
 
 
+NAMELIST_AUXHIST = NAMELIST_3DOM.replace(
+    " io_form_boundary                    = 2\n",
+    " io_form_boundary                    = 2\n io_form_auxhist24 = 2\n"
+    " auxhist24_interval_s = 60, 60, 60,\n io_form_auxhist3 = 0,\n")
+
+
+def test_namelist_adios2_switches_aux_outputs_the_case_writes():
+    txt = wr.render_segment_namelist(NAMELIST_AUXHIST, _dt("2020-06-01_00:00:00"),
+                                     _dt("2020-06-01_06:00:00"), 0, _cfg(), 360,
+                                     io_streams=_streams(NAMELIST_AUXHIST))
+    assert re.search(r"(?m)^\s*io_form_auxhist24\s*=\s*14\b", txt)
+    assert re.search(r"(?m)^\s*io_form_auxhist3\s*=\s*0\b", txt)
+    legacy = wr.render_segment_namelist(NAMELIST_AUXHIST, _dt("2020-06-01_00:00:00"),
+                                        _dt("2020-06-01_06:00:00"), 0, _cfg(), 360)
+    assert re.search(r"(?m)^\s*io_form_auxhist24\s*=\s*2\b", legacy)
+
+
 def test_namelist_netcdf_legacy_keeps_case_io_forms():
     txt = wr.render_segment_namelist(NAMELIST_AUX, _dt("2020-06-01_00:00:00"),
                                      _dt("2020-06-01_06:00:00"), 0, _cfg(), 360)

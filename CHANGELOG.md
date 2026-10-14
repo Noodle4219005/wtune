@@ -98,6 +98,13 @@ its `auxhist24` validation output on three domains, about 160 s of a 390 s launc
 Every stream with a nonzero interval now begins after the run ends; the measured s/step does
 not change (the median already left the write steps out).
 
+**Aux output in ADIOS2.** `wtune run` switched history, restart, input, boundary and the aux
+input streams to ADIOS2 but left `io_form_auxhistN` as the case had it: `isc21` wrote its
+`auxhist24` validation output in serial netCDF, 162.5 s of a 911 s run at about 40 MB/s, while
+ADIOS2 history on the same machine writes a frame in 0.03-0.07 s. Every aux output the case
+writes is now ADIOS2 too (`--io netcdf` keeps the case's formats); `wtune convert bp2nc`
+turns a frame back into netCDF.
+
 ## 0.9.0 — 2026-10-12
 
 Main code made small enough to review; behaviour of the tune -> run -> post path is unchanged

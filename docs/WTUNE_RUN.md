@@ -77,7 +77,9 @@ I/O (--io, default adios2; 2026-10-03 user decision: netCDF is no longer used fo
     Every segment namelist gets io_form_history/restart/input/boundary = 14 and io_form = 14 for
     every aux input stream the case reads (configs.adios2_input_streams: auxinput4 when
     sst_update=1, gfdda/sgfdda when grid_fdda/grid_sfdda > 0, any auxinputN the namelist names
-    with io_form_auxinputN > 0), adios2_numaggregators = the segment's rank count. WRF's
+    with io_form_auxinputN > 0), io_form_auxhistN = 14 for every aux output the case writes
+    (io_form_auxhistN > 0; `wtune convert bp2nc` turns one back into netCDF),
+    adios2_numaggregators = the segment's rank count. WRF's
     io_adios2 opens the inname exactly (no suffix added), so each stream's inname becomes
     "<template>.bp" (input_inname="wrfinput_d<domain>.bp", bdy_inname="wrfbdy_d<domain>.bp",
     auxinput4_inname="wrflowinp_d<domain>.bp", ... -- campaign/configs._apply_adios2's

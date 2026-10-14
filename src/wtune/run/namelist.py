@@ -73,6 +73,16 @@ def _set_restart_keys(text: str, txt: str, restart_interval_min: Optional[int],
     return txt
 
 
+_AUXHIST_IO_FORM = re.compile(
+    r"(?mi)^(?![ \t]*!)[^\n]*?(?<![A-Za-z0-9_])(io_form_auxhist\d+)[ \t]*=[ \t]*(-?\d+)")
+
+
+def _aux_outputs(text: str) -> list[str]:
+    """io_form_auxhistN keys the case writes in another format (nonzero, not ADIOS2)."""
+    return sorted({k.lower() for k, v in _AUXHIST_IO_FORM.findall(text)
+                   if int(v) not in (0, ADIOS2_IO_FORM)})
+
+
 def _set_io_keys(text: str, txt: str, config: Config, io_streams: Optional[list],
                  per_record_edits: Optional[dict]) -> tuple[str, list[str]]:
     """ADIOS2 streams (io_form 14, .bp innames), the per-record edits over them, and
@@ -82,6 +92,9 @@ def _set_io_keys(text: str, txt: str, config: Config, io_streams: Optional[list]
     if io_streams is not None:
         io_keys = ["io_form_history", "adios2_numaggregators"]
         txt = _set_one(txt, "io_form_history", ADIOS2_IO_FORM)
+        for key in _aux_outputs(text):
+            txt = _set_one(txt, key, ADIOS2_IO_FORM)
+            io_keys.append(key)
         for st in io_streams:
             for key, v, group in cc.adios2_stream_edits(st):
                 txt = _set_one(txt, key, v, group)

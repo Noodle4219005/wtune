@@ -358,6 +358,18 @@ link_thompson_tables () {
   done
 }
 
+# Only rank 0's rsl files are read and kept, so the other ranks write to /dev/null: on a GPFS with
+# 16 MiB blocks every open rsl file holds a whole block (f1-arm, isc21 at 8 nodes: 2304 files,
+# 36 GiB of quota while running).
+rsl_rank0_only () {
+  local r n
+  for ((r = 1; r < $1; r++)); do
+    printf -v n '%04d' "$r"
+    ln -sf /dev/null "rsl.out.$n"
+    ln -sf /dev/null "rsl.error.$n"
+  done
+}
+
 # Files the final ./namelist.input names (iofields_filename, sst_update's wrflowinp, wrffdda,
 # auxinput*, tslist, ...) were never staged: input_files + wrfinput/wrfbdy only. climate-ea50
 # (scc probe jobs 2541-2545): iofields_d01.txt absent -> WRF 4.8 hung after "calling input_input"
@@ -792,6 +804,7 @@ if [ "$RANKING_START" = "spinup" ] && [ "$MODE" = "timing" ] && [ "$FUSED_ON" !=
       write_adios2_restart_xml "$SRC_DIR" "$(python3 "$CAMPAIGN/configs.py" restart-time "$CASE" "$M")" "$MAX_DOM"
       link_namelist_files
       ln -sf "$W/main/wrf.exe" ./wrf.exe
+      rsl_rank0_only "$A_RANKS"
       configure_omp_env "$A_OMP" "$A_BLOCKTIME"
       echo "RANKING_SPINUP[m=$M]: launching anchor spin-up in $SRC_DIR"
       site_launch "$A_RANKS" "$A_NTASKS_PER_NODE" "$A_OMP" "$A_DIST"
@@ -977,6 +990,7 @@ for cid in "${ORDER[@]}"; do
   fi
   link_namelist_files
   ln -sf "$W/main/wrf.exe" ./wrf.exe
+  rsl_rank0_only "$ranks"
 
   configure_omp_env "$omp" "$blocktime"
 

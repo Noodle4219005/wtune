@@ -1397,3 +1397,59 @@ def test_a_segment_runs_wrf_tree_not_what_a_former_run_dir_brought(tmp_path):
     assert (seg / "ONLY_OLD.TBL").read_text() == "old"
     assert (seg / "VEGPARM.TBL").read_text() == "the case's own table"
     assert (seg / "wrfinput_d01").read_text() == "in"
+
+
+# ---------------------------------------------------------------------------
+# stall detection
+# ---------------------------------------------------------------------------
+def _stall(tmp_path, stall_s=600.0):
+    rsl = tmp_path / "rsl.error.0000"
+    rsl.write_text("starting\n")
+    clock, cancelled, logs = [0.0], [], []
+    w = wr.attempts.StallWatch(str(rsl), "123", stall_s, lambda: clock[0], cancelled.append,
+                               logs.append)
+    return w, rsl, clock, cancelled
+
+
+def test_stall_watch_cancels_once_when_rsl_stops_changing(tmp_path):
+    w, rsl, clock, cancelled = _stall(tmp_path)
+    for t in (0, 300, 599):
+        clock[0] = t
+        w("RUNNING")
+    assert cancelled == []
+    clock[0] = 600
+    w("RUNNING")
+    w("RUNNING")
+    assert cancelled == ["123"] and "unchanged for 10 min" in w.why
+
+
+def test_stall_watch_restarts_its_clock_on_every_rsl_change(tmp_path):
+    w, rsl, clock, cancelled = _stall(tmp_path)
+    for t in range(0, 3000, 300):
+        clock[0] = t
+        rsl.write_text("step %d\n" % t)
+        w("RUNNING")
+    assert cancelled == [] and w.why is None
+
+
+def test_stall_watch_ignores_pending_and_can_be_disabled(tmp_path):
+    w, rsl, clock, cancelled = _stall(tmp_path)
+    for t in (0, 5000, 10000):
+        clock[0] = t
+        w("PENDING")
+    assert cancelled == []
+    off, _rsl, clock2, cancelled2 = _stall(tmp_path, stall_s=0)
+    for t in (0, 5000):
+        clock2[0] = t
+        off("RUNNING")
+    assert cancelled2 == []
+
+
+def test_a_stalled_attempt_stops_the_run_without_resuming(tmp_path):
+    rec = wr.attempts.AttemptRecord(dir=str(tmp_path), job_id="7", time_step=None,
+                                    submitted_utc="x")
+    rec.stalled = "rsl.error.0000 unchanged for 20 min"
+    out = wr.attempts.Outcome(str(tmp_path), rec, "CANCELLED", 1200.0, {}, False)
+    with pytest.raises(wr.RunError, match="stalled and was cancelled"):
+        wr.controller._next_attempt(None, 0, None, None, out)
+    assert rec.failure_class == "stalled"

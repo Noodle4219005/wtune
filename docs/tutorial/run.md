@@ -57,6 +57,7 @@ flowchart TD
 |---|---|---|
 | 節點故障、逾時、被搶佔 | 從最近一個有效的 restart 自動續跑 | `--resume N`（預設 1，0 關閉） |
 | 個案自己沒寫 restart | 自動補上檢查點 | `--checkpoint-minutes M`（預設 `auto`） |
+| 執行中卡住：`rsl.error.0000` 很久沒有新內容（例如磁碟或配額寫滿時 WRF＋ADIOS2 會停住而不是報錯） | 取消該段 job、標為 `stalled` 並停下來，不重送 | `--stall-minutes M`（預設 20，0 關閉） |
 | CFL 或 NaN | **停下來**，寫出建議的 `time_step` 與 `segment.advice.namelist.input`，不重送 | — |
 | CFL 或 NaN，且你事先授權 | 同一段以約 0.75 倍的 `time_step` 重跑一次，之後的段回到原本的值 | `--cfl-rescue` |
 | 其他錯誤 | 停下來並報錯，不會默默重試 | — |

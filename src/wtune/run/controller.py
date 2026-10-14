@@ -13,7 +13,7 @@ import wtune.extensions
 import wtune.machine
 from ._deps import resume, sweep
 from .attempts import Attempt, Outcome, _attempt_namelist, _attempt_times, _run_attempt
-from .common import RunError, _fmt, _hms
+from .common import UNSET, RunError, _fmt, _hms
 from .context import RunContext
 from .estimate import history_wall, time_limit_s
 from .geometry import _step_fraction, step_of, step_time
@@ -163,6 +163,9 @@ def _next_attempt(ctx: RunContext, k: int, seg: Segment, att: Attempt, out: Outc
     """The attempt that follows a failed one: an auto-resume (infrastructure failure with a
     valid restart) or the CFL rescue; anything else raises RunError -- never a silent retry."""
     rec, snap = out.rec, out.snap
+    if rec.stalled is not UNSET:
+        rec.failure_class = "stalled"       # a full disk would only stall again: no resume
+        raise RunError("segment %d (%s) stalled and was cancelled: %s" % (k, out.dir, rec.stalled))
     codes = rec.warnings
     nan = any(w["code"] == "FAILED" and "NaN" in w["text"] for w in snap.get("warnings", []))
     # a cfl line alone is routine output: in an interrupted job it is not the failure

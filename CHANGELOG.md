@@ -140,6 +140,12 @@ WRF 4.8 writes the 256-character compressor name into a 32-character buffer
 not take that path. Every probe and segment namelist now says `.false.`; `--io netcdf` still
 keeps the case's own `&namelist_adios2`.
 
+**A stalled segment is cancelled.** On a full quota WRF+ADIOS2 stops writing and waits
+instead of failing: on f1-arm job 15170 idled 75 minutes to its time limit (40 SU) while
+`wtune run` kept polling. While a segment job runs, `wtune run` now watches `rsl.error.0000`;
+when it has not changed for `--stall-minutes` (default 20, 0 disables) the job is cancelled,
+the attempt is recorded as `stalled` and the run stops without a resume.
+
 ## 0.9.0 — 2026-10-12
 
 Main code made small enough to review; behaviour of the tune -> run -> post path is unchanged

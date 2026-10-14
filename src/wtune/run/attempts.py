@@ -53,6 +53,7 @@ class AttemptRecord(Record):
     failure_class: Any = UNSET         # wtune.resume.classify_failure
     resume_time: Any = UNSET           # the restart the next attempt resumed from
     no_resume_reason: Any = UNSET
+    stalled: Any = UNSET               # why StallWatch cancelled the job
 
 
 @dataclasses.dataclass
@@ -182,6 +183,36 @@ def wait_for_job(job_id: str, sacct_runner: Callable, sacct_cmd: str = "sacct",
         sleep(poll_s)
 
 
+class StallWatch:
+    """An on_poll(state): while the job runs, cancel it once rsl.error.0000 has not changed
+    (size, mtime) for stall_s. WRF+ADIOS2 waits forever on a full quota instead of failing
+    (f1-arm job 15170 idled 75 min to its time limit)."""
+
+    def __init__(self, rsl: str, job_id: str, stall_s: float, clock: Callable,
+                 cancel: Callable, log: Callable) -> None:
+        self.rsl, self.job_id, self.stall_s = rsl, job_id, stall_s
+        self.clock, self.cancel, self.log = clock, cancel, log
+        self.sig, self.since, self.why = UNSET, None, None
+
+    def __call__(self, state: str) -> None:
+        if self.why or not self.stall_s or state != "RUNNING":
+            return
+        try:
+            st = os.stat(self.rsl)
+            sig = (st.st_size, st.st_mtime)
+        except OSError:
+            sig = None
+        now = self.clock()
+        if sig != self.sig or self.since is None:
+            self.sig, self.since = sig, now
+            return
+        if now - self.since >= self.stall_s:
+            self.why = "%s unchanged for %d min" % (os.path.basename(self.rsl),
+                                                   (now - self.since) // 60)
+            self.log("  job %s: STALLED (%s); cancelling it" % (self.job_id, self.why))
+            self.cancel(self.job_id)
+
+
 def _run_attempt(ctx: RunContext, k: int, seg: Segment, att: Attempt, is_last: bool) -> Outcome:
     """Stage, submit, wait for and inspect one attempt; its record goes into the report."""
     geo, side, run = ctx.geo, ctx.sidecar, ctx.runners
@@ -193,9 +224,20 @@ def _run_attempt(ctx: RunContext, k: int, seg: Segment, att: Attempt, is_last: b
         rec.start = _fmt(step_time(geo, att.a))
     seg.attempts.append(rec)
     _save_report(ctx)
+    stall = StallWatch(os.path.join(seg_dir, "rsl.error.0000"), job_id,
+                       60.0 * (ctx.opts.stall_minutes or 0), run.clock,
+                       run.scancel_runner or (lambda _j: None), run.log)
+    side_poll = side.watcher(seg_dir, job_id, seg.config) if side else None
+
+    def on_poll(state):
+        stall(state)
+        if side_poll:
+            side_poll(state)
     state, elapsed = wait_for_job(
         job_id, run.sacct_runner, ctx.opts.sacct_cmd, ctx.opts.poll_interval, run.sleep, run.log,
-        on_poll=side.watcher(seg_dir, job_id, seg.config) if side else None)
+        on_poll=on_poll)
+    if stall.why:
+        rec.stalled = stall.why
     remove_empty_output_dirs(seg_dir, out_names)    # before any wrfout/wrfrst check
     if side:
         side.job_ended(seg_dir)

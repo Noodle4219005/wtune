@@ -5,7 +5,7 @@ usage: wtune run [-h] [--nodes NODES] [--nx NX] [--ny NY] [--numtiles NUMTILES] 
                  [--io {adios2,netcdf}] [--cfl-rescue] [--resume N] [--checkpoint-minutes M]
                  [--sidecar] [--wrfda-forecast-only] [--out OUT] [--project PROJECT] [--dry-run]
                  [--wrf-tree WRF_TREE] [--env-source ENV_SOURCE] [--campaign-dir CAMPAIGN_DIR]
-                 [--sacct-cmd SACCT_CMD] [--poll-interval POLL_INTERVAL]
+                 [--sacct-cmd SACCT_CMD] [--poll-interval POLL_INTERVAL] [--stall-minutes M]
                  [case_dir]
 
 wtune run -- segmented WRF executor with restart hand-offs (`wtune run`).
@@ -65,6 +65,8 @@ options:
   --campaign-dir CAMPAIGN_DIR
   --sacct-cmd SACCT_CMD
   --poll-interval POLL_INTERVAL
+  --stall-minutes M     cancel a running segment job whose rsl.error.0000 has not changed for M
+                        minutes and stop the run (0 disables; default 20)
 --- stderr
 
 rc=0

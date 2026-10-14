@@ -17,7 +17,7 @@ import wtune.machine
 import wtune.watch
 from ._deps import _CAMPAIGN_DIR, coldstart, sweep, wp
 from .common import WRF_FMT, RunError, _fmt, _hms, parse_hms
-from .context import RunContext, RunOptions, RunPlan, Runners
+from .context import RunContext, RunOptions, RunPlan, Runners, default_scancel
 from .controller import _make_sidecar, run_controller
 from .estimate import (FALLBACK_RADIATION_FACTOR, Overheads, constant_compute_fn,
                        fallback_overheads, fallback_s_per_step, model_from_prediction)
@@ -95,6 +95,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
     ap.add_argument("--campaign-dir", default=_CAMPAIGN_DIR)
     ap.add_argument("--sacct-cmd", default="sacct")
     ap.add_argument("--poll-interval", type=float, default=60.0)
+    ap.add_argument("--stall-minutes", type=float, default=20.0, metavar="M",
+                    help="cancel a running segment job whose rsl.error.0000 has not changed "
+                         "for M minutes and stop the run (0 disables; default 20)")
     return ap
 
 
@@ -449,7 +452,8 @@ def _fail(e) -> int:
 def main(argv: Optional[list] = None, sbatch_runner: Optional[Callable] = None,
          sacct_runner: Optional[Callable] = None, snapshot_fn: Optional[Callable] = None,
          sleep: Optional[Callable] = None, log: Callable = print,
-         sidecar_runner: Optional[Callable] = None) -> int:
+         sidecar_runner: Optional[Callable] = None, scancel_runner: Optional[Callable] = None,
+         clock: Optional[Callable] = None) -> int:
     opts = parse_options(argv)
     try:
         opts = apply_project_defaults(opts, log)
@@ -482,5 +486,7 @@ def main(argv: Optional[list] = None, sbatch_runner: Optional[Callable] = None,
     runners = Runners(sbatch_runner=sbatch_runner or sweep.default_sbatch_runner,
                       sacct_runner=sacct_runner or sweep.default_sacct_runner,
                       snapshot_fn=snapshot_fn or wtune.watch.snapshot,
-                      sleep=sleep or time.sleep, log=log)
+                      sleep=sleep or time.sleep, log=log,
+                      scancel_runner=scancel_runner or default_scancel,
+                      clock=clock or time.monotonic)
     return execute(_run_context(opts, plan, runners, sidecar_runner))

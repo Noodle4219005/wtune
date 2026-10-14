@@ -138,6 +138,7 @@ l seg_0/wrfinput_d03.bp -> <TMP>/case/wrfinput_d03.bp
 /
 
 &namelist_adios2
+ adios2_compression_enable = .false.,
  adios2_numaggregators = 72,
 /
 

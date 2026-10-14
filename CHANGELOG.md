@@ -133,6 +133,13 @@ free slots like round 0, so it ends sooner; and the rounds stop once the leader 
 runner-up by more than `noise_frac` (3%) and a round found nothing faster, as the node search
 already did for larger node counts.
 
+**WRF's own ADIOS2 compression off.** Probes wrote `adios2_compression_enable=.true.` and
+`wtune run` kept the case's value (the Registry default is `.true.`). With compression on, stock
+WRF 4.8 writes the 256-character compressor name into a 32-character buffer
+(`external/io_adios2/wrf_io.F90`; the SC26-WRF patch `e6472a9` widens it), so a vanilla WRF must
+not take that path. Every probe and segment namelist now says `.false.`; `--io netcdf` still
+keeps the case's own `&namelist_adios2`.
+
 ## 0.9.0 — 2026-10-12
 
 Main code made small enough to review; behaviour of the tune -> run -> post path is unchanged

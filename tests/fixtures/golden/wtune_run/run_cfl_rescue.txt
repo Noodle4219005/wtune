@@ -167,6 +167,7 @@ l seg_1/wrfrst_d03_2020-06-01_06:00:00 -> <TMP>/out/seg_0_rescue/wrfrst_d03_2020
 /
 
 &namelist_adios2
+ adios2_compression_enable = .false.,
  adios2_numaggregators = 72,
 /
 
@@ -316,6 +317,7 @@ echo "SEGMENT rc=$rc wall=$wall ok=$ok" | tee -a "$STATUS"
 /
 
 &namelist_adios2
+ adios2_compression_enable = .false.,
  adios2_numaggregators = 72,
 /
 
@@ -465,6 +467,7 @@ echo "SEGMENT rc=$rc wall=$wall ok=$ok" | tee -a "$STATUS"
 /
 
 &namelist_adios2
+ adios2_compression_enable = .false.,
  adios2_numaggregators = 72,
 /
 

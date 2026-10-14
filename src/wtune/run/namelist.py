@@ -107,6 +107,11 @@ def _set_io_keys(text: str, txt: str, config: Config, io_streams: Optional[list]
             io_keys.append(key)
     if io_streams is not None or coldstart.count_key(text, "adios2_numaggregators"):
         txt = _set_one(txt, "adios2_numaggregators", config.ranks, "namelist_adios2")
+    if io_streams is not None:
+        # WRF's own compression off (the Registry default is on): stock WRF 4.8 overflows a
+        # 32-char buffer on that path; --compress-history compresses outside WRF
+        txt = _set_one(txt, "adios2_compression_enable", ".false.", "namelist_adios2")
+        io_keys.append("adios2_compression_enable")
     return txt, io_keys
 
 

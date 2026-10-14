@@ -5,7 +5,7 @@
  ],
  "ADIOS2_COMPRESSION_ENABLE": [
   "str",
-  ".true."
+  ".false."
  ],
  "ADIOS2_IO_FORM": [
   "int",

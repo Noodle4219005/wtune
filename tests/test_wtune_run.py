@@ -929,14 +929,29 @@ def test_namelist_adios2_every_io_form_14_and_bp_innames():
         assert len(re.findall(r'(?m)^\s*%s\s*=\s*"%s"' % (key, re.escape(name)), txt)) == 1, key
     fdda = txt[txt.index("&fdda"):]
     assert "io_form_gfdda" in fdda.split("/")[0] and "gfdda_inname" in fdda.split("/")[0]
-    assert re.search(r"(?ms)^&namelist_adios2\s*\n\s*adios2_numaggregators = %d," % cfg["ranks"],
-                     txt)
+    group = txt[txt.index("&namelist_adios2"):].split("/")[0]
+    assert re.search(r"(?m)^\s*adios2_numaggregators = %d," % cfg["ranks"], group)
+    assert re.search(r"(?m)^\s*adios2_compression_enable = \.false\.,", group)
 
 
 NAMELIST_AUXHIST = NAMELIST_3DOM.replace(
     " io_form_boundary                    = 2\n",
     " io_form_boundary                    = 2\n io_form_auxhist24 = 2\n"
     " auxhist24_interval_s = 60, 60, 60,\n io_form_auxhist3 = 0,\n")
+
+
+def test_namelist_adios2_turns_wrf_compression_off_even_when_the_case_asks_for_it():
+    case = NAMELIST_AUXHIST + ("&namelist_adios2\n adios2_compression_enable = .true.,\n"
+                               " adios2_blosc_compressor = 'zstd',\n/\n")
+    txt = wr.render_segment_namelist(case, _dt("2020-06-01_00:00:00"),
+                                     _dt("2020-06-01_06:00:00"), 0, _cfg(), 360,
+                                     io_streams=_streams(case))
+    group = txt[txt.index("&namelist_adios2"):]
+    assert re.search(r"adios2_compression_enable\s*=\s*\.false\.", group.split("/")[0])
+    assert ".true." not in group.split("/")[0]
+    legacy = wr.render_segment_namelist(case, _dt("2020-06-01_00:00:00"),
+                                        _dt("2020-06-01_06:00:00"), 0, _cfg(), 360)
+    assert "adios2_compression_enable = .true." in legacy       # --io netcdf keeps the case's
 
 
 def test_namelist_adios2_switches_aux_outputs_the_case_writes():

@@ -257,7 +257,7 @@ class TestNamelistEditing(unittest.TestCase):
         self.assertIn('input_inname="wrfinput_d<domain>.bp", bdy_inname="wrfbdy_d<domain>.bp",', out)
         self.assertIn("&namelist_adios2\n"
                       " adios2_numaggregators=224,\n"
-                      " adios2_compression_enable=.true.,\n"
+                      " adios2_compression_enable=.false.,\n"
                       ' adios2_blosc_compressor="zstd",\n'
                       "/\n", out)
         # time_step untouched (not a campaign-edited knob)
@@ -686,7 +686,7 @@ class TestAdios2(unittest.TestCase):
         self.assertIn('input_inname="wrfinput_d<domain>.bp", bdy_inname="wrfbdy_d<domain>.bp",', out)
         self.assertIn("&namelist_adios2\n"
                       " adios2_numaggregators=224,\n"
-                      " adios2_compression_enable=.true.,\n"
+                      " adios2_compression_enable=.false.,\n"
                       ' adios2_blosc_compressor="zstd",\n'
                       "/\n", out)
         self.assertEqual(out.count("input_inname"), 1)
@@ -781,14 +781,15 @@ class TestAdios2Compression(unittest.TestCase):
                                      ranks=ranks)
 
     def test_compression_keys_are_written_explicitly(self):
+        # off: the Registry default .true. sends stock WRF 4.8 into a buffer overflow
         out = self._out()
-        self.assertIn(" adios2_compression_enable=.true.,\n", out)
+        self.assertIn(" adios2_compression_enable=.false.,\n", out)
         self.assertIn(' adios2_blosc_compressor="zstd",\n', out)
 
     def test_codec_comes_from_the_module_constants(self):
         # The measured choice lives in one place; the emitter must not hardcode it.
         self.assertEqual(configs.ADIOS2_BLOSC_COMPRESSOR, "zstd")
-        self.assertEqual(configs.ADIOS2_COMPRESSION_ENABLE, ".true.")
+        self.assertEqual(configs.ADIOS2_COMPRESSION_ENABLE, ".false.")
         out = self._out()
         self.assertIn(' adios2_blosc_compressor="%s",' % configs.ADIOS2_BLOSC_COMPRESSOR, out)
         self.assertIn(" adios2_compression_enable=%s," % configs.ADIOS2_COMPRESSION_ENABLE, out)
@@ -819,11 +820,11 @@ class TestAdios2Compression(unittest.TestCase):
             "\n&namelist_adios2\n"
             " adios2_numaggregators=7,\n"
             ' adios2_blosc_compressor="lz4",\n'
-            " adios2_compression_enable=.false.,\n"
+            " adios2_compression_enable=.true.,\n"
             "/\n")
         out = configs.edit_namelist(stale, 14, 16, 12, 8, ranks=224)
         self.assertNotIn('adios2_blosc_compressor="lz4"', out)
-        self.assertNotIn("adios2_compression_enable=.false.", out)
+        self.assertNotIn("adios2_compression_enable=.true.", out)
         self.assertNotIn("adios2_numaggregators=7,", out)
         self.assertIn('adios2_blosc_compressor="zstd",', out)
 

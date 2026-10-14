@@ -1450,6 +1450,7 @@
     "frames_deleted": 20,
     "frames_kept": false,
     "hard_deadline_s": null,
+    "jobs_busy_s": 0.0,
     "level": {
       "T_cold_s": 10120.0,
       "actual_running_s": 0.0,

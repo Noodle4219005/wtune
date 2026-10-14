@@ -579,6 +579,7 @@
     "frames_deleted": 20,
     "frames_kept": false,
     "hard_deadline_s": 360000.0,
+    "jobs_busy_s": 0.0,
     "level": {
       "T_cold_s": 10000120.0,
       "actual_running_s": 306000.0,

@@ -3342,3 +3342,18 @@ def test_a_job_s_input_copy_is_removed_once_it_has_ended(tmp_path):
     ctx.input_copies["7001"] = str(copy)
     wtune.tune.jobs.wait_for_jobs(ctx, ["7001"], "test")        # the fake sacct says COMPLETED
     assert not copy.exists() and ctx.input_copies == {}
+
+
+def test_busy_time_is_the_union_of_the_jobs_start_to_end():
+    out = ("7001|2026-10-15T03:00:00|2026-10-15T03:01:00\n"
+           "7002|2026-10-15T03:00:30|2026-10-15T03:02:00\n"      # overlaps 7001
+           "7003|2026-10-15T03:05:00|2026-10-15T03:05:20\n"      # after a gap
+           "7004|Unknown|Unknown")
+    ctx = _ctx(sacct_runner=lambda cmd: out)
+    assert wtune.tune.jobs.busy_s(ctx, ["7001", "7002", "7003", "7004"]) == 140.0
+    from wtune.tune import report as rep
+    row = dict(nodes=1, cores_per_node=144, ranks=144, omp=1, nx=9, ny=16, numtiles=1,
+               median=0.17, reps=1)
+    lines = rep.summary_lines(dict(winner=row, pipeline=dict(jobs_busy_s=113.0,
+                                                              total_wall_s=216.0)))
+    assert lines[-1] == "tuning:   jobs running 1:53 of 3:36 wall (the rest is queue and controller)"

@@ -336,6 +336,35 @@ def job_timing(ctx: Ctx, job_ids: list) -> dict:
     return out
 
 
+def busy_s(ctx: Ctx, job_ids: list) -> float:
+    """Seconds during which at least one of the jobs ran: the union of their sacct Start..End
+    (the running clock samples at each poll, so jobs that start and end between two polls are
+    missed by it)."""
+    ids = [str(j) for j in job_ids if j]
+    if not ids:
+        return 0.0
+    try:
+        text = ctx.sacct_runner([ctx.sacct_cmd, "-j", ",".join(ids), *sweep.SACCT_SINCE,
+                                 "-X", "-n", "-P", "--format=JobID,Start,End"])
+    except Exception:
+        return 0.0
+    spans = []
+    for line in (text or "").splitlines():
+        parts = [p.strip() for p in line.split("|")]
+        try:
+            spans.append(tuple(datetime.datetime.strptime(t, "%Y-%m-%dT%H:%M:%S")
+                               for t in parts[1:3]))
+        except ValueError:
+            continue
+    total, end = 0.0, None
+    for a, b in sorted(spans):
+        if end is None or a > end:
+            total, end = total + (b - a).total_seconds(), b
+        elif b > end:
+            total, end = total + (b - end).total_seconds(), b
+    return total
+
+
 def _final_cancel_safety_net(ctx: Ctx) -> None:
     """Past the budget, cancel whatever owned job sacct still shows PENDING/RUNNING."""
     still_up = [j for j in ctx.owned_jobs if j not in ctx.cancelled_jobs]

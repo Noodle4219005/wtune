@@ -504,7 +504,10 @@ def summary_lines(report: dict) -> list[str]:
     if by_tag:
         lines.append("not run:  " + "; ".join("N=%s %s" % (_ranges(v), k)
                                               for k, v in sorted(by_tag.items())))
-    if pipe:
+    if pipe and pipe.get("jobs_busy_s"):
+        lines.append("tuning:   jobs running %s of %s wall (the rest is queue and controller)"
+                     % (_fmt_hms(pipe["jobs_busy_s"]), _fmt_hms(pipe.get("total_wall_s", 0.0))))
+    elif pipe:
         lines.append("tuning:   running %s, queue %s (not counted)"
                      % (_fmt_hms(pipe.get("total_running_s", 0.0)),
                         _fmt_hms(pipe.get("total_queue_wait_s", 0.0))))

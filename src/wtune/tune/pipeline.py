@@ -32,6 +32,7 @@ from .prediction import (WholeRunPrediction, plan_prediction_points,
 from .report import _assert_report_is_strict_only, local_param_table
 from . import candidates as _candidates
 from . import context as _context
+from . import jobs as _jobs
 from . import node_search as _node_search
 from . import points as _points
 from . import prediction as _prediction
@@ -785,6 +786,7 @@ def _pipeline_finish(st: PipelineRun, report: dict, pred: WholeRunPrediction | N
     pipe.level.effective = st.plan["level"]
     pipe.total_running_s = running
     pipe.total_wall_s = ctx.wall_elapsed()
+    pipe.jobs_busy_s = _jobs.busy_s(ctx, ctx.owned_jobs)
     pipe.total_queue_wait_s = ctx.queue_wait_s
     pipe.queue_cap_hit = st.cap_hit()
     pipe.total_controller_s = max(0.0, ctx.wall_elapsed() - running - ctx.queue_wait_s)

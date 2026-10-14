@@ -57,6 +57,17 @@ shuffle),2.5km 一個 frame 邏輯資料量 8.45 GB、落地只有 2.79 GB。少
 細節見 `convert.py` 檔頭註解,以及 `docs/io-adios2-zstd.md` 的
 「Converting ADIOS2 output back to NetCDF4」一節。
 
+## 這個 repo 加的 patch(2026-10-14)
+
+**每個 frame 一個 chunk。** `Time` 是固定長度維度,netCDF-C 的預設 chunk 沿
+`Time` 跨很多 frame(121 frame 時是 41 個一組);逐 frame 寫入時每寫一張就要把
+整個 chunk 解壓再壓一次。`create_nc_vars` 對第一維是 `Time` 的壓縮變數改用
+`chunksizes = (1, 其餘維度全長)`,和 WRF 自己寫 wrfout 的分法相同。數值不變。
+
+量測(本機,`(T, 40, 136, 196)` float32,zlib 2 + shuffle,逐 frame 寫):
+41 frame 26.2 s → 2.0 s;121 frame 166 s → 5.9 s(3.1 → 87 MB/s)。實際案例:
+yagi d02 一個 BP 裡 121 frame,收尾轉檔作業(含比對)佔一個 144 核節點 46 分鐘。
+
 ## 用途
 
 把 `io_form_history=14`（ADIOS2 + zstd,見 `docs/io-adios2-zstd.md`）寫出的

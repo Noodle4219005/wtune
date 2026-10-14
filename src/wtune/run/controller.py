@@ -4,6 +4,7 @@ rescue per run (--cfl-rescue, PHYSICS-GRAY) -- anything else stops, never a sile
 from __future__ import annotations
 
 import dataclasses
+import glob
 import math
 import os
 import shutil
@@ -199,7 +200,26 @@ def run_controller(ctx: RunContext) -> int:
         raise
     if ctx.sidecar:
         ctx.sidecar.finish()
+    if ctx.opts.compress_history and ctx.plan.restart.set_min is not None:
+        _delete_own_restarts(ctx)
     return 0
+
+
+def _delete_own_restarts(ctx: RunContext) -> None:
+    """--compress-history after a run that succeeded: the restart files WTune itself asked for
+    (not the case's) only served the segment hand-offs."""
+    paths = sorted(glob.glob(os.path.join(ctx.plan.out, "seg_*", "wrfrst_d*")))
+    size = 0
+    for p in paths:
+        if os.path.isdir(p):            # ADIOS2 restart: a BP directory
+            size += sum(os.path.getsize(os.path.join(d, f)) for d, _s, fs in os.walk(p) for f in fs)
+            shutil.rmtree(p)
+        else:
+            size += os.path.getsize(p)
+            os.remove(p)
+    ctx.report["restarts_deleted"] = dict(files=len(paths), bytes=size)
+    _save_report(ctx)
+    ctx.log("deleted %d restart file(s) WTune wrote (%.1f GB)" % (len(paths), size / 1e9))
 
 
 def _run_segments(ctx: RunContext) -> None:
@@ -262,4 +282,5 @@ def _make_sidecar(ctx: RunContext, nc_root: str, runner: Optional[Callable] = No
         out, nc_root, ctx.geo.max_dom, sweep.campaign_configs._import_wtune_bp().is_bp,
         ctx.report, save=lambda: _save_report(ctx), log=ctx.log,
         cores_per_node=wtune.machine.cores_per_node(), exclude_arg=sweep.exclude_arg(),
-        runner=runner or wtune.sidecar.popen_runner(os.path.join(out, "sidecar.log")))
+        runner=runner or wtune.sidecar.popen_runner(os.path.join(out, "sidecar.log")),
+        replace=ctx.opts.compress_history)

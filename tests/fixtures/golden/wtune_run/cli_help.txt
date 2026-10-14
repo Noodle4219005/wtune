@@ -2,9 +2,10 @@ usage: wtune run [-h] [--nodes NODES] [--nx NX] [--ny NY] [--numtiles NUMTILES] 
                  [--wall-limit WALL_LIMIT] [--segment-minutes SEGMENT_MINUTES] [--stop-at STOP_AT]
                  [--prediction PREDICTION] [--tune-report TUNE_REPORT] [--restart-io-form {14,2}]
                  [--io {adios2,netcdf}] [--cfl-rescue] [--resume N] [--checkpoint-minutes M]
-                 [--sidecar] [--wrfda-forecast-only] [--out OUT] [--project PROJECT] [--dry-run]
-                 [--wrf-tree WRF_TREE] [--env-source ENV_SOURCE] [--campaign-dir CAMPAIGN_DIR]
-                 [--sacct-cmd SACCT_CMD] [--poll-interval POLL_INTERVAL] [--stall-minutes M]
+                 [--sidecar] [--compress-history] [--wrfda-forecast-only] [--out OUT]
+                 [--project PROJECT] [--dry-run] [--wrf-tree WRF_TREE] [--env-source ENV_SOURCE]
+                 [--campaign-dir CAMPAIGN_DIR] [--sacct-cmd SACCT_CMD]
+                 [--poll-interval POLL_INTERVAL] [--stall-minutes M]
                  [case_dir]
 
 wtune run -- segmented WRF executor with restart hand-offs (`wtune run`).
@@ -50,6 +51,10 @@ options:
   --sidecar             while a segment job runs, record each valid restart and convert finished
                         history frames to netCDF in the `wtune post` cache, on the job's idle
                         cores
+  --compress-history    --sidecar, and each converted history frame replaces its BP directory
+                        (zlib netCDF, about 4x smaller, checked against the BP first; on a full
+                        node one core is shared at the lowest priority); WTune's own restart files
+                        are deleted once the run has succeeded
   --wrfda-forecast-only
                         acknowledge that this WRFDA case is run as wrf.exe forecast segments only:
                         WTune does NOT run DA cycles (obsproc/da_wrfvar/da_update_bc). Without it,

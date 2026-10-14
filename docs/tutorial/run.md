@@ -77,6 +77,8 @@ ADIOS2 的輸出是 BP 目錄。要交 netCDF 檔時，用 `wtune convert bp2nc 
 
 `--sidecar`：job 執行期間，用 WRF 沒用到的核心驗證每組 restart，並把寫完的歷史輸出轉成 netCDF 放進後處理的快取。
 
+`--compress-history`：在 `--sidecar` 之上，每張轉好的 netCDF（zlib，約小 4 倍，無損）先和原本的 BP 逐變數比對，相同才放到 BP 的位置並刪掉 BP；後處理直接讀它，不再另存一份快取。WRF 用滿所有核心時，轉檔共用最後一顆核心、優先度最低。整個 run 成功後，WTune 自己為分段加的 restart 檔也會刪掉（個案自己要的 restart 不動）。WRF 本身的 ADIOS2 壓縮一律關閉（原版 WRF 4.8 在那條路徑上有緩衝區溢位）。
+
 ## watch
 
 ```bash

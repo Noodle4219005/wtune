@@ -1453,3 +1453,20 @@ def test_a_stalled_attempt_stops_the_run_without_resuming(tmp_path):
     with pytest.raises(wr.RunError, match="stalled and was cancelled"):
         wr.controller._next_attempt(None, 0, None, None, out)
     assert rec.failure_class == "stalled"
+
+
+def test_compress_history_deletes_only_the_restart_files_of_the_run(tmp_path, monkeypatch):
+    import types
+    for seg in ("seg_0", "seg_1"):
+        d = tmp_path / seg / "wrfrst_d01_2020-06-01_06:00:00"
+        d.mkdir(parents=True)
+        (d / "data.0").write_bytes(b"x" * 100)
+        (tmp_path / seg / "wrfout_d01_2020-06-01_06:00:00").write_bytes(b"y")
+    logs = []
+    ctx = types.SimpleNamespace(plan=types.SimpleNamespace(out=str(tmp_path)), report={},
+                                log=logs.append)
+    monkeypatch.setattr(wr.controller, "_save_report", lambda c: None)
+    wr.controller._delete_own_restarts(ctx)
+    assert ctx.report["restarts_deleted"] == {"files": 2, "bytes": 200}
+    assert not list(tmp_path.glob("seg_*/wrfrst_*"))
+    assert len(list(tmp_path.glob("seg_*/wrfout_*"))) == 2

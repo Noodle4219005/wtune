@@ -44,6 +44,7 @@ class RunOptions:
     sacct_cmd: str
     poll_interval: float               # s between sacct polls
     stall_minutes: float = 20.0        # rsl.error.0000 unchanged this long: cancel
+    compress_history: bool = False     # converted frames replace their BP dirs
 
 
 @dataclasses.dataclass

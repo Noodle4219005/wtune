@@ -80,6 +80,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
                     help="while a segment job runs, record each valid restart and convert "
                          "finished history frames to netCDF in the `wtune post` cache, on the "
                          "job's idle cores")
+    ap.add_argument("--compress-history", action="store_true",
+                    help="--sidecar, and each converted history frame replaces its BP directory "
+                         "(zlib netCDF, about 4x smaller, checked against the BP first; on a "
+                         "full node one core is shared at the lowest priority); WTune's own "
+                         "restart files are deleted once the run has succeeded")
     ap.add_argument("--wrfda-forecast-only", action="store_true",
                     help="acknowledge that this WRFDA case is run as wrf.exe forecast segments "
                          "only: WTune does NOT run DA cycles (obsproc/da_wrfvar/da_update_bc). "
@@ -353,7 +358,7 @@ def build_plan(opts: RunOptions, case_dir: str, out: str, log: Callable) -> RunP
     L, segs, rst = _plan_segments(opts, case, candidates, over, inputs, wall_limit_s, notes)
     _plan_notes(opts, case, L, segs, rst, notes)
     nc_root = None
-    if opts.sidecar:
+    if opts.sidecar or opts.compress_history:
         import wtune.sidecar
         nc_root = wtune.sidecar.post_cache_root(out, find_project_dir(opts.project))
     return RunPlan(case_dir=case_dir, out=out, text=case.text, geo=case.geo, n_end=case.n_end,
@@ -413,7 +418,7 @@ def _run_context(opts: RunOptions, plan: RunPlan, runners: Runners,
     if os.path.isfile(case_xml):
         with open(case_xml) as f:
             ctx.case_adios2_xml = f.read()
-    if opts.sidecar:
+    if opts.sidecar or opts.compress_history:
         ctx.sidecar = _make_sidecar(ctx, plan.nc_root, sidecar_runner)
     return ctx
 

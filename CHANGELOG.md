@@ -146,6 +146,13 @@ instead of failing: on f1-arm job 15170 idled 75 minutes to its time limit (40 S
 when it has not changed for `--stall-minutes` (default 20, 0 disables) the job is cancelled,
 the attempt is recorded as `stalled` and the run stops without a resume.
 
+**History compressed outside WRF.** `wtune run --compress-history` is `--sidecar` where each
+converted frame (zlib netCDF) is first compared with its BP variable by variable
+(`tools/bp_nc_same.py`) and then takes the BP directory's place, so `wtune post` reads it
+directly and keeps no second copy. matthew's 17 frames: 915.7 MB as BP, 237.4 MB as zlib
+netCDF. On a full node the conversion shares the last core at the lowest priority. After a
+run that succeeded, the restart files WTune added for its segment hand-offs are deleted.
+
 ## 0.9.0 — 2026-10-12
 
 Main code made small enough to review; behaviour of the tune -> run -> post path is unchanged

@@ -343,3 +343,59 @@ def test_wtune_run_sidecar_hook(tmp_path, monkeypatch):
     assert side["cache"] == str(out / "_nc_cache") and side["converted"] == 3
     assert side["not_converted"] == []
     assert side["last_valid_restart"] == {"dir": seg, "time": "2020-06-01_12:00:00"}
+
+
+# ---------------------------------------------------------------------------
+# --compress-history: the checked netCDF takes the BP's place
+# ---------------------------------------------------------------------------
+def _compressing(tmp_path, runner, monkeypatch, check_ok=True):
+    import wtune.bp
+
+    def check(argv, what):
+        if not check_ok:
+            raise RuntimeError("values differ")
+    monkeypatch.setattr(wtune.bp, "_run_adios2", check, raising=False)
+    run = tmp_path / "out"
+    report, lines = {}, []
+    side = ws.Sidecar(str(run), ws.post_cache_root(str(run)), 1, os.path.isdir, report,
+                      save=lambda: None, log=lines.append, cores_per_node=72,
+                      exclude_arg="--exclude=head", runner=runner, replace=True)
+    return side, run, report
+
+
+def test_compress_history_puts_each_checked_netcdf_in_place_of_its_bp(tmp_path, fake_bp,  # noqa: F811
+                                                                      monkeypatch):
+    side, run, report = _compressing(tmp_path, Runner(), monkeypatch)
+    seg = run / "seg_0"
+    frames = [_frame(seg, 1, h) for h in range(3)]
+    side.job_ended(str(seg))
+    side.finish()
+    assert all(os.path.isfile(f) for f in frames)                 # netCDF under the BP's name
+    assert not [n for n in os.listdir(seg) if n.endswith(".bp-replaced")]
+    assert report["sidecar"]["converted"] == 3 and report["sidecar"]["not_converted"] == []
+    _fresh_process(monkeypatch)
+    prep = extract.prepare_history(str(run))
+    assert prep["n_bp"] == 0                                      # post converts nothing
+    assert [p for _t, p in extract.list_frames(str(run))] == frames
+
+
+def test_a_frame_that_fails_the_check_stays_bp(tmp_path, fake_bp, monkeypatch):  # noqa: F811
+    side, run, _report = _compressing(tmp_path, Runner(), monkeypatch, check_ok=False)
+    frame = _frame(run / "seg_0", 1, 0)
+    side.job_ended(str(run / "seg_0"))
+    side.finish()
+    assert os.path.isdir(frame)
+    with extract.nc_cache(directory=side.cache_root):
+        assert os.path.isfile(extract.cached_nc_path(str(run), frame))
+
+
+def test_a_full_node_shares_its_last_core_when_compressing(tmp_path, fake_bp, monkeypatch):  # noqa: F811
+    r = Runner()
+    side, run, _report = _compressing(tmp_path, r, monkeypatch)
+    seg = run / "seg_0"
+    for h in range(3):
+        _frame(seg, 1, h)
+    side.poll(str(seg), "77", {"ranks": 72, "nodes": 1, "omp": 1}, "RUNNING")
+    argv = r.procs[0].argv
+    assert argv[argv.index("nice"):argv.index("nice") + 3] == ["nice", "-n", "19"]
+    assert "--cpu-bind=verbose,mask_cpu:%s" % ws.cpu_mask([71]) in argv and "--replace" in argv

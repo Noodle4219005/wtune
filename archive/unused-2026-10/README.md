@@ -130,3 +130,14 @@ constants (`DEFAULT_K`, `DEFAULT_ROOT`, `MANIFEST_FIELDS`, ...); `wtune_surrogat
 (`coldstart_sample.py`, `case_rebuild.py`). Not moved although nothing calls them now:
 `grib_state.py` `precip_mean`, `cos_zenith_grid`, `sunlit_frac`, `pblh_*`, `wind10_max`, `hfx_mean`,
 `load_case`, `resolve_times` (still tested), and `src/speedy_hotspot.jl` (only `run_speedy` ran it).
+
+## Snapshot tests that covered nothing else (2026-10-14)
+
+Five `test_refactor_golden_*` files pinned the 0.8.2 behaviour while the package was split.
+After the split their main effect was that every intended change also had to rewrite a
+snapshot. A per-test coverage run (`results/derived-data/2026-10-14-wtune-test-suite-line-coverage-overlap-by-file.csv`)
+showed each reached at most 13 source lines no other test reaches:
+`io_model` 0, `post_outputs` 0, `watch` 8, `case_rebuild` 11, `physics` 13 (`wtune_tune`, 12,
+stays: `test_refactor_golden_wtune_tune_pkg` imports its helpers).
+They and their `fixtures/golden/<name>/` are under `tests/` here. The other thirteen snapshot
+files stay in the suite: each is the only test of 36-200 lines (or could not be measured).

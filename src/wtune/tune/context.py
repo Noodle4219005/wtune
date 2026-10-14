@@ -116,6 +116,8 @@ class Ctx:
     anchor_override: dict | None = None           # node search: the sweep's hybrid ANCHOR at nodes
     core_budget: int | None = None                # node search: cores/node the layouts may use
     full_space: bool = False                      # enumerate every legal layout (O3)
+    node_seeds: str = "geometric"                 # node sweep: geometric seeds, or "all" legal N
+    hotspot_fill: bool = True                     # node sweep: fill a wave's idle nodes near the best N
     layout_notes: dict | None = None              # shared across ctx copies: untried / enumerated
     node_health: dict | None = None               # node_preflight result
     # --pipeline full: one {"s", "cap_hit", "run_s"} accumulator shared by every ctx copy

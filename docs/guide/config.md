@@ -30,6 +30,8 @@ budget:
   max_nodes: 13          # 最多用幾個節點；不寫就用機器的上限
   nodes: search          # auto | search | 固定的整數
   node_objective: time   # time | cost | knee
+  node_seeds: geometric  # geometric | all
+  hotspot_fill: true     # 一波沒用滿的節點補量最佳節點數附近
 
 search:
   omp: [1, 2, 4, 8]                    # 允許的 OpenMP 執行緒數
@@ -39,10 +41,13 @@ search:
 
 probe:
   steps: auto            # 每個候選配置量幾步
+  sweep_steps: [10, 40]  # 節點與核心數掃描的步數範圍
   confirm_reps: 2        # 前幾名重複量幾次
 ```
 
 `search` 底下省略某個 key，代表那個維度不設限。
+
+採樣點怎麼選、每個 key 怎麼影響採樣，見 [tune](../tutorial/tune.md#wtuneyaml)。
 
 | 區塊 | 控制什麼 |
 |---|---|

@@ -23,8 +23,8 @@ budget:
   max_nodes: 13                  # node cap; omit it to use the machine's (project.yaml machine.max_nodes)
   nodes: auto                    # auto | search | <int> | [<int>, ...] -- search measures the ANCHOR at
                                   # each legal node count (wtune tune --nodes search; node_objective/
-                                  # deadline_minutes/min_efficiency/node_finalists/sweep_budget_frac
-                                  # keys mirror its CLI flags); auto picks ONE node count via
+                                  # deadline_minutes/min_efficiency/node_finalists/sweep_budget_frac/
+                                  # node_seeds keys mirror its CLI flags); auto picks ONE node count via
                                   # `nodes_policy` from wtune.case's (uncalibrated) core-count profile;
                                   # a list is previewed by `wtune config show` but not yet run by `wtune tune`
   nodes_policy: knee              # min | cap | knee (see `wtune tune --nodes-policy` for the exact rule)
@@ -52,6 +52,8 @@ probe:
   steps: auto                     # WRF steps run per candidate during round0/adaptive probing (--steps) --
                                    # auto = max(30, stepra+10), so a probe always contains >= 1 radiation
                                    # step; or a fixed positive integer
+  sweep_steps: [10, 40]           # node and cores-per-node sweep probes: the steps one startup costs,
+                                   # kept within [min, max] (cheap steps -> max); null = `steps`
   confirm_reps: 2                 # replicate count for the confirm stage's top candidates
   spinup_min: 60                  # RANKING layer: minutes the anchor spin-up run advances before every
                                    # candidate starts from ITS shared restart (0 disables -> t0 start)

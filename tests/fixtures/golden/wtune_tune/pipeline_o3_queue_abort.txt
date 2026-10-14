@@ -1,9 +1,11 @@
 case=matthew nodes=search (node search (measured)) budget=30.0 min max_nodes=13 out=<TMP>/out
 pipeline O3: hard cap 30:00 of RUNNING time (queue wait not charged; queue cap 1:00:00); phase limits (cumulative): plan 1:30, layout 16:30, predict 24:00, physics 30:00
 pipeline: 預估調校時間 O1 ≈ 84 min  O2 ≈ 122 min  O3 ≈ 150 min <-  (running time; queue wait extra); whole run ~2777:48:40 (cold start); prediction points for this case at ±15 min: 3 (wtune.cost_drivers)
-node sweep: nodes-n1 submitted job 7001 (ANCHOR ranks=72 omp=1 8x9, REPS=2, ~5:40)
-node sweep: nodes-n2 submitted job 7002 (ANCHOR ranks=144 omp=1 12x12, REPS=2, ~5:40)
-node sweep: nodes-n4 submitted job 7003 (ANCHOR ranks=288 omp=1 16x18, REPS=2, ~5:40)
+node sweep: hotspot fill: N=[6] in the idle nodes of wave [1, 2, 4]
+node sweep: nodes-n1 submitted job 7001 (ANCHOR ranks=72 omp=1 8x9, REPS=2, 5 steps, ~5:40)
+node sweep: nodes-n2 submitted job 7002 (ANCHOR ranks=144 omp=1 12x12, REPS=2, 5 steps, ~5:40)
+node sweep: nodes-n4 submitted job 7003 (ANCHOR ranks=288 omp=1 16x18, REPS=2, 5 steps, ~5:40)
+node sweep: nodes-n6 submitted job 7004 (ANCHOR ranks=432 omp=1 18x24, REPS=2, 5 steps, ~5:40)
 [node-sweep] [------------------------]   0%  elapsed=0:00 / budget=16:30  (running budget; wall 0:00, queue-only 0:00)
 [node-sweep] [------------------------]   0%  elapsed=0:00 / budget=16:30  (running budget; wall 0:20, queue-only 0:20)
 [node-sweep] [------------------------]   0%  elapsed=0:00 / budget=16:30  (running budget; wall 0:40, queue-only 0:40)
@@ -184,8 +186,8 @@ node sweep: nodes-n4 submitted job 7003 (ANCHOR ranks=288 omp=1 16x18, REPS=2, ~
 [node-sweep] [------------------------]   0%  elapsed=0:00 / budget=16:30  (running budget; wall 59:00, queue-only 59:00)
 [node-sweep] [------------------------]   0%  elapsed=0:00 / budget=16:30  (running budget; wall 59:20, queue-only 59:20)
 [node-sweep] [------------------------]   0%  elapsed=0:00 / budget=16:30  (running budget; wall 59:40, queue-only 59:40)
-budget deadline reached: cancelling 3 in-flight job(s) owned by this run: 7001,7002,7003
-pipeline: phase 1 STOPPED -- queue-only wait 1:00:00 reached --max-queue-hours (1:00:00); in-flight job(s) 7001,7002,7003 cancelled
+budget deadline reached: cancelling 4 in-flight job(s) owned by this run: 7001,7002,7003,7004
+pipeline: phase 1 STOPPED -- queue-only wait 1:00:00 reached --max-queue-hours (1:00:00); in-flight job(s) 7001,7002,7003,7004 cancelled
 pipeline: run-length I/O model unavailable (FileNotFoundError: [Errno 2] No such file or directory: '<TMP>/namelist.input') -- whole-run prediction is compute + init only
 
 
@@ -193,7 +195,7 @@ pipeline: run-length I/O model unavailable (FileNotFoundError: [Errno 2] No such
 level O3; time cap: 30:00 (--minutes hard cap (job running time; queue wait and controller work excluded))  whole run implied by the t0 anchor (info): -
 tuning time, estimated at start: O1 ≈ 84 min  O2 ≈ 122 min  O3 ≈ 150 min <-  (running time; queue wait extra); ACTUAL running time 0.0 min vs estimated O3 ≈ 150.0 min
 phase plan     running 0:00     (limit 1:30    ) wall 0:00     queue wait 0:00     controller 0:00      ok
-phase layout   running 0:00     (limit 16:30   ) wall 1:00:00  queue wait 1:00:00  controller 0:00      stopped: queue-only wait 1:00:00 reached --max-queue-hours (1:00:00); in-flight job(s) 7001,7002,7003 cancelled
+phase layout   running 0:00     (limit 16:30   ) wall 1:00:00  queue wait 1:00:00  controller 0:00      stopped: queue-only wait 1:00:00 reached --max-queue-hours (1:00:00); in-flight job(s) 7001,7002,7003,7004 cancelled
 phase predict  running 0:00     (limit 24:00   ) wall 0:00     queue wait 0:00     controller 0:00      not run (max queue wait exceeded)
 phase physics  running 0:00     (limit 30:00   ) wall 0:00     queue wait 0:00     controller 0:00      not run (max queue wait exceeded)
 tune running time 0:00 (wall 1:00:00 = running + queue wait 1:00:00 + controller 0:00); predicted real run 0:00 (phase-1 anchor s/step x steps)  [STOPPED: max queue wait exceeded]

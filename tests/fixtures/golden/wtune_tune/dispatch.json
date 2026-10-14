@@ -55,6 +55,7 @@
       "extension_omp_cap": null,
       "full_space": false,
       "hardware_id": "scc-gh200",
+      "hotspot_fill": true,
       "is_fire": false,
       "kappa": 0.5,
       "layout_notes": null,
@@ -77,6 +78,7 @@
        "user_exclude": [],
        "when": "start"
       },
+      "node_seeds": "geometric",
       "nodes": 8,
       "omp_cap": null,
       "out_dir": "<TMP>/auto/out",
@@ -111,7 +113,11 @@
        "spinup_min": 60,
        "stage1": "t0",
        "stage2_minutes": null,
-       "steps": "auto"
+       "steps": "auto",
+       "sweep_steps": [
+        10,
+        40
+       ]
       },
       "proposer": null,
       "queue_only_s": 0.0,
@@ -212,6 +218,7 @@
       "extension_omp_cap": null,
       "full_space": false,
       "hardware_id": "scc-gh200",
+      "hotspot_fill": true,
       "is_fire": false,
       "kappa": 0.5,
       "layout_notes": null,
@@ -234,6 +241,7 @@
        "user_exclude": [],
        "when": "start"
       },
+      "node_seeds": "geometric",
       "nodes": 2,
       "omp_cap": null,
       "out_dir": "<TMP>/fixed_n/out",
@@ -268,7 +276,11 @@
        "spinup_min": 60,
        "stage1": "t0",
        "stage2_minutes": null,
-       "steps": "auto"
+       "steps": "auto",
+       "sweep_steps": [
+        10,
+        40
+       ]
       },
       "proposer": null,
       "queue_only_s": 0.0,
@@ -367,6 +379,7 @@
       "extension_omp_cap": null,
       "full_space": false,
       "hardware_id": "scc-gh200",
+      "hotspot_fill": true,
       "is_fire": false,
       "kappa": 0.5,
       "layout_notes": null,
@@ -376,6 +389,7 @@
       "max_wall_s": null,
       "namelist_path": "<TMP>/no_preflight_o3/namelist.input",
       "node_health": null,
+      "node_seeds": "geometric",
       "nodes": 1,
       "omp_cap": null,
       "out_dir": "<TMP>/no_preflight_o3/out",
@@ -410,7 +424,11 @@
        "spinup_min": 60,
        "stage1": "t0",
        "stage2_minutes": null,
-       "steps": "auto"
+       "steps": "auto",
+       "sweep_steps": [
+        10,
+        40
+       ]
       },
       "proposer": null,
       "queue_only_s": 0.0,
@@ -517,6 +535,7 @@
       "extension_omp_cap": null,
       "full_space": false,
       "hardware_id": "scc-gh200",
+      "hotspot_fill": true,
       "is_fire": false,
       "kappa": 0.5,
       "layout_notes": null,
@@ -526,6 +545,7 @@
       "max_wall_s": null,
       "namelist_path": "<TMP>/o0/namelist.input",
       "node_health": null,
+      "node_seeds": "geometric",
       "nodes": 1,
       "omp_cap": null,
       "out_dir": "<TMP>/o0/out",
@@ -560,7 +580,11 @@
        "spinup_min": 60,
        "stage1": "t0",
        "stage2_minutes": null,
-       "steps": "auto"
+       "steps": "auto",
+       "sweep_steps": [
+        10,
+        40
+       ]
       },
       "proposer": null,
       "queue_only_s": 0.0,
@@ -645,6 +669,7 @@
       "extension_omp_cap": null,
       "full_space": false,
       "hardware_id": "scc-gh200",
+      "hotspot_fill": true,
       "is_fire": false,
       "kappa": 0.5,
       "layout_notes": null,
@@ -667,6 +692,7 @@
        "user_exclude": [],
        "when": "start"
       },
+      "node_seeds": "geometric",
       "nodes": 1,
       "omp_cap": null,
       "out_dir": "<TMP>/o1/out",
@@ -701,7 +727,11 @@
        "spinup_min": 60,
        "stage1": "t0",
        "stage2_minutes": null,
-       "steps": "auto"
+       "steps": "auto",
+       "sweep_steps": [
+        10,
+        40
+       ]
       },
       "proposer": null,
       "queue_only_s": 0.0,
@@ -819,6 +849,7 @@
       "extension_omp_cap": null,
       "full_space": false,
       "hardware_id": "scc-gh200",
+      "hotspot_fill": true,
       "is_fire": false,
       "kappa": 0.5,
       "layout_notes": null,
@@ -841,6 +872,7 @@
        "user_exclude": [],
        "when": "start"
       },
+      "node_seeds": "geometric",
       "nodes": 1,
       "omp_cap": null,
       "out_dir": "<TMP>/o2_minutes/out",
@@ -875,7 +907,11 @@
        "spinup_min": 60,
        "stage1": "t0",
        "stage2_minutes": null,
-       "steps": "auto"
+       "steps": "auto",
+       "sweep_steps": [
+        10,
+        40
+       ]
       },
       "proposer": null,
       "queue_only_s": 0.0,
@@ -993,6 +1029,7 @@
       "extension_omp_cap": null,
       "full_space": false,
       "hardware_id": "scc-gh200",
+      "hotspot_fill": true,
       "is_fire": false,
       "kappa": 0.5,
       "layout_notes": null,
@@ -1015,6 +1052,7 @@
        "user_exclude": [],
        "when": "start"
       },
+      "node_seeds": "geometric",
       "nodes": 1,
       "omp_cap": null,
       "out_dir": "<TMP>/o3_full/out",
@@ -1049,7 +1087,8 @@
        "spinup_min": 60,
        "stage1": "t0",
        "stage2_minutes": null,
-       "steps": "auto"
+       "steps": "auto",
+       "sweep_steps": null
       },
       "proposer": null,
       "queue_only_s": 0.0,
@@ -1167,6 +1206,7 @@
       "extension_omp_cap": null,
       "full_space": false,
       "hardware_id": "scc-gh200",
+      "hotspot_fill": true,
       "is_fire": false,
       "kappa": 0.5,
       "layout_notes": null,
@@ -1189,6 +1229,7 @@
        "user_exclude": [],
        "when": "start"
       },
+      "node_seeds": "geometric",
       "nodes": 1,
       "omp_cap": null,
       "out_dir": "<TMP>/search_cost/out",
@@ -1223,7 +1264,11 @@
        "spinup_min": 60,
        "stage1": "t0",
        "stage2_minutes": null,
-       "steps": "auto"
+       "steps": "auto",
+       "sweep_steps": [
+        10,
+        40
+       ]
       },
       "proposer": null,
       "queue_only_s": 0.0,
@@ -1331,6 +1376,7 @@
       "extension_omp_cap": null,
       "full_space": false,
       "hardware_id": "scc-gh200",
+      "hotspot_fill": true,
       "is_fire": false,
       "kappa": 0.5,
       "layout_notes": null,
@@ -1353,6 +1399,7 @@
        "user_exclude": [],
        "when": "start"
       },
+      "node_seeds": "geometric",
       "nodes": 1,
       "omp_cap": null,
       "out_dir": "<TMP>/search_default/out",
@@ -1387,7 +1434,11 @@
        "spinup_min": 60,
        "stage1": "t0",
        "stage2_minutes": null,
-       "steps": "auto"
+       "steps": "auto",
+       "sweep_steps": [
+        10,
+        40
+       ]
       },
       "proposer": null,
       "queue_only_s": 0.0,

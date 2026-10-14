@@ -45,8 +45,9 @@
     "7002",
     "7003",
     "7004",
-    "8007",
-    "8008"
+    "7005",
+    "8008",
+    "8009"
   ],
   "layout_table": {
     "comparison": null,
@@ -62,6 +63,21 @@
         "ny": 18,
         "omp": 1,
         "ranks": 288,
+        "reps": 2,
+        "source": "t0 sweep ANCHOR",
+        "spread": 0.0
+      },
+      {
+        "cid": "ANCHOR",
+        "cores_per_node": 72,
+        "dist": "block",
+        "median": 0.31,
+        "nodes": 6,
+        "numtiles": 1,
+        "nx": 18,
+        "ny": 24,
+        "omp": 1,
+        "ranks": 432,
         "reps": 2,
         "source": "t0 sweep ANCHOR",
         "spread": 0.0
@@ -175,7 +191,7 @@
     "choices": {
       "cost": {
         "nodes": 1,
-        "note": "objective=cost: N=1 wall=1120s node_hours=0.31 (min among 4 feasible, no deadline)"
+        "note": "objective=cost: N=1 wall=1120s node_hours=0.31 (min among 5 feasible, no deadline)"
       },
       "knee": {
         "nodes": 4,
@@ -218,6 +234,21 @@
         "ny": 18,
         "omp": 1,
         "ranks": 288,
+        "reps": 2,
+        "source": "t0 sweep ANCHOR",
+        "spread": 0.0
+      },
+      {
+        "cid": "ANCHOR",
+        "cores_per_node": 72,
+        "dist": "block",
+        "median": 0.31,
+        "nodes": 6,
+        "numtiles": 1,
+        "nx": 18,
+        "ny": 24,
+        "omp": 1,
+        "ranks": 432,
         "reps": 2,
         "source": "t0 sweep ANCHOR",
         "spread": 0.0
@@ -284,10 +315,6 @@
         "reason": "not measured: refinement is off at this level (O1 measures only {1,2,4,8,max})"
       },
       {
-        "nodes": 6,
-        "reason": "not measured: refinement is off at this level (O1 measures only {1,2,4,8,max})"
-      },
-      {
         "nodes": 7,
         "reason": "not measured: refinement is off at this level (O1 measures only {1,2,4,8,max})"
       },
@@ -317,7 +344,8 @@
       "7001",
       "7002",
       "7003",
-      "7004"
+      "7004",
+      "7005"
     ],
     "table": [
       {
@@ -354,6 +382,17 @@
         "wall_s": 420.0
       },
       {
+        "efficiency": 0.5376344086021506,
+        "maxrss_mb": null,
+        "median": 0.31,
+        "n": 2,
+        "node_hours": 0.7166666666666667,
+        "nodes": 6,
+        "speedup": 3.2258064516129035,
+        "spread": 0.0,
+        "wall_s": 430.0
+      },
+      {
         "efficiency": 0.390625,
         "maxrss_mb": null,
         "median": 0.32,
@@ -373,10 +412,6 @@
       },
       {
         "nodes": 5,
-        "reason": "not measured: refinement is off at this level (O1 measures only {1,2,4,8,max})"
-      },
-      {
-        "nodes": 6,
         "reason": "not measured: refinement is off at this level (O1 measures only {1,2,4,8,max})"
       },
       {
@@ -533,7 +568,8 @@
           "7001",
           "7002",
           "7003",
-          "7004"
+          "7004",
+          "7005"
         ],
         "limit_s": Infinity,
         "name": "layout",
@@ -552,7 +588,7 @@
         "job_run_s_max": null,
         "job_run_s_sum": null,
         "jobs": [
-          "8007"
+          "8008"
         ],
         "limit_s": Infinity,
         "name": "predict",
@@ -570,7 +606,7 @@
         "job_run_s_max": null,
         "job_run_s_sum": null,
         "jobs": [
-          "8008"
+          "8009"
         ],
         "limit_s": Infinity,
         "name": "physics",

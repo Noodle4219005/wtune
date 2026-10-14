@@ -1383,7 +1383,8 @@ def _sweep_nodes(job_nodes, report):
 
 
 def test_nodes_search_is_default_and_picks_n_on_nonmonotone_curve(monkeypatch, tmp_path, capsys):
-    report, job_nodes, _sc = _run_cli(monkeypatch, tmp_path, ["--minutes", "600"])
+    report, job_nodes, _sc = _run_cli(monkeypatch, tmp_path,
+                                      ["--minutes", "600", "--hotspot-fill", "off"])
     ns = report["node_selection"]
     assert ns["mode"] == "search" and ns["objective"] == "time"
     assert ns["chosen"] == 4                       # min median at 4; 8 is slower
@@ -1447,13 +1448,48 @@ def test_node_sweep_budget_skip_is_per_n(tmp_path):
     sbatch, reader, job_nodes = make_scaling_fakes({1: 0.01, 2: 0.01, 4: 0.01})
     # per-job estimate ~ 2 x (120 + 20*10) = 640 s at the fallback -> budget 700 s fits one job
     # per wave only while elapsed is 0; elapsed does not advance (fake clock), so all fit...
-    ctx = _ctx(sbatch_runner=sbatch, ledger_reader=reader, budget_s=700.0, max_nodes=13,
+    ctx = _ctx(hotspot_fill=False, probe_cfg=dict(wtune.config.DEFAULTS["probe"], sweep_steps=None),
+               sbatch_runner=sbatch, ledger_reader=reader, budget_s=700.0, max_nodes=13,
                out_dir=str(tmp_path / "o"), ledger_dir=str(tmp_path / "l"))
     ctx.clock.t = 100.0                # ...so advance the clock: 100 + 640 > 700 -> all skipped
     ctx.start_time = 0.0
     sw = wtune.tune.run_node_sweep(ctx, [1, 2, 4])
     assert job_nodes == {} and len(sw["skipped"]) == 3
     assert "exceed the budget" in sw["skipped"][0]["reason"]
+
+
+def test_node_seeds_all_measures_the_n_the_geometric_walk_misses(tmp_path):
+    # fastest at N=6, but N=7 is >3% slower than N=8: the walk from seeds 1, 2, 4, 8 stops at 8
+    curve = {1: 1.0, 2: 0.55, 3: 0.6, 4: 0.4, 5: 0.5, 6: 0.25, 7: 0.45, 8: 0.3}
+    seen = {}
+    for seeds in ("geometric", "all"):
+        sbatch, reader, job_nodes = make_scaling_fakes(curve)
+        ctx = _ctx(sbatch_runner=sbatch, ledger_reader=reader, budget_s=360000.0, max_nodes=8,
+                   node_seeds=seeds, out_dir=str(tmp_path / seeds / "o"),
+                   ledger_dir=str(tmp_path / seeds / "l"))
+        seen[seeds] = set(wtune.tune.run_node_sweep(ctx, list(curve), budget_frac=1.0)
+                          ["measurements"])
+    assert 6 not in seen["geometric"]
+    assert seen["all"] == set(curve)
+
+
+def test_hotspot_fill_measures_more_n_in_the_idle_nodes_of_a_wave(tmp_path, capsys):
+    curve = {n: 1.0 / n for n in range(1, 14)}
+    sbatch, reader, job_nodes = make_scaling_fakes(curve)
+    ctx = _ctx(sbatch_runner=sbatch, ledger_reader=reader, budget_s=360000.0, max_nodes=13,
+               out_dir=str(tmp_path / "o"), ledger_dir=str(tmp_path / "l"))
+    sw = wtune.tune.run_node_sweep(ctx, list(curve), budget_frac=1.0)
+    first_wave = [job_nodes[j] for j in sorted(job_nodes)][:4]
+    assert first_wave == [1, 2, 4, 6]            # seeds 1, 2, 4 leave 6 of 13 nodes idle
+    assert "hotspot fill: N=[6] in the idle nodes of wave [1, 2, 4]" in capsys.readouterr().out
+    assert {1, 2, 4, 6, 8} <= set(sw["measurements"])
+
+
+def test_sweep_steps_follow_the_cost_of_one_step():
+    ctx = _ctx(steps=30, startup_s=120.0)
+    assert [wtune.tune.node_search._sweep_steps(ctx, s) for s in (0.01, 6.0, 30.0)] == [40, 20, 10]
+    ctx = _ctx(steps=30, probe_cfg=dict(wtune.config.DEFAULTS["probe"], sweep_steps=None))
+    assert wtune.tune.node_search._sweep_steps(ctx, 6.0) == 30
 
 
 def test_node_sweep_candidates_on_matthew_like_grid_use_omp(tmp_path):
@@ -1529,7 +1565,7 @@ def test_nodes_search_stops_after_sweep_when_budget_exhausted(monkeypatch, tmp_p
         clock.t = 10 ** 6
         return rows
 
-    ctx = _ctx(sbatch_runner=sbatch, ledger_reader=reader_then_exhaust, clock=clock,
+    ctx = _ctx(hotspot_fill=False, sbatch_runner=sbatch, ledger_reader=reader_then_exhaust, clock=clock,
                case_json=case_json, budget_s=36000.0, out_dir=str(tmp_path / "o"),
                ledger_dir=str(tmp_path / "l"))
     report = wtune.tune.run_node_search(
@@ -1663,7 +1699,7 @@ def test_node_sweep_refinement_stops_once_the_best_neighbours_are_measured(tmp_p
     # bracket 2..8 but beyond 5) are NOT measured and reported against the final bracket 3..5
     sbatch, reader, job_nodes = make_scaling_fakes(
         _interp({1: 1.0, 2: 0.55, 4: 0.30, 5: 0.34, 8: 0.45, 13: 0.60}))
-    ctx = _ctx(sbatch_runner=sbatch, ledger_reader=reader, budget_s=3600000.0,
+    ctx = _ctx(hotspot_fill=False, sbatch_runner=sbatch, ledger_reader=reader, budget_s=3600000.0,
                case_json=dict(BIG_GRID, prep_dir="/fake"),
                out_dir=str(tmp_path / "o"), ledger_dir=str(tmp_path / "l"))
     sw = wtune.tune.run_node_sweep(ctx, list(range(1, 14)), budget_frac=1.0)
@@ -2511,7 +2547,8 @@ def test_pick_points_keeps_t0_and_the_costliest():
 
 def test_pipeline_phase2_degrades_instead_of_skipping_when_it_does_not_fit(monkeypatch, tmp_path):
     # B = 700 s -> the phase-2 limit is 560 s (9:20) and phase 1 used no running time
-    report, env = _pipe_run(monkeypatch, tmp_path, minutes=700 / 60.0, n_points=5)
+    report, env = _pipe_run(monkeypatch, tmp_path, minutes=700 / 60.0, n_points=5,
+                            extra_args=("--hotspot-fill", "off"))
     pipe = report["pipeline"]
     plan = pipe["predict_plan"]
     assert plan["tried"][0]["plan"].startswith("2 layout(s) x all 5 points")
@@ -2528,7 +2565,7 @@ def test_pipeline_phase2_not_run_only_when_even_the_smallest_plan_does_not_fit(
         monkeypatch, tmp_path):
     # the first sweep wave "runs" for 79% of B: 7 s of the phase-2 share are left
     report, env = _pipe_run(monkeypatch, tmp_path, minutes=700 / 60.0, n_points=5,
-                            bump_after_first_read=0.79)
+                            bump_after_first_read=0.79, extra_args=("--hotspot-fill", "off"))
     ph = _status(report)
     assert ph["predict"].startswith("not run (budget): the smallest plan")
     assert report["pipeline"]["prediction"] is None
@@ -2701,7 +2738,8 @@ def test_pre_run_step_down_when_the_whole_run_is_shorter_than_the_tuning(monkeyp
 
 def test_step_down_after_the_first_measurement_wave(monkeypatch, tmp_path, capsys):
     # cold start is big (no step-down up front); the first wave shows 1000 steps x 0.3 s = 7 min
-    report, env = _pipe_run(monkeypatch, tmp_path, minutes=None, level=3, short_run_guard=True)
+    report, env = _pipe_run(monkeypatch, tmp_path, minutes=None, level=3, short_run_guard=True,
+                            extra_args=("--hotspot-fill", "off"))
     pipe = report["pipeline"]
     sd = pipe["level"]["stepped_down"]
     assert sd and sd[-1]["when"] == "after first wave" and sd[-1]["to"] == 1

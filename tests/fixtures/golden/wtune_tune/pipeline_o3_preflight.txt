@@ -2,16 +2,18 @@ node pre-flight (start): 13 healthy of 13 node(s); excluded -; max_nodes 13 -> 1
 case=matthew nodes=search (node search (measured)) budget=none max_nodes=13 out=<TMP>/out
 pipeline O3: hard cap none of RUNNING time (queue wait not charged; queue cap 6:00:00)
 pipeline: 預估調校時間 O1 ≈ 84 min  O2 ≈ 122 min  O3 ≈ 150 min <-  (running time; queue wait extra); whole run ~2:48:40 (cold start); prediction points for this case at ±15 min: 3 (wtune.cost_drivers)
-node sweep: nodes-n1 submitted job 7001 (ANCHOR ranks=72 omp=1 8x9, REPS=2, ~5:40)
-node sweep: nodes-n2 submitted job 7002 (ANCHOR ranks=144 omp=1 12x12, REPS=2, ~5:40)
-node sweep: nodes-n4 submitted job 7003 (ANCHOR ranks=288 omp=1 16x18, REPS=2, ~5:40)
+node sweep: hotspot fill: N=[6] in the idle nodes of wave [1, 2, 4]
+node sweep: nodes-n1 submitted job 7001 (ANCHOR ranks=72 omp=1 8x9, REPS=2, 5 steps, ~5:40)
+node sweep: nodes-n2 submitted job 7002 (ANCHOR ranks=144 omp=1 12x12, REPS=2, 5 steps, ~5:40)
+node sweep: nodes-n4 submitted job 7003 (ANCHOR ranks=288 omp=1 16x18, REPS=2, 5 steps, ~5:40)
+node sweep: nodes-n6 submitted job 7004 (ANCHOR ranks=432 omp=1 18x24, REPS=2, 5 steps, ~5:40)
 [node-sweep] [------------------------]   0%  elapsed=0:00 / budget=none  (running budget; wall 0:00, queue-only 0:00)
-node sweep: nodes-n8 submitted job 7004 (ANCHOR ranks=576 omp=1 24x24, REPS=2, ~4:03)
+node sweep: nodes-n8 submitted job 7005 (ANCHOR ranks=576 omp=1 24x24, REPS=2, 5 steps, ~4:03)
 [node-sweep] [------------------------]   0%  elapsed=0:00 / budget=none  (running budget; wall 0:00, queue-only 0:00)
 node sweep: early stop: N=8 (0.3200 s/step) did not beat N=4 (0.3000 s/step) by >3%; larger N not submitted
 node sweep: refining around best N=4: measuring N=[3, 5]
-node sweep: nodes-n3 submitted job 7005 (ANCHOR ranks=216 omp=1 12x18, REPS=2, ~4:05)
-node sweep: nodes-n5 submitted job 7006 (ANCHOR ranks=360 omp=1 18x20, REPS=2, ~4:03)
+node sweep: nodes-n3 submitted job 7006 (ANCHOR ranks=216 omp=1 12x18, REPS=2, 5 steps, ~4:05)
+node sweep: nodes-n5 submitted job 7007 (ANCHOR ranks=360 omp=1 18x20, REPS=2, 5 steps, ~4:03)
 [node-sweep] [------------------------]   0%  elapsed=0:00 / budget=none  (running budget; wall 0:00, queue-only 0:00)
 pipeline: best measured 0.3000 s/step -> whole run ~7:00
 node sweep: chose N=4 -- objective=time: N=4 median=0.3000 s/step; min is 0.3000, smallest N within 3% noise of it; finalists [4, 5]
@@ -20,26 +22,27 @@ node sweep: N=2  median=0.5200 s/step n=2 spread=0.0% speedup=1.92 eff=0.96
 node sweep: N=3  median=0.4100 s/step n=2 spread=0.0% speedup=2.44 eff=0.81
 node sweep: N=4  median=0.3000 s/step n=2 spread=0.0% speedup=3.33 eff=0.83
 node sweep: N=5  median=0.3050 s/step n=2 spread=0.0% speedup=3.28 eff=0.66
+node sweep: N=6  median=0.3100 s/step n=2 spread=0.0% speedup=3.23 eff=0.54
 node sweep: N=8  median=0.3200 s/step n=2 spread=0.0% speedup=3.12 eff=0.39
-node sweep: cores-n4-c70 submitted job 7007 (ANCHOR ranks=280 omp=1 14x20, REPS=2, ~4:03)
-node sweep: cores-n4-c64 submitted job 7008 (ANCHOR ranks=256 omp=1 16x16, REPS=2, ~4:03)
-node sweep: cores-n4-c48 submitted job 7009 (ANCHOR ranks=192 omp=1 12x16, REPS=2, ~4:03)
+node sweep: cores-n4-c70 submitted job 7008 (ANCHOR ranks=280 omp=1 14x20, REPS=2, 5 steps, ~4:03)
+node sweep: cores-n4-c64 submitted job 7009 (ANCHOR ranks=256 omp=1 16x16, REPS=2, 5 steps, ~4:03)
+node sweep: cores-n4-c48 submitted job 7010 (ANCHOR ranks=192 omp=1 12x16, REPS=2, 5 steps, ~4:03)
 [node-sweep] [------------------------]   0%  elapsed=0:00 / budget=none  (running budget; wall 0:00, queue-only 0:00)
-node sweep: cores-n4-c36 submitted job 7010 (ANCHOR ranks=144 omp=1 12x12, REPS=2, ~4:03)
-node sweep: cores-n5-c70 submitted job 7011 (ANCHOR ranks=350 omp=1 14x25, REPS=2, ~4:03)
+node sweep: cores-n4-c36 submitted job 7011 (ANCHOR ranks=144 omp=1 12x12, REPS=2, 5 steps, ~4:03)
+node sweep: cores-n5-c70 submitted job 7012 (ANCHOR ranks=350 omp=1 14x25, REPS=2, 5 steps, ~4:03)
 [node-sweep] [------------------------]   0%  elapsed=0:00 / budget=none  (running budget; wall 0:00, queue-only 0:00)
-node sweep: cores-n5-c64 submitted job 7012 (ANCHOR ranks=320 omp=1 16x20, REPS=2, ~4:03)
-node sweep: cores-n5-c48 submitted job 7013 (ANCHOR ranks=240 omp=1 15x16, REPS=2, ~4:03)
+node sweep: cores-n5-c64 submitted job 7013 (ANCHOR ranks=320 omp=1 16x20, REPS=2, 5 steps, ~4:03)
+node sweep: cores-n5-c48 submitted job 7014 (ANCHOR ranks=240 omp=1 15x16, REPS=2, 5 steps, ~4:03)
 [node-sweep] [------------------------]   0%  elapsed=0:00 / budget=none  (running budget; wall 0:00, queue-only 0:00)
-node sweep: cores-n5-c36 submitted job 7014 (ANCHOR ranks=180 omp=1 12x15, REPS=2, ~4:03)
+node sweep: cores-n5-c36 submitted job 7015 (ANCHOR ranks=180 omp=1 12x15, REPS=2, 5 steps, ~4:03)
 [node-sweep] [------------------------]   0%  elapsed=0:00 / budget=none  (running budget; wall 0:00, queue-only 0:00)
 core sweep: N=4 chose cores/node=72 -- cores/node=72 median=0.3000 s/step; fastest is 0.3000, fullest c within 3% noise of it
 core sweep: N=5 chose cores/node=72 -- cores/node=72 median=0.3050 s/step; fastest is 0.3050, fullest c within 3% noise of it
 node search: finalist N=4 cores/node=72, budget share none
 round0 (full layout search): N=4 cores/node=72: 5904 enumerated, 780 unique, 780 legal (0 excluded) -> 1 waves of 3 job(s)
-round0-w0 slot 0: submitted job 7015 (3 configs)
-round0-w0 slot 1: submitted job 7016 (3 configs)
-round0-w0 slot 2: submitted job 7017 (2 configs)
+round0-w0 slot 0: submitted job 7016 (3 configs)
+round0-w0 slot 1: submitted job 7017 (3 configs)
+round0-w0 slot 2: submitted job 7018 (2 configs)
 [round0-w0] [------------------------]   0%  elapsed=0:00 / budget=none  (running budget; wall 0:00, queue-only 0:00)
 startup_s: measured 21.1s/run from 8 run(s) (was 120.0s, documented constant (scc_sweep.STARTUP_S))
 confirm candidate D0006    median=0.2727s/step (n=2) -> per_run~22.4s (startup_s=21.1s) x REPS=2
@@ -47,12 +50,12 @@ confirm candidate D0007    median=0.2727s/step (n=2) -> per_run~22.4s (startup_s
 confirm candidate D0003    median=0.2857s/step (n=2) -> per_run~22.5s (startup_s=21.1s) x REPS=2
 confirm candidate ANCHOR   median=0.3000s/step (n=2) -> per_run~22.6s (startup_s=21.1s) x REPS=2
 confirm: estimated 2:59 for 4 config(s) (REPS=2, expected -- not the padded --time request) -- elapsed=0:00 / budget=none
-confirm: submitted job 7018 (4 configs, REPS=2)
+confirm: submitted job 7019 (4 configs, REPS=2)
 [confirm  ] [------------------------]   0%  elapsed=0:00 / budget=none  (running budget; wall 0:00, queue-only 0:00)
 node search: finalist N=5 cores/node=72, budget share none
 round0 (full layout search): N=5 cores/node=72: 6152 enumerated, 812 unique, 812 legal (0 excluded) -> 1 waves of 2 job(s)
-round0-w0 slot 0: submitted job 7019 (4 configs)
-round0-w0 slot 1: submitted job 7020 (4 configs)
+round0-w0 slot 0: submitted job 7020 (4 configs)
+round0-w0 slot 1: submitted job 7021 (4 configs)
 [round0-w0] [------------------------]   0%  elapsed=0:00 / budget=none  (running budget; wall 0:00, queue-only 0:00)
 startup_s: measured 13.6s/run from 8 run(s) (was 120.0s, documented constant (scc_sweep.STARTUP_S))
 confirm candidate D0006    median=0.2652s/step (n=2) -> per_run~14.9s (startup_s=13.6s) x REPS=2
@@ -60,14 +63,14 @@ confirm candidate D0007    median=0.2652s/step (n=2) -> per_run~14.9s (startup_s
 confirm candidate D0004    median=0.2773s/step (n=2) -> per_run~15.0s (startup_s=13.6s) x REPS=2
 confirm candidate ANCHOR   median=0.3050s/step (n=2) -> per_run~15.1s (startup_s=13.6s) x REPS=2
 confirm: estimated 1:59 for 4 config(s) (REPS=2, expected -- not the padded --time request) -- elapsed=0:00 / budget=none
-confirm: submitted job 7021 (4 configs, REPS=2)
+confirm: submitted job 7022 (4 configs, REPS=2)
 [confirm  ] [------------------------]   0%  elapsed=0:00 / budget=none  (running budget; wall 0:00, queue-only 0:00)
 node pre-flight (before phase 2): 13 healthy of 13 node(s); excluded -; max_nodes 13 -> 13 (<PROBE_S>, controller time)
 pipeline: run-length I/O model unavailable (FileNotFoundError: [Errno 2] No such file or directory: '<TMP>/namelist.input') -- whole-run prediction is compute + init only
 
 === wtune tune: matthew ===
 nodes=4 (final over tuned finalists [4, 5]: objective=time: N=4 median=0.2609 s/step; min is 0.2609, smallest N within 3% noise of it)
-budget=no cap  elapsed=0.0 min  jobs=9000,9001,9002,7001,7002,7003,7004,7005,7006,7007,7008,7009,7010,7011,7012,7013,7014,7015,7016,7017,7018,7019,7020,7021,8024,8025,8026
+budget=no cap  elapsed=0.0 min  jobs=9000,9001,9002,7001,7002,7003,7004,7005,7006,7007,7008,7009,7010,7011,7012,7013,7014,7015,7016,7017,7018,7019,7020,7021,7022,8025,8026,8027
 
 id           pred_total  ranks  omp    nx    ny tiles    dist   median_s        range_s speedup pred_spd    n pred_source confirmed
 ANCHOR           FAILED    288    1    16    18     1   block     0.2609  0.2609-0.2609  1.150x        -    2 -           True
@@ -98,9 +101,10 @@ nodes     median_s  reps   spread  speedup    eff     wall_s node_hours maxrss_M
     3       0.4100     2     0.0%    2.44x   0.81        530       0.44         -
     4       0.3000     2     0.0%    3.33x   0.83        420       0.47         -
     5       0.3050     2     0.0%    3.28x   0.66        425       0.59         -
+    6       0.3100     2     0.0%    3.23x   0.54        430       0.72         -
     8       0.3200     2     0.0%    3.12x   0.39        440       0.98         -
 choice time * N=4  objective=time: N=4 median=0.3000 s/step; min is 0.3000, smallest N within 3% noise of it
-choice cost   N=1  objective=cost: N=1 wall=1120s node_hours=0.31 (min among 6 feasible, no deadline)
+choice cost   N=1  objective=cost: N=1 wall=1120s node_hours=0.31 (min among 7 feasible, no deadline)
 choice knee   N=4  objective=knee: N=4 efficiency=0.83 >= 0.70 (largest such N)
 (* = objective used; finalists searched: [4, 5]; final N=4 cores/node=72)
 
@@ -120,7 +124,7 @@ choice knee   N=4  objective=knee: N=4 efficiency=0.83 >= 0.70 (largest such N)
      48         48    1      0.3050      2     0.0%         - 
      36         36    1      0.3050      2     0.0%         - 
 
---- measured layouts (28; best first; the full table is in tune_report.json node_selection.layouts) ---
+--- measured layouts (29; best first; the full table is in tune_report.json node_selection.layouts) ---
    N   c/n  ranks  omp   nx x ny tiles    median_s  spread  reps  source
    4    72    288    1     16x18     1      0.2609    0.0%     2  finalist search
    5    72    360    1     18x20     1      0.2652    0.0%     2  finalist search
@@ -146,6 +150,7 @@ choice knee   N=4  objective=knee: N=4 efficiency=0.83 >= 0.70 (largest such N)
    5    36    180    1     12x15     1      0.3050    0.0%     2  cores/node sweep ANCHOR
    5    72    360    1      9x40    12      0.3050    0.0%     2  finalist search
    5    72    360    1      9x40     1      0.3050    0.0%     2  finalist search
+   6    72    432    1     18x24     1      0.3100    0.0%     2  t0 sweep ANCHOR
    8    72    576    1     24x24     1      0.3200    0.0%     2  t0 sweep ANCHOR
    3    72    216    1     12x18     1      0.4100    0.0%     2  t0 sweep ANCHOR
    2    72    144    1     12x12     1      0.5200    0.0%     2  t0 sweep ANCHOR
@@ -155,10 +160,9 @@ RUNNER-UP: N=5 c/n=72 ranks=360 omp=1 18x20 tiles=1 0.2652 s/step
 winner vs runner-up: 1.7% apart -> NOT distinguishable from noise: either is fine (noise floor 3%)
 enumerated N=4 c=72: 5904 raw, 780 unique (block, 1-D tiles), 780 legal, 0 excluded
 enumerated N=5 c=72: 6152 raw, 812 unique (block, 1-D tiles), 812 legal, 0 excluded
-NOT TRIED: 7 (reasons below; full list in node_selection.untried)
-     6 x not measured: outside refinement bracket (3..5 around the best N=4)
+NOT TRIED: 6 (reasons below; full list in node_selection.untried)
+     5 x not measured: outside refinement bracket (3..5 around the best N=4)
      1 x early stop: N=8 (0.3200 s/step) did not beat N=4 (0.3000 s/step) by >3%
-not run N=6: not measured: outside refinement bracket (3..5 around the best N=4)
 not run N=7: not measured: outside refinement bracket (3..5 around the best N=4)
 not run N=9: not measured: outside refinement bracket (3..5 around the best N=4)
 not run N=10: not measured: outside refinement bracket (3..5 around the best N=4)

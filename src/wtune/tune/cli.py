@@ -58,6 +58,8 @@ class _NodeChoice:
     min_efficiency: float
     node_finalists: int
     sweep_budget_frac: float
+    node_seeds: str
+    hotspot_fill: bool
     core_options: list | None
     total_steps: int | None
     nodes: int
@@ -163,7 +165,8 @@ def _build_ctx(args: argparse.Namespace, o: _RunOptions, ns: _NodeChoice, case_j
                chem_e_sn=wtune.extensions.chem_e_sn_for_namelist(namelist_path),
                confirm_reps=o.confirm_reps, prediction_cfg=o.cfg["prediction"],
                probe_cfg=o.cfg["probe"], ranking_start_note=ranking_start_note,
-               restart_io_form=int(o.restart_io_form))
+               restart_io_form=int(o.restart_io_form), node_seeds=ns.node_seeds,
+               hotspot_fill=ns.hotspot_fill)
 
 
 def _run_config(args: argparse.Namespace) -> tuple[str | None, dict]:
@@ -250,6 +253,8 @@ def _resolve_run_options(args: argparse.Namespace) -> _RunOptions:
     nodes_policy = args.nodes_policy if args.nodes_policy is not None else cfg["budget"]["nodes_policy"]
     max_nodes_requested = args.max_nodes if args.max_nodes is not None else cfg["budget"]["max_nodes"]
     steps_cfg = args.steps if args.steps is not None else cfg["probe"]["steps"]
+    if steps_cfg != "auto":
+        cfg["probe"]["sweep_steps"] = None       # a fixed probe length holds for the sweeps too
     confirm_reps = args.confirm_reps if args.confirm_reps is not None else cfg["probe"]["confirm_reps"]
     restart_io_form = _run_probe_options(args, cfg)
     return _RunOptions(config_path=config_path, cfg=cfg, case=case, minutes=minutes, level=level,
@@ -353,6 +358,9 @@ def _resolve_node_choice(args: argparse.Namespace, o: _RunOptions, profile: dict
     min_efficiency = _nopt("min_efficiency", wtune.nodes.DEFAULT_MIN_EFFICIENCY)
     node_finalists = max(1, int(_nopt("node_finalists", 2)))
     sweep_budget_frac = float(_nopt("sweep_budget_frac", DEFAULT_SWEEP_BUDGET_FRAC))
+    node_seeds = _nopt("node_seeds", "geometric")
+    hotspot_fill = _nopt("hotspot_fill", True)
+    hotspot_fill = hotspot_fill if isinstance(hotspot_fill, bool) else hotspot_fill == "on"
     core_options = _parse_core_options(args)
     total_steps = _context._total_steps(namelist_path) if node_search else None
     if node_search and node_objective == "cost" and total_steps is None:
@@ -371,8 +379,8 @@ def _resolve_node_choice(args: argparse.Namespace, o: _RunOptions, profile: dict
     return _NodeChoice(pipeline=pipeline, node_search=node_search, node_objective=node_objective,
                        deadline_minutes=deadline_minutes, min_efficiency=min_efficiency,
                        node_finalists=node_finalists, sweep_budget_frac=sweep_budget_frac,
-                       core_options=core_options, total_steps=total_steps, nodes=nodes,
-                       nodes_note=nodes_note)
+                       node_seeds=node_seeds, hotspot_fill=hotspot_fill, core_options=core_options,
+                       total_steps=total_steps, nodes=nodes, nodes_note=nodes_note)
 
 
 def _run_out_dir(args: argparse.Namespace, case: str) -> str:
@@ -446,6 +454,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
                          "larger N are skipped ('sweep budget cap') so the finalists keep budget "
                          "(default %.1f, or --config's budget.sweep_budget_frac)"
                          % DEFAULT_SWEEP_BUDGET_FRAC)
+    p.add_argument("--hotspot-fill", default=None, choices=("on", "off"), dest="hotspot_fill",
+                    help="--nodes search: measure untried N near the best one in the nodes a "
+                         "sweep wave leaves idle, when no longer than the wave (default on, or "
+                         "--config's budget.hotspot_fill)")
+    p.add_argument("--node-seeds", default=None, choices=("geometric", "all"), dest="node_seeds",
+                    help="--nodes search: 'geometric' (DEFAULT) = 1, 2, 4, ... and max_nodes, "
+                         "early stop upward, then refine; 'all' = every legal N, no early stop "
+                         "(or --config's budget.node_seeds)")
     p.add_argument("--cores-per-node-options", default=None, dest="cores_per_node_options",
                     help="--nodes search: comma list of cores per node to measure at the finalist "
                          "node counts (the rest of the node idles). Default derived from the "

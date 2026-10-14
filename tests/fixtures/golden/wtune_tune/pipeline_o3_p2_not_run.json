@@ -45,7 +45,8 @@
     "9004",
     "7001",
     "7002",
-    "7003"
+    "7003",
+    "7004"
   ],
   "layout_table": {
     "comparison": null,
@@ -61,6 +62,21 @@
         "ny": 18,
         "omp": 1,
         "ranks": 288,
+        "reps": 2,
+        "source": "t0 sweep ANCHOR",
+        "spread": 0.0
+      },
+      {
+        "cid": "ANCHOR",
+        "cores_per_node": 72,
+        "dist": "block",
+        "median": 0.31,
+        "nodes": 6,
+        "numtiles": 1,
+        "nx": 18,
+        "ny": 24,
+        "omp": 1,
+        "ranks": 432,
         "reps": 2,
         "source": "t0 sweep ANCHOR",
         "spread": 0.0
@@ -159,7 +175,7 @@
     "choices": {
       "cost": {
         "nodes": 1,
-        "note": "objective=cost: N=1 wall=1000120s node_hours=277.81 (min among 3 feasible, no deadline)"
+        "note": "objective=cost: N=1 wall=1000120s node_hours=277.81 (min among 4 feasible, no deadline)"
       },
       "knee": {
         "nodes": 4,
@@ -176,6 +192,10 @@
       "4": {
         "cores": 72,
         "note": "cores/node=72 median=0.3000 s/step; fastest is 0.3000, fullest c within 3% noise of it"
+      },
+      "6": {
+        "cores": 72,
+        "note": "cores/node=72 median=0.3100 s/step; fastest is 0.3100, fullest c within 3% noise of it"
       }
     },
     "core_options": [
@@ -200,6 +220,21 @@
           "ranks_per_node": 72,
           "spread": 0.0
         }
+      ],
+      "6": [
+        {
+          "chosen": true,
+          "cores": 72,
+          "maxrss_mb": null,
+          "median": 0.31,
+          "n": 2,
+          "nx": 18,
+          "ny": 24,
+          "omp": 1,
+          "ranks": 432,
+          "ranks_per_node": 72,
+          "spread": 0.0
+        }
       ]
     },
     "deadline_s": null,
@@ -211,7 +246,8 @@
       "4": 0.3
     },
     "finalists": [
-      4
+      4,
+      6
     ],
     "layouts": [
       {
@@ -225,6 +261,21 @@
         "ny": 18,
         "omp": 1,
         "ranks": 288,
+        "reps": 2,
+        "source": "t0 sweep ANCHOR",
+        "spread": 0.0
+      },
+      {
+        "cid": "ANCHOR",
+        "cores_per_node": 72,
+        "dist": "block",
+        "median": 0.31,
+        "nodes": 6,
+        "numtiles": 1,
+        "nx": 18,
+        "ny": 24,
+        "omp": 1,
+        "ranks": 432,
         "reps": 2,
         "source": "t0 sweep ANCHOR",
         "spread": 0.0
@@ -276,10 +327,6 @@
         "reason": "sweep budget cap: sweep used 9:13 >= 40% of the budget (2:34)"
       },
       {
-        "nodes": 6,
-        "reason": "sweep budget cap: sweep used 9:13 >= 40% of the budget (2:34)"
-      },
-      {
         "nodes": 7,
         "reason": "sweep budget cap: sweep used 9:13 >= 40% of the budget (2:34)"
       },
@@ -328,12 +375,33 @@
         "cores": 36,
         "nodes": 4,
         "reason": "core sweep budget cap: used 0:00 >= 20% of the budget"
+      },
+      {
+        "cores": 70,
+        "nodes": 6,
+        "reason": "core sweep budget cap: used 0:00 >= 20% of the budget"
+      },
+      {
+        "cores": 64,
+        "nodes": 6,
+        "reason": "core sweep budget cap: used 0:00 >= 20% of the budget"
+      },
+      {
+        "cores": 48,
+        "nodes": 6,
+        "reason": "core sweep budget cap: used 0:00 >= 20% of the budget"
+      },
+      {
+        "cores": 36,
+        "nodes": 6,
+        "reason": "core sweep budget cap: used 0:00 >= 20% of the budget"
       }
     ],
     "sweep_jobs": [
       "7001",
       "7002",
-      "7003"
+      "7003",
+      "7004"
     ],
     "table": [
       {
@@ -368,6 +436,17 @@
         "speedup": 3.3333333333333335,
         "spread": 0.0,
         "wall_s": 300120.0
+      },
+      {
+        "efficiency": 0.5376344086021506,
+        "maxrss_mb": null,
+        "median": 0.31,
+        "n": 2,
+        "node_hours": 516.8666666666667,
+        "nodes": 6,
+        "speedup": 3.2258064516129035,
+        "spread": 0.0,
+        "wall_s": 310120.0
       }
     ],
     "total_steps": 1000000,
@@ -378,10 +457,6 @@
       },
       {
         "nodes": 5,
-        "reason": "sweep budget cap: sweep used 9:13 >= 40% of the budget (2:34)"
-      },
-      {
-        "nodes": 6,
         "reason": "sweep budget cap: sweep used 9:13 >= 40% of the budget (2:34)"
       },
       {
@@ -430,6 +505,26 @@
       {
         "cores": 36,
         "nodes": 4,
+        "reason": "core sweep budget cap: used 0:00 >= 20% of the budget"
+      },
+      {
+        "cores": 70,
+        "nodes": 6,
+        "reason": "core sweep budget cap: used 0:00 >= 20% of the budget"
+      },
+      {
+        "cores": 64,
+        "nodes": 6,
+        "reason": "core sweep budget cap: used 0:00 >= 20% of the budget"
+      },
+      {
+        "cores": 48,
+        "nodes": 6,
+        "reason": "core sweep budget cap: used 0:00 >= 20% of the budget"
+      },
+      {
+        "cores": 36,
+        "nodes": 6,
         "reason": "core sweep budget cap: used 0:00 >= 20% of the budget"
       }
     ],
@@ -561,7 +656,8 @@
         "jobs": [
           "7001",
           "7002",
-          "7003"
+          "7003",
+          "7004"
         ],
         "limit_s": 385.00000000000006,
         "name": "layout",

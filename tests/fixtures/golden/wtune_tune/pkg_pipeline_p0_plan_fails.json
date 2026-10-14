@@ -58,7 +58,8 @@
     "7018",
     "7019",
     "7020",
-    "7021"
+    "7021",
+    "7022"
   ],
   "layout_table": {
     "comparison": {
@@ -431,6 +432,21 @@
         "cid": "ANCHOR",
         "cores_per_node": 72,
         "dist": "block",
+        "median": 0.31,
+        "nodes": 6,
+        "numtiles": 1,
+        "nx": 18,
+        "ny": 24,
+        "omp": 1,
+        "ranks": 432,
+        "reps": 2,
+        "source": "t0 sweep ANCHOR",
+        "spread": 0.0
+      },
+      {
+        "cid": "ANCHOR",
+        "cores_per_node": 72,
+        "dist": "block",
         "median": 0.32,
         "nodes": 8,
         "numtiles": 1,
@@ -565,7 +581,7 @@
     "choices": {
       "cost": {
         "nodes": 1,
-        "note": "objective=cost: N=1 wall=1120s node_hours=0.31 (min among 6 feasible, no deadline)"
+        "note": "objective=cost: N=1 wall=1120s node_hours=0.31 (min among 7 feasible, no deadline)"
       },
       "knee": {
         "nodes": 4,
@@ -1128,6 +1144,21 @@
         "cid": "ANCHOR",
         "cores_per_node": 72,
         "dist": "block",
+        "median": 0.31,
+        "nodes": 6,
+        "numtiles": 1,
+        "nx": 18,
+        "ny": 24,
+        "omp": 1,
+        "ranks": 432,
+        "reps": 2,
+        "source": "t0 sweep ANCHOR",
+        "spread": 0.0
+      },
+      {
+        "cid": "ANCHOR",
+        "cores_per_node": 72,
+        "dist": "block",
         "median": 0.32,
         "nodes": 8,
         "numtiles": 1,
@@ -1207,10 +1238,6 @@
     },
     "skipped": [
       {
-        "nodes": 6,
-        "reason": "not measured: outside refinement bracket (3..5 around the best N=4)"
-      },
-      {
         "nodes": 7,
         "reason": "not measured: outside refinement bracket (3..5 around the best N=4)"
       },
@@ -1242,7 +1269,8 @@
       "7003",
       "7004",
       "7005",
-      "7006"
+      "7006",
+      "7007"
     ],
     "table": [
       {
@@ -1301,6 +1329,17 @@
         "wall_s": 425.0
       },
       {
+        "efficiency": 0.5376344086021506,
+        "maxrss_mb": null,
+        "median": 0.31,
+        "n": 2,
+        "node_hours": 0.7166666666666667,
+        "nodes": 6,
+        "speedup": 3.2258064516129035,
+        "spread": 0.0,
+        "wall_s": 430.0
+      },
+      {
         "efficiency": 0.390625,
         "maxrss_mb": null,
         "median": 0.32,
@@ -1314,10 +1353,6 @@
     ],
     "total_steps": 1000,
     "untried": [
-      {
-        "nodes": 6,
-        "reason": "not measured: outside refinement bracket (3..5 around the best N=4)"
-      },
       {
         "nodes": 7,
         "reason": "not measured: outside refinement bracket (3..5 around the best N=4)"
@@ -1469,7 +1504,8 @@
           "7018",
           "7019",
           "7020",
-          "7021"
+          "7021",
+          "7022"
         ],
         "limit_s": Infinity,
         "name": "layout",

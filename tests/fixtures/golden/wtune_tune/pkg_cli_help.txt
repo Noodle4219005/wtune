@@ -1,6 +1,7 @@
 usage: wtune tune [-h] [--config CONFIG] [--site SITE] [--minutes MINUTES] [--nodes NODES]
                   [--node-objective {time,cost,knee}] [--deadline-minutes DEADLINE_MINUTES]
                   [--min-efficiency MIN_EFFICIENCY] [--sweep-budget-frac SWEEP_BUDGET_FRAC]
+                  [--hotspot-fill {on,off}] [--node-seeds {geometric,all}]
                   [--cores-per-node-options CORES_PER_NODE_OPTIONS] [--pipeline {full}]
                   [--max-queue-hours MAX_QUEUE_HOURS] [--no-node-preflight] [-O0] [-O1] [-O2]
                   [-O3] [--precision PRECISION] [--level {0,1,2,3}] [--stop-if-short]
@@ -44,6 +45,14 @@ options:
                         --nodes search: share of --minutes the node sweep may use; once spent,
                         larger N are skipped ('sweep budget cap') so the finalists keep budget
                         (default 0.4, or --config's budget.sweep_budget_frac)
+  --hotspot-fill {on,off}
+                        --nodes search: measure untried N near the best one in the nodes a sweep
+                        wave leaves idle, when no longer than the wave (default on, or --config's
+                        budget.hotspot_fill)
+  --node-seeds {geometric,all}
+                        --nodes search: 'geometric' (DEFAULT) = 1, 2, 4, ... and max_nodes, early
+                        stop upward, then refine; 'all' = every legal N, no early stop (or
+                        --config's budget.node_seeds)
   --cores-per-node-options CORES_PER_NODE_OPTIONS
                         --nodes search: comma list of cores per node to measure at the finalist
                         node counts (the rest of the node idles). Default derived from the

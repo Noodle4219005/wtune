@@ -50,6 +50,8 @@ DEFAULTS = {
         "min_efficiency": None,
         "node_finalists": None,
         "sweep_budget_frac": None,
+        "node_seeds": None,            # geometric | all
+        "hotspot_fill": None,          # true | false
     },
     "search": {
         "omp": None,                   # None = unrestricted (decomp_space's own omp_options)
@@ -63,7 +65,7 @@ DEFAULTS = {
     # rank every candidate; points..sources place the winner's full-run prediction points
     # (wtune.probe_plan.plan_points). ranking_start defaults to t0: spinup start is not wired
     # into strict_campaign.sbatch yet (selecting it prints a NOTE and runs from t0).
-    "probe": {"steps": "auto", "confirm_reps": 2, "spinup_min": 60, "ranking_start": "t0",
+    "probe": {"steps": "auto", "sweep_steps": [10, 40], "confirm_reps": 2, "spinup_min": 60, "ranking_start": "t0",
               "points": "auto", "max_points": 5, "budget_pct": 10.0,
               "sources": ["trajectory", "restart", "rebuild"],
               # rank_by=predicted: rank by predicted whole-run time from shared spun-up ERA5
@@ -81,13 +83,15 @@ DEFAULTS = {
 TOP_KEYS = {"site", "case", "case_dir", "compliance", "budget", "search", "physics_gray",
             "probe", "prediction", "exclude"}
 BUDGET_KEYS = {"minutes", "max_nodes", "nodes", "nodes_policy", "node_objective",
-               "deadline_minutes", "min_efficiency", "node_finalists", "sweep_budget_frac"}
+               "deadline_minutes", "min_efficiency", "node_finalists", "sweep_budget_frac",
+               "node_seeds", "hotspot_fill"}
 NODE_OBJECTIVE_CHOICES = ("time", "cost", "knee")
+NODE_SEEDS_CHOICES = ("geometric", "all")
 SEARCH_KEYS = {"omp", "numtiles", "rank_distribution", "aspect_max", "io"}
 SEARCH_IO_KEYS = {"enabled", "io_form_history", "target"}
 PHYSICS_GRAY_KEYS = {"enabled", "knobs"}
 PHYSICS_GRAY_KNOB_KEYS = {"multiply"}
-PROBE_KEYS = {"steps", "confirm_reps", "spinup_min", "ranking_start", "points", "max_points",
+PROBE_KEYS = {"steps", "sweep_steps", "confirm_reps", "spinup_min", "ranking_start", "points", "max_points",
               "budget_pct", "sources", "rank_by", "restart_io_form", "stage1",
               "stage2_minutes", "points_by", "indicator_sources"}
 POINTS_BY_CHOICES = ("time", "cost-indicators")
@@ -317,6 +321,8 @@ _BUDGET_RULES = [
     ("sweep_budget_frac", _optional(_positive_number), _POS_NUMBER),
     ("sweep_budget_frac", lambda v: not (_is_number(v) and v > 1), "must be <= 1, got %r"),
     ("node_finalists", _optional(lambda v: _is_int(v) and v >= 1), _POS_INT),
+    ("node_seeds", *_choice(NODE_SEEDS_CHOICES, optional=True)),
+    ("hotspot_fill", _optional(lambda v: isinstance(v, bool)), _BOOL),
 ]
 _SEARCH_RULES = [
     ("aspect_max", _optional(_positive_number), _POS_NUMBER),
@@ -324,6 +330,10 @@ _SEARCH_RULES = [
 _PROBE_RULES = [
     ("steps", lambda v: v == "auto" or (_is_int(v) and v > 0),
      "must be a positive integer or 'auto', got %r"),
+    ("sweep_steps", lambda v: v is None or (isinstance(v, list) and len(v) == 2
+                                             and all(_is_int(x) and x > 0 for x in v)
+                                             and v[0] <= v[1]),
+     "must be [min, max] positive integers with min <= max, or null, got %r"),
     ("confirm_reps", lambda v: _is_int(v) and v > 0, _POS_INT),
     ("spinup_min", lambda v: _is_number(v) and v >= 0, "must be a non-negative number, got %r"),
     ("ranking_start", *_choice(RANKING_START_CHOICES)),
@@ -775,8 +785,8 @@ budget:
   max_nodes: 13                  # node cap; omit it to use the machine's (project.yaml machine.max_nodes)
   nodes: auto                    # auto | search | <int> | [<int>, ...] -- search measures the ANCHOR at
                                   # each legal node count (wtune tune --nodes search; node_objective/
-                                  # deadline_minutes/min_efficiency/node_finalists/sweep_budget_frac
-                                  # keys mirror its CLI flags); auto picks ONE node count via
+                                  # deadline_minutes/min_efficiency/node_finalists/sweep_budget_frac/
+                                  # node_seeds keys mirror its CLI flags); auto picks ONE node count via
                                   # `nodes_policy` from wtune.case's (uncalibrated) core-count profile;
                                   # a list is previewed by `wtune config show` but not yet run by `wtune tune`
   nodes_policy: knee              # min | cap | knee (see `wtune tune --nodes-policy` for the exact rule)
@@ -804,6 +814,8 @@ probe:
   steps: auto                     # WRF steps run per candidate during round0/adaptive probing (--steps) --
                                    # auto = max(30, stepra+10), so a probe always contains >= 1 radiation
                                    # step; or a fixed positive integer
+  sweep_steps: [10, 40]           # node and cores-per-node sweep probes: the steps one startup costs,
+                                   # kept within [min, max] (cheap steps -> max); null = `steps`
   confirm_reps: 2                 # replicate count for the confirm stage's top candidates
   spinup_min: 60                  # RANKING layer: minutes the anchor spin-up run advances before every
                                    # candidate starts from ITS shared restart (0 disables -> t0 start)

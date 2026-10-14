@@ -15,7 +15,9 @@
     "deadline_minutes": null,
     "min_efficiency": null,
     "node_finalists": null,
-    "sweep_budget_frac": null
+    "sweep_budget_frac": null,
+    "node_seeds": null,
+    "hotspot_fill": null
    },
    "search": {
     "omp": null,
@@ -41,6 +43,10 @@
    },
    "probe": {
     "steps": "auto",
+    "sweep_steps": [
+     10,
+     40
+    ],
     "confirm_reps": 2,
     "spinup_min": 60,
     "ranking_start": "t0",
@@ -164,7 +170,9 @@
     "deadline_minutes": 2.5,
     "min_efficiency": null,
     "node_finalists": 3,
-    "sweep_budget_frac": 1
+    "sweep_budget_frac": 1,
+    "node_seeds": null,
+    "hotspot_fill": null
    },
    "search": {
     "omp": null,
@@ -190,6 +198,10 @@
    },
    "probe": {
     "steps": "auto",
+    "sweep_steps": [
+     10,
+     40
+    ],
     "confirm_reps": 2,
     "spinup_min": 60,
     "ranking_start": "t0",
@@ -277,7 +289,9 @@
     "deadline_minutes": null,
     "min_efficiency": null,
     "node_finalists": null,
-    "sweep_budget_frac": null
+    "sweep_budget_frac": null,
+    "node_seeds": null,
+    "hotspot_fill": null
    },
    "search": {
     "omp": [
@@ -309,6 +323,10 @@
    },
    "probe": {
     "steps": "auto",
+    "sweep_steps": [
+     10,
+     40
+    ],
     "confirm_reps": 2,
     "spinup_min": 60,
     "ranking_start": "t0",
@@ -475,7 +493,9 @@
     "deadline_minutes": null,
     "min_efficiency": null,
     "node_finalists": null,
-    "sweep_budget_frac": null
+    "sweep_budget_frac": null,
+    "node_seeds": null,
+    "hotspot_fill": null
    },
    "search": {
     "omp": null,
@@ -501,6 +521,10 @@
    },
    "probe": {
     "steps": 30,
+    "sweep_steps": [
+     10,
+     40
+    ],
     "confirm_reps": 2,
     "spinup_min": 60,
     "ranking_start": "t0",
@@ -574,7 +598,9 @@
     "deadline_minutes": null,
     "min_efficiency": null,
     "node_finalists": null,
-    "sweep_budget_frac": null
+    "sweep_budget_frac": null,
+    "node_seeds": null,
+    "hotspot_fill": null
    },
    "search": {
     "omp": null,
@@ -600,6 +626,10 @@
    },
    "probe": {
     "steps": "auto",
+    "sweep_steps": [
+     10,
+     40
+    ],
     "confirm_reps": 2,
     "spinup_min": 60,
     "ranking_start": "t0",
@@ -669,7 +699,9 @@
     "deadline_minutes": null,
     "min_efficiency": null,
     "node_finalists": null,
-    "sweep_budget_frac": null
+    "sweep_budget_frac": null,
+    "node_seeds": null,
+    "hotspot_fill": null
    },
    "search": {
     "omp": null,
@@ -695,6 +727,10 @@
    },
    "probe": {
     "steps": "auto",
+    "sweep_steps": [
+     10,
+     40
+    ],
     "confirm_reps": 2,
     "spinup_min": 60,
     "ranking_start": "t0",

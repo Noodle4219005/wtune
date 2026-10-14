@@ -170,6 +170,17 @@ def _cold_budget_s_per_step(ctx: Ctx, anchor: dict, s_est: float, src: str) -> t
     return min(s_est, model), "cell-step model x%g" % COLD_BUDGET_SAFETY
 
 
+def _sweep_steps(ctx: Ctx, s_est: float) -> int:
+    """Steps of one sweep probe: about what one startup costs in time, within probe.sweep_steps
+    (cheap steps -> the max); ctx.steps when that is unset. Sweep choices read the median only,
+    so the window needs no radiation step."""
+    span = (ctx.probe_cfg or {}).get("sweep_steps")
+    if not span:
+        return ctx.steps
+    lo, hi = span
+    return max(lo, min(hi, int(round(ctx.startup_s / max(s_est, 1e-6)))))
+
+
 def _measure_anchor_wave(ctx: Ctx, items: list[dict], s_est_for: Callable,
                          skipped: list) -> dict:
     """One REPS=2 ANCHOR job per item {key, nodes, anchor, suffix, tag} that fits the budget
@@ -178,8 +189,8 @@ def _measure_anchor_wave(ctx: Ctx, items: list[dict], s_est_for: Callable,
     jobs = {}
     for it in items:
         n = it["nodes"]
-        cn = dataclasses.replace(ctx, nodes=n)
         s_est, src = s_est_for(n)
+        cn = dataclasses.replace(ctx, nodes=n, steps=_sweep_steps(ctx, s_est))
         est = _job_time_est(cn, 1, NODE_SWEEP_REPS, s_est)
         s_budget, src_budget = _cold_budget_s_per_step(ctx, it["anchor"], s_est, src)
         need_s = _job_time_est(cn, 1, NODE_SWEEP_REPS, s_budget)["total_run_s"]
@@ -194,9 +205,10 @@ def _measure_anchor_wave(ctx: Ctx, items: list[dict], s_est_for: Callable,
                                                name_suffix=it["suffix"], s_est=s_est, time_est=est)
         jobs[it["key"]] = job_id
         a = it["anchor"]
-        print("node sweep: %s submitted job %s (ANCHOR ranks=%d omp=%d %dx%d, REPS=%d, ~%s)"
+        print("node sweep: %s submitted job %s (ANCHOR ranks=%d omp=%d %dx%d, REPS=%d, "
+              "%d steps, ~%s)"
               % (it["suffix"], job_id, a["ranks"], a["omp"], a["nx"], a["ny"], NODE_SWEEP_REPS,
-                 _fmt_hms(est["total_run_s"])))
+                 cn.steps, _fmt_hms(est["total_run_s"])))
     out: dict = {}
     if not jobs:
         return out
@@ -250,7 +262,8 @@ def run_node_sweep(ctx: Ctx, legal_nodes: list[int],
     jobs: dict[int, str] = {}
     rss: dict[int, Any] = {}
     attempted: set = set()
-    seeds = wtune.nodes.seed_nodes(legal, ctx.max_nodes) if legal else []
+    every_n = ctx.node_seeds == "all"
+    seeds = legal if every_n else (wtune.nodes.seed_nodes(legal, ctx.max_nodes) if legal else [])
     sweep_t0 = ctx.elapsed()
     cap_s = budget_frac * max(0.0, ctx.budget_s - sweep_t0)   # share of what is left
     state: dict[str, Any] = dict(stopped=None)
@@ -267,6 +280,35 @@ def run_node_sweep(ctx: Ctx, legal_nodes: list[int],
             return ("sweep budget cap: sweep used %s >= %.0f%% of the budget (%s)"
                     % (_fmt_hms(ctx.elapsed() - sweep_t0), budget_frac * 100, _fmt_hms(cap_s)))
         return None
+
+    def job_s(n):
+        s, _src = s_est_for(n)
+        if meas:                      # s_est_for is the nearest N's median: scale it to n
+            near = min(meas, key=lambda m: (abs(m - n), m))
+            s = statistics.median(meas[near]) * near / n
+        cn = dataclasses.replace(ctx, nodes=n, steps=_sweep_steps(ctx, s))
+        return _job_time_est(cn, 1, NODE_SWEEP_REPS, s)["total_run_s"]
+
+    def fill(wave):
+        """`wave` plus untried legal N in the nodes it leaves idle, nearest the best N first (the
+        predicted fastest before any measurement), none expected to outlast the wave."""
+        if not ctx.hotspot_fill or every_n:
+            return wave
+        free, longest = ctx.max_nodes - sum(wave), max(job_s(n) for n in wave)
+        pool = [n for n in legal if n not in attempted and n not in wave and n not in seeds]
+        if meas:
+            best = chooser(wtune.nodes.summarize(meas))
+            pool.sort(key=lambda n: (abs(n - best), n))
+        else:
+            pool.sort(key=lambda n: (s_est_for(n)[0], -n))
+        extra = []
+        for n in pool:
+            if n <= free and job_s(n) <= longest:
+                extra.append(n)
+                free -= n
+        if extra:
+            print("node sweep: hotspot fill: N=%s in the idle nodes of wave %s" % (extra, wave))
+        return wave + extra
 
     def run_wave(ns):
         items = [dict(key=n, nodes=n, anchor=anchors[n], suffix="nodes-n%d" % n, tag=dict(nodes=n))
@@ -286,14 +328,14 @@ def run_node_sweep(ctx: Ctx, legal_nodes: list[int],
             attempted.update(wave)
             skipped.extend(dict(nodes=n, reason=state["stopped"]) for n in wave)
             continue
-        run_wave(wave)
+        run_wave(fill(wave))
         if on_wave is not None and not state.get("halt"):
             halt = on_wave(meas)
             if halt:                  # e.g. the short-run guard: no more waves, no refinement
                 state["stopped"] = state["halt"] = halt
                 continue
-        srows = wtune.nodes.summarize(meas)
-        if wtune.nodes.stop_early(srows):
+        srows = wtune.nodes.summarize({n: v for n, v in meas.items() if n in seeds})
+        if not every_n and wtune.nodes.stop_early(srows):
             a, b = srows[-2], srows[-1]
             state["stopped"] = ("early stop: N=%d (%.4f s/step) did not beat N=%d (%.4f s/step) "
                                 "by >%.0f%%" % (b["nodes"], b["median"], a["nodes"], a["median"],
@@ -313,7 +355,7 @@ def run_node_sweep(ctx: Ctx, legal_nodes: list[int],
             break
         print("node sweep: refining around best N=%d: measuring N=%s" % (best, todo))
         for wave in wtune.nodes.sweep_waves(todo, ctx.max_nodes):
-            run_wave(wave)
+            run_wave(fill(wave))
 
     _explain_unmeasured(legal, meas, seeds, skipped, cap_hit, refine, chooser)
     return dict(measurements=meas, anchors=anchors, cores=cores, results=results,

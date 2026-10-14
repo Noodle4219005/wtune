@@ -399,3 +399,15 @@ def test_a_full_node_shares_its_last_core_when_compressing(tmp_path, fake_bp, mo
     argv = r.procs[0].argv
     assert argv[argv.index("nice"):argv.index("nice") + 3] == ["nice", "-n", "19"]
     assert "--cpu-bind=verbose,mask_cpu:%s" % ws.cpu_mask([71]) in argv and "--replace" in argv
+
+
+def test_finish_drops_the_partial_files_of_a_killed_conversion(tmp_path, fake_bp):  # noqa: F811
+    side, run, _report, _lines = _sidecar(tmp_path, Runner())
+    part = os.path.join(side.cache_root, "out-x", "seg_0")
+    os.makedirs(part)
+    junk = os.path.join(part, ".wrfout_d01_x.wtune-tmp-n1-7.nc.tmp-7-1")
+    keep = os.path.join(part, "wrfout_d01_x.nc")
+    for p in (junk, keep):
+        open(p, "w").close()
+    side.finish()
+    assert not os.path.exists(junk) and os.path.exists(keep)

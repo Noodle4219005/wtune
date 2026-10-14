@@ -186,11 +186,19 @@ class Sidecar:
                                        replace=self.replace)).wait()
             self.rec["not_converted"] = self._missing()
             self.rec["converted"] += len(left) - len(self.rec["not_converted"])
+        self._drop_partial_conversions()
         self.log("  sidecar: %d frame(s) in %s%s" % (
             self.rec["converted"], self.cache_root,
             ", %d NOT converted" % len(self.rec["not_converted"])
             if self.rec["not_converted"] else ""))
         self.save()
+
+    def _drop_partial_conversions(self):
+        """Temporary files of a conversion srun killed with its job (nothing converts now)."""
+        for d, _sub, files in os.walk(self.cache_root):
+            for f in files:
+                if ".wtune-tmp-" in f:
+                    os.remove(os.path.join(d, f))
 
     def _missing(self):
         return [p for _d, _t, p, is_bp in extract._raw_entries(self.run_dir)

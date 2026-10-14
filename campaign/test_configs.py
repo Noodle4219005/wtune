@@ -535,6 +535,34 @@ class TestHistoryMode(unittest.TestCase):
     NEST_MINUTES_M = TestNestHistory.SYNTHETIC_NEST_MINUTES_M
     NEST_SECONDS = TestNamelistEditing.SYNTHETIC_3DOMAIN
 
+    AUX24 = (
+        "&time_control\n"
+        " run_days = 0, run_hours = 0, run_minutes = 30,\n"
+        " history_interval_s = 0, 0, 0,\n"
+        " io_form_auxhist24 = 2\n"
+        " auxhist24_interval_s = 60, 60, 60,\n"
+        " auxhist24_begin_s = 0, 0, 0,\n"
+        " auxhist3_interval = 0, 0, 0,\n"
+        "/\n"
+        "&domains\n"
+        " max_dom = 3,\n"
+        " time_step=15, e_we=793, 805, 1001, e_sn=853, 805, 1001,\n"
+        "/\n"
+    )
+
+    def test_aux_stream_never_begins_in_every_mode(self):
+        for mode in ("off", "end_d01", "mid_end_d01"):
+            out = configs.edit_namelist(self.AUX24, 16, 28, 8, 30, max_dom=3,
+                                        history_mode=mode, ranks=448)
+            self.assertIn("auxhist24_begin_s = 60000000, 60000000, 60000000,", out)
+            self.assertNotIn("auxhist24_begin_s = 0", out)
+            self.assertIn("auxhist24_interval_s = 60, 60, 60,", out)
+
+    def test_aux_stream_with_zero_interval_untouched(self):
+        out = configs.edit_namelist(self.AUX24, 16, 28, 8, 30, max_dom=3,
+                                    history_mode="off", ranks=448)
+        self.assertNotIn("auxhist3_begin", out)
+
     def test_off_zeroes_single_domain_max_dom_1(self):
         out = configs.edit_namelist(self.SINGLE, 14, 16, 12, 8, history_mode="off", ranks=224)
         self.assertIn("history_interval=0,", out)

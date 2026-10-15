@@ -3279,6 +3279,17 @@ def test_a_fire_case_is_tuned_single_threaded_without_any_config():
     assert wtune.tune.candidates._sweep_anchor_fitting(other, 2)[0]["omp"] == 2
 
 
+def test_o0_on_a_grid_too_small_for_all_cores_uses_fewer():
+    """f1-arm 2026-10-15: -O0 on matthew, yagi, c34 at one thread per rank stopped with "no legal
+    layout at any node count" -- it tried all 144 cores per node only; the node sweep steps down."""
+    ctx = _ctx(cores_per_node=144, max_nodes=4, exclude_rules=[dict(omp_gt=1, when="fire")],
+               is_fire=True)
+    report = wtune.tune.pipeline.run_level0(ctx, ALL_NODES_PROFILE, None)
+    assert report["best"]["omp"] == 1 and report["cores_used_per_node"] < 144
+    assert report["best"]["ranks"] == report["nodes"] * report["cores_used_per_node"]
+    assert report["pipeline"]["prediction"]["cores_per_node"] == report["cores_used_per_node"]
+
+
 def _r(cid, median):
     return dict(cid=cid, config={}, s_values=[median], median=median, lo=median, hi=median, n=1)
 

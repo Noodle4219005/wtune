@@ -14,7 +14,7 @@ from typing import Any, Callable
 import wtune.machine
 import wtune.nodes
 from ._deps import sweep, predict
-from .candidates import _sweep_anchor
+from .candidates import _sweep_anchor, _sweep_anchor_fitting
 from .common import ANCHOR_END_ID, _fmt_hms, _fmt_sbatch_time, compute_slots, if_set, is_set
 from .context import Ctx, QueueCapExceeded
 from .estimates import format_level_estimates, highest_level_within, level_estimates
@@ -809,11 +809,13 @@ def _pipeline_finish(st: PipelineRun, report: dict, pred: WholeRunPrediction | N
 def run_level0(ctx: Ctx, profile: dict, total_steps: int | None,
                nodes_policy: str = "knee") -> dict:
     """-O0, no jobs: the proxy's node count (choose_nodes; the first N with a legal layout), the
-    all-cores hybrid anchor there and wtune.predict's cold-start whole-run time (+-25%)."""
+    hybrid anchor there on all the cores, or on fewer when the grid cannot take that many ranks
+    (_sweep_anchor_fitting, as the node sweep), and wtune.predict's cold-start whole-run time
+    (+-25%)."""
     n0, note, _warn = choose_nodes(profile, ctx.max_nodes, nodes_policy)
-    cfg, why = None, None
+    cfg, cores, why = None, None, None
     for n in [n0] + [m for m in range(1, ctx.max_nodes + 1) if m != n0]:
-        cfg, why = _sweep_anchor(ctx, n)
+        cfg, cores, why = _sweep_anchor_fitting(ctx, n)
         if cfg:
             n0 = n
             break
@@ -833,7 +835,7 @@ def run_level0(ctx: Ctx, profile: dict, total_steps: int | None,
         level=LevelInfo(requested=0, effective=0, estimate_s={"O0": 0.0}, stepped_down=[],
                         actual_running_s=0.0),
         prediction=WholeRunPrediction(
-            layout_id="ANCHOR", nodes=n0, cores_per_node=ctx.cores_per_node,
+            layout_id="ANCHOR", nodes=n0, cores_per_node=cores,
             config={k: cfg.get(k) for k in _PRED_CONFIG_KEYS},
             predicted_total_s=T, predicted_total_hms=_fmt_hms(T) if T else None,
             predicted_range_s=[T * (1 - band), T * (1 + band)] if T else None,
@@ -858,7 +860,8 @@ def run_level0(ctx: Ctx, profile: dict, total_steps: int | None,
              _fmt_hms(T) if T else "unknown", band * 100, src))
     return dict(case=ctx.case, pipeline_only=True, nodes=n0,
                 nodes_note="O0: proxy node count, no measurement", param_table=pt,
-                pipeline=pipe.to_dict(), cores_per_node=ctx.cores_per_node, job_ids=[],
+                pipeline=pipe.to_dict(), cores_per_node=ctx.cores_per_node,
+                cores_used_per_node=cores, job_ids=[],
                 cancelled_job_ids=[],
                 best=dict(id="ANCHOR", **{k: cfg.get(k) for k in ("ranks", "omp", "numtiles",
                                                                    "dist")},

@@ -11,6 +11,7 @@
   "cancelled_job_ids": [],
   "case": "matthew",
   "cores_per_node": 72,
+  "cores_used_per_node": 72,
   "job_ids": [],
   "nodes": 13,
   "nodes_note": "O0: proxy node count, no measurement",

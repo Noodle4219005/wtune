@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 #SBATCH --job-name=nc2bp
 #SBATCH --nodes=1 --ntasks-per-node=1 --cpus-per-task=8
+#SBATCH --exclusive   # memory follows cores on f1-arm (1554 MB each): conus25 needed > 12 G
 #SBATCH --time=00:40:00
 # Pre-convert one campaign case's netCDF inputs into the BP cache strict_campaign.sbatch reads
 # (2026-10-03: ADIOS2 for every WRF input stream). Optional: strict_campaign converts on first use

@@ -5,6 +5,13 @@ here does not match it. Development before 0.1.0 is in the git history, not in r
 
 ## Unreleased
 
+**`--minutes` fills the cap instead of fixing the plan up front.** `-O2` keeps adding
+round0 top-up waves, each sized from the measured startup and s/step, until the cap (less one
+race job) or the candidates run out; a case with no prediction point gives the prediction
+share to the layout search; and `--minutes` no longer turns on the short-run step-down, which
+is `--stop-if-short` only (conus25 on f1-arm stopped at 16.7 of 45 minutes, +5.1% slower than
+uncapped).
+
 **Machine settings.** Cores per node (72), node cap (13), partition (`compute`) and login
 nodes (`head`) are no longer fixed in the code: they are the built-in values of
 `wtune.machine`, replaced by a project's `project.yaml` `machine:` block

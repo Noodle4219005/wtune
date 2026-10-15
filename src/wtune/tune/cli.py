@@ -497,8 +497,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--stop-if-short", action="store_true", dest="stop_if_short",
                     help="-O levels: when the whole run is shorter than the estimated tuning time, "
                          "step down to the highest level whose estimate fits (never below O1). "
-                         "OFF by default: the layout search is not cut short; also active when "
-                         "--minutes is given")
+                         "OFF by default: the layout search is not cut short")
     p.add_argument("--physics-advice", action="store_true", dest="physics_advice",
                     help="-O3: also run phase 3, the physics advice (opt-in, not part of the "
                          "default run)")

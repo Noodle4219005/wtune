@@ -59,7 +59,7 @@ round0 slot 1: submitted job 7024 (36 configs)
 round0 slot 2: submitted job 7025 (36 configs)
 [round0   ] [------------------------]   0%  elapsed=0:00 / budget=5:00:00
 startup_s: measured 0.8s/run from 109 completed run(s) in round0 (was 120.0s, documented constant (scc_sweep.STARTUP_S))
-round0 top-up: s_est=0.158s/step (measured, was 10.000s/step) startup_s=0.8s configs_per_job=4006 candidates=1657
+round0 top-up 1: s_est=0.158s/step (measured, was 10.000s/step) startup_s=0.8s configs_per_job=4006 candidates=1657
 round0-topup slot 0: submitted job 7026 (553 configs)
 round0-topup slot 1: submitted job 7027 (552 configs)
 round0-topup slot 2: submitted job 7028 (552 configs)
@@ -80,7 +80,7 @@ round0 slot 0: submitted job 7030 (70 configs)
 round0 slot 1: submitted job 7031 (70 configs)
 [round0   ] [------------------------]   0%  elapsed=0:00 / budget=10:00:00
 startup_s: measured 0.2s/run from 140 completed run(s) in round0 (was 120.0s, documented constant (scc_sweep.STARTUP_S))
-round0 top-up: s_est=0.112s/step (measured, was 10.000s/step) startup_s=0.2s configs_per_job=16734 candidates=1141
+round0 top-up 1: s_est=0.112s/step (measured, was 10.000s/step) startup_s=0.2s configs_per_job=16734 candidates=1141
 round0-topup slot 0: submitted job 7032 (571 configs)
 round0-topup slot 1: submitted job 7033 (570 configs)
 [round0-topup] [------------------------]   0%  elapsed=0:00 / budget=10:00:00

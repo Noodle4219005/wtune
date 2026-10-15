@@ -162,7 +162,7 @@ def _pipeline_start(ctx: Ctx, minutes: float | None, level: int, physics: bool,
     level_req = int(level)
     plan = dict(level=level_req)                  # the EFFECTIVE level; the guard may lower it
     physics = bool(physics and level_req >= 3)       # physics advice is opt-in (--physics-advice)
-    guard = bool(stop_if_short or minutes is not None)   # the step-down guard is opt-in
+    guard = bool(stop_if_short)                      # the step-down guard is opt-in
     fracs, cum = _pipeline_shares(physics)
     B = float(minutes) * 60.0 if minutes is not None else float("inf")
     pipe = PipelineSummary(
@@ -385,7 +385,10 @@ def _pipeline_phase1_layout(st: PipelineRun, profile: dict, objective: str,
     stub when it stopped before any result --, the top-2 layouts for phase 2)."""
     ctx, pipe = st.ctx, st.pipe
     m1 = _mark(ctx)
-    ctx1 = dataclasses.replace(ctx, budget_s=max(st.limit("layout"), m1.run + 1.0))
+    # no prediction point to measure: the prediction share goes to the layout search
+    no_points = st.pplan0 is not None and not st.pplan0["selected"] and st.prep_handle is None
+    end = st.limit("predict" if no_points else "layout")
+    ctx1 = dataclasses.replace(ctx, budget_s=max(end, m1.run + 1.0))
     collect: dict = {}
     report = None
     try:
@@ -403,7 +406,7 @@ def _pipeline_phase1_layout(st: PipelineRun, profile: dict, objective: str,
         ph1 = "stopped: %s" % e
         print("pipeline: phase 1 STOPPED -- %s" % e)
     pipe.phases.append(_phase_record(
-        "layout", m1, _mark(ctx), st.limit("layout"), ph1,
+        "layout", m1, _mark(ctx), end, ph1,
         **(dict(nodes=report["nodes"], cores_per_node=report.get("cores_used_per_node"))
            if report else {})))
     st.cut("layout")

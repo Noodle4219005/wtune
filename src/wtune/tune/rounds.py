@@ -2,6 +2,7 @@
 slots, or the full layout space), adaptive proposer rounds and the confirm job."""
 from __future__ import annotations
 
+import dataclasses
 import glob
 import math
 import os
@@ -13,8 +14,8 @@ from ._deps import sweep
 from .budget import _job_time_est, estimate_run_time, update_s_est
 from .candidates import (FULL_SPACE_CONFIGS_PER_JOB, _apply_search_filter, aggregate_by_cid,
                          merge_aggs, rank_predicted_entries, sample_more_diverse_configs)
-from .common import (ANCHOR_END_ID, _fmt_hms, chunk_round_robin, close_to_best, compute_slots,
-                     would_exceed_budget)
+from .common import (ANCHOR_END_ID, RACE_MAX, _fmt_hms, chunk_round_robin, close_to_best,
+                     compute_slots, would_exceed_budget)
 from .context import Ctx, cores_used
 from .estimates import EST_ROUND0_CONFIGS
 from .jobs import submit_configs_job
@@ -160,7 +161,7 @@ def _adopt_round0_startup(ctx: Ctx, job_configs: dict, states: dict, wave0_resul
 
 
 def _round0_topup(ctx: Ctx, configs_by_cid: dict, s_est: float, refreshed_s_est: float,
-                  slots: int) -> tuple[list, dict, list] | None:
+                  slots: int, wave: int = 1) -> tuple[list, dict, list] | None:
     """One more wave of not-yet-measured candidates sized at the measured s/step: the pre-round0
     estimate can be the 10 s/step no-ledger fallback, 333x too slow (sc26p2 2026-09-22).
     Returns (job_ids, configs_by_cid, rows), or None when there is nothing to add."""
@@ -169,10 +170,10 @@ def _round0_topup(ctx: Ctx, configs_by_cid: dict, s_est: float, refreshed_s_est:
     topup_configs_per_job = _configs_for_budget(topup_budget_s, topup_per_run_s, slots)
     topup_k = slots * topup_configs_per_job
     fresh = sample_more_diverse_configs(ctx, list(configs_by_cid.values()), topup_k,
-                                        ctx.seed + 1)
-    print("round0 top-up: s_est=%.3fs/step (measured, was %.3fs/step) startup_s=%.1fs "
+                                        ctx.seed + wave)
+    print("round0 top-up %d: s_est=%.3fs/step (measured, was %.3fs/step) startup_s=%.1fs "
           "configs_per_job=%d candidates=%d"
-          % (refreshed_s_est, s_est, ctx.startup_s, topup_configs_per_job, len(fresh)))
+          % (wave, refreshed_s_est, s_est, ctx.startup_s, topup_configs_per_job, len(fresh)))
     if not fresh:
         return None
     topup_ids, topup_by_cid, topup_rows, _jc, _st = _submit_round0_wave(
@@ -180,11 +181,12 @@ def _round0_topup(ctx: Ctx, configs_by_cid: dict, s_est: float, refreshed_s_est:
     return topup_ids, topup_by_cid, topup_rows
 
 
-def run_round0(ctx: Ctx) -> tuple[list, dict, list]:
+def run_round0(ctx: Ctx, fill: bool = False) -> tuple[list, dict, list]:
     """Round 0 at ctx.nodes: ANCHOR + a diverse decomp_space sample over floor(max_nodes/nodes)
     parallel jobs (or the full space, ctx.full_space), then the measured startup and a top-up
-    wave when the measured s/step undercuts the estimate. Returns (job_ids, configs_by_cid,
-    rows)."""
+    wave when the measured s/step undercuts the estimate. With `fill` and a time cap, top-up
+    waves sized off the measured startup and s/step continue until the cap (less one race job)
+    or the candidates run out. Returns (job_ids, configs_by_cid, rows)."""
     s_est, s_source, n_rows = sweep.estimate_s_per_step(ctx.case, ctx.nodes, ctx.ledger_dir,
                                                           ctx.hardware_id)
     if ctx.full_space:
@@ -219,13 +221,20 @@ def run_round0(ctx: Ctx) -> tuple[list, dict, list]:
         wave0_results = aggregate_by_cid(rows, configs_by_cid)
         _adopt_round0_startup(ctx, job_configs, states, wave0_results)
         refreshed_s_est = update_s_est(wave0_results, s_est)
-        if refreshed_s_est < s_est and ctx.elapsed() < ctx.budget_s:
-            topup = _round0_topup(ctx, configs_by_cid, s_est, refreshed_s_est, slots)
-            if topup:
-                topup_ids, topup_by_cid, topup_rows = topup
-                job_ids = job_ids + topup_ids
-                configs_by_cid.update(topup_by_cid)
-                rows = rows + topup_rows
+        fill = fill and math.isfinite(ctx.budget_s)
+        wave = 1
+        while (fill or (wave == 1 and refreshed_s_est < s_est)) and ctx.elapsed() < ctx.budget_s:
+            race = _job_time_est(ctx, RACE_MAX, 1, refreshed_s_est)["total_run_s"] if fill else 0.0
+            topup = _round0_topup(dataclasses.replace(ctx, budget_s=ctx.budget_s - race),
+                                  configs_by_cid, s_est, refreshed_s_est, slots, wave)
+            if not topup or not topup[0]:
+                break
+            topup_ids, topup_by_cid, topup_rows = topup
+            job_ids = job_ids + topup_ids
+            configs_by_cid.update(topup_by_cid)
+            rows = rows + topup_rows
+            refreshed_s_est = update_s_est(aggregate_by_cid(rows, configs_by_cid), refreshed_s_est)
+            wave += 1
     return job_ids, configs_by_cid, rows
 
 
@@ -535,7 +544,7 @@ def run_tuning_at(ctx: Ctx, s_est: float | None = None, adaptive: bool = True,
     if s_est is None:
         s_est, _src, _n = sweep.estimate_s_per_step(ctx.case, ctx.nodes, ctx.ledger_dir,
                                                      ctx.hardware_id)
-    job_ids0, configs_by_cid, rows0 = run_round0(ctx)
+    job_ids0, configs_by_cid, rows0 = run_round0(ctx, fill=not adaptive and not confirm)
     all_results = aggregate_by_cid(rows0, configs_by_cid)
     anchor_cid = "ANCHOR" if "ANCHOR" in configs_by_cid else None
     # later stages size off what round0 measured, not the pre-round0 estimate (conus12

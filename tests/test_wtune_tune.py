@@ -516,6 +516,29 @@ def test_round0_topup_packs_many_configs_when_slots_is_one():
     assert len(configs_by_cid) > 4         # far more than wave0's single conservatively-sized job
 
 
+def test_round0_under_a_time_cap_keeps_adding_waves_until_the_cap(monkeypatch):
+    # -O2 --minutes (fill): top-up waves sized off the measured startup and s/step go on while the
+    # cap, less one race job, has room (conus25 2026-10-16 stopped after one wave at 16.7 of 45 min)
+    def run(fill):
+        clock = FakeClock()
+        sbatch, _calls, paths = make_fake_sbatch(start=7000)
+
+        def slow_sbatch(cmd):                     # every job then runs 200 s
+            clock.t += 200.0
+            return sbatch(cmd)
+
+        ctx = _ctx(clock=clock, sbatch_runner=slow_sbatch, nodes=2, max_nodes=3, budget_s=1800.0,
+                   steps=20, ledger_reader=make_ledger_reader_from_configs(paths, base_s=0.05))
+        job_ids, by_cid, _rows = wtune.tune.run_round0(ctx, fill=fill)
+        return ctx, job_ids, by_cid
+
+    _c, ids1, by1 = run(False)
+    ctx, ids2, by2 = run(True)
+    assert len(ids1) == 2                         # wave0 + the one top-up
+    assert len(ids2) > len(ids1) and len(by2) > len(by1)
+    assert ctx.elapsed() <= ctx.budget_s          # never past the cap
+
+
 # ---------------------------------------------------------------------------
 # cancel-only-own-jobs
 # ---------------------------------------------------------------------------
@@ -2015,8 +2038,8 @@ def _pipe_run(monkeypatch, tmp_path, minutes=None, extra_args=(), sacct=None, sc
               preflight_runner=None, short_run_guard=False, total_steps=None, level=3,
               cold=None, physics_advice=True, full_cap=8, grid=None, drop=None, **kw):
     clock = FakeClock()
-    if total_steps is None:      # with a --minutes cap the (opt-out-less) step-down guard is active:
-        total_steps = 10 ** 6 if minutes is not None else 1000      # a long run keeps it quiet
+    if total_steps is None:      # a long run under a --minutes cap
+        total_steps = 10 ** 6 if minutes is not None else 1000
     env = _PipeEnv(monkeypatch, tmp_path, clock, minutes, **kw)
     case_json = dict(grid or BIG_GRID, prep_dir=str(tmp_path / "matthew"))
     monkeypatch.setattr(wtune.tune.context, "resolve_case",
@@ -3120,7 +3143,7 @@ def test_layout_report_table_winner_runner_up_noise_and_untried(monkeypatch, tmp
     assert "P1" not in out                                         # no tune-vs-run verdict line
 
 
-def test_guard_is_opt_in_and_a_time_cap_enables_it(monkeypatch, tmp_path):
+def test_guard_is_opt_in_and_a_time_cap_does_not_enable_it(monkeypatch, tmp_path):
     # default: no guard even though the whole run (1000 x 0.3 s) is far shorter than the search
     report, env = _pipe_run(monkeypatch, tmp_path)
     assert report["pipeline"]["level"]["effective"] == 3 and not report["pipeline"]["level"]["stepped_down"]
@@ -3128,9 +3151,18 @@ def test_guard_is_opt_in_and_a_time_cap_enables_it(monkeypatch, tmp_path):
     # --stop-if-short turns it on
     report, env = _pipe_run(monkeypatch, tmp_path, short_run_guard=True)
     assert report["pipeline"]["level"]["stepped_down"]
-    # so does a --minutes cap
+    # a --minutes cap alone does not: the cap bounds the search, the level stays as asked
     report, env = _pipe_run(monkeypatch, tmp_path, minutes=6000, total_steps=1000)
-    assert report["pipeline"]["level"]["stepped_down"]
+    assert report["pipeline"]["level"]["effective"] == 3 and not report["pipeline"]["level"]["stepped_down"]
+
+
+def test_a_case_with_no_prediction_point_gives_its_share_to_the_layout_search(monkeypatch, tmp_path):
+    report, env = _pipe_run(monkeypatch, tmp_path, minutes=6000, n_points=0)
+    lims = {p["name"]: p["limit_s"] for p in report["pipeline"]["phases"]}
+    assert lims["layout"] == pytest.approx(lims["predict"]) == pytest.approx(0.80 * 6000 * 60.0)
+    report, env = _pipe_run(monkeypatch, tmp_path, minutes=6000)          # 3 points: 50 % only
+    lims = {p["name"]: p["limit_s"] for p in report["pipeline"]["phases"]}
+    assert lims["layout"] == pytest.approx(0.55 * 6000 * 60.0)
     # the removed flags are gone
     for flag in ("--force-full", "--no-physics-advice"):
         with pytest.raises(SystemExit):

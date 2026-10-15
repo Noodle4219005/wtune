@@ -15,7 +15,7 @@ round0 slot 11: submitted job 7012 (3 configs)
 round0 slot 12: submitted job 7013 (3 configs)
 [round0   ] [------------------------]   0%  elapsed=0:00 / budget=30:00
 startup_s: measured 15.2s/run from 39 completed run(s) in round0 (was 120.0s, documented constant (scc_sweep.STARTUP_S))
-round0 top-up: s_est=0.952s/step (measured, was 10.000s/step) startup_s=15.2s configs_per_job=31 candidates=403
+round0 top-up 1: s_est=0.952s/step (measured, was 10.000s/step) startup_s=15.2s configs_per_job=31 candidates=403
 round0-topup slot 0: submitted job 7014 (31 configs)
 round0-topup slot 1: submitted job 7015 (31 configs)
 round0-topup slot 2: submitted job 7016 (31 configs)

@@ -91,8 +91,7 @@ options:
                         printed before anything runs; --minutes is an optional hard cap
   --stop-if-short       -O levels: when the whole run is shorter than the estimated tuning time,
                         step down to the highest level whose estimate fits (never below O1). OFF
-                        by default: the layout search is not cut short; also active when --minutes
-                        is given
+                        by default: the layout search is not cut short
   --physics-advice      -O3: also run phase 3, the physics advice (opt-in, not part of the default
                         run)
   --keep-frames         --pipeline full: keep the phase-2/3 window-frame .nc files after the

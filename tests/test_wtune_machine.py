@@ -244,6 +244,30 @@ def test_every_partition_refusing_is_reported(scc):
         wtune.machine.check({"partition": []})
 
 
+def test_the_per_user_submit_limit_is_waited_out(scc):
+    wtune.machine.export(dict(partition="small,large"))
+    calls, sleeps = [], []
+
+    def sbatch_runner(cmd):
+        calls.append(cmd.split()[2])
+        if cmd.split()[2] == "small":
+            raise RuntimeError("sbatch failed (rc=1): QOSMaxCpuPerJobLimit")
+        if len(calls) < 6:
+            raise RuntimeError("sbatch failed (rc=1): QOSMaxSubmitJobPerUserLimit")
+        return "Submitted batch job 9\n"
+
+    assert scc_sweep.submit_job("sbatch /x.sbatch", sbatch_runner, sleeps.append) == "9"
+    assert calls == ["small", "large"] * 3 and sleeps == [60, 60]
+
+    def never(cmd):
+        raise RuntimeError("sbatch failed (rc=1): QOSMaxSubmitJobPerUserLimit")
+
+    sleeps.clear()
+    with pytest.raises(RuntimeError, match="MaxSubmitJob"):
+        scc_sweep.submit_job("sbatch /x.sbatch", never, sleeps.append)
+    assert len(sleeps) == scc_sweep.SUBMIT_LIMIT_MAX_WAIT_S // 60
+
+
 def test_probe_input_copies_can_be_turned_off(scc, monkeypatch):
     assert wtune.machine.copy_probe_inputs() is True
     wtune.machine.export(wtune.machine.check({"copy_probe_inputs": False}))

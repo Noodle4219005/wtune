@@ -44,6 +44,7 @@ import re
 import statistics
 import subprocess
 import sys
+import time
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _REPO_ROOT = os.path.dirname(os.path.dirname(_HERE))  # src/
@@ -98,6 +99,9 @@ IN_FLIGHT_STATES = {"PENDING", "RUNNING"}   # sacct State values counted against
 
 _JOBID_RE = re.compile(r"Submitted batch job (\d+)")
 _SBATCH_RE = re.compile(r"(?<![\w./-])sbatch(?: -p \S+)?(?=\s)")    # the command, not *.sbatch
+_SUBMIT_LIMIT_RE = re.compile(r"MaxSubmitJob")    # per-user count of queued jobs, not this job
+SUBMIT_LIMIT_WAIT_S = 60
+SUBMIT_LIMIT_MAX_WAIT_S = 6 * 3600
 
 
 # ---------------------------------------------------------------------------
@@ -356,7 +360,25 @@ def build_sbatch_command(case, nodes, cores_per_node, time_limit, timeout_s, rep
     return "source %s; %s" % (_expand(env_source or wtune.machine.env_source()), sbatch)
 
 
-def submit_job(cmd_str, sbatch_runner=default_sbatch_runner):
+def submit_job(cmd_str, sbatch_runner=default_sbatch_runner, sleep=time.sleep):
+    """`_submit_once`, retried every minute (up to 6 h) while a refusal is the per-user limit on
+    queued jobs (QOSMaxSubmitJobPerUserLimit): that limit is about the user's other jobs, e.g. a
+    second tune sharing the QOS, so the job fits once one of them ends."""
+    waited = 0
+    while True:
+        try:
+            return _submit_once(cmd_str, sbatch_runner)
+        except RuntimeError as e:
+            if not _SUBMIT_LIMIT_RE.search(str(e)) or waited >= SUBMIT_LIMIT_MAX_WAIT_S:
+                raise
+            if not waited:
+                print("submit: per-user job limit reached; retrying every %d s"
+                      % SUBMIT_LIMIT_WAIT_S, file=sys.stderr)
+        sleep(SUBMIT_LIMIT_WAIT_S)
+        waited += SUBMIT_LIMIT_WAIT_S
+
+
+def _submit_once(cmd_str, sbatch_runner):
     """Runs `cmd_str` (already includes the `source env.sh;` prefix) and parses the job id out
     of sbatch's "Submitted batch job N" stdout line. --force re-running an in-flight job's
     (case,N) slot is the one accepted imprecision in the --max-nodes-in-flight budget: the OLD

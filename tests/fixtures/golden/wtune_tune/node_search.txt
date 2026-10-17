@@ -20,6 +20,16 @@ node sweep: nodes-n5-race submitted job 7009 (ANCHOR ranks=90 omp=4 9x10, REPS=1
 [node-sweep] [------------------------]   0%  elapsed=0:00 / budget=10:00:00
 node sweep: nodes-n6-race submitted job 7010 (ANCHOR ranks=72 omp=6 8x9, REPS=1, 5 steps, ~2:01)
 [node-sweep] [------------------------]   0%  elapsed=0:00 / budget=10:00:00
+node sweep: the N never sent need ~0:00, <= 15% of the 10:00:00 left; measuring them before the finalists
+node sweep: 0:00 of 10:00:00 used; measuring the N never sent: [7, 9, 10, 12]
+node sweep: nodes-n7 submitted job 7011 (ANCHOR ranks=63 omp=8 7x9, REPS=1, 5 steps, ~2:50)
+[node-sweep] [------------------------]   0%  elapsed=0:00 / budget=10:00:00
+node sweep: nodes-n9 submitted job 7012 (ANCHOR ranks=81 omp=8 9x9, REPS=1, 5 steps, ~2:01)
+[node-sweep] [------------------------]   0%  elapsed=0:00 / budget=10:00:00
+node sweep: nodes-n10 submitted job 7013 (ANCHOR ranks=90 omp=8 9x10, REPS=1, 5 steps, ~2:01)
+[node-sweep] [------------------------]   0%  elapsed=0:00 / budget=10:00:00
+node sweep: nodes-n12 submitted job 7014 (ANCHOR ranks=72 omp=12 8x9, REPS=1, 5 steps, ~2:01)
+[node-sweep] [------------------------]   0%  elapsed=0:00 / budget=10:00:00
 node sweep: chose N=4 -- objective=time: N=4 median=0.3000 s/step; min is 0.3000, smallest N within 3% noise of it; finalists [4, 5]
 node sweep: N=1  median=1.0000 s/step n=2 spread=0.0% speedup=1.00 eff=1.00
 node sweep: N=2  median=0.5200 s/step n=2 spread=0.0% speedup=1.92 eff=0.96
@@ -27,42 +37,46 @@ node sweep: N=3  median=0.4100 s/step n=2 spread=0.0% speedup=2.44 eff=0.81
 node sweep: N=4  median=0.3000 s/step n=4 spread=0.0% speedup=3.33 eff=0.83
 node sweep: N=5  median=0.3050 s/step n=4 spread=0.0% speedup=3.28 eff=0.66
 node sweep: N=6  median=0.3100 s/step n=4 spread=0.0% speedup=3.23 eff=0.54
+node sweep: N=7  median=0.3150 s/step n=2 spread=0.0% speedup=3.17 eff=0.45
 node sweep: N=8  median=0.3200 s/step n=2 spread=0.0% speedup=3.12 eff=0.39
+node sweep: N=9  median=0.3360 s/step n=2 spread=0.0% speedup=2.98 eff=0.33
+node sweep: N=10 median=0.3520 s/step n=2 spread=0.0% speedup=2.84 eff=0.28
+node sweep: N=12 median=0.3840 s/step n=2 spread=0.0% speedup=2.60 eff=0.22
 core sweep: N=4 c=70 skipped -- no legal decomposition at any omp in {1, 2}
 core sweep: N=5 c=70 skipped -- no legal decomposition at any omp in {1, 2}
-node sweep: cores-n4-c64 submitted job 7011 (ANCHOR ranks=64 omp=4 8x8, REPS=1, 5 steps, ~2:01)
-node sweep: cores-n4-c48 submitted job 7012 (ANCHOR ranks=64 omp=3 8x8, REPS=1, 5 steps, ~2:01)
-node sweep: cores-n4-c36 submitted job 7013 (ANCHOR ranks=72 omp=2 8x9, REPS=1, 5 steps, ~2:01)
+node sweep: cores-n4-c64 submitted job 7015 (ANCHOR ranks=64 omp=4 8x8, REPS=1, 5 steps, ~2:01)
+node sweep: cores-n4-c48 submitted job 7016 (ANCHOR ranks=64 omp=3 8x8, REPS=1, 5 steps, ~2:01)
+node sweep: cores-n4-c36 submitted job 7017 (ANCHOR ranks=72 omp=2 8x9, REPS=1, 5 steps, ~2:01)
 [node-sweep] [------------------------]   0%  elapsed=0:00 / budget=10:00:00
-node sweep: cores-n5-c64 submitted job 7014 (ANCHOR ranks=80 omp=4 8x10, REPS=1, 5 steps, ~2:01)
-node sweep: cores-n5-c48 submitted job 7015 (ANCHOR ranks=80 omp=3 8x10, REPS=1, 5 steps, ~2:01)
+node sweep: cores-n5-c64 submitted job 7018 (ANCHOR ranks=80 omp=4 8x10, REPS=1, 5 steps, ~2:01)
+node sweep: cores-n5-c48 submitted job 7019 (ANCHOR ranks=80 omp=3 8x10, REPS=1, 5 steps, ~2:01)
 [node-sweep] [------------------------]   0%  elapsed=0:00 / budget=10:00:00
-node sweep: cores-n5-c36 submitted job 7016 (ANCHOR ranks=90 omp=2 9x10, REPS=1, 5 steps, ~2:01)
+node sweep: cores-n5-c36 submitted job 7020 (ANCHOR ranks=90 omp=2 9x10, REPS=1, 5 steps, ~2:01)
 [node-sweep] [------------------------]   0%  elapsed=0:00 / budget=10:00:00
 core sweep N=4: measuring [72, 64, 48] once more (within 2x noise of the fastest)
-node sweep: cores-n4-c72-race submitted job 7017 (ANCHOR ranks=72 omp=4 8x9, REPS=1, 5 steps, ~2:01)
-node sweep: cores-n4-c64-race submitted job 7018 (ANCHOR ranks=64 omp=4 8x8, REPS=1, 5 steps, ~2:01)
-node sweep: cores-n4-c48-race submitted job 7019 (ANCHOR ranks=64 omp=3 8x8, REPS=1, 5 steps, ~2:01)
+node sweep: cores-n4-c72-race submitted job 7021 (ANCHOR ranks=72 omp=4 8x9, REPS=1, 5 steps, ~2:01)
+node sweep: cores-n4-c64-race submitted job 7022 (ANCHOR ranks=64 omp=4 8x8, REPS=1, 5 steps, ~2:01)
+node sweep: cores-n4-c48-race submitted job 7023 (ANCHOR ranks=64 omp=3 8x8, REPS=1, 5 steps, ~2:01)
 [node-sweep] [------------------------]   0%  elapsed=0:00 / budget=10:00:00
 core sweep N=5: measuring [72, 64, 48] once more (within 2x noise of the fastest)
-node sweep: cores-n5-c72-race submitted job 7020 (ANCHOR ranks=90 omp=4 9x10, REPS=1, 5 steps, ~2:01)
-node sweep: cores-n5-c64-race submitted job 7021 (ANCHOR ranks=80 omp=4 8x10, REPS=1, 5 steps, ~2:01)
+node sweep: cores-n5-c72-race submitted job 7024 (ANCHOR ranks=90 omp=4 9x10, REPS=1, 5 steps, ~2:01)
+node sweep: cores-n5-c64-race submitted job 7025 (ANCHOR ranks=80 omp=4 8x10, REPS=1, 5 steps, ~2:01)
 [node-sweep] [------------------------]   0%  elapsed=0:00 / budget=10:00:00
-node sweep: cores-n5-c48-race submitted job 7022 (ANCHOR ranks=80 omp=3 8x10, REPS=1, 5 steps, ~2:01)
+node sweep: cores-n5-c48-race submitted job 7026 (ANCHOR ranks=80 omp=3 8x10, REPS=1, 5 steps, ~2:01)
 [node-sweep] [------------------------]   0%  elapsed=0:00 / budget=10:00:00
 core sweep: N=4 chose cores/node=72 -- cores/node=72 median=0.3000 s/step; fastest is 0.3000, fullest c within 3% noise of it
 core sweep: N=5 chose cores/node=72 -- cores/node=72 median=0.3050 s/step; fastest is 0.3050, fullest c within 3% noise of it
 node search: finalist N=4 cores/node=72, budget share 5:00:00
 round0: s_est=10.000s/step[fallback_10s,n=0] startup_s=120.0s[documented constant (scc_sweep.STARTUP_S)] slots=3 configs_per_job=37 total=109 (ok)
-round0 slot 0: submitted job 7023 (37 configs)
-round0 slot 1: submitted job 7024 (36 configs)
-round0 slot 2: submitted job 7025 (36 configs)
+round0 slot 0: submitted job 7027 (37 configs)
+round0 slot 1: submitted job 7028 (36 configs)
+round0 slot 2: submitted job 7029 (36 configs)
 [round0   ] [------------------------]   0%  elapsed=0:00 / budget=5:00:00
 startup_s: measured 0.8s/run from 109 completed run(s) in round0 (was 120.0s, documented constant (scc_sweep.STARTUP_S))
 round0 top-up 1: s_est=0.158s/step (measured, was 10.000s/step) startup_s=0.8s configs_per_job=4006 candidates=1657
-round0-topup slot 0: submitted job 7026 (553 configs)
-round0-topup slot 1: submitted job 7027 (552 configs)
-round0-topup slot 2: submitted job 7028 (552 configs)
+round0-topup slot 0: submitted job 7030 (553 configs)
+round0-topup slot 1: submitted job 7031 (552 configs)
+round0-topup slot 2: submitted job 7032 (552 configs)
 [round0-topup] [------------------------]   0%  elapsed=0:00 / budget=5:00:00
 adaptive round 1: proposer stopped at kappa=0.5 (test stub); retrying with more exploration pressure (kappa=1)
 adaptive round 1: proposer stopped at kappa=1 (test stub); retrying with more exploration pressure (kappa=2)
@@ -72,17 +86,17 @@ confirm candidate D1652    median=0.0105s/step (n=2) -> per_run~0.8s (startup_s=
 confirm candidate D1653    median=0.0105s/step (n=2) -> per_run~0.8s (startup_s=0.8s) x REPS=2
 confirm candidate ANCHOR   median=0.3000s/step (n=2) -> per_run~2.3s (startup_s=0.8s) x REPS=2
 confirm: estimated 0:09 for 4 config(s) (REPS=2, expected -- not the padded --time request) -- elapsed=0:00 / budget=5:00:00
-confirm: submitted job 7029 (4 configs, REPS=2)
+confirm: submitted job 7033 (4 configs, REPS=2)
 [confirm  ] [------------------------]   0%  elapsed=0:00 / budget=5:00:00
 node search: finalist N=5 cores/node=72, budget share 10:00:00
 round0: s_est=10.000s/step[fallback_10s,n=0] startup_s=120.0s[documented constant (scc_sweep.STARTUP_S)] slots=2 configs_per_job=74 total=140 (ok)
-round0 slot 0: submitted job 7030 (70 configs)
-round0 slot 1: submitted job 7031 (70 configs)
+round0 slot 0: submitted job 7034 (70 configs)
+round0 slot 1: submitted job 7035 (70 configs)
 [round0   ] [------------------------]   0%  elapsed=0:00 / budget=10:00:00
 startup_s: measured 0.2s/run from 140 completed run(s) in round0 (was 120.0s, documented constant (scc_sweep.STARTUP_S))
 round0 top-up 1: s_est=0.112s/step (measured, was 10.000s/step) startup_s=0.2s configs_per_job=16734 candidates=1141
-round0-topup slot 0: submitted job 7032 (571 configs)
-round0-topup slot 1: submitted job 7033 (570 configs)
+round0-topup slot 0: submitted job 7036 (571 configs)
+round0-topup slot 1: submitted job 7037 (570 configs)
 [round0-topup] [------------------------]   0%  elapsed=0:00 / budget=10:00:00
 adaptive round 1: proposer stopped at kappa=0.5 (test stub); retrying with more exploration pressure (kappa=1)
 adaptive round 1: proposer stopped at kappa=1 (test stub); retrying with more exploration pressure (kappa=2)
@@ -92,21 +106,8 @@ confirm candidate D1138    median=0.0104s/step (n=2) -> per_run~0.2s (startup_s=
 confirm candidate D1139    median=0.0104s/step (n=2) -> per_run~0.2s (startup_s=0.2s) x REPS=2
 confirm candidate ANCHOR   median=0.3050s/step (n=2) -> per_run~1.7s (startup_s=0.2s) x REPS=2
 confirm: estimated 0:04 for 4 config(s) (REPS=2, expected -- not the padded --time request) -- elapsed=0:00 / budget=10:00:00
-confirm: submitted job 7034 (4 configs, REPS=2)
+confirm: submitted job 7038 (4 configs, REPS=2)
 [confirm  ] [------------------------]   0%  elapsed=0:00 / budget=10:00:00
-node sweep: 0:00 of 10:00:00 used; measuring the N never sent: [7, 9, 10, 12]
-node sweep: nodes-n7 submitted job 7035 (ANCHOR ranks=63 omp=8 7x9, REPS=1, 5 steps, ~2:50)
-[node-sweep] [------------------------]   0%  elapsed=0:00 / budget=10:00:00
-node sweep: nodes-n9 submitted job 7036 (ANCHOR ranks=81 omp=8 9x9, REPS=1, 5 steps, ~2:01)
-[node-sweep] [------------------------]   0%  elapsed=0:00 / budget=10:00:00
-node sweep: nodes-n10 submitted job 7037 (ANCHOR ranks=90 omp=8 9x10, REPS=1, 5 steps, ~2:01)
-[node-sweep] [------------------------]   0%  elapsed=0:00 / budget=10:00:00
-node sweep: nodes-n12 submitted job 7038 (ANCHOR ranks=72 omp=12 8x9, REPS=1, 5 steps, ~2:01)
-[node-sweep] [------------------------]   0%  elapsed=0:00 / budget=10:00:00
-node sweep: N=7  median=0.3150 s/step n=2 spread=0.0% speedup=3.17 eff=0.45
-node sweep: N=9  median=0.3360 s/step n=2 spread=0.0% speedup=2.98 eff=0.33
-node sweep: N=10 median=0.3520 s/step n=2 spread=0.0% speedup=2.84 eff=0.28
-node sweep: N=12 median=0.3840 s/step n=2 spread=0.0% speedup=2.60 eff=0.22
 
 === summary ===
 best:     N=4 c/n=72 72 ranks x 4 threads 8x9 tiles=4: 0.0207 s/step (2 runs)

@@ -1414,14 +1414,14 @@ def test_nodes_search_is_default_and_picks_n_on_nonmonotone_curve(monkeypatch, t
     assert report["nodes"] == 4
     out = capsys.readouterr().out
     assert "UNCALIBRATED" not in out
-    # seeds + refinement of 4 first; the time the finalists left under the cap measures the rest
+    # seeds + refinement of 4 first; under the cap the rest are measured after the sweep
     assert "measuring the N never sent: [6, 7, 9, 10, 12]" in out      # 11, 13: no legal layout
     assert [r["nodes"] for r in ns["table"]] == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12]
 
 
 def test_nodes_search_early_stop_does_not_submit_larger_n(monkeypatch, tmp_path, capsys):
     # big grid: every N (13 included) has a legal pure-MPI layout; early stop keeps 13 out of the
-    # sweep, and only the time the finalists left under the cap measures it
+    # sweep, and only the cap's measurement of the N never sent reaches it
     _run_cli(monkeypatch, tmp_path, ["--minutes", "600"], grid=dict(e_we=400, e_sn=400, e_vert=45))
     sweep, _sep, rest = capsys.readouterr().out.partition("measuring the N never sent: ")
     assert "early stop" in sweep and "nodes-n13 " not in sweep
@@ -1431,8 +1431,18 @@ def test_nodes_search_early_stop_does_not_submit_larger_n(monkeypatch, tmp_path,
 ISOLATED_CURVE = {**NONMONO_CURVE, 7: 0.20}      # 7 alone is fast: outside the 3..5 bracket
 
 
-def test_time_left_under_a_cap_measures_the_untried_n_and_tunes_a_faster_one(monkeypatch,
-                                                                            tmp_path, capsys):
+def test_cheap_untried_n_are_measured_before_the_finalists(monkeypatch, tmp_path, capsys):
+    report, _jn, _sc = _run_cli(monkeypatch, tmp_path,
+                                ["-O2", "--minutes", "600", "--hotspot-fill", "off"],
+                                curve=ISOLATED_CURVE)
+    out = capsys.readouterr().out
+    assert "measuring them before the finalists" in out
+    assert out.index("measuring the N never sent") < out.index("finalist N=7 ")
+    assert report["node_selection"]["finalists"] == [7] and report["nodes"] == 7
+
+
+def test_costly_untried_n_wait_for_the_time_the_finalists_leave(monkeypatch, tmp_path, capsys):
+    monkeypatch.setattr(wtune.tune.node_search, "EARLY_UNTRIED_FRAC", -1.0)  # never cheap enough
     report, job_nodes, _sc = _run_cli(monkeypatch, tmp_path,
                                       ["-O2", "--minutes", "600", "--hotspot-fill", "off"],
                                       curve=ISOLATED_CURVE)

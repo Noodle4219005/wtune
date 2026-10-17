@@ -1373,7 +1373,7 @@ def make_scaling_fakes(curve, start=7000, core_mult=None):
 
 def _run_cli(monkeypatch, tmp_path, argv, curve=NONMONO_CURVE, profile=ALL_NODES_PROFILE,
              total_steps=1000, grid=MATTHEW_LIKE, core_mult=None, sbatch_calls=None,
-             preflight_runner=None):
+             preflight_runner=None, pending_nodes=()):
     case_json = dict(grid, prep_dir=str(tmp_path / "matthew"))
     monkeypatch.setattr(wtune.tune.context, "resolve_case",
                         lambda case, cpn: (case_json, str(tmp_path / "namelist.input"), profile))
@@ -1385,6 +1385,16 @@ def _run_cli(monkeypatch, tmp_path, argv, curve=NONMONO_CURVE, profile=ALL_NODES
         def sbatch(cmd_str, _inner=inner):
             sbatch_calls.append(cmd_str)
             return _inner(cmd_str)
+    states = {}                              # jobs at an N in pending_nodes never start
+    if pending_nodes:
+        submit = sbatch
+
+        def sbatch(cmd_str, _submit=submit):
+            out = _submit(cmd_str)
+            j = out.split()[-1]
+            if job_nodes[j] in pending_nodes:
+                states[j] = ("PENDING", "00:00:00")
+            return out
     scancel, scancel_calls = make_fake_scancel()
 
     def stop_proposer(state, batch_size, kappa=None):
@@ -1393,7 +1403,7 @@ def _run_cli(monkeypatch, tmp_path, argv, curve=NONMONO_CURVE, profile=ALL_NODES
     args = wtune.tune.build_arg_parser().parse_args(
         ["matthew", "--site", "scc", "--out", str(tmp_path / "out"), "--steps", "5",
          "--ledger-dir", str(tmp_path / "ledger")] + argv)
-    report = wtune.tune.run(args, sbatch_runner=sbatch, sacct_runner=make_fake_sacct({}),
+    report = wtune.tune.run(args, sbatch_runner=sbatch, sacct_runner=make_fake_sacct(states),
                              scancel_runner=scancel, ledger_reader=reader,
                              proposer=stop_proposer, clock=FakeClock(),
                              preflight_runner=preflight_runner)
@@ -1451,6 +1461,30 @@ def test_costly_untried_n_wait_for_the_time_the_finalists_leave(monkeypatch, tmp
     assert ns["finalists"] == [4, 7] and report["nodes"] == 7
     sweep_jobs = set(ns["sweep_jobs"])
     assert 7 in {n for j, n in job_nodes.items() if j not in sweep_jobs}   # layouts tuned at 7
+
+
+def test_queue_cap_in_the_sweep_keeps_the_n_measured(monkeypatch, tmp_path, capsys):
+    report, job_nodes, cancelled = _run_cli(
+        monkeypatch, tmp_path, ["-O2", "--minutes", "600", "--hotspot-fill", "off",
+                                "--max-queue-hours", "1"], pending_nodes={8})
+    out = capsys.readouterr().out
+    assert "keeping the N measured so far" in out and "finalist N=" not in out
+    assert report["nodes"] == 4 and not report.get("pipeline_aborted")
+    assert report["pipeline"]["queue_cap_hit"]
+    assert [job_nodes[j] for c in cancelled for j in c] == [8]
+    assert job_nodes[max(job_nodes, key=int)] == 8                # nothing sent after the cap
+
+
+def test_queue_cap_while_measuring_untried_n_keeps_the_sweep(monkeypatch, tmp_path, capsys):
+    report, job_nodes, cancelled = _run_cli(
+        monkeypatch, tmp_path, ["-O2", "--minutes", "600", "--hotspot-fill", "off",
+                                "--max-queue-hours", "1"], curve=ISOLATED_CURVE, pending_nodes={7})
+    out = capsys.readouterr().out
+    assert "measuring them before the finalists" in out and "finalist N=" not in out
+    assert report["nodes"] == 4 and not report.get("pipeline_aborted")
+    assert report["nodes_note"].endswith("queue cap reached -- ANCHOR config")
+    assert [job_nodes[j] for c in cancelled for j in c] == [7]
+    assert job_nodes[max(job_nodes, key=int)] == 7
 
 
 def test_without_a_time_cap_the_untried_n_stay_untried(monkeypatch, tmp_path, capsys):

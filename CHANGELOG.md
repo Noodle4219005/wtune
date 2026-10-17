@@ -20,6 +20,12 @@ and an N more than 3% faster than the best becomes a finalist tuned with what is
 `--minutes` nothing changes (yagi on f1-arm used 11 of 45 minutes and never measured N=5, 9.5%
 faster than its pick; c34 had 123 layouts to measure at N=1 and reached N=5 at minute 28).
 
+**`--max-queue-hours` keeps the node counts already measured.** A queue cap reached during the
+node sweep, the core sweep or a finalist used to abort the whole layout phase with no N; now
+nothing more is submitted and the fastest N measured so far is reported with its ANCHOR. Only
+a cap reached before any N is measured still aborts (on f1-arm, c34 and yagi had N=1, 2, 4
+measured when their second wave's expected start passed the 10 h cap).
+
 **Machine settings.** Cores per node (72), node cap (13), partition (`compute`) and login
 nodes (`head`) are no longer fixed in the code: they are the built-in values of
 `wtune.machine`, replaced by a project's `project.yaml` `machine:` block

@@ -266,6 +266,11 @@ def _race(ctx: Ctx, entries: dict, s_est_for: Callable, label: str) -> list:
     return jobs
 
 
+def _queue_capped(ctx: Ctx) -> bool:
+    """True once --max-queue-hours was reached: nothing more may be submitted."""
+    return ctx.max_queue_s is not None and ctx.queue_wait_s >= ctx.max_queue_s
+
+
 def run_node_sweep(ctx: Ctx, legal_nodes: list[int],
                    budget_frac: float = DEFAULT_SWEEP_BUDGET_FRAC,
                    chooser: Callable | None = None, on_wave: Callable | None = None,
@@ -385,7 +390,16 @@ def run_node_sweep(ctx: Ctx, legal_nodes: list[int],
         sent.update(ns)
         state["waves"] += 1
         first_new = len(skipped)
-        for n, r in _measure_anchor_wave(ctx, items, s_est_for, skipped).items():
+        try:
+            got = _measure_anchor_wave(ctx, items, s_est_for, skipped)
+        except QueueCapExceeded as e:
+            if not meas:
+                raise
+            print("node sweep: %s; keeping the N measured so far" % e)
+            state["stopped"] = state["halt"] = str(e)
+            skipped.extend(dict(nodes=n, reason=str(e)) for n in ns)
+            return
+        for n, r in got.items():
             meas[n], results[n], jobs[n], rss[n] = (r["agg"]["s_values"], r["agg"], r["job"],
                                                     r["maxrss_mb"])
             if mem:
@@ -405,7 +419,9 @@ def run_node_sweep(ctx: Ctx, legal_nodes: list[int],
             skipped.extend(dict(nodes=n, reason=state["stopped"]) for n in wave)
             continue
         run_wave(fill(wave))
-        if on_wave is not None and not state.get("halt"):
+        if state.get("halt"):
+            continue
+        if on_wave is not None:
             halt = on_wave(meas)
             if halt:                  # e.g. the short-run guard: no more waves, no refinement
                 state["stopped"] = state["halt"] = halt
@@ -432,6 +448,8 @@ def run_node_sweep(ctx: Ctx, legal_nodes: list[int],
         print("node sweep: refining around best N=%d: measuring N=%s" % (best, todo))
         for wave in wtune.nodes.sweep_waves(todo, ctx.max_nodes):
             run_wave(fill(wave))
+            if state.get("halt"):
+                break
 
     race_jobs = []
     if not state.get("halt"):
@@ -441,7 +459,8 @@ def run_node_sweep(ctx: Ctx, legal_nodes: list[int],
         for n, e in entries.items():
             results[n], meas[n] = e["agg"], e["agg"]["s_values"]
 
-    _explain_unmeasured(legal, meas, seeds, skipped, cap_hit, refine, chooser)
+    _explain_unmeasured(legal, meas, seeds, skipped, cap_hit or state.get("halt"), refine,
+                        chooser)
     return dict(measurements=meas, anchors=anchors, cores=cores, results=results,
                 skipped=skipped, jobs=jobs, legal=legal, maxrss_mb=rss, memory=mem,
                 race_jobs=race_jobs, untried=[n for n in legal if n not in sent | unfit],
@@ -586,6 +605,9 @@ def _tune_finalists(ctx: Ctx, finals: list[int], cores_info: dict, sw: dict, pla
     outcomes = {}
     for i, n in enumerate(finals):
         remaining = ctx.budget_s - ctx.elapsed()
+        if _queue_capped(ctx):
+            print("node search: queue cap reached; finalist N=%d not tuned" % n)
+            continue
         if remaining <= 0:
             print("node search: no budget left for finalist N=%d" % n)
             continue
@@ -599,8 +621,12 @@ def _tune_finalists(ctx: Ctx, finals: list[int], cores_info: dict, sw: dict, pla
         os.makedirs(fctx.out_dir, exist_ok=True)
         print("node search: finalist N=%d cores/node=%d, budget share %s"
               % (n, c, _fmt_hms(share)))
-        all_results, confirm_results, anchor_cid = _rounds.run_tuning_at(
-            fctx, adaptive=(lvl() >= 3), confirm=(lvl() >= 3))      # O3: full space + confirm reps
+        try:
+            all_results, confirm_results, anchor_cid = _rounds.run_tuning_at(
+                fctx, adaptive=(lvl() >= 3), confirm=(lvl() >= 3))  # O3: full space + confirm reps
+        except QueueCapExceeded as e:
+            print("node search: %s" % e)
+            all_results, confirm_results, anchor_cid = {}, None, None
         if not all_results:
             res = (cores_info[n]["results"][c] if n in cores_info else sw["results"].get(n))
             if res:
@@ -694,7 +720,8 @@ def run_node_search(ctx: Ctx, profile: dict, objective: str, deadline_s: float |
                         chooser=chooser, on_wave=on_wave, refine=lambda: lvl() >= 2)
     if not wtune.nodes.summarize(sw["measurements"]):
         return _proxy_fallback_report(ctx, profile, objective, nodes_policy, sw)
-    if lvl() >= 2 and sw["untried"] and ctx.elapsed() < ctx.budget_s < math.inf:
+    if (lvl() >= 2 and sw["untried"] and not _queue_capped(ctx)
+            and ctx.elapsed() < ctx.budget_s < math.inf):
         need = len(wtune.nodes.sweep_waves(sw["untried"], ctx.max_nodes)) * sw["wave_s"]
         left = ctx.budget_s - ctx.elapsed()
         early = need <= EARLY_UNTRIED_FRAC * left
@@ -715,14 +742,18 @@ def run_node_search(ctx: Ctx, profile: dict, objective: str, deadline_s: float |
         core_options = wtune.nodes.default_core_options(ctx.cores_per_node)
     cores_info: dict = {}
     skipped_cores: list = []
-    if lvl() <= 1:                       # O1: the t0 wave only -- no cores sweep, no finalists
+    if lvl() <= 1 or _queue_capped(ctx):  # O1: the t0 wave only -- no cores sweep, no finalists
         finals = []
     if lvl() >= 2 and any(c < ctx.cores_per_node for c in core_options):
-        cores_info, skipped_cores = run_core_sweep(ctx, finals, sw, core_options)
+        try:
+            cores_info, skipped_cores = run_core_sweep(ctx, finals, sw, core_options)
+        except QueueCapExceeded as e:
+            print("node search: %s" % e)
 
     layout_notes: dict = dict(untried=[], enumerated={})
     outcomes = _tune_finalists(ctx, finals, cores_info, sw, plan, lvl, layout_notes)
-    if lvl() >= 2 and sw["untried"] and ctx.elapsed() < ctx.budget_s < math.inf:
+    if (lvl() >= 2 and sw["untried"] and not _queue_capped(ctx)
+            and ctx.elapsed() < ctx.budget_s < math.inf):
         new = _measure_untried(ctx, sw, chooser, sweep_budget_frac)
         if new:
             rows, choices, chosen, note, tab = summary()
@@ -746,6 +777,7 @@ def run_node_search(ctx: Ctx, profile: dict, objective: str, deadline_s: float |
         outcomes[chosen] = _sweep_anchor_outcome(ctx, chosen, note, cores_info, sw)
         final_n, final_note = chosen, note + (
             "; level O1: t0 sweep only -- ANCHOR config" if lvl() <= 1 else
+            "; queue cap reached -- ANCHOR config" if _queue_capped(ctx) else
             "; budget exhausted after the sweep -- ANCHOR config")
     else:
         by_sweep = {r["nodes"]: r for r in rows}

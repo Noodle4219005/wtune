@@ -12,6 +12,12 @@ share to the layout search; and `--minutes` no longer turns on the short-run ste
 is `--stop-if-short` only (conus25 on f1-arm stopped at 16.7 of 45 minutes, +5.1% slower than
 uncapped).
 
+**Time left under `--minutes` goes to the node counts never tried.** When the finalists'
+layouts run out before the cap, one ANCHOR goes to every legal N the sweep never sent (after an
+early stop, outside the refinement bracket); an N more than 3% faster than the best becomes a
+finalist and is tuned with what is left. Without `--minutes` nothing changes (yagi on f1-arm
+used 11 of 45 minutes and never measured N=5, 9.5% faster than its pick).
+
 **Machine settings.** Cores per node (72), node cap (13), partition (`compute`) and login
 nodes (`head`) are no longer fixed in the code: they are the built-in values of
 `wtune.machine`, replaced by a project's `project.yaml` `machine:` block

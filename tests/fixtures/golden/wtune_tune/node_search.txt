@@ -94,15 +94,28 @@ confirm candidate ANCHOR   median=0.3050s/step (n=2) -> per_run~1.7s (startup_s=
 confirm: estimated 0:04 for 4 config(s) (REPS=2, expected -- not the padded --time request) -- elapsed=0:00 / budget=10:00:00
 confirm: submitted job 7034 (4 configs, REPS=2)
 [confirm  ] [------------------------]   0%  elapsed=0:00 / budget=10:00:00
+node sweep: 0:00 of 10:00:00 used; measuring the N never sent: [7, 9, 10, 12]
+node sweep: nodes-n7 submitted job 7035 (ANCHOR ranks=63 omp=8 7x9, REPS=1, 5 steps, ~2:50)
+[node-sweep] [------------------------]   0%  elapsed=0:00 / budget=10:00:00
+node sweep: nodes-n9 submitted job 7036 (ANCHOR ranks=81 omp=8 9x9, REPS=1, 5 steps, ~2:01)
+[node-sweep] [------------------------]   0%  elapsed=0:00 / budget=10:00:00
+node sweep: nodes-n10 submitted job 7037 (ANCHOR ranks=90 omp=8 9x10, REPS=1, 5 steps, ~2:01)
+[node-sweep] [------------------------]   0%  elapsed=0:00 / budget=10:00:00
+node sweep: nodes-n12 submitted job 7038 (ANCHOR ranks=72 omp=12 8x9, REPS=1, 5 steps, ~2:01)
+[node-sweep] [------------------------]   0%  elapsed=0:00 / budget=10:00:00
+node sweep: N=7  median=0.3150 s/step n=2 spread=0.0% speedup=3.17 eff=0.45
+node sweep: N=9  median=0.3360 s/step n=2 spread=0.0% speedup=2.98 eff=0.33
+node sweep: N=10 median=0.3520 s/step n=2 spread=0.0% speedup=2.84 eff=0.28
+node sweep: N=12 median=0.3840 s/step n=2 spread=0.0% speedup=2.60 eff=0.22
 
 === summary ===
 best:     N=4 c/n=72 72 ranks x 4 threads 8x9 tiles=4: 0.0207 s/step (2 runs)
 margin:   N=4 c/n=72 12 ranks x 24 threads 6x2 tiles=14 is 96.4% faster per step; the pick ranks by predicted whole-run time
-not run:  N=11,13 no legal layout; N=7,9,10,12 not measured
+not run:  N=11,13 no legal layout
 
 === wtune tune: matthew ===
 nodes=4 (final over tuned finalists [4, 5]: objective=time: N=4 median=0.2609 s/step; min is 0.2609, smallest N within 3% noise of it)
-budget=600.0 min  elapsed=0.0 min  jobs=7001,7002,7003,7004,7005,7006,7007,7008,7009,7010,7011,7012,7013,7014,7015,7016,7017,7018,7019,7020,7021,7022,7023,7024,7025,7026,7027,7028,7029,7030,7031,7032,7033,7034
+budget=600.0 min  elapsed=0.0 min  jobs=7001,7002,7003,7004,7005,7006,7007,7008,7009,7010,7011,7012,7013,7014,7015,7016,7017,7018,7019,7020,7021,7022,7023,7024,7025,7026,7027,7028,7029,7030,7031,7032,7033,7034,7035,7036,7037,7038
 
 id           pred_total  ranks  omp    nx    ny tiles    dist   median_s        range_s speedup pred_spd    n pred_source confirmed
 ANCHOR           FAILED     72    4     8     9     4   block     0.2609  0.2609-0.2609  1.150x        -    2 -           True
@@ -131,9 +144,13 @@ nodes     median_s  reps   spread  speedup    eff     wall_s node_hours maxrss_M
     4       0.3000     4     0.0%    3.33x   0.83        420       0.47         -
     5       0.3050     4     0.0%    3.28x   0.66        425       0.59         -
     6       0.3100     4     0.0%    3.23x   0.54        430       0.72         -
+    7       0.3150     2     0.0%    3.17x   0.45        435       0.85         -
     8       0.3200     2     0.0%    3.12x   0.39        440       0.98         -
+    9       0.3360     2     0.0%    2.98x   0.33        456       1.14         -
+   10       0.3520     2     0.0%    2.84x   0.28        472       1.31         -
+   12       0.3840     2     0.0%    2.60x   0.22        504       1.68         -
 choice time * N=4  objective=time: N=4 median=0.3000 s/step; min is 0.3000, smallest N within 3% noise of it
-choice cost   N=1  objective=cost: N=1 wall=1120s node_hours=0.31 (min among 7 feasible, no deadline)
+choice cost   N=1  objective=cost: N=1 wall=1120s node_hours=0.31 (min among 11 feasible, no deadline)
 choice knee   N=4  objective=knee: N=4 efficiency=0.83 >= 0.70 (largest such N)
 (* = objective used; finalists searched: [4, 5]; final N=4 cores/node=72)
 
@@ -151,7 +168,7 @@ choice knee   N=4  objective=knee: N=4 efficiency=0.83 >= 0.70 (largest such N)
      48         16    3      0.3050      4     0.0%         - 
      36         18    2      0.3050      2     0.0%         - 
 
---- measured layouts (1747; best first; the full table is in tune_report.json node_selection.layouts) ---
+--- measured layouts (1751; best first; the full table is in tune_report.json node_selection.layouts) ---
    N   c/n  ranks  omp   nx x ny tiles    median_s  spread  reps  source
    5    72     20   18       5x4    13      0.0103    0.0%     2  finalist search
    5    72     20   18       5x4    18      0.0104    0.0%     2  finalist search
@@ -193,19 +210,14 @@ choice knee   N=4  objective=knee: N=4 efficiency=0.83 >= 0.70 (largest such N)
    5    72     15   24       5x3    13      0.0106    0.0%     2  finalist search
    5    72      5   72       1x5    14      0.0106    0.0%     2  finalist search
    4    72     32    9       8x4    12      0.0106    0.0%     2  finalist search
-  ... 1707 more
+  ... 1711 more
 WINNER:    N=4 c/n=72 ranks=72 omp=4 8x9 tiles=4 0.3000 s/step
 RUNNER-UP: N=4 c/n=72 ranks=12 omp=24 6x2 tiles=14 0.0109 s/step
 winner vs runner-up: -96.4% apart -> differ BEYOND noise (noise floor 3%)
-NOT TRIED: 8 (reasons below; full list in node_selection.untried)
-     4 x not measured: outside refinement bracket (3..5 around the best N=4)
+NOT TRIED: 4 (reasons below; full list in node_selection.untried)
      2 x no legal decomposition at any omp in {1, 2, 3, 4, 6, 8, 9, 12, 18, 24, 36, 72}
      2 x no legal decomposition at any omp in {1, 2}
-not run N=7: not measured: outside refinement bracket (3..5 around the best N=4)
-not run N=9: not measured: outside refinement bracket (3..5 around the best N=4)
-not run N=10: not measured: outside refinement bracket (3..5 around the best N=4)
 not run N=11: no legal decomposition at any omp in {1, 2, 3, 4, 6, 8, 9, 12, 18, 24, 36, 72}
-not run N=12: not measured: outside refinement bracket (3..5 around the best N=4)
 not run N=13: no legal decomposition at any omp in {1, 2, 3, 4, 6, 8, 9, 12, 18, 24, 36, 72}
 not run N=4 c=70: no legal decomposition at any omp in {1, 2}
 not run N=5 c=70: no legal decomposition at any omp in {1, 2}

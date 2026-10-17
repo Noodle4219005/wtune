@@ -1412,17 +1412,42 @@ def test_nodes_search_is_default_and_picks_n_on_nonmonotone_curve(monkeypatch, t
     assert ns["mode"] == "search" and ns["objective"] == "time"
     assert ns["chosen"] == 4                       # min median at 4; 8 is slower
     assert report["nodes"] == 4
-    assert "UNCALIBRATED" not in capsys.readouterr().out
-    assert [r["nodes"] for r in ns["table"]] == [1, 2, 3, 4, 5, 8]   # seeds + refinement of 4
+    out = capsys.readouterr().out
+    assert "UNCALIBRATED" not in out
+    # seeds + refinement of 4 first; the time the finalists left under the cap measures the rest
+    assert "measuring the N never sent: [6, 7, 9, 10, 12]" in out      # 11, 13: no legal layout
+    assert [r["nodes"] for r in ns["table"]] == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12]
 
 
-def test_nodes_search_early_stop_does_not_submit_larger_n(monkeypatch, tmp_path):
-    # big grid: every N (13 included) has a legal pure-MPI layout, so 13 is skipped by early stop
-    report, job_nodes, _sc = _run_cli(monkeypatch, tmp_path, ["--minutes", "600"],
-                                      grid=dict(e_we=400, e_sn=400, e_vert=45))
+def test_nodes_search_early_stop_does_not_submit_larger_n(monkeypatch, tmp_path, capsys):
+    # big grid: every N (13 included) has a legal pure-MPI layout; early stop keeps 13 out of the
+    # sweep, and only the time the finalists left under the cap measures it
+    _run_cli(monkeypatch, tmp_path, ["--minutes", "600"], grid=dict(e_we=400, e_sn=400, e_vert=45))
+    sweep, _sep, rest = capsys.readouterr().out.partition("measuring the N never sent: ")
+    assert "early stop" in sweep and "nodes-n13 " not in sweep
+    assert "nodes-n13 submitted" in rest
+
+
+ISOLATED_CURVE = {**NONMONO_CURVE, 7: 0.20}      # 7 alone is fast: outside the 3..5 bracket
+
+
+def test_time_left_under_a_cap_measures_the_untried_n_and_tunes_a_faster_one(monkeypatch,
+                                                                            tmp_path, capsys):
+    report, job_nodes, _sc = _run_cli(monkeypatch, tmp_path,
+                                      ["-O2", "--minutes", "600", "--hotspot-fill", "off"],
+                                      curve=ISOLATED_CURVE)
     ns = report["node_selection"]
-    assert 13 not in job_nodes.values()
-    assert any(s["nodes"] == 13 and "early stop" in s["reason"] for s in ns["skipped"])
+    assert "N=7 is now the fastest ANCHOR" in capsys.readouterr().out
+    assert ns["finalists"] == [4, 7] and report["nodes"] == 7
+    sweep_jobs = set(ns["sweep_jobs"])
+    assert 7 in {n for j, n in job_nodes.items() if j not in sweep_jobs}   # layouts tuned at 7
+
+
+def test_without_a_time_cap_the_untried_n_stay_untried(monkeypatch, tmp_path, capsys):
+    report, job_nodes, _sc = _run_cli(monkeypatch, tmp_path, ["-O2", "--hotspot-fill", "off"],
+                                      curve=ISOLATED_CURVE)
+    assert "measuring the N never sent" not in capsys.readouterr().out
+    assert 7 not in job_nodes.values() and report["nodes"] == 4
 
 
 def test_nodes_search_finalists_are_searched_at_two_node_counts(monkeypatch, tmp_path):

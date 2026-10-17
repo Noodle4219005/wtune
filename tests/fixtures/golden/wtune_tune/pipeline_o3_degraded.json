@@ -67,8 +67,14 @@
     "7022",
     "7023",
     "7024",
-    "8027",
-    "8028"
+    "7025",
+    "7026",
+    "7027",
+    "7028",
+    "7029",
+    "7030",
+    "8033",
+    "8034"
   ],
   "layout_table": {
     "comparison": {
@@ -246,6 +252,21 @@
         "cid": "ANCHOR",
         "cores_per_node": 72,
         "dist": "block",
+        "median": 0.315,
+        "nodes": 7,
+        "numtiles": 1,
+        "nx": 21,
+        "ny": 24,
+        "omp": 1,
+        "ranks": 504,
+        "reps": 2,
+        "source": "t0 sweep ANCHOR",
+        "spread": 0.0
+      },
+      {
+        "cid": "ANCHOR",
+        "cores_per_node": 72,
+        "dist": "block",
         "median": 0.32,
         "nodes": 8,
         "numtiles": 1,
@@ -253,6 +274,81 @@
         "ny": 24,
         "omp": 1,
         "ranks": 576,
+        "reps": 2,
+        "source": "t0 sweep ANCHOR",
+        "spread": 0.0
+      },
+      {
+        "cid": "ANCHOR",
+        "cores_per_node": 72,
+        "dist": "block",
+        "median": 0.336,
+        "nodes": 9,
+        "numtiles": 1,
+        "nx": 24,
+        "ny": 27,
+        "omp": 1,
+        "ranks": 648,
+        "reps": 2,
+        "source": "t0 sweep ANCHOR",
+        "spread": 0.0
+      },
+      {
+        "cid": "ANCHOR",
+        "cores_per_node": 72,
+        "dist": "block",
+        "median": 0.35200000000000004,
+        "nodes": 10,
+        "numtiles": 1,
+        "nx": 24,
+        "ny": 30,
+        "omp": 1,
+        "ranks": 720,
+        "reps": 2,
+        "source": "t0 sweep ANCHOR",
+        "spread": 0.0
+      },
+      {
+        "cid": "ANCHOR",
+        "cores_per_node": 72,
+        "dist": "block",
+        "median": 0.368,
+        "nodes": 11,
+        "numtiles": 1,
+        "nx": 24,
+        "ny": 33,
+        "omp": 1,
+        "ranks": 792,
+        "reps": 2,
+        "source": "t0 sweep ANCHOR",
+        "spread": 0.0
+      },
+      {
+        "cid": "ANCHOR",
+        "cores_per_node": 72,
+        "dist": "block",
+        "median": 0.384,
+        "nodes": 12,
+        "numtiles": 1,
+        "nx": 27,
+        "ny": 32,
+        "omp": 1,
+        "ranks": 864,
+        "reps": 2,
+        "source": "t0 sweep ANCHOR",
+        "spread": 0.0
+      },
+      {
+        "cid": "ANCHOR",
+        "cores_per_node": 72,
+        "dist": "block",
+        "median": 0.4,
+        "nodes": 13,
+        "numtiles": 1,
+        "nx": 26,
+        "ny": 36,
+        "omp": 1,
+        "ranks": 936,
         "reps": 2,
         "source": "t0 sweep ANCHOR",
         "spread": 0.0
@@ -380,7 +476,7 @@
     "choices": {
       "cost": {
         "nodes": 1,
-        "note": "objective=cost: N=1 wall=1000120s node_hours=277.81 (min among 7 feasible, no deadline)"
+        "note": "objective=cost: N=1 wall=1000120s node_hours=277.81 (min among 13 feasible, no deadline)"
       },
       "knee": {
         "nodes": 4,
@@ -748,6 +844,21 @@
         "cid": "ANCHOR",
         "cores_per_node": 72,
         "dist": "block",
+        "median": 0.315,
+        "nodes": 7,
+        "numtiles": 1,
+        "nx": 21,
+        "ny": 24,
+        "omp": 1,
+        "ranks": 504,
+        "reps": 2,
+        "source": "t0 sweep ANCHOR",
+        "spread": 0.0
+      },
+      {
+        "cid": "ANCHOR",
+        "cores_per_node": 72,
+        "dist": "block",
         "median": 0.32,
         "nodes": 8,
         "numtiles": 1,
@@ -755,6 +866,81 @@
         "ny": 24,
         "omp": 1,
         "ranks": 576,
+        "reps": 2,
+        "source": "t0 sweep ANCHOR",
+        "spread": 0.0
+      },
+      {
+        "cid": "ANCHOR",
+        "cores_per_node": 72,
+        "dist": "block",
+        "median": 0.336,
+        "nodes": 9,
+        "numtiles": 1,
+        "nx": 24,
+        "ny": 27,
+        "omp": 1,
+        "ranks": 648,
+        "reps": 2,
+        "source": "t0 sweep ANCHOR",
+        "spread": 0.0
+      },
+      {
+        "cid": "ANCHOR",
+        "cores_per_node": 72,
+        "dist": "block",
+        "median": 0.35200000000000004,
+        "nodes": 10,
+        "numtiles": 1,
+        "nx": 24,
+        "ny": 30,
+        "omp": 1,
+        "ranks": 720,
+        "reps": 2,
+        "source": "t0 sweep ANCHOR",
+        "spread": 0.0
+      },
+      {
+        "cid": "ANCHOR",
+        "cores_per_node": 72,
+        "dist": "block",
+        "median": 0.368,
+        "nodes": 11,
+        "numtiles": 1,
+        "nx": 24,
+        "ny": 33,
+        "omp": 1,
+        "ranks": 792,
+        "reps": 2,
+        "source": "t0 sweep ANCHOR",
+        "spread": 0.0
+      },
+      {
+        "cid": "ANCHOR",
+        "cores_per_node": 72,
+        "dist": "block",
+        "median": 0.384,
+        "nodes": 12,
+        "numtiles": 1,
+        "nx": 27,
+        "ny": 32,
+        "omp": 1,
+        "ranks": 864,
+        "reps": 2,
+        "source": "t0 sweep ANCHOR",
+        "spread": 0.0
+      },
+      {
+        "cid": "ANCHOR",
+        "cores_per_node": 72,
+        "dist": "block",
+        "median": 0.4,
+        "nodes": 13,
+        "numtiles": 1,
+        "nx": 26,
+        "ny": 36,
+        "omp": 1,
+        "ranks": 936,
         "reps": 2,
         "source": "t0 sweep ANCHOR",
         "spread": 0.0
@@ -825,32 +1011,7 @@
       "source": "cores/node sweep ANCHOR",
       "spread": 0.0
     },
-    "skipped": [
-      {
-        "nodes": 7,
-        "reason": "not measured: outside refinement bracket (3..5 around the best N=4)"
-      },
-      {
-        "nodes": 9,
-        "reason": "not measured: outside refinement bracket (3..5 around the best N=4)"
-      },
-      {
-        "nodes": 10,
-        "reason": "not measured: outside refinement bracket (3..5 around the best N=4)"
-      },
-      {
-        "nodes": 11,
-        "reason": "not measured: outside refinement bracket (3..5 around the best N=4)"
-      },
-      {
-        "nodes": 12,
-        "reason": "not measured: outside refinement bracket (3..5 around the best N=4)"
-      },
-      {
-        "nodes": 13,
-        "reason": "early stop: N=8 (0.3200 s/step) did not beat N=4 (0.3000 s/step) by >3%"
-      }
-    ],
+    "skipped": [],
     "skipped_cores": [],
     "sweep_jobs": [
       "7001",
@@ -860,6 +1021,12 @@
       "7005",
       "7006",
       "7007",
+      "7025",
+      "7026",
+      "7027",
+      "7028",
+      "7029",
+      "7030",
       "7008",
       "7009",
       "7010"
@@ -932,6 +1099,17 @@
         "wall_s": 310120.0
       },
       {
+        "efficiency": 0.4535147392290249,
+        "maxrss_mb": null,
+        "median": 0.315,
+        "n": 2,
+        "node_hours": 612.7333333333333,
+        "nodes": 7,
+        "speedup": 3.1746031746031744,
+        "spread": 0.0,
+        "wall_s": 315120.0
+      },
+      {
         "efficiency": 0.390625,
         "maxrss_mb": null,
         "median": 0.32,
@@ -941,34 +1119,65 @@
         "speedup": 3.125,
         "spread": 0.0,
         "wall_s": 320120.0
+      },
+      {
+        "efficiency": 0.33068783068783064,
+        "maxrss_mb": null,
+        "median": 0.336,
+        "n": 2,
+        "node_hours": 840.3,
+        "nodes": 9,
+        "speedup": 2.976190476190476,
+        "spread": 0.0,
+        "wall_s": 336120.0
+      },
+      {
+        "efficiency": 0.28409090909090906,
+        "maxrss_mb": null,
+        "median": 0.35200000000000004,
+        "n": 2,
+        "node_hours": 978.1111111111112,
+        "nodes": 10,
+        "speedup": 2.840909090909091,
+        "spread": 0.0,
+        "wall_s": 352120.00000000006
+      },
+      {
+        "efficiency": 0.24703557312252966,
+        "maxrss_mb": null,
+        "median": 0.368,
+        "n": 2,
+        "node_hours": 1124.8111111111111,
+        "nodes": 11,
+        "speedup": 2.717391304347826,
+        "spread": 0.0,
+        "wall_s": 368120.0
+      },
+      {
+        "efficiency": 0.21701388888888887,
+        "maxrss_mb": null,
+        "median": 0.384,
+        "n": 2,
+        "node_hours": 1280.4,
+        "nodes": 12,
+        "speedup": 2.6041666666666665,
+        "spread": 0.0,
+        "wall_s": 384120.0
+      },
+      {
+        "efficiency": 0.19230769230769232,
+        "maxrss_mb": null,
+        "median": 0.4,
+        "n": 2,
+        "node_hours": 1444.8777777777777,
+        "nodes": 13,
+        "speedup": 2.5,
+        "spread": 0.0,
+        "wall_s": 400120.0
       }
     ],
     "total_steps": 1000000,
     "untried": [
-      {
-        "nodes": 7,
-        "reason": "not measured: outside refinement bracket (3..5 around the best N=4)"
-      },
-      {
-        "nodes": 9,
-        "reason": "not measured: outside refinement bracket (3..5 around the best N=4)"
-      },
-      {
-        "nodes": 10,
-        "reason": "not measured: outside refinement bracket (3..5 around the best N=4)"
-      },
-      {
-        "nodes": 11,
-        "reason": "not measured: outside refinement bracket (3..5 around the best N=4)"
-      },
-      {
-        "nodes": 12,
-        "reason": "not measured: outside refinement bracket (3..5 around the best N=4)"
-      },
-      {
-        "nodes": 13,
-        "reason": "early stop: N=8 (0.3200 s/step) did not beat N=4 (0.3000 s/step) by >3%"
-      },
       {
         "cores_per_node": 72,
         "id": "ANCHOR",
@@ -1300,7 +1509,13 @@
           "7021",
           "7022",
           "7023",
-          "7024"
+          "7024",
+          "7025",
+          "7026",
+          "7027",
+          "7028",
+          "7029",
+          "7030"
         ],
         "limit_s": 385.00000000000006,
         "name": "layout",
@@ -1319,7 +1534,7 @@
         "job_run_s_max": null,
         "job_run_s_sum": null,
         "jobs": [
-          "8027"
+          "8033"
         ],
         "limit_s": 560.0,
         "name": "predict",
@@ -1337,7 +1552,7 @@
         "job_run_s_max": null,
         "job_run_s_sum": null,
         "jobs": [
-          "8028"
+          "8034"
         ],
         "limit_s": 700.0,
         "name": "physics",
@@ -1560,7 +1775,6 @@
     "best:     N=4 c/n=72 288 ranks x 1 threads 16x18 tiles=1: 0.3000 s/step (6 runs)",
     "run:      predicted 10:10 for the whole simulation (phase 2 combine())",
     "margin:   1.7% ahead of N=5 c/n=72 360 ranks x 1 threads 18x20 tiles=1 -> within noise: either is fine (noise 3%)",
-    "not run:  N=13 early stop; N=7,9-12 not measured",
     "tuning:   running 0:00, queue 0:00 (not counted)"
   ],
   "winner": {

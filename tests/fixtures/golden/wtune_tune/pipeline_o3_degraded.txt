@@ -65,6 +65,25 @@ round0 (full layout search): N=5 cores/node=72: 6152 enumerated, 812 unique, 812
 round0-w0 slot 0: SKIP -- estimated end would exceed budget
 round0-w0 slot 1: SKIP -- estimated end would exceed budget
 node search: nothing measured at N=5 beyond the sweep; reporting the sweep ANCHOR
+node sweep: 0:00 of 6:25 used; measuring the N never sent: [7, 9, 10, 11, 12, 13]
+node sweep: nodes-n7 submitted job 7025 (ANCHOR ranks=504 omp=1 21x24, REPS=1, 5 steps, ~2:50)
+[node-sweep] [------------------------]   0%  elapsed=0:00 / budget=6:25  (running budget; wall 0:00, queue-only 0:00)
+node sweep: nodes-n9 submitted job 7026 (ANCHOR ranks=648 omp=1 24x27, REPS=1, 5 steps, ~2:01)
+[node-sweep] [------------------------]   0%  elapsed=0:00 / budget=6:25  (running budget; wall 0:00, queue-only 0:00)
+node sweep: nodes-n10 submitted job 7027 (ANCHOR ranks=720 omp=1 24x30, REPS=1, 5 steps, ~2:01)
+[node-sweep] [------------------------]   0%  elapsed=0:00 / budget=6:25  (running budget; wall 0:00, queue-only 0:00)
+node sweep: nodes-n11 submitted job 7028 (ANCHOR ranks=792 omp=1 24x33, REPS=1, 5 steps, ~2:01)
+[node-sweep] [------------------------]   0%  elapsed=0:00 / budget=6:25  (running budget; wall 0:00, queue-only 0:00)
+node sweep: nodes-n12 submitted job 7029 (ANCHOR ranks=864 omp=1 27x32, REPS=1, 5 steps, ~2:01)
+[node-sweep] [------------------------]   0%  elapsed=0:00 / budget=6:25  (running budget; wall 0:00, queue-only 0:00)
+node sweep: nodes-n13 submitted job 7030 (ANCHOR ranks=936 omp=1 26x36, REPS=1, 5 steps, ~2:01)
+[node-sweep] [------------------------]   0%  elapsed=0:00 / budget=6:25  (running budget; wall 0:00, queue-only 0:00)
+node sweep: N=7  median=0.3150 s/step n=2 spread=0.0% speedup=3.17 eff=0.45
+node sweep: N=9  median=0.3360 s/step n=2 spread=0.0% speedup=2.98 eff=0.33
+node sweep: N=10 median=0.3520 s/step n=2 spread=0.0% speedup=2.84 eff=0.28
+node sweep: N=11 median=0.3680 s/step n=2 spread=0.0% speedup=2.72 eff=0.25
+node sweep: N=12 median=0.3840 s/step n=2 spread=0.0% speedup=2.60 eff=0.22
+node sweep: N=13 median=0.4000 s/step n=2 spread=0.0% speedup=2.50 eff=0.19
 pipeline: phase 2 DEGRADED to winner only x 2 points (t0 + costliest) (estimate 4:50 of 9:20 left): 2 layout(s) x all 5 points ~24:15; 2 layout(s) x 2 points (t0 + costliest) ~9:42; winner only x all 5 points ~9:41
 pipeline: run-length I/O model unavailable (FileNotFoundError: [Errno 2] No such file or directory: '<TMP>/namelist.input') -- whole-run prediction is compute + init only
 stage 2: dropped PH2, PH3 to fit the budget (expected 10:17, left 11:40)
@@ -73,12 +92,11 @@ stage 2: dropped PH2, PH3 to fit the budget (expected 10:17, left 11:40)
 best:     N=4 c/n=72 288 ranks x 1 threads 16x18 tiles=1: 0.3000 s/step (6 runs)
 run:      predicted 10:10 for the whole simulation (phase 2 combine())
 margin:   1.7% ahead of N=5 c/n=72 360 ranks x 1 threads 18x20 tiles=1 -> within noise: either is fine (noise 3%)
-not run:  N=13 early stop; N=7,9-12 not measured
 tuning:   running 0:00, queue 0:00 (not counted)
 
 === wtune tune: matthew ===
 nodes=4 (final over tuned finalists [4, 5]: objective=time: N=4 median=0.3000 s/step; min is 0.3000, smallest N within 3% noise of it)
-budget=11.7 min  elapsed=0.0 min  jobs=9000,9001,9002,9003,9004,7001,7002,7003,7004,7005,7006,7007,7008,7009,7010,7011,7012,7013,7014,7015,7016,7017,7018,7019,7020,7021,7022,7023,7024,8027,8028
+budget=11.7 min  elapsed=0.0 min  jobs=9000,9001,9002,9003,9004,7001,7002,7003,7004,7005,7006,7007,7008,7009,7010,7011,7012,7013,7014,7015,7016,7017,7018,7019,7020,7021,7022,7023,7024,7025,7026,7027,7028,7029,7030,8033,8034
 
 id           pred_total  ranks  omp    nx    ny tiles    dist   median_s        range_s speedup pred_spd    n pred_source confirmed
 ANCHOR           FAILED    288    1    16    18     1   block     0.3000  0.3000-0.3000  1.000x        -    6 -           False
@@ -104,9 +122,15 @@ nodes     median_s  reps   spread  speedup    eff     wall_s node_hours maxrss_M
     4       0.3000     4     0.0%    3.33x   0.83     300120     333.47         -
     5       0.3050     4     0.0%    3.28x   0.66     305120     423.78         -
     6       0.3100     4     0.0%    3.23x   0.54     310120     516.87         -
+    7       0.3150     2     0.0%    3.17x   0.45     315120     612.73         -
     8       0.3200     2     0.0%    3.12x   0.39     320120     711.38         -
+    9       0.3360     2     0.0%    2.98x   0.33     336120     840.30         -
+   10       0.3520     2     0.0%    2.84x   0.28     352120     978.11         -
+   11       0.3680     2     0.0%    2.72x   0.25     368120    1124.81         -
+   12       0.3840     2     0.0%    2.60x   0.22     384120    1280.40         -
+   13       0.4000     2     0.0%    2.50x   0.19     400120    1444.88         -
 choice time * N=4  objective=time: N=4 median=0.3000 s/step; min is 0.3000, smallest N within 3% noise of it
-choice cost   N=1  objective=cost: N=1 wall=1000120s node_hours=277.81 (min among 7 feasible, no deadline)
+choice cost   N=1  objective=cost: N=1 wall=1000120s node_hours=277.81 (min among 13 feasible, no deadline)
 choice knee   N=4  objective=knee: N=4 efficiency=0.83 >= 0.70 (largest such N)
 (* = objective used; finalists searched: [4, 5]; final N=4 cores/node=72)
 
@@ -126,7 +150,7 @@ choice knee   N=4  objective=knee: N=4 efficiency=0.83 >= 0.70 (largest such N)
      48         48    1      0.3050      2     0.0%         - 
      36         36    1      0.3050      2     0.0%         - 
 
---- measured layouts (15; best first; the full table is in tune_report.json node_selection.layouts) ---
+--- measured layouts (21; best first; the full table is in tune_report.json node_selection.layouts) ---
    N   c/n  ranks  omp   nx x ny tiles    median_s  spread  reps  source
    4    72    288    1     16x18     1      0.3000    0.0%     6  cores/node sweep ANCHOR
    4    70    280    1     14x20     1      0.3000    0.0%     4  cores/node sweep ANCHOR
@@ -139,7 +163,13 @@ choice knee   N=4  objective=knee: N=4 efficiency=0.83 >= 0.70 (largest such N)
    5    48    240    1     15x16     1      0.3050    0.0%     2  cores/node sweep ANCHOR
    5    36    180    1     12x15     1      0.3050    0.0%     2  cores/node sweep ANCHOR
    6    72    432    1     18x24     1      0.3100    0.0%     4  t0 sweep ANCHOR
+   7    72    504    1     21x24     1      0.3150    0.0%     2  t0 sweep ANCHOR
    8    72    576    1     24x24     1      0.3200    0.0%     2  t0 sweep ANCHOR
+   9    72    648    1     24x27     1      0.3360    0.0%     2  t0 sweep ANCHOR
+  10    72    720    1     24x30     1      0.3520    0.0%     2  t0 sweep ANCHOR
+  11    72    792    1     24x33     1      0.3680    0.0%     2  t0 sweep ANCHOR
+  12    72    864    1     27x32     1      0.3840    0.0%     2  t0 sweep ANCHOR
+  13    72    936    1     26x36     1      0.4000    0.0%     2  t0 sweep ANCHOR
    3    72    216    1     12x18     1      0.4100    0.0%     2  t0 sweep ANCHOR
    2    72    144    1     12x12     1      0.5200    0.0%     2  t0 sweep ANCHOR
    1    72     72    1       8x9     1      1.0000    0.0%     2  t0 sweep ANCHOR
@@ -148,16 +178,8 @@ RUNNER-UP: N=5 c/n=72 ranks=360 omp=1 18x20 tiles=1 0.3050 s/step
 winner vs runner-up: 1.7% apart -> NOT distinguishable from noise: either is fine (noise floor 3%)
 enumerated N=4 c=72: 5904 raw, 780 unique (block, 1-D tiles), 780 legal, 0 excluded
 enumerated N=5 c=72: 6152 raw, 812 unique (block, 1-D tiles), 812 legal, 0 excluded
-NOT TRIED: 22 (reasons below; full list in node_selection.untried)
+NOT TRIED: 16 (reasons below; full list in node_selection.untried)
     16 x not submitted: the job would exceed the time cap
-     5 x not measured: outside refinement bracket (3..5 around the best N=4)
-     1 x early stop: N=8 (0.3200 s/step) did not beat N=4 (0.3000 s/step) by >3%
-not run N=7: not measured: outside refinement bracket (3..5 around the best N=4)
-not run N=9: not measured: outside refinement bracket (3..5 around the best N=4)
-not run N=10: not measured: outside refinement bracket (3..5 around the best N=4)
-not run N=11: not measured: outside refinement bracket (3..5 around the best N=4)
-not run N=12: not measured: outside refinement bracket (3..5 around the best N=4)
-not run N=13: early stop: N=8 (0.3200 s/step) did not beat N=4 (0.3000 s/step) by >3%
 
 --- node health pre-flight (latest check: before phase 2) ---
 skipped: sinfo unavailable (OSError: sinfo rc=1: sinfo: not here)

@@ -86,6 +86,7 @@
      "valid_time": null
     }
    ],
+   "figures_dir": "<OUT>/figures",
    "notes": [
     {
      "level": "info",
@@ -357,6 +358,7 @@
      "valid_time": null
     }
    ],
+   "figures_dir": "<OUT>/figures",
    "notes": [
     {
      "level": "info",
@@ -492,6 +494,7 @@
      "valid_time": null
     }
    ],
+   "figures_dir": "<OUT>/figures",
    "notes": [],
    "out_dir": "<OUT>",
    "report_path": "REPORT"
@@ -595,6 +598,7 @@
      "valid_time": null
     }
    ],
+   "figures_dir": "<OUT>/figures",
    "notes": [
     {
      "level": "info",
@@ -694,6 +698,7 @@
      "valid_time": null
     }
    ],
+   "figures_dir": "<OUT>/figures",
    "notes": [
     {
      "level": "info",
@@ -799,6 +804,7 @@
      "valid_time": null
     }
    ],
+   "figures_dir": "<OUT>/figures",
    "notes": [
     {
      "level": "warning",
@@ -910,6 +916,7 @@
      "valid_time": null
     }
    ],
+   "figures_dir": "<OUT>/figures",
    "notes": [],
    "out_dir": "<OUT>",
    "report_path": "REPORT"

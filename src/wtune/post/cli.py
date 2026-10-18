@@ -210,6 +210,8 @@ def _print_recipe_result(result: dict) -> None:
     print("detected types: %s" % ", ".join(result["case_info"]["types"]))
     print("wrote %d figure(s), %d missing-observation entr(y/ies), report: %s"
          % (n_fig, n_missing, result["report_path"]))
+    if result.get("figures_dir"):
+        print("all figures in one folder: %s" % result["figures_dir"])
     for n in result.get("notes", []):
         print("%s: %s: %s" % (n["level"], n["source"], n["text"]))
 

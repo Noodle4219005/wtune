@@ -1,5 +1,6 @@
 """post/recipe.py: project_dir reaches a recipe module only when its figures() accepts it, and
 notes are split from figures in run_recipe's result."""
+import os
 import sys
 import types
 
@@ -57,3 +58,21 @@ def test_cli_exposes_climate_spinup_days():
     a = cli.build_parser().parse_args(["recipe", "--climate-spinup-days", "12"])
     assert a.climate_spinup_days == 12.0
     assert cli.build_parser().parse_args(["recipe"]).climate_spinup_days is None
+
+
+def test_every_figure_is_also_in_one_flat_folder(tmp_path):
+    out = tmp_path / "post"
+    paths = ["tc/track_map.png", "synoptic/syn_slp.png", "timeseries/f048/slp_d01_f048.png",
+             "common_domain_map.png", "terrain/a/x.png", "terrain/b/x.png", "tc/obs.csv"]
+    for p in paths:
+        (out / p).parent.mkdir(parents=True, exist_ok=True)
+        (out / p).write_text(p)
+    figs = [recipe.fig("f", str(out / p), "run0") for p in paths]
+    figs.append(dict(id="m", missing=True, path=None))
+    dest = recipe.figures_folder(str(out), figs)
+    assert sorted(os.listdir(dest)) == ["common_domain_map.png", "synoptic-syn_slp.png",
+                                        "tc-track_map.png", "terrain-x-2.png", "terrain-x.png",
+                                        "timeseries-slp_d01_f048.png"]
+    assert (out / "figures" / "tc-track_map.png").read_text() == "tc/track_map.png"
+    recipe.figures_folder(str(out), figs[:1])                  # a re-run drops stale names
+    assert os.listdir(dest) == ["tc-track_map.png"]

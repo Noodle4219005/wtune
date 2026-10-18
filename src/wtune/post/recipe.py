@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import multiprocessing
 import os
+import shutil
 from concurrent.futures import ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
 from dataclasses import dataclass, field
@@ -16,6 +17,7 @@ from dataclasses import dataclass, field
 from wtune.post import caseinfo
 
 CATALOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "recipes", "catalog.json")
+FIGURE_EXTS = (".png", ".gif", ".svg", ".mp4")
 
 
 def fig(id, path, run, domain=None, valid_time=None, extra=None) -> dict:
@@ -440,7 +442,35 @@ def _run_recipe(run_dirs, out_dir, types_override=None, ensemble=False, spinup_h
     report_path = _build_report(run_dirs, labels, out_dir, case_info, all_figures, spinup_hours,
                                 title, notes, advice)
     return dict(out_dir=out_dir, case_info=case_info, figures=all_figures, notes=notes,
-                report_path=report_path, advice=advice)
+                report_path=report_path, advice=advice,
+                figures_dir=figures_folder(out_dir, all_figures))
+
+
+def figures_folder(out_dir, figures) -> str:
+    """Every drawn figure again in one flat folder out_dir/figures/, named <type folder>-<file>
+    (hard links, a copy where linking fails); rebuilt on each call. Returns the folder."""
+    dest = os.path.join(out_dir, "figures")
+    shutil.rmtree(dest, ignore_errors=True)
+    os.makedirs(dest)
+    taken = set()
+    for f in figures:
+        path = f.get("path")
+        if f.get("missing") or not path or not path.endswith(FIGURE_EXTS) \
+                or not os.path.isfile(path):
+            continue
+        parts = os.path.relpath(path, out_dir).split(os.sep)
+        name = parts[-1] if len(parts) == 1 else "%s-%s" % (parts[0], parts[-1])
+        stem, ext = os.path.splitext(name)
+        n = 1
+        while name in taken:
+            n += 1
+            name = "%s-%d%s" % (stem, n, ext)
+        taken.add(name)
+        try:
+            os.link(path, os.path.join(dest, name))
+        except OSError:
+            shutil.copy2(path, os.path.join(dest, name))
+    return dest
 
 
 def _verification_advice(run_dir, out_dir, hurdat2_path, storm_id, bdeck_path, notes):

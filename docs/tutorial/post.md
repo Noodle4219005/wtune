@@ -6,6 +6,8 @@ wtune post recipe --srun
 
 在 project 內執行。它讀 `runs/*/` 的輸出，依個案類型畫一組標準圖，和觀測資料比較，全部收進 `post/<id>/report.html`。
 
+所有圖另外集中在 `post/<id>/figures/`，檔名是 `<類型>-<原檔名>`（例如 `tc-track_map.png`、`synoptic-syn_slp_thickness.png`），可以直接整個資料夾瀏覽。這裡是 hard link，不另外佔空間；各類型的子資料夾仍保留圖旁邊的資料檔（csv、dat）。
+
 `wtune post` 底下所有指令都只讀模式輸出、只產生圖和表：不改 namelist，不送模式的 job。
 
 !!! tip "`--srun` 是什麼"

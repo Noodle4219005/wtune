@@ -886,13 +886,14 @@ def _write_csv(path, rows):
         w.writerows(rows)
 
 
-def _track_map_figure(out_dir, model_tracks, bdeck, storm_id, dom_dx=None):
+def _track_map_figure(out_dir, model_tracks, bdeck, storm_id, dom_dx=None, window=None):
     """Model tracks at the tracker's full precision (model_tracks: {label: [(valid time,
     (lat, lon), domain)]} -- not the a-deck, whose 0.1-degree positions make an hourly track
     zig-zag) and the best track over the simulated window +-6 h, on a Natural Earth
     coastline when its data is cached locally. Each segment is coloured by the domain it was
     tracked on (the coarser of its two end points: it is only as good as that grid), with a
-    legend; runs are told apart by line style."""
+    legend; runs are told apart by line style. window: (start, end) of the simulation when
+    there are no model tracks yet (wtune post preview)."""
     from datetime import timedelta
     import matplotlib
     matplotlib.use("Agg")
@@ -909,7 +910,7 @@ def _track_map_figure(out_dir, model_tracks, bdeck, storm_id, dom_dx=None):
         return sorted(by_valid.items())
 
     tracks = {label: sorted(pts) for label, pts in model_tracks.items()}
-    valid = [p[0] for pts in tracks.values() for p in pts]
+    valid = [p[0] for pts in tracks.values() for p in pts] or list(window or ())
     lo, hi = (min(valid) - timedelta(hours=6), max(valid) + timedelta(hours=6)) if valid else (None, None)
     best = [(t, ll) for t, ll in points(bdeck) if lo is None or lo <= t <= hi] if bdeck else []
 
@@ -972,7 +973,8 @@ def _track_map_figure(out_dir, model_tracks, bdeck, storm_id, dom_dx=None):
         ax.autoscale_view()
         add_base_map(ax, ccrs, terrain=False, nest_rings=[], caption=False, labels=False)
     t0 = min(valid) if valid else None
-    ax.set_title("%s track, model init %s\n(segments coloured by tracking domain; markers 6-hourly)"
+    ax.set_title(("%s track, model init %s\n(segments coloured by tracking domain; markers 6-hourly)"
+                  if tracks else "%s best track over the simulated window from %s\n(markers 6-hourly)")
                  % (storm_id, t0.strftime("%Y-%m-%d %HZ") if t0 else "?"), fontsize=10)
     ax.legend(handles=handles, fontsize=8)
     path = os.path.join(out_dir, "track_map.png")

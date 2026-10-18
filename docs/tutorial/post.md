@@ -38,6 +38,26 @@ wtune post recipe --srun
 wtune post recipe --types tc,convection --srun
 ```
 
+## 跑之前先看：preview
+
+```bash
+wtune post preview          # 在 project 內；不需要 runs/
+```
+
+還沒跑 WRF 就能做，幾秒鐘，不送 job。它用專案裡已有的資料回答兩件事：
+
+- **跑完會畫哪些圖**：依 namelist 和 `wrfinput` 偵測個案類型（和 `recipe` 用同一套規則），把每種圖和它回答的問題列在 `post/preview/expected_figures.csv` 與 `preview.html`。
+- **大概會長什麼樣**：現在就能畫的圖放在 `post/preview/figures/`——
+    - 地形與網格（`common_domain_map.png`）
+    - 起始時刻的海平面氣壓與 10 m 風（`synoptic-syn_slp_wind10_f000.png`，來自 `wrfinput`）
+    - 颱風個案的最佳路徑（`tc-track_map.png`）
+    - 模擬時段的 Stage IV 觀測雨量（`precip-precip_stage4_total.png`）
+    - 已下載的 ERA5 500 hPa 高度
+
+`preview.html` 另外列出 tune 預估的執行時間。
+
+這些圖都不是模式結果，而是初始場和觀測：模式中途會算出什麼，跑之前無法知道。跑完後拿 `post/<id>/figures/` 的同名圖（例如兩邊的 `tc-track_map.png`）來比，差異就是模式自己的表現。觀測要先用 `wtune post fetch` 下載，沒下載的那幾張會在「略過」裡說明。
+
 ## 時間序列與動畫
 
 ```bash

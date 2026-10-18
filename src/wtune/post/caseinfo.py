@@ -13,7 +13,7 @@ are WRF/WTune-specific, like the missing-frame check in post/inventory.py).
 from __future__ import annotations
 
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from wtune import cli as _core
 from wtune.post import atcf
@@ -149,9 +149,17 @@ def _d01_bbox_and_window(run_dir):
     """(lat_min, lat_max, lon_min, lon_max, t_start, t_end) for d01, from its wrfout frames'
     own XLAT/XLONG and valid times (each file's Times variable via post.extract, so a
     frames_per_outfile > 1 file contributes all its times; netCDF4, lazily imported -- this
-    module is otherwise stdlib-only)."""
+    module is otherwise stdlib-only). Before the run (no frames yet): wrfinput_d01's grid and
+    time plus the namelist run length."""
     import netCDF4
     frames = list_frames(run_dir, domain=1)
+    wrfinput = os.path.join(run_dir, "wrfinput_d01")
+    if not frames and os.path.exists(wrfinput):
+        with netCDF4.Dataset(wrfinput) as ds:
+            t_start = datetime.strptime(b"".join(ds.variables["Times"][0]).decode(), WRF_TIME_FMT)
+            lat, lon = ds.variables["XLAT"][0], ds.variables["XLONG"][0]
+            return (float(lat.min()), float(lat.max()), float(lon.min()), float(lon.max()),
+                    t_start, t_start + timedelta(hours=run_length_hours(run_dir)))
     if not frames:
         raise CaseInfoError("no wrfout_d01_* frames in %s -- cannot check tc/domain extent"
                             % run_dir)
@@ -228,6 +236,15 @@ def _interior_bounds(ny, nx, bdy_width):
     return j0, j1, i0, i1
 
 
+def _state_file(run_dir, domain, last=False):
+    """A domain's first (last) wrfout frame, else -- before the run -- its wrfinput; or None."""
+    frames = list_frames(run_dir, domain=domain)
+    if frames:
+        return frames[-1 if last else 0][1]
+    path = os.path.join(run_dir, "wrfinput_d%02d" % domain)
+    return path if os.path.exists(path) else None
+
+
 def _domain_hgt_stats(run_dir, domain, bdy_width=DEFAULT_SPEC_BDY_WIDTH):
     """{"min","max","relief"} (metres) of HGT on one domain's first available frame,
     restricted to the domain INTERIOR (excluding bdy_width cells on every edge -- 2026-09-29
@@ -235,10 +252,10 @@ def _domain_hgt_stats(run_dir, domain, bdy_width=DEFAULT_SPEC_BDY_WIDTH):
     for the given bdy_width to leave any interior."""
     import netCDF4
     import numpy as np
-    frames = list_frames(run_dir, domain=domain)
-    if not frames:
+    path = _state_file(run_dir, domain)
+    if not path:
         return None
-    with netCDF4.Dataset(frames[0][1]) as ds:
+    with netCDF4.Dataset(path) as ds:
         if "HGT" not in ds.variables:
             return None
         hgt = np.asarray(ds.variables["HGT"][0])
@@ -281,13 +298,13 @@ def detect_terrain(run_dir, max_dom, bdy_width=None):
 def detect_cloud(run_dir):
     """(bool, evidence): "cloud" whenever the last wrfout_d01 frame holds any hydrometeor
     mixing ratio (post/condensate.SPECIES) -- the cloud figure set is generic."""
-    frames = list_frames(run_dir, domain=1)
-    if not frames:
+    path = _state_file(run_dir, 1, last=True)
+    if not path:
         return False, "no wrfout_d01_* frame to inspect"
     try:
         import netCDF4
         from wtune.post import condensate
-        with netCDF4.Dataset(frames[-1][1]) as ds:
+        with netCDF4.Dataset(path) as ds:
             present = condensate.species_present(ds)
     except (ImportError, OSError) as e:
         return False, "wrfout_d01 not readable: %s" % e

@@ -204,6 +204,21 @@ def _recipe_cross_sections(project_doc: dict) -> tuple[dict, float | None, float
     return cross_sections, xsec_cfg.get("top_km"), xsec_cfg.get("halfwidth_km")
 
 
+def cmd_preview(args: argparse.Namespace) -> int:
+    import wtune.post.preview as preview
+    project_dir, project_doc = _project_context(args)
+    if not project_dir:
+        raise SystemExit("wtune post preview needs a project: run it inside one or pass --project")
+    out = args.out or os.path.join(project_dir, "post", "preview")
+    result = preview.run_preview(project_dir, project_doc, out)
+    print("expected figures: %d kinds (expected_figures.csv)" % len(result["expected"]))
+    print("drawn now: %d figure(s) in %s" % (len(result["figures"]), result["figures_dir"]))
+    for n in result["notes"]:
+        print("note: %s" % n)
+    print("report: %s" % result["report_path"])
+    return 0
+
+
 def _print_recipe_result(result: dict) -> None:
     n_fig = sum(1 for f in result["figures"] if not f["missing"])
     n_missing = sum(1 for f in result["figures"] if f["missing"])
@@ -477,6 +492,9 @@ _COMMANDS = [
     ("compare", dict(help="verify a STRICT change did not move the answer"), [
         _arg("run_a"), _arg("run_b"), _arg("--vars", default=None),
         _arg("--domain", type=int, default=None), _arg("--json", action="store_true")]),
+    ("preview", dict(help="before the run: the figures post will draw, the t=0 state and "
+                     "the observations to compare with, in <project>/post/preview/"), [
+        _OUT_DIR, _PROJECT]),
     ("report", dict(help="collect PNGs/CSVs in a dir into one self-contained HTML"), [
         _arg("out_dir"), _arg("--title", default=None)]),
     ("recipe", dict(help="case-type-driven standard figure set + HTML report "
@@ -630,7 +648,8 @@ def main(argv: list[str] | None = None) -> int:
     args.argv = argv
     dispatch = dict(inventory=cmd_inventory, extract=cmd_extract, plot=cmd_plot,
                     sounding=cmd_sounding, tc=cmd_tc, compare=cmd_compare, report=cmd_report,
-                    recipe=cmd_recipe, custom=cmd_custom, fetch=cmd_fetch, cf3d=cmd_cf3d)
+                    recipe=cmd_recipe, custom=cmd_custom, fetch=cmd_fetch, cf3d=cmd_cf3d,
+                    preview=cmd_preview)
     dispatch["fetch-era5"] = cmd_fetch
     dispatch["vapor-bundle"] = cmd_vapor_bundle
     fn = dispatch.get(args.post_command)

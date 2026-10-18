@@ -462,6 +462,7 @@
  /
 
 &namelist_adios2
+ adios2_compression_enable = .false.,
  adios2_numaggregators = 72,
 /
 
@@ -511,6 +512,7 @@
 + io_form_gfdda = 14,
 +
 +&namelist_adios2
++ adios2_compression_enable = .false.,
 + adios2_numaggregators = 72,
 +/
 --- k1_adios2_per_record
@@ -578,6 +580,7 @@
 /
 
 &namelist_adios2
+ adios2_compression_enable = .false.,
  adios2_numaggregators = 72,
 /
 
@@ -634,6 +637,7 @@
 +/
 +
 +&namelist_adios2
++ adios2_compression_enable = .false.,
 + adios2_numaggregators = 72,
 +/
 --- k0_adios2_numaggregators_of_case

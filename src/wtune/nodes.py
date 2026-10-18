@@ -8,9 +8,16 @@ a table and a choice under one of three objectives: time, cost, knee.
 """
 import statistics
 
-NOISE_FRAC = 0.03                 # run-to-run reproducibility floor used for ties / early stop
+import wtune.machine
+
+NOISE_FRAC = wtune.machine.MEASURED["noise_frac"]    # built-in; the functions read _noise()
 DEFAULT_MIN_EFFICIENCY = 0.7      # knee objective: parallel efficiency threshold
 OBJECTIVES = ("time", "cost", "knee")
+
+
+def _noise(noise):
+    """The run-to-run repeatability floor used for ties and the early stop."""
+    return wtune.machine.measured("noise_frac") if noise is None else noise
 
 
 def candidate_node_counts(legal_nodes, max_nodes):
@@ -51,10 +58,10 @@ def summarize(measurements):
     return rows
 
 
-def stop_early(rows, noise=NOISE_FRAC):
+def stop_early(rows, noise=None):
     """True when the largest N measured so far did not beat the previous one by more than the
     noise floor: more nodes stopped helping, so larger N need not be measured."""
-    return len(rows) >= 2 and rows[-1]["median"] > rows[-2]["median"] * (1.0 - noise)
+    return len(rows) >= 2 and rows[-1]["median"] > rows[-2]["median"] * (1.0 - _noise(noise))
 
 
 def table(rows, *, total_steps=None, overhead_s=0.0):
@@ -72,7 +79,7 @@ def table(rows, *, total_steps=None, overhead_s=0.0):
     return out
 
 
-def choose(rows, objective, *, noise=NOISE_FRAC, deadline_s=None, total_steps=None,
+def choose(rows, objective, *, noise=None, deadline_s=None, total_steps=None,
            overhead_s=0.0, min_efficiency=DEFAULT_MIN_EFFICIENCY):
     """(nodes, note). time: smallest N within `noise` of the minimum median. cost: min node-hours
     among N meeting deadline_s (all if None; none feasible -> fastest, said in the note), needs
@@ -81,6 +88,7 @@ def choose(rows, objective, *, noise=NOISE_FRAC, deadline_s=None, total_steps=No
         raise ValueError("unknown objective %r (choices: %s)" % (objective, ", ".join(OBJECTIVES)))
     if not rows:
         raise ValueError("no measurements to choose from")
+    noise = _noise(noise)
     if objective == "time":
         best = min(r["median"] for r in rows)
         r = min((r for r in rows if r["median"] <= best * (1.0 + noise)), key=lambda x: x["nodes"])
@@ -126,11 +134,20 @@ def finalists(rows, objective, k=2, within=0.10, **choose_kwargs):
 # ---------------------------------------------------------------------------
 # coarse-to-fine node search
 # ---------------------------------------------------------------------------
+def seed_counts(max_nodes):
+    """The powers of two below max_nodes, then max_nodes itself: 13 -> [1, 2, 4, 8, 13]."""
+    out, n = [], 1
+    while n < int(max_nodes):
+        out.append(n)
+        n *= 2
+    return out + [int(max_nodes)]
+
+
 def seed_nodes(legal, max_nodes):
-    """Geometric seeds {1, 2, 4, 8, max_nodes} intersected with the legal node counts (the
-    smallest legal N when none of them is legal)."""
+    """seed_counts(max_nodes) intersected with the legal node counts (the smallest legal N
+    when none of them is legal)."""
     legal = sorted(set(int(n) for n in legal))
-    seeds = sorted({1, 2, 4, 8, int(max_nodes)} & set(legal))
+    seeds = sorted(set(seed_counts(max_nodes)) & set(legal))
     return seeds or legal[:1]
 
 
@@ -165,14 +182,14 @@ def default_core_options(cores_per_node):
     return sorted((v for v in vals if 1 <= v <= c), reverse=True)
 
 
-def choose_cores(rows, noise=NOISE_FRAC):
+def choose_cores(rows, noise=None):
     """(cores, note) over rows with 'cores' and 'median' at ONE fixed node count: the fastest
     median; every c within `noise` of it ties, and the tie goes to the fuller c. (At fixed N whole
     exclusive nodes are billed, so node-hours are proportional to wall time: the cost objective
     picks the same c as the time objective; knee has no efficiency across c.)"""
     if not rows:
         raise ValueError("no measurements to choose from")
-    best = min(r["median"] for r in rows)
+    best, noise = min(r["median"] for r in rows), _noise(noise)
     r = max((r for r in rows if r["median"] <= best * (1.0 + noise)), key=lambda x: x["cores"])
     return r["cores"], ("cores/node=%d median=%.4f s/step; fastest is %.4f, fullest c within "
                         "%.0f%% noise of it" % (r["cores"], r["median"], best, noise * 100))

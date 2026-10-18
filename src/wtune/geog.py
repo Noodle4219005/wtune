@@ -34,7 +34,8 @@ from datetime import datetime, timezone
 
 import numpy as np
 
-DEFAULT_GEOG = "/nfs/data/wrf/WPS_GEOG/"
+import wtune.machine
+
 FALLBACK_DEST = "~/wps-geog-extra"
 MISSING_I16 = -32768
 URL_BASE = "https://www2.mmm.ucar.edu/wrf/src/wps_files/"
@@ -83,7 +84,7 @@ def _human(n):
 
 
 def _geog_path(arg=None):
-    return os.path.expanduser(arg or os.environ.get("WPS_GEOG") or DEFAULT_GEOG)
+    return os.path.expanduser(arg or wtune.machine.geog())
 
 
 def _wps_dir(arg=None):
@@ -1004,7 +1005,7 @@ def build_parser():
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     def common(p):
-        p.add_argument("--geog-path", help="WPS_GEOG directory (default $WPS_GEOG, else %s)" % DEFAULT_GEOG)
+        p.add_argument("--geog-path", help="WPS_GEOG directory (default $WPS_GEOG, else %s)" % wtune.machine.DEFAULTS["geog"])
         p.add_argument("--wps-dir", help="WPS directory holding geogrid/GEOGRID.TBL (default $WPS_DIR)")
 
     p = sub.add_parser("list", help="datasets present under WPS_GEOG vs. known to GEOGRID.TBL")

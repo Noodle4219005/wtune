@@ -46,9 +46,17 @@
       "core_budget": null,
       "cores_per_node": 72,
       "env_source": "$HOME/wtune-scc/env.sh",
-      "exclude_rules": [],
+      "exclude_rules": [
+       {
+        "omp_gt": 1,
+        "when": "fire"
+       }
+      ],
+      "extension_omp_cap": null,
       "full_space": false,
       "hardware_id": "scc-gh200",
+      "hotspot_fill": true,
+      "input_copies": {},
       "is_fire": false,
       "kappa": 0.5,
       "layout_notes": null,
@@ -71,6 +79,7 @@
        "user_exclude": [],
        "when": "start"
       },
+      "node_seeds": "geometric",
       "nodes": 8,
       "omp_cap": null,
       "out_dir": "<TMP>/auto/out",
@@ -105,7 +114,12 @@
        "spinup_min": 60,
        "stage1": "t0",
        "stage2_minutes": null,
-       "steps": "auto"
+       "steps": "auto",
+       "sweep_reps": 1,
+       "sweep_steps": [
+        10,
+        40
+       ]
       },
       "proposer": null,
       "queue_only_s": 0.0,
@@ -169,9 +183,10 @@
      "stub": true
     },
     "pipeline_only": true,
+    "summary": [],
     "winner": null
    },
-   "report_json": "{\n  \"cancelled_job_ids\": [],\n  \"case\": \"matthew\",\n  \"job_ids\": [],\n  \"node_health\": {\n    \"exclusions\": [\n      \"head\"\n    ],\n    \"failed\": [],\n    \"healthy\": null,\n    \"max_nodes_effective\": 8,\n    \"max_nodes_requested\": 8,\n    \"nodes\": {},\n    \"probe_s\": 0.0,\n    \"skipped\": \"sinfo unavailable (OSError: sinfo rc=1: sinfo: not here)\",\n    \"user_exclude\": [],\n    \"when\": \"start\"\n  },\n  \"nodes\": 8,\n  \"pipeline\": {\n    \"stub\": true\n  },\n  \"pipeline_only\": true,\n  \"winner\": null\n}\n"
+   "report_json": "{\n  \"cancelled_job_ids\": [],\n  \"case\": \"matthew\",\n  \"job_ids\": [],\n  \"node_health\": {\n    \"exclusions\": [\n      \"head\"\n    ],\n    \"failed\": [],\n    \"healthy\": null,\n    \"max_nodes_effective\": 8,\n    \"max_nodes_requested\": 8,\n    \"nodes\": {},\n    \"probe_s\": 0.0,\n    \"skipped\": \"sinfo unavailable (OSError: sinfo rc=1: sinfo: not here)\",\n    \"user_exclude\": [],\n    \"when\": \"start\"\n  },\n  \"nodes\": 8,\n  \"pipeline\": {\n    \"stub\": true\n  },\n  \"pipeline_only\": true,\n  \"summary\": [],\n  \"winner\": null\n}\n"
   },
   "fixed_n": {
    "calls": [
@@ -197,9 +212,17 @@
       "core_budget": null,
       "cores_per_node": 72,
       "env_source": "$HOME/wtune-scc/env.sh",
-      "exclude_rules": [],
+      "exclude_rules": [
+       {
+        "omp_gt": 1,
+        "when": "fire"
+       }
+      ],
+      "extension_omp_cap": null,
       "full_space": false,
       "hardware_id": "scc-gh200",
+      "hotspot_fill": true,
+      "input_copies": {},
       "is_fire": false,
       "kappa": 0.5,
       "layout_notes": null,
@@ -222,6 +245,7 @@
        "user_exclude": [],
        "when": "start"
       },
+      "node_seeds": "geometric",
       "nodes": 2,
       "omp_cap": null,
       "out_dir": "<TMP>/fixed_n/out",
@@ -256,7 +280,12 @@
        "spinup_min": 60,
        "stage1": "t0",
        "stage2_minutes": null,
-       "steps": "auto"
+       "steps": "auto",
+       "sweep_reps": 1,
+       "sweep_steps": [
+        10,
+        40
+       ]
       },
       "proposer": null,
       "queue_only_s": 0.0,
@@ -320,9 +349,10 @@
      "stub": true
     },
     "pipeline_only": true,
+    "summary": [],
     "winner": null
    },
-   "report_json": "{\n  \"cancelled_job_ids\": [],\n  \"case\": \"matthew\",\n  \"job_ids\": [],\n  \"node_health\": {\n    \"exclusions\": [\n      \"head\"\n    ],\n    \"failed\": [],\n    \"healthy\": null,\n    \"max_nodes_effective\": 13,\n    \"max_nodes_requested\": 13,\n    \"nodes\": {},\n    \"probe_s\": 0.0,\n    \"skipped\": \"sinfo unavailable (OSError: sinfo rc=1: sinfo: not here)\",\n    \"user_exclude\": [],\n    \"when\": \"start\"\n  },\n  \"nodes\": 2,\n  \"pipeline\": {\n    \"stub\": true\n  },\n  \"pipeline_only\": true,\n  \"winner\": null\n}\n"
+   "report_json": "{\n  \"cancelled_job_ids\": [],\n  \"case\": \"matthew\",\n  \"job_ids\": [],\n  \"node_health\": {\n    \"exclusions\": [\n      \"head\"\n    ],\n    \"failed\": [],\n    \"healthy\": null,\n    \"max_nodes_effective\": 13,\n    \"max_nodes_requested\": 13,\n    \"nodes\": {},\n    \"probe_s\": 0.0,\n    \"skipped\": \"sinfo unavailable (OSError: sinfo rc=1: sinfo: not here)\",\n    \"user_exclude\": [],\n    \"when\": \"start\"\n  },\n  \"nodes\": 2,\n  \"pipeline\": {\n    \"stub\": true\n  },\n  \"pipeline_only\": true,\n  \"summary\": [],\n  \"winner\": null\n}\n"
   },
   "no_preflight_o3": {
    "calls": [
@@ -346,9 +376,17 @@
       "core_budget": null,
       "cores_per_node": 72,
       "env_source": "$HOME/wtune-scc/env.sh",
-      "exclude_rules": [],
+      "exclude_rules": [
+       {
+        "omp_gt": 1,
+        "when": "fire"
+       }
+      ],
+      "extension_omp_cap": null,
       "full_space": false,
       "hardware_id": "scc-gh200",
+      "hotspot_fill": true,
+      "input_copies": {},
       "is_fire": false,
       "kappa": 0.5,
       "layout_notes": null,
@@ -358,6 +396,7 @@
       "max_wall_s": null,
       "namelist_path": "<TMP>/no_preflight_o3/namelist.input",
       "node_health": null,
+      "node_seeds": "geometric",
       "nodes": 1,
       "omp_cap": null,
       "out_dir": "<TMP>/no_preflight_o3/out",
@@ -392,7 +431,12 @@
        "spinup_min": 60,
        "stage1": "t0",
        "stage2_minutes": null,
-       "steps": "auto"
+       "steps": "auto",
+       "sweep_reps": 1,
+       "sweep_steps": [
+        10,
+        40
+       ]
       },
       "proposer": null,
       "queue_only_s": 0.0,
@@ -461,9 +505,10 @@
      "stub": true
     },
     "pipeline_only": true,
+    "summary": [],
     "winner": null
    },
-   "report_json": "{\n  \"cancelled_job_ids\": [],\n  \"case\": \"matthew\",\n  \"job_ids\": [],\n  \"nodes\": 1,\n  \"pipeline\": {\n    \"stub\": true\n  },\n  \"pipeline_only\": true,\n  \"winner\": null\n}\n"
+   "report_json": "{\n  \"cancelled_job_ids\": [],\n  \"case\": \"matthew\",\n  \"job_ids\": [],\n  \"nodes\": 1,\n  \"pipeline\": {\n    \"stub\": true\n  },\n  \"pipeline_only\": true,\n  \"summary\": [],\n  \"winner\": null\n}\n"
   },
   "o0": {
    "calls": [
@@ -490,9 +535,17 @@
       "core_budget": null,
       "cores_per_node": 72,
       "env_source": "$HOME/wtune-scc/env.sh",
-      "exclude_rules": [],
+      "exclude_rules": [
+       {
+        "omp_gt": 1,
+        "when": "fire"
+       }
+      ],
+      "extension_omp_cap": null,
       "full_space": false,
       "hardware_id": "scc-gh200",
+      "hotspot_fill": true,
+      "input_copies": {},
       "is_fire": false,
       "kappa": 0.5,
       "layout_notes": null,
@@ -502,6 +555,7 @@
       "max_wall_s": null,
       "namelist_path": "<TMP>/o0/namelist.input",
       "node_health": null,
+      "node_seeds": "geometric",
       "nodes": 1,
       "omp_cap": null,
       "out_dir": "<TMP>/o0/out",
@@ -536,7 +590,12 @@
        "spinup_min": 60,
        "stage1": "t0",
        "stage2_minutes": null,
-       "steps": "auto"
+       "steps": "auto",
+       "sweep_reps": 1,
+       "sweep_steps": [
+        10,
+        40
+       ]
       },
       "proposer": null,
       "queue_only_s": 0.0,
@@ -586,9 +645,10 @@
      "stub": true
     },
     "pipeline_only": true,
+    "summary": [],
     "winner": null
    },
-   "report_json": "{\n  \"cancelled_job_ids\": [],\n  \"case\": \"matthew\",\n  \"job_ids\": [],\n  \"nodes\": 1,\n  \"pipeline\": {\n    \"stub\": true\n  },\n  \"pipeline_only\": true,\n  \"winner\": null\n}\n"
+   "report_json": "{\n  \"cancelled_job_ids\": [],\n  \"case\": \"matthew\",\n  \"job_ids\": [],\n  \"nodes\": 1,\n  \"pipeline\": {\n    \"stub\": true\n  },\n  \"pipeline_only\": true,\n  \"summary\": [],\n  \"winner\": null\n}\n"
   },
   "o1": {
    "calls": [
@@ -612,9 +672,17 @@
       "core_budget": null,
       "cores_per_node": 72,
       "env_source": "$HOME/wtune-scc/env.sh",
-      "exclude_rules": [],
+      "exclude_rules": [
+       {
+        "omp_gt": 1,
+        "when": "fire"
+       }
+      ],
+      "extension_omp_cap": null,
       "full_space": false,
       "hardware_id": "scc-gh200",
+      "hotspot_fill": true,
+      "input_copies": {},
       "is_fire": false,
       "kappa": 0.5,
       "layout_notes": null,
@@ -637,6 +705,7 @@
        "user_exclude": [],
        "when": "start"
       },
+      "node_seeds": "geometric",
       "nodes": 1,
       "omp_cap": null,
       "out_dir": "<TMP>/o1/out",
@@ -671,7 +740,12 @@
        "spinup_min": 60,
        "stage1": "t0",
        "stage2_minutes": null,
-       "steps": "auto"
+       "steps": "auto",
+       "sweep_reps": 1,
+       "sweep_steps": [
+        10,
+        40
+       ]
       },
       "proposer": null,
       "queue_only_s": 0.0,
@@ -754,9 +828,10 @@
      "stub": true
     },
     "pipeline_only": true,
+    "summary": [],
     "winner": null
    },
-   "report_json": "{\n  \"cancelled_job_ids\": [],\n  \"case\": \"matthew\",\n  \"job_ids\": [],\n  \"node_health\": {\n    \"exclusions\": [\n      \"head\"\n    ],\n    \"failed\": [],\n    \"healthy\": null,\n    \"max_nodes_effective\": 13,\n    \"max_nodes_requested\": 13,\n    \"nodes\": {},\n    \"probe_s\": 0.0,\n    \"skipped\": \"sinfo unavailable (OSError: sinfo rc=1: sinfo: not here)\",\n    \"user_exclude\": [],\n    \"when\": \"start\"\n  },\n  \"nodes\": 1,\n  \"pipeline\": {\n    \"stub\": true\n  },\n  \"pipeline_only\": true,\n  \"winner\": null\n}\n"
+   "report_json": "{\n  \"cancelled_job_ids\": [],\n  \"case\": \"matthew\",\n  \"job_ids\": [],\n  \"node_health\": {\n    \"exclusions\": [\n      \"head\"\n    ],\n    \"failed\": [],\n    \"healthy\": null,\n    \"max_nodes_effective\": 13,\n    \"max_nodes_requested\": 13,\n    \"nodes\": {},\n    \"probe_s\": 0.0,\n    \"skipped\": \"sinfo unavailable (OSError: sinfo rc=1: sinfo: not here)\",\n    \"user_exclude\": [],\n    \"when\": \"start\"\n  },\n  \"nodes\": 1,\n  \"pipeline\": {\n    \"stub\": true\n  },\n  \"pipeline_only\": true,\n  \"summary\": [],\n  \"winner\": null\n}\n"
   },
   "o2_minutes": {
    "calls": [
@@ -780,9 +855,17 @@
       "core_budget": null,
       "cores_per_node": 72,
       "env_source": "$HOME/wtune-scc/env.sh",
-      "exclude_rules": [],
+      "exclude_rules": [
+       {
+        "omp_gt": 1,
+        "when": "fire"
+       }
+      ],
+      "extension_omp_cap": null,
       "full_space": false,
       "hardware_id": "scc-gh200",
+      "hotspot_fill": true,
+      "input_copies": {},
       "is_fire": false,
       "kappa": 0.5,
       "layout_notes": null,
@@ -805,6 +888,7 @@
        "user_exclude": [],
        "when": "start"
       },
+      "node_seeds": "geometric",
       "nodes": 1,
       "omp_cap": null,
       "out_dir": "<TMP>/o2_minutes/out",
@@ -839,7 +923,12 @@
        "spinup_min": 60,
        "stage1": "t0",
        "stage2_minutes": null,
-       "steps": "auto"
+       "steps": "auto",
+       "sweep_reps": 1,
+       "sweep_steps": [
+        10,
+        40
+       ]
       },
       "proposer": null,
       "queue_only_s": 0.0,
@@ -922,9 +1011,10 @@
      "stub": true
     },
     "pipeline_only": true,
+    "summary": [],
     "winner": null
    },
-   "report_json": "{\n  \"cancelled_job_ids\": [],\n  \"case\": \"matthew\",\n  \"job_ids\": [],\n  \"node_health\": {\n    \"exclusions\": [\n      \"head\"\n    ],\n    \"failed\": [],\n    \"healthy\": null,\n    \"max_nodes_effective\": 13,\n    \"max_nodes_requested\": 13,\n    \"nodes\": {},\n    \"probe_s\": 0.0,\n    \"skipped\": \"sinfo unavailable (OSError: sinfo rc=1: sinfo: not here)\",\n    \"user_exclude\": [],\n    \"when\": \"start\"\n  },\n  \"nodes\": 1,\n  \"pipeline\": {\n    \"stub\": true\n  },\n  \"pipeline_only\": true,\n  \"winner\": null\n}\n"
+   "report_json": "{\n  \"cancelled_job_ids\": [],\n  \"case\": \"matthew\",\n  \"job_ids\": [],\n  \"node_health\": {\n    \"exclusions\": [\n      \"head\"\n    ],\n    \"failed\": [],\n    \"healthy\": null,\n    \"max_nodes_effective\": 13,\n    \"max_nodes_requested\": 13,\n    \"nodes\": {},\n    \"probe_s\": 0.0,\n    \"skipped\": \"sinfo unavailable (OSError: sinfo rc=1: sinfo: not here)\",\n    \"user_exclude\": [],\n    \"when\": \"start\"\n  },\n  \"nodes\": 1,\n  \"pipeline\": {\n    \"stub\": true\n  },\n  \"pipeline_only\": true,\n  \"summary\": [],\n  \"winner\": null\n}\n"
   },
   "o3_full": {
    "calls": [
@@ -948,9 +1038,17 @@
       "core_budget": null,
       "cores_per_node": 72,
       "env_source": "$HOME/wtune-scc/env.sh",
-      "exclude_rules": [],
+      "exclude_rules": [
+       {
+        "omp_gt": 1,
+        "when": "fire"
+       }
+      ],
+      "extension_omp_cap": null,
       "full_space": false,
       "hardware_id": "scc-gh200",
+      "hotspot_fill": true,
+      "input_copies": {},
       "is_fire": false,
       "kappa": 0.5,
       "layout_notes": null,
@@ -973,6 +1071,7 @@
        "user_exclude": [],
        "when": "start"
       },
+      "node_seeds": "geometric",
       "nodes": 1,
       "omp_cap": null,
       "out_dir": "<TMP>/o3_full/out",
@@ -1007,7 +1106,9 @@
        "spinup_min": 60,
        "stage1": "t0",
        "stage2_minutes": null,
-       "steps": "auto"
+       "steps": "auto",
+       "sweep_reps": 1,
+       "sweep_steps": null
       },
       "proposer": null,
       "queue_only_s": 0.0,
@@ -1090,9 +1191,10 @@
      "stub": true
     },
     "pipeline_only": true,
+    "summary": [],
     "winner": null
    },
-   "report_json": "{\n  \"cancelled_job_ids\": [],\n  \"case\": \"matthew\",\n  \"job_ids\": [],\n  \"node_health\": {\n    \"exclusions\": [\n      \"head\"\n    ],\n    \"failed\": [],\n    \"healthy\": null,\n    \"max_nodes_effective\": 13,\n    \"max_nodes_requested\": 13,\n    \"nodes\": {},\n    \"probe_s\": 0.0,\n    \"skipped\": \"sinfo unavailable (OSError: sinfo rc=1: sinfo: not here)\",\n    \"user_exclude\": [],\n    \"when\": \"start\"\n  },\n  \"nodes\": 1,\n  \"pipeline\": {\n    \"stub\": true\n  },\n  \"pipeline_only\": true,\n  \"winner\": null\n}\n"
+   "report_json": "{\n  \"cancelled_job_ids\": [],\n  \"case\": \"matthew\",\n  \"job_ids\": [],\n  \"node_health\": {\n    \"exclusions\": [\n      \"head\"\n    ],\n    \"failed\": [],\n    \"healthy\": null,\n    \"max_nodes_effective\": 13,\n    \"max_nodes_requested\": 13,\n    \"nodes\": {},\n    \"probe_s\": 0.0,\n    \"skipped\": \"sinfo unavailable (OSError: sinfo rc=1: sinfo: not here)\",\n    \"user_exclude\": [],\n    \"when\": \"start\"\n  },\n  \"nodes\": 1,\n  \"pipeline\": {\n    \"stub\": true\n  },\n  \"pipeline_only\": true,\n  \"summary\": [],\n  \"winner\": null\n}\n"
   },
   "search_cost": {
    "calls": [
@@ -1116,9 +1218,17 @@
       "core_budget": null,
       "cores_per_node": 72,
       "env_source": "$HOME/wtune-scc/env.sh",
-      "exclude_rules": [],
+      "exclude_rules": [
+       {
+        "omp_gt": 1,
+        "when": "fire"
+       }
+      ],
+      "extension_omp_cap": null,
       "full_space": false,
       "hardware_id": "scc-gh200",
+      "hotspot_fill": true,
+      "input_copies": {},
       "is_fire": false,
       "kappa": 0.5,
       "layout_notes": null,
@@ -1141,6 +1251,7 @@
        "user_exclude": [],
        "when": "start"
       },
+      "node_seeds": "geometric",
       "nodes": 1,
       "omp_cap": null,
       "out_dir": "<TMP>/search_cost/out",
@@ -1175,7 +1286,12 @@
        "spinup_min": 60,
        "stage1": "t0",
        "stage2_minutes": null,
-       "steps": "auto"
+       "steps": "auto",
+       "sweep_reps": 1,
+       "sweep_steps": [
+        10,
+        40
+       ]
       },
       "proposer": null,
       "queue_only_s": 0.0,
@@ -1248,9 +1364,10 @@
      "stub": true
     },
     "pipeline_only": true,
+    "summary": [],
     "winner": null
    },
-   "report_json": "{\n  \"cancelled_job_ids\": [],\n  \"case\": \"matthew\",\n  \"job_ids\": [],\n  \"node_health\": {\n    \"exclusions\": [\n      \"head\"\n    ],\n    \"failed\": [],\n    \"healthy\": null,\n    \"max_nodes_effective\": 13,\n    \"max_nodes_requested\": 13,\n    \"nodes\": {},\n    \"probe_s\": 0.0,\n    \"skipped\": \"sinfo unavailable (OSError: sinfo rc=1: sinfo: not here)\",\n    \"user_exclude\": [],\n    \"when\": \"start\"\n  },\n  \"nodes\": 1,\n  \"pipeline\": {\n    \"stub\": true\n  },\n  \"pipeline_only\": true,\n  \"winner\": null\n}\n"
+   "report_json": "{\n  \"cancelled_job_ids\": [],\n  \"case\": \"matthew\",\n  \"job_ids\": [],\n  \"node_health\": {\n    \"exclusions\": [\n      \"head\"\n    ],\n    \"failed\": [],\n    \"healthy\": null,\n    \"max_nodes_effective\": 13,\n    \"max_nodes_requested\": 13,\n    \"nodes\": {},\n    \"probe_s\": 0.0,\n    \"skipped\": \"sinfo unavailable (OSError: sinfo rc=1: sinfo: not here)\",\n    \"user_exclude\": [],\n    \"when\": \"start\"\n  },\n  \"nodes\": 1,\n  \"pipeline\": {\n    \"stub\": true\n  },\n  \"pipeline_only\": true,\n  \"summary\": [],\n  \"winner\": null\n}\n"
   },
   "search_default": {
    "calls": [
@@ -1274,9 +1391,17 @@
       "core_budget": null,
       "cores_per_node": 72,
       "env_source": "$HOME/wtune-scc/env.sh",
-      "exclude_rules": [],
+      "exclude_rules": [
+       {
+        "omp_gt": 1,
+        "when": "fire"
+       }
+      ],
+      "extension_omp_cap": null,
       "full_space": false,
       "hardware_id": "scc-gh200",
+      "hotspot_fill": true,
+      "input_copies": {},
       "is_fire": false,
       "kappa": 0.5,
       "layout_notes": null,
@@ -1299,6 +1424,7 @@
        "user_exclude": [],
        "when": "start"
       },
+      "node_seeds": "geometric",
       "nodes": 1,
       "omp_cap": null,
       "out_dir": "<TMP>/search_default/out",
@@ -1333,7 +1459,12 @@
        "spinup_min": 60,
        "stage1": "t0",
        "stage2_minutes": null,
-       "steps": "auto"
+       "steps": "auto",
+       "sweep_reps": 1,
+       "sweep_steps": [
+        10,
+        40
+       ]
       },
       "proposer": null,
       "queue_only_s": 0.0,
@@ -1410,9 +1541,10 @@
      "stub": true
     },
     "pipeline_only": true,
+    "summary": [],
     "winner": null
    },
-   "report_json": "{\n  \"cancelled_job_ids\": [],\n  \"case\": \"matthew\",\n  \"job_ids\": [],\n  \"node_health\": {\n    \"exclusions\": [\n      \"head\"\n    ],\n    \"failed\": [],\n    \"healthy\": null,\n    \"max_nodes_effective\": 13,\n    \"max_nodes_requested\": 13,\n    \"nodes\": {},\n    \"probe_s\": 0.0,\n    \"skipped\": \"sinfo unavailable (OSError: sinfo rc=1: sinfo: not here)\",\n    \"user_exclude\": [],\n    \"when\": \"start\"\n  },\n  \"nodes\": 1,\n  \"pipeline\": {\n    \"stub\": true\n  },\n  \"pipeline_only\": true,\n  \"winner\": null\n}\n"
+   "report_json": "{\n  \"cancelled_job_ids\": [],\n  \"case\": \"matthew\",\n  \"job_ids\": [],\n  \"node_health\": {\n    \"exclusions\": [\n      \"head\"\n    ],\n    \"failed\": [],\n    \"healthy\": null,\n    \"max_nodes_effective\": 13,\n    \"max_nodes_requested\": 13,\n    \"nodes\": {},\n    \"probe_s\": 0.0,\n    \"skipped\": \"sinfo unavailable (OSError: sinfo rc=1: sinfo: not here)\",\n    \"user_exclude\": [],\n    \"when\": \"start\"\n  },\n  \"nodes\": 1,\n  \"pipeline\": {\n    \"stub\": true\n  },\n  \"pipeline_only\": true,\n  \"summary\": [],\n  \"winner\": null\n}\n"
   }
  }
 }

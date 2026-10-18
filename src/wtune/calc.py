@@ -366,7 +366,7 @@ def io_frame_bytes(e_we, e_sn, e_vert, n3d=IO_N3D, n2d=IO_N2D):
 def _calibrated_bytes_per_cell_level():
     try:
         import wtune.predict
-        cal = wtune.predict.load_calibration(wtune.predict.DEFAULT_CALIBRATION)
+        cal = wtune.predict.load_calibration(wtune.predict.calibration_path())
         return float(cal["derived"]["bytes_per_cell_level"])
     except Exception:
         return None
@@ -407,7 +407,7 @@ def run(namelist, nodes=None, nx=None, ny=None, calibration=None):
     if nodes and nx and ny:
         pred = wp.build_prediction(namelist_path=namelist, case_dir=str(Path(namelist).parent), nodes=nodes,
                                    config={"ranks": nx * ny, "omp": 1, "nx": nx, "ny": ny, "numtiles": 1, "dist": None},
-                                   ledger_paths=None, calibration_path=calibration or str(wp.DEFAULT_CALIBRATION),
+                                   ledger_paths=None, calibration_path=calibration or wp.calibration_path(),
                                    io_form_override=None, io_target="nfs")
         items.append(_item("run.predict", "predicted wall time (wtune.predict)", pred["total_s"], "s",
                            "%d nodes, %dx%d ranks; accuracy caveats live in wtune.predict" % (nodes, nx, ny)))

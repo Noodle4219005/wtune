@@ -12,13 +12,12 @@ from typing import Any, Callable
 
 import wtune.case
 import wtune.config
+import wtune.machine
 from ._deps import campaign_configs, sweep, predict, probe_plan
 
-DEFAULT_MAX_NODES = 13                 # scc compute pool: work[1-13], head excluded (scc_sweep.py)
 DEFAULT_STEPS = 20                     # probe steps per run (t0 search)
 DEFAULT_SEED = 1
 DEFAULT_KAPPA = 0.5                    # light exploration (spec: "kappa small, e.g. 0.5")
-DEFAULT_HARDWARE_ID = sweep.DEFAULT_HARDWARE_ID
 CONFIRM_REPS = 2                       # replicates per config in the confirm job
 DEFAULT_POLL_INTERVAL_S = 20.0         # s between sacct polls
 DEFAULT_STARTUP_S = sweep.STARTUP_S    # s/run startup, scc_sweep's documented constant, until
@@ -95,14 +94,16 @@ class Ctx:
     exclude_rules: list = dataclasses.field(default_factory=list)
     is_fire: bool = False
     chem_e_sn: Any = None              # e_sn list of an active WRF-Chem case (j-patch guard)
-    omp_cap: Any = None                # 1 for WRF-Chem/Hydro/WRFDA (dmpar-only builds)
+    omp_cap: Any = None                # threads per rank allowed: the extension's and the machine's
+    extension_omp_cap: Any = None      # 1 for WRF-Chem/Hydro/WRFDA (dmpar-only builds)
     confirm_reps: int = CONFIRM_REPS
     prediction_cfg: dict = dataclasses.field(
         default_factory=lambda: copy.deepcopy(wtune.config.DEFAULTS["prediction"]))
     probe_cfg: dict = dataclasses.field(          # probe.* (points, spinup_min, ...) for the winner
         default_factory=lambda: copy.deepcopy(wtune.config.DEFAULTS["probe"]))
     ranking_start_note: str | None = None
-    startup_s: float = DEFAULT_STARTUP_S          # s/run every run-time estimate sizes off
+    startup_s: float = dataclasses.field(         # s/run every run-time estimate sizes off
+        default_factory=lambda: wtune.machine.measured("startup_s"))
     startup_source: str = "documented constant (scc_sweep.STARTUP_S)"
     startup_runs: int | None = None               # completed round0 runs behind a measurement
     restart_io_form: int = 14                     # io_form of the point jobs' shared restart
@@ -115,6 +116,9 @@ class Ctx:
     anchor_override: dict | None = None           # node search: the sweep's hybrid ANCHOR at nodes
     core_budget: int | None = None                # node search: cores/node the layouts may use
     full_space: bool = False                      # enumerate every legal layout (O3)
+    node_seeds: str = "geometric"                 # node sweep: geometric seeds, or "all" legal N
+    hotspot_fill: bool = True                     # node sweep: fill a wave's idle nodes near the best N
+    input_copies: dict = dataclasses.field(default_factory=dict)  # job -> its BP input copy dir
     layout_notes: dict | None = None              # shared across ctx copies: untried / enumerated
     node_health: dict | None = None               # node_preflight result
     # --pipeline full: one {"s", "cap_hit", "run_s"} accumulator shared by every ctx copy

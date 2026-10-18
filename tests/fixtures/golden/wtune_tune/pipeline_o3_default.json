@@ -62,48 +62,31 @@
     "7019",
     "7020",
     "7021",
-    "8024",
-    "8025",
-    "8026"
+    "7022",
+    "7023",
+    "7024",
+    "7025",
+    "7026",
+    "7027",
+    "7028",
+    "7029",
+    "7030",
+    "7031",
+    "8034",
+    "8035",
+    "8036"
   ],
   "layout_table": {
     "comparison": {
-      "beyond_noise": false,
-      "gap": 0.016666666666666784,
+      "beyond_noise": true,
+      "gap": -0.09090909090909094,
       "noise": 0.03
     },
     "rows": [
       {
-        "cid": "ANCHOR",
-        "cores_per_node": 72,
-        "median": 0.2608695652173913,
-        "nodes": 4,
-        "numtiles": 1,
-        "nx": 16,
-        "ny": 18,
-        "omp": 1,
-        "ranks": 288,
-        "reps": 2,
-        "source": "finalist search",
-        "spread": 0.0
-      },
-      {
-        "cid": "ANCHOR",
-        "cores_per_node": 72,
-        "median": 0.26521739130434785,
-        "nodes": 5,
-        "numtiles": 1,
-        "nx": 18,
-        "ny": 20,
-        "omp": 1,
-        "ranks": 360,
-        "reps": 2,
-        "source": "finalist search",
-        "spread": 0.0
-      },
-      {
         "cid": "D0003",
         "cores_per_node": 72,
+        "dist": "block",
         "median": 0.2727272727272727,
         "nodes": 4,
         "numtiles": 3,
@@ -118,6 +101,7 @@
       {
         "cid": "D0004",
         "cores_per_node": 72,
+        "dist": "block",
         "median": 0.2772727272727272,
         "nodes": 5,
         "numtiles": 4,
@@ -132,6 +116,7 @@
       {
         "cid": "D0005",
         "cores_per_node": 72,
+        "dist": "block",
         "median": 0.2772727272727272,
         "nodes": 5,
         "numtiles": 8,
@@ -146,6 +131,7 @@
       {
         "cid": "D0004",
         "cores_per_node": 72,
+        "dist": "block",
         "median": 0.2857142857142857,
         "nodes": 4,
         "numtiles": 4,
@@ -160,6 +146,7 @@
       {
         "cid": "D0007",
         "cores_per_node": 72,
+        "dist": "block",
         "median": 0.2857142857142857,
         "nodes": 4,
         "numtiles": 13,
@@ -174,6 +161,7 @@
       {
         "cid": "D0005",
         "cores_per_node": 72,
+        "dist": "block",
         "median": 0.2857142857142857,
         "nodes": 4,
         "numtiles": 8,
@@ -188,6 +176,7 @@
       {
         "cid": "D0002",
         "cores_per_node": 72,
+        "dist": "block",
         "median": 0.29047619047619044,
         "nodes": 5,
         "numtiles": 2,
@@ -202,6 +191,7 @@
       {
         "cid": "D0003",
         "cores_per_node": 72,
+        "dist": "block",
         "median": 0.29047619047619044,
         "nodes": 5,
         "numtiles": 3,
@@ -216,6 +206,7 @@
       {
         "cid": "D0007",
         "cores_per_node": 72,
+        "dist": "block",
         "median": 0.29047619047619044,
         "nodes": 5,
         "numtiles": 13,
@@ -229,7 +220,23 @@
       },
       {
         "cid": "ANCHOR",
+        "cores_per_node": 72,
+        "dist": "block",
+        "median": 0.3,
+        "nodes": 4,
+        "numtiles": 1,
+        "nx": 16,
+        "ny": 18,
+        "omp": 1,
+        "ranks": 288,
+        "reps": 6,
+        "source": "cores/node sweep ANCHOR",
+        "spread": 0.0
+      },
+      {
+        "cid": "ANCHOR",
         "cores_per_node": 70,
+        "dist": "block",
         "median": 0.3,
         "nodes": 4,
         "numtiles": 1,
@@ -237,13 +244,14 @@
         "ny": 20,
         "omp": 1,
         "ranks": 280,
-        "reps": 2,
+        "reps": 4,
         "source": "cores/node sweep ANCHOR",
         "spread": 0.0
       },
       {
         "cid": "ANCHOR",
         "cores_per_node": 64,
+        "dist": "block",
         "median": 0.3,
         "nodes": 4,
         "numtiles": 1,
@@ -251,13 +259,14 @@
         "ny": 16,
         "omp": 1,
         "ranks": 256,
-        "reps": 2,
+        "reps": 4,
         "source": "cores/node sweep ANCHOR",
         "spread": 0.0
       },
       {
         "cid": "ANCHOR",
         "cores_per_node": 48,
+        "dist": "block",
         "median": 0.3,
         "nodes": 4,
         "numtiles": 1,
@@ -272,6 +281,7 @@
       {
         "cid": "ANCHOR",
         "cores_per_node": 36,
+        "dist": "block",
         "median": 0.3,
         "nodes": 4,
         "numtiles": 1,
@@ -286,6 +296,7 @@
       {
         "cid": "D0006",
         "cores_per_node": 72,
+        "dist": "block",
         "median": 0.3,
         "nodes": 4,
         "numtiles": 12,
@@ -300,6 +311,7 @@
       {
         "cid": "D0001",
         "cores_per_node": 72,
+        "dist": "block",
         "median": 0.3,
         "nodes": 4,
         "numtiles": 1,
@@ -314,6 +326,7 @@
       {
         "cid": "D0002",
         "cores_per_node": 72,
+        "dist": "block",
         "median": 0.3,
         "nodes": 4,
         "numtiles": 2,
@@ -327,7 +340,23 @@
       },
       {
         "cid": "ANCHOR",
+        "cores_per_node": 72,
+        "dist": "block",
+        "median": 0.305,
+        "nodes": 5,
+        "numtiles": 1,
+        "nx": 18,
+        "ny": 20,
+        "omp": 1,
+        "ranks": 360,
+        "reps": 6,
+        "source": "cores/node sweep ANCHOR",
+        "spread": 0.0
+      },
+      {
+        "cid": "ANCHOR",
         "cores_per_node": 70,
+        "dist": "block",
         "median": 0.305,
         "nodes": 5,
         "numtiles": 1,
@@ -335,13 +364,14 @@
         "ny": 25,
         "omp": 1,
         "ranks": 350,
-        "reps": 2,
+        "reps": 4,
         "source": "cores/node sweep ANCHOR",
         "spread": 0.0
       },
       {
         "cid": "ANCHOR",
         "cores_per_node": 64,
+        "dist": "block",
         "median": 0.305,
         "nodes": 5,
         "numtiles": 1,
@@ -349,13 +379,14 @@
         "ny": 20,
         "omp": 1,
         "ranks": 320,
-        "reps": 2,
+        "reps": 4,
         "source": "cores/node sweep ANCHOR",
         "spread": 0.0
       },
       {
         "cid": "ANCHOR",
         "cores_per_node": 48,
+        "dist": "block",
         "median": 0.305,
         "nodes": 5,
         "numtiles": 1,
@@ -370,6 +401,7 @@
       {
         "cid": "ANCHOR",
         "cores_per_node": 36,
+        "dist": "block",
         "median": 0.305,
         "nodes": 5,
         "numtiles": 1,
@@ -384,6 +416,7 @@
       {
         "cid": "D0006",
         "cores_per_node": 72,
+        "dist": "block",
         "median": 0.305,
         "nodes": 5,
         "numtiles": 12,
@@ -398,6 +431,7 @@
       {
         "cid": "D0001",
         "cores_per_node": 72,
+        "dist": "block",
         "median": 0.305,
         "nodes": 5,
         "numtiles": 1,
@@ -412,6 +446,22 @@
       {
         "cid": "ANCHOR",
         "cores_per_node": 72,
+        "dist": "block",
+        "median": 0.31,
+        "nodes": 6,
+        "numtiles": 1,
+        "nx": 18,
+        "ny": 24,
+        "omp": 1,
+        "ranks": 432,
+        "reps": 4,
+        "source": "t0 sweep ANCHOR",
+        "spread": 0.0
+      },
+      {
+        "cid": "ANCHOR",
+        "cores_per_node": 72,
+        "dist": "block",
         "median": 0.32,
         "nodes": 8,
         "numtiles": 1,
@@ -426,6 +476,7 @@
       {
         "cid": "ANCHOR",
         "cores_per_node": 72,
+        "dist": "block",
         "median": 0.41000000000000003,
         "nodes": 3,
         "numtiles": 1,
@@ -440,6 +491,7 @@
       {
         "cid": "ANCHOR",
         "cores_per_node": 72,
+        "dist": "block",
         "median": 0.52,
         "nodes": 2,
         "numtiles": 1,
@@ -454,6 +506,7 @@
       {
         "cid": "ANCHOR",
         "cores_per_node": 72,
+        "dist": "block",
         "median": 1.0,
         "nodes": 1,
         "numtiles": 1,
@@ -467,15 +520,16 @@
       }
     ],
     "runner_up": {
-      "cid": "ANCHOR",
+      "cid": "D0003",
       "cores_per_node": 72,
-      "median": 0.26521739130434785,
-      "nodes": 5,
-      "numtiles": 1,
-      "nx": 18,
-      "ny": 20,
+      "dist": "block",
+      "median": 0.2727272727272727,
+      "nodes": 4,
+      "numtiles": 3,
+      "nx": 8,
+      "ny": 36,
       "omp": 1,
-      "ranks": 360,
+      "ranks": 288,
       "reps": 2,
       "source": "finalist search",
       "spread": 0.0
@@ -483,15 +537,16 @@
     "winner": {
       "cid": "ANCHOR",
       "cores_per_node": 72,
-      "median": 0.2608695652173913,
+      "dist": "block",
+      "median": 0.3,
       "nodes": 4,
       "numtiles": 1,
       "nx": 16,
       "ny": 18,
       "omp": 1,
       "ranks": 288,
-      "reps": 2,
-      "source": "finalist search",
+      "reps": 6,
+      "source": "cores/node sweep ANCHOR",
       "spread": 0.0
     }
   },
@@ -541,7 +596,7 @@
     "choices": {
       "cost": {
         "nodes": 1,
-        "note": "objective=cost: N=1 wall=1120s node_hours=0.31 (min among 6 feasible, no deadline)"
+        "note": "objective=cost: N=1 wall=1120s node_hours=0.31 (min among 7 feasible, no deadline)"
       },
       "knee": {
         "nodes": 4,
@@ -578,7 +633,7 @@
           "cores": 72,
           "maxrss_mb": null,
           "median": 0.3,
-          "n": 2,
+          "n": 6,
           "nx": 16,
           "ny": 18,
           "omp": 1,
@@ -591,7 +646,7 @@
           "cores": 70,
           "maxrss_mb": null,
           "median": 0.3,
-          "n": 2,
+          "n": 4,
           "nx": 14,
           "ny": 20,
           "omp": 1,
@@ -604,7 +659,7 @@
           "cores": 64,
           "maxrss_mb": null,
           "median": 0.3,
-          "n": 2,
+          "n": 4,
           "nx": 16,
           "ny": 16,
           "omp": 1,
@@ -645,7 +700,7 @@
           "cores": 72,
           "maxrss_mb": null,
           "median": 0.305,
-          "n": 2,
+          "n": 6,
           "nx": 18,
           "ny": 20,
           "omp": 1,
@@ -658,7 +713,7 @@
           "cores": 70,
           "maxrss_mb": null,
           "median": 0.305,
-          "n": 2,
+          "n": 4,
           "nx": 14,
           "ny": 25,
           "omp": 1,
@@ -671,7 +726,7 @@
           "cores": 64,
           "maxrss_mb": null,
           "median": 0.305,
-          "n": 2,
+          "n": 4,
           "nx": 16,
           "ny": 20,
           "omp": 1,
@@ -741,36 +796,9 @@
     ],
     "layouts": [
       {
-        "cid": "ANCHOR",
-        "cores_per_node": 72,
-        "median": 0.2608695652173913,
-        "nodes": 4,
-        "numtiles": 1,
-        "nx": 16,
-        "ny": 18,
-        "omp": 1,
-        "ranks": 288,
-        "reps": 2,
-        "source": "finalist search",
-        "spread": 0.0
-      },
-      {
-        "cid": "ANCHOR",
-        "cores_per_node": 72,
-        "median": 0.26521739130434785,
-        "nodes": 5,
-        "numtiles": 1,
-        "nx": 18,
-        "ny": 20,
-        "omp": 1,
-        "ranks": 360,
-        "reps": 2,
-        "source": "finalist search",
-        "spread": 0.0
-      },
-      {
         "cid": "D0003",
         "cores_per_node": 72,
+        "dist": "block",
         "median": 0.2727272727272727,
         "nodes": 4,
         "numtiles": 3,
@@ -785,6 +813,7 @@
       {
         "cid": "D0004",
         "cores_per_node": 72,
+        "dist": "block",
         "median": 0.2772727272727272,
         "nodes": 5,
         "numtiles": 4,
@@ -799,6 +828,7 @@
       {
         "cid": "D0005",
         "cores_per_node": 72,
+        "dist": "block",
         "median": 0.2772727272727272,
         "nodes": 5,
         "numtiles": 8,
@@ -813,6 +843,7 @@
       {
         "cid": "D0004",
         "cores_per_node": 72,
+        "dist": "block",
         "median": 0.2857142857142857,
         "nodes": 4,
         "numtiles": 4,
@@ -827,6 +858,7 @@
       {
         "cid": "D0007",
         "cores_per_node": 72,
+        "dist": "block",
         "median": 0.2857142857142857,
         "nodes": 4,
         "numtiles": 13,
@@ -841,6 +873,7 @@
       {
         "cid": "D0005",
         "cores_per_node": 72,
+        "dist": "block",
         "median": 0.2857142857142857,
         "nodes": 4,
         "numtiles": 8,
@@ -855,6 +888,7 @@
       {
         "cid": "D0002",
         "cores_per_node": 72,
+        "dist": "block",
         "median": 0.29047619047619044,
         "nodes": 5,
         "numtiles": 2,
@@ -869,6 +903,7 @@
       {
         "cid": "D0003",
         "cores_per_node": 72,
+        "dist": "block",
         "median": 0.29047619047619044,
         "nodes": 5,
         "numtiles": 3,
@@ -883,6 +918,7 @@
       {
         "cid": "D0007",
         "cores_per_node": 72,
+        "dist": "block",
         "median": 0.29047619047619044,
         "nodes": 5,
         "numtiles": 13,
@@ -896,7 +932,23 @@
       },
       {
         "cid": "ANCHOR",
+        "cores_per_node": 72,
+        "dist": "block",
+        "median": 0.3,
+        "nodes": 4,
+        "numtiles": 1,
+        "nx": 16,
+        "ny": 18,
+        "omp": 1,
+        "ranks": 288,
+        "reps": 6,
+        "source": "cores/node sweep ANCHOR",
+        "spread": 0.0
+      },
+      {
+        "cid": "ANCHOR",
         "cores_per_node": 70,
+        "dist": "block",
         "median": 0.3,
         "nodes": 4,
         "numtiles": 1,
@@ -904,13 +956,14 @@
         "ny": 20,
         "omp": 1,
         "ranks": 280,
-        "reps": 2,
+        "reps": 4,
         "source": "cores/node sweep ANCHOR",
         "spread": 0.0
       },
       {
         "cid": "ANCHOR",
         "cores_per_node": 64,
+        "dist": "block",
         "median": 0.3,
         "nodes": 4,
         "numtiles": 1,
@@ -918,13 +971,14 @@
         "ny": 16,
         "omp": 1,
         "ranks": 256,
-        "reps": 2,
+        "reps": 4,
         "source": "cores/node sweep ANCHOR",
         "spread": 0.0
       },
       {
         "cid": "ANCHOR",
         "cores_per_node": 48,
+        "dist": "block",
         "median": 0.3,
         "nodes": 4,
         "numtiles": 1,
@@ -939,6 +993,7 @@
       {
         "cid": "ANCHOR",
         "cores_per_node": 36,
+        "dist": "block",
         "median": 0.3,
         "nodes": 4,
         "numtiles": 1,
@@ -953,6 +1008,7 @@
       {
         "cid": "D0006",
         "cores_per_node": 72,
+        "dist": "block",
         "median": 0.3,
         "nodes": 4,
         "numtiles": 12,
@@ -967,6 +1023,7 @@
       {
         "cid": "D0001",
         "cores_per_node": 72,
+        "dist": "block",
         "median": 0.3,
         "nodes": 4,
         "numtiles": 1,
@@ -981,6 +1038,7 @@
       {
         "cid": "D0002",
         "cores_per_node": 72,
+        "dist": "block",
         "median": 0.3,
         "nodes": 4,
         "numtiles": 2,
@@ -994,7 +1052,23 @@
       },
       {
         "cid": "ANCHOR",
+        "cores_per_node": 72,
+        "dist": "block",
+        "median": 0.305,
+        "nodes": 5,
+        "numtiles": 1,
+        "nx": 18,
+        "ny": 20,
+        "omp": 1,
+        "ranks": 360,
+        "reps": 6,
+        "source": "cores/node sweep ANCHOR",
+        "spread": 0.0
+      },
+      {
+        "cid": "ANCHOR",
         "cores_per_node": 70,
+        "dist": "block",
         "median": 0.305,
         "nodes": 5,
         "numtiles": 1,
@@ -1002,13 +1076,14 @@
         "ny": 25,
         "omp": 1,
         "ranks": 350,
-        "reps": 2,
+        "reps": 4,
         "source": "cores/node sweep ANCHOR",
         "spread": 0.0
       },
       {
         "cid": "ANCHOR",
         "cores_per_node": 64,
+        "dist": "block",
         "median": 0.305,
         "nodes": 5,
         "numtiles": 1,
@@ -1016,13 +1091,14 @@
         "ny": 20,
         "omp": 1,
         "ranks": 320,
-        "reps": 2,
+        "reps": 4,
         "source": "cores/node sweep ANCHOR",
         "spread": 0.0
       },
       {
         "cid": "ANCHOR",
         "cores_per_node": 48,
+        "dist": "block",
         "median": 0.305,
         "nodes": 5,
         "numtiles": 1,
@@ -1037,6 +1113,7 @@
       {
         "cid": "ANCHOR",
         "cores_per_node": 36,
+        "dist": "block",
         "median": 0.305,
         "nodes": 5,
         "numtiles": 1,
@@ -1051,6 +1128,7 @@
       {
         "cid": "D0006",
         "cores_per_node": 72,
+        "dist": "block",
         "median": 0.305,
         "nodes": 5,
         "numtiles": 12,
@@ -1065,6 +1143,7 @@
       {
         "cid": "D0001",
         "cores_per_node": 72,
+        "dist": "block",
         "median": 0.305,
         "nodes": 5,
         "numtiles": 1,
@@ -1079,6 +1158,22 @@
       {
         "cid": "ANCHOR",
         "cores_per_node": 72,
+        "dist": "block",
+        "median": 0.31,
+        "nodes": 6,
+        "numtiles": 1,
+        "nx": 18,
+        "ny": 24,
+        "omp": 1,
+        "ranks": 432,
+        "reps": 4,
+        "source": "t0 sweep ANCHOR",
+        "spread": 0.0
+      },
+      {
+        "cid": "ANCHOR",
+        "cores_per_node": 72,
+        "dist": "block",
         "median": 0.32,
         "nodes": 8,
         "numtiles": 1,
@@ -1093,6 +1188,7 @@
       {
         "cid": "ANCHOR",
         "cores_per_node": 72,
+        "dist": "block",
         "median": 0.41000000000000003,
         "nodes": 3,
         "numtiles": 1,
@@ -1107,6 +1203,7 @@
       {
         "cid": "ANCHOR",
         "cores_per_node": 72,
+        "dist": "block",
         "median": 0.52,
         "nodes": 2,
         "numtiles": 1,
@@ -1121,6 +1218,7 @@
       {
         "cid": "ANCHOR",
         "cores_per_node": 72,
+        "dist": "block",
         "median": 1.0,
         "nodes": 1,
         "numtiles": 1,
@@ -1139,24 +1237,21 @@
     "objective": "time",
     "overhead_s": 120.0,
     "runner_up": {
-      "cid": "ANCHOR",
+      "cid": "D0003",
       "cores_per_node": 72,
-      "median": 0.26521739130434785,
-      "nodes": 5,
-      "numtiles": 1,
-      "nx": 18,
-      "ny": 20,
+      "dist": "block",
+      "median": 0.2727272727272727,
+      "nodes": 4,
+      "numtiles": 3,
+      "nx": 8,
+      "ny": 36,
       "omp": 1,
-      "ranks": 360,
+      "ranks": 288,
       "reps": 2,
       "source": "finalist search",
       "spread": 0.0
     },
     "skipped": [
-      {
-        "nodes": 6,
-        "reason": "not measured: outside refinement bracket (3..5 around the best N=4)"
-      },
       {
         "nodes": 7,
         "reason": "not measured: outside refinement bracket (3..5 around the best N=4)"
@@ -1189,7 +1284,11 @@
       "7003",
       "7004",
       "7005",
-      "7006"
+      "7006",
+      "7007",
+      "7008",
+      "7009",
+      "7010"
     ],
     "table": [
       {
@@ -1229,7 +1328,7 @@
         "efficiency": 0.8333333333333334,
         "maxrss_mb": null,
         "median": 0.3,
-        "n": 2,
+        "n": 4,
         "node_hours": 0.4666666666666667,
         "nodes": 4,
         "speedup": 3.3333333333333335,
@@ -1240,12 +1339,23 @@
         "efficiency": 0.6557377049180328,
         "maxrss_mb": null,
         "median": 0.305,
-        "n": 2,
+        "n": 4,
         "node_hours": 0.5902777777777778,
         "nodes": 5,
         "speedup": 3.278688524590164,
         "spread": 0.0,
         "wall_s": 425.0
+      },
+      {
+        "efficiency": 0.5376344086021506,
+        "maxrss_mb": null,
+        "median": 0.31,
+        "n": 4,
+        "node_hours": 0.7166666666666667,
+        "nodes": 6,
+        "speedup": 3.2258064516129035,
+        "spread": 0.0,
+        "wall_s": 430.0
       },
       {
         "efficiency": 0.390625,
@@ -1261,10 +1371,6 @@
     ],
     "total_steps": 1000,
     "untried": [
-      {
-        "nodes": 6,
-        "reason": "not measured: outside refinement bracket (3..5 around the best N=4)"
-      },
       {
         "nodes": 7,
         "reason": "not measured: outside refinement bracket (3..5 around the best N=4)"
@@ -1293,20 +1399,21 @@
     "winner": {
       "cid": "ANCHOR",
       "cores_per_node": 72,
-      "median": 0.2608695652173913,
+      "dist": "block",
+      "median": 0.3,
       "nodes": 4,
       "numtiles": 1,
       "nx": 16,
       "ny": 18,
       "omp": 1,
       "ranks": 288,
-      "reps": 2,
-      "source": "finalist search",
+      "reps": 6,
+      "source": "cores/node sweep ANCHOR",
       "spread": 0.0
     },
     "winner_vs_runner_up": {
-      "beyond_noise": false,
-      "gap": 0.016666666666666784,
+      "beyond_noise": true,
+      "gap": -0.09090909090909094,
       "noise": 0.03
     }
   },
@@ -1325,7 +1432,7 @@
       "numtiles=1,"
     ],
     "nodes": 4,
-    "note": "KMP_BLOCKTIME: n/a on scc (nvhpc OpenMP runtime has no KMP_BLOCKTIME concept)",
+    "note": "KMP_BLOCKTIME: n/a on this cluster (nvhpc OpenMP runtime has no KMP_BLOCKTIME concept)",
     "nproc_x": 16,
     "nproc_y": 18,
     "numtiles": 1,
@@ -1345,6 +1452,7 @@
     "frames_deleted": 44,
     "frames_kept": false,
     "hard_deadline_s": null,
+    "jobs_busy_s": 0.0,
     "level": {
       "T_cold_s": 10120.0,
       "actual_running_s": 0.0,
@@ -1433,7 +1541,17 @@
           "7018",
           "7019",
           "7020",
-          "7021"
+          "7021",
+          "7022",
+          "7023",
+          "7024",
+          "7025",
+          "7026",
+          "7027",
+          "7028",
+          "7029",
+          "7030",
+          "7031"
         ],
         "limit_s": Infinity,
         "name": "layout",
@@ -1452,8 +1570,8 @@
         "job_run_s_max": null,
         "job_run_s_sum": null,
         "jobs": [
-          "8024",
-          "8025"
+          "8034",
+          "8035"
         ],
         "limit_s": Infinity,
         "name": "predict",
@@ -1471,7 +1589,7 @@
         "job_run_s_max": null,
         "job_run_s_sum": null,
         "jobs": [
-          "8026"
+          "8036"
         ],
         "limit_s": Infinity,
         "name": "physics",
@@ -1754,18 +1872,26 @@
     }
   ],
   "ranking_start_note": null,
+  "summary": [
+    "best:     N=4 c/n=72 288 ranks x 1 threads 16x18 tiles=1: 0.3000 s/step (6 runs)",
+    "run:      predicted 17:17 for the whole simulation (phase 2 combine())",
+    "margin:   N=4 c/n=72 288 ranks x 1 threads 8x36 tiles=3 is 9.1% faster per step; the pick ranks by predicted whole-run time",
+    "not run:  N=13 early stop; N=7,9-12 not measured",
+    "tuning:   running 0:00, queue 0:00 (not counted)"
+  ],
   "winner": {
     "cid": "ANCHOR",
     "cores_per_node": 72,
-    "median": 0.2608695652173913,
+    "dist": "block",
+    "median": 0.3,
     "nodes": 4,
     "numtiles": 1,
     "nx": 16,
     "ny": 18,
     "omp": 1,
     "ranks": 288,
-    "reps": 2,
-    "source": "finalist search",
+    "reps": 6,
+    "source": "cores/node sweep ANCHOR",
     "spread": 0.0
   }
 }

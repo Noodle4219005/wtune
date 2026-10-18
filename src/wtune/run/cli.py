@@ -13,10 +13,11 @@ import time
 from typing import Callable, Optional
 
 import wtune.extensions
+import wtune.machine
 import wtune.watch
 from ._deps import _CAMPAIGN_DIR, coldstart, sweep, wp
 from .common import WRF_FMT, RunError, _fmt, _hms, parse_hms
-from .context import RunContext, RunOptions, RunPlan, Runners
+from .context import RunContext, RunOptions, RunPlan, Runners, default_scancel
 from .controller import _make_sidecar, run_controller
 from .estimate import (FALLBACK_RADIATION_FACTOR, Overheads, constant_compute_fn,
                        fallback_overheads, fallback_s_per_step, model_from_prediction)
@@ -25,7 +26,7 @@ from .inputs import (InputPlan, _logging_copier, convert_inputs, find_project_di
                      plan_inputs)
 from .layout import (Candidate, Config, Layout, TuneLayout, make_config, rank_mapping_notes,
                      resolve_layout, tune_candidates, tune_report_layout)
-from .namelist import namelist_diff_summary, render_segment_namelist
+from .namelist import _aux_outputs, namelist_diff_summary, render_segment_namelist
 from .plan import (RestartSetting, Segment, case_restart_interval_s, checkpoint_request,
                    checkpoint_steps_for_minutes, missing_record_files, plan_run, restart_setting,
                    restart_times)
@@ -79,6 +80,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
                     help="while a segment job runs, record each valid restart and convert "
                          "finished history frames to netCDF in the `wtune post` cache, on the "
                          "job's idle cores")
+    ap.add_argument("--compress-history", action="store_true",
+                    help="--sidecar, and each converted history frame replaces its BP directory "
+                         "(zlib netCDF, about 4x smaller, checked against the BP first; on a "
+                         "full node one core is shared at the lowest priority); of WTune's own "
+                         "restarts only the newest valid set is kept, none once the run has "
+                         "succeeded")
     ap.add_argument("--wrfda-forecast-only", action="store_true",
                     help="acknowledge that this WRFDA case is run as wrf.exe forecast segments "
                          "only: WTune does NOT run DA cycles (obsproc/da_wrfvar/da_update_bc). "
@@ -90,10 +97,13 @@ def build_arg_parser() -> argparse.ArgumentParser:
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--wrf-tree", default=None, help="default $WRF_TREE (run/ files are linked "
                                                      "by the job too)")
-    ap.add_argument("--env-source", default="$HOME/wtune-scc/env.sh")
+    ap.add_argument("--env-source", default=wtune.machine.env_source())
     ap.add_argument("--campaign-dir", default=_CAMPAIGN_DIR)
     ap.add_argument("--sacct-cmd", default="sacct")
     ap.add_argument("--poll-interval", type=float, default=60.0)
+    ap.add_argument("--stall-minutes", type=float, default=20.0, metavar="M",
+                    help="cancel a running segment job whose rsl.error.0000 has not changed "
+                         "for M minutes and stop the run (0 disables; default 20)")
     return ap
 
 
@@ -207,7 +217,9 @@ def _choose_layout(opts: RunOptions, log: Callable) -> LayoutChoice:
                "; CLI overrides %s -> N=%d %dx%d tiles %d omp %d"
                % (" ".join(overridden), lay.nodes, lay.nx, lay.ny, lay.numtiles, lay.omp)
                if overridden else ""))
-    config = make_config(lay.nx, lay.ny, lay.numtiles, lay.omp, lay.nodes)
+    # the rank order the winner was measured with; a layout changed by hand starts as block
+    dist = winner.dist if winner is not None and not overridden and winner.dist else "block"
+    config = make_config(lay.nx, lay.ny, lay.numtiles, lay.omp, lay.nodes, dist=dist)
     return LayoutChoice(lay, config, rep, winner, overridden)
 
 
@@ -231,7 +243,7 @@ def _tune_report_candidates(case: Case, choice: LayoutChoice, sample_points, can
     gives the winner's median s/step as a constant rate instead -> True (rate only)."""
     rep, winner = choice.report, choice.winner
     if any(r.get("points") for r in rep.get("ranking") or []) or not (winner and winner.median):
-        cal = wp.load_calibration(str(wp.DEFAULT_CALIBRATION))
+        cal = wp.load_calibration(wp.calibration_path())
         found = tune_candidates(rep, case.geo, sample_points, cal, choice.lay.nodes)
         if choice.overridden:          # explicit flags: that layout only, never the ranking's
             c = choice.config
@@ -280,7 +292,7 @@ def _wall_model(opts: RunOptions, case: Case, choice: LayoutChoice,
         candidates = [Candidate(config=config, compute=constant_compute_fn(s))]
         notes.append("no prediction: %.3f s/step fallback (cell-step model x %.1f); later "
                      "segments' --time from each finished segment's observed rate"
-                     % (s, FALLBACK_RADIATION_FACTOR))
+                     % (s, wtune.machine.measured("radiation_factor")))
     return candidates, over, replan
 
 
@@ -327,11 +339,18 @@ def _plan_notes(opts: RunOptions, case: Case, L: Optional[int], segs: list,
                      "its start history frame")
 
 
+def _wall_limit_s(opts: RunOptions) -> Optional[float]:
+    """--wall-limit in seconds, else the machine's longest job, else None (no limit)."""
+    if opts.wall_limit:
+        return parse_hms(opts.wall_limit)
+    return wtune.machine.max_hours() * 3600.0 or None
+
+
 def build_plan(opts: RunOptions, case_dir: str, out: str, log: Callable) -> RunPlan:
     """Everything decided before the first job; RunError (and the errors main() lists) when
     the run cannot be planned."""
     case = _load_case(opts, case_dir, out)
-    wall_limit_s = parse_hms(opts.wall_limit) if opts.wall_limit else None
+    wall_limit_s = _wall_limit_s(opts)
     choice = _choose_layout(opts, log)
     notes: list[str] = []
     candidates, over, replan = _wall_model(opts, case, choice, notes)
@@ -340,7 +359,7 @@ def build_plan(opts: RunOptions, case_dir: str, out: str, log: Callable) -> RunP
     L, segs, rst = _plan_segments(opts, case, candidates, over, inputs, wall_limit_s, notes)
     _plan_notes(opts, case, L, segs, rst, notes)
     nc_root = None
-    if opts.sidecar:
+    if opts.sidecar or opts.compress_history:
         import wtune.sidecar
         nc_root = wtune.sidecar.post_cache_root(out, find_project_dir(opts.project))
     return RunPlan(case_dir=case_dir, out=out, text=case.text, geo=case.geo, n_end=case.n_end,
@@ -371,7 +390,7 @@ def print_plan(opts: RunOptions, plan: RunPlan, log: Callable) -> None:
             "WRF stream since 2026-10-03): the case's own io_form_history/input/boundary/aux are "
             "kept, restart io_form %d" % opts.restart_io_form)
     log(io_plan_line(opts.io, inputs.io_streams, opts.restart_io_form, inputs.bp_plan,
-                     inputs.bp_cache, plan.case_dir))
+                     inputs.bp_cache, plan.case_dir, tuple(_aux_outputs(plan.text))))
 
 
 def print_dry_run(opts: RunOptions, plan: RunPlan, log: Callable) -> None:
@@ -400,7 +419,7 @@ def _run_context(opts: RunOptions, plan: RunPlan, runners: Runners,
     if os.path.isfile(case_xml):
         with open(case_xml) as f:
             ctx.case_adios2_xml = f.read()
-    if opts.sidecar:
+    if opts.sidecar or opts.compress_history:
         ctx.sidecar = _make_sidecar(ctx, plan.nc_root, sidecar_runner)
     return ctx
 
@@ -439,7 +458,8 @@ def _fail(e) -> int:
 def main(argv: Optional[list] = None, sbatch_runner: Optional[Callable] = None,
          sacct_runner: Optional[Callable] = None, snapshot_fn: Optional[Callable] = None,
          sleep: Optional[Callable] = None, log: Callable = print,
-         sidecar_runner: Optional[Callable] = None) -> int:
+         sidecar_runner: Optional[Callable] = None, scancel_runner: Optional[Callable] = None,
+         clock: Optional[Callable] = None) -> int:
     opts = parse_options(argv)
     try:
         opts = apply_project_defaults(opts, log)
@@ -472,5 +492,7 @@ def main(argv: Optional[list] = None, sbatch_runner: Optional[Callable] = None,
     runners = Runners(sbatch_runner=sbatch_runner or sweep.default_sbatch_runner,
                       sacct_runner=sacct_runner or sweep.default_sacct_runner,
                       snapshot_fn=snapshot_fn or wtune.watch.snapshot,
-                      sleep=sleep or time.sleep, log=log)
+                      sleep=sleep or time.sleep, log=log,
+                      scancel_runner=scancel_runner or default_scancel,
+                      clock=clock or time.monotonic)
     return execute(_run_context(opts, plan, runners, sidecar_runner))

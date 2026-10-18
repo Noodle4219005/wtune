@@ -78,6 +78,20 @@ def compute_slots(max_nodes: int, nodes: int) -> int:
     return max(1, int(max_nodes) // int(nodes))
 
 
+RACE_MAX = 3                          # keys measured again when they tie with the fastest
+
+
+def close_to_best(medians: dict, noise: float) -> list:
+    """Keys whose median is within 2x `noise` of the fastest, fastest first, at most RACE_MAX;
+    [] when the fastest has no such rival (one more run would not change the pick)."""
+    if not medians:
+        return []
+    best = min(medians.values())
+    close = sorted((k for k, m in medians.items() if m <= best * (1.0 + 2.0 * noise)),
+                   key=lambda k: medians[k])[:RACE_MAX]
+    return close if len(close) > 1 else []
+
+
 def would_exceed_budget(elapsed_s: float, estimated_job_s: float, budget_s: float) -> bool:
     return (elapsed_s + estimated_job_s) > budget_s
 

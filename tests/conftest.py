@@ -11,11 +11,33 @@ falls through to the entries this file adds.
 import os
 import sys
 
+import pytest
+
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _SRC = os.path.join(_REPO_ROOT, "src")
 
 if _SRC not in sys.path:
     sys.path.insert(0, _SRC)
+
+# the developer's own machine settings must not reach the tests (or the commands they spawn)
+os.environ["WTUNE_MACHINE_FILE"] = os.path.join(os.sep, "nonexistent", "wtune-machine.yaml")
+# nor the site's WRF tree: wtune check reads the build it names (f1-arm job 15557)
+os.environ.pop("WRF_TREE", None)
+# recipe figure sets in one process: tests stub them with local closures (test_post_recipe_parallel)
+os.environ["WTUNE_POST_WORKERS"] = "1"
+
+
+@pytest.fixture(autouse=True)
+def _no_real_slurm(monkeypatch):
+    """On a cluster the node preflight would list the real nodes with sinfo and srun onto
+    each of them; a test that wants a preflight passes its own runner."""
+    import wtune.tune.cli
+    import wtune.tune.preflight
+
+    def absent(argv, timeout_s):
+        raise FileNotFoundError(argv[0])
+    monkeypatch.setattr(wtune.tune.preflight, "default_preflight_runner", absent)
+    monkeypatch.setattr(wtune.tune.cli, "default_preflight_runner", absent)
 
 
 def swap_wtune_module(monkeypatch, name, module):

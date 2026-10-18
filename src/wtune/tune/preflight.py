@@ -10,12 +10,13 @@ import subprocess
 import time
 from typing import Any, Callable
 
+import wtune.machine
 from ._deps import sweep
 
 PREFLIGHT_TIMEOUT_S = 45.0             # s per srun probe
 SINFO_TIMEOUT_S = 30                   # s for the sinfo call
+BUSY_STATES = ("alloc", "mix")         # sinfo %T of a node running someone's job
 HEALTH_BAD_STATES = ("down", "drain", "fail", "maint", "unk", "no_respond", "inval", "powered")
-DEFAULT_WRF_TREE = "$HOME/wrf-stack/wrf/nvhpc-fast-adios2-dmsm/WRF"     # campaign/sites/scc.sh's W
 
 Runner = Callable[[list, float], tuple]
 
@@ -43,9 +44,10 @@ def _sinfo_states(text: str) -> dict[str, str]:
     """{node: state} of `sinfo -h -N -o "%n %T"` output, head excluded; a node listed in several
     partitions keeps its first bad state."""
     states: dict[str, str] = {}
+    login = wtune.machine.login_nodes()
     for line in text.splitlines():
         parts = line.split()
-        if len(parts) >= 2 and parts[0] != "head":
+        if len(parts) >= 2 and parts[0] not in login:
             prev = states.get(parts[0])
             if prev is None or (_bad_state(parts[1]) and not _bad_state(prev)):
                 states[parts[0]] = parts[1]
@@ -54,15 +56,19 @@ def _sinfo_states(text: str) -> dict[str, str]:
 
 def _probe_node(runner: Runner, n: str, state: str, script: str,
                 timeout_s: float) -> tuple[str, dict]:
-    """(node, {state, ok, probed, reason}) of one srun probe; a timeout on an ALLOCATED node
-    only means it is busy: kept, unprobed."""
-    argv = ["srun", "-w", n, "-N1", "-n1", "-t", "1", "--exclude=head", "bash", "-c", script]
+    """(node, {state, ok, probed, reason}) of one srun probe; a timeout on a node other jobs
+    are using (allocated, or mixed on a cluster that shares nodes) only means it is busy:
+    kept, unprobed."""
+    login = wtune.machine.login_nodes()
+    argv = (["srun", "-p", wtune.machine.partition(), "-w", n, "-N1", "-n1", "-t", "1"]
+            + [a for a in ("--exclude=" + ",".join(login) if login else "",
+                           wtune.machine.account_arg()) if a] + ["bash", "-c", script])
     try:
         rc, out = runner(argv, timeout_s)
     except subprocess.TimeoutExpired:
-        if state.lower().startswith("alloc"):
+        if state.lower().startswith(BUSY_STATES):
             return n, dict(state=state, ok=True, probed=False,
-                           reason="allocated by another job: not probed (timed out waiting)")
+                           reason="in use by another job: not probed (timed out waiting)")
         return n, dict(state=state, ok=False, probed=True,
                        reason="probe timed out after %gs" % timeout_s)
     except (OSError, subprocess.SubprocessError) as e:
@@ -86,7 +92,8 @@ def node_preflight(runner: Runner, *, case_dir: str, src_dir: str, wrf_exe: str,
                   max_nodes_effective=int(requested), probe_s=0.0)
     user = [n.strip() for n in os.environ.get("WTUNE_SBATCH_EXCLUDE", "").split(",") if n.strip()]
     try:
-        rc, text = runner(["sinfo", "-h", "-N", "-o", "%n %T"], SINFO_TIMEOUT_S)
+        rc, text = runner(["sinfo", "-h", "-N", "-p", wtune.machine.partition(), "-o", "%n %T"],
+                          SINFO_TIMEOUT_S)
         if rc != 0:
             raise OSError("sinfo rc=%d: %s" % (rc, text))
     except (OSError, subprocess.SubprocessError) as e:

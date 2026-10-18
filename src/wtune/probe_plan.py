@@ -16,6 +16,8 @@ import math
 import os
 import re
 import statistics
+
+import wtune.machine
 from typing import Any, Callable
 
 from wtune.tools import coldstart_sample as coldstart   # tools/coldstart_sample.py -- READ-ONLY dependency: this
@@ -537,9 +539,10 @@ def _resolve_r_rad_from_points(pooled_radiation_samples, calibration):
     default."""
     calibration = calibration or {}
     cal_rad = calibration.get("radiation", {})
-    default_r_rad = cal_rad.get("r_rad_default", 5.0)
+    default_r_rad = cal_rad.get("r_rad_default", wtune.machine.measured("r_rad_default"))
     if len(pooled_radiation_samples) >= 2:
-        day_night_ratio = cal_rad.get("r_rad_day_night_ratio", predict.DEFAULT_R_RAD_DAY_NIGHT_RATIO)
+        day_night_ratio = cal_rad.get("r_rad_day_night_ratio",
+                                      wtune.machine.measured("r_rad_day_night_ratio"))
         r_night, r_day, source = predict.fit_day_night_r_rad(pooled_radiation_samples, day_night_ratio)
         if r_night is not None:
             return r_night, r_day, source

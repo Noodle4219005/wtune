@@ -185,6 +185,7 @@ class PipelineSummary(Record):
     prediction_band: Any = UNSET
     total_running_s: Any = UNSET
     total_wall_s: Any = UNSET
+    jobs_busy_s: Any = UNSET           # sacct: seconds during which any job of the tune ran
     total_queue_wait_s: Any = UNSET
     total_controller_s: Any = UNSET
     predicted_real_s: Any = UNSET

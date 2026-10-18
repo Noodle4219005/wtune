@@ -27,6 +27,9 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--skip-tune", action="store_true",
                     help="no tune: run with the project's newest tune report")
     ap.add_argument("--no-post", action="store_true", help="stop after the run")
+    ap.add_argument("--compress-history", action="store_true",
+                    help="the run's history frames become checked zlib netCDF as they are "
+                         "written (wtune run --compress-history)")
     ap.add_argument("--detach", action="store_true",
                     help="keep going after logout; output goes to <project>/submit-<id>.log")
     ap.add_argument("--dry-run", action="store_true", help="print the steps only")
@@ -86,16 +89,23 @@ def fetch_steps(project_dir: str, names: list[str], window) -> list[tuple[str, l
 
 
 def plan_steps(project_dir: str, out_id: str, level: str, skip_tune: bool, no_post: bool,
-               fetch: list | None = None) -> list[tuple[str, list[str]]]:
-    """[(step name, argv), ...] for one submit. `fetch` steps (observations) never stop it."""
+               fetch: list | None = None,
+               compress_history: bool = False) -> list[tuple[str, list[str]]]:
+    """[(step name, argv), ...] for one submit. `fetch` steps (observations) never stop it.
+    The project's own wtune.yaml, when there is one, is the tune's --config."""
     def out(sub):
         return os.path.join(project_dir, sub, out_id)
 
     steps = []
     run = [WTUNE_BIN, "run", "--project", project_dir, "--out", out("runs")]
+    if compress_history:
+        run.append("--compress-history")
     if not skip_tune:
-        steps.append(("tune", [WTUNE_BIN, "tune", "-O" + level, "--project", project_dir,
-                               "--out", out("tune")]))
+        tune = [WTUNE_BIN, "tune", "-O" + level, "--project", project_dir, "--out", out("tune")]
+        config = os.path.join(project_dir, "wtune.yaml")
+        if os.path.isfile(config):
+            tune += ["--config", config]
+        steps.append(("tune", tune))
         run += ["--tune-report", os.path.join(out("tune"), "tune_report.json")]
     steps.append(("run", run))
     if not no_post:
@@ -160,7 +170,8 @@ def main(argv: list[str] | None = None) -> int:
         else:
             print("note: case window unreadable (namelist.input/wrfinput_d01): observations "
                   "not fetched; post marks those figures missing")
-    steps = plan_steps(project_dir, out_id, args.level, args.skip_tune, args.no_post, fetch)
+    steps = plan_steps(project_dir, out_id, args.level, args.skip_tune, args.no_post, fetch,
+                       args.compress_history)
     if args.dry_run:
         for name, cmd in steps:
             print("%-4s  %s" % (name, " ".join(cmd)))

@@ -7,12 +7,17 @@ import fig/missing/note lazily to avoid a circular import with the dispatch impo
 from __future__ import annotations
 
 import json
+import multiprocessing
 import os
+import shutil
+from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures.process import BrokenProcessPool
 from dataclasses import dataclass, field
 
 from wtune.post import caseinfo
 
 CATALOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "recipes", "catalog.json")
+FIGURE_EXTS = (".png", ".gif", ".svg", ".mp4")
 
 
 def fig(id, path, run, domain=None, valid_time=None, extra=None) -> dict:
@@ -316,16 +321,55 @@ def _fail_soft(name, fn, *args, **kwargs) -> list:
                         "%s: %s" % (type(e).__name__, e))]
 
 
+def _post_workers(n_tasks: int) -> int:
+    """Processes for the figure sets: WTUNE_POST_WORKERS, else one per CPU this job may use."""
+    from wtune.post.extract import _cpu_budget
+    env = os.environ.get("WTUNE_POST_WORKERS", "").strip()
+    return max(1, min(int(env) if env else _cpu_budget(), n_tasks))
+
+
+def _in_parallel(tasks: list) -> list:
+    """[(name, fn, args, kwargs)] -> their entries, concatenated in task order. Each figure set
+    only reads the history and writes its own subdirectory, so each runs in its own process; a
+    worker process that dies becomes one missing entry per unfinished set."""
+    workers = _post_workers(len(tasks))
+    if workers <= 1:
+        return [e for _name, fn, args, kw in tasks for e in fn(*args, **kw)]
+    out = []
+    with ProcessPoolExecutor(max_workers=workers,
+                             mp_context=multiprocessing.get_context("fork")) as ex:
+        futures = [(name, ex.submit(fn, *args, **kw)) for name, fn, args, kw in tasks]
+        for name, fut in futures:
+            try:
+                out += fut.result()
+            except BrokenProcessPool as e:
+                out.append(missing("%s_figures" % name, "%s figure set" % name,
+                                   "worker process died: %s" % e))
+    return out
+
+
+def _one_type(t: str, r: _RecipeRun) -> list:
+    """One type's figures. A worker looks the handler up by name: the dispatch closures do
+    not pickle."""
+    return _fail_soft(t, _TYPE_RUNNERS.get(t, _run_simple), TYPE_DISPATCH[t], r)
+
+
+def _type_tasks(types: list, r: _RecipeRun) -> list:
+    return [(t, _one_type, (t, r), {}) for t in types
+            if t != "common" and t in TYPE_DISPATCH]
+
+
 def _type_figures(types: list, r: _RecipeRun) -> list:
     """Figures of every detected type that has a handler, in detection order."""
-    out = []
-    for t in types:
-        if t in ("common",):
-            continue
-        handler = TYPE_DISPATCH.get(t)
-        if handler is not None:
-            out += _fail_soft(t, _TYPE_RUNNERS.get(t, _run_simple), handler, r)
-    return out
+    return _in_parallel(_type_tasks(types, r))
+
+
+def _data_products(run_dir, label, out_dir, case_info, every, times) -> list:
+    """The CF pressure-level file, then the VAPOR bundle (one task: their order is kept)."""
+    from wtune.post.recipes import vapor_bundle as vapor_bundle_mod
+    return (_cf3d_data(run_dir, label, out_dir, case_info, every, times)
+            + vapor_bundle_mod.figures(run_dir, label, out_dir, case_info,
+                                       every=every, times=times))
 
 
 def _split_notes(entries: list) -> tuple[list, list]:
@@ -356,7 +400,6 @@ def _run_recipe(run_dirs, out_dir, types_override=None, ensemble=False, spinup_h
     report. Returns {out_dir, case_info, figures, notes, report_path, advice}. Option meanings:
     docs/ post section (decisions 0057/0058); None keeps each recipe module's own default."""
     from wtune.post.recipes import common as common_mod
-    from wtune.post.recipes import vapor_bundle as vapor_bundle_mod
 
     os.makedirs(out_dir, exist_ok=True)
     labels = labels or [("run%d" % i) for i in range(len(run_dirs))]
@@ -367,13 +410,6 @@ def _run_recipe(run_dirs, out_dir, types_override=None, ensemble=False, spinup_h
                                       hurdat2_path=hurdat2_path, storm_id=storm_id,
                                       bdeck_path=bdeck_path)
     types = case_info["types"]
-
-    all_figures = list(pre_notes or [])     # note() entries from run_recipe's BP conversion
-    all_figures += _fail_soft("common", common_mod.figures, run_dirs, labels, out_dir,
-                              case_info, decomposition_only=decomposition_only)
-    all_figures += _cf3d_data(run_dirs[0], labels[0], out_dir, case_info, every, times)
-    all_figures += vapor_bundle_mod.figures(run_dirs[0], labels[0], out_dir, case_info,
-                                            every=every, times=times)
 
     tc_centre = None
     if "moisture" in types and (hurdat2_path or bdeck_path):
@@ -389,19 +425,52 @@ def _run_recipe(run_dirs, out_dir, types_override=None, ensemble=False, spinup_h
         cross_sections=cross_sections or {}, xsec_top_km=xsec_top_km,
         xsec_halfwidth_km=xsec_halfwidth_km, project_dir=project_dir, spinup_days=spinup_days,
         track_smooth_km=track_smooth_km, tc_centre=tc_centre)
-    all_figures += _type_figures(types, run)
-
+    tasks = [("common", _fail_soft, ("common", common_mod.figures, run_dirs, labels, out_dir,
+                                     case_info), dict(decomposition_only=decomposition_only)),
+             ("data", _data_products, (run_dirs[0], labels[0], out_dir, case_info, every, times),
+              {})]
+    tasks += _type_tasks(types, run)
     if every or times:
-        all_figures += _fail_soft("timeseries", guarded, "timeseries", _time_series_figures,
-                                  run_dirs, labels, out_dir, case_info, every, times,
-                                  animate=animate)
+        tasks.append(("timeseries", _fail_soft,
+                      ("timeseries", guarded, "timeseries", _time_series_figures, run_dirs,
+                       labels, out_dir, case_info, every, times), dict(animate=animate)))
+    # note() entries from run_recipe's BP conversion first
+    all_figures = list(pre_notes or []) + _in_parallel(tasks)
 
     notes, all_figures = _split_notes(all_figures)
     advice = _verification_advice(run_dirs[0], out_dir, hurdat2_path, storm_id, bdeck_path, notes)
     report_path = _build_report(run_dirs, labels, out_dir, case_info, all_figures, spinup_hours,
                                 title, notes, advice)
     return dict(out_dir=out_dir, case_info=case_info, figures=all_figures, notes=notes,
-                report_path=report_path, advice=advice)
+                report_path=report_path, advice=advice,
+                figures_dir=figures_folder(out_dir, all_figures))
+
+
+def figures_folder(out_dir, figures) -> str:
+    """Every drawn figure again in one flat folder out_dir/figures/, named <type folder>-<file>
+    (hard links, a copy where linking fails); rebuilt on each call. Returns the folder."""
+    dest = os.path.join(out_dir, "figures")
+    shutil.rmtree(dest, ignore_errors=True)
+    os.makedirs(dest)
+    taken = set()
+    for f in figures:
+        path = f.get("path")
+        if f.get("missing") or not path or not path.endswith(FIGURE_EXTS) \
+                or not os.path.isfile(path):
+            continue
+        parts = os.path.relpath(path, out_dir).split(os.sep)
+        name = parts[-1] if len(parts) == 1 else "%s-%s" % (parts[0], parts[-1])
+        stem, ext = os.path.splitext(name)
+        n = 1
+        while name in taken:
+            n += 1
+            name = "%s-%d%s" % (stem, n, ext)
+        taken.add(name)
+        try:
+            os.link(path, os.path.join(dest, name))
+        except OSError:
+            shutil.copy2(path, os.path.join(dest, name))
+    return dest
 
 
 def _verification_advice(run_dir, out_dir, hurdat2_path, storm_id, bdeck_path, notes):

@@ -7,7 +7,7 @@
 Reads only namelist.input, rsl.error/out.0000 (reopened every poll: NFS handles go stale), the
 wrfout_d01_* names/mtimes and a run root's run_report.json; never writes or signals the job.
 Exit 3 on FAILED, 2 on HANG/HANG_INIT/NEST_STOPPED/NEST_END_EARLY, else 0. Estimator, warnings
-and replay accuracy: README.md `wtune watch`."""
+and replay accuracy: docs/tutorial/run.md."""
 from __future__ import annotations
 
 import argparse

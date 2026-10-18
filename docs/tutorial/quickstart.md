@@ -1,4 +1,4 @@
-# 2. 第一次跑完整流程
+# 2. submit
 
 ```bash
 wtune project init ~/projects/mycase --case /path/to/case_dir --exclude-nodes work1
@@ -10,7 +10,7 @@ wtune submit --detach
 
 五個指令，從個案資料夾到 `report.html`。下面逐步說明每一步會看到什麼。
 
-## 步驟 1：建立 project
+## 步驟 1：project init
 
 ```bash
 wtune project init ~/projects/mycase --case /path/to/case_dir --exclude-nodes work1
@@ -27,7 +27,7 @@ wtune project init ~/projects/katrina --case /path/to/katrina_case \
     --storm AL122005 --hurdat2 hurdat2-1851-2024.txt
 ```
 
-## 步驟 2：檢查
+## 步驟 2：doctor
 
 ```bash
 cd ~/projects/mycase
@@ -44,7 +44,7 @@ OK    post defaults: --types auto --every 6h
 OK    no tune report yet (wtune tune, or wtune submit)
 ```
 
-## 步驟 3：先看它打算做什麼
+## 步驟 3：submit --dry-run
 
 ```bash
 wtune submit --dry-run
@@ -60,7 +60,7 @@ post  bin/wtune post recipe <project>/runs/<id> --project <project> --out <proje
 
 三個輸出共用同一個 `<id>`（UTC 時間戳），所以 `tune/<id>/`、`runs/<id>/`、`post/<id>/` 是同一次提交。
 
-## 步驟 4：送出
+## 步驟 4：submit
 
 ```bash
 wtune submit --detach
@@ -98,7 +98,7 @@ sequenceDiagram
 
 抓觀測資料的步驟例外：失敗只會印一行說明並繼續，報告裡會寫出缺了什麼。
 
-## 步驟 5：看結果
+## 步驟 5：結果
 
 ```bash
 wtune watch runs/<id>          # 執行中：進度與剩餘時間
@@ -122,7 +122,7 @@ tail -f submit-<id>.log        # 整個流程的記錄
 
     意思是 5 個節點、每節點用 48 顆核心、共 80 個 MPI rank、每個 rank 3 條執行緒、區域切成 8×10、每個 patch 3 個 tile，量到每步 0.0482 秒。接著以這個配置完成正式執行，後處理產生 228 張圖。
 
-## 常用變化
+## 常用選項
 
 | 想做的事 | 指令 |
 |---|---|
@@ -131,4 +131,4 @@ tail -f submit-<id>.log        # 整個流程的記錄
 | 只要跑，不要出圖 | `wtune submit --no-post` |
 | 一步一步自己來 | `wtune tune -O2`，然後 `wtune run`，然後 `wtune post recipe --srun` |
 
-下一步：[3. Project 資料夾](project.md)。
+下一步：[3. project](project.md)。

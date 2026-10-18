@@ -13,6 +13,7 @@ import re
 import threading
 from typing import Any
 
+import wtune.machine
 from ._deps import coldstart, sweep, predict, probe_plan
 from .budget import (_fallback_s_per_step, _restart_read_s, ranking_context, ranking_cost_model,
                      ranking_export, stage2_concurrency, wrap_with_anchors)
@@ -45,7 +46,7 @@ def ranking_job_timeouts(ctx: Ctx, configs: list[dict], steps: int, spinup_min: 
         try:
             return _fallback_s_per_step(nl, c["ranks"], c.get("omp", 1))
         except Exception:
-            return sweep.CONSERVATIVE_S_PER_STEP
+            return wtune.machine.measured("s_per_step")
 
     rr = _restart_read_s(ctx) if restart_read_s is None else restart_read_s
     spin_steps = spinup_min * 60.0 / dt
@@ -59,7 +60,7 @@ def ranking_job_timeouts(ctx: Ctx, configs: list[dict], steps: int, spinup_min: 
     expected = spin + sum(per_run)
     limit_s = max(expected * sweep.TIME_SAFETY_FACTOR + sweep.TIME_PAD_MIN * 60.0,
                   spin_timeout + sum(per_run) + sweep.TIME_PAD_MIN * 60.0)
-    limit_h = min(limit_s / 3600.0, sweep.TIME_CAP_HOURS)
+    limit_h = min(limit_s / 3600.0, sweep.time_cap_hours())
     return (cand_timeout, spin_timeout, sweep.campaign_experiment._format_hms(limit_h * 60.0),
             expected)
 
@@ -186,7 +187,7 @@ def submit_rebuilt_points(ctx: Ctx, points: list, anchor: dict, case_dir: str,
             plan, pdir, os.path.join(pdir, "grib"), grib_dir=grib_dir)
         print("rebuilt point %d (%s): fetched %.1f MB forcing"
               % (i, p.at.isoformat(), total_bytes / 1e6), flush=True)
-        sbatch_path = coldstart.stage_plan(pdir, site="scc", per_window_min=seg_timeout_min)
+        sbatch_path = coldstart.stage_plan(pdir, per_window_min=seg_timeout_min)
         cmd = ("sbatch --export=ALL,CAMPAIGN=%s %s" % (campaign_dir, sbatch_path)
                if campaign_dir else "sbatch %s" % sbatch_path)
         job_id = sweep.submit_job(cmd, sbatch_runner=ctx.sbatch_runner)

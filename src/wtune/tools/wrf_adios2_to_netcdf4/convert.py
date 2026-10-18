@@ -127,10 +127,13 @@ def create_nc_vars(netcdff, var_names, var_types, var_dims):
         # on a 100 GB quota. Char/scalar variables keep the default (netCDF4
         # rejects the filters on scalars, and WRF leaves Times uncompressed).
         compress = var_types[var] != "c" and len(var_dims[var]) > 0
-        netcdff.createVariable(
-            var, var_types[var], var_dims[var],
-            **({"zlib": True, "complevel": 2, "shuffle": True} if compress else {}),
-        )
+        kw = {"zlib": True, "complevel": 2, "shuffle": True} if compress else {}
+        # PATCHED (see UPSTREAM.md): one frame per chunk. Frames are written one
+        # at a time; netCDF-C's default chunks span many frames, so each write
+        # recompressed them all (121 frames: 3 MB/s instead of 87 MB/s).
+        if compress and var_dims[var][0] == "Time":
+            kw["chunksizes"] = [1] + [len(netcdff.dimensions[d]) for d in var_dims[var][1:]]
+        netcdff.createVariable(var, var_types[var], var_dims[var], **kw)
 
 
 def decomp(var, vars):

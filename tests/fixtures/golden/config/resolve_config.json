@@ -15,7 +15,9 @@
     "deadline_minutes": null,
     "min_efficiency": null,
     "node_finalists": null,
-    "sweep_budget_frac": null
+    "sweep_budget_frac": null,
+    "node_seeds": null,
+    "hotspot_fill": null
    },
    "search": {
     "omp": null,
@@ -41,6 +43,11 @@
    },
    "probe": {
     "steps": "auto",
+    "sweep_steps": [
+     10,
+     40
+    ],
+    "sweep_reps": 1,
     "confirm_reps": 2,
     "spinup_min": 60,
     "ranking_start": "t0",
@@ -70,7 +77,12 @@
     "drift_band_pct": null,
     "measure_r_rad": false
    },
-   "exclude": []
+   "exclude": [
+    {
+     "omp_gt": 1,
+     "when": "fire"
+    }
+   ]
   }
  },
  "not_a_mapping": {
@@ -159,7 +171,9 @@
     "deadline_minutes": 2.5,
     "min_efficiency": null,
     "node_finalists": 3,
-    "sweep_budget_frac": 1
+    "sweep_budget_frac": 1,
+    "node_seeds": null,
+    "hotspot_fill": null
    },
    "search": {
     "omp": null,
@@ -185,6 +199,11 @@
    },
    "probe": {
     "steps": "auto",
+    "sweep_steps": [
+     10,
+     40
+    ],
+    "sweep_reps": 1,
     "confirm_reps": 2,
     "spinup_min": 60,
     "ranking_start": "t0",
@@ -214,7 +233,12 @@
     "drift_band_pct": null,
     "measure_r_rad": false
    },
-   "exclude": []
+   "exclude": [
+    {
+     "omp_gt": 1,
+     "when": "fire"
+    }
+   ]
   }
  },
  "budget_not_mapping": {
@@ -267,7 +291,9 @@
     "deadline_minutes": null,
     "min_efficiency": null,
     "node_finalists": null,
-    "sweep_budget_frac": null
+    "sweep_budget_frac": null,
+    "node_seeds": null,
+    "hotspot_fill": null
    },
    "search": {
     "omp": [
@@ -299,6 +325,11 @@
    },
    "probe": {
     "steps": "auto",
+    "sweep_steps": [
+     10,
+     40
+    ],
+    "sweep_reps": 1,
     "confirm_reps": 2,
     "spinup_min": 60,
     "ranking_start": "t0",
@@ -328,7 +359,12 @@
     "drift_band_pct": null,
     "measure_r_rad": false
    },
-   "exclude": []
+   "exclude": [
+    {
+     "omp_gt": 1,
+     "when": "fire"
+    }
+   ]
   }
  },
  "search_not_mapping": {
@@ -460,7 +496,9 @@
     "deadline_minutes": null,
     "min_efficiency": null,
     "node_finalists": null,
-    "sweep_budget_frac": null
+    "sweep_budget_frac": null,
+    "node_seeds": null,
+    "hotspot_fill": null
    },
    "search": {
     "omp": null,
@@ -486,6 +524,11 @@
    },
    "probe": {
     "steps": 30,
+    "sweep_steps": [
+     10,
+     40
+    ],
+    "sweep_reps": 1,
     "confirm_reps": 2,
     "spinup_min": 60,
     "ranking_start": "t0",
@@ -520,7 +563,12 @@
     "drift_band_pct": null,
     "measure_r_rad": false
    },
-   "exclude": []
+   "exclude": [
+    {
+     "omp_gt": 1,
+     "when": "fire"
+    }
+   ]
   }
  },
  "prediction_bad": {
@@ -554,7 +602,9 @@
     "deadline_minutes": null,
     "min_efficiency": null,
     "node_finalists": null,
-    "sweep_budget_frac": null
+    "sweep_budget_frac": null,
+    "node_seeds": null,
+    "hotspot_fill": null
    },
    "search": {
     "omp": null,
@@ -580,6 +630,11 @@
    },
    "probe": {
     "steps": "auto",
+    "sweep_steps": [
+     10,
+     40
+    ],
+    "sweep_reps": 1,
     "confirm_reps": 2,
     "spinup_min": 60,
     "ranking_start": "t0",
@@ -609,7 +664,12 @@
     "drift_band_pct": 0,
     "measure_r_rad": true
    },
-   "exclude": []
+   "exclude": [
+    {
+     "omp_gt": 1,
+     "when": "fire"
+    }
+   ]
   }
  },
  "exclude_bad": {
@@ -644,7 +704,9 @@
     "deadline_minutes": null,
     "min_efficiency": null,
     "node_finalists": null,
-    "sweep_budget_frac": null
+    "sweep_budget_frac": null,
+    "node_seeds": null,
+    "hotspot_fill": null
    },
    "search": {
     "omp": null,
@@ -670,6 +732,11 @@
    },
    "probe": {
     "steps": "auto",
+    "sweep_steps": [
+     10,
+     40
+    ],
+    "sweep_reps": 1,
     "confirm_reps": 2,
     "spinup_min": 60,
     "ranking_start": "t0",

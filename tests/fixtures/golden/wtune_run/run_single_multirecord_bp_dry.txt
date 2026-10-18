@@ -43,6 +43,7 @@ namelist diff, segment 0:
   + nproc_x = 8,
   +
   +&namelist_adios2
+  + adios2_compression_enable = .false.,
   + adios2_numaggregators = 72,
   +/
 --- stdout

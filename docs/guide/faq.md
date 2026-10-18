@@ -1,6 +1,6 @@
 # 常見問題與已知限制
 
-## 出問題時先做什麼
+## 排查起點
 
 ```bash
 wtune doctor
@@ -55,7 +55,7 @@ wtune doctor
 
 **支援範圍**
 
-- `wtune tune` 目前只支援 `scc` 站點。
+- `scc` 與 `f1-arm` 實際跑過完整流程。換機器要準備 `campaign/sites/<site>.sh`，並在 [machine](../tutorial/project.md#machine) 填好規格與路徑。
 - ndown、NMM、MPAS 不支援。
 - WRF 擴展的限制見 [WRF 擴展](extensions.md)。
 

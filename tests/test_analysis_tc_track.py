@@ -147,6 +147,21 @@ def test_tracker_follows_vortex_naive_jumps_to_spurious_low(tmp_path):
     assert naive_jump_km > 500.0            # the naive centre is nowhere near the real vortex
 
 
+def test_detectnodes_in_time_slices_matches_one_run(tmp_path, monkeypatch):
+    _write_fields_nc(tmp_path / "fields.nc", nt=8)
+    monkeypatch.setattr(tc_track, "_detect_workers", lambda n: 1)
+    one, p1 = tc_track.detect_and_stitch(tmp_path / "fields.nc", str(tmp_path / "one"),
+                                         params=_params())
+    monkeypatch.setattr(tc_track, "_detect_workers", lambda n: 3)
+    three, p3 = tc_track.detect_and_stitch(tmp_path / "fields.nc", str(tmp_path / "three"),
+                                           params=_params())
+    assert (p1["detect_parts"], p3["detect_parts"]) == (1, 3)
+    with open(p1["nodes_file"]) as a, open(p3["nodes_file"]) as b:
+        assert a.read() == b.read()
+    assert one == three
+    assert sorted(os.listdir(tmp_path / "three")) == ["nodes.dat", "track.csv"]
+
+
 def test_select_track_picks_the_track_nearest_the_first_guess(tmp_path):
     grid = _write_fields_nc(tmp_path / "fields.nc")
     tracks, _ = tc_track.detect_and_stitch(

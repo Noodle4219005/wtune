@@ -197,3 +197,17 @@ def test_pipeline_phase_2_overturn_updates_the_winner(monkeypatch, tmp_path):
     phase1_n = report["node_selection"]["final"]
     w = _check_winner_is_final(report, str(tmp_path / "out"))
     assert w["nodes"] != phase1_n
+
+
+def test_the_winners_rank_order_reaches_the_run(tmp_path):
+    """scc sc26p2 2026-10-14: the winner row had no `dist` and the run always started as block,
+    so a layout measured as cyclic would have run with another rank placement."""
+    from wtune.run import cli as run_cli
+    cyclic = dict(WINNER, dist="cyclic")
+    assert wr.tune_report_layout({"winner": cyclic})["dist"] == "cyclic"
+    assert wr.tune_report_layout({"winner": WINNER})["dist"] is None
+    for winner, flags, want in ((cyclic, [], "cyclic"), (WINNER, [], "block"),
+                                (cyclic, ["--nx", "6", "--ny", "12"], "block")):
+        report = _report(tmp_path, winner=winner)
+        opts = run_cli.parse_options([str(tmp_path), "--tune-report", report] + flags)
+        assert run_cli._choose_layout(opts, lambda *_: None).config.dist == want

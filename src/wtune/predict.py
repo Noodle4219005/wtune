@@ -48,34 +48,40 @@ import sys
 from pathlib import Path
 from typing import Any
 
+import wtune.machine
 from wtune import runlength as runlen  # repo root: resolve_run_seconds, the single-sourced run_*
                                    # keys vs. start/end span resolver (stdlib only)
 
 HERE = Path(__file__).resolve().parent.parent
 DEFAULT_CALIBRATION = HERE.parent / "machine" / "calibration" / "scc.json"  # HERE is src/; machine/ stays at repo root
 
-CORES_PER_NODE = 112  # fallback only (f1); a calibration's "cores_per_node" wins (scc: 72)
+
+def calibration_path() -> str:
+    """This machine's calibration file (wtune.machine), else the built-in scc one."""
+    return wtune.machine.calibration() or str(DEFAULT_CALIBRATION)
 
 
 def cores_per_node(calibration=None):
-    """Cores per node of the machine the calibration describes; CORES_PER_NODE when unknown."""
+    """Cores per node of the machine the calibration describes; the machine setting when the
+    file does not say."""
     v = (calibration or {}).get("cores_per_node")
-    return int(v) if v else CORES_PER_NODE
+    return int(v) if v else wtune.machine.cores_per_node()
 SEGMENT_HOURS = 6.0   # long-run compute display chunking
 LONG_RUN_HOURS = 12.0  # threshold above which the compute row is segmented
 
-PROBE_NOISE_MEASURED_PCT = 3.0       # % of compute, per s_normal source
-PROBE_NOISE_EXTRAPOLATED_PCT = 15.0   # %
-PROBE_NOISE_FALLBACK_PCT = 50.0       # %
+PROBE_NOISE_MEASURED_PCT = wtune.machine.MEASURED["probe_noise_measured_pct"]   # built-in
+PROBE_NOISE_EXTRAPOLATED_PCT = wtune.machine.MEASURED["probe_noise_extrapolated_pct"]
+PROBE_NOISE_FALLBACK_PCT = wtune.machine.MEASURED["probe_noise_fallback_pct"]
 # A probe_rsl s_normal is one run's own sample, so its band is a little wider than a
 # measured row's (a judgment call, not a measured uncertainty).
-PROBE_NOISE_RSL_PCT = 5.0             # %
+PROBE_NOISE_RSL_PCT = wtune.machine.MEASURED["probe_noise_rsl_pct"]
 
 # Minimum sunlit-fraction spread (max - min) for a day/night least-squares fit; below it the
 # probe saw one regime and the other level comes from the calibrated day/night ratio.
 RADIATION_FIT_MIN_SUNLIT_SPREAD = 0.5  # sunlit fraction, max - min
 
-DEFAULT_R_RAD_DAY_NIGHT_RATIO = 1.87  # see module docstring; MEASURED mean of
+DEFAULT_R_RAD_DAY_NIGHT_RATIO = wtune.machine.MEASURED["r_rad_day_night_ratio"]   # built-in;
+                                     # see module docstring; MEASURED mean of
                                        # matthew/sc26p2/sc26p2narr (1.85, 1.87, 1.90)
 
 
@@ -1125,9 +1131,10 @@ def predict_compute(nl: dict, max_dom: int, steps: int, run_min: float, ranks: i
                     run_start_dt: datetime.datetime | None = None,
                     geometry_source: str = "none") -> dict:
     radt = g_dom(nl, "physics", "radt", 0, default=None)
-    default_r_rad = calibration.get("radiation", {}).get("r_rad_default", 5.0)
+    default_r_rad = calibration.get("radiation", {}).get(
+        "r_rad_default", wtune.machine.measured("r_rad_default"))
     day_night_ratio = calibration.get("radiation", {}).get(
-        "r_rad_day_night_ratio", DEFAULT_R_RAD_DAY_NIGHT_RATIO)
+        "r_rad_day_night_ratio", wtune.machine.measured("r_rad_day_night_ratio"))
 
     rad_meas = None
     if rsl_paths and radt and dt_seconds:
@@ -1168,14 +1175,14 @@ def predict_compute(nl: dict, max_dom: int, steps: int, run_min: float, ranks: i
         if source == "measured":
             noise_pct = (probe_result.get("spread_pct")
                          if probe_result.get("spread_pct") is not None
-                         else PROBE_NOISE_MEASURED_PCT)
+                         else wtune.machine.measured("probe_noise_measured_pct"))
         else:
-            noise_pct = PROBE_NOISE_EXTRAPOLATED_PCT
+            noise_pct = wtune.machine.measured("probe_noise_extrapolated_pct")
         detail = dict(probe_result)
     elif rad_meas is not None and rad_meas["s_normal"] is not None:
         s_normal = rad_meas["s_normal"]
         source = "probe_rsl"
-        noise_pct = PROBE_NOISE_RSL_PCT
+        noise_pct = wtune.machine.measured("probe_noise_rsl_pct")
         detail = {"source": source, "rsl_paths": list(rsl_paths),
                   "n_steps_pooled": rad_meas["n_steps_pooled"],
                   "n_radiation_steps": rad_meas["n_radiation_steps"]}
@@ -1187,7 +1194,7 @@ def predict_compute(nl: dict, max_dom: int, steps: int, run_min: float, ranks: i
         cores = max(ranks * omp, 1)
         s_normal = ns_per_cell_core * 1e-9 * cl_eq / cores
         source = "no_probe_fallback"
-        noise_pct = PROBE_NOISE_FALLBACK_PCT
+        noise_pct = wtune.machine.measured("probe_noise_fallback_pct")
         detail = {"source": source, "nested_equivalent_cells": cl_eq, "cores": cores,
                   "fallback_s_per_cell_step_ns": ns_per_cell_core}
 
@@ -1821,8 +1828,9 @@ def add_subparser(sub: Any) -> argparse.ArgumentParser:
                         "-- e.g. a case whose prep dir is /nfs/data/wrf/doi4-lafe2017 but whose "
                         "ledger case_base is 'lafe'; without this, --probe rows for that case "
                         "silently fail to match and prediction falls back to no_probe_fallback")
-    p.add_argument("--calibration", default=str(DEFAULT_CALIBRATION),
-                   help="calibration JSON (default machine/calibration/scc.json)")
+    p.add_argument("--calibration", default=calibration_path(),
+                   help="calibration JSON (default: the machine's, built-in "
+                        "machine/calibration/scc.json)")
     p.add_argument("--io-form", type=int, default=None, choices=[2, 11, 14],
                    help="override io_form_history (default: read from namelist)")
     p.add_argument("--io-target", choices=["nfs", "local"], default="nfs",

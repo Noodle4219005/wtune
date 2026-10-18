@@ -3,7 +3,8 @@
   "cancelled_job_ids": [
     "7001",
     "7002",
-    "7003"
+    "7003",
+    "7004"
   ],
   "case": "matthew",
   "elapsed_minutes": 0.0,
@@ -13,7 +14,8 @@
     "9002",
     "7001",
     "7002",
-    "7003"
+    "7003",
+    "7004"
   ],
   "node_health": {
     "checks": [
@@ -55,6 +57,7 @@
     "frames_deleted": 0,
     "frames_kept": false,
     "hard_deadline_s": 1800.0,
+    "jobs_busy_s": 0.0,
     "level": {
       "T_cold_s": 10000120.0,
       "actual_running_s": 0.0,
@@ -124,7 +127,8 @@
         "jobs": [
           "7001",
           "7002",
-          "7003"
+          "7003",
+          "7004"
         ],
         "limit_s": 990.0000000000001,
         "name": "layout",
@@ -133,7 +137,7 @@
         "queue_wait_s": 3600.0,
         "running_s": 0.0,
         "start_s": 0.0,
-        "status": "stopped: queue-only wait 1:00:00 reached --max-queue-hours (1:00:00); in-flight job(s) 7001,7002,7003 cancelled",
+        "status": "stopped: queue-only wait 1:00:00 reached --max-queue-hours (1:00:00); in-flight job(s) 7001,7002,7003,7004 cancelled",
         "wall_s": 3600.0
       },
       {
@@ -223,5 +227,6 @@
     "total_wall_s": 3600.0
   },
   "pipeline_aborted": true,
+  "summary": [],
   "winner": null
 }

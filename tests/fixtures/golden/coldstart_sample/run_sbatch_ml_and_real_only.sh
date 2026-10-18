@@ -13,11 +13,11 @@ PLAN=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 TOOL=/opt/wtune/src/tools/coldstart_sample.py
 TOOL_SCM=/opt/wtune/src/tools/state_correction_model.py
 ML_MODEL=/plan/dir/report.json
-GRIB_PY=${GRIB_PYTHON:-$HOME/wtune/envs/grib/.pixi/envs/default/bin/python}
 SITE=scc
-CAMPAIGN=${CAMPAIGN:-$HOME/wtune/campaign}
+GRIB_PY=${GRIB_PYTHON:-/opt/wtune/envs/grib/.pixi/envs/default/bin/python}
+CAMPAIGN=${CAMPAIGN:-/opt/wtune/campaign}
 source "$CAMPAIGN/sites/$SITE.sh"   # site_env / site_launch / site_hygiene -- reused, not reimplemented
-source ~/wtune-scc/env.sh
+source $HOME/wtune-scc/env.sh
 export PATH=$NETCDF/bin:$PATH
 ulimit -s unlimited
 site_env

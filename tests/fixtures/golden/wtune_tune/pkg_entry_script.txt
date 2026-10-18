@@ -2,6 +2,7 @@ rc=0
 usage: wtune tune [-h] [--config CONFIG] [--site SITE] [--minutes MINUTES] [--nodes NODES]
                   [--node-objective {time,cost,knee}] [--deadline-minutes DEADLINE_MINUTES]
                   [--min-efficiency MIN_EFFICIENCY] [--sweep-budget-frac SWEEP_BUDGET_FRAC]
+                  [--hotspot-fill {on,off}] [--node-seeds {geometric,all}]
                   [--cores-per-node-options CORES_PER_NODE_OPTIONS] [--pipeline {full}]
                   [--max-queue-hours MAX_QUEUE_HOURS] [--no-node-preflight] [-O0] [-O1] [-O2]
                   [-O3] [--precision PRECISION] [--level {0,1,2,3}] [--stop-if-short]
@@ -27,7 +28,7 @@ options:
                         budget/probe/prediction defaults (wtune/config.py); CLI flags given
                         explicitly still override it, which overrides this module's own built-in
                         defaults
-  --site SITE
+  --site SITE           campaign/sites/<site>.sh (default: the machine's, built-in scc)
   --minutes MINUTES     required here or via --config's budget.minutes
   --nodes NODES         N = fixed node count; 'search' (DEFAULT) = measure the ANCHOR at each
                         legal node count, choose N by --node-objective, then tune at the finalist
@@ -45,6 +46,14 @@ options:
                         --nodes search: share of --minutes the node sweep may use; once spent,
                         larger N are skipped ('sweep budget cap') so the finalists keep budget
                         (default 0.4, or --config's budget.sweep_budget_frac)
+  --hotspot-fill {on,off}
+                        --nodes search: measure untried N near the best one in the nodes a sweep
+                        wave leaves idle, when no longer than the wave (default on, or --config's
+                        budget.hotspot_fill)
+  --node-seeds {geometric,all}
+                        --nodes search: 'geometric' (DEFAULT) = 1, 2, 4, ... and max_nodes, early
+                        stop upward, then refine; 'all' = every legal N, no early stop (or
+                        --config's budget.node_seeds)
   --cores-per-node-options CORES_PER_NODE_OPTIONS
                         --nodes search: comma list of cores per node to measure at the finalist
                         node counts (the rest of the node idles). Default derived from the
@@ -82,8 +91,7 @@ options:
                         printed before anything runs; --minutes is an optional hard cap
   --stop-if-short       -O levels: when the whole run is shorter than the estimated tuning time,
                         step down to the highest level whose estimate fits (never below O1). OFF
-                        by default: the layout search is not cut short; also active when --minutes
-                        is given
+                        by default: the layout search is not cut short
   --physics-advice      -O3: also run phase 3, the physics advice (opt-in, not part of the default
                         run)
   --keep-frames         --pipeline full: keep the phase-2/3 window-frame .nc files after the

@@ -1,15 +1,19 @@
 case=matthew nodes=search (node search (measured)) budget=600.0 min max_nodes=13 out=<TMP>/out
 node sweep: N=11 skipped -- no legal decomposition at any omp in {1, 2, 3, 4, 6, 8, 9, 12, 18, 24, 36, 72}
 node sweep: N=13 skipped -- no legal decomposition at any omp in {1, 2, 3, 4, 6, 8, 9, 12, 18, 24, 36, 72}
-node sweep: nodes-n1 submitted job 7001 (ANCHOR ranks=72 omp=1 8x9, REPS=2, ~5:40)
-node sweep: nodes-n2 submitted job 7002 (ANCHOR ranks=72 omp=2 8x9, REPS=2, ~5:40)
-node sweep: nodes-n4 submitted job 7003 (ANCHOR ranks=72 omp=4 8x9, REPS=2, ~5:40)
+node sweep: hotspot fill: N=[6] in the idle nodes of wave [1, 2, 4]
+node sweep: nodes-n1 submitted job 7001 (ANCHOR ranks=72 omp=1 8x9, REPS=1, 5 steps, ~2:50)
+node sweep: nodes-n2 submitted job 7002 (ANCHOR ranks=72 omp=2 8x9, REPS=1, 5 steps, ~2:50)
+node sweep: nodes-n4 submitted job 7003 (ANCHOR ranks=72 omp=4 8x9, REPS=1, 5 steps, ~2:50)
+node sweep: nodes-n6 submitted job 7004 (ANCHOR ranks=72 omp=6 8x9, REPS=1, 5 steps, ~2:50)
 [node-sweep] [------------------------]   0%  elapsed=0:00 / budget=10:00:00
-node sweep: nodes-n8 submitted job 7004 (ANCHOR ranks=72 omp=8 8x9, REPS=2, ~5:40)
+node sweep: hotspot fill: N=[5] in the idle nodes of wave [8]
+node sweep: nodes-n8 submitted job 7005 (ANCHOR ranks=72 omp=8 8x9, REPS=1, 5 steps, ~2:50)
+node sweep: nodes-n5 submitted job 7006 (ANCHOR ranks=90 omp=4 9x10, REPS=1, 5 steps, ~2:50)
 [node-sweep] [------------------------]   0%  elapsed=0:00 / budget=10:00:00
 WARNING: node sweep produced no measurement; falling back to the proxy. scaling model is UNCALIBRATED (wtune/case.py's halo-efficiency proxy, c=1.0, never fit to a real measurement) -- nodes=13 (policy=knee) is a starting point, not a validated optimum
 round0: s_est=10.000s/step[fallback_10s,n=0] startup_s=120.0s[documented constant (scc_sweep.STARTUP_S)] slots=1 configs_per_job=74 total=1 (ok)
-round0 slot 0: submitted job 7005 (1 configs)
+round0 slot 0: submitted job 7007 (1 configs)
 [round0   ] [------------------------]   0%  elapsed=0:00 / budget=10:00:00
 startup_s: no COMPLETED round0 run to measure from; keeping 120.0s (documented constant (scc_sweep.STARTUP_S))
 adaptive round 1: proposer stopped at kappa=0.5 (test stub); retrying with more exploration pressure (kappa=1)
@@ -18,7 +22,7 @@ adaptive rounds: stopped at round 1 -- proposer exhausted even after kappa escal
 
 === wtune tune: matthew ===
 nodes=13 (node sweep failed; policy=knee: every profiled doubling step up to --max-nodes cap=13 clears 1.5x; using nodes=13)
-budget=600.0 min  elapsed=0.0 min  jobs=7001,7002,7003,7004,7005
+budget=600.0 min  elapsed=0.0 min  jobs=7001,7002,7003,7004,7005,7006,7007
 
 id           pred_total  ranks  omp    nx    ny tiles    dist   median_s        range_s speedup pred_spd    n pred_source confirmed
 
@@ -31,10 +35,10 @@ not run N=1: no successful measurement (job 7001, state COMPLETED)
 not run N=2: no successful measurement (job 7002, state COMPLETED)
 not run N=3: not measured: no seed measurement succeeded
 not run N=4: no successful measurement (job 7003, state COMPLETED)
-not run N=5: not measured: no seed measurement succeeded
-not run N=6: not measured: no seed measurement succeeded
+not run N=5: no successful measurement (job 7006, state COMPLETED)
+not run N=6: no successful measurement (job 7004, state COMPLETED)
 not run N=7: not measured: no seed measurement succeeded
-not run N=8: no successful measurement (job 7004, state COMPLETED)
+not run N=8: no successful measurement (job 7005, state COMPLETED)
 not run N=9: not measured: no seed measurement succeeded
 not run N=10: not measured: no seed measurement succeeded
 not run N=11: no legal decomposition at any omp in {1, 2, 3, 4, 6, 8, 9, 12, 18, 24, 36, 72}

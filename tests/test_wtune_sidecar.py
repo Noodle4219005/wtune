@@ -343,3 +343,96 @@ def test_wtune_run_sidecar_hook(tmp_path, monkeypatch):
     assert side["cache"] == str(out / "_nc_cache") and side["converted"] == 3
     assert side["not_converted"] == []
     assert side["last_valid_restart"] == {"dir": seg, "time": "2020-06-01_12:00:00"}
+
+
+# ---------------------------------------------------------------------------
+# --compress-history: the checked netCDF takes the BP's place
+# ---------------------------------------------------------------------------
+def _compressing(tmp_path, runner, monkeypatch, check_ok=True):
+    import wtune.bp
+
+    def check(argv, what):
+        if not check_ok:
+            raise RuntimeError("values differ")
+    monkeypatch.setattr(wtune.bp, "_run_adios2", check, raising=False)
+    run = tmp_path / "out"
+    report, lines = {}, []
+    side = ws.Sidecar(str(run), ws.post_cache_root(str(run)), 1, os.path.isdir, report,
+                      save=lambda: None, log=lines.append, cores_per_node=72,
+                      exclude_arg="--exclude=head", runner=runner, replace=True)
+    return side, run, report
+
+
+def test_compress_history_puts_each_checked_netcdf_in_place_of_its_bp(tmp_path, fake_bp,  # noqa: F811
+                                                                      monkeypatch):
+    side, run, report = _compressing(tmp_path, Runner(), monkeypatch)
+    seg = run / "seg_0"
+    frames = [_frame(seg, 1, h) for h in range(3)]
+    side.job_ended(str(seg))
+    side.finish()
+    assert all(os.path.isfile(f) for f in frames)                 # netCDF under the BP's name
+    assert not [n for n in os.listdir(seg) if n.endswith(".bp-replaced")]
+    assert not os.path.exists(side.cache_root)                     # no empty cache dirs left
+    assert report["sidecar"]["converted"] == 3 and report["sidecar"]["not_converted"] == []
+    _fresh_process(monkeypatch)
+    prep = extract.prepare_history(str(run))
+    assert prep["n_bp"] == 0                                      # post converts nothing
+    assert [p for _t, p in extract.list_frames(str(run))] == frames
+
+
+def test_a_frame_that_fails_the_check_stays_bp(tmp_path, fake_bp, monkeypatch):  # noqa: F811
+    side, run, _report = _compressing(tmp_path, Runner(), monkeypatch, check_ok=False)
+    frame = _frame(run / "seg_0", 1, 0)
+    side.job_ended(str(run / "seg_0"))
+    side.finish()
+    assert os.path.isdir(frame)
+    with extract.nc_cache(directory=side.cache_root):
+        assert os.path.isfile(extract.cached_nc_path(str(run), frame))
+
+
+def test_a_full_node_shares_its_last_core_when_compressing(tmp_path, fake_bp, monkeypatch):  # noqa: F811
+    r = Runner()
+    side, run, _report = _compressing(tmp_path, r, monkeypatch)
+    seg = run / "seg_0"
+    for h in range(3):
+        _frame(seg, 1, h)
+    side.poll(str(seg), "77", {"ranks": 72, "nodes": 1, "omp": 1}, "RUNNING")
+    argv = r.procs[0].argv
+    assert argv[argv.index("nice"):argv.index("nice") + 3] == ["nice", "-n", "19"]
+    assert "--cpu-bind=verbose,mask_cpu:%s" % ws.cpu_mask([71]) in argv and "--replace" in argv
+
+
+def test_finish_drops_the_partial_files_of_a_killed_conversion(tmp_path, fake_bp):  # noqa: F811
+    side, run, _report, _lines = _sidecar(tmp_path, Runner())
+    part = os.path.join(side.cache_root, "out-x", "seg_0")
+    os.makedirs(part)
+    junk = os.path.join(part, ".wrfout_d01_x.wtune-tmp-n1-7.nc.tmp-7-1")
+    keep = os.path.join(part, "wrfout_d01_x.nc")
+    for p in (junk, keep):
+        open(p, "w").close()
+    side.finish()
+    assert not os.path.exists(junk) and os.path.exists(keep)
+
+
+def test_compress_history_keeps_only_the_newest_valid_restart(tmp_path, fake_bp):  # noqa: F811
+    run = tmp_path / "out"
+    report, lines = {}, []
+    side = ws.Sidecar(str(run), ws.post_cache_root(str(run)), 2, os.path.isdir, report,
+                      save=lambda: None, log=lines.append, cores_per_node=72,
+                      exclude_arg="--exclude=head", runner=Runner(), keep_last_restart=True)
+    seg = run / "seg_0"
+    seg.mkdir(parents=True)
+    rst = lambda d, h: str(seg / ("wrfrst_d%02d_%s" % (d, _t(h))))   # noqa: E731
+    at = lambda h: T0 + dt.timedelta(hours=h)                        # noqa: E731
+    for h in (2, 4):
+        for d in (1, 2):
+            _real_bp(rst(d, h))
+    _real_bp(rst(1, 6))                                   # 06:00 still being written
+    (seg / "rsl.error.0000").write_text(_rsl(T0, at(5), [at(2)], 2))
+    side.poll(str(seg), "77", CFG, "RUNNING")
+    assert os.path.isdir(rst(1, 2)) and os.path.isdir(rst(2, 4))     # one valid: nothing goes
+    (seg / "rsl.error.0000").write_text(_rsl(T0, at(5), [at(2), at(4)], 2))
+    side.poll(str(seg), "77", CFG, "RUNNING")
+    assert not os.path.exists(rst(1, 2)) and not os.path.exists(rst(2, 2))
+    assert all(os.path.isdir(p) for p in (rst(1, 4), rst(2, 4), rst(1, 6)))
+    assert [v.get("deleted", False) for v in report["sidecar"]["valid_restarts"]] == [True, False]

@@ -20,10 +20,11 @@
 # Defines the same four names as f1.sh: CORES_PER_NODE, W, OUT, HARDWARE_ID, PIXI_ENV, CONV,
 # CASES_JSON_DEFAULT, site_env(), site_launch().
 
-CORES_PER_NODE=72
+CORES_PER_NODE=${WTUNE_CORES_PER_NODE:-72}
 W=${WRF_TREE:-$HOME/wrf-stack/wrf/nvhpc-fast-adios2-dmsm/WRF}
 OUT=$HOME/wtune-runs/campaign
-HARDWARE_ID=scc-gh200
+HARDWARE_ID=${WTUNE_HARDWARE_ID:-scc-gh200}
+OMP_RUNTIME=nvhpc        # no KMP_BLOCKTIME: threads are pinned with OMP_PLACES/OMP_PROC_BIND
 # pixi lives in ~/.pixi/bin, which is not on PATH inside a batch job (smoke job 437: "pixi: command not found").
 export PATH=$HOME/.pixi/bin:$PATH
 PIXI_ENV=$HOME/wtune-envs/campaign
@@ -31,12 +32,12 @@ PIXI_ENV=$HOME/wtune-envs/campaign
 # converter comes from the SAME tree as the script: $HOME/wtune has no src/wtune/tools at all, and the
 # tree wtune deploys to is $HOME/wtune-src. Equals the old value for CAMPAIGN=$HOME/wtune/campaign.
 CONV=${CONV:-$(dirname "$CAMPAIGN")/src/wtune/tools/wrf_adios2_to_netcdf4/convert.py}
-CASES_JSON_DEFAULT=$HOME/wtune/campaign/cases.json
+CASES_JSON_DEFAULT=$CAMPAIGN/cases.json
 
 site_env () {
   # nvhpc 26.5 + HPC-X 2.50 / Open MPI 5.0.10; sets NETCDF/HDF5/PNETCDF/ADIOS2_DIR/BLOSC2_LIB,
   # WRF_TREE, OMP_STACKSIZE=1G, and PATH/LD_LIBRARY_PATH for all of the above.
-  source "$HOME/wtune-scc/env.sh"
+  source "${WTUNE_ENV_SOURCE:-$HOME/wtune-scc/env.sh}"
   # The nvhpc build uses -Mstack_arrays: automatic arrays live on the stack, and the 8 MiB default
   # segfaulted every rank (rc=139, smoke job 439). run-case.sbatch already did this.
   ulimit -s unlimited

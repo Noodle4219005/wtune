@@ -38,6 +38,7 @@ from datetime import datetime, timezone
 
 import yaml
 
+import wtune.machine
 import wtune.version
 
 PROJECT_YAML = "project.yaml"
@@ -55,6 +56,8 @@ NAMELIST_NAMES = ("namelist.input", "namelist.output", "namelist.wps")
 _PREV_RUN_OUTPUT_PREFIXES = ("wrfout_", "wrfrst_", "rsl.out.", "rsl.error.")
 _PREV_RUN_OUTPUT_NAMES = ("namelist.output",)
 _PREV_RUN_OUTPUT_SUFFIXES = (".log",)
+# time series of a tslist (<station>.d02.TS, .UU ... profiles): written by WRF, never read
+_TS_OUTPUT_RE = re.compile(r"\.d\d\d\.(?:all\.)?(?:TS|UU|VV|WW|TH|PH|QV|PR)$")
 
 
 class ProjectError(RuntimeError):
@@ -176,10 +179,47 @@ def merged_case_table(project_dir, case_id):
     return path
 
 
+def project_machine(project_doc):
+    """project.yaml's machine block, checked (wtune.machine.check): only the keys it sets.
+    ProjectError when it is wrong."""
+    try:
+        return wtune.machine.check((project_doc or {}).get("machine"), "project.yaml machine")
+    except wtune.machine.MachineError as e:
+        raise ProjectError(str(e)) from e
+
+
+def _on_off(text):
+    if text not in ("on", "off"):
+        raise argparse.ArgumentTypeError("on or off, not %r" % text)
+    return text == "on"
+
+
+def machine_line(project_doc):
+    """'machine: cores_per_node=72 ...': the built-in values, replaced by the user's file,
+    then by the project's block."""
+    try:
+        user = wtune.machine.load_user()
+    except wtune.machine.MachineError as e:
+        raise ProjectError(str(e)) from e
+    values = dict(wtune.machine.DEFAULTS, **dict(user, **project_machine(project_doc)))
+    values["login_nodes"] = ",".join(values["login_nodes"]) or "-"
+    values["account"] = values["account"] or "-"
+    values["calibration"] = values["calibration"] or "built-in"
+    values["max_hours"] = "%g" % values["max_hours"]
+    values["node_memory_gib"] = "%g" % values["node_memory_gib"]
+    values["node_preflight"] = "on" if values["node_preflight"] else "off"
+    values["copy_probe_inputs"] = "on" if values["copy_probe_inputs"] else "off"
+    values["measured"] = ",".join(
+        "%s=%g" % kv for kv in sorted(values["measured"].items())) or "-"
+    return "machine: " + " ".join("%s=%s" % (k, values[k]) for k in wtune.machine.DEFAULTS)
+
+
 def apply_project_env(project_dir, project_doc):
     """Exports the project settings the tuner, run and post read from the environment:
-    exclude_nodes joins WTUNE_SBATCH_EXCLUDE, and the case table with the project's case
+    exclude_nodes joins WTUNE_SBATCH_EXCLUDE, the machine block becomes the WTUNE_* variables
+    of wtune.machine unless they are already set, and the case table with the project's case
     becomes CASES_JSON unless one is already set."""
+    wtune.machine.export(project_machine(project_doc))
     nodes = project_exclude_nodes(project_doc)
     if nodes:
         have = [n for n in os.environ.get("WTUNE_SBATCH_EXCLUDE", "").split(",") if n]
@@ -426,30 +466,35 @@ def run(ctx):
 
 def is_previous_run_output(name, entries=()):
     """True for a file a previous WRF run wrote into its run dir (wrfout_*, wrfrst_*,
-    rsl.out.*, rsl.error.*, *.log, and namelist.output when namelist.input is in `entries`)."""
+    rsl.out.*, rsl.error.*, *.log, wrf.out, tslist time series, and namelist.output when
+    namelist.input is in `entries`)."""
     if name in _PREV_RUN_OUTPUT_NAMES:
         return "namelist.input" in entries
-    return name.startswith(_PREV_RUN_OUTPUT_PREFIXES) or name.endswith(_PREV_RUN_OUTPUT_SUFFIXES)
+    return (name == "wrf.out" or name.startswith(_PREV_RUN_OUTPUT_PREFIXES)
+            or name.endswith(_PREV_RUN_OUTPUT_SUFFIXES) or bool(_TS_OUTPUT_RE.search(name)))
 
 
 def _populate_case_dir(case_dir, dest_dir):
     """Copies only namelists; symlinks everything else found directly in case_dir except the
-    outputs of a previous run (is_previous_run_output). Never opens a file under case_dir for
+    outputs of a previous run (is_previous_run_output) and its executables (the project runs
+    the machine's WRF). Never opens a file under case_dir for
     writing -- os.symlink and shutil.copy2 (read + fresh write at dest) both leave the source
     untouched, so the original case dir's mtime/sha256 are unchanged (decision 0058 P1).
-    Returns the number of skipped previous-run outputs."""
+    Returns (skipped previous-run outputs, skipped executables)."""
     entries = sorted(os.listdir(case_dir))
-    skipped = 0
+    skipped, executables = 0, 0
     for entry in entries:
         src = os.path.join(case_dir, entry)
         dst = os.path.join(dest_dir, entry)
         if is_previous_run_output(entry, entries):
             skipped += 1
+        elif entry.endswith(".exe"):
+            executables += 1
         elif entry in NAMELIST_NAMES and os.path.isfile(src):
             shutil.copy2(src, dst)
         else:
             os.symlink(src, dst)
-    return skipped
+    return skipped, executables
 
 
 POST_EVERY_MAX_RUN_DAYS = 7   # longer runs get no default --every (too many frames)
@@ -491,9 +536,12 @@ def init_project(path, case_dir=None, name=None, storm=None, hurdat2=None, site=
     for sub in SUBDIRS:
         os.makedirs(os.path.join(path, sub), exist_ok=True)
     if case_dir:
-        skipped = _populate_case_dir(case_dir, os.path.join(path, "case"))
+        skipped, executables = _populate_case_dir(case_dir, os.path.join(path, "case"))
         if skipped:
             print("skipped %d output file(s) of a previous run in %s" % (skipped, case_dir))
+        if executables:
+            print("skipped %d executable(s) in %s: the project runs the machine's WRF"
+                  % (executables, case_dir))
 
     name = name or default_project_name(case_dir)
     case_id = None
@@ -560,11 +608,14 @@ def set_project(project_dir, storm=None, hurdat2=None, argv=None):
 
 
 def set_project_defaults(project_dir, exclude_nodes=None, post_every=None, post_types=None,
-                         post_fetch=None, register_case=False, argv=None):
+                         post_fetch=None, register_case=False, argv=None, machine=None):
     """`wtune project set --exclude-nodes/--post-every/--post-types/--post-fetch/
-    --register-case`: updates those keys in place. "none" clears post_every and post_fetch.
-    Returns the updated document."""
+    --register-case` and the machine flags: updates those keys in place. "none" clears
+    post_every and post_fetch. Returns the updated document."""
     doc = load_project(project_dir)
+    if machine:
+        doc["machine"] = project_machine(
+            dict(machine=wtune.machine.merged(doc.get("machine"), machine)))
     if register_case:
         case = dict(doc.get("case") or {})
         if not case.get("source_dir"):
@@ -610,6 +661,7 @@ def info_project(project_dir):
     if storm.get("id"):
         lines.append("storm: %s (hurdat2=%s)" % (storm.get("id"), storm.get("hurdat2")))
     lines.append("exclude_nodes: %s" % (",".join(project_exclude_nodes(doc)) or "-"))
+    lines.append(machine_line(doc))
     post = project_post_defaults(doc)
     lines.append("post defaults: --types %s --every %s; submit fetches: %s"
                  % (post["types"] or "auto", post["every"] or "-", ",".join(post["fetch"]) or "-"))
@@ -654,9 +706,59 @@ def build_parser():
 
     p_set = sub.add_parser("set", help="update the resolved project's project.yaml")
     p_set.add_argument("--project", default=None)
+    p_set.add_argument("--user", action="store_true",
+                       help="write the machine flags to your own settings file (%s), which "
+                            "every project on this machine uses, instead of this project"
+                            % wtune.machine.user_file())
     p_set.add_argument("--storm", default=None, help="e.g. AL122005")
     p_set.add_argument("--hurdat2", default=None, help="HURDAT2 file")
     p_set.add_argument("--exclude-nodes", default=None, help="comma list, '' clears")
+    p_set.add_argument("--cores-per-node", type=int, default=None,
+                       help="hardware cores of one compute node (built-in 72)")
+    p_set.add_argument("--max-nodes", type=int, default=None,
+                       help="compute nodes one job may use (built-in 13)")
+    p_set.add_argument("--partition", default=None,
+                       help="Slurm partition, or a comma list tried in order (built-in compute)")
+    p_set.add_argument("--login-nodes", default=None,
+                       help="nodes no job is sent to, comma list, '' = none (built-in head)")
+    p_set.add_argument("--account", default=None,
+                       help="Slurm account of every job, '' = none (built-in none)")
+    p_set.add_argument("--hardware-id", default=None,
+                       help="name of the node type in the measurement ledgers (built-in "
+                            "scc-gh200); a machine the tool does not know needs its own")
+    p_set.add_argument("--numa-per-node", type=int, default=None,
+                       help="NUMA domains with cores in one node (built-in 1)")
+    p_set.add_argument("--site", default=None,
+                       help="campaign/sites/<site>.sh describes how jobs start here "
+                            "(built-in scc)")
+    p_set.add_argument("--env-source", default=None,
+                       help="script every job sources for compilers, MPI and WRF "
+                            "(built-in $HOME/wtune-scc/env.sh)")
+    p_set.add_argument("--wrf-tree", default=None,
+                       help="WRF root with main/wrf.exe; $WRF_TREE when set by hand")
+    p_set.add_argument("--geog", default=None,
+                       help="WPS static data; $WPS_GEOG when set by hand")
+    p_set.add_argument("--max-hours", type=float, default=None,
+                       help="longest job the partition accepts; jobs are planned and capped "
+                            "to fit (built-in 0 = no cap)")
+    p_set.add_argument("--node-memory-gib", type=float, default=None,
+                       help="memory of one compute node; probes that cannot fit are not sent "
+                            "(built-in 0 = unknown, no check)")
+    p_set.add_argument("--copy-probe-inputs", type=_on_off, default=None, metavar="{on,off}",
+                       help="each probe job reads its own copy of the BP inputs (built-in on); "
+                            "off where the filesystem has a quota and no NFS open stall")
+    p_set.add_argument("--node-preflight", type=_on_off, default=None, metavar="{on,off}",
+                       help="probe every node with one srun before a tune (built-in on); off "
+                            "where the scheduler limits how many jobs a user may submit")
+    p_set.add_argument("--max-omp", type=int, default=None,
+                       help="most threads per rank WRF runs with here: 1 for a build without "
+                            "OpenMP (built-in 0 = no cap)")
+    p_set.add_argument("--measured", action="append", default=None, metavar="NAME=NUMBER",
+                       help="a number measured on this machine that replaces the built-in scc "
+                            "one, e.g. noise_frac=0.05 (names: wtune.machine.MEASURED)")
+    p_set.add_argument("--calibration", default=None,
+                       help="calibration JSON of this machine (wtune calibrate fit); "
+                            "built-in: machine/calibration/scc.json")
     p_set.add_argument("--post-every", default=None, help="e.g. 6h, 1d; 'none' clears")
     p_set.add_argument("--post-types", default=None, help="'auto' or e.g. 'tc,convection'")
     p_set.add_argument("--post-fetch", default=None,
@@ -666,6 +768,21 @@ def build_parser():
                             "(projects made before this existed)")
 
     return parser
+
+
+def _machine_flags(args):
+    """The machine flags of `project set` as a machine block (unchecked)."""
+    machine = {k: getattr(args, k) for k in wtune.machine.DEFAULTS if getattr(args, k) is not None}
+    if machine.get("calibration"):
+        machine["calibration"] = os.path.abspath(os.path.expanduser(machine["calibration"]))
+    if "measured" in machine:
+        pairs = [item.partition("=") for item in machine["measured"]]
+        try:
+            machine["measured"] = {name: float(value) for name, _eq, value in pairs}
+        except ValueError:
+            raise ProjectError("--measured: expected NAME=NUMBER, got %s"
+                               % " ".join(args.measured)) from None
+    return machine
 
 
 def main(argv=None):
@@ -683,6 +800,18 @@ def main(argv=None):
         print("created project: %s" % path)
         return 0
 
+    if args.project_command == "set" and args.user:
+        try:
+            machine = _machine_flags(args)
+            if not machine:
+                raise ProjectError("--user: give at least one machine flag, e.g. --partition")
+            wtune.machine.save_user(machine)
+            print("%s\n%s" % (wtune.machine.user_file(), machine_line(None)))
+        except (ProjectError, wtune.machine.MachineError) as e:
+            print("error: %s" % e, file=sys.stderr)
+            return 1
+        return 0
+
     if args.project_command == "set":
         try:
             project_dir = find_project(explicit=args.project)
@@ -691,9 +820,12 @@ def main(argv=None):
                                    "project.yaml above the current directory)")
             full_argv = ["wtune", "project"] + list(argv if argv is not None else sys.argv[1:])
             defaults = (args.exclude_nodes, args.post_every, args.post_types, args.post_fetch)
-            if any(v is not None for v in defaults) or args.register_case:
-                doc = set_project_defaults(project_dir, *defaults,
+            machine = _machine_flags(args)
+            if any(v is not None for v in defaults) or args.register_case or machine:
+                doc = set_project_defaults(project_dir, *defaults, machine=machine,
                                            register_case=args.register_case, argv=full_argv)
+                if machine:
+                    print(machine_line(doc))
                 post = project_post_defaults(doc)
                 print("%s: case id=%s exclude_nodes=%s post --types %s --every %s"
                       % (os.path.join(project_dir, PROJECT_YAML), project_case_id(doc) or "-",
@@ -720,7 +852,11 @@ def main(argv=None):
             print("error: no project found (--project, $WTUNE_PROJECT, or a project.yaml "
                  "above the current directory)", file=sys.stderr)
             return 1
-        print(info_project(project_dir))
+        try:
+            print(info_project(project_dir))
+        except ProjectError as e:
+            print("error: %s" % e, file=sys.stderr)
+            return 1
         return 0
 
     parser.print_help()

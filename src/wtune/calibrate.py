@@ -92,12 +92,12 @@ HERE = Path(__file__).resolve().parent.parent
 REPO_ROOT = HERE.parent  # HERE is src/; machine/ and campaign/ stay at the true repo root
 sys.path.insert(0, str(HERE))
 
+import wtune.machine                     # noqa: E402
 from wtune import predict as wp          # noqa: E402  (path insert above)
 from wtune.predictor import decomp_space as ds           # noqa: E402  (predictor/decomp_space.py)
 
 DEFAULT_CALIBRATION = REPO_ROOT / "machine" / "calibration" / "scc.json"
 DEFAULT_RANKS_LIST = "1,36,72,144,288"
-DEFAULT_CORES_PER_NODE = 72
 DEFAULT_STEPS = 20
 DEFAULT_MIN_PATCH = 10
 DEFAULT_TIME_LIMIT = "00:15:00"
@@ -160,11 +160,23 @@ def build_decomp(nl, max_dom, ranks, min_patch):
     return pick_near_square(shapes, aspect=aspect)
 
 
+def _hms_seconds(hms: str) -> int:
+    h, m, s = (int(x) for x in hms.split(":"))
+    return 3600 * h + 60 * m + s
+
+
+def _scheduler_fields() -> dict:
+    """The partition, and the exclude and account lines, of the sbatch templates below."""
+    login = wtune.machine.login_nodes()
+    lines = ["#SBATCH --exclude=%s\n" % ",".join(login) if login else "",
+             "#SBATCH %s\n" % wtune.machine.account_arg() if wtune.machine.account_arg() else ""]
+    return dict(partition=wtune.machine.partition(), exclude="".join(lines))
+
+
 PLAN_SBATCH_TEMPLATE = """#!/usr/bin/env bash
 #SBATCH --job-name=wtcal-{ranks}
-#SBATCH --partition=compute
-#SBATCH --exclude=head
-#SBATCH --nodes={nodes}
+#SBATCH --partition={partition}
+{exclude}#SBATCH --nodes={nodes}
 #SBATCH --ntasks-per-node={tpn_header}
 #SBATCH --time={time_limit}
 #SBATCH --output={out_dir}/wtcal_{ranks}_%j.out
@@ -218,13 +230,38 @@ for tbl in freezeH2O.dat qr_acr_qg_V4.dat qr_acr_qsV2.dat; do
 done
 
 cp {case_dir}/namelist.input ./namelist.input.orig
-for wf in {case_dir}/wrfinput_d* {case_dir}/wrfbdy_d*; do
-  [ -e "$wf" ] && ln -sf "$wf" "$(basename "$wf")"
-done
 
-python3 "$CAMPAIGN/configs.py" edit-namelist ./namelist.input.orig ./namelist.input \\
+# ADIOS2 for every stream, as in strict_campaign.sbatch: stage-bp-inputs converts the case's
+# netCDF once into a shared cache (lockf, so concurrent plan jobs convert once) and prints
+# BP_DIR / WTUNE_PER_RECORD_BP / WTUNE_AUX_BP_STREAMS. Per-record files are copied, not linked:
+# parallel jobs opening one inode stall on NFS (adios2 gate, 2026-10-03).
+PY="pixi run --manifest-path $PIXI_ENV/pixi.toml python"
+PYBIN=$($PY -c 'import sys; print(sys.executable)' 2>/dev/null | tail -1)
+[ -x "$PYBIN" ] || {{ echo "FATAL: no python via $PY" >&2; exit 1; }}
+# as `pixi run` would: the converter looks for an adios2 python on PATH (f1-arm has no envs/adios2)
+export PATH="$(dirname "$PYBIN"):$PATH"
+STAGE=$("$PYBIN" "$CAMPAIGN/configs.py" stage-bp-inputs {case_id} ./namelist.input.orig {case_dir}) || exit 1
+eval "$STAGE"
+export WTUNE_INPUT_FORMAT=adios2 WTUNE_BP_DIR="$BP_DIR" WTUNE_PER_RECORD_BP WTUNE_AUX_BP_STREAMS
+for ((d = 1; d <= {max_dom}; d++)); do
+  df=$(printf "d%02d" "$d")
+  ln -sf "$BP_DIR/wrfinput_$df.bp" "wrfinput_$df.bp"
+done
+BDY_PER_RECORD=0
+for n in $WTUNE_PER_RECORD_BP; do
+  for c in "$BP_DIR/$n" "$BP_DIR/$n.bp"; do
+    [ -d "$c" ] || continue
+    for r in "$c/$n"_*.bp; do [ -d "$r" ] && cp -r "$r" .; done
+    break
+  done
+  [ -f {case_dir}/$n ] && ln -sf {case_dir}/$n "$n"
+  [ "$n" = wrfbdy_d01 ] && BDY_PER_RECORD=1
+done
+[ "$BDY_PER_RECORD" = 1 ] || ln -sf "$BP_DIR/wrfbdy_d01.bp" wrfbdy_d01.bp
+
+"$PYBIN" "$CAMPAIGN/configs.py" edit-namelist ./namelist.input.orig ./namelist.input \\
   --nproc-x {nx} --nproc-y {ny} --numtiles 1 --run-minutes {run_minutes} --max-dom {max_dom} \\
-  --history-mode {history_mode} --set restart=.false. --no-adios2
+  --history-mode {history_mode} --set restart=.false. --ranks {ranks}
 rm -f ./namelist.input.orig
 ln -sf "$W/main/wrf.exe" ./wrf.exe
 
@@ -245,7 +282,7 @@ fi
 
 T0=$(date +%s.%N)
 site_launch {ranks} {tpn_launch} 1 block
-timeout 840 "${{SITE_LAUNCH_CMD[@]}}" > wrf.out 2>&1 &
+timeout {launch_timeout_s} "${{SITE_LAUNCH_CMD[@]}}" > wrf.out 2>&1 &
 WRF_PID=$!
 wait "$WRF_PID"
 RC=$?
@@ -276,9 +313,8 @@ exit 0
 
 MACHINE_PROFILE_SBATCH_TEMPLATE = """#!/usr/bin/env bash
 #SBATCH --job-name=wtcal-mprof
-#SBATCH --partition=compute
-#SBATCH --exclude=head
-#SBATCH --nodes=1
+#SBATCH --partition={partition}
+{exclude}#SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --time=00:20:00
 #SBATCH --output={out_dir}/wtcal_mprof_%j.out
@@ -371,9 +407,11 @@ def plan_cmd(args):
         text = PLAN_SBATCH_TEMPLATE.format(
             ranks=ranks, nodes=nodes, tpn_header=tpn_header, tpn_launch=tpn_launch,
             time_limit=args.time_limit, out_dir=out_dir, site=args.site,
-            case_dir=case_dir, steps=steps, run_minutes=run_minutes, nx=nx, ny=ny,
+            case_dir=case_dir, case_id=case_dir.name, steps=steps, run_minutes=run_minutes,
+            nx=nx, ny=ny,
             max_dom=max_dom, history_mode=history_mode, history_mode_note=history_mode_note,
-            campaign_dir=campaign_dir, sbatch_path=sbatch_path)
+            campaign_dir=campaign_dir, sbatch_path=sbatch_path,
+            launch_timeout_s=_hms_seconds(args.time_limit) - 60, **_scheduler_fields())
         sbatch_path.write_text(text)
         runs.append({"ranks": ranks, "nodes": nodes, "nx": nx, "ny": ny,
                      "tpn_launch": tpn_launch, "history_mode": history_mode,
@@ -383,7 +421,8 @@ def plan_cmd(args):
 
     mprof_path = out_dir / "machine_profile.sbatch"
     mprof_path.write_text(MACHINE_PROFILE_SBATCH_TEMPLATE.format(
-        out_dir=out_dir, site=args.site, campaign_dir=campaign_dir, machine_dir=machine_dir))
+        out_dir=out_dir, site=args.site, campaign_dir=campaign_dir, machine_dir=machine_dir,
+        **_scheduler_fields()))
     print("wrote %s (machine/run_machine_profile.sh topology/bandwidth snapshot)" % mprof_path)
 
     manifest = {
@@ -433,7 +472,9 @@ def _dir_bytes(run_dir, patterns):
     for pat in patterns:
         for p in sorted(run_dir.glob(pat)):
             try:
-                total += p.stat().st_size
+                # an ADIOS2 BP file is a directory
+                total += (sum(f.stat().st_size for f in p.rglob("*") if f.is_file())
+                          if p.is_dir() else p.stat().st_size)
             except OSError:
                 continue
             found.append(p.name)
@@ -960,8 +1001,8 @@ def add_plan_subparser(sub):
     p.add_argument("--out", required=True, help="directory to write plan_<ranks>.sbatch + MANIFEST.json into")
     p.add_argument("--ranks-list", default=DEFAULT_RANKS_LIST,
                     help="comma-separated rank counts (default %s)" % DEFAULT_RANKS_LIST)
-    p.add_argument("--cores-per-node", type=int, default=DEFAULT_CORES_PER_NODE,
-                    help="default %d" % DEFAULT_CORES_PER_NODE)
+    p.add_argument("--cores-per-node", type=int, default=wtune.machine.cores_per_node(),
+                    help="default %d" % wtune.machine.cores_per_node())
     p.add_argument("--steps", type=int, default=DEFAULT_STEPS, help="default %d" % DEFAULT_STEPS)
     p.add_argument("--min-patch", type=int, default=DEFAULT_MIN_PATCH,
                     help="WRF's own floor(e/nproc)>=min_patch legality gate (default %d)" %
@@ -981,8 +1022,8 @@ def add_fit_subparser(sub):
     p.add_argument("--base", default=str(DEFAULT_CALIBRATION),
                     help="template calibration JSON to copy untouched fields from "
                          "(default machine/calibration/scc.json)")
-    p.add_argument("--cores-per-node", type=int, default=DEFAULT_CORES_PER_NODE,
-                    help="default %d" % DEFAULT_CORES_PER_NODE)
+    p.add_argument("--cores-per-node", type=int, default=wtune.machine.cores_per_node(),
+                    help="default %d" % wtune.machine.cores_per_node())
     p.add_argument("--site", default=None, help="'site' field to stamp in the output (default: base file's site + '-auto')")
     p.add_argument("--host", default=None, help="override the host name recorded in provenance strings (default: this machine's hostname)")
     p.add_argument("--no-read-rate", action="store_true",

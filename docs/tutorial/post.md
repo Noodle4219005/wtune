@@ -1,4 +1,4 @@
-# 6. 後處理 (post)
+# 6. post
 
 ```bash
 wtune post recipe --srun
@@ -6,10 +6,14 @@ wtune post recipe --srun
 
 在 project 內執行。它讀 `runs/*/` 的輸出，依個案類型畫一組標準圖，和觀測資料比較，全部收進 `post/<id>/report.html`。
 
+所有圖另外集中在 `post/<id>/figures/`，檔名是 `<類型>-<原檔名>`（例如 `tc-track_map.png`、`synoptic-syn_slp_thickness.png`），可以直接整個資料夾瀏覽。這裡是 hard link，不另外佔空間；各類型的子資料夾仍保留圖旁邊的資料檔（csv、dat）。
+
 `wtune post` 底下所有指令都只讀模式輸出、只產生圖和表：不改 namelist，不送模式的 job。
 
 !!! tip "`--srun` 是什麼"
     出圖很吃記憶體和 CPU，不要在登入節點上做。任何 `wtune post` 子指令加上 `--srun`，就會包成一個獨佔計算節點的 job step 來執行（預設上限 120 分鐘，`--srun-minutes N` 可改），並避開 `head` 和專案設定的節點。
+
+各圖組（共同圖、資料產品、每種個案類型、時間序列）彼此獨立，會同時在不同程序裡畫，報告裡的順序不變；颱風追蹤的 `DetectNodes` 也會把時間切成幾段同時跑。程序數預設是 job 可用的 CPU 數，記憶體不夠時用 `WTUNE_POST_WORKERS` 調小（`1` 就是逐組依序畫）。
 
 ## 個案類型
 
@@ -34,6 +38,26 @@ wtune post recipe --srun
 wtune post recipe --types tc,convection --srun
 ```
 
+## 跑之前先看：preview
+
+```bash
+wtune post preview          # 在 project 內；不需要 runs/
+```
+
+還沒跑 WRF 就能做，幾秒鐘，不送 job。它用專案裡已有的資料回答兩件事：
+
+- **跑完會畫哪些圖**：依 namelist 和 `wrfinput` 偵測個案類型（和 `recipe` 用同一套規則），把每種圖和它回答的問題列在 `post/preview/expected_figures.csv` 與 `preview.html`。
+- **大概會長什麼樣**：現在就能畫的圖放在 `post/preview/figures/`——
+    - 地形與網格（`common_domain_map.png`）
+    - 起始時刻的海平面氣壓與 10 m 風（`synoptic-syn_slp_wind10_f000.png`，來自 `wrfinput`）
+    - 颱風個案的最佳路徑（`tc-track_map.png`）
+    - 模擬時段的 Stage IV 觀測雨量（`precip-precip_stage4_total.png`）
+    - 已下載的 ERA5 500 hPa 高度
+
+`preview.html` 另外列出 tune 預估的執行時間。
+
+這些圖都不是模式結果，而是初始場和觀測：模式中途會算出什麼，跑之前無法知道。跑完後拿 `post/<id>/figures/` 的同名圖（例如兩邊的 `tc-track_map.png`）來比，差異就是模式自己的表現。觀測要先用 `wtune post fetch` 下載，沒下載的那幾張會在「略過」裡說明。
+
 ## 時間序列與動畫
 
 ```bash
@@ -44,7 +68,7 @@ wtune post recipe --times 2005082700,2005082712 --srun
 
 圖放在 `post/<id>/timeseries/`，檔名像 `slp_d02_f018_2005082718Z.png`：欄位、域、預報時數、有效時間。
 
-## 和觀測比較
+## 觀測比較
 
 ```mermaid
 flowchart LR
@@ -75,7 +99,7 @@ wtune post fetch nexrad --project . --run-dir runs/<id>/
 
 比較範圍一律排除模式的側邊界區。降水比對另外限制在 NEXRAD 站 230 km 以內，因為 Stage IV 在外海是 0 而不是缺值。
 
-## 讀報告
+## 報告
 
 打開 `post/<id>/report.html`，從上往下看：
 
@@ -87,7 +111,7 @@ wtune post fetch nexrad --project . --run-dir runs/<id>/
 
 畫不出來的圖不會被默默略過，一定列在「缺少」裡並附原因。
 
-## 單一用途的工具
+## 其他 subcommand
 
 ```bash
 wtune post inventory runs/<id>/ --json
@@ -111,9 +135,9 @@ wtune post compare runs/a/ runs/b/ --vars T2,slp
     ```bash
     wtune post compare runs/before/ runs/after/
     ```
-    兩次執行只差在 tile 數、OpenMP 執行緒數或 rank 擺法時，`diffwrf` 應該回報完全相同。改了 decomposition 或 rank 數時，可能出現浮點捨入等級的差異，原因見 [自動改什麼、只建議什麼](../guide/compliance.md)。
+    兩次執行只差在 tile 數、OpenMP 執行緒數或 rank 擺法時，`diffwrf` 應該回報完全相同。改了 decomposition 或 rank 數時，可能出現浮點捨入等級的差異，原因見 [compliance](../guide/compliance.md)。
 
-## 自己的分析腳本
+## custom
 
 `wtune project init` 在 `analysis/` 放了一個範例。每個腳本定義一個 `run(ctx)`：
 
@@ -134,4 +158,4 @@ wtune post custom --srun
 
 所有腳本的圖和表會收成一份 HTML。某個腳本丟出例外時只會多一筆錯誤記錄，其他腳本照跑。
 
-教學到這裡結束。接下來可以看 [自動改什麼、只建議什麼](../guide/compliance.md)。
+教學到這裡結束。接下來可以看 [compliance](../guide/compliance.md)。

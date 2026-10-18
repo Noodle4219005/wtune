@@ -8,6 +8,7 @@ from __future__ import annotations
 import math
 from typing import Any
 
+import wtune.machine
 import wtune.nodes
 
 LEVELS = {
@@ -21,7 +22,7 @@ LEVELS = {
 DEFAULT_LEVEL = 2
 
 # effort-model guesses, replaced by measurements once they exist
-EST_REBUILD_S = 180.0                # s per ERA5 point rebuild: 1:21-3:00 measured (sc26p1)
+EST_REBUILD_S = wtune.machine.MEASURED["rebuild_s"]    # built-in; s per ERA5 point rebuild
 EST_REFINE_ROUNDS = 2                # coarse-to-fine refinement rounds around the best N
 EST_ADAPTIVE_ROUNDS = 3              # round0 -> adaptive proposer rounds (O3 only)
 EST_ROUND0_CONFIGS = 6               # decomposition candidates measured at the winner N
@@ -67,7 +68,7 @@ def points_estimate(*, s1: float, startup_s: float, max_nodes: int, n_points: in
         waves = math.ceil(max(1, points) * nstar / float(max_nodes))
         return waves * (spin + runs * per_run)
 
-    exposed = max(0.0, EST_REBUILD_S - layout_s)
+    exposed = max(0.0, wtune.machine.measured("rebuild_s") - layout_s)
     total = exposed + point_jobs(n_points, layouts + 1)
     if physics:
         total += point_jobs(EST_PHYSICS_POINTS, EST_PHYSICS_RUNS)

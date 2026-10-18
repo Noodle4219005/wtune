@@ -46,21 +46,23 @@ def _domain_edge_latlon(ds):
     return [p[0] for p in ring], [p[1] for p in ring]
 
 
-def plot_domain_map(run_dir, max_dom, out_dir, run_label):
+def plot_domain_map(run_dir, max_dom, out_dir, run_label, frame_of=None):
     """d01 terrain (wrf.getvar 'terrain') filled with cartopy coastlines, every nest's own
     grid-edge boundary overlaid. Returns the PNG path. Built directly (not through
     post/recipes/mapfig.py's one-shot save_map()) because the nest-boundary overlay needs to
-    draw on the SAME still-open axes save_map would otherwise have already closed."""
+    draw on the SAME still-open axes save_map would otherwise have already closed. frame_of(dom)
+    -> (valid time, path) or None: the file each domain is drawn from, default its first wrfout
+    frame (wtune post preview passes the wrfinput files)."""
     import netCDF4
     import numpy as np
     import cartopy.crs as ccrs
     wrf_mod = __import__("wrf")
     from wtune.post.plotting import (_coastline, _matplotlib, _natural_earth_ready, _set_cartopy_data_dir)
 
-    d1_frames = list_frames(run_dir, domain=1)
-    if not d1_frames:
+    frame_of = frame_of or (lambda dom: (list_frames(run_dir, domain=dom) or [None])[0])
+    if not frame_of(1):
         return None
-    time0, path0 = d1_frames[0]
+    time0, path0 = frame_of(1)
     plt = _matplotlib()
     out_path = os.path.join(out_dir, "common_domain_map.png")
 
@@ -80,10 +82,10 @@ def plot_domain_map(run_dir, max_dom, out_dir, run_label):
         _coastline(ax, ds, ccrs, natural_earth_ok, terrain=False, nest_rings=[])  # fill = terrain; rings drawn below
 
         for dom in range(1, max_dom + 1):
-            frames = list_frames(run_dir, domain=dom)
-            if not frames:
+            frame = frame_of(dom)
+            if not frame:
                 continue
-            with netCDF4.Dataset(frames[0][1]) as dds:
+            with netCDF4.Dataset(frame[1]) as dds:
                 edge_lon, edge_lat = _domain_edge_latlon(dds)
             ax.plot(edge_lon, edge_lat, "-", linewidth=1.5, color="red" if dom > 1 else "black",
                     transform=ccrs.PlateCarree(), label="d%02d" % dom)

@@ -6,8 +6,8 @@ from __future__ import annotations
 import os
 import shlex
 
+import wtune.machine
 from ._deps import _CAMPAIGN_DIR, coldstart, sweep
-from .common import CORES_PER_NODE
 from .layout import Config
 
 
@@ -15,30 +15,29 @@ def _header_lines(seg_dir: str, nodes: int, time_limit: str, job_name: str, env_
                   campaign_dir: str) -> list[str]:
     return ["#!/usr/bin/env bash",
             "#SBATCH --job-name=%s" % job_name,
-            "#SBATCH -p compute -N %d --exclusive --ntasks-per-node=%d --time=%s %s"
-            % (nodes, CORES_PER_NODE, time_limit, sweep.exclude_arg()),
+            ("#SBATCH -p %s -N %d --exclusive --ntasks-per-node=%d --time=%s %s"
+             % (wtune.machine.partition(), nodes, wtune.machine.cores_per_node(), time_limit,
+                sweep.scheduler_args())).rstrip(),
             "#SBATCH --signal=B:USR1@90",
             "#SBATCH --no-requeue",        # a requeued job would rerun beside the resume
             "#SBATCH --output=%s/segment-%%j.out" % seg_dir,
             "set -uo pipefail",
             "SEG=%s" % shlex.quote(seg_dir),
-            "SITE=scc",
+            "SITE=%s" % wtune.machine.site(),
             "CAMPAIGN=${CAMPAIGN:-%s}" % shlex.quote(os.path.abspath(campaign_dir)),
-            "source \"$CAMPAIGN/sites/$SITE.sh\"   # site_hygiene / W",
+            "source \"$CAMPAIGN/sites/$SITE.sh\"   # site_launch / site_hygiene / W",
             "source \"%s\"" % env_source,
             "W=${WRF_TREE:-$W}",
             "ulimit -s unlimited"]
 
 
 def _launch_lines(k: int, config: Config) -> list[str]:
+    """The site file's own launcher (site_launch), the one the probes were measured with."""
     ppn = -(-config.ranks // config.nodes)
-    launch = "mpirun -np %d --map-by ppr:%d:node:PE=%d --bind-to core" % (config.ranks, ppn,
-                                                                         config.omp)
-    if config.dist == "cyclic":
-        launch += " --rank-by node"
     return ["CUR_WINDOW=%d" % k,
             "T0=$(date +%s)",
-            "%s ./wrf.exe &" % launch,
+            "site_launch %d %d %d %s" % (config.ranks, ppn, config.omp, config.dist),
+            "\"${SITE_LAUNCH_CMD[@]}\" &",
             "WRF_PID=$!",
             "wait \"$WRF_PID\"; rc=$?",
             "WRF_PID=\"\"; CUR_WINDOW=\"\"",
@@ -48,11 +47,11 @@ def _launch_lines(k: int, config: Config) -> list[str]:
 
 
 def render_segment_sbatch(seg_dir: str, k: int, config: Config, time_limit: str, job_name: str,
-                          env_source: str = "$HOME/wtune-scc/env.sh",
+                          env_source: str | None = None,
                           campaign_dir: str = _CAMPAIGN_DIR) -> str:
     config = Config.coerce(config)
     lines = _header_lines(os.path.abspath(seg_dir), config.nodes, time_limit, job_name,
-                          env_source, campaign_dir)
+                          env_source or wtune.machine.env_source(), campaign_dir)
     lines += coldstart.render_signal_trap_and_hygiene_preamble(
         config.nodes, extra_lines_after_alloc_nodes=["STATUS=\"$SEG/segment_status.txt\"",
                                                      ": > \"$STATUS\""],

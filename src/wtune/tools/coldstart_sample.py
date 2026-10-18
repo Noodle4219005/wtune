@@ -47,17 +47,19 @@ from typing import Any, Callable
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _REPO_ROOT = os.path.dirname(os.path.dirname(_HERE))  # src/
+_TREE = os.path.dirname(_REPO_ROOT)                   # the checkout this tool runs from
+REAL_TIMEOUT_S = 600                   # real.exe at the config's own decomposition
+REAL_SERIAL_TIMEOUT_S = 1800           # then once more on one rank
 if not __package__:                    # run by path: this directory is not an import root
     sys.path[:] = [p for p in sys.path if os.path.abspath(p or ".") != _HERE]
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
+import wtune.machine
 from wtune import predict as predict   # repo root -- delegates run-length resolution to
                                    # wtune.runlength.resolve_run_seconds internally
                                    # (stdlib only, per its own docstring -- no numpy)
 
-DEFAULT_CALIBRATION = os.path.join(
-    os.path.dirname(_REPO_ROOT), "machine", "calibration", "scc.json")  # machine/ stays at repo root
 _WRF_TIME_FMT = "%Y-%m-%d_%H:%M:%S"
 _SELF_PATH = os.path.abspath(__file__)
 # K5 ML apply: run with the grib-env python (needs numpy/netCDF4), never /usr/bin/python3.
@@ -269,7 +271,8 @@ def resolve_projection(nl: dict, namelist_wps_path: str | None = None,
         if not ncdump_exe:
             raise ColdstartError(
                 "no ncdump on PATH and $NETCDF/bin/ncdump does not exist -- cannot read %s "
-                "(source ~/wtune-scc/env.sh, or pass --ncdump)" % geo_from_wrfinput_path)
+                "(source %s, or pass --ncdump)"
+                % (geo_from_wrfinput_path, wtune.machine.env_source()))
         attrs = read_wrfinput_global_attrs(geo_from_wrfinput_path, ncdump_exe)
         return geo_from_wrfinput_attrs(attrs, nl)
     raise ColdstartError(
@@ -307,7 +310,15 @@ def domain_list_fields(nl: dict, max_dom: int) -> dict[str, list]:
 
 
 def geog_data_path_default() -> str:
-    return os.environ.get("WPS_GEOG") or "/nfs/data/wrf/WPS_GEOG/"
+    return wtune.machine.geog()
+
+
+def tree_default_lines(ml: bool) -> list:
+    """GRIB_PY (ML hook only) and CAMPAIGN of a generated job: this checkout's, unless the
+    submitter exports its own."""
+    grib = os.path.join(_TREE, "envs", "grib", ".pixi", "envs", "default", "bin", "python")
+    return ((["GRIB_PY=${GRIB_PYTHON:-%s}" % grib] if ml else [])
+            + ["CAMPAIGN=${CAMPAIGN:-%s}" % os.path.join(_TREE, "campaign")])
 
 
 # ---------------------------------------------------------------------------
@@ -1317,7 +1328,8 @@ def _forcing_grid(window_anchor_start, case_interval_seconds, grib_dir, forcing,
     return primary_source, t0_grid, shift_s_t0
 
 
-def build_plan(case_dir: str, out_dir: str, k: int = 4, nodes: int = 1, ranks: int = 72, omp: int = 1,
+def build_plan(case_dir: str, out_dir: str, k: int = 4, nodes: int = 1, ranks: int | None = None,
+               omp: int = 1,
                nx: int | None = None, ny: int | None = None, spinup_min: float = 60,
                namelist: str | None = None, namelist_wps: str | None = None,
                geo_from_wrfinput: str | None = None, grib_dir: str | None = None,
@@ -1329,6 +1341,7 @@ def build_plan(case_dir: str, out_dir: str, k: int = 4, nodes: int = 1, ranks: i
                io_probe: bool = False) -> dict:
     """Writes OUT_DIR/plan.json + namelist.wps. `io_probe` (default False: plan.json unchanged)
     adds plan['io_probe'] (plan_io_probe), applied to the LAST window -- see apply_io_probe."""
+    ranks = ranks or wtune.machine.cores_per_node()
     rows, blockers, nl = inspect_case(case_dir, namelist=namelist, namelist_wps=namelist_wps,
                                        geo_from_wrfinput=geo_from_wrfinput, grib_dir=grib_dir,
                                        ncdump=ncdump, now=now, geog_path=geog_path)
@@ -2359,7 +2372,7 @@ def generate_vtable_gfs_prmsl(vtable_gfs_text: str) -> str:
     return "\n".join(out)
 
 
-def stage_plan(plan_dir: str, site: str = "scc", per_window_min: int = 15) -> str:
+def stage_plan(plan_dir: str, site: str | None = None, per_window_min: int = 15) -> str:
     with open(os.path.join(plan_dir, "plan.json")) as f:
         plan = json.load(f)
 
@@ -2566,7 +2579,7 @@ def _sbatch_directive_lines(plan, nodes, ppn, n_windows, per_window_estimate_min
     estimate (wps + n_windows x per-window), minimum 60 minutes."""
     total_min = wps_estimate_min + n_windows * per_window_estimate_min
     # generous: 2x the stated estimate, minimum 60 minutes
-    time_min = max(60, total_min * 2)
+    time_min = int(wtune.machine.cap_seconds(60.0 * max(60, total_min * 2)) // 60)
     hh = time_min // 60
     mm = time_min % 60
     time_str = "%02d:%02d:00" % (hh, mm)
@@ -2574,11 +2587,14 @@ def _sbatch_directive_lines(plan, nodes, ppn, n_windows, per_window_estimate_min
     lines = []
     lines.append("#!/usr/bin/env bash")
     lines.append("#SBATCH --job-name=coldstart-sample")
-    lines.append("#SBATCH --partition=compute")
+    lines.append("#SBATCH --partition=%s" % wtune.machine.partition())
     # WTUNE_SBATCH_EXCLUDE: extra nodes to avoid (comma list), e.g. one carrying non-Slurm load
     # (scc work5, 2026-09-27: a root VS Code server stole a core and slowed wrf.exe 5x).
     # merged with the controller's own node-health pre-flight failures (scc_sweep.excluded_nodes)
-    lines.append("#SBATCH --exclude=%s" % ",".join(sbatch_excluded_nodes()))
+    if sbatch_excluded_nodes():
+        lines.append("#SBATCH --exclude=%s" % ",".join(sbatch_excluded_nodes()))
+    if wtune.machine.account_arg():
+        lines.append("#SBATCH " + wtune.machine.account_arg())
     lines.append("#SBATCH -N %d --exclusive --ntasks-per-node=%d" % (nodes, ppn))
     lines.append("#SBATCH --time=%s" % time_str)
     lines.append("#SBATCH --signal=B:USR1@90")
@@ -2614,12 +2630,11 @@ def _sbatch_environment_lines(plan, site, nodes):
         # on plain python3.
         lines.append("TOOL_SCM=%s" % _sh_quote(_SCM_PATH))
         lines.append("ML_MODEL=%s" % _sh_quote(os.path.abspath(ml_model)))
-        lines.append("GRIB_PY=${GRIB_PYTHON:-$HOME/wtune/envs/grib/.pixi/envs/default/bin/python}")
-    lines.append("SITE=%s" % site)
-    lines.append("CAMPAIGN=${CAMPAIGN:-$HOME/wtune/campaign}")
+    lines.append("SITE=%s" % (site or wtune.machine.site()))
+    lines.extend(tree_default_lines(bool(ml_model)))
     lines.append("source \"$CAMPAIGN/sites/$SITE.sh\"   # site_env / site_launch / site_hygiene -- "
                   "reused, not reimplemented")
-    lines.append("source ~/wtune-scc/env.sh")
+    lines.append("source %s" % wtune.machine.env_source())
     lines.append("export PATH=$NETCDF/bin:$PATH")
     lines.append("ulimit -s unlimited")
     lines.append("site_env")
@@ -2779,16 +2794,17 @@ def _run_window_real_lines(ranks, real_tpn):
     lines.append("  for f in met_em.d0*.*.nc; do [ \"$f\" = \"${f//:/_}\" ] || ln -sf \"$f\" \"${f//:/_}\"; done")
     lines.append("  python3 \"$TOOL\" fix-real-namelist --plan \"$PLAN\" --win \"$k\" || return 1")
     # real.exe hangs at some decompositions (3x3, 5x5; sc26p1/severe2023): the config's own under
-    # timeout 600, then serial (nproc 1x1) under timeout 1800 on rc=124 or no output.
-    lines.append("  timeout 600 mpirun -np %d --map-by ppr:%d:node:PE=1 --bind-to core ./real.exe"
-                  % (ranks, real_tpn))
+    # REAL_TIMEOUT_S, then serial (nproc 1x1) under REAL_SERIAL_TIMEOUT_S on rc=124 or no output.
+    lines.append("  timeout %d mpirun -np %d --map-by ppr:%d:node:PE=1 --bind-to core ./real.exe"
+                  % (REAL_TIMEOUT_S, ranks, real_tpn))
     lines.append("  rc=$?; pkill -u \"$USER\" -x real.exe 2>/dev/null")
     lines.append("  real_path=decomp")
     lines.append("  if [ $rc -eq 124 ] || [ ! -f wrfinput_d01 ] || [ ! -f wrfbdy_d01 ]; then")
     lines.append("    echo \"window $k: real.exe decomposed attempt rc=$rc -- retrying serial "
                   "(nproc_x=nproc_y=1)\" >&2")
     lines.append("    python3 \"$TOOL\" fix-real-namelist --plan \"$PLAN\" --win \"$k\" --serial || return 1")
-    lines.append("    timeout 1800 mpirun -np 1 --map-by ppr:1:node:PE=1 --bind-to core ./real.exe")
+    lines.append("    timeout %d mpirun -np 1 --map-by ppr:1:node:PE=1 --bind-to core ./real.exe"
+                  % REAL_SERIAL_TIMEOUT_S)
     lines.append("    rc=$?; pkill -u \"$USER\" -x real.exe 2>/dev/null")
     lines.append("    real_path=serial")
     lines.append("  fi")
@@ -2925,11 +2941,11 @@ def sbatch_excluded_nodes() -> list:
         from wtune.tools import scc_sweep
         return scc_sweep.excluded_nodes()
     except ImportError:
-        return ["head"] + [n.strip() for n in os.environ.get("WTUNE_SBATCH_EXCLUDE", "").split(",")
-                           if n.strip()]
+        return wtune.machine.login_nodes() + [
+            n.strip() for n in os.environ.get("WTUNE_SBATCH_EXCLUDE", "").split(",") if n.strip()]
 
 
-def render_run_sbatch(plan: dict, site: str = "scc", per_window_estimate_min: int = 15,
+def render_run_sbatch(plan: dict, site: str | None = None, per_window_estimate_min: int = 15,
                       wps_estimate_min: int = 20, per_window_forcing: list[dict] | None = None
                       ) -> str:
     """run.sbatch for a plan (SPEC.md 'run.sbatch (site scc)'): geogrid and link_grib once, then per
@@ -2949,8 +2965,9 @@ def render_run_sbatch(plan: dict, site: str = "scc", per_window_estimate_min: in
     # ceil(ranks/nodes), not floor: 90 ranks on 4 nodes need 23/node (rc=213 'not enough slots',
     # T7); assert rather than over-pack scc's CORES_PER_NODE.
     ppn = -(-ranks // max(nodes, 1))
-    assert ppn <= 72, ("ppn=%d exceeds CORES_PER_NODE=72 (ranks=%d nodes=%d)"
-                       % (ppn, ranks, nodes))
+    cores = wtune.machine.cores_per_node()
+    assert ppn <= cores, ("ppn=%d exceeds CORES_PER_NODE=%d (ranks=%d nodes=%d)"
+                          % (ppn, cores, ranks, nodes))
     max_dom = plan.get("max_dom", 1)
     geo_em_expected = ["geo_em.d%02d.nc" % d for d in range(1, max_dom + 1)]
 
@@ -3120,9 +3137,10 @@ def score_windows_from_rsl(plan: dict, sample_points: list | None, calibration: 
 
 
 def resolve_r_rad(pooled_radiation_samples: list, calibration: dict) -> tuple[float, float, str]:
-    default_r_rad = calibration.get("radiation", {}).get("r_rad_default", 5.0)
+    default_r_rad = calibration.get("radiation", {}).get(
+        "r_rad_default", wtune.machine.measured("r_rad_default"))
     day_night_ratio = calibration.get("radiation", {}).get(
-        "r_rad_day_night_ratio", predict.DEFAULT_R_RAD_DAY_NIGHT_RATIO)
+        "r_rad_day_night_ratio", wtune.machine.measured("r_rad_day_night_ratio"))
     r_night, r_day, source = predict.fit_day_night_r_rad(pooled_radiation_samples, day_night_ratio)
     if r_night is None:
         cal_rad = calibration.get("radiation", {})
@@ -3156,8 +3174,9 @@ def predicted_compute_total(steps_n: int, dt: float, stepra: int, run_start_dt: 
     return sum(s_values) + rad_extra, s_values
 
 
-def score_plan(plan_dir: str, calibration_path: str = DEFAULT_CALIBRATION,
+def score_plan(plan_dir: str, calibration_path: str | None = None,
                json_out: str | None = None, include_io: bool = False) -> dict:
+    calibration_path = calibration_path or predict.calibration_path()
     with open(os.path.join(plan_dir, "plan.json")) as f:
         plan = json.load(f)
     if plan.get("real_only"):
@@ -3283,7 +3302,7 @@ def _build_arg_parser():
     sp.add_argument("--out", required=True)
     sp.add_argument("--k", type=int, default=4)
     sp.add_argument("--nodes", type=int, default=1)
-    sp.add_argument("--ranks", type=int, default=72)
+    sp.add_argument("--ranks", type=int, default=wtune.machine.cores_per_node())
     sp.add_argument("--omp", type=int, default=1)
     sp.add_argument("--nx", type=int)
     sp.add_argument("--ny", type=int)
@@ -3328,7 +3347,7 @@ def _build_arg_parser():
 
     sp = sub.add_parser("stage")
     sp.add_argument("--plan", required=True)
-    sp.add_argument("--site", default="scc")
+    sp.add_argument("--site", default=wtune.machine.site())
     # also the wrf.exe per-window `timeout` (seconds = 60x): maria1km (job 982, 1 km d02, 202
     # d01 steps at ~9.3 s/step) was killed at exactly 899 s by the old fixed 15 min
     sp.add_argument("--per-window-min", type=int, default=15)
@@ -3336,7 +3355,7 @@ def _build_arg_parser():
     sp = sub.add_parser("score")
     sp.add_argument("--plan", required=True)
     sp.add_argument("--json")
-    sp.add_argument("--calibration", default=DEFAULT_CALIBRATION)
+    sp.add_argument("--calibration", default=predict.calibration_path())
     sp.add_argument("--include-io", action="store_true",
                     help="add the history I/O estimate to TOTAL (off by default)")
 

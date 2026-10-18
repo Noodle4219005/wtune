@@ -46,6 +46,7 @@ namelist diff, segment 0:
   +/
   +
   +&namelist_adios2
+  + adios2_compression_enable = .false.,
   + adios2_numaggregators = 72,
   +/
 namelist diff, segment 1:
@@ -91,6 +92,7 @@ namelist diff, segment 1:
   +/
   +
   +&namelist_adios2
+  + adios2_compression_enable = .false.,
   + adios2_numaggregators = 72,
   +/
 --- stdout

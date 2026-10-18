@@ -45,7 +45,7 @@ PROVENANCE = {
     "coverage_time": "1940-01-01 to a few months before present (store time axis)",
     "coverage_space": "cropped to the run domain plus --margin degrees",
     "resolution": "0.25 deg, monthly mean of 6-hourly (t2m, sst) or hourly (tp) fields",
-    "access": "public, anonymous (no credentials); needs internet (login node on scc)",
+    "access": "public, anonymous (no credentials); needs internet (a login node on most clusters)",
 }
 ARCO_NAMES = {"t2m": "2m_temperature", "sst": "sea_surface_temperature", "tp": "total_precipitation"}
 

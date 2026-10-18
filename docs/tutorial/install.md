@@ -14,7 +14,7 @@ bin/wtune --version
     export PATH=/path/to/wtune/bin:$PATH
     ```
 
-## 分三層，用到哪層裝哪層
+## 三層安裝
 
 | 層 | 內容 | 什麼時候需要 |
 |---|---|---|
@@ -22,7 +22,7 @@ bin/wtune --version
 | 2. WRF 與 WPS | 你自己編好的 WRF；WTune 不編 WRF | `tune`、`run` |
 | 3. 後處理工具 | MET、ParaView、Natural Earth 底圖 | `post` 的觀測比對與 3-D 圖 |
 
-### 第 2 層：告訴 WTune WRF 在哪裡
+### 第 2 層：WRF 路徑
 
 ```bash
 export WRF_TREE=/path/to/WRF        # 底下要有 main/wrf.exe、main/real.exe、run/
@@ -58,7 +58,7 @@ export WTUNE_CARTOPY_DATA=$PWD/envs/cartopy-data
 
 缺工具時指令會指出缺哪一個，不會靜默跳過。
 
-## 用 `wtune doctor` 確認
+## doctor
 
 ```bash
 wtune doctor
@@ -79,4 +79,4 @@ WARN  pvbatch not found: ParaView 3-D figures are skipped
 
 照 `fix:` 那一行做，重跑 `wtune doctor`，直到沒有 `FAIL`。有任何 `FAIL` 時指令的 exit status 是 1。
 
-下一步：[2. 第一次跑完整流程](quickstart.md)。
+下一步：[2. submit](quickstart.md)。

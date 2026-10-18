@@ -516,6 +516,29 @@ def test_round0_topup_packs_many_configs_when_slots_is_one():
     assert len(configs_by_cid) > 4         # far more than wave0's single conservatively-sized job
 
 
+def test_round0_under_a_time_cap_keeps_adding_waves_until_the_cap(monkeypatch):
+    # -O2 --minutes (fill): top-up waves sized off the measured startup and s/step go on while the
+    # cap, less one race job, has room (conus25 2026-10-16 stopped after one wave at 16.7 of 45 min)
+    def run(fill):
+        clock = FakeClock()
+        sbatch, _calls, paths = make_fake_sbatch(start=7000)
+
+        def slow_sbatch(cmd):                     # every job then runs 200 s
+            clock.t += 200.0
+            return sbatch(cmd)
+
+        ctx = _ctx(clock=clock, sbatch_runner=slow_sbatch, nodes=2, max_nodes=3, budget_s=1800.0,
+                   steps=20, ledger_reader=make_ledger_reader_from_configs(paths, base_s=0.05))
+        job_ids, by_cid, _rows = wtune.tune.run_round0(ctx, fill=fill)
+        return ctx, job_ids, by_cid
+
+    _c, ids1, by1 = run(False)
+    ctx, ids2, by2 = run(True)
+    assert len(ids1) == 2                         # wave0 + the one top-up
+    assert len(ids2) > len(ids1) and len(by2) > len(by1)
+    assert ctx.elapsed() <= ctx.budget_s          # never past the cap
+
+
 # ---------------------------------------------------------------------------
 # cancel-only-own-jobs
 # ---------------------------------------------------------------------------
@@ -577,7 +600,12 @@ def test_run_adaptive_rounds_falls_back_to_diversity_sampling_after_kappa_escala
     # ample budget (3600s) and plenty of legal space left, keeps doing that every round up to
     # ADAPTIVE_MAX_ROUNDS rather than accepting the very first "stopped" as final.
     assert calls[:4] == [0.5, 0.5, 1.0, 2.0]
-    assert len(ctx.owned_jobs) == wtune.tune.ADAPTIVE_MAX_ROUNDS   # round1 + a fallback every round after
+    # round1's one config is one job; every fallback round after is dealt over the free slots,
+    # through the last round
+    assert wtune.tune.common.compute_slots(ctx.max_nodes, ctx.nodes) > 1
+    last = "round%d" % wtune.tune.ADAPTIVE_MAX_ROUNDS
+    assert sum(1 for c in sbatch_calls if last in c) > 1
+    assert len(ctx.owned_jobs) > wtune.tune.ADAPTIVE_MAX_ROUNDS
     assert sbatch_calls                      # the fallback really did submit real Slurm jobs
     assert all_results["R01D0001"]["median"] == pytest.approx(1.234)
     fallback_cids = [cid for cid in all_configs_by_cid if cid != "R01D0001"]
@@ -830,7 +858,8 @@ def test_round0_measuring_0_3s_per_step_lets_adaptive_and_confirm_both_run_withi
                              scancel_runner=scancel_runner, ledger_reader=ledger_reader,
                              proposer=one_round_proposer, clock=FakeClock())
 
-    assert proposer_calls["n"] >= 2                              # adaptive round DID submit a batch
+    # adaptive round DID submit a batch (it may then stop early: round 0's leader stays clear)
+    assert any("round1" in c for c in sbatch_calls)
     assert any(row["confirmed"] for row in report["ranking"])    # confirm DID run
     assert len(report["ranking"]) > 1                             # round0's top-up widened coverage
     assert scancel_calls == []                                   # everything fit inside the budget
@@ -1344,7 +1373,7 @@ def make_scaling_fakes(curve, start=7000, core_mult=None):
 
 def _run_cli(monkeypatch, tmp_path, argv, curve=NONMONO_CURVE, profile=ALL_NODES_PROFILE,
              total_steps=1000, grid=MATTHEW_LIKE, core_mult=None, sbatch_calls=None,
-             preflight_runner=None):
+             preflight_runner=None, pending_nodes=()):
     case_json = dict(grid, prep_dir=str(tmp_path / "matthew"))
     monkeypatch.setattr(wtune.tune.context, "resolve_case",
                         lambda case, cpn: (case_json, str(tmp_path / "namelist.input"), profile))
@@ -1356,6 +1385,16 @@ def _run_cli(monkeypatch, tmp_path, argv, curve=NONMONO_CURVE, profile=ALL_NODES
         def sbatch(cmd_str, _inner=inner):
             sbatch_calls.append(cmd_str)
             return _inner(cmd_str)
+    states = {}                              # jobs at an N in pending_nodes never start
+    if pending_nodes:
+        submit = sbatch
+
+        def sbatch(cmd_str, _submit=submit):
+            out = _submit(cmd_str)
+            j = out.split()[-1]
+            if job_nodes[j] in pending_nodes:
+                states[j] = ("PENDING", "00:00:00")
+            return out
     scancel, scancel_calls = make_fake_scancel()
 
     def stop_proposer(state, batch_size, kappa=None):
@@ -1364,7 +1403,7 @@ def _run_cli(monkeypatch, tmp_path, argv, curve=NONMONO_CURVE, profile=ALL_NODES
     args = wtune.tune.build_arg_parser().parse_args(
         ["matthew", "--site", "scc", "--out", str(tmp_path / "out"), "--steps", "5",
          "--ledger-dir", str(tmp_path / "ledger")] + argv)
-    report = wtune.tune.run(args, sbatch_runner=sbatch, sacct_runner=make_fake_sacct({}),
+    report = wtune.tune.run(args, sbatch_runner=sbatch, sacct_runner=make_fake_sacct(states),
                              scancel_runner=scancel, ledger_reader=reader,
                              proposer=stop_proposer, clock=FakeClock(),
                              preflight_runner=preflight_runner)
@@ -1377,22 +1416,82 @@ def _sweep_nodes(job_nodes, report):
 
 
 def test_nodes_search_is_default_and_picks_n_on_nonmonotone_curve(monkeypatch, tmp_path, capsys):
-    report, job_nodes, _sc = _run_cli(monkeypatch, tmp_path, ["--minutes", "600"])
+    report, job_nodes, _sc = _run_cli(monkeypatch, tmp_path,
+                                      ["--minutes", "600", "--hotspot-fill", "off"])
     ns = report["node_selection"]
     assert ns["mode"] == "search" and ns["objective"] == "time"
     assert ns["chosen"] == 4                       # min median at 4; 8 is slower
     assert report["nodes"] == 4
-    assert "UNCALIBRATED" not in capsys.readouterr().out
-    assert [r["nodes"] for r in ns["table"]] == [1, 2, 3, 4, 5, 8]   # seeds + refinement of 4
+    out = capsys.readouterr().out
+    assert "UNCALIBRATED" not in out
+    # seeds + refinement of 4 first; under the cap the rest are measured after the sweep
+    assert "measuring the N never sent: [6, 7, 9, 10, 12]" in out      # 11, 13: no legal layout
+    assert [r["nodes"] for r in ns["table"]] == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12]
 
 
-def test_nodes_search_early_stop_does_not_submit_larger_n(monkeypatch, tmp_path):
-    # big grid: every N (13 included) has a legal pure-MPI layout, so 13 is skipped by early stop
-    report, job_nodes, _sc = _run_cli(monkeypatch, tmp_path, ["--minutes", "600"],
-                                      grid=dict(e_we=400, e_sn=400, e_vert=45))
+def test_nodes_search_early_stop_does_not_submit_larger_n(monkeypatch, tmp_path, capsys):
+    # big grid: every N (13 included) has a legal pure-MPI layout; early stop keeps 13 out of the
+    # sweep, and only the cap's measurement of the N never sent reaches it
+    _run_cli(monkeypatch, tmp_path, ["--minutes", "600"], grid=dict(e_we=400, e_sn=400, e_vert=45))
+    sweep, _sep, rest = capsys.readouterr().out.partition("measuring the N never sent: ")
+    assert "early stop" in sweep and "nodes-n13 " not in sweep
+    assert "nodes-n13 submitted" in rest
+
+
+ISOLATED_CURVE = {**NONMONO_CURVE, 7: 0.20}      # 7 alone is fast: outside the 3..5 bracket
+
+
+def test_cheap_untried_n_are_measured_before_the_finalists(monkeypatch, tmp_path, capsys):
+    report, _jn, _sc = _run_cli(monkeypatch, tmp_path,
+                                ["-O2", "--minutes", "600", "--hotspot-fill", "off"],
+                                curve=ISOLATED_CURVE)
+    out = capsys.readouterr().out
+    assert "measuring them before the finalists" in out
+    assert out.index("measuring the N never sent") < out.index("finalist N=7 ")
+    assert report["node_selection"]["finalists"] == [7] and report["nodes"] == 7
+
+
+def test_costly_untried_n_wait_for_the_time_the_finalists_leave(monkeypatch, tmp_path, capsys):
+    monkeypatch.setattr(wtune.tune.node_search, "EARLY_UNTRIED_FRAC", -1.0)  # never cheap enough
+    report, job_nodes, _sc = _run_cli(monkeypatch, tmp_path,
+                                      ["-O2", "--minutes", "600", "--hotspot-fill", "off"],
+                                      curve=ISOLATED_CURVE)
     ns = report["node_selection"]
-    assert 13 not in job_nodes.values()
-    assert any(s["nodes"] == 13 and "early stop" in s["reason"] for s in ns["skipped"])
+    assert "N=7 is now the fastest ANCHOR" in capsys.readouterr().out
+    assert ns["finalists"] == [4, 7] and report["nodes"] == 7
+    sweep_jobs = set(ns["sweep_jobs"])
+    assert 7 in {n for j, n in job_nodes.items() if j not in sweep_jobs}   # layouts tuned at 7
+
+
+def test_queue_cap_in_the_sweep_keeps_the_n_measured(monkeypatch, tmp_path, capsys):
+    report, job_nodes, cancelled = _run_cli(
+        monkeypatch, tmp_path, ["-O2", "--minutes", "600", "--hotspot-fill", "off",
+                                "--max-queue-hours", "1"], pending_nodes={8})
+    out = capsys.readouterr().out
+    assert "keeping the N measured so far" in out and "finalist N=" not in out
+    assert report["nodes"] == 4 and not report.get("pipeline_aborted")
+    assert report["pipeline"]["queue_cap_hit"]
+    assert [job_nodes[j] for c in cancelled for j in c] == [8]
+    assert job_nodes[max(job_nodes, key=int)] == 8                # nothing sent after the cap
+
+
+def test_queue_cap_while_measuring_untried_n_keeps_the_sweep(monkeypatch, tmp_path, capsys):
+    report, job_nodes, cancelled = _run_cli(
+        monkeypatch, tmp_path, ["-O2", "--minutes", "600", "--hotspot-fill", "off",
+                                "--max-queue-hours", "1"], curve=ISOLATED_CURVE, pending_nodes={7})
+    out = capsys.readouterr().out
+    assert "measuring them before the finalists" in out and "finalist N=" not in out
+    assert report["nodes"] == 4 and not report.get("pipeline_aborted")
+    assert report["nodes_note"].endswith("queue cap reached -- ANCHOR config")
+    assert [job_nodes[j] for c in cancelled for j in c] == [7]
+    assert job_nodes[max(job_nodes, key=int)] == 7
+
+
+def test_without_a_time_cap_the_untried_n_stay_untried(monkeypatch, tmp_path, capsys):
+    report, job_nodes, _sc = _run_cli(monkeypatch, tmp_path, ["-O2", "--hotspot-fill", "off"],
+                                      curve=ISOLATED_CURVE)
+    assert "measuring the N never sent" not in capsys.readouterr().out
+    assert 7 not in job_nodes.values() and report["nodes"] == 4
 
 
 def test_nodes_search_finalists_are_searched_at_two_node_counts(monkeypatch, tmp_path):
@@ -1426,9 +1525,9 @@ def test_nodes_search_report_lists_all_three_objectives(monkeypatch, tmp_path, c
 
 
 def test_nodes_search_budget_skips_n_that_would_overrun(monkeypatch, tmp_path, capsys):
-    # 3-minute budget: the 10 s/step no-ledger fallback makes even N=1 (120 s startup + 5 steps
-    # x 10 s, x REPS=2 = 340 s) overrun -> every N skipped, nothing submitted, proxy fallback.
-    report, job_nodes, _sc = _run_cli(monkeypatch, tmp_path, ["--minutes", "3"])
+    # 2-minute budget: the 10 s/step no-ledger fallback makes even N=1 (120 s startup + 5 steps
+    # x 10 s = 170 s, one run) overrun -> every N skipped, nothing submitted, proxy fallback.
+    report, job_nodes, _sc = _run_cli(monkeypatch, tmp_path, ["--minutes", "2"])
     ns = report["node_selection"]
     assert ns["sweep_jobs"] == [] and ns["table"] == []     # no sweep job was submitted
     assert ns["skipped"] and all(("exceed the budget" in s["reason"] or "no legal" in s["reason"]
@@ -1439,15 +1538,93 @@ def test_nodes_search_budget_skips_n_that_would_overrun(monkeypatch, tmp_path, c
 
 def test_node_sweep_budget_skip_is_per_n(tmp_path):
     sbatch, reader, job_nodes = make_scaling_fakes({1: 0.01, 2: 0.01, 4: 0.01})
-    # per-job estimate ~ 2 x (120 + 20*10) = 640 s at the fallback -> budget 700 s fits one job
-    # per wave only while elapsed is 0; elapsed does not advance (fake clock), so all fit...
-    ctx = _ctx(sbatch_runner=sbatch, ledger_reader=reader, budget_s=700.0, max_nodes=13,
+    # per-job estimate ~ 120 + 20*10 = 320 s at the fallback (one run) -> budget 400 s fits one
+    # job per wave only while elapsed is 0; elapsed does not advance (fake clock), so all fit...
+    ctx = _ctx(hotspot_fill=False, probe_cfg=dict(wtune.config.DEFAULTS["probe"], sweep_steps=None),
+               sbatch_runner=sbatch, ledger_reader=reader, budget_s=400.0, max_nodes=13,
                out_dir=str(tmp_path / "o"), ledger_dir=str(tmp_path / "l"))
-    ctx.clock.t = 100.0                # ...so advance the clock: 100 + 640 > 700 -> all skipped
+    ctx.clock.t = 100.0                # ...so advance the clock: 100 + 320 > 400 -> all skipped
     ctx.start_time = 0.0
     sw = wtune.tune.run_node_sweep(ctx, [1, 2, 4])
     assert job_nodes == {} and len(sw["skipped"]) == 3
     assert "exceed the budget" in sw["skipped"][0]["reason"]
+
+
+def test_node_seeds_all_measures_the_n_the_geometric_walk_misses(tmp_path):
+    # fastest at N=6, but N=7 is >3% slower than N=8: the walk from seeds 1, 2, 4, 8 stops at 8
+    curve = {1: 1.0, 2: 0.55, 3: 0.6, 4: 0.4, 5: 0.5, 6: 0.25, 7: 0.45, 8: 0.3}
+    seen = {}
+    for seeds in ("geometric", "all"):
+        sbatch, reader, job_nodes = make_scaling_fakes(curve)
+        ctx = _ctx(sbatch_runner=sbatch, ledger_reader=reader, budget_s=360000.0, max_nodes=8,
+                   node_seeds=seeds, out_dir=str(tmp_path / seeds / "o"),
+                   ledger_dir=str(tmp_path / seeds / "l"))
+        seen[seeds] = set(wtune.tune.run_node_sweep(ctx, list(curve), budget_frac=1.0)
+                          ["measurements"])
+    assert 6 not in seen["geometric"]
+    assert seen["all"] == set(curve)
+
+
+def test_hotspot_fill_measures_more_n_in_the_idle_nodes_of_a_wave(tmp_path, capsys):
+    curve = {n: 1.0 / n for n in range(1, 14)}
+    sbatch, reader, job_nodes = make_scaling_fakes(curve)
+    ctx = _ctx(sbatch_runner=sbatch, ledger_reader=reader, budget_s=360000.0, max_nodes=13,
+               out_dir=str(tmp_path / "o"), ledger_dir=str(tmp_path / "l"))
+    sw = wtune.tune.run_node_sweep(ctx, list(curve), budget_frac=1.0)
+    first_wave = [job_nodes[j] for j in sorted(job_nodes)][:4]
+    assert first_wave == [1, 2, 4, 6]            # seeds 1, 2, 4 leave 6 of 13 nodes idle
+    assert "hotspot fill: N=[6] in the idle nodes of wave [1, 2, 4]" in capsys.readouterr().out
+    assert {1, 2, 4, 6, 8} <= set(sw["measurements"])
+
+
+def test_sweep_steps_follow_the_cost_of_one_step():
+    ctx = _ctx(steps=30, startup_s=120.0)
+    assert [wtune.tune.node_search._sweep_steps(ctx, s) for s in (0.01, 6.0, 30.0)] == [40, 20, 10]
+    ctx = _ctx(steps=30, probe_cfg=dict(wtune.config.DEFAULTS["probe"], sweep_steps=None))
+    assert wtune.tune.node_search._sweep_steps(ctx, 6.0) == 30
+
+
+def test_small_n_that_cannot_fit_are_skipped_and_the_largest_n_goes_first(tmp_path, monkeypatch,
+                                                                           capsys):
+    import wtune.tune.memory as mem
+    # 300 GiB of grid on 100 GiB nodes, nothing per rank: N <= 2 is skipped up front
+    monkeypatch.setattr(mem, "model_for", lambda case_json, node_gib: mem.MemoryModel(
+        300 * mem.GIB / 1000.0, 100.0, 1000.0, 0.0))
+    sbatch, reader, job_nodes = make_scaling_fakes(OPT6_CURVE)
+    ctx = _ctx(sbatch_runner=sbatch, ledger_reader=reader, budget_s=360000.0, max_nodes=13,
+               case_json=dict(BIG_GRID, prep_dir="/fake/big"), hotspot_fill=False,
+               out_dir=str(tmp_path / "o"), ledger_dir=str(tmp_path / "l"))
+    sw = wtune.tune.run_node_sweep(ctx, list(range(1, 14)), budget_frac=1.0)
+    out = capsys.readouterr().out
+    assert "N=1 may not fit in memory; largest N first" in out
+    assert job_nodes[min(job_nodes)] == 13                       # the first job is the largest N
+    assert not {1, 2} & set(sw["measurements"]) and not {1, 2} & set(job_nodes.values())
+    assert all("memory: predicted" in s["reason"] for s in sw["skipped"] if s["nodes"] in (1, 2))
+
+
+def test_single_run_sweeps_run_the_close_calls_once_more(tmp_path, capsys):
+    sbatch, reader, job_nodes = make_scaling_fakes(OPT6_CURVE)
+    ctx = _ctx(sbatch_runner=sbatch, ledger_reader=reader, budget_s=360000.0, max_nodes=13,
+               case_json=dict(BIG_GRID, prep_dir="/fake/big"), hotspot_fill=False,
+               out_dir=str(tmp_path / "o"), ledger_dir=str(tmp_path / "l"))
+    sw = wtune.tune.run_node_sweep(ctx, list(range(1, 14)), budget_frac=1.0)
+    # 6 (0.27) is the fastest; 7 (0.28) is within 2 x 3% of it, 5 (0.29) is not
+    assert "node sweep: measuring [6, 7] once more" in capsys.readouterr().out
+    assert [len(sw["measurements"][n]) for n in (5, 6, 7)] == [2, 4, 4]
+    assert len(sw["race_jobs"]) == 2
+
+
+def test_o2_runs_the_layouts_that_tie_with_the_fastest_once_more(tmp_path, capsys):
+    from wtune.tune import candidates, rounds
+    sbatch, reader, _jn = make_scaling_fakes({1: 0.30})
+    ctx = _ctx(sbatch_runner=sbatch, ledger_reader=reader, budget_s=360000.0,
+               out_dir=str(tmp_path / "o"), ledger_dir=str(tmp_path / "l"))
+    a = candidates._sweep_anchor(ctx, 1)[0]
+    res = {cid: dict(cid=cid, config=dict(a, id=cid), s_values=[m], median=m, lo=m, hi=m, n=1,
+                     run_ids=["r"]) for cid, m in (("A", 0.30), ("B", 0.31), ("C", 0.40))}
+    rounds._race_leaders(ctx, res, 0.3)
+    assert "race: submitted job 7001 (A, B once more" in capsys.readouterr().out
+    assert [res[c]["n"] for c in "ABC"] == [3, 3, 1]        # the fake reports 2 runs per job
 
 
 def test_node_sweep_candidates_on_matthew_like_grid_use_omp(tmp_path):
@@ -1481,13 +1658,24 @@ def test_node_sweep_skips_n_without_legal_decomposition(tmp_path):
     assert sw["anchors"][1]["omp"] == 18
 
 
-def test_node_sweep_omp_cap_limits_candidates(tmp_path):
+def test_node_sweep_uses_fewer_cores_when_full_nodes_have_no_legal_decomposition(tmp_path):
+    """f1-arm matthew 2026-10-14: 91x100 cuts into 90 ranks at most. With the thread cap at 1 a
+    node count whose full nodes need more ranks was skipped (here N=2: 144), and on a 144-core
+    node the whole tune measured one layout."""
     sbatch, reader, job_nodes = make_scaling_fakes({1: 1.0, 2: 0.6})
     ctx = _ctx(sbatch_runner=sbatch, ledger_reader=reader, budget_s=360000.0, omp_cap=1,
                out_dir=str(tmp_path / "o"), ledger_dir=str(tmp_path / "l"))
     sw = wtune.tune.run_node_sweep(ctx, [1, 2], budget_frac=1.0)
-    assert sorted(sw["measurements"]) == [1]            # N=2 needs omp=2 > cap
-    assert sw["skipped"][0]["reason"] == "no legal decomposition at any omp in {1}"
+    assert sorted(sw["measurements"]) == [1, 2] and sw["skipped"] == []
+    assert sw["cores"] == {1: 72, 2: 45}                # N=2: 90 ranks, 45 on each node
+    assert all(a["omp"] == 1 for a in sw["anchors"].values())          # the cap still holds
+    assert (sw["anchors"][2]["ranks"], sw["anchors"][2]["nx"], sw["anchors"][2]["ny"]) == (90, 9, 10)
+    # the cores/node sweep starts from those 45, not from the 72 of a node
+    info, _skipped = wtune.tune.node_search.run_core_sweep(ctx, [2], sw, [72, 64, 48, 36])
+    assert max(info[2]["anchors"]) == 45 and {40, 36, 30} <= set(info[2]["results"])
+    assert info[2]["chosen"] == 45                      # all tie here: the fullest wins
+    rows = wtune.tune.node_search.build_layout_table(sw, info, {}, ctx)["rows"]
+    assert {(r["nodes"], r["cores_per_node"]) for r in rows} >= {(1, 72), (2, 45), (2, 36)}
 
 
 def test_node_sweep_applies_chem_j_patch_guard(monkeypatch, tmp_path):
@@ -1512,7 +1700,7 @@ def test_nodes_search_stops_after_sweep_when_budget_exhausted(monkeypatch, tmp_p
         clock.t = 10 ** 6
         return rows
 
-    ctx = _ctx(sbatch_runner=sbatch, ledger_reader=reader_then_exhaust, clock=clock,
+    ctx = _ctx(hotspot_fill=False, sbatch_runner=sbatch, ledger_reader=reader_then_exhaust, clock=clock,
                case_json=case_json, budget_s=36000.0, out_dir=str(tmp_path / "o"),
                ledger_dir=str(tmp_path / "l"))
     report = wtune.tune.run_node_search(
@@ -1646,7 +1834,7 @@ def test_node_sweep_refinement_stops_once_the_best_neighbours_are_measured(tmp_p
     # bracket 2..8 but beyond 5) are NOT measured and reported against the final bracket 3..5
     sbatch, reader, job_nodes = make_scaling_fakes(
         _interp({1: 1.0, 2: 0.55, 4: 0.30, 5: 0.34, 8: 0.45, 13: 0.60}))
-    ctx = _ctx(sbatch_runner=sbatch, ledger_reader=reader, budget_s=3600000.0,
+    ctx = _ctx(hotspot_fill=False, sbatch_runner=sbatch, ledger_reader=reader, budget_s=3600000.0,
                case_json=dict(BIG_GRID, prep_dir="/fake"),
                out_dir=str(tmp_path / "o"), ledger_dir=str(tmp_path / "l"))
     sw = wtune.tune.run_node_sweep(ctx, list(range(1, 14)), budget_frac=1.0)
@@ -1919,8 +2107,8 @@ def _pipe_run(monkeypatch, tmp_path, minutes=None, extra_args=(), sacct=None, sc
               preflight_runner=None, short_run_guard=False, total_steps=None, level=3,
               cold=None, physics_advice=True, full_cap=8, grid=None, drop=None, **kw):
     clock = FakeClock()
-    if total_steps is None:      # with a --minutes cap the (opt-out-less) step-down guard is active:
-        total_steps = 10 ** 6 if minutes is not None else 1000      # a long run keeps it quiet
+    if total_steps is None:      # a long run under a --minutes cap
+        total_steps = 10 ** 6 if minutes is not None else 1000
     env = _PipeEnv(monkeypatch, tmp_path, clock, minutes, **kw)
     case_json = dict(grid or BIG_GRID, prep_dir=str(tmp_path / "matthew"))
     monkeypatch.setattr(wtune.tune.context, "resolve_case",
@@ -2347,7 +2535,8 @@ def test_preflight_no_home_node_and_probe_command_shape():
                                        reason="probe failed rc=3: no $HOME")
     assert h["nodes"]["work5"]["ok"] and h["failed"] == ["work2"]
     srun = next(a for a in log if a[0] == "srun" and "work5" in a)
-    assert srun[:9] == ["srun", "-w", "work5", "-N1", "-n1", "-t", "1", "--exclude=head", "bash"]
+    assert srun[:11] == ["srun", "-p", "compute", "-w", "work5", "-N1", "-n1", "-t", "1",
+                         "--exclude=head", "bash"]
     script = srun[-1]
     for needle in ("$HOME", "/case", "/src", "/wrf/main/wrf.exe"):
         assert needle in script
@@ -2359,9 +2548,11 @@ def test_preflight_timeout_fails_an_idle_node_but_not_a_busy_one():
     runner, _log = make_health_runner(states, bad={n: "timeout" for n in states})
     h = _preflight(runner, requested=13, timeout_s=7)
     assert h["nodes"]["work2"]["reason"] == "probe timed out after 7s" and not h["nodes"]["work2"]["ok"]
-    assert not h["nodes"]["work4"]["ok"]                         # mixed node must answer
-    assert h["nodes"]["work3"]["ok"] and h["nodes"]["work3"]["probed"] is False   # busy: unprobed
-    assert h["failed"] == ["work2", "work4"] and h["healthy"] == 1
+    # busy: unprobed. A mixed node need not answer either: on f1-arm (shared nodes, busy queue)
+    # every mixed node timed out and got excluded, leaving only the nodes that were taken.
+    for n in ("work3", "work4"):
+        assert h["nodes"][n]["ok"] and h["nodes"][n]["probed"] is False
+    assert h["failed"] == ["work2"] and h["healthy"] == 2
 
 
 def test_preflight_merges_with_the_user_exclude_in_every_sbatch(monkeypatch):
@@ -2491,7 +2682,8 @@ def test_pick_points_keeps_t0_and_the_costliest():
 
 def test_pipeline_phase2_degrades_instead_of_skipping_when_it_does_not_fit(monkeypatch, tmp_path):
     # B = 700 s -> the phase-2 limit is 560 s (9:20) and phase 1 used no running time
-    report, env = _pipe_run(monkeypatch, tmp_path, minutes=700 / 60.0, n_points=5)
+    report, env = _pipe_run(monkeypatch, tmp_path, minutes=700 / 60.0, n_points=5,
+                            extra_args=("--hotspot-fill", "off"))
     pipe = report["pipeline"]
     plan = pipe["predict_plan"]
     assert plan["tried"][0]["plan"].startswith("2 layout(s) x all 5 points")
@@ -2508,7 +2700,7 @@ def test_pipeline_phase2_not_run_only_when_even_the_smallest_plan_does_not_fit(
         monkeypatch, tmp_path):
     # the first sweep wave "runs" for 79% of B: 7 s of the phase-2 share are left
     report, env = _pipe_run(monkeypatch, tmp_path, minutes=700 / 60.0, n_points=5,
-                            bump_after_first_read=0.79)
+                            bump_after_first_read=0.79, extra_args=("--hotspot-fill", "off"))
     ph = _status(report)
     assert ph["predict"].startswith("not run (budget): the smallest plan")
     assert report["pipeline"]["prediction"] is None
@@ -2681,7 +2873,8 @@ def test_pre_run_step_down_when_the_whole_run_is_shorter_than_the_tuning(monkeyp
 
 def test_step_down_after_the_first_measurement_wave(monkeypatch, tmp_path, capsys):
     # cold start is big (no step-down up front); the first wave shows 1000 steps x 0.3 s = 7 min
-    report, env = _pipe_run(monkeypatch, tmp_path, minutes=None, level=3, short_run_guard=True)
+    report, env = _pipe_run(monkeypatch, tmp_path, minutes=None, level=3, short_run_guard=True,
+                            extra_args=("--hotspot-fill", "off"))
     pipe = report["pipeline"]
     sd = pipe["level"]["stepped_down"]
     assert sd and sd[-1]["when"] == "after first wave" and sd[-1]["to"] == 1
@@ -2991,6 +3184,8 @@ def test_default_level_enumerates_the_full_layout_space_at_the_finalists(monkeyp
 
 def test_layout_report_table_winner_runner_up_noise_and_untried(monkeypatch, tmp_path, capsys):
     # every 7th enumerated layout "fails" (no ledger row): it must show up as NOT TRIED
+    # the fake times a layout by its place in the job, so a second run elsewhere would differ
+    monkeypatch.setitem(wtune.config.DEFAULTS["probe"], "sweep_reps", 2)
     report, env = _pipe_run(monkeypatch, tmp_path, full_cap=None, grid=MATTHEW_LIKE,
                             physics_advice=False,
                             drop=lambda cid: cid.startswith("D") and int(cid[1:]) % 7 == 0)
@@ -3017,7 +3212,7 @@ def test_layout_report_table_winner_runner_up_noise_and_untried(monkeypatch, tmp
     assert "P1" not in out                                         # no tune-vs-run verdict line
 
 
-def test_guard_is_opt_in_and_a_time_cap_enables_it(monkeypatch, tmp_path):
+def test_guard_is_opt_in_and_a_time_cap_does_not_enable_it(monkeypatch, tmp_path):
     # default: no guard even though the whole run (1000 x 0.3 s) is far shorter than the search
     report, env = _pipe_run(monkeypatch, tmp_path)
     assert report["pipeline"]["level"]["effective"] == 3 and not report["pipeline"]["level"]["stepped_down"]
@@ -3025,9 +3220,18 @@ def test_guard_is_opt_in_and_a_time_cap_enables_it(monkeypatch, tmp_path):
     # --stop-if-short turns it on
     report, env = _pipe_run(monkeypatch, tmp_path, short_run_guard=True)
     assert report["pipeline"]["level"]["stepped_down"]
-    # so does a --minutes cap
+    # a --minutes cap alone does not: the cap bounds the search, the level stays as asked
     report, env = _pipe_run(monkeypatch, tmp_path, minutes=6000, total_steps=1000)
-    assert report["pipeline"]["level"]["stepped_down"]
+    assert report["pipeline"]["level"]["effective"] == 3 and not report["pipeline"]["level"]["stepped_down"]
+
+
+def test_a_case_with_no_prediction_point_gives_its_share_to_the_layout_search(monkeypatch, tmp_path):
+    report, env = _pipe_run(monkeypatch, tmp_path, minutes=6000, n_points=0)
+    lims = {p["name"]: p["limit_s"] for p in report["pipeline"]["phases"]}
+    assert lims["layout"] == pytest.approx(lims["predict"]) == pytest.approx(0.80 * 6000 * 60.0)
+    report, env = _pipe_run(monkeypatch, tmp_path, minutes=6000)          # 3 points: 50 % only
+    lims = {p["name"]: p["limit_s"] for p in report["pipeline"]["phases"]}
+    assert lims["layout"] == pytest.approx(0.55 * 6000 * 60.0)
     # the removed flags are gone
     for flag in ("--force-full", "--no-physics-advice"):
         with pytest.raises(SystemExit):
@@ -3153,3 +3357,128 @@ def test_phase2_uses_fused_for_winner_only_and_default_for_physics(monkeypatch, 
     # without physics the same plan is ONE fused wrf.exe per point
     report, env = _pipe_run(monkeypatch, tmp_path / "np", physics_advice=False)
     assert set(env.measure_modes) == {"fused"}
+
+
+def test_layout_row_keeps_the_rank_order_it_was_measured_with():
+    from wtune.tune import node_search
+    cfg = dict(id="c1", ranks=144, omp=1, nx=12, ny=12, numtiles=1, dist="cyclic")
+    assert node_search._layout_row("finalist search", 2, 72, cfg, [0.5, 0.6])["dist"] == "cyclic"
+
+
+def test_a_fire_case_is_tuned_single_threaded_without_any_config():
+    """scc c34 2026-10-14: the fire rule lived only in the wtune.yaml template, so a tune without
+    --config swept the node counts at omp 2, 4, 8 -- one probe crashed, one hung for an hour."""
+    cfg, errors = wtune.config.resolve_config({})
+    assert cfg["exclude"] == [dict(omp_gt=1, when="fire")] and not errors
+    assert wtune.config.resolve_config({"exclude": []})[0]["exclude"] == []     # lifted on request
+    fire = _ctx(exclude_rules=cfg["exclude"], is_fire=True)
+    for n in (1, 2, 4):
+        anchor, cores, why = wtune.tune.candidates._sweep_anchor_fitting(fire, n)
+        assert anchor["omp"] == 1 and anchor["ranks"] <= 90, why
+    assert wtune.tune.candidates._sweep_anchor_fitting(fire, 2)[1] == 45       # 90 ranks on 2 nodes
+    other = _ctx(exclude_rules=cfg["exclude"], is_fire=False)
+    assert wtune.tune.candidates._sweep_anchor_fitting(other, 2)[0]["omp"] == 2
+
+
+def test_o0_on_a_grid_too_small_for_all_cores_uses_fewer():
+    """f1-arm 2026-10-15: -O0 on matthew, yagi, c34 at one thread per rank stopped with "no legal
+    layout at any node count" -- it tried all 144 cores per node only; the node sweep steps down."""
+    ctx = _ctx(cores_per_node=144, max_nodes=4, exclude_rules=[dict(omp_gt=1, when="fire")],
+               is_fire=True)
+    report = wtune.tune.pipeline.run_level0(ctx, ALL_NODES_PROFILE, None)
+    assert report["best"]["omp"] == 1 and report["cores_used_per_node"] < 144
+    assert report["best"]["ranks"] == report["nodes"] * report["cores_used_per_node"]
+    assert report["pipeline"]["prediction"]["cores_per_node"] == report["cores_used_per_node"]
+
+
+def _r(cid, median):
+    return dict(cid=cid, config={}, s_values=[median], median=median, lo=median, hi=median, n=1)
+
+
+def test_clear_leader_stops_only_when_the_round_found_nothing_better():
+    old = {"A": _r("A", 1.00), "B": _r("B", 1.10)}
+    # the leader came from an earlier round and leads by more than the noise: stop
+    assert "A (1 s/step) leads B" in wtune.tune.rounds._clear_leader(old, {"B": old["B"]}, 0.03)
+    # this round produced the leader: keep going
+    assert wtune.tune.rounds._clear_leader(old, {"A": old["A"]}, 0.03) is None
+    # within the noise: keep going
+    close = {"A": _r("A", 1.00), "B": _r("B", 1.02)}
+    assert wtune.tune.rounds._clear_leader(close, {"B": close["B"]}, 0.03) is None
+
+
+def test_adaptive_rounds_stop_early_when_the_leader_is_clear():
+    def proposer(state, batch_size, kappa=None):
+        return dict(stopped=False, round=1), [dict(id="SLOW%d" % len(state["rounds"]), ranks=72,
+                                                   omp=1, nx=8, ny=9, numtiles=1, dist="block",
+                                                   blocktime="0")]
+
+    sbatch_runner, _calls, _paths = make_fake_sbatch(start=4000)
+
+    def ledger_reader(case, job_ids):
+        return [dict(run_id="%s_SLOW%d_r1_%s" % (case, i, j), job_id=j, s_per_step_median="2.0")
+                for i, j in enumerate(job_ids)]
+
+    ctx = _ctx(sbatch_runner=sbatch_runner, ledger_reader=ledger_reader, proposer=proposer,
+               budget_s=3600.0)
+    all_results = {"BEST": _r("BEST", 1.0)}
+    wtune.tune.run_adaptive_rounds(ctx, {}, all_results, s_est=2.0)
+    assert len(ctx.owned_jobs) == 1                    # round 1 found nothing faster: stop
+
+
+def test_summary_says_the_pick_its_run_its_margin_what_was_not_run_and_the_cost():
+    from wtune.tune import report as rep
+    row = dict(nodes=4, cores_per_node=128, ranks=512, omp=1, nx=16, ny=32, numtiles=1,
+               median=4.1282, reps=2)
+    r = dict(winner=row, pipeline=dict(predicted_real_s=912.0, predicted_real_source="t0",
+                                       total_running_s=1680.0, total_queue_wait_s=600.0),
+             node_selection=dict(runner_up=dict(row, cores_per_node=144, ranks=576, nx=24, ny=24,
+                                                median=4.2), winner_vs_runner_up=dict(
+                                     gap=0.0174, beyond_noise=False, noise=0.03),
+                                 skipped=[dict(nodes=1, reason="memory: predicted 300 GiB"),
+                                          dict(nodes=2, reason="memory: N=3 ... killed"),
+                                          dict(nodes=3, reason="memory: predicted 229 GiB"),
+                                          dict(nodes=13, reason="early stop: N=13 ...")]))
+    assert rep.summary_lines(r) == [
+        "best:     N=4 c/n=128 512 ranks x 1 threads 16x32 tiles=1: 4.1282 s/step (2 runs)",
+        "run:      predicted 15:12 for the whole simulation (t0)",
+        "margin:   1.7% ahead of N=4 c/n=144 576 ranks x 1 threads 24x24 tiles=1 -> within "
+        "noise: either is fine (noise 3%)",
+        "not run:  N=13 early stop; N=1-3 memory",
+        "tuning:   running 28:00, queue 10:00 (not counted)"]
+
+
+def test_a_job_s_input_copy_is_removed_once_it_has_ended(tmp_path):
+    copy = tmp_path / "bp_fresh"
+    (copy / "copy_0").mkdir(parents=True)
+    ctx = _ctx(out_dir=str(tmp_path / "o"), ledger_dir=str(tmp_path / "l"))
+    ctx.input_copies["7001"] = str(copy)
+    wtune.tune.jobs.wait_for_jobs(ctx, ["7001"], "test")        # the fake sacct says COMPLETED
+    assert not copy.exists() and ctx.input_copies == {}
+
+
+def test_busy_time_is_the_union_of_the_jobs_start_to_end():
+    out = ("7001|2026-10-15T03:00:00|2026-10-15T03:01:00\n"
+           "7002|2026-10-15T03:00:30|2026-10-15T03:02:00\n"      # overlaps 7001
+           "7003|2026-10-15T03:05:00|2026-10-15T03:05:20\n"      # after a gap
+           "7004|Unknown|Unknown")
+    ctx = _ctx(sacct_runner=lambda cmd: out)
+    assert wtune.tune.jobs.busy_s(ctx, ["7001", "7002", "7003", "7004"]) == 140.0
+    from wtune.tune import report as rep
+    row = dict(nodes=1, cores_per_node=144, ranks=144, omp=1, nx=9, ny=16, numtiles=1,
+               median=0.17, reps=1)
+    lines = rep.summary_lines(dict(winner=row, pipeline=dict(jobs_busy_s=113.0,
+                                                              total_wall_s=216.0)))
+    assert lines[-1] == "tuning:   jobs running 1:53 of 3:36 wall (the rest is queue and controller)"
+
+
+def test_a_tune_inside_a_project_keeps_its_bp_cache_in_the_project(monkeypatch, tmp_path):
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    (proj / "project.yaml").write_text("{}\n")
+    monkeypatch.delenv("WTUNE_BP_CACHE", raising=False)
+    monkeypatch.delenv("WTUNE_PROJECT", raising=False)
+    wtune.tune.cli._use_project_bp_cache(_types.SimpleNamespace(project=str(proj)))
+    assert os.environ["WTUNE_BP_CACHE"] == str(proj / "input" / "bp-cache")
+    monkeypatch.setenv("WTUNE_BP_CACHE", "/elsewhere")              # an explicit choice wins
+    wtune.tune.cli._use_project_bp_cache(_types.SimpleNamespace(project=str(proj)))
+    assert os.environ["WTUNE_BP_CACHE"] == "/elsewhere"

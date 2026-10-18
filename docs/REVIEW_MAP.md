@@ -62,7 +62,7 @@ B（掃過）：`strict_campaign.sbatch` 的參數解析、連結檔案、BP 轉
 | 檔案 | A | 它決定什麼 |
 |---|---|---|
 | `src/wtune/nodes.py`（全檔 178 行） | `choose`、`stop_early`、`summarize`、`finalists`、`seed_nodes`、`refine_targets`、`choose_cores` | **3% 雜訊規則**：取「在最小值 3% 內的最小 N」；core 數平手取較滿的 |
-| `src/wtune/tune/node_search.py` | `run_node_search`、`run_node_sweep`、`_measure_anchor_wave`、`run_core_sweep`、`_tune_finalists`、`build_layout_table` | 掃哪些 N、何時提早停、最後的 (N, 每節點核數, 版面) |
+| `src/wtune/tune/node_search.py` | `run_node_search`、`run_node_sweep`、`_measure_untried`、`_measure_anchor_wave`、`run_core_sweep`、`_tune_finalists`、`build_layout_table` | 掃哪些 N、何時提早停、最後的 (N, 每節點核數, 版面) |
 | `src/wtune/tune/rounds.py` | `run_round0`、`_round0_size`、`_configs_for_budget`、`run_tuning_at` | finalist 上量幾個候選 |
 | `src/wtune/tune/common.py` | `_cluster_rank`、`would_exceed_budget` | 0.5% 內視為同一群 |
 | `src/wtune/tune/report.py` | `build_report`、`final_winner`、`local_param_table`、`_assert_report_is_strict_only` | BEST 與 `report["winner"]`（`wtune run` 讀的就是它） |
@@ -177,6 +177,6 @@ B（掃過）：`report.py`、`tools.py`、`basemap.py`、`plotting.py` 的繪�
 3. **兩個雜訊門檻。** 選 N／核數／贏家用 3%（`wtune.nodes.NOISE_FRAC`）；`_cluster_rank` 用 0.5%（`predictor/targets.NOISE`）。
 4. **輻射步有兩種定義。** `step_stats` 用「大於 3 倍中位數」；`measure_rad_from_rsl` 用輻射排程的相位。
 5. **probe 步數有兩個預設。** `context.DEFAULT_STEPS=20` 與 auto 的 `max(30, stepra+10)`。
-6. **等級會自動降。** 給了 `--minutes` 之後，模擬比調校短就從 O3 降到 O2 再降到 O1；降級後選出的版面可能不同（SC26-P1：O1 選 N=4，O2 選 N=5）。
+6. **等級會自動降。** 加了 `--stop-if-short` 之後，模擬比預估的調校時間短就從 O3 降到 O2 再降到 O1；降級後選出的版面可能不同（SC26-P1：O1 選 N=4，O2 選 N=5）。`--minutes` 只是上限，不會降級。
 7. **IVT 的濕度變數。** `recipes/moisture._ivt_figure` 傳入 `QVAPOR`（混合比），`ivt.py` 的說明寫比濕；兩者差約 1–2%，待確認。
 8. **下載的既有檔案。** `sources.download` 對「已存在、但沒有記錄 sha」的檔案只檢查大小 > 0。

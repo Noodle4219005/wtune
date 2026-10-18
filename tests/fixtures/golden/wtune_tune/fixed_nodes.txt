@@ -15,7 +15,7 @@ round0 slot 11: submitted job 7012 (3 configs)
 round0 slot 12: submitted job 7013 (3 configs)
 [round0   ] [------------------------]   0%  elapsed=0:00 / budget=30:00
 startup_s: measured 15.2s/run from 39 completed run(s) in round0 (was 120.0s, documented constant (scc_sweep.STARTUP_S))
-round0 top-up: s_est=0.952s/step (measured, was 10.000s/step) startup_s=15.2s configs_per_job=31 candidates=403
+round0 top-up 1: s_est=0.952s/step (measured, was 10.000s/step) startup_s=15.2s configs_per_job=31 candidates=403
 round0-topup slot 0: submitted job 7014 (31 configs)
 round0-topup slot 1: submitted job 7015 (31 configs)
 round0-topup slot 2: submitted job 7016 (31 configs)
@@ -33,61 +33,136 @@ round0-topup slot 12: submitted job 7026 (31 configs)
 adaptive round 1: proposer stopped at kappa=0.5 (test stub); retrying with more exploration pressure (kappa=1)
 adaptive round 1: proposer stopped at kappa=1 (test stub); retrying with more exploration pressure (kappa=2)
 adaptive round 1: proposer exhausted (test stub); falling back to 34 decomp_space-diverse candidate(s) not yet measured
-adaptive round 1: submitted job 7027 (34 configs)
+round1 slot 0: submitted job 7027 (3 configs)
+round1 slot 1: submitted job 7028 (3 configs)
+round1 slot 2: submitted job 7029 (3 configs)
+round1 slot 3: submitted job 7030 (3 configs)
+round1 slot 4: submitted job 7031 (3 configs)
+round1 slot 5: submitted job 7032 (3 configs)
+round1 slot 6: submitted job 7033 (3 configs)
+round1 slot 7: submitted job 7034 (3 configs)
+round1 slot 8: submitted job 7035 (2 configs)
+round1 slot 9: submitted job 7036 (2 configs)
+round1 slot 10: submitted job 7037 (2 configs)
+round1 slot 11: submitted job 7038 (2 configs)
+round1 slot 12: submitted job 7039 (2 configs)
 [round1   ] [------------------------]   0%  elapsed=0:00 / budget=30:00
 adaptive round 2: proposer stopped at kappa=0.5 (test stub); retrying with more exploration pressure (kappa=1)
 adaptive round 2: proposer stopped at kappa=1 (test stub); retrying with more exploration pressure (kappa=2)
 adaptive round 2: proposer exhausted (test stub); falling back to 34 decomp_space-diverse candidate(s) not yet measured
-adaptive round 2: submitted job 7028 (34 configs)
+round2 slot 0: submitted job 7040 (3 configs)
+round2 slot 1: submitted job 7041 (3 configs)
+round2 slot 2: submitted job 7042 (3 configs)
+round2 slot 3: submitted job 7043 (3 configs)
+round2 slot 4: submitted job 7044 (3 configs)
+round2 slot 5: submitted job 7045 (3 configs)
+round2 slot 6: submitted job 7046 (3 configs)
+round2 slot 7: submitted job 7047 (3 configs)
+round2 slot 8: submitted job 7048 (2 configs)
+round2 slot 9: submitted job 7049 (2 configs)
+round2 slot 10: submitted job 7050 (2 configs)
+round2 slot 11: submitted job 7051 (2 configs)
+round2 slot 12: submitted job 7052 (2 configs)
 [round2   ] [------------------------]   0%  elapsed=0:00 / budget=30:00
 adaptive round 3: proposer stopped at kappa=0.5 (test stub); retrying with more exploration pressure (kappa=1)
 adaptive round 3: proposer stopped at kappa=1 (test stub); retrying with more exploration pressure (kappa=2)
 adaptive round 3: proposer exhausted (test stub); falling back to 34 decomp_space-diverse candidate(s) not yet measured
-adaptive round 3: submitted job 7029 (34 configs)
+round3 slot 0: submitted job 7053 (3 configs)
+round3 slot 1: submitted job 7054 (3 configs)
+round3 slot 2: submitted job 7055 (3 configs)
+round3 slot 3: submitted job 7056 (3 configs)
+round3 slot 4: submitted job 7057 (3 configs)
+round3 slot 5: submitted job 7058 (3 configs)
+round3 slot 6: submitted job 7059 (3 configs)
+round3 slot 7: submitted job 7060 (3 configs)
+round3 slot 8: submitted job 7061 (2 configs)
+round3 slot 9: submitted job 7062 (2 configs)
+round3 slot 10: submitted job 7063 (2 configs)
+round3 slot 11: submitted job 7064 (2 configs)
+round3 slot 12: submitted job 7065 (2 configs)
 [round3   ] [------------------------]   0%  elapsed=0:00 / budget=30:00
 adaptive round 4: proposer stopped at kappa=0.5 (test stub); retrying with more exploration pressure (kappa=1)
 adaptive round 4: proposer stopped at kappa=1 (test stub); retrying with more exploration pressure (kappa=2)
-adaptive round 4: proposer exhausted (test stub); falling back to 34 decomp_space-diverse candidate(s) not yet measured
-adaptive round 4: submitted job 7030 (34 configs)
+adaptive round 4: proposer exhausted (test stub); falling back to 33 decomp_space-diverse candidate(s) not yet measured
+round4 slot 0: submitted job 7066 (3 configs)
+round4 slot 1: submitted job 7067 (3 configs)
+round4 slot 2: submitted job 7068 (3 configs)
+round4 slot 3: submitted job 7069 (3 configs)
+round4 slot 4: submitted job 7070 (3 configs)
+round4 slot 5: submitted job 7071 (3 configs)
+round4 slot 6: submitted job 7072 (3 configs)
+round4 slot 7: submitted job 7073 (2 configs)
+round4 slot 8: submitted job 7074 (2 configs)
+round4 slot 9: submitted job 7075 (2 configs)
+round4 slot 10: submitted job 7076 (2 configs)
+round4 slot 11: submitted job 7077 (2 configs)
+round4 slot 12: submitted job 7078 (2 configs)
 [round4   ] [------------------------]   0%  elapsed=0:00 / budget=30:00
 adaptive round 5: proposer stopped at kappa=0.5 (test stub); retrying with more exploration pressure (kappa=1)
 adaptive round 5: proposer stopped at kappa=1 (test stub); retrying with more exploration pressure (kappa=2)
-adaptive round 5: proposer exhausted (test stub); falling back to 34 decomp_space-diverse candidate(s) not yet measured
-adaptive round 5: submitted job 7031 (34 configs)
+adaptive round 5: proposer exhausted (test stub); falling back to 33 decomp_space-diverse candidate(s) not yet measured
+round5 slot 0: submitted job 7079 (3 configs)
+round5 slot 1: submitted job 7080 (3 configs)
+round5 slot 2: submitted job 7081 (3 configs)
+round5 slot 3: submitted job 7082 (3 configs)
+round5 slot 4: submitted job 7083 (3 configs)
+round5 slot 5: submitted job 7084 (3 configs)
+round5 slot 6: submitted job 7085 (3 configs)
+round5 slot 7: submitted job 7086 (2 configs)
+round5 slot 8: submitted job 7087 (2 configs)
+round5 slot 9: submitted job 7088 (2 configs)
+round5 slot 10: submitted job 7089 (2 configs)
+round5 slot 11: submitted job 7090 (2 configs)
+round5 slot 12: submitted job 7091 (2 configs)
 [round5   ] [------------------------]   0%  elapsed=0:00 / budget=30:00
 adaptive round 6: proposer stopped at kappa=0.5 (test stub); retrying with more exploration pressure (kappa=1)
 adaptive round 6: proposer stopped at kappa=1 (test stub); retrying with more exploration pressure (kappa=2)
-adaptive round 6: proposer exhausted (test stub); falling back to 34 decomp_space-diverse candidate(s) not yet measured
-adaptive round 6: submitted job 7032 (34 configs)
+adaptive round 6: proposer exhausted (test stub); falling back to 33 decomp_space-diverse candidate(s) not yet measured
+round6 slot 0: submitted job 7092 (3 configs)
+round6 slot 1: submitted job 7093 (3 configs)
+round6 slot 2: submitted job 7094 (3 configs)
+round6 slot 3: submitted job 7095 (3 configs)
+round6 slot 4: submitted job 7096 (3 configs)
+round6 slot 5: submitted job 7097 (3 configs)
+round6 slot 6: submitted job 7098 (3 configs)
+round6 slot 7: submitted job 7099 (2 configs)
+round6 slot 8: submitted job 7100 (2 configs)
+round6 slot 9: submitted job 7101 (2 configs)
+round6 slot 10: submitted job 7102 (2 configs)
+round6 slot 11: submitted job 7103 (2 configs)
+round6 slot 12: submitted job 7104 (2 configs)
 [round6   ] [------------------------]   0%  elapsed=0:00 / budget=30:00
-confirm candidate D0437    median=0.3774s/step (n=2) -> per_run~17.1s (startup_s=15.2s) x REPS=2
-confirm candidate D0471    median=0.3774s/step (n=2) -> per_run~17.1s (startup_s=15.2s) x REPS=2
-confirm candidate D0505    median=0.3774s/step (n=2) -> per_run~17.1s (startup_s=15.2s) x REPS=2
+confirm candidate D0391    median=0.4000s/step (n=2) -> per_run~17.2s (startup_s=15.2s) x REPS=2
+confirm candidate D0392    median=0.4000s/step (n=2) -> per_run~17.2s (startup_s=15.2s) x REPS=2
+confirm candidate D0393    median=0.4000s/step (n=2) -> per_run~17.2s (startup_s=15.2s) x REPS=2
 confirm candidate ANCHOR   median=1.0000s/step (n=2) -> per_run~20.2s (startup_s=15.2s) x REPS=2
 confirm: estimated 2:23 for 4 config(s) (REPS=2, expected -- not the padded --time request) -- elapsed=0:00 / budget=30:00
-confirm: submitted job 7033 (4 configs, REPS=2)
+confirm: submitted job 7105 (4 configs, REPS=2)
 [confirm  ] [------------------------]   0%  elapsed=0:00 / budget=30:00
+
+=== summary ===
+best:     N=1 c/n=72 72 ranks x 1 threads 8x9 tiles=1: 0.8696 s/step (2 runs)
 
 === wtune tune: matthew ===
 nodes=1 (user-specified (cap=13))
-budget=30.0 min  elapsed=0.0 min  jobs=7001,7002,7003,7004,7005,7006,7007,7008,7009,7010,7011,7012,7013,7014,7015,7016,7017,7018,7019,7020,7021,7022,7023,7024,7025,7026,7027,7028,7029,7030,7031,7032,7033
+budget=30.0 min  elapsed=0.0 min  jobs=7001,7002,7003,7004,7005,7006,7007,7008,7009,7010,7011,7012,7013,7014,7015,7016,7017,7018,7019,7020,7021,7022,7023,7024,7025,7026,7027,7028,7029,7030,7031,7032,7033,7034,7035,7036,7037,7038,7039,7040,7041,7042,7043,7044,7045,7046,7047,7048,7049,7050,7051,7052,7053,7054,7055,7056,7057,7058,7059,7060,7061,7062,7063,7064,7065,7066,7067,7068,7069,7070,7071,7072,7073,7074,7075,7076,7077,7078,7079,7080,7081,7082,7083,7084,7085,7086,7087,7088,7089,7090,7091,7092,7093,7094,7095,7096,7097,7098,7099,7100,7101,7102,7103,7104,7105
 
 id           pred_total  ranks  omp    nx    ny tiles    dist   median_s        range_s speedup pred_spd    n pred_source confirmed
 ANCHOR           FAILED     72    1     8     9     1   block     0.8696  0.8696-0.8696  1.150x        -    2 -           True
-D0505            FAILED      3   24     1     3    24   block     0.9091  0.9091-0.9091  1.100x        -    2 -           True
-D0471            FAILED     12    6     3     4    24  cyclic     0.9524  0.9524-0.9524  1.050x        -    2 -           True
-D0437            FAILED      9    8     3     3    24  cyclic     1.0000  1.0000-1.0000  1.000x        -    2 -           True
+D0393            FAILED     24    3     8     3     6  cyclic     0.9091  0.9091-0.9091  1.100x        -    2 -           True
+D0392            FAILED      6   12     6     1    36   block     0.9524  0.9524-0.9524  1.050x        -    2 -           True
+D0391            FAILED     24    3     4     6     6  cyclic     1.0000  1.0000-1.0000  1.000x        -    2 -           True
 
 PREDICTION FAILED for ANCHOR: FileNotFoundError: [Errno 2] No such file or directory: '<TMP>/namelist.input' -- ranked by median s/step instead
-PREDICTION FAILED for D0505: FileNotFoundError: [Errno 2] No such file or directory: '<TMP>/namelist.input' -- ranked by median s/step instead
-PREDICTION FAILED for D0471: FileNotFoundError: [Errno 2] No such file or directory: '<TMP>/namelist.input' -- ranked by median s/step instead
-PREDICTION FAILED for D0437: FileNotFoundError: [Errno 2] No such file or directory: '<TMP>/namelist.input' -- ranked by median s/step instead
+PREDICTION FAILED for D0393: FileNotFoundError: [Errno 2] No such file or directory: '<TMP>/namelist.input' -- ranked by median s/step instead
+PREDICTION FAILED for D0392: FileNotFoundError: [Errno 2] No such file or directory: '<TMP>/namelist.input' -- ranked by median s/step instead
+PREDICTION FAILED for D0391: FileNotFoundError: [Errno 2] No such file or directory: '<TMP>/namelist.input' -- ranked by median s/step instead
 
 BEST: ANCHOR
   namelist: nproc_x=8, nproc_y=9, numtiles=1,
   launch:   mpirun -np 72 --map-by ppr:72:node:PE=1 --bind-to core ./wrf.exe
   env:      OMP_NUM_THREADS=1 OMP_STACKSIZE=1G  ulimit -s unlimited
-  NOTE:     KMP_BLOCKTIME: n/a on scc (nvhpc OpenMP runtime has no KMP_BLOCKTIME concept)
+  NOTE:     KMP_BLOCKTIME: n/a on this cluster (nvhpc OpenMP runtime has no KMP_BLOCKTIME concept)
 
 full-run prediction FAILED (FileNotFoundError: [Errno 2] No such file or directory: '<TMP>/namelist.input'); run `wtune predict ...` manually
 

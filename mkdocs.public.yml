@@ -9,22 +9,25 @@ exclude_docs: |
   /REVIEW_MAP.md
   /WTUNE_RUN.md
   /CODE_STYLE.md
+  /guide/f1-arm.md
+  /guide/build-wrf-f1-arm.md
   /figures/
 
 nav:
   - 首頁: index.md
   - 教學:
+      - 0. 整體運作: tutorial/overview.md
       - 1. 安裝: tutorial/install.md
-      - 2. 第一次跑完整流程: tutorial/quickstart.md
-      - 3. Project 資料夾: tutorial/project.md
-      - 4. 調校 (tune): tutorial/tune.md
-      - 5. 執行與監看 (run / watch): tutorial/run.md
-      - 6. 後處理 (post): tutorial/post.md
+      - 2. submit: tutorial/quickstart.md
+      - 3. project: tutorial/project.md
+      - 4. tune: tutorial/tune.md
+      - 5. run 與 watch: tutorial/run.md
+      - 6. post: tutorial/post.md
   - 進階:
-      - 自動改什麼、只建議什麼: guide/compliance.md
-      - 提交前檢查與時間預測: guide/predict.md
-      - 用 YAML 限制搜尋空間: guide/config.md
-      - 建議類指令: guide/advice.md
+      - compliance: guide/compliance.md
+      - check 與 predict-rebuild: guide/predict.md
+      - config: guide/config.md
+      - calc、advise、physics、prep geog: guide/advice.md
       - WRF 擴展: guide/extensions.md
       - 常見問題與已知限制: guide/faq.md
   - 參考:

@@ -19,10 +19,10 @@ from namelist_text import (_delete_key_lines, _has_key, _header_eol, _set_nameli
 from src_bridge import _import_wtune_bp
 
 # Written into every run's &namelist_adios2 instead of inheriting the Registry defaults
-# (.true. / "lz4"): zstd writes faster and 8% smaller than lz4 (jobs 1037956-64, 1082176).
-# This WRF build compresses only a run's FIRST write stream (wrf_io.F90:1283, job 1082176);
-# tools/bp_compression_check.py detects it.
-ADIOS2_COMPRESSION_ENABLE = ".true."
+# (.true. / "lz4"). Off: with compression on, stock WRF 4.8 writes the 256-char compressor
+# name into a 32-char buffer (wrf_io.F90:1276; the SC26-WRF patch e6472a9 widens it) -- a
+# vanilla WRF must not take that path. `wtune run --compress-history` compresses outside WRF.
+ADIOS2_COMPRESSION_ENABLE = ".false."
 ADIOS2_BLOSC_COMPRESSOR = "zstd"
 
 RESTART_NEVER_MINUTES = 1000000     # restart_interval beyond any campaign run: none written

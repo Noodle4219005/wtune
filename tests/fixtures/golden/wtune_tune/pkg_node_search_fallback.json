@@ -19,7 +19,9 @@
     "7002",
     "7003",
     "7004",
-    "7005"
+    "7005",
+    "7006",
+    "7007"
   ],
   "node_health": {
     "exclusions": [
@@ -47,11 +49,13 @@
     "skipped": [
       {
         "nodes": 1,
-        "reason": "no successful measurement (job 7001, state COMPLETED)"
+        "reason": "no successful measurement (job 7001, state COMPLETED)",
+        "state": "COMPLETED"
       },
       {
         "nodes": 2,
-        "reason": "no successful measurement (job 7002, state COMPLETED)"
+        "reason": "no successful measurement (job 7002, state COMPLETED)",
+        "state": "COMPLETED"
       },
       {
         "nodes": 3,
@@ -59,15 +63,18 @@
       },
       {
         "nodes": 4,
-        "reason": "no successful measurement (job 7003, state COMPLETED)"
+        "reason": "no successful measurement (job 7003, state COMPLETED)",
+        "state": "COMPLETED"
       },
       {
         "nodes": 5,
-        "reason": "not measured: no seed measurement succeeded"
+        "reason": "no successful measurement (job 7006, state COMPLETED)",
+        "state": "COMPLETED"
       },
       {
         "nodes": 6,
-        "reason": "not measured: no seed measurement succeeded"
+        "reason": "no successful measurement (job 7004, state COMPLETED)",
+        "state": "COMPLETED"
       },
       {
         "nodes": 7,
@@ -75,7 +82,8 @@
       },
       {
         "nodes": 8,
-        "reason": "no successful measurement (job 7004, state COMPLETED)"
+        "reason": "no successful measurement (job 7005, state COMPLETED)",
+        "state": "COMPLETED"
       },
       {
         "nodes": 9,
@@ -106,5 +114,6 @@
   "param_table": null,
   "ranking": [],
   "ranking_start_note": null,
+  "summary": [],
   "winner": null
 }

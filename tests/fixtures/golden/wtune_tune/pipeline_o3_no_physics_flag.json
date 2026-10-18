@@ -62,46 +62,35 @@
     "7019",
     "7020",
     "7021",
-    "8024"
+    "7022",
+    "7023",
+    "7024",
+    "7025",
+    "7026",
+    "7027",
+    "7028",
+    "7029",
+    "7030",
+    "7031",
+    "7032",
+    "7033",
+    "7034",
+    "7035",
+    "7036",
+    "7037",
+    "8040"
   ],
   "layout_table": {
     "comparison": {
-      "beyond_noise": false,
-      "gap": 0.016666666666666784,
+      "beyond_noise": true,
+      "gap": -0.09090909090909094,
       "noise": 0.03
     },
     "rows": [
       {
-        "cid": "ANCHOR",
-        "cores_per_node": 72,
-        "median": 0.2608695652173913,
-        "nodes": 4,
-        "numtiles": 1,
-        "nx": 16,
-        "ny": 18,
-        "omp": 1,
-        "ranks": 288,
-        "reps": 2,
-        "source": "finalist search",
-        "spread": 0.0
-      },
-      {
-        "cid": "ANCHOR",
-        "cores_per_node": 72,
-        "median": 0.26521739130434785,
-        "nodes": 5,
-        "numtiles": 1,
-        "nx": 18,
-        "ny": 20,
-        "omp": 1,
-        "ranks": 360,
-        "reps": 2,
-        "source": "finalist search",
-        "spread": 0.0
-      },
-      {
         "cid": "D0003",
         "cores_per_node": 72,
+        "dist": "block",
         "median": 0.2727272727272727,
         "nodes": 4,
         "numtiles": 3,
@@ -116,6 +105,7 @@
       {
         "cid": "D0004",
         "cores_per_node": 72,
+        "dist": "block",
         "median": 0.2772727272727272,
         "nodes": 5,
         "numtiles": 4,
@@ -130,6 +120,7 @@
       {
         "cid": "D0005",
         "cores_per_node": 72,
+        "dist": "block",
         "median": 0.2772727272727272,
         "nodes": 5,
         "numtiles": 8,
@@ -144,6 +135,7 @@
       {
         "cid": "D0004",
         "cores_per_node": 72,
+        "dist": "block",
         "median": 0.2857142857142857,
         "nodes": 4,
         "numtiles": 4,
@@ -158,6 +150,7 @@
       {
         "cid": "D0007",
         "cores_per_node": 72,
+        "dist": "block",
         "median": 0.2857142857142857,
         "nodes": 4,
         "numtiles": 13,
@@ -172,6 +165,7 @@
       {
         "cid": "D0005",
         "cores_per_node": 72,
+        "dist": "block",
         "median": 0.2857142857142857,
         "nodes": 4,
         "numtiles": 8,
@@ -186,6 +180,7 @@
       {
         "cid": "D0002",
         "cores_per_node": 72,
+        "dist": "block",
         "median": 0.29047619047619044,
         "nodes": 5,
         "numtiles": 2,
@@ -200,6 +195,7 @@
       {
         "cid": "D0003",
         "cores_per_node": 72,
+        "dist": "block",
         "median": 0.29047619047619044,
         "nodes": 5,
         "numtiles": 3,
@@ -214,6 +210,7 @@
       {
         "cid": "D0007",
         "cores_per_node": 72,
+        "dist": "block",
         "median": 0.29047619047619044,
         "nodes": 5,
         "numtiles": 13,
@@ -227,7 +224,23 @@
       },
       {
         "cid": "ANCHOR",
+        "cores_per_node": 72,
+        "dist": "block",
+        "median": 0.3,
+        "nodes": 4,
+        "numtiles": 1,
+        "nx": 16,
+        "ny": 18,
+        "omp": 1,
+        "ranks": 288,
+        "reps": 6,
+        "source": "cores/node sweep ANCHOR",
+        "spread": 0.0
+      },
+      {
+        "cid": "ANCHOR",
         "cores_per_node": 70,
+        "dist": "block",
         "median": 0.3,
         "nodes": 4,
         "numtiles": 1,
@@ -235,13 +248,14 @@
         "ny": 20,
         "omp": 1,
         "ranks": 280,
-        "reps": 2,
+        "reps": 4,
         "source": "cores/node sweep ANCHOR",
         "spread": 0.0
       },
       {
         "cid": "ANCHOR",
         "cores_per_node": 64,
+        "dist": "block",
         "median": 0.3,
         "nodes": 4,
         "numtiles": 1,
@@ -249,13 +263,14 @@
         "ny": 16,
         "omp": 1,
         "ranks": 256,
-        "reps": 2,
+        "reps": 4,
         "source": "cores/node sweep ANCHOR",
         "spread": 0.0
       },
       {
         "cid": "ANCHOR",
         "cores_per_node": 48,
+        "dist": "block",
         "median": 0.3,
         "nodes": 4,
         "numtiles": 1,
@@ -270,6 +285,7 @@
       {
         "cid": "ANCHOR",
         "cores_per_node": 36,
+        "dist": "block",
         "median": 0.3,
         "nodes": 4,
         "numtiles": 1,
@@ -284,6 +300,7 @@
       {
         "cid": "D0006",
         "cores_per_node": 72,
+        "dist": "block",
         "median": 0.3,
         "nodes": 4,
         "numtiles": 12,
@@ -298,6 +315,7 @@
       {
         "cid": "D0001",
         "cores_per_node": 72,
+        "dist": "block",
         "median": 0.3,
         "nodes": 4,
         "numtiles": 1,
@@ -312,6 +330,7 @@
       {
         "cid": "D0002",
         "cores_per_node": 72,
+        "dist": "block",
         "median": 0.3,
         "nodes": 4,
         "numtiles": 2,
@@ -325,7 +344,23 @@
       },
       {
         "cid": "ANCHOR",
+        "cores_per_node": 72,
+        "dist": "block",
+        "median": 0.305,
+        "nodes": 5,
+        "numtiles": 1,
+        "nx": 18,
+        "ny": 20,
+        "omp": 1,
+        "ranks": 360,
+        "reps": 6,
+        "source": "cores/node sweep ANCHOR",
+        "spread": 0.0
+      },
+      {
+        "cid": "ANCHOR",
         "cores_per_node": 70,
+        "dist": "block",
         "median": 0.305,
         "nodes": 5,
         "numtiles": 1,
@@ -333,13 +368,14 @@
         "ny": 25,
         "omp": 1,
         "ranks": 350,
-        "reps": 2,
+        "reps": 4,
         "source": "cores/node sweep ANCHOR",
         "spread": 0.0
       },
       {
         "cid": "ANCHOR",
         "cores_per_node": 64,
+        "dist": "block",
         "median": 0.305,
         "nodes": 5,
         "numtiles": 1,
@@ -347,13 +383,14 @@
         "ny": 20,
         "omp": 1,
         "ranks": 320,
-        "reps": 2,
+        "reps": 4,
         "source": "cores/node sweep ANCHOR",
         "spread": 0.0
       },
       {
         "cid": "ANCHOR",
         "cores_per_node": 48,
+        "dist": "block",
         "median": 0.305,
         "nodes": 5,
         "numtiles": 1,
@@ -368,6 +405,7 @@
       {
         "cid": "ANCHOR",
         "cores_per_node": 36,
+        "dist": "block",
         "median": 0.305,
         "nodes": 5,
         "numtiles": 1,
@@ -382,6 +420,7 @@
       {
         "cid": "D0006",
         "cores_per_node": 72,
+        "dist": "block",
         "median": 0.305,
         "nodes": 5,
         "numtiles": 12,
@@ -396,6 +435,7 @@
       {
         "cid": "D0001",
         "cores_per_node": 72,
+        "dist": "block",
         "median": 0.305,
         "nodes": 5,
         "numtiles": 1,
@@ -410,6 +450,37 @@
       {
         "cid": "ANCHOR",
         "cores_per_node": 72,
+        "dist": "block",
+        "median": 0.31,
+        "nodes": 6,
+        "numtiles": 1,
+        "nx": 18,
+        "ny": 24,
+        "omp": 1,
+        "ranks": 432,
+        "reps": 4,
+        "source": "t0 sweep ANCHOR",
+        "spread": 0.0
+      },
+      {
+        "cid": "ANCHOR",
+        "cores_per_node": 72,
+        "dist": "block",
+        "median": 0.315,
+        "nodes": 7,
+        "numtiles": 1,
+        "nx": 21,
+        "ny": 24,
+        "omp": 1,
+        "ranks": 504,
+        "reps": 2,
+        "source": "t0 sweep ANCHOR",
+        "spread": 0.0
+      },
+      {
+        "cid": "ANCHOR",
+        "cores_per_node": 72,
+        "dist": "block",
         "median": 0.32,
         "nodes": 8,
         "numtiles": 1,
@@ -424,6 +495,82 @@
       {
         "cid": "ANCHOR",
         "cores_per_node": 72,
+        "dist": "block",
+        "median": 0.336,
+        "nodes": 9,
+        "numtiles": 1,
+        "nx": 24,
+        "ny": 27,
+        "omp": 1,
+        "ranks": 648,
+        "reps": 2,
+        "source": "t0 sweep ANCHOR",
+        "spread": 0.0
+      },
+      {
+        "cid": "ANCHOR",
+        "cores_per_node": 72,
+        "dist": "block",
+        "median": 0.35200000000000004,
+        "nodes": 10,
+        "numtiles": 1,
+        "nx": 24,
+        "ny": 30,
+        "omp": 1,
+        "ranks": 720,
+        "reps": 2,
+        "source": "t0 sweep ANCHOR",
+        "spread": 0.0
+      },
+      {
+        "cid": "ANCHOR",
+        "cores_per_node": 72,
+        "dist": "block",
+        "median": 0.368,
+        "nodes": 11,
+        "numtiles": 1,
+        "nx": 24,
+        "ny": 33,
+        "omp": 1,
+        "ranks": 792,
+        "reps": 2,
+        "source": "t0 sweep ANCHOR",
+        "spread": 0.0
+      },
+      {
+        "cid": "ANCHOR",
+        "cores_per_node": 72,
+        "dist": "block",
+        "median": 0.384,
+        "nodes": 12,
+        "numtiles": 1,
+        "nx": 27,
+        "ny": 32,
+        "omp": 1,
+        "ranks": 864,
+        "reps": 2,
+        "source": "t0 sweep ANCHOR",
+        "spread": 0.0
+      },
+      {
+        "cid": "ANCHOR",
+        "cores_per_node": 72,
+        "dist": "block",
+        "median": 0.4,
+        "nodes": 13,
+        "numtiles": 1,
+        "nx": 26,
+        "ny": 36,
+        "omp": 1,
+        "ranks": 936,
+        "reps": 2,
+        "source": "t0 sweep ANCHOR",
+        "spread": 0.0
+      },
+      {
+        "cid": "ANCHOR",
+        "cores_per_node": 72,
+        "dist": "block",
         "median": 0.41000000000000003,
         "nodes": 3,
         "numtiles": 1,
@@ -438,6 +585,7 @@
       {
         "cid": "ANCHOR",
         "cores_per_node": 72,
+        "dist": "block",
         "median": 0.52,
         "nodes": 2,
         "numtiles": 1,
@@ -452,6 +600,7 @@
       {
         "cid": "ANCHOR",
         "cores_per_node": 72,
+        "dist": "block",
         "median": 1.0,
         "nodes": 1,
         "numtiles": 1,
@@ -465,15 +614,16 @@
       }
     ],
     "runner_up": {
-      "cid": "ANCHOR",
+      "cid": "D0003",
       "cores_per_node": 72,
-      "median": 0.26521739130434785,
-      "nodes": 5,
-      "numtiles": 1,
-      "nx": 18,
-      "ny": 20,
+      "dist": "block",
+      "median": 0.2727272727272727,
+      "nodes": 4,
+      "numtiles": 3,
+      "nx": 8,
+      "ny": 36,
       "omp": 1,
-      "ranks": 360,
+      "ranks": 288,
       "reps": 2,
       "source": "finalist search",
       "spread": 0.0
@@ -481,15 +631,16 @@
     "winner": {
       "cid": "ANCHOR",
       "cores_per_node": 72,
-      "median": 0.2608695652173913,
+      "dist": "block",
+      "median": 0.3,
       "nodes": 4,
       "numtiles": 1,
       "nx": 16,
       "ny": 18,
       "omp": 1,
       "ranks": 288,
-      "reps": 2,
-      "source": "finalist search",
+      "reps": 6,
+      "source": "cores/node sweep ANCHOR",
       "spread": 0.0
     }
   },
@@ -539,7 +690,7 @@
     "choices": {
       "cost": {
         "nodes": 1,
-        "note": "objective=cost: N=1 wall=1000120s node_hours=277.81 (min among 6 feasible, no deadline)"
+        "note": "objective=cost: N=1 wall=1000120s node_hours=277.81 (min among 13 feasible, no deadline)"
       },
       "knee": {
         "nodes": 4,
@@ -576,7 +727,7 @@
           "cores": 72,
           "maxrss_mb": null,
           "median": 0.3,
-          "n": 2,
+          "n": 6,
           "nx": 16,
           "ny": 18,
           "omp": 1,
@@ -589,7 +740,7 @@
           "cores": 70,
           "maxrss_mb": null,
           "median": 0.3,
-          "n": 2,
+          "n": 4,
           "nx": 14,
           "ny": 20,
           "omp": 1,
@@ -602,7 +753,7 @@
           "cores": 64,
           "maxrss_mb": null,
           "median": 0.3,
-          "n": 2,
+          "n": 4,
           "nx": 16,
           "ny": 16,
           "omp": 1,
@@ -643,7 +794,7 @@
           "cores": 72,
           "maxrss_mb": null,
           "median": 0.305,
-          "n": 2,
+          "n": 6,
           "nx": 18,
           "ny": 20,
           "omp": 1,
@@ -656,7 +807,7 @@
           "cores": 70,
           "maxrss_mb": null,
           "median": 0.305,
-          "n": 2,
+          "n": 4,
           "nx": 14,
           "ny": 25,
           "omp": 1,
@@ -669,7 +820,7 @@
           "cores": 64,
           "maxrss_mb": null,
           "median": 0.305,
-          "n": 2,
+          "n": 4,
           "nx": 16,
           "ny": 20,
           "omp": 1,
@@ -739,36 +890,9 @@
     ],
     "layouts": [
       {
-        "cid": "ANCHOR",
-        "cores_per_node": 72,
-        "median": 0.2608695652173913,
-        "nodes": 4,
-        "numtiles": 1,
-        "nx": 16,
-        "ny": 18,
-        "omp": 1,
-        "ranks": 288,
-        "reps": 2,
-        "source": "finalist search",
-        "spread": 0.0
-      },
-      {
-        "cid": "ANCHOR",
-        "cores_per_node": 72,
-        "median": 0.26521739130434785,
-        "nodes": 5,
-        "numtiles": 1,
-        "nx": 18,
-        "ny": 20,
-        "omp": 1,
-        "ranks": 360,
-        "reps": 2,
-        "source": "finalist search",
-        "spread": 0.0
-      },
-      {
         "cid": "D0003",
         "cores_per_node": 72,
+        "dist": "block",
         "median": 0.2727272727272727,
         "nodes": 4,
         "numtiles": 3,
@@ -783,6 +907,7 @@
       {
         "cid": "D0004",
         "cores_per_node": 72,
+        "dist": "block",
         "median": 0.2772727272727272,
         "nodes": 5,
         "numtiles": 4,
@@ -797,6 +922,7 @@
       {
         "cid": "D0005",
         "cores_per_node": 72,
+        "dist": "block",
         "median": 0.2772727272727272,
         "nodes": 5,
         "numtiles": 8,
@@ -811,6 +937,7 @@
       {
         "cid": "D0004",
         "cores_per_node": 72,
+        "dist": "block",
         "median": 0.2857142857142857,
         "nodes": 4,
         "numtiles": 4,
@@ -825,6 +952,7 @@
       {
         "cid": "D0007",
         "cores_per_node": 72,
+        "dist": "block",
         "median": 0.2857142857142857,
         "nodes": 4,
         "numtiles": 13,
@@ -839,6 +967,7 @@
       {
         "cid": "D0005",
         "cores_per_node": 72,
+        "dist": "block",
         "median": 0.2857142857142857,
         "nodes": 4,
         "numtiles": 8,
@@ -853,6 +982,7 @@
       {
         "cid": "D0002",
         "cores_per_node": 72,
+        "dist": "block",
         "median": 0.29047619047619044,
         "nodes": 5,
         "numtiles": 2,
@@ -867,6 +997,7 @@
       {
         "cid": "D0003",
         "cores_per_node": 72,
+        "dist": "block",
         "median": 0.29047619047619044,
         "nodes": 5,
         "numtiles": 3,
@@ -881,6 +1012,7 @@
       {
         "cid": "D0007",
         "cores_per_node": 72,
+        "dist": "block",
         "median": 0.29047619047619044,
         "nodes": 5,
         "numtiles": 13,
@@ -894,7 +1026,23 @@
       },
       {
         "cid": "ANCHOR",
+        "cores_per_node": 72,
+        "dist": "block",
+        "median": 0.3,
+        "nodes": 4,
+        "numtiles": 1,
+        "nx": 16,
+        "ny": 18,
+        "omp": 1,
+        "ranks": 288,
+        "reps": 6,
+        "source": "cores/node sweep ANCHOR",
+        "spread": 0.0
+      },
+      {
+        "cid": "ANCHOR",
         "cores_per_node": 70,
+        "dist": "block",
         "median": 0.3,
         "nodes": 4,
         "numtiles": 1,
@@ -902,13 +1050,14 @@
         "ny": 20,
         "omp": 1,
         "ranks": 280,
-        "reps": 2,
+        "reps": 4,
         "source": "cores/node sweep ANCHOR",
         "spread": 0.0
       },
       {
         "cid": "ANCHOR",
         "cores_per_node": 64,
+        "dist": "block",
         "median": 0.3,
         "nodes": 4,
         "numtiles": 1,
@@ -916,13 +1065,14 @@
         "ny": 16,
         "omp": 1,
         "ranks": 256,
-        "reps": 2,
+        "reps": 4,
         "source": "cores/node sweep ANCHOR",
         "spread": 0.0
       },
       {
         "cid": "ANCHOR",
         "cores_per_node": 48,
+        "dist": "block",
         "median": 0.3,
         "nodes": 4,
         "numtiles": 1,
@@ -937,6 +1087,7 @@
       {
         "cid": "ANCHOR",
         "cores_per_node": 36,
+        "dist": "block",
         "median": 0.3,
         "nodes": 4,
         "numtiles": 1,
@@ -951,6 +1102,7 @@
       {
         "cid": "D0006",
         "cores_per_node": 72,
+        "dist": "block",
         "median": 0.3,
         "nodes": 4,
         "numtiles": 12,
@@ -965,6 +1117,7 @@
       {
         "cid": "D0001",
         "cores_per_node": 72,
+        "dist": "block",
         "median": 0.3,
         "nodes": 4,
         "numtiles": 1,
@@ -979,6 +1132,7 @@
       {
         "cid": "D0002",
         "cores_per_node": 72,
+        "dist": "block",
         "median": 0.3,
         "nodes": 4,
         "numtiles": 2,
@@ -992,7 +1146,23 @@
       },
       {
         "cid": "ANCHOR",
+        "cores_per_node": 72,
+        "dist": "block",
+        "median": 0.305,
+        "nodes": 5,
+        "numtiles": 1,
+        "nx": 18,
+        "ny": 20,
+        "omp": 1,
+        "ranks": 360,
+        "reps": 6,
+        "source": "cores/node sweep ANCHOR",
+        "spread": 0.0
+      },
+      {
+        "cid": "ANCHOR",
         "cores_per_node": 70,
+        "dist": "block",
         "median": 0.305,
         "nodes": 5,
         "numtiles": 1,
@@ -1000,13 +1170,14 @@
         "ny": 25,
         "omp": 1,
         "ranks": 350,
-        "reps": 2,
+        "reps": 4,
         "source": "cores/node sweep ANCHOR",
         "spread": 0.0
       },
       {
         "cid": "ANCHOR",
         "cores_per_node": 64,
+        "dist": "block",
         "median": 0.305,
         "nodes": 5,
         "numtiles": 1,
@@ -1014,13 +1185,14 @@
         "ny": 20,
         "omp": 1,
         "ranks": 320,
-        "reps": 2,
+        "reps": 4,
         "source": "cores/node sweep ANCHOR",
         "spread": 0.0
       },
       {
         "cid": "ANCHOR",
         "cores_per_node": 48,
+        "dist": "block",
         "median": 0.305,
         "nodes": 5,
         "numtiles": 1,
@@ -1035,6 +1207,7 @@
       {
         "cid": "ANCHOR",
         "cores_per_node": 36,
+        "dist": "block",
         "median": 0.305,
         "nodes": 5,
         "numtiles": 1,
@@ -1049,6 +1222,7 @@
       {
         "cid": "D0006",
         "cores_per_node": 72,
+        "dist": "block",
         "median": 0.305,
         "nodes": 5,
         "numtiles": 12,
@@ -1063,6 +1237,7 @@
       {
         "cid": "D0001",
         "cores_per_node": 72,
+        "dist": "block",
         "median": 0.305,
         "nodes": 5,
         "numtiles": 1,
@@ -1077,6 +1252,37 @@
       {
         "cid": "ANCHOR",
         "cores_per_node": 72,
+        "dist": "block",
+        "median": 0.31,
+        "nodes": 6,
+        "numtiles": 1,
+        "nx": 18,
+        "ny": 24,
+        "omp": 1,
+        "ranks": 432,
+        "reps": 4,
+        "source": "t0 sweep ANCHOR",
+        "spread": 0.0
+      },
+      {
+        "cid": "ANCHOR",
+        "cores_per_node": 72,
+        "dist": "block",
+        "median": 0.315,
+        "nodes": 7,
+        "numtiles": 1,
+        "nx": 21,
+        "ny": 24,
+        "omp": 1,
+        "ranks": 504,
+        "reps": 2,
+        "source": "t0 sweep ANCHOR",
+        "spread": 0.0
+      },
+      {
+        "cid": "ANCHOR",
+        "cores_per_node": 72,
+        "dist": "block",
         "median": 0.32,
         "nodes": 8,
         "numtiles": 1,
@@ -1091,6 +1297,82 @@
       {
         "cid": "ANCHOR",
         "cores_per_node": 72,
+        "dist": "block",
+        "median": 0.336,
+        "nodes": 9,
+        "numtiles": 1,
+        "nx": 24,
+        "ny": 27,
+        "omp": 1,
+        "ranks": 648,
+        "reps": 2,
+        "source": "t0 sweep ANCHOR",
+        "spread": 0.0
+      },
+      {
+        "cid": "ANCHOR",
+        "cores_per_node": 72,
+        "dist": "block",
+        "median": 0.35200000000000004,
+        "nodes": 10,
+        "numtiles": 1,
+        "nx": 24,
+        "ny": 30,
+        "omp": 1,
+        "ranks": 720,
+        "reps": 2,
+        "source": "t0 sweep ANCHOR",
+        "spread": 0.0
+      },
+      {
+        "cid": "ANCHOR",
+        "cores_per_node": 72,
+        "dist": "block",
+        "median": 0.368,
+        "nodes": 11,
+        "numtiles": 1,
+        "nx": 24,
+        "ny": 33,
+        "omp": 1,
+        "ranks": 792,
+        "reps": 2,
+        "source": "t0 sweep ANCHOR",
+        "spread": 0.0
+      },
+      {
+        "cid": "ANCHOR",
+        "cores_per_node": 72,
+        "dist": "block",
+        "median": 0.384,
+        "nodes": 12,
+        "numtiles": 1,
+        "nx": 27,
+        "ny": 32,
+        "omp": 1,
+        "ranks": 864,
+        "reps": 2,
+        "source": "t0 sweep ANCHOR",
+        "spread": 0.0
+      },
+      {
+        "cid": "ANCHOR",
+        "cores_per_node": 72,
+        "dist": "block",
+        "median": 0.4,
+        "nodes": 13,
+        "numtiles": 1,
+        "nx": 26,
+        "ny": 36,
+        "omp": 1,
+        "ranks": 936,
+        "reps": 2,
+        "source": "t0 sweep ANCHOR",
+        "spread": 0.0
+      },
+      {
+        "cid": "ANCHOR",
+        "cores_per_node": 72,
+        "dist": "block",
         "median": 0.41000000000000003,
         "nodes": 3,
         "numtiles": 1,
@@ -1105,6 +1387,7 @@
       {
         "cid": "ANCHOR",
         "cores_per_node": 72,
+        "dist": "block",
         "median": 0.52,
         "nodes": 2,
         "numtiles": 1,
@@ -1119,6 +1402,7 @@
       {
         "cid": "ANCHOR",
         "cores_per_node": 72,
+        "dist": "block",
         "median": 1.0,
         "nodes": 1,
         "numtiles": 1,
@@ -1137,49 +1421,21 @@
     "objective": "time",
     "overhead_s": 120.0,
     "runner_up": {
-      "cid": "ANCHOR",
+      "cid": "D0003",
       "cores_per_node": 72,
-      "median": 0.26521739130434785,
-      "nodes": 5,
-      "numtiles": 1,
-      "nx": 18,
-      "ny": 20,
+      "dist": "block",
+      "median": 0.2727272727272727,
+      "nodes": 4,
+      "numtiles": 3,
+      "nx": 8,
+      "ny": 36,
       "omp": 1,
-      "ranks": 360,
+      "ranks": 288,
       "reps": 2,
       "source": "finalist search",
       "spread": 0.0
     },
-    "skipped": [
-      {
-        "nodes": 6,
-        "reason": "not measured: outside refinement bracket (3..5 around the best N=4)"
-      },
-      {
-        "nodes": 7,
-        "reason": "not measured: outside refinement bracket (3..5 around the best N=4)"
-      },
-      {
-        "nodes": 9,
-        "reason": "not measured: outside refinement bracket (3..5 around the best N=4)"
-      },
-      {
-        "nodes": 10,
-        "reason": "not measured: outside refinement bracket (3..5 around the best N=4)"
-      },
-      {
-        "nodes": 11,
-        "reason": "not measured: outside refinement bracket (3..5 around the best N=4)"
-      },
-      {
-        "nodes": 12,
-        "reason": "not measured: outside refinement bracket (3..5 around the best N=4)"
-      },
-      {
-        "nodes": 13,
-        "reason": "early stop: N=8 (0.3200 s/step) did not beat N=4 (0.3000 s/step) by >3%"
-      }
-    ],
+    "skipped": [],
     "skipped_cores": [],
     "sweep_jobs": [
       "7001",
@@ -1187,7 +1443,17 @@
       "7003",
       "7004",
       "7005",
-      "7006"
+      "7006",
+      "7007",
+      "7011",
+      "7012",
+      "7013",
+      "7014",
+      "7015",
+      "7016",
+      "7008",
+      "7009",
+      "7010"
     ],
     "table": [
       {
@@ -1227,7 +1493,7 @@
         "efficiency": 0.8333333333333334,
         "maxrss_mb": null,
         "median": 0.3,
-        "n": 2,
+        "n": 4,
         "node_hours": 333.46666666666664,
         "nodes": 4,
         "speedup": 3.3333333333333335,
@@ -1238,12 +1504,34 @@
         "efficiency": 0.6557377049180328,
         "maxrss_mb": null,
         "median": 0.305,
-        "n": 2,
+        "n": 4,
         "node_hours": 423.77777777777777,
         "nodes": 5,
         "speedup": 3.278688524590164,
         "spread": 0.0,
         "wall_s": 305120.0
+      },
+      {
+        "efficiency": 0.5376344086021506,
+        "maxrss_mb": null,
+        "median": 0.31,
+        "n": 4,
+        "node_hours": 516.8666666666667,
+        "nodes": 6,
+        "speedup": 3.2258064516129035,
+        "spread": 0.0,
+        "wall_s": 310120.0
+      },
+      {
+        "efficiency": 0.4535147392290249,
+        "maxrss_mb": null,
+        "median": 0.315,
+        "n": 2,
+        "node_hours": 612.7333333333333,
+        "nodes": 7,
+        "speedup": 3.1746031746031744,
+        "spread": 0.0,
+        "wall_s": 315120.0
       },
       {
         "efficiency": 0.390625,
@@ -1255,56 +1543,83 @@
         "speedup": 3.125,
         "spread": 0.0,
         "wall_s": 320120.0
+      },
+      {
+        "efficiency": 0.33068783068783064,
+        "maxrss_mb": null,
+        "median": 0.336,
+        "n": 2,
+        "node_hours": 840.3,
+        "nodes": 9,
+        "speedup": 2.976190476190476,
+        "spread": 0.0,
+        "wall_s": 336120.0
+      },
+      {
+        "efficiency": 0.28409090909090906,
+        "maxrss_mb": null,
+        "median": 0.35200000000000004,
+        "n": 2,
+        "node_hours": 978.1111111111112,
+        "nodes": 10,
+        "speedup": 2.840909090909091,
+        "spread": 0.0,
+        "wall_s": 352120.00000000006
+      },
+      {
+        "efficiency": 0.24703557312252966,
+        "maxrss_mb": null,
+        "median": 0.368,
+        "n": 2,
+        "node_hours": 1124.8111111111111,
+        "nodes": 11,
+        "speedup": 2.717391304347826,
+        "spread": 0.0,
+        "wall_s": 368120.0
+      },
+      {
+        "efficiency": 0.21701388888888887,
+        "maxrss_mb": null,
+        "median": 0.384,
+        "n": 2,
+        "node_hours": 1280.4,
+        "nodes": 12,
+        "speedup": 2.6041666666666665,
+        "spread": 0.0,
+        "wall_s": 384120.0
+      },
+      {
+        "efficiency": 0.19230769230769232,
+        "maxrss_mb": null,
+        "median": 0.4,
+        "n": 2,
+        "node_hours": 1444.8777777777777,
+        "nodes": 13,
+        "speedup": 2.5,
+        "spread": 0.0,
+        "wall_s": 400120.0
       }
     ],
     "total_steps": 1000000,
-    "untried": [
-      {
-        "nodes": 6,
-        "reason": "not measured: outside refinement bracket (3..5 around the best N=4)"
-      },
-      {
-        "nodes": 7,
-        "reason": "not measured: outside refinement bracket (3..5 around the best N=4)"
-      },
-      {
-        "nodes": 9,
-        "reason": "not measured: outside refinement bracket (3..5 around the best N=4)"
-      },
-      {
-        "nodes": 10,
-        "reason": "not measured: outside refinement bracket (3..5 around the best N=4)"
-      },
-      {
-        "nodes": 11,
-        "reason": "not measured: outside refinement bracket (3..5 around the best N=4)"
-      },
-      {
-        "nodes": 12,
-        "reason": "not measured: outside refinement bracket (3..5 around the best N=4)"
-      },
-      {
-        "nodes": 13,
-        "reason": "early stop: N=8 (0.3200 s/step) did not beat N=4 (0.3000 s/step) by >3%"
-      }
-    ],
+    "untried": [],
     "winner": {
       "cid": "ANCHOR",
       "cores_per_node": 72,
-      "median": 0.2608695652173913,
+      "dist": "block",
+      "median": 0.3,
       "nodes": 4,
       "numtiles": 1,
       "nx": 16,
       "ny": 18,
       "omp": 1,
       "ranks": 288,
-      "reps": 2,
-      "source": "finalist search",
+      "reps": 6,
+      "source": "cores/node sweep ANCHOR",
       "spread": 0.0
     },
     "winner_vs_runner_up": {
-      "beyond_noise": false,
-      "gap": 0.016666666666666784,
+      "beyond_noise": true,
+      "gap": -0.09090909090909094,
       "noise": 0.03
     }
   },
@@ -1323,7 +1638,7 @@
       "numtiles=1,"
     ],
     "nodes": 4,
-    "note": "KMP_BLOCKTIME: n/a on scc (nvhpc OpenMP runtime has no KMP_BLOCKTIME concept)",
+    "note": "KMP_BLOCKTIME: n/a on this cluster (nvhpc OpenMP runtime has no KMP_BLOCKTIME concept)",
     "nproc_x": 16,
     "nproc_y": 18,
     "numtiles": 1,
@@ -1343,6 +1658,7 @@
     "frames_deleted": 0,
     "frames_kept": false,
     "hard_deadline_s": 360000.0,
+    "jobs_busy_s": 0.0,
     "level": {
       "T_cold_s": 10000120.0,
       "actual_running_s": 0.0,
@@ -1431,7 +1747,23 @@
           "7018",
           "7019",
           "7020",
-          "7021"
+          "7021",
+          "7022",
+          "7023",
+          "7024",
+          "7025",
+          "7026",
+          "7027",
+          "7028",
+          "7029",
+          "7030",
+          "7031",
+          "7032",
+          "7033",
+          "7034",
+          "7035",
+          "7036",
+          "7037"
         ],
         "limit_s": 246000.0,
         "name": "layout",
@@ -1450,7 +1782,7 @@
         "job_run_s_max": null,
         "job_run_s_sum": null,
         "jobs": [
-          "8024"
+          "8040"
         ],
         "limit_s": 360000.0,
         "name": "predict",
@@ -1684,18 +2016,25 @@
     }
   ],
   "ranking_start_note": null,
+  "summary": [
+    "best:     N=4 c/n=72 288 ranks x 1 threads 16x18 tiles=1: 0.3000 s/step (6 runs)",
+    "run:      predicted 17:17 for the whole simulation (phase 2 combine())",
+    "margin:   N=4 c/n=72 288 ranks x 1 threads 8x36 tiles=3 is 9.1% faster per step; the pick ranks by predicted whole-run time",
+    "tuning:   running 0:00, queue 0:00 (not counted)"
+  ],
   "winner": {
     "cid": "ANCHOR",
     "cores_per_node": 72,
-    "median": 0.2608695652173913,
+    "dist": "block",
+    "median": 0.3,
     "nodes": 4,
     "numtiles": 1,
     "nx": 16,
     "ny": 18,
     "omp": 1,
     "ranks": 288,
-    "reps": 2,
-    "source": "finalist search",
+    "reps": 6,
+    "source": "cores/node sweep ANCHOR",
     "spread": 0.0
   }
 }

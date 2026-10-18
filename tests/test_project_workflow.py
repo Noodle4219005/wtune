@@ -10,6 +10,7 @@ import pytest
 import yaml
 
 from wtune import project as proj
+import wtune.machine
 import wtune.submit
 from wtune.post import cli as post_cli
 from wtune.run import cli as run_cli
@@ -139,6 +140,109 @@ def test_set_defaults_and_register_case(project):
     assert os.path.isfile(proj.project_case_table(project))
 
 
+def _machine():
+    m = wtune.machine
+    return m.cores_per_node(), m.max_nodes(), m.partition(), m.login_nodes()
+
+
+@pytest.fixture
+def no_machine_env(monkeypatch):
+    for name in wtune.machine.ENV.values():
+        monkeypatch.setenv(name, "x")  # recorded, so the original state comes back afterwards
+        monkeypatch.delenv(name)
+
+
+def test_machine_block_reaches_every_command(project, no_machine_env, monkeypatch):
+    proj.set_project_defaults(project, machine=dict(cores_per_node=64, max_nodes=20,
+                                                    partition="batch", login_nodes=""))
+    assert _doc(project)["machine"] == dict(cores_per_node=64, max_nodes=20, partition="batch",
+                                            login_nodes=[])
+    monkeypatch.setenv("WTUNE_PARTITION", "debug")       # set by hand: kept
+    proj.apply_project_env(project, _doc(project))
+    assert _machine() == (64, 20, "debug", [])
+    assert ("machine: cores_per_node=64 max_nodes=20 partition=batch login_nodes=- account=-"
+            in proj.info_project(project))
+
+
+def test_without_a_machine_block_the_built_in_values_apply(project, no_machine_env):
+    proj.apply_project_env(project, _doc(project))
+    assert _machine() == (72, 13, "compute", ["head"])
+    assert ("machine: cores_per_node=72 max_nodes=13 partition=compute login_nodes=head"
+            in proj.info_project(project))
+
+
+def test_account_goes_on_every_job_of_the_project(project, no_machine_env, monkeypatch):
+    assert proj.main(["set", "--project", project, "--account", "proj42"]) == 0
+    proj.apply_project_env(project, _doc(project))
+    assert wtune.machine.account_arg() == "--account=proj42"
+    cmd = post_cli.srun_command(["recipe", "runs/r1"])
+    assert cmd[:5] == ["srun", "-p", "compute", "--exclude=head,work1", "--account=proj42"]
+
+
+def test_machine_description_and_calibration_in_the_project(project, no_machine_env, tmp_path):
+    cal = tmp_path / "newbox.json"
+    cal.write_text("{}")
+    assert proj.main(["set", "--project", project, "--hardware-id", "newbox",
+                      "--numa-per-node", "2", "--calibration", str(cal)]) == 0
+    assert _doc(project)["machine"] == dict(hardware_id="newbox", numa_per_node=2,
+                                            calibration=str(cal))
+    proj.apply_project_env(project, _doc(project))
+    assert (wtune.machine.hardware_id(), wtune.machine.numa_per_node(),
+            wtune.machine.calibration()) == ("newbox", 2, str(cal))
+    assert proj.main(["set", "--project", project, "--calibration", str(cal) + ".missing"]) == 1
+
+
+def test_project_set_user_writes_the_settings_every_project_shares(
+        project, no_machine_env, monkeypatch, tmp_path, capsys):
+    path = tmp_path / "machine.yaml"
+    monkeypatch.setenv("WTUNE_MACHINE_FILE", str(path))
+    assert proj.main(["set", "--user", "--partition", "mine", "--max-nodes", "4"]) == 0
+    assert yaml.safe_load(path.read_text()) == dict(max_nodes=4, partition="mine")
+    assert "partition=mine" in proj.info_project(project)            # no project block yet
+    proj.set_project_defaults(project, machine=dict(partition="here"))
+    assert "max_nodes=4 partition=here" in proj.info_project(project)
+    assert "project.yaml" not in capsys.readouterr().out             # --user leaves it alone
+    assert proj.main(["set", "--user"]) == 1
+    assert "at least one machine flag" in capsys.readouterr().err
+
+
+def test_measured_numbers_and_the_longest_job_in_the_project(project, no_machine_env, capsys):
+    assert proj.main(["set", "--project", project, "--max-hours", "8",
+                      "--measured", "noise_frac=0.05", "--measured", "init_s=60"]) == 0
+    assert proj.main(["set", "--project", project, "--measured", "io_factor=3"]) == 0
+    assert _doc(project)["machine"] == dict(
+        max_hours=8.0, measured=dict(noise_frac=0.05, init_s=60.0, io_factor=3.0))
+    assert ("max_hours=8 max_omp=0 node_preflight=on node_memory_gib=0 copy_probe_inputs=on measured=init_s=60,io_factor=3,noise_frac=0.05"
+            in proj.info_project(project))
+    proj.apply_project_env(project, _doc(project))
+    assert (wtune.machine.max_hours(), wtune.machine.measured("io_factor")) == (8.0, 3.0)
+    capsys.readouterr()
+    assert proj.main(["set", "--project", project, "--measured", "nope"]) == 1
+    assert "NAME=NUMBER" in capsys.readouterr().err
+
+
+def test_project_set_machine_flags(project, capsys):
+    assert proj.main(["set", "--project", project, "--max-nodes", "8",
+                      "--login-nodes", "login1,login2"]) == 0
+    assert _doc(project)["machine"] == {"max_nodes": 8, "login_nodes": ["login1", "login2"]}
+    assert ("machine: cores_per_node=72 max_nodes=8 partition=compute login_nodes=login1,login2"
+            in capsys.readouterr().out)
+    assert proj.main(["set", "--project", project, "--cores-per-node", "0"]) == 1
+    assert "machine.cores_per_node: 0 must be a positive integer" in capsys.readouterr().err
+    assert _doc(project)["machine"] == {"max_nodes": 8, "login_nodes": ["login1", "login2"]}
+
+
+@pytest.mark.parametrize("block, message", [
+    ({"cores": 64}, "unknown key"), ({"cores_per_node": 0}, "positive integer"),
+    ({"max_nodes": "many"}, "positive integer"), ({"partition": " "}, "must be a name"),
+    ({"login_nodes": 3}, "list of node names"), ("compute", "must be a mapping"),
+    ({"numa_per_node": 0}, "positive integer"), ({"hardware_id": ""}, "must be a name"),
+    ({"calibration": "scc.json"}, "absolute path of an existing file")])
+def test_a_bad_machine_block_is_a_project_error(block, message):
+    with pytest.raises(proj.ProjectError, match=message):
+        proj.project_machine({"machine": block})
+
+
 def _report(project_dir, name, mtime, case=None):
     d = os.path.join(project_dir, "tune", name)
     os.makedirs(d)
@@ -202,6 +306,15 @@ def test_submit_steps_share_one_id(project):
     steps = wtune.submit.plan_steps(project, "ID", "2", skip_tune=True, no_post=True)
     assert [name for name, _cmd in steps] == ["run"]
     assert "--tune-report" not in steps[0][1]
+
+
+def test_submit_tunes_with_the_projects_own_config(project):
+    assert "--config" not in wtune.submit.plan_steps(project, "ID", "2", False, True)[0][1]
+    config = os.path.join(project, "wtune.yaml")
+    with open(config, "w") as f:
+        f.write("search:\n  omp: [1]\n")
+    tune = wtune.submit.plan_steps(project, "ID", "2", False, True)[0][1]
+    assert tune[tune.index("--config") + 1] == config
 
 
 def test_fetch_steps_window_the_case_and_sit_between_run_and_post(project):
@@ -284,5 +397,12 @@ def test_submit_refuses_outside_project(tmp_path, monkeypatch, capsys):
 def test_post_srun_command_excludes_head_and_project_nodes(monkeypatch):
     monkeypatch.setenv("WTUNE_SBATCH_EXCLUDE", "work1")
     cmd = post_cli.srun_command(["recipe", "runs/r1"])
-    assert cmd[:2] == ["srun", "--exclude=head,work1"]
+    assert cmd[:4] == ["srun", "-p", "compute", "--exclude=head,work1"]
     assert cmd[-3:] == ["post", "recipe", "runs/r1"]
+
+
+def test_submit_passes_compress_history_to_the_run(project):
+    steps = dict(wtune.submit.plan_steps(project, "ID", "2", True, True, compress_history=True))
+    assert "--compress-history" in steps["run"]
+    assert "--compress-history" not in dict(wtune.submit.plan_steps(project, "ID", "2", True,
+                                                                    True))["run"]

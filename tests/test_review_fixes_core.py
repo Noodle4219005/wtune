@@ -256,6 +256,18 @@ def test_convert_maps_double_variables(convert_mod):
     assert out[4] == {"XLAT_D": "d", "T": "f"}
 
 
+def test_convert_puts_one_frame_in_each_chunk(convert_mod, tmp_path):
+    from netCDF4 import Dataset
+    dims = {"T": ("Time", "bottom_top", "south_north", "west_east"), "Times": ("Time", "DateStrLen")}
+    with Dataset(str(tmp_path / "out.nc"), "w") as d:
+        convert_mod.create_nc_dims(d, 121, {"bottom_top": 4, "south_north": 5,
+                                            "west_east": 6, "DateStrLen": 19})
+        convert_mod.create_nc_vars(d, ["T", "Times"], {"T": "f", "Times": "c"}, dims)
+        assert d.variables["T"].chunking() == [1, 4, 5, 6]
+        assert d.variables["T"].filters()["zlib"]
+        assert not d.variables["Times"].filters()["zlib"]
+
+
 @pytest.mark.parametrize("step", [3, 7, -4])
 def test_convert_rejects_out_of_range_step(convert_mod, monkeypatch, step):
     monkeypatch.setattr(convert_mod, "open_files", lambda *a, **k: (_FakeReader(3), None))

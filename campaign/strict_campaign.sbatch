@@ -1,10 +1,7 @@
 #!/usr/bin/env bash
 #SBATCH --job-name=strictcamp
-#SBATCH --account=ACD110018
-#SBATCH --partition=cf448
-#SBATCH --nodes=4 --ntasks-per-node=112
-#SBATCH --time=02:00:00
-#SBATCH --output=/home/u5727520/wrf-bench/wscore/campaign/strictcamp-%x-%j.out
+# partition, nodes, tasks, time, account and output come from the sbatch command line
+# (wtune.tools.scc_sweep.build_sbatch_command), which knows the machine.
 #SBATCH --signal=B:USR1@90
 #
 # --signal=B:USR1@90 (job 740 postmortem, 2026-09): Slurm delivers SIGUSR1 to the batch shell
@@ -32,8 +29,8 @@
 #        not this script's.
 #        MIN_FREE_GIB (default 60): disk-quota guard threshold (see check_disk_guard
 #        below) -- the job aborts itself with a ledger row instead of running into a
-#        mid-write 'Disk quota exceeded' when home1 free space under the soft quota
-#        drops below this many GiB.
+#        mid-write 'Disk quota exceeded' when the site's QUOTA_FS free space under the
+#        soft quota drops below this many GiB (no QUOTA_FS: no guard).
 #        CONFIG_FILE (required; WTune D1 decomposition-space work, predictor/decomp_space.py
 #        to_campaign_configs/sample output): the generated config set this job measures --
 #        palindromic REPS order, same ledger schema (tile geometry goes into notes, see
@@ -65,18 +62,14 @@
 #              window_frame=none:<reason> and no frame is kept.
 set -uo pipefail
 
-SITE=${SITE:-f1}
+SITE=${SITE:-scc}
 export SITE
-# CAMPAIGN locates this checkout's campaign/ dir, so its own default must vary by site (the repo
-# lives at a different absolute path on each cluster) -- everything else site-specific is inside
-# campaign/sites/$SITE.sh, sourced below, which f1.sh reproduces byte-for-byte as it stood before
-# SITE existed. export: CASES_JSON's default path (below) and the CASES_JSON overlay merge both
-# need CAMPAIGN from a plain python3 subprocess, not just from this shell.
-if [ "$SITE" = "scc" ]; then
-  CAMPAIGN=${CAMPAIGN:-$HOME/wtune/campaign}
-else
-  CAMPAIGN=${CAMPAIGN:-/home/u5727520/wrf-stack/wtune-autotuner/campaign}
-fi
+# CAMPAIGN is this checkout's campaign/ dir: the submitter exports it; submitted by hand from the
+# checkout it is found under $SLURM_SUBMIT_DIR. Everything site-specific is inside
+# campaign/sites/$SITE.sh, sourced below. export: CASES_JSON's default path (below) and the
+# CASES_JSON overlay merge both need CAMPAIGN from a plain python3 subprocess.
+CAMPAIGN=${CAMPAIGN:-${SLURM_SUBMIT_DIR:-$PWD}/campaign}
+[ -d "$CAMPAIGN/sites" ] || { echo "CAMPAIGN=$CAMPAIGN has no sites/: export CAMPAIGN=<checkout>/campaign" >&2; exit 2; }
 export CAMPAIGN
 # campaign/sites/$SITE.sh defines W, OUT, HARDWARE_ID, PIXI_ENV, CONV, CASES_JSON_DEFAULT,
 # CORES_PER_NODE and the functions site_env() (module load / MPI+IO env, called once below) and
@@ -315,7 +308,8 @@ link_wrf_inputs() {
 
 check_disk_guard () {
   local ctx="$1" q_text free_gib
-  if ! q_text=$(mmlsquota -u "$USER" home1 2>&1); then
+  [ -n "${QUOTA_FS:-}" ] || return 0      # the site has no per-user GPFS quota
+  if ! q_text=$(mmlsquota -u "$USER" "$QUOTA_FS" 2>&1); then
     echo "WARNING: mmlsquota unavailable ($q_text) -- skipping disk guard for $ctx" >&2
     return 0
   fi
@@ -325,7 +319,7 @@ check_disk_guard () {
     return 0
   fi
   if awk -v f="$free_gib" -v m="$MIN_FREE_GIB" 'BEGIN { exit !(f < m) }'; then
-    echo "ABORT: home1 free space ${free_gib} GiB < MIN_FREE_GIB=${MIN_FREE_GIB} GiB before $ctx -- stopping job (case=$CASE job=$J) to avoid a mid-run Disk quota exceeded failure" >&2
+    echo "ABORT: $QUOTA_FS free space ${free_gib} GiB < MIN_FREE_GIB=${MIN_FREE_GIB} GiB before $ctx -- stopping job (case=$CASE job=$J) to avoid a mid-run Disk quota exceeded failure" >&2
     RUN_ID="${CASE}_${ctx}_${J}" JOB_ID="$J" CASE_RAW="$CASE" CASE_BASE="$CASE" \
       HARDWARE_ID="$HARDWARE_ID" NOTES_ABORT="status=ABORTED reason=low_disk free_gib=${free_gib} min_free_gib=${MIN_FREE_GIB} context=${ctx} $NODE_DIRTY_NOTE" \
       python3 - "$LEDGER" <<'PY'
@@ -364,6 +358,18 @@ link_thompson_tables () {
   done
 }
 
+# Only rank 0's rsl files are read and kept, so the other ranks write to /dev/null: on a GPFS with
+# 16 MiB blocks every open rsl file holds a whole block (f1-arm, isc21 at 8 nodes: 2304 files,
+# 36 GiB of quota while running).
+rsl_rank0_only () {
+  local r n
+  for ((r = 1; r < $1; r++)); do
+    printf -v n '%04d' "$r"
+    ln -sf /dev/null "rsl.out.$n"
+    ln -sf /dev/null "rsl.error.$n"
+  done
+}
+
 # Files the final ./namelist.input names (iofields_filename, sst_update's wrflowinp, wrffdda,
 # auxinput*, tslist, ...) were never staged: input_files + wrfinput/wrfbdy only. climate-ea50
 # (scc probe jobs 2541-2545): iofields_d01.txt absent -> WRF 4.8 hung after "calling input_input"
@@ -391,7 +397,7 @@ harvest_thompson_tables () {
   done
 }
 
-# ---- per-run OpenMP/threading env (site-conditional) ----------------------------------
+# ---- per-run OpenMP/threading env (the site file's OMP_RUNTIME) ------------------------
 # f1's KMP_BLOCKTIME knob has no equivalent under scc's nvhpc OpenMP runtime (SITE FACTS,
 # decision 0050 step 8) -- never export it there, and record the ledger's kmp_blocktime column
 # as "n/a" instead of the numeric/"default" value configs.py generated. scc uses OMP_PLACES/
@@ -401,7 +407,7 @@ harvest_thompson_tables () {
 configure_omp_env () {
   local omp="$1" blocktime="$2"
   export OMP_NUM_THREADS="$omp"
-  if [ "$SITE" = "scc" ]; then
+  if [ "${OMP_RUNTIME:-}" != "intel" ]; then
     unset KMP_BLOCKTIME
     if [ "$omp" -gt 1 ]; then
       export OMP_PLACES=cores OMP_PROC_BIND=close
@@ -425,8 +431,8 @@ echo "job $J case $CASE nodes $SLURM_JOB_NODELIST reps $REPS timeout $TIMEOUT_S"
 eval "$(python3 - "$CASE" <<'PY'
 import json, os, sys
 case_id = sys.argv[1]
-campaign_dir = os.environ.get("CAMPAIGN") or "/home/u5727520/wrf-stack/wtune-autotuner/campaign"
-site = os.environ.get("SITE") or "f1"
+campaign_dir = os.environ["CAMPAIGN"]
+site = os.environ["SITE"]
 # CASES_JSON (optional): alternate case file, same schema; configs.py honours the same env var
 d = json.load(open(os.environ.get("CASES_JSON") or os.path.join(campaign_dir, "cases.json")))["cases"]
 if site != "f1":
@@ -798,6 +804,7 @@ if [ "$RANKING_START" = "spinup" ] && [ "$MODE" = "timing" ] && [ "$FUSED_ON" !=
       write_adios2_restart_xml "$SRC_DIR" "$(python3 "$CAMPAIGN/configs.py" restart-time "$CASE" "$M")" "$MAX_DOM"
       link_namelist_files
       ln -sf "$W/main/wrf.exe" ./wrf.exe
+      rsl_rank0_only "$A_RANKS"
       configure_omp_env "$A_OMP" "$A_BLOCKTIME"
       echo "RANKING_SPINUP[m=$M]: launching anchor spin-up in $SRC_DIR"
       site_launch "$A_RANKS" "$A_NTASKS_PER_NODE" "$A_OMP" "$A_DIST"
@@ -983,6 +990,7 @@ for cid in "${ORDER[@]}"; do
   fi
   link_namelist_files
   ln -sf "$W/main/wrf.exe" ./wrf.exe
+  rsl_rank0_only "$ranks"
 
   configure_omp_env "$omp" "$blocktime"
 

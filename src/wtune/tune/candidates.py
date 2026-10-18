@@ -32,9 +32,9 @@ def _apply_search_filter(ctx: Ctx, configs: list[dict]) -> list[dict]:
             if why:
                 print("config: %s %s" % (c.get("id"), why))
                 continue
-        if omp_cap and int(c.get("omp", 1) or 1) > omp_cap:   # dmpar-only extension build
+        if omp_cap and int(c.get("omp", 1) or 1) > omp_cap:   # dmpar-only build
             if exempt:
-                print("config: ANCHOR omp=%s dropped: OpenMP not supported by this extension build"
+                print("config: ANCHOR omp=%s dropped: above the thread cap of this WRF build"
                       % c.get("omp"))
             continue
         if wtune.config.candidate_allowed(c, ctx.search_cfg, ctx.exclude_rules, ctx.is_fire,
@@ -100,6 +100,17 @@ def aggregate_by_cid(rows: list[dict], configs_by_cid: dict) -> dict:
     return out
 
 
+def merge_aggs(a: dict, b: dict) -> dict:
+    """`a` with the runs of `b` (the same layout measured again) added."""
+    s = a["s_values"] + b["s_values"]
+    out = dict(a, s_values=s, median=statistics.median(s), lo=min(s), hi=max(s), n=len(s),
+               run_ids=(a.get("run_ids") or []) + (b.get("run_ids") or []))
+    dirty = sorted(set(a.get("dirty") or []) | set(b.get("dirty") or []))
+    if dirty:
+        out["dirty"] = dirty
+    return out
+
+
 def rank_predicted_entries(predicted: dict, anchor_cid: str | None) -> list[dict]:
     """predict_candidates() entries by predicted whole-run time (2026-09-24 decision), NOISE-
     clustered (_cluster_rank); entries whose prediction failed follow, ranked by median s/step.
@@ -146,6 +157,21 @@ def _sweep_omp_options(ctx: Ctx, nodes: int, cores: int | None = None) -> list[i
                                             ctx.hardware_id)
     cap = getattr(ctx, "omp_cap", None)
     return [o for o in opts if not cap or o <= cap]
+
+
+def _sweep_anchor_fitting(ctx: Ctx, nodes: int) -> tuple[dict | None, int | None, str | None]:
+    """(ANCHOR, cores per node, None): on all the cores of a node, or, when nothing is legal
+    there, on the most cores per node that has a legal ANCHOR -- a small grid on big nodes
+    with a low thread cap (91x100 cuts into 90 ranks at most; a 144-core node at omp 1 wants
+    144). (None, None, reason) when no core count has one."""
+    anchor, why = _sweep_anchor(ctx, nodes)
+    if anchor is not None:
+        return anchor, ctx.cores_per_node, None
+    for c in range(ctx.cores_per_node - 1, 0, -1):
+        anchor, _why = _sweep_anchor(ctx, nodes, cores=c)
+        if anchor is not None:
+            return anchor, c, None
+    return None, None, why
 
 
 def _hybrid_anchor(ctx: Ctx, nodes: int, omp: int, cores: int | None = None) -> dict | None:

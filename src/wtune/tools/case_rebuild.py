@@ -54,6 +54,7 @@ if not __package__:                    # run by path: this directory is not an i
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
+import wtune.machine
 from wtune import predict as predict     # repo root -- stdlib only
 from wtune.tools import coldstart_sample as cs       # tools/ -- stdlib only at module level (lazy md/gs)
 
@@ -746,7 +747,7 @@ def new_domain_fields(center_lat: float, center_lon: float, size_km: tuple[float
         "start_date": start_dt.strftime(_WRF_TIME_FMT), "end_date": end_dt.strftime(_WRF_TIME_FMT),
         "interval_seconds": 10800, "parent_id": [1], "parent_grid_ratio": [1],
         "i_parent_start": [1], "j_parent_start": [1], "geog_data_res": ["default"],
-        "geog_data_path": "/nfs/data/wrf/WPS_GEOG/",
+        "geog_data_path": cs.geog_data_path_default(),
     }
     prov("ref_lat", "given")
     prov("ref_lon", "given")
@@ -997,10 +998,11 @@ def rebuild_span(nl: dict, date_shift_to: str | None = None) -> tuple:
 def cmd_rebuild_plan(case_dir: str, out_dir: str, namelist: str | None = None,
                      namelist_wps: str | None = None, geo_from_wrfinput: str | None = None,
                      date_shift_to: str | None = None, forcing: str | None = None,
-                     verify_steps: int = 0, nodes: int = 1, ranks: int = 72, omp: int = 1,
+                     verify_steps: int = 0, nodes: int = 1, ranks: int | None = None, omp: int = 1,
                      nx: int | None = None, ny: int | None = None, ncdump: str | None = None,
                      now: datetime.datetime | None = None, geog_path: str | None = None,
                      grib_dir: str | None = None, ml_model: str | None = None) -> dict:
+    ranks = ranks or wtune.machine.cores_per_node()
     rows, blockers, nl = cs.inspect_case(case_dir, namelist=namelist, namelist_wps=namelist_wps,
                                          geo_from_wrfinput=geo_from_wrfinput, grib_dir=grib_dir,
                                          ncdump=ncdump, now=now, geog_path=geog_path)
@@ -1133,7 +1135,7 @@ def _rebuild_forcing_choice(out_dir):
     return primary, plan
 
 
-def cmd_rebuild_stage(out_dir: str, site: str = "scc") -> str:
+def cmd_rebuild_stage(out_dir: str, site: str | None = None) -> str:
     chosen, plan = _rebuild_forcing_choice(out_dir)
     wps_dir_env = os.environ.get("WPS_DIR")
     wrf_tree = os.environ.get("WRF_TREE")
@@ -1374,9 +1376,6 @@ def cmd_rebuild_fix_span_wrf_namelist(out_dir: str, nproc_x: int, nproc_y: int,
     print("wrote %s (verify_steps=%d)" % (out_path, win_steps))
 
 
-_CORES_PER_NODE = 72               # scc GH200 node
-_REAL_TIMEOUT_S = 600              # s; decomposed real.exe, then serial fallback
-_REAL_SERIAL_TIMEOUT_S = 1800      # s
 _SMOKE_EXTRA_MIN = 30              # added to the job time limit when the wrf.exe smoke run is on
 
 
@@ -1409,8 +1408,9 @@ def _rebuild_job(plan: dict, chosen: dict, site: str, estimate_min: int) -> _Reb
     omp = plan["config"]["omp"]
     nx, ny = plan["config"]["nx"], plan["config"]["ny"]
     ppn = -(-ranks // max(nodes, 1))   # ceil, not floor: floor gave rc=213 'not enough slots' (T7)
-    assert ppn <= _CORES_PER_NODE, ("ppn=%d exceeds CORES_PER_NODE=%d (ranks=%d nodes=%d)"
-                                    % (ppn, _CORES_PER_NODE, ranks, nodes))
+    cores = wtune.machine.cores_per_node()
+    assert ppn <= cores, ("ppn=%d exceeds CORES_PER_NODE=%d (ranks=%d nodes=%d)"
+                          % (ppn, cores, ranks, nodes))
     max_dom = plan["max_dom"]
     verify_steps = int(plan.get("verify_steps") or 0)
     T = datetime.datetime.strptime(plan["span_start"], _WRF_TIME_FMT)
@@ -1424,16 +1424,21 @@ def _rebuild_job(plan: dict, chosen: dict, site: str, estimate_min: int) -> _Reb
         expected_ungrib=cs.expected_wps_intermediate_files(prefix, T, T_end, interval_s),
         expected_met=cs.expected_met_em_files(max_dom, T, T_end, interval_s),
         geo_em_expected=["geo_em.d%02d.nc" % d for d in range(1, max_dom + 1)],
-        time_min=max(60, estimate_min * 2 + (_SMOKE_EXTRA_MIN if verify_steps else 0)),
-        ml_model=plan.get("ml_model"), site=site, estimate_min=estimate_min)
+        time_min=int(wtune.machine.cap_seconds(60.0 * max(
+            60, estimate_min * 2 + (_SMOKE_EXTRA_MIN if verify_steps else 0))) // 60),
+        ml_model=plan.get("ml_model"), site=site or wtune.machine.site(),
+        estimate_min=estimate_min)
 
 
 def _sbatch_header(job: _RebuildJob) -> list[str]:
     lines = ["#!/usr/bin/env bash",
              "#SBATCH --job-name=case-rebuild",
-             "#SBATCH --partition=compute",
-             "#SBATCH --exclude=%s" % ",".join(cs.sbatch_excluded_nodes()),
-             "#SBATCH -N %d --exclusive --ntasks-per-node=%d" % (job.nodes, job.ppn),
+             "#SBATCH --partition=%s" % wtune.machine.partition()]
+    if cs.sbatch_excluded_nodes():
+        lines.append("#SBATCH --exclude=%s" % ",".join(cs.sbatch_excluded_nodes()))
+    if wtune.machine.account_arg():
+        lines.append("#SBATCH " + wtune.machine.account_arg())
+    lines += ["#SBATCH -N %d --exclusive --ntasks-per-node=%d" % (job.nodes, job.ppn),
              "#SBATCH --time=%02d:%02d:00" % (job.time_min // 60, job.time_min % 60),
              "#SBATCH --signal=B:USR1@90"]
     if job.out_dir_abs:
@@ -1441,13 +1446,11 @@ def _sbatch_header(job: _RebuildJob) -> list[str]:
     lines += ["set -uo pipefail", "", "TOOL=%s" % cs._sh_quote(os.path.abspath(__file__))]
     if job.ml_model:   # K5: ML state completion, default off; never /usr/bin/python3 for it
         lines += ["TOOL_SCM=%s" % cs._sh_quote(cs._SCM_PATH),
-                  "ML_MODEL=%s" % cs._sh_quote(os.path.abspath(job.ml_model)),
-                  "GRIB_PY=${GRIB_PYTHON:-$HOME/wtune/envs/grib/.pixi/envs/default/bin/python}"]
-    lines += ["SITE=%s" % job.site,
-              "CAMPAIGN=${CAMPAIGN:-$HOME/wtune/campaign}",
-              "source \"$CAMPAIGN/sites/$SITE.sh\"   # site_env / site_launch / site_hygiene -- "
+                  "ML_MODEL=%s" % cs._sh_quote(os.path.abspath(job.ml_model))]
+    lines += ["SITE=%s" % job.site] + cs.tree_default_lines(bool(job.ml_model))
+    lines += ["source \"$CAMPAIGN/sites/$SITE.sh\"   # site_env / site_launch / site_hygiene -- "
               "reused, not reimplemented",
-              "source ~/wtune-scc/env.sh",
+              "source %s" % wtune.machine.env_source(),
               "export PATH=$NETCDF/bin:$PATH",
               "ulimit -s unlimited",
               "site_env"]
@@ -1550,14 +1553,14 @@ def _sbatch_real(job: _RebuildJob) -> list[str]:
         "for f in met_em.d0*.*.nc; do [ \"$f\" = \"${f//:/_}\" ] || ln -sf \"$f\" \"${f//:/_}\"; done",
         "python3 \"$TOOL\" rebuild fix-span-real-namelist --out \"$REBUILD_DIR\" || exit 1",
         "timeout %d mpirun -np %d --map-by ppr:%d:node:PE=1 --bind-to core ./real.exe"
-        % (_REAL_TIMEOUT_S, job.ranks, job.ppn),
+        % (cs.REAL_TIMEOUT_S, job.ranks, job.ppn),
         "rc=$?; pkill -u \"$USER\" -x real.exe 2>/dev/null",
         "if [ $rc -eq 124 ] || [ ! -f wrfinput_d01 ] || [ ! -f wrfbdy_d01 ]; then",
         "  echo \"real.exe decomposed attempt rc=$rc -- retrying serial\" >&2",
         "  python3 \"$TOOL\" rebuild fix-span-real-namelist --out \"$REBUILD_DIR\" "
         "--serial || exit 1",
         "  timeout %d mpirun -np 1 --map-by ppr:1:node:PE=1 --bind-to core ./real.exe"
-        % _REAL_SERIAL_TIMEOUT_S,
+        % cs.REAL_SERIAL_TIMEOUT_S,
         "  rc=$?; pkill -u \"$USER\" -x real.exe 2>/dev/null",
         "fi",
         "[ $rc -ne 0 ] && { echo \"FATAL real.exe rc=$rc\"; exit 1; }",
@@ -1607,7 +1610,7 @@ def _sbatch_wrf_smoke(job: _RebuildJob) -> list[str]:
     ]
 
 
-def render_rebuild_sbatch(plan: dict, chosen: dict, site: str = "scc",
+def render_rebuild_sbatch(plan: dict, chosen: dict, site: str | None = None,
                           estimate_min: int = 30) -> str:
     """One sbatch for the span: geogrid -> ungrib+metgrid (expected-file checks) -> real.exe
     (timeout + serial fallback) -> optional ML apply -> optional wrf.exe smoke run of
@@ -2415,7 +2418,7 @@ def main(argv: list[str] | None = None) -> int:
     sp.add_argument("--forcing")
     sp.add_argument("--verify-steps", type=int, default=0)
     sp.add_argument("--nodes", type=int, default=1)
-    sp.add_argument("--ranks", type=int, default=72)
+    sp.add_argument("--ranks", type=int, default=wtune.machine.cores_per_node())
     sp.add_argument("--omp", type=int, default=1)
     sp.add_argument("--nx", type=int)
     sp.add_argument("--ny", type=int)
@@ -2435,7 +2438,7 @@ def main(argv: list[str] | None = None) -> int:
 
     sp = rebuild_sub.add_parser("stage")
     sp.add_argument("--out", required=True)
-    sp.add_argument("--site", default="scc")
+    sp.add_argument("--site", default=wtune.machine.site())
 
     sp = rebuild_sub.add_parser("finalize")
     sp.add_argument("--out", required=True)

@@ -11,9 +11,10 @@ import os
 import statistics
 from typing import Any, Callable
 
+import wtune.machine
 import wtune.nodes
 from ._deps import sweep, predict
-from .candidates import _sweep_anchor
+from .candidates import _sweep_anchor, _sweep_anchor_fitting
 from .common import ANCHOR_END_ID, _fmt_hms, _fmt_sbatch_time, compute_slots, if_set, is_set
 from .context import Ctx, QueueCapExceeded
 from .estimates import format_level_estimates, highest_level_within, level_estimates
@@ -26,11 +27,12 @@ from .pipeline_state import (NOT_RUN_BUDGET, ColdEstimate, LevelInfo, MeasuredLa
                              StepDown, _attach_phase_timing, _mark, _phase_record)
 from .points import (_predicted_winner_text, choose_point_mode, fit_stage2, pick_points,
                      predicted_spinup_min, rebuilt_steps)
-from .prediction import (COLD_START_BAND, WholeRunPrediction, plan_prediction_points,
+from .prediction import (WholeRunPrediction, plan_prediction_points,
                          prediction_init, time_suggestion_s)
 from .report import _assert_report_is_strict_only, local_param_table
 from . import candidates as _candidates
 from . import context as _context
+from . import jobs as _jobs
 from . import node_search as _node_search
 from . import points as _points
 from . import prediction as _prediction
@@ -160,7 +162,7 @@ def _pipeline_start(ctx: Ctx, minutes: float | None, level: int, physics: bool,
     level_req = int(level)
     plan = dict(level=level_req)                  # the EFFECTIVE level; the guard may lower it
     physics = bool(physics and level_req >= 3)       # physics advice is opt-in (--physics-advice)
-    guard = bool(stop_if_short or minutes is not None)   # the step-down guard is opt-in
+    guard = bool(stop_if_short)                      # the step-down guard is opt-in
     fracs, cum = _pipeline_shares(physics)
     B = float(minutes) * 60.0 if minutes is not None else float("inf")
     pipe = PipelineSummary(
@@ -383,7 +385,10 @@ def _pipeline_phase1_layout(st: PipelineRun, profile: dict, objective: str,
     stub when it stopped before any result --, the top-2 layouts for phase 2)."""
     ctx, pipe = st.ctx, st.pipe
     m1 = _mark(ctx)
-    ctx1 = dataclasses.replace(ctx, budget_s=max(st.limit("layout"), m1.run + 1.0))
+    # no prediction point to measure: the prediction share goes to the layout search
+    no_points = st.pplan0 is not None and not st.pplan0["selected"] and st.prep_handle is None
+    end = st.limit("predict" if no_points else "layout")
+    ctx1 = dataclasses.replace(ctx, budget_s=max(end, m1.run + 1.0))
     collect: dict = {}
     report = None
     try:
@@ -401,7 +406,7 @@ def _pipeline_phase1_layout(st: PipelineRun, profile: dict, objective: str,
         ph1 = "stopped: %s" % e
         print("pipeline: phase 1 STOPPED -- %s" % e)
     pipe.phases.append(_phase_record(
-        "layout", m1, _mark(ctx), st.limit("layout"), ph1,
+        "layout", m1, _mark(ctx), end, ph1,
         **(dict(nodes=report["nodes"], cores_per_node=report.get("cores_used_per_node"))
            if report else {})))
     st.cut("layout")
@@ -689,7 +694,7 @@ def _prediction_from_winner(st: PipelineRun, report: dict, layouts: list[dict],
         predicted_total_s=pred_s, predicted_total_hms=_fmt_hms(pred_s),
         predicted_range_s=[winner.pred_low_s, winner.pred_high_s],
         time_suggestion=_fmt_sbatch_time(
-            time_suggestion_s(pred_s, pplan["band"] if pplan else COLD_START_BAND)),
+            time_suggestion_s(pred_s, pplan["band"] if pplan else wtune.machine.measured("cold_start_band"))),
         points_used=len(winner.points or []),
         degraded=bool(is_set(predict_plan) and predict_plan.degraded),
         candidates=[dict(nodes=e.nodes, cores=e.cores, pid=e.cid,
@@ -745,7 +750,7 @@ def _pipeline_prediction(st: PipelineRun, report: dict, layouts: list[dict], ppl
     init only). Returns (pred, band, run-length I/O); sets pipe.prediction."""
     ctx, pipe, winner = st.ctx, st.pipe, st.winner
     pred = None
-    band_eff = pplan["band"] if pplan else COLD_START_BAND
+    band_eff = pplan["band"] if pplan else wtune.machine.measured("cold_start_band")
     io_run = (_prediction.pipeline_run_length_io(getattr(ctx, "namelist_path", None))
               if (winner is not None or T_dec or pipe.T_updated_s) else None)
     if winner is not None:
@@ -784,6 +789,7 @@ def _pipeline_finish(st: PipelineRun, report: dict, pred: WholeRunPrediction | N
     pipe.level.effective = st.plan["level"]
     pipe.total_running_s = running
     pipe.total_wall_s = ctx.wall_elapsed()
+    pipe.jobs_busy_s = _jobs.busy_s(ctx, ctx.owned_jobs)
     pipe.total_queue_wait_s = ctx.queue_wait_s
     pipe.queue_cap_hit = st.cap_hit()
     pipe.total_controller_s = max(0.0, ctx.wall_elapsed() - running - ctx.queue_wait_s)
@@ -806,17 +812,19 @@ def _pipeline_finish(st: PipelineRun, report: dict, pred: WholeRunPrediction | N
 def run_level0(ctx: Ctx, profile: dict, total_steps: int | None,
                nodes_policy: str = "knee") -> dict:
     """-O0, no jobs: the proxy's node count (choose_nodes; the first N with a legal layout), the
-    all-cores hybrid anchor there and wtune.predict's cold-start whole-run time (+-25%)."""
+    hybrid anchor there on all the cores, or on fewer when the grid cannot take that many ranks
+    (_sweep_anchor_fitting, as the node sweep), and wtune.predict's cold-start whole-run time
+    (+-25%)."""
     n0, note, _warn = choose_nodes(profile, ctx.max_nodes, nodes_policy)
-    cfg, why = None, None
+    cfg, cores, why = None, None, None
     for n in [n0] + [m for m in range(1, ctx.max_nodes + 1) if m != n0]:
-        cfg, why = _sweep_anchor(ctx, n)
+        cfg, cores, why = _sweep_anchor_fitting(ctx, n)
         if cfg:
             n0 = n
             break
     if cfg is None:
         raise SystemExit("O0: no legal layout at any node count (%s)" % why)
-    band = COLD_START_BAND
+    band = wtune.machine.measured("cold_start_band")
     T, s_n, src = (_prediction.cold_start_prediction(ctx, n0, cfg, total_steps) if total_steps
                    else (None, None, "run length unknown"))
     io_run = _prediction.pipeline_run_length_io(ctx.namelist_path) if T else None
@@ -830,7 +838,7 @@ def run_level0(ctx: Ctx, profile: dict, total_steps: int | None,
         level=LevelInfo(requested=0, effective=0, estimate_s={"O0": 0.0}, stepped_down=[],
                         actual_running_s=0.0),
         prediction=WholeRunPrediction(
-            layout_id="ANCHOR", nodes=n0, cores_per_node=ctx.cores_per_node,
+            layout_id="ANCHOR", nodes=n0, cores_per_node=cores,
             config={k: cfg.get(k) for k in _PRED_CONFIG_KEYS},
             predicted_total_s=T, predicted_total_hms=_fmt_hms(T) if T else None,
             predicted_range_s=[T * (1 - band), T * (1 + band)] if T else None,
@@ -855,7 +863,8 @@ def run_level0(ctx: Ctx, profile: dict, total_steps: int | None,
              _fmt_hms(T) if T else "unknown", band * 100, src))
     return dict(case=ctx.case, pipeline_only=True, nodes=n0,
                 nodes_note="O0: proxy node count, no measurement", param_table=pt,
-                pipeline=pipe.to_dict(), cores_per_node=ctx.cores_per_node, job_ids=[],
+                pipeline=pipe.to_dict(), cores_per_node=ctx.cores_per_node,
+                cores_used_per_node=cores, job_ids=[],
                 cancelled_job_ids=[],
                 best=dict(id="ANCHOR", **{k: cfg.get(k) for k in ("ranks", "omp", "numtiles",
                                                                    "dist")},

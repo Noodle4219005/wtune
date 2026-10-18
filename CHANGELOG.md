@@ -3,6 +3,196 @@
 Versions are declared in `wtune_version.py`; `test_wtune_version.py` fails if the top section
 here does not match it. Development before 0.1.0 is in the git history, not in releases.
 
+## 0.9.1 — 2026-10-19
+
+**`wtune post preview`: what post will draw, before the run.** It lists the figures of the
+detected case types with the question each answers (`expected_figures.csv`) and draws what is
+known without the model: terrain, the t=0 SLP and 10 m wind from wrfinput, the best track over
+the simulated window, Stage IV rain over that window and the fetched ERA5 z500, into
+`post/preview/figures/` with a `preview.html`. Case-type detection reads wrfinput when there
+are no wrfout frames yet (matthew on f1-arm: the same seven types as the post of its run, under
+a minute on the login node, no job).
+
+**Every figure in one folder.** `wtune post recipe` also hard-links each figure of the report into
+`post/<id>/figures/` as `<type>-<file>`; the per-type folders and the report are unchanged.
+
+**The tune's BP inputs stay in the project.** A tune run inside a project converts its inputs
+into `<project>/input/bp-cache` instead of `~/wtune-runs/bp-cache`; `WTUNE_BP_CACHE` still wins.
+
+**Docs.** A new first tutorial page on how the machine, project and command layers fit and what
+tune, run and post each do; the project folder in full, with what lives outside it and what to
+keep or delete; how to stop a tune and cancel its jobs.
+
+**`--minutes` fills the cap instead of fixing the plan up front.** `-O2` keeps adding
+round0 top-up waves, each sized from the measured startup and s/step, until the cap (less one
+race job) or the candidates run out; a case with no prediction point gives the prediction
+share to the layout search; and `--minutes` no longer turns on the short-run step-down, which
+is `--stop-if-short` only (conus25 on f1-arm stopped at 16.7 of 45 minutes, +5.1% slower than
+uncapped).
+
+**Time left under `--minutes` goes to the node counts never tried.** One ANCHOR goes to every
+legal N the sweep never sent (after an early stop, outside the refinement bracket). When the
+sweep's own waves say that takes at most 15% of the time left, it runs right after the sweep and
+the finalists are chosen from every N; otherwise it waits until the finalists' layouts run out,
+and an N more than 3% faster than the best becomes a finalist tuned with what is left. Without
+`--minutes` nothing changes (yagi on f1-arm used 11 of 45 minutes and never measured N=5, 9.5%
+faster than its pick; c34 had 123 layouts to measure at N=1 and reached N=5 at minute 28).
+
+**`--max-queue-hours` keeps the node counts already measured.** A queue cap reached during the
+node sweep, the core sweep or a finalist used to abort the whole layout phase with no N; now
+nothing more is submitted and the fastest N measured so far is reported with its ANCHOR. Only
+a cap reached before any N is measured still aborts (on f1-arm, c34 and yagi had N=1, 2, 4
+measured when their second wave's expected start passed the 10 h cap).
+
+**Machine settings.** Cores per node (72), node cap (13), partition (`compute`) and login
+nodes (`head`) are no longer fixed in the code: they are the built-in values of
+`wtune.machine`, replaced by a project's `project.yaml` `machine:` block
+(`wtune project set --cores-per-node/--max-nodes/--partition/--login-nodes/--account`) or by
+`WTUNE_CORES_PER_NODE`, `WTUNE_MAX_NODES`, `WTUNE_PARTITION`, `WTUNE_LOGIN_NODES`,
+`WTUNE_ACCOUNT`. `account` is new: sites that bill by project refuse a job without one.
+Without these settings every sbatch is unchanged; the post-processing `srun` and the node
+pre-flight's `sinfo`/`srun` now name the partition. `wtune tune --max-nodes` was silently
+capped at 13; the cap is now the machine's.
+
+**Calibration and hardware of another machine.** `machine.calibration` (`WTUNE_CALIBRATION`)
+names the calibration file tune, run, check and calc read; it was always
+`machine/calibration/scc.json`, so a file fitted with `wtune calibrate fit` was never used.
+`machine.hardware_id` and `machine.numa_per_node` describe a node type the built-in hardware
+table does not list, which used to end in a KeyError. Calling a machine `scc-gh200` while
+giving it another node size is refused. A calibration without `cores_per_node` now falls back
+to the machine setting, not to 112. The node search seeds are the powers of two below the node
+cap and the cap (unchanged at 13).
+
+**Site, paths and a per-user file.** `machine.site`, `machine.env_source`, `machine.wrf_tree`
+and `machine.geog` replace the fixed `SITE=scc`, `~/wtune-scc/env.sh`, the scc WRF tree and
+`/nfs/data/wrf/WPS_GEOG/`; `wtune tune` accepts any site that has a `campaign/sites/<site>.sh`.
+Generated rebuild and cold-start jobs default `CAMPAIGN` and `GRIB_PYTHON` to the checkout
+they were written from, not to `$HOME/wtune`. Machine settings can also live in
+`~/.config/wtune/machine.yaml` (`wtune project set --user`), shared by every project on the
+machine; a project's block overrides it.
+
+**Measured numbers and the longest job.** The numbers the estimates fall back on (repeatability
+floor, startup and init time, I/O anchors, radiation ratios, prediction bands: 31 of them) were
+literals in a dozen modules. They are `wtune.machine.MEASURED`; a machine replaces the ones it
+knows with `machine.measured` (`wtune project set --measured NAME=NUMBER`). `machine.max_hours`
+is the longest job the partition accepts: `wtune run` segments to fit and probe and rebuild
+jobs are capped at it; unset, nothing changes. `wtune calibrate plan --time-limit` now also
+moves the launch timeout inside the job, which stayed at 14 minutes.
+
+**f1 leftovers.** `campaign/strict_campaign.sbatch`, the probe job scc uses too, no longer
+carries f1's account, partition, node shape and a personal output path in its header (the
+sbatch command line supplies them) and finds `CAMPAIGN` under `$SLURM_SUBMIT_DIR` instead of
+a fixed home directory; its thread setup follows the site file's `OMP_RUNTIME`, not the name
+`scc`. `campaign/sites/f1.sh` uses `$HOME`. The predictor tools default to the machine's node
+size, partition and hardware id instead of 448 cores on `cf448`.
+`campaign/decomp_search_campaign.sbatch`, which nothing referenced, moved to
+`archive/unused-2026-10/campaign/`.
+
+**f1-arm.** `campaign/sites/f1arm.sh` (144-core Grace nodes, two NUMA domains). `wtune submit`
+tunes with the project's own `wtune.yaml` when there is one.
+
+**Tests on a cluster.** With Slurm on `PATH`, about 110 tests ran the real node preflight:
+`sinfo`, then one `srun` per idle node (1430 on scc in one run), and the nodes it then excluded
+leaked into four later tests. The tests now see no Slurm unless they pass their own runner.
+
+**Found on f1-arm.** Job ids there started over, so `sacct -j <id>` answered with another user's
+old job of the same number until slurmdbd had recorded the new one: a job just submitted read
+as FAILED. State, timing and MaxRSS queries now look at the last 30 days only. The node
+pre-flight no longer excludes a `mixed` node whose probe timed out: on a busy cluster that
+shares nodes it excluded every node that was not fully taken. New machine setting `max_omp`
+(`--max-omp`, `WTUNE_MAX_OMP`): 1 for a WRF built without OpenMP. `search.omp` in a config does
+not bind the node sweep's ANCHOR; this cap does. New machine setting `node_preflight`
+(`--node-preflight off`, `WTUNE_NODE_PREFLIGHT=0`): f1-arm lets a user have 2 to 12 jobs
+submitted, so of the 40 probes all but two were refused and 38 nodes were excluded.
+
+**`wtune run` starts WRF with the site file's launcher.** A segment wrote its own
+`mpirun --map-by ppr:<ranks per node>:node` line while the probes of `wtune tune` went through
+`site_launch`: on f1-arm (two NUMA domains per node) 90 ranks ran as 72 + 18 after being tuned as
+45 + 45, and a site that launches with `srun` could not run at all. scc's commands are unchanged.
+
+**A case that was a run directory.** `project init` no longer links its executables, `wrf.out`
+or tslist time series, and a segment never takes an executable from the case, nor a link into
+some WRF tree for a file `WRF_TREE/run` has: linked first, the old `wrf.exe` shadowed the
+machine's. A table the case ships as its own file is still the case's.
+
+**The winner's rank order.** The winner row of a tune report had no `dist`, so `wtune run`
+always started as `block` and a layout measured as `cyclic` would have run with another rank
+placement; the report also warned "dist not provided" for every sweep ANCHOR. The row keeps
+it and the run follows it. Report text no longer names scc.
+
+**A grid too small for a full node.** The node sweep measured one ANCHOR per node count on all
+the cores of a node and skipped a count with no legal decomposition there: `matthew` (91x100,
+90 ranks at most) on a 144-core node with one thread per rank left the whole tune with a single
+layout. Such a count now gets its ANCHOR on the most cores per node that have a legal one, and
+the cores/node sweep compares the usual fractions of that count.
+
+**WRF-Fire without a config.** The rule that keeps a fire case at one thread was written only
+into the `wtune.yaml` template; `wtune tune` and `wtune submit` without `--config` had no rule
+and swept the node counts of `c34` at omp 2, 4 and 8 (one probe crashed, one hung for an hour).
+It is the built-in `exclude` now; `exclude: []` in a config lifts it.
+
+**Probes write no aux output.** A probe's history policy set only `history_interval`, so a
+case's own `auxhistN` streams still wrote: every `isc21` probe launch wrote all six frames of
+its `auxhist24` validation output on three domains, about 160 s of a 390 s launch at 8 nodes.
+Every stream with a nonzero interval now begins after the run ends; the measured s/step does
+not change (the median already left the write steps out).
+
+**Aux output in ADIOS2.** `wtune run` switched history, restart, input, boundary and the aux
+input streams to ADIOS2 but left `io_form_auxhistN` as the case had it: `isc21` wrote its
+`auxhist24` validation output in serial netCDF, 162.5 s of a 911 s run at about 40 MB/s, while
+ADIOS2 history on the same machine writes a frame in 0.03-0.07 s. Every aux output the case
+writes is now ADIOS2 too (`--io netcdf` keeps the case's formats); `wtune convert bp2nc`
+turns a frame back into netCDF.
+
+**`wtune calibrate` in ADIOS2.** The plan's jobs still ran `--no-adios2`: netCDF inputs and a
+netCDF history frame, so the measured write and read rates were netCDF's while every run is
+ADIOS2. Each job now stages the case's inputs as BP the way the probe jobs do (one conversion
+per case, shared cache), copies the per-record boundary files into its run directory, and
+writes ADIOS2. `fit` counts the bytes of a BP directory, not the directory entry.
+
+**Two numbers left in the code.** The spin-up time limit of a ranking point padded its estimate
+with a literal x1.5 and 120 s; it now uses the machine's `measured` `radiation_factor` and
+`init_s`. The probe job's disk guard asked `mmlsquota` about `home1`, the old f1 filesystem: on
+f1-arm that is `home2` and scc has no GPFS quota, so every probe printed a warning and guarded
+nothing. A site file now names its `QUOTA_FS` (f1 `home1`, f1-arm `home2`, scc none: no guard).
+
+**Post-processing in parallel.** `wtune post recipe` drew every figure set one after another
+on one core: dorian's post job sat 56 minutes in a single `DetectNodes` on a 72-core node with
+one figure written. The figure sets (common, the CF/VAPOR data products, each case type, the
+time series) now run in separate processes, one per CPU of the job, and their entries are
+merged in the old order; `WTUNE_POST_WORKERS` sets the count (1 = the old serial path).
+`DetectNodes` runs on time slices of the fields file at once and the node files are joined in
+time order, which is the file a single run writes (DetectNodes treats each time on its own).
+On f1-arm matthew's post went from 4:57 to 2:38 with the same 149 figures.
+
+**Configuration search: idle nodes and an early stop.** Each adaptive round was one job while
+the other node slots sat idle, and the rounds only stopped at 75% of the budget, after six
+rounds or when the proposer ran dry. A round's batch (unchanged in size) is now dealt over the
+free slots like round 0, so it ends sooner; and the rounds stop once the leader is ahead of the
+runner-up by more than `noise_frac` (3%) and a round found nothing faster, as the node search
+already did for larger node counts.
+
+**WRF's own ADIOS2 compression off.** Probes wrote `adios2_compression_enable=.true.` and
+`wtune run` kept the case's value (the Registry default is `.true.`). With compression on, stock
+WRF 4.8 writes the 256-character compressor name into a 32-character buffer
+(`external/io_adios2/wrf_io.F90`; the SC26-WRF patch `e6472a9` widens it), so a vanilla WRF must
+not take that path. Every probe and segment namelist now says `.false.`; `--io netcdf` still
+keeps the case's own `&namelist_adios2`.
+
+**A stalled segment is cancelled.** On a full quota WRF+ADIOS2 stops writing and waits
+instead of failing: on f1-arm job 15170 idled 75 minutes to its time limit (40 SU) while
+`wtune run` kept polling. While a segment job runs, `wtune run` now watches `rsl.error.0000`;
+when it has not changed for `--stall-minutes` (default 20, 0 disables) the job is cancelled,
+the attempt is recorded as `stalled` and the run stops without a resume.
+
+**History compressed outside WRF.** `wtune run --compress-history` is `--sidecar` where each
+converted frame (zlib netCDF) is first compared with its BP variable by variable
+(`tools/bp_nc_same.py`) and then takes the BP directory's place, so `wtune post` reads it
+directly and keeps no second copy. matthew's 17 frames: 915.7 MB as BP, 237.4 MB as zlib
+netCDF. On a full node the conversion shares the last core at the lowest priority. After a
+run, of the restart sets WTune added only the newest validated one per directory is kept (a
+resume starts from it); after a run that succeeded they are all deleted.
+
 ## 0.9.0 — 2026-10-12
 
 Main code made small enough to review; behaviour of the tune -> run -> post path is unchanged

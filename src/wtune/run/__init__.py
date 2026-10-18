@@ -8,7 +8,7 @@ from ._deps import (  # noqa: F401
     _HERE, _REPO_ROOT, _CAMPAIGN_DIR, coldstart, sweep, iom, wp, pp, resume, tune,
 )
 from .common import (  # noqa: F401
-    WRF_FMT, CORES_PER_NODE, ADIOS2_IO_FORM, _TIME_PARTS, _PER_RECORD_KIND_RE, RunError, UNSET,
+    WRF_FMT, ADIOS2_IO_FORM, _TIME_PARTS, _PER_RECORD_KIND_RE, RunError, UNSET,
     Record, to_plain, _fmt, _hms, parse_hms, _frac, _frac_lcm,
 )
 from .geometry import (  # noqa: F401

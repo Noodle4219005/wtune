@@ -1,7 +1,7 @@
 """post/tools.py -- locate and run the established external tools `wtune post` wraps
 (decision 0056, 2026-09-29 update: wrap established tools, delete the self-written
 substitute). Every locator raises ToolNotFoundError naming the missing tool and how to
-get it (bin/install-postproc.sh, README.md 'Installation') -- `wtune post` never silently
+get it (bin/install-postproc.sh, docs/tutorial/install.md) -- `wtune post` never silently
 falls back to re-implementing what the tool would have done.
 """
 from __future__ import annotations
@@ -71,8 +71,8 @@ def find_diffwrf():
         return path
     raise ToolNotFoundError(
         "diffwrf not found (searched: %s): set WRF_TREE to a built WRF source tree (needs "
-        "$WRF_TREE/external/io_netcdf/diffwrf) or put diffwrf on PATH -- see README.md "
-        "'Installation', layer 2 (WRF and WPS)." % ", ".join(searched))
+        "$WRF_TREE/external/io_netcdf/diffwrf) or put diffwrf on PATH -- see "
+        "docs/tutorial/install.md, layer 2 (WRF and WPS)." % ", ".join(searched))
 
 
 def find_on_path(name, install_hint=None):
@@ -93,8 +93,8 @@ def find_postproc_tool(name):
     if path:
         return path
     raise ToolNotFoundError(
-        "%s not found (searched: %s): install it with bin/install-postproc.sh (README.md "
-        "'Installation', layer 3) and export WTUNE_POSTPROC_VIEW=<repo>/envs/postproc/"
+        "%s not found (searched: %s): install it with bin/install-postproc.sh "
+        "(docs/tutorial/install.md, layer 3) and export WTUNE_POSTPROC_VIEW=<repo>/envs/postproc/"
         ".spack-env/view, or put %s on PATH." % (name, ", ".join(searched), name))
 
 

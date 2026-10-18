@@ -1441,7 +1441,7 @@ def check_c11_iofields_parse(nl: dict, run_dir: str | Path, findings: list[Findi
     if not any(raw):
         return
     try:
-        call_s = iom.iofields_call_s(wp.load_calibration(str(wp.DEFAULT_CALIBRATION)))
+        call_s = iom.iofields_call_s(wp.load_calibration(wp.calibration_path()))
     except wp.PredictError:
         call_s = iom.iofields_call_s()
     parses = iom.run_length_io(nl)["iofields_parses"]

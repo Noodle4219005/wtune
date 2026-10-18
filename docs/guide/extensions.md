@@ -8,7 +8,7 @@ wtune check case/
 
 對這些個案，WTune **只調整網格與 rank 的配置**（rank 數、decomposition、tile 數、OpenMP 執行緒數、I/O）。擴展自己的參數一律照原樣不動。
 
-## 各擴展的支援範圍
+## 支援範圍
 
 | 擴展 | WTune 做什麼 | WTune 拒絕什麼 |
 |---|---|---|
@@ -19,7 +19,7 @@ wtune check case/
 
 不支援：ndown、NMM、MPAS。
 
-## WRFDA 要多一個旗標
+## WRFDA：`--wrfda-forecast-only`
 
 ```bash
 wtune run --wrfda-forecast-only
@@ -29,7 +29,7 @@ WTune 只跑 `wrf.exe` 的預報段，不跑 `obsproc`、`da_wrfvar`、`da_updat
 
 `da_wrfvar.exe` 的 rank 數與切法不會自動套用，因為最小化過程的歸約順序隨切法改變，結果不會逐位元相同。
 
-## 哪些數字是暫定的
+## 暫定數值
 
 | 項目 | 狀態 |
 |---|---|
@@ -39,7 +39,7 @@ WTune 只跑 `wrf.exe` 的預報段，不跑 `obsproc`、`da_wrfvar`、`da_updat
 
 時間係數只在該個案沒有實際量測時才套用。要用自己的係數：設定 `$WTUNE_EXTENSION_COEFFS` 指向你的 JSON 檔。
 
-## 建置（scc）
+## 建置
 
 ```bash
 bin/build-wrf-extensions.sh submit movenest

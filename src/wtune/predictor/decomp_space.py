@@ -27,6 +27,7 @@ for _p in (_SRC, _CAMPAIGN_DIR):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
+import wtune.machine
 from wtune.predictor import features as feat                # predictor/features.py: HARDWARE_TABLE, HALO_WIDTH
 import configs as campaign_configs     # campaign/configs.py: CASES, TEMPLATES, resolve_case
 
@@ -39,7 +40,7 @@ MIN_TILE_SIZE = 1
 # share/module_check_a_mundo.F:3017-3018 (Fortran integer division, i.e. floor for positive ints)
 MIN_PATCH = 10   # mass points per patch, each direction
 
-DEFAULT_HARDWARE = "f1-spr-icpnp"
+DEFAULT_HARDWARE = "f1-spr-icpnp"      # node type of the f1 campaign ledgers
 
 # numtiles of the 16 STRICT templates, unioned into the default candidates so sample_design's
 # must_include can match them (8, 12, 13, 14, 16 are not small multiples of every omp).
@@ -308,13 +309,21 @@ def _divisors(n):
     return [d for d in range(1, n + 1) if n % d == 0]
 
 
+def _hardware(hardware_id: str) -> dict:
+    hw = feat.hardware(hardware_id)
+    if not hw:
+        raise ValueError("unknown hardware_id %r (known: %s): set machine.hardware_id and "
+                         "machine.numa_per_node for this machine"
+                         % (hardware_id, ", ".join(sorted(feat.HARDWARE_TABLE))))
+    return hw
+
+
 def default_omp_options(total_cores: int, nodes: int, hardware_id: str) -> list[int]:
     """Every divisor of the hardware's cores-per-NUMA that gives an integer rank count divisible
     by `nodes` -- i.e. every omp value whose ranks pack a whole number of NUMA domains per node
     with no thread crossing a NUMA boundary (ranks_per_numa = cores_per_numa // omp is then
     always exact, see `enumerate_space`)."""
-    hw = feat.HARDWARE_TABLE[hardware_id]
-    cores_per_numa = hw["cores_per_numa"]
+    cores_per_numa = _hardware(hardware_id)["cores_per_numa"]
     return [d for d in _divisors(cores_per_numa)
             if total_cores % d == 0 and (total_cores // d) % nodes == 0]
 
@@ -336,15 +345,17 @@ def numtiles_candidates(omp: int, tile_options: dict | None) -> list[int]:
     return sorted(cands)
 
 
-def enumerate_space(case: dict, total_cores: int = 448, nodes: int = 4,
-                    hardware_id: str = DEFAULT_HARDWARE, omp_options: list[int] | None = None,
+def enumerate_space(case: dict, total_cores: int | None = None, nodes: int = 1,
+                    hardware_id: str | None = None, omp_options: list[int] | None = None,
                     tile_options: dict | None = None) -> tuple[list[dict], dict]:
     """Every legal stock-WRF candidate for a cases.json-shaped `case` (e_we/e_sn/e_vert[, max_dom,
     e_we_list, e_sn_list]) -> (candidates, axis_summary with per-axis counts). Axes: omp, ranks =
     total_cores // omp, (nx, ny) legal on every active domain, numtiles, tile_shape ('1d_y' WRF
     default, '2d' least-aspect TILE_XY, optional 'tile_sz' variants), dist, blocktime. Tile geometry
     is reported for d01's smallest patch (1D->2D risk) and largest patch (cells_per_tile bound)."""
-    hw = feat.HARDWARE_TABLE[hardware_id]
+    hardware_id = hardware_id or wtune.machine.hardware_id()
+    total_cores = total_cores or nodes * wtune.machine.cores_per_node()
+    hw = _hardware(hardware_id)
     if omp_options is None:
         omp_options = default_omp_options(total_cores, nodes, hardware_id)
     topts = dict(DEFAULT_TILE_OPTIONS)
@@ -604,9 +615,10 @@ def to_campaign_configs(candidates: list[dict], prefix: str = "G") -> list[dict]
 def _cmd_summary(argv):
     ap = argparse.ArgumentParser(prog="decomp_space.py summary")
     ap.add_argument("case_id")
-    ap.add_argument("--total-cores", type=int, default=448)
-    ap.add_argument("--nodes", type=int, default=4)
-    ap.add_argument("--hardware-id", default=DEFAULT_HARDWARE)
+    ap.add_argument("--total-cores", type=int, default=None,
+                    help="default: --nodes x the machine's cores per node")
+    ap.add_argument("--nodes", type=int, default=1)
+    ap.add_argument("--hardware-id", default=wtune.machine.hardware_id())
     a = ap.parse_args(argv)
     case = campaign_configs.CASES.get(a.case_id)
     if case is None:
@@ -634,9 +646,10 @@ def _cmd_sample(argv):
     ap.add_argument("--n", type=int, required=True)
     ap.add_argument("--seed", type=int, required=True)
     ap.add_argument("--out", default=None)
-    ap.add_argument("--total-cores", type=int, default=448)
-    ap.add_argument("--nodes", type=int, default=4)
-    ap.add_argument("--hardware-id", default=DEFAULT_HARDWARE)
+    ap.add_argument("--total-cores", type=int, default=None,
+                    help="default: --nodes x the machine's cores per node")
+    ap.add_argument("--nodes", type=int, default=1)
+    ap.add_argument("--hardware-id", default=wtune.machine.hardware_id())
     ap.add_argument("--no-must-include", action="store_true",
                      help="skip campaign_template_predicates coverage (pure stratified sample)")
     ap.add_argument("--prefix", default="G")
@@ -666,9 +679,10 @@ def _cmd_seed(argv):
     ap = argparse.ArgumentParser(prog="decomp_space.py seed")
     ap.add_argument("case_id")
     ap.add_argument("--out", required=True)
-    ap.add_argument("--total-cores", type=int, default=448)
-    ap.add_argument("--nodes", type=int, default=4)
-    ap.add_argument("--hardware-id", default=DEFAULT_HARDWARE)
+    ap.add_argument("--total-cores", type=int, default=None,
+                    help="default: --nodes x the machine's cores per node")
+    ap.add_argument("--nodes", type=int, default=1)
+    ap.add_argument("--hardware-id", default=wtune.machine.hardware_id())
     ap.add_argument("--prefix", default="S")
     a = ap.parse_args(argv)
     case = campaign_configs.CASES.get(a.case_id)

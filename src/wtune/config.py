@@ -22,29 +22,26 @@ for _p in (_HERE, _CAMPAIGN_DIR):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
+import wtune.machine
+import wtune.nodes
 from wtune import compliance as wc
 
 # ---------------------------------------------------------------------------
 # built-in defaults -- duplicated from wtune/tune/ (it imports this module; the reverse would
 # be circular).
 # ---------------------------------------------------------------------------
-DEFAULT_SITE = "scc"
-DEFAULT_MAX_NODES = 13                 # scc compute pool: work[1-13]
-DEFAULT_HARDWARE_ID = "scc-gh200"
-DEFAULT_CORES_PER_NODE = 72            # scc GH200
-AUTO_NODE_COUNTS = (1, 2, 4, 8, 13)     # scc_sweep DEFAULT_NODES; `config show` preview only
 NODES_POLICY_CHOICES = ("min", "cap", "knee")
 IO_TARGETS = ("nfs", "local")           # wtune.predict's own calibration targets (machine/calibration/*.json)
 EXCLUDE_WHEN_VALUES = ("fire",)
 
 DEFAULTS = {
-    "site": DEFAULT_SITE,
+    "site": wtune.machine.DEFAULTS["site"],       # unset: resolve_config takes the machine's
     "case": None,
     "case_dir": None,
     "compliance": "strict",
     "budget": {
         "minutes": None,               # no built-in default: required via --minutes or this key
-        "max_nodes": DEFAULT_MAX_NODES,
+        "max_nodes": wtune.machine.DEFAULTS["max_nodes"],   # unset: resolve_config takes the machine's
         "nodes": "auto",
         "nodes_policy": "knee",
         # --nodes search knobs (wtune/tune/: None = the CLI default applies)
@@ -53,6 +50,8 @@ DEFAULTS = {
         "min_efficiency": None,
         "node_finalists": None,
         "sweep_budget_frac": None,
+        "node_seeds": None,            # geometric | all
+        "hotspot_fill": None,          # true | false
     },
     "search": {
         "omp": None,                   # None = unrestricted (decomp_space's own omp_options)
@@ -66,7 +65,7 @@ DEFAULTS = {
     # rank every candidate; points..sources place the winner's full-run prediction points
     # (wtune.probe_plan.plan_points). ranking_start defaults to t0: spinup start is not wired
     # into strict_campaign.sbatch yet (selecting it prints a NOTE and runs from t0).
-    "probe": {"steps": "auto", "confirm_reps": 2, "spinup_min": 60, "ranking_start": "t0",
+    "probe": {"steps": "auto", "sweep_steps": [10, 40], "sweep_reps": 1, "confirm_reps": 2, "spinup_min": 60, "ranking_start": "t0",
               "points": "auto", "max_points": 5, "budget_pct": 10.0,
               "sources": ["trajectory", "restart", "rebuild"],
               # rank_by=predicted: rank by predicted whole-run time from shared spun-up ERA5
@@ -78,19 +77,21 @@ DEFAULTS = {
               "points_by": "time",
               "indicator_sources": ["case_forcing", "era5", "gfs", "stage4", "mrms"]},
     "prediction": {"io_target": "nfs", "drift_band_pct": None, "measure_r_rad": False},
-    "exclude": [],
+    "exclude": [{"omp_gt": 1, "when": "fire"}],
 }
 
 TOP_KEYS = {"site", "case", "case_dir", "compliance", "budget", "search", "physics_gray",
             "probe", "prediction", "exclude"}
 BUDGET_KEYS = {"minutes", "max_nodes", "nodes", "nodes_policy", "node_objective",
-               "deadline_minutes", "min_efficiency", "node_finalists", "sweep_budget_frac"}
+               "deadline_minutes", "min_efficiency", "node_finalists", "sweep_budget_frac",
+               "node_seeds", "hotspot_fill"}
 NODE_OBJECTIVE_CHOICES = ("time", "cost", "knee")
+NODE_SEEDS_CHOICES = ("geometric", "all")
 SEARCH_KEYS = {"omp", "numtiles", "rank_distribution", "aspect_max", "io"}
 SEARCH_IO_KEYS = {"enabled", "io_form_history", "target"}
 PHYSICS_GRAY_KEYS = {"enabled", "knobs"}
 PHYSICS_GRAY_KNOB_KEYS = {"multiply"}
-PROBE_KEYS = {"steps", "confirm_reps", "spinup_min", "ranking_start", "points", "max_points",
+PROBE_KEYS = {"steps", "sweep_steps", "sweep_reps", "confirm_reps", "spinup_min", "ranking_start", "points", "max_points",
               "budget_pct", "sources", "rank_by", "restart_io_form", "stage1",
               "stage2_minutes", "points_by", "indicator_sources"}
 POINTS_BY_CHOICES = ("time", "cost-indicators")
@@ -222,8 +223,11 @@ def _merge_physics_gray(raw, errors):
 
 
 def _merge_exclude(raw, errors):
+    """`exclude` of a config; one that has none keeps the built-in rule (WRF-Fire crashes at
+    the first step with more than one thread -- scc c34 2026-10-14: a tune without --config
+    ran its node sweep at omp 2, 4, 8). `exclude: []` lifts it."""
     if raw is None:
-        return []
+        return copy.deepcopy(DEFAULTS["exclude"])
     if not isinstance(raw, list):
         errors.append("exclude: must be a list, got %s" % type(raw).__name__)
         return []
@@ -317,6 +321,8 @@ _BUDGET_RULES = [
     ("sweep_budget_frac", _optional(_positive_number), _POS_NUMBER),
     ("sweep_budget_frac", lambda v: not (_is_number(v) and v > 1), "must be <= 1, got %r"),
     ("node_finalists", _optional(lambda v: _is_int(v) and v >= 1), _POS_INT),
+    ("node_seeds", *_choice(NODE_SEEDS_CHOICES, optional=True)),
+    ("hotspot_fill", _optional(lambda v: isinstance(v, bool)), _BOOL),
 ]
 _SEARCH_RULES = [
     ("aspect_max", _optional(_positive_number), _POS_NUMBER),
@@ -324,6 +330,11 @@ _SEARCH_RULES = [
 _PROBE_RULES = [
     ("steps", lambda v: v == "auto" or (_is_int(v) and v > 0),
      "must be a positive integer or 'auto', got %r"),
+    ("sweep_steps", lambda v: v is None or (isinstance(v, list) and len(v) == 2
+                                             and all(_is_int(x) and x > 0 for x in v)
+                                             and v[0] <= v[1]),
+     "must be [min, max] positive integers with min <= max, or null, got %r"),
+    ("sweep_reps", lambda v: _is_int(v) and v > 0, _POS_INT),
     ("confirm_reps", lambda v: _is_int(v) and v > 0, _POS_INT),
     ("spinup_min", lambda v: _is_number(v) and v >= 0, "must be a non-negative number, got %r"),
     ("ranking_start", *_choice(RANKING_START_CHOICES)),
@@ -531,11 +542,13 @@ def resolve_config(raw: Any) -> tuple[dict | None, list[str]]:
             errors.append("unknown top-level key: %r" % k)
 
     cfg = copy.deepcopy(DEFAULTS)
-    cfg["site"] = raw.get("site", cfg["site"])
+    cfg["site"] = raw.get("site", wtune.machine.site())
     cfg["case"] = raw.get("case", cfg["case"])
     cfg["case_dir"] = raw.get("case_dir", cfg["case_dir"])
     cfg["compliance"] = raw.get("compliance", cfg["compliance"])
     cfg["budget"] = _merge_section("budget", raw.get("budget"), DEFAULTS["budget"], BUDGET_KEYS, errors)
+    if not isinstance(raw.get("budget"), dict) or "max_nodes" not in raw["budget"]:
+        cfg["budget"]["max_nodes"] = wtune.machine.max_nodes()
     cfg["search"] = _merge_search(raw.get("search"), errors)
     cfg["physics_gray"] = _merge_physics_gray(raw.get("physics_gray"), errors)
     cfg["probe"] = _merge_section("probe", raw.get("probe"), DEFAULTS["probe"], PROBE_KEYS, errors)
@@ -662,9 +675,10 @@ def filter_candidates(candidates: list[dict], search_cfg: dict | None,
 # ---------------------------------------------------------------------------
 def resolve_node_counts(budget_cfg: dict) -> list[int]:
     nodes = budget_cfg.get("nodes")
-    max_nodes = budget_cfg.get("max_nodes") or DEFAULT_MAX_NODES
+    max_nodes = budget_cfg.get("max_nodes") or wtune.machine.max_nodes()
     if nodes in (None, "auto", "search"):  # "search": measured node sweep, same preview set
-        counts = [n for n in AUTO_NODE_COUNTS if n <= max_nodes]
+        seeds = wtune.nodes.seed_counts(wtune.machine.max_nodes())   # `config show` preview only
+        counts = [n for n in seeds if n <= max_nodes]
         return counts or [max_nodes]
     if isinstance(nodes, list):
         return [int(n) for n in nodes]
@@ -673,14 +687,14 @@ def resolve_node_counts(budget_cfg: dict) -> list[int]:
 
 def count_legal_candidates(case_json: dict, nodes: int, cfg: dict, is_fire: bool,
                            hardware_id: str | None = None,
-                           cores_per_node: int = DEFAULT_CORES_PER_NODE) -> tuple[int, int]:
+                           cores_per_node: int | None = None) -> tuple[int, int]:
     """(total, filtered) legal decomp_space candidates at `nodes` nodes, before and after
     this config's search/exclude restrictions (no anchor exemption: the preview counts what
     round0/top-up/adaptive draw from). Sets $SITE if unset (side effect of the lazy import)."""
-    os.environ.setdefault("SITE", cfg.get("site") or DEFAULT_SITE)
+    os.environ.setdefault("SITE", cfg.get("site") or wtune.machine.site())
     from wtune.predictor import decomp_space  # predictor/decomp_space.py -- stdlib only, imported lazily
-    hardware_id = hardware_id or DEFAULT_HARDWARE_ID
-    total_cores = nodes * cores_per_node
+    hardware_id = hardware_id or wtune.machine.hardware_id()
+    total_cores = nodes * (cores_per_node or wtune.machine.cores_per_node())
     candidates, axis = decomp_space.enumerate_space(case_json, total_cores=total_cores, nodes=nodes,
                                                       hardware_id=hardware_id)
     filtered = filter_candidates(candidates, cfg["search"], cfg["exclude"], is_fire, exempt_search=False)
@@ -724,7 +738,7 @@ def resolve_case_for_preview(cfg: dict) -> tuple[dict | None, str | None, str]:
     """(case_json, namelist_path, label_or_error). label_or_error is the case name/dir on
     success, or a human-readable reason case_json is None."""
     if cfg.get("case"):
-        os.environ.setdefault("SITE", cfg.get("site") or DEFAULT_SITE)
+        os.environ.setdefault("SITE", cfg.get("site") or wtune.machine.site())
         import configs as campaign_configs  # campaign/configs.py
         case_json = campaign_configs.CASES.get(cfg["case"])
         if case_json is None:
@@ -754,7 +768,7 @@ _TEMPLATE = """\
 # Unknown keys are a validation error (a typo is caught, not silently ignored). Validate/preview
 # with: wtune config show %(case)s.yaml
 
-site: scc                       # only "scc" is currently supported by wtune tune
+site: scc                       # campaign/sites/<site>.sh; omit it to use the machine's
 case: %(case)s                  # case name from campaign/cases.json (+ site overlay:
                                  # campaign/cases.scc.json). ALTERNATIVE: replace this key with
                                  # `case_dir: /path/to/case` (a directory with its own
@@ -769,11 +783,11 @@ compliance: strict               # strict       = only the STRICT knobs below ma
 
 budget:
   minutes: 30                    # wall-clock budget for the whole `wtune tune` run (required: here or --minutes)
-  max_nodes: 13                  # hard cap -- scc's compute pool is 13 nodes (work[1-13])
+  max_nodes: 13                  # node cap; omit it to use the machine's (project.yaml machine.max_nodes)
   nodes: auto                    # auto | search | <int> | [<int>, ...] -- search measures the ANCHOR at
                                   # each legal node count (wtune tune --nodes search; node_objective/
-                                  # deadline_minutes/min_efficiency/node_finalists/sweep_budget_frac
-                                  # keys mirror its CLI flags); auto picks ONE node count via
+                                  # deadline_minutes/min_efficiency/node_finalists/sweep_budget_frac/
+                                  # node_seeds keys mirror its CLI flags); auto picks ONE node count via
                                   # `nodes_policy` from wtune.case's (uncalibrated) core-count profile;
                                   # a list is previewed by `wtune config show` but not yet run by `wtune tune`
   nodes_policy: knee              # min | cap | knee (see `wtune tune --nodes-policy` for the exact rule)
@@ -801,6 +815,10 @@ probe:
   steps: auto                     # WRF steps run per candidate during round0/adaptive probing (--steps) --
                                    # auto = max(30, stepra+10), so a probe always contains >= 1 radiation
                                    # step; or a fixed positive integer
+  sweep_steps: [10, 40]           # node and cores-per-node sweep probes: the steps one startup costs,
+                                   # kept within [min, max] (cheap steps -> max); null = `steps`
+  sweep_reps: 1                   # runs of each sweep probe; with 1, the probes that tie with the
+                                   # fastest (within 2x noise) get one more run
   confirm_reps: 2                 # replicate count for the confirm stage's top candidates
   spinup_min: 60                  # RANKING layer: minutes the anchor spin-up run advances before every
                                    # candidate starts from ITS shared restart (0 disables -> t0 start)

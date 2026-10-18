@@ -12,7 +12,7 @@
     "dist": "block",
     "id": "ANCHOR",
     "median_s_per_step": 0.3,
-    "n_measurements": 2,
+    "n_measurements": 4,
     "nproc_x": 16,
     "nproc_y": 18,
     "numtiles": 1,
@@ -45,8 +45,11 @@
     "7002",
     "7003",
     "7004",
-    "8007",
-    "8008"
+    "7005",
+    "7006",
+    "7007",
+    "8010",
+    "8011"
   ],
   "layout_table": {
     "comparison": null,
@@ -54,6 +57,7 @@
       {
         "cid": "ANCHOR",
         "cores_per_node": 72,
+        "dist": "block",
         "median": 0.3,
         "nodes": 4,
         "numtiles": 1,
@@ -61,13 +65,29 @@
         "ny": 18,
         "omp": 1,
         "ranks": 288,
-        "reps": 2,
+        "reps": 4,
         "source": "t0 sweep ANCHOR",
         "spread": 0.0
       },
       {
         "cid": "ANCHOR",
         "cores_per_node": 72,
+        "dist": "block",
+        "median": 0.31,
+        "nodes": 6,
+        "numtiles": 1,
+        "nx": 18,
+        "ny": 24,
+        "omp": 1,
+        "ranks": 432,
+        "reps": 4,
+        "source": "t0 sweep ANCHOR",
+        "spread": 0.0
+      },
+      {
+        "cid": "ANCHOR",
+        "cores_per_node": 72,
+        "dist": "block",
         "median": 0.32,
         "nodes": 8,
         "numtiles": 1,
@@ -82,6 +102,7 @@
       {
         "cid": "ANCHOR",
         "cores_per_node": 72,
+        "dist": "block",
         "median": 0.52,
         "nodes": 2,
         "numtiles": 1,
@@ -96,6 +117,7 @@
       {
         "cid": "ANCHOR",
         "cores_per_node": 72,
+        "dist": "block",
         "median": 1.0,
         "nodes": 1,
         "numtiles": 1,
@@ -112,6 +134,7 @@
     "winner": {
       "cid": "ANCHOR",
       "cores_per_node": 72,
+      "dist": "block",
       "median": 0.3,
       "nodes": 4,
       "numtiles": 1,
@@ -119,7 +142,7 @@
       "ny": 18,
       "omp": 1,
       "ranks": 288,
-      "reps": 2,
+      "reps": 4,
       "source": "t0 sweep ANCHOR",
       "spread": 0.0
     }
@@ -170,7 +193,7 @@
     "choices": {
       "cost": {
         "nodes": 1,
-        "note": "objective=cost: N=1 wall=1120s node_hours=0.31 (min among 4 feasible, no deadline)"
+        "note": "objective=cost: N=1 wall=1120s node_hours=0.31 (min among 5 feasible, no deadline)"
       },
       "knee": {
         "nodes": 4,
@@ -205,6 +228,7 @@
       {
         "cid": "ANCHOR",
         "cores_per_node": 72,
+        "dist": "block",
         "median": 0.3,
         "nodes": 4,
         "numtiles": 1,
@@ -212,13 +236,29 @@
         "ny": 18,
         "omp": 1,
         "ranks": 288,
-        "reps": 2,
+        "reps": 4,
         "source": "t0 sweep ANCHOR",
         "spread": 0.0
       },
       {
         "cid": "ANCHOR",
         "cores_per_node": 72,
+        "dist": "block",
+        "median": 0.31,
+        "nodes": 6,
+        "numtiles": 1,
+        "nx": 18,
+        "ny": 24,
+        "omp": 1,
+        "ranks": 432,
+        "reps": 4,
+        "source": "t0 sweep ANCHOR",
+        "spread": 0.0
+      },
+      {
+        "cid": "ANCHOR",
+        "cores_per_node": 72,
+        "dist": "block",
         "median": 0.32,
         "nodes": 8,
         "numtiles": 1,
@@ -233,6 +273,7 @@
       {
         "cid": "ANCHOR",
         "cores_per_node": 72,
+        "dist": "block",
         "median": 0.52,
         "nodes": 2,
         "numtiles": 1,
@@ -247,6 +288,7 @@
       {
         "cid": "ANCHOR",
         "cores_per_node": 72,
+        "dist": "block",
         "median": 1.0,
         "nodes": 1,
         "numtiles": 1,
@@ -272,10 +314,6 @@
       },
       {
         "nodes": 5,
-        "reason": "not measured: refinement is off at this level (O1 measures only {1,2,4,8,max})"
-      },
-      {
-        "nodes": 6,
         "reason": "not measured: refinement is off at this level (O1 measures only {1,2,4,8,max})"
       },
       {
@@ -308,7 +346,10 @@
       "7001",
       "7002",
       "7003",
-      "7004"
+      "7004",
+      "7005",
+      "7006",
+      "7007"
     ],
     "table": [
       {
@@ -337,12 +378,23 @@
         "efficiency": 0.8333333333333334,
         "maxrss_mb": null,
         "median": 0.3,
-        "n": 2,
+        "n": 4,
         "node_hours": 0.4666666666666667,
         "nodes": 4,
         "speedup": 3.3333333333333335,
         "spread": 0.0,
         "wall_s": 420.0
+      },
+      {
+        "efficiency": 0.5376344086021506,
+        "maxrss_mb": null,
+        "median": 0.31,
+        "n": 4,
+        "node_hours": 0.7166666666666667,
+        "nodes": 6,
+        "speedup": 3.2258064516129035,
+        "spread": 0.0,
+        "wall_s": 430.0
       },
       {
         "efficiency": 0.390625,
@@ -364,10 +416,6 @@
       },
       {
         "nodes": 5,
-        "reason": "not measured: refinement is off at this level (O1 measures only {1,2,4,8,max})"
-      },
-      {
-        "nodes": 6,
         "reason": "not measured: refinement is off at this level (O1 measures only {1,2,4,8,max})"
       },
       {
@@ -398,6 +446,7 @@
     "winner": {
       "cid": "ANCHOR",
       "cores_per_node": 72,
+      "dist": "block",
       "median": 0.3,
       "nodes": 4,
       "numtiles": 1,
@@ -405,7 +454,7 @@
       "ny": 18,
       "omp": 1,
       "ranks": 288,
-      "reps": 2,
+      "reps": 4,
       "source": "t0 sweep ANCHOR",
       "spread": 0.0
     },
@@ -426,7 +475,7 @@
       "numtiles=1,"
     ],
     "nodes": 4,
-    "note": "KMP_BLOCKTIME: n/a on scc (nvhpc OpenMP runtime has no KMP_BLOCKTIME concept)",
+    "note": "KMP_BLOCKTIME: n/a on this cluster (nvhpc OpenMP runtime has no KMP_BLOCKTIME concept)",
     "nproc_x": 16,
     "nproc_y": 18,
     "numtiles": 1,
@@ -446,6 +495,7 @@
     "frames_deleted": 32,
     "frames_kept": false,
     "hard_deadline_s": null,
+    "jobs_busy_s": 0.0,
     "level": {
       "T_cold_s": 300.0,
       "actual_running_s": 0.0,
@@ -523,7 +573,10 @@
           "7001",
           "7002",
           "7003",
-          "7004"
+          "7004",
+          "7005",
+          "7006",
+          "7007"
         ],
         "limit_s": Infinity,
         "name": "layout",
@@ -542,7 +595,7 @@
         "job_run_s_max": null,
         "job_run_s_sum": null,
         "jobs": [
-          "8007"
+          "8010"
         ],
         "limit_s": Infinity,
         "name": "predict",
@@ -560,7 +613,7 @@
         "job_run_s_max": null,
         "job_run_s_sum": null,
         "jobs": [
-          "8008"
+          "8011"
         ],
         "limit_s": Infinity,
         "name": "physics",
@@ -741,7 +794,7 @@
       "dist": "block",
       "id": "ANCHOR",
       "median_s_per_step": 0.3,
-      "n_measurements": 2,
+      "n_measurements": 4,
       "nproc_x": 16,
       "nproc_y": 18,
       "numtiles": 1,
@@ -761,9 +814,16 @@
     }
   ],
   "ranking_start_note": null,
+  "summary": [
+    "best:     N=4 c/n=72 288 ranks x 1 threads 16x18 tiles=1: 0.3000 s/step (4 runs)",
+    "run:      predicted 17:10 for the whole simulation (phase 2 combine())",
+    "not run:  N=13 early stop; N=3,5,7,9-12 not measured",
+    "tuning:   running 0:00, queue 0:00 (not counted)"
+  ],
   "winner": {
     "cid": "ANCHOR",
     "cores_per_node": 72,
+    "dist": "block",
     "median": 0.3,
     "nodes": 4,
     "numtiles": 1,
@@ -771,7 +831,7 @@
     "ny": 18,
     "omp": 1,
     "ranks": 288,
-    "reps": 2,
+    "reps": 4,
     "source": "t0 sweep ANCHOR",
     "spread": 0.0
   }

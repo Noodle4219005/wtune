@@ -29,7 +29,7 @@ PROVENANCE = {
                      "time axis at fetch time)",
     "coverage_space": "global",
     "resolution": "0.25 deg, hourly",
-    "access": "public, anonymous (no credentials); needs internet (login node on scc)",
+    "access": "public, anonymous (no credentials); needs internet (a login node on most clusters)",
 }
 MAX_TIME_MISMATCH = timedelta(hours=1)
 

@@ -12,9 +12,9 @@ set -uo pipefail
 PLAN=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 TOOL=/opt/wtune/src/tools/coldstart_sample.py
 SITE=scc
-CAMPAIGN=${CAMPAIGN:-$HOME/wtune/campaign}
+CAMPAIGN=${CAMPAIGN:-/opt/wtune/campaign}
 source "$CAMPAIGN/sites/$SITE.sh"   # site_env / site_launch / site_hygiene -- reused, not reimplemented
-source ~/wtune-scc/env.sh
+source $HOME/wtune-scc/env.sh
 export PATH=$NETCDF/bin:$PATH
 ulimit -s unlimited
 site_env

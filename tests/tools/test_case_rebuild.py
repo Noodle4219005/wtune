@@ -1204,7 +1204,7 @@ class TestRenderRebuildSbatch(unittest.TestCase):
         text = cr.render_rebuild_sbatch(plan, self._chosen())
         self.assertIn("ML_MODEL=/out/dir/report.json", text)
         self.assertIn("state_correction_model.py", text)
-        self.assertIn("GRIB_PY=${GRIB_PYTHON:-$HOME/wtune/envs/grib/.pixi/envs/default/bin/python}",
+        self.assertIn("GRIB_PY=${GRIB_PYTHON:-%s/envs/grib/.pixi/envs/default/bin/python}" % cs._TREE,
                      text)
         self.assertIn("\"$GRIB_PY\" \"$TOOL_SCM\" apply", text)
         self.assertIn("--targets-from-report", text)

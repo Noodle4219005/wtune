@@ -45,7 +45,8 @@
     "9004",
     "7001",
     "7002",
-    "7003"
+    "7003",
+    "7004"
   ],
   "layout_table": {
     "comparison": null,
@@ -53,6 +54,7 @@
       {
         "cid": "ANCHOR",
         "cores_per_node": 72,
+        "dist": "block",
         "median": 0.3,
         "nodes": 4,
         "numtiles": 1,
@@ -67,6 +69,22 @@
       {
         "cid": "ANCHOR",
         "cores_per_node": 72,
+        "dist": "block",
+        "median": 0.31,
+        "nodes": 6,
+        "numtiles": 1,
+        "nx": 18,
+        "ny": 24,
+        "omp": 1,
+        "ranks": 432,
+        "reps": 2,
+        "source": "t0 sweep ANCHOR",
+        "spread": 0.0
+      },
+      {
+        "cid": "ANCHOR",
+        "cores_per_node": 72,
+        "dist": "block",
         "median": 0.52,
         "nodes": 2,
         "numtiles": 1,
@@ -81,6 +99,7 @@
       {
         "cid": "ANCHOR",
         "cores_per_node": 72,
+        "dist": "block",
         "median": 1.0,
         "nodes": 1,
         "numtiles": 1,
@@ -97,6 +116,7 @@
     "winner": {
       "cid": "ANCHOR",
       "cores_per_node": 72,
+      "dist": "block",
       "median": 0.3,
       "nodes": 4,
       "numtiles": 1,
@@ -155,7 +175,7 @@
     "choices": {
       "cost": {
         "nodes": 1,
-        "note": "objective=cost: N=1 wall=1000120s node_hours=277.81 (min among 3 feasible, no deadline)"
+        "note": "objective=cost: N=1 wall=1000120s node_hours=277.81 (min among 4 feasible, no deadline)"
       },
       "knee": {
         "nodes": 4,
@@ -172,6 +192,10 @@
       "4": {
         "cores": 72,
         "note": "cores/node=72 median=0.3000 s/step; fastest is 0.3000, fullest c within 3% noise of it"
+      },
+      "6": {
+        "cores": 72,
+        "note": "cores/node=72 median=0.3100 s/step; fastest is 0.3100, fullest c within 3% noise of it"
       }
     },
     "core_options": [
@@ -196,6 +220,21 @@
           "ranks_per_node": 72,
           "spread": 0.0
         }
+      ],
+      "6": [
+        {
+          "chosen": true,
+          "cores": 72,
+          "maxrss_mb": null,
+          "median": 0.31,
+          "n": 2,
+          "nx": 18,
+          "ny": 24,
+          "omp": 1,
+          "ranks": 432,
+          "ranks_per_node": 72,
+          "spread": 0.0
+        }
       ]
     },
     "deadline_s": null,
@@ -207,12 +246,14 @@
       "4": 0.3
     },
     "finalists": [
-      4
+      4,
+      6
     ],
     "layouts": [
       {
         "cid": "ANCHOR",
         "cores_per_node": 72,
+        "dist": "block",
         "median": 0.3,
         "nodes": 4,
         "numtiles": 1,
@@ -227,6 +268,22 @@
       {
         "cid": "ANCHOR",
         "cores_per_node": 72,
+        "dist": "block",
+        "median": 0.31,
+        "nodes": 6,
+        "numtiles": 1,
+        "nx": 18,
+        "ny": 24,
+        "omp": 1,
+        "ranks": 432,
+        "reps": 2,
+        "source": "t0 sweep ANCHOR",
+        "spread": 0.0
+      },
+      {
+        "cid": "ANCHOR",
+        "cores_per_node": 72,
+        "dist": "block",
         "median": 0.52,
         "nodes": 2,
         "numtiles": 1,
@@ -241,6 +298,7 @@
       {
         "cid": "ANCHOR",
         "cores_per_node": 72,
+        "dist": "block",
         "median": 1.0,
         "nodes": 1,
         "numtiles": 1,
@@ -266,10 +324,6 @@
       },
       {
         "nodes": 5,
-        "reason": "sweep budget cap: sweep used 9:13 >= 40% of the budget (2:34)"
-      },
-      {
-        "nodes": 6,
         "reason": "sweep budget cap: sweep used 9:13 >= 40% of the budget (2:34)"
       },
       {
@@ -321,12 +375,33 @@
         "cores": 36,
         "nodes": 4,
         "reason": "core sweep budget cap: used 0:00 >= 20% of the budget"
+      },
+      {
+        "cores": 70,
+        "nodes": 6,
+        "reason": "core sweep budget cap: used 0:00 >= 20% of the budget"
+      },
+      {
+        "cores": 64,
+        "nodes": 6,
+        "reason": "core sweep budget cap: used 0:00 >= 20% of the budget"
+      },
+      {
+        "cores": 48,
+        "nodes": 6,
+        "reason": "core sweep budget cap: used 0:00 >= 20% of the budget"
+      },
+      {
+        "cores": 36,
+        "nodes": 6,
+        "reason": "core sweep budget cap: used 0:00 >= 20% of the budget"
       }
     ],
     "sweep_jobs": [
       "7001",
       "7002",
-      "7003"
+      "7003",
+      "7004"
     ],
     "table": [
       {
@@ -361,6 +436,17 @@
         "speedup": 3.3333333333333335,
         "spread": 0.0,
         "wall_s": 300120.0
+      },
+      {
+        "efficiency": 0.5376344086021506,
+        "maxrss_mb": null,
+        "median": 0.31,
+        "n": 2,
+        "node_hours": 516.8666666666667,
+        "nodes": 6,
+        "speedup": 3.2258064516129035,
+        "spread": 0.0,
+        "wall_s": 310120.0
       }
     ],
     "total_steps": 1000000,
@@ -371,10 +457,6 @@
       },
       {
         "nodes": 5,
-        "reason": "sweep budget cap: sweep used 9:13 >= 40% of the budget (2:34)"
-      },
-      {
-        "nodes": 6,
         "reason": "sweep budget cap: sweep used 9:13 >= 40% of the budget (2:34)"
       },
       {
@@ -424,11 +506,32 @@
         "cores": 36,
         "nodes": 4,
         "reason": "core sweep budget cap: used 0:00 >= 20% of the budget"
+      },
+      {
+        "cores": 70,
+        "nodes": 6,
+        "reason": "core sweep budget cap: used 0:00 >= 20% of the budget"
+      },
+      {
+        "cores": 64,
+        "nodes": 6,
+        "reason": "core sweep budget cap: used 0:00 >= 20% of the budget"
+      },
+      {
+        "cores": 48,
+        "nodes": 6,
+        "reason": "core sweep budget cap: used 0:00 >= 20% of the budget"
+      },
+      {
+        "cores": 36,
+        "nodes": 6,
+        "reason": "core sweep budget cap: used 0:00 >= 20% of the budget"
       }
     ],
     "winner": {
       "cid": "ANCHOR",
       "cores_per_node": 72,
+      "dist": "block",
       "median": 0.3,
       "nodes": 4,
       "numtiles": 1,
@@ -457,7 +560,7 @@
       "numtiles=1,"
     ],
     "nodes": 4,
-    "note": "KMP_BLOCKTIME: n/a on scc (nvhpc OpenMP runtime has no KMP_BLOCKTIME concept)",
+    "note": "KMP_BLOCKTIME: n/a on this cluster (nvhpc OpenMP runtime has no KMP_BLOCKTIME concept)",
     "nproc_x": 16,
     "nproc_y": 18,
     "numtiles": 1,
@@ -477,6 +580,7 @@
     "frames_deleted": 0,
     "frames_kept": false,
     "hard_deadline_s": 700.0,
+    "jobs_busy_s": 0.0,
     "level": {
       "T_cold_s": 10000120.0,
       "actual_running_s": 553.0,
@@ -553,7 +657,8 @@
         "jobs": [
           "7001",
           "7002",
-          "7003"
+          "7003",
+          "7004"
         ],
         "limit_s": 385.00000000000006,
         "name": "layout",
@@ -704,9 +809,16 @@
     }
   ],
   "ranking_start_note": null,
+  "summary": [
+    "best:     N=4 c/n=72 288 ranks x 1 threads 16x18 tiles=1: 0.3000 s/step (2 runs)",
+    "run:      predicted 83:22:00 for the whole simulation (phase-1 anchor s/step x steps)",
+    "not run:  N=3,5,7-13 budget",
+    "tuning:   running 9:13, queue 0:00 (not counted)"
+  ],
   "winner": {
     "cid": "ANCHOR",
     "cores_per_node": 72,
+    "dist": "block",
     "median": 0.3,
     "nodes": 4,
     "numtiles": 1,

@@ -20,6 +20,8 @@ from __future__ import annotations
 
 import math
 
+import wtune.machine
+
 HALO_WIDTH = 3  # WRF halo width used throughout this corpus (dm parallel, standard 5th-order adv)
 
 # f1 Sapphire Rapids icpnq nodes: 112 cores/node, 2 sockets, SNC 8 NUMA domains x 14 cores,
@@ -44,6 +46,28 @@ HARDWARE_TABLE = {
         cache_per_core_mb=1.0, mem_bw_per_core=6.32,
     ),
 }
+
+def hardware(hardware_id):
+    """The hardware facts of `hardware_id`: HARDWARE_TABLE, or this machine's settings
+    (wtune.machine) when it is the machine's own id and the table does not know it; {} for
+    any other unknown id. ValueError when the settings contradict the table."""
+    mine = hardware_id == wtune.machine.hardware_id()
+    cores, numa = wtune.machine.cores_per_node(), wtune.machine.numa_per_node()
+    known = HARDWARE_TABLE.get(hardware_id)
+    if known is not None:
+        if mine and (cores, numa) != (known["cores_per_node"], known["numa_per_node"]):
+            raise ValueError(
+                "machine settings (%d cores/node, %d NUMA) are not hardware_id %s (%d, %d): "
+                "give this machine its own machine.hardware_id"
+                % (cores, numa, hardware_id, known["cores_per_node"], known["numa_per_node"]))
+        return known
+    if not mine:
+        return {}
+    if cores % numa:
+        raise ValueError("machine.cores_per_node=%d is not a multiple of numa_per_node=%d"
+                         % (cores, numa))
+    return dict(cores_per_node=cores, cores_per_numa=cores // numa, numa_per_node=numa)
+
 
 # Physics scheme vocabularies actually observed in this corpus (config-cost separability note:
 # mp in {6,8,10}, bl in {1,2,5}; ra_lw in {4,5} seen in the 12h-segmented summary). An unseen
@@ -90,7 +114,7 @@ def case_features(row):
     """Grid, physics, cadence, and hardware features -- a property of the weather case, not of
     any one run's parallel config."""
     e_we, e_sn, e_vert = _num(row.get("e_we")), _num(row.get("e_sn")), _num(row.get("e_vert"))
-    hw = HARDWARE_TABLE.get(row.get("hardware_id"), {})
+    hw = hardware(row.get("hardware_id"))
     feat = {
         "e_we": e_we, "e_sn": e_sn, "e_vert": e_vert,
         "dx": _num(row.get("dx")), "dy": _num(row.get("dy")),
@@ -158,7 +182,7 @@ def tile_geometry_features(row):
     if tile_w_max not in (None, 0) and tile_h_max not in (None, 0):
         tile_aspect = tile_w_max / float(tile_h_max)
 
-    hw = HARDWARE_TABLE.get(row.get("hardware_id"), {})
+    hw = hardware(row.get("hardware_id"))
     cores_per_numa = hw.get("cores_per_numa")
     omp_threads = _num(row.get("omp_threads"))
     numa_aligned = None
@@ -180,7 +204,7 @@ def config_features(row):
     numtiles = _num(row.get("numtiles"))
     omp_threads = _num(row.get("omp_threads"))
     n_ranks, n_nodes = _num(row.get("n_ranks")), _num(row.get("n_nodes"))
-    hw = HARDWARE_TABLE.get(row.get("hardware_id"), {})
+    hw = hardware(row.get("hardware_id"))
     numa_per_node = hw.get("numa_per_node")
 
     patch_x = math.ceil(e_we / nproc_x) if (e_we is not None and nproc_x) else None
@@ -282,7 +306,7 @@ def resolved_n_nodes(row):
     if n_nodes is not None:
         return n_nodes
     cores = total_cores(row)
-    cores_per_node = HARDWARE_TABLE.get(row.get("hardware_id"), {}).get("cores_per_node")
+    cores_per_node = hardware(row.get("hardware_id")).get("cores_per_node")
     if cores is not None and cores_per_node and cores % cores_per_node == 0:
         return cores / cores_per_node
     return None

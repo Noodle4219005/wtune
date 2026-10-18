@@ -8,7 +8,8 @@
    "omp": 1,
    "cores_per_node": 72,
    "median": 0.5,
-   "cid": "ANCHOR"
+   "cid": "ANCHOR",
+   "dist": null
   },
   {
    "nodes": 1,
@@ -18,7 +19,8 @@
    "omp": 1,
    "cores_per_node": 72,
    "median": 0.5,
-   "cid": null
+   "cid": null,
+   "dist": null
   },
   {
    "nodes": 1,
@@ -28,7 +30,8 @@
    "omp": 1,
    "cores_per_node": 72,
    "median": 0.6,
-   "cid": "ANCHOR"
+   "cid": "ANCHOR",
+   "dist": null
   },
   {
    "nodes": 2,
@@ -38,7 +41,8 @@
    "omp": 1,
    "cores_per_node": 72,
    "median": 0.3,
-   "cid": "ANCHOR"
+   "cid": "ANCHOR",
+   "dist": null
   },
   null,
   null

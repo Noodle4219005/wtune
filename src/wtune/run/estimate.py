@@ -8,6 +8,7 @@ import datetime as dt
 import math
 from typing import Callable, Optional
 
+import wtune.machine
 from ._deps import coldstart, iom, pp, sweep, wp, tune
 from .common import WRF_FMT, Record, RunError, _frac
 from .geometry import Geometry
@@ -15,10 +16,11 @@ from .geometry import Geometry
 TIME_FACTOR = 1.5                      # --time = ceil5min(1.5 x predicted wall + 10 min)
 TIME_PAD_S = 600.0
 TIME_ROUND_S = 300
-FALLBACK_INIT_S = 120.0                # init when unpredicted (wtune.tune rebuild_segment_timeout_min)
-FALLBACK_RADIATION_FACTOR = 1.5        # cell-step model x this (same padding as wtune.tune)
-FALLBACK_RESTART_IO_S = 300.0          # one restart write/read, scc marshall measured ~300 s
-FALLBACK_HISTORY_FRAME_S = 30.0        # per domain frame when no I/O probe measured it
+# built-in values (wtune.machine.MEASURED); the functions below read the machine's
+FALLBACK_INIT_S = wtune.machine.MEASURED["init_s"]
+FALLBACK_RADIATION_FACTOR = wtune.machine.MEASURED["radiation_factor"]
+FALLBACK_RESTART_IO_S = wtune.machine.MEASURED["restart_io_s"]
+FALLBACK_HISTORY_FRAME_S = wtune.machine.MEASURED["history_frame_s"]
 # Fallback I/O anchors (wtune.io_model owns the numbers), linear in grid points x levels; the
 # constant fallbacks above predicted 578 s for a segment observed at 198 s (scc R2).
 #  restart: conus25 (90e6 points) on scc, io_form 2 wrote 324 s / read 120 s, BP4 1.05 / 2.3 s
@@ -42,9 +44,13 @@ class Overheads(Record):
     source: str
 
 
-def overheads(init_s: float = FALLBACK_INIT_S, restart_read_s: float = FALLBACK_RESTART_IO_S,
-              restart_write_s: float = FALLBACK_RESTART_IO_S,
+def overheads(init_s: Optional[float] = None, restart_read_s: Optional[float] = None,
+              restart_write_s: Optional[float] = None,
               history_frame_s: Optional[list] = None, source: str = "fallback") -> Overheads:
+    m = wtune.machine.measured
+    init_s = m("init_s") if init_s is None else init_s
+    restart_read_s = m("restart_io_s") if restart_read_s is None else restart_read_s
+    restart_write_s = m("restart_io_s") if restart_write_s is None else restart_write_s
     return Overheads(init_s=init_s, restart_read_s=restart_read_s,
                      restart_write_s=restart_write_s, history_frame_s=history_frame_s,
                      source=source)
@@ -53,7 +59,7 @@ def overheads(init_s: float = FALLBACK_INIT_S, restart_read_s: float = FALLBACK_
 def fallback_restart_io_s(geo: Geometry, io_form: int) -> tuple[float, float]:
     """(write_s, read_s) of one restart (all domains) scaled from the conus25 anchor."""
     geo = Geometry.coerce(geo)
-    w, r = RESTART_IO_ANCHOR_S[int(io_form)]
+    w, r = iom.restart_anchor_s(io_form)
     f = sum(geo.points) / float(CONUS25_RESTART_POINTS)
     return w * f, r * f
 
@@ -65,7 +71,7 @@ def fallback_history_frame_s(geo: Geometry, io: str = "adios2") -> list:
 
 def fallback_overheads(geo: Geometry, io_form_restart: int, io: str = "adios2") -> Overheads:
     w, r = fallback_restart_io_s(geo, io_form_restart)
-    return overheads(init_s=FALLBACK_INIT_S, restart_read_s=r, restart_write_s=w,
+    return overheads(restart_read_s=r, restart_write_s=w,
                      history_frame_s=fallback_history_frame_s(geo, io),
                      source="fallback (conus25/dorian2019 I/O anchors)")
 
@@ -162,7 +168,8 @@ def history_wall(geo: Geometry, over: Overheads, a: int, b: int) -> float:
     per = over.history_frame_s
     w = 0.0
     for d in range(geo.max_dom):
-        fs = FALLBACK_HISTORY_FRAME_S if per is None else (per[d] if d < len(per) else per[-1])
+        fs = (wtune.machine.measured("history_frame_s") if per is None
+              else (per[d] if d < len(per) else per[-1]))
         w += history_frames(geo, d, a, b) * (fs or 0.0)
     return w
 
@@ -177,9 +184,10 @@ def fallback_s_per_step(nl: dict, ranks: int, omp: int) -> float:
     """Conservative constant s/step: wtune.tune's cell-step model x FALLBACK_RADIATION_FACTOR;
     scc_sweep.CONSERVATIVE_S_PER_STEP when that model fails."""
     try:
-        return tune._fallback_s_per_step(nl, ranks, omp) * FALLBACK_RADIATION_FACTOR
+        return (tune._fallback_s_per_step(nl, ranks, omp)
+                * wtune.machine.measured("radiation_factor"))
     except Exception:
-        return sweep.CONSERVATIVE_S_PER_STEP
+        return wtune.machine.measured("s_per_step")
 
 
 def _parse_at(s: str) -> dt.datetime:
@@ -201,7 +209,7 @@ def model_from_prediction(pred: dict, geo: Geometry, sample_points: Optional[lis
             hist[d] = e["median_s"]
     measured = bool(rst) or bool(io.get("history"))
     return comp, overheads(
-        init_s=res.get("init_s") or FALLBACK_INIT_S,
+        init_s=res.get("init_s") or wtune.machine.measured("init_s"),
         restart_read_s=rst if rst else fallback.restart_read_s,
         restart_write_s=rst if rst else fallback.restart_write_s, history_frame_s=hist,
         source="prediction" + (" (measured io)" if measured else " + " + fallback.source))

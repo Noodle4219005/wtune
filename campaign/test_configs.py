@@ -257,7 +257,7 @@ class TestNamelistEditing(unittest.TestCase):
         self.assertIn('input_inname="wrfinput_d<domain>.bp", bdy_inname="wrfbdy_d<domain>.bp",', out)
         self.assertIn("&namelist_adios2\n"
                       " adios2_numaggregators=224,\n"
-                      " adios2_compression_enable=.true.,\n"
+                      " adios2_compression_enable=.false.,\n"
                       ' adios2_blosc_compressor="zstd",\n'
                       "/\n", out)
         # time_step untouched (not a campaign-edited knob)
@@ -535,6 +535,34 @@ class TestHistoryMode(unittest.TestCase):
     NEST_MINUTES_M = TestNestHistory.SYNTHETIC_NEST_MINUTES_M
     NEST_SECONDS = TestNamelistEditing.SYNTHETIC_3DOMAIN
 
+    AUX24 = (
+        "&time_control\n"
+        " run_days = 0, run_hours = 0, run_minutes = 30,\n"
+        " history_interval_s = 0, 0, 0,\n"
+        " io_form_auxhist24 = 2\n"
+        " auxhist24_interval_s = 60, 60, 60,\n"
+        " auxhist24_begin_s = 0, 0, 0,\n"
+        " auxhist3_interval = 0, 0, 0,\n"
+        "/\n"
+        "&domains\n"
+        " max_dom = 3,\n"
+        " time_step=15, e_we=793, 805, 1001, e_sn=853, 805, 1001,\n"
+        "/\n"
+    )
+
+    def test_aux_stream_never_begins_in_every_mode(self):
+        for mode in ("off", "end_d01", "mid_end_d01"):
+            out = configs.edit_namelist(self.AUX24, 16, 28, 8, 30, max_dom=3,
+                                        history_mode=mode, ranks=448)
+            self.assertIn("auxhist24_begin_s = 60000000, 60000000, 60000000,", out)
+            self.assertNotIn("auxhist24_begin_s = 0", out)
+            self.assertIn("auxhist24_interval_s = 60, 60, 60,", out)
+
+    def test_aux_stream_with_zero_interval_untouched(self):
+        out = configs.edit_namelist(self.AUX24, 16, 28, 8, 30, max_dom=3,
+                                    history_mode="off", ranks=448)
+        self.assertNotIn("auxhist3_begin", out)
+
     def test_off_zeroes_single_domain_max_dom_1(self):
         out = configs.edit_namelist(self.SINGLE, 14, 16, 12, 8, history_mode="off", ranks=224)
         self.assertIn("history_interval=0,", out)
@@ -658,7 +686,7 @@ class TestAdios2(unittest.TestCase):
         self.assertIn('input_inname="wrfinput_d<domain>.bp", bdy_inname="wrfbdy_d<domain>.bp",', out)
         self.assertIn("&namelist_adios2\n"
                       " adios2_numaggregators=224,\n"
-                      " adios2_compression_enable=.true.,\n"
+                      " adios2_compression_enable=.false.,\n"
                       ' adios2_blosc_compressor="zstd",\n'
                       "/\n", out)
         self.assertEqual(out.count("input_inname"), 1)
@@ -753,14 +781,15 @@ class TestAdios2Compression(unittest.TestCase):
                                      ranks=ranks)
 
     def test_compression_keys_are_written_explicitly(self):
+        # off: the Registry default .true. sends stock WRF 4.8 into a buffer overflow
         out = self._out()
-        self.assertIn(" adios2_compression_enable=.true.,\n", out)
+        self.assertIn(" adios2_compression_enable=.false.,\n", out)
         self.assertIn(' adios2_blosc_compressor="zstd",\n', out)
 
     def test_codec_comes_from_the_module_constants(self):
         # The measured choice lives in one place; the emitter must not hardcode it.
         self.assertEqual(configs.ADIOS2_BLOSC_COMPRESSOR, "zstd")
-        self.assertEqual(configs.ADIOS2_COMPRESSION_ENABLE, ".true.")
+        self.assertEqual(configs.ADIOS2_COMPRESSION_ENABLE, ".false.")
         out = self._out()
         self.assertIn(' adios2_blosc_compressor="%s",' % configs.ADIOS2_BLOSC_COMPRESSOR, out)
         self.assertIn(" adios2_compression_enable=%s," % configs.ADIOS2_COMPRESSION_ENABLE, out)
@@ -791,11 +820,11 @@ class TestAdios2Compression(unittest.TestCase):
             "\n&namelist_adios2\n"
             " adios2_numaggregators=7,\n"
             ' adios2_blosc_compressor="lz4",\n'
-            " adios2_compression_enable=.false.,\n"
+            " adios2_compression_enable=.true.,\n"
             "/\n")
         out = configs.edit_namelist(stale, 14, 16, 12, 8, ranks=224)
         self.assertNotIn('adios2_blosc_compressor="lz4"', out)
-        self.assertNotIn("adios2_compression_enable=.false.", out)
+        self.assertNotIn("adios2_compression_enable=.true.", out)
         self.assertNotIn("adios2_numaggregators=7,", out)
         self.assertIn('adios2_blosc_compressor="zstd",', out)
 

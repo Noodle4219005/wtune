@@ -70,8 +70,10 @@ def test_init_skips_outputs_of_a_previous_run(tmp_path, capsys):
               "met_em.d01.2020-01-01_00:00:00.nc", "LANDUSE.TBL", "namelist.wps", "tslist"]
     outputs = ["wrfout_d01_2020-01-01_00:00:00", "wrfout_d01_2020-01-02_00:00:00",
                "wrfrst_d01_2020-01-02_00:00:00", "rsl.out.0000", "rsl.error.0000",
-               "rsl.error.0001", "wrf.log", "real.log"]
-    for n in inputs + outputs:
+               "rsl.error.0001", "wrf.log", "real.log", "wrf.out", "sd1.d02.TS",
+               "rap.d02.all.TS", "sd1.d01.UU"]
+    executables = ["wrf.exe", "real.exe"]         # the WRF that former run used
+    for n in inputs + outputs + executables:
         (src / n).write_text("x")
     project_dir = str(tmp_path / "proj")
     proj.init_project(project_dir, case_dir=str(src))
@@ -79,6 +81,7 @@ def test_init_skips_outputs_of_a_previous_run(tmp_path, capsys):
     assert sorted(os.listdir(dest)) == sorted(inputs + ["namelist.input"])
     out = capsys.readouterr().out
     assert "skipped %d output file(s) of a previous run in %s" % (len(outputs) + 1, src) in out
+    assert "skipped 2 executable(s) in %s: the project runs the machine's WRF" % src in out
 
 
 def test_init_keeps_namelist_output_when_it_is_the_only_namelist(tmp_path, capsys):

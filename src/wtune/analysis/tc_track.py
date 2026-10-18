@@ -152,6 +152,73 @@ def _run(cmd, cwd):
     return proc.returncode, proc.stdout, proc.stderr
 
 
+def _detect_workers(n_times):
+    """How many DetectNodes to run at once: one per CPU this process may use, at most one
+    per time step (the conda-forge build has no MPI; one process took 56 min on dorian)."""
+    try:
+        cpus = len(os.sched_getaffinity(0))
+    except AttributeError:
+        cpus = os.cpu_count() or 1
+    return max(1, min(cpus, n_times))
+
+
+def _split_by_time(fields_nc, workdir, n):
+    """fields_nc cut into n files of consecutive time steps -> their paths, in time order."""
+    netcdf4 = __import__("netCDF4")
+    paths = []
+    with netcdf4.Dataset(fields_nc) as src:
+        bounds = np.linspace(0, len(src.dimensions["time"]), n + 1).astype(int)
+        for k in range(n):
+            a, b = int(bounds[k]), int(bounds[k + 1])
+            path = os.path.join(workdir, "fields_part%03d.nc" % k)
+            with netcdf4.Dataset(path, "w") as dst:
+                dst.setncatts({k_: src.getncattr(k_) for k_ in src.ncattrs()})
+                for name, dim in src.dimensions.items():
+                    dst.createDimension(name, (b - a) if name == "time" else len(dim))
+                for name, var in src.variables.items():
+                    attrs = {k_: var.getncattr(k_) for k_ in var.ncattrs()}
+                    out = dst.createVariable(name, var.dtype, var.dimensions,
+                                             fill_value=attrs.pop("_FillValue", None))
+                    out.setncatts(attrs)
+                    if "time" in var.dimensions:
+                        index = tuple(slice(a, b) if d == "time" else slice(None)
+                                      for d in var.dimensions)
+                        out[:] = var[index]
+                    else:
+                        out[:] = var[:]
+            paths.append(path)
+    return paths
+
+
+def _detect_in_parts(detect_args, fields_nc, workdir, nodes_path, n):
+    """DetectNodes on n time slices at once, merged into nodes_path. DetectNodes treats each
+    time step on its own, so the merged file is the one a single run would write.
+    Returns the first slice's command (provenance)."""
+    parts = _split_by_time(fields_nc, workdir, n)
+    cmds, procs = [], []
+    for p in parts:
+        stem = p[:-len(".nc")]
+        cmd = [detect_args[0], "--in_data", p, "--out", stem + ".nodes"] + detect_args[1:]
+        with open(stem + ".log", "w") as log:
+            procs.append(subprocess.Popen(cmd, cwd=workdir, stdout=log,
+                                          stderr=subprocess.STDOUT, text=True))
+        cmds.append(cmd)
+    codes = [p.wait() for p in procs]
+    for cmd, rc in zip(cmds, codes):
+        if rc != 0:
+            with open(cmd[4][:-len(".nodes")] + ".log") as f:
+                raise TCTrackError(f"DetectNodes failed (exit {rc}):\n{f.read()[-2000:]}\n"
+                                   f"cmd: {cmd}")
+    with open(nodes_path, "w") as out:
+        for k, cmd in enumerate(cmds):
+            with open(cmd[4]) as f:
+                out.writelines(line for line in f if k == 0 or not line.startswith("#"))
+    for p in parts:
+        for path in (p, p[:-len(".nc")] + ".nodes", p[:-len(".nc")] + ".log"):
+            os.remove(path)
+    return cmds[0]
+
+
 def _hours_spec(hours):
     """TempestExtremes' Time-string parser rejects a decimal point ("12.0h": "Cannot mix
     Free and Time format") -- it wants a bare integer count. Convert to whole hours when
@@ -211,6 +278,7 @@ def detect_and_stitch(fields_nc, workdir, params=None):
         grid_type = getattr(ds, "grid_type", "separable")
         map_proj_name = getattr(ds, "map_proj_name", "unknown")
         interval_h = _output_interval_hours(ds)
+        n_times = len(ds.dimensions["time"])
     stitch_range = stitch_range_for_interval(params, interval_h)
 
     detectnodes = _find_binary("DetectNodes")
@@ -237,15 +305,20 @@ def detect_and_stitch(fields_nc, workdir, params=None):
     closedcontourcmd = (f"slp,{params.closedcontour_delta_hpa},"
                         f"{params.closedcontour_dist_deg},0")
     outputcmd = f"slp,min,0;wspd10,max,{params.wind_radius_deg}"
-    detect_cmd = [detectnodes, "--in_data", fields_nc, "--out", nodes_path,
-                 "--searchbymin", "slp", "--closedcontourcmd", closedcontourcmd,
-                 "--mergedist", str(params.mergedist_deg), "--outputcmd", outputcmd,
-                 "--latname", "lat", "--lonname", "lon", "--out_header"] + in_connect_args
+    detect_args = [detectnodes,
+                   "--searchbymin", "slp", "--closedcontourcmd", closedcontourcmd,
+                   "--mergedist", str(params.mergedist_deg), "--outputcmd", outputcmd,
+                   "--latname", "lat", "--lonname", "lon", "--out_header"] + in_connect_args
     if params.regional:
-        detect_cmd.append("--regional")
-    rc, out, err = _run(detect_cmd, workdir)
-    if rc != 0:
-        raise TCTrackError(f"DetectNodes failed (exit {rc}):\n{err}\ncmd: {detect_cmd}")
+        detect_args.append("--regional")
+    workers = _detect_workers(n_times)
+    if workers > 1:
+        detect_cmd = _detect_in_parts(detect_args, fields_nc, workdir, nodes_path, workers)
+    else:
+        detect_cmd = [detectnodes, "--in_data", fields_nc, "--out", nodes_path] + detect_args[1:]
+        rc, out, err = _run(detect_cmd, workdir)
+        if rc != 0:
+            raise TCTrackError(f"DetectNodes failed (exit {rc}):\n{err}\ncmd: {detect_cmd}")
 
     track_path = os.path.join(workdir, "track.csv")
     stitch_cmd = [stitchnodes, "--in", nodes_path, "--out", track_path,
@@ -265,6 +338,7 @@ def detect_and_stitch(fields_nc, workdir, params=None):
         "version": version,
         "connectivity_cmd": connect_cmd,
         "detect_cmd": detect_cmd,
+        "detect_parts": workers,
         "stitch_cmd": stitch_cmd,
         "nodes_file": nodes_path,
         "track_file": track_path,

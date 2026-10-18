@@ -51,6 +51,8 @@ _HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
 
+import wtune.machine  # noqa: E402
+
 RULES_PATH = os.path.join(_HERE, "wtune_advice_rules.json")
 COEFFS_PATH = os.path.join(_HERE, "wtune_extension_coefficients.json")
 CAMPAIGN_DIR = os.path.join(os.path.dirname(_HERE), "campaign")
@@ -102,13 +104,14 @@ def _expand(p):
     return os.path.expanduser(os.path.expandvars(p)) if isinstance(p, str) else p
 
 
-def load_registry_case(case_id, site="scc"):
+def load_registry_case(case_id, site=None):
     """cases.json overlaid by cases.<site>.json (same merge as campaign/configs.py:load_cases,
     re-implemented here only to avoid importing the predictor stack for a read-only lookup).
     $CASES_JSON replaces cases.json, as in configs.py."""
     with open(os.environ.get("CASES_JSON") or os.path.join(CAMPAIGN_DIR, "cases.json")) as f:
         cases = json.load(f)["cases"]
-    if site and site != "f1":
+    site = site or wtune.machine.site()
+    if site != "f1":
         ov_path = os.path.join(CAMPAIGN_DIR, "cases.%s.json" % site)
         if os.path.exists(ov_path):
             with open(ov_path) as f:
@@ -157,7 +160,7 @@ def _project_storm_defaults(storm, hurdat2, project=None):
     return storm or p_storm, hurdat2 or _expand(p_hurdat)
 
 
-def build_case(arg, site="scc", needs=(), hurdat2=None, storm=None, bdeck=None, post_tc_dir=None,
+def build_case(arg, site=None, needs=(), hurdat2=None, storm=None, bdeck=None, post_tc_dir=None,
                project=None):
     """`arg` = a directory (case prep dir, run dir, or a wtune project) or a registry case id.
     `project` = --project DIR (storm/hurdat2 defaults, see _project_storm_defaults)."""
@@ -831,7 +834,7 @@ def advise(case, surface="advise", rules_doc=None):
             "unavailable": unavailable, "footer": doc["footer"]}
 
 
-def advise_case_id(case_id, site="scc", needs=()):
+def advise_case_id(case_id, site=None, needs=()):
     """Entry for the `wtune tune` hook: registry case id -> advice dict."""
     return advise(build_case(case_id, site=site, needs=needs))
 
@@ -893,7 +896,8 @@ def build_parser():
     p.add_argument("--need", action="append", default=[], metavar="chem|hydro|surge",
                    help="declare a need (repeatable or comma list): chem | hydro | surge")
     p.add_argument("--json", action="store_true", help="machine-readable output")
-    p.add_argument("--site", default="scc", help="registry site overlay (default scc)")
+    p.add_argument("--site", default=None,
+                   help="registry site overlay (default: the machine's, built-in scc)")
     p.add_argument("--hurdat2", default=None, help="HURDAT2 file (best track; storm auto-found "
                    "when --storm is omitted); also $WTUNE_HURDAT2")
     p.add_argument("--storm", default=None, help="storm id, e.g. AL122005, or NAME / NAME+YEAR "

@@ -32,12 +32,14 @@ import statistics
 import sys
 import time
 
+import wtune.machine
+
 _HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
 
 ERA5_PIN = "era5_arco"
-IO_FACTOR = 2.0          # recommended --time covers 2x the measured I/O (scc NFS: 2.4x spread)
+IO_FACTOR = wtune.machine.MEASURED["io_factor"]    # built-in; recommend_time reads the machine's
 # Margin and rounding scale with the run (T1 on scc, 2026-09-27: a fixed 5 min margin + 5 min
 # rounding gave dorian2019's 1718 s run a 45:00 --time, 1.57x; maria1km 1.29x, zhengzhou 1.09x).
 TIME_MARGIN_FRAC = 0.10  # of range_high
@@ -186,25 +188,29 @@ def recommend_time(range_high_s, io_s):
     [TIME_MARGIN_MIN_S, TIME_MARGIN_MAX_S], rounded UP to 1 min below 2 h and to 5 min above;
     io_s None (no measured I/O) -> range_high + margin, flagged as not covering writes."""
     margin = min(max(TIME_MARGIN_FRAC * range_high_s, TIME_MARGIN_MIN_S), TIME_MARGIN_MAX_S)
-    raw = range_high_s + (IO_FACTOR * io_s if io_s is not None else 0.0) + margin
+    io_factor = wtune.machine.measured("io_factor")
+    raw = range_high_s + (io_factor * io_s if io_s is not None else 0.0) + margin
     round_s = TIME_ROUND_SHORT_S if raw < TIME_ROUND_SHORT_BELOW_S else TIME_ROUND_S
     time_s = int(math.ceil(round(raw, 6) / round_s)) * round_s
     return {"time_s": time_s, "time": "%02d:%02d:%02d" % (time_s // 3600, time_s % 3600 // 60,
                                                              time_s % 60),
-            "range_high_s": range_high_s, "io_s": io_s, "io_factor": IO_FACTOR,
+            "range_high_s": range_high_s, "io_s": io_s, "io_factor": io_factor,
             "margin_s": margin, "round_s": round_s, "raw_s": raw,
             "covers_io": io_s is not None}
 
 
 def _ctx(case_dir, nodes, out_dir, max_wait_hours=24.0):
     from wtune.tools import scc_sweep as sweep
+    import wtune.machine
     import wtune.tune
     clock = wtune.tune.RealClock()
     ctx = wtune.tune.Ctx(
         case=os.path.basename(os.path.abspath(case_dir)), case_json={"prep_dir": case_dir},
-        namelist_path=os.path.join(case_dir, "namelist.input"), nodes=nodes, cores_per_node=72,
-        hardware_id=sweep.DEFAULT_HARDWARE_ID, steps=50, seed=1, kappa=0.5, budget_s=4 * 3600.0,
-        max_nodes=64, out_dir=out_dir, ledger_dir=out_dir, env_source="$HOME/wtune-scc/env.sh",
+        namelist_path=os.path.join(case_dir, "namelist.input"), nodes=nodes,
+        cores_per_node=wtune.machine.cores_per_node(),
+        hardware_id=wtune.machine.hardware_id(), steps=50, seed=1, kappa=0.5, budget_s=4 * 3600.0,
+        max_nodes=wtune.machine.max_nodes(), out_dir=out_dir, ledger_dir=out_dir,
+        env_source=wtune.machine.env_source(),
         sbatch_script="", sacct_cmd="sacct", poll_interval=20.0,
         sbatch_runner=sweep.default_sbatch_runner, sacct_runner=sweep.default_sacct_runner,
         scancel_runner=wtune.tune.default_scancel_runner, ledger_reader=None, proposer=None,
@@ -337,7 +343,7 @@ def main(argv=None):
         ctx, points, best, a.nodes, case_dir, os.path.join(out, "rebuild"), run_start,
         spinup_min=spinup, forcing=None if forcing == "auto" else forcing,
         measure_steps=measure_steps)
-    cal = wp.load_calibration(str(wp.DEFAULT_CALIBRATION))
+    cal = wp.load_calibration(wp.calibration_path())
     sample_points, _g = wp.read_wrfinput_sample_points(case_dir)
     result = pp.combine(meas, run_start, run_end, dt_s, stepra, calibration=cal,
                         sample_points=sample_points, case_dir=case_dir, nl=nl, ranks=ranks,

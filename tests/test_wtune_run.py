@@ -528,7 +528,7 @@ def test_segment_sbatch_text(tmp_path, monkeypatch):
                                     campaign_dir="/repo/campaign")
     assert ("#SBATCH -p compute -N 2 --exclusive --ntasks-per-node=72 --time=01:30:00 "
             "--exclude=head,work5,work7") in text
-    assert "mpirun -np 72 --map-by ppr:36:node:PE=2 --bind-to core ./wrf.exe &" in text
+    assert "site_launch 72 36 2 block\n\"${SITE_LAUNCH_CMD[@]}\" &\n" in text
     assert "export OMP_NUM_THREADS=2" in text
     assert "export OMP_PLACES=cores OMP_PROC_BIND=close" in text
     assert "ulimit -s unlimited" in text
@@ -547,7 +547,25 @@ def test_segment_sbatch_omp1_unsets_places_and_cyclic(tmp_path, monkeypatch):
     text = wr.render_segment_sbatch(str(tmp_path), 1, cfg, "00:20:00", "j")
     assert "--exclude=head\n" in text
     assert "unset OMP_PLACES OMP_PROC_BIND" in text and "export OMP_NUM_THREADS=1" in text
-    assert "mpirun -np 130 --map-by ppr:65:node:PE=1 --bind-to core --rank-by node ./wrf.exe" in text
+    assert "site_launch 130 65 1 cyclic\n" in text
+
+
+@pytest.mark.parametrize("site, nodes, args, expected", [
+    ("scc", 2, "72 36 2 block", "mpirun -np 72 --map-by ppr:36:node:PE=2 --bind-to core ./wrf.exe"),
+    ("scc", 2, "130 65 1 cyclic",
+     "mpirun -np 130 --map-by ppr:65:node:PE=1 --bind-to core --rank-by node ./wrf.exe"),
+    # two NUMA domains per node on f1-arm: the ranks of a node are split over them
+    ("f1arm", 1, "90 90 1 block", "mpirun -np 90 --map-by ppr:45:numa:PE=1 --bind-to core ./wrf.exe"),
+    ("f1arm", 1, "81 81 1 block", "mpirun -np 81 --map-by ppr:81:node:PE=1 --bind-to core ./wrf.exe"),
+])
+def test_a_segment_starts_wrf_with_the_site_files_launcher(site, nodes, args, expected):
+    campaign = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "campaign")
+    script = ('CAMPAIGN=%s; source "$CAMPAIGN/sites/%s.sh"; site_launch %s; '
+              'echo "${SITE_LAUNCH_CMD[*]}"' % (campaign, site, args))
+    env = dict(HOME=os.environ.get("HOME", "/tmp"), PATH=os.environ["PATH"],
+               SLURM_JOB_NUM_NODES=str(nodes))
+    out = subprocess.run(["bash", "-c", script], capture_output=True, text=True, env=env)
+    assert out.stdout.strip() == expected, out.stderr
 
 
 def test_time_limit_rounding_and_cap():
@@ -911,8 +929,44 @@ def test_namelist_adios2_every_io_form_14_and_bp_innames():
         assert len(re.findall(r'(?m)^\s*%s\s*=\s*"%s"' % (key, re.escape(name)), txt)) == 1, key
     fdda = txt[txt.index("&fdda"):]
     assert "io_form_gfdda" in fdda.split("/")[0] and "gfdda_inname" in fdda.split("/")[0]
-    assert re.search(r"(?ms)^&namelist_adios2\s*\n\s*adios2_numaggregators = %d," % cfg["ranks"],
-                     txt)
+    group = txt[txt.index("&namelist_adios2"):].split("/")[0]
+    assert re.search(r"(?m)^\s*adios2_numaggregators = %d," % cfg["ranks"], group)
+    assert re.search(r"(?m)^\s*adios2_compression_enable = \.false\.,", group)
+
+
+NAMELIST_AUXHIST = NAMELIST_3DOM.replace(
+    " io_form_boundary                    = 2\n",
+    " io_form_boundary                    = 2\n io_form_auxhist24 = 2\n"
+    " auxhist24_interval_s = 60, 60, 60,\n io_form_auxhist3 = 0,\n")
+
+
+def test_namelist_adios2_turns_wrf_compression_off_even_when_the_case_asks_for_it():
+    case = NAMELIST_AUXHIST + ("&namelist_adios2\n adios2_compression_enable = .true.,\n"
+                               " adios2_blosc_compressor = 'zstd',\n/\n")
+    txt = wr.render_segment_namelist(case, _dt("2020-06-01_00:00:00"),
+                                     _dt("2020-06-01_06:00:00"), 0, _cfg(), 360,
+                                     io_streams=_streams(case))
+    group = txt[txt.index("&namelist_adios2"):]
+    assert re.search(r"adios2_compression_enable\s*=\s*\.false\.", group.split("/")[0])
+    assert ".true." not in group.split("/")[0]
+    legacy = wr.render_segment_namelist(case, _dt("2020-06-01_00:00:00"),
+                                        _dt("2020-06-01_06:00:00"), 0, _cfg(), 360)
+    assert "adios2_compression_enable = .true." in legacy       # --io netcdf keeps the case's
+
+
+def test_namelist_adios2_switches_aux_outputs_the_case_writes():
+    txt = wr.render_segment_namelist(NAMELIST_AUXHIST, _dt("2020-06-01_00:00:00"),
+                                     _dt("2020-06-01_06:00:00"), 0, _cfg(), 360,
+                                     io_streams=_streams(NAMELIST_AUXHIST))
+    assert re.search(r"(?m)^\s*io_form_auxhist24\s*=\s*14\b", txt)
+    assert re.search(r"(?m)^\s*io_form_auxhist3\s*=\s*0\b", txt)
+    legacy = wr.render_segment_namelist(NAMELIST_AUXHIST, _dt("2020-06-01_00:00:00"),
+                                        _dt("2020-06-01_06:00:00"), 0, _cfg(), 360)
+    assert re.search(r"(?m)^\s*io_form_auxhist24\s*=\s*2\b", legacy)
+    line = wr.io_plan_line("adios2", _streams(NAMELIST_AUXHIST), 14,
+                           {"convert": [], "existing": []}, None, "/case",
+                           ("io_form_auxhist24",))
+    assert line.startswith("I/O: ADIOS2 (history/restart/input/boundary/auxhist24)")
 
 
 def test_namelist_netcdf_legacy_keeps_case_io_forms():
@@ -1310,3 +1364,109 @@ def test_existing_run_dir_is_refused_before_planning(tmp_path, capsys):
     rc, _out, _rep, lines = _run(tmp_path, f)
     assert rc != 0 and f.submitted == [] and lines == []      # refused before the plan is printed
     assert "already holds a run" in capsys.readouterr().err
+
+
+def test_a_segment_runs_wrf_tree_not_what_a_former_run_dir_brought(tmp_path):
+    """atlas-b cases 2026-10-14: the case was a former run directory holding wrf.exe and table
+    links of the WRF it ran with; linked first, they shadowed WRF_TREE's."""
+    from wtune.run import staging
+
+    def tree(name):
+        root = tmp_path / name
+        for d in ("main", "Registry", "run"):
+            (root / d).mkdir(parents=True)
+        (root / "main" / "wrf.exe").write_text(name)
+        (root / "run" / "wrf.exe").symlink_to(root / "main" / "wrf.exe")
+        (root / "run" / "LANDUSE.TBL").write_text(name)
+        return root
+    new, old = tree("new"), tree("old")
+    (old / "run" / "ONLY_OLD.TBL").write_text("old")
+    case, seg = tmp_path / "case", tmp_path / "seg"
+    case.mkdir()
+    seg.mkdir()
+    (case / "wrfinput_d01").write_text("in")
+    (case / "wrf.exe").symlink_to(old / "main" / "wrf.exe")
+    (case / "real.exe").write_text("a copied executable")
+    (case / "LANDUSE.TBL").symlink_to(old / "run" / "LANDUSE.TBL")     # left over: the tree's wins
+    (case / "ONLY_OLD.TBL").symlink_to(old / "run" / "ONLY_OLD.TBL")   # WRF_TREE has none: kept
+    (case / "VEGPARM.TBL").write_text("the case's own table")
+    staging._link_case_files(str(case), str(seg), [], False, str(new))
+    staging._link_wrf_run_files(str(new), str(seg))
+    assert (seg / "wrf.exe").read_text() == "new" and not (seg / "real.exe").exists()
+    assert (seg / "LANDUSE.TBL").read_text() == "new"
+    assert (seg / "ONLY_OLD.TBL").read_text() == "old"
+    assert (seg / "VEGPARM.TBL").read_text() == "the case's own table"
+    assert (seg / "wrfinput_d01").read_text() == "in"
+
+
+# ---------------------------------------------------------------------------
+# stall detection
+# ---------------------------------------------------------------------------
+def _stall(tmp_path, stall_s=600.0):
+    rsl = tmp_path / "rsl.error.0000"
+    rsl.write_text("starting\n")
+    clock, cancelled, logs = [0.0], [], []
+    w = wr.attempts.StallWatch(str(rsl), "123", stall_s, lambda: clock[0], cancelled.append,
+                               logs.append)
+    return w, rsl, clock, cancelled
+
+
+def test_stall_watch_cancels_once_when_rsl_stops_changing(tmp_path):
+    w, rsl, clock, cancelled = _stall(tmp_path)
+    for t in (0, 300, 599):
+        clock[0] = t
+        w("RUNNING")
+    assert cancelled == []
+    clock[0] = 600
+    w("RUNNING")
+    w("RUNNING")
+    assert cancelled == ["123"] and "unchanged for 10 min" in w.why
+
+
+def test_stall_watch_restarts_its_clock_on_every_rsl_change(tmp_path):
+    w, rsl, clock, cancelled = _stall(tmp_path)
+    for t in range(0, 3000, 300):
+        clock[0] = t
+        rsl.write_text("step %d\n" % t)
+        w("RUNNING")
+    assert cancelled == [] and w.why is None
+
+
+def test_stall_watch_ignores_pending_and_can_be_disabled(tmp_path):
+    w, rsl, clock, cancelled = _stall(tmp_path)
+    for t in (0, 5000, 10000):
+        clock[0] = t
+        w("PENDING")
+    assert cancelled == []
+    off, _rsl, clock2, cancelled2 = _stall(tmp_path, stall_s=0)
+    for t in (0, 5000):
+        clock2[0] = t
+        off("RUNNING")
+    assert cancelled2 == []
+
+
+def test_a_stalled_attempt_stops_the_run_without_resuming(tmp_path):
+    rec = wr.attempts.AttemptRecord(dir=str(tmp_path), job_id="7", time_step=None,
+                                    submitted_utc="x")
+    rec.stalled = "rsl.error.0000 unchanged for 20 min"
+    out = wr.attempts.Outcome(str(tmp_path), rec, "CANCELLED", 1200.0, {}, False)
+    with pytest.raises(wr.RunError, match="stalled and was cancelled"):
+        wr.controller._next_attempt(None, 0, None, None, out)
+    assert rec.failure_class == "stalled"
+
+
+def test_compress_history_deletes_only_the_restart_files_of_the_run(tmp_path, monkeypatch):
+    import types
+    for seg in ("seg_0", "seg_1"):
+        d = tmp_path / seg / "wrfrst_d01_2020-06-01_06:00:00"
+        d.mkdir(parents=True)
+        (d / "data.0").write_bytes(b"x" * 100)
+        (tmp_path / seg / "wrfout_d01_2020-06-01_06:00:00").write_bytes(b"y")
+    logs = []
+    ctx = types.SimpleNamespace(plan=types.SimpleNamespace(out=str(tmp_path)), report={},
+                                log=logs.append)
+    monkeypatch.setattr(wr.controller, "_save_report", lambda c: None)
+    wr.controller._delete_own_restarts(ctx)
+    assert ctx.report["restarts_deleted"] == {"files": 2, "bytes": 200}
+    assert not list(tmp_path.glob("seg_*/wrfrst_*"))
+    assert len(list(tmp_path.glob("seg_*/wrfout_*"))) == 2

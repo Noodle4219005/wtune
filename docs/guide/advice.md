@@ -1,4 +1,4 @@
-# 建議類指令
+# calc、advise、physics、prep geog
 
 ```bash
 wtune calc check case/namelist.input
@@ -13,7 +13,7 @@ wtune calc check case/namelist.input
 | `wtune physics` | 物理方案與數值設定有沒有不搭的地方？ |
 | `wtune prep geog` | 需要更高解析度的地形資料時怎麼準備？ |
 
-## wtune calc：經驗法則與單位換算
+## calc
 
 ```bash
 wtune calc dt --dx-km 3
@@ -58,7 +58,7 @@ wtune calc check case/namelist.input
 
 每個主題的參數用 `wtune calc <主題> --help` 查。加 `--json` 取得機器可讀的輸出。
 
-## wtune advise：這個個案適合什麼模式
+## advise
 
 ```bash
 wtune advise .                          # 在 project 內
@@ -70,7 +70,7 @@ wtune advise . --storm KATRINA2005 --hurdat2 hurdat2-1851-2024.txt
 
 `--need chem|hydro|surge` 用來宣告你有這個需求，建議會跟著調整。
 
-## wtune physics：物理與數值建議
+## physics
 
 ```bash
 wtune physics --namelist case/namelist.input --menu --compliance strict --no-probe
@@ -82,7 +82,7 @@ wtune physics --namelist case/namelist.input --menu --compliance strict --no-pro
 - `--no-probe`：略過對流探測（比較快，但少了對流負載的分布資訊）。
 - `--compliance`：只看某一類的建議。
 
-## wtune prep geog：高解析度地形
+## prep geog
 
 這是選用的輸入資料準備，只在你下指令時才會做。
 

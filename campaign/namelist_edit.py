@@ -131,7 +131,25 @@ def _set_history_mode(text: str, history_mode: str, run_minutes: int, max_dom: i
     if policy is None:
         raise ValueError("history_mode must be 'off', 'interval', 'end_d01' or 'mid_end_d01', got %r"
                          % (history_mode,))
-    return policy(text, run_minutes, max_dom, nest_history_on, history_minutes)
+    return _aux_streams_off(policy(text, run_minutes, max_dom, nest_history_on, history_minutes),
+                            max_dom)
+
+
+_AUX_INTERVAL = re.compile(r"(?mi)^[ \t]*auxhist(\d+)_interval(_[dhms])?[ \t]*=([^\n!]*)")
+_AUX_NEVER = {"": HISTORY_NEVER_MINUTES, "_m": HISTORY_NEVER_MINUTES,
+              "_s": HISTORY_NEVER_MINUTES * 60, "_h": HISTORY_NEVER_MINUTES // 60,
+              "_d": HISTORY_NEVER_MINUTES // 1440}
+
+
+def _aux_streams_off(text: str, max_dom: int) -> str:
+    """Every auxhistN stream with a nonzero interval begins only after HISTORY_NEVER_MINUTES.
+    A case's own aux output is not timed I/O: isc21's auxhist24 cost ~160 s per launch."""
+    for n, unit, values in _AUX_INTERVAL.findall(text):
+        if any(int(v) for v in re.findall(r"-?\d+", values)):
+            unit = unit.lower()
+            text = _replace_list_line(text, "auxhist%s_begin%s" % (n, unit),
+                                      [_AUX_NEVER[unit]] * max_dom)
+    return text
 
 
 # --------------------------------------------------------------------------- the other steps

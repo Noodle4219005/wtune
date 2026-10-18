@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 #SBATCH --job-name=nc2bp
-#SBATCH --partition=compute
-#SBATCH --exclude=head
 #SBATCH --nodes=1 --ntasks-per-node=1 --cpus-per-task=8
+#SBATCH --exclusive   # memory follows cores on f1-arm (1554 MB each): conus25 needed > 12 G
 #SBATCH --time=00:40:00
 # Pre-convert one campaign case's netCDF inputs into the BP cache strict_campaign.sbatch reads
 # (2026-10-03: ADIOS2 for every WRF input stream). Optional: strict_campaign converts on first use
@@ -17,13 +16,14 @@
 # record 1 for every read of a multi-record BP). CHECK=1 (default) then
 # round-trips every converted file back to netCDF and compares (wtune convert inputs --check, needs
 # netCDF4: the envs/wtune python, $WTUNE_PY overrides).
-# usage (scc): sbatch --job-name=nc2bp-<case> --export=ALL,CASE=<case> campaign/nc2bp.sbatch
+# usage (scc, from the checkout): sbatch -p compute --exclude=head --job-name=nc2bp-<case> \
+#   --export=ALL,CASE=<case> campaign/nc2bp.sbatch
 #   CASES=<a>:<b>:... converts several cases in one job (wtune tune, before its first probes;
 #   CASES_JSON selects a generated case file). other sites: add -p/-A/--exclude and SITE=<site>.
 set -uo pipefail
 SITE=${SITE:-scc}
 export SITE
-CAMPAIGN=${CAMPAIGN:-$HOME/wtune/campaign}
+CAMPAIGN=${CAMPAIGN:-${SLURM_SUBMIT_DIR:-$PWD}/campaign}
 export CAMPAIGN
 CASES=${CASES:-${CASE:-}}
 : "${CASES:?CASE (or CASES=a:b) required, e.g. --export=ALL,CASE=karina}"

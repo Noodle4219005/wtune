@@ -5,7 +5,8 @@ from __future__ import annotations
 import dataclasses
 from typing import Any, Optional
 
-from .common import CORES_PER_NODE, Record, RunError
+import wtune.machine
+from .common import Record, RunError
 from .estimate import ComputeFn, compute_fn_from_tune_row
 from .geometry import Geometry
 
@@ -52,6 +53,7 @@ class TuneLayout(Record):
     cores_per_node: Optional[int]
     median: Optional[float]            # s/step
     cid: Optional[str]
+    dist: Optional[str] = None         # block | cyclic it was measured with
 
 
 @dataclasses.dataclass(frozen=True, eq=False)
@@ -67,10 +69,10 @@ class Layout(Record):
 def make_config(nx: int, ny: int, numtiles: int, omp: int, nodes: int, cid: str = "cli",
                 dist: str = "block") -> Config:
     nx, ny, numtiles, omp = int(nx), int(ny), int(numtiles), int(omp)
-    ranks = nx * ny
-    if ranks * omp > nodes * CORES_PER_NODE:
+    ranks, cores = nx * ny, wtune.machine.cores_per_node()
+    if ranks * omp > nodes * cores:
         raise RunError("config %s: %d ranks x %d threads exceeds %d node(s) x %d cores"
-                       % (cid, ranks, omp, nodes, CORES_PER_NODE))
+                       % (cid, ranks, omp, nodes, cores))
     return Config(id=cid, nx=nx, ny=ny, ranks=ranks, numtiles=numtiles, omp=omp, nodes=nodes,
                   dist=dist)
 
@@ -113,7 +115,7 @@ def tune_report_layout(report: dict) -> Optional[TuneLayout]:
                       numtiles=int(w.get("numtiles") or 1), omp=int(w.get("omp") or 1),
                       cores_per_node=w.get("cores_per_node"),
                       median=float(w["median"]) if w.get("median") is not None else None,
-                      cid=w.get("cid"))
+                      cid=w.get("cid"), dist=w.get("dist"))
 
 
 def resolve_layout(a: Any, layout: Optional[TuneLayout]) -> tuple[Layout, list[str]]:
@@ -141,15 +143,15 @@ def rank_mapping_notes(config: Config, cores_per_node: Optional[int] = None) -> 
     """Warnings about the launch's per-node placement (mpirun ppr:<ceil(ranks/nodes)>:node):
     uneven ranks/node, more cores than a node has, a placement other than the tune report's."""
     nodes, ranks, omp = config.nodes, config.ranks, config.omp
-    ppn = -(-ranks // nodes)
+    ppn, cores = -(-ranks // nodes), wtune.machine.cores_per_node()
     notes = []
     if ranks % nodes:
         notes.append("WARNING: %d ranks do not divide over %d nodes: ppr %d/node places %d "
                      "(wtune tune measured ranks//nodes = %d/node)"
                      % (ranks, nodes, ppn, ppn * nodes, ranks // nodes))
-    if ppn * omp > CORES_PER_NODE:
+    if ppn * omp > cores:
         notes.append("WARNING: %d ranks/node x %d threads = %d cores > %d per node"
-                     % (ppn, omp, ppn * omp, CORES_PER_NODE))
+                     % (ppn, omp, ppn * omp, cores))
     if cores_per_node is not None and ppn * omp != int(cores_per_node):
         notes.append("WARNING: %d ranks/node x %d threads = %d cores/node, the tune report "
                      "measured %s" % (ppn, omp, ppn * omp, cores_per_node))

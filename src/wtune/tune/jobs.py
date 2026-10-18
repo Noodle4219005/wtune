@@ -5,15 +5,17 @@ from __future__ import annotations
 import datetime
 import os
 import re
+import shutil
 import sys
 
+import wtune.machine
 from ._deps import sweep
 from .budget import _job_time_est
 from .common import ANCHOR_END_ID, _fmt_hms, _notes_kv, parse_run_id
 from .context import Ctx, QueueCapExceeded
 
 PROGRESS_BAR_WIDTH = 24                # characters of the progress bar
-ANCHOR_DRIFT_MAX = 0.01                # |s(ANCHOREND)/s(ANCHOR) - 1| allowed inside one job
+ANCHOR_DRIFT_MAX = wtune.machine.MEASURED["anchor_drift_max"]   # |s(ANCHOREND)/s(ANCHOR) - 1|
 SACCT_MISS_MAX = 5                     # consecutive polls sacct may not list a submitted job
 _RSS_RE = re.compile(r"^(\d+(?:\.\d+)?)([KMGT]?)$")
 _RSS_TO_KB = {"": 1.0, "K": 1.0, "M": 1024.0, "G": 1024.0 ** 2, "T": 1024.0 ** 3}
@@ -68,7 +70,18 @@ def wait_for_jobs(ctx: Ctx, job_ids: list, stage: str, note: str = "",
                   exempt_budget: bool = False) -> dict:
     """Poll sacct until `job_ids` leave PENDING/RUNNING, printing one progress line per poll; at
     the budget deadline cancel those ids only. Returns the last {job: (State, Elapsed)} ({} for
-    no ids). budget_mode "running" uses _wait_running_budget (exempt_budget)."""
+    no ids). budget_mode "running" uses _wait_running_budget (exempt_budget). The jobs' input
+    copies are removed once they have ended, whatever their state."""
+    states = _wait_for_jobs(ctx, job_ids, stage, note, exempt_budget)
+    for j in job_ids:
+        d = ctx.input_copies.pop(j, None)
+        if d:
+            shutil.rmtree(d, ignore_errors=True)
+    return states
+
+
+def _wait_for_jobs(ctx: Ctx, job_ids: list, stage: str, note: str,
+                   exempt_budget: bool) -> dict:
     job_ids = [j for j in job_ids if j]
     if not job_ids:
         return {}
@@ -152,11 +165,13 @@ def nc2bp_command(ctx: Ctx, cases: list[str], cases_json: str | None, out_dir: s
     probe exclusions apply: never head)."""
     campaign = (sweep.campaign_dir_for(ctx.sbatch_script)
                 or os.path.dirname(os.path.abspath(sweep._expand(ctx.sbatch_script))))
-    export = "ALL,SITE=scc,CHECK=0,CAMPAIGN=%s,CASES=%s" % (campaign, ":".join(cases))
+    export = ("ALL,SITE=%s,CHECK=0,CAMPAIGN=%s,CASES=%s"
+              % (wtune.machine.site(), campaign, ":".join(cases)))
     if cases_json:
         export += ",CASES_JSON=%s" % cases_json
-    return ("source %s; sbatch %s --job-name=nc2bp-%s --output=%s/nc2bp-%%j.out --export=%s %s"
-            % (sweep._expand(ctx.env_source), sweep.exclude_arg(), cases[0], out_dir, export,
+    return ("source %s; sbatch -p %s %s --job-name=nc2bp-%s --output=%s/nc2bp-%%j.out --export=%s %s"
+            % (sweep._expand(ctx.env_source), wtune.machine.partition(), sweep.scheduler_args(),
+               cases[0], out_dir, export,
                os.path.join(campaign, "nc2bp.sbatch")))
 
 
@@ -209,6 +224,8 @@ def fresh_input_export(ctx: Ctx, case_id: str, job_out_dir: str, runs: int,
             ensure_bp_inputs(ctx, [(case_id, cases_json)], os.path.join(job_out_dir, "bp_convert"))
         except RuntimeError as e:
             raise SystemExit(str(e)) from e
+    if not wtune.machine.copy_probe_inputs():
+        return []                               # the jobs read the shared BP cache
     try:
         d = sweep.campaign_configs.fresh_probe_inputs(
             case_id, os.path.join(job_out_dir, "bp_fresh"), runs, cases_json=cases_json)
@@ -239,16 +256,19 @@ def submit_configs_job(ctx: Ctx, configs: list[dict], reps: int, name_suffix: st
         extra_export=fresh or None)
     job_id = sweep.submit_job(cmd_str, sbatch_runner=ctx.sbatch_runner)
     ctx.owned_jobs.append(job_id)
+    if fresh:
+        ctx.input_copies[job_id] = fresh[0][1]
     return job_id, configs_path, time_est
 
 
 def evaluate_job_gates(job_id: str, rows: list[dict], s_by_cid: dict, expected_cids: list,
-                       drift_max: float = ANCHOR_DRIFT_MAX, require_restart: bool = True,
+                       drift_max: float | None = None, require_restart: bool = True,
                        check_drift: bool = True) -> dict:
     """Validity gates of ONE ranking job (decision 0055), never raising: every expected cid has a
     row that restarted (restart_used=1, unless not require_restart) on a clean node, and
     |s(ANCHOREND)/s(ANCHOR) - 1| <= drift_max (when check_drift). Returns {job_id, ok, failures,
     anchor_drift, s_anchor, s_anchor_end}."""
+    drift_max = wtune.machine.measured("anchor_drift_max") if drift_max is None else drift_max
     failures = []
     by_cid = {}
     for r in rows:
@@ -291,8 +311,8 @@ def job_timing(ctx: Ctx, job_ids: list) -> dict:
     if not ids:
         return out
     try:
-        text = ctx.sacct_runner([ctx.sacct_cmd, "-j", ",".join(ids), "-X", "-n", "-P",
-                                 "--format=JobID,Submit,Start,End"])
+        text = ctx.sacct_runner([ctx.sacct_cmd, "-j", ",".join(ids), *sweep.SACCT_SINCE,
+                                 "-X", "-n", "-P", "--format=JobID,Submit,Start,End"])
     except Exception:
         return out
     fmt = "%Y-%m-%dT%H:%M:%S"
@@ -316,6 +336,35 @@ def job_timing(ctx: Ctx, job_ids: list) -> dict:
     return out
 
 
+def busy_s(ctx: Ctx, job_ids: list) -> float:
+    """Seconds during which at least one of the jobs ran: the union of their sacct Start..End
+    (the running clock samples at each poll, so jobs that start and end between two polls are
+    missed by it)."""
+    ids = [str(j) for j in job_ids if j]
+    if not ids:
+        return 0.0
+    try:
+        text = ctx.sacct_runner([ctx.sacct_cmd, "-j", ",".join(ids), *sweep.SACCT_SINCE,
+                                 "-X", "-n", "-P", "--format=JobID,Start,End"])
+    except Exception:
+        return 0.0
+    spans = []
+    for line in (text or "").splitlines():
+        parts = [p.strip() for p in line.split("|")]
+        try:
+            spans.append(tuple(datetime.datetime.strptime(t, "%Y-%m-%dT%H:%M:%S")
+                               for t in parts[1:3]))
+        except ValueError:
+            continue
+    total, end = 0.0, None
+    for a, b in sorted(spans):
+        if end is None or a > end:
+            total, end = total + (b - a).total_seconds(), b
+        elif b > end:
+            total, end = total + (b - end).total_seconds(), b
+    return total
+
+
 def _final_cancel_safety_net(ctx: Ctx) -> None:
     """Past the budget, cancel whatever owned job sacct still shows PENDING/RUNNING."""
     still_up = [j for j in ctx.owned_jobs if j not in ctx.cancelled_jobs]
@@ -333,8 +382,8 @@ def _maxrss_mb_by_job(ctx: Ctx, job_ids: list) -> dict:
     job_ids = [str(j) for j in job_ids]
     best: dict = {}
     try:
-        out = ctx.sacct_runner([ctx.sacct_cmd, "-j", ",".join(job_ids), "-n", "-P",
-                                "--format=JobID,MaxRSS"])
+        out = ctx.sacct_runner([ctx.sacct_cmd, "-j", ",".join(job_ids), *sweep.SACCT_SINCE,
+                                "-n", "-P", "--format=JobID,MaxRSS"])
     except Exception:
         out = ""
     for line in (out or "").splitlines():

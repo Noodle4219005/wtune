@@ -44,6 +44,7 @@ import re
 import statistics
 import subprocess
 import sys
+import time
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _REPO_ROOT = os.path.dirname(os.path.dirname(_HERE))  # src/
@@ -58,7 +59,9 @@ for _p in (_REPO_ROOT, _CAMPAIGN_DIR):
 # Must precede the first `import configs` anywhere in the process (campaign/configs.py reads
 # this env var at MODULE level: `SITE = os.environ.get("SITE") or "f1"`) -- setdefault so an
 # operator's own SITE=scc export (or a test's monkeypatch before import) is not clobbered.
-os.environ.setdefault("SITE", "scc")
+import wtune.machine
+
+os.environ.setdefault("SITE", wtune.machine.site())
 
 import configs as campaign_configs          # campaign/configs.py: CASES (scc-overlaid), stdlib only
 from wtune.predictor import decomp_space                         # predictor/decomp_space.py: enumerate_space/sample_design/
@@ -67,35 +70,38 @@ from wtune.predictor import experiment as campaign_experiment    # predictor/exp
                                              # _max_legal_ranks/_format_hms (reused, not copied),
                                              # stdlib only
 
-DEFAULT_HARDWARE_ID = "scc-gh200"
-DEFAULT_CORES_PER_NODE = 72
-DEFAULT_NODES = [1, 2, 4, 8, 13]
 DEFAULT_K = 12
 DEFAULT_SEED = 1
 DEFAULT_REPS = 1
 DEFAULT_STEPS = 30
 DEFAULT_ROOT = "$HOME/wtune-runs/sweep"
 DEFAULT_LEDGER_DIR = "$HOME/wtune-runs/campaign"          # campaign/sites/scc.sh's own $OUT
-DEFAULT_MAX_NODES_IN_FLIGHT = 13                           # == total compute nodes, work[1-13]
-DEFAULT_ENV_SOURCE = "$HOME/wtune-scc/env.sh"
 # The campaign/ of THIS source tree (resolved from __file__), not a fixed "$HOME/wtune/campaign":
 # on scc ~/wtune is a stale checkout (no RANKING_START, no write_adios2_restart_xml, no \037 TSV
 # fix) while the live code runs from ~/wtune-src, so the old hardcoded default silently paired
 # new Python with an old campaign script (2026-09-27). --sbatch-script still overrides it.
 DEFAULT_SBATCH_SCRIPT = os.path.join(_CAMPAIGN_DIR, "strict_campaign.sbatch")
 
-STARTUP_S = 120.0                  # per-run startup overhead assumed for the time-limit estimate
-CONSERVATIVE_S_PER_STEP = 10.0     # fallback when no ledger row exists yet for this case on scc
+STARTUP_S = wtune.machine.MEASURED["startup_s"]            # built-in values; the code reads
+CONSERVATIVE_S_PER_STEP = wtune.machine.MEASURED["s_per_step"]    # wtune.machine.measured
 TIME_SAFETY_FACTOR = 1.5
 TIME_PAD_MIN = 10.0
-TIME_CAP_HOURS = 12.0
+TIME_CAP_HOURS = 12.0             # of one probe job; time_cap_hours() adds the machine's cap
 TIMEOUT_MULTIPLIER = 3.0
 TIMEOUT_MIN_S = 600
 
 MANIFEST_FIELDS = ["case", "nodes", "job_id", "configs_path", "n_configs", "submitted_at", "state"]
+# `sacct -j` alone searches all of slurmdbd and answers with the newest job of that number. On
+# a cluster whose job ids started over (f1-arm) that is another user's old job until the new
+# one is recorded: a job just submitted read as FAILED.
+SACCT_SINCE = ("-S", "now-30days")
 IN_FLIGHT_STATES = {"PENDING", "RUNNING"}   # sacct State values counted against --max-nodes-in-flight
 
 _JOBID_RE = re.compile(r"Submitted batch job (\d+)")
+_SBATCH_RE = re.compile(r"(?<![\w./-])sbatch(?: -p \S+)?(?=\s)")    # the command, not *.sbatch
+_SUBMIT_LIMIT_RE = re.compile(r"MaxSubmitJob")    # per-user count of queued jobs, not this job
+SUBMIT_LIMIT_WAIT_S = 60
+SUBMIT_LIMIT_MAX_WAIT_S = 6 * 3600
 
 
 # ---------------------------------------------------------------------------
@@ -212,8 +218,8 @@ def _read_ledger_rows(path):
         return list(csv.DictReader(f))
 
 
-def estimate_s_per_step(case, nodes, ledger_dir, hardware_id=DEFAULT_HARDWARE_ID,
-                         fallback=CONSERVATIVE_S_PER_STEP):
+def estimate_s_per_step(case, nodes, ledger_dir, hardware_id=None,
+                         fallback=None):
     """Median of (measured s_per_step_median * n_nodes_measured / nodes) over every ledger row
     for `case` on `hardware_id`, scanning ledger_dir/ledger_<case>_*.csv -- ideal linear
     core-count scaling (72*n_measured/(72*nodes), the 72 cancels). `fallback` (source
@@ -221,7 +227,9 @@ def estimate_s_per_step(case, nodes, ledger_dir, hardware_id=DEFAULT_HARDWARE_ID
 
     ledger_dir is expanded here (not just by CLI-level callers) so an unexpanded default like
     "$HOME/wtune-runs/campaign" resolves correctly regardless of what the caller passes."""
+    fallback = wtune.machine.measured("s_per_step") if fallback is None else fallback
     ledger_dir = _expand(ledger_dir)
+    hardware_id = hardware_id or wtune.machine.hardware_id()
     scaled = []
     for path in sorted(glob.glob(os.path.join(ledger_dir, "ledger_%s_*.csv" % case))):
         try:
@@ -257,7 +265,8 @@ def sacct_states(job_ids, sacct_runner=default_sacct_runner, sacct_cmd="sacct"):
     job_ids = [str(j) for j in job_ids if j]
     if not job_ids:
         return {}
-    cmd = [sacct_cmd, "-j", ",".join(job_ids), "-X", "-n", "-P", "--format=JobID,State,Elapsed"]
+    cmd = [sacct_cmd, "-j", ",".join(job_ids), *SACCT_SINCE, "-X", "-n", "-P",
+           "--format=JobID,State,Elapsed"]
     out = sacct_runner(cmd)
     states = {}
     for line in out.splitlines():
@@ -293,12 +302,18 @@ PREFLIGHT_EXCLUDE_ENV = "WTUNE_PREFLIGHT_EXCLUDE"   # set by the controller itse
                                                       # node health pre-flight): nodes that failed it
 
 
+def time_cap_hours():
+    """TIME_CAP_HOURS, or the machine's max_hours when that is lower."""
+    return wtune.machine.cap_seconds(TIME_CAP_HOURS * 3600.0) / 3600.0
+
+
 def excluded_nodes():
-    """Ordered, de-duplicated node names every sbatch of this tool chain must avoid: head (always),
+    """Ordered, de-duplicated node names every sbatch of this tool chain must avoid: the login
+    nodes (wtune.machine, scc: head),
     the user's opt-in WTUNE_SBATCH_EXCLUDE, and the controller's own WTUNE_PREFLIGHT_EXCLUDE (nodes
     the health pre-flight found unusable). ONE helper -- exclude_arg() and
     tools/coldstart_sample.render_run_sbatch both read it."""
-    out = ["head"]
+    out = wtune.machine.login_nodes()
     for var in ("WTUNE_SBATCH_EXCLUDE", PREFLIGHT_EXCLUDE_ENV):
         for n in os.environ.get(var, "").split(","):
             n = n.strip()
@@ -310,20 +325,26 @@ def excluded_nodes():
 def exclude_arg():
     """'--exclude=head[,<WTUNE_SBATCH_EXCLUDE nodes>][,<pre-flight failures>]' -- the same opt-in
     extra exclusion tools/coldstart_sample.render_run_sbatch honours (scc work5, 2026-09-27:
-    non-Slurm root load slowed wrf.exe 5x). head is always excluded."""
-    return "--exclude=" + ",".join(excluded_nodes())
+    non-Slurm root load slowed wrf.exe 5x). '' when there is nothing to exclude."""
+    nodes = excluded_nodes()
+    return "--exclude=" + ",".join(nodes) if nodes else ""
+
+
+def scheduler_args():
+    """exclude_arg() and the machine's --account, space-joined; '' when neither applies."""
+    return " ".join(a for a in (exclude_arg(), wtune.machine.account_arg()) if a)
 
 
 def build_sbatch_command(case, nodes, cores_per_node, time_limit, timeout_s, reps, steps,
-                          configs_path, out_dir, env_source=DEFAULT_ENV_SOURCE,
+                          configs_path, out_dir, env_source=None,
                           sbatch_script=DEFAULT_SBATCH_SCRIPT, campaign_dir=None, extra_export=None):
     """campaign_dir (optional): appended as CAMPAIGN=<dir> (see campaign_dir_for). extra_export
     (optional): [(KEY, VALUE), ...] appended verbatim after it (CONFIG_FILE stays last) (decision 0055 ranking context:
     CASES_JSON/RANKING_START/SPINUP_MINUTES/...); a VALUE containing ',' is refused -- sbatch
     --export would split it. Both default to None, which reproduces the old command exactly."""
     total_cores = nodes * cores_per_node
-    export = ("ALL,SITE=scc,WTUNE_TOTAL_CORES=%d,CASE=%s,MODE=timing,REPS=%d,STEPS=%d,"
-              "TIMEOUT_S=%d" % (total_cores, case, reps, steps, timeout_s))
+    export = ("ALL,SITE=%s,WTUNE_TOTAL_CORES=%d,CASE=%s,MODE=timing,REPS=%d,STEPS=%d,"
+              "TIMEOUT_S=%d" % (wtune.machine.site(), total_cores, case, reps, steps, timeout_s))
     if campaign_dir:
         export += ",CAMPAIGN=%s" % campaign_dir
     for key, value in (extra_export or []):
@@ -332,21 +353,56 @@ def build_sbatch_command(case, nodes, cores_per_node, time_limit, timeout_s, rep
                              % (key, value))
         export += ",%s=%s" % (key, value)
     export += ",CONFIG_FILE=%s" % configs_path      # kept LAST, exactly as before
-    sbatch = ("sbatch -p compute -N %d --ntasks-per-node=%d --exclusive %s "
+    sbatch = ("sbatch -p %s -N %d --ntasks-per-node=%d --exclusive %s "
               "--time=%s --job-name=sw-%s-n%d --output=%s/sweep-%%j.out --export=%s %s"
-              % (nodes, cores_per_node, exclude_arg(), time_limit, case, nodes, out_dir, export,
-                 _expand(sbatch_script)))
-    return "source %s; %s" % (_expand(env_source), sbatch)
+              % (wtune.machine.partition(), nodes, cores_per_node, scheduler_args(), time_limit,
+                 case, nodes, out_dir, export, _expand(sbatch_script)))
+    return "source %s; %s" % (_expand(env_source or wtune.machine.env_source()), sbatch)
 
 
-def submit_job(cmd_str, sbatch_runner=default_sbatch_runner):
+def submit_job(cmd_str, sbatch_runner=default_sbatch_runner, sleep=time.sleep):
+    """`_submit_once`, retried every minute (up to 6 h) while a refusal is the per-user limit on
+    queued jobs (QOSMaxSubmitJobPerUserLimit): that limit is about the user's other jobs, e.g. a
+    second tune sharing the QOS, so the job fits once one of them ends."""
+    waited = 0
+    while True:
+        try:
+            return _submit_once(cmd_str, sbatch_runner)
+        except RuntimeError as e:
+            if not _SUBMIT_LIMIT_RE.search(str(e)) or waited >= SUBMIT_LIMIT_MAX_WAIT_S:
+                raise
+            if not waited:
+                print("submit: per-user job limit reached; retrying every %d s"
+                      % SUBMIT_LIMIT_WAIT_S, file=sys.stderr)
+        sleep(SUBMIT_LIMIT_WAIT_S)
+        waited += SUBMIT_LIMIT_WAIT_S
+
+
+def _submit_once(cmd_str, sbatch_runner):
     """Runs `cmd_str` (already includes the `source env.sh;` prefix) and parses the job id out
     of sbatch's "Submitted batch job N" stdout line. --force re-running an in-flight job's
     (case,N) slot is the one accepted imprecision in the --max-nodes-in-flight budget: the OLD
     job's nodes stay counted in the run's initial in-flight baseline (taken once, from the
     manifest, before the submit loop starts) even after the manifest row is overwritten --
-    conservative (under-states available budget) rather than over-subscribing the cluster."""
-    out = sbatch_runner(cmd_str)
+    conservative (under-states available budget) rather than over-subscribing the cluster.
+    With several partitions each is tried in order (`-p` on the command line beats the
+    script's own); RuntimeError naming every refusal when none takes the job."""
+    parts = wtune.machine.partitions()
+    if len(parts) == 1:
+        out = sbatch_runner(cmd_str)
+    else:
+        refused = []
+        for p in parts:
+            cmd, n = _SBATCH_RE.subn("sbatch -p " + p, cmd_str, count=1)
+            if not n:
+                raise ValueError("no sbatch in %r" % (cmd_str,))
+            try:
+                out = sbatch_runner(cmd)
+                break
+            except RuntimeError as e:
+                refused.append("%s: %s" % (p, e))
+        else:
+            raise RuntimeError("no partition took the job -- " + "; ".join(refused))
     m = _JOBID_RE.search(out)
     if not m:
         raise RuntimeError("could not parse job id from sbatch output: %r" % (out,))

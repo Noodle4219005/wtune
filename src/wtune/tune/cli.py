@@ -10,9 +10,10 @@ from typing import Any, Callable
 
 import wtune.config
 import wtune.extensions
+import wtune.machine
 import wtune.nodes
 from ._deps import _HERE, sweep
-from .context import (CONFIRM_REPS, DEFAULT_HARDWARE_ID, DEFAULT_KAPPA, DEFAULT_MAX_NODES,
+from .context import (CONFIRM_REPS, DEFAULT_KAPPA,
                       DEFAULT_POLL_INTERVAL_S, DEFAULT_SEED, DEFAULT_STEPS, Ctx, RealClock,
                       default_ledger_reader, default_scancel_runner, resolve_auto_probe_steps)
 from .estimates import DEFAULT_LEVEL, LEVELS
@@ -20,7 +21,7 @@ from .jobs import _final_cancel_safety_net
 from .node_search import DEFAULT_SWEEP_BUDGET_FRAC, NODES_POLICIES, choose_nodes
 from .physics_phase import PIPELINE_PHYSICS_MAX_CANDIDATES
 from .pipeline import PIPELINE_MAX_QUEUE_HOURS, PRECISION_DEFAULT_MIN
-from .preflight import DEFAULT_WRF_TREE, default_preflight_runner, node_preflight
+from .preflight import default_preflight_runner, node_preflight
 from .report import _emit_report
 from . import context as _context
 from . import node_search as _node_search
@@ -57,6 +58,8 @@ class _NodeChoice:
     min_efficiency: float
     node_finalists: int
     sweep_budget_frac: float
+    node_seeds: str
+    hotspot_fill: bool
     core_options: list | None
     total_steps: int | None
     nodes: int
@@ -88,11 +91,12 @@ def run(args: argparse.Namespace, sbatch_runner: Callable | None = None,
     case_json, namelist_path, profile = _context.resolve_case(o.case, args.cores_per_node)
     is_fire, ext_notes, steps, ranking_start_note = _run_case_inputs(o, case_json, namelist_path)
 
-    max_nodes = min(int(o.max_nodes_requested), DEFAULT_MAX_NODES)
+    max_nodes = min(int(o.max_nodes_requested), wtune.machine.max_nodes())
     node_health, preflight, max_nodes = _run_node_preflight(args, o.level, case_json, max_nodes,
                                                             preflight_runner)
     ns = _resolve_node_choice(args, o, profile, max_nodes, namelist_path)
     out_dir = _run_out_dir(args, o.case)
+    _use_project_bp_cache(args)
     ctx = _build_ctx(args, o, ns, case_json, namelist_path, is_fire, steps, ranking_start_note,
                      max_nodes, out_dir, sbatch_runner, sacct_runner, scancel_runner,
                      ledger_reader, proposer, clock)
@@ -145,6 +149,7 @@ def _build_ctx(args: argparse.Namespace, o: _RunOptions, ns: _NodeChoice, case_j
     ledger_dir = sweep._expand(args.ledger_dir)
     ledger_reader = ledger_reader or (lambda case, job_ids: default_ledger_reader(
         ledger_dir, case, job_ids))
+    extension_omp_cap = wtune.extensions.omp_cap_for_namelist(namelist_path)
     return Ctx(case=o.case, case_json=case_json, namelist_path=namelist_path, nodes=ns.nodes,
                cores_per_node=args.cores_per_node, hardware_id=args.hardware_id, steps=steps,
                seed=args.seed, kappa=args.kappa,
@@ -156,11 +161,13 @@ def _build_ctx(args: argparse.Namespace, o: _RunOptions, ns: _NodeChoice, case_j
                sacct_runner=sacct_runner, scancel_runner=scancel_runner,
                ledger_reader=ledger_reader, proposer=proposer, clock=clock,
                search_cfg=o.cfg["search"], exclude_rules=o.cfg["exclude"], is_fire=is_fire,
-               omp_cap=wtune.extensions.omp_cap_for_namelist(namelist_path),
+               omp_cap=wtune.machine.omp_cap(extension_omp_cap),
+               extension_omp_cap=extension_omp_cap,
                chem_e_sn=wtune.extensions.chem_e_sn_for_namelist(namelist_path),
                confirm_reps=o.confirm_reps, prediction_cfg=o.cfg["prediction"],
                probe_cfg=o.cfg["probe"], ranking_start_note=ranking_start_note,
-               restart_io_form=int(o.restart_io_form))
+               restart_io_form=int(o.restart_io_form), node_seeds=ns.node_seeds,
+               hotspot_fill=ns.hotspot_fill)
 
 
 def _run_config(args: argparse.Namespace) -> tuple[str | None, dict]:
@@ -247,6 +254,8 @@ def _resolve_run_options(args: argparse.Namespace) -> _RunOptions:
     nodes_policy = args.nodes_policy if args.nodes_policy is not None else cfg["budget"]["nodes_policy"]
     max_nodes_requested = args.max_nodes if args.max_nodes is not None else cfg["budget"]["max_nodes"]
     steps_cfg = args.steps if args.steps is not None else cfg["probe"]["steps"]
+    if steps_cfg != "auto":
+        cfg["probe"]["sweep_steps"] = None       # a fixed probe length holds for the sweeps too
     confirm_reps = args.confirm_reps if args.confirm_reps is not None else cfg["probe"]["confirm_reps"]
     restart_io_form = _run_probe_options(args, cfg)
     return _RunOptions(config_path=config_path, cfg=cfg, case=case, minutes=minutes, level=level,
@@ -291,10 +300,11 @@ def _run_node_preflight(args: argparse.Namespace, level: int | None, case_json: 
                         ) -> tuple[dict | None, Callable | None, int]:
     """(start check, re-check callable, max_nodes capped at the healthy count); skipped (None,
     None, max_nodes) by --no-node-preflight and for -O0. Controller time, never budget."""
-    if getattr(args, "no_node_preflight", False) or level == 0:      # O0 runs no jobs
+    if (getattr(args, "no_node_preflight", False) or level == 0      # O0 runs no jobs
+            or not wtune.machine.node_preflight()):
         return None, None, max_nodes
     _src_dir = os.path.dirname(sweep.campaign_dir_for(args.sbatch_script) or _HERE)
-    _wrf = os.path.join(sweep._expand(os.environ.get("WRF_TREE") or DEFAULT_WRF_TREE),
+    _wrf = os.path.join(sweep._expand(wtune.machine.wrf_tree()),
                         "main", "wrf.exe")
     _requested = max_nodes
 
@@ -349,6 +359,9 @@ def _resolve_node_choice(args: argparse.Namespace, o: _RunOptions, profile: dict
     min_efficiency = _nopt("min_efficiency", wtune.nodes.DEFAULT_MIN_EFFICIENCY)
     node_finalists = max(1, int(_nopt("node_finalists", 2)))
     sweep_budget_frac = float(_nopt("sweep_budget_frac", DEFAULT_SWEEP_BUDGET_FRAC))
+    node_seeds = _nopt("node_seeds", "geometric")
+    hotspot_fill = _nopt("hotspot_fill", True)
+    hotspot_fill = hotspot_fill if isinstance(hotspot_fill, bool) else hotspot_fill == "on"
     core_options = _parse_core_options(args)
     total_steps = _context._total_steps(namelist_path) if node_search else None
     if node_search and node_objective == "cost" and total_steps is None:
@@ -367,8 +380,8 @@ def _resolve_node_choice(args: argparse.Namespace, o: _RunOptions, profile: dict
     return _NodeChoice(pipeline=pipeline, node_search=node_search, node_objective=node_objective,
                        deadline_minutes=deadline_minutes, min_efficiency=min_efficiency,
                        node_finalists=node_finalists, sweep_budget_frac=sweep_budget_frac,
-                       core_options=core_options, total_steps=total_steps, nodes=nodes,
-                       nodes_note=nodes_note)
+                       node_seeds=node_seeds, hotspot_fill=hotspot_fill, core_options=core_options,
+                       total_steps=total_steps, nodes=nodes, nodes_note=nodes_note)
 
 
 def _run_out_dir(args: argparse.Namespace, case: str) -> str:
@@ -385,6 +398,16 @@ def _run_out_dir(args: argparse.Namespace, case: str) -> str:
     return out_dir
 
 
+def _use_project_bp_cache(args: argparse.Namespace) -> None:
+    """Inside a project the tune's BP input cache is <project>/input/bp-cache/ (decision 0058),
+    not $HOME/wtune-runs/bp-cache; an explicit WTUNE_BP_CACHE still wins. The jobs inherit it
+    through sbatch --export=ALL."""
+    import wtune.project
+    project_dir = wtune.project.find_project(explicit=getattr(args, "project", None))
+    if project_dir:
+        os.environ.setdefault("WTUNE_BP_CACHE", os.path.join(project_dir, "input", "bp-cache"))
+
+
 def _run_pipeline_mode(ctx: Ctx, profile: dict, args: argparse.Namespace, o: _RunOptions,
                        ns: _NodeChoice, ext_notes: list, preflight: Callable | None) -> dict:
     """-O1..3 / --pipeline full: run_pipeline_full with the resolved options (not yet emitted)."""
@@ -395,7 +418,7 @@ def _run_pipeline_mode(ctx: Ctx, profile: dict, args: argparse.Namespace, o: _Ru
         min_efficiency=ns.min_efficiency, k_finalists=ns.node_finalists,
         nodes_policy=o.nodes_policy,
         sweep_budget_frac=ns.sweep_budget_frac, core_options=ns.core_options,
-        extension=bool(ext_notes or ctx.omp_cap or ctx.chem_e_sn),
+        extension=bool(ext_notes or ctx.extension_omp_cap or ctx.chem_e_sn),
         physics=bool(getattr(args, "physics_advice", False)),
         physics_max_candidates=int(getattr(args, "physics_max_candidates", None)
                                    or PIPELINE_PHYSICS_MAX_CANDIDATES),
@@ -417,7 +440,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
                     help="wtune config YAML file: search-space restrictions + budget/probe/"
                          "prediction defaults (wtune/config.py); CLI flags given explicitly still "
                          "override it, which overrides this module's own built-in defaults")
-    p.add_argument("--site", default="scc")
+    p.add_argument("--site", default=None,
+                    help="campaign/sites/<site>.sh (default: the machine's, built-in scc)")
     p.add_argument("--minutes", type=float, default=None,
                     help="required here or via --config's budget.minutes")
     p.add_argument("--nodes", default=None,
@@ -441,6 +465,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
                          "larger N are skipped ('sweep budget cap') so the finalists keep budget "
                          "(default %.1f, or --config's budget.sweep_budget_frac)"
                          % DEFAULT_SWEEP_BUDGET_FRAC)
+    p.add_argument("--hotspot-fill", default=None, choices=("on", "off"), dest="hotspot_fill",
+                    help="--nodes search: measure untried N near the best one in the nodes a "
+                         "sweep wave leaves idle, when no longer than the wave (default on, or "
+                         "--config's budget.hotspot_fill)")
+    p.add_argument("--node-seeds", default=None, choices=("geometric", "all"), dest="node_seeds",
+                    help="--nodes search: 'geometric' (DEFAULT) = 1, 2, 4, ... and max_nodes, "
+                         "early stop upward, then refine; 'all' = every legal N, no early stop "
+                         "(or --config's budget.node_seeds)")
     p.add_argument("--cores-per-node-options", default=None, dest="cores_per_node_options",
                     help="--nodes search: comma list of cores per node to measure at the finalist "
                          "node counts (the rest of the node idles). Default derived from the "
@@ -476,8 +508,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--stop-if-short", action="store_true", dest="stop_if_short",
                     help="-O levels: when the whole run is shorter than the estimated tuning time, "
                          "step down to the highest level whose estimate fits (never below O1). "
-                         "OFF by default: the layout search is not cut short; also active when "
-                         "--minutes is given")
+                         "OFF by default: the layout search is not cut short")
     p.add_argument("--physics-advice", action="store_true", dest="physics_advice",
                     help="-O3: also run phase 3, the physics advice (opt-in, not part of the "
                          "default run)")
@@ -498,7 +529,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
                          "knee=stop doubling once marginal speedup drops below 1.5x "
                          "(default: 'knee', or --config's budget.nodes_policy)")
     p.add_argument("--max-nodes", type=int, default=None, dest="max_nodes",
-                    help="default: %d (or --config's budget.max_nodes)" % DEFAULT_MAX_NODES)
+                    help="default: %d (or --config's budget.max_nodes)" % wtune.machine.max_nodes())
     p.add_argument("--out", default=None)
     p.add_argument("--project", default=None, help="project dir (decision 0058): when given "
                    "(or via $WTUNE_PROJECT / a project.yaml above cwd) and --out is not, "
@@ -521,10 +552,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
                          "sources from probe.indicator_sources)")
     p.add_argument("--seed", type=int, default=DEFAULT_SEED)
     p.add_argument("--kappa", type=float, default=DEFAULT_KAPPA)
-    p.add_argument("--cores-per-node", type=int, default=sweep.DEFAULT_CORES_PER_NODE,
+    p.add_argument("--cores-per-node", type=int, default=wtune.machine.cores_per_node(),
                     dest="cores_per_node")
-    p.add_argument("--hardware-id", default=DEFAULT_HARDWARE_ID, dest="hardware_id")
-    p.add_argument("--env-source", default=sweep.DEFAULT_ENV_SOURCE, dest="env_source")
+    p.add_argument("--hardware-id", default=wtune.machine.hardware_id(), dest="hardware_id")
+    p.add_argument("--env-source", default=wtune.machine.env_source(), dest="env_source")
     p.add_argument("--sbatch-script", default=sweep.DEFAULT_SBATCH_SCRIPT, dest="sbatch_script")
     p.add_argument("--ledger-dir", default=sweep.DEFAULT_LEDGER_DIR, dest="ledger_dir")
     p.add_argument("--sacct-cmd", default="sacct", dest="sacct_cmd")
@@ -543,13 +574,16 @@ def main(argv: list[str] | None = None) -> int:
     except (AttributeError, ValueError):
         pass
     args = build_arg_parser().parse_args(argv)
-    if args.site != "scc":
-        print("ERROR: only --site scc is supported", file=sys.stderr)
+    args.site = args.site or wtune.machine.site()
+    if not os.path.isfile(os.path.join(sweep._CAMPAIGN_DIR, "sites", args.site + ".sh")):
+        print("ERROR: --site %s: there is no campaign/sites/%s.sh" % (args.site, args.site),
+              file=sys.stderr)
         return 2
+    os.environ[wtune.machine.ENV["site"]] = args.site
     if (getattr(args, "level", None) is None and getattr(args, "pipeline", None) is None
             and args.nodes is None):
         args.level = DEFAULT_LEVEL            # the default run: -O2
-    os.environ.setdefault("SITE", "scc")
+    os.environ.setdefault("SITE", args.site)
     try:
         run(args)
     except SystemExit as e:

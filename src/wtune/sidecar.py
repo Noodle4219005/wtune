@@ -4,11 +4,15 @@
 Every controller poll records the newly valid restarts (wtune.resume) in run_report.json and
 hands finished history frames to ONE srun in the job's allocation, on the cores WRF leaves idle,
 which converts them BP -> netCDF into the `wtune post` cache (`wtune/sidecar.py convert`);
-leftovers are converted after the run on a node of their own. The head process never converts."""
+leftovers are converted after the run on a node of their own. The head process never converts.
+With `--compress-history` each converted frame is checked against its BP (tools/bp_nc_same.py)
+and then takes the BP directory's place: zlib netCDF that post reads directly, ~4x smaller."""
 from __future__ import annotations
 
 import argparse
+import glob
 import os
+import shutil
 import subprocess
 import sys
 from typing import Any, Callable, Iterable, Mapping, Optional
@@ -22,8 +26,10 @@ if _HERE not in sys.path:
 
 from wtune.post import extract        # noqa: E402  the cache layout is post's, never restated here
 from wtune import resume as resume   # noqa: E402
+import wtune.machine                # noqa: E402
 
 MAX_BATCH = 64                  # frames per in-job srun
+_SAME_PATH = os.path.join(_HERE, "wtune", "tools", "bp_nc_same.py")
 FINAL_TIME = "01:00:00"         # --time of the after-run conversion
 
 
@@ -81,16 +87,17 @@ def in_job_srun(job_id: str, cores: list, cores_per_node: int, nodes: int) -> li
 
 def own_srun(cores_per_node: int, exclude_arg: str) -> list[str]:
     """srun prefix: one whole node of its own (the run's allocation is gone)."""
-    return ["srun", "-p", "compute", "-N1", "-n1", "-c", str(cores_per_node),
-            "--time=%s" % FINAL_TIME, exclude_arg]
+    return (["srun", "-p", wtune.machine.partition(), "-N1", "-n1", "-c", str(cores_per_node),
+             "--time=%s" % FINAL_TIME]
+            + [a for a in (exclude_arg, wtune.machine.account_arg()) if a])
 
 
 def convert_argv(run_dir: str, cache_root: str, frames: Iterable[str],
-                 mask: Optional[str] = None) -> list[str]:
+                 mask: Optional[str] = None, replace: bool = False) -> list[str]:
     """The conversion command: `frames` (none: every frame of run_dir); with `mask` it refuses
-    to run unless bound inside it."""
+    to run unless bound inside it; `replace`: the checked netCDF takes the BP's place."""
     return ([sys.executable, os.path.abspath(__file__), "convert"]
-            + (["--cpu-mask", mask] if mask else [])
+            + (["--cpu-mask", mask] if mask else []) + (["--replace"] if replace else [])
             + ["--run-dir", run_dir, "--nc-cache", cache_root] + list(frames))
 
 
@@ -123,11 +130,13 @@ class Sidecar:
     def __init__(self, run_dir: str, cache_root: str, max_dom: int,
                  is_bp: Callable[[str], bool], report: dict, save: Callable[[], None],
                  log: Callable[[str], None], cores_per_node: int, exclude_arg: str,
-                 runner: Callable[[list], Any]) -> None:
+                 runner: Callable[[list], Any], replace: bool = False,
+                 keep_last_restart: bool = False) -> None:
         self.run_dir, self.cache_root = run_dir, cache_root
         self.max_dom, self.is_bp = max_dom, is_bp
         self.save, self.log, self.runner, self.off = save, log, runner, False
         self.cores_per_node, self.exclude_arg = cores_per_node, exclude_arg
+        self.replace, self.keep_last_restart = replace, keep_last_restart
         self.rec = report.setdefault("sidecar", {"cache": cache_root, "valid_restarts": [],
                                                  "last_valid_restart": None, "converted": 0,
                                                  "not_converted": []})
@@ -156,7 +165,25 @@ class Sidecar:
             self.log("  sidecar: restart %s valid" % t)
         if new:
             self.rec["last_valid_restart"] = self.rec["valid_restarts"][-1]
+            if self.keep_last_restart:
+                self._drop_older_restarts(seg_dir)
             self.save()
+
+    def _drop_older_restarts(self, seg_dir: str) -> None:
+        """A resume starts from the newest valid restart of the dir (wtune.resume reads the
+        disk), so the older valid sets only take space."""
+        mine = sorted((r for r in self.rec["valid_restarts"]
+                       if r["dir"] == seg_dir and not r.get("deleted")), key=lambda r: r["time"])
+        for r in mine[:-1]:
+            for d in range(1, self.max_dom + 1):
+                for p in glob.glob(os.path.join(seg_dir, "wrfrst_d%02d_%s*"
+                                                % (d, glob.escape(r["time"])))):
+                    if os.path.isdir(p) and not os.path.islink(p):
+                        shutil.rmtree(p)
+                    else:
+                        os.remove(p)
+            r["deleted"] = True
+            self.log("  sidecar: restart %s deleted (a newer one is valid)" % r["time"])
 
     @_never_fatal
     def job_ended(self, seg_dir: str) -> None:
@@ -175,21 +202,43 @@ class Sidecar:
         if left:
             self.log("  sidecar: converting %d frame(s) after the run" % len(left))
             self.runner(own_srun(self.cores_per_node, self.exclude_arg)
-                        + convert_argv(self.run_dir, self.cache_root, [])).wait()
+                        + convert_argv(self.run_dir, self.cache_root, [],
+                                       replace=self.replace)).wait()
             self.rec["not_converted"] = self._missing()
             self.rec["converted"] += len(left) - len(self.rec["not_converted"])
-        self.log("  sidecar: %d frame(s) in %s%s" % (
-            self.rec["converted"], self.cache_root,
+        self._drop_partial_conversions()
+        if self.replace:
+            self._drop_empty_cache_dirs()
+        self.log("  sidecar: %d frame(s) %s%s" % (
+            self.rec["converted"], "now netCDF in place of their BP" if self.replace
+            else "in " + self.cache_root,
             ", %d NOT converted" % len(self.rec["not_converted"])
             if self.rec["not_converted"] else ""))
         self.save()
+
+    def _drop_partial_conversions(self):
+        """Temporary files of a conversion srun killed with its job (nothing converts now)."""
+        for d, _sub, files in os.walk(self.cache_root):
+            for f in files:
+                if ".wtune-tmp-" in f:
+                    os.remove(os.path.join(d, f))
+
+    def _drop_empty_cache_dirs(self):
+        """The cache directories --compress-history moved every netCDF out of."""
+        top = os.path.join(self.cache_root, extract._run_id(self.run_dir))
+        for d in [d for d, _sub, _files in os.walk(top, topdown=False)] + [self.cache_root]:
+            if os.path.isdir(d) and not os.listdir(d):
+                os.rmdir(d)
 
     def _missing(self):
         return [p for _d, _t, p, is_bp in extract._raw_entries(self.run_dir)
                 if is_bp and not self._converted(p)]
 
     def _converted(self, bp):
-        """The cache manifest post.extract writes last exists for BP dir bp."""
+        """The cache manifest post.extract writes last exists for BP dir bp, or bp has already
+        become its netCDF file (--compress-history)."""
+        if os.path.isfile(bp):
+            return True
         with extract.nc_cache(directory=self.cache_root):
             return os.path.isfile(extract._sidecar(extract.cached_nc_path(self.run_dir, bp)))
 
@@ -208,7 +257,9 @@ class Sidecar:
         self.save()
 
     def _convert_in_job(self, seg_dir, job_id, config):
-        cores = idle_cores(config, self.cores_per_node)
+        cores, nice = idle_cores(config, self.cores_per_node), []
+        if not cores and self.replace:  # a full node: share its last core at the lowest priority
+            cores, nice = [self.cores_per_node - 1], ["nice", "-n", "19"]
         if not cores:               # WRF uses every core: finish() converts after the run
             return
         ready = [f for f in self.backlog + finished_frames(seg_dir, False)
@@ -220,15 +271,39 @@ class Sidecar:
                  % (len(ready), job_id, len(cores)))
         self.batch = ready
         self.proc = self.runner(
-            in_job_srun(job_id, cores, self.cores_per_node, config["nodes"])
-            + convert_argv(self.run_dir, self.cache_root, ready, cpu_mask(cores)))
+            in_job_srun(job_id, cores, self.cores_per_node, config["nodes"]) + nice
+            + convert_argv(self.run_dir, self.cache_root, ready, cpu_mask(cores), self.replace))
 
 
-def convert(run_dir: str, cache_root: str, frames: list) -> int:
-    """Convert `frames` (none: every BP history frame of run_dir) into the post cache -> rc."""
+def replace_with_nc(bp: str, nc: str) -> Optional[str]:
+    """BP history dir bp becomes its netCDF copy nc, under bp's name, once tools/bp_nc_same.py
+    finds the same numbers in both -> None, else why bp was kept."""
+    import wtune.bp
+    try:
+        wtune.bp._run_adios2([_SAME_PATH, bp, nc], "check %s against %s" % (nc, bp))
+    except Exception as e:      # noqa: BLE001 -- the BP stays, the reason is reported
+        return "kept as BP: %s" % e
+    old = bp + ".bp-replaced"   # not a history name: post never reads it
+    os.rename(bp, old)
+    shutil.move(nc, bp)
+    shutil.rmtree(old)
+    if os.path.lexists(extract._sidecar(nc)):
+        os.remove(extract._sidecar(nc))
+    return None
+
+
+def convert(run_dir: str, cache_root: str, frames: list, replace: bool = False) -> int:
+    """Convert `frames` (none: every BP history frame of run_dir) into the post cache -> rc;
+    `replace`: each checked netCDF then takes its BP's place."""
     with extract.nc_cache(directory=cache_root):
-        failed = (extract.convert_frames(run_dir, frames) if frames
-                  else dict(extract.prepare_history(run_dir)["failed"]))
+        todo = list(frames) or [p for _d, _t, p, is_bp in extract._raw_entries(run_dir) if is_bp]
+        failed = extract.convert_frames(run_dir, todo)
+        if replace:
+            for bp in todo:
+                if bp not in failed:
+                    why = replace_with_nc(bp, extract.cached_nc_path(run_dir, bp))
+                    if why:
+                        failed[bp] = why
     for bp, err in sorted(failed.items()):
         print("sidecar: %s not converted: %s" % (bp, err), file=sys.stderr)
     return 1 if failed else 0
@@ -241,13 +316,14 @@ def main(argv: Optional[list] = None) -> int:
     cv.add_argument("--run-dir", required=True)
     cv.add_argument("--nc-cache", required=True)
     cv.add_argument("--cpu-mask", default=None)
+    cv.add_argument("--replace", action="store_true")
     cv.add_argument("frames", nargs="*")
     a = ap.parse_args(argv)
     if a.cpu_mask and not bound_within(a.cpu_mask) and not bind_to(a.cpu_mask):
         print("sidecar: not bound inside the idle cores %s (running on %s): nothing converted"
               % (a.cpu_mask, sorted(os.sched_getaffinity(0))), file=sys.stderr)
         return 3
-    return convert(a.run_dir, a.nc_cache, a.frames)
+    return convert(a.run_dir, a.nc_cache, a.frames, a.replace)
 
 
 if __name__ == "__main__":

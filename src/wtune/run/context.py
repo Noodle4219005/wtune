@@ -4,6 +4,8 @@ controller's context."""
 from __future__ import annotations
 
 import dataclasses
+import subprocess
+import time
 from typing import Any, Callable, Optional
 
 from .estimate import Overheads
@@ -41,6 +43,8 @@ class RunOptions:
     campaign_dir: str
     sacct_cmd: str
     poll_interval: float               # s between sacct polls
+    stall_minutes: float = 20.0        # rsl.error.0000 unchanged this long: cancel
+    compress_history: bool = False     # converted frames replace their BP dirs
 
 
 @dataclasses.dataclass
@@ -63,6 +67,10 @@ class RunPlan:
     nc_root: Optional[str] = None      # --sidecar: the `wtune post` netCDF cache
 
 
+def default_scancel(job_id: str) -> None:
+    subprocess.run(["scancel", str(job_id)], capture_output=True, text=True, check=False)
+
+
 @dataclasses.dataclass(frozen=True)
 class Runners:
     """The outside world, injected so tests replace it."""
@@ -71,6 +79,8 @@ class Runners:
     snapshot_fn: Callable              # wtune.watch.snapshot(rundir)
     sleep: Callable
     log: Callable
+    scancel_runner: Callable = None    # (job_id) -> None
+    clock: Callable = time.monotonic
 
 
 @dataclasses.dataclass

@@ -19,7 +19,7 @@ Summary = List[Dict[str, Any]]          # [{key, op, old, new}] in the order app
 
 PHYSICS_TEMPLATES_JSON_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                            "physics_templates.json")
-DEFAULT_SCREEN_DIR = "/home/u5727520/wrf-bench/wscore/physics"
+DEFAULT_SCREEN_DIR = os.path.expanduser("~/wrf-bench/wscore/physics")
 
 # ledger columns a template edit can change (time_step is its own column)
 _LEDGER_PHYSICS_KEYS = (

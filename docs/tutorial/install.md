@@ -35,7 +35,7 @@ export WPS_DIR=/path/to/WPS         # 只有 predict-rebuild 需要
 source ~/wtune-scc/env.sh
 ```
 
-站點相關的設定（每節點核心數、怎麼啟動 MPI）放在 `campaign/sites/<site>.sh`。f1-arm 上 WRF 的編法、各個路徑與操作步驟寫在內部文件「在 f1-arm 編 WRF」與「f1-arm 操作手冊」（`docs/guide/`）。
+站點相關的設定（每節點核心數、怎麼啟動 MPI）放在 `campaign/sites/<site>.sh`。
 
 ### 第 3 層：後處理工具
 

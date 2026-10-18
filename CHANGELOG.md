@@ -3,7 +3,25 @@
 Versions are declared in `wtune_version.py`; `test_wtune_version.py` fails if the top section
 here does not match it. Development before 0.1.0 is in the git history, not in releases.
 
-## Unreleased
+## 0.9.1 — 2026-10-19
+
+**`wtune post preview`: what post will draw, before the run.** It lists the figures of the
+detected case types with the question each answers (`expected_figures.csv`) and draws what is
+known without the model: terrain, the t=0 SLP and 10 m wind from wrfinput, the best track over
+the simulated window, Stage IV rain over that window and the fetched ERA5 z500, into
+`post/preview/figures/` with a `preview.html`. Case-type detection reads wrfinput when there
+are no wrfout frames yet (matthew on f1-arm: the same seven types as the post of its run, under
+a minute on the login node, no job).
+
+**Every figure in one folder.** `wtune post recipe` also hard-links each figure of the report into
+`post/<id>/figures/` as `<type>-<file>`; the per-type folders and the report are unchanged.
+
+**The tune's BP inputs stay in the project.** A tune run inside a project converts its inputs
+into `<project>/input/bp-cache` instead of `~/wtune-runs/bp-cache`; `WTUNE_BP_CACHE` still wins.
+
+**Docs.** A new first tutorial page on how the machine, project and command layers fit and what
+tune, run and post each do; the project folder in full, with what lives outside it and what to
+keep or delete; how to stop a tune and cancel its jobs.
 
 **`--minutes` fills the cap instead of fixing the plan up front.** `-O2` keeps adding
 round0 top-up waves, each sized from the measured startup and s/step, until the cap (less one

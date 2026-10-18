@@ -244,7 +244,7 @@ error: project.yaml machine.cores_per_node: 'many' must be a positive integer
 ```
 
 !!! note "實際跑過的機器"
-    scc 與 f1-arm 都跑過完整流程（tune、run、post）。f1-arm 的完整設定見內部文件「f1-arm 操作手冊」（`docs/guide/f1-arm.md`）。MPI 的啟動方式和節點清理寫在 `campaign/sites/<site>.sh`，換機器時要準備一份，再把 `site` 指過去。
+    scc 與 f1-arm 都跑過完整流程（tune、run、post）。MPI 的啟動方式和節點清理寫在 `campaign/sites/<site>.sh`，換機器時要準備一份，再把 `site` 指過去。
 
 ## project set
 

@@ -45,6 +45,7 @@ wtune <指令> --help
 | `wtune convert nc2bp\|bp2nc\|inputs` | WRF netCDF 與 ADIOS2 BP 互轉 |
 | `wtune metdata find\|check\|fetch` | GRIB 驅動資料的來源、可用性、下載 |
 | `wtune prep geog ...` | 選用的高解析度地理資料與 DEM 匯入 |
+| `wtune prep wps`、`wtune prep real` | 用 WPS 與 real.exe 產生 `wrfinput`／`wrfbdy`（見 [project](../tutorial/project.md)） |
 | `wtune scenario list\|generate\|inspect` | 產生虛構日期的 WRF 驅動資料 |
 
 ## 機器校正

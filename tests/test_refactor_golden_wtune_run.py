@@ -644,7 +644,7 @@ def test_golden_segment_sbatch_and_xml(tmp_path):
 def test_golden_output_dirs_and_staging(tmp_path):
     t0 = dt.datetime(2020, 6, 1, 0)
     nl = T._nl(tmp_path, history_interval="180, 60, 60", restart_interval="360",
-               frames_per_outfile="1, 3, 1")
+               frames_per_outfile="1, 3, 1", io_form_history="14", io_form_restart="14")
     out = {"output_dir_names": [wr.output_dir_names(nl, a, b, n) for a, b, n in (
         (t0, t0 + dt.timedelta(hours=6), 2), (t0 + dt.timedelta(hours=6),
                                               t0 + dt.timedelta(hours=12), 3))]}

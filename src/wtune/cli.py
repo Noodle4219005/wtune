@@ -976,7 +976,7 @@ _FORWARDED_COMMANDS = (
                           'inventory | extract | plot | sounding | tc | compare | report | recipe | custom',
      'post/cli.py', 'wtune.post.cli'),
     ('prep', 'prep_args', 'optional input-data preparation, user-invoked only (decision 0063; wtune/geog.py): '
-                          'geog list | fetch | import-dem | verify | bounds | srtm-fetch',
+                          'geog list | fetch | import-dem | verify | bounds | srtm-fetch; wps | real',
      'wtune/geog.py', None),
     ('project', 'project_args', 'project folder holding case/input/config/runs/post '
                                 '(decision 0058; wtune/project.py): init | info | set',
@@ -1062,7 +1062,7 @@ _IN_PROCESS_COMMANDS = {
 # Forwarded commands that take project.yaml's exclude_nodes and case table, and the subset
 # whose full argv goes to manifest.jsonl here (post and project record their own).
 _PROJECT_AWARE = ('tune', 'run', 'post', 'watch', 'check', 'convert', 'advise', 'submit',
-                  'doctor')
+                  'doctor', 'prep')
 _RECORDED = ('tune', 'run', 'submit')
 
 

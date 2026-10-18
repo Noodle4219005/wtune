@@ -1280,7 +1280,8 @@ T0 = datetime.datetime(2020, 6, 1, 0)
 
 
 def test_output_dir_names_two_domains_different_intervals(tmp_path):
-    nl = _nl(tmp_path, history_interval="180, 60, 60", restart_interval="360")
+    nl = _nl(tmp_path, history_interval="180, 60, 60", restart_interval="360",
+             io_form_history="14", io_form_restart="14")
     got = wr.output_dir_names(nl, T0, T0 + datetime.timedelta(hours=6), 2)
     assert [n for n in got if n.startswith("wrfout_d01")] == [
         "wrfout_d01_2020-06-01_%02d:00:00" % h for h in (0, 3, 6)]
@@ -1289,8 +1290,19 @@ def test_output_dir_names_two_domains_different_intervals(tmp_path):
         "wrfrst_d01_2020-06-01_06:00:00", "wrfrst_d02_2020-06-01_06:00:00"]
 
 
+def test_output_dir_names_skip_netcdf_streams(tmp_path):
+    # a netCDF restart over a pre-created directory is lost without an error (job 27260)
+    nl = _nl(tmp_path, restart_interval="360", io_form_history="14", io_form_restart="2")
+    got = wr.output_dir_names(nl, T0, T0 + datetime.timedelta(hours=6), 1)
+    assert got and not [n for n in got if n.startswith("wrfrst")]
+    nl = _nl(tmp_path, restart_interval="360", io_form_history="2", io_form_restart="14")
+    got = wr.output_dir_names(nl, T0, T0 + datetime.timedelta(hours=6), 1)
+    assert got == ["wrfrst_d01_2020-06-01_06:00:00"]
+
+
 def test_output_dir_names_frames_per_outfile_and_restart_start_excluded(tmp_path):
-    nl = _nl(tmp_path, frames_per_outfile="3, 3, 3", restart_interval="120")
+    nl = _nl(tmp_path, frames_per_outfile="3, 3, 3", restart_interval="120",
+             io_form_history="14", io_form_restart="14")
     t1 = T0 + datetime.timedelta(hours=6)
     got = wr.output_dir_names(nl, t1, t1 + datetime.timedelta(hours=6), 1)
     assert [n for n in got if n.startswith("wrfout")] == [

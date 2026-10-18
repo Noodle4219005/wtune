@@ -71,17 +71,20 @@ def _stamps(t_a: dt.datetime, t_b: dt.datetime, step_s: float, include_start: bo
 
 def output_dir_names(nl: dict, t_a: dt.datetime, t_b: dt.datetime, max_dom: int) -> list[str]:
     """Names of the ADIOS2 history/restart outputs a segment [t_a, t_b] writes (parsed namelist).
-    A custom history_outname gives no history names; other streams are never listed."""
+    A custom history_outname gives no history names; a stream whose io_form is not 14 none (a
+    netCDF writer cannot create a file over a pre-created directory); other streams are never
+    listed."""
     tc = lambda key, d=0, default=None: wp.g_dom(nl, "time_control", key, d, default)  # noqa: E731
+    bp = lambda key: int(wp.g(nl, "time_control", key, 14) or 0) == 14  # noqa: E731
     names = []
-    for d in range(max_dom):
+    for d in range(max_dom if bp("io_form_history") else 0):
         iv = round(coldstart.wrf_interval_minutes(nl, "history_interval", d) * 60)
         if iv > 0 and not wp.g(nl, "time_control", "history_outname"):
             per_file = max(1, int(tc("frames_per_outfile", d, 1) or 1))
             names += ["wrfout_d%02d_%s" % (d + 1, t)
                       for t in _stamps(t_a, t_b, iv, True)[::per_file]]
     rst = round(coldstart.wrf_interval_minutes(nl, "restart_interval") * 60)
-    for t in _stamps(t_a, t_b, rst, False):
+    for t in _stamps(t_a, t_b, rst if bp("io_form_restart") else 0, False):
         names += ["wrfrst_d%02d_%s" % (d, t) for d in range(1, max_dom + 1)]
     return names
 

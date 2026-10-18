@@ -8,12 +8,12 @@ run 2020-06-01_00:00:00 -> 2020-06-01_12:00:00 (720 d01 steps of 60s); 2 segment
 I/O: ADIOS2 (history/input/boundary); restart netCDF (--restart-io-form 2), inputs from <TMP>/out/_bp_inputs (3 netCDF -> BP4, 1 existing BP); one BP per record: wrfbdy_d01
 ADIOS2 inputs: converting wrfinput_d01 wrfinput_d02 wrfbdy_d01 from <TMP>/case in <TMP>/out/_bp_inputs (BP4)
   fresh per-record inputs -> <TMP>/out/seg_0/_bp_inputs (reflink)
-  pre-created 24 output dirs
+  pre-created 21 output dirs
 segment 0/1 2020-06-01_00:00:00 -> 2020-06-01_06:00:00  cli  --time=00:20:00  job 1001
   job 1001: COMPLETED
 segment 0 observed: overhead 300 s, 0.833 s/step -> later --time updated
   fresh per-record inputs -> <TMP>/out/seg_1/_bp_inputs (reflink)
-  pre-created 24 output dirs
+  pre-created 21 output dirs
 segment 1/1 2020-06-01_06:00:00 -> 2020-06-01_12:00:00  cli  --time=00:30:00  job 1002
   job 1002: COMPLETED
 done: 2 segment(s); report <TMP>/out/run_report.json

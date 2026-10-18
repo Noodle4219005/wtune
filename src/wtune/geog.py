@@ -1056,6 +1056,9 @@ def build_parser():
 
 def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] in ("wps", "real"):     # wtune prep wps|real (wtune/prep.py)
+        import wtune.prep
+        return wtune.prep.main(argv)
     if argv and argv[0] == "geog":
         argv = argv[1:]
     a = build_parser().parse_args(argv)

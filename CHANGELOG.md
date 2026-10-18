@@ -29,6 +29,15 @@ Ctrl-C left the segment job running in Slurm and the report said `failed`. `wtun
 runs by `runs/<id>/run.state.json`. The prediction-rebuild jobs of `wtune tune` are now recorded
 as they are submitted, so a stop cancels them too.
 
+**`wtune prep wps` and `wtune prep real`.** WPS (one job: geogrid, ungrib, metgrid) and then
+real.exe (one job) for the project's case over its whole namelist window, reusing the
+`case_rebuild` steps; the forcing is downloaded on the login node. `prep real` links the new
+`wrfinput`/`wrfbdy` into `case/` (`--replace` when it already has them).
+
+**`wtune run --restart-io-form 2` kept no restart.** With ADIOS2 history, each `wrfrst` name was
+pre-created as a directory; WRF's netCDF writer failed on it without an error and the empty
+directory was removed afterwards. Only io_form 14 outputs are pre-created now.
+
 **Restart-only cases.** A case with `wrfrst_d<NN>_<start>` and no `wrfinput_d01` now works
 end to end. `wtune project init` keeps those restart files, sets `restart = .true.` in the
 project's namelist copy and records the restart time and format in `cases.json`. Every tune

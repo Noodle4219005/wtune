@@ -195,7 +195,7 @@ def run_controller(ctx: RunContext) -> int:
     try:
         _run_segments(ctx)
     except Exception:
-        if ctx.sidecar:                # a failed run's frames are converted and booked too
+        if ctx.sidecar:                # a failed or stopped run's frames are converted and booked too
             ctx.sidecar.finish()
         raise
     if ctx.sidecar:

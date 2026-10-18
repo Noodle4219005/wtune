@@ -15,7 +15,7 @@ wtune <指令> --help
 | `wtune doctor` | 檢查機器與專案是否準備好 | 否 | [安裝](../tutorial/install.md) |
 | `wtune submit` | 調校 → 執行 → 後處理，一次做完 | 是 | [submit](../tutorial/quickstart.md) |
 | `wtune tune` | 實測找最快的配置 | 是 | [tune](../tutorial/tune.md) |
-| `wtune stop` | 讓正在跑的 tune 收尾：取消它的 job，用已量到的結果寫報告 | 否 | [tune](../tutorial/tune.md) |
+| `wtune stop` | 讓正在跑的 tune 或 run 收尾：取消它自己的 job，寫出報告 | 否 | [tune](../tutorial/tune.md)、[run](../tutorial/run.md) |
 | `wtune run` | 分段執行，restart 交接，失敗續跑 | 是 | [run 與 watch](../tutorial/run.md) |
 | `wtune watch` | 唯讀監看一個執行目錄 | 否 | [run 與 watch](../tutorial/run.md) |
 | `wtune post ...` | 後處理與分析 | 加 `--srun` 時 | [post](../tutorial/post.md) |

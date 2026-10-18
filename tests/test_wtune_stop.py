@@ -8,10 +8,10 @@ import sys
 import wtune.stop
 
 
-def _state(d, pid, jobs):
+def _state(d, pid, jobs, kind="tune"):
     d.mkdir()
-    (d / "tune.state.json").write_text(json.dumps(dict(pid=pid, jobs=jobs)))
-    return str(d)
+    (d / ("%s.state.json" % kind)).write_text(json.dumps(dict(kind=kind, pid=pid, jobs=jobs)))
+    return str(d / ("%s.state.json" % kind))
 
 
 def test_a_live_tune_gets_sigterm_and_a_dead_ones_leftover_jobs_are_cancelled(tmp_path):
@@ -31,6 +31,7 @@ def test_a_live_tune_gets_sigterm_and_a_dead_ones_leftover_jobs_are_cancelled(tm
     lines = wtune.stop.stop([live_dir, dead_dir], sacct_runner=sacct,
                             scancel_runner=cancelled.append)
     assert live.wait(timeout=10) == -signal.SIGTERM and "asked tune pid" in lines[0]
+    assert "tune pid %d is gone" % gone.pid in lines[1]
     assert cancelled == [["11"]] and "cancelled job(s) 11" in lines[1]
     assert not (tmp_path / "t2" / "tune.state.json").exists()
     assert (tmp_path / "t1" / "tune.state.json").exists()     # the live tune removes its own

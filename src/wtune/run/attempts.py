@@ -9,8 +9,9 @@ import shlex
 import time
 from typing import Any, Callable, Optional
 
+import wtune.stopping
 from ._deps import sweep, wp, tune
-from .common import ADIOS2_IO_FORM, UNSET, WRF_FMT, Record, RunError, _fmt
+from .common import ADIOS2_IO_FORM, UNSET, WRF_FMT, Record, RunError, RunStopped, _fmt
 from .context import RunContext
 from .geometry import Geometry, step_time
 from .namelist import render_segment_namelist
@@ -213,11 +214,21 @@ class StallWatch:
             self.cancel(self.job_id)
 
 
+def stop_before_submit() -> None:
+    """No segment is submitted once the user stopped the run."""
+    if wtune.stopping.STOP["reason"]:
+        raise RunStopped("%s; no further segment submitted" % wtune.stopping.STOP["reason"])
+
+
 def _run_attempt(ctx: RunContext, k: int, seg: Segment, att: Attempt, is_last: bool) -> Outcome:
     """Stage, submit, wait for and inspect one attempt; its record goes into the report."""
     geo, side, run = ctx.geo, ctx.sidecar, ctx.runners
     seg_dir, out_names = _stage_attempt(ctx, k, seg, att)
+    stop_before_submit()
     job_id = _submit_attempt(ctx, k, seg, att, seg_dir)
+    ctx.state.jobs.append(job_id)
+    if ctx.state_file:
+        wtune.stopping.write_state(ctx.state_file, "run", ctx.state.jobs)
     rec = AttemptRecord(dir=seg_dir, job_id=job_id, time_step=att.time_step,
                         submitted_utc=dt.datetime.utcnow().isoformat())
     if att.resume:
@@ -230,6 +241,12 @@ def _run_attempt(ctx: RunContext, k: int, seg: Segment, att: Attempt, is_last: b
     side_poll = side.watcher(seg_dir, job_id, seg.config) if side else None
 
     def on_poll(state):
+        if wtune.stopping.STOP["reason"]:
+            if run.scancel_runner:
+                run.scancel_runner(job_id)
+            rec.state = "CANCELLED"
+            raise RunStopped("%s; segment %d job %s cancelled"
+                             % (wtune.stopping.STOP["reason"], k, job_id))
         stall(state)
         if side_poll:
             side_poll(state)

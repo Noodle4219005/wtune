@@ -59,7 +59,7 @@ def test_rebuild_points_fetch_into_each_point_plan_dir(monkeypatch, tmp_path):
     monkeypatch.setattr(wtune.tune.predict, "read_wrfinput_sample_points", lambda d: ([], None))
     monkeypatch.setattr(wtune.tune.predict, "load_calibration", lambda p: {})
     monkeypatch.setattr(wtune.tune.coldstart, "score_windows_from_rsl", lambda plan, sp, cal: ([], None, []))
-    ctx = types.SimpleNamespace(sbatch_runner=None, owned_jobs=[])
+    ctx = types.SimpleNamespace(sbatch_runner=None, owned_jobs=[], state_file=None)
     pts = [types.SimpleNamespace(at=_dt.datetime(2021, 7, 20, h)) for h in (1, 8)]
     wtune.tune.run_rebuild_points(ctx, pts, dict(ranks=288, omp=1, nx=16, ny=18), 4, str(tmp_path),
                                   str(tmp_path / "out"), _dt.datetime(2021, 7, 19, 18))

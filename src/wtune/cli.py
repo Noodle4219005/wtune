@@ -985,8 +985,8 @@ _FORWARDED_COMMANDS = (
      'analysis/cli.py', 'wtune.analysis.cli'),
     ('predict-rebuild', 'prb_args', 'whole-run wall-time prediction from rebuilt segments measured in parallel on the target config (wtune/rebuild_predict.py)',
      'wtune/rebuild_predict.py', 'wtune.rebuild_predict'),
-    ('stop', 'stop_args', 'stop a running wtune tune like Ctrl-C (it cancels its jobs and writes '
-     'tune_report.json), or cancel the jobs a dead one left (wtune/stop.py)',
+    ('stop', 'stop_args', 'stop a running wtune tune or run like Ctrl-C (it cancels its own jobs '
+     'and writes its report), or cancel the jobs a dead one left (wtune/stop.py)',
      'wtune/stop.py', 'wtune.stop'),
     ('watch', 'watch_args', 'read-only monitor of a WRF run dir: progress, remaining time, hang/nest-stop/failure warnings (wtune/watch.py)',
      'wtune/watch.py', 'wtune.watch'),

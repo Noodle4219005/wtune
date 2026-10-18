@@ -23,6 +23,12 @@ job's site file could not source it (f1-arm, `f1arm.sh: line 23: $HOME/wtune-f1a
 file or directory`); jobs worked only because they inherit the submitting shell. It is now expanded
 like `wrf_tree`.
 
+**`wtune run` stops the same way.** Ctrl-C or `wtune stop` cancels the running segment at the
+next poll, submits no further segment and marks `run_report.json` `stopped` (exit 130). Before,
+Ctrl-C left the segment job running in Slurm and the report said `failed`. `wtune stop` finds
+runs by `runs/<id>/run.state.json`. The prediction-rebuild jobs of `wtune tune` are now recorded
+as they are submitted, so a stop cancels them too.
+
 ## 0.9.1 — 2026-10-19
 
 **`wtune post preview`: what post will draw, before the run.** It lists the figures of the

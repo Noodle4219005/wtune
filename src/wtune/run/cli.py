@@ -14,9 +14,10 @@ from typing import Callable, Optional
 
 import wtune.extensions
 import wtune.machine
+import wtune.stopping
 import wtune.watch
 from ._deps import _CAMPAIGN_DIR, coldstart, sweep, wp
-from .common import WRF_FMT, RunError, _fmt, _hms, parse_hms
+from .common import WRF_FMT, RunError, RunStopped, _fmt, _hms, parse_hms
 from .context import RunContext, RunOptions, RunPlan, Runners, default_scancel
 from .controller import _make_sidecar, run_controller
 from .estimate import (FALLBACK_RADIATION_FACTOR, Overheads, constant_compute_fn,
@@ -431,14 +432,21 @@ def execute(ctx: RunContext) -> int:
     try:
         rc = run_controller(ctx)
         report["status"] = "completed"
+    except RunStopped as e:
+        report["status"], report["error"] = "stopped", str(e)
+        report["finished_utc"] = dt.datetime.utcnow().isoformat()
+        _write_report(path, report)
+        log("wtune run: %s; report %s (the segments done so far are in %s)"
+            % (e, path, ctx.plan.out))
+        return 130
     except (RunError, RuntimeError, OSError, coldstart.ColdstartError) as e:
         report["status"] = "failed"
         report["error"] = str(e)
         _write_report(path, report)
         print("error: %s" % e, file=sys.stderr)
         return 1
-    except BaseException as e:         # Ctrl-C, a bug: never leave the report at "running"
-        report["status"] = "failed"
+    except BaseException as e:         # a second Ctrl-C, a bug: never leave the report "running"
+        report["status"] = "stopped" if isinstance(e, KeyboardInterrupt) else "failed"
         report["error"] = "%s: %s" % (type(e).__name__, e)
         _write_report(path, report)
         raise
@@ -495,4 +503,7 @@ def main(argv: Optional[list] = None, sbatch_runner: Optional[Callable] = None,
                       sleep=sleep or time.sleep, log=log,
                       scancel_runner=scancel_runner or default_scancel,
                       clock=clock or time.monotonic)
-    return execute(_run_context(opts, plan, runners, sidecar_runner))
+    ctx = _run_context(opts, plan, runners, sidecar_runner)
+    ctx.state_file = os.path.join(out, "run.state.json")
+    with wtune.stopping.stop_on_signal(ctx.state_file, "run", opts.poll_interval):
+        return execute(ctx)

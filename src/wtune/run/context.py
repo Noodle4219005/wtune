@@ -88,6 +88,7 @@ class RunState:
     """Budgets that are per run, not per segment."""
     rescue_used: bool = False
     resumes: int = 0
+    jobs: list = dataclasses.field(default_factory=list)   # every segment job, for `wtune stop`
 
 
 @dataclasses.dataclass
@@ -102,6 +103,7 @@ class RunContext:
     case_adios2_xml: Optional[str] = None      # the case's own adios2.xml text
     sidecar: Any = None                        # wtune.sidecar.Sidecar (--sidecar)
     state: RunState = dataclasses.field(default_factory=RunState)
+    state_file: Optional[str] = None           # <out>/run.state.json (wtune.stopping)
 
     @property
     def geo(self) -> Geometry:

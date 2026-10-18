@@ -3,13 +3,13 @@ budget, cancel, read sacct timing / MaxRSS, and the per-job ranking validity gat
 from __future__ import annotations
 
 import datetime
-import json
 import os
 import re
 import shutil
 import sys
 
 import wtune.machine
+import wtune.stopping
 from ._deps import sweep
 from .budget import _job_time_est
 from .common import ANCHOR_END_ID, _fmt_hms, _notes_kv, parse_run_id
@@ -50,8 +50,7 @@ def record_job(ctx: Ctx, job_id: str) -> None:
     """An owned job; with ctx.state_file also on disk (pid + every owned job) for `wtune stop`."""
     ctx.owned_jobs.append(job_id)
     if ctx.state_file:
-        with open(ctx.state_file, "w") as fh:
-            json.dump(dict(pid=os.getpid(), jobs=ctx.owned_jobs), fh)
+        wtune.stopping.write_state(ctx.state_file, "tune", ctx.owned_jobs)
 
 
 def stop_before_submit() -> None:

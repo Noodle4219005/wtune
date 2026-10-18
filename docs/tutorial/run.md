@@ -79,6 +79,16 @@ ADIOS2 的輸出是 BP 目錄。要交 netCDF 檔時，用 `wtune convert bp2nc 
 
 `--compress-history`：在 `--sidecar` 之上，每張轉好的 netCDF（zlib，約小 4 倍，無損）先和原本的 BP 逐變數比對，相同才放到 BP 的位置並刪掉 BP；後處理直接讀它，不再另存一份快取。WRF 用滿所有核心時，轉檔共用最後一顆核心、優先度最低。WTune 自己加的 restart，執行中每個資料夾只留最新一組驗證過的（續跑只用最新那組），整個 run 成功後全部刪掉；個案自己要的 restart 不動。WRF 本身的 ADIOS2 壓縮一律關閉（原版 WRF 4.8 在那條路徑上有緩衝區溢位）。
 
+## 中途停止
+
+`wtune run` 在前景跑時按 **Ctrl-C**，在背景跑時在專案裡下 **`wtune stop`**。它在下一次輪詢時（`--poll-interval`，預設 60 秒）依序：
+
+1. 取消正在跑的那一段 job，之後的段不再送出。
+2. `run_report.json` 的 `status` 寫成 `stopped`，`error` 寫明是哪一段、哪個 job 被取消。
+3. 以結束碼 130 結束。
+
+已經跑完的段留在 `runs/<id>/seg_*/`。再按一次 Ctrl-C 會立刻結束、不取消 job，這時下 `wtune stop` 取消它留下的 job。
+
 ## watch
 
 ```bash

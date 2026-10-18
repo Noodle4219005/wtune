@@ -34,7 +34,7 @@ class StopRequested(QueueCapExceeded):
     """Ctrl-C or `wtune stop` (SIGINT/SIGTERM) during `wtune tune`."""
 
 
-STOP: dict = {"reason": None}          # set by wtune tune's SIGINT/SIGTERM handler
+from wtune.stopping import STOP  # noqa: E402,F401  -- the Ctrl-C / wtune stop flag
 
 
 class RealClock:

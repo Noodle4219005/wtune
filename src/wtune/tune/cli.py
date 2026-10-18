@@ -3,11 +3,8 @@ default), the run context, the mode dispatch and main()."""
 from __future__ import annotations
 
 import argparse
-import contextlib
 import dataclasses
-import json
 import os
-import signal
 import sys
 from typing import Any, Callable
 
@@ -15,6 +12,7 @@ import wtune.config
 import wtune.extensions
 import wtune.machine
 import wtune.nodes
+import wtune.stopping
 from ._deps import _HERE, sweep
 from .context import (CONFIRM_REPS, DEFAULT_KAPPA,
                       DEFAULT_POLL_INTERVAL_S, DEFAULT_SEED, DEFAULT_STEPS, Ctx, RealClock,
@@ -132,33 +130,10 @@ def run(args: argparse.Namespace, sbatch_runner: Callable | None = None,
     return report
 
 
-@contextlib.contextmanager
 def _stop_on_signal(ctx: Ctx):
     """Ctrl-C (SIGINT) or `wtune stop` (SIGTERM): stop at the next poll -- cancel this tune's
-    jobs, keep what was measured, write the report. A second signal quits at once.
-    tune.state.json (pid, owned jobs) lets `wtune stop` find this process or, after a crash or
-    a second Ctrl-C, its jobs; a normal end removes it."""
-    def handler(signum, _frame):
-        if STOP["reason"]:
-            raise KeyboardInterrupt
-        STOP["reason"] = "stopped by %s" % ("Ctrl-C" if signum == signal.SIGINT else "wtune stop")
-        print("\nwtune tune: %s -- at the next poll (every %.0f s) cancelling this tune's jobs and "
-              "writing the report from what was measured; Ctrl-C again quits at once (its jobs "
-              "then keep running: `wtune stop` cancels them)" % (STOP["reason"], ctx.poll_interval),
-              flush=True)
-
-    with open(ctx.state_file, "w") as fh:
-        json.dump(dict(pid=os.getpid(), jobs=[]), fh)
-    try:
-        old = {sig: signal.signal(sig, handler) for sig in (signal.SIGINT, signal.SIGTERM)}
-    except ValueError:                 # not the main thread (embedded use): no handler
-        old = {}
-    try:
-        yield
-    finally:
-        for sig, h in old.items():
-            signal.signal(sig, h)
-    os.remove(ctx.state_file)
+    jobs, keep what was measured, write the report (wtune.stopping)."""
+    return wtune.stopping.stop_on_signal(ctx.state_file, "tune", ctx.poll_interval)
 
 
 def _run_mode(ctx: Ctx, profile: dict, args: argparse.Namespace, o: _RunOptions, ns: _NodeChoice,

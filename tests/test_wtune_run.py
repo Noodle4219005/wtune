@@ -1470,3 +1470,25 @@ def test_compress_history_deletes_only_the_restart_files_of_the_run(tmp_path, mo
     assert ctx.report["restarts_deleted"] == {"files": 2, "bytes": 200}
     assert not list(tmp_path.glob("seg_*/wrfrst_*"))
     assert len(list(tmp_path.glob("seg_*/wrfout_*"))) == 2
+
+
+def test_ctrl_c_during_a_segment_cancels_it_and_marks_the_run_stopped(tmp_path, monkeypatch):
+    import wtune.stopping
+    stop = wtune.stopping.STOP
+    monkeypatch.setitem(stop, "reason", None)
+    f, cancelled, lines = Fakes(), [], []
+
+    def sacct(cmd):                                  # the segment never finishes on its own
+        return "%s|RUNNING|00:01:00\n" % cmd[cmd.index("-j") + 1]
+
+    def sleep(_s):                                   # Ctrl-C while waiting on the first segment
+        stop["reason"] = "stopped by Ctrl-C"
+    case, out = _make_case(tmp_path), tmp_path / "out"
+    rc = wr.main([str(case), "--nodes", "1", "--nx", "8", "--ny", "9", "--segment-minutes", "360",
+                  "--out", str(out), "--poll-interval", "0"],
+                 sbatch_runner=f.sbatch, sacct_runner=sacct, snapshot_fn=f.snapshot, sleep=sleep,
+                 log=lines.append, scancel_runner=cancelled.append)
+    report = json.loads((out / "run_report.json").read_text())
+    assert rc == 130 and report["status"] == "stopped" and "stopped by Ctrl-C" in report["error"]
+    assert cancelled == ["1001"] and len(f.submitted) == 1        # no second segment sent
+    assert not (out / "run.state.json").exists()

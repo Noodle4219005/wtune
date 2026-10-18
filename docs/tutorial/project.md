@@ -55,6 +55,16 @@ flowchart TD
 !!! note "原始個案不會被動到"
     `case/` 裡的 `namelist.input` 是副本，可以自由編輯。`wrfinput`、`wrfbdy`、`met_em` 等是 symlink，WTune 不會開啟原始資料夾來寫入。
 
+### 只有 restart 檔的個案
+
+個案沒有 `wrfinput_d01`、只有 restart 檔時，`project init` 這樣處理：
+
+1. 保留 namelist 起始時間那一組 `wrfrst_d<NN>_<start>`（每個 domain 一個），其他時間的 restart 照舊略過。
+2. 在 `case/namelist.input` 副本裡設 `restart = .true.`。原始資料夾不會被改。
+3. `cases.json` 記下 `restart: true`、起始時間與格式（netCDF 是 2，BP 目錄是 14）。
+
+之後 `wtune tune` 的每個量測都從這組 restart 起跑，`wtune run` 的第一段也是。仍然需要 `wrfbdy_d01`。namelist 的 `start_*` 要等於 restart 檔的時間，不符時 `wtune run` 會列出缺哪些檔。
+
 ### 不在專案裡的東西
 
 | 東西 | 位置 | 為什麼在外面 |

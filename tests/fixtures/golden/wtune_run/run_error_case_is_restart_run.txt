@@ -1,7 +1,8 @@
 rc=2
 --- log
+restart case: io_form_restart 2 (the format of its wrfrst)
 --- stdout
 
 --- stderr
-error: the case itself is a restart run (restart=.true.): not supported
+error: restart = .true. but wrfrst_d01_2020-06-01_00:00:00, wrfrst_d02_2020-06-01_00:00:00, wrfrst_d03_2020-06-01_00:00:00 not in <TMP>/case
 

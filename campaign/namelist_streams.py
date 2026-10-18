@@ -8,7 +8,8 @@ import os
 import re
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Set, Tuple, Union
 
-from namelist_text import _namelist_ints, _namelist_string_values, case_start_datetime
+from namelist_text import (_get_scalar_first, _namelist_ints, _namelist_string_values,
+                           case_start_datetime)
 
 Stream = Dict[str, Any]
 FileRef = Tuple[str, str, bool]
@@ -42,6 +43,11 @@ def _active_domains(text: str) -> List[int]:
 def _for_domains(name: str, doms: Iterable[int]) -> List[str]:
     """`name` with '<domain>' expanded per domain (WRF writes the 2-digit domain id)."""
     return [name.replace("<domain>", "%02d" % d) for d in doms] if "<domain>" in name else [name]
+
+
+def restart_run(text: str) -> bool:
+    """restart = .true.: WRF starts from wrfrst_d0N_<start> and never reads wrfinput."""
+    return (_get_scalar_first(text, "restart") or "").strip(".").lower() in ("true", "t")
 
 
 def _sst_update_on(text: str) -> bool:
@@ -119,18 +125,20 @@ def _stream(stream: str, label: str, io_key: str, group: str, inname_key: str, t
 
 
 def adios2_input_streams(text: str) -> List[Stream]:
-    """The WRF input streams this namelist reads, in order: input (d01 required), boundary
+    """The WRF input streams this namelist reads, in order: input (d01 required; none for a
+    restart run, which reads wrfrst instead), boundary
     (d01 only), auxinput4 (sst_update=1), gfdda / sgfdda (domains with grid_[s]fdda > 0),
     auxinputN (N != 1, 4, inname set and io_form_auxinputN > 0). Each is {stream, label,
     io_key, group, inname_key, template (no .bp), inname ("<basename(template)>.bp"), names
     (per domain; may hold <date>), required}.
     """
     doms = _active_domains(text)
-    out = [_stream("input", "input", "io_form_input", "time_control", "input_inname",
-                   _inname_template(text, "input_inname", "wrfinput_d<domain>"), doms,
-                   lambda n: n[:1]),
-           _stream("boundary", "boundary", "io_form_boundary", "time_control", "bdy_inname",
-                   _inname_template(text, "bdy_inname", "wrfbdy_d<domain>"), [1])]
+    out = [] if restart_run(text) else [
+        _stream("input", "input", "io_form_input", "time_control", "input_inname",
+                _inname_template(text, "input_inname", "wrfinput_d<domain>"), doms,
+                lambda n: n[:1])]
+    out += [_stream("boundary", "boundary", "io_form_boundary", "time_control", "bdy_inname",
+                    _inname_template(text, "bdy_inname", "wrfbdy_d<domain>"), [1])]
     if _sst_update_on(text):
         out.append(_stream("auxinput4", "aux4", "io_form_auxinput4", "time_control",
                            "auxinput4_inname",

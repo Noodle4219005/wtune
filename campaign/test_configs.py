@@ -2123,7 +2123,8 @@ class TestConfigExtras(unittest.TestCase):
 
     def test_restart_pass_gets_run_sec_args(self):
         text = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "strict_campaign.sbatch")).read()
-        passes = [b for b in text.split("edit-namelist")[1:] if "--restart-from" in b.split("\n\n")[0]]
+        passes = [b for b in text.split("edit-namelist")[1:]
+                  if '--restart-from "$RESTART_TIME"' in b.split("\n\n")[0]]  # the spin-up pass
         self.assertEqual(len(passes), 1)
         self.assertIn('--run-minutes "$RUN_MIN_EFF" "${RUN_SEC_ARGS[@]}"', passes[0])
 
@@ -3205,6 +3206,12 @@ class TestAdios2InputStaging(unittest.TestCase):
             return []
         with open(self.log) as f:
             return f.read().split("\n")[:-1]
+
+    def test_a_restart_run_reads_no_wrfinput(self):
+        nl = self.NL.replace(" &time_control\n", " &time_control\n restart = .true.,\n", 1)
+        self.assertNotEqual(nl, self.NL)
+        self.assertEqual([st["stream"] for st in configs.adios2_input_streams(nl)],
+                         ["boundary", "auxinput4", "gfdda"])
 
     def test_streams_and_bp_innames(self):
         sts = {st["stream"]: st for st in configs.adios2_input_streams(self.NL)}

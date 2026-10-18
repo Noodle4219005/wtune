@@ -65,6 +65,7 @@ class RunPlan:
     restart: RestartSetting
     notes: list[str]
     nc_root: Optional[str] = None      # --sidecar: the `wtune post` netCDF cache
+    start_dir: Optional[str] = None    # a restart case: segment 0 reads its wrfrst from here
 
 
 def default_scancel(job_id: str) -> None:

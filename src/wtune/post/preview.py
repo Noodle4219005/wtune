@@ -55,11 +55,10 @@ def _read_stage4(path):
 
 def _domain_map(case_dir, out):
     from wtune.post.recipes import common
-    files = {d: os.path.join(case_dir, "wrfinput_d%02d" % d) for d in range(1, 10)}
-    max_dom = max(d for d, p in files.items() if os.path.exists(p))
+    files = {d: caseinfo.initial_state(case_dir, d) for d in range(1, 10)}
+    max_dom = max(d for d, p in files.items() if p)
     path = common.plot_domain_map(case_dir, max_dom, out, "wrfinput",
-                                  frame_of=lambda d: ("t=0", files[d]) if d in files and
-                                  os.path.exists(files[d]) else None)
+                                  frame_of=lambda d: ("t=0", files[d]) if files.get(d) else None)
     return fig("common_domain_map", path, "preview", domain=1,
                extra=dict(source="wrfinput（初始場）"))
 
@@ -71,7 +70,7 @@ def _slp_wind_t0(case_dir, out, start):
     from wtune.post.recipes.mapfig import save_map
     path = os.path.join(out, "synoptic", "syn_slp_wind10_f000.png")
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    with netCDF4.Dataset(os.path.join(case_dir, "wrfinput_d01")) as ds:
+    with netCDF4.Dataset(caseinfo.initial_state(case_dir)) as ds:
         slp = wrf.getvar(ds, "slp", timeidx=0)
         lats, lons = wrf.latlon_coords(slp, as_np=True)
         u, v = (np.asarray(ds.variables[k][0]) for k in ("U10", "V10"))

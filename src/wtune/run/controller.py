@@ -209,6 +209,9 @@ def _delete_own_restarts(ctx: RunContext) -> None:
     """--compress-history after a run that succeeded: the restart files WTune itself asked for
     (not the case's) only served the segment hand-offs."""
     paths = sorted(glob.glob(os.path.join(ctx.plan.out, "seg_*", "wrfrst_d*")))
+    for p in [p for p in paths if os.path.islink(p)]:   # links to the case's or the last segment's
+        os.remove(p)
+    paths = [p for p in paths if not os.path.islink(p)]
     size = 0
     for p in paths:
         if os.path.isdir(p):            # ADIOS2 restart: a BP directory
@@ -225,7 +228,7 @@ def _delete_own_restarts(ctx: RunContext) -> None:
 def _run_segments(ctx: RunContext) -> None:
     report, segs = ctx.report, ctx.segments
     report["segments"] = segs
-    prev_dir = None
+    prev_dir = ctx.plan.start_dir
     for k, seg in enumerate(segs):
         is_last = k == len(segs) - 1
         if "attempts" not in seg:

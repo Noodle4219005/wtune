@@ -1492,3 +1492,30 @@ def test_ctrl_c_during_a_segment_cancels_it_and_marks_the_run_stopped(tmp_path, 
     assert rc == 130 and report["status"] == "stopped" and "stopped by Ctrl-C" in report["error"]
     assert cancelled == ["1001"] and len(f.submitted) == 1        # no second segment sent
     assert not (out / "run.state.json").exists()
+
+
+def test_a_restart_case_starts_segment_0_from_its_own_wrfrst(tmp_path):
+    case = tmp_path / "case"
+    case.mkdir()
+    (case / "namelist.input").write_text(NAMELIST_3DOM.replace(".false.,", ".true.,", 1))
+    for name in ["wrfbdy_d01"] + ["wrfrst_d%02d_2020-06-01_00:00:00" % d for d in (1, 2, 3)]:
+        (case / name).write_text("x")
+    f = Fakes()
+    rc, out, rep, lines = _run(tmp_path, f, ["--restart-io-form", "14"])
+    assert rc == 0 and rep["status"] == "completed"
+    seg0 = out / "seg_0"
+    assert os.path.realpath(seg0 / "wrfrst_d02_2020-06-01_00:00:00") == str(
+        case / "wrfrst_d02_2020-06-01_00:00:00")
+    tc = wp.parse_namelist(str(seg0 / "namelist.input"))["time_control"]
+    assert tc["restart"] == [True] and tc["io_form_restart"] == [2]   # netCDF wrfrst: io_form 2
+    assert any("io_form_restart 2" in l for l in lines)
+
+
+def test_a_restart_case_without_its_wrfrst_is_refused(tmp_path):
+    case = tmp_path / "case"
+    case.mkdir()
+    (case / "namelist.input").write_text(NAMELIST_3DOM.replace(".false.,", ".true.,", 1))
+    (case / "wrfbdy_d01").write_text("x")
+    (case / "wrfrst_d01_2020-06-01_00:00:00").write_text("x")
+    rc, _out, _rep, lines = _run(tmp_path, Fakes())
+    assert rc != 0

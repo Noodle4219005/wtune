@@ -79,6 +79,10 @@ ADIOS2 的輸出是 BP 目錄。要交 netCDF 檔時，用 `wtune convert bp2nc 
 
 `--compress-history`：在 `--sidecar` 之上，每張轉好的 netCDF（zlib，約小 4 倍，無損）先和原本的 BP 逐變數比對，相同才放到 BP 的位置並刪掉 BP；後處理直接讀它，不再另存一份快取。WRF 用滿所有核心時，轉檔共用最後一顆核心、優先度最低。WTune 自己加的 restart，執行中每個資料夾只留最新一組驗證過的（續跑只用最新那組），整個 run 成功後全部刪掉；個案自己要的 restart 不動。WRF 本身的 ADIOS2 壓縮一律關閉（原版 WRF 4.8 在那條路徑上有緩衝區溢位）。
 
+## 從 restart 起跑
+
+namelist 是 `restart = .true.` 時，第一段從個案自己的 `wrfrst_d<NN>_<start>` 起跑，不需要 `wrfinput`。`io_form_restart` 依 restart 檔的格式自動選：netCDF 檔用 2，BP 目錄用 14，因為 WRF 讀寫 restart 用同一個設定。整理方式見 [project](project.md) 的「只有 restart 檔的個案」。
+
 ## 中途停止
 
 `wtune run` 在前景跑時按 **Ctrl-C**，在背景跑時在專案裡下 **`wtune stop`**。它在下一次輪詢時（`--poll-interval`，預設 60 秒）依序：

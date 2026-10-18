@@ -12,6 +12,7 @@ are WRF/WTune-specific, like the missing-frame check in post/inventory.py).
 """
 from __future__ import annotations
 
+import glob
 import os
 from datetime import datetime, timedelta
 
@@ -145,16 +146,27 @@ def run_length_hours(run_dir):
     return total_h if total_h > 0 else _frame_span_hours(run_dir)
 
 
+def initial_state(case_dir, domain=1):
+    """A domain's state before the run: wrfinput_dNN, else (a restart case) its netCDF
+    wrfrst_dNN_*; None when neither exists."""
+    path = os.path.join(case_dir, "wrfinput_d%02d" % domain)
+    if os.path.exists(path):
+        return path
+    rst = sorted(p for p in glob.glob(os.path.join(case_dir, "wrfrst_d%02d_*" % domain))
+                 if os.path.isfile(p))
+    return rst[0] if rst else None
+
+
 def _d01_bbox_and_window(run_dir):
     """(lat_min, lat_max, lon_min, lon_max, t_start, t_end) for d01, from its wrfout frames'
     own XLAT/XLONG and valid times (each file's Times variable via post.extract, so a
     frames_per_outfile > 1 file contributes all its times; netCDF4, lazily imported -- this
-    module is otherwise stdlib-only). Before the run (no frames yet): wrfinput_d01's grid and
-    time plus the namelist run length."""
+    module is otherwise stdlib-only). Before the run (no frames yet): wrfinput_d01's (or a
+    restart case's wrfrst_d01's) grid and time plus the namelist run length."""
     import netCDF4
     frames = list_frames(run_dir, domain=1)
-    wrfinput = os.path.join(run_dir, "wrfinput_d01")
-    if not frames and os.path.exists(wrfinput):
+    wrfinput = initial_state(run_dir)
+    if not frames and wrfinput:
         with netCDF4.Dataset(wrfinput) as ds:
             t_start = datetime.strptime(b"".join(ds.variables["Times"][0]).decode(), WRF_TIME_FMT)
             lat, lon = ds.variables["XLAT"][0], ds.variables["XLONG"][0]
@@ -237,12 +249,11 @@ def _interior_bounds(ny, nx, bdy_width):
 
 
 def _state_file(run_dir, domain, last=False):
-    """A domain's first (last) wrfout frame, else -- before the run -- its wrfinput; or None."""
+    """A domain's first (last) wrfout frame, else -- before the run -- initial_state; or None."""
     frames = list_frames(run_dir, domain=domain)
     if frames:
         return frames[-1 if last else 0][1]
-    path = os.path.join(run_dir, "wrfinput_d%02d" % domain)
-    return path if os.path.exists(path) else None
+    return initial_state(run_dir, domain)
 
 
 def _domain_hgt_stats(run_dir, domain, bdy_width=DEFAULT_SPEC_BDY_WIDTH):

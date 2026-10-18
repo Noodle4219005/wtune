@@ -32,7 +32,7 @@ from .plan import (RestartSetting, Segment, case_restart_interval_s, checkpoint_
                    checkpoint_steps_for_minutes, missing_record_files, plan_run, restart_setting,
                    restart_times)
 from .report import _write_report, new_report
-from .staging import _missing_namelist_files
+from .staging import _missing_namelist_files, restart_files
 
 DESCRIPTION = "wtune run -- segmented WRF executor with restart hand-offs (`wtune run`)."
 
@@ -177,6 +177,25 @@ def _resolve_out(opts: RunOptions) -> str:
     return wtune.project.default_out_dir(project_dir, "runs")
 
 
+def case_restarts(nl: dict) -> bool:
+    """restart = .true.: segment 0 starts from the case's own wrfrst_dNN_<start>."""
+    return wp.g(nl, "time_control", "restart", False) is True
+
+
+def restart_io_form_of_case(opts: RunOptions, case_dir: str, log: Callable) -> RunOptions:
+    """A restart case: io_form_restart is the format of its wrfrst (a BP directory: 14, else
+    2), since WRF reads and writes restarts with the one io_form."""
+    nl = wp.parse_namelist(os.path.join(case_dir, "namelist.input"))
+    if not case_restarts(nl):
+        return opts
+    found = restart_files(case_dir, _fmt(case_geometry(nl).start), 1)[1]
+    form = 14 if found and os.path.isdir(found[0]) else 2
+    if form != opts.restart_io_form:
+        log("restart case: io_form_restart %d (the format of %s)" % (form, found[0] if found
+                                                                      else "its wrfrst"))
+    return dataclasses.replace(opts, restart_io_form=form)
+
+
 def _load_case(opts: RunOptions, case_dir: str, out: str) -> Case:
     """Read the case and refuse what segments cannot handle."""
     if os.path.commonpath([out, case_dir]) == case_dir:
@@ -187,8 +206,6 @@ def _load_case(opts: RunOptions, case_dir: str, out: str) -> Case:
     with open(nml) as f:
         text = f.read()
     nl = wp.parse_namelist(nml)
-    if wp.g(nl, "time_control", "restart", False) is True:
-        raise RunError("the case itself is a restart run (restart=.true.): not supported")
     for key in ("rst_outname", "rst_inname"):
         if coldstart.count_key(text, key):
             raise RunError("%s is set: segments assume the default wrfrst_d<domain>_<date> "
@@ -199,6 +216,11 @@ def _load_case(opts: RunOptions, case_dir: str, out: str) -> Case:
         if ds is not None and ds != geo.start:
             raise RunError("d%02d starts at %s, not with d01 (%s): staggered nest starts are "
                            "not supported" % (d + 1, _fmt(ds), _fmt(geo.start)))
+    if case_restarts(nl):
+        found = restart_files(case_dir, _fmt(geo.start), geo.max_dom)
+        missing = ["wrfrst_d%02d_%s" % (d, _fmt(geo.start)) for d, p in found.items() if not p]
+        if missing:
+            raise RunError("restart = .true. but %s not in %s" % (", ".join(missing), case_dir))
     return Case(case_dir, text, nl, geo, resolve_end_step(geo, opts.stop_at))
 
 
@@ -364,6 +386,7 @@ def build_plan(opts: RunOptions, case_dir: str, out: str, log: Callable) -> RunP
         import wtune.sidecar
         nc_root = wtune.sidecar.post_cache_root(out, find_project_dir(opts.project))
     return RunPlan(case_dir=case_dir, out=out, text=case.text, geo=case.geo, n_end=case.n_end,
+                   start_dir=case_dir if case_restarts(case.nl) else None,
                    wall_limit_s=wall_limit_s, over=over, replan=replan, inputs=inputs, L=L,
                    segments=segs, restart=rst, notes=notes, nc_root=nc_root)
 
@@ -481,6 +504,7 @@ def main(argv: Optional[list] = None, sbatch_runner: Optional[Callable] = None,
     for note in wtune.extensions.run_notes(case_dir):
         log("EXTENSION: %s" % note)
     try:
+        opts = restart_io_form_of_case(opts, case_dir, log)
         out = _resolve_out(opts)
         plan = build_plan(opts, case_dir, out, log)
     except (RunError, OSError, ValueError, wp.PredictError, coldstart.ColdstartError) as e:

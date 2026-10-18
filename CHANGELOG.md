@@ -29,6 +29,15 @@ Ctrl-C left the segment job running in Slurm and the report said `failed`. `wtun
 runs by `runs/<id>/run.state.json`. The prediction-rebuild jobs of `wtune tune` are now recorded
 as they are submitted, so a stop cancels them too.
 
+**Restart-only cases.** A case with `wrfrst_d<NN>_<start>` and no `wrfinput_d01` now works
+end to end. `wtune project init` keeps those restart files, sets `restart = .true.` in the
+project's namelist copy and records the restart time and format in `cases.json`. Every tune
+probe starts from them (`--restart-from`), and `wtune run` starts segment 0 from them with
+`io_form_restart` matching their format. ADIOS2 input staging no longer requires wrfinput when
+the namelist restarts. `wtune post preview` and the observation window read a netCDF wrfrst
+when there is no wrfinput. `--compress-history` now removes restart *links* instead of failing
+on a linked BP directory.
+
 ## 0.9.1 — 2026-10-19
 
 **`wtune post preview`: what post will draw, before the run.** It lists the figures of the

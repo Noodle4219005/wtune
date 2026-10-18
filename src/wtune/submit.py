@@ -60,7 +60,9 @@ def case_window(case_dir: str):
         _steps, run_s, _dt, _note = wp.get_d01_steps(nl)
         hist_s = _history_interval_s(nl)
         import netCDF4
-        with netCDF4.Dataset(os.path.join(case_dir, "wrfinput_d01")) as ds:
+        from wtune.post.caseinfo import initial_state
+        state = initial_state(case_dir) or os.path.join(case_dir, "wrfinput_d01")
+        with netCDF4.Dataset(state) as ds:
             lat, lon = ds.variables["XLAT"][0], ds.variables["XLONG"][0]
             bbox = (float(lat.min()), float(lat.max()), float(lon.min()), float(lon.max()))
     except (OSError, ValueError, KeyError, ImportError, wp.PredictError):

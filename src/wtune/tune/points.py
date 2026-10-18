@@ -120,11 +120,14 @@ def write_rebuilt_case_entry(case: str, case_entry: dict, index: int, point: Any
     txt = coldstart.build_wrf_window_namelist_text(real_text, T, win_steps, dt, anchor["nx"],
                                                    anchor["ny"], anchor.get("numtiles", 1))
     txt = coldstart.set_list(txt, "run_seconds", 0, 1)
+    restart_case = bool(case_entry.get("restart"))
+    if restart_case:                   # the point starts from its own real.exe output
+        txt = coldstart.set_list(txt, "restart", ".false.", 1)
     template = os.path.join(plan_dir, "namelist.template.input")
     with open(template, "w") as f:
         f.write(txt)
     orig_prep = sweep._expand(case_entry.get("prep_dir") or "")
-    for name in case_entry.get("input_files") or []:
+    for name in [] if restart_case else case_entry.get("input_files") or []:
         dst = os.path.join(real_dir, name)
         if not os.path.lexists(dst) and orig_prep:
             os.symlink(os.path.join(orig_prep, name), dst)
@@ -136,6 +139,9 @@ def write_rebuilt_case_entry(case: str, case_entry: dict, index: int, point: Any
                  steps=int(steps if steps is not None else rebuilt_steps(stepra)), enabled=True,
                  rebuilt_from=case, rebuilt_point_at=point.at.isoformat(),
                  rebuilt_start=T.strftime("%Y-%m-%d_%H:%M:%S"), rebuilt_spinup_min=spinup_min)
+    if restart_case:
+        entry.update(restart=False, input_files=[])
+        entry.pop("restart_time", None)
     return case_id, entry
 
 

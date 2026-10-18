@@ -294,7 +294,8 @@ link_wrf_inputs() {
   fresh_copy_for_run
   for ((d = 1; d <= MAX_DOM; d++)); do
     df=$(printf "d%02d" "$d")
-    if [ -n "$BP_DIR" ]; then ln -sf "$BP_DIR/wrfinput_${df}.bp" "wrfinput_${df}.bp"
+    if [ "${RESTART:-0}" = 1 ]; then :     # a restart case: wrfrst comes from INPUT_FILES
+    elif [ -n "$BP_DIR" ]; then ln -sf "$BP_DIR/wrfinput_${df}.bp" "wrfinput_${df}.bp"
     else ln -sf "$PREP_DIR/wrfinput_${df}" "wrfinput_${df}"; fi
   done
   if [ -n "$BP_DIR" ]; then
@@ -465,6 +466,8 @@ def q(v):
 print("PREP_DIR=%s" % q(c["prep_dir"]))
 print("BP_DIR=%s" % q(c["bp_dir"]))
 print("RESTART=%s" % (1 if c.get("restart") else 0))
+print("CASE_RESTART_TIME=%s" % q(c.get("restart_time", "")))      # a restart-only case
+print("CASE_RESTART_IO_FORM=%s" % q(c.get("restart_io_form", 2)))
 print("DT=%s" % q(c["dt"]))
 print("STEPS_DEFAULT=%s" % q(c["steps"]))
 print("CASE_FAMILY=%s" % q(c["case_family"]))
@@ -937,12 +940,18 @@ for cid in "${ORDER[@]}"; do
     TOTAL_S=$(( STEPS * DT ))
     RUN_MIN_EFF=$(( TOTAL_S / 60 )); RUN_SEC_ARGS=(--run-seconds $(( TOTAL_S % 60 )))
   fi
+  CASE_RESTART_ARGS=()   # a restart-only case starts every probe from its own wrfrst
+  [ "$RESTART" = 1 ] && CASE_RESTART_ARGS=(--restart-from "$CASE_RESTART_TIME"
+                                           --restart-io-form "$CASE_RESTART_IO_FORM")
   python3 "$CAMPAIGN/configs.py" edit-namelist ./namelist.input.orig ./namelist.input \
     --nproc-x "$nx" --nproc-y "$ny" --numtiles "$numtiles" \
     --run-minutes "$RUN_MIN_EFF" "${RUN_SEC_ARGS[@]}" --max-dom "$MAX_DOM" \
     --history-mode "$RUN_HISTORY_ARG" --ranks "$ranks" \
-    "${SET_ARGS[@]}" "${DELETE_ARGS[@]}" "${NEST_ARGS[@]}" "${TILE_ARGS[@]}"
+    "${SET_ARGS[@]}" "${DELETE_ARGS[@]}" "${NEST_ARGS[@]}" "${TILE_ARGS[@]}" \
+    "${CASE_RESTART_ARGS[@]}"
   rm -f ./namelist.input.orig
+  [ "$RESTART" = 1 ] && RANKING_RESTART_IO_FORM=$CASE_RESTART_IO_FORM \
+    write_adios2_restart_xml . "$CASE_RESTART_TIME" "$MAX_DOM"
   # RANKING_START=spinup (see the setup block above): a SECOND, additive edit-namelist pass that
   # re-points this candidate's namelist.input at the shared anchor restart -- never changes the
   # FIRST pass above, so RANKING_START unset/"t0" leaves this candidate's rendered namelist

@@ -88,7 +88,7 @@ def _attempt_namelist(ctx: RunContext, k: int, seg: Segment, att: Attempt,
                                    ctx.plan.restart.set_min, ctx.opts.restart_io_form,
                                    time_step=time_step, io_streams=inputs.io_streams,
                                    per_record_edits=inputs.per_record_edits,
-                                   resumed=bool(att.resume))
+                                   resumed=att.src_dir is not None)
 
 
 def _restart_links(geo: Geometry, k: int, att: Attempt, start: str) -> list[str]:

@@ -406,3 +406,21 @@ def test_submit_passes_compress_history_to_the_run(project):
     assert "--compress-history" in steps["run"]
     assert "--compress-history" not in dict(wtune.submit.plan_steps(project, "ID", "2", True,
                                                                     True))["run"]
+
+
+def test_init_keeps_the_wrfrst_of_a_case_without_wrfinput(tmp_path, case_dir, monkeypatch):
+    monkeypatch.delenv("WTUNE_PROJECT", raising=False)
+    rst = ["wrfrst_d%02d_2019-01-28_00:00:00" % d for d in (1, 2)]
+    for name in rst + ["wrfbdy_d01", "wrfrst_d01_2019-01-29_00:00:00"]:
+        open(os.path.join(case_dir, name), "w").close()
+    p = proj.init_project(str(tmp_path / "p"), case_dir=case_dir)
+    case = os.path.join(p, "case")
+    assert sorted(n for n in os.listdir(case) if n.startswith("wrfrst")) == rst  # not the later one
+    with open(os.path.join(case, "namelist.input")) as fh:
+        assert "restart = .true." in fh.read()
+    with open(os.path.join(case_dir, "namelist.input")) as fh:
+        assert "restart" not in fh.read()                           # the source is never written
+    with open(proj.project_case_table(p)) as fh:
+        entry = list(json.load(fh)["cases"].values())[0]
+    assert (entry["restart"], entry["input_files"], entry["restart_time"],
+            entry["restart_io_form"]) == (True, rst, "2019-01-28_00:00:00", 2)

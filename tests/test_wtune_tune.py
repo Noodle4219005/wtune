@@ -3469,3 +3469,16 @@ def test_busy_time_is_the_union_of_the_jobs_start_to_end():
     lines = rep.summary_lines(dict(winner=row, pipeline=dict(jobs_busy_s=113.0,
                                                               total_wall_s=216.0)))
     assert lines[-1] == "tuning:   jobs running 1:53 of 3:36 wall (the rest is queue and controller)"
+
+
+def test_a_tune_inside_a_project_keeps_its_bp_cache_in_the_project(monkeypatch, tmp_path):
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    (proj / "project.yaml").write_text("{}\n")
+    monkeypatch.delenv("WTUNE_BP_CACHE", raising=False)
+    monkeypatch.delenv("WTUNE_PROJECT", raising=False)
+    wtune.tune.cli._use_project_bp_cache(_types.SimpleNamespace(project=str(proj)))
+    assert os.environ["WTUNE_BP_CACHE"] == str(proj / "input" / "bp-cache")
+    monkeypatch.setenv("WTUNE_BP_CACHE", "/elsewhere")              # an explicit choice wins
+    wtune.tune.cli._use_project_bp_cache(_types.SimpleNamespace(project=str(proj)))
+    assert os.environ["WTUNE_BP_CACHE"] == "/elsewhere"

@@ -96,6 +96,7 @@ def run(args: argparse.Namespace, sbatch_runner: Callable | None = None,
                                                             preflight_runner)
     ns = _resolve_node_choice(args, o, profile, max_nodes, namelist_path)
     out_dir = _run_out_dir(args, o.case)
+    _use_project_bp_cache(args)
     ctx = _build_ctx(args, o, ns, case_json, namelist_path, is_fire, steps, ranking_start_note,
                      max_nodes, out_dir, sbatch_runner, sacct_runner, scancel_runner,
                      ledger_reader, proposer, clock)
@@ -395,6 +396,16 @@ def _run_out_dir(args: argparse.Namespace, case: str) -> str:
                    else sweep._expand("$HOME/wtune-runs/tune/%s" % case))
     os.makedirs(out_dir, exist_ok=True)
     return out_dir
+
+
+def _use_project_bp_cache(args: argparse.Namespace) -> None:
+    """Inside a project the tune's BP input cache is <project>/input/bp-cache/ (decision 0058),
+    not $HOME/wtune-runs/bp-cache; an explicit WTUNE_BP_CACHE still wins. The jobs inherit it
+    through sbatch --export=ALL."""
+    import wtune.project
+    project_dir = wtune.project.find_project(explicit=getattr(args, "project", None))
+    if project_dir:
+        os.environ.setdefault("WTUNE_BP_CACHE", os.path.join(project_dir, "input", "bp-cache"))
 
 
 def _run_pipeline_mode(ctx: Ctx, profile: dict, args: argparse.Namespace, o: _RunOptions,

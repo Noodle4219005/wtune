@@ -35,6 +35,7 @@ source ~/wtune-scc/env.sh       # scc：一次設好 WRF 與編譯器相關的�
 | `WTUNE_NODE_PREFLIGHT` | `0` 關掉調校前每個節點一個的探測工作 | `1` |
 | `WTUNE_MEASURED` | `measured` 對照表的 JSON 形式，由 WTune 自己設定 | 無 |
 | `WTUNE_MACHINE_FILE` | 使用者設定檔的位置 | `~/.config/wtune/machine.yaml` |
+| `WTUNE_BP_CACHE` | tune 把輸入轉成 ADIOS2 BP 後放的地方 | 專案內是 `<project>/input/bp-cache`，否則 `$HOME/wtune-runs/bp-cache` |
 
 ```bash
 export WTUNE_SBATCH_EXCLUDE=work1

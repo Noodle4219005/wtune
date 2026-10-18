@@ -177,6 +177,8 @@ squeue --me -h -o "%i %j" | awk '$2 ~ /^sw-yagi-3f06a1-/ {print $1}' | xargs -r 
 
 GPFS 看的是 `blocks` 加 `in_doubt`：兩者加起來超過 100G，所有寫入都會失敗，而且出現在程式寫檔的錯誤裡，不是 `No space left on device`。每個 job 跑的時候 `in_doubt` 約多 1G／節點。大個案跑之前先清掉舊的 `tune/<id>/` 和 `runs/<id>/`。
 
+2026-10-19 以前，tune 把轉好的 BP 輸入放在專案外的 `~/wtune-runs/bp-cache/`（當時 21G）；之後在專案內跑的 tune 改放 `<project>/input/bp-cache/`。舊的那份只剩專案外的 tune 會用到，確認不再需要就可以刪。
+
 ## 已知限制
 
 | 現象 | 原因 | 影響 |

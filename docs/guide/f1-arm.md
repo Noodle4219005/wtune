@@ -45,7 +45,7 @@ V=$HOME/wrf-stack/nvhpc-arm
 export PATH=$V/bin:$HOME/.pixi/bin:$PATH
 export LD_LIBRARY_PATH=$V/lib:$V/lib64:${LD_LIBRARY_PATH:-}
 export NETCDF=$V HDF5=$V PNETCDF=$V ADIOS2_DIR=$V
-export WRF_TREE=$HOME/wrf-env/nvhpc-arm/wrf/nvhpc-adios2-tuned-dmpar/WRF
+export WRF_TREE=$HOME/wrf-env/nvhpc-arm/wrf/vanilla-v480-adios2-dmpar/WRF
 export OMP_STACKSIZE=1G
 export WTUNE_CARTOPY_DATA=$HOME/wtune-f1arm/cartopy-data   # 計算節點沒網路，post 的底圖放本機
 ```
@@ -62,7 +62,7 @@ account: <你的計畫代號>
 hardware_id: f1-grace
 site: f1arm
 env_source: $HOME/wtune-f1arm/env.sh
-wrf_tree: $HOME/wrf-env/nvhpc-arm/wrf/nvhpc-adios2-tuned-dmpar/WRF
+wrf_tree: $HOME/wrf-env/nvhpc-arm/wrf/vanilla-v480-adios2-dmpar/WRF
 max_hours: 8.0
 max_omp: 1
 node_preflight: false
@@ -77,7 +77,7 @@ copy_probe_inputs: false
 | `node_preflight: false` | 跳過每個節點 1 分鐘的 `srun` 探測，省排隊時間 |
 | `copy_probe_inputs: false` | 不把輸入複製到每個探測目錄，省家目錄配額 |
 
-換 WRF 樹時 `env.sh` 的 `WRF_TREE` 和這裡的 `wrf_tree` 要一起改。
+換 WRF 樹時 `env.sh` 的 `WRF_TREE` 和這裡的 `wrf_tree` 要一起改。只 `export WRF_TREE` 不夠：`wtune run` 會用它，但 tune 的量測 job 送出前會先 `source` env 檔，用的是檔案裡的 `WRF_TREE`。要讓某次 tune 用別的樹，就另存一份 env 檔，再 `export WTUNE_ENV_SOURCE=<那份檔>`。`~/wtune-f1arm/env-tuned.sh` 就是這樣留下來的：它指向舊的 tuned 樹，給需要和舊量測比較的驗證用。
 
 ## 更新 WTune
 
@@ -185,4 +185,4 @@ GPFS 看的是 `blocks` 加 `in_doubt`：兩者加起來超過 100G，所有寫�
 | 5 節點以上的掃描排很久 | `arm1440` 每人 2 跑／4 送，叢集忙 | 用 `--max-queue-hours` 收尾 |
 | 整段模擬時間的 I/O 預測不準 | 沒有 f1-arm 的 calibration，退回 `machine/calibration/scc.json` | 只影響時間預測，不影響選哪個設定 |
 | 每個輸出檔印一次 `adios2 error ... error code 4` | ADIOS2 沒有編進 Blosc2，壓縮加不上去 | 輸出照寫、不壓縮 |
-| 預設的 WRF 樹改過原始碼 | `nvhpc-adios2-tuned-dmpar` 含團隊的 `wrf_io.F90` patch | 要用未改的 WRF 見 [在 f1-arm 編 WRF](build-wrf-f1-arm.md) |
+| 舊的量測不能直接和現在比 | 2026-10-19 以前用 `nvhpc-adios2-tuned-dmpar`（含團隊的 `wrf_io.F90` patch、多了 `-tp=grace -Mstack_arrays -Mfprelaxed`），之後預設是 vanilla | 要比就用 `env-tuned.sh`，見上面 machine.yaml 那段 |

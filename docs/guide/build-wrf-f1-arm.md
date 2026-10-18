@@ -6,11 +6,11 @@ WTune 不編 WRF，只要求 `WRF_TREE` 底下有 `main/wrf.exe`、`main/real.ex
 
 | 樹 | 原始碼 | FCOPTIM | 說明 |
 |---|---|---|---|
-| `~/wrf-env/nvhpc-arm/wrf/vanilla-v480-adios2-dmpar/WRF` | 上游 v4.8.0（`06d4240`），未改 | configure 原值 | 2026-10-14，job 15516；ADIOS2 輸出與 netCDF 逐位元相同 |
-| `~/wrf-env/nvhpc-arm/wrf/nvhpc-adios2-tuned-dmpar/WRF` | `~/SC26-WRF/src/WRF`，含團隊的 `wrf_io.F90` patch | 原值加 `-tp=grace -Mstack_arrays -Mfprelaxed` | 2026-08-24；目前 `env.sh` 的 `WRF_TREE` 指這棵 |
+| `~/wrf-env/nvhpc-arm/wrf/vanilla-v480-adios2-dmpar/WRF` | 上游 v4.8.0（`06d4240`），未改 | configure 原值 | 2026-10-14，job 15516；ADIOS2 輸出與 netCDF 逐位元相同；2026-10-19 起是預設 |
+| `~/wrf-env/nvhpc-arm/wrf/nvhpc-adios2-tuned-dmpar/WRF` | `~/SC26-WRF/src/WRF`，含團隊的 `wrf_io.F90` patch | 原值加 `-tp=grace -Mstack_arrays -Mfprelaxed` | 2026-08-24；2026-10-19 以前的量測都用它，`~/wtune-f1arm/env-tuned.sh` 指這棵 |
 
-!!! warning "預設的那棵改過原始碼"
-    `nvhpc-adios2-tuned-dmpar` 是從團隊的 WRF 分支複製來的，`external/io_adios2/wrf_io.F90` 有改動。要用未改的 WRF，把 `~/wtune-f1arm/env.sh` 的 `WRF_TREE` 和 `~/.config/wtune/machine.yaml` 的 `wrf_tree` 都換成 `vanilla-v480-adios2-dmpar` 那棵。
+!!! warning "tuned 那棵改過原始碼"
+    `nvhpc-adios2-tuned-dmpar` 是從團隊的 WRF 分支複製來的，`external/io_adios2/wrf_io.F90` 有改動。2026-10-19 起 `~/wtune-f1arm/env.sh` 與 `~/.config/wtune/machine.yaml` 的預設已換成未改的 `vanilla-v480-adios2-dmpar`；舊的設定備份在 `*.bak-20261019`。
 
 ## 整體順序
 
@@ -177,5 +177,7 @@ export WRF_TREE=$HOME/wrf-env/nvhpc-arm/wrf/vanilla-v480-adios2-dmpar/WRF
 # ~/.config/wtune/machine.yaml
 wrf_tree: $HOME/wrf-env/nvhpc-arm/wrf/vanilla-v480-adios2-dmpar/WRF
 ```
+
+只改 `export WRF_TREE` 不夠：tune 的量測 job 送出前會先 `source` env 檔，用的是檔案裡的值（見 [f1-arm 操作手冊](f1-arm.md) 的 machine.yaml 一節）。
 
 `wtune doctor` 會印出它找到的 `wrf.exe`。換樹之後，之前的 `tune_report.json` 是用舊的執行檔量的；編譯旗標不同時要重新 tune。

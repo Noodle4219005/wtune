@@ -55,7 +55,7 @@ wtune doctor
 
 **支援範圍**
 
-- 只有 `scc` 這個站點實際跑過完整流程。換機器要準備 `campaign/sites/<site>.sh`，並在 [machine](../tutorial/project.md#machine) 填好規格與路徑。
+- `scc` 與 `f1-arm` 實際跑過完整流程。換機器要準備 `campaign/sites/<site>.sh`，並在 [machine](../tutorial/project.md#machine) 填好規格與路徑。
 - ndown、NMM、MPAS 不支援。
 - WRF 擴展的限制見 [WRF 擴展](extensions.md)。
 

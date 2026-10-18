@@ -9,6 +9,8 @@ exclude_docs: |
   /REVIEW_MAP.md
   /WTUNE_RUN.md
   /CODE_STYLE.md
+  /guide/f1-arm.md
+  /guide/build-wrf-f1-arm.md
   /figures/
 
 nav:

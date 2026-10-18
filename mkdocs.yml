@@ -69,6 +69,9 @@ nav:
       - calc、advise、physics、prep geog: guide/advice.md
       - WRF 擴展: guide/extensions.md
       - 常見問題與已知限制: guide/faq.md
+  - 站點：f1-arm:
+      - 操作手冊: guide/f1-arm.md
+      - 編 WRF: guide/build-wrf-f1-arm.md
   - 參考:
       - 指令總表: reference/cli.md
       - 環境變數: reference/env.md

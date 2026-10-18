@@ -50,6 +50,16 @@ wtune tune -O3 --stop-if-short     # 整段模擬比調校還短時，自動降�
 !!! note "排隊時間不算在預算裡"
     `--minutes` 只計算量測本身。累積的排隊等待另有上限 `--max-queue-hours`（預設 6 小時），超過就不再送 job，用已量到最快的 N 的 ANCHOR 設定回報；一個 N 都還沒量到才中止。
 
+## 中途停止
+
+`wtune tune` 沒有處理中斷訊號：Ctrl-C 或 `kill` 只停掉它自己，已送出的量測 job 會留在佇列裡。量測 job 都叫 `sw-<case-id>-n<N>`（`<case-id>` 印在輸出開頭的 `case=` 那行），停掉 tune 之後照名稱取消：
+
+```bash
+squeue --me -h -o "%i %j" | awk '$2 ~ /^sw-<case-id>-/ {print $1}' | xargs -r scancel
+```
+
+被殺掉的 tune 不會寫 `tune_report.json`。要它交出目前為止的結果，就讓 `--minutes` 或 `--max-queue-hours` 自己到期。
+
 ## 採樣點怎麼選
 
 ```mermaid

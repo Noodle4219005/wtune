@@ -73,7 +73,8 @@ wtune tune: stopped by Ctrl-C -- tune/<id>/tune_report.json holds the best of wh
 
 - **再按一次 Ctrl-C**：立刻結束，不寫報告，還在 Slurm 裡的 job 也不會取消。這時下 `wtune stop`：它看到 tune 已經不在，就只取消這次 tune 留下的 job。
 - **`wtune stop --dry-run`**：只列出會做什麼，不實際動作。
-- **還沒量到任何結果就停下**：不會有報告。
+- **還沒量到任何結果就停下**：仍會寫一份 `tune_report.json`，但裡面沒有結果。`wtune run` 會跳過它，改用前一份有結果的報告，並印出 `tune report skipped: ... has no result`。
+- **一波量測進行到一半時停下**：那一波裡已經跑完的節點數照樣算進結果，只取消還在排隊或還在跑的。
 - **在 `wtune submit` 裡按 Ctrl-C**：正在跑的那一步先自己收尾（tune 會取消 job、寫出報告），然後 submit 停下。接著用 `wtune submit --skip-tune` 執行並做後處理。再按一次 Ctrl-C 會直接結束那一步。
 
 ## 採樣點怎麼選

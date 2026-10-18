@@ -57,7 +57,7 @@ flowchart TD
 
 ### 沒有 wrfinput：用 prep 產生
 
-個案只有 `namelist.input` 與 `namelist.wps` 時，在專案裡依序下：
+個案沒有 `wrfinput`、`wrfbdy`，或要重新產生時，在專案裡依序下（投影取自 `namelist.wps`，沒有時取自 `wrfinput_d01`）：
 
 1. `wtune prep wps`：在登入節點下載整段時間的 GFS／FNL／CFSR（依日期自動選，`--forcing` 可指定），再送一個 job 跑 geogrid、ungrib、metgrid。
 2. `wtune prep real`：送一個 job 跑 real.exe，把新的 `wrfinput_d<NN>`、`wrfbdy_d01` 連結進 `case/`。`case/` 已經有這些檔時要加 `--replace`。

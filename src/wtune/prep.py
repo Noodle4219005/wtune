@@ -76,9 +76,9 @@ def prep_wps(project: str | None = None, forcing: str | None = None, poll_s: flo
              **runners) -> list:
     """met_em files of the whole window in <project>/input/prep/wps/."""
     case_dir, out = _dirs(project)
-    if not os.path.exists(os.path.join(case_dir, "namelist.wps")):
-        raise PrepError("%s/namelist.wps is missing: WPS needs the case's domain definition"
-                        % case_dir)
+    if not any(os.path.exists(os.path.join(case_dir, n)) for n in ("namelist.wps", "wrfinput_d01")):
+        raise PrepError("%s has neither namelist.wps nor wrfinput_d01: WPS needs the domain's "
+                        "projection" % case_dir)
     for k in ("WPS_DIR", "WRF_TREE"):
         if not os.environ.get(k):
             raise PrepError("%s is not set -- source the machine's env.sh first" % k)

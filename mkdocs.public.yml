@@ -16,6 +16,7 @@ exclude_docs: |
 nav:
   - 首頁: index.md
   - 教學:
+      - 0. 整體運作: tutorial/overview.md
       - 1. 安裝: tutorial/install.md
       - 2. submit: tutorial/quickstart.md
       - 3. project: tutorial/project.md

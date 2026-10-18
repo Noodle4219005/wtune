@@ -10,30 +10,72 @@ wtune project info
 
 ```text
 mycase/
-  project.yaml      個案、站點、要避開的節點、機器規格、後處理預設值、風暴資訊
-  cases.json        這個專案的個案登記（wtune tune 用）
-  case/             namelist 的副本，其餘檔案是 symlink
-  input/            驅動資料與觀測（era5/、obs/<name>/、bp/）
-  tune/<id>/        wtune tune 的輸出
-  predict/<id>/     wtune predict-rebuild 的輸出
-  runs/<id>/        wtune run 的輸出
-  post/<id>/        wtune post 的輸出（圖、表、report.html）
-  analysis/         你自己的分析腳本（wtune post custom 會執行）
-  manifest.jsonl    每個 wtune 指令一行記錄
+  project.yaml        個案、站點、機器覆寫、後處理預設、風暴資訊（用 wtune project set 改）
+  cases.json          個案登記（wtune tune 用）
+  wtune.yaml          （選用）這個專案自己的調校限制
+  manifest.jsonl      每個 wtune 指令一行：時間、版本、指令、輸入的 sha256、輸出、exit code
+  case/               namelist.input 是副本，可以改；wrfinput、wrfbdy 等是 symlink，唯讀
+  input/
+    bp/               run 用的 ADIOS2 輸入（第一次 run 時轉好）
+    bp-cache/         tune 用的 ADIOS2 輸入
+    era5/             wtune post fetch era5
+    obs/<name>/       stage4、igra、stations、mrms…，各附 provenance.json
+  tune/<id>/          一次 tune
+    tune_report.json    WINNER、摘要、量過的所有配置
+    nodes-n<N>/         節點數掃描每個 job 的輸出
+    cores-n<N>-c<C>/    每節點核心數的量測
+    n<N>/               候選節點數上的切法量測
+  runs/<id>/          一次 run
+    run_report.json     用了哪個配置、每段的 job 與結果
+    seg_<k>/            第 k 段的 WRF 執行目錄與輸出
+  post/<id>/          一次後處理
+    report.html         全部的圖加說明
+    figures/            全部的圖集中在這裡（<類型>-<檔名>）
+    <類型>/              圖旁邊的資料檔（csv、追蹤結果…）
+  post/preview/       wtune post preview，每次覆寫
+  predict/<id>/       wtune predict-rebuild
+  analysis/           你自己的分析腳本（wtune post custom 會執行）
+  _nc_cache/          後處理把 BP 轉成 netCDF 的快取，可以刪，會重建
 ```
+
+`<id>` 是開始時間（UTC），例如 `20261018165842`。哪個 id 是哪個指令產生的，查 `manifest.jsonl`。
 
 ```mermaid
 flowchart TD
     SRC[原始個案資料夾<br/>永遠唯讀] -->|namelist 複製<br/>其餘 symlink| CASE[case/]
+    CASE --> PRE[post/preview/]
     CASE --> TUNE[tune/&lt;id&gt;/]
     TUNE -->|tune_report.json| RUNS[runs/&lt;id&gt;/]
     RUNS -->|wrfout| POST[post/&lt;id&gt;/]
-    INPUT[input/obs/] --> POST
+    INPUT[input/obs/、input/era5/] --> PRE
+    INPUT --> POST
     TUNE & RUNS & POST -.->|每個指令一行| MAN[manifest.jsonl]
 ```
 
 !!! note "原始個案不會被動到"
     `case/` 裡的 `namelist.input` 是副本，可以自由編輯。`wrfinput`、`wrfbdy`、`met_em` 等是 symlink，WTune 不會開啟原始資料夾來寫入。
+
+### 不在專案裡的東西
+
+| 東西 | 位置 | 為什麼在外面 |
+|---|---|---|
+| WRF 執行檔、函式庫 | `WRF_TREE`、`env.sh` 指的地方 | 每個專案共用 |
+| 機器設定 | `~/.config/wtune/machine.yaml` | 每個專案共用 |
+| tune 每個量測 job 的原始紀錄（ledger CSV）與 WRF 工作目錄 | `~/wtune-runs/campaign/` | 目前寫死在這裡；整理過的結果在 `tune/<id>/tune_report.json` |
+| 專案外執行的 tune 的 ADIOS2 輸入 | `~/wtune-runs/bp-cache/` | 只有不在專案裡跑 tune 時才用 |
+
+### 怎麼整理
+
+- **一個個案一個專案**。同一批實驗的專案放在同一個上層資料夾，例如 `~/wtune-projects/<批次>/<個案>/`。整批的腳本、總表、筆記放在上層，不要放進個案專案。
+- **自己的 log 不要放在專案根目錄**，放到 `logs/`（WTune 不會碰它）。根目錄只留 WTune 的檔案，`project info` 才看得清楚。
+- **一定要留**：`project.yaml`、`case/`、`manifest.jsonl`、每個 `tune/<id>/tune_report.json`、`runs/<id>/run_report.json`、`post/<id>/report.html` 與 `figures/`。這些是結果和來源的紀錄，佔的空間很小。
+- **需要空間時可以刪**：
+    - `_nc_cache/` 和 `input/bp-cache/`：會重建。
+    - 舊的 `runs/<id>/seg_<k>/` 輸出：先確認那次的 post 做完。
+    - 舊的 `post/<id>/<類型>/` 資料檔。
+  
+  刪之前先查 `manifest.jsonl`，確認那個 id 是哪次指令產生的。
+- **換了 WRF 執行檔或編譯旗標，要重新 tune**：`tune/<id>/` 的數字只對當時的 `wrf.exe` 成立。
 
 ## project 的搜尋順序
 

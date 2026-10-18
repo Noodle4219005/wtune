@@ -39,7 +39,7 @@ def stop(tune_dirs: list, dry_run: bool = False, sacct_runner=None, scancel_runn
             if not dry_run:
                 kill(pid, signal.SIGTERM)
             lines.append("%s: %s tune pid %d to stop; it cancels its jobs and writes "
-                         "tune_report.json within one poll (~20 s)"
+                         "tune_report.json at its next poll (every 20 s)"
                          % (d, "would ask" if dry_run else "asked", pid))
             continue
         states = sweep.sacct_states(jobs, **({"sacct_runner": sacct_runner} if sacct_runner

@@ -36,7 +36,7 @@ flowchart LR
 | `-O2` | `-O1` 加上：往最佳節點數兩側補量、每節點核心數、在選定的節點數上抽樣量測切法 | 一般情況（`wtune submit` 的預設） |
 | `-O3` | `-O2` 加上：保留兩個節點數、所有合法的 rank × 執行緒、切法、tile 數、由模型逐輪提出候選，最後前幾名重複量測確認 | 很長的正式執行，調校成本攤得掉 |
 
-直接下 `wtune tune` 不帶等級時是 `-O3`。
+直接下 `wtune tune` 不帶等級時是 `-O2`。
 
 開始之前，WTune 會先印出**每個等級估計要花多久**，再開始送 job。
 
@@ -57,7 +57,7 @@ wtune tune -O3 --stop-if-short     # 整段模擬比調校還短時，自動降�
 - 在前景跑：按 **Ctrl-C**。
 - 在背景跑（`setsid nohup ... &`），或要從別的終端機停：在專案裡下 **`wtune stop`**。
 
-兩種做法效果一樣。tune 在下一次輪詢時（最多約 20 秒）會依序：
+兩種做法效果一樣。tune 在下一次輪詢時（每 20 秒一次，加上收尾，在 f1-arm 實測 5–24 秒）會依序：
 
 1. 停止送新的 job。
 2. 取消這次 tune 自己的 job，其他工作不受影響。
@@ -66,9 +66,9 @@ wtune tune -O3 --stop-if-short     # 整段模擬比調校還短時，自動降�
 接著 `wtune run` 就會用這份報告。
 
 ```text
-wtune tune: stopped by Ctrl-C -- cancelling this tune's jobs within 20 s and writing the report from what was measured; ...
+wtune tune: stopped by Ctrl-C -- at the next poll (every 20 s) cancelling this tune's jobs and writing the report from what was measured; ...
 ...
-wtune tune: stopped by Ctrl-C -- tune/<id>/tune_report.json holds the best of what was measured; `wtune run` uses it
+wtune tune: stopped by Ctrl-C -- <專案>/tune/<id>/tune_report.json holds the best of what was measured; `wtune run` uses it
 ```
 
 - **再按一次 Ctrl-C**：立刻結束，不寫報告，還在 Slurm 裡的 job 也不會取消。這時下 `wtune stop`：它看到 tune 已經不在，就只取消這次 tune 留下的 job。
@@ -238,6 +238,8 @@ wtune tune --node-objective knee --min-efficiency 0.7    # 平行效率仍有 0.
 ```bash
 wtune tune --nodes 4
 ```
+
+某個節點數在每節點全部核心上找不到合法的 MPI 切法時（網格太小或格點數不好分），掃描改用那個節點數上能切的最多核心量 ANCHOR，log 會寫 `node sweep: N=7 has no legal decomposition on all 144 cores/node; ANCHOR on 136 (...)`。記憶體放不下時也一樣先試少一點核心，都不行才跳過那個節點數。
 
 ## 不更動的項目
 

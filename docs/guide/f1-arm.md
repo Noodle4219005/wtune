@@ -168,7 +168,7 @@ wtune stop
 wtune run                 # 用剛寫出的 tune_report.json
 ```
 
-`wtune stop` 找到這個專案正在跑的 tune，請它收尾，約 20 秒內完成：
+`wtune stop` 找到這個專案正在跑的 tune，請它收尾，通常半分鐘內完成：
 
 - 取消它自己的 job。
 - 用已量到的最快配置寫出 `tune_report.json`。

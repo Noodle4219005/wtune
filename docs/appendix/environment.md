@@ -181,6 +181,7 @@ export LD_LIBRARY_PATH=$V/lib:$V/lib64:${LD_LIBRARY_PATH:-}
 export NETCDF=$V HDF5=$V PNETCDF=$V ADIOS2_DIR=$V
 export WRF_TREE=$HOME/wrf-env/nvhpc-arm/wrf/vanilla-v480-adios2-dmpar/WRF
 export WPS_DIR=$HOME/wrf-env/nvhpc-arm/wps/WPS-4.6.0      # 有編 WPS 才需要
+export WTUNE_ADIOS2_PYTHON=$HOME/wtune-envs/campaign/.pixi/envs/default/bin/python   # 有 adios2 綁定的 python
 export OMP_STACKSIZE=1G
 ```
 

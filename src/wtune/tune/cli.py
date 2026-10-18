@@ -142,9 +142,10 @@ def _stop_on_signal(ctx: Ctx):
         if STOP["reason"]:
             raise KeyboardInterrupt
         STOP["reason"] = "stopped by %s" % ("Ctrl-C" if signum == signal.SIGINT else "wtune stop")
-        print("\nwtune tune: %s -- cancelling this tune's jobs within %.0f s and writing the report "
-              "from what was measured; Ctrl-C again quits at once (its jobs then keep running: "
-              "`wtune stop` cancels them)" % (STOP["reason"], ctx.poll_interval), flush=True)
+        print("\nwtune tune: %s -- at the next poll (every %.0f s) cancelling this tune's jobs and "
+              "writing the report from what was measured; Ctrl-C again quits at once (its jobs "
+              "then keep running: `wtune stop` cancels them)" % (STOP["reason"], ctx.poll_interval),
+              flush=True)
 
     with open(ctx.state_file, "w") as fh:
         json.dump(dict(pid=os.getpid(), jobs=[]), fh)

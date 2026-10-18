@@ -47,6 +47,7 @@ export LD_LIBRARY_PATH=$V/lib:$V/lib64:${LD_LIBRARY_PATH:-}
 export NETCDF=$V HDF5=$V PNETCDF=$V ADIOS2_DIR=$V
 export WRF_TREE=$HOME/wrf-env/nvhpc-arm/wrf/vanilla-v480-adios2-dmpar/WRF
 export WPS_DIR=$HOME/wrf-env/nvhpc-arm/wps/WPS-4.6.0    # WPS 4.6.0，可讀 GRIB2
+export WTUNE_ADIOS2_PYTHON=$HOME/wtune-envs/campaign/.pixi/envs/default/bin/python   # 有 adios2 綁定的 python
 export OMP_STACKSIZE=1G
 export WTUNE_CARTOPY_DATA=$HOME/wtune-f1arm/cartopy-data   # 計算節點沒網路，post 的底圖放本機
 ```
@@ -100,7 +101,6 @@ ssh f1-arm "cd ~/wtune-adios2 && ~/.pixi/bin/pixi install --frozen --manifest-pa
 ```bash
 source ~/wtune-f1arm/env.sh
 export PATH=$HOME/wtune-adios2/bin:$PATH
-export WTUNE_ADIOS2_PYTHON=$HOME/wtune-envs/campaign/.pixi/envs/default/bin/python
 wtune doctor
 ```
 

@@ -186,7 +186,7 @@ node sweep: nodes-n6 submitted job 7004 (ANCHOR ranks=432 omp=1 18x24, REPS=1, 5
 [node-sweep] [------------------------]   0%  elapsed=0:00 / budget=16:30  (running budget; wall 59:00, queue-only 59:00)
 [node-sweep] [------------------------]   0%  elapsed=0:00 / budget=16:30  (running budget; wall 59:20, queue-only 59:20)
 [node-sweep] [------------------------]   0%  elapsed=0:00 / budget=16:30  (running budget; wall 59:40, queue-only 59:40)
-budget deadline reached: cancelling 4 in-flight job(s) owned by this run: 7001,7002,7003,7004
+cancelling 4 in-flight job(s) owned by this run: 7001,7002,7003,7004
 pipeline: phase 1 STOPPED -- queue-only wait 1:00:00 reached --max-queue-hours (1:00:00); in-flight job(s) 7001,7002,7003,7004 cancelled
 pipeline: run-length I/O model unavailable (FileNotFoundError: [Errno 2] No such file or directory: '<TMP>/namelist.input') -- whole-run prediction is compute + init only
 

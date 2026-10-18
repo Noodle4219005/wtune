@@ -196,7 +196,20 @@ def _measure_anchor_wave(ctx: Ctx, items: list[dict], s_est_for: Callable,
     awaited together. Returns {key: {agg, job, maxrss_mb}} for the items that produced a
     measurement."""
     reps = reps or _sweep_reps(ctx)
-    jobs = {}
+    jobs: dict = {}
+    try:
+        return _anchor_wave(ctx, items, s_est_for, skipped, reps, jobs)
+    except QueueCapExceeded as e:            # keep the jobs that finished before the stop
+        _jobs.cancel_in_flight(ctx, list(jobs.values()))
+        states = sweep.sacct_states(list(jobs.values()), sacct_runner=ctx.sacct_runner,
+                                    sacct_cmd=ctx.sacct_cmd)
+        done = {k: j for k, j in jobs.items() if states.get(j, ("", ""))[0] == "COMPLETED"}
+        e.partial = _anchor_results(ctx, items, done, states, [])
+        raise
+
+
+def _anchor_wave(ctx: Ctx, items: list[dict], s_est_for: Callable, skipped: list, reps: int,
+                 jobs: dict) -> dict:
     for it in items:
         n = it["nodes"]
         s_est, src = s_est_for(n)
@@ -222,8 +235,16 @@ def _measure_anchor_wave(ctx: Ctx, items: list[dict], s_est_for: Callable,
     out: dict = {}
     if not jobs:
         return out
+    states = _jobs.wait_for_jobs(ctx, list(jobs.values()), "node-sweep")
+    return _anchor_results(ctx, items, jobs, states, skipped)
+
+
+def _anchor_results(ctx: Ctx, items: list[dict], jobs: dict, states: dict,
+                    skipped: list) -> dict:
+    """{key: {agg, job, maxrss_mb}} of the wave's jobs with a ledger measurement; the others go
+    to `skipped` with their Slurm state."""
+    out: dict = {}
     ids = list(jobs.values())
-    states = _jobs.wait_for_jobs(ctx, ids, "node-sweep")
     rows = ctx.ledger_reader(ctx.case, ids)
     rss = _maxrss_mb_by_job(ctx, ids)
     for it in items:
@@ -395,15 +416,11 @@ def run_node_sweep(ctx: Ctx, legal_nodes: list[int],
         sent.update(ns)
         state["waves"] += 1
         first_new = len(skipped)
+        halted = None
         try:
             got = _measure_anchor_wave(ctx, items, s_est_for, skipped)
-        except QueueCapExceeded as e:
-            if not meas:
-                raise
-            print("node sweep: %s; keeping the N measured so far" % e)
-            state["stopped"] = state["halt"] = str(e)
-            skipped.extend(dict(nodes=n, reason=str(e)) for n in ns)
-            return
+        except QueueCapExceeded as e:        # the wave's jobs that finished still count
+            got, halted = e.partial, e
         for n, r in got.items():
             meas[n], results[n], jobs[n], rss[n] = (r["agg"]["s_values"], r["agg"], r["job"],
                                                     r["maxrss_mb"])
@@ -412,6 +429,12 @@ def run_node_sweep(ctx: Ctx, legal_nodes: list[int],
         for s in skipped[first_new:]:
             if mem and s.get("state") == "OUT_OF_MEMORY":
                 mem.learn_oom(s["nodes"], anchors[s["nodes"]]["ranks"] // s["nodes"])
+        if halted:
+            if not meas:
+                raise halted
+            print("node sweep: %s; keeping the N measured so far" % halted)
+            state["stopped"] = state["halt"] = str(halted)
+            skipped.extend(dict(nodes=n, reason=str(halted)) for n in ns if n not in got)
 
     # phase 1: geometric seeds, early stop on the upward side
     for wave in waves:

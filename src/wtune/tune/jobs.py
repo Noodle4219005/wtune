@@ -41,8 +41,7 @@ def cancel_jobs(ctx: Ctx, job_ids: list) -> None:
     job_ids = [j for j in job_ids if j]
     if not job_ids:
         return
-    print("budget deadline reached: cancelling %d in-flight job(s) owned by this run: %s"
-          % (len(job_ids), ",".join(job_ids)))
+    print("cancelling %d in-flight job(s) owned by this run: %s" % (len(job_ids), ",".join(job_ids)))
     ctx.scancel_runner(job_ids)
     ctx.cancelled_jobs.extend(job_ids)
 
@@ -396,16 +395,20 @@ def busy_s(ctx: Ctx, job_ids: list) -> float:
     return total
 
 
-def _final_cancel_safety_net(ctx: Ctx) -> None:
-    """Past the budget, cancel whatever owned job sacct still shows PENDING/RUNNING."""
-    still_up = [j for j in ctx.owned_jobs if j not in ctx.cancelled_jobs]
+def cancel_in_flight(ctx: Ctx, job_ids: list) -> None:
+    """Cancel those of `job_ids` that sacct still shows PENDING/RUNNING."""
+    still_up = [j for j in job_ids if j not in ctx.cancelled_jobs]
     if still_up:
         states = sweep.sacct_states(still_up, sacct_runner=ctx.sacct_runner,
                                      sacct_cmd=ctx.sacct_cmd)
-        in_flight = [j for j in still_up
-                     if states.get(j, ("UNKNOWN", ""))[0] in sweep.IN_FLIGHT_STATES]
-        if in_flight and ctx.elapsed() >= ctx.budget_s:
-            cancel_jobs(ctx, in_flight)
+        cancel_jobs(ctx, [j for j in still_up
+                          if states.get(j, ("UNKNOWN", ""))[0] in sweep.IN_FLIGHT_STATES])
+
+
+def _final_cancel_safety_net(ctx: Ctx) -> None:
+    """Past the budget or after a stop, cancel whatever owned job is still PENDING/RUNNING."""
+    if ctx.elapsed() >= ctx.budget_s or STOP["reason"]:
+        cancel_in_flight(ctx, ctx.owned_jobs)
 
 
 def _maxrss_mb_by_job(ctx: Ctx, job_ids: list) -> dict:

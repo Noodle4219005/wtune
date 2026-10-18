@@ -235,24 +235,28 @@ def apply_project_env(project_dir, project_doc):
 
 
 def latest_tune_report(project_dir, case_id=None, log=None):
-    """Newest <project>/tune/*/tune_report.json by mtime, or None. With case_id, only a report
-    made for that case counts; each newer report skipped for another case is passed to log."""
+    """Newest <project>/tune/*/tune_report.json with a result (not a tune stopped or aborted
+    before anything was measured), by mtime, or None. With case_id, only a report made for that
+    case counts. Each newer report skipped is passed to log."""
     tune_dir = os.path.join(project_dir, "tune")
     names = os.listdir(tune_dir) if os.path.isdir(tune_dir) else []
     paths = [p for p in (os.path.join(tune_dir, n, "tune_report.json") for n in names)
              if os.path.isfile(p)]
     for path in sorted(paths, key=os.path.getmtime, reverse=True):
-        if not case_id:
-            return path
         try:
             with open(path) as fh:
-                case = json.load(fh).get("case")
-        except (OSError, ValueError, AttributeError):
-            case = None
-        if case == case_id:
+                report = json.load(fh)
+        except (OSError, ValueError):
+            report = {}
+        report = report if isinstance(report, dict) else {}
+        if report.get("pipeline_aborted") or not (report.get("winner") or report.get("nodes")):
+            why = "has no result (%s)" % (report.get("stopped") or "aborted before a measurement")
+        elif case_id and report.get("case") != case_id:
+            why = "is for case %s, not %s" % (report.get("case") or "?", case_id)
+        else:
             return path
         if log:
-            log("tune report skipped: %s is for case %s, not %s" % (path, case or "?", case_id))
+            log("tune report skipped: %s %s" % (path, why))
     return None
 
 

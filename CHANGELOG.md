@@ -13,7 +13,15 @@ killed the controller, left its jobs running in Slurm and wrote no report, and `
 used the previous tune's report. A second Ctrl-C quits at once; `wtune stop` then cancels the
 jobs that tune left (it keeps its pid and job ids in `tune/<id>/tune.state.json` while it runs).
 Under `wtune submit`, Ctrl-C no longer kills the running step: the step stops itself, then
-submit stops (`wtune submit --skip-tune` continues with the report).
+submit stops (`wtune submit --skip-tune` continues with the report). The same applies to a
+`--max-queue-hours` stop: the jobs of the interrupted node-sweep wave that already finished now
+count. `wtune run` skips a tune report with no result (a tune stopped before anything was
+measured) instead of failing on it while an earlier report exists.
+
+**`env_source` with `$HOME`.** `machine.env_source: $HOME/...` reached the jobs unexpanded, so a
+job's site file could not source it (f1-arm, `f1arm.sh: line 23: $HOME/wtune-f1arm/env.sh: No such
+file or directory`); jobs worked only because they inherit the submitting shell. It is now expanded
+like `wrf_tree`.
 
 ## 0.9.1 — 2026-10-19
 

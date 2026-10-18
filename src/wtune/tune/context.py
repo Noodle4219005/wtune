@@ -27,6 +27,7 @@ DEFAULT_STARTUP_S = sweep.STARTUP_S    # s/run startup, scc_sweep's documented c
 class QueueCapExceeded(RuntimeError):
     """--max-queue-hours reached (or, as StopRequested, the user stopped the tune): in-flight jobs
     were cancelled, nothing more is submitted, what was measured is kept."""
+    partial: dict = {}                 # what an interrupted node-sweep wave still measured
 
 
 class StopRequested(QueueCapExceeded):

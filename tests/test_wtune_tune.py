@@ -1397,6 +1397,8 @@ def _run_cli(monkeypatch, tmp_path, argv, curve=NONMONO_CURVE, profile=ALL_NODES
             if on_sbatch:
                 on_sbatch(cmd_str, job_nodes[j])
             return out
+        measured = reader
+        reader = lambda case, ids: measured(case, [j for j in ids if j not in states])  # noqa: E731
     scancel, scancel_calls = make_fake_scancel()
 
     def stop_proposer(state, batch_size, kappa=None):
@@ -1508,6 +1510,35 @@ def test_ctrl_c_in_the_sweep_keeps_the_n_measured_and_writes_the_report(monkeypa
     assert "tune_report.json holds the best of what was measured" in out
     assert (tmp_path / "out" / "tune_report.json").exists()
     assert not (tmp_path / "out" / "tune.state.json").exists()
+
+
+def test_a_stop_in_the_first_wave_keeps_its_finished_jobs(monkeypatch, tmp_path):
+    stop = wtune.tune.context.STOP
+    monkeypatch.setitem(stop, "reason", None)
+
+    def on_sbatch(cmd, nodes):                     # N=4 sits in the queue when the stop comes
+        if nodes == 4:
+            stop["reason"] = "stopped by Ctrl-C"
+    report, job_nodes, cancelled = _run_cli(
+        monkeypatch, tmp_path, ["-O2", "--minutes", "600", "--hotspot-fill", "off"],
+        pending_nodes={4}, on_sbatch=on_sbatch)
+    assert report["nodes"] in (1, 2) and not report.get("pipeline_aborted")
+    assert [job_nodes[j] for c in cancelled for j in c] == [4]
+
+
+def test_latest_tune_report_skips_a_tune_stopped_before_any_result(tmp_path):
+    import json as _json
+    for name, doc in (("a", {"case": "c", "nodes": 4}),
+                      ("b", {"case": "c", "nodes": None, "pipeline_aborted": True,
+                             "stopped": "stopped by Ctrl-C"})):
+        (tmp_path / "tune" / name).mkdir(parents=True)
+        (tmp_path / "tune" / name / "tune_report.json").write_text(_json.dumps(doc))
+        os.utime(tmp_path / "tune" / name / "tune_report.json", (0, {"a": 100, "b": 200}[name]))
+    log = []
+    got = wtune.project.latest_tune_report(str(tmp_path), "c", log.append)
+    assert got == str(tmp_path / "tune" / "a" / "tune_report.json")
+    assert log == ["tune report skipped: %s has no result (stopped by Ctrl-C)"
+                   % (tmp_path / "tune" / "b" / "tune_report.json")]
 
 
 def test_a_stop_while_layouts_are_measured_keeps_the_layouts(monkeypatch, tmp_path, capsys):

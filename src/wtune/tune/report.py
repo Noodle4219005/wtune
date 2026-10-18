@@ -13,7 +13,7 @@ import wtune.extensions
 from ._deps import wc, predict
 from .candidates import rank_predicted_entries
 from .common import _fmt_hms
-from .context import Ctx
+from .context import STOP, Ctx
 from .estimates import format_level_estimates
 from .jobs import MAXRSS_NOTE
 from .prediction import predict_candidates
@@ -409,7 +409,8 @@ def render_pipeline_text(pipe: dict) -> str:
                     _fmt_hms(pipe.get("total_queue_wait_s", 0.0)),
                     _fmt_hms(pipe.get("total_controller_s", 0.0)),
                     _fmt_hms(pipe.get("predicted_real_s") or 0), pipe.get("predicted_real_source"),
-                    "  [STOPPED: max queue wait exceeded]" if pipe.get("queue_cap_hit") else ""))
+                    "  [STOPPED: %s]" % (STOP["reason"] or "max queue wait exceeded")
+                    if pipe.get("queue_cap_hit") else ""))
     return "\n".join(lines)
 
 

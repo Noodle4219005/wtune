@@ -76,7 +76,8 @@ MEASURED = {
 INT_KEYS = ("cores_per_node", "max_nodes", "numa_per_node")
 _NUMBER_UNITS = {"max_hours": ("hours", "no cap"), "node_memory_gib": ("GiB", "unknown")}
 _measured_cache = ("", {})
-PATH_KEYS = ("wrf_tree", "geog")        # read by python: ~ and $VARS are expanded on export
+PATH_KEYS = ("wrf_tree", "geog", "env_source")   # ~ and $VARS are expanded on export (a job
+                                                  # sources env_source from the variable)
 
 
 class MachineError(ValueError):

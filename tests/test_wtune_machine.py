@@ -156,7 +156,8 @@ def test_paths_of_the_machine(scc, monkeypatch):
     wtune.machine.export(dict(geog="~/geog", wrf_tree="$HOME/wrf", env_source="$HOME/env.sh"))
     home = os.path.expanduser("~")
     assert (wtune.machine.geog(), wtune.machine.wrf_tree()) == (home + "/geog", home + "/wrf")
-    assert wtune.machine.env_source() == "$HOME/env.sh"      # sourced by a shell: kept as written
+    assert wtune.machine.env_source() == home + "/env.sh"    # a job's site file sources the
+    # variable as is, so a literal $HOME was a missing file (f1arm.sh:23, f1-arm 2026-10-19)
 
 
 def test_measured_numbers_can_be_replaced_per_machine(scc):
@@ -274,3 +275,4 @@ def test_probe_input_copies_can_be_turned_off(scc, monkeypatch):
     assert wtune.machine.copy_probe_inputs() is False
     with pytest.raises(wtune.machine.MachineError, match="true or false"):
         wtune.machine.check({"copy_probe_inputs": "no"})
+

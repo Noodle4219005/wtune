@@ -147,6 +147,12 @@ squeue --me -o "%.9i %.24j %.8T %.10M %.4D %.9P %r"
 
 WTune 送的量測 job 都叫 `sw-<case-id>-n<N>`，例如 `sw-yagi-3f06a1-n5`。`<case-id>` 在 `tune.log` 開頭那行 `case=...`。
 
+查已結束的 job 一定要帶 `-S`：這台的 job 編號重新起算過，`sacct -j <id>` 不帶 `-S` 可能查到 2024 年同號的別人的 job。
+
+```bash
+sacct -S now-7days -X --format=JobID,JobName%24,State,Start,Elapsed,NNodes
+```
+
 !!! warning "`squeue --start` 不準"
     2026-10-17 它預估 2 節點的 job 要到隔天 10:48Z 才開始，實際 19:25Z 就跑完，差了 15 小時以上。不要用它決定要不要取消。
 

@@ -102,6 +102,6 @@ flowchart TD
 
 ## 中途停止
 
-`wtune tune` 目前不處理中斷訊號。殺掉它之後，已送出的 job 要自己用 `scancel` 取消，做法見 [tune](tune.md) 的「中途停止」一節。
+在前景跑時按 Ctrl-C，在背景跑時下 `wtune stop`。兩者都會取消這次 tune 自己的 job，用已量到的最快配置寫出 `tune_report.json`，之後 `wtune run` 直接接著用。細節見 [tune](tune.md) 的「中途停止」一節。
 
 下一步：[1. 安裝](install.md)。

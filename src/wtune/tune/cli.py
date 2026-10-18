@@ -3,8 +3,11 @@ default), the run context, the mode dispatch and main()."""
 from __future__ import annotations
 
 import argparse
+import contextlib
 import dataclasses
+import json
 import os
+import signal
 import sys
 from typing import Any, Callable
 
@@ -23,6 +26,7 @@ from .physics_phase import PIPELINE_PHYSICS_MAX_CANDIDATES
 from .pipeline import PIPELINE_MAX_QUEUE_HOURS, PRECISION_DEFAULT_MIN
 from .preflight import default_preflight_runner, node_preflight
 from .report import _emit_report
+from .context import STOP, StopRequested
 from . import context as _context
 from . import node_search as _node_search
 from . import pipeline as _pipeline
@@ -87,6 +91,7 @@ def run(args: argparse.Namespace, sbatch_runner: Callable | None = None,
     the node count, build the Ctx and run the mode -- -O0, -O1..3, --nodes search or
     a fixed node count -- then print the report and write <out>/tune_report.json. Returns the
     report; SystemExit for invalid options. The runners and clock default to the real ones."""
+    STOP["reason"] = None
     o = _resolve_run_options(args)
     case_json, namelist_path, profile = _context.resolve_case(o.case, args.cores_per_node)
     is_fire, ext_notes, steps, ranking_start_note = _run_case_inputs(o, case_json, namelist_path)
@@ -110,8 +115,56 @@ def run(args: argparse.Namespace, sbatch_runner: Callable | None = None,
     s_est, _src, _n = sweep.estimate_s_per_step(ctx.case, ctx.nodes, ctx.ledger_dir,
                                                  ctx.hardware_id)
 
+    ctx.state_file = os.path.join(out_dir, "tune.state.json")
+    with _stop_on_signal(ctx):
+        try:
+            report = _run_mode(ctx, profile, args, o, ns, ext_notes, preflight, s_est)
+        except StopRequested as e:
+            os.remove(ctx.state_file)
+            raise SystemExit("wtune tune: %s before anything was measured -- no report" % e) \
+                from None
+    if STOP["reason"]:
+        report["stopped"] = STOP["reason"]
+    _emit_report(report, out_dir, node_health)
+    if STOP["reason"]:
+        print("wtune tune: %s -- %s/tune_report.json holds the best of what was measured; "
+              "`wtune run` uses it" % (STOP["reason"], out_dir))
+    return report
+
+
+@contextlib.contextmanager
+def _stop_on_signal(ctx: Ctx):
+    """Ctrl-C (SIGINT) or `wtune stop` (SIGTERM): stop at the next poll -- cancel this tune's
+    jobs, keep what was measured, write the report. A second signal quits at once.
+    tune.state.json (pid, owned jobs) lets `wtune stop` find this process or, after a crash or
+    a second Ctrl-C, its jobs; a normal end removes it."""
+    def handler(signum, _frame):
+        if STOP["reason"]:
+            raise KeyboardInterrupt
+        STOP["reason"] = "stopped by %s" % ("Ctrl-C" if signum == signal.SIGINT else "wtune stop")
+        print("\nwtune tune: %s -- cancelling this tune's jobs within %.0f s and writing the report "
+              "from what was measured; Ctrl-C again quits at once (its jobs then keep running: "
+              "`wtune stop` cancels them)" % (STOP["reason"], ctx.poll_interval), flush=True)
+
+    with open(ctx.state_file, "w") as fh:
+        json.dump(dict(pid=os.getpid(), jobs=[]), fh)
+    try:
+        old = {sig: signal.signal(sig, handler) for sig in (signal.SIGINT, signal.SIGTERM)}
+    except ValueError:                 # not the main thread (embedded use): no handler
+        old = {}
+    try:
+        yield
+    finally:
+        for sig, h in old.items():
+            signal.signal(sig, h)
+    os.remove(ctx.state_file)
+
+
+def _run_mode(ctx: Ctx, profile: dict, args: argparse.Namespace, o: _RunOptions, ns: _NodeChoice,
+              ext_notes: list, preflight: Any, s_est: float) -> dict:
+    """The report of the chosen mode: -O0, the pipeline, --nodes search or a fixed node count."""
     if o.level == 0:                       # no jobs: nothing to cancel
-        report = _pipeline.run_level0(ctx, profile, ns.total_steps, o.nodes_policy)
+        return _pipeline.run_level0(ctx, profile, ns.total_steps, o.nodes_policy)
     elif ns.pipeline == "full":
         report = _run_pipeline_mode(ctx, profile, args, o, ns, ext_notes, preflight)
         _final_cancel_safety_net(ctx)
@@ -132,7 +185,6 @@ def run(args: argparse.Namespace, sbatch_runner: Callable | None = None,
         _final_cancel_safety_net(ctx)
         report = _report.build_report(ctx, ns.nodes, ns.nodes_note, all_results, confirm_results,
                                       anchor_cid)
-    _emit_report(report, out_dir, node_health)
     return report
 
 

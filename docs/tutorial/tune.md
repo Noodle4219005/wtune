@@ -52,13 +52,29 @@ wtune tune -O3 --stop-if-short     # 整段模擬比調校還短時，自動降�
 
 ## 中途停止
 
-`wtune tune` 沒有處理中斷訊號：Ctrl-C 或 `kill` 只停掉它自己，已送出的量測 job 會留在佇列裡。量測 job 都叫 `sw-<case-id>-n<N>`（`<case-id>` 印在輸出開頭的 `case=` 那行），停掉 tune 之後照名稱取消：
+覺得已經量到夠好的結果，或要放棄這次調校時：
 
-```bash
-squeue --me -h -o "%i %j" | awk '$2 ~ /^sw-<case-id>-/ {print $1}' | xargs -r scancel
+- 在前景跑：按 **Ctrl-C**。
+- 在背景跑（`setsid nohup ... &`），或要從別的終端機停：在專案裡下 **`wtune stop`**。
+
+兩種做法效果一樣。tune 在下一次輪詢時（最多約 20 秒）會依序：
+
+1. 停止送新的 job。
+2. 取消這次 tune 自己的 job，其他工作不受影響。
+3. 從已量到的結果選出最快的配置，寫出 `tune_report.json`。在切法量測階段停下時，已經量好的切法都會保留。
+
+接著 `wtune run` 就會用這份報告。
+
+```text
+wtune tune: stopped by Ctrl-C -- cancelling this tune's jobs within 20 s and writing the report from what was measured; ...
+...
+wtune tune: stopped by Ctrl-C -- tune/<id>/tune_report.json holds the best of what was measured; `wtune run` uses it
 ```
 
-被殺掉的 tune 不會寫 `tune_report.json`。要它交出目前為止的結果，就讓 `--minutes` 或 `--max-queue-hours` 自己到期。
+- **再按一次 Ctrl-C**：立刻結束，不寫報告，還在 Slurm 裡的 job 也不會取消。這時下 `wtune stop`：它看到 tune 已經不在，就只取消這次 tune 留下的 job。
+- **`wtune stop --dry-run`**：只列出會做什麼，不實際動作。
+- **還沒量到任何結果就停下**：不會有報告。
+- **在 `wtune submit` 裡按 Ctrl-C**：正在跑的那一步先自己收尾（tune 會取消 job、寫出報告），然後 submit 停下。接著用 `wtune submit --skip-tune` 執行並做後處理。再按一次 Ctrl-C 會直接結束那一步。
 
 ## 採樣點怎麼選
 

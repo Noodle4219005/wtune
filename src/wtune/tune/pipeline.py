@@ -16,7 +16,7 @@ import wtune.nodes
 from ._deps import sweep, predict
 from .candidates import _sweep_anchor, _sweep_anchor_fitting
 from .common import ANCHOR_END_ID, _fmt_hms, _fmt_sbatch_time, compute_slots, if_set, is_set
-from .context import Ctx, QueueCapExceeded
+from .context import STOP, Ctx, QueueCapExceeded
 from .estimates import format_level_estimates, highest_level_within, level_estimates
 from .node_search import DEFAULT_SWEEP_BUDGET_FRAC, choose_nodes
 from .physics_phase import (PIPELINE_PHYSICS_MAX_CANDIDATES, WINDOW_FRAME_LEVEL,
@@ -490,7 +490,7 @@ def _phase2_collect_rebuilt(st: PipelineRun, layouts: list[dict], pplan: dict | 
     phase 3 needs them too). Returns the phase-2 status when already decided, else None."""
     ctx = st.ctx
     if st.cap_hit():
-        return "not run (max queue wait exceeded)"
+        return "not run (%s)" % (STOP["reason"] or "max queue wait exceeded")
     if pplan is not None and not pplan["selected"] and layouts:
         return ("not run (the t0 anchor suffices for this case at ±%g min: %s, band ±%.0f%%)"
                 % (precision_min, pplan["method"], pplan["band"] * 100))

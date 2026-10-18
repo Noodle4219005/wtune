@@ -16,7 +16,7 @@ from .candidates import (FULL_SPACE_CONFIGS_PER_JOB, _apply_search_filter, aggre
                          merge_aggs, rank_predicted_entries, sample_more_diverse_configs)
 from .common import (ANCHOR_END_ID, RACE_MAX, _fmt_hms, chunk_round_robin, close_to_best,
                      compute_slots, would_exceed_budget)
-from .context import Ctx, cores_used
+from .context import Ctx, QueueCapExceeded, cores_used
 from .estimates import EST_ROUND0_CONFIGS
 from .jobs import submit_configs_job
 from .prediction import predict_candidates
@@ -540,7 +540,21 @@ def _race_leaders(ctx: Ctx, all_results: dict, s_est: float) -> None:
 def run_tuning_at(ctx: Ctx, s_est: float | None = None, adaptive: bool = True,
                   confirm: bool = True) -> tuple[dict, dict | None, str | None]:
     """round0 -> adaptive rounds -> confirm at ctx.nodes. Returns (all_results,
-    confirm_results, anchor_cid)."""
+    confirm_results, anchor_cid). A queue cap or a user stop keeps what was measured."""
+    first_job = len(ctx.owned_jobs)
+    try:
+        return _run_tuning_at(ctx, s_est, adaptive, confirm)
+    except QueueCapExceeded as e:
+        jobs = [j for j in ctx.owned_jobs[first_job:] if j in ctx.job_configs]
+        configs_by_cid = {c["id"]: c for j in jobs for c in ctx.job_configs[j]}
+        all_results = aggregate_by_cid(ctx.ledger_reader(ctx.case, jobs) if jobs else [],
+                                       configs_by_cid)
+        print("layouts at N=%d: %s; keeping the %d measured" % (ctx.nodes, e, len(all_results)))
+        return all_results, None, "ANCHOR" if "ANCHOR" in all_results else None
+
+
+def _run_tuning_at(ctx: Ctx, s_est: float | None, adaptive: bool,
+                   confirm: bool) -> tuple[dict, dict | None, str | None]:
     if s_est is None:
         s_est, _src, _n = sweep.estimate_s_per_step(ctx.case, ctx.nodes, ctx.ledger_dir,
                                                      ctx.hardware_id)

@@ -158,16 +158,21 @@ sacct -S now-7days -X --format=JobID,JobName%24,State,Start,Elapsed,NNodes
 
 ## 停止
 
-`wtune tune` 沒有處理中斷訊號。直接殺掉它，已送出的 job 會留在佇列裡，要自己 `scancel`：
+tune 在背景跑時：
 
 ```bash
-ps -u $USER -o pid,pgid,etime,args | grep "[s]rc/wtune tune"
-kill -- -<PGID>                                   # 整個 process group：bin/wtune、pixi、python
-squeue --me -h -o "%i %j" | awk '$2 ~ /^sw-yagi-3f06a1-/ {print $1}' | xargs -r scancel
+cd ~/wtune-projects/yagi
+wtune stop --dry-run      # 先看會做什麼
+wtune stop
+wtune run                 # 用剛寫出的 tune_report.json
 ```
 
-- 只取消這次 tune 的 job（照名稱篩）。不要用 `scancel -u $USER`，會連其他工作一起取消。
-- 殺掉之後沒有 `tune_report.json`。想讓它自己交出結果，就等 `--minutes` 或 `--max-queue-hours` 到。
+`wtune stop` 找到這個專案正在跑的 tune，請它收尾，約 20 秒內完成：
+
+- 取消它自己的 job。
+- 用已量到的最快配置寫出 `tune_report.json`。
+
+在前景跑時，按 Ctrl-C 效果相同。不要用 `scancel -u $USER`，那會連其他工作一起取消。
 
 ## 家目錄配額
 

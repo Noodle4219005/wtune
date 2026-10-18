@@ -1373,7 +1373,7 @@ def make_scaling_fakes(curve, start=7000, core_mult=None):
 
 def _run_cli(monkeypatch, tmp_path, argv, curve=NONMONO_CURVE, profile=ALL_NODES_PROFILE,
              total_steps=1000, grid=MATTHEW_LIKE, core_mult=None, sbatch_calls=None,
-             preflight_runner=None, pending_nodes=()):
+             preflight_runner=None, pending_nodes=(), on_sbatch=None):
     case_json = dict(grid, prep_dir=str(tmp_path / "matthew"))
     monkeypatch.setattr(wtune.tune.context, "resolve_case",
                         lambda case, cpn: (case_json, str(tmp_path / "namelist.input"), profile))
@@ -1386,7 +1386,7 @@ def _run_cli(monkeypatch, tmp_path, argv, curve=NONMONO_CURVE, profile=ALL_NODES
             sbatch_calls.append(cmd_str)
             return _inner(cmd_str)
     states = {}                              # jobs at an N in pending_nodes never start
-    if pending_nodes:
+    if pending_nodes or on_sbatch:
         submit = sbatch
 
         def sbatch(cmd_str, _submit=submit):
@@ -1394,6 +1394,8 @@ def _run_cli(monkeypatch, tmp_path, argv, curve=NONMONO_CURVE, profile=ALL_NODES
             j = out.split()[-1]
             if job_nodes[j] in pending_nodes:
                 states[j] = ("PENDING", "00:00:00")
+            if on_sbatch:
+                on_sbatch(cmd_str, job_nodes[j])
             return out
     scancel, scancel_calls = make_fake_scancel()
 
@@ -1485,6 +1487,52 @@ def test_queue_cap_while_measuring_untried_n_keeps_the_sweep(monkeypatch, tmp_pa
     assert report["nodes_note"].endswith("queue cap reached -- ANCHOR config")
     assert [job_nodes[j] for c in cancelled for j in c] == [7]
     assert job_nodes[max(job_nodes, key=int)] == 7
+
+
+def test_ctrl_c_in_the_sweep_keeps_the_n_measured_and_writes_the_report(monkeypatch, tmp_path,
+                                                                        capsys):
+    stop = wtune.tune.context.STOP
+    monkeypatch.setitem(stop, "reason", None)
+
+    def on_sbatch(cmd, nodes):                     # Ctrl-C right after the N=8 job is sent
+        if nodes == 8:
+            stop["reason"] = "stopped by Ctrl-C"
+    report, job_nodes, cancelled = _run_cli(
+        monkeypatch, tmp_path, ["-O2", "--minutes", "600", "--hotspot-fill", "off"],
+        pending_nodes={8}, on_sbatch=on_sbatch)
+    out = capsys.readouterr().out
+    assert report["nodes"] == 4 and report["stopped"] == "stopped by Ctrl-C"
+    assert report["nodes_note"].endswith("stopped by Ctrl-C -- ANCHOR config")
+    assert [job_nodes[j] for c in cancelled for j in c] == [8]
+    assert job_nodes[max(job_nodes, key=int)] == 8                # nothing sent after the stop
+    assert "tune_report.json holds the best of what was measured" in out
+    assert (tmp_path / "out" / "tune_report.json").exists()
+    assert not (tmp_path / "out" / "tune.state.json").exists()
+
+
+def test_a_stop_while_layouts_are_measured_keeps_the_layouts(monkeypatch, tmp_path, capsys):
+    stop = wtune.tune.context.STOP
+    monkeypatch.setitem(stop, "reason", None)
+
+    def on_sbatch(cmd, nodes):                     # stop once round0's first wave is in
+        if "round0-topup" in cmd:
+            stop["reason"] = "stopped by wtune stop"
+    report, _jn, _sc = _run_cli(monkeypatch, tmp_path,
+                                ["-O2", "--minutes", "600", "--hotspot-fill", "off"],
+                                on_sbatch=on_sbatch)
+    assert "keeping the" in capsys.readouterr().out
+    assert report["stopped"] == "stopped by wtune stop"
+    assert report["best"]["id"] != "ANCHOR"        # a measured layout, not the sweep's ANCHOR
+
+
+def test_a_stop_request_cancels_the_jobs_in_flight_at_the_next_poll(monkeypatch):
+    monkeypatch.setitem(wtune.tune.context.STOP, "reason", "stopped by Ctrl-C")
+    ctx = _ctx(clock=FakeClock(), sacct_runner=make_pending_sacct(None), budget_s=100.0,
+               poll_interval=60.0)
+    ctx.budget_mode, ctx.shared_queue = "running", {"s": 0.0, "cap_hit": False}
+    with pytest.raises(wtune.tune.context.StopRequested, match="stopped by Ctrl-C"):
+        wtune.tune.wait_for_jobs(ctx, ["3"], "t")
+    assert ctx.shared_queue["cap_hit"] and ctx.cancelled_jobs == ["3"]
 
 
 def test_without_a_time_cap_the_untried_n_stay_untried(monkeypatch, tmp_path, capsys):

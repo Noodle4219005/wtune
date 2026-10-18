@@ -3,6 +3,18 @@
 Versions are declared in `wtune_version.py`; `test_wtune_version.py` fails if the top section
 here does not match it. Development before 0.1.0 is in the git history, not in releases.
 
+## Unreleased
+
+**Stopping a tune keeps what it measured.** Ctrl-C, or `wtune stop` for a tune running in the
+background, now stops `wtune tune` within one poll: it submits nothing more, cancels only its
+own jobs, and writes `tune_report.json` from the best of what was measured -- the layouts
+already measured at a finalist included -- so `wtune run` can use it right away. Before, Ctrl-C
+killed the controller, left its jobs running in Slurm and wrote no report, and `wtune run` then
+used the previous tune's report. A second Ctrl-C quits at once; `wtune stop` then cancels the
+jobs that tune left (it keeps its pid and job ids in `tune/<id>/tune.state.json` while it runs).
+Under `wtune submit`, Ctrl-C no longer kills the running step: the step stops itself, then
+submit stops (`wtune submit --skip-tune` continues with the report).
+
 ## 0.9.1 — 2026-10-19
 
 **`wtune post preview`: what post will draw, before the run.** It lists the figures of the

@@ -190,9 +190,10 @@ def submit_rebuilt_points(ctx: Ctx, points: list, anchor: dict, case_dir: str,
         sbatch_path = coldstart.stage_plan(pdir, per_window_min=seg_timeout_min)
         cmd = ("sbatch --export=ALL,CAMPAIGN=%s %s" % (campaign_dir, sbatch_path)
                if campaign_dir else "sbatch %s" % sbatch_path)
+        _jobs.stop_before_submit()
         job_id = sweep.submit_job(cmd, sbatch_runner=ctx.sbatch_runner)
         with owned_lock:       # owned at once: another point failing must not orphan this job
-            ctx.owned_jobs.append(job_id)
+            _jobs.record_job(ctx, job_id)
         print("rebuilt point %d: real_only job %s (%s)" % (i, job_id, sbatch_path), flush=True)
         return plan, pdir, job_id
 
@@ -354,8 +355,9 @@ def _submit_point_jobs(ctx: Ctx, wrapped: list[dict], runs: list[dict], rebuilt_
             sbatch_script=ctx.sbatch_script, campaign_dir=sweep.campaign_dir_for(ctx.sbatch_script),
             extra_export=ranking_export(ranking, {"timeout_s": cand_to}) + point_export(mode)
             + fresh)
+        _jobs.stop_before_submit()
         jid = sweep.submit_job(cmd, sbatch_runner=ctx.sbatch_runner)
-        ctx.owned_jobs.append(jid)
+        _jobs.record_job(ctx, jid)
         print("%s point %d (%s, case %s): job %s, %d runs, TIMEOUT_S=%d SPINUP_TIMEOUT_S=%d "
               "--time=%s (expected %s)" % (name_prefix, rp["index"], rp["point"].at.isoformat(),
                                            rp["case_id"], jid, len(runs), cand_to, spin_to,

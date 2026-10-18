@@ -25,7 +25,15 @@ DEFAULT_STARTUP_S = sweep.STARTUP_S    # s/run startup, scc_sweep's documented c
 
 
 class QueueCapExceeded(RuntimeError):
-    """--max-queue-hours reached: in-flight jobs were cancelled and the run stops."""
+    """--max-queue-hours reached (or, as StopRequested, the user stopped the tune): in-flight jobs
+    were cancelled, nothing more is submitted, what was measured is kept."""
+
+
+class StopRequested(QueueCapExceeded):
+    """Ctrl-C or `wtune stop` (SIGINT/SIGTERM) during `wtune tune`."""
+
+
+STOP: dict = {"reason": None}          # set by wtune tune's SIGINT/SIGTERM handler
 
 
 class RealClock:
@@ -88,6 +96,8 @@ class Ctx:
     start_time: float = 0.0
     owned_jobs: list = dataclasses.field(default_factory=list)
     cancelled_jobs: list = dataclasses.field(default_factory=list)
+    job_configs: dict = dataclasses.field(default_factory=dict)   # job -> the configs it measures
+    state_file: str | None = None      # <out>/tune.state.json: pid + owned jobs, for `wtune stop`
     # --config (wtune/config.py); the defaults are a no-op filter / the pre---config behaviour
     search_cfg: dict = dataclasses.field(
         default_factory=lambda: copy.deepcopy(wtune.config.DEFAULTS["search"]))

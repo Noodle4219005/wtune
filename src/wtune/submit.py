@@ -115,6 +115,20 @@ def plan_steps(project_dir: str, out_id: str, level: str, skip_tune: bool, no_po
     return steps
 
 
+def _call(cmd: list, cwd: str) -> int:
+    """subprocess.call, except that on Ctrl-C the step is left to stop itself (wtune tune cancels
+    its jobs and writes its report) instead of being killed; a second Ctrl-C kills it."""
+    with subprocess.Popen(cmd, cwd=cwd) as p:
+        try:
+            return p.wait()
+        except KeyboardInterrupt:
+            try:
+                p.wait()
+            except KeyboardInterrupt:
+                p.kill()
+            raise
+
+
 def _detach(argv: list[str], project_dir: str, out_id: str) -> int:
     log_path = os.path.join(project_dir, "submit-%s.log" % out_id)
     # the child runs in project_dir: hand it the resolved project, not the caller's relative one
@@ -181,7 +195,13 @@ def main(argv: list[str] | None = None) -> int:
 
     for i, (name, cmd) in enumerate(steps, 1):
         print("=== submit step %d/%d: %s ===" % (i, len(steps), name), flush=True)
-        rc = subprocess.call(cmd, cwd=project_dir)
+        try:
+            rc = _call(cmd, project_dir)
+        except KeyboardInterrupt:
+            print("=== submit stopped by Ctrl-C during %s (outputs so far under */%s); after a "
+                  "stopped tune, `wtune submit --skip-tune` runs its report ===" % (name, out_id),
+                  flush=True)
+            return 130
         if rc != 0 and name.startswith("fetch "):
             print("=== %s exited %d: continuing; post uses what was fetched and says what "
                   "is missing or partial ===" % (name, rc),

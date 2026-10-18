@@ -3,6 +3,7 @@ budget, cancel, read sacct timing / MaxRSS, and the per-job ranking validity gat
 from __future__ import annotations
 
 import datetime
+import json
 import os
 import re
 import shutil
@@ -12,7 +13,7 @@ import wtune.machine
 from ._deps import sweep
 from .budget import _job_time_est
 from .common import ANCHOR_END_ID, _fmt_hms, _notes_kv, parse_run_id
-from .context import Ctx, QueueCapExceeded
+from .context import STOP, Ctx, QueueCapExceeded, StopRequested
 
 PROGRESS_BAR_WIDTH = 24                # characters of the progress bar
 ANCHOR_DRIFT_MAX = wtune.machine.MEASURED["anchor_drift_max"]   # |s(ANCHOREND)/s(ANCHOR) - 1|
@@ -44,6 +45,31 @@ def cancel_jobs(ctx: Ctx, job_ids: list) -> None:
           % (len(job_ids), ",".join(job_ids)))
     ctx.scancel_runner(job_ids)
     ctx.cancelled_jobs.extend(job_ids)
+
+
+def record_job(ctx: Ctx, job_id: str) -> None:
+    """An owned job; with ctx.state_file also on disk (pid + every owned job) for `wtune stop`."""
+    ctx.owned_jobs.append(job_id)
+    if ctx.state_file:
+        with open(ctx.state_file, "w") as fh:
+            json.dump(dict(pid=os.getpid(), jobs=ctx.owned_jobs), fh)
+
+
+def stop_before_submit() -> None:
+    """Nothing is submitted once the user stopped the tune."""
+    if STOP["reason"]:
+        raise StopRequested("%s; nothing more submitted" % STOP["reason"])
+
+
+def _stop_if_requested(ctx: Ctx, in_flight: list) -> None:
+    """Ctrl-C / wtune stop: cancel `in_flight` and raise StopRequested; the later pipeline
+    phases see it as cap_hit and do not run."""
+    if STOP["reason"]:
+        if ctx.shared_queue is not None:
+            ctx.shared_queue["cap_hit"] = True
+        cancel_jobs(ctx, [j for j in in_flight if j not in ctx.cancelled_jobs])
+        raise StopRequested("%s; in-flight job(s) %s cancelled" % (STOP["reason"],
+                                                                  ",".join(in_flight)))
 
 
 def _in_flight(job_ids: list, states: dict, misses: dict, stage: str) -> list:
@@ -95,6 +121,7 @@ def _wait_for_jobs(ctx: Ctx, job_ids: list, stage: str, note: str,
         print_progress(stage, elapsed, ctx.budget_s, note)
         if not in_flight:
             return states
+        _stop_if_requested(ctx, in_flight)
         if elapsed >= ctx.budget_s:
             cancel_jobs(ctx, in_flight)
             return states
@@ -122,6 +149,7 @@ def _wait_running_budget(ctx: Ctx, job_ids: list, stage: str, note: str,
                        % (_fmt_hms(wall), _fmt_hms(ctx.queue_wait_s)))
         if not in_flight:
             return states
+        _stop_if_requested(ctx, in_flight)
         over_budget = elapsed >= ctx.budget_s and not exempt_budget
         if over_budget or (ctx.max_wall_s is not None and wall >= ctx.max_wall_s):
             if not over_budget:
@@ -197,9 +225,10 @@ def ensure_bp_inputs(ctx: Ctx, cases: list[tuple], out_dir: str) -> None:
     names, cases_json = [c for c, _j in stale], stale[0][1]   # one case file per call
     os.makedirs(out_dir, exist_ok=True)
     t0 = ctx.clock.now()
+    stop_before_submit()
     job_id = sweep.submit_job(nc2bp_command(ctx, names, cases_json, out_dir),
                               sbatch_runner=ctx.sbatch_runner)
-    ctx.owned_jobs.append(job_id)
+    record_job(ctx, job_id)
     state = wait_for_jobs(ctx, [job_id], "bp-convert", exempt_budget=True).get(
         job_id, ("UNKNOWN", ""))[0]
     still = [c for c, j in stale if cc.bp_cache_status(c, j)[0] != "current"]
@@ -241,6 +270,7 @@ def submit_configs_job(ctx: Ctx, configs: list[dict], reps: int, name_suffix: st
     """Submit one strict_campaign.sbatch CONFIG_FILE job. Returns (job id, configs.json, time
     estimate). CAMPAIGN is exported for a real campaign checkout so the spooled script never
     pairs with stale helpers."""
+    stop_before_submit()
     if time_est is None:
         time_est = _job_time_est(ctx, len(configs), reps, s_est)
     job_out_dir = os.path.join(ctx.out_dir, name_suffix)
@@ -255,7 +285,8 @@ def submit_configs_job(ctx: Ctx, configs: list[dict], reps: int, name_suffix: st
         campaign_dir=sweep.campaign_dir_for(ctx.sbatch_script),
         extra_export=fresh or None)
     job_id = sweep.submit_job(cmd_str, sbatch_runner=ctx.sbatch_runner)
-    ctx.owned_jobs.append(job_id)
+    record_job(ctx, job_id)
+    ctx.job_configs[job_id] = configs
     if fresh:
         ctx.input_copies[job_id] = fresh[0][1]
     return job_id, configs_path, time_est

@@ -16,7 +16,7 @@ from .budget import _fallback_s_per_step, _job_time_est
 from .candidates import _sweep_anchor, _sweep_anchor_fitting, aggregate_by_cid, merge_aggs
 from .common import (UNSET, Record, _fmt_hms, close_to_best, parse_run_id,
                      would_exceed_budget)
-from .context import Ctx, QueueCapExceeded
+from .context import STOP, Ctx, QueueCapExceeded
 from .jobs import MAXRSS_NOTE, _maxrss_mb_by_job, submit_configs_job
 from . import jobs as _jobs
 from . import memory as _memory
@@ -266,9 +266,14 @@ def _race(ctx: Ctx, entries: dict, s_est_for: Callable, label: str) -> list:
     return jobs
 
 
-def _queue_capped(ctx: Ctx) -> bool:
-    """True once --max-queue-hours was reached: nothing more may be submitted."""
-    return ctx.max_queue_s is not None and ctx.queue_wait_s >= ctx.max_queue_s
+def _halt_reason(ctx: Ctx) -> str | None:
+    """Why nothing more may be submitted -- the user stopped the tune, or --max-queue-hours was
+    reached -- else None."""
+    if STOP["reason"]:
+        return STOP["reason"]
+    if ctx.max_queue_s is not None and ctx.queue_wait_s >= ctx.max_queue_s:
+        return "queue cap reached"
+    return None
 
 
 def run_node_sweep(ctx: Ctx, legal_nodes: list[int],
@@ -605,8 +610,8 @@ def _tune_finalists(ctx: Ctx, finals: list[int], cores_info: dict, sw: dict, pla
     outcomes = {}
     for i, n in enumerate(finals):
         remaining = ctx.budget_s - ctx.elapsed()
-        if _queue_capped(ctx):
-            print("node search: queue cap reached; finalist N=%d not tuned" % n)
+        if _halt_reason(ctx):
+            print("node search: %s; finalist N=%d not tuned" % (_halt_reason(ctx), n))
             continue
         if remaining <= 0:
             print("node search: no budget left for finalist N=%d" % n)
@@ -720,7 +725,7 @@ def run_node_search(ctx: Ctx, profile: dict, objective: str, deadline_s: float |
                         chooser=chooser, on_wave=on_wave, refine=lambda: lvl() >= 2)
     if not wtune.nodes.summarize(sw["measurements"]):
         return _proxy_fallback_report(ctx, profile, objective, nodes_policy, sw)
-    if (lvl() >= 2 and sw["untried"] and not _queue_capped(ctx)
+    if (lvl() >= 2 and sw["untried"] and not _halt_reason(ctx)
             and ctx.elapsed() < ctx.budget_s < math.inf):
         need = len(wtune.nodes.sweep_waves(sw["untried"], ctx.max_nodes)) * sw["wave_s"]
         left = ctx.budget_s - ctx.elapsed()
@@ -742,7 +747,7 @@ def run_node_search(ctx: Ctx, profile: dict, objective: str, deadline_s: float |
         core_options = wtune.nodes.default_core_options(ctx.cores_per_node)
     cores_info: dict = {}
     skipped_cores: list = []
-    if lvl() <= 1 or _queue_capped(ctx):  # O1: the t0 wave only -- no cores sweep, no finalists
+    if lvl() <= 1 or _halt_reason(ctx):  # O1: the t0 wave only -- no cores sweep, no finalists
         finals = []
     if lvl() >= 2 and any(c < ctx.cores_per_node for c in core_options):
         try:
@@ -752,7 +757,7 @@ def run_node_search(ctx: Ctx, profile: dict, objective: str, deadline_s: float |
 
     layout_notes: dict = dict(untried=[], enumerated={})
     outcomes = _tune_finalists(ctx, finals, cores_info, sw, plan, lvl, layout_notes)
-    if (lvl() >= 2 and sw["untried"] and not _queue_capped(ctx)
+    if (lvl() >= 2 and sw["untried"] and not _halt_reason(ctx)
             and ctx.elapsed() < ctx.budget_s < math.inf):
         new = _measure_untried(ctx, sw, chooser, sweep_budget_frac)
         if new:
@@ -777,7 +782,7 @@ def run_node_search(ctx: Ctx, profile: dict, objective: str, deadline_s: float |
         outcomes[chosen] = _sweep_anchor_outcome(ctx, chosen, note, cores_info, sw)
         final_n, final_note = chosen, note + (
             "; level O1: t0 sweep only -- ANCHOR config" if lvl() <= 1 else
-            "; queue cap reached -- ANCHOR config" if _queue_capped(ctx) else
+            "; %s -- ANCHOR config" % _halt_reason(ctx) if _halt_reason(ctx) else
             "; budget exhausted after the sweep -- ANCHOR config")
     else:
         by_sweep = {r["nodes"]: r for r in rows}

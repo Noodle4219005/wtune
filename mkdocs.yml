@@ -76,6 +76,8 @@ nav:
   - 參考:
       - 指令總表: reference/cli.md
       - 環境變數: reference/env.md
+  - 附錄:
+      - 建 WTune 的前置環境（以 f1-arm 為例）: appendix/environment.md
   - 開發者:
       - 審查地圖: REVIEW_MAP.md
       - wtune run 設計筆記: WTUNE_RUN.md

@@ -1,5 +1,7 @@
 # 在 f1-arm 編 WRF
 
+整套前置環境（函式庫、WRF、WPS、WTune、`env.sh`）的順序與 WPS 的編法，見附錄「[建 WTune 的前置環境](../appendix/environment.md)」。這頁補 f1-arm 上 WRF 的細節。
+
 WTune 不編 WRF，只要求 `WRF_TREE` 底下有 `main/wrf.exe`、`main/real.exe` 和 `run/`。這頁記錄 f1-arm 上實際用過、編得出來的做法：WRF v4.8.0 原始碼不改，nvhpc 25.5，dmpar，ADIOS2 2.10.2 + netCDF。
 
 已經編好的樹（直接拿來用就不必重編）：

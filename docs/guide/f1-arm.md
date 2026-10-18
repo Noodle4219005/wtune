@@ -46,6 +46,7 @@ export PATH=$V/bin:$HOME/.pixi/bin:$PATH
 export LD_LIBRARY_PATH=$V/lib:$V/lib64:${LD_LIBRARY_PATH:-}
 export NETCDF=$V HDF5=$V PNETCDF=$V ADIOS2_DIR=$V
 export WRF_TREE=$HOME/wrf-env/nvhpc-arm/wrf/vanilla-v480-adios2-dmpar/WRF
+export WPS_DIR=$HOME/wrf-env/nvhpc-arm/wps/WPS-4.6.0    # WPS 4.6.0，可讀 GRIB2
 export OMP_STACKSIZE=1G
 export WTUNE_CARTOPY_DATA=$HOME/wtune-f1arm/cartopy-data   # 計算節點沒網路，post 的底圖放本機
 ```

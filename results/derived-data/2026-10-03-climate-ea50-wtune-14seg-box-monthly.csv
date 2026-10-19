@@ -1,0 +1,193 @@
+box,quantity,source,year_month,value
+North China,T2_or_SST_K,WRF,2023-01,263.8555
+North China,T2_or_SST_K,WRF,2023-02,269.0139
+North China,T2_or_SST_K,WRF,2023-03,278.2046
+North China,T2_or_SST_K,WRF,2023-04,282.8447
+North China,T2_or_SST_K,WRF,2023-05,290.2964
+North China,T2_or_SST_K,WRF,2023-06,296.4912
+North China,T2_or_SST_K,WRF,2023-07,298.2999
+North China,T2_or_SST_K,WRF,2023-08,297.8860
+North China,T2_or_SST_K,WRF,2023-09,292.2816
+North China,T2_or_SST_K,WRF,2023-10,284.9720
+North China,T2_or_SST_K,WRF,2023-11,273.5677
+North China,T2_or_SST_K,WRF,2023-12,262.9819
+North China,T2_or_SST_K,ERA5,2023-01,265.3627
+North China,T2_or_SST_K,ERA5,2023-02,270.2160
+North China,T2_or_SST_K,ERA5,2023-03,278.6999
+North China,T2_or_SST_K,ERA5,2023-04,283.2009
+North China,T2_or_SST_K,ERA5,2023-05,290.2944
+North China,T2_or_SST_K,ERA5,2023-06,296.3725
+North China,T2_or_SST_K,ERA5,2023-07,297.8202
+North China,T2_or_SST_K,ERA5,2023-08,296.1952
+North China,T2_or_SST_K,ERA5,2023-09,291.7614
+North China,T2_or_SST_K,ERA5,2023-10,284.6771
+North China,T2_or_SST_K,ERA5,2023-11,272.6109
+North China,T2_or_SST_K,ERA5,2023-12,264.8065
+North China,precip_mm_per_day,WRF,2023-01,0.5921
+North China,precip_mm_per_day,WRF,2023-02,0.7019
+North China,precip_mm_per_day,WRF,2023-03,0.4054
+North China,precip_mm_per_day,WRF,2023-04,2.5862
+North China,precip_mm_per_day,WRF,2023-05,3.2217
+North China,precip_mm_per_day,WRF,2023-06,1.8474
+North China,precip_mm_per_day,WRF,2023-07,6.7103
+North China,precip_mm_per_day,WRF,2023-08,4.5754
+North China,precip_mm_per_day,WRF,2023-09,5.6201
+North China,precip_mm_per_day,WRF,2023-10,0.8783
+North China,precip_mm_per_day,WRF,2023-11,0.7188
+North China,precip_mm_per_day,WRF,2023-12,1.0268
+North China,precip_mm_per_day,GPCP,2023-01,0.1861
+North China,precip_mm_per_day,GPCP,2023-02,0.4423
+North China,precip_mm_per_day,GPCP,2023-03,0.1491
+North China,precip_mm_per_day,GPCP,2023-04,1.4511
+North China,precip_mm_per_day,GPCP,2023-05,1.5788
+North China,precip_mm_per_day,GPCP,2023-06,1.3608
+North China,precip_mm_per_day,GPCP,2023-07,5.5376
+North China,precip_mm_per_day,GPCP,2023-08,3.5836
+North China,precip_mm_per_day,GPCP,2023-09,1.7732
+North China,precip_mm_per_day,GPCP,2023-10,0.4442
+North China,precip_mm_per_day,GPCP,2023-11,0.6706
+North China,precip_mm_per_day,GPCP,2023-12,0.6231
+South China,T2_or_SST_K,WRF,2023-01,281.6602
+South China,T2_or_SST_K,WRF,2023-02,286.7791
+South China,T2_or_SST_K,WRF,2023-03,290.1745
+South China,T2_or_SST_K,WRF,2023-04,295.4930
+South China,T2_or_SST_K,WRF,2023-05,297.6686
+South China,T2_or_SST_K,WRF,2023-06,299.8956
+South China,T2_or_SST_K,WRF,2023-07,301.4627
+South China,T2_or_SST_K,WRF,2023-08,300.3572
+South China,T2_or_SST_K,WRF,2023-09,299.0869
+South China,T2_or_SST_K,WRF,2023-10,293.3378
+South China,T2_or_SST_K,WRF,2023-11,289.4193
+South China,T2_or_SST_K,WRF,2023-12,282.8787
+South China,T2_or_SST_K,ERA5,2023-01,283.7988
+South China,T2_or_SST_K,ERA5,2023-02,285.9312
+South China,T2_or_SST_K,ERA5,2023-03,289.8207
+South China,T2_or_SST_K,ERA5,2023-04,293.7458
+South China,T2_or_SST_K,ERA5,2023-05,297.4079
+South China,T2_or_SST_K,ERA5,2023-06,299.6482
+South China,T2_or_SST_K,ERA5,2023-07,301.6283
+South China,T2_or_SST_K,ERA5,2023-08,300.2335
+South China,T2_or_SST_K,ERA5,2023-09,299.0778
+South China,T2_or_SST_K,ERA5,2023-10,294.7850
+South China,T2_or_SST_K,ERA5,2023-11,290.5896
+South China,T2_or_SST_K,ERA5,2023-12,285.3801
+South China,precip_mm_per_day,WRF,2023-01,0.8852
+South China,precip_mm_per_day,WRF,2023-02,1.7913
+South China,precip_mm_per_day,WRF,2023-03,4.2519
+South China,precip_mm_per_day,WRF,2023-04,4.2872
+South China,precip_mm_per_day,WRF,2023-05,5.6742
+South China,precip_mm_per_day,WRF,2023-06,12.6743
+South China,precip_mm_per_day,WRF,2023-07,8.4422
+South China,precip_mm_per_day,WRF,2023-08,11.6173
+South China,precip_mm_per_day,WRF,2023-09,7.4966
+South China,precip_mm_per_day,WRF,2023-10,1.8447
+South China,precip_mm_per_day,WRF,2023-11,1.8424
+South China,precip_mm_per_day,WRF,2023-12,0.6381
+South China,precip_mm_per_day,GPCP,2023-01,1.4389
+South China,precip_mm_per_day,GPCP,2023-02,1.9743
+South China,precip_mm_per_day,GPCP,2023-03,4.1545
+South China,precip_mm_per_day,GPCP,2023-04,5.0720
+South China,precip_mm_per_day,GPCP,2023-05,5.0614
+South China,precip_mm_per_day,GPCP,2023-06,8.8002
+South China,precip_mm_per_day,GPCP,2023-07,5.4283
+South China,precip_mm_per_day,GPCP,2023-08,7.3584
+South China,precip_mm_per_day,GPCP,2023-09,6.7491
+South China,precip_mm_per_day,GPCP,2023-10,3.0816
+South China,precip_mm_per_day,GPCP,2023-11,1.7373
+South China,precip_mm_per_day,GPCP,2023-12,0.8277
+Taiwan,T2_or_SST_K,WRF,2023-01,285.8324
+Taiwan,T2_or_SST_K,WRF,2023-02,288.9770
+Taiwan,T2_or_SST_K,WRF,2023-03,289.8012
+Taiwan,T2_or_SST_K,WRF,2023-04,294.0894
+Taiwan,T2_or_SST_K,WRF,2023-05,295.6921
+Taiwan,T2_or_SST_K,WRF,2023-06,298.4152
+Taiwan,T2_or_SST_K,WRF,2023-07,299.2695
+Taiwan,T2_or_SST_K,WRF,2023-08,298.4032
+Taiwan,T2_or_SST_K,WRF,2023-09,298.4577
+Taiwan,T2_or_SST_K,WRF,2023-10,294.6061
+Taiwan,T2_or_SST_K,WRF,2023-11,292.5787
+Taiwan,T2_or_SST_K,WRF,2023-12,287.2229
+Taiwan,T2_or_SST_K,ERA5,2023-01,287.4747
+Taiwan,T2_or_SST_K,ERA5,2023-02,288.4573
+Taiwan,T2_or_SST_K,ERA5,2023-03,290.3638
+Taiwan,T2_or_SST_K,ERA5,2023-04,293.4839
+Taiwan,T2_or_SST_K,ERA5,2023-05,295.8680
+Taiwan,T2_or_SST_K,ERA5,2023-06,297.8922
+Taiwan,T2_or_SST_K,ERA5,2023-07,298.5497
+Taiwan,T2_or_SST_K,ERA5,2023-08,298.2537
+Taiwan,T2_or_SST_K,ERA5,2023-09,297.6136
+Taiwan,T2_or_SST_K,ERA5,2023-10,295.4185
+Taiwan,T2_or_SST_K,ERA5,2023-11,292.4349
+Taiwan,T2_or_SST_K,ERA5,2023-12,289.8744
+Taiwan,precip_mm_per_day,WRF,2023-01,2.4887
+Taiwan,precip_mm_per_day,WRF,2023-02,3.8574
+Taiwan,precip_mm_per_day,WRF,2023-03,4.4939
+Taiwan,precip_mm_per_day,WRF,2023-04,5.5938
+Taiwan,precip_mm_per_day,WRF,2023-05,5.0133
+Taiwan,precip_mm_per_day,WRF,2023-06,20.7122
+Taiwan,precip_mm_per_day,WRF,2023-07,11.6591
+Taiwan,precip_mm_per_day,WRF,2023-08,14.2712
+Taiwan,precip_mm_per_day,WRF,2023-09,18.1126
+Taiwan,precip_mm_per_day,WRF,2023-10,15.1428
+Taiwan,precip_mm_per_day,WRF,2023-11,2.4750
+Taiwan,precip_mm_per_day,WRF,2023-12,2.8027
+Taiwan,precip_mm_per_day,GPCP,2023-01,1.7328
+Taiwan,precip_mm_per_day,GPCP,2023-02,1.8795
+Taiwan,precip_mm_per_day,GPCP,2023-03,1.9328
+Taiwan,precip_mm_per_day,GPCP,2023-04,3.0407
+Taiwan,precip_mm_per_day,GPCP,2023-05,4.3682
+Taiwan,precip_mm_per_day,GPCP,2023-06,6.7726
+Taiwan,precip_mm_per_day,GPCP,2023-07,6.4220
+Taiwan,precip_mm_per_day,GPCP,2023-08,8.6294
+Taiwan,precip_mm_per_day,GPCP,2023-09,7.3217
+Taiwan,precip_mm_per_day,GPCP,2023-10,5.0776
+Taiwan,precip_mm_per_day,GPCP,2023-11,1.5017
+Taiwan,precip_mm_per_day,GPCP,2023-12,1.9245
+W North Pacific,T2_or_SST_K,WRF,2023-01,297.9823
+W North Pacific,T2_or_SST_K,WRF,2023-02,297.5127
+W North Pacific,T2_or_SST_K,WRF,2023-03,297.5583
+W North Pacific,T2_or_SST_K,WRF,2023-04,298.3853
+W North Pacific,T2_or_SST_K,WRF,2023-05,299.5838
+W North Pacific,T2_or_SST_K,WRF,2023-06,301.1453
+W North Pacific,T2_or_SST_K,WRF,2023-07,302.6171
+W North Pacific,T2_or_SST_K,WRF,2023-08,302.5459
+W North Pacific,T2_or_SST_K,WRF,2023-09,302.6798
+W North Pacific,T2_or_SST_K,WRF,2023-10,302.0886
+W North Pacific,T2_or_SST_K,WRF,2023-11,300.9737
+W North Pacific,T2_or_SST_K,WRF,2023-12,299.9089
+W North Pacific,T2_or_SST_K,ERA5,2023-01,297.9723
+W North Pacific,T2_or_SST_K,ERA5,2023-02,297.5106
+W North Pacific,T2_or_SST_K,ERA5,2023-03,297.5671
+W North Pacific,T2_or_SST_K,ERA5,2023-04,298.3922
+W North Pacific,T2_or_SST_K,ERA5,2023-05,299.5914
+W North Pacific,T2_or_SST_K,ERA5,2023-06,301.1610
+W North Pacific,T2_or_SST_K,ERA5,2023-07,302.6198
+W North Pacific,T2_or_SST_K,ERA5,2023-08,302.5461
+W North Pacific,T2_or_SST_K,ERA5,2023-09,302.6821
+W North Pacific,T2_or_SST_K,ERA5,2023-10,302.0788
+W North Pacific,T2_or_SST_K,ERA5,2023-11,300.9647
+W North Pacific,T2_or_SST_K,ERA5,2023-12,299.8994
+W North Pacific,precip_mm_per_day,WRF,2023-01,2.5546
+W North Pacific,precip_mm_per_day,WRF,2023-02,1.8583
+W North Pacific,precip_mm_per_day,WRF,2023-03,4.6603
+W North Pacific,precip_mm_per_day,WRF,2023-04,4.5889
+W North Pacific,precip_mm_per_day,WRF,2023-05,7.4684
+W North Pacific,precip_mm_per_day,WRF,2023-06,6.1058
+W North Pacific,precip_mm_per_day,WRF,2023-07,6.2419
+W North Pacific,precip_mm_per_day,WRF,2023-08,17.5338
+W North Pacific,precip_mm_per_day,WRF,2023-09,12.0945
+W North Pacific,precip_mm_per_day,WRF,2023-10,9.5950
+W North Pacific,precip_mm_per_day,WRF,2023-11,3.1664
+W North Pacific,precip_mm_per_day,WRF,2023-12,3.4573
+W North Pacific,precip_mm_per_day,GPCP,2023-01,1.7551
+W North Pacific,precip_mm_per_day,GPCP,2023-02,1.4669
+W North Pacific,precip_mm_per_day,GPCP,2023-03,1.6930
+W North Pacific,precip_mm_per_day,GPCP,2023-04,3.0825
+W North Pacific,precip_mm_per_day,GPCP,2023-05,3.9894
+W North Pacific,precip_mm_per_day,GPCP,2023-06,4.6802
+W North Pacific,precip_mm_per_day,GPCP,2023-07,4.7083
+W North Pacific,precip_mm_per_day,GPCP,2023-08,8.9942
+W North Pacific,precip_mm_per_day,GPCP,2023-09,5.6109
+W North Pacific,precip_mm_per_day,GPCP,2023-10,5.2987
+W North Pacific,precip_mm_per_day,GPCP,2023-11,3.2041
+W North Pacific,precip_mm_per_day,GPCP,2023-12,2.1691

@@ -1,0 +1,35 @@
+case	stage	metric	v090g	v090	verdict	note
+sc26p2	prep	old_cache_path_visibility	0 of 12 nodes see bp-cache/sc26p2 (srun -N12, 19:02:25Z)	-	ok	no rename this time; sc26p2.prev2 kept
+sc26p2	T	nc2bp_jobs_before_first_wave	1 (job 3038, work2, 3 s; BP written 19:02:34Z; first wave 19:02:50Z); log: bp inputs: converted sc26p2 in 20 s (job 3038)	0 (in-job staging in 2845-2847)	PASS	
+sc26p2	T	failed_probe_jobs	0 of 12 (3039-3050 COMPLETED 0:0; 28 RESULT lines ok=1)	0 of 11	PASS	
+sc26p2	T	probe_bdy_reads_gt1s	0 of 28 (max 0.056 s)	2 of 26 (5.18, 5.35 s)	PASS	p2-probe-bdy.txt
+sc26p2	T	bp_fresh_every_wave	12 of 12 probe jobs seen with copy_* while running (4 each; n7/round0-s0 8); 0 bp_fresh dirs left	first wave had none	PASS	p2-tune-freshwatch.log, p2-tune-freshwatch2.log
+sc26p2	T	in_job_staging_warning	0 of 12 sweep outputs; 0 in tune log	3 jobs	info	
+sc26p2	T	t0_N1	0.05203	0.05064	+2.74% ok	
+sc26p2	T	t0_N2	0.02803	0.02760	+1.58% ok	
+sc26p2	T	t0_N4	0.01793	0.01804	-0.58% ok	
+sc26p2	T	t0_N6	0.01552	- (netCDF baseline 0.0153)	n/a	not measured in v090
+sc26p2	T	t0_N7	0.01521	0.01511	+0.69% ok	
+sc26p2	T	t0_N8	0.01477	0.01462	+1.06% ok	
+sc26p2	T	t0_N9	0.01730	0.01773	-2.40% ok	
+sc26p2	T	t0_N12	0.01618	0.01677	-3.46% FAIL	N=12 spread 4.3% this time, 0.9% in v090
+sc26p2	T	t0_within_3pct	6 of 7 common N within 3%	-	FAIL	only N=12 outside (-3.46%)
+sc26p2	T	winner	N7 c72 168r 14x12 t3 omp3 0.01521	N8 c72 192r 16x12 t3 omp3 0.01462	info	N7 within 3% of N8 this time (+2.98%) so the smaller N won; cores sweep c48 0.01506 / c64 0.01627 / c36 0.01639
+sc26p2	T	tune_time	running 29:00, queue 3:40, wall 32:43	24:00 + 3:00	info	13 jobs 3038-3050
+sc26p2	D	predicted_whole_run	1:45 (1:19-2:12), suggested --time=00:16:00	2:05 (1:33-2:36)	-	
+sc26p2	D	prediction_vs_actual	job 3063 elapsed 1:33 = 93 s; inside band (-11.4% vs 105 s)	1:30 below band	PASS	run-side segment estimate was 2:39 (fallback overheads)
+sc26p2	R	job	3063, 7 nodes work[2-8], COMPLETED 0:0, 1:33	2868 (8 nodes) 1:30; 2869 (6 nodes) 1:50	-	
+sc26p2	R	success_nan_cfl	SUCCESS / 0 / 0	SUCCESS / 0 / 0	PASS	
+sc26p2	R	plan_lines	restart checkpoints every 360 min (auto, for --resume); pre-created 57 output dirs; fresh per-record inputs ... (reflink)	no checkpoints, no pre-create	PASS	_bp_inputs removed after
+sc26p2	R	wrfout_writes_n_sum_max	49 / 2.16 / 0.13	49 / 2.38 / 0.15	-	
+sc26p2	R	restart_writes_n_sum_max	8 / 1.35 / 0.20	0	-	new auto checkpoints
+sc26p2	R	writes_ge3s	0	0	PASS	
+sc26p2	R	bdy_n_sum_gt1	8 / 0.219 / 0 (max 0.034)	8 / 0.252 / 0	-	
+sc26p2	R	main_sum_s	47.39 (d01 2400 steps; no d02)	44.63 (N8); 48.50 (N6)	-	
+sc26p2	R	leftover_empty_dirs	0	-	PASS	49 wrfout + 8 wrfrst dirs all written
+sc26p2	R	run_report	status completed, resumes 0	-	PASS	
+sc26p2	R	bit_identity	not applicable	-	N/A	layout N7 14x12 differs from job 2868 (N8 16x12) and job 2869 (N6 12x12); no extra run launched
+sc26p2	PP	rc_seconds	0 / 588 (srun job 3064, sacct 9:48)	0 / 574	PASS	
+sc26p2	PP	png_count	165 (report: 174 figures)	165 (174)	PASS	file lists identical after replacing the run name (2 tc files carry it)
+sc26p2	PP	missing_entries	1 (terrain_leeward_station)	1 (same)	PASS	
+sc26p2	PP	converting_lines	1 (49 BP -> _nc_cache/v090g-8d170413)	1	info	

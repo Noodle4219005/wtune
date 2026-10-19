@@ -1,0 +1,5 @@
+nodes,s_per_step_all_nics,s_per_step_ipoib_only,source
+1,0.1729,0.1700,V-conus12 jobs 17617 / mpi-ipoib jobs 17658-17661 (40 steps)
+2,0.2065,0.0850,"all NICs: 1 run; IPoIB: median of 2 runs"
+3,,0.0622,
+4,0.4621,0.0528,

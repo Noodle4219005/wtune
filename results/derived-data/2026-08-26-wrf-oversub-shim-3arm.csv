@@ -1,0 +1,9 @@
+arm,ranks,shim,median_step_s,vs_base4_pct,vs_noshim_pct,node,job,note
+A_base4,448,none,0.841,0.0,NA,icpnp331-334,1043220,baseline SUCCESS 60 steps
+B_over4_noshim,896,none,1.003,19.3,0.0,icpnp331-334,1043232,2x oversub clear spins at halo Waitall
+C_over4_shim,896,blockbar2_50us,0.965,14.7,-3.8,icpnp331-334,1043243,shim fired ([blockbar2] active); released cores but under-absorbed (user htop 40-60% util)
+ref_aug23_base4,448,none,0.81,0.0,NA,icpnq349,oversub-base4,prior ct448 baseline
+ref_aug23_over4,896,none,0.87,7.4,NA,icpnq652,oversub-over4,prior ct448 no-shim
+dev_Cpool_nopin_shim,896,blockbar2_nopin_pool,1.322,57.2,NA,icpnp331-334,1043265,OS-float pool +shim WORSE (CFS migration thrash on 0.9GB/rank)
+cf_A_base4,448,none,0.76688,0.0,NA,cf-icpnp,1043269,cf baseline
+cf_Cpool_nopin_shim,896,blockbar2_nopin_pool,1.05151,37.1,NA,cf-icpnp,1043271,cf pool+shim also net-neg vs cf base4

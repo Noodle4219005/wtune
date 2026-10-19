@@ -2618,7 +2618,7 @@ def _rendered_run_sbatch(n_windows=5):
 
 def test_run_sbatch_runs_geogrid_once_under_a_single_flight_lock():
     text = _rendered_run_sbatch(5)
-    assert text.count("./geogrid.exe") == 1                    # not once per window
+    assert text.count(cs._wps_launch("geogrid.exe", 72)) == 1   # not once per window
     assert "flock -w 900 9" in text and 'GEO_CACHE.lock' in text
     # order: lock -> cache check -> geogrid -> fill cache -> unlock
     order = [text.index(x) for x in ("flock -w 900 9", "GEO_CACHED=1;", "./geogrid.exe",

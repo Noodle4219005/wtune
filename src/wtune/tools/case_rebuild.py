@@ -1474,7 +1474,7 @@ def _sbatch_geogrid(job: _RebuildJob) -> list[str]:
         "export OMP_NUM_THREADS=1",
         "CUR_WINDOW=geogrid",
         "echo \"=== geogrid.exe ($(date -u +%FT%TZ)) ===\"",
-        "mpirun -np %d --map-by ppr:%d:node:PE=1 --bind-to core ./geogrid.exe" % (job.ppn, job.ppn),
+        cs._wps_launch("geogrid.exe", job.ppn),
         "rc=$?; pkill -u \"$USER\" -x geogrid.exe 2>/dev/null",
         "GEO_EM_MISSING=()",
         "for f in %s; do [ -f \"$f\" ] || GEO_EM_MISSING+=(\"$f\"); done"
@@ -1529,7 +1529,7 @@ def _sbatch_metgrid(job: _RebuildJob) -> list[str]:
     return [
         "CUR_WINDOW=metgrid",
         "echo \"=== metgrid.exe ($(date -u +%FT%TZ)) ===\"",
-        "mpirun -np %d --map-by ppr:%d:node:PE=1 --bind-to core ./metgrid.exe" % (job.ppn, job.ppn),
+        cs._wps_launch("metgrid.exe", job.ppn),
         "rc=$?; pkill -u \"$USER\" -x metgrid.exe 2>/dev/null",
         "MET_MISSING=()",
         "for f in %s; do [ -f \"$f\" ] || MET_MISSING+=(\"$f\"); done"

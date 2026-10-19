@@ -76,6 +76,14 @@ _md = None
 _gs = None
 
 
+
+def _wps_launch(exe: str, ppn: int) -> str:
+    """mpirun only for a dmpar WPS build; a serial geogrid/metgrid under mpirun runs ppn
+    independent copies that all write the same file."""
+    return ("if ldd ./%s 2>/dev/null | grep -q libmpi; then "
+            "mpirun -np %d --map-by ppr:%d:node:PE=1 --bind-to core ./%s; else ./%s; fi"
+            % (exe, ppn, ppn, exe, exe))
+
 def _metdata():
     global _md
     if _md is None:
@@ -2671,7 +2679,7 @@ def _sbatch_geogrid_lines(geo_em_expected, ppn):
     lines.append("  echo 'Successful completion of geogrid (cached)' > geogrid.log.cached; rc=0")
     lines.append("else")
     lines.append("echo \"=== geogrid.exe ($(date -u +%FT%TZ)) ===\"")
-    lines.append("mpirun -np %d --map-by ppr:%d:node:PE=1 --bind-to core ./geogrid.exe" % (ppn, ppn))
+    lines.append(_wps_launch("geogrid.exe", ppn))
     lines.append("rc=$?; pkill -u \"$USER\" -x geogrid.exe 2>/dev/null")
     lines.append("fi")
     # geogrid.exe MPI_Abort()s with errorcode 0 on a missing GEOGRID.TBL (jobs 941/942,
@@ -2765,7 +2773,7 @@ def _run_window_wps_lines(ppn):
     lines.append("  fi")
     lines.append("")
     lines.append("  echo \"=== window $k: metgrid.exe ($(date -u +%FT%TZ)) ===\"")
-    lines.append("  mpirun -np %d --map-by ppr:%d:node:PE=1 --bind-to core ./metgrid.exe" % (ppn, ppn))
+    lines.append("  " + _wps_launch("metgrid.exe", ppn))
     lines.append("  rc=$?; pkill -u \"$USER\" -x metgrid.exe 2>/dev/null")
     # metgrid.exe also MPI_Abort()s with errorcode 0 on a missing METGRID.TBL -- require every
     # expected met_em.d0N.<time>.nc AND the log to say 'Successful completion' (jobs 941/942).

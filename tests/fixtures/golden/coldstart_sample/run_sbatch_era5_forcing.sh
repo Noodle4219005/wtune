@@ -74,7 +74,7 @@ if [ $GEO_CACHED = 1 ]; then
   echo 'Successful completion of geogrid (cached)' > geogrid.log.cached; rc=0
 else
 echo "=== geogrid.exe ($(date -u +%FT%TZ)) ==="
-mpirun -np 64 --map-by ppr:64:node:PE=1 --bind-to core ./geogrid.exe
+if ldd ./geogrid.exe 2>/dev/null | grep -q libmpi; then mpirun -np 64 --map-by ppr:64:node:PE=1 --bind-to core ./geogrid.exe; else ./geogrid.exe; fi
 rc=$?; pkill -u "$USER" -x geogrid.exe 2>/dev/null
 fi
 GEO_EM_EXPECTED=(geo_em.d01.nc)
@@ -134,7 +134,7 @@ run_window() {
   fi
 
   echo "=== window $k: metgrid.exe ($(date -u +%FT%TZ)) ==="
-  mpirun -np 64 --map-by ppr:64:node:PE=1 --bind-to core ./metgrid.exe
+  if ldd ./metgrid.exe 2>/dev/null | grep -q libmpi; then mpirun -np 64 --map-by ppr:64:node:PE=1 --bind-to core ./metgrid.exe; else ./metgrid.exe; fi
   rc=$?; pkill -u "$USER" -x metgrid.exe 2>/dev/null
   for f in "${expected_met[@]}"; do [ -f "$f" ] || missing_met+=("$f"); done
   if [ $rc -ne 0 ] || [ ${#missing_met[@]} -gt 0 ] || ! grep -q 'Successful completion' metgrid.log* 2>/dev/null; then

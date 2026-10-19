@@ -1,0 +1,14 @@
+route,case,nodes,prediction_job,n_units,unit_seconds,prediction_wall_s,fetch_s_login,predictor_cpu_s,truth_wall_s,overhead_pct_of_truth,note
+probe_K1,c34,1,747,3,,80,0,13,1730.8,1.5,3 reps in one 80 s job; per-rep split not recorded (no srun steps)
+probe_K1,conus25,4,775,3,91;179;85,91,0,13,2694.2,3.4,median of 3 reps
+probe_K1,isc21,4,776,3,444;496;439,444,0,13,1403.1,31.6,run is only 120 steps so a 31-step probe is a quarter of it
+probe_K1,maria1km,4,779,3,425;380;370,380,0,13,4661.5,8.2,median of 3 reps
+probe_K1,marshall,4,780,3,104;203;119,119,0,13,14061.3,0.8,median of 3 reps
+probe_K1,lafe,8,791,3,205;104;233,205,0,13,13761.3,1.5,median of 3 reps
+probe_K1,dorian2019,4,1003,1,99,99,0,13,1718.0,5.8,single 31-step probe
+probe_K1,zhengzhou,4,1005,1,268,268,0,13,,,truth 1020 still running (prediction 19497 s)
+coldstart,severe2023,4,948,4,,914,387,14,107.1,853.4,4 windows; per window wps+ungrib 57-89 metgrid 38-53 real 32-67 wrf 43-52
+coldstart,sc26p1,4,949,4,,727,236,14,1687.3,43.1,4 windows; wps 19-27 metgrid 27-68 real 31-62 wrf 50-59
+coldstart,conus25,4,981,2,,2067,74,14,2694.2,76.7,2 windows; wps 44-47 metgrid 126-140 real 175-189 wrf 638-640
+coldstart,maria1km,4,1031,1,,2750,25,14,4661.5,59.0,1 window; wps 46 metgrid 181 real 228 wrf 2232 (1 h spin-up at 1 km)
+coldstart,lafe,8,1032,4,,5024,233,14,13761.3,36.5,4 windows (window 3 killed at init); wps 59-91 metgrid 258-290 real 242-280 wrf 754-866

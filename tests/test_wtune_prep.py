@@ -119,12 +119,13 @@ def test_a_download_still_missing_files_is_an_error_message(project, monkeypatch
 
 
 @pytest.mark.parametrize("dmpar", [False, True])
-def test_wps_runs_under_mpirun_only_when_it_links_mpi(tmp_path, dmpar):
+def test_wps_runs_under_mpirun_only_when_it_calls_mpi_init(tmp_path, dmpar):
     import subprocess
     from wtune.tools import coldstart_sample as cs
     (tmp_path / "geogrid.exe").write_text("#!/bin/sh\necho serial\n")
     (tmp_path / "geogrid.exe").chmod(0o755)
-    for name, out in (("mpirun", "mpi"), ("ldd", "libmpi.so.40" if dmpar else "libc.so.6")):
+    # a serial build links libmpi too (via netCDF/HDF5); only a dmpar one calls mpi_init_
+    for name, out in (("mpirun", "mpi"), ("nm", "U mpi_init_" if dmpar else "U H5open")):
         (tmp_path / name).write_text("#!/bin/sh\necho %s\n" % out)
         (tmp_path / name).chmod(0o755)
     env = dict(os.environ, PATH="%s:%s" % (tmp_path, os.environ["PATH"]))

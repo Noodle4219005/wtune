@@ -78,9 +78,10 @@ _gs = None
 
 
 def _wps_launch(exe: str, ppn: int) -> str:
-    """mpirun only for a dmpar WPS build; a serial geogrid/metgrid under mpirun runs ppn
-    independent copies that all write the same file."""
-    return ("if ldd ./%s 2>/dev/null | grep -q libmpi; then "
+    """mpirun only for a dmpar WPS build (it calls MPI_Init itself); a serial geogrid/metgrid
+    under mpirun runs ppn independent copies that all write the same file. Linking libmpi is no
+    evidence: a serial build gets it through a parallel netCDF/HDF5."""
+    return ("if nm -D --undefined-only ./%s 2>/dev/null | grep -qi mpi_init; then "
             "mpirun -np %d --map-by ppr:%d:node:PE=1 --bind-to core ./%s; else ./%s; fi"
             % (exe, ppn, ppn, exe, exe))
 

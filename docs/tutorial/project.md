@@ -66,6 +66,7 @@ flowchart TD
 
 !!! warning "下載量與下載中斷"
     - 下載量跟 namelist 的視窗長度成正比：GFS 0.25° 每 3 小時一個檔，每檔約 0.22 GB，48 小時約 3.7 GB，120 小時約 9 GB。只是要測流程時，先把 `run_hours` 改短。
+    - ungrib 會把每個時間點解成全球的中間檔，GFS 0.25° 每個約 0.8 GB，48 小時的視窗在 `input/prep/wps/` 要 13 GB 以上。家目錄配額不夠時 WPS job 會在寫檔時失敗；先確認配額（例如 `mmlsquota`），或把視窗改短。
     - 資料來源偶爾會在下載途中停住。重試 3 次仍缺檔時，`prep wps` 會印 `still missing after 3 attempts` 並結束，這時還沒有送出任何 job。原樣再下一次 `wtune prep wps` 即可：已下載的檔會跳過，下到一半的檔會接著下。
 
 ### 只有 restart 檔的個案

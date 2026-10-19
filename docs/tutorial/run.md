@@ -93,6 +93,9 @@ namelist 是 `restart = .true.` 時，第一段從個案自己的 `wrfrst_d<NN>_
 
 已經跑完的段留在 `runs/<id>/seg_*/`。再按一次 Ctrl-C 會立刻結束、不取消 job，這時下 `wtune stop` 取消它留下的 job。
 
+!!! warning "`wtune stop` 停的是整個專案"
+    不帶參數時，`wtune stop` 會停掉目前目錄所屬專案裡所有在跑的 tune 和 run。只想停其中一個，把它的目錄當參數，例如 `wtune stop runs/<id>` 或 `wtune stop tune/<id>`。在別的專案目錄下指令，不會碰到這個專案。
+
 ## watch
 
 ```bash

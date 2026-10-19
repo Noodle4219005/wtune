@@ -64,6 +64,10 @@ flowchart TD
 
 工作目錄是 `input/prep/`，job 的 log 在 `input/prep/run-<jobid>.out`。需要先 `source` 機器的 `env.sh`（要有 `WPS_DIR` 與 `WRF_TREE`）。Ctrl-C 會取消正在跑的 job。目前不接受自備的 GRIB 檔。
 
+!!! warning "下載量與下載中斷"
+    - 下載量跟 namelist 的視窗長度成正比：GFS 0.25° 每 3 小時一個檔，每檔約 0.22 GB，48 小時約 3.7 GB，120 小時約 9 GB。只是要測流程時，先把 `run_hours` 改短。
+    - 資料來源偶爾會在下載途中停住。重試 3 次仍缺檔時，`prep wps` 會印 `still missing after 3 attempts` 並結束，這時還沒有送出任何 job。原樣再下一次 `wtune prep wps` 即可：已下載的檔會跳過，下到一半的檔會接著下。
+
 ### 只有 restart 檔的個案
 
 個案沒有 `wrfinput_d01`、只有 restart 檔時，`project init` 這樣處理：
@@ -73,6 +77,8 @@ flowchart TD
 3. `cases.json` 記下 `restart: true`、起始時間與格式（netCDF 是 2，BP 目錄是 14）。
 
 之後 `wtune tune` 的每個量測都從這組 restart 起跑，`wtune run` 的第一段也是。仍然需要 `wrfbdy_d01`。namelist 的 `start_*` 要等於 restart 檔的時間，不符時 `wtune run` 會列出缺哪些檔。
+
+restart 個案的 `wtune tune` 會在 plan 階段印 `no projection source`：預測整段時間需要重建個案，而重建要 `wrfinput_d01` 或 `namelist.wps` 才知道網格投影。這不影響量測和 WINNER，只是少了那一段預測；要有它，把個案的 `namelist.wps` 放進來源資料夾再 `project init`。
 
 ### 不在專案裡的東西
 

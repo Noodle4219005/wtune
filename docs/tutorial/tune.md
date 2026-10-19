@@ -239,6 +239,12 @@ wtune tune --node-objective knee --min-efficiency 0.7    # 平行效率仍有 0.
 wtune tune --nodes 4
 ```
 
+`-O0` 到 `-O3` 自己搜節點數，不能和 `--nodes` 一起用（會印 `-O/--pipeline runs its own node search`）。要限制最多幾個節點，用 `--max-nodes`：
+
+```bash
+wtune tune -O1 --max-nodes 1 --minutes 15
+```
+
 某個節點數在每節點全部核心上找不到合法的 MPI 切法時（網格太小或格點數不好分），掃描改用那個節點數上能切的最多核心量 ANCHOR，log 會寫 `node sweep: N=7 has no legal decomposition on all 144 cores/node; ANCHOR on 136 (...)`。記憶體放不下時也一樣先試少一點核心，都不行才跳過那個節點數。
 
 ## 不更動的項目

@@ -23,6 +23,7 @@ def project(tmp_path, monkeypatch):
     monkeypatch.setenv("WTUNE_PROJECT", str(p))
     monkeypatch.setenv("WPS_DIR", "/wps")
     monkeypatch.setenv("WRF_TREE", "/wrf")
+    monkeypatch.setenv("WPS_GEOG", str(tmp_path))
     return p
 
 
@@ -85,6 +86,13 @@ def test_prep_real_links_its_outputs_into_case(project):
     assert "./real.exe" in s.scripts[0] and "geogrid.exe" not in s.scripts[0]
     for n in made:
         assert os.readlink(project / "case" / n) == str(out / "real" / n)
+
+
+def test_prep_wps_needs_the_geog_data_before_downloading(project, monkeypatch):
+    monkeypatch.setenv("WPS_GEOG", str(project / "no-geog"))
+    monkeypatch.setattr(cr, "cmd_rebuild_plan", lambda *a, **k: pytest.fail("planned"))
+    with pytest.raises(prep.PrepError, match="geog"):
+        prep.prep_wps(poll_s=0)
 
 
 def test_prep_real_needs_met_em(project):

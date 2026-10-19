@@ -82,6 +82,10 @@ def prep_wps(project: str | None = None, forcing: str | None = None, poll_s: flo
     for k in ("WPS_DIR", "WRF_TREE"):
         if not os.environ.get(k):
             raise PrepError("%s is not set -- source the machine's env.sh first" % k)
+    import wtune.machine
+    if not os.path.isdir(wtune.machine.geog()):
+        raise PrepError("WPS static data %s not found: set `geog` in machine.yaml (or WPS_GEOG)"
+                        % wtune.machine.geog())
     cr.cmd_rebuild_plan(case_dir, out, forcing=forcing)
     rc, _ = cr.cmd_rebuild_fetch(out)
     if rc:

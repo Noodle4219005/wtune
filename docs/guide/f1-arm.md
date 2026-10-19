@@ -65,6 +65,7 @@ hardware_id: f1-grace
 site: f1arm
 env_source: $HOME/wtune-f1arm/env.sh
 wrf_tree: $HOME/wrf-env/nvhpc-arm/wrf/vanilla-v480-adios2-dmpar/WRF
+geog: /work2/u5727520/wrf-newcase/WPS_GEOG_LOW_RES
 max_hours: 8.0
 max_omp: 1
 node_preflight: false
@@ -78,6 +79,7 @@ copy_probe_inputs: false
 | `max_omp: 1` | WRF 編成 dmpar（沒有 OpenMP） |
 | `node_preflight: false` | 跳過每個節點 1 分鐘的 `srun` 探測，省排隊時間 |
 | `copy_probe_inputs: false` | 不把輸入複製到每個探測目錄，省家目錄配額 |
+| `geog` | `wtune prep wps` 的 WPS 靜態資料。f1-arm 上只有低解析度版（1.5 G）；完整的 `geog_high_res_mandatory` 解開約 29 GB，home2 與 work2 的配額都放不下。所以個案要附 `namelist.wps` 並設 `geog_data_res = 'lowres'` |
 
 換 WRF 樹時 `env.sh` 的 `WRF_TREE` 和這裡的 `wrf_tree` 要一起改。只 `export WRF_TREE` 不夠：`wtune run` 會用它，但 tune 的量測 job 送出前會先 `source` env 檔，用的是檔案裡的 `WRF_TREE`。要讓某次 tune 用別的樹，就另存一份 env 檔，再 `export WTUNE_ENV_SOURCE=<那份檔>`。`~/wtune-f1arm/env-tuned.sh` 就是這樣留下來的：它指向舊的 tuned 樹，給需要和舊量測比較的驗證用。
 

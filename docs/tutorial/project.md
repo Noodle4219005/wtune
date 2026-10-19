@@ -62,7 +62,7 @@ flowchart TD
 1. `wtune prep wps`：在登入節點下載整段時間的 GFS／FNL／CFSR（依日期自動選，`--forcing` 可指定），再送一個 job 跑 geogrid、ungrib、metgrid。
 2. `wtune prep real`：送一個 job 跑 real.exe，把新的 `wrfinput_d<NN>`、`wrfbdy_d01` 連結進 `case/`。`case/` 已經有這些檔時要加 `--replace`。
 
-工作目錄是 `input/prep/`，job 的 log 在 `input/prep/run-<jobid>.out`。需要先 `source` 機器的 `env.sh`（要有 `WPS_DIR` 與 `WRF_TREE`）。Ctrl-C 會取消正在跑的 job。目前不接受自備的 GRIB 檔。
+工作目錄是 `input/prep/`，job 的 log 在 `input/prep/run-<jobid>.out`。需要先 `source` 機器的 `env.sh`（要有 `WPS_DIR` 與 `WRF_TREE`），machine 的 `geog`（或 `WPS_GEOG`）要指向 WPS 靜態資料；目錄不存在時 `prep wps` 在下載前就會停。只有低解析度資料（`WPS_GEOG_LOW_RES`）時，在來源資料夾放一份 `namelist.wps`，設 `geog_data_res = 'lowres'`，`prep` 會沿用它。Ctrl-C 會取消正在跑的 job。目前不接受自備的 GRIB 檔。
 
 !!! warning "下載量與下載中斷"
     - 下載量跟 namelist 的視窗長度成正比：GFS 0.25° 每 3 小時一個檔，每檔約 0.22 GB，48 小時約 3.7 GB，120 小時約 9 GB。只是要測流程時，先把 `run_hours` 改短。

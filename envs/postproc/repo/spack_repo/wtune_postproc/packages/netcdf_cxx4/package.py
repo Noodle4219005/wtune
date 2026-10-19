@@ -21,9 +21,12 @@ class NetcdfCxx4(BuiltinNetcdfCxx4):
 
     @run_after("install")
     def old_library_name(self):
-        lib = self.prefix.lib
-        for f in os.listdir(lib):
-            if f.startswith("libnetcdf-cxx4."):
-                old = os.path.join(lib, f.replace("libnetcdf-cxx4", "libnetcdf_c++4", 1))
-                if not os.path.lexists(old):
-                    os.symlink(f, old)
+        # CMake installs to lib64 on RHEL-family systems (f1-arm), lib elsewhere
+        for lib in (self.prefix.lib, self.prefix.lib64):
+            if not os.path.isdir(lib):
+                continue
+            for f in os.listdir(lib):
+                if f.startswith("libnetcdf-cxx4."):
+                    old = os.path.join(lib, f.replace("libnetcdf-cxx4", "libnetcdf_c++4", 1))
+                    if not os.path.lexists(old):
+                        os.symlink(f, old)

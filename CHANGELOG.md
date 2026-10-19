@@ -32,9 +32,19 @@ as they are submitted, so a stop cancels them too.
 **`wtune prep wps` and `wtune prep real`.** WPS (one job: geogrid, ungrib, metgrid) and then
 real.exe (one job) for the project's case over its whole namelist window, reusing the
 `case_rebuild` steps; the forcing is downloaded on the login node. `prep real` links the new
-`wrfinput`/`wrfbdy` into `case/` (`--replace` when it already has them). On f1-arm only the forcing
-download has run so far (it stalled on two files, see the project page); the WPS and real.exe
-jobs of `prep` have not yet run on a cluster.
+`wrfinput`/`wrfbdy` into `case/` (`--replace` when it already has them). `prep wps` checks the WPS
+static data (`machine.geog`, or `WPS_GEOG`) before downloading, and a download that still misses
+files after its retries is an error message, not a traceback. Run on f1-arm: WPS and real.exe
+for a 12 h window (matthew, `geog_data_res='lowres'`).
+
+**Serial WPS under `mpirun`.** geogrid and metgrid were always started with `mpirun -np <ppn>`;
+a serial WPS build (f1-arm's) then ran ppn independent copies that all wrote the same file, and
+the job failed. They now run under `mpirun` only when the executable calls `MPI_Init`. Linking
+`libmpi` is no evidence: a serial build gets it through a parallel netCDF/HDF5.
+
+**MET on RHEL.** `bin/install-postproc.sh` failed after building netcdf-cxx4 where CMake installs
+to `lib64` (f1-arm): the recipe's post-install step looked only in `lib`. MET and ParaView are now
+installed on f1-arm; the guide has the steps.
 
 **`wtune run --restart-io-form 2` kept no restart.** With ADIOS2 history, each `wrfrst` name was
 pre-created as a directory; WRF's netCDF writer failed on it without an error and the empty

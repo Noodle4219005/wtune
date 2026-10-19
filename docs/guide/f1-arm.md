@@ -98,6 +98,30 @@ ssh f1-arm "cd ~/wtune-adios2 && ~/.pixi/bin/pixi install --frozen --manifest-pa
 - `tar -x` 只會新增和覆蓋檔案，上游刪掉的檔案會留著。要完全乾淨就解到新目錄，再重裝 pixi 環境。
 - 確認：`cat ~/wtune-adios2/.deployed-commit`。
 
+## 後處理工具（MET、ParaView）
+
+`wtune post` 的 MET 驗證圖和 ParaView 3-D 圖要另外裝，裝在 `~/wtune-adios2/envs/` 底下，`wtune` 自己找得到，不用設環境變數。重新部署不會刪掉它們。
+
+```bash
+# 登入節點：ParaView（conda-forge，2.3G），並先把 MET 的原始碼抓下來（計算節點沒網路）
+cd ~/wtune-adios2
+~/.pixi/bin/pixi install --manifest-path envs/paraview/pixi.toml
+source ~/spack/share/spack/setup-env.sh
+spack -e envs/postproc config add "packages:all:target:[armv8.5a]"
+spack -e envs/postproc concretize -f
+spack -e envs/postproc fetch -D
+# 計算節點編 MET（約 10 分鐘），最後一步檢查每個工具
+sbatch -A <計畫代號> -p arm-dev -n 1 -c 32 --mem=60G -t 1:00:00 --wrap '
+  export PATH=$HOME/wrf-env/nvhpc-arm/bootstrap-prefix/bin:$PATH
+  source ~/spack/share/spack/setup-env.sh; cd ~/wtune-adios2
+  spack -e envs/postproc install -j 32 && bin/install-postproc.sh --check'
+```
+
+- `target armv8.5a`：GCC 15.2 的 assembler 不認得 spack 給 `neoverse_v2` 的 `-march=armv9-a+...+memtag+profile`，每個套件都會編不過。
+- `bootstrap-prefix/bin`：f1-arm 沒有系統的 `patch`，spack 套 patch 時會失敗；這裡有一份另外編好的 GNU patch。
+- 只要 1/4 個節點，`arm-dev` 通常馬上排到；要整個節點的 job 常要排到隔天。
+- `wtune doctor` 的 `grid_stat`、`pvbatch` 兩行變成 `OK` 就是裝好了。ParaView 在沒有 GPU 的節點上也能 offscreen 出圖。
+
 ## 每次登入
 
 ```bash

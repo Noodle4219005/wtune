@@ -3,7 +3,7 @@
 Versions are declared in `wtune_version.py`; `test_wtune_version.py` fails if the top section
 here does not match it. Development before 0.1.0 is in the git history, not in releases.
 
-## Unreleased
+## 0.9.2 — 2026-10-19
 
 **Stopping a tune keeps what it measured.** Ctrl-C, or `wtune stop` for a tune running in the
 background, now stops `wtune tune` within one poll: it submits nothing more, cancels only its
@@ -32,7 +32,9 @@ as they are submitted, so a stop cancels them too.
 **`wtune prep wps` and `wtune prep real`.** WPS (one job: geogrid, ungrib, metgrid) and then
 real.exe (one job) for the project's case over its whole namelist window, reusing the
 `case_rebuild` steps; the forcing is downloaded on the login node. `prep real` links the new
-`wrfinput`/`wrfbdy` into `case/` (`--replace` when it already has them).
+`wrfinput`/`wrfbdy` into `case/` (`--replace` when it already has them). On f1-arm only the forcing
+download has run so far (it stalled on two files, see the project page); the WPS and real.exe
+jobs of `prep` have not yet run on a cluster.
 
 **`wtune run --restart-io-form 2` kept no restart.** With ADIOS2 history, each `wrfrst` name was
 pre-created as a directory; WRF's netCDF writer failed on it without an error and the empty

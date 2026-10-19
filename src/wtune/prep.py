@@ -15,6 +15,7 @@ import sys
 import time
 
 from wtune.tools import case_rebuild as cr
+from wtune.tools import coldstart_sample as cs
 from wtune.tools import scc_sweep as sweep
 
 REAL_OUTPUTS = ("wrfinput_d", "wrfbdy_d", "wrflowinp_d")
@@ -87,9 +88,7 @@ def prep_wps(project: str | None = None, forcing: str | None = None, poll_s: flo
         raise PrepError("WPS static data %s not found: set `geog` in machine.yaml (or WPS_GEOG)"
                         % wtune.machine.geog())
     cr.cmd_rebuild_plan(case_dir, out, forcing=forcing)
-    rc, _ = cr.cmd_rebuild_fetch(out)
-    if rc:
-        raise PrepError("forcing download failed (rc %d): see %s" % (rc, out))
+    cr.cmd_rebuild_fetch(out)            # raises when files are still missing
     cr.cmd_rebuild_stage(out)
     path = _write_sbatch(out, "wps.sbatch", [cr._sbatch_geogrid, cr._sbatch_ungrib,
                                              cr._sbatch_metgrid])
@@ -151,7 +150,7 @@ def main(argv: list[str] | None = None) -> int:
             prep_wps(a.project, a.forcing, a.poll_interval)
         else:
             prep_real(a.project, a.replace, a.poll_interval)
-    except (PrepError, cr.RebuildError, OSError, ValueError) as e:
+    except (PrepError, cr.RebuildError, cs.ColdstartError, OSError, ValueError) as e:
         print("wtune prep %s: %s" % (a.cmd, e), file=sys.stderr)
         return 1
     return 0

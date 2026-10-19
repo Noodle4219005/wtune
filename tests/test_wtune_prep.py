@@ -53,7 +53,7 @@ class Slurm:
 def test_prep_wps_runs_wps_only_and_checks_met_em(project, monkeypatch):
     out = project / "input" / "prep"
     monkeypatch.setattr(cr, "cmd_rebuild_plan", lambda case, o, forcing=None: _prep_dir(project))
-    monkeypatch.setattr(cr, "cmd_rebuild_fetch", lambda o: (0, {}))
+    monkeypatch.setattr(cr, "cmd_rebuild_fetch", lambda o: (3681784007, {}))   # bytes, not an rc
     monkeypatch.setattr(cr, "cmd_rebuild_stage", lambda o: None)
 
     def met_em():
@@ -105,3 +105,14 @@ def test_wtune_prep_forwards_wps_and_real(monkeypatch):
     seen = []
     monkeypatch.setattr(prep, "main", lambda argv: seen.append(argv) or 0)
     assert wtune.geog.main(["real", "--replace"]) == 0 and seen == [["real", "--replace"]]
+
+
+def test_a_download_still_missing_files_is_an_error_message(project, monkeypatch, capsys):
+    from wtune.tools import coldstart_sample as cs
+    monkeypatch.setattr(cr, "cmd_rebuild_plan", lambda case, o, forcing=None: _prep_dir(project))
+
+    def fetch(o):
+        raise cs.ColdstartError("fetch: d084001: 2 file(s) still missing after 3 attempts")
+    monkeypatch.setattr(cr, "cmd_rebuild_fetch", fetch)
+    assert prep.main(["wps"]) == 1
+    assert "still missing after 3 attempts" in capsys.readouterr().err

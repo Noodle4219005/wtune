@@ -1,5 +1,6 @@
 """wtune post preview: the figure list, the Stage IV tiling of the run window, and the case
 facts read from wrfinput before any wrfout exists."""
+import os
 from datetime import datetime, timedelta
 
 import netCDF4
@@ -53,3 +54,23 @@ def test_stage4_takes_the_shortest_accumulation_that_tiles_the_window():
     del hourly[(1, t0 + timedelta(hours=5))]                  # a gap: the 6 h files still tile it
     assert preview.stage4_tiles({**hourly, **six}, window) == ["a", "b"]
     assert preview.stage4_tiles(hourly, window) == []
+
+
+def test_each_preview_figure_gets_its_values_as_netcdf_under_its_figures_name(tmp_path):
+    lat, lon = np.meshgrid([20.0, 21.0], [-80.0, -79.0, -78.0], indexing="ij")
+    precip = np.ma.masked_invalid([[1.0, np.nan, 3.0], [4.0, 5.0, 6.0]])
+    fig_path = tmp_path / "precip" / "precip_stage4_total.png"
+    path = preview._write_data(str(tmp_path), str(fig_path), "t", "Stage IV",
+                               [(None, lat, lon, [("precip", precip, "mm", "p")])],
+                               valid_time=datetime(2016, 10, 8))
+    assert path == str(tmp_path / "data" / "precip-precip_stage4_total.nc")
+    with netCDF4.Dataset(path) as ds:
+        assert ds.valid_time == "2016-10-08T00:00:00Z"
+        assert ds["precip"].units == "mm" and ds["precip"].coordinates == "lat lon"
+        assert np.ma.getmaskarray(ds["precip"][:]).tolist() == [[False, True, False]] + [[False] * 3]
+        assert ds["lon"][1, 2] == -78.0
+    nested = preview._write_data(str(tmp_path), str(tmp_path / "common_domain_map.png"), "t", "w",
+                                 [("d%02d" % d, lat, lon, [("terrain", lat * 0, "m", "h")])
+                                  for d in (1, 2)])
+    with netCDF4.Dataset(nested) as ds:
+        assert os.path.basename(nested) == "common_domain_map.nc" and sorted(ds.groups) == ["d01", "d02"]

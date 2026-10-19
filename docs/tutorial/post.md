@@ -54,7 +54,9 @@ wtune post preview          # 在 project 內；不需要 runs/
     - 模擬時段的 Stage IV 觀測雨量（`precip-precip_stage4_total.png`）
     - 已下載的 ERA5 500 hPa 高度
 
-`preview.html` 另外列出 tune 預估的執行時間。
+- **圖的數值**：每張圖畫的數值另存成 netCDF，放在 `post/preview/data/`，檔名和 `figures/` 裡的圖相同、副檔名換成 `.nc`。例如 `synoptic-syn_slp_wind10_f000.nc` 有 `slp`（hPa）、`u10`、`v10`（m/s）和 2-D 的 `lat`、`lon`；`common_domain_map.nc` 每個 domain 一個 group（`d01`、`d02`…），各有地形 `terrain`。最佳路徑沒有網格，數據是 `tc/best_track.dat`（ATCF 格式）。用 `ncdump -h` 或 xarray 讀即可。
+
+`preview.html` 另外列出 tune 預估的執行時間，每張圖下面也註明數據檔。
 
 這些圖都不是模式結果，而是初始場和觀測：模式中途會算出什麼，跑之前無法知道。跑完後拿 `post/<id>/figures/` 的同名圖（例如兩邊的 `tc-track_map.png`）來比，差異就是模式自己的表現。觀測要先用 `wtune post fetch` 下載，沒下載的那幾張會在「略過」裡說明。
 

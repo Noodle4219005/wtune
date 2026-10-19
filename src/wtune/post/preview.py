@@ -1,8 +1,8 @@
 """`wtune post preview`: before WRF runs, what `wtune post recipe` will draw and what it will be
 compared with -- the figure list of the detected case types, the t=0 state from wrfinput, the
 observations of the simulated window (best track, Stage IV, ERA5 z500) and the tune's run-time
-estimate -- written to <project>/post/preview/ (figures/ flat, preview.html). No figure here is
-a model result: each names the data it was drawn from."""
+estimate -- written to <project>/post/preview/ (figures/ flat, data/ the values of each figure as
+netCDF, preview.html). No figure here is a model result: each names the data it was drawn from."""
 
 from __future__ import annotations
 
@@ -53,14 +53,50 @@ def _read_stage4(path):
                 np.asarray(ds[list(ds.data_vars)[0]], dtype="f8"))
 
 
+def _write_data(out, fig_path, title, source, grids, valid_time=None):
+    """out/data/<figures/ name>.nc: the plotted values of one figure. grids: [(group or None,
+    lat, lon, [(name, values, units, long name)])], lat/lon 2-D; masked values become NaN."""
+    import netCDF4
+    import numpy as np
+    parts = os.path.relpath(fig_path, out).split(os.sep)
+    name = parts[-1] if len(parts) == 1 else "%s-%s" % (parts[0], parts[-1])
+    path = os.path.join(out, "data", os.path.splitext(name)[0] + ".nc")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with netCDF4.Dataset(path, "w") as ds:
+        ds.title, ds.source, ds.Conventions = title, source, "CF-1.8"
+        if valid_time:
+            ds.valid_time = valid_time.strftime("%Y-%m-%dT%H:%M:%SZ")
+        for group, lat, lon, fields in grids:
+            g = ds.createGroup(group) if group else ds
+            g.createDimension("y", lat.shape[0])
+            g.createDimension("x", lat.shape[1])
+            coords = [("lat", lat, "degrees_north", "latitude"),
+                      ("lon", lon, "degrees_east", "longitude")]
+            for vname, values, units, long_name in coords + fields:
+                v = g.createVariable(vname, "f4", ("y", "x"), zlib=True, fill_value=np.nan)
+                v.units, v.long_name = units, long_name
+                if vname not in ("lat", "lon"):
+                    v.coordinates = "lat lon"
+                v[:] = np.ma.filled(np.ma.asarray(values, dtype="f8"), np.nan)
+    return path
+
+
 def _domain_map(case_dir, out):
+    import netCDF4
+    import numpy as np
     from wtune.post.recipes import common
     files = {d: caseinfo.initial_state(case_dir, d) for d in range(1, 10)}
     max_dom = max(d for d, p in files.items() if p)
     path = common.plot_domain_map(case_dir, max_dom, out, "wrfinput",
                                   frame_of=lambda d: ("t=0", files[d]) if files.get(d) else None)
+    grids = []
+    for d in range(1, max_dom + 1):
+        with netCDF4.Dataset(files[d]) as ds:
+            lat, lon, hgt = (np.asarray(ds.variables[k][0]) for k in ("XLAT", "XLONG", "HGT"))
+        grids.append(("d%02d" % d, lat, lon, [("terrain", hgt, "m", "terrain height")]))
+    data = _write_data(out, path, "domains and terrain", "wrfinput", grids)
     return fig("common_domain_map", path, "preview", domain=1,
-               extra=dict(source="wrfinput（初始場）"))
+               extra=dict(source="wrfinput（初始場）", data=data))
 
 
 def _slp_wind_t0(case_dir, out, start):
@@ -82,8 +118,13 @@ def _slp_wind_t0(case_dir, out, start):
                  contour_label_fmt="%d", u=u, v=v, barb_factor=KT_PER_MS,
                  barb_label="wind barbs in kt", ds=ds, crs=wrf.get_cartopy(var=slp),
                  gridline_labels=True, terrain=False)
+        data = _write_data(out, path, "SLP and 10 m wind at t=0", "wrfinput d01", [(
+            None, lats, lons, [("slp", np.asarray(slp), "hPa", "sea level pressure"),
+                               ("u10", u, "m s-1", "10 m grid-relative x wind"),
+                               ("v10", v, "m s-1", "10 m grid-relative y wind")])],
+            valid_time=start)
     return fig("syn_slp_wind10_f000", path, "preview", domain=1, valid_time=start,
-               extra=dict(source="wrfinput（初始場）"))
+               extra=dict(source="wrfinput（初始場）", data=data))
 
 
 def _best_track(out, storm_id, hurdat2, window):
@@ -95,7 +136,7 @@ def _best_track(out, storm_id, hurdat2, window):
                              os.path.join(tc_dir, "best_track.dat"), basin=basin, cy=cy,
                              tech="BEST")
     path = tc._track_map_figure(tc_dir, {}, bdeck, storm_id, window=window)
-    return fig("tc_track_map", path, "preview", extra=dict(source="HURDAT2（最佳路徑）"))
+    return fig("tc_track_map", path, "preview", extra=dict(source="HURDAT2（最佳路徑）", data=bdeck))
 
 
 def _stage4_total(project_dir, case_dir, out, window):
@@ -121,8 +162,14 @@ def _stage4_total(project_dir, case_dir, out, window):
              % (window[0].strftime("%Y-%m-%d %HZ"), window[1].strftime("%Y-%m-%d %HZ"), len(tiles)),
              fill_field=np.ma.masked_invalid(total[sl]), fill_label="mm", fill_cmap=precip_cmap(),
              fill_levels=PRECIP_LEVELS, fill_extend="max", gridline_labels=True, terrain=False)
+    data = _write_data(out, path, "Stage IV precipitation total %s - %s"
+                       % (window[0].strftime("%Y-%m-%d %HZ"), window[1].strftime("%Y-%m-%d %HZ")),
+                       "Stage IV (%d files)" % len(tiles),
+                       [(None, lat[sl], lon[sl], [("precip", np.ma.masked_invalid(total[sl]), "mm",
+                                                   "accumulated precipitation")])],
+                       valid_time=window[1])
     return fig("precip_stage4_total", path, "preview", valid_time=window[1],
-               extra=dict(source="Stage IV（觀測雨量）"))
+               extra=dict(source="Stage IV（觀測雨量）", data=data))
 
 
 def _era5_z500(project_dir, out, window):
@@ -141,8 +188,11 @@ def _era5_z500(project_dir, out, window):
                  % valid.strftime("%Y-%m-%d %HZ"), contour_field=z,
                  contour_levels=list(range(4800, 6000, 60)), contour_label_fmt="%d",
                  gridline_labels=True, terrain=False)
+        data = _write_data(out, path, "ERA5 500 hPa geopotential height", "ERA5",
+                           [(None, lats, lons, [("z500", z, "m", "500 hPa height")])],
+                           valid_time=valid)
         figs.append(fig("syn_era5_z500", path, "preview", valid_time=valid,
-                        extra=dict(source="ERA5（再分析）")))
+                        extra=dict(source="ERA5（再分析）", data=data)))
     return figs
 
 
@@ -195,9 +245,11 @@ def _write_html(out, info, window, expected, figures, summary, earlier, notes):
     hours = (window[1] - window[0]).total_seconds() / 3600.0
     rows = "".join("<tr><td>%s</td><td><code>%s</code></td><td>%s</td></tr>" % (e(t), e(f), e(q))
                    for t, f, q in expected)
-    figs = "".join('<figure><img src="%s" style="max-width:100%%"><figcaption>%s：%s</figcaption>'
-                   "</figure>" % (_embed_image(f["path"]), e(f["source"]),
-                                  e(os.path.basename(f["path"]))) for f in figures)
+    figs = "".join('<figure><img src="%s" style="max-width:100%%"><figcaption>%s：%s　數據：'
+                   "<code>%s</code></figcaption></figure>"
+                   % (_embed_image(f["path"]), e(f["source"]), e(os.path.basename(f["path"])),
+                      e(os.path.relpath(f["data"], out) if f.get("data") else "—"))
+                   for f in figures)
     parts = [
         "<!doctype html><meta charset='utf-8'><title>preview</title>",
         "<h1>預分析（還沒跑 WRF）</h1>",

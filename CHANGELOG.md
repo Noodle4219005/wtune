@@ -46,6 +46,10 @@ the job failed. They now run under `mpirun` only when the executable calls `MPI_
 to `lib64` (f1-arm): the recipe's post-install step looked only in `lib`. MET and ParaView are now
 installed on f1-arm; the guide has the steps.
 
+**`post preview` writes the values it draws.** Each preview figure gets a netCDF file of the
+plotted fields in `post/preview/data/`, named like the figure in `figures/` (SLP and 10 m wind,
+terrain per domain, Stage IV total, ERA5 z500); the best track stays `tc/best_track.dat`.
+
 **`wtune run --restart-io-form 2` kept no restart.** With ADIOS2 history, each `wrfrst` name was
 pre-created as a directory; WRF's netCDF writer failed on it without an error and the empty
 directory was removed afterwards. Only io_form 14 outputs are pre-created now.

@@ -1,0 +1,31 @@
+# Part 2 of the wtune-event skill: find, download and convert one agent_fetch row.
+# Each task is what `wtune event plan` would hand the agent; `ref` names the reference
+# conversion (made by hand, campaign/event_eval/fetch_refs.md) the scorer compares with.
+cmorph:
+  kind: gridded_precip
+  need: hourly rain to compare with the model (precip_1h, precip_total)
+  source: "NOAA CDR CMORPH, bias-corrected, hourly, 0.25 deg (NOAA NCEI)"
+  window: [2016-10-07 00:00, 2016-10-07 06:00]
+  bbox: [24, 34, -84, -74]
+  name: cmorph
+radar:
+  kind: radar
+  need: radar reflectivity to compare with the model (reflectivity)
+  source: "IEM NEXRAD N0Q base-reflectivity mosaic PNG archive (Iowa Environmental Mesonet)"
+  times: [2016-10-07 12:00, 2016-10-07 18:00]
+  bbox: [24, 34, -84, -74]
+  name: iem_n0q
+satellite:
+  kind: satellite_ir
+  need: infrared cloud-top brightness temperature (cloud_top)
+  source: "NOAA CDR GridSat-B1 (geostationary IR window channel, NOAA NCEI)"
+  times: [2016-10-07 00:00, 2016-10-07 12:00]
+  bbox: [24, 34, -84, -74]
+  name: gridsat
+stations:
+  kind: stations_extra
+  need: station wind gusts and visibility (gust, visibility)
+  source: "NOAA NCEI Global Hourly (Integrated Surface Database), METAR reports"
+  stations: [722020-12839, 722050-12815, 722060-13889, 722080-13880, 747804-13824]
+  window: [2016-10-07 00:00, 2016-10-08 00:00]
+  name: isd_full

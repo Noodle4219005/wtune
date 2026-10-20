@@ -1,0 +1,5 @@
+已完成 Part 1：`event.yaml` 已產生並通過 `wtune event check`（0 errors）。
+
+我理解的事件是：2013 年 11 月颱風海燕（Haiyan）登陸菲律賓 Leyte，類型為 tropical_cyclone，風暴名 Haiyan（2013）。驗證項目包括登陸前 24 小時的 `track`（最佳路徑）、`mslp`（最低氣壓）與 `intensity`（最大風速）；「眼牆附近的徑向風剖面」屬模型診斷，放於 `diagnose`。未抓取任何資料，也沒有 obs_requests 或 local_obs。
+
+問題：`最低氣壓` 我對應到 `mslp`（地表氣壓觀測），但最佳路徑資料本身也含中心氣壓；若你希望氣壓與最大風速都只用 best track 來比對，我可以把 `mslp` 改為 `intensity`。

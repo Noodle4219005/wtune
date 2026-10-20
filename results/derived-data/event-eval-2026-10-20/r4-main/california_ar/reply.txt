@@ -1,0 +1,3 @@
+I read this as the January 2023 California atmospheric-river series, with one type (`atmospheric_river`) and the region California/Sierra Nevada. Verification items are IVT against ERA5, 24 h precipitation against Stage IV, and gauge precipitation; the Sierra Nevada snow level is listed as a model-only diagnostic since the text names no observation source for it. No storms, obs requests, or local files were added, and `wtune event check event.yaml` passes with 0 errors and 0 warnings.
+
+question: Should the Sierra Nevada snow level instead be verified against snow-depth observations, or do you want it kept as a model-only figure?

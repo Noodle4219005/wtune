@@ -1,0 +1,5 @@
+event.yaml 已建立，`wtune event check event.yaml` 通過（0 errors, 0 warnings）。
+
+我把這個案例理解為 2012 年 7 月 21 日北京特大暴雨：類型為 `heavy_rain`（特大暴雨、城區與房山一天超過 400 mm）與 `mesoscale_convection`（要跟雷達拼圖比對流的位置）。比對項目包含雷達反射率 `reflectivity`、24 小時雨量 `precip_24h`、逐時雨量 `precip_1h` 與雨量站點比對 `precip_gauge`；另外依文字指定的來源，把「中國氣象局雷達拼圖」與「CMA 逐時站點資料」列為 obs_requests（radar 與 rain_gauges），未加入 idealized 或風暴編號。
+
+問題：沒有。唯一可斟酌的是逐時雨量我同時列了 `precip_1h` 與 `precip_gauge`（分別對應逐時量與站點比對），若你只想保留一項，我可以刪掉其中之一。

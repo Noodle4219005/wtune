@@ -1,0 +1,6 @@
+已完成 Part 1，`event.yaml` 已通過檢查（`wtune event check event.yaml` → OK, 0 error）。
+
+我理解的意思是：你要評估這次 WRF 模擬的近地面溫度是否準確，所以在 `verify` 放了 `t2`（比對地面測站溫度），其餘項目（事件類型、區域、颱風、觀測來源）都留空，因為 event.txt 裡沒有任何可以指認的詞句；我也没有加 `idealized`，因為你說的是「這次模擬」。
+
+`questions`：
+- 這次模擬模擬的是什麼天氣事件、發生在什麼地方與日期？（event.txt 只提到溫度，無法辨識事件或區域）

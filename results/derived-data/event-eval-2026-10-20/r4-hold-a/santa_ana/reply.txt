@@ -1,0 +1,5 @@
+完成：`event.yaml` 已建立並通過 `wtune event check`（0 errors, 0 warnings）。
+
+我理解的事件是：2018 年 11 月南加州的 Santa Ana 強風（`downslope_wind`）配合乾燥離岸風造成 Woolsey 野火快速擴散（`fire_weather`），要檢查測站陣風（`gust`）與相對濕度（`rh2`）的觀測比對，並在模型中看山口附近的下坡風剖面（diagnose）。沒有颱風、沒有本地資料檔，因此 `storms`、`obs_requests`、`local_obs` 皆為空。
+
+問題：文中未指定是哪一個山口或觀測站，若你希望驗證聚焦特定山隘或站點，請補充。

@@ -1,0 +1,5 @@
+已建立 `event.yaml`（`wtune event check` 通過，0 error / 0 warning），未抓取任何資料。
+
+理解如下：這是 2018 年 11 月南加州 Santa Ana 強風事件，伴隨 Woolsey 野火在乾燥離岸風下擴散；類型標為 `severe_wind`、`fire_weather`、`downslope_wind`（非熱帶氣旋，故 `storms` 留空）。要跟觀測比對的是測站陣風（`gust`）與相對濕度（`rh2`），而山口附近的下坡風剖面屬於僅由模式產出的 `diagnose` 圖。
+
+問題：無。

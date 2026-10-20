@@ -1,0 +1,3 @@
+我讀到的是 2016 年 10 月的 Matthew 颶風沿佛州與喬治亞外海北上的案例（10/6 00Z 起跑 48 小時），因此在 event.yaml 中設定類型為 tropical_cyclone、颱風名稱 Matthew（2016）、區域為佛州與喬治亞外海。要觀測比對的項目有：路徑、強度、34 kt 風圈（皆與最佳路徑比），以及 500 hPa 高度場與 ERA5 比對；因為 ERA5 與最佳路徑都是 WTune 預設資料源，所以放在 verify 而非 obs_requests，沒有額外 obs_requests 或 local_obs。`wtune event check event.yaml` 已通過（0 errors, 0 warnings）。
+
+questions: 無（執行時間與長度由 run 目錄讀取，未寫入 yaml）。

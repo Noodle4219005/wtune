@@ -1,0 +1,5 @@
+已完成 Part 1：读取 event.txt 后生成了 `event.yaml`（`wtune event check event.yaml` 通过，0错误 0 警告），未获取任何数据。
+
+理解如下：这是 2018 年 8 月印度喀拉拉邦（Kerala）季风豪雨与洪水事件，类型标为 heavy_rain、monsoon、orographic（西高止山迎风面地形抬升）；与观测比较的量为逐日雨量（precip_24h）和累计雨量空间分布（precip_total），850 hPa 西南季风强度作为仅模式诊断量放入 diagnose。事件文本未提到热带气旋，故 storms 为空，也未点名任何特定数据提供方或本地文件，obs_requests 与 local_obs 均为空。
+
+问题：850 hPa 西南季风强度我按“模型场诊断”处理（文本未说与观测比较）；若你希望改为与 ERA5 等再分析对比，请告知。

@@ -1,0 +1,5 @@
+`wtune event check event.yaml` 通過（0 errors, 0 warnings），已在本目錄產生 `event.yaml`。
+
+我理解的是：2013 年 11 月海燕颱風（Haiyan）登陸菲律賓 Leyte 的案例，類型為 tropical_cyclone；想用觀測比對登陸前 24 小時的路徑（`track`）與強度（最低氣壓、最大風速 → `intensity`），而眼牆附近的徑向風剖面是模式本身的圖，列為 `diagnose`。由於文字未提供 storm id、額外資料來源或在地檔案，`storms` 只填 name/year，`obs_requests` 與 `local_obs` 留空。
+
+問題：文字提到「有紀錄以來登陸最強的颱風之一」，我理解成單純的 typhoon 個案而非 `severe_wind` 類型；若你希望把它視為強風災害事件並加上 `severe_wind`，或想比較降雨（`precip_24h`/`precip_total`），請告訴我再補充。

@@ -1,0 +1,21 @@
+schema: wtune-event/1
+source: event.txt
+source_sha256: c846e1ec7a20f31c6ddef9f2645f6feb8b041a3d87582aad0a24a6f48f2ece0f
+event:
+  value: Marshall Fire, Boulder County Colorado, 30 Dec 2021
+  from: "Marshall Fire, Boulder County Colorado, 30 Dec 2021"
+types:
+  - {value: downslope_wind, from: "Extreme downslope windstorm off the Front Range"}
+  - {value: fire_weather, from: "gusts near 100 mph spread the fire"}
+storms: []
+region:
+  value: Boulder County Colorado, Front Range
+  from: "Boulder County Colorado"
+verify:
+  - {value: wind10, from: "the 10 m wind"}
+  - {value: gust, from: "gusts near 100 mph"}
+diagnose:
+  - {value: cross-section of the mountain wave / hydraulic jump, from: "whether the model gets the mountain wave / hydraulic jump in a cross-section"}
+obs_requests: []
+local_obs: []
+questions: []

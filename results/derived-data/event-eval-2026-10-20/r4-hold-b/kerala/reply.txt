@@ -1,0 +1,5 @@
+`event.yaml` 已建立並通過 `wtune event check`（0 errors, 0 warnings）。
+
+我理解的是：2018 年 8 月印度喀拉拉邦季風豪雨事件，因為西高止山迎風面連續多日大雨而引發洪水，屬於 heavy_rain / monsoon / orographic 三種類型，區域為 Kerala 與西高止山迎風面（非熱帶氣旋，故 `storms` 留空）。需要與觀測比對的項目是逐日雨量（`precip_24h`）、累積雨量空間分布（`precip_total`），以及 850 hPa 西南季風強度（`upper_air`）；文字中沒有提到要對比特定資料中心或本地檔案，所以 `obs_requests` 與 `local_obs` 皆為空。
+
+問題：850 hPa 季風強度我判定為與再分析資料（`upper_air`）比對，而非僅模型診斷——若您其實只想看模式本身的剖面，我可以把它移到 `diagnose`。

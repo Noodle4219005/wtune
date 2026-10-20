@@ -1,0 +1,5 @@
+Done — `event.yaml` is written and `wtune event check event.yaml` passes (0 errors, 0 warnings).
+
+I read the case as a LES of the convective boundary layer at the ARM SGP site on a clear-sky summer day in 2019, typed as `boundary_layer`, with three observation comparisons: PBL height (`pbl_height`), potential temperature profiles from the ARM radiosondes (`sounding`), and surface sensible/latent heat flux from the ARM flux station (`surface_flux`). Since it is compared with observations, I did not mark it `idealized`, and ARM data is part of WTune's default sources, so no `obs_requests` were added.
+
+Questions: none blocking — the day choice within 2019 is left to WTune's plan based on the run date. If the run's date is not in 2019, should the event still be constrained to a 2019 clear-sky summer day?

@@ -1,0 +1,21 @@
+schema: wtune-event/1
+source: event.txt
+source_sha256: e9b612b8891ea864e6607843e5d06f5f912ace824128fb30c4d32ac84308abb6
+event:
+  value: January 1998 ice storm southern Quebec and eastern Ontario
+  from: "January 1998 ice storm over southern Quebec and eastern Ontario"
+types:
+  - {value: winter_storm, from: "ice storm"}
+storms: []
+region:
+  value: southern Quebec and eastern Ontario
+  from: "over southern Quebec and eastern Ontario"
+verify:
+  - {value: t2, from: "Check 2 m temperature at stations"}
+  - {value: precip_total, from: "total precipitation"}
+  - {value: sounding, from: "show the warm-nose temperature profile in soundings"}
+diagnose:
+  - {value: warm layer aloft temperature profile, from: "with a warm layer aloft"}
+obs_requests: []
+local_obs: []
+questions: []

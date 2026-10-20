@@ -1,0 +1,5 @@
+Done — `event.yaml` passes `wtune event check` with 0 errors.
+
+I read the case as Hurricane Harvey (2017) stalling over southeast Texas, with two things to check against observations: the multi-day rainfall totals around Houston (Stage IV) and the storm's track while it was stalled. The event is typed as `tropical_cyclone` plus `heavy_rain`, and Stage IV/best-track need no `obs_requests` since WTune fetches both by default.
+
+Questions: none — the event, types, and both verification quantities were explicit.

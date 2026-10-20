@@ -1,0 +1,5 @@
+Done — `event.yaml` is written and `wtune event check event.yaml` passes with 0 errors.
+
+I read the event as the January 1998 ice storm over southern Quebec and eastern Ontario, typed as `winter_storm` (freezing rain / ice storm), with the region taken from the text and no storm id since this is not a tropical cyclone. Verified quantities are 2 m temperature (`t2`), total precipitation (`precip_total`), and the warm-nose temperature profile in soundings (`sounding`); a model-only warm-layer-aloft temperature profile is listed under `diagnose`. No `obs_requests` or `local_obs` were added because the text names no provider or local file, and no `questions` are needed since the event, type and checks were all identifiable.
+
+One thing worth confirming: should the warm-nose profile also be checked against soundings (as I did) or only plotted from the model, and should the run cover the whole multi-day event or a specific 24-hour window?

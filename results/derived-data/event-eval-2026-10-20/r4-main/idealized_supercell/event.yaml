@@ -1,0 +1,17 @@
+schema: wtune-event/1
+source: event.txt
+source_sha256: 16a5e3c51152e4956089bec65d779c0b95feb986f3cf00b590c950df8947b9e8
+event: {value: 理想化超大胞模擬, from: "理想化超大胞（supercell）模擬"}
+types:
+  - {value: mesoscale_convection, from: "超大胞（supercell）模擬"}
+  - {value: idealized, from: "理想化超大胞（supercell）模擬"}
+storms: []
+region: {value: null, from: null}
+verify: []
+diagnose:
+  - {value: updraft helicity, from: "上升氣流螺旋度"}
+  - {value: hook echo structure, from: "回波的鉤狀結構"}
+obs_requests: []
+local_obs: []
+questions:
+  - "想跟原始論文的圖比對，但 WTune 沒有論文圖像的比對方式；可以改成跟雷達回波觀測比對嗎？或是提供論文圖檔（PDF/圖片）供對照？"

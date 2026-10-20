@@ -1,0 +1,5 @@
+已完成 Part 1：`event.yaml` 已建立並通過 `wtune event check`（0 error、0 warning）。
+
+我理解的事件是：2013 年 11 月颱風海燕（Haiyan）登陸菲律賓 Leyte，類型為 `tropical_cyclone`；要與觀測比對的是登陸前 24 小時的路徑（track）與強度（最低氣壓、最大風速），而眼牆附近的徑向風剖面屬於純模式輸出，放在 `diagnose`。未列 obs_requests 或 local_obs，因為文字沒有提到特定資料來源或檔案。
+
+一個問題：您提到「登陸前 24 小時」，這段時間範圍是由 WTune 的 run 時間推得，還是要我把登陸時間點也當成需要對照的關鍵時間？（文字中未給出具體時間點，所以我沒有自行加入。）

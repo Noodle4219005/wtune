@@ -1,0 +1,3 @@
+I read the January 1998 ice storm over southern Quebec and eastern Ontario as a `winter_storm` case with a warm layer aloft. `event.yaml` is written and `wtune event check event.yaml` passes with 0 errors and 0 warnings; verification items are 2 m temperature at stations, total precipitation, and the warm-nose temperature profile from soundings, with no storms, no extra obs requests, and no local files (none mentioned).
+
+No questions — the request maps cleanly onto the standard WTune obs set (ISD stations, Stage IV/GPCP precipitation, IGRA soundings). Let me know if you'd like the "days of freezing rain with a warm layer aloft" part also treated as a frontal event or if the storm total should be checked at rain gauges specifically.

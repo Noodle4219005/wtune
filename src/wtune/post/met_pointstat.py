@@ -299,3 +299,92 @@ def summarize(work, times, out_dir, project_dir):
     return dict(series_png=series_png, map_png=map_png, csv=[csv_ts, csv_st], summary=summary,
                 t_first=times[0][0].strftime("%Y-%m-%d_%H:%M:%S"),
                 t_last=times[-1][0].strftime("%Y-%m-%d_%H:%M:%S"))
+
+
+def gauge_periods(rows, frame_times, spinup_hours, max_periods=MAX_TIMES):
+    """(hours, [(start, end)]) of the longest gauge accumulation whose periods start after
+    spin-up and start and end on model frames (latest max_periods of them), else (None, [])."""
+    have = set(frame_times)
+    t0 = frame_times[0] + timedelta(hours=spinup_hours) if frame_times else None
+    by_len = {}
+    for r in rows:
+        if t0 and r["start"] >= t0 and r["start"] in have and r["end"] in have:
+            h = (r["end"] - r["start"]).total_seconds() / 3600.0
+            by_len.setdefault(h, set()).add((r["start"], r["end"]))
+    if not by_len:
+        return None, []
+    h = max(by_len)
+    return h, sorted(by_len[h])[-max_periods:]
+
+
+def gauge_obs_text(rows, hours):
+    """MET 11-column lines for the gauges whose period is `hours` long: APCP, level = hours."""
+    lines = []
+    for r in rows:
+        if (r["end"] - r["start"]).total_seconds() / 3600.0 != hours:
+            continue
+        lines.append("ADPSFC %s %s %s %s %s APCP %g -9999 NA %.3f" % (
+            r["id"].replace(" ", "_"), r["end"].strftime("%Y%m%d_%H%M%S"), r["lat"], r["lon"],
+            r["elev_m"], hours, r["precip_mm"]))
+    return "\n".join(lines) + "\n"
+
+
+def verify_gauges(run_dir, frames, rows, out_dir, spinup_hours, model_accum):
+    """Model accumulation vs agent-fetched rain gauges with ascii2nc + one point_stat per
+    period. model_accum(ref0, ref1) -> (lat, lon, mm). Returns dict(hours, periods, pairs,
+    csv) with pairs [(gauge id, lat, lon, end, model mm, gauge mm)] from the MPR lines."""
+    from wtune.post.caseinfo import WRF_TIME_FMT, spec_bdy_width
+    refs = {datetime.strptime(f[0], WRF_TIME_FMT): (f[1], f[2] if len(f) > 2 else 0)
+            for f in frames}
+    hours, periods = gauge_periods(rows, sorted(refs), spinup_hours)
+    if not periods:
+        raise NoStations("no gauge period starts after the %g h spin-up and starts and ends on "
+                         "model output times" % spinup_hours)
+    work = os.path.join(out_dir, "pointstat_gauges")
+    os.makedirs(work, exist_ok=True)
+    ascii2nc = tools.find_postproc_tool("ascii2nc")
+    point_stat = tools.find_postproc_tool("point_stat")
+    txt, obs_nc = os.path.join(work, "gauges_obs.txt"), os.path.join(work, "gauges_obs.nc")
+    with open(txt, "w") as fh:
+        fh.write(gauge_obs_text(rows, hours))
+    tools.run([ascii2nc, txt, obs_nc])
+    poly = met_gridstat.write_interior_polygon(refs[periods[-1][1]][0], spec_bdy_width(run_dir),
+                                               os.path.join(work, "interior.poly"))
+    pairs, cnt_rows = [], []
+    for start, end in periods:
+        d = os.path.join(work, "ps_%s" % end.strftime(_TAG_FMT))
+        os.makedirs(d, exist_ok=True)
+        lat, lon, mm = model_accum(refs[start], refs[end])
+        fnc = met_gridstat.curvilinear_to_latlon(
+            lat, lon, {"APCP_MODEL": (mm, "mm", "WRF accumulated precipitation")}, end,
+            os.path.join(d, "fcst.nc"), method="remapcon")
+        conf = _write_config(d, "verif_point_stat_apcp.conf", POLY_FILE=os.path.abspath(poly),
+                             ACCUM_HOURS="%g" % hours)
+        tools.run([point_stat, fnc, obs_nc, conf, "-outdir", d, "-v", "1"])
+        os.remove(fnc)
+        for r in _tables(d, "_cnt.txt"):
+            if r.get("LINE_TYPE") == "CNT":
+                cnt_rows.append([end.strftime("%Y-%m-%d %H:%M"), r.get("ME"), r.get("RMSE"),
+                                 r.get("PR_CORR"), r.get("TOTAL")])
+        for r in _tables(d, "_mpr.txt"):
+            if r.get("LINE_TYPE") != "MPR":
+                continue
+            try:
+                pairs.append((r["OBS_SID"], float(r["OBS_LAT"]), float(r["OBS_LON"]), end,
+                              float(r["FCST"]), float(r["OBS"])))
+            except (KeyError, ValueError):
+                continue
+    if not pairs:
+        raise METError("point_stat paired no gauge with the model (gauges outside the interior?)")
+    p_pairs = os.path.join(out_dir, "precip_gauge_pairs.csv")
+    with open(p_pairs, "w", newline="") as fh:
+        w = csv.writer(fh)
+        w.writerow(["gauge_id", "lat", "lon", "period_end_utc", "hours", "model_mm", "gauge_mm"])
+        for sid, la, lo, end, f, o in pairs:
+            w.writerow([sid, la, lo, end.strftime("%Y-%m-%d %H:%M"), hours, f, o])
+    p_cnt = os.path.join(out_dir, "precip_gauge_cnt.csv")
+    with open(p_cnt, "w", newline="") as fh:
+        w = csv.writer(fh)
+        w.writerow(["period_end_utc", "bias_model_minus_obs_mm", "rmse_mm", "pearson_r", "n_pairs"])
+        w.writerows(cnt_rows)
+    return dict(hours=hours, periods=periods, pairs=pairs, csv=[p_pairs, p_cnt])

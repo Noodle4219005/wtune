@@ -101,6 +101,21 @@ wtune post fetch nexrad --project . --run-dir runs/<id>/
 
 比較範圍一律排除模式的側邊界區。降水比對另外限制在 NEXRAD 站 230 km 以內，因為 Stage IV 在外海是 0 而不是缺值。
 
+### agent 找來的觀測
+
+沒有 fetch 模組的資料（美國以外的格點雨量、各國雨量站）可以由 agent 依 [event](event.md) 的流程找來，轉成標準格式 `wtune-obs/1` 放在 `input/obs/<name>/`。`post recipe` 會自動使用通過 `wtune event obs-check` 的資料夾：
+
+| kind | 檔案 | 畫出的圖 |
+|---|---|---|
+| `gridded_precip` | `precip_YYYYMMDDHH_NNh.nc`（到該時刻為止 NN 小時的累積，mm） | `precip_agent_*`：和 Stage IV 同樣的 Grid-Stat 四張圖，在該資料集自己的格網上比 |
+| `rain_gauges` | `gauges.csv`（`id,lat,lon,elev_m,start_utc,end_utc,precip_mm`） | `precip_gauge_*`：MET Point-Stat 的散布圖和每站偏差地圖 |
+
+```bash
+wtune event obs-check --project .        # 檢查 input/obs/ 下所有 wtune-obs/1 資料夾
+```
+
+沒通過檢查的資料夾不會被使用，報告頂端的 notes 會寫出第一個錯誤。圖下的來源標示取自該資料夾的 `provenance.json`。
+
 ## 報告
 
 打開 `post/<id>/report.html`，從上往下看：

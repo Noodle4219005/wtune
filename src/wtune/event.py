@@ -93,12 +93,16 @@ COMPARISON = {
     "reanalysis": "MET grid_stat on z500 (synoptic recipe)",
     "soundings": "Skew-T overlay (pbl recipe)",
     "monthly_climate": "monthly box means, seasonal bias (climate recipe)",
+    "rain_gauges": "MET point_stat on gauge totals (precip recipe)",
 }
 # kinds whose comparison is planned but not written yet
-READER_PENDING = {"rain_gauges", "stations_extra", "satellite_ir"}
-# The comparisons read only their own fetch modules' files today; data an agent fetches in
-# the standard format is kept with its provenance but not yet read by any recipe.
-AGENT_FILES_NOTE = "recipes do not read agent-fetched files yet"
+READER_PENDING = {"stations_extra", "satellite_ir"}
+# kinds the recipes read from an agent's folder (post/agent_obs.py); other agent-fetched data
+# is kept with its provenance but no recipe reads it yet.
+AGENT_READERS = ("gridded_precip", "rain_gauges")
+AGENT_FORMAT_NOTE = ("write <project>/input/obs/<name>/ in format wtune-obs/1, then "
+                     "`wtune event obs-check`")
+AGENT_FILES_NOTE = "recipes do not read agent-fetched files of this kind yet"
 
 # Stage IV / NEXRAD are chosen when the domain centre lies over the lower 48 states (a box
 # containing a corner of Canada or Mexico is fine: the comparisons mask to valid obs).
@@ -249,7 +253,8 @@ def plan(doc, start=None, end=None, bbox=None):
 
     def row(need, kind, source, status, note=""):
         if status in ("agent_fetch", "local"):
-            note = "; ".join(x for x in (note, AGENT_FILES_NOTE) if x)
+            extra = AGENT_FORMAT_NOTE if kind in AGENT_READERS else AGENT_FILES_NOTE
+            note = "; ".join(x for x in (note, extra) if x)
         rows.append(dict(need=need, kind=kind, source=source, status=status, note=note))
 
     if "idealized" in types:
@@ -284,6 +289,8 @@ def plan(doc, start=None, end=None, bbox=None):
             else:
                 row(var, kind, "IMERG or a national QPE", "agent_fetch",
                     "Stage IV covers CONUS only" if bbox else "region unknown")
+        elif kind == "rain_gauges":
+            row(var, kind, "national gauge network", "agent_fetch", "no fetch module")
         elif kind == "radar":
             if conus:
                 row(var, kind, "nexrad", "module")
@@ -348,6 +355,11 @@ def build_parser():
     s.add_argument("yaml")
     s.add_argument("--txt", help="default: `source` next to the yaml")
     s.add_argument("--hurdat2", help="resolve storm NAME+year to an ATCF id")
+    s = sub.add_parser("obs-check", help="validate agent-fetched observation folders "
+                                         "(format wtune-obs/1)")
+    s.add_argument("dirs", nargs="*", help="dataset folders (default: every wtune-obs/1 "
+                                           "folder under --project's input/obs)")
+    s.add_argument("--project", help="default: the current directory")
     s = sub.add_parser("plan", help="observation plan for event.yaml")
     s.add_argument("yaml")
     s.add_argument("--run-dir")
@@ -365,6 +377,25 @@ def _txt_for(args, doc):
         if os.path.exists(cand):
             return cand
     return None
+
+
+def _obs_check(args):
+    from wtune.post import agent_obs
+    dirs = args.dirs or [d for _n, d, _p in agent_obs.datasets(args.project or ".")]
+    if not dirs:
+        print("error: no wtune-obs/1 folder under %s/input/obs" % (args.project or "."),
+              file=sys.stderr)
+        return 1
+    bad = 0
+    for d in dirs:
+        err, warn = agent_obs.check(d)
+        for w in warn:
+            print("warning: %s: %s" % (d, w))
+        for e in err:
+            print("error: %s: %s" % (d, e))
+        print("obs check %s: %s" % (d, "FAIL" if err else "OK"))
+        bad += bool(err)
+    return 1 if bad else 0
 
 
 def main(argv=None):
@@ -387,6 +418,8 @@ def main(argv=None):
         for k, v in VERIFY.items():
             print("  %-22s %s" % (k, v))
         return 0
+    if args.event_command == "obs-check":
+        return _obs_check(args)
     try:
         doc = load(args.yaml)
     except (OSError, yaml.YAMLError, EventError) as e:

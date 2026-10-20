@@ -97,11 +97,25 @@ questions: []
 3. Download on the login node (compute nodes have no internet) into
    `<project>/input/obs/<name>/raw/`.
 4. Write the conversion as a script `<project>/input/obs/<name>/convert.py`, keep it with
-   the data, and convert to the standard format of the row's `kind`. Times in **UTC**
-   (Taiwan and China local time is UTC+8), units as named in the format.
-5. Write `<project>/input/obs/<name>/provenance.json`: dataset, provider, url, license,
-   citation, fetched_utc, and sha256 of every file.
-6. Report what you got, what you could not get, and why.
+   the data, and convert to the standard format of the row's `kind` (below). Times in **UTC**
+   (Taiwan and China local time is UTC+8).
+5. Write `<project>/input/obs/<name>/provenance.json`:
+   `{"format": "wtune-obs/1", "kind": ..., "dataset", "provider", "url", "license",
+   "citation", "fetched_utc", "files": {converted file: sha256}}`.
+6. `wtune event obs-check <project>/input/obs/<name>`; fix every `error:`. `wtune post recipe`
+   uses only folders that pass.
+7. Report what you got, what you could not get, and why.
+
+Standard formats (only these two kinds are read by the recipes so far; for other kinds keep
+the raw data and provenance, and say no comparison reads it yet):
+
+| kind | file | content |
+|---|---|---|
+| `gridded_precip` | `precip_YYYYMMDDHH_NNh.nc` | accumulation over the NN hours **ending** at YYYYMMDDHH UTC; 1-D `lat`, `lon` (degrees), `precip(lat, lon)` with `units = "mm"`, missing cells NaN. One file per native period (e.g. hourly); WTune adds them up |
+| `rain_gauges` | `gauges.csv` | header `id,lat,lon,elev_m,start_utc,end_utc,precip_mm`; times `YYYY-MM-DD HH:MM` UTC; one row per gauge and period |
+
+A rate (mm/h) is not an accumulation: multiply by the period length. Check that a period's
+time stamp is its start or its end in the product's documentation before naming the file.
 
 Stop and ask the user when the source needs an account, an application or a payment, or
 when the licence forbids copying the data.

@@ -1106,5 +1106,77 @@
       "how_to_read": "DJF/MAM/JJA/SON model-minus-GPCP v2.3 precipitation maps (mm/day); seasons are weighted by days and partial seasons are never averaged.",
       "common_misreadings": "GPCP is 2.5 deg, so at about 50 km the bias near coasts and terrain is dominated by the resolution mismatch, not necessarily a model error."
     }
+  },
+  "precip_agent_compare": {
+    "zh": {
+      "question": "模式累積降水的位置與強度，和 agent 找來的格點降水觀測相比如何？",
+      "how_to_read": "左為模式、右為觀測，同一色階、只畫兩者皆有值的匹配格點，限制在模式內部（去掉 spec_bdy_width 邊界區）。模式先以 cdo remapcon 轉到經緯度格網，再由 MET Grid-Stat 以 BUDGET 法重新網格化到觀測自己的格網。觀測是 agent 依 wtune-event skill 找來、轉成 WTune 標準格式（wtune-obs/1）並通過 `wtune event obs-check` 的資料集，名稱、提供者、授權寫在圖下的來源標示。",
+      "common_misreadings": "把衛星或雷達反演當成真值；格點降水產品在山區、海上與對流核心常有系統性偏差。觀測格網較粗時，模式的極值會被平滑掉。"
+    },
+    "en": {
+      "question": "How do model accumulated-precipitation position and amount compare with the gridded precipitation an agent fetched?",
+      "how_to_read": "Left model, right observation, one colour scale, matched cells only, inside the model interior (spec_bdy_width cells excluded). The model is moved to a lat/lon grid with cdo remapcon, then MET Grid-Stat regrids it (BUDGET) onto the observation's own grid. The observation is a dataset an agent fetched with the wtune-event skill, converted to WTune's standard format (wtune-obs/1) and passed `wtune event obs-check`; its name, provider and licence are in the source tag under the figure.",
+      "common_misreadings": "Taking a satellite or radar retrieval as truth: gridded products are biased over mountains, oceans and convective cores. On a coarse observation grid the model's extremes are smoothed."
+    }
+  },
+  "precip_agent_diff": {
+    "zh": {
+      "question": "模式和 agent 找來的格點降水差在哪裡？",
+      "how_to_read": "模式減觀測，對稱色階（98 百分位），只在匹配格點。觀測是 agent 依 wtune-event skill 找來、轉成 WTune 標準格式（wtune-obs/1）並通過 `wtune event obs-check` 的資料集，名稱、提供者、授權寫在圖下的來源標示。",
+      "common_misreadings": "位置偏移會同時出現一正一負的偶極，不代表兩處各自有誤。"
+    },
+    "en": {
+      "question": "Where does the model differ from the gridded precipitation an agent fetched?",
+      "how_to_read": "Model minus observation, symmetric scale (98th percentile), matched cells only. The observation is a dataset an agent fetched with the wtune-event skill, converted to WTune's standard format (wtune-obs/1) and passed `wtune event obs-check`; its name, provider and licence are in the source tag under the figure.",
+      "common_misreadings": "A displaced rain area shows as a positive/negative dipole, not as two separate errors."
+    }
+  },
+  "precip_agent_scores": {
+    "zh": {
+      "question": "各雨量門檻下，模式和 agent 找來的格點降水的類別分數如何？",
+      "how_to_read": "MET Grid-Stat CTS：POD、FAR、CSI、頻率偏差，x 軸是門檻（mm）；n 是匹配格點數。觀測是 agent 依 wtune-event skill 找來、轉成 WTune 標準格式（wtune-obs/1）並通過 `wtune event obs-check` 的資料集，名稱、提供者、授權寫在圖下的來源標示。",
+      "common_misreadings": "高門檻的格點很少時分數變動很大；頻率偏差 1 只代表面積對，不代表位置對。"
+    },
+    "en": {
+      "question": "What are the categorical scores against the agent-fetched gridded precipitation at each threshold?",
+      "how_to_read": "MET Grid-Stat CTS: POD, FAR, CSI, frequency bias against threshold (mm); n is the number of matched cells. The observation is a dataset an agent fetched with the wtune-event skill, converted to WTune's standard format (wtune-obs/1) and passed `wtune event obs-check`; its name, provider and licence are in the source tag under the figure.",
+      "common_misreadings": "Few cells above a high threshold make the score noisy; a frequency bias of 1 means the right area, not the right place."
+    }
+  },
+  "precip_agent_fss": {
+    "zh": {
+      "question": "在多大的空間尺度上，模式降水和 agent 找來的格點降水才算吻合？",
+      "how_to_read": "MET Grid-Stat NBRCNT 的 FSS 對鄰域寬度（以觀測格點數換算成 km），每條線一個門檻。觀測是 agent 依 wtune-event skill 找來、轉成 WTune 標準格式（wtune-obs/1）並通過 `wtune event obs-check` 的資料集，名稱、提供者、授權寫在圖下的來源標示。",
+      "common_misreadings": "km 換算用觀測格網的平均緯度間距，經度方向在高緯會較窄。"
+    },
+    "en": {
+      "question": "At what spatial scale does the model rain agree with the agent-fetched gridded precipitation?",
+      "how_to_read": "MET Grid-Stat NBRCNT FSS against neighbourhood width (observation cells converted to km), one line per threshold. The observation is a dataset an agent fetched with the wtune-event skill, converted to WTune's standard format (wtune-obs/1) and passed `wtune event obs-check`; its name, provider and licence are in the source tag under the figure.",
+      "common_misreadings": "The km scale uses the mean latitude spacing of the observation grid; cells are narrower in longitude at high latitude."
+    }
+  },
+  "precip_gauge_scatter": {
+    "zh": {
+      "question": "模式在雨量站位置的累積雨量，和 agent 找來的雨量站觀測相比如何？",
+      "how_to_read": "每點是一個雨量站一個累積時段：x 為觀測、y 為模式（MET Point-Stat 以雙線性內插到站點，限模式內部），虛線為 1:1。標題列出配對數、平均偏差（模式減觀測）、RMSE、相關係數。觀測是 agent 依 wtune-event skill 找來、轉成 WTune 標準格式（wtune-obs/1）並通過 `wtune event obs-check` 的資料集，名稱、提供者、授權寫在圖下的來源標示。",
+      "common_misreadings": "格點平均雨量和單點雨量本來就不同，強降雨時模式在點上偏低不一定是模式錯；雨量站在強風下會少接雨。"
+    },
+    "en": {
+      "question": "How does the model accumulation at the gauges compare with the rain gauges an agent fetched?",
+      "how_to_read": "Each dot is one gauge and one accumulation period: x observation, y model (MET Point-Stat, bilinear to the gauge, model interior only); dashed 1:1 line. The title gives pairs, mean bias (model minus obs), RMSE and correlation. The observation is a dataset an agent fetched with the wtune-event skill, converted to WTune's standard format (wtune-obs/1) and passed `wtune event obs-check`; its name, provider and licence are in the source tag under the figure.",
+      "common_misreadings": "A grid-cell mean is not a point total: a model low at the gauge in heavy rain is not necessarily a model error; gauges under-catch in strong wind."
+    }
+  },
+  "precip_gauge_map": {
+    "zh": {
+      "question": "哪些雨量站的模式偏差最大？空間上有沒有系統性的型態？",
+      "how_to_read": "每個圓點是一個雨量站，顏色為所有時段配對的平均『模式減觀測』，對稱色階（95 百分位）。觀測是 agent 依 wtune-event skill 找來、轉成 WTune 標準格式（wtune-obs/1）並通過 `wtune event obs-check` 的資料集，名稱、提供者、授權寫在圖下的來源標示。",
+      "common_misreadings": "站點稀疏時不要把單站偏差推到整個區域；山區站對模式地形高度很敏感。"
+    },
+    "en": {
+      "question": "Which gauges show the largest model error, and is there a spatial pattern?",
+      "how_to_read": "Each dot is a gauge coloured by its mean model-minus-observation over all periods; symmetric scale (95th percentile). The observation is a dataset an agent fetched with the wtune-event skill, converted to WTune's standard format (wtune-obs/1) and passed `wtune event obs-check`; its name, provider and licence are in the source tag under the figure.",
+      "common_misreadings": "Do not generalise one gauge to a region; mountain gauges are sensitive to the model's terrain height."
+    }
   }
 }

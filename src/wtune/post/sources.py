@@ -243,10 +243,12 @@ def dataset_records(project_dir, names):
     out = []
     for name in names:
         static = REGISTRY.get(name)
-        if static is None:
-            continue
-        rec = dict(static)
         prov = read_provenance(project_dir, name) if project_dir else None
+        if static is None:
+            if not (prov and prov.get("format") == "wtune-obs/1"):
+                continue
+            static = {k: "" for k in PROVENANCE_KEYS}     # an agent-fetched dataset
+        rec = dict(static)
         if prov:
             rec.update({k: prov[k] for k in PROVENANCE_KEYS if k in prov})
         rec["name"] = name

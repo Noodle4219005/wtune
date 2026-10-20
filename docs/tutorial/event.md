@@ -43,5 +43,9 @@ agent（Claude Code、pi 等）依 `.claude/skills/wtune-event/SKILL.md` 把它�
 
 美國本土以外的個案，雨量和雷達都會是 `agent_fetch`（Stage IV、NEXRAD 只涵蓋美國）。
 
+## agent 找來的資料
+
+`agent_fetch` 的資料由 agent 轉成標準格式 `wtune-obs/1`，放在 `input/obs/<name>/`，再用 `wtune event obs-check` 檢查。格點雨量（`gridded_precip`）和雨量站（`rain_gauges`）通過檢查後，`post recipe` 會拿來比較，格式見 [post](post.md#agent)。
+
 !!! warning "目前的限制"
-    agent 找來、轉成標準格式的資料會連同來源一起保存，但 `post recipe` 還不會讀這些檔案；比較圖仍只用各 fetch 模組下載的資料。
+    雷達、測站陣風、衛星等其他種類，agent 找來的資料會連同來源保存，但還沒有 recipe 會讀。

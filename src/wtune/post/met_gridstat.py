@@ -24,7 +24,8 @@ def write_era5_z500_nc(lat, lon, z, valid, out_nc):
     return _write_regular_nc(lat, lon, z, valid, out_nc)
 
 
-def _write_regular_nc(lat, lon, z, valid, out_nc):
+def _write_regular_nc(lat, lon, z, valid, out_nc, name=OBS_NAME, units="m",
+                      long_name="500 hPa geopotential height"):
     import netCDF4
     import numpy as np
     with netCDF4.Dataset(out_nc, "w") as dst:
@@ -36,15 +37,15 @@ def _write_regular_nc(lat, lon, z, valid, out_nc):
         tvar.units, tvar.calendar = "hours since 1970-01-01 00:00:00", "standard"
         tvar.standard_name, tvar.axis = "time", "T"   # MET's CF reader needs the axis tags
         tvar[:] = netCDF4.date2num(valid, tvar.units)
-        for name, units, std, axis, data in (("lat", "degrees_north", "latitude", "Y", lat),
-                                             ("lon", "degrees_east", "longitude", "X", lon)):
-            var = dst.createVariable(name, "f8", (name,))
+        for coord, cunits, std, axis, data in (("lat", "degrees_north", "latitude", "Y", lat),
+                                               ("lon", "degrees_east", "longitude", "X", lon)):
+            var = dst.createVariable(coord, "f8", (coord,))
             var[:] = data
-            var.units, var.standard_name, var.axis = units, std, axis
-        var = dst.createVariable(OBS_NAME, "f4", ("time", "lat", "lon"),
+            var.units, var.standard_name, var.axis = cunits, std, axis
+        var = dst.createVariable(name, "f4", ("time", "lat", "lon"),
                                  fill_value=np.float32(9.96921e36))
-        var[:] = np.asarray(z, dtype="f4")[None]
-        var.units, var.long_name = "m", "500 hPa geopotential height"
+        var[:] = np.where(np.isfinite(z), z, 9.96921e36).astype("f4")[None]
+        var.units, var.long_name = units, long_name
     return out_nc
 
 

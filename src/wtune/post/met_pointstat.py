@@ -317,15 +317,22 @@ def gauge_periods(rows, frame_times, spinup_hours, max_periods=MAX_TIMES):
     return h, sorted(by_len[h])[-max_periods:]
 
 
+def gauge_obs_name(hours):
+    """Obs variable name of an accumulation, e.g. APCP_06. The period is in the name: Point-Stat
+    rejects a point obs named plain APCP by name, and its A6 level never matches ascii2nc's
+    level (stored in seconds) -- measured with MET 12.1.1 on f1-arm, job 32228."""
+    return "APCP_%02d" % hours
+
+
 def gauge_obs_text(rows, hours):
-    """MET 11-column lines for the gauges whose period is `hours` long: APCP, level = hours."""
+    """MET 11-column lines for the gauges whose period is `hours` long."""
     lines = []
     for r in rows:
         if (r["end"] - r["start"]).total_seconds() / 3600.0 != hours:
             continue
-        lines.append("ADPSFC %s %s %s %s %s APCP %g -9999 NA %.3f" % (
+        lines.append("ADPSFC %s %s %s %s %s %s %g -9999 NA %.3f" % (
             r["id"].replace(" ", "_"), r["end"].strftime("%Y%m%d_%H%M%S"), r["lat"], r["lon"],
-            r["elev_m"], hours, r["precip_mm"]))
+            r["elev_m"], gauge_obs_name(hours), hours, r["precip_mm"]))
     return "\n".join(lines) + "\n"
 
 
@@ -359,7 +366,7 @@ def verify_gauges(run_dir, frames, rows, out_dir, spinup_hours, model_accum):
             lat, lon, {"APCP_MODEL": (mm, "mm", "WRF accumulated precipitation")}, end,
             os.path.join(d, "fcst.nc"), method="remapcon")
         conf = _write_config(d, "verif_point_stat_apcp.conf", POLY_FILE=os.path.abspath(poly),
-                             ACCUM_HOURS="%g" % hours)
+                             OBS_NAME=gauge_obs_name(hours))
         tools.run([point_stat, fnc, obs_nc, conf, "-outdir", d, "-v", "1"])
         os.remove(fnc)
         for r in _tables(d, "_cnt.txt"):

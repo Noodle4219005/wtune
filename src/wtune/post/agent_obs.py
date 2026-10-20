@@ -201,8 +201,8 @@ def _check_gauges(ds_dir, files, err, warn):
     for r in rows:
         hours = (r["end"] - r["start"]).total_seconds() / 3600.0
         where = "%s %s" % (r["id"], r["end"].strftime(TIME_FMT))
-        if hours <= 0:
-            err.append("%s: end_utc is not after start_utc" % where)
+        if hours <= 0 or hours != int(hours):
+            err.append("%s: the period must be a whole number of hours" % where)
         elif not 0 <= r["precip_mm"] <= MAX_MM_PER_H * max(hours, 1):
             err.append("%s: precip_mm %g over %g h is outside 0..%g"
                        % (where, r["precip_mm"], hours, MAX_MM_PER_H * max(hours, 1)))

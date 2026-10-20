@@ -1,8 +1,8 @@
 // verif_point_stat_apcp.conf.tmpl -- MET Point-Stat config for model accumulated precipitation
 // against rain gauges an agent fetched (post/met_pointstat.py verify_gauges). One accumulation
 // period per call: the model accumulation over the period (regular lat/lon grid) is
-// interpolated bilinearly to the gauges, paired with gauge totals of the same length (ascii2nc
-// level = accumulation hours) valid at the period end +-30 min, inside the interior polygon.
+// interpolated bilinearly to the gauges, paired with gauge totals of the same length (obs
+// variable APCP_<hours>, any level) valid at the period end +-30 min, inside the interior polygon.
 // Only entries that differ from MET 12.1's PointStatConfig_default are set.
 
 model = "WRF";
@@ -14,7 +14,7 @@ fcst = {
 }
 obs = {
   field = [
-    { name = "APCP"; level = [ "A${ACCUM_HOURS}" ]; }
+    { name = "${OBS_NAME}"; level = [ "L0" ]; }
   ];
 }
 

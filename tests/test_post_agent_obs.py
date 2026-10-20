@@ -123,7 +123,7 @@ def test_gauge_periods_and_obs_text():
     hours, periods = met_pointstat.gauge_periods(rows, frames, 6)
     assert hours == 6 and periods == [(datetime(2016, 10, 7, 0), datetime(2016, 10, 7, 6))]
     text = met_pointstat.gauge_obs_text(rows, 1)
-    assert text.splitlines()[0] == "ADPSFC A_1 20161007_010000 1 2 3 APCP 1 -9999 NA 1.500"
+    assert text.splitlines()[0] == "ADPSFC A_1 20161007_010000 1 2 3 APCP_01 1 -9999 NA 1.500"
     assert len(text.splitlines()) == 10
 
 

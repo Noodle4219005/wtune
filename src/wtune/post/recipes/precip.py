@@ -353,6 +353,7 @@ def _station_figures(run_dir, run_label, domain, frames, out_dir, spinup_hours, 
 
 def _gauge_figures(run_dir, run_label, domain, frames, out_dir, spinup_hours, project_dir):
     """Point-Stat against every rain-gauge dataset an agent fetched (post/agent_obs.py)."""
+    import textwrap
     import numpy as np
     from wtune.post import agent_obs, met_pointstat, obs_figs
     from wtune.post.recipe import fig, missing, note
@@ -397,9 +398,9 @@ def _gauge_figures(run_dir, run_label, domain, frames, out_dir, spinup_hours, pr
         p = obs_figs.station_bias_maps(
             [dict(lat=[v[0] for v in by.values()], lon=[v[1] for v in by.values()], bias=b,
                   cbar_label="mean bias, model - gauge (mm per %g h)" % hours,
-                  title="%s, n=%d gauges" % (label, len(b)),
+                  title=textwrap.fill("%s, n=%d gauges" % (label, len(b)), 40),
                   vmax=float(np.nanpercentile(np.abs(b), 95)) or 1.0)],
-            "mean model - gauge %g h precipitation, %s" % (hours, span),
+            textwrap.fill("mean model - gauge %g h precipitation, %s" % (hours, span), 45),
             os.path.join(out_dir, "precip_%s_gauge_map.png" % name))
         out.append(fig(ids[1], p, run_label, **kw))
     return out

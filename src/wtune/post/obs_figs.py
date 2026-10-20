@@ -224,8 +224,9 @@ def scatter_compare(fcst, obs, title, out_path, unit):
     ax.set_xlabel("observation (%s)" % unit)
     ax.set_ylabel("model (%s)" % unit)
     r = float(np.corrcoef(f, o)[0, 1]) if f.size > 2 and f.std() > 0 and o.std() > 0 else float("nan")
+    import textwrap
     ax.set_title("%s\nn=%d  bias %+.2f  RMSE %.2f %s  r %.2f"
-                 % (title, f.size, float(np.mean(f - o)), float(np.sqrt(np.mean((f - o) ** 2))),
+                 % (textwrap.fill(title, 60), f.size, float(np.mean(f - o)), float(np.sqrt(np.mean((f - o) ** 2))),
                     unit, r), fontsize=9)
     ax.legend(loc="upper left", fontsize=8)
     fig.savefig(out_path, dpi=110)

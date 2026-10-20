@@ -3,6 +3,43 @@
 Versions are declared in `wtune_version.py`; `test_wtune_version.py` fails if the top section
 here does not match it. Development before 0.1.0 is in the git history, not in releases.
 
+## 0.9.3 — 2026-10-20
+
+**`wtune event`: describe the event in your own words.** Put an `event.txt` in the case or
+project folder ("the 2021 Zhengzhou rain; check hourly and 24 h rain and the surface wind; my
+CMA gauges are in ~/obs/cma_rain.csv"). An agent following the new `wtune-event` skill turns it
+into `event.yaml`, quoting the sentence behind every value. `wtune event check` rejects a quote
+that is not in `event.txt`, a type or variable outside `wtune event vocab`, a storm id the text
+does not state, a stale `source_sha256`, a tropical cyclone with no storm and no question, and
+an `idealized` case that is also compared with observations. `wtune event plan` then says, for
+each comparison, whether a fetch module gets the data (`module`), the agent has to find it
+(`agent_fetch`: radar and rain outside the US, non-NHC best tracks), it is the user's file
+(`local`), WTune has no such comparison (`unsupported`), or it is a model-only figure. The
+recipes do not read agent-fetched files yet. 22 event types; the eval set (17 cases plus 8
+held-out) and the scripts that score a model on it are in `tests/fixtures/events*` and
+`campaign/event_eval/`.
+
+**`post preview` writes the values it draws.** Each preview figure gets a netCDF file of the
+plotted fields in `post/preview/data/`, named like the figure in `figures/` (SLP and 10 m wind,
+terrain per domain, Stage IV total, ERA5 z500); the best track stays `tc/best_track.dat`.
+
+**`prep wps` checks the static data first.** It looks for the WPS static data (`machine.geog`,
+or `WPS_GEOG`) before downloading the forcing, and a download that still misses files after its
+retries is an error message, not a traceback. Run on f1-arm: WPS and real.exe for a 12 h window
+(matthew, `geog_data_res='lowres'`).
+
+**Serial WPS under `mpirun`.** geogrid and metgrid were always started with `mpirun -np <ppn>`;
+a serial WPS build (f1-arm's) then ran ppn independent copies that all wrote the same file, and
+the job failed. They now run under `mpirun` only when the executable calls `MPI_Init`. Linking
+`libmpi` is no evidence: a serial build gets it through a parallel netCDF/HDF5.
+
+**MET on RHEL.** `bin/install-postproc.sh` failed after building netcdf-cxx4 where CMake installs
+to `lib64` (f1-arm): the recipe's post-install step looked only in `lib`. MET and ParaView are now
+installed on f1-arm; the guide has the steps.
+
+**Docs.** `-O3` is described as what it does: it measures the whole space, with no model rounds.
+The workflow, tune and post flowcharts have colour legends.
+
 ## 0.9.2 — 2026-10-19
 
 **Stopping a tune keeps what it measured.** Ctrl-C, or `wtune stop` for a tune running in the
@@ -32,23 +69,9 @@ as they are submitted, so a stop cancels them too.
 **`wtune prep wps` and `wtune prep real`.** WPS (one job: geogrid, ungrib, metgrid) and then
 real.exe (one job) for the project's case over its whole namelist window, reusing the
 `case_rebuild` steps; the forcing is downloaded on the login node. `prep real` links the new
-`wrfinput`/`wrfbdy` into `case/` (`--replace` when it already has them). `prep wps` checks the WPS
-static data (`machine.geog`, or `WPS_GEOG`) before downloading, and a download that still misses
-files after its retries is an error message, not a traceback. Run on f1-arm: WPS and real.exe
-for a 12 h window (matthew, `geog_data_res='lowres'`).
-
-**Serial WPS under `mpirun`.** geogrid and metgrid were always started with `mpirun -np <ppn>`;
-a serial WPS build (f1-arm's) then ran ppn independent copies that all wrote the same file, and
-the job failed. They now run under `mpirun` only when the executable calls `MPI_Init`. Linking
-`libmpi` is no evidence: a serial build gets it through a parallel netCDF/HDF5.
-
-**MET on RHEL.** `bin/install-postproc.sh` failed after building netcdf-cxx4 where CMake installs
-to `lib64` (f1-arm): the recipe's post-install step looked only in `lib`. MET and ParaView are now
-installed on f1-arm; the guide has the steps.
-
-**`post preview` writes the values it draws.** Each preview figure gets a netCDF file of the
-plotted fields in `post/preview/data/`, named like the figure in `figures/` (SLP and 10 m wind,
-terrain per domain, Stage IV total, ERA5 z500); the best track stays `tc/best_track.dat`.
+`wrfinput`/`wrfbdy` into `case/` (`--replace` when it already has them). On f1-arm only the forcing
+download has run so far (it stalled on two files, see the project page); the WPS and real.exe
+jobs of `prep` have not yet run on a cluster.
 
 **`wtune run --restart-io-form 2` kept no restart.** With ADIOS2 history, each `wrfrst` name was
 pre-created as a directory; WRF's netCDF writer failed on it without an error and the empty

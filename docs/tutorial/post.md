@@ -119,7 +119,7 @@ wtune post fetch nexrad --project . --run-dir runs/<id>/
 wtune event obs-check --project .        # 檢查 input/obs/ 下所有 wtune-obs/1 資料夾
 ```
 
-沒通過檢查的資料夾不會被使用，報告頂端的 notes 會寫出第一個錯誤。圖下的來源標示取自該資料夾的 `provenance.json`。
+有 error 的資料夾不會被使用，報告頂端的 notes 會寫出第一個錯誤。`obs-check` 也會對常見的轉換錯誤發出 warning（整個資料夾都沒有超過 1 mm 的雨、大範圍雷達沒有任何缺值、陣風中位數低於 2 m/s 等），這些多半是單位、縮放或雷達範圍沒處理好，要確認後再用。圖下的來源標示取自該資料夾的 `provenance.json`。
 
 ## 報告
 

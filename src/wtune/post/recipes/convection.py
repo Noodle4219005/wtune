@@ -463,7 +463,8 @@ def _radar_figures(run_dir, run_label, domain, case_info, out_dir, spinup_hours)
             w.writerow([r["thresh"], r["width"], round(r["width"] * cell_km, 2), r["fss"]])
 
     if use == "agent":
-        obs_name = agent[1].get("dataset") or agent[0]
+        import textwrap
+        obs_name = textwrap.shorten(agent[1].get("dataset") or agent[0], 48, placeholder="...")
         src = [agent_obs.source_tag(*agent)]
     else:
         obs_name = ("MRMS MergedReflectivityQCComposite" if use == "mrms"
@@ -476,7 +477,8 @@ def _radar_figures(run_dir, run_label, domain, case_info, out_dir, spinup_hours)
     out = list(notes)
     p = obs_figs.side_by_side(
         glat, glon, gf, go, ("%s d%02d model max column reflectivity" % (run_label, domain), obs_name + " (obs)"),
-        "composite reflectivity %s UTC, matched points (%d radar(s))" % (tb.strftime("%Y-%m-%d %H:%M"), n_rad),
+        "composite reflectivity %s UTC, matched points%s" % (
+            tb.strftime("%Y-%m-%d %H:%M"), "" if use == "agent" else " (%d radar(s))" % n_rad),
         os.path.join(out_dir, "conv_radar_compare.png"), obs_figs.DBZ_LEVELS, cmap=reflectivity_cmap(),
         cbar_label="dBZ", extend="max")
     out.append(fig("conv_radar_compare", p, run_label, domain="d%02d" % domain,

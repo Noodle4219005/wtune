@@ -368,3 +368,21 @@ def test_recipe_draws_gust_and_visibility_figures(tmp_path, monkeypatch):
         ("stn_gust_scatter", False), ("stn_gust_map", False),
         ("stn_vis_scatter", True), ("stn_vis_map", True)]
     assert "UPP CALGUST" in figs[0]["tool"]
+
+
+def test_regrid_snapshot_leaves_cells_outside_the_obs_grid_missing(tmp_path):
+    from wtune.post import tools
+    if tools.find_on_path("cdo", install_hint="") is None:
+        pytest.skip("no cdo")
+    t = datetime(2016, 10, 7, 12)
+    d = _snapshot_dataset(tmp_path, "radar", "refl", "dBZ", 30.0, [t])
+    griddes = tmp_path / "g.griddes"
+    griddes.write_text("gridtype = lonlat\nxsize = 4\nysize = 4\nxfirst = 119.0\nxinc = 1.0\n"
+                       "yfirst = 18.0\nyinc = 1.0\n")
+    out = agent_obs.regrid_snapshot(str(next(d.glob("refl_*.nc"))), "refl", t, str(griddes),
+                                    str(tmp_path / "o.nc"), "REFC_OBS", "dBZ")
+    with netCDF4.Dataset(out) as ds:
+        a = np.ma.filled(np.ma.asarray(ds.variables["REFC_OBS"][0], "f8"), np.nan)
+        a = np.where(a > 1e30, np.nan, a)
+    assert np.isnan(a[0]).all() and np.isnan(a[:, 0]).all()       # 18N and 119E lie outside
+    assert np.nanmax(a) == 30.0

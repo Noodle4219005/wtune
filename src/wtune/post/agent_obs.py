@@ -405,9 +405,15 @@ def regrid_snapshot(path, var, valid, griddes, out_nc, name, units, bbox=None, m
     """One radar / satellite file -> CF netCDF on the model lat/lon grid `griddes` with cdo
     (`method`), variable `name`; cut to bbox + 2 degrees first. Returns out_nc."""
     from wtune.post import met_gridstat, tools
+    import numpy as np
     lat, lon, a = read_grid(path, var)
     if bbox:
         lat, lon, a = subset(lat, lon, a, bbox)
+    # a NaN frame one cell wide: cdo's nearest neighbour would otherwise copy the edge values
+    # to every model cell outside the observation grid
+    lat = np.concatenate([[2 * lat[0] - lat[1]], lat, [2 * lat[-1] - lat[-2]]])
+    lon = np.concatenate([[2 * lon[0] - lon[1]], lon, [2 * lon[-1] - lon[-2]]])
+    a = np.pad(a, 1, constant_values=np.nan)
     tmp = out_nc[:-3] + ".src.nc"
     met_gridstat._write_regular_nc(lat, lon, a, valid, tmp, name=name, units=units,
                                    long_name="%s from %s" % (var, os.path.basename(path)))

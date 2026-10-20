@@ -386,3 +386,45 @@ def test_regrid_snapshot_leaves_cells_outside_the_obs_grid_missing(tmp_path):
         a = np.where(a > 1e30, np.nan, a)
     assert np.isnan(a[0]).all() and np.isnan(a[:, 0]).all()       # 18N and 119E lie outside
     assert np.nanmax(a) == 30.0
+
+
+def test_obs_check_warns_on_implausible_magnitudes(tmp_path):
+    d = _dataset(tmp_path, value=0.02)                      # a scale applied twice
+    err, warn = agent_obs.check(str(d))
+    assert err == [] and any("scale applied twice" in w for w in warn)
+    t = datetime(2016, 10, 7, 12)
+    r = _snapshot_dataset(tmp_path, "radar", "refl", "dBZ", 5.0, [t], name="r")
+    assert any("strongest echo" in w for w in agent_obs.check(str(r))[1])
+
+
+def test_obs_check_warns_when_radar_has_no_coverage_mask(tmp_path):
+    d = tmp_path / "input" / "obs" / "big"
+    d.mkdir(parents=True)
+    f = "refl_201610071200.nc"
+    with netCDF4.Dataset(str(d / f), "w") as ds:
+        ds.createDimension("lat", 11)
+        ds.createDimension("lon", 11)
+        ds.createVariable("lat", "f8", ("lat",))[:] = np.linspace(24, 34, 11)
+        ds.createVariable("lon", "f8", ("lon",))[:] = np.linspace(-84, -74, 11)
+        v = ds.createVariable("refl", "f4", ("lat", "lon"))
+        v[:] = np.full((11, 11), -32.0)
+        v[5, 5] = 40.0
+        v.units = "dBZ"
+    (d / "provenance.json").write_text(json.dumps(dict(
+        format=agent_obs.FORMAT, kind="radar", dataset="d", provider="p", url="u", license="l",
+        fetched_utc="f", files={f: _sha(d / f)})))
+    err, warn = agent_obs.check(str(d))
+    assert err == [] and any("beyond the radars' range" in w for w in warn)
+
+
+def test_obs_check_warns_on_station_units(tmp_path):
+    d = tmp_path / "input" / "obs" / "st"
+    d.mkdir(parents=True)
+    (d / "stations_extra.csv").write_text("id,lat,lon,elev_m,time_utc,var,value\n"
+                                          "S1,30,-81,5,2016-10-07 12:00,gust,1.2\n"
+                                          "S1,30,-81,5,2016-10-07 12:00,visibility,16\n")
+    (d / "provenance.json").write_text(json.dumps(dict(
+        format=agent_obs.FORMAT, kind="stations_extra", dataset="d", provider="p", url="u",
+        license="l", fetched_utc="f", files={"stations_extra.csv": _sha(d / "stations_extra.csv")})))
+    err, warn = agent_obs.check(str(d))
+    assert err == [] and len(warn) == 2

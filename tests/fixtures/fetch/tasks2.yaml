@@ -1,0 +1,31 @@
+# Second fetch set (2026-10-21), new events after the skill's conversion-pitfall rules: the
+# first set's failures were read, so these tasks measure the revised skill. Same kinds, other
+# times and places; the radar box reaches into Canada so that out-of-range cells exist.
+cmorph:
+  kind: gridded_precip
+  need: hourly rain to compare with the model (precip_1h, precip_total)
+  source: "NOAA CDR CMORPH, bias-corrected, hourly, 0.25 deg (NOAA NCEI)"
+  window: [2017-08-26 06:00, 2017-08-26 12:00]
+  bbox: [26, 32, -99, -93]
+  name: cmorph
+radar:
+  kind: radar
+  need: radar reflectivity to compare with the model (reflectivity)
+  source: "IEM NEXRAD N0Q base-reflectivity mosaic PNG archive (Iowa Environmental Mesonet)"
+  times: [2020-08-10 17:00, 2020-08-10 19:00]
+  bbox: [38, 50, -100, -84]
+  name: iem_n0q
+satellite:
+  kind: satellite_ir
+  need: infrared cloud-top brightness temperature (cloud_top)
+  source: "NOAA CDR GridSat-B1 (geostationary IR window channel, NOAA NCEI)"
+  times: [2017-08-26 00:00, 2017-08-26 12:00]
+  bbox: [24, 34, -100, -88]
+  name: gridsat
+stations:
+  kind: stations_extra
+  need: station wind gusts and visibility (gust, visibility)
+  source: "NOAA NCEI Global Hourly (Integrated Surface Database), METAR reports"
+  stations: [722420-12923, 722430-12960, 722440-12918, 722510-12924, 722550-12912]
+  window: [2017-08-26 00:00, 2017-08-27 00:00]
+  name: isd_full

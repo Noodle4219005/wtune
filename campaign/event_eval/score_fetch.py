@@ -1,6 +1,6 @@
 """Score agent fetches (Part 2 of the wtune-event skill) against reference conversions.
 
-    python3 campaign/event_eval/score_fetch.py OUT_DIR --refs REF_DIR [--csv results.csv]
+    python3 campaign/event_eval/score_fetch.py OUT_DIR --refs REF_DIR [--tasks YAML] [--csv results.csv]
 
 OUT_DIR/<task>/project/input/obs/<name>/ is one run (run_fetch_pi.sh); REF_DIR/<name>/ holds the
 reference wtune-obs/1 folder made by hand. A run passes when `obs-check` passes, the kind is
@@ -178,9 +178,10 @@ def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("out_dir")
     ap.add_argument("--refs", required=True)
+    ap.add_argument("--tasks", default=TASKS)
     ap.add_argument("--csv")
     a = ap.parse_args(argv)
-    tasks = yaml.safe_load(open(TASKS))
+    tasks = yaml.safe_load(open(a.tasks))
     rows = []
     for name, task in tasks.items():
         d = os.path.join(a.out_dir, name)

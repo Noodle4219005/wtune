@@ -21,7 +21,9 @@ model on it are in `tests/fixtures/events*` and `campaign/event_eval/`.
 **`wtune post` reads observations an agent fetched.** The agent converts what it finds to
 `wtune-obs/1` in `<project>/input/obs/<name>/` (a `provenance.json` with the source, licence and
 sha256 of every file); `wtune event obs-check` checks names, units, ranges, axes, UTC times and
-checksums, and the recipes use only folders that pass:
+checksums, and warns on magnitudes that usually mean a unit, scale or coverage mistake (no rain
+anywhere, no radar cell outside coverage, gusts under 2 m/s). The recipes use only folders
+without errors:
 
 | kind | file | compared in |
 |---|---|---|

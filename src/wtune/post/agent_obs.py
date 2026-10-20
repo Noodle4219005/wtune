@@ -195,9 +195,9 @@ def check(ds_dir):
     elif kind == "rain_gauges":
         _check_gauges(ds_dir, files, err, warn)
     elif kind in SNAPSHOTS:
-        _check_snapshots(ds_dir, kind, files, err)
+        _check_snapshots(ds_dir, kind, files, err, warn)
     elif kind == "stations_extra":
-        _check_extra(ds_dir, files, err)
+        _check_extra(ds_dir, files, err, warn)
     return err, warn
 
 
@@ -209,7 +209,7 @@ def _check_axes(f, lat, lon, err):
         err.append("%s: lat/lon must be strictly monotonic 1-D axes" % f)
 
 
-def _check_snapshots(ds_dir, kind, files, err):
+def _check_snapshots(ds_dir, kind, files, err, warn):
     import numpy as np
     pat, var, units, (lo, hi) = SNAPSHOTS[kind]
     idx = snapshot_index(ds_dir, kind)
@@ -236,9 +236,18 @@ def _check_snapshots(ds_dir, kind, files, err):
         elif good.min() < lo or good.max() > hi:
             err.append("%s: %s %.1f..%.1f is outside %g..%g %s"
                        % (f, var, good.min(), good.max(), lo, hi, units))
+        elif kind == "radar":
+            if np.isfinite(a).all() and max(np.ptp(lat), np.ptp(lon)) > 5:
+                warn.append("%s: no cell is NaN over %.0fx%.0f deg -- are cells beyond the radars' "
+                            "range set to NaN, or counted as no echo?" % (f, np.ptp(lat), np.ptp(lon)))
+            if good.max() < 10:
+                warn.append("%s: strongest echo %.1f dBZ -- check the dBZ decoding" % (f, good.max()))
+        elif not 200 <= np.median(good) <= 300:
+            warn.append("%s: median brightness temperature %.1f K -- check scale and offset"
+                        % (f, np.median(good)))
 
 
-def _check_extra(ds_dir, files, err):
+def _check_extra(ds_dir, files, err, warn):
     p = os.path.join(ds_dir, EXTRA_FILE)
     if not os.path.isfile(p):
         err.append("%s: missing" % EXTRA_FILE)
@@ -269,11 +278,21 @@ def _check_extra(ds_dir, files, err):
         if len(err) > 20:
             err.append("... (stopped after 20 errors)")
             return
+    import numpy as np
+    gust = [r["value"] for r in rows if r["var"] == "gust"]
+    vis = [r["value"] for r in rows if r["var"] == "visibility"]
+    if gust and np.median(gust) < 2:
+        warn.append("%s: median gust %.2f m/s -- gusts are reported above ~5 m/s; check the "
+                    "unit (tenths of m/s, knots)" % (EXTRA_FILE, np.median(gust)))
+    if vis and max(vis) < 2000:
+        warn.append("%s: largest visibility %.0f m -- check the unit (km or miles vs m)"
+                    % (EXTRA_FILE, max(vis)))
 
 
 def _check_grids(ds_dir, files, err, warn):
     import numpy as np
     idx = grid_index(ds_dir)
+    peak = -1.0
     if not idx:
         err.append("no precip_YYYYMMDDHH_NNh.nc file")
     for (acc, valid), p in sorted(idx.items()):
@@ -299,6 +318,11 @@ def _check_grids(ds_dir, files, err, warn):
         elif good.min() < 0 or good.max() > MAX_MM_PER_H * max(acc, 1):
             err.append("%s: precip %.1f..%.1f mm over %d h is outside 0..%g mm"
                        % (f, good.min(), good.max(), acc, MAX_MM_PER_H * max(acc, 1)))
+        else:
+            peak = max(peak, float(good.max()))
+    if idx and 0 <= peak < 1.0:
+        warn.append("largest accumulation in any file is %.3f mm -- possible if it did not rain, "
+                    "otherwise check for a rate left as a rate or a scale applied twice" % peak)
 
 
 def _check_gauges(ds_dir, files, err, warn):

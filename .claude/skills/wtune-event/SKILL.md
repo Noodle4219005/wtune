@@ -102,8 +102,9 @@ questions: []
 5. Write `<project>/input/obs/<name>/provenance.json`:
    `{"format": "wtune-obs/1", "kind": ..., "dataset", "provider", "url", "license",
    "citation", "fetched_utc", "files": {converted file: sha256}}`.
-6. `wtune event obs-check <project>/input/obs/<name>`; fix every `error:`. `wtune post recipe`
-   uses only folders that pass.
+6. `wtune event obs-check <project>/input/obs/<name>`; fix every `error:`, and fix every
+   `warning:` or say in your report why it is right (they flag magnitudes that usually mean a
+   unit, scale or coverage mistake). `wtune post recipe` uses only folders without errors.
 7. Report what you got, what you could not get, and why.
 
 Standard formats (grids: 1-D `lat`, `lon` in degrees, the variable on `(lat, lon)`, missing
@@ -119,8 +120,21 @@ comparison reads it.
 | `satellite_ir` | `irtb_YYYYMMDDHHMM.nc` | IR window (~10.4-11 um) brightness temperature; `tb`, `units = "K"` |
 | `stations_extra` | `stations_extra.csv` | header `id,lat,lon,elev_m,time_utc,var,value`; `var` is `gust` (m/s) or `visibility` (m) |
 
-A rate (mm/h) is not an accumulation: multiply by the period length. Check that a period's
-time stamp is its start or its end in the product's documentation before naming the file.
+Conversion pitfalls (each has broken a conversion before):
+- A rate (mm/h) is not an accumulation: multiply by the period length. Check that a period's
+  time stamp is its start or its end in the product's documentation before naming the file.
+- netCDF4-python already applies `scale_factor` / `add_offset` and masks `_FillValue` when you
+  read a variable: never multiply by the scale again. Print a few raw and converted values and
+  compare them with the units and a physically sensible range before writing anything.
+- `valid_range` / `valid_min` may be written in physical units while the data are packed
+  integers; netCDF4 then masks every real value. If almost everything comes back masked, read
+  with `set_auto_maskandscale(False)` and unpack by hand.
+- Radar: a mosaic shows "no echo" and "no radar" the same way. Set cells farther than the radar
+  range (230 km for NEXRAD; the agency's stated range otherwise) from every radar site to NaN;
+  for NEXRAD take the sites from NCEI HOMR
+  (https://www.ncei.noaa.gov/access/homr/file/nexrad-stations.txt).
+- Stations: keep every routine report (for METAR, report type FM-15, whatever minute it was
+  issued), not one per hour; drop specials (FM-16) and reports whose quality flag fails.
 
 Stop and ask the user when the source needs an account, an application or a payment, or
 when the licence forbids copying the data.

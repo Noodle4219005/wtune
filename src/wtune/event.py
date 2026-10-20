@@ -221,6 +221,11 @@ def check(doc, txt=None, txt_sha=None, hurdat2=None):
     types = {t.get("value") for t in _items(doc, "types") if isinstance(t, dict)}
     if not types and not doc.get("questions"):
         err.append("types: empty and no questions -- say what is unclear in `questions`")
+    real = [k for k in ("verify", "obs_requests", "local_obs") if _items(doc, k)]
+    if "idealized" in types and real:
+        err.append("types: idealized, but %s compare with observations -- an idealized case "
+                   "has none; drop idealized, or move the items to diagnose or questions"
+                   % ", ".join(real))
     if "tropical_cyclone" in types and not _items(doc, "storms") and not doc.get("questions"):
         err.append("storms: tropical_cyclone without a storm name -- name it or ask in "
                    "`questions`")

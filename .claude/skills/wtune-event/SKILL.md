@@ -38,7 +38,12 @@ your file and decides which observations to use. You never decide that yourself.
   track, GPCP. "Compare with stations", "with the best track", "with ERA5" are `verify`
   items only, never `obs_requests`.
 - A file or folder the user has goes in `local_obs` with its `path` exactly as written.
-- `types`: every type the text supports, usually 1-3. `idealized` for idealized cases.
+- `types`: every type the text supports, usually 1-3. Each type needs a phrase naming that
+  phenomenon: a place name or a mechanism is not one (Tokyo is not `urban`; a warm front is
+  not `extratropical_cyclone`).
+- `idealized` only when the text says idealized, or names no real date and place. LES or a
+  fine grid is not idealized, and a case compared with observations never is (`check`
+  rejects `idealized` together with `verify`, `obs_requests` or `local_obs`).
 - `questions` only when (a) the event or its type cannot be identified, (b) the text asks
   you to choose something (a day, a case), or (c) it asks for a comparison no obs kind covers
   (e.g. against a paper figure). Never ask which dataset to use (WTune's plan decides) or for

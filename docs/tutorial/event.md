@@ -29,6 +29,7 @@ agent（Claude Code、pi 等）依 `.claude/skills/wtune-event/SKILL.md` 把它�
 - 風暴編號不在原句裡。加 `--hurdat2 FILE` 會用風暴名字和年份查出編號。
 - `event.txt` 改過以後，`source_sha256` 對不上：要重新轉一次。
 - 颱風個案沒寫是哪個風暴，也沒在 `questions` 問。
+- 類型有 `idealized`（理想化），卻又要和觀測比（`verify`、`obs_requests`、`local_obs`）：理想化個案沒有觀測可比。LES 或高解析度本身不算理想化。
 
 ## plan 的狀態
 

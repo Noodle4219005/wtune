@@ -2,9 +2,11 @@
 # required: must appear; allowed: may also appear (anything else counts as a wrong extra).
 # storms: names that must appear (no ids: no event.txt states one). local_obs: paths.
 # ask: true when the text leaves something the run needs undecided, or asks for something
-# no obs kind covers (questions non-empty). Revised after round 1: texas_cold t2|t2_min,
+# no obs kind covers (questions non-empty); null when either is reasonable (not scored). Revised after round 1: texas_cold t2|t2_min,
 # eastasia_climate frontal (Meiyu band), idealized_supercell ask (paper comparison), Morakot
-# by its Chinese name.
+# by its Chinese name. After round 3: texas_cold ask null (freezing rain is described, not
+# asked for, but asking that it has no obs is fair); idealized_supercell no verify (check
+# rejects idealized with verify).
 # diagnose: true when a model-only figure is asked for.
 matthew:
   types: {required: [tropical_cyclone], allowed: [extratropical_cyclone]}
@@ -33,7 +35,7 @@ derecho_iowa:
 texas_cold:
   types: {required: [cold_air_outbreak], allowed: [winter_storm, frontal]}
   verify: {required: [t2|t2_min], allowed: [mslp, wind10, snowfall, snow_depth]}
-  ask: false
+  ask: null
 lake_effect:
   types: {required: [winter_storm], allowed: []}
   verify: {required: [reflectivity, snowfall], allowed: [sst, t2, snow_depth]}
@@ -61,7 +63,7 @@ california_ar:
   ask: false
 idealized_supercell:
   types: {required: [idealized], allowed: [mesoscale_convection]}
-  verify: {required: [], allowed: [reflectivity]}
+  verify: {required: [], allowed: []}
   diagnose: true
   ask: true
 eastasia_climate:

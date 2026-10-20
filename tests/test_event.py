@@ -93,6 +93,17 @@ def test_local_path_must_be_inside_its_quote(case):
     assert any("not inside its quote" in e for e in event.check(doc, txt=TXT)[0])
 
 
+def test_idealized_with_observations_is_an_error():
+    txt = "LES of the boundary layer at a field site. Compare PBL height with the radiosondes."
+    doc = {"schema": event.SCHEMA, "event": {"value": "LES", "from": "LES"},
+           "types": [{"value": "boundary_layer", "from": "boundary layer"},
+                     {"value": "idealized", "from": "LES"}],
+           "verify": [{"value": "pbl_height", "from": "Compare PBL height"}]}
+    assert any(e.startswith("types: idealized") for e in event.check(doc, txt=txt)[0])
+    doc["types"].pop()
+    assert event.check(doc, txt=txt)[0] == []
+
+
 def _status(rows, need):
     return {r["need"]: r["status"] for r in rows}[need]
 

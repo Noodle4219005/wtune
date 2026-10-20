@@ -19,6 +19,7 @@ wtune <指令> --help
 | `wtune run` | 分段執行，restart 交接，失敗續跑 | 是 | [run 與 watch](../tutorial/run.md) |
 | `wtune watch` | 唯讀監看一個執行目錄 | 否 | [run 與 watch](../tutorial/run.md) |
 | `wtune post ...` | 後處理與分析 | 加 `--srun` 時 | [post](../tutorial/post.md) |
+| `wtune event init\|vocab\|check\|plan` | 把 `event.txt` 的事件描述轉成檢查過的 `event.yaml`，列出要用的觀測資料 | 否 | [event](../tutorial/event.md) |
 
 ## 檢查與預測
 

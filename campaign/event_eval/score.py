@@ -4,8 +4,9 @@
 
 OUT_DIR/<case>/event.yaml (+ event.txt) is one translation per case. A case passes when
 `wtune event check` passes, every required item is present, no item outside required+allowed
-appears, the storms and local paths match, and `questions` is non-empty exactly when expected.
-A required entry "a|b" is met by either value.
+appears, the storms and local paths match, and `questions` is non-empty exactly when expected
+(ask: null is not scored). A required entry "a|b" is met by either value. `fail` names the
+kinds of error: check, missing, extra_type, extra_item, extra_question, missing_question.
 """
 import argparse
 import csv
@@ -27,7 +28,7 @@ def _values(doc, key, field="value"):
 
 def score_case(case_dir, exp):
     path = os.path.join(case_dir, "event.yaml")
-    r = dict(check=False, missing=[], extra=[], ask_ok=False, passed=False, note="")
+    r = dict(check=False, missing=[], extra=[], ask_ok=False, passed=False, fail=[], note="")
     if not os.path.exists(path):
         r["note"] = "no event.yaml"
         return r
@@ -56,8 +57,15 @@ def score_case(case_dir, exp):
     r["missing"] += ["local:%s" % x for x in exp.get("local_obs") or [] if x not in paths]
     if exp.get("diagnose") and not doc.get("diagnose"):
         r["missing"].append("diagnose")
-    r["ask_ok"] = bool(doc.get("questions")) == bool(exp.get("ask"))
+    asked = bool(doc.get("questions"))
+    r["ask_ok"] = exp.get("ask") is None or asked == bool(exp["ask"])
     r["passed"] = r["check"] and not r["missing"] and not r["extra"] and r["ask_ok"]
+    r["fail"] = [k for k, bad in (
+        ("check", not r["check"]), ("missing", r["missing"]),
+        ("extra_type", any(x.startswith("types:") for x in r["extra"])),
+        ("extra_item", any(not x.startswith("types:") for x in r["extra"])),
+        ("extra_question", not r["ask_ok"] and asked),
+        ("missing_question", not r["ask_ok"] and not asked)) if bad]
     return r
 
 
@@ -78,6 +86,9 @@ def main(argv=None):
                  ",".join(r["missing"]) or "-", ",".join(r["extra"]) or "-", r["note"]))
     n = sum(r["passed"] for r in rows)
     print("passed %d / %d" % (n, len(rows)))
+    kinds = [k for r in rows for k in r["fail"].split(";") if k]
+    print("failures: " + (", ".join("%s %d" % (k, kinds.count(k)) for k in sorted(set(kinds)))
+                          or "none"))
     if a.csv:
         with open(a.csv, "w", newline="") as fh:
             w = csv.DictWriter(fh, fieldnames=list(rows[0]))

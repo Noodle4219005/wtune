@@ -1,0 +1,13 @@
+{
+ "format": "wtune-obs/1",
+ "kind": "rain_gauges",
+ "dataset": "NOAA ISD-Lite 6-hour precipitation (gauge-reader pipeline test)",
+ "provider": "NOAA NCEI",
+ "url": "https://www.ncei.noaa.gov/pub/data/noaa/isd-lite/",
+ "license": "US Government work; WMO Resolution 40 data may carry use restrictions outside the US",
+ "citation": "Smith, A., N. Lott, and R. Vose, 2011: The Integrated Surface Database. BAMS, 92, 704-708",
+ "fetched_utc": "2026-10-20T15:23:09Z",
+ "files": {
+  "gauges.csv": "95f35ea81051bdba2cf3f7d2bb7ab0c616b0b83f06782a0b626922461c4739c2"
+ }
+}

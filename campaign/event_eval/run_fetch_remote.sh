@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Fetch eval on a machine without user namespaces (f1-arm login node): run_fetch_pi.sh's
-# sandbox replaced by permissions. Reads MINIMAX_API_KEY (or the model's provider key) from
-# the first line of stdin, never from a file or the command line.
+# sandbox replaced by permissions. Reads the provider's API key from the first line of stdin
+# into the variable KEY_VAR names (default MINIMAX_API_KEY), never from a file or argv.
 #   run_fetch_remote.sh BASE OUT MODEL THINKING TASKS_YAML [task ...]
 # BASE holds pi/ (npm install @earendil-works/pi-coding-agent), pi-home/ (empty agent dir) and
 # wtune/ (git archive of the repo without results/, envs/wtune/.pixi -> a built env).
@@ -10,7 +10,7 @@
 set -uo pipefail
 base=$1 out=$2 model=$3 thinking=$4 tasks_yaml=$5; shift 5
 IFS= read -r key
-export MINIMAX_API_KEY="$key"
+export "${KEY_VAR:-MINIMAX_API_KEY}=$key"
 unset key
 py="$base/wtune/envs/wtune/.pixi/envs/default/bin/python"
 tasks=("$@")

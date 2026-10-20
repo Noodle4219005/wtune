@@ -10,7 +10,7 @@ set -uo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo="$(cd "$here/../.." && pwd)"
 out=$1 model=$2 thinking=$3; shift 3
-tasks_yaml="$repo/tests/fixtures/fetch/tasks.yaml"
+tasks_yaml="${TASKS:-$repo/tests/fixtures/fetch/tasks.yaml}"
 tasks=("$@")
 [ ${#tasks[@]} -eq 0 ] && tasks=($(python3 -c "import sys,yaml;print(' '.join(yaml.safe_load(open(sys.argv[1]))))" "$tasks_yaml"))
 clean="$out/_wtune"
@@ -24,8 +24,9 @@ if [ ! -d "$clean" ]; then
   chmod +x "$clean/sbxbin/wtune"
 fi
 export PATH="$repo/envs/wtune/.pixi/envs/default/bin:$PATH"
-sandbox() {   # sandbox RUN_DIR CMD...
+sandbox() {   # sandbox RUN_DIR CMD...  (memory capped at MEM_MAX so a run cannot starve the host)
   local run=$1; shift
+  systemd-run --user --scope --quiet -p MemoryMax="${MEM_MAX:-6G}" -p MemorySwapMax=0 \
   bwrap --ro-bind /usr /usr --ro-bind /etc /etc --symlink usr/bin /bin --symlink usr/lib /lib \
     --symlink usr/lib /lib64 --symlink usr/bin /sbin --proc /proc --dev /dev \
     --tmpfs /tmp --tmpfs /home --tmpfs /var --tmpfs /run --ro-bind /etc/resolv.conf /etc/resolv.conf \

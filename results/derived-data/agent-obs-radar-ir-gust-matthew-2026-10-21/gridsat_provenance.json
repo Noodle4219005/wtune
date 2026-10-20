@@ -1,0 +1,33 @@
+{
+ "format": "wtune-obs/1",
+ "kind": "satellite_ir",
+ "dataset": "NOAA CDR GridSat-B1 IR window (~11 um) brightness temperature, 0.07 deg",
+ "provider": "NOAA NCEI",
+ "url": "https://www.ncei.noaa.gov/data/geostationary-ir-channel-brightness-temperature-gridsat-b1/access/",
+ "license": "NOAA Climate Data Record, US Government work, no restriction on use",
+ "citation": "Knapp, K. R., et al., 2011: Globally gridded satellite observations for climate studies. BAMS, 92, 893-907, doi:10.1175/2011BAMS3039.1",
+ "fetched_utc": "2026-10-20T17:03:01Z",
+ "box": [
+  14.0,
+  41.0,
+  -89.0,
+  -60.0
+ ],
+ "files": {
+  "irtb_201610060600.nc": "f67696d905d7d7a373b94646cb7c35714714d2c3ff8cbf6b5b4200a22d59b25e",
+  "irtb_201610060900.nc": "2936e751e5a89c9322c46057e56daa0f58ce90a2f70dd83dc7f3c111cb5d1758",
+  "irtb_201610061200.nc": "9a6e2214d1a1eded7d183424ad37433828a7a2bf5594872d34e2b98374d892e5",
+  "irtb_201610061500.nc": "3670ca9198b44f23ba74393bc3de19776318bf708c329e9d2cf9ce2aaf7f6539",
+  "irtb_201610061800.nc": "9518dfa2567c3188cb94a6152ea36394834c2edf97a0a2ab48f949db3c5e416f",
+  "irtb_201610062100.nc": "d7cfe181f6b00547517219063b59212f70cc950633b7ce6f2b5f64120e726444",
+  "irtb_201610070000.nc": "b2094c4e0d912dc7acac592d70646155498feab2307be5acd00db8fee1f2be09",
+  "irtb_201610070300.nc": "624eb89b360644487a5666501bd3783a26e1a9b40e26cb080f08137d2cab42c7",
+  "irtb_201610070600.nc": "ca07105dfc448bc37bebb1fa271b07f90ecf926fa612f151a42b9bc0c78c2254",
+  "irtb_201610070900.nc": "883f33c52b7f52122e7dd567dfd533d814ef69c462240141732d591d63ff5449",
+  "irtb_201610071200.nc": "fbb51f42f4005841522a171d2f0f33d3f1846c4c3561c4637ffeb0bbc29c0038",
+  "irtb_201610071500.nc": "d973e6ef50dd3f6d766ab1a7fe7462374e5afbddc01e42528b58ed09b8afe516",
+  "irtb_201610071800.nc": "be8c6cd876354ec47c3f1849aceaf5ebed845d5fcb9272341ecd524109600d62",
+  "irtb_201610072100.nc": "34c721b8d50433c88c7eb212289e1145474b4f02949dc46b71bbd0def29d538b",
+  "irtb_201610080000.nc": "95b8392e620ac110433c3282cf789a12160cd8162cc8dedb69884ae8b562c8c4"
+ }
+}

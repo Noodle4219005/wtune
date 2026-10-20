@@ -1,0 +1,33 @@
+{
+ "format": "wtune-obs/1",
+ "kind": "radar",
+ "dataset": "IEM NEXRAD N0Q base-reflectivity mosaic (0.005 deg, max-reduced to 0.02 deg)",
+ "provider": "Iowa Environmental Mesonet (Iowa State University), from NWS NEXRAD Level III",
+ "url": "https://mesonet.agron.iastate.edu/archive/data/YYYY/MM/DD/GIS/uscomp/n0q_YYYYMMDDHHMM.png",
+ "license": "IEM archive, free to use with attribution; NEXRAD data are US Government work",
+ "citation": "Iowa Environmental Mesonet NEXRAD mosaic, https://mesonet.agron.iastate.edu/docs/nexrad_mosaic/",
+ "fetched_utc": "2026-10-20T16:47:16Z",
+ "box": [
+  14.0,
+  41.0,
+  -89.0,
+  -60.0
+ ],
+ "files": {
+  "refl_201610060600.nc": "c16923f6903687a553ed1bcda847c0a0f548f04e843bdfa8dc7b8dc4ba3e81a0",
+  "refl_201610060900.nc": "3e60dbb57daac294bfdee2eab59dd2a347b96d3d34b99745c0c1021d6d54f8b7",
+  "refl_201610061200.nc": "2d0b6c10785bd28a598035375c85ff7faedb3c8b422bb227bfc226a544752d81",
+  "refl_201610061500.nc": "2d79d58f832e0d1806307a09295e27fe006539edcb7917eab38894467a378a43",
+  "refl_201610061800.nc": "ff0321e27cfa83b44b53e86598e3db5e55b25fe46567852d916400ffe49b0c51",
+  "refl_201610062100.nc": "31119ee8860cd46fbed70d73ebcd7a5d6b98ce087461d7db05afbe289e2ac0a1",
+  "refl_201610070000.nc": "6ddfe13a1bd986ed78cc20d6d23b8a2e09979616a115872e51c33a2f3a324693",
+  "refl_201610070300.nc": "3600ec4cb78ccc37671f8d8a1d349d8abe684923a7ebc4d8e09aff29084a8173",
+  "refl_201610070600.nc": "3ba8a604a30b032d3c4b432163ed3bbebb7abc99559cc2612b5b61bdf4601284",
+  "refl_201610070900.nc": "25c949ac0f6bcffe8e6f137b30f3f5cfa8be60b429159e69324d63fd0733bca4",
+  "refl_201610071200.nc": "31c19a9e425385d99d2778d2ed69fe9da2311ae4354bf3a4e939826fb5e570d1",
+  "refl_201610071500.nc": "d6039ef9ef08af93a8ed14e6ff02b2c852e339ce86a926463e04ed810c342cb1",
+  "refl_201610071800.nc": "605e5f227148879f7547cd55b615ace69f4f3cef36b6b90c7c220e681fda9748",
+  "refl_201610072100.nc": "4ff1a6395288c7564f5dd5f3b69de6c7b3472488cc5ea395889f2bfa632b1ed3",
+  "refl_201610080000.nc": "58b8f08507341418ec5c9a229221e4e0a80ee1d92d6ac3119f7d7ba0f1eadd27"
+ }
+}

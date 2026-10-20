@@ -3,7 +3,7 @@
 Versions are declared in `wtune_version.py`; `test_wtune_version.py` fails if the top section
 here does not match it. Development before 0.1.0 is in the git history, not in releases.
 
-## 0.9.3 — 2026-10-20
+## 0.9.3 — 2026-10-21
 
 **`wtune event`: describe the event in your own words.** Put an `event.txt` in the case or
 project folder ("the 2021 Zhengzhou rain; check hourly and 24 h rain and the surface wind; my
@@ -13,11 +13,30 @@ that is not in `event.txt`, a type or variable outside `wtune event vocab`, a st
 does not state, a stale `source_sha256`, a tropical cyclone with no storm and no question, and
 an `idealized` case that is also compared with observations. `wtune event plan` then says, for
 each comparison, whether a fetch module gets the data (`module`), the agent has to find it
-(`agent_fetch`: radar and rain outside the US, non-NHC best tracks), it is the user's file
-(`local`), WTune has no such comparison (`unsupported`), or it is a model-only figure. The
-recipes do not read agent-fetched files yet. 22 event types; the eval set (17 cases plus 8
-held-out) and the scripts that score a model on it are in `tests/fixtures/events*` and
-`campaign/event_eval/`.
+(`agent_fetch`: radar and rain outside the US, gusts, satellite IR, non-NHC best tracks), it is
+the user's file (`local`), WTune has no such comparison (`unsupported`), or it is a model-only
+figure. 22 event types; the eval set (17 cases plus 8 held-out) and the scripts that score a
+model on it are in `tests/fixtures/events*` and `campaign/event_eval/`.
+
+**`wtune post` reads observations an agent fetched.** The agent converts what it finds to
+`wtune-obs/1` in `<project>/input/obs/<name>/` (a `provenance.json` with the source, licence and
+sha256 of every file); `wtune event obs-check` checks names, units, ranges, axes, UTC times and
+checksums, and the recipes use only folders that pass:
+
+| kind | file | compared in |
+|---|---|---|
+| `gridded_precip` | `precip_YYYYMMDDHH_NNh.nc` | precip: Grid-Stat on the dataset's grid, files summed to the longest window (`precip_agent_*`) |
+| `rain_gauges` | `gauges.csv` | precip: Point-Stat per period (`precip_gauge_*`) |
+| `radar` | `refl_YYYYMMDDHHMM.nc` | convection: the radar Grid-Stat when there is no MRMS / NEXRAD |
+| `satellite_ir` | `irtb_YYYYMMDDHHMM.nc` | cloud: model OLR-derived Tb vs IR, cold tops <= 240/220/210 K (`cloud_ir_*`) |
+| `stations_extra` | `stations_extra.csv` | precip: gust and visibility Point-Stat (`stn_gust_*`, `stn_vis_*`) |
+
+WRF writes no gust or visibility: the model gust is `WSPD10MAX` when the run has it, else NCEP
+UPP's CALGUST; visibility is Stoelinga-Warner (1999) at the lowest level, model and obs capped
+at 16.1 km. Rain-gauge point obs are named `APCP_<hours>`: MET 12.1 Point-Stat rejects a point
+obs named `APCP` by name and never matches an `A6` level against ascii2nc's level in seconds.
+Checked on f1-arm with Matthew: CMORPH, ISD 6 h totals, the IEM NEXRAD N0Q mosaic, GridSat-B1
+and NCEI Global Hourly gusts and visibility.
 
 **`post preview` writes the values it draws.** Each preview figure gets a netCDF file of the
 plotted fields in `post/preview/data/`, named like the figure in `figures/` (SLP and 10 m wind,

@@ -16,7 +16,7 @@ tasks=("$@")
 clean="$out/_wtune"
 if [ ! -d "$clean" ]; then
   mkdir -p "$clean"
-  git -C "$repo" archive HEAD -- . ':!results' | tar -x -C "$clean"
+  git -C "$repo" archive "${REV:-HEAD}" -- . ':!results' | tar -x -C "$clean"   # REV: skill version
   mkdir -p "$clean/envs/wtune/.pixi" "$clean/sbxbin"
   # bin/wtune goes through pixi, which wants to write its own state: call the env's python
   printf '#!/bin/sh\nexec /work/wtune/envs/wtune/.pixi/envs/default/bin/python /work/wtune/src/wtune "$@"\n' \

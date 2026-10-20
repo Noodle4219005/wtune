@@ -19,10 +19,11 @@ mkdir -p "$base/wtune/sbxbin" "$out"
 printf '#!/bin/sh\nexec %s %s/wtune/src/wtune "$@"\n' "$py" "$base" > "$base/wtune/sbxbin/wtune"
 chmod +x "$base/wtune/sbxbin/wtune"
 locked=()
-restore() { for p in "${locked[@]}"; do chmod u+rwx "$p"; done; }
+restore() { for p in "${locked[@]}"; do chmod "${p%%:*}" "${p#*:}"; done; }
 trap restore EXIT
+lock_one() { [ -e "$1" ] && locked+=("$(stat -c %a "$1"):$1") && chmod 000 "$1"; }
 IFS=: read -ra lock <<< "${LOCK:-}"
-for p in "${lock[@]}"; do [ -e "$p" ] && chmod 000 "$p" && locked+=("$p"); done
+for p in "${lock[@]}"; do lock_one "$p"; done
 export PATH="$base/wtune/sbxbin:$(dirname "$py"):$HOME/.pixi/bin:/usr/bin:/bin"
 export PI_CODING_AGENT_DIR="$base/pi-home"
 for t in "${tasks[@]}"; do
@@ -51,5 +52,5 @@ Follow the wtune-event skill, Part 2: find the data at the official source, down
       "$prompt" > events.jsonl 2> stderr.txt )
   rc=$?
   echo "$t rc=$rc $(( $(date +%s) - start ))s" >> "$out/timing.txt"
-  chmod 000 "$d" && locked+=("$d")
+  lock_one "$d"
 done

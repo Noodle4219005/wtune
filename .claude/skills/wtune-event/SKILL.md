@@ -106,13 +106,18 @@ questions: []
    uses only folders that pass.
 7. Report what you got, what you could not get, and why.
 
-Standard formats (only these two kinds are read by the recipes so far; for other kinds keep
-the raw data and provenance, and say no comparison reads it yet):
+Standard formats (grids: 1-D `lat`, `lon` in degrees, the variable on `(lat, lon)`, missing
+cells NaN; times UTC). A best track outside the NHC basins is an ATCF b-deck file passed to
+`wtune post recipe --bdeck`. Any other kind: keep the raw data and provenance, and say no
+comparison reads it.
 
 | kind | file | content |
 |---|---|---|
-| `gridded_precip` | `precip_YYYYMMDDHH_NNh.nc` | accumulation over the NN hours **ending** at YYYYMMDDHH UTC; 1-D `lat`, `lon` (degrees), `precip(lat, lon)` with `units = "mm"`, missing cells NaN. One file per native period (e.g. hourly); WTune adds them up |
-| `rain_gauges` | `gauges.csv` | header `id,lat,lon,elev_m,start_utc,end_utc,precip_mm`; times `YYYY-MM-DD HH:MM` UTC; one row per gauge and period |
+| `gridded_precip` | `precip_YYYYMMDDHH_NNh.nc` | accumulation over the NN hours **ending** at YYYYMMDDHH; `precip`, `units = "mm"`. One file per native period (e.g. hourly); WTune adds them up |
+| `rain_gauges` | `gauges.csv` | header `id,lat,lon,elev_m,start_utc,end_utc,precip_mm`; times `YYYY-MM-DD HH:MM`; one row per gauge and period (whole hours) |
+| `radar` | `refl_YYYYMMDDHHMM.nc` | composite or lowest-tilt mosaic at that time; `refl`, `units = "dBZ"`; no echo a negative value, no coverage NaN (mask beyond the radars' range) |
+| `satellite_ir` | `irtb_YYYYMMDDHHMM.nc` | IR window (~10.4-11 um) brightness temperature; `tb`, `units = "K"` |
+| `stations_extra` | `stations_extra.csv` | header `id,lat,lon,elev_m,time_utc,var,value`; `var` is `gust` (m/s) or `visibility` (m) |
 
 A rate (mm/h) is not an accumulation: multiply by the period length. Check that a period's
 time stamp is its start or its end in the product's documentation before naming the file.

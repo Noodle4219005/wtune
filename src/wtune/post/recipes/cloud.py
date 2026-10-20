@@ -677,6 +677,123 @@ def _reason(e):
     return missing_reason(e) if is_missing_field_error(e) else "%s: %s" % (type(e).__name__, e)
 
 
+IR_THRESHOLDS_K = (240, 220, 210)
+IR_IDS = ("cloud_ir_compare", "cloud_ir_scores", "cloud_ir_fss")
+MAX_IR_TIMES = 8
+IR_TOL_MIN = 30
+
+
+def _agent_ir_figures(run_dir, run_label, domain, case_info, out_dir, spinup_hours=6):
+    """Model OLR-derived Tb vs infrared brightness temperature an agent fetched
+    (post/agent_obs.py, satellite_ir), MET Grid-Stat on the model grid pooled over up to
+    MAX_IR_TIMES times; events are cold tops (Tb <= threshold)."""
+    import csv
+    from datetime import datetime
+    import netCDF4
+    import numpy as np
+    from wtune.post import agent_obs, condensate, met_gridstat, obs_figs, snapshot_verify
+    from wtune.post.caseinfo import WRF_TIME_FMT, spec_bdy_width
+    from wtune.post.recipe import fig, missing, note
+    from wtune.post.recipes.convection import (_pool_counts, _pool_fss, _post_spinup_frames,
+                                               _project_of)
+    project_dir = _project_of(out_dir)
+    if not project_dir:
+        return []
+    ok, bad = agent_obs.usable(project_dir, "satellite_ir")
+    out = [note("cloud", "agent dataset %s is not used: %s (wtune event obs-check)" % (n, e))
+           for n, e in bad]
+    if not ok:
+        return out
+    times = [(datetime.strptime(t, WRF_TIME_FMT), (p, ti))
+             for t, p, ti in _post_spinup_frames(run_dir, domain, spinup_hours)]
+    dx = [d.get("dx_km") for d in case_info["domains"] if d["domain"] == domain]
+    cell_km = dx[0] if dx and dx[0] else 10.0
+
+    def model_field(path, ti):
+        with netCDF4.Dataset(path) as ds:
+            tb = np.asarray(condensate.olr_brightness_temperature(ds, ti), "f8")
+            return (np.asarray(ds.variables["XLAT"][ti], "f8"),
+                    np.asarray(ds.variables["XLONG"][ti], "f8"), tb, "K")
+
+    for name, d, prov in ok:
+        label = prov.get("dataset") or name
+        idx = agent_obs.snapshot_index(d, "satellite_ir")
+        picks = [(t, ref, f) for t, ref in times for f in [agent_obs.nearest(idx, t, IR_TOL_MIN)] if f]
+        if not picks:
+            out += [missing(i, label, "no irtb file within %d min of a model output time after "
+                            "spin-up" % IR_TOL_MIN) for i in IR_IDS]
+            continue
+        picks = picks[::max(1, -(-len(picks) // MAX_IR_TIMES))]
+        work = os.path.join(out_dir, "gridstat_ir_%s" % name)
+        os.makedirs(work, exist_ok=True)
+        try:
+            lat0, lon0, _tb, _u = model_field(*picks[0][1])
+            bbox = (lat0.min(), lat0.max(), lon0.min(), lon0.max())
+            poly = met_gridstat.write_interior_polygon(picks[0][1][0], spec_bdy_width(run_dir),
+                                                       os.path.join(work, "interior.poly"))
+            res = snapshot_verify.verify(
+                picks, model_field,
+                lambda p, t, griddes, onc: agent_obs.regrid_snapshot(
+                    p, "tb", t, griddes, onc, "TB_OBS", "K", bbox, "remapcon"),
+                ("TB_MODEL", "TB_OBS"), ["<=%g" % x for x in IR_THRESHOLDS_K], work, poly,
+                obtype=name.upper())
+        except (tools.ToolNotFoundError, tools.ToolError, met_gridstat.METError, ImportError,
+                OSError, KeyError, ValueError) as e:
+            out += [missing(i, label, "verification failed: %s" % e) for i in IR_IDS]
+            continue
+        if not res["fields"]:
+            out += [missing(i, label, "no matched cells inside the model interior") for i in IR_IDS]
+            continue
+        pooled, pooled_fss = _pool_counts(res["per_ctc"]), _pool_fss(res["per_nbr"])
+        csv_ts = os.path.join(out_dir, "cloud_ir_scores_by_time_%s.csv" % name)
+        with open(csv_ts, "w", newline="") as fh:
+            w = csv.writer(fh)
+            w.writerow(["valid_time_utc", "threshold_K_or_colder", "POD", "FAR", "CSI",
+                        "frequency_bias", "n_points"])
+            for t, r in res["cts_rows"]:
+                w.writerow([t.strftime("%Y-%m-%d %H:%M"), r["thresh"], r["pod"], r["far"],
+                            r["csi"], r["fbias"], r["total"]])
+        csv_pool = os.path.join(out_dir, "cloud_ir_scores_pooled_%s.csv" % name)
+        with open(csv_pool, "w", newline="") as fh:
+            w = csv.writer(fh)
+            w.writerow(["threshold_K_or_colder", "POD", "FAR", "CSI", "frequency_bias",
+                        "n_points_all_times"])
+            for r in pooled:
+                w.writerow([r["thresh"], r["pod"], r["far"], r["csi"], r["fbias"], r["total"]])
+            w.writerow([])
+            w.writerow(["threshold_K_or_colder", "width_points", "width_km", "FSS_pooled"])
+            for r in pooled_fss:
+                w.writerow([r["thresh"], r["width"], round(r["width"] * cell_km, 2), r["fss"]])
+        nt = len(res["fields"])
+        span = "%s..%s" % (res["fields"][0][0].strftime(WRF_TIME_FMT),
+                           res["fields"][-1][0].strftime(WRF_TIME_FMT))
+        common = dict(obs_sources=[agent_obs.source_tag(name, prov)], csv=[csv_ts, csv_pool],
+                      n_times=nt, tool="MET grid_stat on the model grid (obs cdo remapcon), "
+                                       "pooled over %d time(s)" % nt)
+        tb_, glat, glon, gf, go = max(res["fields"], key=lambda f: int(np.sum(f[4] <= 220)))
+        cmap, _norm, _lev = ir_colormap()
+        p = obs_figs.side_by_side(
+            glat, glon, gf, go, ("%s d%02d model, OLR-derived Tb (broadband)" % (run_label, domain),
+                                 "%s (obs)" % label),
+            "IR brightness temperature %s UTC, matched points" % tb_.strftime("%Y-%m-%d %H:%M"),
+            os.path.join(out_dir, "cloud_ir_compare_%s.png" % name),
+            np.arange(IR_TMIN_K, IR_TMAX_K + 1, 5.0), cmap=cmap, cbar_label="K", extend="both")
+        out.append(fig(IR_IDS[0], p, run_label, domain="d%02d" % domain,
+                       valid_time=tb_.strftime(WRF_TIME_FMT), extra=common))
+        p = obs_figs.scores_vs_threshold(
+            pooled, "Grid-Stat cold-cloud scores vs %s, %d time(s) pooled" % (label, nt),
+            os.path.join(out_dir, "cloud_ir_scores_%s.png" % name),
+            "brightness temperature (K)", op="≤")
+        out.append(fig(IR_IDS[1], p, run_label, domain="d%02d" % domain, valid_time=span,
+                       extra=common))
+        p = obs_figs.fss_vs_scale(pooled_fss, cell_km, "Grid-Stat FSS vs %s, %d time(s) pooled"
+                                  % (label, nt), os.path.join(out_dir, "cloud_ir_fss_%s.png" % name),
+                                  " K or colder")
+        out.append(fig(IR_IDS[2], p, run_label, domain="d%02d" % domain, valid_time=span,
+                       extra=common))
+    return out
+
+
 def figures(run_dirs, labels, out_dir, case_info, every=None, times=None, paraview=True):
     """The cloud figure set for run_dirs[0] (records per post.recipe fig()/missing())."""
     import netCDF4
@@ -753,4 +870,7 @@ def figures(run_dirs, labels, out_dir, case_info, every=None, times=None, paravi
             except Exception as e:    # noqa: BLE001 -- pvbatch absent/failed, not implemented: a gap, never a failed report
                 out.append(missing("cloud_condensate_3d", "pvbatch / paraview3d."
                                    "render_condensate_volume", _reason(e), run=run_label))
+    doms = _cloud_domains(case_info)
+    if doms:
+        out += _agent_ir_figures(run_dir, run_label, doms[0], case_info, out_dir)
     return out

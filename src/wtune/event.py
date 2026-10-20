@@ -94,15 +94,16 @@ COMPARISON = {
     "soundings": "Skew-T overlay (pbl recipe)",
     "monthly_climate": "monthly box means, seasonal bias (climate recipe)",
     "rain_gauges": "MET point_stat on gauge totals (precip recipe)",
+    "stations_extra": "MET point_stat on UPP gust / Stoelinga-Warner visibility (precip recipe)",
+    "satellite_ir": "MET grid_stat of OLR-derived Tb, cold tops (cloud recipe)",
 }
-# kinds whose comparison is planned but not written yet
-READER_PENDING = {"stations_extra", "satellite_ir"}
 # kinds the recipes read from an agent's folder (post/agent_obs.py); other agent-fetched data
 # is kept with its provenance but no recipe reads it yet.
-AGENT_READERS = ("gridded_precip", "rain_gauges")
+AGENT_READERS = ("gridded_precip", "rain_gauges", "radar", "satellite_ir", "stations_extra")
 AGENT_FORMAT_NOTE = ("write <project>/input/obs/<name>/ in format wtune-obs/1, then "
                      "`wtune event obs-check`")
-AGENT_FILES_NOTE = "recipes do not read agent-fetched files of this kind yet"
+BDECK_NOTE = "write an ATCF b-deck and pass `wtune post recipe --bdeck FILE`"
+AGENT_FILES_NOTE = "no recipe reads this kind"
 
 # Stage IV / NEXRAD are chosen when the domain centre lies over the lower 48 states (a box
 # containing a corner of Canada or Mexico is fine: the comparisons mask to valid obs).
@@ -253,7 +254,8 @@ def plan(doc, start=None, end=None, bbox=None):
 
     def row(need, kind, source, status, note=""):
         if status in ("agent_fetch", "local"):
-            extra = AGENT_FORMAT_NOTE if kind in AGENT_READERS else AGENT_FILES_NOTE
+            extra = (AGENT_FORMAT_NOTE if kind in AGENT_READERS else
+                     BDECK_NOTE if kind == "best_track" else AGENT_FILES_NOTE)
             note = "; ".join(x for x in (note, extra) if x)
         rows.append(dict(need=need, kind=kind, source=source, status=status, note=note))
 
@@ -291,6 +293,13 @@ def plan(doc, start=None, end=None, bbox=None):
                     "Stage IV covers CONUS only" if bbox else "region unknown")
         elif kind == "rain_gauges":
             row(var, kind, "national gauge network", "agent_fetch", "no fetch module")
+        elif kind == "stations_extra":
+            row(var, kind, "national station network (gust, visibility)", "agent_fetch",
+                "no fetch module")
+        elif kind == "satellite_ir":
+            row(var, kind, "geostationary IR (GOES, Himawari, GridSat)", "agent_fetch",
+                "no fetch module; scores count cold tops, low cloud shows only on the map"
+                if var == "low_cloud" else "no fetch module")
         elif kind == "radar":
             if conus:
                 row(var, kind, "nexrad", "module")
@@ -306,21 +315,16 @@ def plan(doc, start=None, end=None, bbox=None):
                 row(var, kind, "ERA5", "unsupported",
                     "the ERA5 comparison covers z500 only")
         elif kind == "soundings":
-            if var == "sounding":
-                row(var, kind, "igra (global)", "module")
-            else:
-                row(var, kind, "-", "unsupported", "no PBL-height comparison")
+            row(var, kind, "igra (global)", "module",
+                "" if var == "sounding" else "radiosonde bulk-Ri PBL height (pbl recipe)")
         elif kind == "monthly_climate":
             row(var, kind, "era5_monthly + gpcp_monthly", "module")
-        elif kind in READER_PENDING:
-            row(var, kind, "-", "agent_fetch",
-                "no fetch module; the comparison reader for this kind is not written yet")
         else:
             row(var, kind, "-", "unsupported", "WTune has no comparison for %s" % kind)
 
     for r in _items(doc, "obs_requests"):
         kind = r.get("kind")
-        if kind in COMPARISON or kind in READER_PENDING:
+        if kind in COMPARISON:
             row(r.get("value"), kind, r.get("value"), "agent_fetch",
                 "named by the user; find it, convert to the %s format" % kind)
         else:

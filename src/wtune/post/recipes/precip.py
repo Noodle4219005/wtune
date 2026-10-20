@@ -406,6 +406,71 @@ def _gauge_figures(run_dir, run_label, domain, frames, out_dir, spinup_hours, pr
     return out
 
 
+EXTRA_IDS = {"WGUST": ("stn_gust_scatter", "stn_gust_map", "gust", "m/s"),
+             "VISIB": ("stn_vis_scatter", "stn_vis_map", "visibility", "m")}
+
+
+def _extra_figures(run_dir, run_label, domain, frames, out_dir, spinup_hours, project_dir):
+    """Point-Stat of model gust / visibility (post/surface_diag.py) against every
+    stations_extra dataset an agent fetched (post/agent_obs.py)."""
+    import textwrap
+    import numpy as np
+    from wtune.post import agent_obs, met_pointstat, obs_figs
+    from wtune.post.recipe import fig, missing, note
+    if not project_dir:
+        return []
+    ok, bad = agent_obs.usable(project_dir, "stations_extra")
+    out = [note("precip", "agent dataset %s is not used: %s (wtune event obs-check)" % (n, e))
+           for n, e in bad]
+    all_ids = [i for v in EXTRA_IDS.values() for i in v[:2]]
+    for name, ds_dir, prov in ok:
+        label = prov.get("dataset") or name
+        try:
+            rows = agent_obs.read_extra(os.path.join(ds_dir, agent_obs.EXTRA_FILE))
+            res = met_pointstat.verify_extra(run_dir, frames, rows,
+                                             os.path.join(out_dir, "extra_%s" % name),
+                                             spinup_hours)
+        except met_pointstat.NoStations as e:
+            out += [missing(i, label, str(e)) for i in all_ids]
+            continue
+        except (tools.ToolNotFoundError, tools.ToolError, met_pointstat.METError, ImportError,
+                OSError, ValueError, KeyError) as e:
+            out += [missing(i, label, "verification failed: %s" % e) for i in all_ids]
+            continue
+        span = "%s -> %s UTC" % (res["t_first"].strftime("%Y-%m-%d %H"),
+                                 res["t_last"].strftime("%Y-%m-%d %H"))
+        for var, (sid, mid, word, unit) in EXTRA_IDS.items():
+            pairs = res["pairs"][var]
+            if not pairs:
+                out += [missing(i, label, "no %s observation paired with the model" % word)
+                        for i in (sid, mid)]
+                continue
+            how = res["gust_method"] if var == "WGUST" else "Stoelinga-Warner, capped 16.1 km"
+            extra = dict(obs_sources=[agent_obs.source_tag(name, prov)], csv=res["csv"],
+                         tool="MET ascii2nc + point_stat (BILIN, interior mask); model %s: %s"
+                              % (word, how), window=span)
+            kw = dict(domain="d%02d" % domain, valid_time=res["t_last"].strftime(
+                "%Y-%m-%d_%H:%M:%S"), extra=extra)
+            p = obs_figs.scatter_compare([q[4] for q in pairs], [q[5] for q in pairs],
+                                         "%s, model (%s) vs %s" % (word, how, label),
+                                         os.path.join(out_dir, "stn_%s_%s_scatter.png" % (word, name)),
+                                         unit)
+            out.append(fig(sid, p, run_label, **kw))
+            by = {}
+            for st, la, lo, _t, f, o in pairs:
+                by.setdefault(st, [la, lo, []])[2].append(f - o)
+            b = np.array([float(np.mean(v[2])) for v in by.values()])
+            p = obs_figs.station_bias_maps(
+                [dict(lat=[v[0] for v in by.values()], lon=[v[1] for v in by.values()], bias=b,
+                      cbar_label="mean bias, model - station (%s)" % unit,
+                      title=textwrap.fill("%s, n=%d stations" % (label, len(b)), 40),
+                      vmax=float(np.nanpercentile(np.abs(b), 95)) or 1.0)],
+                textwrap.fill("mean model - station %s, %s" % (word, span), 45),
+                os.path.join(out_dir, "stn_%s_%s_map.png" % (word, name)))
+            out.append(fig(mid, p, run_label, **kw))
+    return out
+
+
 def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6, project_dir=None):
     from wtune.post.recipe import fig, missing
 
@@ -439,4 +504,5 @@ def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6, project_dir=No
     out += _agent_grid_figures(run_dir, run_label, domain, frames, out_dir, spinup_hours, project_dir)
     out += _station_figures(run_dir, run_label, domain, frames, out_dir, spinup_hours, project_dir)
     out += _gauge_figures(run_dir, run_label, domain, frames, out_dir, spinup_hours, project_dir)
+    out += _extra_figures(run_dir, run_label, domain, frames, out_dir, spinup_hours, project_dir)
     return out

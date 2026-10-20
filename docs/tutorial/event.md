@@ -45,7 +45,4 @@ agent（Claude Code、pi 等）依 `.claude/skills/wtune-event/SKILL.md` 把它�
 
 ## agent 找來的資料
 
-`agent_fetch` 的資料由 agent 轉成標準格式 `wtune-obs/1`，放在 `input/obs/<name>/`，再用 `wtune event obs-check` 檢查。格點雨量（`gridded_precip`）和雨量站（`rain_gauges`）通過檢查後，`post recipe` 會拿來比較，格式見 [post](post.md#agent)。
-
-!!! warning "目前的限制"
-    雷達、測站陣風、衛星等其他種類，agent 找來的資料會連同來源保存，但還沒有 recipe 會讀。
+`agent_fetch` 的資料由 agent 轉成標準格式 `wtune-obs/1`，放在 `input/obs/<name>/`，再用 `wtune event obs-check` 檢查。格點雨量、雨量站、雷達、衛星紅外、測站陣風與能見度通過檢查後，`post recipe` 會拿來比較，格式見 [post](post.md#agent)。非 NHC 海域的最佳路徑則寫成 ATCF b-deck，用 `post recipe --bdeck` 指定。

@@ -10,6 +10,13 @@ plan`), kept in WTune's standard format so the recipes can read them like their 
                     `precip(lat, lon)` in mm, missing cells NaN or _FillValue
   rain_gauges:      gauges.csv -- id,lat,lon,elev_m,start_utc,end_utc,precip_mm with times
                     "YYYY-MM-DD HH:MM" in UTC, one row per gauge and accumulation period
+  radar:            refl_YYYYMMDDHHMM.nc -- composite (or lowest-tilt mosaic) reflectivity at
+                    that UTC time, `refl(lat, lon)` in dBZ; no echo is a value below 0 (e.g.
+                    -30), no coverage NaN
+  satellite_ir:     irtb_YYYYMMDDHHMM.nc -- infrared window-channel brightness temperature
+                    (~10.4-11 um), `tb(lat, lon)` in K
+  stations_extra:   stations_extra.csv -- id,lat,lon,elev_m,time_utc,var,value; var `gust`
+                    (m/s, peak gust) or `visibility` (m)
 
 `check()` is what `wtune event obs-check` runs; the recipes use only datasets that pass it.
 """
@@ -23,7 +30,15 @@ import re
 from datetime import datetime, timedelta
 
 FORMAT = "wtune-obs/1"
-KINDS = ("gridded_precip", "rain_gauges")
+KINDS = ("gridded_precip", "rain_gauges", "radar", "satellite_ir", "stations_extra")
+# snapshot grids: kind -> (file pattern, variable, units, valid range)
+SNAPSHOTS = {
+    "radar": (re.compile(r"^refl_(\d{12})\.nc$"), "refl", "dBZ", (-40.0, 85.0)),
+    "satellite_ir": (re.compile(r"^irtb_(\d{12})\.nc$"), "tb", "K", (150.0, 340.0)),
+}
+EXTRA_FILE = "stations_extra.csv"
+EXTRA_COLS = ("id", "lat", "lon", "elev_m", "time_utc", "var", "value")
+EXTRA_VARS = {"gust": ("m/s", 0.0, 100.0), "visibility": ("m", 0.0, 100000.0)}
 PROV_REQUIRED = ("dataset", "provider", "url", "license", "fetched_utc", "files")
 GRID_RE = re.compile(r"^precip_(\d{10})_(\d{2})h\.nc$")
 GAUGE_FILE = "gauges.csv"
@@ -77,14 +92,35 @@ def grid_index(ds_dir):
     return out
 
 
-def read_grid(path):
-    """(lat ascending 1-D, lon 1-D in -180..180 order, precip 2-D float with NaN)."""
+def snapshot_index(ds_dir, kind):
+    """{valid datetime: path} of a radar / satellite_ir folder."""
+    pat = SNAPSHOTS[kind][0]
+    out = {}
+    for f in os.listdir(ds_dir):
+        m = pat.match(f)
+        if m:
+            try:
+                out[datetime.strptime(m.group(1), "%Y%m%d%H%M")] = os.path.join(ds_dir, f)
+            except ValueError:
+                pass
+    return out
+
+
+def nearest(index, t, tol_min):
+    """Path in {datetime: path} closest to t within tol_min minutes, else None."""
+    best = min(index, key=lambda k: abs((k - t).total_seconds()), default=None)
+    return index[best] if best is not None and abs((best - t).total_seconds()) <= tol_min * 60 \
+        else None
+
+
+def read_grid(path, var="precip"):
+    """(lat ascending 1-D, lon 1-D in -180..180 order, `var` 2-D float with NaN)."""
     import netCDF4
     import numpy as np
     with netCDF4.Dataset(path) as ds:
         lat = np.asarray(ds.variables["lat"][:], "f8")
         lon = np.asarray(ds.variables["lon"][:], "f8")
-        pr = np.ma.filled(np.ma.asarray(ds.variables["precip"][:], "f8"), np.nan)
+        pr = np.ma.filled(np.ma.asarray(ds.variables[var][:], "f8"), np.nan)
     pr = pr.reshape(len(lat), len(lon))
     if lat[0] > lat[-1]:
         lat, pr = lat[::-1], pr[::-1]
@@ -104,6 +140,21 @@ def read_gauges(path):
                                  start=datetime.strptime(r["start_utc"].strip(), TIME_FMT),
                                  end=datetime.strptime(r["end_utc"].strip(), TIME_FMT),
                                  precip_mm=float(r["precip_mm"])))
+            except (KeyError, TypeError, ValueError) as e:
+                raise ValueError("%s line %d: %s" % (os.path.basename(path), i, e))
+    return rows
+
+
+def read_extra(path):
+    """[dict(id, lat, lon, elev_m, time, var, value)]; raises ValueError on a bad row."""
+    rows = []
+    with open(path, newline="") as fh:
+        for i, r in enumerate(csv.DictReader(fh), start=2):
+            try:
+                rows.append(dict(id=r["id"].strip(), lat=float(r["lat"]), lon=float(r["lon"]),
+                                 elev_m=float(r["elev_m"]) if r["elev_m"] not in ("", None) else 0.0,
+                                 time=datetime.strptime(r["time_utc"].strip(), TIME_FMT),
+                                 var=r["var"].strip(), value=float(r["value"])))
             except (KeyError, TypeError, ValueError) as e:
                 raise ValueError("%s line %d: %s" % (os.path.basename(path), i, e))
     return rows
@@ -143,7 +194,81 @@ def check(ds_dir):
         _check_grids(ds_dir, files, err, warn)
     elif kind == "rain_gauges":
         _check_gauges(ds_dir, files, err, warn)
+    elif kind in SNAPSHOTS:
+        _check_snapshots(ds_dir, kind, files, err)
+    elif kind == "stations_extra":
+        _check_extra(ds_dir, files, err)
     return err, warn
+
+
+def _check_axes(f, lat, lon, err):
+    import numpy as np
+    if lat.min() < -90 or lat.max() > 90 or lon.min() < -180 or lon.max() > 180:
+        err.append("%s: lat/lon out of range" % f)
+    if np.any(np.diff(lat) <= 0) or np.any(np.diff(lon) <= 0):
+        err.append("%s: lat/lon must be strictly monotonic 1-D axes" % f)
+
+
+def _check_snapshots(ds_dir, kind, files, err):
+    import numpy as np
+    pat, var, units, (lo, hi) = SNAPSHOTS[kind]
+    idx = snapshot_index(ds_dir, kind)
+    if not idx:
+        err.append("no %s_YYYYMMDDHHMM.nc file" % pat.pattern[1:pat.pattern.index("_")])
+    for t, p in sorted(idx.items()):
+        f = os.path.basename(p)
+        if f not in files:
+            err.append("%s: not listed in provenance.json files" % f)
+        try:
+            import netCDF4
+            with netCDF4.Dataset(p) as ds:
+                u = getattr(ds.variables[var], "units", "")
+            lat, lon, a = read_grid(p, var)
+        except (OSError, KeyError, ValueError) as e:
+            err.append("%s: unreadable (%s); needs 1-D lat, lon and %s(lat, lon)" % (f, e, var))
+            continue
+        if u != units:
+            err.append("%s: %s units %r, must be %r" % (f, var, u, units))
+        _check_axes(f, lat, lon, err)
+        good = a[np.isfinite(a)]
+        if not good.size:
+            err.append("%s: %s has no valid cell" % (f, var))
+        elif good.min() < lo or good.max() > hi:
+            err.append("%s: %s %.1f..%.1f is outside %g..%g %s"
+                       % (f, var, good.min(), good.max(), lo, hi, units))
+
+
+def _check_extra(ds_dir, files, err):
+    p = os.path.join(ds_dir, EXTRA_FILE)
+    if not os.path.isfile(p):
+        err.append("%s: missing" % EXTRA_FILE)
+        return
+    if EXTRA_FILE not in files:
+        err.append("%s: not listed in provenance.json files" % EXTRA_FILE)
+    with open(p, newline="") as fh:
+        head = next(csv.reader(fh), [])
+    if tuple(h.strip() for h in head) != EXTRA_COLS:
+        err.append("%s: header must be %s" % (EXTRA_FILE, ",".join(EXTRA_COLS)))
+        return
+    try:
+        rows = read_extra(p)
+    except ValueError as e:
+        err.append("%s (times are '%s' UTC)" % (e, TIME_FMT.replace("%", "")))
+        return
+    if not rows:
+        err.append("%s: no rows" % EXTRA_FILE)
+    for r in rows:
+        where = "%s %s %s" % (r["id"], r["time"].strftime(TIME_FMT), r["var"])
+        spec = EXTRA_VARS.get(r["var"])
+        if spec is None:
+            err.append("%s: var must be one of %s" % (where, ", ".join(EXTRA_VARS)))
+        elif not spec[1] <= r["value"] <= spec[2]:
+            err.append("%s: value %g outside %g..%g %s" % (where, r["value"], spec[1], spec[2], spec[0]))
+        if not (-90 <= r["lat"] <= 90 and -180 <= r["lon"] <= 360):
+            err.append("%s: lat/lon out of range" % where)
+        if len(err) > 20:
+            err.append("... (stopped after 20 errors)")
+            return
 
 
 def _check_grids(ds_dir, files, err, warn):
@@ -167,10 +292,7 @@ def _check_grids(ds_dir, files, err, warn):
             continue
         if units != "mm":
             err.append("%s: precip units %r, must be 'mm'" % (f, units))
-        if lat.min() < -90 or lat.max() > 90 or lon.min() < -180 or lon.max() > 180:
-            err.append("%s: lat/lon out of range" % f)
-        if np.any(np.diff(lat) <= 0) or np.any(np.diff(lon) <= 0):
-            err.append("%s: lat/lon must be strictly monotonic 1-D axes" % f)
+        _check_axes(f, lat, lon, err)
         good = pr[np.isfinite(pr)]
         if not good.size:
             err.append("%s: precip has no valid cell" % f)
@@ -277,3 +399,19 @@ def subset(lat, lon, field, bbox, margin=2.0):
     la = (lat >= bbox[0] - margin) & (lat <= bbox[1] + margin)
     lo = (lon >= bbox[2] - margin) & (lon <= bbox[3] + margin)
     return lat[la], lon[lo], field[np.ix_(la, lo)]
+
+
+def regrid_snapshot(path, var, valid, griddes, out_nc, name, units, bbox=None, method="remapnn"):
+    """One radar / satellite file -> CF netCDF on the model lat/lon grid `griddes` with cdo
+    (`method`), variable `name`; cut to bbox + 2 degrees first. Returns out_nc."""
+    from wtune.post import met_gridstat, tools
+    lat, lon, a = read_grid(path, var)
+    if bbox:
+        lat, lon, a = subset(lat, lon, a, bbox)
+    tmp = out_nc[:-3] + ".src.nc"
+    met_gridstat._write_regular_nc(lat, lon, a, valid, tmp, name=name, units=units,
+                                   long_name="%s from %s" % (var, os.path.basename(path)))
+    tools.run([tools.find_on_path("cdo"), "-s", "%s,%s" % (method, griddes), tmp, out_nc])
+    os.remove(tmp)
+    met_gridstat._tag_axes(out_nc)
+    return out_nc

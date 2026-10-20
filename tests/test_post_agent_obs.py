@@ -70,7 +70,7 @@ def test_grid_units_range_and_sha_are_checked(tmp_path):
 def test_unknown_kind_and_missing_provenance(tmp_path):
     d = _dataset(tmp_path)
     prov = json.loads((d / "provenance.json").read_text())
-    prov["kind"] = "radar"
+    prov["kind"] = "lidar"
     (d / "provenance.json").write_text(json.dumps(prov))
     assert any("has no reader" in e for e in agent_obs.check(str(d))[0])
     os.remove(d / "provenance.json")
@@ -206,4 +206,165 @@ def test_event_obs_check_cli_and_plan_note(tmp_path, capsys):
                       datetime(2016, 10, 7), datetime(2016, 10, 8), (20, 26, 118, 124))
     note = {r["need"]: r["note"] for r in rows}
     assert "obs-check" in note["precip_24h"] and "obs-check" in note["precip_gauge"]
-    assert "do not read" in note["gust"]
+    assert "obs-check" in note["gust"]
+    rows = event.plan({"verify": [{"value": "track"}], "storms": [{"name": "Haiyan",
+                                                                  "id": "WP312013"}]})
+    assert "--bdeck" in rows[0]["note"]
+
+
+def _snapshot_dataset(base, kind, var, units, value, times, name="snap"):
+    d = base / "input" / "obs" / name
+    d.mkdir(parents=True)
+    prefix = {"radar": "refl", "satellite_ir": "irtb"}[kind]
+    files = {}
+    for t in times:
+        f = "%s_%s.nc" % (prefix, t.strftime("%Y%m%d%H%M"))
+        with netCDF4.Dataset(str(d / f), "w") as ds:
+            ds.createDimension("lat", 2)
+            ds.createDimension("lon", 2)
+            ds.createVariable("lat", "f8", ("lat",))[:] = [20.0, 21.0]
+            ds.createVariable("lon", "f8", ("lon",))[:] = [120.0, 121.0]
+            v = ds.createVariable(var, "f4", ("lat", "lon"))
+            v[:] = np.full((2, 2), value)
+            v.units = units
+        files[f] = _sha(d / f)
+    (d / "provenance.json").write_text(json.dumps(dict(
+        format=agent_obs.FORMAT, kind=kind, dataset="Test %s" % kind, provider="p", url="u",
+        license="l", citation="c", fetched_utc="2026-10-21T00:00:00Z", files=files)))
+    return d
+
+
+@pytest.mark.parametrize("kind,var,units,good,bad", [("radar", "refl", "dBZ", 35.0, 120.0),
+                                                     ("satellite_ir", "tb", "K", 220.0, 400.0)])
+def test_snapshot_formats_are_checked(tmp_path, kind, var, units, good, bad):
+    t = datetime(2016, 10, 7, 12)
+    d = _snapshot_dataset(tmp_path, kind, var, units, good, [t])
+    assert agent_obs.check(str(d)) == ([], [])
+    assert agent_obs.snapshot_index(str(d), kind) == {t: str(d / os.listdir(d)[0])} or \
+        list(agent_obs.snapshot_index(str(d), kind)) == [t]
+    d2 = _snapshot_dataset(tmp_path, kind, var, "wrong", bad, [t], name="bad")
+    err = agent_obs.check(str(d2))[0]
+    assert any("units" in e for e in err) and any("outside" in e for e in err)
+
+
+def test_nearest_respects_tolerance():
+    idx = {datetime(2016, 10, 7, 12, 5): "a", datetime(2016, 10, 7, 13): "b"}
+    assert agent_obs.nearest(idx, datetime(2016, 10, 7, 12), 8) == "a"
+    assert agent_obs.nearest(idx, datetime(2016, 10, 7, 12, 30), 8) is None
+
+
+def test_stations_extra_check_and_obs_text(tmp_path):
+    d = tmp_path / "input" / "obs" / "isd_full"
+    d.mkdir(parents=True)
+    (d / "stations_extra.csv").write_text(
+        "id,lat,lon,elev_m,time_utc,var,value\n"
+        "S1,30,-81,5,2016-10-07 12:00,gust,25.7\n"
+        "S1,30,-81,5,2016-10-07 12:00,visibility,40000\n")
+    (d / "provenance.json").write_text(json.dumps(dict(
+        format=agent_obs.FORMAT, kind="stations_extra", dataset="d", provider="p", url="u",
+        license="l", fetched_utc="f", files={"stations_extra.csv": _sha(d / "stations_extra.csv")})))
+    assert agent_obs.check(str(d))[0] == []
+    rows = agent_obs.read_extra(str(d / "stations_extra.csv"))
+    text = met_pointstat.extra_obs_text(rows, datetime(2016, 10, 7), datetime(2016, 10, 8))
+    lines = text.splitlines()
+    assert lines[0].split()[6:] == ["WGUST", "0", "-9999", "NA", "25.700"]
+    assert lines[1].split()[6] == "VISIB" and float(lines[1].split()[-1]) == 16093.0
+    (d / "stations_extra.csv").write_text("id,lat,lon,elev_m,time_utc,var,value\n"
+                                          "S1,30,-81,5,2016-10-07 12:00,wind,3\n")
+    prov = json.loads((d / "provenance.json").read_text())
+    prov["files"]["stations_extra.csv"] = _sha(d / "stations_extra.csv")
+    (d / "provenance.json").write_text(json.dumps(prov))
+    assert any("var must be" in e for e in agent_obs.check(str(d))[0])
+
+
+class _DS:
+    def __init__(self, **v):
+        self.variables = {k: np.asarray(a) for k, a in v.items()}
+
+
+def test_visibility_clear_air_is_capped_and_fog_is_low():
+    from wtune.post import surface_diag
+    shape = (1, 1, 1, 2)
+    qc = np.zeros(shape)
+    qc[..., 1] = 3e-4                              # ~0.35 g/m3 of cloud water at the surface
+    ds = _DS(P=np.full(shape, 0.0), PB=np.full(shape, 1.0e5), T=np.zeros(shape),
+             QVAPOR=np.full(shape, 0.01), QCLOUD=qc)
+    vis = surface_diag.visibility(ds)
+    assert vis[0, 0] == surface_diag.VIS_CAP_M
+    assert 50 < vis[0, 1] < 200
+
+
+def test_gust_prefers_wspd10max():
+    from wtune.post import surface_diag
+    g, how = surface_diag.gust(_DS(WSPD10MAX=np.full((1, 2, 2), 17.0)))
+    assert how == "WSPD10MAX" and float(g.max()) == 17.0
+
+
+def test_cloud_recipe_draws_agent_ir(tmp_path, monkeypatch):
+    from wtune.post import condensate, met_gridstat, obs_figs, snapshot_verify
+    from wtune.post.recipes import cloud, convection
+    proj = tmp_path
+    t = datetime(2016, 10, 7, 12)
+    _snapshot_dataset(proj, "satellite_ir", "tb", "K", 220.0, [t])
+    monkeypatch.setattr(convection, "_project_of", lambda o: str(proj))
+    monkeypatch.setattr(convection, "_post_spinup_frames",
+                        lambda r, d, s: [("2016-10-07_12:00:00", "wrf", 0)])
+    lat2, lon2 = np.meshgrid([20.0, 21.0], [120.0, 121.0], indexing="ij")
+    real = netCDF4.Dataset
+    monkeypatch.setattr(netCDF4, "Dataset", lambda p, *a, **k: _Ctx(XLAT=lat2[None], XLONG=lon2[None])
+                        if p == "wrf" else real(p, *a, **k))
+    monkeypatch.setattr(condensate, "olr_brightness_temperature", lambda ds, ti: np.full((2, 2), 215.0))
+    monkeypatch.setattr(met_gridstat, "write_interior_polygon", lambda *a: "p")
+    from wtune.post import caseinfo
+    monkeypatch.setattr(caseinfo, "spec_bdy_width", lambda r: 5)
+    seen = {}
+
+    def verify(picks, model_field, obs_file, names, thresholds, work, poly, **kw):
+        seen.update(picks=picks, thresholds=thresholds, model=model_field(*picks[0][1]))
+        ctc = [dict(thresh=240.0, fy_oy=3, fy_on=1, fn_oy=0, fn_on=0)]
+        nbr = [dict(thresh=240.0, width=1, fss=0.8, fbs=0.1, o_rate=0.7, f_rate=0.8)]
+        cts = [dict(thresh=240.0, pod=1, far=0.25, csi=0.75, fbias=1.33, total=4)]
+        return dict(per_ctc=[ctc], per_nbr=[nbr], cts_rows=[(t, c) for c in cts],
+                    fields=[(t, lat2, lon2, np.full((2, 2), 215.0), np.full((2, 2), 220.0))])
+    monkeypatch.setattr(snapshot_verify, "verify", verify)
+    drawn = {}
+    for fn in ("side_by_side", "scores_vs_threshold", "fss_vs_scale"):
+        monkeypatch.setattr(obs_figs, fn, lambda *a, _f=fn, **k: drawn.setdefault(_f, k) or "x.png")
+    out = cloud._agent_ir_figures("run", "r", 1, {"domains": [{"domain": 1, "dx_km": 27}]},
+                                  str(tmp_path / "post"))
+    assert [f.get("id") or f.get("text") for f in out] == list(cloud.IR_IDS)
+    assert seen["thresholds"] == ["<=240", "<=220", "<=210"] and seen["model"][3] == "K"
+    assert drawn["scores_vs_threshold"]["op"] == "≤"
+
+
+class _Ctx:
+    def __init__(self, **v):
+        self.variables = {k: np.asarray(a) for k, a in v.items()}
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+
+def test_recipe_draws_gust_and_visibility_figures(tmp_path, monkeypatch):
+    from wtune.post import obs_figs
+    d = tmp_path / "input" / "obs" / "isd_full"
+    d.mkdir(parents=True)
+    (d / "stations_extra.csv").write_text("id,lat,lon,elev_m,time_utc,var,value\n"
+                                          "S1,30,-81,5,2016-10-07 12:00,gust,25\n")
+    (d / "provenance.json").write_text(json.dumps(dict(
+        format=agent_obs.FORMAT, kind="stations_extra", dataset="d", provider="p", url="u",
+        license="l", fetched_utc="f", files={"stations_extra.csv": _sha(d / "stations_extra.csv")})))
+    t = datetime(2016, 10, 7, 12)
+    monkeypatch.setattr(met_pointstat, "verify_extra", lambda *a: dict(
+        pairs={"WGUST": [("S1", 30.0, -81.0, t, 18.0, 25.0)], "VISIB": []},
+        gust_method="UPP CALGUST", csv=["p.csv"], t_first=t, t_last=t))
+    monkeypatch.setattr(obs_figs, "scatter_compare", lambda *a: "s.png")
+    monkeypatch.setattr(obs_figs, "station_bias_maps", lambda *a: "m.png")
+    figs = precip._extra_figures("run", "r", 1, _frames(tmp_path), str(tmp_path), 6, str(tmp_path))
+    assert [(f["id"], f["missing"]) for f in figs] == [
+        ("stn_gust_scatter", False), ("stn_gust_map", False),
+        ("stn_vis_scatter", True), ("stn_vis_map", True)]
+    assert "UPP CALGUST" in figs[0]["tool"]

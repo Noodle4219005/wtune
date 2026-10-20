@@ -113,7 +113,7 @@ def performance_diagram_points(rows):
     return out
 
 
-def scores_vs_threshold(rows, title, out_path, thresh_label="threshold"):
+def scores_vs_threshold(rows, title, out_path, thresh_label="threshold", op="≥"):
     """rows: [{thresh, pod, far, csi, fbias, total?}] -> one Roebber (2009, WAF 24:601)
     performance diagram: x = success ratio (1-FAR), y = POD, curved CSI isolines (grey), straight
     frequency-bias rays (dashed, labelled); one marker per event threshold (decision 0064). The
@@ -140,7 +140,7 @@ def scores_vs_threshold(rows, title, out_path, thresh_label="threshold"):
     for k, (th, s, p, c, fb) in enumerate(pts):
         n = next((r.get("total") for r in rows if r["thresh"] == th), None)
         ax.plot(s, p, "o", ms=9, color=cmap(k / max(1, len(pts) - 1)), mec="k",
-                label="≥ %g %s%s" % (th, unit, ("  (n=%d)" % n) if n else ""))
+                label="%s %g %s%s" % (op, th, unit, ("  (n=%d)" % n) if n else ""))
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1)
     ax.set_xlabel("success ratio (1 - FAR)")

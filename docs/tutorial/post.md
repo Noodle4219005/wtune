@@ -107,8 +107,13 @@ wtune post fetch nexrad --project . --run-dir runs/<id>/
 
 | kind | 檔案 | 畫出的圖 |
 |---|---|---|
-| `gridded_precip` | `precip_YYYYMMDDHH_NNh.nc`（到該時刻為止 NN 小時的累積，mm） | `precip_agent_*`：和 Stage IV 同樣的 Grid-Stat 四張圖，在該資料集自己的格網上比 |
+| `gridded_precip` | `precip_YYYYMMDDHH_NNh.nc`（到該時刻為止 NN 小時的累積，`precip` mm） | `precip_agent_*`：和 Stage IV 同樣的 Grid-Stat 四張圖，在該資料集自己的格網上比 |
 | `rain_gauges` | `gauges.csv`（`id,lat,lon,elev_m,start_utc,end_utc,precip_mm`） | `precip_gauge_*`：MET Point-Stat 的散布圖和每站偏差地圖 |
+| `radar` | `refl_YYYYMMDDHHMM.nc`（`refl` dBZ；無回波填負值，無涵蓋填 NaN） | `conv_radar_*`、`conv_fss`：沒有 MRMS／NEXRAD 時改用它，在模式網格上比 |
+| `satellite_ir` | `irtb_YYYYMMDDHHMM.nc`（紅外窗區亮溫 `tb`，K） | `cloud_ir_*`：模式 OLR 換算亮溫對衛星，冷雲頂 ≤240／220／210 K 的分數與 FSS |
+| `stations_extra` | `stations_extra.csv`（`id,lat,lon,elev_m,time_utc,var,value`，`var` 是 `gust` m/s 或 `visibility` m） | `stn_gust_*`、`stn_vis_*`：Point-Stat 散布圖與每站偏差地圖 |
+
+所有格點檔都是 1-D `lat`、`lon`（度），時間一律 UTC。WRF 不輸出陣風與能見度，模式端用標準診斷：陣風有 `WSPD10MAX`（`nwp_diagnostics = 1`）就用，否則用 NCEP UPP 的 CALGUST；能見度用 Stoelinga–Warner（1999），模式與觀測都截在 16.1 km。衛星比較的模式值是 OLR 換算的寬頻亮溫，在高雲上比窗區頻道偏暖。
 
 ```bash
 wtune event obs-check --project .        # 檢查 input/obs/ 下所有 wtune-obs/1 資料夾

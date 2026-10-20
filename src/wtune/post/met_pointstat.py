@@ -395,3 +395,87 @@ def verify_gauges(run_dir, frames, rows, out_dir, spinup_hours, model_accum):
         w.writerow(["period_end_utc", "bias_model_minus_obs_mm", "rmse_mm", "pearson_r", "n_pairs"])
         w.writerows(cnt_rows)
     return dict(hours=hours, periods=periods, pairs=pairs, csv=[p_pairs, p_cnt])
+
+
+EXTRA_OBS = {"gust": "WGUST", "visibility": "VISIB"}
+EXTRA_MODEL = {"WGUST": "GUST_MODEL", "VISIB": "VIS_MODEL"}
+
+
+def extra_obs_text(rows, t_lo, t_hi):
+    """MET 11-column lines of station gust (m/s) and visibility (m, capped like the model)."""
+    from wtune.post.surface_diag import VIS_CAP_M
+    lines = []
+    for r in rows:
+        if r["var"] not in EXTRA_OBS or not (t_lo <= r["time"] <= t_hi):
+            continue
+        val = min(r["value"], VIS_CAP_M) if r["var"] == "visibility" else r["value"]
+        lines.append("ADPSFC %s %s %s %s %s %s 0 -9999 NA %.3f" % (
+            r["id"].replace(" ", "_"), r["time"].strftime("%Y%m%d_%H%M%S"), r["lat"], r["lon"],
+            r["elev_m"], EXTRA_OBS[r["var"]], val))
+    return "\n".join(lines) + "\n"
+
+
+def verify_extra(run_dir, frames, rows, out_dir, spinup_hours):
+    """Model gust and visibility (post/surface_diag.py) vs station rows with ascii2nc + one
+    point_stat per model time (at most MAX_TIMES). Returns dict(pairs {obs var: [(sid, lat,
+    lon, time, model, obs)]}, gust_method, csv, t_first, t_last)."""
+    import netCDF4
+    import numpy as np
+    from wtune.post import surface_diag
+    from wtune.post.caseinfo import WRF_TIME_FMT, spec_bdy_width
+    times = [(datetime.strptime(f[0], WRF_TIME_FMT), f[1], f[2] if len(f) > 2 else 0)
+             for f in frames]
+    t0 = times[0][0] + timedelta(hours=spinup_hours)
+    obs_t = {r["time"] for r in rows}
+    times = [x for x in times if x[0] >= t0 and any(abs((x[0] - o).total_seconds()) <= 1800
+                                                     for o in obs_t)]
+    if not times:
+        raise NoStations("no station gust/visibility time within 30 min of a model output time "
+                         "after the %g h spin-up" % spinup_hours)
+    times = times[::max(1, -(-len(times) // MAX_TIMES))]
+    work = os.path.join(out_dir, "pointstat_extra")
+    os.makedirs(work, exist_ok=True)
+    txt, obs_nc = os.path.join(work, "extra_obs.txt"), os.path.join(work, "extra_obs.nc")
+    with open(txt, "w") as fh:
+        fh.write(extra_obs_text(rows, times[0][0] - timedelta(minutes=30),
+                                times[-1][0] + timedelta(minutes=30)))
+    tools.run([tools.find_postproc_tool("ascii2nc"), txt, obs_nc])
+    point_stat = tools.find_postproc_tool("point_stat")
+    poly = met_gridstat.write_interior_polygon(times[-1][1], spec_bdy_width(run_dir),
+                                               os.path.join(work, "interior.poly"))
+    pairs, method = {k: [] for k in EXTRA_MODEL}, None
+    for t, path, ti in times:
+        d = os.path.join(work, "ps_%s" % t.strftime(_TAG_FMT))
+        os.makedirs(d, exist_ok=True)
+        with netCDF4.Dataset(path) as ds:
+            g, method = surface_diag.gust(ds, ti)
+            vis = surface_diag.visibility(ds, ti)
+            lat = np.asarray(ds.variables["XLAT"][ti], "f8")
+            lon = np.asarray(ds.variables["XLONG"][ti], "f8")
+        fnc = met_gridstat.curvilinear_to_latlon(
+            lat, lon, {"GUST_MODEL": (g, "m s-1", "surface gust"),
+                       "VIS_MODEL": (vis, "m", "visibility")}, t, os.path.join(d, "fcst.nc"),
+            method="remapbil")
+        conf = _write_config(d, "verif_point_stat_extra.conf", POLY_FILE=os.path.abspath(poly))
+        tools.run([point_stat, fnc, obs_nc, conf, "-outdir", d, "-v", "1"])
+        os.remove(fnc)
+        for r in _tables(d, "_mpr.txt"):
+            if r.get("LINE_TYPE") == "MPR" and r.get("OBS_VAR") in pairs:
+                try:
+                    pairs[r["OBS_VAR"]].append((r["OBS_SID"], float(r["OBS_LAT"]),
+                                                float(r["OBS_LON"]), t, float(r["FCST"]),
+                                                float(r["OBS"])))
+                except (KeyError, ValueError):
+                    continue
+    if not any(pairs.values()):
+        raise METError("point_stat paired no station with the model (stations outside the "
+                       "interior?)")
+    p_csv = os.path.join(out_dir, "station_extra_pairs.csv")
+    with open(p_csv, "w", newline="") as fh:
+        w = csv.writer(fh)
+        w.writerow(["variable", "station_id", "lat", "lon", "valid_time_utc", "model", "obs"])
+        for var, ps in pairs.items():
+            for sid, la, lo, t, f, o in ps:
+                w.writerow([var, sid, la, lo, t.strftime("%Y-%m-%d %H:%M"), f, o])
+    return dict(pairs=pairs, gust_method=method, csv=[p_csv],
+                t_first=times[0][0], t_last=times[-1][0])

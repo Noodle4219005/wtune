@@ -1,0 +1,9 @@
+已完成 event.yaml（在目前目錄），`wtune event check event.yaml` 通過（0 error、0 warning）。
+
+我理解的是：你想跑一個颱風個案，重點是評估 WRF 模擬準不準，因此 event.yaml 設為 `tropical_cyclone`，並先以「颱風路徑（track）」與「強度（intensity）」與觀測（最佳路徑 best_track）比對。由於 event.txt 非常簡略，個案細節不足，我沒有替你猜測颱風名稱、年份或區域。
+
+questions（已寫入 event.yaml）：
+1. 要模擬哪一個颱風（名稱／年份）？
+2. 颱風發生在哪個區域／海域？
+3. 「準不準」除路徑與強度外，是否要看降雨量、氣壓或風速等項目？
+4. 有指定觀測資料來源嗎（如 CWB 最佳路徑、雨量站資料）？

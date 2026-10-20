@@ -1,0 +1,26 @@
+schema: wtune-event/1
+source: event.txt
+source_sha256: c846e1ec7a20f31c6ddef9f2645f6feb8b041a3d87582aad0a24a6f48f2ece0f
+event:
+  value: Marshall Fire, Boulder County Colorado, 30 Dec 2021
+  from: "Marshall Fire, Boulder County Colorado, 30 Dec 2021"
+types:
+  - {value: downslope_wind, from: "Extreme downslope windstorm off the Front Range"}
+  - {value: fire_weather, from: "gusts near 100 mph spread the fire"}
+  - {value: severe_wind, from: "gusts near 100 mph"}
+storms:
+  - {name: Marshall Fire, year: 2021, from: "Marshall Fire, Boulder County Colorado, 30 Dec 2021"}
+region:
+  value: Boulder County, Colorado Front Range
+  from: "Boulder County Colorado"
+verify:
+  - {value: wind10, from: "I care about the 10 m wind and gusts at surface stations"}
+  - {value: gust, from: "gusts at surface stations"}
+diagnose:
+  - {value: cross-section of mountain wave / hydraulic jump, from: "whether the model gets the mountain wave / hydraulic jump in a cross-section"}
+obs_requests:
+  - {kind: stations, from: "10 m wind and gusts at surface stations"}
+  - {kind: stations_extra, from: "gusts at surface stations"}
+local_obs: []
+questions:
+  - "Which surface station network or data source should I use for the 10 m wind and gust observations (e.g. MesoWest/MADIS, NCAR archive, or another agency)?"

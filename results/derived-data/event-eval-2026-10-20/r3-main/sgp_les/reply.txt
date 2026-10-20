@@ -1,0 +1,3 @@
+Done — `event.yaml` is written and `wtune event check event.yaml` passes (0 errors, 0 warnings).
+
+I read the case as an LES simulation of the convective boundary layer at the ARM SGP site on a clear-sky summer day, tagged with types `boundary_layer` and `idealized`. The checks against observations are PBL height, potential-temperature sounding profiles, and surface sensible/latent heat flux, with the ARM radiosondes and the ARM flux station listed as `obs_requests` (ARM data is not among WTune's default sources), and no storms, local files, or model-only diagnostics. Question: which specific clear-sky summer day in 2019 should be used for the SGP case?

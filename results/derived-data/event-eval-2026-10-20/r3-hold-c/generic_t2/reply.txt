@@ -1,0 +1,7 @@
+已完成 Part 1，event.yaml 通過檢查（0 error）。
+
+- 理解：event.txt 只要求檢查「這次模擬的溫度準不準」，因此 verify 放 `t2`（與觀測站點的近地面溫度比較），沒有指定天氣類型或區域，所以 `types`、`region` 留空，`storms`、`obs_requests`、`local_obs` 皆為空。
+- 檔案：`./event.yaml`（`wtune event check event.yaml` → OK）。
+- 問題：這次模擬對應的是哪一類天氣事件（颱風、梅雨鋒面、暴雨等）？文字中未提及，若有特定事件類型或區域可補上，`types` 與 `region` 就能填好。
+
+**questions:** 這次模擬的是哪一類天氣事件？event.txt 僅提到檢查溫度，未指明事件類型或區域。

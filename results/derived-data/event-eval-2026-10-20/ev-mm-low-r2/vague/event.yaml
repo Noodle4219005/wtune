@@ -1,0 +1,18 @@
+schema: wtune-event/1
+source: event.txt
+source_sha256: 8706698b28cf7c1336a448c3fd8285808b0fdb1a28d41aa81d1b543ac07d793b
+event:
+  value: 颱風案例模擬準確度
+  from: 跑一個颱風看看，想知道模擬得準不準
+types:
+  - {value: tropical_cyclone, from: "跑一個颱風"}
+storms: []
+region:
+  value: null
+  from: null
+verify: []
+diagnose: []
+obs_requests: []
+local_obs: []
+questions:
+  - 想確認「模擬得準不準」要檢查哪些項目：颱風路徑 (track)、強度 (intensity)、還是降雨量？另外也想知道是哪一個颱風與年份。

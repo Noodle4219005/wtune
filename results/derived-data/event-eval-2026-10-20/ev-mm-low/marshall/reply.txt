@@ -1,0 +1,7 @@
+Done — `event.yaml` is written and `wtune event check` passes with 0 errors.
+
+I read the case as the Marshall Fire in Boulder County, Colorado on 30 Dec 2021: a downslope windstorm off the Front Range whose near-100 mph gusts spread the fire, so the types are downslope_wind, fire_weather and severe_wind, and the storm entry is Marshall Fire (2021). Verification is with observations only — 10 m wind (`wind10`) and gusts (`gust`) at surface stations — while the mountain-wave/hydraulic-jump cross-section is listed under `diagnose` since it is a model-only figure.
+
+**Questions:**
+- Which station network/source should I use for the wind and gust observations (MesoWest/MADIS, NCAR/ESRL archive, or a specific Colorado agency), since the text names no provider?
+- Should the case cover only 30 Dec 2021, or a short period around it (e.g. 29–31 Dec) to capture the wave setup?

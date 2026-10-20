@@ -1,0 +1,19 @@
+schema: wtune-event/1
+source: event.txt
+source_sha256: 5417deae09ee08d1bbfbe05864978fcdd78de84794eb59809e72391b69c04c2e
+event:
+  value: Santa Ana wind event and Woolsey fire, November 2018
+  from: "2018 年 11 月南加州 Santa Ana 強風"
+types:
+  - {value: fire_weather, from: "Woolsey 野火在乾燥的離岸風下快速擴散"}
+  - {value: downslope_wind, from: "山口附近的下坡風剖面"}
+storms: []
+region: {value: Southern California, from: "南加州"}
+verify:
+  - {value: gust, from: "想看測站的陣風"}
+  - {value: rh2, from: "相對濕度"}
+diagnose:
+  - {value: downslope wind profile near the mountain passes, from: "山口附近的下坡風剖面"}
+obs_requests: []
+local_obs: []
+questions: []

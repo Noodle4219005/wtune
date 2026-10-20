@@ -997,6 +997,8 @@ _FORWARDED_COMMANDS = (
      'wtune/bp.py', 'wtune.bp'),
     ('advise', 'advise_args', 'advice-only: detect case conditions and suggest WRF modes/workflows with cost, evidence and side effects (decision 0061; wtune/advise.py)',
      'wtune/advise.py', 'wtune.advise'),
+    ('event', 'event_args', 'event.txt -> checked event.yaml -> observation plan '
+     '(wtune/event.py): init | vocab | check | plan', 'wtune/event.py', 'wtune.event'),
     ('calc', 'calc_args', 'rules of thumb and unit conversions for namelist parameters, plus `calc check <namelist.input>` (decision 0062; wtune/calc.py)',
      'wtune/calc.py', 'wtune.calc'),
     ('scenario', 'scenario_args', 'pluggable scenario generators for fictional-date WRF forcing (scenario/cli.py): list | generate | inspect',

@@ -1,0 +1,5 @@
+已建立 `event.yaml` 並通過 `wtune event check`（0 error, 0 warning）。我理解的事件是：2023 年 6 月初梅雨鋒面滯留台灣北部、雪山山脈迎風面雨量很大，類型為 frontal / heavy_rain / orographic；比對對象為中央氣象署雷達回波（對流帶位置，用 reflectivity）與氣象署自動雨量站（precip_gauge），兩者皆列入 `obs_requests`（radar、rain_gauges），未取任何資料。
+
+questions:
+1. 比對的具體時段（起訖時間）與降雨統計區間（時累積或日累積）是什麼？`event.txt` 只寫了「2023 年 6 月初」。
+2. 雷達比對是否要含地面雨量之外的其他要素（如回波強度門檻 40 dBZ 或以上），或是只要整個回波拼圖即可？

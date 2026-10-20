@@ -1,0 +1,5 @@
+完成，event.yaml 已通過檢查（0 errors）。
+
+我讀到的是：2018 年 5 月至 2019 年 5 月共 13 個月、50 km 網格的東亞夏季季風區域氣候模擬，因此類型設為 regional_climate、monsoon、frontal；驗證項為月平均降雨（monthly_precip）與 2 m 溫度（monthly_t2）的季節偏差，梅雨帶北跳的時間屬於模式本身的圖，列在 diagnose 而非 verify；event.txt 未提到任何觀測資料來源，也沒有颱風名稱，所以 obs_requests、local_obs、storms 皆留空。
+
+問題：月平均降雨與 2 m 溫度偏差要跟哪一套觀測／再分析資料比對（例如 ERA5 或某個官方氣候資料集）？另外50 km 網格這次是 nudged 區域模擬，還是全球模式降尺度？

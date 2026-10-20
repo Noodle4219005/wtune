@@ -1,0 +1,7 @@
+`wtune event check event.yaml` passes with 0 errors, 0 warnings.
+
+**Summary:** 這是 2012 年 7 月 21 日北京特大暴雨（城區與房山一天超過 400 mm）的案例，我把它設為 `heavy_rain` 加上 `mesoscale_convection` 兩型，區域標為北京（城區與房山）。比對項目為：雷達拼圖的 `reflectivity`（用來看對流位置）、以及以 CMA 逐時站點資料檢查的 `precip_1h` 與 `precip_gauge`；並依規則將「中國氣象局雷達拼圖」與「CMA 逐時站點資料」列為 `obs_requests`（kind 分別為 radar與 rain_gauges），因為這兩者不是 WTune 預設使用的資料來源。本回合只完成 Part 1，未抓取任何資料。
+
+**questions:**
+- 「一天超過 400 mm」是指7/21 當日的日累積雨量；除了逐時雨量，是否也要加入 `precip_24h` 來核對 24 小時累積量？
+- 逐時站點資料要涵蓋哪些測站（只北京城區與房山，或含周邊省份的 CMA 國家站網）？

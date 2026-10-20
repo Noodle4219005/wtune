@@ -1,0 +1,3 @@
+I read the case as the January 1998 Quebec–Ontario ice storm, a winter_storm with freezing rain from a warm layer aloft over southern Quebec and eastern Ontario. `event.yaml` verifies 2 m temperature at surface stations (`t2`), total precipitation (`precip_total`), and the sounding temperature structure (`sounding`), plus a model-only diagnosis of the warm-nose temperature profile; no storm id, dates, datasets, or local files were added since the text states none. `wtune event check event.yaml` passes with 0 errors and 0 warnings.
+
+Questions: should the warm-nose profile be checked against IGRA soundings only, or also presented as a model cross-section (I included both)? Should total precipitation be compared with Stage IV only, or also with point rain gauges?

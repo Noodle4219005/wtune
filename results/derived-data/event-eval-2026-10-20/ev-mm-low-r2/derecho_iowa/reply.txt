@@ -1,0 +1,3 @@
+Understood: this is the 10 August 2020 Iowa derecho, a squall line moving east with surface gusts over 50 m/s. I set the event type to severe_wind plus mesoscale_convection, the region to Iowa, and three verification items — radar reflectivity against NEXRAD, station gusts, and MSLP for the pressure jump — with no storm entry (a derecho is not a tropical cyclone) and no obs requests, since NEXRAD is WTune's default radar source. `wtune event check event.yaml` passes with 0 errors and 0 warnings, and event.yaml is in the current directory; no data was fetched (Part 1 only).
+
+Questions: none blocking — let me know if you also want the squall line's structure (e.g. a cross-section of vertical motion) added as a model-only `diagnose` item.

@@ -1,0 +1,5 @@
+I read the event as a Buffalo/Lake Erie lake-effect snow case (17–20 Nov 2022) with one intense band, typed as `winter_storm`, and wrote `event.yaml` with radar reflectivity (band position) and snowfall totals as observation comparisons, plus the lake–air temperature difference as a model-only diagnostic. `wtune event check event.yaml` passes with 0 errors and 0 warnings.
+
+Questions:
+- Should the lake–air temperature difference be checked against something (e.g. ERA5 or station temperatures) rather than treated as a pure model diagnostic?
+- Do you want lake surface temperature (SST) compared with observations, since it controls the band?

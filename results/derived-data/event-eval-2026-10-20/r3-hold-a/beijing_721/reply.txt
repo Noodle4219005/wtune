@@ -1,0 +1,7 @@
+`wtune event check event.yaml` passes with 0 errors/warnings.
+
+**Summary:** 我理解這是 2012 年 7 月 21 日北京特大暴雨個案，類型為 heavy_rain 與 mesoscale_convection，區域在北京市城區與房山。要比對的量是每日（>400 mm）與逐時降雨量，以及雷達回波強度（對流位置），所以 `verify` 放了 precip_24h、precip_1h、reflectivity。中國氣象局的雷達拼圖與 CMA 逐時站點資料不是 WTune 預設來源，因此另列為 `obs_requests`（kind: radar、rain_gauges）供後續取得資料；本次未抓取任何資料。
+
+**Questions:**
+- 「比對流的位置」我以雷達回波（reflectivity）作為比對量，WTune 的雷達比對實際比的是回波而非單純位置，這樣可以嗎？
+- 逐時雨量是否要同時保留「CMA 站點」這條 obs_request（與 precip_1h 的 gridded_precip 比對並存），還是只以 CMA 站點為準？

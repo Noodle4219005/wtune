@@ -1,0 +1,38 @@
+# Held out: written before the second skill revision and never used to tune the skill.
+haiyan:
+  types: {required: [tropical_cyclone], allowed: []}
+  verify: {required: [track, intensity], allowed: []}
+  storms: [Haiyan|海燕]
+  diagnose: true
+  ask: false
+kerala:
+  types: {required: [monsoon, heavy_rain], allowed: [orographic]}
+  verify: {required: [precip_total|precip_24h], allowed: [precip_24h, precip_total, upper_air]}
+  ask: false
+quebec_ice:
+  types: {required: [winter_storm], allowed: [cold_air_outbreak]}
+  verify: {required: [t2, precip_total, sounding], allowed: []}
+  ask: false
+santa_ana:
+  types: {required: [downslope_wind], allowed: [fire_weather]}
+  verify: {required: [gust, rh2], allowed: [wind10]}
+  diagnose: true
+  ask: false
+beijing_721:
+  types: {required: [heavy_rain], allowed: [mesoscale_convection, urban, orographic]}
+  verify: {required: [reflectivity], allowed: [precip_gauge, precip_1h, precip_24h, precip_total]}
+  obs_requests: {required: [radar, rain_gauges], allowed: []}
+  ask: false
+harvey:
+  types: {required: [tropical_cyclone, heavy_rain], allowed: []}
+  verify: {required: [precip_total, track], allowed: [precip_24h]}
+  storms: [Harvey]
+  ask: false
+generic_t2:
+  types: {required: [], allowed: []}
+  verify: {required: [t2], allowed: []}
+  ask: true
+med_heat:
+  types: {required: [heat_wave], allowed: []}
+  verify: {required: [t2_max], allowed: [z500, t2]}
+  ask: false

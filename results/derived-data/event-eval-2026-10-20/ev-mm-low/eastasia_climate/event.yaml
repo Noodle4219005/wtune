@@ -1,0 +1,24 @@
+schema: wtune-event/1
+source: event.txt
+source_sha256: 075fb80f955cff1261252ad8e6f86fa49f66746914109781151322c455cff395
+event:
+  value: 東亞夏季季風的區域氣候模擬
+  from: 東亞夏季季風的區域氣候模擬
+types:
+  - {value: regional_climate, from: "區域氣候模擬"}
+  - {value: monsoon, from: "東亞夏季季風"}
+  - {value: frontal, from: "梅雨帶"}
+storms: []
+region:
+  value: 東亞
+  from: 東亞
+verify:
+  - {value: monthly_precip, from: "月平均降雨"}
+  - {value: monthly_t2, from: "2 m 溫度的季節偏差"}
+diagnose:
+  - {value: 梅雨帶北跳的時間, from: "梅雨帶北跳的時間"}
+obs_requests: []
+local_obs: []
+questions:
+  - 月平均降雨與 2 m 溫度的季節偏差要跟哪一套觀測／再分析資料比對（例如 ERA5，或某個官方氣候資料集）？
+  - 50 km 網格這次是 nudged 區域模擬還是全球模式降尺度？

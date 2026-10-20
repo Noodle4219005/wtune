@@ -1,0 +1,4 @@
+我理解這是 2021 年 6 月底太平洋西北的熱浪（heat dome）案例，波特蘭達46.7°C，重點檢查 2 m 最高溫與測站的比對，以及 500 hPa 高壓脊強度（用 ERA5/reanalysis 比對），土壤乾燥對升溫的貢獻則列為僅看模式的診斷項（diagnose），並把「測站」列為需要取數的 stations 資料。event.yaml 已通過 `wtune event check`（0 errors, 0 warnings），未取任何資料。
+
+questions:
+- 要跟哪些測站比？請指定測站網路／資料來源（例如 NOAA/NWS、MesoNet）或直接給我檔案路徑。

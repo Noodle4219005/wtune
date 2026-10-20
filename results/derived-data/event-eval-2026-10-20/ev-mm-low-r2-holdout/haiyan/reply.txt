@@ -1,0 +1,6 @@
+已完成 event.yaml，`wtune event check event.yaml` 通過（0 errors）。
+
+理解內容：這是 2013 年 11 月颱風海燕（Haiyan）登陸菲律賓 Leyte 的案例，類型為 tropical_cyclone，區域為 Leyte, Philippines。驗證項目為登陸前 24 小時的「路徑」與「強度（最低氣壓、最大風速）」（對應 best track 觀測），眼牆附近的徑向風剖面則列為模型端的 diagnose 項目。未指定額外的觀測來源或本地檔案。
+
+questions:
+1. 「登陸前 24 小時」是指單一最佳航跡點到登陸點的 24 小時，還是登陸時刻往前推 24 小時的區間？（WTune 會依執行時間自行決定，但若你有指定基準時刻請告知。）

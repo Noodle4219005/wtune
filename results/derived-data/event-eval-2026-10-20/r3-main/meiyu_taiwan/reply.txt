@@ -1,0 +1,5 @@
+I read event.txt as a 2023 年 6 月初的梅雨鋒面 case: a frontal band stalled over northern Taiwan with heavy orographic rain on the 雪山山脈 windward side, so I set types to frontal / orographic / heavy_rain and region to northern Taiwan and the Xueshan range. For verification I used `reflectivity` (compare the convective band position against 中央氣象署 radar composite) and `precip_gauge` (rainfall against 氣象署 automatic rain stations), and recorded both CWA products as `obs_requests` with kinds radar and rain_gauges since they are national-agency networks WTune does not fetch by default (NEXRAD/ISD are US-only). `wtune event check event.yaml` passes with 0 errors and 0 warnings, and I fetched no data.
+
+Questions:
+- Should the run cover only the 梅雨鋒面 stalled period in early June 2023, or do you also want the surrounding spring/early-summer period for a seasonal-rainband perspective?
+- Any preference on the accumulation window for the gauge comparison (逐小時 vs 24 小時 vs 事件總雨量)?

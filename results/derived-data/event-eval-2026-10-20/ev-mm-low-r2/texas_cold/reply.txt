@@ -1,0 +1,4 @@
+我讀到的是 2021 年 2 月德州（休士頓）的一次寒潮事件：北極冷空氣南下帶來冷鋒，氣溫降到零下，並有雪與凍雨。event.yaml 已建立並通過 `wtune event check`（0 error, 0 warning），類型標為 cold_air_outbreak、winter_storm、frontal，驗證項為 2 m 低溫（t2_min）、2 m 溫度時間序列以對照地面測站判斷冷鋒南下時間（t2），以及降雪量（snowfall）。未列任何 obs_requests 或 local_obs，因為原文只提到跟地面測站比較，而那是 WTune 預設的 ISD 測站資料。
+
+questions:
+- 降雪量對比可能只能靠 WTune 預設之外的來源（文字未指定），是否要我在 Part 2 另找雪量觀測？

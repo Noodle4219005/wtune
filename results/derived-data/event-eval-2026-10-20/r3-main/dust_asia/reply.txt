@@ -1,0 +1,5 @@
+已完成 Part 1，`event.yaml` 通過 `wtune event check event.yaml`（0 errors, 0 warnings）。
+
+我理解的事件是：2023 年 4 月中旬一次東亞沙塵暴，塵沙自蒙古戈壁吹向華北、韓國與台灣，用 WRF-Chem 模擬，類型取 `dust_air_quality`；觀測比對項為 MODIS AOD（`aod`）與各地 PM10 測站（`pm10`），沙塵濃度與抵達時間都靠這兩個量來看。文字未指定任何本地檔案，故 `local_obs` 留空，也未加 `obs_requests`（MODIS AOD 與 PM10 測站都對應到 WTune 既有 obs kind，屬於 verify 而非外部指定來源）。
+
+問題：`抵達時間` 沒有對應的 verify 變數，我把它理解為由 AOD/PM10 時序判讀；如果你要的是像「AOD 首次超過某門檻」或「PM10 達到某濃度」的明確判準，請告訴我門檻與定義，我再調整。

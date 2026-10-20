@@ -1,0 +1,5 @@
+已完成 `event.yaml`（檢查通過，0 errors）。
+
+我理解的是：2018 年 8 月印度喀拉拉邦季風豪雨事件，西高止山迎風面持續多日大雨引發洪水；`types` 標為 heavy_rain / monsoon / orographic，`storms` 留空（季風豪雨非熱帶氣旋），`verify` 包含逐日雨量（precip_24h）、累積雨量空間分布（precip_total）與 850 hPa 西南季風強度（upper_air，可用 ERA5），沒有 obs_requests 或 local_obs。
+
+一個問題：850 hPa 西南季風「強度」我按與觀測（再分析）比較處理，放進 `verify`；若你其實只想看模型自身的風場結構，請告知，我會改列為 `diagnose`。

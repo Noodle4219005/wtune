@@ -1,0 +1,5 @@
+已完成：`event.yaml` 已寫入目前目錄，`wtune event check event.yaml` 通過（0 error, 0 warning）。
+
+我的理解：這是 2012 年 7 月 21 日北京（城區、房山）特大暴雨案例，類型為 heavy_rain 並伴隨 mesoscale_convection；驗證項目為 24 小時降雨量（一天超過 400 mm）、雷達回波（用中國氣象局雷達拼圖比對流位置）以及逐時雨量站點（precip_gauge）；因中國氣象局的雷達拼圖與逐時站點資料不是 WTune 預設來源（CMA 雷達、逐時站點），已列為 obs_requests（kind 為 radar、rain_gauges）。
+
+問題：無（若需要，我可以接著做 Part 2 的觀測資料規劃與抓取）。

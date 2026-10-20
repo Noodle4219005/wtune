@@ -1,0 +1,8 @@
+我理解這是 2023 年 7 月南歐（西西里與薩丁尼亞）持續近兩週、超過 45°C 的熱浪事件，event.yaml 已建立並通過 `wtune event check`（0 error、0 warning）。
+
+- `types`: `heat_wave`
+- `verify`: `t2_max`（每日最高溫與測站比較）
+- `diagnose`: 500 hPa 高壓脊結構（純模型面向）
+- `storms`、`obs_requests`、`local_obs` 皆為空（文中無颱風、無特定非預設資料來源、無本地檔案）
+
+無問題需要確認；若希望高壓脊也與 ERA5 等再分析資料比對，可以再告訴我，那會另加一項 `z500` 的 verify。

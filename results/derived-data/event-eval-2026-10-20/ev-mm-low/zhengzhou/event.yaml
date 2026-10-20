@@ -1,0 +1,22 @@
+schema: wtune-event/1
+source: event.txt
+source_sha256: 3a4ee7b1b7fc16a11932f5b586fa79919cbeeb6fa5723703a72f08cc783b898d
+event:
+  value: 2021 年 7 月河南鄭州極端暴雨
+  from: "2021 年 7 月河南鄭州的極端暴雨"
+types:
+  - {value: heavy_rain, from: "極端暴雨"}
+storms: []
+region:
+  value: 河南鄭州
+  from: "河南鄭州"
+verify:
+  - {value: precip_gauge, from: "24 小時累積雨量和逐時雨量的位置"}
+  - {value: wind10, from: "也看地面風"}
+diagnose: []
+obs_requests: []
+local_obs:
+  - {path: ~/obs/cma_rain.csv, kind: rain_gauges, from: "我有一份 CMA 測站逐時雨量 ~/obs/cma_rain.csv"}
+questions:
+  - "地面風要和哪一份觀測資料比較（是否有地面測站風速檔）？"
+  - "逐時雨量要比較的時間範圍是 2021 年 7 月 19 日 00Z 起 24 小時，還是以 20 日下午為中心？"

@@ -1,0 +1,19 @@
+schema: wtune-event/1
+source: event.txt
+source_sha256: 28e75b8280513b4281a5a361b0479bb1cbeb140ac3560f3ae6e604f941fb0db2
+event:
+  value: 2023 年 4 月中旬東亞沙塵暴
+  from: 2023 年 4 月中旬東亞沙塵暴
+types:
+  - {value: dust_air_quality, from: "東亞沙塵暴"}
+storms: []
+region:
+  value: 蒙古戈壁、華北、韓國、台灣
+  from: 從蒙古戈壁吹到華北、韓國和台灣
+verify:
+  - {value: aod, from: "MODIS AOD"}
+  - {value: pm10, from: "PM10 測站"}
+diagnose: []
+obs_requests: []
+local_obs: []
+questions: []

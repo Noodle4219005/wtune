@@ -1,0 +1,17 @@
+california_ar rc=0 30s
+derecho_iowa rc=0 16s
+dust_asia rc=0 32s
+eastasia_climate rc=0 39s
+idealized_supercell rc=0 16s
+lake_effect rc=0 17s
+marshall rc=0 23s
+matthew rc=0 19s
+meiyu_taiwan rc=0 13s
+morakot rc=0 33s
+pnw_heat rc=0 36s
+sgp_les rc=0 13s
+taipei_fog rc=0 79s
+taipei_seabreeze rc=0 33s
+texas_cold rc=0 51s
+vague rc=0 24s
+zhengzhou rc=0 27s

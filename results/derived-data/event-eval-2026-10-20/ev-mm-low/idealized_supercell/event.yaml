@@ -1,0 +1,22 @@
+schema: wtune-event/1
+source: event.txt
+source_sha256: 16a5e3c51152e4956089bec65d779c0b95feb986f3cf00b590c950df8947b9e8
+event:
+  value: idealized supercell simulation with Weisman-Klemp sounding and quarter-circle hodograph shear (em_quarter_ss)
+  from: "理想化超大胞（supercell）模擬，用 Weisman-Klemp 探空、四分圓風切，em_quarter_ss。"
+types:
+  - {value: idealized, from: "理想化超大胞（supercell）模擬"}
+  - {value: mesoscale_convection, from: "理想化超大胞（supercell）模擬"}
+storms: []
+region:
+  value: null
+  from: null
+verify: []
+diagnose:
+  - {value: updraft helicity structure, from: "想看上升氣流螺旋度"}
+  - {value: hook echo structure in model reflectivity, from: "回波的鉤狀結構"}
+obs_requests: []
+local_obs: []
+questions:
+  - "想跟「原始論文的圖」比對，但 WTune 沒有涵蓋論文中圖表的比對方式；請問是哪一篇論文、哪一張圖（哪些面板）？是只要模型自行產生同類圖形，還是需要數值化的比對基準？"
+  - "理想化個案沒有真實雷達觀測可比：回波鉤狀結構是否只要模型圖（diagnose），還是需要某個理想化雷達合成觀測來驗證？"

@@ -1,0 +1,5 @@
+I read event.txt as a WRF-Chem Asian dust-storm case: mid-April 2023, dust transported from the Mongolian Gobi to North China, Korea and Taiwan, with the goal of comparing modelled dust concentration and arrival time against MODIS AOD and regional PM10 station data. `event.yaml` now records type `dust_air_quality`, the region/transport path, `verify` items `aod` and `pm10`, and matching `obs_requests` of kinds `aerosol` (MODIS) and `air_quality` (PM10 stations); `wtune event check event.yaml` passes with 0 errors and 0 warnings, and I fetched no data.
+
+Questions:
+- 「抵達時間」要用什麼方式比對：PM10 測站濃度序列的時間軸，還是另外的指標（event.yaml 的 `questions` 已記錄同一問題）？
+- 若要精確驗證傳輸路徑（戈壁 → 華北 → 韓國 → 台灣），是否也需要 reanalysis風場來確認起點與路徑時刻？

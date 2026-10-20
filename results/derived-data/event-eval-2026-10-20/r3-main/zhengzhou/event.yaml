@@ -1,0 +1,22 @@
+schema: wtune-event/1
+source: event.txt
+source_sha256: 3a4ee7b1b7fc16a11932f5b586fa79919cbeeb6fa5723703a72f08cc783b898d
+event:
+  value: 2021年7月河南郑州极端暴雨
+  from: "2021 年 7 月河南鄭州的極端暴雨"
+types:
+  - {value: heavy_rain, from: "極端暴雨"}
+  - {value: urban, from: "河南鄭州"}
+storms: []
+region:
+  value: 河南郑州
+  from: "河南鄭州"
+verify:
+  - {value: precip_24h, from: "24 小時累積雨量"}
+  - {value: precip_1h, from: "逐時雨量"}
+  - {value: wind10, from: "也看地面風"}
+diagnose: []
+obs_requests: []
+local_obs:
+  - {path: ~/obs/cma_rain.csv, kind: rain_gauges, from: "CMA 測站逐時雨量 ~/obs/cma_rain.csv"}
+questions: []

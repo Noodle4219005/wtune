@@ -1,0 +1,18 @@
+schema: wtune-event/1
+source: event.txt
+source_sha256: d6a563aada1da283e187380084ef27047b71e14c8c2282439b6babd38b1722bb
+event:
+  value: temperature accuracy of this simulation
+  from: "幫我看這次模擬的溫度準不準"
+types: []
+storms: []
+region:
+  value: null
+  from: null
+verify:
+  - {value: t2, from: "溫度準不準"}
+diagnose: []
+obs_requests: []
+local_obs: []
+questions:
+  - "這次模擬的是哪一類天氣事件？（event.txt 只提到要檢查溫度，沒有說明天氣類型或區域）"

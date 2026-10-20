@@ -1,0 +1,20 @@
+schema: wtune-event/1
+source: event.txt
+source_sha256: 28e75b8280513b4281a5a361b0479bb1cbeb140ac3560f3ae6e604f941fb0db2
+event:
+  value: 2023年4月中旬東亞沙塵暴
+  from: "2023 年 4 月中旬東亞沙塵暴"
+types:
+  - {value: dust_air_quality, from: "東亞沙塵暴"}
+storms: []
+region:
+  value: 蒙古戈壁到華北、韓國和台灣
+  from: "從蒙古戈壁吹到華北、韓國和台灣"
+verify:
+  - {value: aod, from: "跟 MODIS AOD"}
+  - {value: pm10, from: "各地的 PM10 測站"}
+diagnose: []
+obs_requests: []
+local_obs: []
+questions:
+  - "「抵達時間」要用什麼方式評估？目前的觀測比對選項是 AOD 與 PM10 時序，是否要另外指定某幾個測站作為到達的判斷依據？"

@@ -1,0 +1,5 @@
+`wtune event check event.yaml` passes with 0 errors.
+
+I read the case as Hurricane Harvey (2017) stalling over southeast Texas in late August, a tropical cyclone with a heavy-rain focus. `event.yaml` types it as `tropical_cyclone` + `heavy_rain`, records the storm as name Harvey, year 2017, and sets the region to southeast Texas. Verification items are the multi-day rainfall totals around Houston (`precip_total`, Stage IV being WTune's default) and the track while it stalled (`track`, best track); no model-only figures, extra obs requests, or local files were stated, and no data was fetched.
+
+No questions.

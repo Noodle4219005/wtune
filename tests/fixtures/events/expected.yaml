@@ -1,0 +1,84 @@
+# What a correct event.yaml must contain for each event.txt in this folder.
+# required: must appear; allowed: may also appear (anything else counts as a wrong extra).
+# storms: names that must appear (no ids: no event.txt states one). local_obs: paths.
+# ask: true when the text leaves something the run needs undecided, or asks for something
+# no obs kind covers (questions non-empty). Revised after round 1: texas_cold t2|t2_min,
+# eastasia_climate frontal (Meiyu band), idealized_supercell ask (paper comparison), Morakot
+# by its Chinese name.
+# diagnose: true when a model-only figure is asked for.
+matthew:
+  types: {required: [tropical_cyclone], allowed: [extratropical_cyclone]}
+  verify: {required: [track, intensity, wind_radii, z500], allowed: []}
+  storms: [Matthew]
+  ask: false
+zhengzhou:
+  types: {required: [heavy_rain], allowed: [mesoscale_convection, orographic]}
+  verify: {required: [precip_24h, precip_1h, wind10], allowed: [precip_gauge, precip_total]}
+  local_obs: [~/obs/cma_rain.csv]
+  ask: false
+meiyu_taiwan:
+  types: {required: [frontal, heavy_rain], allowed: [orographic, mesoscale_convection, monsoon]}
+  verify: {required: [reflectivity], allowed: [precip_gauge, precip_total, precip_24h, precip_1h]}
+  obs_requests: {required: [radar, rain_gauges], allowed: [stations]}
+  ask: false
+marshall:
+  types: {required: [downslope_wind], allowed: [fire_weather, orographic, severe_wind]}
+  verify: {required: [wind10, gust], allowed: []}
+  diagnose: true
+  ask: false
+derecho_iowa:
+  types: {required: [severe_wind], allowed: [mesoscale_convection]}
+  verify: {required: [reflectivity, gust], allowed: [mslp, wind10]}
+  ask: false
+texas_cold:
+  types: {required: [cold_air_outbreak], allowed: [winter_storm, frontal]}
+  verify: {required: [t2|t2_min], allowed: [mslp, wind10, snowfall, snow_depth]}
+  ask: false
+lake_effect:
+  types: {required: [winter_storm], allowed: []}
+  verify: {required: [reflectivity, snowfall], allowed: [sst, t2, snow_depth]}
+  ask: false
+pnw_heat:
+  types: {required: [heat_wave], allowed: [land_atmosphere]}
+  verify: {required: [t2_max], allowed: [t2, z500, soil_moisture]}
+  ask: false
+taipei_fog:
+  types: {required: [fog_low_cloud], allowed: []}
+  verify: {required: [visibility], allowed: [low_cloud, cloud_top]}
+  ask: false
+taipei_seabreeze:
+  types: {required: [sea_breeze], allowed: [urban, mesoscale_convection, heavy_rain]}
+  verify: {required: [], allowed: [wind10, t2, precip_1h, precip_24h, precip_total, precip_gauge]}
+  local_obs: [/data/cwa_10min/]
+  ask: false
+dust_asia:
+  types: {required: [dust_air_quality], allowed: []}
+  verify: {required: [aod, pm10], allowed: []}
+  ask: false
+california_ar:
+  types: {required: [atmospheric_river], allowed: [orographic, heavy_rain, winter_storm]}
+  verify: {required: [ivt, precip_24h], allowed: [precip_gauge, snowfall, snow_depth]}
+  ask: false
+idealized_supercell:
+  types: {required: [idealized], allowed: [mesoscale_convection]}
+  verify: {required: [], allowed: [reflectivity]}
+  diagnose: true
+  ask: true
+eastasia_climate:
+  types: {required: [regional_climate], allowed: [monsoon, frontal]}
+  verify: {required: [monthly_precip, monthly_t2], allowed: []}
+  ask: false
+morakot:
+  types: {required: [tropical_cyclone], allowed: [heavy_rain, orographic, monsoon]}
+  verify: {required: [track, intensity], allowed: [precip_gauge, precip_total, precip_24h, ivt]}
+  storms: [Morakot|莫拉克]
+  ask: false
+sgp_les:
+  types: {required: [boundary_layer], allowed: [land_atmosphere]}
+  verify: {required: [pbl_height, sounding, surface_flux], allowed: []}
+  obs_requests: {required: [], allowed: [soundings, flux_tower]}
+  ask: true
+vague:
+  types: {required: [tropical_cyclone], allowed: []}
+  verify: {required: [], allowed: [track, intensity]}
+  ask: true

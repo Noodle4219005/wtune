@@ -1,0 +1,21 @@
+schema: wtune-event/1
+source: event.txt
+source_sha256: df0843a80c174c82cab06a1ea5c14cfbd9e79169f4063810900dc241137c1c40
+event:
+  value: Haiyan landfall in the Philippines, November 2013
+  from: "2013 年 11 月海燕颱風（Haiyan）登陸菲律賓 Leyte"
+types:
+  - {value: tropical_cyclone, from: "海燕颱風（Haiyan）"}
+storms:
+  - {name: Haiyan, year: 2013, from: "2013 年 11 月海燕颱風（Haiyan）"}
+region:
+  value: Leyte, Philippines
+  from: "登陸菲律賓 Leyte"
+verify:
+  - {value: track, from: "登陸前 24 小時的路徑"}
+  - {value: intensity, from: "最低氣壓和最大風速"}
+diagnose:
+  - {value: radial wind profile near the eyewall, from: "眼牆附近的徑向風剖面"}
+obs_requests: []
+local_obs: []
+questions: []

@@ -1,0 +1,4 @@
+I read the case as the January 2023 California atmospheric river series, typed as `atmospheric_river` and `heavy_rain`, over California/Sierra Nevada. Verification covers IVT against ERA5 (`ivt`) and 24-hour precipitation against Stage IV and gauges (`precip_24h`, `precip_gauge`), while the Sierra Nevada snow level is treated as a model-only figure in `diagnose`. No storms, local files, or obs requests were added, and `wtune event check event.yaml` passes with 0 errors and 0 warnings.
+
+Questions:
+- Should the snow level instead be verified against observations (e.g. snow depth from stations/snow analyses) rather than only diagnosed from the model?

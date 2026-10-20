@@ -1,0 +1,3 @@
+已建立 `event.yaml`（`wtune event check` 通過，0 errors）：事件為 2013 年 11 月颱風 Haiyan 登陸菲律賓 Leyte，類型 tropical_cyclone，區域 Leyte/菲律賓。驗證項目為登陸前 24 小時的路徑（track）與最低氣壓、最大風速（intensity），皆以最佳追蹤資料比對；眼牆附近的徑向風剖面屬模型診斷（diagnose），非觀測比對。未設定 obs_requests 或 local_obs，也未抓取任何資料。
+
+問題：`2013 年 11 月` 只精確到月份，是否需要以登陸時刻（UTC）界定 24 小時視窗，還是由 WTune 從執行設定讀取？

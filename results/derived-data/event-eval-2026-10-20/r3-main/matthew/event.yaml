@@ -1,0 +1,22 @@
+schema: wtune-event/1
+source: event.txt
+source_sha256: 7ab4b5835c732c4b90a0fe733579c6a1e724bf21b4f4c834596fa31e53fdb28d
+event:
+  value: Hurricane Matthew October 2016
+  from: "2016 年 10 月 Matthew 颶風沿佛州、喬治亞外海北上"
+types:
+  - {value: tropical_cyclone, from: "Matthew 颶風"}
+storms:
+  - {name: Matthew, year: 2016, from: "Matthew 颶風"}
+region:
+  value: offshore Florida and Georgia
+  from: "沿佛州、喬治亞外海"
+verify:
+  - {value: track, from: "想看路徑和強度跟最佳路徑差多少"}
+  - {value: intensity, from: "想看路徑和強度跟最佳路徑差多少"}
+  - {value: wind_radii, from: "還有 34 kt 風圈"}
+  - {value: z500, from: "500 hPa 高度場跟 ERA5 比"}
+diagnose: []
+obs_requests: []
+local_obs: []
+questions: []

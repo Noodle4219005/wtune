@@ -1,0 +1,21 @@
+schema: wtune-event/1
+source: event.txt
+source_sha256: 363092d6a3edfb30643575c4a43253a983725cdbbcdb0113d912b0fa27e7a1f5
+event: {value: Typhoon Morakot extreme rainfall in southern Taiwan, from: "莫拉克颱風（2009 年 8 月）在台灣南部造成破紀錄的雨量"}
+types:
+  - {value: tropical_cyclone, from: "莫拉克颱風（2009 年 8 月）"}
+  - {value: heavy_rain, from: "造成破紀錄的雨量"}
+  - {value: atmospheric_river, from: "西南氣流的水氣通量"}
+storms:
+  - {name: Morakot, year: 2009, from: "莫拉克颱風（2009 年 8 月）"}
+region: {value: southern Taiwan, Alishan, from: "台灣南部"}
+verify:
+  - {value: track, from: "想看路徑"}
+  - {value: intensity, from: "強度"}
+  - {value: precip_total, from: "阿里山 4 天超過 2,700 mm"}
+  - {value: precip_gauge, from: "南台灣山區的累積雨量跟雨量站比"}
+diagnose:
+  - {value: moisture flux of the southwest monsoon flow, from: "西南氣流的水氣通量也想看"}
+obs_requests: []
+local_obs: []
+questions: []

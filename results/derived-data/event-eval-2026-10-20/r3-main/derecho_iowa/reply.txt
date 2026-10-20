@@ -1,0 +1,5 @@
+已完成 Part 1，`event.yaml` 通過檢查（0 errors, 0 warnings），未抓取任何資料。
+
+我理解的是：2020 年 8 月 10 日愛荷華州的一次 derecho（颮線/強對流），颮線向東移動、地面陣風超過 50 m/s，類型為 `severe_wind` 與 `mesoscale_convection`，區域為 Iowa。驗證項目為：模擬雷達回波與 NEXRAD 比較（`reflectivity`）、測站陣風（`gust`）、氣壓躍升（`mslp`）；NEXRAD 屬 WTune 預設來源，所以放在 `verify` 而非 `obs_requests`。沒有指定本地觀測檔案、也沒有需要模型診斷的項目。
+
+問題：文中只寫「氣壓躍升」而未指明是比對測站氣壓（mslp）還是別的量，我暫定為 `mslp`；若您其實想比較的是 10 公尺風或增壓幅度請告知。

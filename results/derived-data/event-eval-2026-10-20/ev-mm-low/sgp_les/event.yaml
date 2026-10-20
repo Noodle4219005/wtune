@@ -1,0 +1,24 @@
+schema: wtune-event/1
+source: event.txt
+source_sha256: 10a8fd52605b43d56ac328a000a36ba2a3468cbd3c0c9ea1ced9cc82b387882e
+event:
+  value: LES of the convective boundary layer at the ARM SGP site
+  from: "LES of the convective boundary layer at the ARM SGP site"
+types:
+  - {value: boundary_layer, from: "convective boundary layer"}
+storms: []
+region:
+  value: ARM SGP site (Oklahoma)
+  from: "ARM SGP site"
+verify:
+  - {value: pbl_height, from: "PBL height"}
+  - {value: sounding, from: "potential temperature profiles"}
+  - {value: surface_flux, from: "surface sensible/latent heat flux"}
+diagnose: []
+obs_requests:
+  - {kind: soundings, from: "ARM radiosondes"}
+  - {kind: flux_tower, from: "ARM flux station"}
+local_obs: []
+questions:
+  - "Which specific clear-sky summer day in 2019 should the case use?"
+  - "Do you want the 2019 SGP case restricted to daytime (mid-morning to evening) periods only, when the convective boundary layer is well developed?"

@@ -1,0 +1,19 @@
+schema: wtune-event/1
+source: event.txt
+source_sha256: e16fd4152a1d318094aabb59a88488baee9df07b7d0efbd7477158922877bbf8
+event: {value: Kerala monsoon flooding August 2018, from: "2018 年 8 月印度喀拉拉邦（Kerala）季風豪雨"}
+types:
+  - {value: heavy_rain, from: "季風豪雨"}
+  - {value: monsoon, from: "季風"}
+  - {value: orographic, from: "西高止山迎風面"}
+storms: []
+region: {value: Kerala, India, Western Ghats windward slope, from: "印度喀拉拉邦（Kerala）"}
+verify:
+  - {value: precip_24h, from: "逐日雨量"}
+  - {value: precip_total, from: "累積雨量"}
+diagnose:
+  - {value: 850 hPa southwest monsoon strength, from: "850 hPa 西南季風的強度"}
+obs_requests: []
+local_obs: []
+questions:
+  - 850 hPa 西南季風強度是否要與 ERA5 再分析（reanalysis）比較，還是只看模式自身的風場？

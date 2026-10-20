@@ -1,0 +1,8 @@
+已完成 Part 1，`wtune event check event.yaml` 通過（0 errors，1 warning：「verify 與 diagnose 都是空的，沒有可比較或可繪圖的項目」）。
+
+- **event.yaml**（本目錄）：由 `wtune event init` 產生樣板並填入 `source_sha256`，types 只填 `tropical_cyclone`（依據「跑一個颱風」），storm 名稱／年份、區域、資料集皆未臆測，留空。
+- 由於原文只說「想知道模擬得準不準」，沒有指明要比較的量（路徑／強度／雨量），依規則不能自行加入 verify 或 diagnose 項目，故保留空白並在 `questions` 中以中文詢問。
+
+**questions：**
+1. 「模擬得準不準」要檢查哪些項目：颱風路徑（track）、強度（intensity）、還是降雨量（precip）？
+2. 是哪一個颱風（英文名稱／年份）？

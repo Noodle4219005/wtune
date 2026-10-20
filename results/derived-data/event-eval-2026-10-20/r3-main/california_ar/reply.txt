@@ -1,0 +1,5 @@
+Done — `event.yaml` passes `wtune event check` with 0 errors/warnings.
+
+I read the case as the January 2023 atmospheric-river series over California, typed as `atmospheric_river`, `heavy_rain` and `orographic` (Sierra Nevada), with region California/Sierra Nevada and no storms (ARs are not tropical cyclones). Verification items are IVT against ERA5, 24 h precipitation against both Stage IV and rain gauges, and the Sierra Nevada snow level; no `obs_requests` or `local_obs` were added since ERA5, gauges and Stage IV are WTune defaults, and nothing was fetched.
+
+One question: "snow level" is mapped to the `snow_depth` observation kind — if you actually mean the freezing level / snowline height rather than snow depth on the ground, should I move that to `diagnose` instead?

@@ -63,6 +63,7 @@ nav:
       - 4. tune: tutorial/tune.md
       - 5. run 與 watch: tutorial/run.md
       - 6. post: tutorial/post.md
+      - 7. event: tutorial/event.md
   - 進階:
       - compliance: guide/compliance.md
       - check 與 predict-rebuild: guide/predict.md

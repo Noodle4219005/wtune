@@ -1,0 +1,25 @@
+schema: wtune-event/1
+source: event.txt
+source_sha256: 486dc4d40584e765b5fea216cd7e54e3ab5a5105475e3764ac49f204e0dc7f11
+event:
+  value: 夏季午後台北的熱對流
+  from: "夏季午後台北的熱對流"
+types:
+  - {value: sea_breeze, from: "上午海風從淡水河口進來"}
+  - {value: urban, from: "都市熱島"}
+  - {value: mesoscale_convection, from: "下午盆地內午後雷陣雨"}
+storms: []
+region:
+  value: 台北
+  from: "台北"
+verify:
+  - {value: wind10, from: "海風鋒面進來的時間"}
+  - {value: t2, from: "都市熱島"}
+  - {value: precip_gauge, from: "午後雨量分布"}
+diagnose:
+  - {value: 海風鋒面與盆地內午後雷陣雨的結構, from: "下午盆地內午後雷陣雨"}
+obs_requests: []
+local_obs:
+  - {path: /data/cwa_10min/, kind: stations, from: "一包 CWA 局屬站 10 分鐘資料在 /data/cwa_10min/"}
+questions:
+  - 這是台北哪一年的夏季午後案例(event.txt 沒有指定日期)？

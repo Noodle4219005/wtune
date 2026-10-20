@@ -1,0 +1,25 @@
+schema: wtune-event/1
+source: event.txt
+source_sha256: 363092d6a3edfb30643575c4a43253a983725cdbbcdb0113d912b0fa27e7a1f5
+event:
+  value: Typhoon Morakot record rainfall southern Taiwan August 2009
+  from: "莫拉克颱風（2009 年 8 月）在台灣南部造成破紀錄的雨量"
+types:
+  - {value: tropical_cyclone, from: "莫拉克颱風（2009 年 8 月）"}
+  - {value: heavy_rain, from: "造成破紀錄的雨量"}
+  - {value: orographic, from: "南台灣山區的累積雨量"}
+storms:
+  - {name: Morakot, year: 2009, from: "莫拉克颱風（2009 年 8 月）"}
+region:
+  value: southern Taiwan
+  from: "台灣南部"
+verify:
+  - {value: track, from: "想看路徑"}
+  - {value: intensity, from: "和強度"}
+  - {value: precip_total, from: "南台灣山區的累積雨量"}
+  - {value: precip_gauge, from: "累積雨量跟雨量站比"}
+diagnose:
+  - {value: water vapour flux of the southwesterly flow, from: "西南氣流的水氣通量也想看"}
+obs_requests: []
+local_obs: []
+questions: []

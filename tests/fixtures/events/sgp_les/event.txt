@@ -1,0 +1,2 @@
+LES of the convective boundary layer at the ARM SGP site, a clear-sky summer day (pick one from 2019).
+Compare PBL height and potential temperature profiles with the ARM radiosondes, and surface sensible/latent heat flux with the ARM flux station.

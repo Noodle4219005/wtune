@@ -1,0 +1,23 @@
+schema: wtune-event/1
+source: event.txt
+source_sha256: 8d0f2ca3a8a2cc00df27bd8dfe504f749991257a9d9329fe3707e25f5d179854
+event: {value: 2021年2月德州寒潮, from: "2021 年 2 月德州寒潮"}
+types:
+  - {value: cold_air_outbreak, from: "北極冷空氣南下"}
+  - {value: frontal, from: "冷鋒南下"}
+  - {value: winter_storm, from: "還下了雪和凍雨"}
+storms: []
+region: {value: 德州休士頓, from: "德州寒潮"}
+verify:
+  - {value: t2_min, from: "2 m 溫度的低溫"}
+  - {value: mslp, from: "冷鋒南下的時間"}
+  - {value: snowfall, from: "降雪量如果能比也想看"}
+diagnose: []
+obs_requests:
+  - {kind: stations, from: "跟地面測站比"}
+  - {kind: snow, from: "降雪量如果能比也想看"}
+local_obs: []
+questions:
+  - "請問要模擬的具體日期區間是？只寫了 2021 年 2 月，需要知道起始與結束時間。"
+  - "地面測站要用哪一個資料來源（例如美國 ASOS/AWOS、Texas Mesonet、NWS/NOAA 的 hourly 觀測）？還是有自己的檔案？"
+  - "降雪量要跟什麼比？凍雨是否也要單獨比較？"

@@ -18,7 +18,8 @@ inset -- 2026-09-29 second lead review), height window project.yaml's xsec_top_k
 
 Station figures use the ISD-Lite stations fetched into <project>/input/obs/stations/ (the
 same lookup precip uses, met_pointstat.read_stations): terrain_point_stat is
-precip.station_verification() run on the terrain domain (MET Point-Stat, one code path);
+precip.station_verification() run on the terrain domain (MET Point-Stat, one code path),
+left out with an info note when precip already runs it on that same domain;
 terrain_leeward_station is the foehn diagnostic -- the fetched station nearest the crest in the
 lee window (LEE_MIN_KM..LEE_MAX_KM downstream of the ridge crest along the 700 hPa wind
 bearing, within LEE_MAX_OFF_KM of the section line, with observations and inside the model
@@ -836,7 +837,7 @@ def _terrain_domain(case_info):
 
 def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6, cross_section=None,
            xsec_top_km=None, xsec_halfwidth_km=None, project_dir=None):
-    from wtune.post.recipe import fig, missing
+    from wtune.post.recipe import fig, missing, note
     from wtune.post.recipes import precip
 
     run_dir, run_label = run_dirs[0], labels[0]
@@ -907,6 +908,11 @@ def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6, cross_section=
     except FIELD_ERRORS as e:
         out.append(missing("terrain_leeward_station", "wrfout_d%02d" % domain, error_reason(e)))
 
+    if "precip" in case_info.get("types", ()) and domain == _finest_domain(case_info["domains"]):
+        out.append(note("terrain", "station Point-Stat on d%02d is precip_stn_series / "
+                        "precip_stn_map (same domain); terrain_point_stat is not repeated" % domain,
+                        level="info"))
+        return out
     try:
         out.append(_point_stat(run_dir, run_label, domain, out_dir, project_dir, spinup_hours))
     except (tools.ToolNotFoundError, ImportError, OSError) as e:

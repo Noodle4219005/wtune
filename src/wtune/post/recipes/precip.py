@@ -9,10 +9,10 @@ ends at 12 UTC, 6 h at 00/06/12/18, else 1 h) is verified against Stage IV with 
 Stage IV is OBS on its own ~4.8 km HRAP grid (`regrid.to_grid = OBS`, BUDGET), the model is first
 moved from the curvilinear WRF grid to a lat/lon grid by `cdo remapcon`; verification is
 restricted to the model domain's interior (spec_bdy_width cells excluded). Scores: FHO/CTC/CTS
-(POD, FAR, CSI, ETS, frequency bias) at 1/10/25/50/100 mm, NBRCNT FSS at neighbourhood widths
-1/3/5/9 points. Station verification (T2, Td2, 10 m wind, MSLP) against ISD-Lite with MET
-ascii2nc + Point-Stat lives here too because precip is the one type every run has (the
-"common" set is owned by another module) -- see post/met_pointstat.py.
+(POD, FAR, CSI, ETS, frequency bias) at 0.254/2.54/6.35/12.7/25.4/50 mm (0.01-2 in), NBRCNT
+FSS at neighbourhood widths 1/3/5/9 points. Station verification (T2, Td2, 10 m wind, MSLP)
+against ISD-Lite with MET ascii2nc + Point-Stat lives here too because precip is the one type
+every run has (the "common" set is owned by another module) -- see post/met_pointstat.py.
 
 Observations an agent fetched in WTune's standard format (post/agent_obs.py) are compared the
 same way: gridded precipitation with Grid-Stat on the dataset's own grid (precip_agent_*), rain

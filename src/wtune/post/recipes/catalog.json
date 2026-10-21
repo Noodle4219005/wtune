@@ -257,12 +257,12 @@
   },
   "precip_ets_fbias": {
     "zh": {
-      "question": "在 1/10/25/50/100 mm 各門檻下，模式對降水事件的命中與誤報如何？",
+      "question": "在 0.254/2.54/6.35/12.7/25.4/50 mm（0.01–2 英寸）各門檻下，模式對降水事件的命中與誤報如何？",
       "how_to_read": "MET Grid-Stat 的 CTS 線（觀測：NCEP Stage IV）：POD（PODY）、FAR、CSI 與頻率偏差 FBIAS（1 為完美），橫軸為門檻；n 為匹配格點數。",
       "common_misreadings": "在門檻高、事件很少時把 CSI 的高低當成穩定結論——樣本極小；FBIAS 遠大於 1 表示模式的強降水範圍過大或位置偏離。"
     },
     "en": {
-      "question": "How well does the model hit or falsely alarm precipitation events at 1/10/25/50/100 mm?",
+      "question": "How well does the model hit or falsely alarm precipitation events at 0.254/2.54/6.35/12.7/25.4/50 mm (0.01-2 in)?",
       "how_to_read": "MET Grid-Stat CTS lines (observation: NCEP Stage IV): POD (PODY), FAR, CSI and frequency bias FBIAS (1 = perfect) against threshold; n is the number of matched points.",
       "common_misreadings": "Trusting CSI at high thresholds where events are very few; FBIAS far above 1 means the model's heavy-rain area is too large or displaced."
     }

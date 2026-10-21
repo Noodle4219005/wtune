@@ -58,6 +58,12 @@ the job failed. They now run under `mpirun` only when the executable calls `MPI_
 to `lib64` (f1-arm): the recipe's post-install step looked only in `lib`. MET and ParaView are now
 installed on f1-arm; the guide has the steps.
 
+**One station verification per domain.** When the terrain domain is also the finest domain,
+`terrain_point_stat` ran the same MET Point-Stat as `precip_stn_series` and drew the same figure
+twice. It is now left out with an info note pointing to the precip figures. The
+`precip_ets_fbias` caption named thresholds 1/10/25/50/100 mm; it now names the ones used,
+0.254/2.54/6.35/12.7/25.4/50 mm.
+
 **Docs.** `-O3` is described as what it does: it measures the whole space, with no model rounds.
 The workflow, tune and post flowcharts have colour legends.
 

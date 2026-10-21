@@ -244,6 +244,25 @@ def test_terrain_and_moisture_figures_survive_a_missing_field(monkeypatch, tmp_p
                          ("moisture_timeheight", True)]
 
 
+
+def test_terrain_point_stat_not_repeated_on_the_precip_domain(monkeypatch, tmp_path):
+    for name in ("_terrain_wind_map", "_rain_over_terrain"):
+        monkeypatch.setattr(terrain, name, lambda *a: None)
+    monkeypatch.setattr(terrain, "_cross_section_figure", lambda *a, **k: None)
+    monkeypatch.setattr(terrain, "_valley_time_height", lambda *a: (None, "x"))
+    monkeypatch.setattr(terrain, "list_frame_refs", lambda *a, **k: [])
+    calls = []
+    monkeypatch.setattr(terrain, "_point_stat",
+                        lambda *a: calls.append(a[2]) or {"id": "terrain_point_stat"})
+    one = {"types": ["precip", "terrain"], "domains": [{"domain": 1}]}
+    out = terrain.figures(["/run"], ["r"], str(tmp_path), one, project_dir=str(tmp_path))
+    assert calls == [] and "precip_stn_series" in out[-1]["text"]
+    nested = dict(one, domains=[{"domain": 1}, {"domain": 2}], terrain_domains=[1])
+    terrain.figures(["/run"], ["r"], str(tmp_path), nested, project_dir=str(tmp_path))
+    terrain.figures(["/run"], ["r"], str(tmp_path), dict(one, types=["terrain"]),
+                    project_dir=str(tmp_path))
+    assert calls == [1, 1]
+
 # ---- 6: valley time-height barbs are in kt and say so
 
 def test_valley_time_height_barbs_are_in_kt(monkeypatch, tmp_path):

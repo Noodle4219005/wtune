@@ -64,6 +64,8 @@ fit the space writable at `--out`; on GPFS this is the user's quota headroom, no
 (`--no-space-check` overrides). After each job it compares every history frame with the largest
 of its stream: past the f1-arm soft quota WRF+ADIOS2 printed `SUCCESS COMPLETE WRF` while d02
 frames shrank from 1.8 GB to 17 KB, and the run was reported completed. Such a segment now fails.
+The plan also warns when the case sets `debug_level` above 0: sc26p1 (`debug_level=50`) wrote
+~31 MB of `rsl.out` per rank per 6 model hours, which the estimate does not count.
 
 **`wtune run` after `wtune tune -O0`.** `-O0` writes its unmeasured layout as `best`; `run`
 looked only for a measured winner and asked for `--nodes/--nx/--ny`. It now takes the `-O0`

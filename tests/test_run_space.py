@@ -104,3 +104,12 @@ def test_run_refuses_when_the_output_does_not_fit(tmp_path, monkeypatch, capsys)
     (tmp_path / "again").mkdir()
     rc, _lines, _rep = _run(tmp_path / "again", ["--no-space-check"], f)
     assert rc == 0 and f.submitted
+
+
+def test_plan_warns_about_debug_level(tmp_path):
+    case = T._make_case(tmp_path, T.NAMELIST_3DOM)
+    text = (case / "namelist.input").read_text()
+    (case / "namelist.input").write_text(text.replace("&time_control", "&time_control\n debug_level = 50,", 1))
+    lines = []
+    rc = wr.main([str(case), "--out", str(tmp_path / "out"), "--dry-run"] + LAYOUT, log=lines.append)
+    assert rc == 0 and any("debug_level=50" in ln for ln in lines)

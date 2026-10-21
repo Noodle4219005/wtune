@@ -364,6 +364,12 @@ def _plan_notes(opts: RunOptions, case: Case, L: Optional[int], segs: list,
                      "(it would re-anchor the history alarms at each segment start)")
     if segs and geo.hist[0] is None:
         notes.append("d01 writes no history")
+    debug = coldstart.get_first(text, "debug_level", "0").rstrip(",").strip()
+    if debug.lstrip("-").isdigit() and int(debug) > 0:
+        notes.append("WARNING: case sets debug_level=%s: every rank writes per-step lines to "
+                     "rsl.out.* (sc26p1, debug_level=50: ~31 MB per rank per 6 model hours), "
+                     "which the output estimate does not count and which slows the run; set 0 "
+                     "unless you are debugging" % debug)
     if coldstart.get_first(text, "write_hist_at_0h_rst", ".false.").lower().startswith(".t"):
         notes.append("case sets write_hist_at_0h_rst=.true.: every resumed segment repeats "
                      "its start history frame")

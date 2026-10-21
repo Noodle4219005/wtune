@@ -25,10 +25,14 @@ def _header_lines(seg_dir: str, nodes: int, time_limit: str, job_name: str, env_
             "SEG=%s" % shlex.quote(seg_dir),
             "SITE=%s" % wtune.machine.site(),
             "CAMPAIGN=${CAMPAIGN:-%s}" % shlex.quote(os.path.abspath(campaign_dir)),
-            "source \"$CAMPAIGN/sites/$SITE.sh\"   # site_launch / site_hygiene / W",
+            "source \"$CAMPAIGN/sites/$SITE.sh\"   # site_env / site_launch / site_hygiene / W",
             "source \"%s\"" % env_source,
-            "W=${WRF_TREE:-$W}",
-            "ulimit -s unlimited"]
+            "ulimit -s unlimited",
+            # the probes' environment: on f1-arm site_env pins Open MPI's TCP to IPoIB; without
+            # it a 5-node c34 segment ran 6.4x slower than tune measured (2026-10-21)
+            "export WTUNE_ENV_SOURCE=\"%s\"" % env_source,
+            "site_env",
+            "W=${WRF_TREE:-$W}"]
 
 
 def _launch_lines(k: int, config: Config) -> list[str]:

@@ -67,6 +67,11 @@ frames shrank from 1.8 GB to 17 KB, and the run was reported completed. Such a s
 The plan also warns when the case sets `debug_level` above 0: sc26p1 (`debug_level=50`) wrote
 ~31 MB of `rsl.out` per rank per 6 model hours, which the estimate does not count.
 
+**`wtune run` segments get the probes' environment.** The segment job sourced the site file but
+never called its `site_env`, which on f1-arm pins Open MPI's TCP to the IPoIB network. Multi-node
+segments therefore talked over the 1 Gb/s management network: c34 on 5 nodes ran 1.52 s per d01
+step against the 0.246 s tune measured with the same layout, hit its time limit and was resumed.
+
 **`--compress-history` with more than one segment.** After every segment had passed, deleting
 the run's own restarts removed the link a later segment started from and then tried to size it:
 the run ended `failed` with `FileNotFoundError` (f1-arm severe2023, 2 segments).

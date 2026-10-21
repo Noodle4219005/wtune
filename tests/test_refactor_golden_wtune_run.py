@@ -682,7 +682,7 @@ def test_golden_wait_for_job():
 # ---------------------------------------------------------------------------
 # package structure
 # ---------------------------------------------------------------------------
-LAYERS = ["_deps", "common", "geometry", "estimate", "layout", "plan", "namelist", "staging",
+LAYERS = ["_deps", "common", "space", "geometry", "estimate", "layout", "plan", "namelist", "staging",
           "sbatch", "inputs", "context", "report", "attempts", "controller", "cli"]
 
 

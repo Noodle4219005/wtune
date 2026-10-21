@@ -21,6 +21,7 @@ from .sbatch import render_segment_sbatch
 from .staging import (merge_adios2_xml, output_dir_names, precreate_output_dirs,
                       remove_empty_output_dirs, render_adios2_restart_xml, restart_files,
                       setup_segment_dir)
+from .space import shrunk_outputs
 
 UNKNOWN_POLLS_MAX = 10                 # sacct not listing a fresh job id yet: poll this many times
 
@@ -55,6 +56,7 @@ class AttemptRecord(Record):
     resume_time: Any = UNSET           # the restart the next attempt resumed from
     no_resume_reason: Any = UNSET
     stalled: Any = UNSET               # why StallWatch cancelled the job
+    shrunk: Any = UNSET                # history outputs far smaller than their stream's largest
 
 
 @dataclasses.dataclass
@@ -264,4 +266,8 @@ def _run_attempt(ctx: RunContext, k: int, seg: Segment, att: Attempt, is_last: b
     rec.sum_d01_elapsed_s, rec.n_d01_steps = snap.get("sum_d01_elapsed_s"), snap.get("n_d01_steps")
     rec.restart_ok = is_last or all(restart_files(seg_dir, seg.end, geo.max_dom).values())
     rec.ok = snap.get("status") == "done" and rec.restart_ok
+    if rec.ok:                      # side.job_ended above waited for any in-job conversion
+        shrunk = shrunk_outputs(seg_dir, out_names)
+        if shrunk:
+            rec.shrunk, rec.ok = shrunk, False
     return Outcome(seg_dir, rec, state, elapsed, snap, rec.ok)

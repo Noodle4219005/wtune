@@ -20,6 +20,7 @@ from .estimate import history_wall, time_limit_s
 from .geometry import _step_fraction, step_of, step_time
 from .plan import Segment
 from .report import _save_report
+from .space import SHRUNK_FRAC
 from .staging import FRESH_BP_SUBDIR
 
 CFL_RESCUE_FACTOR = 0.75
@@ -167,6 +168,12 @@ def _next_attempt(ctx: RunContext, k: int, seg: Segment, att: Attempt, out: Outc
     if rec.stalled is not UNSET:
         rec.failure_class = "stalled"       # a full disk would only stall again: no resume
         raise RunError("segment %d (%s) stalled and was cancelled: %s" % (k, out.dir, rec.stalled))
+    if rec.shrunk is not UNSET:
+        rec.failure_class = "output"        # writes lost (full disk/quota): a rerun loses them too
+        raise RunError("segment %d (%s) ended SUCCESS but history outputs are under "
+                       "%d%% of their stream's largest (writes lost, e.g. a full disk or quota): "
+                       "%s" % (k, out.dir, 100 * SHRUNK_FRAC, ", ".join(rec.shrunk[:5])
+                               + (" ..." if len(rec.shrunk) > 5 else "")))
     codes = rec.warnings
     nan = any(w["code"] == "FAILED" and "NaN" in w["text"] for w in snap.get("warnings", []))
     # a cfl line alone is routine output: in an interrupted job it is not the failure

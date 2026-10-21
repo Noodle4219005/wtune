@@ -57,6 +57,8 @@ flowchart TD
 |---|---|---|
 | 節點故障、逾時、被搶佔 | 從最近一個有效的 restart 自動續跑 | `--resume N`（預設 1，0 關閉） |
 | 個案自己沒寫 restart | 自動補上檢查點 | `--checkpoint-minutes M`（預設 `auto`） |
+| 送出前估的輸出量（history 幀數 × 每幀大小＋restart）放不進可寫空間；在 GPFS 上用的是你的配額剩餘量，不是 `df` 的空間 | 不送出，說明估計值與剩餘量。可加大 `history_interval`、用 `--stop-at` 截短，或確定要跑時加旗標 | `--no-space-check` |
+| 一段印了 `SUCCESS COMPLETE WRF`，但某些 history 幀不到同一 stream 最大幀的 10%（配額寫滿時 ADIOS2 會丟掉寫入而不報錯） | 該段標為失敗，不重送 | — |
 | 執行中卡住：`rsl.error.0000` 很久沒有新內容（例如磁碟或配額寫滿時 WRF＋ADIOS2 會停住而不是報錯） | 取消該段 job、標為 `stalled` 並停下來，不重送 | `--stall-minutes M`（預設 20，0 關閉） |
 | CFL 或 NaN | **停下來**，寫出建議的 `time_step` 與 `segment.advice.namelist.input`，不重送 | — |
 | CFL 或 NaN，且你事先授權 | 同一段以約 0.75 倍的 `time_step` 重跑一次，之後的段回到原本的值 | `--cfl-rescue` |

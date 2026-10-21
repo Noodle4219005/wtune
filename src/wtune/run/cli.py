@@ -32,6 +32,7 @@ from .plan import (RestartSetting, Segment, case_restart_interval_s, checkpoint_
                    checkpoint_steps_for_minutes, missing_record_files, plan_run, restart_setting,
                    restart_times)
 from .report import _write_report, new_report
+from .space import estimate_output_bytes, writable_bytes
 from .staging import _missing_namelist_files, restart_files
 
 DESCRIPTION = "wtune run -- segmented WRF executor with restart hand-offs (`wtune run`)."
@@ -105,6 +106,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
     ap.add_argument("--stall-minutes", type=float, default=20.0, metavar="M",
                     help="cancel a running segment job whose rsl.error.0000 has not changed "
                          "for M minutes and stop the run (0 disables; default 20)")
+    ap.add_argument("--no-space-check", action="store_true",
+                    help="submit even when the estimated output does not fit the free space "
+                         "(GPFS quota headroom when the run dir is on GPFS)")
     return ap
 
 
@@ -417,6 +421,37 @@ def print_plan(opts: RunOptions, plan: RunPlan, log: Callable) -> None:
                      inputs.bp_cache, plan.case_dir, tuple(_aux_outputs(plan.text))))
 
 
+def check_space(opts: RunOptions, plan: RunPlan, log: Callable, runner=None) -> None:
+    """Estimated history + restart output against the space writable at --out's filesystem:
+    a line when it takes half of it or more, RunError when it does not fit (unless
+    --no-space-check or --dry-run)."""
+    span_s = plan.n_end * plan.geo.dt
+    n_rst = max(0, len(plan.segments) - 1) + (1 if plan.restart.cadence_s else 0)
+    need, detail = estimate_output_bytes(plan.geo, span_s, n_rst)
+    if opts.compress_history:
+        need /= 2.0
+    if need <= 0:
+        return
+    where = plan.out
+    while not os.path.exists(where):
+        where = os.path.dirname(where)
+    free, src = writable_bytes(where, runner)
+    if need < 0.5 * free:
+        return
+    log("output estimate %s (%s%s, %d restart set(s)); %s %s"
+        % (_gb(need), detail or "no history", ", halved for --compress-history"
+           if opts.compress_history else "", n_rst, src, _gb(free)))
+    if need > free and not (opts.no_space_check or opts.dry_run):
+        raise RunError("the run would write ~%s but only %s is writable (%s): WRF+ADIOS2 does "
+                       "not fail on a full disk, it hangs or writes empty frames. Raise "
+                       "history_interval, shorten with --stop-at, free space, or pass "
+                       "--no-space-check" % (_gb(need), _gb(free), src))
+
+
+def _gb(n: float) -> str:
+    return "%.1f GB" % (n / 1e9)
+
+
 def print_dry_run(opts: RunOptions, plan: RunPlan, log: Callable) -> None:
     """--dry-run: the namelist changes of the first two segments."""
     for s in plan.segments[:2]:
@@ -510,6 +545,10 @@ def main(argv: Optional[list] = None, sbatch_runner: Optional[Callable] = None,
     except (RunError, OSError, ValueError, wp.PredictError, coldstart.ColdstartError) as e:
         return _fail(e)
     print_plan(opts, plan, log)
+    try:
+        check_space(opts, plan, log)
+    except RunError as e:
+        return _fail(e)
     if opts.dry_run:
         try:
             print_dry_run(opts, plan, log)

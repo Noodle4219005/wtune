@@ -58,6 +58,13 @@ the job failed. They now run under `mpirun` only when the executable calls `MPI_
 to `lib64` (f1-arm): the recipe's post-install step looked only in `lib`. MET and ParaView are now
 installed on f1-arm; the guide has the steps.
 
+**`wtune run` checks disk space.** Before the first job it estimates the history and restart
+output (frames x a conservative 40 3-D fields per frame) and refuses to submit when that does not
+fit the space writable at `--out`; on GPFS this is the user's quota headroom, not `df`
+(`--no-space-check` overrides). After each job it compares every history frame with the largest
+of its stream: past the f1-arm soft quota WRF+ADIOS2 printed `SUCCESS COMPLETE WRF` while d02
+frames shrank from 1.8 GB to 17 KB, and the run was reported completed. Such a segment now fails.
+
 **One station verification per domain.** When the terrain domain is also the finest domain,
 `terrain_point_stat` ran the same MET Point-Stat as `precip_stn_series` and drew the same figure
 twice. It is now left out with an info note pointing to the precip figures. The

@@ -1484,6 +1484,23 @@ def test_compress_history_deletes_only_the_restart_files_of_the_run(tmp_path, mo
     assert len(list(tmp_path.glob("seg_*/wrfout_*"))) == 2
 
 
+def test_compress_history_cleanup_with_a_restart_link_between_segments(tmp_path, monkeypatch):
+    """seg_1 starts from a link to seg_0's restart (f1-arm severe2023 2026-10-21: the removed
+    link was then sized as a file -> FileNotFoundError after a run whose segments all passed)."""
+    import types
+    real = tmp_path / "seg_0" / "wrfrst_d01_2020-06-01_06:00:00"
+    real.mkdir(parents=True)
+    (real / "data.0").write_bytes(b"x" * 100)
+    (tmp_path / "seg_1").mkdir()
+    (tmp_path / "seg_1" / "wrfrst_d01_2020-06-01_06:00:00").symlink_to(real)
+    ctx = types.SimpleNamespace(plan=types.SimpleNamespace(out=str(tmp_path)), report={},
+                                log=lambda s: None)
+    monkeypatch.setattr(wr.controller, "_save_report", lambda c: None)
+    wr.controller._delete_own_restarts(ctx)
+    assert ctx.report["restarts_deleted"] == {"files": 1, "bytes": 100}
+    assert not list(tmp_path.glob("seg_*/wrfrst_*"))
+
+
 def test_ctrl_c_during_a_segment_cancels_it_and_marks_the_run_stopped(tmp_path, monkeypatch):
     import wtune.stopping
     stop = wtune.stopping.STOP

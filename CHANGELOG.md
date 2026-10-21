@@ -67,6 +67,10 @@ frames shrank from 1.8 GB to 17 KB, and the run was reported completed. Such a s
 The plan also warns when the case sets `debug_level` above 0: sc26p1 (`debug_level=50`) wrote
 ~31 MB of `rsl.out` per rank per 6 model hours, which the estimate does not count.
 
+**`--compress-history` with more than one segment.** After every segment had passed, deleting
+the run's own restarts removed the link a later segment started from and then tried to size it:
+the run ended `failed` with `FileNotFoundError` (f1-arm severe2023, 2 segments).
+
 **`wtune run` after `wtune tune -O0`.** `-O0` writes its unmeasured layout as `best`; `run`
 looked only for a measured winner and asked for `--nodes/--nx/--ny`. It now takes the `-O0`
 layout.

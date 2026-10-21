@@ -65,6 +65,10 @@ fit the space writable at `--out`; on GPFS this is the user's quota headroom, no
 of its stream: past the f1-arm soft quota WRF+ADIOS2 printed `SUCCESS COMPLETE WRF` while d02
 frames shrank from 1.8 GB to 17 KB, and the run was reported completed. Such a segment now fails.
 
+**`wtune run` after `wtune tune -O0`.** `-O0` writes its unmeasured layout as `best`; `run`
+looked only for a measured winner and asked for `--nodes/--nx/--ny`. It now takes the `-O0`
+layout.
+
 **One station verification per domain.** When the terrain domain is also the finest domain,
 `terrain_point_stat` ran the same MET Point-Stat as `precip_stn_series` and drew the same figure
 twice. It is now left out with an info note pointing to the precip figures. The

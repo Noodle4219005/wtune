@@ -269,6 +269,9 @@ def _tune_report_candidates(case: Case, choice: LayoutChoice, sample_points, can
     """--tune-report: add its ranking rows' candidates; a -O report without ranking points
     gives the winner's median s/step as a constant rate instead -> True (rate only)."""
     rep, winner = choice.report, choice.winner
+    if rep.get("pipeline_only"):
+        notes.append("-O0 tune report: its layout is used, it measured nothing")
+        return False
     if any(r.get("points") for r in rep.get("ranking") or []) or not (winner and winner.median):
         cal = wp.load_calibration(wp.calibration_path())
         found = tune_candidates(rep, case.geo, sample_points, cal, choice.lay.nodes)

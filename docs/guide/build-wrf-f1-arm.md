@@ -8,11 +8,12 @@ WTune 不編 WRF，只要求 `WRF_TREE` 底下有 `main/wrf.exe`、`main/real.ex
 
 | 樹 | 原始碼 | FCOPTIM | 說明 |
 |---|---|---|---|
-| `~/wrf-env/nvhpc-arm/wrf/vanilla-v480-adios2-dmpar/WRF` | 上游 v4.8.0（`06d4240`），未改 | configure 原值 | 2026-10-14，job 15516；ADIOS2 輸出與 netCDF 逐位元相同；2026-10-19 起是預設 |
+| `~/wrf-env/nvhpc-arm/wrf/vanilla-v480-adios2-dmpar/WRF` | 上游 v4.8.0（`06d4240`），未改 | configure 原值 | 2026-10-14，job 15516；ADIOS2 輸出與 netCDF 逐位元相同；2026-10-19 到 10-21 是預設 |
+| `~/wrf-env/nvhpc-arm/wrf/vanilla-v480-adios2-tuned-dmpar/WRF` | 上游 v4.8.0（`06d4240`），未改 | 原值加 `-tp=grace -Mstack_arrays -Mfprelaxed` | 2026-10-21，job 34082（`~/wrf-env/nvhpc-arm/tuned-build.sbatch`）；matthew 每步快 4%，6 小時後各場與 vanilla 的差是該場自身變化的 0.6–6%；**2026-10-21 起是預設** |
 | `~/wrf-env/nvhpc-arm/wrf/nvhpc-adios2-tuned-dmpar/WRF` | `~/SC26-WRF/src/WRF`，含團隊的 `wrf_io.F90` patch | 原值加 `-tp=grace -Mstack_arrays -Mfprelaxed` | 2026-08-24；2026-10-19 以前的量測都用它，`~/wtune-f1arm/env-tuned.sh` 指這棵 |
 
 !!! warning "tuned 那棵改過原始碼"
-    `nvhpc-adios2-tuned-dmpar` 是從團隊的 WRF 分支複製來的，`external/io_adios2/wrf_io.F90` 有改動。2026-10-19 起 `~/wtune-f1arm/env.sh` 與 `~/.config/wtune/machine.yaml` 的預設已換成未改的 `vanilla-v480-adios2-dmpar`；舊的設定備份在 `*.bak-20261019`。
+    `nvhpc-adios2-tuned-dmpar` 是從團隊的 WRF 分支複製來的，`external/io_adios2/wrf_io.F90` 有改動。2026-10-19 起 `~/wtune-f1arm/env.sh` 與 `~/.config/wtune/machine.yaml` 的預設已換成未改原始碼的樹；2026-10-21 起是 `vanilla-v480-adios2-tuned-dmpar`（未改原始碼、加三個編譯旗標）。舊的設定備份在 `*.bak-20261019` 與 `*.bak-20261021`。`-Mfprelaxed` 不是逐位元可重現；要逐位元結果就改回 `vanilla-v480-adios2-dmpar`。
 
 ## 整體順序
 

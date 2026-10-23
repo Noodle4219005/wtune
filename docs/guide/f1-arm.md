@@ -45,7 +45,7 @@ V=$HOME/wrf-stack/nvhpc-arm
 export PATH=$V/bin:$HOME/.pixi/bin:$PATH
 export LD_LIBRARY_PATH=$V/lib:$V/lib64:${LD_LIBRARY_PATH:-}
 export NETCDF=$V HDF5=$V PNETCDF=$V ADIOS2_DIR=$V
-export WRF_TREE=$HOME/wrf-env/nvhpc-arm/wrf/vanilla-v480-adios2-dmpar/WRF
+export WRF_TREE=$HOME/wrf-env/nvhpc-arm/wrf/vanilla-v480-adios2-tuned-dmpar/WRF
 export WPS_DIR=$HOME/wrf-env/nvhpc-arm/wps/WPS-4.6.0    # WPS 4.6.0，可讀 GRIB2
 export WTUNE_ADIOS2_PYTHON=$HOME/wtune-envs/campaign/.pixi/envs/default/bin/python   # 有 adios2 綁定的 python
 export OMP_STACKSIZE=1G
@@ -64,7 +64,7 @@ account: <你的計畫代號>
 hardware_id: f1-grace
 site: f1arm
 env_source: $HOME/wtune-f1arm/env.sh
-wrf_tree: $HOME/wrf-env/nvhpc-arm/wrf/vanilla-v480-adios2-dmpar/WRF
+wrf_tree: $HOME/wrf-env/nvhpc-arm/wrf/vanilla-v480-adios2-tuned-dmpar/WRF
 geog: /work2/u5727520/wrf-newcase/WPS_GEOG_LOW_RES
 max_hours: 8.0
 max_omp: 1
@@ -219,4 +219,4 @@ GPFS 看的是 `blocks` 加 `in_doubt`：兩者加起來超過 100G，所有寫�
 | 5 節點以上的掃描排很久 | `arm1440` 每人 2 跑／4 送，叢集忙 | 用 `--max-queue-hours` 收尾 |
 | 整段模擬時間的 I/O 預測不準 | 沒有 f1-arm 的 calibration，退回 `machine/calibration/scc.json` | 只影響時間預測，不影響選哪個設定 |
 | 每個輸出檔印一次 `adios2 error ... error code 4` | ADIOS2 沒有編進 Blosc2，壓縮加不上去 | 輸出照寫、不壓縮 |
-| 舊的量測不能直接和現在比 | 2026-10-19 以前用 `nvhpc-adios2-tuned-dmpar`（含團隊的 `wrf_io.F90` patch、多了 `-tp=grace -Mstack_arrays -Mfprelaxed`），之後預設是 vanilla | 要比就用 `env-tuned.sh`，見上面 machine.yaml 那段 |
+| 舊的量測不能直接和現在比 | 2026-10-19 以前用 `nvhpc-adios2-tuned-dmpar`（含團隊的 `wrf_io.F90` patch、多了 `-tp=grace -Mstack_arrays -Mfprelaxed`）；10-19 到 10-21 預設是未改原始碼、原始旗標的 vanilla；2026-10-21 起預設是未改原始碼、加上那三個旗標的 `vanilla-v480-adios2-tuned-dmpar`（matthew 每步快 4%）。另外 2026-10-21 以前多節點的 `wtune run` 走 1 Gb/s 網路（`b9afa4b` 修正），那時的多節點執行時間偏慢 | 要比就用 `env-tuned.sh`，見上面 machine.yaml 那段 |

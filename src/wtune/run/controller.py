@@ -156,6 +156,9 @@ def _failure_reason(ctx: RunContext, out: Outcome, cfl: bool, why: Optional[str]
                  ",".join(rec.warnings) or "none", ", CFL/NaN seen" if cfl else ""))
     if cfl and ctx.state.rescue_used:
         reason += " (CFL rescue already used once in this run)"
+    fatal = resume.rsl_fatal(out.dir)
+    if fatal:
+        reason += "; WRF FATAL in %s" % fatal
     if why:
         reason += "; not resumed: " + why
     return reason

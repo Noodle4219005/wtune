@@ -113,3 +113,16 @@ def test_plan_warns_about_debug_level(tmp_path):
     lines = []
     rc = wr.main([str(case), "--out", str(tmp_path / "out"), "--dry-run"] + LAYOUT, log=lines.append)
     assert rc == 0 and any("debug_level=50" in ln for ln in lines)
+
+
+def test_rsl_fatal_names_the_rank_and_message(tmp_path):
+    """c34 2026-10-23: WRF-Fire stopped WRF on rank 39 only; the report said 'warnings none'."""
+    from wtune import resume
+    (tmp_path / "rsl.error.0000").write_text("Timing for main: ...\n")
+    (tmp_path / "rsl.error.0039").write_text(
+        "-------------- FATAL CALLED ---------------\n"
+        "FATAL CALLED FROM FILE:  <stdin>  LINE:     152\n"
+        "crash: wrf: SUCCESS COMPLETE WRF. Fire has reached domain boundary.\n")
+    assert resume.rsl_fatal(str(tmp_path)) == (
+        "rsl.error.0039: crash: wrf: SUCCESS COMPLETE WRF. Fire has reached domain boundary.")
+    assert resume.rsl_fatal(str(tmp_path / "none")) is None

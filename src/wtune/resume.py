@@ -35,6 +35,21 @@ def rsl_mentions(rundir: str, needles: Iterable[str]) -> bool:
     return False
 
 
+def rsl_fatal(rundir: str) -> str | None:
+    """'rsl.error.NNNN: <message>' for the first rank whose rsl has a WRF FATAL block (the
+    line after 'FATAL CALLED FROM FILE'), else None. The rank that stops WRF is often not 0."""
+    for path in sorted(glob.glob(os.path.join(rundir, "rsl.error.*"))):
+        try:
+            with open(path, "r", errors="replace") as f:
+                lines = f.readlines()
+        except OSError:
+            continue
+        for i, ln in enumerate(lines):
+            if "FATAL CALLED FROM FILE" in ln and i + 1 < len(lines):
+                return "%s: %s" % (os.path.basename(path), lines[i + 1].strip())
+    return None
+
+
 def classify_failure(state: str, model_error: bool) -> str:
     """Failure class of a segment job that did not finish: 'infrastructure' (resumable),
     'model', 'cancelled' or 'other'."""

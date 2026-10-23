@@ -32,7 +32,7 @@ from .plan import (RestartSetting, Segment, case_restart_interval_s, checkpoint_
                    checkpoint_steps_for_minutes, missing_record_files, plan_run, restart_setting,
                    restart_times)
 from .report import _write_report, new_report
-from .space import estimate_output_bytes, writable_bytes
+from .space import estimate_output_bytes, input_bytes, writable_bytes
 from .staging import _missing_namelist_files, restart_files
 
 DESCRIPTION = "wtune run -- segmented WRF executor with restart hand-offs (`wtune run`)."
@@ -439,6 +439,13 @@ def check_space(opts: RunOptions, plan: RunPlan, log: Callable, runner=None) -> 
     need, detail = estimate_output_bytes(plan.geo, span_s, n_rst)
     if opts.compress_history:
         need /= 2.0
+    conv, fresh = input_bytes(plan.inputs.bp_plan, plan.inputs.bp_cache,
+                              sweep.campaign_configs._import_wtune_bp())
+    if conv or fresh:
+        need += conv + fresh
+        detail = ", ".join(x for x in (detail, "inputs to BP %s" % _gb(conv) if conv else "",
+                                       "per-segment input copy %s" % _gb(fresh) if fresh else "")
+                           if x)
     if need <= 0:
         return
     where = plan.out

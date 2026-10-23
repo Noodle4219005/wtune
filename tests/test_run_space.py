@@ -126,3 +126,21 @@ def test_rsl_fatal_names_the_rank_and_message(tmp_path):
     assert resume.rsl_fatal(str(tmp_path)) == (
         "rsl.error.0039: crash: wrf: SUCCESS COMPLETE WRF. Fire has reached domain boundary.")
     assert resume.rsl_fatal(str(tmp_path / "none")) is None
+
+
+def test_input_bytes_counts_stale_conversions_and_one_per_record_copy(tmp_path, monkeypatch):
+    """elevconv 2026-10-23: converting 2.0 GB of netCDF inputs wrote 7.9 GB of BP and pushed
+    home2 past its quota; the output estimate had not counted inputs at all."""
+    case = tmp_path / "case"
+    case.mkdir()
+    for n in ("wrfinput_d01", "wrfbdy_d01"):
+        (case / n).write_bytes(b"x")
+    monkeypatch.setattr(space, "netcdf_data_bytes",
+                        lambda p: {"wrfinput_d01": 3e9, "wrfbdy_d01": 5e9}.get(os.path.basename(p), 0.0))
+    plan = {"convert": [str(case / "wrfinput_d01"), str(case / "wrfbdy_d01")],
+            "per_record": {"wrfbdy_d01": str(tmp_path / "cache" / "wrfbdy_d01")}}
+    stale = types.SimpleNamespace(cached_inputs=lambda d, c, names: None)
+    assert space.input_bytes(plan, str(tmp_path / "cache"), stale) == (8e9, 5e9)
+    cached = types.SimpleNamespace(cached_inputs=lambda d, c, names: {n: n for n in names})
+    assert space.input_bytes(plan, str(tmp_path / "cache"), cached) == (0.0, 5e9)
+    assert space.input_bytes(None, None, cached) == (0.0, 0.0)

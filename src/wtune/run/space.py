@@ -37,6 +37,35 @@ def estimate_output_bytes(geo, span_s: float, n_restart_sets: int) -> tuple[floa
     return total, ", ".join(detail)
 
 
+def netcdf_data_bytes(path: str) -> float:
+    """Uncompressed bytes of a netCDF file's variables (its BP conversion is uncompressed: the
+    2.0 GB of elevconv netCDF inputs became 7.9 GB of BP); 4x the file size when unreadable."""
+    try:
+        import netCDF4
+        with netCDF4.Dataset(path) as ds:
+            return float(sum(v.size * v.dtype.itemsize for v in ds.variables.values()))
+    except Exception:                                   # noqa: BLE001 -- an estimate only
+        return 4.0 * os.path.getsize(path) if os.path.exists(path) else 0.0
+
+
+def input_bytes(bp_plan: Optional[dict], cache_dir: Optional[str], bp) -> tuple[float, float]:
+    """(BP conversion still to write into cache_dir, one per-attempt copy of the per-record
+    inputs) for a run's input plan; (0, 0) for --io netcdf."""
+    if not bp_plan:
+        return 0.0, 0.0
+    by_dir: dict = {}
+    for p in bp_plan.get("convert") or []:
+        by_dir.setdefault(os.path.dirname(p), []).append(p)
+    cached = getattr(bp, "cached_inputs", None)
+    convert = sum(netcdf_data_bytes(p) for d, ps in by_dir.items()
+                  if cached is None or cached(d, cache_dir, [os.path.basename(p) for p in ps]) is None
+                  for p in ps)
+    sources = {os.path.basename(p): p for p in bp_plan.get("convert") or []}
+    fresh = sum(_size(t) if os.path.exists(t) else netcdf_data_bytes(sources.get(n, ""))
+                for n, t in (bp_plan.get("per_record") or {}).items())
+    return convert, fresh
+
+
 def _gpfs_device(path: str) -> Optional[str]:
     """The GPFS filesystem holding path (longest mount point in /proc/mounts), else None."""
     best = (None, "")

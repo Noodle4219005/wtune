@@ -61,7 +61,9 @@ installed on f1-arm; the guide has the steps.
 **`wtune run` checks disk space.** Before the first job it estimates the history and restart
 output (frames x a conservative 40 3-D fields per frame) and refuses to submit when that does not
 fit the space writable at `--out`; on GPFS this is the user's quota headroom, not `df`
-(`--no-space-check` overrides). After each job it compares every history frame with the largest
+(`--no-space-check` overrides); the estimate includes the BP conversion of inputs not yet in
+the cache (uncompressed netCDF size: elevconv's 2.0 GB became 7.9 GB) and one per-segment input
+copy. After each job it compares every history frame with the largest
 of its stream: past the f1-arm soft quota WRF+ADIOS2 printed `SUCCESS COMPLETE WRF` while d02
 frames shrank from 1.8 GB to 17 KB, and the run was reported completed. Such a segment now fails.
 The plan also warns when the case sets `debug_level` above 0: sc26p1 (`debug_level=50`) wrote

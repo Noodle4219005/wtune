@@ -425,7 +425,7 @@ def test_param_table_launch_line_and_namelist_lines():
     p = wp.build_param_table(config, nodes=4, io_form=2, io_target="nfs")
     assert p["ranks_per_node"] == 112
     assert p["warning"] is None
-    assert p["launch_line"] == "mpirun -np 448 --map-by ppr:112:node:PE=2 --bind-to core --rank-by node"
+    assert p["launch_line"] == "mpirun -np 448 --map-by ppr:112:node:PE=2 --bind-to core --rank-by node ./wrf.exe"
     assert p["env"]["OMP_NUM_THREADS"] == "2"
     assert p["env"]["OMP_STACKSIZE"] == "1G"
     assert p["namelist_lines"] == ["nproc_x = 16,", "nproc_y = 14,", "numtiles = 12,"]
@@ -439,13 +439,13 @@ def test_param_table_launch_line_matches_scc_sites_site_launch():
     config_block = {"ranks": 448, "omp": 1, "nx": 16, "ny": 28, "numtiles": 1, "dist": "block"}
     p_block = wp.build_param_table(config_block, nodes=4, io_form=2, io_target="nfs")
     assert p_block["dist"] == "block"
-    assert p_block["launch_line"] == "mpirun -np 448 --map-by ppr:112:node:PE=1 --bind-to core"
+    assert p_block["launch_line"] == "mpirun -np 448 --map-by ppr:112:node:PE=1 --bind-to core ./wrf.exe"
     assert "--rank-by" not in p_block["launch_line"]
 
     config_cyclic = dict(config_block, dist="cyclic")
     p_cyclic = wp.build_param_table(config_cyclic, nodes=4, io_form=2, io_target="nfs")
     assert p_cyclic["dist"] == "cyclic"
-    assert p_cyclic["launch_line"] == "mpirun -np 448 --map-by ppr:112:node:PE=1 --bind-to core --rank-by node"
+    assert p_cyclic["launch_line"] == "mpirun -np 448 --map-by ppr:112:node:PE=1 --bind-to core --rank-by node ./wrf.exe"
 
     # config with no 'dist' key at all must NOT guess cyclic (2026-09-23 scc blind-test
     # bug: this used to silently default to "cyclic" and print --rank-by node for a
@@ -1679,3 +1679,13 @@ def test_time_control_datetime_accepts_overflowing_minutes(tmp_path):
     nl = wp.parse_namelist(_write(str(tmp_path / "namelist.input"), NORAD_NAMELIST))
     assert wp.get_time_control_datetime(nl, "end") == datetime.datetime(1, 1, 1, 2, 0, 0)
     assert wp.get_time_control_datetime(nl, "start") == datetime.datetime(1, 1, 1, 0, 0, 0)
+
+
+def test_launch_line_is_the_site_files(monkeypatch):
+    """The parameter table printed scc's mpirun form on every machine (f1-arm 2026-10-14)."""
+    import wtune.machine
+    monkeypatch.setenv("WTUNE_SITE", "f1arm")
+    assert wtune.machine.site_launch_line(90, 90, 1, "block", 1) == \
+        "mpirun -np 90 --map-by ppr:45:numa:PE=1 --bind-to core ./wrf.exe"
+    monkeypatch.setenv("WTUNE_SITE", "nosuchsite")
+    assert wtune.machine.site_launch_line(90, 90, 1, "block", 1) is None

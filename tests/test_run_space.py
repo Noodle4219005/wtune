@@ -144,3 +144,32 @@ def test_input_bytes_counts_stale_conversions_and_one_per_record_copy(tmp_path, 
     cached = types.SimpleNamespace(cached_inputs=lambda d, c, names: {n: n for n in names})
     assert space.input_bytes(plan, str(tmp_path / "cache"), cached) == (0.0, 5e9)
     assert space.input_bytes(None, None, cached) == (0.0, 0.0)
+
+
+def test_tune_refuses_an_input_conversion_that_does_not_fit(monkeypatch, capsys):
+    """elevconv 2026-10-23: `wtune tune` converted the inputs without any space check."""
+    import pytest
+    from wtune.tune import jobs
+    monkeypatch.delenv("WTUNE_INPUT_FORMAT", raising=False)
+    monkeypatch.setattr(jobs, "input_space_need", lambda c, j=None: (8e9, 1e9, "/cache"))
+    with pytest.raises(SystemExit) as e:
+        jobs.check_input_space("elevconv", writable=lambda p: (5e9, "GPFS quota headroom"))
+    assert "needs 8.0 GB in /cache, only 5.0 GB is writable" in str(e.value)
+    jobs.check_input_space("elevconv", writable=lambda p: (12e9, "GPFS quota headroom"))
+    assert "input conversion 8.0 GB of 12.0 GB writable" in capsys.readouterr().out
+    monkeypatch.setattr(jobs, "input_space_need", lambda c, j=None: (_ for _ in ()).throw(KeyError(c)))
+    jobs.check_input_space("unknown", writable=lambda p: (0.0, "x"))     # not checked
+
+
+def test_gzip_rsl_keeps_rank_0_plain(tmp_path):
+    """sc26p1 debug_level=50: 17.6 GB of rsl in 22 minutes, 17x smaller with gzip -1."""
+    import gzip
+    for n in ("rsl.out.0000", "rsl.error.0000", "rsl.out.0001", "rsl.error.0039"):
+        (tmp_path / n).write_text("d01 2020-06-01_00:00:10 tile 1\n" * 1000)
+    n, before, after = space.gzip_rsl(str(tmp_path))
+    assert n == 2 and after < before / 10
+    assert sorted(os.listdir(tmp_path)) == ["rsl.error.0000", "rsl.error.0039.gz", "rsl.out.0000",
+                                            "rsl.out.0001.gz"]
+    with gzip.open(tmp_path / "rsl.error.0039.gz", "rt") as fh:
+        assert fh.read() == "d01 2020-06-01_00:00:10 tile 1\n" * 1000
+    assert space.gzip_rsl(str(tmp_path)) == (0, 0, 0)

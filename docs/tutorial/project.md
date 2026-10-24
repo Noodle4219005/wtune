@@ -16,8 +16,8 @@ mycase/
   manifest.jsonl      每個 wtune 指令一行：時間、版本、指令、輸入的 sha256、輸出、exit code
   case/               namelist.input 是副本，可以改；wrfinput、wrfbdy 等是 symlink，唯讀
   input/
-    bp/               run 用的 ADIOS2 輸入（第一次 run 時轉好）
-    bp-cache/         tune 用的 ADIOS2 輸入
+    bp-cache/         ADIOS2 輸入，tune 和 run 共用（第一次 tune 或 run 時轉好）
+    bp/               0.9.3 以前的 run 用的 ADIOS2 輸入（舊專案才有）
     era5/             wtune post fetch era5
     obs/<name>/       stage4、igra、stations、mrms…，各附 provenance.json
   tune/<id>/          一次 tune
@@ -193,7 +193,7 @@ machine:
 | `geog` | 等同環境變數 `WPS_GEOG`，重建個案時 geogrid 會用到 |
 | `max_hours` | 設了之後，`wtune run` 會把整段模擬切成每段都跑得完的長度，探測與重建工作的時限也不會超過它。不設就和以前一樣 |
 | `max_omp` | WRF 是沒有 OpenMP 的編譯（dmpar）時設 1：調校從節點掃描的基準組態開始就只用單執行緒，不會留一半核心閒置。不設就和以前一樣 |
-| `node_preflight` | 內建會在調校前對 partition 裡每個節點各送一個 1 分鐘的 `srun`，找出不能用的節點。排程器限制每人可送出的工作數時（例如上限 12 個而節點有 40 個），多出來的探測會被拒絕並被當成節點有問題，所以要設成 `false`（`--node-preflight off`） |
+| `node_preflight` | 內建會在調校前對 partition 裡每個節點各送一個 1 分鐘的 `srun`，找出不能用的節點。排程器限制每人可送出的工作數時（例如上限 12 個而節點有 40 個），多出來的探測會被拒絕；被拒絕或 30 秒內沒拿到節點的探測，節點會保留、標成「沒探測」，不會被排除。這種叢集上檢查幫助不大，又要排隊，可以設成 `false`（`--node-preflight off`） |
 | `node_memory_gib` | 調校前先估每個配置每節點要多少記憶體，放不下的不送；第一個成功探測的 MaxRSS 會校正後面的估計。用 `scontrol show node <節點> \| grep RealMemory`（MB）換算 |
 | `copy_probe_inputs` | 內建每個探測作業各自複製一份 BP 輸入，避開 scc NFS 多人同時開檔卡住的問題。沒有 reflink 時是整份複製，一波幾個作業就是好幾份；在有配額的檔案系統（例如 f1-arm 的 100 G home2）設成 `false`。副本在作業結束後一律刪除 |
 | `measured` | 見下方「measured」 |

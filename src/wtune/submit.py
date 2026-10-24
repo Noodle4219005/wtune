@@ -30,6 +30,14 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--compress-history", action="store_true",
                     help="the run's history frames become checked zlib netCDF as they are "
                          "written (wtune run --compress-history)")
+    ap.add_argument("--resume", type=int, default=None, metavar="N",
+                    help="wtune run --resume N (default there: 1)")
+    ap.add_argument("--checkpoint-minutes", default=None, metavar="M",
+                    help="wtune run --checkpoint-minutes M (default there: auto)")
+    ap.add_argument("--stall-minutes", type=float, default=None, metavar="M",
+                    help="wtune run --stall-minutes M (default there: 20)")
+    ap.add_argument("--no-space-check", action="store_true",
+                    help="wtune tune and wtune run --no-space-check")
     ap.add_argument("--detach", action="store_true",
                     help="keep going after logout; output goes to <project>/submit-<id>.log")
     ap.add_argument("--dry-run", action="store_true", help="print the steps only")
@@ -91,10 +99,11 @@ def fetch_steps(project_dir: str, names: list[str], window) -> list[tuple[str, l
 
 
 def plan_steps(project_dir: str, out_id: str, level: str, skip_tune: bool, no_post: bool,
-               fetch: list | None = None,
-               compress_history: bool = False) -> list[tuple[str, list[str]]]:
+               fetch: list | None = None, compress_history: bool = False,
+               run_args: tuple = (), no_space_check: bool = False) -> list[tuple[str, list[str]]]:
     """[(step name, argv), ...] for one submit. `fetch` steps (observations) never stop it.
-    The project's own wtune.yaml, when there is one, is the tune's --config."""
+    The project's own wtune.yaml, when there is one, is the tune's --config; run_args are
+    appended to the run."""
     def out(sub):
         return os.path.join(project_dir, sub, out_id)
 
@@ -102,11 +111,16 @@ def plan_steps(project_dir: str, out_id: str, level: str, skip_tune: bool, no_po
     run = [WTUNE_BIN, "run", "--project", project_dir, "--out", out("runs")]
     if compress_history:
         run.append("--compress-history")
+    run += list(run_args)
+    if no_space_check:
+        run.append("--no-space-check")
     if not skip_tune:
         tune = [WTUNE_BIN, "tune", "-O" + level, "--project", project_dir, "--out", out("tune")]
         config = os.path.join(project_dir, "wtune.yaml")
         if os.path.isfile(config):
             tune += ["--config", config]
+        if no_space_check:
+            tune.append("--no-space-check")
         steps.append(("tune", tune))
         run += ["--tune-report", os.path.join(out("tune"), "tune_report.json")]
     steps.append(("run", run))
@@ -115,6 +129,16 @@ def plan_steps(project_dir: str, out_id: str, level: str, skip_tune: bool, no_po
         steps.append(("post", [WTUNE_BIN, "post", "recipe", out("runs"), "--project",
                                project_dir, "--out", out("post"), "--srun"]))
     return steps
+
+
+def run_args(args: argparse.Namespace) -> list[str]:
+    """The wtune run options submit passes through, only those given."""
+    out = []
+    for flag, value in (("--resume", args.resume), ("--checkpoint-minutes", args.checkpoint_minutes),
+                        ("--stall-minutes", args.stall_minutes)):
+        if value is not None:
+            out += [flag, "%g" % value if isinstance(value, float) else str(value)]
+    return out
 
 
 def _call(cmd: list, cwd: str) -> int:
@@ -187,7 +211,7 @@ def main(argv: list[str] | None = None) -> int:
             print("note: case window unreadable (namelist.input/wrfinput_d01): observations "
                   "not fetched; post marks those figures missing")
     steps = plan_steps(project_dir, out_id, args.level, args.skip_tune, args.no_post, fetch,
-                       args.compress_history)
+                       args.compress_history, run_args(args), args.no_space_check)
     if args.dry_run:
         for name, cmd in steps:
             print("%-4s  %s" % (name, " ".join(cmd)))

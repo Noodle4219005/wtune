@@ -424,3 +424,17 @@ def test_init_keeps_the_wrfrst_of_a_case_without_wrfinput(tmp_path, case_dir, mo
         entry = list(json.load(fh)["cases"].values())[0]
     assert (entry["restart"], entry["input_files"], entry["restart_time"],
             entry["restart_io_form"]) == (True, rst, "2019-01-28_00:00:00", 2)
+
+
+def test_submit_passes_run_options_and_the_space_check_bypass(project):
+    """2026-10-14: --stall-minutes, --checkpoint-minutes and --resume reached only `wtune run`."""
+    args = wtune.submit.build_parser().parse_args(
+        ["--resume", "0", "--checkpoint-minutes", "60", "--stall-minutes", "5", "--no-space-check"])
+    assert wtune.submit.run_args(args) == ["--resume", "0", "--checkpoint-minutes", "60",
+                                           "--stall-minutes", "5"]
+    steps = dict(wtune.submit.plan_steps(project, "ID", "2", False, True, None, False,
+                                         wtune.submit.run_args(args), args.no_space_check))
+    run = " ".join(steps["run"])
+    assert "--resume 0 --checkpoint-minutes 60 --stall-minutes 5 --no-space-check" in run
+    assert steps["tune"][-1] == "--no-space-check"
+    assert wtune.submit.run_args(wtune.submit.build_parser().parse_args([])) == []

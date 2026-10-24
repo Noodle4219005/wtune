@@ -60,7 +60,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     ap.add_argument("--io", choices=("adios2", "netcdf"), default="adios2",
                     help="adios2 (default, 2026-10-03 decision): every stream -- history, "
                          "restart, input, boundary, aux inputs -- is ADIOS2 (io_form 14); "
-                         "netCDF inputs are converted once into <project>/input/bp/ (no "
+                         "netCDF inputs are converted once into the project's tune cache "
+                         "<project>/input/bp-cache/<case>/<key>/ (shared with wtune tune; no "
                          "project: OUT/_bp_inputs/) and linked as <name>.bp. netcdf: LEGACY "
                          "escape hatch -- the case's own io_form_* are kept (restart still per "
                          "--restart-io-form)")
@@ -368,8 +369,9 @@ def _plan_notes(opts: RunOptions, case: Case, L: Optional[int], segs: list,
     if debug.lstrip("-").isdigit() and int(debug) > 0:
         notes.append("WARNING: case sets debug_level=%s: every rank writes per-step lines to "
                      "rsl.out.* (sc26p1, debug_level=50: ~31 MB per rank per 6 model hours), "
-                     "which the output estimate does not count and which slows the run; set 0 "
-                     "unless you are debugging" % debug)
+                     "which the output estimate does not count and which slows the run; ranks "
+                     "> 0 are gzipped after each segment that succeeds, so --segment-minutes "
+                     "bounds the peak; set 0 unless you are debugging" % debug)
     if coldstart.get_first(text, "write_hist_at_0h_rst", ".false.").lower().startswith(".t"):
         notes.append("case sets write_hist_at_0h_rst=.true.: every resumed segment repeats "
                      "its start history frame")

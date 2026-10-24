@@ -14,6 +14,11 @@ import wtune.machine
 from ._deps import sweep
 
 PREFLIGHT_TIMEOUT_S = 45.0             # s per srun probe
+IMMEDIATE_S = 30                       # srun --immediate: give up an allocation not granted by then
+# srun lines of an allocation the scheduler refused or did not grant in time: a statement about
+# the queue (a reservation, a per-user submit limit), not about the node
+SCHEDULER_REFUSAL = ("Unable to allocate resources", "Immediate execution impossible",
+                     "QOSMax", "AssocMax", "violates accounting/QOS policy", "Job submit/allocate failed")
 SINFO_TIMEOUT_S = 30                   # s for the sinfo call
 BUSY_STATES = ("alloc", "mix")         # sinfo %T of a node running someone's job
 HEALTH_BAD_STATES = ("down", "drain", "fail", "maint", "unk", "no_respond", "inval", "powered")
@@ -56,16 +61,24 @@ def _sinfo_states(text: str) -> dict[str, str]:
 
 def _probe_node(runner: Runner, n: str, state: str, script: str,
                 timeout_s: float) -> tuple[str, dict]:
-    """(node, {state, ok, probed, reason}) of one srun probe; a timeout on a node other jobs
-    are using (allocated, or mixed on a cluster that shares nodes) only means it is busy:
-    kept, unprobed."""
+    """(node, {state, ok, probed, reason}) of one srun probe. Kept, unprobed: a node the
+    scheduler did not allocate within IMMEDIATE_S or refused to (reserved, busy, a per-user
+    limit -- scc 2026-10-13 excluded such nodes as unhealthy), and a timeout on a node other
+    jobs are using. A probe that timed out has its job cancelled by name: killing srun left
+    it PENDING (scc job 4921)."""
     login = wtune.machine.login_nodes()
-    argv = (["srun", "-p", wtune.machine.partition(), "-w", n, "-N1", "-n1", "-t", "1"]
+    name = "wtune-preflight-%d-%s" % (os.getpid(), n)
+    argv = (["srun", "-p", wtune.machine.partition(), "-w", n, "-N1", "-n1", "-t", "1",
+             "--immediate=%d" % IMMEDIATE_S, "--job-name=" + name]
             + [a for a in ("--exclude=" + ",".join(login) if login else "",
                            wtune.machine.account_arg()) if a] + ["bash", "-c", script])
     try:
         rc, out = runner(argv, timeout_s)
     except subprocess.TimeoutExpired:
+        try:
+            runner(["scancel", "--name=" + name], SINFO_TIMEOUT_S)
+        except (OSError, subprocess.SubprocessError):
+            pass
         if state.lower().startswith(BUSY_STATES):
             return n, dict(state=state, ok=True, probed=False,
                            reason="in use by another job: not probed (timed out waiting)")
@@ -75,6 +88,10 @@ def _probe_node(runner: Runner, n: str, state: str, script: str,
         return n, dict(state=state, ok=False, probed=True, reason="probe error: %s" % e)
     if rc == 0:
         return n, dict(state=state, ok=True, probed=True, reason="")
+    refusal = [ln for ln in (out or "").splitlines() if any(r in ln for r in SCHEDULER_REFUSAL)]
+    if refusal:
+        return n, dict(state=state, ok=True, probed=False,
+                       reason="not allocated, not probed: %s" % refusal[-1].strip())
     return n, dict(state=state, ok=False, probed=True,
                    reason="probe failed rc=%d: %s" % (rc, (out or "").splitlines()[-1]
                                                        if out else "no output"))

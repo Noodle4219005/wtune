@@ -1,5 +1,5 @@
 """ADIOS2 inputs of a run (--io adios2, the default since 2026-10-03): which streams switch
-to io_form 14, where their BP copies live (<project>/input/bp, else OUT/_bp_inputs), which
+to io_form 14, where their BP copies live (the project's tune cache, see bp_cache_dir), which
 are one BP per record (WRF 4.8's reader returns record 1 of a multi-record BP), and the
 conversion that happens once before segment 0 is submitted."""
 from __future__ import annotations
@@ -45,13 +45,28 @@ def find_project_dir(project: Optional[str] = None) -> Optional[str]:
         raise RunError(str(e))
 
 
-def bp_cache_dir(out: str, project: Optional[str] = None) -> str:
-    """BP input cache: <project>/input/bp/ when a project resolves (decision 0058), else
-    OUT/_bp_inputs/."""
+def bp_cache_dir(out: str, project: Optional[str] = None, case_dir: Optional[str] = None) -> str:
+    """BP input cache. In a project whose case id is known: the tune's cache of this case dir
+    (${WTUNE_BP_CACHE:-<project>/input/bp-cache}/<case>/<key>, as `wtune tune` sets it), so tune
+    and run convert the inputs once (f1-arm marshall 2026-10-21 held 3 GB twice); an older
+    project's <project>/input/bp/ is kept while it has a conversion and the tune's has none.
+    Otherwise <project>/input/bp/ (decision 0058), else OUT/_bp_inputs/."""
     project_dir = find_project_dir(project)
-    if project_dir:
-        return os.path.join(os.path.abspath(project_dir), "input", "bp")
-    return os.path.join(out, "_bp_inputs")
+    if not project_dir:
+        return os.path.join(out, "_bp_inputs")
+    import wtune.project
+    project_dir = os.path.abspath(project_dir)
+    legacy = os.path.join(project_dir, "input", "bp")
+    case_id = wtune.project.project_case_id(wtune.project.load_project(project_dir))
+    if not case_id or not case_dir:
+        return legacy
+    root = os.environ.get("WTUNE_BP_CACHE") or os.path.join(project_dir, "input", "bp-cache")
+    shared = sweep.campaign_configs.bp_cache_dir(case_id, case_dir, root=root)
+    manifest = "bp_manifest.json"                  # wtune.bp.MANIFEST_NAME
+    if os.path.exists(os.path.join(legacy, manifest)) \
+            and not os.path.exists(os.path.join(shared, manifest)):
+        return legacy
+    return shared
 
 
 def adios2_streams_or_raise(bp_plan: dict, case_dir: str, notes: list) -> list:
@@ -108,7 +123,7 @@ def plan_inputs(io: str, text: str, nl: dict, geo: Geometry, case_dir: str, out:
     if io != "adios2":
         return InputPlan()
     cc = sweep.campaign_configs
-    bp_cache = bp_cache_dir(out, project)
+    bp_cache = bp_cache_dir(out, project, case_dir)
     bp_plan = cc.resolve_bp_inputs(text, case_dir, bp_cache, convert=False)
     io_streams = adios2_streams_or_raise(bp_plan, case_dir, notes)
     per_record = _per_record_of(bp_plan, io_streams)

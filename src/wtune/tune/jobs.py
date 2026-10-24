@@ -7,6 +7,7 @@ import os
 import re
 import shutil
 import sys
+from typing import Callable
 
 import wtune.machine
 import wtune.stopping
@@ -239,6 +240,47 @@ def ensure_bp_inputs(ctx: Ctx, cases: list[tuple], out_dir: str) -> None:
                                                           job_id))
 
 
+def _writable_at(path: str) -> tuple[float, str]:
+    """wtune.run.space.writable_bytes at path's nearest existing ancestor."""
+    from wtune.run.space import writable_bytes
+    while not os.path.exists(path) and os.path.dirname(path) != path:
+        path = os.path.dirname(path)
+    return writable_bytes(path)
+
+
+def input_space_need(case_id: str, cases_json: str | None = None) -> tuple[float, float, str]:
+    """(bytes of the BP conversion still to write, bytes of one per-record input copy, cache
+    dir) of the case's probe inputs."""
+    from wtune.run.space import input_bytes
+    cc = sweep.campaign_configs
+    res, cache, _stale = cc._case_bp_plan(case_id, cases_json)
+    conv, copy = input_bytes(res, cache, cc._import_wtune_bp())
+    return conv, copy, cache
+
+
+def check_input_space(case_id: str, cases_json: str | None = None,
+                      writable: Callable | None = None) -> None:
+    """SystemExit before any job when converting the case's inputs to BP does not fit the space
+    writable at the cache (f1-arm elevconv 2026-10-23: 2.0 GB of netCDF became 7.9 GB of BP and
+    pushed home2 past its quota); a line when it takes half of it. A case whose plan cannot be
+    read (legacy netCDF, unknown case) is not checked."""
+    if os.environ.get("WTUNE_INPUT_FORMAT") == "netcdf":
+        return
+    try:
+        conv, _copy, cache = input_space_need(case_id, cases_json)
+    except (KeyError, OSError):
+        return
+    if conv <= 0:
+        return
+    free, src = (writable or _writable_at)(cache)
+    if conv > free:
+        raise SystemExit("wtune tune: converting the inputs of %s to BP needs %.1f GB in %s, "
+                         "only %.1f GB is writable (%s) -- free space, or bypass with "
+                         "--no-space-check" % (case_id, conv / 1e9, cache, free / 1e9, src))
+    if conv >= 0.5 * free:
+        print("input conversion %.1f GB of %.1f GB writable (%s)" % (conv / 1e9, free / 1e9, src))
+
+
 def fresh_input_export(ctx: Ctx, case_id: str, job_out_dir: str, runs: int,
                        cases_json: str | None = None) -> list[tuple]:
     """[("WTUNE_BP_FRESH_DIR", dir)] after making `runs` per-record input copies here, on the
@@ -253,6 +295,16 @@ def fresh_input_export(ctx: Ctx, case_id: str, job_out_dir: str, runs: int,
             raise SystemExit(str(e)) from e
     if not wtune.machine.copy_probe_inputs():
         return []                               # the jobs read the shared BP cache
+    try:
+        _conv, one, _cache = input_space_need(case_id, cases_json)
+        free, src = _writable_at(job_out_dir)
+    except (KeyError, OSError):
+        one, free, src = 0.0, 0.0, ""
+    if one * runs > free:
+        sys.stderr.write("WARNING: %d per-record input copies for %s need %.1f GB, only %.1f GB is "
+                         "writable (%s): the job reads the shared BP cache\n"
+                         % (runs, case_id, one * runs / 1e9, free / 1e9, src))
+        return []
     try:
         d = sweep.campaign_configs.fresh_probe_inputs(
             case_id, os.path.join(job_out_dir, "bp_fresh"), runs, cases_json=cases_json)

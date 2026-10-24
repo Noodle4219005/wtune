@@ -21,7 +21,7 @@ from .sbatch import render_segment_sbatch
 from .staging import (merge_adios2_xml, output_dir_names, precreate_output_dirs,
                       remove_empty_output_dirs, render_adios2_restart_xml, restart_files,
                       setup_segment_dir)
-from .space import shrunk_outputs
+from .space import _fmt_bytes, gzip_rsl, shrunk_outputs
 
 UNKNOWN_POLLS_MAX = 10                 # sacct not listing a fresh job id yet: poll this many times
 
@@ -270,4 +270,9 @@ def _run_attempt(ctx: RunContext, k: int, seg: Segment, att: Attempt, is_last: b
         shrunk = shrunk_outputs(seg_dir, out_names)
         if shrunk:
             rec.shrunk, rec.ok = shrunk, False
+    if rec.ok:                      # a failed attempt keeps its rsl plain for the diagnosis
+        n, before, after = gzip_rsl(seg_dir)
+        if n:
+            run.log("segment rsl: %d files of ranks > 0 gzipped, %s -> %s"
+                    % (n, _fmt_bytes(before), _fmt_bytes(after)))
     return Outcome(seg_dir, rec, state, elapsed, snap, rec.ok)

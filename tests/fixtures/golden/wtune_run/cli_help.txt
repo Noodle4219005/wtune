@@ -33,8 +33,9 @@ options:
   --restart-io-form {14,2}
   --io {adios2,netcdf}  adios2 (default, 2026-10-03 decision): every stream -- history, restart,
                         input, boundary, aux inputs -- is ADIOS2 (io_form 14); netCDF inputs are
-                        converted once into <project>/input/bp/ (no project: OUT/_bp_inputs/) and
-                        linked as <name>.bp. netcdf: LEGACY escape hatch -- the case's own
+                        converted once into the project's tune cache <project>/input/bp-
+                        cache/<case>/<key>/ (shared with wtune tune; no project: OUT/_bp_inputs/)
+                        and linked as <name>.bp. netcdf: LEGACY escape hatch -- the case's own
                         io_form_* are kept (restart still per --restart-io-form)
   --cfl-rescue          re-run a CFL/NaN-failed segment once with 0.75 dt (marks PHYSICS-GRAY).
                         This is the ONLY user-pre-authorized exception to decision 0056's

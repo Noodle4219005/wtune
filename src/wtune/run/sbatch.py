@@ -1,6 +1,7 @@
 """The segment job script: exclusive nodes, the shared signal-trap + node-hygiene preamble
 (coldstart_sample, dispatched by campaign/sites/scc.sh), OMP env and mpirun binding as on scc,
-last line 'SEGMENT rc=<rc> wall=<s> ok=<SUCCESS COMPLETE WRF count>'."""
+the 'SEGMENT rc=<rc> wall=<s> ok=<SUCCESS COMPLETE WRF count>' record, then the Thompson table
+cache."""
 from __future__ import annotations
 
 import os
@@ -61,6 +62,12 @@ def render_segment_sbatch(seg_dir: str, k: int, config: Config, time_limit: str,
                                                      ": > \"$STATUS\""],
         record_label="SEGMENT")
     lines += ["cd \"$SEG\"",
+              # Thompson computes its qr_acr_q*/freezeH2O tables at init when absent (~70 s,
+              # every segment); they depend only on the build: coldstart_sample's per-build cache
+              "TBL_CACHE=\"${WTUNE_TABLE_CACHE:-$HOME/wtune-runs/thompson_tables}/$(readlink -f "
+              "\"$W/main/wrf.exe\" | sha1sum | cut -c1-16)\"",
+              "shopt -s nullglob; for f in \"$TBL_CACHE\"/qr_acr_q*.dat \"$TBL_CACHE\"/freezeH2O.dat; "
+              "do [ -e \"$(basename \"$f\")\" ] || ln -s \"$f\" .; done; shopt -u nullglob",
               "for f in \"$W\"/run/*; do",
               "  b=$(basename \"$f\")",
               "  case \"$b\" in namelist.input|namelist.output|wrfout*|wrfinput*|wrfbdy*|wrfrst*|rsl.*) ;;",
@@ -70,4 +77,12 @@ def render_segment_sbatch(seg_dir: str, k: int, config: Config, time_limit: str,
               "unset KMP_BLOCKTIME"]
     lines.append("export OMP_PLACES=cores OMP_PROC_BIND=close" if config.omp > 1
                  else "unset OMP_PLACES OMP_PROC_BIND")
-    return "\n".join(lines + _launch_lines(k, config)) + "\n"
+    # tables this segment computed go to the cache, only from a run that completed, via a
+    # temporary name so a concurrent segment never links a partial file
+    harvest = ["if [ \"$rc\" -eq 0 ] && [ \"$ok\" -gt 0 ]; then",
+               "  shopt -s nullglob; for f in qr_acr_q*.dat freezeH2O.dat; do",
+               "    [ -L \"$f\" ] || [ -e \"$TBL_CACHE/$f\" ] || { mkdir -p \"$TBL_CACHE\" && "
+               "cp -f \"$f\" \"$TBL_CACHE/.$f.$$\" && mv -f \"$TBL_CACHE/.$f.$$\" \"$TBL_CACHE/$f\"; }",
+               "  done; shopt -u nullglob",
+               "fi"]
+    return "\n".join(lines + _launch_lines(k, config) + harvest) + "\n"

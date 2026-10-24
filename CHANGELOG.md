@@ -92,6 +92,46 @@ twice. It is now left out with an info note pointing to the precip figures. The
 `precip_ets_fbias` caption named thresholds 1/10/25/50/100 mm; it now names the ones used,
 0.254/2.54/6.35/12.7/25.4/50 mm.
 
+**Tune and run share one BP input conversion.** In a project, `wtune run` now uses the tune's
+cache `<project>/input/bp-cache/<case>/<key>/` (or `$WTUNE_BP_CACHE`, as the tune does) instead
+of its own `<project>/input/bp/`; marshall held the same 3 GB conversion twice. A project whose
+`input/bp/` already has a conversion keeps using it until the tune's cache has one.
+
+**`wtune tune` checks disk space.** Before any job it estimates the BP conversion of the case's
+inputs not yet in the cache and stops when it does not fit the space writable there (GPFS quota
+headroom; `--no-space-check` overrides). When the per-job per-record input copies would not
+fit, the job reads the shared cache instead, with a warning.
+
+**The confirm round includes the fastest measured layout.** It took the top 3 by predicted
+run time and the anchor; the prediction does not see `dist`, so on f1-arm conus12 a cyclic
+layout measured at 0.132 s/step was never confirmed against block layouts at 0.187.
+
+**Node pre-flight on shared clusters.** A probe the scheduler refuses or does not start within
+30 s (`srun --immediate=30`: a reservation, a busy node, a per-user submit limit) no longer
+excludes the node as unhealthy; it is kept and reported as not probed. A probe that times out
+has its job cancelled by name (`wtune-preflight-<pid>-<node>`): a killed `srun` left a PENDING
+job behind on scc.
+
+**Thompson tables are cached for `wtune run`.** Every segment linked no `qr_acr_q*.dat` /
+`freezeH2O.dat`, so Thompson recomputed them at each start (~70 s). Segments now link them from
+the per-build cache the coldstart probes use (`$WTUNE_TABLE_CACHE`, default
+`~/wtune-runs/thompson_tables/<build>`) and add the ones they computed after a completed run.
+
+**`rsl` files are compressed.** After a segment succeeds, the `rsl.out` and `rsl.error` files of
+every rank but 0 are gzipped (`gzip -1`, about 17x on sc26p1's `debug_level=50` logs, which wrote
+17.6 GB in 22 minutes). A failed segment keeps them plain for the diagnosis.
+
+**`wtune submit` passes the run's options.** `--resume`, `--checkpoint-minutes` and
+`--stall-minutes` go to `wtune run`; `--no-space-check` goes to both tune and run.
+
+**Launch lines in reports.** The tune report and `wtune predict` printed scc's
+`mpirun ... ppr:N:node` on every machine; they now print the command the site file's
+`site_launch` builds (f1-arm: `ppr:45:numa`).
+
+**Terrain captions.** `terrain_point_stat` and `terrain_leeward_station` said no station
+observations were fetched; they now describe the ISD-Lite / MET Point-Stat figures and the lee
+station rule (30-100 km downstream of the crest, within 25 km of the section line).
+
 **Docs.** `-O3` is described as what it does: it measures the whole space, with no model rounds.
 The workflow, tune and post flowcharts have colour legends.
 

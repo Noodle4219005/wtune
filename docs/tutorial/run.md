@@ -71,7 +71,7 @@ flowchart TD
 
 ## I/O 格式
 
-預設所有 I/O 都走 ADIOS2（`io_form 14`）：歷史輸出、restart、輸入、邊界條件，以及個案自己開的 `auxhistN` 輸出（例如 isc21 的驗證輸出：scc 上 18 張從 162.5 秒降到 3.37 秒）。個案原本的 netCDF 輸入會轉換一次，放在 `<project>/input/bp/` 重複使用。
+預設所有 I/O 都走 ADIOS2（`io_form 14`）：歷史輸出、restart、輸入、邊界條件，以及個案自己開的 `auxhistN` 輸出（例如 isc21 的驗證輸出：scc 上 18 張從 162.5 秒降到 3.37 秒）。個案原本的 netCDF 輸入會轉換一次，放在 `<project>/input/bp-cache/` 重複使用；這和 `wtune tune` 用的是同一份，先 tune 再 run 不會再轉一次。
 
 ADIOS2 的輸出是 BP 目錄。要交 netCDF 檔時，用 `wtune convert bp2nc <BP 目錄> --out <資料夾>` 轉回；數值與 WRF 直接寫的 netCDF 逐位元相同，只有字串屬性前後的空白會被去掉（例如 `MemoryOrder` 的 `'XY '` 變成 `'XY'`）。
 

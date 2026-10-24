@@ -85,7 +85,9 @@ I/O (--io, default adios2; 2026-10-03 user decision: netCDF is no longer used fo
     auxinput4_inname="wrflowinp_d<domain>.bp", ... -- campaign/configs._apply_adios2's
     convention) and each segment dir links wrfinput_d01.bp, wrfbdy_d01.bp, wrflowinp_d01.bp, ...
     to: CASE_DIR/<name>.bp if the case already has it, else the netCDF CASE_DIR/<name> converted
-    once by wtune.bp.convert_inputs into <project>/input/bp/ (no project: OUT/_bp_inputs/),
+    once by wtune.bp.convert_inputs into the tune's cache <project>/input/bp-cache/<case>/<key>/
+    (shared with wtune tune; an older project keeps its <project>/input/bp/; no project:
+    OUT/_bp_inputs/),
     before segment 0 is submitted. adios2.xml = the case's own + wtune.bp.adios2_xml() + the BP4
     restart entries below. An aux stream whose file is missing keeps the case's io_form (a
     note). --io netcdf is the LEGACY escape hatch (WARNING): the case's io_form_* stay as they

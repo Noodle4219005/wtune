@@ -1498,17 +1498,15 @@ def build_param_table(config: dict, nodes: int, io_form: int, io_target: str,
         warnings.append("%d ranks/node x omp %d = %d cores exceeds %d cores/node"
                         % (tpn, omp, tpn * omp, cores_per_node))
 
-    # Matches campaign/sites/scc.sh site_launch() exactly: --rank-by node reproduces
-    # WRF's cyclic across-node rank order for dist=cyclic; block is OMPI5's own
-    # default rank-by, so the block case adds no extra flag. dist=UNKNOWN adds
-    # neither -- the line is INCOMPLETE, not equivalent to block, hence the note.
-    launch = ("mpirun -np %d --map-by ppr:%d:node:PE=%d --bind-to core"
-              % (ranks, tpn if tpn else 0, omp))
-    if dist == "cyclic":
-        launch += " --rank-by node"
-    elif dist is None:
-        warnings.append("dist not provided; launch line incomplete (cannot tell whether "
-                         "--rank-by node is needed -- see campaign/sites/scc.sh site_launch())")
+    # The launch line this machine's site file builds (campaign/sites/<site>.sh site_launch).
+    # dist=UNKNOWN is shown as block, which may differ from what the run uses, hence the note.
+    launch = (wtune.machine.site_launch_line(ranks, tpn or 0, omp, dist or "block", nodes or 1)
+              or "site_launch %d %d %d %s (campaign/sites/%s.sh)"
+              % (ranks, tpn or 0, omp, dist or "block", wtune.machine.site()))
+    if dist is None:
+        warnings.append("dist not provided; launch line shown for block (a cyclic layout "
+                        "launches differently -- campaign/sites/%s.sh site_launch)"
+                        % wtune.machine.site())
 
     env = {"OMP_NUM_THREADS": str(omp), "OMP_STACKSIZE": "1G",
            "OMP_PLACES": "cores", "OMP_PROC_BIND": "close", "ulimit -s": "unlimited"}

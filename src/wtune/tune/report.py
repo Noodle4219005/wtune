@@ -10,6 +10,7 @@ import math
 import os
 
 import wtune.extensions
+import wtune.machine
 from ._deps import wc, predict
 from .candidates import rank_predicted_entries
 from .common import _fmt_hms
@@ -24,17 +25,16 @@ LAYOUT_ROWS_SHOWN = 40               # rows of node_selection.layouts printed (t
 
 
 def local_param_table(config: dict, nodes: int) -> dict:
-    """Parameter table of `config` at `nodes`: namelist lines, the mpirun line of campaign/sites/
-    scc.sh site_launch (cyclic adds --rank-by node) and its env. wtune.predict.build_param_table
+    """Parameter table of `config` at `nodes`: namelist lines, the launch line this machine's
+    site file builds (wtune.machine.site_launch_line) and its env. wtune.predict.build_param_table
     is not used: it hardcodes dist=cyclic."""
     ranks, omp = int(config["ranks"]), int(config["omp"])
     nx, ny, numtiles = int(config["nx"]), int(config["ny"]), int(config["numtiles"])
     dist = config.get("dist", "block")
     tpn = ranks // nodes if nodes else ranks
-    launch = "mpirun -np %d --map-by ppr:%d:node:PE=%d --bind-to core" % (ranks, tpn, omp)
-    if dist == "cyclic":
-        launch += " --rank-by node"     # site_launch(): cyclic reproduces WRF's cyclic rank order
-    launch += " ./wrf.exe"
+    launch = (wtune.machine.site_launch_line(ranks, tpn, omp, dist, nodes or 1)
+              or "site_launch %d %d %d %s (campaign/sites/%s.sh)"
+              % (ranks, tpn, omp, dist, wtune.machine.site()))
     return dict(
         ranks=ranks, omp=omp, nodes=nodes, ranks_per_node=tpn, nproc_x=nx, nproc_y=ny,
         numtiles=numtiles, dist=dist, launch_line=launch,

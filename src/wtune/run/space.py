@@ -7,8 +7,11 @@ output volume is estimated up front against the space actually writable, and eac
 history frames are compared with the stream's largest frame afterwards."""
 from __future__ import annotations
 
+import glob
+import gzip
 import os
 import pwd
+import shutil
 import subprocess
 from typing import Callable, Optional
 
@@ -129,6 +132,27 @@ def shrunk_outputs(seg_dir: str, names: list) -> list:
         top = max(s for _n, s in items)
         out += [n for n, s in items if s < SHRUNK_FRAC * top]
     return sorted(out)
+
+
+def gzip_rsl(seg_dir: str) -> tuple[int, int, int]:
+    """gzip -1 every rsl.out.NNNN / rsl.error.NNNN of the segment but rank 0's (the progress,
+    timing and FATAL readers use rank 0 or run before this); (files, bytes before, after).
+    sc26p1's frozen debug_level=50 wrote 17.6 GB of rsl in 22 minutes; gzip -1 takes it 17x
+    down."""
+    n = before = after = 0
+    for p in sorted(glob.glob(os.path.join(seg_dir, "rsl.out.*")) +
+                    glob.glob(os.path.join(seg_dir, "rsl.error.*"))):
+        if p.endswith((".0000", ".gz")) or os.path.islink(p) or not os.path.isfile(p):
+            continue
+        tmp = p + ".gz.tmp"
+        with open(p, "rb") as src, gzip.open(tmp, "wb", compresslevel=1) as dst:
+            shutil.copyfileobj(src, dst, 1 << 20)
+        before += os.path.getsize(p)
+        os.replace(tmp, p + ".gz")
+        os.remove(p)
+        after += os.path.getsize(p + ".gz")
+        n += 1
+    return n, before, after
 
 
 def _size(p: str) -> int:

@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
+import subprocess
 
 DEFAULTS = {"cores_per_node": 72,       # hardware cores of one compute node (scc GH200)
             "max_nodes": 13,            # compute nodes one job may use (scc work[1-13])
@@ -252,6 +254,23 @@ def site() -> str:
     return _name("site")
 
 
+def site_launch_line(ranks: int, ranks_per_node: int, omp: int, dist: str, nodes: int,
+                     campaign: str | None = None) -> str | None:
+    """The command campaign/sites/<site>.sh's site_launch builds -- what probes and run segments
+    execute -- or None when the site file cannot be sourced here."""
+    campaign = campaign or os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
+        os.path.abspath(__file__)))), "campaign")
+    script = ('CAMPAIGN=%s; source "$CAMPAIGN/sites/%s.sh" >/dev/null 2>&1 && '
+              'site_launch %d %d %d %s && echo "${SITE_LAUNCH_CMD[*]}"'
+              % (shlex.quote(campaign), site(), ranks, ranks_per_node, omp, dist))
+    try:
+        out = subprocess.run(["bash", "-c", script], capture_output=True, text=True, timeout=10,
+                             env=dict(os.environ, SLURM_JOB_NUM_NODES=str(nodes)))
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return out.stdout.strip() or None if out.returncode == 0 else None
+
+
 def env_source() -> str:
     return _name("env_source")
 
@@ -287,8 +306,8 @@ def node_memory_gib() -> float:
 
 def node_preflight() -> bool:
     """False where a probe job on every node is not wanted: a cluster that limits how many
-    jobs a user may have submitted rejects most of them, and a rejected probe reads as a bad
-    node."""
+    jobs a user may have submitted rejects most of them (such nodes are kept, unprobed, so the
+    check then tells little) and every probe waits in the queue."""
     raw = os.environ.get(ENV["node_preflight"], "").strip().lower()
     if raw in ("", "1", "true", "on"):
         return True

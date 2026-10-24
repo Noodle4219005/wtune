@@ -2570,7 +2570,8 @@ def _clean_exclude_env(monkeypatch):
 
 
 def make_health_runner(states, bad=None, log=None):
-    """sinfo + srun fake. states {node: state}; bad {node: 'timeout' | stderr text (rc 3)}."""
+    """sinfo + srun + scancel fake. states {node: state}; bad {node: 'timeout' | 'srun: error:
+    ...' (rc 1, from srun) | stderr text (rc 3, from the probe script)}."""
     bad = bad or {}
     log = log if log is not None else []
 
@@ -2578,10 +2579,14 @@ def make_health_runner(states, bad=None, log=None):
         log.append(argv)
         if argv[0] == "sinfo":
             return 0, "\n".join("%s %s" % kv for kv in list(states.items()) + [("head", "idle")])
+        if argv[0] == "scancel":
+            return 0, ""
         n = argv[argv.index("-w") + 1]
         b = bad.get(n)
         if b == "timeout":
             raise subprocess.TimeoutExpired(argv, timeout)
+        if b and b.startswith("srun: error:"):
+            return 1, b
         return (3, b) if b else (0, "ok")
 
     return runner, log
@@ -2614,7 +2619,8 @@ def test_preflight_no_home_node_and_probe_command_shape():
                                        reason="probe failed rc=3: no $HOME")
     assert h["nodes"]["work5"]["ok"] and h["failed"] == ["work2"]
     srun = next(a for a in log if a[0] == "srun" and "work5" in a)
-    assert srun[:11] == ["srun", "-p", "compute", "-w", "work5", "-N1", "-n1", "-t", "1",
+    assert srun[:13] == ["srun", "-p", "compute", "-w", "work5", "-N1", "-n1", "-t", "1",
+                         "--immediate=30", "--job-name=wtune-preflight-%d-work5" % os.getpid(),
                          "--exclude=head", "bash"]
     script = srun[-1]
     for needle in ("$HOME", "/case", "/src", "/wrf/main/wrf.exe"):
@@ -2632,6 +2638,22 @@ def test_preflight_timeout_fails_an_idle_node_but_not_a_busy_one():
     for n in ("work3", "work4"):
         assert h["nodes"][n]["ok"] and h["nodes"][n]["probed"] is False
     assert h["failed"] == ["work2"] and h["healthy"] == 2
+
+
+def test_preflight_keeps_nodes_the_scheduler_did_not_allocate_and_cancels_timed_out_probes():
+    """scc 2026-10-13: a reserved idle node and a probe over the per-user submit limit were
+    excluded as unhealthy, and a killed srun left its job PENDING (job 4921)."""
+    states = {"work2": "idle", "work3": "idle", "work4": "idle"}
+    runner, log = make_health_runner(states, bad={
+        "work2": "srun: error: Unable to allocate resources: Requested nodes are busy",
+        "work3": "srun: error: QOSMaxSubmitJobPerUserLimit", "work4": "timeout"})
+    h = _preflight(runner, requested=13)
+    for n in ("work2", "work3"):
+        assert h["nodes"][n]["ok"] and h["nodes"][n]["probed"] is False
+        assert h["nodes"][n]["reason"].startswith("not allocated, not probed: srun: error:")
+    assert h["failed"] == ["work4"]
+    assert ["scancel", "--name=wtune-preflight-%d-work4" % os.getpid()] in log
+    assert not any(a[0] == "scancel" and "work2" in a[1] for a in log)
 
 
 def test_preflight_merges_with_the_user_exclude_in_every_sbatch(monkeypatch):
@@ -3561,3 +3583,22 @@ def test_a_tune_inside_a_project_keeps_its_bp_cache_in_the_project(monkeypatch, 
     monkeypatch.setenv("WTUNE_BP_CACHE", "/elsewhere")              # an explicit choice wins
     wtune.tune.cli._use_project_bp_cache(_types.SimpleNamespace(project=str(proj)))
     assert os.environ["WTUNE_BP_CACHE"] == "/elsewhere"
+
+
+def test_confirm_includes_the_fastest_measured_config(monkeypatch):
+    """f1-arm conus12 2026-10-14: the prediction ranked block layouts first and the measured
+    fastest (cyclic, 0.132 vs 0.187 s/step) was never confirmed."""
+    from wtune.tune import rounds
+
+    def entry(cid, median, pred):
+        return {"cid": cid, "median": median, "pred_total_s": pred, "config": {"id": cid}}
+
+    predicted = {e["cid"]: e for e in (entry("ANCHOR", 0.17, 100.0), entry("B1", 0.187, 90.0),
+                                       entry("B2", 0.19, 91.0), entry("B3", 0.20, 92.0),
+                                       entry("C1", 0.132, 95.0))}
+    monkeypatch.setattr(rounds, "predict_candidates", lambda ctx, n, res: predicted)
+    cids = [e["cid"] for e in rounds.select_confirm_entries(None, 1, {}, "ANCHOR")]
+    assert cids == ["B1", "B2", "B3", "C1", "ANCHOR"]
+    predicted["C1"]["pred_total_s"] = 80.0                    # already in the top 3: no extra
+    cids = [e["cid"] for e in rounds.select_confirm_entries(None, 1, {}, "ANCHOR")]
+    assert cids == ["C1", "B1", "B2", "ANCHOR"]

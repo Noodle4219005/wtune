@@ -80,7 +80,7 @@ flowchart TD
 ## run：怎麼把整段模擬跑完
 
 - 用 WINNER 的節點數、rank 數、切法和執行緒數。
-- 第一次執行時，把輸入轉成 ADIOS2 BP 格式，放在 `input/bp/`，之後重複使用。
+- 第一次執行時，把輸入轉成 ADIOS2 BP 格式，放在 `input/bp-cache/`，tune 和 run 共用，之後重複使用。
 - 模擬切成數段，每段是一個 Slurm job，段與段之間用 restart 檔交接。節點故障時從上一個 restart 續跑。
 - 進度用 `wtune watch runs/<id>` 看。細節見 [run 與 watch](run.md)。
 

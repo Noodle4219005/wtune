@@ -26,6 +26,7 @@ from .preflight import default_preflight_runner, node_preflight
 from .report import _emit_report
 from .context import STOP, StopRequested
 from . import context as _context
+from . import jobs as _jobs
 from . import node_search as _node_search
 from . import pipeline as _pipeline
 from . import report as _report
@@ -104,6 +105,8 @@ def run(args: argparse.Namespace, sbatch_runner: Callable | None = None,
                      max_nodes, out_dir, sbatch_runner, sacct_runner, scancel_runner,
                      ledger_reader, proposer, clock)
     ctx.node_health = node_health
+    if o.level != 0 and not getattr(args, "no_space_check", False):
+        _jobs.check_input_space(o.case)
     ctx.start_time = ctx.clock.now()
 
     print("case=%s nodes=%s (%s) budget=%s max_nodes=%d out=%s"
@@ -515,6 +518,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
                     help="--pipeline full: safety cap on the accumulated queue-only wait (hours, "
                          "default %g); queue wait is not charged to --minutes, but past this the "
                          "run stops and reports" % PIPELINE_MAX_QUEUE_HOURS)
+    p.add_argument("--no-space-check", action="store_true", dest="no_space_check",
+                    help="submit even when converting the inputs to BP does not fit the space "
+                         "writable at the BP cache (GPFS quota or free space)")
     p.add_argument("--no-node-preflight", action="store_true", dest="no_node_preflight",
                     help="skip the node health pre-flight (sinfo states + one 1-minute srun probe "
                          "per node checking $HOME, the case dir, wtune-src and wrf.exe); by "

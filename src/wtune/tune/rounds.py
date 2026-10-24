@@ -35,12 +35,20 @@ Wave = tuple[list, dict, list, dict, dict]   # (job_ids, configs_by_cid, rows, j
 
 def select_confirm_entries(ctx: Ctx, nodes: int, all_results: dict,
                            anchor_cid: str | None) -> list[dict]:
-    """The confirm candidates: the top 3 by predicted whole-run time (rank_predicted_entries)
-    plus the anchor, deduped, as aggregate_by_cid entries with their pred_* fields."""
+    """The confirm candidates: the top 3 by predicted whole-run time (rank_predicted_entries),
+    the fastest measured median when those miss it (f1-arm conus12 2026-10-14: the prediction
+    does not see dist, and cyclic 0.132 s/step went unconfirmed against block 0.187), and the
+    anchor, deduped, as aggregate_by_cid entries with their pred_* fields."""
     predicted = predict_candidates(ctx, nodes, all_results)
     ranked = rank_predicted_entries(predicted, anchor_cid)
     top = list(ranked[:3])
     cids = {r["cid"] for r in top}
+    measured = [e for e in predicted.values() if e.get("median") is not None]
+    if measured:
+        fastest = min(measured, key=lambda e: (e["median"], e["cid"]))
+        if fastest["cid"] not in cids:
+            top.append(fastest)
+            cids.add(fastest["cid"])
     if anchor_cid in predicted and anchor_cid not in cids:
         top.append(predicted[anchor_cid])
     seen, entries = set(), []
@@ -430,7 +438,7 @@ def _fit_confirm(ctx: Ctx, entries: list[dict]) -> tuple[list[dict], list[dict],
 
 def run_confirm(ctx: Ctx, all_configs_by_cid: dict, all_results: dict, anchor_cid: str | None,
                 s_est: float) -> tuple[str | None, dict | None]:
-    """Re-measure the confirm candidates (top 3 + anchor) in one job of ctx.confirm_reps
+    """Re-measure the confirm candidates (top 3, the fastest measured, the anchor) in one job of ctx.confirm_reps
     replicates, keeping only those that fit the budget. Returns (job id, {cid: result}) or
     (None, None) when nothing fits."""
     entries = select_confirm_entries(ctx, ctx.nodes, all_results, anchor_cid)

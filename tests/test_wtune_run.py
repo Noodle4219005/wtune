@@ -535,8 +535,9 @@ def test_segment_sbatch_text(tmp_path, monkeypatch):
     assert "run_hygiene reap+census" in text and "site_hygiene" in text
     assert 'source "$HOME/wtune-scc/env.sh"' in text
     assert "CAMPAIGN=${CAMPAIGN:-/repo/campaign}" in text
-    last = text.strip().splitlines()[-1]
-    assert last.startswith('echo "SEGMENT rc=$rc wall=$wall ok=$ok"')
+    lines = text.strip().splitlines()
+    rec = lines.index('echo "SEGMENT rc=$rc wall=$wall ok=$ok" | tee -a "$STATUS"')
+    assert lines[rec + 1].startswith('if [ "$rc" -eq 0 ]') and lines[-1] == "fi"   # table cache
     assert "SUCCESS COMPLETE WRF" in text
     assert subprocess.run(["bash", "-n"], input=text, text=True).returncode == 0
 
@@ -1081,6 +1082,31 @@ def test_bp_cache_under_project_input_bp(tmp_path, monkeypatch):
     assert wr.bp_cache_dir(str(tmp_path / "out")) == str(tmp_path / "out" / "_bp_inputs")
 
 
+def test_bp_cache_is_the_tunes_in_a_project_with_a_case_id(tmp_path, monkeypatch):
+    """f1-arm marshall 2026-10-21: tune's input/bp-cache and run's input/bp each held the same
+    3 GB conversion."""
+    import hashlib
+    proj, case = tmp_path / "proj", tmp_path / "proj" / "case"
+    case.mkdir(parents=True)
+    (proj / "project.yaml").write_text("name: p\ncase:\n  id: marshall\n")
+    monkeypatch.setenv("WTUNE_PROJECT", str(proj))
+    monkeypatch.delenv("WTUNE_BP_CACHE", raising=False)
+    key = hashlib.sha1(os.path.realpath(str(case)).encode()).hexdigest()[:12]
+    shared = proj / "input" / "bp-cache" / "marshall" / key
+    out = str(tmp_path / "out")
+    assert wr.bp_cache_dir(out, None, str(case)) == str(shared)
+    monkeypatch.setenv("WTUNE_BP_CACHE", str(tmp_path / "env"))    # as `wtune tune` honours it
+    assert wr.bp_cache_dir(out, None, str(case)) == str(tmp_path / "env" / "marshall" / key)
+    monkeypatch.delenv("WTUNE_BP_CACHE")
+    legacy = proj / "input" / "bp"
+    legacy.mkdir(parents=True)
+    (legacy / "bp_manifest.json").write_text("{}")
+    assert wr.bp_cache_dir(out, None, str(case)) == str(legacy)    # an older project's run
+    shared.mkdir(parents=True)
+    (shared / "bp_manifest.json").write_text("{}")
+    assert wr.bp_cache_dir(out, None, str(case)) == str(shared)
+
+
 def test_merge_adios2_xml_dedupes_io_names():
     base = ('<?xml version="1.0"?>\n<adios-config>\n  <io name="wrfrst_d01_X">\n'
             '    <engine type="BP5"/>\n  </io>\n</adios-config>\n')
@@ -1548,3 +1574,31 @@ def test_a_restart_case_without_its_wrfrst_is_refused(tmp_path):
     (case / "wrfrst_d01_2020-06-01_00:00:00").write_text("x")
     rc, _out, _rep, lines = _run(tmp_path, Fakes())
     assert rc != 0
+
+
+def test_segment_links_and_caches_the_thompson_tables(tmp_path):
+    """2026-10-12 todo: every run segment recomputed Thompson's tables (~70 s at init) while the
+    coldstart probes already cached them per WRF build."""
+    text = wr.render_segment_sbatch(str(tmp_path), 0, wr.make_config(1, 2, 2, 1, 1), "00:20:00", "j")
+    lines = text.splitlines()
+    link = [ln for ln in lines if ln.startswith("TBL_CACHE=") or "$TBL_CACHE\"/qr_acr_q" in ln]
+    harvest = lines[lines.index('if [ "$rc" -eq 0 ] && [ "$ok" -gt 0 ]; then'):]
+    tree, seg1, seg2 = tmp_path / "W", tmp_path / "s1", tmp_path / "s2"
+    (tree / "main").mkdir(parents=True)
+    (tree / "main" / "wrf.exe").write_text("x")
+    seg1.mkdir(), seg2.mkdir()
+    (seg1 / "qr_acr_qg_V4.dat").write_text("table")       # computed by segment 1's WRF
+    (seg1 / "freezeH2O.dat").write_text("table")
+    env = dict(PATH=os.environ["PATH"], HOME=str(tmp_path), W=str(tree))
+
+    def sh(seg, body):
+        return subprocess.run(["bash", "-c", "cd %s; %s" % (seg, body)], env=env, check=True)
+
+    sh(seg1, "\n".join(link) + "\nrc=0; ok=1\n" + "\n".join(harvest))
+    cache = next((tmp_path / "wtune-runs" / "thompson_tables").iterdir())
+    assert sorted(os.listdir(cache)) == ["freezeH2O.dat", "qr_acr_qg_V4.dat"]
+    sh(seg2, "\n".join(link))
+    assert os.path.islink(seg2 / "qr_acr_qg_V4.dat") and (seg2 / "freezeH2O.dat").read_text() == "table"
+    (seg2 / "qr_acr_qsV2.dat").write_text("new")
+    sh(seg2, "\n".join(link) + "\nrc=1; ok=0\n" + "\n".join(harvest))     # a failed run: no harvest
+    assert not (cache / "qr_acr_qsV2.dat").exists()

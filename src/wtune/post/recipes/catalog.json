@@ -642,25 +642,25 @@
   "terrain_leeward_station": {
     "zh": {
       "question": "背風測站有沒有焚風（T2 上升、RH 下降、陣風增強）？",
-      "how_to_read": "本次未抓取測站觀測，因此此圖為缺項——需要在 project.yaml 指定一個背風測站點才能產生。",
-      "common_misreadings": "把「缺項」誤讀成焚風不存在；只是這一輪沒有設定測站，不代表模式沒有模擬出焚風訊號。"
+      "how_to_read": "測站：專案 input/obs/stations/ 的 NOAA ISD-Lite。沿 700 hPa 風向、山脊下風處 30–100 km、離剖面線 25 km 以內，選離山脊最近、有觀測且在模式內部的測站；畫最近格點的模式 T2、RH2、10 m 風速與觀測的時間序列。焚風訊號是 T2 上升、RH 下降、風速增強同時出現。",
+      "common_misreadings": "把單一測站的差異當成整個背風面的表現；也把缺項當成沒有焚風——缺項只表示背風窗內沒有可用測站，原因寫在缺項裡。"
     },
     "en": {
       "question": "Does a lee-side station show a foehn signal (T2 up, RH down, gustier wind)?",
-      "how_to_read": "No station observations were fetched this round, so this entry is an explicit gap -- a lee-side point must be named in project.yaml to produce it.",
-      "common_misreadings": "Reading the missing entry as \"no foehn occurred\"; it only means no station was configured this round."
+      "how_to_read": "Stations: NOAA ISD-Lite from the project's input/obs/stations/. The station nearest the crest in the lee window (30-100 km downstream of the ridge along the 700 hPa wind, within 25 km of the section line, with observations, inside the model interior) is picked; model T2, RH2 and 10 m wind speed at the nearest grid cell are plotted against its observations. A foehn shows as T2 up, RH down and wind up together.",
+      "common_misreadings": "Reading one station as the whole lee slope; reading a missing entry as \"no foehn\" -- it only means no usable station sat in the lee window, and the entry says why."
     }
   },
   "terrain_point_stat": {
     "zh": {
       "question": "模式的地形性天氣是否通過測站觀測驗證？",
-      "how_to_read": "本次未抓取測站觀測，MET Point-Stat 比對為缺項。",
-      "common_misreadings": "把缺項當成驗證失敗；只是沒有取得觀測資料，模式本身未被判定為錯誤。"
+      "how_to_read": "與 precip_stn_series／precip_stn_map 同一套流程（NOAA ISD-Lite、MET Point-Stat），只是用地形網域：上圖是 2 m 溫度、露點、10 m 風速與海平面氣壓的 ME（模式減觀測）與 RMSE 時間序列，另一張是測站位置圖。降水也跑在同一個網域時不重複畫，改為一行 info。",
+      "common_misreadings": "把偏差全當成地形造成的誤差——沒有做測站高度修正，山區測站的 T2 偏差常來自模式地形高度與測站高度不同；測站少時統計不穩。"
     },
     "en": {
       "question": "Is the model's terrain-driven weather verified against station observations?",
-      "how_to_read": "No station observations were fetched this round, so the MET Point-Stat comparison is an explicit gap.",
-      "common_misreadings": "Reading the missing entry as a failed verification; it only reflects the absence of fetched observations."
+      "how_to_read": "The precip_stn_series / precip_stn_map pipeline (NOAA ISD-Lite, MET Point-Stat) run on the terrain domain: CNT ME (model minus obs) and RMSE of 2 m temperature, dew point, 10 m wind speed and MSLP against time, plus a station map. When precip runs on the same domain the figure is not repeated; an info note says so.",
+      "common_misreadings": "Reading the whole bias as terrain error -- no station-elevation correction is applied, so mountain stations' T2 bias often comes from the model terrain height differing from the station's; few stations make the statistics unstable."
     }
   },
   "moisture_pw": {

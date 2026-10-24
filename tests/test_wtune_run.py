@@ -1465,7 +1465,8 @@ def test_stall_watch_restarts_its_clock_on_every_rsl_change(tmp_path):
     w, rsl, clock, cancelled = _stall(tmp_path)
     for t in range(0, 3000, 300):
         clock[0] = t
-        rsl.write_text("step %d\n" % t)
+        with rsl.open("a") as fh:          # rsl only grows; equal-size rewrites can share an mtime tick
+            fh.write("step %d\n" % t)
         w("RUNNING")
     assert cancelled == [] and w.why is None
 

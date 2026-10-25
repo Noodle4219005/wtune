@@ -204,3 +204,23 @@ def test_segments_drop_the_tables_wrf_computed_whatever_the_outcome(tmp_path):
     (tmp_path / "cached").mkdir()
     rc, _l, rep = _run(tmp_path / "cached", ["--thompson-cache"], WritesTables())
     assert _tables(rep)[0] == ["freezeH2O.dat", "qr_acr_qg_V4.dat", "qr_acr_qsV2.dat"]
+
+
+def test_a_stopped_segment_drops_its_tables_too(tmp_path, monkeypatch):
+    """1bc6509 review: `wtune stop` / Ctrl-C raise out of the job wait and skipped the delete."""
+    import wtune.stopping
+    stop = wtune.stopping.STOP
+    monkeypatch.setitem(stop, "reason", None)
+    f = WritesTables()
+
+    def sleep(_s):
+        stop["reason"] = "stopped by wtune stop"
+    case = T._make_case(tmp_path, T.NAMELIST_3DOM)
+    out = tmp_path / "out"
+    rc = wr.main([str(case), "--out", str(out), "--poll-interval", "0"] + LAYOUT,
+                 sbatch_runner=f.sbatch, scancel_runner=lambda j: None,
+                 sacct_runner=lambda cmd: "%s|RUNNING|00:01:00\n" % cmd[cmd.index("-j") + 1],
+                 snapshot_fn=f.snapshot, sleep=sleep, log=lambda s: None)
+    rep = json.loads((out / "run_report.json").read_text())
+    assert rc == 130 and rep["status"] == "stopped"
+    assert _tables(rep) == [["qr_acr_qsV2.dat"]]

@@ -165,8 +165,12 @@ def remove_computed_tables(seg_dir: str) -> int:
     for n in THOMPSON_TABLES:
         p = os.path.join(seg_dir, n)
         if os.path.isfile(p) and not os.path.islink(p):
-            freed += os.path.getsize(p)
-            os.remove(p)
+            try:
+                size = os.path.getsize(p)
+                os.remove(p)
+                freed += size
+            except OSError:
+                pass                                    # disk only: never stops a run
     return freed
 
 

@@ -253,14 +253,16 @@ def _run_attempt(ctx: RunContext, k: int, seg: Segment, att: Attempt, is_last: b
         stall(state)
         if side_poll:
             side_poll(state)
-    state, elapsed = wait_for_job(
-        job_id, run.sacct_runner, ctx.opts.sacct_cmd, ctx.opts.poll_interval, run.sleep, run.log,
-        on_poll=on_poll)
+    try:
+        state, elapsed = wait_for_job(
+            job_id, run.sacct_runner, ctx.opts.sacct_cmd, ctx.opts.poll_interval, run.sleep,
+            run.log, on_poll=on_poll)
+    finally:                                        # a wtune stop or Ctrl-C raises out of the wait
+        if not ctx.opts.thompson_cache:
+            remove_computed_tables(seg_dir)
     if stall.why:
         rec.stalled = stall.why
     remove_empty_output_dirs(seg_dir, out_names)    # before any wrfout/wrfrst check
-    if not ctx.opts.thompson_cache:                 # whatever the job did, interrupted too
-        remove_computed_tables(seg_dir)
     if side:
         side.job_ended(seg_dir)
     snap = run.snapshot_fn(seg_dir)

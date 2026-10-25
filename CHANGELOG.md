@@ -3,7 +3,7 @@
 Versions are declared in `wtune_version.py`; `test_wtune_version.py` fails if the top section
 here does not match it. Development before 0.1.0 is in the git history, not in releases.
 
-## 0.9.3 — 2026-10-21
+## 0.9.3 — 2026-10-26
 
 **`wtune event`: describe the event in your own words.** Put an `event.txt` in the case or
 project folder ("the 2021 Zhengzhou rain; check hourly and 24 h rain and the surface wind; my
@@ -113,9 +113,12 @@ has its job cancelled by name (`wtune-preflight-<pid>-<node>`): a killed `srun` 
 job behind on scc.
 
 **Thompson tables are cached for `wtune run`.** Every segment linked no `qr_acr_q*.dat` /
-`freezeH2O.dat`, so Thompson recomputed them at each start (~70 s). Segments now link them from
-the per-build cache the coldstart probes use (`$WTUNE_TABLE_CACHE`, default
-`~/wtune-runs/thompson_tables/<build>`) and add the ones they computed after a completed run.
+`freezeH2O.dat`, so Thompson recomputed them at each start (~70 s on scc). Segments now link them
+from the per-build cache the coldstart probes use (`$WTUNE_TABLE_CACHE`, default
+`~/wtune-runs/thompson_tables/<build>`) and add the ones they computed after a completed run. On
+f1-arm the tables take under a second to compute, so the cache saves no measurable time there
+(matthew: 20 s for the segment that computed them, 21 s for the one that read them) and holds
+373 MB.
 
 **`rsl` files are compressed.** After a segment succeeds, the `rsl.out` and `rsl.error` files of
 every rank but 0 are gzipped (`gzip -1`, about 17x on sc26p1's `debug_level=50` logs, which wrote

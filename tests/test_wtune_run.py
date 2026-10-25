@@ -1588,14 +1588,16 @@ def test_segment_links_and_caches_the_thompson_tables(tmp_path):
     (tree / "main").mkdir(parents=True)
     (tree / "main" / "wrf.exe").write_text("x")
     seg1.mkdir(), seg2.mkdir()
-    (seg1 / "qr_acr_qg_V4.dat").write_text("table")       # computed by segment 1's WRF
-    (seg1 / "freezeH2O.dat").write_text("table")
     env = dict(PATH=os.environ["PATH"], HOME=str(tmp_path), W=str(tree))
 
     def sh(seg, body):
         return subprocess.run(["bash", "-c", "cd %s; %s" % (seg, body)], env=env, check=True)
 
-    sh(seg1, "\n".join(link) + "\nrc=0; ok=1\n" + "\n".join(harvest))
+    sh(seg1, "\n".join(link))                  # empty cache: no link, WRF computes and writes them
+    assert os.listdir(seg1) == []
+    (seg1 / "qr_acr_qg_V4.dat").write_text("table")
+    (seg1 / "freezeH2O.dat").write_text("table")
+    sh(seg1, "rc=0; ok=1\n" + "\n".join(link[:1] + harvest))
     cache = next((tmp_path / "wtune-runs" / "thompson_tables").iterdir())
     assert sorted(os.listdir(cache)) == ["freezeH2O.dat", "qr_acr_qg_V4.dat"]
     sh(seg2, "\n".join(link))

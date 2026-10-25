@@ -201,7 +201,7 @@ run_hygiene reap+census
 
 cd "$SEG"
 TBL_CACHE="${WTUNE_TABLE_CACHE:-$HOME/wtune-runs/thompson_tables}/$(readlink -f "$W/main/wrf.exe" | sha1sum | cut -c1-16)"
-shopt -s nullglob; for f in "$TBL_CACHE"/qr_acr_q*.dat "$TBL_CACHE"/freezeH2O.dat; do [ -e "$(basename "$f")" ] || ln -s "$f" .; done; shopt -u nullglob
+shopt -s nullglob; for f in "$TBL_CACHE"/qr_acr_q*.dat "$TBL_CACHE"/freezeH2O.dat; do [ -e "$f" ] || continue; [ -e "$(basename "$f")" ] || ln -s "$f" .; done; shopt -u nullglob
 for f in "$W"/run/*; do
   b=$(basename "$f")
   case "$b" in namelist.input|namelist.output|wrfout*|wrfinput*|wrfbdy*|wrfrst*|rsl.*) ;;
@@ -378,7 +378,7 @@ run_hygiene reap+census
 
 cd "$SEG"
 TBL_CACHE="${WTUNE_TABLE_CACHE:-$HOME/wtune-runs/thompson_tables}/$(readlink -f "$W/main/wrf.exe" | sha1sum | cut -c1-16)"
-shopt -s nullglob; for f in "$TBL_CACHE"/qr_acr_q*.dat "$TBL_CACHE"/freezeH2O.dat; do [ -e "$(basename "$f")" ] || ln -s "$f" .; done; shopt -u nullglob
+shopt -s nullglob; for f in "$TBL_CACHE"/qr_acr_q*.dat "$TBL_CACHE"/freezeH2O.dat; do [ -e "$f" ] || continue; [ -e "$(basename "$f")" ] || ln -s "$f" .; done; shopt -u nullglob
 for f in "$W"/run/*; do
   b=$(basename "$f")
   case "$b" in namelist.input|namelist.output|wrfout*|wrfinput*|wrfbdy*|wrfrst*|rsl.*) ;;

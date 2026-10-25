@@ -63,11 +63,14 @@ def render_segment_sbatch(seg_dir: str, k: int, config: Config, time_limit: str,
         record_label="SEGMENT")
     lines += ["cd \"$SEG\"",
               # Thompson computes its qr_acr_q*/freezeH2O tables at init when absent (~70 s,
-              # every segment); they depend only on the build: coldstart_sample's per-build cache
+              # every segment); they depend only on the build: coldstart_sample's per-build cache.
+              # nullglob drops only patterns, so freezeH2O.dat is checked: a link into an empty cache
+              # made WRF fail writing the table (f1-arm matthew 2026-10-25)
               "TBL_CACHE=\"${WTUNE_TABLE_CACHE:-$HOME/wtune-runs/thompson_tables}/$(readlink -f "
               "\"$W/main/wrf.exe\" | sha1sum | cut -c1-16)\"",
               "shopt -s nullglob; for f in \"$TBL_CACHE\"/qr_acr_q*.dat \"$TBL_CACHE\"/freezeH2O.dat; "
-              "do [ -e \"$(basename \"$f\")\" ] || ln -s \"$f\" .; done; shopt -u nullglob",
+              "do [ -e \"$f\" ] || continue; [ -e \"$(basename \"$f\")\" ] || ln -s \"$f\" .; done; "
+              "shopt -u nullglob",
               "for f in \"$W\"/run/*; do",
               "  b=$(basename \"$f\")",
               "  case \"$b\" in namelist.input|namelist.output|wrfout*|wrfinput*|wrfbdy*|wrfrst*|rsl.*) ;;",

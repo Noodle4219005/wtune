@@ -31,16 +31,27 @@ for _v in ("WTUNE_SITE", "WTUNE_NUMA_PER_NODE", "WTUNE_CORES_PER_NODE"):
     os.environ.pop(_v, None)
 
 
+_TUNE_ENV = ("WTUNE_CAMPAIGN_OUT", "WTUNE_PREFLIGHT_EXCLUDE", "WTUNE_BP_CACHE")   # set by wtune tune
+
+
 @pytest.fixture(autouse=True)
 def _no_account_ledgers(monkeypatch, tmp_path_factory):
     """A tune reads the account's older ledgers (~/wtune-runs/campaign) and resolves the probes'
     WRF tree by sourcing env.sh: neither may reach a test on a cluster login node."""
     import wtune.tools.scc_sweep
     import wtune.tune.cli
+    saved = {v: os.environ.get(v) for v in _TUNE_ENV}
     monkeypatch.delenv("WTUNE_CAMPAIGN_OUT", raising=False)
+    monkeypatch.delenv("WTUNE_PREFLIGHT_EXCLUDE", raising=False)
     monkeypatch.setattr(wtune.tools.scc_sweep, "HISTORY_LEDGER_DIR",
                         str(tmp_path_factory.getbasetemp() / "no-history-ledgers"))
     monkeypatch.setattr(wtune.tune.cli, "_build_id", lambda args: "")
+    yield
+    for v, value in saved.items():          # what a test that ran a real tune left set
+        if value is None:
+            os.environ.pop(v, None)
+        else:
+            os.environ[v] = value
 
 
 @pytest.fixture(autouse=True)

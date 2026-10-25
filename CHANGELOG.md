@@ -113,7 +113,7 @@ layout measured at 0.132 s/step was never confirmed against block layouts at 0.1
 30 s (`srun --immediate=30`: a reservation, a busy node, a per-user submit limit) no longer
 excludes the node as unhealthy; it is kept and reported as not probed. A probe that times out
 has its job cancelled by name and user (`wtune-preflight-<pid>-<node>`): a killed `srun` left a PENDING
-job behind on scc. A refusal that names an invalid account, partition or QOS is a configuration error and fails the node.
+job behind on scc. A refusal that names an invalid account, partition or QOS is reported as a configuration error, not as a busy node.
 
 **`wtune run --thompson-cache`.** Every segment linked no `qr_acr_q*.dat` / `freezeH2O.dat`, so
 Thompson recomputed them at each start (~70 s on scc). With `--thompson-cache` (also on

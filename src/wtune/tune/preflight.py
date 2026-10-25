@@ -89,8 +89,10 @@ def _probe_node(runner: Runner, n: str, state: str, script: str,
         return n, dict(state=state, ok=False, probed=True, reason="probe error: %s" % e)
     if rc == 0:
         return n, dict(state=state, ok=True, probed=True, reason="")
-    refusal = [ln for ln in (out or "").splitlines() if any(r in ln for r in SCHEDULER_REFUSAL)
-               and "Invalid" not in ln]     # Invalid account/partition/qos: a configuration error
+    refusal = [ln for ln in (out or "").splitlines() if any(r in ln for r in SCHEDULER_REFUSAL)]
+    if any("Invalid" in ln for ln in refusal):  # account/partition/qos: says nothing of the node
+        return n, dict(state=state, ok=True, probed=False,
+                       reason="scheduler configuration error, not probed: %s" % refusal[-1].strip())
     if refusal:
         return n, dict(state=state, ok=True, probed=False,
                        reason="not allocated, not probed: %s" % refusal[-1].strip())

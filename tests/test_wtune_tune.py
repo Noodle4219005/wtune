@@ -2657,14 +2657,17 @@ def test_preflight_keeps_nodes_the_scheduler_did_not_allocate_and_cancels_timed_
     assert not any(a[0] == "scancel" and any("work2" in x for x in a) for a in log)
 
 
-def test_preflight_fails_a_node_the_account_cannot_use():
+def test_preflight_reports_a_configuration_error_as_such():
     """dbbf82d review: 'Unable to allocate resources: Invalid account ...' is a configuration
-    error, not a busy node; every node was kept as healthy-unprobed."""
+    error, not a busy node; failing the node instead excluded every node of a partition that a
+    later sbatch falls back to (5dac859 review)."""
     runner, _log = make_health_runner({"work2": "idle"}, bad={
         "work2": "srun: error: Unable to allocate resources: Invalid account or "
                  "account/partition combination specified"})
     h = _preflight(runner, requested=13)
-    assert h["failed"] == ["work2"] and h["nodes"]["work2"]["probed"] is True
+    w = h["nodes"]["work2"]
+    assert h["failed"] == [] and w["ok"] and w["probed"] is False
+    assert w["reason"].startswith("scheduler configuration error, not probed: srun: error:")
 
 
 def test_the_input_space_check_comes_before_the_node_preflight(monkeypatch, tmp_path):

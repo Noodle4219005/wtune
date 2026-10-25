@@ -213,3 +213,21 @@ def test_calibrate_run_caches_the_tables_it_computed(tmp_path):
     assert not cache.exists()
     _bash("TBL_CACHE=%s; OK=1\n%s" % (cache, harvest), {}, str(run))
     assert os.listdir(cache) == ["qr_acr_qsV2.dat"]
+
+
+def test_tune_build_id_wiring(tmp_path, monkeypatch, capsys):
+    """tune/cli._build_id (conftest stubs it elsewhere): the env.sh the jobs source, the site
+    file of the campaign the sbatch script belongs to, the fallback and what it prints."""
+    import wtune.machine
+    from test_repro_20261026 import REAL_BUILD_ID
+    tree = _tree(tmp_path)
+    (tmp_path / "env.sh").write_text("export WRF_TREE=%s\n" % tree)
+    monkeypatch.delenv("WRF_TREE", raising=False)
+    monkeypatch.setattr(wtune.machine, "site", lambda: "f1arm")
+    script = os.path.join(REPO, "campaign", "strict_campaign.sbatch")
+    args = argparse.Namespace(env_source=str(tmp_path / "env.sh"), sbatch_script=script)
+    assert REAL_BUILD_ID(args) == sweep.wrf_build_id(tree) != ""
+    assert "build %s (%s/main/wrf.exe)" % (sweep.wrf_build_id(tree), tree) in capsys.readouterr().out
+    (tmp_path / "env.sh").write_text("export WRF_TREE=%s\n" % (tmp_path / "gone"))
+    assert REAL_BUILD_ID(args) == ""
+    assert "no wrf.exe under %s" % (tmp_path / "gone") in capsys.readouterr().out

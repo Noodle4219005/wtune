@@ -128,8 +128,10 @@ WRF fail writing the table (the same defect as `wtune run`'s below). Every job n
 table through a temporary name in the cache, so a concurrent job never links a partial file; the
 tune's probes cache only from a run that got past WRF's init (one that died writing a table
 cached it before), and `wtune calibrate` also caches what a completed run computed. After the
-upgrade each build computes its tables once; the old `$OUT/thompson_tables` and the path-keyed
-coldstart directories are no longer read and can be deleted.
+upgrade every build starts with an empty cache: run a tune before `wtune calibrate` on a new
+build, or the calibration runs submitted together all compute the tables and are excluded from
+the fit. The old `$OUT/thompson_tables` and the path-keyed coldstart directories are no longer
+read and can be deleted.
 
 **Probe ledgers carry the build.** Each ledger row's notes get `build=<sha1 of wrf.exe>`. The
 s/step estimate a tune sizes its first measurements with (round 0, the node-search finalists,

@@ -69,7 +69,7 @@ flowchart TD
 
 `runs/<id>/run_report.json` 在每一段結束後都會重寫，記錄每次嘗試的結果。
 
-Thompson 微物理（`mp_physics=8`）每段開始時會算 `qr_acr_q*.dat` 與 `freezeH2O.dat` 查表。加 `--thompson-cache` 時，段會從 `~/wtune-runs/thompson_tables/<build>/` 連結已算好的查表，跑完再把新算的放進去。在 scc 上每段可省約 70 秒；在 f1-arm 上查表不到 1 秒就算完，量不到差別，快取卻佔約 370 MB，所以預設不開。
+Thompson 微物理（`mp_physics=8`）每段開始時會算 `qr_acr_q*.dat` 與 `freezeH2O.dat` 查表。加 `--thompson-cache` 時，段會從 `~/wtune-runs/thompson_tables/<build>/` 連結已算好的查表，跑完再把新算的放進去。在 scc 上每段可省約 70 秒；在 f1-arm 上查表不到 1 秒就算完，量不到差別，所以預設不開；這時 WRF 在每段自己算出的查表（約 357 MiB）會在該段的 job 結束後刪掉（被中斷的段也一樣），不會一段段累積。
 
 ## I/O 格式
 

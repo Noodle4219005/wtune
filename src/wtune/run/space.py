@@ -155,6 +155,21 @@ def gzip_rsl(seg_dir: str) -> tuple[int, int, int]:
     return n, before, after
 
 
+THOMPSON_TABLES = ("freezeH2O.dat", "qr_acr_qg_V4.dat", "qr_acr_qg_mp38V1.dat", "qr_acr_qsV2.dat")
+
+
+def remove_computed_tables(seg_dir: str) -> int:
+    """Delete the Thompson tables WRF computed into the segment (357 MiB on f1-arm, every
+    segment, without --thompson-cache); a case's own tables are links and stay. Bytes freed."""
+    freed = 0
+    for n in THOMPSON_TABLES:
+        p = os.path.join(seg_dir, n)
+        if os.path.isfile(p) and not os.path.islink(p):
+            freed += os.path.getsize(p)
+            os.remove(p)
+    return freed
+
+
 def _size(p: str) -> int:
     """Bytes of a file or of every file under a directory; -1 when p does not exist."""
     if not os.path.lexists(p):

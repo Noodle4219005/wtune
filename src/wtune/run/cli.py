@@ -110,7 +110,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     ap.add_argument("--thompson-cache", action="store_true",
                     help="link the Thompson qr_acr_q*/freezeH2O tables from the per-build cache "
                          "and add the ones a completed segment computed (saves ~70 s per "
-                         "segment on scc, nothing measurable on f1-arm; holds ~370 MB)")
+                         "segment on scc, nothing measurable on f1-arm); without it a segment "
+                         "deletes the tables WRF computed (~357 MiB)")
     ap.add_argument("--no-space-check", action="store_true",
                     help="submit even when the estimated output does not fit the free space "
                          "(GPFS quota headroom when the run dir is on GPFS)")

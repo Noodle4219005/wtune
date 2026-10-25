@@ -12,6 +12,8 @@ from wtune.tools import coldstart_sample as cs
 from wtune.tools import scc_sweep as sweep
 from wtune.tune import cli as tune_cli
 
+REAL_BUILD_ID = tune_cli._build_id          # at collection, before conftest stubs it
+
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FIELDS = ["case_base", "hardware_id", "n_nodes", "s_per_step_median", "notes"]
 
@@ -219,7 +221,6 @@ def test_tune_build_id_wiring(tmp_path, monkeypatch, capsys):
     """tune/cli._build_id (conftest stubs it elsewhere): the env.sh the jobs source, the site
     file of the campaign the sbatch script belongs to, the fallback and what it prints."""
     import wtune.machine
-    from test_repro_20261026 import REAL_BUILD_ID
     tree = _tree(tmp_path)
     (tmp_path / "env.sh").write_text("export WRF_TREE=%s\n" % tree)
     monkeypatch.delenv("WRF_TREE", raising=False)

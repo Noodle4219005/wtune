@@ -116,7 +116,9 @@ job behind on scc.
 Thompson recomputed them at each start (~70 s on scc). With `--thompson-cache` (also on
 `wtune submit`) segments link them from the per-build cache and add the ones a completed segment
 computed. It is off by default: on f1-arm the tables take under a second (matthew: 20 s for the
-segment that computed them, 21 s for the one that read them) and the cache holds ~370 MB.
+segment that computed them, 21 s for the one that read them). Without it `wtune run` deletes the
+tables WRF computed into a segment once its job has ended, however it ended; they are 357 MiB and
+were kept in every segment directory.
 
 **One Thompson table cache per build, keyed by the `wrf.exe` contents.** The tune's probes kept
 their tables in `$OUT/thompson_tables`, shared by every build, and the coldstart probes and

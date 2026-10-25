@@ -1582,6 +1582,7 @@ def test_segment_uses_the_thompson_cache_only_when_asked(tmp_path):
     cfg = wr.make_config(1, 2, 2, 1, 1)
     plain = wr.render_segment_sbatch(str(tmp_path), 0, cfg, "00:20:00", "j")
     assert "TBL_CACHE" not in plain and "SEGMENT rc=" in plain
+
     assert "TBL_CACHE=" in wr.render_segment_sbatch(str(tmp_path), 0, cfg, "00:20:00", "j",
                                                     thompson_cache=True)
 

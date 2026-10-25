@@ -173,3 +173,34 @@ def test_gzip_rsl_keeps_rank_0_plain(tmp_path):
     with gzip.open(tmp_path / "rsl.error.0039.gz", "rt") as fh:
         assert fh.read() == "d01 2020-06-01_00:00:10 tile 1\n" * 1000
     assert space.gzip_rsl(str(tmp_path)) == (0, 0, 0)
+
+
+class WritesTables(T.Fakes):
+    """WRF computes the Thompson tables into the segment; the case's own one is a link."""
+
+    def sbatch(self, cmd):
+        out = super().sbatch(cmd)
+        seg = os.path.dirname(cmd.split()[-1].strip("'"))
+        for n in ("freezeH2O.dat", "qr_acr_qg_V4.dat"):
+            with open(os.path.join(seg, n), "w") as fh:
+                fh.write("computed")
+        os.symlink(os.path.join(seg, "namelist.input"), os.path.join(seg, "qr_acr_qsV2.dat"))
+        return out
+
+
+def _tables(rep):
+    return [sorted(n for n in os.listdir(s["attempts"][-1]["dir"]) if n.endswith(".dat"))
+            for s in rep["segments"]]
+
+
+def test_segments_drop_the_tables_wrf_computed_whatever_the_outcome(tmp_path):
+    """f1-arm V3 2026-10-26: without --thompson-cache every segment kept 357 MiB of tables;
+    a segment interrupted by a signal never reached the end of its script."""
+    rc, _l, rep = _run(tmp_path, [], WritesTables())
+    assert rc == 0 and _tables(rep) == [["qr_acr_qsV2.dat"]] * len(rep["segments"])
+    (tmp_path / "failed").mkdir()
+    rc, _l, rep = _run(tmp_path / "failed", ["--resume", "0"], WritesTables(outcomes=["failed"]))
+    assert rc != 0 and _tables(rep) == [["qr_acr_qsV2.dat"]]
+    (tmp_path / "cached").mkdir()
+    rc, _l, rep = _run(tmp_path / "cached", ["--thompson-cache"], WritesTables())
+    assert _tables(rep)[0] == ["freezeH2O.dat", "qr_acr_qg_V4.dat", "qr_acr_qsV2.dat"]

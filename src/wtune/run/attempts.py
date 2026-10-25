@@ -21,7 +21,7 @@ from .sbatch import render_segment_sbatch
 from .staging import (merge_adios2_xml, output_dir_names, precreate_output_dirs,
                       remove_empty_output_dirs, render_adios2_restart_xml, restart_files,
                       setup_segment_dir)
-from .space import _fmt_bytes, gzip_rsl, shrunk_outputs
+from .space import _fmt_bytes, gzip_rsl, remove_computed_tables, shrunk_outputs
 
 UNKNOWN_POLLS_MAX = 10                 # sacct not listing a fresh job id yet: poll this many times
 
@@ -259,6 +259,8 @@ def _run_attempt(ctx: RunContext, k: int, seg: Segment, att: Attempt, is_last: b
     if stall.why:
         rec.stalled = stall.why
     remove_empty_output_dirs(seg_dir, out_names)    # before any wrfout/wrfrst check
+    if not ctx.opts.thompson_cache:                 # whatever the job did, interrupted too
+        remove_computed_tables(seg_dir)
     if side:
         side.job_ended(seg_dir)
     snap = run.snapshot_fn(seg_dir)

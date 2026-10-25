@@ -124,13 +124,20 @@ their tables in `$OUT/thompson_tables`, shared by every build, and the coldstart
 kept the old build's tables. All of them, and `wtune calibrate`, now use
 `~/wtune-runs/thompson_tables/<sha1 of wrf.exe>/` (`$WTUNE_TABLE_CACHE` moves it). The coldstart
 probes' copy of the link step also linked a `freezeH2O.dat` the cache did not have, which makes
-WRF fail writing the table (the same defect as `wtune run`'s below), and cached a table by
-copying it in place, so a concurrent probe could link a partial file; both are fixed.
+WRF fail writing the table (the same defect as `wtune run`'s below). Every job now caches a
+table through a temporary name in the cache, so a concurrent job never links a partial file; the
+tune's probes cache only from a run that got past WRF's init (one that died writing a table
+cached it before), and `wtune calibrate` also caches what a completed run computed. After the
+upgrade each build computes its tables once; the old `$OUT/thompson_tables` and the path-keyed
+coldstart directories are no longer read and can be deleted.
 
 **Probe ledgers carry the build.** Each ledger row's notes get `build=<sha1 of wrf.exe>`. The
-s/step estimate a tune starts from (the budget of the first measurement) used every row of the
-case on the machine, so a vanilla and a tuned-flag build were averaged together; it now uses the
-rows of the same build, then rows written before this change, never another build's.
+s/step estimate a tune sizes its first measurements with (round 0, the node-search finalists,
+the `-O0` cold-start prediction) used every row of the case on the machine, so a vanilla and a
+tuned-flag build were averaged together; it now uses the rows of the same build, then rows
+written before this change, never another build's, and so does the `-O3` cross-case prior. The
+tune takes the build from the tree its jobs will run (`env.sh`, then the site file's `$W`) and
+prints it; with no `wrf.exe` there it says that every build's rows are used.
 
 **A project's probes stay in the project.** Inside a project the probes write their ledgers and
 WRF run directories to `<project>/probes/` (`--ledger-dir` still wins; outside a project,

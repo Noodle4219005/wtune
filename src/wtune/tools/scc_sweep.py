@@ -37,11 +37,11 @@ overrides; case geometry -- e_we/e_sn/e_vert -- is identical across sites and no
 from __future__ import annotations
 
 import csv
-import functools
 import glob
 import json
 import os
 import re
+import shlex
 import statistics
 import subprocess
 import sys
@@ -78,6 +78,7 @@ DEFAULT_STEPS = 30
 DEFAULT_ROOT = "$HOME/wtune-runs/sweep"
 DEFAULT_LEDGER_DIR = "$HOME/wtune-runs/campaign"          # campaign/sites/scc.sh's own $OUT
 CAMPAIGN_OUT_ENV = "WTUNE_CAMPAIGN_OUT"                   # the site files' $OUT when set
+HISTORY_LEDGER_DIR = DEFAULT_LEDGER_DIR                   # where tunes before <project>/probes wrote
 # The campaign/ of THIS source tree (resolved from __file__), not a fixed "$HOME/wtune/campaign":
 # on scc ~/wtune is a stale checkout (no RANKING_START, no write_adios2_restart_xml, no \037 TSV
 # fix) while the live code runs from ~/wtune-src, so the old hardcoded default silently paired
@@ -227,29 +228,36 @@ def default_ledger_dir():
 
 
 def history_ledger_dirs(ledger_dir):
-    """[DEFAULT_LEDGER_DIR] when ledger_dir is another directory, else []: a project's probes
+    """[HISTORY_LEDGER_DIR] when ledger_dir is another directory, else []: a project's probes
     write into the project, earlier tunes of the same case id wrote into the shared one."""
-    shared = _expand(DEFAULT_LEDGER_DIR)
+    shared = _expand(HISTORY_LEDGER_DIR)
     return [] if os.path.realpath(shared) == os.path.realpath(_expand(ledger_dir)) else [shared]
+
+
+def job_wrf_tree(env_source, campaign_dir, site=None):
+    """The $W a probe job will hash: the site file's, after the submit shell's `source env.sh`
+    (build_sbatch_command); None when it cannot be resolved."""
+    if not campaign_dir:
+        return None
+    script = ('source %s >/dev/null 2>&1; CAMPAIGN=%s; source "$CAMPAIGN/sites/%s.sh" '
+              '>/dev/null 2>&1; printf %%s "$W"'
+              % (shlex.quote(_expand(env_source or wtune.machine.env_source())),
+                 shlex.quote(campaign_dir), site or wtune.machine.site()))
+    try:
+        out = subprocess.run(["bash", "-c", script], capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return out.stdout.strip() or None
 
 
 def wrf_build_id(wrf_tree):
     """sha1 of <wrf_tree>/main/wrf.exe's contents, first 16 hex (coldstart_sample.build_id_expr,
     the probes' build= ledger token); '' when unreadable."""
-    exe = os.path.realpath(os.path.join(_expand(wrf_tree or ""), "main", "wrf.exe"))
-    try:
-        st = os.stat(exe)
-    except OSError:
-        return ""
-    return _sha1_16(exe, st.st_size, st.st_mtime_ns)
-
-
-@functools.lru_cache(maxsize=8)
-def _sha1_16(path, _size, _mtime_ns):
     import hashlib
     h = hashlib.sha1()
     try:
-        with open(path, "rb") as f:
+        with open(os.path.realpath(os.path.join(_expand(wrf_tree or ""), "main", "wrf.exe")),
+                  "rb") as f:
             for block in iter(lambda: f.read(1 << 20), b""):
                 h.update(block)
     except OSError:

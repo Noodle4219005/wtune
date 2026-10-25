@@ -182,7 +182,7 @@ run_window() {
   pkill -u "$USER" -x wrf.exe 2>/dev/null
   [ $rc -ne 0 ] && return 1
   shopt -s nullglob; TBLS=(qr_acr_q*.dat freezeH2O.dat); shopt -u nullglob
-  for f in "${TBLS[@]}"; do [ -L "$f" ] || [ -e "$TBL_CACHE/$f" ] || { mkdir -p "$TBL_CACHE" && cp -f "$f" "$TBL_CACHE/.$f.$$" && mv -f "$TBL_CACHE/.$f.$$" "$TBL_CACHE/$f"; }; done
+  for f in "${TBLS[@]}"; do [ -L "$f" ] || [ -e "$TBL_CACHE/$f" ] || { mkdir -p "$TBL_CACHE" && cp -f "$f" "$TBL_CACHE/.$f.${SLURM_JOB_ID:-0}.$$" && mv -f "$TBL_CACHE/.$f.${SLURM_JOB_ID:-0}.$$" "$TBL_CACHE/$f"; }; done
   LAST_WRF_STATUS="ok"
   return 0
 }

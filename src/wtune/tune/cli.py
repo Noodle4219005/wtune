@@ -3,6 +3,7 @@ default), the run context, the mode dispatch and main()."""
 from __future__ import annotations
 
 import argparse
+import contextlib
 import dataclasses
 import os
 import sys
@@ -113,12 +114,10 @@ def run(args: argparse.Namespace, sbatch_runner: Callable | None = None,
           % (o.case, "search" if ns.node_search else ns.nodes, ns.nodes_note,
              ("%.1f min" % o.minutes) if o.minutes is not None else "none", max_nodes, out_dir))
 
-    s_est, _src, _n = sweep.estimate_s_per_step(ctx.case, ctx.nodes, ctx.ledger_dir,
-                                                 ctx.hardware_id, build_id=ctx.build_id,
-                                                 extra_dirs=ctx.history_dirs)
+    s_est, _src, _n = ctx.estimate_s_per_step()
 
     ctx.state_file = os.path.join(out_dir, "tune.state.json")
-    with _stop_on_signal(ctx):
+    with _campaign_out(ctx.ledger_dir), _stop_on_signal(ctx):
         try:
             report = _run_mode(ctx, profile, args, o, ns, ext_notes, preflight, s_est)
         except StopRequested as e:
@@ -192,7 +191,7 @@ def _build_ctx(args: argparse.Namespace, o: _RunOptions, ns: _NodeChoice, case_j
                poll_interval=args.poll_interval, sbatch_runner=sbatch_runner,
                sacct_runner=sacct_runner, scancel_runner=scancel_runner,
                ledger_reader=ledger_reader, proposer=proposer, clock=clock,
-               build_id=sweep.wrf_build_id(wtune.machine.wrf_tree()),
+               build_id=_build_id(args),
                history_dirs=sweep.history_ledger_dirs(ledger_dir),
                search_cfg=o.cfg["search"], exclude_rules=o.cfg["exclude"], is_fire=is_fire,
                omp_cap=wtune.machine.omp_cap(extension_omp_cap),
@@ -433,18 +432,40 @@ def _run_out_dir(args: argparse.Namespace, case: str) -> str:
 
 
 def _ledger_dir(args: argparse.Namespace) -> str:
-    """--ledger-dir, else <project>/probes inside a project, else sweep.default_ledger_dir().
-    Exported as WTUNE_CAMPAIGN_OUT, so the probe jobs (sbatch --export=ALL) write where the tune
-    reads: the site file's own $OUT is only the default."""
+    """--ledger-dir, else <project>/probes inside a project, else sweep.default_ledger_dir()."""
     import wtune.project
     ledger_dir = args.ledger_dir
     if not ledger_dir:
         project_dir = wtune.project.find_project(explicit=getattr(args, "project", None))
         ledger_dir = (os.path.join(project_dir, "probes") if project_dir
                       else sweep.default_ledger_dir())
-    ledger_dir = sweep._expand(ledger_dir)
+    return sweep._expand(ledger_dir)
+
+
+def _build_id(args: argparse.Namespace) -> str:
+    """The WRF build the probe jobs will run (sweep.wrf_build_id of the tree they resolve); ''
+    when there is no wrf.exe there, and the ledger estimates then use every build's rows."""
+    tree = (sweep.job_wrf_tree(args.env_source, sweep.campaign_dir_for(args.sbatch_script))
+            or wtune.machine.wrf_tree())
+    build_id = sweep.wrf_build_id(tree)
+    print("build %s (%s/main/wrf.exe)" % (build_id, tree) if build_id else
+          "wtune tune: no wrf.exe under %s -- the ledger estimates use every build's rows" % tree)
+    return build_id
+
+
+@contextlib.contextmanager
+def _campaign_out(ledger_dir: str):
+    """WTUNE_CAMPAIGN_OUT=ledger_dir while the tune runs, so its probe jobs (sbatch --export=ALL)
+    write where it reads (the site files' $OUT follows it); restored afterwards."""
+    old = os.environ.get(sweep.CAMPAIGN_OUT_ENV)
     os.environ[sweep.CAMPAIGN_OUT_ENV] = ledger_dir
-    return ledger_dir
+    try:
+        yield
+    finally:
+        if old is None:
+            os.environ.pop(sweep.CAMPAIGN_OUT_ENV, None)
+        else:
+            os.environ[sweep.CAMPAIGN_OUT_ENV] = old
 
 
 def _use_project_bp_cache(args: argparse.Namespace) -> None:

@@ -28,12 +28,15 @@ os.environ["WTUNE_POST_WORKERS"] = "1"
 
 
 @pytest.fixture(autouse=True)
-def _no_campaign_out_leak():
-    """wtune tune exports WTUNE_CAMPAIGN_OUT for its probe jobs; one test's must not become the
-    next test's default ledger directory."""
-    os.environ.pop("WTUNE_CAMPAIGN_OUT", None)
-    yield
-    os.environ.pop("WTUNE_CAMPAIGN_OUT", None)
+def _no_account_ledgers(monkeypatch, tmp_path_factory):
+    """A tune reads the account's older ledgers (~/wtune-runs/campaign) and resolves the probes'
+    WRF tree by sourcing env.sh: neither may reach a test on a cluster login node."""
+    import wtune.tools.scc_sweep
+    import wtune.tune.cli
+    monkeypatch.delenv("WTUNE_CAMPAIGN_OUT", raising=False)
+    monkeypatch.setattr(wtune.tools.scc_sweep, "HISTORY_LEDGER_DIR",
+                        str(tmp_path_factory.getbasetemp() / "no-history-ledgers"))
+    monkeypatch.setattr(wtune.tune.cli, "_build_id", lambda args: "")
 
 
 @pytest.fixture(autouse=True)

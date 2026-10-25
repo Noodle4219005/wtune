@@ -537,7 +537,7 @@ def test_segment_sbatch_text(tmp_path, monkeypatch):
     assert "CAMPAIGN=${CAMPAIGN:-/repo/campaign}" in text
     lines = text.strip().splitlines()
     rec = lines.index('echo "SEGMENT rc=$rc wall=$wall ok=$ok" | tee -a "$STATUS"')
-    assert rec == len(lines) - 1                     # no table harvest without --thompson-cache
+    assert rec > 0 and "TBL_CACHE" not in text      # no table cache without --thompson-cache
     assert "SUCCESS COMPLETE WRF" in text
     assert subprocess.run(["bash", "-n"], input=text, text=True).returncode == 0
 

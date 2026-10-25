@@ -2907,8 +2907,8 @@ def _run_window_wrf_lines(ranks, ppn, omp, nx, ny, numtiles, wrf_timeout_s):
     lines.append("  [ $rc -ne 0 ] && return 1")
     lines.append("  shopt -s nullglob; TBLS=(qr_acr_q*.dat freezeH2O.dat); shopt -u nullglob")
     lines.append("  for f in \"${TBLS[@]}\"; do [ -L \"$f\" ] || [ -e \"$TBL_CACHE/$f\" ] || { "
-                 "mkdir -p \"$TBL_CACHE\" && cp -f \"$f\" \"$TBL_CACHE/.$f.$$\" && "
-                 "mv -f \"$TBL_CACHE/.$f.$$\" \"$TBL_CACHE/$f\"; }; done")
+                 "mkdir -p \"$TBL_CACHE\" && cp -f \"$f\" \"$TBL_CACHE/.$f.${SLURM_JOB_ID:-0}.$$\" && "
+                 "mv -f \"$TBL_CACHE/.$f.${SLURM_JOB_ID:-0}.$$\" \"$TBL_CACHE/$f\"; }; done")
     lines.append("  LAST_WRF_STATUS=\"ok\"")
     lines.append("  return 0")
     return lines

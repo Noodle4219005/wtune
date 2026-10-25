@@ -592,5 +592,5 @@ def cold_start_prediction(ctx: Ctx, nodes: int, config: dict | None,
             return T, max(1e-6, (T - ctx.startup_s) / max(1, total_steps)), "wtune.predict cold start"
         except Exception:                                   # noqa: BLE001
             pass
-    s_est, src, _k = sweep.estimate_s_per_step(ctx.case, nodes, ctx.ledger_dir, ctx.hardware_id)
+    s_est, src, _k = ctx.estimate_s_per_step(nodes)
     return total_steps * s_est + ctx.startup_s, s_est, "ledger estimate (%s)" % src

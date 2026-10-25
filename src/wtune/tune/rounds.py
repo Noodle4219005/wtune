@@ -195,8 +195,7 @@ def run_round0(ctx: Ctx, fill: bool = False) -> tuple[list, dict, list]:
     wave when the measured s/step undercuts the estimate. With `fill` and a time cap, top-up
     waves sized off the measured startup and s/step continue until the cap (less one race job)
     or the candidates run out. Returns (job_ids, configs_by_cid, rows)."""
-    s_est, s_source, n_rows = sweep.estimate_s_per_step(ctx.case, ctx.nodes, ctx.ledger_dir,
-                                                          ctx.hardware_id)
+    s_est, s_source, n_rows = ctx.estimate_s_per_step()
     if ctx.full_space:
         return _run_full_space_round0(ctx, s_est, compute_slots(ctx.max_nodes, ctx.nodes))
     slots = compute_slots(ctx.max_nodes, ctx.nodes)
@@ -568,8 +567,7 @@ def run_tuning_at(ctx: Ctx, s_est: float | None = None, adaptive: bool = True,
 def _run_tuning_at(ctx: Ctx, s_est: float | None, adaptive: bool,
                    confirm: bool) -> tuple[dict, dict | None, str | None]:
     if s_est is None:
-        s_est, _src, _n = sweep.estimate_s_per_step(ctx.case, ctx.nodes, ctx.ledger_dir,
-                                                     ctx.hardware_id)
+        s_est, _src, _n = ctx.estimate_s_per_step()
     job_ids0, configs_by_cid, rows0 = run_round0(ctx, fill=not adaptive and not confirm)
     all_results = aggregate_by_cid(rows0, configs_by_cid)
     anchor_cid = "ANCHOR" if "ANCHOR" in configs_by_cid else None

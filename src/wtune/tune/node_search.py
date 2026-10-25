@@ -351,8 +351,7 @@ def run_node_sweep(ctx: Ctx, legal_nodes: list[int],
         if meas:
             near = min(meas, key=lambda m: (abs(m - n), m))
             return statistics.median(meas[near]), "median at N=%d" % near
-        s_est, src, _k = sweep.estimate_s_per_step(ctx.case, n, ctx.ledger_dir, ctx.hardware_id,
-                                                   build_id=ctx.build_id, extra_dirs=ctx.history_dirs)
+        s_est, src, _k = ctx.estimate_s_per_step(n)
         return s_est, src
 
     def cap_reason():

@@ -85,7 +85,8 @@ def render_segment_sbatch(seg_dir: str, k: int, config: Config, time_limit: str,
     harvest = [] if not thompson_cache else ["if [ \"$rc\" -eq 0 ] && [ \"$ok\" -gt 0 ]; then",
                "  shopt -s nullglob; for f in qr_acr_q*.dat freezeH2O.dat; do",
                "    [ -L \"$f\" ] || [ -e \"$TBL_CACHE/$f\" ] || { mkdir -p \"$TBL_CACHE\" && "
-               "cp -f \"$f\" \"$TBL_CACHE/.$f.$$\" && mv -f \"$TBL_CACHE/.$f.$$\" \"$TBL_CACHE/$f\"; }",
+               "cp -f \"$f\" \"$TBL_CACHE/.$f.${SLURM_JOB_ID:-0}.$$\" && "
+               "mv -f \"$TBL_CACHE/.$f.${SLURM_JOB_ID:-0}.$$\" \"$TBL_CACHE/$f\"; }",
                "  done; shopt -u nullglob",
                "fi"]
     return "\n".join(lines + _launch_lines(k, config) + harvest) + "\n"

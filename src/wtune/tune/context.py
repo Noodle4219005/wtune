@@ -164,6 +164,13 @@ class Ctx:
             return self.clock.now() - self.start_time - self.queue_wait_s
         return self.clock.now() - self.start_time
 
+    def estimate_s_per_step(self, nodes: int | None = None) -> tuple:
+        """sweep.estimate_s_per_step for this case at `nodes` (default: the tune's), from this
+        build's rows of the tune's ledger and the older shared ones."""
+        return sweep.estimate_s_per_step(self.case, self.nodes if nodes is None else nodes,
+                                         self.ledger_dir, self.hardware_id,
+                                         build_id=self.build_id, extra_dirs=self.history_dirs)
+
 
 def resolve_case(case_id: str, cores_per_node: int) -> tuple[dict, str, dict]:
     """(case json, namelist path, wtune.case profile) of a registered case."""

@@ -70,18 +70,33 @@ def test_tune_ledger_dir_is_the_project_and_reaches_the_jobs(tmp_path, monkeypat
     import wtune.project
     args = argparse.Namespace(ledger_dir=None, project=None)
     monkeypatch.setattr(wtune.project, "find_project", lambda explicit=None: str(tmp_path / "proj"))
-    assert tune_cli._ledger_dir(args) == str(tmp_path / "proj" / "probes")
-    assert os.environ[sweep.CAMPAIGN_OUT_ENV] == str(tmp_path / "proj" / "probes")
-    assert sweep.history_ledger_dirs(str(tmp_path / "proj" / "probes")) == [
-        sweep._expand(sweep.DEFAULT_LEDGER_DIR)]
-    assert sweep.history_ledger_dirs(sweep.DEFAULT_LEDGER_DIR) == []
+    probes = str(tmp_path / "proj" / "probes")
+    assert tune_cli._ledger_dir(args) == probes
+    with tune_cli._campaign_out(probes):
+        assert os.environ[sweep.CAMPAIGN_OUT_ENV] == probes            # what the jobs inherit
+    assert sweep.CAMPAIGN_OUT_ENV not in os.environ                    # not the next tune's default
+    assert sweep.history_ledger_dirs(probes) == [sweep.HISTORY_LEDGER_DIR]
+    assert sweep.history_ledger_dirs(sweep.HISTORY_LEDGER_DIR) == []
     args.ledger_dir = str(tmp_path / "mine")
     assert tune_cli._ledger_dir(args) == str(tmp_path / "mine")
     monkeypatch.setattr(wtune.project, "find_project", lambda explicit=None: None)
     args.ledger_dir = None
-    assert tune_cli._ledger_dir(args) == str(tmp_path / "mine")      # the exported one
-    os.environ.pop(sweep.CAMPAIGN_OUT_ENV)
     assert tune_cli._ledger_dir(args) == sweep._expand(sweep.DEFAULT_LEDGER_DIR)
+    monkeypatch.setenv(sweep.CAMPAIGN_OUT_ENV, str(tmp_path / "user"))
+    assert tune_cli._ledger_dir(args) == str(tmp_path / "user")
+
+
+def test_build_id_comes_from_the_tree_the_jobs_run(tmp_path):
+    """4df97ca review: the id came from machine.wrf_tree(), the jobs hash the site file's $W
+    after `source env.sh` (f1-arm: env.sh sets WRF_TREE, machine.yaml has no wrf_tree)."""
+    tree = _tree(tmp_path)
+    (tmp_path / "campaign" / "sites").mkdir(parents=True)
+    (tmp_path / "campaign" / "sites" / "s.sh").write_text('W=${WRF_TREE:-/nonexistent/WRF}\n')
+    (tmp_path / "env.sh").write_text("export WRF_TREE=%s\necho chatter\n" % tree)
+    assert sweep.job_wrf_tree(str(tmp_path / "env.sh"), str(tmp_path / "campaign"), "s") == tree
+    assert sweep.job_wrf_tree(str(tmp_path / "none.sh"), str(tmp_path / "campaign"), "s") == \
+        "/nonexistent/WRF"
+    assert sweep.job_wrf_tree(str(tmp_path / "env.sh"), None, "s") is None
 
 
 def test_site_files_take_the_tunes_out(tmp_path):
@@ -128,3 +143,73 @@ def test_o3_prior_leaves_out_other_builds(tmp_path, monkeypatch):
     monkeypatch.setattr(rounds, "cores_used", lambda c: 1)
     rounds._default_proposer(ctx)({}, 1)
     assert sorted(r["s_per_step_median"] for r in seen["prior"]) == [2.0, 4.0]
+
+
+def test_every_tune_estimate_keeps_to_the_build(tmp_path, monkeypatch):
+    """4df97ca review: round 0 (which sizes the first measurement), the node-search finalists and
+    the cold-start prediction each called the estimate without the build or the older ledgers."""
+    import pytest
+    from wtune.tune import prediction, rounds
+    from test_wtune_tune import _ctx
+    probes, hist = str(tmp_path / "probes"), str(tmp_path / "shared")
+    _ledger(hist, "c", 1, [(1, 2.0, "config=a")])
+    _ledger(probes, "c", 2, [(1, 1.0, "build=aaaa"), (1, 9.0, "build=bbbb")])
+    ctx = _ctx(case="c", hardware_id="hw", ledger_dir=probes, build_id="aaaa", history_dirs=[hist])
+    assert ctx.estimate_s_per_step() == (1.0, "ledger", 1)
+    ctx.build_id = "cccc"
+    assert ctx.estimate_s_per_step(2) == (1.0, "ledger_unknown_build", 1)
+    ctx.build_id = "aaaa"
+    got = []
+    real = sweep.estimate_s_per_step
+
+    def spy(*a, **k):
+        got.append(real(*a, **k))
+        raise RuntimeError("stop")
+    monkeypatch.setattr(sweep, "estimate_s_per_step", spy)
+    for call in (lambda: rounds.run_round0(ctx), lambda: rounds._run_tuning_at(ctx, None, False, False),
+                 lambda: prediction.cold_start_prediction(ctx, 1, None, 10)):
+        with pytest.raises(RuntimeError):
+            call()
+    assert got == [(1.0, "ledger", 1)] * 3
+
+
+def _block(text, start, end):
+    lines = text.splitlines()
+    i = next(k for k, ln in enumerate(lines) if ln.startswith(start))
+    j = next(k for k in range(i, len(lines)) if lines[k].startswith(end))
+    return "\n".join(lines[i:j + 1])
+
+
+def test_probe_harvest_caches_only_after_init_and_through_a_temporary_name(tmp_path):
+    """4df97ca review: the harvest ran whatever the run did and mv'd straight to the cache name,
+    a copy when <project>/probes is on another filesystem than the cache."""
+    text = open(os.path.join(REPO, "campaign", "strict_campaign.sbatch")).read()
+    func = _block(text, "harvest_thompson_tables () {", "}")
+    cache, run = tmp_path / "cache", tmp_path / "run"
+    cache.mkdir(), run.mkdir()
+    body = ("THOMPSON_TABLE_NAMES=(freezeH2O.dat qr_acr_qsV2.dat); TABLE_CACHE=%s; J=7\n%s\n"
+            "harvest_thompson_tables" % (cache, func))
+    (run / "freezeH2O.dat").write_text("partial")
+    _bash(body, {}, str(run))                       # died before 'Timing for main'
+    assert os.listdir(cache) == [] and (run / "freezeH2O.dat").exists()
+    (run / "rsl.error.0000").write_text("Timing for main: time 2020-06-01_00:00:10 on domain 1\n")
+    _bash(body, {}, str(run))
+    assert os.listdir(cache) == ["freezeH2O.dat"] and not (run / "freezeH2O.dat").exists()
+
+
+def test_calibrate_run_caches_the_tables_it_computed(tmp_path):
+    import test_wtune_calibrate as tc
+    from wtune import calibrate as wc
+    case_dir, out = tmp_path / "case", tmp_path / "plan_out"
+    case_dir.mkdir()
+    tc._write(str(case_dir / "namelist.input"), tc.SEVERE_LIKE_NAMELIST)
+    assert wc.plan_cmd(tc._plan_args(case_dir, out)) == 0
+    text = next(out.glob("plan_*.sbatch")).read_text()
+    harvest = _block(text, 'if [ "$OK" = 1 ]; then', "fi")
+    cache, run = tmp_path / "cache", tmp_path / "run"
+    run.mkdir()
+    (run / "qr_acr_qsV2.dat").write_text("table")
+    _bash("TBL_CACHE=%s; OK=0\n%s" % (cache, harvest), {}, str(run))
+    assert not cache.exists()
+    _bash("TBL_CACHE=%s; OK=1\n%s" % (cache, harvest), {}, str(run))
+    assert os.listdir(cache) == ["qr_acr_qsV2.dat"]

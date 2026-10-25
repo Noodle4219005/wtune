@@ -221,7 +221,7 @@ done
 # campaign/strict_campaign.sbatch's THOMPSON_TABLE_NAMES/link_thompson_tables/OUT for the
 # identical production pattern this mirrors: the per-build cache the campaign probes fill).
 # A build with nothing cached yet just falls through ([ -f ... ] guard) and WRF computes
-# fresh -- no worse, not harvested back into the cache by this script (only linked).
+# fresh; a completed run adds what it computed (below).
 TBL_CACHE="${{WTUNE_TABLE_CACHE:-$HOME/wtune-runs/thompson_tables}}/$(sha1sum < "$(readlink -f "$W/main/wrf.exe")" | cut -c1-16)"
 for tbl in freezeH2O.dat qr_acr_qg_V4.dat qr_acr_qsV2.dat; do
   [ -e "$tbl" ] && continue
@@ -290,6 +290,14 @@ T1=$(date +%s.%N)
 OK=0
 if [ -f rsl.error.0000 ] && grep -qa "SUCCESS COMPLETE WRF" rsl.error.0000; then
   OK=1
+fi
+# a table this completed run computed goes to the cache for the next rank count
+if [ "$OK" = 1 ]; then
+  for tbl in freezeH2O.dat qr_acr_qg_V4.dat qr_acr_qsV2.dat; do
+    [ -f "$tbl" ] && [ ! -L "$tbl" ] && [ ! -e "$TBL_CACHE/$tbl" ] && mkdir -p "$TBL_CACHE" && \
+      cp -f "$tbl" "$TBL_CACHE/.$tbl.${{SLURM_JOB_ID:-0}}.$$" && \
+      mv -f "$TBL_CACHE/.$tbl.${{SLURM_JOB_ID:-0}}.$$" "$TBL_CACHE/$tbl"
+  done
 fi
 
 {{

@@ -4,6 +4,7 @@ are excluded from every sbatch of this process."""
 from __future__ import annotations
 
 import concurrent.futures
+import getpass
 import os
 import shlex
 import subprocess
@@ -76,7 +77,7 @@ def _probe_node(runner: Runner, n: str, state: str, script: str,
         rc, out = runner(argv, timeout_s)
     except subprocess.TimeoutExpired:
         try:
-            runner(["scancel", "--name=" + name], SINFO_TIMEOUT_S)
+            runner(["scancel", "--user=" + getpass.getuser(), "--name=" + name], SINFO_TIMEOUT_S)
         except (OSError, subprocess.SubprocessError):
             pass
         if state.lower().startswith(BUSY_STATES):
@@ -88,7 +89,8 @@ def _probe_node(runner: Runner, n: str, state: str, script: str,
         return n, dict(state=state, ok=False, probed=True, reason="probe error: %s" % e)
     if rc == 0:
         return n, dict(state=state, ok=True, probed=True, reason="")
-    refusal = [ln for ln in (out or "").splitlines() if any(r in ln for r in SCHEDULER_REFUSAL)]
+    refusal = [ln for ln in (out or "").splitlines() if any(r in ln for r in SCHEDULER_REFUSAL)
+               and "Invalid" not in ln]     # Invalid account/partition/qos: a configuration error
     if refusal:
         return n, dict(state=state, ok=True, probed=False,
                        reason="not allocated, not probed: %s" % refusal[-1].strip())

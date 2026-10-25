@@ -7,12 +7,14 @@ output volume is estimated up front against the space actually writable, and eac
 history frames are compared with the stream's largest frame afterwards."""
 from __future__ import annotations
 
+import contextlib
 import glob
 import gzip
 import os
 import pwd
 import shutil
 import subprocess
+import sys
 from typing import Callable, Optional
 
 from wtune.preflight import _ASSUMED_3D_FIELDS, _BYTES_PER_VALUE, _fmt_bytes
@@ -145,11 +147,18 @@ def gzip_rsl(seg_dir: str) -> tuple[int, int, int]:
         if p.endswith((".0000", ".gz")) or os.path.islink(p) or not os.path.isfile(p):
             continue
         tmp = p + ".gz.tmp"
-        with open(p, "rb") as src, gzip.open(tmp, "wb", compresslevel=1) as dst:
-            shutil.copyfileobj(src, dst, 1 << 20)
-        before += os.path.getsize(p)
-        os.replace(tmp, p + ".gz")
-        os.remove(p)
+        try:
+            with open(p, "rb") as src, gzip.open(tmp, "wb", compresslevel=1) as dst:
+                shutil.copyfileobj(src, dst, 1 << 20)
+            size = os.path.getsize(p)
+            os.replace(tmp, p + ".gz")
+            os.remove(p)
+        except OSError as e:            # a full quota: the rest stay plain, the run goes on
+            with contextlib.suppress(OSError):
+                os.remove(tmp)
+            sys.stderr.write("WARNING: rsl gzip stopped at %s: %s\n" % (os.path.basename(p), e))
+            break
+        before += size
         after += os.path.getsize(p + ".gz")
         n += 1
     return n, before, after

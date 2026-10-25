@@ -10,6 +10,7 @@ injects one). Run with:
 import csv
 import json
 import math
+import getpass
 import os
 import atexit
 import re
@@ -2652,8 +2653,32 @@ def test_preflight_keeps_nodes_the_scheduler_did_not_allocate_and_cancels_timed_
         assert h["nodes"][n]["ok"] and h["nodes"][n]["probed"] is False
         assert h["nodes"][n]["reason"].startswith("not allocated, not probed: srun: error:")
     assert h["failed"] == ["work4"]
-    assert ["scancel", "--name=wtune-preflight-%d-work4" % os.getpid()] in log
-    assert not any(a[0] == "scancel" and "work2" in a[1] for a in log)
+    assert ["scancel", "--user=" + getpass.getuser(), "--name=wtune-preflight-%d-work4" % os.getpid()] in log
+    assert not any(a[0] == "scancel" and any("work2" in x for x in a) for a in log)
+
+
+def test_preflight_fails_a_node_the_account_cannot_use():
+    """dbbf82d review: 'Unable to allocate resources: Invalid account ...' is a configuration
+    error, not a busy node; every node was kept as healthy-unprobed."""
+    runner, _log = make_health_runner({"work2": "idle"}, bad={
+        "work2": "srun: error: Unable to allocate resources: Invalid account or "
+                 "account/partition combination specified"})
+    h = _preflight(runner, requested=13)
+    assert h["failed"] == ["work2"] and h["nodes"]["work2"]["probed"] is True
+
+
+def test_the_input_space_check_comes_before_the_node_preflight(monkeypatch, tmp_path):
+    """dbbf82d review: a tune that cannot convert its inputs probed every node first."""
+    calls = []
+
+    def runner(argv, timeout):
+        calls.append(argv)
+        raise AssertionError("preflight ran")
+    monkeypatch.setattr(wtune.tune.cli._jobs, "check_input_space",
+                        lambda case, **k: (_ for _ in ()).throw(SystemExit("no space")))
+    with pytest.raises(SystemExit, match="no space"):
+        _run_cli(monkeypatch, tmp_path, ["-O1"], preflight_runner=runner)
+    assert calls == []
 
 
 def test_preflight_merges_with_the_user_exclude_in_every_sbatch(monkeypatch):
@@ -3602,3 +3627,7 @@ def test_confirm_includes_the_fastest_measured_config(monkeypatch):
     predicted["C1"]["pred_total_s"] = 80.0                    # already in the top 3: no extra
     cids = [e["cid"] for e in rounds.select_confirm_entries(None, 1, {}, "ANCHOR")]
     assert cids == ["C1", "B1", "B2", "ANCHOR"]
+    predicted["C1"]["pred_total_s"] = 95.0                    # the fastest has no config
+    predicted["D1"] = dict(entry("D1", 0.10, 99.0), config=None)
+    cids = [e["cid"] for e in rounds.select_confirm_entries(None, 1, {}, "ANCHOR")]
+    assert cids == ["B1", "B2", "B3", "C1", "ANCHOR"]           # dbbf82d review: C1 was dropped

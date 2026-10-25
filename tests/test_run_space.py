@@ -224,3 +224,41 @@ def test_a_stopped_segment_drops_its_tables_too(tmp_path, monkeypatch):
     rep = json.loads((out / "run_report.json").read_text())
     assert rc == 130 and rep["status"] == "stopped"
     assert _tables(rep) == [["qr_acr_qsV2.dat"]]
+
+
+def test_gzip_rsl_on_a_full_quota_keeps_the_rest_plain(tmp_path, monkeypatch, capsys):
+    """dbbf82d review: EDQUOT from gzip raised out of the run controller after a good segment."""
+    import errno
+    import gzip
+    for n in ("rsl.out.0001", "rsl.out.0002", "rsl.out.0003"):
+        (tmp_path / n).write_text("line\n" * 100)
+    real, opened = gzip.open, []
+
+    def full(path, *a, **k):
+        opened.append(path)
+        if len(opened) == 2:
+            raise OSError(errno.EDQUOT, "Disk quota exceeded")
+        return real(path, *a, **k)
+    monkeypatch.setattr(gzip, "open", full)
+    n, _b, _a = space.gzip_rsl(str(tmp_path))
+    assert n == 1 and sorted(os.listdir(tmp_path)) == ["rsl.out.0001.gz", "rsl.out.0002",
+                                                       "rsl.out.0003"]
+    assert "rsl gzip stopped at rsl.out.0002" in capsys.readouterr().err
+
+
+def test_probe_input_copy_needs_one_copy_not_one_per_run(monkeypatch, tmp_path):
+    """dbbf82d review: fresh_probe_inputs makes reflinks or a single full copy, but the space
+    check asked for one copy per run (17 x 1.5 GB for a 5-config, 3-rep confirm job)."""
+    from wtune.tune import jobs
+    made = []
+    monkeypatch.setattr(jobs, "_submits_for_real", lambda ctx: True)
+    monkeypatch.setattr(jobs, "_BP_READY", {("c", None)})
+    monkeypatch.setattr(jobs.wtune.machine, "copy_probe_inputs", lambda: True)
+    monkeypatch.setattr(jobs, "input_space_need", lambda c, j=None: (0.0, 1.5e9, "/cache"))
+    monkeypatch.setattr(jobs, "_writable_at", lambda p: (20e9, "GPFS quota headroom"))
+    monkeypatch.setattr(jobs.sweep.campaign_configs, "fresh_probe_inputs",
+                        lambda case, d, runs, cases_json=None: made.append(runs) or d)
+    assert jobs.fresh_input_export(None, "c", str(tmp_path), 17) == [
+        ("WTUNE_BP_FRESH_DIR", str(tmp_path / "bp_fresh"))] and made == [17]
+    monkeypatch.setattr(jobs, "_writable_at", lambda p: (1e9, "GPFS quota headroom"))
+    assert jobs.fresh_input_export(None, "c", str(tmp_path), 17) == []

@@ -43,7 +43,8 @@ def select_confirm_entries(ctx: Ctx, nodes: int, all_results: dict,
     ranked = rank_predicted_entries(predicted, anchor_cid)
     top = list(ranked[:3])
     cids = {r["cid"] for r in top}
-    measured = [e for e in predicted.values() if e.get("median") is not None]
+    measured = [e for e in predicted.values()
+                if e.get("median") is not None and e.get("config") is not None]
     if measured:
         fastest = min(measured, key=lambda e: (e["median"], e["cid"]))
         if fastest["cid"] not in cids:

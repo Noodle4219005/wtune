@@ -25,6 +25,10 @@ os.environ["WTUNE_MACHINE_FILE"] = os.path.join(os.sep, "nonexistent", "wtune-ma
 os.environ.pop("WRF_TREE", None)
 # recipe figure sets in one process: tests stub them with local closures (test_post_recipe_parallel)
 os.environ["WTUNE_POST_WORKERS"] = "1"
+# a cluster shell's machine settings (f1-arm env.sh) must not reach the launch-line and
+# cores-per-node expectations
+for _v in ("WTUNE_SITE", "WTUNE_NUMA_PER_NODE", "WTUNE_CORES_PER_NODE"):
+    os.environ.pop(_v, None)
 
 
 @pytest.fixture(autouse=True)

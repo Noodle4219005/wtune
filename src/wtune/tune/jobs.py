@@ -300,10 +300,10 @@ def fresh_input_export(ctx: Ctx, case_id: str, job_out_dir: str, runs: int,
         free, src = _writable_at(job_out_dir)
     except (KeyError, OSError):
         one, free, src = 0.0, 0.0, ""
-    if one * runs > free:
-        sys.stderr.write("WARNING: %d per-record input copies for %s need %.1f GB, only %.1f GB is "
+    if one > free:                  # fresh_probe_inputs: reflink copies share extents, else one copy
+        sys.stderr.write("WARNING: the per-record input copy for %s needs %.1f GB, only %.1f GB is "
                          "writable (%s): the job reads the shared BP cache\n"
-                         % (runs, case_id, one * runs / 1e9, free / 1e9, src))
+                         % (case_id, one / 1e9, free / 1e9, src))
         return []
     try:
         d = sweep.campaign_configs.fresh_probe_inputs(

@@ -96,18 +96,18 @@ def run(args: argparse.Namespace, sbatch_runner: Callable | None = None,
     case_json, namelist_path, profile = _context.resolve_case(o.case, args.cores_per_node)
     is_fire, ext_notes, steps, ranking_start_note = _run_case_inputs(o, case_json, namelist_path)
 
+    _use_project_bp_cache(args)                     # the cache the space check looks at
+    if o.level != 0 and not getattr(args, "no_space_check", False):
+        _jobs.check_input_space(o.case)             # before the node preflight's probes too
     max_nodes = min(int(o.max_nodes_requested), wtune.machine.max_nodes())
     node_health, preflight, max_nodes = _run_node_preflight(args, o.level, case_json, max_nodes,
                                                             preflight_runner)
     ns = _resolve_node_choice(args, o, profile, max_nodes, namelist_path)
     out_dir = _run_out_dir(args, o.case)
-    _use_project_bp_cache(args)
     ctx = _build_ctx(args, o, ns, case_json, namelist_path, is_fire, steps, ranking_start_note,
                      max_nodes, out_dir, sbatch_runner, sacct_runner, scancel_runner,
                      ledger_reader, proposer, clock)
     ctx.node_health = node_health
-    if o.level != 0 and not getattr(args, "no_space_check", False):
-        _jobs.check_input_space(o.case)
     ctx.start_time = ctx.clock.now()
 
     print("case=%s nodes=%s (%s) budget=%s max_nodes=%d out=%s"

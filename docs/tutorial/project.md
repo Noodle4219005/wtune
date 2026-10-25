@@ -98,6 +98,7 @@ restart 個案的 `wtune tune` 會在 plan 階段印 `no projection source`：�
 - **一定要留**：`project.yaml`、`case/`、`manifest.jsonl`、每個 `tune/<id>/tune_report.json`、`runs/<id>/run_report.json`、`post/<id>/report.html` 與 `figures/`。這些是結果和來源的紀錄，佔的空間很小。
 - **需要空間時可以刪**：
     - `_nc_cache/` 和 `input/bp-cache/`：會重建。
+    - 舊專案的 `input/bp/`：0.9.3 起 run 改讀 tune 的 `input/bp-cache/`。下一次 tune 轉好之後，確認這個專案沒有進行中的 run，就可以刪。
     - 舊的 `runs/<id>/seg_<k>/` 輸出：先確認那次的 post 做完。
     - `probes/` 裡的 WRF 工作目錄（`probes/<個案>_<配置>_r<n>_<job>/`）。`probes/ledger_*.csv` 要留，它是每次量測的原始紀錄。
     - 舊的 `post/<id>/<類型>/` 資料檔。

@@ -95,22 +95,25 @@ twice. It is now left out with an info note pointing to the precip figures. The
 **Tune and run share one BP input conversion.** In a project, `wtune run` now uses the tune's
 cache `<project>/input/bp-cache/<case>/<key>/` (or `$WTUNE_BP_CACHE`, as the tune does) instead
 of its own `<project>/input/bp/`; marshall held the same 3 GB conversion twice. A project whose
-`input/bp/` already has a conversion keeps using it until the tune's cache has one.
+`input/bp/` already has a conversion keeps using it until the tune's cache has one; the next
+tune converts once into the cache, and `input/bp/` can then be deleted once no run of the
+project is in progress.
 
-**`wtune tune` checks disk space.** Before any job it estimates the BP conversion of the case's
-inputs not yet in the cache and stops when it does not fit the space writable there (GPFS quota
-headroom; `--no-space-check` overrides). When the per-job per-record input copies would not
-fit, the job reads the shared cache instead, with a warning.
+**`wtune tune` checks disk space.** Before any job, the node pre-flight included, it estimates
+the BP conversion of the case's inputs not yet in the cache and stops when it does not fit the
+space writable there (GPFS quota headroom; `--no-space-check` overrides). When a job's per-record
+input copy (reflinks, or one full copy) would not fit, the job reads the shared cache instead,
+with a warning.
 
-**The confirm round includes the fastest measured layout.** It took the top 3 by predicted
+**The confirm round includes the fastest measured layout** that has a configuration. It took the top 3 by predicted
 run time and the anchor; the prediction does not see `dist`, so on f1-arm conus12 a cyclic
 layout measured at 0.132 s/step was never confirmed against block layouts at 0.187.
 
 **Node pre-flight on shared clusters.** A probe the scheduler refuses or does not start within
 30 s (`srun --immediate=30`: a reservation, a busy node, a per-user submit limit) no longer
 excludes the node as unhealthy; it is kept and reported as not probed. A probe that times out
-has its job cancelled by name (`wtune-preflight-<pid>-<node>`): a killed `srun` left a PENDING
-job behind on scc.
+has its job cancelled by name and user (`wtune-preflight-<pid>-<node>`): a killed `srun` left a PENDING
+job behind on scc. A refusal that names an invalid account, partition or QOS is a configuration error and fails the node.
 
 **`wtune run --thompson-cache`.** Every segment linked no `qr_acr_q*.dat` / `freezeH2O.dat`, so
 Thompson recomputed them at each start (~70 s on scc). With `--thompson-cache` (also on
@@ -156,7 +159,8 @@ came first, so on f1-arm (144 cores, no calibration of its own) scc's 72 made pr
 
 **`rsl` files are compressed.** After a segment succeeds, the `rsl.out` and `rsl.error` files of
 every rank but 0 are gzipped (`gzip -1`, about 17x on sc26p1's `debug_level=50` logs, which wrote
-17.6 GB in 22 minutes). A failed segment keeps them plain for the diagnosis.
+17.6 GB in 22 minutes). A failed segment keeps them plain for the diagnosis. When the quota is
+full the gzip stops with a warning and the run goes on.
 
 **`wtune submit` passes the run's options.** `--resume`, `--checkpoint-minutes` and
 `--stall-minutes` go to `wtune run`; `--no-space-check` goes to both tune and run.

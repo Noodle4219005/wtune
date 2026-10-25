@@ -113,6 +113,10 @@ mkdir -p "$OUT"
 site_env
 
 J=$SLURM_JOB_ID
+# the WRF build: sha1 of the wrf.exe contents (coldstart_sample.build_id_expr); ledger notes
+# build= and the Thompson table cache key
+BUILD_ID=$(sha1sum < "$(readlink -f "$W/main/wrf.exe")" 2>/dev/null | cut -c1-16)
+BUILD_ID=${BUILD_ID:-unknown}
 LEDGER="$OUT/ledger_${CASE}_${J}.csv"
 LEDGER_HEADER="run_id,source_dataset,job_id,rep_index,case_raw,case_base,case_family,hardware_id,binary_kind,compliance_class,e_we,e_sn,e_vert,dx,dy,time_step,mp_physics,cu_physics,bl_pbl_physics,sf_sfclay_physics,sf_surface_physics,ra_lw_physics,ra_sw_physics,radt,cudt,history_interval,io_form_history,n_nodes,n_ranks,omp_threads,nproc_x,nproc_y,numtiles,distribution,kmp_blocktime,s_per_step_median,s_per_step_mean,n_steps_measured,diffwrf_differing_fields,fidelity_label,profile_micro_share,profile_radiation_share,profile_dynamics_share,profile_mpi_share,profile_io_share,profile_rank_imbalance,profile_thread_imbalance,notes"
 [ -f "$LEDGER" ] || echo "$LEDGER_HEADER" > "$LEDGER"
@@ -345,7 +349,7 @@ PY
 # them (e.g. lafe2017) got a freshly-computed, run-directory-local copy every single run
 # -- ~54 GiB duplicated across campaign run dirs. Share one copy per table name instead.
 THOMPSON_TABLE_NAMES=(freezeH2O.dat qr_acr_qg_V4.dat qr_acr_qg_mp38V1.dat qr_acr_qsV2.dat)
-TABLE_CACHE="$OUT/thompson_tables"
+TABLE_CACHE="${WTUNE_TABLE_CACHE:-$HOME/wtune-runs/thompson_tables}/$BUILD_ID"
 mkdir -p "$TABLE_CACHE"
 
 link_thompson_tables () {
@@ -1110,7 +1114,7 @@ for cid in "${ORDER[@]}"; do
 
   # ---- ledger row ----
   # fidelity_label is reserved for PHYSICS-GRAY fidelity; STRICT diffwrf status goes to notes.
-  NOTES="config=$cid n_excluded_steps=$NEXCL ref_config=$REF_CONFIG mode=$MODE io=adios2"
+  NOTES="config=$cid n_excluded_steps=$NEXCL ref_config=$REF_CONFIG mode=$MODE io=adios2 build=$BUILD_ID"
   if [ "$WF" != "0" ]; then
     NOTES="$NOTES history=$RUN_HISTORY_ARG $WF_NOTE"
   else

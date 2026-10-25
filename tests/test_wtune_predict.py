@@ -408,10 +408,16 @@ def test_short_run_not_segmented():
 # 4. parameter table / launch line
 # --------------------------------------------------------------------------
 
-def test_cores_per_node_comes_from_the_calibration_else_the_machine_setting(monkeypatch):
+def test_cores_per_node_is_the_machine_setting_before_the_calibration(monkeypatch):
+    """f1-arm 2026-10-25: machine.yaml says 144, no f1-arm calibration, and scc.json's 72 made
+    predict warn '90 cores exceeds 72 cores/node'."""
+    monkeypatch.delenv("WTUNE_CORES_PER_NODE", raising=False)
     assert wp.cores_per_node(wp.load_calibration(CALIBRATION)) == 72
+    monkeypatch.setenv("WTUNE_CORES_PER_NODE", "144")
+    assert wp.cores_per_node(wp.load_calibration(CALIBRATION)) == 144
     monkeypatch.setenv("WTUNE_CORES_PER_NODE", "112")
     assert wp.cores_per_node({}) == wp.cores_per_node(None) == 112
+    monkeypatch.delenv("WTUNE_CORES_PER_NODE")
     config = {"ranks": 288, "omp": 1, "nx": 16, "ny": 18, "numtiles": 1, "dist": "block"}
     scc = wp.build_param_table(config, 4, 2, "nfs", wp.cores_per_node(wp.load_calibration(CALIBRATION)))
     assert scc["ranks_per_node"] == 72 and scc["warning"] is None

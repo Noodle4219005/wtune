@@ -53,7 +53,7 @@ def _launch_lines(k: int, config: Config) -> list[str]:
 
 def render_segment_sbatch(seg_dir: str, k: int, config: Config, time_limit: str, job_name: str,
                           env_source: str | None = None,
-                          campaign_dir: str = _CAMPAIGN_DIR) -> str:
+                          campaign_dir: str = _CAMPAIGN_DIR, thompson_cache: bool = False) -> str:
     config = Config.coerce(config)
     lines = _header_lines(os.path.abspath(seg_dir), config.nodes, time_limit, job_name,
                           env_source or wtune.machine.env_source(), campaign_dir)
@@ -61,17 +61,17 @@ def render_segment_sbatch(seg_dir: str, k: int, config: Config, time_limit: str,
         config.nodes, extra_lines_after_alloc_nodes=["STATUS=\"$SEG/segment_status.txt\"",
                                                      ": > \"$STATUS\""],
         record_label="SEGMENT")
-    lines += ["cd \"$SEG\"",
-              # Thompson computes its qr_acr_q*/freezeH2O tables at init when absent (~70 s,
-              # every segment); they depend only on the build: coldstart_sample's per-build cache.
-              # nullglob drops only patterns, so freezeH2O.dat is checked: a link into an empty cache
-              # made WRF fail writing the table (f1-arm matthew 2026-10-25)
-              "TBL_CACHE=\"${WTUNE_TABLE_CACHE:-$HOME/wtune-runs/thompson_tables}/$(readlink -f "
-              "\"$W/main/wrf.exe\" | sha1sum | cut -c1-16)\"",
-              "shopt -s nullglob; for f in \"$TBL_CACHE\"/qr_acr_q*.dat \"$TBL_CACHE\"/freezeH2O.dat; "
-              "do [ -e \"$f\" ] || continue; [ -e \"$(basename \"$f\")\" ] || ln -s \"$f\" .; done; "
-              "shopt -u nullglob",
-              "for f in \"$W\"/run/*; do",
+    lines.append("cd \"$SEG\"")
+    if thompson_cache:
+        # --thompson-cache: Thompson computes its qr_acr_q*/freezeH2O tables at init when absent
+        # (~70 s on scc, under 1 s on f1-arm); they depend only on the build: the probes'
+        # per-build cache. nullglob drops only patterns, so freezeH2O.dat is checked: a link
+        # into an empty cache made WRF fail writing the table (f1-arm matthew 2026-10-25)
+        lines += [coldstart.table_cache_line("$W"),
+                  "shopt -s nullglob; for f in \"$TBL_CACHE\"/qr_acr_q*.dat \"$TBL_CACHE\"/freezeH2O.dat; "
+                  "do [ -e \"$f\" ] || continue; [ -e \"$(basename \"$f\")\" ] || ln -s \"$f\" .; done; "
+                  "shopt -u nullglob"]
+    lines += ["for f in \"$W\"/run/*; do",
               "  b=$(basename \"$f\")",
               "  case \"$b\" in namelist.input|namelist.output|wrfout*|wrfinput*|wrfbdy*|wrfrst*|rsl.*) ;;",
               "    *) [ -e \"$b\" ] || ln -sf \"$f\" \"$b\" ;; esac",
@@ -82,7 +82,7 @@ def render_segment_sbatch(seg_dir: str, k: int, config: Config, time_limit: str,
                  else "unset OMP_PLACES OMP_PROC_BIND")
     # tables this segment computed go to the cache, only from a run that completed, via a
     # temporary name so a concurrent segment never links a partial file
-    harvest = ["if [ \"$rc\" -eq 0 ] && [ \"$ok\" -gt 0 ]; then",
+    harvest = [] if not thompson_cache else ["if [ \"$rc\" -eq 0 ] && [ \"$ok\" -gt 0 ]; then",
                "  shopt -s nullglob; for f in qr_acr_q*.dat freezeH2O.dat; do",
                "    [ -L \"$f\" ] || [ -e \"$TBL_CACHE/$f\" ] || { mkdir -p \"$TBL_CACHE\" && "
                "cp -f \"$f\" \"$TBL_CACHE/.$f.$$\" && mv -f \"$TBL_CACHE/.$f.$$\" \"$TBL_CACHE/$f\"; }",

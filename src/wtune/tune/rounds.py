@@ -254,13 +254,17 @@ def _default_proposer(ctx: Ctx) -> Callable:
 
     case_fields = decomp_search.case_row_fields(ctx.case_json)
     prior_rows = []
-    for path in sorted(glob.glob(os.path.join(ctx.ledger_dir, "ledger_*.csv"))):
+    paths = [p for d in [ctx.ledger_dir] + list(ctx.history_dirs)
+             for p in sorted(glob.glob(os.path.join(d, "ledger_*.csv")))]
+    for path in paths:
         if os.path.basename(path).startswith("ledger_%s_" % ctx.case):
             continue    # this case's own ledgers are already in `state` (case_measured_rows)
         try:
-            prior_rows.extend(decomp_search.benchmark.load_ledger(path))
+            rows = decomp_search.benchmark.load_ledger(path)
         except Exception:
             continue    # best-effort cross-case prior; a malformed sibling ledger is not fatal
+        prior_rows.extend(r for r in rows if not ctx.build_id
+                          or sweep.row_build_id(r) in ("", ctx.build_id))   # never another build
 
     def proposer(state, batch_size, kappa=None):
         return decomp_search.propose_for_case(

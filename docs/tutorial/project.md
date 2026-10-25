@@ -87,7 +87,8 @@ restart 個案的 `wtune tune` 會在 plan 階段印 `no projection source`：�
 |---|---|---|
 | WRF 執行檔、函式庫 | `WRF_TREE`、`env.sh` 指的地方 | 每個專案共用 |
 | 機器設定 | `~/.config/wtune/machine.yaml` | 每個專案共用 |
-| tune 每個量測 job 的原始紀錄（ledger CSV）與 WRF 工作目錄 | `~/wtune-runs/campaign/` | 目前寫死在這裡；整理過的結果在 `tune/<id>/tune_report.json` |
+| 專案外執行的 tune 的量測紀錄（ledger CSV）與 WRF 工作目錄 | `$WTUNE_CAMPAIGN_OUT`，沒設時 `~/wtune-runs/campaign/` | 專案裡的 tune 寫在 `probes/`。舊的 tune 寫在這裡的紀錄，同一個個案仍會被讀來估第一次量測的時間 |
+| Thompson 查表快取 | `~/wtune-runs/thompson_tables/<build>/` | `<build>` 是 `wrf.exe` 內容的 sha1，同一個執行檔的量測共用 |
 | 專案外執行的 tune 的 ADIOS2 輸入 | `~/wtune-runs/bp-cache/` | 只有不在專案裡跑 tune 時才用 |
 
 ### 怎麼整理
@@ -98,6 +99,7 @@ restart 個案的 `wtune tune` 會在 plan 階段印 `no projection source`：�
 - **需要空間時可以刪**：
     - `_nc_cache/` 和 `input/bp-cache/`：會重建。
     - 舊的 `runs/<id>/seg_<k>/` 輸出：先確認那次的 post 做完。
+    - `probes/` 裡的 WRF 工作目錄（`probes/<個案>_<配置>_r<n>_<job>/`）。`probes/ledger_*.csv` 要留，它是每次量測的原始紀錄。
     - 舊的 `post/<id>/<類型>/` 資料檔。
   
   刪之前先查 `manifest.jsonl`，確認那個 id 是哪次指令產生的。

@@ -112,13 +112,36 @@ excludes the node as unhealthy; it is kept and reported as not probed. A probe t
 has its job cancelled by name (`wtune-preflight-<pid>-<node>`): a killed `srun` left a PENDING
 job behind on scc.
 
-**Thompson tables are cached for `wtune run`.** Every segment linked no `qr_acr_q*.dat` /
-`freezeH2O.dat`, so Thompson recomputed them at each start (~70 s on scc). Segments now link them
-from the per-build cache the coldstart probes use (`$WTUNE_TABLE_CACHE`, default
-`~/wtune-runs/thompson_tables/<build>`) and add the ones they computed after a completed run. On
-f1-arm the tables take under a second to compute, so the cache saves no measurable time there
-(matthew: 20 s for the segment that computed them, 21 s for the one that read them) and holds
-373 MB.
+**`wtune run --thompson-cache`.** Every segment linked no `qr_acr_q*.dat` / `freezeH2O.dat`, so
+Thompson recomputed them at each start (~70 s on scc). With `--thompson-cache` (also on
+`wtune submit`) segments link them from the per-build cache and add the ones a completed segment
+computed. It is off by default: on f1-arm the tables take under a second (matthew: 20 s for the
+segment that computed them, 21 s for the one that read them) and the cache holds ~370 MB.
+
+**One Thompson table cache per build, keyed by the `wrf.exe` contents.** The tune's probes kept
+their tables in `$OUT/thompson_tables`, shared by every build, and the coldstart probes and
+`wtune run` keyed theirs by the sha1 of the `wrf.exe` path, so a rebuild in place with other flags
+kept the old build's tables. All of them, and `wtune calibrate`, now use
+`~/wtune-runs/thompson_tables/<sha1 of wrf.exe>/` (`$WTUNE_TABLE_CACHE` moves it). The coldstart
+probes' copy of the link step also linked a `freezeH2O.dat` the cache did not have, which makes
+WRF fail writing the table (the same defect as `wtune run`'s below), and cached a table by
+copying it in place, so a concurrent probe could link a partial file; both are fixed.
+
+**Probe ledgers carry the build.** Each ledger row's notes get `build=<sha1 of wrf.exe>`. The
+s/step estimate a tune starts from (the budget of the first measurement) used every row of the
+case on the machine, so a vanilla and a tuned-flag build were averaged together; it now uses the
+rows of the same build, then rows written before this change, never another build's.
+
+**A project's probes stay in the project.** Inside a project the probes write their ledgers and
+WRF run directories to `<project>/probes/` (`--ledger-dir` still wins; outside a project,
+`$WTUNE_CAMPAIGN_OUT`, else `~/wtune-runs/campaign`). The tune exports `WTUNE_CAMPAIGN_OUT` and
+the site files use it for `$OUT`, so the probes write where the tune reads: f1's site file wrote
+to `~/wrf-bench/wscore/campaign` while the tune read `~/wtune-runs/campaign`. Ledgers of earlier
+tunes in `~/wtune-runs/campaign` are still read for the estimate and the `-O3` prior.
+
+**`wtune predict` uses the machine's cores per node.** The calibration file's `cores_per_node`
+came first, so on f1-arm (144 cores, no calibration of its own) scc's 72 made predict warn that
+90 ranks per node exceed 72 cores. The machine setting now wins when it is set.
 
 **`rsl` files are compressed.** After a segment succeeds, the `rsl.out` and `rsl.error` files of
 every rank but 0 are gzipped (`gzip -1`, about 17x on sc26p1's `debug_level=50` logs, which wrote

@@ -36,6 +36,7 @@ def build_parser() -> argparse.ArgumentParser:
                     help="wtune run --checkpoint-minutes M (default there: auto)")
     ap.add_argument("--stall-minutes", type=float, default=None, metavar="M",
                     help="wtune run --stall-minutes M (default there: 20)")
+    ap.add_argument("--thompson-cache", action="store_true", help="wtune run --thompson-cache")
     ap.add_argument("--no-space-check", action="store_true",
                     help="wtune tune and wtune run --no-space-check")
     ap.add_argument("--detach", action="store_true",
@@ -138,7 +139,7 @@ def run_args(args: argparse.Namespace) -> list[str]:
                         ("--stall-minutes", args.stall_minutes)):
         if value is not None:
             out += [flag, "%g" % value if isinstance(value, float) else str(value)]
-    return out
+    return out + (["--thompson-cache"] if args.thompson_cache else [])
 
 
 def _call(cmd: list, cwd: str) -> int:

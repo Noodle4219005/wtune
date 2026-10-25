@@ -46,6 +46,7 @@ class RunOptions:
     stall_minutes: float = 20.0        # rsl.error.0000 unchanged this long: cancel
     compress_history: bool = False     # converted frames replace their BP dirs
     no_space_check: bool = False       # submit even when the output estimate does not fit
+    thompson_cache: bool = False       # link/harvest the per-build Thompson table cache
 
 
 @dataclasses.dataclass

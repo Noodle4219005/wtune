@@ -159,8 +159,6 @@ trap on_exit EXIT
 run_hygiene reap+census
 
 cd "$SEG"
-TBL_CACHE="${WTUNE_TABLE_CACHE:-$HOME/wtune-runs/thompson_tables}/$(readlink -f "$W/main/wrf.exe" | sha1sum | cut -c1-16)"
-shopt -s nullglob; for f in "$TBL_CACHE"/qr_acr_q*.dat "$TBL_CACHE"/freezeH2O.dat; do [ -e "$f" ] || continue; [ -e "$(basename "$f")" ] || ln -s "$f" .; done; shopt -u nullglob
 for f in "$W"/run/*; do
   b=$(basename "$f")
   case "$b" in namelist.input|namelist.output|wrfout*|wrfinput*|wrfbdy*|wrfrst*|rsl.*) ;;
@@ -179,11 +177,6 @@ WRF_PID=""; CUR_WINDOW=""
 wall=$(( $(date +%s) - T0 ))
 ok=$(grep -c 'SUCCESS COMPLETE WRF' rsl.error.0000 2>/dev/null); ok=${ok:-0}
 echo "SEGMENT rc=$rc wall=$wall ok=$ok" | tee -a "$STATUS"
-if [ "$rc" -eq 0 ] && [ "$ok" -gt 0 ]; then
-  shopt -s nullglob; for f in qr_acr_q*.dat freezeH2O.dat; do
-    [ -L "$f" ] || [ -e "$TBL_CACHE/$f" ] || { mkdir -p "$TBL_CACHE" && cp -f "$f" "$TBL_CACHE/.$f.$$" && mv -f "$TBL_CACHE/.$f.$$" "$TBL_CACHE/$f"; }
-  done; shopt -u nullglob
-fi
 
 --- seg_1/namelist.input
  &time_control
@@ -293,8 +286,6 @@ trap on_exit EXIT
 run_hygiene reap+census
 
 cd "$SEG"
-TBL_CACHE="${WTUNE_TABLE_CACHE:-$HOME/wtune-runs/thompson_tables}/$(readlink -f "$W/main/wrf.exe" | sha1sum | cut -c1-16)"
-shopt -s nullglob; for f in "$TBL_CACHE"/qr_acr_q*.dat "$TBL_CACHE"/freezeH2O.dat; do [ -e "$f" ] || continue; [ -e "$(basename "$f")" ] || ln -s "$f" .; done; shopt -u nullglob
 for f in "$W"/run/*; do
   b=$(basename "$f")
   case "$b" in namelist.input|namelist.output|wrfout*|wrfinput*|wrfbdy*|wrfrst*|rsl.*) ;;
@@ -313,11 +304,6 @@ WRF_PID=""; CUR_WINDOW=""
 wall=$(( $(date +%s) - T0 ))
 ok=$(grep -c 'SUCCESS COMPLETE WRF' rsl.error.0000 2>/dev/null); ok=${ok:-0}
 echo "SEGMENT rc=$rc wall=$wall ok=$ok" | tee -a "$STATUS"
-if [ "$rc" -eq 0 ] && [ "$ok" -gt 0 ]; then
-  shopt -s nullglob; for f in qr_acr_q*.dat freezeH2O.dat; do
-    [ -L "$f" ] || [ -e "$TBL_CACHE/$f" ] || { mkdir -p "$TBL_CACHE" && cp -f "$f" "$TBL_CACHE/.$f.$$" && mv -f "$TBL_CACHE/.$f.$$" "$TBL_CACHE/$f"; }
-  done; shopt -u nullglob
-fi
 
 --- run_report.json
 {

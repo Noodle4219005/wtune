@@ -62,8 +62,11 @@ def calibration_path() -> str:
 
 
 def cores_per_node(calibration=None):
-    """Cores per node of the machine the calibration describes; the machine setting when the
-    file does not say."""
+    """Cores per node of this machine: its machine setting when one is set, else the
+    calibration's, else the built-in default. (f1-arm, 144 cores, has no calibration of its own
+    and was sized by scc.json's 72.)"""
+    if os.environ.get(wtune.machine.ENV["cores_per_node"], "").strip():
+        return wtune.machine.cores_per_node()
     v = (calibration or {}).get("cores_per_node")
     return int(v) if v else wtune.machine.cores_per_node()
 SEGMENT_HOURS = 6.0   # long-run compute display chunking

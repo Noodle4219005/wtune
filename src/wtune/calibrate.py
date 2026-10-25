@@ -219,14 +219,13 @@ done
 # every calibration run's own timed window, it inflated every measured startup by however long
 # that run's table computation took, contaminating jobs 1090-1099's whole calibration fit (see
 # campaign/strict_campaign.sbatch's THOMPSON_TABLE_NAMES/link_thompson_tables/OUT for the
-# identical production pattern this mirrors -- $OUT is site.sh's own campaign run-output dir,
-# already exported by site_env above; $OUT/thompson_tables is where prior campaign runs on
-# THIS site already cached them). A brand-new site with nothing cached yet just falls through
-# ([ -f ... ] guard) and WRF computes fresh, same as before this fix -- no worse, not harvested
-# back into the cache by this script (only linked, never written).
+# identical production pattern this mirrors: the per-build cache the campaign probes fill).
+# A build with nothing cached yet just falls through ([ -f ... ] guard) and WRF computes
+# fresh -- no worse, not harvested back into the cache by this script (only linked).
+TBL_CACHE="${{WTUNE_TABLE_CACHE:-$HOME/wtune-runs/thompson_tables}}/$(sha1sum < "$(readlink -f "$W/main/wrf.exe")" | cut -c1-16)"
 for tbl in freezeH2O.dat qr_acr_qg_V4.dat qr_acr_qsV2.dat; do
   [ -e "$tbl" ] && continue
-  [ -f "$OUT/thompson_tables/$tbl" ] && ln -sf "$OUT/thompson_tables/$tbl" "$tbl"
+  [ -f "$TBL_CACHE/$tbl" ] && ln -sf "$TBL_CACHE/$tbl" "$tbl"
 done
 
 cp {case_dir}/namelist.input ./namelist.input.orig

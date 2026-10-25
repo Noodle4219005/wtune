@@ -95,6 +95,8 @@ class Ctx:
     proposer: Any
     clock: Any
     start_time: float = 0.0
+    build_id: str = ""                  # sha1 of wrf.exe (sweep.wrf_build_id): the ledger rows' build=
+    history_dirs: list = dataclasses.field(default_factory=list)  # older ledgers (sweep.history_ledger_dirs)
     owned_jobs: list = dataclasses.field(default_factory=list)
     cancelled_jobs: list = dataclasses.field(default_factory=list)
     job_configs: dict = dataclasses.field(default_factory=dict)   # job -> the configs it measures

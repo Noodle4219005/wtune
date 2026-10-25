@@ -134,5 +134,8 @@ options:
   --env-source ENV_SOURCE
   --sbatch-script SBATCH_SCRIPT
   --ledger-dir LEDGER_DIR
+                        where the probes write their ledger CSVs and run directories (default:
+                        <project>/probes in a project, else $WTUNE_CAMPAIGN_OUT or $HOME/wtune-
+                        runs/campaign)
   --sacct-cmd SACCT_CMD
   --poll-interval POLL_INTERVAL

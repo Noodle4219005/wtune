@@ -28,6 +28,15 @@ os.environ["WTUNE_POST_WORKERS"] = "1"
 
 
 @pytest.fixture(autouse=True)
+def _no_campaign_out_leak():
+    """wtune tune exports WTUNE_CAMPAIGN_OUT for its probe jobs; one test's must not become the
+    next test's default ledger directory."""
+    os.environ.pop("WTUNE_CAMPAIGN_OUT", None)
+    yield
+    os.environ.pop("WTUNE_CAMPAIGN_OUT", None)
+
+
+@pytest.fixture(autouse=True)
 def _no_real_slurm(monkeypatch):
     """On a cluster the node preflight would list the real nodes with sinfo and srun onto
     each of them; a test that wants a preflight passes its own runner."""

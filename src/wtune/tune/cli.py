@@ -114,7 +114,8 @@ def run(args: argparse.Namespace, sbatch_runner: Callable | None = None,
              ("%.1f min" % o.minutes) if o.minutes is not None else "none", max_nodes, out_dir))
 
     s_est, _src, _n = sweep.estimate_s_per_step(ctx.case, ctx.nodes, ctx.ledger_dir,
-                                                 ctx.hardware_id)
+                                                 ctx.hardware_id, build_id=ctx.build_id,
+                                                 extra_dirs=ctx.history_dirs)
 
     ctx.state_file = os.path.join(out_dir, "tune.state.json")
     with _stop_on_signal(ctx):
@@ -177,7 +178,7 @@ def _build_ctx(args: argparse.Namespace, o: _RunOptions, ns: _NodeChoice, case_j
     sacct_runner = sacct_runner or sweep.default_sacct_runner
     scancel_runner = scancel_runner or default_scancel_runner
     clock = clock or RealClock()
-    ledger_dir = sweep._expand(args.ledger_dir)
+    ledger_dir = _ledger_dir(args)
     ledger_reader = ledger_reader or (lambda case, job_ids: default_ledger_reader(
         ledger_dir, case, job_ids))
     extension_omp_cap = wtune.extensions.omp_cap_for_namelist(namelist_path)
@@ -191,6 +192,8 @@ def _build_ctx(args: argparse.Namespace, o: _RunOptions, ns: _NodeChoice, case_j
                poll_interval=args.poll_interval, sbatch_runner=sbatch_runner,
                sacct_runner=sacct_runner, scancel_runner=scancel_runner,
                ledger_reader=ledger_reader, proposer=proposer, clock=clock,
+               build_id=sweep.wrf_build_id(wtune.machine.wrf_tree()),
+               history_dirs=sweep.history_ledger_dirs(ledger_dir),
                search_cfg=o.cfg["search"], exclude_rules=o.cfg["exclude"], is_fire=is_fire,
                omp_cap=wtune.machine.omp_cap(extension_omp_cap),
                extension_omp_cap=extension_omp_cap,
@@ -429,6 +432,21 @@ def _run_out_dir(args: argparse.Namespace, case: str) -> str:
     return out_dir
 
 
+def _ledger_dir(args: argparse.Namespace) -> str:
+    """--ledger-dir, else <project>/probes inside a project, else sweep.default_ledger_dir().
+    Exported as WTUNE_CAMPAIGN_OUT, so the probe jobs (sbatch --export=ALL) write where the tune
+    reads: the site file's own $OUT is only the default."""
+    import wtune.project
+    ledger_dir = args.ledger_dir
+    if not ledger_dir:
+        project_dir = wtune.project.find_project(explicit=getattr(args, "project", None))
+        ledger_dir = (os.path.join(project_dir, "probes") if project_dir
+                      else sweep.default_ledger_dir())
+    ledger_dir = sweep._expand(ledger_dir)
+    os.environ[sweep.CAMPAIGN_OUT_ENV] = ledger_dir
+    return ledger_dir
+
+
 def _use_project_bp_cache(args: argparse.Namespace) -> None:
     """Inside a project the tune's BP input cache is <project>/input/bp-cache/ (decision 0058),
     not $HOME/wtune-runs/bp-cache; an explicit WTUNE_BP_CACHE still wins. The jobs inherit it
@@ -591,7 +609,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--hardware-id", default=wtune.machine.hardware_id(), dest="hardware_id")
     p.add_argument("--env-source", default=wtune.machine.env_source(), dest="env_source")
     p.add_argument("--sbatch-script", default=sweep.DEFAULT_SBATCH_SCRIPT, dest="sbatch_script")
-    p.add_argument("--ledger-dir", default=sweep.DEFAULT_LEDGER_DIR, dest="ledger_dir")
+    p.add_argument("--ledger-dir", default=None, dest="ledger_dir",
+                   help="where the probes write their ledger CSVs and run directories (default: "
+                        "<project>/probes in a project, else $WTUNE_CAMPAIGN_OUT or %s)"
+                        % sweep.DEFAULT_LEDGER_DIR)
     p.add_argument("--sacct-cmd", default="sacct", dest="sacct_cmd")
     p.add_argument("--poll-interval", type=float, default=DEFAULT_POLL_INTERVAL_S,
                     dest="poll_interval")

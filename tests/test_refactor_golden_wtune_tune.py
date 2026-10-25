@@ -43,6 +43,7 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 def _norm(text, tmp_path):
     text = text.replace(str(tmp_path), "<TMP>")
     text = text.replace(os.path.realpath(REPO), "<REPO>").replace(REPO, "<REPO>")
+    text = text.replace(os.path.expanduser("~") + "/", "<HOME>/")     # history_dirs
     text = re.sub(r'"probe_s": [0-9.e-]+', '"probe_s": "<PROBE_S>"', text)
     text = re.sub(r"\(\d+\.\ds, controller time\)", "(<PROBE_S>, controller time)", text)
     text = re.sub(r"probe \d+\.\ds", "probe <PROBE_S>", text)

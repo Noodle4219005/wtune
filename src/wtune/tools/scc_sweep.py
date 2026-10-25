@@ -37,6 +37,7 @@ overrides; case geometry -- e_we/e_sn/e_vert -- is identical across sites and no
 from __future__ import annotations
 
 import csv
+import functools
 import glob
 import json
 import os
@@ -76,6 +77,7 @@ DEFAULT_REPS = 1
 DEFAULT_STEPS = 30
 DEFAULT_ROOT = "$HOME/wtune-runs/sweep"
 DEFAULT_LEDGER_DIR = "$HOME/wtune-runs/campaign"          # campaign/sites/scc.sh's own $OUT
+CAMPAIGN_OUT_ENV = "WTUNE_CAMPAIGN_OUT"                   # the site files' $OUT when set
 # The campaign/ of THIS source tree (resolved from __file__), not a fixed "$HOME/wtune/campaign":
 # on scc ~/wtune is a stale checkout (no RANKING_START, no write_adios2_restart_xml, no \037 TSV
 # fix) while the live code runs from ~/wtune-src, so the old hardcoded default silently paired
@@ -218,34 +220,91 @@ def _read_ledger_rows(path):
         return list(csv.DictReader(f))
 
 
+def default_ledger_dir():
+    """Where probes write their ledgers when nothing else says: $WTUNE_CAMPAIGN_OUT, else
+    DEFAULT_LEDGER_DIR."""
+    return _expand(os.environ.get(CAMPAIGN_OUT_ENV) or DEFAULT_LEDGER_DIR)
+
+
+def history_ledger_dirs(ledger_dir):
+    """[DEFAULT_LEDGER_DIR] when ledger_dir is another directory, else []: a project's probes
+    write into the project, earlier tunes of the same case id wrote into the shared one."""
+    shared = _expand(DEFAULT_LEDGER_DIR)
+    return [] if os.path.realpath(shared) == os.path.realpath(_expand(ledger_dir)) else [shared]
+
+
+def wrf_build_id(wrf_tree):
+    """sha1 of <wrf_tree>/main/wrf.exe's contents, first 16 hex (coldstart_sample.build_id_expr,
+    the probes' build= ledger token); '' when unreadable."""
+    exe = os.path.realpath(os.path.join(_expand(wrf_tree or ""), "main", "wrf.exe"))
+    try:
+        st = os.stat(exe)
+    except OSError:
+        return ""
+    return _sha1_16(exe, st.st_size, st.st_mtime_ns)
+
+
+@functools.lru_cache(maxsize=8)
+def _sha1_16(path, _size, _mtime_ns):
+    import hashlib
+    h = hashlib.sha1()
+    try:
+        with open(path, "rb") as f:
+            for block in iter(lambda: f.read(1 << 20), b""):
+                h.update(block)
+    except OSError:
+        return ""
+    return h.hexdigest()[:16]
+
+
+def row_build_id(row):
+    """The build= token of a ledger row's notes, '' for a row written before it existed."""
+    for tok in (row.get("notes") or "").split():
+        if tok.startswith("build="):
+            return tok[len("build="):]
+    return ""
+
+
 def estimate_s_per_step(case, nodes, ledger_dir, hardware_id=None,
-                         fallback=None):
+                         fallback=None, build_id=None, extra_dirs=()):
     """Median of (measured s_per_step_median * n_nodes_measured / nodes) over every ledger row
-    for `case` on `hardware_id`, scanning ledger_dir/ledger_<case>_*.csv -- ideal linear
-    core-count scaling (72*n_measured/(72*nodes), the 72 cancels). `fallback` (source
-    'fallback_10s') when no matching row exists at all. Returns (s_est, source, n_rows_used).
+    for `case` on `hardware_id`, scanning ledger_<case>_*.csv in ledger_dir and extra_dirs
+    -- ideal linear core-count scaling. With build_id, only that build's rows ('ledger'); when
+    it has none, the rows that carry no build id ('ledger_unknown_build'); another build's rows
+    never (a tuned-flag build is not the vanilla one). `fallback` (source 'fallback_10s') when
+    no matching row exists at all. Returns (s_est, source, n_rows_used).
 
     ledger_dir is expanded here (not just by CLI-level callers) so an unexpanded default like
     "$HOME/wtune-runs/campaign" resolves correctly regardless of what the caller passes."""
     fallback = wtune.machine.measured("s_per_step") if fallback is None else fallback
-    ledger_dir = _expand(ledger_dir)
     hardware_id = hardware_id or wtune.machine.hardware_id()
-    scaled = []
-    for path in sorted(glob.glob(os.path.join(ledger_dir, "ledger_%s_*.csv" % case))):
-        try:
-            rows = _read_ledger_rows(path)
-        except OSError:
-            continue
-        for r in rows:
-            if r.get("case_base") != case or r.get("hardware_id") != hardware_id:
+    same, unknown = [], []
+    seen = set()
+    for d in [_expand(ledger_dir)] + [_expand(x) for x in extra_dirs]:
+        for path in sorted(glob.glob(os.path.join(d, "ledger_%s_*.csv" % case))):
+            if os.path.basename(path) in seen:
                 continue
-            s = _to_float(r.get("s_per_step_median"))
-            n = _to_float(r.get("n_nodes"))
-            if s is None or s <= 0 or n is None or n <= 0:
+            seen.add(os.path.basename(path))
+            try:
+                rows = _read_ledger_rows(path)
+            except OSError:
                 continue
-            scaled.append(s * n / nodes)
-    if scaled:
-        return statistics.median(scaled), "ledger", len(scaled)
+            for r in rows:
+                if r.get("case_base") != case or r.get("hardware_id") != hardware_id:
+                    continue
+                s = _to_float(r.get("s_per_step_median"))
+                n = _to_float(r.get("n_nodes"))
+                if s is None or s <= 0 or n is None or n <= 0:
+                    continue
+                b = row_build_id(r)
+                if not build_id or b == build_id:
+                    same.append(s * n / nodes)
+                elif not b:
+                    unknown.append(s * n / nodes)
+    if same:
+        return statistics.median(same), "ledger", len(same)
+    if unknown:
+        return statistics.median(unknown), "ledger_unknown_build", len(unknown)
     return fallback, "fallback_10s", 0
 
 

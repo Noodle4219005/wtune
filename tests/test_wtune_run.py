@@ -537,7 +537,7 @@ def test_segment_sbatch_text(tmp_path, monkeypatch):
     assert "CAMPAIGN=${CAMPAIGN:-/repo/campaign}" in text
     lines = text.strip().splitlines()
     rec = lines.index('echo "SEGMENT rc=$rc wall=$wall ok=$ok" | tee -a "$STATUS"')
-    assert lines[rec + 1].startswith('if [ "$rc" -eq 0 ]') and lines[-1] == "fi"   # table cache
+    assert rec == len(lines) - 1                     # no table harvest without --thompson-cache
     assert "SUCCESS COMPLETE WRF" in text
     assert subprocess.run(["bash", "-n"], input=text, text=True).returncode == 0
 
@@ -1577,10 +1577,20 @@ def test_a_restart_case_without_its_wrfrst_is_refused(tmp_path):
     assert rc != 0
 
 
+def test_segment_uses_the_thompson_cache_only_when_asked(tmp_path):
+    """f1-arm 2026-10-25: the cache saved nothing measurable (20 s vs 21 s) and held 373 MB."""
+    cfg = wr.make_config(1, 2, 2, 1, 1)
+    plain = wr.render_segment_sbatch(str(tmp_path), 0, cfg, "00:20:00", "j")
+    assert "TBL_CACHE" not in plain and "SEGMENT rc=" in plain
+    assert "TBL_CACHE=" in wr.render_segment_sbatch(str(tmp_path), 0, cfg, "00:20:00", "j",
+                                                    thompson_cache=True)
+
+
 def test_segment_links_and_caches_the_thompson_tables(tmp_path):
-    """2026-10-12 todo: every run segment recomputed Thompson's tables (~70 s at init) while the
-    coldstart probes already cached them per WRF build."""
-    text = wr.render_segment_sbatch(str(tmp_path), 0, wr.make_config(1, 2, 2, 1, 1), "00:20:00", "j")
+    """2026-10-12 todo: every run segment recomputed Thompson's tables (~70 s at init on scc)
+    while the coldstart probes already cached them per WRF build."""
+    text = wr.render_segment_sbatch(str(tmp_path), 0, wr.make_config(1, 2, 2, 1, 1), "00:20:00", "j",
+                                    thompson_cache=True)
     lines = text.splitlines()
     link = [ln for ln in lines if ln.startswith("TBL_CACHE=") or "$TBL_CACHE\"/qr_acr_q" in ln]
     harvest = lines[lines.index('if [ "$rc" -eq 0 ] && [ "$ok" -gt 0 ]; then'):]
@@ -1605,3 +1615,8 @@ def test_segment_links_and_caches_the_thompson_tables(tmp_path):
     (seg2 / "qr_acr_qsV2.dat").write_text("new")
     sh(seg2, "\n".join(link) + "\nrc=1; ok=0\n" + "\n".join(harvest))     # a failed run: no harvest
     assert not (cache / "qr_acr_qsV2.dat").exists()
+    (tree / "main" / "wrf.exe").write_text("rebuilt in place")    # same path, another build
+    seg3 = tmp_path / "s3"
+    seg3.mkdir()
+    sh(seg3, "\n".join(link))
+    assert os.listdir(seg3) == []

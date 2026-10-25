@@ -6,7 +6,8 @@ usage: wtune run [-h] [--nodes NODES] [--nx NX] [--ny NY] [--numtiles NUMTILES] 
                  [--sidecar] [--compress-history] [--wrfda-forecast-only] [--out OUT]
                  [--project PROJECT] [--dry-run] [--wrf-tree WRF_TREE] [--env-source ENV_SOURCE]
                  [--campaign-dir CAMPAIGN_DIR] [--sacct-cmd SACCT_CMD]
-                 [--poll-interval POLL_INTERVAL] [--stall-minutes M] [--no-space-check]
+                 [--poll-interval POLL_INTERVAL] [--stall-minutes M] [--thompson-cache]
+                 [--no-space-check]
                  [case_dir]
 
 wtune run -- segmented WRF executor with restart hand-offs (`wtune run`).
@@ -73,6 +74,9 @@ options:
   --poll-interval POLL_INTERVAL
   --stall-minutes M     cancel a running segment job whose rsl.error.0000 has not changed for M
                         minutes and stop the run (0 disables; default 20)
+  --thompson-cache      link the Thompson qr_acr_q*/freezeH2O tables from the per-build cache and
+                        add the ones a completed segment computed (saves ~70 s per segment on scc,
+                        nothing measurable on f1-arm; holds ~370 MB)
   --no-space-check      submit even when the estimated output does not fit the free space (GPFS
                         quota headroom when the run dir is on GPFS)
 --- stderr

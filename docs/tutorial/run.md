@@ -69,6 +69,8 @@ flowchart TD
 
 `runs/<id>/run_report.json` 在每一段結束後都會重寫，記錄每次嘗試的結果。
 
+Thompson 微物理（`mp_physics=8`）每段開始時會算 `qr_acr_q*.dat` 與 `freezeH2O.dat` 查表。加 `--thompson-cache` 時，段會從 `~/wtune-runs/thompson_tables/<build>/` 連結已算好的查表，跑完再把新算的放進去。在 scc 上每段可省約 70 秒；在 f1-arm 上查表不到 1 秒就算完，量不到差別，快取卻佔約 370 MB，所以預設不開。
+
 ## I/O 格式
 
 預設所有 I/O 都走 ADIOS2（`io_form 14`）：歷史輸出、restart、輸入、邊界條件，以及個案自己開的 `auxhistN` 輸出（例如 isc21 的驗證輸出：scc 上 18 張從 162.5 秒降到 3.37 秒）。個案原本的 netCDF 輸入會轉換一次，放在 `<project>/input/bp-cache/` 重複使用；這和 `wtune tune` 用的是同一份，先 tune 再 run 不會再轉一次。

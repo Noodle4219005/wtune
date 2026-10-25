@@ -147,7 +147,8 @@ def _submit_attempt(ctx: RunContext, k: int, seg: Segment, att: Attempt, seg_dir
     script = render_segment_sbatch(
         seg_dir, k, seg.config, limit,
         "wtrun-%s-s%d" % (os.path.basename(ctx.plan.case_dir), k),
-        env_source=ctx.opts.env_source, campaign_dir=ctx.opts.campaign_dir)
+        env_source=ctx.opts.env_source, campaign_dir=ctx.opts.campaign_dir,
+        thompson_cache=ctx.opts.thompson_cache)
     spath = os.path.join(seg_dir, "segment.sbatch")
     with open(spath, "w") as f:
         f.write(script)

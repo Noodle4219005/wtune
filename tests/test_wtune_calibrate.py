@@ -178,11 +178,12 @@ def test_plan_skips_infeasible_ranks_and_writes_manifest(tmp_path):
         # startup window (qr_acr_qg alone: 32.3s at 1 rank), contaminating the whole fit.
         # $W/run/namelist.input is skipped (a real file, would corrupt edit-namelist's write-
         # through) but every other file is linked with no name/extension filter, and the three
-        # Thompson tables are linked from $OUT/thompson_tables when cached there.
+        # Thompson tables are linked from the per-build cache when cached there.
         assert '[ "$b" = "namelist.input" ] && continue' in text
         for tbl in ("freezeH2O.dat", "qr_acr_qg_V4.dat", "qr_acr_qsV2.dat"):
             assert tbl in text
-        assert "$OUT/thompson_tables" in text
+        assert '[ -f "$TBL_CACHE/$tbl" ] && ln -sf "$TBL_CACHE/$tbl" "$tbl"' in text
+        assert 'thompson_tables}/$(sha1sum < "$(readlink -f "$W/main/wrf.exe")"' in text
         assert "wrfout*|wrfinput*|wrfbdy*|wrfrst*|rsl.*" not in text  # the old blanket blacklist is gone
 
     mprof = out_dir / "machine_profile.sbatch"

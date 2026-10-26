@@ -654,12 +654,12 @@
   "terrain_point_stat": {
     "zh": {
       "question": "模式的地形性天氣是否通過測站觀測驗證？",
-      "how_to_read": "與 precip_stn_series／precip_stn_map 同一套流程（NOAA ISD-Lite、MET Point-Stat），只是用地形網域：上圖是 2 m 溫度、露點、10 m 風速與海平面氣壓的 ME（模式減觀測）與 RMSE 時間序列，另一張是測站位置圖。降水也跑在同一個網域時不重複畫，改為一行 info。",
+      "how_to_read": "與 precip_stn_series／precip_stn_map 同一套流程（NOAA ISD-Lite、MET Point-Stat），只是用地形網域：上圖是 2 m 溫度、露點、10 m 風速與海平面氣壓的 ME（模式減觀測）與 RMSE 時間序列，另一張是測站位置圖。只用網域內部（interior）的測站；時段內沒有任何模式與觀測配對的變數不畫（例如 ISD-Lite 該時段溫度缺測時就沒有 T2 那一格）。降水也跑在同一個網域時不重複畫，改為一行 info。",
       "common_misreadings": "把偏差全當成地形造成的誤差——沒有做測站高度修正，山區測站的 T2 偏差常來自模式地形高度與測站高度不同；測站少時統計不穩。"
     },
     "en": {
       "question": "Is the model's terrain-driven weather verified against station observations?",
-      "how_to_read": "The precip_stn_series / precip_stn_map pipeline (NOAA ISD-Lite, MET Point-Stat) run on the terrain domain: CNT ME (model minus obs) and RMSE of 2 m temperature, dew point, 10 m wind speed and MSLP against time, plus a station map. When precip runs on the same domain the figure is not repeated; an info note says so.",
+      "how_to_read": "The precip_stn_series / precip_stn_map pipeline (NOAA ISD-Lite, MET Point-Stat) run on the terrain domain: CNT ME (model minus obs) and RMSE of 2 m temperature, dew point, 10 m wind speed and MSLP against time, plus a station map. Only stations inside the interior mask are used, and a variable with no model-observation pair in the window has no panel (e.g. no T2 panel when ISD-Lite reports no temperature then). When precip runs on the same domain the figure is not repeated; an info note says so.",
       "common_misreadings": "Reading the whole bias as terrain error -- no station-elevation correction is applied, so mountain stations' T2 bias often comes from the model terrain height differing from the station's; few stations make the statistics unstable."
     }
   },
@@ -1026,12 +1026,12 @@
   "precip_stn_series": {
     "zh": {
       "question": "模式的 2 m 溫度、露點、10 m 風速與海平面氣壓相對地面測站偏差多少、如何隨時間變化？",
-      "how_to_read": "測站：NOAA ISD-Lite（NCEI）。MET ascii2nc 轉成點觀測，MET Point-Stat 每個有效時刻把模式（cdo remapbil 到經緯度格網）雙線性內插到測站，於模式內部多邊形內配對；CNT 的 ME（模式減觀測）與 RMSE 畫成時間序列。",
+      "how_to_read": "測站：NOAA ISD-Lite（NCEI）。MET ascii2nc 轉成點觀測，MET Point-Stat 每個有效時刻把模式（cdo remapbil 到經緯度格網）雙線性內插到測站，於模式內部多邊形內配對；CNT 的 ME（模式減觀測）與 RMSE 畫成時間序列。時段內沒有任何配對的變數不畫。",
       "common_misreadings": "把偏差當成模式物理誤差——沒有做測站高度修正；ISD 測站少（每時刻約十餘站）且集中在陸地/海岸，統計不穩；日夜循環常造成偏差的週期起伏。"
     },
     "en": {
       "question": "How large is the model's 2 m temperature, dew point, 10 m wind speed and MSLP error against surface stations, and how does it evolve?",
-      "how_to_read": "Stations: NOAA ISD-Lite (NCEI). MET ascii2nc converts them to point observations; MET Point-Stat interpolates the model (moved to lat/lon with cdo remapbil) bilinearly to each station at every valid time, paired inside the model interior polygon; CNT ME (model minus obs) and RMSE are plotted against time.",
+      "how_to_read": "Stations: NOAA ISD-Lite (NCEI). MET ascii2nc converts them to point observations; MET Point-Stat interpolates the model (moved to lat/lon with cdo remapbil) bilinearly to each station at every valid time, paired inside the model interior polygon; CNT ME (model minus obs) and RMSE are plotted against time. A variable with no pair in the window has no panel.",
       "common_misreadings": "Reading the bias as pure physics error -- no station-elevation correction is applied; only ~a dozen stations pair per time, mostly coastal/land; diurnal cycles make the bias oscillate."
     }
   },

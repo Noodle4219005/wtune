@@ -16,13 +16,16 @@ PROVENANCE = dict(sources.REGISTRY["bdeck"])
 
 
 def add_arguments(parser):
+    sources.add_window_arguments(parser)     # wtune submit passes them; a b-deck is the storm's
     parser.add_argument("--storm", default=None,
                         help="ATCF id (AL142016) or HURDAT2 name; default project.yaml storm.id")
 
 
 def _storm(project, storm=None):
-    import wtune.project
     from wtune.post import tc
+    if storm and tc.ATCF_ID_RE.match(storm.strip()):
+        return storm.strip().upper()
+    import wtune.project
     sid, hurdat2 = wtune.project.project_storm(wtune.project.load_project(project))
     return tc.resolve_storm(hurdat2, storm or sid) if (storm or sid) else None
 
@@ -37,10 +40,13 @@ def local_path(project, storm_id):
 
 def present(project, run_dir=None):
     """Nothing to fetch without a storm; else whether its b-deck is here."""
+    from wtune.post import tc
     try:
         sid = _storm(project)
-    except Exception:                    # noqa: BLE001 -- no project.yaml / unknown storm name
+    except OSError:                      # no project.yaml: not a project, nothing to fetch
         return True
+    except tc.TCError:                   # a storm that does not resolve is not here either
+        return False
     return not sid or local_path(project, sid) is not None
 
 
@@ -58,6 +64,9 @@ def run(args):
     name = "b%s%s%d.dat" % (basin.lower(), cy, year)
     dest = os.path.join(sources.dataset_dir(args.project, NAME), name)
     url = atcf.NHC_BDECK_URL.format(year=year, basin=basin.lower(), cy=cy)
+    known = (sources.read_provenance(args.project, NAME) or {}).get("files", {})
+    if os.path.isfile(dest) and known.get(name) == sources.sha256_file(dest):
+        return [dest]
     try:
         atcf.fetch_bdeck(year, basin, cy, dest)
     except atcf.ATCFError as e:

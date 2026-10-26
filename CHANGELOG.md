@@ -193,8 +193,9 @@ writes a restart every 1/8 of the run; only `--compress-history` deleted the old
 one-segment run kept about 8 sets. After an attempt that finished, the restart sets WTune asked
 for (its checkpoints, or `--checkpoint-minutes`) are cut to the newest valid one, which the next
 segment starts from; the case's own restart interval is not touched. A failed attempt keeps all
-of them: a resume cannot use the newest set when the job died before stepping past it, or when it
-is the segment end, and takes the one before. For the same reason `--compress-history` now keeps
+of them until its resume finished, then only the set the resume started from: a resume cannot use
+the newest set when the job died before stepping past it, or when it is the segment end, and
+takes the one before. For the same reason `--compress-history` now keeps
 the two newest sets while a job runs, not one.
 
 **`use_adaptive_time_step`.** The step count was run length / `time_step`, though WRF picks d01's
@@ -206,17 +207,20 @@ below the minimum to land on output times.
 **`wtune run` converts its inputs on a compute node.** The netCDF -> BP conversion ran in the
 `wtune run` process, on the login node (tens of GB for dorian). When the BP cache is not current,
 `wtune run` now submits one conversion job (`<out>/nc2bp/`), waits for it, and stops with nothing
-submitted if it fails; a current cache submits nothing. Run inside a Slurm job, it converts in
-place as before.
+submitted if it fails; a current cache submits nothing; `wtune stop` and Ctrl-C cancel it. Run
+inside a Slurm job (`SLURM_JOB_ID` set, which an `salloc` shell also sets), it converts in place
+as before. The login node still reads the inputs to check the cache, and hashes one whose
+modification time changed.
 
 **Network only on login nodes.** Two post steps reached the internet from a compute-node job:
 the tc report downloaded the NHC b-deck (30 s timeout, then HURDAT2), and the map check asked
 cartopy for the Natural Earth coastline, which downloads a missing file (f1-arm job 14882 hung
 12 min). The map check now only looks on disk (`bin/fetch-natural-earth.sh` fetches);
 `wtune post fetch bdeck` puts the storm's b-deck in `<project>/input/obs/bdeck/`, which tc and
-the recipe read, and inside a Slurm job tc no longer downloads. The test suite, which runs on
-compute nodes, now fails a test that opens a non-loopback connection instead of letting it wait
-for a timeout.
+the recipe read, and inside a Slurm job tc no longer downloads. `wtune submit` fetches it when
+`post.fetch` lists `bdeck`. The test suite, which runs on compute nodes, now fails a test that
+connects to a non-loopback address or looks up a host name, instead of letting it wait for a
+timeout.
 
 **`wtune calibrate` links the files the namelist names.** The calibration jobs linked `$W/run`,
 the Thompson tables and the inputs, but not `iofields_filename`, `wrflowinp`, `tslist` and the

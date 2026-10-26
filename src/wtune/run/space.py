@@ -167,16 +167,19 @@ def gzip_rsl(seg_dir: str) -> tuple[int, int, int]:
 THOMPSON_TABLES = ("freezeH2O.dat", "qr_acr_qg_V4.dat", "qr_acr_qg_mp38V1.dat", "qr_acr_qsV2.dat")
 
 
-def drop_older_restarts(seg_dir: str, max_dom: int, is_bp: Callable[[str], bool]) -> int:
+def drop_older_restarts(seg_dir: str, max_dom: int, is_bp: Callable[[str], bool],
+                        keep: Optional[str] = None) -> int:
     """After a finished attempt, keep only the newest valid restart set WRF wrote into seg_dir:
-    the next segment starts from it, and no resume of this attempt follows. Bytes freed."""
+    the next segment starts from it, and no resume of this attempt follows. With `keep` (a
+    WRF_FMT time), keep that set instead: the failed attempt a finished resume started from.
+    Bytes freed."""
     import wtune.resume
     try:
         times = wtune.resume.valid_restart_times(seg_dir, max_dom, is_bp)
     except (OSError, ValueError):
         return 0
     freed = 0
-    for t in times[:-1]:
+    for t in (times[:-1] if keep is None else [t for t in times if t != keep]):
         for d in range(1, max_dom + 1):
             for p in glob.glob(os.path.join(seg_dir, "wrfrst_d%02d_%s*" % (d, glob.escape(t)))):
                 try:

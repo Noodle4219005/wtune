@@ -240,3 +240,43 @@ def test_tests_have_no_network():
     import urllib.request
     with pytest.raises(OSError):
         urllib.request.urlopen("http://93.184.216.34/", timeout=5)
+
+
+def test_tests_keep_loopback_and_block_names():
+    import socket
+    import threading
+    for host in ("127.0.0.1", "127.0.0.2", "::ffff:127.0.0.1"):
+        fam = socket.AF_INET6 if ":" in host else socket.AF_INET
+        srv = socket.socket(fam)
+        srv.bind(("::" if fam == socket.AF_INET6 else "0.0.0.0", 0))
+        srv.listen(1)
+        threading.Thread(target=lambda: srv.accept()[0].close(), daemon=True).start()
+        c = socket.socket(fam)
+        c.settimeout(5)
+        c.connect((host, srv.getsockname()[1]))      # loopback in any spelling stays open
+        c.close()
+        srv.close()
+    with pytest.raises(OSError):
+        socket.getaddrinfo("example.com", 80)
+    with pytest.raises(OSError):
+        socket.socket().connect_ex(("93.184.216.34", 80))
+
+
+def test_bdeck_takes_submits_window_args_skips_a_current_file_and_needs_no_project_for_an_id(
+        tmp_path, monkeypatch):
+    from wtune.post import atcf
+    from wtune.post.fetch import bdeck
+    calls = []
+
+    def fake_fetch(year, basin, cy, dest, timeout=30):
+        calls.append(dest)
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        open(dest, "w").write("AL, 14, 2016092812,   , BEST,   0, 133N,  609W,  45, 1004\n")
+        return dest
+    monkeypatch.setattr(atcf, "fetch_bdeck", fake_fetch)
+    # wtune submit runs `post fetch <name> --project P --bbox=.. --start .. --end ..`
+    args = cli.build_parser().parse_args(["fetch", "bdeck", "--project", str(tmp_path),
+                                          "--bbox=10,20,-70,-60", "--start", "2016092800",
+                                          "--end", "2016093000", "--storm", "al142016"])
+    assert bdeck.run(args) and bdeck.run(args) and len(calls) == 1    # second: sha matches
+    assert not os.path.exists(tmp_path / "project.yaml")               # an id needs none

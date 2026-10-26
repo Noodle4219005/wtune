@@ -357,8 +357,8 @@ def adaptive_step_bounds(nl: dict, run_s: float) -> tuple[int, int, float, float
     def bound(key, k):
         v = float(g_dom(nl, "domains", key, 0, -1) or -1)
         if v <= 0:
-            return float(round(k * d_km))
-        den = float(g_dom(nl, "domains", key + "_den", 0, 0) or 0)
+            v = float(math.floor(k * d_km + 0.5))            # Fortran NINT, not half-to-even
+        den = float(g_dom(nl, "domains", key + "_den", 0, 0) or 0)   # adapt_timestep_em.F
         return v / den if den > 0 else v
     lo_dt, hi_dt = bound("min_time_step", 3), bound("max_time_step", 8)
     if lo_dt <= 0 or hi_dt < lo_dt:

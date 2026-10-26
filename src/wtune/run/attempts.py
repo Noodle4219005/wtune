@@ -284,8 +284,11 @@ def _run_attempt(ctx: RunContext, k: int, seg: Segment, att: Attempt, is_last: b
     if rec.ok and ctx.plan.restart.set_min is not None:
         # restarts WTune asked for (not the case's): only a finished attempt, since a failed
         # one may resume from an older set than the newest (resume_point)
-        freed = drop_older_restarts(seg_dir, geo.max_dom,
-                                    sweep.campaign_configs._import_wtune_bp().is_bp)
+        is_bp = sweep.campaign_configs._import_wtune_bp().is_bp
+        freed = drop_older_restarts(seg_dir, geo.max_dom, is_bp)
+        if att.resume and att.src_dir:          # the failed attempt this one resumed
+            freed += drop_older_restarts(att.src_dir, geo.max_dom, is_bp,
+                                         keep=_fmt(step_time(geo, att.a)))
         if freed:
             run.log("older restart sets deleted (%s); the newest valid one is kept"
                     % _fmt_bytes(freed))

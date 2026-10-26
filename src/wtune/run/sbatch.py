@@ -94,7 +94,7 @@ def render_segment_sbatch(seg_dir: str, k: int, config: Config, time_limit: str,
 
 def render_convert_sbatch(out_dir: str, job_name: str, namelist: str, case_dir: str,
                           cache: str, env_source: str | None = None,
-                          campaign_dir: str = _CAMPAIGN_DIR, time_limit: str = "01:00:00") -> str:
+                          campaign_dir: str = _CAMPAIGN_DIR, time_limit: str = "02:00:00") -> str:
     """One job converting the run's netCDF inputs into the BP cache on a compute node: a login
     node is no place for it (dorian's inputs are tens of GB). Same code path as the run used
     in-process (configs.resolve_bp_inputs); nc2bp.sbatch's interpreter and node shape."""
@@ -107,7 +107,9 @@ def render_convert_sbatch(out_dir: str, job_name: str, namelist: str, case_dir: 
         "#SBATCH --output=%s/nc2bp-%%j.out" % os.path.abspath(out_dir),
         "set -uo pipefail",
         "SITE=%s" % wtune.machine.site(),
-        "export CAMPAIGN=${CAMPAIGN:-%s}" % shlex.quote(os.path.abspath(campaign_dir)),
+        # this checkout's converter, not one an inherited $CAMPAIGN names: the login node
+        # checks the cache against its own CONVERTER_VERSION afterwards
+        "export CAMPAIGN=%s" % shlex.quote(os.path.abspath(campaign_dir)),
         "source \"$CAMPAIGN/sites/$SITE.sh\"",
         "source \"%s\"" % (env_source or wtune.machine.env_source()),
         "PYBIN=$(pixi run --manifest-path \"$PIXI_ENV/pixi.toml\" python -c "

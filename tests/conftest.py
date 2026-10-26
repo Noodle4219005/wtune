@@ -71,15 +71,36 @@ def _no_real_slurm(monkeypatch):
 def _no_network(monkeypatch):
     """The suite runs on compute nodes, which have no internet: a test that reaches the network
     fails at once instead of hanging until a timeout. Loopback and Unix sockets stay open."""
+    import ipaddress
     import socket
-    real = socket.socket.connect
+    real = {n: getattr(socket.socket, n) for n in ("connect", "connect_ex")}
+    real_gai = socket.getaddrinfo
 
-    def connect(self, address):
-        if self.family == socket.AF_UNIX or (isinstance(address, tuple) and str(
-                address[0]) in ("127.0.0.1", "::1", "localhost")):
-            return real(self, address)
-        raise OSError("network access in a test: %r" % (address,))
-    monkeypatch.setattr(socket.socket, "connect", connect)
+    def local(host):
+        host = str(host or "").split("%")[0]
+        if host in ("", "localhost", "0.0.0.0", "::"):
+            return True
+        try:
+            ip = ipaddress.ip_address(host)
+        except ValueError:
+            return False
+        ip = getattr(ip, "ipv4_mapped", None) or ip
+        return ip.is_loopback or ip.is_unspecified
+
+    def guard(name):
+        def call(self, address):
+            if self.family == socket.AF_UNIX or (isinstance(address, tuple) and local(address[0])):
+                return real[name](self, address)
+            raise OSError("network access in a test: %r" % (address,))
+        return call
+
+    def getaddrinfo(host, *a, **kw):      # a DNS lookup can hang as long as a connect
+        if host is None or local(host):
+            return real_gai(host, *a, **kw)
+        raise OSError("name lookup in a test: %r" % (host,))
+    for n in real:
+        monkeypatch.setattr(socket.socket, n, guard(n))
+    monkeypatch.setattr(socket, "getaddrinfo", getaddrinfo)
 
 
 def swap_wtune_module(monkeypatch, name, module):

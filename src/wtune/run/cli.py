@@ -542,25 +542,25 @@ def execute(ctx: RunContext) -> int:
 
 
 def _convert_in_job(opts: RunOptions, plan: RunPlan, case_dir: str, out: str,
-                    runners: Runners) -> None:
-    """inputs.convert_inputs_in_job through the run's sbatch/sacct; Ctrl-C cancels the job."""
-    jobs: list = []
-
+                    runners: Runners, state_file: str) -> None:
+    """inputs.convert_inputs_in_job through the run's sbatch/sacct; its job goes into
+    run.state.json, and Ctrl-C / `wtune stop` cancel it at the next poll (RunStopped)."""
     def submit(script):
-        jobs.append(sweep.submit_job("sbatch %s" % shlex.quote(script),
-                                     sbatch_runner=runners.sbatch_runner))
-        return jobs[-1]
+        job = sweep.submit_job("sbatch %s" % shlex.quote(script),
+                               sbatch_runner=runners.sbatch_runner)
+        wtune.stopping.write_state(state_file, "run", [job])
+        return job
 
     def wait(job):
+        def on_poll(_state):
+            if wtune.stopping.STOP["reason"]:
+                runners.scancel_runner(job)
+                raise RunStopped("%s; conversion job %s cancelled"
+                                 % (wtune.stopping.STOP["reason"], job))
         return wait_for_job(job, runners.sacct_runner, opts.sacct_cmd, opts.poll_interval,
-                            runners.sleep, runners.log)[0]
-    try:
-        convert_inputs_in_job(plan.inputs, plan.text, case_dir, out, submit, wait, runners.log,
-                              env_source=opts.env_source, campaign_dir=opts.campaign_dir)
-    except KeyboardInterrupt:
-        for j in jobs:
-            runners.scancel_runner(j)
-        raise
+                            runners.sleep, runners.log, on_poll=on_poll)[0]
+    convert_inputs_in_job(plan.inputs, plan.text, case_dir, out, submit, wait, runners.log,
+                          env_source=opts.env_source, campaign_dir=opts.campaign_dir)
 
 
 def _fail(e) -> int:
@@ -609,15 +609,19 @@ def main(argv: Optional[list] = None, sbatch_runner: Optional[Callable] = None,
                       sleep=sleep or time.sleep, log=log,
                       scancel_runner=scancel_runner or default_scancel,
                       clock=clock or time.monotonic)
-    try:
-        if convert_in_job is None:      # real submission from a login node
-            convert_in_job = sbatch_runner is None and not os.environ.get("SLURM_JOB_ID")
-        if convert_in_job:
-            _convert_in_job(opts, plan, case_dir, out, runners)
-        plan.inputs = convert_inputs(plan.inputs, plan.text, case_dir, plan.segments, log)
-    except RunError as e:
-        return _fail(e)
-    ctx = _run_context(opts, plan, runners, sidecar_runner)
-    ctx.state_file = os.path.join(out, "run.state.json")
-    with wtune.stopping.stop_on_signal(ctx.state_file, "run", opts.poll_interval):
+    state_file = os.path.join(out, "run.state.json")
+    with wtune.stopping.stop_on_signal(state_file, "run", opts.poll_interval):
+        try:
+            if convert_in_job is None:      # real submission from a login node
+                convert_in_job = sbatch_runner is None and not os.environ.get("SLURM_JOB_ID")
+            if convert_in_job:
+                _convert_in_job(opts, plan, case_dir, out, runners, state_file)
+            plan.inputs = convert_inputs(plan.inputs, plan.text, case_dir, plan.segments, log)
+        except RunStopped as e:
+            log("wtune run: %s; nothing else submitted" % e)
+            return 130
+        except (RunError, RuntimeError, OSError) as e:
+            return _fail(e)
+        ctx = _run_context(opts, plan, runners, sidecar_runner)
+        ctx.state_file = state_file
         return execute(ctx)

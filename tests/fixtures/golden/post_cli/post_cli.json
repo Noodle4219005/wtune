@@ -247,7 +247,7 @@
   "fetch-bdeck": {
    "rc": 0,
    "stderr": "",
-   "stdout": "usage: wtune post fetch bdeck [-h] --project PROJECT [--run-dir RUN_DIR]\n                              [--storm STORM] [--nc-cache DIR]\n\nNHC ATCF best-track b-deck of the project's storm (project.yaml storm:)\n\noptions:\n  -h, --help         show this help message and exit\n  --project PROJECT  project dir; data goes to its input/obs/bdeck/\n  --run-dir RUN_DIR  run whose wrfout gives the time window and region\n  --storm STORM      ATCF id (AL142016) or HURDAT2 name; default project.yaml\n                     storm.id\n  --nc-cache DIR     where ADIOS2 BP history (io_form_history=14) is converted\n                     to netCDF once and reused (default: $WTUNE_NC_CACHE, else\n                     <project or output dir>/_nc_cache, else <run\n                     dir>/_nc_cache)\n"
+   "stdout": "usage: wtune post fetch bdeck [-h] --project PROJECT [--run-dir RUN_DIR]\n                              [--start START] [--end END] [--bbox BBOX]\n                              [--storm STORM] [--nc-cache DIR]\n\nNHC ATCF best-track b-deck of the project's storm (project.yaml storm:)\n\noptions:\n  -h, --help         show this help message and exit\n  --project PROJECT  project dir; data goes to its input/obs/bdeck/\n  --run-dir RUN_DIR  run whose wrfout gives the time window and region\n  --start START      override the window start (UTC, YYYY-MM-DD_HH)\n  --end END          override the window end (UTC, YYYY-MM-DD_HH)\n  --bbox BBOX        override the region: lat0,lat1,lon0,lon1 (lon east +)\n  --storm STORM      ATCF id (AL142016) or HURDAT2 name; default project.yaml\n                     storm.id\n  --nc-cache DIR     where ADIOS2 BP history (io_form_history=14) is converted\n                     to netCDF once and reused (default: $WTUNE_NC_CACHE, else\n                     <project or output dir>/_nc_cache, else <run\n                     dir>/_nc_cache)\n"
   },
   "fetch-era5": {
    "rc": 0,
@@ -402,12 +402,15 @@
    "workers": "4"
   },
   "fetch-bdeck": {
+   "bbox": "None",
+   "end": "None",
    "fetch_name": "'bdeck'",
    "list": "False",
    "nc_cache": "None",
    "post_command": "'fetch'",
    "project": "'p'",
    "run_dir": "None",
+   "start": "None",
    "storm": "None"
   },
   "fetch-era5": {

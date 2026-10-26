@@ -1117,6 +1117,41 @@ def test_run_converts_its_inputs_in_a_compute_node_job(tmp_path, monkeypatch, fa
     assert any("in job 900" in ln for ln in lines)
 
 
+def test_wtune_stop_during_the_conversion_cancels_its_job(tmp_path, monkeypatch, fake_bp):
+    case = _make_case(tmp_path)
+    out = tmp_path / "out"
+    cancelled, f = [], Fakes()
+    monkeypatch.setitem(wtune.stopping.STOP, "reason", None)     # restored after the test
+
+    def sbatch(cmd):
+        assert "nc2bp.sbatch" in cmd, "nothing after the conversion job"
+        state = json.loads((out / "run.state.json").read_text())
+        assert state["jobs"] == []
+        return "Submitted batch job 900\n"
+
+    def sacct(cmd):
+        wtune.stopping.STOP["reason"] = "stopped by wtune stop"   # SIGTERM arrives meanwhile
+        return "900|RUNNING|00:01:00\n"
+    rc = wr.main([str(case), "--nodes", "1", "--nx", "8", "--ny", "9", "--out", str(out),
+                  "--poll-interval", "0"], sbatch_runner=sbatch, sacct_runner=sacct,
+                 snapshot_fn=f.snapshot, sleep=lambda s: None, log=lambda m: None,
+                 scancel_runner=cancelled.append, convert_in_job=True)
+    assert rc == 130 and cancelled == ["900"] and fake_bp.calls == []
+    assert not (out / "run.state.json").exists()
+
+
+def test_a_rejected_conversion_job_is_an_error_not_a_traceback(tmp_path, fake_bp, capsys):
+    case = _make_case(tmp_path)
+
+    def sbatch(cmd):
+        raise RuntimeError("sbatch: error: Invalid account or account/partition combination")
+    rc = wr.main([str(case), "--nodes", "1", "--nx", "8", "--ny", "9", "--out",
+                  str(tmp_path / "out"), "--poll-interval", "0"], sbatch_runner=sbatch,
+                 sacct_runner=lambda c: "", sleep=lambda s: None, log=lambda m: None,
+                 convert_in_job=True)
+    assert rc == 2 and "Invalid account" in capsys.readouterr().err and fake_bp.calls == []
+
+
 def test_no_conversion_job_when_the_cache_is_current(monkeypatch):
     monkeypatch.setattr(wtune.run.inputs, "stale_inputs", lambda *a: [])
 

@@ -37,9 +37,13 @@ wrf = _LazyWrf()
 
 
 class Context:
-    """One instance per analysis/*.py script run, created by post/custom.py."""
+    """One instance per analysis/*.py script run, created by post/custom.py. ctx.kit: shared
+    analysis pieces (post/analysis_kit.py: CWA scale, contingency scores, box means, nearest
+    points, Hovmoller, track error, observation/model panels)."""
 
     def __init__(self, project_dir, script_name, out_dir, run_dirs):
+        from wtune.post import analysis_kit
+        self.kit = analysis_kit
         self.project_dir = project_dir
         self.script_name = script_name
         self.out_dir = out_dir
@@ -69,6 +73,25 @@ class Context:
         valid time as ds.variables[name][timeidx] / wrf.getvar(ds, name, timeidx=timeidx)."""
         from wtune.post.extract import list_frame_refs
         return list_frame_refs(run_dir, domain=domain)
+
+    def observations(self, kind=None):
+        """[(name, dir, provenance)] of the project's wtune-obs/1 datasets (input/obs/<name>/)
+        of `kind` that pass `wtune event obs-check`; read them with ctx.obs_module's read_grid /
+        read_gauges / read_extra."""
+        from wtune.post import agent_obs
+        kinds = [kind] if kind else agent_obs.KINDS
+        return [d for k in kinds for d in agent_obs.usable(self.project_dir, k)[0]]
+
+    @property
+    def obs_module(self):
+        from wtune.post import agent_obs
+        return agent_obs
+
+    def rain_focus(self, run_dir, domain, spinup_hours=6.0, box=None):
+        """The heaviest post-spin-up rain and its peak hour (post/focus.py), the point and time
+        the recipe's own point figures used."""
+        from wtune.post.focus import rain_focus
+        return rain_focus(run_dir, domain, spinup_hours, box=box)
 
     def open_wrfout(self, path):
         """A netCDF4.Dataset the caller must close (or use as a context manager)."""

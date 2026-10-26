@@ -46,6 +46,8 @@ wtune post preview          # 在 project 內；不需要 runs/
 
 還沒跑 WRF 就能做，幾秒鐘，不送 job。它用專案裡已有的資料回答兩件事：
 
+還沒跑 `wtune prep real`（沒有 `wrfinput`）時也能用：網域圖改用 `prep wps` 產生的 `geo_em`（有地形），再不然就只用 `namelist.wps`（只有網域框），模擬時段從 `namelist.input` 讀，個案類型則要等 `wrfinput` 才偵測得到。
+
 - **跑完會畫哪些圖**：依 namelist 和 `wrfinput` 偵測個案類型（和 `recipe` 用同一套規則），把每種圖和它回答的問題列在 `post/preview/expected_figures.csv` 與 `preview.html`。
 - **大概會長什麼樣**：現在就能畫的圖放在 `post/preview/figures/`——
     - 地形與網格（`common_domain_map.png`）
@@ -180,5 +182,24 @@ wtune post custom --srun
 ```
 
 所有腳本的圖和表會收成一份 HTML。某個腳本丟出例外時只會多一筆錯誤記錄，其他腳本照跑。
+
+`ctx.kit` 是常用的分析工具，不必每次自己寫：`obs_model_panels`（觀測與模擬並排、同一色階；台灣用 CWA 色階）、`box_mean`（箱型區平均）、`match_points`（雨量站對最近格點）、`scores_by_threshold`（ETS、bias；`normalized=True` 改用各自的百分位數當門檻）、`hovmoller`、`track_error`。`ctx.observations("rain_gauges")` 列出通過 obs-check 的觀測，`ctx.rain_focus(run_dir, domain)` 回傳最大降雨核心與高峰時刻。
+
+## 讓 agent 審圖、補圖、寫判讀
+
+自動圖組只是底稿。決策 0078 的流程是：WTune 產生圖與數字，agent（skill `wtune-post`）審每張圖、補這個個案需要的圖、寫分層判讀，最後由 WTune 用程式檢查。
+
+```bash
+wtune post recipe                       # post/<id>/，含 figures.json
+wtune post brief post/<id>              # post/<id>/brief.json：給 agent 的個案摘要
+# agent 寫 post/<id>/review.json、analysis/*.py（再跑 wtune post custom）、post/<id>/assessment.md
+wtune post check post/<id>              # 有 error 就 exit 1
+```
+
+- `brief.json`：個案類型與網域、各 run、哪些觀測通過檢查、已畫與缺少的圖（附每張圖要回答的問題）、關鍵數字（spin-up 後最大降雨核心與高峰時刻、最低海平面氣壓）。
+- `review.json`：每張圖的判定 `ok`、`fix`、`drop`；不是 `ok` 的要寫出問題。
+- `assessment.md`：依序有設定、大尺度、目標變數、分數、機制、結論與限制六節；每段至少用 markdown 連結引用一張圖或一個 CSV；引用 CSV 的段落裡的小數，必須在該 CSV 以同樣位數出現。
+
+`project.yaml` 的 `post.focus: [lat_min, lat_max, lon_min, lon_max]` 指定研究區域。剖面、時高圖、探空和最大回波圖會改在這個區域內 spin-up 後雨量最大的地方取點，並畫在該處降雨高峰的時刻。沒設定時，取點範圍是整個最內層網域（避開邊界）。
 
 教學到這裡結束。接下來可以看 [compliance](../guide/compliance.md)。

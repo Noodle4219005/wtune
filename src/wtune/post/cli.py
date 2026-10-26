@@ -235,6 +235,27 @@ def cmd_preview(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_brief(args: argparse.Namespace) -> int:
+    from wtune.post import brief
+    project_dir, project_doc = _project_context(args)
+    path = brief.write_brief(args.post_dir, project_dir=project_dir, project_doc=project_doc,
+                             spinup_hours=args.spinup_hours)
+    print("brief: %s" % path)
+    return 0
+
+
+def cmd_check(args: argparse.Namespace) -> int:
+    from wtune.post import check
+    project_dir, _doc = _project_context(args)
+    errors, warnings = check.check(args.post_dir, project_dir=project_dir)
+    for w in warnings:
+        print("warning: %s" % w)
+    for e in errors:
+        print("error: %s" % e)
+    print("%s: %d error(s), %d warning(s)" % (args.post_dir, len(errors), len(warnings)))
+    return 1 if errors else 0
+
+
 def _print_recipe_result(result: dict) -> None:
     n_fig = sum(1 for f in result["figures"] if not f["missing"])
     n_missing = sum(1 for f in result["figures"] if f["missing"])
@@ -585,6 +606,15 @@ _COMMANDS = [
              "or a project.yaml above the current directory"),
         _arg("--out", default=None, help="output directory (default: a project's "
              "post/<id>/)")]),
+    ("brief", dict(help="decision 0078 stage 2: write POST_DIR/brief.json -- case, runs, "
+                   "checked observations, drawn/missing figures with their questions, key "
+                   "numbers -- for the agent that reviews a recipe"), [
+        _arg("post_dir", help="a `wtune post recipe` output directory (has figures.json)"),
+        _PROJECT, _arg("--spinup-hours", type=float, default=6.0)]),
+    ("check", dict(help="decision 0078 stage 5: check the agent's POST_DIR/review.json and "
+                   "assessment.md (sections, citations, numbers against the cited CSVs); "
+                   "exit 1 on an error"), [
+        _arg("post_dir"), _PROJECT]),
 ]
 _WITH_NC_CACHE = ("inventory", "extract", "plot", "sounding", "tc", "compare", "recipe", "cf3d",
                   "vapor-bundle", "custom")
@@ -674,7 +704,7 @@ def main(argv: list[str] | None = None) -> int:
     dispatch = dict(inventory=cmd_inventory, extract=cmd_extract, plot=cmd_plot,
                     sounding=cmd_sounding, tc=cmd_tc, compare=cmd_compare, report=cmd_report,
                     recipe=cmd_recipe, custom=cmd_custom, fetch=cmd_fetch, cf3d=cmd_cf3d,
-                    preview=cmd_preview)
+                    preview=cmd_preview, brief=cmd_brief, check=cmd_check)
     dispatch["fetch-era5"] = cmd_fetch
     dispatch["vapor-bundle"] = cmd_vapor_bundle
     fn = dispatch.get(args.post_command)

@@ -29,7 +29,7 @@
 |---|---|---|
 | `~/wtune-adios2/` | WTune 程式；`.deployed-commit` 記錄是哪個 commit | 你下的每個 `wtune` 指令 |
 | `~/wtune-adios2/envs/wtune/.pixi/` | WTune 的 Python 環境（pixi） | `bin/wtune` |
-| `~/wtune-envs/campaign/` | 有 `adios2` Python 綁定的 pixi 環境（BP 轉 netCDF） | 設 `WTUNE_ADIOS2_PYTHON` 時 |
+| `~/wtune-envs/campaign/` | 有 `adios2` Python 綁定的 pixi 環境（BP 轉 netCDF） | 量測與轉檔 job（site 檔的 `PIXI_ENV`；放別處就設 `WTUNE_PIXI_ENV`，例如 `~/wtune-adios2/envs/adios2`），以及設 `WTUNE_ADIOS2_PYTHON` 時 |
 | `~/wtune-f1arm/env.sh` | 執行環境：函式庫 view、`WRF_TREE`、`OMP_STACKSIZE`、地圖資料 | 每個 WTune job（`machine.env_source`） |
 | `~/.config/wtune/machine.yaml` | 機器設定 | 所有專案 |
 | `~/wtune-adios2/campaign/sites/f1arm.sh` | 怎麼啟動 MPI：`ulimit -s unlimited`、IPoIB 網段、`mpirun --map-by ppr:..:numa` | 每個 WTune job |

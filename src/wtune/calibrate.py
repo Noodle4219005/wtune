@@ -263,6 +263,9 @@ done
   --history-mode {history_mode} --set restart=.false. --ranks {ranks}
 rm -f ./namelist.input.orig
 ln -sf "$W/main/wrf.exe" ./wrf.exe
+# files the namelist names (iofields_filename, wrflowinp, wrffdda, tslist, ...), as the probes
+# do: WRF 4.8 hangs at input_input without the iofields file
+"$PYBIN" "$CAMPAIGN/configs.py" link-namelist-files ./namelist.input . {case_dir} || true
 
 export OMP_NUM_THREADS=1 OMP_STACKSIZE=1G OMP_PLACES=cores OMP_PROC_BIND=close
 

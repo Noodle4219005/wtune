@@ -163,6 +163,52 @@ def convert_inputs(inputs: InputPlan, text: str, case_dir: str, segments: list,
     return dataclasses.replace(inputs, bp_plan=bp_plan, bp_xml=bp_xml)
 
 
+def stale_inputs(inputs: InputPlan, text: str, case_dir: str) -> list[str]:
+    """The netCDF inputs whose BP in the cache is missing or out of date (read-only)."""
+    if inputs.io_streams is None:
+        return []
+    cc = sweep.campaign_configs
+    plan = cc.resolve_bp_inputs(text, case_dir, inputs.bp_cache, convert=False)
+    bp = cc._import_wtune_bp()
+    by_dir: dict = {}
+    for p in plan["convert"]:
+        by_dir.setdefault(os.path.dirname(p), []).append(os.path.basename(p))
+    return [os.path.join(d, n) for d, names in sorted(by_dir.items())
+            if bp.cached_inputs(d, inputs.bp_cache, names) is None for n in names]
+
+
+def convert_inputs_in_job(inputs: InputPlan, text: str, case_dir: str, out: str,
+                          submit: Callable[[str], str],
+                          wait: Callable[[str], str], log: Callable,
+                          env_source: Optional[str] = None,
+                          campaign_dir: Optional[str] = None) -> None:
+    """Convert the stale inputs in one compute-node job (render_convert_sbatch), waited for;
+    RunError unless it completed and left nothing stale -- the login node never converts."""
+    stale = stale_inputs(inputs, text, case_dir)
+    if not stale:
+        return
+    from .sbatch import render_convert_sbatch
+    d = os.path.join(out, "nc2bp")
+    os.makedirs(d, exist_ok=True)
+    nl = os.path.join(d, "namelist.input")
+    with open(nl, "w") as f:
+        f.write(text)
+    script = os.path.join(d, "nc2bp.sbatch")
+    with open(script, "w") as f:
+        f.write(render_convert_sbatch(d, "wtrun-%s-nc2bp" % os.path.basename(case_dir), nl,
+                                      case_dir, inputs.bp_cache, env_source=env_source,
+                                      **({"campaign_dir": campaign_dir} if campaign_dir else {})))
+    job = submit(script)
+    log("ADIOS2 inputs: converting %d netCDF file(s) in job %s (log %s/nc2bp-%s.out)"
+        % (len(stale), job, d, job))
+    state = wait(job)
+    left = stale_inputs(inputs, text, case_dir)
+    if state != "COMPLETED" or left:
+        raise RunError("BP input conversion job %s ended %s; not converted: %s -- nothing "
+                       "submitted (log %s/nc2bp-%s.out)"
+                       % (job, state, " ".join(os.path.basename(x) for x in left) or "-", d, job))
+
+
 def _logging_copier(log: Callable) -> Callable:
     """wtune.bp.fresh_input_copy that logs reflink vs full copy (one line per segment attempt)."""
     def copy(sources, dest):

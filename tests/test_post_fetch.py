@@ -66,6 +66,9 @@ def test_offline_summary_lists_missing_datasets_with_commands(tmp_path):
     line = fetch.offline_summary(proj, run, online=False)
     assert line and "no internet" in line
     for name in fetch.discover()[0]:
+        if name == "bdeck":                     # no storm in this project: nothing to fetch
+            assert "fetch bdeck" not in line
+            continue
         assert "`wtune post fetch %s --project %s --run-dir %s`" % (name, proj, run) in line
     assert fetch.offline_summary(proj, run, online=True) is None
     assert fetch.offline_summary(None, run, online=False) is None
@@ -172,3 +175,68 @@ def test_era5_outside_coverage_returns_empty_with_reason(era5_env, monkeypatch, 
 def test_era5_without_run_dir_says_why(capsys):
     assert fetch_era5.run(argparse.Namespace(project="/x", run_dir=None, spinup_hours=6.0, margin=2.0)) == []
     assert "--run-dir is required" in capsys.readouterr().out
+
+
+def _storm_project(tmp_path, storm="AL142016"):
+    (tmp_path / "project.yaml").write_text("storm:\n  id: %s\n" % storm)
+    return str(tmp_path)
+
+
+def test_bdeck_is_fetched_into_the_project_and_used_from_there(tmp_path, monkeypatch):
+    from wtune.post import atcf
+    from wtune.post.fetch import bdeck
+    project = _storm_project(tmp_path)
+    assert not bdeck.present(project)
+
+    def fake_fetch(year, basin, cy, dest, timeout=30):
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        open(dest, "w").write("AL, 14, 2016092812,   , BEST,   0, 133N,  609W,  45, 1004\n")
+        return dest
+    monkeypatch.setattr(atcf, "fetch_bdeck", fake_fetch)
+    got = bdeck.run(argparse.Namespace(project=project, storm=None))
+    assert got == [os.path.join(project, "input", "obs", "bdeck", "bal142016.dat")]
+    assert bdeck.present(project) and sources.read_provenance(project, "bdeck")["files"]
+    assert cli._project_bdeck(None, project, None, "AL142016") == got[0]
+    assert cli._project_bdeck("/my.dat", project, None, "AL142016") == "/my.dat"
+    (tmp_path / "nostorm").mkdir()
+    assert bdeck.present(_storm_project(tmp_path / "nostorm", '""'))   # nothing to fetch
+
+
+def test_tc_never_downloads_inside_a_slurm_job(tmp_path, monkeypatch):
+    from wtune.post import atcf, tc
+
+    def no_network(*a, **kw):
+        raise AssertionError("downloaded on a compute node")
+    monkeypatch.setattr(atcf, "fetch_bdeck", no_network)
+    monkeypatch.setenv("SLURM_JOB_ID", "123")
+    pts = [dict(time=datetime(2016, 9, 28, 12), lat=13.3, lon=-60.9, vmax_kt=45, pmin_hpa=1004)]
+    monkeypatch.setattr(atcf, "hurdat2_to_bdeck_rows", lambda points: [])
+    monkeypatch.setattr(atcf, "write_lines", lambda rows, dest, **kw: dest)
+    assert tc.resolve_bdeck("AL142016", str(tmp_path), hurdat2_points=pts).endswith(
+        "bal142016.dat")
+
+
+def test_natural_earth_check_never_downloads(tmp_path, monkeypatch):
+    pytest.importorskip("cartopy")
+    import cartopy.io.shapereader as shpreader
+    from wtune.post import plotting
+
+    def download(*a, **kw):
+        raise AssertionError("cartopy download")
+    monkeypatch.setattr(shpreader, "natural_earth", download)
+    monkeypatch.setenv("WTUNE_CARTOPY_DATA", str(tmp_path))
+    import cartopy
+    for key in ("data_dir", "pre_existing_data_dir"):     # this machine's own cache
+        monkeypatch.setitem(cartopy.config, key, str(tmp_path / "none"))
+    assert plotting._natural_earth_ready() is False
+    d = tmp_path / "shapefiles" / "natural_earth" / "physical"
+    d.mkdir(parents=True)
+    (d / "ne_110m_coastline.shp").write_text("")
+    assert plotting._natural_earth_ready() is True
+
+
+def test_tests_have_no_network():
+    # conftest._no_network: compute nodes have no internet, so neither do the tests
+    import urllib.request
+    with pytest.raises(OSError):
+        urllib.request.urlopen("http://93.184.216.34/", timeout=5)

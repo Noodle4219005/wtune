@@ -26,8 +26,6 @@ non-serializable pyproj object) is still not copied into the output.
 """
 from __future__ import annotations
 
-import os
-
 
 def coast_polylines(lines, transform, bbox):
     """Natural Earth coastline parts -> projected polylines clipped to the grid.
@@ -89,10 +87,10 @@ def _write_coast(ds, out_path, resolution="50m"):
         import cartopy.io.shapereader as shpreader
         from wtune.post.plotting import _set_cartopy_data_dir
         from pyproj import Transformer
+        from wtune.post import basemap
         _set_cartopy_data_dir()
-        shp = shpreader.natural_earth(resolution=resolution, category="physical",
-                                      name="coastline")
-        if not os.path.exists(shp):
+        shp = basemap.shapefile_path("physical", "coastline", resolution)   # never downloads
+        if not shp:
             return None
         crs = ds["wrf_projection"].item()
         tr = Transformer.from_crs("EPSG:4326", crs, always_xy=True)

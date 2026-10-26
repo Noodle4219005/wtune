@@ -259,8 +259,6 @@ def _anchor_results(ctx: Ctx, items: list[dict], jobs: dict, states: dict,
             state = states.get(j, ("UNKNOWN", ""))[0]
             skipped.append(dict(it["tag"], state=state,
                                 reason="no successful measurement (job %s, state %s)" % (j, state)))
-            print("node sweep: %s job %s: no successful measurement (state %s)"
-                  % (it["suffix"], j, state))
     return out
 
 
@@ -429,6 +427,8 @@ def run_node_sweep(ctx: Ctx, legal_nodes: list[int],
             if mem:
                 mem.learn(n, anchors[n]["ranks"] // n, r["maxrss_mb"])
         for s in skipped[first_new:]:
+            if "state" in s:                   # submitted, measured nothing (isc21 N=1 rc=124)
+                print("node sweep: N=%d %s" % (s["nodes"], s["reason"]))
             if mem and s.get("state") == "OUT_OF_MEMORY":
                 mem.learn_oom(s["nodes"], anchors[s["nodes"]]["ranks"] // s["nodes"])
         if halted:
@@ -791,6 +791,9 @@ def run_node_search(ctx: Ctx, profile: dict, objective: str, deadline_s: float |
         if new:
             rows, choices, chosen, note, tab = summary()
             print_rows(tab, only=new)
+            if tab[0]["nodes"] in new or tab[0]["nodes"] != 1:
+                print("node sweep: speedup and eff are relative to N=%d, the smallest N measured"
+                      % tab[0]["nodes"])
         if chosen in new:
             finals = finals + [chosen]
             print("node search: N=%d is now the fastest ANCHOR (%s); tuning it with the %s left"

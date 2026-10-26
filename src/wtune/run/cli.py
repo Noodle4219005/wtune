@@ -8,6 +8,7 @@ import dataclasses
 import datetime as dt
 import json
 import os
+import shlex
 import sys
 import time
 from typing import Callable, Optional
@@ -23,8 +24,9 @@ from .controller import _make_sidecar, run_controller
 from .estimate import (FALLBACK_RADIATION_FACTOR, Overheads, constant_compute_fn,
                        fallback_overheads, fallback_s_per_step, model_from_prediction)
 from .geometry import Geometry, case_geometry, domain_start, resolve_end_step, step_time
-from .inputs import (InputPlan, _logging_copier, convert_inputs, find_project_dir, io_plan_line,
-                     plan_inputs)
+from .attempts import wait_for_job
+from .inputs import (InputPlan, _logging_copier, convert_inputs, convert_inputs_in_job,
+                     find_project_dir, io_plan_line, plan_inputs)
 from .layout import (Candidate, Config, Layout, TuneLayout, make_config, rank_mapping_notes,
                      resolve_layout, tune_candidates, tune_report_layout)
 from .namelist import _aux_outputs, namelist_diff_summary, render_segment_namelist
@@ -539,6 +541,28 @@ def execute(ctx: RunContext) -> int:
     return rc
 
 
+def _convert_in_job(opts: RunOptions, plan: RunPlan, case_dir: str, out: str,
+                    runners: Runners) -> None:
+    """inputs.convert_inputs_in_job through the run's sbatch/sacct; Ctrl-C cancels the job."""
+    jobs: list = []
+
+    def submit(script):
+        jobs.append(sweep.submit_job("sbatch %s" % shlex.quote(script),
+                                     sbatch_runner=runners.sbatch_runner))
+        return jobs[-1]
+
+    def wait(job):
+        return wait_for_job(job, runners.sacct_runner, opts.sacct_cmd, opts.poll_interval,
+                            runners.sleep, runners.log)[0]
+    try:
+        convert_inputs_in_job(plan.inputs, plan.text, case_dir, out, submit, wait, runners.log,
+                              env_source=opts.env_source, campaign_dir=opts.campaign_dir)
+    except KeyboardInterrupt:
+        for j in jobs:
+            runners.scancel_runner(j)
+        raise
+
+
 def _fail(e) -> int:
     print("error: %s" % e, file=sys.stderr)
     return 2
@@ -548,7 +572,7 @@ def main(argv: Optional[list] = None, sbatch_runner: Optional[Callable] = None,
          sacct_runner: Optional[Callable] = None, snapshot_fn: Optional[Callable] = None,
          sleep: Optional[Callable] = None, log: Callable = print,
          sidecar_runner: Optional[Callable] = None, scancel_runner: Optional[Callable] = None,
-         clock: Optional[Callable] = None) -> int:
+         clock: Optional[Callable] = None, convert_in_job: Optional[bool] = None) -> int:
     opts = parse_options(argv)
     try:
         opts = apply_project_defaults(opts, log)
@@ -579,16 +603,20 @@ def main(argv: Optional[list] = None, sbatch_runner: Optional[Callable] = None,
             return _fail(e)
         return 0
     os.makedirs(out, exist_ok=True)
-    try:
-        plan.inputs = convert_inputs(plan.inputs, plan.text, case_dir, plan.segments, log)
-    except RunError as e:
-        return _fail(e)
     runners = Runners(sbatch_runner=sbatch_runner or sweep.default_sbatch_runner,
                       sacct_runner=sacct_runner or sweep.default_sacct_runner,
                       snapshot_fn=snapshot_fn or wtune.watch.snapshot,
                       sleep=sleep or time.sleep, log=log,
                       scancel_runner=scancel_runner or default_scancel,
                       clock=clock or time.monotonic)
+    try:
+        if convert_in_job is None:      # real submission from a login node
+            convert_in_job = sbatch_runner is None and not os.environ.get("SLURM_JOB_ID")
+        if convert_in_job:
+            _convert_in_job(opts, plan, case_dir, out, runners)
+        plan.inputs = convert_inputs(plan.inputs, plan.text, case_dir, plan.segments, log)
+    except RunError as e:
+        return _fail(e)
     ctx = _run_context(opts, plan, runners, sidecar_runner)
     ctx.state_file = os.path.join(out, "run.state.json")
     with wtune.stopping.stop_on_signal(ctx.state_file, "run", opts.poll_interval):

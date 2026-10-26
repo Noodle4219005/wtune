@@ -1738,7 +1738,7 @@ def test_node_sweep_says_when_an_n_measured_nothing_and_what_eff_is_relative_to(
                out_dir=str(tmp_path / "o"), ledger_dir=str(tmp_path / "l"))
     sw = wtune.tune.run_node_sweep(ctx, [1, 2, 4], budget_frac=1.0)
     assert sorted(sw["measurements"]) == [2, 4]
-    assert "nodes-n1 job" in capsys.readouterr().out
+    assert "N=1 no successful measurement (job" in capsys.readouterr().out
     rows = wtune.nodes.summarize(sw["measurements"])
     lines = wtune.tune.report._node_table_lines(dict(table=wtune.nodes.table(rows)))
     assert any("relative to N=2" in ln for ln in lines)
@@ -3690,6 +3690,6 @@ def test_tune_warns_that_adaptive_dt_makes_the_step_count_a_range(tmp_path):
     nl.write_text("&time_control\n run_hours = 1,\n/\n&domains\n time_step = 60,\n dx = 10000,\n"
                   " use_adaptive_time_step = .true.,\n/\n")
     w = wtune.tune.context.adaptive_steps_warning(str(nl))
-    assert w and "45-120 steps" in w and "assume 60" in w         # 8*dx = 80 s, 3*dx = 30 s
+    assert w and "45-120 steps" in w and "assume 60" in w         # NINT(8*dx), NINT(3*dx) s
     nl.write_text("&time_control\n run_hours = 1,\n/\n&domains\n time_step = 60,\n/\n")
     assert wtune.tune.context.adaptive_steps_warning(str(nl)) is None

@@ -631,6 +631,26 @@ def test_adaptive_time_step_widens_the_range_to_the_step_bounds(tmp_path):
     assert "use_adaptive_time_step" in pred["steps_note"]
 
 
+def test_adaptive_bounds_follow_wrf_and_the_range_stays_positive(tmp_path):
+    case_dir = tmp_path / "conus25"
+    case_dir.mkdir()
+    nl = CONUS25_NAMELIST.replace("&domains", "&domains\n use_adaptive_time_step = .true.,\n"
+                                  " max_time_step = 200,", 1)
+    _write(str(case_dir / "namelist.input"), nl)
+    pred = wp.build_prediction(
+        namelist_path=str(case_dir / "namelist.input"), case_dir=str(case_dir), nodes=7,
+        config={"ranks": 720, "omp": 1, "nx": 24, "ny": 30, "numtiles": 1}, ledger_paths=[],
+        calibration_path=CALIBRATION, io_form_override=None, io_target="nfs")
+    assert 0 <= pred["range_low_s"] <= pred["total_s"]           # was -299 s
+    # dyn_em/start_em.F: -1 -> NINT(k * min(dx,dy) / 1000) s; *_den divides
+    nl = wp.parse_namelist(_write(str(tmp_path / "nl"), "&domains\n use_adaptive_time_step = "
+                                  ".true.,\n dx = 500,\n dy = 500,\n max_time_step = 3,\n"
+                                  " max_time_step_den = 2,\n/\n"))
+    assert wp.adaptive_step_bounds(nl, 3600.0) is None           # min 2 s > max 3/2 s
+    nl["domains"]["max_time_step_den"] = [1]
+    assert wp.adaptive_step_bounds(nl, 3600.0) == (1200, 1800, 2.0, 3.0)
+
+
 # --------------------------------------------------------------------------
 # 7. PRE-REGISTERED held-out checks: maria1km and isc21.
 #    Geometry from campaign/cases.json (max_dom, e_we/e_sn/e_vert per domain,

@@ -96,8 +96,9 @@ wtune post fetch nexrad --project . --run-dir runs/<id>/
 | `igra` | IGRA2 探空 | 00Z 與 12Z |
 | `era5`、`era5_monthly` | ERA5 再分析 | — |
 | `gpcp_monthly` | GPCP 月降水 | 2.5 度 |
+| `bdeck` | NHC ATCF 最佳路徑 b-deck（`project.yaml` 的 `storm:`） | 大西洋與東、中太平洋 |
 
-抓資料要在能連外網的機器上執行。每個資料集都會寫一份 `provenance.json`（提供者、網址、授權、抓取時間、引用格式）。
+抓資料要在能連外網的機器上執行，也就是登入節點。在 Slurm job 裡（`--srun`、`wtune submit` 的後處理）不會連網：`tc` 只讀 `bdeck` 抓好的檔或 `--bdeck`，都沒有時改用 HURDAT2；地圖底圖只讀 `bin/fetch-natural-earth.sh` 下載好的 Natural Earth，沒有就不畫海岸線。每個資料集都會寫一份 `provenance.json`（提供者、網址、授權、抓取時間、引用格式）。
 
 比較範圍一律排除模式的側邊界區。降水比對另外限制在 NEXRAD 站 230 km 以內，因為 Stage IV 在外海是 0 而不是缺值。
 

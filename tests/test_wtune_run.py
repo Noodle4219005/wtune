@@ -6,6 +6,7 @@ import datetime
 import json
 import os
 import re
+import shlex
 import subprocess
 
 import sys
@@ -20,6 +21,7 @@ _CONFIGS_BEFORE = sys.modules.get("configs")
 
 from wtune import predict as wp
 from wtune import run as wr
+import wtune.run.inputs
 import wtune.watch
 
 if _SITE_BEFORE is None:
@@ -70,6 +72,9 @@ class FakeBP:
         m.convert_inputs = self.convert_inputs
         m.adios2_xml = lambda engine_by_stream=None: self.XML
         m.is_bp = os.path.isdir
+        m.cached_inputs = lambda d, cache, names, engine="BP4": (
+            {n: os.path.join(cache, n) for n in names}
+            if all(os.path.exists(os.path.join(cache, n)) for n in names) else None)
         for name in ("PER_RECORD_NAME_RE", "is_per_record_dir", "record_files",
                      "bp_input_links", "per_record_namelist_edits"):
             setattr(m, name, getattr(REAL_BP, name))
@@ -1061,6 +1066,71 @@ def test_run_io_netcdf_is_the_legacy_escape(tmp_path, fake_bp):
     assert re.search(r"(?m)^\s*io_form_input\s*=\s*2\b", nl) and "input_inname" not in nl
     assert not os.path.lexists(out / "seg_0" / "wrfinput_d01.bp")
     assert rep["io"] == {"mode": "netcdf"}
+
+
+def _convert_job_run(tmp_path, monkeypatch, fake_bp, job_converts=True, state="COMPLETED"):
+    """_run with convert_in_job: the nc2bp job converts (in this process, flagged) when
+    job_converts; outside it the converter may only find what is cached (wtune.bp's manifest
+    hit), never convert."""
+    case = tmp_path / "case" if (tmp_path / "case").exists() else _make_case(tmp_path)
+    out = tmp_path / "out"
+    f, jobs, in_job = Fakes(), [], {"on": False}
+    real_convert = fake_bp.convert_inputs
+
+    def convert(case_dir, cache_dir, names=None, engine="BP4"):
+        assert in_job["on"] or all(os.path.isdir(os.path.join(cache_dir, n)) for n in names), \
+            "converted outside the nc2bp job"
+        return real_convert(case_dir, cache_dir, names, engine)
+    fake_bp.convert_inputs = convert
+    swap = fake_bp.module()
+    swap_wtune_module(monkeypatch, "bp", swap)
+
+    def sbatch(cmd):
+        if "nc2bp.sbatch" not in cmd:
+            return f.sbatch(cmd)
+        script = cmd.split()[-1].strip("'")
+        jobs.append(open(script).read())
+        if job_converts:
+            in_job["on"] = True
+            nl, src, cache = shlex.split(re.search(r'"\$PYBIN" - (.*) <<', jobs[-1]).group(1))
+            wtune.run.inputs.sweep.campaign_configs.resolve_bp_inputs(
+                open(nl).read(), src, cache, convert=True, bp=swap)
+            in_job["on"] = False
+        return "Submitted batch job 900\n"
+
+    def sacct(cmd):
+        return "900|%s|00:01:00\n" % state if "900" in cmd else f.sacct(cmd)
+    lines = []
+    rc = wr.main([str(case), "--nodes", "1", "--nx", "8", "--ny", "9", "--segment-minutes", "360",
+                  "--out", str(out), "--poll-interval", "0"],
+                 sbatch_runner=sbatch, sacct_runner=sacct, snapshot_fn=f.snapshot,
+                 sleep=lambda s: None, log=lines.append, convert_in_job=True)
+    return rc, out, f, jobs, lines
+
+
+def test_run_converts_its_inputs_in_a_compute_node_job(tmp_path, monkeypatch, fake_bp):
+    rc, out, f, jobs, lines = _convert_job_run(tmp_path, monkeypatch, fake_bp)
+    assert rc == 0 and len(jobs) == 1
+    assert "#SBATCH -p" in jobs[0] and "resolve_bp_inputs" in jobs[0]
+    assert str(out / "_bp_inputs") in jobs[0]
+    assert [os.path.basename(s) for s, _ in f.submitted] == ["seg_0", "seg_1"]
+    assert any("in job 900" in ln for ln in lines)
+
+
+def test_no_conversion_job_when_the_cache_is_current(monkeypatch):
+    monkeypatch.setattr(wtune.run.inputs, "stale_inputs", lambda *a: [])
+
+    def submit(script):
+        raise AssertionError("nothing to convert: no job")
+    wtune.run.inputs.convert_inputs_in_job(None, "", "/case", "/out", submit, submit, print)
+
+
+def test_a_failed_conversion_job_submits_nothing_and_never_converts_on_the_login_node(
+        tmp_path, monkeypatch, fake_bp, capsys):
+    rc, _out, f, jobs, _lines = _convert_job_run(tmp_path, monkeypatch, fake_bp,
+                                                 job_converts=False, state="FAILED")
+    assert rc != 0 and len(jobs) == 1 and fake_bp.calls == [] and f.submitted == []
+    assert "conversion job 900 ended FAILED" in capsys.readouterr().err
 
 
 def test_run_converter_failure_stops_before_any_submission(tmp_path, fake_bp, capsys):

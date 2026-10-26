@@ -228,8 +228,8 @@ def adaptive_steps_warning(namelist_path: str) -> str | None:
         return None
     if not b:
         return None
-    return ("use_adaptive_time_step: WRF picks d01's dt between %g and %g s, so the run takes "
-            "%d-%d steps; the whole-run times below assume %d (time_step)"
+    return ("use_adaptive_time_step: WRF picks d01's dt between about %g and %g s, so the run "
+            "takes about %d-%d steps; the whole-run times below assume %d (time_step)"
             % (b[2], b[3], b[0], b[1], steps_n))
 
 

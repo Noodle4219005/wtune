@@ -266,12 +266,6 @@ def _run_attempt(ctx: RunContext, k: int, seg: Segment, att: Attempt, is_last: b
     remove_empty_output_dirs(seg_dir, out_names)    # before any wrfout/wrfrst check
     if side:
         side.job_ended(seg_dir)
-    elif ctx.plan.restart.set_min is not None:     # restarts WTune asked for, not the case's
-        freed = drop_older_restarts(seg_dir, geo.max_dom,
-                                    sweep.campaign_configs._import_wtune_bp().is_bp)
-        if freed:
-            run.log("older restart sets deleted (%s); the newest valid one is kept"
-                    % _fmt_bytes(freed))
     snap = run.snapshot_fn(seg_dir)
     rec.state, rec.elapsed_s, rec.watch_status = state, elapsed, snap.get("status")
     rec.warnings = [w["code"] for w in snap.get("warnings", [])]
@@ -287,4 +281,12 @@ def _run_attempt(ctx: RunContext, k: int, seg: Segment, att: Attempt, is_last: b
         if n:
             run.log("segment rsl: %d files of ranks > 0 gzipped, %s -> %s"
                     % (n, _fmt_bytes(before), _fmt_bytes(after)))
+    if rec.ok and ctx.plan.restart.set_min is not None:
+        # restarts WTune asked for (not the case's): only a finished attempt, since a failed
+        # one may resume from an older set than the newest (resume_point)
+        freed = drop_older_restarts(seg_dir, geo.max_dom,
+                                    sweep.campaign_configs._import_wtune_bp().is_bp)
+        if freed:
+            run.log("older restart sets deleted (%s); the newest valid one is kept"
+                    % _fmt_bytes(freed))
     return Outcome(seg_dir, rec, state, elapsed, snap, rec.ok)

@@ -90,3 +90,36 @@ def render_segment_sbatch(seg_dir: str, k: int, config: Config, time_limit: str,
                "  done; shopt -u nullglob",
                "fi"]
     return "\n".join(lines + _launch_lines(k, config) + harvest) + "\n"
+
+
+def render_convert_sbatch(out_dir: str, job_name: str, namelist: str, case_dir: str,
+                          cache: str, env_source: str | None = None,
+                          campaign_dir: str = _CAMPAIGN_DIR, time_limit: str = "01:00:00") -> str:
+    """One job converting the run's netCDF inputs into the BP cache on a compute node: a login
+    node is no place for it (dorian's inputs are tens of GB). Same code path as the run used
+    in-process (configs.resolve_bp_inputs); nc2bp.sbatch's interpreter and node shape."""
+    return "\n".join([
+        "#!/usr/bin/env bash",
+        "#SBATCH --job-name=%s" % job_name,
+        ("#SBATCH -p %s -N 1 --exclusive --time=%s %s"
+         % (wtune.machine.partition(), time_limit, sweep.scheduler_args())).rstrip(),
+        "#SBATCH --no-requeue",
+        "#SBATCH --output=%s/nc2bp-%%j.out" % os.path.abspath(out_dir),
+        "set -uo pipefail",
+        "SITE=%s" % wtune.machine.site(),
+        "export CAMPAIGN=${CAMPAIGN:-%s}" % shlex.quote(os.path.abspath(campaign_dir)),
+        "source \"$CAMPAIGN/sites/$SITE.sh\"",
+        "source \"%s\"" % (env_source or wtune.machine.env_source()),
+        "PYBIN=$(pixi run --manifest-path \"$PIXI_ENV/pixi.toml\" python -c "
+        "'import sys; print(sys.executable)' 2>/dev/null | tail -1)",
+        "[ -x \"$PYBIN\" ] || { echo \"FATAL: no python from PIXI_ENV=$PIXI_ENV\" >&2; exit 1; }",
+        # the converter finds an adios2 python on PATH (f1-arm job 15532), as calibrate does
+        "export PATH=\"$(dirname \"$PYBIN\"):$PATH\"",
+        "\"$PYBIN\" - %s %s %s <<'PY'" % tuple(shlex.quote(os.path.abspath(x))
+                                            for x in (namelist, case_dir, cache)),
+        "import os, sys",
+        "sys.path.insert(0, os.environ['CAMPAIGN'])",
+        "import configs",
+        "nl, src, cache = sys.argv[1:4]",
+        "configs.resolve_bp_inputs(open(nl).read(), src, cache, convert=True, log=print)",
+        "PY"]) + "\n"

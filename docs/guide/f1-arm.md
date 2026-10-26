@@ -71,11 +71,15 @@ max_omp: 1
 node_preflight: false
 node_memory_gib: 218.0
 copy_probe_inputs: false
+measured:
+  startup_s: 15.0
+  init_s: 15.0
 ```
 
 | 欄位 | 為什麼是這個值 |
 |---|---|
 | `max_nodes: 8` | 測試時自訂的上限；`arm1440` 最多 10 節點 |
+| `measured.startup_s`、`measured.init_s` | 一次執行從 job 開始到 WRF 第一步的時間。內建的 120 s 是 scc 的數字；f1-arm 上 45 個段（matthew、c34、sc26p1、yagi 等，1–8 節點）實測 2–15 s、中位數 5.4 s，取最大值 15 s。用 120 s 時每個時間預測都多估約 100 s |
 | `max_omp: 1` | WRF 編成 dmpar（沒有 OpenMP） |
 | `node_preflight: false` | 跳過每個節點 1 分鐘的 `srun` 探測，省排隊時間 |
 | `copy_probe_inputs: false` | 不把輸入複製到每個探測目錄，省家目錄配額 |

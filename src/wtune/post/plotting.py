@@ -58,16 +58,11 @@ FIELD_TITLES = dict(slp="sea-level pressure (isobars every 4 hPa)", t2="2 m temp
 
 
 def _natural_earth_ready(resolution="110m"):
-    """True if Natural Earth's coastline shapefile is already cached locally -- checking
-    this way (shapereader.natural_earth) never triggers a network call when it IS cached,
-    and only raises (caught here) when it is not and cartopy tries to download it."""
-    import cartopy.io.shapereader as shpreader
-    try:
-        path = shpreader.natural_earth(resolution=resolution, category="physical",
-                                       name="coastline")
-        return os.path.exists(path)
-    except Exception:
-        return False
+    """True if Natural Earth's coastline shapefile is cached locally. Only looks on disk:
+    shapereader.natural_earth downloads a missing file, and a compute node without internet
+    hung in it (f1-arm job 14882, 12 min); bin/fetch-natural-earth.sh fetches on a login node."""
+    from wtune.post import basemap
+    return basemap.shapefile_path("physical", "coastline", resolution) is not None
 
 
 def _set_cartopy_data_dir():

@@ -210,6 +210,7 @@ def _pipeline_cold_estimate(st: PipelineRun, profile: dict, nodes_policy: str,
         n0 = choose_nodes(profile, ctx.max_nodes, nodes_policy)[0]
         cfg0, _why = _sweep_anchor(ctx, n0)
         ce.T_cold, s_n0, src = _prediction.cold_start_prediction(ctx, n0, cfg0, st.total_steps)
+        ce.est_info = dict(s_per_step_n=s_n0)      # T_cold's compute even if the rest fails
         pplan0 = ce.pplan0 = plan_prediction_points(ctx, pre.wrapped, precision_min, ce.T_cold,
                                                     False, **pre.pkw)
         try:

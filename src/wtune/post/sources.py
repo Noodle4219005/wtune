@@ -73,6 +73,18 @@ REGISTRY = {
         "resolution": "0.01 deg lat/lon, 2 min (reflectivity), hourly (QPE)",
         "access": "public, no credentials",
     },
+    "bdeck": {
+        "dataset": "NHC ATCF best-track b-deck",
+        "provider": "NOAA National Hurricane Center",
+        "url": "https://ftp.nhc.noaa.gov/atcf/archive/<year>/b<basin><nn><year>.dat.gz",
+        "license": "US Government work, public domain",
+        "citation": "National Hurricane Center ATCF archive (best track, b-deck).",
+        "coverage_time": "storms NHC tracks, by year",
+        "coverage_space": "Atlantic and eastern/central Pacific basins",
+        "resolution": "6-hourly fixes (plus landfall/intensity points); position, wind, pressure, "
+                      "wind radii",
+        "access": "public, no credentials",
+    },
     "stations": {
         "dataset": "NOAA Integrated Surface Database (ISD-Lite hourly)",
         "provider": "NOAA National Centers for Environmental Information (NCEI)",

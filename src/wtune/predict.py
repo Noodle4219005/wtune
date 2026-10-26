@@ -345,16 +345,22 @@ def get_d01_steps(nl: dict) -> tuple[int, float, float, str | None]:
 
 
 def adaptive_step_bounds(nl: dict, run_s: float) -> tuple[int, int, float, float] | None:
-    """use_adaptive_time_step: WRF picks d01's dt each step within [min_time_step,
-    max_time_step] (-1: 3*dx and 8*dx, dx in km), so the step count is only bounded ->
+    """use_adaptive_time_step: WRF picks d01's dt each step within about [min_time_step,
+    max_time_step] (dyn_em/start_em.F: -1 is NINT(3 or 8 * min(dx,dy)/1000) s; *_den divides;
+    step_to_output_time may cut below the minimum), so the step count is only bounded ->
     (fewest steps, most steps, min dt, max dt); None without adaptive dt."""
     if not bool(g(nl, "domains", "use_adaptive_time_step", False)):
         return None
-    dx_km = float(g(nl, "domains", "dx", 0) or 0) / 1000.0
-    lo_dt, hi_dt = (float(g_dom(nl, "domains", k, 0, -1) or -1)
-                    for k in ("min_time_step", "max_time_step"))
-    lo_dt = lo_dt if lo_dt > 0 else 3 * dx_km
-    hi_dt = hi_dt if hi_dt > 0 else 8 * dx_km
+    dx = float(g(nl, "domains", "dx", 0) or 0)
+    d_km = min(dx, float(g(nl, "domains", "dy", dx) or dx)) / 1000.0
+
+    def bound(key, k):
+        v = float(g_dom(nl, "domains", key, 0, -1) or -1)
+        if v <= 0:
+            return float(round(k * d_km))
+        den = float(g_dom(nl, "domains", key + "_den", 0, 0) or 0)
+        return v / den if den > 0 else v
+    lo_dt, hi_dt = bound("min_time_step", 3), bound("max_time_step", 8)
     if lo_dt <= 0 or hi_dt < lo_dt:
         return None
     return math.ceil(run_s / hi_dt), math.ceil(run_s / lo_dt), lo_dt, hi_dt
@@ -1673,12 +1679,12 @@ def build_prediction(namelist_path: str, case_dir: str | None, nodes: int, confi
     bounds = adaptive_step_bounds(nl, run_s)
     if bounds:
         lo_n, hi_n, lo_dt, hi_dt = bounds
-        comp = compute["compute_total_s"]
-        low = min(low, low - comp + comp * lo_n / steps)
-        high = max(high, high - comp + comp * hi_n / steps)
+        rest = total_s - compute["compute_total_s"]       # init (+ I/O): not per step
+        low = min(low, max(0.0, low - rest) * lo_n / steps + rest)
+        high = max(high, (high - rest) * hi_n / steps + rest)
         steps_note = "; ".join(x for x in (steps_note, (
-            "use_adaptive_time_step: WRF picks d01's dt between %g and %g s, so %d-%d steps; "
-            "the total counts %d steps of time_step, the range covers both bounds"
+            "use_adaptive_time_step: WRF picks d01's dt between about %g and %g s, so about "
+            "%d-%d steps; the total counts %d steps of time_step, the range covers both"
             % (lo_dt, hi_dt, lo_n, hi_n, steps))) if x)
         range_source = "; ".join(x for x in (range_source, "widened to the adaptive-dt "
                                              "step bounds") if x)

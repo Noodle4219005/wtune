@@ -310,3 +310,16 @@ def test_watch_follows_the_latest_attempt(tmp_path):
     (tmp_path / "seg_0_rescue_r3").mkdir()
     fol = wtune.watch.follow_run_root(str(tmp_path))
     assert os.path.basename(fol["dir"]) == "seg_0_rescue_r3" and fol["segment"] == 0
+
+
+def test_a_failed_attempt_keeps_the_restarts_a_resume_needs(tmp_path):
+    # WTune's own checkpoints (set_min) every 2 h; the job dies right after writing 08:00, so
+    # 08:00 is not past the last d01 step and the resume takes 06:00 -- which must still exist
+    _make_case(tmp_path)
+    f = Dying([("died", "NODE_FAIL", 8)])
+    rc, out, rep, lines = _run(tmp_path, f, ["--segment-minutes", "720", "--checkpoint-minutes",
+                                             "120", "--io", "netcdf"])
+    assert rc == 0 and rep["segments"][0]["attempts"][0]["resume_time"] == "2020-06-01_06:00:00"
+    # the finished attempt keeps only its newest set
+    left = sorted(p.name for p in (out / "seg_0_r1").glob("wrfrst_d01_*") if not p.is_symlink())
+    assert left == ["wrfrst_d01_2020-06-01_12:00:00"]

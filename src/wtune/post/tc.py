@@ -255,6 +255,9 @@ def resolve_bdeck(storm_id, out_dir, bdeck_path=None, hurdat2_points=None):
     basin, cy, year = storm_id_parts(storm_id)
     dest = os.path.join(out_dir, "b%s%s%d.dat" % (basin.lower(), cy, year))
     try:
+        if os.environ.get("SLURM_JOB_ID"):      # compute nodes: no network (wtune post fetch bdeck)
+            raise atcf.ATCFError("not downloaded inside a Slurm job; on a login node run "
+                                 "`wtune post fetch bdeck --project <project>`")
         return atcf.fetch_bdeck(year, basin, cy, dest)
     except atcf.ATCFError as e:
         if hurdat2_points is None:

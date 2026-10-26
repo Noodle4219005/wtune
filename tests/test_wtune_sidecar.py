@@ -424,18 +424,20 @@ def test_compress_history_keeps_only_the_newest_valid_restart(tmp_path, fake_bp)
     seg.mkdir(parents=True)
     rst = lambda d, h: str(seg / ("wrfrst_d%02d_%s" % (d, _t(h))))   # noqa: E731
     at = lambda h: T0 + dt.timedelta(hours=h)                        # noqa: E731
-    for h in (2, 4):
+    for h in (2, 3, 4):
         for d in (1, 2):
             _real_bp(rst(d, h))
     _real_bp(rst(1, 6))                                   # 06:00 still being written
-    (seg / "rsl.error.0000").write_text(_rsl(T0, at(5), [at(2)], 2))
+    (seg / "rsl.error.0000").write_text(_rsl(T0, at(5), [at(2), at(3)], 2))
     side.poll(str(seg), "77", CFG, "RUNNING")
-    assert os.path.isdir(rst(1, 2)) and os.path.isdir(rst(2, 4))     # one valid: nothing goes
-    (seg / "rsl.error.0000").write_text(_rsl(T0, at(5), [at(2), at(4)], 2))
+    # two valid: both stay -- a job dying right after 03:00 resumes from 02:00 (resume_point)
+    assert os.path.isdir(rst(1, 2)) and os.path.isdir(rst(2, 3))
+    (seg / "rsl.error.0000").write_text(_rsl(T0, at(5), [at(2), at(3), at(4)], 2))
     side.poll(str(seg), "77", CFG, "RUNNING")
     assert not os.path.exists(rst(1, 2)) and not os.path.exists(rst(2, 2))
-    assert all(os.path.isdir(p) for p in (rst(1, 4), rst(2, 4), rst(1, 6)))
-    assert [v.get("deleted", False) for v in report["sidecar"]["valid_restarts"]] == [True, False]
+    assert all(os.path.isdir(p) for p in (rst(1, 3), rst(2, 4), rst(1, 6)))
+    assert [v.get("deleted", False) for v in report["sidecar"]["valid_restarts"]] == [
+        True, False, False]
 
 
 def test_without_compress_history_only_the_newest_valid_restart_stays(tmp_path, fake_bp):  # noqa: F811

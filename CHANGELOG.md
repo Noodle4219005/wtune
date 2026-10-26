@@ -185,17 +185,47 @@ compute (sc26p2: `compute -20s`). Compute is now predict's compute, and init the
 
 **A node count that measured nothing is reported.** A probe that timed out or failed (isc21 on
 scc: N=1, rc=124) was only "submitted" in the log, and the table's speedup and efficiency then
-started from N=2 without saying so. The sweep now prints the failed job and its state, and the
-log and report say which N speedup and efficiency are relative to.
+started from N=2 without saying so. The sweep now prints the failed N with its job and state,
+and the log and report say which N speedup and efficiency are relative to.
 
 **Older checkpoints are deleted without `--compress-history` too.** `--resume` (on by default)
 writes a restart every 1/8 of the run; only `--compress-history` deleted the older ones, so a
-one-segment run kept about 8 sets. After every job the restart sets WTune asked for are cut to
-the newest valid one, which is the one a resume reads. The case's own restarts are not touched.
+one-segment run kept about 8 sets. After an attempt that finished, the restart sets WTune asked
+for (its checkpoints, or `--checkpoint-minutes`) are cut to the newest valid one, which the next
+segment starts from; the case's own restart interval is not touched. A failed attempt keeps all
+of them: a resume cannot use the newest set when the job died before stepping past it, or when it
+is the segment end, and takes the one before. For the same reason `--compress-history` now keeps
+the two newest sets while a job runs, not one.
 
 **`use_adaptive_time_step`.** The step count was run length / `time_step`, though WRF picks d01's
-dt each step. `wtune predict` now gives the bounds from `min_time_step` and `max_time_step` (-1:
-3 and 8 x dx in km), widens the range to them and says so; `wtune tune` prints the same warning.
+dt each step. `wtune predict` now gives the bounds from `min_time_step` and `max_time_step` (as
+WRF's `start_em.F`: -1 is NINT(3 or 8 x min(dx, dy) in km) s, `*_den` divides), widens the range
+to them and says so; `wtune tune` prints the same warning. They are approximate: WRF shortens dt
+below the minimum to land on output times.
+
+**`wtune run` converts its inputs on a compute node.** The netCDF -> BP conversion ran in the
+`wtune run` process, on the login node (tens of GB for dorian). When the BP cache is not current,
+`wtune run` now submits one conversion job (`<out>/nc2bp/`), waits for it, and stops with nothing
+submitted if it fails; a current cache submits nothing. Run inside a Slurm job, it converts in
+place as before.
+
+**Network only on login nodes.** Two post steps reached the internet from a compute-node job:
+the tc report downloaded the NHC b-deck (30 s timeout, then HURDAT2), and the map check asked
+cartopy for the Natural Earth coastline, which downloads a missing file (f1-arm job 14882 hung
+12 min). The map check now only looks on disk (`bin/fetch-natural-earth.sh` fetches);
+`wtune post fetch bdeck` puts the storm's b-deck in `<project>/input/obs/bdeck/`, which tc and
+the recipe read, and inside a Slurm job tc no longer downloads. The test suite, which runs on
+compute nodes, now fails a test that opens a non-loopback connection instead of letting it wait
+for a timeout.
+
+**`wtune calibrate` links the files the namelist names.** The calibration jobs linked `$W/run`,
+the Thompson tables and the inputs, but not `iofields_filename`, `wrflowinp`, `tslist` and the
+like; WRF 4.8 hangs at `input_input` without the iofields file. They now run the probes'
+`configs.py link-namelist-files`.
+
+**Startup and init per machine.** `machine.measured.startup_s` and `init_s` replace scc's 120 s.
+On f1-arm 45 segments took 2-15 s from job start to WRF's first step (median 5.4 s), so every
+prediction there was about 100 s high; the f1-arm guide now sets both to 15 s.
 
 **Ledger estimates scale from the nearest node count only.** The s/step estimate scaled every
 ledger row linearly to the node count asked for; WRF does not scale linearly, and matthew at

@@ -168,9 +168,8 @@ THOMPSON_TABLES = ("freezeH2O.dat", "qr_acr_qg_V4.dat", "qr_acr_qg_mp38V1.dat", 
 
 
 def drop_older_restarts(seg_dir: str, max_dom: int, is_bp: Callable[[str], bool]) -> int:
-    """Keep only the newest valid restart set WRF wrote into seg_dir: wtune.resume starts from
-    it, the older ones only take space (Sidecar does the same with --compress-history). Bytes
-    freed."""
+    """After a finished attempt, keep only the newest valid restart set WRF wrote into seg_dir:
+    the next segment starts from it, and no resume of this attempt follows. Bytes freed."""
     import wtune.resume
     try:
         times = wtune.resume.valid_restart_times(seg_dir, max_dom, is_bp)

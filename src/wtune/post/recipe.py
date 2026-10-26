@@ -443,9 +443,32 @@ def _run_recipe(run_dirs, out_dir, types_override=None, ensemble=False, spinup_h
     advice = _verification_advice(run_dirs[0], out_dir, hurdat2_path, storm_id, bdeck_path, notes)
     report_path = _build_report(run_dirs, labels, out_dir, case_info, all_figures, spinup_hours,
                                 title, notes, advice)
+    write_index(out_dir, run_dirs, labels, case_info, all_figures, notes)
     return dict(out_dir=out_dir, case_info=case_info, figures=all_figures, notes=notes,
                 report_path=report_path, advice=advice,
                 figures_dir=figures_folder(out_dir, all_figures))
+
+
+INDEX_FILE = "figures.json"
+INDEX_SCHEMA = "wtune-post-figures/1"
+
+
+def write_index(out_dir, run_dirs, labels, case_info, figures, notes) -> str:
+    """out_dir/figures.json: what the recipe drew and could not draw, with paths relative to
+    out_dir -- the machine-readable half of report.html that `wtune post brief` and
+    `wtune post check` read (decision 0078)."""
+    def rel(entry):
+        e = dict(entry)
+        if e.get("path") and os.path.isabs(e["path"]):
+            e["path"] = os.path.relpath(e["path"], out_dir)
+        return e
+    doc = dict(schema=INDEX_SCHEMA, runs=[dict(label=lb, path=os.path.abspath(d))
+                                          for d, lb in zip(run_dirs, labels)],
+               case_info=case_info, figures=[rel(f) for f in figures], notes=notes)
+    path = os.path.join(out_dir, INDEX_FILE)
+    with open(path, "w") as fh:
+        json.dump(doc, fh, indent=1, ensure_ascii=False, default=str)
+    return path
 
 
 def figures_folder(out_dir, figures) -> str:

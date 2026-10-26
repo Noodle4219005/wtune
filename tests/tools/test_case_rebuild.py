@@ -1829,3 +1829,15 @@ class TestWind850Verdict(unittest.TestCase):
                                             corr_u850=float("nan"), corr_v850=0.99)[0],
                          "state-mismatch")
         self.assertEqual(cr.compare_verdict(10.0, 95.0, 0.95, 0.9, 0.8)[0], "consistent")
+
+
+def test_plan_is_fitted_to_a_machine_with_fewer_cores(monkeypatch):
+    # haitang2017 (2026-10-26): prep wps planned 144 ranks (1x144) for a 144-core node; after
+    # cores_per_node 72, prep real asserted ppn=144 > 72
+    import wtune.tools.case_rebuild as cr
+    assert cr.near_square(144) == (12, 12) and cr.near_square(72) == (8, 9) and cr.near_square(7) == (1, 7)
+    monkeypatch.setenv("WTUNE_CORES_PER_NODE", "72")
+    plan = dict(nodes=1, config=dict(ranks=144, omp=1, nx=1, ny=144, numtiles=1))
+    assert cr.fit_plan_to_machine(plan)["config"] == dict(ranks=72, omp=1, nx=8, ny=9, numtiles=1)
+    small = dict(nodes=2, config=dict(ranks=100, omp=1, nx=10, ny=10, numtiles=1))
+    assert cr.fit_plan_to_machine(small)["config"]["ranks"] == 100        # fits: unchanged

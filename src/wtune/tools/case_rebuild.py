@@ -1042,8 +1042,9 @@ def cmd_rebuild_plan(case_dir: str, out_dir: str, namelist: str | None = None,
     if vertical_grid_warning:
         print("WARNING: %s" % vertical_grid_warning)
 
-    config = {"ranks": ranks, "omp": omp, "nx": nx or 1, "ny": ny or (ranks // max(omp, 1)),
-             "numtiles": 1}
+    if not (nx and ny):
+        nx, ny = near_square(ranks // max(omp, 1))
+    config = {"ranks": ranks, "omp": omp, "nx": nx, "ny": ny, "numtiles": 1}
     plan = {
         "case_dir": os.path.abspath(case_dir),
         "namelist_input": os.path.abspath(namelist or os.path.join(case_dir, "namelist.input")),
@@ -1118,12 +1119,36 @@ def cmd_rebuild_fetch(out_dir: str, cache_dir: str | None = None, grib_dir: str 
     return total_bytes, forcing
 
 
+def near_square(n: int) -> tuple[int, int]:
+    """(nx, ny) with nx * ny == n and nx <= ny as close as possible: real.exe's decomposition.
+    1 x n put all ranks along y, more than a 126-row domain has (haitang2017, 144 ranks)."""
+    nx = max(d for d in range(1, int(n ** 0.5) + 1) if n % d == 0)
+    return nx, n // nx
+
+
+def fit_plan_to_machine(plan: dict) -> dict:
+    """plan with its real.exe/wrf.exe config shrunk to the machine's cores_per_node when the plan
+    was written for more (cores_per_node lowered after `prep wps`: haitang2017 144 -> 72 asserted
+    in _rebuild_job). Mutates and returns plan; a note is printed when it changes."""
+    cfg = plan.get("config") or {}
+    nodes = max(int(plan.get("nodes") or 1), 1)
+    omp = max(int(cfg.get("omp") or 1), 1)
+    cores = wtune.machine.cores_per_node()
+    if cfg.get("ranks") and -(-cfg["ranks"] * omp // nodes) > cores:
+        ranks = cores // omp * nodes
+        nx, ny = near_square(ranks)
+        print("note: plan.json was made for %d ranks; this machine has %d cores/node -> %d ranks "
+              "(%dx%d)" % (cfg["ranks"], cores, ranks, nx, ny))
+        cfg.update(ranks=ranks, nx=nx, ny=ny)
+    return plan
+
+
 def _rebuild_forcing_choice(out_dir):
     """The chosen forcing (prefix/vtable/interval) for this rebuild's span -- forcing.json if
     `fetch` already ran, else the plan-time default (mirrors
     coldstart_sample._load_window_forcing / _default_per_window_forcing)."""
     with open(os.path.join(out_dir, "plan.json")) as f:
-        plan = json.load(f)
+        plan = fit_plan_to_machine(json.load(f))
     forcing_path = os.path.join(out_dir, "forcing.json")
     if os.path.exists(forcing_path):
         with open(forcing_path) as f:

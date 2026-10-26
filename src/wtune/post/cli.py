@@ -272,9 +272,10 @@ def cmd_recipe(args: argparse.Namespace) -> int:
         import wtune.project
         storm, hurdat2 = wtune.project.project_storm(project_doc)
 
-    cross_sections = xsec_top_km = xsec_halfwidth_km = None
+    cross_sections = xsec_top_km = xsec_halfwidth_km = focus_box = None
     if project_dir:
         cross_sections, xsec_top_km, xsec_halfwidth_km = _recipe_cross_sections(project_doc)
+        focus_box = wtune.project.project_post_defaults(project_doc)["focus"]
         from wtune.post import fetch
         line = fetch.offline_summary(project_dir, run_dirs[0])
         if line:
@@ -290,7 +291,8 @@ def cmd_recipe(args: argparse.Namespace) -> int:
         every=args.every, times=_parse_vars(args.times) if args.times else None,
         cross_sections=cross_sections, animate=args.animate,
         xsec_top_km=xsec_top_km, xsec_halfwidth_km=xsec_halfwidth_km, project_dir=project_dir,
-        spinup_days=args.climate_spinup_days, track_smooth_km=args.track_smooth_km)
+        spinup_days=args.climate_spinup_days, track_smooth_km=args.track_smooth_km,
+        focus_box=focus_box)
     _print_recipe_result(result)
     argv = getattr(args, "argv", ["recipe"] + run_dirs)
     _record_manifest(project_dir, ["wtune", "post"] + argv, out, run_dirs)

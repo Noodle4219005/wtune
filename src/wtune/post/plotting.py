@@ -201,7 +201,7 @@ def plot_field(run_dir, field, out_dir, domain=1, times=None, level_hpa=None,
                                     % (field, domain, time_str.replace(":", ""), lev_tag, fmt))
             from wtune.post.basemap import caption_rect
             fig.tight_layout(rect=caption_rect(fig))
-            fig.savefig(out_path, dpi=figdpi.dpi())
+            fig.savefig(out_path, dpi=figdpi.dpi(), bbox_inches="tight", pad_inches=0.1)
             plt.close(fig)
             written.append(out_path)
     return written

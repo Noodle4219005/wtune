@@ -191,13 +191,14 @@ def grid_inside_predicate(xy_fn, ny, nx):
 
 
 def _cross_section_figure(run_dir, run_label, domain, out_dir, point, line=None, top_km=None,
-                          halfwidth_km=None):
+                          halfwidth_km=None, time_str=None):
     """RH shading + theta_e isentrope lines, same presentation convention as
     post/recipes/terrain.py's cross-section (2026-09-29 second lead review, "apply 4-7
     consistently to moisture_crosssection too"): real-km distance axis centred on `point`
     (default: due east/west, +/-halfwidth_km), a 0..top_km height window (default 16 km, a
     TC's eyewall updraft is deep), a one-line title, and a locator inset. `line`: optional
-    (lat0,lon0,lat1,lon1) override from project.yaml's cross_sections.moisture."""
+    (lat0,lon0,lat1,lon1) override from project.yaml's cross_sections.moisture. time_str: the
+    valid time drawn (default the last frame)."""
     import netCDF4
     import numpy as np
     wrf_mod = __import__("wrf")
@@ -209,7 +210,7 @@ def _cross_section_figure(run_dir, run_label, domain, out_dir, point, line=None,
     frames = list_frame_refs(run_dir, domain=domain)
     if not frames:
         return None
-    time0, path0, ti = frames[-1]
+    time0, path0, ti = next((f for f in frames if f[0] == time_str), frames[-1])
     with netCDF4.Dataset(path0) as ds:
         ter = wrf_mod.getvar(ds, "ter", timeidx=ti)
         hgt = np.asarray(ter)
@@ -371,8 +372,20 @@ def _finest_domain(domains):
     return domains[-1]["domain"]
 
 
+def _focus_point(run_dir, domain, spinup_hours, tc_centre, focus_box):
+    """((lat, lon), reason, time or None): the TC centre unless project.yaml post.focus names an
+    area, else the heaviest post-spin-up rain at its peak (post/focus.py)."""
+    if tc_centre and not focus_box:
+        return tc_centre, _point_reason(tc_centre), None
+    from wtune.post.focus import rain_focus
+    f = rain_focus(run_dir, domain, spinup_hours, box=focus_box)
+    if f is None:
+        return _default_moisture_point(run_dir, domain), _point_reason(None), None
+    return (f["lat"], f["lon"]), "%s, peak %s" % (f["rule"], f["peak_time"]), f["peak_time"]
+
+
 def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6, cross_section=None,
-           tc_centre=None, xsec_top_km=None, xsec_halfwidth_km=None):
+           tc_centre=None, xsec_top_km=None, xsec_halfwidth_km=None, focus_box=None):
     from wtune.post.recipe import fig, missing
 
     run_dir, run_label = run_dirs[0], labels[0]
@@ -412,10 +425,10 @@ def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6, cross_section=
         out.append(missing("moisture_ivt", "wrfout_d%02d" % domain, error_reason(e)))
 
     try:
-        point = _default_moisture_point(run_dir, domain, tc_centre=tc_centre)
+        point, reason, peak = _focus_point(run_dir, domain, spinup_hours, tc_centre, focus_box)
         path = _cross_section_figure(run_dir, run_label, domain, out_dir, point,
                                      line=cross_section, top_km=xsec_top_km,
-                                     halfwidth_km=xsec_halfwidth_km)
+                                     halfwidth_km=xsec_halfwidth_km, time_str=peak)
         if path:
             out.append(fig("moisture_crosssection", path, run_label, domain="d%02d" % domain))
         else:
@@ -430,9 +443,9 @@ def figures(run_dirs, labels, out_dir, case_info, spinup_hours=6, cross_section=
 
     try:
         if point is None:
-            point = _default_moisture_point(run_dir, domain, tc_centre=tc_centre)
-        path = _point_time_height(run_dir, run_label, domain, out_dir, point,
-                                  reason=_point_reason(tc_centre))
+            point, reason, _peak = _focus_point(run_dir, domain, spinup_hours, tc_centre,
+                                                focus_box)
+        path = _point_time_height(run_dir, run_label, domain, out_dir, point, reason=reason)
         if path:
             out.append(fig("moisture_timeheight", path, run_label, domain="d%02d" % domain))
         else:

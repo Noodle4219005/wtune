@@ -46,7 +46,7 @@
     [
      "run_recipe",
      "(['a'], 'o')",
-     "[('animate', True), ('bdeck_path', 'b'), ('cross_sections', None), ('decomposition_only', True), ('ebtrk_path', 'e'), ('ensemble', True), ('every', '6h'), ('hurdat2_path', 'h'), ('labels', ['l']), ('paraview', False), ('project_dir', None), ('spinup_days', 7.0), ('spinup_hours', 3.0), ('storm_id', 'S'), ('times', ['t1', 't2']), ('title', 'T'), ('track_smooth_km', 5.0), ('types_override', 'tc,x'), ('xsec_halfwidth_km', None), ('xsec_top_km', None)]"
+     "[('animate', True), ('bdeck_path', 'b'), ('cross_sections', None), ('decomposition_only', True), ('ebtrk_path', 'e'), ('ensemble', True), ('every', '6h'), ('focus_box', None), ('hurdat2_path', 'h'), ('labels', ['l']), ('paraview', False), ('project_dir', None), ('spinup_days', 7.0), ('spinup_hours', 3.0), ('storm_id', 'S'), ('times', ['t1', 't2']), ('title', 'T'), ('track_smooth_km', 5.0), ('types_override', 'tc,x'), ('xsec_halfwidth_km', None), ('xsec_top_km', None)]"
     ]
    ],
    "rc": 0,
@@ -76,7 +76,7 @@
     [
      "run_recipe",
      "(['a', 'b'], 'o')",
-     "[('animate', False), ('bdeck_path', None), ('cross_sections', None), ('decomposition_only', False), ('ebtrk_path', None), ('ensemble', False), ('every', None), ('hurdat2_path', None), ('labels', ['run0', 'run1']), ('paraview', True), ('project_dir', None), ('spinup_days', None), ('spinup_hours', 6.0), ('storm_id', None), ('times', None), ('title', None), ('track_smooth_km', 30.0), ('types_override', None), ('xsec_halfwidth_km', None), ('xsec_top_km', None)]"
+     "[('animate', False), ('bdeck_path', None), ('cross_sections', None), ('decomposition_only', False), ('ebtrk_path', None), ('ensemble', False), ('every', None), ('focus_box', None), ('hurdat2_path', None), ('labels', ['run0', 'run1']), ('paraview', True), ('project_dir', None), ('spinup_days', None), ('spinup_hours', 6.0), ('storm_id', None), ('times', None), ('title', None), ('track_smooth_km', 30.0), ('types_override', None), ('xsec_halfwidth_km', None), ('xsec_top_km', None)]"
     ]
    ],
    "rc": 0,
@@ -88,7 +88,7 @@
     [
      "run_recipe",
      "(['<TMP>/proj/runs/r1'], '<TMP>/proj/post/<ID>-recipe')",
-     "[('animate', False), ('bdeck_path', None), ('cross_sections', {'terrain': None, 'moisture': None}), ('decomposition_only', False), ('ebtrk_path', None), ('ensemble', False), ('every', None), ('hurdat2_path', '/h.txt'), ('labels', ['r1']), ('paraview', True), ('project_dir', '<TMP>/proj'), ('spinup_days', None), ('spinup_hours', 6.0), ('storm_id', 'AL012020'), ('times', None), ('title', None), ('track_smooth_km', 30.0), ('types_override', None), ('xsec_halfwidth_km', None), ('xsec_top_km', None)]"
+     "[('animate', False), ('bdeck_path', None), ('cross_sections', {'terrain': None, 'moisture': None}), ('decomposition_only', False), ('ebtrk_path', None), ('ensemble', False), ('every', None), ('focus_box', None), ('hurdat2_path', '/h.txt'), ('labels', ['r1']), ('paraview', True), ('project_dir', '<TMP>/proj'), ('spinup_days', None), ('spinup_hours', 6.0), ('storm_id', 'AL012020'), ('times', None), ('title', None), ('track_smooth_km', 30.0), ('types_override', None), ('xsec_halfwidth_km', None), ('xsec_top_km', None)]"
     ],
     [
      "manifest_append",
@@ -105,7 +105,7 @@
     [
      "run_recipe",
      "(['x/y'], 'o')",
-     "[('animate', False), ('bdeck_path', None), ('cross_sections', {'terrain': None, 'moisture': None}), ('decomposition_only', False), ('ebtrk_path', None), ('ensemble', False), ('every', None), ('hurdat2_path', '/h.txt'), ('labels', ['y']), ('paraview', True), ('project_dir', '<TMP>/proj'), ('spinup_days', None), ('spinup_hours', 6.0), ('storm_id', 'AL012020'), ('times', None), ('title', None), ('track_smooth_km', 30.0), ('types_override', None), ('xsec_halfwidth_km', None), ('xsec_top_km', None)]"
+     "[('animate', False), ('bdeck_path', None), ('cross_sections', {'terrain': None, 'moisture': None}), ('decomposition_only', False), ('ebtrk_path', None), ('ensemble', False), ('every', None), ('focus_box', None), ('hurdat2_path', '/h.txt'), ('labels', ['y']), ('paraview', True), ('project_dir', '<TMP>/proj'), ('spinup_days', None), ('spinup_hours', 6.0), ('storm_id', 'AL012020'), ('times', None), ('title', None), ('track_smooth_km', 30.0), ('types_override', None), ('xsec_halfwidth_km', None), ('xsec_top_km', None)]"
     ],
     [
      "manifest_append",
@@ -122,7 +122,7 @@
     [
      "run_recipe",
      "(['a'], 'o')",
-     "[('animate', False), ('bdeck_path', None), ('cross_sections', None), ('decomposition_only', False), ('ebtrk_path', None), ('ensemble', False), ('every', None), ('hurdat2_path', None), ('labels', ['run0']), ('paraview', True), ('project_dir', None), ('spinup_days', None), ('spinup_hours', 6.0), ('storm_id', None), ('times', None), ('title', None), ('track_smooth_km', 30.0), ('types_override', None), ('xsec_halfwidth_km', None), ('xsec_top_km', None)]"
+     "[('animate', False), ('bdeck_path', None), ('cross_sections', None), ('decomposition_only', False), ('ebtrk_path', None), ('ensemble', False), ('every', None), ('focus_box', None), ('hurdat2_path', None), ('labels', ['run0']), ('paraview', True), ('project_dir', None), ('spinup_days', None), ('spinup_hours', 6.0), ('storm_id', None), ('times', None), ('title', None), ('track_smooth_km', 30.0), ('types_override', None), ('xsec_halfwidth_km', None), ('xsec_top_km', None)]"
     ]
    ],
    "rc": 0,

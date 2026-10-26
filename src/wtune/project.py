@@ -143,10 +143,17 @@ def project_exclude_nodes(project_doc):
 
 
 def project_post_defaults(project_doc):
-    """project.yaml's post block: {"types", "every", "fetch"}; missing keys -> None ([] for
-    fetch, the observation datasets `wtune submit` fetches before post)."""
+    """project.yaml's post block: {"types", "every", "fetch", "focus"}; missing keys -> None ([]
+    for fetch, the observation datasets `wtune submit` fetches before post). focus: [lat_min,
+    lat_max, lon_min, lon_max], the area the point figures and peak time look at
+    (post/focus.py)."""
     post = (project_doc or {}).get("post") or {}
-    return dict(types=post.get("types"), every=post.get("every"), fetch=post.get("fetch") or [])
+    focus = post.get("focus")
+    if focus is not None and (len(focus) != 4 or focus[0] >= focus[1] or focus[2] >= focus[3]):
+        raise ProjectError("post.focus must be [lat_min, lat_max, lon_min, lon_max], got %r"
+                           % (focus,))
+    return dict(types=post.get("types"), every=post.get("every"), fetch=post.get("fetch") or [],
+                focus=[float(v) for v in focus] if focus else None)
 
 
 def project_case_id(project_doc):

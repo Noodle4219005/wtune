@@ -24,7 +24,7 @@
    [
     "dispatch-convection",
     "(['r1'], ['run0'], '<OUT>', {'types': ['common', 'convection'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}}, True, 6)",
-    "[]"
+    "[('focus_box', None)]"
    ],
    [
     "advice-none"
@@ -138,7 +138,7 @@
    [
     "dispatch-convection",
     "(['r1', 'r2'], ['a', 'b'], '<OUT>', {'types': ['common', 'tc', 'convection', 'cloud', 'terrain', 'moisture', 'precip', 'synoptic', 'pbl', 'chem', 'climate', 'ensemble', 'unknown-type'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}}, False, 3)",
-    "[]"
+    "[('focus_box', None)]"
    ],
    [
     "dispatch-cloud",
@@ -153,7 +153,7 @@
    [
     "dispatch-moisture",
     "(['r1', 'r2'], ['a', 'b'], '<OUT>', {'types': ['common', 'tc', 'convection', 'cloud', 'terrain', 'moisture', 'precip', 'synoptic', 'pbl', 'chem', 'climate', 'ensemble', 'unknown-type'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}})",
-    "[('cross_section', {'m': 2}), ('project_dir', 'P'), ('spinup_hours', 3), ('tc_centre', (1.5, 2.5)), ('xsec_halfwidth_km', 300.0), ('xsec_top_km', 12.0)]"
+    "[('cross_section', {'m': 2}), ('focus_box', None), ('project_dir', 'P'), ('spinup_hours', 3), ('tc_centre', (1.5, 2.5)), ('xsec_halfwidth_km', 300.0), ('xsec_top_km', 12.0)]"
    ],
    [
     "dispatch-precip",
@@ -535,7 +535,7 @@
    [
     "dispatch-moisture",
     "(['r1'], ['run0'], '<OUT>', {'types': ['common', 'moisture'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}})",
-    "[('cross_section', None), ('project_dir', None), ('spinup_hours', 6), ('tc_centre', (1.5, 2.5)), ('xsec_halfwidth_km', None), ('xsec_top_km', None)]"
+    "[('cross_section', None), ('focus_box', None), ('project_dir', None), ('spinup_hours', 6), ('tc_centre', (1.5, 2.5)), ('xsec_halfwidth_km', None), ('xsec_top_km', None)]"
    ],
    [
     "advice",
@@ -635,7 +635,7 @@
    [
     "dispatch-moisture",
     "(['r1'], ['run0'], '<OUT>', {'types': ['common', 'moisture'], 'domains': [{'domain': 1}, {'domain': 2}], 'evidence': {}})",
-    "[('cross_section', None), ('project_dir', None), ('spinup_hours', 6), ('tc_centre', None), ('xsec_halfwidth_km', None), ('xsec_top_km', None)]"
+    "[('cross_section', None), ('focus_box', None), ('project_dir', None), ('spinup_hours', 6), ('tc_centre', None), ('xsec_halfwidth_km', None), ('xsec_top_km', None)]"
    ],
    [
     "advice",

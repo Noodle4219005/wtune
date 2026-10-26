@@ -100,11 +100,13 @@ def _tc_figures(run_dirs, labels, out_dir, case_info, hurdat2_path, storm_id, bd
     return out
 
 
-def _convection_figures(run_dirs, labels, out_dir, case_info, paraview, spinup_hours):
+def _convection_figures(run_dirs, labels, out_dir, case_info, paraview, spinup_hours,
+                        focus_box=None):
     from wtune.post.recipes import convection
     conv_out = os.path.join(out_dir, "convection")
     os.makedirs(conv_out, exist_ok=True)
-    out = convection.figures(run_dirs, labels, conv_out, case_info, spinup_hours=spinup_hours)
+    out = convection.figures(run_dirs, labels, conv_out, case_info, spinup_hours=spinup_hours,
+                             focus_box=focus_box)
     # the 3-D render is the cloud set's (d01 + finest nest), not repeated here
     return out
 
@@ -137,7 +139,7 @@ TYPE_DISPATCH = {
 def _simple_dispatch(module_name, out_subdir):
     def run(run_dirs, labels, out_dir, case_info, spinup_hours=6, cross_section=None,
            tc_centre=None, xsec_top_km=None, xsec_halfwidth_km=None, project_dir=None,
-           spinup_days=None, **_ignored):
+           spinup_days=None, focus_box=None, **_ignored):
         import inspect
         mod = __import__("wtune.post.recipes.%s" % module_name, fromlist=["figures"])
         sub_out = os.path.join(out_dir, out_subdir)
@@ -158,6 +160,8 @@ def _simple_dispatch(module_name, out_subdir):
             kwargs["project_dir"] = project_dir
         if "spinup_days" in params and spinup_days is not None:
             kwargs["spinup_days"] = spinup_days
+        if "focus_box" in params:
+            kwargs["focus_box"] = focus_box
         return guarded(module_name, mod.figures, run_dirs, labels, sub_out, case_info, **kwargs)
     return run
 
@@ -258,6 +262,7 @@ class _RecipeRun:
     spinup_days: float | None = None
     track_smooth_km: float | None = None
     tc_centre: tuple | None = None
+    focus_box: list | None = None
 
 
 def _args4(r: _RecipeRun) -> tuple:
@@ -286,7 +291,8 @@ def _run_cloud(handler, r: _RecipeRun) -> list:
 
 
 def _run_convection(handler, r: _RecipeRun) -> list:
-    return guarded("convection", handler, *_args4(r), r.paraview, r.spinup_hours)
+    return guarded("convection", handler, *_args4(r), r.paraview, r.spinup_hours,
+                   focus_box=r.focus_box)
 
 
 def _run_terrain(handler, r: _RecipeRun) -> list:
@@ -300,7 +306,7 @@ def _run_moisture(handler, r: _RecipeRun) -> list:
     return handler(*_args4(r), spinup_hours=r.spinup_hours,
                    cross_section=r.cross_sections.get("moisture"), tc_centre=r.tc_centre,
                    xsec_top_km=r.xsec_top_km, xsec_halfwidth_km=r.xsec_halfwidth_km,
-                   project_dir=r.project_dir)
+                   project_dir=r.project_dir, focus_box=r.focus_box)
 
 
 def _run_simple(handler, r: _RecipeRun) -> list:
@@ -396,7 +402,7 @@ def _run_recipe(run_dirs, out_dir, types_override=None, ensemble=False, spinup_h
                 labels=None, paraview=True, decomposition_only=False, title=None,
                 every=None, times=None, cross_sections=None, animate=False,
                 xsec_top_km=None, xsec_halfwidth_km=None, project_dir=None, spinup_days=None,
-                track_smooth_km=None, pre_notes=None) -> dict:
+                track_smooth_km=None, pre_notes=None, focus_box=None) -> dict:
     """The `wtune post recipe` pipeline: detect types, run each type's figure set, add the CF/VAPOR
     data products and (with every/times) the time series, split notes from figures, build the HTML
     report. Returns {out_dir, case_info, figures, notes, report_path, advice}. Option meanings:
@@ -426,7 +432,7 @@ def _run_recipe(run_dirs, out_dir, types_override=None, ensemble=False, spinup_h
         ebtrk_path=ebtrk_path, paraview=paraview, every=every, times=times,
         cross_sections=cross_sections or {}, xsec_top_km=xsec_top_km,
         xsec_halfwidth_km=xsec_halfwidth_km, project_dir=project_dir, spinup_days=spinup_days,
-        track_smooth_km=track_smooth_km, tc_centre=tc_centre)
+        track_smooth_km=track_smooth_km, tc_centre=tc_centre, focus_box=focus_box)
     tasks = [("common", _fail_soft, ("common", common_mod.figures, run_dirs, labels, out_dir,
                                      case_info), dict(decomposition_only=decomposition_only)),
              ("data", _data_products, (run_dirs[0], labels[0], out_dir, case_info, every, times),
